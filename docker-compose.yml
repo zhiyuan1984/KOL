@@ -1,0 +1,19 @@
+services:
+  lingong:
+    build: .
+    ports:
+      - "8765:8765"
+    environment:
+      STARRY_MODE: mock
+      CLAW_MODE: mock
+      LINGONG_DATA: /app/data
+      CODEX_HOME: /root/.codex
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - lingong-data:/app/data
+      # `codex login` is stored here on the host. The container cannot reuse
+      # an already-running host Codex process; it needs the credentials.
+      - ${HOME}/.codex:/root/.codex
+
+volumes:
+  lingong-data:

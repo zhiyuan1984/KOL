@@ -1,0 +1,191 @@
+[
+  {
+    "stageCode": "INITIAL_CONTACT",
+    "stageName": "初步接触",
+    "stageOrder": 1,
+    "main": true,
+    "terminal": false,
+    "aliases": [],
+    "stageDefinition": "已创建合作或已完成首次对外触达，等待明确合作反馈。"
+  },
+  {
+    "stageCode": "INTERESTED",
+    "stageName": "已回复-有兴趣",
+    "stageOrder": 2,
+    "main": true,
+    "terminal": false,
+    "aliases": ["INTEREST_CONFIRMED"],
+    "stageDefinition": "合作对象已明确表达对合作有兴趣，待完成合作评估。"
+  },
+  {
+    "stageCode": "EVALUATING",
+    "stageName": "合作评估",
+    "stageOrder": 3,
+    "main": true,
+    "terminal": false,
+    "aliases": ["COOPERATION_EVALUATION"],
+    "stageDefinition": "正在收集和核验媒体包、受众、市场与历史案例等合作评估信息。"
+  },
+  {
+    "stageCode": "QUOTE_PENDING",
+    "stageName": "报价待确认",
+    "stageOrder": 4,
+    "main": true,
+    "terminal": false,
+    "aliases": [],
+    "stageDefinition": "已收到或发出正式报价，待确认币种、税费、交付范围与授权。"
+  },
+  {
+    "stageCode": "NEGOTIATING",
+    "stageName": "商务谈判",
+    "stageOrder": 5,
+    "main": true,
+    "terminal": false,
+    "aliases": ["BUSINESS_NEGOTIATION"],
+    "stageDefinition": "费用、授权、排他、修改或其他关键条款仍在协商。"
+  },
+  {
+    "stageCode": "PLAN_PENDING",
+    "stageName": "方案待确认",
+    "stageOrder": 6,
+    "main": true,
+    "terminal": false,
+    "aliases": [],
+    "stageDefinition": "最终产品、费用、内容形式及交付方案已发出，待双方确认。"
+  },
+  {
+    "stageCode": "CONTRACTING",
+    "stageName": "合同签署",
+    "stageOrder": 7,
+    "main": true,
+    "terminal": false,
+    "aliases": ["CONTRACT_SIGNING"],
+    "stageDefinition": "合同已发出或进入签署流程，待双方完成签署。"
+  },
+  {
+    "stageCode": "SAMPLE_PENDING",
+    "stageName": "待寄样",
+    "stageOrder": 8,
+    "main": true,
+    "terminal": false,
+    "aliases": [],
+    "stageDefinition": "合作需寄送样品，待确认地址、样品型号、数量和配送信息。"
+  },
+  {
+    "stageCode": "SHIPPED",
+    "stageName": "已发货",
+    "stageOrder": 9,
+    "main": true,
+    "terminal": false,
+    "aliases": [],
+    "stageDefinition": "样品或商品已由承运商发出，待签收与测试。"
+  },
+  {
+    "stageCode": "TESTING",
+    "stageName": "已签收-测试中",
+    "stageOrder": 10,
+    "main": true,
+    "terminal": false,
+    "aliases": ["DELIVERED_TESTING"],
+    "stageDefinition": "合作对象已签收，正在测试产品或验证合作内容。"
+  },
+  {
+    "stageCode": "CONTENT_PLANNING",
+    "stageName": "内容策划",
+    "stageOrder": 11,
+    "main": true,
+    "terminal": false,
+    "aliases": [],
+    "stageDefinition": "正在明确核心卖点、脚本、场景和内容方向。"
+  },
+  {
+    "stageCode": "CONTENT_REVIEW",
+    "stageName": "内容审核",
+    "stageOrder": 12,
+    "main": true,
+    "terminal": false,
+    "aliases": [],
+    "stageDefinition": "已收到内容或素材，正在审核参数、链接、产品描述与表达。"
+  },
+  {
+    "stageCode": "PUBLISH_PENDING",
+    "stageName": "待发布",
+    "stageOrder": 13,
+    "main": true,
+    "terminal": false,
+    "aliases": ["PENDING_PUBLISH"],
+    "stageDefinition": "内容审核通过且发布计划已确认，待公开上线。"
+  },
+  {
+    "stageCode": "PUBLISHED",
+    "stageName": "已发布",
+    "stageOrder": 14,
+    "main": true,
+    "terminal": false,
+    "aliases": [],
+    "stageDefinition": "公开内容已上线并完成链接或发布证据核验，待效果回传或结算。"
+  },
+  {
+    "stageCode": "SETTLING",
+    "stageName": "结算中 / 已付款",
+    "stageOrder": 15,
+    "main": true,
+    "terminal": false,
+    "aliases": ["SETTLING_PAID"],
+    "stageDefinition": "交付验收后进入结算，覆盖付款处理中和已付款核销状态。"
+  },
+  {
+    "stageCode": "PAUSED",
+    "stageName": "已暂停",
+    "stageOrder": 16,
+    "main": false,
+    "terminal": false,
+    "aliases": [],
+    "stageDefinition": "双方暂时不继续，但未来可能重启。"
+  },
+  {
+    "stageCode": "LOST",
+    "stageName": "已流失",
+    "stageOrder": 17,
+    "main": false,
+    "terminal": true,
+    "aliases": [],
+    "stageDefinition": "红人失联或合作已流失，终态。"
+  },
+  {
+    "stageCode": "REJECTED",
+    "stageName": "已拒绝",
+    "stageOrder": 18,
+    "main": false,
+    "terminal": true,
+    "aliases": [],
+    "stageDefinition": "红人明确拒绝本次合作。"
+  },
+  {
+    "stageCode": "CANCELLED",
+    "stageName": "已取消",
+    "stageOrder": 19,
+    "main": false,
+    "terminal": true,
+    "aliases": [],
+    "stageDefinition": "双方确定不再继续本次合作。"
+  },
+  {
+    "stageCode": "DISPUTED",
+    "stageName": "争议中",
+    "stageOrder": 20,
+    "main": false,
+    "terminal": false,
+    "aliases": ["EXCEPTION_HANDLING"],
+    "stageDefinition": "异常问题处理中，主流程冻结，可回到指定正式阶段。"
+  },
+  {
+    "stageCode": "COMPLETED",
+    "stageName": "已完成",
+    "stageOrder": 21,
+    "main": false,
+    "terminal": true,
+    "aliases": [],
+    "stageDefinition": "结算完成，合作终态。"
+  }
+]

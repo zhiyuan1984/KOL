@@ -1,0 +1,1047 @@
+{
+  "meta": {
+    "title": "larry.zhao 收发邮件测试数据（真实库）",
+    "snapshot": "backend/tests/fixtures/real-data/starry-kol-mailboxes.json + starry-kol-profiles.json + 红人画像信息表.md",
+    "as_of": "2026-09-03",
+    "stacks": [
+      "mcp — Starry KOL email_compose / email_conversation_*；From 必须显式传 larry.zhao@amperetime.com，否则 Host 会取 pageMailboxes list[0]=henry.wei@amperetime.com",
+      "host_pep — Codex 阶段信走 BRAND_MAILBOXES（kol.lt@litime.example / kol.ro@renogy.example / kol.pq@powerqueen.example）；larry.zhao 不在 PEP From 白名单"
+    ],
+    "rules": [
+      "不调用 decryptKolContact；MCP 220 白名单无明文邮箱",
+      "不编造红人邮箱；qiyou1984@gmail.com / qiyouhuang@163.com 仅是既有连通测试约定，快照无明文",
+      "生命周期看板快照 0 行，无真实 conversationId；现有会话用例只用 mock id 或先发一封再回填",
+      "发送 ≠ 推进阶段",
+      "判阶权重：正文 > 附件和链接 > 履约字段 > 主题",
+      "larry.zhao 不在邮箱-负责人绑定清单 22 行；仅 MCP pageMailboxes id=6"
+    ]
+  },
+  "sender": {
+    "id": 6,
+    "mailboxEmail": "larry.zhao@amperetime.com",
+    "brandCode": "RO",
+    "brandName": "RO品牌",
+    "mailboxTag": "测试配置",
+    "ownerOpenId": "273",
+    "ownerUserName": "赵良玉",
+    "permissionSummary": "赵良玉：查看/收发/管理",
+    "authorizedUserCount": 1,
+    "responsibleStatus": 2,
+    "responsibleStatusLabel": "已移交",
+    "transferToOpenId": "197",
+    "transferToUserName": "魏银平",
+    "transferDate": "2026-08-19",
+    "remark": "前端联调新增；用于赵良玉新增配置联调",
+    "inBindSheet": false,
+    "pepFromAllowed": false
+  },
+  "recipients": [
+    {
+      "id": "wendell",
+      "name": "Wendell Fishing",
+      "email": "wendellfishing@gmail.com",
+      "emailSource": "portrait_sheet",
+      "kolUid": "KOLA58D2B0B4445431A9655",
+      "duplicateKolUid": "KOLC4ECA803ADF6404B8898",
+      "inMcp220": true,
+      "ownerName": "张浩城",
+      "brandName": "LT品牌",
+      "platform": "YouTube",
+      "countryName": "美国",
+      "notes": "优先用 KOLA58D2B0B4445431A9655；画像表跟进人叶观旺。邮箱不在 MCP 白名单快照里。"
+    },
+    {
+      "id": "rv_life",
+      "name": "RV LIFE",
+      "email": "wendellfishing@gmail.com",
+      "emailSource": "portrait_sheet",
+      "kolUid": null,
+      "inMcp220": false,
+      "ownerName": "叶观旺",
+      "brandName": "litime",
+      "platform": "tiktok",
+      "countryName": "俄罗斯",
+      "notes": "与 Wendell 共用同一邮箱，发信/建档可能触发「联系邮箱已被其他红人占用」。"
+    },
+    {
+      "id": "holly",
+      "name": "Holly Yoo",
+      "email": "heyhollyyoo@gmail.com",
+      "emailSource": "portrait_sheet",
+      "kolUid": null,
+      "inMcp220": false,
+      "ownerName": "叶观旺",
+      "brandName": "litime",
+      "platform": "youtube",
+      "countryName": "美国",
+      "notes": "MCP 220 无此画像；compose 会 addKolProfile 后重试。"
+    },
+    {
+      "id": "jeremy",
+      "name": "jeremyfishfr",
+      "email": "giardi.j@gmail.com",
+      "emailSource": "portrait_sheet",
+      "kolUid": null,
+      "inMcp220": false,
+      "ownerName": "叶观旺",
+      "brandName": "litime",
+      "platform": "IG",
+      "countryName": "法国",
+      "notes": "MCP 220 无此画像；compose 会 addKolProfile 后重试。"
+    },
+    {
+      "id": "charlie",
+      "name": "Charlie at RV Central",
+      "email": "",
+      "emailSource": "portrait_sheet",
+      "kolUid": null,
+      "inMcp220": false,
+      "ownerName": "叶观旺",
+      "brandName": "litime",
+      "platform": "FB",
+      "countryName": "美国",
+      "notes": "画像表备注：fb以私信为主。一般没邮箱。compose 必须 needs_input。"
+    },
+    {
+      "id": "qiyou_gmail",
+      "name": "灵工连通测试-qiyou1984",
+      "email": "qiyou1984@gmail.com",
+      "emailSource": "connectivity_convention",
+      "kolUid": "KOL20260901LINGONG",
+      "inMcp220": true,
+      "ownerName": "赵良玉",
+      "brandName": "LT品牌",
+      "platform": "YouTube",
+      "countryName": "美国",
+      "notes": "快照无明文邮箱，禁止 decrypt。邮箱来自既有 MCP 连通测例约定。"
+    },
+    {
+      "id": "qiyou_163",
+      "name": "灵工连通测试-qiyou1984",
+      "email": "qiyouhuang@163.com",
+      "emailSource": "connectivity_convention",
+      "kolUid": "KOL20260901LINGONG",
+      "inMcp220": true,
+      "ownerName": "赵良玉",
+      "brandName": "LT品牌",
+      "platform": "YouTube",
+      "countryName": "美国",
+      "notes": "多收件人第二地址，仅连通约定。"
+    },
+    {
+      "id": "zhao_qq01",
+      "name": "测试网红-qq-01",
+      "email": "",
+      "emailSource": "none",
+      "kolUid": "KOL9D62420657814F6BAEC8",
+      "inMcp220": true,
+      "ownerName": "赵良玉",
+      "brandName": "LT品牌",
+      "platform": null,
+      "notes": "赵良玉名下 LT 画像，无明文邮箱，禁止 decrypt，不能编造 To。"
+    },
+    {
+      "id": "zhao_test1",
+      "name": "测试1号",
+      "email": "",
+      "emailSource": "none",
+      "kolUid": "KOL2B64916C7B1F4014B14A",
+      "inMcp220": true,
+      "ownerName": "赵良玉",
+      "brandName": "LT品牌",
+      "platform": "YouTube",
+      "notes": "无明文邮箱，禁止 decrypt。"
+    },
+    {
+      "id": "zhao_test_1",
+      "name": "test-1",
+      "email": "",
+      "emailSource": "none",
+      "kolUid": "KOL95A26C996BC74D3AA07E",
+      "inMcp220": true,
+      "ownerName": "赵良玉",
+      "brandName": "LT品牌",
+      "platform": "YouTube",
+      "notes": "无明文邮箱，禁止 decrypt。"
+    }
+  ],
+  "mailbox_ops": [
+    {
+      "id": "LZ-BOX-1",
+      "task": "email_mailbox_list",
+      "prompt": "品牌邮箱列表",
+      "expect": {
+        "containsMailbox": "larry.zhao@amperetime.com",
+        "brandCode": "RO",
+        "ownerUserName": "赵良玉",
+        "responsibleStatus": 2,
+        "transferToUserName": "魏银平"
+      }
+    },
+    {
+      "id": "LZ-BOX-2",
+      "task": "email_conversation_list",
+      "prompt": "查收件会话 wendellfishing@gmail.com",
+      "entities": { "to": "wendellfishing@gmail.com", "mailboxEmail": "larry.zhao@amperetime.com" },
+      "expect": {
+        "total": 0,
+        "summaryContains": ["未找到与 wendellfishing@gmail.com 相关的邮件会话", "不是 Gmail / 163 收件箱"],
+        "note": "快照 pageEmailConversations 为 0；创建会话还需要收件人已有红人画像"
+      }
+    },
+    {
+      "id": "LZ-BOX-3",
+      "task": "email_conversation_read",
+      "prompt": "读邮件会话",
+      "entities": {},
+      "expect": { "needs_input": true, "missing_fields": ["conversationId"] }
+    },
+    {
+      "id": "LZ-BOX-4",
+      "task": "email_conversation_list",
+      "prompt": "查收件会话 qiyou1984@gmail.com",
+      "entities": { "to": "qiyou1984@gmail.com", "mailboxEmail": "larry.zhao@amperetime.com" },
+      "expect": {
+        "total": 0,
+        "keyword": "qiyou1984@gmail.com",
+        "note": "不是个人收件箱；连通测例 mock 里才会出现 conversation 101"
+      }
+    }
+  ],
+  "outbound_mcp": [
+    {
+      "id": "LZ-OUT-MCP-01",
+      "scenario": "预览建联（不发送）",
+      "prompt": "写合作邮件 wendellfishing@gmail.com 主题：Collaboration Opportunity with LiTime",
+      "entities": {
+        "to": "wendellfishing@gmail.com",
+        "mailboxEmail": "larry.zhao@amperetime.com",
+        "kolUid": "KOLA58D2B0B4445431A9655",
+        "subject": "Collaboration Opportunity with LiTime",
+        "confirm_send": false
+      },
+      "body_en": "Hi Wendell,\n\nWe would love to explore a product collaboration with LiTime. This first note is only to check interest — no commitment yet.\n\nBest,\nLiTime Creator Desk\n",
+      "expect": {
+        "sent": false,
+        "mcpTools": ["createEmailConversation", "previewEmailDraft"],
+        "createMailboxEmail": "larry.zhao@amperetime.com",
+        "stage_changed": false
+      }
+    },
+    {
+      "id": "LZ-OUT-MCP-02",
+      "scenario": "确认发送同一会话",
+      "prompt": "确认发送",
+      "entities": {
+        "conversationId": 101,
+        "to": "wendellfishing@gmail.com",
+        "mailboxEmail": "larry.zhao@amperetime.com",
+        "subject": "Collaboration Opportunity with LiTime",
+        "confirm_send": true,
+        "body": "Hi Wendell,\n\nWe would love to explore a product collaboration with LiTime. This first note is only to check interest — no commitment yet.\n\nBest,\nLiTime Creator Desk\n"
+      },
+      "expect": {
+        "sent": true,
+        "mcpTools": ["sendEmailNow"],
+        "conversationId": 101,
+        "note": "101 仅 mock；直播先用 LZ-OUT-MCP-01 回填真实 conversationId"
+      }
+    },
+    {
+      "id": "LZ-OUT-MCP-03",
+      "scenario": "连通测试 Gmail 预览",
+      "prompt": "写合作邮件 qiyou1984@gmail.com 主题：LiTime MCP 连通测试",
+      "entities": {
+        "to": "qiyou1984@gmail.com",
+        "mailboxEmail": "larry.zhao@amperetime.com",
+        "kolUid": "KOL20260901LINGONG",
+        "subject": "LiTime MCP 连通测试"
+      },
+      "expect": {
+        "sent": false,
+        "createMailboxEmail": "larry.zhao@amperetime.com",
+        "recipientEmail": "qiyou1984@gmail.com"
+      }
+    },
+    {
+      "id": "LZ-OUT-MCP-04",
+      "scenario": "多收件人",
+      "prompt": "写合作邮件 qiyou1984@gmail.com qiyouhuang@163.com 主题：LiTime MCP 连通测试 确认发送",
+      "entities": {
+        "to": "qiyou1984@gmail.com,qiyouhuang@163.com",
+        "mailboxEmail": "larry.zhao@amperetime.com",
+        "subject": "LiTime MCP 连通测试",
+        "confirm_send": true
+      },
+      "expect": {
+        "createRecipientEmail": "qiyou1984@gmail.com",
+        "sendTo": ["qiyou1984@gmail.com", "qiyouhuang@163.com"],
+        "createMailboxEmail": "larry.zhao@amperetime.com"
+      }
+    },
+    {
+      "id": "LZ-OUT-MCP-05",
+      "scenario": "Holly 无 MCP 画像 → addKolProfile 后重试",
+      "prompt": "写合作邮件 heyhollyyoo@gmail.com 主题：Collaboration Opportunity with LiTime",
+      "entities": {
+        "to": "heyhollyyoo@gmail.com",
+        "mailboxEmail": "larry.zhao@amperetime.com",
+        "name": "Holly Yoo",
+        "subject": "Collaboration Opportunity with LiTime"
+      },
+      "expect": {
+        "mcpTools": ["createEmailConversation", "addKolProfile", "createEmailConversation", "previewEmailDraft"],
+        "addKolName": "Holly Yoo",
+        "addContactEmail": "heyhollyyoo@gmail.com",
+        "createMailboxEmail": "larry.zhao@amperetime.com"
+      }
+    },
+    {
+      "id": "LZ-OUT-MCP-06",
+      "scenario": "jeremy 无 MCP 画像",
+      "prompt": "写合作邮件 giardi.j@gmail.com",
+      "entities": {
+        "to": "giardi.j@gmail.com",
+        "mailboxEmail": "larry.zhao@amperetime.com",
+        "name": "jeremyfishfr"
+      },
+      "expect": {
+        "mcpToolsContains": ["addKolProfile"],
+        "createMailboxEmail": "larry.zhao@amperetime.com"
+      }
+    },
+    {
+      "id": "LZ-OUT-MCP-07",
+      "scenario": "Charlie 无邮箱",
+      "prompt": "写合作邮件 Charlie at RV Central",
+      "entities": { "mailboxEmail": "larry.zhao@amperetime.com", "name": "Charlie at RV Central" },
+      "expect": { "needs_input": true, "missing_fields": ["to"], "mcpTools": [] }
+    },
+    {
+      "id": "LZ-OUT-MCP-08",
+      "scenario": "缺 To / 缺 conversationId",
+      "prompt": "写合作邮件",
+      "entities": { "mailboxEmail": "larry.zhao@amperetime.com" },
+      "expect": { "needs_input": true, "missing_fields": ["to"], "mcpTools": [] }
+    },
+    {
+      "id": "LZ-OUT-MCP-09",
+      "scenario": "未传 mailboxEmail 必须补发件邮箱，禁止默认 henry.wei",
+      "prompt": "写合作邮件 wendellfishing@gmail.com",
+      "entities": { "to": "wendellfishing@gmail.com", "subject": "Collaboration Opportunity with LiTime" },
+      "expect": {
+        "needs_input": true,
+        "missing_fields": ["mailboxEmail"],
+        "requiredMailboxEmail": "larry.zhao@amperetime.com",
+        "note": "禁止 pageMailboxes list[0] 回落到 henry.wei；操作者必须写出 发件箱 larry.zhao@amperetime.com"
+      }
+    },
+    {
+      "id": "LZ-OUT-MCP-10",
+      "scenario": "已移交发件箱仍指定 larry.zhao",
+      "prompt": "写合作邮件 qiyou1984@gmail.com",
+      "entities": {
+        "to": "qiyou1984@gmail.com",
+        "mailboxEmail": "larry.zhao@amperetime.com",
+        "subject": "LiTime MCP 连通测试"
+      },
+      "expect": {
+        "createMailboxEmail": "larry.zhao@amperetime.com",
+        "mailboxResponsibleStatus": 2,
+        "transferToUserName": "魏银平",
+        "permissionSummary": "赵良玉：查看/收发/管理",
+        "note": "快照仍列出赵良玉收发权；直播若移交后账号无授权，MCP 可能返回负责人无可用邮箱"
+      }
+    },
+    {
+      "id": "LZ-OUT-MCP-11",
+      "scenario": "RO 发件箱 + LT 红人品牌不一致",
+      "prompt": "写合作邮件 wendellfishing@gmail.com",
+      "entities": {
+        "to": "wendellfishing@gmail.com",
+        "mailboxEmail": "larry.zhao@amperetime.com",
+        "kolUid": "KOLA58D2B0B4445431A9655",
+        "subject": "Collaboration Opportunity with LiTime"
+      },
+      "expect": {
+        "createMailboxEmail": "larry.zhao@amperetime.com",
+        "mailboxBrand": "RO",
+        "kolBrand": "LT品牌",
+        "productBlocks": false,
+        "note": "产品不因品牌不一致拦截；人工核对应标 RO 箱打 LT 红人"
+      }
+    },
+    {
+      "id": "LZ-OUT-MCP-12",
+      "scenario": "RV LIFE 与 Wendell 邮箱冲突",
+      "prompt": "写合作邮件 wendellfishing@gmail.com 名称：RV LIFE",
+      "entities": {
+        "to": "wendellfishing@gmail.com",
+        "mailboxEmail": "larry.zhao@amperetime.com",
+        "name": "RV LIFE",
+        "subject": "Collaboration Opportunity with LiTime"
+      },
+      "expect": {
+        "possibleErrors": ["联系邮箱已被其他红人占用"],
+        "missing_fields_if_taken": ["to"],
+        "cardSummary": "收件邮箱 wendellfishing@gmail.com 已有红人画像，但不在当前账号可见范围内，无法建立往来。请换一个可见的收件邮箱，或请管理员开通该红人的查看权限。"
+      }
+    },
+    {
+      "id": "LZ-OUT-MCP-13",
+      "scenario": "负责人无可用邮箱",
+      "prompt": "写合作邮件 发件箱 larry.zhao@amperetime.com 发给 qiyou1984@gmail.com 主题：LiTime MCP 连通测试",
+      "entities": {
+        "to": "qiyou1984@gmail.com",
+        "mailboxEmail": "larry.zhao@amperetime.com",
+        "subject": "LiTime MCP 连通测试"
+      },
+      "expect": {
+        "error": "负责人无可用邮箱",
+        "needs_input": true,
+        "missing_fields": [],
+        "cardSummary": "发件邮箱 larry.zhao@amperetime.com 已在授权列表中。当前 Starry 账号没有负责人身份，无法新建红人画像。请用该邮箱负责人的账号连接 Starry，或请管理员把本账号设为负责人。"
+      }
+    },
+    {
+      "id": "LZ-OUT-MCP-14",
+      "scenario": "赵良玉名下画像无明文邮箱",
+      "prompt": "写合作邮件 测试网红-qq-01",
+      "entities": {
+        "mailboxEmail": "larry.zhao@amperetime.com",
+        "kolUid": "KOL9D62420657814F6BAEC8",
+        "name": "测试网红-qq-01"
+      },
+      "expect": {
+        "needs_input": true,
+        "missing_fields": ["to"],
+        "forbidden": ["decryptKolContact"],
+        "note": "不得为了发信去 decrypt 或编造邮箱"
+      }
+    }
+  ],
+  "outbound_host": [
+    {
+      "id": "LZ-OUT-HOST-00",
+      "scenario": "PEP 拒绝 larry.zhao 作 From",
+      "skill": "kol",
+      "template_id": "kol.first_touch",
+      "from_requested": "larry.zhao@amperetime.com",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "INITIAL_CONTACT",
+      "subject": "Collaboration Opportunity with LiTime",
+      "body_en": "Hi,\n\nWe would love to explore a product collaboration with LiTime.\n",
+      "expect": { "pep": "blocked_permission", "http": 403, "messageContains": "From 必须是品牌邮箱" }
+    },
+    {
+      "id": "LZ-OUT-HOST-01",
+      "skill": "kol",
+      "template_id": "kol.first_touch",
+      "title": "首次建联邮件",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "INITIAL_CONTACT",
+      "expect": { "keep_stage": true, "stage_changed": false }
+    },
+    {
+      "id": "LZ-OUT-HOST-02",
+      "skill": "stage_mail",
+      "template_id": "stage_mail.followup",
+      "title": "阶段跟进邮件",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "INITIAL_CONTACT",
+      "expect": { "keep_stage": true, "stage_changed": false }
+    },
+    {
+      "id": "LZ-OUT-HOST-03",
+      "skill": "stage_mail",
+      "template_id": "stage_mail.interested",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "INTERESTED",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-04",
+      "skill": "stage_mail",
+      "template_id": "stage_mail.media_kit",
+      "from_pep": "kol.lt@litime.example",
+      "to": "heyhollyyoo@gmail.com",
+      "official_stage": "EVALUATING",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-05",
+      "skill": "stage_mail",
+      "template_id": "stage_mail.rate_request",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "QUOTE_PENDING",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-06",
+      "skill": "stage_mail",
+      "template_id": "stage_mail.negotiate",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "NEGOTIATING",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-07",
+      "skill": "quote_confirm",
+      "template_id": "quote_confirm.v1",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "QUOTE_PENDING",
+      "amount_usd": 280,
+      "cc": "",
+      "expect": { "pep": "missing_cc", "http": 400, "note": "<$350 必须内部 Cc；不再创建报价审批 token" }
+    },
+    {
+      "id": "LZ-OUT-HOST-08",
+      "skill": "quote_confirm",
+      "template_id": "quote_confirm.v1",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "QUOTE_PENDING",
+      "amount_usd": 280,
+      "cc": "sriphy@litime.example",
+      "expect": { "keep_stage": true, "approval_token": false }
+    },
+    {
+      "id": "LZ-OUT-HOST-09",
+      "skill": "stage_mail",
+      "template_id": "stage_mail.plan_confirm",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "PLAN_PENDING",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-10",
+      "skill": "stage_mail",
+      "template_id": "stage_mail.contract",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "CONTRACTING",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-11",
+      "skill": "addr_check",
+      "template_id": "addr_check.collect",
+      "from_pep": "kol.lt@litime.example",
+      "to": "heyhollyyoo@gmail.com",
+      "official_stage": "SAMPLE_PENDING",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-12",
+      "skill": "ship_notice",
+      "template_id": "ship_notice.v1",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "SAMPLE_PENDING",
+      "tracking": "",
+      "expect": { "http": 422, "code": "supplement", "missing": ["tracking", "carrier"] }
+    },
+    {
+      "id": "LZ-OUT-HOST-13",
+      "skill": "ship_notice",
+      "template_id": "ship_notice.v1",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "SHIPPED",
+      "tracking": "1Z999AA10123456784",
+      "carrier": "UPS",
+      "expect": { "keep_stage": true, "note": "发送原文不会自动改正式阶段；运单只写入履约事实" }
+    },
+    {
+      "id": "LZ-OUT-HOST-14",
+      "skill": "stage_mail",
+      "template_id": "stage_mail.testing",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "TESTING",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-15",
+      "skill": "stage_mail",
+      "template_id": "stage_mail.brief",
+      "from_pep": "kol.lt@litime.example",
+      "to": "heyhollyyoo@gmail.com",
+      "official_stage": "CONTENT_PLANNING",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-16",
+      "skill": "content_nudge",
+      "template_id": "content_nudge.outline",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "INITIAL_CONTACT",
+      "expect": { "http": 400, "code": "nudge_stage_gate" }
+    },
+    {
+      "id": "LZ-OUT-HOST-17",
+      "skill": "content_nudge",
+      "template_id": "content_nudge.outline",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "TESTING",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-18",
+      "skill": "stage_mail",
+      "template_id": "stage_mail.content_review",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "CONTENT_REVIEW",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-19",
+      "skill": "stage_mail",
+      "template_id": "stage_mail.publish_schedule",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "PUBLISH_PENDING",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-20",
+      "skill": "stage_mail",
+      "template_id": "stage_mail.publish_live",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "PUBLISHED",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-21",
+      "skill": "stage_mail",
+      "template_id": "stage_mail.settlement",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "SETTLING",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-22",
+      "skill": "delay_followup",
+      "template_id": "delay_followup.v1",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "CONTENT_PLANNING",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-23",
+      "skill": "lost_contact",
+      "template_id": "lost_contact.v1",
+      "from_pep": "kol.lt@litime.example",
+      "to": "heyhollyyoo@gmail.com",
+      "official_stage": "INTERESTED",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-24",
+      "skill": "revision_nudge",
+      "template_id": "revision_nudge.v1",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "CONTENT_REVIEW",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-25",
+      "skill": "affiliate_invite",
+      "template_id": "affiliate_invite.v1",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "PUBLISHED",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-26",
+      "skill": "affiliate_setup",
+      "template_id": "affiliate_setup.v1",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "PUBLISHED",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-27",
+      "skill": "content_license",
+      "template_id": "content_license.v1",
+      "from_pep": "kol.lt@litime.example",
+      "to": "heyhollyyoo@gmail.com",
+      "official_stage": "PUBLISHED",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-28",
+      "skill": "repeat_collab",
+      "template_id": "repeat_collab.v1",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "SETTLING",
+      "expect": { "keep_stage": true }
+    },
+    {
+      "id": "LZ-OUT-HOST-29",
+      "scenario": "中文被 strip 后仍可发送（PEP 先校验非空再去中文）",
+      "skill": "kol",
+      "template_id": "kol.first_touch",
+      "from_pep": "kol.lt@litime.example",
+      "to": "wendellfishing@gmail.com",
+      "official_stage": "INITIAL_CONTACT",
+      "body_en": "Hi, we would love to collaborate. 你好想合作",
+      "expect": { "zh_stripped": true, "bodyHasNoChinese": true, "keep_stage": true }
+    }
+  ],
+  "inbound": [
+    {
+      "id": "LZ-IN-01",
+      "scenario": "仅感谢，不得判有兴趣",
+      "from": "wendellfishing@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity / Interested in Working with LiTime",
+      "body": "Thank you for your email.",
+      "current_stage": "INITIAL_CONTACT",
+      "expect": { "suggested_stage": null, "flags": ["thank_you_only"], "auto_propose": false }
+    },
+    {
+      "id": "LZ-IN-02",
+      "scenario": "明确有兴趣",
+      "from": "wendellfishing@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "We are interested and would love to collaborate. Keen to learn more.",
+      "current_stage": "INITIAL_CONTACT",
+      "expect": { "suggested_stage": "INTERESTED", "evidence_source": "body", "auto_propose": true }
+    },
+    {
+      "id": "LZ-IN-03",
+      "scenario": "媒体包",
+      "from": "heyhollyyoo@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "Sharing the media kit and audience demographics plus engagement rate.",
+      "current_stage": "INTERESTED",
+      "expect": { "suggested_stage": "EVALUATING", "evidence_source": "body" }
+    },
+    {
+      "id": "LZ-IN-04",
+      "scenario": "附件媒体包压过主题",
+      "from": "heyhollyyoo@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "See attached.",
+      "attachments": ["media kit and audience demographics.pdf"],
+      "current_stage": "INTERESTED",
+      "expect": { "suggested_stage": "EVALUATING", "evidence_source": "attachment" }
+    },
+    {
+      "id": "LZ-IN-05",
+      "scenario": "询问/给出报价",
+      "from": "wendellfishing@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "Could you share your collaboration rates and pricing quote?",
+      "current_stage": "EVALUATING",
+      "expect": { "suggested_stage": "QUOTE_PENDING", "evidence_source": "body" }
+    },
+    {
+      "id": "LZ-IN-06",
+      "scenario": "还价",
+      "from": "wendellfishing@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "Here is a counteroffer. Happy to negotiate a revised rate within budget.",
+      "current_stage": "QUOTE_PENDING",
+      "expect": { "suggested_stage": "NEGOTIATING", "evidence_source": "body" }
+    },
+    {
+      "id": "LZ-IN-07",
+      "scenario": "please confirm 仍待确认",
+      "from": "heyhollyyoo@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "Please confirm the final terms so we can move forward.",
+      "current_stage": "NEGOTIATING",
+      "expect": { "suggested_stage": "PLAN_PENDING", "flags": ["please_confirm"], "auto_propose": false }
+    },
+    {
+      "id": "LZ-IN-08",
+      "scenario": "confirmed/agreed",
+      "from": "wendellfishing@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "Confirmed, we agreed the final rate and will sign next.",
+      "current_stage": "PLAN_PENDING",
+      "expect": { "suggested_stage": "CONTRACTING", "evidence_source": "body" }
+    },
+    {
+      "id": "LZ-IN-09",
+      "scenario": "合同已签",
+      "from": "wendellfishing@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "Please review the collaboration agreement on DocuSign and add your signature.",
+      "current_stage": "PLAN_PENDING",
+      "expect": { "suggested_stage": "CONTRACTING", "evidence_source": "body" }
+    },
+    {
+      "id": "LZ-IN-10",
+      "scenario": "地址齐全",
+      "from": "heyhollyyoo@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "Please confirm the shipping address, ZIP code and sample shipping SKU.",
+      "current_stage": "CONTRACTING",
+      "expect": { "suggested_stage": "SAMPLE_PENDING", "evidence_source": "body" }
+    },
+    {
+      "id": "LZ-IN-11",
+      "scenario": "已发货+运单",
+      "from": "larry.zhao@amperetime.com",
+      "to": "wendellfishing@gmail.com",
+      "direction": "brand_outbound_also_ingestible",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "The sample shipped via UPS. Tracking number 1Z999AA10123456784.",
+      "current_stage": "SAMPLE_PENDING",
+      "expect": { "suggested_stage": "SHIPPED", "evidence_source": "body" }
+    },
+    {
+      "id": "LZ-IN-12",
+      "scenario": "履约字段运单（无正文动作）",
+      "from": "wendellfishing@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Update",
+      "body": "FYI",
+      "fulfillment": { "tracking": "1Z999AA10123456784" },
+      "current_stage": "SAMPLE_PENDING",
+      "expect": { "suggested_stage": "SHIPPED", "confidence": "medium", "evidence_source": "fulfillment" }
+    },
+    {
+      "id": "LZ-IN-13",
+      "scenario": "已签收测试中",
+      "from": "wendellfishing@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "The product arrived and we have started testing and installation.",
+      "current_stage": "SHIPPED",
+      "expect": { "suggested_stage": "TESTING", "evidence_source": "body" }
+    },
+    {
+      "id": "LZ-IN-14",
+      "scenario": "Brief / 脚本",
+      "from": "heyhollyyoo@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "Here is the content brief, talking points and filming plan.",
+      "current_stage": "TESTING",
+      "expect": { "suggested_stage": "CONTENT_PLANNING", "evidence_source": "body" }
+    },
+    {
+      "id": "LZ-IN-15",
+      "scenario": "初稿链接",
+      "from": "wendellfishing@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "Please review the draft / rough cut. Requested changes are in the preview.",
+      "current_stage": "CONTENT_PLANNING",
+      "expect": { "suggested_stage": "CONTENT_REVIEW", "evidence_source": "body" }
+    },
+    {
+      "id": "LZ-IN-16",
+      "scenario": "已排期未上线",
+      "from": "wendellfishing@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "The video is scheduled with an embargo. Confirm the posting date.",
+      "current_stage": "CONTENT_REVIEW",
+      "expect": { "suggested_stage": "PUBLISH_PENDING", "evidence_source": "body" }
+    },
+    {
+      "id": "LZ-IN-17",
+      "scenario": "正文 now live 压过建联主题",
+      "from": "wendellfishing@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Collaboration Opportunity with LiTime",
+      "body": "The video is now live: https://youtube.com/watch?v=abc123",
+      "current_stage": "PUBLISH_PENDING",
+      "expect": { "suggested_stage": "PUBLISHED", "evidence_source": "body" }
+    },
+    {
+      "id": "LZ-IN-18",
+      "scenario": "主题-only now live，低置信不自动推进",
+      "from": "wendellfishing@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Content is live on YouTube",
+      "body": "",
+      "current_stage": "PUBLISH_PENDING",
+      "expect": { "suggested_stage": null, "confidence": "low", "auto_propose": false }
+    },
+    {
+      "id": "LZ-IN-19",
+      "scenario": "Invoice received 待付款",
+      "from": "wendellfishing@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "Please find the invoice attached. Invoice received on our side.",
+      "current_stage": "PUBLISHED",
+      "expect": { "suggested_stage": "SETTLING", "flags": ["invoice_unpaid"] }
+    },
+    {
+      "id": "LZ-IN-20",
+      "scenario": "payment sent 已付款",
+      "from": "larry.zhao@amperetime.com",
+      "to": "wendellfishing@gmail.com",
+      "direction": "brand_outbound_also_ingestible",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "Payment sent. Transaction id TX-88.",
+      "current_stage": "SETTLING",
+      "expect": { "suggested_stage": "SETTLING", "flags": ["paid"], "auto_propose": true }
+    },
+    {
+      "id": "LZ-IN-21",
+      "scenario": "从初步接触跳到已发布，降置信不自动推进",
+      "from": "wendellfishing@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "The video is now live on YouTube https://youtube.com/watch?v=abc",
+      "current_stage": "INITIAL_CONTACT",
+      "expect": { "suggested_stage": "PUBLISHED", "confidence": "medium", "auto_propose": false }
+    },
+    {
+      "id": "LZ-IN-22",
+      "scenario": "联盟邀请关键词",
+      "from": "wendellfishing@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "I joined the affiliate / referral program. Here is my creator code and tracking link.",
+      "current_stage": "PUBLISHED",
+      "expect": { "flags": ["affiliate"] }
+    },
+    {
+      "id": "LZ-IN-23",
+      "scenario": "素材授权",
+      "from": "heyhollyyoo@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "Please confirm usage permission for paid ads / whitelisting. Licensing fee is separate from organic usage.",
+      "current_stage": "PUBLISHED",
+      "expect": { "flags": ["content_license"] }
+    },
+    {
+      "id": "LZ-IN-24",
+      "scenario": "复投",
+      "from": "wendellfishing@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "Open to a repeat collaboration or new campaign as a returning creator.",
+      "current_stage": "SETTLING",
+      "expect": { "flags": ["repeat_collab"] }
+    },
+    {
+      "id": "LZ-IN-25",
+      "scenario": "家庭突发延期 → 关怀不判违约",
+      "from": "wendellfishing@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Update on the Content Timeline",
+      "body": "Family emergency, we need to delay and reschedule the publish date.",
+      "current_stage": "CONTENT_PLANNING",
+      "expect": { "suggested_stage": null, "flags": ["delay_care"], "auto_propose": false }
+    },
+    {
+      "id": "LZ-IN-26",
+      "scenario": "改稿未完成",
+      "from": "heyhollyyoo@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity with LiTime",
+      "body": "Revision pending — the requested changes are not completed and this is a missing update.",
+      "current_stage": "CONTENT_REVIEW",
+      "expect": { "suggested_stage": "CONTENT_REVIEW", "flags": ["revision_pending"] }
+    },
+    {
+      "id": "LZ-IN-27",
+      "scenario": "失联跟进关键词（需结合最后回复日，不能只靠词）",
+      "from": "larry.zhao@amperetime.com",
+      "to": "heyhollyyoo@gmail.com",
+      "direction": "brand_outbound_also_ingestible",
+      "subject": "Following Up on Our LiTime Collaboration",
+      "body": "Just checking in because we haven't heard back and there has been no response.",
+      "current_stage": "INTERESTED",
+      "expect": { "flags": ["lost_contact"], "auto_propose": false }
+    },
+    {
+      "id": "LZ-IN-28",
+      "scenario": "明确拒绝",
+      "from": "heyhollyyoo@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity",
+      "body": "Thanks for reaching out but we are not interested and will pass.",
+      "current_stage": "INITIAL_CONTACT",
+      "expect": { "suggested_stage": "REJECTED", "auto_propose": false }
+    },
+    {
+      "id": "LZ-IN-29",
+      "scenario": "暂缓不是永久拒绝",
+      "from": "wendellfishing@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: Collaboration Opportunity",
+      "body": "Not available now but open later. Maybe next quarter.",
+      "current_stage": "INITIAL_CONTACT",
+      "expect": { "suggested_stage": "PAUSED", "flags": ["later_not_reject"] }
+    },
+    {
+      "id": "LZ-IN-30",
+      "scenario": "on hold",
+      "from": "giardi.j@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Collaboration on Hold",
+      "body": "Please put this collaboration on hold / pause for this month.",
+      "current_stage": "EVALUATING",
+      "expect": { "suggested_stage": "PAUSED" }
+    },
+    {
+      "id": "LZ-IN-31",
+      "scenario": "取消/终止",
+      "from": "heyhollyyoo@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "LiTime Collaboration Closure",
+      "body": "We need to cancel and terminate — no longer proceed. Please send a return product label.",
+      "current_stage": "SAMPLE_PENDING",
+      "expect": { "suggested_stage": "CANCELLED", "auto_propose": false }
+    },
+    {
+      "id": "LZ-IN-32",
+      "scenario": "连通约定邮箱入站兴趣",
+      "from": "qiyou1984@gmail.com",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "Re: LiTime MCP 连通测试",
+      "body": "We are interested and would love to collaborate. Keen to learn more.",
+      "current_stage": "INITIAL_CONTACT",
+      "expect": { "suggested_stage": "INTERESTED", "emailSource": "connectivity_convention" }
+    },
+    {
+      "id": "LZ-IN-33",
+      "scenario": "Charlie 无邮箱，不能伪造入站邮件",
+      "from": "",
+      "to": "larry.zhao@amperetime.com",
+      "subject": "",
+      "body": "",
+      "current_stage": "INITIAL_CONTACT",
+      "kol_name": "Charlie at RV Central",
+      "expect": { "skip_email": true, "channel": "facebook_dm", "note": "画像表：fb以私信为主。一般没邮箱。" }
+    }
+  ]
+}
