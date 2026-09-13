@@ -472,6 +472,9 @@ export default function Chat() {
   const streamRef = useRef<HTMLDivElement>(null);
   const stopRequestedRef = useRef(false);
   const focusThread = String((location.state as { focusThread?: string } | null)?.focusThread || "");
+  const confirmStageNotice = String(
+    (location.state as { confirmStageNotice?: string } | null)?.confirmStageNotice || "",
+  );
 
   useEffect(() => {
     if (!id) return;
@@ -910,6 +913,11 @@ export default function Chat() {
             <Link to="/" className="task-back">← 返回任务列表</Link>
             <RunHud status={status} phase={phase} taskTitle={task?.title || runTask?.title} remoteLabel={remoteLabel} />
           </div>
+          {confirmStageNotice ? (
+            <p className="muted" data-confirm-stage-feedback data-tone="info" role="status">
+              {confirmStageNotice}
+            </p>
+          ) : null}
           {teamProgress && <TeamRail progress={teamProgress} />}
           {journey?.handle ? (
             <div className={"kol-journey" + (journey.exception ? " is-exception" : "")} data-kol-journey data-exception={journey.exception ? "true" : undefined}>

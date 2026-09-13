@@ -24,6 +24,11 @@ import { rememberJourney } from "../journey";
 import { missingFieldsMessage, fieldLabel } from "../labels";
 import FollowedKolWorkCard from "../components/FollowedKolWorkCard";
 import {
+  HOME_CONFIRM_STAGE_BLOCKED_COPY,
+  HOME_OPENED_EXISTING_SESSION_COPY,
+  HOME_OPENED_EXISTING_SESSION_LANDED_COPY,
+} from "../confirmStageFeedback";
+import {
   matchesStageTab,
   projectFollowedKolCard,
   sortFollowedKolCards,
@@ -387,6 +392,12 @@ export default function Home() {
   const missingAlertRef = useRef<HTMLElement | null>(null);
   const [recognizeStartedAt, setRecognizeStartedAt] = useState<number | null>(null);
   const [recognizeNow, setRecognizeNow] = useState(() => Date.now());
+  const [confirmStageBusyId, setConfirmStageBusyId] = useState<string | null>(null);
+  const [confirmStageFeedback, setConfirmStageFeedback] = useState<{
+    id: string;
+    text: string;
+    tone: "info" | "error";
+  } | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [composerFocused, setComposerFocused] = useState(Boolean(initialFill));
   const [stageScrolled, setStageScrolled] = useState(false);
@@ -621,9 +632,61 @@ export default function Home() {
   };
 
   const openConfirmStage = (kol: FollowedKol, card: FollowedKolCardModel) => {
-    if (!card.recommended_action.can_write_stage || !card.recommended_action.target_stage_code) return;
+    if (!card.recommended_action.can_write_stage || !card.recommended_action.target_stage_code) {
+      setConfirmStageFeedback({
+        id: card.id,
+        text: HOME_CONFIRM_STAGE_BLOCKED_COPY,
+        tone: "error",
+      });
+      return;
+    }
     if (card.task && canOpenExistingTaskFlow(card.task)) {
-      void openTask(card.task);
+      setConfirmStageBusyId(card.id);
+      setConfirmStageFeedback({
+        id: card.id,
+        text: HOME_OPENED_EXISTING_SESSION_COPY,
+        tone: "info",
+      });
+      rememberJourney({
+        kind: "task",
+        skillId: String(card.task.skill_id || card.task.skill || card.task.task_type || ""),
+        skillLabel: card.task.title,
+        handle: card.task.kol_name || kol.handle,
+      });
+      const goExisting = (sessionId: string, kolSession: boolean) => {
+        sessionStorage.setItem(`task:${sessionId}`, card.task!.id);
+        if (kolSession) sessionStorage.setItem(`kol-session:${sessionId}`, "1");
+        nav(`/s/${sessionId}`, {
+          state: {
+            kolSession,
+            confirmStageOpenedExisting: true,
+            confirmStageNotice: HOME_OPENED_EXISTING_SESSION_LANDED_COPY,
+          },
+        });
+      };
+      void (async () => {
+        try {
+          if (card.task!.session_id) {
+            goExisting(card.task!.session_id, Boolean(card.task!.collaboration_id || card.task!.project_id));
+            return;
+          }
+          const collabId = String(card.task!.collaboration_id || card.task!.project_id || "");
+          if (collabId) {
+            const session = await api.openKolSession(collabId);
+            goExisting(session.id, true);
+            return;
+          }
+          await openTask(card.task!);
+        } catch (error) {
+          setConfirmStageFeedback({
+            id: card.id,
+            text: error instanceof Error ? error.message : "未能打开已有会话",
+            tone: "error",
+          });
+        } finally {
+          setConfirmStageBusyId(null);
+        }
+      })();
       return;
     }
     rememberJourney({
@@ -632,6 +695,12 @@ export default function Home() {
       stageCode: kol.stage_code,
       skillId: "confirm_stage",
       skillLabel: "提出阶段变更",
+    });
+    setConfirmStageBusyId(card.id);
+    setConfirmStageFeedback({
+      id: card.id,
+      text: "正在打开会话，尚未改正式阶段。",
+      tone: "info",
     });
     void api.openKolSession(kol.id).then((session) => {
       storePending(session.id, {
@@ -646,6 +715,12 @@ export default function Home() {
       sessionStorage.setItem(`kol-session:${session.id}`, "1");
       nav(`/s/${session.id}`, { state: { kolSession: true } });
     }).catch(() => {
+      setConfirmStageBusyId(null);
+      setConfirmStageFeedback({
+        id: card.id,
+        text: "未能打开会话，已转到生命周期页。",
+        tone: "error",
+      });
       nav(`/pipeline?kol=${encodeURIComponent(kol.handle)}`);
     });
   };
@@ -1120,6 +1195,9 @@ export default function Home() {
                         onOpenMail={() => openKol(card.source, card.latest_fact.thread_id || card.focus_thread)}
                         onCompose={() => runKolCardAction(card.source, card)}
                         onConfirmStage={() => openConfirmStage(card.source, card)}
+                        actionBusy={confirmStageBusyId === card.id}
+                        actionNotice={confirmStageFeedback?.id === card.id ? confirmStageFeedback.text : undefined}
+                        actionTone={confirmStageFeedback?.id === card.id ? confirmStageFeedback.tone : "info"}
                       />
                     </li>
                   ))}
