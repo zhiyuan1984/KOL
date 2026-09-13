@@ -1131,8 +1131,14 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   await expect(page.locator("[data-stage-sop]")).toContainText("红人画像");
   await expect(page.locator("[data-kol-portrait] [data-portrait-field]")).not.toHaveCount(0);
   await expect(page.locator("[data-kol-portrait]")).not.toContainText("@小美妆日记");
+  await expect(page.locator("[data-portrait-field='platform']")).toHaveText("小红书");
+  await expect(page.locator("[data-portrait-field='brand']")).toHaveText("LT");
+  await expect(page.locator("[data-portrait-field='email']")).toContainText("xiaomei.beauty@example.com");
+  await expect(page.locator("[data-portrait-field='tags'] .chip")).toHaveCount(2);
+  await expect(page.locator("[data-portrait-field='tags'] .chip").nth(0)).toHaveText("首封已读未回");
+  await expect(page.locator("[data-portrait-field='tags'] .chip").nth(1)).toHaveText("适合跟进");
   await expect(page.locator("[data-journey-phase] .phase-chip")).toHaveCount(8);
-  await expect(page.locator("[data-stage-sop]")).toContainText("输入");
+  await expect(page.locator("[data-stage-sop]")).not.toContainText("输入");
   await expect(page.locator("[data-stage-sop]")).not.toContainText("would love to collaborate");
   await expect(page.locator("[data-stage-sop]")).not.toContainText("完成条件");
   await expect(page.locator("[data-stage-sop]")).not.toContainText("当前步骤");
@@ -1164,6 +1170,10 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   await expect(page.locator("[data-stage-sop]")).toContainText("意向");
   await expect(page.locator("[data-stage-sop]")).not.toContainText("EVALUATING");
   await expect(page.locator("[data-stage-sop]")).toContainText("红人画像");
+  await expect(page.locator("[data-portrait-field='platform']")).toHaveText("小红书");
+  await expect(page.locator("[data-portrait-field='brand']")).toHaveText("LT");
+  await expect(page.locator("[data-portrait-field='email']")).toContainText("xiaomei.beauty@example.com");
+  await expect(page.locator("[data-stage-sop]")).not.toContainText("输入");
   await expect(page.locator("[data-stage-sop]")).not.toContainText("完成条件");
   await expect(page.locator("[data-stage-sop]")).not.toContainText("当前步骤");
   await expect(page.locator("[data-stage-sop]")).not.toContainText("历史邮件往来摘要");

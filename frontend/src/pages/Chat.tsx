@@ -208,28 +208,41 @@ function KolPortraitFields({ portrait }: { portrait: Record<string, unknown> }) 
   const followers = String(portrait.followers || "").trim();
   const notes = splitPortraitNotes(portrait.notes);
   const days = Number(portrait.days_in_stage || 0);
-  const rows: { key: string; label: string; values: string[]; mono?: boolean }[] = [];
-  if (platform) rows.push({ key: "platform", label: "平台", values: [platform] });
-  if (brand) rows.push({ key: "brand", label: "品牌", values: [brand] });
-  if (email) rows.push({ key: "email", label: "邮箱", values: [email], mono: true });
-  if (followers) rows.push({ key: "followers", label: "粉丝", values: [followers] });
-  if (days > 0) rows.push({ key: "stay", label: "停留", values: [`${days} 天`] });
-  if (notes.length) rows.push({ key: "tags", label: "标签", values: notes });
-  if (!rows.length) return <span className="muted">画像待补</span>;
+  const hasIdentity = Boolean(platform || brand);
+  const hasMeta = Boolean(followers || days > 0);
+  if (!hasIdentity && !email && !hasMeta && !notes.length) {
+    return <span className="muted">画像待补</span>;
+  }
   return (
     <div className="kol-portrait" data-kol-portrait>
-      {rows.map((row) => (
-        <div className="portrait-row" key={row.key} data-portrait-field={row.key}>
-          <span className="portrait-label">{row.label}</span>
-          <span className={row.values.length > 1 || !row.mono ? "portrait-chips" : "portrait-value mono"}>
-            {row.values.length > 1 || !row.mono
-              ? row.values.map((value) => (
-                  <span key={value} className="chip">{value}</span>
-                ))
-              : row.values[0]}
+      {hasIdentity ? (
+        <div className="portrait-row is-identity" data-portrait-field="identity">
+          <span className="portrait-chips">
+            {platform ? <span className="chip" data-portrait-field="platform">{platform}</span> : null}
+            {brand ? <span className="chip" data-portrait-field="brand">{brand}</span> : null}
           </span>
         </div>
-      ))}
+      ) : null}
+      {email ? (
+        <div className="portrait-row is-email" data-portrait-field="email">
+          <span className="portrait-value mono">{email}</span>
+        </div>
+      ) : null}
+      {hasMeta ? (
+        <div className="portrait-row is-meta" data-portrait-field="meta">
+          {followers ? <span data-portrait-field="followers">{followers}</span> : null}
+          {days > 0 ? <span data-portrait-field="stay">{days} 天</span> : null}
+        </div>
+      ) : null}
+      {notes.length ? (
+        <div className="portrait-row is-tags" data-portrait-field="tags">
+          <span className="portrait-chips">
+            {notes.map((value) => (
+              <span key={value} className="chip">{value}</span>
+            ))}
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -931,32 +944,15 @@ export default function Chat() {
               {journey.sop && typeof journey.sop === "object" ? (
                 <details className="kol-stage-sop" data-stage-sop key={String(journey.stage_code || "")}>
                   <summary>
-                    本阶段 SOP
-                    {(journey.sop as { phase_label?: string }).phase_label
-                      ? ` · ${String((journey.sop as { phase_label?: string }).phase_label)}`
-                      : ""}
+                    <span className="sop-summary-title">
+                      本阶段 SOP
+                      {(journey.sop as { phase_label?: string }).phase_label
+                        ? ` · ${String((journey.sop as { phase_label?: string }).phase_label)}`
+                        : ""}
+                    </span>
+                    {portrait ? <span className="sop-summary-sub">红人画像</span> : null}
                   </summary>
-                  <dl>
-                    {portrait ? (
-                    <div className="sop-portrait-block">
-                      <dt>红人画像</dt>
-                      <dd>
-                        <KolPortraitFields portrait={portrait} />
-                      </dd>
-                    </div>
-                    ) : null}
-                    <div>
-                      <dt>输入</dt>
-                      <dd className="sop-input-chips">
-                        {(() => {
-                          const inputs = ((journey.sop as { inputs?: string[] }).inputs || []).filter(Boolean);
-                          return inputs.length
-                            ? inputs.map((item) => <span key={item} className="chip">{item}</span>)
-                            : "—";
-                        })()}
-                      </dd>
-                    </div>
-                  </dl>
+                  {portrait ? <KolPortraitFields portrait={portrait} /> : null}
                 </details>
               ) : null}
             </div>
