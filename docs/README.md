@@ -58,3 +58,4 @@
 - `evidence-kb-acceptance-2026-09-13.md`：`/kb` 验收 FAIL（邮件模板资产中心可试点；企业 KB / Agent RAG / 生产资格不通过）。
 - `evidence-e2e-stub-pipeline-pr24-2026-09-13.md`：PR #24 Pipeline 生命周期清理后 stub E2E 3/3 PASS（`cd6ab81c9194a9ed3cc00aa9d0dbf648c3ba634b`；非 LIVE）。
 - `evidence-mail-digest-analysis-plan-2026-09-13.md`：邮件往来摘要 sticky fail / 可观测性只读审查；产品只批准冷却恢复与失败字段（本 PR 落地）。
+- `evidence-followed-kol-card-acceptance-2026-09-13.md`：首页「我跟进的红人」卡验收 FAIL（数据表而非工作卡；生产资格不通过）。目标契约见 `../specs/UX-FOLLOWED-KOL-CARD.md`。
