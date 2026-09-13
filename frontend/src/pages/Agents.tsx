@@ -347,7 +347,7 @@ export default function Agents() {
               </ul>
             ) : (
               <p className="muted agent-empty">
-                当前没有进行中的会话。会话列表里状态为运行中或等确认的会出现在这里。
+                当前没有进行中的会话。会话列表里状态为运行中或等审批的会出现在这里。
               </p>
             )}
           </section>

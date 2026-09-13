@@ -322,7 +322,7 @@ export function recentIdleSessions(sessions: SessionRow[], runningIds: Set<strin
 
 export function sessionStatusLabel(status?: SessionRow["agent_status"]): string {
   if (status === "running") return "运行中";
-  if (status === "waiting_approval") return "等我确认";
+  if (status === "waiting_approval") return "等审批";
   return "可继续";
 }
 

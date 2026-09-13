@@ -128,7 +128,7 @@
 
 | 位置 | 必须 | 禁止 |
 |---|---|---|
-| 员工侧栏 | 工作入口停在 Home / 进行中 / 确认、`/agents`、Pipeline、知识、审批、考试、Settings | 「技能目录 · **连接器**」深链 `/admin/connectors` |
+| 员工侧栏 | 工作入口停在 Home / 进行中、`/agents`、Pipeline、知识、审批、考试、Settings。确认队列在 Home（结果待确认 / 等审批），不另做「等我确认」顶栏 | 「技能目录 · **连接器**」深链 `/admin/connectors`；侧栏再挂一条克隆审批的「等我确认」 |
 | 员工进管理端 | 仅用户菜单「管理控制台」→ `/admin`（需 `available_modes` 含 admin） | 主路径任何「连接器」砖、SkillHub 调试砖、Agents 卡链进 Admin |
 | 管理端顶栏 | 治理标题 + 返回员工工作台；健康条用**管理端专用**文案（启用/未挂接/凭据已登记） | 克隆员工 Agents `remote-pill` / `live-dot` 图例当默认 chrome |
 | 管理端信息架构 | 员工目录、连接器枢纽、`/admin/agents`、审批角色、考试分配、知识、数据/审计 | 再要一个「我的智能体」页、再要一个 Pipeline、再要一份个人 Starry 表 |
