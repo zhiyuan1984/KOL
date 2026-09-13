@@ -1109,9 +1109,10 @@ test("employee stream parses task_result JSON into a card and hides engine jargo
     },
   }));
   await page.goto("/s/json-stream");
-  await expect(page.locator("[data-session-stream-pane] [data-stream-result]")).toContainText("合作邮件草稿");
-  await expect(page.locator("[data-session-stream-pane] [data-stream-result]")).toContainText("Collaboration with LiTime");
-  await expect(page.locator("[data-session-stream-pane] [data-stream-result]")).toContainText("we would love to collaborate");
+  const draftCard = page.locator("[data-session-stream-pane] [data-stream-result]").filter({ hasText: "合作邮件草稿" });
+  await expect(draftCard).toBeVisible();
+  await expect(draftCard).toContainText("Collaboration with LiTime");
+  await expect(draftCard).toContainText("we would love to collaborate");
   await expect(page.locator("[data-session-stream-pane]")).not.toContainText('{"type":"task_result"');
   await expect(page.locator("[data-session-stream-pane]")).not.toContainText("Preparing skill");
   await expect(page.locator("[data-session-stream-pane]")).not.toContainText("starry.get_collaboration");
