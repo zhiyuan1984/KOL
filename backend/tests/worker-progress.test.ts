@@ -4,6 +4,7 @@ import {
   emptyHarnessMemory,
   finishProcessItems,
   mcpCallDisplay,
+  preferHostOperations,
   progressFromHarness,
   reasoningSummariesOf,
   upsertOperationItem,
@@ -113,5 +114,19 @@ describe("Codex harness process traces", () => {
     expect(done?.operation?.status).toBe("completed");
     const rows = upsertOperationItem([], started!.operation!);
     expect(mcpCallDisplay({ ...rows[0], label: "查询风险会话" })).toBe("查询风险会话 · starrykol.pageRiskConversations");
+  });
+
+  it("replaces Codex approval-never failures with Host-backed read ops", () => {
+    const merged = preferHostOperations(
+      [{ id: "mcp_1", name: "starrykol.pageKolProfiles", label: "pageKolProfiles", status: "failed" }],
+      [{ name: "starrykol.pageKolProfiles", label: "分页查询达人画像", status: "done" }],
+    );
+    expect(merged).toEqual([
+      expect.objectContaining({
+        name: "starrykol.pageKolProfiles",
+        status: "done",
+        label: "分页查询达人画像",
+      }),
+    ]);
   });
 });

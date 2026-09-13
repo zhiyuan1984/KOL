@@ -24,6 +24,8 @@ Host 只能否决越权、非法状态、缺审批、版本冲突、未知 Item 
 
 低风险读取可自动执行；草稿和预览不产生外部副作用；发送、阶段、解密、导入、删除按 Policy 等待确认；失败按幂等键重试，否则进入人工接管。生产禁止 `CODEX_MODE=stub`、`runStub`、Host 直出业务结果和旁路 REST 编排。
 
+Codex worker turns still start with `approvalPolicy: "never"` so write MCP cannot wait for a human click. Remote Starry KOL **read** tools (`pageKolProfiles`、`pageRiskConversations`、`summarizeRiskConversations` 等) may still be treated as needing approval and then fail under `never`. For L1 Starry KOL read Skills（达人库查询、风险扫描等），Host 通过已授权的 `RemoteMcpClient` 补读同一批只读工具，不代发信、不改阶段、不解密、不调用 `changeLifecycleStage`。写 Skill（写信、同步达人、改负责人/阶段、解密）在 real 模式仍保持 Codex-strict，Host 不代填。
+
 ## Stub 定义
 
 Stub 是 CI 中可重复的测试替身，只覆盖状态机、权限、幂等、错误和回滚，不模拟真实模型质量、Skill 选择、MCP 连通或 UX。真实业务和员工端验收必须使用真实 app-server + 授权 MCP。

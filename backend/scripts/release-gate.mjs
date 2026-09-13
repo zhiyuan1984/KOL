@@ -33,9 +33,6 @@ for (const step of steps) {
     env: {
       ...process.env,
       CODEX_MODE: process.env.CODEX_MODE || "stub",
-      ...(internal && process.platform === "win32" && !process.env.PW_CHANNEL && !process.env.PW_EXECUTABLE_PATH
-        ? { PW_CHANNEL: "msedge" }
-        : {}),
     },
     encoding: "utf8",
     maxBuffer: 32 * 1024 * 1024,

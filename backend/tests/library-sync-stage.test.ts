@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import { confirmStarryStage } from "../src/gateway/starry.js";
+import { parseFollowStyleTags, writeFollowStyleTags } from "../src/follow-style-tags.js";
 import { buildHomeBoard } from "../src/host/home-board.js";
 import { journeyPayload } from "../src/host/kol-journey.js";
 import { seedAll } from "../src/seed.js";
@@ -152,5 +153,17 @@ describe("Starry library sync preserves confirmed official stage", () => {
     resetStarryHomeLibrarySync();
     await syncStarryHomeLibrary();
     expect(stageOfUid()).toBe("EVALUATING");
+  });
+
+  it("keeps locally saved follow-style tags when Starry list-all has none", async () => {
+    await syncStarryHomeLibrary();
+    writeFollowStyleTags(String(outdoorRow().id), [{ id: "cautious", label: "犹豫谨慎" }]);
+    resetStarryHomeLibrarySync();
+    const again = await syncStarryHomeLibrary();
+    expect(again.ok).toBe(true);
+    expect(parseFollowStyleTags(outdoorRow().follow_style_tags).map((tag) => tag.id)).toContain("cautious");
+    const board = buildHomeBoard() as Json;
+    const card = (board.kols as Json[]).find((row) => String(row.kol_uid || "") === "KOLTEST001") as Json;
+    expect((card.follow_style_tags as Json[]).some((tag) => String(tag.id) === "cautious")).toBe(true);
   });
 });

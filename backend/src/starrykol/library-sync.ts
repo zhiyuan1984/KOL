@@ -217,11 +217,34 @@ export async function syncStarryHomeLibrary(): Promise<StarryLibrarySync> {
           ? String(remoteLifecycle)
           : String(existing?.lifecycle_id || `lc_${uid}`);
         db.prepare(
-          `INSERT OR REPLACE INTO collaborations
+          `INSERT INTO collaborations
            (id, handle, display_name, brand, platform, followers, email, mailbox_from,
             lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,
             stage_version, recipient_name, phone, address_line, country, postal, sku, qty, locked)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(id) DO UPDATE SET
+            handle=excluded.handle,
+            display_name=excluded.display_name,
+            brand=excluded.brand,
+            platform=excluded.platform,
+            followers=excluded.followers,
+            email=excluded.email,
+            mailbox_from=excluded.mailbox_from,
+            lifecycle_id=excluded.lifecycle_id,
+            conversation_id=excluded.conversation_id,
+            stage_code=excluded.stage_code,
+            days_in_stage=excluded.days_in_stage,
+            notes=excluded.notes,
+            overdue=excluded.overdue,
+            stage_version=excluded.stage_version,
+            recipient_name=excluded.recipient_name,
+            phone=excluded.phone,
+            address_line=excluded.address_line,
+            country=excluded.country,
+            postal=excluded.postal,
+            sku=excluded.sku,
+            qty=excluded.qty,
+            locked=excluded.locked`,
         ).run(
           id,
           name,
@@ -257,7 +280,7 @@ export async function syncStarryHomeLibrary(): Promise<StarryLibrarySync> {
         db.prepare(
           `UPDATE collaborations SET owner_name=?, owner_mailbox=?, engagement_rate=?, audience_geo=?,
             avg_views_10=?, kol_uid=?, source='starry', duplicate_checked=1,
-            niche=?, risk_tag=?, wechat=?, kol_id=?, last_conversation_id=?, last_lifecycle_id=?, contact_email_masked=?, follow_style_tags=?
+            niche=?, risk_tag=?, wechat=?, kol_id=?, last_conversation_id=?, last_lifecycle_id=?, contact_email_masked=?
            WHERE id=?`,
         ).run(
           firstString(profile.ownerName, profile.ownerUserName, existing?.owner_name),
@@ -273,9 +296,15 @@ export async function syncStarryHomeLibrary(): Promise<StarryLibrarySync> {
           firstString(profile.lastConversationId, profile.last_conversation_id, existing?.last_conversation_id),
           remoteLifecycle != null ? String(remoteLifecycle) : firstString(existing?.last_lifecycle_id),
           firstString(profile.contactEmailMasked, profile.contact_email_masked, existing?.contact_email_masked),
-          remoteStyle.length ? serializeFollowStyleTags(remoteStyle) : String(existing?.follow_style_tags || ""),
           id,
         );
+        // Remote list-all often sends []. Do not clobber tags the operator just saved.
+        if (remoteStyle.length) {
+          db.prepare("UPDATE collaborations SET follow_style_tags=? WHERE id=?").run(
+            serializeFollowStyleTags(remoteStyle),
+            id,
+          );
+        }
       }
     });
     const result: StarryLibrarySync = {

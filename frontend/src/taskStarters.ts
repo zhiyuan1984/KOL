@@ -30,6 +30,7 @@ const STARTERS: Record<string, string> = {
   confirm_stage: "提出阶段变更 [红人] 到 [目标阶段]",
   reply_analysis: "回复分析 [会话或红人]",
   risk_scan: "超时/风险扫描",
+  content_nudge: "催大纲 [红人或合作]",
 };
 
 export function starterPrompt(definition: Pick<TaskDefinition, "id" | "prompt" | "title">): string {

@@ -21,6 +21,7 @@ import { extractTaskEntities } from "../tasks/resolver.js";
 import { formatQuoteRate } from "./quote-amount.js";
 import {
   composeGapHint,
+  requestedMailKind,
   stageMailSpec,
   stageMailSpecByKind,
   type StageMailKind,
@@ -28,7 +29,9 @@ import {
 
 export {
   composeGapHint,
+  isNamedMailCommand,
   isQuoteCompose,
+  requestedMailKind,
   stageMailAction,
   stageMailSpec,
 } from "../skills/email-compose-contract.js";
@@ -72,7 +75,8 @@ export function composeFactsFromContext(input: {
   const amount = input.amount_usd != null && Number.isFinite(Number(input.amount_usd))
     ? Number(input.amount_usd)
     : null;
-  const spec = stageMailSpec(stage);
+  const requested = requestedMailKind(input.raw || "");
+  const spec = requested ? stageMailSpecByKind(requested) : stageMailSpec(stage);
   const currency = String(input.currency || (amount != null ? "USD" : "") || "").trim()
     || (amount != null ? "USD" : null);
   const rateUnit = input.rate_unit || null;
@@ -188,8 +192,9 @@ export function composeRouteFacts(input: {
   return { mailboxEmail: from, from, to };
 }
 
-export function pickComposeTemplate(skill: string, stageCode?: string | null, _raw = "", _amount?: number | null): EmailTemplate {
-  const spec = stageMailSpec(stageCode || "");
+export function pickComposeTemplate(skill: string, stageCode?: string | null, raw = "", _amount?: number | null): EmailTemplate {
+  const requested = requestedMailKind(raw);
+  const spec = requested ? stageMailSpecByKind(requested) : stageMailSpec(stageCode || "");
   const named = templateById(spec.templateId);
   if (named) return named;
   const stage = stageCode ? normalizeStage(stageCode) : "";
@@ -232,7 +237,7 @@ export function seedComposeDraft(facts: ComposeFacts, _raw = "", stage = ""): { 
       body: `Hi,\n\n${rateLine}\n\nReply on this thread if this rate works.\n\nBest,\nLiTime Creator Desk\n`,
     };
   }
-  const tpl = pickComposeTemplate("email_compose", stage);
+  const tpl = pickComposeTemplate("email_compose", stage, _raw);
   return { subject: tpl.subject, body: tpl.body_en };
 }
 

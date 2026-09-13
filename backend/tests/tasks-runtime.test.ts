@@ -212,6 +212,11 @@ describe("task intent resolution", () => {
       missing_fields: [],
       entities: { handle: "小美妆日记" },
     });
+    expect(stubResolveTaskIntent({ text: "催大纲 [红人或合作]" })).toMatchObject({
+      task_type: "email_compose",
+      needs_clarification: false,
+      missing_fields: [],
+    });
   });
 
   it("recognizes Email MCP mailbox and compose phrases", () => {

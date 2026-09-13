@@ -15,6 +15,7 @@ import { groupedStageTracks } from "../stages.js";
 import type { Json, Row, WorkerResult } from "../types.js";
 import { writeAttachmentContext } from "../host/attachments.js";
 import { restoreOfficialCollaborationStage } from "../starrykol/library-sync.js";
+import { isStarryKolReadTask } from "../starrykol/service.js";
 import { isMissingInputDraft } from "../host/draft-quality.js";
 import { workerSafeExtra } from "../host/knowledge.js";
 import { runtimeSkillsRoot, writeRuntimeSkill, writeSkillIntoBox } from "../host/skill-sop.js";
@@ -39,56 +40,51 @@ import {
 } from "./progress.js";
 
 export type { WorkerProgress } from "./progress.js";
-const APPROVAL_OUTPUT_SCHEMA: Json = {
-  type: "object",
-  properties: {
-    type: { type: "string", enum: ["create_approval"] },
-    skill: { type: "string" },
-    business_type: { type: "string" },
-    amount: { type: "number" },
-    currency: { type: "string" },
-    requester_name: { type: "string" },
-    requester_id: { type: "string" },
-    mailbox: { type: "string" },
-    purpose: { type: "string" },
-    amount_cny: { type: "number" },
-    needs: { type: "array", items: { type: "string" } },
-    fx: {
-      type: "object",
-      properties: {
-        pair: { type: "string" },
-        rate: { type: "number" },
-        as_of: { type: "string" },
-        source_title: { type: "string" },
-        source_url: { type: "string" },
-        quote: { type: "string" },
-      },
-    },
-    policy: {
-      type: "object",
-      properties: {
-        id: { type: "string" },
-        title: { type: "string" },
-        as_of: { type: "string" },
-        source_url: { type: "string" },
-        quote: { type: "string" },
-      },
-    },
-    chain: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          name: { type: "string" },
-          role: { type: "string" },
-          source: { type: "string" },
-        },
-        required: ["name"],
-      },
-    },
-  },
-  required: ["type", "amount", "currency", "requester_name"],
-};
+/** Codex `response_format` forbids `oneOf` / `anyOf` / `allOf` and requires every `properties` key in `required`. Optional values use `type: [T, "null"]`. */
+function codexStrictObject(properties: Record<string, Json>): Json {
+  return {
+    type: "object",
+    properties,
+    required: Object.keys(properties),
+    additionalProperties: false,
+  };
+}
+const APPROVAL_FX_SCHEMA = codexStrictObject({
+  pair: { type: ["string", "null"] },
+  rate: { type: ["number", "null"] },
+  as_of: { type: ["string", "null"] },
+  source_title: { type: ["string", "null"] },
+  source_url: { type: ["string", "null"] },
+  quote: { type: ["string", "null"] },
+});
+const APPROVAL_POLICY_SCHEMA = codexStrictObject({
+  id: { type: ["string", "null"] },
+  title: { type: ["string", "null"] },
+  as_of: { type: ["string", "null"] },
+  source_url: { type: ["string", "null"] },
+  quote: { type: ["string", "null"] },
+});
+const APPROVAL_CHAIN_ITEM_SCHEMA = codexStrictObject({
+  name: { type: ["string", "null"] },
+  role: { type: ["string", "null"] },
+  source: { type: ["string", "null"] },
+});
+const APPROVAL_OUTPUT_SCHEMA: Json = codexStrictObject({
+  type: { type: "string", enum: ["create_approval"] },
+  skill: { type: ["string", "null"] },
+  business_type: { type: ["string", "null"] },
+  amount: { type: ["number", "null"] },
+  currency: { type: ["string", "null"] },
+  requester_name: { type: ["string", "null"] },
+  requester_id: { type: ["string", "null"] },
+  mailbox: { type: ["string", "null"] },
+  purpose: { type: ["string", "null"] },
+  amount_cny: { type: ["number", "null"] },
+  needs: { type: "array", items: { type: "string" } },
+  fx: APPROVAL_FX_SCHEMA,
+  policy: APPROVAL_POLICY_SCHEMA,
+  chain: { type: "array", items: APPROVAL_CHAIN_ITEM_SCHEMA },
+});
 const TASK_RESULT_OUTPUT_SCHEMA: Json = {
   type: "object",
   properties: {
@@ -126,15 +122,6 @@ const TASK_RESULT_OUTPUT_SCHEMA: Json = {
   required: ["type", "title", "summary", "sections", "metrics", "recommended_actions"],
   additionalProperties: false,
 };
-/** Codex `response_format` forbids `oneOf` / `anyOf` / `allOf` and requires every `properties` key in `required`. Optional values use `type: [T, "null"]`. */
-function codexStrictObject(properties: Record<string, Json>): Json {
-  return {
-    type: "object",
-    properties,
-    required: Object.keys(properties),
-    additionalProperties: false,
-  };
-}
 const COMPOSE_OUTPUT_SCHEMA: Json = codexStrictObject({
   ...(TASK_RESULT_OUTPUT_SCHEMA.properties as Record<string, Json>),
   from: { type: ["string", "null"] },
@@ -205,6 +192,32 @@ export function skillOutputSchema(skill: string, definition: TaskDefinition): Js
   if (skill === "business_approval") return APPROVAL_OUTPUT_SCHEMA;
   if (skill === "email_compose") return COMPOSE_OUTPUT_SCHEMA;
   return TASK_RESULT_OUTPUT_SCHEMA;
+}
+
+/** Host accepts analysis/task_result, compose drafts, or create_approval — not every skill must map to a mail draft. */
+export function requiredSkillOutputMissing(
+  skill: string,
+  definition: TaskDefinition,
+  items: Json[],
+): { message: string; next: string } | null {
+  if (definition.output === "crawl_plan" && !items.some((item) => item.type === "crawl_plan")) {
+    return { message: "没有产出可确认的采集计划。", next: "请补充平台、采集模式和关键词/ID 后重试。" };
+  }
+  if (definition.output === "propose_stage" && !items.some((item) => item.type === "propose_stage")) {
+    return { message: "没有产出可确认的阶段建议。", next: "请指定合作对象后重试。" };
+  }
+  if (definition.output === "task_result" && !items.some((item) => item.type === "task_result")) {
+    if (skill === "email_compose" && items.some((item) => item.type === "create_draft")) return null;
+    if (skill === "business_approval" && items.some((item) => item.type === "create_approval")) return null;
+    return {
+      message: "生成服务已结束，但没有产出结构化任务结果。",
+      next: "请重试一次；如果仍失败，请检查对应 Skill 的输出约束。",
+    };
+  }
+  if (!items.length) {
+    return { message: "生成服务没有产出可用结果。", next: "请重试一次；如果仍失败，请检查输入资料。" };
+  }
+  return null;
 }
 
 function emitPhase(
@@ -492,6 +505,7 @@ export async function runCodex(
     const mcpServers = hasEmbeddedCreator ? {} : mcpServerSpecs(definition.mcp);
     const threadParams: Json = {
       cwd,
+      // Remote Starry KOL reads may still elicit; Host recovers L1 reads in completeTurnItems.
       approvalPolicy: "never",
       sandbox: "workspace-write",
       config: {
@@ -578,10 +592,16 @@ export async function runCodex(
         completedTurn.error ||
         "turn did not complete",
       );
-      throw new CodexUnavailable(
-        `生成服务结束状态：${completedStatus}；${detail}`,
-        "请检查模型服务与网络后重试。",
-      );
+      if (!isStarryKolReadTask(skill)) {
+        throw new CodexUnavailable(
+          `生成服务结束状态：${completedStatus}；${detail}`,
+          "请检查模型服务与网络后重试。",
+        );
+      }
+      log.push({
+        method: "turn/host_read_fallback",
+        params: { status: completedStatus, skill, reason: detail.slice(0, 300) },
+      });
     }
     emitPhase(onProgress, "validating");
     let items = [...parseAgentTexts(rpc.agentTexts), ...parseBoxFiles(box)];
@@ -612,25 +632,9 @@ export async function runCodex(
         last_message: String(rpc.agentTexts.at(-1) || "").slice(0, 1000),
       },
     });
-    if (definition.output === "crawl_plan" && !items.some((i) => i.type === "crawl_plan")) {
-      throw new CodexUnavailable("没有产出可确认的采集计划。", "请补充平台、采集模式和关键词/ID 后重试。");
-    }
-    if (definition.output === "task_result" && !items.some((i) => i.type === "task_result")) {
-      if (!(skill === "email_compose" && items.some((i) => i.type === "create_draft"))) {
-        throw new CodexUnavailable(
-          "生成服务已结束，但没有产出结构化任务结果。",
-          "请重试一次；如果仍失败，请检查对应 Skill 的输出约束。",
-        );
-      }
-    }
-    if (definition.output === "propose_stage" && !items.some((i) => i.type === "propose_stage")) {
-      throw new CodexUnavailable("没有产出可确认的阶段建议。", "请指定合作对象后重试。");
-    }
-    if (!items.length) {
-      throw new CodexUnavailable(
-        "生成服务没有产出可用结果。",
-        "请重试一次；如果仍失败，请检查输入资料。",
-      );
+    const missing = requiredSkillOutputMissing(skill, definition, items);
+    if (missing) {
+      throw new CodexUnavailable(missing.message, missing.next);
     }
     audit("worker", "skill.result", {
       session_id: sessionId,

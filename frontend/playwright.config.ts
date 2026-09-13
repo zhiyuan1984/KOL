@@ -40,5 +40,7 @@ export default defineConfig({
     stdout: "pipe",
     stderr: "pipe",
   },
+  // Cloud Linux Chromium is the acceptance browser. PW_CHANNEL / msedge is an
+  // optional local override and is never selected automatically.
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });
