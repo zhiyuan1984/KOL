@@ -228,6 +228,16 @@ export function buildAgentNextSteps(input: {
   tasks?: Task[];
   entries?: AgentViewEntry[];
 }): AgentNextStep[] {
+  const catalog: AgentNextStep[] = [];
+  for (const entry of input.entries || []) {
+    pushUnique(catalog, stepFromEntry(entry));
+    if (catalog.length >= MAX_AGENT_NEXT_STEPS) return catalog;
+  }
+  // Catalog entries are the /agents work-surface default. Home board
+  // recommendations / kols / tasks used to land first and replace this list
+  // after GET /api/home/board resolved — do not mix them back in.
+  if (catalog.length > 0) return catalog;
+
   const steps: AgentNextStep[] = [];
   const recommendations = input.recommendations || [];
   const kols = [...(input.kols || [])].sort((a, b) => kolAttentionScore(b) - kolAttentionScore(a));
@@ -252,13 +262,6 @@ export function buildAgentNextSteps(input: {
   if (steps.length < 3) {
     for (const rec of recommendations.filter((row) => row.source === "catalog")) {
       pushUnique(steps, stepFromBoard(rec));
-      if (steps.length >= 3) break;
-    }
-  }
-
-  if (steps.length < 3) {
-    for (const entry of input.entries || []) {
-      pushUnique(steps, stepFromEntry(entry));
       if (steps.length >= 3) break;
     }
   }

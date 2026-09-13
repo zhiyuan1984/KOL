@@ -12,12 +12,11 @@ import {
   runningSessions,
   sessionStatusLabel,
   startAgentWork,
-  type AgentKolLike,
   type AgentNextStep,
   type AgentPageTab,
   type RecentAgent,
 } from "../agentWork";
-import { api, type HomeWorkbench, type RecommendedTask, type SessionRow, type Task } from "../api";
+import { api, type SessionRow, type Task } from "../api";
 import { storePending } from "../components/ChatBlocks";
 import { useAgentManifest } from "../hooks/useAgentManifest";
 import { rememberJourney } from "../journey";
@@ -35,7 +34,7 @@ type Profile = {
 };
 
 const TABS: Array<{ id: AgentPageTab; label: string }> = [
-  { id: "work", label: "工作" },
+  { id: "work", label: "数字员工" },
   { id: "teams", label: "团队" },
   { id: "spec", label: "说明书" },
 ];
@@ -49,9 +48,6 @@ export default function Agents() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [connectors, setConnectors] = useState<Record<string, unknown>[]>([]);
   const [sessions, setSessions] = useState<SessionRow[]>([]);
-  const [recommendations, setRecommendations] = useState<RecommendedTask[]>([]);
-  const [kols, setKols] = useState<AgentKolLike[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
   const [failedTasks, setFailedTasks] = useState<Task[]>([]);
   const [recentAgents, setRecentAgents] = useState<RecentAgent[]>(() => readRecentAgents());
   const [err, setErr] = useState("");
@@ -61,35 +57,19 @@ export default function Agents() {
 
   useEffect(() => {
     let cancelled = false;
+    // Do not fetch GET /api/home/board here. That payload is Home's
+    // 「今天推荐」and was replacing catalog entries after first paint.
     void Promise.all([
       api.profiles().catch(() => []),
       api.connectors().catch(() => []),
       api.sessions().catch(() => []),
-      api.homeBoard().catch(() => ({})),
       api.tasks({ status: "failed" }).catch(() => []),
     ])
-      .then(([p, c, s, board, failed]) => {
+      .then(([p, c, s, failed]) => {
         if (cancelled) return;
         setProfiles(Array.isArray(p) ? p : []);
         setConnectors(Array.isArray(c) ? c : []);
         setSessions(Array.isArray(s) ? s : []);
-        const workbench = (board as { workbench?: HomeWorkbench }).workbench;
-        setRecommendations(Array.isArray(workbench?.recommendations) ? workbench!.recommendations! : []);
-        const rawKols = Array.isArray((board as { kols?: Record<string, unknown>[] }).kols)
-          ? (board as { kols: Record<string, unknown>[] }).kols
-          : [];
-        setKols(rawKols.map((kol) => ({
-          id: String(kol.id || ""),
-          handle: String(kol.handle || kol.kol_name || "").replace(/^@/, ""),
-          stage_label: kol.stage_label ? String(kol.stage_label) : undefined,
-          stage_code: kol.stage_code ? String(kol.stage_code) : undefined,
-          exception: Boolean(kol.exception),
-          unbound: Boolean(kol.unbound),
-          days_in_stage: Number(kol.days_in_stage || 0),
-          unread_count: Number(kol.unread_count || 0),
-          notes: kol.notes ? String(kol.notes) : undefined,
-        })).filter((kol) => kol.handle));
-        setTasks(Array.isArray((board as { tasks?: Task[] }).tasks) ? (board as { tasks: Task[] }).tasks : []);
         setFailedTasks(asTaskList(failed));
       })
       .catch((e) => {
@@ -102,12 +82,9 @@ export default function Agents() {
 
   const nextSteps = useMemo(
     () => buildAgentNextSteps({
-      recommendations,
-      kols,
-      tasks: tasks.filter((task) => String(task.status || "") !== "failed"),
       entries: manifest?.entries || [],
     }),
-    [kols, manifest?.entries, recommendations, tasks],
+    [manifest?.entries],
   );
 
   const running = useMemo(() => runningSessions(sessions), [sessions]);
@@ -448,7 +425,7 @@ export default function Agents() {
         <div className="agent-spec-pane" data-agent-spec>
           <header className="agent-section-head">
             <h2>说明书</h2>
-            <p className="muted">职责、护栏和可写范围默认收起。要开工请回到「工作」或去<Link to="/skills">技能目录</Link>。</p>
+            <p className="muted">职责、护栏和可写范围默认收起。要开工请回到「数字员工」或去<Link to="/skills">技能目录</Link>。</p>
           </header>
           <div className="agent-grid">
             {profiles.map((profile) => {
