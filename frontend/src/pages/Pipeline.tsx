@@ -175,12 +175,7 @@ export default function Pipeline() {
     <div className="pipeline-page">
       <div className="page-kicker">合作</div>
       <h1 style={{ marginTop: 0 }}>KOL 全生命周期管理</h1>
-      <JourneyGuide
-        variant="compact"
-        onPrefill={(prompt, intent, label) => {
-          void ask({ label: label || prompt, act: "ask", intent, prompt });
-        }}
-      />
+      <JourneyGuide variant="compact" />
       <p className="muted">
         这是合作资产页，不是创建新项目。任务不会自动打开这里。从侧栏「生命周期」或技能市场进入。
         点选红人后用「概览 / 达人 / 动作」查看详情；首页「流水线复盘」「超时/风险扫描」只读汇总，结果留在会话。

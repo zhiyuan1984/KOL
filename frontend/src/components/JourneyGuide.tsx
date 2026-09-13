@@ -34,13 +34,11 @@ export default function JourneyGuide({
   kols,
   tasks,
   definitions,
-  onPrefill,
 }: {
   variant?: "home" | "compact";
   kols?: KolLike[];
   tasks?: TaskLike[];
   definitions?: { id: string; title?: string; granted?: boolean; in_market?: boolean }[];
-  onPrefill?: (prompt: string, intent?: string, label?: string) => void;
 }) {
   const [event, setEvent] = useState(readJourney);
   useEffect(() => subscribeJourney(() => setEvent(readJourney())), []);
@@ -52,18 +50,6 @@ export default function JourneyGuide({
     () => buildJourneyGuide({ event, kols, tasks, definitions }),
     [event, kols, tasks, definitions],
   );
-
-  const onNext = () => {
-    if (!model.nextPrompt) return;
-    rememberJourney({
-      kind: "skill",
-      skillId: model.nextIntent,
-      skillLabel: model.nextLabel,
-      handle: event?.handle || kols?.[0]?.handle,
-      stageCode: model.stageCode,
-    });
-    onPrefill?.(model.nextPrompt, model.nextIntent, model.nextLabel);
-  };
 
   return (
     <section className={"journey-guide" + (variant === "compact" ? " is-compact" : "")} data-journey-guide data-journey-funnel={model.funnelId}>
@@ -83,11 +69,6 @@ export default function JourneyGuide({
         <p data-journey-body>{model.body}</p>
         <p className="journey-mode">{model.stageLabel ? `${model.stageLabel} · ${model.mode}` : model.mode} · 发送 ≠ 推进阶段</p>
       </div>
-      {model.nextPrompt && (
-        <button type="button" className="journey-next" data-journey-next={model.nextIntent || ""} onClick={onNext}>
-          下一步：{model.nextLabel} →
-        </button>
-      )}
       {variant === "home" && model.gaps.length ? (
         <p className="journey-gaps" data-journey-gaps>
           还缺技能：{model.gaps.map((gap) => `${gap.title}（${gap.reason}）`).join("；")}

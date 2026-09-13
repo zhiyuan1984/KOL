@@ -539,18 +539,6 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   color: var(--muted) !important;
   font-size: 12px !important;
 }
-.journey-next {
-  display: inline-block;
-  margin-top: 10px;
-  border: 0;
-  background: none;
-  padding: 0;
-  color: var(--star);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-.journey-next:hover { text-decoration: underline; }
 .journey-gaps {
   margin: 10px 0 0;
   color: var(--muted);
@@ -3356,9 +3344,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   margin: 0 22px 12px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--line);
-  flex: 0 1 auto;
-  max-height: 38vh;
-  overflow: auto;
+  flex: 0 0 auto;
+  overflow: visible;
   min-height: 0;
 }
 .task-back { color: var(--muted); font-size: 12px; text-decoration: none; }
@@ -3459,6 +3446,13 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   flex: 0 0 auto;
   border-top: 1px solid var(--line);
   background: var(--canvas);
+}
+.session-send-hint {
+  margin: 0;
+  padding: 6px 14px 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
 }
 .session-composer .composer-dock { margin-top: 0; }
 .session-center .composer-dock { margin-top: auto; }
@@ -4054,20 +4048,37 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .kol-journey-title h1 { margin: 0; font-size: var(--font-title); }
 .journey-track { margin: 8px 0 0; }
 .kol-stage-sop {
-  margin-top: 12px;
-  padding: 12px 14px;
+  margin-top: 8px;
+  padding: 0;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--chrome);
 }
-.kol-stage-sop h2 {
-  margin: 0 0 8px;
-  font-size: var(--font-section);
+.kol-stage-sop > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
 }
+.kol-stage-sop > summary::-webkit-details-marker { display: none; }
+.kol-stage-sop > summary::before {
+  content: "▸ ";
+  color: var(--muted);
+  font-weight: 400;
+}
+.kol-stage-sop[open] > summary {
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+}
+.kol-stage-sop[open] > summary::before { content: "▾ "; }
+.kol-stage-sop[open] { padding-bottom: 12px; }
 .kol-stage-sop dl {
   display: grid;
   gap: 8px;
   margin: 0;
+  padding: 10px 12px 0;
 }
 .kol-stage-sop dl > div {
   display: grid;

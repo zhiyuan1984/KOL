@@ -25,7 +25,6 @@ import TeamRail, { readTeamProgress } from "../components/TeamRail";
 import { REMOTE_BACKEND_LABEL, remoteForSkill } from "../agentConfig";
 import { useRunStatus } from "../hooks/useRunStatus";
 import { rememberJourney, SOP_PHASES, sopPhaseByStage } from "../journey";
-import JourneyGuide from "../components/JourneyGuide";
 import { FollowStyleTagBar } from "../components/FollowStyleTags";
 import { friendlyError, missingFieldsMessage } from "../labels";
 import type { SessionMailRow } from "../components/AgentTaskList";
@@ -747,22 +746,6 @@ export default function Chat() {
                 presets={Array.isArray(journey.follow_style_presets) ? journey.follow_style_presets as { id: string; label: string }[] : undefined}
                 onSaved={() => void reload()}
               />
-              {!journey.exception && String(journey.stage_code || "") === "INITIAL_CONTACT" ? (
-                <JourneyGuide
-                  variant="compact"
-                  kols={[{
-                    handle: String(journey.handle),
-                    stage_code: String(journey.stage_code || "INITIAL_CONTACT"),
-                    stage_label: journey.stage_label ? String(journey.stage_label) : undefined,
-                  }]}
-                  onPrefill={(prompt, intent, label) => {
-                    setText(prompt);
-                    setLockedIntent(intent || null);
-                    setLockedLabel(label || null);
-                    setFocusDraft(true);
-                  }}
-                />
-              ) : null}
               <ol className="stage-track journey-track is-phases" aria-label="八个阶段">
                 {(Array.isArray(journey.phases) && (journey.phases as unknown[]).length
                   ? journey.phases as { id: string; label: string; state?: string; official_labels?: string[] }[]
@@ -788,13 +771,13 @@ export default function Chat() {
                 })}
               </ol>
               {journey.sop && typeof journey.sop === "object" ? (
-                <section className="kol-stage-sop" data-stage-sop>
-                  <h2>
+                <details className="kol-stage-sop" data-stage-sop key={String(journey.stage_code || "")}>
+                  <summary>
                     本阶段 SOP · {String((journey.sop as { stage_label?: string }).stage_label || journey.stage_label || "")}
                     {(journey.sop as { phase_label?: string }).phase_label
                       ? ` · ${String((journey.sop as { phase_label?: string }).phase_label)}`
                       : ""}
-                  </h2>
+                  </summary>
                   <dl>
                     {portrait ? (
                     <div>
@@ -844,7 +827,7 @@ export default function Chat() {
                       <dd>{((journey.sop as { inputs?: string[] }).inputs || []).join("、") || "—"}</dd>
                     </div>
                   </dl>
-                </section>
+                </details>
               ) : null}
             </div>
           ) : null}
@@ -945,6 +928,11 @@ export default function Chat() {
         )}
         </div>
         <footer className="session-composer" data-sop-ask={journey?.sop ? true : undefined}>
+          {kolSession ? (
+            <p className="session-send-hint" data-session-send-hint>
+              发送不等于改阶段
+            </p>
+          ) : null}
           <ComposerDock
             variant="workspace"
             value={text}
