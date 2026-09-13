@@ -398,15 +398,12 @@ export default function Pipeline() {
       </div>
 
       {selected ? (
-        <>
-          <button type="button" className="pipeline-drawer-backdrop" aria-label="关闭详情" onClick={closeDrawer} />
-          <aside
-            className="pipeline-drawer"
-            data-pipeline-drawer
-            role="dialog"
-            aria-modal="true"
-            aria-label={`${selected.handle} 合作详情`}
-          >
+        <aside
+          className="pipeline-drawer"
+          data-pipeline-drawer
+          role="dialog"
+          aria-label={`${selected.handle} 合作详情`}
+        >
             <header className="pipeline-drawer-head">
               <div>
                 <p className="page-kicker">合作详情</p>
@@ -565,8 +562,7 @@ export default function Pipeline() {
                 提出阶段变更
               </button>
             </footer>
-          </aside>
-        </>
+        </aside>
       ) : null}
     </div>
   );

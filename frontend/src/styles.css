@@ -2501,6 +2501,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .kol-card .acts { display: flex; flex-wrap: wrap; gap: 6px; }
 
 .pipeline-page { max-width: 1180px; }
+.pipeline-page.has-drawer { padding-right: min(428px, 42vw); }
 .pipeline-filters {
   display: flex;
   flex-wrap: wrap;
@@ -2683,14 +2684,6 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .pipeline-kv dt { color: var(--muted); }
 .pipeline-kv dd { margin: 0; min-width: 0; }
 .pipeline-empty-hint { margin: 0; }
-.pipeline-drawer-backdrop {
-  position: fixed;
-  inset: 0;
-  border: 0;
-  padding: 0;
-  background: rgba(15, 23, 42, 0.28);
-  z-index: 80;
-}
 .pipeline-drawer {
   position: fixed;
   top: 0;
