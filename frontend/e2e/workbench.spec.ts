@@ -1169,6 +1169,8 @@ test("thread mail digest labels rule excerpt, model summary, and failed analysis
           text: "本会话共 2 封往来。来信明确表示有兴趣合作。",
           source: "analysis_failed",
           mail_count: 2,
+          error: "timeout",
+          failed_at: "2026-09-13T17:00:00.000Z",
         },
       },
     },
@@ -1176,12 +1178,15 @@ test("thread mail digest labels rule excerpt, model summary, and failed analysis
   await page.goto("/s/digest-failed");
   await expect(digest).toBeVisible();
   await expect(digest).toHaveAttribute("data-digest-kind", "failed");
-  await expect(digest.locator("[data-digest-status]")).toHaveText("分析未完成");
+  await expect(digest).toHaveAttribute("data-digest-error", "timeout");
+  await expect(digest).toHaveAttribute("data-digest-failed-at", "2026-09-13T17:00:00.000Z");
+  await expect(digest.locator("[data-digest-status]")).toHaveText("分析未完成 · timeout");
   await expect(digest.locator("[data-digest-lede]")).toContainText("未能读完这些正文");
   await expect(digest).not.toContainText("历史邮件往来摘要");
   await expect(digest).not.toContainText("规则摘录");
   await expect(digest.locator("[data-digest-excerpt]")).toHaveJSProperty("open", false);
   await expect(digest).not.toContainText("analysis_failed");
+  await expect(digest).not.toContainText("Codex");
   await saveScreenshot(page, "mail_digest_analysis_failed_status.png");
 });
 
