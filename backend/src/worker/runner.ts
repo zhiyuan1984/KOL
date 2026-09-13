@@ -244,11 +244,17 @@ export function runWorker(
   const skill = definition.id;
   // Stub is only a deterministic test mode. Preview flags never bypass the app-server in real mode.
   if (codexMode() === "stub") {
+    if (signal?.aborted) {
+      throw Object.assign(new Error("已停止生成"), { name: "WorkerStopped" });
+    }
     emitPhase(onProgress, "preparing");
     emitPhase(onProgress, "skill_ready");
     onProgress?.({ phase: "reading_data" });
     emitPhase(onProgress, "generating");
     return runStub(sessionId, skill, prompt, extra, onProgress).then((result) => {
+      if (signal?.aborted) {
+        throw Object.assign(new Error("已停止生成"), { name: "WorkerStopped" });
+      }
       emitPhase(onProgress, "validating");
       return result;
     });
@@ -583,6 +589,9 @@ export async function runCodex(
       task_run_id: extra.task_run_id || null,
     });
     const completed = await rpc.waitTurn();
+    if (signal?.aborted) {
+      throw Object.assign(new Error("已停止生成"), { name: "WorkerStopped" });
+    }
     const completedTurn = (completed.turn as Json) || {};
     const completedStatus = String(completedTurn.status || "");
     log.push({ method: "turn/completed", params: { status: completedStatus } });

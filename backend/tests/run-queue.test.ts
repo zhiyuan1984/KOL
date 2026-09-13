@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { resetConn } from "../src/db.js";
-import { markSessionRunning, publicQueue, resetRunControl } from "../src/host/run-control.js";
+import { abortSessionRun, beginSessionAsk, markSessionRunning, publicQueue, resetRunControl, wasSessionStopped } from "../src/host/run-control.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import type { Json } from "../src/types.js";
@@ -86,6 +86,17 @@ describe("session run queue and stop", () => {
     const idle = await request("POST", `/api/sessions/${sid}/stop`, {});
     expect(idle.status, idle.text).toBe(200);
     expect(idle.body.stopped).toBe(false);
+    expect(idle.body.agent_status).toBe("listening");
+  });
+
+  it("idle stop still cancels a start that has not marked running yet", () => {
+    const sid = "ses_pending_start";
+    expect(abortSessionRun(sid)).toBe(false);
+    expect(wasSessionStopped(sid)).toBe(true);
+    expect(markSessionRunning(sid)).toBe(false);
+    beginSessionAsk(sid);
+    expect(wasSessionStopped(sid)).toBe(false);
+    expect(markSessionRunning(sid)).toBe(true);
   });
 
   it("stop keeps the queued asks", async () => {
@@ -104,6 +115,7 @@ describe("session run queue and stop", () => {
     const listed = await request("GET", `/api/sessions/${sid}`);
     expect(listed.body.agent_status).toBe("listening");
     expect(listed.body.run_queue as Json[]).toHaveLength(1);
+    expect(stopped.body.agent_status).toBe("listening");
   });
 
   it("removes a queued ask", async () => {

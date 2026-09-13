@@ -448,7 +448,7 @@ export default function Chat() {
   const location = useLocation();
   const { account } = useAccount();
   const { debug } = useViewMode();
-  const { messages, err, reload, setMessages, agentStatus, setAgentStatus, journey, collaborationId, sessionLoaded, runQueue } = useSessionMessages(id);
+  const { messages, err, reload, setMessages, agentStatus, setAgentStatus, journey, collaborationId, sessionLoaded, runQueue, setRunQueue } = useSessionMessages(id);
   const [text, setText] = useState("");
   const [lockedIntent, setLockedIntent] = useState<string | null>(null);
   const [lockedLabel, setLockedLabel] = useState<string | null>(null);
@@ -470,6 +470,7 @@ export default function Chat() {
   const [crawlGeneration, setCrawlGeneration] = useState(0);
   const [focusedMail, setFocusedMail] = useState<SessionMailRow | null>(null);
   const streamRef = useRef<HTMLDivElement>(null);
+  const stopRequestedRef = useRef(false);
   const focusThread = String((location.state as { focusThread?: string } | null)?.focusThread || "");
 
   useEffect(() => {
@@ -564,9 +565,14 @@ export default function Chat() {
   }, [id]);
 
   useEffect(() => {
+    stopRequestedRef.current = false;
+  }, [id]);
+
+  useEffect(() => {
     if (!id) return;
     const payload = takePending(id);
     if (!payload) return;
+    stopRequestedRef.current = false;
     setPending(true);
     setAgentStatus("running");
     const req = postOnce(id, payload);
@@ -574,10 +580,9 @@ export default function Chat() {
     req
       .then((r) => {
         clearPending(id);
-        if (!cancelled) {
-          setMessages(r.messages);
-          setAgentStatus(String(r.agent_status || (r.accepted ? "running" : "listening")));
-        }
+        if (cancelled || stopRequestedRef.current) return;
+        setMessages(r.messages);
+        setAgentStatus(String(r.agent_status || (r.accepted ? "running" : "listening")));
       })
       .catch(() => {
         clearPending(id);
@@ -619,6 +624,7 @@ export default function Chat() {
     setFocusDraft(false);
     setSubmitErr("");
     clearComposerDraft(id);
+    stopRequestedRef.current = false;
     setPending(true);
     setAgentStatus("running");
     setFocusedMail(null);
@@ -637,6 +643,7 @@ export default function Chat() {
         },
       };
       const r = await postOnce(id, pendingAsk);
+      if (stopRequestedRef.current) return;
       setMessages(r.messages || []);
       setAgentStatus(String(r.agent_status || (r.accepted ? "running" : "listening")));
     } catch (error) {
@@ -652,8 +659,13 @@ export default function Chat() {
 
   const stopRun = async () => {
     if (!id) return;
+    stopRequestedRef.current = true;
+    setPending(false);
+    setAgentStatus("listening");
     try {
-      await api.stopSession(id);
+      const r = await api.stopSession(id);
+      if (Array.isArray(r.run_queue)) setRunQueue(r.run_queue);
+      setAgentStatus(String(r.agent_status || "listening"));
     } catch (error) {
       setSubmitErr(error instanceof Error ? error.message : "未能停止生成");
     } finally {

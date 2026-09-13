@@ -1421,6 +1421,51 @@ test("employee process stays business Chinese while queued or running", async ({
   await saveScreenshot(page, "employee_process_business_chinese.png");
 });
 
+test("session composer 停止 cancels the in-flight run and leaves the composer idle", async ({ page }) => {
+  let stopped = false;
+  const stopPosts: string[] = [];
+  const now = new Date().toISOString();
+  await page.route("**/api/sessions/stop-run**", async (route) => {
+    const req = route.request();
+    const url = new URL(req.url());
+    if (req.method() === "POST" && url.pathname.endsWith("/stop")) {
+      stopped = true;
+      stopPosts.push(url.pathname);
+      await route.fulfill({ json: { stopped: true, agent_status: "listening", run_queue: [] } });
+      return;
+    }
+    if (req.method() === "GET" && (url.pathname === "/api/sessions/stop-run" || url.pathname.endsWith("/sessions/stop-run"))) {
+      await route.fulfill({
+        json: {
+          id: "stop-run",
+          title: "停止测试",
+          agent_status: stopped ? "listening" : "running",
+          messages: [
+            {
+              id: "job",
+              session_id: "stop-run",
+              role: "assistant",
+              kind: "job_status",
+              created_at: now,
+              payload: { status: stopped ? "done" : "running", text: stopped ? "已停止生成。已保留已产生的内容。" : "正在拟定邮件主题和正文…" },
+            },
+          ],
+          run_queue: [],
+        },
+      });
+      return;
+    }
+    await route.continue();
+  });
+  await page.goto("/s/stop-run");
+  await expect(page.locator("[data-stop-run]")).toBeVisible();
+  await expect(page.locator("[data-composer]")).toHaveAttribute("data-composer-running", "true");
+  await page.locator("[data-stop-run]").click();
+  await expect.poll(() => stopPosts.length).toBe(1);
+  await expect(page.locator("[data-stop-run]")).toHaveCount(0);
+  await expect(page.locator("[data-composer]")).not.toHaveAttribute("data-composer-running", "true");
+});
+
 test("employee stream parses task_result JSON into a card and hides engine jargon", async ({ page }) => {
   const now = new Date().toISOString();
   const dump = [

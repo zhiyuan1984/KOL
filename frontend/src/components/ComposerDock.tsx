@@ -722,7 +722,11 @@ export default function ComposerDock({
             type="button"
             data-stop-run
             aria-label="停止生成"
-            onClick={() => onStop?.()}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onStop?.();
+            }}
           >
             停止
           </button>

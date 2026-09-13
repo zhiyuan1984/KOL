@@ -31,9 +31,14 @@ export function isSessionRunning(sid: string): boolean {
   return running.has(sid);
 }
 
-export function markSessionRunning(sid: string): void {
-  running.add(sid);
+export function beginSessionAsk(sid: string): void {
   stopped.delete(sid);
+}
+
+export function markSessionRunning(sid: string): boolean {
+  if (stopped.has(sid)) return false;
+  running.add(sid);
+  return true;
 }
 
 export function clearSessionRunning(sid: string): void {
@@ -56,10 +61,10 @@ export function hasRunAbort(sid: string): boolean {
 
 export function abortSessionRun(sid: string): boolean {
   const controller = aborts.get(sid);
-  if (!controller && !running.has(sid)) return false;
+  const active = Boolean(controller) || running.has(sid);
   stopped.add(sid);
   controller?.abort();
-  return true;
+  return active;
 }
 
 export function listQueue(sid: string): QueuedAsk[] {
