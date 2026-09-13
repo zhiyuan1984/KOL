@@ -163,6 +163,7 @@
 | `19-ui-ux-constitution.md` | 注意力 / Agent 闭环法律 |
 | `04-ux-ui-system.md` + `specs/UX-KOL.md` | 可执行 UX ID / 闸门 / 状态 / 无障碍 |
 | 本文件（`20`） | 视觉 / token 默认，供 KOL-UI 工作台前端对齐 |
+| `21-admin-employee-page-roles.md` | 管理端 IA（治理表，不是第二套 Home/Agents）；token 仍用本文件 |
 
 冲突时：注意力与主路径以 `19` 为准；UX ID 与闸门以 `04` + `UX-KOL` 为准；色值与密度以本文件为准。04 的「蓝色主操作」与本文件 indigo 主色的**职责**一致，只换槽位色值。若有人要把主操作改回蓝、或改橙/绿/红的职责，先登记 `DECISIONS.md`。
 

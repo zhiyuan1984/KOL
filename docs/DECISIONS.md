@@ -25,6 +25,7 @@
 | ADR-010 | 试点 PEP 的授权证据由组织截图、100%真实邮箱负责人清单、远程 Starry MCP 只读结果和 registry 绑定共同构成；未补齐的身份元数据不阻断试点授权 | `config/org-registry.yaml`、`18-mcp-master-data-assessment.md` |
 | ADR-011 | Starry 阶段写入用原生码；人跳过只在 Host 记账；远程只走相邻前进（跨段则逐格 walk） | `05-agent-workflow-skill-policy.md`、`planStarryAdjacentWalk` / `changeLifecycleStage` |
 | ADR-012 | 员工端四页分工：Home=现在做什么；Pipeline=正式生命周期资产；Chat=完成一件任务；Admin=谁/权限/审计。Pipeline 禁止复制 Home 待办语义 | `19-ui-ux-constitution.md`、`specs/FS-KOL-010-pipeline.md` |
+| ADR-013 | 管理端是员工四表面的配套治理套件，不是副本；连接器只在 `/admin/connectors`，Agent 治理在 `/admin/agents`，个人 Starry 绑定只留 Settings | `21-admin-employee-page-roles.md`、`19-ui-ux-constitution.md` |
 
 ## 新增 Agent 分级
 
@@ -96,3 +97,29 @@ Pipeline 曾把首页任务芯片、「本页动作」伪芯片和 Chat 会话�
 - 规范：`19-ui-ux-constitution.md` 页面角色法律、`04-ux-ui-system.md` 指向、`specs/FS-KOL-010-pipeline.md`
 - 代码：`frontend/src/pages/Pipeline.tsx` 及 Pipeline CSS
 - 测试：Stub Playwright 去掉首页任务芯片、自动选中和伪看板动作断言
+
+## ADR-013 — 管理端配套套件，不是员工表面副本（2026-09-13）
+
+**状态**：已固化  
+**决策人**：产品负责人
+
+### 问题与背景
+
+Admin 导航和页面与员工连接器/智能体表面重叠：员工侧栏深链 `/admin/connectors`，管理端顶栏跳员工 `/agents`，两端共用 remote-pill chrome，Starry 个人绑定同时挂在 Admin 与 Settings，`Admin.tsx` / SkillHub / SimplePages 各维护一份连接器清单。这让管理端回答「现在从哪开工」，与 `19` 的 Admin 行（谁 / 权限 / 审计）和 Agents 工作入口 P0 冲突。
+
+### 决定
+
+1. **不改四页法律。** Home / Pipeline / Chat / Admin 仍各答一问。`/agents` 仍是员工工作入口。管理端展开为配套套件，不是第五套员工页，也不是第二套 Home / Pipeline / Agents。
+2. **连接器只在管理端枢纽。** `/admin/connectors` + `/admin/connectors/:id`：启用、凭据引用永不回显、员工 read/write、组织 Starry 策略。个人邮箱绑定只留 Settings。
+3. **Agent 治理页替换跳转。** 新 `/admin/agents` 管发布状态、可写范围、考试闸门、连接器授权矩阵；管理端顶栏不再跳员工 `/agents`。
+4. **导航与 chrome 分家。** 去掉员工侧栏管理端深链；管理端健康条用治理文案，不克隆员工 remote-pill。遗留「本期连接器」与 SkillHub 调试砖收敛到枢纽。
+
+### 不决定的范围
+
+不实施前端/后端，不 LIVE，不新增 UX ID 或 `specs/UX-ADMIN-PAGES.md`，不重做 Chat，不改数字员工对象模型。后端缺字段另开计划。
+
+### 影响
+
+- 规范：`21-admin-employee-page-roles.md`（正文）、`19` / `04` / `20` / `docs/README.md` / `specs/README.md` 索引
+- 代码：后续纯前端导航/枢纽 PR；本 ADR 不改 JSX/API
+- 测试：无新发布门禁项，直到另有 FS / UX ID 绑定

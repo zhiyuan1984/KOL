@@ -10,7 +10,7 @@ KOL 试点的可执行 UX 实例是 [`specs/UX-KOL.md`](../specs/UX-KOL.md)，�
 
 超级用户可以进入两端和显式调试视图，但仍不能跳过发送、阶段、解密、导入、删除和审批闸门。
 
-员工端四页分工（Home = 现在做什么 / Pipeline = 正式生命周期资产 / Chat = 完成一件任务 / Admin = 谁与审计）以 `19-ui-ux-constitution.md` 的页面角色法律为准。Pipeline 不得复用首页待办桶或会话技能启动器。
+员工端四页分工（Home = 现在做什么 / Pipeline = 正式生命周期资产 / Chat = 完成一件任务 / Admin = 谁与审计）以 `19-ui-ux-constitution.md` 的页面角色法律为准。Pipeline 不得复用首页待办桶或会话技能启动器。管理端配套套件（连接器枢纽/详情、Agent 治理、授权与绑定审计）与员工表面的硬边界见 `21-admin-employee-page-roles.md`；Admin 不是第二套 Home / Pipeline / Agents。
 
 ## 任务驱动体验
 
