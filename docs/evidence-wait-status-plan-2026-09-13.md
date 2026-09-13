@@ -2,9 +2,9 @@
 
 ## 一行结论
 
-`FE-only 可做`
+`FE-only 可做`（总结论不变；Agents「运行中 / 最近」壳与失败列表可用现有 session / task API 拼，不单独改成需后端。仅当要会话级 `last_error`、崩溃后仍可信的 running、或专用 retry-last-turn 时，才需后端，且只影响 Agents 投影。）
 
-本审查只读、无代码改动、无 LIVE 副作用。目标：判断当前 API 与前端是否已足以**真实反馈「等待中」任务状态**；并给出 FE-only 最小方案，以及仅当产品要做重试协议 / 接管 / 卡死回收时的最小后端方案（不实施）。
+本审查只读、无代码改动、无 LIVE 副作用。目标：判断当前 API 与前端是否已足以**真实反馈「等待中」任务状态**；并审查员工「我的智能体」页能否支撑「运行中 / 最近 / 失败重试」。给出 FE-only 最小方案，以及仅当产品要做重试协议 / 接管 / 卡死回收 / 会话级失败投影时的最小后端方案（不实施）。
 
 **事实 vs 建议：** 带「事实」的段落只陈述仓库现状；带「建议」的段落是未实施的落地选项。
 
@@ -38,6 +38,7 @@
 | 5 | 接管 / 人工处理：API / 权限 / 审计 / UI | **缺失** | 无 takeover 路由；`MANUAL_INTERVENE` 只是文案启发式 |
 | 6 | 轮询 / SSE / 刷新 | **部分** | 会话 SSE + 采集 1s 轮询；Home 几乎不刷新；Chat 对成功后的 `waiting` 仍 1s 打任务接口 |
 | 7 | 卡死 / 超时检测 | **部分** | Worker / 识别有单次超时；工作项与采集 Job 无卡死回收 |
+| 8 | Agents「运行中 / 最近 / 失败重试」 | **部分** | `GET /api/sessions` 已有 `agent_status`；Agents 页未用。失败不是 session 状态，须拼 `GET /api/tasks?status=failed` |
 
 ---
 
@@ -288,3 +289,81 @@ E2E：采集中条 `data-crawl-middle-status`（`frontend/e2e/workbench.spec.ts`
 | 会话 SSE + 采集轮询存在；Home 无轮询 | Home 只对 `pending/running` 短轮询 |
 | Worker 有 turn 超时；Job / 工作项无卡死回收 | 用已有 heartbeat 字段做扫描（后端，非本次必须） |
 | `UX-STATE-VISIBLE` 的 e2e 名未实现 | 落地后补 `waiting-and-failure-states` |
+| Agents 页不读会话；侧栏已有进行中 / 最近 | Agents 复用 `GET /api/sessions` + `GET /api/tasks?status=failed` |
+| `agent_status` 无 failed；失败在 message / work_item | 失败列表用 tasks，不要从 session 状态猜 |
+
+---
+
+## Agents / 我的智能体：运行中 · 最近 · 失败重试
+
+范围：员工 `/agents`（「我的智能体」）是否已能撑起「运行中」壳，以及「最近」「失败重试」的现有能力与缺口。只读；不实施。
+
+### 覆盖结论（事实）
+
+| 能力 | 判定 | 一句话 |
+|---|---|---|
+| 运行中壳 | **部分 / FE-only 可拼** | `GET /api/sessions` 每行已算 `agent_status`；Agents 页不读、不展示。侧栏「进行中」已用同一接口 |
+| 最近 | **部分 / FE-only 可拼** | 同接口按 `updated_at DESC`；侧栏 `data-recents` 取前 24 条。Agents 页没有 |
+| 失败重试 | **部分** | session **没有** `failed` 态；失败在 `error_card` / `work_items.status=failed`。可拼 `GET /api/tasks?status=failed` + 现有 `POST /run`。无会话级 retry-last-turn |
+
+**建议：** Agents「运行中 / 最近」不必等后端。失败列表用任务 API 拼即可；不要在 `agent_status` 上发明 `failed`。
+
+### 证据路径
+
+**Agents 页本身（事实）：**
+
+- 路由：`frontend/src/App.tsx` `/agents` → `frontend/src/pages/Agents.tsx`。
+- 标题「我的智能体」。加载 `api.profiles()` / `api.skills()` / `api.connectors()` / `useAgentManifest()`。
+- **不调用** `api.sessions()`，无运行中 / 最近 / 失败分区。
+- 动作只有 `startSkill`：`POST /api/sessions` + `storePending` + `nav(/s/:id)`。
+- 团队页 `frontend/src/pages/AgentTeams.tsx` 同样只创建会话，不列运行态。
+- E2E：`frontend/e2e/workbench.spec.ts` 只断言 heading「我的智能体」可见（约 1189 行），无运行中壳。
+
+**会话 / `agent_status` API（事实）：**
+
+- `GET /api/sessions`（`backend/src/host/api.ts`）：当前用户未删除、默认未归档会话，`ORDER BY updated_at DESC`；每行 `d.agent_status = sessionStatus(id)`。
+- `GET /api/sessions/:sid`、SSE `GET /api/sessions/:sid/events` 同样带 `agent_status`。
+- `sessionStatus`：内存 `isSessionRunning` → `running`；否则看最新 `workers.status`（`waiting_approval` / `running`）或最新 `drafts.status === waiting_approval`；否则 `listening`。
+- 合法值只有 `listening | running | waiting_approval`（`frontend/src/api.ts` `SessionRow`）。**没有 failed / queued / recognizing。**
+- 列表是整行 `sessions` 投影 + `agent_status`：有 `id` / `title` / `created_at` / `updated_at` / `collaboration_id` / `archived_at` 等。前端类型只声明了部分字段，运行时 JSON 仍带 `updated_at`。
+- **没有** `last_error`、`last_skill`、`last_intent`、`started_at`、`elapsed_seconds`、失败标志。
+- **没有** `?status=running` 过滤；客户端自滤。
+- 无全局 session 列表 SSE；单会话 SSE 不能驱动 Agents 页全表。
+- 测试：`backend/tests/async-worker.test.ts`、`run-queue.test.ts`、`session-events.test.ts`、`codex.test.ts` 覆盖单会话 `agent_status`；`host-contracts.test.ts` 有 `GET /api/sessions` 列表。侧栏 E2E：`sidebar 进行中 highlights only when viewing a running session`（mock `agent_status: "running"`）。
+
+**侧栏已有壳（事实，不在 Agents 页）：**
+
+- `frontend/src/layout/Workbench.tsx`：`api.sessions()` 在 `loc.pathname` 变化时重拉（**无 interval**）。
+- 「进行中」`data-nav="running"`：`runningCount`、`firstRunning`，链到第一条 `agent_status==="running"` 的 `/s/:id`，否则 `/`。徽章是计数，不是列表。
+- 「最近」`data-recents`：`sessions.slice(0, 24)` + 标题筛选；`status-dot` 用 `agent_status`。菜单：重命名 / 导出 / 归档 / 删除。无失败重试。
+- 「等我确认」混了 `waiting_approval` 会话与审批 inbox，不是 Agents 失败列表。
+
+**失败与重试（事实）：**
+
+- run 结束后 `agent_status` 回到 `listening`（`afterRun` → `sessionStatus`），**失败不会把 session 标 failed**。
+- 失败落在会话 `error_card`（须 `GET /sessions/:sid` 带 messages）或 `work_items.status=failed`（`GET /api/tasks?status=failed` 已支持）。
+- `GET /api/tasks` 含 `session_id`，可回链会话。
+- 无 `POST /sessions/:sid/retry`。可重开会话再提交，或对失败 work item 再 `POST /api/tasks/:id/run`（`startBoundTask` 接受 `pending|failed` run）。
+- 进程重启后内存 `running` Set 清空（`run-control.ts` `onConnReset`）；若 `workers.status` 仍为 `running` 则列表仍显示 running，否则会漏。
+
+### FE-only 是否可做（建议，不实施）
+
+**可以。** 不改后端也能在 `/agents` 做出可用壳：
+
+1. **运行中：** `GET /api/sessions`，滤 `agent_status === "running"`（可选再列 `waiting_approval`）。展示 title、`updated_at`、点进 `/s/:id`。页在前台时 3–5s 重拉（侧栏现无 interval）。不要为列表开 N 条 EventSource。
+2. **最近：** 同一列表按 `updated_at` 取前 N 条；复用侧栏 `status-dot` 语义。可显示 `collaboration_id` 若行上有。
+3. **失败重试：** 另拉 `GET /api/tasks?status=failed`（或列表后再滤）。行：title、`history_summary`、`updated_at`。有 `session_id` 则「打开会话」；再调现有 `runTask` 作为重试。不要对 `listening` 会话猜失败（须扫 messages，不适合列表）。
+4. **不要**在 Agents 上画接管、次数/冷却重试、或假 `failed` session 状态。
+
+缺口（FE 无法独自补齐，但不阻塞壳）：列表无 last_error / last_skill / 已耗时；running 在进程重启后可能不准；失败与「智能体入口」无直接绑定（任务有 `skill`，session 没有）。
+
+### 若需后端：最小改动（建议，不实施；仅 Agents 投影）
+
+只在产品要求「会话列表自带失败 / 技能 / 可信 running」时做。不必先改 Home 等待中方案。
+
+1. **`GET /api/sessions` 可选投影（最小）：** `last_skill`（最近 user message 的 `intent` 或绑定 `work_items.task_type`）、`last_outcome`（`ok | failed | listening`，由最近 `error_card` / `job_status` / 绑定 task 推导）、`last_error`（safe，截断）、`running_since`（若 running，取最新 worker / 内存开始时间）。允许 `?agent_status=running`。
+2. **不要**把 `failed` 写进 `sessionStatus` 三态，以免冲掉 `listening` 后的可继续会话。失败用投影字段。
+3. **进程重启：** `restoreActiveCrawlJobs` 之外，对 `workers.status=running` 且无活进程的会话标 failed 或清成 listening，避免幽灵「运行中」。
+4. **仅当要「重试上一轮」而非重跑 work item：** `POST /api/sessions/:sid/retry-last`（复用最后一条 user ask + intent；审计 `session.retry`）。有 work item 时内部走现有 `/run`。次数/冷却与任务重试同一套再做。
+
+以上均未实施。
