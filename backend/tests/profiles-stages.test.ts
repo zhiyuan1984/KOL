@@ -94,10 +94,12 @@ describe("15-stage state machine", () => {
     expect(legalTargetsWithEvidence("INITIAL_CONTACT", ["PUBLISHED"])).not.toContain("PUBLISHED");
     expect(legalTargetsWithEvidence("INITIAL_CONTACT", ["INTERESTED", "PUBLISHED"])).toContain("EVALUATING");
     expect(legalTargetsWithEvidence("INITIAL_CONTACT", ["INTERESTED", "PUBLISHED"])).not.toContain("PUBLISHED");
-    expect(toStarryStage("INTERESTED")).toBe("INTERESTED");
-    expect(toStarryStage("DISPUTED")).toBe("DISPUTED");
+    expect(toStarryStage("INTERESTED")).toBe("INTEREST_CONFIRMED");
+    expect(toStarryStage("NEGOTIATING")).toBe("BUSINESS_NEGOTIATION");
+    expect(toStarryStage("DISPUTED")).toBe("EXCEPTION_HANDLING");
     expect(toStarryStage("INITIAL_CONTACT")).toBe("INITIAL_CONTACT");
     expect(toLegacyStarryStage("INTERESTED")).toBe("INTEREST_CONFIRMED");
+    expect(toLegacyStarryStage("NEGOTIATING")).toBe("BUSINESS_NEGOTIATION");
     expect(toLegacyStarryStage("DISPUTED")).toBe("EXCEPTION_HANDLING");
     expect(evidencedPointer("INITIAL_CONTACT", ["INTERESTED"])).toEqual({ pointer: "INTERESTED", completed: [] });
     expect(evidencedPointer("INITIAL_CONTACT", ["INTERESTED", "EVALUATING"])).toEqual({

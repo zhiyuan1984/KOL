@@ -551,6 +551,12 @@ describe("KOL persistent session and fact-advance", () => {
     });
     expect(skip.status, await skip.text()).toBe(200);
     expect(stageOf("col_skip_sample")).toBe("CONTENT_PLANNING");
+    const skipRow = getConn().prepare(
+      "SELECT last_skip_kind, last_skip_reason, last_skipped_stages FROM collaborations WHERE id='col_skip_sample'",
+    ).get() as { last_skip_kind?: string; last_skip_reason?: string; last_skipped_stages?: string };
+    expect(skipRow.last_skip_kind).toBe("skip");
+    expect(skipRow.last_skip_reason).toBe("这次不寄样，直接内容策划");
+    expect(JSON.parse(String(skipRow.last_skipped_stages))).toEqual(["SAMPLE_PENDING", "SHIPPED", "TESTING"]);
 
     const missingReason = await request("POST", `/api/sessions/${sid}/confirm-stage`, {
       stage_code: "TESTING",

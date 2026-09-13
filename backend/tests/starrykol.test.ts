@@ -655,23 +655,23 @@ describe("Email MCP KOL library", () => {
     ]);
     expect(JSON.parse(String(calls[1].args.requestJson))).toMatchObject({
       kolUid: "KOLTEST001",
-      cooperationStageCode: "CONTRACTING",
+      cooperationStageCode: "CONTRACT_SIGNING",
       cooperationStageName: "合同签署",
     });
     expect(data).toMatchObject({ updated: true, kolUid: "KOLTEST001" });
   });
 
-  it("writes official cooperationStageCode instead of legacy Starry codes", async () => {
+  it("writes Starry-native cooperationStageCode on updateKolProfile", async () => {
     const { data } = await executeEmailMcpTask("creator_status_update", {
       kolUid: "KOLTEST001",
       cooperationStageCode: "INTERESTED",
     });
     expect(JSON.parse(String(calls.find((row) => row.name === "updateKolProfile")?.args.requestJson))).toMatchObject({
       kolUid: "KOLTEST001",
-      cooperationStageCode: "INTERESTED",
+      cooperationStageCode: "INTEREST_CONFIRMED",
       cooperationStageName: "已回复-有兴趣",
     });
-    expect(JSON.stringify(calls.find((row) => row.name === "updateKolProfile")?.args)).not.toContain("INTEREST_CONFIRMED");
+    expect(JSON.stringify(calls.find((row) => row.name === "updateKolProfile")?.args)).not.toContain("\"INTERESTED\"");
     expect(data).toMatchObject({ updated: true });
   });
 
@@ -831,6 +831,34 @@ describe("Email MCP task run path", () => {
     });
     expect(remoteLifecycleIdFrom({ lastLifecycleId: 320, lifecycle_id: "lc_KOL20260901LINGONG" })).toBe(320);
     expect(remoteLifecycleIdFrom({ lifecycle_id: "lc_KOL20260901LINGONG" })).toBeNull();
+  });
+
+  it("maps Host NEGOTIATING / 商务谈判 to Starry BUSINESS_NEGOTIATION with lastLifecycleId", async () => {
+    const recorded: { name: string; args: Json }[] = [];
+    setEmailMcpClientFactory(() => ({
+      async callTool(name: string, args: Json = {}) {
+        recorded.push({ name, args });
+        return { data: { updated: true, kolUid: "KOL20260901LINGONG" } };
+      },
+      async close() { /* noop */ },
+    }));
+    for (const stageCode of ["NEGOTIATING", "商务谈判"]) {
+      recorded.length = 0;
+      await writeRemoteOfficialStage({
+        kolUid: "KOL20260901LINGONG",
+        lastLifecycleId: 320,
+        stageCode,
+        reason: "probe",
+      });
+      expect(recorded).toHaveLength(1);
+      expect(recorded[0].name).toBe("changeLifecycleStage");
+      expect(JSON.parse(String(recorded[0].args.requestJson))).toMatchObject({
+        kolUid: "KOL20260901LINGONG",
+        lifecycleId: 320,
+        cooperationStageCode: "BUSINESS_NEGOTIATION",
+        cooperationStageName: "商务谈判",
+      });
+    }
   });
 
   it("omits invented local lifecycle placeholders from the Starry write payload", async () => {

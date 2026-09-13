@@ -27,12 +27,15 @@ import {
   LOCKED_PROMISE,
   approvalKindForStage,
   autoLegalTargets,
+  confirmTargetKind,
   confirmTargetNeedsReason,
   confirmTargetViews,
   groupedStageTracks,
   label,
   legalTargets,
   normalizeStage,
+  skippedStagesForConfirm,
+  toLegacyStarryStage,
 } from "../stages.js";
 import type { Intent, Json, Row, SessionStatus, StageTransitionInput, WorkerResult } from "../types.js";
 import { CodexUnavailable } from "../worker/errors.js";
@@ -2052,6 +2055,40 @@ async function dispatch(sid: string, me: Json, intent: Intent, col: Row | null, 
   return runWorkerFlow(sid, me, intent, col, text);
 }
 
+type HumanSkipRecord = {
+  skip_kind: "skip";
+  skip_reason: string;
+  skipped_stages: string[];
+};
+
+function humanSkipRecord(
+  current: string,
+  target: string,
+  reason: string | null | undefined,
+  autoWrite: boolean,
+): HumanSkipRecord | null {
+  if (autoWrite) return null;
+  if (confirmTargetKind(current, target) !== "skip") return null;
+  return {
+    skip_kind: "skip",
+    skip_reason: String(reason || "").trim(),
+    skipped_stages: skippedStagesForConfirm(current, target),
+  };
+}
+
+function persistHumanSkip(collaborationId: string, skip: HumanSkipRecord | null, clearIfAbsent: boolean): void {
+  if (skip) {
+    getConn().prepare(
+      "UPDATE collaborations SET last_skip_kind=?, last_skip_reason=?, last_skipped_stages=? WHERE id=?",
+    ).run(skip.skip_kind, skip.skip_reason, JSON.stringify(skip.skipped_stages), collaborationId);
+    return;
+  }
+  if (!clearIfAbsent) return;
+  getConn().prepare(
+    "UPDATE collaborations SET last_skip_kind=NULL, last_skip_reason=NULL, last_skipped_stages=NULL WHERE id=?",
+  ).run(collaborationId);
+}
+
 export function hostConfirmStage(
   handle: string | null | undefined,
   stageCode: string | null | undefined,
@@ -2120,6 +2157,7 @@ export function hostConfirmStage(
       target,
     });
   }
+  const skip = humanSkipRecord(current, target, reason, autoWrite);
   const ver = Number(col.stage_version || 0);
   if (expectedVersion != null && Number(expectedVersion) !== ver) {
     throw new HttpFail(409, { code: "version_conflict", message: "阶段已被他人更新，请刷新后再确认", expected: expectedVersion, actual: ver });
@@ -2169,13 +2207,16 @@ export function hostConfirmStage(
         target_label: label(target),
         expected_version: ver,
         reason: reason || "人工确认阶段",
-        reason_code: metadata.reason_code,
+        reason_code: metadata.reason_code || (skip ? "HUMAN_SKIP" : undefined),
         evidence: metadata.evidence,
         recommender: metadata.recommender,
         approver: metadata.approver,
         session_id: metadata.session_id,
         requester_name: user.name || user.handle,
         steps: chain.steps,
+        skip_kind: skip?.skip_kind,
+        skip_reason: skip?.skip_reason,
+        skipped_stages: skip?.skipped_stages,
       },
     });
     if (!approval?.id) {
@@ -2210,7 +2251,7 @@ export function hostConfirmStage(
     collaboration_id: String(col.id),
     from_stage: current,
     to_stage: target,
-    reason_code: String(metadata.reason_code || "HUMAN_CONFIRMED"),
+    reason_code: String(metadata.reason_code || (skip ? "HUMAN_SKIP" : "HUMAN_CONFIRMED")),
     evidence: (metadata.evidence && typeof metadata.evidence === "object"
       ? metadata.evidence
       : { reason: reason || "人工确认", source: "workbench" }) as Json,
@@ -2223,12 +2264,14 @@ export function hostConfirmStage(
     advancement_mode: targetStage.advancementMode,
   };
   const result = confirmStarryStage(String(col.lifecycle_id), target, "host", transition);
+  persistHumanSkip(String(col.id), skip, !autoWrite);
   audit("host", "host.confirm_stage", {
     lifecycle_id: col.lifecycle_id,
     from_stage: current,
     to_stage: target,
     transition_id: result.transition_id,
     sent: false,
+    reason,
     reason_code: transition.reason_code,
     evidence: transition.evidence,
     recommender: transition.recommender,
@@ -2236,8 +2279,12 @@ export function hostConfirmStage(
     occurred_at: transition.occurred_at,
     data_version_before: ver,
     data_version_after: ver + 1,
+    skip_kind: skip?.skip_kind || null,
+    skip_reason: skip?.skip_reason || null,
+    skipped_stages: skip?.skipped_stages || [],
+    remote_stage_code: toLegacyStarryStage(target),
   });
-  syncSessionStageCopy(String(col.id), target, String(metadata.session_id || ""));
+  syncSessionStageCopy(String(col.id), target, String(metadata.session_id || ""), skip);
   void import("./kol-journey.js").then((mod) => mod.publishJourneyForCollaboration(String(col.id)));
   return {
     ...result,
@@ -2249,10 +2296,19 @@ export function hostConfirmStage(
     kol_uid: col.kol_uid || null,
     waiting_approval: false,
     stage_changed: true,
+    skip_kind: skip?.skip_kind || null,
+    skip_reason: skip?.skip_reason || null,
+    skipped_stages: skip?.skipped_stages || [],
+    remote_stage_code: toLegacyStarryStage(target),
   };
 }
 
-export function syncSessionStageCopy(collaborationId: string, stageCode: string, extraSessionId = ""): void {
+export function syncSessionStageCopy(
+  collaborationId: string,
+  stageCode: string,
+  extraSessionId = "",
+  skip: HumanSkipRecord | null = null,
+): void {
   const col = getConn().prepare("SELECT handle, display_name FROM collaborations WHERE id=?").get(collaborationId) as Row | undefined;
   if (!col) return;
   const official = label(stageCode);
@@ -2302,6 +2358,11 @@ export function syncSessionStageCopy(collaborationId: string, stageCode: string,
       payload.current_label = official;
       payload.resolved = true;
       payload.locked = true;
+      if (skip) {
+        payload.skip_kind = skip.skip_kind;
+        payload.skip_reason = skip.skip_reason;
+        payload.skipped_stages = skip.skipped_stages;
+      }
       getConn().prepare("UPDATE messages SET payload=? WHERE id=?").run(JSON.stringify(payload), row.id);
     }
   }

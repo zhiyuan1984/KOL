@@ -16,6 +16,6 @@ MediaCrawler 是异步作业：`start_crawl → get_crawl_status → get_creator
 
 ## 数据字典
 
-展示值、外部 code、平台 canonical code 和显示阶段分开维护；跨系统映射版本化，Codex 只输出 canonical code，adapter 转换外部 code。租户、用户、公司、部门、品牌、区域和授权范围必须进入请求上下文，服务端二次校验。
+展示值、外部 code、平台 canonical code 和显示阶段分开维护；跨系统映射版本化，Codex 只输出 Host canonical code，adapter 读取时归一、写入 Starry 时输出原生码（ADR-011）。租户、用户、公司、部门、品牌、区域和授权范围必须进入请求上下文，服务端二次校验。
 
 密钥只引用环境变量或 Secret 名称，不能写入 Markdown、Skill、日志或提交记录。

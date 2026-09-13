@@ -22,17 +22,33 @@ describe("Starry remote MCP contract", () => {
     expect(options.find((row) => row.stageCode === "SETTLING")?.stageName).toBe("结算中 / 已付款");
   });
 
-  it("writes official stage code and Chinese name, never the legacy code", () => {
+  it("writes Starry-native stage code and matching Chinese name", () => {
+    expect(starryStageWriteFields("NEGOTIATING")).toEqual({
+      cooperationStageCode: "BUSINESS_NEGOTIATION",
+      cooperationStageName: "商务谈判",
+    });
+    expect(starryStageWriteFields("商务谈判")).toEqual({
+      cooperationStageCode: "BUSINESS_NEGOTIATION",
+      cooperationStageName: "商务谈判",
+    });
     expect(starryStageWriteFields("INTEREST_CONFIRMED")).toEqual({
-      cooperationStageCode: "INTERESTED",
+      cooperationStageCode: "INTEREST_CONFIRMED",
+      cooperationStageName: "已回复-有兴趣",
+    });
+    expect(starryStageWriteFields("INTERESTED")).toEqual({
+      cooperationStageCode: "INTEREST_CONFIRMED",
       cooperationStageName: "已回复-有兴趣",
     });
     expect(starryStageWriteFields("已签约")).toEqual({
-      cooperationStageCode: "CONTRACTING",
+      cooperationStageCode: "CONTRACT_SIGNING",
       cooperationStageName: "合同签署",
     });
     expect(starryStageWriteFields("EXCEPTION_HANDLING")).toEqual({
-      cooperationStageCode: "DISPUTED",
+      cooperationStageCode: "EXCEPTION_HANDLING",
+      cooperationStageName: "争议中",
+    });
+    expect(starryStageWriteFields("DISPUTED")).toEqual({
+      cooperationStageCode: "EXCEPTION_HANDLING",
       cooperationStageName: "争议中",
     });
   });
