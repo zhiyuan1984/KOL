@@ -27,7 +27,12 @@ function writeJson(name: string, value: unknown): void {
 
 const client = new RemoteMcpClient({
   url,
-  headers: { "X-MCP-API-KEY": apiKey },
+  headers: {
+    "X-MCP-API-KEY": apiKey,
+    ...(process.env.STARRY_KOL_MCP_BEARER
+      ? { Authorization: `Bearer ${process.env.STARRY_KOL_MCP_BEARER}` }
+      : {}),
+  },
   timeoutMs: 30000,
 });
 

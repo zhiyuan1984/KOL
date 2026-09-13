@@ -15,6 +15,34 @@
     "thread_start": "pass",
     "turn_start": "no completion within probe window"
   },
+  "remote_mcp_read": {
+    "status": "pass",
+    "tool_count": 62,
+    "profile_count": 221,
+    "mailbox_count": 5,
+    "stage_count": 16,
+    "operations": [
+      "listTools",
+      "listAllKolProfiles",
+      "pageMailboxes",
+      "listCooperationStageOptions"
+    ],
+    "forbidden_operations": ["decryptKolContact", "sendEmailNow", "changeLifecycleStage"]
+  },
+  "remote_mcp_read": {
+    "status": "pass",
+    "tool_count": 62,
+    "profile_count": 221,
+    "mailbox_count": 5,
+    "stage_count": 16,
+    "operations": [
+      "listTools",
+      "listAllKolProfiles",
+      "pageMailboxes",
+      "listCooperationStageOptions"
+    ],
+    "forbidden_operations": ["decryptKolContact", "sendEmailNow", "changeLifecycleStage"]
+  },
   "e2e": [
     {
       "name": "首封建联 starter asks for 发件/收件/主题",
@@ -37,5 +65,5 @@
     "real mode uses enabled authentication by default",
     "E2E screenshots no longer write to the obsolete /opt/cursor/artifacts path"
   ],
-  "generated_at": "2026-09-13T00:00:00+08:00"
+  "generated_at": "2026-09-13T13:51:37+08:00"
 }

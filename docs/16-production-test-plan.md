@@ -140,6 +140,24 @@ Pop-Location
 
 内部结论：内部测试所需的认证态、Edge 启动、任务识别缺口、异常邮件草稿、评价集、脱敏扫描和回滚证据已经可执行；`release:internal` 仍不能标记全绿，阻断项集中在全量测试 runner 生命周期和剩余 E2E 场景。生产契约、真实 app-server、远程阶段写入和 TB 绑定不属于本轮内部通过范围。
 
+### 2.8 Real staging E2E 尝试（2026-09-13）
+
+本次显式设置 `E2E_MODE=real`、`E2E_AUTH_MODE=enabled`、`PW_CHANNEL=msedge`，启动真实 Codex app-server 和真实远程配置；默认 E2E 仍保持 Stub，避免普通回归误触外部系统。证据文件为 [`artifacts/e2e/real-staging-2026-09-13.json`](../artifacts/e2e/real-staging-2026-09-13.json)。
+
+| 检查 | 结果 | 证据/限制 |
+|---|---|---|
+| Codex `initialize` | PASS | 真实 app-server 返回协议握手 |
+| Codex `account/read` | PASS | 返回 ChatGPT 账号；账号内容未写入报告 |
+| Codex `thread/start` | PASS | 真实线程创建成功 |
+| 最小只读 `turn/start` | BLOCKED | 未在探针窗口内完成；不是 Stub 结果 |
+| Starry MCP 只读探针 | PASS | 真实 Bearer + API Key；62 个工具、221 个画像、5 个邮箱、16 个阶段字典；未调用解密、发送或阶段写入 |
+| 首封建联 E2E | BLOCKED | 页面停留在真实意图识别 `recognizing`，90 秒后超时 |
+| 风险扫描 E2E | BLOCKED | 真实任务 Turn 超过 60 秒用例超时 |
+| 达人库查询 E2E | BLOCKED | 真实任务 Turn 超过 60 秒用例超时 |
+| 真实发送/阶段写入 | 未执行 | 本次没有点击发送，也没有提交阶段写入 |
+
+本次还修复了两个测试基础设施问题：E2E 启动器支持显式 `E2E_MODE=real`，并把旧的 `/opt/cursor/artifacts` 截图路径改为 Playwright 输出目录。当前 Real 阻断点在真实 Codex Turn/模型响应链路，不能由修改演示数据或延长浏览器断言单独解决。未完成真实 Turn 之前，不把 Stub 的 72 条回归结果改写成生产验收证据。
+
 ## 3. 功能测试矩阵
 
 | ID | 功能 | 必测场景 | 通过条件 |
