@@ -3508,6 +3508,20 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .detail-source.source-ai { color: #7653d7; }
 .task-detail-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; color: var(--muted); font-size: 12px; }
 .task-context { margin: 9px 0 0; color: var(--text); font-size: var(--font-ui); line-height: 1.5; }
+.thread-mail-digest {
+  margin: 0 22px 12px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--primary);
+  background: color-mix(in srgb, var(--primary) 5%, var(--bg));
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  width: auto;
+  min-width: 0;
+}
+.thread-mail-digest.is-empty {
+  border-left-color: var(--border);
+  background: transparent;
+  padding: 4px 12px;
+}
 .task-analysis-summary {
   margin: 0 22px 12px;
   padding: 10px 12px;

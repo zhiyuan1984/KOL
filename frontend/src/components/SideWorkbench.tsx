@@ -189,7 +189,7 @@ function ResultActions({
   if (!actions.length) return null;
   return (
     <section className="result-actions">
-      <h3>建议下一步</h3>
+      <h3>可补全</h3>
       <ol>
         {actions.map((action, index) => {
           const item = actionPrompt(action, index);

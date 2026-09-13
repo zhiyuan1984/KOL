@@ -100,6 +100,35 @@ function splitPortraitNotes(notes: unknown): string[] {
     .filter(Boolean);
 }
 
+function MailDigestPreview({
+  digest,
+  pending,
+  mailCount,
+}: {
+  digest: { text?: string; source?: string; mail_count?: number } | null;
+  pending: boolean;
+  mailCount?: number;
+}) {
+  const analysis = threadDigestView(digest, pending);
+  const count = Number(digest?.mail_count || mailCount || 0);
+  return (
+    <article
+      className={`thread-mail-digest sop-mail-analysis is-${analysis.kind}`}
+      data-mail-digest
+      data-mail-summaries
+      data-mail-summary
+      data-summary-source={digest?.source || (pending ? "pending" : "body_analysis")}
+    >
+      <span className="sop-mail-icon" aria-hidden>✉️</span>
+      <strong className="sop-mail-analysis-label">{analysis.label}</strong>
+      {count ? <small>{count} 封往来</small> : null}
+      <div className="sop-mail-md-body">
+        <Markdown>{analysis.text}</Markdown>
+      </div>
+    </article>
+  );
+}
+
 function KolPortraitFields({ portrait }: { portrait: Record<string, unknown> }) {
   const platform = String(portrait.platform || "").trim();
   const brand = String(portrait.brand || "").trim();
@@ -828,34 +857,6 @@ export default function Chat() {
                       </dd>
                     </div>
                     ) : null}
-                    <div className="sop-mail-block">
-                      <dd>
-                        {mailDigest?.text || mailAnalysisPending || (sessionMails && sessionMails.length) ? (
-                          <article
-                            className="sop-mail-md"
-                            data-mail-digest
-                            data-mail-summaries
-                            data-summary-source={mailDigest?.source || (mailAnalysisPending ? "pending" : "body_analysis")}
-                          >
-                            {(() => {
-                              const analysis = threadDigestView(mailDigest, mailAnalysisPending);
-                              return (
-                                <div className={`sop-mail-analysis is-${analysis.kind}`} data-mail-summary>
-                                  <span className="sop-mail-icon" aria-hidden>✉️</span>
-                                  <strong className="sop-mail-analysis-label">{analysis.label}</strong>
-                                  {mailDigest?.mail_count ? <small>{mailDigest.mail_count} 封往来</small> : null}
-                                  <div className="sop-mail-md-body">
-                                    <Markdown>{analysis.text}</Markdown>
-                                  </div>
-                                </div>
-                              );
-                            })()}
-                          </article>
-                        ) : (
-                          <p className="muted" data-mail-summaries>还没有往来邮件。</p>
-                        )}
-                      </dd>
-                    </div>
                     <div>
                       <dt>输入</dt>
                       <dd className="sop-input-chips">
@@ -898,6 +899,11 @@ export default function Chat() {
           )}
         </header>
         <div className="session-stream conversation" ref={streamRef} data-session-stream-pane data-ai-conversation role="log">
+        {kolSession && (mailDigest?.text || mailAnalysisPending || (sessionMails && sessionMails.length)) ? (
+          <MailDigestPreview digest={mailDigest} pending={mailAnalysisPending} mailCount={sessionMails?.length} />
+        ) : kolSession ? (
+          <p className="thread-mail-digest is-empty muted" data-mail-summaries>还没有往来邮件。</p>
+        ) : null}
         {task && (
           <section className="task-analysis-summary" data-task-analysis-summary>
             <strong>分析摘要</strong>

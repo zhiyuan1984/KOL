@@ -728,9 +728,52 @@ function safeStatus(status: unknown): TraceStatus {
   return "pending";
 }
 
+function tryParseJson(text: string): unknown | null {
+  const raw = String(text || "").trim();
+  if (!raw || (raw[0] !== "{" && raw[0] !== "[")) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function humanizeJsonValue(value: unknown, depth = 0): string {
+  if (value == null || depth > 3) return "";
+  if (typeof value === "string") {
+    const nested = tryParseJson(value);
+    return nested == null ? value : humanizeJsonValue(nested, depth + 1);
+  }
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    return value.map((item) => humanizeJsonValue(item, depth + 1)).filter(Boolean).slice(0, 8).join("；");
+  }
+  if (typeof value === "object") {
+    const skip = /^(id|tool_call_id|call_id|run_id|span_id|trace_id|raw|debug|payload)$/i;
+    return Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !skip.test(key))
+      .map(([key, item]) => {
+        const next = humanizeJsonValue(item, depth + 1);
+        return next ? `${fieldLabel(key)}：${next}` : "";
+      })
+      .filter(Boolean)
+      .slice(0, 8)
+      .join("；");
+  }
+  return "";
+}
+
+function humanizeMaybeJson(text: string, fallback = "正在处理"): string {
+  const parsed = tryParseJson(text);
+  if (parsed == null) return text;
+  return humanizeJsonValue(parsed) || fallback;
+}
+
 function humanizeTraceLabel(label: string) {
   const raw = label.trim();
   if (!raw) return "正在处理";
+  const fromJson = humanizeMaybeJson(raw, "");
+  if (fromJson && fromJson !== raw) return fromJson;
   if (/[\u4e00-\u9fff]/.test(raw)) return raw;
   const mapped: Record<string, string> = {
     creator_discovery: "正在检查达人信息",
@@ -1163,7 +1206,7 @@ export function ChatThread({
                 <details open data-reasoning-summaries>
                   <summary>分析摘要</summary>
                   {summaries.map((summary, index) => (
-                    <p key={`${summary}-${index}`}>{summary}</p>
+                    <p key={`${summary}-${index}`}>{humanizeMaybeJson(summary)}</p>
                   ))}
                 </details>
               )}
@@ -1276,7 +1319,11 @@ export function ChatThread({
             className={m.payload.streaming ? "is-streaming" : ""}
             data-streaming={m.payload.streaming ? "true" : undefined}
           >
-            {text ? <Markdown>{text}</Markdown> : (m.payload.streaming ? <span className="muted">正在输出…</span> : null)}
+            {text ? (
+              tryParseJson(text)
+                ? <p data-humanized-inference>{humanizeMaybeJson(text)}</p>
+                : <Markdown>{text}</Markdown>
+            ) : (m.payload.streaming ? <span className="muted">正在输出…</span> : null)}
           </ThreadMessage>
         );
       })}
