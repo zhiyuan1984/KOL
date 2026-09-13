@@ -19,7 +19,9 @@ import {
   evidencedPointer,
   label,
   normalizeStage,
+  planStarryAdjacentWalk,
   stageChecklist,
+  toLegacyStarryStage,
 } from "../stages.js";
 import { taskDefinition } from "../tasks/registry.js";
 import { libraryQueryKeyword } from "../tasks/resolver.js";
@@ -492,16 +494,39 @@ function parseRemoteLifecycleId(value: unknown): number | null {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-/** Host kernel only: human-confirmed official stage → Starry lifecycle. Worker must not call this. */
-export async function writeRemoteOfficialStage(input: {
+type RemoteStageWriteInput = {
   kolUid: string;
   lifecycleId?: string | number | null;
   lastLifecycleId?: string | number | null;
   last_lifecycle_id?: string | number | null;
   stageCode: string;
+  fromStage?: string | null;
   reason?: string | null;
-}): Promise<Json> {
+};
+
+/**
+ * Host kernel only: one adjacent-forward Starry hop. Worker must not call this.
+ *
+ * TODO(LIVE probe): even a true adjacent INTEREST_CONFIRMED → COOPERATION_EVALUATION
+ * still returns 回退. A parallel probe is testing ChangeStageRequest field names
+ * (`targetStageCode` vs `cooperationStageCode`) and risk-tag style
+ * (`lifecycleId` top-level + target* inside requestJson). Do not switch the
+ * payload until that probe names the field.
+ */
+export async function writeRemoteOfficialStage(input: RemoteStageWriteInput): Promise<Json> {
   const fields = starryStageWriteFields(input.stageCode);
+  if (input.fromStage != null && String(input.fromStage).trim()) {
+    const plan = planStarryAdjacentWalk(String(input.fromStage), input.stageCode);
+    if (plan.kind !== "adjacent") {
+      throw new HttpFail(400, {
+        code: "not_adjacent_forward",
+        message: "Starry 只接受相邻前进，禁止一次写入非相邻落地阶段",
+        from: plan.from,
+        to: plan.to,
+        hops: plan.nativeHops,
+      });
+    }
+  }
   const lifecycleId = remoteLifecycleIdFrom(input as Record<string, unknown>);
   const payload = {
     kolUid: input.kolUid,
@@ -512,6 +537,53 @@ export async function writeRemoteOfficialStage(input: {
   };
   const data = await call("changeLifecycleStage", requestJson(payload));
   return { ...json(data), tool: "changeLifecycleStage", updated: data.updated !== false };
+}
+
+/** Walk Starry with successive adjacent forwards. Human skip reason stays Host-local. */
+export async function writeRemoteOfficialStageWalk(input: RemoteStageWriteInput & { fromStage: string }): Promise<Json> {
+  const plan = planStarryAdjacentWalk(input.fromStage, input.stageCode);
+  if (plan.kind === "not_forward") {
+    return { skipped: true, reason: "not_adjacent_forward", walk: plan, tool: "changeLifecycleStage", updated: false };
+  }
+  const hops: Json[] = [];
+  let cursor = plan.from;
+  for (const hop of plan.hops) {
+    try {
+      const data = await writeRemoteOfficialStage({
+        ...input,
+        fromStage: cursor,
+        stageCode: hop,
+        reason: `会话确认进入 ${label(hop)}`,
+      });
+      hops.push({
+        from: cursor,
+        to: hop,
+        native: toLegacyStarryStage(hop),
+        tool: data.tool,
+        updated: Boolean(data.updated),
+      });
+      cursor = hop;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        error: true,
+        message,
+        tool: "changeLifecycleStage",
+        updated: false,
+        walk: plan,
+        hops,
+        failed_hop: hop,
+        failed_native: toLegacyStarryStage(hop),
+      };
+    }
+  }
+  return {
+    ...starryStageWriteFields(input.stageCode),
+    tool: "changeLifecycleStage",
+    updated: true,
+    walk: plan,
+    hops,
+  };
 }
 
 async function call(name: string, args: Json = {}): Promise<Json> {

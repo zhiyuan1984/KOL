@@ -392,6 +392,44 @@ export function skippedStagesForConfirm(current: string, target: string): string
   return skippedMainCodes(normalizeStage(current), normalizeStage(target));
 }
 
+export type StarryAdjacentWalkKind = "adjacent" | "walk" | "not_forward";
+
+export type StarryAdjacentWalk = {
+  from: string;
+  to: string;
+  hops: string[];
+  nativeHops: string[];
+  kind: StarryAdjacentWalkKind;
+};
+
+/**
+ * Starry only accepts adjacent forward hops. Human skip stays Host-local;
+ * remote sync must walk this list (ADR-011). Empty hops = not a forward main walk.
+ */
+export function planStarryAdjacentWalk(from: string, to: string): StarryAdjacentWalk {
+  const start = normalizeStage(from);
+  const end = normalizeStage(to);
+  const line = [...MAIN_STAGES.map((stage) => stage.code)];
+  if (NEXT_STAGE.SETTLING === "COMPLETED") line.push("COMPLETED");
+  const fromIdx = line.indexOf(start);
+  const toIdx = line.indexOf(end);
+  if (fromIdx < 0 || toIdx < 0 || toIdx <= fromIdx) {
+    return { from: start, to: end, hops: [], nativeHops: [], kind: "not_forward" };
+  }
+  const hops = line.slice(fromIdx + 1, toIdx + 1);
+  return {
+    from: start,
+    to: end,
+    hops,
+    nativeHops: hops.map((code) => toLegacyStarryStage(code)),
+    kind: hops.length === 1 ? "adjacent" : "walk",
+  };
+}
+
+export function isStarryAdjacentForward(from: string, to: string): boolean {
+  return planStarryAdjacentWalk(from, to).kind === "adjacent";
+}
+
 export function completedFromEvidence(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return [...new Set(

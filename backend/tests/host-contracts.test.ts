@@ -199,7 +199,7 @@ describe("host contracts", () => {
     expect(stored.some((row) => Boolean((JSON.parse(row.payload) as Json).resolved))).toBe(true);
   });
 
-  it("human skip keeps kind/reason locally and writes only the Starry-native landing stage", async () => {
+  it("human skip keeps kind/reason locally and walks Starry with adjacent native hops", async () => {
     getConn().prepare("UPDATE collaborations SET kol_uid=?, last_lifecycle_id=? WHERE id=?").run(
       "KOLXIAOMEI",
       "320",
@@ -235,15 +235,24 @@ describe("host contracts", () => {
       updated: true,
       cooperationStageCode: "BUSINESS_NEGOTIATION",
     });
+    expect((body.mcp_sync as Json).walk).toMatchObject({ kind: "walk" });
     const writes = recorded.filter((row) => row.name === "changeLifecycleStage");
-    expect(writes).toHaveLength(1);
-    expect(JSON.parse(String(writes[0].args.requestJson))).toMatchObject({
-      kolUid: "KOLXIAOMEI",
-      lifecycleId: 320,
-      cooperationStageCode: "BUSINESS_NEGOTIATION",
-      cooperationStageName: "商务谈判",
-    });
-    expect(JSON.stringify(writes[0].args)).not.toMatch(/INTERESTED|EVALUATING|QUOTE_PENDING|skip/i);
+    expect(writes).toHaveLength(4);
+    expect(writes.map((row) => JSON.parse(String(row.args.requestJson)).cooperationStageCode)).toEqual([
+      "INTEREST_CONFIRMED",
+      "COOPERATION_EVALUATION",
+      "QUOTE_PENDING",
+      "BUSINESS_NEGOTIATION",
+    ]);
+    expect(writes.every((row) => JSON.parse(String(row.args.requestJson)).lifecycleId === 320)).toBe(true);
+    expect(JSON.stringify(writes.map((row) => row.args))).not.toMatch(/skip/i);
+    const hopAudits = listAudit("host.confirm_stage.mcp") as Json[];
+    expect(hopAudits.filter((row) => (row.payload as Json).native).map((row) => (row.payload as Json).native)).toEqual([
+      "INTEREST_CONFIRMED",
+      "COOPERATION_EVALUATION",
+      "QUOTE_PENDING",
+      "BUSINESS_NEGOTIATION",
+    ]);
     const col = getConn().prepare(
       "SELECT stage_code, last_skip_kind, last_skip_reason, last_skipped_stages FROM collaborations WHERE id='col_xiaomei'",
     ).get() as Json;

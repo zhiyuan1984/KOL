@@ -16,7 +16,7 @@
 | ADR-008 | Starry MCP 不是独立组织授权源，但其邮箱负责人/授权结果可与已确认组织证据和 registry 绑定共同完成安培时代试点 PEP 核验 | `18-mcp-master-data-assessment.md`、`01-organization-tenancy.md` |
 | ADR-009 | 安培时代部门负责人（张慧玲、刘敏）自动拥有公司全部品牌、区域和普通业务数据读写；高风险动作仍受 Gateway/确认/审批约束 | `config/org-registry.yaml`、`01-organization-tenancy.md` |
 | ADR-010 | 试点 PEP 的授权证据由组织截图、100%真实邮箱负责人清单、远程 Starry MCP 只读结果和 registry 绑定共同构成；未补齐的身份元数据不阻断试点授权 | `config/org-registry.yaml`、`18-mcp-master-data-assessment.md` |
-| ADR-011 | Starry 阶段写入用原生码；人确认跳过只在 Host 记账，远程只写落地阶段 | `05-agent-workflow-skill-policy.md`、`starryStageWriteFields` / `changeLifecycleStage` |
+| ADR-011 | Starry 阶段写入用原生码；人跳过只在 Host 记账；远程只走相邻前进（跨段则逐格 walk） | `05-agent-workflow-skill-policy.md`、`planStarryAdjacentWalk` / `changeLifecycleStage` |
 
 ## 新增 Agent 分级
 
@@ -51,14 +51,14 @@ Host 用 15 段 + 旁路的本地码（如 `NEGOTIATING`）做确认卡、审计
 ### 决定
 
 1. **Starry 写入码 = Starry 原生码。** `changeLifecycleStage` / `starryStageWriteFields` / 其他阶段写 payload 经 `LEGACY_STAGE_ALIASES` 的逆映射（`toLegacyStarryStage` / `toStarryStage`）发出原生 `cooperationStageCode` 和对应中文名。例：Host `NEGOTIATING` / `商务谈判` → `BUSINESS_NEGOTIATION`。读取继续 `normalizeStage` / `codeFromLabel` 归一成 Host-local（`enrichListProfile` 用读映射，不用写映射）。
-2. **人跳过是 Host-only 语义。** 人确认 skip/jump 时，Host 把 skip kind、原因、被跳过的 Host 码记在确认卡、`host.confirm_stage` 审计和本地 `collaborations`（`last_skip_*`）。远程只调用一次 `changeLifecycleStage`，只带落地阶段的 Starry 原生码和已知 `lastLifecycleId`。不向 Starry 解释 skip，不写中间阶段。自动事实路径仍走 `autoLegalTargets` / evidence pointer，不写人式 skip。
+2. **人跳过是 Host-only 语义；远程只接受相邻前进。** 人确认 skip/jump 时，Host 把 skip kind、原因、被跳过的 Host 码记在确认卡、`host.confirm_stage` 审计和本地 `collaborations`（`last_skip_*`）。Starry 不能理解 skip，也**禁止**一次 `changeLifecycleStage` 写入非相邻落地阶段。跨多格主流程时，Host 按 `planStarryAdjacentWalk` **逐格相邻前进**走到落地（方案 a，LIVE 写入开启时的官方一致性）；每格单独审计。一格失败则停止并回传远程错误，不继续后续 hop。单格相邻确认仍只写一次。纠正/异常不是相邻前进，远程跳过（`not_adjacent_forward`），本地仍记账。自动事实路径仍走 `autoLegalTargets` / evidence pointer，不写人式 skip。
 
 ### 不决定的范围
 
-不放宽 `LIVE_*` / Gateway / confirm-before-send。不把本 ADR 当成 LIVE 阶段写入 PASS。云上探针应再测 `QUOTE_PENDING` → `BUSINESS_NEGOTIATION`（lifecycle 320）。
+不放宽 `LIVE_*` / Gateway / confirm-before-send。不把本 ADR 当成 LIVE 阶段写入 PASS。云上探针即使对真相邻 `INTEREST_CONFIRMED` → `COOPERATION_EVALUATION` 仍可能收到「回退」；并行探针在测 `targetStageCode` vs `cooperationStageCode`（以及 `lifecycleId` 顶层 + target* 在 `requestJson`）。字段名未确认前不改 ChangeStageRequest。Grok Bot 应再探相邻 `QUOTE_PENDING` → `BUSINESS_NEGOTIATION`（lifecycle 320）。
 
 ### 影响
 
 - 规范：`05-agent-workflow-skill-policy.md`（`legalTargets` vs `autoLegalTargets`，`confirm_stage` 写路径）
-- 代码：`backend/src/starrykol/remote-contract.ts`、`backend/src/stages.ts`、`backend/src/host/api.ts` `hostConfirmStage` / `syncConfirmedStageToMcp`
-- 测试：MCP payload 断言原生码；确认卡/审计保留 skip 原因
+- 代码：`planStarryAdjacentWalk`、`writeRemoteOfficialStage`（单 hop 邻接校验）、`writeRemoteOfficialStageWalk`、`syncConfirmedStageToMcp`
+- 测试：skip → adjacent walk 规划；MCP 只发相邻原生 hop；确认卡/审计保留 skip 原因
