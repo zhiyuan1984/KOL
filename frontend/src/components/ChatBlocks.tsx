@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type HTMLAttributes, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type HTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
 import {
   api,
   type EmailCard,
@@ -91,32 +91,82 @@ function StageTrackSelect({
   groups,
   suggested,
   mail = false,
+  disabled = false,
 }: {
   value: string;
   onChange: (code: string) => void;
   groups: StageTrackGroup[];
   suggested?: string;
   mail?: boolean;
+  disabled?: boolean;
 }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const items = groups.flatMap((group) => group.items);
+  const focusCode = (code: string) => {
+    rootRef.current?.querySelector<HTMLButtonElement>(`[data-stage-code="${CSS.escape(code)}"]`)?.focus();
+  };
+  const selectCode = (code: string) => {
+    if (disabled) return;
+    onChange(code);
+    requestAnimationFrame(() => focusCode(code));
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (disabled || !items.length) return;
+    const currentIndex = Math.max(0, items.findIndex((item) => item.code === value));
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      event.preventDefault();
+      selectCode(items[(currentIndex + 1) % items.length].code);
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      event.preventDefault();
+      selectCode(items[(currentIndex - 1 + items.length) % items.length].code);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      selectCode(items[0].code);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      selectCode(items[items.length - 1].code);
+    }
+  };
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
+    <div
+      ref={rootRef}
+      className="stage-chip-picker"
       data-stage-select
       data-mail-stage-select={mail ? "" : undefined}
+      data-value={value}
+      role="radiogroup"
+      aria-label="目标阶段"
+      onKeyDown={onKeyDown}
     >
       {groups.map((group) => (
-        <optgroup key={group.id} label={group.label} data-stage-track={group.id}>
-          {group.items.map((item) => (
-            <option key={item.code} value={item.code}>
-              {item.label || stageLabel(item.code)}
-              {item.code === suggested || item.suggested ? " · 建议" : ""}
-              {item.note ? ` · ${item.note}` : item.advancement_mode ? ` · ${item.advancement_mode}` : ""}
-            </option>
-          ))}
-        </optgroup>
+        <div key={group.id} className="stage-chip-group" data-stage-track={group.id}>
+          <p className="stage-chip-group-label">{group.label}</p>
+          <div className="stage-chip-row">
+            {group.items.map((item) => {
+              const selected = item.code === value;
+              const isSuggested = item.code === suggested || Boolean(item.suggested);
+              return (
+                <button
+                  key={item.code}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  tabIndex={selected || (!value && item.code === items[0]?.code) ? 0 : -1}
+                  disabled={disabled}
+                  className={`stage-chip${selected ? " is-selected" : ""}${isSuggested ? " is-suggested" : ""}`}
+                  data-stage-chip
+                  data-stage-code={item.code}
+                  onClick={() => selectCode(item.code)}
+                >
+                  <span className="stage-chip-name">{item.label || stageLabel(item.code)}</span>
+                  {isSuggested ? <span className="stage-chip-badge">建议</span> : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       ))}
-    </select>
+    </div>
   );
 }
 
@@ -460,10 +510,10 @@ export function StageFromDraft({
       <Markdown>
         {`### 确认推进阶段\n\n当前正式阶段：**${stageLabel(card.official_stage, card.official_stage_label)}**\n\n> 发送邮件不会修改阶段。请选择具体目标阶段后再确认。`}
       </Markdown>
+      {groups.length > 0 && (
+        <StageTrackSelect value={target} onChange={setTarget} groups={groups} disabled={busy} />
+      )}
       <div className="action-row">
-        {groups.length > 0 && (
-          <StageTrackSelect value={target} onChange={setTarget} groups={groups} />
-        )}
         <button className="btn work" data-email-action="confirm-stage" onClick={confirm} disabled={busy}>
           确认推进阶段
         </button>
@@ -565,8 +615,8 @@ export function ConfirmStageArtifact({
       </div>
       {payload.rejected ? <p className="muted" data-stage-rejected>已驳回，正式阶段未改。</p> : null}
       {payload.resolved && !payload.rejected ? <p className="muted" data-stage-resolved>已按确认写入正式阶段。</p> : null}
+      <StageTrackSelect value={code} onChange={setCode} groups={groups} suggested={suggested} disabled={closed || busy} />
       <div className="action-row">
-        <StageTrackSelect value={code} onChange={setCode} groups={groups} suggested={suggested} />
         <select value={reasonCode} onChange={(e) => setReasonCode(e.target.value)} data-reason-code disabled={closed || busy}>
           <option value="HUMAN_CONFIRMED">人工确认</option>
           <option value="REPLY_EVIDENCE">回复证据</option>
@@ -1384,13 +1434,13 @@ export function KolMailCard({
       {canConfirm && suggestedLabel ? (
         <p className="muted" data-mail-suggest>建议 {suggestedLabel}。请你选定具体正式阶段，不能用「下一阶段」。</p>
       ) : null}
+      {canConfirm && groups.length ? (
+        <StageTrackSelect value={picked} onChange={setPicked} groups={groups} suggested={suggested} mail disabled={busy} />
+      ) : null}
       <div className="action-row">
         <button type="button" className="btn work" data-mail-reply onClick={() => void reply()} disabled={!sessionId}>
           回复
         </button>
-        {canConfirm && groups.length ? (
-          <StageTrackSelect value={picked} onChange={setPicked} groups={groups} suggested={suggested} mail />
-        ) : null}
         {canConfirm ? (
           <button type="button" className="btn work" data-mail-confirm onClick={() => void confirm()} disabled={!sessionId || busy || !picked}>
             {busy ? "正在确认…" : "确认写入所选阶段"}
