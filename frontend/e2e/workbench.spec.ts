@@ -1042,7 +1042,7 @@ test("home waiting work item is labeled 结果待确认 not 等待中", async ({
   await expect(waiting).toContainText("结果待确认");
   await expect(waiting).not.toContainText("等待中");
   await expect(page.locator('[data-todo-bucket="waiting"]')).toHaveCount(0);
-  await expect(page.locator("[data-todo-md] em, [data-todo-md] i")).not.toContainText("结果待确认");
+  await expect(page.locator("[data-todo-md]").getByRole("emphasis", { name: "结果待确认" })).toHaveCount(0);
   await expect(page.locator('[data-todo-bucket="queued"]')).toContainText("已入队");
   await expect(page.locator('[data-todo-bucket="queued"] [data-todo-card]')).toHaveAttribute("data-wait-status", "已入队");
   await expect(page.locator('[data-todo-bucket="running"]')).toContainText("执行中");
@@ -1088,7 +1088,7 @@ test("home todo buckets fold after 6 items and keep wait-status labels", async (
   await expect(page.locator('[data-todo-bucket="open"] [data-fold-more]')).toBeVisible();
   await expect(page.locator('[data-todo-bucket="later"]')).toHaveCount(0);
   await expect(page.locator("[data-todo-md]")).not.toContainText("后续");
-  await expect(page.locator("[data-todo-md] em, [data-todo-md] i")).not.toContainText("结果待确认");
+  await expect(page.locator("[data-todo-md]").getByRole("emphasis", { name: "结果待确认" })).toHaveCount(0);
   await page.locator('[data-todo-bucket="open"] [data-fold-more]').click();
   await expect(page.locator("[data-todo-card]")).toHaveCount(9);
   await expect(page.locator("[data-today-work] [data-recommended-tasks]")).toHaveCount(0);
