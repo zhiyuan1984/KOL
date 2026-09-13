@@ -704,6 +704,21 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   color: var(--muted);
   font-size: 13px;
 }
+.insight-confirm { margin: 16px 0 0; }
+.home-fold-more {
+  display: inline-flex;
+  align-items: center;
+  margin: 4px 0 8px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  padding: 6px 0;
+}
+.home-fold-more:hover { color: var(--primary); }
 .todo-card-list,
 .insight-card-list {
   list-style: none;
