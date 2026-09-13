@@ -3069,12 +3069,21 @@ test("approvals page can preview and initiate an expense approval", async ({ pag
   await expect(form).toBeVisible();
   await expect(form.getByRole("heading", { name: "发起费用审批" })).toBeVisible();
   await expect(form).toContainText("阶段变更请在合作确认里提交");
+  await expect(page.locator("[data-approval-slice='mine']")).toBeVisible();
   await form.locator('[name="amount"]').fill("5000");
-  await form.locator('[name="currency"]').selectOption("CNY");
+  await form.locator('[name="requester"]').fill("张三");
+  await form.locator('[name="requester"]').blur();
+  await expect(form).toContainText("申请人不在组织名单里", { timeout: 10000 });
+  await expect(form).not.toContainText(/MCP|Codex|Host|engine/i);
+  await saveScreenshot(page, "approvals_initiate_blocked_unknown_requester.png");
+  await form.locator('[name="amount"]').fill("50000");
+  await form.locator('[name="currency"]').selectOption("USD");
   await form.locator('[name="requester"]').fill("黎玉燕");
   await form.locator('[name="purpose"]').fill("KOL 推广");
   await form.locator('[name="amount"]').blur();
   await expect(page.locator("[data-approval-preview]")).toContainText("林桐", { timeout: 10000 });
+  await expect(page.locator("[data-approval-preview]")).toContainText("张总");
+  await saveScreenshot(page, "approvals_initiate_preview_chain.png");
   await form.getByRole("button", { name: "提交费用审批" }).click();
   await expect(page).toHaveURL(/[?&]id=appr_/);
   const card = page.locator("[data-approval-id][data-approval-kind='expense']").first();
@@ -3083,6 +3092,7 @@ test("approvals page can preview and initiate an expense approval", async ({ pag
   await expect(card).toContainText("黎玉燕");
   await expect(card).toContainText("林桐");
   await expect(page.locator("body")).not.toContainText("approval_id=");
+  await saveScreenshot(page, "approvals_initiate_focused_card.png");
 });
 
 test("expense approval walks FIN-EXP-004 to 已办结 without record ids", async ({ page, request }) => {
