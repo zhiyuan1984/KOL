@@ -1,12 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { api } from "../api";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { REMOTE_BACKEND_LABEL, remoteForConnector, remoteForSkill } from "../agentConfig";
-import { profileNameLabel } from "../labels";
-import { starterPrompt } from "../taskStarters";
+import {
+  asTaskList,
+  buildAgentNextSteps,
+  failedTaskReason,
+  parseAgentTab,
+  readRecentAgents,
+  recentIdleSessions,
+  retryFailedTask,
+  runningSessions,
+  sessionStatusLabel,
+  startAgentWork,
+  type AgentKolLike,
+  type AgentNextStep,
+  type AgentPageTab,
+  type RecentAgent,
+} from "../agentWork";
+import { api, type HomeWorkbench, type RecommendedTask, type SessionRow, type Task } from "../api";
 import { storePending } from "../components/ChatBlocks";
-import { useViewMode } from "../viewMode";
 import { useAgentManifest } from "../hooks/useAgentManifest";
+import { rememberJourney } from "../journey";
+import { profileNameLabel } from "../labels";
+import { useViewMode } from "../viewMode";
 
 type Profile = {
   id: string;
@@ -18,158 +34,467 @@ type Profile = {
   canDeriveChildThreads?: boolean;
 };
 
-type SkillRow = {
-  id: string;
-  title: string;
-  label?: string;
-  profile?: string;
-  summary?: string;
-  granted?: boolean;
-  in_market?: boolean;
-  source?: "bundled" | "published";
-};
+const TABS: Array<{ id: AgentPageTab; label: string }> = [
+  { id: "work", label: "工作" },
+  { id: "teams", label: "团队" },
+  { id: "spec", label: "说明书" },
+];
 
 export default function Agents() {
   const { debug } = useViewMode();
   const manifest = useAgentManifest();
   const nav = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const tab = parseAgentTab(params.get("tab"));
   const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [skills, setSkills] = useState<SkillRow[]>([]);
   const [connectors, setConnectors] = useState<Record<string, unknown>[]>([]);
+  const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [recommendations, setRecommendations] = useState<RecommendedTask[]>([]);
+  const [kols, setKols] = useState<AgentKolLike[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [failedTasks, setFailedTasks] = useState<Task[]>([]);
+  const [recentAgents, setRecentAgents] = useState<RecentAgent[]>(() => readRecentAgents());
   const [err, setErr] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [openSpec, setOpenSpec] = useState<string | null>(null);
+  const [openTeam, setOpenTeam] = useState<string | null>(null);
 
   useEffect(() => {
-    void Promise.all([api.profiles(), api.skills(), api.connectors().catch(() => [])])
-      .then(([p, s, c]) => {
+    let cancelled = false;
+    void Promise.all([
+      api.profiles().catch(() => []),
+      api.connectors().catch(() => []),
+      api.sessions().catch(() => []),
+      api.homeBoard().catch(() => ({})),
+      api.tasks({ status: "failed" }).catch(() => []),
+    ])
+      .then(([p, c, s, board, failed]) => {
+        if (cancelled) return;
         setProfiles(Array.isArray(p) ? p : []);
-        setSkills(Array.isArray(s) ? s : []);
         setConnectors(Array.isArray(c) ? c : []);
+        setSessions(Array.isArray(s) ? s : []);
+        const workbench = (board as { workbench?: HomeWorkbench }).workbench;
+        setRecommendations(Array.isArray(workbench?.recommendations) ? workbench!.recommendations! : []);
+        const rawKols = Array.isArray((board as { kols?: Record<string, unknown>[] }).kols)
+          ? (board as { kols: Record<string, unknown>[] }).kols
+          : [];
+        setKols(rawKols.map((kol) => ({
+          id: String(kol.id || ""),
+          handle: String(kol.handle || kol.kol_name || "").replace(/^@/, ""),
+          stage_label: kol.stage_label ? String(kol.stage_label) : undefined,
+          stage_code: kol.stage_code ? String(kol.stage_code) : undefined,
+          exception: Boolean(kol.exception),
+          unbound: Boolean(kol.unbound),
+          days_in_stage: Number(kol.days_in_stage || 0),
+          unread_count: Number(kol.unread_count || 0),
+          notes: kol.notes ? String(kol.notes) : undefined,
+        })).filter((kol) => kol.handle));
+        setTasks(Array.isArray((board as { tasks?: Task[] }).tasks) ? (board as { tasks: Task[] }).tasks : []);
+        setFailedTasks(asTaskList(failed));
       })
-      .catch((e) => setErr(e instanceof Error ? e.message : "无法加载智能体目录"));
+      .catch((e) => {
+        if (!cancelled) setErr(e instanceof Error ? e.message : "无法加载工作台");
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const byProfile = useMemo(() => {
-    const map = new Map<string, SkillRow[]>();
-    for (const skill of skills.filter((s) => s.in_market !== false)) {
-      const pid = skill.profile || "commander";
-      if (!map.has(pid)) map.set(pid, []);
-      map.get(pid)!.push(skill);
-    }
-    return map;
-  }, [skills]);
+  const nextSteps = useMemo(
+    () => buildAgentNextSteps({
+      recommendations,
+      kols,
+      tasks: tasks.filter((task) => String(task.status || "") !== "failed"),
+      entries: manifest?.entries || [],
+    }),
+    [kols, manifest?.entries, recommendations, tasks],
+  );
 
-  const startSkill = async (skill: SkillRow) => {
-    const prompt = starterPrompt({ id: skill.id, title: skill.title, prompt: skill.summary || skill.title });
-    const ses = await api.createSession(prompt.slice(0, 24));
-    storePending(ses.id, { text: prompt, intent: skill.id });
-    nav(`/s/${ses.id}`);
+  const running = useMemo(() => runningSessions(sessions), [sessions]);
+  const runningIds = useMemo(() => new Set(running.map((row) => row.id)), [running]);
+  const recentSessions = useMemo(() => recentIdleSessions(sessions, runningIds), [runningIds, sessions]);
+
+  useEffect(() => {
+    if (tab !== "work") return;
+    const refreshShell = () => {
+      void api.sessions().then(setSessions).catch(() => undefined);
+      void api.tasks({ status: "failed" }).then((rows) => setFailedTasks(asTaskList(rows))).catch(() => undefined);
+    };
+    const timer = window.setInterval(refreshShell, 5000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshShell();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [tab]);
+
+  const setTab = (next: AgentPageTab) => {
+    const nextParams = new URLSearchParams(params);
+    if (next === "work") nextParams.delete("tab");
+    else nextParams.set("tab", next);
+    setParams(nextParams, { replace: true });
+  };
+
+  const goSession = (sessionId: string, kolSession = false) => {
+    if (kolSession) sessionStorage.setItem(`kol-session:${sessionId}`, "1");
+    nav(`/s/${sessionId}`, { state: kolSession ? { kolSession: true } : undefined });
+  };
+
+  const onStart = async (step: AgentNextStep) => {
+    setBusy(step.id);
+    setErr("");
+    rememberJourney({
+      kind: "skill",
+      skillId: step.intent,
+      skillLabel: step.title,
+      handle: step.handle,
+    });
+    try {
+      const opened = await startAgentWork(step);
+      setRecentAgents(readRecentAgents());
+      goSession(opened.id, opened.kolSession);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "无法开始");
+      setBusy(null);
+    }
+  };
+
+  const startTeam = async (teamId: string, stepIndex = 0) => {
+    const team = manifest?.teams.find((row) => row.id === teamId);
+    if (!team) return;
+    const step = team.steps[stepIndex] || team.steps[0];
+    const title = `${team.title} · ${step.label}`;
+    setBusy(`team-${teamId}`);
+    setErr("");
+    rememberJourney({ kind: "skill", skillId: step.skillId, skillLabel: step.label });
+    try {
+      const ses = await api.createSession(title.slice(0, 24));
+      storePending(ses.id, { text: step.prompt });
+      sessionStorage.setItem(`team:${ses.id}`, JSON.stringify({ teamId, stepIndex }));
+      nav(`/s/${ses.id}`);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "无法开始团队步骤");
+      setBusy(null);
+    }
+  };
+
+  const onRetryFailed = async (task: Task) => {
+    setBusy(`failed-${task.id}`);
+    setErr("");
+    rememberJourney({
+      kind: "task",
+      skillId: String(task.skill_id || task.skill || ""),
+      skillLabel: task.title,
+      handle: task.kol_name,
+    });
+    try {
+      const opened = await retryFailedTask(task);
+      goSession(opened.id, opened.kolSession);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "无法重试");
+      setBusy(null);
+    }
+  };
+
+  const startRecent = (row: RecentAgent) => {
+    void onStart({
+      id: row.id,
+      title: row.title,
+      reason: "最近用过",
+      cta: "再开一单",
+      source: "catalog",
+      sourceLabel: "最近在用",
+      intent: row.intent,
+      prompt: row.prompt,
+      handle: row.handle,
+    });
   };
 
   return (
-    <div className="list-page agent-page">
+    <div className="list-page agent-page" data-agent-page={tab}>
       <div className="page-hero agent-hero">
         <div className="page-kicker">智能体</div>
         <h1>我的智能体</h1>
         <p className="muted">
-          按红人合作、审批和采集分组的工作入口。发送不等于改阶段。
+          从今天的合作开工。说明书收在后面，技能仍走
+          <Link to="/skills">技能目录</Link>
+          。发送不等于改阶段。
         </p>
         {debug && (
-        <div className="remote-legend">
-          {Object.entries(REMOTE_BACKEND_LABEL).map(([id, label]) => {
-            const live = connectors.find((row) => remoteForConnector(String(row.id || "")) === id);
-            const status = live ? String(live.status || "configured") : "catalog";
-            return (
-              <span key={id} className="remote-pill" data-remote={id} data-live={live ? "on" : "off"} title={live ? `连接器 ${String(live.label || live.id)} · ${status}` : "目录映射"}>
-                <i className="live-dot" aria-hidden />
-                {label}
-              </span>
-            );
-          })}
-        </div>
+          <div className="remote-legend">
+            {Object.entries(REMOTE_BACKEND_LABEL).map(([id, label]) => {
+              const live = connectors.find((row) => remoteForConnector(String(row.id || "")) === id);
+              const status = live ? String(live.status || "configured") : "catalog";
+              return (
+                <span key={id} className="remote-pill" data-remote={id} data-live={live ? "on" : "off"} title={live ? `连接器 ${String(live.label || live.id)} · ${status}` : "目录映射"}>
+                  <i className="live-dot" aria-hidden />
+                  {label}
+                </span>
+              );
+            })}
+          </div>
         )}
       </div>
-      {err && <p className="error">{err}</p>}
-      <div className="agent-entry-grid">
-        {(manifest?.entries || []).map((entry) => (
-          <article key={entry.id} className="panel agent-card agent-entry-card" data-agent-entry={entry.id}>
-            <header className="agent-card-head">
-              <span className="agent-avatar" aria-hidden>{entry.title.slice(0, 1)}</span>
-              <div className="agent-card-titles">
-                <h2>{entry.title}</h2>
-                  {debug && <span className="muted nowrap">{REMOTE_BACKEND_LABEL[remoteForSkill(entry.skillId)]}</span>}
-              </div>
-            </header>
-            <p className="agent-scope">{entry.summary}</p>
-            <button
-              type="button"
-              className="btn work"
-              onClick={() => void startSkill({
-                id: entry.skillId,
-                title: entry.title,
-                summary: entry.prompt,
-              })}
-            >
-              用此智能体开始
-            </button>
-          </article>
+
+      <div className="agent-tabs" role="tablist" aria-label="智能体页面">
+        {TABS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            className={"agent-tab" + (tab === item.id ? " on" : "")}
+            aria-selected={tab === item.id}
+            data-agent-tab={item.id}
+            onClick={() => setTab(item.id)}
+          >
+            {item.label}
+          </button>
         ))}
       </div>
-      <div className="agent-grid">
-        {profiles.map((profile) => {
-          const rows = byProfile.get(profile.id) || [];
-          const remotes = new Set(rows.map((s) => remoteForSkill(s.id)));
-          return (
-            <article key={profile.id} className="panel agent-card" data-agent-profile={profile.id}>
-              <header className="agent-card-head">
-                <span className="agent-avatar" aria-hidden>{profileNameLabel(profile.name).slice(0, 1)}</span>
-                <div className="agent-card-titles">
-                  <h2>{profileNameLabel(profile.name)}</h2>
-                  {debug && <span className="muted mono nowrap">{profile.harness}</span>}
-                </div>
-              </header>
-              <p className="agent-scope">{profile.defaultWritableScope}</p>
-              <p className="muted agent-guard">{profile.guardrail}</p>
-              {debug && (
-              <div className="agent-remotes">
-                {[...remotes].map((r) => (
-                  <span key={r} className="remote-pill sm" data-remote={r}>{REMOTE_BACKEND_LABEL[r]}</span>
-                ))}
-              </div>
-              )}
-              <ul className="agent-resp">
-                {profile.responsibilities.map((item) => <li key={item}>{item}</li>)}
-              </ul>
-              <h3 className="agent-skills-title">关联技能 ({rows.length})</h3>
-              <div className="agent-skill-list">
-                {rows.map((skill) => (
-                  <div key={skill.id} className="agent-skill-row" data-skill={skill.id}>
-                    <div className="agent-skill-copy">
-                      <strong>{skill.label || skill.title}</strong>
-                      {skill.source === "published" && <span className="hub-kind">自建</span>}
-                      {debug && <span className="muted remote-tag nowrap">{REMOTE_BACKEND_LABEL[remoteForSkill(skill.id)]}</span>}
-                      {skill.summary && <p className="muted skill-sum">{skill.summary}</p>}
+
+      {err && <p className="error">{err}</p>}
+
+      {tab === "work" && (
+        <div className="agent-work" data-agent-work>
+          <section className="agent-section" data-agent-section="next">
+            <header className="agent-section-head">
+              <h2>推荐下一步</h2>
+              <span className="muted">{nextSteps.length ? `${nextSteps.length} 项` : "暂无"}</span>
+            </header>
+            {nextSteps.length ? (
+              <ul className="agent-work-list">
+                {nextSteps.map((step) => (
+                  <li key={step.id} className="agent-work-row" data-agent-next={step.id} data-agent-source={step.source}>
+                    <span className="agent-work-icon" aria-hidden>{step.icon || "○"}</span>
+                    <div className="agent-work-copy">
+                      <strong>{step.title}</strong>
+                      <p className="muted">{step.reason} · {step.sourceLabel}</p>
                     </div>
                     <button
                       type="button"
                       className="btn work sm"
-                      disabled={skill.granted === false}
-                      onClick={() => void startSkill(skill)}
+                      disabled={busy === step.id}
+                      onClick={() => void onStart(step)}
                     >
-                      在会话里用
+                      {step.cta}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted agent-empty">还没有跟进中的红人或待办。可以从技能目录开工，或先回首页看今天的合作。</p>
+            )}
+          </section>
+
+          <section className="agent-section" data-agent-section="recent">
+            <header className="agent-section-head">
+              <h2>最近在用</h2>
+              <span className="muted">{recentSessions.length || recentAgents.length ? "接着上次的会话" : "暂无"}</span>
+            </header>
+            {recentSessions.length ? (
+              <ul className="agent-work-list">
+                {recentSessions.map((session) => (
+                  <li key={session.id} className="agent-work-row" data-agent-recent={session.id}>
+                    <i className={"status-dot " + (session.agent_status || "listening")} aria-hidden />
+                    <div className="agent-work-copy">
+                      <strong>{session.title}</strong>
+                      <p className="muted">{sessionStatusLabel(session.agent_status)}</p>
+                    </div>
+                    <Link className="btn work sm" to={`/s/${session.id}`}>继续</Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted agent-empty">还没有会话。从上面选一步开始，不要先翻说明书。</p>
+            )}
+            {recentAgents.length > 0 && (
+              <div className="agent-recent-chips" aria-label="最近用过的入口">
+                {recentAgents.map((row) => (
+                  <button
+                    key={row.id}
+                    type="button"
+                    className="chip agent-recent-chip"
+                    disabled={busy === row.id}
+                    onClick={() => startRecent(row)}
+                  >
+                    再开 · {row.title}
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="agent-section" data-agent-section="running">
+            <header className="agent-section-head">
+              <h2>运行中</h2>
+              <span className="muted">{running.length ? `${running.length} 个会话` : "当前没有"}</span>
+            </header>
+            {running.length ? (
+              <ul className="agent-work-list">
+                {running.map((session) => (
+                  <li key={session.id} className="agent-work-row" data-agent-running={session.id}>
+                    <i className={"status-dot " + (session.agent_status || "running")} aria-hidden />
+                    <div className="agent-work-copy">
+                      <strong>{session.title}</strong>
+                      <p className="muted">{sessionStatusLabel(session.agent_status)}</p>
+                    </div>
+                    <Link className="btn work sm" to={`/s/${session.id}`}>回到会话</Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted agent-empty">
+                当前没有进行中的会话。会话列表里状态为运行中或等确认的会出现在这里。
+              </p>
+            )}
+          </section>
+
+          <section className="agent-section" data-agent-section="failed">
+            <header className="agent-section-head">
+              <h2>失败</h2>
+              <span className="muted">{failedTasks.length ? `${failedTasks.length} 项` : "当前没有"}</span>
+            </header>
+            {failedTasks.length ? (
+              <ul className="agent-work-list">
+                {failedTasks.map((task) => (
+                  <li key={task.id} className="agent-work-row" data-agent-failed={task.id}>
+                    <span className="agent-work-icon" aria-hidden>!</span>
+                    <div className="agent-work-copy">
+                      <strong>{task.title}</strong>
+                      <p className="muted">{failedTaskReason(task)}</p>
+                    </div>
+                    <div className="agent-card-actions">
+                      {task.session_id && (
+                        <Link className="btn ghost sm" to={`/s/${task.session_id}`}>打开会话</Link>
+                      )}
+                      <button
+                        type="button"
+                        className="btn work sm"
+                        disabled={busy === `failed-${task.id}`}
+                        onClick={() => void onRetryFailed(task)}
+                      >
+                        重试
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted agent-empty">没有失败的任务。</p>
+            )}
+          </section>
+        </div>
+      )}
+
+      {tab === "teams" && (
+        <div className="agent-teams-pane" data-agent-teams>
+          <header className="agent-section-head">
+            <h2>智能体团队</h2>
+            <p className="muted">预设编组，不是群聊。每一步仍走已发布动作。</p>
+          </header>
+          <div className="team-grid">
+            {(manifest?.teams || []).map((team) => {
+              const expanded = openTeam === team.id;
+              return (
+                <article key={team.id} className="panel team-card" data-team={team.id}>
+                  <h3>{team.title}</h3>
+                  <p className="muted">{team.summary}</p>
+                  <p className="team-profiles">
+                    {team.profileIds.map((id) => (
+                      <span key={id} className="chip">{profileNameLabel(id)}</span>
+                    ))}
+                  </p>
+                  <ol className="team-steps">
+                    {team.steps.map((step, index) => (
+                      <li key={step.skillId} data-step={index}>
+                        <span className="team-step-idx">{index + 1}</span>
+                        <div>
+                          <strong>{step.label}</strong>
+                          {debug && <span className="muted remote-tag">{REMOTE_BACKEND_LABEL[remoteForSkill(step.skillId)]}</span>}
+                          {expanded && <p className="muted step-prompt">{step.prompt}</p>}
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                  <div className="agent-card-actions">
+                    <button
+                      type="button"
+                      className="btn work"
+                      disabled={busy === `team-${team.id}`}
+                      onClick={() => void startTeam(team.id, 0)}
+                    >
+                      从第一步开始
+                    </button>
+                    <button
+                      type="button"
+                      className="btn ghost sm"
+                      aria-expanded={expanded}
+                      onClick={() => setOpenTeam(expanded ? null : team.id)}
+                    >
+                      {expanded ? "收起步骤说明" : "查看步骤说明"}
                     </button>
                   </div>
-                ))}
-                {!rows.length && <p className="muted">暂无已上架技能。</p>}
-              </div>
-            </article>
-          );
-        })}
-      </div>
-      <p className="muted agent-foot">
-        想看预设编组？<Link to="/teams">打开智能体团队</Link>
-        {" · "}
-        <Link to="/skills">技能目录</Link>
-      </p>
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {tab === "spec" && (
+        <div className="agent-spec-pane" data-agent-spec>
+          <header className="agent-section-head">
+            <h2>说明书</h2>
+            <p className="muted">职责、护栏和可写范围默认收起。要开工请回到「工作」或去<Link to="/skills">技能目录</Link>。</p>
+          </header>
+          <div className="agent-grid">
+            {profiles.map((profile) => {
+              const expanded = openSpec === profile.id;
+              return (
+                <article key={profile.id} className="panel agent-card agent-spec-card" data-agent-profile={profile.id}>
+                  <header className="agent-card-head">
+                    <span className="agent-avatar" aria-hidden>{profileNameLabel(profile.name).slice(0, 1)}</span>
+                    <div className="agent-card-titles">
+                      <h3>{profileNameLabel(profile.name)}</h3>
+                      {debug && <span className="muted mono">{profile.harness}</span>}
+                      <p className="muted">{profile.responsibilities[0] || profile.defaultWritableScope}</p>
+                    </div>
+                  </header>
+                  <div className="agent-card-actions">
+                    <button
+                      type="button"
+                      className="btn ghost sm"
+                      aria-expanded={expanded}
+                      data-agent-spec-toggle={profile.id}
+                      onClick={() => setOpenSpec(expanded ? null : profile.id)}
+                    >
+                      {expanded ? "收起说明书" : "展开说明书"}
+                    </button>
+                    <Link className="btn ghost sm" to="/skills">技能目录</Link>
+                  </div>
+                  {expanded && (
+                    <div className="agent-spec-body" data-agent-spec-body={profile.id}>
+                      <p className="agent-scope"><strong>可写范围</strong> {profile.defaultWritableScope}</p>
+                      <p className="muted agent-guard"><strong>护栏</strong> {profile.guardrail}</p>
+                      {debug && (
+                        <div className="agent-remotes">
+                          <span className="remote-pill sm" data-remote={remoteForSkill(profile.id)}>{REMOTE_BACKEND_LABEL[remoteForSkill(profile.id)]}</span>
+                        </div>
+                      )}
+                      <ul className="agent-resp">
+                        {profile.responsibilities.map((item) => <li key={item}>{item}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
