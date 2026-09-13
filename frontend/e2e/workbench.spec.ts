@@ -360,7 +360,7 @@ test("exception template 延期关怀 prefills home then drafts without changing
   await submitHomeComposer(page);
   await expect(page.locator('[data-kind="me"]')).toContainText("延期关怀", { timeout: 15000 });
   await expectDraft(page);
-  await expect(page.locator("[data-workbench] [data-kind='email-card']")).toContainText("Update on the Content Timeline");
+  await expect(page.locator("[data-workbench] [data-draft-subject]")).toHaveValue("Update on the Content Timeline");
   // Constitution §4: one quiet send≠stage hint on the composer, not on the draft.
   await expect(page.locator("[data-session-send-hint]")).toHaveText("发送不等于改阶段");
   await expect(page.locator("[data-workbench] [data-kind='email-card']")).not.toContainText("正式阶段");

@@ -969,7 +969,7 @@ export default function Chat() {
         )}
         </div>
         <footer className="session-composer prompt-input" data-sop-ask={journey?.sop ? true : undefined} data-ai-prompt-input>
-          {kolSession ? (
+          {kolSession || messages.some((message) => message.kind === "email_card") ? (
             <p className="session-send-hint" data-session-send-hint>
               发送不等于改阶段
             </p>
