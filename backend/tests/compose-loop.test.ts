@@ -125,6 +125,8 @@ describe("KOL stage-mail communication", () => {
     expect(pickComposeTemplate("email_compose", "SAMPLE_PENDING", "核对地址", null).id).toBe("addr_check.collect");
     expect(pickComposeTemplate("email_compose", "SHIPPED", "发货通知", null).id).toBe("ship_notice.v1");
     expect(pickComposeTemplate("email_compose", "INITIAL_CONTACT", "写合作邮件", null).id).toBe("kol.first_touch");
+    expect(pickComposeTemplate("email_compose", "INITIAL_CONTACT", "写跟进邮件 @小美妆日记", null).id).toBe("stage_mail.followup");
+    expect(pickComposeTemplate("email_compose", "INTERESTED", "写跟进邮件 @小美妆日记", null).id).toBe("stage_mail.interested");
     expect(composeGapHint({ kind: "quote", amount_usd: null }).result_action).toMatch(/补上金额/);
     expect(composeGapHint({ kind: "quote", amount_usd: 100 }).field).toBeNull();
   });
@@ -179,6 +181,24 @@ describe("KOL stage-mail communication", () => {
     expect(follow.result?.payload.compose_loop).toMatchObject({ kind: "followup", quote: false });
     expect(JSON.stringify(follow.result?.payload || "")).toMatch(/跟进要点/);
     expect(follow.draft?.payload.body).toBeTruthy();
+  });
+
+  it("写跟进 at first contact stays on the sendable followup template", async () => {
+    const follow = await composeOn("col_xiaomei", "写跟进邮件 @小美妆日记");
+    const draftId = String(follow.draft?.payload.draft_id || "");
+    const stored = getConn().prepare("SELECT template_id, official_stage FROM drafts WHERE id=?").get(draftId) as
+      | { template_id?: string; official_stage?: string }
+      | undefined;
+    expect(stored?.template_id).toBe("stage_mail.followup");
+    expect(stored?.official_stage).toBe("INITIAL_CONTACT");
+    expect(String(follow.draft?.payload.body || "")).not.toMatch(/Thanks for the interest/i);
+    const sent = await request("POST", `/api/drafts/${draftId}/send`, {});
+    expect(sent.status, sent.text).toBe(200);
+    const pipe = await request("GET", "/api/pipeline");
+    const xiaomei = Object.values(pipe.body.groups as Record<string, { handle: string; stage_code: string }[]>)
+      .flat()
+      .find((row) => row.handle === "小美妆日记");
+    expect(xiaomei?.stage_code).toBe("INITIAL_CONTACT");
   });
 
   it("核对地址 stacks sample facts, not a quote", async () => {

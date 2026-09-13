@@ -81,9 +81,16 @@ export function stageMailSpec(stage = ""): StageMailSpec {
   return contract.letters[code] || contract.fallback;
 }
 
-export function stageMailSpecByKind(kind: StageMailKind): StageMailSpec {
-  return Object.values(emailComposeContract().letters).find((row) => row.kind === kind)
-    || emailComposeContract().fallback;
+export function stageMailSpecByKind(kind: StageMailKind, stage = ""): StageMailSpec {
+  const contract = emailComposeContract();
+  const code = normalizeStage(stage);
+  // Prefer the current official stage when it already publishes this kind
+  // (INTERESTED + 写跟进 → stage_mail.interested). Otherwise do not take the
+  // first letter in the contract object: INTERESTED is also kind "followup",
+  // and that template is illegal to send from INITIAL_CONTACT.
+  if (code && contract.letters[code]?.kind === kind) return contract.letters[code];
+  if (contract.fallback.kind === kind) return contract.fallback;
+  return Object.values(contract.letters).find((row) => row.kind === kind) || contract.fallback;
 }
 
 /** Published operator commands from SKILL.md — not inferred from the official stage. */

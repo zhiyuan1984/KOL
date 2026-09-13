@@ -16,7 +16,7 @@ import {
   liveTestKolAllowed,
   starryKolMcpConfigured,
 } from "../config.js";
-import { audit, getConn, nowIso, tx } from "../db.js";
+import { audit, getConn, isSqliteClosedError, isSqliteForeignKeyError, nowIso, tx } from "../db.js";
 import { sendDraft } from "../gateway/send.js";
 import { confirmStarryStage } from "../gateway/starry.js";
 import { createWorkApproval, listApprovals } from "../gateway/wecom.js";
@@ -277,40 +277,48 @@ function finishBoundTask(bound: BoundTask | null, sid: string, result?: Json, er
   const taskStatus = failed ? "failed" : "waiting";
   const now = nowIso();
   const worker = result?.worker && typeof result.worker === "object" ? result.worker as Json : {};
-  tx((db) => {
-    db.prepare(
-      "UPDATE task_runs SET status=?,worker_id=?,thread_id=?,turn_id=?,error=?,completed_at=? WHERE id=? AND work_item_id=?",
-    ).run(
-      runStatus,
-      worker.id || null,
-      worker.thread_id || null,
-      worker.turn_id || null,
-      failed ? JSON.stringify(result?.error || { message: error instanceof Error ? error.message : String(error) }) : null,
-      now,
-      bound.runId,
-      bound.workItemId,
-    );
-    db.prepare(
-      "UPDATE work_items SET status=?,completed_at=NULL,updated_at=?,data_version=data_version+1 WHERE id=?",
-    ).run(taskStatus, now, bound.workItemId);
-    const run = db.prepare("SELECT created_at FROM task_runs WHERE id=?").get(bound.runId) as { created_at: string };
-    const rows = db.prepare(
-      `SELECT id,kind,payload FROM messages
-        WHERE session_id=? AND created_at>=?
-          AND kind IN ('task_result_card','email_card','confirm_stage_card','inbound_card','error_card')
-        ORDER BY created_at,id`,
-    ).all(sid, run.created_at) as Row[];
-    for (const message of rows) {
+  try {
+    tx((db) => {
       db.prepare(
-        `INSERT INTO task_artifacts
-         (id,work_item_id,run_id,artifact_type,message_id,version,payload,created_at)
-         VALUES (?,?,?,?,?,?,?,?)`,
+        "UPDATE task_runs SET status=?,worker_id=?,thread_id=?,turn_id=?,error=?,completed_at=? WHERE id=? AND work_item_id=?",
       ).run(
-        nid("art"), bound.workItemId, bound.runId, message.kind, message.id, 1,
-        message.payload || "{}", now,
+        runStatus,
+        worker.id || null,
+        worker.thread_id || null,
+        worker.turn_id || null,
+        failed ? JSON.stringify(result?.error || { message: error instanceof Error ? error.message : String(error) }) : null,
+        now,
+        bound.runId,
+        bound.workItemId,
       );
-    }
-  });
+      db.prepare(
+        "UPDATE work_items SET status=?,completed_at=NULL,updated_at=?,data_version=data_version+1 WHERE id=?",
+      ).run(taskStatus, now, bound.workItemId);
+      const run = db.prepare("SELECT created_at FROM task_runs WHERE id=?").get(bound.runId) as
+        | { created_at: string }
+        | undefined;
+      if (!run) return;
+      const rows = db.prepare(
+        `SELECT id,kind,payload FROM messages
+          WHERE session_id=? AND created_at>=?
+            AND kind IN ('task_result_card','email_card','confirm_stage_card','inbound_card','error_card')
+          ORDER BY created_at,id`,
+      ).all(sid, run.created_at) as Row[];
+      for (const message of rows) {
+        db.prepare(
+          `INSERT INTO task_artifacts
+           (id,work_item_id,run_id,artifact_type,message_id,version,payload,created_at)
+           VALUES (?,?,?,?,?,?,?,?)`,
+        ).run(
+          nid("art"), bound.workItemId, bound.runId, message.kind, message.id, 1,
+          message.payload || "{}", now,
+        );
+      }
+    });
+  } catch (error) {
+    if (isSqliteForeignKeyError(error) || isSqliteClosedError(error)) return;
+    throw error;
+  }
   appendTaskEvent(
     bound.workItemId,
     bound.runId,
@@ -330,93 +338,106 @@ function finishBoundTask(bound: BoundTask | null, sid: string, result?: Json, er
     typeof result.crawl_plan === "object" &&
     (codexMode() !== "stub" || process.env.MEDIACRAWLER_AUTO_START === "1")
   ) {
-    void autoStartBoundCrawl(bound, sid, result.crawl_plan as Json);
+    void autoStartBoundCrawl(bound, sid, result.crawl_plan as Json).catch((error) => {
+      if (isSqliteForeignKeyError(error) || isSqliteClosedError(error)) return;
+    });
   }
 }
 
 async function autoStartBoundCrawl(bound: BoundTask, sid: string, plan: Json): Promise<void> {
-  const item = getConn().prepare("SELECT owner_user_id FROM work_items WHERE id=?").get(bound.workItemId) as
-    | { owner_user_id: string }
-    | undefined;
-  if (!item) return;
-  const mode = String(plan.mode || "search");
-  const platform = String(plan.platform || "").trim();
-  if (!CRAWL_PLATFORM_SET.has(platform)) {
-    const message = platform
-      ? `不支持的采集平台：${platform}。可用平台：${CRAWL_PLATFORMS.join(" / ")}。`
-      : "启动采集前需要补充平台。";
-    getConn().prepare("UPDATE work_items SET status='needs_clarification',updated_at=? WHERE id=?")
-      .run(nowIso(), bound.workItemId);
-    appendTaskEvent(
-      bound.workItemId,
-      bound.runId,
-      "crawl.clarification",
-      "请补充可用采集平台",
-      "needs_clarification",
-      message,
-    );
-    addMsg(sid, "assistant", "error_card", {
-      code: "crawl_platform_unsupported",
-      message,
-      next_action: "请改用 MediaCrawler 支持的平台后重试。",
-      persistent: true,
-    });
-    return;
-  }
-  const required = mode === "detail" ? "specified_ids" : mode === "creator" ? "creator_ids" : "keywords";
-  const value = plan[required];
-  if (!Array.isArray(value) || !value.length) {
-    getConn().prepare("UPDATE work_items SET status='needs_clarification',updated_at=? WHERE id=?")
-      .run(nowIso(), bound.workItemId);
-    appendTaskEvent(
-      bound.workItemId,
-      bound.runId,
-      "crawl.clarification",
-      `请补充${fieldLabel(required)}`,
-      "needs_clarification",
-      "未启动远程采集。",
-    );
-    addMsg(sid, "assistant", "error_card", {
-      code: "crawl_input_required",
-      message: `启动采集前需要补充${fieldLabel(required)}。`,
-      persistent: true,
-    });
-    return;
-  }
   try {
-    await startCrawl({
-      ownerUserId: item.owner_user_id,
-      workItemId: bound.workItemId,
-      sessionId: sid,
-      platform,
-      mode,
-      parameters: {
-        keywords: plan.keywords || [],
-        specified_ids: plan.specified_ids || [],
-        creator_ids: plan.creator_ids || [],
-      },
-      idempotencyKey: `auto:${bound.runId}`,
-    });
-    addMsg(sid, "assistant", "assistant", {
-      text: "远程创作者采集已自动启动，进度会持续更新。",
-    });
+    const item = getConn().prepare("SELECT owner_user_id FROM work_items WHERE id=?").get(bound.workItemId) as
+      | { owner_user_id: string }
+      | undefined;
+    if (!item) return;
+    const run = getConn().prepare("SELECT id FROM task_runs WHERE id=? AND work_item_id=?").get(bound.runId, bound.workItemId);
+    if (!run) return;
+    const mode = String(plan.mode || "search");
+    const platform = String(plan.platform || "").trim();
+    if (!CRAWL_PLATFORM_SET.has(platform)) {
+      const message = platform
+        ? `不支持的采集平台：${platform}。可用平台：${CRAWL_PLATFORMS.join(" / ")}。`
+        : "启动采集前需要补充平台。";
+      getConn().prepare("UPDATE work_items SET status='needs_clarification',updated_at=? WHERE id=?")
+        .run(nowIso(), bound.workItemId);
+      appendTaskEvent(
+        bound.workItemId,
+        bound.runId,
+        "crawl.clarification",
+        "请补充可用采集平台",
+        "needs_clarification",
+        message,
+      );
+      addMsg(sid, "assistant", "error_card", {
+        code: "crawl_platform_unsupported",
+        message,
+        next_action: "请改用 MediaCrawler 支持的平台后重试。",
+        persistent: true,
+      });
+      return;
+    }
+    const required = mode === "detail" ? "specified_ids" : mode === "creator" ? "creator_ids" : "keywords";
+    const value = plan[required];
+    if (!Array.isArray(value) || !value.length) {
+      getConn().prepare("UPDATE work_items SET status='needs_clarification',updated_at=? WHERE id=?")
+        .run(nowIso(), bound.workItemId);
+      appendTaskEvent(
+        bound.workItemId,
+        bound.runId,
+        "crawl.clarification",
+        `请补充${fieldLabel(required)}`,
+        "needs_clarification",
+        "未启动远程采集。",
+      );
+      addMsg(sid, "assistant", "error_card", {
+        code: "crawl_input_required",
+        message: `启动采集前需要补充${fieldLabel(required)}。`,
+        persistent: true,
+      });
+      return;
+    }
+    try {
+      await startCrawl({
+        ownerUserId: item.owner_user_id,
+        workItemId: bound.workItemId,
+        sessionId: sid,
+        platform,
+        mode,
+        parameters: {
+          keywords: plan.keywords || [],
+          specified_ids: plan.specified_ids || [],
+          creator_ids: plan.creator_ids || [],
+        },
+        idempotencyKey: `auto:${bound.runId}`,
+      });
+      if (!getConn().prepare("SELECT id FROM work_items WHERE id=?").get(bound.workItemId)) return;
+      addMsg(sid, "assistant", "assistant", {
+        text: "远程创作者采集已自动启动，进度会持续更新。",
+      });
+    } catch (error) {
+      if (isSqliteForeignKeyError(error) || isSqliteClosedError(error)) return;
+      if (!getConn().prepare("SELECT id FROM work_items WHERE id=?").get(bound.workItemId)) return;
+      const detail = error instanceof HttpFail && error.detail && typeof error.detail === "object"
+        ? error.detail as Json
+        : {};
+      if (detail.code === "work_item_not_found") return;
+      const message = String(detail.message || (error instanceof Error ? error.message : error));
+      const nextAction = String(
+        detail.next_action || "检查远程 Claw 配置或等待当前采集任务完成后重试。",
+      );
+      getConn().prepare("UPDATE work_items SET status='failed',updated_at=? WHERE id=?")
+        .run(nowIso(), bound.workItemId);
+      appendTaskEvent(bound.workItemId, bound.runId, "crawl.start_failed", "远程采集启动失败", "failed", message);
+      addMsg(sid, "assistant", "error_card", {
+        code: "crawl_start_failed",
+        message: `远程采集启动失败：${message}`,
+        next_action: nextAction,
+        persistent: true,
+      });
+    }
   } catch (error) {
-    const detail = error instanceof HttpFail && error.detail && typeof error.detail === "object"
-      ? error.detail as Json
-      : {};
-    const message = String(detail.message || (error instanceof Error ? error.message : error));
-    const nextAction = String(
-      detail.next_action || "检查远程 Claw 配置或等待当前采集任务完成后重试。",
-    );
-    getConn().prepare("UPDATE work_items SET status='failed',updated_at=? WHERE id=?")
-      .run(nowIso(), bound.workItemId);
-    appendTaskEvent(bound.workItemId, bound.runId, "crawl.start_failed", "远程采集启动失败", "failed", message);
-    addMsg(sid, "assistant", "error_card", {
-      code: "crawl_start_failed",
-      message: `远程采集启动失败：${message}`,
-      next_action: nextAction,
-      persistent: true,
-    });
+    if (isSqliteForeignKeyError(error) || isSqliteClosedError(error)) return;
+    throw error;
   }
 }
 

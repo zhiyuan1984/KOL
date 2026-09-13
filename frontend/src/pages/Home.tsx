@@ -22,12 +22,27 @@ import { clearComposerFill, composerStarter, peekComposerFill } from "../knowled
 import { FOLLOWED_KOL_TABS, suggestedStageLabel } from "../kolStages";
 import { rememberJourney } from "../journey";
 import { missingFieldsMessage, fieldLabel } from "../labels";
+import { latestMailThread, summarizeMailSnippet } from "../mailPreview";
+import {
+  HOME_TASK_POLL_MS,
+  failureHint,
+  isActiveRun,
+  isAwaitingApproval,
+  isAwaitingReview,
+  mergeTaskDetails,
+  recognizeElapsedSeconds,
+  recognizeTimedOut,
+  unwrapTaskList,
+  waitDisplayOf,
+  waitProgressHint,
+  waitStatusLabel,
+} from "../waitStatus";
 
 type HomeTab = "today" | "templates";
 type HomeMode = "todo" | "ai" | "lifecycle";
 type TaskFilter = "all" | "open" | "high" | "ai";
 type KolTab = string;
-type TodoBucket = "overdue" | "today" | "waiting" | "later";
+type TodoBucket = "overdue" | "today" | "waiting" | "approval" | "queued" | "running" | "later";
 
 type FollowedKol = {
   id: string;
@@ -51,6 +66,9 @@ type FollowedKol = {
   suggested_stage?: string;
   tasks?: { id: string; title: string; status?: string; history_summary?: string }[];
   unread_count?: number;
+  session_id?: string | null;
+  suggested_stage_code?: string | null;
+  next_action?: string;
   mail_threads?: {
     conversation_id: string;
     subject: string;
@@ -61,6 +79,15 @@ type FollowedKol = {
     last_direction?: string;
     last_at?: string | null;
   }[];
+};
+
+type KolPrimaryKind = "profile" | "confirm-send" | "confirm-stage" | "approval" | "open-session";
+
+type KolPrimaryAction = {
+  kind: KolPrimaryKind;
+  label: string;
+  task?: Task;
+  focusThread?: string;
 };
 
 type TabSummary = { code: string; count: number; task_count?: number };
@@ -111,11 +138,7 @@ function sourceLabel(source?: string) {
 }
 
 function statusLabel(status?: string) {
-  if (status === "completed" || status === "done") return "已完成";
-  if (status === "running" || status === "in_progress") return "进行中";
-  if (status === "waiting" || status === "queued") return "等待中";
-  if (status === "failed") return "有风险";
-  return "待处理";
+  return waitStatusLabel(status);
 }
 
 function entityLine(entities: Record<string, unknown> | undefined, key: string, label: string): string {
@@ -163,6 +186,10 @@ function workPriorityScore(task: Task) {
 
 function whyLine(task: Task) {
   const origin = task.source === "ai" ? "AI发现" : "我的任务";
+  if (waitDisplayOf(task.status) === "failed") {
+    const hint = failureHint(task);
+    return hint ? `${origin} · ${hint}` : `${origin} · 执行失败`;
+  }
   if (task.risk) return `${origin} · ${task.risk}`;
   if (task.description) return `${origin} · ${task.description}`;
   if (task.context) return `${origin} · ${task.context}`;
@@ -242,7 +269,11 @@ function todoBucket(task: Task): TodoBucket {
       if (diff === 0) return "today";
     }
   }
-  if (task.status === "waiting" || task.status === "queued") return "waiting";
+  const display = waitDisplayOf(task.status);
+  if (display === "awaiting_review") return "waiting";
+  if (display === "awaiting_approval") return "approval";
+  if (display === "queued") return "queued";
+  if (display === "running") return "running";
   return "later";
 }
 
@@ -250,10 +281,11 @@ function urgencyLabel(task: Task) {
   const bucket = todoBucket(task);
   if (bucket === "overdue") return "逾期";
   if (bucket === "today") return "今天到期";
-  if (task.status === "failed" || task.risk) return "有风险";
+  if (String(task.status || "") === "failed") return "失败";
+  if (task.risk) return "有风险";
   if (task.priority === "high" || task.priority === "urgent") return "高优先";
-  if (bucket === "waiting") return "等待中";
-  return "待处理";
+  if (bucket === "waiting") return waitStatusLabel(task.status);
+  return waitStatusLabel(task.status);
 }
 
 function dueLabel(task: Task) {
@@ -284,7 +316,7 @@ function deriveWorkbench(tasks: Task[], kols: FollowedKol[]): HomeWorkbench {
       open: todo.length,
       overdue: todo.filter((task) => todoBucket(task) === "overdue").length,
       due_today: todo.filter((task) => todoBucket(task) === "today").length,
-      waiting: todo.filter((task) => task.status === "waiting" || task.status === "queued").length,
+      waiting: todo.filter((task) => isAwaitingReview(task)).length,
       insights: insights.length,
     },
     todo,
@@ -301,6 +333,75 @@ function matchesKolTab(kol: FollowedKol, tab: KolTab) {
   if (tab === "all") return true;
   if (tab === "exception") return Boolean(kol.exception);
   return String(kol.stage_code || "") === tab;
+}
+
+function kolMatchesTask(kol: FollowedKol, task: Task): boolean {
+  const collabId = String(task.collaboration_id || task.project_id || "");
+  if (collabId && collabId === kol.id) return true;
+  const handle = String(kol.handle || "").replace(/^@/, "").trim();
+  const taskHandle = String(task.kol_name || "").replace(/^@/, "").trim();
+  return Boolean(handle && taskHandle && handle === taskHandle);
+}
+
+function relatedOpenTask(kol: FollowedKol, tasks: Task[]): Task | undefined {
+  return tasks.find((task) => {
+    if (isClosedTask(task) || task.dismissed_at) return false;
+    if (!isTodoTask(task) && String(task.status || "") !== "waiting_approval") return false;
+    return kolMatchesTask(kol, task);
+  });
+}
+
+function taskSkill(task: Task): string {
+  return String(task.skill_id || task.skill || task.task_type || "").toLowerCase();
+}
+
+function canOpenExistingTaskFlow(task: Task): boolean {
+  return Boolean(task.session_id || task.collaboration_id || task.project_id);
+}
+
+function kolPrimaryAction(kol: FollowedKol, tasks: Task[]): KolPrimaryAction {
+  // TODO(backend): home board does not expose pending draft_id or approval_id.
+  // Confirm-send / approval CTAs only reuse an existing todo that already has
+  // session_id or collaboration_id (openTask). Do not add send/approve APIs here.
+  if (kol.unbound) return { kind: "profile", label: "补画像" };
+
+  const related = relatedOpenTask(kol, tasks);
+  if (related && canOpenExistingTaskFlow(related)) {
+    const skill = taskSkill(related);
+    const status = String(related.status || "");
+    if (status === "waiting_approval" || skill === "business_approval" || /审批/.test(related.title || "")) {
+      return { kind: "approval", label: "去审批", task: related };
+    }
+    if (skill === "email_compose" || skill === "stage_mail" || /确认发送|跟进邮件|报价信|草稿/.test(`${related.title} ${related.next_action || ""}`)) {
+      return { kind: "confirm-send", label: "确认发送", task: related };
+    }
+    if (skill === "confirm_stage" || /记状态|阶段/.test(related.title || "")) {
+      return { kind: "confirm-stage", label: "确认阶段", task: related };
+    }
+  }
+
+  const unreadInbound = (kol.mail_threads || []).find((thread) => (
+    thread.last_direction === "inbound" && Number(thread.unread_count || 0) > 0
+  ));
+  if (unreadInbound) {
+    return { kind: "open-session", label: "查看来信", focusThread: unreadInbound.conversation_id };
+  }
+
+  const suggested = String(kol.suggested_stage_code || "").trim();
+  const suggestedLabel = String(kol.suggested_stage || "").trim();
+  const canConfirmStage = Boolean(suggested)
+    || (Boolean(suggestedLabel) && !/无需推进|待补阶段|已完成|^—$/.test(suggestedLabel) && !kol.exception);
+  if (canConfirmStage) {
+    return { kind: "confirm-stage", label: "确认阶段" };
+  }
+
+  return { kind: "open-session", label: "打开会话" };
+}
+
+function mailDirectionLabel(direction?: string) {
+  if (direction === "outbound") return "去信";
+  if (direction === "inbound") return "来信";
+  return "往来";
 }
 
 function withKolCard(kol: FollowedKol): FollowedKol {
@@ -408,7 +509,11 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<FromTextResult | null>(null);
   const lastComposer = useRef<ComposerSubmit | null>(null);
+  const taskCatalogRef = useRef<Task[]>([]);
+  const [taskCatalog, setTaskCatalog] = useState<Task[]>([]);
   const missingAlertRef = useRef<HTMLElement | null>(null);
+  const [recognizeStartedAt, setRecognizeStartedAt] = useState<number | null>(null);
+  const [recognizeNow, setRecognizeNow] = useState(() => Date.now());
   const [panelOpen, setPanelOpen] = useState(false);
   const [composerFocused, setComposerFocused] = useState(Boolean(initialFill));
   const [stageScrolled, setStageScrolled] = useState(false);
@@ -424,10 +529,16 @@ export default function Home() {
 
   const applyBoard = (board: Awaited<ReturnType<typeof api.homeBoard>>) => {
     if (Array.isArray(board.kols)) setFollowedKols((board.kols as FollowedKol[]).map(withKolCard));
-    if (Array.isArray(board.tasks)) setTasks(board.tasks as Task[]);
+    if (Array.isArray(board.tasks)) setTasks(mergeTaskDetails(board.tasks as Task[], taskCatalogRef.current));
     if (Array.isArray(board.tabs)) setTabSummaries(board.tabs as TabSummary[]);
     setBoardWorkbench(board.workbench || null);
     setFollowScope(board.follow_scope || null);
+  };
+
+  const applyTaskCatalog = (catalog: Task[]) => {
+    taskCatalogRef.current = catalog;
+    setTaskCatalog(catalog);
+    setTasks((current) => mergeTaskDetails(current, catalog));
   };
 
   useEffect(() => {
@@ -451,6 +562,9 @@ export default function Home() {
     }).catch(() => undefined);
     void api.homeBoard().then((board) => {
       if (!cancelled) applyBoard(board);
+    }).catch(() => undefined);
+    void api.tasks().then(unwrapTaskList).then((catalog) => {
+      if (!cancelled) applyTaskCatalog(catalog);
     }).catch(() => undefined);
     return () => {
       cancelled = true;
@@ -601,7 +715,7 @@ export default function Home() {
     rememberJourney({ kind: "skill", skillId: intent || undefined, skillLabel: rec.title, handle: rec.handle });
   };
 
-  const openKol = (kol: FollowedKol) => {
+  const openKol = (kol: FollowedKol, focusThread?: string) => {
     rememberJourney({
       kind: "kol",
       handle: kol.handle,
@@ -619,10 +733,22 @@ export default function Home() {
     }
     void api.openKolSession(kol.id).then((session) => {
       sessionStorage.setItem(`kol-session:${session.id}`, "1");
-      nav(`/s/${session.id}`, { state: { kolSession: true } });
+      nav(`/s/${session.id}`, { state: { kolSession: true, focusThread: focusThread || undefined } });
     }).catch(() => {
       nav(`/pipeline?kol=${encodeURIComponent(kol.handle)}`);
     });
+  };
+
+  const runKolPrimary = (kol: FollowedKol, action: KolPrimaryAction) => {
+    if (action.kind === "profile") {
+      openKol(kol);
+      return;
+    }
+    if (action.task && canOpenExistingTaskFlow(action.task)) {
+      void openTask(action.task);
+      return;
+    }
+    openKol(kol, action.focusThread);
   };
 
   const openTask = async (task: Task) => {
@@ -659,7 +785,10 @@ export default function Home() {
     }
   };
 
-  const refreshBoard = (force = false) => api.homeBoard({ refresh: force }).then(applyBoard).catch(() => undefined);
+  const refreshBoard = (force = false) => Promise.all([
+    api.homeBoard({ refresh: force }).then(applyBoard),
+    api.tasks().then(unwrapTaskList).then(applyTaskCatalog),
+  ]).catch(() => undefined);
 
   useEffect(() => {
     const onVisible = () => {
@@ -668,6 +797,17 @@ export default function Home() {
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
+
+  useEffect(() => {
+    const recognizing = busy && !feedback && !err;
+    if (!recognizing) {
+      setRecognizeStartedAt(null);
+      return;
+    }
+    setRecognizeStartedAt((started) => started ?? Date.now());
+    const timer = window.setInterval(() => setRecognizeNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [busy, feedback, err]);
 
   const promoteInsight = async (task: Task) => {
     setBusy(true);
@@ -797,14 +937,30 @@ export default function Home() {
   );
 
   const todoItems = useMemo(
-    () => sortedTasks(workbench.todo || tasks.filter(isTodoTask), "priority"),
-    [tasks, workbench.todo],
+    () => sortedTasks(mergeTaskDetails(workbench.todo || tasks.filter(isTodoTask), taskCatalog), "priority"),
+    [taskCatalog, tasks, workbench.todo],
   );
 
   const insightItems = useMemo(
-    () => sortedTasks(workbench.insights || tasks.filter(isInsightTask), "priority"),
-    [tasks, workbench.insights],
+    () => sortedTasks(mergeTaskDetails(workbench.insights || tasks.filter(isInsightTask), taskCatalog), "priority"),
+    [taskCatalog, tasks, workbench.insights],
   );
+
+  const hasActiveRuns = useMemo(
+    () => [...todoItems, ...insightItems, ...tasks].some(isActiveRun),
+    [insightItems, tasks, todoItems],
+  );
+
+  useEffect(() => {
+    if (!hasActiveRuns) return;
+    const tick = () => {
+      if (document.visibilityState !== "visible") return;
+      void api.tasks().then(unwrapTaskList).then(applyTaskCatalog).catch(() => undefined);
+    };
+    tick();
+    const timer = window.setInterval(tick, HOME_TASK_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [hasActiveRuns]);
 
   const recommendedItems = useMemo(
     () => withRecommendedDisplay(workbench.recommendations || [], definitions),
@@ -839,9 +995,12 @@ export default function Home() {
   const openCount = summary.open ?? todoItems.length;
   const overdueCount = summary.overdue ?? todoItems.filter((task) => todoBucket(task) === "overdue").length;
   const dueTodayCount = summary.due_today ?? todoItems.filter((task) => todoBucket(task) === "today").length;
-  const waitingCount = summary.waiting ?? todoItems.filter((task) => task.status === "waiting" || task.status === "queued").length;
+  const awaitingConfirmCount = todoItems.filter((task) => isAwaitingReview(task)).length;
+  const awaitingApprovalCount = todoItems.filter((task) => isAwaitingApproval(task)).length;
   const insightCount = summary.insights ?? insightItems.length;
   const highValueCount = insightItems.filter(isHighValueInsight).length;
+  const recognizeSeconds = recognizeElapsedSeconds(recognizeStartedAt, recognizeNow);
+  const recognizeOverdue = recognizeTimedOut(recognizeStartedAt, recognizeNow);
 
   const statsText = `${openCount}项待处理 · ${overdueCount}逾期 · ${dueTodayCount}今天到期`;
 
@@ -880,6 +1039,7 @@ export default function Home() {
         + (composerReading ? " is-composer-reading" : "")
       }
       data-home
+      data-home-task-poll={hasActiveRuns ? "active" : "idle"}
     >
       <div className="home-stage">
         <div className="home-hero">
@@ -887,7 +1047,8 @@ export default function Home() {
           <h1>{home.h1}</h1>
           <p className="home-stats" data-today-summary data-home-stats>
             {statsText}
-            {waitingCount ? ` · ${waitingCount}等待中` : ""}
+            {awaitingConfirmCount ? ` · ${awaitingConfirmCount}结果待确认` : ""}
+            {awaitingApprovalCount ? ` · ${awaitingApprovalCount}等审批` : ""}
           </p>
 
           <div className="home-mode-tabs" role="tablist" aria-label="工作台视图" data-home-modes>
@@ -987,14 +1148,19 @@ export default function Home() {
               </h2>
               </div>
               {visibleKols.length ? (
-                <ol className="recommend-list">
-                  {visibleKols.map((kol) => (
+                <ol className="recommend-list" data-followed-kol-list>
+                  {visibleKols.map((kol) => {
+                    const primary = kolPrimaryAction(kol, todoItems);
+                    const thread = latestMailThread(kol.mail_threads);
+                    const mailSummary = thread ? summarizeMailSnippet(thread.last_snippet || "") : "";
+                    return (
                     <li
                       key={kol.id}
                       className={"recommend-row followed-kol" + (kol.exception ? " is-exception" : "") + (kol.unbound ? " is-unbound" : "")}
                       data-followed-kol={kol.handle}
                     >
                       <span className="task-source-mark" aria-hidden>{kol.exception ? "!" : kol.unbound ? "◎" : "○"}</span>
+                      <div className="kol-card-body">
                       <button
                         type="button"
                         className="task-main"
@@ -1026,26 +1192,46 @@ export default function Home() {
                           currentStage={kol.current_stage}
                           suggestedStage={kol.suggested_stage}
                         />
-                        {kol.mail_threads?.length ? (
-                          <ul className="kol-mail-threads" data-mail-threads>
-                            {kol.mail_threads.map((thread) => (
-                              <li key={`${thread.conversation_id}:${thread.subject}`} data-thread-id={thread.conversation_id} data-thread-direction={thread.last_direction || ""}>
-                                <span className="thread-subject">{thread.subject}</span>
-                                <span className="muted">{thread.last_direction === "outbound" ? "去信" : thread.last_direction === "inbound" ? "来信" : "往来"}</span>
-                                {Number(thread.unread_count || 0) > 0 ? <span>未读 {thread.unread_count}</span> : null}
-                                {thread.last_from_name || thread.last_from ? (
-                                  <span data-thread-from>{[thread.last_from_name, thread.last_from].filter(Boolean).join(" · ")}</span>
-                                ) : null}
-                                {thread.last_at ? <span data-thread-time>{new Date(thread.last_at).toLocaleString("zh-CN", { hour12: false })}</span> : null}
-                                {thread.last_snippet ? <span className="thread-snippet">{thread.last_snippet}</span> : null}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
                       </button>
-                      <span className="recommend-go" aria-hidden>{kol.unbound ? "补画像 →" : "打开会话 →"}</span>
+                      {thread ? (
+                        <div className="kol-mail-preview" data-mail-threads data-mail-preview>
+                          <p className="mail-preview-meta">
+                            <span className="thread-subject">{thread.subject || "(无主题)"}</span>
+                            <span className="muted">{mailDirectionLabel(thread.last_direction)}</span>
+                            {Number(thread.unread_count || 0) > 0 ? <span>未读 {thread.unread_count}</span> : null}
+                            {thread.last_from_name || thread.last_from ? (
+                              <span data-thread-from>{[thread.last_from_name, thread.last_from].filter(Boolean).join(" · ")}</span>
+                            ) : null}
+                            {thread.last_at ? <span data-thread-time>{new Date(thread.last_at).toLocaleString("zh-CN", { hour12: false })}</span> : null}
+                          </p>
+                          {mailSummary ? (
+                            <p className="mail-preview-text" data-mail-summary data-thread-id={thread.conversation_id} data-thread-direction={thread.last_direction || ""}>
+                              {mailSummary}
+                            </p>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="btn ghost sm"
+                            data-open-original-mail
+                            data-thread-id={thread.conversation_id}
+                            onClick={() => openKol(kol, thread.conversation_id)}
+                          >
+                            查看原邮件
+                          </button>
+                        </div>
+                      ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        className="btn work sm kol-card-cta"
+                        data-kol-primary-action={primary.kind}
+                        onClick={() => runKolPrimary(kol, primary)}
+                      >
+                        {primary.label}
+                      </button>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ol>
               ) : (
                 <div className="task-empty" data-follow-empty={followScope?.required && !followScope.bound ? "unbound" : followScope?.status === "expired" ? "expired" : "none"}>
@@ -1077,9 +1263,15 @@ export default function Home() {
 
           {err && <p className="error composer-err" role="alert">{err}</p>}
           {busy && !feedback && !err ? (
-            <section className="creation-feedback" data-kind="recognizing" data-creation-feedback role="status" aria-busy="true">
-              <strong>正在理解任务…</strong>
-              <p>正在识别任务方向和已填写的字段，不会改你已经写出的发件、收件和主题。</p>
+            <section className="creation-feedback" data-kind="recognizing" data-creation-feedback data-wait-status="识别中" role="status" aria-busy="true">
+              <strong>识别中</strong>
+              <p>
+                正在识别任务方向和已填写的字段，不会改你已经写出的发件、收件和主题。
+                {recognizeSeconds ? ` 已等待 ${recognizeSeconds} 秒。` : ""}
+              </p>
+              {recognizeOverdue ? (
+                <p data-recognize-timeout>识别时间较长，可再试一次或补充字段后发送。</p>
+              ) : null}
             </section>
           ) : null}
           {feedback && (
@@ -1313,12 +1505,21 @@ function todoMark(task: Task) {
   const bucket = todoBucket(task);
   if (bucket === "overdue") return "!";
   if (bucket === "today") return "⚠";
-  if (bucket === "waiting") return "…";
+  if (bucket === "waiting" || bucket === "approval") return "…";
+  if (bucket === "running") return "◷";
   return "○";
 }
 
 function TodoActionList({ tasks, onOpen }: { tasks: Task[]; onOpen: (task: Task) => void }) {
-  const grouped: Record<TodoBucket, Task[]> = { overdue: [], today: [], waiting: [], later: [] };
+  const grouped: Record<TodoBucket, Task[]> = {
+    overdue: [],
+    today: [],
+    waiting: [],
+    approval: [],
+    queued: [],
+    running: [],
+    later: [],
+  };
   for (const task of tasks) grouped[todoBucket(task)].push(task);
   if (!tasks.length) {
     return (
@@ -1330,7 +1531,7 @@ function TodoActionList({ tasks, onOpen }: { tasks: Task[]; onOpen: (task: Task)
   return (
     <section className="todo-md process-md" data-todo-md>
       <Markdown>{"**我的待办**"}</Markdown>
-      {([["overdue", "逾期"], ["today", "今天到期"], ["waiting", "等待中"], ["later", "后续"]] as const).map(([bucket, label]) => (
+      {([["overdue", "逾期"], ["today", "今天到期"], ["waiting", "结果待确认"], ["approval", "等审批"], ["queued", "已入队"], ["running", "执行中"], ["later", "后续"]] as const).map(([bucket, label]) => (
         grouped[bucket].length ? (
           <div className="work-day-group" key={bucket} data-todo-bucket={bucket}>
             <Markdown>{`*${label}*`}</Markdown>
@@ -1355,6 +1556,7 @@ function TodoMarkdownRow({ task, onOpen }: { task: Task; onOpen: () => void }) {
       data-todo-card
       data-task-source={task.source || "manual"}
       data-task-status={task.status || "pending"}
+      data-wait-status={waitStatusLabel(task.status)}
     >
       <button type="button" className="recommend-md-item" data-todo-act onClick={onOpen}>
         <span className="recommend-md-n" aria-hidden>{todoMark(task)}</span>
@@ -1362,7 +1564,7 @@ function TodoMarkdownRow({ task, onOpen }: { task: Task; onOpen: () => void }) {
         <span className="recommend-md-copy">
           <strong>{task.title}</strong>
           <span className="recommend-md-reason" data-todo-reason>
-            {[handle, urgencyLabel(task), due, whyLine(task)].filter(Boolean).join(" · ")}
+            {[handle, urgencyLabel(task), due, waitProgressHint(task), whyLine(task)].filter(Boolean).join(" · ")}
           </span>
         </span>
       </button>
@@ -1478,7 +1680,7 @@ function TodayTaskList({
 function TaskRow({ task, index, onOpen }: { task: Task; index: number; onOpen: () => void }) {
   const hasKolCard = Boolean(task.kol_name || task.collab_summary || task.current_stage);
   return (
-    <li className={`today-task task-${task.source || "manual"} status-${task.status || "pending"}`} data-task-source={task.source || "manual"} data-task-status={task.status || "pending"}>
+    <li className={`today-task task-${task.source || "manual"} status-${task.status || "pending"}`} data-task-source={task.source || "manual"} data-task-status={task.status || "pending"} data-wait-status={waitStatusLabel(task.status)}>
       <span className="task-source-mark" aria-label={sourceLabel(task.source)}>{sourceMark(task)}</span>
       <span className="task-index">{String(index + 1).padStart(2, "0")}</span>
       <button type="button" className="task-main" onClick={onOpen}>
@@ -1497,7 +1699,7 @@ function TaskRow({ task, index, onOpen }: { task: Task; index: number; onOpen: (
             {task.history_summary && <span className="task-history" data-task-history>{task.history_summary}</span>}
           </>
         )}
-        {task.risk && <span className="task-risk">! {task.risk}</span>}
+        {task.risk && waitDisplayOf(task.status) !== "failed" ? <span className="task-risk">! {task.risk}</span> : null}
       </button>
       <span className="task-tail">
         <span>{statusLabel(task.status)}</span>

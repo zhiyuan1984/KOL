@@ -314,6 +314,7 @@ export default function Chat() {
   const [crawlGeneration, setCrawlGeneration] = useState(0);
   const [focusedMail, setFocusedMail] = useState<SessionMailRow | null>(null);
   const streamRef = useRef<HTMLDivElement>(null);
+  const focusThread = String((location.state as { focusThread?: string } | null)?.focusThread || "");
 
   useEffect(() => {
     if (!id) return;
@@ -604,6 +605,14 @@ export default function Chat() {
   useEffect(() => {
     if (id && kolSession) sessionStorage.setItem(`kol-session:${id}`, "1");
   }, [id, kolSession]);
+  useEffect(() => {
+    if (!focusThread) return;
+    const mails = Array.isArray(journey?.mail_history) ? journey.mail_history as SessionMailRow[] : [];
+    if (!mails.length) return;
+    const match = mails.find((row) => String(row.conversation_id || "") === focusThread)
+      || mails.find((row) => String(row.id || "") === focusThread);
+    if (match) setFocusedMail(match);
+  }, [focusThread, journey?.mail_history]);
   const hasRightArtifact = messages.some((message) =>
     ["task_result_card", "email_card", "confirm_stage_card", "inbound_card", "supplement_card", "kol_mail_card"].includes(message.kind) ||
     (message.kind === "steps" && String(message.payload.title || "").includes("失联")),

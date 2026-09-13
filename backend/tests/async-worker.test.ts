@@ -9,6 +9,11 @@ import { seedAll } from "../src/seed.js";
 
 const fake = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures/fake-codex.mjs");
 let tmp = "";
+const savedCrawlEnv = {
+  url: process.env.MEDIACRAWLER_MCP_URL,
+  token: process.env.MEDIACRAWLER_MCP_TOKEN,
+  autoStart: process.env.MEDIACRAWLER_AUTO_START,
+};
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-async-"));
@@ -24,6 +29,11 @@ beforeEach(() => {
   process.env.HOME = tmp;
   process.env.CODEX_HOME = path.join(tmp, ".codex");
   fs.mkdirSync(process.env.CODEX_HOME);
+  // These tests exercise Host + fake Codex only. Inherited MediaCrawler
+  // credentials must not auto-start a LIVE crawl after the crawl plan lands.
+  delete process.env.MEDIACRAWLER_MCP_URL;
+  delete process.env.MEDIACRAWLER_MCP_TOKEN;
+  delete process.env.MEDIACRAWLER_AUTO_START;
   setAgentSubmissionOverride();
   resetConn();
   seedAll();
@@ -45,7 +55,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  await new Promise((r) => setTimeout(r, 50));
+  await new Promise((r) => setTimeout(r, 80));
   setAgentSubmissionOverride();
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
@@ -54,6 +64,12 @@ afterEach(async () => {
   delete process.env.FAKE_CODEX_MODE;
   delete process.env.FAKE_CODEX_DELAY;
   delete process.env.HOST_WORKER_TIMEOUT;
+  if (savedCrawlEnv.url === undefined) delete process.env.MEDIACRAWLER_MCP_URL;
+  else process.env.MEDIACRAWLER_MCP_URL = savedCrawlEnv.url;
+  if (savedCrawlEnv.token === undefined) delete process.env.MEDIACRAWLER_MCP_TOKEN;
+  else process.env.MEDIACRAWLER_MCP_TOKEN = savedCrawlEnv.token;
+  if (savedCrawlEnv.autoStart === undefined) delete process.env.MEDIACRAWLER_AUTO_START;
+  else process.env.MEDIACRAWLER_AUTO_START = savedCrawlEnv.autoStart;
 });
 
 describe("real Codex HTTP flow", () => {
@@ -241,22 +257,58 @@ describe("real Codex HTTP flow", () => {
 
   it("blocks employee submission when the publish gate is stubbed unpublished", async () => {
     setAgentSubmissionOverride(false);
+    try {
+      const { createApp } = await import("../src/app.js");
+      const app = createApp();
+      const created = await app.request("/api/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "unpublished gate" }),
+      });
+      const { id } = (await created.json()) as { id: string };
+      const response = await app.request(`/api/sessions/${id}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "搜索 YouTube 露营达人", intent: "creator_discovery", act: "ask" }),
+      });
+      expect(response.status).toBe(409);
+      expect((await response.json()) as Record<string, unknown>).toMatchObject({
+        detail: { code: "agent_not_published" },
+      });
+    } finally {
+      setAgentSubmissionOverride();
+    }
+  });
+
+  it("does not throw when a bound crawl follow-up lands after the task is torn down", async () => {
+    const { appendTaskEvent } = await import("../src/routers/tasks.js");
     const { createApp } = await import("../src/app.js");
     const app = createApp();
-    const created = await app.request("/api/sessions", {
+    const created = await app.request("/api/tasks/from-text", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "unpublished gate" }),
+      body: JSON.stringify({ text: "搜索 YouTube 露营达人" }),
     });
-    const { id } = (await created.json()) as { id: string };
-    const response = await app.request(`/api/sessions/${id}/messages`, {
+    const payload = (await created.json()) as { task?: { id: string } };
+    const queued = await app.request(`/api/tasks/${payload.task!.id}/run`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "搜索 YouTube 露营达人", intent: "creator_discovery", act: "ask" }),
+      body: "{}",
     });
-    expect(response.status).toBe(409);
-    expect((await response.json()) as Record<string, unknown>).toMatchObject({
-      detail: { code: "agent_not_published" },
+    const run = (await queued.json()) as { session_id: string; pending_message: Record<string, unknown> };
+    await app.request(`/api/sessions/${run.session_id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(run.pending_message),
     });
+    const workItemId = String(payload.task!.id);
+    const runId = String(run.pending_message.run_id || "");
+    // Same isolation as afterEach: a later test opens a new SQLite file, so
+    // leftover crawl follow-up must not insert against missing parents.
+    process.env.LINGONG_DB = path.join(tmp, "torn-down.db");
+    resetConn();
+    seedAll();
+    expect(appendTaskEvent(workItemId, runId, "crawl.start_failed", "远程采集启动失败", "failed", "gone")).toBeNull();
+    expect(appendTaskEvent(workItemId, null, "crawl.clarification", "请补充关键词", "needs_clarification")).toBeNull();
   });
 });

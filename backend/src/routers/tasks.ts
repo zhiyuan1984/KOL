@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { authDisabled, isAdmin, requireSkill, scopedUser } from "../auth.js";
 import { DEMO_USER } from "../config.js";
-import { audit, getConn, nowIso, tx } from "../db.js";
+import { audit, getConn, isSqliteClosedError, isSqliteForeignKeyError, nowIso, tx } from "../db.js";
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
@@ -72,31 +72,49 @@ export function appendTaskEvent(
   label: string,
   status: string,
   safeSummary?: string,
-): Row {
-  return tx((db) => {
-    const current = db.prepare(
-      "SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=?",
-    ).get(workItemId) as { sequence: number };
-    const row = {
-      id: nid("tev"),
-      work_item_id: workItemId,
-      run_id: runId,
-      sequence: Number(current.sequence) + 1,
-      event_type: eventType,
-      label: label.slice(0, 160),
-      status,
-      safe_summary: safeSummary?.slice(0, 1000) || null,
-      time: nowIso(),
-      created_at: nowIso(),
-    };
-    db.prepare(
-      `INSERT INTO task_events
-       (id,work_item_id,run_id,sequence,event_type,label,status,safe_summary,time,created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
-    ).run(row.id, row.work_item_id, row.run_id, row.sequence, row.event_type, row.label, row.status,
-      row.safe_summary, row.time, row.created_at);
-    return row;
-  });
+): Row | null {
+  try {
+    return tx((db) => {
+      const item = db.prepare("SELECT id FROM work_items WHERE id=?").get(workItemId) as
+        | { id: string }
+        | undefined;
+      if (!item) return null;
+      if (runId) {
+        const run = db.prepare("SELECT id FROM task_runs WHERE id=? AND work_item_id=?").get(runId, workItemId) as
+          | { id: string }
+          | undefined;
+        if (!run) return null;
+      }
+      const current = db.prepare(
+        "SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=?",
+      ).get(workItemId) as { sequence: number };
+      const row = {
+        id: nid("tev"),
+        work_item_id: workItemId,
+        run_id: runId,
+        sequence: Number(current.sequence) + 1,
+        event_type: eventType,
+        label: label.slice(0, 160),
+        status,
+        safe_summary: safeSummary?.slice(0, 1000) || null,
+        time: nowIso(),
+        created_at: nowIso(),
+      };
+      db.prepare(
+        `INSERT INTO task_events
+         (id,work_item_id,run_id,sequence,event_type,label,status,safe_summary,time,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      ).run(row.id, row.work_item_id, row.run_id, row.sequence, row.event_type, row.label, row.status,
+        row.safe_summary, row.time, row.created_at);
+      return row;
+    });
+  } catch (error) {
+    // Fire-and-forget crawl/worker follow-up can land after a test reset or
+    // after the parent work item was already removed. Never surface that as
+    // an unhandled SQLITE_CONSTRAINT_FOREIGNKEY.
+    if (isSqliteForeignKeyError(error) || isSqliteClosedError(error)) return null;
+    throw error;
+  }
 }
 
 function createWorkItem(body: Json, source: string): Json {

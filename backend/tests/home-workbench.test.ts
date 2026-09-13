@@ -118,6 +118,47 @@ describe("home workbench", () => {
     expect(getConn().prepare("SELECT COUNT(*) AS c FROM collaborations WHERE id LIKE 'col_%'").get() as { c: number }).toEqual({ c: 0 });
   });
 
+  it("demo reset drops leftover Starry library rows before stub listAll re-syncs", async () => {
+    getConn().prepare(
+      `INSERT INTO collaborations
+       (id, handle, display_name, brand, platform, followers, email, mailbox_from,
+        lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue, stage_version, locked)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      "col_KOLSTALE001",
+      "过期全量达人",
+      "过期全量达人",
+      "LT",
+      "YouTube",
+      "1万",
+      "stale.kol@example.com",
+      "kol.lt@litime.example",
+      "lc_KOLSTALE001",
+      "conv_KOLSTALE001",
+      "TESTING",
+      3,
+      "leftover from a prior real-mode library sync",
+      0,
+      0,
+      0,
+    );
+    getConn().prepare("UPDATE collaborations SET kol_uid=?, source='starry' WHERE id=?").run(
+      "KOLSTALE001",
+      "col_KOLSTALE001",
+    );
+    expect(getConn().prepare("SELECT id FROM collaborations WHERE kol_uid=?").get("KOLSTALE001")).toBeTruthy();
+
+    const reset = await request("POST", "/api/demo/reset", { workbench: true });
+    expect(reset.status).toBe(200);
+    expect(getConn().prepare("SELECT id FROM collaborations WHERE kol_uid=?").get("KOLSTALE001")).toBeUndefined();
+
+    const board = await request("GET", "/api/home/board");
+    const kols = (board.body.kols as Json[]) || [];
+    expect(kols.map((row) => String(row.handle)).sort()).toEqual(["户外电源达人", "营地灯测评娘"]);
+    expect(kols.some((row) => row.handle === "小美妆日记" || row.handle === "过期全量达人")).toBe(false);
+    expect(board.body.library).toMatchObject({ ok: true, source: "starry", tool: "listAllKolProfiles", count: 2 });
+  });
+
   it("demo reset wipes leftover official writes and extra tasks before fixtures", async () => {
     getConn().prepare("INSERT INTO starry_stage_writes (lifecycle_id, stage_code, actor, ts) VALUES (?,?,?,?)").run(
       "lc_xiaomei",
