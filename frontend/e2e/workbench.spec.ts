@@ -1804,7 +1804,7 @@ test("preview toolbar collapses, exports, shares, and opens read-only view", asy
   const result = page.locator('[data-workbench] [data-kind="task-result-card"]');
   await expect(draft.or(result).first()).toBeVisible();
   await expect(page.getByLabel("下载 Markdown")).toBeVisible();
-  await expect(page.getByLabel("下载 JSON")).toBeVisible();
+  await expect(page.getByLabel("下载 JSON")).toHaveCount(0);
   if (await draft.isVisible()) await expect(page.getByLabel("下载邮件草稿")).toBeVisible();
   await page.getByLabel("收起工作台").click();
   await expect(page.locator("[data-workbench]")).toHaveClass(/collapsed/);
