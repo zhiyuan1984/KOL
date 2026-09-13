@@ -65,16 +65,16 @@ curl 'http://127.0.0.1:8765/api/stage-transitions?collaboration_id=col_xiaomei'
 
 **一条命令（推荐）：**
 
-本机先装 Codex 并登录：
+本机先装 Codex 并登录，并准备仓库根目录 `.env`（`scripts/start.sh` 只从这里读密钥，没有该文件会退出）：
 
 ```bash
 npm i -g @openai/codex
 codex login
-# 或 export OPENAI_API_KEY=...
+cp -n .env.example .env   # 把 OPENAI_API_KEY 等写进 .env，不要提交
 chmod +x scripts/start.sh && ./scripts/start.sh
 ```
 
-ECS / 服务器第一次跑如果缺编译链，先装 `gcc-c++ make python3`（例如 `yum install -y gcc-c++ make python3`），再 `./scripts/start.sh`。`start.sh` 会 `npm install --ignore-scripts=false`，再手动 `prebuild-install` / `node-gyp` / `esbuild/install.js`，不依赖 npm 11/12 的 lifecycle。没有 gcc 时 Host 仍用 **node:sqlite** 写同一 SQLite 文件（不是假库）。
+ECS / 服务器第一次跑如果缺编译链，先装 `gcc-c++ make python3`（例如 `yum install -y gcc-c++ make python3`），再 `./scripts/start.sh`。`start.sh` 在有 lockfile 时用 `npm ci --ignore-scripts=false`，再按 `scripts/native.sh` 编译 better-sqlite3 / esbuild，不依赖 npm 11/12 的 lifecycle。默认 `CODEX_MODE=real`、`AUTH_MODE=enabled`、监听 `0.0.0.0:8765`（可用环境变量或 `.env` 里的 `LINGONG_PORT` 覆盖）。没有 gcc 时 Host 仍用 **node:sqlite** 写同一 SQLite 文件（不是假库）。
 
 浏览器打开 http://127.0.0.1:8765
 
