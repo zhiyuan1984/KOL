@@ -171,6 +171,9 @@ export function journeyPayload(collaborationId: string | null | undefined): Json
       text: digest.text || analyzeThreadDigest(mailHistory),
       source: digest.source,
       mail_count: digest.mail_count,
+      ...(digest.error ? { error: digest.error } : {}),
+      ...(digest.attempted?.length ? { attempted: digest.attempted } : {}),
+      ...(digest.failed_at ? { failed_at: digest.failed_at } : {}),
     },
     mail_synced_at: mailSyncAt.get(String(col.id)) || null,
     mail_sync_pending: mailSyncJobs.has(String(col.id)),
@@ -179,6 +182,9 @@ export function journeyPayload(collaborationId: string | null | undefined): Json
       summary: digest.text,
       summary_source: digest.source,
       mail_count: digest.mail_count,
+      ...(digest.error ? { error: digest.error } : {}),
+      ...(digest.attempted?.length ? { attempted: digest.attempted } : {}),
+      ...(digest.failed_at ? { failed_at: digest.failed_at } : {}),
     }] : [],
   };
 }
