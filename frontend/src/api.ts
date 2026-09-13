@@ -511,9 +511,9 @@ export const api = {
     await fetch("/api/logout", { method: "POST" }).catch(() => undefined);
     return request<{ ok?: boolean }>("/api/auth/logout", { method: "POST" }).catch(() => ({ ok: true }));
   },
-  home: () => fetch("/api/home").then((r) => r.json()),
+  home: () => fetch("/api/home", { cache: "no-store" }).then((r) => r.json()),
   homeBoard: (opts?: { refresh?: boolean }) =>
-    fetch(`/api/home/board${opts?.refresh ? "?refresh=1" : ""}`).then((r) => r.json()) as Promise<{
+    fetch(`/api/home/board${opts?.refresh ? "?refresh=1" : ""}`, { cache: "no-store" }).then((r) => r.json()) as Promise<{
       kols?: Array<Record<string, unknown>>;
       tasks?: Task[];
       tabs?: Array<{ code: string; count: number; task_count?: number }>;

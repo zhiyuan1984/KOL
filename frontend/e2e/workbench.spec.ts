@@ -533,8 +533,17 @@ test("KOL session header can tag a followed creator as 犹豫谨慎", async ({ p
   await page.locator("[data-follow-style-save]").click();
   await expect(page.locator('[data-follow-style-tag="cautious"]')).toContainText("犹豫谨慎");
   await expect(page.locator("[data-kind='task-result-card']")).toContainText("犹豫谨慎");
+  await expect.poll(async () => {
+    const board = await page.request.get("/api/home/board").then((r) => r.json()) as {
+      kols?: { handle?: string; follow_style_tags?: { id?: string }[] }[];
+    };
+    return (board.kols || []).some((kol) =>
+      kol.handle === "户外电源达人" && kol.follow_style_tags?.some((tag) => tag.id === "cautious"),
+    );
+  }, { timeout: 10000 }).toBe(true);
   await page.goto("/");
   await openHomeLifecycle(page);
+  await page.locator("[data-refresh-mail]").click();
   const tagged = page.locator('[data-followed-kol="户外电源达人"]');
   await expect(tagged).toBeVisible();
   await expect(tagged.locator('[data-follow-style-tag="cautious"]')).toContainText("犹豫谨慎", { timeout: 15000 });

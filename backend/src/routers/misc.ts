@@ -502,6 +502,7 @@ misc.post("/demo/reset", async (c) => {
 });
 
 misc.get("/home/board", async (c) => {
+  c.header("Cache-Control", "no-store");
   const refresh = c.req.query("refresh") === "1" || c.req.query("sync") === "1";
   const library = await ensureStarryHomeLibrary();
   const mail = await ensureFollowedMailSync(refresh);
@@ -509,6 +510,7 @@ misc.get("/home/board", async (c) => {
 });
 
 misc.get("/home", (c) => {
+  c.header("Cache-Control", "no-store");
   const user = scopedUser();
   const catalog = skillCatalog();
   const granted = authDisabled() || (user && isAdmin(user))
