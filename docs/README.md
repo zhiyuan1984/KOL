@@ -8,7 +8,7 @@
 2. `01-organization-tenancy.md`：公司、组织、品牌、角色和数据范围
 3. `02-domain-model.md`：数字员工、Agent、Skill、Task 和 WorkItem
 4. `03-prd-and-functional-spec.md`：概念、PRD、功能规格和需求追踪
-5. `04-ux-ui-system.md`：双端、任务驱动、等待态、L1-L3 和无障碍；产品级体验宪法见 `19-ui-ux-constitution.md`
+5. `04-ux-ui-system.md`：双端、任务驱动、等待态、L1-L3 和无障碍；产品级体验宪法见 `19-ui-ux-constitution.md`；工作台视觉/token 默认见 `20-visual-design-system.md`
 6. `05-agent-workflow-skill-policy.md`：Agent、Workflow、Skill、Policy、8/15 阶段
 7. `06-codex-harness.md`：Codex app-server、Host 边界和 Stub
 8. `07-mcp-data-contract.md`：真实 MCP、数据字典和适配规则
@@ -24,7 +24,8 @@
 18. `17-code-conformance-scan.md`：前后端代码违宪扫描报告
 19. `18-mcp-master-data-assessment.md`：MCP 主数据能力与组织主数据边界
 20. `19-ui-ux-constitution.md`：员工端体验宪法（核心闭环、Agent 表面、结果优先）
-21. `90-codebase-handbook.md`：代码地图和修改归属
+21. `20-visual-design-system.md`：KOL-UI 工作台视觉/token 默认（Linear 密度、shadcn 基底、indigo 主色）
+22. `90-codebase-handbook.md`：代码地图和修改归属
 
 ## 事实来源
 
