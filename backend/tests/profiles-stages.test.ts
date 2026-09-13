@@ -8,8 +8,10 @@ import {
   groupedStageTracks,
   legalTargets,
   legalTargetsWithEvidence,
+  isStarryAdjacentForward,
   mergeRemoteLibraryStage,
   normalizeStage,
+  planStarryAdjacentWalk,
   preferLaterMainStage,
   toLegacyStarryStage,
   toStarryStage,
@@ -94,10 +96,12 @@ describe("15-stage state machine", () => {
     expect(legalTargetsWithEvidence("INITIAL_CONTACT", ["PUBLISHED"])).not.toContain("PUBLISHED");
     expect(legalTargetsWithEvidence("INITIAL_CONTACT", ["INTERESTED", "PUBLISHED"])).toContain("EVALUATING");
     expect(legalTargetsWithEvidence("INITIAL_CONTACT", ["INTERESTED", "PUBLISHED"])).not.toContain("PUBLISHED");
-    expect(toStarryStage("INTERESTED")).toBe("INTERESTED");
-    expect(toStarryStage("DISPUTED")).toBe("DISPUTED");
+    expect(toStarryStage("INTERESTED")).toBe("INTEREST_CONFIRMED");
+    expect(toStarryStage("NEGOTIATING")).toBe("BUSINESS_NEGOTIATION");
+    expect(toStarryStage("DISPUTED")).toBe("EXCEPTION_HANDLING");
     expect(toStarryStage("INITIAL_CONTACT")).toBe("INITIAL_CONTACT");
     expect(toLegacyStarryStage("INTERESTED")).toBe("INTEREST_CONFIRMED");
+    expect(toLegacyStarryStage("NEGOTIATING")).toBe("BUSINESS_NEGOTIATION");
     expect(toLegacyStarryStage("DISPUTED")).toBe("EXCEPTION_HANDLING");
     expect(evidencedPointer("INITIAL_CONTACT", ["INTERESTED"])).toEqual({ pointer: "INTERESTED", completed: [] });
     expect(evidencedPointer("INITIAL_CONTACT", ["INTERESTED", "EVALUATING"])).toEqual({
@@ -146,5 +150,53 @@ describe("15-stage state machine", () => {
     expect(autoLegalTargets("CONTRACTING")).toEqual([
       "SAMPLE_PENDING", "PAUSED", "LOST", "REJECTED", "CANCELLED", "DISPUTED",
     ]);
+  });
+
+  it("plans skip as successive Starry-native adjacent forwards", () => {
+    expect(planStarryAdjacentWalk("QUOTE_PENDING", "NEGOTIATING")).toEqual({
+      from: "QUOTE_PENDING",
+      to: "NEGOTIATING",
+      hops: ["NEGOTIATING"],
+      nativeHops: ["BUSINESS_NEGOTIATION"],
+      kind: "adjacent",
+    });
+    expect(planStarryAdjacentWalk("QUOTE_PENDING", "商务谈判")).toMatchObject({
+      hops: ["NEGOTIATING"],
+      nativeHops: ["BUSINESS_NEGOTIATION"],
+      kind: "adjacent",
+    });
+    expect(isStarryAdjacentForward("INTERESTED", "EVALUATING")).toBe(true);
+    expect(planStarryAdjacentWalk("INTEREST_CONFIRMED", "COOPERATION_EVALUATION")).toMatchObject({
+      hops: ["EVALUATING"],
+      nativeHops: ["COOPERATION_EVALUATION"],
+      kind: "adjacent",
+    });
+    expect(planStarryAdjacentWalk("INITIAL_CONTACT", "NEGOTIATING")).toEqual({
+      from: "INITIAL_CONTACT",
+      to: "NEGOTIATING",
+      hops: ["INTERESTED", "EVALUATING", "QUOTE_PENDING", "NEGOTIATING"],
+      nativeHops: [
+        "INTEREST_CONFIRMED",
+        "COOPERATION_EVALUATION",
+        "QUOTE_PENDING",
+        "BUSINESS_NEGOTIATION",
+      ],
+      kind: "walk",
+    });
+    expect(planStarryAdjacentWalk("CONTRACTING", "CONTENT_PLANNING")).toEqual({
+      from: "CONTRACTING",
+      to: "CONTENT_PLANNING",
+      hops: ["SAMPLE_PENDING", "SHIPPED", "TESTING", "CONTENT_PLANNING"],
+      nativeHops: ["SAMPLE_PENDING", "SHIPPED", "DELIVERED_TESTING", "CONTENT_PLANNING"],
+      kind: "walk",
+    });
+    expect(planStarryAdjacentWalk("NEGOTIATING", "INTERESTED").kind).toBe("not_forward");
+    expect(planStarryAdjacentWalk("INITIAL_CONTACT", "PAUSED").kind).toBe("not_forward");
+    expect(isStarryAdjacentForward("INITIAL_CONTACT", "NEGOTIATING")).toBe(false);
+    expect(planStarryAdjacentWalk("SETTLING", "COMPLETED")).toMatchObject({
+      hops: ["COMPLETED"],
+      nativeHops: ["COMPLETED"],
+      kind: "adjacent",
+    });
   });
 });

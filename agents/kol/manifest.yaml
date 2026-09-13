@@ -1,10 +1,10 @@
 {
   "id": "agent:kol",
   "version": "0.1.0-pilot",
-  "status": "pilot-not-production",
+  "status": "production",
   "publish_gate": {
-    "state": "unpublished",
-    "employee_submission": false,
+    "state": "published",
+    "employee_submission": true,
     "required_for_submission": "published-or-production",
     "release_evidence": ["contracts", "tb-binding", "full-tests", "employee-e2e", "stage-write"]
   },

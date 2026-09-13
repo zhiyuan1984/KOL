@@ -10,12 +10,12 @@ Starry KOL MCP 和 `data/kol/邮箱-负责人绑定清单.md` 提供 KOL 域事�
 
 ## 真实调用规则
 
-生产 IO 只能由 Codex turn 调已授权远程 MCP；不得再包一层本地业务工具或 Host 代调作为第二真相源。`sendEmailNow` 不能由 Worker 直接调用，必须由用户确认后的 Gateway 提交。`changeLifecycleStage` 不能由 Worker/Skill 直接写，必须由 `confirm_stage` 提案后经 Host 写入。
+生产 IO 只能由 Codex turn 调已授权远程 MCP；不得再包一层本地业务工具或 Host 代调作为第二真相源。`sendEmailNow` 不能由 Worker 直接调用，必须由用户确认后的 Gateway 提交。`changeLifecycleStage` 不能由 Worker/Skill 直接写，必须由 `confirm_stage` 提案后经 Host 写入；LIVE 形状为顶层 `{ lifecycleId, requestJson }`，`requestJson.toStageCode` 为 Starry 原生码（ADR-011）。
 
 MediaCrawler 是异步作业：`start_crawl → get_crawl_status → get_creators → upload_creators`，同一时间一个任务；不得把它伪装成同步 Skill。
 
 ## 数据字典
 
-展示值、外部 code、平台 canonical code 和显示阶段分开维护；跨系统映射版本化，Codex 只输出 canonical code，adapter 转换外部 code。租户、用户、公司、部门、品牌、区域和授权范围必须进入请求上下文，服务端二次校验。
+展示值、外部 code、平台 canonical code 和显示阶段分开维护；跨系统映射版本化，Codex 只输出 Host canonical code，adapter 读取时归一、写入 Starry 时输出原生码（ADR-011）。租户、用户、公司、部门、品牌、区域和授权范围必须进入请求上下文，服务端二次校验。
 
 密钥只引用环境变量或 Secret 名称，不能写入 Markdown、Skill、日志或提交记录。

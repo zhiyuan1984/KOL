@@ -36,7 +36,7 @@ describe("constitutional redlines", () => {
 
   it("serves employee Agent entries and teams from the publish manifest", () => {
     const manifest = kolAgentManifest() as { employee_views?: { entries?: unknown[]; teams?: unknown[] }; publish_gate?: { employee_submission?: boolean } };
-    expect(manifest.publish_gate?.employee_submission).toBe(false);
+    expect(manifest.publish_gate?.employee_submission).toBe(true);
     expect(manifest.employee_views?.entries?.length).toBeGreaterThan(0);
     expect(manifest.employee_views?.teams?.length).toBeGreaterThan(0);
   });

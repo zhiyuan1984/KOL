@@ -172,7 +172,7 @@ REST `/api/**` 仍走 JWT。这 62 个 Tool **不会**进入站内 `ChatClient`�
 
 ### 阶段
 
-`listCooperationStageOptions` 返回 **15 个主阶段 + 6 个旁路/终态**，码与 Host `stages.ts` 一致。旧码只作 `aliases`：
+Host 读取归一成 Host-local 码；`changeLifecycleStage` / `updateKolProfile` 阶段写入发 **Starry 原生码**（ADR-011）。`listCooperationStageOptions` 仍列 Host 官方 15+6 码，原生码在 `aliases`：
 
 | 官方码 | 旧码别名 |
 |---|---|
@@ -187,7 +187,7 @@ REST `/api/**` 仍走 JWT。这 62 个 Tool **不会**进入站内 `ChatClient`�
 
 旁路/终态：`PAUSED`、`LOST`、`REJECTED`、`CANCELLED`、`DISPUTED`、`COMPLETED`。
 
-`updateKolProfile` 写阶段时同时给 `cooperationStageCode`（官方码）和 `cooperationStageName`（中文）。不要把码写进 Name。
+`updateKolProfile` 写画像阶段字段时仍用 `cooperationStageCode` + 中文名。`changeLifecycleStage` 顶层只有 `{ lifecycleId, requestJson }`，`requestJson` 为 `{ toStageCode, reason }`（Starry 原生码，如 `BUSINESS_NEGOTIATION`）。人跳过只在 Host 记账；远程只接受相邻前进，跨格 skip 按 `planStarryAdjacentWalk` 逐格 `toStageCode` walk。
 
 ### 风险标签
 

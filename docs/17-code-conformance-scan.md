@@ -85,7 +85,7 @@
 - `backend/package.json` 的 `test` 脚本默认使用 `CODEX_MODE=stub`，可显式切换到 real；Stub 结果只能证明确定性逻辑。
 - 真实 Codex/MCP 测试需要 Node 原生依赖、app-server 和 staging 凭据；不能用 Stub 结果冒充生产验收。
 - KOL Markdown 已切换为 `data/kol` canonical 来源，并由 `backend/scripts/validate-kol-data.mjs` 校验 5 份业务表、15 个正式阶段、10 个长期/异常场景和 22 个邮箱绑定；该校验尚未等同于组织 registry 或运行时 Agent registry。
-- 已增加最小契约编译器：`npm run validate:contracts` 校验组织/品牌 registry、Agent manifest、Workflow、Policy、Schema、FS 追踪和 EVAL；`--production` 当前因 Agent 仍为 pilot 而失败，TB 远程差异按业务负责人指示不计入本轮结论，公司组织绑定已确认。
+- 已增加最小契约编译器：`npm run validate:contracts` 校验组织/品牌 registry、Agent manifest、Workflow、Policy、Schema、FS 追踪和 EVAL；`--production` 要求 `status=production`（2026-09-13 已发布）。TB 远程差异按业务负责人指示不计入本轮结论，校验器仍禁止品牌回退；公司组织绑定已确认。
 - 现有测试覆盖很多 KOL 邮件和阶段规则，但尚未形成 `FS-* → BR-* → EVAL-*` 完整追踪矩阵。
 - 本次真实执行仅触达 allowlist 内的一封 staging 测试邮件（远端消息 `1218`，状态 `SENT`）；阶段写入仍因测试 KOL 缺少远程生命周期记录而阻塞。删除、解密和其他生产 MCP 写工具未触达，必须在 staging 与生产只读阻断器环境中单独验收。
 
@@ -124,7 +124,7 @@
 | 前端类型与构建 | 已通过 | `npm run typecheck`、`npm run build`；693.25 kB chunk 警告 |
 | E2E webServer | 已通过启动 | `scripts/e2e-server.mjs` 可启动 backend；用 `E2E_SKIP_BUILD=1` 避免 Windows dist 句柄重复清理 |
 | E2E 浏览器执行 | 阻断 | 72 条用例均因宿主 `chrome-headless-shell.exe` `spawn EPERM`，未产生应用断言绿灯 |
-| TB/生产发布 | 本轮豁免 | 按业务负责人指示，TB 远程差异不计入本轮验收；校验器仍禁止品牌回退；Agent 仍 `pilot-not-production` |
+| TB/生产发布 | Agent 已发布；TB 仍豁免 | 2026-09-13 将 `agents/kol/manifest.yaml` 设为 `production` / `employee_submission: true`。TB 远程差异仍不计入验收；校验器仍禁止品牌回退。发布不等于生产放行（E2E/阶段写入仍开）。 |
 
 ### 组织范围策略
 

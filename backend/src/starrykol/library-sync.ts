@@ -4,7 +4,7 @@ import { parseFollowStyleTags, serializeFollowStyleTags } from "../follow-style-
 import { codeFromLabel, mergeRemoteLibraryStage, normalizeStage, preferLaterMainStage } from "../stages.js";
 import type { Json, Row } from "../types.js";
 import { normalizeRiskTag, parseNicheTags } from "./remote-contract.js";
-import { executeStarryKolTask, withStarryCallScope } from "./service.js";
+import { executeStarryKolTask, remoteLifecycleIdFrom, withStarryCallScope } from "./service.js";
 
 export type StarryLibrarySync = {
   ok: boolean;
@@ -212,6 +212,10 @@ export async function syncStarryHomeLibrary(): Promise<StarryLibrarySync> {
             ? existing?.days_in_stage ?? 0
             : profile.daysInStage ?? profile.days_in_stage ?? existing?.days_in_stage ?? 0,
         );
+        const remoteLifecycle = remoteLifecycleIdFrom(profile, existing);
+        const lifecycleId = remoteLifecycle != null
+          ? String(remoteLifecycle)
+          : String(existing?.lifecycle_id || `lc_${uid}`);
         db.prepare(
           `INSERT INTO collaborations
            (id, handle, display_name, brand, platform, followers, email, mailbox_from,
@@ -250,7 +254,7 @@ export async function syncStarryHomeLibrary(): Promise<StarryLibrarySync> {
           followersOf(profile) || String(existing?.followers || ""),
           email,
           mailbox,
-          String(existing?.lifecycle_id || `lc_${uid}`),
+          lifecycleId,
           String(existing?.conversation_id || `conv_${uid}`),
           stage,
           Number.isFinite(days) ? days : 0,
@@ -276,7 +280,7 @@ export async function syncStarryHomeLibrary(): Promise<StarryLibrarySync> {
         db.prepare(
           `UPDATE collaborations SET owner_name=?, owner_mailbox=?, engagement_rate=?, audience_geo=?,
             avg_views_10=?, kol_uid=?, source='starry', duplicate_checked=1,
-            niche=?, risk_tag=?, wechat=?, kol_id=?, last_conversation_id=?, contact_email_masked=?
+            niche=?, risk_tag=?, wechat=?, kol_id=?, last_conversation_id=?, last_lifecycle_id=?, contact_email_masked=?
            WHERE id=?`,
         ).run(
           firstString(profile.ownerName, profile.ownerUserName, existing?.owner_name),
@@ -290,6 +294,7 @@ export async function syncStarryHomeLibrary(): Promise<StarryLibrarySync> {
           firstString(profile.wechat, existing?.wechat),
           firstString(profile.kolId, profile.kol_id, existing?.kol_id),
           firstString(profile.lastConversationId, profile.last_conversation_id, existing?.last_conversation_id),
+          remoteLifecycle != null ? String(remoteLifecycle) : firstString(existing?.last_lifecycle_id),
           firstString(profile.contactEmailMasked, profile.contact_email_masked, existing?.contact_email_masked),
           id,
         );

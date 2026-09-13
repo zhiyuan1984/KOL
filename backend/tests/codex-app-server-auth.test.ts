@@ -78,6 +78,21 @@ describe("CodexAppServer.requireAuth", () => {
     await expect(pending).rejects.toThrow(/已停止/);
   });
 
+  it("bounds the whole app-server session instead of stacking per-RPC waits", async () => {
+    fs.chmodSync(fake, 0o755);
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-fake-codex-"));
+    setEnv("CODEX_BIN", fake);
+    setEnv("FAKE_CODEX_MODE", "already-chatgpt");
+    setEnv("HOME", tmp);
+    setEnv("CODEX_HOME", path.join(tmp, ".codex"));
+    fs.mkdirSync(process.env.CODEX_HOME || path.join(tmp, ".codex"), { recursive: true });
+    rpc = new CodexAppServer(1);
+    await rpc.handshake();
+    const started = Date.now();
+    await expect(rpc.request("test/hang")).rejects.toThrow(/超时/);
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
   it("Commander derives a child thread on the same app-server connection", async () => {
     const server = boot("already-chatgpt");
     await server.handshake();

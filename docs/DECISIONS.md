@@ -16,6 +16,7 @@
 | ADR-008 | Starry MCP 不是独立组织授权源，但其邮箱负责人/授权结果可与已确认组织证据和 registry 绑定共同完成安培时代试点 PEP 核验 | `18-mcp-master-data-assessment.md`、`01-organization-tenancy.md` |
 | ADR-009 | 安培时代部门负责人（张慧玲、刘敏）自动拥有公司全部品牌、区域和普通业务数据读写；高风险动作仍受 Gateway/确认/审批约束 | `config/org-registry.yaml`、`01-organization-tenancy.md` |
 | ADR-010 | 试点 PEP 的授权证据由组织截图、100%真实邮箱负责人清单、远程 Starry MCP 只读结果和 registry 绑定共同构成；未补齐的身份元数据不阻断试点授权 | `config/org-registry.yaml`、`18-mcp-master-data-assessment.md` |
+| ADR-011 | Starry 阶段写入用原生码；人跳过只在 Host 记账；远程只走相邻前进（跨段则逐格 walk） | `05-agent-workflow-skill-policy.md`、`planStarryAdjacentWalk` / `changeLifecycleStage` |
 
 ## 新增 Agent 分级
 
@@ -37,3 +38,27 @@ ID / 日期 / 状态
 回滚条件与复审日期
 决策人：业务 / 产品 / 工程 / 测试 / 运维
 ```
+
+## ADR-011 — Starry 写入原生码与 Host-only 跳过（2026-09-13）
+
+**状态**：已固化  
+**决策人**：业务 owner
+
+### 问题与背景
+
+Host 用 15 段 + 旁路的本地码（如 `NEGOTIATING`）做确认卡、审计和协作状态。Starry 生命周期用另一套原生码（如 `BUSINESS_NEGOTIATION`）。先前把「官方写入码」定成 Host-local，远程 `changeLifecycleStage` 收到 `NEGOTIATING` 等 Host 码。人跳过/纠正时，也不该要求 Starry 理解 skip 语义或接收中间阶段。
+
+### 决定
+
+1. **Starry 写入码 = Starry 原生码，远程字段是 `toStageCode`。** `changeLifecycleStage` 顶层参数只能是 `{ lifecycleId, requestJson }`；`requestJson` 为 `{ toStageCode, reason }`，`toStageCode` 经 `LEGACY_STAGE_ALIASES` / `toLegacyStarryStage` 发出原生码（Host `NEGOTIATING` / `商务谈判` → `BUSINESS_NEGOTIATION`）。不要写 `cooperationStageCode` / `targetStageCode` / `stageCode`（LIVE 上会误报回退）。读取继续 `normalizeStage` / `codeFromLabel` 归一成 Host-local。证据：`docs/evidence-stage-request-shape-2026-09-13.md`（`KOL202607300002` lifecycle 16，`INTEREST_CONFIRMED` → `COOPERATION_EVALUATION`）。
+2. **人跳过是 Host-only 语义；远程只接受相邻前进。** 人确认 skip/jump 时，Host 把 skip kind、原因、被跳过的 Host 码记在确认卡、`host.confirm_stage` 审计和本地 `collaborations`（`last_skip_*`）。Starry 不能理解 skip，也**禁止**一次 `changeLifecycleStage` 写入非相邻落地阶段。跨多格主流程时，Host 按 `planStarryAdjacentWalk` **逐格相邻前进**走到落地，每格一次 `{ lifecycleId, requestJson: { toStageCode, reason } }`；一格失败则停止并回传远程错误。单格相邻确认仍只写一次。纠正/异常不是相邻前进，远程跳过（`not_adjacent_forward`）。自动事实路径仍走 `autoLegalTargets` / evidence pointer。
+
+### 不决定的范围
+
+不放宽 `LIVE_*` / Gateway / confirm-before-send。相邻 hop 的 LIVE 写入已在允许名单 KOL 上证明可通，**不是完整生产放行**，也不是全量 skip-walk LIVE PASS。
+
+### 影响
+
+- 规范：`05-agent-workflow-skill-policy.md`（`legalTargets` vs `autoLegalTargets`，`confirm_stage` 写路径）
+- 代码：`planStarryAdjacentWalk`、`writeRemoteOfficialStage`（单 hop 邻接校验）、`writeRemoteOfficialStageWalk`、`syncConfirmedStageToMcp`
+- 测试：`changeLifecycleStage` 仅 `{ lifecycleId, requestJson: { toStageCode, reason } }`；skip → adjacent walk；确认卡/审计保留 skip 原因

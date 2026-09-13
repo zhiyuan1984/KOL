@@ -10,8 +10,12 @@ import {
   emailMcpResultCard,
   executeEmailMcpTask,
   normalizeEmailMcpResult,
+  remoteLifecycleIdFrom,
   setEmailMcpClientFactory,
+  writeRemoteOfficialStage,
+  writeRemoteOfficialStageWalk,
 } from "../src/starrykol/service.js";
+import { setAgentSubmissionOverride } from "../src/contract-scope.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import type { Json } from "../src/types.js";
@@ -191,6 +195,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  setAgentSubmissionOverride();
   setEmailMcpClientFactory();
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
@@ -651,23 +656,23 @@ describe("Email MCP KOL library", () => {
     ]);
     expect(JSON.parse(String(calls[1].args.requestJson))).toMatchObject({
       kolUid: "KOLTEST001",
-      cooperationStageCode: "CONTRACTING",
+      cooperationStageCode: "CONTRACT_SIGNING",
       cooperationStageName: "合同签署",
     });
     expect(data).toMatchObject({ updated: true, kolUid: "KOLTEST001" });
   });
 
-  it("writes official cooperationStageCode instead of legacy Starry codes", async () => {
+  it("writes Starry-native cooperationStageCode on updateKolProfile", async () => {
     const { data } = await executeEmailMcpTask("creator_status_update", {
       kolUid: "KOLTEST001",
       cooperationStageCode: "INTERESTED",
     });
     expect(JSON.parse(String(calls.find((row) => row.name === "updateKolProfile")?.args.requestJson))).toMatchObject({
       kolUid: "KOLTEST001",
-      cooperationStageCode: "INTERESTED",
+      cooperationStageCode: "INTEREST_CONFIRMED",
       cooperationStageName: "已回复-有兴趣",
     });
-    expect(JSON.stringify(calls.find((row) => row.name === "updateKolProfile")?.args)).not.toContain("INTEREST_CONFIRMED");
+    expect(JSON.stringify(calls.find((row) => row.name === "updateKolProfile")?.args)).not.toContain("\"INTERESTED\"");
     expect(data).toMatchObject({ updated: true });
   });
 
@@ -783,9 +788,10 @@ describe("Email MCP task run path", () => {
     }
   });
 
-  it("blocks real employee submission while the KOL Agent is unpublished", async () => {
+  it("blocks real employee submission when the publish gate is stubbed unpublished", async () => {
     const previous = process.env.CODEX_MODE;
     process.env.CODEX_MODE = "real";
+    setAgentSubmissionOverride(false);
     try {
       const created = await request("POST", "/api/sessions", { title: "达人库查询" });
       const posted = await request("POST", `/api/sessions/${created.body.id}/messages`, {
@@ -797,8 +803,183 @@ describe("Email MCP task run path", () => {
       expect(posted.body.detail).toMatchObject({ code: "agent_not_published" });
     } finally {
       process.env.CODEX_MODE = previous;
+      setAgentSubmissionOverride();
       setEmailMcpClientFactory(mockClient);
     }
+  });
+
+  it("passes lastLifecycleId through as lifecycleId on changeLifecycleStage", async () => {
+    const recorded: { name: string; args: Json }[] = [];
+    setEmailMcpClientFactory(() => ({
+      async callTool(name: string, args: Json = {}) {
+        recorded.push({ name, args });
+        return { data: { updated: true, kolUid: "KOL20260901LINGONG" } };
+      },
+      async close() { /* noop */ },
+    }));
+    await writeRemoteOfficialStage({
+      kolUid: "KOL20260901LINGONG",
+      lastLifecycleId: 320,
+      stageCode: "QUOTE_PENDING",
+      reason: "probe",
+    });
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0].name).toBe("changeLifecycleStage");
+    expect(Object.keys(recorded[0].args).sort()).toEqual(["lifecycleId", "requestJson"]);
+    expect(recorded[0].args.lifecycleId).toBe(320);
+    expect(JSON.parse(String(recorded[0].args.requestJson))).toEqual({
+      toStageCode: "QUOTE_PENDING",
+      reason: "probe",
+    });
+    expect(JSON.stringify(recorded[0].args)).not.toMatch(/cooperationStageCode|targetStageCode|"stageCode"/);
+    expect(remoteLifecycleIdFrom({ lastLifecycleId: 320, lifecycle_id: "lc_KOL20260901LINGONG" })).toBe(320);
+    expect(remoteLifecycleIdFrom({ lifecycle_id: "lc_KOL20260901LINGONG" })).toBeNull();
+  });
+
+  it("maps Host NEGOTIATING / 商务谈判 to Starry BUSINESS_NEGOTIATION with lastLifecycleId", async () => {
+    const recorded: { name: string; args: Json }[] = [];
+    setEmailMcpClientFactory(() => ({
+      async callTool(name: string, args: Json = {}) {
+        recorded.push({ name, args });
+        return { data: { updated: true, kolUid: "KOL20260901LINGONG" } };
+      },
+      async close() { /* noop */ },
+    }));
+    for (const stageCode of ["NEGOTIATING", "商务谈判"]) {
+      recorded.length = 0;
+      await writeRemoteOfficialStage({
+        kolUid: "KOL20260901LINGONG",
+        lastLifecycleId: 320,
+        fromStage: "QUOTE_PENDING",
+        stageCode,
+        reason: "probe",
+      });
+      expect(recorded).toHaveLength(1);
+      expect(recorded[0].name).toBe("changeLifecycleStage");
+      expect(Object.keys(recorded[0].args).sort()).toEqual(["lifecycleId", "requestJson"]);
+      expect(recorded[0].args.lifecycleId).toBe(320);
+      expect(JSON.parse(String(recorded[0].args.requestJson))).toEqual({
+        toStageCode: "BUSINESS_NEGOTIATION",
+        reason: "probe",
+      });
+    }
+  });
+
+  it("omits invented local lifecycle placeholders from the Starry write payload", async () => {
+    const recorded: { name: string; args: Json }[] = [];
+    setEmailMcpClientFactory(() => ({
+      async callTool(name: string, args: Json = {}) {
+        recorded.push({ name, args });
+        return { data: { updated: true } };
+      },
+      async close() { /* noop */ },
+    }));
+    await expect(writeRemoteOfficialStage({
+      kolUid: "KOL20260901LINGONG",
+      lifecycleId: "lc_KOL20260901LINGONG",
+      stageCode: "QUOTE_PENDING",
+    })).rejects.toMatchObject({
+      status: 400,
+      detail: expect.objectContaining({ code: "missing_lifecycle_id" }),
+    });
+    expect(recorded).toHaveLength(0);
+  });
+
+  it("refuses a single non-adjacent Starry write when fromStage is known", async () => {
+    const recorded: { name: string; args: Json }[] = [];
+    setEmailMcpClientFactory(() => ({
+      async callTool(name: string, args: Json = {}) {
+        recorded.push({ name, args });
+        return { data: { updated: true } };
+      },
+      async close() { /* noop */ },
+    }));
+    await expect(writeRemoteOfficialStage({
+      kolUid: "KOL20260901LINGONG",
+      lastLifecycleId: 320,
+      fromStage: "INITIAL_CONTACT",
+      stageCode: "NEGOTIATING",
+    })).rejects.toMatchObject({
+      status: 400,
+      detail: expect.objectContaining({ code: "not_adjacent_forward" }),
+    });
+    expect(recorded).toHaveLength(0);
+  });
+
+  it("walks a human skip as successive adjacent Starry-native hops", async () => {
+    const recorded: { name: string; args: Json }[] = [];
+    setEmailMcpClientFactory(() => ({
+      async callTool(name: string, args: Json = {}) {
+        recorded.push({ name, args });
+        return { data: { updated: true } };
+      },
+      async close() { /* noop */ },
+    }));
+    const result = await writeRemoteOfficialStageWalk({
+      kolUid: "KOL20260901LINGONG",
+      lastLifecycleId: 320,
+      fromStage: "INITIAL_CONTACT",
+      stageCode: "NEGOTIATING",
+    });
+    expect(result).toMatchObject({
+      tool: "changeLifecycleStage",
+      updated: true,
+      cooperationStageCode: "BUSINESS_NEGOTIATION",
+    });
+    expect((result.walk as Json).kind).toBe("walk");
+    expect((result.hops as Json[]).map((hop) => hop.native)).toEqual([
+      "INTEREST_CONFIRMED",
+      "COOPERATION_EVALUATION",
+      "QUOTE_PENDING",
+      "BUSINESS_NEGOTIATION",
+    ]);
+    expect(recorded.map((row) => row.name)).toEqual([
+      "changeLifecycleStage",
+      "changeLifecycleStage",
+      "changeLifecycleStage",
+      "changeLifecycleStage",
+    ]);
+    expect(recorded.map((row) => JSON.parse(String(row.args.requestJson)).toStageCode)).toEqual([
+      "INTEREST_CONFIRMED",
+      "COOPERATION_EVALUATION",
+      "QUOTE_PENDING",
+      "BUSINESS_NEGOTIATION",
+    ]);
+    expect(recorded.every((row) => {
+      const keys = Object.keys(row.args).sort();
+      const body = JSON.parse(String(row.args.requestJson)) as Json;
+      return keys[0] === "lifecycleId"
+        && keys[1] === "requestJson"
+        && keys.length === 2
+        && row.args.lifecycleId === 320
+        && Object.keys(body).sort().join(",") === "reason,toStageCode";
+    })).toBe(true);
+    expect(JSON.stringify(recorded.map((row) => row.args))).not.toMatch(/cooperationStageCode|targetStageCode|"stageCode"|skip/i);
+  });
+
+  it("stops the adjacent walk when a hop fails", async () => {
+    let n = 0;
+    setEmailMcpClientFactory(() => ({
+      async callTool() {
+        n += 1;
+        if (n === 3) throw new Error("当前不支持回退合作阶段");
+        return { data: { updated: true } };
+      },
+      async close() { /* noop */ },
+    }));
+    const result = await writeRemoteOfficialStageWalk({
+      kolUid: "KOL20260901LINGONG",
+      lastLifecycleId: 320,
+      fromStage: "INITIAL_CONTACT",
+      stageCode: "NEGOTIATING",
+    });
+    expect(result.error).toBe(true);
+    expect(result.message).toMatch(/回退/);
+    expect(result.failed_native).toBe("QUOTE_PENDING");
+    expect((result.hops as Json[]).map((hop) => hop.native)).toEqual([
+      "INTEREST_CONFIRMED",
+      "COOPERATION_EVALUATION",
+    ]);
   });
 
   it("maps HTML MCP payloads to a gateway error", async () => {

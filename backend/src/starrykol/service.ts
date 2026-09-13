@@ -19,7 +19,9 @@ import {
   evidencedPointer,
   label,
   normalizeStage,
+  planStarryAdjacentWalk,
   stageChecklist,
+  toLegacyStarryStage,
 } from "../stages.js";
 import { taskDefinition } from "../tasks/registry.js";
 import { libraryQueryKeyword } from "../tasks/resolver.js";
@@ -456,11 +458,15 @@ function mockCall(name: string, args: Json): Json {
     } catch {
       body = {};
     }
+    const fields = starryStageWriteFields(String(
+      body.toStageCode || body.cooperationStageCode || body.stageCode || args.stageCode || "INTERESTED",
+    ));
     return {
       updated: true,
-      kolUid: body.kolUid || args.kolUid || "KOLTEST001",
-      ...starryStageWriteFields(String(body.cooperationStageCode || body.stageCode || args.stageCode || "INTERESTED")),
-      stageCode: body.stageCode || body.cooperationStageCode || args.stageCode || "INTERESTED",
+      lifecycleId: args.lifecycleId ?? body.lifecycleId,
+      ...fields,
+      toStageCode: fields.cooperationStageCode,
+      stageCode: fields.cooperationStageCode,
     };
   }
   throw new Error(`unknown starry-kol-mcp tool: ${name}`);
@@ -470,23 +476,153 @@ export async function callStarryKolTool(name: string, args: Json = {}): Promise<
   return call(name, args);
 }
 
-/** Host kernel only: human-confirmed official stage → Starry lifecycle. Worker must not call this. */
-export async function writeRemoteOfficialStage(input: {
+/**
+ * Starry profiles expose the current 合作轮次 as `lastLifecycleId`, not `lifecycleId`.
+ * Only propagate a known remote numeric id. Local placeholders like `lc_*` must not
+ * be sent — that is what produced 合作轮次不存在 when the Host omitted/invented the id.
+ */
+export function remoteLifecycleIdFrom(
+  ...sources: Array<Record<string, unknown> | null | undefined>
+): number | null {
+  for (const source of sources) {
+    if (!source || typeof source !== "object") continue;
+    const nested = [
+      source.profile,
+      source.creator,
+      source.payload,
+    ].flatMap((value) => {
+      if (value && typeof value === "object" && !Array.isArray(value)) return [value as Record<string, unknown>];
+      if (typeof value === "string" && value.trim().startsWith("{")) {
+        try {
+          const parsed = JSON.parse(value) as Record<string, unknown>;
+          return parsed && typeof parsed === "object" ? [parsed] : [];
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    });
+    for (const row of [source, ...nested]) {
+      for (const key of ["lastLifecycleId", "last_lifecycle_id", "lifecycleId", "lifecycle_id"]) {
+        const id = parseRemoteLifecycleId(row[key]);
+        if (id != null) return id;
+      }
+    }
+  }
+  return null;
+}
+
+function parseRemoteLifecycleId(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  if (typeof value === "number") return Number.isInteger(value) && value > 0 ? value : null;
+  const text = String(value).trim();
+  if (!text || /^lc_/i.test(text) || /^conv_/i.test(text)) return null;
+  if (!/^\d+$/.test(text)) return null;
+  const parsed = Number(text);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+type RemoteStageWriteInput = {
   kolUid: string;
   lifecycleId?: string | number | null;
+  lastLifecycleId?: string | number | null;
+  last_lifecycle_id?: string | number | null;
   stageCode: string;
+  fromStage?: string | null;
   reason?: string | null;
-}): Promise<Json> {
+};
+
+/**
+ * Host kernel only: one adjacent-forward Starry hop. Worker must not call this.
+ *
+ * LIVE-proven ChangeStageRequest (KOL202607300002 / lifecycle 16):
+ * top-level args are exactly `{ lifecycleId, requestJson }`;
+ * requestJson is `{ toStageCode, reason }` with a Starry-native code.
+ * `cooperationStageCode` / `targetStageCode` / `stageCode` return misleading 回退.
+ */
+export async function writeRemoteOfficialStage(input: RemoteStageWriteInput): Promise<Json> {
   const fields = starryStageWriteFields(input.stageCode);
-  const payload = {
-    kolUid: input.kolUid,
-    ...(input.lifecycleId != null && String(input.lifecycleId).trim() ? { lifecycleId: Number(input.lifecycleId) || String(input.lifecycleId) } : {}),
+  if (input.fromStage != null && String(input.fromStage).trim()) {
+    const plan = planStarryAdjacentWalk(String(input.fromStage), input.stageCode);
+    if (plan.kind !== "adjacent") {
+      throw new HttpFail(400, {
+        code: "not_adjacent_forward",
+        message: "Starry 只接受相邻前进，禁止一次写入非相邻落地阶段",
+        from: plan.from,
+        to: plan.to,
+        hops: plan.nativeHops,
+      });
+    }
+  }
+  const lifecycleId = remoteLifecycleIdFrom(input as Record<string, unknown>);
+  if (lifecycleId == null) {
+    throw new HttpFail(400, {
+      code: "missing_lifecycle_id",
+      message: "Starry changeLifecycleStage 需要已知的远程 lifecycleId（lastLifecycleId）",
+    });
+  }
+  const toStageCode = fields.cooperationStageCode;
+  const data = await call("changeLifecycleStage", {
+    lifecycleId,
+    requestJson: JSON.stringify({
+      toStageCode,
+      reason: String(input.reason || ""),
+    }),
+  });
+  return {
+    ...json(data),
     ...fields,
-    stageCode: fields.cooperationStageCode,
-    reason: String(input.reason || ""),
+    toStageCode,
+    tool: "changeLifecycleStage",
+    updated: data.updated !== false,
   };
-  const data = await call("changeLifecycleStage", requestJson(payload));
-  return { ...json(data), tool: "changeLifecycleStage", updated: data.updated !== false };
+}
+
+/** Walk Starry with successive adjacent forwards. Human skip reason stays Host-local. */
+export async function writeRemoteOfficialStageWalk(input: RemoteStageWriteInput & { fromStage: string }): Promise<Json> {
+  const plan = planStarryAdjacentWalk(input.fromStage, input.stageCode);
+  if (plan.kind === "not_forward") {
+    return { skipped: true, reason: "not_adjacent_forward", walk: plan, tool: "changeLifecycleStage", updated: false };
+  }
+  const hops: Json[] = [];
+  let cursor = plan.from;
+  for (const hop of plan.hops) {
+    try {
+      const data = await writeRemoteOfficialStage({
+        ...input,
+        fromStage: cursor,
+        stageCode: hop,
+        reason: `会话确认进入 ${label(hop)}`,
+      });
+      hops.push({
+        from: cursor,
+        to: hop,
+        native: toLegacyStarryStage(hop),
+        tool: data.tool,
+        updated: Boolean(data.updated),
+      });
+      cursor = hop;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        error: true,
+        message,
+        tool: "changeLifecycleStage",
+        updated: false,
+        walk: plan,
+        hops,
+        failed_hop: hop,
+        failed_native: toLegacyStarryStage(hop),
+      };
+    }
+  }
+  return {
+    ...starryStageWriteFields(input.stageCode),
+    tool: "changeLifecycleStage",
+    updated: true,
+    walk: plan,
+    hops,
+  };
 }
 
 async function call(name: string, args: Json = {}): Promise<Json> {

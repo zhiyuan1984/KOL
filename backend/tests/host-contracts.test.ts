@@ -4,12 +4,13 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { BRAND_MAILBOXES } from "../src/config.js";
-import { getConn, resetConn, tx } from "../src/db.js";
+import { getConn, listAudit, resetConn, tx } from "../src/db.js";
 import { seedAll, seedIfEmpty } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { workerCannotSend } from "../src/worker/common.js";
 import { SKILL_CATALOG } from "../src/host/skills-catalog.js";
-import { isStarryKolTask } from "../src/starrykol/service.js";
+import { isStarryKolTask, setEmailMcpClientFactory } from "../src/starrykol/service.js";
+import { toLegacyStarryStage } from "../src/stages.js";
 import { isKolClawTask } from "../src/kolclaw/service.js";
 import { profileFor } from "../src/profiles.js";
 import { emailCardPayload, persistDraft } from "../src/host/api.js";
@@ -82,6 +83,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  setEmailMcpClientFactory();
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
@@ -171,7 +173,11 @@ describe("host contracts", () => {
   });
 
   it("confirm-stage writes official stage and remote changeLifecycleStage", async () => {
-    getConn().prepare("UPDATE collaborations SET kol_uid=? WHERE id=?").run("KOLXIAOMEI", "col_xiaomei");
+    getConn().prepare("UPDATE collaborations SET kol_uid=?, last_lifecycle_id=? WHERE id=?").run(
+      "KOLXIAOMEI",
+      "16",
+      "col_xiaomei",
+    );
     const [sid, data] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
     const card = (data.messages as Json[]).find((m) => m.kind === "confirm_stage_card")!;
     const target = ((card.payload as Json).targets as Json[])[0].code;
@@ -187,7 +193,7 @@ describe("host contracts", () => {
     expect(body.mcp_sync).toMatchObject({
       tool: "changeLifecycleStage",
       updated: true,
-      cooperationStageCode: target,
+      cooperationStageCode: toLegacyStarryStage(String(target)),
     });
     const col = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_xiaomei'").get() as Json;
     expect(col.stage_code).toBe(target);
@@ -195,6 +201,95 @@ describe("host contracts", () => {
       "SELECT payload FROM messages WHERE session_id=? AND kind='confirm_stage_card'",
     ).all(sid) as { payload: string }[];
     expect(stored.some((row) => Boolean((JSON.parse(row.payload) as Json).resolved))).toBe(true);
+  });
+
+  it("human skip keeps kind/reason locally and walks Starry with adjacent native hops", async () => {
+    getConn().prepare("UPDATE collaborations SET kol_uid=?, last_lifecycle_id=? WHERE id=?").run(
+      "KOLXIAOMEI",
+      "320",
+      "col_xiaomei",
+    );
+    const [sid, data] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
+    const recorded: { name: string; args: Json }[] = [];
+    setEmailMcpClientFactory(() => ({
+      async callTool(name: string, args: Json = {}) {
+        recorded.push({ name, args });
+        const body = JSON.parse(String(args.requestJson || "{}")) as Json;
+        return { data: { updated: true, ...body } };
+      },
+      async close() { /* noop */ },
+    }));
+    const card = (data.messages as Json[]).find((m) => m.kind === "confirm_stage_card")!;
+    const r = await request("POST", `/api/sessions/${sid}/confirm-stage`, {
+      stage_code: "NEGOTIATING",
+      collaboration_id: "col_xiaomei",
+      expected_version: (card.payload as Json).expected_version,
+      reason: "报价已口头同意，直接商务谈判",
+    });
+    expect(r.status, await r.text()).toBe(200);
+    const body = await r.json();
+    expect(body.stage_changed).toBe(true);
+    expect(body.stage_code).toBe("NEGOTIATING");
+    expect(body.skip_kind).toBe("skip");
+    expect(body.skip_reason).toBe("报价已口头同意，直接商务谈判");
+    expect(body.skipped_stages).toEqual(["INTERESTED", "EVALUATING", "QUOTE_PENDING"]);
+    expect(body.remote_stage_code).toBe("BUSINESS_NEGOTIATION");
+    expect(body.mcp_sync).toMatchObject({
+      tool: "changeLifecycleStage",
+      updated: true,
+      cooperationStageCode: "BUSINESS_NEGOTIATION",
+    });
+    expect((body.mcp_sync as Json).walk).toMatchObject({ kind: "walk" });
+    const writes = recorded.filter((row) => row.name === "changeLifecycleStage");
+    expect(writes).toHaveLength(4);
+    expect(writes.map((row) => JSON.parse(String(row.args.requestJson)).toStageCode)).toEqual([
+      "INTEREST_CONFIRMED",
+      "COOPERATION_EVALUATION",
+      "QUOTE_PENDING",
+      "BUSINESS_NEGOTIATION",
+    ]);
+    expect(writes.every((row) => {
+      const keys = Object.keys(row.args).sort();
+      const payload = JSON.parse(String(row.args.requestJson)) as Json;
+      return keys[0] === "lifecycleId"
+        && keys[1] === "requestJson"
+        && keys.length === 2
+        && row.args.lifecycleId === 320
+        && Object.keys(payload).sort().join(",") === "reason,toStageCode";
+    })).toBe(true);
+    expect(JSON.stringify(writes.map((row) => row.args))).not.toMatch(/cooperationStageCode|targetStageCode|"stageCode"|skip/i);
+    const hopAudits = listAudit("host.confirm_stage.mcp") as Json[];
+    expect(hopAudits.filter((row) => (row.payload as Json).native).map((row) => (row.payload as Json).native)).toEqual([
+      "INTEREST_CONFIRMED",
+      "COOPERATION_EVALUATION",
+      "QUOTE_PENDING",
+      "BUSINESS_NEGOTIATION",
+    ]);
+    const col = getConn().prepare(
+      "SELECT stage_code, last_skip_kind, last_skip_reason, last_skipped_stages FROM collaborations WHERE id='col_xiaomei'",
+    ).get() as Json;
+    expect(col.stage_code).toBe("NEGOTIATING");
+    expect(col.last_skip_kind).toBe("skip");
+    expect(col.last_skip_reason).toBe("报价已口头同意，直接商务谈判");
+    expect(JSON.parse(String(col.last_skipped_stages))).toEqual(["INTERESTED", "EVALUATING", "QUOTE_PENDING"]);
+    const stored = getConn().prepare(
+      "SELECT payload FROM messages WHERE session_id=? AND kind='confirm_stage_card'",
+    ).all(sid) as { payload: string }[];
+    expect(stored.some((row) => {
+      const payload = JSON.parse(row.payload) as Json;
+      return payload.resolved
+        && payload.skip_kind === "skip"
+        && payload.skip_reason === "报价已口头同意，直接商务谈判";
+    })).toBe(true);
+    const audits = listAudit("host.confirm_stage") as Json[];
+    expect(audits.some((row) => {
+      const payload = row.payload as Json;
+      return payload.to_stage === "NEGOTIATING"
+        && payload.skip_kind === "skip"
+        && payload.skip_reason === "报价已口头同意，直接商务谈判"
+        && payload.remote_stage_code === "BUSINESS_NEGOTIATION";
+    })).toBe(true);
+    setEmailMcpClientFactory();
   });
 
   it("reject-stage closes the card without writing stage or starting a worker", async () => {

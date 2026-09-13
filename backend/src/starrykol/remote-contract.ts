@@ -1,9 +1,18 @@
 /**
  * Host ↔ Starry email-agent MCP contract.
- * Official stage codes match backend/src/stages.ts. Legacy Starry codes stay read aliases only.
+ * Reads normalize onto Host-local codes. Writes emit Starry-native codes (ADR-011).
  */
 import { FOLLOW_STYLE_PRESETS } from "../follow-style-tags.js";
-import { BY_CODE, LEGACY_STAGE_ALIASES, MAIN_STAGES, SIDE_STAGES, codeFromLabel, label, normalizeStage } from "../stages.js";
+import {
+  BY_CODE,
+  LEGACY_STAGE_ALIASES,
+  MAIN_STAGES,
+  SIDE_STAGES,
+  codeFromLabel,
+  label,
+  normalizeStage,
+  toLegacyStarryStage,
+} from "../stages.js";
 import type { Json } from "../types.js";
 
 export type StarryStageOption = {
@@ -59,12 +68,26 @@ export function starryCooperationStageOptions(): StarryStageOption[] {
   }));
 }
 
-export function starryStageWriteFields(code: string): { cooperationStageCode: string; cooperationStageName: string } {
-  const official = codeFromLabel(code) || normalizeStage(code);
+function stageNameFor(official: string): string {
   const known = BY_CODE[official];
+  return known ? known.label : label(official);
+}
+
+/** Host-local read fields. Remote native codes (e.g. BUSINESS_NEGOTIATION) stay aliases. */
+export function starryStageReadFields(code: string): { cooperationStageCode: string; cooperationStageName: string } {
+  const official = codeFromLabel(code) || normalizeStage(code);
   return {
     cooperationStageCode: official,
-    cooperationStageName: known ? known.label : label(official),
+    cooperationStageName: stageNameFor(official),
+  };
+}
+
+/** Starry-native write fields. Host-local NEGOTIATING / 商务谈判 → BUSINESS_NEGOTIATION. */
+export function starryStageWriteFields(code: string): { cooperationStageCode: string; cooperationStageName: string } {
+  const official = codeFromLabel(code) || normalizeStage(code);
+  return {
+    cooperationStageCode: toLegacyStarryStage(official),
+    cooperationStageName: stageNameFor(official),
   };
 }
 
@@ -201,11 +224,11 @@ export function maskContactEmail(email: string): string {
 }
 
 export function enrichListProfile(profile: Json): Json {
-  const stage = starryStageWriteFields(String(
+  const stage = starryStageReadFields(String(
     profile.cooperationStageCode || profile.stageCode || profile.cooperationStageName || "",
   ));
   if (!BY_CODE[stage.cooperationStageCode]) {
-    Object.assign(stage, starryStageWriteFields("INITIAL_CONTACT"));
+    Object.assign(stage, starryStageReadFields("INITIAL_CONTACT"));
   }
   const knownStage = BY_CODE[stage.cooperationStageCode];
   const nicheTags = Array.isArray(profile.nicheTags)
@@ -225,6 +248,7 @@ export function enrichListProfile(profile: Json): Json {
     riskTagCodes: riskCodes,
     followStyleTags: Array.isArray(profile.followStyleTags) ? profile.followStyleTags : [],
     lastConversationId: profile.lastConversationId ?? profile.last_conversation_id ?? null,
+    lastLifecycleId: profile.lastLifecycleId ?? profile.last_lifecycle_id ?? profile.lifecycleId ?? null,
     notes: profile.notes ?? null,
     wechat: profile.wechat ?? null,
   };

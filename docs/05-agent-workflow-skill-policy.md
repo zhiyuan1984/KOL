@@ -36,6 +36,8 @@ L1 是只读查询/分析；L2 是草稿/预览，正式发送需确认；L3 是
 
 展示层固定 8 段，用于 Home/Journey/SOP；写入层保留官方 15 个 `stage_code` 与旁路/终态，不能压缩成 8 个枚举。人确认目标使用 `legalTargets`，无相邻约束，可跳过、回退或进入异常但必须写原因；自动事实使用 `autoLegalTargets`，不能替人纠正或跳过。唯一官方写入口是 `confirm_stage`，必须带 `expected_version`。
 
+Host 本地阶段码与 Starry 原生码通过 `LEGACY_STAGE_ALIASES` / `toLegacyStarryStage` 互转（ADR-011）：读入归一成 Host-local；`changeLifecycleStage` 顶层只有 `{ lifecycleId, requestJson }`，`requestJson.toStageCode` 写相邻前进的 Starry 原生码（如 `NEGOTIATING` → `BUSINESS_NEGOTIATION`）。人确认的 skip kind / 原因只存在确认卡、审计和本地协作。跨格 skip 由 `planStarryAdjacentWalk` 逐格 walk，一格失败即停。
+
 ## 反旁路规则
 
 业务入口必须是已发布 Skill；前端、Prompt、MCP 和 Host 不得直接发信或改阶段。业务目录、缺口、推荐和口令抽取在 Skill/Workflow；硬状态机、审批、幂等和副作用在 Host。

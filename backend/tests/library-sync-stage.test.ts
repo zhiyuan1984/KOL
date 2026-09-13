@@ -95,6 +95,37 @@ describe("Starry library sync preserves confirmed official stage", () => {
     expect(String(card.current_stage || "")).toContain("初步接触");
   });
 
+  it("stores profile lastLifecycleId so confirm_stage can pass it to Starry", async () => {
+    setStarryKolClientFactory(() => ({
+      async callTool(name: string) {
+        if (name === "listAllKolProfiles") {
+          return {
+            data: {
+              total: 1,
+              list: [{
+                kolUid: "KOL20260901LINGONG",
+                kolName: "云端验收达人",
+                nickname: "云端验收达人",
+                lastLifecycleId: 320,
+                lastConversationId: 327,
+                cooperationStageCode: "QUOTE_PENDING",
+                primaryPlatform: "YouTube",
+              }],
+            },
+          };
+        }
+        return { data: { list: [] } };
+      },
+      async close() { /* noop */ },
+    }));
+    const synced = await syncStarryHomeLibrary();
+    expect(synced.ok).toBe(true);
+    const row = getConn().prepare("SELECT * FROM collaborations WHERE kol_uid=?").get("KOL20260901LINGONG") as Row;
+    expect(row.last_lifecycle_id).toBe("320");
+    expect(row.lifecycle_id).toBe("320");
+    expect(row.last_conversation_id).toBe("327");
+  });
+
   it("lets Starry list-all move the official stage forward", async () => {
     await syncStarryHomeLibrary();
     confirmStarryStage(String(outdoorRow().lifecycle_id), "INTERESTED", "host");

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { agentPublishState, agentSubmissionAllowed, departmentHeadAccessForUser, kolAgentScopeContext } from "../src/contract-scope.js";
+import { afterEach, describe, expect, it } from "vitest";
+import { agentPublishState, agentSubmissionAllowed, departmentHeadAccessForUser, kolAgentScopeContext, setAgentSubmissionOverride } from "../src/contract-scope.js";
 
 describe("KOL contract scope", () => {
   it("loads canonical organization, brand and region scope into the harness context", () => {
@@ -26,5 +26,21 @@ describe("KOL contract scope", () => {
   it("always allows stub submissions and follows the manifest publish gate in real mode", () => {
     expect(agentSubmissionAllowed("stub")).toBe(true);
     expect(agentSubmissionAllowed("real")).toBe(agentPublishState().employee_submission);
+    expect(agentPublishState().employee_submission).toBe(true);
+    expect(agentSubmissionAllowed("real")).toBe(true);
   });
+
+  it("can stub the unpublished gate without rewriting the production manifest", () => {
+    setAgentSubmissionOverride(false);
+    try {
+      expect(agentSubmissionAllowed("real")).toBe(false);
+      expect(agentSubmissionAllowed("stub")).toBe(true);
+    } finally {
+      setAgentSubmissionOverride();
+    }
+  });
+});
+
+afterEach(() => {
+  setAgentSubmissionOverride();
 });

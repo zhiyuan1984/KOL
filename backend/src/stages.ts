@@ -370,15 +370,64 @@ const TO_STARRY_STAGE: Record<string, string> = Object.fromEntries(
   Object.entries(LEGACY_STAGE_ALIASES).map(([starry, local]) => [local, starry]),
 );
 
-/** Official Starry write code. Legacy native codes remain read aliases only. */
+/**
+ * Starry-native write code (ADR-011). Inverse of `LEGACY_STAGE_ALIASES`.
+ * Host-local codes stay the read/canonical Host model via `normalizeStage`.
+ */
 export function toStarryStage(code: string): string {
-  return normalizeStage(code);
-}
-
-/** Previous Starry native codes, kept for reading old payloads. */
-export function toLegacyStarryStage(code: string): string {
   const normalized = normalizeStage(code);
   return TO_STARRY_STAGE[normalized] || normalized;
+}
+
+/** Host-local → Starry-native write code. Same mapping as `toStarryStage`. */
+export function toLegacyStarryStage(code: string): string {
+  return toStarryStage(code);
+}
+
+export function confirmTargetKind(current: string, target: string): StageTargetKind | null {
+  return stageConfirmOptions(current).find((item) => item.code === normalizeStage(target))?.kind ?? null;
+}
+
+export function skippedStagesForConfirm(current: string, target: string): string[] {
+  return skippedMainCodes(normalizeStage(current), normalizeStage(target));
+}
+
+export type StarryAdjacentWalkKind = "adjacent" | "walk" | "not_forward";
+
+export type StarryAdjacentWalk = {
+  from: string;
+  to: string;
+  hops: string[];
+  nativeHops: string[];
+  kind: StarryAdjacentWalkKind;
+};
+
+/**
+ * Starry only accepts adjacent forward hops. Human skip stays Host-local;
+ * remote sync must walk this list (ADR-011). Empty hops = not a forward main walk.
+ */
+export function planStarryAdjacentWalk(from: string, to: string): StarryAdjacentWalk {
+  const start = codeFromLabel(from) || normalizeStage(from);
+  const end = codeFromLabel(to) || normalizeStage(to);
+  const line = [...MAIN_STAGES.map((stage) => stage.code)];
+  if (NEXT_STAGE.SETTLING === "COMPLETED") line.push("COMPLETED");
+  const fromIdx = line.indexOf(start);
+  const toIdx = line.indexOf(end);
+  if (fromIdx < 0 || toIdx < 0 || toIdx <= fromIdx) {
+    return { from: start, to: end, hops: [], nativeHops: [], kind: "not_forward" };
+  }
+  const hops = line.slice(fromIdx + 1, toIdx + 1);
+  return {
+    from: start,
+    to: end,
+    hops,
+    nativeHops: hops.map((code) => toLegacyStarryStage(code)),
+    kind: hops.length === 1 ? "adjacent" : "walk",
+  };
+}
+
+export function isStarryAdjacentForward(from: string, to: string): boolean {
+  return planStarryAdjacentWalk(from, to).kind === "adjacent";
 }
 
 export function completedFromEvidence(value: unknown): string[] {
