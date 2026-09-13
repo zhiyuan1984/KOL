@@ -19,8 +19,12 @@ export default function SharedSession() {
       <header><div className="page-kicker">只读分享</div><h1>{String(session.title || data?.title || "共享会话")}</h1><p className="muted">此页面不可编辑。内部中文、审批和私有数据默认不包含在分享中。</p></header>
       {error && <div className="error-card" role="alert"><strong>无法打开分享</strong>{error}</div>}
       {!error && !data && <p className="muted" role="status">正在加载…</p>}
-      {messages.length > 0 && <ChatThread messages={messages} />}
-      {draftMessage && <article className="artifact shared-artifact"><Markdown>{emailMarkdown(draftMessage.payload as unknown as EmailCard)}</Markdown></article>}
+      {messages.length > 0 && (
+        <article className="artifact shared-artifact">
+          <ChatThread messages={messages} />
+          {draftMessage && <Markdown>{emailMarkdown(draftMessage.payload as unknown as EmailCard)}</Markdown>}
+        </article>
+      )}
       {data && !messages.length && <p className="muted">这个分享中没有可公开的消息。</p>}
     </main>
   );

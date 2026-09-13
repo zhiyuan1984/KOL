@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
 import { buildHomeBoard, buildRecommendedTasks, isInsightWorkItem, isTodoWorkItem } from "../src/host/home-board.js";
-import { seedAll } from "../src/seed.js";
+import { resetDemoRuntimeState, seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import type { Json } from "../src/types.js";
 
@@ -116,6 +116,35 @@ describe("home workbench", () => {
     seedAll();
     expect(getConn().prepare("SELECT COUNT(*) AS c FROM work_items WHERE id LIKE 'tsk_home_%'").get() as { c: number }).toEqual({ c: 0 });
     expect(getConn().prepare("SELECT COUNT(*) AS c FROM collaborations WHERE id LIKE 'col_%'").get() as { c: number }).toEqual({ c: 0 });
+  });
+
+  it("demo reset wipes leftover official writes and extra tasks before fixtures", async () => {
+    getConn().prepare("INSERT INTO starry_stage_writes (lifecycle_id, stage_code, actor, ts) VALUES (?,?,?,?)").run(
+      "lc_xiaomei",
+      "INTERESTED",
+      "test",
+      "2026-09-01T00:00:00+00:00",
+    );
+    getConn().prepare(
+      `INSERT INTO work_items
+       (id,owner_user_id,task_type,title,source,status,priority,skill,profile,project_id,
+        collaboration_id,session_id,due_at,promoted_at,dismissed_at,input,entities,data_version,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      "tsk_leak", "usr_sriphy", "email_compose", "leftover", "manual", "waiting", "high", "email_compose",
+      "lead", null, null, null, null, null, null, "{}", "{}", 1, "2026-09-01T00:00:00+00:00", "2026-09-01T00:00:00+00:00",
+    );
+    const reset = await request("POST", "/api/demo/reset", { workbench: true });
+    expect(reset.status).toBe(200);
+    expect(getConn().prepare("SELECT COUNT(*) AS c FROM starry_stage_writes").get() as { c: number }).toEqual({ c: 0 });
+    expect(getConn().prepare("SELECT id FROM work_items WHERE id=?").get("tsk_leak")).toBeUndefined();
+    expect(getConn().prepare("SELECT stage_code FROM collaborations WHERE id=?").get("col_xiaomei") as { stage_code: string })
+      .toEqual({ stage_code: "INITIAL_CONTACT" });
+    resetDemoRuntimeState();
+    seedWorkbenchFixtures();
+    expect((buildHomeBoard() as Json).workbench).toMatchObject({
+      summary: { open: 2, insights: 2 },
+    });
   });
 
   it("persists promote columns on work_items", () => {

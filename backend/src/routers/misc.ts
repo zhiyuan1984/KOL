@@ -27,7 +27,7 @@ import {
 } from "../host/skill-publish.js";
 import { nid } from "../ids.js";
 import { publicProfiles } from "../profiles.js";
-import { seedAll } from "../seed.js";
+import { resetDemoRuntimeState, seedAll } from "../seed.js";
 import { STAGES, label } from "../stages.js";
 import type { Json, Row } from "../types.js";
 import { taskDefinition } from "../tasks/registry.js";
@@ -486,6 +486,7 @@ misc.get("/stage-transitions", (c) => {
 misc.post("/demo/reset", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { workbench?: boolean };
   seedAll();
+  resetDemoRuntimeState();
   if (body.workbench) {
     const { seedWorkbenchFixtures } = await import("../seed-fixtures.js");
     seedWorkbenchFixtures();

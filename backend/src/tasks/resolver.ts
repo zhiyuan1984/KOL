@@ -189,7 +189,16 @@ export function mergeExtractedOntoIntent(
   }
 }
 
-function missing(definition: TaskDefinition, entities: Record<string, unknown>, supplied: Record<string, unknown>): string[] {
+function namedMailCommand(text: string): boolean {
+  return /催大纲|发货通知|核对地址|寄样地址核对/.test(text);
+}
+
+function missing(
+  definition: TaskDefinition,
+  entities: Record<string, unknown>,
+  supplied: Record<string, unknown>,
+  text = "",
+): string[] {
   return definition.required_inputs.filter((field) => {
     if (field === "collaboration_id" && (entities.handle || supplied.handle)) return false;
     if (
@@ -201,6 +210,13 @@ function missing(definition: TaskDefinition, entities: Record<string, unknown>, 
     if (
       definition.id === "email_compose"
       && (entities.handle || supplied.handle || entities.collaboration_id || supplied.collaboration_id)
+      && (field === "mailboxEmail" || field === "to" || field === "subject")
+    ) return false;
+    // Named letters (催大纲 / 核地址 / 发货) have their own Host supplement
+    // or stage gate. Do not block them on the first-touch From/To/Subject card.
+    if (
+      definition.id === "email_compose"
+      && namedMailCommand(text)
       && (field === "mailboxEmail" || field === "to" || field === "subject")
     ) return false;
     const value = supplied[field] ?? entities[field];
@@ -261,6 +277,7 @@ function lockedResolution(
   taskType: string,
   entities: Record<string, unknown>,
   supplied: Record<string, unknown>,
+  text = "",
 ): TaskResolution {
   const definition = taskDefinition(taskType);
   if (!definition) {
@@ -274,7 +291,7 @@ function lockedResolution(
       clarification_kind: "direction",
     };
   }
-  const missingFields = missing(definition, entities, supplied);
+  const missingFields = missing(definition, entities, supplied, text);
   return {
     task_type: definition.id,
     confidence: 1,
@@ -299,7 +316,7 @@ export function resolveTaskIntent(input: {
   const text = String(input.text || "").trim();
   const entities = { ...extractTaskEntities(text), ...(input.entities || {}) };
   const supplied = input.input || {};
-  if (input.task_type) return lockedResolution(String(input.task_type), entities, supplied);
+  if (input.task_type) return lockedResolution(String(input.task_type), entities, supplied, text);
   return {
     task_type: null,
     confidence: 0,
@@ -321,7 +338,7 @@ export function stubResolveTaskIntent(input: {
   const text = String(input.text || "").trim();
   const entities = { ...extractTaskEntities(text), ...(input.entities || {}) };
   const supplied = input.input || {};
-  if (input.task_type) return lockedResolution(String(input.task_type), entities, supplied);
+  if (input.task_type) return lockedResolution(String(input.task_type), entities, supplied, text);
 
   const lower = text.toLowerCase();
   if (/(搜索|查找|寻找|发现).*(达人|KOL|创作者)/i.test(text)) {
@@ -342,7 +359,7 @@ export function stubResolveTaskIntent(input: {
   if (emailTask) {
     const definition = taskDefinition(emailTask);
     if (definition) {
-      const missingFields = missing(definition, entities, supplied);
+      const missingFields = missing(definition, entities, supplied, text);
       return {
         task_type: definition.id,
         confidence: 0.97,
@@ -381,7 +398,7 @@ export function stubResolveTaskIntent(input: {
       clarification_kind: "direction",
     };
   }
-  const missingFields = missing(best.definition, entities, supplied);
+  const missingFields = missing(best.definition, entities, supplied, text);
   return {
     task_type: best.definition.id,
     confidence: best.confidence,

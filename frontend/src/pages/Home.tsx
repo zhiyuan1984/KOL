@@ -78,6 +78,24 @@ const EXCEPTION_TEMPLATE: TaskDefinition = {
   profile: "lead",
 };
 
+const MAIL_COMMAND_TEMPLATES: TaskDefinition[] = [
+  {
+    id: "content_nudge",
+    skill_id: "email_compose",
+    title: "催大纲",
+    description: "仅测试中或内容策划阶段可催大纲",
+    prompt: "催大纲 [红人或合作]",
+    category: "履约",
+    profile: "lead",
+  },
+];
+
+function withHomeCommandTemplates(list: TaskDefinition[]): TaskDefinition[] {
+  const extras = [EXCEPTION_TEMPLATE, ...MAIL_COMMAND_TEMPLATES];
+  const extraIds = new Set(extras.map((row) => row.id));
+  return [...list.filter((row) => !extraIds.has(row.id)), ...extras];
+}
+
 function definitionList(
   value: TaskDefinition[] | { task_definitions?: TaskDefinition[]; definitions?: TaskDefinition[] },
 ): TaskDefinition[] {
@@ -426,9 +444,7 @@ export default function Home() {
     }).catch(() => undefined);
     void api.taskDefinitions().then(definitionList).then((taskDefinitions) => {
       if (!cancelled && taskDefinitions.length) {
-        setDefinitions(taskDefinitions.some((definition) => definition.id === EXCEPTION_TEMPLATE.id)
-          ? taskDefinitions
-          : [...taskDefinitions, EXCEPTION_TEMPLATE]);
+        setDefinitions(withHomeCommandTemplates(taskDefinitions));
       }
     }).catch(() => undefined);
     void api.homeBoard().then((board) => {

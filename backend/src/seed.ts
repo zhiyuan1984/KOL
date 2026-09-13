@@ -31,6 +31,26 @@ export function seedAll(): void {
   stripLegacyDemoData();
 }
 
+/** E2E / demo reset only. Wipe leftover official writes and tasks from prior runs. */
+export function resetDemoRuntimeState(): void {
+  const conn = getConn();
+  conn.prepare("DELETE FROM starry_stage_writes").run();
+  conn.prepare("DELETE FROM task_events").run();
+  conn.prepare("DELETE FROM work_items").run();
+  conn.exec("DROP TRIGGER IF EXISTS stage_transitions_no_delete");
+  try {
+    conn.prepare("DELETE FROM stage_transitions").run();
+  } finally {
+    conn.exec(`
+      CREATE TRIGGER IF NOT EXISTS stage_transitions_no_delete
+      BEFORE DELETE ON stage_transitions
+      BEGIN
+        SELECT RAISE(ABORT, 'stage_transitions are immutable');
+      END;
+    `);
+  }
+}
+
 /** Explicit ops path. Do not call from production startup. */
 export function runLegacyDemoCleanup(): void {
   stripLegacyDemoData();
