@@ -3430,6 +3430,25 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   font-size: 14px;
   line-height: 1.55;
 }
+.digest-disclaimer,
+.digest-lede {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-meta);
+  font-weight: 500;
+  line-height: 1.5;
+}
+.digest-excerpt {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+.digest-excerpt summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: var(--font-meta);
+  font-weight: 600;
+}
 .sop-mail-md-body p {
   margin: 0;
   font-size: 14px;
@@ -3562,6 +3581,18 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   background: transparent;
   padding: 4px 12px;
 }
+.thread-mail-digest.is-rule,
+.thread-mail-digest.is-pending,
+.thread-mail-digest.is-failed {
+  border-left-color: var(--border);
+  background: color-mix(in srgb, var(--text-muted) 6%, var(--bg));
+  box-shadow: none;
+}
+.thread-mail-digest.is-codex,
+.thread-mail-digest.is-luna {
+  border-left-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg));
+}
 .thread-mail-digest small {
   color: var(--text-muted);
   font-size: var(--font-meta);
@@ -3570,6 +3601,11 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .thread-mail-digest.is-failed [data-digest-status],
 .thread-mail-digest.is-pending [data-digest-status] {
   color: var(--orange);
+}
+.thread-mail-digest.is-rule .sop-mail-md-body,
+.thread-mail-digest.is-pending .sop-mail-md-body,
+.thread-mail-digest.is-failed .sop-mail-md-body {
+  color: var(--text-muted);
 }
 .inference-fields {
   display: grid;
