@@ -58,10 +58,34 @@ export type StarryKolTask = (typeof STARRY_KOL_TASKS)[number];
 export const EMAIL_MCP_TASKS = STARRY_KOL_TASKS;
 export type EmailMcpTask = StarryKolTask;
 
+/** Skills that write, send, preview-send, or decrypt. Stay Codex-strict in real mode. */
+export const STARRY_KOL_WRITE_TASKS = [
+  "email_compose",
+  "creator_library_sync",
+  "creator_owner_update",
+  "creator_status_update",
+  "creator_contact_decrypt",
+] as const;
+
+export type StarryKolWriteTask = (typeof STARRY_KOL_WRITE_TASKS)[number];
+
+/** L1 reads. Host may invoke these MCP tools when Codex `approvalPolicy: never` rejects them. */
+export const STARRY_KOL_READ_TASKS = STARRY_KOL_TASKS.filter(
+  (task) => !(STARRY_KOL_WRITE_TASKS as readonly string[]).includes(task),
+) as readonly Exclude<StarryKolTask, StarryKolWriteTask>[];
+
 export function isStarryKolTask(value: string | null | undefined): value is StarryKolTask {
   return Boolean(value && (STARRY_KOL_TASKS as readonly string[]).includes(value));
 }
 export const isEmailMcpTask = isStarryKolTask;
+
+export function isStarryKolWriteTask(value: string | null | undefined): value is StarryKolWriteTask {
+  return Boolean(value && (STARRY_KOL_WRITE_TASKS as readonly string[]).includes(value));
+}
+
+export function isStarryKolReadTask(value: string | null | undefined): boolean {
+  return isStarryKolTask(value) && !isStarryKolWriteTask(value);
+}
 
 type StarryKolClient = Pick<RemoteMcpClient, "callTool" | "close">;
 let clientFactory: (() => StarryKolClient) | null = null;

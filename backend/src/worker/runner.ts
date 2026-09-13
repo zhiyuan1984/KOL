@@ -15,6 +15,7 @@ import { groupedStageTracks } from "../stages.js";
 import type { Json, Row, WorkerResult } from "../types.js";
 import { writeAttachmentContext } from "../host/attachments.js";
 import { restoreOfficialCollaborationStage } from "../starrykol/library-sync.js";
+import { isStarryKolReadTask } from "../starrykol/service.js";
 import { isMissingInputDraft } from "../host/draft-quality.js";
 import { workerSafeExtra } from "../host/knowledge.js";
 import { runtimeSkillsRoot, writeRuntimeSkill, writeSkillIntoBox } from "../host/skill-sop.js";
@@ -492,6 +493,7 @@ export async function runCodex(
     const mcpServers = hasEmbeddedCreator ? {} : mcpServerSpecs(definition.mcp);
     const threadParams: Json = {
       cwd,
+      // Remote Starry KOL reads may still elicit; Host recovers L1 reads in completeTurnItems.
       approvalPolicy: "never",
       sandbox: "workspace-write",
       config: {
@@ -578,10 +580,16 @@ export async function runCodex(
         completedTurn.error ||
         "turn did not complete",
       );
-      throw new CodexUnavailable(
-        `生成服务结束状态：${completedStatus}；${detail}`,
-        "请检查模型服务与网络后重试。",
-      );
+      if (!isStarryKolReadTask(skill)) {
+        throw new CodexUnavailable(
+          `生成服务结束状态：${completedStatus}；${detail}`,
+          "请检查模型服务与网络后重试。",
+        );
+      }
+      log.push({
+        method: "turn/host_read_fallback",
+        params: { status: completedStatus, skill, reason: detail.slice(0, 300) },
+      });
     }
     emitPhase(onProgress, "validating");
     let items = [...parseAgentTexts(rpc.agentTexts), ...parseBoxFiles(box)];

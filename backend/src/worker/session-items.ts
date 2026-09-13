@@ -11,6 +11,7 @@ import {
   emailMcpResultCard,
   executeEmailMcpTask,
   isEmailMcpTask,
+  isStarryKolReadTask,
   resolveComposeSubject,
   type EmailMcpTask,
 } from "../starrykol/service.js";
@@ -421,6 +422,21 @@ function hasStarryResult(items: Json[]): boolean {
   return items.some((item) => starryPayload(item));
 }
 
+/** Codex `approvalPolicy: never` rejects first remote Starry KOL reads; those cards are not usable data. */
+export function starryReadBlockedByApproval(data: Json | null): boolean {
+  if (!data) return false;
+  const blob = JSON.stringify(data);
+  return /approval_policy\s*=\s*never|禁止审批|needs?[_ ]?approval|requires? approval|forbids? approval|approvalPolicy/i.test(blob);
+}
+
+export function hasUsableStarryReadResult(items: Json[]): boolean {
+  return items.some((item) => {
+    const data = starryPayload(item);
+    if (!data || starryReadBlockedByApproval(data)) return false;
+    return true;
+  });
+}
+
 function composeDraftFromStarry(skill: EmailMcpTask, items: Json[]): Json | null {
   if (skill !== "email_compose" || items.some((item) => item.type === "create_draft")) return null;
   const data = items.map(starryPayload).find((payload) => {
@@ -568,11 +584,16 @@ export async function completeTurnItems(
   )) {
     return rebuildStarryCards(skill, existing, extra);
   }
-  if (isEmailMcpTask(skill) && !hasStarryResult(existing)) {
-    if (codexMode() !== "stub") {
+  if (isEmailMcpTask(skill) && !hasUsableStarryReadResult(existing)) {
+    const hostReadFallback = isStarryKolReadTask(skill);
+    if (codexMode() !== "stub" && !hostReadFallback) {
       throw new CodexUnavailable(
-        "生成已结束，但没有产出可映射的邮件草稿。Host 没有代填。",
-        "请重试；若仍失败，请管理员查看该次运行记录（是否调用了预览草稿 / Starry KOL MCP）。",
+        skill === "email_compose"
+          ? "生成已结束，但没有产出可映射的邮件草稿。Host 没有代填。"
+          : "生成已结束，但没有产出可映射的任务结果。Host 没有代填。",
+        skill === "email_compose"
+          ? "请重试；若仍失败，请管理员查看该次运行记录（是否调用了预览草稿 / Starry KOL MCP）。"
+          : "请重试；若仍失败，请管理员查看该次运行记录（Skill 是否产出了可核验结果）。",
       );
     }
     const generated = existing.find((item) => item.type === "create_draft");
@@ -605,7 +626,14 @@ export async function completeTurnItems(
       },
       onOperation,
     });
-    log.push({ method: "mcp/starrykol", params: { task: skill, operations: operations.length } });
+    log.push({
+      method: "mcp/starrykol",
+      params: {
+        task: skill,
+        operations: operations.length,
+        source: hostReadFallback && codexMode() !== "stub" ? "host_read" : "stub",
+      },
+    });
     return items;
   }
   if (isEmailMcpTask(skill) && hasStarryResult(existing)) {
