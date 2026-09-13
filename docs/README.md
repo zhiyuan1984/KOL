@@ -8,7 +8,7 @@
 2. `01-organization-tenancy.md`：公司、组织、品牌、角色和数据范围
 3. `02-domain-model.md`：数字员工、Agent、Skill、Task 和 WorkItem
 4. `03-prd-and-functional-spec.md`：概念、PRD、功能规格和需求追踪
-5. `04-ux-ui-system.md`：双端、任务驱动、等待态、L1-L3 和无障碍
+5. `04-ux-ui-system.md`：双端、任务驱动、等待态、L1-L3 和无障碍；产品级体验宪法见 `19-ui-ux-constitution.md`
 6. `05-agent-workflow-skill-policy.md`：Agent、Workflow、Skill、Policy、8/15 阶段
 7. `06-codex-harness.md`：Codex app-server、Host 边界和 Stub
 8. `07-mcp-data-contract.md`：真实 MCP、数据字典和适配规则
@@ -23,7 +23,8 @@
 17. `16-production-test-plan.md`：功能、红线、真实链路和发布门禁测试
 18. `17-code-conformance-scan.md`：前后端代码违宪扫描报告
 19. `18-mcp-master-data-assessment.md`：MCP 主数据能力与组织主数据边界
-20. `90-codebase-handbook.md`：代码地图和修改归属
+20. `19-ui-ux-constitution.md`：员工端体验宪法（核心闭环、Agent 表面、结果优先）
+21. `90-codebase-handbook.md`：代码地图和修改归属
 
 ## 事实来源
 
