@@ -2,7 +2,9 @@
 
 `docs/04-ux-ui-system.md` 的首页跟进卡实例，服从 `docs/19-ui-ux-constitution.md` 四页分工与 `specs/UX-KOL.md`（尤其 `UX-SEND-NE-STAGE`、`UX-STATE-VISIBLE`）。阶段写入仍只走 `FS-KOL-006`；正式 15 阶段资产板仍只坐落在 Pipeline（`FS-KOL-010`）。
 
-**状态：** 契约已写，**未实现**。当前验收 **不通过**，见 `docs/evidence-followed-kol-card-acceptance-2026-09-13.md`。本文件不授权本 PR 改前端 / 后端。未写入 `specs/ux-traceability.json` 前，只能当设计契约，不能当体验验收通过。
+**状态：** 首页工作卡已在 PR #31 落地（`frontend/src/followedKolCard.ts` + `FollowedKolWorkCard`，从现有 `/api/home/board` 投影；无 Host API 扩面、无 LIVE 写阶段、Home 不做第二套 Pipeline）。本 residual PR 补齐验收 PARTIAL：`scope.mailbox` 芯片、状态带字段分离、首页去掉跟进风格标签、Journey / 首页不再用「发送不等于改阶段」通用 copy。
+
+仍 **PARTIAL**（有意不做，不阻断本卡主实现）：未写入 `specs/ux-traceability.json`，故不能当体验验收通过；工作面板任务行仍用旧 `CardFields` 倾倒。历史 FAIL 基线见 `docs/evidence-followed-kol-card-acceptance-2026-09-13.md`。
 
 ## 目标与非目标
 
@@ -98,7 +100,7 @@ Home 主分组按**谁必须行动**，不是按 15 个正式阶段：
 - 整卡点击不得既打开会话又抢主 CTA。主 CTA 只做建议动作。
 - 无横向滚动（宪法已在航运的 P0）。
 
-## Given / When / Then（实现后验收，本 PR 不测）
+## Given / When / Then（Home 已实现，PR #31 + residual）
 
 ```gherkin
 Given 员工打开首页跟进列表

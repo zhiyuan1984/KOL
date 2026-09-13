@@ -39,10 +39,10 @@ export default function FollowedKolWorkCard({
     card.scope.brand ? { id: "brand", label: card.scope.brand } : null,
     card.scope.region ? { id: "region", label: card.scope.region } : null,
     card.scope.owner ? { id: "owner", label: card.scope.owner } : null,
+    card.scope.mailbox ? { id: "mailbox", label: card.scope.mailbox } : null,
     ...card.risk.chips,
     card.unread_count > 0 ? { id: "unread", label: `未读 ${card.unread_count}` } : null,
-    ...card.follow_style_tags.map((tag) => ({ id: tag.id, label: tag.label, style: true })),
-  ].filter(Boolean) as { id: string; label: string; style?: boolean }[];
+  ].filter(Boolean) as { id: string; label: string }[];
 
   return (
     <article
@@ -65,11 +65,9 @@ export default function FollowedKolWorkCard({
                 "kol-chip"
                 + (chip.id === "unread" ? " is-unread" : "")
                 + (chip.id === "exception" || chip.id === "high-risk" ? " is-risk" : "")
-                + (chip.style ? " is-style" : "")
               }
               data-kol-chip={chip.id}
               data-unread-count={chip.id === "unread" ? card.unread_count : undefined}
-              data-follow-style-tag={chip.style ? chip.id : undefined}
             >
               {chip.label}
             </span>
@@ -80,12 +78,16 @@ export default function FollowedKolWorkCard({
       <div className="kol-band kol-band-state" data-kol-band="state">
         <div className="kol-state-block" data-current-state data-current-stage>
           <span className="kol-band-label">当前状态</span>
-          <p data-stage-code={card.current_state.stage_code || undefined}>
-            {card.current_state.stage_label}
-            {days != null && days > 0 ? <span data-days-in-stage={days}> · 停留 {days} 天</span> : null}
-            {card.current_state.exception ? " · 异常" : null}
-            {card.current_state.unbound ? " · 未绑定" : null}
-          </p>
+          <div className="kol-state-fields">
+            <p data-stage-code={card.current_state.stage_code || undefined} data-stage-label>
+              {card.current_state.stage_label}
+            </p>
+            {days != null && days > 0 ? (
+              <span className="kol-chip" data-days-in-stage={days} data-kol-chip="stay">
+                停留 {days} 天
+              </span>
+            ) : null}
+          </div>
         </div>
         <div className="kol-state-block" data-latest-fact data-fact-kind={fact.kind}>
           <span className="kol-band-label">最新事实</span>

@@ -67,7 +67,7 @@ export default function JourneyGuide({
       <div className="journey-copy">
         <strong data-journey-title>{model.title}</strong>
         <p data-journey-body>{model.body}</p>
-        <p className="journey-mode">{model.stageLabel ? `${model.stageLabel} · ${model.mode}` : model.mode} · 发送 ≠ 推进阶段</p>
+        <p className="journey-mode">{model.stageLabel ? `${model.stageLabel} · ${model.mode}` : model.mode}</p>
       </div>
       {variant === "home" && model.gaps.length ? (
         <p className="journey-gaps" data-journey-gaps>

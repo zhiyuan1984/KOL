@@ -266,8 +266,8 @@ export function buildJourneyGuide(input: {
   const nextId = openTaskIntent(tasks[0]) || event?.skillId || "email_compose";
   const handle = event?.handle || focus?.handle;
   const body = event?.skillId
-    ? "发送不等于改阶段。点芯片预填下一步，不要口令「下一阶段」。"
-    : "从今日工作点一条任务，或在输入框描述要做的事。发送不等于改阶段。";
+    ? "点芯片预填下一步，不要口令「下一阶段」。"
+    : "从今日工作点一条任务，或在输入框描述要做的事。";
   const title = event?.kind && event.kind !== "enter"
     ? (event.skillLabel ? `刚做完「${event.skillLabel}」` : "按合作之旅继续")
     : (focus ? `当前在「${meta?.label || focus.stage_label || "初步接触"}」` : "从建联开始这条合作之旅");
