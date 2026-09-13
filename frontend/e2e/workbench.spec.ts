@@ -2015,10 +2015,14 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await page.goto("/agents");
   await expect(page.getByRole("heading", { name: "我的智能体" })).toBeVisible();
   await expect(page.locator("[data-agent-page='work']")).toBeVisible();
+  await expect(page.locator("[data-agent-tab='work']")).toHaveText("数字员工");
   await expect(page.getByRole("heading", { name: "推荐下一步" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "最近在用" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "运行中" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "失败" })).toBeVisible();
+  await expect(page.locator("[data-agent-next='entry-kol']")).toBeVisible();
+  await expect(page.locator("[data-agent-next='entry-approval']")).toBeVisible();
+  await expect(page.locator("[data-agent-next='entry-crawler']")).toBeVisible();
   await expect(page.locator("[data-agent-profile]")).toHaveCount(0);
   await expect(page.locator("body")).not.toContainText("Codex");
   await expect(page.locator("body")).not.toContainText("Starry KOL MCP");
@@ -2033,6 +2037,15 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
 test("agents page keeps spec collapsed and teams as a secondary tab", async ({ page }) => {
   await page.goto("/agents");
   await expect(page.locator("[data-agent-section='next']")).toBeVisible();
+  await expect(page.locator("[data-agent-tab='work']")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("[data-agent-tab='work']")).toHaveText("数字员工");
+  await expect(page.locator("[data-agent-next][data-agent-source='catalog']")).toHaveCount(3);
+  await expect(page.locator("[data-agent-next][data-agent-source='board']")).toHaveCount(0);
+  await expect(page).toHaveURL(/\/agents\/?$/);
+  await page.getByRole("link", { name: "我的智能体" }).click();
+  await expect(page).toHaveURL(/\/agents\/?$/);
+  await expect(page.locator("[data-agent-page='work']")).toBeVisible();
+  await expect(page.locator("[data-agent-next='entry-kol']")).toBeVisible();
   await expect(page.locator("[data-agent-section='failed']")).toBeVisible();
   await expect(page.locator("[data-agent-failed] button", { hasText: "重试" }).first()).toBeVisible();
   await expect(page.locator("[data-agent-spec-body]")).toHaveCount(0);
