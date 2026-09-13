@@ -437,6 +437,34 @@ describe("host contracts", () => {
     expect(after.stage_code).toBe("PLAN_PENDING");
   });
 
+  it("POST /api/approvals initiates expense only and leaves confirm_stage unchanged", async () => {
+    const stageBefore = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_laozhang'").get() as Json;
+    const created = await request("POST", "/api/approvals", {
+      kind: "expense",
+      amount: 5000,
+      currency: "CNY",
+      requester_name: "黎玉燕",
+    });
+    expect(created.status, await created.text()).toBe(200);
+    const row = await created.json();
+    expect(row.kind).toBe("expense");
+    expect(row.payload).toMatchObject({ rule_id: "FIN-EXP-001" });
+
+    const rejected = await request("POST", "/api/approvals", {
+      kind: "stage",
+      amount: 1,
+      currency: "CNY",
+      requester_name: "黎玉燕",
+    });
+    expect(rejected.status).toBe(400);
+    expect((await rejected.json()).detail).toMatchObject({ code: "unsupported_kind" });
+
+    const stageAfter = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_laozhang'").get() as Json;
+    expect(stageAfter.stage_code).toBe(stageBefore.stage_code);
+    const audits = listAudit("expense.approval.created") as { payload: { approval_id?: string } }[];
+    expect(audits.some((event) => event.payload.approval_id === row.id)).toBe(true);
+  });
+
   it("allows an evidence-backed jump and still blocks unfinished priors", async () => {
     tx((c) => {
       c.prepare("UPDATE collaborations SET stage_code='INITIAL_CONTACT', stage_version=0 WHERE id='col_xiaomei'").run();

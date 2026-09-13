@@ -167,4 +167,110 @@ describe("approval inbox by login name", () => {
       0,
     )).toBe(true);
   });
+
+  it("lets a wecom write employee preview and create an expense without inventing a second engine", async () => {
+    await createApprover("lintong", "林桐");
+    const cookie = await login("lintong");
+    const before = await call("GET", "/api/approvals", undefined, cookie);
+    const beforeCount = (before.json as unknown as unknown[]).length;
+
+    const preview = await call("POST", "/api/approvals/preview", {
+      kind: "expense",
+      amount: 5000,
+      currency: "CNY",
+      requester_name: "黎玉燕",
+    }, cookie);
+    expect(preview.status).toBe(200);
+    const steps = (preview.json as { steps: { name: string }[] }).steps;
+    expect(steps.map((step) => step.name)).toEqual(["林桐"]);
+    expect((await call("GET", "/api/approvals", undefined, cookie)).json as unknown as unknown[]).toHaveLength(beforeCount);
+
+    const created = await call("POST", "/api/approvals", {
+      kind: "expense",
+      amount: 5000,
+      currency: "CNY",
+      requester_name: "黎玉燕",
+      purpose: "广告费",
+    }, cookie);
+    expect(created.status).toBe(200);
+    const row = created.json as {
+      id: string;
+      kind: string;
+      can_decide: boolean;
+      expected_role: string;
+      chain_detail: { name: string }[];
+      payload: { rule_id: string };
+    };
+    expect(row.kind).toBe("expense");
+    expect(row.payload.rule_id).toBe("FIN-EXP-001");
+    expect(row.chain_detail.map((step) => step.name)).toEqual(["林桐"]);
+    expect(row.can_decide).toBe(true);
+    expect(row.expected_role).toBe("emp_lintong");
+
+    const listed = await call("GET", "/api/approvals", undefined, cookie);
+    expect((listed.json as unknown as { id: string }[]).some((item) => item.id === row.id)).toBe(true);
+
+    const asMe = await call("POST", "/api/approvals/preview", {
+      kind: "expense",
+      amount: 5000,
+      currency: "CNY",
+    }, cookie);
+    expect(asMe.status).toBe(200);
+    expect((asMe.json as { steps: { name: string }[]; plan: { requester_name?: string } }).plan.requester_name).toBe("林桐");
+    expect((asMe.json as { steps: { name: string }[] }).steps.map((step) => step.name)).toEqual(["王主管"]);
+  });
+
+  it("requires wecom write to create, but read is enough to preview", async () => {
+    const reader = await call("POST", "/api/admin/users", {
+      username: "reader",
+      name: "只读员工",
+      password: "employee-password",
+      roles: ["employee"],
+      brands: ["LT"],
+    });
+    expect(reader.status).toBe(201);
+    await call("PUT", `/api/admin/users/${String(reader.json.id)}/connectors`, {
+      connectors: ["wecom:read"],
+    });
+    const noGrant = await call("POST", "/api/admin/users", {
+      username: "nogrant",
+      name: "无连接器",
+      password: "employee-password",
+      roles: ["employee"],
+      brands: ["LT"],
+    });
+    expect(noGrant.status).toBe(201);
+
+    const readCookie = await login("reader");
+    const noneCookie = await login("nogrant");
+    const body = {
+      kind: "expense",
+      amount: 5000,
+      currency: "CNY",
+      requester_name: "黎玉燕",
+    };
+
+    const preview = await call("POST", "/api/approvals/preview", body, readCookie);
+    expect(preview.status).toBe(200);
+    const deniedCreate = await call("POST", "/api/approvals", body, readCookie);
+    expect(deniedCreate.status).toBe(403);
+    expect((deniedCreate.json.detail as { code?: string }).code).toBe("connector_not_granted");
+
+    const deniedPreview = await call("POST", "/api/approvals/preview", body, noneCookie);
+    expect(deniedPreview.status).toBe(403);
+  });
+
+  it("returns blocked codes when the employee form cannot compute a chain", async () => {
+    await createApprover("lintong", "林桐");
+    const cookie = await login("lintong");
+    const blocked = await call("POST", "/api/approvals", {
+      kind: "expense",
+      amount: 5000,
+      currency: "CNY",
+      requester_name: "张三",
+    }, cookie);
+    expect(blocked.status).toBe(400);
+    expect(blocked.json.detail).toMatchObject({ code: "unknown_requester" });
+    expect(String((blocked.json.detail as { message?: string }).message)).toContain("组织名单");
+  });
 });

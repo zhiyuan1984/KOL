@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api";
+import { useAccount } from "../components/AuthGate";
 import { approvalStatusLabel, friendlyError, stripApprovalRecordIds } from "../labels";
 
 type Approval = {
@@ -25,6 +26,22 @@ type Approval = {
 };
 
 type Slice = "mine" | "all" | "done";
+
+type Preview = {
+  steps: { name: string; role: string }[];
+  plan?: { rule_id?: string; amount_base?: number; currency?: string; amount?: number };
+};
+
+const CURRENCIES = [
+  ["CNY", "人民币"],
+  ["USD", "美元"],
+  ["EUR", "欧元"],
+  ["GBP", "英镑"],
+  ["JPY", "日元"],
+  ["AUD", "澳元"],
+  ["CAD", "加元"],
+  ["HKD", "港币"],
+] as const;
 
 function kindLabel(row: Approval) {
   return row.kind_label || ({
@@ -72,8 +89,141 @@ function waitingName(row: Approval) {
   return row.chain_detail?.[row.current_index]?.name || "下一位审批人";
 }
 
+function InitiateExpenseForm({ onCreated }: { onCreated: (id: string) => void }) {
+  const { account } = useAccount();
+  const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState("CNY");
+  const [requester, setRequester] = useState("");
+  const [purpose, setPurpose] = useState("");
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [formErr, setFormErr] = useState("");
+
+  const payload = () => ({
+    kind: "expense" as const,
+    amount: Number(amount),
+    currency,
+    ...(requester.trim() ? { requester_name: requester.trim() } : {}),
+    ...(purpose.trim() ? { purpose: purpose.trim() } : {}),
+  });
+
+  const runPreview = async () => {
+    if (!amount || Number(amount) <= 0) {
+      setPreview(null);
+      return;
+    }
+    try {
+      const result = await api.previewApproval(payload());
+      setPreview(result);
+      setFormErr("");
+    } catch (e) {
+      setPreview(null);
+      setFormErr(friendlyError(e, "还无法计算审批路径"));
+    }
+  };
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setFormErr("");
+    if (!amount || Number(amount) <= 0) {
+      setFormErr("请填写金额");
+      return;
+    }
+    setBusy(true);
+    try {
+      if (!preview) {
+        const result = await api.previewApproval(payload());
+        setPreview(result);
+      }
+      const created = await api.createApproval(payload());
+      setAmount("");
+      setPurpose("");
+      setPreview(null);
+      onCreated(String(created.id));
+    } catch (e) {
+      setFormErr(friendlyError(e, "费用审批未提交，请稍后重试"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="panel approval-initiate" data-approval-initiate onSubmit={(event) => void submit(event)}>
+      <h2>发起费用审批</h2>
+      <p className="muted">填写金额和币种后，系统按规则算出审批人。阶段变更请在合作确认里提交，不要写在这里。</p>
+      <div className="approval-initiate-grid">
+        <label className="field">
+          金额
+          <input
+            name="amount"
+            inputMode="decimal"
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+            onBlur={() => void runPreview()}
+            placeholder="例如 5000"
+            required
+          />
+        </label>
+        <label className="field">
+          币种
+          <select
+            name="currency"
+            value={currency}
+            onChange={(event) => setCurrency(event.target.value)}
+            onBlur={() => void runPreview()}
+          >
+            {CURRENCIES.map(([code, label]) => (
+              <option key={code} value={code}>{label}</option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          申请人
+          <input
+            name="requester"
+            value={requester}
+            onChange={(event) => setRequester(event.target.value)}
+            onBlur={() => void runPreview()}
+            placeholder={account?.name ? `默认 ${account.name}` : "默认当前登录人"}
+            autoComplete="name"
+          />
+        </label>
+        <label className="field">
+          用途
+          <input
+            name="purpose"
+            value={purpose}
+            onChange={(event) => setPurpose(event.target.value)}
+            placeholder="可选"
+          />
+        </label>
+      </div>
+      {preview && preview.steps.length > 0 && (
+        <div data-approval-preview>
+          <p className="muted">
+            {preview.plan?.rule_id ? `将按 ${preview.plan.rule_id} 提交。` : "将按费用规则提交。"}
+            审批链如下，确认后提交。
+          </p>
+          <ol className="approval-path">
+            {preview.steps.map((step, index) => (
+              <li key={`${step.name}-${index}`} data-path-state={index === 0 ? "current" : "todo"}>
+                <span>{step.name}</span>
+                <small>{step.role}</small>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {formErr && <p className="error" role="alert">{formErr}</p>}
+      <button className="btn work" type="submit" disabled={busy}>
+        {busy ? "提交中…" : "提交费用审批"}
+      </button>
+    </form>
+  );
+}
+
 export default function Approvals() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const focusId = searchParams.get("id") || "";
   const [rows, setRows] = useState<Approval[]>([]);
   const [cards, setCards] = useState<{ approval_id: string; body: string; status: string; assignee: string }[]>([]);
@@ -127,12 +277,19 @@ export default function Approvals() {
   }, [focusId, visible]);
 
   return (
-    <div className="list-page approval-page">
+    <div className="list-page approval-page" data-visual="docs20">
       <div>
         <div className="page-kicker">审批</div>
         <h1 style={{ marginTop: 0 }}>工作审批</h1>
         <p className="muted">费用按规则一位通过再到下一位。最后一位同意即办结；任一位驳回则整单作废。「待我处理」只列出轮到你确认的单；还没轮到时可在「待处理」查看。</p>
       </div>
+      <InitiateExpenseForm
+        onCreated={(id) => {
+          setErr("");
+          setSearchParams({ id });
+          load();
+        }}
+      />
       <div className="task-filters" aria-label="筛选审批">
         {([["mine", "待我处理"], ["all", "待处理"], ["done", "已结束"]] as const).map(([id, label]) => (
           <button key={id} type="button" aria-pressed={slice === id} onClick={() => setSlice(id)} data-approval-slice={id}>
