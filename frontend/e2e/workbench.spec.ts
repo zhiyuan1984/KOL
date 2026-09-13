@@ -1838,8 +1838,8 @@ test("风险扫描 runs Starry KOL MCP tools and lists T8 overdue", async ({ pag
   // land only in the chat/workbench stream — same pattern as 达人库查询.
   const stubFinal = card.filter({ hasText: "风险汇总" }).filter({ hasText: "T8 失联与延期" });
   const realResultTitle = page.getByText("超时/风险扫描结果");
-  const realOverdueCopy = surface.filter({ hasText: /失联/ }).filter({ hasText: /延期/ });
-  await expect(stubFinal.or(realResultTitle).or(realOverdueCopy)).toBeVisible({ timeout });
+  const realOverdueCopy = page.locator(".chat").filter({ hasText: /失联/ }).filter({ hasText: /延期/ });
+  await expect(stubFinal.or(realResultTitle).or(realOverdueCopy).first()).toBeVisible({ timeout });
   if (await stubFinal.isVisible()) {
     await expect(card).toContainText("超时/风险扫描");
     await expect(card).toContainText("风险汇总");
