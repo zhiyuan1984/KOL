@@ -23,6 +23,15 @@ import { FOLLOWED_KOL_TABS, suggestedStageLabel } from "../kolStages";
 import { rememberJourney } from "../journey";
 import { missingFieldsMessage, fieldLabel } from "../labels";
 import { latestMailThread, summarizeMailSnippet } from "../mailPreview";
+import {
+  isAwaitingReview,
+  mergeTaskDetails,
+  recognizeElapsedSeconds,
+  recognizeTimedOut,
+  unwrapTaskList,
+  waitProgressHint,
+  waitStatusLabel,
+} from "../waitStatus";
 
 type HomeTab = "today" | "templates";
 type HomeMode = "todo" | "ai" | "lifecycle";
@@ -124,11 +133,7 @@ function sourceLabel(source?: string) {
 }
 
 function statusLabel(status?: string) {
-  if (status === "completed" || status === "done") return "已完成";
-  if (status === "running" || status === "in_progress") return "进行中";
-  if (status === "waiting" || status === "queued") return "等待中";
-  if (status === "failed") return "有风险";
-  return "待处理";
+  return waitStatusLabel(status);
 }
 
 function entityLine(entities: Record<string, unknown> | undefined, key: string, label: string): string {
@@ -255,7 +260,7 @@ function todoBucket(task: Task): TodoBucket {
       if (diff === 0) return "today";
     }
   }
-  if (task.status === "waiting" || task.status === "queued") return "waiting";
+  if (isAwaitingReview(task) || String(task.status || "") === "waiting_approval") return "waiting";
   return "later";
 }
 
@@ -263,10 +268,11 @@ function urgencyLabel(task: Task) {
   const bucket = todoBucket(task);
   if (bucket === "overdue") return "逾期";
   if (bucket === "today") return "今天到期";
-  if (task.status === "failed" || task.risk) return "有风险";
+  if (String(task.status || "") === "failed") return "失败";
+  if (task.risk) return "有风险";
   if (task.priority === "high" || task.priority === "urgent") return "高优先";
-  if (bucket === "waiting") return "等待中";
-  return "待处理";
+  if (bucket === "waiting") return waitStatusLabel(task.status);
+  return waitStatusLabel(task.status);
 }
 
 function dueLabel(task: Task) {
@@ -490,7 +496,11 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<FromTextResult | null>(null);
   const lastComposer = useRef<ComposerSubmit | null>(null);
+  const taskCatalogRef = useRef<Task[]>([]);
+  const [taskCatalog, setTaskCatalog] = useState<Task[]>([]);
   const missingAlertRef = useRef<HTMLElement | null>(null);
+  const [recognizeStartedAt, setRecognizeStartedAt] = useState<number | null>(null);
+  const [recognizeNow, setRecognizeNow] = useState(() => Date.now());
   const [panelOpen, setPanelOpen] = useState(false);
   const [composerFocused, setComposerFocused] = useState(Boolean(initialFill));
   const [stageScrolled, setStageScrolled] = useState(false);
@@ -506,10 +516,16 @@ export default function Home() {
 
   const applyBoard = (board: Awaited<ReturnType<typeof api.homeBoard>>) => {
     if (Array.isArray(board.kols)) setFollowedKols((board.kols as FollowedKol[]).map(withKolCard));
-    if (Array.isArray(board.tasks)) setTasks(board.tasks as Task[]);
+    if (Array.isArray(board.tasks)) setTasks(mergeTaskDetails(board.tasks as Task[], taskCatalogRef.current));
     if (Array.isArray(board.tabs)) setTabSummaries(board.tabs as TabSummary[]);
     setBoardWorkbench(board.workbench || null);
     setFollowScope(board.follow_scope || null);
+  };
+
+  const applyTaskCatalog = (catalog: Task[]) => {
+    taskCatalogRef.current = catalog;
+    setTaskCatalog(catalog);
+    setTasks((current) => mergeTaskDetails(current, catalog));
   };
 
   useEffect(() => {
@@ -533,6 +549,9 @@ export default function Home() {
     }).catch(() => undefined);
     void api.homeBoard().then((board) => {
       if (!cancelled) applyBoard(board);
+    }).catch(() => undefined);
+    void api.tasks().then(unwrapTaskList).then((catalog) => {
+      if (!cancelled) applyTaskCatalog(catalog);
     }).catch(() => undefined);
     return () => {
       cancelled = true;
@@ -753,7 +772,10 @@ export default function Home() {
     }
   };
 
-  const refreshBoard = (force = false) => api.homeBoard({ refresh: force }).then(applyBoard).catch(() => undefined);
+  const refreshBoard = (force = false) => Promise.all([
+    api.homeBoard({ refresh: force }).then(applyBoard),
+    api.tasks().then(unwrapTaskList).then(applyTaskCatalog),
+  ]).catch(() => undefined);
 
   useEffect(() => {
     const onVisible = () => {
@@ -762,6 +784,17 @@ export default function Home() {
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
+
+  useEffect(() => {
+    const recognizing = busy && !feedback && !err;
+    if (!recognizing) {
+      setRecognizeStartedAt(null);
+      return;
+    }
+    setRecognizeStartedAt((started) => started ?? Date.now());
+    const timer = window.setInterval(() => setRecognizeNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [busy, feedback, err]);
 
   const promoteInsight = async (task: Task) => {
     setBusy(true);
@@ -891,13 +924,13 @@ export default function Home() {
   );
 
   const todoItems = useMemo(
-    () => sortedTasks(workbench.todo || tasks.filter(isTodoTask), "priority"),
-    [tasks, workbench.todo],
+    () => sortedTasks(mergeTaskDetails(workbench.todo || tasks.filter(isTodoTask), taskCatalog), "priority"),
+    [taskCatalog, tasks, workbench.todo],
   );
 
   const insightItems = useMemo(
-    () => sortedTasks(workbench.insights || tasks.filter(isInsightTask), "priority"),
-    [tasks, workbench.insights],
+    () => sortedTasks(mergeTaskDetails(workbench.insights || tasks.filter(isInsightTask), taskCatalog), "priority"),
+    [taskCatalog, tasks, workbench.insights],
   );
 
   const recommendedItems = useMemo(
@@ -933,9 +966,11 @@ export default function Home() {
   const openCount = summary.open ?? todoItems.length;
   const overdueCount = summary.overdue ?? todoItems.filter((task) => todoBucket(task) === "overdue").length;
   const dueTodayCount = summary.due_today ?? todoItems.filter((task) => todoBucket(task) === "today").length;
-  const waitingCount = summary.waiting ?? todoItems.filter((task) => task.status === "waiting" || task.status === "queued").length;
+  const awaitingConfirmCount = todoItems.filter((task) => isAwaitingReview(task)).length;
   const insightCount = summary.insights ?? insightItems.length;
   const highValueCount = insightItems.filter(isHighValueInsight).length;
+  const recognizeSeconds = recognizeElapsedSeconds(recognizeStartedAt, recognizeNow);
+  const recognizeOverdue = recognizeTimedOut(recognizeStartedAt, recognizeNow);
 
   const statsText = `${openCount}项待处理 · ${overdueCount}逾期 · ${dueTodayCount}今天到期`;
 
@@ -981,7 +1016,7 @@ export default function Home() {
           <h1>{home.h1}</h1>
           <p className="home-stats" data-today-summary data-home-stats>
             {statsText}
-            {waitingCount ? ` · ${waitingCount}等待中` : ""}
+            {awaitingConfirmCount ? ` · ${awaitingConfirmCount}结果待确认` : ""}
           </p>
 
           <div className="home-mode-tabs" role="tablist" aria-label="工作台视图" data-home-modes>
@@ -1198,7 +1233,13 @@ export default function Home() {
           {busy && !feedback && !err ? (
             <section className="creation-feedback" data-kind="recognizing" data-creation-feedback role="status" aria-busy="true">
               <strong>正在理解任务…</strong>
-              <p>正在识别任务方向和已填写的字段，不会改你已经写出的发件、收件和主题。</p>
+              <p>
+                正在识别任务方向和已填写的字段，不会改你已经写出的发件、收件和主题。
+                {recognizeSeconds ? ` 已等待 ${recognizeSeconds} 秒。` : ""}
+              </p>
+              {recognizeOverdue ? (
+                <p data-recognize-timeout>识别时间较长，可再试一次或补充字段后发送。</p>
+              ) : null}
             </section>
           ) : null}
           {feedback && (
@@ -1449,7 +1490,7 @@ function TodoActionList({ tasks, onOpen }: { tasks: Task[]; onOpen: (task: Task)
   return (
     <section className="todo-md process-md" data-todo-md>
       <Markdown>{"**我的待办**"}</Markdown>
-      {([["overdue", "逾期"], ["today", "今天到期"], ["waiting", "等待中"], ["later", "后续"]] as const).map(([bucket, label]) => (
+      {([["overdue", "逾期"], ["today", "今天到期"], ["waiting", "结果待确认"], ["later", "后续"]] as const).map(([bucket, label]) => (
         grouped[bucket].length ? (
           <div className="work-day-group" key={bucket} data-todo-bucket={bucket}>
             <Markdown>{`*${label}*`}</Markdown>
@@ -1474,6 +1515,7 @@ function TodoMarkdownRow({ task, onOpen }: { task: Task; onOpen: () => void }) {
       data-todo-card
       data-task-source={task.source || "manual"}
       data-task-status={task.status || "pending"}
+      data-wait-status={waitStatusLabel(task.status)}
     >
       <button type="button" className="recommend-md-item" data-todo-act onClick={onOpen}>
         <span className="recommend-md-n" aria-hidden>{todoMark(task)}</span>
@@ -1481,7 +1523,7 @@ function TodoMarkdownRow({ task, onOpen }: { task: Task; onOpen: () => void }) {
         <span className="recommend-md-copy">
           <strong>{task.title}</strong>
           <span className="recommend-md-reason" data-todo-reason>
-            {[handle, urgencyLabel(task), due, whyLine(task)].filter(Boolean).join(" · ")}
+            {[handle, urgencyLabel(task), due, waitProgressHint(task), whyLine(task)].filter(Boolean).join(" · ")}
           </span>
         </span>
       </button>
@@ -1597,7 +1639,7 @@ function TodayTaskList({
 function TaskRow({ task, index, onOpen }: { task: Task; index: number; onOpen: () => void }) {
   const hasKolCard = Boolean(task.kol_name || task.collab_summary || task.current_stage);
   return (
-    <li className={`today-task task-${task.source || "manual"} status-${task.status || "pending"}`} data-task-source={task.source || "manual"} data-task-status={task.status || "pending"}>
+    <li className={`today-task task-${task.source || "manual"} status-${task.status || "pending"}`} data-task-source={task.source || "manual"} data-task-status={task.status || "pending"} data-wait-status={waitStatusLabel(task.status)}>
       <span className="task-source-mark" aria-label={sourceLabel(task.source)}>{sourceMark(task)}</span>
       <span className="task-index">{String(index + 1).padStart(2, "0")}</span>
       <button type="button" className="task-main" onClick={onOpen}>

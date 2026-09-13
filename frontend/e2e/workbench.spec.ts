@@ -697,11 +697,64 @@ test("home followed-KOL 查看原邮件 opens the existing session mail rail", a
   await expect(page.locator("[data-workbench] [data-mail-body]")).toContainText("想和贵品牌litime合作");
 });
 
+test("home waiting work item is labeled 结果待确认 not 等待中", async ({ page }) => {
+  await page.route("**/api/home/board", (route) => route.fulfill({
+    json: {
+      kols: [],
+      tabs: [{ code: "all", count: 0 }],
+      tasks: [{
+        id: "tsk_home_laozhang_quote",
+        title: "写报价信",
+        source: "manual",
+        status: "waiting",
+        kol_name: "数码老张",
+        history_summary: "金额 $680，待确认发送",
+        current_stage: "报价待确认",
+      }],
+      workbench: {
+        summary: { open: 1, overdue: 0, due_today: 0, waiting: 1, insights: 0 },
+        todo: [{
+          id: "tsk_home_laozhang_quote",
+          title: "写报价信",
+          source: "manual",
+          status: "waiting",
+          kol_name: "数码老张",
+          history_summary: "金额 $680，待确认发送",
+        }],
+      },
+    },
+  }));
+  await page.route("**/api/tasks", (route) => route.fulfill({
+    json: [{
+      id: "tsk_home_laozhang_quote",
+      title: "写报价信",
+      source: "manual",
+      status: "waiting",
+      started_at: "2026-08-30T11:00:00.000Z",
+      updated_at: "2026-08-30T11:02:00.000Z",
+      history: [{ time: "2026-08-30T11:02:00.000Z", label: "写报价信", safe_summary: "金额 $680，待确认发送" }],
+      history_summary: "金额 $680，待确认发送",
+    }],
+  }));
+  await page.goto("/");
+  const card = page.locator("[data-todo-card]").filter({ hasText: "写报价信" });
+  await expect(card).toBeVisible();
+  await expect(card).toHaveAttribute("data-wait-status", "结果待确认");
+  await expect(card).toContainText("结果待确认");
+  await expect(card).not.toContainText("等待中");
+  await expect(page.locator("[data-today-summary]")).toContainText("结果待确认");
+  await expect(page.locator("[data-today-summary]")).not.toContainText("等待中");
+});
+
 test("home AI insight is confirmed into 我的待办 and 立即处理 opens the KOL session", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("[data-todo-card]").filter({ hasText: "数码老张" })).toBeVisible();
+  await expect(page.locator("[data-todo-card]").filter({ hasText: "数码老张" })).toHaveAttribute("data-wait-status", "结果待确认");
   await expect(page.locator("[data-todo-card]").filter({ hasText: "旅行电源菌" })).toBeVisible();
   await expect(page.locator("[data-today-summary]")).toContainText(/\d+项待处理/);
+  await expect(page.locator("[data-today-summary]")).toContainText("结果待确认");
+  await expect(page.locator("[data-today-summary]")).not.toContainText("等待中");
+  await expect(page.locator('[data-todo-bucket="waiting"]')).toContainText("结果待确认");
   const todoBefore = await page.locator("[data-todo-card]").count();
   expect(todoBefore).toBeGreaterThanOrEqual(2);
   await expect(page.locator("[data-today-work]")).not.toContainText("失联跟进");
