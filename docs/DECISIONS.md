@@ -17,6 +17,7 @@
 | ADR-009 | 安培时代部门负责人（张慧玲、刘敏）自动拥有公司全部品牌、区域和普通业务数据读写；高风险动作仍受 Gateway/确认/审批约束 | `config/org-registry.yaml`、`01-organization-tenancy.md` |
 | ADR-010 | 试点 PEP 的授权证据由组织截图、100%真实邮箱负责人清单、远程 Starry MCP 只读结果和 registry 绑定共同构成；未补齐的身份元数据不阻断试点授权 | `config/org-registry.yaml`、`18-mcp-master-data-assessment.md` |
 | ADR-011 | Starry 阶段写入用原生码；人跳过只在 Host 记账；远程只走相邻前进（跨段则逐格 walk） | `05-agent-workflow-skill-policy.md`、`planStarryAdjacentWalk` / `changeLifecycleStage` |
+| ADR-012 | 员工端四页分工：Home=现在做什么；Pipeline=正式生命周期资产；Chat=完成一件任务；Admin=谁/权限/审计。Pipeline 禁止复制 Home 待办语义 | `19-ui-ux-constitution.md`、`specs/FS-KOL-010-pipeline.md` |
 
 ## 新增 Agent 分级
 
@@ -62,3 +63,29 @@ Host 用 15 段 + 旁路的本地码（如 `NEGOTIATING`）做确认卡、审计
 - 规范：`05-agent-workflow-skill-policy.md`（`legalTargets` vs `autoLegalTargets`，`confirm_stage` 写路径）
 - 代码：`planStarryAdjacentWalk`、`writeRemoteOfficialStage`（单 hop 邻接校验）、`writeRemoteOfficialStageWalk`、`syncConfirmedStageToMcp`
 - 测试：`changeLifecycleStage` 仅 `{ lifecycleId, requestJson: { toStageCode, reason } }`；skip → adjacent walk；确认卡/审计保留 skip 原因
+
+## ADR-012 — 四页分工与 Pipeline 非目标（2026-09-13）
+
+**状态**：已固化  
+**决策人**：产品负责人
+
+### 问题与背景
+
+Pipeline 曾把首页任务芯片、「本页动作」伪芯片和 Chat 会话启动器叠在资产页上，并在无 `?kol=` 时自动选中第一名红人。这让 Pipeline 回答「现在做什么 / 等待中」，与 Home 的等待诚实重复，也把写邮件、回复分析、风险扫描变成了第二套工作入口。
+
+### 决定
+
+1. **四页只各答一问。** Home = 现在做什么与等待诚实（结果待确认·已入队·执行中·等审批）。Pipeline = 正式生命周期坐落。Chat = 如何完成一件具体任务。Admin = 谁 / 权限 / 审计。
+2. **Pipeline 是资产页，不是待办页。** 只展示正式阶段、品牌/负责人、停留、近期事件、同步来源/时间、阶段风险、允许的阶段变更提案。筛选限于 `brand|owner|stage|region|kol|sync` 与旁路/异常侧状态。无 `?kol=` 时不默认选中第一名红人；详情是次要抽屉，不是主栏小说。
+3. **阶段动作只有「提出阶段变更」。** 打开既有合作会话的 `confirm_stage` 确认卡，走既有人确认 / 审批 / 写入。不在 Pipeline 发明 LIVE 发送、新权限模型，也不为邮件/分析/风险快捷方式新建 Chat 会话。
+4. **缺字段用诚实空态。** `api.pipeline` 已有阶段/停留/负责人则展示；近期事件、同步时间、往来摘要、审计若未返回，省略或写「本页未返回」，不得伪造。
+
+### 不决定的范围
+
+不重做 Home 等待态，不重做 Agents，不改 Chat 主线程，不新增 Pipeline 专用后端，不宣称 LIVE 发送/阶段写入。
+
+### 影响
+
+- 规范：`19-ui-ux-constitution.md` 页面角色法律、`04-ux-ui-system.md` 指向、`specs/FS-KOL-010-pipeline.md`
+- 代码：`frontend/src/pages/Pipeline.tsx` 及 Pipeline CSS
+- 测试：Stub Playwright 去掉首页任务芯片、自动选中和伪看板动作断言
