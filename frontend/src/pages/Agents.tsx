@@ -306,9 +306,8 @@ export default function Agents() {
               </ul>
             ) : (
               <p className="muted agent-empty">
-                进行中的会话会出现在这里。目前只读会话列表里的运行/待确认状态
-                {debug ? "（agent_status）" : ""}
-                ，没有单独的实时运行接口。
+                当前没有进行中的会话。从上面开始一项工作后，运行中或等确认的会话会出现在这里。
+                {debug && " 目前只读会话列表的 agent_status；实时阶段/进度需要新的运行状态接口。"}
               </p>
             )}
           </section>

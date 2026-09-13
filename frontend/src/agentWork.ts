@@ -178,12 +178,21 @@ function stepFromTask(task: Task): AgentNextStep {
   };
 }
 
+function ctaForIntent(intent?: string): string {
+  if (intent === "email_compose") return "写邮件";
+  if (intent === "creator_profile") return "补画像";
+  if (intent === "reply_analysis") return "分析回复";
+  if (intent === "risk_scan") return "风险扫描";
+  if (intent === "confirm_stage") return "记状态";
+  return "开始";
+}
+
 function stepFromBoard(rec: RecommendedTask): AgentNextStep {
   return {
     id: rec.id,
     title: rec.title,
     reason: rec.reason,
-    cta: "开始",
+    cta: ctaForIntent(rec.intent),
     source: rec.source === "catalog" ? "catalog" : "board",
     sourceLabel: rec.source_label || (rec.source === "ai" ? "AI 发现" : rec.source === "catalog" ? "任务模板" : "今天推荐"),
     intent: rec.intent,
@@ -199,7 +208,7 @@ function stepFromEntry(entry: AgentViewEntry): AgentNextStep {
     id: `entry-${entry.id}`,
     title: entry.title,
     reason: entry.summary,
-    cta: "开始",
+    cta: ctaForIntent(entry.skillId),
     source: "catalog",
     sourceLabel: "工作入口",
     intent: entry.skillId,
