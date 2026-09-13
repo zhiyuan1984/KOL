@@ -12,6 +12,7 @@ import {
   normalizeEmailMcpResult,
   setEmailMcpClientFactory,
 } from "../src/starrykol/service.js";
+import { setAgentSubmissionOverride } from "../src/contract-scope.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import type { Json } from "../src/types.js";
@@ -191,6 +192,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  setAgentSubmissionOverride();
   setEmailMcpClientFactory();
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
@@ -783,9 +785,10 @@ describe("Email MCP task run path", () => {
     }
   });
 
-  it("blocks real employee submission while the KOL Agent is unpublished", async () => {
+  it("blocks real employee submission when the publish gate is stubbed unpublished", async () => {
     const previous = process.env.CODEX_MODE;
     process.env.CODEX_MODE = "real";
+    setAgentSubmissionOverride(false);
     try {
       const created = await request("POST", "/api/sessions", { title: "达人库查询" });
       const posted = await request("POST", `/api/sessions/${created.body.id}/messages`, {
@@ -797,6 +800,7 @@ describe("Email MCP task run path", () => {
       expect(posted.body.detail).toMatchObject({ code: "agent_not_published" });
     } finally {
       process.env.CODEX_MODE = previous;
+      setAgentSubmissionOverride();
       setEmailMcpClientFactory(mockClient);
     }
   });

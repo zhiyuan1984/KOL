@@ -52,6 +52,7 @@ export function findCodex(): string {
 
 export class CodexAppServer {
   timeout: number;
+  private deadlineMs: number;
   bin: string;
   proc: ChildProcessWithoutNullStreams;
   private nextId = 0;
@@ -65,6 +66,10 @@ export class CodexAppServer {
 
   constructor(timeout = 180) {
     this.timeout = timeout;
+    // One budget for handshake + auth + turn/start + waitTurn. Per-RPC
+    // timeouts used to stack (account/read 20s × N + turn 120s) and left
+    // home compose stuck on “recognizing” or the worker past E2E limits.
+    this.deadlineMs = Date.now() + timeout * 1000;
     this.bin = findCodex();
     // Windows cannot execute a .mjs/.cjs fixture via its shebang directly.
     // Keep CODEX_BIN semantics unchanged in production while making the
@@ -148,11 +153,19 @@ export class CodexAppServer {
     this.proc.stdin.write(`${JSON.stringify(obj)}\n`);
   }
 
+  remainingMs(requestedSec?: number): number {
+    const requested = (requestedSec ?? this.timeout) * 1000;
+    return Math.min(requested, this.deadlineMs - Date.now());
+  }
+
   async request(method: string, params: Json = {}, timeout?: number): Promise<Json> {
     this.nextId += 1;
     const rid = this.nextId;
     this.write({ method, id: rid, params });
-    const waitMs = (timeout ?? this.timeout) * 1000;
+    const waitMs = this.remainingMs(timeout);
+    if (waitMs <= 50) {
+      throw new CodexUnavailable(`等待 Codex \`${method}\` 超时。未合成邮件。`, "检查网络与 Codex 登录后重试。");
+    }
     const msg = await new Promise<Json>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(rid);
@@ -196,7 +209,7 @@ export class CodexAppServer {
   }
 
   async waitTurn(timeout?: number): Promise<Json> {
-    const deadline = Date.now() + (timeout ?? this.timeout) * 1000;
+    const deadline = Date.now() + Math.max(0, this.remainingMs(timeout));
     while (Date.now() < deadline) {
       for (const n of this.notifications) {
         if (n.method === "turn/completed") return (n.params as Json) || {};
@@ -236,26 +249,27 @@ export class CodexAppServer {
 
   async requireAuth(): Promise<Json> {
     const local = inspectLocalCodexAuth();
+    const authSec = Math.min(20, Math.max(1, this.remainingMs() / 1000));
     // 已登录时立即返回；只有首读为空才等 account/updated，避免每轮固定空等。
-    let acct = await this.request("account/read", { refreshToken: false }, 20);
+    let acct = await this.request("account/read", { refreshToken: false }, authSec);
     let state = resolveAuthState(acct, process.env, local);
     if (!this.isUsable(acct) && state.action !== "login_api_key") {
-      await this.waitForAccountNotice(800);
-      acct = await this.request("account/read", { refreshToken: false }, 20);
+      await this.waitForAccountNotice(Math.min(800, Math.max(0, this.remainingMs())));
+      acct = await this.request("account/read", { refreshToken: false }, authSec);
       state = resolveAuthState(acct, process.env, local);
     }
     if (!this.isUsable(acct) && local.hasAuthFile) {
       try {
-        acct = await this.request("account/read", { refreshToken: true }, 20);
+        acct = await this.request("account/read", { refreshToken: true }, authSec);
         state = resolveAuthState(acct, process.env, local);
       } catch {
         /* 文件登录仍可继续起箱 */
       }
     }
     if (state.action === "login_api_key") {
-      await this.request("account/login/start", { type: "apiKey", apiKey: state.apiKey }, 20);
+      await this.request("account/login/start", { type: "apiKey", apiKey: state.apiKey }, authSec);
       this.authVia = "api_key_login";
-      acct = await this.request("account/read", { refreshToken: false }, 20);
+      acct = await this.request("account/read", { refreshToken: false }, authSec);
       return acct;
     }
     if (state.action === "ok") {

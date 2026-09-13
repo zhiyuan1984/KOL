@@ -80,8 +80,16 @@ export function agentPublishState(): { status: string; employee_submission: bool
   };
 }
 
+let submissionOverride: boolean | null = null;
+
+/** Tests only. Temporarily stub the publish gate without rewriting the manifest. */
+export function setAgentSubmissionOverride(value?: boolean | null): void {
+  submissionOverride = value === undefined ? null : value;
+}
+
 export function agentSubmissionAllowed(mode = process.env.CODEX_MODE || "real"): boolean {
   if (String(mode).toLowerCase() === "stub") return true;
+  if (submissionOverride != null) return submissionOverride;
   return agentPublishState().employee_submission;
 }
 

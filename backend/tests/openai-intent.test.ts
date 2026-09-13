@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyTaskIntent,
+  codexRecognizeThreadConfig,
   extractRemoteIntentText,
   intentLlmModel,
+  intentOutputSchema,
   parseIntentVerdict,
   setIntentLlmFetch,
   stubClassifyIntent,
@@ -82,6 +84,33 @@ describe("gpt-5.6 Luna intent verdict", () => {
       "email_conversation_list",
       "email_compose",
     ]);
+  });
+
+  it("uses a Codex-strict intent schema so turn/start can complete", () => {
+    const schema = intentOutputSchema(["email_compose", "creator_discovery"]) as {
+      required?: string[];
+      additionalProperties?: boolean;
+      properties?: { entities?: { required?: string[]; additionalProperties?: boolean } };
+    };
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.required).toEqual(expect.arrayContaining([
+      "task_type", "confidence", "entities", "missing_fields", "clarification_kind", "alternatives", "reason_zh",
+    ]));
+    expect(schema.required).toHaveLength(Object.keys(schema.properties || {}).length);
+    expect(schema.properties?.entities?.additionalProperties).toBe(false);
+    expect((schema.properties?.entities?.required || []).length).toBeGreaterThan(0);
+  });
+
+  it("does not pin the Luna model name onto the Codex recognize thread", () => {
+    const prev = process.env.CODEX_MODEL;
+    delete process.env.CODEX_MODEL;
+    try {
+      expect(codexRecognizeThreadConfig()).toEqual({ mcp_servers: {} });
+      expect(codexRecognizeThreadConfig()).not.toHaveProperty("model", "gpt-5.6-luna");
+    } finally {
+      if (prev === undefined) delete process.env.CODEX_MODEL;
+      else process.env.CODEX_MODEL = prev;
+    }
   });
 
   it("defaults to gpt-5.6-luna, not gpt-4o", () => {

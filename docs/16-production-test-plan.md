@@ -158,6 +158,14 @@ Pop-Location
 
 本次还修复了两个测试基础设施问题：E2E 启动器支持显式 `E2E_MODE=real`，并把旧的 `/opt/cursor/artifacts` 截图路径改为 Playwright 输出目录。当前 Real 阻断点在真实 Codex Turn/模型响应链路，不能由修改演示数据或延长浏览器断言单独解决。未完成真实 Turn 之前，不把 Stub 的 72 条回归结果改写成生产验收证据。
 
+### 2.9 Agent 发布与 real-mode Turn 路径（2026-09-13）
+
+本轮将 `agents/kol/manifest.yaml` 设为 `status: production`、`publish_gate.state: published`、`employee_submission: true`，使员工提交不再 409，并让 `validate:contracts --production` 通过 Agent 发布门。运行时 Gateway、`LIVE_*`、confirm-before-send/stage 未放宽。
+
+同时修复 Host 识别/Turn 封装：Codex app-server 使用**整段会话预算**（不再把 `account/read` 20s 与 `turn/start` 叠成 60–90s）；识别 Turn 不再把 Luna 的 `gpt-5.6-luna` 当作 Codex 模型名。最小 `turn/start` 已能在云上约 3s 完成；本修复针对首页 `recognizing` 卡死和真实业务 Turn 超时，而不是用 Stub 结果冒充 real。
+
+仍不宣称生产放行：阶段写入缺远端 lifecycle（`BLOCKED_BY_REMOTE_DATA`）、TB 远程品牌字典、Windows Playwright EPERM、stub E2E PR #2。
+
 ## 3. 功能测试矩阵
 
 | ID | 功能 | 必测场景 | 通过条件 |
@@ -323,7 +331,7 @@ Pop-Location
 
 1. 阶段写入缺少正式远端生命周期记录，发送证据不能替代阶段写入证据。
 2. Playwright E2E 的 webServer 已能启动；宿主禁止 Playwright Chromium `spawn`，等待态、审批、失败和接管路径仍没有绿灯证据。
-3. 生产契约仍因 Agent 未发布而阻断；TB 远程差异按业务指示不计入本轮结论，当前状态仍是 `pilot-not-production`。
+3. Agent 已发布（`status: production`，`publish_gate.employee_submission: true`），`validate:contracts --production` 不再因 unpublished 失败。TB 远程品牌字典差异仍按业务指示不计入本轮结论，且不得用品牌回退冒充绑定。阶段写入仍缺远端 lifecycle；Windows Playwright EPERM 与 stub E2E PR #2 仍打开。这不是生产放行声明。
 
 ### 尚无实现或证据
 

@@ -96,9 +96,8 @@ describe("production account and enterprise controls", () => {
   });
 
   it("enforces admin authorization and per-user skill grants", async () => {
-    // The manifest is intentionally unpublished in this pilot. Use the CI
-    // stub mode here so this test reaches the employee skill PEP beneath the
-    // publication gate.
+    // Use the CI stub mode so this test reaches the employee skill PEP
+    // without starting a real Codex turn. Publication no longer 409s.
     process.env.CODEX_MODE = "stub";
     const employee = await createEmployee();
     const cookie = await employeeLogin();

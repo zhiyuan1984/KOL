@@ -63,7 +63,7 @@ if (brands) {
 
 if (agent) {
   if (agent.id !== "agent:kol") errors.push("KOL manifest id must be agent:kol");
-  if (agent.status !== "pilot-not-production") warnings.push("KOL manifest is not production eligible");
+  if (agent.status === "pilot-not-production") warnings.push("KOL manifest is not production eligible");
   const publishable = ["published", "production"].includes(agent.status);
   if (agent.publish_gate?.employee_submission !== publishable) errors.push("agent publish_gate must match employee submission status");
   if (!agent.publish_gate?.state) errors.push("agent publish_gate.state is required");

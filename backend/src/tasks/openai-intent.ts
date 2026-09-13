@@ -212,21 +212,63 @@ export function normalizeIntentVerdict(value: Partial<IntentVerdict> & { task_ty
   };
 }
 
-function intentJsonSchema(ids: string[]): Record<string, unknown> {
+const INTENT_ENTITY_PROPERTIES: Record<string, Record<string, unknown>> = {
+  mailboxEmail: { type: ["string", "null"] },
+  from: { type: ["string", "null"] },
+  to: { type: ["array", "null"], items: { type: "string" } },
+  email: { type: ["string", "null"] },
+  subject: { type: ["string", "null"] },
+  handle: { type: ["string", "null"] },
+  platform: { type: ["string", "null"] },
+  keywords: { type: ["array", "null"], items: { type: "string" } },
+  collaboration_id: { type: ["string", "null"] },
+  confirm_send: { type: ["boolean", "null"] },
+  keyword: { type: ["string", "null"] },
+  kolUid: { type: ["string", "null"] },
+};
+
+/** Codex outputSchema requires every property key in `required` and forbids a bare object. */
+export function intentOutputSchema(ids: string[]): Record<string, unknown> {
+  const properties = {
+    task_type: { type: "string", enum: ["", ...ids] },
+    confidence: { type: "number" },
+    entities: {
+      type: "object",
+      properties: INTENT_ENTITY_PROPERTIES,
+      required: Object.keys(INTENT_ENTITY_PROPERTIES),
+      additionalProperties: false,
+    },
+    missing_fields: { type: "array", items: { type: "string" } },
+    clarification_kind: { type: "string", enum: ["none", "missing_fields", "direction"] },
+    alternatives: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          task_type: { type: "string" },
+          title: { type: "string" },
+          confidence: { type: "number" },
+        },
+        required: ["task_type", "title", "confidence"],
+        additionalProperties: false,
+      },
+    },
+    reason_zh: { type: "string" },
+  };
   return {
     type: "object",
-    properties: {
-      task_type: { type: "string", enum: ["", ...ids] },
-      confidence: { type: "number" },
-      entities: { type: "object" },
-      missing_fields: { type: "array", items: { type: "string" } },
-      clarification_kind: { type: "string", enum: ["none", "missing_fields", "direction"] },
-      alternatives: { type: "array" },
-      reason_zh: { type: "string" },
-    },
-    required: ["task_type", "confidence", "clarification_kind"],
+    properties,
+    required: Object.keys(properties),
     additionalProperties: false,
   };
+}
+
+/** Luna Responses uses gpt-5.6-luna. Codex app-server must use its own default (or CODEX_MODEL). */
+export function codexRecognizeThreadConfig(): { mcp_servers: Record<string, never>; model?: string } {
+  const model = String(process.env.CODEX_MODEL || "").trim();
+  return model
+    ? { mcp_servers: {}, model }
+    : { mcp_servers: {} };
 }
 
 export function extractRemoteIntentText(data: unknown): string {
@@ -259,10 +301,10 @@ function parseCodexTexts(rpc: CodexAppServer, completed: { turn?: { output?: unk
   return [...rpc.agentTexts, ...extras];
 }
 
-export async function classifyWithCodexAppServer(text: string): Promise<IntentVerdict> {
+export async function classifyWithCodexAppServer(text: string, timeoutSec = taskRecognizeTimeout()): Promise<IntentVerdict> {
   const ids = taskDefinitions().map((definition) => definition.id);
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-recognize-"));
-  const rpc = new CodexAppServer(taskRecognizeTimeout());
+  const rpc = new CodexAppServer(Math.max(1, timeoutSec));
   try {
     await rpc.handshake();
     await rpc.requireAuth();
@@ -270,7 +312,7 @@ export async function classifyWithCodexAppServer(text: string): Promise<IntentVe
       cwd,
       approvalPolicy: "never",
       sandbox: "read-only",
-      config: { mcp_servers: {}, model: intentLlmModel() },
+      config: codexRecognizeThreadConfig(),
     });
     const thread = (started.thread as { id?: string } | undefined) || started;
     const threadId = String((thread as { id?: string }).id || "");
@@ -283,7 +325,7 @@ export async function classifyWithCodexAppServer(text: string): Promise<IntentVe
       sandboxPolicy: { type: "readOnly", networkAccess: false },
       summary: "concise",
       effort: "low",
-      outputSchema: intentJsonSchema(ids),
+      outputSchema: intentOutputSchema(ids),
     });
     const completed = await rpc.waitTurn();
     const verdict = parseIntentVerdict(parseCodexTexts(rpc, completed as { turn?: { output?: unknown } }).join("\n"), ids);
@@ -306,7 +348,7 @@ export async function classifyWithCodexAppServer(text: string): Promise<IntentVe
   }
 }
 
-export async function classifyIntentWithLuna(text: string): Promise<IntentVerdict> {
+export async function classifyIntentWithLuna(text: string, timeoutSec = taskRecognizeTimeout()): Promise<IntentVerdict> {
   const key = intentLlmApiKey();
   if (!key) {
     throw new IntentLlmUnavailable("识别服务未就绪：未配置模型密钥。", "把 OPENAI_API_KEY 写入 .env 后重试。");
@@ -314,7 +356,7 @@ export async function classifyIntentWithLuna(text: string): Promise<IntentVerdic
   const base = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
   const ids = taskDefinitions().map((definition) => definition.id);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), taskRecognizeTimeout() * 1000);
+  const timer = setTimeout(() => controller.abort(), Math.max(1, timeoutSec) * 1000);
   try {
     const fetchFn = fetchOverride || fetch;
     const response = await fetchFn(`${base}/responses`, {
@@ -334,7 +376,7 @@ export async function classifyIntentWithLuna(text: string): Promise<IntentVerdic
             type: "json_schema",
             name: "task_intent",
             strict: false,
-            schema: intentJsonSchema(ids),
+            schema: intentOutputSchema(ids),
           },
         },
       }),
@@ -354,16 +396,19 @@ export async function classifyIntentWithLuna(text: string): Promise<IntentVerdic
 
 export async function classifyTaskIntent(text: string): Promise<IntentVerdict> {
   if (intentLlmMode() === "stub") return stubClassifyIntent(text);
+  const deadline = Date.now() + taskRecognizeTimeout() * 1000;
+  const remaining = () => Math.max(0, (deadline - Date.now()) / 1000);
   if (intentLlmApiKey()) {
     try {
-      return await classifyIntentWithLuna(text);
+      return await classifyIntentWithLuna(text, remaining());
     } catch (lunaError) {
+      if (remaining() < 2) throw lunaError;
       try {
-        return await classifyWithCodexAppServer(text);
+        return await classifyWithCodexAppServer(text, remaining());
       } catch {
         throw lunaError;
       }
     }
   }
-  return classifyWithCodexAppServer(text);
+  return classifyWithCodexAppServer(text, remaining());
 }
