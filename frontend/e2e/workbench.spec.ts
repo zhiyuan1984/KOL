@@ -50,6 +50,15 @@ async function openHomeLifecycle(page: Page) {
   await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
 }
 
+async function openStageSop(page: Page) {
+  const sop = page.locator("[data-stage-sop]");
+  await expect(sop).toBeVisible();
+  if (!(await sop.evaluate((el) => el instanceof HTMLDetailsElement && el.open))) {
+    await sop.locator("summary").click();
+  }
+  await expect(sop).toHaveJSProperty("open", true);
+}
+
 /** Template click only prefills the home composer; send then follows the home ask path. */
 async function expectHomeComposerDraft(page: Page, value: string) {
   await expect(page).toHaveURL(/\/(?:\?.*)?$/);
@@ -485,16 +494,21 @@ test("pipeline shows a 15-stage milestone timeline and detail tabs", async ({ pa
   await expect(page.locator('[data-pipeline-panel="overview"]')).toContainText("报价待确认");
 });
 
-test("session journey guide fills the next skill into the composer", async ({ page }) => {
+test("session page has no coach next-step card and keeps composer skills", async ({ page }) => {
   await page.goto("/");
   await openHomeLifecycle(page);
   await page.locator("[data-followed-kol] .task-main").first().click();
   await expect(page).toHaveURL(/\/s\//);
-  const next = page.locator("[data-journey-next]");
-  await expect(next).toBeVisible();
-  await next.click();
-  await expect(page.locator("[data-composer-input]")).not.toHaveValue("");
-  await expect(page.locator("[data-journey-title]")).not.toHaveText("从建联开始这条合作之旅");
+  await expect(page.locator("[data-journey-next]")).toHaveCount(0);
+  await expect(page.locator("[data-journey-guide]")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /下一步：/ })).toHaveCount(0);
+  await expect(page.locator("[data-session-stream-pane]")).toBeVisible();
+  await expect(page.locator("[data-composer-input]")).toBeVisible();
+  await expect(page.locator("[data-session-send-hint]")).toHaveText("发送不等于改阶段");
+  const sop = page.locator("[data-stage-sop]");
+  if (await sop.count()) {
+    await expect(sop).toHaveJSProperty("open", false);
+  }
 });
 
 test("home lifecycle followed KOL opens the mail rail not the task list", async ({ page }) => {
@@ -925,6 +939,8 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   await page.goto(`/s/${ingested.session_id}`);
   await expect(page.locator("[data-kol-journey]")).toContainText("小美妆日记");
   await expect(page.locator("[data-session-stage]")).toContainText("初步接触");
+  await expect(page.locator("[data-stage-sop]")).toHaveJSProperty("open", false);
+  await openStageSop(page);
   await expect(page.locator("[data-stage-sop]")).toContainText("红人画像");
   await expect(page.locator("[data-stage-sop]")).toContainText("输入");
   await expect(page.locator("[data-stage-sop]")).toContainText("would love to collaborate");
@@ -951,6 +967,8 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   await expect(page.locator(".chat")).not.toContainText("当前阶段：初步接触");
   await expect(card.locator("[data-mail-confirm]")).toHaveCount(0);
   await expect(page.locator("[data-kind='confirm-stage-pointer']")).toHaveCount(0);
+  await expect(page.locator("[data-stage-sop]")).toHaveJSProperty("open", false);
+  await openStageSop(page);
   await expect(page.locator("[data-stage-sop]")).toContainText("意向");
   await expect(page.locator("[data-stage-sop]")).not.toContainText("EVALUATING");
   await expect(page.locator("[data-stage-sop]")).toContainText("红人画像");

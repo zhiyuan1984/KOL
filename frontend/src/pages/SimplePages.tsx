@@ -61,14 +61,7 @@ export function Skills({ market = false }: { market?: boolean }) {
   return (
     <div className="hub-page skills-page" data-skills-page="mine">
       <SkillHubChrome mode="mine" q={q} onQ={setQ} />
-      <JourneyGuide
-        variant="compact"
-        definitions={rows}
-        onPrefill={(_prompt, intent) => {
-          const row = rows.find((item) => item.id === intent);
-          if (row) void useSkill(row);
-        }}
-      />
+      <JourneyGuide variant="compact" definitions={rows} />
       {err && <p className="error">{err}</p>}
       <div className="hub-chips" role="tablist" aria-label="建联进度">
         {[{ id: "all", label: "全部", hint: "已授权技能" }, ...FUNNEL].map((f) => (
