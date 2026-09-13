@@ -6,7 +6,7 @@ KOL 试点的可执行 UX 实例是 [`specs/UX-KOL.md`](../specs/UX-KOL.md)，�
 
 ## 双端边界
 
-员工端只展示我的任务、品牌、KOL、SOP、草稿、待确认、结果、证据、下一步和异常接管；隐藏 MCP、Codex、Thread、Skill 时序、原始堆栈和连接器配置。管理端提供组织、品牌、Agent、Skill、MCP、知识、Policy、任务、Trace、审计和人工接管。
+员工端只展示我的任务、品牌、KOL、SOP、草稿、待确认、结果、证据、下一步和异常接管；隐藏 MCP、Codex、Thread、Skill 时序、原始堆栈和连接器**配置**（凭据 / 组织策略 / 授权编辑）。已授权能力的只读使用/状态面见 `21-admin-employee-page-roles.md`，不是配置。管理端提供组织、品牌、Agent、Skill、MCP、知识、Policy、任务、Trace、审计和人工接管。
 
 超级用户可以进入两端和显式调试视图，但仍不能跳过发送、阶段、解密、导入、删除和审批闸门。
 

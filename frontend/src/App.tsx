@@ -10,6 +10,7 @@ import Knowledge from "./pages/Knowledge";
 import AuthGate from "./components/AuthGate";
 import { ViewModeProvider } from "./viewMode";
 import AccountSettings from "./pages/AccountSettings";
+import ConnectorUse from "./pages/ConnectorUse";
 import AdminConsole from "./pages/AdminConsole";
 import SharedSession from "./pages/SharedSession";
 import { SkillHub } from "./pages/SkillHub";
@@ -37,6 +38,7 @@ export default function App() {
           <Route path="/exam" element={<Exam />} />
           <Route path="/approvals" element={<Approvals />} />
           <Route path="/settings" element={<AccountSettings />} />
+          <Route path="/connectors" element={<ConnectorUse />} />
           <Route path="/admin/*" element={<AdminConsole />} />
         </Route>
       </Routes></ViewModeProvider></AuthGate>} />

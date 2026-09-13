@@ -3008,6 +3008,37 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 
 .list-page { display: grid; gap: 12px; max-width: none; width: 100%; }
+.connector-use-page { max-width: 720px; }
+.connector-use-page h1 { font-size: var(--font-title); line-height: var(--leading-hero); }
+.connector-use-list {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.connector-use-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2) var(--space-4);
+  align-items: start;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border);
+  font-size: var(--font-body);
+}
+.connector-use-row:first-child { border-top: 0; }
+.connector-use-row strong { display: block; font-size: var(--font-section); font-weight: 600; }
+.connector-use-row .muted { margin: 4px 0 0; }
+.connector-use-aside {
+  display: grid;
+  justify-items: end;
+  gap: var(--space-2);
+}
+.connector-use-status {
+  font-size: var(--font-meta);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.connector-use-status[data-status="available"] { color: var(--success); }
+.connector-use-status[data-status="needs_personal_bind"] { color: var(--warning); }
 .list-page.kb-page { max-width: none; gap: 18px; }
 .kb-page, .admin-kb {
   --kb-accent: #ea5504;

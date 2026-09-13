@@ -329,7 +329,7 @@ export function SkillHub({ view = "catalog" }: { view?: "catalog" | "partners" }
   const catalogChips = [
     { id: "featured", label: "精选" },
     ...FUNNEL.map((f) => ({ id: f.id, label: f.label })),
-    ...(debug ? [{ id: "connectors", label: "连接器" }] : []),
+    ...(debug && admin ? [{ id: "connectors", label: "连接器" }] : []),
   ];
   const partnerChips = [
     { id: "featured", label: "精选" },
@@ -347,10 +347,10 @@ export function SkillHub({ view = "catalog" }: { view?: "catalog" | "partners" }
   }, [skills, chip, needle]);
 
   const connectorTiles = useMemo(() => {
-    if (!debug || view !== "catalog") return [];
+    if (!debug || !admin || view !== "catalog") return [];
     if (chip !== "featured" && chip !== "connectors") return [];
     return CONNECTORS.filter((c) => match(c.title, c.summary));
-  }, [debug, view, chip, needle]);
+  }, [admin, debug, view, chip, needle]);
 
   const partnerKols = useMemo(() => {
     if (view !== "partners") return [];
