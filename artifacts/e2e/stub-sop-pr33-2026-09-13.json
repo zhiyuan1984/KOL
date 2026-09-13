@@ -1,0 +1,85 @@
+{
+  "date": "2026-09-13",
+  "pr": 33,
+  "pr_url": "https://github.com/zhiyuan1984/KOL/pull/33",
+  "pr_state": "merged",
+  "branch": "cursor/sop-card-density-448d",
+  "verified_ref": "origin/main",
+  "sha": "4af4b6904ff7deb1ed75022d644c0fb26f8abd85",
+  "pr_tip": "6847980445e27ca9c3e70f047c73d5f09558d730",
+  "commit": "Merge pull request #33 from zhiyuan1984/cursor/sop-card-density-448d",
+  "workdir": "/workspace/KOL-real",
+  "mode": "stub",
+  "e2e_mode": "stub",
+  "live": false,
+  "LIVE_REMOTE_SIDE_EFFECTS": "not used for judgment",
+  "e2e_auth_mode": "disabled",
+  "pw_channel": "chrome",
+  "browser": "Linux Google Chrome",
+  "e2e_port": 8894,
+  "focus": "FE remove SOP「输入」, denser KolPortraitFields, CSS tighten; negatives on open SOP",
+  "setup": {
+    "fetched": [
+      "git fetch origin pull/33/head",
+      "git fetch origin main"
+    ],
+    "checkout": "detached origin/main @ 4af4b69 (PR#33 merge)",
+    "rebuild": true,
+    "e2e_skip_build_unset": true,
+    "dist": {
+      "js": "frontend/dist/assets/index-5GgQIXv4.js",
+      "css": "frontend/dist/assets/index-C4Nejnl-.css"
+    },
+    "runner": "scripts/e2e-server.mjs"
+  },
+  "authoritative_focused_run": {
+    "output": "/workspace/KOL-real/artifacts/e2e/pw-stub-pr33-sop-main-20260913-204214",
+    "screenshot": "kol_session_digest_sop_journey.png",
+    "grep": "-g 'ingested inbound|stage.sop|红人画像|confirm 有兴趣|data-stage-sop'",
+    "matched_titles": 1,
+    "duration": "11.9s",
+    "json": "/workspace/KOL/artifacts/e2e/stub-sop-pr33-2026-09-13.json"
+  },
+  "result": {
+    "passed": 1,
+    "failed": 0
+  },
+  "tests": [
+    {
+      "n": 1,
+      "name": "ingested inbound mail appears in the KOL session and can confirm 有兴趣",
+      "status": "PASS"
+    }
+  ],
+  "coverage_map": [
+    {
+      "focus": "Open SOP has 红人画像",
+      "how_covered": "openStageSop → [data-stage-sop] contains 红人画像 (before + after confirm)"
+    },
+    {
+      "focus": "No SOP「输入」",
+      "how_covered": "[data-stage-sop] not.toContainText(\"输入\") ×2; Chat.tsx has no 输入 string"
+    },
+    {
+      "focus": "platform / brand chips",
+      "how_covered": "[data-portrait-field='platform']=小红书; [data-portrait-field='brand']=LT"
+    },
+    {
+      "focus": "Denser KolPortraitFields",
+      "how_covered": "followers 82万; stay 12 天; tags .chip ×2; portrait not @小美妆日记"
+    },
+    {
+      "focus": "confirm 有兴趣",
+      "how_covered": "mail-confirm → stage 已回复-有兴趣 / 意向; SOP still densified"
+    }
+  ],
+  "negatives": {
+    "open_sop_must_not_contain_输入": "PASS",
+    "still_has_红人画像_platform_brand_chips": "PASS"
+  },
+  "not_run": [
+    "Full stub suite",
+    "E2E_MODE=real / LIVE remotes"
+  ],
+  "kol_one_liner": "PR#33 MERGED 4af4b69 (main) stub SOP densify: 1/1 PASS (ingested inbound+confirm 有兴趣; open SOP no「输入」, has 红人画像+platform/brand chips); no LIVE; rebuild required."
+}
