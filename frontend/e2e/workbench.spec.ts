@@ -73,6 +73,15 @@ async function expectHomeComposerDraft(page: Page, value: string) {
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(value);
 }
 
+async function pickStageChip(scope: Locator, code: string) {
+  await scope.locator(`[data-stage-chip][data-stage-code="${code}"]`).first().click();
+}
+
+async function expectSelectedStage(scope: Locator, code: string) {
+  await expect(scope.locator("[data-stage-select]")).toHaveAttribute("data-value", code);
+  await expect(scope.locator(`[data-stage-chip][data-stage-code="${code}"]`)).toHaveAttribute("aria-checked", "true");
+}
+
 async function submitHomeComposer(page: Page) {
   const send = page.locator("[data-home] [data-send]");
   await expect(send).toBeEnabled({ timeout: 2000 });
@@ -912,7 +921,13 @@ test("home confirm CTA names the target stage and opens confirm_stage", async ({
   await expect(page).toHaveURL(/\/s\//);
   await expect(page.locator('[data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-kind="confirm-stage-card"]')).toContainText("初步接触");
-  await expect(page.locator('[data-kind="confirm-stage-card"] [data-stage-select]')).toHaveValue("INTERESTED");
+  const confirmCard = page.locator('[data-kind="confirm-stage-card"]');
+  await expectSelectedStage(confirmCard, "INTERESTED");
+  await expect(confirmCard.locator("[data-stage-track='main']")).toContainText("主流程");
+  await expect(confirmCard.locator("[data-stage-track='branch']")).toContainText("分支流程");
+  await expect(confirmCard.locator("[data-stage-track='exception']")).toContainText("异常流程");
+  await expect(confirmCard.locator("[data-stage-chip]", { hasText: "跳过" })).toHaveCount(0);
+  await expect(confirmCard.locator('[data-stage-chip][data-stage-code="INTERESTED"]')).toContainText("建议");
 });
 
 test("home waiting work item is labeled 结果待确认 not 等待中", async ({ page }) => {
@@ -1179,7 +1194,7 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   await expect(card.locator("[data-mail-reply]")).toBeVisible();
   await expect(card.locator("[data-stage-diff]")).toContainText("已回复-有兴趣");
   await expect(card.locator("[data-mail-stage-select]")).toBeVisible();
-  await expect(card.locator("[data-mail-stage-select]")).toHaveValue("INTERESTED");
+  await expectSelectedStage(card, "INTERESTED");
   await expect(card.locator("[data-mail-confirm]")).toHaveText("确认写入所选阶段");
   await card.locator("[data-mail-confirm]").click();
   await expect(page.locator("[data-session-stage]")).toContainText("已回复-有兴趣", { timeout: 15000 });
@@ -1510,7 +1525,7 @@ test("记状态 to CONTENT_REVIEW queues content approval and writes after manag
   const card = page.locator('[data-workbench] [data-kind="confirm-stage-card"]');
   await expect(card).toBeVisible({ timeout: 15000 });
   await expect(card).toContainText("内容策划");
-  await card.locator("[data-stage-select]").selectOption("CONTENT_REVIEW");
+  await pickStageChip(card, "CONTENT_REVIEW");
   await expect(card.locator("[data-confirm-stage]")).toHaveText("提交审批");
   await card.locator("[data-confirm-stage]").click();
   await expect(page.getByText("已提交阶段审批").first()).toBeVisible({ timeout: 15000 });
@@ -1590,7 +1605,8 @@ test("记状态 shows stage workbench, never a draft tab card", async ({ page, r
   await expect(page.locator('[data-workbench] [data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
   await expect(page.locator('[data-kind="confirm-stage-card"]')).toContainText("初步接触");
-  await expect(page.locator('[data-kind="confirm-stage-card"] [data-stage-select]')).toHaveValue("INTERESTED");
+  await expectSelectedStage(page.locator('[data-kind="confirm-stage-card"]'), "INTERESTED");
+  await expect(page.locator('[data-kind="confirm-stage-card"] [data-stage-chip]', { hasText: "跳过" })).toHaveCount(0);
   const pipelineAfter = await request.get("/api/pipeline").then((r) => r.json());
   const stageAfter = Object.values(pipelineAfter.groups).flat().find(
     (c: { handle: string }) => c.handle === "小美妆日记",
@@ -1830,7 +1846,7 @@ test("two buttons stay separate: send keeps stage, confirm-stage advances", asyn
   expect(x.stage_code).toBe("INITIAL_CONTACT");
 
   await page.locator('[data-tab="stage"]').click();
-  await page.locator('[data-workbench] [data-stage-select]').first().selectOption("INTERESTED");
+  await pickStageChip(page.locator("[data-workbench]"), "INTERESTED");
   await page.locator('[data-workbench] [data-email-action="confirm-stage"], [data-workbench] [data-confirm-stage]').click();
   await expect(page.getByText(/正式阶段已按你的确认更新/).first()).toBeVisible();
   const pipe2 = await request.get("/api/pipeline");
