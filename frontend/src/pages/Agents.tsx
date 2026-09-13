@@ -2,10 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { REMOTE_BACKEND_LABEL, remoteForConnector, remoteForSkill } from "../agentConfig";
 import {
+  asTaskList,
   buildAgentNextSteps,
+  failedTaskReason,
   parseAgentTab,
   readRecentAgents,
   recentIdleSessions,
+  retryFailedTask,
   runningSessions,
   sessionStatusLabel,
   startAgentWork,
@@ -49,6 +52,7 @@ export default function Agents() {
   const [recommendations, setRecommendations] = useState<RecommendedTask[]>([]);
   const [kols, setKols] = useState<AgentKolLike[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [failedTasks, setFailedTasks] = useState<Task[]>([]);
   const [recentAgents, setRecentAgents] = useState<RecentAgent[]>(() => readRecentAgents());
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -62,8 +66,9 @@ export default function Agents() {
       api.connectors().catch(() => []),
       api.sessions().catch(() => []),
       api.homeBoard().catch(() => ({})),
+      api.tasks({ status: "failed" }).catch(() => []),
     ])
-      .then(([p, c, s, board]) => {
+      .then(([p, c, s, board, failed]) => {
         if (cancelled) return;
         setProfiles(Array.isArray(p) ? p : []);
         setConnectors(Array.isArray(c) ? c : []);
@@ -85,6 +90,7 @@ export default function Agents() {
           notes: kol.notes ? String(kol.notes) : undefined,
         })).filter((kol) => kol.handle));
         setTasks(Array.isArray((board as { tasks?: Task[] }).tasks) ? (board as { tasks: Task[] }).tasks : []);
+        setFailedTasks(asTaskList(failed));
       })
       .catch((e) => {
         if (!cancelled) setErr(e instanceof Error ? e.message : "无法加载工作台");
@@ -98,7 +104,7 @@ export default function Agents() {
     () => buildAgentNextSteps({
       recommendations,
       kols,
-      tasks,
+      tasks: tasks.filter((task) => String(task.status || "") !== "failed"),
       entries: manifest?.entries || [],
     }),
     [kols, manifest?.entries, recommendations, tasks],
@@ -107,6 +113,23 @@ export default function Agents() {
   const running = useMemo(() => runningSessions(sessions), [sessions]);
   const runningIds = useMemo(() => new Set(running.map((row) => row.id)), [running]);
   const recentSessions = useMemo(() => recentIdleSessions(sessions, runningIds), [runningIds, sessions]);
+
+  useEffect(() => {
+    if (tab !== "work") return;
+    const refreshShell = () => {
+      void api.sessions().then(setSessions).catch(() => undefined);
+      void api.tasks({ status: "failed" }).then((rows) => setFailedTasks(asTaskList(rows))).catch(() => undefined);
+    };
+    const timer = window.setInterval(refreshShell, 5000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshShell();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [tab]);
 
   const setTab = (next: AgentPageTab) => {
     const nextParams = new URLSearchParams(params);
@@ -154,6 +177,24 @@ export default function Agents() {
       nav(`/s/${ses.id}`);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "无法开始团队步骤");
+      setBusy(null);
+    }
+  };
+
+  const onRetryFailed = async (task: Task) => {
+    setBusy(`failed-${task.id}`);
+    setErr("");
+    rememberJourney({
+      kind: "task",
+      skillId: String(task.skill_id || task.skill || ""),
+      skillLabel: task.title,
+      handle: task.kol_name,
+    });
+    try {
+      const opened = await retryFailedTask(task);
+      goSession(opened.id, opened.kolSession);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "无法重试");
       setBusy(null);
     }
   };
@@ -298,7 +339,7 @@ export default function Agents() {
                     <i className={"status-dot " + (session.agent_status || "running")} aria-hidden />
                     <div className="agent-work-copy">
                       <strong>{session.title}</strong>
-                      <p className="muted">{sessionStatusLabel(session.agent_status)} · 来自会话列表</p>
+                      <p className="muted">{sessionStatusLabel(session.agent_status)}</p>
                     </div>
                     <Link className="btn work sm" to={`/s/${session.id}`}>回到会话</Link>
                   </li>
@@ -306,9 +347,43 @@ export default function Agents() {
               </ul>
             ) : (
               <p className="muted agent-empty">
-                当前没有进行中的会话。从上面开始一项工作后，运行中或等确认的会话会出现在这里。
-                {debug && " 目前只读会话列表的 agent_status；实时阶段/进度需要新的运行状态接口。"}
+                当前没有进行中的会话。会话列表里状态为运行中或等确认的会出现在这里。
               </p>
+            )}
+          </section>
+
+          <section className="agent-section" data-agent-section="failed">
+            <header className="agent-section-head">
+              <h2>失败</h2>
+              <span className="muted">{failedTasks.length ? `${failedTasks.length} 项` : "当前没有"}</span>
+            </header>
+            {failedTasks.length ? (
+              <ul className="agent-work-list">
+                {failedTasks.map((task) => (
+                  <li key={task.id} className="agent-work-row" data-agent-failed={task.id}>
+                    <span className="agent-work-icon" aria-hidden>!</span>
+                    <div className="agent-work-copy">
+                      <strong>{task.title}</strong>
+                      <p className="muted">{failedTaskReason(task)}</p>
+                    </div>
+                    <div className="agent-card-actions">
+                      {task.session_id && (
+                        <Link className="btn ghost sm" to={`/s/${task.session_id}`}>打开会话</Link>
+                      )}
+                      <button
+                        type="button"
+                        className="btn work sm"
+                        disabled={busy === `failed-${task.id}`}
+                        onClick={() => void onRetryFailed(task)}
+                      >
+                        重试
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted agent-empty">没有失败的任务。</p>
             )}
           </section>
         </div>

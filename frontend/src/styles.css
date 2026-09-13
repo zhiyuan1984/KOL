@@ -1867,11 +1867,13 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   text-decoration: none;
 }
 .agent-work-row .btn { margin-top: 0; white-space: nowrap; }
+.agent-work-row .agent-card-actions { margin: 0; }
 @media (max-width: 720px) {
   .agent-work-row {
     grid-template-columns: 28px minmax(0, 1fr);
   }
-  .agent-work-row .btn {
+  .agent-work-row .btn,
+  .agent-work-row .agent-card-actions {
     grid-column: 2;
     justify-self: start;
   }

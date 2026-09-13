@@ -1,4 +1,4 @@
-import { api, type AgentViewEntry, type RecommendedTask, type SessionRow, type Task } from "./api";
+import { api, type AgentViewEntry, type RecommendedTask, type SessionRow, type Task, type TaskRunResult } from "./api";
 import { storePending } from "./components/ChatBlocks";
 import { recIcon } from "./recommendedTasks";
 import { starterPrompt } from "./taskStarters";
@@ -266,12 +266,54 @@ export function buildAgentNextSteps(input: {
   return steps.slice(0, MAX_AGENT_NEXT_STEPS);
 }
 
+export function asTaskList(value: Task[] | { tasks?: Task[] } | unknown): Task[] {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === "object" && Array.isArray((value as { tasks?: Task[] }).tasks)) {
+    return (value as { tasks: Task[] }).tasks;
+  }
+  return [];
+}
+
+/** FE-only: GET /api/sessions.agent_status is enough for 运行中 / 最近在用. */
 export function runningSessions(sessions: SessionRow[]): SessionRow[] {
-  // TODO(backend): session.agent_status is the only live-run signal available
-  // on the client today (listening | running | waiting_approval). A dedicated
-  // run-status / worker-phase API would be needed for progress, current skill,
-  // or multi-agent status on this page. Do not invent that here.
   return sessions.filter((row) => row.agent_status === "running" || row.agent_status === "waiting_approval");
+}
+
+export function failedTaskReason(task: Task): string {
+  const last = Array.isArray(task.history) && task.history.length
+    ? task.history[task.history.length - 1]
+    : undefined;
+  return String(
+    task.history_summary
+    || last?.summary
+    || last?.message
+    || task.risk
+    || task.next_action
+    || "执行失败",
+  );
+}
+
+/**
+ * Retry a failed work item with the existing POST /api/tasks/:id/run.
+ * TODO(backend): list payloads have no last_error; crash-durable running
+ * (stale agent_status=running after host death) and a dedicated retry-last-turn
+ * API are also missing. Do not invent those here.
+ */
+export async function retryFailedTask(task: Task): Promise<{ id: string; kolSession?: boolean }> {
+  const result: TaskRunResult = await api.runTask(task.id);
+  sessionStorage.setItem(`task:${result.session_id}`, result.task.id);
+  const pending = (result.pending_message || result.pending || {}) as Record<string, unknown>;
+  storePending(result.session_id, {
+    text: String(pending.text || result.task.title || task.title),
+    intent: String(pending.intent || pending.task_type || result.task.skill || task.skill || ""),
+    collaboration_id: pending.collaboration_id
+      ? String(pending.collaboration_id)
+      : (task.collaboration_id ? String(task.collaboration_id) : undefined),
+    work_item_id: String(pending.work_item_id || result.work_item_id || result.task.id),
+    task_type: String(pending.task_type || result.task.skill || task.skill || ""),
+    run_id: pending.run_id || result.run_id ? String(pending.run_id || result.run_id || "") : undefined,
+  });
+  return { id: result.session_id, kolSession: Boolean(task.collaboration_id || task.project_id) };
 }
 
 export function recentIdleSessions(sessions: SessionRow[], runningIds: Set<string>, limit = 6): SessionRow[] {
