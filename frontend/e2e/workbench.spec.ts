@@ -512,6 +512,10 @@ test("pipeline shows a 15-stage milestone timeline and lifecycle drawer", async 
   await expect(page.locator("[data-pipeline-drawer]")).not.toContainText("记状态");
   await page.locator('[data-kol="数码老张"] [data-pipeline-row]').click();
   await expect(page.locator("[data-pipeline-drawer]")).toContainText("报价待确认");
+  await page.locator("[data-pipeline-filters] [data-filter='brand']").selectOption("RO");
+  await expect(page.locator("[data-pipeline-drawer]")).toHaveCount(0);
+  await expect(page.locator("[data-kol]")).toHaveCount(1);
+  await expect(page.locator('[data-kol="母婴小课"]')).toBeVisible();
   await page.goto("/pipeline?brand=RO");
   await expect(page.locator("[data-pipeline-drawer]")).toHaveCount(0);
   await expect(page.locator("[data-kol]")).toHaveCount(1);
