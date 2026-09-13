@@ -22,6 +22,7 @@ import { clearComposerFill, composerStarter, peekComposerFill } from "../knowled
 import { FOLLOWED_KOL_TABS, suggestedStageLabel } from "../kolStages";
 import { rememberJourney } from "../journey";
 import { missingFieldsMessage, fieldLabel } from "../labels";
+import { latestMailThread, summarizeMailSnippet } from "../mailPreview";
 
 type HomeTab = "today" | "templates";
 type HomeMode = "todo" | "ai" | "lifecycle";
@@ -51,6 +52,9 @@ type FollowedKol = {
   suggested_stage?: string;
   tasks?: { id: string; title: string; status?: string; history_summary?: string }[];
   unread_count?: number;
+  session_id?: string | null;
+  suggested_stage_code?: string | null;
+  next_action?: string;
   mail_threads?: {
     conversation_id: string;
     subject: string;
@@ -61,6 +65,15 @@ type FollowedKol = {
     last_direction?: string;
     last_at?: string | null;
   }[];
+};
+
+type KolPrimaryKind = "profile" | "confirm-send" | "confirm-stage" | "approval" | "open-session";
+
+type KolPrimaryAction = {
+  kind: KolPrimaryKind;
+  label: string;
+  task?: Task;
+  focusThread?: string;
 };
 
 type TabSummary = { code: string; count: number; task_count?: number };
@@ -301,6 +314,75 @@ function matchesKolTab(kol: FollowedKol, tab: KolTab) {
   if (tab === "all") return true;
   if (tab === "exception") return Boolean(kol.exception);
   return String(kol.stage_code || "") === tab;
+}
+
+function kolMatchesTask(kol: FollowedKol, task: Task): boolean {
+  const collabId = String(task.collaboration_id || task.project_id || "");
+  if (collabId && collabId === kol.id) return true;
+  const handle = String(kol.handle || "").replace(/^@/, "").trim();
+  const taskHandle = String(task.kol_name || "").replace(/^@/, "").trim();
+  return Boolean(handle && taskHandle && handle === taskHandle);
+}
+
+function relatedOpenTask(kol: FollowedKol, tasks: Task[]): Task | undefined {
+  return tasks.find((task) => {
+    if (isClosedTask(task) || task.dismissed_at) return false;
+    if (!isTodoTask(task) && String(task.status || "") !== "waiting_approval") return false;
+    return kolMatchesTask(kol, task);
+  });
+}
+
+function taskSkill(task: Task): string {
+  return String(task.skill_id || task.skill || task.task_type || "").toLowerCase();
+}
+
+function canOpenExistingTaskFlow(task: Task): boolean {
+  return Boolean(task.session_id || task.collaboration_id || task.project_id);
+}
+
+function kolPrimaryAction(kol: FollowedKol, tasks: Task[]): KolPrimaryAction {
+  // TODO(backend): home board does not expose pending draft_id or approval_id.
+  // Confirm-send / approval CTAs only reuse an existing todo that already has
+  // session_id or collaboration_id (openTask). Do not add send/approve APIs here.
+  if (kol.unbound) return { kind: "profile", label: "补画像" };
+
+  const related = relatedOpenTask(kol, tasks);
+  if (related && canOpenExistingTaskFlow(related)) {
+    const skill = taskSkill(related);
+    const status = String(related.status || "");
+    if (status === "waiting_approval" || skill === "business_approval" || /审批/.test(related.title || "")) {
+      return { kind: "approval", label: "去审批", task: related };
+    }
+    if (skill === "email_compose" || skill === "stage_mail" || /确认发送|跟进邮件|报价信|草稿/.test(`${related.title} ${related.next_action || ""}`)) {
+      return { kind: "confirm-send", label: "确认发送", task: related };
+    }
+    if (skill === "confirm_stage" || /记状态|阶段/.test(related.title || "")) {
+      return { kind: "confirm-stage", label: "确认阶段", task: related };
+    }
+  }
+
+  const unreadInbound = (kol.mail_threads || []).find((thread) => (
+    thread.last_direction === "inbound" && Number(thread.unread_count || 0) > 0
+  ));
+  if (unreadInbound) {
+    return { kind: "open-session", label: "查看来信", focusThread: unreadInbound.conversation_id };
+  }
+
+  const suggested = String(kol.suggested_stage_code || "").trim();
+  const suggestedLabel = String(kol.suggested_stage || "").trim();
+  const canConfirmStage = Boolean(suggested)
+    || (Boolean(suggestedLabel) && !/无需推进|待补阶段|已完成|^—$/.test(suggestedLabel) && !kol.exception);
+  if (canConfirmStage) {
+    return { kind: "confirm-stage", label: "确认阶段" };
+  }
+
+  return { kind: "open-session", label: "打开会话" };
+}
+
+function mailDirectionLabel(direction?: string) {
+  if (direction === "outbound") return "去信";
+  if (direction === "inbound") return "来信";
+  return "往来";
 }
 
 function withKolCard(kol: FollowedKol): FollowedKol {
@@ -601,7 +683,7 @@ export default function Home() {
     rememberJourney({ kind: "skill", skillId: intent || undefined, skillLabel: rec.title, handle: rec.handle });
   };
 
-  const openKol = (kol: FollowedKol) => {
+  const openKol = (kol: FollowedKol, focusThread?: string) => {
     rememberJourney({
       kind: "kol",
       handle: kol.handle,
@@ -619,10 +701,22 @@ export default function Home() {
     }
     void api.openKolSession(kol.id).then((session) => {
       sessionStorage.setItem(`kol-session:${session.id}`, "1");
-      nav(`/s/${session.id}`, { state: { kolSession: true } });
+      nav(`/s/${session.id}`, { state: { kolSession: true, focusThread: focusThread || undefined } });
     }).catch(() => {
       nav(`/pipeline?kol=${encodeURIComponent(kol.handle)}`);
     });
+  };
+
+  const runKolPrimary = (kol: FollowedKol, action: KolPrimaryAction) => {
+    if (action.kind === "profile") {
+      openKol(kol);
+      return;
+    }
+    if (action.task && canOpenExistingTaskFlow(action.task)) {
+      void openTask(action.task);
+      return;
+    }
+    openKol(kol, action.focusThread);
   };
 
   const openTask = async (task: Task) => {
@@ -987,14 +1081,19 @@ export default function Home() {
               </h2>
               </div>
               {visibleKols.length ? (
-                <ol className="recommend-list">
-                  {visibleKols.map((kol) => (
+                <ol className="recommend-list" data-followed-kol-list>
+                  {visibleKols.map((kol) => {
+                    const primary = kolPrimaryAction(kol, todoItems);
+                    const thread = latestMailThread(kol.mail_threads);
+                    const mailSummary = thread ? summarizeMailSnippet(thread.last_snippet || "") : "";
+                    return (
                     <li
                       key={kol.id}
                       className={"recommend-row followed-kol" + (kol.exception ? " is-exception" : "") + (kol.unbound ? " is-unbound" : "")}
                       data-followed-kol={kol.handle}
                     >
                       <span className="task-source-mark" aria-hidden>{kol.exception ? "!" : kol.unbound ? "◎" : "○"}</span>
+                      <div className="kol-card-body">
                       <button
                         type="button"
                         className="task-main"
@@ -1026,26 +1125,46 @@ export default function Home() {
                           currentStage={kol.current_stage}
                           suggestedStage={kol.suggested_stage}
                         />
-                        {kol.mail_threads?.length ? (
-                          <ul className="kol-mail-threads" data-mail-threads>
-                            {kol.mail_threads.map((thread) => (
-                              <li key={`${thread.conversation_id}:${thread.subject}`} data-thread-id={thread.conversation_id} data-thread-direction={thread.last_direction || ""}>
-                                <span className="thread-subject">{thread.subject}</span>
-                                <span className="muted">{thread.last_direction === "outbound" ? "去信" : thread.last_direction === "inbound" ? "来信" : "往来"}</span>
-                                {Number(thread.unread_count || 0) > 0 ? <span>未读 {thread.unread_count}</span> : null}
-                                {thread.last_from_name || thread.last_from ? (
-                                  <span data-thread-from>{[thread.last_from_name, thread.last_from].filter(Boolean).join(" · ")}</span>
-                                ) : null}
-                                {thread.last_at ? <span data-thread-time>{new Date(thread.last_at).toLocaleString("zh-CN", { hour12: false })}</span> : null}
-                                {thread.last_snippet ? <span className="thread-snippet">{thread.last_snippet}</span> : null}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
                       </button>
-                      <span className="recommend-go" aria-hidden>{kol.unbound ? "补画像 →" : "打开会话 →"}</span>
+                      {thread ? (
+                        <div className="kol-mail-preview" data-mail-threads data-mail-preview>
+                          <p className="mail-preview-meta">
+                            <span className="thread-subject">{thread.subject || "(无主题)"}</span>
+                            <span className="muted">{mailDirectionLabel(thread.last_direction)}</span>
+                            {Number(thread.unread_count || 0) > 0 ? <span>未读 {thread.unread_count}</span> : null}
+                            {thread.last_from_name || thread.last_from ? (
+                              <span data-thread-from>{[thread.last_from_name, thread.last_from].filter(Boolean).join(" · ")}</span>
+                            ) : null}
+                            {thread.last_at ? <span data-thread-time>{new Date(thread.last_at).toLocaleString("zh-CN", { hour12: false })}</span> : null}
+                          </p>
+                          {mailSummary ? (
+                            <p className="mail-preview-text" data-mail-summary data-thread-id={thread.conversation_id} data-thread-direction={thread.last_direction || ""}>
+                              {mailSummary}
+                            </p>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="btn ghost sm"
+                            data-open-original-mail
+                            data-thread-id={thread.conversation_id}
+                            onClick={() => openKol(kol, thread.conversation_id)}
+                          >
+                            查看原邮件
+                          </button>
+                        </div>
+                      ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        className="btn work sm kol-card-cta"
+                        data-kol-primary-action={primary.kind}
+                        onClick={() => runKolPrimary(kol, primary)}
+                      >
+                        {primary.label}
+                      </button>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ol>
               ) : (
                 <div className="task-empty" data-follow-empty={followScope?.required && !followScope.bound ? "unbound" : followScope?.status === "expired" ? "expired" : "none"}>
