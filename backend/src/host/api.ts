@@ -38,6 +38,7 @@ import {
   toLegacyStarryStage,
 } from "../stages.js";
 import type { Intent, Json, Row, SessionStatus, StageTransitionInput, WorkerResult } from "../types.js";
+import { mcpSyncAssistantNote } from "../confirm-stage-feedback.js";
 import { CodexUnavailable } from "../worker/errors.js";
 import { runWorker, type WorkerProgress } from "../worker/runner.js";
 import {
@@ -3460,17 +3461,7 @@ host.post("/sessions/:sid/confirm-stage", async (c) => {
   }
   const waiting = Boolean(result.waiting_approval);
   const mcp = result.mcp_sync && typeof result.mcp_sync === "object" ? result.mcp_sync as Json : null;
-  const mcpNote = mcp?.error
-    ? ` 远程阶段未写入：${String(mcp.message || "Starry MCP 失败")}。`
-    : mcp?.skipped
-      ? (mcp.reason === "missing_kol_uid"
-        ? " 该合作未绑定远端 UID，未写远程。"
-        : mcp.reason === "not_adjacent_forward"
-          ? " 远程只接受相邻前进，本次纠正/异常未写远程。"
-          : "")
-      : mcp?.updated
-        ? " 已同步到远程合作阶段。"
-        : "";
+  const mcpNote = mcpSyncAssistantNote(mcp);
   const msg = result.already_there
     ? null
     : addMsg(sid, "assistant", "assistant", {

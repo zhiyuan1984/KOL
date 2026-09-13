@@ -19,6 +19,9 @@ export default function FollowedKolWorkCard({
   onOpenMail,
   onCompose,
   onConfirmStage,
+  actionBusy = false,
+  actionNotice,
+  actionTone = "info",
 }: {
   card: FollowedKolCardModel;
   onOpenDetail: () => void;
@@ -26,6 +29,9 @@ export default function FollowedKolWorkCard({
   onOpenMail?: () => void;
   onCompose?: () => void;
   onConfirmStage?: () => void;
+  actionBusy?: boolean;
+  actionNotice?: string;
+  actionTone?: "info" | "error";
 }) {
   const rec = card.recommended_action;
   const fact = card.latest_fact;
@@ -142,9 +148,11 @@ export default function FollowedKolWorkCard({
             data-kol-primary-action="confirm-stage"
             data-confirm-enter-stage
             data-target-stage={rec.target_stage_code}
+            data-confirm-stage-busy={actionBusy ? "true" : undefined}
+            disabled={actionBusy}
             onClick={onConfirmStage || onPrimary}
           >
-            {rec.label}
+            {actionBusy ? "正在打开…" : rec.label}
           </button>
         ) : null}
         {primary && !showCompose && !showConfirm ? (
@@ -152,12 +160,23 @@ export default function FollowedKolWorkCard({
             type="button"
             className="btn work sm"
             data-kol-primary-action={primary}
+            disabled={actionBusy}
             onClick={onPrimary}
           >
-            {rec.label}
+            {actionBusy ? "正在打开…" : rec.label}
           </button>
         ) : null}
       </div>
+      {actionNotice ? (
+        <p
+          className={actionTone === "error" ? "error" : "muted"}
+          data-confirm-stage-feedback
+          data-tone={actionTone}
+          role={actionTone === "error" ? "alert" : "status"}
+        >
+          {actionNotice}
+        </p>
+      ) : null}
     </article>
   );
 }

@@ -3346,6 +3346,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 .muted { color: var(--muted); font-size: 13px; }
 .error { color: var(--red); font-size: 13px; }
+[data-confirm-stage-feedback] { margin: 8px 0 0; line-height: 1.45; }
+.followed-kol-card [data-confirm-stage-feedback] { margin-top: 4px; }
 .error-card {
   background: #fdf4f4;
   border: 1px solid rgba(196, 60, 60, 0.35);

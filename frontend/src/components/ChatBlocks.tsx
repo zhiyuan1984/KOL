@@ -10,6 +10,11 @@ import {
 } from "../api";
 import Markdown from "./Markdown";
 import { draftStatusLabel, errorTitle, fieldLabel, friendlyError, stageLabel } from "../labels";
+import {
+  MISSING_TARGET_STAGE_COPY,
+  confirmStageOutcomeCopy,
+  type ConfirmStageResult,
+} from "../confirmStageFeedback";
 import { useViewMode } from "../viewMode";
 import { occurredAtMs } from "../mail-time";
 import { officialStageReached } from "../journey";
@@ -172,6 +177,20 @@ function StageTrackSelect({
 
 function stageOptionNeedsReason(item?: StageTargetOption): boolean {
   return Boolean(item && ["skip", "correct", "exception"].includes(String(item.kind || "")));
+}
+
+function StageActionFeedback({ tone, text }: { tone: "info" | "error"; text: string }) {
+  if (!text) return null;
+  return (
+    <div
+      className={tone === "error" ? "error" : "muted"}
+      data-confirm-stage-feedback
+      data-tone={tone}
+      role={tone === "error" ? "alert" : "status"}
+    >
+      {text}
+    </div>
+  );
 }
 
 function isDuplicateSessionChrome(text: string): boolean {
@@ -479,17 +498,20 @@ export function StageFromDraft({
   const groups = stageTrackGroups({ targets: card.targets, tracks: card.tracks });
   const [target, setTarget] = useState(card.targets?.[0]?.code || groups[0]?.items[0]?.code || "");
   const [err, setErr] = useState("");
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const confirm = async () => {
     if (!target) {
-      setErr("请选择具体目标阶段，不能用「下一阶段」");
+      setNotice("");
+      setErr(MISSING_TARGET_STAGE_COPY);
       return;
     }
     const picked = groups.flatMap((group) => group.items).find((item) => item.code === target);
     setBusy(true);
     setErr("");
+    setNotice("");
     try {
-      await api.confirmSessionStage(sessionId, {
+      const result = await api.confirmSessionStage(sessionId, {
         stage_code: target,
         collaboration_id: card.collaboration_id,
         expected_version: card.expected_version,
@@ -497,7 +519,10 @@ export function StageFromDraft({
         reason_code: picked?.kind === "correct" ? "STAGE_CORRECTION" : picked?.kind === "skip" ? "SKIP_AHEAD" : "HUMAN_CONFIRMED",
         evidence: { source: "draft_workbench", draft_id: card.draft_id, kind: picked?.kind, track: picked?.track },
         recommender: "Commander",
-      });
+      }) as ConfirmStageResult;
+      const outcome = confirmStageOutcomeCopy(result);
+      if (outcome.tone === "error") setErr(outcome.text);
+      else setNotice(outcome.text);
       onRefresh();
     } catch (e) {
       setErr(friendlyError(e, "阶段确认未完成，请稍后重试"));
@@ -513,12 +538,14 @@ export function StageFromDraft({
       {groups.length > 0 && (
         <StageTrackSelect value={target} onChange={setTarget} groups={groups} disabled={busy} />
       )}
+      {!target ? <StageActionFeedback tone="error" text={MISSING_TARGET_STAGE_COPY} /> : null}
       <div className="action-row">
         <button className="btn work" data-email-action="confirm-stage" onClick={confirm} disabled={busy}>
-          确认推进阶段
+          {busy ? "正在确认…" : "确认推进阶段"}
         </button>
       </div>
-      {err && <div className="error">{err}</div>}
+      {err && err !== MISSING_TARGET_STAGE_COPY ? <StageActionFeedback tone="error" text={err} /> : null}
+      {!err && notice ? <StageActionFeedback tone="info" text={notice} /> : null}
     </article>
   );
 }
@@ -541,6 +568,7 @@ export function ConfirmStageArtifact({
   const [reason, setReason] = useState("");
   const [reasonCode, setReasonCode] = useState("HUMAN_CONFIRMED");
   const [err, setErr] = useState("");
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const closed = Boolean(payload.locked || payload.resolved || payload.rejected);
   const currentLabel = stageLabel(String(payload.current_stage || ""), String(payload.current_label || "")) || String(payload.current_label || payload.current_stage || "未指定");
@@ -548,8 +576,9 @@ export function ConfirmStageArtifact({
   const nextLabel = next ? (next.label || stageLabel(next.code)) : "";
   const confirm = async () => {
     setErr("");
+    setNotice("");
     if (!code) {
-      setErr("请选择具体目标阶段，不能用「下一阶段」");
+      setErr(MISSING_TARGET_STAGE_COPY);
       return;
     }
     if (stageOptionNeedsReason(next) && !reason.trim()) {
@@ -566,11 +595,10 @@ export function ConfirmStageArtifact({
         reason_code: next?.kind === "correct" ? "STAGE_CORRECTION" : next?.kind === "skip" ? "SKIP_AHEAD" : reasonCode,
         evidence: { source: "stage_workbench", note: reason, kind: next?.kind, track: next?.track },
         recommender: "Commander",
-      }) as { mcp_sync?: { error?: boolean; message?: string; skipped?: boolean; reason?: string; updated?: boolean } };
-      const mcp = result.mcp_sync;
-      if (mcp?.error) {
-        setErr(friendlyError(mcp.message || "本地已写入，远程阶段未同步"));
-      }
+      }) as ConfirmStageResult;
+      const outcome = confirmStageOutcomeCopy(result);
+      if (outcome.tone === "error") setErr(outcome.text);
+      else setNotice(outcome.text);
       onRefresh();
     } catch (e) {
       setErr(friendlyError(e, "阶段确认未完成，请稍后重试"));
@@ -587,6 +615,7 @@ export function ConfirmStageArtifact({
   ].join("\n");
   const reject = async () => {
     setErr("");
+    setNotice("");
     if (!reason.trim()) {
       setErr("驳回必须填写备注");
       return;
@@ -627,7 +656,14 @@ export function ConfirmStageArtifact({
           <option value="FINANCE_APPROVED">财务审批</option>
         </select>
         <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="证据 / 沟通记录" disabled={closed || busy} />
-        <button className="btn work" type="button" data-confirm-stage onClick={() => void confirm()} disabled={closed || busy || !code}>
+        <button
+          className="btn work"
+          type="button"
+          data-confirm-stage
+          onClick={() => void confirm()}
+          disabled={closed || busy}
+          title={!code && !closed ? MISSING_TARGET_STAGE_COPY : undefined}
+        >
           {busy ? "正在写入…"
             : /必须审批|必须审核|审核通过后推进|财务事实/.test(targets.find((item) => item.code === code)?.advancement_mode || "")
               ? "提交审批"
@@ -637,7 +673,9 @@ export function ConfirmStageArtifact({
           驳回
         </button>
       </div>
-      {err && <div className="error">{err}</div>}
+      {!code && !closed ? <StageActionFeedback tone="error" text={MISSING_TARGET_STAGE_COPY} /> : null}
+      {err && err !== MISSING_TARGET_STAGE_COPY ? <StageActionFeedback tone="error" text={err} /> : null}
+      {!err && notice ? <StageActionFeedback tone="info" text={notice} /> : null}
     </article>
   );
 }
