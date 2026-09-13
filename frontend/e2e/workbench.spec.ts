@@ -1852,8 +1852,8 @@ test("send failure stays as persistent error, not toast-success", async ({ page,
 });
 
 test("admin hides non-P0 connectors", async ({ page }) => {
-  await page.goto("/admin");
-  await page.getByRole("button", { name: "KOL 配置" }).click();
+  await page.goto("/admin/connectors");
+  await expect(page.locator("[data-admin-page='connectors']")).toBeVisible();
   await expect(page.locator('[data-connector="enterprise_mail"]')).toContainText("企业邮箱");
   await expect(page.locator('[data-connector="wecom"]')).toContainText("企业微信");
   await expect(page.locator('[data-hidden-connector="飞书多维表"]')).toContainText("本期隐藏");
@@ -2013,9 +2013,9 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator('[data-hub-chip="settle"]')).toHaveText("结算");
   await expect(page.locator('[data-hub-chip="exception"]')).toHaveText("异常旁路");
   await page.goto("/agents");
-  await expect(page.getByRole("heading", { name: "我的智能体" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "数字员工" })).toBeVisible();
   await expect(page.locator("[data-agent-page='work']")).toBeVisible();
-  await expect(page.locator("[data-agent-tab='work']")).toHaveText("数字员工");
+  await expect(page.locator("[data-agent-tab='work']")).toHaveText("工作");
   await expect(page.getByRole("heading", { name: "推荐下一步" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "最近在用" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "运行中" })).toBeVisible();
@@ -2029,7 +2029,7 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator("body")).not.toContainText("Host +");
   await page.goto("/teams");
   await expect(page).toHaveURL(/\/agents\?tab=teams/);
-  await expect(page.getByRole("heading", { name: "智能体团队" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "数字团队" })).toBeVisible();
   await expect(page.locator("body")).not.toContainText("Host +");
   await expect(page.locator("body")).not.toContainText("Starry KOL MCP");
 });
@@ -2038,11 +2038,11 @@ test("agents page keeps spec collapsed and teams as a secondary tab", async ({ p
   await page.goto("/agents");
   await expect(page.locator("[data-agent-section='next']")).toBeVisible();
   await expect(page.locator("[data-agent-tab='work']")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("[data-agent-tab='work']")).toHaveText("数字员工");
+  await expect(page.locator("[data-agent-tab='work']")).toHaveText("工作");
   await expect(page.locator("[data-agent-next][data-agent-source='catalog']")).toHaveCount(3);
   await expect(page.locator("[data-agent-next][data-agent-source='board']")).toHaveCount(0);
   await expect(page).toHaveURL(/\/agents\/?$/);
-  await page.getByRole("link", { name: "我的智能体" }).click();
+  await page.locator('[data-nav="agents"]').click();
   await expect(page).toHaveURL(/\/agents\/?$/);
   await expect(page.locator("[data-agent-page='work']")).toBeVisible();
   await expect(page.locator("[data-agent-next='entry-kol']")).toBeVisible();
@@ -2056,7 +2056,7 @@ test("agents page keeps spec collapsed and teams as a secondary tab", async ({ p
   await page.locator("[data-agent-spec-toggle]").first().click();
   await expect(page.locator("[data-agent-spec-body]").first()).toBeVisible();
   await page.locator("[data-agent-tab='teams']").click();
-  await expect(page.getByRole("heading", { name: "智能体团队" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "数字团队" })).toBeVisible();
   await expect(page.locator("[data-team]").first()).toBeVisible();
 });
 
@@ -2098,7 +2098,7 @@ test("approval, knowledge, and exam are vertical primary nav items before cloud"
   expect(assetOrder.indexOf("approvals")).toBeLessThan(assetOrder.indexOf("云盘"));
   expect(assetOrder.indexOf("exam")).toBeLessThan(assetOrder.indexOf("云盘"));
   expect(assetOrder.indexOf("pipeline")).toBeLessThan(assetOrder.indexOf("云盘"));
-  await expect(page.locator('[data-nav="skills-connectors"]')).toBeVisible();
+  await expect(page.locator('[data-nav="skills"]')).toBeVisible();
   await expect(page.locator('.sidebar-foot a[href="/approvals"], .sidebar-foot a[href="/kb"], .sidebar-foot a[href="/exam"]')).toHaveCount(0);
   await page.locator('[data-nav="knowledge"]').click();
   await expect(page.getByRole("heading", { name: "我的知识库" })).toBeVisible();
@@ -2106,12 +2106,37 @@ test("approval, knowledge, and exam are vertical primary nav items before cloud"
   await expect(page.getByRole("heading", { name: "学习考试" })).toBeVisible();
 });
 
-test("connector nav opens the connector management tab directly", async ({ page }) => {
+test("docs/21 employee sidebar has no admin connectors deep-link", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("link", { name: "连接器", exact: true }).click();
+  await expect(page.locator('[data-nav="skills"]')).toBeVisible();
+  await expect(page.getByRole("link", { name: "连接器", exact: true })).toHaveCount(0);
+  await expect(page.locator('.sidebar a[href="/admin/connectors"]')).toHaveCount(0);
+  await expect(page.locator('[data-nav="agents-teams"]')).toBeVisible();
+  await expect(page.locator('[data-nav="agents"]')).toHaveText("数字员工");
+  await expect(page.locator('[data-nav="teams"]')).toHaveText("数字团队");
+  await expect(page.locator('[data-nav="agents"]')).toHaveAttribute("href", "/agents");
+  await expect(page.locator('[data-nav="teams"]')).toHaveAttribute("href", "/agents?tab=teams");
+});
+
+test("docs/21 admin agents governance is reachable from admin chrome", async ({ page }) => {
+  await page.goto("/admin");
+  await expect(page.locator(".admin-header a[href='/agents']")).toHaveCount(0);
+  await page.locator("[data-admin-agents-link]").click();
+  await expect(page).toHaveURL(/\/admin\/agents$/);
+  await expect(page.locator("[data-admin-page='agents']")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "数字员工治理" })).toBeVisible();
+  await expect(page.locator("[data-admin-tab='agents']")).toHaveClass(/active/);
+});
+
+test("docs/21 admin connectors hub renders", async ({ page }) => {
+  await page.goto("/admin");
+  await page.locator('[data-admin-tab="connectors"]').click();
   await expect(page).toHaveURL(/\/admin\/connectors$/);
-  await expect(page.getByRole("button", { name: "连接器", exact: true })).toHaveClass(/active/);
-  await expect(page.getByRole("heading", { name: "连接器配置" })).toBeVisible();
+  await expect(page.locator("[data-admin-page='connectors']")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "连接器枢纽" })).toBeVisible();
+  await expect(page.locator("[data-admin-health]")).toBeVisible();
+  await expect(page.locator(".admin-header .remote-pill, .admin-health .remote-pill")).toHaveCount(0);
+  await expect(page.locator('[data-admin-connectors-table] [data-connector="enterprise_mail"]')).toBeVisible();
 });
 
 test("admin and settings expose bind Starry mailbox menus", async ({ page }) => {
@@ -2126,15 +2151,11 @@ test("admin and settings expose bind Starry mailbox menus", async ({ page }) => 
   await expect(page.getByRole("button", { name: "读取可用邮箱" })).toBeVisible();
 
   await page.goto("/admin");
-  await expect(page.getByRole("button", { name: "连接 Starry" }).first()).toBeVisible();
-  await page.locator('[data-admin-tab="starry"]').first().click();
-  await expect(page).toHaveURL(/\/admin\/starry$/);
-  await expect(page.locator('[data-admin-tab="starry"]').first()).toHaveClass(/active/);
+  await expect(page.locator('[data-admin-tab="starry"]')).toHaveCount(0);
+  await expect(page.locator("[data-starry-bind]")).toHaveCount(0);
+  await page.goto("/admin/starry");
+  await expect(page).toHaveURL(/\/settings\?tab=starry/);
   await expect(page.locator("[data-starry-bind]")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "连接 Starry KOL" })).toBeVisible();
-  await expect(page.locator("[data-starry-status]")).toBeVisible();
-  await page.locator("[data-starry-probe]").click();
-  await expect(page.locator(".mailbox-pick, .error, [role='status']").first()).toBeVisible({ timeout: 15000 });
 });
 
 test("home composer renders before delayed task data finishes", async ({ page }) => {

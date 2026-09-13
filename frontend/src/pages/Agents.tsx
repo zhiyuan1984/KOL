@@ -34,8 +34,8 @@ type Profile = {
 };
 
 const TABS: Array<{ id: AgentPageTab; label: string }> = [
-  { id: "work", label: "数字员工" },
-  { id: "teams", label: "团队" },
+  { id: "work", label: "工作" },
+  { id: "teams", label: "数字团队" },
   { id: "spec", label: "说明书" },
 ];
 
@@ -193,8 +193,8 @@ export default function Agents() {
   return (
     <div className="list-page agent-page" data-agent-page={tab} data-visual="docs20">
       <div className="page-hero agent-hero">
-        <div className="page-kicker">智能体</div>
-        <h1>我的智能体</h1>
+        <div className="page-kicker">数字员工</div>
+        <h1>数字员工</h1>
         <p className="muted">
           从今天的合作开工。说明书收在后面，技能仍走
           <Link to="/skills">技能目录</Link>
@@ -216,7 +216,7 @@ export default function Agents() {
         )}
       </div>
 
-      <div className="agent-tabs" role="tablist" aria-label="智能体页面">
+      <div className="agent-tabs" role="tablist" aria-label="数字员工页面">
         {TABS.map((item) => (
           <button
             key={item.id}
@@ -369,7 +369,7 @@ export default function Agents() {
       {tab === "teams" && (
         <div className="agent-teams-pane" data-agent-teams>
           <header className="agent-section-head">
-            <h2>智能体团队</h2>
+            <h2>数字团队</h2>
             <p className="muted">预设编组，不是群聊。每一步仍走已发布动作。</p>
           </header>
           <div className="team-grid">
@@ -425,7 +425,7 @@ export default function Agents() {
         <div className="agent-spec-pane" data-agent-spec>
           <header className="agent-section-head">
             <h2>说明书</h2>
-            <p className="muted">职责、护栏和可写范围默认收起。要开工请回到「数字员工」或去<Link to="/skills">技能目录</Link>。</p>
+            <p className="muted">职责、护栏和可写范围默认收起。要开工请回到「工作」或去<Link to="/skills">技能目录</Link>。</p>
           </header>
           <div className="agent-grid">
             {profiles.map((profile) => {
