@@ -143,8 +143,8 @@ export default function Workbench() {
         <button className="icon-btn" aria-label="打开导航" aria-expanded={mobileOpen} onClick={() => setMobileOpen((v) => !v)}>☰</button>
         <strong>灵工 工作</strong>
         <NavLink to="/">任务</NavLink>
-        <NavLink to="/agents" className={() => onAgentsWork ? "active" : ""}>智能体</NavLink>
-        <NavLink to="/agents?tab=teams" className={() => onTeamsTab ? "active" : ""}>团队</NavLink>
+        <NavLink to="/agents" className={() => onAgentsWork ? "active" : ""}>数字员工</NavLink>
+        <NavLink to="/agents?tab=teams" className={() => onTeamsTab ? "active" : ""}>数字团队</NavLink>
         <NavLink to="/pipeline">生命周期</NavLink>
       </div>
       <aside className={"sidebar" + (mobileOpen ? " mobile-open" : "")}>
@@ -202,16 +202,30 @@ export default function Workbench() {
           </NavLink>
         </nav>
 
-        <nav className="nav-group" aria-label="智能体">
-          <div className="nav-label">智能体</div>
-          <NavLink to="/agents" className={() => "nav-link" + (onAgentsWork ? " active" : "")} data-nav="agents" title="我的智能体" onClick={() => setMobileOpen(false)}>
+        <nav className="nav-group" aria-label="数字员工">
+          <div className="nav-label">数字员工</div>
+          <div className={"nav-combo" + (onAgentsWork || onTeamsTab ? " active" : "")} data-nav="agents-teams">
             <Ico path="M12 4a3 3 0 0 1 3 3v1h2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2V7a3 3 0 0 1 3-3z M9 13h6 M9 16h4" />
-            <span className="sidebar-label">我的智能体</span>
-          </NavLink>
-          <NavLink to="/agents?tab=teams" className={() => "nav-link" + (onTeamsTab ? " active" : "")} data-nav="teams" title="智能体团队" onClick={() => setMobileOpen(false)}>
-            <Ico path="M8 10a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M16 10a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M3.5 18c0-2.2 2-4 4.5-4s4.5 1.8 4.5 4 M11.5 18c0-1.6.8-3 2.2-3.8 M16 14c2.5 0 4.5 1.8 4.5 4" />
-            <span className="sidebar-label">智能体团队</span>
-          </NavLink>
+            <NavLink
+              to="/agents"
+              className={onAgentsWork ? "on" : ""}
+              data-nav="agents"
+              title="数字员工"
+              onClick={() => setMobileOpen(false)}
+            >
+              数字员工
+            </NavLink>
+            <span className="nav-dot">·</span>
+            <NavLink
+              to="/agents?tab=teams"
+              className={onTeamsTab ? "on" : ""}
+              data-nav="teams"
+              title="数字团队"
+              onClick={() => setMobileOpen(false)}
+            >
+              数字团队
+            </NavLink>
+          </div>
           <NavLink
             to="/skills"
             className={() => "nav-link" + (skillsActive ? " active" : "")}

@@ -2013,9 +2013,9 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator('[data-hub-chip="settle"]')).toHaveText("结算");
   await expect(page.locator('[data-hub-chip="exception"]')).toHaveText("异常旁路");
   await page.goto("/agents");
-  await expect(page.getByRole("heading", { name: "我的智能体" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "数字员工" })).toBeVisible();
   await expect(page.locator("[data-agent-page='work']")).toBeVisible();
-  await expect(page.locator("[data-agent-tab='work']")).toHaveText("数字员工");
+  await expect(page.locator("[data-agent-tab='work']")).toHaveText("工作");
   await expect(page.getByRole("heading", { name: "推荐下一步" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "最近在用" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "运行中" })).toBeVisible();
@@ -2029,7 +2029,7 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator("body")).not.toContainText("Host +");
   await page.goto("/teams");
   await expect(page).toHaveURL(/\/agents\?tab=teams/);
-  await expect(page.getByRole("heading", { name: "智能体团队" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "数字团队" })).toBeVisible();
   await expect(page.locator("body")).not.toContainText("Host +");
   await expect(page.locator("body")).not.toContainText("Starry KOL MCP");
 });
@@ -2038,11 +2038,11 @@ test("agents page keeps spec collapsed and teams as a secondary tab", async ({ p
   await page.goto("/agents");
   await expect(page.locator("[data-agent-section='next']")).toBeVisible();
   await expect(page.locator("[data-agent-tab='work']")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("[data-agent-tab='work']")).toHaveText("数字员工");
+  await expect(page.locator("[data-agent-tab='work']")).toHaveText("工作");
   await expect(page.locator("[data-agent-next][data-agent-source='catalog']")).toHaveCount(3);
   await expect(page.locator("[data-agent-next][data-agent-source='board']")).toHaveCount(0);
   await expect(page).toHaveURL(/\/agents\/?$/);
-  await page.getByRole("link", { name: "我的智能体" }).click();
+  await page.locator('[data-nav="agents"]').click();
   await expect(page).toHaveURL(/\/agents\/?$/);
   await expect(page.locator("[data-agent-page='work']")).toBeVisible();
   await expect(page.locator("[data-agent-next='entry-kol']")).toBeVisible();
@@ -2056,7 +2056,7 @@ test("agents page keeps spec collapsed and teams as a secondary tab", async ({ p
   await page.locator("[data-agent-spec-toggle]").first().click();
   await expect(page.locator("[data-agent-spec-body]").first()).toBeVisible();
   await page.locator("[data-agent-tab='teams']").click();
-  await expect(page.getByRole("heading", { name: "智能体团队" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "数字团队" })).toBeVisible();
   await expect(page.locator("[data-team]").first()).toBeVisible();
 });
 
@@ -2111,6 +2111,11 @@ test("docs/21 employee sidebar has no admin connectors deep-link", async ({ page
   await expect(page.locator('[data-nav="skills"]')).toBeVisible();
   await expect(page.getByRole("link", { name: "连接器", exact: true })).toHaveCount(0);
   await expect(page.locator('.sidebar a[href="/admin/connectors"]')).toHaveCount(0);
+  await expect(page.locator('[data-nav="agents-teams"]')).toBeVisible();
+  await expect(page.locator('[data-nav="agents"]')).toHaveText("数字员工");
+  await expect(page.locator('[data-nav="teams"]')).toHaveText("数字团队");
+  await expect(page.locator('[data-nav="agents"]')).toHaveAttribute("href", "/agents");
+  await expect(page.locator('[data-nav="teams"]')).toHaveAttribute("href", "/agents?tab=teams");
 });
 
 test("docs/21 admin agents governance is reachable from admin chrome", async ({ page }) => {

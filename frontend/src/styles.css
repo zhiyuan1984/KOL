@@ -260,9 +260,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   text-decoration: none;
 }
 .nav-combo a.on { color: var(--orange); font-weight: 500; }
-.nav-combo.active a, .nav-combo.active a.on { color: #fff; }
+.nav-combo.active a { color: rgba(255, 255, 255, 0.7); font-weight: 400; }
+.nav-combo.active a.on { color: #fff; font-weight: 600; }
 .nav-dot { color: var(--muted); }
-.nav-combo.active .nav-dot { color: #fff; }
+.nav-combo.active .nav-dot { color: rgba(255, 255, 255, 0.62); }
 .nav-link.is-disabled {
   color: #9aa0a8;
   cursor: not-allowed;
