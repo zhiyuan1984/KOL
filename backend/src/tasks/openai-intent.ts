@@ -263,7 +263,7 @@ export function intentOutputSchema(ids: string[]): Record<string, unknown> {
   };
 }
 
-/** Luna Responses uses gpt-5.6-luna. Codex app-server must use its own default (or CODEX_MODEL). */
+/** Luna Responses uses gpt-5.6-luna. Codex app-server (recognize + mail digest) must use CODEX_MODEL or the CLI default — never pin gpt-5.6-luna. */
 export function codexRecognizeThreadConfig(): { mcp_servers: Record<string, never>; model?: string } {
   const model = String(process.env.CODEX_MODEL || "").trim();
   return model

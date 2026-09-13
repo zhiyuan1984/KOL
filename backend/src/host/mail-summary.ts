@@ -9,6 +9,7 @@ import path from "node:path";
 import { getConn, nowIso, tx } from "../db.js";
 import { codexMode, mailAnalysisTimeout, mailDigestFailRetryMs } from "../config.js";
 import {
+  codexRecognizeThreadConfig,
   extractRemoteIntentText,
   intentLlmApiKey,
   intentLlmFetch,
@@ -466,7 +467,7 @@ async function summarizeWithCodexAppServer(rows: Json[]): Promise<string[] | nul
       cwd,
       approvalPolicy: "never",
       sandbox: "read-only",
-      config: { mcp_servers: {}, model: intentLlmModel() },
+      config: codexRecognizeThreadConfig(),
     });
     const thread = (started.thread as { id?: string } | undefined) || started;
     const threadId = String((thread as { id?: string }).id || "");
@@ -572,6 +573,8 @@ async function digestWithLuna(rows: Json[], collaborationId = ""): Promise<Remot
     noteFailure("luna digest", "no-key", collaborationId);
     return { error: "no-key" };
   }
+  // Luna gpt-5.6-luna is not on public api.openai.com. Without OPENAI_BASE_URL,
+  // a public sk-proj key hits api.openai.com and returns HTTP 401.
   const base = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), mailAnalysisTimeout() * 1000);
@@ -631,7 +634,7 @@ async function digestWithCodexAppServer(rows: Json[], collaborationId = ""): Pro
       cwd,
       approvalPolicy: "never",
       sandbox: "read-only",
-      config: { mcp_servers: {}, model: intentLlmModel() },
+      config: codexRecognizeThreadConfig(),
     });
     const thread = (started.thread as { id?: string } | undefined) || started;
     const threadId = String((thread as { id?: string }).id || "");

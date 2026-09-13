@@ -1,15 +1,18 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import { analyzeMailBody, analyzeThreadDigest, digestMailBody, ensureCodexThreadDigest, mailHistoryRows, mailMemoryLines, mailSummaryOf, needsRemoteThreadDigest, readThreadDigest, stickyFailReady } from "../src/host/mail-summary.js";
 import { ingestKolMail, journeyPayload } from "../src/host/kol-journey.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
-import { setIntentLlmFetch } from "../src/tasks/openai-intent.js";
+import { codexRecognizeThreadConfig, setIntentLlmFetch } from "../src/tasks/openai-intent.js";
 import { collectDealMemoryItems } from "../src/worker/session-items.js";
 import type { Json } from "../src/types.js";
+
+const fakeCodex = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures/fake-codex.mjs");
 
 let tmp: string;
 
@@ -31,6 +34,11 @@ afterEach(() => {
   delete process.env.CODEX_API_KEY;
   delete process.env.MAIL_DIGEST_FAIL_RETRY_MS;
   delete process.env.CODEX_HOME;
+  delete process.env.CODEX_BIN;
+  delete process.env.CODEX_MODEL;
+  delete process.env.FAKE_CODEX_MODE;
+  delete process.env.FAKE_CODEX_DELAY;
+  delete process.env.FAKE_CODEX_THREAD_START;
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
@@ -58,6 +66,48 @@ describe("Codex mail memory", () => {
     expect(summary).not.toMatch(/Hi 灵工连通测试/);
     expect(mailSummaryOf({ ...row, summary: digestMailBody(row), summary_source: "body_digest" })).toMatch(/寒暄跟进|合作意愿/);
     expect(mailSummaryOf({ ...row, summary: digestMailBody(row), summary_source: "body_digest" })).not.toMatch(/^Hi /);
+  });
+
+  it("starts Codex digest with CODEX_MODEL / CLI default, not gpt-5.6-luna", async () => {
+    const prevHome = process.env.HOME;
+    fs.chmodSync(fakeCodex, 0o755);
+    process.env.CODEX_MODE = "real";
+    process.env.INTENT_LLM_MODE = "real";
+    process.env.CODEX_BIN = fakeCodex;
+    process.env.FAKE_CODEX_MODE = "mail-digest-success";
+    process.env.FAKE_CODEX_DELAY = "20";
+    process.env.OPENAI_API_KEY = "sk-test-mail-memory";
+    process.env.HOME = tmp;
+    const dump = path.join(tmp, "thread-start.json");
+    process.env.FAKE_CODEX_THREAD_START = dump;
+    delete process.env.CODEX_MODEL;
+    expect(codexRecognizeThreadConfig()).toEqual({ mcp_servers: {} });
+    expect(codexRecognizeThreadConfig()).not.toHaveProperty("model", "gpt-5.6-luna");
+    ingestKolMail("col_xiaomei", {
+      subject: "Re: Collaboration Opportunity with LiTime",
+      body: "Hi, I am interested and would love to collaborate.",
+      from: "xiaomei.beauty@example.com",
+      provider_message_id: "codex-digest-model-1",
+    });
+    try {
+      const digest = await ensureCodexThreadDigest("col_xiaomei");
+      expect(digest.source).toBe("codex_memory");
+      expect(digest.text).toBe("来信明确说想合作，并请品牌补充下一步。");
+      const started = JSON.parse(fs.readFileSync(dump, "utf8")) as { config?: { model?: string } };
+      expect(started.config).toEqual({ mcp_servers: {} });
+      expect(started.config).not.toHaveProperty("model");
+      expect(started.config?.model).not.toBe("gpt-5.6-luna");
+
+      process.env.CODEX_MODEL = "gpt-5.4";
+      getConn().prepare("DELETE FROM app_state WHERE key=?").run("mail_digest:col_xiaomei");
+      const again = await ensureCodexThreadDigest("col_xiaomei");
+      expect(again.source).toBe("codex_memory");
+      const startedWithModel = JSON.parse(fs.readFileSync(dump, "utf8")) as { config?: { model?: string } };
+      expect(startedWithModel.config).toEqual({ mcp_servers: {}, model: "gpt-5.4" });
+    } finally {
+      if (prevHome === undefined) delete process.env.HOME;
+      else process.env.HOME = prevHome;
+    }
   });
 
   it("asks the remote model for one thread digest when not in stub", async () => {

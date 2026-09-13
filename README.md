@@ -92,6 +92,8 @@ codex login
 
 有 key 时按 app-server 协议调用 `account/login/start`，不会只看 `account/read` 就报 `codex_unavailable`。
 
+**Luna 往来摘要 / 识别：** `gpt-5.6-luna` 走 Responses，必须设 `OPENAI_BASE_URL` 指向 Luna 兼容端点，并使用该端点可用的 key。箱内只有公共 OpenAI `sk-proj-*`、没有 `OPENAI_BASE_URL` 时，Host 会打 `api.openai.com` 并对默认 `gpt-5.6-luna` 返回 HTTP 401（key/endpoint 不匹配）。Codex 往来摘要的 `thread/start` 与识别路径一致：只用 `CODEX_MODEL` 或 CLI 默认模型，不把 `gpt-5.6-luna` 传给 Codex。
+
 **Docker：**
 
 ```bash

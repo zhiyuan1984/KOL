@@ -101,12 +101,15 @@ describe("gpt-5.6 Luna intent verdict", () => {
     expect((schema.properties?.entities?.required || []).length).toBeGreaterThan(0);
   });
 
-  it("does not pin the Luna model name onto the Codex recognize thread", () => {
+  it("does not pin the Luna model name onto the Codex recognize or mail-digest thread", () => {
     const prev = process.env.CODEX_MODEL;
     delete process.env.CODEX_MODEL;
     try {
       expect(codexRecognizeThreadConfig()).toEqual({ mcp_servers: {} });
+      expect(codexRecognizeThreadConfig()).not.toHaveProperty("model");
       expect(codexRecognizeThreadConfig()).not.toHaveProperty("model", "gpt-5.6-luna");
+      process.env.CODEX_MODEL = "gpt-5.4";
+      expect(codexRecognizeThreadConfig()).toEqual({ mcp_servers: {}, model: "gpt-5.4" });
     } finally {
       if (prev === undefined) delete process.env.CODEX_MODEL;
       else process.env.CODEX_MODEL = prev;
