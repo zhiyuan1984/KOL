@@ -1788,7 +1788,7 @@ export function useSessionMessages(id: string | undefined) {
     const timer = window.setInterval(() => load(false), 800);
     return () => window.clearInterval(timer);
   }, [id, agentStatus, load]);
-  return { messages, err, reload: load, setMessages, agentStatus, setAgentStatus, journey, collaborationId, sessionLoaded, runQueue };
+  return { messages, err, reload: load, setMessages, agentStatus, setAgentStatus, journey, collaborationId, sessionLoaded, runQueue, setRunQueue };
 }
 
 export function storePending(sessionId: string, pending: PendingAsk) {

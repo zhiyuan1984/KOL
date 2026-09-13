@@ -255,6 +255,61 @@ describe("real Codex HTTP flow", () => {
     expect(worker?.contract_log?.find((entry) => entry.method === "mcp_servers")?.params?.names).toEqual([]);
   });
 
+  it("POST /stop aborts an in-flight Codex turn and returns listening", async () => {
+    process.env.FAKE_CODEX_MODE = "crawl-plan-success";
+    process.env.FAKE_CODEX_DELAY = "2000";
+    process.env.HOST_WORKER_TIMEOUT = "8";
+    const { createApp } = await import("../src/app.js");
+    const app = createApp();
+    const created = await app.request("/api/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "stop discovery" }),
+    });
+    const { id } = (await created.json()) as { id: string };
+    const started = await app.request(`/api/sessions/${id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "搜索 YouTube 露营达人", intent: "creator_discovery", act: "ask" }),
+    });
+    expect(started.status).toBe(202);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    const inProgress = (await (await app.request(`/api/sessions/${id}`)).json()) as { agent_status?: string };
+    expect(inProgress.agent_status).toBe("running");
+
+    const stopStarted = Date.now();
+    const stopped = await app.request(`/api/sessions/${id}/stop`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const stopBody = (await stopped.json()) as { stopped?: boolean; agent_status?: string };
+    expect(stopped.status).toBe(200);
+    expect(stopBody.stopped).toBe(true);
+    expect(stopBody.agent_status).toBe("listening");
+    expect(Date.now() - stopStarted).toBeLessThan(1500);
+
+    let session: {
+      agent_status?: string;
+      messages?: { kind?: string; payload?: { status?: string; text?: string } }[];
+    } = {};
+    for (let i = 0; i < 40; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      session = (await (await app.request(`/api/sessions/${id}`)).json()) as typeof session;
+      const stoppedJob = session.messages?.some(
+        (message) => message.kind === "job_status" && String(message.payload?.text || "").includes("已停止"),
+      );
+      if (session.agent_status !== "running" && stoppedJob) break;
+    }
+    expect(session.agent_status).toBe("listening");
+    expect(
+      session.messages?.some(
+        (message) => message.kind === "job_status" && String(message.payload?.text || "").includes("已停止"),
+      ),
+    ).toBe(true);
+    expect(session.messages?.some((message) => message.kind === "crawl_plan")).toBe(false);
+  });
+
   it("blocks employee submission when the publish gate is stubbed unpublished", async () => {
     setAgentSubmissionOverride(false);
     try {

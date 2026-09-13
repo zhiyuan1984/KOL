@@ -71,6 +71,7 @@ import { looksLikeEmailDraft } from "./quote-amount.js";
 import {
   abortSessionRun,
   attachRunAbort,
+  beginSessionAsk,
   clearSessionRunning,
   enqueueAsk,
   hasRunAbort,
@@ -442,6 +443,13 @@ async function autoStartBoundCrawl(bound: BoundTask, sid: string, plan: Json): P
 }
 
 function sessionStatus(sid: string): SessionStatus {
+  if (wasSessionStopped(sid)) {
+    const approval = getConn().prepare("SELECT status FROM workers WHERE session_id = ? ORDER BY created_at DESC LIMIT 1").get(sid) as
+      | { status: string }
+      | undefined;
+    if (approval?.status === "waiting_approval") return "waiting_approval";
+    return "listening";
+  }
   if (isSessionRunning(sid)) return "running";
   const w = getConn().prepare("SELECT status FROM workers WHERE session_id = ? ORDER BY created_at DESC LIMIT 1").get(sid) as
     | { status: string }
@@ -463,7 +471,11 @@ function runInBackground(sid: string, me: Json, intent: Intent, col: Row | null,
         taskType: intent.type,
       }
     : null;
-  markSessionRunning(sid);
+  if (!markSessionRunning(sid)) {
+    publishSession(sid, { type: "status", agent_status: sessionStatus(sid) });
+    publishQueue(sid);
+    return;
+  }
   const progress = addMsg(sid, "assistant", "job_status", {
     status: "running",
     text: "正在准备任务…",
@@ -1207,12 +1219,17 @@ async function execWorker(sid: string, skill: string, text: string, extra: Json)
         );
       }, sec * 1000);
     });
-    return await Promise.race([
+    const result = await Promise.race([
       Promise.resolve(runWorker(sid, definition, text, extra, controller.signal, progressBySession.get(sid))),
       timed,
     ]);
-  } catch (e) {
     if (wasSessionStopped(sid)) {
+      if (ownedSink) finishWorkerTrace(sid, false);
+      throw Object.assign(new Error("已停止生成"), { name: "WorkerStopped" });
+    }
+    return result;
+  } catch (e) {
+    if (wasSessionStopped(sid) || (e instanceof Error && e.name === "WorkerStopped")) {
       if (ownedSink) finishWorkerTrace(sid, false);
       throw Object.assign(new Error("已停止生成"), { name: "WorkerStopped" });
     }
@@ -2911,6 +2928,7 @@ host.post("/sessions/:sid/compose-preview", async (c) => {
 host.post("/sessions/:sid/messages", async (c) => {
   const sid = c.req.param("sid");
   const session = sessionRow(sid);
+  if (!isSessionRunning(sid)) beginSessionAsk(sid);
   const body = (await c.req.json()) as Json;
   if (session.collaboration_id && !body.collaboration_id) {
     body.collaboration_id = session.collaboration_id;
@@ -3022,17 +3040,34 @@ host.post("/sessions/:sid/messages", async (c) => {
       run_queue: publicQueue(sid),
     }, 202);
   }
+  if (startsWorker && wasSessionStopped(sid)) {
+    return c.json({
+      ...ok(sid, me, intent),
+      accepted: true,
+      stopped: true,
+      agent_status: sessionStatus(sid),
+      run_queue: publicQueue(sid),
+    });
+  }
   if (codexMode() !== "stub" && startsWorker) {
     runInBackground(sid, me, intent, col, text);
     return c.json({
       ...ok(sid, me, intent),
       accepted: true,
-      agent_status: "running",
+      agent_status: sessionStatus(sid),
       run_queue: publicQueue(sid),
     }, 202);
   }
   try {
-    if (startsWorker) markSessionRunning(sid);
+    if (startsWorker && !markSessionRunning(sid)) {
+      return c.json({
+        ...ok(sid, me, intent),
+        accepted: true,
+        stopped: true,
+        agent_status: sessionStatus(sid),
+        run_queue: publicQueue(sid),
+      });
+    }
     const result = await dispatch(sid, me, intent, col, text);
     finishBoundTask(boundTask, sid, result);
     return c.json(result);
@@ -3068,20 +3103,17 @@ function dropOwnMe(me: Json): void {
 host.post("/sessions/:sid/stop", (c) => {
   const sid = c.req.param("sid");
   sessionRow(sid);
-  if (!isSessionRunning(sid)) {
-    return c.json({
-      stopped: false,
-      run_queue: publicQueue(sid),
-      agent_status: sessionStatus(sid),
-    });
-  }
+  const wasRunning = isSessionRunning(sid);
   const attached = hasRunAbort(sid);
   abortSessionRun(sid);
-  if (!attached) {
+  if (wasRunning && !attached) {
     afterRun(sid);
+  } else {
+    publishSession(sid, { type: "status", agent_status: sessionStatus(sid) });
+    publishQueue(sid);
   }
   return c.json({
-    stopped: true,
+    stopped: wasRunning,
     run_queue: publicQueue(sid),
     agent_status: sessionStatus(sid),
   });

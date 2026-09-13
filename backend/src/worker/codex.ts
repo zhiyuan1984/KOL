@@ -241,6 +241,9 @@ export class CodexAppServer {
   async waitTurn(timeout?: number): Promise<Json> {
     const deadline = Date.now() + Math.max(0, this.remainingMs(timeout));
     while (Date.now() < deadline) {
+      if (this.dead) {
+        throw new CodexUnavailable("Codex 任务已停止，未合成邮件。", "检查登录状态后重试。");
+      }
       for (const n of this.notifications) {
         if (n.method === "turn/completed") {
           const params = (n.params as Json) || {};
