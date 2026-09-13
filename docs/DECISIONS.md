@@ -50,15 +50,15 @@ Host 用 15 段 + 旁路的本地码（如 `NEGOTIATING`）做确认卡、审计
 
 ### 决定
 
-1. **Starry 写入码 = Starry 原生码。** `changeLifecycleStage` / `starryStageWriteFields` / 其他阶段写 payload 经 `LEGACY_STAGE_ALIASES` 的逆映射（`toLegacyStarryStage` / `toStarryStage`）发出原生 `cooperationStageCode` 和对应中文名。例：Host `NEGOTIATING` / `商务谈判` → `BUSINESS_NEGOTIATION`。读取继续 `normalizeStage` / `codeFromLabel` 归一成 Host-local（`enrichListProfile` 用读映射，不用写映射）。
-2. **人跳过是 Host-only 语义；远程只接受相邻前进。** 人确认 skip/jump 时，Host 把 skip kind、原因、被跳过的 Host 码记在确认卡、`host.confirm_stage` 审计和本地 `collaborations`（`last_skip_*`）。Starry 不能理解 skip，也**禁止**一次 `changeLifecycleStage` 写入非相邻落地阶段。跨多格主流程时，Host 按 `planStarryAdjacentWalk` **逐格相邻前进**走到落地（方案 a，LIVE 写入开启时的官方一致性）；每格单独审计。一格失败则停止并回传远程错误，不继续后续 hop。单格相邻确认仍只写一次。纠正/异常不是相邻前进，远程跳过（`not_adjacent_forward`），本地仍记账。自动事实路径仍走 `autoLegalTargets` / evidence pointer，不写人式 skip。
+1. **Starry 写入码 = Starry 原生码，远程字段是 `toStageCode`。** `changeLifecycleStage` 顶层参数只能是 `{ lifecycleId, requestJson }`；`requestJson` 为 `{ toStageCode, reason }`，`toStageCode` 经 `LEGACY_STAGE_ALIASES` / `toLegacyStarryStage` 发出原生码（Host `NEGOTIATING` / `商务谈判` → `BUSINESS_NEGOTIATION`）。不要写 `cooperationStageCode` / `targetStageCode` / `stageCode`（LIVE 上会误报回退）。读取继续 `normalizeStage` / `codeFromLabel` 归一成 Host-local。证据：`docs/evidence-stage-request-shape-2026-09-13.md`（`KOL202607300002` lifecycle 16，`INTEREST_CONFIRMED` → `COOPERATION_EVALUATION`）。
+2. **人跳过是 Host-only 语义；远程只接受相邻前进。** 人确认 skip/jump 时，Host 把 skip kind、原因、被跳过的 Host 码记在确认卡、`host.confirm_stage` 审计和本地 `collaborations`（`last_skip_*`）。Starry 不能理解 skip，也**禁止**一次 `changeLifecycleStage` 写入非相邻落地阶段。跨多格主流程时，Host 按 `planStarryAdjacentWalk` **逐格相邻前进**走到落地，每格一次 `{ lifecycleId, requestJson: { toStageCode, reason } }`；一格失败则停止并回传远程错误。单格相邻确认仍只写一次。纠正/异常不是相邻前进，远程跳过（`not_adjacent_forward`）。自动事实路径仍走 `autoLegalTargets` / evidence pointer。
 
 ### 不决定的范围
 
-不放宽 `LIVE_*` / Gateway / confirm-before-send。不把本 ADR 当成 LIVE 阶段写入 PASS。云上探针即使对真相邻 `INTEREST_CONFIRMED` → `COOPERATION_EVALUATION` 仍可能收到「回退」；并行探针在测 `targetStageCode` vs `cooperationStageCode`（以及 `lifecycleId` 顶层 + target* 在 `requestJson`）。字段名未确认前不改 ChangeStageRequest。Grok Bot 应再探相邻 `QUOTE_PENDING` → `BUSINESS_NEGOTIATION`（lifecycle 320）。
+不放宽 `LIVE_*` / Gateway / confirm-before-send。相邻 hop 的 LIVE 写入已在允许名单 KOL 上证明可通，**不是完整生产放行**，也不是全量 skip-walk LIVE PASS。
 
 ### 影响
 
 - 规范：`05-agent-workflow-skill-policy.md`（`legalTargets` vs `autoLegalTargets`，`confirm_stage` 写路径）
 - 代码：`planStarryAdjacentWalk`、`writeRemoteOfficialStage`（单 hop 邻接校验）、`writeRemoteOfficialStageWalk`、`syncConfirmedStageToMcp`
-- 测试：skip → adjacent walk 规划；MCP 只发相邻原生 hop；确认卡/审计保留 skip 原因
+- 测试：`changeLifecycleStage` 仅 `{ lifecycleId, requestJson: { toStageCode, reason } }`；skip → adjacent walk；确认卡/审计保留 skip 原因

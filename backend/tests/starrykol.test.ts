@@ -825,11 +825,13 @@ describe("Email MCP task run path", () => {
     });
     expect(recorded).toHaveLength(1);
     expect(recorded[0].name).toBe("changeLifecycleStage");
-    expect(JSON.parse(String(recorded[0].args.requestJson))).toMatchObject({
-      kolUid: "KOL20260901LINGONG",
-      lifecycleId: 320,
-      cooperationStageCode: "QUOTE_PENDING",
+    expect(Object.keys(recorded[0].args).sort()).toEqual(["lifecycleId", "requestJson"]);
+    expect(recorded[0].args.lifecycleId).toBe(320);
+    expect(JSON.parse(String(recorded[0].args.requestJson))).toEqual({
+      toStageCode: "QUOTE_PENDING",
+      reason: "probe",
     });
+    expect(JSON.stringify(recorded[0].args)).not.toMatch(/cooperationStageCode|targetStageCode|"stageCode"/);
     expect(remoteLifecycleIdFrom({ lastLifecycleId: 320, lifecycle_id: "lc_KOL20260901LINGONG" })).toBe(320);
     expect(remoteLifecycleIdFrom({ lifecycle_id: "lc_KOL20260901LINGONG" })).toBeNull();
   });
@@ -854,11 +856,11 @@ describe("Email MCP task run path", () => {
       });
       expect(recorded).toHaveLength(1);
       expect(recorded[0].name).toBe("changeLifecycleStage");
-      expect(JSON.parse(String(recorded[0].args.requestJson))).toMatchObject({
-        kolUid: "KOL20260901LINGONG",
-        lifecycleId: 320,
-        cooperationStageCode: "BUSINESS_NEGOTIATION",
-        cooperationStageName: "商务谈判",
+      expect(Object.keys(recorded[0].args).sort()).toEqual(["lifecycleId", "requestJson"]);
+      expect(recorded[0].args.lifecycleId).toBe(320);
+      expect(JSON.parse(String(recorded[0].args.requestJson))).toEqual({
+        toStageCode: "BUSINESS_NEGOTIATION",
+        reason: "probe",
       });
     }
   });
@@ -872,12 +874,15 @@ describe("Email MCP task run path", () => {
       },
       async close() { /* noop */ },
     }));
-    await writeRemoteOfficialStage({
+    await expect(writeRemoteOfficialStage({
       kolUid: "KOL20260901LINGONG",
       lifecycleId: "lc_KOL20260901LINGONG",
       stageCode: "QUOTE_PENDING",
+    })).rejects.toMatchObject({
+      status: 400,
+      detail: expect.objectContaining({ code: "missing_lifecycle_id" }),
     });
-    expect(JSON.parse(String(recorded[0].args.requestJson)).lifecycleId).toBeUndefined();
+    expect(recorded).toHaveLength(0);
   });
 
   it("refuses a single non-adjacent Starry write when fromStage is known", async () => {
@@ -934,14 +939,22 @@ describe("Email MCP task run path", () => {
       "changeLifecycleStage",
       "changeLifecycleStage",
     ]);
-    expect(recorded.map((row) => JSON.parse(String(row.args.requestJson)).cooperationStageCode)).toEqual([
+    expect(recorded.map((row) => JSON.parse(String(row.args.requestJson)).toStageCode)).toEqual([
       "INTEREST_CONFIRMED",
       "COOPERATION_EVALUATION",
       "QUOTE_PENDING",
       "BUSINESS_NEGOTIATION",
     ]);
-    expect(recorded.every((row) => JSON.parse(String(row.args.requestJson)).lifecycleId === 320)).toBe(true);
-    expect(JSON.stringify(recorded.map((row) => row.args))).not.toMatch(/skip/i);
+    expect(recorded.every((row) => {
+      const keys = Object.keys(row.args).sort();
+      const body = JSON.parse(String(row.args.requestJson)) as Json;
+      return keys[0] === "lifecycleId"
+        && keys[1] === "requestJson"
+        && keys.length === 2
+        && row.args.lifecycleId === 320
+        && Object.keys(body).sort().join(",") === "reason,toStageCode";
+    })).toBe(true);
+    expect(JSON.stringify(recorded.map((row) => row.args))).not.toMatch(/cooperationStageCode|targetStageCode|"stageCode"|skip/i);
   });
 
   it("stops the adjacent walk when a hop fails", async () => {

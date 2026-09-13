@@ -434,11 +434,15 @@ function mockCall(name: string, args: Json): Json {
     } catch {
       body = {};
     }
+    const fields = starryStageWriteFields(String(
+      body.toStageCode || body.cooperationStageCode || body.stageCode || args.stageCode || "INTERESTED",
+    ));
     return {
       updated: true,
-      kolUid: body.kolUid || args.kolUid || "KOLTEST001",
-      ...starryStageWriteFields(String(body.cooperationStageCode || body.stageCode || args.stageCode || "INTERESTED")),
-      stageCode: body.stageCode || body.cooperationStageCode || args.stageCode || "INTERESTED",
+      lifecycleId: args.lifecycleId ?? body.lifecycleId,
+      ...fields,
+      toStageCode: fields.cooperationStageCode,
+      stageCode: fields.cooperationStageCode,
     };
   }
   throw new Error(`unknown starry-kol-mcp tool: ${name}`);
@@ -507,11 +511,10 @@ type RemoteStageWriteInput = {
 /**
  * Host kernel only: one adjacent-forward Starry hop. Worker must not call this.
  *
- * TODO(LIVE probe): even a true adjacent INTEREST_CONFIRMED → COOPERATION_EVALUATION
- * still returns 回退. A parallel probe is testing ChangeStageRequest field names
- * (`targetStageCode` vs `cooperationStageCode`) and risk-tag style
- * (`lifecycleId` top-level + target* inside requestJson). Do not switch the
- * payload until that probe names the field.
+ * LIVE-proven ChangeStageRequest (KOL202607300002 / lifecycle 16):
+ * top-level args are exactly `{ lifecycleId, requestJson }`;
+ * requestJson is `{ toStageCode, reason }` with a Starry-native code.
+ * `cooperationStageCode` / `targetStageCode` / `stageCode` return misleading 回退.
  */
 export async function writeRemoteOfficialStage(input: RemoteStageWriteInput): Promise<Json> {
   const fields = starryStageWriteFields(input.stageCode);
@@ -528,15 +531,27 @@ export async function writeRemoteOfficialStage(input: RemoteStageWriteInput): Pr
     }
   }
   const lifecycleId = remoteLifecycleIdFrom(input as Record<string, unknown>);
-  const payload = {
-    kolUid: input.kolUid,
-    ...(lifecycleId != null ? { lifecycleId } : {}),
+  if (lifecycleId == null) {
+    throw new HttpFail(400, {
+      code: "missing_lifecycle_id",
+      message: "Starry changeLifecycleStage 需要已知的远程 lifecycleId（lastLifecycleId）",
+    });
+  }
+  const toStageCode = fields.cooperationStageCode;
+  const data = await call("changeLifecycleStage", {
+    lifecycleId,
+    requestJson: JSON.stringify({
+      toStageCode,
+      reason: String(input.reason || ""),
+    }),
+  });
+  return {
+    ...json(data),
     ...fields,
-    stageCode: fields.cooperationStageCode,
-    reason: String(input.reason || ""),
+    toStageCode,
+    tool: "changeLifecycleStage",
+    updated: data.updated !== false,
   };
-  const data = await call("changeLifecycleStage", requestJson(payload));
-  return { ...json(data), tool: "changeLifecycleStage", updated: data.updated !== false };
 }
 
 /** Walk Starry with successive adjacent forwards. Human skip reason stays Host-local. */

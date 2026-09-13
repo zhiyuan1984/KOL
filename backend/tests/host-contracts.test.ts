@@ -173,7 +173,11 @@ describe("host contracts", () => {
   });
 
   it("confirm-stage writes official stage and remote changeLifecycleStage", async () => {
-    getConn().prepare("UPDATE collaborations SET kol_uid=? WHERE id=?").run("KOLXIAOMEI", "col_xiaomei");
+    getConn().prepare("UPDATE collaborations SET kol_uid=?, last_lifecycle_id=? WHERE id=?").run(
+      "KOLXIAOMEI",
+      "16",
+      "col_xiaomei",
+    );
     const [sid, data] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
     const card = (data.messages as Json[]).find((m) => m.kind === "confirm_stage_card")!;
     const target = ((card.payload as Json).targets as Json[])[0].code;
@@ -238,14 +242,22 @@ describe("host contracts", () => {
     expect((body.mcp_sync as Json).walk).toMatchObject({ kind: "walk" });
     const writes = recorded.filter((row) => row.name === "changeLifecycleStage");
     expect(writes).toHaveLength(4);
-    expect(writes.map((row) => JSON.parse(String(row.args.requestJson)).cooperationStageCode)).toEqual([
+    expect(writes.map((row) => JSON.parse(String(row.args.requestJson)).toStageCode)).toEqual([
       "INTEREST_CONFIRMED",
       "COOPERATION_EVALUATION",
       "QUOTE_PENDING",
       "BUSINESS_NEGOTIATION",
     ]);
-    expect(writes.every((row) => JSON.parse(String(row.args.requestJson)).lifecycleId === 320)).toBe(true);
-    expect(JSON.stringify(writes.map((row) => row.args))).not.toMatch(/skip/i);
+    expect(writes.every((row) => {
+      const keys = Object.keys(row.args).sort();
+      const payload = JSON.parse(String(row.args.requestJson)) as Json;
+      return keys[0] === "lifecycleId"
+        && keys[1] === "requestJson"
+        && keys.length === 2
+        && row.args.lifecycleId === 320
+        && Object.keys(payload).sort().join(",") === "reason,toStageCode";
+    })).toBe(true);
+    expect(JSON.stringify(writes.map((row) => row.args))).not.toMatch(/cooperationStageCode|targetStageCode|"stageCode"|skip/i);
     const hopAudits = listAudit("host.confirm_stage.mcp") as Json[];
     expect(hopAudits.filter((row) => (row.payload as Json).native).map((row) => (row.payload as Json).native)).toEqual([
       "INTEREST_CONFIRMED",

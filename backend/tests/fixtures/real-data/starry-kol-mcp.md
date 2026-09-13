@@ -187,7 +187,7 @@ Host 读取归一成 Host-local 码；`changeLifecycleStage` / `updateKolProfile
 
 旁路/终态：`PAUSED`、`LOST`、`REJECTED`、`CANCELLED`、`DISPUTED`、`COMPLETED`。
 
-`updateKolProfile` / `changeLifecycleStage` 写阶段时同时给 `cooperationStageCode`（Starry 原生码，如 `BUSINESS_NEGOTIATION`）和 `cooperationStageName`（中文）。不要把码写进 Name。人跳过只在 Host 记账；远程只接受相邻前进，跨格 skip 按 `planStarryAdjacentWalk` 逐格 walk。
+`updateKolProfile` 写画像阶段字段时仍用 `cooperationStageCode` + 中文名。`changeLifecycleStage` 顶层只有 `{ lifecycleId, requestJson }`，`requestJson` 为 `{ toStageCode, reason }`（Starry 原生码，如 `BUSINESS_NEGOTIATION`）。人跳过只在 Host 记账；远程只接受相邻前进，跨格 skip 按 `planStarryAdjacentWalk` 逐格 `toStageCode` walk。
 
 ### 风险标签
 
