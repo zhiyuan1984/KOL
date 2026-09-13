@@ -11,7 +11,10 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
   retries: 0,
-  timeout: 60000,
+  // Real app-server + remote MCP flows can spend time on account/auth and
+  // network retries. Keep the default deterministic suite fast, but give an
+  // explicitly opted-in real staging run enough time to finish.
+  timeout: process.env.E2E_MODE === "real" ? 120000 : 60000,
   outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results",
   globalSetup: "./e2e/global-setup.ts",
   use: {

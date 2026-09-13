@@ -65,9 +65,10 @@ async function submitHomeComposerStay(page: Page) {
 
 async function expectHomeClarification(page: Page, ...labels: string[]) {
   const feedback = page.locator("[data-home] [data-creation-feedback]");
-  await expect(feedback).toBeVisible({ timeout: 15000 });
+  const timeout = process.env.E2E_MODE === "real" ? 90000 : 15000;
+  await expect(feedback).toBeVisible({ timeout });
   for (const label of labels) {
-    await expect(feedback).toContainText(label, { timeout: 15000 });
+    await expect(feedback).toContainText(label, { timeout });
   }
 }
 

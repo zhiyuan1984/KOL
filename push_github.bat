@@ -15,6 +15,8 @@ echo 已执行 git add .
   git config --global user.email "qiyouhuang@163.com"
   git config --global user.name "zhiyuan1984"
 
+git config --global http.postBuffer 524288000
+
 :: 提交本地代码，自动生成commit信息（可自定义）
 git commit -m "auto commit: update code"
 echo 已本地commit

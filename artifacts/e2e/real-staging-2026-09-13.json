@@ -1,0 +1,41 @@
+{
+  "profile": "real-staging",
+  "browser": "msedge",
+  "mode": "real",
+  "status": "blocked",
+  "side_effect_policy": {
+    "send": "not invoked",
+    "stage_write": "not invoked",
+    "remote_reads": "allowed"
+  },
+  "codex_handshake": {
+    "initialize": "pass",
+    "account_read": "pass",
+    "account_type": "chatgpt",
+    "thread_start": "pass",
+    "turn_start": "no completion within probe window"
+  },
+  "e2e": [
+    {
+      "name": "首封建联 starter asks for 发件/收件/主题",
+      "result": "blocked",
+      "reason": "real intent recognition remained in recognizing state after 90 seconds"
+    },
+    {
+      "name": "风险扫描 runs Starry KOL MCP",
+      "result": "blocked",
+      "reason": "real task turn exceeded the 60 second test timeout"
+    },
+    {
+      "name": "达人库查询 completes with a result card",
+      "result": "blocked",
+      "reason": "real task turn exceeded the 60 second test timeout"
+    }
+  ],
+  "fixed_in_this_run": [
+    "E2E_MODE=real is an explicit opt-in and no longer hardcodes stub in the launcher",
+    "real mode uses enabled authentication by default",
+    "E2E screenshots no longer write to the obsolete /opt/cursor/artifacts path"
+  ],
+  "generated_at": "2026-09-13T00:00:00+08:00"
+}
