@@ -214,7 +214,7 @@ export default function Agents() {
   };
 
   return (
-    <div className="list-page agent-page" data-agent-page={tab}>
+    <div className="list-page agent-page" data-agent-page={tab} data-visual="docs20">
       <div className="page-hero agent-hero">
         <div className="page-kicker">智能体</div>
         <h1>我的智能体</h1>
@@ -270,8 +270,8 @@ export default function Agents() {
                   <li key={step.id} className="agent-work-row" data-agent-next={step.id} data-agent-source={step.source}>
                     <span className="agent-work-icon" aria-hidden>{step.icon || "○"}</span>
                     <div className="agent-work-copy">
-                      <strong>{step.title}</strong>
-                      <p className="muted">{step.reason} · {step.sourceLabel}</p>
+                      <strong title={step.title}>{step.title}</strong>
+                      <p className="muted" title={`${step.reason} · ${step.sourceLabel}`}>{step.reason} · {step.sourceLabel}</p>
                     </div>
                     <button
                       type="button"
@@ -300,7 +300,7 @@ export default function Agents() {
                   <li key={session.id} className="agent-work-row" data-agent-recent={session.id}>
                     <i className={"status-dot " + (session.agent_status || "listening")} aria-hidden />
                     <div className="agent-work-copy">
-                      <strong>{session.title}</strong>
+                      <strong title={session.title}>{session.title}</strong>
                       <p className="muted">{sessionStatusLabel(session.agent_status)}</p>
                     </div>
                     <Link className="btn work sm" to={`/s/${session.id}`}>继续</Link>
@@ -338,7 +338,7 @@ export default function Agents() {
                   <li key={session.id} className="agent-work-row" data-agent-running={session.id}>
                     <i className={"status-dot " + (session.agent_status || "running")} aria-hidden />
                     <div className="agent-work-copy">
-                      <strong>{session.title}</strong>
+                      <strong title={session.title}>{session.title}</strong>
                       <p className="muted">{sessionStatusLabel(session.agent_status)}</p>
                     </div>
                     <Link className="btn work sm" to={`/s/${session.id}`}>回到会话</Link>
@@ -363,12 +363,12 @@ export default function Agents() {
                   <li key={task.id} className="agent-work-row" data-agent-failed={task.id}>
                     <span className="agent-work-icon" aria-hidden>!</span>
                     <div className="agent-work-copy">
-                      <strong>{task.title}</strong>
-                      <p className="muted">{failedTaskReason(task)}</p>
+                      <strong title={task.title}>{task.title}</strong>
+                      <p className="muted" title={failedTaskReason(task)}>{failedTaskReason(task)}</p>
                     </div>
                     <div className="agent-card-actions">
                       {task.session_id && (
-                        <Link className="btn ghost sm" to={`/s/${task.session_id}`}>打开会话</Link>
+                        <Link className="agent-secondary-link" to={`/s/${task.session_id}`}>打开会话</Link>
                       )}
                       <button
                         type="button"
