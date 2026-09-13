@@ -254,6 +254,9 @@ test("skills page 使用 on email_compose starts ask with intent email_compose",
     }
   });
   await page.goto("/skills");
+  await expect(page.locator("[data-journey-guide]")).toBeVisible();
+  await expect(page.locator("[data-journey-guide]")).not.toContainText("发送不等于改阶段");
+  await expect(page.locator("[data-journey-guide]")).not.toContainText("发送 ≠ 推进阶段");
   await page.locator('[data-skill-use="email_compose"]').click();
   await page.waitForURL(/\/s\//);
   await expect(page.locator("[data-kind='me']")).toContainText("写合作邮件", { timeout: 15000 });
@@ -352,6 +355,8 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expect(page.getByRole("link", { name: /查看KOL全生命周期/ })).toHaveCount(0);
   await expect(page.locator('a[href="/pipeline"]')).toHaveCount(2);
   await expect(page.locator("[data-home] [data-journey-guide]")).toHaveCount(0);
+  await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("发送不等于改阶段");
+  await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("发送 ≠ 推进阶段");
   await expect(page.locator("[data-lifecycle-domains]")).toHaveCount(0);
   await expect(page.locator("[data-lifecycle-library]")).toHaveCount(0);
   await expect(page.locator("[data-kol-tab]")).toHaveCount(6);
@@ -650,7 +655,10 @@ test("KOL session header can tag a followed creator as 犹豫谨慎", async ({ p
   await openHomeLifecycle(page);
   const tagged = page.locator('[data-followed-kol="户外电源达人"]');
   await expect(tagged).toBeVisible();
-  await expect(tagged.locator('[data-follow-style-tag="cautious"]')).toContainText("犹豫谨慎", { timeout: 15000 });
+  await expect(tagged.locator('[data-follow-style-tag="cautious"]')).toHaveCount(0);
+  await expect(tagged.locator("[data-kol-scope]")).not.toContainText("犹豫谨慎");
+  await openFollowedKolDetail(page, "户外电源达人");
+  await expect(page.locator('[data-follow-style-tag="cautious"]')).toContainText("犹豫谨慎");
 });
 
 async function expectNoHorizontalOverflow(page: Page, selector: string) {
@@ -676,7 +684,11 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
           stage_code: "INITIAL_CONTACT",
           stage_label: "初步接触",
           exception: false,
+          days_in_stage: 12,
+          mailbox_from: "larry.zhao@amperetime.com",
+          owner_name: "钟槿年",
           profile_tags: [{ id: "niche", label: "美妆" }],
+          follow_style_tags: [{ id: "cautious", label: "犹豫谨慎" }],
           kol_name: "小美妆日记",
           collab_summary: "LT品牌合作 · 负责人 钟槿年 · 首封已读未回",
           recent_followup: "写跟进邮件 · 已完成",
@@ -717,6 +729,14 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expectNoHorizontalOverflow(page, '[data-followed-kol="小美妆日记"]');
   await expect(card.locator("[data-mail-summary]")).toBeVisible();
   await expect(card.locator("[data-mail-summary]")).toContainText("想和贵品牌litime合作");
+  await expect(card.locator('[data-kol-chip="mailbox"]')).toHaveText("larry.zhao@amperetime.com");
+  await expect(card.locator('[data-kol-chip="owner"]')).toHaveText("钟槿年");
+  await expect(card.locator("[data-stage-label]")).toHaveText("初步接触");
+  await expect(card.locator("[data-days-in-stage]")).toHaveText("停留 12 天");
+  await expect(card.locator("[data-current-state]")).not.toContainText(" · ");
+  await expect(card.locator("[data-current-state]")).not.toContainText("异常");
+  await expect(card.locator('[data-follow-style-tag]')).toHaveCount(0);
+  await expect(card.locator("[data-kol-scope]")).not.toContainText("犹豫谨慎");
   await expect(card.locator("[data-mail-summary]")).not.toContainText("posting calendar");
   await expect(card.locator("[data-open-original-mail]")).toHaveText("查看原邮件");
   await expect(card.locator("[data-kol-primary-action]")).toHaveCount(1);
@@ -828,7 +848,7 @@ test("home followed-KOL default sort uses contract keys 1-8", async ({ page }) =
             last_at: "2026-09-11T10:00:00.000Z",
           }],
         },
-        { id: "a-risk", handle: "异常菌", brand: "PQ", stage_code: "DISPUTED", stage_label: "争议中", exception: true, notes: "样品争议", days_in_stage: 8 },
+        { id: "a-risk", handle: "异常菌", brand: "PQ", stage_code: "DISPUTED", stage_label: "争议中", exception: true, notes: "样品争议", days_in_stage: 8, mailbox_from: "pq.ops@example.com" },
       ],
       tasks: [],
     },
@@ -840,6 +860,13 @@ test("home followed-KOL default sort uses contract keys 1-8", async ({ page }) =
     els.map((el) => el.getAttribute("data-followed-kol"))
   ));
   expect(handles).toEqual(["异常菌", "待确认", "未读来信", "逾期跟进", "停留最长", "晚到的"]);
+  const risk = page.locator('[data-followed-kol="异常菌"]');
+  await expect(risk.locator("[data-stage-label]")).toHaveText("争议中");
+  await expect(risk.locator("[data-days-in-stage]")).toHaveText("停留 8 天");
+  await expect(risk.locator("[data-current-state]")).not.toContainText(" · ");
+  await expect(risk.locator("[data-current-state]")).not.toContainText("异常");
+  await expect(risk.locator('[data-kol-chip="exception"]')).toHaveText("异常");
+  await expect(risk.locator('[data-kol-chip="mailbox"]')).toHaveText("pq.ops@example.com");
   await page.locator('[data-kol-sort="stay"]').click();
   const byStay = await page.locator("[data-followed-kol]").evaluateAll((els) => (
     els.map((el) => el.getAttribute("data-followed-kol"))
@@ -2243,6 +2270,10 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await page.locator("[data-kol-stage-filter]").selectOption("");
   await page.locator('[data-kol-tab="exception"]').click();
   await expect(page.locator("[data-followed-kol]")).toContainText("旅行电源菌");
+  const exceptionCard = page.locator('[data-followed-kol="旅行电源菌"]');
+  await expect(exceptionCard.locator("[data-stage-label]")).toHaveText("争议中");
+  await expect(exceptionCard.locator("[data-current-state]")).not.toContainText(" · 异常");
+  await expect(exceptionCard.locator('[data-kol-chip="exception"]')).toHaveText("异常");
   await page.locator("[data-open-work-panel]").click();
   await expect(page.locator("[data-work-panel]")).toBeVisible();
   await page.locator('[data-home-tab="today"]').click();

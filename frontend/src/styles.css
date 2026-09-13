@@ -1303,6 +1303,16 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .kol-state-block {
   min-width: 0;
 }
+.kol-state-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.kol-state-fields p {
+  margin: 0;
+}
 .kol-band-label {
   display: block;
   color: var(--text-muted);

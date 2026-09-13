@@ -2,32 +2,32 @@
 
 ## 总判
 
-当前首页「我跟进的红人」卡是**未组织的数据表 / 字段陈列**，**不是**用来决定下一步动作的工作卡。
+首页「我跟进的红人」工作卡已在 **PR #31** 落地，本 residual 补齐验收 PARTIAL。契约不再是「未实现」。
 
-- **信息完整度**：尚可（合作、阶段、任务历史、往来邮件都能在卡上找到碎片）。
-- **业务分层**：**不通过**（事实 / 推断 / 动作 / 证据未分组）。
-- **视觉对齐**：差（固定五列栅格、名称重复、标签无层级）。
-- **排序**：无业务规则（`visibleKols` 只过滤、不排序）。
-- **首页 vs 生命周期 IA**：混淆（Home `lifecycle` 页签用 17 个阶段 Tab 当主导航）。
-- **高风险阶段确认**：缺上下文（「确认阶段」远离证据，无 current→suggested 依据与写入影响）。
-
-对照 `docs/04-ux-ui-system.md`、`docs/19-ui-ux-constitution.md`、`specs/UX-KOL.md`：不能稳定支撑员工「跟进 KOL」。本首页卡生产资格：**不通过**。
-
-本文件只记录验收事实与宪法冲突。**本 PR 仅文档，不实施改版**，不改前端 / 后端 / UI / JSX / CSS。目标契约见 `specs/UX-FOLLOWED-KOL-CARD.md`。
-
-## 评分
-
-| 维度 | 评价 |
+| 轮次 | 判定 |
 |---|---|
-| 信息能否找到 | 尚可 |
-| 业务分层（事实 / 推断 / 动作 / 证据） | 不通过 |
-| 五秒内决定下一步 | 不通过 |
-| 视觉与阅读对齐 | 差 |
-| 排序 / 优先级 | 无规则 |
-| 首页 vs Pipeline 信息架构 | 混淆 |
-| 阶段确认上下文 | 缺失 |
-| 「跟进 KOL」工作卡（对照 UX 宪法） | 不通过 |
-| 本首页卡生产资格 | **不通过** |
+| 改版前基线（同日文档 PR #30） | **FAIL**：五列字段表，不是下一步工作卡 |
+| PR #31 主实现 | **PASS**：四带投影卡、行动责任人 Tab、1→8 排序、「确认进入「目标阶段」」打开既有确认卡 |
+| 本 residual | 补齐 mailbox 芯片、状态带字段分离、首页去掉跟进风格标签、Journey / 首页去掉「发送不等于改阶段」通用 copy |
+| 体验发布门禁 | 仍 **PARTIAL**：未写入 `specs/ux-traceability.json`，不能宣称 UX ID 验收通过 |
+
+对照 `specs/UX-FOLLOWED-KOL-CARD.md`：Home 已按契约从现有 `/api/home/board` 投影工作卡。无 Host API 扩面、无 LIVE 写阶段、Home 不做第二套 Pipeline。
+
+本文件保留改版前 FAIL 基线，并记录 PR #31 / residual 后的现状。
+
+## 评分（当前 / 改版前）
+
+| 维度 | 当前（PR #31 + residual） | 改版前 |
+|---|---|---|
+| 信息能否找到 | 按身份 / 范围 / 状态 / 事实 / 建议分层 | 尚可 |
+| 业务分层（事实 / 推断 / 动作 / 证据） | 四带投影；无依据写「建议依据不足」 | 不通过 |
+| 五秒内决定下一步 | 主阅读是建议动作 + 依据 + 显式 CTA | 不通过 |
+| 视觉与阅读对齐 | 四带 + 芯片；阶段 / 停留 / 异常不再拼成一串 | 差 |
+| 排序 / 优先级 | `visibleKols` 过滤后按 1→8 排序 | 无规则 |
+| 首页 vs Pipeline 信息架构 | 主 Tab = 行动责任人；15 阶段为二次 `<select>` | 混淆 |
+| 阶段确认上下文 | 「确认进入「目标阶段」」打开既有 `confirm_stage` | 缺失 |
+| 「跟进 KOL」工作卡（对照 UX 宪法） | Home 主实现 PASS | 不通过 |
+| 本首页卡生产资格 | 主实现可用；体验门禁仍 PARTIAL（无 UX ID） | **不通过** |
 
 ## 基线
 
@@ -35,95 +35,77 @@
 |---|---|
 | 日期 | 2026-09-13 |
 | 员工面 | Home `mode=lifecycle`，「我跟进的红人」 |
-| 实现入口 | `frontend/src/pages/Home.tsx`（`CardFields`、`visibleKols`、`kolPrimaryAction`、`FOLLOWED_KOL_TABS`）、`frontend/src/kolStages.ts`、`backend/src/host/home-board.ts`（`cardFields`、`suggestedStage`） |
-| 对照 | `docs/04-ux-ui-system.md` 任务驱动与 L1–L3；`docs/19-ui-ux-constitution.md` 四页分工；`specs/UX-KOL.md`（尤其 `UX-SEND-NE-STAGE`）；`specs/FS-KOL-006`、`specs/FS-KOL-010` |
-| 本 PR 范围 | 仅本证据、`specs/UX-FOLLOWED-KOL-CARD.md` 与索引一行；不改产品代码、不产生 LIVE 副作用 |
+| 实现入口 | `frontend/src/followedKolCard.ts`、`frontend/src/components/FollowedKolWorkCard.tsx`、`frontend/src/pages/Home.tsx`；源材料仍来自 `backend/src/host/home-board.ts` |
+| 对照 | `docs/04-ux-ui-system.md`、`docs/19-ui-ux-constitution.md`、`specs/UX-KOL.md`（尤其 `UX-SEND-NE-STAGE`）、`specs/FS-KOL-006`、`specs/FS-KOL-010`、`specs/UX-FOLLOWED-KOL-CARD.md` |
+| 主实现 | PR #31（`f4624e4` Merge） |
+| 本 residual 范围 | 小前端 + 文档：mailbox 芯片、状态带、首页跟进风格标签、Journey copy、本证据与契约状态行。不改 Host API、不 LIVE、不把 Pipeline 复制进 Home |
 
-## 宪法冲突
+## 当前对照契约
 
-首页卡应按「现在做什么」组织，而不是按 API 字段铺开。当前违约如下。
+| 契约 | PR #31 + residual |
+|---|---|
+| 业务视图模型 | `projectFollowedKolCard` 收成 `identity` / `scope` / `current_state` / `latest_fact` / `recommended_action` / `evidence` / `risk` / `owner` / `last_updated`。`collab_summary` / `recent_followup` / `mail_threads` 只作源材料 |
+| 四带结构 | `article[data-kol-work-card]`：身份芯片 → 当前状态 + 最新事实 → 建议 + 依据 → 显式动作。已去掉 `data-kol-card-cols="5"` 与包裹复杂块的 `button.task-main` |
+| `scope.mailbox` | 视图模型有值时渲染 `data-kol-chip="mailbox"`（本 residual） |
+| 状态带 | 阶段展示名单独 `data-stage-label`；停留天数单独芯片；异常 / 未绑定只走风险芯片，不再拼进 `current_stage` 串（本 residual） |
+| 跟进风格标签 | 首页卡不渲染；仍在会话详情 `FollowStyleTags`（本 residual） |
+| 首页 IA | 需要我处理 / 等待对方 / 等待审批 / 异常 / 最近更新 / 全部。计数 = 红人数。未读是芯片 + 开关 |
+| 排序 | 默认 1→8；开关：按需处理 / 最近更新 / 阶段停留 / 未读 |
+| 确认阶段 | CTA「确认进入「目标阶段」」；点击走既有 `confirm_stage`，Home 不 POST 阶段 |
+| 「发送不等于改阶段」 | 不出现在首页跟进列表或 Journey 通用 copy（`journey.ts` / `JourneyGuide`）。仍留在会话发送提示与确认 / 发送 / 审批 / 结果卡（本 residual） |
+
+## 仍 PARTIAL / 有意不做
+
+1. **未写入 `ux-traceability.json`**：只能当设计契约指导改版，不能当体验验收通过。本 residual 不补 UX ID。
+2. **工作面板任务行**仍用旧 `CardFields` 倾倒，不是首页跟进卡。
+3. **无 LIVE、无 Host 投影 API、Home 无第二套 15 阶段板**（契约非目标）。
+
+## 改版前 FAIL 基线（PR #30，保留）
+
+以下是同日改版前的验收事实，用来对照 PR #31 改了什么。不再代表当前 Home。
 
 ### 首页没有围绕下一步组织
 
-宪法要求 Home 回答「现在做什么」：阶段、最新事实、员工动作、证据、下一步、异常。当前卡是五列 `dl`（KOL 名称 / 合作摘要 / 最近跟进 / 所处阶段 / 建议进入阶段），外加被挤到卡底的邮件预览。员工不能在约五秒内完成「谁、卡在哪、依据是什么、我该点哪」。
+当时卡是五列 `dl`（KOL 名称 / 合作摘要 / 最近跟进 / 所处阶段 / 建议进入阶段），外加被挤到卡底的邮件预览。员工不能在约五秒内完成「谁、卡在哪、依据是什么、我该点哪」。
 
 ### 一张卡混了多种对象
 
-同一 `data-followed-kol` 行同时承载：
-
-| 对象 | 当前落点 |
-|---|---|
-| KOL 资产 | `@handle`、`kol_name`、`profile_tags`、`follow_style_tags` |
-| 合作 | `collab_summary`（品牌 · 负责人 · notes 拼接） |
-| 生命周期 | `current_stage`、`stage_code`、`days_in_stage`、17 个阶段 Tab |
-| 邮件 | `mail_threads` 预览（在五列栅格之外） |
-| 任务历史 | `recent_followup` ← `task_history`（标题 · 状态拼接） |
-| 阶段建议 | `suggested_stage` / `suggested_stage_code`（默认下一正式格） |
-| 阶段变更入口 | `data-kol-primary-action=confirm-stage` |
-
-没有共享视图模型把这些对象收成「身份 / 状态 / 事实 / 建议动作 / 证据」。
+同一 `data-followed-kol` 行同时承载 KOL 资产、合作拼接、17 个阶段 Tab、邮件预览、任务历史、启发式「进入下一格」。没有共享视图模型。
 
 ### 当前阶段 vs 建议阶段缺少证据链
 
-`home-board.suggestedStage` 与 `kolStages.suggestedStageLabel` 在缺显式建议时，按正式阶段枚举取下一格（异常则「需人选回到主流程」）。卡上「所处阶段」与「建议进入阶段」并列，**不链到来信、任务或版本**。高风险「确认阶段」按钮远离这些字段，也不展示 current→suggested、依据或写入影响。`runKolPrimary` 在无现成 `confirm_stage` 任务时只 `openKol` 进会话，并不打开带 diff 的确认卡。
+`home-board.suggestedStage` 缺显式建议时按正式阶段取下一格。卡上「所处阶段」与「建议进入阶段」并列，不链到来信、任务或版本。主 CTA 是单独的「确认阶段」。
 
 ### 「发送不等于改阶段」放错表面
 
-`UX-SEND-NE-STAGE` / 宪法第 4 条：发送卡不得带阶段选择；阶段卡必须显示具体 `stage_code`、展示名、前后 diff、版本和确认按钮；只需一句安静说明，禁止当通用首页文案。当前「发送不等于改阶段」出现在 Journey / 首页引导（`frontend/src/journey.ts`），而首页确认 CTA 仍是模糊的「确认阶段」。该句应落在确认 / 发送 / 审批 / 结果卡，而不是首页通用 copy。
+当时该句出现在 Journey / 首页引导（`frontend/src/journey.ts`），而首页确认 CTA 仍是模糊的「确认阶段」。
 
-## 信息架构问题
+### 信息架构与排序
 
-| 问题 | 现状 |
-|---|---|
-| 固定五列栅格不适合工作卡 | `CardFields` 设 `data-kol-card-cols="5"`；阶段三字段再塞进 `data-kol-status-line` |
-| KOL 名称重复 | `<strong>@{handle}</strong>` 与「KOL 名称」`kol_name \|\| handle` 同卡双显 |
-| 标签无层级 | `follow_style_tags` 与 `profile_tags` 并列，不区分范围 / 风险 / 状态 |
-| 邮件证据被埋 | 往来在五列 `button.task-main` 之外；邮件是事实，却不像事实那样链到建议 |
-| 计数单位混乱 | Tab 显示 KOL `count`；标题「未读」累加邮件 `unread_count`；「最近跟进」是任务历史；board 另有未展示的 `task_count` |
-| 17 个阶段 Tab 压过首页 | `FOLLOWED_KOL_TABS` = 全部 + 15 正式阶段 + 异常。宪法：正式 15 阶段资产板属 Pipeline（`FS-KOL-010`），Home 禁止当生命周期主导航 |
+`CardFields` 设 `data-kol-card-cols="5"`；`FOLLOWED_KOL_TABS` = 全部 + 15 正式阶段 + 异常；`visibleKols` 只过滤不排序。
 
-Home 已有 `todo` / `ai` / `lifecycle` 三模。「lifecycle」页签把跟进列表做成阶段漏斗，直接混淆 Home「现在做什么」与 Pipeline「合作坐落在哪一格」。
+### 当时积压（PR #31 已落地，本 residual 补尾项）
 
-## 排序
-
-`visibleKols` 仅为 `followedKols.filter(matchesKolTab)`。`matchesKolTab` 按 `all` / `exception` / `stage_code` 过滤。**没有**确定性业务排序（异常 / 待我确认 / 未读来信 / 逾期跟进 / 阶段停留 / 最新事实 / `last_updated` / KOL id）。列表顺序等于 board 返回顺序，不能稳定把「现在必须处理」顶到前面。
-
-## 按钮与语义
-
-- 主 CTA 在可确认时文案是单独的「确认阶段」，**不含目标阶段**，也不打开带 current→suggested、证据、写入影响的确认卡。
-- 整块字段包在 `<button class="task-main">` 里（`openKol`），复杂块被当成一个按钮；邮件「查看原邮件」与主 CTA 再叠一层。这不是 `article` + 显式链接 / 按钮的工作卡语义，读屏与焦点都会把整卡当成单一控件。
-
-## 根因
-
-1. **API 字段直接倒进 UI**：`cardFields` 把 `collab_summary` / `recent_followup` / `current_stage` / `suggested_stage` 拼成展示串；前端再原样铺五列。
-2. **功能堆积**：跟进列表上陆续加上标签、未读、邮件预览、阶段建议、确认 CTA，没有重做成决策卡。
-3. **生命周期枚举当首页 IA**：15+2 个阶段 Tab 成为主筛选，而不是「谁必须行动」。
-4. **没有五秒决策场景**：从未规定员工扫一眼必须得到的五元组（阶段 / 最新事实 / 我的动作 / 证据 / 下一步或异常）。
-5. **没有共享视图模型**：Home、board、任务行 `CardFields` 共用同一套字段倾倒，前端各自补全缺省文案。
-
-## 积压（只记录，不实施）
-
-实现须遵守 `specs/UX-FOLLOWED-KOL-CARD.md`，本 PR 不改代码：
-
-1. 用业务视图模型投影，停止把 `collab_summary` / `recent_followup` / `mail_threads` 当列。
-2. 四带结构替换五列栅格。
-3. 首页主分组改为行动责任人；15 阶段降为二次筛选。
-4. 落地确定性排序与可选用户开关。
-5. 「确认进入「目标阶段」」打开确认卡；禁止单独「确认阶段」。
-6. 卡语义改为 `article` + 显式动作，去掉包裹复杂块的 `button.task-main`。
+1. 用业务视图模型投影 — **已做**。
+2. 四带结构替换五列栅格 — **已做**。
+3. 首页主分组改为行动责任人 — **已做**。
+4. 落地确定性排序 — **已做**。
+5. 「确认进入「目标阶段」」打开确认卡 — **已做**。
+6. `article` + 显式动作 — **已做**。
+7. mailbox 芯片 / 状态带分离 / 首页去掉跟进风格标签 / Journey 通用 copy — **本 residual**。
 
 ## 产品陈述
 
-**已有**：跟进范围内的红人列表、阶段碎片、任务历史拼接、邮件预览、启发式主 CTA。  
-**未做**：可决定下一步的工作卡、业务分层、证据链、确定性排序、与 Pipeline 分清的首页 IA。
+**已有（Home）：** 按下一步组织的跟进工作卡、行动责任人分组、确定性排序、带目标阶段的确认入口（打开既有确认卡，不在首页写阶段）。  
+**未做（有意）：** UX ID 追踪、工作面板任务行改版、Host 投影 API、LIVE 发送 / 阶段写入。
 
-不得把「我跟进的红人」写成已交付的跟进工作台，也不得用本卡通过生产发布资格。
+可以把「我跟进的红人」写成已落地的首页工作卡；在写入 `ux-traceability.json` 并跑绑定 E2E 前，不得用本卡宣称体验发布门禁通过。
 
 ## 发布影响
 
 | 宣称 | 判定 |
 |---|---|
-| 员工能在首页稳定「跟进 KOL」 | **FAIL** |
-| 本卡已按 UX 宪法组织下一步 | **FAIL** |
-| 阶段确认具备目标 / 证据 / 写入影响 | **FAIL** |
-| 本首页卡生产资格 | **不通过** |
+| 员工能在首页按下一步「跟进 KOL」 | **PASS**（PR #31；stub Home，非 LIVE） |
+| 本卡已按 UX 宪法组织下一步 | **PASS**（主结构）；residual 已清四带杂串与错位 copy |
+| 阶段确认具备目标 / 证据 / 写入影响 | **PASS**（打开既有确认卡；Home 不写阶段） |
+| 本首页卡生产资格 | 主实现可用；体验门禁 **PARTIAL**（无 UX ID） |
