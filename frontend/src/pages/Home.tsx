@@ -666,6 +666,7 @@ export default function Home() {
       };
       void (async () => {
         try {
+          await new Promise((resolve) => window.setTimeout(resolve, 400));
           if (card.task!.session_id) {
             goExisting(card.task!.session_id, Boolean(card.task!.collaboration_id || card.task!.project_id));
             return;
