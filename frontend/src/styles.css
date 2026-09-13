@@ -3522,6 +3522,36 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   background: transparent;
   padding: 4px 12px;
 }
+.inference-fields {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+.inference-fields > div {
+  display: grid;
+  grid-template-columns: 5rem minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+.inference-fields dt {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-meta);
+  line-height: 1.6;
+}
+.inference-fields dd {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--font-ui);
+  line-height: 1.6;
+  word-break: break-word;
+}
+.inference-debug-json {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  font-size: 12px;
+  color: var(--text-muted);
+}
 .task-analysis-summary {
   margin: 0 22px 12px;
   padding: 10px 12px;

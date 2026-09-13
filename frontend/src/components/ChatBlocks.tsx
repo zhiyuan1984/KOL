@@ -738,6 +738,23 @@ function tryParseJson(text: string): unknown | null {
   }
 }
 
+function extractJsonBlob(text: string): string | null {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence && tryParseJson(fence[1].trim())) return fence[1].trim();
+  if (tryParseJson(raw)) return raw;
+  const startObj = raw.indexOf("{");
+  const startArr = raw.indexOf("[");
+  const start = startObj < 0 ? startArr : startArr < 0 ? startObj : Math.min(startObj, startArr);
+  if (start < 0) return null;
+  const close = raw[start] === "{" ? "}" : "]";
+  const end = raw.lastIndexOf(close);
+  if (end <= start) return null;
+  const slice = raw.slice(start, end + 1);
+  return tryParseJson(slice) ? slice : null;
+}
+
 function humanizeJsonValue(value: unknown, depth = 0): string {
   if (value == null || depth > 3) return "";
   if (typeof value === "string") {
@@ -764,9 +781,65 @@ function humanizeJsonValue(value: unknown, depth = 0): string {
 }
 
 function humanizeMaybeJson(text: string, fallback = "正在处理"): string {
-  const parsed = tryParseJson(text);
+  const blob = extractJsonBlob(text);
+  const parsed = blob ? tryParseJson(blob) : null;
   if (parsed == null) return text;
   return humanizeJsonValue(parsed) || fallback;
+}
+
+function jsonFieldRows(value: unknown): { label: string; value: string }[] {
+  if (Array.isArray(value)) {
+    return value.slice(0, 8).map((item, index) => ({
+      label: `步骤 ${index + 1}`,
+      value: humanizeJsonValue(item),
+    })).filter((row) => row.value);
+  }
+  if (value && typeof value === "object") {
+    const skip = /^(id|tool_call_id|call_id|run_id|span_id|trace_id|raw|debug|payload)$/i;
+    return Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !skip.test(key))
+      .map(([key, item]) => ({ label: fieldLabel(key), value: humanizeJsonValue(item) }))
+      .filter((row) => row.value)
+      .slice(0, 10);
+  }
+  const text = humanizeJsonValue(value);
+  return text ? [{ label: "说明", value: text }] : [];
+}
+
+function looksLikeInferenceJson(text: string): boolean {
+  const blob = extractJsonBlob(text);
+  if (!blob) return false;
+  const ratio = blob.length / Math.max(String(text || "").trim().length, 1);
+  return ratio >= 0.5 || /^```/.test(String(text || "").trim()) || Boolean(tryParseJson(String(text || "").trim()));
+}
+
+function HumanizedInference({ text, debug = false }: { text: string; debug?: boolean }) {
+  const blob = extractJsonBlob(text);
+  const parsed = blob ? tryParseJson(blob) : null;
+  if (parsed == null) return <Markdown>{text}</Markdown>;
+  const rows = jsonFieldRows(parsed);
+  return (
+    <div data-humanized-inference>
+      {rows.length ? (
+        <dl className="inference-fields">
+          {rows.map((row) => (
+            <div key={row.label}>
+              <dt>{row.label}</dt>
+              <dd>{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p>正在处理这项工作</p>
+      )}
+      {debug && blob ? (
+        <details className="execution-details">
+          <summary>调试原文</summary>
+          <pre className="inference-debug-json">{blob}</pre>
+        </details>
+      ) : null}
+    </div>
+  );
 }
 
 function humanizeTraceLabel(label: string) {
@@ -1170,7 +1243,9 @@ export function ChatThread({
               data-status={state}
             >
               {state === "running" ? "⏳ " : state === "done" ? "✓ " : "⚠ "}
-              {String(m.payload.text || "")}
+              {looksLikeInferenceJson(String(m.payload.text || ""))
+                ? <HumanizedInference text={String(m.payload.text || "")} debug={debug} />
+                : humanizeMaybeJson(String(m.payload.text || ""))}
             </ThreadMessage>
           );
         }
@@ -1206,7 +1281,9 @@ export function ChatThread({
                 <details open data-reasoning-summaries>
                   <summary>分析摘要</summary>
                   {summaries.map((summary, index) => (
-                    <p key={`${summary}-${index}`}>{humanizeMaybeJson(summary)}</p>
+                    looksLikeInferenceJson(summary)
+                      ? <HumanizedInference key={`${summary}-${index}`} text={summary} debug={debug} />
+                      : <p key={`${summary}-${index}`}>{summary}</p>
                   ))}
                 </details>
               )}
@@ -1300,7 +1377,9 @@ export function ChatThread({
           if (isDuplicateSessionChrome(text)) return null;
           return (
             <ThreadMessage key={m.id} role="system" className="sys-msg" data-kind="sys-msg">
-              <Markdown>{`> ${text}`}</Markdown>
+              {looksLikeInferenceJson(text)
+                ? <HumanizedInference text={text} debug={debug} />
+                : <Markdown>{`> ${text}`}</Markdown>}
             </ThreadMessage>
           );
         }
@@ -1320,8 +1399,8 @@ export function ChatThread({
             data-streaming={m.payload.streaming ? "true" : undefined}
           >
             {text ? (
-              tryParseJson(text)
-                ? <p data-humanized-inference>{humanizeMaybeJson(text)}</p>
+              looksLikeInferenceJson(text)
+                ? <HumanizedInference text={text} debug={debug} />
                 : <Markdown>{text}</Markdown>
             ) : (m.payload.streaming ? <span className="muted">正在输出…</span> : null)}
           </ThreadMessage>

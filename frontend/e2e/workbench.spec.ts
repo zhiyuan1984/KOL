@@ -516,6 +516,8 @@ test("session page has no coach next-step card and keeps composer skills", async
   if (await sop.count()) {
     await expect(sop).toHaveJSProperty("open", false);
   }
+  await expect(page.locator("[data-session-stream-pane] [data-mail-digest], [data-session-stream-pane] [data-mail-summaries]")).toBeVisible();
+  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("{");
 });
 
 test("home lifecycle followed KOL opens the mail rail not the task list", async ({ page }) => {
