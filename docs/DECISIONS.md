@@ -26,7 +26,7 @@
 | ADR-010 | 试点 PEP 的授权证据由组织截图、100%真实邮箱负责人清单、远程 Starry MCP 只读结果和 registry 绑定共同构成；未补齐的身份元数据不阻断试点授权 | `config/org-registry.yaml`、`18-mcp-master-data-assessment.md` |
 | ADR-011 | Starry 阶段写入用原生码；人跳过只在 Host 记账；远程只走相邻前进（跨段则逐格 walk） | `05-agent-workflow-skill-policy.md`、`planStarryAdjacentWalk` / `changeLifecycleStage` |
 | ADR-012 | 员工端四页分工：Home=现在做什么；Pipeline=正式生命周期资产；Chat=完成一件任务；Admin=谁/权限/审计。Pipeline 禁止复制 Home 待办语义 | `19-ui-ux-constitution.md`、`specs/FS-KOL-010-pipeline.md` |
-| ADR-013 | 管理端是员工四表面的配套治理套件，不是副本；连接器只在 `/admin/connectors`，Agent 治理在 `/admin/agents`，个人 Starry 绑定只留 Settings | `21-admin-employee-page-roles.md`、`19-ui-ux-constitution.md` |
+| ADR-013 | 管理端是员工四表面的配套治理套件，不是副本；连接器**治理**只在 `/admin/connectors`，员工**使用面**独立（`/connectors`），Agent 治理在 `/admin/agents`，个人 Starry 绑定只留 Settings | `21-admin-employee-page-roles.md`、`19-ui-ux-constitution.md` |
 | ADR-014 | 员工侧栏：定时任务归今日工作簇；簇间用分割线，不画可见「今日 / 智能体 / 资产」组标题 | `19-ui-ux-constitution.md` |
 
 ## 新增 Agent 分级
@@ -112,18 +112,28 @@ Admin 导航和页面与员工连接器/智能体表面重叠：员工侧栏深�
 ### 决定
 
 1. **不改四页法律。** Home / Pipeline / Chat / Admin 仍各答一问。`/agents` 仍是员工工作入口。管理端展开为配套套件，不是第五套员工页，也不是第二套 Home / Pipeline / Agents。
-2. **连接器只在管理端枢纽。** `/admin/connectors` + `/admin/connectors/:id`：启用、凭据引用永不回显、员工 read/write、组织 Starry 策略。个人邮箱绑定只留 Settings。
+2. **连接器治理只在管理端枢纽。** `/admin/connectors` + `/admin/connectors/:id`：启用、凭据引用永不回显、员工 read/write、组织 Starry 策略。个人邮箱绑定只留 Settings。
 3. **Agent 治理页替换跳转。** 新 `/admin/agents` 管发布状态、可写范围、考试闸门、连接器授权矩阵；管理端顶栏不再跳员工 `/agents`。
 4. **导航与 chrome 分家。** 去掉员工侧栏管理端深链；管理端健康条用治理文案，不克隆员工 remote-pill。遗留「本期连接器」与 SkillHub 调试砖收敛到枢纽。
 
+### 修订（2026-09-13）— 员工使用面不是治理目录
+
+原句「连接器只在管理端枢纽」容易被读成员工端任何连接器表面都违约。澄清：
+
+- **管理治理面**不变：启停、凭据引用、组织策略、授权、审计只在 `/admin/connectors` 与 `/:id`。
+- **员工使用面**合法：独立员工 chrome（如 `/connectors`）只回答「我已被授权可用哪些、对我意味着什么、个人绑定去哪」。这不是枢纽副本，也不是第五套主表面。
+- 「员工不可见配置」= 配置 / 凭据 / 组织策略 / 授权编辑不可见；**不**禁止使用/状态面。员工端零处**治理**目录，不是零处使用面。
+- 员工侧栏若有入口，只链使用面，禁止深链 `/admin/connectors`。个人绑定仍只留 Settings。
+- 不改四页法律，不 LIVE，不新增 UX ID，不在本修订里加后端字段。
+
 ### 不决定的范围
 
-不实施前端/后端，不 LIVE，不新增 UX ID 或 `specs/UX-ADMIN-PAGES.md`，不重做 Chat，不改数字员工对象模型。后端缺字段另开计划。
+不实施后端，不 LIVE，不新增 UX ID 或 `specs/UX-ADMIN-PAGES.md`，不重做 Chat，不改数字员工对象模型。后端缺字段另开计划。
 
 ### 影响
 
-- 规范：`21-admin-employee-page-roles.md`（正文）、`19` / `04` / `20` / `docs/README.md` / `specs/README.md` 索引
-- 代码：后续纯前端导航/枢纽 PR；本 ADR 不改 JSX/API
+- 规范：`21-admin-employee-page-roles.md`（正文）、`19` / `04` / `20` / `docs/README.md` 索引
+- 代码：员工使用面是后续纯前端（`/connectors`）；本 ADR 修订不改后端
 - 测试：无新发布门禁项，直到另有 FS / UX ID 绑定
 
 ## ADR-014 — 员工侧栏：定时任务归今日簇，组标题改为分割线（2026-09-13）

@@ -2097,7 +2097,8 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await page.goto("/");
   await expect(page.locator(".workbench")).toHaveAttribute("data-account-role", "employee");
   await expect(page.locator(".workbench")).toHaveAttribute("data-view-mode", "business");
-  await expect(page.getByRole("link", { name: "连接器", exact: true })).toHaveCount(0);
+  await expect(page.locator('.sidebar a[href="/admin/connectors"]')).toHaveCount(0);
+  await expect(page.locator('[data-nav="connectors"]')).toHaveAttribute("href", "/connectors");
   await page.locator(".user-chip").click();
   await expect(page.getByRole("link", { name: "管理控制台" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "连接 Starry 邮箱" })).toBeVisible();
@@ -2246,7 +2247,7 @@ test("employee sidebar puts cron in today cluster and hides group titles", async
 test("docs/21 employee sidebar has no admin connectors deep-link", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator('[data-nav="skills"]')).toBeVisible();
-  await expect(page.getByRole("link", { name: "连接器", exact: true })).toHaveCount(0);
+  await expect(page.locator('[data-nav="connectors"]')).toHaveAttribute("href", "/connectors");
   await expect(page.locator('.sidebar a[href="/admin/connectors"]')).toHaveCount(0);
   await expect(page.locator('[data-nav="agents-teams"]')).toBeVisible();
   await expect(page.locator('[data-nav="agents"]')).toHaveText("数字员工");
@@ -2265,7 +2266,35 @@ test("docs/21 admin agents governance is reachable from admin chrome", async ({ 
   await expect(page.locator("[data-admin-tab='agents']")).toHaveClass(/active/);
 });
 
+test("employee connector use surface is independent of admin hub", async ({ page, request }) => {
+  await request.post("/api/me/persona", { data: { persona: "employee" } });
+  await page.goto("/");
+  await expect(page.locator(".workbench")).toHaveAttribute("data-account-role", "employee");
+  await page.locator('[data-nav="connectors"]').click();
+  await expect(page).toHaveURL(/\/connectors$/);
+  await expect(page.locator("[data-connector-use]")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "连接器" })).toBeVisible();
+  await expect(page.locator("[data-connector-use]")).toContainText("凭据和组织策略不在本页");
+  await expect(page.locator("textarea[name='bearer']")).toHaveCount(0);
+  await expect(page.locator("[data-admin-page='connectors']")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /启用|停用/ })).toHaveCount(0);
+  await expect(page.locator("body")).not.toContainText("Starry KOL MCP");
+  await expect(page.locator("body")).not.toContainText("LIVE");
+  await expect(page.locator("body")).not.toContainText("Codex");
+  await page.locator("[data-connector-use-bind-hint] a").click();
+  await expect(page).toHaveURL(/\/settings\?tab=starry/);
+  await expect(page.locator("[data-starry-bind]")).toBeVisible();
+  await page.goto("/admin/connectors");
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator("[data-admin-page='connectors']")).toHaveCount(0);
+});
+
 test("docs/21 admin connectors hub renders", async ({ page }) => {
+  await page.goto("/connectors");
+  await expect(page.locator("[data-connector-use]")).toBeVisible();
+  await expect(page.locator("[data-connector-use-row]").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: /启用|停用/ })).toHaveCount(0);
+  await expect(page.locator("textarea[name='bearer']")).toHaveCount(0);
   await page.goto("/admin");
   await page.locator('[data-admin-tab="connectors"]').click();
   await expect(page).toHaveURL(/\/admin\/connectors$/);

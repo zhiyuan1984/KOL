@@ -237,8 +237,9 @@ export function Admin() {
       <h1 style={{ marginTop: 0 }}>管理配置</h1>
       <div className="panel">
         <h3>连接器</h3>
-        <p className="muted">本期连接器清单已并入管理端枢纽，不再在本页维护第二份目录。</p>
+        <p className="muted">治理目录只在管理端枢纽；员工使用面只看已授权能力，不在本页。</p>
         <p><Link to="/admin/connectors">打开连接器枢纽</Link></p>
+        <p><Link to="/connectors">打开员工使用面</Link></p>
       </div>
       <div className="panel">
         <h3>智能体能力域</h3>
