@@ -14,7 +14,6 @@ backend/node_modules/
 server/node_modules/
 frontend/test-results/
 frontend/playwright-report/
-scripts/start.sh
 .pytest_cache/
 *.egg-info/
 .DS_Store
