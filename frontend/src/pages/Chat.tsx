@@ -95,7 +95,7 @@ function looksLikeEmailDraft(text: string): boolean {
 
 function splitPortraitNotes(notes: unknown): string[] {
   return String(notes || "")
-    .split(/[·/;、|/]+/)
+    .split(/[·/;、，,|/]+/)
     .map((item) => item.trim())
     .filter(Boolean);
 }
