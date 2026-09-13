@@ -437,6 +437,54 @@ export function hasUsableStarryReadResult(items: Json[]): boolean {
   });
 }
 
+function existingBlockedByApproval(items: Json[]): boolean {
+  return items.some((item) => starryReadBlockedByApproval(starryPayload(item)) || starryReadBlockedByApproval(item));
+}
+
+const READ_RESULT_TYPES = new Set(["task_result", "text", "note", "propose_stage", "list_overdue"]);
+
+/** Analysis / list skills may finish without a Starry payload or sendable draft. */
+function hasReadSkillOutput(items: Json[]): boolean {
+  return items.some((item) => {
+    if (READ_RESULT_TYPES.has(String(item.type || ""))) return true;
+    return Boolean(String(item.title || "").trim() && String(item.summary || item.body || item.text || "").trim());
+  });
+}
+
+function readSkillTitle(skill: string): string {
+  if (skill === "reply_analysis") return "回复分析";
+  if (skill === "creator_profile") return "达人画像";
+  if (skill === "risk_scan") return "超时/风险扫描";
+  return "任务结果";
+}
+
+function surfaceReadSkillItems(skill: string, items: Json[]): Json[] {
+  if (items.some((item) => item.type === "task_result")) return items;
+  const texts = items.filter((item) => item.type === "text" || item.type === "note");
+  const summary = texts
+    .map((item) => String(item.text || item.body || item.summary || "").trim())
+    .filter(Boolean)
+    .join("\n");
+  const propose = items.find((item) => item.type === "propose_stage");
+  const overdue = items.find((item) => item.type === "list_overdue");
+  const body = summary
+    || String(propose?.reason || propose?.summary || "").trim()
+    || (Array.isArray(overdue?.items) ? `已列出 ${(overdue.items as Json[]).length} 条逾期。` : "");
+  if (!body) return items;
+  return [
+    {
+      type: "task_result",
+      skill,
+      title: readSkillTitle(skill),
+      summary: body,
+      sections: [{ title: "分析结果", body, items: [] }],
+      metrics: [],
+      recommended_actions: [],
+    },
+    ...items,
+  ];
+}
+
 function composeDraftFromStarry(skill: EmailMcpTask, items: Json[]): Json | null {
   if (skill !== "email_compose" || items.some((item) => item.type === "create_draft")) return null;
   const data = items.map(starryPayload).find((payload) => {
@@ -586,6 +634,9 @@ export async function completeTurnItems(
   }
   if (isEmailMcpTask(skill) && !hasUsableStarryReadResult(existing)) {
     const hostReadFallback = isStarryKolReadTask(skill);
+    if (skill !== "email_compose" && hasReadSkillOutput(existing) && !existingBlockedByApproval(existing)) {
+      return surfaceReadSkillItems(skill, existing);
+    }
     if (codexMode() !== "stub" && !hostReadFallback) {
       throw new CodexUnavailable(
         skill === "email_compose"
@@ -593,7 +644,7 @@ export async function completeTurnItems(
           : "生成已结束，但没有产出可映射的任务结果。Host 没有代填。",
         skill === "email_compose"
           ? "请重试；若仍失败，请管理员查看该次运行记录（是否调用了预览草稿 / Starry KOL MCP）。"
-          : "请重试；若仍失败，请管理员查看该次运行记录（Skill 是否产出了可核验结果）。",
+          : "请重试；若仍失败，请管理员查看该次运行记录（Skill 是否产出了分析结果）。",
       );
     }
     const generated = existing.find((item) => item.type === "create_draft");
