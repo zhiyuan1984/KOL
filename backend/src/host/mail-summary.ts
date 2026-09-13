@@ -371,11 +371,9 @@ function firstParsed<T>(parse: (text: string) => T | null, ...chunks: string[]):
 }
 
 function parseDigest(text: string): string | null {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start >= 0 && end > start) {
+  for (const candidate of jsonCandidates(text)) {
     try {
-      const parsed = JSON.parse(text.slice(start, end + 1)) as { digest?: unknown; summaries?: unknown };
+      const parsed = JSON.parse(candidate) as { digest?: unknown; summaries?: unknown };
       const digest = String(parsed.digest || "").trim();
       if (digest) return digest;
       if (Array.isArray(parsed.summaries)) {
@@ -383,19 +381,73 @@ function parseDigest(text: string): string | null {
         if (joined) return joined;
       }
     } catch {
-      /* fall through */
+      /* try the next structured message */
     }
   }
   const cleaned = text.replace(/```(?:json)?|```/g, "").trim();
   return cleaned && !cleaned.startsWith("{") ? cleaned : null;
 }
 
+/** Extract complete JSON objects from concatenated app-server messages. */
+function jsonCandidates(text: string): string[] {
+  const candidates: string[] = [];
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  candidates.push(...lines.filter((line) => line.startsWith("{") && line.endsWith("}")));
+  let start = -1;
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') quoted = false;
+      continue;
+    }
+    if (char === '"') {
+      quoted = true;
+      continue;
+    }
+    if (char === "{") {
+      if (depth === 0) start = i;
+      depth += 1;
+    } else if (char === "}" && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        candidates.push(text.slice(start, i + 1));
+        start = -1;
+      }
+    }
+  }
+  return [...new Set(candidates)];
+}
+
+function appServerTurnTexts(completed: Json): string[] {
+  const turn = completed.turn && typeof completed.turn === "object" ? completed.turn as Json : {};
+  const texts: string[] = [];
+  const items = Array.isArray(turn.items) ? turn.items : [];
+  for (const item of items) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Json;
+    if (typeof row.text === "string" && row.text.trim()) texts.push(row.text);
+    if (Array.isArray(row.content)) {
+      for (const block of row.content) {
+        if (block && typeof block === "object" && typeof (block as Json).text === "string") {
+          texts.push(String((block as Json).text));
+        }
+      }
+    }
+  }
+  if (typeof turn.output === "string" && turn.output.trim()) texts.push(turn.output);
+  else if (turn.output && typeof turn.output === "object") texts.push(JSON.stringify(turn.output));
+  return texts;
+}
+
 function parseSummaries(text: string, expected: number): string[] | null {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start >= 0 && end > start) {
+  for (const candidate of jsonCandidates(text)) {
     try {
-      const parsed = JSON.parse(text.slice(start, end + 1)) as { summaries?: unknown };
+      const parsed = JSON.parse(candidate) as { summaries?: unknown };
       const summaries = Array.isArray(parsed.summaries)
         ? parsed.summaries.map((item) => String(item || "").trim())
         : [];
@@ -404,7 +456,7 @@ function parseSummaries(text: string, expected: number): string[] | null {
         return summaries.slice(0, expected);
       }
     } catch {
-      /* fall through */
+      /* try the next structured message */
     }
   }
   const numbered = [...text.matchAll(/^\s*\d+[\.\)、]\s*(.+)$/gm)].map((m) => m[1].trim());
@@ -501,7 +553,13 @@ async function summarizeWithCodexAppServer(rows: Json[]): Promise<string[] | nul
       outputSchema: summarySchema,
     });
     const completed = await rpc.waitTurn(mailAnalysisTimeout());
-    const parsed = firstParsed((text) => parseSummaries(text, rows.length), rpc.agentTexts.join("\n"), turnOutputText(completed));
+    const extras = appServerTurnTexts(completed);
+    const parsed = firstParsed(
+      (text) => parseSummaries(text, rows.length),
+      rpc.agentTexts.join("\n"),
+      extras.join("\n"),
+      turnOutputText(completed),
+    );
     if (!parsed) noteFailure("codex parse", "no summaries in app-server output");
     return parsed;
   } catch (err) {
@@ -665,7 +723,8 @@ async function digestWithCodexAppServer(rows: Json[], collaborationId = ""): Pro
       outputSchema: digestSchema,
     });
     const completed = await rpc.waitTurn(mailAnalysisTimeout());
-    const parsed = firstParsed(parseDigest, rpc.agentTexts.join("\n"), turnOutputText(completed));
+    const extras = appServerTurnTexts(completed);
+    const parsed = firstParsed(parseDigest, rpc.agentTexts.join("\n"), extras.join("\n"), turnOutputText(completed));
     if (!parsed) {
       noteFailure("codex digest parse", "parse", collaborationId);
       return { error: "parse" };

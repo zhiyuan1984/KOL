@@ -151,7 +151,8 @@ Pop-Location
 | Codex `thread/start` | PASS | 真实线程创建成功 |
 | 最小只读 `turn/start` | BLOCKED | 未在探针窗口内完成；不是 Stub 结果 |
 | Starry MCP 只读探针 | PASS | 真实 Bearer + API Key；62 个工具、221 个画像、5 个邮箱、16 个阶段字典；未调用解密、发送或阶段写入 |
-| 首封建联 E2E | BLOCKED | 页面停留在真实意图识别 `recognizing`，90 秒后超时 |
+| 首封建联 E2E | BLOCKED | `agent:kol` manifest 仍是 `unpublished / employee_submission=false`；创建任务被发布闸门拒绝，未修改发布状态 |
+| MediaCrawler 真实 MCP | BLOCKED | 配置存在，但 `s636695a.natappfree.cc/mcp` DNS 指向 `127.0.0.1`，系统 HTTP 返回 502，Node MCP `listTools` 为 `fetch failed`；未调用 `start_crawl` |
 | 风险扫描 E2E | BLOCKED | 真实任务 Turn 超过 60 秒用例超时 |
 | 达人库查询 E2E | BLOCKED | 真实任务 Turn 超过 60 秒用例超时 |
 | 真实发送/阶段写入 | 未执行 | 本次没有点击发送，也没有提交阶段写入 |

@@ -132,6 +132,34 @@ describe("Codex mail memory", () => {
     expect(readThreadDigest("col_xiaomei")?.text).toBe(digest.text);
   });
 
+  it("parses snake-case app-server agent messages and deltas without duplicating the digest", async () => {
+    const prevHome = process.env.HOME;
+    fs.chmodSync(fakeCodex, 0o755);
+    process.env.CODEX_MODE = "real";
+    process.env.INTENT_LLM_MODE = "real";
+    process.env.CODEX_BIN = fakeCodex;
+    process.env.FAKE_CODEX_MODE = "digest-protocol-success";
+    process.env.FAKE_CODEX_DELAY = "20";
+    process.env.OPENAI_API_KEY = "sk-test-mail-memory";
+    process.env.OPENAI_BASE_URL = "https://example.invalid/v1";
+    process.env.HOME = tmp;
+    try {
+      ingestKolMail("col_xiaomei", {
+        subject: "Re: Collaboration Opportunity with LiTime",
+        body: "I am interested and would love to collaborate.",
+        from: "xiaomei.beauty@example.com",
+        provider_message_id: "codex-digest-protocol-1",
+      }, { deferDigest: true });
+      const digest = await ensureCodexThreadDigest("col_xiaomei");
+      expect(digest.source).toBe("codex_memory");
+      expect(digest.text).toBe("来信明确表达合作兴趣，并等待品牌补充报价。");
+      expect(digest.text).not.toContain("来信明确表达合作兴趣，并等待品牌补充报价。来信明确");
+    } finally {
+      if (prevHome === undefined) delete process.env.HOME;
+      else process.env.HOME = prevHome;
+    }
+  });
+
   it("does not stamp the greeting rule as Codex when the remote fails", async () => {
     process.env.INTENT_LLM_MODE = "real";
     process.env.OPENAI_API_KEY = "sk-test-mail-memory";

@@ -59,6 +59,8 @@ export class CodexAppServer {
   private pending = new Map<number, { resolve: (v: Json) => void; reject: (e: Error) => void }>();
   notifications: Json[] = [];
   agentTexts: string[] = [];
+  private agentTextById = new Map<string, string>();
+  private agentTextOrder: string[] = [];
   onNotification?: (method: string | undefined, params: Json) => void;
   authVia: "account" | "api_key_login" | "no_openai_required" | null = null;
   stderr = "";
@@ -129,17 +131,45 @@ export class CodexAppServer {
   }
 
   private collectAgent(method: string | undefined, params: Json): void {
-    if (method !== "item/completed" && method !== "item/started") return;
-    const item = (params.item as Json) || params;
-    if (item.type === "agentMessage" || item.itemType === "agentMessage") {
-      let text = String(item.text || "");
-      if (!text && Array.isArray(item.content)) {
-        text = (item.content as Json[])
-          .map((c) => (typeof c === "object" ? String(c.text || "") : ""))
-          .join("");
-      }
-      if (text) this.agentTexts.push(text);
+    const isDelta = method === "item/agentMessage/delta" || method === "item/agent_message/delta";
+    const isItem = method === "item/completed" || method === "item/started";
+    if (!isDelta && !isItem) return;
+
+    if (isDelta) {
+      const id = String(params.itemId || params.item_id || params.id || "");
+      const delta = String(params.delta || params.text || "");
+      if (delta) this.recordAgentText(id, delta, true);
+      return;
     }
+
+    const item = (params.item as Json) || params;
+    const type = String(item.type || item.itemType || "").replace(/[-_]/g, "").toLowerCase();
+    if (type !== "agentmessage") return;
+    const text = this.textFromAgentItem(item);
+    if (text) this.recordAgentText(String(item.id || ""), text, false);
+  }
+
+  private textFromAgentItem(item: Json): string {
+    const direct = String(item.text || "").trim();
+    if (direct) return direct;
+    if (!Array.isArray(item.content)) return "";
+    return (item.content as Json[])
+      .map((block) => {
+        if (typeof block !== "object" || !block) return "";
+        return String(block.text || block.value || "");
+      })
+      .join("")
+      .trim();
+  }
+
+  private recordAgentText(id: string, text: string, append: boolean): void {
+    const key = id || `anonymous:${this.agentTextOrder.length}`;
+    const current = this.agentTextById.get(key) || "";
+    this.agentTextById.set(key, append ? current + text : text);
+    if (!this.agentTextOrder.includes(key)) this.agentTextOrder.push(key);
+    this.agentTexts = this.agentTextOrder
+      .map((entry) => this.agentTextById.get(entry) || "")
+      .filter(Boolean);
   }
 
   private answerServerRequest(msg: Json): void {
@@ -212,7 +242,11 @@ export class CodexAppServer {
     const deadline = Date.now() + Math.max(0, this.remainingMs(timeout));
     while (Date.now() < deadline) {
       for (const n of this.notifications) {
-        if (n.method === "turn/completed") return (n.params as Json) || {};
+        if (n.method === "turn/completed") {
+          const params = (n.params as Json) || {};
+          this.collectTurnItems(params);
+          return params;
+        }
       }
       if (this.proc.exitCode != null) {
         throw new CodexUnavailable("app-server 在 turn 完成前退出。未合成邮件。", "重试或检查 `codex login`。");
@@ -220,6 +254,20 @@ export class CodexAppServer {
       await new Promise((r) => setTimeout(r, 50));
     }
     throw new CodexUnavailable("等待 turn/completed 超时。未合成邮件。", "重试一次；模型较慢时可加大 CODEX_TURN_TIMEOUT。");
+  }
+
+  private collectTurnItems(params: Json): void {
+    const turn = params.turn && typeof params.turn === "object" ? params.turn as Json : {};
+    const items = Array.isArray(turn.items) ? turn.items : [];
+    for (const item of items) {
+      if (item && typeof item === "object") this.collectAgent("item/completed", { item: item as Json });
+    }
+    const output = turn.output;
+    if (output && typeof output === "object") {
+      const item = output as Json;
+      const type = String(item.type || item.itemType || "").replace(/[-_]/g, "").toLowerCase();
+      if (type === "agentmessage") this.collectAgent("item/completed", { item });
+    }
   }
 
   async handshake(): Promise<Json> {

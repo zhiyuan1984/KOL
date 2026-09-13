@@ -8,7 +8,7 @@ import fs from "node:fs";
 import readline from "node:readline";
 
 const mode = process.env.FAKE_CODEX_MODE || "late-chatgpt";
-let loggedIn = mode === "already-chatgpt" || mode === "kol-success" || mode === "task-result-success" || mode === "crawl-plan-success" || mode === "recognize-success" || mode === "mail-digest-success";
+let loggedIn = mode === "already-chatgpt" || mode === "kol-success" || mode === "task-result-success" || mode === "crawl-plan-success" || mode === "recognize-success" || mode === "mail-digest-success" || mode === "digest-protocol-success";
 
 function send(obj) {
   process.stdout.write(`${JSON.stringify(obj)}\n`);
@@ -202,6 +202,24 @@ rl.on("line", (line) => {
           params: { item: { type: "agentMessage", text: JSON.stringify(item) } },
         });
         send({ method: "turn/completed", params: { turn: { id: "turn_fake", status: "completed" } } });
+      }, Number(process.env.FAKE_CODEX_DELAY || 20));
+    }
+    if (mode === "digest-protocol-success") {
+      const digest = JSON.stringify({ digest: "来信明确表达合作兴趣，并等待品牌补充报价。" });
+      setTimeout(() => {
+        send({ method: "item/started", params: { item: { id: "msg_digest", type: "agent_message", text: "" } } });
+        send({ method: "item/agent_message/delta", params: { item_id: "msg_digest", delta: digest } });
+        send({ method: "item/completed", params: { item: { id: "msg_digest", type: "agent_message", text: digest } } });
+        send({
+          method: "turn/completed",
+          params: {
+            turn: {
+              id: "turn_fake",
+              status: "completed",
+              items: [{ id: "msg_digest", type: "agent_message", text: digest }],
+            },
+          },
+        });
       }, Number(process.env.FAKE_CODEX_DELAY || 20));
     }
     return;
