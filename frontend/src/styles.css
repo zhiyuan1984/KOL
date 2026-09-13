@@ -861,13 +861,14 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .today-summary .task-filters { margin-bottom: 18px; }
 .kol-stage-tabs {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--space-1);
   margin-bottom: var(--space-3);
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .kol-stage-tabs button {
   display: inline-flex;
