@@ -15,16 +15,44 @@ import { occurredAtMs } from "../mail-time";
 import { officialStageReached } from "../journey";
 import { MESSAGE_RISK_LABEL, messageRisk, type MessageRisk } from "../agentUx";
 
-function RiskBubble({
+type ThreadRole = "user" | "assistant" | "system";
+type ResultShape = "task_result" | "draft" | "confirm" | "send" | "stage";
+
+/** AI Elements Message morphology — role-distinguishable, not a chat-bubble wall. */
+function ThreadMessage({
+  role,
+  result,
   risk,
   children,
   className = "",
   ...attrs
-}: { risk: MessageRisk; children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
+}: {
+  role: ThreadRole;
+  result?: ResultShape;
+  risk?: MessageRisk;
+  children: ReactNode;
+  className?: string;
+} & HTMLAttributes<HTMLDivElement>) {
+  const bubble = !result && !/\b(error-card|sys-msg)\b/.test(className);
   return (
-    <div className={`bubble assistant risk-${risk.toLowerCase()} ${className}`.trim()} data-risk={risk} {...attrs}>
-      <span className="risk-kicker">{MESSAGE_RISK_LABEL[risk]}</span>
-      {children}
+    <div
+      className={[
+        "message",
+        `is-${role}`,
+        bubble && role === "user" ? "bubble me" : "",
+        bubble && role === "assistant" ? "bubble assistant" : "",
+        result ? "result-card" : "",
+        risk ? `risk-${risk.toLowerCase()}` : "",
+        className,
+      ].filter(Boolean).join(" ")}
+      data-role={role}
+      data-ai-message
+      data-ai-result={result || undefined}
+      data-risk={risk}
+      {...attrs}
+    >
+      {risk ? <span className="risk-kicker">{MESSAGE_RISK_LABEL[risk]}</span> : null}
+      <div className="message-content">{children}</div>
     </div>
   );
 }
@@ -952,46 +980,53 @@ export function ChatThread({
   )?.id;
   let mailPointer = false;
   return (
-    <div className="chat" data-session-stream={messages.some((item) => item.payload.streaming) ? "live" : "idle"}>
+    <div
+      className="chat conversation-content"
+      data-session-stream={messages.some((item) => item.payload.streaming) ? "live" : "idle"}
+      data-ai-conversation-content
+    >
       {messages.map((m) => {
         if (m.kind === "me") {
           return (
-            <div key={m.id} className="bubble me" data-kind="me">
+            <ThreadMessage key={m.id} role="user" data-kind="me">
               {String(m.payload.text || "")}
-            </div>
+            </ThreadMessage>
           );
         }
         if (m.kind === "email_card") {
           if (m.id !== latestDraftId) return null;
+          const sent = String(m.payload.status || "") === "sent" || Boolean(m.payload.send_disabled);
           return (
-            <RiskBubble key={m.id} risk="L2" data-kind="email-card-pointer">
+            <ThreadMessage key={m.id} role="assistant" result={sent ? "send" : "draft"} risk="L2" data-kind="email-card-pointer">
+              <strong>{sent ? "发送卡" : "邮件草稿"}</strong>
               <Markdown>{"✍️ **邮件已放到右侧结果。** 请核对要点和草稿后再确认发送。发送邮件不会修改阶段。"}</Markdown>
-            </RiskBubble>
+            </ThreadMessage>
           );
         }
         if (m.kind === "confirm_stage_card") {
           const proposed = String(m.payload.proposed_stage || "");
           if (m.payload.resolved || officialStageReached(officialStage, proposed)) return null;
           return (
-            <RiskBubble key={m.id} risk="L3" data-kind="confirm-stage-pointer">
+            <ThreadMessage key={m.id} role="assistant" result="stage" risk="L3" data-kind="confirm-stage-pointer">
+              <strong>阶段卡</strong>
               <Markdown>{"⚠️ **请在右侧结果确认阶段。** 选定具体正式阶段后再写入，本路径不发信。"}</Markdown>
-            </RiskBubble>
+            </ThreadMessage>
           );
         }
         if (m.kind === "kol_mail_card") {
           if (mailPointer) return null;
           mailPointer = true;
           return (
-            <RiskBubble key={m.id} risk="L1" data-kind="kol-mail-pointer">
+            <ThreadMessage key={m.id} role="assistant" risk="L1" data-kind="kol-mail-pointer">
               <Markdown>{"📬 **来信已放到右侧结果。** 需要确认阶段时在右侧操作。"}</Markdown>
-            </RiskBubble>
+            </ThreadMessage>
           );
         }
         if (m.kind === "inbound_card") {
           return (
-            <RiskBubble key={m.id} risk="L1" data-kind="inbound-pointer">
+            <ThreadMessage key={m.id} role="assistant" risk="L1" data-kind="inbound-pointer">
               <Markdown>{"📬 **未绑定来信已放到右侧结果。** 请人选，不自动合并、不会「已自动记入」。"}</Markdown>
-            </RiskBubble>
+            </ThreadMessage>
           );
         }
         if (m.kind === "supplement_card") {
@@ -1010,34 +1045,37 @@ export function ChatThread({
                   : message || "还需要补充信息后再继续。";
           const risk = messageRisk("supplement_card", m.payload) || "L2";
           return (
-            <RiskBubble key={m.id} risk={risk} data-kind="supplement" data-clarification={kind || undefined}>
+            <ThreadMessage key={m.id} role="assistant" risk={risk} data-kind="supplement" data-clarification={kind || undefined}>
               {title ? <strong>{title}</strong> : null}
               <Markdown>{message || fallback}</Markdown>
-            </RiskBubble>
+            </ThreadMessage>
           );
         }
         if (m.kind === "task_result_card") {
           if (hasDraftCard || m.id !== latestResultId) return null;
           const risk = messageRisk("task_result_card", m.payload) || "L1";
+          const title = String(m.payload.title || "任务结果");
           return (
-            <RiskBubble key={m.id} risk={risk} data-kind="task-result-pointer">
+            <ThreadMessage key={m.id} role="assistant" result="task_result" risk={risk} data-kind="task-result-pointer">
+              <strong>{title}</strong>
               <Markdown>{"📋 **任务结果已放到右侧。**"}</Markdown>
-            </RiskBubble>
+            </ThreadMessage>
           );
         }
         if (m.kind === "job_status") {
           const state = String(m.payload.status || "running");
           if (state === "done" && hasResult) return null;
           return (
-            <div
+            <ThreadMessage
               key={m.id}
-              className={`bubble assistant job-status job-${state}`}
+              role="assistant"
+              className={`job-status job-${state}`}
               data-kind="job-status"
               data-status={state}
             >
               {state === "running" ? "⏳ " : state === "done" ? "✓ " : "⚠ "}
               {String(m.payload.text || "")}
-            </div>
+            </ThreadMessage>
           );
         }
         if (m.kind === "process_trace") {
@@ -1045,9 +1083,10 @@ export function ChatThread({
           const summaries = summaryLines(m.payload, items);
           const hasThinking = items.some((item) => item.kind === "reasoning" || Boolean(item.summary || item.reasoning_summary));
           return (
-            <div
+            <ThreadMessage
               key={m.id}
-              className="bubble assistant process-trace process-md"
+              role="assistant"
+              className="process-trace process-md"
               data-kind="process-trace"
               data-harness-thinking={hasThinking ? "true" : undefined}
             >
@@ -1075,7 +1114,7 @@ export function ChatThread({
                   ))}
                 </details>
               )}
-            </div>
+            </ThreadMessage>
           );
         }
         if (m.kind === "operation_trace") {
@@ -1090,7 +1129,7 @@ export function ChatThread({
           const title = String(m.payload.title || "远程MCP调用");
           if (!operations.length && !active) return null;
           return (
-            <div key={m.id} className="bubble assistant operation-trace process-md" data-kind="operation-trace">
+            <ThreadMessage key={m.id} role="assistant" className="operation-trace process-md" data-kind="operation-trace">
               <strong>{title}</strong>
               <ul className="trace-list">
                 {operations.length
@@ -1114,15 +1153,15 @@ export function ChatThread({
                     </li>
                   )}
               </ul>
-            </div>
+            </ThreadMessage>
           );
         }
         if (isBoxSteps(m)) return null;
         if (isOverdueSteps(m)) {
           return (
-            <div key={m.id} className="bubble assistant">
+            <ThreadMessage key={m.id} role="assistant" result="task_result">
               <Markdown>{"📋 **失联与延期清单已放到右侧结果。**"}</Markdown>
-            </div>
+            </ThreadMessage>
           );
         }
         if (m.kind === "error_card") {
@@ -1131,7 +1170,7 @@ export function ChatThread({
           const transport = /^(502|503|500)$/.test(status) || /请求失败/.test(message);
           if (transport) {
             return (
-              <div key={m.id} className="error-card workspace-error" data-kind="error-card" data-persistent-error>
+              <ThreadMessage key={m.id} role="assistant" className="error-card workspace-error" data-kind="error-card" data-persistent-error>
                 <strong>当前无法读取数据</strong>
                 <p>连接暂时异常，已保留你的任务。</p>
                 {debug && (
@@ -1140,7 +1179,7 @@ export function ChatThread({
                   <p>{message || status}</p>
                 </details>
                 )}
-              </div>
+              </ThreadMessage>
             );
           }
           const allowed = ((m.payload.allowed as ({ label?: string; code?: string } | string)[]) || [])
@@ -1155,18 +1194,18 @@ export function ChatThread({
             m.payload.next_action ? `\n> 下一步：${m.payload.next_action}` : "",
           ].join("\n");
           return (
-            <div key={m.id} className="error-card" data-kind="error-card" data-persistent-error>
+            <ThreadMessage key={m.id} role="assistant" className="error-card" data-kind="error-card" data-persistent-error>
               <Markdown>{md}</Markdown>
-            </div>
+            </ThreadMessage>
           );
         }
         if (m.kind === "sys_msg") {
           const text = String(m.payload.text || "");
           if (/黄条无确认按钮|正式阶段建议保持/.test(text)) return null;
           return (
-            <div key={m.id} className="sys-msg" data-kind="sys-msg">
+            <ThreadMessage key={m.id} role="system" className="sys-msg" data-kind="sys-msg">
               <Markdown>{`> ${text}`}</Markdown>
-            </div>
+            </ThreadMessage>
           );
         }
         if (m.kind === "steps") return null;
@@ -1174,14 +1213,17 @@ export function ChatThread({
         if (/正式阶段已按你的确认更新|已提交阶段审批/.test(text) && m.id !== latestStageReceiptId) {
           return null;
         }
+        const stageReceipt = /正式阶段已按你的确认更新|已提交阶段审批/.test(text);
         return (
-          <div
+          <ThreadMessage
             key={m.id}
-            className={`bubble assistant${m.payload.streaming ? " is-streaming" : ""}`}
+            role="assistant"
+            result={stageReceipt ? "confirm" : undefined}
+            className={m.payload.streaming ? "is-streaming" : ""}
             data-streaming={m.payload.streaming ? "true" : undefined}
           >
             {text ? <Markdown>{text}</Markdown> : (m.payload.streaming ? <span className="muted">正在输出…</span> : null)}
-          </div>
+          </ThreadMessage>
         );
       })}
     </div>

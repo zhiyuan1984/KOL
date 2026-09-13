@@ -455,8 +455,10 @@ test("pipeline review follows the common task flow with progress and a right-sid
   await expectHomeComposerDraft(page, "超时/风险扫描");
   await submitHomeComposer(page);
   await expect(page.locator('[data-kind="me"]')).toContainText("复盘 KOL 流水线");
+  await expect(page.locator('[data-ai-message][data-role="user"]')).toContainText("复盘 KOL 流水线");
   await expect(page.locator('[data-kind="process-trace"]')).toContainText("识别风险");
   await expect(page.locator('[data-kind="operation-trace"]')).toContainText("读取合作记录");
+  await expect(page.locator('[data-ai-result="task_result"]')).toBeVisible();
   await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("两项合作需要优先处理");
   await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("优先关注停滞合作");
   await expect(page.locator('[data-tab="result"]')).toHaveAttribute("aria-selected", "true");
@@ -503,7 +505,12 @@ test("session page has no coach next-step card and keeps composer skills", async
   await expect(page.locator("[data-journey-guide]")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /下一步：/ })).toHaveCount(0);
   await expect(page.locator("[data-session-stream-pane]")).toBeVisible();
+  await expect(page.locator("[data-ai-conversation]")).toBeVisible();
+  await expect(page.locator("[data-ai-conversation-content]")).toBeVisible();
   await expect(page.locator("[data-composer-input]")).toBeVisible();
+  await expect(page.locator("[data-ai-prompt-input]")).toBeVisible();
+  await expect(page.locator("[data-ai-prompt-textarea]")).toBeVisible();
+  await expect(page.locator("[data-ai-prompt-submit]")).toBeVisible();
   await expect(page.locator("[data-session-send-hint]")).toHaveText("发送不等于改阶段");
   const sop = page.locator("[data-stage-sop]");
   if (await sop.count()) {

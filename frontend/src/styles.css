@@ -3338,6 +3338,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   color: var(--muted);
 }
 .bubble.risk-l1,
+.message.risk-l1,
+.result-card.risk-l1,
 .artifact.risk-l1 {
   background: #f4f5f7;
   border: 1px solid var(--line);
@@ -3345,6 +3347,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   padding: 8px 12px;
 }
 .bubble.risk-l2,
+.message.risk-l2,
+.result-card.risk-l2,
 .artifact.risk-l2 {
   background: #eef6ff;
   border: 1px solid rgba(22, 119, 255, 0.22);
@@ -3352,6 +3356,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   padding: 8px 12px;
 }
 .bubble.risk-l3,
+.message.risk-l3,
+.result-card.risk-l3,
 .artifact.risk-l3 {
   background: #fff6f0;
   border: 1px solid rgba(234, 85, 4, 0.35);
@@ -3471,10 +3477,73 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   overflow-x: hidden;
   overflow-y: auto;
 }
+.session-stream.conversation {
+  display: flex;
+  flex-direction: column;
+}
+.session-center .conversation-content {
+  gap: var(--space-3);
+  width: 100%;
+}
+.session-center .message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  max-width: 100%;
+}
+.session-center .message.is-user {
+  align-self: flex-end;
+  max-width: min(36rem, 80%);
+  background: var(--bg-elevated);
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  box-shadow: none;
+  font-size: var(--font-body);
+  line-height: var(--leading-body);
+}
+.session-center .message.is-assistant:not(.result-card):not([data-risk]) {
+  align-self: stretch;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+.session-center .message.is-system {
+  align-self: stretch;
+  color: var(--text-muted);
+  font-size: var(--font-meta);
+}
+.session-center .message.result-card {
+  align-self: stretch;
+  max-width: 100%;
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  box-shadow: var(--shadow-quiet);
+}
+.session-center .message.result-card:not([data-risk]) {
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+.session-center .result-card .message-content strong {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--font-ui);
+}
 .session-composer {
   flex: 0 0 auto;
   border-top: 1px solid var(--border);
   background: var(--bg);
+}
+.session-composer.prompt-input .composer.composer--workspace {
+  min-height: 92px;
+  max-height: 220px;
+  padding: var(--space-3) var(--space-3) var(--space-2);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-quiet);
+}
+.session-composer.prompt-input .composer.composer--workspace textarea {
+  min-height: 44px;
 }
 .session-send-hint {
   margin: 0;
