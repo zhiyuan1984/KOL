@@ -435,12 +435,14 @@ export default function Home() {
     void api.home().then((legacyHome) => {
       if (cancelled) return;
       setHome(legacyHome);
-      if (!definitions.length && legacyHome.recs?.length) {
-        setDefinitions(legacyHome.recs.map((rec: Rec) => ({
-          ...rec,
-          description: rec.description || rec.profile,
-        })));
-      }
+      if (!legacyHome.recs?.length) return;
+      const incoming = withHomeCommandTemplates(legacyHome.recs.map((rec: Rec) => ({
+        ...rec,
+        description: rec.description || rec.profile,
+      })));
+      // `definitions` in this effect is the first-render []. Always merge extras
+      // and never replace a fuller registry catalog with the legacy rec list.
+      setDefinitions((current) => (current.length > incoming.length ? current : incoming));
     }).catch(() => undefined);
     void api.taskDefinitions().then(definitionList).then((taskDefinitions) => {
       if (!cancelled && taskDefinitions.length) {

@@ -286,6 +286,7 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
     : (catalogPayload.task_definitions || catalogPayload.definitions || []))
     .map((item) => String((item as { category?: unknown }).category || "常用任务")));
   categories.add("异常");
+  categories.add("履约");
   await expect(page.locator("[data-task-category]")).toHaveCount(categories.size);
   await expect(page.locator('[data-home] .rec[data-act="go"]')).toHaveCount(0);
   await expect(page.locator("[data-composer]")).toBeVisible();
@@ -534,7 +535,9 @@ test("KOL session header can tag a followed creator as 犹豫谨慎", async ({ p
   await expect(page.locator("[data-kind='task-result-card']")).toContainText("犹豫谨慎");
   await page.goto("/");
   await openHomeLifecycle(page);
-  await expect(page.locator('[data-followed-kol="户外电源达人"] [data-follow-style-tag="cautious"]')).toContainText("犹豫谨慎");
+  const tagged = page.locator('[data-followed-kol="户外电源达人"]');
+  await expect(tagged).toBeVisible();
+  await expect(tagged.locator('[data-follow-style-tag="cautious"]')).toContainText("犹豫谨慎", { timeout: 15000 });
 });
 
 test("home followed-KOL cards share five columns across the board", async ({ page }) => {
@@ -1034,7 +1037,7 @@ test("two buttons stay separate: send keeps stage, confirm-stage advances", asyn
   await page.locator('[data-tab="stage"]').click();
   await page.locator('[data-workbench] [data-stage-select]').first().selectOption("INTERESTED");
   await page.locator('[data-workbench] [data-email-action="confirm-stage"], [data-workbench] [data-confirm-stage]').click();
-  await expect(page.getByText(/正式阶段已按你的确认更新/)).toBeVisible();
+  await expect(page.getByText(/正式阶段已按你的确认更新/).first()).toBeVisible();
   const pipe2 = await request.get("/api/pipeline");
   const body2 = await pipe2.json();
   const x2 = Object.values(body2.groups).flat().find((c: { handle: string }) => c.handle === "小美妆日记") as {
@@ -1764,6 +1767,7 @@ test("skill hub lists Starry KOL MCP and the remaining library skills", async ({
 
   await page.goto("/");
   await openHomeTemplates(page);
+  await expect(homeRecByTitle(page, "延期关怀")).toBeVisible({ timeout: 15000 });
   for (const title of [
     "达人库全量",
     "更新红人负责人",
