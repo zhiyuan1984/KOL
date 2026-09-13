@@ -119,6 +119,7 @@ export default function Workbench() {
           <button type="button" className="sidebar-search-btn collapse-toggle" onClick={toggleCollapsed} aria-label={collapsed ? "展开侧栏" : "收起侧栏"} title={collapsed ? "展开侧栏" : "收起侧栏"}>{collapsed ? "›" : "‹"}</button>
         </div>
 
+        <div className="sidebar-scroll">
         <div className="sidebar-nav-stack">
         <nav className="nav-group" aria-label="今日">
           <NavLink to="/" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} end data-nav="new-task">
@@ -215,6 +216,7 @@ export default function Workbench() {
             <span className="nav-tag">非本期</span>
           </div>
         </nav>
+        </div>
         </div>
 
         <div className="sidebar-foot">
