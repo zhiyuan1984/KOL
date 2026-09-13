@@ -529,6 +529,7 @@ test("session page has no coach next-step card and keeps composer skills", async
   await expect(page.locator("[data-session-stream-pane]")).not.toContainText("{");
   await expect(page.locator("[data-session-stream-pane]")).not.toContainText("右侧结果");
   await expect(page.locator("[data-workbench]")).toBeVisible();
+  await saveScreenshot(page, "session_chrome_digest_journey_workbench.png");
 });
 
 test("home lifecycle followed KOL opens the mail rail not the task list", async ({ page }) => {
@@ -973,6 +974,7 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   const ingestHandleLeft = await page.locator("[data-kol-journey] h1").evaluate((el) => el.getBoundingClientRect().left);
   const ingestSopLeft = await page.locator("[data-stage-sop]").evaluate((el) => el.getBoundingClientRect().left);
   expect(Math.abs(ingestHandleLeft - ingestSopLeft)).toBeLessThan(6);
+  await saveScreenshot(page, "kol_session_digest_sop_journey.png");
   await openStageSop(page);
   await expect(page.locator("[data-stage-sop]")).toContainText("红人画像");
   await expect(page.locator("[data-kol-portrait] [data-portrait-field]")).not.toHaveCount(0);
@@ -1117,6 +1119,7 @@ test("employee process stays business Chinese while queued or running", async ({
   await expect(page.locator("[data-run-status]")).toContainText(/读取合作资料|正在调用系统能力|正在准备这项工作/);
   await expectNoEngineJargon(page.locator("[data-session-stream-pane]"));
   await expectNoEngineJargon(page.locator("[data-run-status]"));
+  await saveScreenshot(page, "employee_process_business_chinese.png");
 });
 
 test("employee stream parses task_result JSON into a card and hides engine jargon", async ({ page }) => {
@@ -1198,6 +1201,7 @@ test("employee stream parses task_result JSON into a card and hides engine jargo
   await expect(workbench.locator('[data-email-action="send"]')).toHaveText("确认发送");
   await expectNoEngineJargon(page.locator("[data-session-stream-pane]"));
   await expectNoEngineJargon(workbench);
+  await saveScreenshot(page, "employee_task_result_card.png");
 });
 
 test("记状态 to CONTENT_REVIEW queues content approval and writes after manager agrees", async ({ page, request }) => {
