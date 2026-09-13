@@ -1052,7 +1052,7 @@ test("employee stream parses task_result JSON into a card and hides engine jargo
   const now = new Date().toISOString();
   const dump = [
     '{"type":"task_result","title":"正在准备合作邮件","summary":"先整理往来"}',
-    '{"type":"task_result","title":"合作邮件草稿","summary":"已写好一封建联信","subject":"Collaboration with LiTime","body":"Hi, we would love to collaborate.","from":"brand@litime.com","to":"kol@example.com"}',
+    '{"type":"task_result","title":"合作邮件草稿","summary":"已写好一封建联信","subject":"Collaboration with LiTime","body":"Hi, we would love to collaborate.","from":"brand@litime.com","to":"kol@example.com","draft_id":"draft_json","actions":["确认发送"]}',
   ].join("");
   await page.route("**/api/sessions/json-stream**", (route) => route.fulfill({
     json: {
@@ -1113,15 +1113,18 @@ test("employee stream parses task_result JSON into a card and hides engine jargo
   await expect(draftCard).toBeVisible();
   await expect(draftCard).toContainText("Collaboration with LiTime");
   await expect(draftCard).toContainText("we would love to collaborate");
+  await expect(draftCard.locator('[data-email-action="send"]')).toHaveText("确认发送");
   await expect(page.locator("[data-session-stream-pane]")).not.toContainText('{"type":"task_result"');
   await expect(page.locator("[data-session-stream-pane]")).not.toContainText("Preparing skill");
+  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("Preparing parallel");
+  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("Evaluating mailbox");
+  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("get_collaboration");
   await expect(page.locator("[data-session-stream-pane]")).not.toContainText("starry.get_collaboration");
+  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("previewEmailDraft");
   await expect(page.locator("[data-session-stream-pane]")).not.toContainText("starrykol.");
   await expect(page.locator("[data-session-stream-pane]")).not.toContainText("远程MCP");
-  await expect(page.locator("[data-kind='process-trace']")).toContainText("正在准备这项工作");
-  await expect(page.locator("[data-kind='process-trace']")).toContainText("正在选择发件方式");
-  await expect(page.locator("[data-kind='operation-trace']")).toContainText("读取合作资料");
-  await expect(page.locator("[data-kind='operation-trace']")).toContainText("生成邮件预览");
+  await expect(page.locator("[data-kind='process-trace']")).toHaveCount(0);
+  await expect(page.locator("[data-kind='operation-trace']")).toHaveCount(0);
   await expect(page.locator("[data-workbench]")).toBeVisible();
 });
 
@@ -2307,11 +2310,10 @@ test("风险扫描 runs Starry KOL MCP tools and lists T8 overdue", async ({ pag
     await expect(card).toContainText("风险汇总");
     await expect(card).toContainText("T8 失联与延期");
     await expect(card).toContainText("小美妆日记");
-    await expect(page.locator('[data-kind="operation-trace"]').last()).toContainText("查询风险会话");
-    await expect(page.locator('[data-kind="operation-trace"]').last()).toContainText("汇总风险会话");
-    await expect(page.locator('[data-kind="operation-trace"]').last()).not.toContainText("远程MCP");
-    await expect(page.locator('[data-kind="operation-trace"]').last()).not.toContainText("starrykol.");
-    await expect(page.locator('[data-kind="operation-trace"]').last()).not.toContainText("starry.");
+    await expect(page.locator("[data-session-stream-pane]")).not.toContainText("远程MCP");
+    await expect(page.locator("[data-session-stream-pane]")).not.toContainText("starrykol.");
+    await expect(page.locator("[data-session-stream-pane]")).not.toContainText("starry.");
+    await expect(page.locator("[data-session-stream-pane]")).not.toContainText("pageRiskConversations");
     await expect(page.locator('[data-kind="process-trace"]')).toContainText("处理过程");
     await expect(page.locator('[data-kind="process-trace"]')).toContainText("准备任务");
     await expect(page.locator('[data-kind="process-trace"]')).not.toContainText("理解任务");

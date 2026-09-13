@@ -875,7 +875,7 @@ function taskResultCardsFrom(text: string): Record<string, unknown>[] {
   });
 }
 
-function StreamResultCard({ card }: { card: Record<string, unknown> }) {
+function StreamResultCard({ card, onRefresh }: { card: Record<string, unknown>; onRefresh?: () => void }) {
   const nested = card.draft && typeof card.draft === "object" ? card.draft as Record<string, unknown> : {};
   const title = String(card.title || "任务结果");
   const summary = String(card.summary || "");
@@ -883,7 +883,26 @@ function StreamResultCard({ card }: { card: Record<string, unknown> }) {
   const body = String(card.body || nested.body || "").trim();
   const from = String(card.from || nested.from || "").trim();
   const to = String(card.to || nested.to || "").trim();
+  const draftId = String(card.draft_id || nested.draft_id || "").trim();
   const sections = Array.isArray(card.sections) ? card.sections as Record<string, unknown>[] : [];
+  const actions = (Array.isArray(card.actions) ? card.actions : Array.isArray(card.recommended_actions) ? card.recommended_actions : [])
+    .map((item) => typeof item === "string" ? item : String((item as { label?: string }).label || (item as { title?: string }).title || ""))
+    .filter(Boolean);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const confirmSend = async () => {
+    if (!draftId) return;
+    setBusy(true);
+    setErr("");
+    try {
+      await api.sendDraft(draftId);
+      onRefresh?.();
+    } catch (error) {
+      setErr(friendlyError(error, "确认发送未完成，请稍后重试"));
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <article className="stream-task-result" data-kind="task-result-card" data-stream-result>
       <strong>{title}</strong>
@@ -903,16 +922,30 @@ function StreamResultCard({ card }: { card: Record<string, unknown> }) {
           </section>
         );
       })}
+      {draftId || actions.some((item) => /确认发送/.test(item)) ? (
+        <div className="action-row">
+          <button
+            type="button"
+            className="btn work"
+            data-email-action="send"
+            onClick={() => void confirmSend()}
+            disabled={busy || !draftId}
+          >
+            {busy ? "正在发送…" : "确认发送"}
+          </button>
+        </div>
+      ) : null}
+      {err ? <p className="error">{err}</p> : null}
     </article>
   );
 }
 
-function HumanizedInference({ text, debug = false }: { text: string; debug?: boolean }) {
+function HumanizedInference({ text, debug = false, onRefresh }: { text: string; debug?: boolean; onRefresh?: () => void }) {
   const cards = taskResultCardsFrom(text);
   if (cards.length) {
     return (
       <div data-humanized-inference>
-        {cards.map((card, index) => <StreamResultCard key={`${String(card.title || "result")}-${index}`} card={card} />)}
+        {cards.map((card, index) => <StreamResultCard key={`${String(card.title || "result")}-${index}`} card={card} onRefresh={onRefresh} />)}
         {debug ? (
           <details className="execution-details">
             <summary>调试原文</summary>
@@ -999,31 +1032,64 @@ function stripEngineCopy(text: string) {
     .trim();
 }
 
+function isToolId(text: string) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  if (/\b(?:starrykol|starry)\./i.test(raw)) return true;
+  if (/^[a-z]+(?:[A-Z][a-zA-Z]+)+$/.test(raw)) return true;
+  if (/^[a-z]+_[a-z0-9_]+$/i.test(raw) && !/[\u4e00-\u9fff]/.test(raw)) return true;
+  return false;
+}
+
+function isHarnessLabel(text: string) {
+  const raw = String(text || "").trim();
+  if (!raw) return true;
+  if (/preparing |evaluating |handling |calling capabilities|parallel execution|skill execution|mailbox call|stage recommendation|draft preview/i.test(raw)) return true;
+  if (/\b(?:mcp|codex|thread|skill)\b/i.test(raw) && !/[\u4e00-\u9fff]/.test(raw)) return true;
+  if (/\b(?:starrykol|starry)\./i.test(raw)) return true;
+  if (isToolId(raw)) return true;
+  return false;
+}
+
+function humanizeOneLabel(raw: string) {
+  const text = raw.trim();
+  if (!text) return "";
+  const fromJson = humanizeMaybeJson(text, "");
+  if (fromJson && fromJson !== text && !/[{[]/.test(fromJson)) return fromJson;
+  const mapped = TRACE_LABELS[text.toLowerCase()];
+  if (mapped) return mapped;
+  if (/preparing skill/i.test(text)) return "正在准备这项工作";
+  if (/parallel execution/i.test(text)) return "正在同时处理几项工作";
+  if (/mailbox call/i.test(text)) return "正在选择发件方式";
+  if (/stage recommendation/i.test(text)) return "正在整理阶段建议";
+  if (/draft preview/i.test(text)) return "邮件预览未完成";
+  if (/calling capabilities|remote mcp/i.test(text)) return "正在调用系统能力";
+  const tool = humanizeToolName(text);
+  if (tool) return tool;
+  if (/[\u4e00-\u9fff]/.test(text)) return text.replace(/\b(?:starrykol|starry)\.[A-Za-z0-9_.]+\b/g, "").trim();
+  if (/^[a-z0-9_.:/-]+$/i.test(text) || /\b(skill|mcp|codex|thread|json)\b/i.test(text) || isToolId(text)) return "正在处理这项工作";
+  return /[\u4e00-\u9fff]/.test(text) ? text : "正在处理这项工作";
+}
+
 function humanizeTraceLabel(label: string) {
   const raw = label.trim();
   if (!raw) return "正在处理";
-  const fromJson = humanizeMaybeJson(raw, "");
-  if (fromJson && fromJson !== raw && !/[{[]/.test(fromJson)) return fromJson;
-  const mapped = TRACE_LABELS[raw.toLowerCase()];
-  if (mapped) return mapped;
-  if (/preparing skill/i.test(raw)) return "正在准备这项工作";
-  if (/parallel execution/i.test(raw)) return "正在同时处理几项工作";
-  if (/mailbox call/i.test(raw)) return "正在选择发件方式";
-  if (/stage recommendation/i.test(raw)) return "正在整理阶段建议";
-  if (/draft preview/i.test(raw)) return "邮件预览未完成";
-  if (/calling capabilities|remote mcp/i.test(raw)) return "正在调用系统能力";
-  if (/[\u4e00-\u9fff]/.test(raw) && !/\b(?:starrykol|starry)\./i.test(raw)) return raw.replace(/\b(?:starrykol|starry)\.[A-Za-z0-9_.]+\b/g, "").trim();
-  const tool = humanizeToolName(raw);
-  if (tool) return tool;
-  if (/^[a-z0-9_.:/-]+$/i.test(raw) || /\b(skill|mcp|codex|thread|json)\b/i.test(raw)) return "正在处理这项工作";
-  return /[\u4e00-\u9fff]/.test(raw) ? raw : "正在处理这项工作";
+  const parts = raw.split(/\s*[·•|/]\s*/).map((item) => item.trim()).filter(Boolean);
+  if (parts.length > 1) {
+    const humans = parts.map(humanizeOneLabel).filter((item) => item && !isToolId(item));
+    const unique = [...new Set(humans)];
+    return unique[0] || "正在处理这项工作";
+  }
+  return humanizeOneLabel(raw) || "正在处理这项工作";
 }
 
-function employeeMessageBody(text: string, debug = false) {
+function employeeMessageBody(text: string, debug = false, onRefresh?: () => void) {
   if (looksLikeInferenceJson(text) || taskResultCardsFrom(text).length) {
-    return <HumanizedInference text={text} debug={debug} />;
+    return <HumanizedInference text={text} debug={debug} onRefresh={onRefresh} />;
   }
-  return <Markdown>{stripEngineCopy(humanizeMaybeJson(text))}</Markdown>;
+  const cleaned = stripEngineCopy(humanizeMaybeJson(text));
+  if (!debug && /^\s*[{[]/.test(cleaned)) return <p>正在整理结果</p>;
+  return <Markdown>{cleaned}</Markdown>;
 }
 
 function statusMark(status: TraceStatus) {
@@ -1298,14 +1364,18 @@ export function KolMailCard({
 export function ChatThread({
   messages,
   officialStage,
+  onRefresh,
 }: {
   messages: Message[];
   officialStage?: string;
+  onRefresh?: () => void;
 }) {
   const { debug } = useViewMode();
   const hasResult = messages.some((m) =>
-    ["email_card", "confirm_stage_card", "inbound_card", "supplement_card", "task_result_card", "kol_mail_card"].includes(m.kind),
+    ["email_card", "confirm_stage_card", "inbound_card", "supplement_card", "task_result_card", "kol_mail_card"].includes(m.kind)
+    || taskResultCardsFrom(String(m.payload.text || "")).length > 0,
   );
+  const hideHarness = hasResult && !debug;
   const latestResultId = [...messages].reverse().find((item) => item.kind === "task_result_card")?.id;
   const latestDraftId = [...messages].reverse().find((item) => item.kind === "email_card")?.id;
   const hasDraftCard = Boolean(latestDraftId);
@@ -1408,13 +1478,16 @@ export function ChatThread({
               data-status={state}
             >
               {state === "running" ? "⏳ " : state === "done" ? "✓ " : "⚠ "}
-              {employeeMessageBody(String(m.payload.text || ""), debug)}
+              {employeeMessageBody(String(m.payload.text || ""), debug, onRefresh)}
             </ThreadMessage>
           );
         }
         if (m.kind === "process_trace") {
-          const items = traceItems(m.payload);
-          const summaries = summaryLines(m.payload, items);
+          const items = traceItems(m.payload).filter((item) => !hideHarness || !isHarnessLabel(String(
+            item.label || item.summary || item.reasoning_summary || item.title || item.phase || "",
+          )));
+          if (hideHarness && !items.length) return null;
+          const summaries = summaryLines(m.payload, items).filter((line) => !hideHarness || !isHarnessLabel(line));
           const hasThinking = items.some((item) => item.kind === "reasoning" || Boolean(item.summary || item.reasoning_summary));
           return (
             <ThreadMessage
@@ -1454,6 +1527,7 @@ export function ChatThread({
           );
         }
         if (m.kind === "operation_trace") {
+          if (hideHarness) return null;
           const source = m.payload.operations || m.payload.items || [];
           const legacyTrace = String(m.payload.title || "") === "操作过程";
           const operations: OperationTraceItem[] = Array.isArray(source)
@@ -1538,7 +1612,7 @@ export function ChatThread({
           if (isDuplicateSessionChrome(text)) return null;
           return (
             <ThreadMessage key={m.id} role="system" className="sys-msg" data-kind="sys-msg">
-              {employeeMessageBody(text, debug)}
+              {employeeMessageBody(text, debug, onRefresh)}
             </ThreadMessage>
           );
         }
@@ -1557,7 +1631,7 @@ export function ChatThread({
             className={m.payload.streaming ? "is-streaming" : ""}
             data-streaming={m.payload.streaming ? "true" : undefined}
           >
-            {text ? employeeMessageBody(text, debug) : (m.payload.streaming ? <span className="muted">正在输出…</span> : null)}
+            {text ? employeeMessageBody(text, debug, onRefresh) : (m.payload.streaming ? <span className="muted">正在输出…</span> : null)}
           </ThreadMessage>
         );
       })}

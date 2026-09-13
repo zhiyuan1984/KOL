@@ -1002,6 +1002,7 @@ export default function Chat() {
           <ChatThread
             messages={timelineWithCrawl}
             officialStage={String(journey?.stage_code || "")}
+            onRefresh={reload}
           />
         )}
         </div>
