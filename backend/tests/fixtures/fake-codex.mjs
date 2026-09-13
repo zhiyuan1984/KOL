@@ -4,10 +4,11 @@
  * First account/read is empty; after account/updated the next read has a chatgpt account.
  * `account/login/start` with apiKey succeeds.
  */
+import fs from "node:fs";
 import readline from "node:readline";
 
 const mode = process.env.FAKE_CODEX_MODE || "late-chatgpt";
-let loggedIn = mode === "already-chatgpt" || mode === "kol-success" || mode === "task-result-success" || mode === "crawl-plan-success" || mode === "recognize-success";
+let loggedIn = mode === "already-chatgpt" || mode === "kol-success" || mode === "task-result-success" || mode === "crawl-plan-success" || mode === "recognize-success" || mode === "mail-digest-success";
 
 function send(obj) {
   process.stdout.write(`${JSON.stringify(obj)}\n`);
@@ -86,6 +87,14 @@ rl.on("line", (line) => {
     return;
   }
   if (method === "thread/start") {
+    const dump = String(process.env.FAKE_CODEX_THREAD_START || "").trim();
+    if (dump) {
+      try {
+        fs.writeFileSync(dump, JSON.stringify(params || {}));
+      } catch {
+        /* test dump is best-effort */
+      }
+    }
     send({ id, result: { thread: { id: "thr_fake" } } });
     return;
   }
@@ -177,6 +186,16 @@ rl.on("line", (line) => {
         missing_fields: [],
         alternatives: [],
       };
+      setTimeout(() => {
+        send({
+          method: "item/completed",
+          params: { item: { type: "agentMessage", text: JSON.stringify(item) } },
+        });
+        send({ method: "turn/completed", params: { turn: { id: "turn_fake", status: "completed" } } });
+      }, Number(process.env.FAKE_CODEX_DELAY || 20));
+    }
+    if (mode === "mail-digest-success") {
+      const item = { digest: "来信明确说想合作，并请品牌补充下一步。" };
       setTimeout(() => {
         send({
           method: "item/completed",

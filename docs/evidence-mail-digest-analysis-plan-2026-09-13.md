@@ -102,3 +102,11 @@ FE 只把 `error` 附在「分析未完成」状态上，**不**把规则正文�
 ## 不决定
 
 不改 Codex→Luna 顺序、不改指纹算法、不放宽寒暄过滤、不加长 `MAIL_ANALYSIS_TIMEOUT`、不 LIVE 发送/改阶段、不做完整 ADR（行为变更已记 `docs/DECISIONS.md` 近期记录）。
+
+## 后续小修：Codex 模型与 Luna 端点（2026-09-13）
+
+与 sticky-fail 无关、已另批的配置对齐：
+
+- Codex 往来摘要 `thread/start` 与识别路径共用 `codexRecognizeThreadConfig()`：只传 `CODEX_MODEL`，否则用 CLI 默认模型。**不要**把 Luna 的 `gpt-5.6-luna` 传给 Codex digest。
+- Codex digest 解析 agent 文本与 `turn.output` **分开**做。把空的 `output` 编成 `{}` 再拼到 agent JSON 上，`lastIndexOf("}")` 会吃到空对象，解析必失败，然后落到 Luna。
+- Luna digest（`INTENT_LLM_MODEL` 默认 `gpt-5.6-luna`）必须设 `OPENAI_BASE_URL` 为 Luna 兼容端点，并用该端点的 key。公共 OpenAI `sk-proj-*` 打 `api.openai.com` + `gpt-5.6-luna` 会 HTTP 401（key/endpoint 不匹配）。这不是 sticky-fail，也不是 provider 顺序变更。
