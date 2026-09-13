@@ -856,7 +856,7 @@ export default function Chat() {
             </>
           )}
         </header>
-        <div className="session-stream" ref={streamRef} data-session-stream-pane>
+        <div className="session-stream conversation" ref={streamRef} data-session-stream-pane data-ai-conversation role="log">
         {task && (
           <section className="task-analysis-summary" data-task-analysis-summary>
             <strong>分析摘要</strong>
@@ -927,7 +927,7 @@ export default function Chat() {
           />
         )}
         </div>
-        <footer className="session-composer" data-sop-ask={journey?.sop ? true : undefined}>
+        <footer className="session-composer prompt-input" data-sop-ask={journey?.sop ? true : undefined} data-ai-prompt-input>
           {kolSession ? (
             <p className="session-send-hint" data-session-send-hint>
               发送不等于改阶段

@@ -594,6 +594,7 @@ export default function ComposerDock({
         <textarea
           ref={inputRef}
           data-composer-input
+          data-ai-prompt-textarea
           data-composer-hint={hint || undefined}
           aria-busy={busy || undefined}
           value={value}
@@ -633,7 +634,7 @@ export default function ComposerDock({
           placeholder={placeholder}
           aria-label="发消息或创建任务"
         />
-        <div className={workspace ? "composer-toolbar" : "composer-inline-tools"}>
+        <div className={workspace ? "composer-toolbar" : "composer-inline-tools"} data-ai-prompt-tools>
         <div className="composer-add-wrap" ref={menuRef}>
         <button
           type="button"
@@ -726,7 +727,7 @@ export default function ComposerDock({
             停止
           </button>
         ) : null}
-        <button className={"btn send" + (workspace ? " send-arrow" : "")} type="submit" data-send disabled={busy || empty} aria-label={running ? "加入队列" : "发送"}>
+        <button className={"btn send" + (workspace ? " send-arrow" : "")} type="submit" data-send data-ai-prompt-submit disabled={busy || empty} aria-label={running ? "加入队列" : "发送"}>
           {workspace ? "➜" : "发送"}
         </button>
         </div>
