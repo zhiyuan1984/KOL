@@ -2217,12 +2217,13 @@ test("approval, knowledge, and exam are vertical primary nav items before cloud"
   expect(assetOrder.indexOf("knowledge")).toBeGreaterThanOrEqual(0);
   expect(assetOrder.indexOf("approvals")).toBeGreaterThanOrEqual(0);
   expect(assetOrder.indexOf("exam")).toBeGreaterThanOrEqual(0);
-  expect(assetOrder.indexOf("pipeline")).toBeGreaterThanOrEqual(0);
+  expect(assetOrder.indexOf("pipeline")).toBe(-1);
   expect(assetOrder.indexOf("cron")).toBe(-1);
   expect(assetOrder.indexOf("knowledge")).toBeLessThan(assetOrder.indexOf("云盘"));
   expect(assetOrder.indexOf("approvals")).toBeLessThan(assetOrder.indexOf("云盘"));
   expect(assetOrder.indexOf("exam")).toBeLessThan(assetOrder.indexOf("云盘"));
-  expect(assetOrder.indexOf("pipeline")).toBeLessThan(assetOrder.indexOf("云盘"));
+  await expect(page.locator('[data-nav="pipeline"]')).toHaveCount(0);
+  await expect(page.locator(".sidebar")).not.toContainText("生命周期");
   await expect(page.locator('[data-nav="skills"]')).toBeVisible();
   await expect(page.locator('.sidebar-foot a[href="/approvals"], .sidebar-foot a[href="/kb"], .sidebar-foot a[href="/exam"]')).toHaveCount(0);
   await page.locator('[data-nav="approvals"]').click();
