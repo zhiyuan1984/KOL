@@ -771,7 +771,7 @@ export default function Chat() {
                 })}
               </ol>
               {journey.sop && typeof journey.sop === "object" ? (
-                <details className="kol-stage-sop" data-stage-sop>
+                <details className="kol-stage-sop" data-stage-sop key={String(journey.stage_code || "")}>
                   <summary>
                     本阶段 SOP · {String((journey.sop as { stage_label?: string }).stage_label || journey.stage_label || "")}
                     {(journey.sop as { phase_label?: string }).phase_label
