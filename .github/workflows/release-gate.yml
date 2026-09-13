@@ -51,4 +51,12 @@ jobs:
         run: npm run build
       - name: Frontend E2E
         working-directory: frontend
+        env:
+          E2E_MODE: stub
+          E2E_AUTH_MODE: disabled
+          CODEX_MODE: stub
+          E2E_PORT: "18876"
+          E2E_BASE: http://127.0.0.1:18876
+          E2E_SKIP_BUILD: "1"
+          PW_HEADLESS: "1"
         run: npm run test:e2e

@@ -14,7 +14,7 @@ import {
 } from "../src/follow-style-tags.js";
 import { composeFactsFromContext, composePreviewPrompt } from "../src/host/compose-loop.js";
 import { buildHomeBoard } from "../src/host/home-board.js";
-import { seedAll } from "../src/seed.js";
+import { resetDemoRuntimeState, seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import type { Json } from "../src/types.js";
 
@@ -100,6 +100,11 @@ describe("follow-style tags", () => {
     expect(facts.items.join(" ")).toContain("犹豫谨慎");
     const prompt = composePreviewPrompt("写跟进邮件", "", facts);
     expect(prompt).toContain("跟进不要催");
+    resetDemoRuntimeState();
+    const cleared = getConn().prepare("SELECT follow_style_tags FROM collaborations WHERE id='col_xiaomei'").get() as {
+      follow_style_tags: string | null;
+    };
+    expect(cleared.follow_style_tags).toBeNull();
   });
 
   it("applies a chat 打标签 command without starting a worker", async () => {
