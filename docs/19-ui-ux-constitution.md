@@ -2,7 +2,7 @@
 
 员工端与 KOL 会话工作台的产品级体验法律。日期：2026-09-13。来源：产品负责人反馈，固化为后续界面取舍的默认立场。
 
-本文件管**注意力、信息架构和主路径感觉**。闸门、风险分级和无障碍仍以 `00-platform-charter.md`、`04-ux-ui-system.md` 与 `specs/UX-KOL.md` 为准。本文件**不**改 `frontend/src/pages/Chat.tsx`；会话页重构是后续实现，必须先符合本宪法。
+本文件管**注意力、信息架构和主路径感觉**。闸门、风险分级和无障碍仍以 `00-platform-charter.md`、`04-ux-ui-system.md` 与 `specs/UX-KOL.md` 为准。视觉密度与 token 默认见 `20-visual-design-system.md`。本文件**不**改 `frontend/src/pages/Chat.tsx`；会话页重构是后续实现，必须先符合本宪法。
 
 ## 核心闭环（必须是法律）
 
@@ -90,6 +90,7 @@ Journey 条可以留作**紧凑定向**，不能再当教练剧本。`04` / `UX-
 | 本文件 | 员工主表面的注意力法律；与 `04` 在信息架构上冲突时，以本文件为准 |
 | `00-platform-charter.md` | 租户、审批、发送/阶段/导入/解密/删除分离等平台不变量 |
 | `04-ux-ui-system.md` | 双端、状态可见、L1–L3、组件义务；可执行实例在 `specs/UX-KOL.md` |
+| `20-visual-design-system.md` | 视觉密度、组件基底、token 默认；不改注意力法律 |
 | `05-agent-workflow-skill-policy.md` | 8 段展示 vs 15 阶段写入；Journey / SOP 的业务含义 |
 | `14-implementation-contract.md` | Markdown 如何落到前端页面与 schema |
 
@@ -109,7 +110,7 @@ Journey 条可以留作**紧凑定向**，不能再当教练剧本。`04` / `UX-
 
 ## 落地顺序
 
-1. 新员工端 PR 先用「核心闭环」五问自检，再谈视觉。
+1. 新员工端 PR 先用「核心闭环」五问自检，再按 `20-visual-design-system.md` 谈视觉。
 2. 可执行验收仍走 `specs/UX-KOL.md` 与 `specs/ux-traceability.json`；本文件不新增 UX ID。
 3. 会话页若重设计，先压缩辅助条、去掉教练卡、让结果回到脊柱，再考虑新组件。
 4. 冲突写入 `DECISIONS.md`，不要在前端分支里另立一套体验规则。
