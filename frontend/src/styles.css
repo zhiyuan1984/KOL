@@ -3509,13 +3509,17 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .task-detail-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; color: var(--muted); font-size: 12px; }
 .task-context { margin: 9px 0 0; color: var(--text); font-size: var(--font-ui); line-height: 1.5; }
 .thread-mail-digest {
+  position: sticky;
+  top: 0;
+  z-index: 3;
   margin: 0 22px 12px;
   padding: 10px 12px;
   border-left: 2px solid var(--primary);
-  background: color-mix(in srgb, var(--primary) 5%, var(--bg));
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg));
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   width: auto;
   min-width: 0;
+  box-shadow: 0 1px 0 var(--border);
 }
 .thread-mail-digest.is-empty {
   border-left-color: var(--border);
@@ -3560,6 +3564,27 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   white-space: pre-wrap;
   font-size: 12px;
   color: var(--text-muted);
+}
+.stream-task-result {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+.stream-task-result strong {
+  font-size: var(--font-ui);
+}
+.stream-task-result p,
+.stream-task-result pre {
+  margin: 0;
+  font-size: var(--font-body);
+  line-height: var(--leading-body);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.stream-task-result h4 {
+  margin: 8px 0 0;
+  font-size: var(--font-ui);
 }
 .task-analysis-summary {
   margin: 0 22px 12px;

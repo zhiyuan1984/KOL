@@ -527,6 +527,8 @@ test("session page has no coach next-step card and keeps composer skills", async
   });
   expect(trackHasLine).toBeTruthy();
   await expect(page.locator("[data-session-stream-pane]")).not.toContainText("{");
+  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("右侧结果");
+  await expect(page.locator("[data-workbench]")).toBeVisible();
 });
 
 test("home lifecycle followed KOL opens the mail rail not the task list", async ({ page }) => {
@@ -1044,6 +1046,82 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   const pipe = await request.get("/api/pipeline").then((r) => r.json());
   const xiaomei = Object.values(pipe.groups).flat().find((c: { handle: string }) => c.handle === "小美妆日记") as { stage_code: string };
   expect(xiaomei.stage_code).toBe("INTERESTED");
+});
+
+test("employee stream parses task_result JSON into a card and hides engine jargon", async ({ page }) => {
+  const now = new Date().toISOString();
+  const dump = [
+    '{"type":"task_result","title":"正在准备合作邮件","summary":"先整理往来"}',
+    '{"type":"task_result","title":"合作邮件草稿","summary":"已写好一封建联信","subject":"Collaboration with LiTime","body":"Hi, we would love to collaborate.","from":"brand@litime.com","to":"kol@example.com"}',
+  ].join("");
+  await page.route("**/api/sessions/json-stream**", (route) => route.fulfill({
+    json: {
+      agent_status: "listening",
+      collaboration_id: "col_xiaomei",
+      journey: {
+        handle: "小美妆日记",
+        collaboration_id: "col_xiaomei",
+        stage_code: "INITIAL_CONTACT",
+        stage_label: "初步接触",
+        phases: [
+          { id: "contact", label: "建联", state: "current" },
+          { id: "intent", label: "意向", state: "idle" },
+        ],
+      },
+      messages: [
+        {
+          id: "dump",
+          session_id: "json-stream",
+          role: "assistant",
+          kind: "assistant",
+          created_at: now,
+          payload: { text: dump },
+        },
+        {
+          id: "trace",
+          session_id: "json-stream",
+          role: "assistant",
+          kind: "process_trace",
+          created_at: now,
+          payload: {
+            title: "Preparing skill execution",
+            phases: [
+              { label: "Evaluating mailbox call strategy", status: "done" },
+              { label: "Preparing stage recommendation JSON", status: "running" },
+            ],
+          },
+        },
+        {
+          id: "ops",
+          session_id: "json-stream",
+          role: "assistant",
+          kind: "operation_trace",
+          created_at: now,
+          payload: {
+            title: "远程MCP调用",
+            items: [
+              { label: "读取合作资料", name: "starry.get_collaboration", status: "done" },
+              { label: "生成邮件预览", name: "starrykol.previewEmailDraft", status: "done" },
+            ],
+          },
+        },
+      ],
+    },
+  }));
+  await page.goto("/s/json-stream");
+  await expect(page.locator("[data-session-stream-pane] [data-stream-result]")).toContainText("合作邮件草稿");
+  await expect(page.locator("[data-session-stream-pane] [data-stream-result]")).toContainText("Collaboration with LiTime");
+  await expect(page.locator("[data-session-stream-pane] [data-stream-result]")).toContainText("we would love to collaborate");
+  await expect(page.locator("[data-session-stream-pane]")).not.toContainText('{"type":"task_result"');
+  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("Preparing skill");
+  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("starry.get_collaboration");
+  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("starrykol.");
+  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("远程MCP");
+  await expect(page.locator("[data-kind='process-trace']")).toContainText("正在准备这项工作");
+  await expect(page.locator("[data-kind='process-trace']")).toContainText("正在选择发件方式");
+  await expect(page.locator("[data-kind='operation-trace']")).toContainText("读取合作资料");
+  await expect(page.locator("[data-kind='operation-trace']")).toContainText("生成邮件预览");
+  await expect(page.locator("[data-workbench]")).toBeVisible();
 });
 
 test("记状态 to CONTENT_REVIEW queues content approval and writes after manager agrees", async ({ page, request }) => {
@@ -2228,11 +2306,11 @@ test("风险扫描 runs Starry KOL MCP tools and lists T8 overdue", async ({ pag
     await expect(card).toContainText("风险汇总");
     await expect(card).toContainText("T8 失联与延期");
     await expect(card).toContainText("小美妆日记");
-    await expect(page.locator('[data-kind="operation-trace"]').last()).toContainText("远程MCP调用");
     await expect(page.locator('[data-kind="operation-trace"]').last()).toContainText("查询风险会话");
-    await expect(page.locator('[data-kind="operation-trace"]').last()).toContainText("starrykol.pageRiskConversations");
     await expect(page.locator('[data-kind="operation-trace"]').last()).toContainText("汇总风险会话");
-    await expect(page.locator('[data-kind="operation-trace"]').last()).toContainText("starrykol.summarizeRiskConversations");
+    await expect(page.locator('[data-kind="operation-trace"]').last()).not.toContainText("远程MCP");
+    await expect(page.locator('[data-kind="operation-trace"]').last()).not.toContainText("starrykol.");
+    await expect(page.locator('[data-kind="operation-trace"]').last()).not.toContainText("starry.");
     await expect(page.locator('[data-kind="process-trace"]')).toContainText("处理过程");
     await expect(page.locator('[data-kind="process-trace"]')).toContainText("准备任务");
     await expect(page.locator('[data-kind="process-trace"]')).not.toContainText("理解任务");

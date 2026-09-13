@@ -269,7 +269,7 @@ function safeCrawlOperationMessages(taskId: string, events: TaskEvent[]): Messag
     session_id: taskId,
     role: "assistant",
     kind: "operation_trace",
-    payload: { title: "远程MCP调用", items: [...operations.values()] },
+    payload: { title: "正在调用系统能力", items: [...operations.values()] },
     created_at: new Date().toISOString(),
   }];
 }
@@ -287,7 +287,7 @@ function taskAnalysisSummary(task: Task): string {
     const keywords = Array.isArray(entities.keywords) ? entities.keywords.map(String).join("、") : "待补充关键词";
     return `已识别为达人发现任务；目标平台：${platform}；搜索主题：${keywords}。参数生成后将自动启动远程采集。`;
   }
-  return `正在处理“${task.title}”。完整结果会放在右侧工作台。`;
+  return `正在处理“${task.title}”。完整结果会放在结果工作台。`;
 }
 
 function humanError(message: string) {
@@ -704,6 +704,7 @@ export default function Chat() {
     (message.kind === "steps" && String(message.payload.title || "").includes("失联")),
   ) || Boolean(task?.task_result || task?.crawl_result) || crawlJob?.status === "result_ready" || Boolean(focusedMail)
     || Boolean(kolSession && sessionMails && sessionMails.length);
+  const showRightWorkbench = Boolean(id && (hasRightArtifact || kolSession));
   const journeyPhases = journey?.handle
     ? (Array.isArray(journey.phases) && (journey.phases as unknown[]).length
       ? journey.phases as { id: string; label: string; state?: string; official_labels?: string[] }[]
@@ -802,7 +803,7 @@ export default function Chat() {
 
   return (
     <div
-      className={`session-shell conversation-workspace${showLeftRail ? " has-tasklist" : ""}${hasRightArtifact ? "" : " no-workbench"}`}
+      className={`session-shell conversation-workspace${showLeftRail ? " has-tasklist" : ""}${showRightWorkbench ? "" : " no-workbench"}`}
       style={{ ["--tasklist-width" as string]: `${taskListWidth}px` }}
     >
       {showLeftRail ? (
@@ -1039,7 +1040,7 @@ export default function Chat() {
           />
         </footer>
       </section>
-      {id && hasRightArtifact && (
+      {id && showRightWorkbench && (
         <SideWorkbench
           sessionId={id}
           messages={messages}

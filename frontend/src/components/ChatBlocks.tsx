@@ -743,21 +743,68 @@ function tryParseJson(text: string): unknown | null {
   }
 }
 
+function tryParseJsonFrom(src: string, start: number): { value: unknown; end: number } | null {
+  const open = src[start];
+  if (open !== "{" && open !== "[") return null;
+  let depth = 0;
+  let inStr = false;
+  let escape = false;
+  for (let i = start; i < src.length; i += 1) {
+    const ch = src[i];
+    if (inStr) {
+      if (escape) escape = false;
+      else if (ch === "\\") escape = true;
+      else if (ch === "\"") inStr = false;
+      continue;
+    }
+    if (ch === "\"") inStr = true;
+    else if (ch === "{" || ch === "[") depth += 1;
+    else if (ch === "}" || ch === "]") {
+      depth -= 1;
+      if (depth === 0) {
+        const slice = src.slice(start, i + 1);
+        const value = tryParseJson(slice);
+        return value == null ? null : { value, end: i + 1 };
+      }
+    }
+  }
+  return null;
+}
+
+function extractJsonValues(text: string): unknown[] {
+  const raw = String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  if (!raw) return [];
+  const values: unknown[] = [];
+  let i = 0;
+  while (i < raw.length) {
+    while (i < raw.length && raw[i] !== "{" && raw[i] !== "[") i += 1;
+    if (i >= raw.length) break;
+    const parsed = tryParseJsonFrom(raw, i);
+    if (!parsed) break;
+    values.push(parsed.value);
+    i = parsed.end;
+  }
+  return values;
+}
+
 function extractJsonBlob(text: string): string | null {
   const raw = String(text || "").trim();
   if (!raw) return null;
   const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fence && tryParseJson(fence[1].trim())) return fence[1].trim();
   if (tryParseJson(raw)) return raw;
-  const startObj = raw.indexOf("{");
-  const startArr = raw.indexOf("[");
-  const start = startObj < 0 ? startArr : startArr < 0 ? startObj : Math.min(startObj, startArr);
-  if (start < 0) return null;
-  const close = raw[start] === "{" ? "}" : "]";
-  const end = raw.lastIndexOf(close);
-  if (end <= start) return null;
-  const slice = raw.slice(start, end + 1);
-  return tryParseJson(slice) ? slice : null;
+  const values = extractJsonValues(raw);
+  if (values.length === 1) return JSON.stringify(values[0]);
+  if (values.length > 1) return raw.slice(raw.indexOf("{") >= 0 ? raw.indexOf("{") : raw.indexOf("["));
+  return null;
+}
+
+function isTaskResultPayload(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const row = value as Record<string, unknown>;
+  const type = String(row.type || "");
+  if (type === "task_result" || type === "email_card") return true;
+  return Boolean(row.title && (row.summary || row.subject || row.body || row.sections || row.draft));
 }
 
 function humanizeJsonValue(value: unknown, depth = 0): string {
@@ -812,16 +859,72 @@ function jsonFieldRows(value: unknown): { label: string; value: string }[] {
 }
 
 function looksLikeInferenceJson(text: string): boolean {
+  const values = extractJsonValues(text);
+  if (values.some(isTaskResultPayload)) return true;
   const blob = extractJsonBlob(text);
   if (!blob) return false;
   const ratio = blob.length / Math.max(String(text || "").trim().length, 1);
   return ratio >= 0.5 || /^```/.test(String(text || "").trim()) || Boolean(tryParseJson(String(text || "").trim()));
 }
 
+function taskResultCardsFrom(text: string): Record<string, unknown>[] {
+  return extractJsonValues(text).flatMap((value) => {
+    if (isTaskResultPayload(value)) return [value];
+    if (Array.isArray(value)) return value.filter(isTaskResultPayload);
+    return [];
+  });
+}
+
+function StreamResultCard({ card }: { card: Record<string, unknown> }) {
+  const nested = card.draft && typeof card.draft === "object" ? card.draft as Record<string, unknown> : {};
+  const title = String(card.title || "任务结果");
+  const summary = String(card.summary || "");
+  const subject = String(card.subject || nested.subject || "").trim();
+  const body = String(card.body || nested.body || "").trim();
+  const from = String(card.from || nested.from || "").trim();
+  const to = String(card.to || nested.to || "").trim();
+  const sections = Array.isArray(card.sections) ? card.sections as Record<string, unknown>[] : [];
+  return (
+    <article className="stream-task-result" data-kind="task-result-card" data-stream-result>
+      <strong>{title}</strong>
+      {summary ? <p>{summary}</p> : null}
+      {from ? <p data-result-from>发件 {from}</p> : null}
+      {to ? <p data-result-to>收件 {to}</p> : null}
+      {subject ? <p data-draft-subject>主题 {subject}</p> : null}
+      {body ? <pre className="mail-body-text" data-result-body>{body}</pre> : null}
+      {sections.map((section, index) => {
+        const heading = String(section.title || section.heading || "");
+        const content = String(section.content || section.body || section.summary || "");
+        if (!heading && !content) return null;
+        return (
+          <section key={`${heading}-${index}`}>
+            {heading ? <h4>{heading}</h4> : null}
+            {content ? <p>{content}</p> : null}
+          </section>
+        );
+      })}
+    </article>
+  );
+}
+
 function HumanizedInference({ text, debug = false }: { text: string; debug?: boolean }) {
+  const cards = taskResultCardsFrom(text);
+  if (cards.length) {
+    return (
+      <div data-humanized-inference>
+        {cards.map((card, index) => <StreamResultCard key={`${String(card.title || "result")}-${index}`} card={card} />)}
+        {debug ? (
+          <details className="execution-details">
+            <summary>调试原文</summary>
+            <pre className="inference-debug-json">{text}</pre>
+          </details>
+        ) : null}
+      </div>
+    );
+  }
   const blob = extractJsonBlob(text);
   const parsed = blob ? tryParseJson(blob) : null;
-  if (parsed == null) return <Markdown>{text}</Markdown>;
+  if (parsed == null) return <Markdown>{stripEngineCopy(text)}</Markdown>;
   const rows = jsonFieldRows(parsed);
   return (
     <div data-humanized-inference>
@@ -847,23 +950,80 @@ function HumanizedInference({ text, debug = false }: { text: string; debug?: boo
   );
 }
 
+const TRACE_LABELS: Record<string, string> = {
+  creator_discovery: "正在检查达人信息",
+  lead: "正在查看最近沟通",
+  commander: "正在分析合作历史",
+  execution: "正在生成建议",
+  kol: "正在准备达人建联",
+  pipeline_review: "正在复盘流水线",
+  "preparing skill execution": "正在准备这项工作",
+  "preparing parallel execution": "正在同时处理几项工作",
+  "evaluating mailbox call strategy": "正在选择发件方式",
+  "preparing stage recommendation json": "正在整理阶段建议",
+  "handling draft preview failure": "邮件预览未完成",
+  "preparing skill": "正在准备这项工作",
+  "preparing task": "准备任务",
+  "calling capabilities": "正在调用系统能力",
+  queued: "已排队",
+  running: "进行中",
+  "远程mcp调用": "正在调用系统能力",
+};
+
+const TOOL_LABELS: Record<string, string> = {
+  get_collaboration: "读取合作资料",
+  previewemaildraft: "生成邮件预览",
+  pageriskconversations: "查询风险会话",
+  summarizeriskconversations: "汇总风险会话",
+  getcreator: "查询达人详情",
+  updatecreatorprofile: "更新达人画像",
+  "claw.start_crawl": "启动远程采集",
+  "claw.get_crawl_status": "查询远程采集状态",
+  "claw.stop_crawl": "停止远程采集",
+};
+
+function humanizeToolName(name: string) {
+  const raw = String(name || "").trim();
+  if (!raw) return "";
+  const short = raw.replace(/^(starrykol|starry)\./i, "");
+  return TOOL_LABELS[raw.toLowerCase()]
+    || TOOL_LABELS[short.toLowerCase()]
+    || (/[\u4e00-\u9fff]/.test(short) ? short : "");
+}
+
+function stripEngineCopy(text: string) {
+  return String(text || "")
+    .replace(/\b(?:starrykol|starry)\.[A-Za-z0-9_.]+\b/g, "")
+    .replace(/\b(?:MCP|Codex|Thread|Skill)\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 function humanizeTraceLabel(label: string) {
   const raw = label.trim();
   if (!raw) return "正在处理";
   const fromJson = humanizeMaybeJson(raw, "");
-  if (fromJson && fromJson !== raw) return fromJson;
-  if (/[\u4e00-\u9fff]/.test(raw)) return raw;
-  const mapped: Record<string, string> = {
-    creator_discovery: "正在检查达人信息",
-    lead: "正在查看最近沟通",
-    commander: "正在分析合作历史",
-    execution: "正在生成建议",
-    kol: "正在准备达人建联",
-    pipeline_review: "正在复盘流水线",
-  };
-  if (mapped[raw]) return mapped[raw];
-  if (/^[a-z0-9_.:/-]+$/i.test(raw)) return "正在处理这项工作";
-  return raw;
+  if (fromJson && fromJson !== raw && !/[{[]/.test(fromJson)) return fromJson;
+  const mapped = TRACE_LABELS[raw.toLowerCase()];
+  if (mapped) return mapped;
+  if (/preparing skill/i.test(raw)) return "正在准备这项工作";
+  if (/parallel execution/i.test(raw)) return "正在同时处理几项工作";
+  if (/mailbox call/i.test(raw)) return "正在选择发件方式";
+  if (/stage recommendation/i.test(raw)) return "正在整理阶段建议";
+  if (/draft preview/i.test(raw)) return "邮件预览未完成";
+  if (/calling capabilities|remote mcp/i.test(raw)) return "正在调用系统能力";
+  if (/[\u4e00-\u9fff]/.test(raw) && !/\b(?:starrykol|starry)\./i.test(raw)) return raw.replace(/\b(?:starrykol|starry)\.[A-Za-z0-9_.]+\b/g, "").trim();
+  const tool = humanizeToolName(raw);
+  if (tool) return tool;
+  if (/^[a-z0-9_.:/-]+$/i.test(raw) || /\b(skill|mcp|codex|thread|json)\b/i.test(raw)) return "正在处理这项工作";
+  return /[\u4e00-\u9fff]/.test(raw) ? raw : "正在处理这项工作";
+}
+
+function employeeMessageBody(text: string, debug = false) {
+  if (looksLikeInferenceJson(text) || taskResultCardsFrom(text).length) {
+    return <HumanizedInference text={text} debug={debug} />;
+  }
+  return <Markdown>{stripEngineCopy(humanizeMaybeJson(text))}</Markdown>;
 }
 
 function statusMark(status: TraceStatus) {
@@ -899,9 +1059,9 @@ function summaryLines(payload: Record<string, unknown>, items: ProcessTraceItem[
 function operationParts(operation: OperationTraceItem, index: number): { human: string; name: string } {
   const tool = typeof operation.tool === "object" ? operation.tool : null;
   const name = String(operation.name || tool?.name || operation.tool || "").trim();
-  const human = String(operation.tool_label || operation.label || tool?.label || "").trim();
-  if (human || name) return { human, name };
-  return { human: `远程调用 ${index + 1}`, name: "" };
+  const rawHuman = String(operation.tool_label || operation.label || tool?.label || "").trim();
+  const human = humanizeTraceLabel(rawHuman || humanizeToolName(name) || `系统能力 ${index + 1}`);
+  return { human, name };
 }
 
 const LEGACY_PHASE_OPERATIONS = new Set([
@@ -1248,9 +1408,7 @@ export function ChatThread({
               data-status={state}
             >
               {state === "running" ? "⏳ " : state === "done" ? "✓ " : "⚠ "}
-              {looksLikeInferenceJson(String(m.payload.text || ""))
-                ? <HumanizedInference text={String(m.payload.text || "")} debug={debug} />
-                : humanizeMaybeJson(String(m.payload.text || ""))}
+              {employeeMessageBody(String(m.payload.text || ""), debug)}
             </ThreadMessage>
           );
         }
@@ -1266,7 +1424,7 @@ export function ChatThread({
               data-kind="process-trace"
               data-harness-thinking={hasThinking ? "true" : undefined}
             >
-              <strong>{String(m.payload.title || "处理过程")}</strong>
+              <strong>{humanizeTraceLabel(String(m.payload.title || "处理过程"))}</strong>
               <ul className="trace-list">
                 {items.map((item, index) => {
                   const label = humanizeTraceLabel(String(
@@ -1288,7 +1446,7 @@ export function ChatThread({
                   {summaries.map((summary, index) => (
                     looksLikeInferenceJson(summary)
                       ? <HumanizedInference key={`${summary}-${index}`} text={summary} debug={debug} />
-                      : <p key={`${summary}-${index}`}>{summary}</p>
+                      : <p key={`${summary}-${index}`}>{humanizeTraceLabel(summary)}</p>
                   ))}
                 </details>
               )}
@@ -1304,7 +1462,7 @@ export function ChatThread({
               .filter((operation) => !isLegacyPhaseOperation(operation, legacyTrace))
             : [];
           const active = Boolean(m.payload.active);
-          const title = String(m.payload.title || "远程MCP调用");
+          const title = humanizeTraceLabel(String(m.payload.title || "正在调用系统能力"));
           if (!operations.length && !active) return null;
           return (
             <ThreadMessage key={m.id} role="assistant" className="operation-trace process-md" data-kind="operation-trace">
@@ -1316,11 +1474,9 @@ export function ChatThread({
                     const status = safeStatus(operation.status);
                     const streaming = status === "running";
                     return (
-                      <li key={operation.id || name || index} data-status={status} data-mcp-name={name || undefined}>
+                      <li key={operation.id || name || index} data-status={status} data-mcp-name={debug ? (name || undefined) : undefined}>
                         <i>{statusMark(status)}</i>
-                        <span className={streaming ? "is-streaming" : undefined}>
-                          {human && name && human !== name ? `${human} · ${name}` : (human || name)}
-                        </span>
+                        <span className={streaming ? "is-streaming" : undefined}>{human}</span>
                       </li>
                     );
                   })
@@ -1382,9 +1538,7 @@ export function ChatThread({
           if (isDuplicateSessionChrome(text)) return null;
           return (
             <ThreadMessage key={m.id} role="system" className="sys-msg" data-kind="sys-msg">
-              {looksLikeInferenceJson(text)
-                ? <HumanizedInference text={text} debug={debug} />
-                : <Markdown>{`> ${text}`}</Markdown>}
+              {employeeMessageBody(text, debug)}
             </ThreadMessage>
           );
         }
@@ -1403,11 +1557,7 @@ export function ChatThread({
             className={m.payload.streaming ? "is-streaming" : ""}
             data-streaming={m.payload.streaming ? "true" : undefined}
           >
-            {text ? (
-              looksLikeInferenceJson(text)
-                ? <HumanizedInference text={text} debug={debug} />
-                : <Markdown>{text}</Markdown>
-            ) : (m.payload.streaming ? <span className="muted">正在输出…</span> : null)}
+            {text ? employeeMessageBody(text, debug) : (m.payload.streaming ? <span className="muted">正在输出…</span> : null)}
           </ThreadMessage>
         );
       })}
