@@ -1,0 +1,47 @@
+{
+  "profile": "stub-pipeline-pr24",
+  "browser": "chrome",
+  "mode": "stub",
+  "status": "pass",
+  "commit": "cd6ab81",
+  "pr": 24,
+  "branch": "cursor/pipeline-page-role-9335",
+  "environment": {
+    "E2E_MODE": "stub",
+    "E2E_AUTH_MODE": "disabled",
+    "PW_CHANNEL": "chrome",
+    "E2E_PORT": "8893",
+    "workspace": "/workspace/KOL-real",
+    "rebuild_required": true
+  },
+  "counts": { "passed": 3, "failed": 0, "total": 3 },
+  "e2e": [
+    {
+      "name": "pipeline review follows the common task flow with progress and a right-side result",
+      "result": "pass"
+    },
+    {
+      "name": "pipeline shows a 15-stage milestone timeline and lifecycle drawer",
+      "result": "pass"
+    },
+    {
+      "name": "home lifecycle followed KOL opens the mail rail not the task list",
+      "result": "pass"
+    }
+  ],
+  "negatives_verified": [
+    "No「首页任务」/「本页动作」/ RELATED_HOME chips",
+    "No auto-select first KOL",
+    "Drawer action: 提出阶段变更 only"
+  ],
+  "side_effect_policy": {
+    "send": "not invoked",
+    "stage_write": "not invoked",
+    "live": "not used"
+  },
+  "notes": [
+    "Stub E2E 3/3 PASS after lifecycle-only Pipeline cleanup on PR #24.",
+    "Not a LIVE run. send/stage not invoked."
+  ],
+  "generated_at": "2026-09-13"
+}
