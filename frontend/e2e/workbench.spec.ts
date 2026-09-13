@@ -348,9 +348,9 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expect(page.locator('[data-nav="pipeline"]')).toContainText("生命周期");
   await expect(page.locator('[data-nav="pipeline"]')).not.toContainText("创建新项目");
   await expect(page.locator('[data-nav="confirm"]')).toHaveCount(0);
-  await expect(page.locator("aside")).not.toContainText("等我确认");
-  await expect(page.locator("aside")).not.toContainText("等我確認");
-  await expect(page.locator("aside")).not.toContainText("Awaiting confirm");
+  await expect(page.locator(".sidebar")).not.toContainText("等我确认");
+  await expect(page.locator(".sidebar")).not.toContainText("等我確認");
+  await expect(page.locator(".sidebar")).not.toContainText("Awaiting confirm");
   await expect(page.locator('[data-nav="approvals"]')).toContainText("审批");
   await expect(page.locator('a[href="/pipeline"]').first()).toHaveText("生命周期");
   await expect(page.locator('a[href="/pipeline"]').nth(1)).toContainText("生命周期");
