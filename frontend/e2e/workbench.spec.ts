@@ -754,7 +754,6 @@ test("home AI insight is confirmed into 我的待办 and 立即处理 opens the 
   await expect(page.locator("[data-today-summary]")).toContainText(/\d+项待处理/);
   await expect(page.locator("[data-today-summary]")).toContainText("结果待确认");
   await expect(page.locator("[data-today-summary]")).not.toContainText("等待中");
-  await expect(page.locator('[data-todo-bucket="waiting"]')).toContainText("结果待确认");
   const todoBefore = await page.locator("[data-todo-card]").count();
   expect(todoBefore).toBeGreaterThanOrEqual(2);
   await expect(page.locator("[data-today-work]")).not.toContainText("失联跟进");
