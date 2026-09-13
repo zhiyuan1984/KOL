@@ -990,7 +990,10 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   await expect(page.locator("[data-session-stage]")).toContainText("初步接触");
   await expect(page.locator("[data-stage-sop]")).toHaveJSProperty("open", false);
   await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).toBeVisible();
-  await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).toContainText("历史邮件往来摘要");
+  await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).toContainText("规则摘录");
+  await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).not.toContainText("历史邮件往来摘要");
+  await expect(page.locator("[data-session-stream-pane] [data-digest-excerpt]")).toHaveJSProperty("open", false);
+  await page.locator("[data-session-stream-pane] [data-digest-excerpt] summary").click();
   await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).toContainText("would love to collaborate");
   await expect(page.locator("[data-workbench]")).toBeVisible();
   await expect(page.locator("[data-journey-track]")).toBeVisible();
@@ -1043,10 +1046,16 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   await expect(page.locator("[data-stage-sop]")).not.toContainText("完成条件");
   await expect(page.locator("[data-stage-sop]")).not.toContainText("当前步骤");
   await expect(page.locator("[data-stage-sop]")).not.toContainText("历史邮件往来摘要");
-  await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).toContainText("历史邮件往来摘要");
+  await expect(page.locator("[data-stage-sop]")).not.toContainText("规则摘录");
+  await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).toContainText("规则摘录");
+  await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).not.toContainText("历史邮件往来摘要");
   await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).not.toContainText("Luna 往来摘要");
+  const excerpt = page.locator("[data-session-stream-pane] [data-digest-excerpt]");
+  if (!(await excerpt.evaluate((el) => el instanceof HTMLDetailsElement && el.open))) {
+    await excerpt.locator("summary").click();
+  }
   const digestBox = page.locator("[data-session-stream-pane] [data-mail-digest]");
-  const digestText = page.locator("[data-session-stream-pane] [data-mail-summary] p");
+  const digestText = page.locator("[data-session-stream-pane] [data-digest-body] p");
   const streamBox = page.locator("[data-session-stream-pane]");
   const digestWidth = await digestBox.evaluate((el) => (el as HTMLElement).getBoundingClientRect().width);
   const digestTextWidth = await digestText.evaluate((el) => (el as HTMLElement).getBoundingClientRect().width);
@@ -1076,6 +1085,109 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   const pipe = await request.get("/api/pipeline").then((r) => r.json());
   const xiaomei = Object.values(pipe.groups).flat().find((c: { handle: string }) => c.handle === "小美妆日记") as { stage_code: string };
   expect(xiaomei.stage_code).toBe("INTERESTED");
+});
+
+test("thread mail digest labels rule excerpt, model summary, and failed analysis", async ({ page, request }) => {
+  const ingested = await request.post("/api/collaborations/col_xiaomei/ingest-mail", {
+    data: {
+      subject: "Re: Collaboration Opportunity with LiTime",
+      body: "Hi, I am interested and would love to collaborate.",
+      from: "xiaomei.beauty@example.com",
+    },
+  }).then((r) => r.json()) as { session_id: string };
+  await page.goto(`/s/${ingested.session_id}`);
+  const digest = page.locator("[data-session-stream-pane] [data-mail-digest]");
+  await expect(digest).toBeVisible();
+  await expect(digest).toHaveAttribute("data-digest-kind", "rule");
+  await expect(digest).toContainText("规则摘录");
+  await expect(digest.locator("[data-digest-disclaimer]")).toContainText("不是模型摘要");
+  await expect(digest).not.toContainText("历史邮件往来摘要");
+  await expect(digest.locator("[data-digest-excerpt]")).toHaveJSProperty("open", false);
+  await expect(digest.locator("[data-digest-body]")).toBeHidden();
+  await expect(page.locator("[data-stage-sop]")).toHaveJSProperty("open", false);
+  await expect(page.locator("[data-workbench]")).toBeVisible();
+  await expectNoEngineJargon(digest);
+  await saveScreenshot(page, "mail_digest_rule_excerpt_collapsed.png");
+
+  const journeyShell = {
+    handle: "小美妆日记",
+    collaboration_id: "col_xiaomei",
+    stage_code: "INITIAL_CONTACT",
+    stage_label: "初步接触",
+    sop: { stage_label: "初步接触", phase_label: "建联", inputs: ["往来邮件"] },
+    phases: [
+      { id: "contact", label: "建联", state: "current" },
+      { id: "intent", label: "意向", state: "idle" },
+    ],
+    mail_history: [{
+      id: "mail-digest-1",
+      conversation_id: "3901",
+      subject: "Re: LiTime collab",
+      direction: "inbound",
+      body: "Hi, I am interested and would love to collaborate.",
+    }],
+  };
+
+  await page.route((url) => new URL(url).pathname === "/api/sessions/digest-codex", (route) => route.fulfill({
+    json: {
+      id: "digest-codex",
+      collaboration_id: "col_xiaomei",
+      agent_status: "listening",
+      messages: [],
+      journey: {
+        ...journeyShell,
+        mail_digest: {
+          text: "达人已明确表示有兴趣合作，并提到愿意推进档期。",
+          source: "codex_memory",
+          mail_count: 2,
+        },
+      },
+    },
+  }));
+  await page.goto("/s/digest-codex");
+  await expect(digest).toBeVisible();
+  await expect(digest).toHaveAttribute("data-digest-kind", "codex");
+  await expect(digest).toContainText("历史邮件往来摘要");
+  await expect(digest).not.toContainText("规则摘录");
+  await expect(digest.locator("[data-digest-body]")).toBeVisible();
+  await expect(digest.locator("[data-digest-body]")).toContainText("达人已明确表示有兴趣合作");
+  await expect(digest.locator("[data-digest-excerpt]")).toHaveCount(0);
+  await expect(digest).not.toContainText("codex_memory");
+  await expect(page.locator("[data-stage-sop]")).toHaveJSProperty("open", false);
+  await expect(page.locator("[data-workbench]")).toBeVisible();
+  await saveScreenshot(page, "mail_digest_codex_summary_open.png");
+
+  await page.route((url) => new URL(url).pathname === "/api/sessions/digest-failed", (route) => route.fulfill({
+    json: {
+      id: "digest-failed",
+      collaboration_id: "col_xiaomei",
+      agent_status: "listening",
+      messages: [],
+      journey: {
+        ...journeyShell,
+        mail_digest: {
+          text: "本会话共 2 封往来。来信明确表示有兴趣合作。",
+          source: "analysis_failed",
+          mail_count: 2,
+          error: "timeout",
+          failed_at: "2026-09-13T17:00:00.000Z",
+        },
+      },
+    },
+  }));
+  await page.goto("/s/digest-failed");
+  await expect(digest).toBeVisible();
+  await expect(digest).toHaveAttribute("data-digest-kind", "failed");
+  await expect(digest).toHaveAttribute("data-digest-error", "timeout");
+  await expect(digest).toHaveAttribute("data-digest-failed-at", "2026-09-13T17:00:00.000Z");
+  await expect(digest.locator("[data-digest-status]")).toHaveText("分析未完成 · timeout");
+  await expect(digest.locator("[data-digest-lede]")).toContainText("未能读完这些正文");
+  await expect(digest).not.toContainText("历史邮件往来摘要");
+  await expect(digest).not.toContainText("规则摘录");
+  await expect(digest.locator("[data-digest-excerpt]")).toHaveJSProperty("open", false);
+  await expect(digest).not.toContainText("analysis_failed");
+  await expect(digest).not.toContainText("Codex");
+  await saveScreenshot(page, "mail_digest_analysis_failed_status.png");
 });
 
 function expectNoEngineJargon(root: Locator) {

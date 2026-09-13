@@ -75,40 +75,67 @@ type JourneyMailDigest = {
   failed_at?: string;
 };
 
+function isRemoteModelDigest(source: string, text: string): boolean {
+  return (source === "codex_memory" || source === "luna") && Boolean(text) && !isCannedGreetingSummary(text);
+}
+
+function isPlaceholderDigest(text: string): boolean {
+  return /^(正在把本会话全部往来收成一段话。|未能读完这些正文。下拉刷新可重试。)$/.test(text);
+}
+
 function threadDigestView(digest: JourneyMailDigest | null, pending: boolean): {
   label: string;
-  kind: string;
+  kind: "luna" | "codex" | "pending" | "failed" | "rule";
   text: string;
   status?: string;
+  lede?: string;
+  excerpt?: string;
+  disclaimer?: string;
+  prominent: boolean;
 } {
   const source = String(digest?.source || "");
   const summary = String(digest?.text || "").trim();
-  const remote = (source === "codex_memory" || source === "luna") && summary && !isCannedGreetingSummary(summary);
-  if (remote) {
+  const excerpt = summary && !isPlaceholderDigest(summary) ? summary : "";
+  if (isRemoteModelDigest(source, summary)) {
     return {
       label: "历史邮件往来摘要",
       kind: source === "luna" ? "luna" : "codex",
       text: summary,
+      prominent: true,
     };
   }
   if (pending) {
     return {
-      label: "历史邮件往来摘要",
+      label: "正在读历史邮件",
       kind: "pending",
       status: "正在读历史邮件",
-      text: summary || "正在把本会话全部往来收成一段话。",
+      text: "",
+      lede: "正在读取本会话的往来邮件。",
+      excerpt,
+      prominent: false,
     };
   }
   if (source === "analysis_failed") {
     const error = String(digest?.error || "").trim();
+    const status = error ? `分析未完成 · ${error}` : "分析未完成";
     return {
-      label: "历史邮件往来摘要",
+      label: status,
       kind: "failed",
-      status: error ? `分析未完成 · ${error}` : "分析未完成",
-      text: summary || "未能读完这些正文。下拉刷新可重试。",
+      status,
+      text: "",
+      lede: "未能读完这些正文。下拉刷新可重试。",
+      excerpt,
+      prominent: false,
     };
   }
-  return { label: "历史邮件往来摘要", kind: "rule", text: summary };
+  return {
+    label: "规则摘录",
+    kind: "rule",
+    text: excerpt,
+    excerpt,
+    disclaimer: "这不是模型摘要，而是按每封邮件整理的规则摘录。",
+    prominent: false,
+  };
 }
 
 function looksLikeEmailDraft(text: string): boolean {
@@ -136,24 +163,39 @@ function ThreadMailDigest({
 }) {
   const analysis = threadDigestView(digest, pending);
   const count = Number(digest?.mail_count || mailCount || 0);
+  const source = digest?.source || (pending ? "pending" : "body_analysis");
   return (
     <article
       className={`thread-mail-digest sop-mail-analysis is-${analysis.kind}`}
       data-mail-digest
       data-mail-summaries
       data-mail-summary
-      data-summary-source={digest?.source || (pending ? "pending" : "body_analysis")}
+      data-digest-kind={analysis.kind}
+      data-summary-source={source}
       data-digest-error={digest?.error || undefined}
       data-digest-failed-at={digest?.failed_at || undefined}
     >
       <span className="sop-mail-icon" aria-hidden>✉️</span>
-      <strong className="sop-mail-analysis-label">{analysis.label}</strong>
-      {analysis.status ? <small data-digest-status>{analysis.status}</small> : null}
+      <strong className="sop-mail-analysis-label" data-digest-status={analysis.status || undefined}>{analysis.label}</strong>
       {count ? <small data-digest-count>{count} 封往来</small> : null}
-      {analysis.text ? (
-        <div className="sop-mail-md-body">
+      {analysis.disclaimer ? (
+        <p className="digest-disclaimer" data-digest-disclaimer>{analysis.disclaimer}</p>
+      ) : null}
+      {analysis.lede ? (
+        <p className="digest-lede" data-digest-lede>{analysis.lede}</p>
+      ) : null}
+      {analysis.prominent && analysis.text ? (
+        <div className="sop-mail-md-body" data-digest-body>
           <Markdown>{analysis.text}</Markdown>
         </div>
+      ) : null}
+      {!analysis.prominent && analysis.excerpt ? (
+        <details className="digest-excerpt" data-digest-excerpt>
+          <summary>查看摘录</summary>
+          <div className="sop-mail-md-body" data-digest-body>
+            <Markdown>{analysis.excerpt}</Markdown>
+          </div>
+        </details>
       ) : null}
     </article>
   );
