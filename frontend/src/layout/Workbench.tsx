@@ -109,7 +109,6 @@ export default function Workbench() {
         <NavLink to="/">任务</NavLink>
         <NavLink to="/agents" className={() => onAgentsWork ? "active" : ""}>数字员工</NavLink>
         <NavLink to="/agents?tab=teams" className={() => onTeamsTab ? "active" : ""}>数字团队</NavLink>
-        <NavLink to="/pipeline">生命周期</NavLink>
       </div>
       <aside className={"sidebar" + (mobileOpen ? " mobile-open" : "")}>
         <div className="sidebar-head">
@@ -182,10 +181,6 @@ export default function Workbench() {
           <NavLink to="/kb" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} data-nav="knowledge" onClick={() => setMobileOpen(false)}>
             <Ico path="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5z M20 5.5A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5z" />
             <span className="sidebar-label">知识库</span>
-          </NavLink>
-          <NavLink to="/pipeline" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} data-nav="pipeline" onClick={() => setMobileOpen(false)}>
-            <Ico path="M4 7h16 M4 12h10 M4 17h16 M8 5v4 M14 10v4 M7 15v4" />
-            <span className="sidebar-label">生命周期</span>
           </NavLink>
           <NavLink to="/approvals" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} data-nav="approvals" onClick={() => setMobileOpen(false)}>
             <Ico path="M7 4h10a2 2 0 0 1 2 2v14H5V6a2 2 0 0 1 2-2z M9 4v3h6V4" />

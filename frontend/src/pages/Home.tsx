@@ -34,7 +34,6 @@ import {
   sortFollowedKolCards,
   type FollowedKolCardModel,
   type FollowedKolRecord,
-  type KolSortMode,
 } from "../followedKolCard";
 import {
   HOME_TASK_POLL_MS,
@@ -63,14 +62,13 @@ const openStatuses = new Set(["pending", "waiting", "running", "queued", "in_pro
 const closedStatuses = new Set(["completed", "done", "cancelled"]);
 const HOME_MODES: HomeMode[] = ["ai", "todo", "lifecycle"];
 const HOME_FOLD_LIMIT = 6;
-const ACTIONABLE_TODO_BUCKETS = [
+const HOME_TODO_BUCKETS = [
   ["overdue", "逾期"],
   ["today", "今天到期"],
-  ["waiting", "结果待确认"],
   ["approval", "等审批"],
   ["queued", "已入队"],
   ["running", "执行中"],
-] as const satisfies ReadonlyArray<readonly [ActionableTodoBucket, string]>;
+] as const satisfies ReadonlyArray<readonly [Exclude<ActionableTodoBucket, "waiting">, string]>;
 const EXCEPTION_TEMPLATE: TaskDefinition = {
   id: "exception_delay_care",
   skill_id: "email_compose",
@@ -379,8 +377,6 @@ export default function Home() {
   const [tab, setTab] = useState<HomeTab>("today");
   const [filter, setFilter] = useState<TaskFilter>("all");
   const [kolTab, setKolTab] = useState<KolTab>("all");
-  const [kolSort, setKolSort] = useState<KolSortMode>("need");
-  const [unreadOnly, setUnreadOnly] = useState(false);
   const [followedKols, setFollowedKols] = useState<FollowedKol[]>([]);
   const [boardWorkbench, setBoardWorkbench] = useState<HomeWorkbench | null>(null);
   const [followScope, setFollowScope] = useState<StarryBinding | null>(null);
@@ -983,13 +979,9 @@ export default function Home() {
   );
 
   const visibleKols = useMemo(() => {
-    const filtered = kolCards.filter((card) => {
-      if (!matchesStageTab(card, kolTab)) return false;
-      if (unreadOnly && !card.unread_inbound) return false;
-      return true;
-    });
-    return sortFollowedKolCards(filtered, kolSort);
-  }, [kolCards, kolSort, kolTab, unreadOnly]);
+    const filtered = kolCards.filter((card) => matchesStageTab(card, kolTab));
+    return sortFollowedKolCards(filtered, "need");
+  }, [kolCards, kolTab]);
 
   const kolCounts = useMemo(() => {
     const counts: Record<string, number> = { all: kolCards.length, exception: 0 };
@@ -1012,13 +1004,12 @@ export default function Home() {
     ai: tasks.filter((task) => task.source === "ai").length,
   };
 
-  const summary = workbench.summary || {};
-  const openCount = summary.open ?? todoItems.length;
-  const overdueCount = summary.overdue ?? todoItems.filter((task) => todoBucket(task) === "overdue").length;
-  const dueTodayCount = summary.due_today ?? todoItems.filter((task) => todoBucket(task) === "today").length;
-  const awaitingConfirmCount = todoItems.filter((task) => isAwaitingReview(task)).length;
+  const openCount = todoItems.length;
+  const overdueCount = todoItems.filter((task) => todoBucket(task) === "overdue").length;
+  const dueTodayCount = todoItems.filter((task) => todoBucket(task) === "today").length;
   const awaitingApprovalCount = todoItems.filter((task) => isAwaitingApproval(task)).length;
-  const insightCount = summary.insights ?? insightItems.length;
+  const showInsightList = insightItems.length > 0 || recommendedItems.length === 0;
+  const insightCount = recommendedItems.length + (showInsightList ? insightItems.length : 0);
   const highValueCount = insightItems.filter(isHighValueInsight).length;
   const recognizeSeconds = recognizeElapsedSeconds(recognizeStartedAt, recognizeNow);
   const recognizeOverdue = recognizeTimedOut(recognizeStartedAt, recognizeNow);
@@ -1069,7 +1060,6 @@ export default function Home() {
           <h1>{home.h1}</h1>
           <p className="home-stats" data-today-summary data-home-stats>
             {statsText}
-            {awaitingConfirmCount ? ` · ${awaitingConfirmCount}结果待确认` : ""}
             {awaitingApprovalCount ? ` · ${awaitingApprovalCount}等审批` : ""}
           </p>
 
@@ -1079,6 +1069,7 @@ export default function Home() {
               role="tab"
               aria-selected={mode === "ai"}
               data-home-mode="ai"
+              data-ai-count={insightCount}
               onClick={() => setMode("ai")}
             >
               AI发现 {insightCount}
@@ -1113,9 +1104,9 @@ export default function Home() {
           onScroll={(event) => setStageScrolled(event.currentTarget.scrollTop > 40)}
         >
           {mode === "ai" ? (
-            <section className="home-mode-pane" data-home-pane="ai" data-ai-insights>
+            <section className="home-mode-pane" data-home-pane="ai" data-ai-insights data-ai-list-total={insightCount}>
               <RecommendedTaskList items={recommendedItems} busy={busy} onPick={onRecommend} />
-              {insightItems.length || !recommendedItems.length ? (
+              {showInsightList ? (
                 <InsightList
                   tasks={insightItems}
                   busy={busy}
@@ -1153,38 +1144,6 @@ export default function Home() {
                     </button>
                   );
                 })}
-              </div>
-              <div className="kol-secondary-filters" data-kol-secondary-filters>
-                <div className="kol-sorts" role="group" aria-label="跟进排序" data-kol-sorts>
-                  {([
-                    ["need", "按需处理"],
-                    ["recent", "最近更新"],
-                    ["stay", "阶段停留"],
-                    ["unread", "未读"],
-                  ] as const).map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      aria-pressed={kolSort === value}
-                      data-kol-sort={value}
-                      onClick={() => setKolSort(value)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  className="btn ghost sm"
-                  data-unread-filter
-                  aria-pressed={unreadOnly}
-                  onClick={() => setUnreadOnly((value) => !value)}
-                >
-                  未读
-                </button>
-                <button type="button" className="btn ghost sm" data-refresh-mail onClick={() => void refreshBoard(true)}>
-                  刷新收取
-                </button>
               </div>
               <h2 data-followed-kol-heading>
                 {kolTab === "all"
@@ -1226,12 +1185,12 @@ export default function Home() {
                   </strong>
                   <p>
                     {followScope?.required && !followScope.bound
-                      ? "绑定 Starry 发件箱后，这里只显示该邮箱负责人跟进的红人及生命周期。"
+                      ? "绑定 Starry 发件箱后，这里只显示该邮箱负责人跟进的红人。"
                       : followScope?.status === "expired"
                         ? "重新连接后即可继续查看你跟进的红人。"
                         : followScope?.bound
                           ? `当前绑定 ${followScope.mailbox_email || "已选邮箱"}${followScope.owner_name ? ` · ${followScope.owner_name}` : ""}。`
-                          : "正式阶段共 15 个，异常状态单独一栏。完整资产在左侧「生命周期」。"}
+                          : "正式阶段共 15 个，异常状态单独一栏。"}
                   </p>
                   {followScope?.required && (!followScope.bound || followScope.status === "expired") ? (
                     <button type="button" className="btn work" onClick={() => nav("/settings?tab=starry")}>
@@ -1476,9 +1435,9 @@ function RecommendedTaskList({
   onPick: (item: RecommendedTask) => void;
 }) {
   const fold = useFoldedItems(items);
+  if (!items.length) return null;
   return (
-    <section className="recommended-tasks process-md" data-recommended-tasks aria-label="今天推荐">
-      <Markdown>{"**今天推荐**"}</Markdown>
+    <section className="recommended-tasks process-md" data-recommended-tasks data-list-total={items.length} aria-label="AI发现">
       <ol className="recommend-md-list">
         {fold.visible.map((item) => {
           const n = item.n || 0;
@@ -1553,16 +1512,19 @@ function TodoBucketBlock({
 }
 
 function TodoActionList({ tasks, onOpen }: { tasks: Task[]; onOpen: (task: Task) => void }) {
-  const grouped: Record<TodoBucket, Task[]> = {
+  const grouped: Record<Exclude<TodoBucket, "waiting">, Task[]> = {
     overdue: [],
     today: [],
-    waiting: [],
     approval: [],
     queued: [],
     running: [],
     open: [],
   };
-  for (const task of tasks) grouped[todoBucket(task)].push(task);
+  for (const task of tasks) {
+    const bucket = todoBucket(task);
+    if (bucket === "waiting") grouped.open.push(task);
+    else grouped[bucket].push(task);
+  }
   if (!tasks.length) {
     return (
       <div className="todo-md-empty">
@@ -1572,8 +1534,7 @@ function TodoActionList({ tasks, onOpen }: { tasks: Task[]; onOpen: (task: Task)
   }
   return (
     <section className="todo-md process-md" data-todo-md>
-      <Markdown>{"**我的待办**"}</Markdown>
-      {ACTIONABLE_TODO_BUCKETS.map(([bucket, label]) => (
+      {HOME_TODO_BUCKETS.map(([bucket, label]) => (
         <TodoBucketBlock key={bucket} bucket={bucket} label={label} tasks={grouped[bucket]} onOpen={onOpen} />
       ))}
       <TodoBucketBlock bucket="open" tasks={grouped.open} onOpen={onOpen} />
@@ -1584,6 +1545,9 @@ function TodoActionList({ tasks, onOpen }: { tasks: Task[]; onOpen: (task: Task)
 function TodoMarkdownRow({ task, onOpen }: { task: Task; onOpen: () => void }) {
   const handle = handleLine(task);
   const due = dueLabel(task);
+  const urgency = urgencyLabel(task);
+  const progress = waitProgressHint(task);
+  const why = whyLine(task);
   return (
     <li
       className={`task-${task.source || "manual"} status-${task.status || "pending"}`}
@@ -1592,15 +1556,17 @@ function TodoMarkdownRow({ task, onOpen }: { task: Task; onOpen: () => void }) {
       data-task-status={task.status || "pending"}
       data-wait-status={waitStatusLabel(task.status)}
     >
-      <button type="button" className="recommend-md-item" data-todo-act onClick={onOpen}>
-        <span className="recommend-md-n" aria-hidden>{todoMark(task)}</span>
-        <span className="recommend-md-icon" aria-hidden>○</span>
-        <span className="recommend-md-copy">
+      <button type="button" className="todo-card-act" data-todo-act onClick={onOpen}>
+        <span className="todo-card-mark" aria-hidden>{todoMark(task)}</span>
+        <div className="todo-card-copy">
           <strong>{task.title}</strong>
-          <span className="recommend-md-reason" data-todo-reason>
-            {[handle, urgencyLabel(task), due, waitProgressHint(task), whyLine(task)].filter(Boolean).join(" · ")}
-          </span>
-        </span>
+          {handle ? <p className="todo-card-kicker">{handle}</p> : null}
+          {urgency || due ? (
+            <p className="todo-card-status">{[urgency, due].filter(Boolean).join(" · ")}</p>
+          ) : null}
+          {progress ? <p className="todo-card-progress">{progress}</p> : null}
+          {why ? <p className="todo-card-why" data-todo-reason>{why}</p> : null}
+        </div>
       </button>
     </li>
   );
@@ -1629,7 +1595,7 @@ function InsightList({
     );
   }
   return (
-    <section className="insight-confirm process-md" data-insight-list aria-label="待确认发现">
+    <section className="insight-confirm process-md" data-insight-list data-list-total={tasks.length} aria-label="待确认发现">
       <Markdown>{"**待确认发现**"}</Markdown>
       <ol className="insight-card-list">
       {fold.visible.map((task) => (

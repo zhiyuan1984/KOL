@@ -342,11 +342,16 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   background: var(--canvas);
   display: flex;
   flex-direction: column;
-  overflow: auto;
+  overflow: hidden;
 }
 .main > :not(.session-shell):not(.home-pane) {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
   padding: 20px var(--page-gutter) 40px;
   width: min(100%, 1360px);
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .page-kicker {
   font-size: var(--font-meta);
@@ -641,7 +646,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .home-templates-link:hover { color: var(--primary); }
 .recommended-tasks {
   width: 100%;
+  max-width: 42rem;
   margin: 0 0 16px;
+  overflow-x: hidden;
 }
 .recommend-md-list {
   list-style: none;
@@ -691,11 +698,69 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   font-size: 12px;
   line-height: 1.45;
 }
-.todo-md { margin: 8px 0 0; }
+.todo-md { margin: 8px 0 0; max-width: 42rem; }
 .todo-md-empty {
-  color: var(--muted);
+  color: var(--text-muted);
   font-size: 13px;
+  max-width: 42rem;
 }
+.todo-card-act {
+  display: grid;
+  grid-template-columns: 1.6em minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: start;
+  width: 100%;
+  max-width: 42rem;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  padding: var(--space-2) var(--space-2) var(--space-2) 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  overflow: hidden;
+}
+.todo-card-act:hover { background: var(--bg-elevated); }
+.todo-card-mark {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.todo-card-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  max-width: 40rem;
+  text-align: left;
+  justify-items: start;
+  overflow-x: hidden;
+}
+.todo-card-copy strong {
+  display: block;
+  max-width: 100%;
+  color: var(--text);
+  font-size: var(--font-section);
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+}
+.todo-card-kicker,
+.todo-card-status,
+.todo-card-progress,
+.todo-card-why {
+  margin: 0;
+  max-width: 100%;
+  color: color-mix(in srgb, var(--text) 70%, var(--text-muted));
+  font-size: var(--font-ui);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+}
+.todo-card-kicker { color: color-mix(in srgb, var(--text) 82%, var(--text-muted)); }
 .insight-confirm { margin: 16px 0 0; }
 .home-fold-more {
   display: inline-flex;
@@ -811,6 +876,11 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 .insight-card.is-high { border-bottom-color: color-mix(in srgb, var(--danger) 35%, var(--border)); }
 .insight-high { color: var(--red); font-weight: 600; }
+.home-mode-pane {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
 .home-mode-pane .home-work-links {
   margin: 0 0 8px;
 }
@@ -1242,27 +1312,36 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .followed-kol-list {
   display: grid;
   gap: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 .followed-kol-item {
   min-width: 0;
   max-width: 100%;
   list-style: none;
+  overflow-x: hidden;
 }
 .followed-kol-card {
   display: grid;
+  justify-items: start;
   gap: var(--space-2);
   min-width: 0;
   max-width: 100%;
   padding: var(--space-3) var(--space-2);
   border-bottom: 1px solid var(--border);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: visible;
+  text-align: left;
 }
 .followed-kol-card.is-exception {
   box-shadow: inset 3px 0 0 var(--danger);
 }
 .kol-band {
   min-width: 0;
-  max-width: 100%;
+  max-width: 44rem;
+  width: 100%;
+  overflow-x: hidden;
 }
 .kol-band-identity strong {
   display: inline-block;
@@ -2067,7 +2146,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .nav-link { position: relative; }
 
 .nowrap, .nowrap-safe { white-space: nowrap; }
-.agent-page { max-width: none; width: 100%; gap: var(--space-4); min-width: 0; overflow-x: hidden; }
+.agent-page { max-width: 52rem; width: 100%; gap: var(--space-4); min-width: 0; overflow-x: hidden; }
 .agent-hero { display: grid; gap: var(--space-2); }
 .agent-hero h1 { margin: 0; font-size: var(--font-title); }
 .agent-hero .muted { max-width: 52rem; font-size: var(--font-ui); }
