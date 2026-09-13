@@ -957,7 +957,17 @@ function HumanizedInference({ text, debug = false, onRefresh }: { text: string; 
   }
   const blob = extractJsonBlob(text);
   const parsed = blob ? tryParseJson(blob) : null;
-  if (parsed == null) return <Markdown>{stripEngineCopy(text)}</Markdown>;
+  if (parsed == null) {
+    const cleaned = stripEngineCopy(text);
+    if (!debug && /[{[]/.test(cleaned)) return <p>正在整理结果</p>;
+    return <Markdown>{cleaned}</Markdown>;
+  }
+  if (!debug) {
+    const title = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? String((parsed as Record<string, unknown>).title || (parsed as Record<string, unknown>).summary || "")
+      : "";
+    return <p>{title && /[\u4e00-\u9fff]/.test(title) ? title : "正在整理结果"}</p>;
+  }
   const rows = jsonFieldRows(parsed);
   return (
     <div data-humanized-inference>
@@ -973,7 +983,7 @@ function HumanizedInference({ text, debug = false, onRefresh }: { text: string; 
       ) : (
         <p>正在处理这项工作</p>
       )}
-      {debug && blob ? (
+      {blob ? (
         <details className="execution-details">
           <summary>调试原文</summary>
           <pre className="inference-debug-json">{blob}</pre>
@@ -998,8 +1008,11 @@ const TRACE_LABELS: Record<string, string> = {
   "preparing skill": "正在准备这项工作",
   "preparing task": "准备任务",
   "calling capabilities": "正在调用系统能力",
+  calling: "正在调用系统能力",
   queued: "已排队",
+  pending: "已排队",
   running: "进行中",
+  in_progress: "进行中",
   "远程mcp调用": "正在调用系统能力",
 };
 
@@ -1088,9 +1101,11 @@ function employeeMessageBody(text: string, debug = false, onRefresh?: () => void
     return <HumanizedInference text={text} debug={debug} onRefresh={onRefresh} />;
   }
   const cleaned = stripEngineCopy(humanizeMaybeJson(text));
-  if (!debug && /^\s*[{[]/.test(cleaned)) return <p>正在整理结果</p>;
+  if (!debug && /[{[]/.test(cleaned)) return <p>正在整理结果</p>;
   return <Markdown>{cleaned}</Markdown>;
 }
+
+export { humanizeTraceLabel };
 
 function statusMark(status: TraceStatus) {
   if (status === "done") return "✓";
@@ -1557,7 +1572,7 @@ export function ChatThread({
                   : (
                     <li data-status="running" data-mcp-waiting>
                       <i>…</i>
-                      <span className="is-streaming">等待远程调用…</span>
+                      <span className="is-streaming">正在调用系统能力…</span>
                     </li>
                   )}
               </ul>

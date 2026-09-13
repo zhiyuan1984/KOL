@@ -1123,6 +1123,9 @@ test("employee stream parses task_result JSON into a card and hides engine jargo
   await expect(page.locator("[data-session-stream-pane]")).not.toContainText("previewEmailDraft");
   await expect(page.locator("[data-session-stream-pane]")).not.toContainText("starrykol.");
   await expect(page.locator("[data-session-stream-pane]")).not.toContainText("远程MCP");
+  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("Codex");
+  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("calling capabilities");
+  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("Skill execution");
   await expect(page.locator("[data-kind='process-trace']")).toHaveCount(0);
   await expect(page.locator("[data-kind='operation-trace']")).toHaveCount(0);
   await expect(page.locator("[data-workbench]")).toBeVisible();
