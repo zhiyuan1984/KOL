@@ -12,7 +12,7 @@ import {
   type TaskEvent,
   type KnowledgeRow,
 } from "../api";
-import { ChatThread, clearComposerDraft, clearPending, takeComposerDraft, takePending, useSessionMessages, type ComposerDraft } from "../components/ChatBlocks";
+import { ChatThread, clearComposerDraft, clearPending, employeeProcessLabel, resultCardsFromMessages, takeComposerDraft, takePending, useSessionMessages, type ComposerDraft } from "../components/ChatBlocks";
 import ComposerDock, { type ComposerSubmit, type ComposerSuggestion, type SkillOption } from "../components/ComposerDock";
 import Markdown from "../components/Markdown";
 import AgentTaskList, { readTaskListWidth } from "../components/AgentTaskList";
@@ -231,7 +231,7 @@ function safeCrawlEventMessages(taskId: string, events: TaskEvent[], job: CrawlJ
     if (seenStatuses.has(status)) return [];
     seenStatuses.add(status);
     return [{
-      label: CRAWL_PROGRESS[status] || "远程采集状态已更新",
+      label: employeeProcessLabel(CRAWL_PROGRESS[status] || "远程采集状态已更新"),
       status: status === "error" ? "failed" : status === "result_ready" || status === "stopped" ? "done" : "running",
     }];
   });
@@ -258,7 +258,7 @@ function safeCrawlOperationMessages(taskId: string, events: TaskEvent[]): Messag
     operations.set(name, {
       id: name,
       name,
-      label: String(payload.label || event.summary || name),
+      label: employeeProcessLabel(String(payload.label || event.summary || name)),
       status: String(payload.operation_status || event.status || "running"),
       summary: event.summary,
     });
@@ -305,10 +305,12 @@ function safeEventMessages(taskId: string, events: TaskEvent[]): Message[] {
   return events
     .filter((event) => !/(reasoning|thought|tool|internal)/i.test(String(event.type || "")))
     .map((event, index) => {
-      const label = String(event.title || event.label || event.message || "任务进度已更新")
+      const label = employeeProcessLabel(String(event.title || event.label || event.message || "任务进度已更新")
         .replace(/`[^`]+`/g, "任务步骤")
-        .slice(0, 120);
-      const summary = event.summary ? String(event.summary).replace(/`[^`]+`/g, "内部步骤").slice(0, 180) : undefined;
+        .slice(0, 120));
+      const summary = event.summary
+        ? employeeProcessLabel(String(event.summary).replace(/`[^`]+`/g, "内部步骤").slice(0, 180))
+        : undefined;
       return {
         id: `task-event:${event.id || index}`,
         session_id: taskId,
@@ -702,7 +704,8 @@ export default function Chat() {
   const hasRightArtifact = messages.some((message) =>
     ["task_result_card", "email_card", "confirm_stage_card", "inbound_card", "supplement_card", "kol_mail_card"].includes(message.kind) ||
     (message.kind === "steps" && String(message.payload.title || "").includes("失联")),
-  ) || Boolean(task?.task_result || task?.crawl_result) || crawlJob?.status === "result_ready" || Boolean(focusedMail)
+  ) || resultCardsFromMessages(messages).length > 0
+    || Boolean(task?.task_result || task?.crawl_result) || crawlJob?.status === "result_ready" || Boolean(focusedMail)
     || Boolean(kolSession && sessionMails && sessionMails.length);
   const showRightWorkbench = Boolean(id && (hasRightArtifact || kolSession));
   const journeyPhases = journey?.handle

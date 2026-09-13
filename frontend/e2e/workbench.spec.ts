@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import path from "node:path";
 
 async function saveScreenshot(page: Page, name: string): Promise<void> {
@@ -1048,6 +1048,77 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   expect(xiaomei.stage_code).toBe("INTERESTED");
 });
 
+function expectNoEngineJargon(root: Locator) {
+  return Promise.all([
+    expect(root).not.toContainText('{"type":"task_result"'),
+    expect(root).not.toContainText("Preparing skill"),
+    expect(root).not.toContainText("Preparing parallel"),
+    expect(root).not.toContainText("Evaluating mailbox"),
+    expect(root).not.toContainText("get_collaboration"),
+    expect(root).not.toContainText("starry.get_collaboration"),
+    expect(root).not.toContainText("previewEmailDraft"),
+    expect(root).not.toContainText("starrykol."),
+    expect(root).not.toContainText("远程MCP"),
+    expect(root).not.toContainText("Codex"),
+    expect(root).not.toContainText("calling capabilities"),
+    expect(root).not.toContainText("Skill execution"),
+    expect(root).not.toContainText("↓ JSON"),
+  ]);
+}
+
+test("employee process stays business Chinese while queued or running", async ({ page }) => {
+  const now = new Date().toISOString();
+  await page.route("**/api/sessions/running-stream**", (route) => route.fulfill({
+    json: {
+      agent_status: "running",
+      messages: [
+        {
+          id: "trace",
+          session_id: "running-stream",
+          role: "assistant",
+          kind: "process_trace",
+          created_at: now,
+          payload: {
+            title: "Preparing skill execution",
+            phases: [
+              { label: "queued", status: "done" },
+              { label: "running", status: "done" },
+              { label: "calling capabilities", status: "running" },
+              { label: "Preparing parallel execution", status: "pending" },
+            ],
+          },
+        },
+        {
+          id: "ops",
+          session_id: "running-stream",
+          role: "assistant",
+          kind: "operation_trace",
+          created_at: now,
+          payload: {
+            title: "calling capabilities",
+            items: [
+              { label: "get_collaboration · starry.get_collaboration", name: "starry.get_collaboration", status: "running" },
+            ],
+          },
+        },
+      ],
+    },
+  }));
+  await page.goto("/s/running-stream");
+  const process = page.locator("[data-kind='process-trace']");
+  await expect(process).toBeVisible();
+  await expect(process).toContainText("正在准备这项工作");
+  await expect(process).toContainText("已排队");
+  await expect(process).toContainText("进行中");
+  await expect(process).toContainText("正在调用系统能力");
+  await expect(process).toContainText("正在同时处理几项工作");
+  await expect(page.locator("[data-kind='operation-trace']")).toContainText("读取合作资料");
+  await expect(page.locator("[data-run-status]")).toContainText("执行中");
+  await expect(page.locator("[data-run-status]")).toContainText(/读取合作资料|正在调用系统能力|正在准备这项工作/);
+  await expectNoEngineJargon(page.locator("[data-session-stream-pane]"));
+  await expectNoEngineJargon(page.locator("[data-run-status]"));
+});
+
 test("employee stream parses task_result JSON into a card and hides engine jargon", async ({ page }) => {
   const now = new Date().toISOString();
   const dump = [
@@ -1114,21 +1185,19 @@ test("employee stream parses task_result JSON into a card and hides engine jargo
   await expect(draftCard).toContainText("Collaboration with LiTime");
   await expect(draftCard).toContainText("we would love to collaborate");
   await expect(draftCard.locator('[data-email-action="send"]')).toHaveText("确认发送");
-  await expect(page.locator("[data-session-stream-pane]")).not.toContainText('{"type":"task_result"');
-  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("Preparing skill");
-  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("Preparing parallel");
-  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("Evaluating mailbox");
-  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("get_collaboration");
-  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("starry.get_collaboration");
-  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("previewEmailDraft");
-  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("starrykol.");
-  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("远程MCP");
-  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("Codex");
-  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("calling capabilities");
-  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("Skill execution");
-  await expect(page.locator("[data-kind='process-trace']")).toHaveCount(0);
-  await expect(page.locator("[data-kind='operation-trace']")).toHaveCount(0);
-  await expect(page.locator("[data-workbench]")).toBeVisible();
+  await expect(page.locator("[data-kind='process-trace']")).toContainText("正在准备这项工作");
+  await expect(page.locator("[data-kind='process-trace']")).toContainText("正在选择发件方式");
+  await expect(page.locator("[data-kind='process-trace']")).toContainText("正在整理阶段建议");
+  await expect(page.locator("[data-kind='operation-trace']")).toContainText("正在调用系统能力");
+  await expect(page.locator("[data-kind='operation-trace']")).toContainText("读取合作资料");
+  await expect(page.locator("[data-kind='operation-trace']")).toContainText("生成邮件预览");
+  const workbench = page.locator("[data-workbench]");
+  await expect(workbench).toBeVisible();
+  await expect(workbench.locator("[data-result-draft]")).toContainText("Collaboration with LiTime");
+  await expect(workbench.locator("[data-result-body]")).toContainText("we would love to collaborate");
+  await expect(workbench.locator('[data-email-action="send"]')).toHaveText("确认发送");
+  await expectNoEngineJargon(page.locator("[data-session-stream-pane]"));
+  await expectNoEngineJargon(workbench);
 });
 
 test("记状态 to CONTENT_REVIEW queues content approval and writes after manager agrees", async ({ page, request }) => {

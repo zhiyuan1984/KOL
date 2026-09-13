@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type Message, type SessionRow, type Task, type TaskEvent } from "../api";
-import { humanizeTraceLabel } from "../components/ChatBlocks";
+import { employeeProcessLabel } from "../components/ChatBlocks";
 
 export type AgentRunStatus = SessionRow["agent_status"];
 
@@ -75,7 +75,7 @@ export function useRunStatus(sessionId: string | undefined, messages: Message[],
   const phase = useMemo(
     () => {
       const raw = phaseFromMessages(messages) || phaseFromEvents(events);
-      return raw ? humanizeTraceLabel(raw) : undefined;
+      return raw ? employeeProcessLabel(raw) : undefined;
     },
     [messages, events],
   );

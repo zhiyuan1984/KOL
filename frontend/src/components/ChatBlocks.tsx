@@ -867,7 +867,7 @@ function looksLikeInferenceJson(text: string): boolean {
   return ratio >= 0.5 || /^```/.test(String(text || "").trim()) || Boolean(tryParseJson(String(text || "").trim()));
 }
 
-function taskResultCardsFrom(text: string): Record<string, unknown>[] {
+export function taskResultCardsFrom(text: string): Record<string, unknown>[] {
   return extractJsonValues(text).flatMap((value) => {
     if (isTaskResultPayload(value)) return [value];
     if (Array.isArray(value)) return value.filter(isTaskResultPayload);
@@ -875,16 +875,20 @@ function taskResultCardsFrom(text: string): Record<string, unknown>[] {
   });
 }
 
-function StreamResultCard({ card, onRefresh }: { card: Record<string, unknown>; onRefresh?: () => void }) {
+export function resultCardsFromMessages(messages: Message[]): Record<string, unknown>[] {
+  return messages.flatMap((message) => {
+    if (message.kind === "task_result_card") return [message.payload];
+    return taskResultCardsFrom(String(message.payload.text || ""));
+  });
+}
+
+export function ResultDraftPreview({ card, onRefresh }: { card: Record<string, unknown>; onRefresh?: () => void }) {
   const nested = card.draft && typeof card.draft === "object" ? card.draft as Record<string, unknown> : {};
-  const title = String(card.title || "任务结果");
-  const summary = String(card.summary || "");
   const subject = String(card.subject || nested.subject || "").trim();
   const body = String(card.body || nested.body || "").trim();
   const from = String(card.from || nested.from || "").trim();
   const to = String(card.to || nested.to || "").trim();
   const draftId = String(card.draft_id || nested.draft_id || "").trim();
-  const sections = Array.isArray(card.sections) ? card.sections as Record<string, unknown>[] : [];
   const actions = (Array.isArray(card.actions) ? card.actions : Array.isArray(card.recommended_actions) ? card.recommended_actions : [])
     .map((item) => typeof item === "string" ? item : String((item as { label?: string }).label || (item as { title?: string }).title || ""))
     .filter(Boolean);
@@ -903,25 +907,13 @@ function StreamResultCard({ card, onRefresh }: { card: Record<string, unknown>; 
       setBusy(false);
     }
   };
+  if (!from && !to && !subject && !body && !draftId && !actions.some((item) => /确认发送/.test(item))) return null;
   return (
-    <article className="stream-task-result" data-kind="task-result-card" data-stream-result>
-      <strong>{title}</strong>
-      {summary ? <p>{summary}</p> : null}
+    <div className="result-draft-preview" data-result-draft>
       {from ? <p data-result-from>发件 {from}</p> : null}
       {to ? <p data-result-to>收件 {to}</p> : null}
       {subject ? <p data-draft-subject>主题 {subject}</p> : null}
       {body ? <pre className="mail-body-text" data-result-body>{body}</pre> : null}
-      {sections.map((section, index) => {
-        const heading = String(section.title || section.heading || "");
-        const content = String(section.content || section.body || section.summary || "");
-        if (!heading && !content) return null;
-        return (
-          <section key={`${heading}-${index}`}>
-            {heading ? <h4>{heading}</h4> : null}
-            {content ? <p>{content}</p> : null}
-          </section>
-        );
-      })}
       {draftId || actions.some((item) => /确认发送/.test(item)) ? (
         <div className="action-row">
           <button
@@ -936,6 +928,30 @@ function StreamResultCard({ card, onRefresh }: { card: Record<string, unknown>; 
         </div>
       ) : null}
       {err ? <p className="error">{err}</p> : null}
+    </div>
+  );
+}
+
+function StreamResultCard({ card, onRefresh }: { card: Record<string, unknown>; onRefresh?: () => void }) {
+  const title = String(card.title || "任务结果");
+  const summary = String(card.summary || "");
+  const sections = Array.isArray(card.sections) ? card.sections as Record<string, unknown>[] : [];
+  return (
+    <article className="stream-task-result" data-kind="task-result-card" data-stream-result>
+      <strong>{title}</strong>
+      {summary ? <p>{summary}</p> : null}
+      <ResultDraftPreview card={card} onRefresh={onRefresh} />
+      {sections.map((section, index) => {
+        const heading = String(section.title || section.heading || "");
+        const content = String(section.content || section.body || section.summary || "");
+        if (!heading && !content) return null;
+        return (
+          <section key={`${heading}-${index}`}>
+            {heading ? <h4>{heading}</h4> : null}
+            {content ? <p>{content}</p> : null}
+          </section>
+        );
+      })}
     </article>
   );
 }
@@ -1021,8 +1037,10 @@ const TOOL_LABELS: Record<string, string> = {
   previewemaildraft: "生成邮件预览",
   pageriskconversations: "查询风险会话",
   summarizeriskconversations: "汇总风险会话",
+  pagekolprofiles: "查询红人资料",
   getcreator: "查询达人详情",
   updatecreatorprofile: "更新达人画像",
+  sendemaildraft: "发送邮件草稿",
   "claw.start_crawl": "启动远程采集",
   "claw.get_crawl_status": "查询远程采集状态",
   "claw.stop_crawl": "停止远程采集",
@@ -1094,6 +1112,14 @@ function humanizeTraceLabel(label: string) {
     return unique[0] || "正在处理这项工作";
   }
   return humanizeOneLabel(raw) || "正在处理这项工作";
+}
+
+export function employeeProcessLabel(raw: string) {
+  const human = stripEngineCopy(humanizeTraceLabel(raw));
+  if (!human || /[{[]/.test(human) || isHarnessLabel(human) || /\b(?:starrykol|starry)\./i.test(human)) {
+    return "正在处理这项工作";
+  }
+  return human;
 }
 
 function employeeMessageBody(text: string, debug = false, onRefresh?: () => void) {
@@ -1390,7 +1416,6 @@ export function ChatThread({
     ["email_card", "confirm_stage_card", "inbound_card", "supplement_card", "task_result_card", "kol_mail_card"].includes(m.kind)
     || taskResultCardsFrom(String(m.payload.text || "")).length > 0,
   );
-  const hideHarness = hasResult && !debug;
   const latestResultId = [...messages].reverse().find((item) => item.kind === "task_result_card")?.id;
   const latestDraftId = [...messages].reverse().find((item) => item.kind === "email_card")?.id;
   const hasDraftCard = Boolean(latestDraftId);
@@ -1498,11 +1523,10 @@ export function ChatThread({
           );
         }
         if (m.kind === "process_trace") {
-          const items = traceItems(m.payload).filter((item) => !hideHarness || !isHarnessLabel(String(
-            item.label || item.summary || item.reasoning_summary || item.title || item.phase || "",
-          )));
-          if (hideHarness && !items.length) return null;
-          const summaries = summaryLines(m.payload, items).filter((line) => !hideHarness || !isHarnessLabel(line));
+          const items = traceItems(m.payload);
+          const summaries = summaryLines(m.payload, items)
+            .map((line) => employeeProcessLabel(line))
+            .filter((line) => line && !/[{[]/.test(line));
           const hasThinking = items.some((item) => item.kind === "reasoning" || Boolean(item.summary || item.reasoning_summary));
           return (
             <ThreadMessage
@@ -1512,10 +1536,10 @@ export function ChatThread({
               data-kind="process-trace"
               data-harness-thinking={hasThinking ? "true" : undefined}
             >
-              <strong>{humanizeTraceLabel(String(m.payload.title || "处理过程"))}</strong>
+              <strong>{employeeProcessLabel(String(m.payload.title || "处理过程"))}</strong>
               <ul className="trace-list">
                 {items.map((item, index) => {
-                  const label = humanizeTraceLabel(String(
+                  const label = employeeProcessLabel(String(
                     item.label || item.summary || item.reasoning_summary || item.title || item.phase || `阶段 ${index + 1}`,
                   ));
                   const status = safeStatus(item.status);
@@ -1534,7 +1558,7 @@ export function ChatThread({
                   {summaries.map((summary, index) => (
                     looksLikeInferenceJson(summary)
                       ? <HumanizedInference key={`${summary}-${index}`} text={summary} debug={debug} />
-                      : <p key={`${summary}-${index}`}>{humanizeTraceLabel(summary)}</p>
+                      : <p key={`${summary}-${index}`}>{summary}</p>
                   ))}
                 </details>
               )}
@@ -1542,7 +1566,6 @@ export function ChatThread({
           );
         }
         if (m.kind === "operation_trace") {
-          if (hideHarness) return null;
           const source = m.payload.operations || m.payload.items || [];
           const legacyTrace = String(m.payload.title || "") === "操作过程";
           const operations: OperationTraceItem[] = Array.isArray(source)
@@ -1551,7 +1574,7 @@ export function ChatThread({
               .filter((operation) => !isLegacyPhaseOperation(operation, legacyTrace))
             : [];
           const active = Boolean(m.payload.active);
-          const title = humanizeTraceLabel(String(m.payload.title || "正在调用系统能力"));
+          const title = employeeProcessLabel(String(m.payload.title || "正在调用系统能力"));
           if (!operations.length && !active) return null;
           return (
             <ThreadMessage key={m.id} role="assistant" className="operation-trace process-md" data-kind="operation-trace">
@@ -1565,7 +1588,7 @@ export function ChatThread({
                     return (
                       <li key={operation.id || name || index} data-status={status} data-mcp-name={debug ? (name || undefined) : undefined}>
                         <i>{statusMark(status)}</i>
-                        <span className={streaming ? "is-streaming" : undefined}>{human}</span>
+                        <span className={streaming ? "is-streaming" : undefined}>{employeeProcessLabel(human)}</span>
                       </li>
                     );
                   })

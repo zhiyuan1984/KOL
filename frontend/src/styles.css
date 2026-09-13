@@ -3586,6 +3586,19 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   margin: 8px 0 0;
   font-size: var(--font-ui);
 }
+.result-draft-preview {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.result-draft-preview p,
+.result-draft-preview pre {
+  margin: 0;
+  font-size: var(--font-body);
+  line-height: var(--leading-body);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .task-analysis-summary {
   margin: 0 22px 12px;
   padding: 10px 12px;

@@ -432,6 +432,13 @@ export type TaskResultCard = {
   };
   suggested_follow_tags?: Array<{ id?: string; label?: string; reason?: string; custom?: boolean }>;
   follow_style_tags?: Array<{ id?: string; label?: string }>;
+  subject?: string;
+  body?: string;
+  from?: string;
+  to?: string;
+  draft_id?: string;
+  draft?: Record<string, unknown>;
+  type?: string;
 };
 
 export type RunQueueItem = {
