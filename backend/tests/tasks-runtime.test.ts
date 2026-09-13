@@ -7,6 +7,7 @@ import { mcpServerSpecs, writeBoxCodexConfig } from "../mcp/codex-config.js";
 import { filterTools } from "../mcp/stdio.js";
 import { STARRY_TOOLS } from "../mcp/tools.js";
 import { getConn, resetConn } from "../src/db.js";
+import { appendTaskEvent } from "../src/routers/tasks.js";
 import { SKILL_CATALOG } from "../src/host/skills-catalog.js";
 import { profileFor } from "../src/profiles.js";
 import { seedAll } from "../src/seed.js";
@@ -404,6 +405,24 @@ describe("task CRUD and run flow", () => {
       keywords: ["户外电源"],
     });
     expect(getConn().prepare("SELECT COUNT(*) AS n FROM crawl_jobs").get()).toMatchObject({ n: 0 });
+  });
+
+  it("skips task events when the work item or run is already gone", async () => {
+    const created = await request("POST", "/api/tasks/from-text", { text: "搜索 YouTube 露营达人" });
+    expect(created.status).toBe(201);
+    const task = created.body.task as Json;
+    const queued = await request("POST", `/api/tasks/${task.id}/run`, {});
+    const runId = String(queued.body.run_id || "");
+    expect(appendTaskEvent(String(task.id), runId, "run.progress", "准备任务", "running")).toMatchObject({
+      work_item_id: task.id,
+      run_id: runId,
+      event_type: "run.progress",
+    });
+    getConn().prepare("DELETE FROM task_events WHERE work_item_id=?").run(task.id);
+    getConn().prepare("DELETE FROM task_runs WHERE work_item_id=?").run(task.id);
+    getConn().prepare("DELETE FROM work_items WHERE id=?").run(task.id);
+    expect(appendTaskEvent(String(task.id), runId, "crawl.start_failed", "远程采集启动失败", "failed")).toBeNull();
+    expect(appendTaskEvent("wi_missing", null, "task.created", "gone", "pending")).toBeNull();
   });
 
   it("turns an Instagram search phrase into a crawl plan", async () => {

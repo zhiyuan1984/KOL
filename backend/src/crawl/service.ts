@@ -1,6 +1,6 @@
 import { ingestMediacrawler } from "../adapters/claw.js";
 import { mediaCrawlerConfigured } from "../config.js";
-import { getConn, nowIso, tx } from "../db.js";
+import { getConn, isSqliteClosedError, isSqliteForeignKeyError, nowIso, onConnReset, tx } from "../db.js";
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import { RemoteMcpClient } from "../mcp/remote.js";
@@ -12,6 +12,13 @@ const MODES = new Set(["search", "detail", "creator"]);
 const ACTIVE = new Set(["queued", "crawling", "uploading", "analyzing", "starting", "running", "stopping"]);
 const monitors = new Map<string, ReturnType<typeof setTimeout>>();
 let clientFactory: () => Pick<RemoteMcpClient, "callTool" | "close"> = () => new RemoteMcpClient();
+
+function clearMonitors(): void {
+  for (const timer of monitors.values()) clearTimeout(timer);
+  monitors.clear();
+}
+
+onConnReset(clearMonitors);
 
 export function setCrawlMcpClientFactory(
   factory?: () => Pick<RemoteMcpClient, "callTool" | "close">,
@@ -155,6 +162,15 @@ export async function startCrawl(input: {
       next_action: "请在根目录 .env 配置 MEDIACRAWLER_MCP_URL 和 MEDIACRAWLER_MCP_TOKEN 后重启服务。",
     });
   }
+  const workItem = getConn().prepare("SELECT id FROM work_items WHERE id=?").get(input.workItemId) as
+    | { id: string }
+    | undefined;
+  if (!workItem) {
+    throw new HttpFail(409, { code: "work_item_not_found", message: "采集任务已不存在。" });
+  }
+  const sessionId = input.sessionId && getConn().prepare("SELECT id FROM sessions WHERE id=?").get(input.sessionId)
+    ? input.sessionId
+    : null;
   const existing = getConn().prepare(
     "SELECT * FROM crawl_jobs WHERE idempotency_key=?",
   ).get(input.idempotencyKey) as Row | undefined;
@@ -175,7 +191,7 @@ export async function startCrawl(input: {
           data_version,created_at,updated_at)
          VALUES (?,?,?,?,?,?,?,?, 'queued',1,?,?)`,
       ).run(
-        id, input.idempotencyKey, input.ownerUserId, input.workItemId, input.sessionId || null,
+        id, input.idempotencyKey, input.ownerUserId, input.workItemId, sessionId,
         platform, mode, JSON.stringify(input.parameters), now, now,
       );
       db.prepare(
@@ -187,6 +203,9 @@ export async function startCrawl(input: {
       "SELECT * FROM crawl_jobs WHERE idempotency_key=?",
     ).get(input.idempotencyKey) as Row | undefined;
     if (duplicate) return { ...publicJob(duplicate), duplicate: true };
+    if (isSqliteForeignKeyError(error) || isSqliteClosedError(error)) {
+      throw new HttpFail(409, { code: "work_item_not_found", message: "采集任务已不存在。" });
+    }
     throw error;
   }
   event(id, "queued", "queued", `Queued ${platform} ${mode} crawl`);

@@ -140,6 +140,22 @@ export function tx<T>(fn: (db: SqliteConn) => T): T {
   return db.transaction(fn)(db);
 }
 
+/** True when SQLite rejected an insert/update because a parent row is gone. */
+export function isSqliteForeignKeyError(error: unknown): boolean {
+  const code = error && typeof error === "object" && "code" in error
+    ? String((error as { code?: unknown }).code || "")
+    : "";
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /SQLITE_CONSTRAINT_FOREIGNKEY/i.test(code)
+    || /FOREIGN KEY constraint failed/i.test(message);
+}
+
+/** True when a test reset or process teardown already closed the handle. */
+export function isSqliteClosedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /database is not open|SQLITE_MISUSE|The database connection is not open/i.test(message);
+}
+
 export function asRow(row: unknown): Row {
   return { ...(row as Row) };
 }
