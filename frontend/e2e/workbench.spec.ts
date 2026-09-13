@@ -1948,6 +1948,17 @@ test("sidebar collapse persists without removing navigation", async ({ page }) =
   await page.getByRole("button", { name: "展开侧栏" }).click();
 });
 
+test("sidebar does not list 最近 sessions", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("[data-recents]")).toHaveCount(0);
+  await expect(page.locator("[data-search-recent], [data-search-toggle]")).toHaveCount(0);
+  await expect(page.getByLabel("筛选最近")).toHaveCount(0);
+  await expect(page.locator(".sidebar .nav-label", { hasText: /^最近$/ })).toHaveCount(0);
+  await expect(page.locator('nav[aria-label="今日"]')).toBeVisible();
+  await expect(page.locator('nav[aria-label="智能体"]')).toBeVisible();
+  await expect(page.locator('nav[aria-label="资产"]')).toBeVisible();
+});
+
 test("composer sends the selected model tier", async ({ page }) => {
   const bodies: Record<string, unknown>[] = [];
   page.on("request", (request) => {

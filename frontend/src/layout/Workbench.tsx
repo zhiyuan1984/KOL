@@ -1,4 +1,4 @@
-import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { api, type Account, type SessionRow, type StarryBinding } from "../api";
 import { useAccount } from "../components/AuthGate";
@@ -26,14 +26,11 @@ export default function Workbench() {
   const { account, logout } = useAccount();
   const { admin, debug, setDebug } = useViewMode();
   const [me, setMe] = useState<Account | null>(account);
-  const [q, setQ] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("ui:left-collapsed") === "true");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userOpen, setUserOpen] = useState(false);
   const [starryBind, setStarryBind] = useState<StarryBinding | null>(null);
   const loc = useLocation();
-  const nav = useNavigate();
 
   useEffect(() => {
     api.sessions().then(setSessions).catch(() => setSessions([]));
@@ -72,13 +69,6 @@ export default function Workbench() {
     if (account?.starry_binding) setStarryBind(account.starry_binding);
   }, [account?.starry_binding]);
 
-  const recent = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    const rows = sessions.slice(0, 24);
-    if (!needle) return rows;
-    return rows.filter((s) => s.title.toLowerCase().includes(needle));
-  }, [sessions, q]);
-
   const skillsActive = loc.pathname === "/skills" || loc.pathname.startsWith("/market/skills");
   const adminActive = loc.pathname.startsWith("/admin");
   const adminAvailable = admin || me?.available_modes?.includes("admin") === true;
@@ -112,27 +102,6 @@ export default function Workbench() {
     });
   };
 
-  const sessionAction = async (session: SessionRow, action: "rename" | "archive" | "delete") => {
-    try {
-      if (action === "rename") {
-        const title = prompt("重命名会话", session.title)?.trim();
-        if (!title) return;
-        await api.renameSession(session.id, title);
-        setSessions((rows) => rows.map((row) => row.id === session.id ? { ...row, title } : row));
-      } else if (action === "archive") {
-        await api.archiveSession(session.id);
-        setSessions((rows) => rows.filter((row) => row.id !== session.id));
-      } else {
-        if (!confirm(`删除会话“${session.title}”？消息、草稿、运行箱和可归属附件将被清理，合规迁移记录保留。`)) return;
-        await api.deleteSession(session.id);
-        setSessions((rows) => rows.filter((row) => row.id !== session.id));
-        if (loc.pathname === `/s/${session.id}`) nav("/");
-      }
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "操作失败");
-    }
-  };
-
   return (
     <div
       className={"workbench" + (collapsed ? " sidebar-collapsed" : "")}
@@ -154,29 +123,7 @@ export default function Workbench() {
             <span className="sidebar-label">灵工 工作</span><span className="rail-logo" aria-hidden />
           </NavLink>
           <button type="button" className="sidebar-search-btn collapse-toggle" onClick={toggleCollapsed} aria-label={collapsed ? "展开侧栏" : "收起侧栏"} title={collapsed ? "展开侧栏" : "收起侧栏"}>{collapsed ? "›" : "‹"}</button>
-          <button
-            type="button"
-            className={"sidebar-search-btn" + (searchOpen ? " on" : "")}
-            aria-label="筛选最近"
-            data-search-toggle
-            onClick={() => setSearchOpen((v) => !v)}
-          >
-            <svg viewBox="0 0 24 24" aria-hidden>
-              <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.7" />
-              <path d="M16 16.5 20 20.5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-            </svg>
-          </button>
         </div>
-        {searchOpen && (
-          <input
-            className="sidebar-search"
-            data-search-recent
-            placeholder="筛选最近…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            autoFocus
-          />
-        )}
 
         <div className="sidebar-nav-stack">
         <nav className="nav-group" aria-label="今日">
@@ -266,24 +213,6 @@ export default function Workbench() {
             <span className="nav-tag">非本期</span>
           </div>
         </div>
-        </div>
-
-        <div className="nav-group recents" data-recents>
-          <div className="nav-label">最近</div>
-          {recent.length === 0 && <p className="nav-empty">{q.trim() ? "没有匹配的会话" : "暂无会话"}</p>}
-          {recent.map((s) => <div className="session-row" key={s.id}>
-            <NavLink to={`/s/${s.id}`} className="session-link" onClick={() => setMobileOpen(false)}>
-              <i className={"status-dot " + (s.agent_status || "listening")} title={s.agent_status || "listening"} />
-              <span>{s.title}</span>
-            </NavLink>
-            <details className="session-menu"><summary aria-label={`${s.title} 会话菜单`}>···</summary><div className="menu-popover">
-              <button onClick={() => void sessionAction(s, "rename")}>重命名</button>
-              <a href={`/api/sessions/${s.id}/export?format=md`} download>导出 MD</a>
-              <a href={`/api/sessions/${s.id}/export?format=json`} download>导出 JSON</a>
-              <button onClick={() => void sessionAction(s, "archive")}>归档</button>
-              <button className="danger-text" onClick={() => void sessionAction(s, "delete")}>删除</button>
-            </div></details>
-          </div>)}
         </div>
 
         <div className="sidebar-foot">
