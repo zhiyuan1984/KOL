@@ -166,9 +166,14 @@ export default function Pipeline() {
   }, [data, kolQuery, onlyEx, pool]);
 
   useEffect(() => {
-    if (kolQuery) return;
-    setSelectedId((current) => (current && pool.some((row) => row.id === current) ? current : null));
-  }, [pool, kolQuery]);
+    if (!selectedId) return;
+    if (rows.some((row) => row.id === selectedId)) return;
+    setSelectedId(null);
+    if (!kolQuery) return;
+    const next = new URLSearchParams(params);
+    next.delete("kol");
+    setParams(next, { replace: true });
+  }, [rows, selectedId, kolQuery, params, setParams]);
 
   const setFilter = (key: FilterKey, value: string) => {
     const next = new URLSearchParams(params);
