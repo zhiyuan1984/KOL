@@ -449,12 +449,14 @@ export async function callStarryKolTool(name: string, args: Json = {}): Promise<
 /** Host kernel only: human-confirmed official stage → Starry lifecycle. Worker must not call this. */
 export async function writeRemoteOfficialStage(input: {
   kolUid: string;
+  lifecycleId?: string | number | null;
   stageCode: string;
   reason?: string | null;
 }): Promise<Json> {
   const fields = starryStageWriteFields(input.stageCode);
   const payload = {
     kolUid: input.kolUid,
+    ...(input.lifecycleId != null && String(input.lifecycleId).trim() ? { lifecycleId: Number(input.lifecycleId) || String(input.lifecycleId) } : {}),
     ...fields,
     stageCode: fields.cooperationStageCode,
     reason: String(input.reason || ""),

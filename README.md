@@ -2,7 +2,7 @@
 
 TypeScript 前后端一体工作台：会话里干活，页面只放资产。Starry / Claw / 企微默认 mock。**Worker 默认走真实 `codex app-server`**，不会用模板假信。编排就是 **Dify Chatflow → Codex Skill / Thread / Turn / Item / MCP**，没有第二套运行时。
 
-研发规范优先级：`docs/灵工-Agent中台开发规范.md` 第一，`docs/codex-KOL-编码规范.md` 第二。第一次打开仓库请先读 **`docs/新手入门代码使用手册.md`**（地图、任务怎么走完、改哪一类文件）。HTML 原型的 Toast / keyword `replyFor` **不是**规则。
+研发规范以 `docs/README.md` 和 `docs/00-platform-charter.md` 到 `docs/13-migration-roadmap.md` 为唯一主线。第一次打开仓库请先读 **`docs/90-codebase-handbook.md`**（地图、任务怎么走完、改哪一类文件）。旧中文规范只用于迁移核对；HTML 原型的 Toast / keyword `replyFor` **不是**规则。
 
 界面是浅灰白工作台（侧栏 `#f6f7f8`、主画布白、近黑字）。Star Blue `#0D3D82` 只做 1–2px 点缀（焦点环、激活刻度、链接），Blazing Orange `#EA5504` 只用于「发送」和 Logo 弧。对话结果用 Markdown 展示。发送 ≠ 推进阶段。
 
@@ -304,7 +304,7 @@ From 只能选授权品牌邮箱。一档时锁定文案 **「已按品牌和权
 
 ## 架构要点
 
-代码与 Skill 地图、Codex harness 步骤见 `docs/新手入门代码使用手册.md`。
+代码与 Skill 地图、Codex harness 步骤见 `docs/90-codebase-handbook.md`。
 
 - 固定按钮 `POST { text, model_tier, intent, collaboration_id, attachments? }`。Host 再校验；前端 intent 不能跳过 PEP。
 - 意图：`stage_mail` `confirm_stage` `quote_confirm` `content_nudge` `stage_read` `addr_check` `ship_notice` `kol` `risk_scan` `creator_profile`。`KOL 建联发信` / `建联发言` / `@KOL 建联发信` 都是 `kol`。`达人画像` / `创作者画像` 走 `creator_profile`（Host 快照，MCP 审批拦住时不现场拉数）。自由文本里的报价 / 金额 / rate / CPM 升为 T5，不走 T4。

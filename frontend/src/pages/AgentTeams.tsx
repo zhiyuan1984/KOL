@@ -1,16 +1,18 @@
 import { useNavigate } from "react-router-dom";
-import { AGENT_TEAMS, REMOTE_BACKEND_LABEL, remoteForSkill } from "../agentConfig";
+import { REMOTE_BACKEND_LABEL, remoteForSkill } from "../agentConfig";
 import { api } from "../api";
 import { storePending } from "../components/ChatBlocks";
 import { profileNameLabel } from "../labels";
 import { useViewMode } from "../viewMode";
+import { useAgentManifest } from "../hooks/useAgentManifest";
 
 export default function AgentTeams() {
   const { debug } = useViewMode();
+  const manifest = useAgentManifest();
   const nav = useNavigate();
 
   const startTeam = async (teamId: string, stepIndex = 0) => {
-    const team = AGENT_TEAMS.find((t) => t.id === teamId);
+    const team = manifest?.teams.find((t) => t.id === teamId);
     if (!team) return;
     const step = team.steps[stepIndex] || team.steps[0];
     const title = `${team.title} · ${step.label}`;
@@ -32,7 +34,7 @@ export default function AgentTeams() {
         </p>
       </div>
       <div className="team-grid">
-        {AGENT_TEAMS.map((team) => (
+        {(manifest?.teams || []).map((team) => (
           <article key={team.id} className="panel team-card" data-team={team.id}>
             <h2>{team.title}</h2>
             <p className="muted">{team.summary}</p>

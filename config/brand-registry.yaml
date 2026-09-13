@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "brands": [
+    { "id": "brand:lt", "code": "LT", "display_name": "LT品牌", "remote_dictionary_key": "LT", "status": "active" },
+    { "id": "brand:pq", "code": "PQ", "display_name": "PQ品牌", "remote_dictionary_key": "PQ", "status": "active" },
+    { "id": "brand:ro", "code": "RO", "display_name": "RO品牌", "remote_dictionary_key": "RO", "status": "active" },
+    { "id": "brand:tb", "code": "TB", "display_name": "TB品牌", "remote_dictionary_key": "TB", "status": "active", "external_binding": "business-waived" }
+  ],
+  "regions": ["region:eu", "region:us", "region:ca_au"]
+}

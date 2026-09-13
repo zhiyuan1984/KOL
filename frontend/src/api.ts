@@ -7,6 +7,18 @@ export type SessionRow = {
 
 export type AgentRunStatus = NonNullable<SessionRow["agent_status"]>;
 
+export type AgentViewStep = { skillId: string; label: string; prompt: string };
+export type AgentViewEntry = { id: string; title: string; summary: string; skillId: string; prompt: string; profileIds: string[] };
+export type AgentViewTeam = { id: string; title: string; summary: string; profileIds: string[]; steps: AgentViewStep[] };
+export type AgentManifestView = {
+  id: string;
+  version?: string;
+  status: string;
+  publish_gate?: { state?: string; employee_submission?: boolean };
+  entries: AgentViewEntry[];
+  teams: AgentViewTeam[];
+};
+
 export type Rec = {
   id: string;
   title: string;
@@ -522,8 +534,11 @@ export const api = {
     request<TaskDefinition[] | { task_definitions?: TaskDefinition[]; definitions?: TaskDefinition[] }>(
       "/api/task-definitions",
     ),
+  agentManifest: () => request<AgentManifestView>("/api/agent-manifest"),
   createTask: (body: Record<string, unknown>) =>
     request<Task | { task: Task }>("/api/tasks", { method: "POST", body: JSON.stringify(body) }),
+  createTaskFromText: (body: Record<string, unknown>) =>
+    request<FromTextResult>("/api/tasks/from-text", { method: "POST", body: JSON.stringify(body) }),
   runTask: (id: string, body: Record<string, unknown> = {}) =>
     request<TaskRunResult>(`/api/tasks/${encodeURIComponent(id)}/run`, {
       method: "POST",

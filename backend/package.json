@@ -6,7 +6,15 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
-    "test": "CODEX_MODE=stub vitest run",
+    "test": "node scripts/test.mjs",
+    "validate:kol-data": "node scripts/validate-kol-data.mjs",
+    "validate:contracts": "node scripts/validate-contracts.mjs",
+    "validate:tb-binding": "node scripts/validate-tb-binding.mjs",
+    "eval:kol": "node scripts/run-kol-evals.mjs",
+    "scan:redaction": "node scripts/scan-redaction.mjs",
+    "rehearse:rollback": "node scripts/rollback-rehearsal.mjs",
+    "release:gate": "node scripts/release-gate.mjs",
+    "release:internal": "node scripts/release-gate.mjs --internal",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

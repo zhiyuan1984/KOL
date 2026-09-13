@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "brand": "brand:tb",
+  "canonical_code": "TB",
+  "local_registry_status": "accepted-by-business-waiver",
+  "remote_dictionary_codes": ["LT", "RO", "PQ"],
+  "remote_mailbox_brand_codes": ["LT", "RO"],
+  "comparison_status": "waived",
+  "enforcement": "advisory",
+  "write_policy": "deny_tb_write_until_remote_binding",
+  "fallback_policy": "no_fallback_to_other_brand_or_first_mailbox",
+  "source": ["config/brand-registry.yaml", "remote Starry MCP listDictionaryOptions", "remote Starry MCP pageMailboxes"]
+}

@@ -248,6 +248,11 @@ export default function Workbench() {
             <span className="sidebar-label">云盘</span>
             <span className="nav-tag">非本期</span>
           </div>
+          <div className="nav-link is-disabled" aria-disabled="true" data-nav-disabled="手机遥控电脑">
+            <Ico path="M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z M10 6h4 M11 18h2" />
+            <span className="sidebar-label">手机遥控电脑</span>
+            <span className="nav-tag">非本期</span>
+          </div>
         </nav>
 
         <div className="nav-group">

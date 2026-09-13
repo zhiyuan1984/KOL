@@ -5,7 +5,18 @@ import type { Json } from "../../../src/types.js";
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 
+// The uploaded business sheets under data/kol are the canonical source.
+// JSON snapshots stay local fixtures, but Markdown must not silently fork.
+const kolDataDir = path.resolve(dir, "../../../..", "data", "kol");
+const canonicalMarkdownNames: Record<string, string> = {
+  "KOL合作主流程识别表.md": "邮件模板与关键字段清单-一-KOL合作主流程识别表.md",
+  "长期合作与异常阶段识别表.md": "邮件模板与关键字段清单-二-长期合作与异常阶段识别表.md",
+  "Agent判断合作阶段核心规则.md": "邮件模板与关键字段清单-三-Agent判断合作阶段核心规则.md",
+};
+
 export function realDataPath(name: string): string {
+  const canonical = path.join(kolDataDir, canonicalMarkdownNames[name] || name);
+  if (fs.existsSync(canonical)) return canonical;
   return path.join(dir, name);
 }
 
@@ -23,7 +34,14 @@ export function parseMarkdownTable(markdown: string): Record<string, string>[] {
   const headers = splitRow(lines[0]);
   return lines.slice(2).map((line) => {
     const cells = splitRow(line);
-    return Object.fromEntries(headers.map((header, index) => [header, cells[index] || ""]));
+    const row = Object.fromEntries(headers.map((header, index) => [header, cells[index] || ""]));
+    // Preserve the normalized names used by the contract tests when the
+    // uploaded sheet uses its original spreadsheet headings.
+    if (row["邮件主题"] && !row["邮件模板/典型主题"]) row["邮件模板/典型主题"] = row["邮件主题"];
+    if (row["邮件模板/典型主题"] && !row["邮件主题"]) row["邮件主题"] = row["邮件模板/典型主题"];
+    if (row["邮件类型/动作"] && !row["模板类型"]) row["模板类型"] = row["邮件类型/动作"];
+    if (row["模板类型"] && !row["邮件类型/动作"]) row["邮件类型/动作"] = row["模板类型"];
+    return row;
   }).filter((row) => Object.values(row).some((value) => value.trim()));
 }
 
@@ -32,8 +50,13 @@ function splitRow(line: string): string[] {
 }
 
 export function portraitRows(): Record<string, string>[] {
-  return parseMarkdownTable(readRealText("红人画像信息表.md"))
-    .filter((row) => row["名称"] && !row["名称"].includes("示例"));
+  const source = readRealText("红人画像信息表.md");
+  const supplementalNote = source.match(/补充备注[^：:]*[：:]\s*(.+)/)?.[1]?.trim() || "";
+  return parseMarkdownTable(source)
+    .filter((row) => row["名称"] && !row["名称"].includes("示例"))
+    .map((row) => row["名称"] === "Charlie at RV Central" && supplementalNote
+      ? { ...row, 备注: supplementalNote }
+      : row);
 }
 
 export function flowTemplateRows(): Record<string, string>[] {

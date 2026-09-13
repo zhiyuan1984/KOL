@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema:kol:stage-confirm",
+  "type": "object",
+  "required": ["collaboration_id", "target_stage", "expected_version", "company_id", "brand_id"],
+  "properties": {
+    "collaboration_id": { "type": "string", "minLength": 1 },
+    "target_stage": { "type": "string", "minLength": 1 },
+    "expected_version": { "type": "integer", "minimum": 0 },
+    "company_id": { "type": "string", "pattern": "^company:" },
+    "brand_id": { "type": "string", "pattern": "^brand:" }
+  },
+  "additionalProperties": false
+}

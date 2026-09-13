@@ -96,6 +96,11 @@ function mergeEntities(
     }
   }
   Object.assign(merged, supplied);
+  // Keep prompt placeholders in the clarification path. A value such as
+  // “[主题]” is a label from a task template, not user-provided data.
+  if (typeof merged.subject === "string" && /^\[(?:主题|subject)\]$/i.test(merged.subject.trim())) {
+    delete merged.subject;
+  }
   if (taskType === "email_compose" && !firstEmail(merged.mailboxEmail) && boundMailbox) {
     merged.mailboxEmail = boundMailbox;
   }

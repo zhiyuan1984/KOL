@@ -14,6 +14,7 @@ import type { Json, Row } from "../types.js";
 import { HttpFail } from "./errors.js";
 import { pickComposeTemplate } from "./compose-loop.js";
 import { currentUser } from "./persona.js";
+import { departmentHeadAccessForUser } from "../contract-scope.js";
 
 export const KNOWLEDGE_KINDS = ["mail_template", "policy", "pattern", "glossary"] as const;
 export const KNOWLEDGE_STATUSES = ["draft", "pending_review", "published", "archived"] as const;
@@ -54,6 +55,8 @@ export function knowledgeActorId(): string {
 
 export function actorBrands(): string[] {
   const user = authDisabled() ? currentUser() : (scopedUser() || currentUser());
+  const departmentHead = departmentHeadAccessForUser(user);
+  if (departmentHead?.company_wide && departmentHead.brand_scope === "all") return Object.keys(BRAND_MAILBOXES);
   return [...(user.brands || [])];
 }
 

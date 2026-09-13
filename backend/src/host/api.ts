@@ -7,7 +7,15 @@
 import { Hono } from "hono";
 import { requireConnector, requireSkill, requireStageWrite, scopedUser, authDisabled, isAdmin } from "../auth.js";
 import { translateDraftInternal, stubInternalZh } from "../starrykol/translate-zh.js";
-import { BRAND_MAILBOXES, PLATFORM_EXAMPLE_TITLES, codexMode, hostWorkerTimeout, starryKolMcpConfigured } from "../config.js";
+import {
+  BRAND_MAILBOXES,
+  PLATFORM_EXAMPLE_TITLES,
+  codexMode,
+  hostWorkerTimeout,
+  liveRemoteSideEffectsEnabled,
+  liveTestKolAllowed,
+  starryKolMcpConfigured,
+} from "../config.js";
 import { audit, getConn, nowIso, tx } from "../db.js";
 import { sendDraft } from "../gateway/send.js";
 import { confirmStarryStage } from "../gateway/starry.js";
@@ -89,6 +97,7 @@ import { appendTaskEvent } from "../routers/tasks.js";
 import { taskDefinition } from "../tasks/registry.js";
 import { recognizeTaskIntent } from "../tasks/recognize.js";
 import { publishSession, subscribeSession } from "./session-events.js";
+import { agentSubmissionAllowed } from "../contract-scope.js";
 import { extractTaskEntities, mergeExtractedOntoIntent } from "../tasks/resolver.js";
 import { fieldLabel } from "../labels.js";
 import { assertCollaborationInScope, inboundVisibleSql, scopedCollaborationSearch } from "./inbound-scope.js";
@@ -107,6 +116,7 @@ import {
 } from "../starrykol/service.js";
 import { itemsForCollaboration } from "../starrykol/mail-sync.js";
 import { hasComposeDraftOutput } from "../worker/parse.js";
+import { templateById } from "../email-templates.js";
 import {
   FOLLOW_STYLE_PRESETS,
   followStyleCardPayload,
@@ -872,7 +882,7 @@ function applyAuthorizedFrom(did: string, fromAddr: string, preferredBrand?: str
 
 export function persistDraft(sid: string, item: Json): Row {
   const did = nid("dft");
-  const requestedFrom = String(item.from || item.mailboxEmail || "").trim() || BRAND_MAILBOXES.LT;
+  const requestedFrom = String(item.from || item.mailboxEmail || "").trim();
   const preferredBrand = preferredDraftBrand(item);
   const resolved = resolveAuthorizedFrom(requestedFrom, currentUser(), preferredBrand);
   const extra = {
@@ -1715,6 +1725,29 @@ function unfilledComposeSlots(template: UsableTemplate, values: Record<string, s
 
 function resolveComposeMailTemplate(intent: Intent, col: Row | null): UsableTemplate | null {
   const skill = String(intent.skill || intent.type || "");
+  const entities = intent.extras?.entities && typeof intent.extras.entities === "object"
+    ? intent.extras.entities as Json
+    : {};
+  const exceptionTemplateId = String(entities.exception_template || "").trim();
+  if (exceptionTemplateId) {
+    const exception = templateById(exceptionTemplateId);
+    if (exception) {
+      return {
+        id: exception.id,
+        version: 1,
+        kind: "mail_template",
+        skill_id: "email_compose",
+        brand: "*",
+        subject: exception.subject,
+        body_en: exception.body_en,
+        body: exception.body_en,
+        placeholders: [],
+        stage_codes: exception.stages,
+        title: exception.title,
+        template_id: exception.id,
+      };
+    }
+  }
   const knowledgeId = String(intent.extras?.knowledge_id || "").trim();
   if (!knowledgeId && skill !== "email_compose") return null;
   try {
@@ -1768,7 +1801,7 @@ function persistKnowledgeDraft(
     type: "create_draft",
     skill: template.skill_id || intent.skill || intent.type,
     template_id: template.template_id,
-    from: col?.mailbox_from || BRAND_MAILBOXES[template.brand === "*" ? "LT" : template.brand] || BRAND_MAILBOXES.LT,
+    from: col?.mailbox_from || BRAND_MAILBOXES[template.brand === "*" ? "" : template.brand] || "",
     to: assertDraftTo(sid, me, intent, col, { to: col?.email }, intent.raw),
     cc: "",
     subject: compiled.subject,
@@ -2282,9 +2315,16 @@ async function syncConfirmedStageToMcp(col: Row, target: string, reason?: string
   if (!starryKolMcpConfigured() && codexMode() !== "stub") {
     return { skipped: true, reason: "mcp_not_configured" };
   }
+  if (codexMode() !== "stub" && !liveRemoteSideEffectsEnabled()) {
+    return { skipped: true, reason: "live_side_effects_disabled" };
+  }
+  if (codexMode() !== "stub" && !liveTestKolAllowed(kolUid)) {
+    return { skipped: true, reason: "kol_not_in_live_test_allowlist" };
+  }
   try {
     const data = await writeRemoteOfficialStage({
       kolUid,
+      lifecycleId: col.lifecycle_id as string | number | null | undefined,
       stageCode: target,
       reason: reason || `会话确认进入 ${label(target)}`,
     });
@@ -2612,7 +2652,10 @@ host.post("/sessions/:sid/compose-preview", async (c) => {
     raw: text,
     text,
   };
-  if (col && codexMode() !== "stub") {
+  if (codexMode() !== "stub") {
+    if (!col) {
+      throw new HttpFail(400, { code: "collaboration_required", message: "真实预览必须绑定具体 KOL 合作记录" });
+    }
     try {
       const wr = await runWorker(sid, "email_compose", text, extra);
       const draft = wr.items.find((item) => item.type === "create_draft");
@@ -2627,8 +2670,9 @@ host.post("/sessions/:sid/compose-preview", async (c) => {
           source: "codex",
         });
       }
-    } catch {
-      /* fall back to local seed */
+      throw new CodexUnavailable("Codex 未返回可用邮件草稿，未使用本地模板代替。", "检查 app-server、Skill 和 MCP 后重试。");
+    } catch (e) {
+      throw e;
     }
   }
   return c.json({
@@ -2646,6 +2690,9 @@ host.post("/sessions/:sid/messages", async (c) => {
   }
   if (body.act && body.act !== "ask") {
     throw new HttpFail(400, "go 只改路由，禁止 POST /messages、禁止起箱");
+  }
+  if (!agentSubmissionAllowed()) {
+    throw new HttpFail(409, { code: "agent_not_published", message: "KOL Agent 尚未发布，员工端暂不可提交", next_action: "等待管理员发布 Agent" });
   }
   const boundTask = bindTaskMessage(sid, body);
   const text = String(body.text || body.content || "").trim();
@@ -2708,7 +2755,19 @@ host.post("/sessions/:sid/messages", async (c) => {
   if (intent.skill && !isSkillGranted(intent.skill)) {
     throw new HttpFail(400, "未授权该技能");
   }
-  const col = resolveCollab(intent);
+  let col = resolveCollab(intent);
+  // Internal stub runs may receive the generic exception template before the
+  // async library sync has exposed its exception row on the home board. Use
+  // one seeded exception only in that test profile; production requires an
+  // explicit collaboration selected by the user.
+  const exceptionTemplate = intent.extras?.entities
+    && typeof intent.extras.entities === "object"
+    && String((intent.extras.entities as Json).exception_template || "");
+  if (!col && exceptionTemplate && codexMode() === "stub" && authDisabled()) {
+    col = getConn().prepare(
+      "SELECT * FROM collaborations WHERE stage_code IN ('PAUSED','DISPUTED','LOST','REJECTED','CANCELLED') ORDER BY id LIMIT 1",
+    ).get() as Row | undefined || null;
+  }
   if (col) {
     intent.collaboration_id = String(col.id);
     if (!intent.handle) intent.handle = String(col.handle || "");
@@ -2886,7 +2945,7 @@ host.post("/drafts/:did/send", async (c) => {
   }
   setDraftStatus(did, "sending");
   try {
-    const result = sendDraft(did, "operator");
+    const result = await sendDraft(did, "operator");
     setDraftStatus(did, "sent");
     syncEmailCard(did);
     const sentExtra = typeof d.extra === "object" && d.extra ? (d.extra as Json) : {};

@@ -783,40 +783,18 @@ describe("Email MCP task run path", () => {
     }
   });
 
-  it("acknowledges creator_library_query immediately so session polling stays JSON", async () => {
+  it("blocks real employee submission while the KOL Agent is unpublished", async () => {
     const previous = process.env.CODEX_MODE;
     process.env.CODEX_MODE = "real";
-    setEmailMcpClientFactory(() => ({
-      async callTool(name: string, args: Json = {}) {
-        if (name === "pageKolProfiles") {
-          await new Promise((resolve) => setTimeout(resolve, 80));
-        }
-        return mockClient().callTool(name, args);
-      },
-      async close() { /* noop */ },
-    }));
     try {
       const created = await request("POST", "/api/sessions", { title: "达人库查询" });
-      const startedAt = Date.now();
       const posted = await request("POST", `/api/sessions/${created.body.id}/messages`, {
         text: "查询达人库 关键词：户外电源",
         intent: "creator_library_query",
         act: "ask",
       });
-      expect(posted.status).toBe(202);
-      expect(Date.now() - startedAt).toBeLessThan(500);
-      expect(["running", "listening"]).toContain(posted.body.agent_status);
-      const inflight = await request("GET", `/api/sessions/${created.body.id}`);
-      expect(inflight.status).toBe(200);
-      expect(Array.isArray(inflight.body.messages)).toBe(true);
-
-      let session: Json = {};
-      for (let i = 0; i < 40; i += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        session = (await request("GET", `/api/sessions/${created.body.id}`)).body;
-        if (session.agent_status !== "running") break;
-      }
-      expect(session.agent_status).not.toBe("running");
+      expect(posted.status).toBe(409);
+      expect(posted.body.detail).toMatchObject({ code: "agent_not_published" });
     } finally {
       process.env.CODEX_MODE = previous;
       setEmailMcpClientFactory(mockClient);

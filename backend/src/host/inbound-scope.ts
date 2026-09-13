@@ -2,6 +2,7 @@ import { authDisabled, isAdmin, scopedUser, type AppUser } from "../auth.js";
 import { getConn } from "../db.js";
 import type { Row } from "../types.js";
 import { HttpFail } from "./errors.js";
+import { departmentHeadAccessForUser } from "../contract-scope.js";
 
 export function inboundActor(): AppUser | undefined {
   if (authDisabled()) return undefined;
@@ -10,6 +11,8 @@ export function inboundActor(): AppUser | undefined {
 
 export function brandScope(user = inboundActor()): string[] | null {
   if (!user || isAdmin(user)) return null;
+  const departmentHead = departmentHeadAccessForUser(user);
+  if (departmentHead?.company_wide && departmentHead.brand_scope === "all") return null;
   return [...(user.brands || [])];
 }
 

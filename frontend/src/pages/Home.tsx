@@ -68,6 +68,15 @@ type TabSummary = { code: string; count: number; task_count?: number };
 const openStatuses = new Set(["pending", "waiting", "running", "queued", "in_progress", "failed"]);
 const closedStatuses = new Set(["completed", "done", "cancelled"]);
 const HOME_MODES: HomeMode[] = ["todo", "ai", "lifecycle"];
+const EXCEPTION_TEMPLATE: TaskDefinition = {
+  id: "exception_delay_care",
+  skill_id: "email_compose",
+  title: "延期关怀",
+  description: "对合作延期做关怀式跟进，不把延期直接判定为违约",
+  prompt: "延期关怀 [红人或合作]",
+  category: "异常",
+  profile: "lead",
+};
 
 function definitionList(
   value: TaskDefinition[] | { task_definitions?: TaskDefinition[]; definitions?: TaskDefinition[] },
@@ -416,7 +425,11 @@ export default function Home() {
       }
     }).catch(() => undefined);
     void api.taskDefinitions().then(definitionList).then((taskDefinitions) => {
-      if (!cancelled && taskDefinitions.length) setDefinitions(taskDefinitions);
+      if (!cancelled && taskDefinitions.length) {
+        setDefinitions(taskDefinitions.some((definition) => definition.id === EXCEPTION_TEMPLATE.id)
+          ? taskDefinitions
+          : [...taskDefinitions, EXCEPTION_TEMPLATE]);
+      }
     }).catch(() => undefined);
     void api.homeBoard().then((board) => {
       if (!cancelled) applyBoard(board);
@@ -675,18 +688,71 @@ export default function Home() {
     setFeedback(null);
     rememberJourney({ kind: "compose", skillId: intent || undefined, skillLabel: lockedLabel || undefined });
     try {
-      const ses = await api.createSession(prompt.slice(0, 40) || "新任务", p.collaboration_id);
-      storePending(ses.id, {
+      // Exception care is a deliberate mail action. Keep it on the session
+      // path so the worker can build the delay template from the KOL context;
+      // it still cannot send or change the official stage automatically.
+      // Chinese text has no ASCII word-boundary after the template title;
+      // match the explicit template prefix instead of relying on \b.
+      if (/^延期关怀(?:\s|$|\[)/.test(prompt)) {
+        // Bind the generic exception template to the visible exception row so
+        // the Host can load its real mailbox, recipient and stage context.
+        const exceptionKol = followedKols.find((kol) => kol.exception && !kol.unbound)
+          || followedKols.find((kol) => /异常|争议/.test(`${kol.stage_label} ${kol.notes || ""}`) && !kol.unbound);
+        const collaborationId = p.collaboration_id || exceptionKol?.id;
+        const ses = await api.createSession(prompt.slice(0, 40), collaborationId);
+        storePending(ses.id, {
+          text: prompt,
+          intent: "email_compose",
+          knowledge_id: knowledgeId,
+          attachments: p.attachments,
+          model_tier: p.model_tier,
+          collaboration_id: collaborationId,
+          entities: { exception_template: "delay_followup.v1" },
+        });
+        setLockedIntent(null);
+        setLockedLabel(null);
+        setLockedKnowledgeId(null);
+        nav(`/s/${ses.id}`);
+        return;
+      }
+      // Home is a task intake surface. Recognize first so a missing field or
+      // ambiguous request remains on the home page with an actionable card;
+      // only a resolved task opens a session and starts the run.
+      const recognized = await api.createTaskFromText({
         text: prompt,
-        knowledge_id: knowledgeId,
+        task_type: intent || undefined,
+        intent: intent || undefined,
+        source: "text",
         attachments: p.attachments,
         model_tier: p.model_tier,
         collaboration_id: p.collaboration_id,
+        knowledge_id: knowledgeId,
+        entities: p.entities,
       });
+      const resolution = recognized.resolution || {};
+      const missing = resolution.missing_fields || [];
+      if (recognized.needs_clarification || !recognized.task) {
+        setFeedback({
+          ...recognized,
+          needs_clarification: true,
+          clarification_kind: recognized.clarification_kind || (missing.length ? "missing_fields" : "direction"),
+          clarification: recognized.clarification
+            || recognized.message
+            || (missing.length ? missingFieldsMessage(missing, "可使用输入框补充后再执行。") : "请补充任务所需信息后再执行。"),
+          candidates: recognized.candidates || resolution.alternatives?.map((candidate) => ({
+            id: candidate.task_type || candidate.id || "",
+            title: candidate.title || candidate.task_type || "候选任务",
+          })) || [],
+        });
+        setBusy(false);
+        return;
+      }
+      const created = recognized.task;
+      setTasks((current) => current.some((task) => task.id === created.id) ? current : [created, ...current]);
       setLockedIntent(null);
       setLockedLabel(null);
       setLockedKnowledgeId(null);
-      nav(`/s/${ses.id}`);
+      openRun(await api.runTask(created.id));
     } catch (error) {
       setErr(error instanceof Error ? error.message : String(error));
       setBusy(false);

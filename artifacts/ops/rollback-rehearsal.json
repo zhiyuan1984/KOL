@@ -1,0 +1,26 @@
+{
+  "status": "pass",
+  "rehearsal": "internal-stop-and-recover",
+  "actions": [
+    "stop_new_runs",
+    "preserve_submitted_receipts",
+    "replay_only_idempotent_pending_work",
+    "manual_compensation_for_irreversible_external_actions"
+  ],
+  "evidence_tests": [
+    {
+      "id": "receipt-version",
+      "file": "tests/receipt-version.test.ts"
+    },
+    {
+      "id": "run-queue",
+      "file": "tests/run-queue.test.ts"
+    },
+    {
+      "id": "redlines",
+      "file": "tests/conformance-redlines.test.ts"
+    }
+  ],
+  "missing": [],
+  "generated_at": "2026-09-13T04:44:58.538Z"
+}

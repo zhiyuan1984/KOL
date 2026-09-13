@@ -1,0 +1,8 @@
+{
+  "id": "campaign_delivery",
+  "agent": "agent:kol",
+  "steps": ["confirm_stage", "business_approval"],
+  "read_tools": ["starrykol.pageLifecycleKanban", "starrykol.getStageRiskMatrix"],
+  "write_steps": ["change_stage", "import_creator"],
+  "requires_confirmation": true
+}

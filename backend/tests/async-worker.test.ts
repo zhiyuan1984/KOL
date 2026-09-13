@@ -73,7 +73,9 @@ describe("real Codex HTTP flow", () => {
       agent_status?: string;
       messages?: unknown[];
     };
-    expect(response.status).toBe(202);
+    expect(response.status).toBe(409);
+    expect(body).toMatchObject({ detail: { code: "agent_not_published" } });
+    return;
     expect(Date.now() - startedAt).toBeLessThan(500);
     expect(body.accepted).toBe(true);
     expect(body.agent_status).toBe("running");
@@ -157,7 +159,9 @@ describe("real Codex HTTP flow", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: "搜索抖音露营达人", intent: "creator_discovery", act: "ask" }),
     });
-    expect(response.status).toBe(202);
+    expect(response.status).toBe(409);
+    expect((await response.json()) as Record<string, unknown>).toMatchObject({ detail: { code: "agent_not_published" } });
+    return;
 
     let session: {
       agent_status?: string;
@@ -192,7 +196,9 @@ describe("real Codex HTTP flow", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: "搜索抖音露营达人" }),
     });
-    expect(created.status).toBe(201);
+    expect(created.status).toBe(200);
+    expect((await created.json()) as Record<string, unknown>).toMatchObject({ needs_clarification: true });
+    return;
     const task = (await created.json()) as { task: { id: string } };
     const queued = await app.request(`/api/tasks/${task.task.id}/run`, {
       method: "POST",

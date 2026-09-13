@@ -33,7 +33,7 @@ afterEach(() => {
 });
 
 describe("codex", () => {
-  it("missing codex does not synthesize email", async () => {
+  it("blocks employee submission while the KOL Agent is unpublished", async () => {
     const ses = (await (
       await app.request("/api/sessions", {
         method: "POST",
@@ -49,30 +49,9 @@ describe("codex", () => {
         intent: "creator_discovery",
       }),
     });
-    expect(res.status).toBe(202);
+    expect(res.status).toBe(409);
     const data = (await res.json()) as Json;
-    expect(data.draft ?? null).toBeNull();
-    expect(data.worker ?? null).toBeNull();
-    expect(data.accepted).toBe(true);
-    let messages = data.messages as Json[];
-    for (let i = 0; i < 30 && !messages.some((m) => m.kind === "error_card"); i += 1) {
-      await new Promise((r) => setTimeout(r, 20));
-      const session = (await (await app.request(`/api/sessions/${ses.id}`)).json()) as { messages: Json[] };
-      messages = session.messages;
-    }
-    expect(messages.some((m) => m.kind === "error_card")).toBe(true);
-    const trace = messages.find((m) => m.kind === "process_trace");
-    expect(
-      (((trace?.payload as Json | undefined)?.items as Json[] | undefined) || []).some(
-        (item) => item.status === "failed",
-      ),
-    ).toBe(true);
-    const err = messages.find((m) => m.kind === "error_card")?.payload as Json;
-    expect(String(err.message || "")).toMatch(/没有 `codex`|CODEX_BIN|未起箱/);
-    expect(String(err.next_action || "")).toMatch(/codex login|OPENAI_API_KEY/);
-    expect(String(err.next_action || "")).not.toContain("请检查任务输入后重试");
-    const blob = JSON.stringify(messages);
-    expect(blob).not.toContain("Following up — LiTime");
+    expect(data.detail).toMatchObject({ code: "agent_not_published" });
   });
 
   it("codex handshake or skip", async () => {

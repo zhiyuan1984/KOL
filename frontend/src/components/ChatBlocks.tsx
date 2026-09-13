@@ -127,9 +127,11 @@ export function emailMarkdown(card: EmailCard): string {
 }
 
 function pickFromAddr(from: string, opts: { email: string }[]): string {
-  if (!opts.length) return from;
+  if (!opts.length) return String(from || "").trim();
   const wanted = String(from || "").trim().toLowerCase();
-  return opts.find((row) => row.email.toLowerCase() === wanted)?.email || opts[0].email;
+  const matched = opts.find((row) => row.email.toLowerCase() === wanted)?.email;
+  if (matched) return matched;
+  return opts.length === 1 ? opts[0].email : "";
 }
 
 function usableInternalZh(zh: string | undefined, english: string): string | null {
@@ -241,6 +243,9 @@ export function DraftArtifact({
       ) : (
         <div className="draft-editor">
           <div className="page-kicker">邮件草稿</div>
+          <p className="draft-meta" data-draft-subject-preview>
+            邮件主题：{subject || "未指定"}
+          </p>
           {card.amount_usd != null && (
             <p className="draft-meta" data-draft-amount data-compose-amount>
               金额 {card.currency || "USD"} {card.amount_usd}{card.rate_unit === "hour" ? " per hour" : ""}
@@ -303,11 +308,12 @@ export function DraftArtifact({
         <button className="btn ghost" data-email-action="translate" onClick={() => void translate()} disabled={!!busy}>
           一键翻译中文（内部）
         </button>
-        <button className="btn work" data-email-action="send" onClick={() => void send()} disabled={!!busy || !!card.send_disabled || !toAddr.trim()}>
+        <button className="btn work" data-email-action="send" onClick={() => void send()} disabled={!!busy || !!card.send_disabled || !resolvedFrom.trim() || !toAddr.trim()}>
           校验并发送原文
         </button>
       </div>
       {card.send_disabled && <p className="muted">发送已禁用</p>}
+      {!resolvedFrom.trim() && !card.send_disabled && <p className="muted">请先选择发件邮箱。没有明确绑定时不会自动选择邮箱。</p>}
       {!toAddr.trim() && !card.send_disabled && <p className="muted">请先填写收件邮箱。不能解密或编造联系方式。</p>}
       {err && (
         <div className="error" data-persistent-error>
@@ -783,7 +789,7 @@ export function KolMailCard({
   const groups = stageTrackGroups({ targets, tracks: Array.isArray(payload.tracks) ? payload.tracks as StageTrackGroup[] : [] });
   const defaultPick = suggested && targets.some((item) => item.code === suggested)
     ? suggested
-    : (targets.find((item) => item.kind === "adjacent")?.code || groups[0]?.items[0]?.code || suggested);
+    : "";
   const [picked, setPicked] = useState(defaultPick);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");

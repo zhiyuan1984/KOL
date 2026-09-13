@@ -26,8 +26,8 @@ export default function StarryBindForm({ onSaved }: { onSaved: () => void }) {
     try {
       const result = await api.probeStarryBinding(bearer ? { bearer } : {});
       setMailboxes(result.mailboxes || []);
-      const prefer = result.mailboxes.find((row) => /larry\.zhao/i.test(row.mailbox_email)) || result.mailboxes[0];
-      setChosen(prefer?.mailbox_email || "");
+      const unique = result.mailboxes.length === 1 ? result.mailboxes[0] : undefined;
+      setChosen(unique?.mailbox_email || "");
       setNotice(result.mailboxes.length ? `找到 ${result.mailboxes.length} 个可用发件箱` : "没有可用发件箱");
     } catch (e) {
       setError(e instanceof Error ? e.message : "无法读取邮箱列表");

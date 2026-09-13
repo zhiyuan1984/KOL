@@ -10,6 +10,7 @@ import { resolveTaskIntent } from "../tasks/resolver.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
 import { historySummary, decorateTaskFromCollab } from "../host/home-board.js";
 import { formatMissingFields, missingFieldsMessage } from "../labels.js";
+import { agentSubmissionAllowed, kolAgentManifest } from "../contract-scope.js";
 
 export const tasks = new Hono();
 
@@ -99,6 +100,9 @@ export function appendTaskEvent(
 }
 
 function createWorkItem(body: Json, source: string): Json {
+  if (!agentSubmissionAllowed()) {
+    throw new HttpFail(409, { code: "agent_not_published", message: "KOL Agent 尚未发布，员工端暂不可提交任务", next_action: "等待管理员发布 Agent" });
+  }
   const explicitType = String(body.task_type || body.definition_id || body.intent || "");
   const definition = taskDefinition(explicitType);
   if (!definition) throw new HttpFail(400, { code: "unknown_task_type", task_type: explicitType });
@@ -153,6 +157,19 @@ tasks.get("/task-definitions", (c) => {
     skill_id: definition.id,
     granted: granted.has(definition.id),
   })));
+});
+
+tasks.get("/agent-manifest", (c) => {
+  const manifest = kolAgentManifest();
+  const employeeViews = (manifest.employee_views || {}) as Record<string, unknown>;
+  return c.json({
+    id: manifest.id,
+    version: manifest.version,
+    status: manifest.status,
+    publish_gate: manifest.publish_gate,
+    entries: Array.isArray(employeeViews.entries) ? employeeViews.entries : [],
+    teams: Array.isArray(employeeViews.teams) ? employeeViews.teams : [],
+  });
 });
 
 tasks.get("/tasks", (c) => {

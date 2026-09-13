@@ -1,4 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
+import path from "node:path";
+
+async function saveScreenshot(page: Page, name: string): Promise<void> {
+  const dir = process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results";
+  await page.screenshot({ path: path.join(dir, name), fullPage: true });
+}
 
 test.beforeEach(async ({ request }) => {
   await request.post("/api/demo/reset", { data: { workbench: true } });
@@ -254,13 +260,25 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   expect(Math.abs(enBox!.y - logoBox!.y)).toBeLessThan(48);
   await openHomeTemplates(page);
   const taskButtons = page.locator("[data-home] .rec");
-  await expect(taskButtons).toHaveCount(49);
+  const catalogResponse = await page.request.get("/api/task-definitions");
+  const catalogPayload = await catalogResponse.json() as { task_definitions?: unknown[]; definitions?: unknown[] } | unknown[];
+  const catalogCount = Array.isArray(catalogPayload)
+    ? catalogPayload.length
+    : (catalogPayload.task_definitions || catalogPayload.definitions || []).length;
+  // The exception-care template is a UX alias of email_compose and may be
+  // rendered in addition to the canonical registry entries.
+  await expect(taskButtons).toHaveCount(catalogCount + 1);
   for (let i = 0; i < await taskButtons.count(); i += 1) {
     await expect(taskButtons.nth(i)).toHaveAttribute("data-act", "ask");
     await expect(taskButtons.nth(i)).not.toHaveAttribute("data-intent", "");
     await expect(taskButtons.nth(i).locator(".rec-description")).not.toBeEmpty();
   }
-  await expect(page.locator("[data-task-category]")).toHaveCount(7);
+  const categories = new Set((Array.isArray(catalogPayload)
+    ? catalogPayload
+    : (catalogPayload.task_definitions || catalogPayload.definitions || []))
+    .map((item) => String((item as { category?: unknown }).category || "常用任务")));
+  categories.add("异常");
+  await expect(page.locator("[data-task-category]")).toHaveCount(categories.size);
   await expect(page.locator('[data-home] .rec[data-act="go"]')).toHaveCount(0);
   await expect(page.locator("[data-composer]")).toBeVisible();
   await expect(page.locator("[data-nav-disabled='云盘']")).toContainText("非本期");
@@ -306,7 +324,9 @@ test("exception template 延期关怀 prefills home then drafts without changing
   await expect(page.locator('[data-kind="me"]')).toContainText("延期关怀", { timeout: 15000 });
   await expectDraft(page);
   await expect(page.locator("[data-workbench] [data-kind='email-card']")).toContainText("Update on the Content Timeline");
-  await expect(page.locator('[data-kind="sys-msg"]')).toContainText("正式阶段");
+  // The draft card owns the stage guardrail; ChatBlocks intentionally filters
+  // the duplicated generic sys-msg for “正式阶段建议保持”.
+  await expect(page.locator("[data-workbench]")).toContainText("正式阶段");
 });
 
 test("home composer posts a message into a new session", async ({ page }) => {
@@ -783,7 +803,7 @@ test("催大纲 placeholder without a creator shows a supplement card, not a sen
   await expect(page.getByText("发送已禁用")).toHaveCount(0);
   const after = await request.get("/api/workers");
   expect(((await after.json()) as unknown[]).length).toBe(n0);
-  await page.screenshot({ path: "/opt/cursor/artifacts/email_compose_needs_creator.png", fullPage: true });
+  await saveScreenshot(page, "email_compose_needs_creator.png");
 });
 
 test("session 催大纲 [红人或合作] also stays on a supplement card", async ({ page, request }) => {
@@ -1717,7 +1737,7 @@ test("skill hub lists Starry KOL MCP and the remaining library skills", async ({
   await expect(page.locator('[data-connector="starrykol"]')).toBeVisible();
   await expect(page.locator('[data-connector="enterprise_mail"]')).toBeVisible();
   await expect(page.locator("body")).not.toContainText("邮件 MCP");
-  await page.screenshot({ path: "/opt/cursor/artifacts/skill_hub_starry_kol_mcp.png", fullPage: true });
+  await saveScreenshot(page, "skill_hub_starry_kol_mcp.png");
 
   await page.goto("/");
   await openHomeTemplates(page);
@@ -1740,7 +1760,7 @@ test("skill hub lists Starry KOL MCP and the remaining library skills", async ({
   ]) {
     await expect(page.locator("[data-home] .rec").filter({ hasText: title })).toBeVisible();
   }
-  await page.screenshot({ path: "/opt/cursor/artifacts/home_starry_kol_templates.png", fullPage: true });
+  await saveScreenshot(page, "home_starry_kol_templates.png");
 });
 
 test("达人画像 and 更新红人负责人 run through Starry KOL MCP", async ({ page }) => {
@@ -1770,9 +1790,9 @@ test("达人画像 and 更新红人负责人 run through Starry KOL MCP", async 
   await expect(qq).not.toContainText("这项信息");
   await expect(qq).not.toContainText("摘要数据");
   await expect(qq).not.toContainText("DELIVERED_TESTING");
-  await page.screenshot({ path: "/opt/cursor/artifacts/creator_profile_qq01_briefing.png", fullPage: true });
+  await saveScreenshot(page, "creator_profile_qq01_briefing.png");
   await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
-  await page.screenshot({ path: "/opt/cursor/artifacts/creator_profile_owner_binding.png", fullPage: true });
+  await saveScreenshot(page, "creator_profile_owner_binding.png");
 
   await page.locator("[data-composer-input]").fill("更新红人负责人 达人 UID KOLTEST001 负责人：王主管");
   await page.locator("[data-send]").click();
@@ -1781,7 +1801,7 @@ test("达人画像 and 更新红人负责人 run through Starry KOL MCP", async 
   await expect(owner).toContainText("红人绑定 / 负责人");
   await expect(page.locator('[data-kind="operation-trace"]').last()).toContainText("查询达人详情");
   await expect(page.locator('[data-kind="operation-trace"]').last()).toContainText("更新达人画像");
-  await page.screenshot({ path: "/opt/cursor/artifacts/creator_owner_update_result.png", fullPage: true });
+  await saveScreenshot(page, "creator_owner_update_result.png");
 });
 
 test("风险扫描 runs Starry KOL MCP tools and lists T8 overdue", async ({ page }) => {
@@ -1806,7 +1826,7 @@ test("风险扫描 runs Starry KOL MCP tools and lists T8 overdue", async ({ pag
   await expect(page.locator('[data-kind="process-trace"]')).toContainText("准备任务");
   await expect(page.locator('[data-kind="process-trace"]')).not.toContainText("理解任务");
   await expect(page.locator('[data-kind="process-trace"]')).not.toContainText("校验安全边界与格式");
-  await page.screenshot({ path: "/opt/cursor/artifacts/risk_scan_starry_kol_mcp.png", fullPage: true });
+  await saveScreenshot(page, "risk_scan_starry_kol_mcp.png");
 });
 
 test("首封建联 starter asks for 发件/收件/主题 and does not show a compose form", async ({ page, request }) => {
@@ -1819,7 +1839,7 @@ test("首封建联 starter asks for 发件/收件/主题 and does not show a com
   await page.locator("[data-knowledge-option='kb_mail_kol']").click();
   await expect(input).toHaveValue("首封建联 [发件邮箱] [收件邮箱] [主题]");
   await expect(page.locator("[data-home] [data-mail-fields]")).toHaveCount(0);
-  await page.screenshot({ path: "/opt/cursor/artifacts/first_touch_compose_fields.png", fullPage: true });
+  await saveScreenshot(page, "first_touch_compose_fields.png");
   await submitHomeComposerStay(page);
   await expectHomeClarification(page, "发件邮箱", "收件邮箱", "邮件主题");
   await expect(page.locator("[data-home] [data-creation-feedback]")).not.toContainText("邮件会话");
@@ -1833,7 +1853,7 @@ test("首封建联 starter asks for 发件/收件/主题 and does not show a com
   await expect(workbench).toContainText("larry.zhao@amperetime.com");
   await expect(workbench).not.toContainText("还需要补充：邮件会话");
   await expect(page.locator("[data-workbench] [data-kind='email-card']")).toHaveCount(0);
-  await page.screenshot({ path: "/opt/cursor/artifacts/first_touch_compose_submitted.png", fullPage: true });
+  await saveScreenshot(page, "first_touch_compose_submitted.png");
 });
 
 test("cited knowledge template appears in the home picker and only prefills", async ({ page, request }) => {
@@ -1873,7 +1893,7 @@ test("HTML session payload is shown as a connection error, not SyntaxError", asy
   await expect(alert).toContainText("连接暂时异常，已保留你的任务。");
   await expect(page.getByText("SyntaxError")).toHaveCount(0);
   await expect(page.getByText("is not valid JSON")).toHaveCount(0);
-  await page.screenshot({ path: "/opt/cursor/artifacts/library_query_html_error.png", fullPage: true });
+  await saveScreenshot(page, "library_query_html_error.png");
 });
 
 test("达人库查询 completes with a result card", async ({ page }) => {
@@ -1887,7 +1907,7 @@ test("达人库查询 completes with a result card", async ({ page }) => {
   await expect(card).not.toContainText("未找到匹配的达人画像");
   await expect(page.getByText("当前无法继续这次工作")).toHaveCount(0);
   await expect(page.getByText("SyntaxError")).toHaveCount(0);
-  await page.screenshot({ path: "/opt/cursor/artifacts/creator_library_query_result.png", fullPage: true });
+  await saveScreenshot(page, "creator_library_query_result.png");
 });
 
 test("达人库查询 starter placeholder still lists profiles", async ({ page }) => {
@@ -1911,7 +1931,7 @@ test("cron 跑一次风险扫描 opens the same Host MCP result", async ({ page 
   await expect(card).toContainText("T8 失联与延期");
   await expect(page.locator('[data-kind="operation-trace"]').last()).toContainText("查询风险会话");
   await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
-  await page.screenshot({ path: "/opt/cursor/artifacts/cron_risk_scan_starry_kol_mcp.png", fullPage: true });
+  await saveScreenshot(page, "cron_risk_scan_starry_kol_mcp.png");
 });
 
 test("expense approval walks FIN-EXP-004 to 已办结 without record ids", async ({ page, request }) => {

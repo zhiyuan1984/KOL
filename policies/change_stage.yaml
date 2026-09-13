@@ -1,0 +1,10 @@
+{
+  "id": "change_stage",
+  "action": "change_stage",
+  "side_effect": true,
+  "gateway": "backend/src/host/api.ts",
+  "mcp_tools": ["starrykol.changeLifecycleStage"],
+  "requires_confirmation": true,
+  "expected_version_required": true,
+  "automatic_fact_write": false
+}

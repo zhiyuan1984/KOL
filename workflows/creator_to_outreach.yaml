@@ -1,0 +1,8 @@
+{
+  "id": "creator_to_outreach",
+  "agent": "agent:kol",
+  "steps": ["creator_discovery", "creator_profile", "creator_scoring", "email_compose"],
+  "read_tools": ["starrykol.pageKolProfiles", "starrykol.getKolProfileDetail", "starrykol.listKolPlatformData"],
+  "write_steps": ["send_email"],
+  "requires_confirmation": true
+}

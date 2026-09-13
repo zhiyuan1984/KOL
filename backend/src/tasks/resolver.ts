@@ -152,7 +152,9 @@ export function extractTaskEntities(text: string): Record<string, unknown> {
     ?.trim()
     .replace(/\s*(确认发送|confirm[_ ]?send)\s*$/i, "")
     .trim();
-  if (subject) entities.subject = subject;
+  // Template prompts such as “主题：[主题]” describe a missing field; they
+  // must not be treated as a real subject and accidentally pass the resolver.
+  if (subject && !/^\[(?:主题|subject)\]$/i.test(subject)) entities.subject = subject;
   if (/确认发送|confirm[_ ]?send/i.test(text)) entities.confirm_send = true;
   if (/加一封|再发一封|再写一封|再来一封/.test(text)) entities.another_letter = true;
   if (/(搜索|查找|寻找|发现).*(达人|KOL|创作者)/i.test(text)) {

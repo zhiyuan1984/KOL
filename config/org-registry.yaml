@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "status": "confirmed",
+  "companies": [
+    {
+      "id": "company:amperetime",
+      "display_name": "安培时代",
+      "status": "active",
+      "external_id": null,
+      "source": "user-confirmed organization screenshots",
+      "source_confidence": "confirmed-business-binding"
+    }
+  ],
+  "organization_units": [
+    { "id": "org:brand_user_growth_center", "display_name": "品牌与用户增长中心", "type": "center", "parent": "company:amperetime", "head": "张慧玲" },
+    { "id": "org:brand_project_group", "display_name": "品牌项目组", "type": "project_group", "parent": "org:brand_user_growth_center", "head": null },
+    { "id": "org:market_department", "display_name": "市场部", "type": "department", "parent": "org:brand_user_growth_center", "head": null },
+    { "id": "org:promotion_department", "display_name": "推广部", "type": "department", "parent": "org:brand_user_growth_center", "head": "刘敏" },
+    { "id": "org:lt_team", "display_name": "LT组", "type": "team", "parent": "org:promotion_department", "brand_scope": ["brand:lt"] },
+    { "id": "org:pq_ro_tb_team", "display_name": "PQ-RO-TB组", "type": "team", "parent": "org:promotion_department", "brand_scope": ["brand:pq", "brand:ro", "brand:tb"] }
+  ],
+  "confirmed_people": [
+    {
+      "display_name": "张慧玲",
+      "role": "department_head",
+      "org_unit": "org:brand_user_growth_center",
+      "user_ref": null,
+      "email": null,
+      "region_scope": [],
+      "brand_scope": [],
+      "source": "user-confirmed organization screenshots",
+      "pending_fields": ["user_ref", "email", "employee_no", "employment_status", "effective_at", "brand_scope", "region_scope"]
+    },
+    {
+      "display_name": "刘敏",
+      "role": "department_head",
+      "org_unit": "org:promotion_department",
+      "user_ref": "user:liu_min",
+      "email": null,
+      "region_scope": [],
+      "brand_scope": [],
+      "source": "user-confirmed organization screenshots",
+      "pending_fields": ["email", "employee_no", "employment_status", "effective_at", "brand_scope", "region_scope"]
+    }
+  ],
+  "department_head_scope_policy": {
+    "status": "confirmed",
+    "company_wide": true,
+    "brand_scope": "all",
+    "region_scope": "all",
+    "data_actions": ["read", "write"],
+    "high_risk_actions": ["send_email", "change_stage", "import_creator", "decrypt_contact"],
+    "high_risk_control": "Host Gateway and confirmation/approval remain mandatory"
+  },
+  "pending_bindings": [
+    { "id": "TODO-ORG-001", "item": "绑定安培时代的组织系统 company_id", "status": "done", "resolution": "company:amperetime" },
+    { "id": "TODO-ORG-002", "item": "补齐张慧玲、刘敏的外部 user_id、邮箱、工号和任职状态（非 PEP 阻断）", "status": "open", "blocking": false },
+    { "id": "TODO-ORG-003", "item": "补齐普通成员的品牌/区域明细和生效时间（部门负责人全范围授权已确认）", "status": "open", "blocking": false },
+    { "id": "TODO-ORG-004", "item": "补齐 PQ-RO-TB 组内成员的品牌/区域范围和生效时间（非 PEP 阻断）", "status": "open", "blocking": false }
+  ],
+  "pep_authorization": {
+    "status": "confirmed",
+    "mode": "pilot-formal",
+    "basis": [
+      "user-confirmed organization screenshots",
+      "data/kol/邮箱-负责人绑定清单.md",
+      "remote Starry MCP read-only listMailboxOwnerOptions",
+      "remote Starry MCP read-only pageMailboxes"
+    ],
+    "ordinary_data_actions": ["read", "write"],
+    "high_risk_actions": ["send_email", "change_stage", "import_creator", "decrypt_contact"],
+    "high_risk_control": "Host Gateway and confirmation/approval remain mandatory"
+  },
+  "remote_mcp_evidence": {
+    "status": "verified-read-only",
+    "tools": ["listMailboxOwnerOptions", "pageMailboxes"],
+    "owner_count": 9,
+    "mailbox_count": 5,
+    "brand_count": 2,
+    "authorized_user_count": 6,
+    "captured_at": "2026-09-12"
+  },
+  "responsibilities": [
+    {
+      "id": "resp:kol_business_owner",
+      "domain": "kol",
+      "principal_ref": "user:liu_min",
+      "org_unit": "org:promotion_department",
+      "decision_rights": ["business_goal", "workflow", "acceptance", "escalation"]
+    }
+  ]
+}

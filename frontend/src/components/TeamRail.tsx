@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
-import { AGENT_TEAMS, REMOTE_BACKEND_LABEL, remoteForSkill } from "../agentConfig";
+import { REMOTE_BACKEND_LABEL, remoteForSkill } from "../agentConfig";
+import { useAgentManifest } from "../hooks/useAgentManifest";
 
 export type TeamProgress = { teamId: string; stepIndex: number };
 
@@ -17,7 +18,8 @@ export function readTeamProgress(sessionId?: string): TeamProgress | null {
 }
 
 export default function TeamRail({ progress }: { progress: TeamProgress }) {
-  const team = AGENT_TEAMS.find((row) => row.id === progress.teamId);
+  const manifest = useAgentManifest();
+  const team = manifest?.teams.find((row) => row.id === progress.teamId);
   if (!team) return null;
   return (
     <div className="team-rail" data-team-rail={team.id} aria-label={`${team.title} 进度`}>

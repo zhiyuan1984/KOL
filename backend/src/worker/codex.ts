@@ -32,13 +32,16 @@ export function findCodex(): string {
     }
   }
   const pathEnv = process.env.PATH || "";
+  const names = process.platform === "win32" ? ["codex.exe", "codex.cmd", "codex"] : ["codex"];
   for (const dir of pathEnv.split(path.delimiter)) {
-    const candidate = path.join(dir, "codex");
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      if (fs.statSync(candidate).isFile()) return candidate;
-    } catch {
-      /* next */
+    for (const name of names) {
+      const candidate = path.join(dir, name);
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        if (fs.statSync(candidate).isFile()) return candidate;
+      } catch {
+        /* next candidate */
+      }
     }
   }
   throw new CodexUnavailable(
@@ -63,7 +66,14 @@ export class CodexAppServer {
   constructor(timeout = 180) {
     this.timeout = timeout;
     this.bin = findCodex();
-    this.proc = spawn(this.bin, ["app-server"], {
+    // Windows cannot execute a .mjs/.cjs fixture via its shebang directly.
+    // Keep CODEX_BIN semantics unchanged in production while making the
+    // repository's app-server fixtures portable across CI runners.
+    const command = process.platform === "win32" && /\.(?:mjs|cjs|js)$/i.test(this.bin)
+      ? process.execPath
+      : this.bin;
+    const args = command === process.execPath ? [this.bin, "app-server"] : ["app-server"];
+    this.proc = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
       env: codexChildEnv(),
     });

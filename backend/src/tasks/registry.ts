@@ -104,12 +104,13 @@ function parseValue(raw: string): unknown {
 }
 
 function frontmatter(file: string): Record<string, unknown> {
-  const text = fs.readFileSync(file, "utf8");
-  if (!text.startsWith("---\n")) throw new Error(`skill manifest missing frontmatter: ${file}`);
-  const end = text.indexOf("\n---", 4);
+  const text = fs.readFileSync(file, "utf8").replace(/^\uFEFF/, "");
+  const normalized = text.replace(/\r\n/g, "\n");
+  if (!normalized.startsWith("---\n")) throw new Error(`skill manifest missing frontmatter: ${file}`);
+  const end = normalized.indexOf("\n---", 4);
   if (end < 0) throw new Error(`skill manifest frontmatter is not closed: ${file}`);
   const values: Record<string, unknown> = {};
-  for (const line of text.slice(4, end).split(/\r?\n/)) {
+  for (const line of normalized.slice(4, end).split("\n")) {
     if (!line.trim() || line.trimStart().startsWith("#")) continue;
     const separator = line.indexOf(":");
     if (separator < 1) throw new Error(`invalid manifest line in ${file}: ${line}`);

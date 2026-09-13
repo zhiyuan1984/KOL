@@ -199,7 +199,7 @@ export async function syncStarryHomeLibrary(): Promise<StarryLibrarySync> {
         const existing = existingRow(uid, name);
         const id = String(existing?.id || `col_${uid}`);
         const email = firstString(existing?.email, profile.contactEmail, profile.email);
-        const mailbox = firstString(existing?.mailbox_from, BRAND_MAILBOXES[brand], BRAND_MAILBOXES.LT);
+        const mailbox = firstString(existing?.mailbox_from, BRAND_MAILBOXES[brand]);
         const remoteStage = remoteStageOf(profile);
         const stage = mergeRemoteLibraryStage(
           existing ? resolvedLocalStage(existing) : null,

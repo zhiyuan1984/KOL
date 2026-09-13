@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
-import { AGENT_ENTRIES, REMOTE_BACKEND_LABEL, remoteForConnector, remoteForSkill } from "../agentConfig";
+import { REMOTE_BACKEND_LABEL, remoteForConnector, remoteForSkill } from "../agentConfig";
 import { profileNameLabel } from "../labels";
 import { starterPrompt } from "../taskStarters";
 import { storePending } from "../components/ChatBlocks";
 import { useViewMode } from "../viewMode";
+import { useAgentManifest } from "../hooks/useAgentManifest";
 
 type Profile = {
   id: string;
@@ -30,6 +31,7 @@ type SkillRow = {
 
 export default function Agents() {
   const { debug } = useViewMode();
+  const manifest = useAgentManifest();
   const nav = useNavigate();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [skills, setSkills] = useState<SkillRow[]>([]);
@@ -88,7 +90,7 @@ export default function Agents() {
       </div>
       {err && <p className="error">{err}</p>}
       <div className="agent-entry-grid">
-        {AGENT_ENTRIES.map((entry) => (
+        {(manifest?.entries || []).map((entry) => (
           <article key={entry.id} className="panel agent-card agent-entry-card" data-agent-entry={entry.id}>
             <header className="agent-card-head">
               <span className="agent-avatar" aria-hidden>{entry.title.slice(0, 1)}</span>

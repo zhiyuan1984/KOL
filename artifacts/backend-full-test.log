@@ -1,0 +1,2236 @@
+
+> lingong-backend@0.1.0 test
+> node scripts/test.mjs
+
+
+ RUN  v3.2.7 D:/workspace/lingong-kol-ts/backend
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > previews labeled 首封建联 through the mailbox the operator named
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > translates owner-mailbox-as-To and names that mailbox, without asking for 邮件会话
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > names the mailbox that has no send permission
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > names the 灵工 login and Starry identity when the portrait is out of scope
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > creates the conversation with the host Starry identity when only the gateway can see the QQ portrait
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > reuses the existing QQ profile when addKolProfile says the email is taken
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > previews when keyword page returns the followed QQ portrait without contactEmail
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > retries create with the host Starry identity when the bound JWT can list but not create
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > writes the operator To onto the followed portrait when create still misses
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > creates the QQ thread with Starry kolId when kolUid create is rejected
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > reuses lastConversationId when that thread is already on larry.zhao
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > prefers Starry kolId over a local fixture kolUid for the same QQ
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > previews from a local followed collaboration when Starry lists omit the email
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > previews when a unique masked contact email matches the followed QQ
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > does not pick a random followed portrait from a large list without an email match
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > previews after getKolProfileDetail unmasks a followed QQ portrait
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > reuses the kolUid returned when addKolProfile says the QQ is taken
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > creates a profile when Starry returns 红人画像不存在 without throwing
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > creates a QQ first-touch profile on the listed larry.zhao mailbox
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > does not ask to change From when larry.zhao is already listed
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > asks for From/To/subject, not a conversation, when compose has no addresses
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > fills 写跟进 from the latest inbound letter and skips LT placeholders
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > drops a leftover 发货通知 subject when the thread is an interest reply
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > rebuilds a stale Codex card into a ready draft instead of an empty result
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > ignores a stale 必要字段 error when From, To and subject are already known
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > does not say 还需要补充 when From and To are already known
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > names only the compose field that is still empty
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > does not paint a SENT receipt as an incomplete draft
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > rebuilds a Codex 摘要数据 send receipt into 邮件已发送
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-compose-address.test.ts > compose never asks first-touch for a conversation id > sends the last preview when the operator only replies 确认发送
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:43492) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/first-touch-compose-address.test.ts (35 tests) 7323ms
+   ✓ compose never asks first-touch for a conversation id > retries create with the host Starry identity when the bound JWT can list but not create  313ms
+stderr | tests/host-contracts.test.ts > host contracts > PATCH draft subject and body refresh the email card and compose result
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:24156) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/host-contracts.test.ts > host contracts > PATCH draft subject and body refresh the email card and compose result
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > send does not call stage
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > send does not call stage
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > confirm stage does not send
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > confirm stage does not send
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > confirm-stage writes official stage and remote changeLifecycleStage
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > confirm-stage writes official stage and remote changeLifecycleStage
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > reject-stage closes the card without writing stage or starting a worker
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > reject-stage closes the card without writing stage or starting a worker
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > 记状态 runs the proposal skill but does not create a draft or write stage
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > 记状态 runs the proposal skill but does not create a draft or write stage
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > confirm illegal edge 400
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > confirm illegal edge 400
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > confirm version conflict 409
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > confirm version conflict 409
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > terminal states have no outgoing transitions
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > terminal states have no outgoing transitions
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > every formal stage change appends an evidence-rich immutable transition
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > every formal stage change appends an evidence-rich immutable transition
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > gated content review queues work approval and writes after agree
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > gated content review queues work approval and writes after agree
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > plan-pending stage confirm queues approval and writes after agree
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > plan-pending stage confirm queues approval and writes after agree
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > allows an evidence-backed jump and still blocks unfinished priors
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > allows an evidence-backed jump and still blocks unfinished priors
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > worker cannot send
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > worker cannot send
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > host messages do not call runStub
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > host messages do not call runStub
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > production worker only stubs in CODEX_MODE=stub
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > production worker only stubs in CODEX_MODE=stub
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > from options authorized only
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > from options authorized only
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > send exam permission template persistent
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > send exam permission template persistent
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > employee persona cannot open admin mode
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > employee persona cannot open admin mode
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > restart restores the normal operator after an exam-block demo
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > restart restores the normal operator after an exam-block demo
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > one-click translation returns the model-produced internal Chinese draft
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > one-click translation returns the model-produced internal Chinese draft
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > maps a Starry operator mailbox onto the authorized From dropdown and still translates
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > maps a Starry operator mailbox onto the authorized From dropdown and still translates
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > generates an internal Chinese draft when the cache is empty
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > generates an internal Chinese draft when the cache is empty
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > go rejected on messages
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > go rejected on messages
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > yellow sys msg has no confirm
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > yellow sys msg has no confirm
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > home exposes every catalog task as ask and Skill-backed
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > home exposes every catalog task as ask and Skill-backed
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > home board loads the Starry library, not demo seed KOLs
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > home board loads the Starry library, not demo seed KOLs
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > every catalog skill has a file and explicit profile
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > every catalog skill has a file and explicit profile
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > every home task runs a worker, shows process/real operations, and produces a right-side artifact
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > every home task runs a worker, shows process/real operations, and produces a right-side artifact
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > 风险扫描 uses Starry KOL MCP through a worker turn
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > 风险扫描 uses Starry KOL MCP through a worker turn
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > market hides ops skills
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > market hides ops skills
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > admin connectors p0 only
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > admin connectors p0 only
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > sessions hide platform examples
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > sessions hide platform examples
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > skills api uses Chinese labels
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > skills api uses Chinese labels
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > skills sop is edited on the skills api and copied into the box
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > skills sop is edited on the skills api and copied into the box
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > pm assigns skills and ungranted skills cannot start
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > pm assigns skills and ungranted skills cannot start
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > profiles api exposes capability domains on one Codex harness
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > profiles api exposes capability domains on one Codex harness
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > attachments persist on disk and into CONTEXT.md
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > attachments persist on disk and into CONTEXT.md
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > creator_profile is a catalog skill and does not send mail
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > creator_profile is a catalog skill and does not send mail
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > market lists creator_profile
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/host-contracts.test.ts > host contracts > market lists creator_profile
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/host-contracts.test.ts (40 tests) 32818ms
+   ✓ host contracts > PATCH draft subject and body refresh the email card and compose result  940ms
+   ✓ host contracts > send does not call stage  600ms
+   ✓ host contracts > confirm stage does not send  573ms
+   ✓ host contracts > confirm-stage writes official stage and remote changeLifecycleStage  567ms
+   ✓ host contracts > reject-stage closes the card without writing stage or starting a worker  566ms
+   ✓ host contracts > 记状态 runs the proposal skill but does not create a draft or write stage  544ms
+   ✓ host contracts > confirm illegal edge 400  460ms
+   ✓ host contracts > confirm version conflict 409  370ms
+   ✓ host contracts > terminal states have no outgoing transitions  330ms
+   ✓ host contracts > every formal stage change appends an evidence-rich immutable transition  361ms
+   ✓ host contracts > gated content review queues work approval and writes after agree  457ms
+   ✓ host contracts > plan-pending stage confirm queues approval and writes after agree  414ms
+   ✓ host contracts > allows an evidence-backed jump and still blocks unfinished priors  341ms
+   ✓ host contracts > worker cannot send  469ms
+   ✓ host contracts > host messages do not call runStub  374ms
+   ✓ host contracts > production worker only stubs in CODEX_MODE=stub  359ms
+   ✓ host contracts > from options authorized only  534ms
+   ✓ host contracts > send exam permission template persistent  625ms
+   ✓ host contracts > employee persona cannot open admin mode  355ms
+   ✓ host contracts > restart restores the normal operator after an exam-block demo  619ms
+   ✓ host contracts > one-click translation returns the model-produced internal Chinese draft  589ms
+   ✓ host contracts > maps a Starry operator mailbox onto the authorized From dropdown and still translates  524ms
+   ✓ host contracts > generates an internal Chinese draft when the cache is empty  584ms
+   ✓ host contracts > go rejected on messages  369ms
+   ✓ host contracts > yellow sys msg has no confirm  509ms
+   ✓ host contracts > home exposes every catalog task as ask and Skill-backed  1664ms
+   ✓ host contracts > home board loads the Starry library, not demo seed KOLs  516ms
+   ✓ host contracts > every catalog skill has a file and explicit profile  663ms
+   ✓ host contracts > every home task runs a worker, shows process/real operations, and produces a right-side artifact  6339ms
+   ✓ host contracts > 风险扫描 uses Starry KOL MCP through a worker turn  1117ms
+   ✓ host contracts > market hides ops skills  1277ms
+   ✓ host contracts > admin connectors p0 only  382ms
+   ✓ host contracts > sessions hide platform examples  378ms
+   ✓ host contracts > skills api uses Chinese labels  1289ms
+   ✓ host contracts > skills sop is edited on the skills api and copied into the box  1581ms
+   ✓ host contracts > pm assigns skills and ungranted skills cannot start  2401ms
+   ✓ host contracts > profiles api exposes capability domains on one Codex harness  383ms
+   ✓ host contracts > attachments persist on disk and into CONTEXT.md  545ms
+   ✓ host contracts > creator_profile is a catalog skill and does not send mail  554ms
+   ✓ host contracts > market lists creator_profile  1292ms
+stderr | tests/starrykol.test.ts > Starry KOL MCP connector > exposes starrykol and hides the legacy emailmcp connector
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:42340) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/starrykol.test.ts > Starry KOL MCP connector > exposes starrykol and hides the legacy emailmcp connector
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP config > parses Cursor mcpServers JSON with X-MCP-API-KEY
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP config > parses Cursor mcpServers JSON with X-MCP-API-KEY
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP config > falls back to the legacy email-mcp server name
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP config > falls back to the legacy email-mcp server name
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP config > keeps X-MCP-API-KEY and Authorization Bearer as separate fields
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP config > keeps X-MCP-API-KEY and Authorization Bearer as separate fields
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP config > does not treat the user JWT as the MCP API key
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP config > does not treat the user JWT as the MCP API key
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP config > sends both MCP API key and user JWT headers
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP config > sends both MCP API key and user JWT headers
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP config > ignores placeholder keys in markdown docs
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP config > ignores placeholder keys in markdown docs
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP result normalization > unwraps { data } and JSON result strings
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP result normalization > unwraps { data } and JSON result strings
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP Host orchestration > lists mailboxes and Nylas accounts
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP Host orchestration > lists mailboxes and Nylas accounts
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP Host orchestration > lists conversations and reads a conversation id
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP Host orchestration > lists conversations and reads a conversation id
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP Host orchestration > explains an empty conversation list instead of saying the task finished
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP Host orchestration > explains an empty conversation list instead of saying the task finished
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP Host orchestration > does not call MCP when conversation id is missing
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP Host orchestration > does not call MCP when conversation id is missing
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP Host orchestration > previews a draft by default and sends only after confirm_send
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP Host orchestration > previews a draft by default and sends only after confirm_send
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP Host orchestration > creates a KOL profile then retries conversation create
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP Host orchestration > creates a KOL profile then retries conversation create
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP Host orchestration > explains when the contact email belongs to another tenant library
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP Host orchestration > explains when the contact email belongs to another tenant library
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP Host orchestration > explains when the MCP account has no owner mailbox
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP Host orchestration > explains when the MCP account has no owner mailbox
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP Host orchestration > explains when the Starry gateway rejects a request without user JWT
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP Host orchestration > explains when the Starry gateway rejects a request without user JWT
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP Host orchestration > asks for a recipient or conversation before composing
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP Host orchestration > asks for a recipient or conversation before composing
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > queries profiles through pageKolProfiles and never decrypts contacts
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > queries profiles through pageKolProfiles and never decrypts contacts
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > unwraps pageKolProfiles when the MCP payload is a raw data array
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > unwraps pageKolProfiles when the MCP payload is a raw data array
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > falls back to listAllKolProfiles when pageKolProfiles is empty
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > falls back to listAllKolProfiles when pageKolProfiles is empty
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > loads profile detail by kolUid and attaches platform data
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > loads profile detail by kolUid and attaches platform data
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > updates KOL owner through getKolProfileDetail and updateKolProfile
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > updates KOL owner through getKolProfileDetail and updateKolProfile
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > resolves a profile from a name when kolUid is missing
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > resolves a profile from a name when kolUid is missing
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > syncs a new creator after email/name lookup, and skips add on duplicate name
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > syncs a new creator after email/name lookup, and skips add on duplicate name
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > does not write when sync is missing a name or contact email
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > does not write when sync is missing a name or contact email
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > lists all visible profiles through listAllKolProfiles
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > lists all visible profiles through listAllKolProfiles
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > updates creator stage through updateKolProfile after reading detail
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > updates creator stage through updateKolProfile after reading detail
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > writes official cooperationStageCode instead of legacy Starry codes
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > writes official cooperationStageCode instead of legacy Starry codes
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > decrypts contact only when that skill is invoked
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > decrypts contact only when that skill is invoked
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > loads lifecycle, risk conversations, filter options and app conversations
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > loads lifecycle, risk conversations, filter options and app conversations
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > analyzes a reply into a 15-stage checklist without writing stage or sending
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP KOL library > analyzes a reply into a 15-stage checklist without writing stage or sending
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP task run path > runs all Email MCP catalog tasks from text and persists a result card
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP task run path > runs all Email MCP catalog tasks from text and persists a result card
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP task run path > blocks real employee submission while the KOL Agent is unpublished
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP task run path > blocks real employee submission while the KOL Agent is unpublished
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP task run path > maps HTML MCP payloads to a gateway error
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/starrykol.test.ts > Email MCP task run path > maps HTML MCP payloads to a gateway error
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/starrykol.test.ts (35 tests) 17040ms
+   ✓ Starry KOL MCP connector > exposes starrykol and hides the legacy emailmcp connector  709ms
+   ✓ Email MCP config > parses Cursor mcpServers JSON with X-MCP-API-KEY  341ms
+   ✓ Email MCP config > falls back to the legacy email-mcp server name  361ms
+   ✓ Email MCP config > keeps X-MCP-API-KEY and Authorization Bearer as separate fields  369ms
+   ✓ Email MCP config > does not treat the user JWT as the MCP API key  333ms
+   ✓ Email MCP config > sends both MCP API key and user JWT headers  361ms
+   ✓ Email MCP config > ignores placeholder keys in markdown docs  352ms
+   ✓ Email MCP result normalization > unwraps { data } and JSON result strings  498ms
+   ✓ Email MCP Host orchestration > lists mailboxes and Nylas accounts  349ms
+   ✓ Email MCP Host orchestration > lists conversations and reads a conversation id  347ms
+   ✓ Email MCP Host orchestration > explains an empty conversation list instead of saying the task finished  389ms
+   ✓ Email MCP Host orchestration > does not call MCP when conversation id is missing  354ms
+   ✓ Email MCP Host orchestration > previews a draft by default and sends only after confirm_send  366ms
+   ✓ Email MCP Host orchestration > creates a KOL profile then retries conversation create  420ms
+   ✓ Email MCP Host orchestration > explains when the contact email belongs to another tenant library  418ms
+   ✓ Email MCP Host orchestration > explains when the MCP account has no owner mailbox  397ms
+   ✓ Email MCP Host orchestration > explains when the Starry gateway rejects a request without user JWT  361ms
+   ✓ Email MCP Host orchestration > asks for a recipient or conversation before composing  334ms
+   ✓ Email MCP KOL library > queries profiles through pageKolProfiles and never decrypts contacts  363ms
+   ✓ Email MCP KOL library > unwraps pageKolProfiles when the MCP payload is a raw data array  340ms
+   ✓ Email MCP KOL library > falls back to listAllKolProfiles when pageKolProfiles is empty  330ms
+   ✓ Email MCP KOL library > loads profile detail by kolUid and attaches platform data  338ms
+   ✓ Email MCP KOL library > updates KOL owner through getKolProfileDetail and updateKolProfile  439ms
+   ✓ Email MCP KOL library > resolves a profile from a name when kolUid is missing  352ms
+   ✓ Email MCP KOL library > syncs a new creator after email/name lookup, and skips add on duplicate name  356ms
+   ✓ Email MCP KOL library > does not write when sync is missing a name or contact email  322ms
+   ✓ Email MCP KOL library > lists all visible profiles through listAllKolProfiles  328ms
+   ✓ Email MCP KOL library > updates creator stage through updateKolProfile after reading detail  360ms
+   ✓ Email MCP KOL library > writes official cooperationStageCode instead of legacy Starry codes  341ms
+   ✓ Email MCP KOL library > decrypts contact only when that skill is invoked  342ms
+   ✓ Email MCP KOL library > loads lifecycle, risk conversations, filter options and app conversations  338ms
+   ✓ Email MCP KOL library > analyzes a reply into a 15-stage checklist without writing stage or sending  334ms
+   ✓ Email MCP task run path > runs all Email MCP catalog tasks from text and persists a result card  4398ms
+   ✓ Email MCP task run path > blocks real employee submission while the KOL Agent is unpublished  358ms
+   ✓ Email MCP task run path > maps HTML MCP payloads to a gateway error  338ms
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > locks From/To from the bound mailbox and current KOL, not from nested JSON
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:43164) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > locks From/To from the bound mailbox and current KOL, not from nested JSON
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > picks this official stage's letter, not a quote-shaped loop
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > picks this official stage's letter, not a quote-shaped loop
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > session chips name this stage's letter
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > session chips name this stage's letter
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > 写跟进 stacks follow-up facts and a draft
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > 写跟进 stacks follow-up facts and a draft
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > 核对地址 stacks sample facts, not a quote
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > 核对地址 stacks sample facts, not a quote
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > 发货通知 stacks tracking facts and a draft
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > 发货通知 stacks tracking facts and a draft
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > 发brief stacks content facts and a draft
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > 发brief stacks content facts and a draft
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > 催大纲 stacks testing facts on the content-planning thread
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > 催大纲 stacks testing facts on the content-planning thread
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > injects the thread digest and shows a priced letter plus draft
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > injects the thread digest and shows a priced letter plus draft
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > puts 100美金1小时 into the English draft as USD 100 per hour
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > puts 100美金1小时 into the English draft as USD 100 per hour
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > quote without amount asks to fill price instead of confirm send
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > quote without amount asks to fill price instead of confirm send
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > compose-preview fills a quote draft without posting a session message
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > compose-preview fills a quote draft without posting a session message
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > submitting the preview English draft keeps USD 100 per hour
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > submitting the preview English draft keeps USD 100 per hour
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > revises only named fields on an unsent result and does not re-preview
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > revises only named fields on an unsent result and does not re-preview
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > puts 价格5000美金1小时 into preview, draft, and Chinese translation together
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > puts 价格5000美金1小时 into preview, draft, and Chinese translation together
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > revises a priceless quote draft from the AI box without starting a new letter
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > revises a priceless quote draft from the AI box without starting a new letter
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > starts a new letter when the follow-up is a stage command
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > starts a new letter when the follow-up is a stage command
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > updates the left thread and digest after a confirmed send
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > updates the left thread and digest after a confirmed send
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > pulls conversation mail once when opening a session twice quickly
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > pulls conversation mail once when opening a session twice quickly
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > refreshes the thread digest after inbound ingest, the reverse of send
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > refreshes the thread digest after inbound ingest, the reverse of send
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > does not pull Starry mail on compose, confirm-stage, send, or a plain session GET
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > does not pull Starry mail on compose, confirm-stage, send, or a plain session GET
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > does not refresh digest on confirm-stage or duplicate inbound
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > does not refresh digest on confirm-stage or duplicate inbound
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > opens a session without waiting for Starry and streams mail into the journey
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/compose-loop.test.ts > KOL stage-mail communication > opens a session without waiting for Starry and streams mail into the journey
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/compose-loop.test.ts (23 tests) 13771ms
+   ✓ KOL stage-mail communication > locks From/To from the bound mailbox and current KOL, not from nested JSON  453ms
+   ✓ KOL stage-mail communication > picks this official stage's letter, not a quote-shaped loop  336ms
+   ✓ KOL stage-mail communication > session chips name this stage's letter  365ms
+   ✓ KOL stage-mail communication > 写跟进 stacks follow-up facts and a draft  791ms
+   ✓ KOL stage-mail communication > 核对地址 stacks sample facts, not a quote  645ms
+   ✓ KOL stage-mail communication > 发货通知 stacks tracking facts and a draft  651ms
+   ✓ KOL stage-mail communication > 发brief stacks content facts and a draft  642ms
+   ✓ KOL stage-mail communication > 催大纲 stacks testing facts on the content-planning thread  677ms
+   ✓ KOL stage-mail communication > injects the thread digest and shows a priced letter plus draft  563ms
+   ✓ KOL stage-mail communication > puts 100美金1小时 into the English draft as USD 100 per hour  554ms
+   ✓ KOL stage-mail communication > quote without amount asks to fill price instead of confirm send  587ms
+   ✓ KOL stage-mail communication > compose-preview fills a quote draft without posting a session message  372ms
+   ✓ KOL stage-mail communication > submitting the preview English draft keeps USD 100 per hour  1063ms
+   ✓ KOL stage-mail communication > revises only named fields on an unsent result and does not re-preview  789ms
+   ✓ KOL stage-mail communication > puts 价格5000美金1小时 into preview, draft, and Chinese translation together  617ms
+   ✓ KOL stage-mail communication > revises a priceless quote draft from the AI box without starting a new letter  710ms
+   ✓ KOL stage-mail communication > starts a new letter when the follow-up is a stage command  823ms
+   ✓ KOL stage-mail communication > updates the left thread and digest after a confirmed send  656ms
+   ✓ KOL stage-mail communication > pulls conversation mail once when opening a session twice quickly  424ms
+   ✓ KOL stage-mail communication > refreshes the thread digest after inbound ingest, the reverse of send  449ms
+   ✓ KOL stage-mail communication > does not pull Starry mail on compose, confirm-stage, send, or a plain session GET  690ms
+   ✓ KOL stage-mail communication > does not refresh digest on confirm-stage or duplicate inbound  454ms
+   ✓ KOL stage-mail communication > opens a session without waiting for Starry and streams mail into the journey  454ms
+stderr | tests/approval-engine.test.ts > cited search plan (not TypeScript constants) > copies approval-policy.md into the box and asks Codex to web_search
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > computes 黎玉燕 5万 on the Host and cites FIN-EXP-003
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:40592) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/approval-engine.test.ts > expense approval host path > computes 黎玉燕 5万 on the Host and cites FIN-EXP-003
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > routes a spoken expense request without an explicit intent
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > routes a spoken expense request without an explicit intent
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > lets the worker normalize English + USD; Host FX picks FIN-EXP-004
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > lets the worker normalize English + USD; Host FX picks FIN-EXP-004
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > replays the stored people path when asked to view Approvals
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > replays the stored people path when asked to view Approvals
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > host Genehmigung 黎玉燕 5000 CNY → FIN-EXP-001
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > host Genehmigung 黎玉燕 5000 CNY → FIN-EXP-001
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > host 経費申請 黎玉燕 10000 CNY → FIN-EXP-002
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > host 経費申請 黎玉燕 10000 CNY → FIN-EXP-002
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > host 예산 신청 黎玉燕 800 GBP → FIN-EXP-002
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > host 예산 신청 黎玉燕 800 GBP → FIN-EXP-002
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > host expense approval 叶观旺 700 USD → FIN-EXP-002
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > host expense approval 叶观旺 700 USD → FIN-EXP-002
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > asks for amount/currency instead of guessing when the Skill item is incomplete
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > asks for amount/currency instead of guessing when the Skill item is incomplete
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > submits 黎玉燕 USD 50,000 广告费 without a supplement card
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > submits 黎玉燕 USD 50,000 广告费 without a supplement card
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > blocks an unknown requester after the worker emits facts
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > blocks an unknown requester after the worker emits facts
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > does not treat a quote compose turn as expense
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > does not treat a quote compose turn as expense
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > persists the Host chain so later decide cannot restaff
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > persists the Host chain so later decide cannot restaff
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > walks FIN-EXP-004 through every node to 已办结 without exposing record ids
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-engine.test.ts > expense approval host path > walks FIN-EXP-004 through every node to 已办结 without exposing record ids
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/approval-engine.test.ts (96 tests) 7961ms
+   ✓ expense approval host path > computes 黎玉燕 5万 on the Host and cites FIN-EXP-003  751ms
+   ✓ expense approval host path > routes a spoken expense request without an explicit intent  519ms
+   ✓ expense approval host path > lets the worker normalize English + USD; Host FX picks FIN-EXP-004  677ms
+   ✓ expense approval host path > replays the stored people path when asked to view Approvals  707ms
+   ✓ expense approval host path > host Genehmigung 黎玉燕 5000 CNY → FIN-EXP-001  588ms
+   ✓ expense approval host path > host 経費申請 黎玉燕 10000 CNY → FIN-EXP-002  467ms
+   ✓ expense approval host path > host 예산 신청 黎玉燕 800 GBP → FIN-EXP-002  465ms
+   ✓ expense approval host path > host expense approval 叶观旺 700 USD → FIN-EXP-002  505ms
+   ✓ expense approval host path > asks for amount/currency instead of guessing when the Skill item is incomplete  417ms
+   ✓ expense approval host path > submits 黎玉燕 USD 50,000 广告费 without a supplement card  498ms
+   ✓ expense approval host path > blocks an unknown requester after the worker emits facts  494ms
+   ✓ expense approval host path > does not treat a quote compose turn as expense  553ms
+   ✓ expense approval host path > persists the Host chain so later decide cannot restaff  485ms
+   ✓ expense approval host path > walks FIN-EXP-004 through every node to 已办结 without exposing record ids  559ms
+stderr | tests/kol-journey.test.ts > KOL persistent session and fact-advance > opens the same session for the same collaboration
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:37024) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/kol-journey.test.ts > KOL persistent session and fact-advance > opens the same session for the same collaboration
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kol-journey.test.ts > KOL persistent session and fact-advance > ingests a thank-you letter without leaving 初步接触
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kol-journey.test.ts > KOL persistent session and fact-advance > ingests a thank-you letter without leaving 初步接触
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kol-journey.test.ts > KOL persistent session and fact-advance > suggests INTERESTED from a clear reply but does not auto-write it
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kol-journey.test.ts > KOL persistent session and fact-advance > suggests INTERESTED from a clear reply but does not auto-write it
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kol-journey.test.ts > KOL persistent session and fact-advance > auto-advances SAMPLE_PENDING to SHIPPED from logistics facts, not from send
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kol-journey.test.ts > KOL persistent session and fact-advance > auto-advances SAMPLE_PENDING to SHIPPED from logistics facts, not from send
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kol-journey.test.ts > KOL persistent session and fact-advance > exposes stage-driven actions for any collaboration, not only demo handles
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kol-journey.test.ts > KOL persistent session and fact-advance > exposes stage-driven actions for any collaboration, not only demo handles
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kol-journey.test.ts > KOL persistent session and fact-advance > demo reset drops the persistent KOL thread so stage and chat stay aligned
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kol-journey.test.ts > KOL persistent session and fact-advance > demo reset drops the persistent KOL thread so stage and chat stay aligned
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kol-journey.test.ts > KOL persistent session and fact-advance > writes session_id onto the home board after the KOL thread is opened
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kol-journey.test.ts > KOL persistent session and fact-advance > writes session_id onto the home board after the KOL thread is opened
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kol-journey.test.ts > KOL persistent session and fact-advance > keeps outbound and inbound cards, and does not use the LT placeholder as 收件
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kol-journey.test.ts > KOL persistent session and fact-advance > keeps outbound and inbound cards, and does not use the LT placeholder as 收件
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kol-journey.test.ts > KOL persistent session and fact-advance > lets a person skip 寄样测评 and correct a wrong stage, while fact auto stays adjacent
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kol-journey.test.ts > KOL persistent session and fact-advance > lets a person skip 寄样测评 and correct a wrong stage, while fact auto stays adjacent
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/kol-journey.test.ts (9 tests) 5380ms
+   ✓ KOL persistent session and fact-advance > opens the same session for the same collaboration  889ms
+   ✓ KOL persistent session and fact-advance > ingests a thank-you letter without leaving 初步接触  381ms
+   ✓ KOL persistent session and fact-advance > suggests INTERESTED from a clear reply but does not auto-write it  399ms
+   ✓ KOL persistent session and fact-advance > auto-advances SAMPLE_PENDING to SHIPPED from logistics facts, not from send  645ms
+   ✓ KOL persistent session and fact-advance > exposes stage-driven actions for any collaboration, not only demo handles  386ms
+   ✓ KOL persistent session and fact-advance > demo reset drops the persistent KOL thread so stage and chat stay aligned  510ms
+   ✓ KOL persistent session and fact-advance > writes session_id onto the home board after the KOL thread is opened  512ms
+   ✓ KOL persistent session and fact-advance > keeps outbound and inbound cards, and does not use the LT placeholder as 收件  1260ms
+   ✓ KOL persistent session and fact-advance > lets a person skip 寄样测评 and correct a wrong stage, while fact auto stays adjacent  396ms
+stderr | tests/real-data-acceptance.test.ts > real markdown + Starry KOL MCP fixtures > loads 220 Starry profiles including Wendell Fishing from the live snapshot
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:41752) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/real-data-acceptance.test.ts > real markdown + Starry KOL MCP fixtures > loads 220 Starry profiles including Wendell Fishing from the live snapshot
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > real markdown + Starry KOL MCP fixtures > keeps the uploaded portrait sheet names as expected business records
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > real markdown + Starry KOL MCP fixtures > keeps the uploaded portrait sheet names as expected business records
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > real markdown + Starry KOL MCP fixtures > matches Wendell Fishing between the portrait markdown and Starry KOL MCP
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > real markdown + Starry KOL MCP fixtures > matches Wendell Fishing between the portrait markdown and Starry KOL MCP
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > real markdown + Starry KOL MCP fixtures > puts official stage, risk, and tag fields on every Starry list-all profile
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > real markdown + Starry KOL MCP fixtures > puts official stage, risk, and tag fields on every Starry list-all profile
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > real markdown + Starry KOL MCP fixtures > flags portrait-sheet creators that Starry has not ingested yet
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > real markdown + Starry KOL MCP fixtures > flags portrait-sheet creators that Starry has not ingested yet
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > real markdown + Starry KOL MCP fixtures > does not store portrait-sheet emails in the whitelist snapshot
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > real markdown + Starry KOL MCP fixtures > does not store portrait-sheet emails in the whitelist snapshot
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > real markdown + Starry KOL MCP fixtures > loads 5 real Starry mailboxes and 22 markdown mailbox-owner rows
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > real markdown + Starry KOL MCP fixtures > loads 5 real Starry mailboxes and 22 markdown mailbox-owner rows
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > real markdown + Starry KOL MCP fixtures > aligns brandmarketing mailbox owner with the bind sheet
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > real markdown + Starry KOL MCP fixtures > aligns brandmarketing mailbox owner with the bind sheet
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > real markdown + Starry KOL MCP fixtures > exposes official 15+side Starry stage options with legacy aliases
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > real markdown + Starry KOL MCP fixtures > exposes official 15+side Starry stage options with legacy aliases
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > real markdown + Starry KOL MCP fixtures > lists 62 tools from the uploaded Starry KOL MCP inventory
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > real markdown + Starry KOL MCP fixtures > lists 62 tools from the uploaded Starry KOL MCP inventory
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > markdown stage tables vs product catalog > covers 15 official stages from the uploaded main-flow sheet
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > markdown stage tables vs product catalog > covers 15 official stages from the uploaded main-flow sheet
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > markdown stage tables vs product catalog > keeps a catalog letter whose subject matches each uploaded main-flow row
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > markdown stage tables vs product catalog > keeps a catalog letter whose subject matches each uploaded main-flow row
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > markdown stage tables vs product catalog > maps long-term and exception sheet rows onto catalog skills
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > markdown stage tables vs product catalog > maps long-term and exception sheet rows onto catalog skills
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > markdown stage tables vs product catalog > judges each uploaded main-flow keyword set onto the official stage
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > markdown stage tables vs product catalog > judges each uploaded main-flow keyword set onto the official stage
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > markdown stage tables vs product catalog > judges stage from body over subject, as the uploaded Agent rules require
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > markdown stage tables vs product catalog > judges stage from body over subject, as the uploaded Agent rules require
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > markdown stage tables vs product catalog > does not treat a thank-you-only reply as 已回复-有兴趣
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > markdown stage tables vs product catalog > does not treat a thank-you-only reply as 已回复-有兴趣
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > markdown stage tables vs product catalog > follows the exception sheet: later is pause, family emergency is care, reject is reject
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > markdown stage tables vs product catalog > follows the exception sheet: later is pause, family emergency is care, reject is reject
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > markdown stage tables vs product catalog > blocks 催大纲 on 初步接触, matching the official gate
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > markdown stage tables vs product catalog > blocks 催大纲 on 初步接触, matching the official gate
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > Starry KOL MCP functional path with the real snapshot > returns all 220 library profiles through creator_library_all
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > Starry KOL MCP functional path with the real snapshot > returns all 220 library profiles through creator_library_all
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > Starry KOL MCP functional path with the real snapshot > finds Wendell Fishing through pageKolProfiles without decrypting contact
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > Starry KOL MCP functional path with the real snapshot > finds Wendell Fishing through pageKolProfiles without decrypting contact
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > Starry KOL MCP functional path with the real snapshot > loads Wendell Fishing profile detail by the real kolUid
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > Starry KOL MCP functional path with the real snapshot > loads Wendell Fishing profile detail by the real kolUid
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > Starry KOL MCP functional path with the real snapshot > lists the real Starry mailboxes including henry.wei and brandmarketing
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > Starry KOL MCP functional path with the real snapshot > lists the real Starry mailboxes including henry.wei and brandmarketing
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > Starry KOL MCP functional path with the real snapshot > returns an empty lifecycle kanban, matching the live Starry snapshot
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > Starry KOL MCP functional path with the real snapshot > returns an empty lifecycle kanban, matching the live Starry snapshot
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > home board and host flows with Starry + markdown creators > loads Wendell Fishing from the Starry library sync, not markdown-only creators
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > home board and host flows with Starry + markdown creators > loads Wendell Fishing from the Starry library sync, not markdown-only creators
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > home board and host flows with Starry + markdown creators > keeps the skill home catalog while the board uses real creator rows
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > home board and host flows with Starry + markdown creators > keeps the skill home catalog while the board uses real creator rows
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > home board and host flows with Starry + markdown creators > sends a follow-up to Wendell Fishing without changing the official stage
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/real-data-acceptance.test.ts > home board and host flows with Starry + markdown creators > sends a follow-up to Wendell Fishing without changing the official stage
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/real-data-acceptance.test.ts (27 tests | 1 skipped) 10261ms
+   ✓ real markdown + Starry KOL MCP fixtures > loads 220 Starry profiles including Wendell Fishing from the live snapshot  570ms
+   ✓ real markdown + Starry KOL MCP fixtures > puts official stage, risk, and tag fields on every Starry list-all profile  316ms
+   ✓ real markdown + Starry KOL MCP fixtures > aligns brandmarketing mailbox owner with the bind sheet  322ms
+   ✓ markdown stage tables vs product catalog > covers 15 official stages from the uploaded main-flow sheet  334ms
+   ✓ markdown stage tables vs product catalog > blocks 催大纲 on 初步接触, matching the official gate  305ms
+   ✓ Starry KOL MCP functional path with the real snapshot > returns all 220 library profiles through creator_library_all  303ms
+   ✓ Starry KOL MCP functional path with the real snapshot > finds Wendell Fishing through pageKolProfiles without decrypting contact  304ms
+   ✓ Starry KOL MCP functional path with the real snapshot > lists the real Starry mailboxes including henry.wei and brandmarketing  306ms
+   ✓ home board and host flows with Starry + markdown creators > loads Wendell Fishing from the Starry library sync, not markdown-only creators  1984ms
+   ✓ home board and host flows with Starry + markdown creators > keeps the skill home catalog while the board uses real creator rows  580ms
+   ✓ home board and host flows with Starry + markdown creators > sends a follow-up to Wendell Fishing without changing the official stage  576ms
+stderr | tests/tasks-runtime.test.ts > manifest task registry > loads complete, unique and read-only definitions including 15 SOPs
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:9656) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/tasks-runtime.test.ts > manifest task registry > loads complete, unique and read-only definitions including 15 SOPs
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > manifest task registry > keeps compatibility catalog and profile mapping derived from manifests
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > manifest task registry > keeps compatibility catalog and profile mapping derived from manifests
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task intent resolution > keeps explicit task_type authoritative even when text names another task
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task intent resolution > keeps explicit task_type authoritative even when text names another task
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task intent resolution > returns clarification for low-confidence free text
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task intent resolution > returns clarification for low-confidence free text
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task intent resolution > offers Email MCP skills when mailbox language is too vague to auto-run
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task intent resolution > offers Email MCP skills when mailbox language is too vague to auto-run
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task intent resolution > does not pick a skill from operator text without a locked task_type
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task intent resolution > does not pick a skill from operator text without a locked task_type
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task intent resolution > recognizes platform creator-search language and extracts crawl entities
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task intent resolution > recognizes platform creator-search language and extracts crawl entities
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task intent resolution > splits quoted Chinese keyword lists for crawl plans
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task intent resolution > splits quoted Chinese keyword lists for crawl plans
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task intent resolution > does not treat YouTube as a MediaCrawler platform fallback
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task intent resolution > does not treat YouTube as a MediaCrawler platform fallback
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task intent resolution > recognizes Email MCP library and KOL Claw scoring phrases
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task intent resolution > recognizes Email MCP library and KOL Claw scoring phrases
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task intent resolution > recognizes Email MCP mailbox and compose phrases
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task intent resolution > recognizes Email MCP mailbox and compose phrases
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task CRUD and run flow > creates, runs, records ordered events, status and artifacts
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task CRUD and run flow > creates, runs, records ordered events, status and artifacts
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task CRUD and run flow > does not create a task from ambiguous text
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task CRUD and run flow > does not create a task from ambiguous text
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task CRUD and run flow > keeps numbered free text as one utterance for the intent model
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task CRUD and run flow > keeps numbered free text as one utterance for the intent model
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task CRUD and run flow > keeps tasks with missing manifest inputs in clarification state without running
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task CRUD and run flow > keeps tasks with missing manifest inputs in clarification state without running
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task CRUD and run flow > turns a creator-search phrase into a crawl plan without calling remote start
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task CRUD and run flow > turns a creator-search phrase into a crawl plan without calling remote start
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task CRUD and run flow > keeps YouTube discovery as an unsupported platform instead of falling back to xhs
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > task CRUD and run flow > keeps YouTube discovery as an unsupported platform instead of falling back to xhs
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > MCP minimization > filters exact tools and passes per-task allowlists to servers
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > MCP minimization > filters exact tools and passes per-task allowlists to servers
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > MCP minimization > wires remote starrykol and kolclaw servers from Skill mcp names
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/tasks-runtime.test.ts > MCP minimization > wires remote starrykol and kolclaw servers from Skill mcp names
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/tasks-runtime.test.ts (19 tests) 8068ms
+   ✓ manifest task registry > loads complete, unique and read-only definitions including 15 SOPs  608ms
+   ✓ manifest task registry > keeps compatibility catalog and profile mapping derived from manifests  928ms
+   ✓ task intent resolution > keeps explicit task_type authoritative even when text names another task  302ms
+   ✓ task intent resolution > returns clarification for low-confidence free text  346ms
+   ✓ task intent resolution > does not pick a skill from operator text without a locked task_type  336ms
+   ✓ task intent resolution > recognizes platform creator-search language and extracts crawl entities  341ms
+   ✓ task intent resolution > splits quoted Chinese keyword lists for crawl plans  323ms
+   ✓ task intent resolution > recognizes Email MCP library and KOL Claw scoring phrases  589ms
+   ✓ task intent resolution > recognizes Email MCP mailbox and compose phrases  357ms
+   ✓ task CRUD and run flow > creates, runs, records ordered events, status and artifacts  541ms
+   ✓ task CRUD and run flow > does not create a task from ambiguous text  343ms
+   ✓ task CRUD and run flow > keeps numbered free text as one utterance for the intent model  348ms
+   ✓ task CRUD and run flow > keeps tasks with missing manifest inputs in clarification state without running  331ms
+   ✓ task CRUD and run flow > turns a creator-search phrase into a crawl plan without calling remote start  541ms
+   ✓ task CRUD and run flow > keeps YouTube discovery as an unsupported platform instead of falling back to xhs  578ms
+   ✓ MCP minimization > filters exact tools and passes per-task allowlists to servers  353ms
+   ✓ MCP minimization > wires remote starrykol and kolclaw servers from Skill mcp names  332ms
+stderr | tests/larry-zhao-email-scenarios.test.ts > MCP compose with From locked to larry.zhao > lists the real larry.zhao mailbox
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/larry-zhao-email-scenarios.test.ts > MCP compose with From locked to larry.zhao > explains an empty conversation list for Wendell's portrait-sheet email
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/larry-zhao-email-scenarios.test.ts > MCP compose with From locked to larry.zhao > asks for conversationId before reading a thread
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/larry-zhao-email-scenarios.test.ts > MCP compose with From locked to larry.zhao > previews then sends Wendell mail through larry.zhao, never henry.wei
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/larry-zhao-email-scenarios.test.ts > MCP compose with From locked to larry.zhao > keeps multi-to connectivity mail on larry.zhao
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/larry-zhao-email-scenarios.test.ts > MCP compose with From locked to larry.zhao > creates a Holly profile then retries on larry.zhao
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/larry-zhao-email-scenarios.test.ts > MCP compose with From locked to larry.zhao > does not call MCP when Charlie / missing To / Zhao-owned profile has no email
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/larry-zhao-email-scenarios.test.ts > MCP compose with From locked to larry.zhao > omitting mailboxEmail asks for 发件邮箱 instead of defaulting henry.wei
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/larry-zhao-email-scenarios.test.ts > MCP compose with From locked to larry.zhao > explains a taken contact email and a mailbox-owner gap
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/larry-zhao-email-scenarios.test.ts > Host PEP stage letters cannot use larry.zhao as From > covers every official template and the nudge / quote / Chinese gates
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/larry-zhao-email-scenarios.test.ts > Host PEP stage letters cannot use larry.zhao as From > rejects larry.zhao on the Host From whitelist
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/larry-zhao-email-scenarios.test.ts > Host PEP stage letters cannot use larry.zhao as From > allows a catalog first-touch letter only from the PEP LT mailbox
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/larry-zhao-email-scenarios.test.ts > Host PEP stage letters cannot use larry.zhao as From > requires internal Cc on a <$350 quote and strips Chinese
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/larry-zhao-email-scenarios.test.ts > Host PEP stage letters cannot use larry.zhao as From > lets MCP compose drafts use the Host From whitelist without a catalog template id
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:42136) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/larry-zhao-email-scenarios.test.ts (19 tests) 923ms
+stderr | tests/mediacrawler.test.ts > remote Streamable HTTP MCP > parses the remote URL and bearer credential from mcp_server.md
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:42456) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/mediacrawler.test.ts > remote Streamable HTTP MCP > parses the remote URL and bearer credential from mcp_server.md
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > remote Streamable HTTP MCP > lists and calls tools with bearer auth and JSON normalization
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > remote Streamable HTTP MCP > lists and calls tools with bearer auth and JSON normalization
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > remote Streamable HTTP MCP > uses remote Codex config in real mode and local fallback only in stub mode
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > remote Streamable HTTP MCP > uses remote Codex config in real mode and local fallback only in stub mode
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > remote Streamable HTTP MCP > does not mount the local Claw HTTP mock in real remote mode
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > remote Streamable HTTP MCP > does not mount the local Claw HTTP mock in real remote mode
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > creator ingestion and scoring > deduplicates identities, appends snapshots, and computes transparent score inputs
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > creator ingestion and scoring > deduplicates identities, appends snapshots, and computes transparent score inputs
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > creator ingestion and scoring > accepts crawler auto-upload through the ingestion HTTP endpoint
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > creator ingestion and scoring > accepts crawler auto-upload through the ingestion HTTP endpoint
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > creator ingestion and scoring > rejects anonymous ingest when auth is enabled
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > creator ingestion and scoring > rejects anonymous ingest when auth is enabled
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > creator ingestion and scoring > accepts ingest with the shared crawler token when auth is enabled
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > creator ingestion and scoring > accepts ingest with the shared crawler token when auth is enabled
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > crawl lifecycle > rejects missing remote configuration before creating a crawl job
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > crawl lifecycle > rejects missing remote configuration before creating a crawl job
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > crawl lifecycle > automatically starts a confirmed creator-discovery plan
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > crawl lifecycle > automatically starts a confirmed creator-discovery plan
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > crawl lifecycle > pulls creators when only the remote auto-upload step failed
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > crawl lifecycle > pulls creators when only the remote auto-upload step failed
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > crawl lifecycle > enforces one active job, emits task events, persists result artifact, and supports admin tools
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > crawl lifecycle > enforces one active job, emits task events, persists result artifact, and supports admin tools
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > crawl lifecycle > calls remote stop_crawl and releases the active lock
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mediacrawler.test.ts > crawl lifecycle > calls remote stop_crawl and releases the active lock
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/mediacrawler.test.ts (13 tests) 4884ms
+   ✓ remote Streamable HTTP MCP > parses the remote URL and bearer credential from mcp_server.md  361ms
+   ✓ remote Streamable HTTP MCP > lists and calls tools with bearer auth and JSON normalization  433ms
+   ✓ remote Streamable HTTP MCP > does not mount the local Claw HTTP mock in real remote mode  544ms
+   ✓ creator ingestion and scoring > rejects anonymous ingest when auth is enabled  311ms
+   ✓ crawl lifecycle > rejects missing remote configuration before creating a crawl job  313ms
+   ✓ crawl lifecycle > automatically starts a confirmed creator-discovery plan  608ms
+   ✓ crawl lifecycle > pulls creators when only the remote auto-upload step failed  429ms
+   ✓ crawl lifecycle > enforces one active job, emits task events, persists result artifact, and supports admin tools  479ms
+   ✓ crawl lifecycle > calls remote stop_crawl and releases the active lock  335ms
+ ✓ tests/nested-compose-draft.test.ts (9 tests) 416ms
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > does not list uncited templates in the home composer
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:4376) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > does not list uncited templates in the home composer
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > rejects unapproved knowledge in a session and does not start a worker
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > rejects unapproved knowledge in a session and does not start a worker
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > uses a cited published template for the English draft and send keeps stage
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > uses a cited published template for the English draft and send keeps stage
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > applies a cited mail template on the matching stage without locking knowledge_id
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > applies a cited mail template on the matching stage without locking knowledge_id
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > lets admin bind stage_codes so publish copy reaches ops
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > lets admin bind stage_codes so publish copy reaches ops
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > returns a supplement card when template placeholders stay unfilled
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > returns a supplement card when template placeholders stay unfilled
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > keeps evolve rejection after a skill overlay rollback and never writes SKILL.md
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > keeps evolve rejection after a skill overlay rollback and never writes SKILL.md
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > blocks brand transfer outside the From whitelist
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > blocks brand transfer outside the From whitelist
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > extracts an eml upload into a pending page without publishing
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > extracts an eml upload into a pending page without publishing
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > refuses to physically delete knowledge cited by sent mail
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > refuses to physically delete knowledge cited by sent mail
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > records quote PEP failures into Raw
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > records quote PEP failures into Raw
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > picks the quote template for QUOTE_PENDING instead of the first cited 催大纲
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > picks the quote template for QUOTE_PENDING instead of the first cited 催大纲
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > seeds four policies and six published KOL mail templates
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > seeds four policies and six published KOL mail templates
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > hides deprecated cited templates from the composer
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/knowledge-wikiskill.test.ts > WikiSkill knowledge > hides deprecated cited templates from the composer
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/knowledge-wikiskill.test.ts (14 tests) 6785ms
+   ✓ WikiSkill knowledge > does not list uncited templates in the home composer  631ms
+   ✓ WikiSkill knowledge > rejects unapproved knowledge in a session and does not start a worker  475ms
+   ✓ WikiSkill knowledge > uses a cited published template for the English draft and send keeps stage  637ms
+   ✓ WikiSkill knowledge > applies a cited mail template on the matching stage without locking knowledge_id  610ms
+   ✓ WikiSkill knowledge > lets admin bind stage_codes so publish copy reaches ops  375ms
+   ✓ WikiSkill knowledge > returns a supplement card when template placeholders stay unfilled  491ms
+   ✓ WikiSkill knowledge > keeps evolve rejection after a skill overlay rollback and never writes SKILL.md  432ms
+   ✓ WikiSkill knowledge > blocks brand transfer outside the From whitelist  365ms
+   ✓ WikiSkill knowledge > extracts an eml upload into a pending page without publishing  355ms
+   ✓ WikiSkill knowledge > refuses to physically delete knowledge cited by sent mail  577ms
+   ✓ WikiSkill knowledge > records quote PEP failures into Raw  682ms
+   ✓ WikiSkill knowledge > picks the quote template for QUOTE_PENDING instead of the first cited 催大纲  385ms
+   ✓ WikiSkill knowledge > seeds four policies and six published KOL mail templates  379ms
+   ✓ WikiSkill knowledge > hides deprecated cited templates from the composer  389ms
+stderr | tests/enterprise-auth.test.ts > production account and enterprise controls > requires first-run setup, logs in, reports status, and logs out
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:21700) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/enterprise-auth.test.ts > production account and enterprise controls > requires first-run setup, logs in, reports status, and logs out
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/enterprise-auth.test.ts > production account and enterprise controls > enforces admin authorization and per-user skill grants
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/enterprise-auth.test.ts > production account and enterprise controls > enforces admin authorization and per-user skill grants
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/enterprise-auth.test.ts > production account and enterprise controls > stores preferences and versioned Markdown memory
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/enterprise-auth.test.ts > production account and enterprise controls > stores preferences and versioned Markdown memory
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/enterprise-auth.test.ts > production account and enterprise controls > archives, exports, soft-deletes, and cleans a session
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/enterprise-auth.test.ts > production account and enterprise controls > archives, exports, soft-deletes, and cleans a session
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/enterprise-auth.test.ts > production account and enterprise controls > creates expiring read-only shares and supports revocation
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/enterprise-auth.test.ts > production account and enterprise controls > creates expiring read-only shares and supports revocation
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/enterprise-auth.test.ts > production account and enterprise controls > assigns an exam and derives exam_passed from required attempts
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/enterprise-auth.test.ts > production account and enterprise controls > assigns an exam and derives exam_passed from required attempts
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/enterprise-auth.test.ts > production account and enterprise controls > replaces employee skill, connector, and approval grants
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/enterprise-auth.test.ts > production account and enterprise controls > replaces employee skill, connector, and approval grants
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/enterprise-auth.test.ts > production account and enterprise controls > updates profile and password, invalidating old sessions
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/enterprise-auth.test.ts > production account and enterprise controls > updates profile and password, invalidating old sessions
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/enterprise-auth.test.ts > production account and enterprise controls > reports storage and strips private fields from public shares
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/enterprise-auth.test.ts > production account and enterprise controls > reports storage and strips private fields from public shares
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/enterprise-auth.test.ts > production account and enterprise controls > scopes recent uploads and attachment reuse to the owning employee
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/enterprise-auth.test.ts > production account and enterprise controls > scopes recent uploads and attachment reuse to the owning employee
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/enterprise-auth.test.ts (10 tests) 5358ms
+   ✓ production account and enterprise controls > requires first-run setup, logs in, reports status, and logs out  1239ms
+   ✓ production account and enterprise controls > enforces admin authorization and per-user skill grants  628ms
+   ✓ production account and enterprise controls > stores preferences and versioned Markdown memory  473ms
+   ✓ production account and enterprise controls > archives, exports, soft-deletes, and cleans a session  322ms
+   ✓ production account and enterprise controls > creates expiring read-only shares and supports revocation  334ms
+   ✓ production account and enterprise controls > assigns an exam and derives exam_passed from required attempts  445ms
+   ✓ production account and enterprise controls > replaces employee skill, connector, and approval grants  511ms
+   ✓ production account and enterprise controls > updates profile and password, invalidating old sessions  538ms
+   ✓ production account and enterprise controls > reports storage and strips private fields from public shares  359ms
+   ✓ production account and enterprise controls > scopes recent uploads and attachment reuse to the owning employee  506ms
+stderr | tests/eight-phase-mainflow.test.ts > eight-phase main flow > documents Skill / L3 / approval / fact hops per display phase
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:15980) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/eight-phase-mainflow.test.ts > eight-phase main flow > documents Skill / L3 / approval / fact hops per display phase
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/eight-phase-mainflow.test.ts > eight-phase main flow > walks eight display phases via Skill, L3, approval hold, and fact ingest
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/eight-phase-mainflow.test.ts > eight-phase main flow > walks eight display phases via Skill, L3, approval hold, and fact ingest
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/eight-phase-mainflow.test.ts > eight-phase main flow > does not move the official stage when a walk mail is sent
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/eight-phase-mainflow.test.ts > eight-phase main flow > does not move the official stage when a walk mail is sent
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/eight-phase-mainflow.test.ts (3 tests) 2572ms
+   ✓ eight-phase main flow > documents Skill / L3 / approval / fact hops per display phase  631ms
+   ✓ eight-phase main flow > walks eight display phases via Skill, L3, approval hold, and fact ingest  1229ms
+   ✓ eight-phase main flow > does not move the official stage when a walk mail is sent  709ms
+stderr | tests/async-worker.test.ts > real Codex HTTP flow > acknowledges creator discovery immediately and publishes the background outcome
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:41600) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/async-worker.test.ts > real Codex HTTP flow > acknowledges creator discovery immediately and publishes the background outcome
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/async-worker.test.ts > real Codex HTTP flow > streams reasoning/process and persists a generic right-side task result
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/async-worker.test.ts > real Codex HTTP flow > streams reasoning/process and persists a generic right-side task result
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/async-worker.test.ts > real Codex HTTP flow > produces a strict crawl plan without mounting remote MCP in the planning turn
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/async-worker.test.ts > real Codex HTTP flow > produces a strict crawl plan without mounting remote MCP in the planning turn
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/async-worker.test.ts (3 tests) 1767ms
+   ✓ real Codex HTTP flow > acknowledges creator discovery immediately and publishes the background outcome  716ms
+   ✓ real Codex HTTP flow > streams reasoning/process and persists a generic right-side task result  378ms
+   ✓ real Codex HTTP flow > produces a strict crawl plan without mounting remote MCP in the planning turn  670ms
+stderr | tests/task-recognize.test.ts > Luna task recognition > always calls the intent classifier, even when catalog titles match
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:44120) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/task-recognize.test.ts > Luna task recognition > always calls the intent classifier, even when catalog titles match
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/task-recognize.test.ts > Luna task recognition > keeps 发件/收件/主题 on 首封建联 and does not ask inbox questions
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/task-recognize.test.ts > Luna task recognition > keeps 发件/收件/主题 on 首封建联 and does not ask inbox questions
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/task-recognize.test.ts > Luna task recognition > locks 确认发送 to email_compose and never asks for a task direction
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/task-recognize.test.ts > Luna task recognition > locks 确认发送 to email_compose and never asks for a task direction
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/task-recognize.test.ts > Luna task recognition > treats bare 首封建联 as missing fields, not a direction picker
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/task-recognize.test.ts > Luna task recognition > treats bare 首封建联 as missing fields, not a direction picker
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/task-recognize.test.ts > Luna task recognition > uses a classifier verdict and rejects unknown ids
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/task-recognize.test.ts > Luna task recognition > uses a classifier verdict and rejects unknown ids
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/task-recognize.test.ts > Luna task recognition > exposes POST /api/tasks/recognize without creating a work item
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/task-recognize.test.ts > Luna task recognition > exposes POST /api/tasks/recognize without creating a work item
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/task-recognize.test.ts > Luna task recognition > lets from-text create a compose task from the operator sentence
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/task-recognize.test.ts > Luna task recognition > lets from-text create a compose task from the operator sentence
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/task-recognize.test.ts > Luna task recognition > does not split a first-touch sentence that uses 发件/收件/主题
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/task-recognize.test.ts > Luna task recognition > does not split a first-touch sentence that uses 发件/收件/主题
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/task-recognize.test.ts > Codex app-server intent > routes a Codex-shaped verdict without creating a task
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/task-recognize.test.ts > Codex app-server intent > routes a Codex-shaped verdict without creating a task
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/task-recognize.test.ts > Codex app-server intent > fails open to retry copy when Codex is missing
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/task-recognize.test.ts > Codex app-server intent > fails open to retry copy when Codex is missing
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/task-recognize.test.ts > Codex app-server intent > uses GPT-5.6 Luna when OPENAI_API_KEY is set even if Codex is missing
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/task-recognize.test.ts > Codex app-server intent > uses GPT-5.6 Luna when OPENAI_API_KEY is set even if Codex is missing
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/task-recognize.test.ts (11 tests) 3705ms
+   ✓ Luna task recognition > always calls the intent classifier, even when catalog titles match  572ms
+   ✓ Luna task recognition > keeps 发件/收件/主题 on 首封建联 and does not ask inbox questions  304ms
+   ✓ Luna task recognition > treats bare 首封建联 as missing fields, not a direction picker  322ms
+   ✓ Luna task recognition > uses a classifier verdict and rejects unknown ids  390ms
+   ✓ Luna task recognition > lets from-text create a compose task from the operator sentence  313ms
+   ✓ Luna task recognition > does not split a first-touch sentence that uses 发件/收件/主题  327ms
+   ✓ Codex app-server intent > fails open to retry copy when Codex is missing  301ms
+stderr | tests/first-touch-empty-to.test.ts > first-touch To cannot stay empty for 灵工连通测试-qiyou1984 > asks Starry MCP for 发件/收件/主题 instead of creating a sendable empty-To draft
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:15932) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/first-touch-empty-to.test.ts > first-touch To cannot stay empty for 灵工连通测试-qiyou1984 > asks Starry MCP for 发件/收件/主题 instead of creating a sendable empty-To draft
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-empty-to.test.ts > first-touch To cannot stay empty for 灵工连通测试-qiyou1984 > does not put larry.zhao into Host draft To when the prompt also has a KOL inbox
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-empty-to.test.ts > first-touch To cannot stay empty for 灵工连通测试-qiyou1984 > does not put larry.zhao into Host draft To when the prompt also has a KOL inbox
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-empty-to.test.ts > first-touch To cannot stay empty for 灵工连通测试-qiyou1984 > does not fall back to a Host draft when 首封建联 is missing 发件箱
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-empty-to.test.ts > first-touch To cannot stay empty for 灵工连通测试-qiyou1984 > does not fall back to a Host draft when 首封建联 is missing 发件箱
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-empty-to.test.ts > first-touch To cannot stay empty for 灵工连通测试-qiyou1984 > lets 校验发送原文 supply To on an already empty draft and bind it
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-empty-to.test.ts > first-touch To cannot stay empty for 灵工连通测试-qiyou1984 > lets 校验发送原文 supply To on an already empty draft and bind it
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-empty-to.test.ts > first-touch To cannot stay empty for 灵工连通测试-qiyou1984 > binds an empty collaboration email on PEP send instead of treating it as a mismatch
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/first-touch-empty-to.test.ts > first-touch To cannot stay empty for 灵工连通测试-qiyou1984 > binds an empty collaboration email on PEP send instead of treating it as a mismatch
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/first-touch-empty-to.test.ts (5 tests) 2466ms
+   ✓ first-touch To cannot stay empty for 灵工连通测试-qiyou1984 > asks Starry MCP for 发件/收件/主题 instead of creating a sendable empty-To draft  681ms
+   ✓ first-touch To cannot stay empty for 灵工连通测试-qiyou1984 > does not put larry.zhao into Host draft To when the prompt also has a KOL inbox  596ms
+   ✓ first-touch To cannot stay empty for 灵工连通测试-qiyou1984 > does not fall back to a Host draft when 首封建联 is missing 发件箱  481ms
+   ✓ first-touch To cannot stay empty for 灵工连通测试-qiyou1984 > lets 校验发送原文 supply To on an already empty draft and bind it  341ms
+   ✓ first-touch To cannot stay empty for 灵工连通测试-qiyou1984 > binds an empty collaboration email on PEP send instead of treating it as a mismatch  363ms
+stderr | tests/box-skill-loop.test.ts > box loop: 起箱 → 识别 → skill → 追问/工具 > starts a box and completes labeled 首封建联 without asking inbox questions
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:21124) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/box-skill-loop.test.ts > box loop: 起箱 → 识别 → skill → 追问/工具 > starts a box and completes labeled 首封建联 without asking inbox questions
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/box-skill-loop.test.ts > box loop: 起箱 → 识别 → skill → 追问/工具 > replies 确认发送 in the same box and submits the last first-touch draft
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/box-skill-loop.test.ts > box loop: 起箱 → 识别 → skill → 追问/工具 > replies 确认发送 in the same box and submits the last first-touch draft
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/box-skill-loop.test.ts > box loop: 起箱 → 识别 → skill → 追问/工具 > loads the compose skill and asks in the box when 首封建联 is missing fields
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/box-skill-loop.test.ts > box loop: 起箱 → 识别 → skill → 追问/工具 > loads the compose skill and asks in the box when 首封建联 is missing fields
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/box-skill-loop.test.ts > box loop: 起箱 → 识别 → skill → 追问/工具 > asks for direction in the box when the utterance is vague
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/box-skill-loop.test.ts > box loop: 起箱 → 识别 → skill → 追问/工具 > asks for direction in the box when the utterance is vague
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/box-skill-loop.test.ts > box loop: API key is enough to recognize > does not block on Codex when OPENAI_API_KEY works
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/box-skill-loop.test.ts > box loop: API key is enough to recognize > does not block on Codex when OPENAI_API_KEY works
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/box-skill-loop.test.ts (5 tests) 3109ms
+   ✓ box loop: 起箱 → 识别 → skill → 追问/工具 > starts a box and completes labeled 首封建联 without asking inbox questions  945ms
+   ✓ box loop: 起箱 → 识别 → skill → 追问/工具 > replies 确认发送 in the same box and submits the last first-touch draft  833ms
+   ✓ box loop: 起箱 → 识别 → skill → 追问/工具 > loads the compose skill and asks in the box when 首封建联 is missing fields  398ms
+   ✓ box loop: 起箱 → 识别 → skill → 追问/工具 > asks for direction in the box when the utterance is vague  310ms
+   ✓ box loop: API key is enough to recognize > does not block on Codex when OPENAI_API_KEY works  621ms
+stderr | tests/mail-summary.test.ts > Codex mail memory > summarizes from the letter body, not the subject
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mail-summary.test.ts > Codex mail memory > summarizes from the letter body, not the subject
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mail-summary.test.ts > Codex mail memory > analyzes greeting follow-ups instead of printing the English opener
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mail-summary.test.ts > Codex mail memory > analyzes greeting follow-ups instead of printing the English opener
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mail-summary.test.ts > Codex mail memory > asks the remote model for one thread digest when not in stub
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mail-summary.test.ts > Codex mail memory > asks the remote model for one thread digest when not in stub
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mail-summary.test.ts > Codex mail memory > does not stamp the greeting rule as Codex when the remote fails
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+[mail-summary] luna digest: HTTP 500
+stderr | tests/mail-summary.test.ts > Codex mail memory > does not stamp the greeting rule as Codex when the remote fails
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mail-summary.test.ts > Codex mail memory > retries a poisoned greeting digest and folds two bodies into one paragraph
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mail-summary.test.ts > Codex mail memory > retries a poisoned greeting digest and folds two bodies into one paragraph
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mail-summary.test.ts > Codex mail memory > folds all bodies into one stub digest and keeps Deal Memory on the letter body
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mail-summary.test.ts > Codex mail memory > folds all bodies into one stub digest and keeps Deal Memory on the letter body
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:42156) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/mail-summary.test.ts (6 tests) 2216ms
+   ✓ Codex mail memory > summarizes from the letter body, not the subject  439ms
+   ✓ Codex mail memory > analyzes greeting follow-ups instead of printing the English opener  350ms
+   ✓ Codex mail memory > asks the remote model for one thread digest when not in stub  368ms
+   ✓ Codex mail memory > does not stamp the greeting rule as Codex when the remote fails  322ms
+   ✓ Codex mail memory > retries a poisoned greeting digest and folds two bodies into one paragraph  366ms
+   ✓ Codex mail memory > folds all bodies into one stub digest and keeps Deal Memory on the letter body  369ms
+ ✓ tests/profiles-stages.test.ts (8 tests) 83ms
+stderr | tests/skill-publish.test.ts > published skills on the Codex harness > rejects create without product manager login
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:36636) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/skill-publish.test.ts > published skills on the Codex harness > rejects create without product manager login
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/skill-publish.test.ts > published skills on the Codex harness > publishes a skill into catalog, market, extraRoots, and the next stub turn
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/skill-publish.test.ts > published skills on the Codex harness > publishes a skill into catalog, market, extraRoots, and the next stub turn
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/skill-publish.test.ts (2 tests) 6738ms
+   ✓ published skills on the Codex harness > rejects create without product manager login  670ms
+   ✓ published skills on the Codex harness > publishes a skill into catalog, market, extraRoots, and the next stub turn  6066ms
+stderr | tests/sops.test.ts > 15 SOP packs > maps one versioned pack and skill per main stage
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:33624) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/sops.test.ts (8 tests) 371ms
+   ✓ 15 SOP packs > maps one versioned pack and skill per main stage  302ms
+stderr | tests/kolclaw.test.ts > KOL Claw MCP config > parses Cursor mcpServers JSON including streamableHttp
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:37148) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/kolclaw.test.ts > KOL Claw MCP config > parses Cursor mcpServers JSON including streamableHttp
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kolclaw.test.ts > KOL Claw MCP config > ignores placeholder tokens in markdown docs
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kolclaw.test.ts > KOL Claw MCP config > ignores placeholder tokens in markdown docs
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kolclaw.test.ts > KOL Claw result normalization > unwraps { result: JSON string }
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kolclaw.test.ts > KOL Claw result normalization > unwraps { result: JSON string }
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kolclaw.test.ts > KOL Claw Host orchestration > profiles and scores a named creator, and batch-scores otherwise
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kolclaw.test.ts > KOL Claw Host orchestration > profiles and scores a named creator, and batch-scores otherwise
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kolclaw.test.ts > KOL Claw Host orchestration > generates outreach from the first library creator when no name is given
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kolclaw.test.ts > KOL Claw Host orchestration > generates outreach from the first library creator when no name is given
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kolclaw.test.ts > KOL Claw Host orchestration > reads daily tasks and budget reports
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kolclaw.test.ts > KOL Claw Host orchestration > reads daily tasks and budget reports
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kolclaw.test.ts > KOL Claw task run path > runs remaining catalog tasks from text and persists a result card
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/kolclaw.test.ts > KOL Claw task run path > runs remaining catalog tasks from text and persists a result card
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/kolclaw.test.ts (7 tests) 3462ms
+   ✓ KOL Claw MCP config > parses Cursor mcpServers JSON including streamableHttp  451ms
+   ✓ KOL Claw task run path > runs remaining catalog tasks from text and persists a result card  1728ms
+stderr | tests/followed-mail-sync.test.ts > followed KOL unread mail sync > collects Starry inbound threads on home refresh and shows unread by thread id
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:43944) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/followed-mail-sync.test.ts > followed KOL unread mail sync > collects Starry inbound threads on home refresh and shows unread by thread id
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/followed-mail-sync.test.ts > followed KOL unread mail sync > legacy login kicks a followed-mail collect and session sync uses thread identity
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/followed-mail-sync.test.ts > followed KOL unread mail sync > legacy login kicks a followed-mail collect and session sync uses thread identity
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/followed-mail-sync.test.ts > followed KOL unread mail sync > matches inbound by handle suffix and keeps the conversation body
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/followed-mail-sync.test.ts > followed KOL unread mail sync > matches inbound by handle suffix and keeps the conversation body
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/followed-mail-sync.test.ts (3 tests) 2598ms
+   ✓ followed KOL unread mail sync > collects Starry inbound threads on home refresh and shows unread by thread id  1272ms
+   ✓ followed KOL unread mail sync > legacy login kicks a followed-mail collect and session sync uses thread identity  761ms
+   ✓ followed KOL unread mail sync > matches inbound by handle suffix and keeps the conversation body  562ms
+stderr | tests/identity-starry-bind.test.ts > admin identity and Starry mailbox bind > lets 鄢棽 sign in with email or phone and stay admin
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:44096) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/identity-starry-bind.test.ts > admin identity and Starry mailbox bind > lets 鄢棽 sign in with email or phone and stay admin
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/identity-starry-bind.test.ts > admin identity and Starry mailbox bind > accepts the product-manager login aliases on /api/login
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/identity-starry-bind.test.ts > admin identity and Starry mailbox bind > accepts the product-manager login aliases on /api/login
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/identity-starry-bind.test.ts > admin identity and Starry mailbox bind > binds larry.zhao without echoing the JWT and scopes the home board
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/identity-starry-bind.test.ts > admin identity and Starry mailbox bind > binds larry.zhao without echoing the JWT and scopes the home board
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/identity-starry-bind.test.ts (3 tests) 2622ms
+   ✓ admin identity and Starry mailbox bind > lets 鄢棽 sign in with email or phone and stay admin  1427ms
+   ✓ admin identity and Starry mailbox bind > accepts the product-manager login aliases on /api/login  426ms
+   ✓ admin identity and Starry mailbox bind > binds larry.zhao without echoing the JWT and scopes the home board  766ms
+stderr | tests/approval-inbox.test.ts > approval inbox by login name > maps login display names onto org employees
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:38688) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/approval-inbox.test.ts > approval inbox by login name > maps login display names onto org employees
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-inbox.test.ts > approval inbox by login name > lets 王主管 / 财务负责人 / 张总 see the bill only when it is their turn
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/approval-inbox.test.ts > approval inbox by login name > lets 王主管 / 财务负责人 / 张总 see the bill only when it is their turn
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/approval-inbox.test.ts (2 tests) 1836ms
+   ✓ approval inbox by login name > maps login display names onto org employees  692ms
+   ✓ approval inbox by login name > lets 王主管 / 财务负责人 / 张总 see the bill only when it is their turn  1142ms
+stderr | tests/home-workbench.test.ts > home workbench > splits seed work into todos and unpromoted AI insights
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:34260) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/home-workbench.test.ts > home workbench > splits seed work into todos and unpromoted AI insights
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/home-workbench.test.ts > home workbench > surfaces numbered icon recommendations beyond 3 and pads from the catalog
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/home-workbench.test.ts > home workbench > surfaces numbered icon recommendations beyond 3 and pads from the catalog
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/home-workbench.test.ts > home workbench > still recommends catalog tasks when there is no board data
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/home-workbench.test.ts > home workbench > still recommends catalog tasks when there is no board data
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/home-workbench.test.ts > home workbench > promotes an AI insight into 我的待办 and dismisses another
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/home-workbench.test.ts > home workbench > promotes an AI insight into 我的待办 and dismisses another
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/home-workbench.test.ts > home workbench > seedAll does not plant demo KOL work items
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/home-workbench.test.ts > home workbench > seedAll does not plant demo KOL work items
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/home-workbench.test.ts > home workbench > persists promote columns on work_items
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/home-workbench.test.ts > home workbench > persists promote columns on work_items
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/home-workbench.test.ts (6 tests) 18882ms
+   ✓ home workbench > splits seed work into todos and unpromoted AI insights  844ms
+   ✓ home workbench > surfaces numbered icon recommendations beyond 3 and pads from the catalog  581ms
+   ✓ home workbench > still recommends catalog tasks when there is no board data  401ms
+   ✓ home workbench > promotes an AI insight into 我的待办 and dismisses another  16130ms
+   ✓ home workbench > seedAll does not plant demo KOL work items  531ms
+   ✓ home workbench > persists promote columns on work_items  392ms
+ ✓ tests/codex-auth.test.ts (11 tests) 29ms
+ ✓ tests/openai-intent.test.ts (9 tests) 167ms
+stderr | tests/follow-style-tags.test.ts > follow-style tags > normalizes presets, mutex, and custom words
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:37564) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/follow-style-tags.test.ts > follow-style tags > normalizes presets, mutex, and custom words
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/follow-style-tags.test.ts > follow-style tags > suggests cautious from hesitant copy and skips already applied tags
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/follow-style-tags.test.ts > follow-style tags > suggests cautious from hesitant copy and skips already applied tags
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/follow-style-tags.test.ts > follow-style tags > parses 打标签 commands without locking a skill
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/follow-style-tags.test.ts > follow-style tags > parses 打标签 commands without locking a skill
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/follow-style-tags.test.ts > follow-style tags > saves tags on the collaboration, shows them on the home card, and injects them into compose
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/follow-style-tags.test.ts > follow-style tags > saves tags on the collaboration, shows them on the home card, and injects them into compose
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/follow-style-tags.test.ts > follow-style tags > applies a chat 打标签 command without starting a worker
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/follow-style-tags.test.ts > follow-style tags > applies a chat 打标签 command without starting a worker
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ❯ tests/follow-style-tags.test.ts (5 tests | 1 failed) 317066ms
+   × follow-style tags > normalizes presets, mutex, and custom words 314759ms
+     → Hook timed out in 30000ms.
+If this is a long-running hook, pass a timeout value as the last argument or configure it globally with "hookTimeout".
+   ✓ follow-style tags > suggests cautious from hesitant copy and skips already applied tags  767ms
+   ✓ follow-style tags > parses 打标签 commands without locking a skill  438ms
+   ✓ follow-style tags > saves tags on the collaboration, shows them on the home card, and injects them into compose  715ms
+   ✓ follow-style tags > applies a chat 打标签 command without starting a worker  385ms
+ ✓ tests/quote-amount.test.ts (7 tests) 22ms
+stderr | tests/library-sync-stage.test.ts > Starry library sync preserves confirmed official stage > keeps 意向 after refresh when Starry list-all is still 初步接触
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/library-sync-stage.test.ts > Starry library sync preserves confirmed official stage > keeps 意向 after refresh when Starry list-all is still 初步接触
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/library-sync-stage.test.ts > Starry library sync preserves confirmed official stage > restores 意向 from the confirm record after a stale 建联 overwrite
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/library-sync-stage.test.ts > Starry library sync preserves confirmed official stage > restores 意向 from the confirm record after a stale 建联 overwrite
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/library-sync-stage.test.ts > Starry library sync preserves confirmed official stage > still imports a new Starry profile as 建联
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/library-sync-stage.test.ts > Starry library sync preserves confirmed official stage > still imports a new Starry profile as 建联
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/library-sync-stage.test.ts > Starry library sync preserves confirmed official stage > lets Starry list-all move the official stage forward
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/library-sync-stage.test.ts > Starry library sync preserves confirmed official stage > lets Starry list-all move the official stage forward
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:20496) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/library-sync-stage.test.ts (4 tests) 1723ms
+   ✓ Starry library sync preserves confirmed official stage > keeps 意向 after refresh when Starry list-all is still 初步接触  530ms
+   ✓ Starry library sync preserves confirmed official stage > restores 意向 from the confirm record after a stale 建联 overwrite  339ms
+   ✓ Starry library sync preserves confirmed official stage > still imports a new Starry profile as 建联  522ms
+   ✓ Starry library sync preserves confirmed official stage > lets Starry list-all move the official stage forward  330ms
+stderr | tests/inbound-resume.test.ts > inbound list resume and identity > lists the inbound table with cursor paging and can resume a deferred row
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:44816) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/inbound-resume.test.ts > inbound list resume and identity > lists the inbound table with cursor paging and can resume a deferred row
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/inbound-resume.test.ts > inbound list resume and identity > pages with a cursor instead of a hard 200-row slice
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/inbound-resume.test.ts > inbound list resume and identity > pages with a cursor instead of a hard 200-row slice
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/inbound-resume.test.ts > inbound list resume and identity > treats webhook message id and fingerprint as the same letter
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/inbound-resume.test.ts > inbound list resume and identity > treats webhook message id and fingerprint as the same letter
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/inbound-resume.test.ts > inbound list resume and identity > rejects a non-integer expected_version instead of coercing it to 0
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/inbound-resume.test.ts > inbound list resume and identity > rejects a non-integer expected_version instead of coercing it to 0
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/inbound-resume.test.ts (4 tests) 2036ms
+   ✓ inbound list resume and identity > lists the inbound table with cursor paging and can resume a deferred row  786ms
+   ✓ inbound list resume and identity > pages with a cursor instead of a hard 200-row slice  371ms
+   ✓ inbound list resume and identity > treats webhook message id and fingerprint as the same letter  418ms
+   ✓ inbound list resume and identity > rejects a non-integer expected_version instead of coercing it to 0  461ms
+ ✓ tests/worker-progress.test.ts (4 tests) 11ms
+stderr | tests/run-queue.test.ts > session run queue and stop > queues a generate ask while the session is already running
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:36944) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/run-queue.test.ts > session run queue and stop > queues a generate ask while the session is already running
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/run-queue.test.ts > session run queue and stop > rejects confirm_stage while generating instead of queueing it
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/run-queue.test.ts > session run queue and stop > rejects confirm_stage while generating instead of queueing it
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/run-queue.test.ts > session run queue and stop > stop while idle reports stopped false
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/run-queue.test.ts > session run queue and stop > stop while idle reports stopped false
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/run-queue.test.ts > session run queue and stop > stop keeps the queued asks
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/run-queue.test.ts > session run queue and stop > stop keeps the queued asks
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/run-queue.test.ts > session run queue and stop > removes a queued ask
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/run-queue.test.ts > session run queue and stop > removes a queued ask
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/run-queue.test.ts (5 tests) 2679ms
+   ✓ session run queue and stop > queues a generate ask while the session is already running  881ms
+   ✓ session run queue and stop > rejects confirm_stage while generating instead of queueing it  496ms
+   ✓ session run queue and stop > stop while idle reports stopped false  387ms
+   ✓ session run queue and stop > stop keeps the queued asks  457ms
+   ✓ session run queue and stop > removes a queued ask  454ms
+ ✓ tests/stage-judgment.test.ts (8 tests) 13ms
+ ✓ tests/result-revise.test.ts (5 tests) 107ms
+stderr | tests/creator-profile-briefing.test.ts > creator profile briefing > collectStarryKolItems paints 画像说明 for a stub profile
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:23380) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/creator-profile-briefing.test.ts (5 tests) 157ms
+ ✓ tests/mail-fields.test.ts (8 tests) 11ms
+ ✓ tests/remote-mcp-contract.test.ts (5 tests) 14ms
+stderr | tests/session-events.test.ts > session live events > publishes upserts to subscribers
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:42456) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/session-events.test.ts > session live events > publishes upserts to subscribers
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/session-events.test.ts > session live events > SSE snapshot loads the session record then streams an upsert
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/session-events.test.ts > session live events > SSE snapshot loads the session record then streams an upsert
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/session-events.test.ts (2 tests) 927ms
+   ✓ session live events > publishes upserts to subscribers  596ms
+   ✓ session live events > SSE snapshot loads the session record then streams an upsert  329ms
+ ✓ tests/codex-app-server-auth.test.ts (5 tests) 1589ms
+   ✓ CodexAppServer.requireAuth > waits for late ChatGPT account/updated instead of failing immediately  351ms
+   ✓ CodexAppServer.requireAuth > fails fast when auth.json exists but app-server still reports no account  916ms
+stderr | tests/mcp.test.ts > mcp tools (Dify 工具节点) > tools/list 没有发信 / 改阶段 / ingest
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mcp.test.ts > mcp tools (Dify 工具节点) > tools/list 没有发信 / 改阶段 / ingest
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mcp.test.ts > mcp tools (Dify 工具节点) > tools/list marks every exposed tool as read-only
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mcp.test.ts > mcp tools (Dify 工具节点) > tools/list marks every exposed tool as read-only
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mcp.test.ts > mcp tools (Dify 工具节点) > 写工具名被拒绝
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mcp.test.ts > mcp tools (Dify 工具节点) > 写工具名被拒绝
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mcp.test.ts > mcp tools (Dify 工具节点) > seeded DB 可读
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/mcp.test.ts > mcp tools (Dify 工具节点) > seeded DB 可读
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:33904) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/mcp.test.ts (4 tests) 1276ms
+   ✓ mcp tools (Dify 工具节点) > tools/list 没有发信 / 改阶段 / ingest  387ms
+   ✓ mcp tools (Dify 工具节点) > seeded DB 可读  309ms
+ ✓ tests/email-templates.test.ts (3 tests) 8ms
+stderr | tests/codex.test.ts > codex > blocks employee submission while the KOL Agent is unpublished
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:43936) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+stderr | tests/codex.test.ts > codex > blocks employee submission while the KOL Agent is unpublished
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/codex.test.ts > codex > codex handshake or skip
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+stderr | tests/codex.test.ts > codex > codex handshake or skip
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+ ✓ tests/codex.test.ts (2 tests) 1043ms
+   ✓ codex > blocks employee submission while the KOL Agent is unpublished  697ms
+   ✓ codex > codex handshake or skip  344ms
+stderr | tests/intent-kol.test.ts > compose classify > maps 写合作邮件 and 写跟进 to email_compose
+better-sqlite3 原生绑定不可用，已改用 node:sqlite（仍是同一 SQLite 文件）。编译链：yum install -y gcc-c++ make python3
+
+(node:38720) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ tests/intent-kol.test.ts (5 tests) 552ms
+ ✓ tests/conformance-redlines.test.ts (6 tests) 41ms

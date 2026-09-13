@@ -1,0 +1,11 @@
+{
+  "id": "send_email",
+  "action": "send_email",
+  "side_effect": true,
+  "gateway": "backend/src/gateway/send.ts",
+  "mcp_tools": ["starrykol.sendEmailNow"],
+  "requires_confirmation": true,
+  "idempotency": "draft_id + confirmation_fingerprint",
+  "stage_change": false,
+  "allowlist_required": true
+}

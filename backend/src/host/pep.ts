@@ -10,6 +10,7 @@ import type { Persona } from "../config.js";
 import { isMissingInputDraft } from "./draft-quality.js";
 import { currentFingerprint, fingerprint } from "./fingerprint.js";
 import { currentUser } from "./persona.js";
+import { departmentHeadAccessForUser } from "../contract-scope.js";
 
 export { currentFingerprint, fingerprint, TEMPLATES };
 
@@ -56,7 +57,10 @@ export function brandOfMailbox(addr: string): string | null {
 
 export function allowedFromMailboxes(user: Persona | null, brand: string | null): { brand: string; email: string; authorized: boolean }[] {
   const u = user || currentUser();
-  const authorized = new Set(u.brands || []);
+  const departmentHead = departmentHeadAccessForUser(u);
+  const authorized = departmentHead?.company_wide && departmentHead.brand_scope === "all"
+    ? new Set(Object.keys(BRAND_MAILBOXES))
+    : new Set(u.brands || []);
   const out: { brand: string; email: string; authorized: boolean }[] = [];
   for (const [b, m] of Object.entries(BRAND_MAILBOXES)) {
     if (brand && b !== brand) continue;
@@ -91,8 +95,12 @@ export function resolveAuthorizedFrom(
   if (matched) {
     return { email: matched.email, brand: matched.brand, allowed, matched: true };
   }
-  const preferred = wanted ? allowed.find((row) => row.brand === wanted) : undefined;
-  const pick = preferred || allowed[0];
+  const preferredMatches = wanted ? allowed.filter((row) => row.brand === wanted) : [];
+  // A unique authorized mailbox, or a uniquely identified mailbox for an explicit brand, is safe to resolve.
+  // Multiple candidates require an explicit user choice; never take the first row.
+  const pick = preferredMatches.length === 1
+    ? preferredMatches[0]
+    : (allowed.length === 1 ? allowed[0] : undefined);
   return {
     email: pick?.email || fromAddr,
     brand: pick?.brand || currentBrand,
@@ -130,7 +138,11 @@ export function enforceSend(draft: Row, user?: Persona | null, ccOverride?: stri
   if (!brand) {
     throw new PepFail("blocked_permission", 403, "From 必须是品牌邮箱（LT/RO/PQ）。未发送。", "从授权下拉选择 From");
   }
-  if (!(u.brands || []).includes(brand)) {
+  const departmentHead = departmentHeadAccessForUser(u);
+  const hasBrandScope = departmentHead?.company_wide && departmentHead.brand_scope === "all"
+    ? true
+    : (u.brands || []).includes(brand);
+  if (!hasBrandScope) {
     throw new PepFail("blocked_permission", 403, "当前账号无权使用该品牌邮箱。未发送。", "切换授权邮箱或找管理员");
   }
   const toAddr = String(draft.to_addr || "").trim();

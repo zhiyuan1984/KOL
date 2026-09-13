@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "schema:kol:creator-import",
+  "type": "object",
+  "required": ["source_batch", "company_id", "brand_id", "creators"],
+  "properties": {
+    "source_batch": { "type": "string", "minLength": 1 },
+    "company_id": { "type": "string", "pattern": "^company:" },
+    "brand_id": { "type": "string", "pattern": "^brand:" },
+    "creators": { "type": "array", "minItems": 1, "items": { "type": "object", "required": ["external_id", "name"] } }
+  },
+  "additionalProperties": false
+}

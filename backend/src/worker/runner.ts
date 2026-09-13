@@ -26,6 +26,7 @@ import { completeTurnItems } from "./session-items.js";
 import { runStub } from "./stub.js";
 import { authDisabled, scopedUser } from "../auth.js";
 import { requireTaskDefinition, type TaskDefinition } from "../tasks/registry.js";
+import { kolAgentScopeContext } from "../contract-scope.js";
 import { pickComposeTemplate, composeRouteFacts } from "../host/compose-loop.js";
 import { boundMailboxEmail } from "../host/starry-bind.js";
 import {
@@ -227,8 +228,8 @@ export function runWorker(
 ): Promise<WorkerResult> | WorkerResult {
   const definition = typeof task === "string" ? requireTaskDefinition(task) : task;
   const skill = definition.id;
-  // Production always uses Codex app-server. Host-direct fill is CI / compose-preview only.
-  if (codexMode() === "stub" || extra.compose_preview_only) {
+  // Stub is only a deterministic test mode. Preview flags never bypass the app-server in real mode.
+  if (codexMode() === "stub") {
     emitPhase(onProgress, "preparing");
     emitPhase(onProgress, "skill_ready");
     onProgress?.({ phase: "reading_data" });
@@ -326,6 +327,7 @@ function writeBox(wid: string, definition: TaskDefinition, prompt: string, extra
         }
       : null,
     mailboxes: BRAND_MAILBOXES,
+    scope: kolAgentScopeContext(),
     overdue: skill === "risk_scan" ? overdueSnapshot() : null,
   };
   let memory = "";

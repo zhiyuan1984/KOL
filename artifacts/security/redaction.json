@@ -1,0 +1,9 @@
+{
+  "status": "pass",
+  "scanned": [
+    "artifacts",
+    "data-e2e"
+  ],
+  "findings": [],
+  "generated_at": "2026-09-13T04:44:58.549Z"
+}

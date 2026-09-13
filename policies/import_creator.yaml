@@ -1,0 +1,9 @@
+{
+  "id": "import_creator",
+  "action": "import_creator",
+  "side_effect": true,
+  "gateway": "backend/src/starrykol/service.ts",
+  "mcp_tools": ["starrykol.addKolProfile", "starrykol.importKolProfilesV2"],
+  "requires_confirmation": true,
+  "idempotency": "creator_external_id + source_batch"
+}

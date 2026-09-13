@@ -1,0 +1,57 @@
+{
+  "id": "agent:kol",
+  "version": "0.1.0-pilot",
+  "status": "pilot-not-production",
+  "publish_gate": {
+    "state": "unpublished",
+    "employee_submission": false,
+    "required_for_submission": "published-or-production",
+    "release_evidence": ["contracts", "tb-binding", "full-tests", "employee-e2e", "stage-write"]
+  },
+  "owner_ref": "resp:kol_business_owner",
+  "organization_scope": ["org:lt_team", "org:pq_ro_tb_team"],
+  "brand_scope": ["brand:lt", "brand:pq", "brand:ro", "brand:tb"],
+  "region_scope": ["region:eu", "region:us", "region:ca_au"],
+  "skills": ["creator_discovery", "creator_profile", "creator_scoring", "email_conversation_read", "email_compose", "reply_analysis", "business_approval", "confirm_stage"],
+  "workflows": ["creator_to_outreach", "email_follow_up", "campaign_delivery"],
+  "policies": ["send_email", "change_stage", "import_creator"],
+  "mcp_servers": ["starrykol", "mediacrawler"],
+  "schemas": ["send-request", "stage-confirm", "creator-import"],
+  "evals": ["evals/kol/core.jsonl"],
+  "employee_views": {
+    "entries": [
+      { "id": "kol", "title": "KOL 智能体", "summary": "分析合作、展示适用 SOP、准备草稿和跟进建议。发信与正式阶段写入必须受控。", "skillId": "stage_sop", "prompt": "阶段SOP", "profileIds": ["lead", "opportunity", "negotiation", "execution"] },
+      { "id": "approval", "title": "审批智能体", "summary": "补齐费用申请、匹配制度、催办和解释结果。AI 不代替审批人同意。", "skillId": "business_approval", "prompt": "费用审批", "profileIds": ["commander", "settlement-growth"] },
+      { "id": "crawler", "title": "爬虫智能体", "summary": "把找人目标变成采集计划、跟踪和转交。不自动发信或创建合作承诺。", "skillId": "creator_discovery", "prompt": "发现达人", "profileIds": ["lead"] }
+    ],
+    "teams": [
+      { "id": "reach-squad", "title": "建联小队", "summary": "发现达人 → 补画像 → 写合作邮件。发送不等于改阶段。", "profileIds": ["lead"], "steps": [
+        { "skillId": "creator_discovery", "label": "达人发现", "prompt": "发现达人 [平台或关键词]" },
+        { "skillId": "creator_profile", "label": "达人画像", "prompt": "达人画像 [达人昵称或主页]" },
+        { "skillId": "email_compose", "label": "写合作邮件", "prompt": "写合作邮件 发件箱 [发件邮箱] 发给 [收件邮箱] 主题：[主题]" }
+      ] },
+      { "id": "advance-squad", "title": "推进小队", "summary": "回复分析 → 记状态 → Deal Memory。阶段写入需人确认。", "profileIds": ["opportunity", "negotiation"], "steps": [
+        { "skillId": "reply_analysis", "label": "回复分析", "prompt": "回复分析 [会话或红人]" },
+        { "skillId": "confirm_stage", "label": "提出阶段变更", "prompt": "提出阶段变更 [红人] 到 [目标阶段]" },
+        { "skillId": "deal_memory", "label": "Deal Memory", "prompt": "Deal Memory [红人或合作]" }
+      ] },
+      { "id": "risk-squad", "title": "风控小队", "summary": "风险扫描与异常记状态。", "profileIds": ["commander"], "steps": [
+        { "skillId": "risk_scan", "label": "超时/风险扫描", "prompt": "超时/风险扫描" },
+        { "skillId": "confirm_stage", "label": "提出阶段变更", "prompt": "记状态 @红人" }
+      ] },
+      { "id": "kol-agent", "title": "KOL 智能体", "summary": "SOP、草稿和阶段建议。发送不等于改阶段。", "profileIds": ["lead", "opportunity", "negotiation", "execution"], "steps": [
+        { "skillId": "stage_sop", "label": "八个阶段 SOP", "prompt": "阶段SOP" },
+        { "skillId": "email_compose", "label": "写合作邮件", "prompt": "写合作邮件 发件箱 [发件邮箱] 发给 [收件邮箱] 主题：[主题]" },
+        { "skillId": "confirm_stage", "label": "提出阶段变更", "prompt": "提出阶段变更 [红人] 到 [目标阶段]" }
+      ] },
+      { "id": "approval-agent", "title": "审批智能体", "summary": "费用审批申请与催办。通过不等于已付款。", "profileIds": ["commander", "settlement-growth"], "steps": [
+        { "skillId": "business_approval", "label": "费用审批", "prompt": "费用审批" }
+      ] },
+      { "id": "crawler-agent", "title": "爬虫智能体", "summary": "发现达人并转交，不自动发信。", "profileIds": ["lead"], "steps": [
+        { "skillId": "creator_discovery", "label": "达人发现", "prompt": "发现达人 [平台或关键词]" },
+        { "skillId": "creator_profile", "label": "达人画像", "prompt": "达人画像 [达人昵称或主页]" }
+      ] }
+    ]
+  },
+  "runtime_gate": { "requires_real_codex_app_server": true, "stub_allowed": "ci-only", "external_writes": "host-gateway-and-allowlist" }
+}

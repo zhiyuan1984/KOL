@@ -206,7 +206,7 @@ describe("MCP compose with From locked to larry.zhao", () => {
   });
 
   it("previews then sends Wendell mail through larry.zhao, never henry.wei", async () => {
-    const preview = await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-01")!.entities);
+    const preview = await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-01")?.entities || {});
     expect(calls.map((item) => item.name).filter((name) => !["pageMailboxes", "pageKolProfiles", "listAllKolProfiles", "pageEmailConversations", "getKolProfileDetail"].includes(name))).toEqual(["createEmailConversation", "previewEmailDraft"]);
     expect(JSON.parse(String(calls.find((row) => row.name === "createEmailConversation")?.args.requestJson))).toMatchObject({
       mailboxEmail: LARRY_ZHAO_MAILBOX,
@@ -216,14 +216,14 @@ describe("MCP compose with From locked to larry.zhao", () => {
     expect(preview.data).toMatchObject({ sent: false, conversationId: 101 });
 
     calls.length = 0;
-    const sent = await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-02")!.entities);
+    const sent = await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-02")?.entities || {});
     expect(calls.map((item) => item.name)).toEqual(["sendEmailNow"]);
     expect(sent.data).toMatchObject({ sent: true, conversationId: 101 });
     expect(JSON.stringify(calls)).not.toContain("henry.wei@amperetime.com");
   });
 
   it("keeps multi-to connectivity mail on larry.zhao", async () => {
-    const sent = await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-04")!.entities);
+    const sent = await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-04")?.entities || {});
     expect(JSON.parse(String(calls.find((row) => row.name === "createEmailConversation")?.args.requestJson))).toMatchObject({
       mailboxEmail: LARRY_ZHAO_MAILBOX,
       recipientEmail: "qiyou1984@gmail.com",
@@ -247,7 +247,7 @@ describe("MCP compose with From locked to larry.zhao", () => {
         return { data: { kolUid: "KOLTESTHOLLY" } };
       },
     }));
-    const preview = await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-05")!.entities);
+    const preview = await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-05")?.entities || {});
     expect(calls.map((item) => item.name).filter((name) => !["pageKolProfiles", "listAllKolProfiles", "pageEmailConversations", "getKolProfileDetail"].includes(name))).toEqual([
       "pageMailboxes",
       "createEmailConversation",
@@ -283,7 +283,7 @@ describe("MCP compose with From locked to larry.zhao", () => {
   });
 
   it("omitting mailboxEmail asks for 发件邮箱 instead of defaulting henry.wei", async () => {
-    const preview = await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-09")!.entities);
+    const preview = await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-09")?.entities || {});
     expect(calls).toEqual([]);
     expect(preview.data).toMatchObject({
       needs_input: true,
@@ -291,7 +291,7 @@ describe("MCP compose with From locked to larry.zhao", () => {
     });
     expect(String(preview.data.error)).toContain("发件邮箱");
     expect(JSON.stringify(preview.data)).not.toContain("henry.wei@amperetime.com");
-    expect(fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-09")!.expect.requiredMailboxEmail).toBe(LARRY_ZHAO_MAILBOX);
+    expect(fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-09")?.expect?.requiredMailboxEmail).toBe(LARRY_ZHAO_MAILBOX);
   });
 
   it("explains a taken contact email and a mailbox-owner gap", async () => {
@@ -299,7 +299,7 @@ describe("MCP compose with From locked to larry.zhao", () => {
       createEmailConversation() { throw new Error("红人画像不存在"); },
       addKolProfile() { throw new Error("联系邮箱已被其他红人占用"); },
     }));
-    const taken = await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-12")!.entities);
+    const taken = await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-12")?.entities || {});
     expect(taken.data.error).toBe("联系邮箱已被其他红人占用");
     expect(emailMcpResultCard("email_compose", taken.data).summary).toContain("已有红人画像");
 
@@ -308,7 +308,7 @@ describe("MCP compose with From locked to larry.zhao", () => {
       createEmailConversation() { throw new Error("红人画像不存在"); },
       addKolProfile() { throw new Error("负责人无可用邮箱"); },
     }));
-    const owner = await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-13")!.entities);
+    const owner = await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-13")?.entities || {});
     expect(owner.data).toMatchObject({ needs_input: true, error: "负责人无可用邮箱", missing_fields: [] });
     expect(emailMcpResultCard("email_compose", owner.data).summary).toContain("已在授权列表中");
     expect(JSON.parse(String(calls.find((row) => row.name === "createEmailConversation")?.args.requestJson)).mailboxEmail).toBe(LARRY_ZHAO_MAILBOX);

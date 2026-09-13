@@ -96,6 +96,10 @@ describe("production account and enterprise controls", () => {
   });
 
   it("enforces admin authorization and per-user skill grants", async () => {
+    // The manifest is intentionally unpublished in this pilot. Use the CI
+    // stub mode here so this test reaches the employee skill PEP beneath the
+    // publication gate.
+    process.env.CODEX_MODE = "stub";
     const employee = await createEmployee();
     const cookie = await employeeLogin();
     expect((await call("GET", "/api/admin/users", undefined, cookie)).response.status).toBe(403);
@@ -235,6 +239,7 @@ describe("production account and enterprise controls", () => {
   });
 
   it("scopes recent uploads and attachment reuse to the owning employee", async () => {
+    process.env.CODEX_MODE = "stub";
     const form = new FormData();
     form.append("file", new File(["private brief"], "private.md", { type: "text/markdown" }));
     const uploadedResponse = await app.request("/api/attachments", {

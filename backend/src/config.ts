@@ -379,6 +379,27 @@ export function codexMode(): string {
   return (process.env.CODEX_MODE || "real").toLowerCase();
 }
 
+/** Explicit allowlist gate for irreversible live MCP writes during controlled acceptance tests. */
+export function liveRemoteSideEffectsEnabled(): boolean {
+  return process.env.LIVE_REMOTE_SIDE_EFFECTS === "1";
+}
+
+export function liveTestRecipientAllowed(email: string): boolean {
+  const allowed = (process.env.LIVE_TEST_RECIPIENTS || "")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  return allowed.length > 0 && allowed.includes(email.trim().toLowerCase());
+}
+
+export function liveTestKolAllowed(kolUid: string): boolean {
+  const allowed = (process.env.LIVE_TEST_KOL_UIDS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return allowed.length > 0 && allowed.includes(kolUid.trim());
+}
+
 export function codexBin(): string {
   return process.env.CODEX_BIN || "codex";
 }

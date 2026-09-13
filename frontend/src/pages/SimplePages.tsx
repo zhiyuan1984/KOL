@@ -19,7 +19,10 @@ export function Skills({ market = false }: { market?: boolean }) {
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
   const funnelParam = params.get("funnel") || "";
-  const active = FUNNEL.some((f) => f.id === funnelParam) ? funnelParam : "reach";
+  // The personal catalog opens on all currently granted skills. Funnel tabs
+  // remain available for focused work; defaulting to the first funnel hid
+  // common actions such as email_compose from the internal employee path.
+  const active = FUNNEL.some((f) => f.id === funnelParam) ? funnelParam : "all";
 
   useEffect(() => {
     (market ? api.skillMarket() : api.skills()).then((data: unknown) => {
@@ -43,11 +46,13 @@ export function Skills({ market = false }: { market?: boolean }) {
     }
   };
 
-  const stage = FUNNEL.find((f) => f.id === active) || FUNNEL[0];
+  const stage = active === "all"
+    ? { id: "all", label: "全部技能", hint: "已授权的工作技能" }
+    : (FUNNEL.find((f) => f.id === active) || FUNNEL[0]);
   const needle = q.trim().toLowerCase();
   const skills = useMemo(() => {
     return rows.filter((s) => {
-      if (skillFunnel(s) !== active) return false;
+      if (active !== "all" && skillFunnel(s) !== active) return false;
       if (!needle) return true;
       return (s.title + (s.summary || "")).toLowerCase().includes(needle);
     });
@@ -66,7 +71,7 @@ export function Skills({ market = false }: { market?: boolean }) {
       />
       {err && <p className="error">{err}</p>}
       <div className="hub-chips" role="tablist" aria-label="建联进度">
-        {FUNNEL.map((f) => (
+        {[{ id: "all", label: "全部", hint: "已授权技能" }, ...FUNNEL].map((f) => (
           <button
             key={f.id}
             type="button"

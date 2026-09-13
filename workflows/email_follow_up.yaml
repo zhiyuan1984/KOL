@@ -1,0 +1,8 @@
+{
+  "id": "email_follow_up",
+  "agent": "agent:kol",
+  "steps": ["email_conversation_read", "reply_analysis", "email_compose"],
+  "read_tools": ["starrykol.pageEmailConversations", "starrykol.getEmailConversation"],
+  "write_steps": ["send_email", "change_stage"],
+  "requires_confirmation": true
+}

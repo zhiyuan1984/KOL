@@ -1,0 +1,54 @@
+name: lingong-release-gate
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Validate canonical KOL data
+        working-directory: backend
+        run: npm run validate:kol-data
+      - name: Compile pilot contracts
+        working-directory: backend
+        run: npm run validate:contracts
+      - name: Validate TB three-way binding
+        working-directory: backend
+        run: npm run validate:tb-binding
+      - name: Compile production contracts
+        working-directory: backend
+        run: npm run validate:contracts -- --production
+      - name: Backend typecheck
+        working-directory: backend
+        run: npm run typecheck
+      - name: Backend full deterministic tests
+        working-directory: backend
+        run: npm test
+      - name: Frontend typecheck
+        working-directory: frontend
+        run: npm run typecheck
+      - name: Frontend build
+        working-directory: frontend
+        run: npm run build
+      - name: Frontend E2E
+        working-directory: frontend
+        run: npm run test:e2e

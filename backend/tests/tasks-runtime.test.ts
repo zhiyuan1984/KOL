@@ -273,6 +273,15 @@ describe("task intent resolution", () => {
       },
     });
   });
+
+  it("treats template placeholders as missing compose fields", () => {
+    const result = stubResolveTaskIntent({
+      text: "写合作邮件 发件箱 [发件邮箱] 发给 [收件邮箱] 主题：[主题]",
+    });
+    expect(result.task_type).toBe("email_compose");
+    expect(result.missing_fields).toEqual(["mailboxEmail", "to", "subject"]);
+    expect(result.entities.subject).toBeUndefined();
+  });
 });
 
 describe("task CRUD and run flow", () => {

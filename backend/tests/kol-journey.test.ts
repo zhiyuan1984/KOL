@@ -432,7 +432,11 @@ describe("KOL persistent session and fact-advance", () => {
     const opened = await request("POST", "/api/collaborations/col_qiyou/session", {});
     expect(opened.status, await opened.text()).toBe(200);
     const sid = String((await opened.json()).id);
-    const cards = (await messages(sid)).filter((m) => m.kind === "kol_mail_card");
+    let cards = (await messages(sid)).filter((m) => m.kind === "kol_mail_card");
+    for (let i = 0; i < 20 && cards.length < 2; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      cards = (await messages(sid)).filter((m) => m.kind === "kol_mail_card");
+    }
     expect(cards).toHaveLength(2);
     expect(cards.map((card) => (card.payload as Json).conversation_id)).toEqual(["327", "320"]);
     expect(cards.map((card) => (card.payload as Json).occurred_at)).toEqual([

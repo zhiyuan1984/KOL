@@ -168,11 +168,12 @@ describe("followed KOL unread mail sync", () => {
     const board = await request("GET", "/api/home/board?refresh=1");
     expect(board.status).toBe(200);
     const xiaomei = (board.body.kols as Json[]).find((row) => row.id === "col_xiaomei");
-    expect(xiaomei?.mail_threads?.[0]).toMatchObject({
+    const firstThread = (xiaomei?.mail_threads as Json[] | undefined)?.[0];
+    expect(firstThread).toMatchObject({
       conversation_id: "320",
       last_from: "qiyou1984@gmail.com",
       last_from_name: "黄启友",
     });
-    expect(String(xiaomei?.mail_threads?.[0].last_snippet)).toMatch(/想和贵品牌litime合作/);
+    expect(String(firstThread?.last_snippet)).toMatch(/想和贵品牌litime合作/);
   });
 });

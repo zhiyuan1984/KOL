@@ -119,8 +119,17 @@ export function getConn(): SqliteConn {
 
 export function resetConn(): SqliteConn {
   if (conn) {
-    conn.close();
-    conn = null;
+    // Test suites and short-lived worker paths may already have closed the
+    // handle. Always clear the singleton even when the underlying driver
+    // reports "database is not open", otherwise the next isolated test keeps
+    // reusing a dead connection.
+    try {
+      conn.close();
+    } catch {
+      /* already closed */
+    } finally {
+      conn = null;
+    }
   }
   for (const hook of resetHooks) hook();
   return getConn();
