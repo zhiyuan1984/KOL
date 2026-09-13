@@ -1,47 +1,98 @@
 {
-  "profile": "stub-pipeline-pr24",
-  "browser": "chrome",
-  "mode": "stub",
-  "status": "pass",
-  "commit": "cd6ab81",
+  "date": "2026-09-13",
   "pr": 24,
+  "pr_url": "https://github.com/zhiyuan1984/KOL/pull/24",
   "branch": "cursor/pipeline-page-role-9335",
-  "environment": {
-    "E2E_MODE": "stub",
-    "E2E_AUTH_MODE": "disabled",
-    "PW_CHANNEL": "chrome",
-    "E2E_PORT": "8893",
-    "workspace": "/workspace/KOL-real",
-    "rebuild_required": true
+  "local_branch": "pr-24",
+  "sha": "cd6ab81c9194a9ed3cc00aa9d0dbf648c3ba634b",
+  "headRefOid": "cd6ab81c9194a9ed3cc00aa9d0dbf648c3ba634b",
+  "commit": "Assert Pipeline brand filters close a stale lifecycle drawer.",
+  "workdir": "/workspace/KOL-real",
+  "mode": "stub",
+  "e2e_mode": "stub",
+  "live": false,
+  "LIVE_REMOTE_SIDE_EFFECTS": "not used for judgment",
+  "e2e_auth_mode": "disabled",
+  "pw_channel": "chrome",
+  "browser": "Linux Google Chrome",
+  "e2e_port": 8893,
+  "focus": "FE Pipeline page role cleanup — docs/19 roles + Pipeline.tsx (no RELATED_HOME, no fake board chips, no auto-select first KOL, drawer detail, propose stage change only)",
+  "setup": {
+    "fetched": [
+      "git fetch origin pull/24/head:pr-24",
+      "git fetch origin cursor/pipeline-page-role-9335"
+    ],
+    "rebuild": true,
+    "e2e_skip_build_unset": true,
+    "inherited_e2e_skip_build": "1",
+    "dist": {
+      "js": "frontend/dist/assets/index-BuMX2Lul.js",
+      "css": "frontend/dist/assets/index-AhiRyFyV.css"
+    },
+    "runner": "scripts/e2e-server.mjs"
   },
-  "counts": { "passed": 3, "failed": 0, "total": 3 },
-  "e2e": [
+  "authoritative_focused_run": {
+    "output": "/workspace/KOL-real/artifacts/e2e/pw-stub-pr24-pipeline-20260913-172033",
+    "grep": "-g 'pipeline|Pipeline|lifecycle|阶段|milestone|pipeline-row|提出阶段|只看异常'",
+    "matched_titles": 3,
+    "duration": "14.0s",
+    "json": "/workspace/KOL/artifacts/e2e/stub-pipeline-pr24-2026-09-13.json"
+  },
+  "result": {
+    "passed": 3,
+    "failed": 0
+  },
+  "tests": [
     {
+      "n": 1,
       "name": "pipeline review follows the common task flow with progress and a right-side result",
-      "result": "pass"
+      "status": "PASS"
     },
     {
+      "n": 2,
       "name": "pipeline shows a 15-stage milestone timeline and lifecycle drawer",
-      "result": "pass"
+      "status": "PASS"
     },
     {
+      "n": 3,
       "name": "home lifecycle followed KOL opens the mail rail not the task list",
-      "result": "pass"
+      "status": "PASS"
     }
   ],
-  "negatives_verified": [
-    "No「首页任务」/「本页动作」/ RELATED_HOME chips",
-    "No auto-select first KOL",
-    "Drawer action: 提出阶段变更 only"
+  "coverage_map": [
+    {
+      "focus": "15-stage milestone timeline",
+      "how_covered": "[data-stage-axis] li count 15; milestone data-current on 小美妆日记 / 数码老张"
+    },
+    {
+      "focus": "No auto-select first KOL",
+      "how_covered": ".pipeline-item.is-selected count 0 until row click; drawer absent initially"
+    },
+    {
+      "focus": "Drawer detail",
+      "how_covered": "click [data-pipeline-row] → [data-pipeline-drawer] + creator ledger"
+    },
+    {
+      "focus": "Propose stage only",
+      "how_covered": "[data-propose-stage] text 提出阶段变更; drawer not.toContainText 写合作邮件 / 记状态"
+    },
+    {
+      "focus": "No RELATED_HOME / home chips",
+      "how_covered": "[data-pipeline-related] / [data-pipeline-task] count 0; page not.toContainText 首页任务 / 本页动作"
+    },
+    {
+      "focus": "Brand filter closes stale drawer",
+      "how_covered": "select brand RO → drawer count 0; deep-link ?brand=RO / ?kol= covered"
+    }
   ],
-  "side_effect_policy": {
-    "send": "not invoked",
-    "stage_write": "not invoked",
-    "live": "not used"
-  },
-  "notes": [
-    "Stub E2E 3/3 PASS after lifecycle-only Pipeline cleanup on PR #24.",
-    "Not a LIVE run. send/stage not invoked."
+  "negative_assertions_on_tip": [
+    "Pipeline.tsx source: no RELATED_HOME, no 首页任务, no 本页动作, no data-pipeline-related / data-pipeline-task markers.",
+    "workbench.spec tip: negative expects already updated; no remaining RELATED_HOME / 首页任务 / 本页动作 / auto-select positives for Pipeline. No failures from stale expectations.",
+    "只看异常: no match in tip frontend source or e2e titles (grep token unused)."
   ],
-  "generated_at": "2026-09-13"
+  "not_run": [
+    "Full stub suite",
+    "E2E_MODE=real / LIVE remotes"
+  ],
+  "one_liner": "PR#24 cd6ab81 stub Pipeline lifecycle: 3/3 PASS (15-stage+drawer+no RELATED_HOME/首页任务/auto-select; propose-stage only); no LIVE; rebuild required (unset E2E_SKIP_BUILD)."
 }

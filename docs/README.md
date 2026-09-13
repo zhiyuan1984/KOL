@@ -56,4 +56,4 @@
 - `evidence-kol-stage-write-2026-09-12.md`：阶段写入与邮件发送分离的真实验证证据。
 - `evidence-release-gate-2026-09-13.md`：`main` @ `9f9c5a8` stub production `release:gate` PASS（TB 豁免；非生产上线）。
 - `evidence-kb-acceptance-2026-09-13.md`：`/kb` 验收 FAIL（邮件模板资产中心可试点；企业 KB / Agent RAG / 生产资格不通过）。
-- `evidence-e2e-stub-pipeline-pr24-2026-09-13.md`：PR #24 Pipeline 生命周期清理后 stub E2E 3/3 PASS（`cd6ab81`；非 LIVE）。
+- `evidence-e2e-stub-pipeline-pr24-2026-09-13.md`：PR #24 Pipeline 生命周期清理后 stub E2E 3/3 PASS（`cd6ab81c9194a9ed3cc00aa9d0dbf648c3ba634b`；非 LIVE）。
