@@ -19,21 +19,17 @@ import Markdown from "../components/Markdown";
 import { starterPrompt } from "../taskStarters";
 import { recIcon, withRecommendedDisplay } from "../recommendedTasks";
 import { clearComposerFill, composerStarter, peekComposerFill } from "../knowledgeCopy";
-import { MAIN_STAGE_TABS } from "../kolStages";
+import { FOLLOWED_KOL_TABS } from "../kolStages";
 import { rememberJourney } from "../journey";
 import { missingFieldsMessage, fieldLabel } from "../labels";
 import FollowedKolWorkCard from "../components/FollowedKolWorkCard";
 import {
-  FOLLOWED_KOL_OWNER_TABS,
-  matchesOwnerGroup,
-  matchesStageFilter,
-  ownerGroupCount,
+  matchesStageTab,
   projectFollowedKolCard,
   sortFollowedKolCards,
   type FollowedKolCardModel,
   type FollowedKolRecord,
   type KolSortMode,
-  type OwnerGroup,
 } from "../followedKolCard";
 import {
   HOME_TASK_POLL_MS,
@@ -53,8 +49,10 @@ import {
 type HomeTab = "today" | "templates";
 type HomeMode = "todo" | "ai" | "lifecycle";
 type TaskFilter = "all" | "open" | "high" | "ai";
+type KolTab = string;
 type TodoBucket = "overdue" | "today" | "waiting" | "approval" | "queued" | "running" | "later";
 type FollowedKol = FollowedKolRecord;
+type TabSummary = { code: string; count: number; task_count?: number };
 
 const openStatuses = new Set(["pending", "waiting", "running", "queued", "in_progress", "failed"]);
 const closedStatuses = new Set(["completed", "done", "cancelled"]);
@@ -366,11 +364,11 @@ export default function Home() {
   const [definitions, setDefinitions] = useState<TaskDefinition[]>([]);
   const [tab, setTab] = useState<HomeTab>("today");
   const [filter, setFilter] = useState<TaskFilter>("all");
-  const [kolTab, setKolTab] = useState<OwnerGroup>("all");
-  const [stageFilter, setStageFilter] = useState("");
+  const [kolTab, setKolTab] = useState<KolTab>("all");
   const [kolSort, setKolSort] = useState<KolSortMode>("need");
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [followedKols, setFollowedKols] = useState<FollowedKol[]>([]);
+  const [tabSummaries, setTabSummaries] = useState<TabSummary[]>([]);
   const [boardWorkbench, setBoardWorkbench] = useState<HomeWorkbench | null>(null);
   const [followScope, setFollowScope] = useState<StarryBinding | null>(null);
   const [sort, setSort] = useState("priority");
@@ -407,6 +405,7 @@ export default function Home() {
   const applyBoard = (board: Awaited<ReturnType<typeof api.homeBoard>>) => {
     if (Array.isArray(board.kols)) setFollowedKols(board.kols as FollowedKol[]);
     if (Array.isArray(board.tasks)) setTasks(mergeTaskDetails(board.tasks as Task[], taskCatalogRef.current));
+    if (Array.isArray(board.tabs)) setTabSummaries(board.tabs as TabSummary[]);
     setBoardWorkbench(board.workbench || null);
     setFollowScope(board.follow_scope || null);
   };
@@ -902,19 +901,23 @@ export default function Home() {
 
   const visibleKols = useMemo(() => {
     const filtered = kolCards.filter((card) => {
-      if (!matchesOwnerGroup(card, kolTab)) return false;
-      if (!matchesStageFilter(card, stageFilter)) return false;
+      if (!matchesStageTab(card, kolTab)) return false;
       if (unreadOnly && !card.unread_inbound) return false;
       return true;
     });
-    const sortMode = kolTab === "recent" && kolSort === "need" ? "recent" : kolSort;
-    return sortFollowedKolCards(filtered, sortMode);
-  }, [kolCards, kolSort, kolTab, stageFilter, unreadOnly]);
+    return sortFollowedKolCards(filtered, kolSort);
+  }, [kolCards, kolSort, kolTab, unreadOnly]);
 
   const kolCounts = useMemo(() => {
-    const counts = {} as Record<OwnerGroup, number>;
-    for (const tabSpec of FOLLOWED_KOL_OWNER_TABS) {
-      counts[tabSpec.code] = ownerGroupCount(kolCards, tabSpec.code);
+    const counts: Record<string, number> = { all: kolCards.length, exception: 0 };
+    for (const tabSpec of FOLLOWED_KOL_TABS) {
+      if (tabSpec.code !== "all") counts[tabSpec.code] = 0;
+    }
+    for (const card of kolCards) {
+      if (card.source.exception || card.current_state.exception) counts.exception += 1;
+      else if (card.current_state.stage_code) {
+        counts[card.current_state.stage_code] = (counts[card.current_state.stage_code] || 0) + 1;
+      }
     }
     return counts;
   }, [kolCards]);
@@ -1048,9 +1051,10 @@ export default function Home() {
           {mode === "lifecycle" ? (
             <section className="home-mode-pane recommend-work" data-home-pane="lifecycle" data-lifecycle-overview>
               <div className="home-pane-sticky">
-              <div className="kol-owner-tabs" role="tablist" aria-label="按行动责任人查看" data-kol-tabs>
-                {FOLLOWED_KOL_OWNER_TABS.map((tabSpec) => {
-                  const count = kolCounts[tabSpec.code] ?? 0;
+              <div className="kol-stage-tabs" role="tablist" aria-label="跟进红人状态" data-kol-tabs>
+                {FOLLOWED_KOL_TABS.map((tabSpec) => {
+                  const summaryRow = tabSummaries.find((item) => item.code === tabSpec.code);
+                  const count = summaryRow?.count ?? kolCounts[tabSpec.code] ?? 0;
                   return (
                     <button
                       key={tabSpec.code}
@@ -1061,26 +1065,12 @@ export default function Home() {
                       onClick={() => setKolTab(tabSpec.code)}
                       data-kol-tab={tabSpec.code}
                     >
-                      <span className="kol-tab-name">{tabSpec.label} {count}</span>
+                      <span className="kol-tab-name">{tabSpec.short} {count}</span>
                     </button>
                   );
                 })}
               </div>
               <div className="kol-secondary-filters" data-kol-secondary-filters>
-                <label className="kol-filter-label">
-                  阶段
-                  <select
-                    aria-label="按正式阶段二次筛选"
-                    data-kol-stage-filter
-                    value={stageFilter}
-                    onChange={(event) => setStageFilter(event.target.value)}
-                  >
-                    <option value="">全部阶段</option>
-                    {MAIN_STAGE_TABS.map((stage) => (
-                      <option key={stage.code} value={stage.code}>{stage.label}</option>
-                    ))}
-                  </select>
-                </label>
                 <div className="kol-sorts" role="group" aria-label="跟进排序" data-kol-sorts>
                   {([
                     ["need", "按需处理"],
@@ -1113,7 +1103,16 @@ export default function Home() {
                 </button>
               </div>
               <h2 data-followed-kol-heading>
-                {FOLLOWED_KOL_OWNER_TABS.find((item) => item.code === kolTab)?.label || "我跟进的红人"}
+                {kolTab === "all"
+                  ? "我跟进的红人"
+                  : kolTab === "exception"
+                    ? "异常 KOL"
+                    : (FOLLOWED_KOL_TABS.find((item) => item.code === kolTab)?.label || "这一阶段")}
+                {followedKols.some((kol) => Number(kol.unread_count || 0) > 0) ? (
+                  <span className="unread-total" data-unread-total>
+                    未读 {followedKols.reduce((sum, kol) => sum + Number(kol.unread_count || 0), 0)}
+                  </span>
+                ) : null}
               </h2>
               </div>
               {visibleKols.length ? (
@@ -1141,16 +1140,16 @@ export default function Home() {
                       ? "尚未绑定跟进邮箱"
                       : followScope?.status === "expired"
                         ? "Starry 连接已过期"
-                        : followedKols.length ? "这一分组还没有跟进中的红人" : followScope?.bound ? "该邮箱下暂无跟进红人" : "还没有跟进中的红人"}
+                        : followedKols.length ? "这一状态还没有跟进中的红人" : followScope?.bound ? "该邮箱下暂无跟进红人" : "还没有跟进中的红人"}
                   </strong>
                   <p>
                     {followScope?.required && !followScope.bound
-                      ? "绑定 Starry 发件箱后，这里只显示该邮箱负责人跟进的红人。"
+                      ? "绑定 Starry 发件箱后，这里只显示该邮箱负责人跟进的红人及生命周期。"
                       : followScope?.status === "expired"
                         ? "重新连接后即可继续查看你跟进的红人。"
                         : followScope?.bound
                           ? `当前绑定 ${followScope.mailbox_email || "已选邮箱"}${followScope.owner_name ? ` · ${followScope.owner_name}` : ""}。`
-                          : "按谁必须行动查看跟进红人。15 个正式阶段在上方二次筛选，完整资产在「生命周期」。"}
+                          : "正式阶段共 15 个，异常状态单独一栏。完整资产在左侧「生命周期」。"}
                   </p>
                   {followScope?.required && (!followScope.bound || followScope.status === "expired") ? (
                     <button type="button" className="btn work" onClick={() => nav("/settings?tab=starry")}>

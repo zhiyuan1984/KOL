@@ -516,6 +516,14 @@ export function matchesStageFilter(card: FollowedKolCardModel, stageCode: string
   return card.current_state.stage_code === stageCode;
 }
 
+/** Primary Home filter: 全部 + 15 formal stages + 异常. Exception cards stay off their stage tab. */
+export function matchesStageTab(card: FollowedKolCardModel, tab: string): boolean {
+  if (!tab || tab === "all") return true;
+  if (tab === "exception") return Boolean(card.source.exception || card.current_state.exception || card.risk.exception);
+  if (card.source.exception || card.current_state.exception) return false;
+  return card.current_state.stage_code === tab;
+}
+
 function flag(value: boolean): number {
   return value ? 1 : 0;
 }
