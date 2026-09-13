@@ -24,11 +24,12 @@ export function stripMailChrome(raw: string): string {
 export function pickMailPreviewSource(text: string): string {
   const cleaned = stripMailChrome(text);
   if (!cleaned) return "";
-  const zhBlocks = cleaned.match(/[\u4e00-\u9fff][^A-Za-z]{8,160}/g);
-  if (zhBlocks?.length) {
-    const best = [...zhBlocks].sort((a, b) => b.length - a.length)[0].trim();
-    if (best.length >= 8) return best;
-  }
+  const sentences = cleaned.split(/(?<=[。！？\n])|(?<=\.\s)/).map((part) => part.trim()).filter(Boolean);
+  const zhSentence = sentences.find((sentence) => {
+    const zh = (sentence.match(/[\u4e00-\u9fff]/g) || []).length;
+    return zh >= 6;
+  });
+  if (zhSentence) return zhSentence.replace(SIGN_OFF, "").trim();
   const withoutGreeting = cleaned.replace(GREETING_LEAD, "").replace(SIGN_OFF, "").trim();
   return withoutGreeting || cleaned;
 }
