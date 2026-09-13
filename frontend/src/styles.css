@@ -361,7 +361,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .home-board {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding-bottom: 8px;
 }
 .home-pane-sticky {
@@ -565,6 +566,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .recommend-work,
 .home-mode-pane {
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   transition: opacity .2s ease;
 }
 .home-pane.is-composer-focused .today-summary,
@@ -839,6 +842,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   gap: 6px;
   margin-bottom: 16px;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
 }
 .kol-stage-tabs button {
@@ -1009,10 +1014,11 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 .kol-card-fields.is-compact {
   display: grid;
-  grid-template-columns: minmax(6.5rem, 0.85fr) minmax(10rem, 1.45fr) minmax(10rem, 1.45fr) minmax(7rem, 1fr) minmax(8rem, 1.15fr);
-  gap: 8px 14px;
+  grid-template-columns: repeat(auto-fit, minmax(min(9.5rem, 100%), 1fr));
+  gap: 8px 12px;
   margin-top: 8px;
   width: 100%;
+  max-width: 100%;
   min-width: 0;
 }
 .followed-kol .kol-card-fields.is-compact > .kol-card-field,
@@ -1047,12 +1053,14 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .kol-card-fields.is-compact dd,
 .kol-card-status-line dd {
   min-width: 0;
-  max-width: none;
+  max-width: 100%;
   width: 100%;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   white-space: normal;
   line-height: 1.4;
 }
@@ -1070,34 +1078,71 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   white-space: nowrap;
 }
 .home-mode-pane h2 .btn { margin-left: 10px; vertical-align: middle; }
-.kol-mail-threads {
-  list-style: none;
-  margin: 10px 0 0;
+.kol-card-body {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+.kol-mail-preview {
+  display: grid;
+  gap: 6px;
+  margin: 0;
   padding: 8px 0 0;
   border-top: 1px solid #f0f0f2;
-  display: grid;
-  gap: 4px;
+  min-width: 0;
 }
-.kol-mail-threads li {
+.kol-mail-preview .mail-preview-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px 8px;
+  margin: 0;
   font-size: 12px;
   color: var(--muted);
+  min-width: 0;
 }
-.kol-mail-threads .thread-subject { color: var(--ink); }
-.kol-mail-threads .thread-snippet {
-  flex: 1 1 100%;
+.kol-mail-preview .thread-subject {
   color: var(--ink);
-  white-space: nowrap;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.kol-mail-preview .mail-preview-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink);
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.kol-mail-preview [data-open-original-mail] {
+  justify-self: start;
+}
+.kol-card-cta {
+  justify-self: start;
+  white-space: nowrap;
+}
+@media (max-width: 720px) {
+  .recommend-row.followed-kol {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+  .recommend-row.followed-kol .kol-card-cta {
+    grid-column: 2;
+  }
 }
 .recommend-work { padding-top: 0; border-top: 0; }
 .recommend-list {
   list-style: none;
   margin: 0;
   padding: 0 0 8px;
+  min-width: 0;
+  max-width: 100%;
 }
 .recommend-row {
   display: grid;
@@ -1105,6 +1150,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   align-items: start;
   gap: 10px;
   min-height: 0;
+  min-width: 0;
+  max-width: 100%;
   padding: 6px 8px;
   border-radius: 10px;
 }
@@ -1113,14 +1160,18 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   margin-bottom: 8px;
   border: 1px solid var(--line);
   background: var(--canvas);
+  overflow: hidden;
 }
 .recommend-row.followed-kol .task-main {
   width: 100%;
   min-width: 0;
+  max-width: 100%;
 }
 .recommend-row:hover { background: #fafafa; }
 .recommend-row .task-main { text-align: left; border: 0; background: none; cursor: pointer; padding: 0; font: inherit; }
 .recommend-row .task-main strong {
+  display: inline-block;
+  max-width: 100%;
   font-size: var(--font-section);
   font-weight: 600;
   white-space: nowrap;
@@ -2008,6 +2059,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   color: #fff;
 }
 .admin-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.btn.sm,
 .btn.ghost.sm { padding: 6px 10px; font-size: 12px; }
 
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }

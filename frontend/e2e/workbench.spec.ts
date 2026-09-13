@@ -530,6 +530,7 @@ test("home followed-KOL tabs filter 17 statuses and open the KOL session", async
   await expect(page.locator('[data-followed-kol="户外电源达人"] [data-kol-status-line] [data-recent-followup]')).toBeVisible();
   await expect(page.locator('[data-followed-kol="户外电源达人"] [data-kol-status-line] [data-current-stage]')).toContainText("初步接触");
   await expect(page.locator('[data-followed-kol="户外电源达人"] [data-kol-status-line] [data-suggested-stage]')).toContainText("已回复-有兴趣");
+  await expect(page.locator('[data-followed-kol="户外电源达人"] [data-kol-primary-action]')).toHaveCount(1);
   await expect(page.locator('[data-kol-tab="all"]')).not.toContainText("失联跟进");
   await expect(page.locator('[data-kol-tab="all"] .kol-tab-history')).toHaveCount(0);
   await page.locator('[data-followed-kol="户外电源达人"] .task-main').click();
@@ -573,17 +574,54 @@ test("KOL session header can tag a followed creator as 犹豫谨慎", async ({ p
   await expect(tagged.locator('[data-follow-style-tag="cautious"]')).toContainText("犹豫谨慎", { timeout: 15000 });
 });
 
-test("home followed-KOL cards share five columns across the board", async ({ page }) => {
+async function expectNoHorizontalOverflow(page: Page, selector: string) {
+  const box = await page.locator(selector).evaluate((el) => ({
+    client: el.clientWidth,
+    scroll: el.scrollWidth,
+  }));
+  expect(box.scroll).toBeLessThanOrEqual(box.client + 1);
+}
+
+test("home followed-KOL cards fit the viewport without a horizontal scrollbar", async ({ page }) => {
+  const longBilingual = [
+    "Hi there, I hope this message finds you in great spirits. I wanted to reach out about a possible collaboration with LiTime and share our media kit, rate card, posting calendar, and a long bilingual dump that used to stretch the home card into a wide table.",
+    "你好，我现在想和贵品牌litime合作，方便发一下产品资料吗？Best regards, Amy",
+  ].join("\n\n");
   await page.route("**/api/home/board", (route) => route.fulfill({
     json: {
       kols: [
-        { id: "col_xiaomei", handle: "小美妆日记", brand: "LT", stage_code: "INITIAL_CONTACT", stage_label: "初步接触", exception: false, profile_tags: [{ id: "niche", label: "美妆" }], kol_name: "小美妆日记", collab_summary: "LT品牌合作 · 负责人 钟槿年 · 首封已读未回", recent_followup: "写跟进邮件 · 已完成", current_stage: "初步接触 · 停留 12 天", suggested_stage: "已回复-有兴趣" },
+        {
+          id: "col_xiaomei",
+          handle: "小美妆日记",
+          brand: "LT",
+          stage_code: "INITIAL_CONTACT",
+          stage_label: "初步接触",
+          exception: false,
+          profile_tags: [{ id: "niche", label: "美妆" }],
+          kol_name: "小美妆日记",
+          collab_summary: "LT品牌合作 · 负责人 钟槿年 · 首封已读未回",
+          recent_followup: "写跟进邮件 · 已完成",
+          current_stage: "初步接触 · 停留 12 天",
+          suggested_stage: "已回复-有兴趣",
+          unread_count: 1,
+          mail_threads: [{
+            conversation_id: "3901",
+            subject: "Re: LiTime collab",
+            unread_count: 1,
+            last_direction: "inbound",
+            last_from: "amy@example.com",
+            last_from_name: "Amy",
+            last_at: "2026-09-12T10:00:00.000Z",
+            last_snippet: longBilingual,
+          }],
+        },
         { id: "col_laozhang", handle: "数码老张", brand: "LT", stage_code: "QUOTE_PENDING", stage_label: "报价待确认", exception: false, kol_name: "数码老张", collab_summary: "LT品牌合作", recent_followup: "写报价信 · 等待中", current_stage: "报价待确认", suggested_stage: "商务谈判" },
       ],
       tasks: [],
       tabs: [{ code: "all", count: 2 }, { code: "INITIAL_CONTACT", count: 1 }, { code: "QUOTE_PENDING", count: 1 }],
     },
   }));
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("/");
   await openHomeLifecycle(page);
   const card = page.locator('[data-followed-kol="小美妆日记"]');
@@ -592,24 +630,250 @@ test("home followed-KOL cards share five columns across the board", async ({ pag
   await expect(card.locator(".kol-card-field")).toHaveCount(5);
   const boardBox = await board.boundingBox();
   const cardBox = await card.boundingBox();
-  const nameBox = await card.locator("[data-kol-name]").boundingBox();
-  const summaryBox = await card.locator("[data-collab-summary]").boundingBox();
-  const followBox = await card.locator("[data-recent-followup]").boundingBox();
-  const suggestBox = await card.locator("[data-suggested-stage]").boundingBox();
-  expect(boardBox && cardBox && nameBox && summaryBox && followBox && suggestBox).toBeTruthy();
-  expect((cardBox?.width || 0)).toBeGreaterThan((boardBox?.width || 0) * 0.85);
-  expect(Math.abs((nameBox?.y || 0) - (suggestBox?.y || 0))).toBeLessThan(16);
-  expect(summaryBox?.width || 0).toBeLessThan((cardBox?.width || 0) * 0.4);
-  expect(followBox?.width || 0).toBeGreaterThan(120);
-  expect((nameBox?.x || 0) + (nameBox?.width || 0)).toBeLessThan(summaryBox?.x || 0);
-  expect((followBox?.x || 0) + (followBox?.width || 0)).toBeLessThan(suggestBox?.x || 0);
+  expect(boardBox && cardBox).toBeTruthy();
+  expect((cardBox?.width || 0)).toBeGreaterThan((boardBox?.width || 0) * 0.7);
+  expect((cardBox?.width || 0)).toBeLessThanOrEqual((boardBox?.width || 0) + 1);
+  await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
+  await expectNoHorizontalOverflow(page, '[data-followed-kol="小美妆日记"]');
+  await expect(card.locator("[data-mail-summary]")).toBeVisible();
+  await expect(card.locator("[data-mail-summary]")).toContainText("想和贵品牌litime合作");
+  await expect(card.locator("[data-mail-summary]")).not.toContainText("posting calendar");
+  await expect(card.locator("[data-open-original-mail]")).toHaveText("查看原邮件");
+  await expect(card.locator("[data-kol-primary-action]")).toHaveCount(1);
+  await expect(card.locator('[data-kol-primary-action="open-session"]')).toHaveText("查看来信");
+
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await expect(card).toBeVisible();
+  await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
+  await expectNoHorizontalOverflow(page, '[data-followed-kol="小美妆日记"]');
+});
+
+test("home followed-KOL 查看原邮件 opens the existing session mail rail", async ({ page }) => {
+  await page.route("**/api/home/board", (route) => route.fulfill({
+    json: {
+      kols: [{
+        id: "col_xiaomei",
+        handle: "小美妆日记",
+        brand: "LT",
+        stage_code: "INITIAL_CONTACT",
+        stage_label: "初步接触",
+        kol_name: "小美妆日记",
+        collab_summary: "LT品牌合作",
+        recent_followup: "写跟进邮件",
+        current_stage: "初步接触",
+        suggested_stage: "已回复-有兴趣",
+        mail_threads: [{
+          conversation_id: "3901",
+          subject: "Re: LiTime collab",
+          last_direction: "inbound",
+          last_snippet: "你好，想和贵品牌litime合作",
+        }],
+      }],
+      tasks: [],
+      tabs: [{ code: "all", count: 1 }, { code: "INITIAL_CONTACT", count: 1 }],
+    },
+  }));
+  await page.route("**/api/collaborations/col_xiaomei/session", (route) => route.fulfill({
+    json: { id: "kol-mail-session", collaboration_id: "col_xiaomei" },
+  }));
+  await page.route("**/api/sessions/kol-mail-session**", (route) => route.fulfill({
+    json: {
+      id: "kol-mail-session",
+      collaboration_id: "col_xiaomei",
+      agent_status: "listening",
+      messages: [],
+      journey: {
+        handle: "小美妆日记",
+        stage_label: "初步接触",
+        collaboration_id: "col_xiaomei",
+        mail_history: [{
+          id: "mail-3901",
+          conversation_id: "3901",
+          subject: "Re: LiTime collab",
+          direction: "inbound",
+          body: "Hi there, I hope this message finds you well.\n\n你好，想和贵品牌litime合作",
+        }],
+      },
+    },
+  }));
+  await page.goto("/");
+  await openHomeLifecycle(page);
+  await page.locator('[data-followed-kol="小美妆日记"] [data-open-original-mail]').click();
+  await expect(page).toHaveURL(/\/s\/kol-mail-session/);
+  await expect(page.locator("[data-workbench] [data-mail-body]")).toBeVisible();
+  await expect(page.locator("[data-workbench] [data-mail-body]")).toContainText("想和贵品牌litime合作");
+});
+
+test("home waiting work item is labeled 结果待确认 not 等待中", async ({ page }) => {
+  const todos = [
+    {
+      id: "tsk_home_laozhang_quote",
+      title: "写报价信",
+      source: "manual",
+      status: "waiting",
+      kol_name: "数码老张",
+      history_summary: "金额 $680，待确认发送",
+    },
+    {
+      id: "tsk_queued_follow",
+      title: "写跟进邮件",
+      source: "manual",
+      status: "pending",
+      kol_name: "小美妆日记",
+      history_summary: "任务已加入队列",
+    },
+    {
+      id: "tsk_running_scan",
+      title: "风险扫描",
+      source: "manual",
+      status: "running",
+      started_at: new Date(Date.now() - 90_000).toISOString(),
+      history_summary: "正在核对逾期合作",
+    },
+    {
+      id: "tsk_failed_run",
+      title: "催大纲",
+      source: "manual",
+      status: "failed",
+      risk: "样品丢失争议",
+      next_action: "回到会话查看缺口",
+      history: [{ safe_summary: "催大纲信息不完整" }],
+      history_summary: "催大纲信息不完整",
+    },
+    {
+      id: "tsk_approval_quote",
+      title: "审批报价",
+      source: "manual",
+      status: "waiting_approval",
+      kol_name: "母婴小课",
+      history_summary: "报价已提交，等负责人确认",
+    },
+  ];
+  await page.route("**/api/home/board", (route) => route.fulfill({
+    json: {
+      kols: [],
+      tabs: [{ code: "all", count: 0 }],
+      tasks: todos,
+      workbench: {
+        summary: { open: 5, overdue: 0, due_today: 0, waiting: 1, insights: 0 },
+        todo: todos,
+      },
+    },
+  }));
+  await page.route("**/api/tasks", (route) => route.fulfill({ json: todos }));
+  await page.goto("/");
+  const waiting = page.locator("[data-todo-card]").filter({ hasText: "写报价信" });
+  await expect(waiting).toBeVisible();
+  await expect(waiting).toHaveAttribute("data-wait-status", "结果待确认");
+  await expect(waiting).toContainText("结果待确认");
+  await expect(waiting).not.toContainText("等待中");
+  await expect(page.locator('[data-todo-bucket="waiting"]')).toContainText("结果待确认");
+  await expect(page.locator('[data-todo-bucket="waiting"]')).toContainText("写报价信");
+  await expect(page.locator('[data-todo-bucket="queued"]')).toContainText("已入队");
+  await expect(page.locator('[data-todo-bucket="queued"] [data-todo-card]')).toHaveAttribute("data-wait-status", "已入队");
+  await expect(page.locator('[data-todo-bucket="running"]')).toContainText("执行中");
+  await expect(page.locator('[data-todo-bucket="running"] [data-todo-card]')).toHaveAttribute("data-wait-status", "执行中");
+  await expect(page.locator('[data-todo-bucket="running"] [data-todo-card]')).toContainText("正在核对逾期合作");
+  await expect(page.locator('[data-todo-bucket="running"] [data-todo-card]')).toContainText("已进行");
+  await expect(page.locator('[data-todo-bucket="approval"]')).toContainText("等审批");
+  await expect(page.locator('[data-todo-bucket="approval"] [data-todo-card]')).toHaveAttribute("data-wait-status", "等审批");
+  const failed = page.locator("[data-todo-card]").filter({ hasText: "催大纲" });
+  await expect(failed).toHaveAttribute("data-wait-status", "失败");
+  await expect(failed).toContainText("催大纲信息不完整");
+  await expect(failed).not.toContainText("有风险");
+  await expect(page.locator("[data-today-summary]")).toContainText("结果待确认");
+  await expect(page.locator("[data-today-summary]")).toContainText("等审批");
+  await expect(page.locator("[data-today-summary]")).not.toContainText("等待中");
+  await expect(page.locator("[data-today-work]")).not.toContainText("等待中");
+});
+
+test("home polls GET /api/tasks while a run is executing", async ({ page }) => {
+  let taskGets = 0;
+  const running = {
+    id: "tsk_running_scan",
+    title: "风险扫描",
+    source: "manual",
+    status: "running",
+    started_at: new Date(Date.now() - 30_000).toISOString(),
+    history_summary: "正在核对逾期合作",
+  };
+  await page.route("**/api/home/board", (route) => route.fulfill({
+    json: {
+      kols: [],
+      tabs: [{ code: "all", count: 0 }],
+      tasks: [running],
+      workbench: { summary: { open: 1, overdue: 0, due_today: 0, waiting: 0, insights: 0 }, todo: [running] },
+    },
+  }));
+  await page.route("**/api/tasks", async (route) => {
+    if (route.request().method() === "GET") taskGets += 1;
+    await route.fulfill({ json: [running] });
+  });
+  await page.goto("/");
+  await expect(page.locator("[data-home]")).toHaveAttribute("data-home-task-poll", "active");
+  await expect(page.locator('[data-todo-bucket="running"] [data-todo-card]')).toHaveAttribute("data-wait-status", "执行中");
+  await expect.poll(() => taskGets, { timeout: 12000 }).toBeGreaterThanOrEqual(2);
+});
+
+test("home does not keep polling GET /api/tasks for 结果待确认 only", async ({ page }) => {
+  let taskGets = 0;
+  const waiting = {
+    id: "tsk_home_laozhang_quote",
+    title: "写报价信",
+    source: "manual",
+    status: "waiting",
+    history_summary: "金额 $680，待确认发送",
+  };
+  await page.route("**/api/home/board", (route) => route.fulfill({
+    json: {
+      kols: [],
+      tabs: [{ code: "all", count: 0 }],
+      tasks: [waiting],
+      workbench: { summary: { open: 1, overdue: 0, due_today: 0, waiting: 1, insights: 0 }, todo: [waiting] },
+    },
+  }));
+  await page.route("**/api/tasks", async (route) => {
+    if (route.request().method() === "GET") taskGets += 1;
+    await route.fulfill({ json: [waiting] });
+  });
+  await page.goto("/");
+  await expect(page.locator("[data-home]")).toHaveAttribute("data-home-task-poll", "idle");
+  await expect(page.locator("[data-todo-card]").filter({ hasText: "写报价信" })).toHaveAttribute("data-wait-status", "结果待确认");
+  const afterLoad = taskGets;
+  expect(afterLoad).toBeGreaterThanOrEqual(1);
+  await page.waitForTimeout(4500);
+  expect(taskGets).toBe(afterLoad);
+});
+
+test("home recognizing feedback is labeled 识别中", async ({ page }) => {
+  await page.route("**/api/tasks/from-text", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    await route.fulfill({
+      json: {
+        confidence: "low",
+        clarification: "你希望分析哪个范围？",
+        candidates: [{ id: "today", title: "分析今天的合作" }],
+      },
+    });
+  });
+  await page.goto("/");
+  await page.locator("[data-home] [data-composer-input]").fill("帮我分析一下");
+  await page.locator("[data-home] [data-send]").click();
+  const recognizing = page.locator('[data-home] [data-kind="recognizing"]');
+  await expect(recognizing).toBeVisible();
+  await expect(recognizing).toHaveAttribute("data-wait-status", "识别中");
+  await expect(recognizing).toContainText("识别中");
+  await expect(recognizing).not.toContainText("等待中");
 });
 
 test("home AI insight is confirmed into 我的待办 and 立即处理 opens the KOL session", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("[data-todo-card]").filter({ hasText: "数码老张" })).toBeVisible();
+  await expect(page.locator("[data-todo-card]").filter({ hasText: "数码老张" })).toHaveAttribute("data-wait-status", "结果待确认");
   await expect(page.locator("[data-todo-card]").filter({ hasText: "旅行电源菌" })).toBeVisible();
   await expect(page.locator("[data-today-summary]")).toContainText(/\d+项待处理/);
+  await expect(page.locator("[data-today-summary]")).toContainText("结果待确认");
+  await expect(page.locator("[data-today-summary]")).not.toContainText("等待中");
   const todoBefore = await page.locator("[data-todo-card]").count();
   expect(todoBefore).toBeGreaterThanOrEqual(2);
   await expect(page.locator("[data-today-work]")).not.toContainText("失联跟进");
@@ -1466,6 +1730,7 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await expect(page.locator('[data-followed-kol="小美妆日记"] [data-kol-status-line] [data-suggested-stage]')).toContainText("已回复-有兴趣");
   const card = page.locator('[data-followed-kol="小美妆日记"]');
   await expect(card.locator(".kol-card-field")).toHaveCount(5);
+  await expect(card.locator("[data-kol-primary-action]")).toHaveCount(1);
   const cardBox = await card.boundingBox();
   const nameBox = await card.locator("[data-kol-name]").boundingBox();
   const summaryBox = await card.locator("[data-collab-summary]").boundingBox();
@@ -1473,10 +1738,8 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   const stageBox = await card.locator("[data-current-stage]").boundingBox();
   const suggestBox = await card.locator("[data-suggested-stage]").boundingBox();
   expect(cardBox && nameBox && summaryBox && followBox && stageBox && suggestBox).toBeTruthy();
-  expect(Math.abs((nameBox?.y || 0) - (suggestBox?.y || 0))).toBeLessThan(16);
-  expect(summaryBox?.width || 0).toBeLessThan((cardBox?.width || 0) * 0.4);
-  expect(followBox?.width || 0).toBeGreaterThan(100);
-  expect((nameBox?.width || 0) + (summaryBox?.width || 0) + (followBox?.width || 0)).toBeGreaterThan((cardBox?.width || 0) * 0.5);
+  expect((cardBox?.width || 0)).toBeLessThanOrEqual(1280);
+  await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
   await page.locator('[data-kol-tab="INITIAL_CONTACT"]').click();
   await expect(page.locator("[data-followed-kol]")).toHaveCount(1);
   await expect(page.locator("[data-followed-kol]")).toContainText("小美妆日记");
