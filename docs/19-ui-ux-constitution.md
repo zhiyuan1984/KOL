@@ -86,6 +86,8 @@ Journey 条可以留作**紧凑定向**，不能再当教练剧本。`04` / `UX-
 | **Chat** | 如何完成一件具体任务 | 表达目标 → 计划 → 能力调用 → 可确认结果；邮件草稿、回复分析、阶段确认卡 | 把 Pipeline 当成第二会话启动器；在资产页批量开新会话 |
 | **Admin** | 谁 / 权限 / 审计 | 组织、授权、连接器、Trace、审计 | 员工主路径的待办或生命周期扫视 |
 
+Admin 行的配套套件（`/admin/connectors` 枢纽与详情、`/admin/agents` 治理、连接器/授权/绑定审计切片）与员工表面的硬边界见 `21-admin-employee-page-roles.md`。`/agents` 仍是本文件 P0 工作入口，不是管理端；管理端不得复制 Home / Pipeline / Chat / Agents 的开工 IA。
+
 Pipeline 的筛选只允许 `brand|owner|stage|region|kol|sync` 与生命周期旁路/异常侧状态。阶段动作只允许「提出阶段变更」→ 人确认 → 既有 `confirm_stage` 审批/写入；不得在本页发明 LIVE 发送或新权限模型。缺字段用诚实空态，不得伪造近期事件、同步时间或审计。
 
 可执行细则见 `specs/FS-KOL-010-pipeline.md`。与本表冲突时，以本表为准。
@@ -107,6 +109,7 @@ Pipeline 的筛选只允许 `brand|owner|stage|region|kol|sync` 与生命周期�
 | `00-platform-charter.md` | 租户、审批、发送/阶段/导入/解密/删除分离等平台不变量 |
 | `04-ux-ui-system.md` | 双端、状态可见、L1–L3、组件义务；可执行实例在 `specs/UX-KOL.md` |
 | `20-visual-design-system.md` | 视觉密度、组件基底、token 默认；不改注意力法律 |
+| `21-admin-employee-page-roles.md` | 管理端配套套件与双端导航；不改本文件四页法律 |
 | `05-agent-workflow-skill-policy.md` | 8 段展示 vs 15 阶段写入；Journey / SOP 的业务含义 |
 | `14-implementation-contract.md` | Markdown 如何落到前端页面与 schema |
 
@@ -126,7 +129,7 @@ Pipeline 的筛选只允许 `brand|owner|stage|region|kol|sync` 与生命周期�
 
 ## 落地顺序
 
-1. 新员工端 PR 先用「核心闭环」五问自检，再按 `20-visual-design-system.md` 谈视觉。
+1. 新员工端 PR 先用「核心闭环」五问自检，再按 `20-visual-design-system.md` 谈视觉。管理端导航/连接器/Agent 治理先过 `21-admin-employee-page-roles.md`，再谈视觉。
 2. 可执行验收仍走 `specs/UX-KOL.md` 与 `specs/ux-traceability.json`；本文件不新增 UX ID。
 3. 会话页若重设计，先压缩辅助条、去掉教练卡、让结果回到脊柱，再考虑新组件。
 4. 冲突写入 `DECISIONS.md`，不要在前端分支里另立一套体验规则。

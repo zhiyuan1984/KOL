@@ -25,7 +25,8 @@
 19. `18-mcp-master-data-assessment.md`：MCP 主数据能力与组织主数据边界
 20. `19-ui-ux-constitution.md`：员工端体验宪法（核心闭环、四页分工、Agent 表面、结果优先）
 21. `20-visual-design-system.md`：KOL-UI 工作台视觉/token 默认（Linear 密度、shadcn 基底、indigo 主色）
-22. `90-codebase-handbook.md`：代码地图和修改归属
+22. `21-admin-employee-page-roles.md`：管理端 ↔ 员工端页面角色（连接器枢纽/详情、`/admin/agents` 治理、导航与遗留收敛；不改 `19` 四页法律）
+23. `90-codebase-handbook.md`：代码地图和修改归属
 
 ## 事实来源
 
