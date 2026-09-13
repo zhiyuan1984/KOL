@@ -20,16 +20,30 @@ export function stripMailChrome(raw: string): string {
     .trim();
 }
 
+function cjkCount(value: string): number {
+  return (value.match(/[\u4e00-\u9fff]/g) || []).length;
+}
+
+/**
+ * Chinese clause that may embed Latin brand tokens (litime / LiTime).
+ * Do not use `[^A-Za-z]` here — that splits 贵品牌litime合作 into a trailing 合作….
+ */
+const ZH_CLAUSE_WITH_LATIN =
+  /[\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9&+\-'"’\s,，、；:：]{4,200}[\u4e00-\u9fff。！？]?/g;
+
 /** Prefer a short Chinese clause when the snippet is a bilingual dump. */
 export function pickMailPreviewSource(text: string): string {
   const cleaned = stripMailChrome(text);
   if (!cleaned) return "";
+  // Sentence punctuation only — never split on ASCII letters inside Chinese.
   const sentences = cleaned.split(/(?<=[。！？\n])|(?<=\.\s)/).map((part) => part.trim()).filter(Boolean);
-  const zhSentence = sentences.find((sentence) => {
-    const zh = (sentence.match(/[\u4e00-\u9fff]/g) || []).length;
-    return zh >= 6;
-  });
+  const zhSentence = sentences
+    .filter((sentence) => cjkCount(sentence) >= 6)
+    .sort((a, b) => cjkCount(b) - cjkCount(a) || b.length - a.length)[0];
   if (zhSentence) return zhSentence.replace(SIGN_OFF, "").trim();
+  const clauses = cleaned.match(ZH_CLAUSE_WITH_LATIN) || [];
+  const bestClause = [...clauses].sort((a, b) => cjkCount(b) - cjkCount(a) || b.length - a.length)[0];
+  if (bestClause && cjkCount(bestClause) >= 6) return bestClause.replace(SIGN_OFF, "").trim();
   const withoutGreeting = cleaned.replace(GREETING_LEAD, "").replace(SIGN_OFF, "").trim();
   return withoutGreeting || cleaned;
 }
