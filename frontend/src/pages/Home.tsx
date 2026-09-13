@@ -52,7 +52,6 @@ type TaskFilter = "all" | "open" | "high" | "ai";
 type KolTab = string;
 type TodoBucket = "overdue" | "today" | "waiting" | "approval" | "queued" | "running" | "later";
 type FollowedKol = FollowedKolRecord;
-type TabSummary = { code: string; count: number; task_count?: number };
 
 const openStatuses = new Set(["pending", "waiting", "running", "queued", "in_progress", "failed"]);
 const closedStatuses = new Set(["completed", "done", "cancelled"]);
@@ -368,7 +367,6 @@ export default function Home() {
   const [kolSort, setKolSort] = useState<KolSortMode>("need");
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [followedKols, setFollowedKols] = useState<FollowedKol[]>([]);
-  const [tabSummaries, setTabSummaries] = useState<TabSummary[]>([]);
   const [boardWorkbench, setBoardWorkbench] = useState<HomeWorkbench | null>(null);
   const [followScope, setFollowScope] = useState<StarryBinding | null>(null);
   const [sort, setSort] = useState("priority");
@@ -405,7 +403,6 @@ export default function Home() {
   const applyBoard = (board: Awaited<ReturnType<typeof api.homeBoard>>) => {
     if (Array.isArray(board.kols)) setFollowedKols(board.kols as FollowedKol[]);
     if (Array.isArray(board.tasks)) setTasks(mergeTaskDetails(board.tasks as Task[], taskCatalogRef.current));
-    if (Array.isArray(board.tabs)) setTabSummaries(board.tabs as TabSummary[]);
     setBoardWorkbench(board.workbench || null);
     setFollowScope(board.follow_scope || null);
   };
@@ -1053,8 +1050,7 @@ export default function Home() {
               <div className="home-pane-sticky">
               <div className="kol-stage-tabs" role="tablist" aria-label="跟进红人状态" data-kol-tabs>
                 {FOLLOWED_KOL_TABS.map((tabSpec) => {
-                  const summaryRow = tabSummaries.find((item) => item.code === tabSpec.code);
-                  const count = summaryRow?.count ?? kolCounts[tabSpec.code] ?? 0;
+                  const count = kolCounts[tabSpec.code] ?? 0;
                   return (
                     <button
                       key={tabSpec.code}
@@ -1108,11 +1104,6 @@ export default function Home() {
                   : kolTab === "exception"
                     ? "异常 KOL"
                     : (FOLLOWED_KOL_TABS.find((item) => item.code === kolTab)?.label || "这一阶段")}
-                {followedKols.some((kol) => Number(kol.unread_count || 0) > 0) ? (
-                  <span className="unread-total" data-unread-total>
-                    未读 {followedKols.reduce((sum, kol) => sum + Number(kol.unread_count || 0), 0)}
-                  </span>
-                ) : null}
               </h2>
               </div>
               {visibleKols.length ? (
