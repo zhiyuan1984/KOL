@@ -6,8 +6,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { getConn, tx } from "../db.js";
-import { codexMode, mailAnalysisTimeout } from "../config.js";
+import { getConn, nowIso, tx } from "../db.js";
+import { codexMode, mailAnalysisTimeout, mailDigestFailRetryMs } from "../config.js";
 import {
   extractRemoteIntentText,
   intentLlmApiKey,
@@ -105,6 +105,9 @@ export type ThreadDigest = {
   source: string;
   mail_count: number;
   fingerprint: string;
+  error?: string;
+  attempted?: string[];
+  failed_at?: string;
 };
 
 function threadFingerprint(rows: Json[]): string {
@@ -126,11 +129,17 @@ export function readThreadDigest(collaborationId: string): ThreadDigest | null {
   try {
     const parsed = JSON.parse(row.value) as ThreadDigest;
     if (!parsed || typeof parsed !== "object") return null;
+    const attempted = Array.isArray(parsed.attempted)
+      ? parsed.attempted.map((item) => String(item || "").trim()).filter(Boolean)
+      : (parsed.attempted ? [String(parsed.attempted).trim()].filter(Boolean) : []);
     return {
       text: String(parsed.text || "").trim(),
       source: String(parsed.source || ""),
       mail_count: Number(parsed.mail_count || 0),
       fingerprint: String(parsed.fingerprint || ""),
+      ...(parsed.error ? { error: String(parsed.error) } : {}),
+      ...(attempted.length ? { attempted } : {}),
+      ...(parsed.failed_at ? { failed_at: String(parsed.failed_at) } : {}),
     };
   } catch {
     return null;
@@ -153,17 +162,36 @@ function trustedThreadDigest(digest: ThreadDigest | null): string {
   return digest.text;
 }
 
+function stickyFailFields(stored?: ThreadDigest | null): Pick<ThreadDigest, "error" | "attempted" | "failed_at"> {
+  if (!stored) return {};
+  return {
+    ...(stored.error ? { error: stored.error } : {}),
+    ...(stored.attempted?.length ? { attempted: stored.attempted } : {}),
+    ...(stored.failed_at ? { failed_at: stored.failed_at } : {}),
+  };
+}
+
+/** Legacy records without failed_at are treated as expired so already-stuck employees recover. */
+export function stickyFailReady(stored: ThreadDigest | null | undefined, nowMs = Date.now()): boolean {
+  if (!stored || stored.source !== "analysis_failed") return true;
+  const failedAt = Date.parse(String(stored.failed_at || ""));
+  if (!Number.isFinite(failedAt)) return true;
+  return nowMs - failedAt >= mailDigestFailRetryMs();
+}
+
 export function threadDigestOf(rows: Json[], stored?: ThreadDigest | null): ThreadDigest {
   const fingerprint = threadFingerprint(rows);
   const trusted = stored && stored.fingerprint === fingerprint ? trustedThreadDigest(stored) : "";
   const text = trusted || analyzeThreadDigest(rows);
+  const failed = Boolean(!trusted && stored && stored.fingerprint === fingerprint && stored.source === "analysis_failed");
   return {
     text,
     source: trusted
       ? String(stored?.source || "codex_memory")
-      : (stored && stored.fingerprint === fingerprint && stored.source === "analysis_failed" ? "analysis_failed" : "body_analysis"),
+      : (failed ? "analysis_failed" : "body_analysis"),
     mail_count: rows.filter((row) => String(row.body || row.snippet || "").trim()).length,
     fingerprint,
+    ...(failed ? stickyFailFields(stored) : {}),
   };
 }
 
@@ -172,7 +200,9 @@ export function needsRemoteThreadDigest(rows: Json[], stored: ThreadDigest | nul
   if (!remoteMailAnalysisEnabled()) return false;
   const fingerprint = threadFingerprint(rows);
   if (stored && stored.fingerprint === fingerprint && trustedThreadDigest(stored)) return false;
-  if (stored && stored.fingerprint === fingerprint && stored.source === "analysis_failed" && !opts?.retryFailed) return false;
+  if (stored && stored.fingerprint === fingerprint && stored.source === "analysis_failed" && !opts?.retryFailed && !stickyFailReady(stored)) {
+    return false;
+  }
   return true;
 }
 
@@ -387,10 +417,42 @@ const digestSchema = {
   additionalProperties: false,
 };
 
-function noteFailure(where: string, err: unknown): void {
-  const text = err instanceof Error ? err.message : String(err || "unknown");
-  process.stderr.write(`[mail-summary] ${where}: ${text}\n`);
+function redactMailLog(text: string): string {
+  return text
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, "sk-***")
+    .replace(/\bBearer\s+[A-Za-z0-9._-]+\b/gi, "Bearer ***")
+    .replace(/\bOPENAI_API_KEY\s*=\s*\S+/gi, "OPENAI_API_KEY=***");
 }
+
+function classifyMailDigestError(err: unknown, fallback = "unavailable"): string {
+  if (typeof err === "string" && /^(timeout|no-key|greeting_reject|parse|HTTP \d+)$/.test(err)) return err;
+  const name = err instanceof Error ? err.name : "";
+  const text = err instanceof Error ? err.message : String(err || fallback);
+  if (name === "AbortError" || /aborted|timeout/i.test(text)) return "timeout";
+  const http = text.match(/\bHTTP\s+(\d{3})\b/i);
+  if (http) return `HTTP ${http[1]}`;
+  if (/\bno[-_ ]?key\b|\bapi key\b/i.test(text)) return "no-key";
+  const cleaned = redactMailLog(text).replace(/\s+/g, " ").trim();
+  return cleaned.slice(0, 160) || fallback;
+}
+
+function noteFailure(where: string, err: unknown, collaborationId = ""): void {
+  const text = classifyMailDigestError(err);
+  const col = collaborationId ? ` col=${collaborationId}` : "";
+  process.stderr.write(`[mail-summary]${col} ${where}: ${text}\n`);
+}
+
+type RemoteDigestAttempt = {
+  text?: string;
+  error?: string;
+};
+
+type RemoteDigestResult = {
+  text?: string;
+  source?: "codex_memory" | "luna";
+  error?: string;
+  attempted: string[];
+};
 
 async function summarizeWithCodexAppServer(rows: Json[]): Promise<string[] | null> {
   let cwd = "";
@@ -504,9 +566,12 @@ async function summarizeWithCodex(rows: Json[]): Promise<RemoteBatch | null> {
   return null;
 }
 
-async function digestWithLuna(rows: Json[]): Promise<string | null> {
+async function digestWithLuna(rows: Json[], collaborationId = ""): Promise<RemoteDigestAttempt> {
   const key = intentLlmApiKey();
-  if (!key) return null;
+  if (!key) {
+    noteFailure("luna digest", "no-key", collaborationId);
+    return { error: "no-key" };
+  }
   const base = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), mailAnalysisTimeout() * 1000);
@@ -535,21 +600,26 @@ async function digestWithLuna(rows: Json[]): Promise<string | null> {
       signal: controller.signal,
     });
     if (!response.ok) {
-      noteFailure("luna digest", `HTTP ${response.status}`);
-      return null;
+      const error = `HTTP ${response.status}`;
+      noteFailure("luna digest", error, collaborationId);
+      return { error };
     }
     const parsed = parseDigest(extractRemoteIntentText(await response.json()));
-    if (!parsed) noteFailure("luna digest parse", "no digest in response");
-    return parsed;
+    if (!parsed) {
+      noteFailure("luna digest parse", "parse", collaborationId);
+      return { error: "parse" };
+    }
+    return { text: parsed };
   } catch (err) {
-    noteFailure("luna digest", err);
-    return null;
+    const error = classifyMailDigestError(err);
+    noteFailure("luna digest", error, collaborationId);
+    return { error };
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function digestWithCodexAppServer(rows: Json[]): Promise<string | null> {
+async function digestWithCodexAppServer(rows: Json[], collaborationId = ""): Promise<RemoteDigestAttempt> {
   let cwd = "";
   let rpc: CodexAppServer | null = null;
   try {
@@ -566,8 +636,8 @@ async function digestWithCodexAppServer(rows: Json[]): Promise<string | null> {
     const thread = (started.thread as { id?: string } | undefined) || started;
     const threadId = String((thread as { id?: string }).id || "");
     if (!threadId) {
-      noteFailure("codex digest thread/start", "missing thread id");
-      return null;
+      noteFailure("codex digest thread/start", "missing thread id", collaborationId);
+      return { error: "missing_thread" };
     }
     await rpc.request("turn/start", {
       threadId,
@@ -584,28 +654,37 @@ async function digestWithCodexAppServer(rows: Json[]): Promise<string | null> {
       ? JSON.stringify((completed.turn as { output?: unknown }).output || {})
       : "";
     const parsed = parseDigest([...rpc.agentTexts, extras].join("\n"));
-    if (!parsed) noteFailure("codex digest parse", "no digest in app-server output");
-    return parsed;
+    if (!parsed) {
+      noteFailure("codex digest parse", "parse", collaborationId);
+      return { error: "parse" };
+    }
+    return { text: parsed };
   } catch (err) {
-    noteFailure("codex digest", err);
-    return null;
+    const error = classifyMailDigestError(err);
+    noteFailure("codex digest", error, collaborationId);
+    return { error };
   } finally {
     rpc?.close();
     if (cwd) fs.rmSync(cwd, { recursive: true, force: true });
   }
 }
 
-async function digestWithRemote(rows: Json[]): Promise<{ text: string; source: "codex_memory" | "luna" } | null> {
-  if (!remoteMailAnalysisEnabled()) return null;
+async function digestWithRemote(rows: Json[], collaborationId = ""): Promise<RemoteDigestResult> {
+  if (!remoteMailAnalysisEnabled()) return { error: "disabled", attempted: [] };
   if (intentLlmFetchOverridden()) {
-    const luna = await digestWithLuna(rows);
-    return luna ? { text: luna, source: "luna" } : null;
+    const luna = await digestWithLuna(rows, collaborationId);
+    return luna.text
+      ? { text: luna.text, source: "luna", attempted: ["luna"] }
+      : { error: luna.error || "unavailable", attempted: ["luna"] };
   }
-  const fromCodex = await digestWithCodexAppServer(rows);
-  if (fromCodex) return { text: fromCodex, source: "codex_memory" };
-  const fromLuna = await digestWithLuna(rows);
-  if (fromLuna) return { text: fromLuna, source: "luna" };
-  return null;
+  const attempted: string[] = [];
+  const fromCodex = await digestWithCodexAppServer(rows, collaborationId);
+  attempted.push("codex_memory");
+  if (fromCodex.text) return { text: fromCodex.text, source: "codex_memory", attempted };
+  const fromLuna = await digestWithLuna(rows, collaborationId);
+  attempted.push("luna");
+  if (fromLuna.text) return { text: fromLuna.text, source: "luna", attempted };
+  return { error: fromLuna.error || fromCodex.error || "unavailable", attempted };
 }
 
 export async function ensureCodexThreadDigest(
@@ -618,10 +697,10 @@ export async function ensureCodexThreadDigest(
   if (!needsRemoteThreadDigest(listed, stored, opts)) {
     return threadDigestOf(listed, stored);
   }
-  const remote = await digestWithRemote(listed);
+  const remote = await digestWithRemote(listed, collaborationId);
   const fingerprint = threadFingerprint(listed);
-  const remoteText = remote ? usableRemoteText(remote.text) : "";
-  const digest: ThreadDigest = remoteText && remote
+  const remoteText = remote.text ? usableRemoteText(remote.text) : "";
+  const digest: ThreadDigest = remoteText && remote.source
     ? {
       text: remoteText,
       source: remote.source,
@@ -633,7 +712,13 @@ export async function ensureCodexThreadDigest(
       source: "analysis_failed",
       mail_count: listed.filter((row) => String(row.body || row.snippet || "").trim()).length,
       fingerprint,
+      error: remoteText ? undefined : (remote.text ? "greeting_reject" : (remote.error || "unavailable")),
+      attempted: remote.attempted,
+      failed_at: nowIso(),
     };
+  if (digest.source === "analysis_failed") {
+    noteFailure("analysis_failed", digest.error || "unavailable", collaborationId);
+  }
   writeThreadDigest(collaborationId, digest);
   return digest;
 }

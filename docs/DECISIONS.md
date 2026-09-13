@@ -2,6 +2,12 @@
 
 本文件是决策索引，不替代规范正文。涉及规范冲突、不可逆副作用、组织范围、物理接口漂移或架构取舍时，先在这里登记，再更新 canonical 文档和追踪矩阵。
 
+## 近期记录
+
+| 日期 | 记录 | 说明 |
+|---|---|---|
+| 2026-09-13 | 邮件往来摘要 `analysis_failed` 改为冷却后自动再试，并持久化 `error` / `attempted` / `failed_at` | 不是新 ADR。不改 provider、指纹、寒暄过滤或超时。详见 `docs/evidence-mail-digest-analysis-plan-2026-09-13.md`。 |
+
 ## 已固化决策
 
 | ID | 决策 | 依据 |

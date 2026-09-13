@@ -421,6 +421,12 @@ export function mailAnalysisTimeout(): number {
   return Number.isFinite(n) && n > 0 ? Math.min(n, 90) : 45;
 }
 
+/** After analysis_failed, wait this long before auto-retrying remote digest. */
+export function mailDigestFailRetryMs(): number {
+  const n = Number(process.env.MAIL_DIGEST_FAIL_RETRY_MS || String(5 * 60 * 1000));
+  return Number.isFinite(n) && n >= 0 ? Math.min(n, 24 * 60 * 60 * 1000) : 5 * 60 * 1000;
+}
+
 export function codexTurnTimeout(): number {
   return hostWorkerTimeout();
 }

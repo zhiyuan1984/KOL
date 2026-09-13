@@ -66,7 +66,16 @@ function isCannedGreetingSummary(text?: string): boolean {
   return /^(去信|来信)寒暄跟进，尚未落到报价、档期或明确兴趣。$/.test(String(text || "").trim());
 }
 
-function threadDigestView(digest: { text?: string; source?: string } | null, pending: boolean): {
+type JourneyMailDigest = {
+  text?: string;
+  source?: string;
+  mail_count?: number;
+  error?: string;
+  attempted?: string[];
+  failed_at?: string;
+};
+
+function threadDigestView(digest: JourneyMailDigest | null, pending: boolean): {
   label: string;
   kind: string;
   text: string;
@@ -91,10 +100,11 @@ function threadDigestView(digest: { text?: string; source?: string } | null, pen
     };
   }
   if (source === "analysis_failed") {
+    const error = String(digest?.error || "").trim();
     return {
       label: "历史邮件往来摘要",
       kind: "failed",
-      status: "分析未完成",
+      status: error ? `分析未完成 · ${error}` : "分析未完成",
       text: summary || "未能读完这些正文。下拉刷新可重试。",
     };
   }
@@ -120,7 +130,7 @@ function ThreadMailDigest({
   pending,
   mailCount,
 }: {
-  digest: { text?: string; source?: string; mail_count?: number } | null;
+  digest: JourneyMailDigest | null;
   pending: boolean;
   mailCount?: number;
 }) {
@@ -133,6 +143,8 @@ function ThreadMailDigest({
       data-mail-summaries
       data-mail-summary
       data-summary-source={digest?.source || (pending ? "pending" : "body_analysis")}
+      data-digest-error={digest?.error || undefined}
+      data-digest-failed-at={digest?.failed_at || undefined}
     >
       <span className="sop-mail-icon" aria-hidden>✉️</span>
       <strong className="sop-mail-analysis-label">{analysis.label}</strong>
@@ -649,7 +661,7 @@ export default function Chat() {
     ? journey.portrait as Record<string, unknown>
     : null;
   const mailDigest = journey?.mail_digest && typeof journey.mail_digest === "object"
-    ? journey.mail_digest as { text?: string; source?: string; mail_count?: number }
+    ? journey.mail_digest as JourneyMailDigest
     : (Array.isArray(journey?.mail_summaries) && journey.mail_summaries[0]
       ? {
         text: String((journey.mail_summaries[0] as SessionMailRow).summary || ""),
