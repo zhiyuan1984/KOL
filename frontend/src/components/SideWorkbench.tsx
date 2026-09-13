@@ -129,7 +129,7 @@ function isComposeResultCard(card: TaskResultCard): boolean {
   });
 }
 
-const COMPOSE_INTERMEDIATE_SECTION = /^(KOL 智能体|本阶段 SOP|生命周期)/;
+const COMPOSE_INTERMEDIATE_SECTION = /^(KOL 智能体|本阶段 SOP|生命周期|收发说明|预览正文|已发正文|往来依据|本封要点|建联要点|跟进要点)$/;
 
 function composeResultSections(card: TaskResultCard, sections: TaskResultSection[]): TaskResultSection[] {
   if (!isComposeResultCard(card)) return sections;
@@ -138,6 +138,13 @@ function composeResultSections(card: TaskResultCard, sections: TaskResultSection
     if (title === "摘要数据") return false;
     return !COMPOSE_INTERMEDIATE_SECTION.test(title);
   });
+}
+
+function composeResultSummary(card: TaskResultCard, stacked: boolean): string {
+  const summary = String(card.summary || "").trim();
+  if (!summary) return "";
+  if (stacked && /确认发送|发送不等于|发送\s*≠/.test(summary)) return "";
+  return summary;
 }
 
 function composeResultActions(
@@ -182,7 +189,7 @@ function ResultActions({
   if (!actions.length) return null;
   return (
     <section className="result-actions">
-      <h3>建议下一步</h3>
+      <h3>可补全</h3>
       <ol>
         {actions.map((action, index) => {
           const item = actionPrompt(action, index);
@@ -244,13 +251,18 @@ function GenericResultArtifact({
       ? rawActions.filter((action) => !/打标签/.test(typeof action === "string" ? action : String(action.prompt || action.label || "")))
       : rawActions,
   );
+  const summary = composeResultSummary(card, stacked);
+  const followTags = card.suggested_follow_tags || [];
+  if (stacked && isComposeResultCard(card) && !summary && !metrics.length && !sections.length && !followTags.length) {
+    return null;
+  }
 
   return (
     <article className="artifact task-result" data-kind="task-result-card">
       <header>
         {stacked ? null : <div className="page-kicker">任务结果</div>}
-        <h2>{card.title || "分析结果"}</h2>
-        {card.summary && <p className="task-result-summary">{card.summary}</p>}
+        {stacked && isComposeResultCard(card) ? null : <h2>{card.title || "分析结果"}</h2>}
+        {summary ? <p className="task-result-summary">{summary}</p> : null}
       </header>
       {metrics.length > 0 && (
         <dl className="result-metrics">
@@ -490,7 +502,7 @@ export default function SideWorkbench({
                   onRefresh={onRefresh}
                 />
                 {draft && isComposeResultCard(result) ? <DraftArtifact card={draft} onRefresh={onRefresh} /> : null}
-                {isComposeResultCard(result) ? (
+                {isComposeResultCard(result) && (!draft || Boolean(result.compose_loop?.gap?.field)) ? (
                   <ResultActions
                     actions={composeResultActions(result, result.recommended_actions || result.actions || [])}
                     sessionId={sessionId}

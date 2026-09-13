@@ -93,6 +93,75 @@ function looksLikeEmailDraft(text: string): boolean {
   return /\nbest[,，]/i.test(t) && t.length > 40;
 }
 
+function splitPortraitNotes(notes: unknown): string[] {
+  return String(notes || "")
+    .split(/[·/;、，,|/]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function MailDigestPreview({
+  digest,
+  pending,
+  mailCount,
+}: {
+  digest: { text?: string; source?: string; mail_count?: number } | null;
+  pending: boolean;
+  mailCount?: number;
+}) {
+  const analysis = threadDigestView(digest, pending);
+  const count = Number(digest?.mail_count || mailCount || 0);
+  return (
+    <article
+      className={`thread-mail-digest sop-mail-analysis is-${analysis.kind}`}
+      data-mail-digest
+      data-mail-summaries
+      data-mail-summary
+      data-summary-source={digest?.source || (pending ? "pending" : "body_analysis")}
+    >
+      <span className="sop-mail-icon" aria-hidden>✉️</span>
+      <strong className="sop-mail-analysis-label">{analysis.label}</strong>
+      {count ? <small>{count} 封往来</small> : null}
+      <div className="sop-mail-md-body">
+        <Markdown>{analysis.text}</Markdown>
+      </div>
+    </article>
+  );
+}
+
+function KolPortraitFields({ portrait }: { portrait: Record<string, unknown> }) {
+  const platform = String(portrait.platform || "").trim();
+  const brand = String(portrait.brand || "").trim();
+  const email = String(portrait.email || "").trim();
+  const followers = String(portrait.followers || "").trim();
+  const notes = splitPortraitNotes(portrait.notes);
+  const days = Number(portrait.days_in_stage || 0);
+  const rows: { key: string; label: string; values: string[]; mono?: boolean }[] = [];
+  if (platform) rows.push({ key: "platform", label: "平台", values: [platform] });
+  if (brand) rows.push({ key: "brand", label: "品牌", values: [brand] });
+  if (email) rows.push({ key: "email", label: "邮箱", values: [email], mono: true });
+  if (followers) rows.push({ key: "followers", label: "粉丝", values: [followers] });
+  if (days > 0) rows.push({ key: "stay", label: "停留", values: [`${days} 天`] });
+  if (notes.length) rows.push({ key: "tags", label: "标签", values: notes });
+  if (!rows.length) return <span className="muted">画像待补</span>;
+  return (
+    <div className="kol-portrait" data-kol-portrait>
+      {rows.map((row) => (
+        <div className="portrait-row" key={row.key} data-portrait-field={row.key}>
+          <span className="portrait-label">{row.label}</span>
+          <span className={row.values.length > 1 || !row.mono ? "portrait-chips" : "portrait-value mono"}>
+            {row.values.length > 1 || !row.mono
+              ? row.values.map((value) => (
+                  <span key={value} className="chip">{value}</span>
+                ))
+              : row.values[0]}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /** Share one POST across React StrictMode remount so 记状态 / 催大纲 不会卡在空会话。 */
 const inflight = new Map<string, Promise<PostMessageResult>>();
 
@@ -726,11 +795,11 @@ export default function Chat() {
             <div className={"kol-journey" + (journey.exception ? " is-exception" : "")} data-kol-journey data-exception={journey.exception ? "true" : undefined}>
               <div className="kol-journey-title">
                 <h1>@{String(journey.handle)}</h1>
-                <span data-session-stage>
+                <span className="session-stage-chip" data-session-stage>
                   {String(journey.stage_label || "")}
                   {journey.sop && typeof journey.sop === "object" && (journey.sop as { phase_label?: string }).phase_label
-                    ? `（${String((journey.sop as { phase_label?: string }).phase_label)}）`
-                    : ""}
+                    ? <small>{String((journey.sop as { phase_label?: string }).phase_label)}</small>
+                    : null}
                 </span>
                 {journey.exception ? <span className="exception-mark" data-exception-kind={String(journey.exception_kind || "")}>异常旁路</span> : null}
                 {journey.pipeline_href ? (
@@ -764,8 +833,9 @@ export default function Chat() {
                   const title = `${phase.label}：${(phase.official_labels || []).join(" / ")}`;
                   return (
                     <li key={phase.id} data-journey-phase={phase.id} data-phase-state={state}>
-                      <span className={"milestone is-" + state} title={title} data-milestone={phase.id} />
-                      <span className="phase-label">{phase.label}</span>
+                      <span className={"phase-chip is-" + state} title={title} data-milestone={phase.id}>
+                        {phase.label}
+                      </span>
                     </li>
                   );
                 })}
@@ -773,58 +843,30 @@ export default function Chat() {
               {journey.sop && typeof journey.sop === "object" ? (
                 <details className="kol-stage-sop" data-stage-sop key={String(journey.stage_code || "")}>
                   <summary>
-                    本阶段 SOP · {String((journey.sop as { stage_label?: string }).stage_label || journey.stage_label || "")}
+                    本阶段 SOP
                     {(journey.sop as { phase_label?: string }).phase_label
                       ? ` · ${String((journey.sop as { phase_label?: string }).phase_label)}`
                       : ""}
                   </summary>
                   <dl>
                     {portrait ? (
-                    <div>
+                    <div className="sop-portrait-block">
                       <dt>红人画像</dt>
-                      <dd data-kol-portrait>
-                        {[
-                          portrait.display_name || portrait.handle ? `@${String(portrait.handle || "")}` : "",
-                          portrait.platform,
-                          portrait.followers ? `${portrait.followers}粉丝` : "",
-                          portrait.brand ? `品牌 ${portrait.brand}` : "",
-                          portrait.email ? String(portrait.email) : "",
-                        ].filter(Boolean).join(" · ") || "画像待补"}
-                        {portrait.notes ? `；${String(portrait.notes)}` : ""}
+                      <dd>
+                        <KolPortraitFields portrait={portrait} />
                       </dd>
                     </div>
                     ) : null}
-                    <div className="sop-mail-block">
-                      <dd>
-                        {mailDigest?.text || mailAnalysisPending || (sessionMails && sessionMails.length) ? (
-                          <article
-                            className="sop-mail-md"
-                            data-mail-digest
-                            data-mail-summaries
-                            data-summary-source={mailDigest?.source || (mailAnalysisPending ? "pending" : "body_analysis")}
-                          >
-                            {(() => {
-                              const analysis = threadDigestView(mailDigest, mailAnalysisPending);
-                              return (
-                                <div className={`sop-mail-analysis is-${analysis.kind}`} data-mail-summary>
-                                  <span className="sop-mail-icon" aria-hidden>✉️</span>
-                                  <strong className="sop-mail-analysis-label">{analysis.label}</strong>
-                                  {mailDigest?.mail_count ? <small>{mailDigest.mail_count} 封往来</small> : null}
-                                  <div className="sop-mail-md-body">
-                                    <Markdown>{analysis.text}</Markdown>
-                                  </div>
-                                </div>
-                              );
-                            })()}
-                          </article>
-                        ) : (
-                          <p className="muted" data-mail-summaries>还没有往来邮件。</p>
-                        )}
-                      </dd>
-                    </div>
                     <div>
                       <dt>输入</dt>
-                      <dd>{((journey.sop as { inputs?: string[] }).inputs || []).join("、") || "—"}</dd>
+                      <dd className="sop-input-chips">
+                        {(() => {
+                          const inputs = ((journey.sop as { inputs?: string[] }).inputs || []).filter(Boolean);
+                          return inputs.length
+                            ? inputs.map((item) => <span key={item} className="chip">{item}</span>)
+                            : "—";
+                        })()}
+                      </dd>
                     </div>
                   </dl>
                 </details>
@@ -857,6 +899,11 @@ export default function Chat() {
           )}
         </header>
         <div className="session-stream conversation" ref={streamRef} data-session-stream-pane data-ai-conversation role="log">
+        {kolSession && (mailDigest?.text || mailAnalysisPending || (sessionMails && sessionMails.length)) ? (
+          <MailDigestPreview digest={mailDigest} pending={mailAnalysisPending} mailCount={sessionMails?.length} />
+        ) : kolSession ? (
+          <p className="thread-mail-digest is-empty muted" data-mail-summaries>还没有往来邮件。</p>
+        ) : null}
         {task && (
           <section className="task-analysis-summary" data-task-analysis-summary>
             <strong>分析摘要</strong>
@@ -928,7 +975,7 @@ export default function Chat() {
         )}
         </div>
         <footer className="session-composer prompt-input" data-sop-ask={journey?.sop ? true : undefined} data-ai-prompt-input>
-          {kolSession ? (
+          {kolSession || messages.some((message) => message.kind === "email_card") ? (
             <p className="session-send-hint" data-session-send-hint>
               发送不等于改阶段
             </p>

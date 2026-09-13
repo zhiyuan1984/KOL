@@ -360,10 +360,10 @@ test("exception template 延期关怀 prefills home then drafts without changing
   await submitHomeComposer(page);
   await expect(page.locator('[data-kind="me"]')).toContainText("延期关怀", { timeout: 15000 });
   await expectDraft(page);
-  await expect(page.locator("[data-workbench] [data-kind='email-card']")).toContainText("Update on the Content Timeline");
-  // The draft card owns the stage guardrail; ChatBlocks intentionally filters
-  // the duplicated generic sys-msg for “正式阶段建议保持”.
-  await expect(page.locator("[data-workbench]")).toContainText("正式阶段");
+  await expect(page.locator("[data-workbench] [data-draft-subject]")).toHaveValue("Update on the Content Timeline");
+  // Constitution §4: one quiet send≠stage hint on the composer, not on the draft.
+  await expect(page.locator("[data-session-send-hint]")).toHaveText("发送不等于改阶段");
+  await expect(page.locator("[data-workbench] [data-kind='email-card']")).not.toContainText("正式阶段");
 });
 
 test("home composer posts a message into a new session", async ({ page }) => {
@@ -516,6 +516,8 @@ test("session page has no coach next-step card and keeps composer skills", async
   if (await sop.count()) {
     await expect(sop).toHaveJSProperty("open", false);
   }
+  await expect(page.locator("[data-session-stream-pane] [data-mail-digest], [data-session-stream-pane] [data-mail-summaries]")).toBeVisible();
+  await expect(page.locator("[data-session-stream-pane]")).not.toContainText("{");
 });
 
 test("home lifecycle followed KOL opens the mail rail not the task list", async ({ page }) => {
@@ -947,10 +949,15 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   await expect(page.locator("[data-kol-journey]")).toContainText("小美妆日记");
   await expect(page.locator("[data-session-stage]")).toContainText("初步接触");
   await expect(page.locator("[data-stage-sop]")).toHaveJSProperty("open", false);
+  await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).toBeVisible();
+  await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).toContainText("would love to collaborate");
   await openStageSop(page);
   await expect(page.locator("[data-stage-sop]")).toContainText("红人画像");
+  await expect(page.locator("[data-kol-portrait] [data-portrait-field]")).not.toHaveCount(0);
+  await expect(page.locator("[data-kol-portrait]")).not.toContainText("@小美妆日记");
+  await expect(page.locator("[data-journey-phase] .phase-chip")).toHaveCount(8);
   await expect(page.locator("[data-stage-sop]")).toContainText("输入");
-  await expect(page.locator("[data-stage-sop]")).toContainText("would love to collaborate");
+  await expect(page.locator("[data-stage-sop]")).not.toContainText("would love to collaborate");
   await expect(page.locator("[data-stage-sop]")).not.toContainText("完成条件");
   await expect(page.locator("[data-stage-sop]")).not.toContainText("当前步骤");
   await expect(page.locator("[data-stage-sop]")).not.toContainText("异常流程");
@@ -970,8 +977,10 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   await expect(page.locator("[data-journey-guide]")).toHaveCount(0);
   await expect(page.locator("[data-journey-phase]")).toHaveCount(8);
   await expect(page.locator("[data-journey-phase='intent']")).toHaveAttribute("data-phase-state", "current");
-  await expect(page.locator(".chat")).toContainText("当前阶段：已回复-有兴趣（意向）");
-  await expect(page.locator(".chat")).not.toContainText("当前阶段：初步接触");
+  await expect(page.locator("[data-session-stage]")).toContainText("已回复-有兴趣");
+  await expect(page.locator("[data-session-stage]")).toContainText("意向");
+  await expect(page.locator("[data-session-stage]")).not.toContainText("初步接触");
+  await expect(page.locator(".chat")).not.toContainText("的合作会话。当前阶段：");
   await expect(card.locator("[data-mail-confirm]")).toHaveCount(0);
   await expect(page.locator("[data-kind='confirm-stage-pointer']")).toHaveCount(0);
   await expect(page.locator("[data-stage-sop]")).toHaveJSProperty("open", false);
@@ -981,16 +990,17 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   await expect(page.locator("[data-stage-sop]")).toContainText("红人画像");
   await expect(page.locator("[data-stage-sop]")).not.toContainText("完成条件");
   await expect(page.locator("[data-stage-sop]")).not.toContainText("当前步骤");
-  await expect(page.locator("[data-stage-sop]")).toContainText("历史邮件往来摘要");
-  await expect(page.locator("[data-stage-sop]")).not.toContainText("Luna 往来摘要");
-  const digestBox = page.locator("[data-stage-sop] [data-mail-digest]");
-  const digestText = page.locator("[data-stage-sop] [data-mail-summary] p");
-  const sopBox = page.locator("[data-stage-sop]");
+  await expect(page.locator("[data-stage-sop]")).not.toContainText("历史邮件往来摘要");
+  await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).toContainText("历史邮件往来摘要");
+  await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).not.toContainText("Luna 往来摘要");
+  const digestBox = page.locator("[data-session-stream-pane] [data-mail-digest]");
+  const digestText = page.locator("[data-session-stream-pane] [data-mail-summary] p");
+  const streamBox = page.locator("[data-session-stream-pane]");
   const digestWidth = await digestBox.evaluate((el) => (el as HTMLElement).getBoundingClientRect().width);
   const digestTextWidth = await digestText.evaluate((el) => (el as HTMLElement).getBoundingClientRect().width);
-  const sopWidth = await sopBox.evaluate((el) => (el as HTMLElement).getBoundingClientRect().width);
-  expect(digestWidth).toBeGreaterThan(sopWidth * 0.7);
-  expect(digestTextWidth).toBeGreaterThan(sopWidth * 0.65);
+  const streamWidth = await streamBox.evaluate((el) => (el as HTMLElement).getBoundingClientRect().width);
+  expect(digestWidth).toBeGreaterThan(streamWidth * 0.55);
+  expect(digestTextWidth).toBeGreaterThan(streamWidth * 0.45);
   await expect(page.locator("[data-mail-summaries]")).toContainText("would love to collaborate");
   await expect(page.locator("[data-mail-summaries]")).toContainText(/有兴趣|合作意愿|往来/);
   await expect(page.locator("[data-sop-ask] [data-composer-input]")).toBeVisible();

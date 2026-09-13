@@ -124,6 +124,13 @@ function stageOptionNeedsReason(item?: StageTargetOption): boolean {
   return Boolean(item && ["skip", "correct", "exception"].includes(String(item.kind || "")));
 }
 
+function isDuplicateSessionChrome(text: string): boolean {
+  const t = String(text || "").trim();
+  return /的合作会话。当前阶段：/.test(t)
+    || /来信分析只出建议/.test(t)
+    || /黄条无确认按钮|正式阶段建议保持/.test(t);
+}
+
 export function emailMarkdown(card: EmailCard): string {
   const rows = [
     `| 发件人 | \`${card.from}\` |`,
@@ -141,10 +148,7 @@ export function emailMarkdown(card: EmailCard): string {
     if (card.approval_policy) rows.push(`| 审批规则 | ${card.approval_policy} |`);
   }
   rows.push(`| 状态 | ${draftStatusLabel(card.status)} |`);
-  if (card.official_stage_label || card.official_stage) {
-    rows.push(`| 正式阶段 | ${stageLabel(card.official_stage, card.official_stage_label)} |`);
-  }
-  return [
+  const lines = [
     "### 英文原文草稿",
     "",
     "| 项目 | 内容 |",
@@ -154,11 +158,49 @@ export function emailMarkdown(card: EmailCard): string {
     "```",
     card.body || "",
     "```",
-    "",
-    card.footer
-      ? `> ${card.footer}。正式阶段建议保持：${card.official_stage_label}。发送 ≠ 推进阶段。`
-      : `> 正式阶段建议保持：${card.official_stage_label}。发送 ≠ 推进阶段。失败会留在本会话，不会假装成功。`,
-  ].join("\n");
+  ];
+  if (card.footer && !/正式阶段|发送\s*≠|发送不等于/.test(card.footer)) {
+    lines.push("", `> ${card.footer}`);
+  }
+  return lines.join("\n");
+}
+
+function DraftSendMeta({
+  card,
+  from,
+  to,
+  cc,
+  subject,
+}: {
+  card: EmailCard;
+  from: string;
+  to: string;
+  cc: string;
+  subject: string;
+}) {
+  const rows: { key: string; label: string; value: string; chips?: string[] }[] = [
+    { key: "from", label: "发件人", value: from || "—" },
+    { key: "to", label: "收件人", value: to || "—" },
+  ];
+  if (cc) rows.push({ key: "cc", label: "抄送", value: cc });
+  rows.push({ key: "subject", label: "主题", value: subject || "未指定" });
+  const statusChips = [draftStatusLabel(card.status)];
+  if (card.from_locked) statusChips.push(card.from_lock_text || "已锁定");
+  rows.push({ key: "status", label: "状态", value: "", chips: statusChips });
+  return (
+    <dl className="draft-send-meta" data-draft-send-meta>
+      {rows.map((row) => (
+        <div key={row.key} data-draft-meta={row.key}>
+          <dt>{row.label}</dt>
+          <dd>
+            {row.chips?.length
+              ? row.chips.map((chip) => <span key={chip} className="chip">{chip}</span>)
+              : row.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
 }
 
 function pickFromAddr(from: string, opts: { email: string }[]): string {
@@ -274,13 +316,18 @@ export function DraftArtifact({
   return (
     <article className="artifact" data-kind="email-card" data-status={card.status} data-card-id={card.draft_id}>
       {sent ? (
-        <Markdown>{emailMarkdown({ ...card, from: fromAddr, to: toAddr, cc, subject, body })}</Markdown>
+        <div className="draft-editor" data-draft-sent>
+          <div className="page-kicker">邮件草稿</div>
+          <DraftSendMeta card={card} from={fromAddr} to={toAddr} cc={cc} subject={subject} />
+          <pre className="mail-body-text">{body}</pre>
+        </div>
       ) : (
         <div className="draft-editor">
           <div className="page-kicker">邮件草稿</div>
-          <p className="draft-meta" data-draft-subject-preview>
-            邮件主题：{subject || "未指定"}
-          </p>
+          <div className="draft-status-row" data-draft-status>
+            <span className="chip">{draftStatusLabel(card.status)}</span>
+            {card.from_locked ? <span className="chip">{card.from_lock_text || "已锁定"}</span> : null}
+          </div>
           {card.amount_usd != null && (
             <p className="draft-meta" data-draft-amount data-compose-amount>
               金额 {card.currency || "USD"} {card.amount_usd}{card.rate_unit === "hour" ? " per hour" : ""}
@@ -288,6 +335,31 @@ export function DraftArtifact({
               {card.brand ? ` · ${card.brand}` : ""}
             </p>
           )}
+          <label className="draft-field">
+            <span>发件人</span>
+            {opts.length > 1 ? (
+              <select value={resolvedFrom} onChange={(e) => setFromAddr(e.target.value)} data-from-select>
+                {opts.map((o) => (
+                  <option key={o.email} value={o.email}>
+                    {o.brand} · {o.email}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="mono draft-static">
+                {resolvedFrom || "—"}
+                {card.from_locked && <em className="lock"> {card.from_lock_text || "已锁定"}</em>}
+              </span>
+            )}
+          </label>
+          <label className="draft-field">
+            <span>收件人</span>
+            <input value={toAddr} onChange={(e) => setToAddr(e.target.value)} placeholder="收件邮箱" data-draft-to />
+          </label>
+          <label className="draft-field">
+            <span>抄送</span>
+            <input value={cc} onChange={(e) => setCc(e.target.value)} placeholder="上级 / 同站点 / 相关同事" />
+          </label>
           <label className="draft-field">
             <span>主题</span>
             <input
@@ -307,9 +379,6 @@ export function DraftArtifact({
               data-draft-body
             />
           </label>
-          <p className="muted">
-            正式阶段建议保持：{card.official_stage_label || card.official_stage || "不变"}。发送 ≠ 推进阶段。
-          </p>
         </div>
       )}
       {zh && (
@@ -319,22 +388,6 @@ export function DraftArtifact({
         </div>
       )}
       <div className="action-row">
-        {opts.length > 1 ? (
-          <select value={resolvedFrom} onChange={(e) => setFromAddr(e.target.value)} data-from-select disabled={sent}>
-            {opts.map((o) => (
-              <option key={o.email} value={o.email}>
-                {o.brand} · {o.email}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <span className="mono">
-            {resolvedFrom}
-            {card.from_locked && <em className="lock"> {card.from_lock_text || "已按品牌和权限锁定"}</em>}
-          </span>
-        )}
-        <input value={toAddr} onChange={(e) => setToAddr(e.target.value)} placeholder="To · 收件邮箱" data-draft-to disabled={sent} />
-        <input value={cc} onChange={(e) => setCc(e.target.value)} placeholder="Cc · 上级 / 同站点 / 相关同事" disabled={sent} />
         {!sent && (
           <button className="btn ghost" data-draft-save onClick={() => void save()} disabled={!!busy || !dirty}>
             保存草稿
@@ -675,9 +728,125 @@ function safeStatus(status: unknown): TraceStatus {
   return "pending";
 }
 
+function tryParseJson(text: string): unknown | null {
+  const raw = String(text || "").trim();
+  if (!raw || (raw[0] !== "{" && raw[0] !== "[")) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function extractJsonBlob(text: string): string | null {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence && tryParseJson(fence[1].trim())) return fence[1].trim();
+  if (tryParseJson(raw)) return raw;
+  const startObj = raw.indexOf("{");
+  const startArr = raw.indexOf("[");
+  const start = startObj < 0 ? startArr : startArr < 0 ? startObj : Math.min(startObj, startArr);
+  if (start < 0) return null;
+  const close = raw[start] === "{" ? "}" : "]";
+  const end = raw.lastIndexOf(close);
+  if (end <= start) return null;
+  const slice = raw.slice(start, end + 1);
+  return tryParseJson(slice) ? slice : null;
+}
+
+function humanizeJsonValue(value: unknown, depth = 0): string {
+  if (value == null || depth > 3) return "";
+  if (typeof value === "string") {
+    const nested = tryParseJson(value);
+    return nested == null ? value : humanizeJsonValue(nested, depth + 1);
+  }
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    return value.map((item) => humanizeJsonValue(item, depth + 1)).filter(Boolean).slice(0, 8).join("；");
+  }
+  if (typeof value === "object") {
+    const skip = /^(id|tool_call_id|call_id|run_id|span_id|trace_id|raw|debug|payload)$/i;
+    return Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !skip.test(key))
+      .map(([key, item]) => {
+        const next = humanizeJsonValue(item, depth + 1);
+        return next ? `${fieldLabel(key)}：${next}` : "";
+      })
+      .filter(Boolean)
+      .slice(0, 8)
+      .join("；");
+  }
+  return "";
+}
+
+function humanizeMaybeJson(text: string, fallback = "正在处理"): string {
+  const blob = extractJsonBlob(text);
+  const parsed = blob ? tryParseJson(blob) : null;
+  if (parsed == null) return text;
+  return humanizeJsonValue(parsed) || fallback;
+}
+
+function jsonFieldRows(value: unknown): { label: string; value: string }[] {
+  if (Array.isArray(value)) {
+    return value.slice(0, 8).map((item, index) => ({
+      label: `步骤 ${index + 1}`,
+      value: humanizeJsonValue(item),
+    })).filter((row) => row.value);
+  }
+  if (value && typeof value === "object") {
+    const skip = /^(id|tool_call_id|call_id|run_id|span_id|trace_id|raw|debug|payload)$/i;
+    return Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !skip.test(key))
+      .map(([key, item]) => ({ label: fieldLabel(key), value: humanizeJsonValue(item) }))
+      .filter((row) => row.value)
+      .slice(0, 10);
+  }
+  const text = humanizeJsonValue(value);
+  return text ? [{ label: "说明", value: text }] : [];
+}
+
+function looksLikeInferenceJson(text: string): boolean {
+  const blob = extractJsonBlob(text);
+  if (!blob) return false;
+  const ratio = blob.length / Math.max(String(text || "").trim().length, 1);
+  return ratio >= 0.5 || /^```/.test(String(text || "").trim()) || Boolean(tryParseJson(String(text || "").trim()));
+}
+
+function HumanizedInference({ text, debug = false }: { text: string; debug?: boolean }) {
+  const blob = extractJsonBlob(text);
+  const parsed = blob ? tryParseJson(blob) : null;
+  if (parsed == null) return <Markdown>{text}</Markdown>;
+  const rows = jsonFieldRows(parsed);
+  return (
+    <div data-humanized-inference>
+      {rows.length ? (
+        <dl className="inference-fields">
+          {rows.map((row) => (
+            <div key={row.label}>
+              <dt>{row.label}</dt>
+              <dd>{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : (
+        <p>正在处理这项工作</p>
+      )}
+      {debug && blob ? (
+        <details className="execution-details">
+          <summary>调试原文</summary>
+          <pre className="inference-debug-json">{blob}</pre>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
 function humanizeTraceLabel(label: string) {
   const raw = label.trim();
   if (!raw) return "正在处理";
+  const fromJson = humanizeMaybeJson(raw, "");
+  if (fromJson && fromJson !== raw) return fromJson;
   if (/[\u4e00-\u9fff]/.test(raw)) return raw;
   const mapped: Record<string, string> = {
     creator_discovery: "正在检查达人信息",
@@ -999,7 +1168,7 @@ export function ChatThread({
           return (
             <ThreadMessage key={m.id} role="assistant" result={sent ? "send" : "draft"} risk="L2" data-kind="email-card-pointer">
               <strong>{sent ? "发送卡" : "邮件草稿"}</strong>
-              <Markdown>{"✍️ **邮件已放到右侧结果。** 请核对要点和草稿后再确认发送。发送邮件不会修改阶段。"}</Markdown>
+              <Markdown>{"✍️ **邮件已放到右侧结果。** 请核对后再确认发送。"}</Markdown>
             </ThreadMessage>
           );
         }
@@ -1074,7 +1243,9 @@ export function ChatThread({
               data-status={state}
             >
               {state === "running" ? "⏳ " : state === "done" ? "✓ " : "⚠ "}
-              {String(m.payload.text || "")}
+              {looksLikeInferenceJson(String(m.payload.text || ""))
+                ? <HumanizedInference text={String(m.payload.text || "")} debug={debug} />
+                : humanizeMaybeJson(String(m.payload.text || ""))}
             </ThreadMessage>
           );
         }
@@ -1110,7 +1281,9 @@ export function ChatThread({
                 <details open data-reasoning-summaries>
                   <summary>分析摘要</summary>
                   {summaries.map((summary, index) => (
-                    <p key={`${summary}-${index}`}>{summary}</p>
+                    looksLikeInferenceJson(summary)
+                      ? <HumanizedInference key={`${summary}-${index}`} text={summary} debug={debug} />
+                      : <p key={`${summary}-${index}`}>{summary}</p>
                   ))}
                 </details>
               )}
@@ -1201,15 +1374,18 @@ export function ChatThread({
         }
         if (m.kind === "sys_msg") {
           const text = String(m.payload.text || "");
-          if (/黄条无确认按钮|正式阶段建议保持/.test(text)) return null;
+          if (isDuplicateSessionChrome(text)) return null;
           return (
             <ThreadMessage key={m.id} role="system" className="sys-msg" data-kind="sys-msg">
-              <Markdown>{`> ${text}`}</Markdown>
+              {looksLikeInferenceJson(text)
+                ? <HumanizedInference text={text} debug={debug} />
+                : <Markdown>{`> ${text}`}</Markdown>}
             </ThreadMessage>
           );
         }
         if (m.kind === "steps") return null;
         const text = String(m.payload.text || "");
+        if (isDuplicateSessionChrome(text)) return null;
         if (/正式阶段已按你的确认更新|已提交阶段审批/.test(text) && m.id !== latestStageReceiptId) {
           return null;
         }
@@ -1222,7 +1398,11 @@ export function ChatThread({
             className={m.payload.streaming ? "is-streaming" : ""}
             data-streaming={m.payload.streaming ? "true" : undefined}
           >
-            {text ? <Markdown>{text}</Markdown> : (m.payload.streaming ? <span className="muted">正在输出…</span> : null)}
+            {text ? (
+              looksLikeInferenceJson(text)
+                ? <HumanizedInference text={text} debug={debug} />
+                : <Markdown>{text}</Markdown>
+            ) : (m.payload.streaming ? <span className="muted">正在输出…</span> : null)}
           </ThreadMessage>
         );
       })}
