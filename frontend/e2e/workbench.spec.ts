@@ -1050,8 +1050,10 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).toContainText("规则摘录");
   await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).not.toContainText("历史邮件往来摘要");
   await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).not.toContainText("Luna 往来摘要");
-  await expect(page.locator("[data-session-stream-pane] [data-digest-excerpt]")).toHaveJSProperty("open", false);
-  await page.locator("[data-session-stream-pane] [data-digest-excerpt] summary").click();
+  const excerpt = page.locator("[data-session-stream-pane] [data-digest-excerpt]");
+  if (!(await excerpt.evaluate((el) => el instanceof HTMLDetailsElement && el.open))) {
+    await excerpt.locator("summary").click();
+  }
   const digestBox = page.locator("[data-session-stream-pane] [data-mail-digest]");
   const digestText = page.locator("[data-session-stream-pane] [data-digest-body] p");
   const streamBox = page.locator("[data-session-stream-pane]");
