@@ -810,6 +810,7 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "collaborations", "wechat", "TEXT");
   add(db, "collaborations", "kol_id", "TEXT");
   add(db, "collaborations", "last_conversation_id", "TEXT");
+  add(db, "collaborations", "last_lifecycle_id", "TEXT");
   add(db, "collaborations", "contact_email_masked", "TEXT");
   add(db, "sessions", "collaboration_id", "TEXT");
   db.exec(`

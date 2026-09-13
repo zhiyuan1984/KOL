@@ -113,6 +113,7 @@ import {
   lastComposeFollowup,
   lastKolMailReply,
   resolveComposeSubject,
+  remoteLifecycleIdFrom,
   writeRemoteOfficialStage,
 } from "../starrykol/service.js";
 import { itemsForCollaboration } from "../starrykol/mail-sync.js";
@@ -2322,12 +2323,19 @@ async function syncConfirmedStageToMcp(col: Row, target: string, reason?: string
     const data = await writeRemoteOfficialStage({
       kolUid,
       lifecycleId: col.lifecycle_id as string | number | null | undefined,
+      lastLifecycleId: col.last_lifecycle_id as string | number | null | undefined
+        ?? (col as { lastLifecycleId?: string | number }).lastLifecycleId,
+      last_lifecycle_id: col.last_lifecycle_id as string | number | null | undefined,
       stageCode: target,
       reason: reason || `会话确认进入 ${label(target)}`,
     });
     audit("host", "host.confirm_stage.mcp", {
       kolUid,
       target,
+      lifecycleId: remoteLifecycleIdFrom(col, {
+        lastLifecycleId: col.last_lifecycle_id,
+        lifecycle_id: col.lifecycle_id,
+      }),
       tool: data.tool,
       updated: Boolean(data.updated),
     });

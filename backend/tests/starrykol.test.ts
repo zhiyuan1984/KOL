@@ -10,7 +10,9 @@ import {
   emailMcpResultCard,
   executeEmailMcpTask,
   normalizeEmailMcpResult,
+  remoteLifecycleIdFrom,
   setEmailMcpClientFactory,
+  writeRemoteOfficialStage,
 } from "../src/starrykol/service.js";
 import { setAgentSubmissionOverride } from "../src/contract-scope.js";
 import { seedAll } from "../src/seed.js";
@@ -803,6 +805,49 @@ describe("Email MCP task run path", () => {
       setAgentSubmissionOverride();
       setEmailMcpClientFactory(mockClient);
     }
+  });
+
+  it("passes lastLifecycleId through as lifecycleId on changeLifecycleStage", async () => {
+    const recorded: { name: string; args: Json }[] = [];
+    setEmailMcpClientFactory(() => ({
+      async callTool(name: string, args: Json = {}) {
+        recorded.push({ name, args });
+        return { data: { updated: true, kolUid: "KOL20260901LINGONG" } };
+      },
+      async close() { /* noop */ },
+    }));
+    await writeRemoteOfficialStage({
+      kolUid: "KOL20260901LINGONG",
+      lastLifecycleId: 320,
+      stageCode: "QUOTE_PENDING",
+      reason: "probe",
+    });
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0].name).toBe("changeLifecycleStage");
+    expect(JSON.parse(String(recorded[0].args.requestJson))).toMatchObject({
+      kolUid: "KOL20260901LINGONG",
+      lifecycleId: 320,
+      cooperationStageCode: "QUOTE_PENDING",
+    });
+    expect(remoteLifecycleIdFrom({ lastLifecycleId: 320, lifecycle_id: "lc_KOL20260901LINGONG" })).toBe(320);
+    expect(remoteLifecycleIdFrom({ lifecycle_id: "lc_KOL20260901LINGONG" })).toBeNull();
+  });
+
+  it("omits invented local lifecycle placeholders from the Starry write payload", async () => {
+    const recorded: { name: string; args: Json }[] = [];
+    setEmailMcpClientFactory(() => ({
+      async callTool(name: string, args: Json = {}) {
+        recorded.push({ name, args });
+        return { data: { updated: true } };
+      },
+      async close() { /* noop */ },
+    }));
+    await writeRemoteOfficialStage({
+      kolUid: "KOL20260901LINGONG",
+      lifecycleId: "lc_KOL20260901LINGONG",
+      stageCode: "QUOTE_PENDING",
+    });
+    expect(JSON.parse(String(recorded[0].args.requestJson)).lifecycleId).toBeUndefined();
   });
 
   it("maps HTML MCP payloads to a gateway error", async () => {

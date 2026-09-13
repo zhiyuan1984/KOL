@@ -225,6 +225,7 @@ export function enrichListProfile(profile: Json): Json {
     riskTagCodes: riskCodes,
     followStyleTags: Array.isArray(profile.followStyleTags) ? profile.followStyleTags : [],
     lastConversationId: profile.lastConversationId ?? profile.last_conversation_id ?? null,
+    lastLifecycleId: profile.lastLifecycleId ?? profile.last_lifecycle_id ?? profile.lifecycleId ?? null,
     notes: profile.notes ?? null,
     wechat: profile.wechat ?? null,
   };

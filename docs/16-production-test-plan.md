@@ -166,6 +166,8 @@ Pop-Location
 
 仍不宣称生产放行：阶段写入缺远端 lifecycle（`BLOCKED_BY_REMOTE_DATA`）、TB 远程品牌字典、Windows Playwright EPERM、stub E2E PR #2。
 
+云端探针（`KOL20260901LINGONG`）发现画像字段是 `lastLifecycleId=320` 而不是 `lifecycleId`。Host 现在会把已知的 `lastLifecycleId` 传给 `changeLifecycleStage`，不再因漏传 id 得到「合作轮次不存在」。同一轮次上的同阶段/前进码仍可能被远端拒绝（「当前不支持回退合作阶段」）。**这不是阶段写入 PASS。**
+
 ## 3. 功能测试矩阵
 
 | ID | 功能 | 必测场景 | 通过条件 |

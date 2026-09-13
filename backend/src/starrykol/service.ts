@@ -446,17 +446,66 @@ export async function callStarryKolTool(name: string, args: Json = {}): Promise<
   return call(name, args);
 }
 
+/**
+ * Starry profiles expose the current 合作轮次 as `lastLifecycleId`, not `lifecycleId`.
+ * Only propagate a known remote numeric id. Local placeholders like `lc_*` must not
+ * be sent — that is what produced 合作轮次不存在 when the Host omitted/invented the id.
+ */
+export function remoteLifecycleIdFrom(
+  ...sources: Array<Record<string, unknown> | null | undefined>
+): number | null {
+  for (const source of sources) {
+    if (!source || typeof source !== "object") continue;
+    const nested = [
+      source.profile,
+      source.creator,
+      source.payload,
+    ].flatMap((value) => {
+      if (value && typeof value === "object" && !Array.isArray(value)) return [value as Record<string, unknown>];
+      if (typeof value === "string" && value.trim().startsWith("{")) {
+        try {
+          const parsed = JSON.parse(value) as Record<string, unknown>;
+          return parsed && typeof parsed === "object" ? [parsed] : [];
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    });
+    for (const row of [source, ...nested]) {
+      for (const key of ["lastLifecycleId", "last_lifecycle_id", "lifecycleId", "lifecycle_id"]) {
+        const id = parseRemoteLifecycleId(row[key]);
+        if (id != null) return id;
+      }
+    }
+  }
+  return null;
+}
+
+function parseRemoteLifecycleId(value: unknown): number | null {
+  if (value == null || value === "") return null;
+  if (typeof value === "number") return Number.isInteger(value) && value > 0 ? value : null;
+  const text = String(value).trim();
+  if (!text || /^lc_/i.test(text) || /^conv_/i.test(text)) return null;
+  if (!/^\d+$/.test(text)) return null;
+  const parsed = Number(text);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
 /** Host kernel only: human-confirmed official stage → Starry lifecycle. Worker must not call this. */
 export async function writeRemoteOfficialStage(input: {
   kolUid: string;
   lifecycleId?: string | number | null;
+  lastLifecycleId?: string | number | null;
+  last_lifecycle_id?: string | number | null;
   stageCode: string;
   reason?: string | null;
 }): Promise<Json> {
   const fields = starryStageWriteFields(input.stageCode);
+  const lifecycleId = remoteLifecycleIdFrom(input as Record<string, unknown>);
   const payload = {
     kolUid: input.kolUid,
-    ...(input.lifecycleId != null && String(input.lifecycleId).trim() ? { lifecycleId: Number(input.lifecycleId) || String(input.lifecycleId) } : {}),
+    ...(lifecycleId != null ? { lifecycleId } : {}),
     ...fields,
     stageCode: fields.cooperationStageCode,
     reason: String(input.reason || ""),
