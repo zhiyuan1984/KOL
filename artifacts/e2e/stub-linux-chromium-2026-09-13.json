@@ -1,0 +1,15 @@
+{
+  "profile": "stub-cloud-linux",
+  "browser": "chromium",
+  "mode": "stub",
+  "status": "pass",
+  "command": "cd frontend && npm run test:e2e",
+  "counts": { "passed": 72, "failed": 0, "total": 72 },
+  "duration": "55.4s",
+  "notes": [
+    "Not a production release pass.",
+    "E2E_MODE=real was smoke-started on Linux Chromium; /api/health returned 200.",
+    "Full real suite was not run; model/Turn latency is expected to time out.",
+    "PW_CHANNEL was unset; msedge is not required."
+  ]
+}

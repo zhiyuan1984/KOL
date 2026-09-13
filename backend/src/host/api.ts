@@ -56,10 +56,13 @@ import {
   composeContextForCollaboration,
   composeFactsFromContext,
   composeFactsFromRow,
+  composeLoopSections,
   composeRouteFacts,
   previewComposeForCollaboration,
   rememberOutboundAndRefreshDigest,
+  requestedMailKind,
   stageMailAction,
+  type ComposeFacts,
 } from "./compose-loop.js";
 import { looksLikeEmailDraft } from "./quote-amount.js";
 import {
@@ -118,7 +121,7 @@ import {
 } from "../starrykol/service.js";
 import { itemsForCollaboration } from "../starrykol/mail-sync.js";
 import { hasComposeDraftOutput } from "../worker/parse.js";
-import { templateById } from "../email-templates.js";
+import { templateAllowedForStage, templateById } from "../email-templates.js";
 import {
   FOLLOW_STYLE_PRESETS,
   followStyleCardPayload,
@@ -1460,7 +1463,40 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
     const expense = handleExpenseApproval(sid, me, intent, intent.raw, item, "worker");
     return { ...expense, worker };
   }
+  if (wr.skill === "creator_lifecycle_kanban" || intent.type === "creator_lifecycle_kanban") {
+    attachUnboundInbound(sid);
+  }
   return ok(sid, me, intent, { worker, draft: draftRow, approval, ...(crawlPlan ? { crawl_plan: crawlPlan } : {}) });
+}
+
+function attachUnboundInbound(sid: string): void {
+  const rows = getConn().prepare(
+    "SELECT * FROM inbound WHERE bound = 0 AND IFNULL(deferred, 0) = 0 ORDER BY ts DESC, id DESC",
+  ).all() as Row[];
+  for (const row of rows) {
+    let candidates: { id?: string; handle?: string; score?: number }[] = [];
+    try {
+      const parsed = JSON.parse(String(row.candidates || "[]"));
+      if (Array.isArray(parsed)) candidates = parsed as { id?: string; handle?: string; score?: number }[];
+    } catch {
+      candidates = [];
+    }
+    addMsg(sid, "assistant", "inbound_card", {
+      inbound_id: row.id,
+      from_name: row.from_name,
+      from: row.from_addr,
+      email: row.from_addr,
+      subject: row.subject,
+      time: row.ts,
+      summary: row.summary,
+      candidates,
+    });
+    addMsg(sid, "system", "sys_msg", {
+      text: "无法判断，请人选阶段。不会「已自动记入」。",
+      tone: "yellow",
+      has_confirm: false,
+    });
+  }
 }
 
 function throwMailToSupplement(sid: string, me: Json, intent: Intent, col: Row | null): never {
@@ -1510,6 +1546,69 @@ function composePriorCards(sid: string, col: Row | null): Json[] {
       .map((item) => ({ kind: "kol_mail_card", payload: item }))
     : [];
   return [...items, ...messages(sid)];
+}
+
+function namedMailHandleReady(intent: Intent, col: Row | null, text: string): boolean {
+  const leftover = leftoverPlaceholders(text).some((token) => /红人或合作/.test(token));
+  if (leftover) return false;
+  const handle = String(col?.handle || intent.handle || "").trim();
+  return Boolean(handle) && !/红人或合作/.test(handle);
+}
+
+function applyNamedMailGates(
+  sid: string,
+  me: Json,
+  intent: Intent,
+  col: Row | null,
+  text: string,
+  composeFacts: ComposeFacts,
+): Json | null {
+  const named = requestedMailKind(text);
+  if (named === "testing" && /催大纲/.test(text)) {
+    if (!namedMailHandleReady(intent, col, text)) {
+      addMsg(sid, "assistant", "supplement_card", {
+        intent: "content_nudge",
+        title: "补全催大纲对象",
+        handle: intent.handle,
+        collaboration_id: col?.id || intent.collaboration_id,
+        fields: [{ key: "handle", label: "红人或合作", required: true, value: "" }],
+        message: "催大纲需要指定红人或合作。未替换「[红人或合作]」时不会默认代发。本次未起箱。",
+      });
+      return ok(sid, me, intent, { worker: null });
+    }
+    const stage = normalizeStage(String(col?.stage_code || ""));
+    if (!templateAllowedForStage("content_nudge.outline", stage)) {
+      addMsg(sid, "assistant", "error_card", {
+        code: "nudge_stage_gate",
+        message: "仅测试中或内容策划阶段可催大纲。当前阶段不能催大纲，请到已签收-测试中后再试。",
+        next_action: "等红人进入已签收-测试中或内容策划后，再催大纲。",
+        persistent: true,
+      });
+      return ok(sid, me, intent, { worker: null });
+    }
+  }
+  if (named === "ship" && !composeFacts.tracking) {
+    addMsg(sid, "assistant", "supplement_card", {
+      intent: "email_compose",
+      title: "补全发货运单",
+      handle: intent.handle,
+      collaboration_id: col?.id || intent.collaboration_id,
+      fields: [{ key: "tracking", label: "运单号", required: true, value: "" }],
+      message: "发货通知需要运单号。未填写运单号时不会默认代发。本次未起箱。",
+    });
+    return ok(sid, me, intent, { worker: null });
+  }
+  if (named === "address" && !composeFacts.items.some((item) => /寄样资料未齐/.test(item))) {
+    const card = attachComposeLoopCard({
+      title: "寄样地址核对",
+      summary: "可以进入人工确认后的出库流程",
+      sections: composeLoopSections(composeFacts),
+      recommended_actions: ["联系仓储人工确认出库"],
+    }, composeFacts, { handle: String(col?.handle || intent.handle || "") });
+    addMsg(sid, "assistant", "task_result_card", card);
+    return ok(sid, me, intent, { worker: null });
+  }
+  return null;
 }
 
 async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | null, text: string): Promise<Json> {
@@ -1645,6 +1744,8 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
     compose_facts: composeFacts,
     entities: extra.entities as Json,
   };
+  const namedGate = applyNamedMailGates(sid, me, intent, col, text, composeFacts);
+  if (namedGate) return namedGate;
   try {
     const wr = await execWorker(sid, intent.skill || intent.type || "creator_discovery", text, workerSafeExtra(extra));
     const mapped = await mapWorker(sid, me, intent, wr);

@@ -112,4 +112,21 @@ describe("inbound list resume and identity", () => {
     });
     expect(again.status).toBe(400);
   });
+
+  it("puts unbound inbound on the lifecycle-kanban session for a human to bind", async () => {
+    const opened = await request("POST", "/api/sessions", { title: "合作生命周期看板" });
+    const sid = String(opened.body.id);
+    const posted = await request("POST", `/api/sessions/${sid}/messages`, {
+      text: "合作生命周期看板",
+      content: "合作生命周期看板",
+      act: "ask",
+      intent: "creator_lifecycle_kanban",
+    });
+    expect(posted.status).toBe(200);
+    const messages = posted.body.messages as { kind: string; payload: Json }[];
+    const inbound = messages.find((row) => row.kind === "inbound_card");
+    expect(inbound?.payload.inbound_id).toBe("inb_unbound_1");
+    expect(JSON.stringify(inbound?.payload || "")).toMatch(/vanlife\.kit@example.com/);
+    expect(messages.some((row) => row.kind === "sys_msg" && /无法判断，请人选阶段/.test(String(row.payload.text || "")))).toBe(true);
+  });
 });

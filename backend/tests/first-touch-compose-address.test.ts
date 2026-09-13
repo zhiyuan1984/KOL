@@ -85,6 +85,15 @@ describe("first-touch Skill required_inputs: 发件 / 收件 / 主题", () => {
     expect(stubResolveTaskIntent({ text: `首封建联 发件箱 ${LARRY}` }).missing_fields)
       .toEqual(["to", "subject"]);
   });
+
+  it("does not treat @写合作邮件 as a bound KOL handle", () => {
+    expect(extractTaskEntities("@写合作邮件").handle).toBeUndefined();
+    expect(extractTaskEntities("@写合作邮件 @小美妆日记").handle).toBe("小美妆日记");
+    const resolved = stubResolveTaskIntent({ text: "@写合作邮件", task_type: "email_compose" });
+    expect(resolved.task_type).toBe("email_compose");
+    expect(resolved.needs_clarification).toBe(true);
+    expect(resolved.missing_fields).toEqual(["mailboxEmail", "to", "subject"]);
+  });
 });
 
 describe("compose never asks first-touch for a conversation id", () => {

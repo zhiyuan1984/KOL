@@ -187,7 +187,49 @@ describe("KOL stage-mail communication", () => {
     expect(address.result?.payload.compose_loop).toMatchObject({ kind: "address", quote: false });
     expect(JSON.stringify(address.result?.payload || "")).toMatch(/寄样资料|张伟|LT-100AH/);
     expect(JSON.stringify(address.result?.payload || "")).not.toMatch(/USD 680/);
-    expect(address.draft?.payload.body).toBeTruthy();
+    expect(JSON.stringify(address.result?.payload || "")).toMatch(/可以进入人工确认后的出库流程/);
+    expect(address.draft).toBeUndefined();
+  });
+
+  it("核对地址 uses address facts even when the official stage is still 报价待确认", async () => {
+    const address = await composeOn("col_laozhang", "核对地址 @数码老张");
+    expect(address.result?.payload.compose_loop).toMatchObject({ kind: "address", quote: false });
+    expect(JSON.stringify(address.result?.payload || "")).toMatch(/寄样资料|张伟|LT-100AH/);
+    expect(JSON.stringify(address.result?.payload || "")).toMatch(/可以进入人工确认后的出库流程/);
+    expect(JSON.stringify(address.result?.payload || "")).not.toMatch(/USD 680/);
+    expect(address.draft).toBeUndefined();
+  });
+
+  it("催大纲 on 初步接触 stays as a persistent stage-gate error", async () => {
+    const opened = await request("POST", "/api/collaborations/col_xiaomei/session", {});
+    const sid = String(opened.body.id);
+    const posted = await request("POST", `/api/sessions/${sid}/messages`, {
+      text: "催大纲 @小美妆日记",
+      content: "催大纲 @小美妆日记",
+      act: "ask",
+      collaboration_id: "col_xiaomei",
+    });
+    expect(posted.status, posted.text).toBe(200);
+    const messages = posted.body.messages as { kind: string; payload: Json }[];
+    const error = messages.find((row) => row.kind === "error_card");
+    expect(error?.payload.code).toBe("nudge_stage_gate");
+    expect(JSON.stringify(error?.payload || "")).toMatch(/已签收-测试中/);
+    expect(messages.find((row) => row.kind === "email_card")).toBeUndefined();
+  });
+
+  it("催大纲 without a creator stays on a supplement card", async () => {
+    const opened = await request("POST", "/api/sessions", { title: "催大纲" });
+    const sid = String(opened.body.id);
+    const posted = await request("POST", `/api/sessions/${sid}/messages`, {
+      text: "催大纲 [红人或合作]",
+      content: "催大纲 [红人或合作]",
+      act: "ask",
+    });
+    expect(posted.status, posted.text).toBe(200);
+    const messages = posted.body.messages as { kind: string; payload: Json }[];
+    const supplement = messages.find((row) => row.kind === "supplement_card");
+    expect(JSON.stringify(supplement?.payload || "")).toMatch(/红人或合作/);
+    expect(messages.find((row) => row.kind === "email_card")).toBeUndefined();
   });
 
   it("发货通知 stacks tracking facts and a draft", async () => {

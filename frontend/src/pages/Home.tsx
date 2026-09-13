@@ -78,6 +78,24 @@ const EXCEPTION_TEMPLATE: TaskDefinition = {
   profile: "lead",
 };
 
+const MAIL_COMMAND_TEMPLATES: TaskDefinition[] = [
+  {
+    id: "content_nudge",
+    skill_id: "email_compose",
+    title: "催大纲",
+    description: "仅测试中或内容策划阶段可催大纲",
+    prompt: "催大纲 [红人或合作]",
+    category: "履约",
+    profile: "lead",
+  },
+];
+
+function withHomeCommandTemplates(list: TaskDefinition[]): TaskDefinition[] {
+  const extras = [EXCEPTION_TEMPLATE, ...MAIL_COMMAND_TEMPLATES];
+  const extraIds = new Set(extras.map((row) => row.id));
+  return [...list.filter((row) => !extraIds.has(row.id)), ...extras];
+}
+
 function definitionList(
   value: TaskDefinition[] | { task_definitions?: TaskDefinition[]; definitions?: TaskDefinition[] },
 ): TaskDefinition[] {
@@ -417,18 +435,18 @@ export default function Home() {
     void api.home().then((legacyHome) => {
       if (cancelled) return;
       setHome(legacyHome);
-      if (!definitions.length && legacyHome.recs?.length) {
-        setDefinitions(legacyHome.recs.map((rec: Rec) => ({
-          ...rec,
-          description: rec.description || rec.profile,
-        })));
-      }
+      if (!legacyHome.recs?.length) return;
+      const incoming = withHomeCommandTemplates(legacyHome.recs.map((rec: Rec) => ({
+        ...rec,
+        description: rec.description || rec.profile,
+      })));
+      // `definitions` in this effect is the first-render []. Always merge extras
+      // and never replace a fuller registry catalog with the legacy rec list.
+      setDefinitions((current) => (current.length > incoming.length ? current : incoming));
     }).catch(() => undefined);
     void api.taskDefinitions().then(definitionList).then((taskDefinitions) => {
       if (!cancelled && taskDefinitions.length) {
-        setDefinitions(taskDefinitions.some((definition) => definition.id === EXCEPTION_TEMPLATE.id)
-          ? taskDefinitions
-          : [...taskDefinitions, EXCEPTION_TEMPLATE]);
+        setDefinitions(withHomeCommandTemplates(taskDefinitions));
       }
     }).catch(() => undefined);
     void api.homeBoard().then((board) => {
@@ -476,12 +494,13 @@ export default function Home() {
     const pending = (result.pending_message || result.pending || {}) as Record<string, unknown>;
     storePending(result.session_id, {
       text: String(pending.text || result.task.title),
+      intent: String(pending.intent || pending.task_type || result.task.task_type || result.task.skill || lockedIntent || ""),
       knowledge_id: pending.knowledge_id ? String(pending.knowledge_id) : undefined,
       collaboration_id: pending.collaboration_id ? String(pending.collaboration_id) : undefined,
       attachments: Array.isArray(pending.attachments) ? pending.attachments as ComposerSubmit["attachments"] : undefined,
       model_tier: pending.model_tier ? String(pending.model_tier) : undefined,
       work_item_id: String(pending.work_item_id || result.work_item_id || result.task.id),
-      task_type: String(pending.task_type || result.task.task_type || result.task.skill || ""),
+      task_type: String(pending.task_type || result.task.task_type || result.task.skill || lockedIntent || ""),
       run_id: String(pending.run_id || result.run_id || ""),
       entities: pending.entities && typeof pending.entities === "object" ? pending.entities as Record<string, unknown> : undefined,
     });
@@ -731,7 +750,15 @@ export default function Home() {
       });
       const resolution = recognized.resolution || {};
       const missing = resolution.missing_fields || [];
-      if (recognized.needs_clarification || !recognized.task) {
+      const boundHandle = Boolean(
+        p.collaboration_id
+        || resolution.entities?.handle
+        || resolution.entities?.collaboration_id,
+      );
+      // First-touch / unlabeled compose stays on home. A bound @红人 already
+      // has From/To in Host, so open the session instead of blocking on the
+      // intake card.
+      if (!recognized.task || recognized.clarification_kind === "direction" || (recognized.needs_clarification && !boundHandle)) {
         setFeedback({
           ...recognized,
           needs_clarification: true,

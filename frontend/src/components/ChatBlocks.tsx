@@ -62,14 +62,21 @@ function StageTrackSelect({
   onChange,
   groups,
   suggested,
+  mail = false,
 }: {
   value: string;
   onChange: (code: string) => void;
   groups: StageTrackGroup[];
   suggested?: string;
+  mail?: boolean;
 }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} data-stage-select>
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      data-stage-select
+      data-mail-stage-select={mail ? "" : undefined}
+    >
       {groups.map((group) => (
         <optgroup key={group.id} label={group.label} data-stage-track={group.id}>
           {group.items.map((item) => (
@@ -913,7 +920,7 @@ export function KolMailCard({
           回复
         </button>
         {canConfirm && groups.length ? (
-          <StageTrackSelect value={picked} onChange={setPicked} groups={groups} suggested={suggested} />
+          <StageTrackSelect value={picked} onChange={setPicked} groups={groups} suggested={suggested} mail />
         ) : null}
         {canConfirm ? (
           <button type="button" className="btn work" data-mail-confirm onClick={() => void confirm()} disabled={!sessionId || busy || !picked}>

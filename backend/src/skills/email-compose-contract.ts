@@ -86,6 +86,21 @@ export function stageMailSpecByKind(kind: StageMailKind): StageMailSpec {
     || emailComposeContract().fallback;
 }
 
+/** Published operator commands from SKILL.md — not inferred from the official stage. */
+export function requestedMailKind(raw = ""): StageMailKind | null {
+  const text = String(raw || "");
+  if (/催大纲/.test(text)) return "testing";
+  if (/核对地址|寄样地址核对/.test(text)) return "address";
+  if (/发货通知/.test(text)) return "ship";
+  if (/发brief|发内容brief/.test(text)) return "brief";
+  if (/写跟进/.test(text)) return "followup";
+  return null;
+}
+
+export function isNamedMailCommand(raw = ""): boolean {
+  return Boolean(requestedMailKind(raw));
+}
+
 export function isQuoteCompose(stage = ""): boolean {
   return stageMailSpec(stage).kind === "quote";
 }

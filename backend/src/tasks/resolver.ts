@@ -1,3 +1,4 @@
+import { extractHandle } from "../host/intent.js";
 import { parseQuoteOffer, parseQuoteRate } from "../host/quote-amount.js";
 import { taskDefinition, taskDefinitions, type TaskDefinition } from "./registry.js";
 
@@ -69,16 +70,10 @@ export function extractTaskEntities(text: string): Record<string, unknown> {
     if (rate.rate_unit) entities.rate_unit = rate.rate_unit;
   }
   if (offer.deliverables) entities.deliverables = offer.deliverables;
-  const handle = /@([^\s「」]+)/.exec(text)?.[1];
-  if (
-    handle
-    && !handle.includes(".")
-    && !taskDefinitions().some((definition) =>
-      definition.id.toLowerCase() === handle.toLowerCase()
-      || definition.title.startsWith(`${handle} `))
-  ) {
-    entities.handle = handle;
-  }
+  // Same handle rules as Host classify(): skill mentions such as
+  // @写合作邮件 are not KOL handles, and a later @红人 still binds.
+  const handle = extractHandle(text);
+  if (handle) entities.handle = handle;
   const platform = PLATFORM_NAMES.find(([pattern]) => pattern.test(text))?.[1];
   if (platform) entities.platform = platform;
   const creatorId = /(?:达人|creator)[ _-]?(?:ID|id|编号)\s*[:：]?\s*(\d+)/i.exec(text)?.[1];
@@ -189,12 +184,35 @@ export function mergeExtractedOntoIntent(
   }
 }
 
-function missing(definition: TaskDefinition, entities: Record<string, unknown>, supplied: Record<string, unknown>): string[] {
+function namedMailCommand(text: string): boolean {
+  return /催大纲|发货通知|核对地址|寄样地址核对/.test(text);
+}
+
+function missing(
+  definition: TaskDefinition,
+  entities: Record<string, unknown>,
+  supplied: Record<string, unknown>,
+  text = "",
+): string[] {
   return definition.required_inputs.filter((field) => {
     if (field === "collaboration_id" && (entities.handle || supplied.handle)) return false;
     if (
       definition.id === "email_compose"
       && (entities.conversationId || supplied.conversationId)
+    ) return false;
+    // Existing collaboration / @红人 locks From/To (and the stage letter
+    // supplies the subject). Do not keep the employee on the home intake card.
+    if (
+      definition.id === "email_compose"
+      && (entities.handle || supplied.handle || entities.collaboration_id || supplied.collaboration_id)
+      && (field === "mailboxEmail" || field === "to" || field === "subject")
+    ) return false;
+    // Named letters (催大纲 / 核地址 / 发货) have their own Host supplement
+    // or stage gate. Do not block them on the first-touch From/To/Subject card.
+    if (
+      definition.id === "email_compose"
+      && namedMailCommand(text)
+      && (field === "mailboxEmail" || field === "to" || field === "subject")
     ) return false;
     const value = supplied[field] ?? entities[field];
     return value == null || value === "" || (Array.isArray(value) && value.length === 0);
@@ -208,7 +226,7 @@ function names(definition: TaskDefinition): string[] {
 /** Stub-only natural-language routes. Production never uses this to pick a skill. */
 function matchStarryKolIntent(text: string, entities: Record<string, unknown> = {}): string | null {
   if (/分析回复|回复分析|看邮件阶段/.test(text)) return "reply_analysis";
-  if (/确认发送|发送测试邮件|写合作邮件|写邮件|邮件草稿|写报价|报价邮件|报价信|一份报价|催大纲|发货通知|首封建联|核对地址|要媒体包|写谈判|请确认方案|合同沟通|发内容brief|发brief|初稿反馈|确认排期|请开发票|核对公开链接|核对链接|加一封|再发一封|再写一封|再来一封|回复会话|写跟进邮件|写跟进/.test(text)) return "email_compose";
+  if (/确认发送|发送测试邮件|写合作邮件|写邮件|邮件草稿|写报价|报价邮件|报价信|一份报价|催大纲|发货通知|首封建联|核对地址|寄样地址核对|要媒体包|写谈判|请确认方案|合同沟通|发内容brief|发brief|初稿反馈|确认排期|请开发票|核对公开链接|核对链接|加一封|再发一封|再写一封|再来一封|回复会话|写阶段跟进|阶段跟进邮件|写跟进邮件|写跟进信|写跟进/.test(text)) return "email_compose";
   if (entities.mailboxEmail && entities.to && entities.subject) return "email_compose";
   if (/读取邮件会话|查看邮件会话|邮件会话详情/.test(text)) return "email_conversation_read";
   if (/邮件会话列表|查询邮件会话|收件会话|查收件箱|查收件/.test(text)) return "email_conversation_list";
@@ -254,6 +272,7 @@ function lockedResolution(
   taskType: string,
   entities: Record<string, unknown>,
   supplied: Record<string, unknown>,
+  text = "",
 ): TaskResolution {
   const definition = taskDefinition(taskType);
   if (!definition) {
@@ -267,7 +286,7 @@ function lockedResolution(
       clarification_kind: "direction",
     };
   }
-  const missingFields = missing(definition, entities, supplied);
+  const missingFields = missing(definition, entities, supplied, text);
   return {
     task_type: definition.id,
     confidence: 1,
@@ -292,7 +311,7 @@ export function resolveTaskIntent(input: {
   const text = String(input.text || "").trim();
   const entities = { ...extractTaskEntities(text), ...(input.entities || {}) };
   const supplied = input.input || {};
-  if (input.task_type) return lockedResolution(String(input.task_type), entities, supplied);
+  if (input.task_type) return lockedResolution(String(input.task_type), entities, supplied, text);
   return {
     task_type: null,
     confidence: 0,
@@ -314,7 +333,7 @@ export function stubResolveTaskIntent(input: {
   const text = String(input.text || "").trim();
   const entities = { ...extractTaskEntities(text), ...(input.entities || {}) };
   const supplied = input.input || {};
-  if (input.task_type) return lockedResolution(String(input.task_type), entities, supplied);
+  if (input.task_type) return lockedResolution(String(input.task_type), entities, supplied, text);
 
   const lower = text.toLowerCase();
   if (/(搜索|查找|寻找|发现).*(达人|KOL|创作者)/i.test(text)) {
@@ -335,7 +354,7 @@ export function stubResolveTaskIntent(input: {
   if (emailTask) {
     const definition = taskDefinition(emailTask);
     if (definition) {
-      const missingFields = missing(definition, entities, supplied);
+      const missingFields = missing(definition, entities, supplied, text);
       return {
         task_type: definition.id,
         confidence: 0.97,
@@ -374,7 +393,7 @@ export function stubResolveTaskIntent(input: {
       clarification_kind: "direction",
     };
   }
-  const missingFields = missing(best.definition, entities, supplied);
+  const missingFields = missing(best.definition, entities, supplied, text);
   return {
     task_type: best.definition.id,
     confidence: best.confidence,
