@@ -1133,7 +1133,8 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   await expect(page.locator("[data-kol-portrait]")).not.toContainText("@小美妆日记");
   await expect(page.locator("[data-portrait-field='platform']")).toHaveText("小红书");
   await expect(page.locator("[data-portrait-field='brand']")).toHaveText("LT");
-  await expect(page.locator("[data-portrait-field='email']")).toContainText("xiaomei.beauty@example.com");
+  await expect(page.locator("[data-portrait-field='followers']")).toHaveText("82万");
+  await expect(page.locator("[data-portrait-field='stay']")).toHaveText("12 天");
   await expect(page.locator("[data-portrait-field='tags'] .chip")).toHaveCount(2);
   await expect(page.locator("[data-portrait-field='tags'] .chip").nth(0)).toHaveText("首封已读未回");
   await expect(page.locator("[data-portrait-field='tags'] .chip").nth(1)).toHaveText("适合跟进");
@@ -1172,7 +1173,7 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   await expect(page.locator("[data-stage-sop]")).toContainText("红人画像");
   await expect(page.locator("[data-portrait-field='platform']")).toHaveText("小红书");
   await expect(page.locator("[data-portrait-field='brand']")).toHaveText("LT");
-  await expect(page.locator("[data-portrait-field='email']")).toContainText("xiaomei.beauty@example.com");
+  await expect(page.locator("[data-portrait-field='tags'] .chip")).toHaveCount(2);
   await expect(page.locator("[data-stage-sop]")).not.toContainText("输入");
   await expect(page.locator("[data-stage-sop]")).not.toContainText("完成条件");
   await expect(page.locator("[data-stage-sop]")).not.toContainText("当前步骤");

@@ -231,6 +231,7 @@ function KolPortraitFields({ portrait }: { portrait: Record<string, unknown> }) 
       {hasMeta ? (
         <div className="portrait-row is-meta" data-portrait-field="meta">
           {followers ? <span data-portrait-field="followers">{followers}</span> : null}
+          {followers && days > 0 ? <span className="portrait-sep" aria-hidden>·</span> : null}
           {days > 0 ? <span data-portrait-field="stay">{days} 天</span> : null}
         </div>
       ) : null}
