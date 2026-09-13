@@ -52,3 +52,4 @@
 - `../backend/scripts/validate-tb-binding.mjs`：TB 本地字典、远端品牌字典和邮箱品牌列表三方绑定校验。
 - `../backend/scripts/release-gate.mjs`、`../.github/workflows/release-gate.yml`：本地和 CI 的统一发布门禁。
 - `evidence-kol-stage-write-2026-09-12.md`：阶段写入与邮件发送分离的真实验证证据。
+- `evidence-release-gate-2026-09-13.md`：`main` @ `9f9c5a8` stub production `release:gate` PASS（TB 豁免；非生产上线）。

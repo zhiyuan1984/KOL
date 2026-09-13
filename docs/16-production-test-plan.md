@@ -182,6 +182,20 @@ Pop-Location
 
 仍不宣称生产放行：TB 远程品牌字典、Real 全量 72 条未跑、skip-walk 未宣称完整 LIVE PASS。
 
+### 2.11 Stub production `release:gate` PASS（2026-09-13，`main` @ `9f9c5a8`）
+
+合并 PR #10 / #11 / #12 之后，在 `9f9c5a8` 上复跑 stub production `npm run release:gate`。总判定 **PASS**。`tb-binding` **WAIVED**（用户豁免，不是阻断）。**仍不是生产上线。** 来源：[`evidence-release-gate-2026-09-13.md`](evidence-release-gate-2026-09-13.md)。仓库内未见 `artifacts/release-gate-stub-2026-09-13-main-pr12.*`。
+
+| 门禁项 | 结果 | 证据/限制 |
+|---|---|---|
+| stub production `release:gate` | PASS | 门禁判定；非 go-live |
+| `tb-binding` | WAIVED | 用户豁免，不计入阻断；校验器未放宽 |
+| `frontend-e2e` | PASS | 78 PASS（stub Chromium；覆盖此前 72 条及 #10/#11/#12 新增场景） |
+| `backend-full-tests` | PASS | 586 PASS |
+| `contracts-production` | PASS | 生产契约编译通过（Agent 已发布，见 2.10） |
+
+此前已写入本节的 real-mode 证据不加新数字：受控发信 PASS 与缺生命周期时的阶段写入阻断（2.2 / [`evidence-kol-stage-write-2026-09-12.md`](evidence-kol-stage-write-2026-09-12.md)）；Real staging 握手 PASS、Turn/业务 E2E BLOCKED、Starry 只读 62/221/5/16（2.8）；相邻 LIVE `toStageCode` 写入（2.10 / [`evidence-stage-request-shape-2026-09-13.md`](evidence-stage-request-shape-2026-09-13.md)）；stub crawl 仅 YouTube / Instagram（2.9）。现有 evidence 文件没有带独立计数的 session-confirm、approval-gate、admin-smoke、skills-sample 或 claw real-mode 报告；对应 stub 场景计入本次 78 PASS，不得改写成 real-mode 绿灯。
+
 ## 3. 功能测试矩阵
 
 | ID | 功能 | 必测场景 | 通过条件 |
