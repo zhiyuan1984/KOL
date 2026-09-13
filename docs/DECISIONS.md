@@ -27,6 +27,7 @@
 | ADR-011 | Starry 阶段写入用原生码；人跳过只在 Host 记账；远程只走相邻前进（跨段则逐格 walk） | `05-agent-workflow-skill-policy.md`、`planStarryAdjacentWalk` / `changeLifecycleStage` |
 | ADR-012 | 员工端四页分工：Home=现在做什么；Pipeline=正式生命周期资产；Chat=完成一件任务；Admin=谁/权限/审计。Pipeline 禁止复制 Home 待办语义 | `19-ui-ux-constitution.md`、`specs/FS-KOL-010-pipeline.md` |
 | ADR-013 | 管理端是员工四表面的配套治理套件，不是副本；连接器只在 `/admin/connectors`，Agent 治理在 `/admin/agents`，个人 Starry 绑定只留 Settings | `21-admin-employee-page-roles.md`、`19-ui-ux-constitution.md` |
+| ADR-014 | 员工侧栏：定时任务归今日工作簇；簇间用分割线，不画可见「今日 / 智能体 / 资产」组标题 | `19-ui-ux-constitution.md` |
 
 ## 新增 Agent 分级
 
@@ -124,3 +125,28 @@ Admin 导航和页面与员工连接器/智能体表面重叠：员工侧栏深�
 - 规范：`21-admin-employee-page-roles.md`（正文）、`19` / `04` / `20` / `docs/README.md` / `specs/README.md` 索引
 - 代码：后续纯前端导航/枢纽 PR；本 ADR 不改 JSX/API
 - 测试：无新发布门禁项，直到另有 FS / UX ID 绑定
+
+## ADR-014 — 员工侧栏：定时任务归今日簇，组标题改为分割线（2026-09-13）
+
+**状态**：已固化  
+**决策人**：产品负责人
+
+### 问题与背景
+
+员工侧栏把「定时任务」放在资产簇，并用可见「今日 / 智能体 / 资产」组标题把 chrome 画成目录。这让 `/cron` 看起来像可回看对象，也让组名抢走主路径注意力。四页角色与发送 ≠ 阶段不变。
+
+### 决定
+
+1. **定时任务属于今日工作簇。** 与新工作任务 / 进行中并列；不进资产。确认入口若仍在今日簇，必须与审批页同路由。
+2. **簇间只用分割线。** 禁止可见「今日 / 智能体 / 资产」组标题。`<nav aria-label>` 保留给读屏。项目 / 最近若还在，同样不写可见组标题。
+3. **只改员工工作台侧栏。** 不重做 Admin 导航，不改 Chat，不改 LIVE / stage 写入。
+
+### 不决定的范围
+
+不预合并「去掉等我确认」「去掉最近」或管理端治理壳；那些由并行侧栏 PR 处理。本决策不改四页法律。
+
+### 影响
+
+- 规范：`19-ui-ux-constitution.md` 员工侧栏 IA、`04-ux-ui-system.md` 一句指向
+- 代码：`frontend/src/layout/Workbench.tsx`、`frontend/src/styles.css` 侧栏
+- 测试：员工侧栏 stub E2E（定时任务在今日簇；无可见组标题）

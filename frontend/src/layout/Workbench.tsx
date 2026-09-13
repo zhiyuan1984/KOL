@@ -12,7 +12,7 @@ function Ico({ path }: { path: string }) {
         d={path}
         fill="none"
         stroke="currentColor"
-        strokeWidth="1.7"
+        strokeWidth="1.85"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -121,7 +121,6 @@ export default function Workbench() {
 
         <div className="sidebar-nav-stack">
         <nav className="nav-group" aria-label="今日">
-          <div className="nav-label">今日</div>
           <NavLink to="/" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} end data-nav="new-task">
             <Ico path="M4 20h4L18 10l-4-4L4 16v4z M14 6l4 4" />
             <span className="sidebar-label">新工作任务</span>
@@ -137,10 +136,13 @@ export default function Workbench() {
             <span className="sidebar-label">进行中</span>
             {runningCount > 0 && <span className="nav-badge">{runningCount}</span>}
           </Link>
+          <NavLink to="/cron" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} data-nav="cron" onClick={() => setMobileOpen(false)}>
+            <Ico path="M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M12 8v4l2.5 1.5" />
+            <span className="sidebar-label">定时任务</span>
+          </NavLink>
         </nav>
 
         <nav className="nav-group" aria-label="数字员工">
-          <div className="nav-label">数字员工</div>
           <div className={"nav-combo" + (onAgentsWork || onTeamsTab ? " active" : "")} data-nav="agents-teams">
             <Ico path="M12 4a3 3 0 0 1 3 3v1h2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2V7a3 3 0 0 1 3-3z M9 13h6 M9 16h4" />
             <NavLink
@@ -176,7 +178,6 @@ export default function Workbench() {
         </nav>
 
         <nav className="nav-group" aria-label="资产">
-          <div className="nav-label">资产</div>
           <NavLink to="/kb" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} data-nav="knowledge" onClick={() => setMobileOpen(false)}>
             <Ico path="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5z M20 5.5A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5z" />
             <span className="sidebar-label">知识库</span>
@@ -189,10 +190,6 @@ export default function Workbench() {
             <Ico path="M7 4h10a2 2 0 0 1 2 2v14H5V6a2 2 0 0 1 2-2z M9 4v3h6V4" />
             <span className="sidebar-label">审批</span>
             {approvalCount > 0 && <span className="nav-badge warn">{approvalCount}</span>}
-          </NavLink>
-          <NavLink to="/cron" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")}>
-            <Ico path="M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M12 8v4l2.5 1.5" />
-            <span className="sidebar-label">定时任务</span>
           </NavLink>
           <NavLink to="/exam" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} data-nav="exam" onClick={() => setMobileOpen(false)}>
             <Ico path="M3 9l9-5 9 5-9 5z M7 12v5c3 2 7 2 10 0v-5 M21 9v6" />
@@ -211,14 +208,13 @@ export default function Workbench() {
           </div>
         </nav>
 
-        <div className="nav-group">
-          <div className="nav-label">项目</div>
+        <nav className="nav-group" aria-label="项目">
           <div className="nav-link is-disabled" aria-disabled="true" data-nav-disabled="创建新项目">
             <Ico path="M12 7v10 M7 12h10" />
             <span className="sidebar-label">创建新项目</span>
             <span className="nav-tag">非本期</span>
           </div>
-        </div>
+        </nav>
         </div>
 
         <div className="sidebar-foot">

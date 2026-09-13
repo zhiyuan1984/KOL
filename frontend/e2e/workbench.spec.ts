@@ -2045,7 +2045,7 @@ test("sidebar does not list 最近 sessions", async ({ page }) => {
   await expect(page.getByLabel("筛选最近")).toHaveCount(0);
   await expect(page.locator(".sidebar .nav-label", { hasText: /^最近$/ })).toHaveCount(0);
   await expect(page.locator('nav[aria-label="今日"]')).toBeVisible();
-  await expect(page.locator('nav[aria-label="智能体"]')).toBeVisible();
+  await expect(page.locator('nav[aria-label="数字员工"]')).toBeVisible();
   await expect(page.locator('nav[aria-label="资产"]')).toBeVisible();
 });
 
@@ -2189,7 +2189,7 @@ test("approval, knowledge, and exam are vertical primary nav items before cloud"
   const todayOrder = await page.locator('nav[aria-label="今日"] [data-nav]').evaluateAll((elements) =>
     elements.map((element) => element.getAttribute("data-nav")),
   );
-  expect(todayOrder).toEqual(["new-task", "running"]);
+  expect(todayOrder).toEqual(["new-task", "running", "cron"]);
   await expect(page.locator('nav[aria-label="今日"]')).not.toContainText(/等我确认|等我確認|Awaiting confirm/);
   await expect(page.locator('[data-nav="confirm"]')).toHaveCount(0);
   await expect(page.locator('aside a[href="/approvals"]')).toHaveCount(1);
@@ -2203,6 +2203,7 @@ test("approval, knowledge, and exam are vertical primary nav items before cloud"
   expect(assetOrder.indexOf("approvals")).toBeGreaterThanOrEqual(0);
   expect(assetOrder.indexOf("exam")).toBeGreaterThanOrEqual(0);
   expect(assetOrder.indexOf("pipeline")).toBeGreaterThanOrEqual(0);
+  expect(assetOrder.indexOf("cron")).toBe(-1);
   expect(assetOrder.indexOf("knowledge")).toBeLessThan(assetOrder.indexOf("云盘"));
   expect(assetOrder.indexOf("approvals")).toBeLessThan(assetOrder.indexOf("云盘"));
   expect(assetOrder.indexOf("exam")).toBeLessThan(assetOrder.indexOf("云盘"));
@@ -2219,6 +2220,27 @@ test("approval, knowledge, and exam are vertical primary nav items before cloud"
   await expect(page.getByRole("heading", { name: "我的知识库" })).toBeVisible();
   await page.locator('[data-nav="exam"]').click();
   await expect(page.getByRole("heading", { name: "学习考试" })).toBeVisible();
+});
+
+test("employee sidebar puts cron in today cluster and hides group titles", async ({ page }) => {
+  await page.goto("/");
+  const today = page.locator('nav[aria-label="今日"]');
+  const assets = page.locator('nav[aria-label="资产"]');
+  await expect(today.locator('[data-nav="new-task"]')).toBeVisible();
+  await expect(today.locator('[data-nav="running"]')).toBeVisible();
+  await expect(today.locator('[data-nav="cron"]')).toBeVisible();
+  await expect(today.locator('[data-nav="cron"]')).toContainText("定时任务");
+  await expect(assets.locator('[data-nav="cron"]')).toHaveCount(0);
+  await expect(page.locator(".sidebar .nav-label")).toHaveCount(0);
+  await expect(page.locator(".sidebar").getByText("今日", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".sidebar").getByText("智能体", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".sidebar").getByText("资产", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".sidebar").getByText("项目", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".sidebar").getByText("最近", { exact: true })).toHaveCount(0);
+  await today.locator('[data-nav="cron"]').click();
+  await expect(page).toHaveURL(/\/cron/);
+  await expect(page.getByRole("heading", { name: "定时任务" })).toBeVisible();
+  await expect(today.locator('[data-nav="cron"]')).toHaveClass(/active/);
 });
 
 test("docs/21 employee sidebar has no admin connectors deep-link", async ({ page }) => {

@@ -40,6 +40,7 @@
   --red: var(--danger);
 
   --chrome-2: #eceef0;
+  --sidebar-thumb: #c5c9d0;
   --left-width: clamp(208px, 15vw, 240px);
   --page-gutter: clamp(16px, 2.2vw, 28px);
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -63,6 +64,7 @@
   --primary: #818cf8;
   --primary-fg: #111827;
   --chrome-2: #23262c;
+  --sidebar-thumb: #5a616b;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -75,6 +77,7 @@
     --primary: #818cf8;
     --primary-fg: #111827;
     --chrome-2: #23262c;
+    --sidebar-thumb: #5a616b;
   }
 }
 
@@ -124,9 +127,24 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .sidebar-nav-stack {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
   min-height: 0;
   overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--sidebar-thumb) transparent;
+}
+.sidebar-nav-stack::-webkit-scrollbar {
+  width: 5px;
+}
+.sidebar-nav-stack::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-nav-stack::-webkit-scrollbar-thumb {
+  background: var(--sidebar-thumb);
+  border-radius: 999px;
+}
+.sidebar-nav-stack::-webkit-scrollbar-thumb:hover {
+  background: #b0b6be;
 }
 .sidebar-head {
   display: flex;
@@ -186,30 +204,39 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   color: var(--orange);
 }
 .nav-group { display: flex; flex-direction: column; gap: 2px; }
+.nav-group + .nav-group {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
 .nav-label {
-  font-size: var(--font-meta);
-  font-weight: 500;
-  color: var(--muted);
-  padding: 10px 10px 4px;
-  letter-spacing: 0;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 .nav-ico {
-  width: 16px;
-  height: 16px;
-  flex: 0 0 16px;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
   color: #5c6370;
 }
 .nav-link, .nav-combo {
   color: var(--text);
   text-decoration: none;
-  padding: 7px 10px;
+  padding: 8px 10px;
   border-radius: 0;
-  font-size: var(--font-ui);
-  font-weight: 400;
+  font-size: var(--font-section);
+  font-weight: 500;
   border: 1px solid transparent;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   background: transparent;
 }
 .nav-link .sidebar-label,
@@ -218,6 +245,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .mobile-top a,
 .mobile-top strong {
   white-space: nowrap;
+}
+.nav-link .sidebar-label,
+.nav-combo a {
+  font-weight: 600;
 }
 .nav-link:hover, .nav-combo:hover {
   background: #fff4ee;
