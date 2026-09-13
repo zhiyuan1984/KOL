@@ -37,6 +37,9 @@ export function resetDemoRuntimeState(): void {
   conn.prepare("DELETE FROM starry_stage_writes").run();
   conn.prepare("DELETE FROM task_events").run();
   conn.prepare("DELETE FROM work_items").run();
+  // Library sync keeps operator tags when Starry sends []. A workbench reset
+  // must still drop them, or the next E2E case toggles 犹豫谨慎 off.
+  conn.prepare("UPDATE collaborations SET follow_style_tags=NULL").run();
   conn.exec("DROP TRIGGER IF EXISTS stage_transitions_no_delete");
   try {
     conn.prepare("DELETE FROM stage_transitions").run();

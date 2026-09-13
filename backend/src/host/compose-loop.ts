@@ -76,7 +76,7 @@ export function composeFactsFromContext(input: {
     ? Number(input.amount_usd)
     : null;
   const requested = requestedMailKind(input.raw || "");
-  const spec = requested ? stageMailSpecByKind(requested) : stageMailSpec(stage);
+  const spec = requested ? stageMailSpecByKind(requested, stage) : stageMailSpec(stage);
   const currency = String(input.currency || (amount != null ? "USD" : "") || "").trim()
     || (amount != null ? "USD" : null);
   const rateUnit = input.rate_unit || null;
@@ -130,8 +130,8 @@ export function composeFactsFromContext(input: {
   };
 }
 
-export function composePreviewPrompt(raw: string, digest: string, facts: ComposeFacts): string {
-  const instruction = stageMailSpecByKind(facts.kind).instruction;
+export function composePreviewPrompt(raw: string, digest: string, facts: ComposeFacts, stage = ""): string {
+  const instruction = stageMailSpecByKind(facts.kind, stage).instruction;
   const bits = [
     digest
       ? `历史往来摘要（必须当作上下文，不要编造与摘要冲突的事实）：\n${digest}`
@@ -166,7 +166,7 @@ export function composePromptFromEntities(entities: Json, fallback: string): str
     digest,
     style_tags: Array.isArray(entities.follow_style_tags) ? entities.follow_style_tags as FollowStyleTag[] : undefined,
   });
-  return composePreviewPrompt(raw || fallback, digest, facts);
+  return composePreviewPrompt(raw || fallback, digest, facts, String(entities.stage_code || entities.stage || entities.official_stage || ""));
 }
 
 export function composeRouteFacts(input: {
@@ -194,7 +194,7 @@ export function composeRouteFacts(input: {
 
 export function pickComposeTemplate(skill: string, stageCode?: string | null, raw = "", _amount?: number | null): EmailTemplate {
   const requested = requestedMailKind(raw);
-  const spec = requested ? stageMailSpecByKind(requested) : stageMailSpec(stageCode || "");
+  const spec = requested ? stageMailSpecByKind(requested, stageCode || "") : stageMailSpec(stageCode || "");
   const named = templateById(spec.templateId);
   if (named) return named;
   const stage = stageCode ? normalizeStage(stageCode) : "";
@@ -268,7 +268,7 @@ export function previewComposeForCollaboration(col: Row | null, text: string, ex
     amount_usd: facts.amount_usd ?? null,
     currency: facts.currency || null,
     rate_unit: facts.rate_unit || null,
-    prompt: composePreviewPrompt(text, digest, facts),
+    prompt: composePreviewPrompt(text, digest, facts, String(col?.stage_code || extra.stage_code || "")),
   };
 }
 

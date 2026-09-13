@@ -303,6 +303,9 @@ describe("real Codex HTTP flow", () => {
     });
     const workItemId = String(payload.task!.id);
     const runId = String(run.pending_message.run_id || "");
+    // Same isolation as afterEach: a later test opens a new SQLite file, so
+    // leftover crawl follow-up must not insert against missing parents.
+    process.env.LINGONG_DB = path.join(tmp, "torn-down.db");
     resetConn();
     seedAll();
     expect(appendTaskEvent(workItemId, runId, "crawl.start_failed", "远程采集启动失败", "failed", "gone")).toBeNull();

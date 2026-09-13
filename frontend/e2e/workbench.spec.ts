@@ -547,20 +547,24 @@ test("KOL session header can tag a followed creator as 犹豫谨慎", async ({ p
   await page.locator("[data-follow-style-add]").click();
   await expect(page.locator("[data-follow-style-panel]")).toBeVisible();
   await page.locator('[data-follow-style-preset="cautious"]').click();
-  await page.locator("[data-follow-style-save]").click();
+  const save = page.locator("[data-follow-style-save]");
+  await expect(save).toBeEnabled();
+  await save.click();
+  await expect(page.locator("[data-follow-style-panel]")).toHaveCount(0);
   await expect(page.locator('[data-follow-style-tag="cautious"]')).toContainText("犹豫谨慎");
   await expect(page.locator("[data-kind='task-result-card']")).toContainText("犹豫谨慎");
+  const sessionId = page.url().match(/\/s\/([^/?#]+)/)?.[1];
+  expect(sessionId).toBeTruthy();
+  // Home/board GET also kicks library + mail sync; poll the session journey
+  // so a slow sync cannot hide a tag that already persisted.
   await expect.poll(async () => {
-    const board = await page.request.get("/api/home/board").then((r) => r.json()) as {
-      kols?: { handle?: string; follow_style_tags?: { id?: string }[] }[];
+    const session = await page.request.get(`/api/sessions/${sessionId}`).then((r) => r.json()) as {
+      journey?: { follow_style_tags?: { id?: string }[] };
     };
-    return (board.kols || []).some((kol) =>
-      kol.handle === "户外电源达人" && kol.follow_style_tags?.some((tag) => tag.id === "cautious"),
-    );
-  }, { timeout: 10000 }).toBe(true);
+    return session.journey?.follow_style_tags?.some((tag) => tag.id === "cautious") === true;
+  }, { timeout: 15000 }).toBe(true);
   await page.goto("/");
   await openHomeLifecycle(page);
-  await page.locator("[data-refresh-mail]").click();
   const tagged = page.locator('[data-followed-kol="户外电源达人"]');
   await expect(tagged).toBeVisible();
   await expect(tagged.locator('[data-follow-style-tag="cautious"]')).toContainText("犹豫谨慎", { timeout: 15000 });
