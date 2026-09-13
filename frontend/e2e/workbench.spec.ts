@@ -1,4 +1,4 @@
-import { test, expect, type Locator, type Page } from "@playwright/test";
+import { test, expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import path from "node:path";
 
 async function saveScreenshot(page: Page, name: string): Promise<void> {
@@ -106,11 +106,18 @@ function chatStream(page: Page) {
   return page.locator(".chat");
 }
 
-async function pipelineAction(page: Page, handle: string, label: string) {
+async function proposePipelineStage(page: Page, handle: string) {
   const row = page.locator(`[data-kol="${handle}"]`);
   await row.locator("[data-pipeline-row]").click();
-  await row.locator('[data-pipeline-tab="actions"]').click();
-  await row.getByRole("button", { name: label, exact: true }).click();
+  await expect(page.locator("[data-pipeline-drawer]")).toBeVisible();
+  await page.locator("[data-pipeline-drawer] [data-propose-stage]").click();
+}
+
+async function askKolSession(page: Page, request: APIRequestContext, collaborationId: string, text: string) {
+  const ses = await request.post(`/api/collaborations/${collaborationId}/session`).then((r) => r.json() as Promise<{ id: string }>);
+  await page.goto(`/s/${ses.id}`);
+  await page.locator("[data-composer-input]").fill(text);
+  await page.locator("[data-send]").click();
 }
 
 test("home task template 写合作邮件 prefills home composer then follows the home ask path", async ({ page, request }) => {
@@ -467,33 +474,54 @@ test("pipeline review follows the common task flow with progress and a right-sid
   expect(bodies[0]?.intent).toBe("risk_scan");
 });
 
-test("pipeline shows a 15-stage milestone timeline and detail tabs", async ({ page }) => {
+test("pipeline shows a 15-stage milestone timeline and lifecycle drawer", async ({ page }) => {
   await page.goto("/");
   await page.locator('[data-nav="pipeline"]').click();
   await expect(page).toHaveURL(/\/pipeline$/);
   await expect(page.getByRole("heading", { name: "KOL 全生命周期管理" })).toBeVisible();
   await expect(page.locator(".pipeline-page .page-kicker")).toHaveText("合作");
   await expect(page.locator(".pipeline-page")).toContainText("不是创建新项目");
+  await expect(page.locator(".pipeline-page")).toContainText("不是今日待办");
   await expect(page.locator("[data-nav-disabled='创建新项目']")).toBeVisible();
-  await expect(page.locator("[data-exception-bar]")).toContainText("异常 KOL");
+  await expect(page.locator("[data-exception-bar]")).toContainText("旁路 / 异常阶段");
   await expect(page.locator("[data-exception-bar]")).toContainText("争议中");
-  await expect(page.locator("[data-journey-guide]")).toContainText("发送 ≠ 推进阶段");
-  await expect(page.locator("[data-pipeline-related]")).toContainText("写合作邮件");
-  await expect(page.locator("[data-pipeline-related]")).toContainText("超时/风险扫描");
+  await expect(page.locator("[data-exception-bar]")).toContainText("不是首页的「等待中」");
+  await expect(page.locator("[data-journey-guide]")).toHaveCount(0);
+  await expect(page.locator("[data-pipeline-related]")).toHaveCount(0);
+  await expect(page.locator("[data-pipeline-task]")).toHaveCount(0);
+  await expect(page.locator(".pipeline-page")).not.toContainText("首页任务");
+  await expect(page.locator(".pipeline-page")).not.toContainText("本页动作");
+  await expect(page.locator(".pipeline-page")).not.toContainText("写合作邮件");
+  await expect(page.locator(".pipeline-page")).not.toContainText("超时/风险扫描");
+  await expect(page.locator("[data-pipeline-drawer]")).toHaveCount(0);
+  await expect(page.locator(".pipeline-item.is-selected")).toHaveCount(0);
   await expect(page.locator("[data-stage-axis] li")).toHaveCount(15);
   await expect(page.locator('[data-kol="小美妆日记"] [data-milestone="INITIAL_CONTACT"]')).toHaveAttribute("data-current", "true");
   await expect(page.locator('[data-kol="数码老张"] [data-milestone="QUOTE_PENDING"]')).toHaveAttribute("data-current", "true");
+  await expect(page.locator("[data-pipeline-filters] [data-filter='brand']")).toBeVisible();
+  await expect(page.locator("[data-pipeline-filters] [data-filter='owner']")).toBeVisible();
+  await expect(page.locator("[data-pipeline-filters] [data-filter='stage']")).toBeVisible();
   await page.locator('[data-kol="小美妆日记"] [data-pipeline-row]').click();
-  await expect(page.locator('[data-kol="小美妆日记"] [data-pipeline-tab="overview"]')).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator('[data-pipeline-panel="overview"]')).toContainText("初步接触");
-  await expect(page.locator('[data-kol="小美妆日记"] button:has-text("记状态")')).toHaveCount(0);
-  await page.locator('[data-pipeline-tab="creator"]').click();
+  expect(new URL(page.url()).searchParams.get("kol")).toBe("小美妆日记");
+  await expect(page.locator("[data-pipeline-drawer]")).toBeVisible();
+  await expect(page.locator("[data-pipeline-drawer]")).toContainText("初步接触");
   await expect(page.locator("[data-creator-ledger]")).toContainText("钟槿年");
-  await expect(page.locator("[data-creator-ledger]")).toContainText("互动率");
-  await page.locator('[data-pipeline-tab="actions"]').click();
-  await expect(page.locator('[data-kol="小美妆日记"] button:has-text("记状态")')).toBeVisible();
+  await expect(page.locator("[data-pipeline-drawer]")).toContainText("本页未返回往来摘要");
+  await expect(page.locator("[data-pipeline-drawer] [data-propose-stage]")).toHaveText("提出阶段变更");
+  await expect(page.locator("[data-pipeline-drawer]")).not.toContainText("写合作邮件");
+  await expect(page.locator("[data-pipeline-drawer]")).not.toContainText("记状态");
   await page.locator('[data-kol="数码老张"] [data-pipeline-row]').click();
-  await expect(page.locator('[data-pipeline-panel="overview"]')).toContainText("报价待确认");
+  await expect(page.locator("[data-pipeline-drawer]")).toContainText("报价待确认");
+  await page.locator("[data-pipeline-filters] [data-filter='brand']").selectOption("RO");
+  await expect(page.locator("[data-pipeline-drawer]")).toHaveCount(0);
+  await expect(page.locator("[data-kol]")).toHaveCount(1);
+  await expect(page.locator('[data-kol="母婴小课"]')).toBeVisible();
+  await page.goto("/pipeline?brand=RO");
+  await expect(page.locator("[data-pipeline-drawer]")).toHaveCount(0);
+  await expect(page.locator("[data-kol]")).toHaveCount(1);
+  await expect(page.locator('[data-kol="母婴小课"]')).toBeVisible();
+  await page.goto("/pipeline?kol=数码老张");
+  await expect(page.locator("[data-pipeline-drawer]")).toContainText("报价待确认");
 });
 
 test("session page has no coach next-step card and keeps composer skills", async ({ page }) => {
@@ -1206,7 +1234,7 @@ test("employee stream parses task_result JSON into a card and hides engine jargo
 
 test("记状态 to CONTENT_REVIEW queues content approval and writes after manager agrees", async ({ page, request }) => {
   await page.goto("/pipeline");
-  await pipelineAction(page, "母婴小课", "记状态");
+  await proposePipelineStage(page, "母婴小课");
   await page.waitForURL(/\/s\//);
   const card = page.locator('[data-workbench] [data-kind="confirm-stage-card"]');
   await expect(card).toBeVisible({ timeout: 15000 });
@@ -1236,7 +1264,7 @@ test("记状态 to CONTENT_REVIEW queues content approval and writes after manag
 
 test("session page shows Agent TaskList, L3 block, and stage diff", async ({ page }) => {
   await page.goto("/pipeline");
-  await pipelineAction(page, "小美妆日记", "记状态");
+  await proposePipelineStage(page, "小美妆日记");
   await page.waitForURL(/\/s\//);
   const taskList = page.locator("[data-agent-task-list]");
   await expect(taskList).toBeVisible();
@@ -1272,10 +1300,8 @@ test("session page shows Agent TaskList, L3 block, and stage diff", async ({ pag
   await expect(page.locator('[data-risk="L3"]').first()).toBeVisible();
 });
 
-test("写跟进邮件 marks the left pointer as an L2 draft block", async ({ page }) => {
-  await page.goto("/pipeline");
-  await pipelineAction(page, "小美妆日记", "写合作邮件");
-  await page.waitForURL(/\/s\//);
+test("写跟进邮件 marks the left pointer as an L2 draft block", async ({ page, request }) => {
+  await askKolSession(page, request, "col_xiaomei", "写合作邮件 @小美妆日记");
   await expect(page.locator("[data-agent-task-list]")).toBeVisible();
   await expectDraft(page);
   await expect(page.locator('[data-risk="L2"]').first()).toBeVisible({ timeout: 15000 });
@@ -1288,7 +1314,7 @@ test("记状态 shows stage workbench, never a draft tab card", async ({ page, r
     (c: { handle: string }) => c.handle === "小美妆日记",
   ) as { stage_code: string };
   await page.goto("/pipeline");
-  await pipelineAction(page, "小美妆日记", "记状态");
+  await proposePipelineStage(page, "小美妆日记");
   await page.waitForURL(/\/s\//);
   await expect(page.locator('[data-workbench] [data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
@@ -1304,9 +1330,7 @@ test("记状态 shows stage workbench, never a draft tab card", async ({ page, r
 test("催大纲 on wrong stage stays as persistent error, no worker", async ({ page, request }) => {
   const before = await request.get("/api/workers");
   const n0 = ((await before.json()) as unknown[]).length;
-  await page.goto("/pipeline");
-  await pipelineAction(page, "小美妆日记", "催大纲");
-  await page.waitForURL(/\/s\//);
+  await askKolSession(page, request, "col_xiaomei", "催大纲 @小美妆日记");
   await expect(page.locator('[data-kind="error-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-kind="error-card"]')).toContainText("已签收-测试中");
   await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
@@ -1343,17 +1367,13 @@ test("session 催大纲 [红人或合作] also stays on a supplement card", asyn
   await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
 });
 
-test("地址核对: incomplete email in workbench, complete 可以出库", async ({ page }) => {
-  await page.goto("/pipeline");
-  await pipelineAction(page, "小美妆日记", "寄样地址核对");
-  await page.waitForURL(/\/s\//);
+test("地址核对: incomplete email in workbench, complete 可以出库", async ({ page, request }) => {
+  await askKolSession(page, request, "col_xiaomei", "核对地址 @小美妆日记");
   await expect(page.locator('[data-workbench] [data-kind="email-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.getByText("可以出库")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /出库|WMS|仓库/ })).toHaveCount(0);
 
-  await page.goto("/pipeline");
-  await pipelineAction(page, "数码老张", "寄样地址核对");
-  await page.waitForURL(/\/s\//);
+  await askKolSession(page, request, "col_laozhang", "核对地址 @数码老张");
   await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("可以进入人工确认后的出库流程", { timeout: 15000 });
   await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
 });
@@ -1361,9 +1381,7 @@ test("地址核对: incomplete email in workbench, complete 可以出库", async
 test("发货通知 without tracking shows supplement in workbench", async ({ page, request }) => {
   const before = await request.get("/api/workers");
   const n0 = ((await before.json()) as unknown[]).length;
-  await page.goto("/pipeline");
-  await pipelineAction(page, "小美妆日记", "发货通知");
-  await page.waitForURL(/\/s\//);
+  await askKolSession(page, request, "col_xiaomei", "发货通知 @小美妆日记");
   await expect(page.locator('[data-workbench] [data-kind="supplement-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-kind="supplement-card"]')).toContainText("运单号");
   await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
@@ -1486,13 +1504,11 @@ test("KOL / 写合作邮件 fills composer with USD 100 per hour draft", async (
   await expect(page.locator("[data-draft-body]")).toContainText("USD 100 per hour");
 });
 
-test("send failure stays as persistent error, not toast-success", async ({ page }) => {
+test("send failure stays as persistent error, not toast-success", async ({ page, request }) => {
   await page.goto("/exam");
   await page.locator('[data-persona="exam_blocked"]').click();
   await expect(page.locator("body")).toContainText("未通过");
-  await page.goto("/pipeline");
-  await pipelineAction(page, "小美妆日记", "写跟进信");
-  await page.waitForURL(/\/s\//);
+  await askKolSession(page, request, "col_xiaomei", "写跟进邮件 @小美妆日记");
   await expectDraft(page);
   await openDraftTab(page);
   await page.locator('[data-email-action="send"]').click();
@@ -1530,9 +1546,7 @@ test("unbound inbound stays on this thread", async ({ page }) => {
 test("two buttons stay separate: send keeps stage, confirm-stage advances", async ({ page, request }) => {
   await page.goto("/exam");
   await page.locator('[data-persona="sriphy"]').click();
-  await page.goto("/pipeline");
-  await pipelineAction(page, "小美妆日记", "写跟进信");
-  await page.waitForURL(/\/s\//);
+  await askKolSession(page, request, "col_xiaomei", "写跟进邮件 @小美妆日记");
   await expectDraft(page);
   await openDraftTab(page);
   await page.locator('[data-email-action="send"]').click();

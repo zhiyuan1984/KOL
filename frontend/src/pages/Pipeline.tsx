@@ -3,7 +3,6 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { storePending } from "../components/ChatBlocks";
 import { FALLBACK_MAIN_STAGES, SHORT_STAGE_LABEL } from "../kolStages";
-import JourneyGuide from "../components/JourneyGuide";
 import { rememberJourney } from "../journey";
 
 type StageSpec = {
@@ -33,10 +32,16 @@ type Card = {
   duplicate_checked?: number;
   group_brand_overlap?: string;
   exception?: boolean;
-  actions: { label: string; act: string; prompt: string; intent?: string; collaboration_id?: string }[];
+  overdue?: number;
+  source?: string;
+  synced_at?: string;
+  last_skip_kind?: string;
+  last_skip_reason?: string;
+  last_skipped_stages?: string;
+  recent_events?: { at?: string; label?: string }[];
+  mail_summary?: string;
+  audit?: { at?: string; actor?: string; event?: string }[];
 };
-
-type DetailTab = "overview" | "creator" | "actions";
 
 const FALLBACK_STAGES: StageSpec[] = FALLBACK_MAIN_STAGES;
 
@@ -47,6 +52,9 @@ const DOMAIN_LABEL: Record<string, string> = {
   Execution: "履约",
   "Settlement-Growth": "结算",
 };
+
+const FILTER_KEYS = ["brand", "owner", "stage", "region", "sync"] as const;
+type FilterKey = (typeof FILTER_KEYS)[number];
 
 function stageIndex(stages: StageSpec[], code?: string) {
   return stages.findIndex((stage) => stage.code === code);
@@ -61,27 +69,6 @@ const EXCEPTION_STATES = [
   { code: "COMPLETED", label: "已完成" },
 ];
 
-const RELATED_HOME_TASKS = [
-  { id: "creator_lifecycle_kanban", title: "合作生命周期看板", prompt: "合作生命周期看板" },
-  { id: "risk_scan", title: "超时/风险扫描", prompt: "超时/风险扫描" },
-  { id: "reply_analysis", title: "回复分析", prompt: "回复分析 [会话或红人]" },
-  { id: "confirm_stage", title: "提出阶段变更", prompt: "提出阶段变更 [红人] 到 [目标阶段]" },
-];
-
-const RELATED_BOARD_TASKS = [
-  { id: "email_compose", title: "写合作邮件" },
-  { id: "confirm_stage", title: "提出阶段变更" },
-  { id: "reply_analysis", title: "回复分析" },
-  { id: "deal_memory", title: "Deal Memory" },
-  { id: "creator_profile", title: "达人画像" },
-  { id: "creator_lifecycle_kanban", title: "合作生命周期看板" },
-  { id: "risk_scan", title: "超时/风险扫描" },
-];
-
-function cardActions(card: Card): Card["actions"] {
-  return card.actions || [];
-}
-
 function domainSpans(stages: StageSpec[]) {
   const spans: { domain: string; start: number; count: number }[] = [];
   stages.forEach((stage, index) => {
@@ -91,6 +78,29 @@ function domainSpans(stages: StageSpec[]) {
     else spans.push({ domain, start: index + 1, count: 1 });
   });
   return spans;
+}
+
+function unique(values: Array<string | undefined | null>) {
+  return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh"));
+}
+
+function regionOf(card: Card) {
+  return String(card.audience_geo || "").trim();
+}
+
+function syncSourceOf(card: Card) {
+  return String(card.source || "").trim();
+}
+
+function stageRisk(card: Card) {
+  if (card.exception) return "已离开主时间线";
+  if (Number(card.overdue) === 1) return "逾期";
+  if (card.days_in_stage != null && Number(card.days_in_stage) >= 7) return `停留 ${card.days_in_stage} 天`;
+  return "正常";
+}
+
+function EmptyHint({ children }: { children: string }) {
+  return <p className="muted pipeline-empty-hint">{children}</p>;
 }
 
 export default function Pipeline() {
@@ -104,28 +114,48 @@ export default function Pipeline() {
   } | null>(null);
   const [onlyEx, setOnlyEx] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [tab, setTab] = useState<DetailTab>("overview");
+  const [proposing, setProposing] = useState(false);
   const nav = useNavigate();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const kolQuery = params.get("kol");
+  const filters = {
+    brand: params.get("brand") || "",
+    owner: params.get("owner") || "",
+    stage: params.get("stage") || "",
+    region: params.get("region") || "",
+    sync: params.get("sync") || "",
+  };
 
   useEffect(() => {
     api.pipeline(onlyEx ? 1 : 0).then(setData as never);
   }, [onlyEx]);
 
   const stages = data?.stages?.length ? data.stages : FALLBACK_STAGES;
-  const rows = useMemo(() => {
+  const pool = useMemo(() => {
     if (!data) return [];
-    if (onlyEx) return data.exceptions;
-    return data.columns.flatMap((col) => data.groups[col] || []);
-  }, [data, onlyEx]);
-
-  useEffect(() => {
-    if (!data || !kolQuery) return;
-    const pool = [
+    return [
       ...data.columns.flatMap((col) => data.groups[col] || []),
       ...data.exceptions,
     ];
+  }, [data]);
+
+  const matchesFilters = (card: Card) => {
+    if (filters.brand && card.brand !== filters.brand) return false;
+    if (filters.owner && String(card.owner_name || "") !== filters.owner) return false;
+    if (filters.stage && String(card.stage_code || "") !== filters.stage) return false;
+    if (filters.region && regionOf(card) !== filters.region) return false;
+    if (filters.sync && syncSourceOf(card) !== filters.sync) return false;
+    return true;
+  };
+
+  const rows = useMemo(() => {
+    if (!data) return [];
+    const base = onlyEx ? data.exceptions : data.columns.flatMap((col) => data.groups[col] || []);
+    return base.filter(matchesFilters);
+  }, [data, onlyEx, filters.brand, filters.owner, filters.stage, filters.region, filters.sync]);
+
+  useEffect(() => {
+    if (!data || !kolQuery) return;
     const wanted = pool.find((row) => row.handle === kolQuery);
     if (!wanted) return;
     if (Boolean(wanted.exception) !== onlyEx) {
@@ -133,36 +163,65 @@ export default function Pipeline() {
       return;
     }
     setSelectedId(wanted.id);
-    setTab("overview");
-  }, [data, kolQuery, onlyEx]);
+  }, [data, kolQuery, onlyEx, pool]);
 
   useEffect(() => {
-    if (kolQuery) return;
-    if (!rows.length) {
-      setSelectedId(null);
+    if (!selectedId) return;
+    if (rows.some((row) => row.id === selectedId)) return;
+    setSelectedId(null);
+    if (!kolQuery) return;
+    const next = new URLSearchParams(params);
+    next.delete("kol");
+    setParams(next, { replace: true });
+  }, [rows, selectedId, kolQuery, params, setParams]);
+
+  const setFilter = (key: FilterKey, value: string) => {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    setParams(next, { replace: true });
+  };
+
+  const openCard = (card: Card) => {
+    rememberJourney({ kind: "pipeline", handle: card.handle, stageCode: card.stage_code });
+    if (selectedId === card.id && kolQuery === card.handle) {
+      closeDrawer();
       return;
     }
-    if (!selectedId || !rows.some((row) => row.id === selectedId)) {
-      setSelectedId(rows[0].id);
-      setTab("overview");
+    setSelectedId(card.id);
+    const next = new URLSearchParams(params);
+    next.set("kol", card.handle);
+    setParams(next, { replace: true });
+  };
+
+  const closeDrawer = () => {
+    setSelectedId(null);
+    const next = new URLSearchParams(params);
+    next.delete("kol");
+    setParams(next, { replace: true });
+  };
+
+  const proposeStageChange = async (card: Card) => {
+    if (proposing) return;
+    setProposing(true);
+    try {
+      const ses = await api.openKolSession(card.id);
+      storePending(ses.id, { text: `提出阶段变更 @${card.handle}`, collaboration_id: card.id, intent: "confirm_stage" });
+      sessionStorage.setItem(`kol-session:${ses.id}`, "1");
+      nav(`/s/${ses.id}`, { state: { kolSession: true } });
+    } finally {
+      setProposing(false);
     }
-  }, [rows, selectedId, kolQuery]);
-
-  const ask = async (a: Card["actions"][0]) => {
-    rememberJourney({ kind: "skill", skillId: a.intent, skillLabel: a.label, handle: a.prompt.match(/@([^\s]+)/)?.[1] });
-    const ses = a.collaboration_id
-      ? await api.openKolSession(a.collaboration_id)
-      : await api.createSession(a.prompt.slice(0, 24));
-    storePending(ses.id, { text: a.prompt, collaboration_id: a.collaboration_id });
-    if (a.collaboration_id) sessionStorage.setItem(`kol-session:${ses.id}`, "1");
-    nav(`/s/${ses.id}`, { state: { kolSession: Boolean(a.collaboration_id) } });
   };
 
-  const runHomeTask = async (task: { id: string; prompt: string }) => {
-    const ses = await api.createSession(task.prompt.slice(0, 24));
-    storePending(ses.id, { text: task.prompt });
-    nav(`/s/${ses.id}`);
-  };
+  useEffect(() => {
+    if (!selectedId) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeDrawer();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedId, params]);
 
   if (!data) return <p className="muted">加载生命周期…</p>;
 
@@ -170,51 +229,83 @@ export default function Pipeline() {
   const exceptionNames = (data.side_stages?.length ? data.side_stages : EXCEPTION_STATES)
     .map((stage) => stage.label)
     .join("、");
+  const selected = selectedId ? pool.find((card) => card.id === selectedId) || null : null;
+  const filterOptions = {
+    brand: unique(pool.map((card) => card.brand)),
+    owner: unique(pool.map((card) => card.owner_name)),
+    stage: unique(pool.map((card) => card.stage_code)).map((code) => ({
+      code,
+      label: pool.find((card) => card.stage_code === code)?.stage_label || code,
+    })),
+    region: unique(pool.map(regionOf)),
+    sync: unique(pool.map(syncSourceOf)),
+  };
 
   return (
-    <div className="pipeline-page">
+    <div className={"pipeline-page" + (selected ? " has-drawer" : "")}>
       <div className="page-kicker">合作</div>
       <h1 style={{ marginTop: 0 }}>KOL 全生命周期管理</h1>
-      <JourneyGuide variant="compact" />
       <p className="muted">
-        这是合作资产页，不是创建新项目。任务不会自动打开这里。从侧栏「生命周期」或技能市场进入。
-        点选红人后用「概览 / 达人 / 动作」查看详情；首页「流水线复盘」「超时/风险扫描」只读汇总，结果留在会话。
+        这是合作资产页，不是创建新项目，也不是今日待办。看正式阶段、负责人、停留和旁路状态。
+        点选红人打开右侧详情；阶段动作只有「提出阶段变更」。
       </p>
-      <div className="pipeline-related" data-pipeline-related>
-        <div>
-          <span className="pipeline-related-kicker">本页动作</span>
-          {RELATED_BOARD_TASKS.map((task) => (
-            <button
-              key={task.id}
-              type="button"
-              className="pipeline-related-chip"
-              onClick={() => {
-                if (selectedId) setTab("actions");
-              }}
-            >
-              {task.title}
-            </button>
-          ))}
-        </div>
-        <div>
-          <span className="pipeline-related-kicker">首页任务</span>
-          {RELATED_HOME_TASKS.map((task) => (
-            <button
-              key={task.id}
-              type="button"
-              className="pipeline-related-chip"
-              data-pipeline-task={task.id}
-              onClick={() => void runHomeTask(task)}
-            >
-              {task.title}
-            </button>
-          ))}
-        </div>
+
+      <div className="pipeline-filters" data-pipeline-filters>
+        <label>
+          品牌
+          <select data-filter="brand" value={filters.brand} onChange={(event) => setFilter("brand", event.target.value)}>
+            <option value="">全部</option>
+            {filterOptions.brand.map((value) => (
+              <option key={value} value={value}>{value}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          负责人
+          <select data-filter="owner" value={filters.owner} onChange={(event) => setFilter("owner", event.target.value)}>
+            <option value="">全部</option>
+            {filterOptions.owner.map((value) => (
+              <option key={value} value={value}>{value}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          阶段
+          <select data-filter="stage" value={filters.stage} onChange={(event) => setFilter("stage", event.target.value)}>
+            <option value="">全部</option>
+            {filterOptions.stage.map((item) => (
+              <option key={item.code} value={item.code}>{item.label}</option>
+            ))}
+          </select>
+        </label>
+        {filterOptions.region.length ? (
+          <label>
+            地区
+            <select data-filter="region" value={filters.region} onChange={(event) => setFilter("region", event.target.value)}>
+              <option value="">全部</option>
+              {filterOptions.region.map((value) => (
+                <option key={value} value={value}>{value}</option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        {filterOptions.sync.length ? (
+          <label>
+            同步来源
+            <select data-filter="sync" value={filters.sync} onChange={(event) => setFilter("sync", event.target.value)}>
+              <option value="">全部</option>
+              {filterOptions.sync.map((value) => (
+                <option key={value} value={value}>{value}</option>
+              ))}
+            </select>
+          </label>
+        ) : null}
       </div>
+
       <div className="exception-bar" data-exception-bar>
         <div>
           <strong>
-            异常 KOL {data.exceptions.length}{" "}
+            旁路 / 异常阶段 {data.exceptions.length}{" "}
             {data.exceptions.map((e) => (
               <span key={e.handle} className="badge-red">
                 @{e.handle} · {e.stage_label}
@@ -222,11 +313,11 @@ export default function Pipeline() {
             ))}
           </strong>
           <p className="muted" style={{ margin: "4px 0 0" }}>
-            {exceptionNames} 会离开主时间线，可在此筛选。
+            {exceptionNames} 是生命周期侧状态，会离开主时间线，可在此筛选。不是首页的「等待中」。
           </p>
         </div>
         <label className="btn ghost" data-exception-filter>
-          <input type="checkbox" checked={onlyEx} onChange={(e) => setOnlyEx(e.target.checked)} /> 只看异常 KOL
+          <input type="checkbox" checked={onlyEx} onChange={(e) => setOnlyEx(e.target.checked)} /> 只看旁路 / 异常阶段
         </label>
       </div>
 
@@ -261,7 +352,7 @@ export default function Pipeline() {
           return (
             <article
               key={c.id}
-              className={"pipeline-item" + (c.exception ? " exception" : "") + (open ? " is-open" : "")}
+              className={"pipeline-item" + (c.exception ? " exception" : "") + (open ? " is-selected" : "")}
               data-kol={c.handle}
             >
               <button
@@ -269,11 +360,7 @@ export default function Pipeline() {
                 className="pipeline-row"
                 data-pipeline-row
                 aria-expanded={open}
-                onClick={() => {
-                  setSelectedId(c.id);
-                  setTab("overview");
-                  rememberJourney({ kind: "pipeline", handle: c.handle, stageCode: c.stage_code });
-                }}
+                onClick={() => openCard(c)}
               >
                 <span className="pipeline-id-col">
                   <strong>@{c.handle}</strong>
@@ -309,80 +396,179 @@ export default function Pipeline() {
                   </ol>
                 </span>
               </button>
-
-              {open && (
-                <div className="pipeline-detail">
-                  <div className="pipeline-tabs" role="tablist" aria-label={`${c.handle} 详情`}>
-                    {([["overview", "概览"], ["creator", "达人"], ["actions", "动作"]] as const).map(([id, label]) => (
-                      <button
-                        key={id}
-                        type="button"
-                        role="tab"
-                        aria-selected={tab === id}
-                        data-pipeline-tab={id}
-                        onClick={() => setTab(id)}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                  {tab === "overview" && (
-                    <dl className="pipeline-kv" data-pipeline-panel="overview">
-                      <dt>正式阶段</dt>
-                      <dd>{c.stage_label || "—"}</dd>
-                      <dt>推进方式</dt>
-                      <dd>{c.advancement_mode || "—"}</dd>
-                      <dt>停留</dt>
-                      <dd>{c.days_in_stage != null ? `${c.days_in_stage} 天` : "—"}</dd>
-                      <dt>能力域</dt>
-                      <dd>{DOMAIN_LABEL[String(c.capability_domain || "")] || c.capability_domain || "—"}</dd>
-                      <dt>备注</dt>
-                      <dd>{c.notes || "—"}</dd>
-                    </dl>
-                  )}
-                  {tab === "creator" && (
-                    <dl className="pipeline-kv" data-pipeline-panel="creator" data-creator-ledger>
-                      <dt>负责人</dt>
-                      <dd>{c.owner_name || "—"}</dd>
-                      <dt>平台</dt>
-                      <dd>{c.platform} · {c.followers}</dd>
-                      <dt>互动率</dt>
-                      <dd>{c.engagement_rate || "—"}</dd>
-                      <dt>受众</dt>
-                      <dd>{c.audience_geo || "—"}</dd>
-                      <dt>近10条均播</dt>
-                      <dd>{c.avg_views_10 || "—"}</dd>
-                      <dt>查重</dt>
-                      <dd>{Number(c.duplicate_checked) ? "已查" : "未查"}</dd>
-                      <dt>集团交叉</dt>
-                      <dd>{c.group_brand_overlap || "—"}</dd>
-                      <dt>邮箱</dt>
-                      <dd>{c.email || "—"}</dd>
-                    </dl>
-                  )}
-                  {tab === "actions" && (
-                    <div className="pipeline-actions" data-pipeline-panel="actions">
-                      {cardActions(c).length ? cardActions(c).map((a) => (
-                        <button
-                          key={a.label}
-                          className="btn ghost"
-                          data-act={a.act}
-                          data-intent={a.intent}
-                          data-prompt={a.prompt}
-                          onClick={() => ask(a)}
-                        >
-                          {a.label}
-                        </button>
-                      )) : <p className="muted">没有可执行动作。</p>}
-                    </div>
-                  )}
-                </div>
-              )}
             </article>
           );
         })}
-        {!rows.length && <p className="muted">当前筛选下没有合作。</p>}
+        {!rows.length && <p className="muted" data-pipeline-empty>当前筛选下没有合作。</p>}
       </div>
+
+      {selected ? (
+        <aside
+          className="pipeline-drawer"
+          data-pipeline-drawer
+          role="dialog"
+          aria-label={`${selected.handle} 合作详情`}
+        >
+            <header className="pipeline-drawer-head">
+              <div>
+                <p className="page-kicker">合作详情</p>
+                <h2>@{selected.handle}</h2>
+                <div className="pipeline-id-meta">
+                  <span className="chip">{selected.brand}</span>
+                  {selected.owner_name ? <span className="pipeline-owner">{selected.owner_name}</span> : null}
+                </div>
+              </div>
+              <button type="button" className="btn ghost" data-pipeline-drawer-close onClick={closeDrawer}>关闭</button>
+            </header>
+
+            <div className="pipeline-drawer-body">
+              <section>
+                <h3>基本合作信息</h3>
+                <dl className="pipeline-kv" data-pipeline-panel="overview" data-creator-ledger>
+                  <dt>负责人</dt>
+                  <dd>{selected.owner_name || "—"}</dd>
+                  <dt>品牌</dt>
+                  <dd>{selected.brand || "—"}</dd>
+                  <dt>平台</dt>
+                  <dd>{[selected.platform, selected.followers].filter(Boolean).join(" · ") || "—"}</dd>
+                  <dt>地区</dt>
+                  <dd>{regionOf(selected) || "—"}</dd>
+                  <dt>邮箱</dt>
+                  <dd>{selected.email || "—"}</dd>
+                  <dt>备注</dt>
+                  <dd>{selected.notes || "—"}</dd>
+                </dl>
+              </section>
+
+              <section>
+                <h3>正式阶段</h3>
+                <dl className="pipeline-kv">
+                  <dt>阶段</dt>
+                  <dd>{selected.stage_label || "—"}</dd>
+                  <dt>推进方式</dt>
+                  <dd>{selected.advancement_mode || "—"}</dd>
+                  <dt>停留</dt>
+                  <dd>{selected.days_in_stage != null ? `${selected.days_in_stage} 天` : "—"}</dd>
+                  <dt>能力域</dt>
+                  <dd>{DOMAIN_LABEL[String(selected.capability_domain || "")] || selected.capability_domain || "—"}</dd>
+                  <dt>阶段风险</dt>
+                  <dd data-stage-risk>{stageRisk(selected)}</dd>
+                </dl>
+              </section>
+
+              <section>
+                <h3>阶段时间线</h3>
+                <ol className="stage-track pipeline-drawer-track" aria-label={`${selected.handle} 的 15 阶段进度`}>
+                  {stages.map((stage, i) => {
+                    const idx = stageIndex(stages, selected.stage_code);
+                    const state = selected.exception
+                      ? "idle"
+                      : idx < 0
+                        ? "idle"
+                        : i < idx
+                          ? "done"
+                          : i === idx
+                            ? "current"
+                            : "idle";
+                    return (
+                      <li key={stage.code} title={stage.label}>
+                        <span className={"milestone is-" + state} data-milestone={stage.code} />
+                        <span className="pipeline-drawer-tick">{SHORT_STAGE_LABEL[stage.code] || stage.label}</span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </section>
+
+              <section>
+                <h3>阶段证据</h3>
+                {selected.notes || selected.last_skip_reason ? (
+                  <dl className="pipeline-kv">
+                    <dt>备注</dt>
+                    <dd>{selected.notes || "—"}</dd>
+                    <dt>跳过说明</dt>
+                    <dd>{selected.last_skip_reason || "—"}</dd>
+                  </dl>
+                ) : (
+                  <EmptyHint>本页未返回阶段证据。</EmptyHint>
+                )}
+              </section>
+
+              <section>
+                <h3>往来摘要</h3>
+                {selected.mail_summary ? <p>{selected.mail_summary}</p> : <EmptyHint>本页未返回往来摘要。</EmptyHint>}
+              </section>
+
+              <section>
+                <h3>阶段变更历史</h3>
+                {selected.last_skip_kind || selected.last_skipped_stages ? (
+                  <dl className="pipeline-kv">
+                    <dt>最近跳过</dt>
+                    <dd>{selected.last_skip_kind || "—"}</dd>
+                    <dt>被跳过阶段</dt>
+                    <dd>{selected.last_skipped_stages || "—"}</dd>
+                  </dl>
+                ) : (
+                  <EmptyHint>尚无本页可展示的阶段变更记录。</EmptyHint>
+                )}
+              </section>
+
+              <section>
+                <h3>近期事件</h3>
+                {selected.recent_events?.length ? (
+                  <ul>
+                    {selected.recent_events.map((event, index) => (
+                      <li key={`${event.at || event.label || index}`}>{[event.at, event.label].filter(Boolean).join(" · ")}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <EmptyHint>本页未返回近期事件。</EmptyHint>
+                )}
+              </section>
+
+              <section>
+                <h3>同步</h3>
+                {syncSourceOf(selected) || selected.synced_at ? (
+                  <dl className="pipeline-kv">
+                    <dt>来源</dt>
+                    <dd>{syncSourceOf(selected) || "—"}</dd>
+                    <dt>时间</dt>
+                    <dd>{selected.synced_at || "本页未返回同步时间"}</dd>
+                  </dl>
+                ) : (
+                  <EmptyHint>本页未返回同步来源或时间。</EmptyHint>
+                )}
+              </section>
+
+              <section>
+                <h3>审计</h3>
+                {selected.audit?.length ? (
+                  <ul>
+                    {selected.audit.map((row, index) => (
+                      <li key={`${row.at || row.event || index}`}>{[row.at, row.actor, row.event].filter(Boolean).join(" · ")}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <EmptyHint>本页未返回审计记录。</EmptyHint>
+                )}
+              </section>
+            </div>
+
+            <footer className="pipeline-drawer-foot">
+              <button
+                type="button"
+                className="btn work"
+                data-propose-stage
+                data-act="ask"
+                data-intent="confirm_stage"
+                disabled={proposing}
+                onClick={() => void proposeStageChange(selected)}
+              >
+                提出阶段变更
+              </button>
+            </footer>
+        </aside>
+      ) : null}
     </div>
   );
 }
