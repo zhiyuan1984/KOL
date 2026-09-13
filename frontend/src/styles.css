@@ -2356,7 +2356,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   color: var(--muted);
 }
 .draft-field input,
-.draft-field textarea {
+.draft-field textarea,
+.draft-field select {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 8px 10px;
@@ -2366,6 +2367,18 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   font-size: var(--font-body);
   line-height: var(--leading-body);
   width: 100%;
+}
+.draft-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.draft-static {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
 }
 .draft-field textarea {
   min-height: 220px;
@@ -4198,8 +4211,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 
 .kol-journey { margin: 8px 0 12px; }
-.kol-journey-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: nowrap; }
-.kol-journey-title h1, .kol-journey-title span, .kol-journey-title a { white-space: nowrap; }
+.kol-journey-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.kol-journey-title h1 { white-space: nowrap; }
 
 @media (prefers-reduced-motion: reduce) {
   .status-dot.running,
@@ -4214,7 +4227,118 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   }
 }
 .kol-journey-title h1 { margin: 0; font-size: var(--font-title); }
+.session-stage-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border));
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg));
+  color: var(--primary);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: var(--font-meta);
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.session-stage-chip small {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 11px;
+}
 .journey-track { margin: 8px 0 0; }
+.stage-track.is-phases.journey-track {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.stage-track.is-phases.journey-track::before { display: none; }
+.stage-track.is-phases.journey-track li {
+  flex: 0 0 auto;
+  gap: 0;
+}
+.phase-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.phase-chip.is-done {
+  border-color: color-mix(in srgb, var(--primary) 30%, var(--border));
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 6%, var(--bg));
+}
+.phase-chip.is-current {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-fg);
+  font-weight: 600;
+}
+.kol-portrait {
+  display: grid;
+  gap: 6px;
+}
+.portrait-row {
+  display: grid;
+  grid-template-columns: 3.2rem minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+.portrait-label {
+  color: var(--text-muted);
+  font-size: var(--font-meta);
+  line-height: 1.7;
+}
+.portrait-value,
+.portrait-chips {
+  min-width: 0;
+  font-size: var(--font-ui);
+  line-height: 1.6;
+}
+.portrait-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.sop-input-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.draft-send-meta {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+.draft-send-meta > div {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  font-size: var(--font-ui);
+}
+.draft-send-meta dt {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-meta);
+  line-height: 1.7;
+}
+.draft-send-meta dd {
+  margin: 0;
+  min-width: 0;
+  word-break: break-word;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
 .kol-stage-sop {
   margin-top: 8px;
   padding: 0;
@@ -4254,7 +4378,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   gap: 8px;
   align-items: start;
 }
-.kol-stage-sop dl > div.sop-mail-block {
+.kol-stage-sop dl > div.sop-mail-block,
+.kol-stage-sop dl > div.sop-portrait-block {
   grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }

@@ -124,6 +124,13 @@ function stageOptionNeedsReason(item?: StageTargetOption): boolean {
   return Boolean(item && ["skip", "correct", "exception"].includes(String(item.kind || "")));
 }
 
+function isDuplicateSessionChrome(text: string): boolean {
+  const t = String(text || "").trim();
+  return /的合作会话。当前阶段：/.test(t)
+    || /来信分析只出建议/.test(t)
+    || /黄条无确认按钮|正式阶段建议保持/.test(t);
+}
+
 export function emailMarkdown(card: EmailCard): string {
   const rows = [
     `| 发件人 | \`${card.from}\` |`,
@@ -141,10 +148,7 @@ export function emailMarkdown(card: EmailCard): string {
     if (card.approval_policy) rows.push(`| 审批规则 | ${card.approval_policy} |`);
   }
   rows.push(`| 状态 | ${draftStatusLabel(card.status)} |`);
-  if (card.official_stage_label || card.official_stage) {
-    rows.push(`| 正式阶段 | ${stageLabel(card.official_stage, card.official_stage_label)} |`);
-  }
-  return [
+  const lines = [
     "### 英文原文草稿",
     "",
     "| 项目 | 内容 |",
@@ -154,11 +158,49 @@ export function emailMarkdown(card: EmailCard): string {
     "```",
     card.body || "",
     "```",
-    "",
-    card.footer
-      ? `> ${card.footer}。正式阶段建议保持：${card.official_stage_label}。发送 ≠ 推进阶段。`
-      : `> 正式阶段建议保持：${card.official_stage_label}。发送 ≠ 推进阶段。失败会留在本会话，不会假装成功。`,
-  ].join("\n");
+  ];
+  if (card.footer && !/正式阶段|发送\s*≠|发送不等于/.test(card.footer)) {
+    lines.push("", `> ${card.footer}`);
+  }
+  return lines.join("\n");
+}
+
+function DraftSendMeta({
+  card,
+  from,
+  to,
+  cc,
+  subject,
+}: {
+  card: EmailCard;
+  from: string;
+  to: string;
+  cc: string;
+  subject: string;
+}) {
+  const rows: { key: string; label: string; value: string; chips?: string[] }[] = [
+    { key: "from", label: "发件人", value: from || "—" },
+    { key: "to", label: "收件人", value: to || "—" },
+  ];
+  if (cc) rows.push({ key: "cc", label: "抄送", value: cc });
+  rows.push({ key: "subject", label: "主题", value: subject || "未指定" });
+  const statusChips = [draftStatusLabel(card.status)];
+  if (card.from_locked) statusChips.push(card.from_lock_text || "已锁定");
+  rows.push({ key: "status", label: "状态", value: "", chips: statusChips });
+  return (
+    <dl className="draft-send-meta" data-draft-send-meta>
+      {rows.map((row) => (
+        <div key={row.key} data-draft-meta={row.key}>
+          <dt>{row.label}</dt>
+          <dd>
+            {row.chips?.length
+              ? row.chips.map((chip) => <span key={chip} className="chip">{chip}</span>)
+              : row.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
 }
 
 function pickFromAddr(from: string, opts: { email: string }[]): string {
@@ -274,13 +316,18 @@ export function DraftArtifact({
   return (
     <article className="artifact" data-kind="email-card" data-status={card.status} data-card-id={card.draft_id}>
       {sent ? (
-        <Markdown>{emailMarkdown({ ...card, from: fromAddr, to: toAddr, cc, subject, body })}</Markdown>
+        <div className="draft-editor" data-draft-sent>
+          <div className="page-kicker">邮件草稿</div>
+          <DraftSendMeta card={card} from={fromAddr} to={toAddr} cc={cc} subject={subject} />
+          <pre className="mail-body-text">{body}</pre>
+        </div>
       ) : (
         <div className="draft-editor">
           <div className="page-kicker">邮件草稿</div>
-          <p className="draft-meta" data-draft-subject-preview>
-            邮件主题：{subject || "未指定"}
-          </p>
+          <div className="draft-status-row" data-draft-status>
+            <span className="chip">{draftStatusLabel(card.status)}</span>
+            {card.from_locked ? <span className="chip">{card.from_lock_text || "已锁定"}</span> : null}
+          </div>
           {card.amount_usd != null && (
             <p className="draft-meta" data-draft-amount data-compose-amount>
               金额 {card.currency || "USD"} {card.amount_usd}{card.rate_unit === "hour" ? " per hour" : ""}
@@ -288,6 +335,31 @@ export function DraftArtifact({
               {card.brand ? ` · ${card.brand}` : ""}
             </p>
           )}
+          <label className="draft-field">
+            <span>发件人</span>
+            {opts.length > 1 ? (
+              <select value={resolvedFrom} onChange={(e) => setFromAddr(e.target.value)} data-from-select>
+                {opts.map((o) => (
+                  <option key={o.email} value={o.email}>
+                    {o.brand} · {o.email}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="mono draft-static">
+                {resolvedFrom || "—"}
+                {card.from_locked && <em className="lock"> {card.from_lock_text || "已锁定"}</em>}
+              </span>
+            )}
+          </label>
+          <label className="draft-field">
+            <span>收件人</span>
+            <input value={toAddr} onChange={(e) => setToAddr(e.target.value)} placeholder="收件邮箱" data-draft-to />
+          </label>
+          <label className="draft-field">
+            <span>抄送</span>
+            <input value={cc} onChange={(e) => setCc(e.target.value)} placeholder="上级 / 同站点 / 相关同事" />
+          </label>
           <label className="draft-field">
             <span>主题</span>
             <input
@@ -307,9 +379,6 @@ export function DraftArtifact({
               data-draft-body
             />
           </label>
-          <p className="muted">
-            正式阶段建议保持：{card.official_stage_label || card.official_stage || "不变"}。发送 ≠ 推进阶段。
-          </p>
         </div>
       )}
       {zh && (
@@ -319,22 +388,6 @@ export function DraftArtifact({
         </div>
       )}
       <div className="action-row">
-        {opts.length > 1 ? (
-          <select value={resolvedFrom} onChange={(e) => setFromAddr(e.target.value)} data-from-select disabled={sent}>
-            {opts.map((o) => (
-              <option key={o.email} value={o.email}>
-                {o.brand} · {o.email}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <span className="mono">
-            {resolvedFrom}
-            {card.from_locked && <em className="lock"> {card.from_lock_text || "已按品牌和权限锁定"}</em>}
-          </span>
-        )}
-        <input value={toAddr} onChange={(e) => setToAddr(e.target.value)} placeholder="To · 收件邮箱" data-draft-to disabled={sent} />
-        <input value={cc} onChange={(e) => setCc(e.target.value)} placeholder="Cc · 上级 / 同站点 / 相关同事" disabled={sent} />
         {!sent && (
           <button className="btn ghost" data-draft-save onClick={() => void save()} disabled={!!busy || !dirty}>
             保存草稿
@@ -999,7 +1052,7 @@ export function ChatThread({
           return (
             <ThreadMessage key={m.id} role="assistant" result={sent ? "send" : "draft"} risk="L2" data-kind="email-card-pointer">
               <strong>{sent ? "发送卡" : "邮件草稿"}</strong>
-              <Markdown>{"✍️ **邮件已放到右侧结果。** 请核对要点和草稿后再确认发送。发送邮件不会修改阶段。"}</Markdown>
+              <Markdown>{"✍️ **邮件已放到右侧结果。** 请核对后再确认发送。"}</Markdown>
             </ThreadMessage>
           );
         }
@@ -1201,7 +1254,7 @@ export function ChatThread({
         }
         if (m.kind === "sys_msg") {
           const text = String(m.payload.text || "");
-          if (/黄条无确认按钮|正式阶段建议保持/.test(text)) return null;
+          if (isDuplicateSessionChrome(text)) return null;
           return (
             <ThreadMessage key={m.id} role="system" className="sys-msg" data-kind="sys-msg">
               <Markdown>{`> ${text}`}</Markdown>
@@ -1210,6 +1263,7 @@ export function ChatThread({
         }
         if (m.kind === "steps") return null;
         const text = String(m.payload.text || "");
+        if (isDuplicateSessionChrome(text)) return null;
         if (/正式阶段已按你的确认更新|已提交阶段审批/.test(text) && m.id !== latestStageReceiptId) {
           return null;
         }
