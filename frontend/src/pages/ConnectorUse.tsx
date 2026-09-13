@@ -5,6 +5,7 @@ import {
   connectorUseLabel,
   connectorUseMeaning,
   connectorUseStatus,
+  preferCanonicalConnectors,
 } from "../connectorUse";
 
 export default function ConnectorUse() {
@@ -35,18 +36,20 @@ export default function ConnectorUse() {
 
   const items = useMemo(() => {
     if (!rows) return [];
-    return rows
-      .map((row) => {
-        const id = String(row.id || "");
-        if (!id) return null;
-        return {
-          id,
-          label: connectorUseLabel(id, row.label || row.name),
-          meaning: connectorUseMeaning(id),
-          status: connectorUseStatus(id, binding),
-        };
-      })
-      .filter((row): row is NonNullable<typeof row> => Boolean(row));
+    return preferCanonicalConnectors(
+      rows
+        .map((row) => {
+          const id = String(row.id || "");
+          if (!id) return null;
+          return {
+            id,
+            label: connectorUseLabel(id, row.label || row.name),
+            meaning: connectorUseMeaning(id),
+            status: connectorUseStatus(id, binding),
+          };
+        })
+        .filter((row): row is NonNullable<typeof row> => Boolean(row)),
+    );
   }, [binding, rows]);
 
   return (

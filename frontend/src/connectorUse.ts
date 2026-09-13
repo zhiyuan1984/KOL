@@ -26,6 +26,14 @@ const MEANING: Record<string, string> = {
   mediacrawl: "达人采集任务。",
 };
 
+/** Legacy ids still returned by GET /api/connectors alongside the current short name. */
+const LEGACY_OF: Record<string, string> = {
+  starry: "starrykol",
+  emailmcp: "starrykol",
+  claw: "kolclaw",
+  crawl: "mediacrawl",
+};
+
 export type ConnectorUseStatusKey = "available" | "needs_personal_bind";
 
 export function isBindableConnector(id: string): boolean {
@@ -44,6 +52,14 @@ export function connectorUseLabel(id: string, fallback?: unknown): string {
 
 export function connectorUseMeaning(id: string): string {
   return MEANING[id] || "已授权给你使用。具体范围由管理员开通。";
+}
+
+export function preferCanonicalConnectors<T extends { id: string }>(rows: T[]): T[] {
+  const ids = new Set(rows.map((row) => row.id));
+  return rows.filter((row) => {
+    const canonical = LEGACY_OF[row.id];
+    return !canonical || !ids.has(canonical);
+  });
 }
 
 export function connectorUseStatus(
