@@ -230,6 +230,37 @@ export function progressFromHarness(
   return null;
 }
 
+/** Host-backed reads replace Codex ops that failed under `approvalPolicy: never`. */
+export function preferHostOperations(live: Json[], host: Json[]): Json[] {
+  if (!host.length) return live;
+  if (!live.length) return host;
+  const byName = new Map<string, Json>();
+  for (const row of live) {
+    const name = String(row.name || "");
+    if (name) byName.set(name, row);
+  }
+  for (const row of host) {
+    const name = String(row.name || "");
+    if (!name) continue;
+    const prev = byName.get(name);
+    if (!prev || String(row.status) === "done" || String(prev.status) !== "done") {
+      byName.set(name, prev ? { ...prev, ...row } : row);
+    }
+  }
+  const seen = new Set<string>();
+  const merged: Json[] = [];
+  for (const row of live) {
+    const name = String(row.name || "");
+    merged.push(name && byName.has(name) ? byName.get(name)! : row);
+    if (name) seen.add(name);
+  }
+  for (const row of host) {
+    const name = String(row.name || "");
+    if (name && !seen.has(name)) merged.push(row);
+  }
+  return merged;
+}
+
 export function upsertOperationItem(
   items: { id: string; name: string; label: string; status: string }[],
   next: WorkerOperation,

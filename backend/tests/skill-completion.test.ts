@@ -69,11 +69,12 @@ describe("read skill completion (real Codex, no mail draft)", () => {
     expect(requiredSkillOutputMissing("reply_analysis", requireTaskDefinition("reply_analysis"), items)).toBeNull();
   });
 
-  it("does not use the mail-draft generation_unavailable message for read skills", async () => {
+  it("does not use the mail-draft generation_unavailable message for Codex-strict non-compose skills", async () => {
     process.env.CODEX_MODE = "real";
-    await expect(completeTurnItems("creator_profile", { raw: "达人画像" }, [], [])).rejects.toBeInstanceOf(CodexUnavailable);
+    // L1 reads (creator_profile / risk_scan / library query) Host-fill when Codex
+    // produced nothing; write skills stay Codex-strict and must not use the compose copy.
     try {
-      await completeTurnItems("risk_scan", { raw: "风险扫描" }, [], []);
+      await completeTurnItems("creator_contact_decrypt", { raw: "解密达人联系方式" }, [], []);
       throw new Error("expected CodexUnavailable");
     } catch (error) {
       expect(error).toBeInstanceOf(CodexUnavailable);

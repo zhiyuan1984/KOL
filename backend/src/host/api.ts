@@ -40,6 +40,7 @@ import { runWorker, type WorkerProgress } from "../worker/runner.js";
 import {
   applyProgress,
   finishProcessItems,
+  preferHostOperations,
   reasoningSummariesOf,
   statusTextForProgress,
   upsertOperationItem,
@@ -1290,24 +1291,18 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
         if (existing) {
           try { live = (JSON.parse(String(existing.payload || "{}")).items as Json[]) || []; } catch { live = []; }
         }
-        if (existing && live.length) {
+        const items = preferHostOperations(live, item.operations as Json[]);
+        if (existing) {
           updateMsg(existing.id, {
             title: REMOTE_MCP_TITLE,
             persistent: true,
             active: false,
-            items: live,
-          });
-        } else if (existing) {
-          updateMsg(existing.id, {
-            title: REMOTE_MCP_TITLE,
-            persistent: true,
-            active: false,
-            items: item.operations,
+            items,
           });
         } else {
           addMsg(sid, "assistant", "operation_trace", {
             title: REMOTE_MCP_TITLE,
-            items: item.operations,
+            items,
             persistent: true,
             active: false,
           });

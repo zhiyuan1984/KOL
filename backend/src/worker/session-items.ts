@@ -11,6 +11,7 @@ import {
   emailMcpResultCard,
   executeEmailMcpTask,
   isEmailMcpTask,
+  isStarryKolReadTask,
   resolveComposeSubject,
   type EmailMcpTask,
 } from "../starrykol/service.js";
@@ -421,6 +422,25 @@ function hasStarryResult(items: Json[]): boolean {
   return items.some((item) => starryPayload(item));
 }
 
+/** Codex `approvalPolicy: never` rejects first remote Starry KOL reads; those cards are not usable data. */
+export function starryReadBlockedByApproval(data: Json | null): boolean {
+  if (!data) return false;
+  const blob = JSON.stringify(data);
+  return /approval_policy\s*=\s*never|禁止审批|needs?[_ ]?approval|requires? approval|forbids? approval|approvalPolicy/i.test(blob);
+}
+
+export function hasUsableStarryReadResult(items: Json[]): boolean {
+  return items.some((item) => {
+    const data = starryPayload(item);
+    if (!data || starryReadBlockedByApproval(data)) return false;
+    return true;
+  });
+}
+
+function existingBlockedByApproval(items: Json[]): boolean {
+  return items.some((item) => starryReadBlockedByApproval(starryPayload(item)) || starryReadBlockedByApproval(item));
+}
+
 const READ_RESULT_TYPES = new Set(["task_result", "text", "note", "propose_stage", "list_overdue"]);
 
 /** Analysis / list skills may finish without a Starry payload or sendable draft. */
@@ -612,11 +632,12 @@ export async function completeTurnItems(
   )) {
     return rebuildStarryCards(skill, existing, extra);
   }
-  if (isEmailMcpTask(skill) && !hasStarryResult(existing)) {
-    if (skill !== "email_compose" && hasReadSkillOutput(existing)) {
+  if (isEmailMcpTask(skill) && !hasUsableStarryReadResult(existing)) {
+    const hostReadFallback = isStarryKolReadTask(skill);
+    if (skill !== "email_compose" && hasReadSkillOutput(existing) && !existingBlockedByApproval(existing)) {
       return surfaceReadSkillItems(skill, existing);
     }
-    if (codexMode() !== "stub") {
+    if (codexMode() !== "stub" && !hostReadFallback) {
       throw new CodexUnavailable(
         skill === "email_compose"
           ? "生成已结束，但没有产出可映射的邮件草稿。Host 没有代填。"
@@ -656,7 +677,14 @@ export async function completeTurnItems(
       },
       onOperation,
     });
-    log.push({ method: "mcp/starrykol", params: { task: skill, operations: operations.length } });
+    log.push({
+      method: "mcp/starrykol",
+      params: {
+        task: skill,
+        operations: operations.length,
+        source: hostReadFallback && codexMode() !== "stub" ? "host_read" : "stub",
+      },
+    });
     return items;
   }
   if (isEmailMcpTask(skill) && hasStarryResult(existing)) {
