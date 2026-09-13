@@ -128,7 +128,6 @@ export default function Knowledge({ market = false }: { market?: boolean }) {
     return [
       { key: "mail", title: "邮件模板", hint: "启用后，写合作邮件时 Codex 用这份英文底稿。点「用这份写信」会锁到这一封。", rows: mail },
       { key: "other", title: "口径与其它", hint: "给对话当规矩用，不会直接变成一封信。", rows: other },
-      { key: "other", title: "口径与其它", hint: "给对话当规矩用，不会直接变成一封信。", rows: other },
     ].filter((group) => group.rows.length);
   }, [rows]);
 
