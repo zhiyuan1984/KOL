@@ -39,6 +39,7 @@ afterEach(() => {
   delete process.env.FAKE_CODEX_MODE;
   delete process.env.FAKE_CODEX_DELAY;
   delete process.env.FAKE_CODEX_THREAD_START;
+  delete process.env.OPENAI_BASE_URL;
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
@@ -77,6 +78,7 @@ describe("Codex mail memory", () => {
     process.env.FAKE_CODEX_MODE = "mail-digest-success";
     process.env.FAKE_CODEX_DELAY = "20";
     process.env.OPENAI_API_KEY = "sk-test-mail-memory";
+    process.env.OPENAI_BASE_URL = "https://example.invalid/v1";
     process.env.HOME = tmp;
     const dump = path.join(tmp, "thread-start.json");
     process.env.FAKE_CODEX_THREAD_START = dump;
@@ -88,7 +90,7 @@ describe("Codex mail memory", () => {
       body: "Hi, I am interested and would love to collaborate.",
       from: "xiaomei.beauty@example.com",
       provider_message_id: "codex-digest-model-1",
-    });
+    }, { deferDigest: true });
     try {
       const digest = await ensureCodexThreadDigest("col_xiaomei");
       expect(digest.source).toBe("codex_memory");

@@ -355,6 +355,21 @@ function threadDigestPrompt(rows: Json[]): string {
   ].join("\n");
 }
 
+function turnOutputText(completed: { turn?: { output?: unknown } }): string {
+  const output = completed.turn && typeof completed.turn === "object" ? completed.turn.output : undefined;
+  if (output == null || output === "") return "";
+  return typeof output === "string" ? output : JSON.stringify(output);
+}
+
+function firstParsed<T>(parse: (text: string) => T | null, ...chunks: string[]): T | null {
+  for (const chunk of chunks) {
+    if (!chunk.trim()) continue;
+    const parsed = parse(chunk);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
 function parseDigest(text: string): string | null {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
@@ -486,10 +501,7 @@ async function summarizeWithCodexAppServer(rows: Json[]): Promise<string[] | nul
       outputSchema: summarySchema,
     });
     const completed = await rpc.waitTurn(mailAnalysisTimeout());
-    const extras = completed.turn && typeof completed.turn === "object"
-      ? JSON.stringify((completed.turn as { output?: unknown }).output || {})
-      : "";
-    const parsed = parseSummaries([...rpc.agentTexts, extras].join("\n"), rows.length);
+    const parsed = firstParsed((text) => parseSummaries(text, rows.length), rpc.agentTexts.join("\n"), turnOutputText(completed));
     if (!parsed) noteFailure("codex parse", "no summaries in app-server output");
     return parsed;
   } catch (err) {
@@ -653,10 +665,7 @@ async function digestWithCodexAppServer(rows: Json[], collaborationId = ""): Pro
       outputSchema: digestSchema,
     });
     const completed = await rpc.waitTurn(mailAnalysisTimeout());
-    const extras = completed.turn && typeof completed.turn === "object"
-      ? JSON.stringify((completed.turn as { output?: unknown }).output || {})
-      : "";
-    const parsed = parseDigest([...rpc.agentTexts, extras].join("\n"));
+    const parsed = firstParsed(parseDigest, rpc.agentTexts.join("\n"), turnOutputText(completed));
     if (!parsed) {
       noteFailure("codex digest parse", "parse", collaborationId);
       return { error: "parse" };
