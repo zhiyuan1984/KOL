@@ -158,6 +158,20 @@ Pop-Location
 
 本次还修复了两个测试基础设施问题：E2E 启动器支持显式 `E2E_MODE=real`，并把旧的 `/opt/cursor/artifacts` 截图路径改为 Playwright 输出目录。当前 Real 阻断点在真实 Codex Turn/模型响应链路，不能由修改演示数据或延长浏览器断言单独解决。未完成真实 Turn 之前，不把 Stub 的 72 条回归结果改写成生产验收证据。
 
+### 2.9 Cloud Linux Chromium 收口（2026-09-13）
+
+验收宿主是 cloud Linux + Playwright Chromium，不再把 Windows / `PW_CHANNEL=msedge` 当作门禁默认。`release-gate` 不再自动注入 msedge。默认 `cd frontend && npm run test:e2e` 仍是 `E2E_MODE=stub` / `CODEX_MODE=stub`。
+
+| 检查 | 结果 | 证据/限制 |
+|---|---|---|
+| Stub Playwright（Chromium） | PASS | `72 passed / 0 failed / 72`；约 55s；不是生产验收 |
+| Stub 员工提交门 | PASS | `agentSubmissionAllowed("stub") === true`，即使 KOL Agent manifest 未发布也不在 stub 里挡提交 |
+| Crawl E2E 平台 | PASS | 仅 YouTube / Instagram；套件中无抖音/小红书检索句 |
+| `E2E_MODE=real` 启动 | PASS（仅启动） | Linux Chromium 可打开；`GET /api/health` 返回 200 `{"ok":true,"name":"灵工","ui":"agent-v1"}`；`PW_CHANNEL` 未设置 |
+| Real 全量 72 条 | 未跑 | 真实 Codex Turn / 模型延迟仍会超时；不把 Stub 72 绿改写成生产通过 |
+
+结论：stub 回归在 cloud Linux Chromium 上已绿。Real 只证明进程能起来，不证明真实 Turn、远程写入或生产发布。
+
 ## 3. 功能测试矩阵
 
 | ID | 功能 | 必测场景 | 通过条件 |
