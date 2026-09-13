@@ -104,17 +104,17 @@ describe("task intent resolution", () => {
 
   it("does not pick a skill from operator text without a locked task_type", () => {
     expect(resolveTaskIntent({ text: "写合作邮件" }).task_type).toBeNull();
-    expect(resolveTaskIntent({ text: "搜索抖音露营达人" }).clarification_kind).toBe("direction");
+    expect(resolveTaskIntent({ text: "搜索 YouTube 露营达人" }).clarification_kind).toBe("direction");
     expect(resolveTaskIntent({ text: "记状态 @小美妆日记" }).task_type).toBeNull();
   });
 
   it("recognizes platform creator-search language and extracts crawl entities", () => {
-    const result = stubResolveTaskIntent({ text: "搜索抖音露营达人" });
+    const result = stubResolveTaskIntent({ text: "搜索 YouTube 露营达人" });
     expect(result).toMatchObject({
       task_type: "creator_discovery",
       confidence: 0.97,
       entities: {
-        platform: "dy",
+        platform: "youtube",
         keywords: ["露营"],
       },
       needs_clarification: false,
@@ -122,16 +122,16 @@ describe("task intent resolution", () => {
   });
 
   it("splits quoted Chinese keyword lists for crawl plans", () => {
-    expect(stubResolveTaskIntent({ text: "搜索小红书“户外电源、房车露营”达人。" })).toMatchObject({
+    expect(stubResolveTaskIntent({ text: "搜索 Instagram“户外电源、房车露营”达人。" })).toMatchObject({
       task_type: "creator_discovery",
       entities: {
-        platform: "xhs",
+        platform: "instagram",
         keywords: ["户外电源", "房车露营"],
       },
     });
   });
 
-  it("does not treat YouTube as a MediaCrawler platform fallback", () => {
+  it("keeps YouTube as a first-class MediaCrawler platform instead of falling back to xhs", () => {
     expect(stubResolveTaskIntent({ text: "搜索 YouTube 户外电源达人" })).toMatchObject({
       task_type: "creator_discovery",
       entities: { platform: "youtube", keywords: ["户外电源"] },
@@ -356,7 +356,7 @@ describe("task CRUD and run flow", () => {
   });
 
   it("turns a creator-search phrase into a crawl plan without calling remote start", async () => {
-    const created = await request("POST", "/api/tasks/from-text", { text: "搜索抖音露营达人" });
+    const created = await request("POST", "/api/tasks/from-text", { text: "搜索 YouTube 露营达人" });
     expect(created.status).toBe(201);
     const task = created.body.task as Json;
     expect(task.task_type).toBe("creator_discovery");
@@ -369,7 +369,7 @@ describe("task CRUD and run flow", () => {
     expect(executed.status).toBe(200);
     const plan = (executed.body.messages as Json[]).find((message) => message.kind === "crawl_plan");
     expect((plan?.payload as Json).crawl_plan).toMatchObject({
-      platform: "dy",
+      platform: "youtube",
       mode: "search",
       keywords: ["露营"],
       requires_confirmation: false,
@@ -377,7 +377,7 @@ describe("task CRUD and run flow", () => {
     expect(getConn().prepare("SELECT COUNT(*) AS n FROM crawl_jobs").get()).toMatchObject({ n: 0 });
   });
 
-  it("keeps YouTube discovery as an unsupported platform instead of falling back to xhs", async () => {
+  it("keeps YouTube discovery as a first-class crawl platform instead of falling back to xhs", async () => {
     const created = await request("POST", "/api/tasks/from-text", { text: "搜索 YouTube 户外电源达人" });
     const task = created.body.task as Json;
     const queued = await request("POST", `/api/tasks/${task.id}/run`, {});
@@ -393,6 +393,23 @@ describe("task CRUD and run flow", () => {
       keywords: ["户外电源"],
     });
     expect(getConn().prepare("SELECT COUNT(*) AS n FROM crawl_jobs").get()).toMatchObject({ n: 0 });
+  });
+
+  it("turns an Instagram search phrase into a crawl plan", async () => {
+    const created = await request("POST", "/api/tasks/from-text", { text: "搜索 Instagram camping 达人" });
+    expect(created.status).toBe(201);
+    const queued = await request("POST", `/api/tasks/${(created.body.task as Json).id}/run`, {});
+    const executed = await request(
+      "POST",
+      `/api/sessions/${queued.body.session_id}/messages`,
+      queued.body.pending_message,
+    );
+    const plan = (executed.body.messages as Json[]).find((message) => message.kind === "crawl_plan");
+    expect((plan?.payload as Json).crawl_plan).toMatchObject({
+      platform: "instagram",
+      mode: "search",
+      keywords: ["camping"],
+    });
   });
 });
 

@@ -51,7 +51,7 @@ async function startMockMcp(): Promise<void> {
     tool("get_crawl_logs", () => ({ logs: ["crawl completed", "Authorization: Bearer hidden"] }));
     tool("get_creators", () => ({
       creators: [{
-        platform: "xhs", platform_creator_id: "creator-1", nickname: "真实达人",
+        platform: "youtube", platform_creator_id: "creator-1", nickname: "真实达人",
         followers: 1000, recent_views: [100, 200, 300],
       }],
       has_more: false,
@@ -140,7 +140,7 @@ describe("remote Streamable HTTP MCP", () => {
     const client = new RemoteMcpClient();
     const tools = await client.listTools();
     expect(tools.map((tool) => tool.name)).toContain("start_crawl");
-    expect(await client.callTool("start_crawl", { platform: "xhs", mode: "search", keywords: "battery" }))
+    expect(await client.callTool("start_crawl", { platform: "youtube", mode: "search", keywords: "battery" }))
       .toMatchObject({ task_id: "remote-1" });
     await client.close();
   });
@@ -176,11 +176,11 @@ describe("remote Streamable HTTP MCP", () => {
 describe("creator ingestion and scoring", () => {
   it("deduplicates identities, appends snapshots, and computes transparent score inputs", () => {
     const first = ingestMediacrawler({ creators: [{
-      platform: "xhs", platform_creator_id: "same", nickname: "A",
+      platform: "youtube", platform_creator_id: "same", nickname: "A",
       followers: 1000, recent_views: [100, 300],
     }] });
     const second = ingestMediacrawler({ data: { items: [{
-      platform: "xhs", platform_creator_id: "same", nickname: "A2",
+      platform: "youtube", platform_creator_id: "same", nickname: "A2",
       followers: 1200, views: [200, 400],
     }] } });
     expect(first).toMatchObject({ accepted: 1, inserted: 1, updated: 0, rejected: 0 });
@@ -200,7 +200,7 @@ describe("creator ingestion and scoring", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         creators: [{
-          platform: "bili",
+          platform: "instagram",
           platform_creator_id: "up-9",
           nickname: "户外测评号",
           followers: 5000,
@@ -220,7 +220,7 @@ describe("creator ingestion and scoring", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        creators: [{ platform: "bili", platform_creator_id: "up-anon", nickname: "匿名入库" }],
+        creators: [{ platform: "instagram", platform_creator_id: "up-anon", nickname: "匿名入库" }],
       }),
     });
     expect(response.status).toBe(401);
@@ -239,7 +239,7 @@ describe("creator ingestion and scoring", () => {
       },
       body: JSON.stringify({
         creators: [{
-          platform: "bili",
+          platform: "instagram",
           platform_creator_id: "up-token",
           nickname: "令牌入库",
           followers: 100,
@@ -266,7 +266,7 @@ describe("crawl lifecycle", () => {
     const response = await app.request(`/api/tasks/${task.id}/actions/start-crawl`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ platform: "xhs", mode: "search", keywords: ["户外"] }),
+      body: JSON.stringify({ platform: "youtube", mode: "search", keywords: ["户外"] }),
     });
     expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({
@@ -282,7 +282,7 @@ describe("crawl lifecycle", () => {
     const created = await app.request("/api/tasks/from-text", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "搜索小红书户外电源达人" }),
+      body: JSON.stringify({ text: "搜索 YouTube 户外电源达人" }),
     });
     const task = await created.json() as { task: Json };
     const queued = await app.request(`/api/tasks/${task.task.id}/run`, {
@@ -317,7 +317,7 @@ describe("crawl lifecycle", () => {
     const started = await app.request(`/api/tasks/${task.id}/actions/start-crawl`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ platform: "xhs", mode: "search", keywords: ["户外"] }),
+      body: JSON.stringify({ platform: "youtube", mode: "search", keywords: ["户外"] }),
     });
     const job = await started.json() as Json;
     crawlStatus = {
@@ -351,7 +351,7 @@ describe("crawl lifecycle", () => {
     const start = (id: unknown, key: string) => app.request(`/api/tasks/${id}/actions/start-crawl`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Idempotency-Key": key },
-      body: JSON.stringify({ platform: "xhs", mode: "search", parameters: { keywords: ["battery"] } }),
+      body: JSON.stringify({ platform: "youtube", mode: "search", parameters: { keywords: ["battery"] } }),
     });
     const started = await start(first.id, "one");
     expect(started.status).toBe(202);
@@ -363,7 +363,7 @@ describe("crawl lifecycle", () => {
     expect(job.status).toBe("result_ready");
     const candidates = ((job.result as Json).candidates as Json[]);
     expect(candidates[0]).toMatchObject({
-      platform: "xhs",
+      platform: "youtube",
       platform_creator_id: "creator-1",
       nickname: "真实达人",
       recent_views: [100, 200, 300],
@@ -405,7 +405,7 @@ describe("crawl lifecycle", () => {
     const task = await created.json() as Json;
     await app.request(`/api/tasks/${task.id}/actions/start-crawl`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ platform: "xhs", mode: "search", parameters: { keywords: "battery" } }),
+      body: JSON.stringify({ platform: "youtube", mode: "search", parameters: { keywords: "battery" } }),
     });
     const stopped = await app.request(`/api/tasks/${task.id}/actions/stop-crawl`, { method: "POST" });
     expect(stopped.status).toBe(200);

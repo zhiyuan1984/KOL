@@ -373,7 +373,7 @@ describe("host contracts", () => {
       expect(src).not.toContain("starry.sendConversation");
       expect(src).not.toMatch(/sendDraft\(/);
     }
-    const [, data] = await ask("搜索抖音露营达人", "creator_discovery");
+    const [, data] = await ask("搜索 YouTube 露营达人", "creator_discovery");
     expect((data.worker as Json).id).toBeTruthy();
     const clog = ((data.worker as Json).contract_log as Json[]) || [];
     expect(clog.length).toBeGreaterThan(0);
@@ -742,7 +742,7 @@ describe("host contracts", () => {
     expect((await one.json()).body).toContain("OPERATOR_SOP_MARK");
     const missing = await request("PUT", "/api/skills/no_such_skill/sop", { summary: "x", body: "y" });
     expect(missing.status).toBe(404);
-    const [sid, data] = await ask("搜索抖音露营达人", "creator_discovery");
+    const [sid, data] = await ask("搜索 YouTube 露营达人", "creator_discovery");
     expect((data.worker as Json)?.id).toBeTruthy();
     const workers = (await (await request("GET", "/api/workers")).json()) as unknown as Json[];
     const w = workers.find((row) => row.session_id === sid);
@@ -766,7 +766,7 @@ describe("host contracts", () => {
     const mine = (await (await request("GET", "/api/skills")).json()) as unknown as Json[];
     expect(mine.find((s) => s.id === "creator_discovery")).toBeFalsy();
     const ses = await (await request("POST", "/api/sessions", { title: "no-discovery" })).json();
-    const r = await request("POST", `/api/sessions/${ses.id}/messages`, { text: "搜索抖音露营达人", act: "ask", intent: "creator_discovery" });
+    const r = await request("POST", `/api/sessions/${ses.id}/messages`, { text: "搜索 YouTube 露营达人", act: "ask", intent: "creator_discovery" });
     expect(r.status).toBe(400);
   });
 
@@ -791,7 +791,7 @@ describe("host contracts", () => {
     expect(recent[0]).toMatchObject({ id: att.id, name: "brief.txt", available: true });
     const projects = (await (await request("GET", "/api/projects")).json()) as unknown as Json[];
     expect(projects.some((project) => project.id === "col_xiaomei" && project.label === "小美妆日记")).toBe(true);
-    const [sid, data] = await ask("搜索抖音露营达人", "creator_discovery", undefined, 200, {
+    const [sid, data] = await ask("搜索 YouTube 露营达人", "creator_discovery", undefined, 200, {
       attachments: [{ name: att.name, path: att.path }],
     });
     expect((data.intent as Json).extras).toMatchObject({

@@ -43,6 +43,9 @@ export function libraryQueryKeyword(text: string): string {
 }
 
 const PLATFORM_NAMES: Array<[RegExp, string]> = [
+  [/youtube|油管|youtu\.be/i, "youtube"],
+  [/instagram|\binsta\b|\big\b/i, "instagram"],
+  [/facebook|\bfb\b/i, "facebook"],
   [/小红书|xhs/i, "xhs"],
   [/抖音|\bdy\b/i, "dy"],
   [/快手|\bks\b/i, "ks"],
@@ -50,7 +53,6 @@ const PLATFORM_NAMES: Array<[RegExp, string]> = [
   [/微博|\bwb\b/i, "wb"],
   [/贴吧|tieba/i, "tieba"],
   [/知乎|zhihu/i, "zhihu"],
-  [/youtube|油管|youtu\.be/i, "youtube"],
 ];
 
 export function extractTaskEntities(text: string): Record<string, unknown> {

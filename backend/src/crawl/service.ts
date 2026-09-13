@@ -6,8 +6,8 @@ import { nid } from "../ids.js";
 import { RemoteMcpClient } from "../mcp/remote.js";
 import { appendTaskEvent } from "../routers/tasks.js";
 import type { Json, Row } from "../types.js";
+import { CRAWL_PLATFORM_SET } from "./platforms.js";
 
-const PLATFORMS = new Set(["xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu"]);
 const MODES = new Set(["search", "detail", "creator"]);
 const ACTIVE = new Set(["queued", "crawling", "uploading", "analyzing", "starting", "running", "stopping"]);
 const monitors = new Map<string, ReturnType<typeof setTimeout>>();
@@ -65,7 +65,7 @@ function publicJob(row: Row): Json {
 }
 
 function validateInput(platform: string, mode: string, parameters: Json): void {
-  if (!PLATFORMS.has(platform)) throw new HttpFail(400, "invalid crawl platform");
+  if (!CRAWL_PLATFORM_SET.has(platform)) throw new HttpFail(400, "invalid crawl platform");
   if (!MODES.has(mode)) throw new HttpFail(400, "invalid crawl mode");
   const required = mode === "search" ? "keywords" : mode === "detail" ? "specified_ids" : "creator_ids";
   const value = parameters[required];

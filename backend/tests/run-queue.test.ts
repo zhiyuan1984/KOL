@@ -54,7 +54,7 @@ describe("session run queue and stop", () => {
     const sid = await openSession();
     markSessionRunning(sid);
     const queued = await request("POST", `/api/sessions/${sid}/messages`, {
-      text: "搜索抖音露营达人",
+      text: "搜索 YouTube 露营达人",
       intent: "creator_discovery",
       act: "ask",
     });
@@ -92,7 +92,7 @@ describe("session run queue and stop", () => {
     const sid = await openSession();
     markSessionRunning(sid);
     await request("POST", `/api/sessions/${sid}/messages`, {
-      text: "搜索抖音露营达人",
+      text: "搜索 YouTube 露营达人",
       intent: "creator_discovery",
       act: "ask",
     });
@@ -110,7 +110,7 @@ describe("session run queue and stop", () => {
     const sid = await openSession();
     markSessionRunning(sid);
     const queued = await request("POST", `/api/sessions/${sid}/messages`, {
-      text: "搜索抖音露营达人",
+      text: "搜索 YouTube 露营达人",
       intent: "creator_discovery",
       act: "ask",
     });

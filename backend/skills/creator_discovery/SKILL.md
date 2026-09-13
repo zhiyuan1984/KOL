@@ -14,7 +14,7 @@ in_market: true
 ---
 # 达人发现 creator_discovery · Lead
 
-先读取 CONTEXT `extra.entities` 中的 platform / keywords / specified_ids / creator_ids，输出对应 `crawl_plan`；缺省平台才使用 xhs。输出必须同时包含 keywords、specified_ids、creator_ids 三个数组，当前模式不用的数组填 `[]`。本 Skill 的 turn 只出 `crawl_plan`，不创建达人、不发信、不推测联系方式。内核收到该 Item 后启动远程采集并监控结果。
+先读取 CONTEXT `extra.entities` 中的 platform / keywords / specified_ids / creator_ids，输出对应 `crawl_plan`；缺省平台才使用 youtube。不得把 YouTube / Instagram / Facebook 改写成 xhs 或其他国内平台。输出必须同时包含 keywords、specified_ids、creator_ids 三个数组，当前模式不用的数组填 `[]`。本 Skill 的 turn 只出 `crawl_plan`，不创建达人、不发信、不推测联系方式。内核收到该 Item 后启动远程采集并监控结果。
 
 ## 禁止事项
 

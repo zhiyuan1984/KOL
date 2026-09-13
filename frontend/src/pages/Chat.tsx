@@ -192,6 +192,7 @@ function taskAnalysisSummary(task: Task): string {
     ? task.entities as Record<string, unknown>
     : {};
   const platformLabels: Record<string, string> = {
+    youtube: "YouTube", instagram: "Instagram", facebook: "Facebook",
     xhs: "小红书", dy: "抖音", ks: "快手", bili: "哔哩哔哩", wb: "微博", tieba: "贴吧", zhihu: "知乎",
   };
   if (String(task.task_type || task.skill) === "creator_discovery") {
