@@ -50,12 +50,22 @@ type HomeTab = "today" | "templates";
 type HomeMode = "todo" | "ai" | "lifecycle";
 type TaskFilter = "all" | "open" | "high" | "ai";
 type KolTab = string;
-type TodoBucket = "overdue" | "today" | "waiting" | "approval" | "queued" | "running" | "later";
+type ActionableTodoBucket = "overdue" | "today" | "waiting" | "approval" | "queued" | "running";
+type TodoBucket = ActionableTodoBucket | "open";
 type FollowedKol = FollowedKolRecord;
 
 const openStatuses = new Set(["pending", "waiting", "running", "queued", "in_progress", "failed"]);
 const closedStatuses = new Set(["completed", "done", "cancelled"]);
-const HOME_MODES: HomeMode[] = ["todo", "ai", "lifecycle"];
+const HOME_MODES: HomeMode[] = ["ai", "todo", "lifecycle"];
+const HOME_FOLD_LIMIT = 6;
+const ACTIONABLE_TODO_BUCKETS = [
+  ["overdue", "逾期"],
+  ["today", "今天到期"],
+  ["waiting", "结果待确认"],
+  ["approval", "等审批"],
+  ["queued", "已入队"],
+  ["running", "执行中"],
+] as const satisfies ReadonlyArray<readonly [ActionableTodoBucket, string]>;
 const EXCEPTION_TEMPLATE: TaskDefinition = {
   id: "exception_delay_care",
   skill_id: "email_compose",
@@ -235,7 +245,7 @@ function todoBucket(task: Task): TodoBucket {
   if (display === "awaiting_approval") return "approval";
   if (display === "queued") return "queued";
   if (display === "running") return "running";
-  return "later";
+  return "open";
 }
 
 function urgencyLabel(task: Task) {
@@ -266,7 +276,7 @@ function handleLine(task: Task) {
 }
 
 function parseHomeMode(value: string | null): HomeMode {
-  return HOME_MODES.includes(value as HomeMode) ? value as HomeMode : "todo";
+  return HOME_MODES.includes(value as HomeMode) ? value as HomeMode : "ai";
 }
 
 function deriveWorkbench(tasks: Task[], kols: FollowedKol[]): HomeWorkbench {
@@ -395,7 +405,7 @@ export default function Home() {
 
   const setMode = (next: HomeMode) => {
     const nextParams = new URLSearchParams(params);
-    if (next === "todo") nextParams.delete("tab");
+    if (next === "ai") nextParams.delete("tab");
     else nextParams.set("tab", next);
     setParams(nextParams, { replace: true });
   };
@@ -991,21 +1001,21 @@ export default function Home() {
             <button
               type="button"
               role="tab"
-              aria-selected={mode === "todo"}
-              data-home-mode="todo"
-              onClick={() => setMode("todo")}
-            >
-              我的待办 {openCount}
-            </button>
-            <button
-              type="button"
-              role="tab"
               aria-selected={mode === "ai"}
               data-home-mode="ai"
               onClick={() => setMode("ai")}
             >
               AI发现 {insightCount}
               {highValueCount ? <span className="home-mode-dot" data-insight-mark aria-label="有高价值发现" /> : null}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "todo"}
+              data-home-mode="todo"
+              onClick={() => setMode("todo")}
+            >
+              我的待办 {openCount}
             </button>
             <button
               type="button"
@@ -1026,22 +1036,24 @@ export default function Home() {
           className="home-board"
           onScroll={(event) => setStageScrolled(event.currentTarget.scrollTop > 40)}
         >
-          {mode === "todo" ? (
-            <section className="home-mode-pane today-work-inline" data-today-work data-home-pane="todo">
+          {mode === "ai" ? (
+            <section className="home-mode-pane" data-home-pane="ai" data-ai-insights>
               <RecommendedTaskList items={recommendedItems} busy={busy} onPick={onRecommend} />
-              <TodoActionList tasks={todoItems} onOpen={(task) => void openTask(task)} />
+              {insightItems.length || !recommendedItems.length ? (
+                <InsightList
+                  tasks={insightItems}
+                  busy={busy}
+                  onPromote={(task) => void promoteInsight(task)}
+                  onDismiss={(task) => void dismissInsight(task)}
+                  onOpen={(task) => void openTask(task)}
+                />
+              ) : null}
             </section>
           ) : null}
 
-          {mode === "ai" ? (
-            <section className="home-mode-pane" data-home-pane="ai" data-ai-insights>
-              <InsightList
-                tasks={insightItems}
-                busy={busy}
-                onPromote={(task) => void promoteInsight(task)}
-                onDismiss={(task) => void dismissInsight(task)}
-                onOpen={(task) => void openTask(task)}
-              />
+          {mode === "todo" ? (
+            <section className="home-mode-pane today-work-inline" data-today-work data-home-pane="todo">
+              <TodoActionList tasks={todoItems} onOpen={(task) => void openTask(task)} />
             </section>
           ) : null}
 
@@ -1343,6 +1355,38 @@ export default function Home() {
   );
 }
 
+function FoldMore({
+  total,
+  limit = HOME_FOLD_LIMIT,
+  expanded,
+  onToggle,
+}: {
+  total: number;
+  limit?: number;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  if (total <= limit) return null;
+  const hidden = total - limit;
+  return (
+    <button type="button" className="home-fold-more" data-fold-more data-fold-expanded={expanded ? "true" : "false"} onClick={onToggle}>
+      {expanded ? "收起" : `展开更多（${hidden}）`}
+    </button>
+  );
+}
+
+function useFoldedItems<T>(items: T[], limit = HOME_FOLD_LIMIT) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded || items.length <= limit ? items : items.slice(0, limit);
+  return {
+    expanded,
+    visible,
+    toggle: () => setExpanded((value) => !value),
+    total: items.length,
+    limit,
+  };
+}
+
 function RecommendedTaskList({
   items,
   busy,
@@ -1352,11 +1396,12 @@ function RecommendedTaskList({
   busy: boolean;
   onPick: (item: RecommendedTask) => void;
 }) {
+  const fold = useFoldedItems(items);
   return (
     <section className="recommended-tasks process-md" data-recommended-tasks aria-label="今天推荐">
       <Markdown>{"**今天推荐**"}</Markdown>
       <ol className="recommend-md-list">
-        {items.map((item) => {
+        {fold.visible.map((item) => {
           const n = item.n || 0;
           const icon = item.icon || recIcon(item.intent);
           const source = item.source_label || (item.source === "ai" ? "AI发现" : item.source === "catalog" ? "任务模板" : "按阶段");
@@ -1388,6 +1433,7 @@ function RecommendedTaskList({
           );
         })}
       </ol>
+      <FoldMore total={fold.total} limit={fold.limit} expanded={fold.expanded} onToggle={fold.toggle} />
     </section>
   );
 }
@@ -1401,6 +1447,32 @@ function todoMark(task: Task) {
   return "○";
 }
 
+function TodoBucketBlock({
+  bucket,
+  label,
+  tasks,
+  onOpen,
+}: {
+  bucket: TodoBucket;
+  label?: string;
+  tasks: Task[];
+  onOpen: (task: Task) => void;
+}) {
+  const fold = useFoldedItems(tasks);
+  if (!tasks.length) return null;
+  return (
+    <div className="work-day-group" data-todo-bucket={bucket}>
+      {label ? <Markdown>{`*${label}*`}</Markdown> : null}
+      <ol className="recommend-md-list">
+        {fold.visible.map((task) => (
+          <TodoMarkdownRow key={task.id} task={task} onOpen={() => onOpen(task)} />
+        ))}
+      </ol>
+      <FoldMore total={fold.total} limit={fold.limit} expanded={fold.expanded} onToggle={fold.toggle} />
+    </div>
+  );
+}
+
 function TodoActionList({ tasks, onOpen }: { tasks: Task[]; onOpen: (task: Task) => void }) {
   const grouped: Record<TodoBucket, Task[]> = {
     overdue: [],
@@ -1409,7 +1481,7 @@ function TodoActionList({ tasks, onOpen }: { tasks: Task[]; onOpen: (task: Task)
     approval: [],
     queued: [],
     running: [],
-    later: [],
+    open: [],
   };
   for (const task of tasks) grouped[todoBucket(task)].push(task);
   if (!tasks.length) {
@@ -1422,18 +1494,10 @@ function TodoActionList({ tasks, onOpen }: { tasks: Task[]; onOpen: (task: Task)
   return (
     <section className="todo-md process-md" data-todo-md>
       <Markdown>{"**我的待办**"}</Markdown>
-      {([["overdue", "逾期"], ["today", "今天到期"], ["waiting", "结果待确认"], ["approval", "等审批"], ["queued", "已入队"], ["running", "执行中"], ["later", "后续"]] as const).map(([bucket, label]) => (
-        grouped[bucket].length ? (
-          <div className="work-day-group" key={bucket} data-todo-bucket={bucket}>
-            <Markdown>{`*${label}*`}</Markdown>
-            <ol className="recommend-md-list">
-              {grouped[bucket].map((task) => (
-                <TodoMarkdownRow key={task.id} task={task} onOpen={() => onOpen(task)} />
-              ))}
-            </ol>
-          </div>
-        ) : null
+      {ACTIONABLE_TODO_BUCKETS.map(([bucket, label]) => (
+        <TodoBucketBlock key={bucket} bucket={bucket} label={label} tasks={grouped[bucket]} onOpen={onOpen} />
       ))}
+      <TodoBucketBlock bucket="open" tasks={grouped.open} onOpen={onOpen} />
     </section>
   );
 }
@@ -1476,6 +1540,7 @@ function InsightList({
   onDismiss: (task: Task) => void;
   onOpen: (task: Task) => void;
 }) {
+  const fold = useFoldedItems(tasks);
   if (!tasks.length) {
     return (
       <div className="task-empty">
@@ -1485,8 +1550,10 @@ function InsightList({
     );
   }
   return (
-    <ol className="insight-card-list">
-      {tasks.map((task) => (
+    <section className="insight-confirm process-md" data-insight-list aria-label="待确认发现">
+      <Markdown>{"**待确认发现**"}</Markdown>
+      <ol className="insight-card-list">
+      {fold.visible.map((task) => (
         <li
           key={task.id}
           className={"insight-card" + (isHighValueInsight(task) ? " is-high" : "")}
@@ -1516,6 +1583,8 @@ function InsightList({
         </li>
       ))}
     </ol>
+      <FoldMore total={fold.total} limit={fold.limit} expanded={fold.expanded} onToggle={fold.toggle} />
+    </section>
   );
 }
 
