@@ -19,10 +19,22 @@ import Markdown from "../components/Markdown";
 import { starterPrompt } from "../taskStarters";
 import { recIcon, withRecommendedDisplay } from "../recommendedTasks";
 import { clearComposerFill, composerStarter, peekComposerFill } from "../knowledgeCopy";
-import { FOLLOWED_KOL_TABS, suggestedStageLabel } from "../kolStages";
+import { MAIN_STAGE_TABS } from "../kolStages";
 import { rememberJourney } from "../journey";
 import { missingFieldsMessage, fieldLabel } from "../labels";
-import { latestMailThread, summarizeMailSnippet } from "../mailPreview";
+import FollowedKolWorkCard from "../components/FollowedKolWorkCard";
+import {
+  FOLLOWED_KOL_OWNER_TABS,
+  matchesOwnerGroup,
+  matchesStageFilter,
+  ownerGroupCount,
+  projectFollowedKolCard,
+  sortFollowedKolCards,
+  type FollowedKolCardModel,
+  type FollowedKolRecord,
+  type KolSortMode,
+  type OwnerGroup,
+} from "../followedKolCard";
 import {
   HOME_TASK_POLL_MS,
   failureHint,
@@ -41,56 +53,8 @@ import {
 type HomeTab = "today" | "templates";
 type HomeMode = "todo" | "ai" | "lifecycle";
 type TaskFilter = "all" | "open" | "high" | "ai";
-type KolTab = string;
 type TodoBucket = "overdue" | "today" | "waiting" | "approval" | "queued" | "running" | "later";
-
-type FollowedKol = {
-  id: string;
-  handle: string;
-  brand: string;
-  stage_code?: string;
-  stage_label: string;
-  owner_name?: string;
-  platform?: string;
-  days_in_stage?: number;
-  notes?: string;
-  exception?: boolean;
-  unbound?: boolean;
-  profile_tags?: { id: string; label: string }[];
-  follow_style_tags?: { id: string; label: string }[];
-  task_history?: string;
-  kol_name?: string;
-  collab_summary?: string;
-  recent_followup?: string;
-  current_stage?: string;
-  suggested_stage?: string;
-  tasks?: { id: string; title: string; status?: string; history_summary?: string }[];
-  unread_count?: number;
-  session_id?: string | null;
-  suggested_stage_code?: string | null;
-  next_action?: string;
-  mail_threads?: {
-    conversation_id: string;
-    subject: string;
-    unread_count?: number;
-    last_snippet?: string;
-    last_from?: string;
-    last_from_name?: string;
-    last_direction?: string;
-    last_at?: string | null;
-  }[];
-};
-
-type KolPrimaryKind = "profile" | "confirm-send" | "confirm-stage" | "approval" | "open-session";
-
-type KolPrimaryAction = {
-  kind: KolPrimaryKind;
-  label: string;
-  task?: Task;
-  focusThread?: string;
-};
-
-type TabSummary = { code: string; count: number; task_count?: number };
+type FollowedKol = FollowedKolRecord;
 
 const openStatuses = new Set(["pending", "waiting", "running", "queued", "in_progress", "failed"]);
 const closedStatuses = new Set(["completed", "done", "cancelled"]);
@@ -329,101 +293,8 @@ function deriveWorkbench(tasks: Task[], kols: FollowedKol[]): HomeWorkbench {
   };
 }
 
-function matchesKolTab(kol: FollowedKol, tab: KolTab) {
-  if (tab === "all") return true;
-  if (tab === "exception") return Boolean(kol.exception);
-  return String(kol.stage_code || "") === tab;
-}
-
-function kolMatchesTask(kol: FollowedKol, task: Task): boolean {
-  const collabId = String(task.collaboration_id || task.project_id || "");
-  if (collabId && collabId === kol.id) return true;
-  const handle = String(kol.handle || "").replace(/^@/, "").trim();
-  const taskHandle = String(task.kol_name || "").replace(/^@/, "").trim();
-  return Boolean(handle && taskHandle && handle === taskHandle);
-}
-
-function relatedOpenTask(kol: FollowedKol, tasks: Task[]): Task | undefined {
-  return tasks.find((task) => {
-    if (isClosedTask(task) || task.dismissed_at) return false;
-    if (!isTodoTask(task) && String(task.status || "") !== "waiting_approval") return false;
-    return kolMatchesTask(kol, task);
-  });
-}
-
-function taskSkill(task: Task): string {
-  return String(task.skill_id || task.skill || task.task_type || "").toLowerCase();
-}
-
 function canOpenExistingTaskFlow(task: Task): boolean {
   return Boolean(task.session_id || task.collaboration_id || task.project_id);
-}
-
-function kolPrimaryAction(kol: FollowedKol, tasks: Task[]): KolPrimaryAction {
-  // TODO(backend): home board does not expose pending draft_id or approval_id.
-  // Confirm-send / approval CTAs only reuse an existing todo that already has
-  // session_id or collaboration_id (openTask). Do not add send/approve APIs here.
-  if (kol.unbound) return { kind: "profile", label: "补画像" };
-
-  const related = relatedOpenTask(kol, tasks);
-  if (related && canOpenExistingTaskFlow(related)) {
-    const skill = taskSkill(related);
-    const status = String(related.status || "");
-    if (status === "waiting_approval" || skill === "business_approval" || /审批/.test(related.title || "")) {
-      return { kind: "approval", label: "去审批", task: related };
-    }
-    if (skill === "email_compose" || skill === "stage_mail" || /确认发送|跟进邮件|报价信|草稿/.test(`${related.title} ${related.next_action || ""}`)) {
-      return { kind: "confirm-send", label: "确认发送", task: related };
-    }
-    if (skill === "confirm_stage" || /记状态|阶段/.test(related.title || "")) {
-      return { kind: "confirm-stage", label: "确认阶段", task: related };
-    }
-  }
-
-  const unreadInbound = (kol.mail_threads || []).find((thread) => (
-    thread.last_direction === "inbound" && Number(thread.unread_count || 0) > 0
-  ));
-  if (unreadInbound) {
-    return { kind: "open-session", label: "查看来信", focusThread: unreadInbound.conversation_id };
-  }
-
-  const suggested = String(kol.suggested_stage_code || "").trim();
-  const suggestedLabel = String(kol.suggested_stage || "").trim();
-  const canConfirmStage = Boolean(suggested)
-    || (Boolean(suggestedLabel) && !/无需推进|待补阶段|已完成|^—$/.test(suggestedLabel) && !kol.exception);
-  if (canConfirmStage) {
-    return { kind: "confirm-stage", label: "确认阶段" };
-  }
-
-  return { kind: "open-session", label: "打开会话" };
-}
-
-function mailDirectionLabel(direction?: string) {
-  if (direction === "outbound") return "去信";
-  if (direction === "inbound") return "来信";
-  return "往来";
-}
-
-function withKolCard(kol: FollowedKol): FollowedKol {
-  const collabSummary = kol.collab_summary || [
-    kol.unbound ? "尚未进入生命周期" : "",
-    kol.brand ? `${kol.brand}品牌合作` : "",
-    kol.owner_name ? `负责人 ${kol.owner_name}` : "",
-    kol.notes || "",
-  ].filter(Boolean).join(" · ") || "暂无合作摘要";
-  const currentStage = kol.current_stage || [
-    kol.unbound ? "未进入生命周期" : kol.stage_label,
-    !kol.unbound && kol.days_in_stage != null ? `停留 ${kol.days_in_stage} 天` : "",
-    kol.exception ? "异常" : "",
-  ].filter(Boolean).join(" · ");
-  return {
-    ...kol,
-    kol_name: kol.kol_name || kol.handle,
-    collab_summary: collabSummary,
-    recent_followup: kol.recent_followup || kol.task_history || "暂无任务历史",
-    current_stage: currentStage,
-    suggested_stage: suggestedStageLabel(kol),
-  };
 }
 
 function CardFields({
@@ -495,9 +366,11 @@ export default function Home() {
   const [definitions, setDefinitions] = useState<TaskDefinition[]>([]);
   const [tab, setTab] = useState<HomeTab>("today");
   const [filter, setFilter] = useState<TaskFilter>("all");
-  const [kolTab, setKolTab] = useState<KolTab>("all");
+  const [kolTab, setKolTab] = useState<OwnerGroup>("all");
+  const [stageFilter, setStageFilter] = useState("");
+  const [kolSort, setKolSort] = useState<KolSortMode>("need");
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const [followedKols, setFollowedKols] = useState<FollowedKol[]>([]);
-  const [tabSummaries, setTabSummaries] = useState<TabSummary[]>([]);
   const [boardWorkbench, setBoardWorkbench] = useState<HomeWorkbench | null>(null);
   const [followScope, setFollowScope] = useState<StarryBinding | null>(null);
   const [sort, setSort] = useState("priority");
@@ -532,9 +405,8 @@ export default function Home() {
   };
 
   const applyBoard = (board: Awaited<ReturnType<typeof api.homeBoard>>) => {
-    if (Array.isArray(board.kols)) setFollowedKols((board.kols as FollowedKol[]).map(withKolCard));
+    if (Array.isArray(board.kols)) setFollowedKols(board.kols as FollowedKol[]);
     if (Array.isArray(board.tasks)) setTasks(mergeTaskDetails(board.tasks as Task[], taskCatalogRef.current));
-    if (Array.isArray(board.tabs)) setTabSummaries(board.tabs as TabSummary[]);
     setBoardWorkbench(board.workbench || null);
     setFollowScope(board.follow_scope || null);
   };
@@ -743,16 +615,68 @@ export default function Home() {
     });
   };
 
-  const runKolPrimary = (kol: FollowedKol, action: KolPrimaryAction) => {
-    if (action.kind === "profile") {
+  const startCompose = (kol: FollowedKol) => {
+    setText(`写合作邮件 @${kol.handle}`);
+    setLockedIntent("email_compose");
+    setLockedLabel("写合作邮件");
+    setComposerFocused(true);
+    setDraftFocus((value) => value + 1);
+    rememberJourney({ kind: "kol", handle: kol.handle, stageCode: kol.stage_code, skillId: "email_compose", skillLabel: "写合作邮件" });
+  };
+
+  const openConfirmStage = (kol: FollowedKol, card: FollowedKolCardModel) => {
+    if (!card.recommended_action.can_write_stage || !card.recommended_action.target_stage_code) return;
+    if (card.task && canOpenExistingTaskFlow(card.task)) {
+      void openTask(card.task);
+      return;
+    }
+    rememberJourney({
+      kind: "kol",
+      handle: kol.handle,
+      stageCode: kol.stage_code,
+      skillId: "confirm_stage",
+      skillLabel: "提出阶段变更",
+    });
+    void api.openKolSession(kol.id).then((session) => {
+      storePending(session.id, {
+        text: `提出阶段变更 @${kol.handle} 到 ${card.recommended_action.target_stage_label}`,
+        collaboration_id: kol.id,
+        intent: "confirm_stage",
+        entities: {
+          handle: kol.handle,
+          stage_code: card.recommended_action.target_stage_code,
+        },
+      });
+      sessionStorage.setItem(`kol-session:${session.id}`, "1");
+      nav(`/s/${session.id}`, { state: { kolSession: true } });
+    }).catch(() => {
+      nav(`/pipeline?kol=${encodeURIComponent(kol.handle)}`);
+    });
+  };
+
+  const runKolCardAction = (kol: FollowedKol, card: FollowedKolCardModel) => {
+    const kind = card.recommended_action.kind;
+    if (kind === "profile") {
       openKol(kol);
       return;
     }
-    if (action.task && canOpenExistingTaskFlow(action.task)) {
-      void openTask(action.task);
+    if (kind === "confirm-stage") {
+      openConfirmStage(kol, card);
       return;
     }
-    openKol(kol, action.focusThread);
+    if ((kind === "confirm-send" || kind === "approval") && card.task && canOpenExistingTaskFlow(card.task)) {
+      void openTask(card.task);
+      return;
+    }
+    if (kind === "compose") {
+      if (card.task && canOpenExistingTaskFlow(card.task)) {
+        void openTask(card.task);
+        return;
+      }
+      startCompose(kol);
+      return;
+    }
+    openKol(kol, card.focus_thread);
   };
 
   const openTask = async (task: Task) => {
@@ -971,22 +895,29 @@ export default function Home() {
     [definitions, workbench.recommendations],
   );
 
-  const visibleKols = useMemo(
-    () => followedKols.filter((kol) => matchesKolTab(kol, kolTab)),
-    [followedKols, kolTab],
+  const kolCards = useMemo(
+    () => followedKols.map((kol) => projectFollowedKolCard(kol, todoItems)),
+    [followedKols, todoItems],
   );
 
+  const visibleKols = useMemo(() => {
+    const filtered = kolCards.filter((card) => {
+      if (!matchesOwnerGroup(card, kolTab)) return false;
+      if (!matchesStageFilter(card, stageFilter)) return false;
+      if (unreadOnly && !card.unread_inbound) return false;
+      return true;
+    });
+    const sortMode = kolTab === "recent" && kolSort === "need" ? "recent" : kolSort;
+    return sortFollowedKolCards(filtered, sortMode);
+  }, [kolCards, kolSort, kolTab, stageFilter, unreadOnly]);
+
   const kolCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: followedKols.length, exception: 0 };
-    for (const tabSpec of FOLLOWED_KOL_TABS) {
-      if (tabSpec.code !== "all") counts[tabSpec.code] = 0;
-    }
-    for (const kol of followedKols) {
-      if (kol.exception) counts.exception += 1;
-      else if (kol.stage_code) counts[kol.stage_code] = (counts[kol.stage_code] || 0) + 1;
+    const counts = {} as Record<OwnerGroup, number>;
+    for (const tabSpec of FOLLOWED_KOL_OWNER_TABS) {
+      counts[tabSpec.code] = ownerGroupCount(kolCards, tabSpec.code);
     }
     return counts;
-  }, [followedKols]);
+  }, [kolCards]);
 
   const taskCounts = {
     all: tasks.length,
@@ -1083,7 +1014,7 @@ export default function Home() {
               data-home-mode="lifecycle"
               onClick={() => setMode("lifecycle")}
             >
-              生命周期
+              我跟进的红人
             </button>
             <button type="button" className="home-templates-link" data-open-work-panel onClick={() => openPanel("templates")}>
               任务模板
@@ -1117,10 +1048,9 @@ export default function Home() {
           {mode === "lifecycle" ? (
             <section className="home-mode-pane recommend-work" data-home-pane="lifecycle" data-lifecycle-overview>
               <div className="home-pane-sticky">
-              <div className="kol-stage-tabs" role="tablist" aria-label="跟进红人状态" data-kol-tabs>
-                {FOLLOWED_KOL_TABS.map((tabSpec) => {
-                  const summaryRow = tabSummaries.find((item) => item.code === tabSpec.code);
-                  const count = summaryRow?.count ?? kolCounts[tabSpec.code] ?? 0;
+              <div className="kol-owner-tabs" role="tablist" aria-label="按行动责任人查看" data-kol-tabs>
+                {FOLLOWED_KOL_OWNER_TABS.map((tabSpec) => {
+                  const count = kolCounts[tabSpec.code] ?? 0;
                   return (
                     <button
                       key={tabSpec.code}
@@ -1131,118 +1061,78 @@ export default function Home() {
                       onClick={() => setKolTab(tabSpec.code)}
                       data-kol-tab={tabSpec.code}
                     >
-                      <span className="kol-tab-name">{tabSpec.short} {count}</span>
+                      <span className="kol-tab-name">{tabSpec.label} {count}</span>
                     </button>
                   );
                 })}
               </div>
-              <h2>
-                {kolTab === "all"
-                  ? "我跟进的红人"
-                  : kolTab === "exception"
-                    ? "异常 KOL"
-                    : (FOLLOWED_KOL_TABS.find((item) => item.code === kolTab)?.label || "这一阶段")}
-                {followedKols.some((kol) => Number(kol.unread_count || 0) > 0) ? (
-                  <span className="unread-total" data-unread-total>
-                    未读 {followedKols.reduce((sum, kol) => sum + Number(kol.unread_count || 0), 0)}
-                  </span>
-                ) : null}
+              <div className="kol-secondary-filters" data-kol-secondary-filters>
+                <label className="kol-filter-label">
+                  阶段
+                  <select
+                    aria-label="按正式阶段二次筛选"
+                    data-kol-stage-filter
+                    value={stageFilter}
+                    onChange={(event) => setStageFilter(event.target.value)}
+                  >
+                    <option value="">全部阶段</option>
+                    {MAIN_STAGE_TABS.map((stage) => (
+                      <option key={stage.code} value={stage.code}>{stage.label}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="kol-sorts" role="group" aria-label="跟进排序" data-kol-sorts>
+                  {([
+                    ["need", "按需处理"],
+                    ["recent", "最近更新"],
+                    ["stay", "阶段停留"],
+                    ["unread", "未读"],
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      aria-pressed={kolSort === value}
+                      data-kol-sort={value}
+                      onClick={() => setKolSort(value)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  data-unread-filter
+                  aria-pressed={unreadOnly}
+                  onClick={() => setUnreadOnly((value) => !value)}
+                >
+                  未读
+                </button>
                 <button type="button" className="btn ghost sm" data-refresh-mail onClick={() => void refreshBoard(true)}>
                   刷新收取
                 </button>
+              </div>
+              <h2 data-followed-kol-heading>
+                {FOLLOWED_KOL_OWNER_TABS.find((item) => item.code === kolTab)?.label || "我跟进的红人"}
               </h2>
               </div>
               {visibleKols.length ? (
-                <ol className="recommend-list" data-followed-kol-list>
-                  {visibleKols.map((kol) => {
-                    const primary = kolPrimaryAction(kol, todoItems);
-                    const thread = latestMailThread(kol.mail_threads);
-                    const mailSummary = thread ? summarizeMailSnippet(thread.last_snippet || "") : "";
-                    return (
+                <ol className="recommend-list followed-kol-list" data-followed-kol-list>
+                  {visibleKols.map((card) => (
                     <li
-                      key={kol.id}
-                      className={"recommend-row followed-kol" + (kol.exception ? " is-exception" : "") + (kol.unbound ? " is-unbound" : "")}
-                      data-followed-kol={kol.handle}
+                      key={card.id}
+                      className={"followed-kol-item" + (card.risk.exception ? " is-exception" : "") + (card.current_state.unbound ? " is-unbound" : "")}
                     >
-                      <span className="task-source-mark" aria-hidden>{kol.exception ? "!" : kol.unbound ? "◎" : "○"}</span>
-                      <div className="kol-card-body">
-                      <button
-                        type="button"
-                        className="task-main"
-                        onClick={() => openKol(kol)}
-                      >
-                        <strong>@{kol.handle}</strong>
-                        {Number(kol.unread_count || 0) > 0 ? (
-                          <span className="unread-badge" data-unread-count={kol.unread_count}>未读 {kol.unread_count}</span>
-                        ) : null}
-                        {kol.follow_style_tags?.length ? (
-                          <span className="follow-style-tags" data-follow-style-tags>
-                            {kol.follow_style_tags.map((tag) => (
-                              <span key={tag.id + tag.label} className="follow-style-tag" data-follow-style-tag={tag.id}>{tag.label}</span>
-                            ))}
-                          </span>
-                        ) : null}
-                        {kol.profile_tags?.length ? (
-                          <span className="profile-tags" data-profile-tags>
-                            {kol.profile_tags.map((tag) => (
-                              <span key={tag.id + tag.label} className="profile-tag" data-profile-tag={tag.id}>{tag.label}</span>
-                            ))}
-                          </span>
-                        ) : null}
-                        <CardFields
-                          compact
-                          kolName={kol.kol_name || kol.handle}
-                          collabSummary={kol.collab_summary}
-                          recentFollowup={kol.recent_followup}
-                          currentStage={kol.current_stage}
-                          suggestedStage={kol.suggested_stage}
-                        />
-                      </button>
-                      {thread ? (
-                        <div className="kol-mail-preview" data-mail-threads data-mail-preview>
-                          <p className="mail-preview-meta">
-                            <span className="thread-subject" title={thread.subject || "(无主题)"}>{thread.subject || "(无主题)"}</span>
-                            <span className="muted">{mailDirectionLabel(thread.last_direction)}</span>
-                            {Number(thread.unread_count || 0) > 0 ? <span>未读 {thread.unread_count}</span> : null}
-                            {thread.last_from_name || thread.last_from ? (
-                              <span data-thread-from>{[thread.last_from_name, thread.last_from].filter(Boolean).join(" · ")}</span>
-                            ) : null}
-                            {thread.last_at ? <span data-thread-time>{new Date(thread.last_at).toLocaleString("zh-CN", { hour12: false })}</span> : null}
-                          </p>
-                          {mailSummary ? (
-                            <p
-                              className="mail-preview-text"
-                              data-mail-summary
-                              data-thread-id={thread.conversation_id}
-                              data-thread-direction={thread.last_direction || ""}
-                              title={mailSummary}
-                            >
-                              {mailSummary}
-                            </p>
-                          ) : null}
-                          <button
-                            type="button"
-                            className="mail-preview-link"
-                            data-open-original-mail
-                            data-thread-id={thread.conversation_id}
-                            onClick={() => openKol(kol, thread.conversation_id)}
-                          >
-                            查看原邮件
-                          </button>
-                        </div>
-                      ) : null}
-                      </div>
-                      <button
-                        type="button"
-                        className="btn work sm kol-card-cta"
-                        data-kol-primary-action={primary.kind}
-                        onClick={() => runKolPrimary(kol, primary)}
-                      >
-                        {primary.label}
-                      </button>
+                      <FollowedKolWorkCard
+                        card={card}
+                        onOpenDetail={() => openKol(card.source)}
+                        onPrimary={() => runKolCardAction(card.source, card)}
+                        onOpenMail={() => openKol(card.source, card.latest_fact.thread_id || card.focus_thread)}
+                        onCompose={() => runKolCardAction(card.source, card)}
+                        onConfirmStage={() => openConfirmStage(card.source, card)}
+                      />
                     </li>
-                    );
-                  })}
+                  ))}
                 </ol>
               ) : (
                 <div className="task-empty" data-follow-empty={followScope?.required && !followScope.bound ? "unbound" : followScope?.status === "expired" ? "expired" : "none"}>
@@ -1251,16 +1141,16 @@ export default function Home() {
                       ? "尚未绑定跟进邮箱"
                       : followScope?.status === "expired"
                         ? "Starry 连接已过期"
-                        : followedKols.length ? "这一状态还没有跟进中的红人" : followScope?.bound ? "该邮箱下暂无跟进红人" : "还没有跟进中的红人"}
+                        : followedKols.length ? "这一分组还没有跟进中的红人" : followScope?.bound ? "该邮箱下暂无跟进红人" : "还没有跟进中的红人"}
                   </strong>
                   <p>
                     {followScope?.required && !followScope.bound
-                      ? "绑定 Starry 发件箱后，这里只显示该邮箱负责人跟进的红人及生命周期。"
+                      ? "绑定 Starry 发件箱后，这里只显示该邮箱负责人跟进的红人。"
                       : followScope?.status === "expired"
                         ? "重新连接后即可继续查看你跟进的红人。"
                         : followScope?.bound
                           ? `当前绑定 ${followScope.mailbox_email || "已选邮箱"}${followScope.owner_name ? ` · ${followScope.owner_name}` : ""}。`
-                          : "正式阶段共 15 个，异常状态单独一栏。完整资产在左侧「生命周期」。"}
+                          : "按谁必须行动查看跟进红人。15 个正式阶段在上方二次筛选，完整资产在「生命周期」。"}
                   </p>
                   {followScope?.required && (!followScope.bound || followScope.status === "expired") ? (
                     <button type="button" className="btn work" onClick={() => nav("/settings?tab=starry")}>

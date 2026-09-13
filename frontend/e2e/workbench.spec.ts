@@ -50,6 +50,13 @@ async function openHomeLifecycle(page: Page) {
   await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
 }
 
+async function openFollowedKolDetail(page: Page, handle?: string) {
+  const card = handle
+    ? page.locator(`[data-followed-kol="${handle}"]`)
+    : page.locator("[data-followed-kol]").first();
+  await card.locator("[data-open-kol-detail]").click();
+}
+
 async function openStageSop(page: Page) {
   const sop = page.locator("[data-stage-sop]");
   await expect(sop).toBeVisible();
@@ -347,9 +354,14 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expect(page.locator("[data-home] [data-journey-guide]")).toHaveCount(0);
   await expect(page.locator("[data-lifecycle-domains]")).toHaveCount(0);
   await expect(page.locator("[data-lifecycle-library]")).toHaveCount(0);
-  await expect(page.locator("[data-kol-tab]")).toHaveCount(17);
+  await expect(page.locator("[data-kol-tab]")).toHaveCount(6);
+  await expect(page.locator('[data-kol-tab="needs_me"]')).toContainText("需要我处理");
+  await expect(page.locator('[data-kol-tab="waiting_them"]')).toContainText("等待对方");
+  await expect(page.locator('[data-kol-tab="waiting_approval"]')).toContainText("等待审批");
   await expect(page.locator('[data-kol-tab="all"]')).toContainText("全部");
   await expect(page.locator('[data-kol-tab="exception"]')).toContainText("异常");
+  await expect(page.locator('[data-kol-tab="INITIAL_CONTACT"]')).toHaveCount(0);
+  await expect(page.locator("[data-kol-stage-filter]")).toBeVisible();
   await openHomeTemplates(page);
   await homeRecByTitle(page, "写合作邮件").click();
   await expectHomeComposerDraft(page, "写合作邮件 发件箱 [发件邮箱] 发给 [收件邮箱] 主题：[主题]");
@@ -527,7 +539,7 @@ test("pipeline shows a 15-stage milestone timeline and lifecycle drawer", async 
 test("session page has no coach next-step card and keeps composer skills", async ({ page }) => {
   await page.goto("/");
   await openHomeLifecycle(page);
-  await page.locator("[data-followed-kol] .task-main").first().click();
+  await openFollowedKolDetail(page);
   await expect(page).toHaveURL(/\/s\//);
   await expect(page.locator("[data-journey-next]")).toHaveCount(0);
   await expect(page.locator("[data-journey-guide]")).toHaveCount(0);
@@ -563,7 +575,7 @@ test("session page has no coach next-step card and keeps composer skills", async
 test("home lifecycle followed KOL opens the mail rail not the task list", async ({ page }) => {
   await page.goto("/");
   await openHomeLifecycle(page);
-  await page.locator("[data-followed-kol] .task-main").first().click();
+  await openFollowedKolDetail(page);
   await expect(page).toHaveURL(/\/s\//);
   await expect(page.locator("[data-agent-task-list]")).toHaveAttribute("data-tasklist-mode", "mail");
   await expect(page.locator("[data-agent-task-list] strong")).toHaveText("往来邮件");
@@ -573,30 +585,34 @@ test("home lifecycle followed KOL opens the mail rail not the task list", async 
   await expect(page.locator(".chat")).toHaveAttribute("data-session-stream", /idle|live/);
 });
 
-test("home followed-KOL tabs filter 17 statuses and open the KOL session", async ({ page }) => {
+test("home followed-KOL tabs filter by action owner and open the KOL session", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator('[data-home-mode="todo"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-today-summary]")).toContainText("项待处理");
   await openHomeLifecycle(page);
-  await expect(page.locator("[data-kol-tab]")).toHaveCount(17);
+  await expect(page.locator("[data-kol-tab]")).toHaveCount(6);
   await expect(page.locator('[data-kol-tab="all"]')).toHaveAttribute("aria-selected", "true");
-  // Tabs are static (17) even before /api/home/board lands. Wait for the stub
-  // listAllKolProfiles pair first; demo fixtures like 小美妆日记 have no kol_uid.
+  await expect(page.locator('[data-kol-tab="needs_me"]')).toBeVisible();
+  await expect(page.locator('[data-kol-tab="INITIAL_CONTACT"]')).toHaveCount(0);
+  // Owner tabs are static (6). Wait for the stub listAllKolProfiles pair first;
+  // demo fixtures like 小美妆日记 have no kol_uid.
   await expect(page.locator('[data-followed-kol="户外电源达人"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-followed-kol="营地灯测评娘"]')).toBeVisible();
   await expect(page.locator('[data-followed-kol="小美妆日记"]')).toHaveCount(0);
   await expect(page.locator("[data-followed-kol]")).toHaveCount(2);
-  await expect(page.locator('[data-followed-kol="户外电源达人"] [data-kol-name]')).toContainText("户外电源达人");
-  await expect(page.locator('[data-followed-kol="户外电源达人"] [data-collab-summary]')).toContainText("LT");
-  await expect(page.locator('[data-followed-kol="户外电源达人"] [data-kol-card-cols="5"]')).toBeVisible();
-  await expect(page.locator('[data-followed-kol="户外电源达人"] [data-kol-status-line]')).toBeVisible();
-  await expect(page.locator('[data-followed-kol="户外电源达人"] [data-kol-status-line] [data-recent-followup]')).toBeVisible();
-  await expect(page.locator('[data-followed-kol="户外电源达人"] [data-kol-status-line] [data-current-stage]')).toContainText("初步接触");
-  await expect(page.locator('[data-followed-kol="户外电源达人"] [data-kol-status-line] [data-suggested-stage]')).toContainText("已回复-有兴趣");
-  await expect(page.locator('[data-followed-kol="户外电源达人"] [data-kol-primary-action]')).toHaveCount(1);
+  const outdoor = page.locator('[data-followed-kol="户外电源达人"]');
+  await expect(outdoor.locator("[data-kol-identity]")).toContainText("户外电源达人");
+  await expect(outdoor.locator("[data-kol-identity]")).not.toContainText("KOL 名称");
+  await expect(outdoor.locator("[data-kol-scope]")).toContainText("LT");
+  await expect(outdoor.locator("[data-kol-band]")).toHaveCount(4);
+  await expect(outdoor.locator('[data-kol-card-cols="5"]')).toHaveCount(0);
+  await expect(outdoor.locator(".task-main")).toHaveCount(0);
+  await expect(outdoor.locator("[data-current-state]")).toContainText("初步接触");
+  await expect(outdoor.locator("[data-recommended-action]")).toContainText("建议依据不足");
+  await expect(outdoor.locator("[data-confirm-enter-stage]")).toHaveCount(0);
   await expect(page.locator('[data-kol-tab="all"]')).not.toContainText("失联跟进");
   await expect(page.locator('[data-kol-tab="all"] .kol-tab-history')).toHaveCount(0);
-  await page.locator('[data-followed-kol="户外电源达人"] .task-main').click();
+  await openFollowedKolDetail(page, "户外电源达人");
   await expect(page).toHaveURL(/\/s\//);
   await expect(page.locator("[data-kol-journey]")).toContainText("户外电源达人");
   await expect(page.locator("[data-session-stage]")).toBeVisible();
@@ -608,7 +624,7 @@ test("home followed-KOL tabs filter 17 statuses and open the KOL session", async
 test("KOL session header can tag a followed creator as 犹豫谨慎", async ({ page }) => {
   await page.goto("/");
   await openHomeLifecycle(page);
-  await page.locator('[data-followed-kol="户外电源达人"] .task-main').click();
+  await openFollowedKolDetail(page, "户外电源达人");
   await expect(page.locator("[data-kol-journey]")).toContainText("户外电源达人");
   await expect(page.locator("[data-follow-style-bar]")).toBeVisible();
   await page.locator("[data-follow-style-add]").click();
@@ -689,8 +705,9 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await openHomeLifecycle(page);
   const card = page.locator('[data-followed-kol="小美妆日记"]');
   const board = page.locator("[data-home-pane=lifecycle]");
-  await expect(card.locator('[data-kol-card-cols="5"]')).toBeVisible();
-  await expect(card.locator(".kol-card-field")).toHaveCount(5);
+  await expect(card.locator("[data-kol-band]")).toHaveCount(4);
+  await expect(card.locator('[data-kol-card-cols="5"]')).toHaveCount(0);
+  await expect(card.locator(".task-main")).toHaveCount(0);
   const boardBox = await board.boundingBox();
   const cardBox = await card.boundingBox();
   expect(boardBox && cardBox).toBeTruthy();
@@ -704,6 +721,8 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expect(card.locator("[data-open-original-mail]")).toHaveText("查看原邮件");
   await expect(card.locator("[data-kol-primary-action]")).toHaveCount(1);
   await expect(card.locator('[data-kol-primary-action="open-session"]')).toHaveText("查看来信");
+  await expect(card.locator("[data-recommended-action]")).toContainText("查看来信");
+  await expect(card.locator("[data-latest-fact]")).toContainText("想和贵品牌litime合作");
 
   await page.setViewportSize({ width: 1100, height: 900 });
   await expect(card).toBeVisible();
@@ -765,6 +784,108 @@ test("home followed-KOL 查看原邮件 opens the existing session mail rail", a
   await expect(page).toHaveURL(/\/s\/kol-mail-session/);
   await expect(page.locator("[data-workbench] [data-mail-body]")).toBeVisible();
   await expect(page.locator("[data-workbench] [data-mail-body]")).toContainText("想和贵品牌litime合作");
+});
+
+test("home followed-KOL default sort uses contract keys 1-8", async ({ page }) => {
+  await page.route("**/api/home/board", (route) => route.fulfill({
+    json: {
+      kols: [
+        { id: "z-late", handle: "晚到的", brand: "LT", stage_code: "PUBLISHED", stage_label: "已发布", days_in_stage: 1 },
+        { id: "e-stay", handle: "停留最长", brand: "LT", stage_code: "TESTING", stage_label: "已签收-测试中", days_in_stage: 40 },
+        { id: "d-overdue", handle: "逾期跟进", brand: "LT", stage_code: "EVALUATING", stage_label: "合作评估", days_in_stage: 3, overdue: 1 },
+        {
+          id: "c-unread",
+          handle: "未读来信",
+          brand: "LT",
+          stage_code: "INITIAL_CONTACT",
+          stage_label: "初步接触",
+          days_in_stage: 2,
+          unread_count: 1,
+          mail_threads: [{
+            conversation_id: "u1",
+            subject: "Re",
+            unread_count: 1,
+            last_direction: "inbound",
+            last_snippet: "想继续聊",
+            last_at: "2026-09-12T10:00:00.000Z",
+          }],
+        },
+        {
+          id: "b-confirm",
+          handle: "待确认",
+          brand: "LT",
+          stage_code: "INITIAL_CONTACT",
+          stage_label: "初步接触",
+          suggested_stage: "已回复-有兴趣",
+          suggested_stage_code: "INTERESTED",
+          days_in_stage: 2,
+          mail_threads: [{
+            conversation_id: "c1",
+            subject: "Re: interest",
+            unread_count: 0,
+            last_direction: "inbound",
+            last_snippet: "我对这次合作有兴趣",
+            last_at: "2026-09-11T10:00:00.000Z",
+          }],
+        },
+        { id: "a-risk", handle: "异常菌", brand: "PQ", stage_code: "DISPUTED", stage_label: "争议中", exception: true, notes: "样品争议", days_in_stage: 8 },
+      ],
+      tasks: [],
+    },
+  }));
+  await page.goto("/");
+  await openHomeLifecycle(page);
+  await expect(page.locator("[data-followed-kol]")).toHaveCount(6);
+  const handles = await page.locator("[data-followed-kol]").evaluateAll((els) => (
+    els.map((el) => el.getAttribute("data-followed-kol"))
+  ));
+  expect(handles).toEqual(["异常菌", "待确认", "未读来信", "逾期跟进", "停留最长", "晚到的"]);
+  await page.locator('[data-kol-sort="stay"]').click();
+  const byStay = await page.locator("[data-followed-kol]").evaluateAll((els) => (
+    els.map((el) => el.getAttribute("data-followed-kol"))
+  ));
+  expect(byStay[0]).toBe("停留最长");
+});
+
+test("home confirm CTA names the target stage and opens confirm_stage", async ({ page }) => {
+  await page.route("**/api/home/board", (route) => route.fulfill({
+    json: {
+      kols: [{
+        id: "col_xiaomei",
+        handle: "小美妆日记",
+        brand: "LT",
+        stage_code: "INITIAL_CONTACT",
+        stage_label: "初步接触",
+        suggested_stage: "已回复-有兴趣",
+        suggested_stage_code: "INTERESTED",
+        stage_version: 0,
+        mail_threads: [{
+          conversation_id: "3901",
+          subject: "Re: LiTime collab",
+          unread_count: 0,
+          last_direction: "inbound",
+          last_from: "amy@example.com",
+          last_snippet: "我对这次合作有兴趣",
+          last_at: "2026-09-12T10:00:00.000Z",
+        }],
+      }],
+      tasks: [],
+    },
+  }));
+  await page.goto("/");
+  await openHomeLifecycle(page);
+  const card = page.locator('[data-followed-kol="小美妆日记"]');
+  await expect(card.locator("[data-kol-band]")).toHaveCount(4);
+  await expect(card.locator("[data-latest-fact]")).toContainText("我对这次合作有兴趣");
+  await expect(card.locator("[data-recommended-action]")).toContainText("确认进入「已回复-有兴趣」");
+  const cta = card.locator("[data-confirm-enter-stage]");
+  await expect(cta).toHaveText("确认进入「已回复-有兴趣」");
+  await expect(card.getByRole("button", { name: "确认阶段", exact: true })).toHaveCount(0);
+  await cta.click();
+  await expect(page).toHaveURL(/\/s\//);
+  await expect(page.locator('[data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 15000 });
+  await expect(page.locator('[data-kind="confirm-stage-card"]')).toContainText("初步接触");
+  await expect(page.locator('[data-kind="confirm-stage-card"] [data-stage-select]')).toHaveValue("INTERESTED");
 });
 
 test("home waiting work item is labeled 结果待确认 not 等待中", async ({ page }) => {
@@ -2083,29 +2204,32 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await expect(page.locator("[data-insight-card]")).toContainText("AI 风险发现");
   await expect(page.locator("[data-insight-mark]")).toBeVisible();
   await openHomeLifecycle(page);
-  await expect(page.locator("[data-kol-tab]")).toHaveCount(17);
+  await expect(page.locator("[data-kol-tab]")).toHaveCount(6);
+  await expect(page.locator('[data-kol-tab="needs_me"]')).toBeVisible();
+  await expect(page.locator('[data-kol-tab="INITIAL_CONTACT"]')).toHaveCount(0);
   await expect(page.getByRole("link", { name: /查看KOL全生命周期/ })).toHaveCount(0);
   await expect(page.locator("[data-followed-kol]")).toHaveCount(4);
-  await expect(page.locator("[data-followed-kol] [data-kol-status-line]")).toHaveCount(4);
-  await expect(page.locator('[data-followed-kol="小美妆日记"] [data-kol-card-cols="5"]')).toBeVisible();
-  await expect(page.locator('[data-followed-kol="小美妆日记"] [data-kol-status-line] [data-recent-followup]')).toContainText("写跟进邮件");
-  await expect(page.locator('[data-followed-kol="小美妆日记"] [data-kol-status-line] [data-current-stage]')).toContainText("初步接触");
-  await expect(page.locator('[data-followed-kol="小美妆日记"] [data-kol-status-line] [data-suggested-stage]')).toContainText("已回复-有兴趣");
+  await expect(page.locator("[data-followed-kol] [data-kol-band]")).toHaveCount(16);
   const card = page.locator('[data-followed-kol="小美妆日记"]');
-  await expect(card.locator(".kol-card-field")).toHaveCount(5);
-  await expect(card.locator("[data-kol-primary-action]")).toHaveCount(1);
+  await expect(card.locator('[data-kol-card-cols="5"]')).toHaveCount(0);
+  await expect(card.locator("[data-kol-band]")).toHaveCount(4);
+  await expect(card.locator("[data-current-state]")).toContainText("初步接触");
+  await expect(card.locator("[data-recommended-action]")).toContainText("建议依据不足");
+  await expect(card.locator("[data-confirm-enter-stage]")).toHaveCount(0);
+  await expect(card.locator(".task-main")).toHaveCount(0);
   const cardBox = await card.boundingBox();
-  const nameBox = await card.locator("[data-kol-name]").boundingBox();
-  const summaryBox = await card.locator("[data-collab-summary]").boundingBox();
-  const followBox = await card.locator("[data-recent-followup]").boundingBox();
-  const stageBox = await card.locator("[data-current-stage]").boundingBox();
-  const suggestBox = await card.locator("[data-suggested-stage]").boundingBox();
-  expect(cardBox && nameBox && summaryBox && followBox && stageBox && suggestBox).toBeTruthy();
+  const identityBox = await card.locator("[data-kol-identity]").boundingBox();
+  const stateBox = await card.locator("[data-current-state]").boundingBox();
+  const factBox = await card.locator("[data-latest-fact]").boundingBox();
+  const recBox = await card.locator("[data-recommended-action]").boundingBox();
+  const ctaBox = await card.locator("[data-kol-band='cta']").boundingBox();
+  expect(cardBox && identityBox && stateBox && factBox && recBox && ctaBox).toBeTruthy();
   expect((cardBox?.width || 0)).toBeLessThanOrEqual(1280);
   await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
-  await page.locator('[data-kol-tab="INITIAL_CONTACT"]').click();
+  await page.locator("[data-kol-stage-filter]").selectOption("INITIAL_CONTACT");
   await expect(page.locator("[data-followed-kol]")).toHaveCount(1);
   await expect(page.locator("[data-followed-kol]")).toContainText("小美妆日记");
+  await page.locator("[data-kol-stage-filter]").selectOption("");
   await page.locator('[data-kol-tab="exception"]').click();
   await expect(page.locator("[data-followed-kol]")).toContainText("旅行电源菌");
   await page.locator("[data-open-work-panel]").click();
