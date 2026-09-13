@@ -66,7 +66,12 @@ function isCannedGreetingSummary(text?: string): boolean {
   return /^(去信|来信)寒暄跟进，尚未落到报价、档期或明确兴趣。$/.test(String(text || "").trim());
 }
 
-function threadDigestView(digest: { text?: string; source?: string } | null, pending: boolean): { label: string; kind: string; text: string } {
+function threadDigestView(digest: { text?: string; source?: string } | null, pending: boolean): {
+  label: string;
+  kind: string;
+  text: string;
+  status?: string;
+} {
   const source = String(digest?.source || "");
   const summary = String(digest?.text || "").trim();
   const remote = (source === "codex_memory" || source === "luna") && summary && !isCannedGreetingSummary(summary);
@@ -78,10 +83,20 @@ function threadDigestView(digest: { text?: string; source?: string } | null, pen
     };
   }
   if (pending) {
-    return { label: "正在读历史邮件", kind: "pending", text: "正在把本会话全部往来收成一段话。" };
+    return {
+      label: "历史邮件往来摘要",
+      kind: "pending",
+      status: "正在读历史邮件",
+      text: summary || "正在把本会话全部往来收成一段话。",
+    };
   }
   if (source === "analysis_failed") {
-    return { label: "分析未完成", kind: "failed", text: "未能读完这些正文。下拉刷新可重试。" };
+    return {
+      label: "历史邮件往来摘要",
+      kind: "failed",
+      status: "分析未完成",
+      text: summary || "未能读完这些正文。下拉刷新可重试。",
+    };
   }
   return { label: "历史邮件往来摘要", kind: "rule", text: summary };
 }
@@ -100,7 +115,7 @@ function splitPortraitNotes(notes: unknown): string[] {
     .filter(Boolean);
 }
 
-function MailDigestPreview({
+function ThreadMailDigest({
   digest,
   pending,
   mailCount,
@@ -121,10 +136,13 @@ function MailDigestPreview({
     >
       <span className="sop-mail-icon" aria-hidden>✉️</span>
       <strong className="sop-mail-analysis-label">{analysis.label}</strong>
-      {count ? <small>{count} 封往来</small> : null}
-      <div className="sop-mail-md-body">
-        <Markdown>{analysis.text}</Markdown>
-      </div>
+      {analysis.status ? <small data-digest-status>{analysis.status}</small> : null}
+      {count ? <small data-digest-count>{count} 封往来</small> : null}
+      {analysis.text ? (
+        <div className="sop-mail-md-body">
+          <Markdown>{analysis.text}</Markdown>
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -684,7 +702,25 @@ export default function Chat() {
   const hasRightArtifact = messages.some((message) =>
     ["task_result_card", "email_card", "confirm_stage_card", "inbound_card", "supplement_card", "kol_mail_card"].includes(message.kind) ||
     (message.kind === "steps" && String(message.payload.title || "").includes("失联")),
-  ) || Boolean(task?.task_result || task?.crawl_result) || crawlJob?.status === "result_ready" || Boolean(focusedMail);
+  ) || Boolean(task?.task_result || task?.crawl_result) || crawlJob?.status === "result_ready" || Boolean(focusedMail)
+    || Boolean(kolSession && sessionMails && sessionMails.length);
+  const journeyPhases = journey?.handle
+    ? (Array.isArray(journey.phases) && (journey.phases as unknown[]).length
+      ? journey.phases as { id: string; label: string; state?: string; official_labels?: string[] }[]
+      : SOP_PHASES.map((phase) => {
+        const current = sopPhaseByStage(String(journey.stage_code || ""));
+        const idx = SOP_PHASES.findIndex((item) => item.id === phase.id);
+        const currentIdx = current ? SOP_PHASES.findIndex((item) => item.id === current.id) : -1;
+        return {
+          id: phase.id,
+          label: phase.label,
+          official_labels: [] as string[],
+          state: currentIdx < 0 ? "idle" : idx < currentIdx ? "done" : idx === currentIdx ? "current" : "idle",
+        };
+      }))
+    : [];
+  const journeyPhaseIdx = journeyPhases.findIndex((phase) => String(phase.state || "") === "current");
+  const journeyProgress = journeyPhaseIdx < 0 ? 0 : journeyPhaseIdx / Math.max(journeyPhases.length - 1, 1);
 
   const complete = async () => {
     if (!task || completing) return;
@@ -815,24 +851,18 @@ export default function Chat() {
                 presets={Array.isArray(journey.follow_style_presets) ? journey.follow_style_presets as { id: string; label: string }[] : undefined}
                 onSaved={() => void reload()}
               />
-              <ol className="stage-track journey-track is-phases" aria-label="八个阶段">
-                {(Array.isArray(journey.phases) && (journey.phases as unknown[]).length
-                  ? journey.phases as { id: string; label: string; state?: string; official_labels?: string[] }[]
-                  : SOP_PHASES.map((phase) => {
-                    const current = sopPhaseByStage(String(journey.stage_code || ""));
-                    const idx = SOP_PHASES.findIndex((item) => item.id === phase.id);
-                    const currentIdx = current ? SOP_PHASES.findIndex((item) => item.id === current.id) : -1;
-                    return {
-                      id: phase.id,
-                      label: phase.label,
-                      official_labels: [],
-                      state: currentIdx < 0 ? "idle" : idx < currentIdx ? "done" : idx === currentIdx ? "current" : "idle",
-                    };
-                  })).map((phase) => {
+              <ol
+                className="stage-track journey-track is-phases"
+                aria-label="八个阶段"
+                data-stage-track
+                style={{ ["--phase-progress" as string]: String(journeyProgress) }}
+              >
+                {journeyPhases.map((phase) => {
                   const state = String(phase.state || "idle");
                   const title = `${phase.label}：${(phase.official_labels || []).join(" / ")}`;
                   return (
                     <li key={phase.id} data-journey-phase={phase.id} data-phase-state={state}>
+                      <span className={"milestone is-" + state} aria-hidden data-stage-node={state} />
                       <span className={"phase-chip is-" + state} title={title} data-milestone={phase.id}>
                         {phase.label}
                       </span>
@@ -899,10 +929,10 @@ export default function Chat() {
           )}
         </header>
         <div className="session-stream conversation" ref={streamRef} data-session-stream-pane data-ai-conversation role="log">
-        {kolSession && (mailDigest?.text || mailAnalysisPending || (sessionMails && sessionMails.length)) ? (
-          <MailDigestPreview digest={mailDigest} pending={mailAnalysisPending} mailCount={sessionMails?.length} />
+        {kolSession && (mailDigest || mailAnalysisPending || (sessionMails && sessionMails.length)) ? (
+          <ThreadMailDigest digest={mailDigest} pending={mailAnalysisPending} mailCount={sessionMails?.length} />
         ) : kolSession ? (
-          <p className="thread-mail-digest is-empty muted" data-mail-summaries>还没有往来邮件。</p>
+          <p className="thread-mail-digest is-empty muted" data-mail-digest data-mail-summaries>还没有往来邮件。</p>
         ) : null}
         {task && (
           <section className="task-analysis-summary" data-task-analysis-summary>

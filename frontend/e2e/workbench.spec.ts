@@ -515,8 +515,17 @@ test("session page has no coach next-step card and keeps composer skills", async
   const sop = page.locator("[data-stage-sop]");
   if (await sop.count()) {
     await expect(sop).toHaveJSProperty("open", false);
+    const handleLeft = await page.locator("[data-kol-journey] h1").evaluate((el) => el.getBoundingClientRect().left);
+    const sopLeft = await sop.evaluate((el) => el.getBoundingClientRect().left);
+    expect(Math.abs(handleLeft - sopLeft)).toBeLessThan(6);
   }
   await expect(page.locator("[data-session-stream-pane] [data-mail-digest], [data-session-stream-pane] [data-mail-summaries]")).toBeVisible();
+  await expect(page.locator("[data-stage-track]")).toBeVisible();
+  const trackHasLine = await page.locator("[data-stage-track]").evaluate((el) => {
+    const before = getComputedStyle(el, "::before");
+    return before.display !== "none" && before.content !== "none" && parseFloat(before.height || "0") > 0;
+  });
+  expect(trackHasLine).toBeTruthy();
   await expect(page.locator("[data-session-stream-pane]")).not.toContainText("{");
 });
 
@@ -950,7 +959,18 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   await expect(page.locator("[data-session-stage]")).toContainText("初步接触");
   await expect(page.locator("[data-stage-sop]")).toHaveJSProperty("open", false);
   await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).toBeVisible();
+  await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).toContainText("历史邮件往来摘要");
   await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).toContainText("would love to collaborate");
+  await expect(page.locator("[data-workbench]")).toBeVisible();
+  await expect(page.locator("[data-stage-track]")).toBeVisible();
+  const ingestTrackLine = await page.locator("[data-stage-track]").evaluate((el) => {
+    const before = getComputedStyle(el, "::before");
+    return before.display !== "none" && before.content !== "none" && parseFloat(before.height || "0") > 0;
+  });
+  expect(ingestTrackLine).toBeTruthy();
+  const ingestHandleLeft = await page.locator("[data-kol-journey] h1").evaluate((el) => el.getBoundingClientRect().left);
+  const ingestSopLeft = await page.locator("[data-stage-sop]").evaluate((el) => el.getBoundingClientRect().left);
+  expect(Math.abs(ingestHandleLeft - ingestSopLeft)).toBeLessThan(6);
   await openStageSop(page);
   await expect(page.locator("[data-stage-sop]")).toContainText("红人画像");
   await expect(page.locator("[data-kol-portrait] [data-portrait-field]")).not.toHaveCount(0);

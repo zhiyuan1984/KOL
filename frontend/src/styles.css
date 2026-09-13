@@ -3132,7 +3132,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 
 .session-shell {
   display: grid;
-  grid-template-columns: minmax(280px, 1fr) 440px;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 440px);
   flex: 1;
   height: 100%;
   min-height: 0;
@@ -3141,7 +3141,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   background: var(--canvas);
 }
 .session-shell.has-tasklist {
-  grid-template-columns: var(--tasklist-width, 220px) minmax(280px, 1fr) 440px;
+  grid-template-columns: var(--tasklist-width, 220px) minmax(0, 1fr) minmax(280px, 440px);
 }
 .session-shell:has(.side-workbench.collapsed) { grid-template-columns: minmax(280px, 1fr) 48px; }
 .session-shell.has-tasklist:has(.side-workbench.collapsed) { grid-template-columns: var(--tasklist-width, 220px) minmax(280px, 1fr) 48px; }
@@ -3364,7 +3364,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 .sop-mail-analysis {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto auto;
   align-items: baseline;
   gap: 4px 8px;
   width: 100%;
@@ -3521,6 +3521,15 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   border-left-color: var(--border);
   background: transparent;
   padding: 4px 12px;
+}
+.thread-mail-digest small {
+  color: var(--text-muted);
+  font-size: var(--font-meta);
+  font-weight: 500;
+}
+.thread-mail-digest.is-failed [data-digest-status],
+.thread-mail-digest.is-pending [data-digest-status] {
+  color: var(--orange);
 }
 .inference-fields {
   display: grid;
@@ -4254,7 +4263,22 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .admin-header { align-items: flex-start; }
 }
 
-.kol-journey { margin: 8px 0 12px; }
+.kol-journey {
+  margin: 8px 0 12px;
+  padding: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+.kol-journey-title,
+.kol-journey .follow-style-bar,
+.kol-journey .stage-track,
+.kol-journey .kol-stage-sop {
+  margin-left: 0;
+  margin-right: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
 .kol-journey-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .kol-journey-title h1 { white-space: nowrap; }
 
@@ -4292,27 +4316,56 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 .journey-track { margin: 8px 0 0; }
 .stage-track.is-phases.journey-track {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  align-items: start;
+  gap: 6px 0;
+  position: relative;
 }
-.stage-track.is-phases.journey-track::before { display: none; }
+.stage-track.is-phases.journey-track::before {
+  display: block;
+  content: "";
+  position: absolute;
+  left: 6%;
+  right: 6%;
+  top: 5px;
+  height: 2px;
+  background: var(--border);
+  z-index: 0;
+}
+.stage-track.is-phases.journey-track::after {
+  content: "";
+  position: absolute;
+  left: 6%;
+  top: 5px;
+  height: 2px;
+  width: calc((100% - 12%) * var(--phase-progress, 0));
+  background: var(--primary);
+  z-index: 0;
+}
 .stage-track.is-phases.journey-track li {
-  flex: 0 0 auto;
-  gap: 0;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  z-index: 1;
 }
 .phase-chip {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   border-radius: 999px;
-  padding: 3px 8px;
+  padding: 3px 6px;
   font-size: 12px;
   line-height: 1.4;
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text-muted);
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .phase-chip.is-done {
   border-color: color-mix(in srgb, var(--primary) 30%, var(--border));
@@ -4384,8 +4437,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   align-items: center;
 }
 .kol-stage-sop {
-  margin-top: 8px;
+  margin: 8px 0 0;
   padding: 0;
+  padding-inline: 0;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--chrome);

@@ -372,17 +372,20 @@ export default function SideWorkbench({
     String(m.payload.text || "").includes("当前等待")
   );
   const mailMsgs = (() => {
-    const inbound = round.filter((m) =>
-      m.kind === "kol_mail_card" && String(m.payload.direction || "inbound") !== "outbound"
-    );
-    const confirmable = inbound.filter((m) => {
-      const judgment = m.payload.judgment && typeof m.payload.judgment === "object"
-        ? m.payload.judgment as { auto_propose?: boolean; suggested_stage?: string }
-        : {};
-      return Boolean(judgment.auto_propose || judgment.suggested_stage || (Array.isArray(m.payload.targets) && m.payload.targets.length));
-    });
-    if (round.length !== messages.length) return inbound;
-    return confirmable.length ? confirmable : inbound.slice(-1);
+    const fromList = (list: Message[]) => {
+      const inbound = list.filter((m) =>
+        m.kind === "kol_mail_card" && String(m.payload.direction || "inbound") !== "outbound"
+      );
+      const confirmable = inbound.filter((m) => {
+        const judgment = m.payload.judgment && typeof m.payload.judgment === "object"
+          ? m.payload.judgment as { auto_propose?: boolean; suggested_stage?: string }
+          : {};
+        return Boolean(judgment.auto_propose || judgment.suggested_stage || (Array.isArray(m.payload.targets) && m.payload.targets.length));
+      });
+      return confirmable.length ? confirmable : inbound.slice(-1);
+    };
+    const fromRound = fromList(round);
+    return fromRound.length ? fromRound : fromList(messages);
   })();
   const primary = pickPrimaryTab(round, {
     crawl: hasCrawlArtifact,

@@ -128,7 +128,12 @@ function isDuplicateSessionChrome(text: string): boolean {
   const t = String(text || "").trim();
   return /的合作会话。当前阶段：/.test(t)
     || /来信分析只出建议/.test(t)
-    || /黄条无确认按钮|正式阶段建议保持/.test(t);
+    || /黄条无确认按钮|正式阶段建议保持/.test(t)
+    || /已放到右侧结果/.test(t)
+    || /请在右侧结果/.test(t)
+    || /已放到右侧[。.]/.test(t)
+    || /需要确认阶段时在右侧/.test(t)
+    || /只读分析/.test(t) && /右侧/.test(t);
 }
 
 export function emailMarkdown(card: EmailCard): string {
@@ -1168,7 +1173,7 @@ export function ChatThread({
           return (
             <ThreadMessage key={m.id} role="assistant" result={sent ? "send" : "draft"} risk="L2" data-kind="email-card-pointer">
               <strong>{sent ? "发送卡" : "邮件草稿"}</strong>
-              <Markdown>{"✍️ **邮件已放到右侧结果。** 请核对后再确认发送。"}</Markdown>
+              <p>{sent ? "发送结果已放入结果工作台。" : "草稿已放入结果，核对后再确认发送。"}</p>
             </ThreadMessage>
           );
         }
@@ -1178,7 +1183,7 @@ export function ChatThread({
           return (
             <ThreadMessage key={m.id} role="assistant" result="stage" risk="L3" data-kind="confirm-stage-pointer">
               <strong>阶段卡</strong>
-              <Markdown>{"⚠️ **请在右侧结果确认阶段。** 选定具体正式阶段后再写入，本路径不发信。"}</Markdown>
+              <p>请在结果中确认阶段。选定具体正式阶段后再写入，本路径不发信。</p>
             </ThreadMessage>
           );
         }
@@ -1187,14 +1192,14 @@ export function ChatThread({
           mailPointer = true;
           return (
             <ThreadMessage key={m.id} role="assistant" risk="L1" data-kind="kol-mail-pointer">
-              <Markdown>{"📬 **来信已放到右侧结果。** 需要确认阶段时在右侧操作。"}</Markdown>
+              <p>来信已放入结果。需要确认阶段时在结果中操作。</p>
             </ThreadMessage>
           );
         }
         if (m.kind === "inbound_card") {
           return (
             <ThreadMessage key={m.id} role="assistant" risk="L1" data-kind="inbound-pointer">
-              <Markdown>{"📬 **未绑定来信已放到右侧结果。** 请人选，不自动合并、不会「已自动记入」。"}</Markdown>
+              <p>未绑定来信已放入结果。请人选，不自动合并、不会「已自动记入」。</p>
             </ThreadMessage>
           );
         }
@@ -1204,9 +1209,9 @@ export function ChatThread({
           const message = String(m.payload.message || "");
           const kind = String(m.payload.clarification_kind || "");
           const fallback = intent === "content_nudge"
-            ? "催大纲需要指定红人或合作，请在右侧结果补全后再起箱。"
+            ? "催大纲需要指定红人或合作，请在结果中补全后再起箱。"
             : intent === "business_approval"
-              ? "还缺金额或币种，请在右侧结果补上。"
+              ? "还缺金额或币种，请在结果中补上。"
               : intent === "confirm_stage"
                 ? "提出阶段变更需要指定红人或合作。"
                 : kind === "direction"
@@ -1227,7 +1232,7 @@ export function ChatThread({
           return (
             <ThreadMessage key={m.id} role="assistant" result="task_result" risk={risk} data-kind="task-result-pointer">
               <strong>{title}</strong>
-              <Markdown>{"📋 **任务结果已放到右侧。**"}</Markdown>
+              <p>任务结果已放入结果工作台。</p>
             </ThreadMessage>
           );
         }
@@ -1333,7 +1338,7 @@ export function ChatThread({
         if (isOverdueSteps(m)) {
           return (
             <ThreadMessage key={m.id} role="assistant" result="task_result">
-              <Markdown>{"📋 **失联与延期清单已放到右侧结果。**"}</Markdown>
+              <p>失联与延期清单已放入结果。</p>
             </ThreadMessage>
           );
         }
