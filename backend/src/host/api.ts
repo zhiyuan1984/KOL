@@ -102,6 +102,7 @@ import { extractTaskEntities, mergeExtractedOntoIntent } from "../tasks/resolver
 import { fieldLabel } from "../labels.js";
 import { assertCollaborationInScope, inboundVisibleSql, scopedCollaborationSearch } from "./inbound-scope.js";
 import { parseExpectedVersion } from "./version.js";
+import { CRAWL_PLATFORMS, CRAWL_PLATFORM_SET } from "../crawl/platforms.js";
 import { startCrawl } from "../crawl/service.js";
 import { isKolClawTask } from "../kolclaw/service.js";
 import {
@@ -332,14 +333,10 @@ async function autoStartBoundCrawl(bound: BoundTask, sid: string, plan: Json): P
   if (!item) return;
   const mode = String(plan.mode || "search");
   const platform = String(plan.platform || "").trim();
-  const supported = new Set(["xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu"]);
-  if (!supported.has(platform)) {
-    const youtube = /youtube|油管|youtu\.be/i.test(platform);
-    const message = youtube
-      ? "MediaCrawler 不支持 YouTube。请改用小红书、抖音、快手、B站、微博、贴吧或知乎。"
-      : platform
-        ? `不支持的采集平台：${platform}。可用平台：xhs / dy / ks / bili / wb / tieba / zhihu。`
-        : "启动采集前需要补充平台。";
+  if (!CRAWL_PLATFORM_SET.has(platform)) {
+    const message = platform
+      ? `不支持的采集平台：${platform}。可用平台：${CRAWL_PLATFORMS.join(" / ")}。`
+      : "启动采集前需要补充平台。";
     getConn().prepare("UPDATE work_items SET status='needs_clarification',updated_at=? WHERE id=?")
       .run(nowIso(), bound.workItemId);
     appendTaskEvent(

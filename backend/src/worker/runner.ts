@@ -23,6 +23,7 @@ import { CodexAppServer } from "./codex.js";
 import { CodexUnavailable } from "./errors.js";
 import { parseAgentTexts, parseBoxFiles } from "./parse.js";
 import { completeTurnItems } from "./session-items.js";
+import { CRAWL_PLATFORMS } from "../crawl/platforms.js";
 import { runStub } from "./stub.js";
 import { authDisabled, scopedUser } from "../auth.js";
 import { requireTaskDefinition, type TaskDefinition } from "../tasks/registry.js";
@@ -175,7 +176,7 @@ const CRAWL_PLAN_OUTPUT_SCHEMA: Json = {
     type: { type: "string", enum: ["crawl_plan"] },
     title: { type: "string" },
     summary: { type: "string" },
-    platform: { type: "string", enum: ["xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu"] },
+    platform: { type: "string", enum: [...CRAWL_PLATFORMS] },
     mode: { type: "string", enum: ["search", "detail", "creator"] },
     keywords: { type: "array", items: { type: "string" } },
     specified_ids: { type: "array", items: { type: "string" } },

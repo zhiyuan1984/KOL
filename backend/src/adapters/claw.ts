@@ -1,3 +1,4 @@
+import { CRAWL_PLATFORM_SET } from "../crawl/platforms.js";
 import { audit, getConn, nowIso, tx } from "../db.js";
 import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
@@ -127,7 +128,7 @@ export function ingestMediacrawler(body: Json): Json {
         item.platform_creator_id || item.creator_id || item.user_id || item.sec_uid || item.id || "",
       ).trim();
       const nickname = String(item.nickname || item.name || item.handle || "").trim();
-      if (!PLATFORMS.has(platform) || !platformCreatorId || !nickname) {
+      if (!CRAWL_PLATFORM_SET.has(platform) || !platformCreatorId || !nickname) {
         rejected += 1;
         continue;
       }
@@ -186,8 +187,6 @@ export function ingestMediacrawler(body: Json): Json {
   });
   return { ok: true, batch_id: batchId, accepted: accepted.length, inserted, updated, rejected, creators: accepted };
 }
-
-const PLATFORMS = new Set(["xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu"]);
 
 function nonNegativeInt(value: unknown): number {
   const number = Number(value || 0);

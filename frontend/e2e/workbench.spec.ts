@@ -1525,7 +1525,7 @@ test("process trace shows harness thinking in the list instead of a fixed five-s
   await page.route("**/api/sessions/session-thinking", (route) => route.fulfill({ json: {
     agent_status: "listening",
     messages: [
-      { id: "me", session_id: "session-thinking", role: "user", kind: "me", created_at: now, payload: { text: "搜索抖音露营达人" } },
+      { id: "me", session_id: "session-thinking", role: "user", kind: "me", created_at: now, payload: { text: "搜索 YouTube 露营达人" } },
       { id: "process", session_id: "session-thinking", role: "assistant", kind: "process_trace", created_at: now, payload: {
         title: "处理过程",
         items: [
@@ -1559,7 +1559,7 @@ test("creator discovery shows auto-started crawl progress in the middle and can 
     task_type: "creator_discovery",
     source: "manual",
     status: "running",
-    entities: { platform: "xhs", keywords: ["户外电源"] },
+    entities: { platform: "youtube", keywords: ["户外电源"] },
   } }));
   await page.route("**/api/tasks/crawl-task/events", (route) => route.fulfill({ json: [] }));
   await page.route("**/api/sessions/crawl-session", (route) => route.fulfill({ json: {
@@ -1640,10 +1640,10 @@ test("creator discovery shows auto-started crawl progress in the middle and can 
 test("quoted creator-search keywords show analysis without a right-side plan", async ({ page, request }) => {
   const before = await request.get("/api/tasks").then((response) => response.json()) as unknown[];
   await page.goto("/");
-  await page.locator("[data-home] [data-composer-input]").fill("搜索小红书“户外电源、房车露营”达人。");
+  await page.locator("[data-home] [data-composer-input]").fill("搜索 Instagram“户外电源、房车露营”达人。");
   await page.locator("[data-home] [data-send]").click();
   await page.waitForURL(/\/s\//);
-  await expect(page.locator("[data-task-analysis-summary]")).toContainText("小红书");
+  await expect(page.locator("[data-task-analysis-summary]")).toContainText("Instagram");
   await expect(page.locator("[data-task-analysis-summary]")).toContainText("户外电源、房车露营");
   await expect(page.locator("[data-start-crawl]")).toHaveCount(0);
   await expect(page.locator("[data-workbench]")).toHaveCount(0);
@@ -1661,11 +1661,11 @@ test("ready crawl result renders candidates and prefills follow-up tasks without
     task_type: "creator_discovery",
     source: "ai",
     status: "completed",
-    crawl_plan: { platform: "bili", mode: "search", keywords: ["户外电源"] },
+    crawl_plan: { platform: "youtube", mode: "search", keywords: ["户外电源"] },
     task_result: {
       title: "创作者发现结果",
       creators: [{
-        platform: "bili",
+        platform: "youtube",
         creator_id: "up-42",
         nickname: "露营研究所",
         followers: 125000,

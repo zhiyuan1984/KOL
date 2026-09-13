@@ -39,7 +39,7 @@ describe("real Codex HTTP flow", () => {
     const response = await app.request(`/api/sessions/${id}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "搜索抖音露营达人", intent: "creator_discovery", act: "ask" }),
+      body: JSON.stringify({ text: "搜索 YouTube 露营达人", intent: "creator_discovery", act: "ask" }),
     });
     const body = (await response.json()) as Record<string, unknown>;
     expect(response.status).toBe(409);
@@ -58,7 +58,7 @@ describe("real Codex HTTP flow", () => {
     const response = await app.request(`/api/sessions/${id}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "搜索抖音露营达人", intent: "creator_discovery", act: "ask" }),
+      body: JSON.stringify({ text: "搜索 YouTube 露营达人", intent: "creator_discovery", act: "ask" }),
     });
     expect(response.status).toBe(409);
     expect((await response.json()) as Record<string, unknown>).toMatchObject({ detail: { code: "agent_not_published" } });
@@ -70,7 +70,7 @@ describe("real Codex HTTP flow", () => {
     const created = await app.request("/api/tasks/from-text", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "搜索抖音露营达人" }),
+      body: JSON.stringify({ text: "搜索 YouTube 露营达人" }),
     });
     // Recognized discovery phrases create a work item; createWorkItem is gated
     // while the KOL Agent is unpublished (pilot-not-production).

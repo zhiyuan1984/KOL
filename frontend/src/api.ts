@@ -48,7 +48,17 @@ export type TaskEvent = {
   [key: string]: unknown;
 };
 
-export type CrawlPlatform = "xhs" | "dy" | "ks" | "bili" | "wb" | "tieba" | "zhihu";
+export type CrawlPlatform =
+  | "youtube"
+  | "instagram"
+  | "facebook"
+  | "xhs"
+  | "dy"
+  | "ks"
+  | "bili"
+  | "wb"
+  | "tieba"
+  | "zhihu";
 export type CrawlMode = "search" | "detail" | "creator";
 export type CrawlJobStatus =
   | "starting"

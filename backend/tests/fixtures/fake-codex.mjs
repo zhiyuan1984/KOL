@@ -149,9 +149,9 @@ rl.on("line", (line) => {
       const strict = ["keywords", "specified_ids", "creator_ids"].every((field) => required.includes(field));
       const item = strict ? {
         type: "crawl_plan",
-        title: "抖音露营达人采集计划",
+        title: "YouTube露营达人采集计划",
         summary: "请确认参数后启动远程采集。",
-        platform: "dy",
+        platform: "youtube",
         mode: "search",
         keywords: ["露营"],
         specified_ids: [],

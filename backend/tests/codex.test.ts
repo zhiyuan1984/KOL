@@ -45,7 +45,7 @@ describe("codex", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        text: "搜索抖音露营达人",
+        text: "搜索 YouTube 露营达人",
         intent: "creator_discovery",
       }),
     });

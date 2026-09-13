@@ -10,6 +10,9 @@ import type {
 } from "../api";
 
 const PLATFORMS: Array<{ value: CrawlPlatform; label: string }> = [
+  { value: "youtube", label: "YouTube" },
+  { value: "instagram", label: "Instagram" },
+  { value: "facebook", label: "Facebook" },
   { value: "xhs", label: "小红书" },
   { value: "dy", label: "抖音" },
   { value: "ks", label: "快手" },
@@ -138,7 +141,7 @@ export default function CrawlArtifact({
   onRetryUpload?: () => Promise<void>;
   onClearHistory?: () => Promise<void>;
 }) {
-  const [platform, setPlatform] = useState<CrawlPlatform>(plan?.platform || "xhs");
+  const [platform, setPlatform] = useState<CrawlPlatform>(plan?.platform || "youtube");
   const [mode, setMode] = useState<CrawlMode>(plan?.mode || "search");
   const [input, setInput] = useState(
     (plan?.keywords || plan?.specified_ids || plan?.creator_ids || []).join("\n"),
