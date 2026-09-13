@@ -9,7 +9,7 @@ import { writeSkillIntoBox } from "../src/host/skill-sop.js";
 import { FX_TO_CNY, matchExpenseRule, normalizeCurrency, toBaseCny } from "../src/approval/policy.js";
 import { employeeByMailbox, getManagerChain, OrgError, roleHolder } from "../src/approval/org.js";
 import { defaultOrgSnapshot } from "../src/approval/snapshot.js";
-import { resetConn } from "../src/db.js";
+import { listAudit, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { stubResolveTaskIntent } from "../src/tasks/resolver.js";
 import type { OrgSnapshot } from "../src/approval/types.js";
@@ -606,5 +606,71 @@ describe("expense approval host path", () => {
     const cards = listed.body as unknown as { body?: string }[];
     expect(cards.every((card) => !/approval_id|chain_id|appr_/.test(String(card.body || "")))).toBe(true);
     expect(cards.some((card) => String(card.body || "").includes("已办结"))).toBe(true);
+  });
+
+  it("POST /api/approvals previews then creates an expense using the Host plan", async () => {
+    const before = await request("GET", "/api/approvals");
+    const beforeCount = (before.body as unknown as unknown[]).length;
+
+    const preview = await request("POST", "/api/approvals/preview", {
+      kind: "expense",
+      amount: 50000,
+      currency: "USD",
+      requester_name: "黎玉燕",
+      purpose: "KOL",
+    });
+    expect(preview.status).toBe(200);
+    const previewBody = preview.body as { plan: { rule_id: string }; steps: { name: string }[] };
+    expect(previewBody.plan.rule_id).toBe("FIN-EXP-004");
+    expect(previewBody.steps.map((step) => step.name)).toEqual(["林桐", "王主管", "财务负责人", "张总"]);
+
+    const listedAfterPreview = await request("GET", "/api/approvals");
+    expect((listedAfterPreview.body as unknown as unknown[]).length).toBe(beforeCount);
+
+    const created = await request("POST", "/api/approvals", {
+      kind: "expense",
+      amount: 50000,
+      currency: "USD",
+      requester_name: "黎玉燕",
+      purpose: "KOL",
+    });
+    expect(created.status).toBe(200);
+    const row = created.body as {
+      id: string;
+      kind: string;
+      can_decide?: boolean;
+      expected_role?: string;
+      chain_detail: { name: string }[];
+      payload: { rule_id: string; purpose?: string };
+    };
+    expect(row.kind).toBe("expense");
+    expect(row.id).toMatch(/^appr_/);
+    expect(row.payload.rule_id).toBe("FIN-EXP-004");
+    expect(row.payload.purpose).toBe("KOL");
+    expect(row.chain_detail.map((step) => step.name)).toEqual(["林桐", "王主管", "财务负责人", "张总"]);
+    expect(row.expected_role).toBeTruthy();
+    expect(typeof row.can_decide).toBe("boolean");
+
+    const listed = await request("GET", "/api/approvals");
+    expect((listed.body as unknown as { id: string }[]).some((item) => item.id === row.id)).toBe(true);
+    const audits = listAudit("expense.approval.created") as { payload: { approval_id?: string; rule_id?: string } }[];
+    expect(audits.some((event) => event.payload.approval_id === row.id && event.payload.rule_id === "FIN-EXP-004")).toBe(true);
+  });
+
+  it.each([
+    [{ kind: "expense", amount: 5000, currency: "CNY", requester_name: "张三" }, "unknown_requester"],
+    [{ kind: "expense", amount: 0, currency: "CNY", requester_name: "黎玉燕" }, "missing_amount"],
+    [{ kind: "expense", amount: 5000, currency: "BTC", requester_name: "黎玉燕" }, "unsupported_currency"],
+    [{ kind: "expense", amount: 5000, currency: "CNY", requester_name: "张总" }, "org_level_missing"],
+    [{ kind: "stage", amount: 5000, currency: "CNY", requester_name: "黎玉燕" }, "unsupported_kind"],
+  ])("POST /api/approvals blocks %j as %s", async (body, code) => {
+    const preview = await request("POST", "/api/approvals/preview", body);
+    expect(preview.status).toBe(400);
+    expect((preview.body.detail as { code?: string }).code).toBe(code);
+    expect(String((preview.body.detail as { message?: string }).message || "")).not.toMatch(/MCP|Codex|Host|engine/i);
+
+    const created = await request("POST", "/api/approvals", body);
+    expect(created.status).toBe(400);
+    expect((created.body.detail as { code?: string }).code).toBe(code);
   });
 });

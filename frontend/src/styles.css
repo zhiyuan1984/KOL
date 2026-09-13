@@ -2442,6 +2442,36 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   background: #fff6f6;
 }
 .approval-path small { color: var(--muted); font-size: 12px; }
+.approval-initiate {
+  padding: var(--space-3) var(--space-4);
+  box-shadow: var(--shadow-quiet);
+}
+.approval-initiate h2 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-section);
+  font-weight: 600;
+}
+.approval-initiate > .muted { margin: 0 0 var(--space-3); }
+.approval-initiate-grid {
+  display: grid;
+  grid-template-columns: minmax(7rem, 1fr) 8rem minmax(7rem, 1.2fr) minmax(7rem, 1.2fr);
+  gap: var(--space-2);
+  align-items: end;
+}
+.approval-initiate .field { font-size: var(--font-meta); }
+.approval-initiate .field input,
+.approval-initiate .field select {
+  font-size: var(--font-ui);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+}
+.approval-initiate .btn.work { margin-top: var(--space-3); }
+.approval-initiate [data-approval-preview] { margin-top: var(--space-3); }
+.approval-initiate [data-approval-preview] .muted { margin: 0; }
+.approval-initiate .error { margin: var(--space-2) 0 0; }
+@media (max-width: 860px) {
+  .approval-initiate-grid { grid-template-columns: 1fr 1fr; }
+}
 
 .kb-tabs {
   display: flex;

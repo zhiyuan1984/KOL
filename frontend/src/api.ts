@@ -773,6 +773,45 @@ export const api = {
   pipeline: (exception = 0) => fetch(`/api/pipeline?exception=${exception}`).then((r) => r.json()),
   approvals: () => fetch("/api/approvals").then((r) => r.json()),
   wecomCards: () => fetch("/api/wecom/cards").then((r) => r.json()),
+  previewApproval: (body: {
+    kind: "expense";
+    amount: number;
+    currency: string;
+    requester_id?: string;
+    requester_name?: string;
+    purpose?: string;
+    business_type?: string;
+  }) =>
+    request<{
+      kind: "expense";
+      plan: {
+        rule_id?: string;
+        explanation?: string;
+        amount?: number;
+        currency?: string;
+        amount_base?: number;
+        requester_name?: string;
+      };
+      steps: { name: string; role: string }[];
+    }>("/api/approvals/preview", { method: "POST", body: JSON.stringify(body) }),
+  createApproval: (body: {
+    kind: "expense";
+    amount: number;
+    currency: string;
+    requester_id?: string;
+    requester_name?: string;
+    purpose?: string;
+    business_type?: string;
+  }) =>
+    request<{
+      id: string;
+      kind?: string;
+      status?: string;
+      can_decide?: boolean;
+      expected_role?: string;
+      chain_detail?: { name: string; role: string }[];
+      payload?: Record<string, unknown>;
+    }>("/api/approvals", { method: "POST", body: JSON.stringify(body) }),
   decide: (id: string, decision: string, actor?: string) =>
     fetch(`/api/approvals/${id}/decide`, {
       method: "POST",

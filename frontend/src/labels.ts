@@ -110,6 +110,12 @@ const ERROR_TITLES: Record<string, string> = {
   generation_unavailable: "暂时无法生成",
   connector_disabled: "连接器未启用",
   connector_not_granted: "连接器未授权",
+  unknown_requester: "申请人不在组织名单里",
+  missing_amount: "还需要金额和币种",
+  unsupported_currency: "暂不支持该币种",
+  org_level_missing: "组织层级不足，无法算出审批人",
+  unsupported_kind: "本页只能发起费用审批",
+  empty_approval_chain: "规则没有算出可执行的审批链",
 };
 
 const USER_STATUS: Record<string, string> = {
@@ -188,6 +194,7 @@ const AUDIT_EVENTS: Record<string, string> = {
   "skill.create": "新建技能",
   "skill.market": "上架或下架技能",
   "skill.delete": "删除技能",
+  "expense.approval.created": "提交费用审批",
 };
 
 const APPROVAL_STATUS: Record<string, string> = {
