@@ -196,6 +196,13 @@ function missing(definition: TaskDefinition, entities: Record<string, unknown>, 
       definition.id === "email_compose"
       && (entities.conversationId || supplied.conversationId)
     ) return false;
+    // Existing collaboration / @红人 locks From/To (and the stage letter
+    // supplies the subject). Do not keep the employee on the home intake card.
+    if (
+      definition.id === "email_compose"
+      && (entities.handle || supplied.handle || entities.collaboration_id || supplied.collaboration_id)
+      && (field === "mailboxEmail" || field === "to" || field === "subject")
+    ) return false;
     const value = supplied[field] ?? entities[field];
     return value == null || value === "" || (Array.isArray(value) && value.length === 0);
   });
@@ -208,7 +215,7 @@ function names(definition: TaskDefinition): string[] {
 /** Stub-only natural-language routes. Production never uses this to pick a skill. */
 function matchStarryKolIntent(text: string, entities: Record<string, unknown> = {}): string | null {
   if (/分析回复|回复分析|看邮件阶段/.test(text)) return "reply_analysis";
-  if (/确认发送|发送测试邮件|写合作邮件|写邮件|邮件草稿|写报价|报价邮件|报价信|一份报价|催大纲|发货通知|首封建联|核对地址|要媒体包|写谈判|请确认方案|合同沟通|发内容brief|发brief|初稿反馈|确认排期|请开发票|核对公开链接|核对链接|加一封|再发一封|再写一封|再来一封|回复会话|写跟进邮件|写跟进/.test(text)) return "email_compose";
+  if (/确认发送|发送测试邮件|写合作邮件|写邮件|邮件草稿|写报价|报价邮件|报价信|一份报价|催大纲|发货通知|首封建联|核对地址|寄样地址核对|要媒体包|写谈判|请确认方案|合同沟通|发内容brief|发brief|初稿反馈|确认排期|请开发票|核对公开链接|核对链接|加一封|再发一封|再写一封|再来一封|回复会话|写阶段跟进|阶段跟进邮件|写跟进邮件|写跟进信|写跟进/.test(text)) return "email_compose";
   if (entities.mailboxEmail && entities.to && entities.subject) return "email_compose";
   if (/读取邮件会话|查看邮件会话|邮件会话详情/.test(text)) return "email_conversation_read";
   if (/邮件会话列表|查询邮件会话|收件会话|查收件箱|查收件/.test(text)) return "email_conversation_list";

@@ -731,7 +731,15 @@ export default function Home() {
       });
       const resolution = recognized.resolution || {};
       const missing = resolution.missing_fields || [];
-      if (recognized.needs_clarification || !recognized.task) {
+      const boundHandle = Boolean(
+        p.collaboration_id
+        || resolution.entities?.handle
+        || resolution.entities?.collaboration_id,
+      );
+      // First-touch / unlabeled compose stays on home. A bound @红人 already
+      // has From/To in Host, so open the session instead of blocking on the
+      // intake card.
+      if (!recognized.task || recognized.clarification_kind === "direction" || (recognized.needs_clarification && !boundHandle)) {
         setFeedback({
           ...recognized,
           needs_clarification: true,

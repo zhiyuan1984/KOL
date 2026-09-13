@@ -117,6 +117,19 @@ export function collabActions(col: Row): Json[] {
   if (isExceptionStage(stage)) {
     out.unshift(ask({ label: "风险扫描", intent: "risk_scan", prompt: `风险扫描 @${handle}` }));
   }
+  // Stage-letter chips stay first. Extra mail skills stay available so an
+  // employee can still 催大纲 / 核地址 / 发货 / 写跟进 from any stage and see
+  // the Host error or supplement card instead of a missing button.
+  const extras = [
+    { label: "写跟进信", prompt: `写跟进邮件 @${handle}` },
+    { label: "催大纲", prompt: `催大纲 @${handle}` },
+    { label: "寄样地址核对", prompt: `核对地址 @${handle}` },
+    { label: "发货通知", prompt: `发货通知 @${handle}` },
+  ];
+  for (const extra of extras) {
+    if (out.some((item) => item.label === extra.label || item.prompt === extra.prompt)) continue;
+    out.push(ask({ ...extra, intent: "email_compose" }));
+  }
   return out;
 }
 

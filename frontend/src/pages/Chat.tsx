@@ -25,6 +25,7 @@ import TeamRail, { readTeamProgress } from "../components/TeamRail";
 import { REMOTE_BACKEND_LABEL, remoteForSkill } from "../agentConfig";
 import { useRunStatus } from "../hooks/useRunStatus";
 import { rememberJourney, SOP_PHASES, sopPhaseByStage } from "../journey";
+import JourneyGuide from "../components/JourneyGuide";
 import { FollowStyleTagBar } from "../components/FollowStyleTags";
 import { friendlyError, missingFieldsMessage } from "../labels";
 import type { SessionMailRow } from "../components/AgentTaskList";
@@ -737,6 +738,22 @@ export default function Chat() {
                 presets={Array.isArray(journey.follow_style_presets) ? journey.follow_style_presets as { id: string; label: string }[] : undefined}
                 onSaved={() => void reload()}
               />
+              {!journey.exception && String(journey.stage_code || "") === "INITIAL_CONTACT" ? (
+                <JourneyGuide
+                  variant="compact"
+                  kols={[{
+                    handle: String(journey.handle),
+                    stage_code: String(journey.stage_code || "INITIAL_CONTACT"),
+                    stage_label: journey.stage_label ? String(journey.stage_label) : undefined,
+                  }]}
+                  onPrefill={(prompt, intent, label) => {
+                    setText(prompt);
+                    setLockedIntent(intent || null);
+                    setLockedLabel(label || null);
+                    setFocusDraft(true);
+                  }}
+                />
+              ) : null}
               <ol className="stage-track journey-track is-phases" aria-label="八个阶段">
                 {(Array.isArray(journey.phases) && (journey.phases as unknown[]).length
                   ? journey.phases as { id: string; label: string; state?: string; official_labels?: string[] }[]
@@ -858,7 +875,10 @@ export default function Chat() {
           <section className="crawl-middle-status" data-crawl-middle-status={crawlJob.status}>
             <div>
               <strong>{CRAWL_PROGRESS[crawlJob.status] || "正在处理这项工作"}</strong>
-              <p>正在同步公开创作者数据，完成后会给出建议。</p>
+              <p>
+                正在同步公开创作者数据，完成后会给出建议。
+                {crawlJob.remote_task_id ? ` 采集编号 ${crawlJob.remote_task_id}` : ""}
+              </p>
               {(crawlJob.upload_error || crawlJob.error || crawlError) && (
                 <div className="workspace-error" role="alert">
                   <strong>当前无法读取达人数据</strong>

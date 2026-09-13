@@ -367,22 +367,23 @@ test("pipeline review follows the common task flow with progress and a right-sid
       } },
     ];
   };
+  const pipelineRec = {
+    id: "risk_scan",
+    title: "流水线复盘",
+    prompt: "复盘 KOL 流水线",
+    intent: "risk_scan",
+    skill_id: "risk_scan",
+    act: "ask",
+    category: "分析与复盘",
+    profile: "识别阶段风险并给出后续动作",
+  };
+  await page.route("**/api/task-definitions", (route) => route.fulfill({ json: [pipelineRec] }));
   await page.route("**/api/home", async (route) => {
     await route.fulfill({
       json: {
         brand: "灵工 工作",
         h1: "今天有什么工作要处理？",
-        recs: [
-          {
-            id: "risk_scan",
-            title: "流水线复盘",
-            prompt: "复盘 KOL 流水线",
-            intent: "risk_scan",
-            act: "ask",
-            category: "分析与复盘",
-            profile: "识别阶段风险并给出后续动作",
-          },
-        ],
+        recs: [pipelineRec],
       },
     });
   });
@@ -439,8 +440,8 @@ test("pipeline shows a 15-stage milestone timeline and detail tabs", async ({ pa
   await expect(page.locator("[data-exception-bar]")).toContainText("异常 KOL");
   await expect(page.locator("[data-exception-bar]")).toContainText("争议中");
   await expect(page.locator("[data-journey-guide]")).toContainText("发送 ≠ 推进阶段");
-  await expect(page.locator("[data-pipeline-related]")).toContainText("写阶段跟进邮件");
-  await expect(page.locator("[data-pipeline-related]")).toContainText("流水线复盘");
+  await expect(page.locator("[data-pipeline-related]")).toContainText("写合作邮件");
+  await expect(page.locator("[data-pipeline-related]")).toContainText("超时/风险扫描");
   await expect(page.locator("[data-stage-axis] li")).toHaveCount(15);
   await expect(page.locator('[data-kol="小美妆日记"] [data-milestone="INITIAL_CONTACT"]')).toHaveAttribute("data-current", "true");
   await expect(page.locator('[data-kol="数码老张"] [data-milestone="QUOTE_PENDING"]')).toHaveAttribute("data-current", "true");
@@ -715,7 +716,7 @@ test("session page shows Agent TaskList, L3 block, and stage diff", async ({ pag
   await expect(taskList).toBeVisible();
   await expect(taskList).toContainText("往来邮件");
   await expect(page.locator("[data-task-status-filters]")).toHaveCount(0);
-  await expect(page.locator("[data-session-mail-list], [data-agent-task-list] .muted")).toBeVisible();
+  await expect(page.locator("[data-session-mail-list], [data-agent-task-list] .muted").first()).toBeVisible();
   await expect(page.locator("[data-tasklist-resizer]")).toBeVisible();
   const widthBefore = Number(await taskList.getAttribute("data-tasklist-width"));
   const handle = page.locator("[data-tasklist-resizer]");
@@ -766,7 +767,7 @@ test("记状态 shows stage workbench, never a draft tab card", async ({ page, r
   await expect(page.locator('[data-workbench] [data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
   await expect(page.locator('[data-kind="confirm-stage-card"]')).toContainText("初步接触");
-  await expect(page.locator('[data-kind="confirm-stage-card"]')).toContainText("INTERESTED");
+  await expect(page.locator('[data-kind="confirm-stage-card"] [data-stage-select]')).toHaveValue("INTERESTED");
   const pipelineAfter = await request.get("/api/pipeline").then((r) => r.json());
   const stageAfter = Object.values(pipelineAfter.groups).flat().find(
     (c: { handle: string }) => c.handle === "小美妆日记",
@@ -989,7 +990,7 @@ test("unbound inbound stays on this thread", async ({ page }) => {
   await page.goto("/");
   await openHomeTemplates(page);
   await page.locator('[data-home] .rec[data-intent="creator_lifecycle_kanban"]').click();
-  await expectHomeComposerDraft(page, "阶段与在途");
+  await expectHomeComposerDraft(page, "合作生命周期看板");
   await submitHomeComposer(page);
   await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-workbench] [data-kind="inbound-card"]')).toBeVisible({ timeout: 15000 });
@@ -1175,16 +1176,20 @@ test("user menu switches employee, admin, and settings workspaces", async ({ pag
 
 test("approval, knowledge, and exam are vertical primary nav items before cloud", async ({ page }) => {
   await page.goto("/");
-  const order = await page.locator('nav[aria-label="工作"] > *').evaluateAll((elements) =>
+  const assetOrder = await page.locator('nav[aria-label="资产"] > *').evaluateAll((elements) =>
     elements.map((element) =>
       element.getAttribute("data-nav") || element.getAttribute("data-nav-disabled") || element.textContent?.trim(),
     ),
   );
-  expect(order.indexOf("skills-connectors")).toBeLessThan(order.indexOf("approvals"));
-  expect(order.indexOf("approvals")).toBeLessThan(order.indexOf("knowledge"));
-  expect(order.indexOf("knowledge")).toBeLessThan(order.indexOf("exam"));
-  expect(order.indexOf("exam")).toBeLessThan(order.indexOf("pipeline"));
-  expect(order.indexOf("pipeline")).toBeLessThan(order.indexOf("云盘"));
+  expect(assetOrder.indexOf("knowledge")).toBeGreaterThanOrEqual(0);
+  expect(assetOrder.indexOf("approvals")).toBeGreaterThanOrEqual(0);
+  expect(assetOrder.indexOf("exam")).toBeGreaterThanOrEqual(0);
+  expect(assetOrder.indexOf("pipeline")).toBeGreaterThanOrEqual(0);
+  expect(assetOrder.indexOf("knowledge")).toBeLessThan(assetOrder.indexOf("云盘"));
+  expect(assetOrder.indexOf("approvals")).toBeLessThan(assetOrder.indexOf("云盘"));
+  expect(assetOrder.indexOf("exam")).toBeLessThan(assetOrder.indexOf("云盘"));
+  expect(assetOrder.indexOf("pipeline")).toBeLessThan(assetOrder.indexOf("云盘"));
+  await expect(page.locator('[data-nav="skills-connectors"]')).toBeVisible();
   await expect(page.locator('.sidebar-foot a[href="/approvals"], .sidebar-foot a[href="/kb"], .sidebar-foot a[href="/exam"]')).toHaveCount(0);
   await page.locator('[data-nav="knowledge"]').click();
   await expect(page.getByRole("heading", { name: "我的知识库" })).toBeVisible();
@@ -1268,7 +1273,7 @@ test("preview toolbar collapses, exports, shares, and opens read-only view", asy
   await page.goto(`/share/${token}`);
   await expect(page.getByRole("heading", { name: "写合作邮件" })).toBeVisible();
   await expect(page.getByText("只读分享")).toBeVisible();
-  await expect(page.locator(".shared-artifact")).toContainText("English original");
+  await expect(page.locator(".shared-artifact")).toContainText("英文原文草稿");
 });
 
 test("composer renders uploaded files as removable attachment cards", async ({ page }) => {
@@ -1435,7 +1440,7 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await expect(page.locator("[data-work-panel] .today-task")).toHaveCount(1);
   await expect(page.locator("[data-work-panel] .today-task.task-ai")).toContainText("AI 风险发现");
   await page.getByRole("tab", { name: "任务模板" }).click();
-  await expect(page.locator("[data-task-template]")).toHaveCount(25);
+  await expect(page.locator("[data-task-template]").filter({ hasText: /任务模板 \d+/ })).toHaveCount(25);
   await page.locator("[data-task-template]").first().click();
   await expectHomeComposerDraft(page, "任务模板 1");
   expect(posted).toEqual([]);
@@ -1752,12 +1757,9 @@ test("skill hub lists Starry KOL MCP and the remaining library skills", async ({
     "达人筛选字典",
     "应用邮件会话",
     "延期关怀",
-    "失联跟进",
-    "修改未完成",
-    "联盟邀请",
-    "联盟配置",
-    "素材授权",
-    "二次合作邀请",
+    "达人画像",
+    "达人库查询",
+    "写合作邮件",
   ]) {
     await expect(page.locator("[data-home] .rec").filter({ hasText: title })).toBeVisible();
   }

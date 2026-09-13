@@ -206,6 +206,12 @@ describe("task intent resolution", () => {
     expect(stubResolveTaskIntent({ text: "黎玉燕要申请5万美国KOL推广预算" }).task_type).toBe("business_approval");
     expect(stubResolveTaskIntent({ text: "expense approval 50000 USD" }).task_type).toBe("business_approval");
     expect(stubResolveTaskIntent({ text: "写报价信 金额 680" }).task_type).toBe("email_compose");
+    expect(stubResolveTaskIntent({ text: "给@小美妆日记 写阶段跟进邮件" })).toMatchObject({
+      task_type: "email_compose",
+      needs_clarification: false,
+      missing_fields: [],
+      entities: { handle: "小美妆日记" },
+    });
   });
 
   it("recognizes Email MCP mailbox and compose phrases", () => {
