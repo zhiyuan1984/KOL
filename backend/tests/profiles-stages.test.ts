@@ -160,6 +160,11 @@ describe("15-stage state machine", () => {
       nativeHops: ["BUSINESS_NEGOTIATION"],
       kind: "adjacent",
     });
+    expect(planStarryAdjacentWalk("QUOTE_PENDING", "商务谈判")).toMatchObject({
+      hops: ["NEGOTIATING"],
+      nativeHops: ["BUSINESS_NEGOTIATION"],
+      kind: "adjacent",
+    });
     expect(isStarryAdjacentForward("INTERESTED", "EVALUATING")).toBe(true);
     expect(planStarryAdjacentWalk("INTEREST_CONFIRMED", "COOPERATION_EVALUATION")).toMatchObject({
       hops: ["EVALUATING"],
