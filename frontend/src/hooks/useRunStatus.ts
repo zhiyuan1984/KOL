@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type Message, type SessionRow, type Task, type TaskEvent } from "../api";
+import { employeeProcessLabel } from "../components/ChatBlocks";
 
 export type AgentRunStatus = SessionRow["agent_status"];
 
@@ -72,7 +73,10 @@ export function useRunStatus(sessionId: string | undefined, messages: Message[],
   }, [sessionId, agentStatus]);
 
   const phase = useMemo(
-    () => phaseFromMessages(messages) || phaseFromEvents(events),
+    () => {
+      const raw = phaseFromMessages(messages) || phaseFromEvents(events);
+      return raw ? employeeProcessLabel(raw) : undefined;
+    },
     [messages, events],
   );
 

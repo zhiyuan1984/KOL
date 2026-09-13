@@ -17,9 +17,11 @@ import {
   InboundArtifact,
   KolMailCard,
   OverdueArtifact,
+  ResultDraftPreview,
   StageFromDraft,
   storeComposerDraft,
   SupplementArtifact,
+  taskResultCardsFrom,
 } from "./ChatBlocks";
 import Markdown from "./Markdown";
 import { api } from "../api";
@@ -27,6 +29,7 @@ import CrawlArtifact, { crawlCandidates } from "./CrawlArtifact";
 import { SuggestedFollowTags } from "./FollowStyleTags";
 import { fieldLabel } from "../labels";
 import type { SessionMailRow } from "./AgentTaskList";
+import { useViewMode } from "../viewMode";
 
 export type TabId = "result" | "mail" | "draft" | "stage" | "inbound" | "approval" | "overdue" | "ship";
 
@@ -77,7 +80,7 @@ function afterLastUser(messages: Message[]): Message[] {
   return messages.slice(start);
 }
 
-function pickPrimaryTab(round: Message[], extras: { crawl?: boolean; focusedMail?: boolean; ship?: boolean }): TabId {
+function pickPrimaryTab(round: Message[], extras: { crawl?: boolean; focusedMail?: boolean; ship?: boolean; parsedMail?: boolean }): TabId {
   if (extras.focusedMail) return "result";
   if (extras.ship) return "ship";
   for (const message of [...round].reverse()) {
@@ -94,6 +97,7 @@ function pickPrimaryTab(round: Message[], extras: { crawl?: boolean; focusedMail
     if (message.kind === "steps" && String(message.payload.title || "").includes("失联")) return "overdue";
     if (message.payload.approval_id || String(message.payload.text || "").includes("当前等待")) return "approval";
   }
+  if (extras.parsedMail) return "mail";
   if (extras.crawl) return "result";
   return "result";
 }
@@ -116,9 +120,17 @@ function actionPrompt(
   return { label, prompt: action.prompt || action.description || label, href: action.href };
 }
 
+function parsedResultFromMessages(messages: Message[]): TaskResultCard | null {
+  const cards = messages.flatMap((message) => taskResultCardsFrom(String(message.payload.text || "")));
+  if (!cards.length) return null;
+  const withDraft = [...cards].reverse().find((card) => card.subject || card.body || card.draft_id || card.draft);
+  return (withDraft || cards[cards.length - 1]) as TaskResultCard;
+}
+
 function isComposeResultCard(card: TaskResultCard): boolean {
   const title = String(card.title || "");
   if (title === "邮件草稿" || title === "邮件已发送" || title === "写合作邮件") return true;
+  if (card.subject || card.body || card.draft_id || card.draft) return true;
   if (card.compose_loop && typeof card.compose_loop === "object") return true;
   const sections = Array.isArray(card.sections) ? card.sections : [];
   return sections.some((section) => {
@@ -253,7 +265,10 @@ function GenericResultArtifact({
   );
   const summary = composeResultSummary(card, stacked);
   const followTags = card.suggested_follow_tags || [];
-  if (stacked && isComposeResultCard(card) && !summary && !metrics.length && !sections.length && !followTags.length) {
+  const draftPreview = (
+    <ResultDraftPreview card={card as Record<string, unknown>} onRefresh={onRefresh} />
+  );
+  if (stacked && isComposeResultCard(card) && !summary && !metrics.length && !sections.length && !followTags.length && !card.subject && !card.body && !card.draft_id) {
     return null;
   }
 
@@ -264,6 +279,7 @@ function GenericResultArtifact({
         {stacked && isComposeResultCard(card) ? null : <h2>{card.title || "分析结果"}</h2>}
         {summary ? <p className="task-result-summary">{summary}</p> : null}
       </header>
+      {draftPreview}
       {metrics.length > 0 && (
         <dl className="result-metrics">
           {metrics.map((metric, index) => (
@@ -346,6 +362,7 @@ export default function SideWorkbench({
   collaborationId?: string;
   handle?: string;
 }) {
+  const { debug } = useViewMode();
   const round = afterLastUser(messages);
   const draftMsg = lastOf(round, "email_card");
   const draft = draftMsg ? (draftMsg.payload as unknown as EmailCard) : null;
@@ -357,9 +374,10 @@ export default function SideWorkbench({
     || (messageResult.crawl_result && typeof messageResult.crawl_result === "object" && messageResult.crawl_result)
   );
   const taskResult = task && ((task.task_result || task.crawl_result) as TaskResultCard | undefined);
+  const parsedResult = parsedResultFromMessages(messages);
   const result = resultMsg
     ? (embeddedMessageResult || messageResult) as TaskResultCard
-    : (!draft && !stageMsg ? (taskResult || null) : null);
+    : (!draft && !stageMsg ? (taskResult || parsedResult || null) : null);
   const candidates = crawlCandidates(crawlJob, result, messageResult, task);
   const hasCrawlArtifact = candidates.length > 0 && !draft && !stageMsg;
   const inboundMsg = lastOf(round, "inbound_card");
@@ -372,22 +390,26 @@ export default function SideWorkbench({
     String(m.payload.text || "").includes("当前等待")
   );
   const mailMsgs = (() => {
-    const inbound = round.filter((m) =>
-      m.kind === "kol_mail_card" && String(m.payload.direction || "inbound") !== "outbound"
-    );
-    const confirmable = inbound.filter((m) => {
-      const judgment = m.payload.judgment && typeof m.payload.judgment === "object"
-        ? m.payload.judgment as { auto_propose?: boolean; suggested_stage?: string }
-        : {};
-      return Boolean(judgment.auto_propose || judgment.suggested_stage || (Array.isArray(m.payload.targets) && m.payload.targets.length));
-    });
-    if (round.length !== messages.length) return inbound;
-    return confirmable.length ? confirmable : inbound.slice(-1);
+    const fromList = (list: Message[]) => {
+      const inbound = list.filter((m) =>
+        m.kind === "kol_mail_card" && String(m.payload.direction || "inbound") !== "outbound"
+      );
+      const confirmable = inbound.filter((m) => {
+        const judgment = m.payload.judgment && typeof m.payload.judgment === "object"
+          ? m.payload.judgment as { auto_propose?: boolean; suggested_stage?: string }
+          : {};
+        return Boolean(judgment.auto_propose || judgment.suggested_stage || (Array.isArray(m.payload.targets) && m.payload.targets.length));
+      });
+      return confirmable.length ? confirmable : inbound.slice(-1);
+    };
+    const fromRound = fromList(round);
+    return fromRound.length ? fromRound : fromList(messages);
   })();
   const primary = pickPrimaryTab(round, {
     crawl: hasCrawlArtifact,
     focusedMail: Boolean(focusedMail),
     ship: Boolean(shipMsg),
+    parsedMail: Boolean(parsedResult && isComposeResultCard(parsedResult) && !resultMsg && !draft),
   });
   const hasRoundResult = Boolean(
     focusedMail || draft || stageMsg || result || hasCrawlArtifact || inboundMsg || shipMsg || overdueMsg || approvalLine || mailMsgs.length,
@@ -407,13 +429,12 @@ export default function SideWorkbench({
   };
 
   const copyArtifact = async () => {
-    const safeDraft = draft ? { ...draft, body_zh_internal: undefined, approval_id: undefined } : null;
-    const content = result
-      ? JSON.stringify(result, null, 2)
-      : safeDraft
-        ? `${safeDraft.subject}\n\n${safeDraft.body}`
-        : JSON.stringify(messages.filter((m) => !["approval"].includes(m.kind)), null, 2);
-    await navigator.clipboard.writeText(content);
+    const content = draft
+      ? [draft.subject, draft.body].filter(Boolean).join("\n\n")
+      : result
+        ? [result.title, result.summary, result.subject, result.body].filter(Boolean).join("\n\n")
+        : "";
+    await navigator.clipboard.writeText(content || "暂无可复制的结果");
     setToolStatus("已复制公开内容");
   };
 
@@ -440,7 +461,7 @@ export default function SideWorkbench({
         <button className="icon-btn" onClick={toggle} aria-label={collapsed ? "展开工作台" : "收起工作台"}>{collapsed ? "‹" : "›"}</button>
         {!collapsed && <>
           <a className="icon-btn" href={`/api/sessions/${sessionId}/export?format=md`} download aria-label="下载 Markdown">↓ MD</a>
-          <a className="icon-btn" href={`/api/sessions/${sessionId}/export?format=json`} download aria-label="下载 JSON">↓ JSON</a>
+          {debug ? <a className="icon-btn" href={`/api/sessions/${sessionId}/export?format=json`} download aria-label="下载 JSON">↓ JSON</a> : null}
           {draft?.draft_id && <a className="icon-btn" href={`/api/drafts/${draft.draft_id}/export?format=eml`} download aria-label="下载邮件草稿">.eml</a>}
           <button className="icon-btn" onClick={() => void copyArtifact()}>复制</button>
           <button className="icon-btn" onClick={() => window.open(`/s/${sessionId}`, "_blank", "noopener")}>打开</button>

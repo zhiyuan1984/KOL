@@ -128,7 +128,12 @@ function isDuplicateSessionChrome(text: string): boolean {
   const t = String(text || "").trim();
   return /的合作会话。当前阶段：/.test(t)
     || /来信分析只出建议/.test(t)
-    || /黄条无确认按钮|正式阶段建议保持/.test(t);
+    || /黄条无确认按钮|正式阶段建议保持/.test(t)
+    || /已放到右侧结果/.test(t)
+    || /请在右侧结果/.test(t)
+    || /已放到右侧[。.]/.test(t)
+    || /需要确认阶段时在右侧/.test(t)
+    || /只读分析/.test(t) && /右侧/.test(t);
 }
 
 export function emailMarkdown(card: EmailCard): string {
@@ -738,21 +743,68 @@ function tryParseJson(text: string): unknown | null {
   }
 }
 
+function tryParseJsonFrom(src: string, start: number): { value: unknown; end: number } | null {
+  const open = src[start];
+  if (open !== "{" && open !== "[") return null;
+  let depth = 0;
+  let inStr = false;
+  let escape = false;
+  for (let i = start; i < src.length; i += 1) {
+    const ch = src[i];
+    if (inStr) {
+      if (escape) escape = false;
+      else if (ch === "\\") escape = true;
+      else if (ch === "\"") inStr = false;
+      continue;
+    }
+    if (ch === "\"") inStr = true;
+    else if (ch === "{" || ch === "[") depth += 1;
+    else if (ch === "}" || ch === "]") {
+      depth -= 1;
+      if (depth === 0) {
+        const slice = src.slice(start, i + 1);
+        const value = tryParseJson(slice);
+        return value == null ? null : { value, end: i + 1 };
+      }
+    }
+  }
+  return null;
+}
+
+function extractJsonValues(text: string): unknown[] {
+  const raw = String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  if (!raw) return [];
+  const values: unknown[] = [];
+  let i = 0;
+  while (i < raw.length) {
+    while (i < raw.length && raw[i] !== "{" && raw[i] !== "[") i += 1;
+    if (i >= raw.length) break;
+    const parsed = tryParseJsonFrom(raw, i);
+    if (!parsed) break;
+    values.push(parsed.value);
+    i = parsed.end;
+  }
+  return values;
+}
+
 function extractJsonBlob(text: string): string | null {
   const raw = String(text || "").trim();
   if (!raw) return null;
   const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fence && tryParseJson(fence[1].trim())) return fence[1].trim();
   if (tryParseJson(raw)) return raw;
-  const startObj = raw.indexOf("{");
-  const startArr = raw.indexOf("[");
-  const start = startObj < 0 ? startArr : startArr < 0 ? startObj : Math.min(startObj, startArr);
-  if (start < 0) return null;
-  const close = raw[start] === "{" ? "}" : "]";
-  const end = raw.lastIndexOf(close);
-  if (end <= start) return null;
-  const slice = raw.slice(start, end + 1);
-  return tryParseJson(slice) ? slice : null;
+  const values = extractJsonValues(raw);
+  if (values.length === 1) return JSON.stringify(values[0]);
+  if (values.length > 1) return raw.slice(raw.indexOf("{") >= 0 ? raw.indexOf("{") : raw.indexOf("["));
+  return null;
+}
+
+function isTaskResultPayload(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const row = value as Record<string, unknown>;
+  const type = String(row.type || "");
+  if (type === "task_result" || type === "email_card") return true;
+  return Boolean(row.title && (row.summary || row.subject || row.body || row.sections || row.draft));
 }
 
 function humanizeJsonValue(value: unknown, depth = 0): string {
@@ -807,16 +859,131 @@ function jsonFieldRows(value: unknown): { label: string; value: string }[] {
 }
 
 function looksLikeInferenceJson(text: string): boolean {
+  const values = extractJsonValues(text);
+  if (values.some(isTaskResultPayload)) return true;
   const blob = extractJsonBlob(text);
   if (!blob) return false;
   const ratio = blob.length / Math.max(String(text || "").trim().length, 1);
   return ratio >= 0.5 || /^```/.test(String(text || "").trim()) || Boolean(tryParseJson(String(text || "").trim()));
 }
 
-function HumanizedInference({ text, debug = false }: { text: string; debug?: boolean }) {
+export function taskResultCardsFrom(text: string): Record<string, unknown>[] {
+  return extractJsonValues(text).flatMap((value) => {
+    if (isTaskResultPayload(value)) return [value];
+    if (Array.isArray(value)) return value.filter(isTaskResultPayload);
+    return [];
+  });
+}
+
+export function resultCardsFromMessages(messages: Message[]): Record<string, unknown>[] {
+  return messages.flatMap((message) => {
+    if (message.kind === "task_result_card") return [message.payload];
+    return taskResultCardsFrom(String(message.payload.text || ""));
+  });
+}
+
+export function ResultDraftPreview({ card, onRefresh }: { card: Record<string, unknown>; onRefresh?: () => void }) {
+  const nested = card.draft && typeof card.draft === "object" ? card.draft as Record<string, unknown> : {};
+  const subject = String(card.subject || nested.subject || "").trim();
+  const body = String(card.body || nested.body || "").trim();
+  const from = String(card.from || nested.from || "").trim();
+  const to = String(card.to || nested.to || "").trim();
+  const draftId = String(card.draft_id || nested.draft_id || "").trim();
+  const actions = (Array.isArray(card.actions) ? card.actions : Array.isArray(card.recommended_actions) ? card.recommended_actions : [])
+    .map((item) => typeof item === "string" ? item : String((item as { label?: string }).label || (item as { title?: string }).title || ""))
+    .filter(Boolean);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const confirmSend = async () => {
+    if (!draftId) return;
+    setBusy(true);
+    setErr("");
+    try {
+      await api.sendDraft(draftId);
+      onRefresh?.();
+    } catch (error) {
+      setErr(friendlyError(error, "确认发送未完成，请稍后重试"));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!from && !to && !subject && !body && !draftId && !actions.some((item) => /确认发送/.test(item))) return null;
+  return (
+    <div className="result-draft-preview" data-result-draft>
+      {from ? <p data-result-from>发件 {from}</p> : null}
+      {to ? <p data-result-to>收件 {to}</p> : null}
+      {subject ? <p data-draft-subject>主题 {subject}</p> : null}
+      {body ? <pre className="mail-body-text" data-result-body>{body}</pre> : null}
+      {draftId || actions.some((item) => /确认发送/.test(item)) ? (
+        <div className="action-row">
+          <button
+            type="button"
+            className="btn work"
+            data-email-action="send"
+            onClick={() => void confirmSend()}
+            disabled={busy || !draftId}
+          >
+            {busy ? "正在发送…" : "确认发送"}
+          </button>
+        </div>
+      ) : null}
+      {err ? <p className="error">{err}</p> : null}
+    </div>
+  );
+}
+
+function StreamResultCard({ card, onRefresh }: { card: Record<string, unknown>; onRefresh?: () => void }) {
+  const title = String(card.title || "任务结果");
+  const summary = String(card.summary || "");
+  const sections = Array.isArray(card.sections) ? card.sections as Record<string, unknown>[] : [];
+  return (
+    <article className="stream-task-result" data-kind="task-result-card" data-stream-result>
+      <strong>{title}</strong>
+      {summary ? <p>{summary}</p> : null}
+      <ResultDraftPreview card={card} onRefresh={onRefresh} />
+      {sections.map((section, index) => {
+        const heading = String(section.title || section.heading || "");
+        const content = String(section.content || section.body || section.summary || "");
+        if (!heading && !content) return null;
+        return (
+          <section key={`${heading}-${index}`}>
+            {heading ? <h4>{heading}</h4> : null}
+            {content ? <p>{content}</p> : null}
+          </section>
+        );
+      })}
+    </article>
+  );
+}
+
+function HumanizedInference({ text, debug = false, onRefresh }: { text: string; debug?: boolean; onRefresh?: () => void }) {
+  const cards = taskResultCardsFrom(text);
+  if (cards.length) {
+    return (
+      <div data-humanized-inference>
+        {cards.map((card, index) => <StreamResultCard key={`${String(card.title || "result")}-${index}`} card={card} onRefresh={onRefresh} />)}
+        {debug ? (
+          <details className="execution-details">
+            <summary>调试原文</summary>
+            <pre className="inference-debug-json">{text}</pre>
+          </details>
+        ) : null}
+      </div>
+    );
+  }
   const blob = extractJsonBlob(text);
   const parsed = blob ? tryParseJson(blob) : null;
-  if (parsed == null) return <Markdown>{text}</Markdown>;
+  if (parsed == null) {
+    const cleaned = stripEngineCopy(text);
+    if (!debug && /[{[]/.test(cleaned)) return <p>正在整理结果</p>;
+    return <Markdown>{cleaned}</Markdown>;
+  }
+  if (!debug) {
+    const title = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? String((parsed as Record<string, unknown>).title || (parsed as Record<string, unknown>).summary || "")
+      : "";
+    return <p>{title && /[\u4e00-\u9fff]/.test(title) ? title : "正在整理结果"}</p>;
+  }
   const rows = jsonFieldRows(parsed);
   return (
     <div data-humanized-inference>
@@ -832,7 +999,7 @@ function HumanizedInference({ text, debug = false }: { text: string; debug?: boo
       ) : (
         <p>正在处理这项工作</p>
       )}
-      {debug && blob ? (
+      {blob ? (
         <details className="execution-details">
           <summary>调试原文</summary>
           <pre className="inference-debug-json">{blob}</pre>
@@ -842,24 +1009,129 @@ function HumanizedInference({ text, debug = false }: { text: string; debug?: boo
   );
 }
 
+const TRACE_LABELS: Record<string, string> = {
+  creator_discovery: "正在检查达人信息",
+  lead: "正在查看最近沟通",
+  commander: "正在分析合作历史",
+  execution: "正在生成建议",
+  kol: "正在准备达人建联",
+  pipeline_review: "正在复盘流水线",
+  "preparing skill execution": "正在准备这项工作",
+  "preparing parallel execution": "正在同时处理几项工作",
+  "evaluating mailbox call strategy": "正在选择发件方式",
+  "preparing stage recommendation json": "正在整理阶段建议",
+  "handling draft preview failure": "邮件预览未完成",
+  "preparing skill": "正在准备这项工作",
+  "preparing task": "准备任务",
+  "calling capabilities": "正在调用系统能力",
+  calling: "正在调用系统能力",
+  queued: "已排队",
+  pending: "已排队",
+  running: "进行中",
+  in_progress: "进行中",
+  "远程mcp调用": "正在调用系统能力",
+};
+
+const TOOL_LABELS: Record<string, string> = {
+  get_collaboration: "读取合作资料",
+  previewemaildraft: "生成邮件预览",
+  pageriskconversations: "查询风险会话",
+  summarizeriskconversations: "汇总风险会话",
+  pagekolprofiles: "查询红人资料",
+  getcreator: "查询达人详情",
+  updatecreatorprofile: "更新达人画像",
+  sendemaildraft: "发送邮件草稿",
+  "claw.start_crawl": "启动远程采集",
+  "claw.get_crawl_status": "查询远程采集状态",
+  "claw.stop_crawl": "停止远程采集",
+};
+
+function humanizeToolName(name: string) {
+  const raw = String(name || "").trim();
+  if (!raw) return "";
+  const short = raw.replace(/^(starrykol|starry)\./i, "");
+  return TOOL_LABELS[raw.toLowerCase()]
+    || TOOL_LABELS[short.toLowerCase()]
+    || (/[\u4e00-\u9fff]/.test(short) ? short : "");
+}
+
+function stripEngineCopy(text: string) {
+  return String(text || "")
+    .replace(/\b(?:starrykol|starry)\.[A-Za-z0-9_.]+\b/g, "")
+    .replace(/\b(?:MCP|Codex|Thread|Skill)\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function isToolId(text: string) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  if (/\b(?:starrykol|starry)\./i.test(raw)) return true;
+  if (/^[a-z]+(?:[A-Z][a-zA-Z]+)+$/.test(raw)) return true;
+  if (/^[a-z]+_[a-z0-9_]+$/i.test(raw) && !/[\u4e00-\u9fff]/.test(raw)) return true;
+  return false;
+}
+
+function isHarnessLabel(text: string) {
+  const raw = String(text || "").trim();
+  if (!raw) return true;
+  if (/preparing |evaluating |handling |calling capabilities|parallel execution|skill execution|mailbox call|stage recommendation|draft preview/i.test(raw)) return true;
+  if (/\b(?:mcp|codex|thread|skill)\b/i.test(raw) && !/[\u4e00-\u9fff]/.test(raw)) return true;
+  if (/\b(?:starrykol|starry)\./i.test(raw)) return true;
+  if (isToolId(raw)) return true;
+  return false;
+}
+
+function humanizeOneLabel(raw: string) {
+  const text = raw.trim();
+  if (!text) return "";
+  const fromJson = humanizeMaybeJson(text, "");
+  if (fromJson && fromJson !== text && !/[{[]/.test(fromJson)) return fromJson;
+  const mapped = TRACE_LABELS[text.toLowerCase()];
+  if (mapped) return mapped;
+  if (/preparing skill/i.test(text)) return "正在准备这项工作";
+  if (/parallel execution/i.test(text)) return "正在同时处理几项工作";
+  if (/mailbox call/i.test(text)) return "正在选择发件方式";
+  if (/stage recommendation/i.test(text)) return "正在整理阶段建议";
+  if (/draft preview/i.test(text)) return "邮件预览未完成";
+  if (/calling capabilities|remote mcp/i.test(text)) return "正在调用系统能力";
+  const tool = humanizeToolName(text);
+  if (tool) return tool;
+  if (/[\u4e00-\u9fff]/.test(text)) return text.replace(/\b(?:starrykol|starry)\.[A-Za-z0-9_.]+\b/g, "").trim();
+  if (/^[a-z0-9_.:/-]+$/i.test(text) || /\b(skill|mcp|codex|thread|json)\b/i.test(text) || isToolId(text)) return "正在处理这项工作";
+  return /[\u4e00-\u9fff]/.test(text) ? text : "正在处理这项工作";
+}
+
 function humanizeTraceLabel(label: string) {
   const raw = label.trim();
   if (!raw) return "正在处理";
-  const fromJson = humanizeMaybeJson(raw, "");
-  if (fromJson && fromJson !== raw) return fromJson;
-  if (/[\u4e00-\u9fff]/.test(raw)) return raw;
-  const mapped: Record<string, string> = {
-    creator_discovery: "正在检查达人信息",
-    lead: "正在查看最近沟通",
-    commander: "正在分析合作历史",
-    execution: "正在生成建议",
-    kol: "正在准备达人建联",
-    pipeline_review: "正在复盘流水线",
-  };
-  if (mapped[raw]) return mapped[raw];
-  if (/^[a-z0-9_.:/-]+$/i.test(raw)) return "正在处理这项工作";
-  return raw;
+  const parts = raw.split(/\s*[·•|/]\s*/).map((item) => item.trim()).filter(Boolean);
+  if (parts.length > 1) {
+    const humans = parts.map(humanizeOneLabel).filter((item) => item && !isToolId(item));
+    const unique = [...new Set(humans)];
+    return unique[0] || "正在处理这项工作";
+  }
+  return humanizeOneLabel(raw) || "正在处理这项工作";
 }
+
+export function employeeProcessLabel(raw: string) {
+  const human = stripEngineCopy(humanizeTraceLabel(raw));
+  if (!human || /[{[]/.test(human) || isHarnessLabel(human) || /\b(?:starrykol|starry)\./i.test(human)) {
+    return "正在处理这项工作";
+  }
+  return human;
+}
+
+function employeeMessageBody(text: string, debug = false, onRefresh?: () => void) {
+  if (looksLikeInferenceJson(text) || taskResultCardsFrom(text).length) {
+    return <HumanizedInference text={text} debug={debug} onRefresh={onRefresh} />;
+  }
+  const cleaned = stripEngineCopy(humanizeMaybeJson(text));
+  if (!debug && /[{[]/.test(cleaned)) return <p>正在整理结果</p>;
+  return <Markdown>{cleaned}</Markdown>;
+}
+
+export { humanizeTraceLabel };
 
 function statusMark(status: TraceStatus) {
   if (status === "done") return "✓";
@@ -894,9 +1166,9 @@ function summaryLines(payload: Record<string, unknown>, items: ProcessTraceItem[
 function operationParts(operation: OperationTraceItem, index: number): { human: string; name: string } {
   const tool = typeof operation.tool === "object" ? operation.tool : null;
   const name = String(operation.name || tool?.name || operation.tool || "").trim();
-  const human = String(operation.tool_label || operation.label || tool?.label || "").trim();
-  if (human || name) return { human, name };
-  return { human: `远程调用 ${index + 1}`, name: "" };
+  const rawHuman = String(operation.tool_label || operation.label || tool?.label || "").trim();
+  const human = humanizeTraceLabel(rawHuman || humanizeToolName(name) || `系统能力 ${index + 1}`);
+  return { human, name };
 }
 
 const LEGACY_PHASE_OPERATIONS = new Set([
@@ -1133,13 +1405,16 @@ export function KolMailCard({
 export function ChatThread({
   messages,
   officialStage,
+  onRefresh,
 }: {
   messages: Message[];
   officialStage?: string;
+  onRefresh?: () => void;
 }) {
   const { debug } = useViewMode();
   const hasResult = messages.some((m) =>
-    ["email_card", "confirm_stage_card", "inbound_card", "supplement_card", "task_result_card", "kol_mail_card"].includes(m.kind),
+    ["email_card", "confirm_stage_card", "inbound_card", "supplement_card", "task_result_card", "kol_mail_card"].includes(m.kind)
+    || taskResultCardsFrom(String(m.payload.text || "")).length > 0,
   );
   const latestResultId = [...messages].reverse().find((item) => item.kind === "task_result_card")?.id;
   const latestDraftId = [...messages].reverse().find((item) => item.kind === "email_card")?.id;
@@ -1168,7 +1443,7 @@ export function ChatThread({
           return (
             <ThreadMessage key={m.id} role="assistant" result={sent ? "send" : "draft"} risk="L2" data-kind="email-card-pointer">
               <strong>{sent ? "发送卡" : "邮件草稿"}</strong>
-              <Markdown>{"✍️ **邮件已放到右侧结果。** 请核对后再确认发送。"}</Markdown>
+              <p>{sent ? "发送结果已放入结果工作台。" : "草稿已放入结果，核对后再确认发送。"}</p>
             </ThreadMessage>
           );
         }
@@ -1178,7 +1453,7 @@ export function ChatThread({
           return (
             <ThreadMessage key={m.id} role="assistant" result="stage" risk="L3" data-kind="confirm-stage-pointer">
               <strong>阶段卡</strong>
-              <Markdown>{"⚠️ **请在右侧结果确认阶段。** 选定具体正式阶段后再写入，本路径不发信。"}</Markdown>
+              <p>请在结果中确认阶段。选定具体正式阶段后再写入，本路径不发信。</p>
             </ThreadMessage>
           );
         }
@@ -1187,14 +1462,14 @@ export function ChatThread({
           mailPointer = true;
           return (
             <ThreadMessage key={m.id} role="assistant" risk="L1" data-kind="kol-mail-pointer">
-              <Markdown>{"📬 **来信已放到右侧结果。** 需要确认阶段时在右侧操作。"}</Markdown>
+              <p>来信已放入结果。需要确认阶段时在结果中操作。</p>
             </ThreadMessage>
           );
         }
         if (m.kind === "inbound_card") {
           return (
             <ThreadMessage key={m.id} role="assistant" risk="L1" data-kind="inbound-pointer">
-              <Markdown>{"📬 **未绑定来信已放到右侧结果。** 请人选，不自动合并、不会「已自动记入」。"}</Markdown>
+              <p>未绑定来信已放入结果。请人选，不自动合并、不会「已自动记入」。</p>
             </ThreadMessage>
           );
         }
@@ -1204,9 +1479,9 @@ export function ChatThread({
           const message = String(m.payload.message || "");
           const kind = String(m.payload.clarification_kind || "");
           const fallback = intent === "content_nudge"
-            ? "催大纲需要指定红人或合作，请在右侧结果补全后再起箱。"
+            ? "催大纲需要指定红人或合作，请在结果中补全后再起箱。"
             : intent === "business_approval"
-              ? "还缺金额或币种，请在右侧结果补上。"
+              ? "还缺金额或币种，请在结果中补上。"
               : intent === "confirm_stage"
                 ? "提出阶段变更需要指定红人或合作。"
                 : kind === "direction"
@@ -1227,7 +1502,7 @@ export function ChatThread({
           return (
             <ThreadMessage key={m.id} role="assistant" result="task_result" risk={risk} data-kind="task-result-pointer">
               <strong>{title}</strong>
-              <Markdown>{"📋 **任务结果已放到右侧。**"}</Markdown>
+              <p>任务结果已放入结果工作台。</p>
             </ThreadMessage>
           );
         }
@@ -1243,15 +1518,15 @@ export function ChatThread({
               data-status={state}
             >
               {state === "running" ? "⏳ " : state === "done" ? "✓ " : "⚠ "}
-              {looksLikeInferenceJson(String(m.payload.text || ""))
-                ? <HumanizedInference text={String(m.payload.text || "")} debug={debug} />
-                : humanizeMaybeJson(String(m.payload.text || ""))}
+              {employeeMessageBody(String(m.payload.text || ""), debug, onRefresh)}
             </ThreadMessage>
           );
         }
         if (m.kind === "process_trace") {
           const items = traceItems(m.payload);
-          const summaries = summaryLines(m.payload, items);
+          const summaries = summaryLines(m.payload, items)
+            .map((line) => employeeProcessLabel(line))
+            .filter((line) => line && !/[{[]/.test(line));
           const hasThinking = items.some((item) => item.kind === "reasoning" || Boolean(item.summary || item.reasoning_summary));
           return (
             <ThreadMessage
@@ -1261,10 +1536,10 @@ export function ChatThread({
               data-kind="process-trace"
               data-harness-thinking={hasThinking ? "true" : undefined}
             >
-              <strong>{String(m.payload.title || "处理过程")}</strong>
+              <strong>{employeeProcessLabel(String(m.payload.title || "处理过程"))}</strong>
               <ul className="trace-list">
                 {items.map((item, index) => {
-                  const label = humanizeTraceLabel(String(
+                  const label = employeeProcessLabel(String(
                     item.label || item.summary || item.reasoning_summary || item.title || item.phase || `阶段 ${index + 1}`,
                   ));
                   const status = safeStatus(item.status);
@@ -1299,7 +1574,7 @@ export function ChatThread({
               .filter((operation) => !isLegacyPhaseOperation(operation, legacyTrace))
             : [];
           const active = Boolean(m.payload.active);
-          const title = String(m.payload.title || "远程MCP调用");
+          const title = employeeProcessLabel(String(m.payload.title || "正在调用系统能力"));
           if (!operations.length && !active) return null;
           return (
             <ThreadMessage key={m.id} role="assistant" className="operation-trace process-md" data-kind="operation-trace">
@@ -1311,18 +1586,16 @@ export function ChatThread({
                     const status = safeStatus(operation.status);
                     const streaming = status === "running";
                     return (
-                      <li key={operation.id || name || index} data-status={status} data-mcp-name={name || undefined}>
+                      <li key={operation.id || name || index} data-status={status} data-mcp-name={debug ? (name || undefined) : undefined}>
                         <i>{statusMark(status)}</i>
-                        <span className={streaming ? "is-streaming" : undefined}>
-                          {human && name && human !== name ? `${human} · ${name}` : (human || name)}
-                        </span>
+                        <span className={streaming ? "is-streaming" : undefined}>{employeeProcessLabel(human)}</span>
                       </li>
                     );
                   })
                   : (
                     <li data-status="running" data-mcp-waiting>
                       <i>…</i>
-                      <span className="is-streaming">等待远程调用…</span>
+                      <span className="is-streaming">正在调用系统能力…</span>
                     </li>
                   )}
               </ul>
@@ -1333,7 +1606,7 @@ export function ChatThread({
         if (isOverdueSteps(m)) {
           return (
             <ThreadMessage key={m.id} role="assistant" result="task_result">
-              <Markdown>{"📋 **失联与延期清单已放到右侧结果。**"}</Markdown>
+              <p>失联与延期清单已放入结果。</p>
             </ThreadMessage>
           );
         }
@@ -1377,9 +1650,7 @@ export function ChatThread({
           if (isDuplicateSessionChrome(text)) return null;
           return (
             <ThreadMessage key={m.id} role="system" className="sys-msg" data-kind="sys-msg">
-              {looksLikeInferenceJson(text)
-                ? <HumanizedInference text={text} debug={debug} />
-                : <Markdown>{`> ${text}`}</Markdown>}
+              {employeeMessageBody(text, debug, onRefresh)}
             </ThreadMessage>
           );
         }
@@ -1398,11 +1669,7 @@ export function ChatThread({
             className={m.payload.streaming ? "is-streaming" : ""}
             data-streaming={m.payload.streaming ? "true" : undefined}
           >
-            {text ? (
-              looksLikeInferenceJson(text)
-                ? <HumanizedInference text={text} debug={debug} />
-                : <Markdown>{text}</Markdown>
-            ) : (m.payload.streaming ? <span className="muted">正在输出…</span> : null)}
+            {text ? employeeMessageBody(text, debug, onRefresh) : (m.payload.streaming ? <span className="muted">正在输出…</span> : null)}
           </ThreadMessage>
         );
       })}
