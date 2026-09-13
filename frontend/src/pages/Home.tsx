@@ -24,11 +24,16 @@ import { rememberJourney } from "../journey";
 import { missingFieldsMessage, fieldLabel } from "../labels";
 import { latestMailThread, summarizeMailSnippet } from "../mailPreview";
 import {
+  HOME_TASK_POLL_MS,
+  failureHint,
+  isActiveRun,
+  isAwaitingApproval,
   isAwaitingReview,
   mergeTaskDetails,
   recognizeElapsedSeconds,
   recognizeTimedOut,
   unwrapTaskList,
+  waitDisplayOf,
   waitProgressHint,
   waitStatusLabel,
 } from "../waitStatus";
@@ -37,7 +42,7 @@ type HomeTab = "today" | "templates";
 type HomeMode = "todo" | "ai" | "lifecycle";
 type TaskFilter = "all" | "open" | "high" | "ai";
 type KolTab = string;
-type TodoBucket = "overdue" | "today" | "waiting" | "later";
+type TodoBucket = "overdue" | "today" | "waiting" | "approval" | "queued" | "running" | "later";
 
 type FollowedKol = {
   id: string;
@@ -181,6 +186,10 @@ function workPriorityScore(task: Task) {
 
 function whyLine(task: Task) {
   const origin = task.source === "ai" ? "AI发现" : "我的任务";
+  if (waitDisplayOf(task.status) === "failed") {
+    const hint = failureHint(task);
+    return hint ? `${origin} · ${hint}` : `${origin} · 执行失败`;
+  }
   if (task.risk) return `${origin} · ${task.risk}`;
   if (task.description) return `${origin} · ${task.description}`;
   if (task.context) return `${origin} · ${task.context}`;
@@ -260,7 +269,11 @@ function todoBucket(task: Task): TodoBucket {
       if (diff === 0) return "today";
     }
   }
-  if (isAwaitingReview(task) || String(task.status || "") === "waiting_approval") return "waiting";
+  const display = waitDisplayOf(task.status);
+  if (display === "awaiting_review") return "waiting";
+  if (display === "awaiting_approval") return "approval";
+  if (display === "queued") return "queued";
+  if (display === "running") return "running";
   return "later";
 }
 
@@ -303,7 +316,7 @@ function deriveWorkbench(tasks: Task[], kols: FollowedKol[]): HomeWorkbench {
       open: todo.length,
       overdue: todo.filter((task) => todoBucket(task) === "overdue").length,
       due_today: todo.filter((task) => todoBucket(task) === "today").length,
-      waiting: todo.filter((task) => task.status === "waiting" || task.status === "queued").length,
+      waiting: todo.filter((task) => isAwaitingReview(task)).length,
       insights: insights.length,
     },
     todo,
@@ -933,6 +946,22 @@ export default function Home() {
     [taskCatalog, tasks, workbench.insights],
   );
 
+  const hasActiveRuns = useMemo(
+    () => [...todoItems, ...insightItems, ...tasks].some(isActiveRun),
+    [insightItems, tasks, todoItems],
+  );
+
+  useEffect(() => {
+    if (!hasActiveRuns) return;
+    const tick = () => {
+      if (document.visibilityState !== "visible") return;
+      void api.tasks().then(unwrapTaskList).then(applyTaskCatalog).catch(() => undefined);
+    };
+    tick();
+    const timer = window.setInterval(tick, HOME_TASK_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [hasActiveRuns]);
+
   const recommendedItems = useMemo(
     () => withRecommendedDisplay(workbench.recommendations || [], definitions),
     [definitions, workbench.recommendations],
@@ -967,6 +996,7 @@ export default function Home() {
   const overdueCount = summary.overdue ?? todoItems.filter((task) => todoBucket(task) === "overdue").length;
   const dueTodayCount = summary.due_today ?? todoItems.filter((task) => todoBucket(task) === "today").length;
   const awaitingConfirmCount = todoItems.filter((task) => isAwaitingReview(task)).length;
+  const awaitingApprovalCount = todoItems.filter((task) => isAwaitingApproval(task)).length;
   const insightCount = summary.insights ?? insightItems.length;
   const highValueCount = insightItems.filter(isHighValueInsight).length;
   const recognizeSeconds = recognizeElapsedSeconds(recognizeStartedAt, recognizeNow);
@@ -1009,6 +1039,7 @@ export default function Home() {
         + (composerReading ? " is-composer-reading" : "")
       }
       data-home
+      data-home-task-poll={hasActiveRuns ? "active" : "idle"}
     >
       <div className="home-stage">
         <div className="home-hero">
@@ -1017,6 +1048,7 @@ export default function Home() {
           <p className="home-stats" data-today-summary data-home-stats>
             {statsText}
             {awaitingConfirmCount ? ` · ${awaitingConfirmCount}结果待确认` : ""}
+            {awaitingApprovalCount ? ` · ${awaitingApprovalCount}等审批` : ""}
           </p>
 
           <div className="home-mode-tabs" role="tablist" aria-label="工作台视图" data-home-modes>
@@ -1231,8 +1263,8 @@ export default function Home() {
 
           {err && <p className="error composer-err" role="alert">{err}</p>}
           {busy && !feedback && !err ? (
-            <section className="creation-feedback" data-kind="recognizing" data-creation-feedback role="status" aria-busy="true">
-              <strong>正在理解任务…</strong>
+            <section className="creation-feedback" data-kind="recognizing" data-creation-feedback data-wait-status="识别中" role="status" aria-busy="true">
+              <strong>识别中</strong>
               <p>
                 正在识别任务方向和已填写的字段，不会改你已经写出的发件、收件和主题。
                 {recognizeSeconds ? ` 已等待 ${recognizeSeconds} 秒。` : ""}
@@ -1473,12 +1505,21 @@ function todoMark(task: Task) {
   const bucket = todoBucket(task);
   if (bucket === "overdue") return "!";
   if (bucket === "today") return "⚠";
-  if (bucket === "waiting") return "…";
+  if (bucket === "waiting" || bucket === "approval") return "…";
+  if (bucket === "running") return "◷";
   return "○";
 }
 
 function TodoActionList({ tasks, onOpen }: { tasks: Task[]; onOpen: (task: Task) => void }) {
-  const grouped: Record<TodoBucket, Task[]> = { overdue: [], today: [], waiting: [], later: [] };
+  const grouped: Record<TodoBucket, Task[]> = {
+    overdue: [],
+    today: [],
+    waiting: [],
+    approval: [],
+    queued: [],
+    running: [],
+    later: [],
+  };
   for (const task of tasks) grouped[todoBucket(task)].push(task);
   if (!tasks.length) {
     return (
@@ -1490,7 +1531,7 @@ function TodoActionList({ tasks, onOpen }: { tasks: Task[]; onOpen: (task: Task)
   return (
     <section className="todo-md process-md" data-todo-md>
       <Markdown>{"**我的待办**"}</Markdown>
-      {([["overdue", "逾期"], ["today", "今天到期"], ["waiting", "结果待确认"], ["later", "后续"]] as const).map(([bucket, label]) => (
+      {([["overdue", "逾期"], ["today", "今天到期"], ["waiting", "结果待确认"], ["approval", "等审批"], ["queued", "已入队"], ["running", "执行中"], ["later", "后续"]] as const).map(([bucket, label]) => (
         grouped[bucket].length ? (
           <div className="work-day-group" key={bucket} data-todo-bucket={bucket}>
             <Markdown>{`*${label}*`}</Markdown>
@@ -1658,7 +1699,7 @@ function TaskRow({ task, index, onOpen }: { task: Task; index: number; onOpen: (
             {task.history_summary && <span className="task-history" data-task-history>{task.history_summary}</span>}
           </>
         )}
-        {task.risk && <span className="task-risk">! {task.risk}</span>}
+        {task.risk && waitDisplayOf(task.status) !== "failed" ? <span className="task-risk">! {task.risk}</span> : null}
       </button>
       <span className="task-tail">
         <span>{statusLabel(task.status)}</span>

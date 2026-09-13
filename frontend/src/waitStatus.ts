@@ -14,13 +14,15 @@ export type WaitDisplay =
 export const WAIT_DISPLAY_LABEL: Record<WaitDisplay, string> = {
   recognizing: "识别中",
   queued: "已入队",
-  running: "进行中",
+  running: "执行中",
   awaiting_review: "结果待确认",
   awaiting_approval: "等审批",
   failed: "失败",
   completed: "已完成",
   open: "待处理",
 };
+
+export const HOME_TASK_POLL_MS = 4_000;
 
 const RECOGNIZE_TIMEOUT_MS = 12_000;
 
@@ -47,9 +49,26 @@ export function isAwaitingReview(task: { status?: string }): boolean {
   return waitDisplayOf(task.status) === "awaiting_review";
 }
 
+export function isAwaitingApproval(task: { status?: string }): boolean {
+  return waitDisplayOf(task.status) === "awaiting_approval";
+}
+
 export function isActiveRun(task: { status?: string }): boolean {
   const display = waitDisplayOf(task.status);
   return display === "running" || display === "queued";
+}
+
+export function lastSafeSummary(task: Task): string {
+  const history = Array.isArray(task.history) ? task.history : [];
+  const last = history[history.length - 1];
+  return String(
+    last?.safe_summary || last?.summary || task.next_action || task.history_summary || "",
+  ).trim();
+}
+
+export function failureHint(task: Task): string {
+  if (waitDisplayOf(task.status) !== "failed") return "";
+  return lastSafeSummary(task) || "执行失败";
 }
 
 export function unwrapTaskList(value: Task[] | { tasks?: Task[] } | null | undefined): Task[] {
@@ -107,14 +126,19 @@ export function formatElapsed(from?: string, now = Date.now()): string {
 
 export function waitProgressHint(task: Task, now = Date.now()): string {
   const display = waitDisplayOf(task.status);
+  if (display === "failed") return failureHint(task);
   if (display === "running") {
-    return formatElapsed(String(task.started_at || lastEventAt(task) || ""), now);
+    const elapsed = formatElapsed(String(task.started_at || lastEventAt(task) || ""), now);
+    const summary = String(task.history_summary || lastSafeSummary(task) || "").trim();
+    return [summary, elapsed].filter(Boolean).join(" · ");
   }
+  const summary = String(task.history_summary || lastSafeSummary(task) || "").trim();
   const at = lastEventAt(task);
-  if (!at) return task.history_summary || "";
+  if (!at) return summary;
   const when = new Date(at);
-  if (Number.isNaN(when.getTime())) return task.history_summary || "";
-  return when.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  if (Number.isNaN(when.getTime())) return summary;
+  const stamp = when.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return summary ? `${summary} · ${stamp}` : stamp;
 }
 
 export function recognizeElapsedSeconds(startedAt: number | null, now = Date.now()): number {

@@ -698,52 +698,165 @@ test("home followed-KOL 查看原邮件 opens the existing session mail rail", a
 });
 
 test("home waiting work item is labeled 结果待确认 not 等待中", async ({ page }) => {
-  await page.route("**/api/home/board", (route) => route.fulfill({
-    json: {
-      kols: [],
-      tabs: [{ code: "all", count: 0 }],
-      tasks: [{
-        id: "tsk_home_laozhang_quote",
-        title: "写报价信",
-        source: "manual",
-        status: "waiting",
-        kol_name: "数码老张",
-        history_summary: "金额 $680，待确认发送",
-        current_stage: "报价待确认",
-      }],
-      workbench: {
-        summary: { open: 1, overdue: 0, due_today: 0, waiting: 1, insights: 0 },
-        todo: [{
-          id: "tsk_home_laozhang_quote",
-          title: "写报价信",
-          source: "manual",
-          status: "waiting",
-          kol_name: "数码老张",
-          history_summary: "金额 $680，待确认发送",
-        }],
-      },
-    },
-  }));
-  await page.route("**/api/tasks", (route) => route.fulfill({
-    json: [{
+  const todos = [
+    {
       id: "tsk_home_laozhang_quote",
       title: "写报价信",
       source: "manual",
       status: "waiting",
-      started_at: "2026-08-30T11:00:00.000Z",
-      updated_at: "2026-08-30T11:02:00.000Z",
-      history: [{ time: "2026-08-30T11:02:00.000Z", label: "写报价信", safe_summary: "金额 $680，待确认发送" }],
+      kol_name: "数码老张",
       history_summary: "金额 $680，待确认发送",
-    }],
+    },
+    {
+      id: "tsk_queued_follow",
+      title: "写跟进邮件",
+      source: "manual",
+      status: "pending",
+      kol_name: "小美妆日记",
+      history_summary: "任务已加入队列",
+    },
+    {
+      id: "tsk_running_scan",
+      title: "风险扫描",
+      source: "manual",
+      status: "running",
+      started_at: new Date(Date.now() - 90_000).toISOString(),
+      history_summary: "正在核对逾期合作",
+    },
+    {
+      id: "tsk_failed_run",
+      title: "催大纲",
+      source: "manual",
+      status: "failed",
+      risk: "样品丢失争议",
+      next_action: "回到会话查看缺口",
+      history: [{ safe_summary: "催大纲信息不完整" }],
+      history_summary: "催大纲信息不完整",
+    },
+    {
+      id: "tsk_approval_quote",
+      title: "审批报价",
+      source: "manual",
+      status: "waiting_approval",
+      kol_name: "母婴小课",
+      history_summary: "报价已提交，等负责人确认",
+    },
+  ];
+  await page.route("**/api/home/board", (route) => route.fulfill({
+    json: {
+      kols: [],
+      tabs: [{ code: "all", count: 0 }],
+      tasks: todos,
+      workbench: {
+        summary: { open: 5, overdue: 0, due_today: 0, waiting: 1, insights: 0 },
+        todo: todos,
+      },
+    },
   }));
+  await page.route("**/api/tasks", (route) => route.fulfill({ json: todos }));
   await page.goto("/");
-  const card = page.locator("[data-todo-card]").filter({ hasText: "写报价信" });
-  await expect(card).toBeVisible();
-  await expect(card).toHaveAttribute("data-wait-status", "结果待确认");
-  await expect(card).toContainText("结果待确认");
-  await expect(card).not.toContainText("等待中");
+  const waiting = page.locator("[data-todo-card]").filter({ hasText: "写报价信" });
+  await expect(waiting).toBeVisible();
+  await expect(waiting).toHaveAttribute("data-wait-status", "结果待确认");
+  await expect(waiting).toContainText("结果待确认");
+  await expect(waiting).not.toContainText("等待中");
+  await expect(page.locator('[data-todo-bucket="waiting"]')).toContainText("结果待确认");
+  await expect(page.locator('[data-todo-bucket="waiting"]')).toContainText("写报价信");
+  await expect(page.locator('[data-todo-bucket="queued"]')).toContainText("已入队");
+  await expect(page.locator('[data-todo-bucket="queued"] [data-todo-card]')).toHaveAttribute("data-wait-status", "已入队");
+  await expect(page.locator('[data-todo-bucket="running"]')).toContainText("执行中");
+  await expect(page.locator('[data-todo-bucket="running"] [data-todo-card]')).toHaveAttribute("data-wait-status", "执行中");
+  await expect(page.locator('[data-todo-bucket="running"] [data-todo-card]')).toContainText("正在核对逾期合作");
+  await expect(page.locator('[data-todo-bucket="running"] [data-todo-card]')).toContainText("已进行");
+  await expect(page.locator('[data-todo-bucket="approval"]')).toContainText("等审批");
+  await expect(page.locator('[data-todo-bucket="approval"] [data-todo-card]')).toHaveAttribute("data-wait-status", "等审批");
+  const failed = page.locator("[data-todo-card]").filter({ hasText: "催大纲" });
+  await expect(failed).toHaveAttribute("data-wait-status", "失败");
+  await expect(failed).toContainText("催大纲信息不完整");
+  await expect(failed).not.toContainText("有风险");
   await expect(page.locator("[data-today-summary]")).toContainText("结果待确认");
+  await expect(page.locator("[data-today-summary]")).toContainText("等审批");
   await expect(page.locator("[data-today-summary]")).not.toContainText("等待中");
+  await expect(page.locator("[data-today-work]")).not.toContainText("等待中");
+});
+
+test("home polls GET /api/tasks while a run is executing", async ({ page }) => {
+  let taskGets = 0;
+  const running = {
+    id: "tsk_running_scan",
+    title: "风险扫描",
+    source: "manual",
+    status: "running",
+    started_at: new Date(Date.now() - 30_000).toISOString(),
+    history_summary: "正在核对逾期合作",
+  };
+  await page.route("**/api/home/board", (route) => route.fulfill({
+    json: {
+      kols: [],
+      tabs: [{ code: "all", count: 0 }],
+      tasks: [running],
+      workbench: { summary: { open: 1, overdue: 0, due_today: 0, waiting: 0, insights: 0 }, todo: [running] },
+    },
+  }));
+  await page.route("**/api/tasks", async (route) => {
+    if (route.request().method() === "GET") taskGets += 1;
+    await route.fulfill({ json: [running] });
+  });
+  await page.goto("/");
+  await expect(page.locator("[data-home]")).toHaveAttribute("data-home-task-poll", "active");
+  await expect(page.locator('[data-todo-bucket="running"] [data-todo-card]')).toHaveAttribute("data-wait-status", "执行中");
+  await expect.poll(() => taskGets, { timeout: 12000 }).toBeGreaterThanOrEqual(2);
+});
+
+test("home does not keep polling GET /api/tasks for 结果待确认 only", async ({ page }) => {
+  let taskGets = 0;
+  const waiting = {
+    id: "tsk_home_laozhang_quote",
+    title: "写报价信",
+    source: "manual",
+    status: "waiting",
+    history_summary: "金额 $680，待确认发送",
+  };
+  await page.route("**/api/home/board", (route) => route.fulfill({
+    json: {
+      kols: [],
+      tabs: [{ code: "all", count: 0 }],
+      tasks: [waiting],
+      workbench: { summary: { open: 1, overdue: 0, due_today: 0, waiting: 1, insights: 0 }, todo: [waiting] },
+    },
+  }));
+  await page.route("**/api/tasks", async (route) => {
+    if (route.request().method() === "GET") taskGets += 1;
+    await route.fulfill({ json: [waiting] });
+  });
+  await page.goto("/");
+  await expect(page.locator("[data-home]")).toHaveAttribute("data-home-task-poll", "idle");
+  await expect(page.locator("[data-todo-card]").filter({ hasText: "写报价信" })).toHaveAttribute("data-wait-status", "结果待确认");
+  const afterLoad = taskGets;
+  expect(afterLoad).toBeGreaterThanOrEqual(1);
+  await page.waitForTimeout(4500);
+  expect(taskGets).toBe(afterLoad);
+});
+
+test("home recognizing feedback is labeled 识别中", async ({ page }) => {
+  await page.route("**/api/tasks/from-text", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    await route.fulfill({
+      json: {
+        confidence: "low",
+        clarification: "你希望分析哪个范围？",
+        candidates: [{ id: "today", title: "分析今天的合作" }],
+      },
+    });
+  });
+  await page.goto("/");
+  await page.locator("[data-home] [data-composer-input]").fill("帮我分析一下");
+  await page.locator("[data-home] [data-send]").click();
+  const recognizing = page.locator('[data-home] [data-kind="recognizing"]');
+  await expect(recognizing).toBeVisible();
+  await expect(recognizing).toHaveAttribute("data-wait-status", "识别中");
+  await expect(recognizing).toContainText("识别中");
+  await expect(recognizing).not.toContainText("等待中");
 });
 
 test("home AI insight is confirmed into 我的待办 and 立即处理 opens the KOL session", async ({ page }) => {
