@@ -859,18 +859,19 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   max-width: 46rem;
 }
 .today-summary .task-filters { margin-bottom: 18px; }
-.kol-stage-tabs {
+.kol-stage-tabs,
+.kol-owner-tabs {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: var(--space-1);
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-2);
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: visible;
 }
-.kol-stage-tabs button {
+.kol-stage-tabs button,
+.kol-owner-tabs button {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
@@ -888,10 +889,55 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   text-align: center;
   white-space: nowrap;
 }
-.kol-stage-tabs button[aria-selected="true"] {
+.kol-stage-tabs button[aria-selected="true"],
+.kol-owner-tabs button[aria-selected="true"] {
   color: var(--primary);
   border-color: var(--primary);
   background: color-mix(in srgb, var(--primary) 8%, var(--bg));
+}
+.kol-secondary-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  min-width: 0;
+}
+.kol-filter-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--font-meta);
+}
+.kol-filter-label select {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-meta);
+  padding: 2px 6px;
+  max-width: 12rem;
+}
+.kol-sorts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.kol-sorts button {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-meta);
+  padding: 2px var(--space-2);
+  cursor: pointer;
+}
+.kol-sorts button[aria-pressed="true"] {
+  color: var(--primary);
+  border-color: var(--primary);
 }
 .kol-tab-name { font-weight: 500; color: inherit; }
 .profile-tags {
@@ -1098,11 +1144,12 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   white-space: normal;
   line-height: 1.4;
 }
-.followed-kol.is-exception .task-source-mark { color: var(--red); }
-.unread-badge, .unread-total {
+.followed-kol.is-exception .task-source-mark,
+.followed-kol-item.is-exception .kol-chip.is-risk { color: var(--danger); }
+.unread-badge, .unread-total, .kol-chip.is-unread {
   display: inline-flex;
   align-items: center;
-  margin-left: var(--space-2);
+  margin-left: 0;
   padding: 1px var(--space-2);
   border-radius: 999px;
   background: color-mix(in srgb, var(--danger) 12%, var(--bg));
@@ -1185,6 +1232,108 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   }
 }
 .recommend-work { padding-top: 0; border-top: 0; }
+.followed-kol-list {
+  display: grid;
+  gap: 0;
+}
+.followed-kol-item {
+  min-width: 0;
+  max-width: 100%;
+  list-style: none;
+}
+.followed-kol-card {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  max-width: 100%;
+  padding: var(--space-3) var(--space-2);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+}
+.followed-kol-card.is-exception {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+.kol-band {
+  min-width: 0;
+  max-width: 100%;
+}
+.kol-band-identity strong {
+  display: inline-block;
+  max-width: 100%;
+  font-size: var(--font-section);
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.kol-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  min-width: 0;
+}
+.kol-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border-radius: 999px;
+  font-size: var(--font-meta);
+  line-height: 1.4;
+  padding: 0 var(--space-2);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.kol-chip.is-risk {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
+  color: var(--danger);
+}
+.kol-chip.is-style {
+  border-color: #f0d3a8;
+  background: #fff6e8;
+  color: #8a5a12;
+}
+.kol-band-state,
+.kol-band-recommend {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-3);
+}
+.kol-state-block {
+  min-width: 0;
+}
+.kol-band-label {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--font-meta);
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+.kol-state-block p {
+  margin: 0;
+  font-size: var(--font-body);
+  line-height: 1.4;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.kol-band-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+@media (max-width: 720px) {
+  .kol-band-state,
+  .kol-band-recommend {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .recommend-list {
   list-style: none;
   margin: 0;
@@ -1255,7 +1404,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   cursor: pointer;
 }
 .work-panel-open:hover { color: var(--primary); }
-.recommend-work .kol-stage-tabs { margin-top: 4px; }
+.recommend-work .kol-stage-tabs,
+.recommend-work .kol-owner-tabs { margin-top: 4px; }
 .home-composer-dock {
   flex: 0 0 auto;
   width: 100%;
