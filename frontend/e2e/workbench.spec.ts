@@ -347,6 +347,11 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expect(page.locator("[data-nav-disabled='创建新项目']")).toContainText("非本期");
   await expect(page.locator('[data-nav="pipeline"]')).toContainText("生命周期");
   await expect(page.locator('[data-nav="pipeline"]')).not.toContainText("创建新项目");
+  await expect(page.locator('[data-nav="confirm"]')).toHaveCount(0);
+  await expect(page.locator(".sidebar")).not.toContainText("等我确认");
+  await expect(page.locator(".sidebar")).not.toContainText("等我確認");
+  await expect(page.locator(".sidebar")).not.toContainText("Awaiting confirm");
+  await expect(page.locator('[data-nav="approvals"]')).toContainText("审批");
   await expect(page.locator('a[href="/pipeline"]').first()).toHaveText("生命周期");
   await expect(page.locator('a[href="/pipeline"]').nth(1)).toContainText("生命周期");
   await expect(page.locator("[data-home-mode]")).toHaveCount(3);
@@ -2085,6 +2090,14 @@ test("user menu switches employee, admin, and settings workspaces", async ({ pag
 
 test("approval, knowledge, and exam are vertical primary nav items before cloud", async ({ page }) => {
   await page.goto("/");
+  const todayOrder = await page.locator('nav[aria-label="今日"] [data-nav]').evaluateAll((elements) =>
+    elements.map((element) => element.getAttribute("data-nav")),
+  );
+  expect(todayOrder).toEqual(["new-task", "running"]);
+  await expect(page.locator('nav[aria-label="今日"]')).not.toContainText(/等我确认|等我確認|Awaiting confirm/);
+  await expect(page.locator('[data-nav="confirm"]')).toHaveCount(0);
+  await expect(page.locator('aside a[href="/approvals"]')).toHaveCount(1);
+  await expect(page.locator('[data-nav="approvals"]')).toContainText("审批");
   const assetOrder = await page.locator('nav[aria-label="资产"] [data-nav], nav[aria-label="资产"] [data-nav-disabled]').evaluateAll((elements) =>
     elements.map((element) =>
       element.getAttribute("data-nav") || element.getAttribute("data-nav-disabled") || element.textContent?.trim(),
@@ -2100,6 +2113,12 @@ test("approval, knowledge, and exam are vertical primary nav items before cloud"
   expect(assetOrder.indexOf("pipeline")).toBeLessThan(assetOrder.indexOf("云盘"));
   await expect(page.locator('[data-nav="skills"]')).toBeVisible();
   await expect(page.locator('.sidebar-foot a[href="/approvals"], .sidebar-foot a[href="/kb"], .sidebar-foot a[href="/exam"]')).toHaveCount(0);
+  await page.locator('[data-nav="approvals"]').click();
+  await expect(page).toHaveURL(/\/approvals$/);
+  await expect(page.getByRole("heading", { name: "工作审批" })).toBeVisible();
+  await expect(page.locator(".approval-page .page-kicker")).toHaveText("审批");
+  await expect(page.locator(".approval-page")).not.toContainText("等我确认");
+  await expect(page.locator('[data-nav="approvals"]')).toHaveClass(/active/);
   await page.locator('[data-nav="knowledge"]').click();
   await expect(page.getByRole("heading", { name: "我的知识库" })).toBeVisible();
   await page.locator('[data-nav="exam"]').click();

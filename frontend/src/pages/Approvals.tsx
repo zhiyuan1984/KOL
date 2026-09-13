@@ -129,7 +129,7 @@ export default function Approvals() {
   return (
     <div className="list-page approval-page">
       <div>
-        <div className="page-kicker">等我确认</div>
+        <div className="page-kicker">审批</div>
         <h1 style={{ marginTop: 0 }}>工作审批</h1>
         <p className="muted">费用按规则一位通过再到下一位。最后一位同意即办结；任一位驳回则整单作废。「待我处理」只列出轮到你确认的单；还没轮到时可在「待处理」查看。</p>
       </div>

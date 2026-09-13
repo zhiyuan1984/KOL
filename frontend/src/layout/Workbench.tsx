@@ -86,10 +86,6 @@ export default function Workbench() {
     () => sessions.filter((s) => s.agent_status === "running").length,
     [sessions],
   );
-  const waitingAgentCount = useMemo(
-    () => sessions.filter((s) => s.agent_status === "waiting_approval").length,
-    [sessions],
-  );
   const firstRunning = useMemo(
     () => sessions.find((s) => s.agent_status === "running"),
     [sessions],
@@ -98,7 +94,6 @@ export default function Workbench() {
   const runningActive = Boolean(
     sessionId && sessions.some((s) => s.id === sessionId && s.agent_status === "running"),
   );
-  const confirmBadge = waitingAgentCount + approvalCount;
   const onTeamsTab = loc.pathname === "/teams"
     || (loc.pathname === "/agents" && new URLSearchParams(loc.search).get("tab") === "teams");
   const onAgentsWork = loc.pathname === "/agents" && !onTeamsTab;
@@ -195,11 +190,6 @@ export default function Workbench() {
             <span className="sidebar-label">进行中</span>
             {runningCount > 0 && <span className="nav-badge">{runningCount}</span>}
           </Link>
-          <NavLink to="/approvals" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} data-nav="confirm" onClick={() => setMobileOpen(false)}>
-            <Ico path="M7 4h10a2 2 0 0 1 2 2v14H5V6a2 2 0 0 1 2-2z M9 4v3h6V4 M8 12l2 2 5-5" />
-            <span className="sidebar-label">等我确认</span>
-            {confirmBadge > 0 && <span className="nav-badge warn">{confirmBadge}</span>}
-          </NavLink>
         </nav>
 
         <nav className="nav-group" aria-label="数字员工">
