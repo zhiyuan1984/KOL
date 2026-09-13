@@ -31,6 +31,21 @@ export function seedAll(): void {
   stripLegacyDemoData();
 }
 
+function deleteCollaborationTree(conn: ReturnType<typeof getConn>, id: string): void {
+  conn.prepare("DELETE FROM kol_mail_items WHERE collaboration_id=?").run(id);
+  conn.prepare("DELETE FROM kol_mail_threads WHERE collaboration_id=?").run(id);
+  conn.prepare("DELETE FROM kol_mail_seen WHERE collaboration_id=?").run(id);
+  conn.prepare("UPDATE inbound SET collaboration_id=NULL WHERE collaboration_id=?").run(id);
+  const sessions = conn.prepare("SELECT id FROM sessions WHERE collaboration_id=?").all(id) as { id: string }[];
+  for (const row of sessions) {
+    conn.prepare("DELETE FROM messages WHERE session_id=?").run(row.id);
+    conn.prepare("DELETE FROM drafts WHERE session_id=?").run(row.id);
+    conn.prepare("DELETE FROM workers WHERE session_id=?").run(row.id);
+    conn.prepare("DELETE FROM sessions WHERE id=?").run(row.id);
+  }
+  conn.prepare("DELETE FROM collaborations WHERE id=?").run(id);
+}
+
 /** E2E / demo reset only. Wipe leftover official writes and tasks from prior runs. */
 export function resetDemoRuntimeState(): void {
   const conn = getConn();
@@ -52,6 +67,19 @@ export function resetDemoRuntimeState(): void {
       END;
     `);
   }
+  // Persistent data-e2e can keep Starry rows from a prior real-mode sync or
+  // qq-01 detail lookup. Home followed-KOL is "current library", so drop
+  // leftover library rows; the reset then re-syncs stub listAll (2 KOLs).
+  // Demo fixture ids stay even if a test temporarily stamped kol_uid on them.
+  const leftover = conn.prepare(
+    `SELECT id FROM collaborations
+     WHERE source = 'starry'
+        OR (
+          kol_uid IS NOT NULL AND trim(kol_uid) != ''
+          AND id NOT IN (${DEMO_COLLAB_IDS.map(() => "?").join(",")})
+        )`,
+  ).all(...DEMO_COLLAB_IDS) as { id: string }[];
+  for (const row of leftover) deleteCollaborationTree(conn, row.id);
 }
 
 /** Explicit ops path. Do not call from production startup. */
@@ -102,16 +130,7 @@ function stripLegacyDemoData(): void {
       END;
     `);
   }
-  for (const id of DEMO_COLLAB_IDS) {
-    conn.prepare("DELETE FROM kol_mail_seen WHERE collaboration_id=?").run(id);
-    const sessions = conn.prepare("SELECT id FROM sessions WHERE collaboration_id=?").all(id) as { id: string }[];
-    for (const row of sessions) {
-      conn.prepare("DELETE FROM messages WHERE session_id=?").run(row.id);
-      conn.prepare("DELETE FROM drafts WHERE session_id=?").run(row.id);
-      conn.prepare("DELETE FROM sessions WHERE id=?").run(row.id);
-    }
-    conn.prepare("DELETE FROM collaborations WHERE id=?").run(id);
-  }
+  for (const id of DEMO_COLLAB_IDS) deleteCollaborationTree(conn, id);
 }
 
 function seedMailboxOwners(): void {
