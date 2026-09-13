@@ -407,8 +407,8 @@ export type StarryAdjacentWalk = {
  * remote sync must walk this list (ADR-011). Empty hops = not a forward main walk.
  */
 export function planStarryAdjacentWalk(from: string, to: string): StarryAdjacentWalk {
-  const start = normalizeStage(from);
-  const end = normalizeStage(to);
+  const start = codeFromLabel(from) || normalizeStage(from);
+  const end = codeFromLabel(to) || normalizeStage(to);
   const line = [...MAIN_STAGES.map((stage) => stage.code)];
   if (NEXT_STAGE.SETTLING === "COMPLETED") line.push("COMPLETED");
   const fromIdx = line.indexOf(start);
