@@ -82,7 +82,7 @@ export default function FollowedKolWorkCard({
           <span className="kol-band-label">当前状态</span>
           <p data-stage-code={card.current_state.stage_code || undefined}>
             {card.current_state.stage_label}
-            {days != null ? <span data-days-in-stage={days}> · 停留 {days} 天</span> : null}
+            {days != null && days > 0 ? <span data-days-in-stage={days}> · 停留 {days} 天</span> : null}
             {card.current_state.exception ? " · 异常" : null}
             {card.current_state.unbound ? " · 未绑定" : null}
           </p>
