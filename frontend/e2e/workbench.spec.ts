@@ -1107,6 +1107,7 @@ test("thread mail digest labels rule excerpt, model summary, and failed analysis
   await expect(page.locator("[data-stage-sop]")).toHaveJSProperty("open", false);
   await expect(page.locator("[data-workbench]")).toBeVisible();
   await expectNoEngineJargon(digest);
+  await saveScreenshot(page, "mail_digest_rule_excerpt_collapsed.png");
 
   const journeyShell = {
     handle: "小美妆日记",
@@ -1154,6 +1155,7 @@ test("thread mail digest labels rule excerpt, model summary, and failed analysis
   await expect(digest).not.toContainText("codex_memory");
   await expect(page.locator("[data-stage-sop]")).toHaveJSProperty("open", false);
   await expect(page.locator("[data-workbench]")).toBeVisible();
+  await saveScreenshot(page, "mail_digest_codex_summary_open.png");
 
   await page.route((url) => new URL(url).pathname === "/api/sessions/digest-failed", (route) => route.fulfill({
     json: {
@@ -1180,6 +1182,7 @@ test("thread mail digest labels rule excerpt, model summary, and failed analysis
   await expect(digest).not.toContainText("规则摘录");
   await expect(digest.locator("[data-digest-excerpt]")).toHaveJSProperty("open", false);
   await expect(digest).not.toContainText("analysis_failed");
+  await saveScreenshot(page, "mail_digest_analysis_failed_status.png");
 });
 
 function expectNoEngineJargon(root: Locator) {
