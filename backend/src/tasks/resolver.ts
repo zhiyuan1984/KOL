@@ -1,3 +1,4 @@
+import { extractHandle } from "../host/intent.js";
 import { parseQuoteOffer, parseQuoteRate } from "../host/quote-amount.js";
 import { taskDefinition, taskDefinitions, type TaskDefinition } from "./registry.js";
 
@@ -69,16 +70,10 @@ export function extractTaskEntities(text: string): Record<string, unknown> {
     if (rate.rate_unit) entities.rate_unit = rate.rate_unit;
   }
   if (offer.deliverables) entities.deliverables = offer.deliverables;
-  const handle = /@([^\s「」]+)/.exec(text)?.[1];
-  if (
-    handle
-    && !handle.includes(".")
-    && !taskDefinitions().some((definition) =>
-      definition.id.toLowerCase() === handle.toLowerCase()
-      || definition.title.startsWith(`${handle} `))
-  ) {
-    entities.handle = handle;
-  }
+  // Same handle rules as Host classify(): skill mentions such as
+  // @写合作邮件 are not KOL handles, and a later @红人 still binds.
+  const handle = extractHandle(text);
+  if (handle) entities.handle = handle;
   const platform = PLATFORM_NAMES.find(([pattern]) => pattern.test(text))?.[1];
   if (platform) entities.platform = platform;
   const creatorId = /(?:达人|creator)[ _-]?(?:ID|id|编号)\s*[:：]?\s*(\d+)/i.exec(text)?.[1];

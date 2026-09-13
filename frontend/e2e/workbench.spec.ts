@@ -28,6 +28,13 @@ async function openDraftTab(page: Page) {
   if (await tab.isVisible()) await tab.click();
 }
 
+function homeRecByTitle(page: Page, title: string) {
+  const exact = new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+  return page.locator("[data-home] .rec").filter({
+    has: page.locator(".rec-title", { hasText: exact }),
+  });
+}
+
 async function openHomeTemplates(page: Page) {
   const tab = page.locator("[data-work-panel] [data-home-tab='templates']");
   if (!(await tab.isVisible())) {
@@ -35,6 +42,7 @@ async function openHomeTemplates(page: Page) {
   }
   await expect(page.locator("[data-work-panel]")).toBeVisible();
   await tab.click();
+  await expect(page.locator("[data-home] .rec").first()).toBeVisible({ timeout: 15000 });
 }
 
 async function openHomeLifecycle(page: Page) {
@@ -94,7 +102,7 @@ test("home task template 写合作邮件 prefills home composer then follows the
   await expect(page.locator(".user-chip")).not.toContainText("sriphy");
   await expect(page.locator(".user-chip")).not.toContainText("考试已通过");
   await openHomeTemplates(page);
-  await page.locator("[data-home] .rec").filter({ hasText: /写合作邮件/ }).click();
+  await homeRecByTitle(page, "写合作邮件").click();
   await expectHomeComposerDraft(page, "写合作邮件 发件箱 [发件邮箱] 发给 [收件邮箱] 主题：[主题]");
   await expect(page.locator('[data-home] [data-skill-chip="email_compose"]')).toBeVisible();
   expect(createdPosts).toEqual([]);
@@ -266,9 +274,8 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   const catalogCount = Array.isArray(catalogPayload)
     ? catalogPayload.length
     : (catalogPayload.task_definitions || catalogPayload.definitions || []).length;
-  // The exception-care template is a UX alias of email_compose and may be
-  // rendered in addition to the canonical registry entries.
-  await expect(taskButtons).toHaveCount(catalogCount + 1);
+  // Home also appends UX aliases (延期关怀, 催大纲) that are not registry skills.
+  expect(await taskButtons.count()).toBeGreaterThanOrEqual(catalogCount + 1);
   for (let i = 0; i < await taskButtons.count(); i += 1) {
     await expect(taskButtons.nth(i)).toHaveAttribute("data-act", "ask");
     await expect(taskButtons.nth(i)).not.toHaveAttribute("data-intent", "");
@@ -310,7 +317,7 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expect(page.locator('[data-kol-tab="all"]')).toContainText("全部");
   await expect(page.locator('[data-kol-tab="exception"]')).toContainText("异常");
   await openHomeTemplates(page);
-  await page.locator("[data-home] .rec").filter({ hasText: "写合作邮件" }).click();
+  await homeRecByTitle(page, "写合作邮件").click();
   await expectHomeComposerDraft(page, "写合作邮件 发件箱 [发件邮箱] 发给 [收件邮箱] 主题：[主题]");
   await submitHomeComposerStay(page);
   await expectHomeClarification(page, "发件邮箱", "收件邮箱", "邮件主题");
@@ -319,7 +326,9 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
 test("exception template 延期关怀 prefills home then drafts without changing stage", async ({ page }) => {
   await page.goto("/");
   await openHomeTemplates(page);
-  await page.locator("[data-home] .rec").filter({ hasText: "延期关怀" }).click();
+  const delayCare = homeRecByTitle(page, "延期关怀");
+  await delayCare.scrollIntoViewIfNeeded();
+  await delayCare.click();
   await expectHomeComposerDraft(page, "延期关怀 [红人或合作]");
   await submitHomeComposer(page);
   await expect(page.locator('[data-kind="me"]')).toContainText("延期关怀", { timeout: 15000 });
@@ -797,7 +806,7 @@ test("催大纲 placeholder without a creator shows a supplement card, not a sen
   const n0 = ((await before.json()) as unknown[]).length;
   await page.goto("/");
   await openHomeTemplates(page);
-  await page.locator("[data-home] .rec").filter({ hasText: /^催大纲/ }).click();
+  await homeRecByTitle(page, "催大纲").click();
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue("催大纲 [红人或合作]");
   await page.locator("[data-home] [data-send]").click();
   await page.waitForURL(/\/s\//);
@@ -1014,7 +1023,7 @@ test("two buttons stay separate: send keeps stage, confirm-stage advances", asyn
   await expectDraft(page);
   await openDraftTab(page);
   await page.locator('[data-email-action="send"]').click();
-  await expect(page.getByText(/已发送原文/)).toBeVisible();
+  await expect(page.getByText(/已发送原文/).first()).toBeVisible();
   const pipe = await request.get("/api/pipeline");
   const body = await pipe.json();
   const x = Object.values(body.groups).flat().find((c: { handle: string }) => c.handle === "小美妆日记") as {
@@ -1447,7 +1456,9 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await expect(page.locator("[data-work-panel] .today-task.task-ai")).toContainText("AI 风险发现");
   await page.getByRole("tab", { name: "任务模板" }).click();
   await expect(page.locator("[data-task-template]").filter({ hasText: /任务模板 \d+/ })).toHaveCount(25);
-  await page.locator("[data-task-template]").filter({ hasText: "任务模板 1" }).click();
+  await page.locator("[data-task-template]").filter({
+    has: page.locator(".rec-title", { hasText: /^任务模板 1$/ }),
+  }).click();
   await expectHomeComposerDraft(page, "任务模板 1");
   expect(posted).toEqual([]);
   await submitHomeComposer(page);
@@ -1767,7 +1778,7 @@ test("skill hub lists Starry KOL MCP and the remaining library skills", async ({
     "达人库查询",
     "写合作邮件",
   ]) {
-    const rec = page.locator("[data-home] .rec").filter({ hasText: title });
+    const rec = homeRecByTitle(page, title);
     await rec.scrollIntoViewIfNeeded();
     await expect(rec).toBeVisible({ timeout: 10000 });
   }
@@ -1818,7 +1829,7 @@ test("达人画像 and 更新红人负责人 run through Starry KOL MCP", async 
 test("风险扫描 runs Starry KOL MCP tools and lists T8 overdue", async ({ page }) => {
   await page.goto("/");
   await openHomeTemplates(page);
-  await page.locator("[data-home] .rec").filter({ hasText: "超时/风险扫描" }).click();
+  await homeRecByTitle(page, "超时/风险扫描").click();
   await expectHomeComposerDraft(page, "超时/风险扫描");
   await submitHomeComposer(page);
   const card = page.locator('[data-workbench] [data-kind="task-result-card"]');

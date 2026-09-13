@@ -492,12 +492,13 @@ export default function Home() {
     const pending = (result.pending_message || result.pending || {}) as Record<string, unknown>;
     storePending(result.session_id, {
       text: String(pending.text || result.task.title),
+      intent: String(pending.intent || pending.task_type || result.task.task_type || result.task.skill || lockedIntent || ""),
       knowledge_id: pending.knowledge_id ? String(pending.knowledge_id) : undefined,
       collaboration_id: pending.collaboration_id ? String(pending.collaboration_id) : undefined,
       attachments: Array.isArray(pending.attachments) ? pending.attachments as ComposerSubmit["attachments"] : undefined,
       model_tier: pending.model_tier ? String(pending.model_tier) : undefined,
       work_item_id: String(pending.work_item_id || result.work_item_id || result.task.id),
-      task_type: String(pending.task_type || result.task.task_type || result.task.skill || ""),
+      task_type: String(pending.task_type || result.task.task_type || result.task.skill || lockedIntent || ""),
       run_id: String(pending.run_id || result.run_id || ""),
       entities: pending.entities && typeof pending.entities === "object" ? pending.entities as Record<string, unknown> : undefined,
     });
