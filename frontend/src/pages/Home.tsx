@@ -445,15 +445,17 @@ function CardFields({
     <>
       <div className="kol-card-field">
         <dt>最近跟进</dt>
-        <dd data-recent-followup data-task-history>{recentFollowup || "暂无任务历史"}</dd>
+        <dd data-recent-followup data-task-history title={recentFollowup || "暂无任务历史"}>
+          {recentFollowup || "暂无任务历史"}
+        </dd>
       </div>
       <div className="kol-card-field">
         <dt>所处阶段</dt>
-        <dd data-current-stage>{currentStage || "—"}</dd>
+        <dd data-current-stage title={currentStage || "—"}>{currentStage || "—"}</dd>
       </div>
       <div className="kol-card-field">
         <dt>建议进入阶段</dt>
-        <dd data-suggested-stage>{suggestedStage || "—"}</dd>
+        <dd data-suggested-stage title={suggestedStage || "—"}>{suggestedStage || "—"}</dd>
       </div>
     </>
   );
@@ -465,12 +467,14 @@ function CardFields({
       {kolName ? (
         <div className="kol-card-field">
           <dt>KOL 名称</dt>
-          <dd data-kol-name>{kolName}</dd>
+          <dd data-kol-name title={kolName}>{kolName}</dd>
         </div>
       ) : null}
       <div className="kol-card-field">
         <dt>合作摘要</dt>
-        <dd data-collab-summary>{collabSummary || "暂无合作摘要"}</dd>
+        <dd data-collab-summary title={collabSummary || "暂无合作摘要"}>
+          {collabSummary || "暂无合作摘要"}
+        </dd>
       </div>
       {compact ? (
         <div className="kol-card-status-line" data-kol-status-line>
@@ -1039,6 +1043,7 @@ export default function Home() {
         + (composerReading ? " is-composer-reading" : "")
       }
       data-home
+      data-visual="docs20"
       data-home-task-poll={hasActiveRuns ? "active" : "idle"}
     >
       <div className="home-stage">
@@ -1196,7 +1201,7 @@ export default function Home() {
                       {thread ? (
                         <div className="kol-mail-preview" data-mail-threads data-mail-preview>
                           <p className="mail-preview-meta">
-                            <span className="thread-subject">{thread.subject || "(无主题)"}</span>
+                            <span className="thread-subject" title={thread.subject || "(无主题)"}>{thread.subject || "(无主题)"}</span>
                             <span className="muted">{mailDirectionLabel(thread.last_direction)}</span>
                             {Number(thread.unread_count || 0) > 0 ? <span>未读 {thread.unread_count}</span> : null}
                             {thread.last_from_name || thread.last_from ? (
@@ -1205,13 +1210,19 @@ export default function Home() {
                             {thread.last_at ? <span data-thread-time>{new Date(thread.last_at).toLocaleString("zh-CN", { hour12: false })}</span> : null}
                           </p>
                           {mailSummary ? (
-                            <p className="mail-preview-text" data-mail-summary data-thread-id={thread.conversation_id} data-thread-direction={thread.last_direction || ""}>
+                            <p
+                              className="mail-preview-text"
+                              data-mail-summary
+                              data-thread-id={thread.conversation_id}
+                              data-thread-direction={thread.last_direction || ""}
+                              title={mailSummary}
+                            >
                               {mailSummary}
                             </p>
                           ) : null}
                           <button
                             type="button"
-                            className="btn ghost sm"
+                            className="mail-preview-link"
                             data-open-original-mail
                             data-thread-id={thread.conversation_id}
                             onClick={() => openKol(kol, thread.conversation_id)}
@@ -1612,7 +1623,7 @@ function InsightList({
             <p className="todo-reason">{whyLine(task)}</p>
           </div>
           <div className="insight-actions">
-            <button type="button" data-promote-task={task.id} disabled={busy} onClick={() => onPromote(task)}>
+            <button type="button" className="insight-primary" data-promote-task={task.id} disabled={busy} onClick={() => onPromote(task)}>
               转为我的待办
             </button>
             <button type="button" className="is-ghost" data-open-insight={task.id} disabled={busy} onClick={() => onOpen(task)}>
