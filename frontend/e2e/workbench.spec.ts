@@ -45,17 +45,25 @@ async function openHomeTemplates(page: Page) {
   await expect(page.locator("[data-home] .rec").first()).toBeVisible({ timeout: 15000 });
 }
 
+async function closeHomeWorkPanel(page: Page) {
+  const backdrop = page.locator("[data-work-panel] .work-panel-backdrop");
+  if (await backdrop.isVisible()) await backdrop.click();
+}
+
 async function openHomeLifecycle(page: Page) {
+  await closeHomeWorkPanel(page);
   await page.locator('[data-home-mode="lifecycle"]').click();
   await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
 }
 
 async function openHomeTodo(page: Page) {
+  await closeHomeWorkPanel(page);
   await page.locator('[data-home-mode="todo"]').click();
   await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
 }
 
 async function openHomeAi(page: Page) {
+  await closeHomeWorkPanel(page);
   await page.locator('[data-home-mode="ai"]').click();
   await expect(page.locator('[data-home-pane="ai"]')).toBeVisible();
 }
@@ -370,11 +378,6 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expect(page.locator('[data-home-mode="ai"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-recommended-tasks]")).toBeVisible();
   await expect(page.locator("[data-today-work]")).toHaveCount(0);
-  await openHomeTodo(page);
-  await expect(page.locator("[data-today-work]")).toBeVisible();
-  await expect(page.locator("[data-today-work] [data-recommended-tasks]")).toHaveCount(0);
-  await expect(page.locator('[data-todo-bucket="later"]')).toHaveCount(0);
-  await expect(page.locator("[data-today-work]")).not.toContainText("后续");
   await expect(page.locator("[data-today-summary]")).toContainText("项待处理");
   await expect(page.locator("[data-today-summary]")).toContainText("逾期");
   await expect(page.locator("[data-today-summary]")).not.toContainText("归因复盘");
@@ -383,6 +386,11 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expect(page.locator("[data-kol-tab]")).toHaveCount(0);
   await expect(page.locator("[data-journey-guide]")).toHaveCount(0);
   await page.locator("[data-work-panel] .work-panel-backdrop").click();
+  await openHomeTodo(page);
+  await expect(page.locator("[data-today-work]")).toBeVisible();
+  await expect(page.locator("[data-today-work] [data-recommended-tasks]")).toHaveCount(0);
+  await expect(page.locator('[data-todo-bucket="later"]')).toHaveCount(0);
+  await expect(page.locator("[data-today-work]")).not.toContainText("后续");
   await openHomeLifecycle(page);
   await expect(page.getByRole("link", { name: /查看KOL全生命周期/ })).toHaveCount(0);
   await expect(page.locator('a[href="/pipeline"]')).toHaveCount(2);
@@ -1045,11 +1053,11 @@ test("home waiting work item is labeled 结果待确认 not 等待中", async ({
 
 test("home todo buckets fold after 6 items and keep wait-status labels", async ({ page }) => {
   const todos = Array.from({ length: 9 }, (_, index) => ({
-    id: `tsk_open_${index + 1}`,
-    title: `待处理 ${index + 1}`,
+    id: `tsk_waiting_${index + 1}`,
+    title: `待确认 ${index + 1}`,
     source: "manual",
-    status: "pending",
-    history_summary: "任务已创建 · 待处理",
+    status: "waiting",
+    history_summary: "金额待确认发送",
   }));
   await page.route("**/api/home/board", (route) => route.fulfill({
     json: {
@@ -1057,18 +1065,20 @@ test("home todo buckets fold after 6 items and keep wait-status labels", async (
       tabs: [{ code: "all", count: 0 }],
       tasks: todos,
       workbench: {
-        summary: { open: 9, overdue: 0, due_today: 0, waiting: 0, insights: 0 },
+        summary: { open: 9, overdue: 0, due_today: 0, waiting: 9, insights: 0 },
         todo: todos,
       },
     },
   }));
+  await page.route("**/api/tasks", (route) => route.fulfill({ json: todos }));
   await page.goto("/");
   await openHomeTodo(page);
   await expect(page.locator("[data-todo-card]")).toHaveCount(6);
-  await expect(page.locator('[data-todo-bucket="open"] [data-fold-more]')).toBeVisible();
+  await expect(page.locator('[data-todo-bucket="waiting"] [data-fold-more]')).toBeVisible();
   await expect(page.locator('[data-todo-bucket="later"]')).toHaveCount(0);
   await expect(page.locator("[data-todo-md]")).not.toContainText("后续");
-  await page.locator('[data-todo-bucket="open"] [data-fold-more]').click();
+  await expect(page.locator('[data-todo-bucket="waiting"]')).toContainText("结果待确认");
+  await page.locator('[data-todo-bucket="waiting"] [data-fold-more]').click();
   await expect(page.locator("[data-todo-card]")).toHaveCount(9);
   await expect(page.locator("[data-today-work] [data-recommended-tasks]")).toHaveCount(0);
 });
