@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { storePending } from "../components/ChatBlocks";
 import { FUNNEL, HubTile, SkillHubChrome, skillFunnel, skillKind, type SkillRow } from "./SkillHub";
 import JourneyGuide from "../components/JourneyGuide";
 import { rememberJourney } from "../journey";
-import { connectorStatusLabel, profileNameLabel } from "../labels";
+import { profileNameLabel } from "../labels";
 import { REMOTE_BACKEND_LABEL, remoteForSkill } from "../agentConfig";
 import { useViewMode } from "../viewMode";
 import { brandLabel } from "../knowledgeCopy";
@@ -236,24 +236,13 @@ export function Admin() {
       <div className="page-kicker">协作</div>
       <h1 style={{ marginTop: 0 }}>管理配置</h1>
       <div className="panel">
-        <h3>本期连接器</h3>
-        {(data?.connectors || []).map((c) => (
-          <p key={c.id} className="muted" data-connector={c.id}>
-            {c.label} · {connectorStatusLabel(c.status)}
-          </p>
-        ))}
-        <h3 style={{ marginTop: 16 }}>本期隐藏</h3>
-        {(data?.hidden_connectors || []).map((h) => (
-          <p key={h} className="muted hidden-connector" data-hidden-connector={h}>
-            {h} · 本期隐藏
-          </p>
-        ))}
-        {(!data?.hidden_connectors || data.hidden_connectors.length === 0) && (
-          <p className="muted">无</p>
-        )}
+        <h3>连接器</h3>
+        <p className="muted">本期连接器清单已并入管理端枢纽，不再在本页维护第二份目录。</p>
+        <p><Link to="/admin/connectors">打开连接器枢纽</Link></p>
       </div>
       <div className="panel">
         <h3>智能体能力域</h3>
+        <p className="muted">治理入口在 <Link to="/admin/agents">数字员工治理</Link>。下面仍是只读能力域声明。</p>
         <p className="muted">对外可称智能体；对内共用同一套运行环境，不是多套系统。</p>
         {(data?.profiles || []).map((profile) => (
           <div key={profile.id} data-profile={profile.id} style={{ marginTop: 12 }}>
@@ -273,6 +262,7 @@ export function Admin() {
       </div>
       <div className="panel">
         <h3>品牌邮箱</h3>
+        <p className="muted">组织邮箱策略在连接器详情治理；个人发件箱仍走个人设置。</p>
         {Object.entries(data?.mailboxes || {}).map(([k, v]) => (
           <p key={k} className="muted">
             {brandLabel(k)} · {v}

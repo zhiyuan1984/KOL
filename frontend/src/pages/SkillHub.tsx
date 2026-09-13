@@ -71,28 +71,28 @@ const CONNECTORS = [
     title: "企业邮箱",
     kind: "连接器",
     summary: "用品牌邮箱发建联、跟进和报价信。",
-    to: "/admin",
+    to: "/admin/connectors/enterprise_mail",
   },
   {
     id: "wecom",
     title: "企业微信",
     kind: "连接器",
     summary: "费用审批走企微卡。",
-    to: "/admin",
+    to: "/admin/connectors/wecom",
   },
   {
     id: "starrykol",
     title: "Starry KOL MCP",
     kind: "连接器",
-    summary: "红人库、负责人、品牌邮箱和邮件会话走同一套 MCP。",
-    to: "/admin/connectors",
+    summary: "红人库、负责人、品牌邮箱和邮件会话（管理端治理，调试可见）。",
+    to: "/admin/connectors/starrykol",
   },
   {
     id: "kolclaw",
     title: "KOL Claw",
     kind: "连接器",
     summary: "达人评分、建联话术、每日任务和预算。",
-    to: "/admin/connectors",
+    to: "/admin/connectors/kolclaw",
   },
 ];
 

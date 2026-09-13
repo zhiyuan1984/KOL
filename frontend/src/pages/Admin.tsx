@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { FUNNEL, HubTile, skillFunnel, skillKind, type SkillRow } from "./SkillHub";
-import { connectorStatusLabel } from "../labels";
-import { brandLabel } from "../knowledgeCopy";
 
 type AdminSkill = SkillRow & {
   grants?: { org: string[]; team: string[]; user: string[] };
@@ -310,19 +308,11 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
         </button>
         <button
           type="button"
-          className={"hub-chip" + (tab === "connectors" ? " on" : "")}
-          data-admin-tab="connectors"
-          onClick={() => setTab("connectors")}
-        >
-          连接器
-        </button>
-        <button
-          type="button"
           className="hub-chip"
-          data-admin-tab="starry"
-          onClick={() => nav("/admin/starry")}
+          data-admin-tab="connectors"
+          onClick={() => nav("/admin/connectors")}
         >
-          连接 Starry
+          连接器枢纽
         </button>
       </div>
         </>
@@ -606,35 +596,11 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
       )}
 
       {!embedded && tab === "connectors" && (
-        <>
-          <div className="panel">
-            <h3>本期连接器</h3>
-            {(data?.connectors || []).map((c) => (
-              <p key={c.id} className="muted" data-connector={c.id}>
-                {c.label} · {connectorStatusLabel(c.status)}
-              </p>
-            ))}
-            <h3 style={{ marginTop: 16 }}>本期隐藏</h3>
-            {(data?.hidden_connectors || []).map((h) => (
-              <p key={h} className="muted hidden-connector" data-hidden-connector={h}>
-                {h} · 本期隐藏
-              </p>
-            ))}
-            {(!data?.hidden_connectors || data.hidden_connectors.length === 0) && <p className="muted">无</p>}
-          </div>
-          <div className="panel">
-            <h3>品牌邮箱</h3>
-            {Object.entries(data?.mailboxes || {}).map(([k, v]) => (
-              <p key={k} className="muted">
-                {brandLabel(k)} · {v}
-              </p>
-            ))}
-          </div>
-          <div className="panel">
-            <h3>本工作台不做</h3>
-            <p className="muted">{(data?.not_in_kol_scope || []).join(" / ")}</p>
-          </div>
-        </>
+        <div className="panel">
+          <h3>连接器已并入治理枢纽</h3>
+          <p className="muted">组织连接器目录、启停和授权只在管理端枢纽维护，不再在本页并列一份清单。</p>
+          <button type="button" className="btn work" onClick={() => nav("/admin/connectors")}>打开连接器枢纽</button>
+        </div>
       )}
     </div>
   );

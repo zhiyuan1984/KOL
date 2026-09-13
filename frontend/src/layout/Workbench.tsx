@@ -80,7 +80,6 @@ export default function Workbench() {
   }, [sessions, q]);
 
   const skillsActive = loc.pathname === "/skills" || loc.pathname.startsWith("/market/skills");
-  const adminActive = loc.pathname.startsWith("/admin");
   const adminAvailable = admin || me?.available_modes?.includes("admin") === true;
 
   const runningCount = useMemo(
@@ -213,13 +212,16 @@ export default function Workbench() {
             <Ico path="M8 10a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M16 10a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z M3.5 18c0-2.2 2-4 4.5-4s4.5 1.8 4.5 4 M11.5 18c0-1.6.8-3 2.2-3.8 M16 14c2.5 0 4.5 1.8 4.5 4" />
             <span className="sidebar-label">智能体团队</span>
           </NavLink>
-          <div className={"nav-combo" + (skillsActive || adminActive ? " active" : "")} data-nav="skills-connectors">
+          <NavLink
+            to="/skills"
+            className={() => "nav-link" + (skillsActive ? " active" : "")}
+            data-nav="skills"
+            title="技能目录"
+            onClick={() => setMobileOpen(false)}
+          >
             <Ico path="M8 8h4v4H8z M12 12h4v4h-4z M7 16l-2 2 M17 8l2-2" />
-            <NavLink to="/skills" className={skillsActive ? "on" : ""}>
-              技能目录
-            </NavLink>
-            {adminAvailable && <><span className="nav-dot">·</span><NavLink to="/admin/connectors" className={loc.pathname === "/admin/connectors" ? "on" : ""}>连接器</NavLink></>}
-          </div>
+            <span className="sidebar-label">技能目录</span>
+          </NavLink>
         </nav>
 
         <nav className="nav-group" aria-label="资产">
