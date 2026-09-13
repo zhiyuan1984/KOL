@@ -59,14 +59,14 @@ function expensePlanInput(body: ExpenseCreateBody): PlanInput {
   if (kind !== "expense") {
     throw new HttpFail(400, { code: "unsupported_kind", message: "本页只能发起费用审批。" });
   }
-  const fallback = defaultRequester();
-  const requester_id = String(body.requester_id || "").trim() || fallback.requester_id;
-  const requester_name = String(body.requester_name || "").trim() || fallback.requester_name;
+  const requester_id = String(body.requester_id || "").trim();
+  const requester_name = String(body.requester_name || "").trim();
+  const fallback = !requester_id && !requester_name ? defaultRequester() : {};
   return {
     amount: Number(body.amount),
     currency: String(body.currency || "CNY").trim() || "CNY",
-    requester_id,
-    requester_name,
+    requester_id: requester_id || fallback.requester_id,
+    requester_name: requester_name || fallback.requester_name,
     purpose: String(body.purpose || "").trim() || undefined,
     business_type: String(body.business_type || "").trim() || "marketing_expense",
   };

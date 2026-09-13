@@ -209,6 +209,15 @@ describe("approval inbox by login name", () => {
 
     const listed = await call("GET", "/api/approvals", undefined, cookie);
     expect((listed.json as unknown as { id: string }[]).some((item) => item.id === row.id)).toBe(true);
+
+    const asMe = await call("POST", "/api/approvals/preview", {
+      kind: "expense",
+      amount: 5000,
+      currency: "CNY",
+    }, cookie);
+    expect(asMe.status).toBe(200);
+    expect((asMe.json as { steps: { name: string }[]; plan: { requester_name?: string } }).plan.requester_name).toBe("林桐");
+    expect((asMe.json as { steps: { name: string }[] }).steps.map((step) => step.name)).toEqual(["王主管"]);
   });
 
   it("requires wecom write to create, but read is enough to preview", async () => {
