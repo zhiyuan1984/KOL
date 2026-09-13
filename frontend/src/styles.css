@@ -4670,6 +4670,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   color: var(--text);
   word-break: break-all;
 }
+.portrait-row.is-tags {
+  grid-column: 1 / -1;
+}
 .portrait-row.is-meta {
   color: var(--muted);
   font-size: var(--font-meta);
