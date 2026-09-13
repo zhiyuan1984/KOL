@@ -23,7 +23,7 @@ export default function TeamRail({ progress }: { progress: TeamProgress }) {
   if (!team) return null;
   return (
     <div className="team-rail" data-team-rail={team.id} aria-label={`${team.title} 进度`}>
-      <Link to="/teams" className="team-rail-title">{team.title}</Link>
+      <Link to="/agents?tab=teams" className="team-rail-title">{team.title}</Link>
       <ol>
         {team.steps.map((step, index) => {
           const state = index < progress.stepIndex ? "done" : index === progress.stepIndex ? "current" : "idle";
