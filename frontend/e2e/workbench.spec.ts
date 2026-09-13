@@ -359,14 +359,14 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("发送 ≠ 推进阶段");
   await expect(page.locator("[data-lifecycle-domains]")).toHaveCount(0);
   await expect(page.locator("[data-lifecycle-library]")).toHaveCount(0);
-  await expect(page.locator("[data-kol-tab]")).toHaveCount(6);
-  await expect(page.locator('[data-kol-tab="needs_me"]')).toContainText("需要我处理");
-  await expect(page.locator('[data-kol-tab="waiting_them"]')).toContainText("等待对方");
-  await expect(page.locator('[data-kol-tab="waiting_approval"]')).toContainText("等待审批");
+  await expect(page.locator("[data-kol-tab]")).toHaveCount(17);
   await expect(page.locator('[data-kol-tab="all"]')).toContainText("全部");
+  await expect(page.locator('[data-kol-tab="INITIAL_CONTACT"]')).toContainText("接触");
   await expect(page.locator('[data-kol-tab="exception"]')).toContainText("异常");
-  await expect(page.locator('[data-kol-tab="INITIAL_CONTACT"]')).toHaveCount(0);
-  await expect(page.locator("[data-kol-stage-filter]")).toBeVisible();
+  await expect(page.locator('[data-kol-tab="needs_me"]')).toHaveCount(0);
+  await expect(page.locator('[data-kol-tab="waiting_them"]')).toHaveCount(0);
+  await expect(page.locator('[data-kol-tab="waiting_approval"]')).toHaveCount(0);
+  await expect(page.locator("[data-kol-stage-filter]")).toHaveCount(0);
   await openHomeTemplates(page);
   await homeRecByTitle(page, "写合作邮件").click();
   await expectHomeComposerDraft(page, "写合作邮件 发件箱 [发件邮箱] 发给 [收件邮箱] 主题：[主题]");
@@ -590,17 +590,17 @@ test("home lifecycle followed KOL opens the mail rail not the task list", async 
   await expect(page.locator(".chat")).toHaveAttribute("data-session-stream", /idle|live/);
 });
 
-test("home followed-KOL tabs filter by action owner and open the KOL session", async ({ page }) => {
+test("home followed-KOL tabs filter 17 statuses and open the KOL session", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator('[data-home-mode="todo"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-today-summary]")).toContainText("项待处理");
   await openHomeLifecycle(page);
-  await expect(page.locator("[data-kol-tab]")).toHaveCount(6);
+  await expect(page.locator("[data-kol-tab]")).toHaveCount(17);
   await expect(page.locator('[data-kol-tab="all"]')).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator('[data-kol-tab="needs_me"]')).toBeVisible();
-  await expect(page.locator('[data-kol-tab="INITIAL_CONTACT"]')).toHaveCount(0);
-  // Owner tabs are static (6). Wait for the stub listAllKolProfiles pair first;
-  // demo fixtures like 小美妆日记 have no kol_uid.
+  await expect(page.locator('[data-kol-tab="INITIAL_CONTACT"]')).toBeVisible();
+  await expect(page.locator('[data-kol-tab="needs_me"]')).toHaveCount(0);
+  // Tabs are static (17) even before /api/home/board lands. Wait for the stub
+  // listAllKolProfiles pair first; demo fixtures like 小美妆日记 have no kol_uid.
   await expect(page.locator('[data-followed-kol="户外电源达人"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-followed-kol="营地灯测评娘"]')).toBeVisible();
   await expect(page.locator('[data-followed-kol="小美妆日记"]')).toHaveCount(0);
@@ -2242,9 +2242,10 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await expect(page.locator("[data-insight-card]")).toContainText("AI 风险发现");
   await expect(page.locator("[data-insight-mark]")).toBeVisible();
   await openHomeLifecycle(page);
-  await expect(page.locator("[data-kol-tab]")).toHaveCount(6);
-  await expect(page.locator('[data-kol-tab="needs_me"]')).toBeVisible();
-  await expect(page.locator('[data-kol-tab="INITIAL_CONTACT"]')).toHaveCount(0);
+  await expect(page.locator("[data-kol-tab]")).toHaveCount(17);
+  await expect(page.locator('[data-kol-tab="INITIAL_CONTACT"]')).toBeVisible();
+  await expect(page.locator('[data-kol-tab="needs_me"]')).toHaveCount(0);
+  await expect(page.locator("[data-kol-stage-filter]")).toHaveCount(0);
   await expect(page.getByRole("link", { name: /查看KOL全生命周期/ })).toHaveCount(0);
   await expect(page.locator("[data-followed-kol]")).toHaveCount(4);
   await expect(page.locator("[data-followed-kol] [data-kol-band]")).toHaveCount(16);
@@ -2264,10 +2265,10 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   expect(cardBox && identityBox && stateBox && factBox && recBox && ctaBox).toBeTruthy();
   expect((cardBox?.width || 0)).toBeLessThanOrEqual(1280);
   await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
-  await page.locator("[data-kol-stage-filter]").selectOption("INITIAL_CONTACT");
+  await page.locator('[data-kol-tab="INITIAL_CONTACT"]').click();
   await expect(page.locator("[data-followed-kol]")).toHaveCount(1);
   await expect(page.locator("[data-followed-kol]")).toContainText("小美妆日记");
-  await page.locator("[data-kol-stage-filter]").selectOption("");
+  await page.locator('[data-kol-tab="all"]').click();
   await page.locator('[data-kol-tab="exception"]').click();
   await expect(page.locator("[data-followed-kol]")).toContainText("旅行电源菌");
   const exceptionCard = page.locator('[data-followed-kol="旅行电源菌"]');
