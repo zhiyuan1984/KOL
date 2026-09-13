@@ -517,9 +517,12 @@ test("home followed-KOL tabs filter 17 statuses and open the KOL session", async
   await openHomeLifecycle(page);
   await expect(page.locator("[data-kol-tab]")).toHaveCount(17);
   await expect(page.locator('[data-kol-tab="all"]')).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("[data-followed-kol]")).toHaveCount(2);
-  await expect(page.locator('[data-followed-kol="户外电源达人"]')).toBeVisible();
+  // Tabs are static (17) even before /api/home/board lands. Wait for the stub
+  // listAllKolProfiles pair first; demo fixtures like 小美妆日记 have no kol_uid.
+  await expect(page.locator('[data-followed-kol="户外电源达人"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-followed-kol="营地灯测评娘"]')).toBeVisible();
+  await expect(page.locator('[data-followed-kol="小美妆日记"]')).toHaveCount(0);
+  await expect(page.locator("[data-followed-kol]")).toHaveCount(2);
   await expect(page.locator('[data-followed-kol="户外电源达人"] [data-kol-name]')).toContainText("户外电源达人");
   await expect(page.locator('[data-followed-kol="户外电源达人"] [data-collab-summary]')).toContainText("LT");
   await expect(page.locator('[data-followed-kol="户外电源达人"] [data-kol-card-cols="5"]')).toBeVisible();
