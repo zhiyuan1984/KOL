@@ -34,7 +34,7 @@ type Profile = {
 };
 
 const TABS: Array<{ id: AgentPageTab; label: string }> = [
-  { id: "work", label: "工作" },
+  { id: "work", label: "开工" },
   { id: "teams", label: "数字团队" },
   { id: "spec", label: "说明书" },
 ];
@@ -193,12 +193,10 @@ export default function Agents() {
   return (
     <div className="list-page agent-page" data-agent-page={tab} data-visual="docs20">
       <div className="page-hero agent-hero">
-        <div className="page-kicker">数字员工</div>
-        <h1>数字员工</h1>
+        <div className="page-kicker">工作入口</div>
+        <h1>请一位数字员工开始</h1>
         <p className="muted">
-          从今天的合作开工。说明书收在后面，技能仍走
-          <Link to="/skills">技能目录</Link>
-          。发送不等于改阶段。
+          选一位已发布的数字员工，交代这一件。说明书收在后面。发送不等于改阶段。
         </p>
         {debug && (
           <div className="remote-legend">
@@ -238,8 +236,8 @@ export default function Agents() {
         <div className="agent-work" data-agent-work>
           <section className="agent-section" data-agent-section="next">
             <header className="agent-section-head">
-              <h2>推荐下一步</h2>
-              <span className="muted">{nextSteps.length ? `${nextSteps.length} 项` : "暂无"}</span>
+              <h2>用这些数字员工开工</h2>
+              <span className="muted">{nextSteps.length ? `${nextSteps.length} 位` : "暂无"}</span>
             </header>
             {nextSteps.length ? (
               <ul className="agent-work-list">
@@ -248,7 +246,7 @@ export default function Agents() {
                     <span className="agent-work-icon" aria-hidden>{step.icon || "○"}</span>
                     <div className="agent-work-copy">
                       <strong title={step.title}>{step.title}</strong>
-                      <p className="muted" title={`${step.reason} · ${step.sourceLabel}`}>{step.reason} · {step.sourceLabel}</p>
+                      <p className="muted" title={step.reason}>{step.reason}</p>
                     </div>
                     <button
                       type="button"
@@ -262,14 +260,14 @@ export default function Agents() {
                 ))}
               </ul>
             ) : (
-              <p className="muted agent-empty">还没有跟进中的红人或待办。可以从技能目录开工，或先回首页看今天的合作。</p>
+              <p className="muted agent-empty">还没有可开工的数字员工。先回首页看今天的合作。</p>
             )}
           </section>
 
           <section className="agent-section" data-agent-section="recent">
             <header className="agent-section-head">
-              <h2>最近在用</h2>
-              <span className="muted">{recentSessions.length || recentAgents.length ? "接着上次的会话" : "暂无"}</span>
+              <h2>接着上次</h2>
+              <span className="muted">{recentSessions.length || recentAgents.length ? "回到未完成的会话" : "暂无"}</span>
             </header>
             {recentSessions.length ? (
               <ul className="agent-work-list">
@@ -285,7 +283,7 @@ export default function Agents() {
                 ))}
               </ul>
             ) : (
-              <p className="muted agent-empty">还没有会话。从上面选一步开始，不要先翻说明书。</p>
+              <p className="muted agent-empty">还没有会话。请一位数字员工开始，不要先翻说明书。</p>
             )}
             {recentAgents.length > 0 && (
               <div className="agent-recent-chips" aria-label="最近用过的入口">
@@ -306,7 +304,7 @@ export default function Agents() {
 
           <section className="agent-section" data-agent-section="running">
             <header className="agent-section-head">
-              <h2>运行中</h2>
+              <h2>正在做的</h2>
               <span className="muted">{running.length ? `${running.length} 个会话` : "当前没有"}</span>
             </header>
             {running.length ? (
@@ -324,15 +322,15 @@ export default function Agents() {
               </ul>
             ) : (
               <p className="muted agent-empty">
-                当前没有进行中的会话。会话列表里状态为运行中或等审批的会出现在这里。
+                当前没有进行中的会话。数字员工正在跑或等审批的会出现在这里。
               </p>
             )}
           </section>
 
           <section className="agent-section" data-agent-section="failed">
             <header className="agent-section-head">
-              <h2>失败</h2>
-              <span className="muted">{failedTasks.length ? `${failedTasks.length} 项` : "当前没有"}</span>
+              <h2>需要重试的</h2>
+              <span className="muted">{failedTasks.length ? `${failedTasks.length} 件` : "当前没有"}</span>
             </header>
             {failedTasks.length ? (
               <ul className="agent-work-list">
@@ -425,7 +423,7 @@ export default function Agents() {
         <div className="agent-spec-pane" data-agent-spec>
           <header className="agent-section-head">
             <h2>说明书</h2>
-            <p className="muted">职责、护栏和可写范围默认收起。要开工请回到「工作」或去<Link to="/skills">技能目录</Link>。</p>
+            <p className="muted">职责、护栏和可写范围默认收起。要开工请回到「开工」。</p>
           </header>
           <div className="agent-grid">
             {profiles.map((profile) => {
@@ -450,7 +448,9 @@ export default function Agents() {
                     >
                       {expanded ? "收起说明书" : "展开说明书"}
                     </button>
-                    <Link className="btn ghost sm" to="/skills">技能目录</Link>
+                    <button type="button" className="btn ghost sm" onClick={() => setTab("work")}>
+                      去开工
+                    </button>
                   </div>
                   {expanded && (
                     <div className="agent-spec-body" data-agent-spec-body={profile.id}>

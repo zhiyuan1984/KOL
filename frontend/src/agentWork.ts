@@ -194,7 +194,7 @@ function stepFromBoard(rec: RecommendedTask): AgentNextStep {
     reason: rec.reason,
     cta: ctaForIntent(rec.intent),
     source: rec.source === "catalog" ? "catalog" : "board",
-    sourceLabel: rec.source_label || (rec.source === "ai" ? "AI 发现" : rec.source === "catalog" ? "任务模板" : "今天推荐"),
+    sourceLabel: rec.source_label || (rec.source === "ai" ? "AI 发现" : rec.source === "catalog" ? "任务模板" : "按阶段"),
     intent: rec.intent,
     prompt: String(rec.prompt || rec.title),
     handle: rec.handle,

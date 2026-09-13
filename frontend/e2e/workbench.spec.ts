@@ -370,22 +370,24 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expect(page.locator("[data-nav-disabled='云盘']")).toContainText("非本期");
   await expect(page.locator("[data-nav-disabled='手机遥控电脑']")).toContainText("非本期");
   await expect(page.locator("[data-nav-disabled='创建新项目']")).toContainText("非本期");
-  await expect(page.locator('[data-nav="pipeline"]')).toContainText("生命周期");
-  await expect(page.locator('[data-nav="pipeline"]')).not.toContainText("创建新项目");
+  await expect(page.locator('[data-nav="pipeline"]')).toHaveCount(0);
+  await expect(page.locator(".sidebar")).not.toContainText("生命周期");
+  await expect(page.locator(".mobile-top")).not.toContainText("生命周期");
   await expect(page.locator('[data-nav="confirm"]')).toHaveCount(0);
   await expect(page.locator(".sidebar")).not.toContainText("等我确认");
   await expect(page.locator(".sidebar")).not.toContainText("等我確認");
   await expect(page.locator(".sidebar")).not.toContainText("Awaiting confirm");
   await expect(page.locator('[data-nav="approvals"]')).toContainText("审批");
-  await expect(page.locator('a[href="/pipeline"]').first()).toHaveText("生命周期");
-  await expect(page.locator('a[href="/pipeline"]').nth(1)).toContainText("生命周期");
+  await expect(page.locator('a[href="/pipeline"]')).toHaveCount(0);
   await expectHomeModeOrder(page);
   await expect(page.locator('[data-home-mode="ai"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-recommended-tasks]")).toBeVisible();
+  await expect(page.locator("[data-home]")).not.toContainText("今天推荐");
   await expect(page.locator("[data-today-work]")).toHaveCount(0);
   await expect(page.locator("[data-today-summary]")).toContainText("项待处理");
   await expect(page.locator("[data-today-summary]")).toContainText("逾期");
   await expect(page.locator("[data-today-summary]")).not.toContainText("归因复盘");
+  await expect(page.locator("[data-today-summary]")).not.toContainText("结果待确认");
   await expect(page.locator("[data-today-summary] [data-panel-filter]")).toHaveCount(0);
   await expect(page.locator("[data-home] [data-workbench]")).toHaveCount(0);
   await expect(page.locator("[data-kol-tab]")).toHaveCount(0);
@@ -395,10 +397,16 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expect(page.locator("[data-today-work]")).toBeVisible();
   await expect(page.locator("[data-today-work] [data-recommended-tasks]")).toHaveCount(0);
   await expect(page.locator('[data-todo-bucket="later"]')).toHaveCount(0);
+  await expect(page.locator('[data-todo-bucket="waiting"]')).toHaveCount(0);
   await expect(page.locator("[data-today-work]")).not.toContainText("后续");
+  await expect(page.locator("[data-today-work] h2, [data-todo-md] strong").filter({ hasText: "我的待办" })).toHaveCount(0);
   await openHomeLifecycle(page);
   await expect(page.getByRole("link", { name: /查看KOL全生命周期/ })).toHaveCount(0);
-  await expect(page.locator('a[href="/pipeline"]')).toHaveCount(2);
+  await expect(page.locator('a[href="/pipeline"]')).toHaveCount(0);
+  await expect(page.locator("[data-kol-sorts], [data-kol-secondary-filters]")).toHaveCount(0);
+  await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("按需处理");
+  await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("最近更新");
+  await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("阶段停留");
   await expect(page.locator("[data-home] [data-journey-guide]")).toHaveCount(0);
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("发送不等于改阶段");
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("发送 ≠ 推进阶段");
@@ -537,8 +545,7 @@ test("pipeline review follows the common task flow with progress and a right-sid
 });
 
 test("pipeline shows a 15-stage milestone timeline and lifecycle drawer", async ({ page }) => {
-  await page.goto("/");
-  await page.locator('[data-nav="pipeline"]').click();
+  await page.goto("/pipeline");
   await expect(page).toHaveURL(/\/pipeline$/);
   await expect(page.getByRole("heading", { name: "KOL 全生命周期管理" })).toBeVisible();
   await expect(page.locator(".pipeline-page .page-kicker")).toHaveText("合作");
@@ -916,11 +923,9 @@ test("home followed-KOL default sort uses contract keys 1-8", async ({ page }) =
   await expect(risk.locator("[data-current-state]")).not.toContainText("异常");
   await expect(risk.locator('[data-kol-chip="exception"]')).toHaveText("异常");
   await expect(risk.locator('[data-kol-chip="mailbox"]')).toHaveText("pq.ops@example.com");
-  await page.locator('[data-kol-sort="stay"]').click();
-  const byStay = await page.locator("[data-followed-kol]").evaluateAll((els) => (
-    els.map((el) => el.getAttribute("data-followed-kol"))
-  ));
-  expect(byStay[0]).toBe("停留最长");
+  await expect(page.locator("[data-kol-sorts], [data-kol-sort]")).toHaveCount(0);
+  await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("按需处理");
+  await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("阶段停留");
 });
 
 test("home confirm CTA names the target stage and opens confirm_stage", async ({ page }) => {
@@ -1036,8 +1041,8 @@ test("home waiting work item is labeled 结果待确认 not 等待中", async ({
   await expect(waiting).toHaveAttribute("data-wait-status", "结果待确认");
   await expect(waiting).toContainText("结果待确认");
   await expect(waiting).not.toContainText("等待中");
-  await expect(page.locator('[data-todo-bucket="waiting"]')).toContainText("结果待确认");
-  await expect(page.locator('[data-todo-bucket="waiting"]')).toContainText("写报价信");
+  await expect(page.locator('[data-todo-bucket="waiting"]')).toHaveCount(0);
+  await expect(page.locator("[data-todo-md] em, [data-todo-md] i")).not.toContainText("结果待确认");
   await expect(page.locator('[data-todo-bucket="queued"]')).toContainText("已入队");
   await expect(page.locator('[data-todo-bucket="queued"] [data-todo-card]')).toHaveAttribute("data-wait-status", "已入队");
   await expect(page.locator('[data-todo-bucket="running"]')).toContainText("执行中");
@@ -1050,7 +1055,7 @@ test("home waiting work item is labeled 结果待确认 not 等待中", async ({
   await expect(failed).toHaveAttribute("data-wait-status", "失败");
   await expect(failed).toContainText("催大纲信息不完整");
   await expect(failed).not.toContainText("有风险");
-  await expect(page.locator("[data-today-summary]")).toContainText("结果待确认");
+  await expect(page.locator("[data-today-summary]")).not.toContainText("结果待确认");
   await expect(page.locator("[data-today-summary]")).toContainText("等审批");
   await expect(page.locator("[data-today-summary]")).not.toContainText("等待中");
   await expect(page.locator("[data-today-work]")).not.toContainText("等待中");
@@ -1079,11 +1084,12 @@ test("home todo buckets fold after 6 items and keep wait-status labels", async (
   await page.goto("/");
   await openHomeTodo(page);
   await expect(page.locator("[data-todo-card]")).toHaveCount(6);
-  await expect(page.locator('[data-todo-bucket="waiting"] [data-fold-more]')).toBeVisible();
+  await expect(page.locator('[data-todo-bucket="waiting"]')).toHaveCount(0);
+  await expect(page.locator('[data-todo-bucket="open"] [data-fold-more]')).toBeVisible();
   await expect(page.locator('[data-todo-bucket="later"]')).toHaveCount(0);
   await expect(page.locator("[data-todo-md]")).not.toContainText("后续");
-  await expect(page.locator('[data-todo-bucket="waiting"]')).toContainText("结果待确认");
-  await page.locator('[data-todo-bucket="waiting"] [data-fold-more]').click();
+  await expect(page.locator("[data-todo-md] em, [data-todo-md] i")).not.toContainText("结果待确认");
+  await page.locator('[data-todo-bucket="open"] [data-fold-more]').click();
   await expect(page.locator("[data-todo-card]")).toHaveCount(9);
   await expect(page.locator("[data-today-work] [data-recommended-tasks]")).toHaveCount(0);
 });
@@ -1174,7 +1180,13 @@ test("home AI insight is confirmed into 我的待办 and 立即处理 opens the 
   await expectHomeModeOrder(page);
   await expect(page.locator('[data-home-mode="ai"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-recommended-tasks]")).toBeVisible();
+  await expect(page.locator("[data-home]")).not.toContainText("今天推荐");
   await expect(page.locator("[data-today-work]")).toHaveCount(0);
+  const listedAi = Number(await page.locator("[data-recommended-tasks]").getAttribute("data-list-total") || 0)
+    + Number(await page.locator("[data-insight-list]").getAttribute("data-list-total") || 0);
+  await expect(page.locator('[data-home-mode="ai"]')).toHaveAttribute("data-ai-count", String(listedAi));
+  await expect(page.locator('[data-home-pane="ai"]')).toHaveAttribute("data-ai-list-total", String(listedAi));
+  expect(listedAi).toBeGreaterThan(0);
   expect(await page.locator("[data-recommended-task]").count()).toBeGreaterThan(3);
   await expect(page.locator("[data-task-n='1']")).toBeVisible();
   await expect(page.locator("[data-task-n='2']")).toBeVisible();
@@ -1193,8 +1205,9 @@ test("home AI insight is confirmed into 我的待办 and 立即处理 opens the 
   await expect(page.locator("[data-todo-card]").filter({ hasText: "数码老张" })).toHaveAttribute("data-wait-status", "结果待确认");
   await expect(page.locator("[data-todo-card]").filter({ hasText: "旅行电源菌" })).toBeVisible();
   await expect(page.locator("[data-today-summary]")).toContainText(/\d+项待处理/);
-  await expect(page.locator("[data-today-summary]")).toContainText("结果待确认");
+  await expect(page.locator("[data-today-summary]")).not.toContainText("结果待确认");
   await expect(page.locator("[data-today-summary]")).not.toContainText("等待中");
+  await expect(page.locator('[data-todo-bucket="waiting"]')).toHaveCount(0);
   const todoBefore = await page.locator("[data-todo-card]").count();
   expect(todoBefore).toBeGreaterThanOrEqual(2);
   await expect(page.locator("[data-today-work]")).not.toContainText("失联跟进");
@@ -2114,13 +2127,15 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator('[data-hub-chip="settle"]')).toHaveText("结算");
   await expect(page.locator('[data-hub-chip="exception"]')).toHaveText("异常旁路");
   await page.goto("/agents");
-  await expect(page.getByRole("heading", { name: "数字员工" })).toBeVisible();
   await expect(page.locator("[data-agent-page='work']")).toBeVisible();
-  await expect(page.locator("[data-agent-tab='work']")).toHaveText("工作");
-  await expect(page.getByRole("heading", { name: "推荐下一步" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "最近在用" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "运行中" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "失败" })).toBeVisible();
+  await expect(page.locator("[data-agent-tab='work']")).toHaveText("开工");
+  await expect(page.getByRole("heading", { name: "请一位数字员工开始" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "用这些数字员工开工" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "接着上次" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "正在做的" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "需要重试的" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "推荐下一步" })).toHaveCount(0);
+  await expect(page.locator("[data-agent-page]")).not.toContainText("技能目录");
   await expect(page.locator("[data-agent-next='entry-kol']")).toBeVisible();
   await expect(page.locator("[data-agent-next='entry-approval']")).toBeVisible();
   await expect(page.locator("[data-agent-next='entry-crawler']")).toBeVisible();
@@ -2139,7 +2154,7 @@ test("agents page keeps spec collapsed and teams as a secondary tab", async ({ p
   await page.goto("/agents");
   await expect(page.locator("[data-agent-section='next']")).toBeVisible();
   await expect(page.locator("[data-agent-tab='work']")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("[data-agent-tab='work']")).toHaveText("工作");
+  await expect(page.locator("[data-agent-tab='work']")).toHaveText("开工");
   await expect(page.locator("[data-agent-next][data-agent-source='catalog']")).toHaveCount(3);
   await expect(page.locator("[data-agent-next][data-agent-source='board']")).toHaveCount(0);
   await expect(page).toHaveURL(/\/agents\/?$/);
