@@ -854,7 +854,7 @@ export default function Chat() {
               <ol
                 className="stage-track journey-track is-phases"
                 aria-label="八个阶段"
-                data-stage-track
+                data-journey-track
                 style={{ ["--phase-progress" as string]: String(journeyProgress) }}
               >
                 {journeyPhases.map((phase) => {

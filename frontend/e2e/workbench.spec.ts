@@ -520,8 +520,8 @@ test("session page has no coach next-step card and keeps composer skills", async
     expect(Math.abs(handleLeft - sopLeft)).toBeLessThan(6);
   }
   await expect(page.locator("[data-session-stream-pane] [data-mail-digest], [data-session-stream-pane] [data-mail-summaries]")).toBeVisible();
-  await expect(page.locator("[data-stage-track]")).toBeVisible();
-  const trackHasLine = await page.locator("[data-stage-track]").evaluate((el) => {
+  await expect(page.locator("[data-journey-track]")).toBeVisible();
+  const trackHasLine = await page.locator("[data-journey-track]").evaluate((el) => {
     const before = getComputedStyle(el, "::before");
     return before.display !== "none" && before.content !== "none" && parseFloat(before.height || "0") > 0;
   });
@@ -962,8 +962,8 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).toContainText("历史邮件往来摘要");
   await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).toContainText("would love to collaborate");
   await expect(page.locator("[data-workbench]")).toBeVisible();
-  await expect(page.locator("[data-stage-track]")).toBeVisible();
-  const ingestTrackLine = await page.locator("[data-stage-track]").evaluate((el) => {
+  await expect(page.locator("[data-journey-track]")).toBeVisible();
+  const ingestTrackLine = await page.locator("[data-journey-track]").evaluate((el) => {
     const before = getComputedStyle(el, "::before");
     return before.display !== "none" && before.content !== "none" && parseFloat(before.height || "0") > 0;
   });
