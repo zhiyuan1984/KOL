@@ -9,6 +9,7 @@ export type ExpertTask = {
 export type Expert = {
   id: string;
   name: string;
+  expert_version: string;
   mission: string;
   who: string;
   good_at: string[];
@@ -17,26 +18,27 @@ export type Expert = {
   working_style: string;
   quick_prompts: string[];
   recommended_tasks: ExpertTask[];
-  intro_message: string;
+  intro: string;
   recommended?: boolean;
   // TODO: organization_scope / available_agents when ExpertManifest ships
 };
 
+/** Coordinator POST /api/experts/:id/summon. Only these fields are required. */
 export type ExpertSummonResult = {
   session_id: string;
   expert_id: string;
-  intro_message: string;
-  recommended_tasks: ExpertTask[];
-  bound?: boolean;
+  expert_version: string;
+  intro: string;
 };
 
 export type ExpertView = "recommend" | "mine" | "all" | "search";
 
 export type BoundExpertSession = {
   expert_id: string;
+  expert_version: string;
   name: string;
   mission: string;
-  intro_message: string;
+  intro: string;
   recommended_tasks: ExpertTask[];
 };
 
@@ -47,6 +49,7 @@ const BIND_PREFIX = "expert-session:";
 
 export const KOL_EXPERT: Expert = {
   id: KOL_EXPERT_ID,
+  expert_version: "0.1.0-pilot",
   name: "KOL 合作专员",
   who: "KOL 合作专员",
   mission: "帮你把海外达人合作从发现做到跟进，只交出可改的结果，不替你发信或改阶段。",
@@ -64,7 +67,7 @@ export const KOL_EXPERT: Expert = {
     { id: "reply", title: "分析回复", prompt: "回复分析 [会话或红人]" },
     { id: "stage", title: "提出阶段变更", prompt: "提出阶段变更 [红人] 到 [目标阶段]" },
   ],
-  intro_message: "我是 KOL 合作专员。告诉我品牌、红人和这一件要完成的事，我先给出可改的草稿或提案。召唤我不会发信，也不会改阶段。",
+  intro: "我是 KOL 合作专员。告诉我品牌、红人和这一件要完成的事，我先给出可改的草稿或提案。召唤我不会发信，也不会改阶段。",
   recommended: true,
 };
 
@@ -112,6 +115,7 @@ function normalizeExpert(row: Partial<Expert> | null | undefined): Expert | null
   return {
     id,
     name,
+    expert_version: String(row.expert_version || fallback?.expert_version || ""),
     who: String(row.who || name),
     mission: String(row.mission || fallback?.mission || ""),
     good_at: Array.isArray(row.good_at) ? row.good_at.map(String) : fallback?.good_at || [],
@@ -120,7 +124,7 @@ function normalizeExpert(row: Partial<Expert> | null | undefined): Expert | null
     working_style: String(row.working_style || fallback?.working_style || ""),
     quick_prompts: Array.isArray(row.quick_prompts) ? row.quick_prompts.map(String) : fallback?.quick_prompts || [],
     recommended_tasks: tasks.slice(0, 3),
-    intro_message: String(row.intro_message || fallback?.intro_message || ""),
+    intro: String(row.intro || fallback?.intro || ""),
     recommended: row.recommended !== undefined ? Boolean(row.recommended) : fallback?.recommended,
   };
 }
@@ -157,25 +161,21 @@ export async function fetchExpert(id: string): Promise<Expert | null> {
   return MOCK_CATALOG.find((row) => row.id === canonical) || null;
 }
 
+function readSummon(payload: Partial<ExpertSummonResult> | null | undefined, expert: Expert): ExpertSummonResult | null {
+  const sessionId = String(payload?.session_id || "").trim();
+  if (!sessionId) return null;
+  return {
+    session_id: sessionId,
+    expert_id: String(payload?.expert_id || expert.id),
+    expert_version: String(payload?.expert_version || expert.expert_version || ""),
+    intro: String(payload?.intro || expert.intro || ""),
+  };
+}
+
 export async function summonExpert(expert: Expert): Promise<ExpertSummonResult> {
   try {
-    const summoned = await api.summonExpert(expert.id);
-    const sessionId = String(summoned.session_id || "").trim();
-    if (!sessionId) throw new Error("召唤未返回会话");
-    const tasks = Array.isArray(summoned.recommended_tasks) && summoned.recommended_tasks.length
-      ? summoned.recommended_tasks.map((task) => ({
-        id: String(task.id || ""),
-        title: String(task.title || ""),
-        prompt: String(task.prompt || task.title || ""),
-      })).filter((task) => task.id && task.title)
-      : expert.recommended_tasks;
-    return {
-      session_id: sessionId,
-      expert_id: String(summoned.expert_id || expert.id),
-      intro_message: String(summoned.intro_message || expert.intro_message),
-      recommended_tasks: tasks,
-      bound: true,
-    };
+    const summoned = readSummon(await api.summonExpert(expert.id), expert);
+    if (summoned) return summoned;
   } catch (error) {
     if (!isNotFound(error)) throw error;
   }
@@ -183,9 +183,8 @@ export async function summonExpert(expert: Expert): Promise<ExpertSummonResult> 
   return {
     session_id: session.id,
     expert_id: expert.id,
-    intro_message: expert.intro_message,
-    recommended_tasks: expert.recommended_tasks,
-    bound: true,
+    expert_version: expert.expert_version,
+    intro: expert.intro,
   };
 }
 
@@ -235,10 +234,11 @@ export function rememberSummonedExpert(id: string): string[] {
 export function bindExpertSession(sessionId: string, expert: Expert, summoned: ExpertSummonResult): BoundExpertSession {
   const bound: BoundExpertSession = {
     expert_id: summoned.expert_id || expert.id,
+    expert_version: summoned.expert_version || expert.expert_version,
     name: expert.name,
     mission: expert.mission,
-    intro_message: summoned.intro_message || expert.intro_message,
-    recommended_tasks: (summoned.recommended_tasks || expert.recommended_tasks).slice(0, 3),
+    intro: summoned.intro || expert.intro,
+    recommended_tasks: expert.recommended_tasks.slice(0, 3),
   };
   sessionStorage.setItem(`${BIND_PREFIX}${sessionId}`, JSON.stringify(bound));
   return bound;

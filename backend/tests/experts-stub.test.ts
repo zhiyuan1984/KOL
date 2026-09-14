@@ -50,12 +50,15 @@ describe("expert API stub", () => {
     const experts = ((await list.json()).experts || []) as Json[];
     expect(experts).toHaveLength(1);
     expect(experts[0]?.id).toBe(KOL_EXPERT_ID);
+    expect(experts[0]?.expert_version).toBe("0.1.0-pilot");
     expect(experts[0]?.name).toBe("KOL 合作专员");
 
     const detail = await request("GET", `/api/experts/${encodeURIComponent(KOL_EXPERT_ID)}`);
     expect(detail.status).toBe(200);
     const expert = await detail.json();
     expect(expert.mission).toBeTruthy();
+    expect(expert.expert_version).toBe("0.1.0-pilot");
+    expect(expert.intro).toBeTruthy();
     expect(expert.quick_prompts).toHaveLength(3);
     expect(expert.recommended_tasks).toHaveLength(3);
   });
@@ -67,11 +70,11 @@ describe("expert API stub", () => {
     const sessionId = String(body.session_id || "");
     expect(sessionId).toMatch(/^ses_/);
     expect(body.expert_id).toBe(KOL_EXPERT_ID);
-    expect(body.intro_message).toBeTruthy();
-    expect(body.recommended_tasks).toHaveLength(3);
-    expect((body.live_side_effects as Json)?.send).toBe(false);
-    expect((body.live_side_effects as Json)?.stage).toBe(false);
-    expect((body.live_side_effects as Json)?.messages_written).toBe(0);
+    expect(body.expert_version).toBe("0.1.0-pilot");
+    expect(body.intro).toBeTruthy();
+    expect(body.intro_message).toBeUndefined();
+    expect(body.recommended_tasks).toBeUndefined();
+    expect(body.live_side_effects).toBeUndefined();
 
     const session = getConn().prepare("SELECT title FROM sessions WHERE id=?").get(sessionId) as { title?: string };
     expect(session.title).toBe("KOL 合作专员");

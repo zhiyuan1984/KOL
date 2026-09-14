@@ -1034,9 +1034,9 @@ export default function Chat() {
           )}
         </header>
         <div className="session-stream conversation" ref={streamRef} data-session-stream-pane data-ai-conversation role="log">
-        {boundExpert?.intro_message ? (
+        {boundExpert?.intro ? (
           <article className="expert-intro message is-assistant" data-expert-intro data-kind="expert-intro">
-            <p>{boundExpert.intro_message}</p>
+            <p>{boundExpert.intro}</p>
           </article>
         ) : null}
         {kolSession && (mailDigest || mailAnalysisPending || (sessionMails && sessionMails.length)) ? (
