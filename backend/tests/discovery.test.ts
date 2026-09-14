@@ -288,6 +288,7 @@ describe("AI发现 is not 今日任务 recommendations", () => {
     const board = buildHomeBoard() as Json;
     const recs = ((board.workbench as Json).recommendations as Json[]) || [];
     expect(recs.some((row) => row.candidate_id === candidate.id)).toBe(false);
+    expect(recs.every((row) => row.source_label !== "AI发现")).toBe(true);
     expect(JSON.stringify(board.workbench)).not.toContain(String(candidate.id));
     expect((buildRecommendedTasks([], []) as Json[]).some((row) => row.candidate_id)).toBe(false);
     expect(((board.workbench as Json).todo as Json[]).some((row) => String(row.source) === "discovery")).toBe(false);

@@ -1244,7 +1244,7 @@ test("home AI insight is confirmed into 我的待办 and 立即处理 opens the 
   await expect(page.locator("[data-task-n='2']")).toBeVisible();
   await expect(page.locator("[data-task-n='3']")).toBeVisible();
   await expect(page.locator("[data-recommended-task]").first()).toContainText("1.");
-  await expect(page.locator("[data-recommended-task]").first()).toContainText("AI发现");
+  await expect(page.locator("[data-recommended-task]").first()).toContainText("今日任务");
   await expect(page.locator("[data-recommended-reason]").first()).not.toHaveText("");
   await expect(page.locator("[data-recommended-tasks]")).not.toContainText("下一阶段");
   await expect(page.locator("[data-recommended-tasks] [data-fold-more]")).toBeVisible();

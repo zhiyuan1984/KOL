@@ -161,7 +161,7 @@ function stepFromTask(task: Task): AgentNextStep {
   const handle = String(task.kol_name || "").replace(/^@/, "").trim();
   const reason = [task.risk || task.next_action, task.current_stage, handle && `@${handle}`]
     .filter(Boolean)
-    .join(" · ") || (task.source === "ai" ? "AI 发现" : "待处理任务");
+    .join(" · ") || (task.source === "ai" ? "今日任务" : "待处理任务");
   return {
     id: `task-${task.id}`,
     title: task.title,
@@ -194,7 +194,7 @@ function stepFromBoard(rec: RecommendedTask): AgentNextStep {
     reason: rec.reason,
     cta: ctaForIntent(rec.intent),
     source: rec.source === "catalog" ? "catalog" : "board",
-    sourceLabel: rec.source_label || (rec.source === "ai" ? "AI 发现" : rec.source === "catalog" ? "任务模板" : "按阶段"),
+    sourceLabel: rec.source_label || (rec.source === "ai" ? "今日任务" : rec.source === "catalog" ? "任务模板" : "按阶段"),
     intent: rec.intent,
     prompt: String(rec.prompt || rec.title),
     handle: rec.handle,
