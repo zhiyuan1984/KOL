@@ -1051,7 +1051,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   gap: var(--space-1);
   margin-bottom: var(--space-2);
   width: 100%;
-  max-width: 44rem;
+  max-width: 100%;
   min-width: 0;
   overflow: visible;
 }
@@ -1416,32 +1416,52 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
     grid-column: 2;
   }
 }
-.recommend-work { padding-top: 0; border-top: 0; max-width: 44rem; width: 100%; }
+.recommend-work { padding-top: 0; border-top: 0; width: 100%; max-width: 100%; }
+.followed-kol-column {
+  display: grid;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+.followed-kol-column .home-pane-sticky,
+.followed-kol-column .kol-stage-tabs,
+.followed-kol-column .followed-kol-list,
+.followed-kol-column .followed-kol-item,
+.followed-kol-column .followed-kol-card,
+.followed-kol-column .task-empty {
+  width: 100%;
+  max-width: 100%;
+}
 .followed-kol-list {
   display: grid;
   gap: 0;
   min-width: 0;
   width: 100%;
-  max-width: 44rem;
+  max-width: 100%;
   overflow-x: hidden;
 }
 .followed-kol-item {
   min-width: 0;
+  width: 100%;
   max-width: 100%;
   list-style: none;
   overflow-x: hidden;
 }
 .followed-kol-card {
   display: grid;
-  justify-items: start;
-  gap: var(--space-1);
+  justify-items: stretch;
+  gap: var(--space-2);
+  width: 100%;
   min-width: 0;
   max-width: 100%;
-  padding: var(--space-2) 0;
+  padding: var(--space-3) 0;
   border-bottom: 1px solid var(--border);
   overflow-x: hidden;
   overflow-y: visible;
   text-align: left;
+}
+.followed-kol-card:hover {
+  background: color-mix(in srgb, var(--bg-elevated) 72%, var(--bg));
 }
 .followed-kol-card.is-exception {
   box-shadow: inset 3px 0 0 var(--danger);
@@ -1466,9 +1486,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   width: 28px;
   height: 28px;
   flex: 0 0 auto;
-  border-radius: 50%;
+  margin-top: 1px;
+  border-radius: var(--radius-sm);
   background: var(--bg-elevated);
-  color: var(--text);
+  color: var(--text-muted);
   font-size: var(--font-meta);
   font-weight: 600;
   line-height: 1;
@@ -1476,9 +1497,20 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .kol-identity-main {
   min-width: 0;
   flex: 1 1 auto;
+  width: 100%;
+}
+.kol-identity-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--space-2);
+  row-gap: var(--space-1);
+  min-width: 0;
+  width: 100%;
 }
 .kol-band-identity strong {
   display: inline-block;
+  flex: 0 1 auto;
   max-width: 100%;
   font-size: var(--font-section);
   font-weight: 600;
@@ -1489,26 +1521,29 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .kol-chip-row {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
+  flex: 1 1 12rem;
   gap: var(--space-1);
-  margin-top: 2px;
+  margin-top: 0;
   min-width: 0;
 }
 .kol-chip {
   display: inline-flex;
   align-items: center;
-  border: 1px solid var(--border);
+  border: 1px solid transparent;
   background: var(--bg-elevated);
   color: var(--text-muted);
   border-radius: 999px;
   font-size: var(--font-meta);
-  line-height: 1.4;
-  padding: 0 var(--space-2);
+  line-height: 1.3;
+  padding: 1px var(--space-2);
   max-width: 100%;
   overflow-wrap: anywhere;
 }
 .kol-chip.is-risk {
   border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
   color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg));
 }
 .kol-chip.is-style {
   border-color: #f0d3a8;
@@ -1517,9 +1552,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 .kol-band-state,
 .kol-band-recommend {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+  gap: var(--space-1) var(--space-4);
+  align-items: start;
 }
 .kol-state-block {
   min-width: 0;
@@ -1539,28 +1575,40 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 .kol-state-block p {
   margin: 0;
-  font-size: var(--font-body);
-  line-height: 1.35;
+  font-size: var(--font-ui);
+  line-height: 1.4;
   color: var(--text);
   overflow-wrap: anywhere;
   word-break: break-word;
   display: -webkit-box;
-  -webkit-line-clamp: 1;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+.kol-band-state [data-stage-label] {
+  font-weight: 600;
+  font-size: var(--font-ui);
+}
+.kol-band-state [data-recommended-action] p {
+  font-weight: 500;
+  color: var(--text);
+}
+.kol-band-recommend .kol-state-block p {
+  font-size: var(--font-meta);
+  color: var(--text-muted);
+  line-height: 1.45;
 }
 .kol-band-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
   min-width: 0;
-  margin-top: 2px;
+  padding-top: var(--space-1);
 }
 @media (max-width: 720px) {
   .kol-band-state,
   .kol-band-recommend {
-    display: flex;
-    flex-direction: column;
+    grid-template-columns: minmax(0, 1fr);
   }
   .home-chrome {
     gap: var(--space-2);

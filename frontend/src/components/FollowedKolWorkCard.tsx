@@ -66,23 +66,25 @@ export default function FollowedKolWorkCard({
       <div className="kol-band kol-band-identity" data-kol-band="identity">
         <span className="kol-avatar" data-kol-avatar aria-hidden>{initial}</span>
         <div className="kol-identity-main">
-          <strong data-kol-identity data-kol-name>{card.identity.display}</strong>
-          <span className="kol-chip-row" data-kol-scope>
-            {chips.map((chip) => (
-              <span
-                key={chip.id + chip.label}
-                className={
-                  "kol-chip"
-                  + (chip.id === "unread" ? " is-unread" : "")
-                  + (chip.id === "exception" || chip.id === "high-risk" ? " is-risk" : "")
-                }
-                data-kol-chip={chip.id}
-                data-unread-count={chip.id === "unread" ? card.unread_count : undefined}
-              >
-                {chip.label}
-              </span>
-            ))}
-          </span>
+          <div className="kol-identity-line">
+            <strong data-kol-identity data-kol-name>{card.identity.display}</strong>
+            <span className="kol-chip-row" data-kol-scope>
+              {chips.map((chip) => (
+                <span
+                  key={chip.id + chip.label}
+                  className={
+                    "kol-chip"
+                    + (chip.id === "unread" ? " is-unread" : "")
+                    + (chip.id === "exception" || chip.id === "high-risk" ? " is-risk" : "")
+                  }
+                  data-kol-chip={chip.id}
+                  data-unread-count={chip.id === "unread" ? card.unread_count : undefined}
+                >
+                  {chip.label}
+                </span>
+              ))}
+            </span>
+          </div>
         </div>
       </div>
 
