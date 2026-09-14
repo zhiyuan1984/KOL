@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { KnowledgeRow } from "../api";
-import { skillLabel } from "../knowledgeCopy";
+import {
+  composerStarter,
+  pickDefaultMailTemplate,
+  skillLabel,
+  templateBodyExcerpt,
+  type LockedMailTemplate,
+} from "../knowledgeCopy";
 import { useViewMode } from "../viewMode";
 
 const PLACEHOLDER = "输入 / 使用技能";
@@ -68,6 +74,8 @@ export default function ComposerDock({
   lockedIntent,
   lockedLabel,
   lockedKnowledgeId,
+  lockedTemplate,
+  stageCode,
   onKnowledgeChange,
   autoFocus,
   selectFirstPlaceholder,
@@ -90,6 +98,8 @@ export default function ComposerDock({
   lockedIntent?: string | null;
   lockedLabel?: string | null;
   lockedKnowledgeId?: string | null;
+  lockedTemplate?: LockedMailTemplate | null;
+  stageCode?: string | null;
   onKnowledgeChange?: (row: KnowledgeRow | null) => void;
   autoFocus?: boolean;
   selectFirstPlaceholder?: boolean;
@@ -126,6 +136,9 @@ export default function ComposerDock({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const onKnowledgeChangeRef = useRef(onKnowledgeChange);
+  const lockSourceRef = useRef<"auto" | "explicit" | null>(lockedKnowledgeId ? "explicit" : null);
+  onKnowledgeChangeRef.current = onKnowledgeChange;
 
   useEffect(() => {
     let cancelled = false;
@@ -168,6 +181,26 @@ export default function ComposerDock({
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (lockedKnowledgeId && lockSourceRef.current !== "auto") {
+      lockSourceRef.current = "explicit";
+    }
+    const wantsDefault = lockedLabel === "写合作邮件" || value.includes("写合作邮件");
+    if (!wantsDefault || !templates.length) return;
+    if (lockedKnowledgeId && lockSourceRef.current === "explicit") return;
+    const picked = pickDefaultMailTemplate(templates, stageCode);
+    if (!picked) {
+      if (lockSourceRef.current === "auto" && lockedKnowledgeId) {
+        lockSourceRef.current = null;
+        onKnowledgeChangeRef.current?.(null);
+      }
+      return;
+    }
+    if (picked.id === lockedKnowledgeId) return;
+    lockSourceRef.current = "auto";
+    onKnowledgeChangeRef.current?.(picked);
+  }, [lockedKnowledgeId, lockedLabel, templates, stageCode, value]);
 
   useEffect(() => {
     void Promise.all([
@@ -320,6 +353,7 @@ export default function ComposerDock({
     const after = value.slice(caret);
     const next = `${before}${mention} ${after}`.replace(/\s+/g, " ").trimStart();
     onChange(next);
+    lockSourceRef.current = null;
     onKnowledgeChange?.(null);
     setPicker(false);
     setQuery("");
@@ -334,7 +368,8 @@ export default function ComposerDock({
   };
 
   const pickTemplate = (row: KnowledgeRow) => {
-    const starter = row.starter || row.title;
+    const starter = composerStarter(row);
+    lockSourceRef.current = "explicit";
     onChange(starter);
     onKnowledgeChange?.(row);
     setPicker(false);
@@ -412,6 +447,11 @@ export default function ComposerDock({
   };
 
   const intent = lockedIntent || undefined;
+  const lockedRow = templates.find((row) => row.id === lockedKnowledgeId);
+  const previewTitle = lockedRow?.title || lockedTemplate?.title || "";
+  const previewSubject = lockedRow?.subject || lockedTemplate?.subject || "";
+  const previewBody = lockedRow?.body_en || lockedRow?.body || lockedTemplate?.body_en || "";
+  const previewExcerpt = templateBodyExcerpt(previewBody);
   const empty = !value.trim() && attachments.length === 0 && !selectedProject;
   const busy = disabled || uploading;
   const workspace = variant === "workspace";
@@ -508,7 +548,7 @@ export default function ComposerDock({
           ))}
           {lockedKnowledgeId && (
             <span className="skill-chip" data-knowledge-chip={lockedKnowledgeId}>
-              本封按「{templates.find((row) => row.id === lockedKnowledgeId)?.title || "已启用模板"}」
+              本封按「{previewTitle || "已启用模板"}」
             </span>
           )}
           {attachments.map((a) => (
@@ -534,6 +574,31 @@ export default function ComposerDock({
           )}
         </div>
       )}
+      {lockedKnowledgeId && (previewTitle || previewBody) ? (
+        <aside
+          className="composer-template-preview"
+          data-knowledge-preview={lockedKnowledgeId}
+          aria-label="已锁定邮件底稿"
+        >
+          <div className="composer-template-preview-head">
+            <strong data-knowledge-preview-title>{previewTitle || "已启用模板"}</strong>
+            {previewSubject ? (
+              <span className="composer-template-preview-subject">{previewSubject}</span>
+            ) : null}
+          </div>
+          {previewExcerpt ? (
+            <p className="composer-template-preview-excerpt" data-knowledge-preview-body>
+              {previewExcerpt}
+            </p>
+          ) : null}
+          {previewBody && previewBody !== previewExcerpt ? (
+            <details>
+              <summary>全文</summary>
+              <pre>{previewBody}</pre>
+            </details>
+          ) : null}
+        </aside>
+      ) : null}
       {queue && queue.length > 0 ? (
         <div className="composer-queue" data-run-queue>
           {queue.map((item) => (
