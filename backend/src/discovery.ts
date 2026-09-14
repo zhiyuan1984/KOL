@@ -30,7 +30,9 @@ import {
   isRealKolUid,
   mapCandidateToCrawlerRow,
   parseFollowThresholds,
+  planRegionOf,
   recheckFollowFilters,
+  shouldWarnMissingCandidateRegion,
   sourceBatchFor,
 } from "./discovery-import.js";
 import { importKolProfilesFromCrawlerConfirmed } from "./gateway/import-creator.js";
@@ -868,6 +870,12 @@ export function getCandidate(id: string): Json {
   return publicCandidate(candidateRow(id));
 }
 
+/**
+ * Link an existing Collaboration to this candidate.
+ * Prefer real kol_uid, then platform + platform_creator_id / candidate.collaboration_id.
+ * Bare handle/display_name is only for leftover source=discovery + disc_* rows of THIS creator.
+ * Never attach a real Starry kolUid onto an unrelated Starry-sourced collab via handle.
+ */
 function existingCollaboration(candidate: Row, kolUid?: string): Row | undefined {
   if (candidate.collaboration_id) {
     const byId = getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(candidate.collaboration_id) as
@@ -887,14 +895,18 @@ function existingCollaboration(candidate: Row, kolUid?: string): Row | undefined
       ORDER BY cand.followed_at DESC LIMIT 1`,
   ).get(candidate.platform, candidate.platform_creator_id) as Row | undefined;
   if (sibling) return sibling;
+  return leftoverDiscoveryPlaceholderByHandle(candidate);
+}
+
+function leftoverDiscoveryPlaceholderByHandle(candidate: Row): Row | undefined {
   const handle = String(candidate.handle || candidate.nickname || "").trim();
-  if (handle) {
-    const byHandle = getConn().prepare(
-      "SELECT * FROM collaborations WHERE handle=? OR display_name=?",
-    ).get(handle, handle) as Row | undefined;
-    if (byHandle) return byHandle;
-  }
-  return undefined;
+  if (!handle) return undefined;
+  const expected = discoveryPlaceholderKolUid(candidate);
+  const rows = getConn().prepare(
+    `SELECT * FROM collaborations
+      WHERE (handle=? OR display_name=?) AND source='discovery'`,
+  ).all(handle, handle) as Row[];
+  return rows.find((row) => isPlaceholderKolUid(row.kol_uid) && String(row.kol_uid) === expected);
 }
 
 /** Residual local placeholder from pre-ADR-022 follow. Success path must not keep this. */
@@ -941,6 +953,14 @@ export async function followCandidate(id: string, input: Json = {}): Promise<Jso
     | Row
     | undefined;
   recheckFollowFilters(candidate, request, parseFollowThresholds(input.thresholds ?? input.filters));
+  if (shouldWarnMissingCandidateRegion(candidate, request)) {
+    audit(ownerId(), "discovery.candidate.region_unverified", {
+      candidate_id: candidate.id,
+      request_id: candidate.request_id,
+      plan_region: planRegionOf(request),
+      candidate_region: "",
+    });
+  }
   const sourceBatch = sourceBatchFor(candidate, input.source_batch);
   const externalId = creatorExternalId(candidate.platform, candidate.platform_creator_id);
   const existing = existingCollaboration(candidate);
@@ -1023,7 +1043,7 @@ export async function followCandidate(id: string, input: Json = {}): Promise<Jso
         String(avgViews10(candidate) || ""),
       );
     });
-  } else if (isPlaceholderKolUid(linked.kol_uid) || String(linked.kol_uid || "") !== kolUid) {
+  } else if (isPlaceholderKolUid(linked.kol_uid) || !String(linked.kol_uid || "").trim()) {
     getConn().prepare(
       "UPDATE collaborations SET kol_uid=?, avg_views_10=COALESCE(NULLIF(avg_views_10,''), ?) WHERE id=?",
     ).run(kolUid, String(avgViews10(candidate) || ""), cid);

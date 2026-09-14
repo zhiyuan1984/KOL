@@ -18,9 +18,9 @@ cd backend && npm test -- tests/discovery-follow-import.test.ts tests/discovery.
 
 | Suite | Tests | Result |
 |---|---|---|
-| `discovery-follow-import.test.ts` | 8 | **PASS** |
+| `discovery-follow-import.test.ts` | 10 | **PASS** |
 | `discovery.test.ts` | 14 | **PASS** |
-| **Total** | **22** | **22 passed / 0 failed** |
+| **Total** | **24** | **24 passed / 0 failed** |
 
 Companion (unchanged Starry stub surface still green after adding `importKolProfilesFromCrawler` mock):
 
@@ -44,7 +44,9 @@ cd backend && npm test -- tests/starrykol.test.ts tests/starrykol-read-never.tes
 | 失败诚实、线索仍 suggested | import throw → 502 员工文案；`collaboration_id` 仍 null |
 | 回传无编号 | 502 `import_creator_no_kol_uid`；无 discovery Collaboration |
 | 幂等 | 再 follow `created:false`，同一 collab / 同一 `kolUid`，count=1 |
-| 门槛写入前复核 | thresholds 409 且不调 import；省略 thresholds 仍可 follow |
+| 门槛写入前复核 | P0 单个（mode A）：thresholds 可选，省略=放行，本 PR 不强制 FE 默认。Mode C（后续）才要求粉/均播/分 + 计划平台/地区。thresholds 409 且不调 import；省略仍可 follow |
+| 同 handle 不串档 | 同显示名、不同 `platform_creator_id`：follow A 不改写 B / Starry 同行的 `kol_uid`；仅 `source=discovery` + 本线索 `disc_*` 才允许 handle 回填 |
+| 计划地区有、线索无地区 | 审计 `discovery.candidate.region_unverified`，**不拒绝**，不编造 candidate.region |
 | LIVE 默认关 | `CODEX_MODE=real` + `LIVE_REMOTE_SIDE_EFFECTS=0` → 409「当前未开启主档写入」 |
 | 禁发信 / 改阶段 / 解密 | `sideEffects()` sends/stageWrites/transitions = 0；factory 只允许 `importKolProfilesFromCrawler` |
 | 员工文案无引擎行话 | `assertEmployeeCopy` / JSON 不含 MediaCrawler / MCP / Codex |
@@ -57,4 +59,4 @@ cd backend && npm test -- tests/starrykol.test.ts tests/starrykol-read-never.tes
 
 ## kol one-liner
 
-`ADR-022 P0 stub: 22/22 PASS (confirm→importKolProfilesFromCrawler→real kolUid; fail stays suggested; no disc_*/send/stage/decrypt/email); LIVE off.`
+`ADR-022 P0 stub: 24/24 PASS (confirm→import→real kolUid; same-handle no rewrite; omit thresholds=allow; missing region=audit warn; no disc_* steal/send/stage/decrypt/email); LIVE off.`

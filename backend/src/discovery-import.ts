@@ -184,6 +184,7 @@ export function parseImportedKolUid(result: Json): string {
   return match && isRealKolUid(match[0]) ? match[0] : "";
 }
 
+/** P0 single follow (mode A): thresholds optional — omit = allow. Mode C (later) will require fans / avg / score + plan platform/region. This PR does not force FE defaults. */
 export function parseFollowThresholds(raw: unknown): FollowThresholds | null {
   if (raw == null || raw === "") return null;
   if (typeof raw !== "object" || Array.isArray(raw)) {
@@ -205,6 +206,28 @@ export function parseFollowThresholds(raw: unknown): FollowThresholds | null {
   return Object.keys(out).length ? out : null;
 }
 
+export function candidateRegionOf(source: Row | Json): string {
+  return firstString(
+    asObject(source.payload).region,
+    asObject(source.signals).region,
+    asObject(source.payload).country,
+    source.region,
+  ).toLowerCase();
+}
+
+export function planRegionOf(request: Row | null | undefined): string {
+  return String(asObject(request?.filters).region || "all").trim().toLowerCase() || "all";
+}
+
+/** Plan region is set and the candidate has no region field. P0: audit-warn only; do not invent region. */
+export function shouldWarnMissingCandidateRegion(
+  candidate: Row,
+  request: Row | null | undefined,
+): boolean {
+  const plan = planRegionOf(request);
+  return Boolean(plan && plan !== "all" && !candidateRegionOf(candidate));
+}
+
 export function recheckFollowFilters(
   candidate: Row,
   request: Row | null | undefined,
@@ -216,12 +239,8 @@ export function recheckFollowFilters(
   const avg = avgViews10(candidate);
   const platform = String(candidate.platform || "").trim().toLowerCase();
   const planPlatforms = parseJsonArray(request?.platforms).map((item) => String(item || "").trim().toLowerCase()).filter(Boolean);
-  const planRegion = String(asObject(request?.filters).region || "all").trim().toLowerCase() || "all";
-  const candidateRegion = firstString(
-    asObject(candidate.payload).region,
-    asObject(candidate.signals).region,
-    asObject(candidate.payload).country,
-  ).toLowerCase();
+  const planRegion = planRegionOf(request);
+  const candidateRegion = candidateRegionOf(candidate);
 
   if (thresholds.min_followers != null && followers < thresholds.min_followers) {
     failFilter("该线索粉丝数未达到跟进条件，未加入跟进。");
@@ -239,6 +258,7 @@ export function recheckFollowFilters(
   const wantRegion = thresholds.region && thresholds.region !== "all" ? thresholds.region : "";
   const planWant = !thresholds.region && planRegion && planRegion !== "all" ? planRegion : "";
   const expectedRegion = wantRegion || planWant;
+  // Missing candidate region is not a reject in P0 (audit warn in followCandidate). Do not invent region.
   if (expectedRegion && candidateRegion && candidateRegion !== expectedRegion) {
     failFilter("该线索地区与当前计划不一致，未加入跟进。");
   }

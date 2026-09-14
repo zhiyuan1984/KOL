@@ -221,8 +221,179 @@ describe("ADR-022 P0 follow import", () => {
     expect((audits[0].payload as Json).kol_uid).toBe("KOLOUTDOORPOWER");
     expect((audits[0].payload as Json).sent).toBe(false);
     expect((audits[0].payload as Json).stage_changed).toBe(false);
+    const regionWarns = listAudit("discovery.candidate.region_unverified");
+    expect(regionWarns.length).toBe(1);
+    expect((regionWarns[0].payload as Json).plan_region).toBe("us");
+    expect((regionWarns[0].payload as Json).candidate_region).toBe("");
     const row = getConn().prepare("SELECT status FROM creator_candidates WHERE id=?").get(candidate.id) as Row;
     expect(row.status).toBe("followed");
+  });
+
+  it("same display handle + different platform_creator_id does not rewrite the other kol_uid", async () => {
+    let importSeq = 0;
+    setStarryKolClientFactory(() => ({
+      async callTool(name: string) {
+        if (name === "importKolProfilesFromCrawler") {
+          importSeq += 1;
+          return { data: { kolUid: importSeq === 1 ? "KOLSHAREDA" : "KOLSHAREDB", imported: 1 } };
+        }
+        throw new Error(`unexpected tool ${name}`);
+      },
+      async close() {},
+    }));
+    creators = [
+      {
+        platform: "youtube",
+        platform_creator_id: "yt-shared-a",
+        nickname: "SharedHandle",
+        followers: 12000,
+        recent_views: [1000, 2000],
+      },
+      {
+        platform: "youtube",
+        platform_creator_id: "yt-shared-b",
+        nickname: "SharedHandle",
+        followers: 9000,
+        recent_views: [800, 900],
+      },
+    ];
+    getConn().prepare(
+      `INSERT INTO collaborations
+       (id, handle, display_name, brand, platform, followers, email, mailbox_from,
+        lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue, kol_uid, source)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      "col_starry_shared",
+      "SharedHandle",
+      "SharedHandle",
+      "LT",
+      "youtube",
+      "50000",
+      "",
+      "kol.lt@litime.example",
+      "lc_starry_shared",
+      "conv_starry_shared",
+      "INITIAL_CONTACT",
+      0,
+      "seeded starry same handle",
+      0,
+      "KOLSTARRYSHARED",
+      "starry",
+    );
+    getConn().prepare(
+      `INSERT INTO collaborations
+       (id, handle, display_name, brand, platform, followers, email, mailbox_from,
+        lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue, kol_uid, source)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      "col_disc_other",
+      "SharedHandle",
+      "SharedHandle",
+      "LT",
+      "youtube",
+      "1000",
+      "",
+      "kol.lt@litime.example",
+      "lc_disc_other",
+      "conv_disc_other",
+      "INITIAL_CONTACT",
+      0,
+      "leftover disc placeholder other creator",
+      0,
+      "disc_youtube_yt-other",
+      "discovery",
+    );
+
+    const created = await request("POST", "/api/discovery/requests", {
+      keywords: ["shared handle"],
+      platforms: ["youtube"],
+      brand: "LT",
+      filters: { region: "us", directions: ["户外电源"] },
+    });
+    expect(created.status).toBe(201);
+    const started = await request("POST", `/api/discovery/requests/${created.body.id}/runs`, {});
+    expect(started.status).toBe(202);
+    await monitorCrawlJob(crawlJobIdFor(String(created.body.id)));
+    const results = await request("GET", `/api/discovery/requests/${created.body.id}/results`);
+    const items = results.body.candidates as Json[];
+    expect(items).toHaveLength(2);
+    const byCreator = Object.fromEntries(
+      (getConn().prepare(
+        "SELECT id, platform_creator_id FROM creator_candidates WHERE request_id=?",
+      ).all(created.body.id) as Row[]).map((row) => [String(row.platform_creator_id), String(row.id)]),
+    );
+    const candA = byCreator["yt-shared-a"];
+    const candB = byCreator["yt-shared-b"];
+    expect(candA && candB).toBeTruthy();
+
+    const followA = await request("POST", `/api/discovery/candidates/${candA}/follow`, { confirmed: true });
+    expect(followA.status).toBe(200);
+    expect(followA.body.created).toBe(true);
+    expect((followA.body.collaboration as Json).kol_uid).toBe("KOLSHAREDA");
+    expect((followA.body.collaboration as Json).id).not.toBe("col_starry_shared");
+    expect((followA.body.collaboration as Json).id).not.toBe("col_disc_other");
+
+    const followB = await request("POST", `/api/discovery/candidates/${candB}/follow`, { confirmed: true });
+    expect(followB.status).toBe(200);
+    expect(followB.body.created).toBe(true);
+    expect((followB.body.collaboration as Json).kol_uid).toBe("KOLSHAREDB");
+    expect((followB.body.collaboration as Json).id).not.toBe((followA.body.collaboration as Json).id);
+    expect((followB.body.collaboration as Json).id).not.toBe("col_starry_shared");
+    expect((followB.body.collaboration as Json).id).not.toBe("col_disc_other");
+
+    expect(getConn().prepare("SELECT kol_uid FROM collaborations WHERE id='col_starry_shared'").get()).toEqual({
+      kol_uid: "KOLSTARRYSHARED",
+    });
+    expect(getConn().prepare("SELECT kol_uid FROM collaborations WHERE id='col_disc_other'").get()).toEqual({
+      kol_uid: "disc_youtube_yt-other",
+    });
+    expect(getConn().prepare("SELECT kol_uid FROM collaborations WHERE id=?").get((followA.body.collaboration as Json).id))
+      .toEqual({ kol_uid: "KOLSHAREDA" });
+    expect(getConn().prepare("SELECT kol_uid FROM collaborations WHERE id=?").get((followB.body.collaboration as Json).id))
+      .toEqual({ kol_uid: "KOLSHAREDB" });
+    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
+  });
+
+  it("handle match may backfill only this creator's leftover discovery disc_* row", async () => {
+    setStarryKolClientFactory(() => ({
+      async callTool(name: string) {
+        if (name === "importKolProfilesFromCrawler") return { data: { kolUid: "KOLOUTDOORPOWER", imported: 1 } };
+        throw new Error(`unexpected tool ${name}`);
+      },
+      async close() {},
+    }));
+    const candidate = await readyCandidate();
+    getConn().prepare(
+      `INSERT INTO collaborations
+       (id, handle, display_name, brand, platform, followers, email, mailbox_from,
+        lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue, kol_uid, source)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      "col_disc_same",
+      "OutdoorPower",
+      "OutdoorPower",
+      "LT",
+      "youtube",
+      "12000",
+      "",
+      "kol.lt@litime.example",
+      "lc_disc_same",
+      "conv_disc_same",
+      "INITIAL_CONTACT",
+      0,
+      "leftover placeholder this creator",
+      0,
+      "disc_youtube_yt-outdoor-1",
+      "discovery",
+    );
+    const followed = await request("POST", `/api/discovery/candidates/${candidate.id}/follow`, { confirmed: true });
+    expect(followed.status).toBe(200);
+    expect(followed.body.created).toBe(false);
+    expect((followed.body.collaboration as Json).id).toBe("col_disc_same");
+    expect((followed.body.collaboration as Json).kol_uid).toBe("KOLOUTDOORPOWER");
+    expect(getConn().prepare("SELECT kol_uid FROM collaborations WHERE id='col_disc_same'").get()).toEqual({
+      kol_uid: "KOLOUTDOORPOWER",
+    });
   });
 
   it("import failure keeps candidate suggested and does not create Collaboration", async () => {
