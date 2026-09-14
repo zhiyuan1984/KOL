@@ -168,6 +168,7 @@ describe("discovery request create", () => {
     const one = await request("GET", `/api/discovery/requests/${created.body.id}`);
     expect(one.status).toBe(200);
     expect(one.body.status_label).toBe("待确认");
+    expect(one.body.filters).toEqual({ region: "all", directions: [] });
   });
 
   it("starts an overseas run only after explicit confirm", async () => {
@@ -342,6 +343,149 @@ describe("AI发现 is not 今日任务 recommendations", () => {
 
     await request("POST", `/api/discovery/candidates/${candidate.id}/follow`);
     expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
+  });
+});
+
+describe("discovery filters directions and region", () => {
+  it("trims, dedupes, and persists directions with a Chinese region label in the plan", async () => {
+    const created = await request("POST", "/api/discovery/requests", {
+      keywords: ["portable power"],
+      platforms: ["youtube"],
+      filters: {
+        region: "us",
+        directions: [" 户外电源 ", "camping", "户外电源", "CAMPING"],
+      },
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.filters).toEqual({
+      region: "us",
+      directions: ["户外电源", "camping"],
+    });
+    expect(created.body.keywords).toEqual(["portable power"]);
+    expect(String(created.body.plan_summary)).toContain("portable power");
+    expect(String(created.body.plan_summary)).toContain("户外电源");
+    expect(String(created.body.plan_summary)).toContain("camping");
+    expect(String(created.body.plan_summary)).toContain("美国");
+    expect(String(created.body.plan_summary)).not.toMatch(/MediaCrawler|MCP|Job ID/i);
+    const stored = getConn().prepare("SELECT filters FROM discovery_requests WHERE id=?").get(created.body.id) as
+      | { filters?: string }
+      | undefined;
+    expect(JSON.parse(String(stored?.filters || "{}"))).toEqual({
+      region: "us",
+      directions: ["户外电源", "camping"],
+    });
+  });
+
+  it("merges legacy niche into directions and accepts compat regions", async () => {
+    const created = await request("POST", "/api/discovery/requests", {
+      keywords: ["solar"],
+      platforms: ["instagram"],
+      filters: { region: "na", niche: " 房车露营 ", directions: ["solar"] },
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.filters).toEqual({
+      region: "na",
+      directions: ["solar", "房车露营"],
+    });
+    expect(JSON.stringify(created.body.filters)).not.toContain("niche");
+    expect(String(created.body.plan_summary)).toContain("北美");
+    expect(String(created.body.plan_summary)).toContain("房车露营");
+
+    const sea = await request("POST", "/api/discovery/requests", {
+      keywords: ["battery"],
+      platforms: ["facebook"],
+      filters: { region: "sea", niche: "储能" },
+    });
+    expect(sea.status).toBe(201);
+    expect(sea.body.filters).toEqual({ region: "sea", directions: ["储能"] });
+    expect(String(sea.body.plan_summary)).toContain("东南亚");
+  });
+
+  it("folds directions into the run search keywords without expanding platforms", async () => {
+    const created = await request("POST", "/api/discovery/requests", {
+      keywords: ["portable power"],
+      platforms: ["youtube"],
+      filters: { region: "ca", directions: ["户外电源"] },
+    });
+    expect(created.body.platforms).toEqual(["youtube"]);
+    const started = await request("POST", `/api/discovery/requests/${created.body.id}/runs`, {});
+    expect(started.status).toBe(202);
+    expect(started.body.platform).toBe("youtube");
+    const job = getConn().prepare(
+      "SELECT platform, parameters FROM crawl_jobs ORDER BY created_at DESC LIMIT 1",
+    ).get() as { platform?: string; parameters?: string } | undefined;
+    expect(job?.platform).toBe("youtube");
+    expect(JSON.parse(String(job?.parameters || "{}"))).toMatchObject({
+      region: "ca",
+      directions: ["户外电源"],
+      keywords: ["portable power", "户外电源"],
+    });
+  });
+
+  it("rejects oversized, overlong, non-array, and invalid region input with 400", async () => {
+    const tooMany = await request("POST", "/api/discovery/requests", {
+      keywords: ["battery"],
+      platforms: ["youtube"],
+      filters: { directions: ["a", "b", "c", "d", "e", "f", "g", "h", "i"] },
+    });
+    expect(tooMany.status).toBe(400);
+    expect(tooMany.body.detail).toMatchObject({ code: "too_many_directions" });
+
+    const tooLong = await request("POST", "/api/discovery/requests", {
+      keywords: ["battery"],
+      platforms: ["youtube"],
+      filters: { directions: ["x".repeat(31)] },
+    });
+    expect(tooLong.status).toBe(400);
+    expect(tooLong.body.detail).toMatchObject({ code: "direction_too_long" });
+
+    const notArray = await request("POST", "/api/discovery/requests", {
+      keywords: ["battery"],
+      platforms: ["youtube"],
+      filters: { directions: "户外电源" },
+    });
+    expect(notArray.status).toBe(400);
+    expect(notArray.body.detail).toMatchObject({ code: "invalid_directions" });
+
+    const badItem = await request("POST", "/api/discovery/requests", {
+      keywords: ["battery"],
+      platforms: ["youtube"],
+      filters: { directions: [{ name: "户外" }] },
+    });
+    expect(badItem.status).toBe(400);
+
+    const badNiche = await request("POST", "/api/discovery/requests", {
+      keywords: ["battery"],
+      platforms: ["youtube"],
+      filters: { niche: ["户外电源"] },
+    });
+    expect(badNiche.status).toBe(400);
+
+    const nineAfterMerge = await request("POST", "/api/discovery/requests", {
+      keywords: ["battery"],
+      platforms: ["youtube"],
+      filters: {
+        directions: ["a", "b", "c", "d", "e", "f", "g", "h"],
+        niche: "extra",
+      },
+    });
+    expect(nineAfterMerge.status).toBe(400);
+    expect(nineAfterMerge.body.detail).toMatchObject({ code: "too_many_directions" });
+
+    const badRegion = await request("POST", "/api/discovery/requests", {
+      keywords: ["battery"],
+      platforms: ["youtube"],
+      filters: { region: "cn" },
+    });
+    expect(badRegion.status).toBe(400);
+    expect(badRegion.body.detail).toMatchObject({ code: "invalid_region" });
+
+    const badFilters = await request("POST", "/api/discovery/requests", {
+      keywords: ["battery"],
+      platforms: ["youtube"],
+      filters: ["us"],
+    });
+    expect(badFilters.status).toBe(400);
   });
 });
 

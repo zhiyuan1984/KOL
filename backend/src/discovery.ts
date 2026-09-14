@@ -15,10 +15,14 @@ import { nid } from "./ids.js";
 import type { Json, Row } from "./types.js";
 
 const OVERSEAS = new Set<string>(OVERSEAS_CRAWL_PLATFORMS);
+/** Empty `platforms` defaults to these two codes — not "all platforms" and not a simultaneous multi-platform crawl. */
 const DEFAULT_PLATFORMS = ["youtube", "instagram"] as const;
 const MODES = new Set(["search", "detail", "creator"]);
 const RUN_ACTIVE = new Set(["queued", "running"]);
 const CRAWL_ACTIVE = new Set(["queued", "crawling", "uploading", "analyzing", "starting", "running", "stopping"]);
+const MAX_DIRECTIONS = 8;
+const MAX_DIRECTION_LEN = 30;
+const REGION_CODES = new Set(["all", "us", "ca", "eu", "au", "na", "sea"]);
 const REQUEST_STATUS_LABEL: Record<string, string> = {
   open: "待确认",
   running: "采集中",
@@ -37,6 +41,15 @@ const PLATFORM_LABEL: Record<string, string> = {
   youtube: "YouTube",
   instagram: "Instagram",
   facebook: "Facebook",
+};
+const REGION_LABEL: Record<string, string> = {
+  all: "全部",
+  us: "美国",
+  ca: "加拿大",
+  eu: "欧洲",
+  au: "澳洲",
+  na: "北美",
+  sea: "东南亚",
 };
 
 let hookRegistered = false;
@@ -111,11 +124,103 @@ function asStringList(value: unknown): string[] {
   return [];
 }
 
-function keywordsValue(keywords: string[]): string {
-  return keywords.join(",");
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function regionLabel(code: unknown): string {
+  const key = String(code || "").toLowerCase();
+  return REGION_LABEL[key] || String(code || "");
+}
+
+function failFilter(code: string, message: string, extra: Record<string, unknown> = {}): never {
+  throw new HttpFail(400, { code, message, ...extra });
+}
+
+function normalizeDirectionItems(value: unknown, field: string): string[] {
+  if (value == null || value === "") return [];
+  if (!Array.isArray(value)) {
+    failFilter("invalid_directions", "内容方向须为最多 8 个短词。", { field });
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of value) {
+    if (item == null || item === "") continue;
+    if (typeof item !== "string" && typeof item !== "number") {
+      failFilter("invalid_directions", "内容方向须为文字。", { field });
+    }
+    const text = String(item).trim();
+    if (!text) continue;
+    if (text.length > MAX_DIRECTION_LEN) {
+      failFilter("direction_too_long", "每个内容方向不超过 30 个字。", { field, max: MAX_DIRECTION_LEN });
+    }
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+  }
+  if (out.length > MAX_DIRECTIONS) {
+    failFilter("too_many_directions", "内容方向最多 8 个。", { field, max: MAX_DIRECTIONS });
+  }
+  return out;
+}
+
+function normalizeLegacyNiche(value: unknown): string[] {
+  if (value == null || value === "") return [];
+  if (typeof value !== "string") {
+    failFilter("invalid_niche", "旧版方向字段须为一段文字。", { field: "niche" });
+  }
+  return normalizeDirectionItems([value], "niche");
+}
+
+function normalizeRegion(value: unknown): string {
+  const code = String(value ?? "all").trim().toLowerCase();
+  if (!code) return "all";
+  if (!REGION_CODES.has(code)) {
+    failFilter("invalid_region", "地区仅支持 全部、美国、加拿大、欧洲、澳洲。", { field: "region" });
+  }
+  return code;
+}
+
+function normalizeFilters(raw: unknown): { region: string; directions: string[] } {
+  if (raw == null || raw === "") return { region: "all", directions: [] };
+  if (!isPlainObject(raw)) {
+    failFilter("invalid_filters", "筛选条件格式不正确。");
+  }
+  const directions = normalizeDirectionItems(raw.directions, "directions");
+  const niche = normalizeLegacyNiche(raw.niche);
+  return {
+    region: normalizeRegion(raw.region),
+    directions: normalizeDirectionItems([...directions, ...niche], "directions"),
+  };
+}
+
+function foldSearchKeywords(keywords: string[], directions: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of [...keywords, ...directions]) {
+    const text = String(item || "").trim();
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+  }
+  return out;
+}
+
+function storedFilters(row: Row): { region: string; directions: string[] } {
+  const raw = parseJson(row.filters);
+  const directions = asStringList(raw.directions);
+  const niche = typeof raw.niche === "string" ? String(raw.niche).trim() : "";
+  return {
+    region: String(raw.region || "all").toLowerCase() || "all",
+    directions: foldSearchKeywords(directions, niche ? [niche] : []),
+  };
 }
 
 function validateOverseasPlatforms(platforms: string[]): string[] {
+  // Empty list is a default of youtube+instagram, not 「全部平台」. One run still uses one platform.
   const list = platforms.length ? platforms : [...DEFAULT_PLATFORMS];
   const invalid = list.filter((code) => !OVERSEAS.has(code));
   if (invalid.length) {
@@ -273,11 +378,13 @@ function publicRun(row: Row): Json {
 }
 
 function planSummary(row: Row): string {
-  const keywords = parseArray(row.keywords).map(String).filter(Boolean);
+  const filters = storedFilters(row);
+  const keywords = foldSearchKeywords(parseArray(row.keywords).map(String), filters.directions);
   const platforms = parseArray(row.platforms).map(platformLabel).filter(Boolean);
   const topic = keywords.length ? `「${keywords.join(" / ")}」` : "关键词";
   const where = platforms.length ? platforms.join("、") : "海外平台";
-  return `按 ${topic} 在 ${where} 发现达人`;
+  const region = filters.region && filters.region !== "all" ? regionLabel(filters.region) : "";
+  return region ? `按 ${topic} 在 ${where} 发现达人 · ${region}` : `按 ${topic} 在 ${where} 发现达人`;
 }
 
 function latestRun(requestId: string): Row | undefined {
@@ -300,6 +407,7 @@ function publicRequest(row: Row): Json {
     status_label: REQUEST_STATUS_LABEL[status] || status,
     keywords: parseArray(current.keywords).map(String),
     platforms: parseArray(current.platforms).map(String),
+    filters: storedFilters(current),
     title: summary,
     plan_summary: summary,
     brand: current.brand || null,
@@ -335,6 +443,7 @@ export function getDiscoveryResults(id: string): Json {
     status_label: REQUEST_STATUS_LABEL[String(current.status)] || String(current.status),
     keywords: parseArray(current.keywords).map(String),
     platforms: parseArray(current.platforms).map(String),
+    filters: storedFilters(current),
     title: summary,
     plan_summary: summary,
     created_at: current.created_at,
@@ -547,8 +656,9 @@ export async function startDiscoveryRun(input: {
   const request = requestRow(input.requestId);
   const platform = pickPlatform(request, input.platform);
   const mode = String(request.mode || "search");
-  const keywords = parseArray(request.keywords).map(String);
-  const parameters: Json = { ...parseJson(request.filters), keywords };
+  const filters = storedFilters(request);
+  const keywords = foldSearchKeywords(parseArray(request.keywords).map(String), filters.directions);
+  const parameters: Json = { ...filters, keywords };
   const idempotencyKey = String(input.idempotencyKey || `disc:${request.id}:${platform}:${nid("idem")}`);
   const existing = getConn().prepare("SELECT * FROM discovery_runs WHERE idempotency_key=?").get(idempotencyKey) as
     | Row
@@ -624,6 +734,7 @@ export function createDiscoveryRequest(body: Json): Json {
   const platforms = validateOverseasPlatforms(
     asStringList(body.platforms ?? body.platform).map((code) => code.toLowerCase()),
   );
+  const filters = normalizeFilters(body.filters);
   const owner = ownerId();
   const id = nid("dreq");
   const now = nowIso();
@@ -638,7 +749,7 @@ export function createDiscoveryRequest(body: Json): Json {
       JSON.stringify(keywords),
       JSON.stringify(platforms),
       mode,
-      JSON.stringify(body.filters && typeof body.filters === "object" ? body.filters : {}),
+      JSON.stringify(filters),
       body.brand ? String(body.brand) : null,
       JSON.stringify(body.scope && typeof body.scope === "object" ? body.scope : {}),
       now,
