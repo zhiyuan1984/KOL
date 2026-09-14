@@ -3068,6 +3068,44 @@ test("process trace shows harness thinking in the list instead of a fixed five-s
   await expect(page.locator("[data-reasoning-summaries]")).toHaveCount(0);
 });
 
+test("process trace keeps reasoning summary prose instead of generic processing copy", async ({ page }) => {
+  const now = new Date().toISOString();
+  const english = "Narrow the crawl to YouTube camping creators and skip off-topic channels.";
+  const extra = "Also consider keyword overlap with outdoor power brands.";
+  await page.route("**/api/sessions/session-reasoning", (route) => route.fulfill({ json: {
+    agent_status: "running",
+    messages: [
+      { id: "me", session_id: "session-reasoning", role: "user", kind: "me", created_at: now, payload: { text: "搜索 YouTube 露营达人" } },
+      { id: "process", session_id: "session-reasoning", role: "assistant", kind: "process_trace", created_at: now, payload: {
+        title: "处理过程",
+        items: [
+          { id: "host:preparing", label: "准备任务", status: "done", kind: "host" },
+          { id: "host:skill_ready", label: "加载任务规则", status: "done", kind: "host" },
+          { id: "reasoning:rsn_1", label: english, status: "running", kind: "reasoning", streaming: true },
+          { id: "reasoning:rsn_json", label: "{\"type\":\"reasoning\",\"text\":\"secret\"}", status: "done", kind: "reasoning" },
+          { id: "host:mcp", label: "calling capabilities", status: "done", kind: "host" },
+          { id: "host:validating", label: "校验输出", status: "failed", kind: "result" },
+        ],
+        summaries: [extra],
+      } },
+    ],
+  } }));
+  await page.goto("/s/session-reasoning");
+  const trace = page.locator('[data-kind="process-trace"]');
+  await expect(trace).toContainText(english);
+  await expect(trace.locator('[data-kind="reasoning"] span.is-streaming')).toContainText(english);
+  await expect(trace.locator("[data-reasoning-summaries]")).toContainText(extra);
+  await expect(trace).toContainText("准备任务");
+  await expect(trace).toContainText("加载任务规则");
+  await expect(trace).toContainText("正在调用系统能力");
+  await expect(trace).toContainText("校验输出");
+  await expect(trace).toContainText("正在分析…");
+  await expect(trace).not.toContainText("正在处理这项工作");
+  await expect(trace).not.toContainText("calling capabilities");
+  await expect(trace).not.toContainText("secret");
+  await expect(page.locator("[data-run-status]")).toContainText(english);
+});
+
 test("creator discovery shows auto-started crawl progress in the middle and can stop", async ({ page }) => {
   const now = new Date().toISOString();
   let stopped = false;

@@ -98,17 +98,30 @@ export function reasoningSummary(item: Json): string {
   );
 }
 
-function reasoningDelta(method: string | undefined, params: Json): string {
-  if (!method || (!/reasoning/i.test(method) && method !== "item/delta")) return "";
+function hasReasoningSummaryPayload(params: Json): boolean {
   const raw = params.delta;
-  if (typeof raw === "string") return safeText(raw);
   if (raw && typeof raw === "object") {
     const delta = raw as Json;
-    if (typeof delta.text === "string") return safeText(delta.text);
+    if (typeof delta.summary_text === "string" && delta.summary_text) return true;
+    if (Array.isArray(delta.summary)) return true;
+  }
+  return false;
+}
+
+function reasoningDelta(method: string | undefined, params: Json): string {
+  if (!method || (!/reasoning/i.test(method) && method !== "item/delta")) return "";
+  // Raw reasoning_text deltas never enter the UI — summary_text / summary only.
+  if (/textDelta/i.test(method) && !/summary/i.test(method)) return "";
+  const raw = params.delta;
+  if (raw && typeof raw === "object") {
+    const delta = raw as Json;
     if (typeof delta.summary_text === "string") return safeText(String(delta.summary_text));
     if (Array.isArray(delta.summary)) return reasoningSummary({ summary: delta.summary });
+    if (typeof delta.text === "string" && /summary/i.test(method)) return safeText(delta.text);
+    return "";
   }
-  if (typeof params.text === "string" && /reasoning/i.test(method)) return safeText(String(params.text));
+  if (typeof raw === "string" && /summary/i.test(method)) return safeText(raw);
+  if (typeof params.text === "string" && /summary/i.test(method)) return safeText(String(params.text));
   return "";
 }
 
@@ -192,9 +205,13 @@ export function progressFromHarness(
     };
   }
 
-  const reasoningLike = type === "reasoning" || /reasoning/i.test(methodStr);
+  const rawId = itemIdOf(item, params);
+  const knownReasoning = Boolean(rawId && memory.reasoningById.has(rawId));
+  const reasoningLike = type === "reasoning"
+    || /reasoning/i.test(methodStr)
+    || (method === "item/delta" && (knownReasoning || hasReasoningSummaryPayload(params)));
   if (reasoningLike) {
-    const id = itemIdOf(item, params) || "thinking";
+    const id = rawId || "thinking";
     const summary = reasoningSummary(item);
     const delta = reasoningDelta(method, params);
     let text = memory.reasoningById.get(id) || "";
