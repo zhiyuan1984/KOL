@@ -6205,6 +6205,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
     border-right: 0;
     border-bottom: 1px solid var(--border);
     padding: var(--space-2);
+    position: relative;
+    z-index: 20;
   }
   .admin-nav-list {
     flex-direction: row;
@@ -6212,6 +6214,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   }
   .admin-nav-item { width: auto; }
   .admin-nav-foot { width: 100%; }
+  .admin-nav .user-popover {
+    bottom: auto;
+    top: calc(100% + 4px);
+  }
   .admin-body { padding: 16px 14px 36px; }
   .session-shell,
   .session-shell.has-tasklist,
