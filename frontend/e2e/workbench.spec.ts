@@ -867,19 +867,90 @@ async function expectNoHorizontalOverflow(page: Page, selector: string) {
 }
 
 async function expectNoPageHorizontalScroll(page: Page) {
-  const box = await page.evaluate(() => ({
-    client: document.documentElement.clientWidth,
-    scroll: document.documentElement.scrollWidth,
-  }));
-  expect(box.scroll).toBeLessThanOrEqual(box.client + 1);
+  const box = await page.evaluate(() => {
+    const root = document.documentElement;
+    const body = document.body;
+    const workbench = document.querySelector(".workbench");
+    const home = document.querySelector("[data-home]");
+    const stage = document.querySelector(".home-stage");
+    const board = document.querySelector(".home-board");
+    const measure = (el: Element | null) => {
+      if (!(el instanceof HTMLElement)) return { client: 0, scroll: 0 };
+      return { client: el.clientWidth, scroll: el.scrollWidth };
+    };
+    return {
+      root: { client: root.clientWidth, scroll: root.scrollWidth },
+      body: measure(body),
+      workbench: measure(workbench),
+      home: measure(home),
+      stage: measure(stage),
+      board: measure(board),
+    };
+  });
+  expect(box.root.scroll).toBeLessThanOrEqual(box.root.client + 1);
+  expect(box.body.scroll).toBeLessThanOrEqual(box.body.client + 1);
+  expect(box.workbench.scroll).toBeLessThanOrEqual(box.workbench.client + 1);
+  expect(box.home.scroll).toBeLessThanOrEqual(box.home.client + 1);
+  expect(box.stage.scroll).toBeLessThanOrEqual(box.stage.client + 1);
+  expect(box.board.scroll).toBeLessThanOrEqual(box.board.client + 1);
+}
+
+/** Tabs stay one row and match card width. Internal scrollWidth > clientWidth is allowed. */
+async function expectStageTabsSingleLine(page: Page) {
+  const metrics = await page.evaluate(() => {
+    const tabs = document.querySelector("[data-kol-tabs]");
+    const card = document.querySelector("[data-followed-kol]");
+    if (!(tabs instanceof HTMLElement)) return null;
+    const cs = getComputedStyle(tabs);
+    const buttons = [...tabs.querySelectorAll("[data-kol-tab]")].filter((el): el is HTMLElement => el instanceof HTMLElement);
+    const tops = buttons.map((button) => button.getBoundingClientRect().top);
+    const heights = buttons.map((button) => button.getBoundingClientRect().height);
+    const minTop = Math.min(...tops);
+    const selected = tabs.querySelector('[aria-selected="true"]');
+    const selectedCs = selected instanceof HTMLElement ? getComputedStyle(selected) : null;
+    return {
+      flexWrap: cs.flexWrap,
+      overflowX: cs.overflowX,
+      clientWidth: tabs.clientWidth,
+      scrollWidth: tabs.scrollWidth,
+      cardWidth: card instanceof HTMLElement ? card.clientWidth : 0,
+      sameRow: tops.every((top) => Math.abs(top - minTop) <= 2),
+      minHeight: Math.min(...heights),
+      selectedFont: selectedCs ? Number.parseFloat(selectedCs.fontSize) : 0,
+      selectedColor: selectedCs?.color || "",
+    };
+  });
+  expect(metrics).toBeTruthy();
+  expect(metrics!.flexWrap).toBe("nowrap");
+  expect(["auto", "scroll", "overlay"]).toContain(metrics!.overflowX);
+  expect(metrics!.sameRow).toBe(true);
+  expect(metrics!.minHeight).toBeGreaterThanOrEqual(36);
+  expect(metrics!.selectedFont).toBeGreaterThanOrEqual(14);
+  expect(metrics!.selectedColor).not.toBe("rgba(0, 0, 0, 0)");
+  expect(Math.abs(metrics!.clientWidth - metrics!.cardWidth)).toBeLessThan(8);
+}
+
+async function expectHomeFollowedRailWide(page: Page, viewportWidth: number) {
+  const metrics = await page.evaluate(() => {
+    const stage = document.querySelector(".home-stage");
+    const column = document.querySelector("[data-followed-kol-column]");
+    if (!(stage instanceof HTMLElement) || !(column instanceof HTMLElement)) return null;
+    return {
+      gutter: Number.parseFloat(getComputedStyle(stage).paddingLeft),
+      columnWidth: column.clientWidth,
+    };
+  });
+  expect(metrics).toBeTruthy();
+  expect(metrics!.gutter).toBeLessThanOrEqual(16);
+  expect(metrics!.columnWidth).toBeGreaterThan(viewportWidth - 320);
 }
 
 async function expectFollowedKolStackedNoOverflow(page: Page, handle: string) {
   await expect(page.locator(`[data-followed-kol="${handle}"] [data-kol-band]`)).toHaveCount(5);
   await expectFollowedKolCardWraps(page, handle);
   await expectFollowedKolListAlignsWithTabs(page);
+  await expectStageTabsSingleLine(page);
   await expectNoHorizontalOverflow(page, "[data-home-modes]");
-  await expectNoHorizontalOverflow(page, "[data-kol-tabs]");
   await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
   await expectNoHorizontalOverflow(page, `[data-followed-kol="${handle}"]`);
   await expectNoPageHorizontalScroll(page);
@@ -963,6 +1034,7 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expect(card.locator(".task-main")).toHaveCount(0);
   await expectFollowedKolHeadingRemoved(page);
   await expectFollowedKolStackedNoOverflow(page, "小美妆日记");
+  await expectHomeFollowedRailWide(page, 1280);
   const tabsBox = await page.locator("[data-kol-tabs]").boundingBox();
   const cardBox = await card.boundingBox();
   expect(tabsBox && cardBox).toBeTruthy();
@@ -996,6 +1068,28 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expect(confirmCard).toBeVisible();
   await expectFollowedKolStackedNoOverflow(page, "小美妆日记");
   await expectFollowedKolStackedNoOverflow(page, "测试网红-qq-01");
+  await expectHomeFollowedRailWide(page, 1600);
+
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await expect(card).toBeVisible();
+  await expectFollowedKolStackedNoOverflow(page, "小美妆日记");
+  await expectHomeFollowedRailWide(page, 1920);
+});
+
+test("home followed-KOL stage chips stay one row and match card width", async ({ page }) => {
+  await page.goto("/");
+  await openHomeLifecycle(page);
+  await expect(page.locator("[data-kol-tab]")).toHaveCount(17);
+  for (const width of [1280, 1600, 1920] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(page.locator("[data-followed-kol-column]")).toBeVisible();
+    await expectFollowedKolListAlignsWithTabs(page);
+    await expectStageTabsSingleLine(page);
+    await expectHomeFollowedRailWide(page, width);
+    await expectNoPageHorizontalScroll(page);
+    await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
+    await expectNoHorizontalOverflow(page, "[data-followed-kol]");
+  }
 });
 
 test("home followed-KOL 查看原邮件 opens the existing session mail rail", async ({ page }) => {
@@ -2824,9 +2918,10 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   const ctaBox = await card.locator("[data-kol-band='cta']").boundingBox();
   expect(cardBox && identityBox && stateBox && factBox && recBox && ctaBox).toBeTruthy();
   expect((cardBox?.width || 0)).toBeLessThanOrEqual(1280);
+  await expectStageTabsSingleLine(page);
   await expectNoHorizontalOverflow(page, "[data-home-modes]");
-  await expectNoHorizontalOverflow(page, "[data-kol-tabs]");
   await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
+  await expectNoPageHorizontalScroll(page);
   await page.locator('[data-kol-tab="INITIAL_CONTACT"]').click();
   await expect(page.locator("[data-followed-kol]")).toHaveCount(1);
   await expect(page.locator("[data-followed-kol]")).toContainText("小美妆日记");

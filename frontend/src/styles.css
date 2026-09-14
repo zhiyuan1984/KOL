@@ -384,6 +384,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   flex-direction: column;
   background: var(--bg);
   overflow: hidden;
+  /* Home-only wider rail. Keep --page-gutter for session-shell / other pages. */
+  --home-gutter: clamp(10px, 0.7vw, 12px);
 }
 .home-loading { padding: 32px; }
 .home-stage {
@@ -393,7 +395,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   flex-direction: column;
   align-items: stretch;
   justify-content: flex-start;
-  padding: 20px var(--page-gutter) 0;
+  padding: 20px var(--home-gutter) 0;
   overflow: hidden;
 }
 .home-board {
@@ -1795,6 +1797,33 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   min-width: 0;
   box-sizing: border-box;
 }
+/* Stage chips span the same rail as cards; one row, even grow, tabs-only H-scroll. */
+.followed-kol-column .home-pane-sticky {
+  overflow-x: hidden;
+}
+.followed-kol-column .kol-stage-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  justify-content: stretch;
+  gap: var(--space-1);
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+.followed-kol-column .kol-stage-tabs button {
+  display: inline-flex;
+  flex: 1 1 0;
+  min-width: max-content;
+  max-width: none;
+  justify-content: center;
+  padding: 6px 8px;
+  min-height: 36px;
+}
+.followed-kol-column .kol-stage-tabs button[aria-selected="true"] {
+  font-weight: 600;
+}
 .followed-kol-list {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -2117,7 +2146,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   flex: 0 0 auto;
   width: 100%;
   margin: 0;
-  padding: 8px var(--page-gutter) 20px;
+  padding: 8px var(--home-gutter) 20px;
   background: var(--canvas);
   z-index: 20;
 }
