@@ -141,7 +141,10 @@ export default function Workbench() {
             <Ico path="M12 4a3 3 0 0 1 3 3v1h2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2V7a3 3 0 0 1 3-3z M9 13h6 M9 16h4" />
             <span className="sidebar-label">数字员工</span>
           </NavLink>
-          {debug && (
+        </nav>
+
+        {debug ? (
+          <nav className="nav-group" aria-label="技能">
             <NavLink
               to="/skills"
               className={() => "nav-link" + (skillsActive ? " active" : "")}
@@ -152,8 +155,8 @@ export default function Workbench() {
               <Ico path="M8 8h4v4H8z M12 12h4v4h-4z M7 16l-2 2 M17 8l2-2" />
               <span className="sidebar-label">技能目录</span>
             </NavLink>
-          )}
-        </nav>
+          </nav>
+        ) : null}
 
         <nav className="nav-group" aria-label="资产">
           <NavLink to="/kb" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} data-nav="knowledge" onClick={() => setMobileOpen(false)}>
