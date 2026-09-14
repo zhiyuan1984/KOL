@@ -137,7 +137,7 @@ export function assertExpertSummonable(id: string): ExpertManifest {
 }
 
 export function expertIntro(manifest: ExpertManifest): string {
-  return `你好，我是${manifest.display_name}。告诉我要跟进哪位红人或哪段合作，我来帮你看阶段、准备沟通。发信和改阶段需要你确认，我不会自己做。`;
+  return `你好，我是 ${manifest.display_name}。告诉我要跟进哪位红人或哪段合作，我来帮你看阶段、准备沟通。发信和改阶段需要你确认，我不会自己做。`;
 }
 
 export function expertAvatarPath(id: string): string {
