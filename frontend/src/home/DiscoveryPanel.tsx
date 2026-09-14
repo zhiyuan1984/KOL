@@ -9,8 +9,8 @@ import {
   addDirections,
   candidateReason,
   createDiscoveryRequest,
+  discoveryEmptyCopy,
   dismissCandidate,
-  emptyResultsHint,
   followCandidate,
   guessPlatformFromQuery,
   guessRegionFromQuery,
@@ -71,7 +71,10 @@ export default function DiscoveryPanel() {
 
   const emptyHint = useMemo(() => {
     if (phase === "results" && !visible.length) {
-      return emptyHintFromApi || emptyResultsHint(searchKeywords);
+      return discoveryEmptyCopy({
+        empty_hint: emptyHintFromApi,
+        search_keywords: searchKeywords,
+      });
     }
     return "用一句话描述想找的达人。确认计划后只检索线索，不会写成待办，也不会自动建合作。";
   }, [phase, visible.length, emptyHintFromApi, searchKeywords]);
@@ -191,7 +194,7 @@ export default function DiscoveryPanel() {
       setRequest(results.request);
       setCandidates(results.candidates);
       setSearchKeywords(results.search_keywords || results.run?.search_keywords || []);
-      setEmptyHintFromApi(results.empty_hint || null);
+      setEmptyHintFromApi(results.empty_hint || results.run?.empty_hint || null);
       if (String(results.run?.status || results.status) === "failed") {
         showError(
           results.run?.error || results.request.error || "检索没有完成，可调整条件后重试。",

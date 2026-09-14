@@ -82,6 +82,7 @@ export type DiscoveryRun = {
   duplicate?: boolean;
   connection?: DiscoveryConnection;
   search_keywords?: string[];
+  empty_hint?: string | null;
 };
 
 export type DiscoveryRequest = {
@@ -350,6 +351,7 @@ export function asRun(row: unknown): DiscoveryRun {
     duplicate: Boolean(item.duplicate),
     connection: asConnection(item.connection),
     search_keywords: asStringList(item.search_keywords),
+    empty_hint: item.empty_hint == null ? null : String(item.empty_hint),
   };
 }
 
@@ -486,6 +488,20 @@ export function emptyResultsHint(searchKeywords: string[]): string {
   const shown = searchKeywords.map((item) => String(item || "").trim()).filter(Boolean);
   if (!shown.length) return "这次计划没有找到红人线索，可换关键词再试。";
   return `按「${shown.slice(0, 2).join(" / ")}」没有找到线索，可换词再试。`;
+}
+
+/** Empty success copy: payload `empty_hint` / `search_keywords` only. Never invents terms. */
+export function discoveryEmptyCopy(input: {
+  empty_hint?: string | null;
+  search_keywords?: string[];
+  run?: { empty_hint?: string | null; search_keywords?: string[] } | null;
+}): string {
+  const hint = String(input.empty_hint || input.run?.empty_hint || "").trim();
+  if (hint) return hint;
+  const keywords = input.search_keywords?.length
+    ? input.search_keywords
+    : input.run?.search_keywords || [];
+  return emptyResultsHint(keywords);
 }
 
 export function candidateReason(row: CreatorCandidate): string {

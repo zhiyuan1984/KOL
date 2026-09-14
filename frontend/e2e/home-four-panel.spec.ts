@@ -267,6 +267,69 @@ test("home discovery maps failed run engine errors without showing raw copy", as
   await expect(page.locator("[data-discovery-check-connection]")).toBeVisible();
 });
 
+test("home discovery empty success shows actual search keywords", async ({ page }) => {
+  const emptyHint = "按「portable power station」没有找到线索，可换词再试。";
+  const searchKeywords = ["portable power station"];
+  await page.route("**/api/discovery/requests/**/runs", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "drun_e2e_empty",
+        status: "succeeded",
+        status_label: "已完成",
+        search_keywords: searchKeywords,
+        empty_hint: emptyHint,
+        candidate_count: 0,
+      }),
+    });
+  });
+  await page.route("**/api/discovery/requests/**/results", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "succeeded",
+        status_label: "已完成",
+        keywords: ["找北美户外评测达人"],
+        search_keywords: searchKeywords,
+        empty_hint: emptyHint,
+        candidates: [],
+        counts: { candidate_count: 0, suggested_count: 0 },
+        run: {
+          id: "drun_e2e_empty",
+          status: "succeeded",
+          status_label: "已完成",
+          search_keywords: searchKeywords,
+          empty_hint: emptyHint,
+          candidate_count: 0,
+        },
+        request: { keywords: ["找北美户外评测达人"], status: "succeeded" },
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await openMode(page, "discovery");
+  await page.locator("[data-discovery-query]").fill("找北美户外评测达人");
+  await page.locator("[data-discovery-add-direction]").click();
+  await page.locator('[data-discovery-preset="户外电源"]').click();
+  await page.locator("[data-discovery-plan]").click();
+  await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
+  await page.locator("[data-discovery-confirm-plan]").click();
+
+  const empty = page.locator("[data-discovery-empty='results']");
+  await expect(empty).toBeVisible();
+  await expect(empty.locator("strong")).toHaveText("没有红人线索");
+  await expect(page.locator("[data-discovery-empty-hint]")).toHaveText(emptyHint);
+  await expect(page.locator("[data-discovery-empty-hint]")).toContainText("portable power station");
+  await expect(page.locator("[data-discovery-panel]")).not.toContainText(/MCP|Codex|MediaCrawler|start_crawl|Harness|Job ID/);
+});
+
 test("today suggestion convert to todo dedupes", async ({ page }) => {
   await page.goto("/");
   await openMode(page, "todo");

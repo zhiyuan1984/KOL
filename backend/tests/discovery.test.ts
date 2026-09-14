@@ -460,8 +460,12 @@ describe("discovery filters directions and region", () => {
     expect((results.counts as Json).candidate_count).toBe(0);
     expect(results.search_keywords).toEqual(["portable power station"]);
     expect(results.empty_hint).toBe("按「portable power station」没有找到线索，可换词再试。");
+    expect((results.run as Json).search_keywords).toEqual(["portable power station"]);
+    expect((results.run as Json).empty_hint).toBe("按「portable power station」没有找到线索，可换词再试。");
     expect(results.ready).toBe(false);
     assertEmployeeCopy(results);
+    assertEmployeeCopy(results.empty_hint);
+    assertEmployeeCopy((results.run as Json).empty_hint);
     expect(String(results.empty_hint)).not.toMatch(/MCP|MediaCrawler|Job|crawl/i);
     expect(String(crawlStartArgs[0]?.keywords || "")).toBe("portable power station");
   });

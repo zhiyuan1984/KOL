@@ -373,6 +373,8 @@ function publicRun(row: Row): Json {
   syncRunFromCrawl(row);
   const current = getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(row.id) as Row;
   const status = String(current.status);
+  const searchKeywords = searchKeywordsOf(current);
+  const candidateCount = Number(current.candidate_count || 0);
   return {
     id: current.id,
     request_id: current.request_id,
@@ -380,8 +382,9 @@ function publicRun(row: Row): Json {
     status,
     status_label: RUN_STATUS_LABEL[status] || status,
     error: employeeError(current.error),
-    search_keywords: searchKeywordsOf(current),
-    candidate_count: Number(current.candidate_count || 0),
+    search_keywords: searchKeywords,
+    empty_hint: status === "succeeded" && candidateCount === 0 ? emptyDiscoveryHint(searchKeywords) : null,
+    candidate_count: candidateCount,
     created_at: current.created_at,
     started_at: current.started_at,
     updated_at: current.updated_at,
