@@ -434,9 +434,10 @@ test("skills page 使用 on email_compose starts ask with intent email_compose",
     }
   });
   await page.goto("/skills");
-  await expect(page.locator("[data-journey-guide]")).toBeVisible();
-  await expect(page.locator("[data-journey-guide]")).not.toContainText("发送不等于改阶段");
-  await expect(page.locator("[data-journey-guide]")).not.toContainText("发送 ≠ 推进阶段");
+  await expect(page.locator("[data-journey-guide]")).toHaveCount(0);
+  await expect(page.locator("[data-funnel-tab]")).toHaveCount(0);
+  await expect(page.locator('[data-hub-chip="reach"], [data-hub-chip="biz"], [data-hub-chip="settle"]')).toHaveCount(0);
+  await expect(page.locator("[data-skills-page='mine']")).not.toContainText("建联进度");
   await page.locator('[data-skill-use="email_compose"]').click();
   await page.waitForURL(/\/s\//);
   await expect(page.locator("[data-kind='me']")).toContainText("写合作邮件", { timeout: 15000 });
@@ -2423,12 +2424,21 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator('[data-connector="starrykol"]')).toHaveCount(0);
   await expect(page.locator('[data-hub-chip="connectors"]')).toHaveCount(0);
   await expect(page.locator('[data-hub-mode="catalog"]')).toHaveText("技能目录");
-  await expect(page.locator('[data-hub-chip="reach"]')).toHaveText("建联");
-  await expect(page.locator('[data-hub-chip="biz"]')).toHaveText("评估报价");
-  await expect(page.locator('[data-hub-chip="sample"]')).toHaveText("寄样测评");
-  await expect(page.locator('[data-hub-chip="content"]')).toHaveText("内容发布");
-  await expect(page.locator('[data-hub-chip="settle"]')).toHaveText("结算");
-  await expect(page.locator('[data-hub-chip="exception"]')).toHaveText("异常旁路");
+  await expect(page.locator("[data-funnel-tab]")).toHaveCount(0);
+  await expect(page.locator('[data-hub-chip="reach"]')).toHaveCount(0);
+  await expect(page.locator('[data-hub-chip="biz"]')).toHaveCount(0);
+  await expect(page.locator('[data-hub-chip="sample"]')).toHaveCount(0);
+  await expect(page.locator('[data-hub-chip="content"]')).toHaveCount(0);
+  await expect(page.locator('[data-hub-chip="settle"]')).toHaveCount(0);
+  await expect(page.locator('[data-hub-chip="exception"]')).toHaveCount(0);
+  await expect(page.locator('[data-hub-banner="pipeline"]')).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "全生命周期管理" })).toHaveCount(0);
+  await expect(page.locator('[data-skill="email_compose"]')).toBeVisible();
+  await expect(page.locator('[data-hub-banner="email_compose"]')).toBeVisible();
+  await page.goto("/skills");
+  await expect(page.locator("[data-skills-page='mine']")).toBeVisible();
+  await expect(page.locator('[data-skill="email_compose"]')).toBeVisible();
+  await expect(page.locator("[data-journey-guide]")).toHaveCount(0);
   await page.goto("/agents");
   await expect(page.locator("[data-expert-page='recommend']")).toBeVisible();
   await expect(page.locator("[data-expert-view='recommend']")).toHaveText("推荐");
@@ -2564,6 +2574,7 @@ test("admin debug toggle reveals connector tiles on the skill hub", async ({ pag
   await expect(page.locator('nav[aria-label="数字员工"] [data-nav="skills"]')).toHaveCount(0);
   await expect(page.locator('nav[aria-label="技能"] [data-nav="skills"]')).toBeVisible();
   await expect(page.locator('nav[aria-label="技能"]')).toHaveAttribute("aria-label", "技能");
+  await expect(page.locator('nav[aria-label="资产"] [data-nav="skills"]')).toHaveCount(0);
 });
 
 test("user menu switches employee, admin, and settings workspaces", async ({ page }) => {
@@ -2676,6 +2687,21 @@ test("employee sidebar puts cron in today cluster and hides group titles", async
   await expect(page).toHaveURL(/\/cron/);
   await expect(page.getByRole("heading", { name: "定时任务" })).toBeVisible();
   await expect(today.locator('[data-nav="cron"]')).toHaveClass(/active/);
+});
+
+test("employee partners path has no pipeline hero or admin squad links", async ({ page }) => {
+  await page.goto("/partners");
+  await expect(page.locator("[data-skill-hub='partners']")).toBeVisible();
+  await expect(page.locator('[data-hub-banner="pipeline"]')).toHaveCount(0);
+  await expect(page.locator('[data-hub-banner="squad"]')).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "全生命周期管理" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "品牌小队" })).toHaveCount(0);
+  await expect(page.locator('a[href="/pipeline"]')).toHaveCount(0);
+  await expect(page.locator('a[href="/admin"], a[href="/admin/connectors"], [data-partner^="brand-"]')).toHaveCount(0);
+  await expect(page.locator('[data-hub-chip="squad"], [data-hub-chip="approvals"], [data-hub-chip="kols"]')).toHaveCount(0);
+  await expect(page.locator('[data-hub-mode="partners"]')).toHaveText("工作伙伴");
+  await expect(page.locator("[data-skill-hub='partners']")).not.toContainText("LiTime 小队");
+  await expect(page.locator("[data-skill-hub='partners']")).not.toContainText("15 个正式阶段");
 });
 
 test("docs/21 employee sidebar has no admin connectors deep-link", async ({ page }) => {

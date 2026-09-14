@@ -96,25 +96,13 @@ const CONNECTORS = [
   },
 ];
 
-const SQUAD = [
-  { id: "brand-lt", title: "LiTime 小队", kind: "品牌", summary: "LT 品牌邮箱发信。", to: "/admin" },
-  { id: "brand-ro", title: "Renogy 小队", kind: "品牌", summary: "RO 品牌邮箱发信。", to: "/admin" },
-  { id: "brand-pq", title: "PowerQueen 小队", kind: "品牌", summary: "PQ 品牌邮箱发信。", to: "/admin" },
-];
-
-const MARK: Record<string, { bg: string; d: string }> = {
-  creator_profile: {
-    bg: "#34c759",
-    d: "M12 11.5a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z M6.2 19c1.1-2.8 3.2-4.2 5.8-4.2s4.7 1.4 5.8 4.2",
-  },
-  risk_scan: { bg: "#e24b4a", d: "M12 4l8 14H4z M12 10v4 M12 16.5h.01" },
-  enterprise_mail: { bg: "#3370ff", d: "M4 7h16v10H4z M4 8l8 6 8-6" },
-  wecom: { bg: "#07c160", d: "M8 16.5c-3.2 0-5.5-2.2-5.5-5S4.8 6.5 8 6.5c2.6 0 4.6 1.4 5.2 3.4 3 .2 5.3 2.2 5.3 4.7 0 2.5-2.4 4.4-5.4 4.4-.7 0-1.4-.1-2-.3L8.4 20l.4-2.2C8.3 17.6 8.1 17 8 16.5z" },
-  starrykol: { bg: "#1d4ed8", d: "M12 3.5l2.1 4.3 4.7.7-3.4 3.3.8 4.7L12 14.3 7.8 16.5l.8-4.7L5.2 8.5l4.7-.7z" },
-  kolclaw: { bg: "#0f766e", d: "M5 8h6l2 3h6v7H5z M8 8V6.5a2.5 2.5 0 0 1 5 0V8" },
-  "brand-lt": { bg: "#ea5504", d: "M5 7h14v10H5z M8 12h8" },
-  "brand-ro": { bg: "#0d3d82", d: "M5 7h14v10H5z M8 12h8" },
-  "brand-pq": { bg: "#6b4ea8", d: "M5 7h14v10H5z M8 12h8" },
+const MARK: Record<string, string> = {
+  creator_profile: "M12 11.5a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z M6.2 19c1.1-2.8 3.2-4.2 5.8-4.2s4.7 1.4 5.8 4.2",
+  risk_scan: "M12 4l8 14H4z M12 10v4 M12 16.5h.01",
+  enterprise_mail: "M4 7h16v10H4z M4 8l8 6 8-6",
+  wecom: "M8 16.5c-3.2 0-5.5-2.2-5.5-5S4.8 6.5 8 6.5c2.6 0 4.6 1.4 5.2 3.4 3 .2 5.3 2.2 5.3 4.7 0 2.5-2.4 4.4-5.4 4.4-.7 0-1.4-.1-2-.3L8.4 20l.4-2.2C8.3 17.6 8.1 17 8 16.5z",
+  starrykol: "M12 3.5l2.1 4.3 4.7.7-3.4 3.3.8 4.7L12 14.3 7.8 16.5l.8-4.7L5.2 8.5l4.7-.7z",
+  kolclaw: "M5 8h6l2 3h6v7H5z M8 8V6.5a2.5 2.5 0 0 1 5 0V8",
 };
 
 function Glyph({ d }: { d: string }) {
@@ -125,25 +113,18 @@ function Glyph({ d }: { d: string }) {
   );
 }
 
-function icoColor(id: string): string {
-  const palette = ["#2b7fff", "#34c759", "#ff8a3d", "#7c5cfc", "#00b8d4", "#ff5a8a"];
-  let n = 0;
-  for (let i = 0; i < id.length; i++) n = (n + id.charCodeAt(i) * (i + 1)) % palette.length;
-  return palette[n];
-}
-
 export function HubMark({ id, fallback }: { id: string; fallback?: string }) {
-  const mark = MARK[id];
-  if (!mark) {
+  const d = MARK[id];
+  if (!d) {
     return (
-      <span className="hub-tile-ico hub-tile-ico-letter" style={{ background: icoColor(id) }}>
+      <span className="hub-tile-ico hub-tile-ico-letter">
         {(fallback || id).slice(0, 1)}
       </span>
     );
   }
   return (
-    <span className="hub-tile-ico" style={{ background: mark.bg }}>
-      <Glyph d={mark.d} />
+    <span className="hub-tile-ico">
+      <Glyph d={d} />
     </span>
   );
 }
@@ -231,13 +212,13 @@ export function SkillHubChrome({
   const { admin, debug } = useViewMode();
   return (
     <header className="hub-chrome" data-hub-chrome>
-      <nav className="hub-modes" aria-label="技能工作台">
+      <nav className="hub-modes" aria-label="技能">
         <PuzzleIco />
         <Link to="/market/skills" className={"hub-mode" + (mode === "catalog" ? " on" : "")} data-hub-mode="catalog">
           {debug ? "技能 · 连接器" : "技能目录"}
         </Link>
         <Link to="/partners" className={"hub-mode" + (mode === "partners" ? " on" : "")} data-hub-mode="partners">
-          工作伙伴 · 小队
+          工作伙伴
         </Link>
       </nav>
       <div className="hub-tools">
@@ -282,16 +263,17 @@ export function SkillHub({ view = "catalog" }: { view?: "catalog" | "partners" }
   const [partners, setPartners] = useState<
     { id: string; handle: string; stage_label: string; brand: string; platform: string; collaboration_id?: string }[]
   >([]);
-  const [chip, setChip] = useState("featured");
+  const [chip, setChip] = useState("skills");
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
 
   useEffect(() => {
-    setChip("featured");
+    setChip("skills");
   }, [view]);
 
   useEffect(() => {
     api.skillMarket().then((data: unknown) => setSkills(Array.isArray(data) ? (data as SkillRow[]) : []));
+    if (view !== "partners") return;
     api.pipeline().then((data: { groups?: Record<string, { id: string; handle: string; stage_label: string; brand: string; platform: string }[]> }) => {
       const rows = Object.values(data.groups || {}).flat();
       setPartners(
@@ -305,7 +287,7 @@ export function SkillHub({ view = "catalog" }: { view?: "catalog" | "partners" }
         })),
       );
     });
-  }, []);
+  }, [view]);
 
   const useSkill = async (s: SkillRow) => {
     if (s.granted === false) {
@@ -326,84 +308,67 @@ export function SkillHub({ view = "catalog" }: { view?: "catalog" | "partners" }
   const match = (title: string, summary: string) =>
     !needle || title.toLowerCase().includes(needle) || summary.toLowerCase().includes(needle);
 
-  const catalogChips = [
-    { id: "featured", label: "精选" },
-    ...FUNNEL.map((f) => ({ id: f.id, label: f.label })),
-    ...(debug && admin ? [{ id: "connectors", label: "连接器" }] : []),
-  ];
-  const partnerChips = [
-    { id: "featured", label: "精选" },
-    { id: "kols", label: "在途达人" },
-    { id: "squad", label: "品牌小队" },
-    { id: "approvals", label: "审批" },
-  ];
-  const chips = view === "catalog" ? catalogChips : partnerChips;
+  const catalogChips = debug && admin
+    ? [
+        { id: "skills", label: "技能" },
+        { id: "connectors", label: "连接器" },
+      ]
+    : [];
 
   const skillTiles = useMemo(() => {
-    let rows = skills.filter((s) => s.in_market);
-    if (chip !== "featured" && chip !== "connectors") rows = rows.filter((s) => skillFunnel(s) === chip);
-    if (chip === "connectors") rows = [];
-    return rows.filter((s) => match(s.title, s.summary || ""));
+    if (chip === "connectors") return [];
+    return skills.filter((s) => s.in_market && match(s.title, s.summary || ""));
   }, [skills, chip, needle]);
 
   const connectorTiles = useMemo(() => {
     if (!debug || !admin || view !== "catalog") return [];
-    if (chip !== "featured" && chip !== "connectors") return [];
+    if (chip !== "skills" && chip !== "connectors") return [];
     return CONNECTORS.filter((c) => match(c.title, c.summary));
   }, [admin, debug, view, chip, needle]);
 
   const partnerKols = useMemo(() => {
     if (view !== "partners") return [];
-    if (chip !== "featured" && chip !== "kols") return [];
-    return partners.filter((p) => match(p.handle, p.stage_label));
-  }, [view, chip, partners, needle]);
-
-  const squadTiles = useMemo(() => {
-    if (!admin || view !== "partners") return [];
-    if (chip === "kols") return [];
-    if (chip === "approvals") return SQUAD.filter((s) => s.kind === "审批" && match(s.title, s.summary));
-    if (chip === "squad") return SQUAD.filter((s) => s.kind === "品牌" && match(s.title, s.summary));
-    return SQUAD.filter((s) => match(s.title, s.summary));
-  }, [admin, view, chip, needle]);
+    return partners.filter((p) => match(p.handle, `${p.stage_label} ${p.brand} ${p.platform}`));
+  }, [view, partners, needle]);
 
   const empty =
-    (view === "catalog" && skillTiles.length === 0 && connectorTiles.length === 0 && chip !== "settle") ||
-    (view === "partners" && partnerKols.length === 0 && squadTiles.length === 0);
+    (view === "catalog" && skillTiles.length === 0 && connectorTiles.length === 0) ||
+    (view === "partners" && partnerKols.length === 0);
 
   return (
     <div className="hub-page" data-skill-hub={view}>
       <SkillHubChrome mode={view} q={q} onQ={setQ} />
+      <p className="hub-lead muted">
+        {view === "partners"
+          ? "当前合作中的达人，用于当前任务。"
+          : "已授权、可用于当前任务的技能。"}
+      </p>
       {err && <p className="error">{err}</p>}
-      <div className="hub-chips" role="tablist">
-        {chips.map((c) => (
-          <button
-            key={c.id}
-            type="button"
-            role="tab"
-            className={"hub-chip" + (chip === c.id ? " on" : "")}
-            data-hub-chip={c.id}
-            onClick={() => setChip(c.id)}
-          >
-            {c.label}
-          </button>
-        ))}
-      </div>
+      {catalogChips.length > 0 && (
+        <div className="hub-chips" role="tablist">
+          {catalogChips.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              role="tab"
+              className={"hub-chip" + (chip === c.id ? " on" : "")}
+              data-hub-chip={c.id}
+              onClick={() => setChip(c.id)}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {view === "catalog" && chip === "featured" && !needle && (
+      {view === "catalog" && chip !== "connectors" && !needle && (
         <section className="hub-featured" data-hub-featured>
           <button type="button" className="hub-banner" data-hub-banner="email_compose" onClick={() => void useSkill({ id: "email_compose", title: "写合作邮件", in_market: true })}>
             <div>
-              <div className="hub-banner-kicker">建联必备</div>
+              <div className="hub-banner-kicker">常用</div>
               <h3>写合作邮件</h3>
               <p>给达人写合作邮件。发出去不会改合作阶段。</p>
             </div>
-            <span className="hub-orb hub-orb-mail" aria-hidden>
-              <span className="hub-orb-window">
-                <i />
-                <i />
-                <b>Hi there</b>
-              </span>
-            </span>
           </button>
           <button
             type="button"
@@ -412,55 +377,16 @@ export function SkillHub({ view = "catalog" }: { view?: "catalog" | "partners" }
             onClick={() => void useSkill({ id: "creator_profile", title: "达人画像", in_market: true })}
           >
             <div>
-              <div className="hub-banner-kicker">了解达人</div>
+              <div className="hub-banner-kicker">常用</div>
               <h3>达人画像</h3>
               <p>查看红人详情、平台数据和绑定的负责人，不发信。</p>
             </div>
-            <span className="hub-orb hub-orb-profile" aria-hidden>
-              <span className="hub-orb-avatar" />
-              <span className="hub-orb-bars">
-                <i />
-                <i />
-                <i />
-              </span>
-            </span>
-          </button>
-        </section>
-      )}
-
-      {view === "partners" && chip === "featured" && !needle && (
-        <section className="hub-featured" data-hub-featured>
-          <button type="button" className="hub-banner" data-hub-banner="pipeline" onClick={() => nav("/pipeline")}>
-            <div>
-              <div className="hub-banner-kicker">在途合作</div>
-              <h3>全生命周期管理</h3>
-              <p>按 15 个正式阶段看红人进度；异常 KOL 单独筛选，写跟进或记状态走动作页。</p>
-            </div>
-            <span className="hub-orb hub-orb-board" aria-hidden>
-              <span className="hub-orb-cols">
-                <i />
-                <i />
-                <i />
-              </span>
-            </span>
-          </button>
-          <button type="button" className="hub-banner" data-hub-banner="squad" onClick={() => setChip("squad")}>
-            <div>
-              <div className="hub-banner-kicker">发信身份</div>
-              <h3>品牌小队</h3>
-              <p>LiTime / Renogy / PowerQueen 三套品牌邮箱。</p>
-            </div>
-            <span className="hub-orb hub-orb-squad" aria-hidden>
-              <b>LT</b>
-              <b>RO</b>
-              <b>PQ</b>
-            </span>
           </button>
         </section>
       )}
 
       <section>
-        <h2 className="hub-section-title">{view === "catalog" ? "特别推荐" : "工作伙伴"}</h2>
+        <h2 className="hub-section-title">{view === "catalog" ? "技能" : "工作伙伴"}</h2>
         <div className="hub-grid">
           {view === "catalog" &&
             skillTiles.map((s) => (
@@ -477,18 +403,6 @@ export function SkillHub({ view = "catalog" }: { view?: "catalog" | "partners" }
                 onPlus={() => void useSkill(s)}
               />
             ))}
-          {view === "catalog" && chip === "settle" && !needle && (
-            <HubTile
-              id="attribution_review"
-              title="归因复盘"
-              kind="暂未开放"
-              summary="本期还不能做转化归因。超时或失联请先用风险扫描。"
-              dataKey="data-skill"
-              plusLabel="未开放"
-              disabled
-              onPlus={() => undefined}
-            />
-          )}
           {connectorTiles.map((c) => (
             <HubTile
               key={c.id}
@@ -511,18 +425,6 @@ export function SkillHub({ view = "catalog" }: { view?: "catalog" | "partners" }
               dataKey="data-partner"
               plusLabel={"跟进 " + p.handle}
               onPlus={() => void startAsk(nav, `写合作邮件 @${p.handle}`, "email_compose", p.collaboration_id)}
-            />
-          ))}
-          {squadTiles.map((s) => (
-            <HubTile
-              key={s.id}
-              id={s.id}
-              title={s.title}
-              kind={s.kind}
-              summary={s.summary}
-              dataKey="data-partner"
-              plusLabel={"打开 " + s.title}
-              onPlus={() => nav(s.to)}
             />
           ))}
         </div>

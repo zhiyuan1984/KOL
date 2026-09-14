@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { storePending } from "../components/ChatBlocks";
-import { FUNNEL, HubTile, SkillHubChrome, skillFunnel, skillKind, type SkillRow } from "./SkillHub";
-import JourneyGuide from "../components/JourneyGuide";
+import { HubTile, SkillHubChrome, skillKind, type SkillRow } from "./SkillHub";
 import { rememberJourney } from "../journey";
 import { profileNameLabel } from "../labels";
 import { REMOTE_BACKEND_LABEL, remoteForSkill } from "../agentConfig";
@@ -17,12 +16,6 @@ export function Skills({ market = false }: { market?: boolean }) {
   const [err, setErr] = useState("");
   const [q, setQ] = useState("");
   const nav = useNavigate();
-  const [params, setParams] = useSearchParams();
-  const funnelParam = params.get("funnel") || "";
-  // The personal catalog opens on all currently granted skills. Funnel tabs
-  // remain available for focused work; defaulting to the first funnel hid
-  // common actions such as email_compose from the internal employee path.
-  const active = FUNNEL.some((f) => f.id === funnelParam) ? funnelParam : "all";
 
   useEffect(() => {
     (market ? api.skillMarket() : api.skills()).then((data: unknown) => {
@@ -46,44 +39,21 @@ export function Skills({ market = false }: { market?: boolean }) {
     }
   };
 
-  const stage = active === "all"
-    ? { id: "all", label: "全部技能", hint: "已授权的工作技能" }
-    : (FUNNEL.find((f) => f.id === active) || FUNNEL[0]);
   const needle = q.trim().toLowerCase();
   const skills = useMemo(() => {
     return rows.filter((s) => {
-      if (active !== "all" && skillFunnel(s) !== active) return false;
       if (!needle) return true;
       return (s.title + (s.summary || "")).toLowerCase().includes(needle);
     });
-  }, [rows, active, needle]);
+  }, [rows, needle]);
 
   return (
     <div className="hub-page skills-page" data-skills-page="mine">
       <SkillHubChrome mode="mine" q={q} onQ={setQ} />
-      <JourneyGuide variant="compact" definitions={rows} />
+      <p className="hub-lead muted">已授权、可用于当前任务的技能。</p>
       {err && <p className="error">{err}</p>}
-      <div className="hub-chips" role="tablist" aria-label="建联进度">
-        {[{ id: "all", label: "全部", hint: "已授权技能" }, ...FUNNEL].map((f) => (
-          <button
-            key={f.id}
-            type="button"
-            role="tab"
-            className={"hub-chip" + (active === f.id ? " on" : "")}
-            data-funnel-tab={f.id}
-            aria-selected={active === f.id}
-            title={f.hint}
-            onClick={() => setParams({ funnel: f.id }, { replace: true })}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
-      <section className="skill-funnel" data-funnel={stage.id}>
-        <h2 className="hub-section-title">
-          {stage.label}
-          <span className="hub-section-hint">{stage.hint}</span>
-        </h2>
+      <section>
+        <h2 className="hub-section-title">我的技能</h2>
         <div className="hub-grid">
           {skills.map((s) => (
             <HubTile
@@ -99,20 +69,8 @@ export function Skills({ market = false }: { market?: boolean }) {
               badge={debug ? REMOTE_BACKEND_LABEL[remoteForSkill(s.id)] : undefined}
             />
           ))}
-          {stage.id === "settle" && !skills.some((s) => s.id === "attribution_review") && (
-            <HubTile
-              id="attribution_review"
-              title="归因复盘"
-              kind="暂未开放"
-              summary="本期还不能做转化归因。超时或失联请先用风险扫描。"
-              dataKey="data-skill"
-              plusLabel="未开放"
-              disabled
-              onPlus={() => undefined}
-            />
-          )}
         </div>
-        {skills.length === 0 && stage.id !== "settle" && <p className="muted hub-empty">这一步还没有技能</p>}
+        {skills.length === 0 && <p className="muted hub-empty">没有匹配的技能</p>}
       </section>
     </div>
   );
