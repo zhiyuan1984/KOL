@@ -62,17 +62,27 @@ async function openHomeTodo(page: Page) {
   await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
 }
 
-async function openHomeAi(page: Page) {
+async function openHomeToday(page: Page) {
   await closeHomeWorkPanel(page);
-  await page.locator('[data-home-mode="ai"]').click();
-  await expect(page.locator('[data-home-pane="ai"]')).toBeVisible();
+  await page.locator('[data-home-mode="today"]').click();
+  await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
+}
+
+async function openHomeAi(page: Page) {
+  await openHomeToday(page);
+}
+
+async function openHomeDiscovery(page: Page) {
+  await closeHomeWorkPanel(page);
+  await page.locator('[data-home-mode="discovery"]').click();
+  await expect(page.locator('[data-home-pane="discovery"]')).toBeVisible();
 }
 
 async function expectHomeModeOrder(page: Page) {
-  await expect(page.locator("[data-home-mode]")).toHaveCount(3);
+  await expect(page.locator("[data-home-mode]")).toHaveCount(4);
   expect(await page.locator("[data-home-mode]").evaluateAll((els) => (
     els.map((el) => el.getAttribute("data-home-mode"))
-  ))).toEqual(["ai", "todo", "lifecycle"]);
+  ))).toEqual(["today", "todo", "discovery", "lifecycle"]);
 }
 
 async function expectHomeChromeRow(page: Page) {
@@ -431,9 +441,10 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expect(page.locator('[data-nav="approvals"]')).toContainText("审批");
   await expect(page.locator('a[href="/pipeline"]')).toHaveCount(0);
   await expectHomeModeOrder(page);
-  await expect(page.locator('[data-home-mode="ai"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-recommended-tasks]")).toBeVisible();
-  await expect(page.locator("[data-home]")).not.toContainText("今天推荐");
+  await expect(page.locator("[data-recommended-task]").first()).toContainText("今天推荐");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("AI发现");
   await expect(page.locator("[data-today-work]")).toHaveCount(0);
   await expect(page.locator("[data-today-summary]")).toContainText("项待处理");
   await expect(page.locator("[data-today-summary]")).toContainText("逾期");
@@ -696,7 +707,7 @@ test("home lifecycle followed KOL opens the mail rail not the task list", async 
 
 test("home followed-KOL tabs filter 17 statuses and open the KOL session", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator('[data-home-mode="ai"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-today-summary]")).toContainText("项待处理");
   await openHomeLifecycle(page);
   await expect(page.locator("[data-kol-tab]")).toHaveCount(17);
@@ -1230,21 +1241,23 @@ test("home recognizing feedback is labeled 识别中", async ({ page }) => {
 test("home AI insight is confirmed into 我的待办 and 立即处理 opens the KOL session", async ({ page }) => {
   await page.goto("/");
   await expectHomeModeOrder(page);
-  await expect(page.locator('[data-home-mode="ai"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-recommended-tasks]")).toBeVisible();
-  await expect(page.locator("[data-home]")).not.toContainText("今天推荐");
+  await expect(page.locator("[data-recommended-task]").first()).toContainText("今天推荐");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("AI发现");
   await expect(page.locator("[data-today-work]")).toHaveCount(0);
   const listedAi = Number(await page.locator("[data-recommended-tasks]").getAttribute("data-list-total") || 0)
     + Number(await page.locator("[data-insight-list]").getAttribute("data-list-total") || 0);
-  await expect(page.locator('[data-home-mode="ai"]')).toHaveAttribute("data-ai-count", String(listedAi));
-  await expect(page.locator('[data-home-pane="ai"]')).toHaveAttribute("data-ai-list-total", String(listedAi));
+  await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("data-ai-count", String(listedAi));
+  await expect(page.locator('[data-home-pane="today"]')).toHaveAttribute("data-ai-list-total", String(listedAi));
   expect(listedAi).toBeGreaterThan(0);
   expect(await page.locator("[data-recommended-task]").count()).toBeGreaterThan(3);
   await expect(page.locator("[data-task-n='1']")).toBeVisible();
   await expect(page.locator("[data-task-n='2']")).toBeVisible();
   await expect(page.locator("[data-task-n='3']")).toBeVisible();
   await expect(page.locator("[data-recommended-task]").first()).toContainText("1.");
-  await expect(page.locator("[data-recommended-task]").first()).toContainText("今日任务");
+  await expect(page.locator("[data-recommended-task]").first()).toContainText("今天推荐");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("AI发现");
   await expect(page.locator("[data-recommended-reason]").first()).not.toHaveText("");
   await expect(page.locator("[data-recommended-tasks]")).not.toContainText("下一阶段");
   await expect(page.locator("[data-recommended-tasks] [data-fold-more]")).toBeVisible();
@@ -2639,7 +2652,7 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   }));
   await page.goto("/");
   await expectHomeModeOrder(page);
-  await expect(page.locator('[data-home-mode="ai"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-today-summary]")).toContainText("1项待处理");
   await expect(page.locator("[data-recommended-tasks]")).toBeVisible();
   await openHomeTodo(page);
