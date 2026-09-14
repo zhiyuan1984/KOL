@@ -67,3 +67,18 @@
 ## Blocker（一句）
 
 REAL 结果入库被 Host 与本地 MediaCrawler MCP 的 `get_creators` 参数契约不一致挡住（Host 发 `task_id/offset/limit`，MCP 要 `page/page_size`），故候选人未进库、`加入跟进` 无法在 REAL 完成。
+
+## Host 契约修复（本 PR）
+
+`backend/src/crawl/service.ts` `fetchCreators` 改为 MCP 契约：
+
+- 只传 `platform`（来自 crawl job）、`page`（1-based，与本地 `backend/mcp/tools.ts` 及 `docs/median_mcp_server.md` 一致）、`page_size`
+- **不**传 `task_id` / `offset` / `limit`
+- 分页：空页或 `has_more === false` 停止；尊重 `total`；无 `has_more` 时满页继续、短页结束
+
+Discovery 仍走既有 `completeJob` → `ingestMediacrawler` → `onCrawlJobSettled` → `creator_candidates`。不另起爬虫栈。海外平台不变（YouTube only in this smoke）。员工 JSON 仍不得泄漏 MediaCrawler / MCP / Job ID。
+
+### 验证
+
+- `backend/tests/mediacrawler.test.ts`：断言 Host 调用 `get_creators` 的 args 为 `platform` / `page` / `page_size`；pydantic-strict mock 拒收 extra fields 时仍能分页拉全量并 `result_ready`
+- `backend/tests/discovery.test.ts`：同一契约下 results + follow 通；无 LIVE send / 无 stage write

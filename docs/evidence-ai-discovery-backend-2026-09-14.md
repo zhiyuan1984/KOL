@@ -33,3 +33,7 @@
 - `backend/src/routers/discovery.ts`
 - `backend/migrations/004_ai_discovery.sql`
 - `backend/tests/discovery.test.ts`
+
+## 2026-09-14 补记：REAL `get_creators` 契约
+
+REAL smoke 上 Host 曾用 `task_id` / `offset` / `limit` 调 `get_creators`，被 MediaCrawler pydantic 拒收，job 卡在 `analyzing`，候选人无法入库。Host 现只传 `platform` / `page` / `page_size`。详见 `docs/evidence-ai-discovery-smoke-2026-09-14.md`。
