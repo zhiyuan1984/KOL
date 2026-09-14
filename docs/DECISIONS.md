@@ -49,7 +49,7 @@
 | ADR-022 | MediaCrawler → Starry 跟进桥：三模式；条件批量本期全开（粉丝 / 近10均播 / Host 评分 / 平台 / 地区）；无邮箱仍单行 `importKolProfilesFromCrawler`；跟进+主档一张 L3 卡（每 `source_batch` 一次）；采集不写 Starry；成功才跟进（真实 `kolUid`）；禁发信/改阶段/解密/编造邮箱；门槛只在 Host。服从 ADR-018 / ADR-011 / ADR-019 | `07-mcp-data-contract.md`、`19-ui-ux-constitution.md`、`08-permission-approval-audit.md`、`policies/import_creator.yaml` |
 | ADR-023 | 智能体中台十六项一等能力；KOL=首个试点不是平台壳；技能入口密度=UX（禁止图鉴压过任务脊柱）；数字团队预留未实现，禁止专家团假导航，不得永久禁「数字团队」名词。「支撑」≠ 二等。服从 ADR-015 精神；修订 ADR-016 中「员工默认禁技能 / 不要求数字团队」的过度读法。**硬锁：** 禁止员工侧栏挂「生命周期」或 `/pipeline` 主入口；Pipeline 页只许深链 / CTA | `CONSTITUTION.md`、`employee-surface-contracts.md`、`21-admin-employee-page-roles.md`、`docs/evidence-platform-law-gap-2026-09-14.md`、`docs/evidence-constitution-reconcile-2026-09-14.md` |
 
-「四页法律」（ADR-012）锁定的是各页只答一问（尤其 Pipeline 不得复制 Home 待办），**不是**「Pipeline 必须进员工侧栏」。**禁止**侧栏挂「生命周期」或 `/pipeline` 主入口。后续 ADR 里「不削弱四页法律」按此读。权威清单仍是 `CONSTITUTION.md` §4.1–4.2。
+**废止读法：** 「四页法律 / 四页分工 / 员工四表面」不得再被读成 Pipeline 是平台核心导航。现行：Home+Chat = 平台任务/会话脊柱；Pipeline = KOL 试点页（§4.2），**禁止**侧栏挂「生命周期」或 `/pipeline` 主入口。后文若仍写「四页法律」一律按此句，不以旧 P0 为准。权威清单仍是 `CONSTITUTION.md` §4.1–4.2。
 
 ## 新增 Agent 分级
 
@@ -96,7 +96,7 @@ Host 用 15 段 + 旁路的本地码（如 `NEGOTIATING`）做确认卡、审计
 - 代码：`planStarryAdjacentWalk`、`writeRemoteOfficialStage`（单 hop 邻接校验）、`writeRemoteOfficialStageWalk`、`syncConfirmedStageToMcp`
 - 测试：`changeLifecycleStage` 仅 `{ lifecycleId, requestJson: { toStageCode, reason } }`；skip → adjacent walk；确认卡/审计保留 skip 原因
 
-## ADR-012 — 四页分工与 Pipeline 非目标（2026-09-13）
+## ADR-012 — 页职责与 Pipeline 非目标（2026-09-13；§4.2 修订）
 
 **状态**：已固化  
 **决策人**：产品负责人
@@ -107,7 +107,7 @@ Pipeline 曾把首页任务芯片、「本页动作」伪芯片和 Chat 会话�
 
 ### 决定
 
-1. **四页只各答一问。** Home = 现在做什么与等待诚实（结果待确认·已入队·执行中·等审批）。Pipeline = 正式生命周期坐落。Chat = 如何完成一件具体任务。Admin = 谁 / 权限 / 审计。**修订（2026-09-14 硬锁）：** 本条锁定的是 Pipeline **页职责**（禁止复制 Home 待办）。**禁止**员工侧栏挂「生命周期」或 `/pipeline` 主入口；页只许深链 / 产品内 CTA。
+1. **平台脊柱 + 试点页各答一问。** Home + Chat = 平台任务/会话脊柱（现在做什么；完成一件具体任务）。Pipeline = **KOL 试点**正式生命周期页，不是平台核心导航，**禁止**员工侧栏主入口。Admin = 谁 / 权限 / 审计。Pipeline 仍禁止复制 Home 待办。页只许深链 / 产品内 CTA。
 2. **Pipeline 是资产页，不是待办页。** 只展示正式阶段、品牌/负责人、停留、近期事件、同步来源/时间、阶段风险、允许的阶段变更提案。筛选限于 `brand|owner|stage|region|kol|sync` 与旁路/异常侧状态。无 `?kol=` 时不默认选中第一名红人；详情是次要抽屉，不是主栏小说。
 3. **阶段动作只有「提出阶段变更」。** 打开既有合作会话的 `confirm_stage` 确认卡，走既有人确认 / 审批 / 写入。不在 Pipeline 发明 LIVE 发送、新权限模型，也不为邮件/分析/风险快捷方式新建 Chat 会话。
 4. **缺字段用诚实空态。** `api.pipeline` 已有阶段/停留/负责人则展示；近期事件、同步时间、往来摘要、审计若未返回，省略或写「本页未返回」，不得伪造。
@@ -133,7 +133,7 @@ Admin 导航和页面与员工连接器/智能体表面重叠：员工侧栏深�
 
 ### 决定
 
-1. **不改四页法律。** Home / Pipeline / Chat / Admin 仍各答一问。`/agents` 仍是员工工作入口。管理端展开为配套套件，不是第五套员工页，也不是第二套 Home / Pipeline / Agents。
+1. **不改平台脊柱。** Home+Chat 仍是任务/会话面；Pipeline 仍是 KOL 试点页（§4.2），不是第二套员工核导航。`/agents` 仍是员工工作入口。管理端展开为配套套件，不是第五套员工页，也不是第二套 Home / Pipeline / Agents。
 2. **连接器治理只在管理端枢纽。** `/admin/connectors` + `/admin/connectors/:id`：启用、凭据引用永不回显、员工 read/write、组织 Starry 策略。个人邮箱绑定只留 Settings。
 3. **Agent 治理页替换跳转。** 新 `/admin/agents` 管发布状态、可写范围、考试闸门、连接器授权矩阵；管理端顶栏不再跳员工 `/agents`。
 4. **导航与 chrome 分家。** 去掉员工侧栏管理端深链；管理端健康条用治理文案，不克隆员工 remote-pill。遗留「本期连接器」与 SkillHub 调试砖收敛到枢纽。
@@ -146,7 +146,7 @@ Admin 导航和页面与员工连接器/智能体表面重叠：员工侧栏深�
 - **员工使用面**合法：独立员工 chrome（如 `/connectors`）只回答「我已被授权可用哪些、对我意味着什么、个人绑定去哪」。这不是枢纽副本，也不是第五套主表面。
 - 「员工不可见配置」= 配置 / 凭据 / 组织策略 / 授权编辑不可见；**不**禁止使用/状态面。员工端零处**治理**目录，不是零处使用面。
 - 员工侧栏若有入口，只链使用面，禁止深链 `/admin/connectors`。个人绑定仍只留 Settings。
-- 不改四页法律，不 LIVE，不新增 UX ID，不在本修订里加后端字段。
+- 不改平台脊柱与 Pipeline 试点页职责（§4.2），不 LIVE，不新增 UX ID，不在本修订里加后端字段。
 
 ### 不决定的范围
 
@@ -165,7 +165,7 @@ Admin 导航和页面与员工连接器/智能体表面重叠：员工侧栏深�
 
 ### 问题与背景
 
-员工侧栏把「定时任务」放在资产簇，并用可见「今日 / 智能体 / 资产」组标题把 chrome 画成目录。这让 `/cron` 看起来像可回看对象，也让组名抢走主路径注意力。四页角色与发送 ≠ 阶段不变。
+员工侧栏把「定时任务」放在资产簇，并用可见「今日 / 智能体 / 资产」组标题把 chrome 画成目录。这让 `/cron` 看起来像可回看对象，也让组名抢走主路径注意力。页职责与发送 ≠ 阶段不变。
 
 ### 决定
 
@@ -175,7 +175,7 @@ Admin 导航和页面与员工连接器/智能体表面重叠：员工侧栏深�
 
 ### 不决定的范围
 
-不预合并「去掉等我确认」「去掉最近」或管理端治理壳；那些由并行侧栏 PR 处理。本决策不改四页法律。
+不预合并「去掉等我确认」「去掉最近」或管理端治理壳；那些由并行侧栏 PR 处理。本决策不改平台脊柱与 Pipeline 试点页职责（§4.2）。
 
 ### 影响
 
@@ -229,7 +229,7 @@ Admin 导航和页面与员工连接器/智能体表面重叠：员工侧栏深�
 
 ### 不决定的范围
 
-不实施前端 / 后端，不 LIVE，不新增 UX ID，不实施 ExpertManifest / 数字员工 API，不改数字员工对象模型 schema。不削弱四页法律、并列能力面（ADR-015）、连接器使用面 vs 治理面、发送 ≠ 推进阶段、或无可见侧栏组标题。不重做 Chat。
+不实施前端 / 后端，不 LIVE，不新增 UX ID，不实施 ExpertManifest / 数字员工 API，不改数字员工对象模型 schema。不削弱平台脊柱与 Pipeline 试点页职责（§4.2）、并列能力面（ADR-015）、连接器使用面 vs 治理面、发送 ≠ 推进阶段、或无可见侧栏组标题。不重做 Chat。
 
 ### 影响
 
@@ -276,7 +276,7 @@ ADR-016（#53）立法：员工专家中心只召唤已发布岗位专家；召�
 
 ### 决定
 
-1. **仍是一页 Home，四个模式。** 不发明第五套主脊柱。四页法律（Home / Pipeline / Chat / Admin）不变——指**页职责**。**禁止**员工侧栏挂 Pipeline。四个模式都在 Home 内。前两项是平台任务模式；后两项是 **KOL 试点特化**，不是中台一等清单。KOL 试点员工文案顺序与默认落地：
+1. **仍是一页 Home，四个模式。** 不发明第五套主脊柱。平台脊柱是 Home+Chat；Pipeline 是 KOL 试点页（§4.2），**禁止**员工侧栏挂 Pipeline。四个模式都在 Home 内。前两项是平台任务模式；后两项是 **KOL 试点特化**，不是中台一等清单。KOL 试点员工文案顺序与默认落地：
 
    ```text
    今日任务 | 我的待办 | AI发现 | 我跟进的红人
@@ -301,7 +301,7 @@ ADR-016（#53）立法：员工专家中心只召唤已发布岗位专家；召�
 
 ### 不决定的范围
 
-不实施前端 / 后端 / CSS / e2e。不实施 ExpertManifest 变更。不 MediaCrawler LIVE。不新增 UX ID。不改数字员工对象模型 schema，也不在本记录落地 CreatorCandidate 表结构。不削弱四页法律、ADR-015 / ADR-016、连接器使用面 vs 治理面、发送 ≠ 推进阶段、或无可见侧栏组标题。不重做 Chat。Home 卡片仍禁止横向滚动；等待态用词必须诚实。
+不实施前端 / 后端 / CSS / e2e。不实施 ExpertManifest 变更。不 MediaCrawler LIVE。不新增 UX ID。不改数字员工对象模型 schema，也不在本记录落地 CreatorCandidate 表结构。不削弱平台脊柱与 Pipeline 试点页职责（§4.2）、ADR-015 / ADR-016、连接器使用面 vs 治理面、发送 ≠ 推进阶段、或无可见侧栏组标题。不重做 Chat。Home 卡片仍禁止横向滚动；等待态用词必须诚实。
 
 ### 影响
 
@@ -332,7 +332,7 @@ ADR-018 已锁定新「AI发现」= CreatorCandidate 线索，不是任务推荐
 
 ### 不决定的范围
 
-不实施前端 / 后端 / CSS / e2e。不新增 UX ID。不发明 TikTok 或「全部平台」支持。不削弱 ADR-018 四模式、四页法律、发送 ≠ 改阶段、Collaboration-on-follow-only。
+不实施前端 / 后端 / CSS / e2e。不新增 UX ID。不发明 TikTok 或「全部平台」支持。不削弱 ADR-018 四模式、平台脊柱与 Pipeline 试点页职责（§4.2）、发送 ≠ 改阶段、Collaboration-on-follow-only。
 
 ### 影响
 
@@ -359,7 +359,7 @@ ADR-018 已锁定新「AI发现」= CreatorCandidate 线索，不是任务推荐
 
 ### 不决定的范围
 
-本记录**只立法、不改 CSS / JSX**。不 LIVE。不削弱核心闭环、四页法律、Home 四模式（ADR-018）、并列能力面（ADR-015）、专家中心（ADR-016）、连接器使用面 vs 治理面、发送 ≠ 推进阶段。不新增 UX ID。字号落地另开前端 PR。
+本记录**只立法、不改 CSS / JSX**。不 LIVE。不削弱核心闭环、平台脊柱与 Pipeline 试点页职责（§4.2）、Home 四模式（ADR-018）、并列能力面（ADR-015）、专家中心（ADR-016）、连接器使用面 vs 治理面、发送 ≠ 推进阶段。不新增 UX ID。字号落地另开前端 PR。
 
 ### 影响
 
@@ -396,7 +396,7 @@ ADR-018 已锁定新「AI发现」= CreatorCandidate 线索，不是任务推荐
 
 5. **卡片元数据底线（有数据才展示）。** 每张卡必须能展示：适用品牌 / 区域 / 阶段 / 场景、版本、生效、来源、已发布。缺字段诚实省略，不得伪造。用词对齐 `14` 的 `brand_scope`、`region_scope`、版本、来源、`effective_from/to`。**先立法 UX 底线，不在本记录迁 schema**；后端可后补字段。
 
-6. **边界不变。** 四页法律不变。不削弱 ADR-015 / 016 / 018 / 019 / 020。连接器使用面 vs 治理面不因本条合并。不发明专家团。不扩张组织权限或审批系统。不 LIVE。
+6. **边界不变。** 平台脊柱与 Pipeline 试点页职责不变。不削弱 ADR-015 / 016 / 018 / 019 / 020。连接器使用面 vs 治理面不因本条合并。不发明专家团。不扩张组织权限或审批系统。不 LIVE。
 
 ### 不决定的范围
 
@@ -453,7 +453,7 @@ ADR-018 已锁定：采集完成只产 CreatorCandidate；**加入跟进才建 C
 
 ### 不决定的范围
 
-不实施前端 / 后端 / CSS / e2e。不 LIVE。不在跟进时改阶段、发信或解密。不新增 UX ID。不发明 TikTok 或「全部平台」。不削弱四页法律、ADR-011 / 018 / 019、发送 ≠ 推进阶段、Collaboration-on-follow-only、连接器使用面 vs 治理面。不扩张组织权限或审批系统。不把 MediaCrawler 采集伪装成同步 Skill。不重做 Chat。实现 PR 另开。
+不实施前端 / 后端 / CSS / e2e。不 LIVE。不在跟进时改阶段、发信或解密。不新增 UX ID。不发明 TikTok 或「全部平台」。不削弱平台脊柱与 Pipeline 试点页职责（§4.2）、ADR-011 / 018 / 019、发送 ≠ 推进阶段、Collaboration-on-follow-only、连接器使用面 vs 治理面。不扩张组织权限或审批系统。不把 MediaCrawler 采集伪装成同步 Skill。不重做 Chat。实现 PR 另开。
 
 ### 影响
 
