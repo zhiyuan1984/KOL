@@ -25,7 +25,7 @@
 紧凑、可扫视、高信息密度，而不是卡片墙。密度靠**紧间距、安静阴影、少装饰**实现，**不得**靠缩小正文字号。Linear 默认仍在（安静阴影、高信息密度、低装饰），但**字号优先可读性**，废除旧「13–14px 紧凑正文」目标。见 ADR-020。
 
 - **正文 / 主阅读：16px**（`--font-body`）。约比旧 13–14px 目标大 15–20%。卡片正文、线程、结果说明走这一档；不要把工作台压回 13px。
-- **UI 控件、按钮、Tab、helper / 次要说明：≥14px**（`--font-sm` / `--font-ui: 14px`，`--font-meta: 14px`）。禁止 12px 辅助字。旧 `--font-ui` / `--font-meta` / `--font-table` 一律映射到这一档。
+- **UI 控件、按钮、Tab：16px**（`--font-ui` → `--font-body`），与正文同档，chrome 不再停在 14px。**helper / 次要说明：≥14px**（`--font-sm` / `--font-meta: 14px`）。禁止 12px 辅助字。`--font-table` 仍别名 `--font-sm`。
 - 标题另档、更大：`--font-section` **18px**、`--font-title` **24px**、`--font-page-title` **28px**（高于 ADR-020 下限 16 / 18，以用户指定档为准）。不要用标题 token 冒充正文。
 - 间距收紧：卡片内边距、行距、组间距按 `--space-*` 五级走，禁止为了「透气」把主窗格撑成仪表盘。**收紧间距 ≠ 缩小正文到 16px 以下。** 字号变大后控件跟着长高（点击热区 ≥36–40px）。
 - 阴影安静：最多一层 `--shadow-quiet` 或只用边框分区；禁止层层叠卡、大圆角毛玻璃。
@@ -36,8 +36,8 @@
 | Token | 值 | 用途 |
 |---|---|---|
 | `--font-xs` | 13px | 仅非 UI/meta 的最小档；**不得**给按钮 / Tab / helper / `--font-meta` |
-| `--font-sm` | **14px** | 按钮、Tab、输入、helper；`--font-ui` / `--font-table` / `--font-meta` 别名 |
-| `--font-body` | **16px** | 正文 / 主阅读：线程、卡片正文、结果说明；`html` 默认 |
+| `--font-sm` | **14px** | 密集 chrome / helper 下限；`--font-table` / `--font-meta` 别名 |
+| `--font-body` | **16px** | 正文 / 主阅读：线程、卡片正文、结果说明；`html` / `body` 默认；`--font-ui` 别名 |
 | `--font-section` | **18px** | 小节 / 卡片标题（≥ ADR 下限 16） |
 | `--font-title` | **24px** | 页内标题（≥ ADR 下限 18） |
 | `--font-page-title` | **28px** | 页面主标题；`--font-hero` 别名 |
@@ -159,8 +159,9 @@
 | 旧名（紧凑档） | 旧值 | 新名 | 新值 | 用法 |
 |---|---|---|---|---|
 | `--font-meta` | 12px | `--font-sm`（`--font-meta` 别名） | **14px** | helper / 时间戳 / 次要说明（ADR-020 下限 14） |
-| `--font-ui` / `--font-table` | 13px | `--font-sm`（二者别名） | **14px** | 按钮、页签、表格 |
-| `--font-body` | 13px | `--font-body` | **16px** | 正文基线；`html` 默认 |
+| `--font-table` | 13px | `--font-sm`（`--font-table` 别名） | **14px** | 密集表格 |
+| `--font-ui` | 13px | `--font-body`（`--font-ui` 别名） | **16px** | 按钮、页签、导航，与正文同档 |
+| `--font-body` | 13px | `--font-body` | **16px** | 正文基线；`html` / `body` 默认 |
 | `--font-section` | 14px | `--font-section` | **18px** | 小节 / 卡片标题 |
 | `--font-title` | 18px | `--font-title` | **24px** | 页内标题 |
 | `--font-hero` | 28px | `--font-page-title`（`--font-hero` 别名） | **28px** | 页面主标题 |
