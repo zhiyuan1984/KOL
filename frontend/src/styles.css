@@ -2679,9 +2679,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   overflow: visible;
   box-shadow: 0 18px 48px rgba(15, 23, 32, .18);
 }
-.cascade-menu > button,
-.cascade-submenu > button,
-.cascade-submenu > a {
+.cascade-menu > button {
   min-height: 42px;
   display: flex;
   align-items: center;
@@ -2689,6 +2687,25 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   padding: 9px 10px;
   border-radius: 9px;
   font-size: var(--font-sm);
+}
+/* Nested skills live in .submenu-scroll; descendant selectors keep flex + gap. */
+.cascade-submenu button,
+.cascade-submenu a,
+.submenu-scroll > button {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  font-size: var(--font-sm);
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
 }
 .cascade-menu > button > span:not(.menu-arrow) { flex: 1; }
 .cascade-icon { width: 20px; height: 20px; flex: 0 0 20px; color: var(--muted); }
@@ -2704,8 +2721,13 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   overflow-y: auto;
   box-shadow: 0 18px 48px rgba(15, 23, 32, .18);
 }
-.cascade-submenu button > span:not(.cascade-icon),
-.cascade-submenu a > span:last-child { min-width: 0; display: grid; gap: 2px; }
+.cascade-submenu button > span,
+.cascade-submenu a > span:last-child {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 2px;
+}
 .cascade-submenu strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-ui); }
 .cascade-submenu small { color: var(--muted); font-size: var(--font-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .submenu-scroll { max-height: 330px; overflow-y: auto; display: grid; }
