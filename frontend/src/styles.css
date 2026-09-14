@@ -2382,6 +2382,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   font-size: var(--font-ui);
 }
 .expert-detail-summon { padding-top: var(--space-2); }
+.expert-detail-summon .btn.work {
+  justify-self: start;
+  width: auto;
+}
 .expert-session-bar {
   display: grid;
   gap: var(--space-2);
