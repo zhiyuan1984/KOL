@@ -40,6 +40,19 @@ ADR-023 修宪后，下列法律仍把 Pipeline 侧栏写成硬入口或「可�
 - 发送 ≠ 阶段、L1–L3、连接器使用 ≠ 治理
 - `references/` 与过期 evidence 扫描正文保持历史快照
 
+## employee-21 hunt（6 REWRITE / 0 delete）
+
+文件未入 checkout。对照现行正文：
+
+| ID | 要求 | 落地 |
+|---|---|---|
+| ESC-KOL-01/02 | 「会话/KOL 工作台」→ 中台/会话工作台 | 已改（`employee-surface-contracts.md` 闭环段 + §1） |
+| ESC-PIPE-01 | 侧栏「生命周期（Pipeline）」不是平台义务 | **强于 hunt：** 资产簇已删除该项；禁止侧栏挂「生命周期」或 `/pipeline`（硬锁优先于「可挂 UX」） |
+| ADM-PIPE-01 | `21` 员工总「只回答」勿把生命周期当平台问句 | 已移到 Pipeline 行并标试点页；员工总行禁止侧栏主入口 |
+| ESC-LIST-01 | 十六项括注含数字团队或见 §4.1 全表 | 已写「十六项全表（含数字团队预留…见宪法清单）」 |
+| CM-ROUTE-01 | CONTEXT 补技能/数字团队/审批/考试/cron | 路由表已补四行 |
+| 21 L154 keep | Pipeline 为「KOL 试点资产」 | **页**身份保留为 KOL 试点资产；**左栏必须列不含该入口**（硬锁） |
+
 ## Hunt 续扫（文件未入本工作区；按用户摘要落地）
 
 `docs/evidence-unconstitutional-clauses-ux-visual-2026-09-14.md`（8 hits）、`…-mainline-00-18-…`（30 rows）、`…-employee-21-…`（6 REWRITE）未出现在本 checkout。下列按用户/队列摘要 **DELETE/REWRITE**，侧栏 Pipeline 仍服从硬锁（禁止左栏，不是「可挂 UX」）。
