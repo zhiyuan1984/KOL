@@ -14,6 +14,24 @@ function isPassed(row: ExamAssignment): boolean {
   return Boolean(row.passed);
 }
 
+function asAssignments(rows: unknown): ExamAssignment[] {
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap((row) => {
+    if (!row || typeof row !== "object") return [];
+    const rec = row as Record<string, unknown>;
+    const id = String(rec.id || "");
+    if (!id) return [];
+    return [{
+      id,
+      title: rec.title == null ? undefined : String(rec.title),
+      description: rec.description == null ? undefined : String(rec.description),
+      due_at: rec.due_at == null ? null : String(rec.due_at),
+      passed: rec.passed as ExamAssignment["passed"],
+      required: rec.required as ExamAssignment["required"],
+    }];
+  });
+}
+
 export default function Exam() {
   const [assignments, setAssignments] = useState<ExamAssignment[] | null>(null);
   const [gateBlocked, setGateBlocked] = useState(false);
@@ -23,12 +41,12 @@ export default function Exam() {
     let cancelled = false;
     void Promise.all([
       api.me().catch(() => null),
-      api.examAssignments().catch(() => [] as ExamAssignment[]),
+      api.examAssignments().catch(() => []),
     ])
       .then(([me, rows]) => {
         if (cancelled) return;
         setGateBlocked(me?.exam_passed === false);
-        setAssignments(Array.isArray(rows) ? rows : []);
+        setAssignments(asAssignments(rows));
       })
       .catch((e) => {
         if (cancelled) return;
