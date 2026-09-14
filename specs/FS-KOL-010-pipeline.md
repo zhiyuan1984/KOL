@@ -17,7 +17,7 @@ status: approved
 
 规则：BR-PIPE-001 Pipeline 不得复制 Home 待办桶或 Chat 技能启动器；BR-PIPE-002 无 `?kol=` 时不默认选中第一名红人；BR-PIPE-003 缺近期事件/同步时间/往来摘要/审计时用诚实空态，不得伪造；BR-STAGE-004 仅既有 `confirm_stage` 可写阶段。
 
-实现引用：`frontend/src/pages/Pipeline.tsx`、`docs/19-ui-ux-constitution.md` 四页分工、`FS-KOL-006`。
+实现引用：`frontend/src/pages/Pipeline.tsx`、`docs/CONSTITUTION.md` 表面职责、`FS-KOL-006`。
 
 验收（TEST-KOL-010）：资产页无「首页任务」「本页动作」芯片；无 Journey 教练条；无默认第一 KOL；点行打开抽屉；`?kol=` 深链仍打开对应详情；阶段按钮文案为「提出阶段变更」且不发起写邮件/风险扫描会话。
 

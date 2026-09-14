@@ -1,6 +1,6 @@
 # 首页「我跟进的红人」工作卡契约
 
-`docs/04-ux-ui-system.md` 的首页跟进卡实例，服从 `docs/19-ui-ux-constitution.md` 四页分工与 `specs/UX-KOL.md`（尤其 `UX-SEND-NE-STAGE`、`UX-STATE-VISIBLE`）。阶段写入仍只走 `FS-KOL-006`；正式 15 阶段资产板仍只坐落在 Pipeline（`FS-KOL-010`）。
+`docs/04-ux-ui-system.md` 的首页跟进卡实例，服从 `docs/CONSTITUTION.md` 表面职责、`docs/employee-surface-contracts.md` 与 `specs/UX-KOL.md`（尤其 `UX-SEND-NE-STAGE`、`UX-STATE-VISIBLE`）。阶段写入仍只走 `FS-KOL-006`；正式 15 阶段资产板仍只坐落在 Pipeline（`FS-KOL-010`）。
 
 **状态：** 首页工作卡已在 PR #31 落地（`frontend/src/followedKolCard.ts` + `FollowedKolWorkCard`，从现有 `/api/home/board` 投影；无 Host API 扩面、无 LIVE 写阶段、Home 不做第二套 Pipeline）。本 residual PR 补齐验收 PARTIAL：`scope.mailbox` 芯片、状态带字段分离、首页去掉跟进风格标签、Journey / 首页不再用「发送不等于改阶段」通用 copy。
 

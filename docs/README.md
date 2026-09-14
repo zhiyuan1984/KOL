@@ -1,6 +1,58 @@
 # 灵工数字员工中台文档体系
 
-本目录只有一条现行规范主线。阅读顺序从宪法、组织与领域，到功能规格、体验、Agent 契约、执行内核、测试和运营；新增 Agent 默认不新增一套调度器或业务规范。
+本文件是项目规范的唯一使用入口。不要从文件编号顺序开始全量阅读；先确定任务类型，再按下列流程加载最少的权威上下文。
+
+## 最终使用方法
+
+### UI 设计或前端实现
+
+```text
+CONSTITUTION.md
+→ 对应 FS / UX-KOL 验收条目
+→ design-system/kol-workbench/MASTER.md
+→ design-system/kol-workbench/pages/<当前页面>.md
+→ 仅针对未解决问题调用 ui-ux-pro-max
+→ 实现并按 UX ID、视口和无障碍要求验证
+```
+
+### 业务、API 或后端实现
+
+```text
+CONSTITUTION.md 中相关边界
+→ 对应 FS
+→ 数据模型 / Policy / MCP 物理契约
+→ traceability 中对应测试与红线
+```
+
+安全、权限、租户边界和真实数据永远以 FS、Policy 与数据契约为准，不能被体验原则覆盖。
+
+### 验收或回归
+
+```text
+改动对应的 FS / UX ID
+→ specs/traceability.json 或 specs/ux-traceability.json
+→ 对应自动化测试、截图、回执或脱敏 Trace
+```
+
+没有追踪关系和证据的交互只能标记为“规格存在”，不能标记为“体验验收通过”。
+
+### 研究、追溯和历史决策
+
+只有需要回答“为什么这样设计”时才读取 `DECISIONS.md`、证据文档或 `references/`。它们不能覆盖现行契约。
+
+### 文档裁决
+
+| 问题 | 读取并服从 |
+|---|---|
+| 安全、权限、数据事实 | FS、Policy、数据契约 |
+| 产品闭环与表面职责 | `CONSTITUTION.md` |
+| 可执行交互与发布验收 | `specs/UX-KOL.md`、追踪矩阵 |
+| 全局视觉与组件 | `design-system/kol-workbench/MASTER.md` |
+| 单页布局与状态 | 对应 `pages/*.md` |
+
+详细按需路由见 `CONTEXT-MANIFEST.md`。给 Codex 下达任务时，可以直接要求：“先按 `docs/README.md` 判断任务类型并加载所需规范，再实施和验证。”
+
+`references/` 只用于研究和追溯，默认不进入实现上下文。
 
 ## 现行主线阅读顺序
 
@@ -8,7 +60,7 @@
 2. `01-organization-tenancy.md`：公司、组织、品牌、角色和数据范围
 3. `02-domain-model.md`：数字员工、Agent、Skill、Task 和 WorkItem
 4. `03-prd-and-functional-spec.md`：概念、PRD、功能规格和需求追踪
-5. `04-ux-ui-system.md`：双端、任务驱动、等待态、L1-L3 和无障碍；产品级体验宪法见 `19-ui-ux-constitution.md`；工作台视觉/token 默认见 `20-visual-design-system.md`
+5. `04-ux-ui-system.md`：双端、任务驱动、等待态、L1-L3 和无障碍；仅在交互、风险或验收任务中按需读取
 6. `05-agent-workflow-skill-policy.md`：Agent、Workflow、Skill、Policy、8/15 阶段
 7. `06-codex-harness.md`：Codex app-server、Host 边界和 Stub
 8. `07-mcp-data-contract.md`：真实 MCP、数据字典和适配规则
@@ -23,9 +75,9 @@
 17. `16-production-test-plan.md`：功能、红线、真实链路和发布门禁测试
 18. `17-code-conformance-scan.md`：前后端代码违宪扫描报告
 19. `18-mcp-master-data-assessment.md`：MCP 主数据能力与组织主数据边界
-20. `19-ui-ux-constitution.md`：员工端体验宪法（核心闭环、四页分工、Home 内四模式、员工侧栏 IA、并列能力面与 Agent/任务解耦、员工 `/kb` 知识库=查找/预览/收藏/用于当前任务而非邮件台、`/agents` 专家中心=召唤岗位专家、Agent 表面、结果优先）
-21. `20-visual-design-system.md`：KOL-UI 工作台视觉/token 默认（Linear 密度、**16px 正文** / UI≥14px、禁止 scale 假装字号、shadcn 基底、indigo 主色）
-22. `21-admin-employee-page-roles.md`：管理端 ↔ 员工端页面角色（连接器治理枢纽/详情 vs 员工使用面、员工 `/kb` ≠ 管理知识治理、`/admin/agents` 治理 ≠ 员工专家中心、导航与遗留收敛；并列能力面独立于 Agent/任务队列见 `19`；不改 `19` 四页法律）
+20. `employee-surface-contracts.md`：员工核心工作表面与支撑能力面的详细契约；`19-ui-ux-constitution.md` 只保留历史链接兼容
+21. `20-visual-design-system.md`：旧视觉方案与 token 迁移依据；现行视觉入口为 `design-system/kol-workbench/MASTER.md`
+22. `21-admin-employee-page-roles.md`：管理端 ↔ 员工端边界（连接器治理 vs 员工使用、员工 `/kb` vs 管理知识治理、`/admin/agents` vs 员工专家中心）
 23. `90-codebase-handbook.md`：代码地图和修改归属
 
 ## 事实来源
