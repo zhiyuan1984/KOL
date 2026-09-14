@@ -2451,6 +2451,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .composer-template-preview-subject {
   color: var(--muted);
 }
+.composer-template-preview--lock {
+  padding-block: 6px;
+}
 .composer-template-preview-excerpt {
   margin: 6px 0 0;
   color: var(--text);

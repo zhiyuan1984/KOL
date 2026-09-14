@@ -95,8 +95,9 @@ export type LockedMailTemplate = {
 };
 
 export type KbFillStash = LockedMailTemplate & {
-  starter: string;
+  starter?: string;
   skill_id: string;
+  body?: string;
 };
 
 export function lockedTemplateFromRow(
@@ -176,9 +177,30 @@ export function composerStarter(row: Pick<KnowledgeRow, "title" | "placeholders"
   return `${title} ${placeholders.map((part) => (part.startsWith("[") ? part : `[${part}]`)).join(" ")}`;
 }
 
+/** Prefer the English mail body in the composer; fall back to the short starter. */
+export function composerFillText(
+  row: Partial<Pick<KnowledgeRow, "body_en" | "body" | "title" | "placeholders" | "starter">>,
+): string {
+  const body = String(row.body_en || row.body || "");
+  if (body.trim()) return body;
+  return composerStarter({
+    title: row.title || "",
+    placeholders: row.placeholders,
+    starter: row.starter,
+  });
+}
+
+export function composerHoldsTemplateBody(value: string, body?: string): boolean {
+  const compact = (text: string) => text.replace(/\s+/g, " ").trim();
+  const needle = compact(body || "");
+  if (!needle) return false;
+  return compact(value).includes(needle);
+}
+
 export function stashComposerFill(row: KnowledgeRow) {
   const payload: KbFillStash = {
     ...lockedTemplateFromRow(row),
+    body: row.body || "",
     starter: composerStarter(row),
     skill_id: row.skill_id || row.intent || "",
   };
@@ -195,7 +217,8 @@ export function peekComposerFill(): KbFillStash | null {
     const raw = sessionStorage.getItem(KB_FILL_STASH);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as KbFillStash;
-    if (!parsed?.id || !parsed.starter) return null;
+    if (!parsed?.id) return null;
+    if (!composerFillText(parsed).trim()) return null;
     return parsed;
   } catch {
     return null;

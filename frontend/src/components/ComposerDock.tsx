@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { KnowledgeRow } from "../api";
 import {
-  composerStarter,
+  composerFillText,
+  composerHoldsTemplateBody,
   pickDefaultMailTemplate,
   skillLabel,
   templateBodyExcerpt,
@@ -368,9 +369,9 @@ export default function ComposerDock({
   };
 
   const pickTemplate = (row: KnowledgeRow) => {
-    const starter = composerStarter(row);
+    const fill = composerFillText(row);
     lockSourceRef.current = "explicit";
-    onChange(starter);
+    onChange(fill);
     onKnowledgeChange?.(row);
     setPicker(false);
     setQuery("");
@@ -378,7 +379,7 @@ export default function ComposerDock({
       const node = inputRef.current;
       if (!node) return;
       node.focus();
-      const match = starter.match(/\[[^\]]+\]/);
+      const match = fill.match(/\[[^\]]+\]/);
       if (match && match.index != null) node.setSelectionRange(match.index, match.index + match[0].length);
     });
   };
@@ -452,6 +453,7 @@ export default function ComposerDock({
   const previewSubject = lockedRow?.subject || lockedTemplate?.subject || "";
   const previewBody = lockedRow?.body_en || lockedRow?.body || lockedTemplate?.body_en || "";
   const previewExcerpt = templateBodyExcerpt(previewBody);
+  const bodyInComposer = composerHoldsTemplateBody(value, previewBody);
   const empty = !value.trim() && attachments.length === 0 && !selectedProject;
   const busy = disabled || uploading;
   const workspace = variant === "workspace";
@@ -578,8 +580,9 @@ export default function ComposerDock({
       )}
       {lockedKnowledgeId && (previewTitle || previewBody) ? (
         <aside
-          className="composer-template-preview"
+          className={"composer-template-preview" + (bodyInComposer ? " composer-template-preview--lock" : "")}
           data-knowledge-preview={lockedKnowledgeId}
+          data-knowledge-preview-mode={bodyInComposer ? "lock" : "full"}
           aria-label="已锁定邮件底稿"
         >
           <div className="composer-template-preview-head">
@@ -588,12 +591,12 @@ export default function ComposerDock({
               <span className="composer-template-preview-subject">{previewSubject}</span>
             ) : null}
           </div>
-          {previewExcerpt ? (
+          {!bodyInComposer && previewExcerpt ? (
             <p className="composer-template-preview-excerpt" data-knowledge-preview-body>
               {previewExcerpt}
             </p>
           ) : null}
-          {previewBody && previewBody !== previewExcerpt ? (
+          {!bodyInComposer && previewBody && previewBody !== previewExcerpt ? (
             <details>
               <summary>全文</summary>
               <pre>{previewBody}</pre>
