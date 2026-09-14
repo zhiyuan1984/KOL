@@ -6,11 +6,11 @@ KOL 试点的可执行 UX 实例是 [`specs/UX-KOL.md`](../specs/UX-KOL.md)，�
 
 ## 双端边界
 
-员工端只展示我的任务、品牌、KOL、SOP、草稿、待确认、结果、证据、下一步和异常接管；隐藏 MCP、Codex、Thread、Skill 时序、原始堆栈和连接器**配置**（凭据 / 组织策略 / 授权编辑）。已授权能力的只读使用/状态面见 `21-admin-employee-page-roles.md`，不是配置。管理端提供组织、品牌、Agent、Skill、MCP、知识、Policy、任务、Trace、审计和人工接管。
+员工端只展示我的任务、业务对象、草稿、待确认、结果、证据、下一步和异常接管（品牌 / KOL / SOP 是当前试点数据，不是产品壳）；隐藏 MCP、Codex、Thread、英文 Skill 时序、原始堆栈和连接器**配置**（凭据 / 组织策略 / 授权编辑）。产品名词「技能」是一等能力，侧栏露出 = UX 密度，不是「员工永远不许看见」。已授权能力的只读使用/状态面见 `21-admin-employee-page-roles.md`，不是配置。管理端提供组织、品牌、Agent、技能治理、MCP、知识、Policy、任务、Trace、审计和人工接管。
 
 超级用户可以进入两端和显式调试视图，但仍不能跳过发送、阶段、解密、导入、删除和审批闸门。
 
-表面分类以 `CONSTITUTION.md` 为准：十六项一等能力见 §4.1；KOL 是首个试点不是平台壳见 §4.2。Home、Chat 是员工核心工作表面；Pipeline 与 Home「AI发现」「我跟进的红人」是 KOL 试点特化。Admin 是治理域。「支撑能力面」≠ 二等。详细员工 IA 见 `employee-surface-contracts.md`。Home **内**四模式为今日任务、我的待办、AI发现、我跟进的红人；Pipeline 不得复用首页四模式、待办桶或会话技能启动器。管理端配套套件与员工表面的硬边界见 `21-admin-employee-page-roles.md`。
+表面分类以 `CONSTITUTION.md` 为准：十六项一等能力见 §4.1；KOL 是首个试点不是平台壳见 §4.2。Home、Chat 是员工核心工作表面；Pipeline 与 Home「AI发现」「我跟进的红人」是 KOL 试点特化——**不是**平台默认侧栏义务，缺 Pipeline 导航不是 P0 / 违约。Admin 是治理域。「支撑能力面」≠ 二等。详细员工 IA 见 `employee-surface-contracts.md`。Home 平台模式为今日任务、我的待办；KOL 试点另挂 AI发现、我跟进的红人。Pipeline 页仍存在，不得复用首页四模式、待办桶或会话技能启动器。管理端配套套件与员工表面的硬边界见 `21-admin-employee-page-roles.md`。
 
 ## 任务驱动体验
 

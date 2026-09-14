@@ -6,6 +6,7 @@
 
 | 日期 | 记录 | 说明 |
 |---|---|---|
+| 2026-09-14 | **和解：** Pipeline / 「生命周期」默认侧栏不是平台法律义务（KOL 试点 UX 密度；缺导航 ≠ P0 / 违约）。删除「技能目录不是员工默认入口」残留硬禁。Home「AI发现 / 我跟进的红人」不得再写成平台一等清单。「支撑」≠ 二等。宪法 §4.1–4.2 + ADR-023 仍最高 | 用户怒点。见 ADR-023 本条修订、`docs/evidence-constitution-reconcile-2026-09-14.md`。文档 only；不删 Pipeline 页或 FS-KOL-010；不实施 FE/BE；不 LIVE。 |
 | 2026-09-14 | 产品是**智能体中台**。十六项一等能力（含技能、数字团队预留未实现、考试、项目/云盘/遥控占位、定时、通知、设置等）互不隶属、不隶属 KOL Agent。「支撑」≠ 二等。KOL 只是首个试点；Pipeline / Home「AI发现」「我跟进的红人」是试点特化。技能侧栏露出=UX，不是「员工永远不许看见」。禁止专家团假导航；不得永久禁止名词「数字团队」 | 用户锁定。见 ADR-023、`CONSTITUTION.md` §4.1–4.2、`docs/evidence-platform-law-gap-2026-09-14.md`。本记录不实施 FE/BE，不 LIVE。 |
 | 2026-09-14 | MediaCrawler → Starry 跟进桥：三模式（单个 / 勾选批量 / 条件批量）。条件批量**本期全开**：粉丝 ≥ N、近10均播 ≥ M、Host 评分 ≥ S、平台 / 地区沿用发现计划芯片。无邮箱仍单行 `importKolProfilesFromCrawler`；跟进+主档=一张 L3 确认卡（每 `source_batch` 一次）；采集只产线索；成功才跟进（真实 `kolUid`）；本路径禁发信/改阶段/解密/编造邮箱；入库仍 Host-only；门槛只在 Host（列表预览 + 写入前复核） | 产品锁定。见 ADR-022、`07-mcp-data-contract.md`、`19-ui-ux-constitution.md`。本记录不实施 FE/BE，不 LIVE，不在跟进时改阶段。 |
 | 2026-09-14 | 员工 `/kb` **不是**邮件模板管理台。只回答查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务；邮件模板只是一类资料；主 CTA「用于当前任务」只产未发送草稿；卡片元数据底线可后补字段 | 产品裁定现行员工 `/kb` 不适合。见 ADR-021、`19-ui-ux-constitution.md`。本记录不实施 FE/BE。 |
@@ -46,7 +47,9 @@
 | ADR-020 | 员工工作台正文基线 **16px**；UI / 按钮 / Tab / helper **≥14px**；禁止 scale/zoom 假装字号；Linear 密度靠间距与阴影，不靠缩小正文 | `20-visual-design-system.md`、`19-ui-ux-constitution.md` |
 | ADR-021 | 员工 `/kb` 是并列能力面（ADR-015）：查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务；禁止邮件模板管理台与引擎行话；应用只产未发送草稿；卡片元数据底线先立法、schema 可后补 | `19-ui-ux-constitution.md`、`14-implementation-contract.md`、`21-admin-employee-page-roles.md` |
 | ADR-022 | MediaCrawler → Starry 跟进桥：三模式；条件批量本期全开（粉丝 / 近10均播 / Host 评分 / 平台 / 地区）；无邮箱仍单行 `importKolProfilesFromCrawler`；跟进+主档一张 L3 卡（每 `source_batch` 一次）；采集不写 Starry；成功才跟进（真实 `kolUid`）；禁发信/改阶段/解密/编造邮箱；门槛只在 Host。服从 ADR-018 / ADR-011 / ADR-019 | `07-mcp-data-contract.md`、`19-ui-ux-constitution.md`、`08-permission-approval-audit.md`、`policies/import_creator.yaml` |
-| ADR-023 | 智能体中台十六项一等能力；KOL=首个试点不是平台壳；技能入口密度=UX（禁止图鉴压过任务脊柱）；数字团队预留未实现，禁止专家团假导航，不得永久禁「数字团队」名词。「支撑」≠ 二等。服从 ADR-015 精神；修订 ADR-016 中「员工默认禁技能 / 不要求数字团队」的过度读法 | `CONSTITUTION.md`、`employee-surface-contracts.md`、`21-admin-employee-page-roles.md`、`docs/evidence-platform-law-gap-2026-09-14.md` |
+| ADR-023 | 智能体中台十六项一等能力；KOL=首个试点不是平台壳；技能入口密度=UX（禁止图鉴压过任务脊柱）；数字团队预留未实现，禁止专家团假导航，不得永久禁「数字团队」名词。「支撑」≠ 二等。服从 ADR-015 精神；修订 ADR-016 中「员工默认禁技能 / 不要求数字团队」的过度读法。**和解修订：** Pipeline 默认侧栏不是平台义务；缺导航 ≠ P0 | `CONSTITUTION.md`、`employee-surface-contracts.md`、`21-admin-employee-page-roles.md`、`docs/evidence-platform-law-gap-2026-09-14.md`、`docs/evidence-constitution-reconcile-2026-09-14.md` |
+
+「四页法律」（ADR-012）锁定的是各页只答一问（尤其 Pipeline 不得复制 Home 待办），**不是**「Pipeline 必须进员工默认侧栏」。缺 Pipeline 导航不是 P0 / 违约。后续 ADR 里「不削弱四页法律」按此读。权威清单仍是 `CONSTITUTION.md` §4.1–4.2。
 
 ## 新增 Agent 分级
 
@@ -104,7 +107,7 @@ Pipeline 曾把首页任务芯片、「本页动作」伪芯片和 Chat 会话�
 
 ### 决定
 
-1. **四页只各答一问。** Home = 现在做什么与等待诚实（结果待确认·已入队·执行中·等审批）。Pipeline = 正式生命周期坐落。Chat = 如何完成一件具体任务。Admin = 谁 / 权限 / 审计。
+1. **四页只各答一问。** Home = 现在做什么与等待诚实（结果待确认·已入队·执行中·等审批）。Pipeline = 正式生命周期坐落。Chat = 如何完成一件具体任务。Admin = 谁 / 权限 / 审计。**修订（ADR-023 和解）：** 本条锁定的是 Pipeline **页职责**（禁止复制 Home 待办），不是「Pipeline 必须进员工默认侧栏」。缺 Pipeline 导航不是 P0 / 违约。
 2. **Pipeline 是资产页，不是待办页。** 只展示正式阶段、品牌/负责人、停留、近期事件、同步来源/时间、阶段风险、允许的阶段变更提案。筛选限于 `brand|owner|stage|region|kol|sync` 与旁路/异常侧状态。无 `?kol=` 时不默认选中第一名红人；详情是次要抽屉，不是主栏小说。
 3. **阶段动作只有「提出阶段变更」。** 打开既有合作会话的 `confirm_stage` 确认卡，走既有人确认 / 审批 / 写入。不在 Pipeline 发明 LIVE 发送、新权限模型，也不为邮件/分析/风险快捷方式新建 Chat 会话。
 4. **缺字段用诚实空态。** `api.pipeline` 已有阶段/停留/负责人则展示；近期事件、同步时间、往来摘要、审计若未返回，省略或写「本页未返回」，不得伪造。
@@ -273,7 +276,7 @@ ADR-016（#53）立法：员工专家中心只召唤已发布岗位专家；召�
 
 ### 决定
 
-1. **仍是一页 Home，四个模式。** 不发明第五套主脊柱。四页法律（Home / Pipeline / Chat / Admin）不变。四个模式都在 Home 内。员工文案顺序与默认落地：
+1. **仍是一页 Home，四个模式。** 不发明第五套主脊柱。四页法律（Home / Pipeline / Chat / Admin）不变——指**页职责**，不是 Pipeline 必须进默认侧栏。四个模式都在 Home 内。前两项是平台任务模式；后两项是 **KOL 试点特化**，不是中台一等清单。KOL 试点员工文案顺序与默认落地：
 
    ```text
    今日任务 | 我的待办 | AI发现 | 我跟进的红人
@@ -473,8 +476,8 @@ ADR-018 已锁定：采集完成只产 CreatorCandidate；**加入跟进才建 C
 1. **产品是智能体中台 / Agent middle platform。** 不是 KOL 专用壳。`design-system/kol-workbench/` 只是现行试点皮肤路径名，不是产品身份。
 2. **十六项全部是一等公民**，互不隶属，也不隶属 KOL Agent。未实现或占位不降等。清单以 `CONSTITUTION.md` §4.1 为权威：任务/会话、数字员工、数字团队、技能、知识库、连接器、审批、人员与权限、审计/Trace、考试、项目、云盘、手机遥控电脑、定时/自动化、通知/收件箱、个人设置。
 3. **「支撑」≠ 二等。** ADR-015 精神保留：能力主权、调用单向（Chat 可调能力，能力面不做第二会话/第二 Home）、使用 ≠ 治理、支撑面不复制 Home IA。这些是 IA 禁令，不是位阶降等。
-4. **KOL 只是首个业务实现 / 试点。** Pipeline 与 Home「AI发现」「我跟进的红人」是 KOL 试点特化，不是平台壳。Home「今日任务 / 我的待办」与 Chat 是平台任务/会话面。
-5. **技能是一等能力。** 侧栏是否露出是 UX 密度，**不是**硬「员工必须永远看不见技能」。仍禁止能力图鉴压过任务脊柱，禁止把技能做成 `/agents` 或连接器/知识的上级目录。本记录**不**强制把技能加进员工侧栏。
+4. **KOL 只是首个业务实现 / 试点。** Pipeline 与 Home「AI发现」「我跟进的红人」是 KOL 试点特化，不是平台壳。Home「今日任务 / 我的待办」与 Chat 是平台任务/会话面。**修订（和解 PR）：** Pipeline **页**仍存在（`FS-KOL-010`）；是否进入员工默认侧栏是 KOL 试点 UX 密度，**不是**平台法律义务。缺 Pipeline 导航不是 P0 / 违约。禁止再把「生命周期（Pipeline）」写成侧栏硬入口。
+5. **技能是一等能力。** 侧栏是否露出是 UX 密度，**不是**硬「员工必须永远看不见技能」，也**不是**「技能目录不是员工默认入口」的永久禁令。仍禁止能力图鉴压过任务脊柱，禁止把技能做成 `/agents` 或连接器/知识的上级目录。本记录**不**强制把技能加进员工侧栏。
 6. **数字团队是一等能力，尚未实现。** 预留法律地位与产品名词。禁止「专家团」假导航 / 占位 / 冒名。**不得**永久禁止名词「数字团队」。本记录**不**实施数字团队 UI。
 7. **不变量不变。** 发送 ≠ 推进阶段；L1–L3；连接器使用 ≠ 管理治理。
 
@@ -483,7 +486,8 @@ ADR-018 已锁定：采集完成只产 CreatorCandidate；**加入跟进才建 C
 ADR-016 专家中心「只召唤岗位专家 / 无专家团 / 召唤 ≠ 发送与阶段 / Home 独占任务」仍有效。下列读法被本记录修订：
 
 - 「不要求数字团队（易被读成专家团）」→ 禁止专家团；数字团队另列、预留、未实现。
-- 「技能目录仅显式调试或管理端 / 员工默认禁止 Skill」→ 禁止图鉴压过脊柱与 `/agents` 主 IA；技能一等；入口密度=UX。
+- 「技能目录仅显式调试或管理端 / 员工默认禁止 Skill / 技能目录不是员工默认入口」→ 禁止图鉴压过脊柱与 `/agents` 主 IA；技能一等；入口密度=UX。
+- 「四页法律 ⇒ Pipeline 必须进默认侧栏 / 缺则 P0」→ Pipeline 是试点页；侧栏密度=UX；缺导航不是违约。
 
 ### 不决定的范围
 
@@ -491,7 +495,7 @@ ADR-016 专家中心「只召唤岗位专家 / 无专家团 / 召唤 ≠ 发送�
 
 ### 影响
 
-- 规范：`CONSTITUTION.md` §4；`employee-surface-contracts.md` 技能/数字团队/占位只回答；`21-admin-employee-page-roles.md` 轻同步；`docs/README.md` 平台 vs 试点路由；`04-ux-ui-system.md` 一句指针
-- 证据：`docs/evidence-platform-law-gap-2026-09-14.md`
+- 规范：`CONSTITUTION.md` §4；`employee-surface-contracts.md` 技能/数字团队/占位只回答 + Pipeline 侧栏降为试点 UX；`21-admin-employee-page-roles.md` 侧栏必须表；`docs/README.md` 平台 vs 试点路由；`04-ux-ui-system.md` / `19` / `CONTEXT-MANIFEST.md`
+- 证据：`docs/evidence-platform-law-gap-2026-09-14.md`、`docs/evidence-constitution-reconcile-2026-09-14.md`
 - 代码：本 ADR 不改 JSX / API / CSS
 - 测试：文档评审 only；现行 E2E「侧栏无技能 / 无数字团队」仍是实现快照，不是本记录的永远禁令

@@ -55,6 +55,8 @@
 
 现行 stub E2E 仍断言侧栏无「技能目录」/「数字团队」——那是**实现快照**，不是 ADR-023 的永远禁令。后续若做技能入口或数字团队面，应对照宪法清单改测试，而不是把旧断言当成产品法。
 
+Pipeline 默认侧栏残留硬入口已在 `docs/evidence-constitution-reconcile-2026-09-14.md` 和解：缺 Pipeline 导航不是 P0 / 违约。
+
 ## 交叉引用
 
 - 宪法：`CONSTITUTION.md` §4.1–4.3
