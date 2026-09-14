@@ -72,6 +72,27 @@
 
 后续若安装 AI Elements，只允许它实现上述形，不允许它改写宪法里的注意力法律。
 
+#### PromptInput / Composer 视觉默认
+
+作用域只在 `.composer` / `.composer-dock` / `.home-composer-dock` / `.session-composer`。**不**改全局 `--primary`。Linear 密度：字号不超过本表，靠间距而不是放大 chrome。
+
+Home workspace 与 session Chat 共用同一套 token；Chat 可以略紧，但壳、边、半径和工具栏必须同一视觉语言。Composer 固定在线程脚，不另起教练卡。
+
+| Token / 表面 | 值 |
+|---|---|
+| `--composer-bg` | `#FFFFFF` |
+| `--composer-border` | `#C2D1FF` · 1px |
+| `--composer-radius` | `25px` |
+| `--composer-accent` | `#3568FF`（激活工具、可发送箭头、链接） |
+| 选中 / 工具芯片 | `98×32` · radius `12px` · bg `#F3F6FF` |
+| placeholder | `16px` / `24px` · `#A6A6A6` |
+| 工具栏字 | `14px` / `20px` · `#000000` |
+| 空闲发送箭头 | `#CCCCCC` |
+| 组分隔 | `1×16` · `#E5E5E5` |
+| 圆形侧钮（加号 / 停止） | `36×36` · `#F5F5F5` |
+| 壳宽 | 跟随 rail / dock `width: 100%`；min-height `~100px`。不要为了居中加 `max-width: 875px` 打断 Home 满轨 |
+| 焦点环 | 浅 `--composer-accent`，禁止厚 indigo 光晕 |
+
 ### 4. 主色：indigo / violet；语义色沿用 04
 
 - **主操作**用 indigo / violet（主按钮、焦点环、链接强调、当前项）。
