@@ -179,7 +179,7 @@ Pipeline 的筛选只允许 `brand|owner|stage|region|kol|sync` 与生命周期�
 | 禁止 | 原因 |
 |---|---|
 | Codex / Harness / MCP / Thread / Skill 等引擎行话 | `UX-COPY-ENGINE`。现行「启用后走 Codex harness」违约 |
-| 在 KB 首页 / 页头 / chrome 宣讲「发送 ≠ 改阶段」 | 该不变量仍有效（上文 §4、`UX-SEND-NE-STAGE`），但不在知识库说教；KB 不是布道页 |
+| 在 KB 首页 / 页头 / chrome 宣讲「发送 ≠ 改阶段」 | 该不变量仍有效（本文件 §4、`UX-SEND-NE-STAGE`），但不在知识库说教；KB 不是布道页 |
 | 把整库做成邮件模板管理台 | 邮件模板只是一类资料，不是整库 IA |
 | 主 CTA 做成启用 / 停用 / 发布 / 隐藏 | 治理在管理端；隐藏若残留只许次要偏好 |
 | 从 KB 应用动作发信或写阶段 | 应用只产未发送草稿 |
