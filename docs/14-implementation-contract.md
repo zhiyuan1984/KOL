@@ -79,7 +79,7 @@ quick_prompts:
 entry_skill: stage_sop
 ```
 
-落实 ADR-016：`GET /api/experts` 只返回 `status=published` 岗位专家。召唤响应恰好为 `{ session_id, expert_id, expert_version, intro }`。无专家团 API。本阶段禁止组织/部门/品牌授权、审批模型和专家团队成员字段。员工专家 API 不投影 Profile / Harness / MCP / Codex / Skill catalog / 连接器状态。`validate:contracts` 校验上述锁定字段与 `entry_skill` 存在。
+落实 ADR-016：`GET /api/experts` 只返回 `status=published` 岗位专家。召唤响应恰好为 `{ session_id, expert_id, expert_version, intro }`。无专家团 API。本阶段禁止组织/部门/品牌授权、审批模型和专家团队成员字段。员工专家 API 不投影 Profile / Harness / MCP / Codex / Skill catalog / 连接器状态——这是专家中心不做成图鉴，**不是**「员工永远不许看见技能」（产品「技能」仍是 §4.1 一等能力）。`validate:contracts` 校验上述锁定字段与 `entry_skill` 存在。
 
 ## 前后端契约
 

@@ -40,6 +40,21 @@ ADR-023 修宪后，下列法律仍把 Pipeline 侧栏写成硬入口或「可�
 - 发送 ≠ 阶段、L1–L3、连接器使用 ≠ 治理
 - `references/` 与过期 evidence 扫描正文保持历史快照
 
+## Hunt 续扫（文件未入本工作区；按用户摘要落地）
+
+`docs/evidence-unconstitutional-clauses-ux-visual-2026-09-14.md`（8 hits）、`…-mainline-00-18-…`（30 rows）、`…-employee-21-…`（6 REWRITE）未出现在本 checkout。下列按用户/队列摘要 **DELETE/REWRITE**，侧栏 Pipeline 仍服从硬锁（禁止左栏，不是「可挂 UX」）。
+
+| 主题 | 落地 |
+|---|---|
+| P0：`04` 员工可见面缺 §4.1 十六项 | `04` 双端边界改为平台任务/会话 + 十六项清单，删除 KOL 专用枚举 |
+| `UX-COPY-ENGINE` / `TC-UX-004` 未分家产品「技能」 | `04` L51、`16` TC-UX-004 / F-EMPLOYEE：只禁英文 Skill 时序 |
+| MASTER / pages 路径像 KOL-only | MASTER 改题并声明试点皮肤；`pages/pipeline.md` / `home.md` / `20` 加试点标签 |
+| 「会话/KOL 工作台」壳身份 | `employee-surface-contracts.md` 改为中台/会话工作台 |
+| §4.1 括注漏数字团队 | 表面分工改为「十六项全表（含数字团队预留…）」 |
+| CONTEXT 缺技能/数字团队/审批/考试/cron | 路由表补行 |
+| DECISIONS 四页法律 / ADR-016 禁 Skill / ADR-015 漏项 | 索引 + ADR-015 正文改写；Pipeline=试点页+侧栏硬禁 |
+| 02 / 12 / 14 / 00 软注脚 | 平台 vs 试点一句，不重写 FS |
+
 ## 交叉引用
 
 - 宪法：`CONSTITUTION.md` §4.1–4.3

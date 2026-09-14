@@ -6,7 +6,7 @@ KOL 试点的可执行 UX 实例是 [`specs/UX-KOL.md`](../specs/UX-KOL.md)，�
 
 ## 双端边界
 
-员工端只展示我的任务、业务对象、草稿、待确认、结果、证据、下一步和异常接管（品牌 / KOL / SOP 是当前试点数据，不是产品壳）；隐藏 MCP、Codex、Thread、英文 Skill 时序、原始堆栈和连接器**配置**（凭据 / 组织策略 / 授权编辑）。产品名词「技能」是一等能力，侧栏露出 = UX 密度，不是「员工永远不许看见」。已授权能力的只读使用/状态面见 `21-admin-employee-page-roles.md`，不是配置。管理端提供组织、品牌、Agent、技能治理、MCP、知识、Policy、任务、Trace、审计和人工接管。
+员工端不是 KOL 专用清单。员工可见面 = 平台任务/会话（Home「今日任务 / 我的待办」+ Chat）+ `CONSTITUTION.md` §4.1 **十六项一等能力**（数字员工、数字团队预留、技能、知识库、连接器使用、审批、人员与权限、审计、考试、项目/云盘/遥控占位、定时、通知、个人设置）。隐藏的是引擎行话与治理：MCP、Codex、Thread、**英文 Skill 时序**、原始堆栈、连接器**配置**（凭据 / 组织策略 / 授权编辑）。产品名词「技能」是一等能力，与 `UX-COPY-ENGINE` 分家；侧栏露出 = UX 密度，不是「员工永远不许看见」。品牌 / KOL / SOP 是当前试点数据，不是产品壳。已授权能力的只读使用/状态面见 `21-admin-employee-page-roles.md`，不是配置。管理端提供组织、品牌、Agent、技能治理、MCP、知识、Policy、任务、Trace、审计和人工接管。
 
 超级用户可以进入两端和显式调试视图，但仍不能跳过发送、阶段、解密、导入、删除和审批闸门。
 
@@ -48,6 +48,6 @@ UX 验收只认 `specs/UX-KOL.md` 中的 ID 和 `specs/ux-traceability.json` 的
 | UX-OWNER-NOT-SKIP | 部门负责人仍看到高风险确认/审批卡 | 权限测试 + E2E |
 | UX-SEND-NE-STAGE | 发送卡和阶段卡分离，发送后不推进阶段 | R-006/R-008 |
 | UX-STATE-VISIBLE | queued/running/input/approval/retry/failed/takeover 均有业务文案、时间、产物和下一步 | Playwright 状态矩阵 |
-| UX-COPY-ENGINE | 员工端不出现 MCP/Codex/Thread/Skill/原始堆栈 | 文案扫描 + E2E |
+| UX-COPY-ENGINE | 员工端不出现 MCP/Codex/Thread/**英文 Skill 时序**/原始堆栈。本 ID **不**禁止产品名词「技能」（§4.1 一等能力） | 文案扫描 + E2E |
 
 没有 E2E、截图或脱敏 Trace 的 UX 项只能标记为“规格存在”，不能标记为“体验验收通过”。

@@ -1,6 +1,6 @@
 # 视觉系统迁移索引
 
-> 本文件不再定义任何视觉法律、默认栈或优先级。现行视觉与交互规范只读取 `design-system/kol-workbench/MASTER.md` 和当前 `pages/*.md`。
+> 本文件不再定义任何视觉法律、默认栈或优先级。现行视觉与交互规范只读取 `design-system/kol-workbench/MASTER.md` 和当前 `pages/*.md`。该目录名是 KOL 试点皮肤路径，不是「产品只做 KOL」。
 
 ## 用途
 

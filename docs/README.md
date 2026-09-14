@@ -127,4 +127,4 @@ CONSTITUTION.md 中相关边界
 - `evidence-adr022-p0-follow-import-stub-2026-09-14.md`：ADR-022 P0 stub PASS——单个加入跟进确认后单行 `importKolProfilesFromCrawler`，成功才回填真实 `kolUid`；非 LIVE。
 - `evidence-adr022-p1-batch-follow-stub-2026-09-14.md`：ADR-022 P1 stub——勾选批量 / 条件批量加入跟进（粉丝 / 近10均播 / 评分 / 计划平台地区），部分成功不整批标已跟进；非 LIVE。
 - `evidence-platform-law-gap-2026-09-14.md`：智能体中台十六项一等能力缺口扫描；ADR-023 修宪已落地（文档 only，非 LIVE）。
-- `evidence-constitution-reconcile-2026-09-14.md`：ADR-023 后残留违宪条款和解 + 侧栏硬锁——**禁止**员工侧栏挂「生命周期」或 `/pipeline` 主入口；技能硬禁改为 UX；各法条删改清单。
+- `evidence-constitution-reconcile-2026-09-14.md`：ADR-023 和解 + 侧栏硬锁 + UX/mainline/21 hunt 续扫——禁止侧栏 Pipeline；`04` 十六项清单；`UX-COPY-ENGINE` 与产品「技能」分家。

@@ -27,6 +27,10 @@ CONSTITUTION.md
 | Pipeline（KOL 试点页；禁止侧栏主入口，深链 / CTA 可达） | `pages/pipeline.md` | 加载生命周期、Collaboration、阶段变更对应 FS。员工侧栏不得出现「生命周期」或 `/pipeline` |
 | Admin | `pages/admin.md` | 权限、连接器或审计时加载 `21-admin-employee-page-roles.md` 及对应 FS |
 | `/kb`、`/agents`、员工连接器 | `employee-surface-contracts.md` 中对应章节 | 连接器治理再加载 `21-admin-employee-page-roles.md` |
+| 技能（一等；侧栏露出=UX） | `employee-surface-contracts.md`「预留 / 占位能力」+ `CONSTITUTION.md` §4.1 | 禁止图鉴压过任务脊柱；引擎词仍走 `UX-COPY-ENGINE` |
+| 数字团队（一等；尚未实现） | `CONSTITUTION.md` §4.1 + `employee-surface-contracts.md` | 禁止专家团假导航；不得永久禁该名词 |
+| 审批 / 考试 | `employee-surface-contracts.md`、`08-permission-approval-audit.md` | 管理闸门再加载 `21-admin-employee-page-roles.md` |
+| `/cron` 定时 | `employee-surface-contracts.md` 今日工作簇 | 不得画进资产簇 |
 | 纯视觉/组件 | `MASTER.md` 与当前页面规范 | 只有追溯迁移原因时读取 `20-visual-design-system.md` |
 | API/后端 | 对应 FS、接口或数据模型文档 | 仅当影响 UI 状态或副作用时加载本宪法相关章节 |
 | 回归/验收 | 改动对应的 FS/UX ID | 需要追踪历史原因时读取 `DECISIONS.md` 或证据文档 |
