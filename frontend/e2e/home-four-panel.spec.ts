@@ -62,22 +62,32 @@ test("home four-panel tab order and pane visibility", async ({ page }) => {
 test("home discovery persists plan and requires confirm before crawl or follow", async ({ page, request }) => {
   const livePosts: string[] = [];
   const discoveryPosts: string[] = [];
+  const createdBodies: Array<Record<string, unknown>> = [];
   page.on("request", (item) => {
     if (item.method() !== "POST") return;
     const path = new URL(item.url()).pathname;
     if (LIVE_SIDE_EFFECT.test(path)) livePosts.push(path);
     if (path.startsWith("/api/discovery/")) discoveryPosts.push(path);
+    if (path === "/api/discovery/requests") {
+      createdBodies.push(item.postDataJSON() as Record<string, unknown>);
+    }
   });
 
   await page.goto("/");
   await openMode(page, "discovery");
-  await expect(page.locator("[data-discovery-panel]")).not.toContainText(/MCP|Codex|MediaCrawler|Harness/);
-  await expect(page.locator('[data-discovery-filter="platform"] option[value="tiktok"]')).toHaveCount(0);
-  await expect(page.locator('[data-discovery-filter="platform"] option[value="youtube"]')).toHaveCount(1);
-  await expect(page.locator('[data-discovery-filter="platform"] option[value="facebook"]')).toHaveCount(1);
+  await expect(page.locator("[data-discovery-panel]")).not.toContainText(/MCP|Codex|MediaCrawler|Harness|Job|stub/);
+  await expect(page.locator('[data-discovery-filter="platform"]')).not.toContainText("全部平台");
+  await expect(page.locator('[data-discovery-filter="platform"] [data-discovery-chip="tiktok"]')).toHaveCount(0);
+  await expect(page.locator('[data-discovery-filter="platform"] [data-discovery-chip="youtube"]')).toHaveCount(1);
+  await expect(page.locator('[data-discovery-filter="platform"] [data-discovery-chip="instagram"]')).toHaveCount(1);
+  await expect(page.locator('[data-discovery-filter="platform"] [data-discovery-chip="facebook"]')).toHaveCount(1);
+  await expect(page.locator('[data-discovery-filter="platform"] [data-discovery-chip="youtube"]')).toHaveAttribute("aria-pressed", "true");
   await page.locator("[data-discovery-query]").fill("找北美户外电源评测达人");
-  await page.locator('[data-discovery-filter="platform"]').selectOption("youtube");
-  await page.locator('[data-discovery-filter="region"]').selectOption("na");
+  await page.locator('[data-discovery-filter="platform"] [data-discovery-chip="youtube"]').click();
+  await page.locator('[data-discovery-filter="region"] [data-discovery-chip="us"]').click();
+  await page.locator("[data-discovery-add-direction]").click();
+  await page.locator('[data-discovery-preset="户外电源"]').click();
+  await expect(page.locator('[data-discovery-direction="户外电源"]')).toBeVisible();
   await page.locator("[data-discovery-plan]").click();
   await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
   await expect(page.locator("[data-discovery-plan-card]")).toHaveAttribute("data-discovery-request-status", "open");
@@ -104,6 +114,8 @@ test("home discovery persists plan and requires confirm before crawl or follow",
   expect(body.status_label).toBe("待确认");
   expect(body.latest_run).toBeNull();
   expect(body.platforms).toEqual(["youtube"]);
+  expect(createdBodies[0]?.platforms).toEqual(["youtube"]);
+  expect(createdBodies[0]?.filters).toEqual({ region: "us", directions: ["户外电源"] });
   expect(JSON.stringify(body)).not.toMatch(/MCP|Codex|MediaCrawler|Harness|crawl_job/i);
 
   const results = await request.get(`/api/discovery/requests/${requestId}/results`);
@@ -125,6 +137,37 @@ test("home discovery persists plan and requires confirm before crawl or follow",
   await expect(page.locator("[data-discovery-candidate]")).toHaveCount(0);
   await expect(page.locator("[data-followed-origin]")).toHaveAttribute("data-followed-origin", "collaboration");
   expect(livePosts).toEqual([]);
+});
+
+test("home discovery chips keep query on reset and persist when editing plan", async ({ page }) => {
+  await page.goto("/");
+  await openMode(page, "discovery");
+  const query = page.locator("[data-discovery-query]");
+  await query.fill("找 Instagram 美国家庭旅行达人");
+  await expect(page.locator('[data-discovery-filter="platform"] [data-discovery-chip="instagram"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('[data-discovery-filter="region"] [data-discovery-chip="us"]')).toHaveAttribute("aria-pressed", "true");
+  await page.locator("[data-discovery-add-direction]").click();
+  await page.locator("[data-discovery-direction-input]").fill("家庭旅行");
+  await page.locator("[data-discovery-direction-input]").press("Enter");
+  await expect(page.locator('[data-discovery-direction="家庭旅行"]')).toBeVisible();
+  await expect(page.getByLabel("删除方向：家庭旅行")).toBeVisible();
+  await page.locator("[data-discovery-reset]").click();
+  await expect(query).toHaveValue("找 Instagram 美国家庭旅行达人");
+  await expect(page.locator('[data-discovery-filter="platform"] [data-discovery-chip="youtube"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('[data-discovery-filter="region"] [data-discovery-chip="all"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("[data-discovery-direction]")).toHaveCount(0);
+
+  await page.locator('[data-discovery-filter="platform"] [data-discovery-chip="facebook"]').click();
+  await page.locator('[data-discovery-filter="region"] [data-discovery-chip="ca"]').click();
+  await page.locator("[data-discovery-add-direction]").click();
+  await page.locator('[data-discovery-preset="户外露营"]').click();
+  await page.locator("[data-discovery-plan]").click();
+  await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
+  await page.locator("[data-discovery-cancel-plan]").click();
+  await expect(query).toHaveValue("找 Instagram 美国家庭旅行达人");
+  await expect(page.locator('[data-discovery-filter="platform"] [data-discovery-chip="facebook"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('[data-discovery-filter="region"] [data-discovery-chip="ca"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('[data-discovery-direction="户外露营"]')).toBeVisible();
 });
 
 test("today suggestion convert to todo dedupes", async ({ page }) => {

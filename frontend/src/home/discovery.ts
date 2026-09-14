@@ -17,11 +17,8 @@ export type DiscoveryPhase = "idle" | "plan" | "running" | "results" | "error";
 export type DiscoveryRegion = "all" | "us" | "ca" | "eu" | "au" | "na" | "sea";
 
 export type DiscoveryFilters = {
-  region?: DiscoveryRegion | string;
-  directions?: string[];
-  /** Legacy single-direction field; Host merges it into `directions`. */
-  niche?: string;
-  [key: string]: unknown;
+  region: string;
+  directions: string[];
 };
 
 export type DiscoveryRequestInput = {
@@ -127,6 +124,24 @@ export type DiscoveryFollowResult = CreatorCandidate & {
 
 export const OVERSEAS_DISCOVERY_PLATFORMS: DiscoveryPlatform[] = ["youtube", "instagram", "facebook"];
 
+export const DISCOVERY_REGION_OPTIONS: Array<{ value: DiscoveryRegion; label: string }> = [
+  { value: "all", label: "不限地区" },
+  { value: "us", label: "美国" },
+  { value: "ca", label: "加拿大" },
+  { value: "eu", label: "欧洲" },
+  { value: "au", label: "澳洲" },
+];
+
+export const DIRECTION_PRESETS = ["户外露营", "户外电源", "房车旅行", "徒步旅行", "装备评测", "家庭旅行"] as const;
+
+export const DEFAULT_DISCOVERY_FILTERS: DiscoveryFilters = {
+  region: "all",
+  directions: [],
+};
+
+export const MAX_DIRECTIONS = 8;
+export const MAX_DIRECTION_CHARS = 30;
+
 export const DISCOVERY_BANNED_JARGON = [
   "MCP",
   "Codex",
@@ -226,7 +241,7 @@ export function asRequest(row: unknown): DiscoveryRequest {
     error: item.error == null ? null : String(item.error),
     created_at: item.created_at ? String(item.created_at) : undefined,
     updated_at: item.updated_at ? String(item.updated_at) : undefined,
-    filters: asRecord(item.filters) as DiscoveryFilters,
+    filters: asFilters(item.filters),
     mode: item.mode ? String(item.mode) : undefined,
   };
 }
@@ -254,12 +269,62 @@ export function asResults(row: unknown): DiscoveryResults {
   };
 }
 
+export function asFilters(value: unknown): DiscoveryFilters {
+  const item = asRecord(value);
+  const directions = asStringList(item.directions);
+  const niche = String(item.niche || "").trim();
+  return {
+    region: String(item.region || DEFAULT_DISCOVERY_FILTERS.region),
+    directions: directions.length ? directions : (niche ? [niche] : []),
+  };
+}
+
 export function platformLabel(value: string): string {
   return PLATFORM_LABEL[value as DiscoveryPlatform] || value;
 }
 
 export function regionLabel(value: string): string {
   return REGION_LABEL[value as DiscoveryRegion] || value;
+}
+
+export function guessPlatformFromQuery(query: string): DiscoveryPlatform | undefined {
+  const text = query.toLowerCase();
+  if (/(instagram|\bins\b|\big\b)/i.test(text)) return "instagram";
+  if (/(facebook|\bfb\b|脸书)/i.test(text)) return "facebook";
+  if (/(youtube|\byt\b|油管)/i.test(text)) return "youtube";
+  return undefined;
+}
+
+export function guessRegionFromQuery(query: string): DiscoveryRegion | undefined {
+  if (/加拿大|canada/i.test(query)) return "ca";
+  if (/美国|美國|北美|usa|\bunited states\b/i.test(query)) return "us";
+  if (/欧洲|歐洲|欧盟|europe/i.test(query)) return "eu";
+  if (/澳洲|澳大利亚|澳大利亞|australia/i.test(query)) return "au";
+  return undefined;
+}
+
+export function splitDirectionDraft(raw: string): { complete: string[]; rest: string } {
+  const parts = raw.split(/[,，、]/);
+  if (parts.length <= 1) return { complete: [], rest: raw };
+  return {
+    complete: parts.slice(0, -1),
+    rest: parts[parts.length - 1] ?? "",
+  };
+}
+
+export function addDirections(current: string[], incoming: Iterable<string>): {
+  directions: string[];
+  atMax: boolean;
+} {
+  const next = [...current];
+  for (const raw of incoming) {
+    const name = String(raw || "").trim();
+    if (!name || name.length > MAX_DIRECTION_CHARS) continue;
+    if (next.some((item) => item === name)) continue;
+    if (next.length >= MAX_DIRECTIONS) break;
+    next.push(name);
+  }
+  return { directions: next, atMax: next.length >= MAX_DIRECTIONS };
 }
 
 export function keywordsFromQuery(query: string): string[] {
