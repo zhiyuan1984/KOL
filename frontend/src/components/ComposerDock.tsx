@@ -543,7 +543,9 @@ export default function ComposerDock({
           {chipSkills.map((s) => (
             <span key={s.id} className="skill-chip" data-skill-chip={s.id}>
               {value.includes(`/${labelOf(s)}`) ? "/" : value.includes(`@${labelOf(s)}`) ? "@" : ""}
-              {s.id === lockedIntent ? (lockedLabel || labelOf(s)) : labelOf(s)}
+              {s.id === "email_compose" && (lockedLabel === "写合作邮件" || value.includes("写合作邮件"))
+                ? "写合作邮件"
+                : s.id === lockedIntent ? (lockedLabel || labelOf(s)) : labelOf(s)}
             </span>
           ))}
           {lockedKnowledgeId && (

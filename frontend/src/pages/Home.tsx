@@ -427,9 +427,16 @@ export default function Home() {
       return;
     }
     setLockedKnowledgeId(row.id);
-    setLockedIntent(row.skill_id || row.intent || null);
-    setLockedLabel(row.title);
     setLockedTemplate(lockedTemplateFromRow(row));
+    const skill = row.skill_id || row.intent || null;
+    const keepWriteMail = lockedLabel === "写合作邮件" || text.includes("写合作邮件");
+    if (keepWriteMail && (skill === "email_compose" || !skill)) {
+      setLockedIntent("email_compose");
+      setLockedLabel("写合作邮件");
+      return;
+    }
+    if (skill) setLockedIntent(skill);
+    setLockedLabel(row.title);
   };
   const clearLockedMail = () => {
     setLockedIntent(null);
