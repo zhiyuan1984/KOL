@@ -2675,7 +2675,7 @@ test("admin console uses a left sidebar with short labels for the current accoun
   await expect(page.locator("[data-admin-nav]").first()).toBeVisible();
   const labels = await page.locator("nav[aria-label='管理分类'] [data-admin-nav]").allTextContents();
   expect(labels.map((label) => label.trim())).toEqual([
-    "员工", "数字员工", "连接器", "技能", "审批", "考试", "数据", "知识", "配置",
+    "员工", "数字员工", "连接器", "技能", "审批角色", "考试与分配", "数据·留存·审计", "知识", "KOL配置",
   ]);
   await expect(page.locator("[data-admin-nav='employees']")).toHaveClass(/active/);
   await expect(page.locator("[data-admin-account]")).toContainText("当前账户");

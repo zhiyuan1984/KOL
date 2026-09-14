@@ -3507,11 +3507,14 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   font: inherit;
   font-size: var(--font-ui);
   font-weight: 500;
+  line-height: var(--leading-ui);
   border: 0;
   background: none;
   cursor: pointer;
   text-align: left;
   width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .admin-nav-item:hover {
   background: color-mix(in srgb, var(--primary) 8%, var(--bg-elevated));
