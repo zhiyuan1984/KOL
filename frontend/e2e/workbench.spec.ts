@@ -2242,9 +2242,7 @@ test("KOL / 写合作邮件 fills composer with USD 100 per hour draft", async (
 });
 
 test("send failure stays as persistent error, not toast-success", async ({ page, request }) => {
-  await page.goto("/exam");
-  await page.locator('[data-persona="exam_blocked"]').click();
-  await expect(page.locator("body")).toContainText("未通过");
+  await request.post("/api/me/persona", { data: { persona: "exam_blocked" } });
   await askKolSession(page, request, "col_xiaomei", "写跟进邮件 @小美妆日记");
   await expectDraft(page);
   await openDraftTab(page);
@@ -2252,8 +2250,7 @@ test("send failure stays as persistent error, not toast-success", async ({ page,
   await expect(page.locator("[data-persistent-error]").first()).toBeVisible();
   await expect(page.getByText("已发送原文")).toHaveCount(0);
   await expect(page.locator(".toast-success")).toHaveCount(0);
-  await page.goto("/exam");
-  await page.locator('[data-persona="sriphy"]').click();
+  await request.post("/api/me/persona", { data: { persona: "sriphy" } });
 });
 
 test("admin hides non-P0 connectors", async ({ page }) => {
@@ -2281,8 +2278,7 @@ test("unbound inbound stays on this thread", async ({ page }) => {
 });
 
 test("two buttons stay separate: send keeps stage, confirm-stage advances", async ({ page, request }) => {
-  await page.goto("/exam");
-  await page.locator('[data-persona="sriphy"]').click();
+  await request.post("/api/me/persona", { data: { persona: "sriphy" } });
   await askKolSession(page, request, "col_xiaomei", "写跟进邮件 @小美妆日记");
   await expectDraft(page);
   await openDraftTab(page);
@@ -2637,6 +2633,24 @@ test("approval, knowledge, and exam are vertical primary nav items before cloud"
   await expect(page.getByRole("heading", { name: "知识库" })).toBeVisible();
   await page.locator('[data-nav="exam"]').click();
   await expect(page.getByRole("heading", { name: "学习考试" })).toBeVisible();
+  const exam = page.locator("[data-exam-page]");
+  await expect(exam.locator(".page-kicker")).toHaveText("考试");
+  await expect(exam.getByRole("heading", { name: "考试未就绪" })).toBeVisible();
+  await expect(exam.locator("[data-exam-empty='unready']")).toBeVisible();
+  await expect(exam.getByRole("button", { name: "完成考试" })).toHaveCount(0);
+  await expect(exam.locator("[data-persona-switch], [data-persona]")).toHaveCount(0);
+  await expect(exam).not.toContainText("演示身份");
+});
+
+test("employee exam stays unready and never one-click passes", async ({ page, request }) => {
+  await request.post("/api/me/persona", { data: { persona: "exam_blocked" } });
+  await page.goto("/exam");
+  const exam = page.locator("[data-exam-page]");
+  await expect(exam.getByRole("heading", { name: "考试未就绪" })).toBeVisible();
+  await expect(exam.locator("[data-exam-gate='blocked']")).toContainText("发信仍会被考试闸门拦住");
+  await expect(exam.getByRole("button", { name: "完成考试" })).toHaveCount(0);
+  await expect(exam.locator("[data-persona]")).toHaveCount(0);
+  await expect(page.locator('[data-nav="exam"] .nav-badge')).toContainText("待完成");
 });
 
 test("employee sidebar puts cron in today cluster and hides group titles", async ({ page }) => {
