@@ -451,6 +451,7 @@ export function getDiscoveryResults(id: string): Json {
     run: run ? publicRun(run) : null,
     candidates,
     counts,
+    error: employeeError(current.error),
     ready: counts.suggested_count > 0,
     pending_confirm: String(current.status) === "open" || counts.suggested_count > 0,
     connection: connectionPayload(),
@@ -711,7 +712,7 @@ export async function startDiscoveryRun(input: {
     if (String(job.status) === "result_ready") ingestDiscoveryFromCrawlJob(job as Row);
     return publicRun(run);
   } catch (error) {
-    const source = error instanceof HttpFail ? error.detail : error;
+    const source = error instanceof HttpFail ? error.detail ?? error : error;
     const mapped = mapEmployeeError(source);
     const safe = mapped.message;
     getConn().prepare(

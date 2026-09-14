@@ -107,6 +107,8 @@ describe("employeeError mapping", () => {
     expect(employeeError("远程采集服务未配置。")).toBe("远程采集服务未配置。");
     expect(employeeError("Authorization: Bearer super-secret-token failed")).toBe(COLLECTOR_CONNECT_MESSAGE);
     expect(employeeError("start_crawl returned no task_id")).toBe("发现未完成，请稍后重试。");
+    expect(employeeError({ code: "collector_unreachable", message: COLLECTOR_CONNECT_MESSAGE }))
+      .toBe(COLLECTOR_CONNECT_MESSAGE);
     expect(JSON.stringify(employeeError(STREAMABLE_404))).not.toMatch(/Streamable|HTTP 404|MCP/i);
   });
 });
@@ -256,6 +258,7 @@ describe("discovery run / completeJob surfaces Chinese connection errors", () =>
     expect((results.body.run as Json).status).toBe("failed");
     expect((results.body.run as Json).error).toBe(COLLECTOR_CONNECT_MESSAGE);
     expect(results.body.error).toBe(COLLECTOR_CONNECT_MESSAGE);
+    expect((results.body.request as Json).error).toBe(COLLECTOR_CONNECT_MESSAGE);
     assertEmployeeCopy(results.body);
   });
 

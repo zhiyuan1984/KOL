@@ -45,10 +45,17 @@ export function extractErrorText(value: unknown): string {
   return String(value);
 }
 
+function objectCode(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  return String((value as { code?: unknown }).code || "").trim();
+}
+
 export function isConnectionClassError(value: unknown): boolean {
+  if (objectCode(value) === "collector_unreachable") return true;
   const text = extractErrorText(value);
   if (!text) return false;
   if (isNotConfiguredError(text)) return false;
+  if (text === COLLECTOR_CONNECT_MESSAGE) return true;
   return CONNECTION_CLASS.test(text);
 }
 
@@ -107,6 +114,10 @@ export function persistableEmployeeError(value: unknown): string {
 }
 
 export function collectorFailureCode(value: unknown): "collector_not_configured" | "collector_unreachable" | "discovery_failed" {
+  const code = objectCode(value);
+  if (code === "collector_not_configured" || code === "collector_unreachable" || code === "discovery_failed") {
+    return code;
+  }
   if (isNotConfiguredError(value)) return "collector_not_configured";
   if (isConnectionClassError(value)) return "collector_unreachable";
   return "discovery_failed";

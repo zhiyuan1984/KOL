@@ -120,6 +120,7 @@ export type DiscoveryResults = {
   };
   ready?: boolean;
   pending_confirm?: boolean;
+  error?: string | null;
   connection?: DiscoveryConnection;
 };
 
@@ -301,6 +302,7 @@ export function asResults(row: unknown): DiscoveryResults {
     counts: asRecord(item.counts) as DiscoveryResults["counts"],
     ready: Boolean(item.ready),
     pending_confirm: Boolean(item.pending_confirm),
+    error: item.error == null ? request.error ?? null : String(item.error),
     connection: asConnection(item.connection) || asConnection(item.collector_status) || request.connection,
   };
 }
