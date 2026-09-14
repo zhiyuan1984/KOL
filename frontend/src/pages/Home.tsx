@@ -18,7 +18,13 @@ import { storePending } from "../components/ChatBlocks";
 import Markdown from "../components/Markdown";
 import { starterPrompt } from "../taskStarters";
 import { recIcon, withRecommendedDisplay } from "../recommendedTasks";
-import { clearComposerFill, composerStarter, peekComposerFill } from "../knowledgeCopy";
+import {
+  clearComposerFill,
+  composerStarter,
+  lockedTemplateFromRow,
+  peekComposerFill,
+  type LockedMailTemplate,
+} from "../knowledgeCopy";
 import { FOLLOWED_KOL_TABS } from "../kolStages";
 import { rememberJourney } from "../journey";
 import { missingFieldsMessage, fieldLabel, accountDisplayName, accountEmployeeId, accountInitial } from "../labels";
@@ -403,6 +409,40 @@ export default function Home() {
   const [lockedIntent, setLockedIntent] = useState<string | null>(initialFill?.skill_id || null);
   const [lockedLabel, setLockedLabel] = useState<string | null>(initialFill?.title || null);
   const [lockedKnowledgeId, setLockedKnowledgeId] = useState<string | null>(initialFill?.id || null);
+  const [lockedTemplate, setLockedTemplate] = useState<LockedMailTemplate | null>(
+    initialFill ? lockedTemplateFromRow(initialFill) : null,
+  );
+  const applyLockedKnowledge = (
+    row: (Pick<KnowledgeRow, "id" | "title"> & {
+      skill_id?: string;
+      intent?: string;
+      subject?: string;
+      body_en?: string;
+      body?: string;
+    }) | null,
+  ) => {
+    if (!row?.id) {
+      setLockedKnowledgeId(null);
+      setLockedTemplate(null);
+      return;
+    }
+    setLockedKnowledgeId(row.id);
+    setLockedTemplate(lockedTemplateFromRow(row));
+    const skill = row.skill_id || row.intent || null;
+    const keepWriteMail = lockedLabel === "写合作邮件" || text.includes("写合作邮件");
+    if (keepWriteMail && (skill === "email_compose" || !skill)) {
+      setLockedIntent("email_compose");
+      setLockedLabel("写合作邮件");
+      return;
+    }
+    if (skill) setLockedIntent(skill);
+    setLockedLabel(row.title);
+  };
+  const clearLockedMail = () => {
+    setLockedIntent(null);
+    setLockedLabel(null);
+    applyLockedKnowledge(null);
+  };
   const [params, setParams] = useSearchParams();
   const [draftFocus, setDraftFocus] = useState(initialFill ? 1 : 0);
   const [blockSubmit, setBlockSubmit] = useState(false);
@@ -485,18 +525,14 @@ export default function Home() {
     if (!kid) return;
     if (stashed?.starter) {
       setText(stashed.starter);
-      setLockedIntent(stashed.skill_id || null);
-      setLockedLabel(stashed.title);
-      setLockedKnowledgeId(stashed.id);
+      applyLockedKnowledge(stashed);
       setComposerFocused(true);
       setDraftFocus((value) => (value === 0 ? 1 : value));
     }
     void api.knowledgeItem(kid).then((row) => {
       if (row.status && row.status !== "published") return;
       setText(composerStarter(row));
-      setLockedIntent(row.skill_id || row.intent || null);
-      setLockedLabel(row.title);
-      setLockedKnowledgeId(row.id);
+      applyLockedKnowledge(row);
       setComposerFocused(true);
       setDraftFocus((value) => value + 1);
     }).catch(() => undefined).finally(() => {
@@ -591,7 +627,7 @@ export default function Home() {
     setText(starterPrompt(definition));
     setLockedIntent(definition.skill_id || definition.id);
     setLockedLabel(definition.title);
-    setLockedKnowledgeId(null);
+    applyLockedKnowledge(null);
     setPanelOpen(false);
     setComposerFocused(true);
     setDraftFocus((value) => value + 1);
@@ -612,7 +648,7 @@ export default function Home() {
     setText(String(rec.prompt || rec.title));
     setLockedIntent(intent || null);
     setLockedLabel(rec.title);
-    setLockedKnowledgeId(null);
+    applyLockedKnowledge(null);
     setPanelOpen(false);
     setComposerFocused(true);
     setDraftFocus((value) => value + 1);
@@ -891,9 +927,7 @@ export default function Home() {
           collaboration_id: collaborationId,
           entities: { exception_template: "delay_followup.v1" },
         });
-        setLockedIntent(null);
-        setLockedLabel(null);
-        setLockedKnowledgeId(null);
+        clearLockedMail();
         nav(`/s/${ses.id}`);
         return;
       }
@@ -939,9 +973,7 @@ export default function Home() {
       }
       const created = recognized.task;
       setTasks((current) => current.some((task) => task.id === created.id) ? current : [created, ...current]);
-      setLockedIntent(null);
-      setLockedLabel(null);
-      setLockedKnowledgeId(null);
+      clearLockedMail();
       openRun(await api.runTask(created.id));
     } catch (error) {
       setErr(error instanceof Error ? error.message : String(error));
@@ -1379,13 +1411,9 @@ export default function Home() {
           lockedIntent={lockedIntent}
           lockedLabel={lockedLabel}
           lockedKnowledgeId={lockedKnowledgeId}
-          onKnowledgeChange={(row: KnowledgeRow | null) => {
-            setLockedKnowledgeId(row?.id || null);
-            if (row) {
-              setLockedIntent(row.skill_id || row.intent || null);
-              setLockedLabel(row.title);
-            }
-          }}
+          lockedTemplate={lockedTemplate}
+          stageCode={followedKols.find((kol) => kol.handle && text.includes(`@${kol.handle}`))?.stage_code}
+          onKnowledgeChange={applyLockedKnowledge}
           autoFocus={draftFocus > 0}
           autoFocusToken={draftFocus}
           selectFirstPlaceholder={draftFocus > 0}

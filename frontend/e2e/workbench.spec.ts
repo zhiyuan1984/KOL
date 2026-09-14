@@ -3149,18 +3149,35 @@ test("cited knowledge template appears in the home picker and only prefills", as
   await request.post("/api/knowledge/kb_mail_followup/cite", { data: {} });
   await page.goto("/");
   const input = page.locator("[data-home] [data-composer-input]");
+  const preview = page.locator("[data-home] [data-knowledge-preview='kb_mail_followup']");
+  await input.fill("写合作邮件");
+  await expect(page.locator("[data-home] [data-knowledge-chip='kb_mail_followup']")).toContainText("阶段跟进");
+  await expect(preview).toBeVisible();
+  await expect(preview).toContainText("阶段跟进");
+  await expect(preview.locator("[data-knowledge-preview-body]")).toContainText("LiTime collab kit");
+  await expect(input).toHaveValue(/写合作邮件/);
+  await expect(input).not.toHaveValue(/LiTime collab kit/);
   await input.click();
   await input.fill("/");
   await expect(page.locator("[data-skill-picker] [data-knowledge-option='kb_mail_followup']")).toBeVisible();
   await page.locator("[data-knowledge-option='kb_mail_followup']").click();
   await expect(input).toHaveValue(/阶段跟进/);
+  await expect(input).not.toHaveValue(/LiTime collab kit/);
   await expect(page.locator("[data-knowledge-chip='kb_mail_followup']")).toContainText("阶段跟进");
+  await expect(preview).toBeVisible();
+  await expect(preview.locator("[data-knowledge-preview-body]")).toContainText("LiTime collab kit");
   await expect(page).toHaveURL(/\/(?:\?.*)?$/);
+  await expect(page.locator("[data-home] [data-mail-fields]")).toHaveCount(0);
   await page.locator('[data-nav="knowledge"]').click();
   await expect(page.getByRole("heading", { name: "我的知识库" })).toBeVisible();
   await expect(page.locator('[data-knowledge="kb_mail_followup"]')).toContainText("已启用");
   await page.locator('[data-fill-composer="kb_mail_followup"]').click();
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/阶段跟进/);
+  await expect(page.locator("[data-home] [data-composer-input]")).not.toHaveValue(/LiTime collab kit/);
+  await expect(page.locator("[data-home] [data-knowledge-chip='kb_mail_followup']")).toContainText("阶段跟进");
+  await expect(page.locator("[data-home] [data-knowledge-preview='kb_mail_followup']")).toBeVisible();
+  await expect(page.locator("[data-home] [data-knowledge-preview-body]")).toContainText("LiTime collab kit");
+  await expect(page.locator("[data-home] [data-knowledge-preview-title]")).toContainText("阶段跟进");
 });
 
 test("HTML session payload is shown as a connection error, not SyntaxError", async ({ page, request }) => {

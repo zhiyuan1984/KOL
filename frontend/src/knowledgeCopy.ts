@@ -87,12 +87,50 @@ const JOB_STATUS: Record<string, string> = {
   failed: "抽取失败",
 };
 
-export type KbFillStash = {
+export type LockedMailTemplate = {
   id: string;
+  title: string;
+  subject?: string;
+  body_en?: string;
+};
+
+export type KbFillStash = LockedMailTemplate & {
   starter: string;
   skill_id: string;
-  title: string;
 };
+
+export function lockedTemplateFromRow(
+  row: Pick<KnowledgeRow, "id" | "title"> & Partial<Pick<KnowledgeRow, "subject" | "body_en" | "body">>,
+): LockedMailTemplate {
+  return {
+    id: row.id,
+    title: row.title,
+    subject: row.subject || "",
+    body_en: row.body_en || row.body || "",
+  };
+}
+
+export function pickDefaultMailTemplate<T extends Pick<KnowledgeRow, "id" | "stage_codes">>(
+  rows: T[],
+  stageCode?: string | null,
+): T | null {
+  if (!rows.length) return null;
+  const stage = String(stageCode || "").trim();
+  const staged = stage
+    ? rows.filter((row) => {
+      const codes = row.stage_codes || [];
+      return !codes.length || codes.includes(stage);
+    })
+    : rows;
+  return staged[0] || null;
+}
+
+export function templateBodyExcerpt(body?: string, max = 160) {
+  const compact = String(body || "").replace(/\s+/g, " ").trim();
+  if (!compact) return "";
+  if (compact.length <= max) return compact;
+  return `${compact.slice(0, max).trimEnd()}…`;
+}
 
 export function kindLabel(kind?: string) {
   return KIND_LABEL[kind || ""] || kind || "知识";
@@ -140,10 +178,9 @@ export function composerStarter(row: Pick<KnowledgeRow, "title" | "placeholders"
 
 export function stashComposerFill(row: KnowledgeRow) {
   const payload: KbFillStash = {
-    id: row.id,
+    ...lockedTemplateFromRow(row),
     starter: composerStarter(row),
     skill_id: row.skill_id || row.intent || "",
-    title: row.title,
   };
   try {
     sessionStorage.setItem(KB_FILL_STASH, JSON.stringify(payload));
