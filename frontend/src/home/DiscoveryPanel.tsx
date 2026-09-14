@@ -122,6 +122,7 @@ export default function DiscoveryPanel() {
   };
 
   const buildPlan = async () => {
+    setAddOpen(false);
     const text = query.trim();
     if (!text) {
       setError("先写一句想找的达人，再生成计划。");
@@ -298,7 +299,7 @@ export default function DiscoveryPanel() {
                   </button>
                 </span>
               ))}
-              <div className="discovery-direction-add" ref={addWrapRef}>
+              <div className="discovery-direction-add" ref={addWrapRef} data-open={addOpen || undefined}>
                 <button
                   type="button"
                   className="discovery-chip discovery-chip-add"
@@ -346,7 +347,10 @@ export default function DiscoveryPanel() {
                           data-discovery-preset={name}
                           aria-pressed={filters.directions.includes(name)}
                           disabled={atDirectionMax && !filters.directions.includes(name)}
-                          onClick={() => applyDirections([name])}
+                          onClick={() => {
+                            applyDirections([name]);
+                            setAddOpen(false);
+                          }}
                         >
                           {name}
                         </button>

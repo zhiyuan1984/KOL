@@ -1025,6 +1025,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   position: relative;
   min-width: 0;
 }
+.discovery-direction-add[data-open] {
+  margin-bottom: 168px;
+}
 .discovery-direction-popover {
   position: absolute;
   z-index: 20;

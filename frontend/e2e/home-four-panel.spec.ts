@@ -88,6 +88,7 @@ test("home discovery persists plan and requires confirm before crawl or follow",
   await page.locator("[data-discovery-add-direction]").click();
   await page.locator('[data-discovery-preset="户外电源"]').click();
   await expect(page.locator('[data-discovery-direction="户外电源"]')).toBeVisible();
+  await expect(page.locator("[data-discovery-direction-popover]")).toHaveCount(0);
   await page.locator("[data-discovery-plan]").click();
   await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
   await expect(page.locator("[data-discovery-plan-card]")).toHaveAttribute("data-discovery-request-status", "open");
@@ -161,6 +162,7 @@ test("home discovery chips keep query on reset and persist when editing plan", a
   await page.locator('[data-discovery-filter="region"] [data-discovery-chip="ca"]').click();
   await page.locator("[data-discovery-add-direction]").click();
   await page.locator('[data-discovery-preset="户外露营"]').click();
+  await expect(page.locator("[data-discovery-direction-popover]")).toHaveCount(0);
   await page.locator("[data-discovery-plan]").click();
   await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
   await page.locator("[data-discovery-cancel-plan]").click();
