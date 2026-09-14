@@ -48,7 +48,8 @@
 ## 可执行资产与证据入口
 
 - `../config/org-registry.yaml`、`../config/brand-registry.yaml`：公司、组织、品牌、区域和 PEP 范围事实。
-- `../agents/kol/manifest.yaml`：KOL Agent 唯一发布包入口；当前明确为未发布，员工提交被阻断。
+- `../agents/kol/manifest.yaml`：KOL Agent 唯一发布包入口。
+- `../experts/kol/manifest.yaml`：数字员工发布资产（API `/api/experts`，`expert:kol`）；员工字段锁定见 `evidence-expert-manifest-2026-09-14.md`。
 - `../workflows/`、`../policies/`、`../schemas/`、`../evals/`：运行契约、写入闸门、输入输出 schema 和评价样例。
 - `../specs/traceability.json`、`../specs/ux-traceability.json`：FS/BR/TEST/EVAL 与 UX/测试/E2E 追踪。
 - `../backend/scripts/validate-contracts.mjs`：唯一契约校验入口；同时校验 UX 追踪，不另建编译器。
@@ -60,3 +61,4 @@
 - `evidence-e2e-stub-pipeline-pr24-2026-09-13.md`：PR #24 Pipeline 生命周期清理后 stub E2E 3/3 PASS（`cd6ab81c9194a9ed3cc00aa9d0dbf648c3ba634b`；非 LIVE）。
 - `evidence-mail-digest-analysis-plan-2026-09-13.md`：邮件往来摘要 sticky fail / 可观测性只读审查；产品只批准冷却恢复与失败字段。后续小修：Codex digest 不传 `gpt-5.6-luna`；Luna digest 需要 `OPENAI_BASE_URL`。
 - `evidence-followed-kol-card-acceptance-2026-09-13.md`：首页「我跟进的红人」卡——改版前 FAIL 基线；PR #31 已在 Home 落地工作卡；residual 补齐 mailbox / 状态带 / 首页标签 / Journey copy。契约见 `../specs/UX-FOLLOWED-KOL-CARD.md`。未写入 `ux-traceability.json` 前仍不能当体验验收通过。
+- `evidence-expert-manifest-2026-09-14.md`：首版 `/api/experts` 落实 ADR-016；仅已发布岗位专家；召唤只绑定会话。

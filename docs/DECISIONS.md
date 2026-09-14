@@ -11,6 +11,7 @@
 | 2026-09-13 | 邮件往来摘要 `analysis_failed` 改为冷却后自动再试，并持久化 `error` / `attempted` / `failed_at` | 不是新 ADR。不改 provider、指纹、寒暄过滤或超时。详见 `docs/evidence-mail-digest-analysis-plan-2026-09-13.md`。 |
 | 2026-09-14 | 并列能力面与 Agent / 任务解耦：知识库、审批、考试、连接器使用面是独立产品面，不隶属 KOL Agent，也不因进行中任务才存在 | 不是第五套 Home。治理仍 Admin-only。见 ADR-015、`19-ui-ux-constitution.md`、`21-admin-employee-page-roles.md`。 |
 | 2026-09-14 | 专家中心 = 召唤岗位专家：员工 `/agents` 只找谁协作；无专家团；无员工默认 Skill/MCP/Profile/Harness；召唤 ≠ 发送/阶段；Home 独占任务；能力面仍解耦 | 见 ADR-016、`19-ui-ux-constitution.md`、`21-admin-employee-page-roles.md`。 |
+| 2026-09-14 | 首版 `/api/experts` 落实 ADR-016：仅已发布岗位专家 `expert:kol`；召唤只绑定会话，不发信不写阶段；无专家团 API | 见 ADR-017、`docs/evidence-expert-manifest-2026-09-14.md`。 |
 
 ## 已固化决策
 
@@ -32,6 +33,7 @@
 | ADR-014 | 员工侧栏：定时任务归今日工作簇；簇间用分割线，不画可见「今日 / 智能体 / 资产」组标题 | `19-ui-ux-constitution.md` |
 | ADR-015 | 员工并列能力面（知识库 / 审批 / 考试 / 连接器使用面等）与数字员工开工入口、今日任务队列解耦；KOL 只作数据不定义 IA；治理仍 Admin-only | `19-ui-ux-constitution.md`、`21-admin-employee-page-roles.md` |
 | ADR-016 | 员工 `/agents` 专家中心只召唤已发布岗位专家；无专家团；员工默认禁止 Skill/MCP/Profile/Harness/连接器状态主 IA；召唤只建绑定、不发信不写阶段；Home 独占任务；并列能力面仍解耦（ADR-015） | `19-ui-ux-constitution.md`、`21-admin-employee-page-roles.md` |
+| ADR-017 | 首版 `ExpertManifest` + `/api/experts` 落实 ADR-016：仅 `expert:kol` 已发布；召唤持久化 `expert_id`/`expert_version`；无专家团 API | `02-domain-model.md`、`14-implementation-contract.md`、`experts/kol/manifest.yaml` |
 
 ## 新增 Agent 分级
 
@@ -218,3 +220,29 @@ Admin 导航和页面与员工连接器/智能体表面重叠：员工侧栏深�
 - 规范：`19-ui-ux-constitution.md` 专家中心条款、`21-admin-employee-page-roles.md` 交叉引用、`docs/README.md` 索引
 - 代码：本 ADR 不改 JSX / API
 - 测试：文档评审 only；无新发布门禁项
+
+## ADR-017 — 首版 ExpertManifest / `/api/experts` 落实 ADR-016（2026-09-14）
+
+**状态**：已固化  
+**决策人**：工程（本 PR 落地首版后端）
+
+### 问题与背景
+
+ADR-016（#53）立法：员工专家中心只召唤已发布岗位专家；召唤只建绑定；无专家团；员工默认不见 Profile / Harness / MCP / Codex / Skill catalog / 连接器状态。立法当时不实施 API。本记录是该法律的第一版后端落地，不另立专家中心 IA。
+
+### 决定
+
+1. **服从 ADR-016。** `/api/experts` 只服务已发布岗位专家。无专家团 list/members/placeholder 端点。不把 `/profiles`、`/skills`、`/connectors`、`/api/agent-manifest` 伪装成员工专家 API。`/admin/agents` 仍是治理。并列能力面（ADR-015）不归本 API。
+2. **资产。** `experts/kol/manifest.yaml` 是岗位专家发布对象；`agents/kol/manifest.yaml` 仍是 Agent 发布包。员工文案「数字员工」/「岗位专家」。
+3. **锁定字段。** `id` / `version` / `status=published` / `display_name=KOL 合作专员` / `profession` / `description` / `avatar` / `category` / `tags` / `mission` / `quick_prompts` / `entry_skill`。
+4. **召唤。** `POST /api/experts/:id/summon` 响应恰好 `{ session_id, expert_id, expert_version, intro }`，会话持久化 `expert_id` + `expert_version`。不发信、不写阶段、不 LIVE。
+
+### 不决定的范围
+
+不重做 Chat / `/agents` UI。不做组织/部门/品牌授权、审批模型、专家团队成员。不放宽 LIVE。
+
+### 影响
+
+- 规范：引用 ADR-016、`02-domain-model.md`、`14-implementation-contract.md`
+- 代码：`experts/kol/manifest.yaml`、`backend/src/experts.ts`、`GET/POST /api/experts`
+- 测试：`backend/tests/experts.test.ts`、`validate:contracts`

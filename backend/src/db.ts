@@ -867,6 +867,8 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "sessions", "owner_user_id", "TEXT");
   add(db, "sessions", "archived_at", "TEXT");
   add(db, "sessions", "deleted_at", "TEXT");
+  add(db, "sessions", "expert_id", "TEXT");
+  add(db, "sessions", "expert_version", "TEXT");
   add(db, "inbound", "from_name", "TEXT");
   add(db, "inbound", "summary", "TEXT");
   add(db, "inbound", "deferred", "INTEGER NOT NULL DEFAULT 0");

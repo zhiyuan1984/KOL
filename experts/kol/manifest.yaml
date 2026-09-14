@@ -1,0 +1,19 @@
+{
+  "id": "expert:kol",
+  "version": "0.1.0",
+  "status": "published",
+  "display_name": "KOL 合作专员",
+  "profession": "达人合作",
+  "description": "分析合作、展示适用 SOP、准备草稿和跟进建议。发信与正式阶段写入必须由你确认。",
+  "avatar": "/api/experts/expert:kol/avatar",
+  "category": "达人合作",
+  "tags": ["建联", "跟进", "阶段建议"],
+  "mission": "帮你把达人合作往前推进：看清阶段、准备沟通、给出跟进建议。",
+  "quick_prompts": [
+    "帮我看一下这个红人现在该怎么跟进",
+    "准备一封建联邮件",
+    "这封回复是什么意思",
+    "这一阶段要准备什么"
+  ],
+  "entry_skill": "stage_sop"
+}

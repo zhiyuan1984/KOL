@@ -2,7 +2,31 @@ export type SessionRow = {
   id: string;
   title: string;
   archived_at?: string | null;
+  expert_id?: string | null;
+  expert_version?: string | null;
   agent_status?: "listening" | "running" | "waiting_approval";
+};
+
+export type ExpertManifestView = {
+  id: string;
+  version: string;
+  status: string;
+  display_name: string;
+  profession: string;
+  description: string;
+  avatar: string;
+  category: string;
+  tags: string[];
+  mission: string;
+  quick_prompts: string[];
+  entry_skill: string;
+};
+
+export type ExpertSummonResult = {
+  session_id: string;
+  expert_id: string;
+  expert_version: string;
+  intro: string;
 };
 
 export type AgentRunStatus = NonNullable<SessionRow["agent_status"]>;
@@ -552,6 +576,13 @@ export const api = {
       "/api/task-definitions",
     ),
   agentManifest: () => request<AgentManifestView>("/api/agent-manifest"),
+  experts: () => request<ExpertManifestView[]>("/api/experts"),
+  expert: (id: string) => request<ExpertManifestView>(`/api/experts/${encodeURIComponent(id)}`),
+  summonExpert: (id: string) =>
+    request<ExpertSummonResult>(`/api/experts/${encodeURIComponent(id)}/summon`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
   createTask: (body: Record<string, unknown>) =>
     request<Task | { task: Task }>("/api/tasks", { method: "POST", body: JSON.stringify(body) }),
   createTaskFromText: (body: Record<string, unknown>) =>

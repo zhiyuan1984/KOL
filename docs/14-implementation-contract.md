@@ -30,10 +30,13 @@ agents/<agent-id>/manifest.yaml
 agents/<agent-id>/workflows/<workflow-id>.yaml
 agents/<agent-id>/skills/<skill-id>/SKILL.md
 agents/<agent-id>/policies/<policy-id>.yaml
+experts/<expert-id>/manifest.yaml
 schemas/<entity-or-output>.schema.json
 evals/<agent-id>/<scenario>.jsonl
 knowledge/<domain>/manifest.yaml
 ```
+
+`experts/<expert-id>/manifest.yaml` 是 DigitalEmployee 的发布入口（API 命名 Expert / `expert:kol`），与 Agent 发布包分离。不要把 Expert 写进 `employee_views.entries[].skillId`。
 
 若仓库还没有这些目录，必须先创建骨架；不能只凭本文件中的 YAML 示例运行生产系统。
 
@@ -54,6 +57,29 @@ knowledge_manifest: knowledge/kol/manifest.yaml
 ```
 
 发布校验必须拒绝：未注册的组织/品牌/区域、缺少 Skill schema、MCP 工具未列白名单、Policy 没有副作用规则、没有评价集或没有回滚方案。
+
+## ExpertManifest 最低结构（首版字段锁定）
+
+```yaml
+id: expert:kol
+version: 0.1.0
+status: published
+display_name: KOL 合作专员
+profession: 达人合作
+description: 分析合作、展示适用 SOP、准备草稿和跟进建议。发信与正式阶段写入必须由你确认。
+avatar: /api/experts/expert:kol/avatar
+category: 达人合作
+tags: [建联, 跟进, 阶段建议]
+mission: 帮你把达人合作往前推进：看清阶段、准备沟通、给出跟进建议。
+quick_prompts:
+  - 帮我看一下这个红人现在该怎么跟进
+  - 准备一封建联邮件
+  - 这封回复是什么意思
+  - 这一阶段要准备什么
+entry_skill: stage_sop
+```
+
+落实 ADR-016：`GET /api/experts` 只返回 `status=published` 岗位专家。召唤响应恰好为 `{ session_id, expert_id, expert_version, intro }`。无专家团 API。本阶段禁止组织/部门/品牌授权、审批模型和专家团队成员字段。员工专家 API 不投影 Profile / Harness / MCP / Codex / Skill catalog / 连接器状态。`validate:contracts` 校验上述锁定字段与 `entry_skill` 存在。
 
 ## 前后端契约
 
