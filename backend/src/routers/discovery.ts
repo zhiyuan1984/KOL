@@ -5,6 +5,7 @@ import {
   createDiscoveryRequest,
   dismissCandidate,
   followCandidate,
+  followCandidatesBatch,
   getCandidate,
   getDiscoveryRequest,
   getDiscoveryResults,
@@ -56,6 +57,11 @@ discovery.get("/discovery/runs/:id/candidates", (c) => {
 });
 
 discovery.get("/discovery/candidates/:id", (c) => c.json(getCandidate(c.req.param("id"))));
+
+discovery.post("/discovery/candidates/follow-batch", async (c) => {
+  const body = await c.req.json().catch(() => ({})) as Json;
+  return c.json(await followCandidatesBatch(body));
+});
 
 discovery.post("/discovery/candidates/:id/follow", async (c) => {
   const body = await c.req.json().catch(() => ({})) as Json;

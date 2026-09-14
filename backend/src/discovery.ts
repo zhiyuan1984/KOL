@@ -25,7 +25,11 @@ import { emptyDiscoveryHint, expandOverseasSearchKeywords } from "./discovery-ke
 import {
   avgViews10,
   buildCrawlerImportFile,
+  candidateHasContactEmail,
+  candidateRegionOf,
   creatorExternalId,
+  employeeImportError,
+  evaluateFollowFilters,
   isPlaceholderKolUid,
   isRealKolUid,
   mapCandidateToCrawlerRow,
@@ -34,6 +38,8 @@ import {
   recheckFollowFilters,
   shouldWarnMissingCandidateRegion,
   sourceBatchFor,
+  sourceBatchForFollowSet,
+  type FollowThresholds,
 } from "./discovery-import.js";
 import { importKolProfilesFromCrawlerConfirmed } from "./gateway/import-creator.js";
 import { HttpFail } from "./host/errors.js";
@@ -48,6 +54,8 @@ const RUN_ACTIVE = new Set(["queued", "running"]);
 const CRAWL_ACTIVE = new Set(["queued", "crawling", "uploading", "analyzing", "starting", "running", "stopping"]);
 const MAX_DIRECTIONS = 8;
 const MAX_DIRECTION_LEN = 30;
+const MAX_FOLLOW_BATCH = 100;
+const FOLLOW_BATCH_CONCURRENCY = 3;
 const REGION_CODES = new Set(["all", "us", "ca", "eu", "au", "na", "sea"]);
 const REQUEST_STATUS_LABEL: Record<string, string> = {
   open: "待确认",
@@ -323,6 +331,8 @@ function publicCandidate(row: Row): Json {
     followers: Number(row.followers || 0),
     avg_views_10: avgViews10(row),
     score: Number(row.score || 0),
+    has_contact_email: candidateHasContactEmail(row),
+    region: candidateRegionOf(row) || null,
     avatar_url: payload.avatar_url || payload.avatar || payload.profile_image || null,
     title,
     reason,
@@ -914,7 +924,7 @@ export function discoveryPlaceholderKolUid(candidate: Row): string {
   return `disc_${candidate.platform}_${String(candidate.platform_creator_id).replace(/[^A-Za-z0-9._-]/g, "_")}`.slice(0, 80);
 }
 
-function followResult(candidateId: string, collaborationId: string, created: boolean): Json {
+function followResult(candidateId: string, collaborationId: string, created: boolean, extra: Json = {}): Json {
   const collaboration = getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(collaborationId) as Row;
   return {
     ...publicCandidate(getConn().prepare("SELECT * FROM creator_candidates WHERE id=?").get(candidateId) as Row),
@@ -929,6 +939,7 @@ function followResult(candidateId: string, collaborationId: string, created: boo
       source: collaboration.source,
     },
     created,
+    ...extra,
   };
 }
 
@@ -974,7 +985,7 @@ export async function followCandidate(id: string, input: Json = {}): Promise<Jso
       created: false,
       reused: true,
     });
-    return followResult(String(candidate.id), String(existing.id), false);
+    return followResult(String(candidate.id), String(existing.id), false, { skipped_duplicate: true });
   }
   if (existing && isRealKolUid(existing.kol_uid) && String(candidate.status) !== "followed") {
     markCandidateFollowed(String(candidate.id), String(existing.id));
@@ -1060,6 +1071,267 @@ export async function followCandidate(id: string, input: Json = {}): Promise<Jso
     stage_changed: false,
   });
   return followResult(String(candidate.id), cid, created);
+}
+
+function requestForCandidate(candidate: Row): Row | undefined {
+  return getConn().prepare("SELECT * FROM discovery_requests WHERE id=?").get(candidate.request_id) as
+    | Row
+    | undefined;
+}
+
+function loadFollowBatchCandidates(input: Json): Row[] {
+  const ids = asStringList(input.candidate_ids ?? input.candidateIds);
+  if (ids.length) {
+    if (ids.length > MAX_FOLLOW_BATCH) {
+      throw new HttpFail(400, {
+        code: "follow_batch_too_large",
+        message: "一次最多加入 100 条线索。",
+        max: MAX_FOLLOW_BATCH,
+      });
+    }
+    return ids.map((id) => candidateRow(id));
+  }
+  const runId = String(input.run_id || input.runId || "").trim();
+  if (runId) {
+    const run = runRow(runId);
+    return getConn().prepare(
+      `SELECT * FROM creator_candidates WHERE run_id=? AND status IN ('suggested','followed')
+        ORDER BY CASE status WHEN 'suggested' THEN 0 ELSE 1 END, score DESC, followers DESC, created_at DESC
+        LIMIT ?`,
+    ).all(run.id, MAX_FOLLOW_BATCH) as Row[];
+  }
+  const requestId = String(input.request_id || input.requestId || "").trim();
+  if (requestId) {
+    const request = requestRow(requestId);
+    return getConn().prepare(
+      `SELECT * FROM creator_candidates WHERE request_id=? AND status IN ('suggested','followed')
+        ORDER BY CASE status WHEN 'suggested' THEN 0 ELSE 1 END, score DESC, followers DESC, created_at DESC
+        LIMIT ?`,
+    ).all(request.id, MAX_FOLLOW_BATCH) as Row[];
+  }
+  throw new HttpFail(400, {
+    code: "follow_batch_empty",
+    message: "请先勾选红人，或按条件筛选后再加入跟进。",
+  });
+}
+
+function batchFailItem(candidate: Row, code: string, message: string): Json {
+  return {
+    candidate_id: candidate.id,
+    handle: String(candidate.handle || candidate.nickname || ""),
+    code,
+    message,
+  };
+}
+
+function failFromFollowError(candidate: Row, error: unknown): Json {
+  if (error instanceof HttpFail) {
+    const detail = error.detail;
+    if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+      const body = detail as Json;
+      return batchFailItem(
+        candidate,
+        String(body.code || "follow_failed"),
+        String(body.message || employeeImportError(error)),
+      );
+    }
+    if (typeof detail === "string") {
+      return batchFailItem(candidate, "follow_failed", employeeImportError(detail));
+    }
+  }
+  return batchFailItem(candidate, "follow_failed", employeeImportError(error));
+}
+
+async function runLimited<T, R>(items: T[], limit: number, worker: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  if (!items.length) return [];
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, limit), items.length) }, async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await worker(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+function mergePlanFilter(
+  request: Row | undefined,
+  thresholds: FollowThresholds | null,
+): FollowThresholds | null {
+  if (!thresholds && !request) return null;
+  const planPlatforms = parseArray(request?.platforms).map((item) => String(item || "").trim().toLowerCase()).filter(Boolean);
+  const planRegion = planRegionOf(request);
+  const merged: FollowThresholds = { ...(thresholds || {}) };
+  if (!merged.platform && planPlatforms.length === 1) merged.platform = planPlatforms[0];
+  if (!merged.region && planRegion && planRegion !== "all") merged.region = planRegion;
+  return Object.keys(merged).length ? merged : null;
+}
+
+/**
+ * ADR-022 P1: selected (B) or conditional (C) batch follow.
+ * One L3 confirm / source_batch. Per-candidate P0 pipeline, limited concurrency.
+ * Partial success: never mark the whole batch followed when some fail.
+ */
+export async function followCandidatesBatch(input: Json = {}): Promise<Json> {
+  const rawFilter = input.filter ?? input.filters ?? input.thresholds;
+  const thresholds = parseFollowThresholds(rawFilter);
+  const selectedIds = asStringList(input.candidate_ids ?? input.candidateIds);
+  const applyPlanChips = !selectedIds.length || rawFilter != null;
+  const candidates = loadFollowBatchCandidates(input);
+  const preview: Row[] = [];
+  const skipped: Json[] = [];
+  const failed: Json[] = [];
+
+  for (const candidate of candidates) {
+    if (String(candidate.status) === "dismissed") {
+      failed.push(batchFailItem(candidate, "candidate_dismissed", "已忽略的线索不能加入跟进。"));
+      continue;
+    }
+    const request = requestForCandidate(candidate);
+    const writeFilter = applyPlanChips ? mergePlanFilter(request, thresholds) : null;
+    const check = evaluateFollowFilters(candidate, request, writeFilter);
+    if (!check.ok) {
+      failed.push(batchFailItem(candidate, check.code, check.message));
+      continue;
+    }
+    const existing = existingCollaboration(candidate);
+    if (String(candidate.status) === "followed" && existing && isRealKolUid(existing.kol_uid)) {
+      skipped.push(followResult(String(candidate.id), String(existing.id), false, { skipped_duplicate: true }));
+      continue;
+    }
+    preview.push(candidate);
+  }
+
+  const requestId = String(
+    input.request_id || input.requestId || preview[0]?.request_id || candidates[0]?.request_id || "",
+  ).trim();
+  const sourceBatch = sourceBatchForFollowSet({
+    requestId,
+    candidateIds: preview.map((row) => String(row.id)),
+    filter: thresholds,
+    override: input.source_batch,
+  });
+  const missingEmailCount = preview.filter((row) => !candidateHasContactEmail(row)).length;
+  const previewPayload = {
+    source_batch: sourceBatch,
+    confirmed: false,
+    preview: true,
+    items: preview.map(publicCandidate),
+    followed: [],
+    failed,
+    skipped_duplicate: skipped,
+    filter: thresholds,
+    counts: {
+      selected: candidates.length,
+      preview: preview.length,
+      followed: 0,
+      failed: failed.length,
+      skipped_duplicate: skipped.length,
+      missing_email: missingEmailCount,
+    },
+    sent: false,
+    stage_changed: false,
+  };
+  if (input.preview === true || input.confirmed === false || input.confirmed === "false") {
+    return previewPayload;
+  }
+  if (input.confirmed !== true && input.confirmed !== "true") {
+    throw new HttpFail(409, {
+      code: "follow_not_confirmed",
+      message: "请先确认后再加入跟进。",
+      source_batch: sourceBatch,
+    });
+  }
+  if (!preview.length) {
+    audit(ownerId(), "discovery.candidates.follow_batch", {
+      source_batch: sourceBatch,
+      followed: 0,
+      failed: failed.length,
+      skipped_duplicate: skipped.length,
+      sent: false,
+      stage_changed: false,
+    });
+    return {
+      source_batch: sourceBatch,
+      confirmed: true,
+      followed: [],
+      failed,
+      skipped_duplicate: skipped,
+      filter: thresholds,
+      counts: {
+        selected: candidates.length,
+        preview: 0,
+        followed: 0,
+        failed: failed.length,
+        skipped_duplicate: skipped.length,
+        missing_email: missingEmailCount,
+      },
+      message: skipped.length || failed.length ? undefined : "没有符合条件的线索。",
+      sent: false,
+      stage_changed: false,
+    };
+  }
+
+  const followed: Json[] = [];
+  const outcomes = await runLimited(preview, FOLLOW_BATCH_CONCURRENCY, async (candidate) => {
+    const request = requestForCandidate(candidate);
+    const writeFilter = applyPlanChips ? mergePlanFilter(request, thresholds) : null;
+    const check = evaluateFollowFilters(candidate, request, writeFilter);
+    if (!check.ok) {
+      return { kind: "failed" as const, item: batchFailItem(candidate, check.code, check.message) };
+    }
+    try {
+      const result = await followCandidate(String(candidate.id), {
+        confirmed: true,
+        source_batch: sourceBatch,
+        ...(writeFilter ? { thresholds: writeFilter } : {}),
+      });
+      if (result.skipped_duplicate) {
+        return { kind: "skipped" as const, item: result };
+      }
+      return { kind: "followed" as const, item: result };
+    } catch (error) {
+      return { kind: "failed" as const, item: failFromFollowError(candidate, error) };
+    }
+  });
+
+  for (const outcome of outcomes) {
+    if (outcome.kind === "followed") followed.push(outcome.item);
+    else if (outcome.kind === "skipped") skipped.push(outcome.item);
+    else failed.push(outcome.item);
+  }
+
+  audit(ownerId(), "discovery.candidates.follow_batch", {
+    source_batch: sourceBatch,
+    followed: followed.length,
+    failed: failed.length,
+    skipped_duplicate: skipped.length,
+    sent: false,
+    stage_changed: false,
+    policy: "import_creator",
+  });
+
+  return {
+    source_batch: sourceBatch,
+    confirmed: true,
+    followed,
+    failed,
+    skipped_duplicate: skipped,
+    filter: thresholds,
+    counts: {
+      selected: candidates.length,
+      preview: preview.length,
+      followed: followed.length,
+      failed: failed.length,
+      skipped_duplicate: skipped.length,
+      missing_email: preview.filter((row) => !candidateHasContactEmail(row)).length,
+    },
+    sent: false,
+    stage_changed: false,
+  };
 }
 
 export function dismissCandidate(id: string): Json {

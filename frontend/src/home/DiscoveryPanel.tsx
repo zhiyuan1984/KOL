@@ -7,27 +7,35 @@ import {
   MAX_DIRECTIONS,
   OVERSEAS_DISCOVERY_PLATFORMS,
   addDirections,
+  candidateMatchesFollowFilter,
   candidateReason,
   createDiscoveryRequest,
   discoveryEmptyCopy,
   dismissCandidate,
   followCandidate,
+  followCandidatesBatch,
   guessPlatformFromQuery,
   guessRegionFromQuery,
   keywordsFromQuery,
+  missingContactEmail,
+  parseFollowFilterInput,
   planSteps,
   planSummary,
   platformLabel,
   presentDiscoveryError,
+  regionLabel,
   splitDirectionDraft,
   startDiscoveryRun,
+  summarizeFollowFilter,
   waitForDiscoveryResults,
   type CreatorCandidate,
   type DiscoveryErrorView,
   type DiscoveryFilters,
+  type DiscoveryFollowBatchResult,
   type DiscoveryPhase,
   type DiscoveryPlatform,
   type DiscoveryRequest,
+  type FollowFilter,
 } from "./discovery";
 import { useViewMode } from "../viewMode";
 
@@ -56,6 +64,12 @@ export default function DiscoveryPanel() {
   const [pendingFollow, setPendingFollow] = useState<CreatorCandidate | null>(null);
   const [followError, setFollowError] = useState<string | null>(null);
   const [followBusy, setFollowBusy] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [minFollowers, setMinFollowers] = useState("");
+  const [minAvgViews, setMinAvgViews] = useState("");
+  const [minScore, setMinScore] = useState("");
+  const [pendingBatch, setPendingBatch] = useState<"selected" | "conditional" | null>(null);
+  const [batchResult, setBatchResult] = useState<DiscoveryFollowBatchResult | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [searchKeywords, setSearchKeywords] = useState<string[]>([]);
   const [emptyHintFromApi, setEmptyHintFromApi] = useState<string | null>(null);
@@ -70,6 +84,33 @@ export default function DiscoveryPanel() {
     () => candidates.filter((row) => row.status !== "dismissed"),
     [candidates],
   );
+  const suggested = useMemo(
+    () => visible.filter((row) => row.status === "suggested"),
+    [visible],
+  );
+  const followFilter = useMemo(
+    () => parseFollowFilterInput({
+      min_followers: minFollowers,
+      min_avg_views_10: minAvgViews,
+      min_score: minScore,
+    }),
+    [minFollowers, minAvgViews, minScore],
+  );
+  const planForFilter = useMemo(() => ({
+    platforms: request?.platforms || [],
+    region: request?.filters?.region || "all",
+  }), [request]);
+  const previewMatches = useMemo(
+    () => suggested.filter((row) => candidateMatchesFollowFilter(row, followFilter, planForFilter)),
+    [suggested, followFilter, planForFilter],
+  );
+  const selectedCandidates = useMemo(
+    () => suggested.filter((row) => selectedIds.includes(row.id)),
+    [suggested, selectedIds],
+  );
+  const pendingBatchCandidates = pendingBatch === "conditional" ? previewMatches : selectedCandidates;
+  const pendingMissingEmail = pendingBatchCandidates.filter(missingContactEmail).length;
+  const pendingFilterSummary = pendingBatch === "conditional" ? summarizeFollowFilter(followFilter) : "";
 
   const emptyHint = useMemo(() => {
     if (phase === "results" && !visible.length) {
@@ -168,6 +209,9 @@ export default function DiscoveryPanel() {
       });
       setRequest(next);
       setCandidates([]);
+      setSelectedIds([]);
+      setBatchResult(null);
+      setPendingBatch(null);
       setSearchKeywords([]);
       setEmptyHintFromApi(null);
       setPhase("plan");
@@ -195,6 +239,9 @@ export default function DiscoveryPanel() {
       const results = await waitForDiscoveryResults(request.id);
       setRequest(results.request);
       setCandidates(results.candidates);
+      setSelectedIds([]);
+      setBatchResult(null);
+      setPendingBatch(null);
       setSearchKeywords(results.search_keywords || results.run?.search_keywords || []);
       setEmptyHintFromApi(results.empty_hint || results.run?.empty_hint || null);
       if (String(results.run?.status || results.status) === "failed") {
@@ -222,7 +269,65 @@ export default function DiscoveryPanel() {
     try {
       const followed = await followCandidate(id, { confirmed: true });
       setCandidates((current) => current.map((row) => (row.id === id ? followed : row)));
+      setSelectedIds((current) => current.filter((item) => item !== id));
       setPendingFollow(null);
+    } catch (caught) {
+      const view = presentDiscoveryError(caught, "加入跟进没有完成，红人档案未写入，也未建立合作。");
+      setFollowError(view.message);
+    } finally {
+      setFollowBusy(false);
+    }
+  };
+
+  const toggleSelected = (id: string, on: boolean) => {
+    setSelectedIds((current) => {
+      if (on) return current.includes(id) ? current : [...current, id];
+      return current.filter((item) => item !== id);
+    });
+  };
+
+  const toggleSelectAll = (on: boolean) => {
+    setSelectedIds(on ? suggested.map((row) => row.id) : []);
+  };
+
+  const openBatchConfirm = (mode: "selected" | "conditional") => {
+    setFollowError(null);
+    setBatchResult(null);
+    setPendingFollow(null);
+    setPendingBatch(mode);
+  };
+
+  const confirmBatchFollow = async () => {
+    if (!pendingBatch || followBusy || !request) return;
+    const ids = pendingBatchCandidates.map((row) => row.id);
+    if (!ids.length) {
+      setFollowError("没有符合条件的线索。");
+      return;
+    }
+    setFollowBusy(true);
+    setFollowError(null);
+    try {
+      const filter: FollowFilter | undefined = pendingBatch === "conditional"
+        ? {
+            ...(followFilter || {}),
+            ...(planForFilter.platforms.length === 1 ? { platform: planForFilter.platforms[0] } : {}),
+            ...(planForFilter.region && planForFilter.region !== "all" ? { region: planForFilter.region } : {}),
+          }
+        : undefined;
+      const result = await followCandidatesBatch({
+        confirmed: true,
+        candidate_ids: ids,
+        request_id: request.id,
+        filter: filter && Object.keys(filter).length ? filter : undefined,
+      });
+      const updates = new Map<string, CreatorCandidate>();
+      for (const row of [...result.followed, ...result.skipped_duplicate]) {
+        updates.set(row.id, row);
+      }
+      setCandidates((current) => current.map((row) => updates.get(row.id) || row));
+      setSelectedIds((current) => current.filter((id) => !updates.has(id)));
+      setBatchResult(result);
+      if (!result.failed.length) setPendingBatch(null);
     } catch (caught) {
       const view = presentDiscoveryError(caught, "加入跟进没有完成，红人档案未写入，也未建立合作。");
       setFollowError(view.message);
@@ -526,6 +631,108 @@ export default function DiscoveryPanel() {
 
       {phase === "results" && visible.length ? (
         <ol className="discovery-candidate-list" data-discovery-candidates>
+          <li className="discovery-batch-bar" data-discovery-batch-bar>
+            <div className="discovery-batch-select">
+              <label className="discovery-candidate-select">
+                <input
+                  type="checkbox"
+                  data-discovery-select-all
+                  checked={suggested.length > 0 && selectedIds.length === suggested.length}
+                  disabled={!suggested.length}
+                  onChange={(event) => toggleSelectAll(event.target.checked)}
+                />
+                <span>已选 {selectedCandidates.length} 人</span>
+              </label>
+              <button
+                type="button"
+                className="btn work sm"
+                data-discovery-batch-follow
+                disabled={!selectedCandidates.length || followBusy}
+                onClick={() => openBatchConfirm("selected")}
+              >
+                按所选加入跟进
+              </button>
+            </div>
+            <div className="discovery-batch-conditions" data-discovery-batch-conditions>
+              <span className="discovery-filter-title">按条件加入</span>
+              <label className="discovery-threshold">
+                <span>粉丝 ≥</span>
+                <input
+                  type="number"
+                  min={0}
+                  inputMode="numeric"
+                  data-discovery-threshold-followers
+                  value={minFollowers}
+                  placeholder="N"
+                  onChange={(event) => setMinFollowers(event.target.value)}
+                />
+              </label>
+              <label className="discovery-threshold">
+                <span>近10均播 ≥</span>
+                <input
+                  type="number"
+                  min={0}
+                  inputMode="numeric"
+                  data-discovery-threshold-avg-views
+                  value={minAvgViews}
+                  placeholder="M"
+                  onChange={(event) => setMinAvgViews(event.target.value)}
+                />
+              </label>
+              <label className="discovery-threshold">
+                <span>评分 ≥</span>
+                <input
+                  type="number"
+                  min={0}
+                  inputMode="numeric"
+                  data-discovery-threshold-score
+                  value={minScore}
+                  placeholder="S"
+                  onChange={(event) => setMinScore(event.target.value)}
+                />
+              </label>
+              <p className="discovery-quiet" data-discovery-preview-count>
+                符合条件 {previewMatches.length} 人
+              </p>
+              <button
+                type="button"
+                className="btn work sm"
+                data-discovery-conditional-follow
+                disabled={!previewMatches.length || followBusy}
+                onClick={() => openBatchConfirm("conditional")}
+              >
+                按条件加入跟进
+              </button>
+            </div>
+            <div className="discovery-batch-plan" data-discovery-batch-plan>
+              <span className="discovery-filter-title">当前计划</span>
+              <div className="discovery-chip-row" data-discovery-filter="plan-platform">
+                {OVERSEAS_DISCOVERY_PLATFORMS.map((value) => (
+                  <span
+                    key={value}
+                    className="discovery-chip"
+                    data-discovery-plan-chip={value}
+                    aria-pressed={request?.platforms.includes(value) || undefined}
+                  >
+                    {platformLabel(value)}
+                  </span>
+                ))}
+              </div>
+              <div className="discovery-chip-row" data-discovery-filter="plan-region">
+                {DISCOVERY_REGION_OPTIONS.map((option) => (
+                  <span
+                    key={option.value}
+                    className="discovery-chip"
+                    data-discovery-plan-chip={option.value}
+                    aria-pressed={(request?.filters?.region || "all") === option.value || undefined}
+                  >
+                    {option.label}
+                  </span>
+                ))}
+              </div>
+              <p className="discovery-quiet">平台 / 地区沿用发现计划，不另设一套。</p>
+            </div>
+          </li>
           {visible.map((candidate) => (
             <li key={candidate.id}>
               <article
@@ -534,11 +741,28 @@ export default function DiscoveryPanel() {
                 data-discovery-origin="discovery"
                 data-candidate-id={candidate.id}
                 data-candidate-status={candidate.status}
+                data-discovery-preview={
+                  candidate.status === "suggested" && !candidateMatchesFollowFilter(candidate, followFilter, planForFilter)
+                    ? "out"
+                    : "in"
+                }
               >
+                {candidate.status === "suggested" ? (
+                  <label className="discovery-candidate-select">
+                    <input
+                      type="checkbox"
+                      data-discovery-select={candidate.id}
+                      checked={selectedIds.includes(candidate.id)}
+                      onChange={(event) => toggleSelected(candidate.id, event.target.checked)}
+                    />
+                    <span className="sr-only">选择 @{candidate.handle}</span>
+                  </label>
+                ) : <span className="discovery-candidate-select" />}
                 <div className="discovery-candidate-copy">
                   <strong>@{candidate.handle}</strong>
                   <p className="discovery-candidate-meta">
                     {candidate.nickname} · {platformLabel(candidate.platform)} · {formatFollowers(candidate.followers)}
+                    {candidate.avg_views_10 ? ` · 近10均播 ${Math.round(candidate.avg_views_10)}` : ""}
                     {candidate.score ? ` · 评分 ${candidate.score}` : ""}
                   </p>
                   <p className="discovery-candidate-reason">{candidateReason(candidate)}</p>
@@ -574,6 +798,8 @@ export default function DiscoveryPanel() {
                     disabled={candidate.status === "followed"}
                     onClick={() => {
                       setFollowError(null);
+                      setBatchResult(null);
+                      setPendingBatch(null);
                       setPendingFollow(candidate);
                     }}
                   >
@@ -587,7 +813,7 @@ export default function DiscoveryPanel() {
       ) : null}
 
       {pendingFollow ? (
-        <div className="discovery-confirm-layer" data-discovery-follow-confirm>
+        <div className="discovery-confirm-layer" data-discovery-follow-confirm data-discovery-follow-mode="single">
           <div className="discovery-confirm">
             <strong>确认加入跟进？</strong>
             <p>
@@ -613,6 +839,63 @@ export default function DiscoveryPanel() {
                 disabled={followBusy}
                 onClick={() => {
                   setPendingFollow(null);
+                  setFollowError(null);
+                }}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {pendingBatch ? (
+        <div
+          className="discovery-confirm-layer"
+          data-discovery-follow-confirm
+          data-discovery-follow-mode={pendingBatch}
+        >
+          <div className="discovery-confirm">
+            <strong>确认加入跟进？</strong>
+            <p data-discovery-batch-summary>
+              将把 {pendingBatchCandidates.length} 条线索加入跟进并写入红人档案。
+              其中 <span data-discovery-missing-email-count>{pendingMissingEmail}</span> 条没有联系邮箱（仍会写入，不会编造邮箱）。
+              {pendingFilterSummary ? ` 门槛：${pendingFilterSummary}。` : ""}
+              平台 / 地区沿用当前计划
+              {request?.platforms?.length ? `（${request.platforms.map(platformLabel).join("、")}）` : ""}
+              {request?.filters?.region && request.filters.region !== "all"
+                ? ` · ${regionLabel(request.filters.region)}`
+                : ""}
+              。不会发信，也不会改正式阶段。只有写入成功后才会建立合作。
+            </p>
+            {batchResult?.failed.length ? (
+              <p className="discovery-quiet" data-discovery-batch-partial role="status">
+                已加入 {batchResult.counts.followed} 人，未加入 {batchResult.counts.failed} 人
+                {batchResult.counts.skipped_duplicate ? `，已跟进跳过 ${batchResult.counts.skipped_duplicate} 人` : ""}
+                。未成功的线索不会标成已跟进。
+              </p>
+            ) : null}
+            {followError ? (
+              <p className="discovery-quiet" data-discovery-follow-error role="alert">{followError}</p>
+            ) : null}
+            <div className="discovery-plan-actions">
+              <button
+                type="button"
+                className="btn work sm"
+                data-discovery-follow-yes
+                disabled={followBusy || !pendingBatchCandidates.length}
+                onClick={() => void confirmBatchFollow()}
+              >
+                {followBusy ? "正在写入档案…" : "确认加入跟进"}
+              </button>
+              <button
+                type="button"
+                className="btn ghost sm"
+                data-discovery-follow-no
+                disabled={followBusy}
+                onClick={() => {
+                  setPendingBatch(null);
+                  setBatchResult(null);
                   setFollowError(null);
                 }}
               >

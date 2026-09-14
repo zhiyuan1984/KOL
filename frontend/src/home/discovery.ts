@@ -40,6 +40,8 @@ export type CreatorCandidate = {
   followers: number;
   avg_views_10?: number;
   score: number;
+  has_contact_email?: boolean;
+  region?: string | null;
   avatar_url?: string | null;
   title?: string;
   reason?: string;
@@ -141,6 +143,43 @@ export type DiscoveryFollowResult = CreatorCandidate & {
     source?: string;
   };
   created?: boolean;
+  skipped_duplicate?: boolean;
+};
+
+export type FollowFilter = {
+  min_followers?: number;
+  min_avg_views_10?: number;
+  min_score?: number;
+  platform?: string;
+  region?: string;
+};
+
+export type DiscoveryFollowFail = {
+  candidate_id: string;
+  handle?: string;
+  code?: string;
+  message: string;
+};
+
+export type DiscoveryFollowBatchResult = {
+  source_batch?: string;
+  confirmed?: boolean;
+  preview?: boolean;
+  followed: DiscoveryFollowResult[];
+  failed: DiscoveryFollowFail[];
+  skipped_duplicate: DiscoveryFollowResult[];
+  filter?: FollowFilter | null;
+  counts: {
+    selected?: number;
+    preview?: number;
+    followed: number;
+    failed: number;
+    skipped_duplicate: number;
+    missing_email?: number;
+  };
+  message?: string;
+  sent?: boolean;
+  stage_changed?: boolean;
 };
 
 export const OVERSEAS_DISCOVERY_PLATFORMS: DiscoveryPlatform[] = ["youtube", "instagram", "facebook"];
@@ -319,6 +358,8 @@ export function asCandidate(row: unknown): CreatorCandidate {
     followers: Number(item.followers || 0),
     avg_views_10: Number(item.avg_views_10 || 0),
     score: Number(item.score || 0),
+    has_contact_email: Boolean(item.has_contact_email),
+    region: item.region == null || item.region === "" ? null : String(item.region),
     avatar_url: item.avatar_url == null ? null : String(item.avatar_url),
     title: item.title ? String(item.title) : undefined,
     reason: item.reason ? String(item.reason) : undefined,
@@ -590,11 +631,7 @@ export async function waitForDiscoveryResults(
   return latest;
 }
 
-export async function followCandidate(
-  id: string,
-  extra?: Record<string, unknown>,
-): Promise<DiscoveryFollowResult> {
-  const body = await api.followDiscoveryCandidate(id, extra);
+function asFollowResult(body: unknown): DiscoveryFollowResult {
   const row = asRecord(body);
   return {
     ...asCandidate(body),
@@ -611,6 +648,125 @@ export async function followCandidate(
         }
       : undefined,
     created: Boolean(row.created),
+    skipped_duplicate: Boolean(row.skipped_duplicate),
+  };
+}
+
+export function parseFollowFilterInput(input: {
+  min_followers?: string;
+  min_avg_views_10?: string;
+  min_score?: string;
+}): FollowFilter | undefined {
+  const out: FollowFilter = {};
+  const followers = String(input.min_followers || "").trim();
+  const avg = String(input.min_avg_views_10 || "").trim();
+  const score = String(input.min_score || "").trim();
+  if (followers) out.min_followers = Number(followers);
+  if (avg) out.min_avg_views_10 = Number(avg);
+  if (score) out.min_score = Number(score);
+  const clean = Object.fromEntries(
+    Object.entries(out).filter(([, value]) => Number.isFinite(value) && Number(value) >= 0),
+  ) as FollowFilter;
+  return Object.keys(clean).length ? clean : undefined;
+}
+
+export function candidateMatchesFollowFilter(
+  candidate: CreatorCandidate,
+  filter?: FollowFilter | null,
+  plan?: { platforms?: string[]; region?: string },
+): boolean {
+  if (!filter && !plan) return true;
+  const minFollowers = filter?.min_followers;
+  const minAvg = filter?.min_avg_views_10;
+  const minScore = filter?.min_score;
+  if (minFollowers != null && Number(candidate.followers || 0) < minFollowers) return false;
+  if (minAvg != null && Number(candidate.avg_views_10 || 0) < minAvg) return false;
+  if (minScore != null && Number(candidate.score || 0) < minScore) return false;
+  const wantPlatform = String(filter?.platform || (plan?.platforms?.length === 1 ? plan.platforms[0] : "") || "")
+    .trim()
+    .toLowerCase();
+  const platform = String(candidate.platform || "").trim().toLowerCase();
+  if (wantPlatform && platform && platform !== wantPlatform) return false;
+  const wantRegion = String(filter?.region || plan?.region || "").trim().toLowerCase();
+  const expected = wantRegion && wantRegion !== "all" ? wantRegion : "";
+  const actual = String(candidate.region || "").trim().toLowerCase();
+  if (expected && actual && actual !== expected) return false;
+  return true;
+}
+
+export function missingContactEmail(candidate: CreatorCandidate): boolean {
+  return !candidate.has_contact_email;
+}
+
+export function summarizeFollowFilter(filter?: FollowFilter | null): string {
+  if (!filter) return "";
+  const bits = [
+    filter.min_followers != null ? `粉丝 ≥ ${filter.min_followers}` : "",
+    filter.min_avg_views_10 != null ? `近10均播 ≥ ${filter.min_avg_views_10}` : "",
+    filter.min_score != null ? `评分 ≥ ${filter.min_score}` : "",
+  ].filter(Boolean);
+  return bits.join(" · ");
+}
+
+export async function followCandidate(
+  id: string,
+  extra?: Record<string, unknown>,
+): Promise<DiscoveryFollowResult> {
+  return asFollowResult(await api.followDiscoveryCandidate(id, extra));
+}
+
+export async function followCandidatesBatch(input: {
+  confirmed?: boolean;
+  preview?: boolean;
+  candidate_ids?: string[];
+  request_id?: string;
+  run_id?: string;
+  filter?: FollowFilter;
+  source_batch?: string;
+}): Promise<DiscoveryFollowBatchResult> {
+  const body = await api.followDiscoveryCandidatesBatch({
+    confirmed: input.confirmed,
+    preview: input.preview,
+    candidate_ids: input.candidate_ids,
+    request_id: input.request_id,
+    run_id: input.run_id,
+    filter: input.filter,
+    source_batch: input.source_batch,
+  });
+  const row = asRecord(body);
+  const counts = asRecord(row.counts);
+  const failed = Array.isArray(row.failed)
+    ? row.failed.map((item) => {
+        const fail = asRecord(item);
+        return {
+          candidate_id: String(fail.candidate_id || fail.id || ""),
+          handle: fail.handle ? String(fail.handle) : undefined,
+          code: fail.code ? String(fail.code) : undefined,
+          message: String(fail.message || "加入跟进没有完成。"),
+        };
+      })
+    : [];
+  const followed = (Array.isArray(row.followed) ? row.followed : []).map(asFollowResult);
+  const skipped = (Array.isArray(row.skipped_duplicate) ? row.skipped_duplicate : []).map(asFollowResult);
+  return {
+    source_batch: row.source_batch ? String(row.source_batch) : undefined,
+    confirmed: Boolean(row.confirmed),
+    preview: Boolean(row.preview),
+    followed,
+    failed,
+    skipped_duplicate: skipped,
+    filter: row.filter && typeof row.filter === "object" ? row.filter as FollowFilter : null,
+    counts: {
+      selected: Number(counts.selected || 0),
+      preview: Number(counts.preview || 0),
+      followed: Number(counts.followed ?? followed.length),
+      failed: Number(counts.failed ?? failed.length),
+      skipped_duplicate: Number(counts.skipped_duplicate ?? skipped.length),
+      missing_email: Number(counts.missing_email || 0),
+    },
+    message: row.message ? String(row.message) : undefined,
+    sent: Boolean(row.sent),
+    stage_changed: Boolean(row.stage_changed),
   };
 }
 
