@@ -6,6 +6,7 @@
 
 | 日期 | 记录 | 说明 |
 |---|---|---|
+| 2026-09-14 | 员工工作台**全局正文基线 16px**（约比旧 13–14px 大 15–20%）；控件 / 按钮 / Tab / helper **≥14px**；禁止 `transform: scale` / `zoom` 假装字号。Linear 密度仍在，但不靠缩小正文 | 产品确认。见 ADR-020、`20-visual-design-system.md`。本记录不改 CSS。 |
 | 2026-09-14 | Home 内四模式：**今日任务 → 我的待办 → AI发现 → 我跟进的红人**；旧「AI发现」改名为今日任务；新「AI发现」= CreatorCandidate 线索；加入跟进才建 Collaboration | 默认 `tab` 为空即今日任务。推荐仍只预填不自动执行。见 ADR-018、`19-ui-ux-constitution.md`。 |
 | 2026-09-13 | Home 视图顺序曾为 **AI发现 → 我的待办 → 我跟进的红人**；今天推荐只挂当时的 AI发现；我的待办去掉「后续」历史桶 | **已被 ADR-018 取代。** 旧「AI发现」现为「今日任务」；新「AI发现」是红人线索。推荐仍只预填不自动执行（`04`）。 |
 | 2026-09-13 | 邮件往来摘要 Codex `thread/start` 与识别一致：`CODEX_MODEL` / CLI 默认，不传 `gpt-5.6-luna`。Luna digest 需要 `OPENAI_BASE_URL` 及该端点 key | 公共 OpenAI `sk-proj` 打默认 Luna 会 HTTP 401。不改 provider 顺序或 sticky-fail。 |
@@ -39,6 +40,7 @@
 | ADR-017 | 首版 `ExpertManifest` + `/api/experts` 落实 ADR-016：仅 `expert:kol` 已发布；召唤持久化 `expert_id`/`expert_version`；无专家团 API | `02-domain-model.md`、`14-implementation-contract.md`、`experts/kol/manifest.yaml` |
 | ADR-018 | Home **内**四模式：今日任务 / 我的待办 / AI发现 / 我跟进的红人；旧「AI发现」改名为今日任务；新「AI发现」= CreatorCandidate；加入跟进才建 Collaboration；不是第五页 | `19-ui-ux-constitution.md`、`04-ux-ui-system.md`、`21-admin-employee-page-roles.md` |
 | ADR-019 | Home AI发现条件区：平台/地区单选芯片；方向多选最多 8；NL 主输入、芯片纠正、计划跟芯片；重置不清空 NL；无 TikTok、无「全部平台」。服从 ADR-018 | `19-ui-ux-constitution.md` |
+| ADR-020 | 员工工作台正文基线 **16px**；UI / 按钮 / Tab / helper **≥14px**；禁止 scale/zoom 假装字号；Linear 密度靠间距与阴影，不靠缩小正文 | `20-visual-design-system.md`、`19-ui-ux-constitution.md` |
 
 ## 新增 Agent 分级
 
@@ -328,3 +330,30 @@ ADR-018 已锁定新「AI发现」= CreatorCandidate 线索，不是任务推荐
 - 规范：`19-ui-ux-constitution.md`「AI发现条件区」
 - 代码：本备注不改 JSX / API
 - 测试：文档评审 only；后续 FE PR 以本记录 + `19` 条件区表为对照
+
+## ADR-020 — 工作台正文基线 16px，禁止 scale 假装字号（2026-09-14）
+
+**状态**：已固化  
+**决策人**：产品负责人
+
+### 问题与背景
+
+`20` 曾把工作台正文立法成 **13–14px 紧凑正文**，并要求把现行 CSS 收到这一档。产品已确认：员工工作台全局正文基线改为 **16px**（约比旧目标大 15–20%），控件 / 按钮 / Tab / helper 不得低于 **14px**。若不改写，后续字号 PR 会继续按 13px 收缩，或用 `transform: scale` / `zoom` 假装放大。
+
+### 决定
+
+1. **正文 / 主阅读 = 16px**（`--font-body`）。卡片正文、线程、结果说明走这一档。
+2. **UI 控件、按钮、Tab、helper / 次要说明 ≥14px**（`--font-ui: 14px`，`--font-meta: 14px`）。禁止 12px 辅助字。
+3. **标题可更大**（`--font-section` ≥16px，`--font-title` 18px 或更大）。
+4. **禁止缩放假装字号。** 不得用 `transform: scale`、`zoom`、缩小容器再拉伸或同类手法替代真实 `font-size`。
+5. **Linear 密度仍在。** 紧间距、安静阴影、低装饰不变；密度**不**靠把正文压到 16px 以下。`19` 的「紧凑」指 chrome / 间距，不授权旧 13–14px 正文。
+
+### 不决定的范围
+
+本记录**只立法、不改 CSS / JSX**。不 LIVE。不削弱核心闭环、四页法律、Home 四模式（ADR-018）、并列能力面（ADR-015）、专家中心（ADR-016）、连接器使用面 vs 治理面、发送 ≠ 推进阶段。不新增 UX ID。字号落地另开前端 PR。
+
+### 影响
+
+- 规范：`20-visual-design-system.md` token 表与禁止条款；`19-ui-ux-constitution.md` 一句交叉引用（紧凑 ≠ 缩小正文）
+- 代码：本 ADR 不改 `frontend/src/styles.css`
+- 测试：文档评审 only
