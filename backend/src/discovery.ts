@@ -595,10 +595,10 @@ export function listRunCandidates(runId: string, query: {
         `SELECT * FROM creator_candidates WHERE run_id=?
           ORDER BY score DESC, followers DESC, created_at DESC LIMIT ? OFFSET ?`,
       ).all(run.id, limit, offset)) as Row[];
-  const total = Number((status
+  const totalRow = (status
     ? getConn().prepare("SELECT COUNT(*) AS n FROM creator_candidates WHERE run_id=? AND status=?").get(run.id, status)
-    : getConn().prepare("SELECT COUNT(*) AS n FROM creator_candidates WHERE run_id=?").get(run.id)
-  as { n: number }).n);
+    : getConn().prepare("SELECT COUNT(*) AS n FROM creator_candidates WHERE run_id=?").get(run.id)) as { n: number };
+  const total = Number(totalRow.n);
   return {
     items: rows.map(publicCandidate),
     total,
@@ -755,5 +755,3 @@ export function restoreActiveDiscoveryRuns(): void {
     }
   }
 }
-
-registerDiscoveryCrawlHook();

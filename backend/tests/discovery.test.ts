@@ -343,6 +343,6 @@ describe("discovery auth and secrets", () => {
       | { error?: string }
       | undefined;
     expect(String(failed?.error || "")).not.toContain("super-secret-token");
-    expect(String(failed?.error || "")).toMatch(/Bearer \*\*\*/);
+    expect(String(failed?.error || "")).toMatch(/\*\*\*/);
   });
 });

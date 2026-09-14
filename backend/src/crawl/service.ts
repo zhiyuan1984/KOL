@@ -12,17 +12,22 @@ const MODES = new Set(["search", "detail", "creator"]);
 const ACTIVE = new Set(["queued", "crawling", "uploading", "analyzing", "starting", "running", "stopping"]);
 const monitors = new Map<string, ReturnType<typeof setTimeout>>();
 let clientFactory: () => Pick<RemoteMcpClient, "callTool" | "close"> = () => new RemoteMcpClient();
-const settleHandlers: Array<(job: Row) => void> = [];
-
 /** Discovery (and other hosts) subscribe to crawl settle without importing crawl internals. */
 export function onCrawlJobSettled(handler: (job: Row) => void): void {
-  if (!settleHandlers.includes(handler)) settleHandlers.push(handler);
+  const bucket = settleBucket();
+  if (!bucket.includes(handler)) bucket.push(handler);
+}
+
+function settleBucket(): Array<(job: Row) => void> {
+  const fn = onCrawlJobSettled as typeof onCrawlJobSettled & { handlers?: Array<(job: Row) => void> };
+  if (!fn.handlers) fn.handlers = [];
+  return fn.handlers;
 }
 
 function notifySettled(jobId: string): void {
   const job = getConn().prepare("SELECT * FROM crawl_jobs WHERE id=?").get(jobId) as Row | undefined;
   if (!job) return;
-  for (const handler of settleHandlers) {
+  for (const handler of settleBucket()) {
     try {
       handler(job);
     } catch {
