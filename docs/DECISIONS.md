@@ -6,6 +6,7 @@
 
 | 日期 | 记录 | 说明 |
 |---|---|---|
+| 2026-09-14 | 员工 `/kb` **不是**邮件模板管理台。只回答查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务；邮件模板只是一类资料；主 CTA「用于当前任务」只产未发送草稿；卡片元数据底线可后补字段 | 产品裁定现行员工 `/kb` 不适合。见 ADR-021、`19-ui-ux-constitution.md`。本记录不实施 FE/BE。 |
 | 2026-09-14 | 员工工作台**全局正文基线 16px**（约比旧 13–14px 大 15–20%）；控件 / 按钮 / Tab / helper **≥14px**；禁止 `transform: scale` / `zoom` 假装字号。Linear 密度仍在，但不靠缩小正文 | 产品确认。见 ADR-020、`20-visual-design-system.md`。字号 CSS 由实现 PR 落地。 |
 | 2026-09-14 | Home 内四模式：**今日任务 → 我的待办 → AI发现 → 我跟进的红人**；旧「AI发现」改名为今日任务；新「AI发现」= CreatorCandidate 线索；加入跟进才建 Collaboration | 默认 `tab` 为空即今日任务。推荐仍只预填不自动执行。见 ADR-018、`19-ui-ux-constitution.md`。 |
 | 2026-09-13 | Home 视图顺序曾为 **AI发现 → 我的待办 → 我跟进的红人**；今天推荐只挂当时的 AI发现；我的待办去掉「后续」历史桶 | **已被 ADR-018 取代。** 旧「AI发现」现为「今日任务」；新「AI发现」是红人线索。推荐仍只预填不自动执行（`04`）。 |
@@ -41,6 +42,7 @@
 | ADR-018 | Home **内**四模式：今日任务 / 我的待办 / AI发现 / 我跟进的红人；旧「AI发现」改名为今日任务；新「AI发现」= CreatorCandidate；加入跟进才建 Collaboration；不是第五页 | `19-ui-ux-constitution.md`、`04-ux-ui-system.md`、`21-admin-employee-page-roles.md` |
 | ADR-019 | Home AI发现条件区：平台/地区单选芯片；方向多选最多 8；NL 主输入、芯片纠正、计划跟芯片；重置不清空 NL；无 TikTok、无「全部平台」。服从 ADR-018 | `19-ui-ux-constitution.md` |
 | ADR-020 | 员工工作台正文基线 **16px**；UI / 按钮 / Tab / helper **≥14px**；禁止 scale/zoom 假装字号；Linear 密度靠间距与阴影，不靠缩小正文 | `20-visual-design-system.md`、`19-ui-ux-constitution.md` |
+| ADR-021 | 员工 `/kb` 是并列能力面（ADR-015）：查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务；禁止邮件模板管理台与引擎行话；应用只产未发送草稿；卡片元数据底线先立法、schema 可后补 | `19-ui-ux-constitution.md`、`14-implementation-contract.md`、`21-admin-employee-page-roles.md` |
 
 ## 新增 Agent 分级
 
@@ -357,3 +359,44 @@ ADR-018 已锁定新「AI发现」= CreatorCandidate 线索，不是任务推荐
 - 规范：`20-visual-design-system.md` token 表与禁止条款；`19-ui-ux-constitution.md` 一句交叉引用（紧凑 ≠ 缩小正文）
 - 代码：本 ADR 不改 `frontend/src/styles.css`
 - 测试：文档评审 only
+
+## ADR-021 — 员工 `/kb`：知识库，不是邮件模板管理台（2026-09-14）
+
+**状态**：已固化  
+**决策人**：产品负责人
+
+### 问题与背景
+
+`19` / ADR-015 已把知识库列为并列能力面，但未写员工 `/kb` 答哪一问。现行实现是**已发布邮件模板列表 + 本账号启用/隐藏 + 「用这份写信」**，页头写 Codex / harness，并在 KB chrome 宣讲「发送不等于推进阶段」。`docs/evidence-kb-acceptance-2026-09-13.md` 已记员工知识库 FAIL。产品裁定：这样的员工 `/kb` **不适合**，不得继续当邮件模板管理台演进。
+
+若不立法，后续 FE 会继续把整库 IA 做成「邮件模板 / 其它」、把「启用/停用/隐藏」当主 CTA，或把「发送 ≠ 改阶段」布道搬到知识库首页。
+
+### 决定
+
+1. **定位。** 员工 `/kb` 只回答：**查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务**。仍是 ADR-015 并列能力面 / 可选 chrome，**不是**第五套 Home。禁止员工 KB 出现 Codex / Harness / MCP / Thread / Skill 等引擎行话（`UX-COPY-ENGINE`）。禁止在 KB 首页 / 页头 / chrome 宣讲「发送 ≠ 改阶段」——该不变量仍有效，住在 `19` §4 与 `UX-SEND-NE-STAGE`，KB 不是布道页。邮件模板是**一类资料**，不是整库。
+
+2. **员工 IA（Tab / 筛选，顺序锁定）：**
+
+   ```text
+   全部资料 | KOL合作SOP | 邮件模板 | 品牌与产品 | 报价与谈判 | 最近使用
+   ```
+
+   不得再用「我的知识库 / 知识市场」或「邮件模板 / 口径与其它」当员工主 IA。「最近使用」是最近打开/应用过的资料，不是 Home 待办桶。
+
+3. **动作分家。** 员工主动作：**查看 / 收藏 / 用于当前任务**。管理主动作：**停用 / 发布 / 版本 / 范围**（治理）。若「隐藏」仍留在员工 UI，只许降为**次要偏好**，不是主治理动作，不得与管理端停用混读。
+
+4. **CTA 与副作用。** 「用这份写信」改为 **「用于当前任务」**。副作用只能是：把该条作为**未发送草稿**填入**当前任务 / composer**（邮件类对齐 #75「正文进框」：填组信正文，可改后再发）。禁止从 KB 应用动作发信或写阶段。「发送 ≠ 推进阶段」仍然有效；KB 应用比发送更早，必须两都不做。
+
+5. **卡片元数据底线（有数据才展示）。** 每张卡必须能展示：适用品牌 / 区域 / 阶段 / 场景、版本、生效、来源、已发布。缺字段诚实省略，不得伪造。用词对齐 `14` 的 `brand_scope`、`region_scope`、版本、来源、`effective_from/to`。**先立法 UX 底线，不在本记录迁 schema**；后端可后补字段。
+
+6. **边界不变。** 四页法律不变。不削弱 ADR-015 / 016 / 018 / 019 / 020。连接器使用面 vs 治理面不因本条合并。不发明专家团。不扩张组织权限或审批系统。不 LIVE。
+
+### 不决定的范围
+
+不实施前端 / 后端 / CSS / e2e。不迁知识表 schema，不补 `tenant_id` / 范围 PEP / 检索 API。不重做 Admin 知识页，不写企业 RAG，不新增 UX ID。不削弱核心闭环、发送 ≠ 推进阶段（只是不在 KB 说教）、无可见侧栏组标题。不重做 Chat。本记录不把 `evidence-kb-acceptance-2026-09-13.md` 改写成 PASS。
+
+### 影响
+
+- 规范：`19-ui-ux-constitution.md` 知识库 `/kb` 节；`14-implementation-contract.md` 知识库契约一句；`21-admin-employee-page-roles.md` / `04-ux-ui-system.md` 短指针；`docs/README.md` 索引
+- 代码：本 ADR 不改 JSX / API
+- 测试：文档评审 only；后续 FE / BE 以本记录 + `19` 知识库节为对照
