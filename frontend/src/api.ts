@@ -209,6 +209,11 @@ export type HomeWorkbench = {
   todo?: Task[];
   insights?: Task[];
   recommendations?: RecommendedTask[];
+  discovery?: {
+    pending_count?: number;
+    ready?: boolean;
+    candidates?: Array<Record<string, unknown>>;
+  };
   lifecycle?: {
     stages?: Array<{ code: string; label: string; count: number }>;
     domains?: Array<{ id: string; label: string; count: number }>;

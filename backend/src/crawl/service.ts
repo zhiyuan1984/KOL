@@ -12,6 +12,24 @@ const MODES = new Set(["search", "detail", "creator"]);
 const ACTIVE = new Set(["queued", "crawling", "uploading", "analyzing", "starting", "running", "stopping"]);
 const monitors = new Map<string, ReturnType<typeof setTimeout>>();
 let clientFactory: () => Pick<RemoteMcpClient, "callTool" | "close"> = () => new RemoteMcpClient();
+const settleHandlers: Array<(job: Row) => void> = [];
+
+/** Discovery (and other hosts) subscribe to crawl settle without importing crawl internals. */
+export function onCrawlJobSettled(handler: (job: Row) => void): void {
+  if (!settleHandlers.includes(handler)) settleHandlers.push(handler);
+}
+
+function notifySettled(jobId: string): void {
+  const job = getConn().prepare("SELECT * FROM crawl_jobs WHERE id=?").get(jobId) as Row | undefined;
+  if (!job) return;
+  for (const handler of settleHandlers) {
+    try {
+      handler(job);
+    } catch {
+      // Subscribers must not fail the crawl job itself.
+    }
+  }
+}
 
 function clearMonitors(): void {
   for (const timer of monitors.values()) clearTimeout(timer);
@@ -411,6 +429,7 @@ async function completeJob(jobId: string): Promise<void> {
     ).run(now, job.work_item_id);
   });
   event(jobId, "result_ready", "result_ready", `Result ready with ${candidates.length} candidates`);
+  notifySettled(jobId);
 }
 
 function failJob(jobId: string, error: unknown): void {
@@ -427,6 +446,7 @@ function failJob(jobId: string, error: unknown): void {
     ).run(now, job.work_item_id);
   });
   event(jobId, "error", "error", safe);
+  notifySettled(jobId);
 }
 
 export async function stopCrawl(jobId: string): Promise<Json> {
@@ -448,6 +468,7 @@ export async function stopCrawl(jobId: string): Promise<Json> {
     db.prepare("UPDATE work_items SET status='waiting',updated_at=? WHERE id=?").run(now, job.work_item_id);
   });
   event(jobId, "stopped", "stopped", "Crawl stopped");
+  notifySettled(jobId);
   return publicJob(getConn().prepare("SELECT * FROM crawl_jobs WHERE id=?").get(jobId) as Row);
 }
 

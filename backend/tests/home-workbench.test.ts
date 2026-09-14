@@ -53,6 +53,9 @@ describe("home workbench", () => {
     expect(todo.find((row) => row.id === "tsk_home_trip_stage")?.current_stage).toContain("争议");
     expect(isTodoWorkItem({ source: "ai", status: "pending" })).toBe(false);
     expect(isInsightWorkItem({ source: "ai", status: "pending" })).toBe(true);
+    expect(isTodoWorkItem({ source: "discovery", status: "pending" })).toBe(false);
+    expect(isInsightWorkItem({ source: "discovery", status: "pending" })).toBe(false);
+    expect(workbench.discovery).toMatchObject({ pending_count: 0, ready: false, candidates: [] });
   });
 
   it("surfaces numbered icon recommendations beyond 3 and pads from the catalog", () => {
