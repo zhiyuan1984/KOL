@@ -3263,7 +3263,7 @@ test("风险扫描 runs Starry KOL MCP tools and lists T8 overdue", async ({ pag
   await saveScreenshot(page, "risk_scan_starry_kol_mcp.png");
 });
 
-test("首封建联 starter asks for 发件/收件/主题 and does not show a compose form", async ({ page, request }) => {
+test("首封建联 picker fills the English body and does not open a compose form", async ({ page, request }) => {
   await request.post("/api/knowledge/kb_mail_kol/cite", { data: {} });
   await page.goto("/");
   const input = page.locator("[data-home] [data-composer-input]");
@@ -3271,23 +3271,25 @@ test("首封建联 starter asks for 发件/收件/主题 and does not show a com
   await input.fill("/");
   await expect(page.locator("[data-skill-picker] [data-knowledge-option='kb_mail_kol']")).toBeVisible();
   await page.locator("[data-knowledge-option='kb_mail_kol']").click();
-  await expect(input).toHaveValue("首封建联 [发件邮箱] [收件邮箱] [主题]");
+  await expect(input).toHaveValue(/We would love to send a LiTime Mini 12V/);
+  await expect(input).toHaveValue(/LiTime Creator Desk/);
+  await expect(input).not.toHaveValue(/^首封建联 /);
+  await expect(page.locator("[data-home] [data-knowledge-chip='kb_mail_kol']")).toContainText("首封建联");
+  await expect(page.locator("[data-home] [data-knowledge-preview='kb_mail_kol']")).toHaveAttribute("data-knowledge-preview-mode", "lock");
+  await expect(page.locator("[data-home] [data-knowledge-preview-body]")).toHaveCount(0);
   await expect(page.locator("[data-home] [data-mail-fields]")).toHaveCount(0);
+  await expect(page).toHaveURL(/\/(?:\?.*)?$/);
   await saveScreenshot(page, "first_touch_compose_fields.png");
+});
+
+test("首封建联 starter asks for 发件/收件/主题 and does not show a compose form", async ({ page }) => {
+  await page.goto("/");
+  const input = page.locator("[data-home] [data-composer-input]");
+  await input.fill("首封建联 [发件邮箱] [收件邮箱] [主题]");
+  await expect(page.locator("[data-home] [data-mail-fields]")).toHaveCount(0);
   await submitHomeComposerStay(page);
   await expectHomeClarification(page, "发件邮箱", "收件邮箱", "邮件主题");
   await expect(page.locator("[data-home] [data-creation-feedback]")).not.toContainText("邮件会话");
-  await input.fill("首封建联 发件箱 larry.zhao@amperetime.com 发给 qiyou1984@gmail.com 主题：LiTime Mini 12V — weekend van test");
-  await submitHomeComposer(page);
-  await expect(page.locator("[data-kind='me']")).toContainText("发件箱 larry.zhao@amperetime.com", { timeout: 15000 });
-  await expect(page.locator("[data-kind='me']")).toContainText("发给 qiyou1984@gmail.com");
-  await expect(page.locator("[data-kind='me']")).toContainText("主题：LiTime Mini 12V");
-  const workbench = page.locator("[data-workbench]");
-  await expect(workbench).toContainText("qiyou1984@gmail.com", { timeout: 20000 });
-  await expect(workbench).toContainText("larry.zhao@amperetime.com");
-  await expect(workbench).not.toContainText("还需要补充：邮件会话");
-  await expect(page.locator("[data-workbench] [data-kind='email-card'], [data-workbench] [data-kind='task-result-card']").first()).toBeVisible();
-  await saveScreenshot(page, "first_touch_compose_submitted.png");
 });
 
 test("cited knowledge template appears in the home picker and only prefills", async ({ page, request }) => {
@@ -3298,6 +3300,7 @@ test("cited knowledge template appears in the home picker and only prefills", as
   await input.fill("写合作邮件");
   await expect(page.locator("[data-home] [data-knowledge-chip='kb_mail_followup']")).toContainText("阶段跟进");
   await expect(preview).toBeVisible();
+  await expect(preview).toHaveAttribute("data-knowledge-preview-mode", "full");
   await expect(preview).toContainText("阶段跟进");
   await expect(preview.locator("[data-knowledge-preview-body]")).toContainText("LiTime collab kit");
   await expect(input).toHaveValue(/写合作邮件/);
@@ -3306,22 +3309,27 @@ test("cited knowledge template appears in the home picker and only prefills", as
   await input.fill("/");
   await expect(page.locator("[data-skill-picker] [data-knowledge-option='kb_mail_followup']")).toBeVisible();
   await page.locator("[data-knowledge-option='kb_mail_followup']").click();
-  await expect(input).toHaveValue(/阶段跟进/);
-  await expect(input).not.toHaveValue(/LiTime collab kit/);
+  await expect(input).toHaveValue(/LiTime collab kit/);
+  await expect(input).toHaveValue(/Just a quick follow-up/);
+  await expect(input).not.toHaveValue(/^阶段跟进/);
   await expect(page.locator("[data-knowledge-chip='kb_mail_followup']")).toContainText("阶段跟进");
   await expect(preview).toBeVisible();
-  await expect(preview.locator("[data-knowledge-preview-body]")).toContainText("LiTime collab kit");
+  await expect(preview).toHaveAttribute("data-knowledge-preview-mode", "lock");
+  await expect(preview.locator("[data-knowledge-preview-title]")).toContainText("阶段跟进");
+  await expect(preview).toContainText("Following up");
+  await expect(preview.locator("[data-knowledge-preview-body]")).toHaveCount(0);
   await expect(page).toHaveURL(/\/(?:\?.*)?$/);
   await expect(page.locator("[data-home] [data-mail-fields]")).toHaveCount(0);
   await page.locator('[data-nav="knowledge"]').click();
   await expect(page.getByRole("heading", { name: "我的知识库" })).toBeVisible();
   await expect(page.locator('[data-knowledge="kb_mail_followup"]')).toContainText("已启用");
   await page.locator('[data-fill-composer="kb_mail_followup"]').click();
-  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/阶段跟进/);
-  await expect(page.locator("[data-home] [data-composer-input]")).not.toHaveValue(/LiTime collab kit/);
+  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/LiTime collab kit/);
+  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/Just a quick follow-up/);
   await expect(page.locator("[data-home] [data-knowledge-chip='kb_mail_followup']")).toContainText("阶段跟进");
   await expect(page.locator("[data-home] [data-knowledge-preview='kb_mail_followup']")).toBeVisible();
-  await expect(page.locator("[data-home] [data-knowledge-preview-body]")).toContainText("LiTime collab kit");
+  await expect(page.locator("[data-home] [data-knowledge-preview='kb_mail_followup']")).toHaveAttribute("data-knowledge-preview-mode", "lock");
+  await expect(page.locator("[data-home] [data-knowledge-preview-body]")).toHaveCount(0);
   await expect(page.locator("[data-home] [data-knowledge-preview-title]")).toContainText("阶段跟进");
 });
 

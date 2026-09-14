@@ -4,7 +4,6 @@ import { api, type KnowledgeRow } from "../api";
 import {
   HIDE_REASONS,
   brandLabel,
-  composerStarter,
   hideReasonLabel,
   kindLabel,
   skillLabel,
@@ -178,7 +177,7 @@ export default function Knowledge({ market = false }: { market?: boolean }) {
               </div>
               <p className="muted kb-card-body">{k.body}</p>
               {k.kind === "mail_template" && (
-                <p className="kb-starter">启用后这一封：<code>{composerStarter(k)}</code></p>
+                <p className="kb-starter">点「用这份写信」会把英文正文填进首页输入框，并锁到这一封。</p>
               )}
               <div className="kb-actions">
                 {market ? (
@@ -273,7 +272,7 @@ export default function Knowledge({ market = false }: { market?: boolean }) {
                     open={tipId === `${k.id}-fill`}
                     onOpen={setTipId}
                     onClose={closeTip}
-                    hint={`锁到这一封并打开首页，例如「${composerStarter(k)}」。Codex 用已启用模板出草稿，不会直接发送。`}
+                    hint="锁到这一封并打开首页，英文正文会填进输入框，可改后再发。Codex 用已启用模板出草稿，不会直接发送。"
                   >
                     <button className="btn work" type="button" data-fill-composer={k.id} onClick={() => useTemplate(k)}>
                       用这份写信

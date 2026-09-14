@@ -20,7 +20,7 @@ import { starterPrompt } from "../taskStarters";
 import { recIcon, withRecommendedDisplay } from "../recommendedTasks";
 import {
   clearComposerFill,
-  composerStarter,
+  composerFillText,
   lockedTemplateFromRow,
   peekComposerFill,
   type LockedMailTemplate,
@@ -418,7 +418,7 @@ export default function Home() {
   const [followScope, setFollowScope] = useState<StarryBinding | null>(null);
   const [sort, setSort] = useState("priority");
   const initialFill = peekComposerFill();
-  const [text, setText] = useState(initialFill?.starter || "");
+  const [text, setText] = useState(initialFill ? composerFillText(initialFill) : "");
   const [lockedIntent, setLockedIntent] = useState<string | null>(initialFill?.skill_id || null);
   const [lockedLabel, setLockedLabel] = useState<string | null>(initialFill?.title || null);
   const [lockedKnowledgeId, setLockedKnowledgeId] = useState<string | null>(initialFill?.id || null);
@@ -537,15 +537,15 @@ export default function Home() {
     const stashed = peekComposerFill();
     const kid = stashed?.id || params.get("knowledge_id");
     if (!kid) return;
-    if (stashed?.starter) {
-      setText(stashed.starter);
+    if (stashed) {
+      setText(composerFillText(stashed));
       applyLockedKnowledge(stashed);
       setComposerFocused(true);
       setDraftFocus((value) => (value === 0 ? 1 : value));
     }
     void api.knowledgeItem(kid).then((row) => {
       if (row.status && row.status !== "published") return;
-      setText(composerStarter(row));
+      setText(composerFillText(row));
       applyLockedKnowledge(row);
       setComposerFocused(true);
       setDraftFocus((value) => value + 1);
