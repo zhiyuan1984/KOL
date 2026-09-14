@@ -355,6 +355,7 @@ export default function Approvals() {
   useEffect(() => {
     if (!pending) return;
     const root = confirmRef.current;
+    root?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     const target = pending.decision === "reject"
       ? root?.querySelector<HTMLElement>("[name='reject_reason']")
       : root?.querySelector<HTMLElement>("[data-approval-confirm-yes]");
