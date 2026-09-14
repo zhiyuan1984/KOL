@@ -2170,53 +2170,117 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator('[data-hub-chip="settle"]')).toHaveText("结算");
   await expect(page.locator('[data-hub-chip="exception"]')).toHaveText("异常旁路");
   await page.goto("/agents");
-  await expect(page.locator("[data-agent-page='work']")).toBeVisible();
-  await expect(page.locator("[data-agent-tab='work']")).toHaveText("开工");
-  await expect(page.getByRole("heading", { name: "请一位数字员工开始" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "用这些数字员工开工" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "接着上次" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "正在做的" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "需要重试的" })).toBeVisible();
+  await expect(page.locator("[data-expert-page='recommend']")).toBeVisible();
+  await expect(page.locator("[data-expert-view='recommend']")).toHaveText("推荐");
+  await expect(page.locator("[data-expert-view='mine']")).toHaveText("我的数字员工");
+  await expect(page.locator("[data-expert-view='all']")).toHaveText("全部数字员工");
+  await expect(page.locator("[data-expert-view='search']")).toHaveText("搜索");
+  await expect(page.getByRole("heading", { name: "数字员工" })).toBeVisible();
+  await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
+  await expect(page.locator("[data-expert-card='expert:kol']")).toContainText("KOL 合作专员");
+  await expect(page.locator("[data-expert-summon='expert:kol']")).toHaveText("召唤专家");
+  await expect(page.locator('nav[aria-label="数字员工"] [data-nav]')).toHaveCount(1);
+  await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
+  await expect(page.locator(".sidebar")).not.toContainText("技能目录");
+  await expect(page.locator(".sidebar")).not.toContainText("数字团队");
+  await expect(page.locator(".sidebar")).not.toContainText("专家团");
   await expect(page.getByRole("heading", { name: "推荐下一步" })).toHaveCount(0);
-  await expect(page.locator("[data-agent-page]")).not.toContainText("技能目录");
-  await expect(page.locator("[data-agent-next='entry-kol']")).toBeVisible();
-  await expect(page.locator("[data-agent-next='entry-approval']")).toBeVisible();
-  await expect(page.locator("[data-agent-next='entry-crawler']")).toBeVisible();
+  await expect(page.locator("[data-expert-page]")).not.toContainText("技能目录");
+  await expect(page.locator("[data-expert-page]")).not.toContainText("专家团");
+  await expect(page.locator("[data-expert-page]")).not.toContainText("关联技能");
+  await expect(page.locator("[data-expert-page]")).not.toContainText("在会话里用");
+  await expect(page.getByRole("button", { name: "在会话里用" })).toHaveCount(0);
   await expect(page.locator("[data-agent-profile]")).toHaveCount(0);
   await expect(page.locator("body")).not.toContainText("Codex");
   await expect(page.locator("body")).not.toContainText("Starry KOL MCP");
   await expect(page.locator("body")).not.toContainText("Host +");
   await page.goto("/teams");
-  await expect(page).toHaveURL(/\/agents\?tab=teams/);
-  await expect(page.getByRole("heading", { name: "数字团队" })).toBeVisible();
+  await expect(page).toHaveURL(/\/agents\/?$/);
+  await expect(page.getByRole("heading", { name: "数字团队" })).toHaveCount(0);
   await expect(page.locator("body")).not.toContainText("Host +");
   await expect(page.locator("body")).not.toContainText("Starry KOL MCP");
 });
 
-test("agents page keeps spec collapsed and teams as a secondary tab", async ({ page }) => {
+test("agents expert center has recommend/mine/all/search and one KOL expert", async ({ page }) => {
   await page.goto("/agents");
-  await expect(page.locator("[data-agent-section='next']")).toBeVisible();
-  await expect(page.locator("[data-agent-tab='work']")).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator("[data-agent-tab='work']")).toHaveText("开工");
-  await expect(page.locator("[data-agent-next][data-agent-source='catalog']")).toHaveCount(3);
-  await expect(page.locator("[data-agent-next][data-agent-source='board']")).toHaveCount(0);
+  await expect(page.locator("[data-expert-view='recommend']")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
+  await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("谁");
+  await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("擅长");
+  await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("能完成");
+  await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("怎么开始");
+  await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("建联");
+  await expect(page.locator("[data-expert-page]")).not.toContainText("stage_sop");
+  await expect(page.locator("[data-expert-page]")).not.toContainText("关联技能");
   await expect(page).toHaveURL(/\/agents\/?$/);
+  await page.locator("[data-expert-view='mine']").click();
+  await expect(page).toHaveURL(/view=mine/);
+  await expect(page.locator("[data-expert-empty='mine']")).toBeVisible();
+  await page.locator("[data-expert-view='all']").click();
+  await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
+  await page.locator("[data-expert-view='search']").click();
+  await page.locator("[data-expert-search]").fill("KOL");
+  await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
+  await page.locator("[data-expert-search]").fill("不存在的专家名");
+  await expect(page.locator("[data-expert-empty='search']")).toBeVisible();
   await page.locator('[data-nav="agents"]').click();
   await expect(page).toHaveURL(/\/agents\/?$/);
-  await expect(page.locator("[data-agent-page='work']")).toBeVisible();
-  await expect(page.locator("[data-agent-next='entry-kol']")).toBeVisible();
-  await expect(page.locator("[data-agent-section='failed']")).toBeVisible();
-  await expect(page.locator("[data-agent-failed] button", { hasText: "重试" }).first()).toBeVisible();
-  await expect(page.locator("[data-agent-spec-body]")).toHaveCount(0);
-  await page.locator("[data-agent-tab='spec']").click();
-  await expect(page.locator("[data-agent-page='spec']")).toBeVisible();
-  await expect(page.locator("[data-agent-profile]").first()).toBeVisible();
-  await expect(page.locator("[data-agent-spec-body]")).toHaveCount(0);
-  await page.locator("[data-agent-spec-toggle]").first().click();
-  await expect(page.locator("[data-agent-spec-body]").first()).toBeVisible();
-  await page.locator("[data-agent-tab='teams']").click();
-  await expect(page.getByRole("heading", { name: "数字团队" })).toBeVisible();
-  await expect(page.locator("[data-team]").first()).toBeVisible();
+});
+
+test("home does not pile expert task lists", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("[data-home]")).toBeVisible();
+  await expect(page.locator("[data-expert-card]")).toHaveCount(0);
+  await expect(page.locator("[data-home]")).not.toContainText("召唤专家");
+  await expect(page.locator("[data-home]")).not.toContainText("你可以这样说");
+});
+
+test("expert center list → detail → summon binds a session without send/stage", async ({ page }) => {
+  const sideEffects: string[] = [];
+  page.on("request", (request) => {
+    const url = request.url();
+    const method = request.method();
+    if (method !== "POST" && method !== "PUT" && method !== "PATCH") return;
+    if (
+      /\/messages(?:\?|$)/.test(url)
+      || /\/drafts\/[^/]+\/send/.test(url)
+      || /\/confirm-stage/.test(url)
+    ) {
+      sideEffects.push(`${method} ${url}`);
+    }
+  });
+  await page.goto("/agents");
+  await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
+  await page.locator("[data-expert-open='expert:kol']").click();
+  await expect(page).toHaveURL(/\/agents\/kol/);
+  await expect(page.locator("[data-expert-page='detail']")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "使命" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "擅长" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "你可以这样说" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "工作方式" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "召唤" })).toBeVisible();
+  await expect(page.locator("[data-expert-page='detail']")).not.toContainText("关联技能");
+  await expect(page.locator("[data-expert-page='detail']")).not.toContainText("在会话里用");
+  await expect(page.locator("[data-expert-page='detail']")).not.toContainText("stage_sop");
+  await expect(page.locator("[data-expert-page='detail']")).not.toContainText("Harness");
+  const summonWait = page.waitForResponse((response) => (
+    response.request().method() === "POST"
+    && response.url().includes("/api/experts/")
+    && response.url().includes("/summon")
+  ));
+  await page.locator("[data-expert-summon='expert:kol']").click();
+  const summonBody = await (await summonWait).json() as Record<string, unknown>;
+  await page.waitForURL(/\/s\//);
+  expect(Object.keys(summonBody).sort()).toEqual(["expert_id", "expert_version", "intro", "session_id"]);
+  expect(String(summonBody.session_id || "")).toMatch(/^ses_/);
+  expect(summonBody.expert_id).toBe("expert:kol");
+  expect(summonBody.expert_version).toBeTruthy();
+  expect(summonBody.intro).toBeTruthy();
+  await expect(page.locator("[data-expert-identity='expert:kol']")).toBeVisible();
+  await expect(page.locator("[data-expert-name]")).toHaveText("KOL 合作专员");
+  await expect(page.locator("[data-expert-intro]")).toBeVisible();
+  await expect(page.locator("[data-expert-task]")).toHaveCount(3);
+  expect(sideEffects).toEqual([]);
 });
 
 test("admin debug toggle reveals connector tiles on the skill hub", async ({ page }) => {
@@ -2224,9 +2288,11 @@ test("admin debug toggle reveals connector tiles on the skill hub", async ({ pag
   await expect(page.locator(".workbench")).toHaveAttribute("data-view-mode", "business");
   await expect(page.locator('[data-connector="starrykol"]')).toHaveCount(0);
   await page.locator(".user-chip").click();
+  await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
   await page.locator("[data-debug-toggle]").click();
   await expect(page.locator(".workbench")).toHaveAttribute("data-view-mode", "debug");
   await expect(page.locator('[data-connector="starrykol"]')).toBeVisible();
+  await expect(page.locator('[data-nav="skills"]')).toBeVisible();
 });
 
 test("user menu switches employee, admin, and settings workspaces", async ({ page }) => {
@@ -2267,7 +2333,9 @@ test("approval, knowledge, and exam are vertical primary nav items before cloud"
   expect(assetOrder.indexOf("exam")).toBeLessThan(assetOrder.indexOf("云盘"));
   await expect(page.locator('[data-nav="pipeline"]')).toHaveCount(0);
   await expect(page.locator(".sidebar")).not.toContainText("生命周期");
-  await expect(page.locator('[data-nav="skills"]')).toBeVisible();
+  await expect(page.locator('nav[aria-label="数字员工"] [data-nav]')).toHaveCount(1);
+  await expect(page.locator('[data-nav="agents"]')).toBeVisible();
+  await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
   await expect(page.locator('.sidebar-foot a[href="/approvals"], .sidebar-foot a[href="/kb"], .sidebar-foot a[href="/exam"]')).toHaveCount(0);
   await page.locator('[data-nav="approvals"]').click();
   await expect(page).toHaveURL(/\/approvals$/);
@@ -2304,14 +2372,17 @@ test("employee sidebar puts cron in today cluster and hides group titles", async
 
 test("docs/21 employee sidebar has no admin connectors deep-link", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator('[data-nav="skills"]')).toBeVisible();
+  await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
+  await expect(page.locator(".sidebar")).not.toContainText("技能目录");
   await expect(page.locator('[data-nav="connectors"]')).toHaveAttribute("href", "/connectors");
   await expect(page.locator('.sidebar a[href="/admin/connectors"]')).toHaveCount(0);
-  await expect(page.locator('[data-nav="agents-teams"]')).toBeVisible();
   await expect(page.locator('[data-nav="agents"]')).toHaveText("数字员工");
-  await expect(page.locator('[data-nav="teams"]')).toHaveText("数字团队");
   await expect(page.locator('[data-nav="agents"]')).toHaveAttribute("href", "/agents");
-  await expect(page.locator('[data-nav="teams"]')).toHaveAttribute("href", "/agents?tab=teams");
+  await expect(page.locator('nav[aria-label="数字员工"] [data-nav]')).toHaveCount(1);
+  await expect(page.locator('[data-nav="teams"]')).toHaveCount(0);
+  await expect(page.locator('[data-nav="agents-teams"]')).toHaveCount(0);
+  await expect(page.locator(".sidebar")).not.toContainText("数字团队");
+  await expect(page.locator(".sidebar")).not.toContainText("专家团");
 });
 
 test("docs/21 admin agents governance is reachable from admin chrome", async ({ page }) => {

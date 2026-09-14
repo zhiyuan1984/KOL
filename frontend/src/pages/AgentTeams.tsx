@@ -1,6 +1,6 @@
 import { Navigate } from "react-router-dom";
 
-/** Teams live on /agents?tab=teams so employees don't get a second catalog. */
+/** Teams / 专家团 are not an employee surface. Keep the old URL honest. */
 export default function AgentTeams() {
-  return <Navigate to="/agents?tab=teams" replace />;
+  return <Navigate to="/agents" replace />;
 }

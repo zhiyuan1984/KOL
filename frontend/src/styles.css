@@ -2334,6 +2334,131 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 
 .nowrap, .nowrap-safe { white-space: nowrap; }
 .agent-page { max-width: 52rem; width: 100%; gap: var(--space-4); min-width: 0; overflow-x: hidden; }
+.expert-page { gap: var(--space-3); }
+.expert-back {
+  color: var(--text-muted);
+  font-size: var(--font-meta);
+  text-decoration: none;
+  width: fit-content;
+}
+.expert-back:hover { color: var(--primary); }
+.expert-search {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 24rem;
+}
+.expert-search input {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  font-size: var(--font-ui);
+}
+.expert-list {
+  display: grid;
+  gap: 0;
+}
+.expert-card {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+  overflow: hidden;
+}
+.expert-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.expert-card-titles { min-width: 0; display: grid; gap: 2px; }
+.expert-card-titles h2 {
+  margin: 0;
+  font-size: var(--font-section);
+}
+.expert-card-titles h2 a {
+  color: inherit;
+  text-decoration: none;
+}
+.expert-card-titles h2 a:hover { color: var(--primary); }
+.expert-card-titles p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.expert-qa {
+  margin: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+.expert-qa div {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: baseline;
+  font-size: var(--font-ui);
+  min-width: 0;
+}
+.expert-qa dt {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-meta);
+}
+.expert-qa dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.expert-card-cta { display: flex; }
+.expert-detail {
+  display: grid;
+  gap: var(--space-4);
+}
+.expert-detail section { display: grid; gap: var(--space-2); }
+.expert-detail h2 {
+  margin: 0;
+  font-size: var(--font-section);
+}
+.expert-detail p { margin: 0; font-size: var(--font-ui); overflow-wrap: anywhere; }
+.expert-prompt-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--font-ui);
+}
+.expert-detail-summon { padding-top: var(--space-2); }
+.expert-detail-summon .btn.work {
+  justify-self: start;
+  width: auto;
+}
+.expert-session-bar {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+.expert-session-bar strong {
+  display: block;
+  font-size: var(--font-section);
+}
+.expert-session-bar p { margin: var(--space-1) 0 0; }
+.expert-session-tasks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.expert-session-tasks .chip {
+  cursor: pointer;
+  background: var(--bg-elevated);
+}
+.expert-intro {
+  padding: var(--space-2) 0;
+  font-size: var(--font-ui);
+}
+.expert-intro p { margin: 0; overflow-wrap: anywhere; }
 .agent-hero { display: grid; gap: var(--space-2); }
 .agent-hero h1 { margin: 0; font-size: var(--font-title); }
 .agent-hero .muted { max-width: 52rem; font-size: var(--font-ui); }

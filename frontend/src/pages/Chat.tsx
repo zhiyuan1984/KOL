@@ -27,6 +27,7 @@ import { useRunStatus } from "../hooks/useRunStatus";
 import { rememberJourney, SOP_PHASES, sopPhaseByStage } from "../journey";
 import { FollowStyleTagBar } from "../components/FollowStyleTags";
 import { friendlyError, missingFieldsMessage } from "../labels";
+import { readBoundExpert } from "../experts";
 import type { SessionMailRow } from "../components/AgentTaskList";
 
 type RecommendedAction = {
@@ -710,10 +711,18 @@ export default function Chat() {
   }, [timelineWithCrawl, crawlJob, err, submitErr]);
   const lastComposeGap = lastUnsentComposeGap(messages);
   const composerHint = String(lastComposeGap?.placeholder || journey?.composer_placeholder || "");
+  const boundExpert = id ? readBoundExpert(id) : null;
   const recommendedActions = (() => {
+    const expertTasks = (boundExpert?.recommended_tasks || []).map((task) => ({
+      label: task.title,
+      prompt: task.prompt,
+    }));
     const base = (Array.isArray(journey?.recommended_actions)
       ? journey?.recommended_actions as RecommendedAction[]
       : []);
+    if (expertTasks.length) {
+      return [...expertTasks, ...base.filter((row) => !expertTasks.some((task) => task.prompt === row.prompt))].slice(0, 3);
+    }
     if (!lastComposeGap?.field) return base.slice(0, 3);
     const gapAction: RecommendedAction = {
       label: lastComposeGap.label || lastComposeGap.result_action,
@@ -913,6 +922,27 @@ export default function Chat() {
             <Link to="/" className="task-back">← 返回任务列表</Link>
             <RunHud status={status} phase={phase} taskTitle={task?.title || runTask?.title} remoteLabel={remoteLabel} />
           </div>
+          {boundExpert ? (
+            <div className="expert-session-bar" data-expert-identity={boundExpert.expert_id}>
+              <div>
+                <strong data-expert-name>{boundExpert.name}</strong>
+                <p className="muted">{boundExpert.mission}</p>
+              </div>
+              <div className="expert-session-tasks" data-expert-tasks>
+                {boundExpert.recommended_tasks.map((task) => (
+                  <button
+                    key={task.id}
+                    type="button"
+                    className="chip"
+                    data-expert-task={task.id}
+                    onClick={() => pickSuggestion({ label: task.title, prompt: task.prompt })}
+                  >
+                    {task.title}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {confirmStageNotice ? (
             <p className="muted" data-confirm-stage-feedback data-tone="info" role="status">
               {confirmStageNotice}
@@ -1004,6 +1034,11 @@ export default function Chat() {
           )}
         </header>
         <div className="session-stream conversation" ref={streamRef} data-session-stream-pane data-ai-conversation role="log">
+        {boundExpert?.intro ? (
+          <article className="expert-intro message is-assistant" data-expert-intro data-kind="expert-intro">
+            <p>{boundExpert.intro}</p>
+          </article>
+        ) : null}
         {kolSession && (mailDigest || mailAnalysisPending || (sessionMails && sessionMails.length)) ? (
           <ThreadMailDigest digest={mailDigest} pending={mailAnalysisPending} mailCount={sessionMails?.length} />
         ) : kolSession ? (
