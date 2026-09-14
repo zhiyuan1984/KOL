@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { requireConnector } from "../auth.js";
 import {
+  checkDiscoveryConnection,
   createDiscoveryRequest,
   dismissCandidate,
   followCandidate,
@@ -16,6 +17,10 @@ import { nid } from "../ids.js";
 import type { Json } from "../types.js";
 
 export const discovery = new Hono();
+
+discovery.get("/discovery/connection", async (c) => c.json(await checkDiscoveryConnection()));
+
+discovery.post("/discovery/connection", async (c) => c.json(await checkDiscoveryConnection()));
 
 discovery.post("/discovery/requests", async (c) => {
   const body = await c.req.json().catch(() => ({})) as Json;

@@ -201,9 +201,16 @@ export function mediaCrawlerMcpUrl(): string {
   return value;
 }
 
+/**
+ * Cheap credential presence check (URL + token only).
+ * This is NOT the employee 「已配置」 signal — that requires a live probe
+ * (`probeMediaCrawlerConnection` / GET /api/discovery/connection).
+ */
 export function mediaCrawlerConfigured(): boolean {
   return Boolean(process.env.MEDIACRAWLER_MCP_URL?.trim() && process.env.MEDIACRAWLER_MCP_TOKEN?.trim());
 }
+
+export const mediaCrawlerCredentialsPresent = mediaCrawlerConfigured;
 
 export function kolClawMcpUrl(): string {
   const value = process.env.KOLCLAW_MCP_URL?.trim();

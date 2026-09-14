@@ -55,6 +55,18 @@ export type CreatorCandidate = {
   updated_at?: string;
 };
 
+export type DiscoveryConnectionStatus = "not_configured" | "unchecked" | "unreachable" | "ok";
+
+export type DiscoveryConnection = {
+  status: DiscoveryConnectionStatus | string;
+  credentials_present: boolean;
+  reachable: boolean | null;
+  connected: boolean | null;
+  checked_at?: string | null;
+  message: string;
+  status_label?: string;
+};
+
 export type DiscoveryRun = {
   id: string;
   request_id?: string;
@@ -68,6 +80,7 @@ export type DiscoveryRun = {
   updated_at?: string;
   completed_at?: string | null;
   duplicate?: boolean;
+  connection?: DiscoveryConnection;
 };
 
 export type DiscoveryRequest = {
@@ -85,6 +98,7 @@ export type DiscoveryRequest = {
   updated_at?: string;
   filters?: DiscoveryFilters;
   mode?: string;
+  connection?: DiscoveryConnection;
 };
 
 export type DiscoveryResults = {
@@ -106,6 +120,7 @@ export type DiscoveryResults = {
   };
   ready?: boolean;
   pending_confirm?: boolean;
+  connection?: DiscoveryConnection;
 };
 
 export type DiscoveryFollowResult = CreatorCandidate & {
@@ -181,6 +196,21 @@ function asStringList(value: unknown): string[] {
   return [];
 }
 
+export function asConnection(value: unknown): DiscoveryConnection | undefined {
+  const item = asRecord(value);
+  if (!item.status && item.credentials_present == null && item.reachable == null) return undefined;
+  const status = String(item.status || (item.credentials_present ? "unchecked" : "not_configured"));
+  return {
+    status,
+    credentials_present: Boolean(item.credentials_present),
+    reachable: item.reachable == null ? null : Boolean(item.reachable),
+    connected: item.connected == null ? null : Boolean(item.connected),
+    checked_at: item.checked_at == null ? null : String(item.checked_at),
+    message: String(item.message || ""),
+    status_label: item.status_label ? String(item.status_label) : undefined,
+  };
+}
+
 export function asCandidate(row: unknown): CreatorCandidate {
   const item = asRecord(row);
   const handle = String(item.handle || item.nickname || "");
@@ -226,6 +256,7 @@ export function asRun(row: unknown): DiscoveryRun {
     updated_at: item.updated_at ? String(item.updated_at) : undefined,
     completed_at: item.completed_at == null ? null : String(item.completed_at),
     duplicate: Boolean(item.duplicate),
+    connection: asConnection(item.connection),
   };
 }
 
@@ -246,6 +277,7 @@ export function asRequest(row: unknown): DiscoveryRequest {
     updated_at: item.updated_at ? String(item.updated_at) : undefined,
     filters: asFilters(item.filters),
     mode: item.mode ? String(item.mode) : undefined,
+    connection: asConnection(item.connection),
   };
 }
 
@@ -269,6 +301,7 @@ export function asResults(row: unknown): DiscoveryResults {
     counts: asRecord(item.counts) as DiscoveryResults["counts"],
     ready: Boolean(item.ready),
     pending_confirm: Boolean(item.pending_confirm),
+    connection: asConnection(item.connection) || asConnection(item.collector_status) || request.connection,
   };
 }
 
@@ -456,4 +489,15 @@ export async function followCandidate(id: string): Promise<DiscoveryFollowResult
 
 export async function dismissCandidate(id: string): Promise<CreatorCandidate> {
   return asCandidate(await api.dismissDiscoveryCandidate(id));
+}
+
+export async function checkDiscoveryConnection(): Promise<DiscoveryConnection> {
+  return asConnection(await api.checkDiscoveryConnection()) || {
+    status: "unchecked",
+    credentials_present: false,
+    reachable: null,
+    connected: null,
+    checked_at: null,
+    message: "采集服务待检查",
+  };
 }

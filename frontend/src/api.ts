@@ -1056,4 +1056,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+  discoveryConnection: () =>
+    request<Record<string, unknown>>("/api/discovery/connection"),
+  checkDiscoveryConnection: () =>
+    request<Record<string, unknown>>("/api/discovery/connection", {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
 };
