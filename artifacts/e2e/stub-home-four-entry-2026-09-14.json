@@ -1,0 +1,113 @@
+{
+  "date": "2026-09-14",
+  "pr": [61, 63, 62],
+  "pr_url": [
+    "https://github.com/zhiyuan1984/KOL/pull/61",
+    "https://github.com/zhiyuan1984/KOL/pull/63",
+    "https://github.com/zhiyuan1984/KOL/pull/62"
+  ],
+  "pr_state": "merged",
+  "branch": "cursor/home-four-panel-workbench-6446",
+  "verified_ref": "origin/main",
+  "after": ["#61", "#63", "#62"],
+  "git": {
+    "sha": "1c9bfe74bf23f0a20134ea55475e69125a3c59cc",
+    "short": "1c9bfe7",
+    "subject": "Merge pull request #62 from zhiyuan1984/cursor/home-four-panel-workbench-6446"
+  },
+  "sha": "1c9bfe74bf23f0a20134ea55475e69125a3c59cc",
+  "sha_short": "1c9bfe7",
+  "commit": "Merge pull request #62 from zhiyuan1984/cursor/home-four-panel-workbench-6446",
+  "mode": "stub",
+  "e2e_mode": "stub",
+  "LIVE": false,
+  "live": false,
+  "LIVE_REMOTE_SIDE_EFFECTS": 0,
+  "e2e_auth_mode": "disabled",
+  "spec": [
+    "frontend/e2e/home-four-panel.spec.ts",
+    "frontend/e2e/workbench.spec.ts"
+  ],
+  "focus": "Home four-entry IA + discovery plan→runs gate + 我的待办 no regress; no auto send/stage",
+  "runs": {
+    "tip": {
+      "result": "PASS",
+      "passed": 6,
+      "failed": 0,
+      "duration": "~15.2s",
+      "tests": [
+        {
+          "n": 1,
+          "name": "home four-panel tab order and pane visibility",
+          "status": "PASS"
+        },
+        {
+          "n": 2,
+          "name": "home discovery persists plan and requires confirm before crawl or follow",
+          "status": "PASS"
+        },
+        {
+          "n": 3,
+          "name": "today suggestion convert to todo dedupes",
+          "status": "PASS"
+        },
+        {
+          "n": 4,
+          "name": "home waiting work item is labeled 结果待确认 not 等待中",
+          "status": "PASS"
+        },
+        {
+          "n": 5,
+          "name": "home todo buckets fold after 6 items and keep wait-status labels",
+          "status": "PASS"
+        },
+        {
+          "n": 6,
+          "name": "home AI insight is confirmed into 我的待办 and 立即处理 opens the KOL session",
+          "status": "PASS"
+        }
+      ]
+    }
+  },
+  "coverage": [
+    {
+      "focus": "今日任务 rename",
+      "status": "PASS",
+      "how_covered": "old AI发现 chip is now 今日任务; today pane source copy is 今天推荐; today pane not.toContainText AI发现; default tab is 今日任务"
+    },
+    {
+      "focus": "我的待办 no regress",
+      "status": "PASS",
+      "how_covered": "suggestion convert dedupe; waiting labeled 结果待确认; buckets fold after 6; AI insight confirmed into 我的待办; no 后续 bucket"
+    },
+    {
+      "focus": "AI发现 plan→runs gated (confirm before crawl/follow)",
+      "status": "PASS",
+      "how_covered": "plan persist ≠ crawl; POST /api/discovery/requests only until confirm-plan; /runs after confirm; /follow never auto-fired"
+    },
+    {
+      "focus": "followed excludes unconfirmed candidates",
+      "status": "PASS",
+      "how_covered": "我跟进的红人 data-followed-origin=collaboration; data-discovery-candidate count 0 after unconfirmed plan"
+    },
+    {
+      "focus": "no auto send/stage",
+      "status": "PASS",
+      "how_covered": "plan copy 不会自动发信或改阶段; watcher for /send /confirm-stage /crawl-start is []; LIVE_REMOTE_SIDE_EFFECTS=0"
+    }
+  ],
+  "coverage_pass_count": 5,
+  "negatives": {
+    "no_auto_send": "PASS",
+    "no_auto_stage": "PASS",
+    "no_auto_crawl_follow": "PASS",
+    "no_LIVE": "PASS"
+  },
+  "not_run": [
+    "Full stub suite",
+    "E2E_MODE=real / LIVE remotes",
+    "LIVE send / LIVE stage / LIVE crawl"
+  ],
+  "verdict": "PASS",
+  "kol_one_liner": "main@1c9bfe7 (PR#61/#63/#62) stub Home four-entry: 6/6 tip PASS (~15.2s); 今日任务 rename; 我的待办 no regress; AI发现 plan→runs gated (confirm before crawl/follow); followed excludes unconfirmed candidates; no auto send/stage; verdict PASS; E2E_MODE=stub LIVE_REMOTE_SIDE_EFFECTS=0; no LIVE."
+}
