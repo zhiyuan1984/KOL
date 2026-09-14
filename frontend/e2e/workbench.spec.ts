@@ -459,7 +459,19 @@ test("composer plus menu exposes projects, recent files, and published skills", 
 
   await menu.getByRole("menuitem", { name: "技能" }).hover();
   const skills = page.getByRole("menu", { name: "技能" });
-  await expect(skills.getByRole("menuitem", { name: /写合作邮件/ })).toBeVisible();
+  const skillItem = skills.getByRole("menuitem", { name: /写合作邮件/ });
+  await expect(skillItem).toBeVisible();
+  const skillLayout = await skillItem.evaluate((el) => {
+    const icon = el.querySelector(".cascade-icon");
+    const label = el.querySelector("strong");
+    if (!icon || !label) return null;
+    return {
+      iconRight: icon.getBoundingClientRect().right,
+      labelLeft: label.getBoundingClientRect().left,
+    };
+  });
+  expect(skillLayout).toBeTruthy();
+  expect(skillLayout!.iconRight).toBeLessThan(skillLayout!.labelLeft);
   await expect(skills.getByRole("menuitem", { name: "创建技能" })).toHaveCount(0);
   await expect(skills.getByRole("menuitem", { name: "管理技能" })).toHaveCount(0);
   await expect(menu.getByRole("menuitem", { name: "添加连接器" })).toHaveCount(0);
