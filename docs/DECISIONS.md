@@ -6,7 +6,7 @@
 
 | 日期 | 记录 | 说明 |
 |---|---|---|
-| 2026-09-14 | 员工工作台**全局正文基线 16px**（约比旧 13–14px 大 15–20%）；控件 / 按钮 / Tab / helper **≥14px**；禁止 `transform: scale` / `zoom` 假装字号。Linear 密度仍在，但不靠缩小正文 | 产品确认。见 ADR-020、`20-visual-design-system.md`。本记录不改 CSS。 |
+| 2026-09-14 | 员工工作台**全局正文基线 16px**（约比旧 13–14px 大 15–20%）；控件 / 按钮 / Tab / helper **≥14px**；禁止 `transform: scale` / `zoom` 假装字号。Linear 密度仍在，但不靠缩小正文 | 产品确认。见 ADR-020、`20-visual-design-system.md`。字号 CSS 由实现 PR 落地。 |
 | 2026-09-14 | Home 内四模式：**今日任务 → 我的待办 → AI发现 → 我跟进的红人**；旧「AI发现」改名为今日任务；新「AI发现」= CreatorCandidate 线索；加入跟进才建 Collaboration | 默认 `tab` 为空即今日任务。推荐仍只预填不自动执行。见 ADR-018、`19-ui-ux-constitution.md`。 |
 | 2026-09-13 | Home 视图顺序曾为 **AI发现 → 我的待办 → 我跟进的红人**；今天推荐只挂当时的 AI发现；我的待办去掉「后续」历史桶 | **已被 ADR-018 取代。** 旧「AI发现」现为「今日任务」；新「AI发现」是红人线索。推荐仍只预填不自动执行（`04`）。 |
 | 2026-09-13 | 邮件往来摘要 Codex `thread/start` 与识别一致：`CODEX_MODEL` / CLI 默认，不传 `gpt-5.6-luna`。Luna digest 需要 `OPENAI_BASE_URL` 及该端点 key | 公共 OpenAI `sk-proj` 打默认 Luna 会 HTTP 401。不改 provider 顺序或 sticky-fail。 |
