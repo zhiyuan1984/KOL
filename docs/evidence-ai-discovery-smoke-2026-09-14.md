@@ -2,12 +2,13 @@
 
 ## 总判
 
-**PASS** — STUB 全路径通过；REAL 计划确认与采集中通过，结果入库/`加入跟进`因 Host↔本地 MCP `get_creators` 参数契约不一致 **BLOCKED**。远端 natapp MCP **BLOCKED**（connection refused）。未发信、未写阶段。
+**PASS** — STUB 全路径通过；REAL 在 Host `get_creators` 契约修复（PR #66 / `98f1898`）后全路径通过。远端 natapp MCP **BLOCKED**（connection refused），本轮 REAL 使用本地 MCP。未发信、未写阶段。
 
-- Commit: `1c9bfe7` (`1c9bfe74bf23f0a20134ea55475e69125a3c59cc`)
-- Worktree: `/workspace/KOL-real`（未新建 clone）
+- Commit: `98f1898` (`98f189814c8d41a15f7781ef9dcd09c8169d00d7`)
+- Worktree: `/workspace/KOL-real`（未新建 clone；本 worktree checkout 到该 commit）
 - Keywords: `portable power station` / `户外电源`
 - Platform: `youtube` only（未启动 xhs/dy/ks/bili/wb/tieba/zhihu）
+- `used_url`: `http://127.0.0.1:8000/mcp`
 - `LIVE_REMOTE_SIDE_EFFECTS` 本进程覆盖为 `0`；未扩 LIVE_* allowlist；未调用 sendEmail/wecom
 
 ## MCP hosts（仅 host，无 token）
@@ -15,8 +16,8 @@
 | 用途 | Host | 状态 |
 |---|---|
 | 远端 natapp（.env 默认） | `s636695a.natappfree.cc` | BLOCKED connection refused |
-| STUB mock | `127.0.0.1:18000` | UP |
-| REAL local | `127.0.0.1:8000` | UP `/health` ok；YouTube yt-dlp 完成 15 creators 落盘 |
+| STUB mock | `127.0.0.1:18000` | UP（先前 STUB 证据） |
+| REAL local | `127.0.0.1:8000` | UP `/health` ok；`used_url` http://127.0.0.1:8000/mcp |
 
 ## 结果表
 
@@ -28,8 +29,8 @@
 | stub_follow | PASS |
 | real_plan | PASS |
 | real_progress | PASS |
-| real_results | BLOCKED |
-| real_follow | BLOCKED |
+| real_results | PASS |
+| real_follow | PASS |
 | no_auto_send | PASS |
 | no_stage_write | PASS |
 | copy_no_mcp_job | PASS |
@@ -45,12 +46,15 @@
    - `starry_stage_writes` Δ=0
    - `stage_transitions` Δ=0
 
-## REAL（`CODEX_MODE=real`，local MCP `127.0.0.1:8000`，auth=sriphy）
+## REAL（`CODEX_MODE=real`，local MCP `127.0.0.1:8000`，auth=sriphy，commit `98f1898`）
 
-1. **Plan confirm** — PASS（待确认，未自动开爬）。
-2. **In progress** — PASS（持续 `采集中` / crawl `analyzing`，非假完成）。
-3. **Result list** — **BLOCKED**。MCP 任务已 `idle` 且结果文件含 **15** 个 YouTube creators，但 Host `completeJob` → `get_creators` 传入 `task_id`/`offset`/`limit`，本地 MCP 仅接受 `platform`/`page`/`page_size`，pydantic 校验失败；Host 卡在 `analyzing`，`creator_candidates` 仍为 0。员工 API 仍只显示「采集中」，无引擎词泄漏。
-4. **加入跟进** — **BLOCKED**（无已入库候选人可跟进）。
+1. **Plan confirm** — PASS（`dreq_abb69fb585a8`，待确认，未自动开爬）。
+2. **In progress** — PASS（`drun_9f4c38af9d0b`，持续 `采集中`，非假完成）。
+3. **Result list** — PASS。Host `completeJob` → `get_creators` 现传 `platform`/`page`/`page_size`；入库 **23** YouTube candidates（keyword portable power station / 户外电源），`ready=true`，`status_label=已完成`。员工 JSON 无 MCP/Job 泄漏。样本 handles：IEETek, SoreinPower, Portable Power Station, portable power station factory, LIPOWER Official, portable power station。
+4. **加入跟进** — PASS（`cand_58974aa28bf6` → `followed`，`collaboration.source=discovery`，`stage_code=INITIAL_CONTACT`）。
+   - `starry_sends` Δ=0
+   - `starry_stage_writes` Δ=0
+   - `stage_transitions` Δ=0
 
 ## 文案
 
@@ -66,19 +70,8 @@
 
 ## Blocker（一句）
 
-REAL 结果入库被 Host 与本地 MediaCrawler MCP 的 `get_creators` 参数契约不一致挡住（Host 发 `task_id/offset/limit`，MCP 要 `page/page_size`），故候选人未进库、`加入跟进` 无法在 REAL 完成。
+无（REAL 此前 get_creators 契约 BLOCKED 已由 PR #66 / `98f1898` 解除；natapp 仍 DOWN，本轮用本地 MCP）。
 
-## Host 契约修复（本 PR）
+## Host 契约修复（PR #66）
 
-`backend/src/crawl/service.ts` `fetchCreators` 改为 MCP 契约：
-
-- 只传 `platform`（来自 crawl job）、`page`（1-based，与本地 `backend/mcp/tools.ts` 及 `docs/median_mcp_server.md` 一致）、`page_size`
-- **不**传 `task_id` / `offset` / `limit`
-- 分页：空页或 `has_more === false` 停止；尊重 `total`；无 `has_more` 时满页继续、短页结束
-
-Discovery 仍走既有 `completeJob` → `ingestMediacrawler` → `onCrawlJobSettled` → `creator_candidates`。不另起爬虫栈。海外平台不变（YouTube only in this smoke）。员工 JSON 仍不得泄漏 MediaCrawler / MCP / Job ID。
-
-### 验证
-
-- `backend/tests/mediacrawler.test.ts`：断言 Host 调用 `get_creators` 的 args 为 `platform` / `page` / `page_size`；pydantic-strict mock 拒收 extra fields 时仍能分页拉全量并 `result_ready`
-- `backend/tests/discovery.test.ts`：同一契约下 results + follow 通；无 LIVE send / 无 stage write
+`backend/src/crawl/service.ts` `fetchCreators` 改为 MCP 契约：只传 `platform` / `page` / `page_size`，不传 `task_id` / `offset` / `limit`。本轮 REAL 复跑验证入库与 `加入跟进` 成功。
