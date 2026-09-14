@@ -1319,7 +1319,10 @@ export default function Home() {
 
         <div
           className="home-board"
-          onScroll={(event) => setStageScrolled(event.currentTarget.scrollTop > 40)}
+          onScroll={(event) => {
+            const top = event.currentTarget.scrollTop;
+            setStageScrolled((current) => (current ? top > 8 : top > 40));
+          }}
         >
           {mode === "today" ? (
             <section className="home-mode-pane" data-home-pane="today" data-ai-insights data-ai-list-total={insightCount}>

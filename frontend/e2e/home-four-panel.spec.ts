@@ -96,7 +96,9 @@ test("home discovery mock happy path never goes LIVE and stays out of followed K
 
   const first = page.locator("[data-discovery-candidate]").first();
   const handle = (await first.getAttribute("data-discovery-candidate")) || "";
-  await first.locator("[data-discovery-favorite]").click();
+  const favorite = first.locator("[data-discovery-favorite]");
+  await favorite.scrollIntoViewIfNeeded();
+  await favorite.click();
   await expect(first.locator("[data-discovery-favorite]")).toHaveAttribute("aria-pressed", "true");
   await first.locator("[data-discovery-follow]").click();
   await expect(page.locator("[data-discovery-follow-confirm]")).toBeVisible();
