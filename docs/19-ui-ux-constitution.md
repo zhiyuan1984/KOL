@@ -217,7 +217,7 @@ Pipeline 的筛选只允许 `brand|owner|stage|region|kol|sync` 与生命周期�
 | 本文件 | 员工主表面的注意力法律、四页分工、Home 内四模式（ADR-018）、员工侧栏 IA（定时任务归今日簇；组间分割线而非可见「今日/智能体/资产」标题）、并列能力面（与 Agent / 任务解耦）与 `/agents` 专家中心（召唤岗位专家，非第五页）；与 `04` 在信息架构上冲突时，以本文件为准 |
 | `00-platform-charter.md` | 租户、审批、发送/阶段/导入/解密/删除分离等平台不变量 |
 | `04-ux-ui-system.md` | 双端、状态可见、L1–L3、组件义务；可执行实例在 `specs/UX-KOL.md` |
-| `20-visual-design-system.md` | 视觉密度、组件基底、token 默认（正文 16px / UI≥14px，ADR-019）；不改注意力法律 |
+| `20-visual-design-system.md` | 视觉密度、组件基底、token 默认（正文 16px / UI≥14px，ADR-020）；不改注意力法律 |
 | `21-admin-employee-page-roles.md` | 管理端配套套件与双端导航；`/admin/agents` 治理 ≠ 员工专家中心；不改本文件四页法律 |
 | `05-agent-workflow-skill-policy.md` | 8 段展示 vs 15 阶段写入；Journey / SOP 的业务含义 |
 | `14-implementation-contract.md` | Markdown 如何落到前端页面与 schema |
