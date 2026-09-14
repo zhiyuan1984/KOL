@@ -6,7 +6,8 @@
 
 | 日期 | 记录 | 说明 |
 |---|---|---|
-| 2026-09-13 | Home 视图顺序改为 **AI发现 → 我的待办 → 我跟进的红人**；今天推荐只挂 AI发现；我的待办去掉「后续」历史桶 | 默认 `tab` 为空即 AI发现；推荐仍只预填不自动执行（`04`）。见 `19-ui-ux-constitution.md`。 |
+| 2026-09-14 | Home 内四模式：**今日任务 → 我的待办 → AI发现 → 我跟进的红人**；旧「AI发现」改名为今日任务；新「AI发现」= CreatorCandidate 线索；加入跟进才建 Collaboration | 默认 `tab` 为空即今日任务。推荐仍只预填不自动执行。见 ADR-018、`19-ui-ux-constitution.md`。 |
+| 2026-09-13 | Home 视图顺序曾为 **AI发现 → 我的待办 → 我跟进的红人**；今天推荐只挂当时的 AI发现；我的待办去掉「后续」历史桶 | **已被 ADR-018 取代。** 旧「AI发现」现为「今日任务」；新「AI发现」是红人线索。推荐仍只预填不自动执行（`04`）。 |
 | 2026-09-13 | 邮件往来摘要 Codex `thread/start` 与识别一致：`CODEX_MODEL` / CLI 默认，不传 `gpt-5.6-luna`。Luna digest 需要 `OPENAI_BASE_URL` 及该端点 key | 公共 OpenAI `sk-proj` 打默认 Luna 会 HTTP 401。不改 provider 顺序或 sticky-fail。 |
 | 2026-09-13 | 邮件往来摘要 `analysis_failed` 改为冷却后自动再试，并持久化 `error` / `attempted` / `failed_at` | 不是新 ADR。不改 provider、指纹、寒暄过滤或超时。详见 `docs/evidence-mail-digest-analysis-plan-2026-09-13.md`。 |
 | 2026-09-14 | 并列能力面与 Agent / 任务解耦：知识库、审批、考试、连接器使用面是独立产品面，不隶属 KOL Agent，也不因进行中任务才存在 | 不是第五套 Home。治理仍 Admin-only。见 ADR-015、`19-ui-ux-constitution.md`、`21-admin-employee-page-roles.md`。 |
@@ -34,6 +35,7 @@
 | ADR-015 | 员工并列能力面（知识库 / 审批 / 考试 / 连接器使用面等）与数字员工开工入口、今日任务队列解耦；KOL 只作数据不定义 IA；治理仍 Admin-only | `19-ui-ux-constitution.md`、`21-admin-employee-page-roles.md` |
 | ADR-016 | 员工 `/agents` 专家中心只召唤已发布岗位专家；无专家团；员工默认禁止 Skill/MCP/Profile/Harness/连接器状态主 IA；召唤只建绑定、不发信不写阶段；Home 独占任务；并列能力面仍解耦（ADR-015） | `19-ui-ux-constitution.md`、`21-admin-employee-page-roles.md` |
 | ADR-017 | 首版 `ExpertManifest` + `/api/experts` 落实 ADR-016：仅 `expert:kol` 已发布；召唤持久化 `expert_id`/`expert_version`；无专家团 API | `02-domain-model.md`、`14-implementation-contract.md`、`experts/kol/manifest.yaml` |
+| ADR-018 | Home **内**四模式：今日任务 / 我的待办 / AI发现 / 我跟进的红人；旧「AI发现」改名为今日任务；新「AI发现」= CreatorCandidate；加入跟进才建 Collaboration；不是第五页 | `19-ui-ux-constitution.md`、`04-ux-ui-system.md`、`21-admin-employee-page-roles.md` |
 
 ## 新增 Agent 分级
 
@@ -246,3 +248,49 @@ ADR-016（#53）立法：员工专家中心只召唤已发布岗位专家；召�
 - 规范：引用 ADR-016、`02-domain-model.md`、`14-implementation-contract.md`
 - 代码：`experts/kol/manifest.yaml`、`backend/src/experts.ts`、`GET/POST /api/experts`
 - 测试：`backend/tests/experts.test.ts`、`validate:contracts`
+
+## ADR-018 — Home 内四模式：今日任务 / 我的待办 / AI发现 / 我跟进的红人（2026-09-14）
+
+**状态**：已固化  
+**决策人**：产品负责人
+
+### 问题与背景
+
+`19` 把 Home 写成**三个视图**，且把「AI发现」定义为今天推荐预填（邮件 / 阶段建议）。产品已收敛为 Home **内**四个入口模式：今日任务 | 我的待办 | AI发现 | 我跟进的红人。若不立法，实现会继续把任务推荐叫「AI发现」，或把红人线索当成 Task，或在发现阶段就建 Collaboration，或再发明第五套主脊柱。
+
+2026-09-13 的视图顺序（当时的 AI发现 → 我的待办 → 我跟进的红人）由本记录取代。
+
+### 决定
+
+1. **仍是一页 Home，四个模式。** 不发明第五套主脊柱。四页法律（Home / Pipeline / Chat / Admin）不变。四个模式都在 Home 内。员工文案顺序与默认落地：
+
+   ```text
+   今日任务 | 我的待办 | AI发现 | 我跟进的红人
+   ```
+
+   未指定 `tab` 时默认 **今日任务**。员工 Home 禁止 MCP / Codex / Thread / Skill 等引擎行话（`UX-COPY-ENGINE`）。
+
+2. **对象分属，不得串用。**
+
+   | 模式 | 只回答 | 主对象 |
+   |---|---|---|
+   | **今日任务** | 今天的优先事项（邮件 / 阶段建议、今天推荐预填——即旧「AI发现」的任务推荐语义） | 今日优先工作项——**不是**红人发现 |
+   | **我的待办** | Task / WorkItem 队列 | Task·WorkItem（逾期 / 今天到期 / 结果待确认 / 等审批 / 已入队 / 执行中；**仍不含**「后续」历史桶） |
+   | **AI发现** | 端到端红人线索发现 | CreatorCandidate（红人线索）——**不是**任务推荐 |
+   | **我跟进的红人** | 我跟进的合作 | Collaboration。**加入跟进才建 Collaboration** |
+
+3. **改名 / 语义迁移。** 旧「AI发现」内容（邮件 / 阶段建议、今天推荐预填）改名为「今日任务」。仍只推荐 / 预填，不自动执行；适用处确认后才进待办（confirm-before-todo）。新「AI发现」= CreatorCandidate 端到端发现管道，不是任务推荐，也不把线索自动写成 Task。
+
+4. **加入跟进才建 Collaboration。** 发现中的 CreatorCandidate 不是合作。跟进 / 创建 Collaboration 是显式动作；未跟进不得假装已有合作资产。
+
+5. **边界不变。** 专家中心 ≠ Home（ADR-016）：Home 拥有任务（今日任务 + 我的待办），也拥有线索发现与跟进列表；`/agents` 只召唤岗位专家。并列能力面仍解耦（ADR-015）。Pipeline 不得复制 Home 四模式语义或对象。发送 ≠ 改阶段。不新增专家团、组织权限扩张、审批系统扩张。不 LIVE。
+
+### 不决定的范围
+
+不实施前端 / 后端 / CSS / e2e。不实施 ExpertManifest 变更。不 MediaCrawler LIVE。不新增 UX ID。不改数字员工对象模型 schema，也不在本记录落地 CreatorCandidate 表结构。不削弱四页法律、ADR-015 / ADR-016、连接器使用面 vs 治理面、发送 ≠ 推进阶段、或无可见侧栏组标题。不重做 Chat。Home 卡片仍禁止横向滚动；等待态用词必须诚实。
+
+### 影响
+
+- 规范：`19-ui-ux-constitution.md` Home 行与四模式条款、`04-ux-ui-system.md` / `21-admin-employee-page-roles.md` 短指针、`docs/README.md` 索引
+- 代码：本 ADR 不改 JSX / API
+- 测试：文档评审 only；无新发布门禁项，直到另有 FS / UX ID 绑定
