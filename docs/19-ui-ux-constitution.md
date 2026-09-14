@@ -2,7 +2,7 @@
 
 员工端与 KOL 会话工作台的产品级体验法律。日期：2026-09-13；2026-09-14 修订：`/agents` 专家中心（数字员工入口）只回答「找谁协作 / 召唤岗位专家」。同日再修订：Home **内**四模式（今日任务 / 我的待办 / AI发现 / 我跟进的红人），见 ADR-018。来源：产品负责人反馈，固化为后续界面取舍的默认立场。
 
-本文件管**注意力、信息架构和主路径感觉**。闸门、风险分级和无障碍仍以 `00-platform-charter.md`、`04-ux-ui-system.md` 与 `specs/UX-KOL.md` 为准。视觉密度与 token 默认见 `20-visual-design-system.md`。本文件**不**改 `frontend/src/pages/Chat.tsx`；会话页重构是后续实现，必须先符合本宪法。
+本文件管**注意力、信息架构和主路径感觉**。闸门、风险分级和无障碍仍以 `00-platform-charter.md`、`04-ux-ui-system.md` 与 `specs/UX-KOL.md` 为准。视觉密度与 token 默认见 `20-visual-design-system.md`（正文 **16px**、控件/helper/Tab **≥14px**；`19` 的「紧凑」指 chrome 与间距，不授权把正文压回 13–14px，也不允许用 `scale` / `zoom` 假装字号）。本文件**不**改 `frontend/src/pages/Chat.tsx`；会话页重构是后续实现，必须先符合本宪法。
 
 ## 核心闭环（必须是法律）
 
@@ -217,7 +217,7 @@ Pipeline 的筛选只允许 `brand|owner|stage|region|kol|sync` 与生命周期�
 | 本文件 | 员工主表面的注意力法律、四页分工、Home 内四模式（ADR-018）、员工侧栏 IA（定时任务归今日簇；组间分割线而非可见「今日/智能体/资产」标题）、并列能力面（与 Agent / 任务解耦）与 `/agents` 专家中心（召唤岗位专家，非第五页）；与 `04` 在信息架构上冲突时，以本文件为准 |
 | `00-platform-charter.md` | 租户、审批、发送/阶段/导入/解密/删除分离等平台不变量 |
 | `04-ux-ui-system.md` | 双端、状态可见、L1–L3、组件义务；可执行实例在 `specs/UX-KOL.md` |
-| `20-visual-design-system.md` | 视觉密度、组件基底、token 默认；不改注意力法律 |
+| `20-visual-design-system.md` | 视觉密度、组件基底、token 默认（正文 16px / UI≥14px，ADR-019）；不改注意力法律 |
 | `21-admin-employee-page-roles.md` | 管理端配套套件与双端导航；`/admin/agents` 治理 ≠ 员工专家中心；不改本文件四页法律 |
 | `05-agent-workflow-skill-policy.md` | 8 段展示 vs 15 阶段写入；Journey / SOP 的业务含义 |
 | `14-implementation-contract.md` | Markdown 如何落到前端页面与 schema |

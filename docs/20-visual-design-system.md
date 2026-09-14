@@ -1,8 +1,8 @@
 # KOL-UI 工作台视觉系统
 
-员工端 KOL 会话工作台的**视觉与 token 默认**。日期：2026-09-13。来源：产品负责人批准的默认视觉栈，供后续前端 PR 对齐。
+员工端 KOL 会话工作台的**视觉与 token 默认**。日期：2026-09-13；2026-09-14 修订：产品确认工作台**全局正文基线 16px**、控件/helper/Tab **≥14px**，禁止用 `scale` / `zoom` 假装字号（ADR-019）。来源：产品负责人批准的默认视觉栈，供后续前端 PR 对齐。
 
-本文件管**密度、组件基底、主色和 CSS 变量**。注意力、信息架构和主路径感觉仍以 `19-ui-ux-constitution.md` 为准；闸门、风险分级、L1–L3、UX ID 和无障碍仍以 `04-ux-ui-system.md` 与 `specs/UX-KOL.md` 为准。本文件**不**安装组件库，也**不**改 `frontend/src/pages/Chat.tsx`。
+本文件管**密度、组件基底、主色和 CSS 变量**。注意力、信息架构和主路径感觉仍以 `19-ui-ux-constitution.md` 为准；闸门、风险分级、L1–L3、UX ID 和无障碍仍以 `04-ux-ui-system.md` 与 `specs/UX-KOL.md` 为准。本文件**不**安装组件库，也**不**改 `frontend/src/pages/Chat.tsx`。字号实现另开前端 PR；本文件只立法。
 
 ## 法律层（禁止重定义）
 
@@ -20,16 +20,32 @@
 
 产品负责人已批准以下默认。KOL-UI 工作台的前端 PR 按此实现，不要各开一套。
 
-### 1. 视觉密度：Linear 气质
+### 1. 视觉密度：Linear 气质，字号可读性优先
 
-紧凑、可扫视、高信息密度，而不是卡片墙。
+紧凑、可扫视、高信息密度，而不是卡片墙。密度靠**紧间距、安静阴影、少装饰**实现，**不得**靠缩小正文字号。Linear 默认仍在（安静阴影、高信息密度、低装饰），但**字号优先可读性**，废除旧「13–14px 紧凑正文」目标。
 
-- 正文字号约 **13–14px**（UI 控件与卡片正文走这一档；标题另档，不要把工作台做成 16px 长文杂志）。
-- 间距收紧：卡片内边距、行距、组间距按 `--space-*` 五级走，禁止为了「透气」把主窗格撑成仪表盘。
+- **正文 / 主阅读：16px**（`--font-body`）。约比旧 13–14px 目标大 15–20%。卡片正文、线程、结果说明走这一档；不要把工作台压回 13px。
+- **UI 控件、按钮、Tab、helper / 次要说明：≥14px**（`--font-ui: 14px`，`--font-meta: 14px`）。禁止 12px 辅助字。
+- 标题另档、更大（`--font-section` / `--font-title`）；不要用标题 token 冒充正文。
+- 间距收紧：卡片内边距、行距、组间距按 `--space-*` 五级走，禁止为了「透气」把主窗格撑成仪表盘。**收紧间距 ≠ 缩小正文到 16px 以下。**
 - 阴影安静：最多一层极淡投影或只用边框分区；禁止层层叠卡、大圆角毛玻璃。
 - 信息靠对齐、字重和 muted 文案分层，不靠再包一张卡。
 
-现行 `frontend/src/styles.css` 里 `--font-body: 16px`、`--font-ui: 14px` 偏松。迁移时把工作台正文/控件收到 13–14px；本 PR 不改 CSS。
+#### 字号 token（工作台）
+
+| Token | 目标 | 用途 |
+|---|---|---|
+| `--font-body` | **16px** | 正文 / 主阅读：线程、卡片正文、结果说明 |
+| `--font-ui` | **14px** | 按钮、Tab、输入、控件标签 |
+| `--font-meta` | **14px** | helper / 次要说明 / 时间戳等二级文案（下限 14，不得再小） |
+| `--font-section` | **16px** | 小节标题（不得小于正文） |
+| `--font-title` | **18px** | 页 / 卡标题（可更大，勿小于正文） |
+
+#### 禁止用缩放假装字号
+
+**禁止**用 CSS `transform: scale(...)`、`zoom`、缩小容器再拉伸，或同类视觉缩放，当作 `font-size` 替代。真实计算字号必须达到上表；缩放到「看起来像 16px」不算合规。
+
+现行 `frontend/src/styles.css` 仍是 `--font-body: 13px`、`--font-ui: 13px`、`--font-meta: 12px`（旧紧凑目标）。后续字号 PR 按上表升到 16 / ≥14；**本文件此次修订不改 CSS。**
 
 ### 2. 组件基底：shadcn/ui 模式 + Tailwind CSS 变量
 
@@ -91,11 +107,11 @@
   --space-5: 24px;
   --shadow-quiet: 0 1px 2px rgba(15, 23, 42, 0.06);
 
-  /* 字号目标（工作台） */
-  --font-body: 13px;
-  --font-ui: 13px;
-  --font-meta: 12px;
-  --font-section: 14px;
+  /* 字号目标（工作台）：正文 16px；控件/helper/Tab ≥14px。禁止 scale/zoom 假装字号 */
+  --font-body: 16px;
+  --font-ui: 14px;
+  --font-meta: 14px;
+  --font-section: 16px;
   --font-title: 18px;
 }
 ```
@@ -153,6 +169,7 @@
 | Agent 直接做，或给出可改草稿 / 结果 | 教练式「下一步：写合作邮件 →」卡片 |
 | 等待态写清已接收、阶段、更新时间、已有产物 | 无状态 spinner，或把 `waiting` 既当排队又当待确认 |
 | 员工端业务语言 | MCP / Codex / Thread / Skill / 原始堆栈等引擎行话 |
+| 正文 16px、控件/Tab/helper ≥14px；密度靠间距与阴影 | 13–14px 正文；`transform: scale` / `zoom` / 缩盒再拉伸假装字号 |
 
 首页同样适用：不要做成仪表盘卡片蔓延；推荐与芯片只预填，不自动执行。
 
@@ -165,20 +182,21 @@
 | 本文件（`20`） | 视觉 / token 默认，供 KOL-UI 工作台前端对齐 |
 | `21-admin-employee-page-roles.md` | 管理端 IA（治理表，不是第二套 Home/Agents）；token 仍用本文件 |
 
-冲突时：注意力与主路径以 `19` 为准；UX ID 与闸门以 `04` + `UX-KOL` 为准；色值与密度以本文件为准。04 的「蓝色主操作」与本文件 indigo 主色的**职责**一致，只换槽位色值。若有人要把主操作改回蓝、或改橙/绿/红的职责，先登记 `DECISIONS.md`。
+冲突时：注意力与主路径以 `19` 为准；UX ID 与闸门以 `04` + `UX-KOL` 为准；色值、字号与密度以本文件为准（字号可读性优先，见 ADR-019）。04 的「蓝色主操作」与本文件 indigo 主色的**职责**一致，只换槽位色值。若有人要把主操作改回蓝、或改橙/绿/红的职责，或把正文压回 13–14px，先登记 `DECISIONS.md`。
 
 ## 非目标
 
-- 本 PR **不**安装 shadcn/ui、Radix Themes 或 Vercel AI Elements。
-- 本 PR **不**重设计 `Chat.tsx`（会话 Agent 闭环已在 PR #15；后续视觉落地另开实现 PR）。
+- 本修订 **不**改 `frontend/src/styles.css`，不安装 shadcn/ui、Radix Themes 或 Vercel AI Elements。
+- 本修订 **不**重设计 `Chat.tsx`（会话 Agent 闭环已在 PR #15；字号落地另开实现 PR）。
 - 本文件 **不**废止 `04` 的语义色职责，也不新增 UX ID。
 - 不为视觉层再写一套调度器、状态机或 Host 旁路。
 - 不把「建议 / 预填」升级成自动执行。
+- 不削弱核心闭环、四页法律、Home 四模式、并列能力面、专家中心法律。
 
 ## 落地顺序
 
 1. 新员工端 PR 先过 `19` 五问，再按本文件选组件、字号、色和滚动。
 2. 可执行验收仍走 `specs/UX-KOL.md` 与 `specs/ux-traceability.json`。
-3. 改 `styles.css` 变量名或把 `--star` 换成 `--primary` indigo 时，只做 token 迁移，不夹带 Chat 重设计。
+3. 改 `styles.css` 变量名、把 `--star` 换成 `--primary` indigo、或把字号升到 `--font-body: 16px` / `--font-ui: 14px` 时，只做 token 迁移，不夹带 Chat 重设计，也不用 scale 过渡。
 4. 安装 shadcn 或 AI Elements 必须单独开 PR，并证明没有引入第二套主题（尤其禁止 Radix Themes）。
-5. 冲突写入 `DECISIONS.md`，不要在前端分支里另立色盘或密度规范。
+5. 冲突写入 `DECISIONS.md`，不要在前端分支里另立色盘、字号或密度规范。
