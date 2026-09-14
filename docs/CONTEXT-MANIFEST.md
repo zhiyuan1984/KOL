@@ -4,7 +4,7 @@
 
 ## 固定入口
 
-任何实现任务先读 `CONSTITUTION.md`（§4.1 十六项一等能力；§4.2 KOL=首个试点），再按下表加载。只有任务触发某个条件时，才继续读取对应文档。平台能力 vs KOL 试点路由见 `docs/README.md`。Pipeline / Home「AI发现」「我跟进的红人」是 KOL 试点特化，不是平台一等清单。**禁止**员工侧栏挂「生命周期」或 `/pipeline` 主入口。
+任何实现任务先读 `CONSTITUTION.md`（§4.1 十六项一等能力；§4.2 KOL=首个试点），再按下表加载。只有任务触发某个条件时，才继续读取对应文档。平台能力 vs KOL 试点路由见 `docs/README.md`。Pipeline / Home「AI发现」「我跟进的红人」是 KOL 试点特化，不是平台一等清单。
 
 ## UI 任务顺序
 
@@ -24,7 +24,7 @@ CONSTITUTION.md
 |---|---|---|
 | Home | `pages/home.md` | AI 发现、关注：相应 `FS-*` 与 `UX-KOL` ID；能力面细节：`employee-surface-contracts.md` |
 | Chat/任务执行 | `pages/chat.md`、`04-ux-ui-system.md` | 按动作加载相应 FS；涉及发送/导入/解密/删除时加载 L3 验收 |
-| Pipeline（KOL 试点页；禁止侧栏主入口，深链 / CTA 可达） | `pages/pipeline.md` | 加载生命周期、Collaboration、阶段变更对应 FS。员工侧栏不得出现「生命周期」或 `/pipeline` |
+| Pipeline（KOL 试点页；深链 / CTA 可达） | `pages/pipeline.md` | 加载生命周期、Collaboration、阶段变更对应 FS |
 | Admin | `pages/admin.md` | 权限、连接器或审计时加载 `21-admin-employee-page-roles.md` 及对应 FS |
 | `/kb`、`/agents`、员工连接器 | `employee-surface-contracts.md` 中对应章节 | 连接器治理再加载 `21-admin-employee-page-roles.md` |
 | 技能（一等；侧栏露出=UX） | `employee-surface-contracts.md`「预留 / 占位能力」+ `CONSTITUTION.md` §4.1 | 禁止图鉴压过任务脊柱；引擎词仍走 `UX-COPY-ENGINE` |

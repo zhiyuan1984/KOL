@@ -4,7 +4,6 @@
 - **Authority:** `CONSTITUTION.md` §4.1–4.2 + ADR-023（`5b21867`+）仍最高。本文件只列删改，不另立法。
 - **Mode:** 文档 only。**No LIVE.** 不改 JSX / CSS / API。不删除 Pipeline 页，不改 `FS-KOL-010`。
 - **User lock (do not weaken):** 产品 = 智能体中台；16 项一等能力；KOL = 首个试点。Pipeline / Home「AI发现」/「我跟进的红人」= 试点特化，不是平台一等清单。技能可见 = UX 密度，仍禁图鉴压过任务脊柱。数字团队 = 一等未实现；禁专家团假导航；不得永久禁名词「数字团队」。「支撑」≠ 二等。发送 ≠ 阶段、L1–L3、使用 ≠ 治理仍在。
-- **Sidebar hard lock (2026-09-14):** 员工侧栏**不得**含「生命周期」/ Pipeline 导航。不是「可挂可不挂」的 UX 密度。Pipeline 页只许深链 / 产品内 CTA。**禁止侧栏挂「生命周期」或 `/pipeline` 主入口。**
 
 ADR-023 修宪后，下列法律仍把 Pipeline 侧栏写成硬入口或「可选密度」。本 PR **删除或改写**，不软留冲突句。
 
