@@ -1,26 +1,31 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  DEFAULT_DISCOVERY_FILTERS,
+  DIRECTION_PRESETS,
+  DISCOVERY_REGION_OPTIONS,
+  MAX_DIRECTION_CHARS,
+  MAX_DIRECTIONS,
   OVERSEAS_DISCOVERY_PLATFORMS,
+  addDirections,
   candidateReason,
   createDiscoveryRequest,
   dismissCandidate,
   followCandidate,
+  guessPlatformFromQuery,
+  guessRegionFromQuery,
   keywordsFromQuery,
   planSteps,
   planSummary,
   platformLabel,
-  regionLabel,
+  splitDirectionDraft,
   startDiscoveryRun,
   waitForDiscoveryResults,
   type CreatorCandidate,
   type DiscoveryFilters,
   type DiscoveryPhase,
   type DiscoveryPlatform,
-  type DiscoveryRegion,
   type DiscoveryRequest,
 } from "./discovery";
-
-const REGIONS: DiscoveryRegion[] = ["all", "na", "eu", "sea"];
 
 function formatFollowers(value: number): string {
   if (value >= 10000) return `${Math.round(value / 1000)}k`;
@@ -30,10 +35,13 @@ function formatFollowers(value: number): string {
 export default function DiscoveryPanel() {
   const [query, setQuery] = useState("");
   const [platform, setPlatform] = useState<DiscoveryPlatform>("youtube");
-  const [filters, setFilters] = useState<DiscoveryFilters>({
-    region: "all",
-    niche: "",
-  });
+  const [filters, setFilters] = useState<DiscoveryFilters>(DEFAULT_DISCOVERY_FILTERS);
+  const [addOpen, setAddOpen] = useState(false);
+  const [directionDraft, setDirectionDraft] = useState("");
+  const platformTouched = useRef(false);
+  const regionTouched = useRef(false);
+  const addWrapRef = useRef<HTMLDivElement>(null);
+  const addInputRef = useRef<HTMLInputElement>(null);
   const [phase, setPhase] = useState<DiscoveryPhase>("idle");
   const [request, setRequest] = useState<DiscoveryRequest | null>(null);
   const [candidates, setCandidates] = useState<CreatorCandidate[]>([]);
@@ -52,7 +60,69 @@ export default function DiscoveryPanel() {
     return "用一句话描述想找的达人。确认计划后只检索线索，不会写成待办，也不会自动建合作。";
   }, [phase, visible.length]);
 
+  const atDirectionMax = filters.directions.length >= MAX_DIRECTIONS;
+
+  useEffect(() => {
+    if (!addOpen) return;
+    addInputRef.current?.focus();
+    const onPointerDown = (event: PointerEvent) => {
+      if (addWrapRef.current && !addWrapRef.current.contains(event.target as Node)) {
+        setAddOpen(false);
+      }
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setAddOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [addOpen]);
+
+  const applyDirections = (incoming: Iterable<string>) => {
+    setFilters((current) => {
+      const next = addDirections(current.directions, incoming);
+      return { ...current, directions: next.directions };
+    });
+  };
+
+  const commitDirectionDraft = (raw: string) => {
+    const name = raw.trim();
+    if (!name) return;
+    applyDirections([name]);
+    setDirectionDraft("");
+  };
+
+  const onDirectionDraftChange = (raw: string) => {
+    const { complete, rest } = splitDirectionDraft(raw);
+    if (complete.length) applyDirections(complete);
+    setDirectionDraft(rest.slice(0, MAX_DIRECTION_CHARS));
+  };
+
+  const onQueryChange = (text: string) => {
+    setQuery(text);
+    if (!platformTouched.current) {
+      const guessed = guessPlatformFromQuery(text);
+      if (guessed) setPlatform(guessed);
+    }
+    if (!regionTouched.current) {
+      const guessed = guessRegionFromQuery(text);
+      if (guessed) setFilters((current) => ({ ...current, region: guessed }));
+    }
+  };
+
+  const resetConditions = () => {
+    platformTouched.current = false;
+    regionTouched.current = false;
+    setPlatform("youtube");
+    setFilters({ region: "all", directions: [] });
+    setAddOpen(false);
+  };
+
   const buildPlan = async () => {
+    setAddOpen(false);
     const text = query.trim();
     if (!text) {
       setError("先写一句想找的达人，再生成计划。");
@@ -67,7 +137,7 @@ export default function DiscoveryPanel() {
         keywords: keywordsFromQuery(text),
         platforms: [platform],
         mode: "search",
-        filters,
+        filters: { region: filters.region, directions: filters.directions },
       });
       setRequest(next);
       setCandidates([]);
@@ -147,46 +217,156 @@ export default function DiscoveryPanel() {
             rows={2}
             value={query}
             placeholder="例如：找北美户外电源评测达人"
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => onQueryChange(event.target.value)}
           />
         </label>
         <div className="discovery-filters" data-discovery-filters>
-          <label>
-            <span>平台</span>
-            <select
-              data-discovery-filter="platform"
-              value={platform}
-              onChange={(event) => setPlatform(event.target.value as DiscoveryPlatform)}
+          <div className="discovery-filters-toolbar">
+            <p className="discovery-filters-hint">已识别并可调整</p>
+            <button
+              type="button"
+              className="discovery-filters-reset"
+              data-discovery-reset
+              onClick={resetConditions}
             >
+              重置条件
+            </button>
+          </div>
+
+          <div className="discovery-filter-group" data-discovery-filter="platform">
+            <span className="discovery-filter-title">平台</span>
+            <div className="discovery-chip-row">
               {OVERSEAS_DISCOVERY_PLATFORMS.map((value) => (
-                <option key={value} value={value}>{platformLabel(value)}</option>
+                <button
+                  key={value}
+                  type="button"
+                  className="discovery-chip"
+                  data-discovery-chip={value}
+                  aria-pressed={platform === value}
+                  onClick={() => {
+                    platformTouched.current = true;
+                    setPlatform(value);
+                  }}
+                >
+                  {platformLabel(value)}
+                </button>
               ))}
-            </select>
-          </label>
-          <label>
-            <span>地区</span>
-            <select
-              data-discovery-filter="region"
-              value={String(filters.region || "all")}
-              onChange={(event) => setFilters((current) => ({
-                ...current,
-                region: event.target.value as DiscoveryRegion,
-              }))}
-            >
-              {REGIONS.map((value) => (
-                <option key={value} value={value}>{regionLabel(value)}</option>
+            </div>
+          </div>
+
+          <div className="discovery-filter-group" data-discovery-filter="region">
+            <span className="discovery-filter-title">地区</span>
+            <div className="discovery-chip-row">
+              {DISCOVERY_REGION_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className="discovery-chip"
+                  data-discovery-chip={option.value}
+                  aria-pressed={filters.region === option.value}
+                  onClick={() => {
+                    regionTouched.current = true;
+                    setFilters((current) => ({ ...current, region: option.value }));
+                  }}
+                >
+                  {option.label}
+                </button>
               ))}
-            </select>
-          </label>
-          <label>
-            <span>方向</span>
-            <input
-              data-discovery-filter="niche"
-              value={String(filters.niche || "")}
-              placeholder="可选，如户外电源"
-              onChange={(event) => setFilters((current) => ({ ...current, niche: event.target.value }))}
-            />
-          </label>
+            </div>
+          </div>
+
+          <div className="discovery-filter-group" data-discovery-filter="directions">
+            <span className="discovery-filter-title">方向</span>
+            <div className="discovery-chip-row">
+              {filters.directions.map((name) => (
+                <span
+                  key={name}
+                  className="discovery-chip discovery-chip-tag"
+                  data-discovery-direction={name}
+                >
+                  <span>{name}</span>
+                  <button
+                    type="button"
+                    className="discovery-chip-remove"
+                    data-discovery-direction-remove={name}
+                    aria-label={`删除方向：${name}`}
+                    onClick={() => setFilters((current) => ({
+                      ...current,
+                      directions: current.directions.filter((item) => item !== name),
+                    }))}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              <div className="discovery-direction-add" ref={addWrapRef} data-open={addOpen || undefined}>
+                <button
+                  type="button"
+                  className="discovery-chip discovery-chip-add"
+                  data-discovery-add-direction
+                  aria-expanded={addOpen}
+                  aria-haspopup="dialog"
+                  onClick={() => setAddOpen((open) => !open)}
+                >
+                  + 添加方向
+                </button>
+                {addOpen ? (
+                  <div
+                    className="discovery-direction-popover"
+                    data-discovery-direction-popover
+                    role="dialog"
+                    aria-label="添加方向"
+                  >
+                    <input
+                      ref={addInputRef}
+                      className="discovery-direction-input"
+                      data-discovery-direction-input
+                      value={directionDraft}
+                      placeholder="输入方向，回车添加"
+                      maxLength={MAX_DIRECTION_CHARS}
+                      onChange={(event) => onDirectionDraftChange(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          event.preventDefault();
+                          setAddOpen(false);
+                          return;
+                        }
+                        if (event.key === "Enter" || event.key === "," || event.key === "、") {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          commitDirectionDraft(directionDraft);
+                        }
+                      }}
+                    />
+                    <div className="discovery-chip-row discovery-preset-row">
+                      {DIRECTION_PRESETS.map((name) => (
+                        <button
+                          key={name}
+                          type="button"
+                          className="discovery-chip discovery-chip-preset"
+                          data-discovery-preset={name}
+                          aria-pressed={filters.directions.includes(name)}
+                          disabled={atDirectionMax && !filters.directions.includes(name)}
+                          onClick={() => {
+                            applyDirections([name]);
+                            setAddOpen(false);
+                          }}
+                        >
+                          {name}
+                        </button>
+                      ))}
+                    </div>
+                    {atDirectionMax ? (
+                      <p className="discovery-direction-limit" role="status">最多添加 8 个方向</p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            {atDirectionMax && !addOpen ? (
+              <p className="discovery-direction-limit" role="status">最多添加 8 个方向</p>
+            ) : null}
+          </div>
         </div>
         <div className="discovery-form-actions">
           <button type="submit" className="btn work sm" data-discovery-plan disabled={busy}>

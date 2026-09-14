@@ -890,6 +890,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 .discovery-pane {
   max-width: 42rem;
+  overflow-x: hidden;
 }
 .discovery-form {
   display: grid;
@@ -900,9 +901,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   display: grid;
   gap: var(--space-1);
 }
-.discovery-query,
-.discovery-filters input,
-.discovery-filters select {
+.discovery-query {
   width: 100%;
   min-width: 0;
   border: 1px solid var(--border);
@@ -912,22 +911,158 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   font: inherit;
   font-size: var(--font-ui);
   padding: var(--space-2) var(--space-3);
-}
-.discovery-query {
   resize: vertical;
   min-height: 56px;
 }
 .discovery-filters {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+  min-width: 0;
+  overflow-x: hidden;
+  background: color-mix(in srgb, var(--bg-elevated) 55%, transparent);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) 0;
+}
+.discovery-filters-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.discovery-filters-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.discovery-filters-reset {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  padding: 4px 0;
+  cursor: pointer;
+}
+.discovery-filters-reset:hover {
+  color: var(--primary);
+}
+.discovery-filter-group {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.discovery-filter-title {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.discovery-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+.discovery-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.discovery-chip:hover {
+  border-color: var(--primary);
+}
+.discovery-chip[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--primary) 14%, var(--bg));
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.discovery-chip-tag {
+  padding-right: 6px;
+  cursor: default;
+}
+.discovery-chip-tag:hover {
+  border-color: var(--border);
+}
+.discovery-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.discovery-chip-remove:hover {
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+.discovery-chip-add {
+  color: var(--text-muted);
+}
+.discovery-direction-add {
+  position: relative;
+  min-width: 0;
+}
+.discovery-direction-add[data-open] {
+  margin-bottom: 168px;
+}
+.discovery-direction-popover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  width: min(320px, calc(100vw - 32px));
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  box-shadow: var(--shadow-quiet);
+  display: grid;
   gap: var(--space-2);
 }
-.discovery-filters label {
-  display: grid;
-  gap: 4px;
+.discovery-direction-input {
+  width: 100%;
   min-width: 0;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  padding: 0 10px;
+}
+.discovery-chip-preset {
+  height: 28px;
+  min-height: 28px;
+  font-size: 13px;
+}
+.discovery-direction-limit {
+  margin: 0;
   color: var(--text-muted);
-  font-size: var(--font-meta);
+  font-size: 13px;
 }
 .discovery-form-actions,
 .discovery-plan-actions,
@@ -991,9 +1126,6 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   font-size: var(--font-section);
 }
 @media (max-width: 720px) {
-  .discovery-filters {
-    grid-template-columns: minmax(0, 1fr);
-  }
   .recommend-md-row {
     grid-template-columns: minmax(0, 1fr);
   }
