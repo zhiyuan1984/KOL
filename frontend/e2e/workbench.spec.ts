@@ -2826,16 +2826,17 @@ test("employee connector use retries after load failure", async ({ page }) => {
 test("admin L3 destructive writes open confirm dialog with cancel focused", async ({ page }) => {
   await page.goto("/admin");
   await expect(page.locator("[data-admin-ia='governance']")).toBeVisible();
-
-  if (await page.locator("[data-admin-user-action='deactivate']").count() === 0) {
+  await expect(page.getByRole("heading", { name: "员工目录" })).toBeVisible();
+  const deactivate = page.locator("[data-admin-user-action='deactivate']");
+  await expect(page.getByText("暂无员工").or(deactivate.first())).toBeVisible();
+  if (await deactivate.count() === 0) {
+    const email = `e2e-deactivate-${Date.now()}@example.com`;
     await page.locator('input[name="name"]').fill("E2E 停用对象");
-    await page.locator('input[name="email"]').fill("e2e-deactivate@example.com");
+    await page.locator('input[name="email"]').fill(email);
     await page.locator('input[name="password"]').fill("1234567890");
     await page.getByRole("button", { name: "创建员工" }).click();
-    await expect(page.locator("[data-admin-receipt]")).toContainText("员工已创建");
+    await expect(deactivate.first()).toBeVisible();
   }
-  const deactivate = page.locator("[data-admin-user-action='deactivate']").first();
-  await expect(deactivate).toBeVisible();
   await deactivate.click();
   const dialog = page.locator("[data-admin-confirm='user-deactivate']");
   await expect(dialog).toBeVisible();
