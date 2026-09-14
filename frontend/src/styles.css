@@ -33,7 +33,7 @@
 
   /* Legacy aliases — old names map into the scale above */
   --font-hero: var(--font-page-title);
-  --font-ui: var(--font-sm);
+  --font-ui: var(--font-body);
   --font-table: var(--font-sm);
   --font-meta: var(--font-sm);
   --leading-hero: var(--leading-tight);
@@ -90,6 +90,10 @@
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; overflow: hidden; }
+html, body {
+  font-size: var(--font-body);
+  line-height: var(--leading-body);
+}
 body {
   background: var(--bg-elevated);
   color: var(--text);
@@ -951,7 +955,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .discovery-filters-hint {
   margin: 0;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--font-sm);
 }
 .discovery-filters-reset {
   margin-left: auto;
@@ -959,7 +963,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   background: transparent;
   color: var(--text-muted);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--font-sm);
   line-height: 1.4;
   padding: 4px 0;
   cursor: pointer;
@@ -974,7 +978,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 .discovery-filter-title {
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--font-sm);
   line-height: 1.4;
 }
 .discovery-chip-row {
@@ -996,7 +1000,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   background: var(--bg);
   color: var(--text);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--font-sm);
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
@@ -1029,7 +1033,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 14px;
+  font-size: var(--font-sm);
   line-height: 1;
   cursor: pointer;
 }
@@ -1069,18 +1073,18 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   background: var(--bg);
   color: var(--text);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--font-sm);
   padding: 0 10px;
 }
 .discovery-chip-preset {
   height: 28px;
   min-height: 28px;
-  font-size: 13px;
+  font-size: var(--font-sm);
 }
 .discovery-direction-limit {
   margin: 0;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: var(--font-sm);
 }
 .discovery-form-actions,
 .discovery-plan-actions,
