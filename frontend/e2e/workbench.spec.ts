@@ -3082,6 +3082,8 @@ test("process trace keeps reasoning summary prose instead of generic processing 
           { id: "host:preparing", label: "准备任务", status: "done", kind: "host" },
           { id: "host:skill_ready", label: "加载任务规则", status: "done", kind: "host" },
           { id: "reasoning:rsn_1", label: english, status: "running", kind: "reasoning", streaming: true },
+          { id: "reasoning:rsn_jargon", label: "Using Codex MCP to read the Skill Thread for camping creators.", status: "done", kind: "reasoning" },
+          { id: "reasoning:rsn_title", label: "Preparing skill execution", status: "done", kind: "reasoning" },
           { id: "reasoning:rsn_json", label: "{\"type\":\"reasoning\",\"text\":\"secret\"}", status: "done", kind: "reasoning" },
           { id: "host:mcp", label: "calling capabilities", status: "done", kind: "host" },
           { id: "host:validating", label: "校验输出", status: "failed", kind: "result" },
@@ -3101,8 +3103,11 @@ test("process trace keeps reasoning summary prose instead of generic processing 
   await expect(trace).toContainText("校验输出");
   await expect(trace).toContainText("正在分析…");
   await expect(trace).not.toContainText("正在处理这项工作");
+  await expect(trace).toContainText("Using to read the for camping creators.");
   await expect(trace).not.toContainText("calling capabilities");
   await expect(trace).not.toContainText("secret");
+  await expectNoEngineJargon(trace);
+  await expectNoEngineJargon(page.locator("[data-run-status]"));
   await expect(page.locator("[data-run-status]")).toContainText(english);
 });
 

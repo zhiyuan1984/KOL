@@ -1221,12 +1221,10 @@ function looksLikeJsonLabel(text: string) {
 export function employeeReasoningLabel(raw: string) {
   const text = String(raw || "").trim();
   if (!text || looksLikeJsonLabel(text) || looksLikeInferenceJson(text)) return "正在分析…";
-  const cleaned = text
-    .replace(/\b(?:starrykol|starry)\.[A-Za-z0-9_.]+\b/g, "")
-    .replace(/\b(?:reasoning|rsn):[A-Za-z0-9_-]+\b/gi, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+  const cleaned = stripEngineCopy(text.replace(/\b(?:reasoning|rsn):[A-Za-z0-9_-]+\b/gi, ""));
   if (!cleaned || looksLikeJsonLabel(cleaned) || /[{[]/.test(cleaned)) return "正在分析…";
+  // UX-COPY-ENGINE: a jargon-only title is not a summary. Keep real prose.
+  if (isHarnessLabel(cleaned) || isToolId(cleaned) || /^[a-z0-9_.:/-]+$/i.test(cleaned)) return "正在分析…";
   return cleaned;
 }
 
