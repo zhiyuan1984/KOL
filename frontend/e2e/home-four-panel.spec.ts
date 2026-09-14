@@ -66,6 +66,9 @@ test("home discovery mock happy path never goes LIVE and stays out of followed K
   await page.goto("/");
   await openMode(page, "discovery");
   await expect(page.locator("[data-discovery-panel]")).not.toContainText(/MCP|Codex|MediaCrawler|Harness/);
+  await expect(page.locator('[data-discovery-filter="platform"] option[value="tiktok"]')).toHaveCount(0);
+  await expect(page.locator('[data-discovery-filter="platform"] option[value="youtube"]')).toHaveCount(1);
+  await expect(page.locator('[data-discovery-filter="platform"] option[value="facebook"]')).toHaveCount(1);
   await page.locator("[data-discovery-query]").fill("找北美户外电源评测达人");
   await page.locator('[data-discovery-filter="platform"]').selectOption("youtube");
   await page.locator('[data-discovery-filter="region"]').selectOption("na");
@@ -94,7 +97,7 @@ test("home discovery mock happy path never goes LIVE and stays out of followed K
   await first.locator("[data-discovery-follow]").click();
   await expect(page.locator("[data-discovery-follow-confirm]")).toBeVisible();
   await page.locator("[data-discovery-follow-yes]").click();
-  await expect(first.locator("[data-discovery-followed]")).toContainText("已记录跟进意向");
+  await expect(first.locator("[data-discovery-followed]")).toContainText("跟进意向");
   expect(livePosts).toEqual([]);
 
   await openMode(page, "lifecycle");
@@ -112,18 +115,19 @@ test("today suggestion convert to todo dedupes", async ({ page }) => {
   await page.goto("/");
   await openMode(page, "todo");
   await expect(page.locator("[data-todo-card]").first()).toBeVisible({ timeout: 15000 });
-  const before = await page.locator("[data-todo-card]").count();
-  expect(before).toBeGreaterThan(0);
   await openMode(page, "today");
+  const firstSuggest = page.locator("[data-recommended-task]").first();
+  const title = (await firstSuggest.locator("strong").innerText()).trim();
   const convert = page.locator("[data-suggestion-to-todo]").first();
   await expect(convert).toHaveText("加入待办");
   await convert.click();
   await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
-  await expect(page.locator("[data-todo-card]")).toHaveCount(before + 1);
-  const afterFirst = before + 1;
+  await expect(page.locator("[data-todo-card]").filter({ hasText: title })).toHaveCount(1);
+  const afterFirst = await page.locator("[data-todo-card]").count();
   await openMode(page, "today");
   await expect(page.locator("[data-suggestion-to-todo]").first()).toHaveText("已在待办");
   await expect(page.locator("[data-suggestion-to-todo]").first()).toBeDisabled();
   await openMode(page, "todo");
+  await expect(page.locator("[data-todo-card]").filter({ hasText: title })).toHaveCount(1);
   await expect(page.locator("[data-todo-card]")).toHaveCount(afterFirst);
 });

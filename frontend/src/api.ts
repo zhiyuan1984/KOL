@@ -196,6 +196,7 @@ export type RecommendedTask = {
   prompt?: string;
   handle?: string;
   collaboration_id?: string | null;
+  candidate_id?: string;
 };
 
 export type HomeWorkbench = {
@@ -209,6 +210,11 @@ export type HomeWorkbench = {
   todo?: Task[];
   insights?: Task[];
   recommendations?: RecommendedTask[];
+  discovery?: {
+    pending_count?: number;
+    ready?: boolean;
+    candidates?: Array<Record<string, unknown>>;
+  };
   lifecycle?: {
     stages?: Array<{ code: string; label: string; count: number }>;
     domains?: Array<{ id: string; label: string; count: number }>;
@@ -999,26 +1005,49 @@ export const api = {
     fetch(`/api/inbound/${id}/defer`, { method: "POST" }).then((r) => r.json()),
   inboundResume: (id: string) =>
     fetch(`/api/inbound/${id}/resume`, { method: "POST" }).then((r) => r.json()),
-  discoveryPlan: (body: { query: string; filters?: Record<string, unknown> }) =>
-    request<Record<string, unknown>>("/api/discovery/plans", {
+  discoveryRequests: () => request<Array<Record<string, unknown>>>("/api/discovery/requests"),
+  createDiscoveryRequest: (body: {
+    keywords: string[];
+    platforms: string[];
+    mode?: string;
+    filters?: Record<string, unknown>;
+    brand?: string;
+    scope?: Record<string, unknown>;
+    start?: boolean;
+  }) =>
+    request<Record<string, unknown>>("/api/discovery/requests", {
       method: "POST",
-      body: JSON.stringify({ ...body, live: false }),
+      body: JSON.stringify({ ...body, start: body.start === true }),
     }),
-  discoveryRun: (planId: string) =>
-    request<Record<string, unknown>>("/api/discovery/runs", {
+  discoveryRequest: (id: string) =>
+    request<Record<string, unknown>>(`/api/discovery/requests/${encodeURIComponent(id)}`),
+  startDiscoveryRun: (requestId: string, body?: { platform?: string }) =>
+    request<Record<string, unknown>>(`/api/discovery/requests/${encodeURIComponent(requestId)}/runs`, {
       method: "POST",
-      body: JSON.stringify({ plan_id: planId, live: false }),
+      body: JSON.stringify(body || {}),
     }),
-  discoveryRunStatus: (runId: string) =>
+  discoveryRun: (runId: string) =>
     request<Record<string, unknown>>(`/api/discovery/runs/${encodeURIComponent(runId)}`),
-  favoriteDiscoveryCandidate: (id: string, favorited: boolean) =>
-    request<{ ok?: boolean }>(`/api/discovery/candidates/${encodeURIComponent(id)}/favorite`, {
+  discoveryRunCandidates: (runId: string, query?: { status?: string; limit?: number; offset?: number }) => {
+    const search = new URLSearchParams();
+    if (query?.status) search.set("status", query.status);
+    if (query?.limit != null) search.set("limit", String(query.limit));
+    if (query?.offset != null) search.set("offset", String(query.offset));
+    const qs = search.size ? `?${search}` : "";
+    return request<{ items?: Array<Record<string, unknown>>; total?: number; limit?: number; offset?: number; run?: Record<string, unknown> }>(
+      `/api/discovery/runs/${encodeURIComponent(runId)}/candidates${qs}`,
+    );
+  },
+  discoveryCandidate: (id: string) =>
+    request<Record<string, unknown>>(`/api/discovery/candidates/${encodeURIComponent(id)}`),
+  followDiscoveryCandidate: (id: string) =>
+    request<Record<string, unknown>>(`/api/discovery/candidates/${encodeURIComponent(id)}/follow`, {
       method: "POST",
-      body: JSON.stringify({ favorited, live: false }),
+      body: JSON.stringify({}),
     }),
-  followDiscoveryCandidate: (id: string, confirm: true) =>
-    request<{ ok?: boolean; added_to_followed?: boolean }>(
-      `/api/discovery/candidates/${encodeURIComponent(id)}/follow`,
-      { method: "POST", body: JSON.stringify({ confirm, live: false }) },
-    ),
+  dismissDiscoveryCandidate: (id: string) =>
+    request<Record<string, unknown>>(`/api/discovery/candidates/${encodeURIComponent(id)}/dismiss`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
 };

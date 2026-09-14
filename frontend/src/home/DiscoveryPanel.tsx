@@ -1,21 +1,25 @@
 import { useMemo, useState } from "react";
 import {
-  favoriteDiscoveryCandidate,
-  followDiscoveryCandidate,
-  loadDiscoveryCandidates,
+  OVERSEAS_DISCOVERY_PLATFORMS,
+  candidateReason,
+  createDiscoveryRequest,
+  dismissCandidate,
+  followCandidate,
+  keywordsFromQuery,
+  listRunCandidates,
+  planSteps,
+  planSummary,
   platformLabel,
   regionLabel,
-  requestDiscoveryPlan,
   startDiscoveryRun,
-  type DiscoveryCandidate,
+  type CreatorCandidate,
   type DiscoveryFilters,
   type DiscoveryPhase,
-  type DiscoveryPlan,
   type DiscoveryPlatform,
   type DiscoveryRegion,
+  type DiscoveryRequest,
 } from "./discovery";
 
-const PLATFORMS: DiscoveryPlatform[] = ["all", "youtube", "instagram", "tiktok"];
 const REGIONS: DiscoveryRegion[] = ["all", "na", "eu", "sea"];
 
 function formatFollowers(value: number): string {
@@ -25,22 +29,28 @@ function formatFollowers(value: number): string {
 
 export default function DiscoveryPanel() {
   const [query, setQuery] = useState("");
+  const [platform, setPlatform] = useState<DiscoveryPlatform>("youtube");
   const [filters, setFilters] = useState<DiscoveryFilters>({
-    platform: "all",
     region: "all",
     niche: "",
   });
   const [phase, setPhase] = useState<DiscoveryPhase>("idle");
-  const [plan, setPlan] = useState<DiscoveryPlan | null>(null);
-  const [candidates, setCandidates] = useState<DiscoveryCandidate[]>([]);
+  const [request, setRequest] = useState<DiscoveryRequest | null>(null);
+  const [candidates, setCandidates] = useState<CreatorCandidate[]>([]);
+  const [favorited, setFavorited] = useState<Record<string, boolean>>({});
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [pendingFollow, setPendingFollow] = useState<DiscoveryCandidate | null>(null);
+  const [pendingFollow, setPendingFollow] = useState<CreatorCandidate | null>(null);
+
+  const visible = useMemo(
+    () => candidates.filter((row) => row.status !== "dismissed"),
+    [candidates],
+  );
 
   const emptyHint = useMemo(() => {
-    if (phase === "results" && !candidates.length) return "这次计划没有找到候选人，可换关键词再试。";
+    if (phase === "results" && !visible.length) return "这次计划没有找到候选人，可换关键词再试。";
     return "用一句话描述想找的达人，确认计划后才会开始检索。";
-  }, [candidates.length, phase]);
+  }, [phase, visible.length]);
 
   const buildPlan = async () => {
     const text = query.trim();
@@ -53,8 +63,14 @@ export default function DiscoveryPanel() {
     setError("");
     setPendingFollow(null);
     try {
-      const next = await requestDiscoveryPlan(text, filters);
-      setPlan(next);
+      const next = await createDiscoveryRequest({
+        keywords: keywordsFromQuery(text),
+        platforms: [platform],
+        mode: "search",
+        filters,
+        start: false,
+      });
+      setRequest(next);
       setCandidates([]);
       setPhase("plan");
     } catch (caught) {
@@ -66,19 +82,19 @@ export default function DiscoveryPanel() {
   };
 
   const confirmPlan = async () => {
-    if (!plan) return;
+    if (!request) return;
     setBusy(true);
     setError("");
     setPhase("running");
     try {
-      const run = await startDiscoveryRun(plan);
-      if (run.status === "failed") {
+      const run = await startDiscoveryRun(request.id, { platform: request.platforms[0] });
+      if (run.status === "failed" || run.status === "cancelled") {
         setError(run.error || "检索没有完成，可调整条件后重试。");
         setPhase("error");
         return;
       }
-      const rows = await loadDiscoveryCandidates(run, plan);
-      setCandidates(rows);
+      const page = await listRunCandidates(run.id, { status: "suggested", limit: 20, offset: 0 });
+      setCandidates(page.items);
       setPhase("results");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "检索没有完成，可调整条件后重试。");
@@ -88,22 +104,17 @@ export default function DiscoveryPanel() {
     }
   };
 
-  const toggleFavorite = async (candidate: DiscoveryCandidate) => {
-    const next = !candidate.favorited;
-    setCandidates((current) => current.map((row) => (
-      row.id === candidate.id ? { ...row, favorited: next } : row
-    )));
-    await favoriteDiscoveryCandidate(candidate.id, next);
-  };
-
   const confirmFollow = async () => {
     if (!pendingFollow) return;
     const id = pendingFollow.id;
-    await followDiscoveryCandidate(id, true);
-    setCandidates((current) => current.map((row) => (
-      row.id === id ? { ...row, follow_requested: true } : row
-    )));
+    const followed = await followCandidate(id);
+    setCandidates((current) => current.map((row) => (row.id === id ? followed : row)));
     setPendingFollow(null);
+  };
+
+  const onDismiss = async (candidate: CreatorCandidate) => {
+    const next = await dismissCandidate(candidate.id);
+    setCandidates((current) => current.map((row) => (row.id === candidate.id ? next : row)));
   };
 
   return (
@@ -138,13 +149,10 @@ export default function DiscoveryPanel() {
             <span>平台</span>
             <select
               data-discovery-filter="platform"
-              value={filters.platform}
-              onChange={(event) => setFilters((current) => ({
-                ...current,
-                platform: event.target.value as DiscoveryPlatform,
-              }))}
+              value={platform}
+              onChange={(event) => setPlatform(event.target.value as DiscoveryPlatform)}
             >
-              {PLATFORMS.map((value) => (
+              {OVERSEAS_DISCOVERY_PLATFORMS.map((value) => (
                 <option key={value} value={value}>{platformLabel(value)}</option>
               ))}
             </select>
@@ -153,7 +161,7 @@ export default function DiscoveryPanel() {
             <span>地区</span>
             <select
               data-discovery-filter="region"
-              value={filters.region}
+              value={String(filters.region || "all")}
               onChange={(event) => setFilters((current) => ({
                 ...current,
                 region: event.target.value as DiscoveryRegion,
@@ -168,7 +176,7 @@ export default function DiscoveryPanel() {
             <span>方向</span>
             <input
               data-discovery-filter="niche"
-              value={filters.niche}
+              value={String(filters.niche || "")}
               placeholder="可选，如户外电源"
               onChange={(event) => setFilters((current) => ({ ...current, niche: event.target.value }))}
             />
@@ -188,12 +196,12 @@ export default function DiscoveryPanel() {
         </div>
       ) : null}
 
-      {phase === "plan" && plan ? (
-        <section className="discovery-plan" data-discovery-plan-card>
+      {phase === "plan" && request ? (
+        <section className="discovery-plan" data-discovery-plan-card data-discovery-request={request.id}>
           <strong>检索计划</strong>
-          <p data-discovery-plan-summary>{plan.summary}</p>
+          <p data-discovery-plan-summary>{planSummary(request)}</p>
           <ol data-discovery-plan-steps>
-            {plan.steps.map((step) => (
+            {planSteps(request).map((step) => (
               <li key={step.id}>{step.label}</li>
             ))}
           </ol>
@@ -228,30 +236,35 @@ export default function DiscoveryPanel() {
         </section>
       ) : null}
 
-      {phase === "results" && !candidates.length ? (
+      {phase === "results" && !visible.length ? (
         <div className="task-empty" data-discovery-empty="results">
           <strong>没有候选人</strong>
           <p>{emptyHint}</p>
         </div>
       ) : null}
 
-      {phase === "results" && candidates.length ? (
+      {phase === "results" && visible.length ? (
         <ol className="discovery-candidate-list" data-discovery-candidates>
-          {candidates.map((candidate) => (
+          {visible.map((candidate) => (
             <li key={candidate.id}>
               <article
                 className="discovery-candidate"
                 data-discovery-candidate={candidate.handle}
                 data-discovery-origin="discovery"
+                data-candidate-id={candidate.id}
+                data-candidate-status={candidate.status}
               >
                 <div className="discovery-candidate-copy">
                   <strong>@{candidate.handle}</strong>
                   <p className="discovery-candidate-meta">
-                    {candidate.display_name} · {candidate.platform} · {candidate.region} · {formatFollowers(candidate.followers)}
+                    {candidate.nickname} · {platformLabel(candidate.platform)} · {formatFollowers(candidate.followers)}
+                    {candidate.score ? ` · 评分 ${candidate.score}` : ""}
                   </p>
-                  <p className="discovery-candidate-reason">{candidate.reason}</p>
-                  {candidate.follow_requested ? (
-                    <p className="discovery-quiet" data-discovery-followed>已记录跟进意向，还不会出现在「我跟进的红人」。</p>
+                  <p className="discovery-candidate-reason">{candidateReason(candidate)}</p>
+                  {candidate.status === "followed" ? (
+                    <p className="discovery-quiet" data-discovery-followed>
+                      已确认跟进意向。模拟环境不会写进「我跟进的红人」；接上接口后才会建合作。
+                    </p>
                   ) : null}
                 </div>
                 <div className="discovery-candidate-actions">
@@ -259,19 +272,28 @@ export default function DiscoveryPanel() {
                     type="button"
                     className="btn ghost sm"
                     data-discovery-favorite={candidate.id}
-                    aria-pressed={candidate.favorited}
-                    onClick={() => void toggleFavorite(candidate)}
+                    aria-pressed={Boolean(favorited[candidate.id])}
+                    onClick={() => setFavorited((current) => ({ ...current, [candidate.id]: !current[candidate.id] }))}
                   >
-                    {candidate.favorited ? "已收藏" : "收藏"}
+                    {favorited[candidate.id] ? "已收藏" : "收藏"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn ghost sm"
+                    data-discovery-dismiss={candidate.id}
+                    disabled={candidate.status === "followed"}
+                    onClick={() => void onDismiss(candidate)}
+                  >
+                    忽略
                   </button>
                   <button
                     type="button"
                     className="btn work sm"
                     data-discovery-follow={candidate.id}
-                    disabled={candidate.follow_requested}
+                    disabled={candidate.status === "followed"}
                     onClick={() => setPendingFollow(candidate)}
                   >
-                    {candidate.follow_requested ? "已确认跟进" : "加入跟进"}
+                    {candidate.status === "followed" ? "已确认跟进" : "加入跟进"}
                   </button>
                 </div>
               </article>
@@ -285,7 +307,7 @@ export default function DiscoveryPanel() {
           <div className="discovery-confirm">
             <strong>确认加入跟进？</strong>
             <p>
-              把 @{pendingFollow.handle} 记为跟进意向。不会发信，也不会改正式阶段，更不会写进「我跟进的红人」。
+              把 @{pendingFollow.handle} 记为跟进意向。不会发信，也不会改正式阶段。接上发现接口后，确认才会建合作。
             </p>
             <div className="discovery-plan-actions">
               <button type="button" className="btn work sm" data-discovery-follow-yes onClick={() => void confirmFollow()}>
