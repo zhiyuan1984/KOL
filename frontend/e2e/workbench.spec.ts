@@ -2223,7 +2223,6 @@ test("home does not pile expert task lists", async ({ page }) => {
 
 test("expert center list → detail → summon binds a session without send/stage", async ({ page }) => {
   const sideEffects: string[] = [];
-  let summonBody: Record<string, unknown> | null = null;
   page.on("request", (request) => {
     const url = request.url();
     const method = request.method();
@@ -2236,10 +2235,6 @@ test("expert center list → detail → summon binds a session without send/stag
       sideEffects.push(`${method} ${url}`);
     }
   });
-  page.on("response", async (response) => {
-    if (response.request().method() !== "POST" || !/\/api\/experts\/.+\/summon/.test(response.url())) return;
-    summonBody = await response.json() as Record<string, unknown>;
-  });
   await page.goto("/agents");
   await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
   await page.locator("[data-expert-open='expert:kol']").click();
@@ -2250,14 +2245,19 @@ test("expert center list → detail → summon binds a session without send/stag
   await expect(page.getByRole("heading", { name: "你可以这样说" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "工作方式" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "召唤" })).toBeVisible();
+  const summonWait = page.waitForResponse((response) => (
+    response.request().method() === "POST"
+    && response.url().includes("/api/experts/")
+    && response.url().includes("/summon")
+  ));
   await page.locator("[data-expert-summon='expert:kol']").click();
+  const summonBody = await (await summonWait).json() as Record<string, unknown>;
   await page.waitForURL(/\/s\//);
-  expect(summonBody).toBeTruthy();
-  expect(Object.keys(summonBody || {}).sort()).toEqual(["expert_id", "expert_version", "intro", "session_id"]);
-  expect(String(summonBody?.session_id || "")).toMatch(/^ses_/);
-  expect(summonBody?.expert_id).toBe("expert:kol");
-  expect(summonBody?.expert_version).toBeTruthy();
-  expect(summonBody?.intro).toBeTruthy();
+  expect(Object.keys(summonBody).sort()).toEqual(["expert_id", "expert_version", "intro", "session_id"]);
+  expect(String(summonBody.session_id || "")).toMatch(/^ses_/);
+  expect(summonBody.expert_id).toBe("expert:kol");
+  expect(summonBody.expert_version).toBeTruthy();
+  expect(summonBody.intro).toBeTruthy();
   await expect(page.locator("[data-expert-identity='expert:kol']")).toBeVisible();
   await expect(page.locator("[data-expert-name]")).toHaveText("KOL 合作专员");
   await expect(page.locator("[data-expert-intro]")).toBeVisible();
