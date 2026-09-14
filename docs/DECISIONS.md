@@ -10,6 +10,7 @@
 | 2026-09-13 | 邮件往来摘要 Codex `thread/start` 与识别一致：`CODEX_MODEL` / CLI 默认，不传 `gpt-5.6-luna`。Luna digest 需要 `OPENAI_BASE_URL` 及该端点 key | 公共 OpenAI `sk-proj` 打默认 Luna 会 HTTP 401。不改 provider 顺序或 sticky-fail。 |
 | 2026-09-13 | 邮件往来摘要 `analysis_failed` 改为冷却后自动再试，并持久化 `error` / `attempted` / `failed_at` | 不是新 ADR。不改 provider、指纹、寒暄过滤或超时。详见 `docs/evidence-mail-digest-analysis-plan-2026-09-13.md`。 |
 | 2026-09-14 | 并列能力面与 Agent / 任务解耦：知识库、审批、考试、连接器使用面是独立产品面，不隶属 KOL Agent，也不因进行中任务才存在 | 不是第五套 Home。治理仍 Admin-only。见 ADR-015、`19-ui-ux-constitution.md`、`21-admin-employee-page-roles.md`。 |
+| 2026-09-14 | 专家中心 = 召唤岗位专家：员工 `/agents` 只找谁协作；无专家团；无员工默认 Skill/MCP/Profile/Harness；召唤 ≠ 发送/阶段；Home 独占任务；能力面仍解耦 | 见 ADR-016、`19-ui-ux-constitution.md`、`21-admin-employee-page-roles.md`。 |
 
 ## 已固化决策
 
@@ -30,6 +31,7 @@
 | ADR-013 | 管理端是员工四表面的配套治理套件，不是副本；连接器**治理**只在 `/admin/connectors`，员工**使用面**独立（`/connectors`），Agent 治理在 `/admin/agents`，个人 Starry 绑定只留 Settings | `21-admin-employee-page-roles.md`、`19-ui-ux-constitution.md` |
 | ADR-014 | 员工侧栏：定时任务归今日工作簇；簇间用分割线，不画可见「今日 / 智能体 / 资产」组标题 | `19-ui-ux-constitution.md` |
 | ADR-015 | 员工并列能力面（知识库 / 审批 / 考试 / 连接器使用面等）与数字员工开工入口、今日任务队列解耦；KOL 只作数据不定义 IA；治理仍 Admin-only | `19-ui-ux-constitution.md`、`21-admin-employee-page-roles.md` |
+| ADR-016 | 员工 `/agents` 专家中心只召唤已发布岗位专家；无专家团；员工默认禁止 Skill/MCP/Profile/Harness/连接器状态主 IA；召唤只建绑定、不发信不写阶段；Home 独占任务；并列能力面仍解耦（ADR-015） | `19-ui-ux-constitution.md`、`21-admin-employee-page-roles.md` |
 
 ## 新增 Agent 分级
 
@@ -186,5 +188,33 @@ Admin 导航和页面与员工连接器/智能体表面重叠：员工侧栏深�
 ### 影响
 
 - 规范：`19-ui-ux-constitution.md` 并列能力面条款、`21-admin-employee-page-roles.md` 交叉引用
+- 代码：本 ADR 不改 JSX / API
+- 测试：文档评审 only；无新发布门禁项
+
+## ADR-016 — 专家中心 = 召唤岗位专家（2026-09-14）
+
+**状态**：已固化  
+**决策人**：产品负责人
+
+### 问题与背景
+
+`19` P0 把 `/agents` 写成「用来开始干活」，侧栏数字员工簇又写「团队/技能入口」。这容易被读成技能图鉴、第二套 Home 待办页、连接器目录，或再发明「专家团」假导航。员工应只看见可召唤的岗位专家；内部对象可以是 Expert / Agent，员工文案是「数字员工」。召唤比发送更早，不得附带发信或写阶段。并列能力面（ADR-015）与 Home 任务主权不得被专家中心吞并。
+
+### 决定
+
+1. **专家中心只回答「找谁协作」。** 员工 `/agents`（专家中心 / 数字员工入口）列出已发布、可供召唤的岗位专家并建立协作绑定。不是技能目录、不是第二套 Home 任务页、不是连接器目录。不发明第五套主脊柱；`/agents` 仍是 P0 工作入口 chrome。
+2. **无专家团。** 员工默认表面完全没有专家团：无入口、无占位、无假导航。侧栏入口文案「数字员工」；不要求「数字团队」（易被读成专家团）。
+3. **员工默认禁止引擎与目录 chrome。** 默认员工 `/agents` 及数字员工相关 chrome 不得展示 Profile 内部、Harness、MCP、Codex、技能目录 / Skill picker、连接器状态 / connector pills 作为主 IA。引擎行话仍按 `UX-COPY-ENGINE`。技能目录仅显式调试或管理端。
+4. **召唤 ≠ 发送 / 推进阶段。** 召唤只建立绑定会话 / 协作绑定。无 send-mail 副作用，无 stage-change 副作用。「发送 ≠ 推进阶段」仍然有效；召唤更早，必须两都不做。
+5. **Home 独占任务；能力面仍解耦。** Home 仍回答现在做什么 / 今日待办 / 任务计数。专家中心不得复制 Home 待办桶。知识库 / 审批 / 考试 / 连接器使用面仍是并列能力面（ADR-015），专家中心不拥有它们。
+6. **对象命名。** 内部：Expert 或 Agent 均可。员工文案：「数字员工」/ 岗位专家。`/admin/agents` 仍是治理（发布 / 授权 / 考试闸门），不得与员工专家中心混读；员工专家中心禁止连接器状态 chrome。
+
+### 不决定的范围
+
+不实施前端 / 后端，不 LIVE，不新增 UX ID，不实施 ExpertManifest / 数字员工 API，不改数字员工对象模型 schema。不削弱四页法律、并列能力面（ADR-015）、连接器使用面 vs 治理面、发送 ≠ 推进阶段、或无可见侧栏组标题。不重做 Chat。
+
+### 影响
+
+- 规范：`19-ui-ux-constitution.md` 专家中心条款、`21-admin-employee-page-roles.md` 交叉引用、`docs/README.md` 索引
 - 代码：本 ADR 不改 JSX / API
 - 测试：文档评审 only；无新发布门禁项
