@@ -12,6 +12,7 @@ export type Expert = {
   id: string;
   name: string;
   expert_version: string;
+  profession: string;
   mission: string;
   who: string;
   good_at: string[];
@@ -23,6 +24,35 @@ export type Expert = {
   intro: string;
   recommended?: boolean;
 };
+
+const KOL_MISSION_COPY = "帮助你推进 KOL 合作，从邮件理解、跟进建议到沟通草稿逐步完成。";
+const KOL_CAN_HELP = ["理解往来邮件和跟进节奏", "给出下一步跟进建议", "起草建联和沟通内容"];
+
+function isSafetyCopy(text: string): boolean {
+  return /必须由你确认|发送和改阶段|召唤进会话/.test(text);
+}
+
+export function expertRoleCopy(expert: Pick<Expert, "profession" | "who" | "name">): string {
+  return expert.profession || expert.who || expert.name;
+}
+
+export function expertMissionCopy(expert: Pick<Expert, "id" | "mission">): string {
+  if (canonicalExpertId(expert.id) === KOL_EXPERT_ID) return KOL_MISSION_COPY;
+  return expert.mission;
+}
+
+export function expertCanHelpCopy(expert: Expert): string[] {
+  if (canonicalExpertId(expert.id) === KOL_EXPERT_ID) return KOL_CAN_HELP;
+  const lines = expert.can_finish.filter((line) => line && !isSafetyCopy(line));
+  return lines.slice(0, 3);
+}
+
+export function expertPromptExamples(expert: Expert): string[] {
+  const prompts = expert.quick_prompts.length
+    ? expert.quick_prompts
+    : expert.recommended_tasks.map((task) => task.prompt || task.title);
+  return prompts.filter(Boolean).slice(0, 3);
+}
 
 export type ExpertView = "recommend" | "mine" | "all" | "search";
 
@@ -47,11 +77,11 @@ const KOL_MANIFEST: ExpertManifestView = {
   status: "published",
   display_name: "KOL 合作专员",
   profession: "达人合作",
-  description: "分析合作、展示适用 SOP、准备草稿和跟进建议。发信与正式阶段写入必须由你确认。",
+  description: "帮助你推进 KOL 合作，从邮件理解、跟进建议到沟通草稿逐步完成。",
   avatar: "/api/experts/expert:kol/avatar",
   category: "达人合作",
   tags: ["建联", "跟进", "阶段建议"],
-  mission: "帮你把达人合作往前推进：看清阶段、准备沟通、给出跟进建议。",
+  mission: KOL_MISSION_COPY,
   quick_prompts: [
     "帮我看一下这个红人现在该怎么跟进",
     "准备一封建联邮件",
@@ -126,7 +156,8 @@ function normalizeExpert(row: ExpertSource | null | undefined): Expert | null {
     id,
     name,
     expert_version: String(row.version || row.expert_version || ""),
-    who: String(row.who || name),
+    profession: String(row.profession || row.category || "").trim(),
+    who: String(row.who || row.profession || name),
     mission: String(row.mission || "").trim(),
     good_at: goodAt.length ? goodAt : tags,
     can_finish: canFinish.length ? canFinish : (description ? [description] : []),
@@ -245,7 +276,7 @@ export function bindExpertSession(sessionId: string, expert: Expert, summoned: E
     expert_id: summoned.expert_id || expert.id,
     expert_version: summoned.expert_version || expert.expert_version,
     name: expert.name,
-    mission: expert.mission,
+    mission: expertMissionCopy(expert),
     intro: summoned.intro || expert.intro,
     recommended_tasks: expert.recommended_tasks.slice(0, 3),
   };
@@ -271,12 +302,15 @@ export function filterExperts(experts: Expert[], query: string): Expert[] {
   return experts.filter((expert) => {
     const hay = [
       expert.name,
+      expert.profession,
       expert.who,
       expert.mission,
+      expertMissionCopy(expert),
       expert.how_to_start,
       expert.working_style,
       ...expert.good_at,
       ...expert.can_finish,
+      ...expertCanHelpCopy(expert),
       ...expert.quick_prompts,
     ].join(" ").toLowerCase();
     return hay.includes(q);
