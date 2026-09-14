@@ -149,7 +149,7 @@ export async function fetchExperts(): Promise<Expert[]> {
 export async function fetchExpert(id: string): Promise<Expert | null> {
   const canonical = canonicalExpertId(id);
   try {
-    const row = normalizeExpert(await api.expert(canonical));
+    const row = normalizeExpert(await api.expert(canonical) as Partial<Expert>);
     if (row) return row;
   } catch (error) {
     if (!isNotFound(error)) throw error;
@@ -162,13 +162,18 @@ export async function summonExpert(expert: Expert): Promise<ExpertSummonResult> 
     const summoned = await api.summonExpert(expert.id);
     const sessionId = String(summoned.session_id || "").trim();
     if (!sessionId) throw new Error("召唤未返回会话");
+    const tasks = Array.isArray(summoned.recommended_tasks) && summoned.recommended_tasks.length
+      ? summoned.recommended_tasks.map((task) => ({
+        id: String(task.id || ""),
+        title: String(task.title || ""),
+        prompt: String(task.prompt || task.title || ""),
+      })).filter((task) => task.id && task.title)
+      : expert.recommended_tasks;
     return {
       session_id: sessionId,
       expert_id: String(summoned.expert_id || expert.id),
       intro_message: String(summoned.intro_message || expert.intro_message),
-      recommended_tasks: Array.isArray(summoned.recommended_tasks) && summoned.recommended_tasks.length
-        ? summoned.recommended_tasks
-        : expert.recommended_tasks,
+      recommended_tasks: tasks,
       bound: true,
     };
   } catch (error) {
