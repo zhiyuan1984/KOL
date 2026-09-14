@@ -181,6 +181,79 @@ test("home discovery chips keep query on reset and persist when editing plan", a
   await expect(page.locator('[data-discovery-direction="户外露营"]')).toBeVisible();
 });
 
+test("home discovery maps streamable connection failures to employee copy", async ({ page }) => {
+  await page.route("**/api/discovery/requests", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 502,
+      contentType: "application/json",
+      body: JSON.stringify({
+        detail: "Streamable HTTP error: Error POSTing to endpoint (HTTP 404)",
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await openMode(page, "discovery");
+  await page.locator("[data-discovery-query]").fill("找北美户外电源评测达人");
+  await page.locator("[data-discovery-plan]").click();
+
+  const error = page.locator("[data-discovery-error]");
+  await expect(error).toBeVisible();
+  await expect(error).toHaveAttribute("data-discovery-error-kind", "connection");
+  await expect(error.locator("[data-discovery-error-title]")).toHaveText("采集服务连接失败");
+  await expect(error.locator("[data-discovery-error-message]")).toHaveText("暂时连不上采集服务。请确认服务可用后再检索。");
+  await expect(error.locator("[data-discovery-error-title]")).not.toContainText(/Streamable|HTTP error|404|MCP|Codex/);
+  await expect(error.locator("[data-discovery-error-message]")).not.toContainText(/Streamable|HTTP error|404|MCP|Codex|ECONNREFUSED/);
+  await expect(page.locator("[data-discovery-retry]")).toBeDisabled();
+  await expect(page.locator("[data-discovery-check-connection]")).toBeVisible();
+  await expect(page.locator("[data-discovery-check-connection]")).toHaveText("检查连接");
+
+  const detail = page.locator("[data-discovery-error-detail]");
+  await expect(detail).toBeVisible();
+  await expect(detail).not.toHaveAttribute("open");
+  await page.locator("[data-discovery-check-connection]").click();
+  await expect(detail).toHaveAttribute("open");
+  await expect(detail.locator("pre")).toContainText("Streamable HTTP error");
+  await expect(detail.locator("pre")).toContainText("404");
+});
+
+test("home discovery maps failed run engine errors without showing raw copy", async ({ page }) => {
+  await page.route("**/api/discovery/requests/**/runs", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "drun_e2e_conn",
+        status: "failed",
+        error: "connect ECONNREFUSED 127.0.0.1:8000",
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await openMode(page, "discovery");
+  await page.locator("[data-discovery-query]").fill("找北美户外电源评测达人");
+  await page.locator("[data-discovery-plan]").click();
+  await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
+  await page.locator("[data-discovery-confirm-plan]").click();
+
+  const error = page.locator("[data-discovery-error]");
+  await expect(error).toBeVisible();
+  await expect(error).toHaveAttribute("data-discovery-error-kind", "connection");
+  await expect(error.locator("[data-discovery-error-title]")).toHaveText("采集服务连接失败");
+  await expect(error.locator("[data-discovery-error-message]")).not.toContainText(/ECONNREFUSED|127\.0\.0\.1|Streamable|MCP/);
+  await expect(page.locator("[data-discovery-retry]")).toBeDisabled();
+  await expect(page.locator("[data-discovery-check-connection]")).toBeVisible();
+});
+
 test("today suggestion convert to todo dedupes", async ({ page }) => {
   await page.goto("/");
   await openMode(page, "todo");

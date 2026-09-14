@@ -17,15 +17,18 @@ import {
   planSteps,
   planSummary,
   platformLabel,
+  presentDiscoveryError,
   splitDirectionDraft,
   startDiscoveryRun,
   waitForDiscoveryResults,
   type CreatorCandidate,
+  type DiscoveryErrorView,
   type DiscoveryFilters,
   type DiscoveryPhase,
   type DiscoveryPlatform,
   type DiscoveryRequest,
 } from "./discovery";
+import { useViewMode } from "../viewMode";
 
 function formatFollowers(value: number): string {
   if (value >= 10000) return `${Math.round(value / 1000)}k`;
@@ -46,9 +49,16 @@ export default function DiscoveryPanel() {
   const [request, setRequest] = useState<DiscoveryRequest | null>(null);
   const [candidates, setCandidates] = useState<CreatorCandidate[]>([]);
   const [favorited, setFavorited] = useState<Record<string, boolean>>({});
-  const [error, setError] = useState("");
+  const [error, setError] = useState<DiscoveryErrorView | null>(null);
   const [busy, setBusy] = useState(false);
   const [pendingFollow, setPendingFollow] = useState<CreatorCandidate | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const { debug } = useViewMode();
+
+  const showError = (raw: unknown, fallback: string) => {
+    setDetailOpen(false);
+    setError(presentDiscoveryError(raw, fallback));
+  };
 
   const visible = useMemo(
     () => candidates.filter((row) => row.status !== "dismissed"),
@@ -125,12 +135,13 @@ export default function DiscoveryPanel() {
     setAddOpen(false);
     const text = query.trim();
     if (!text) {
-      setError("先写一句想找的达人，再生成计划。");
+      showError("先写一句想找的达人，再生成计划。", "先写一句想找的达人，再生成计划。");
       setPhase("error");
       return;
     }
     setBusy(true);
-    setError("");
+    setError(null);
+    setDetailOpen(false);
     setPendingFollow(null);
     try {
       const next = await createDiscoveryRequest({
@@ -143,7 +154,7 @@ export default function DiscoveryPanel() {
       setCandidates([]);
       setPhase("plan");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "计划没有生成，可稍后重试。");
+      showError(caught, "计划没有生成，可稍后重试。");
       setPhase("error");
     } finally {
       setBusy(false);
@@ -153,12 +164,13 @@ export default function DiscoveryPanel() {
   const confirmPlan = async () => {
     if (!request) return;
     setBusy(true);
-    setError("");
+    setError(null);
+    setDetailOpen(false);
     setPhase("running");
     try {
       const run = await startDiscoveryRun(request.id, { platform: request.platforms[0] });
       if (run.status === "failed" || run.status === "cancelled") {
-        setError(run.error || "检索没有完成，可调整条件后重试。");
+        showError(run.error || "检索没有完成，可调整条件后重试。", "检索没有完成，可调整条件后重试。");
         setPhase("error");
         return;
       }
@@ -166,13 +178,16 @@ export default function DiscoveryPanel() {
       setRequest(results.request);
       setCandidates(results.candidates);
       if (String(results.run?.status || results.status) === "failed") {
-        setError(results.run?.error || results.request.error || "检索没有完成，可调整条件后重试。");
+        showError(
+          results.run?.error || results.request.error || "检索没有完成，可调整条件后重试。",
+          "检索没有完成，可调整条件后重试。",
+        );
         setPhase("error");
         return;
       }
       setPhase("results");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "检索没有完成，可调整条件后重试。");
+      showError(caught, "检索没有完成，可调整条件后重试。");
       setPhase("error");
     } finally {
       setBusy(false);
@@ -418,12 +433,53 @@ export default function DiscoveryPanel() {
       ) : null}
 
       {phase === "error" ? (
-        <section className="task-empty" data-discovery-error role="alert">
-          <strong>检索没有完成</strong>
-          <p>{error || "可调整条件后重试。"}</p>
-          <button type="button" className="btn work sm" data-discovery-retry onClick={() => void buildPlan()}>
-            重试
-          </button>
+        <section
+          className="task-empty discovery-error"
+          data-discovery-error
+          data-discovery-error-kind={error?.kind || "generic"}
+          role="alert"
+        >
+          <strong data-discovery-error-title>{error?.title || "检索没有完成"}</strong>
+          <p data-discovery-error-message>{error?.message || "可调整条件后重试。"}</p>
+          {error?.detail ? (
+            debug ? (
+              <p className="discovery-error-debug" data-discovery-error-detail data-open="true">
+                {error.detail}
+              </p>
+            ) : (
+              <details
+                className="discovery-error-detail"
+                data-discovery-error-detail
+                open={detailOpen}
+                onToggle={(event) => setDetailOpen(event.currentTarget.open)}
+              >
+                <summary>查看详情</summary>
+                <pre>{error.detail}</pre>
+              </details>
+            )
+          ) : null}
+          <div className="discovery-error-actions">
+            <button
+              type="button"
+              className="btn work sm"
+              data-discovery-retry
+              disabled={busy || Boolean(error?.retryDisabled)}
+              onClick={() => void buildPlan()}
+            >
+              重试
+            </button>
+            {error?.checkConnection ? (
+              <button
+                type="button"
+                className="btn ghost sm"
+                data-discovery-check-connection
+                disabled={busy}
+                onClick={() => setDetailOpen(true)}
+              >
+                检查连接
+              </button>
+            ) : null}
+          </div>
         </section>
       ) : null}
 
