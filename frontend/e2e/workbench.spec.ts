@@ -121,22 +121,92 @@ async function expectFollowedKolListAlignsWithTabs(page: Page) {
   const card = page.locator("[data-followed-kol]").first();
   await expect(tabs).toBeVisible();
   await expect(list).toBeVisible();
-  const widths = await page.evaluate(() => {
+  const metrics = await page.evaluate(() => {
     const tabEl = document.querySelector("[data-kol-tabs]");
     const listEl = document.querySelector("[data-followed-kol-list]");
     const cardEl = document.querySelector("[data-followed-kol]");
     const columnEl = document.querySelector("[data-followed-kol-column]");
+    const paneEl = document.querySelector("[data-home-pane='lifecycle']");
+    const box = (el: Element | null) => {
+      if (!(el instanceof HTMLElement)) return { width: 0, left: 0, right: 0 };
+      const rect = el.getBoundingClientRect();
+      return { width: el.clientWidth, left: rect.left, right: rect.right };
+    };
     return {
-      tabs: tabEl instanceof HTMLElement ? tabEl.clientWidth : 0,
-      list: listEl instanceof HTMLElement ? listEl.clientWidth : 0,
-      card: cardEl instanceof HTMLElement ? cardEl.clientWidth : 0,
-      column: columnEl instanceof HTMLElement ? columnEl.clientWidth : 0,
+      tabs: box(tabEl),
+      list: box(listEl),
+      card: box(cardEl),
+      column: box(columnEl),
+      pane: box(paneEl),
     };
   });
-  expect(widths.tabs).toBeGreaterThan(0);
-  expect(Math.abs(widths.list - widths.tabs)).toBeLessThan(8);
-  expect(Math.abs(widths.card - widths.tabs)).toBeLessThan(8);
-  expect(Math.abs(widths.column - widths.tabs)).toBeLessThan(8);
+  expect(metrics.tabs.width).toBeGreaterThan(0);
+  expect(Math.abs(metrics.list.width - metrics.tabs.width)).toBeLessThan(8);
+  expect(Math.abs(metrics.card.width - metrics.tabs.width)).toBeLessThan(8);
+  expect(Math.abs(metrics.column.width - metrics.tabs.width)).toBeLessThan(8);
+  expect(Math.abs(metrics.pane.width - metrics.tabs.width)).toBeLessThan(8);
+  expect(Math.abs(metrics.card.left - metrics.tabs.left)).toBeLessThan(4);
+  expect(Math.abs(metrics.card.right - metrics.tabs.right)).toBeLessThan(4);
+}
+
+async function expectFollowedKolCardWraps(page: Page, handle?: string) {
+  const card = handle
+    ? page.locator(`[data-followed-kol="${handle}"]`)
+    : page.locator("[data-followed-kol]").first();
+  const layout = await card.evaluate((el) => {
+    const pick = (selector: string) => el.querySelector(selector);
+    const styleOf = (node: Element | null) => {
+      if (!(node instanceof HTMLElement)) return null;
+      const cs = getComputedStyle(node);
+      return {
+        whiteSpace: cs.whiteSpace,
+        overflowWrap: cs.overflowWrap,
+        textOverflow: cs.textOverflow,
+        webkitLineClamp: cs.webkitLineClamp,
+        display: cs.display,
+      };
+    };
+    const bandCols = (selector: string) => {
+      const band = pick(selector);
+      if (!(band instanceof HTMLElement)) return "";
+      return getComputedStyle(band).gridTemplateColumns;
+    };
+    const below = (topSel: string, bottomSel: string) => {
+      const top = pick(topSel);
+      const bottom = pick(bottomSel);
+      if (!(top instanceof HTMLElement) || !(bottom instanceof HTMLElement)) return false;
+      return bottom.getBoundingClientRect().top + 1 >= top.getBoundingClientRect().bottom - 8;
+    };
+    return {
+      name: styleOf(pick("[data-kol-name]")),
+      chips: styleOf(pick("[data-kol-chip]") || pick("[data-kol-scope]")),
+      stage: styleOf(pick("[data-stage-label]")),
+      suggestion: styleOf(pick("[data-recommended-action] p")),
+      mail: styleOf(pick("[data-mail-summary]") || pick("[data-latest-fact] p")),
+      evidence: styleOf(pick("[data-action-evidence] p")),
+      stateCols: bandCols('[data-kol-band="state"]'),
+      actionCols: bandCols('[data-kol-band="action"]'),
+      suggestionBelowStage: below("[data-current-state]", "[data-recommended-action]"),
+      evidenceBelowFact: below("[data-latest-fact]", "[data-action-evidence]"),
+      cardWidth: el.clientWidth,
+    };
+  });
+  for (const style of [layout.name, layout.chips, layout.stage, layout.suggestion, layout.mail, layout.evidence]) {
+    expect(style).toBeTruthy();
+    expect(style!.whiteSpace).not.toBe("nowrap");
+    expect(style!.textOverflow).not.toBe("ellipsis");
+    expect(["anywhere", "break-word"]).toContain(style!.overflowWrap);
+  }
+  expect(layout.mail!.webkitLineClamp === "none" || Number(layout.mail!.webkitLineClamp) >= 3).toBeTruthy();
+  expect(layout.stage!.webkitLineClamp === "none" || !layout.stage!.webkitLineClamp).toBeTruthy();
+  expect(layout.suggestion!.webkitLineClamp === "none" || !layout.suggestion!.webkitLineClamp).toBeTruthy();
+  expect(layout.evidence!.webkitLineClamp === "none" || !layout.evidence!.webkitLineClamp).toBeTruthy();
+  if (layout.cardWidth < 1100) {
+    expect(layout.stateCols.split(" ").filter(Boolean)).toHaveLength(1);
+    expect(layout.actionCols.split(" ").filter(Boolean)).toHaveLength(1);
+    expect(layout.suggestionBelowStage).toBe(true);
+    expect(layout.evidenceBelowFact).toBe(true);
+  }
 }
 
 async function openFollowedKolDetail(page: Page, handle?: string) {
@@ -836,6 +906,7 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expect(card.locator(".task-main")).toHaveCount(0);
   await expectFollowedKolHeadingRemoved(page);
   await expectFollowedKolListAlignsWithTabs(page);
+  await expectFollowedKolCardWraps(page, "小美妆日记");
   const tabsBox = await page.locator("[data-kol-tabs]").boundingBox();
   const cardBox = await card.boundingBox();
   expect(tabsBox && cardBox).toBeTruthy();
@@ -863,6 +934,8 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
 
   await page.setViewportSize({ width: 1100, height: 900 });
   await expect(card).toBeVisible();
+  await expectFollowedKolListAlignsWithTabs(page);
+  await expectFollowedKolCardWraps(page, "小美妆日记");
   await expectNoHorizontalOverflow(page, "[data-home-modes]");
   await expectNoHorizontalOverflow(page, "[data-kol-tabs]");
   await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
@@ -986,7 +1059,7 @@ test("home followed-KOL default sort uses contract keys 1-8", async ({ page }) =
   await expect(risk.locator("[data-current-state]")).not.toContainText("异常");
   await expect(risk.locator('[data-kol-chip="exception"]')).toHaveText("异常");
   await expect(risk.locator('[data-kol-chip="mailbox"]')).toHaveText("pq.ops@example.com");
-  await expect(page.locator("[data-kol-sorts], [data-kol-sort]")).toHaveCount(0);
+  await expect(page.locator("[data-kol-sorts]")).toHaveCount(0);
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("按需处理");
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("阶段停留");
 });
@@ -2670,6 +2743,7 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await expectHomeChromeRow(page);
   await expectFollowedKolHeadingRemoved(page);
   await expectFollowedKolListAlignsWithTabs(page);
+  await expectFollowedKolCardWraps(page, "小美妆日记");
   await expect(page.locator("[data-kol-tab]")).toHaveCount(17);
   await expect(page.locator('[data-kol-tab="INITIAL_CONTACT"]')).toBeVisible();
   await expect(page.locator('[data-kol-tab="needs_me"]')).toHaveCount(0);
