@@ -3417,7 +3417,7 @@ test("cited knowledge template appears in the home picker and only prefills", as
   await expect(page.locator("[data-home] [data-mail-fields]")).toHaveCount(0);
   await page.locator('[data-nav="knowledge"]').click();
   await expect(page.getByRole("heading", { name: "知识库" })).toBeVisible();
-  await expect(page.locator('[data-knowledge="kb_mail_followup"]')).toContainText("已选用");
+  await expect(page.locator('[data-knowledge="kb_mail_followup"]')).toContainText("已发布");
   await page.locator('[data-fill-composer="kb_mail_followup"]').click();
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/LiTime collab kit/);
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/Just a quick follow-up/);
@@ -3434,12 +3434,10 @@ test("employee knowledge base uses task copy, category tabs, and a content drawe
   await expect(page.getByRole("heading", { name: "知识库", exact: true })).toBeVisible();
   await expect(kb.locator(".page-kicker")).toHaveText("知识库");
   await expect(kb.locator(".kb-lead")).toContainText("选择适合当前任务的资料，AI 会据此生成草稿。正式发送前仍需要你确认。");
-  await expect(kb).not.toContainText(/Codex|Harness|发送不等于推进阶段|用这份写信|资产·不发送|资产 · 不发送|知识市场/);
-  await expect(kb.locator("[data-kb-tab='all']")).toBeVisible();
-  await expect(kb.locator("[data-kb-tab='mail']")).toBeVisible();
-  await expect(kb.locator("[data-kb-tab='sop']")).toBeVisible();
-  await expect(kb.locator("[data-kb-tab='quote']")).toBeVisible();
-  await expect(kb.locator("[data-kb-tab='recent']")).toBeVisible();
+  await expect(kb).not.toContainText(/Codex|Harness|MCP|发送不等于推进阶段|发送不等于改阶段|发送\s*≠|不会改阶段|用这份写信|资产·不发送|资产 · 不发送|知识市场|我的知识库|口径与其它/);
+  const tabOrder = await kb.locator("[data-kb-tab]").evaluateAll((els) => els.map((el) => el.getAttribute("data-kb-tab")));
+  expect(tabOrder).toEqual(["all", "sop", "mail", "quote", "recent"]);
+  await expect(kb.locator("[data-kb-tab='sop']")).toHaveText("KOL合作SOP");
   await expect(kb.locator("[data-kb-tab='brand']")).toHaveCount(0);
 
   const followup = kb.locator('[data-knowledge="kb_mail_followup"]');
@@ -3447,7 +3445,7 @@ test("employee knowledge base uses task copy, category tabs, and a content drawe
   await expect(followup).not.toContainText("Happy to share the spec sheet");
   await expect(followup).not.toContainText("unboxing angle");
   await expect(followup.getByRole("button", { name: "用于当前任务" })).toBeVisible();
-  await expect(followup.getByRole("button", { name: "查看内容" })).toBeVisible();
+  await expect(followup.getByRole("button", { name: "查看" })).toBeVisible();
   await expect(followup.getByRole("button", { name: "收藏" })).toBeVisible();
   await expect(followup.getByRole("button", { name: "从本账号停用" })).toHaveCount(0);
   await expect(followup.getByRole("button", { name: "对本账号隐藏" })).toHaveCount(0);

@@ -263,9 +263,9 @@ export type KbBrowseTab = "all" | "mail" | "brand" | "sop" | "quote" | "recent";
 
 export const KB_TAB_LABEL: Record<KbBrowseTab, string> = {
   all: "全部资料",
+  sop: "KOL合作SOP",
   mail: "邮件模板",
   brand: "品牌与产品",
-  sop: "SOP",
   quote: "报价与谈判",
   recent: "最近使用",
 };
@@ -332,27 +332,28 @@ export function kbMatchesTab(
 }
 
 export function kbVisibleTabs(rows: KnowledgeRow[], recentIds: string[]): KbBrowseTab[] {
-  const tabs: KbBrowseTab[] = ["all", "mail"];
-  if (rows.some(kbIsBrandProduct)) tabs.push("brand");
+  const tabs: KbBrowseTab[] = ["all"];
   if (rows.some(kbIsSop)) tabs.push("sop");
+  if (rows.some(kbIsMail)) tabs.push("mail");
+  if (rows.some(kbIsBrandProduct)) tabs.push("brand");
   if (rows.some(kbIsQuote)) tabs.push("quote");
   tabs.push("recent");
   return tabs;
 }
 
-export function kbStatusLabel(row: Pick<KnowledgeRow, "cited" | "deprecated" | "status">) {
+export function kbStatusLabel(row: Pick<KnowledgeRow, "deprecated" | "status">) {
   if (row.deprecated) return "已隐藏";
-  if (row.cited) return "已选用";
   if (!row.status || row.status === "published") return "已发布";
   return statusLabel(row.status);
 }
 
 export function kbScopeLine(row: Pick<KnowledgeRow, "stage_codes" | "brand" | "kind">) {
   const stages = (row.stage_codes || []).map((code) => stageLabel(code)).filter(Boolean);
-  const brand = brandLabel(row.brand);
-  const parts = [...stages];
-  if (brand) parts.push(brand);
-  if (!parts.length) return kbIsMail(row) ? "适用：写合作邮件" : "适用：当前任务参考";
+  const brand = row.brand ? brandLabel(row.brand) : "";
+  const parts: string[] = [];
+  if (brand) parts.push(`品牌 ${brand}`);
+  if (stages.length) parts.push(`阶段 ${stages.join(" / ")}`);
+  if (!parts.length) return "";
   return `适用：${parts.join(" · ")}`;
 }
 
@@ -376,8 +377,7 @@ export function kbProvenanceLine(
   if (row.current_version) bits.push(`第 ${row.current_version} 版`);
   const when = formatKbTime(row.updated_at || row.approved_at || row.created_at);
   if (when) bits.push(`更新于 ${when}`);
-  bits.push(!row.created_by || row.created_by === "system" ? "组织发布" : row.created_by);
-  if (!row.status || row.status === "published") bits.push("已生效");
+  bits.push(!row.created_by || row.created_by === "system" ? "来源 组织发布" : `来源 ${row.created_by}`);
   return bits.join(" · ");
 }
 

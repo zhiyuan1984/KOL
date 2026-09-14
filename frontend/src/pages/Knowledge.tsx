@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, type KnowledgeRow } from "../api";
 import {
   HIDE_REASONS,
@@ -104,14 +104,14 @@ function ContentDrawer({
           <div className="page-kicker">{kbIsMail(row) ? "知识库 · 邮件模板" : "知识库"}</div>
           <h2 id="kb-preview-title">{row.title}</h2>
           <p className="kb-drawer-status">
-            <span className={"chip" + (row.cited ? " chip-ok" : "") + (row.deprecated ? " chip-warn" : "")}>{status}</span>
+            <span className={"chip" + (row.deprecated ? " chip-warn" : "")}>{status}</span>
           </p>
         </div>
         <button className="btn" type="button" onClick={onClose}>关闭</button>
       </header>
       <div className="kb-drawer-body">
-        <p className="kb-result">查看内容只打开全文，不会发送，也不会改阶段。</p>
-        <p className="kb-card-scope">{kbScopeLine(row)}</p>
+        <p className="kb-result">打开全文，不会把资料发出去。</p>
+        {kbScopeLine(row) ? <p className="kb-card-scope">{kbScopeLine(row)}</p> : null}
         {vars ? <p className="kb-card-vars">{vars}</p> : null}
         <p className="kb-card-source">{kbProvenanceLine(row)}</p>
         {row.subject && (
@@ -207,7 +207,7 @@ export default function Knowledge({ market = false }: { market?: boolean }) {
     <div className={"list-page kb-page" + (preview ? " has-drawer" : "")} data-kb-page={market ? "market" : "mine"}>
       <header className="kb-hero">
         <div className="page-kicker">{kbKicker(tab)}</div>
-        <h1>{market ? "已发布资料" : "知识库"}</h1>
+        <h1>知识库</h1>
         <nav className="kb-tabs" aria-label="资料分类">
           {tabs.map((item) => (
             <button
@@ -223,9 +223,6 @@ export default function Knowledge({ market = false }: { market?: boolean }) {
           ))}
         </nav>
         <p className="kb-lead">{market ? KB_MARKET_LEAD : KB_LEAD}</p>
-        <p className="kb-org-link">
-          {market ? <Link to="/kb">返回知识库</Link> : <Link to="/market/kb">组织已发布资料</Link>}
-        </p>
       </header>
       {err && <p className="error">{err}</p>}
       {visible.map((k) => {
@@ -242,11 +239,11 @@ export default function Knowledge({ market = false }: { market?: boolean }) {
           >
             <div className="kb-card-title-row">
               <h3>{k.title}</h3>
-              <span className={"chip kb-status" + (k.cited ? " chip-ok" : "") + (k.deprecated ? " chip-warn" : "")}>
+              <span className={"chip kb-status" + (k.deprecated ? " chip-warn" : "")}>
                 {status}
               </span>
             </div>
-            <p className="kb-card-scope">{kbScopeLine(k)}</p>
+            {kbScopeLine(k) ? <p className="kb-card-scope">{kbScopeLine(k)}</p> : null}
             <p className="kb-card-summary" data-kb-summary>{kbSummary(k)}</p>
             {vars ? <p className="kb-card-vars">{vars}</p> : null}
             <p className="kb-card-source">{kbProvenanceLine(k)}</p>
@@ -272,7 +269,7 @@ export default function Knowledge({ market = false }: { market?: boolean }) {
                 open={tipId === `${k.id}-preview`}
                 onOpen={setTipId}
                 onClose={closeTip}
-                hint="打开全文预览。不会发送，也不会改阶段。"
+                  hint="打开全文。不会把资料发出去。"
               >
                 <button
                   className={"btn" + (preview?.id === k.id ? " is-on" : "")}
@@ -281,7 +278,7 @@ export default function Knowledge({ market = false }: { market?: boolean }) {
                   aria-pressed={preview?.id === k.id}
                   onClick={() => openPreview(k)}
                 >
-                  查看内容
+                  查看
                 </button>
               </Hinted>
               <Hinted
@@ -306,15 +303,6 @@ export default function Knowledge({ market = false }: { market?: boolean }) {
               <details className="kb-more" data-kb-more={k.id}>
                 <summary>更多</summary>
                 <div className="kb-more-actions">
-                  <button
-                    className={k.cited ? "btn" : "btn"}
-                    type="button"
-                    data-cite={k.id}
-                    aria-pressed={Boolean(k.cited)}
-                    onClick={() => void (k.cited ? api.unciteKnowledge(k.id) : api.citeKnowledge(k.id)).then(() => { setHideFor(""); load(); })}
-                  >
-                    {k.cited ? "从本账号停用" : "启用到本账号"}
-                  </button>
                   {k.deprecated ? (
                     <button className="btn" type="button" onClick={() => void api.undeprecateKnowledge(k.id).then(() => { setHideFor(""); load(); })}>
                       取消隐藏
@@ -356,7 +344,7 @@ export default function Knowledge({ market = false }: { market?: boolean }) {
       {!rows.length && <p className="muted">暂无已发布资料。</p>}
       {rows.length > 0 && !visible.length && (
         <p className="muted" data-kb-empty>
-          {tab === "recent" ? "还没有最近使用的资料。选用一份或查看内容后会出现在这里。" : "这一类暂时没有资料。"}
+          {tab === "recent" ? "还没有最近使用的资料。查看或用于当前任务后会出现在这里。" : "这一类暂时没有资料。"}
         </p>
       )}
       {preview && (
