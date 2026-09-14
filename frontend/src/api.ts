@@ -1021,6 +1021,8 @@ export const api = {
     }),
   discoveryRequest: (id: string) =>
     request<Record<string, unknown>>(`/api/discovery/requests/${encodeURIComponent(id)}`),
+  discoveryResults: (id: string) =>
+    request<Record<string, unknown>>(`/api/discovery/requests/${encodeURIComponent(id)}/results`),
   startDiscoveryRun: (requestId: string, body?: { platform?: string }) =>
     request<Record<string, unknown>>(`/api/discovery/requests/${encodeURIComponent(requestId)}/runs`, {
       method: "POST",

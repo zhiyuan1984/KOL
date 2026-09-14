@@ -1,16 +1,13 @@
 /**
- * Home AI发现 client — field shapes match PR #63
- * (`backend/src/discovery.ts`, `backend/src/routers/discovery.ts`,
- * `docs/evidence-ai-discovery-backend-2026-09-14.md`).
+ * Home AI发现 client — live `/api/discovery/*` (PR #63).
+ * See `docs/evidence-ai-discovery-backend-2026-09-14.md`.
  *
- * Wire: POST /api/discovery/requests (`start:false` = plan only),
- * POST /requests/:id/runs, GET /runs/:id, GET /runs/:id/candidates,
- * POST /candidates/:id/follow | dismiss.
- *
- * Mock fallback when those routes are absent (404/503). The mock never
- * starts crawl, send, or stage write. Swapping to a live backend is a
- * client change, not a panel rewrite.
+ * POST /requests persists a plan only (`status=open`, no crawl).
+ * POST /requests/:id/runs starts a Run after employee confirm.
+ * GET /requests/:id/results is panel-ready.
+ * POST /candidates/:id/follow is the only path that creates Collaboration.
  */
+import { api } from "../api";
 
 export type DiscoveryPlatform = "youtube" | "instagram" | "facebook";
 export type DiscoveryMode = "search" | "detail" | "creator";
@@ -32,30 +29,17 @@ export type DiscoveryRequestInput = {
   filters?: DiscoveryFilters;
   brand?: string;
   scope?: Record<string, unknown>;
-  start?: boolean;
 };
 
 export type CreatorCandidate = {
   id: string;
-  request_id: string;
-  run_id: string;
+  request_id?: string;
+  run_id?: string;
   platform: string;
-  platform_creator_id: string;
-  claw_creator_id?: string | null;
   handle: string;
   nickname: string;
   followers: number;
   score: number;
-  signals: Record<string, unknown>;
-  payload: Record<string, unknown>;
-  status: CreatorCandidateStatus;
-  collaboration_id: string | null;
-  dismissed_at: string | null;
-  followed_at: string | null;
-  created_at: string;
-  updated_at: string;
-  insight: boolean;
-  contact_needed: boolean;
   avatar_url?: string | null;
   title?: string;
   reason?: string;
@@ -63,77 +47,80 @@ export type CreatorCandidate = {
   source?: "ai";
   source_label?: string;
   intent?: string;
-};
-
-export type DiscoveryResult = {
-  candidate_count: number;
-  suggested_count: number;
-  followed_count: number;
-  dismissed_count: number;
-  top_candidates: CreatorCandidate[];
-  errors: string[];
-  ready: boolean;
-  source: "ai";
-  pending_confirm: true;
+  signals?: Record<string, unknown>;
+  status: CreatorCandidateStatus;
+  collaboration_id?: string | null;
+  dismissed_at?: string | null;
+  followed_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export type DiscoveryRun = {
   id: string;
-  request_id: string;
-  crawl_job_id: string | null;
-  work_item_id: string | null;
-  platform: string;
-  mode: string;
-  parameters: Record<string, unknown>;
-  remote_task_id: string | null;
-  status: DiscoveryRunStatus;
-  error: string | null;
-  candidate_count: number;
-  created_at: string;
-  started_at: string | null;
-  updated_at: string;
-  completed_at: string | null;
-  result?: DiscoveryResult;
+  request_id?: string;
+  platform?: string;
+  status: DiscoveryRunStatus | string;
+  status_label?: string;
+  error?: string | null;
+  candidate_count?: number;
+  created_at?: string;
+  started_at?: string | null;
+  updated_at?: string;
+  completed_at?: string | null;
   duplicate?: boolean;
 };
 
 export type DiscoveryRequest = {
   id: string;
-  owner_user_id?: string;
+  status: string;
+  status_label?: string;
   keywords: string[];
   platforms: string[];
-  mode: string;
-  filters: DiscoveryFilters;
-  brand: string | null;
-  scope: Record<string, unknown>;
-  status: string;
-  error: string | null;
-  latest_run: DiscoveryRun | null;
-  result: DiscoveryResult;
-  created_at: string;
-  updated_at: string;
+  title?: string;
+  plan_summary?: string;
+  brand?: string | null;
+  latest_run?: DiscoveryRun | null;
+  error?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  filters?: DiscoveryFilters;
+  mode?: string;
 };
 
-export type DiscoveryCandidatePage = {
-  items: CreatorCandidate[];
-  total: number;
-  limit: number;
-  offset: number;
-  run: DiscoveryRun;
+export type DiscoveryResults = {
+  id: string;
+  status: string;
+  status_label?: string;
+  keywords: string[];
+  platforms: string[];
+  title?: string;
+  plan_summary?: string;
+  request: DiscoveryRequest;
+  run: DiscoveryRun | null;
+  candidates: CreatorCandidate[];
+  counts?: {
+    candidate_count?: number;
+    suggested_count?: number;
+    followed_count?: number;
+    dismissed_count?: number;
+  };
+  ready?: boolean;
+  pending_confirm?: boolean;
 };
 
 export type DiscoveryFollowResult = CreatorCandidate & {
-  collaboration: {
+  collaboration?: {
     id: string;
     handle: string;
-    display_name: string;
+    display_name?: string;
     platform: string;
-    brand: string;
-    stage_code: string;
-    kol_uid: string;
-    source: "discovery";
+    brand?: string;
+    stage_code?: string;
+    kol_uid?: string;
+    source?: string;
   };
-  created: boolean;
+  created?: boolean;
 };
 
 export const OVERSEAS_DISCOVERY_PLATFORMS: DiscoveryPlatform[] = ["youtube", "instagram", "facebook"];
@@ -160,118 +147,105 @@ const REGION_LABEL: Record<DiscoveryRegion, string> = {
   sea: "东南亚",
 };
 
-const REGION_NAME: Record<string, string> = {
-  na: "北美",
-  eu: "欧洲",
-  sea: "东南亚",
-};
-
-type MockSeed = {
-  id: string;
-  platform: DiscoveryPlatform;
-  platform_creator_id: string;
-  handle: string;
-  nickname: string;
-  followers: number;
-  score: number;
-  region: string;
-  niche: string;
-  reason: string;
-};
-
-const MOCK_POOL: MockSeed[] = [
-  {
-    id: "disc_trailpower",
-    platform: "youtube",
-    platform_creator_id: "UC_trailpower",
-    handle: "trailpower_reviews",
-    nickname: "TrailPower Reviews",
-    followers: 182000,
-    score: 0.86,
-    region: "北美",
-    niche: "户外电源",
-    reason: "近期多条电源续航评测，受众和品牌接近。",
-  },
-  {
-    id: "disc_camp_lab",
-    platform: "instagram",
-    platform_creator_id: "ig_camp_lab",
-    handle: "camp_lantern_lab",
-    nickname: "Camp Lantern Lab",
-    followers: 64000,
-    score: 0.74,
-    region: "北美",
-    niche: "露营装备",
-    reason: "露营灯和便携电源搭配内容多，适合先收藏。",
-  },
-  {
-    id: "disc_vanlife",
-    platform: "youtube",
-    platform_creator_id: "UC_vanlife",
-    handle: "vanlife_battery",
-    nickname: "Vanlife Battery",
-    followers: 91000,
-    score: 0.71,
-    region: "欧洲",
-    niche: "房车电源",
-    reason: "房车电路讲解清楚，可确认后再加入跟进。",
-  },
-  {
-    id: "disc_fb_pack",
-    platform: "facebook",
-    platform_creator_id: "fb_sea_pack",
-    handle: "sea_trek_power",
-    nickname: "Sea Trek Power",
-    followers: 210000,
-    score: 0.68,
-    region: "东南亚",
-    niche: "户外电源",
-    reason: "短视频评测节奏快，适合作为新候选人对照。",
-  },
-];
-
-const mockRequests = new Map<string, DiscoveryRequest>();
-const mockRuns = new Map<string, DiscoveryRun>();
-const mockCandidates = new Map<string, CreatorCandidate[]>();
-
-function nowIso(): string {
-  return new Date().toISOString();
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 }
 
-function nid(prefix: string): string {
-  return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+function asStringList(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
+  return [];
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function emptyResult(): DiscoveryResult {
+export function asCandidate(row: unknown): CreatorCandidate {
+  const item = asRecord(row);
+  const handle = String(item.handle || item.nickname || "");
+  const status = String(item.status || "suggested") as CreatorCandidateStatus;
   return {
-    candidate_count: 0,
-    suggested_count: 0,
-    followed_count: 0,
-    dismissed_count: 0,
-    top_candidates: [],
-    errors: [],
-    ready: false,
+    id: String(item.id || ""),
+    request_id: item.request_id ? String(item.request_id) : undefined,
+    run_id: item.run_id ? String(item.run_id) : undefined,
+    platform: String(item.platform || ""),
+    handle,
+    nickname: String(item.nickname || item.handle || ""),
+    followers: Number(item.followers || 0),
+    score: Number(item.score || 0),
+    avatar_url: item.avatar_url == null ? null : String(item.avatar_url),
+    title: item.title ? String(item.title) : undefined,
+    reason: item.reason ? String(item.reason) : undefined,
+    summary: item.summary ? String(item.summary) : undefined,
     source: "ai",
-    pending_confirm: true,
+    source_label: item.source_label ? String(item.source_label) : "AI发现",
+    intent: item.intent ? String(item.intent) : "creator_profile",
+    signals: asRecord(item.signals),
+    status: status === "dismissed" || status === "followed" ? status : "suggested",
+    collaboration_id: item.collaboration_id == null ? null : String(item.collaboration_id),
+    dismissed_at: item.dismissed_at == null ? null : String(item.dismissed_at),
+    followed_at: item.followed_at == null ? null : String(item.followed_at),
+    created_at: item.created_at ? String(item.created_at) : undefined,
+    updated_at: item.updated_at ? String(item.updated_at) : undefined,
   };
 }
 
-function resultFrom(items: CreatorCandidate[]): DiscoveryResult {
-  const suggested = items.filter((row) => row.status === "suggested");
+export function asRun(row: unknown): DiscoveryRun {
+  const item = asRecord(row);
   return {
-    candidate_count: items.length,
-    suggested_count: suggested.length,
-    followed_count: items.filter((row) => row.status === "followed").length,
-    dismissed_count: items.filter((row) => row.status === "dismissed").length,
-    top_candidates: suggested.slice(0, 8),
-    errors: [],
-    ready: suggested.length > 0,
-    source: "ai",
-    pending_confirm: true,
+    id: String(item.id || ""),
+    request_id: item.request_id ? String(item.request_id) : undefined,
+    platform: item.platform ? String(item.platform) : undefined,
+    status: String(item.status || "queued"),
+    status_label: item.status_label ? String(item.status_label) : undefined,
+    error: item.error == null ? null : String(item.error),
+    candidate_count: Number(item.candidate_count || 0),
+    created_at: item.created_at ? String(item.created_at) : undefined,
+    started_at: item.started_at == null ? null : String(item.started_at),
+    updated_at: item.updated_at ? String(item.updated_at) : undefined,
+    completed_at: item.completed_at == null ? null : String(item.completed_at),
+    duplicate: Boolean(item.duplicate),
+  };
+}
+
+export function asRequest(row: unknown): DiscoveryRequest {
+  const item = asRecord(row);
+  return {
+    id: String(item.id || ""),
+    status: String(item.status || "open"),
+    status_label: item.status_label ? String(item.status_label) : undefined,
+    keywords: asStringList(item.keywords),
+    platforms: asStringList(item.platforms),
+    title: item.title ? String(item.title) : undefined,
+    plan_summary: item.plan_summary ? String(item.plan_summary) : undefined,
+    brand: item.brand == null ? null : String(item.brand),
+    latest_run: item.latest_run ? asRun(item.latest_run) : null,
+    error: item.error == null ? null : String(item.error),
+    created_at: item.created_at ? String(item.created_at) : undefined,
+    updated_at: item.updated_at ? String(item.updated_at) : undefined,
+    filters: asRecord(item.filters) as DiscoveryFilters,
+    mode: item.mode ? String(item.mode) : undefined,
+  };
+}
+
+export function asResults(row: unknown): DiscoveryResults {
+  const item = asRecord(row);
+  const request = asRequest(item.request || item);
+  const candidates = Array.isArray(item.candidates)
+    ? item.candidates.map(asCandidate)
+    : [];
+  return {
+    id: String(item.id || request.id),
+    status: String(item.status || request.status),
+    status_label: item.status_label ? String(item.status_label) : request.status_label,
+    keywords: asStringList(item.keywords).length ? asStringList(item.keywords) : request.keywords,
+    platforms: asStringList(item.platforms).length ? asStringList(item.platforms) : request.platforms,
+    title: item.title ? String(item.title) : request.title,
+    plan_summary: item.plan_summary ? String(item.plan_summary) : request.plan_summary,
+    request,
+    run: item.run ? asRun(item.run) : request.latest_run || null,
+    candidates,
+    counts: asRecord(item.counts) as DiscoveryResults["counts"],
+    ready: Boolean(item.ready),
+    pending_confirm: Boolean(item.pending_confirm),
   };
 }
 
@@ -292,81 +266,16 @@ export function keywordsFromQuery(query: string): string[] {
 
 export function candidateReason(row: CreatorCandidate): string {
   const signals = row.signals || {};
-  const payload = row.payload || {};
-  return String(row.reason || row.summary || signals.reason || payload.reason || signals.summary || "").trim();
-}
-
-function matchesSeed(seed: MockSeed, request: DiscoveryRequest): boolean {
-  if (request.platforms.length && !request.platforms.includes(seed.platform)) return false;
-  const region = String(request.filters.region || "all");
-  if (region !== "all" && seed.region !== (REGION_NAME[region] || region)) return false;
-  const niche = String(request.filters.niche || "").trim();
-  const hay = `${seed.handle} ${seed.nickname} ${seed.niche} ${seed.reason} ${request.keywords.join(" ")}`.toLowerCase();
-  const needles = [...request.keywords, niche].map((part) => part.trim().toLowerCase()).filter(Boolean);
-  if (!needles.length) return true;
-  return needles.every((needle) => hay.includes(needle) || hay.includes(needle.replace(/达人|红人|评测/g, "")));
-}
-
-function toCandidate(seed: MockSeed, request: DiscoveryRequest, runId: string): CreatorCandidate {
-  const stamp = nowIso();
-  return {
-    id: seed.id,
-    request_id: request.id,
-    run_id: runId,
-    platform: seed.platform,
-    platform_creator_id: seed.platform_creator_id,
-    claw_creator_id: null,
-    handle: seed.handle,
-    nickname: seed.nickname,
-    followers: seed.followers,
-    score: seed.score,
-    signals: { reason: seed.reason, region: seed.region, niche: seed.niche },
-    payload: { origin: "discovery" },
-    status: "suggested",
-    collaboration_id: null,
-    dismissed_at: null,
-    followed_at: null,
-    created_at: stamp,
-    updated_at: stamp,
-    insight: true,
-    contact_needed: true,
-    title: seed.handle ? `发现 @${seed.handle}` : "发现新达人",
-    reason: seed.reason,
-    summary: seed.reason,
-    source: "ai",
-    source_label: "AI发现",
-    intent: "creator_profile",
-  };
-}
-
-function buildMockRequest(input: DiscoveryRequestInput): DiscoveryRequest {
-  const stamp = nowIso();
-  const keywords = input.keywords.filter(Boolean);
-  const platforms = (input.platforms.length ? input.platforms : ["youtube"]) as DiscoveryPlatform[];
-  return {
-    id: nid("dreq"),
-    owner_user_id: "usr_sriphy",
-    keywords,
-    platforms,
-    mode: input.mode || "search",
-    filters: input.filters || {},
-    brand: input.brand || null,
-    scope: input.scope || {},
-    status: "open",
-    error: null,
-    latest_run: null,
-    result: emptyResult(),
-    created_at: stamp,
-    updated_at: stamp,
-  };
+  return String(row.reason || row.summary || signals.reason || signals.summary || "").trim();
 }
 
 export function planSummary(request: DiscoveryRequest): string {
+  const summary = String(request.plan_summary || request.title || "").trim();
+  const suffix = "先确认计划，不会自动发信或改阶段。";
+  if (summary) return summary.includes("不会自动") ? summary : `${summary}。${suffix}`;
   const query = request.keywords.join(" ") || "户外电源评测达人";
   const platforms = request.platforms.map(platformLabel).join(" / ");
-  const region = regionLabel(String(request.filters.region || "all"));
-  const niche = String(request.filters.niche || "").trim();
-  return `按「${query}」检索${niche ? ` · ${niche}` : ""} · ${platforms} · ${region}。先确认计划，不会自动发信或改阶段。`;
+  return `按「${query}」检索 · ${platforms}。${suffix}`;
 }
 
 export function planSteps(request: DiscoveryRequest): Array<{ id: string; label: string }> {
@@ -377,212 +286,89 @@ export function planSteps(request: DiscoveryRequest): Array<{ id: string; label:
   ];
 }
 
-type LiveOk<T> = { ok: true; status: number; body: T };
-type LiveMiss = { ok: false; status: number; body?: unknown };
-
-async function tryLive<T>(path: string, init?: RequestInit): Promise<LiveOk<T> | LiveMiss> {
-  try {
-    const response = await fetch(path, {
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
-      ...init,
-    });
-    const body = await response.json().catch(() => ({}));
-    if (response.status === 404 || response.status === 501 || response.status === 502 || response.status === 503) {
-      return { ok: false, status: response.status, body };
-    }
-    if (!response.ok) return { ok: false, status: response.status, body };
-    return { ok: true, status: response.status, body: body as T };
-  } catch {
-    return { ok: false, status: 0 };
-  }
-}
-
-function liveErrorMessage(body: unknown, fallback: string): string {
-  if (body && typeof body === "object") {
-    const row = body as { message?: string; detail?: string; code?: string };
-    if (row.message) return String(row.message);
-    if (typeof row.detail === "string") return row.detail;
-  }
-  return fallback;
-}
-
 export async function createDiscoveryRequest(input: DiscoveryRequestInput): Promise<DiscoveryRequest> {
-  const payload = {
+  const body = await api.createDiscoveryRequest({
     keywords: input.keywords,
     platforms: input.platforms,
     mode: input.mode || "search",
     filters: input.filters || {},
     brand: input.brand,
-    scope: input.scope || {},
+    scope: input.scope,
     start: false,
-  };
-  const live = await tryLive<DiscoveryRequest>("/api/discovery/requests", {
-    method: "POST",
-    body: JSON.stringify(payload),
   });
-  if (live.ok && live.body.id) {
-    mockRequests.set(live.body.id, live.body);
-    return live.body;
-  }
-  if (live.status === 400) {
-    throw new Error(liveErrorMessage(live.body, "发现条件不完整。"));
-  }
-  await sleep(120);
-  const request = buildMockRequest({ ...input, start: false });
-  mockRequests.set(request.id, request);
-  return request;
+  return asRequest(body);
+}
+
+export async function getDiscoveryRequest(id: string): Promise<DiscoveryRequest> {
+  return asRequest(await api.discoveryRequest(id));
+}
+
+export async function getDiscoveryResults(id: string): Promise<DiscoveryResults> {
+  return asResults(await api.discoveryResults(id));
+}
+
+export async function listDiscoveryRequests(): Promise<DiscoveryRequest[]> {
+  const rows = await api.discoveryRequests();
+  return (Array.isArray(rows) ? rows : []).map(asRequest);
 }
 
 export async function startDiscoveryRun(
   requestId: string,
   opts?: { platform?: string },
 ): Promise<DiscoveryRun> {
-  const live = await tryLive<DiscoveryRun>(`/api/discovery/requests/${encodeURIComponent(requestId)}/runs`, {
-    method: "POST",
-    body: JSON.stringify({ platform: opts?.platform, live: false }),
-  });
-  if (live.ok && live.body.id) {
-    mockRuns.set(live.body.id, live.body);
-    return live.body;
-  }
-  await sleep(420);
-  const request = mockRequests.get(requestId) || buildMockRequest({
-    keywords: ["户外电源"],
-    platforms: ["youtube"],
-  });
-  const stamp = nowIso();
-  const runId = nid("drun");
-  const items = MOCK_POOL.filter((seed) => matchesSeed(seed, request)).map((seed) => toCandidate(seed, request, runId));
-  const source = items.length ? items : MOCK_POOL.map((seed) => toCandidate(seed, request, runId));
-  const result = resultFrom(source);
-  const run: DiscoveryRun = {
-    id: runId,
-    request_id: request.id,
-    crawl_job_id: null,
-    work_item_id: null,
-    platform: opts?.platform || request.platforms[0] || "youtube",
-    mode: request.mode,
-    parameters: { keywords: request.keywords, filters: request.filters },
-    remote_task_id: null,
-    status: "succeeded",
-    error: null,
-    candidate_count: source.length,
-    created_at: stamp,
-    started_at: stamp,
-    updated_at: stamp,
-    completed_at: stamp,
-    result,
-  };
-  mockRuns.set(run.id, run);
-  mockCandidates.set(run.id, source);
-  request.latest_run = run;
-  request.result = result;
-  request.status = "completed";
-  request.updated_at = stamp;
-  mockRequests.set(request.id, request);
-  return run;
+  return asRun(await api.startDiscoveryRun(requestId, {
+    platform: opts?.platform,
+  }));
 }
 
 export async function getDiscoveryRun(runId: string): Promise<DiscoveryRun> {
-  const live = await tryLive<DiscoveryRun>(`/api/discovery/runs/${encodeURIComponent(runId)}`);
-  if (live.ok && live.body.id) return live.body;
-  const mock = mockRuns.get(runId);
-  if (mock) return mock;
-  throw new Error("未找到该发现运行");
+  return asRun(await api.discoveryRun(runId));
 }
 
-export async function listRunCandidates(
-  runId: string,
-  query?: { status?: string; limit?: number; offset?: number },
-): Promise<DiscoveryCandidatePage> {
-  const search = new URLSearchParams();
-  if (query?.status) search.set("status", query.status);
-  if (query?.limit) search.set("limit", String(query.limit));
-  if (query?.offset) search.set("offset", String(query.offset));
-  const qs = search.size ? `?${search}` : "";
-  const live = await tryLive<DiscoveryCandidatePage>(
-    `/api/discovery/runs/${encodeURIComponent(runId)}/candidates${qs}`,
-  );
-  if (live.ok && Array.isArray(live.body.items)) return live.body;
-  const items = mockCandidates.get(runId) || [];
-  const run = mockRuns.get(runId);
-  if (!run) {
-    throw new Error("未找到该发现运行");
+export async function waitForDiscoveryResults(
+  requestId: string,
+  opts?: { attempts?: number; delayMs?: number },
+): Promise<DiscoveryResults> {
+  const attempts = opts?.attempts ?? 20;
+  const delayMs = opts?.delayMs ?? 500;
+  let latest = await getDiscoveryResults(requestId);
+  for (let index = 0; index < attempts; index += 1) {
+    const status = String(latest.run?.status || latest.status);
+    if (
+      latest.candidates.length
+      || status === "succeeded"
+      || status === "failed"
+      || status === "cancelled"
+    ) {
+      return latest;
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+    latest = await getDiscoveryResults(requestId);
   }
-  const status = query?.status;
-  const filtered = status ? items.filter((row) => row.status === status) : items;
-  const limit = query?.limit || 20;
-  const offset = query?.offset || 0;
-  return {
-    items: filtered.slice(offset, offset + limit),
-    total: filtered.length,
-    limit,
-    offset,
-    run,
-  };
+  return latest;
 }
 
 export async function followCandidate(id: string): Promise<DiscoveryFollowResult> {
-  const live = await tryLive<DiscoveryFollowResult>(
-    `/api/discovery/candidates/${encodeURIComponent(id)}/follow`,
-    { method: "POST", body: JSON.stringify({}) },
-  );
-  if (live.ok && live.body.id) return live.body;
-  const stamp = nowIso();
-  for (const [runId, rows] of mockCandidates) {
-    const index = rows.findIndex((row) => row.id === id);
-    if (index < 0) continue;
-    const current = rows[index];
-    const next: CreatorCandidate = {
-      ...current,
-      status: "followed",
-      followed_at: current.followed_at || stamp,
-      updated_at: stamp,
-      insight: false,
-    };
-    rows[index] = next;
-    mockCandidates.set(runId, rows);
-    return {
-      ...next,
-      collaboration: {
-        id: `col_mock_${id}`,
-        handle: next.handle,
-        display_name: next.nickname,
-        platform: next.platform,
-        brand: "LT",
-        stage_code: "INITIAL_CONTACT",
-        kol_uid: `disc_${next.platform}_${next.platform_creator_id}`,
-        source: "discovery",
-      },
-      created: true,
-    };
-  }
-  throw new Error("未找到该发现候选人");
+  const body = await api.followDiscoveryCandidate(id);
+  const row = asRecord(body);
+  return {
+    ...asCandidate(body),
+    collaboration: row.collaboration && typeof row.collaboration === "object"
+      ? {
+          id: String((row.collaboration as { id?: string }).id || ""),
+          handle: String((row.collaboration as { handle?: string }).handle || ""),
+          display_name: (row.collaboration as { display_name?: string }).display_name,
+          platform: String((row.collaboration as { platform?: string }).platform || ""),
+          brand: (row.collaboration as { brand?: string }).brand,
+          stage_code: (row.collaboration as { stage_code?: string }).stage_code,
+          kol_uid: (row.collaboration as { kol_uid?: string }).kol_uid,
+          source: (row.collaboration as { source?: string }).source,
+        }
+      : undefined,
+    created: Boolean(row.created),
+  };
 }
 
 export async function dismissCandidate(id: string): Promise<CreatorCandidate> {
-  const live = await tryLive<CreatorCandidate>(
-    `/api/discovery/candidates/${encodeURIComponent(id)}/dismiss`,
-    { method: "POST", body: JSON.stringify({}) },
-  );
-  if (live.ok && live.body.id) return live.body;
-  const stamp = nowIso();
-  for (const [runId, rows] of mockCandidates) {
-    const index = rows.findIndex((row) => row.id === id);
-    if (index < 0) continue;
-    const current = rows[index];
-    if (current.status === "followed") throw new Error("已跟进的候选人不能驳回。");
-    const next: CreatorCandidate = {
-      ...current,
-      status: "dismissed",
-      dismissed_at: current.dismissed_at || stamp,
-      updated_at: stamp,
-      insight: false,
-    };
-    rows[index] = next;
-    mockCandidates.set(runId, rows);
-    return next;
-  }
-  throw new Error("未找到该发现候选人");
+  return asCandidate(await api.dismissDiscoveryCandidate(id));
 }

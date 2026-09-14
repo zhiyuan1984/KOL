@@ -6,12 +6,12 @@ import {
   dismissCandidate,
   followCandidate,
   keywordsFromQuery,
-  listRunCandidates,
   planSteps,
   planSummary,
   platformLabel,
   regionLabel,
   startDiscoveryRun,
+  waitForDiscoveryResults,
   type CreatorCandidate,
   type DiscoveryFilters,
   type DiscoveryPhase,
@@ -93,8 +93,14 @@ export default function DiscoveryPanel() {
         setPhase("error");
         return;
       }
-      const page = await listRunCandidates(run.id, { status: "suggested", limit: 20, offset: 0 });
-      setCandidates(page.items);
+      const results = await waitForDiscoveryResults(request.id);
+      setRequest(results.request);
+      setCandidates(results.candidates);
+      if (String(results.run?.status || results.status) === "failed") {
+        setError(results.run?.error || results.request.error || "检索没有完成，可调整条件后重试。");
+        setPhase("error");
+        return;
+      }
       setPhase("results");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "检索没有完成，可调整条件后重试。");
@@ -198,7 +204,12 @@ export default function DiscoveryPanel() {
       ) : null}
 
       {phase === "plan" && request ? (
-        <section className="discovery-plan" data-discovery-plan-card data-discovery-request={request.id}>
+        <section
+          className="discovery-plan"
+          data-discovery-plan-card
+          data-discovery-request={request.id}
+          data-discovery-request-status={request.status}
+        >
           <strong>检索计划</strong>
           <p data-discovery-plan-summary>{planSummary(request)}</p>
           <ol data-discovery-plan-steps>
@@ -264,7 +275,7 @@ export default function DiscoveryPanel() {
                   <p className="discovery-candidate-reason">{candidateReason(candidate)}</p>
                   {candidate.status === "followed" ? (
                     <p className="discovery-quiet" data-discovery-followed>
-                      已确认跟进意向。未接上发现接口前不会写进「我跟进的红人」；加入跟进才建合作。
+                      已加入跟进。加入跟进才建合作，不会发信或改阶段。
                     </p>
                   ) : null}
                 </div>

@@ -59,12 +59,14 @@ test("home four-panel tab order and pane visibility", async ({ page }) => {
   await expect(page.locator("[data-discovery-candidate]")).toHaveCount(0);
 });
 
-test("home discovery mock happy path never goes LIVE and stays out of followed KOL", async ({ page }) => {
+test("home discovery persists plan and requires confirm before crawl or follow", async ({ page, request }) => {
   const livePosts: string[] = [];
-  page.on("request", (request) => {
-    if (request.method() !== "POST") return;
-    const path = new URL(request.url()).pathname;
+  const discoveryPosts: string[] = [];
+  page.on("request", (item) => {
+    if (item.method() !== "POST") return;
+    const path = new URL(item.url()).pathname;
     if (LIVE_SIDE_EFFECT.test(path)) livePosts.push(path);
+    if (path.startsWith("/api/discovery/")) discoveryPosts.push(path);
   });
 
   await page.goto("/");
@@ -78,41 +80,49 @@ test("home discovery mock happy path never goes LIVE and stays out of followed K
   await page.locator('[data-discovery-filter="region"]').selectOption("na");
   await page.locator("[data-discovery-plan]").click();
   await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
+  await expect(page.locator("[data-discovery-plan-card]")).toHaveAttribute("data-discovery-request-status", "open");
+  await expect(page.locator("[data-discovery-confirm-plan]")).toBeVisible();
+  await expect(page.locator("[data-discovery-follow-confirm]")).toHaveCount(0);
   await expect(page.locator("[data-discovery-plan-summary]")).toContainText("不会自动发信或改阶段");
   await expect(page.locator("[data-discovery-no-live]")).toBeVisible();
   await expect(page.locator("[data-discovery-panel]")).not.toContainText(/MCP|Codex|MediaCrawler|Harness/);
+  expect(discoveryPosts.filter((path) => path.endsWith("/runs"))).toEqual([]);
+  expect(livePosts).toEqual([]);
+
+  const requestId = await page.locator("[data-discovery-request]").getAttribute("data-discovery-request");
+  expect(requestId).toBeTruthy();
+  const persisted = await request.get(`/api/discovery/requests/${requestId}`);
+  expect(persisted.ok()).toBeTruthy();
+  const body = await persisted.json() as {
+    status?: string;
+    status_label?: string;
+    latest_run?: unknown;
+    keywords?: string[];
+    platforms?: string[];
+  };
+  expect(body.status).toBe("open");
+  expect(body.status_label).toBe("待确认");
+  expect(body.latest_run).toBeNull();
+  expect(body.platforms).toEqual(["youtube"]);
+  expect(JSON.stringify(body)).not.toMatch(/MCP|Codex|MediaCrawler|Harness|crawl_job/i);
+
+  const results = await request.get(`/api/discovery/requests/${requestId}/results`);
+  expect(results.ok()).toBeTruthy();
+  const resultBody = await results.json() as { pending_confirm?: boolean; candidates?: unknown[]; run?: unknown };
+  expect(resultBody.pending_confirm).toBe(true);
+  expect(resultBody.run).toBeNull();
+  expect(resultBody.candidates || []).toEqual([]);
 
   await page.locator("[data-discovery-confirm-plan]").click();
-  await expect(page.locator("[data-discovery-loading]")).toBeVisible();
-  await expect(page.locator("[data-discovery-candidates]")).toBeVisible({ timeout: 8000 });
-  await expect(page.locator("[data-discovery-candidate]").first()).toBeVisible();
-  const handles = await page.locator("[data-discovery-candidate]").evaluateAll((els) => (
-    els.map((el) => el.getAttribute("data-discovery-candidate") || "")
-  ));
-  expect(handles.length).toBeGreaterThan(0);
-  expect(handles).toContain("trailpower_reviews");
-  expect(handles).not.toContain("户外电源达人");
-  expect(handles).not.toContain("营地灯测评娘");
-
-  const first = page.locator("[data-discovery-candidate]").first();
-  const handle = (await first.getAttribute("data-discovery-candidate")) || "";
-  const favorite = first.locator("[data-discovery-favorite]");
-  await favorite.scrollIntoViewIfNeeded();
-  await favorite.click();
-  await expect(first.locator("[data-discovery-favorite]")).toHaveAttribute("aria-pressed", "true");
-  await first.locator("[data-discovery-follow]").click();
-  await expect(page.locator("[data-discovery-follow-confirm]")).toBeVisible();
-  await page.locator("[data-discovery-follow-yes]").click();
-  await expect(first.locator("[data-discovery-followed]")).toContainText("跟进意向");
+  await expect(page.locator("[data-discovery-loading], [data-discovery-error]")).toBeVisible();
+  expect(discoveryPosts.some((path) => path.includes("/runs"))).toBeTruthy();
+  expect(discoveryPosts.some((path) => path.includes("/follow"))).toBeFalsy();
   expect(livePosts).toEqual([]);
+  await expect(page.locator("[data-discovery-panel]")).not.toContainText(/MCP|Codex|MediaCrawler|Harness/);
 
   await openMode(page, "lifecycle");
   await expect(page.locator("[data-followed-kol-list]")).toBeVisible();
   await expect(page.locator("[data-discovery-candidate]")).toHaveCount(0);
-  await expect(page.locator("[data-followed-kol-list]")).not.toContainText("trailpower_reviews");
-  await expect(page.locator("[data-followed-kol-list]")).not.toContainText("camp_lantern_lab");
-  await expect(page.locator(`[data-followed-kol="${handle}"]`)).toHaveCount(0);
-  await expect(page.locator('[data-followed-kol="trailpower_reviews"]')).toHaveCount(0);
   await expect(page.locator("[data-followed-origin]")).toHaveAttribute("data-followed-origin", "collaboration");
   expect(livePosts).toEqual([]);
 });
