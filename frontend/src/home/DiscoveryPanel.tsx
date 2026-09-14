@@ -68,7 +68,6 @@ export default function DiscoveryPanel() {
         platforms: [platform],
         mode: "search",
         filters,
-        start: false,
       });
       setRequest(next);
       setCandidates([]);
