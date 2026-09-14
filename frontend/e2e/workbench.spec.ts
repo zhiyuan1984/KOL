@@ -2566,11 +2566,12 @@ test("admin debug toggle reveals connector tiles on the skill hub", async ({ pag
 test("user menu switches employee, admin, and settings workspaces", async ({ page }) => {
   await page.goto("/");
   await page.locator(".user-chip").click();
-  await expect(page.getByRole("link", { name: "员工工作台" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "管理控制台" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "个人设置" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "连接 Starry 邮箱" })).toBeVisible();
-  await page.getByRole("link", { name: "管理控制台" }).click();
+  const userMenu = page.locator(".user-popover");
+  await expect(userMenu.getByRole("link", { name: "员工工作台" })).toBeVisible();
+  await expect(userMenu.getByRole("link", { name: "管理控制台" })).toBeVisible();
+  await expect(userMenu.getByRole("link", { name: "个人设置" })).toBeVisible();
+  await expect(userMenu.getByRole("link", { name: "连接 Starry 邮箱" })).toBeVisible();
+  await userMenu.getByRole("link", { name: "管理控制台" }).click();
   await expect(page.locator("[data-admin-ia='governance']")).toBeVisible();
   await expect(page.locator("[data-admin-account]")).toContainText("当前账户");
   await expect(page.locator("[data-admin-context]")).toHaveText("管理");
