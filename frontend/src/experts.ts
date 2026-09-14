@@ -1,4 +1,6 @@
-import { api, type ExpertManifestView } from "./api";
+import { api, type ExpertManifestView, type ExpertSummonResult } from "./api";
+
+export type { ExpertSummonResult };
 
 export type ExpertTask = {
   id: string;
@@ -22,14 +24,6 @@ export type Expert = {
   recommended?: boolean;
 };
 
-/** Coordinator POST /api/experts/:id/summon. Only these fields are required. */
-export type ExpertSummonResult = {
-  session_id: string;
-  expert_id: string;
-  expert_version: string;
-  intro: string;
-};
-
 export type ExpertView = "recommend" | "mine" | "all" | "search";
 
 export type BoundExpertSession = {
@@ -46,31 +40,28 @@ const PIN_KEY = "lingong:expert-pins";
 const RECENT_KEY = "lingong:expert-recent";
 const BIND_PREFIX = "expert-session:";
 
-export const KOL_EXPERT: Expert = {
+/** Offline stand-in matching experts/kol/manifest.yaml. Not a second catalog. */
+const KOL_MANIFEST: ExpertManifestView = {
   id: KOL_EXPERT_ID,
-  expert_version: "0.1.0-pilot",
-  name: "KOL 合作专员",
-  who: "KOL 合作专员",
-  mission: "帮你把海外达人合作从发现做到跟进，只交出可改的结果，不替你发信或改阶段。",
-  good_at: ["海外达人建联", "合作邮件草稿", "回复分析", "阶段变更提案"],
-  can_finish: ["可改的合作邮件草稿", "回复要点与缺口", "待你确认的阶段变更提案"],
-  how_to_start: "召唤进会话后，用一句话交代这一件。发送和改阶段仍要你确认。",
-  working_style: "先问清品牌、红人和目标，再给出草稿或提案。发信与正式阶段写入必须另走确认。",
+  version: "0.1.0",
+  status: "published",
+  display_name: "KOL 合作专员",
+  profession: "达人合作",
+  description: "分析合作、展示适用 SOP、准备草稿和跟进建议。发信与正式阶段写入必须由你确认。",
+  avatar: "/api/experts/expert:kol/avatar",
+  category: "达人合作",
+  tags: ["建联", "跟进", "阶段建议"],
+  mission: "帮你把达人合作往前推进：看清阶段、准备沟通、给出跟进建议。",
   quick_prompts: [
-    "给 @小美妆日记 写一封合作询价邮件",
-    "看这条回复里对方有没有接受报价",
-    "提出把 @小美妆日记 推进到样品寄出",
+    "帮我看一下这个红人现在该怎么跟进",
+    "准备一封建联邮件",
+    "这封回复是什么意思",
+    "这一阶段要准备什么",
   ],
-  recommended_tasks: [
-    { id: "compose", title: "写合作邮件", prompt: "写合作邮件 发件箱 [发件邮箱] 发给 [收件邮箱] 主题：[主题]" },
-    { id: "reply", title: "分析回复", prompt: "回复分析 [会话或红人]" },
-    { id: "stage", title: "提出阶段变更", prompt: "提出阶段变更 [红人] 到 [目标阶段]" },
-  ],
-  intro: "我是 KOL 合作专员。告诉我品牌、红人和这一件要完成的事，我先给出可改的草稿或提案。召唤我不会发信，也不会改阶段。",
-  recommended: true,
+  entry_skill: "stage_sop",
 };
 
-const MOCK_CATALOG = [KOL_EXPERT];
+const MOCK_CATALOG = [KOL_MANIFEST];
 
 export function canonicalExpertId(raw: string): string {
   const decoded = decodeURIComponent(String(raw || "").trim());
@@ -95,49 +86,56 @@ function isNotFound(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && (error as { status?: number }).status === 404);
 }
 
-type ExpertApiRow = Partial<Expert> & Partial<ExpertManifestView> & {
-  expert_version?: string;
-  recommended?: boolean;
+function asStringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String).map((item) => item.trim()).filter(Boolean) : [];
+}
+
+function tasksFromPrompts(prompts: string[]): ExpertTask[] {
+  return prompts.slice(0, 3).map((prompt, index) => ({
+    id: `prompt-${index + 1}`,
+    title: prompt,
+    prompt,
+  }));
+}
+
+type ExpertSource = Partial<Expert> & Partial<ExpertManifestView> & {
+  recommended_tasks?: Array<Partial<ExpertTask>>;
 };
 
-function normalizeExpert(row: ExpertApiRow | null | undefined): Expert | null {
+function normalizeExpert(row: ExpertSource | null | undefined): Expert | null {
   if (!row || typeof row !== "object") return null;
   const id = canonicalExpertId(String(row.id || ""));
   if (!id) return null;
-  const fallback = id === KOL_EXPERT_ID ? KOL_EXPERT : null;
-  const name = String(row.name || row.display_name || fallback?.name || "").trim();
+  const name = String(row.display_name || row.name || "").trim();
   if (!name) return null;
-  const tasks = Array.isArray(row.recommended_tasks)
+  const description = String(row.description || row.working_style || "").trim();
+  const tags = asStringList(row.tags);
+  const goodAt = asStringList(row.good_at);
+  const canFinish = asStringList(row.can_finish);
+  const prompts = asStringList(row.quick_prompts);
+  const mappedTasks = Array.isArray(row.recommended_tasks)
     ? row.recommended_tasks
       .map((task) => ({
-        id: String(task.id || ""),
-        title: String(task.title || ""),
-        prompt: String(task.prompt || task.title || ""),
+        id: String(task?.id || ""),
+        title: String(task?.title || task?.prompt || ""),
+        prompt: String(task?.prompt || task?.title || ""),
       }))
       .filter((task) => task.id && task.title)
-    : fallback?.recommended_tasks || [];
+    : [];
   return {
     id,
     name,
-    expert_version: String(row.expert_version || row.version || fallback?.expert_version || ""),
-    who: String(row.who || row.profession || name),
-    mission: String(row.mission || fallback?.mission || ""),
-    good_at: Array.isArray(row.good_at)
-      ? row.good_at.map(String)
-      : Array.isArray(row.tags)
-        ? row.tags.map(String)
-        : fallback?.good_at || [],
-    can_finish: Array.isArray(row.can_finish) ? row.can_finish.map(String) : fallback?.can_finish || [],
-    how_to_start: String(row.how_to_start || fallback?.how_to_start || ""),
-    working_style: String(row.working_style || row.description || fallback?.working_style || ""),
-    quick_prompts: Array.isArray(row.quick_prompts) ? row.quick_prompts.map(String) : fallback?.quick_prompts || [],
-    recommended_tasks: tasks.slice(0, 3),
-    intro: String(row.intro || fallback?.intro || ""),
-    recommended: row.recommended !== undefined
-      ? Boolean(row.recommended)
-      : row.status
-        ? row.status === "published"
-        : fallback?.recommended,
+    expert_version: String(row.version || row.expert_version || ""),
+    who: String(row.who || name),
+    mission: String(row.mission || "").trim(),
+    good_at: goodAt.length ? goodAt : tags,
+    can_finish: canFinish.length ? canFinish : (description ? [description] : []),
+    how_to_start: String(row.how_to_start || prompts[0] || "").trim(),
+    working_style: String(row.working_style || description),
+    quick_prompts: prompts,
+    recommended_tasks: (mappedTasks.length ? mappedTasks : tasksFromPrompts(prompts)).slice(0, 3),
+    intro: String(row.intro || ""),
+    recommended: row.recommended !== false,
   };
 }
 
@@ -148,29 +146,28 @@ function unwrapList(payload: unknown): Expert[] {
       ? (payload as { experts: unknown[] }).experts
       : [];
   return rows
-    .map((row) => normalizeExpert(row as ExpertApiRow))
+    .map((row) => normalizeExpert(row as ExpertSource))
     .filter((row): row is Expert => Boolean(row));
 }
 
 export async function fetchExperts(): Promise<Expert[]> {
   try {
-    const rows = unwrapList(await api.experts());
-    if (rows.length) return rows;
+    return unwrapList(await api.experts());
   } catch (error) {
     if (!isNotFound(error)) throw error;
   }
-  return MOCK_CATALOG;
+  return unwrapList(MOCK_CATALOG);
 }
 
 export async function fetchExpert(id: string): Promise<Expert | null> {
   const canonical = canonicalExpertId(id);
   try {
-    const row = normalizeExpert(await api.expert(canonical) as ExpertApiRow);
-    if (row) return row;
+    return normalizeExpert(await api.expert(canonical));
   } catch (error) {
     if (!isNotFound(error)) throw error;
   }
-  return MOCK_CATALOG.find((row) => row.id === canonical) || null;
+  const fallback = MOCK_CATALOG.find((row) => canonicalExpertId(row.id) === canonical);
+  return fallback ? normalizeExpert(fallback) : null;
 }
 
 function readSummon(payload: Partial<ExpertSummonResult> | null | undefined, expert: Expert): ExpertSummonResult | null {

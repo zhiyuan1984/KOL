@@ -2173,6 +2173,11 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
   await expect(page.locator("[data-expert-card='expert:kol']")).toContainText("KOL 合作专员");
   await expect(page.locator("[data-expert-summon='expert:kol']")).toHaveText("召唤专家");
+  await expect(page.locator('nav[aria-label="数字员工"] [data-nav]')).toHaveCount(1);
+  await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
+  await expect(page.locator(".sidebar")).not.toContainText("技能目录");
+  await expect(page.locator(".sidebar")).not.toContainText("数字团队");
+  await expect(page.locator(".sidebar")).not.toContainText("专家团");
   await expect(page.getByRole("heading", { name: "推荐下一步" })).toHaveCount(0);
   await expect(page.locator("[data-expert-page]")).not.toContainText("技能目录");
   await expect(page.locator("[data-expert-page]")).not.toContainText("专家团");
@@ -2198,6 +2203,9 @@ test("agents expert center has recommend/mine/all/search and one KOL expert", as
   await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("擅长");
   await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("能完成");
   await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("怎么开始");
+  await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("建联");
+  await expect(page.locator("[data-expert-page]")).not.toContainText("stage_sop");
+  await expect(page.locator("[data-expert-page]")).not.toContainText("关联技能");
   await expect(page).toHaveURL(/\/agents\/?$/);
   await page.locator("[data-expert-view='mine']").click();
   await expect(page).toHaveURL(/view=mine/);
@@ -2245,6 +2253,10 @@ test("expert center list → detail → summon binds a session without send/stag
   await expect(page.getByRole("heading", { name: "你可以这样说" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "工作方式" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "召唤" })).toBeVisible();
+  await expect(page.locator("[data-expert-page='detail']")).not.toContainText("关联技能");
+  await expect(page.locator("[data-expert-page='detail']")).not.toContainText("在会话里用");
+  await expect(page.locator("[data-expert-page='detail']")).not.toContainText("stage_sop");
+  await expect(page.locator("[data-expert-page='detail']")).not.toContainText("Harness");
   const summonWait = page.waitForResponse((response) => (
     response.request().method() === "POST"
     && response.url().includes("/api/experts/")
@@ -2270,9 +2282,11 @@ test("admin debug toggle reveals connector tiles on the skill hub", async ({ pag
   await expect(page.locator(".workbench")).toHaveAttribute("data-view-mode", "business");
   await expect(page.locator('[data-connector="starrykol"]')).toHaveCount(0);
   await page.locator(".user-chip").click();
+  await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
   await page.locator("[data-debug-toggle]").click();
   await expect(page.locator(".workbench")).toHaveAttribute("data-view-mode", "debug");
   await expect(page.locator('[data-connector="starrykol"]')).toBeVisible();
+  await expect(page.locator('[data-nav="skills"]')).toBeVisible();
 });
 
 test("user menu switches employee, admin, and settings workspaces", async ({ page }) => {
@@ -2313,7 +2327,9 @@ test("approval, knowledge, and exam are vertical primary nav items before cloud"
   expect(assetOrder.indexOf("exam")).toBeLessThan(assetOrder.indexOf("云盘"));
   await expect(page.locator('[data-nav="pipeline"]')).toHaveCount(0);
   await expect(page.locator(".sidebar")).not.toContainText("生命周期");
-  await expect(page.locator('[data-nav="skills"]')).toBeVisible();
+  await expect(page.locator('nav[aria-label="数字员工"] [data-nav]')).toHaveCount(1);
+  await expect(page.locator('[data-nav="agents"]')).toBeVisible();
+  await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
   await expect(page.locator('.sidebar-foot a[href="/approvals"], .sidebar-foot a[href="/kb"], .sidebar-foot a[href="/exam"]')).toHaveCount(0);
   await page.locator('[data-nav="approvals"]').click();
   await expect(page).toHaveURL(/\/approvals$/);
@@ -2350,13 +2366,17 @@ test("employee sidebar puts cron in today cluster and hides group titles", async
 
 test("docs/21 employee sidebar has no admin connectors deep-link", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator('[data-nav="skills"]')).toBeVisible();
+  await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
+  await expect(page.locator(".sidebar")).not.toContainText("技能目录");
   await expect(page.locator('[data-nav="connectors"]')).toHaveAttribute("href", "/connectors");
   await expect(page.locator('.sidebar a[href="/admin/connectors"]')).toHaveCount(0);
   await expect(page.locator('[data-nav="agents"]')).toHaveText("数字员工");
   await expect(page.locator('[data-nav="agents"]')).toHaveAttribute("href", "/agents");
+  await expect(page.locator('nav[aria-label="数字员工"] [data-nav]')).toHaveCount(1);
   await expect(page.locator('[data-nav="teams"]')).toHaveCount(0);
   await expect(page.locator('[data-nav="agents-teams"]')).toHaveCount(0);
+  await expect(page.locator(".sidebar")).not.toContainText("数字团队");
+  await expect(page.locator(".sidebar")).not.toContainText("专家团");
 });
 
 test("docs/21 admin agents governance is reachable from admin chrome", async ({ page }) => {

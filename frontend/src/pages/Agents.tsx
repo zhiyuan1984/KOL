@@ -63,18 +63,24 @@ function ExpertCard({
           <dt>谁</dt>
           <dd>{expert.who}</dd>
         </div>
-        <div>
-          <dt>擅长</dt>
-          <dd>{joinList(expert.good_at)}</dd>
-        </div>
-        <div>
-          <dt>能完成</dt>
-          <dd>{joinList(expert.can_finish)}</dd>
-        </div>
-        <div>
-          <dt>怎么开始</dt>
-          <dd>{expert.how_to_start}</dd>
-        </div>
+        {expert.good_at.length > 0 && (
+          <div>
+            <dt>擅长</dt>
+            <dd>{joinList(expert.good_at)}</dd>
+          </div>
+        )}
+        {expert.can_finish.length > 0 && (
+          <div>
+            <dt>能完成</dt>
+            <dd>{joinList(expert.can_finish)}</dd>
+          </div>
+        )}
+        {expert.how_to_start && (
+          <div>
+            <dt>怎么开始</dt>
+            <dd>{expert.how_to_start}</dd>
+          </div>
+        )}
       </dl>
       <div className="expert-card-cta">
         <button
@@ -210,25 +216,30 @@ export default function Agents() {
               <h2>使命</h2>
               <p>{detail.mission}</p>
             </section>
-            <section>
-              <h2>擅长</h2>
-              <p>{joinList(detail.good_at)}</p>
-            </section>
-            <section data-expert-prompts>
-              <h2>你可以这样说</h2>
-              <ul className="expert-prompt-list">
-                {detail.quick_prompts.map((prompt) => (
-                  <li key={prompt}>{prompt}</li>
-                ))}
-              </ul>
-            </section>
-            <section>
-              <h2>工作方式</h2>
-              <p>{detail.working_style}</p>
-            </section>
+            {detail.good_at.length > 0 && (
+              <section>
+                <h2>擅长</h2>
+                <p>{joinList(detail.good_at)}</p>
+              </section>
+            )}
+            {detail.quick_prompts.length > 0 && (
+              <section data-expert-prompts>
+                <h2>你可以这样说</h2>
+                <ul className="expert-prompt-list">
+                  {detail.quick_prompts.map((prompt) => (
+                    <li key={prompt}>{prompt}</li>
+                  ))}
+                </ul>
+              </section>
+            )}
+            {detail.working_style && (
+              <section>
+                <h2>工作方式</h2>
+                <p>{detail.working_style}</p>
+              </section>
+            )}
             <section className="expert-detail-summon">
               <h2>召唤</h2>
-              <p className="muted">{detail.how_to_start}</p>
               <button
                 type="button"
                 className="btn work"
