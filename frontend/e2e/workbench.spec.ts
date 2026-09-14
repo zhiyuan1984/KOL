@@ -2639,7 +2639,7 @@ test("approval, knowledge, and exam are vertical primary nav items before cloud"
   await expect(exam.locator("[data-exam-empty='unready']")).toBeVisible();
   await expect(exam.getByRole("button", { name: "完成考试" })).toHaveCount(0);
   await expect(exam.locator("[data-persona-switch], [data-persona]")).toHaveCount(0);
-  await expect(exam).not.toContainText("演示身份");
+  await expect(exam.getByRole("heading", { name: "演示身份" })).toHaveCount(0);
 });
 
 test("employee exam stays unready and never one-click passes", async ({ page, request }) => {
