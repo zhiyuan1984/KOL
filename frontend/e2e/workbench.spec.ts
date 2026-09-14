@@ -87,10 +87,16 @@ async function expectHomeChromeRow(page: Page) {
   );
   await expect(page.locator('[data-brand-lockup="home"] .brand-slogan-zh')).toHaveText("服务几代人的户外生活");
   const accountBox = await chrome.locator("[data-home-account]").boundingBox();
+  const actionsBox = await chrome.locator("[data-home-chrome-actions]").boundingBox();
   const brandBox = await chrome.locator("[data-brand-lockup='home']").boundingBox();
-  expect(accountBox && brandBox).toBeTruthy();
+  const pocketBox = await chrome.locator("[data-home-chrome-brand]").boundingBox();
+  const chromeBox = await chrome.boundingBox();
+  expect(accountBox && actionsBox && brandBox && pocketBox && chromeBox).toBeTruthy();
   expect(brandBox!.x).toBeGreaterThan(accountBox!.x + accountBox!.width - 2);
   expect(Math.abs(brandBox!.y - accountBox!.y)).toBeLessThan(24);
+  expect(Math.abs(actionsBox!.y - accountBox!.y)).toBeLessThan(16);
+  expect(actionsBox!.x + actionsBox!.width).toBeLessThanOrEqual(pocketBox!.x + 2);
+  expect(pocketBox!.width).toBeLessThan(chromeBox!.width * 0.45);
 }
 
 async function expectFollowedKolHeadingRemoved(page: Page) {
@@ -102,21 +108,25 @@ async function expectFollowedKolHeadingRemoved(page: Page) {
 async function expectFollowedKolListAlignsWithTabs(page: Page) {
   const tabs = page.locator("[data-kol-tabs]");
   const list = page.locator("[data-followed-kol-list]");
-  const pane = page.locator("[data-home-pane=lifecycle]");
-  const modes = page.locator("[data-home-modes]");
   const card = page.locator("[data-followed-kol]").first();
   await expect(tabs).toBeVisible();
   await expect(list).toBeVisible();
-  const tabsBox = await tabs.boundingBox();
-  const listBox = await list.boundingBox();
-  const paneBox = await pane.boundingBox();
-  const modesBox = await modes.boundingBox();
-  const cardBox = await card.boundingBox();
-  expect(tabsBox && listBox && paneBox && modesBox && cardBox).toBeTruthy();
-  expect(Math.abs(listBox!.width - tabsBox!.width)).toBeLessThan(8);
-  expect(Math.abs(cardBox!.width - tabsBox!.width)).toBeLessThan(8);
-  expect(Math.abs(tabsBox!.width - paneBox!.width)).toBeLessThan(8);
-  expect(Math.abs(tabsBox!.width - modesBox!.width)).toBeLessThan(16);
+  const widths = await page.evaluate(() => {
+    const tabEl = document.querySelector("[data-kol-tabs]");
+    const listEl = document.querySelector("[data-followed-kol-list]");
+    const cardEl = document.querySelector("[data-followed-kol]");
+    const columnEl = document.querySelector("[data-followed-kol-column]");
+    return {
+      tabs: tabEl instanceof HTMLElement ? tabEl.clientWidth : 0,
+      list: listEl instanceof HTMLElement ? listEl.clientWidth : 0,
+      card: cardEl instanceof HTMLElement ? cardEl.clientWidth : 0,
+      column: columnEl instanceof HTMLElement ? columnEl.clientWidth : 0,
+    };
+  });
+  expect(widths.tabs).toBeGreaterThan(0);
+  expect(Math.abs(widths.list - widths.tabs)).toBeLessThan(8);
+  expect(Math.abs(widths.card - widths.tabs)).toBeLessThan(8);
+  expect(Math.abs(widths.column - widths.tabs)).toBeLessThan(8);
 }
 
 async function openFollowedKolDetail(page: Page, handle?: string) {

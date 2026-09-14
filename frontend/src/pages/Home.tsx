@@ -1133,7 +1133,9 @@ export default function Home() {
                 </Link>
               </div>
             </div>
-            <BrandLockup variant="home" />
+            <div className="home-chrome-brand" data-home-chrome-brand>
+              <BrandLockup variant="home" />
+            </div>
           </div>
           <h1>{home.h1}</h1>
           <p className="home-stats" data-today-summary data-home-stats>
