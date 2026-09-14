@@ -178,11 +178,13 @@ export default function Knowledge({ market = false }: { market?: boolean }) {
   };
 
   const openPreview = (row: KnowledgeRow) => {
+    closeTip();
     setPreview(row);
     setRecent(rememberKbRecent(row.id));
   };
 
   const useForTask = (row: KnowledgeRow) => {
+    closeTip();
     if (!kbIsMail(row)) return;
     const go = () => {
       setRecent(rememberKbRecent(row.id));
