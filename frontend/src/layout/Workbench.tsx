@@ -84,9 +84,7 @@ export default function Workbench() {
   const runningActive = Boolean(
     sessionId && sessions.some((s) => s.id === sessionId && s.agent_status === "running"),
   );
-  const onTeamsTab = loc.pathname === "/teams"
-    || (loc.pathname === "/agents" && new URLSearchParams(loc.search).get("tab") === "teams");
-  const onAgentsWork = loc.pathname === "/agents" && !onTeamsTab;
+  const onAgents = loc.pathname === "/agents" || loc.pathname.startsWith("/agents/");
 
   const toggleCollapsed = () => {
     setCollapsed((value) => {
@@ -107,8 +105,7 @@ export default function Workbench() {
         <button className="icon-btn" aria-label="打开导航" aria-expanded={mobileOpen} onClick={() => setMobileOpen((v) => !v)}>☰</button>
         <strong>灵工 工作</strong>
         <NavLink to="/">任务</NavLink>
-        <NavLink to="/agents" className={() => onAgentsWork ? "active" : ""}>数字员工</NavLink>
-        <NavLink to="/agents?tab=teams" className={() => onTeamsTab ? "active" : ""}>数字团队</NavLink>
+        <NavLink to="/agents" className={() => onAgents ? "active" : ""}>数字员工</NavLink>
       </div>
       <aside className={"sidebar" + (mobileOpen ? " mobile-open" : "")}>
         <div className="sidebar-head">
@@ -143,28 +140,16 @@ export default function Workbench() {
         </nav>
 
         <nav className="nav-group" aria-label="数字员工">
-          <div className={"nav-combo" + (onAgentsWork || onTeamsTab ? " active" : "")} data-nav="agents-teams">
+          <NavLink
+            to="/agents"
+            className={() => "nav-link" + (onAgents ? " active" : "")}
+            data-nav="agents"
+            title="数字员工"
+            onClick={() => setMobileOpen(false)}
+          >
             <Ico path="M12 4a3 3 0 0 1 3 3v1h2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2V7a3 3 0 0 1 3-3z M9 13h6 M9 16h4" />
-            <NavLink
-              to="/agents"
-              className={onAgentsWork ? "on" : ""}
-              data-nav="agents"
-              title="数字员工"
-              onClick={() => setMobileOpen(false)}
-            >
-              数字员工
-            </NavLink>
-            <span className="nav-dot">·</span>
-            <NavLink
-              to="/agents?tab=teams"
-              className={onTeamsTab ? "on" : ""}
-              data-nav="teams"
-              title="数字团队"
-              onClick={() => setMobileOpen(false)}
-            >
-              数字团队
-            </NavLink>
-          </div>
+            <span className="sidebar-label">数字员工</span>
+          </NavLink>
           <NavLink
             to="/skills"
             className={() => "nav-link" + (skillsActive ? " active" : "")}

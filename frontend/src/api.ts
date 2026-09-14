@@ -576,7 +576,7 @@ export const api = {
       "/api/task-definitions",
     ),
   agentManifest: () => request<AgentManifestView>("/api/agent-manifest"),
-  experts: () => request<ExpertManifestView[]>("/api/experts"),
+  experts: () => request<ExpertManifestView[] | { experts?: ExpertManifestView[] }>("/api/experts"),
   expert: (id: string) => request<ExpertManifestView>(`/api/experts/${encodeURIComponent(id)}`),
   summonExpert: (id: string) =>
     request<ExpertSummonResult>(`/api/experts/${encodeURIComponent(id)}/summon`, {

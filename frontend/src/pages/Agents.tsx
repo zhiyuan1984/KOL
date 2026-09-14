@@ -1,475 +1,319 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { REMOTE_BACKEND_LABEL, remoteForConnector, remoteForSkill } from "../agentConfig";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
-  asTaskList,
-  buildAgentNextSteps,
-  failedTaskReason,
-  parseAgentTab,
-  readRecentAgents,
-  recentIdleSessions,
-  retryFailedTask,
-  runningSessions,
-  sessionStatusLabel,
-  startAgentWork,
-  type AgentNextStep,
-  type AgentPageTab,
-  type RecentAgent,
-} from "../agentWork";
-import { api, type SessionRow, type Task } from "../api";
-import { storePending } from "../components/ChatBlocks";
-import { useAgentManifest } from "../hooks/useAgentManifest";
-import { rememberJourney } from "../journey";
-import { profileNameLabel } from "../labels";
-import { useViewMode } from "../viewMode";
+  bindExpertSession,
+  expertDetailPath,
+  expertsForView,
+  fetchExpert,
+  fetchExperts,
+  isExpertPinned,
+  parseExpertView,
+  rememberSummonedExpert,
+  summonExpert,
+  togglePinnedExpert,
+  type Expert,
+  type ExpertView,
+} from "../experts";
 
-type Profile = {
-  id: string;
-  name: string;
-  responsibilities: string[];
-  defaultWritableScope: string;
-  guardrail: string;
-  harness: string;
-  canDeriveChildThreads?: boolean;
-};
-
-const TABS: Array<{ id: AgentPageTab; label: string }> = [
-  { id: "work", label: "开工" },
-  { id: "teams", label: "数字团队" },
-  { id: "spec", label: "说明书" },
+const VIEWS: Array<{ id: ExpertView; label: string }> = [
+  { id: "recommend", label: "推荐" },
+  { id: "mine", label: "我的数字员工" },
+  { id: "all", label: "全部数字员工" },
+  { id: "search", label: "搜索" },
 ];
 
+function joinList(items: string[]): string {
+  return items.filter(Boolean).join(" · ");
+}
+
+function ExpertCard({
+  expert,
+  pinned,
+  busy,
+  onSummon,
+  onPin,
+}: {
+  expert: Expert;
+  pinned: boolean;
+  busy: boolean;
+  onSummon: (expert: Expert) => void;
+  onPin: (id: string) => void;
+}) {
+  return (
+    <article className="expert-card" data-expert-card={expert.id} data-expert-recommended={expert.recommended ? "1" : "0"}>
+      <header className="expert-card-head">
+        <div className="expert-card-titles">
+          <h2>
+            <Link to={expertDetailPath(expert.id)} data-expert-open={expert.id}>{expert.name}</Link>
+          </h2>
+          <p className="muted">{expert.mission}</p>
+        </div>
+        <button
+          type="button"
+          className="btn ghost sm"
+          data-expert-pin={expert.id}
+          aria-pressed={pinned}
+          onClick={() => onPin(expert.id)}
+        >
+          {pinned ? "已固定" : "固定"}
+        </button>
+      </header>
+      <dl className="expert-qa" data-expert-qa={expert.id}>
+        <div>
+          <dt>谁</dt>
+          <dd>{expert.who}</dd>
+        </div>
+        <div>
+          <dt>擅长</dt>
+          <dd>{joinList(expert.good_at)}</dd>
+        </div>
+        <div>
+          <dt>能完成</dt>
+          <dd>{joinList(expert.can_finish)}</dd>
+        </div>
+        <div>
+          <dt>怎么开始</dt>
+          <dd>{expert.how_to_start}</dd>
+        </div>
+      </dl>
+      <div className="expert-card-cta">
+        <button
+          type="button"
+          className="btn work"
+          data-expert-summon={expert.id}
+          disabled={busy}
+          onClick={() => onSummon(expert)}
+        >
+          {busy ? "正在召唤…" : "召唤专家"}
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function emptyCopy(view: ExpertView, query: string): string {
+  if (view === "mine") return "还没有召唤或固定过数字员工。去推荐或全部里召唤一位。";
+  if (view === "search") return query.trim() ? "没有匹配的数字员工。" : "输入姓名、擅长或能完成的事。";
+  return "还没有可召唤的数字员工。";
+}
+
 export default function Agents() {
-  const { debug } = useViewMode();
-  const manifest = useAgentManifest();
   const nav = useNavigate();
+  const { id: routeId } = useParams();
   const [params, setParams] = useSearchParams();
-  const tab = parseAgentTab(params.get("tab"));
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [connectors, setConnectors] = useState<Record<string, unknown>[]>([]);
-  const [sessions, setSessions] = useState<SessionRow[]>([]);
-  const [failedTasks, setFailedTasks] = useState<Task[]>([]);
-  const [recentAgents, setRecentAgents] = useState<RecentAgent[]>(() => readRecentAgents());
+  const view = parseExpertView(params.get("view"));
+  const [experts, setExperts] = useState<Expert[]>([]);
+  const [detail, setDetail] = useState<Expert | null>(null);
+  const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
-  const [openSpec, setOpenSpec] = useState<string | null>(null);
-  const [openTeam, setOpenTeam] = useState<string | null>(null);
+  const [query, setQuery] = useState(params.get("q") || "");
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [pins, setPins] = useState<string[]>(() => []);
+  const [pinTick, setPinTick] = useState(0);
+
+  const loadList = () => {
+    setLoading(true);
+    setErr("");
+    void fetchExperts()
+      .then((rows) => {
+        setExperts(rows);
+        setPins(rows.filter((row) => isExpertPinned(row.id)).map((row) => row.id));
+      })
+      .catch((error) => setErr(error instanceof Error ? error.message : "无法加载数字员工"))
+      .finally(() => setLoading(false));
+  };
 
   useEffect(() => {
+    if (routeId) return;
+    loadList();
+  }, [routeId]);
+
+  useEffect(() => {
+    if (!routeId) {
+      setDetail(null);
+      return;
+    }
     let cancelled = false;
-    // Do not fetch GET /api/home/board here. That payload is Home's
-    // 「今天推荐」and was replacing catalog entries after first paint.
-    void Promise.all([
-      api.profiles().catch(() => []),
-      api.connectors().catch(() => []),
-      api.sessions().catch(() => []),
-      api.tasks({ status: "failed" }).catch(() => []),
-    ])
-      .then(([p, c, s, failed]) => {
+    setLoading(true);
+    setErr("");
+    void fetchExpert(routeId)
+      .then((row) => {
         if (cancelled) return;
-        setProfiles(Array.isArray(p) ? p : []);
-        setConnectors(Array.isArray(c) ? c : []);
-        setSessions(Array.isArray(s) ? s : []);
-        setFailedTasks(asTaskList(failed));
+        setDetail(row);
+        if (row) setPins(isExpertPinned(row.id) ? [row.id] : []);
       })
-      .catch((e) => {
-        if (!cancelled) setErr(e instanceof Error ? e.message : "无法加载工作台");
+      .catch((error) => {
+        if (!cancelled) setErr(error instanceof Error ? error.message : "无法加载这位数字员工");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [routeId]);
 
-  const nextSteps = useMemo(
-    () => buildAgentNextSteps({
-      entries: manifest?.entries || [],
-    }),
-    [manifest?.entries],
+  const visible = useMemo(
+    () => expertsForView(experts, view, query),
+    [experts, pinTick, query, view],
   );
 
-  const running = useMemo(() => runningSessions(sessions), [sessions]);
-  const runningIds = useMemo(() => new Set(running.map((row) => row.id)), [running]);
-  const recentSessions = useMemo(() => recentIdleSessions(sessions, runningIds), [runningIds, sessions]);
-
-  useEffect(() => {
-    if (tab !== "work") return;
-    const refreshShell = () => {
-      void api.sessions().then(setSessions).catch(() => undefined);
-      void api.tasks({ status: "failed" }).then((rows) => setFailedTasks(asTaskList(rows))).catch(() => undefined);
-    };
-    const timer = window.setInterval(refreshShell, 5000);
-    const onVisible = () => {
-      if (document.visibilityState === "visible") refreshShell();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [tab]);
-
-  const setTab = (next: AgentPageTab) => {
+  const setView = (next: ExpertView) => {
     const nextParams = new URLSearchParams(params);
-    if (next === "work") nextParams.delete("tab");
-    else nextParams.set("tab", next);
+    if (next === "recommend") nextParams.delete("view");
+    else nextParams.set("view", next);
+    if (next !== "search") nextParams.delete("q");
     setParams(nextParams, { replace: true });
   };
 
-  const goSession = (sessionId: string, kolSession = false) => {
-    if (kolSession) sessionStorage.setItem(`kol-session:${sessionId}`, "1");
-    nav(`/s/${sessionId}`, { state: kolSession ? { kolSession: true } : undefined });
+  const onPin = (id: string) => {
+    const next = togglePinnedExpert(id);
+    setPins(next);
+    setPinTick((value) => value + 1);
   };
 
-  const onStart = async (step: AgentNextStep) => {
-    setBusy(step.id);
+  const onSummon = async (expert: Expert) => {
+    setBusyId(expert.id);
     setErr("");
-    rememberJourney({
-      kind: "skill",
-      skillId: step.intent,
-      skillLabel: step.title,
-      handle: step.handle,
-    });
     try {
-      const opened = await startAgentWork(step);
-      setRecentAgents(readRecentAgents());
-      goSession(opened.id, opened.kolSession);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "无法开始");
-      setBusy(null);
+      const summoned = await summonExpert(expert);
+      bindExpertSession(summoned.session_id, expert, summoned);
+      rememberSummonedExpert(expert.id);
+      nav(`/s/${summoned.session_id}`, { state: { expertBound: true, expert: summoned } });
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : "无法召唤专家");
+      setBusyId(null);
     }
   };
 
-  const startTeam = async (teamId: string, stepIndex = 0) => {
-    const team = manifest?.teams.find((row) => row.id === teamId);
-    if (!team) return;
-    const step = team.steps[stepIndex] || team.steps[0];
-    const title = `${team.title} · ${step.label}`;
-    setBusy(`team-${teamId}`);
-    setErr("");
-    rememberJourney({ kind: "skill", skillId: step.skillId, skillLabel: step.label });
-    try {
-      const ses = await api.createSession(title.slice(0, 24));
-      storePending(ses.id, { text: step.prompt });
-      sessionStorage.setItem(`team:${ses.id}`, JSON.stringify({ teamId, stepIndex }));
-      nav(`/s/${ses.id}`);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "无法开始团队步骤");
-      setBusy(null);
-    }
-  };
-
-  const onRetryFailed = async (task: Task) => {
-    setBusy(`failed-${task.id}`);
-    setErr("");
-    rememberJourney({
-      kind: "task",
-      skillId: String(task.skill_id || task.skill || ""),
-      skillLabel: task.title,
-      handle: task.kol_name,
-    });
-    try {
-      const opened = await retryFailedTask(task);
-      goSession(opened.id, opened.kolSession);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "无法重试");
-      setBusy(null);
-    }
-  };
-
-  const startRecent = (row: RecentAgent) => {
-    void onStart({
-      id: row.id,
-      title: row.title,
-      reason: "最近用过",
-      cta: "再开一单",
-      source: "catalog",
-      sourceLabel: "最近在用",
-      intent: row.intent,
-      prompt: row.prompt,
-      handle: row.handle,
-    });
-  };
-
-  return (
-    <div className="list-page agent-page" data-agent-page={tab} data-visual="docs20">
-      <div className="page-hero agent-hero">
-        <div className="page-kicker">工作入口</div>
-        <h1>请一位数字员工开始</h1>
-        <p className="muted">
-          选一位已发布的数字员工，交代这一件。说明书收在后面。发送不等于改阶段。
-        </p>
-        {debug && (
-          <div className="remote-legend">
-            {Object.entries(REMOTE_BACKEND_LABEL).map(([id, label]) => {
-              const live = connectors.find((row) => remoteForConnector(String(row.id || "")) === id);
-              const status = live ? String(live.status || "configured") : "catalog";
-              return (
-                <span key={id} className="remote-pill" data-remote={id} data-live={live ? "on" : "off"} title={live ? `连接器 ${String(live.label || live.id)} · ${status}` : "目录映射"}>
-                  <i className="live-dot" aria-hidden />
-                  {label}
-                </span>
-              );
-            })}
+  if (routeId) {
+    return (
+      <div className="list-page agent-page expert-page" data-expert-page="detail" data-visual="docs20">
+        <div className="page-hero agent-hero">
+          <div className="page-kicker">数字员工</div>
+          <Link className="expert-back" to="/agents">← 全部数字员工</Link>
+          <h1>{detail?.name || "数字员工"}</h1>
+        </div>
+        {err && (
+          <div className="error" role="alert">
+            <p>{err}</p>
+            <button type="button" className="btn ghost sm" onClick={() => nav(0)}>重试</button>
           </div>
         )}
+        {loading && <p className="muted" data-expert-loading>正在加载数字员工…</p>}
+        {!loading && !detail && !err && (
+          <p className="muted agent-empty" data-expert-empty>没有这位数字员工。</p>
+        )}
+        {detail && (
+          <article className="expert-detail" data-expert-detail={detail.id}>
+            <section>
+              <h2>使命</h2>
+              <p>{detail.mission}</p>
+            </section>
+            <section>
+              <h2>擅长</h2>
+              <p>{joinList(detail.good_at)}</p>
+            </section>
+            <section data-expert-prompts>
+              <h2>你可以这样说</h2>
+              <ul className="expert-prompt-list">
+                {detail.quick_prompts.map((prompt) => (
+                  <li key={prompt}>{prompt}</li>
+                ))}
+              </ul>
+            </section>
+            <section>
+              <h2>工作方式</h2>
+              <p>{detail.working_style}</p>
+            </section>
+            <section className="expert-detail-summon">
+              <h2>召唤</h2>
+              <p className="muted">{detail.how_to_start}</p>
+              <button
+                type="button"
+                className="btn work"
+                data-expert-summon={detail.id}
+                disabled={busyId === detail.id}
+                onClick={() => void onSummon(detail)}
+              >
+                {busyId === detail.id ? "正在召唤…" : "召唤专家"}
+              </button>
+            </section>
+          </article>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="list-page agent-page expert-page" data-expert-page={view} data-visual="docs20">
+      <div className="page-hero agent-hero">
+        <div className="page-kicker">数字员工</div>
+        <h1>数字员工</h1>
+        <p className="muted">选一位专家，召唤进会话后交代这一件。发送和改阶段仍要你确认。</p>
       </div>
 
-      <div className="agent-tabs" role="tablist" aria-label="数字员工页面">
-        {TABS.map((item) => (
+      <div className="agent-tabs" role="tablist" aria-label="数字员工">
+        {VIEWS.map((item) => (
           <button
             key={item.id}
             type="button"
             role="tab"
-            className={"agent-tab" + (tab === item.id ? " on" : "")}
-            aria-selected={tab === item.id}
-            data-agent-tab={item.id}
-            onClick={() => setTab(item.id)}
+            className={"agent-tab" + (view === item.id ? " on" : "")}
+            aria-selected={view === item.id}
+            data-expert-view={item.id}
+            onClick={() => setView(item.id)}
           >
             {item.label}
           </button>
         ))}
       </div>
 
-      {err && <p className="error">{err}</p>}
-
-      {tab === "work" && (
-        <div className="agent-work" data-agent-work>
-          <section className="agent-section" data-agent-section="next">
-            <header className="agent-section-head">
-              <h2>用这些数字员工开工</h2>
-              <span className="muted">{nextSteps.length ? `${nextSteps.length} 位` : "暂无"}</span>
-            </header>
-            {nextSteps.length ? (
-              <ul className="agent-work-list">
-                {nextSteps.map((step) => (
-                  <li key={step.id} className="agent-work-row" data-agent-next={step.id} data-agent-source={step.source}>
-                    <span className="agent-work-icon" aria-hidden>{step.icon || "○"}</span>
-                    <div className="agent-work-copy">
-                      <strong title={step.title}>{step.title}</strong>
-                      <p className="muted" title={step.reason}>{step.reason}</p>
-                    </div>
-                    <button
-                      type="button"
-                      className="btn work sm"
-                      disabled={busy === step.id}
-                      onClick={() => void onStart(step)}
-                    >
-                      {step.cta}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="muted agent-empty">还没有可开工的数字员工。先回首页看今天的合作。</p>
-            )}
-          </section>
-
-          <section className="agent-section" data-agent-section="recent">
-            <header className="agent-section-head">
-              <h2>接着上次</h2>
-              <span className="muted">{recentSessions.length || recentAgents.length ? "回到未完成的会话" : "暂无"}</span>
-            </header>
-            {recentSessions.length ? (
-              <ul className="agent-work-list">
-                {recentSessions.map((session) => (
-                  <li key={session.id} className="agent-work-row" data-agent-recent={session.id}>
-                    <i className={"status-dot " + (session.agent_status || "listening")} aria-hidden />
-                    <div className="agent-work-copy">
-                      <strong title={session.title}>{session.title}</strong>
-                      <p className="muted">{sessionStatusLabel(session.agent_status)}</p>
-                    </div>
-                    <Link className="btn work sm" to={`/s/${session.id}`}>继续</Link>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="muted agent-empty">还没有会话。请一位数字员工开始，不要先翻说明书。</p>
-            )}
-            {recentAgents.length > 0 && (
-              <div className="agent-recent-chips" aria-label="最近用过的入口">
-                {recentAgents.map((row) => (
-                  <button
-                    key={row.id}
-                    type="button"
-                    className="chip agent-recent-chip"
-                    disabled={busy === row.id}
-                    onClick={() => startRecent(row)}
-                  >
-                    再开 · {row.title}
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="agent-section" data-agent-section="running">
-            <header className="agent-section-head">
-              <h2>正在做的</h2>
-              <span className="muted">{running.length ? `${running.length} 个会话` : "当前没有"}</span>
-            </header>
-            {running.length ? (
-              <ul className="agent-work-list">
-                {running.map((session) => (
-                  <li key={session.id} className="agent-work-row" data-agent-running={session.id}>
-                    <i className={"status-dot " + (session.agent_status || "running")} aria-hidden />
-                    <div className="agent-work-copy">
-                      <strong title={session.title}>{session.title}</strong>
-                      <p className="muted">{sessionStatusLabel(session.agent_status)}</p>
-                    </div>
-                    <Link className="btn work sm" to={`/s/${session.id}`}>回到会话</Link>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="muted agent-empty">
-                当前没有进行中的会话。数字员工正在跑或等审批的会出现在这里。
-              </p>
-            )}
-          </section>
-
-          <section className="agent-section" data-agent-section="failed">
-            <header className="agent-section-head">
-              <h2>需要重试的</h2>
-              <span className="muted">{failedTasks.length ? `${failedTasks.length} 件` : "当前没有"}</span>
-            </header>
-            {failedTasks.length ? (
-              <ul className="agent-work-list">
-                {failedTasks.map((task) => (
-                  <li key={task.id} className="agent-work-row" data-agent-failed={task.id}>
-                    <span className="agent-work-icon" aria-hidden>!</span>
-                    <div className="agent-work-copy">
-                      <strong title={task.title}>{task.title}</strong>
-                      <p className="muted" title={failedTaskReason(task)}>{failedTaskReason(task)}</p>
-                    </div>
-                    <div className="agent-card-actions">
-                      {task.session_id && (
-                        <Link className="agent-secondary-link" to={`/s/${task.session_id}`}>打开会话</Link>
-                      )}
-                      <button
-                        type="button"
-                        className="btn work sm"
-                        disabled={busy === `failed-${task.id}`}
-                        onClick={() => void onRetryFailed(task)}
-                      >
-                        重试
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="muted agent-empty">没有失败的任务。</p>
-            )}
-          </section>
-        </div>
+      {view === "search" && (
+        <label className="expert-search">
+          <span className="muted">搜索</span>
+          <input
+            type="search"
+            value={query}
+            data-expert-search
+            placeholder="搜姓名、擅长或能完成的事"
+            onChange={(event) => {
+              const next = event.target.value;
+              setQuery(next);
+              const nextParams = new URLSearchParams(params);
+              nextParams.set("view", "search");
+              if (next.trim()) nextParams.set("q", next);
+              else nextParams.delete("q");
+              setParams(nextParams, { replace: true });
+            }}
+          />
+        </label>
       )}
 
-      {tab === "teams" && (
-        <div className="agent-teams-pane" data-agent-teams>
-          <header className="agent-section-head">
-            <h2>数字团队</h2>
-            <p className="muted">预设编组，不是群聊。每一步仍走已发布动作。</p>
-          </header>
-          <div className="team-grid">
-            {(manifest?.teams || []).map((team) => {
-              const expanded = openTeam === team.id;
-              return (
-                <article key={team.id} className="panel team-card" data-team={team.id}>
-                  <h3>{team.title}</h3>
-                  <p className="muted">{team.summary}</p>
-                  <p className="team-profiles">
-                    {team.profileIds.map((id) => (
-                      <span key={id} className="chip">{profileNameLabel(id)}</span>
-                    ))}
-                  </p>
-                  <ol className="team-steps">
-                    {team.steps.map((step, index) => (
-                      <li key={step.skillId} data-step={index}>
-                        <span className="team-step-idx">{index + 1}</span>
-                        <div>
-                          <strong>{step.label}</strong>
-                          {debug && <span className="muted remote-tag">{REMOTE_BACKEND_LABEL[remoteForSkill(step.skillId)]}</span>}
-                          {expanded && <p className="muted step-prompt">{step.prompt}</p>}
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                  <div className="agent-card-actions">
-                    <button
-                      type="button"
-                      className="btn work"
-                      disabled={busy === `team-${team.id}`}
-                      onClick={() => void startTeam(team.id, 0)}
-                    >
-                      从第一步开始
-                    </button>
-                    <button
-                      type="button"
-                      className="btn ghost sm"
-                      aria-expanded={expanded}
-                      onClick={() => setOpenTeam(expanded ? null : team.id)}
-                    >
-                      {expanded ? "收起步骤说明" : "查看步骤说明"}
-                    </button>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
+      {err && (
+        <div className="error" role="alert">
+          <p>{err}</p>
+          <button type="button" className="btn ghost sm" onClick={loadList}>重试</button>
         </div>
       )}
+      {loading && <p className="muted" data-expert-loading>正在加载数字员工…</p>}
 
-      {tab === "spec" && (
-        <div className="agent-spec-pane" data-agent-spec>
-          <header className="agent-section-head">
-            <h2>说明书</h2>
-            <p className="muted">职责、护栏和可写范围默认收起。要开工请回到「开工」。</p>
-          </header>
-          <div className="agent-grid">
-            {profiles.map((profile) => {
-              const expanded = openSpec === profile.id;
-              return (
-                <article key={profile.id} className="panel agent-card agent-spec-card" data-agent-profile={profile.id}>
-                  <header className="agent-card-head">
-                    <span className="agent-avatar" aria-hidden>{profileNameLabel(profile.name).slice(0, 1)}</span>
-                    <div className="agent-card-titles">
-                      <h3>{profileNameLabel(profile.name)}</h3>
-                      {debug && <span className="muted mono">{profile.harness}</span>}
-                      <p className="muted">{profile.responsibilities[0] || profile.defaultWritableScope}</p>
-                    </div>
-                  </header>
-                  <div className="agent-card-actions">
-                    <button
-                      type="button"
-                      className="btn ghost sm"
-                      aria-expanded={expanded}
-                      data-agent-spec-toggle={profile.id}
-                      onClick={() => setOpenSpec(expanded ? null : profile.id)}
-                    >
-                      {expanded ? "收起说明书" : "展开说明书"}
-                    </button>
-                    <button type="button" className="btn ghost sm" onClick={() => setTab("work")}>
-                      去开工
-                    </button>
-                  </div>
-                  {expanded && (
-                    <div className="agent-spec-body" data-agent-spec-body={profile.id}>
-                      <p className="agent-scope"><strong>可写范围</strong> {profile.defaultWritableScope}</p>
-                      <p className="muted agent-guard"><strong>护栏</strong> {profile.guardrail}</p>
-                      {debug && (
-                        <div className="agent-remotes">
-                          <span className="remote-pill sm" data-remote={remoteForSkill(profile.id)}>{REMOTE_BACKEND_LABEL[remoteForSkill(profile.id)]}</span>
-                        </div>
-                      )}
-                      <ul className="agent-resp">
-                        {profile.responsibilities.map((item) => <li key={item}>{item}</li>)}
-                      </ul>
-                    </div>
-                  )}
-                </article>
-              );
-            })}
-          </div>
+      {!loading && !visible.length && (
+        <p className="muted agent-empty" data-expert-empty={view}>{emptyCopy(view, query)}</p>
+      )}
+
+      {!loading && visible.length > 0 && (
+        <div className="expert-list" data-expert-list={view}>
+          {visible.map((expert) => (
+            <ExpertCard
+              key={expert.id}
+              expert={expert}
+              pinned={pins.includes(expert.id) || isExpertPinned(expert.id)}
+              busy={busyId === expert.id}
+              onSummon={(row) => void onSummon(row)}
+              onPin={onPin}
+            />
+          ))}
         </div>
       )}
     </div>

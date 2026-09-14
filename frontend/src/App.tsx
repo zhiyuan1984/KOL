@@ -29,6 +29,7 @@ export default function App() {
           <Route path="/pipeline" element={<Pipeline />} />
           <Route path="/cron" element={<Cron />} />
           <Route path="/skills" element={<Skills />} />
+          <Route path="/agents/:id" element={<Agents />} />
           <Route path="/agents" element={<Agents />} />
           <Route path="/teams" element={<AgentTeams />} />
           <Route path="/kb" element={<Knowledge />} />
