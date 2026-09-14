@@ -1204,6 +1204,7 @@ export default function Home() {
 
           {mode === "lifecycle" ? (
             <section className="home-mode-pane recommend-work" data-home-pane="lifecycle" data-lifecycle-overview>
+              <div className="followed-kol-column" data-followed-kol-column>
               <div className="home-pane-sticky">
               <div className="kol-stage-tabs" role="tablist" aria-label="跟进红人状态" data-kol-tabs>
                 {FOLLOWED_KOL_TABS.map((tabSpec) => {
@@ -1270,6 +1271,7 @@ export default function Home() {
                   ) : null}
                 </div>
               )}
+              </div>
             </section>
           ) : null}
 

@@ -102,15 +102,21 @@ async function expectFollowedKolHeadingRemoved(page: Page) {
 async function expectFollowedKolListAlignsWithTabs(page: Page) {
   const tabs = page.locator("[data-kol-tabs]");
   const list = page.locator("[data-followed-kol-list]");
-  const stage = page.locator("[data-home] .home-stage");
+  const pane = page.locator("[data-home-pane=lifecycle]");
+  const modes = page.locator("[data-home-modes]");
+  const card = page.locator("[data-followed-kol]").first();
   await expect(tabs).toBeVisible();
   await expect(list).toBeVisible();
   const tabsBox = await tabs.boundingBox();
   const listBox = await list.boundingBox();
-  const stageBox = await stage.boundingBox();
-  expect(tabsBox && listBox && stageBox).toBeTruthy();
+  const paneBox = await pane.boundingBox();
+  const modesBox = await modes.boundingBox();
+  const cardBox = await card.boundingBox();
+  expect(tabsBox && listBox && paneBox && modesBox && cardBox).toBeTruthy();
   expect(Math.abs(listBox!.width - tabsBox!.width)).toBeLessThan(8);
-  expect(listBox!.width).toBeLessThan(stageBox!.width - 8);
+  expect(Math.abs(cardBox!.width - tabsBox!.width)).toBeLessThan(8);
+  expect(Math.abs(tabsBox!.width - paneBox!.width)).toBeLessThan(8);
+  expect(Math.abs(tabsBox!.width - modesBox!.width)).toBeLessThan(16);
 }
 
 async function openFollowedKolDetail(page: Page, handle?: string) {
@@ -809,10 +815,10 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expect(card.locator(".task-main")).toHaveCount(0);
   await expectFollowedKolHeadingRemoved(page);
   await expectFollowedKolListAlignsWithTabs(page);
-  const stageBox = await page.locator("[data-home] .home-stage").boundingBox();
+  const tabsBox = await page.locator("[data-kol-tabs]").boundingBox();
   const cardBox = await card.boundingBox();
-  expect(stageBox && cardBox).toBeTruthy();
-  expect((cardBox?.width || 0)).toBeLessThan(stageBox!.width - 8);
+  expect(tabsBox && cardBox).toBeTruthy();
+  expect(Math.abs((cardBox?.width || 0) - (tabsBox?.width || 0))).toBeLessThan(8);
   await expectNoHorizontalOverflow(page, "[data-home-modes]");
   await expectNoHorizontalOverflow(page, "[data-kol-tabs]");
   await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
