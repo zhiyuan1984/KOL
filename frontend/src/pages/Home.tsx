@@ -30,6 +30,9 @@ import { rememberJourney } from "../journey";
 import { missingFieldsMessage, fieldLabel, accountDisplayName, accountEmployeeId, accountInitial } from "../labels";
 import { useAccount } from "../components/AuthGate";
 import FollowedKolWorkCard from "../components/FollowedKolWorkCard";
+import DiscoveryPanel from "../home/DiscoveryPanel";
+import { homeModeQuery, parseHomeMode, type HomeMode } from "../home/modes";
+import { findDuplicateTodo, recommendationIdentity } from "../home/todoDedupe";
 import {
   HOME_CONFIRM_STAGE_BLOCKED_COPY,
   HOME_OPENED_EXISTING_SESSION_COPY,
@@ -58,8 +61,8 @@ import {
 } from "../waitStatus";
 
 type HomeTab = "today" | "templates";
-type HomeMode = "todo" | "ai" | "lifecycle";
 type TaskFilter = "all" | "open" | "high" | "ai";
+type TodoListFilter = "all" | "open" | "high";
 type KolTab = string;
 type ActionableTodoBucket = "overdue" | "today" | "waiting" | "approval" | "queued" | "running";
 type TodoBucket = ActionableTodoBucket | "open";
@@ -67,7 +70,6 @@ type FollowedKol = FollowedKolRecord;
 
 const openStatuses = new Set(["pending", "waiting", "running", "queued", "in_progress", "failed"]);
 const closedStatuses = new Set(["completed", "done", "cancelled"]);
-const HOME_MODES: HomeMode[] = ["ai", "todo", "lifecycle"];
 const HOME_FOLD_LIMIT = 6;
 const HOME_TODO_BUCKETS = [
   ["overdue", "逾期"],
@@ -285,8 +287,9 @@ function handleLine(task: Task) {
   return named || staged;
 }
 
-function parseHomeMode(value: string | null): HomeMode {
-  return HOME_MODES.includes(value as HomeMode) ? value as HomeMode : "ai";
+function isTodayActionableTodo(task: Task) {
+  const bucket = todoBucket(task);
+  return bucket === "overdue" || bucket === "today" || bucket === "approval" || bucket === "queued" || bucket === "running";
 }
 
 function deriveWorkbench(tasks: Task[], kols: FollowedKol[]): HomeWorkbench {
@@ -399,7 +402,9 @@ export default function Home() {
   const [definitions, setDefinitions] = useState<TaskDefinition[]>([]);
   const [tab, setTab] = useState<HomeTab>("today");
   const [filter, setFilter] = useState<TaskFilter>("all");
+  const [todoFilter, setTodoFilter] = useState<TodoListFilter>("all");
   const [kolTab, setKolTab] = useState<KolTab>("all");
+  const [dedupeNotice, setDedupeNotice] = useState("");
   const [followedKols, setFollowedKols] = useState<FollowedKol[]>([]);
   const [boardWorkbench, setBoardWorkbench] = useState<HomeWorkbench | null>(null);
   const [followScope, setFollowScope] = useState<StarryBinding | null>(null);
@@ -469,8 +474,9 @@ export default function Home() {
 
   const setMode = (next: HomeMode) => {
     const nextParams = new URLSearchParams(params);
-    if (next === "ai") nextParams.delete("tab");
-    else nextParams.set("tab", next);
+    const query = homeModeQuery(next);
+    if (!query) nextParams.delete("tab");
+    else nextParams.set("tab", query);
     setParams(nextParams, { replace: true });
   };
 
@@ -869,14 +875,83 @@ export default function Home() {
   }, [busy, feedback, err]);
 
   const promoteInsight = async (task: Task) => {
+    const duplicate = findDuplicateTodo(todoItems, {
+      id: task.id,
+      title: task.title,
+      handle: task.kol_name,
+      intent: String(task.skill_id || task.skill || task.task_type || ""),
+      collaboration_id: task.collaboration_id,
+    });
+    if (duplicate) {
+      setDedupeNotice("已在待办中，未重复添加");
+      setMode("todo");
+      return;
+    }
     setBusy(true);
     setErr("");
+    setDedupeNotice("");
     try {
       await api.promoteTask(task.id);
       await refreshBoard();
       setMode("todo");
     } catch (error) {
       setErr(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const convertSuggestion = async (item: RecommendedTask) => {
+    const identity = recommendationIdentity(item);
+    const duplicate = findDuplicateTodo(todoItems, identity);
+    if (duplicate) {
+      setDedupeNotice("已在待办中，未重复添加");
+      setMode("todo");
+      return;
+    }
+    setBusy(true);
+    setErr("");
+    setDedupeNotice("");
+    try {
+      const response = await api.createTask({
+        task_type: item.intent || "creator_daily_tasks",
+        title: item.title,
+        description: item.reason,
+        prompt: item.prompt || item.title,
+        source: "manual",
+        intent: item.intent,
+        collaboration_id: item.collaboration_id,
+        entities: {
+          handle: item.handle,
+          recommendation_id: item.id,
+        },
+      });
+      const created = taskValue(response);
+      setTasks((current) => (
+        findDuplicateTodo(current.filter(isTodoTask), identity)
+          ? current
+          : current.some((task) => task.id === created.id) ? current : [created, ...current]
+      ));
+      await refreshBoard();
+      setMode("todo");
+    } catch {
+      const local: Task = {
+        id: `todo-local-${item.id}`,
+        title: item.title,
+        source: "manual",
+        status: "pending",
+        skill_id: item.intent,
+        skill: item.intent,
+        kol_name: item.handle,
+        description: item.reason,
+        collaboration_id: item.collaboration_id || undefined,
+        promoted_at: new Date().toISOString(),
+        entities: { recommendation_id: item.id, handle: item.handle },
+      };
+      setTasks((current) => (
+        findDuplicateTodo(current.filter(isTodoTask), identity) ? current : [local, ...current]
+      ));
+      setMode("todo");
     } finally {
       setBusy(false);
     }
@@ -994,6 +1069,20 @@ export default function Home() {
   const todoItems = useMemo(
     () => sortedTasks(mergeTaskDetails(workbench.todo || tasks.filter(isTodoTask), taskCatalog), "priority"),
     [taskCatalog, tasks, workbench.todo],
+  );
+
+  const todayTodos = useMemo(
+    () => todoItems.filter(isTodayActionableTodo),
+    [todoItems],
+  );
+
+  const visibleTodoItems = useMemo(
+    () => todoItems.filter((task) => {
+      if (todoFilter === "high") return task.priority === "high" || task.priority === "urgent";
+      if (todoFilter === "open") return openStatuses.has(String(task.status || "pending"));
+      return true;
+    }),
+    [todoFilter, todoItems],
   );
 
   const insightItems = useMemo(
@@ -1169,7 +1258,7 @@ export default function Home() {
               <BrandLockup variant="home" />
             </div>
           </div>
-          <h1>{home.h1}</h1>
+          {mode === "today" ? <h1 data-home-title="today">{home.h1}</h1> : null}
           <p className="home-stats" data-today-summary data-home-stats>
             {statsText}
             {awaitingApprovalCount ? ` · ${awaitingApprovalCount}等审批` : ""}
@@ -1179,12 +1268,12 @@ export default function Home() {
             <button
               type="button"
               role="tab"
-              aria-selected={mode === "ai"}
-              data-home-mode="ai"
+              aria-selected={mode === "today"}
+              data-home-mode="today"
               data-ai-count={insightCount}
-              onClick={() => setMode("ai")}
+              onClick={() => setMode("today")}
             >
-              AI发现 {insightCount}
+              今日任务 {insightCount}
               {highValueCount ? <span className="home-mode-dot" data-insight-mark aria-label="有高价值发现" /> : null}
             </button>
             <button
@@ -1195,6 +1284,15 @@ export default function Home() {
               onClick={() => setMode("todo")}
             >
               我的待办 {openCount}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "discovery"}
+              data-home-mode="discovery"
+              onClick={() => setMode("discovery")}
+            >
+              AI发现
             </button>
             <button
               type="button"
@@ -1215,9 +1313,34 @@ export default function Home() {
           className="home-board"
           onScroll={(event) => setStageScrolled(event.currentTarget.scrollTop > 40)}
         >
-          {mode === "ai" ? (
-            <section className="home-mode-pane" data-home-pane="ai" data-ai-insights data-ai-list-total={insightCount}>
-              <RecommendedTaskList items={recommendedItems} busy={busy} onPick={onRecommend} />
+          {mode === "today" ? (
+            <section className="home-mode-pane" data-home-pane="today" data-ai-insights data-ai-list-total={insightCount}>
+              <RecommendedTaskList
+                items={recommendedItems}
+                todos={todoItems}
+                busy={busy}
+                onPick={onRecommend}
+                onConvert={(item) => void convertSuggestion(item)}
+              />
+              {todayTodos.length ? (
+                <section className="today-existing-todos" data-today-existing-todos aria-label="待办">
+                  <p className="home-lane-label">待办</p>
+                  <ol className="recommend-md-list">
+                    {todayTodos.slice(0, HOME_FOLD_LIMIT).map((task) => (
+                      <li key={task.id} data-today-todo={task.id}>
+                        <button type="button" className="todo-card-act" data-today-todo-act onClick={() => void openTask(task)}>
+                          <span className="todo-card-mark" aria-hidden>{todoMark(task)}</span>
+                          <div className="todo-card-copy">
+                            <strong>{task.title}</strong>
+                            {handleLine(task) ? <p className="todo-card-kicker">{handleLine(task)}</p> : null}
+                            <p className="todo-card-status">{[urgencyLabel(task), dueLabel(task)].filter(Boolean).join(" · ") || "待处理"}</p>
+                          </div>
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              ) : null}
               {showInsightList ? (
                 <InsightList
                   tasks={insightItems}
@@ -1232,9 +1355,27 @@ export default function Home() {
 
           {mode === "todo" ? (
             <section className="home-mode-pane today-work-inline" data-today-work data-home-pane="todo">
-              <TodoActionList tasks={todoItems} onOpen={(task) => void openTask(task)} />
+              {dedupeNotice ? (
+                <p className="home-dedupe-notice" data-todo-deduped role="status">{dedupeNotice}</p>
+              ) : null}
+              <div className="task-filters" data-todo-filters aria-label="筛选待办">
+                {([["all", "全部"], ["open", "待处理"], ["high", "高优先"]] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={todoFilter === value}
+                    data-todo-filter={value}
+                    onClick={() => setTodoFilter(value)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <TodoActionList tasks={visibleTodoItems} onOpen={(task) => void openTask(task)} />
             </section>
           ) : null}
+
+          {mode === "discovery" ? <DiscoveryPanel /> : null}
 
           {mode === "lifecycle" ? (
             <section className="home-mode-pane recommend-work" data-home-pane="lifecycle" data-lifecycle-overview>
@@ -1260,7 +1401,7 @@ export default function Home() {
               </div>
               </div>
               {visibleKols.length ? (
-                <ol className="recommend-list followed-kol-list" data-followed-kol-list>
+                <ol className="recommend-list followed-kol-list" data-followed-kol-list data-followed-origin="collaboration" data-kol-sort="need">
                   {visibleKols.map((card) => (
                     <li
                       key={card.id}
@@ -1530,30 +1671,37 @@ function useFoldedItems<T>(items: T[], limit = HOME_FOLD_LIMIT) {
 
 function RecommendedTaskList({
   items,
+  todos,
   busy,
   onPick,
+  onConvert,
 }: {
   items: RecommendedTask[];
+  todos: Task[];
   busy: boolean;
   onPick: (item: RecommendedTask) => void;
+  onConvert: (item: RecommendedTask) => void;
 }) {
   const fold = useFoldedItems(items);
   if (!items.length) return null;
   return (
-    <section className="recommended-tasks process-md" data-recommended-tasks data-list-total={items.length} aria-label="今日任务">
+    <section className="recommended-tasks process-md" data-recommended-tasks data-today-suggestions data-list-total={items.length} aria-label="建议">
+      <p className="home-lane-label">建议</p>
       <ol className="recommend-md-list">
         {fold.visible.map((item) => {
           const n = item.n || 0;
           const icon = item.icon || recIcon(item.intent);
-          const source = item.source_label || (item.source === "ai" ? "今日任务" : item.source === "catalog" ? "任务模板" : "按阶段");
+          const source = item.source_label || (item.source === "ai" ? "今天推荐" : item.source === "catalog" ? "任务模板" : "按阶段");
+          const alreadyTodo = Boolean(findDuplicateTodo(todos, recommendationIdentity(item)));
           return (
-            <li key={item.id}>
+            <li key={item.id} className="recommend-md-row" data-today-suggestion={item.id}>
               <button
                 type="button"
                 className="recommend-md-item"
                 data-recommended-task={item.id}
                 data-task-n={n}
                 data-recommended-source={item.source || "stage"}
+                data-suggest-cta="prefill"
                 data-act="ask"
                 data-intent={item.intent || ""}
                 data-prompt={item.prompt || item.title}
@@ -1569,6 +1717,16 @@ function RecommendedTaskList({
                     {item.reason} · {source}
                   </span>
                 </span>
+              </button>
+              <button
+                type="button"
+                className="recommend-to-todo"
+                data-suggestion-to-todo={item.id}
+                data-suggest-cta="todo"
+                disabled={busy || alreadyTodo}
+                onClick={() => onConvert(item)}
+              >
+                {alreadyTodo ? "已在待办" : "加入待办"}
               </button>
             </li>
           );

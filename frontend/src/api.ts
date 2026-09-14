@@ -999,4 +999,26 @@ export const api = {
     fetch(`/api/inbound/${id}/defer`, { method: "POST" }).then((r) => r.json()),
   inboundResume: (id: string) =>
     fetch(`/api/inbound/${id}/resume`, { method: "POST" }).then((r) => r.json()),
+  discoveryPlan: (body: { query: string; filters?: Record<string, unknown> }) =>
+    request<Record<string, unknown>>("/api/discovery/plans", {
+      method: "POST",
+      body: JSON.stringify({ ...body, live: false }),
+    }),
+  discoveryRun: (planId: string) =>
+    request<Record<string, unknown>>("/api/discovery/runs", {
+      method: "POST",
+      body: JSON.stringify({ plan_id: planId, live: false }),
+    }),
+  discoveryRunStatus: (runId: string) =>
+    request<Record<string, unknown>>(`/api/discovery/runs/${encodeURIComponent(runId)}`),
+  favoriteDiscoveryCandidate: (id: string, favorited: boolean) =>
+    request<{ ok?: boolean }>(`/api/discovery/candidates/${encodeURIComponent(id)}/favorite`, {
+      method: "POST",
+      body: JSON.stringify({ favorited, live: false }),
+    }),
+  followDiscoveryCandidate: (id: string, confirm: true) =>
+    request<{ ok?: boolean; added_to_followed?: boolean }>(
+      `/api/discovery/candidates/${encodeURIComponent(id)}/follow`,
+      { method: "POST", body: JSON.stringify({ confirm, live: false }) },
+    ),
 };

@@ -146,9 +146,10 @@ export default function FollowedKolWorkCard({
         {showConfirm ? (
           <button
             type="button"
-            className="btn work sm"
+            className="btn ghost sm"
             data-kol-primary-action="confirm-stage"
             data-confirm-enter-stage
+            data-confirm-stage-priority="secondary"
             data-target-stage={rec.target_stage_code}
             data-confirm-stage-busy={actionBusy ? "true" : undefined}
             disabled={actionBusy}

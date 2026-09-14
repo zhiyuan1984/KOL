@@ -823,6 +823,181 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   font-size: 12px;
   line-height: 1.45;
 }
+.home-lane-label {
+  margin: 0 0 var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--font-meta);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.recommend-md-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: start;
+  min-width: 0;
+}
+.recommend-to-todo {
+  margin-top: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-meta);
+  line-height: 1.3;
+  padding: 4px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.recommend-to-todo:hover {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+.recommend-to-todo:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.today-existing-todos {
+  margin: var(--space-4) 0 0;
+  max-width: 42rem;
+}
+.home-dedupe-notice {
+  margin: 0 0 var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--font-meta);
+}
+.home-mode-pane[data-home-pane="todo"] .task-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+}
+.home-mode-pane[data-home-pane="todo"] .task-filters button {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-meta);
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.home-mode-pane[data-home-pane="todo"] .task-filters button[aria-pressed="true"] {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg));
+}
+.discovery-pane {
+  max-width: 42rem;
+}
+.discovery-form {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
+}
+.discovery-query-label {
+  display: grid;
+  gap: var(--space-1);
+}
+.discovery-query,
+.discovery-filters input,
+.discovery-filters select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-ui);
+  padding: var(--space-2) var(--space-3);
+}
+.discovery-query {
+  resize: vertical;
+  min-height: 56px;
+}
+.discovery-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.discovery-filters label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: var(--font-meta);
+}
+.discovery-form-actions,
+.discovery-plan-actions,
+.discovery-candidate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.discovery-plan,
+.discovery-candidate {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+  overflow-x: hidden;
+}
+.discovery-plan strong,
+.discovery-candidate strong {
+  font-size: var(--font-section);
+  font-weight: 600;
+}
+.discovery-plan p,
+.discovery-candidate p,
+.discovery-quiet {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-ui);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.discovery-plan ol {
+  margin: 0;
+  padding-left: 1.2em;
+  color: var(--text);
+  font-size: var(--font-ui);
+  line-height: 1.55;
+}
+.discovery-candidate-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+}
+.discovery-confirm-layer {
+  position: sticky;
+  bottom: 0;
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-quiet);
+}
+.discovery-confirm {
+  display: grid;
+  gap: var(--space-2);
+}
+.discovery-confirm strong {
+  font-size: var(--font-section);
+}
+@media (max-width: 720px) {
+  .discovery-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .recommend-md-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .todo-md { margin: 8px 0 0; max-width: 42rem; }
 .todo-md-empty {
   color: var(--text-muted);
