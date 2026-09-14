@@ -2362,7 +2362,57 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 
 .nowrap, .nowrap-safe { white-space: nowrap; }
 .agent-page { max-width: 52rem; width: 100%; gap: var(--space-4); min-width: 0; overflow-x: hidden; }
-.expert-page { gap: var(--space-3); }
+.list-page.expert-page {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: stretch;
+  align-content: start;
+  gap: var(--space-4);
+  max-width: 1180px;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+}
+.expert-page > * {
+  flex: 0 0 auto;
+  height: auto;
+  min-height: 0;
+  align-self: stretch;
+}
+.expert-hero {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: var(--space-2);
+  max-height: 220px;
+  height: auto;
+  padding: 0;
+}
+.expert-hero h1 {
+  margin: 0;
+  font-size: var(--font-title);
+  line-height: var(--leading-hero);
+}
+.expert-hero .muted {
+  margin: 0;
+  max-width: 40rem;
+  font-size: var(--font-ui);
+}
+.expert-hero-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.expert-hero-copy { min-width: 0; display: grid; gap: 2px; }
+.expert-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+}
 .expert-back {
   color: var(--text-muted);
   font-size: var(--font-meta);
@@ -2370,38 +2420,102 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   width: fit-content;
 }
 .expert-back:hover { color: var(--primary); }
-.expert-search {
-  display: grid;
-  gap: var(--space-1);
-  max-width: 24rem;
+.expert-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  height: auto;
+  min-height: 40px;
 }
-.expert-search input {
-  width: 100%;
+.expert-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  align-content: center;
+  gap: var(--space-2);
+  height: 40px;
+  max-height: 40px;
+  flex: 0 0 auto;
+}
+.expert-tab {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  align-self: center;
+  height: 36px;
+  max-height: 40px;
+  min-height: 0;
+  white-space: nowrap;
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text);
-  border-radius: var(--radius-sm);
-  padding: var(--space-2) var(--space-3);
+  border-radius: 999px;
+  padding: 0 var(--space-3);
   font: inherit;
   font-size: var(--font-ui);
+  line-height: 1;
+  cursor: pointer;
+}
+.expert-tab.on {
+  background: color-mix(in srgb, var(--primary) 10%, var(--bg));
+  border-color: var(--primary);
+  color: var(--primary);
+  font-weight: 600;
+}
+.expert-search {
+  display: block;
+  flex: 1 1 220px;
+  min-width: 200px;
+  max-width: 280px;
+  height: 36px;
+}
+.expert-search input {
+  display: block;
+  width: 100%;
+  height: 36px;
+  max-height: 40px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 0 var(--space-3);
+  font: inherit;
+  font-size: var(--font-ui);
+  line-height: 1;
 }
 .expert-list {
   display: grid;
-  gap: 0;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  justify-content: start;
+  align-content: start;
+  align-items: start;
+  gap: var(--space-4);
+  width: 100%;
 }
 .expert-card {
-  display: grid;
-  gap: var(--space-2);
-  padding: var(--space-3) 0;
-  border-bottom: 1px solid var(--border);
-  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  min-height: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  box-shadow: var(--shadow-quiet);
   overflow: hidden;
 }
 .expert-card-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-2);
+  min-width: 0;
 }
 .expert-card-titles { min-width: 0; display: grid; gap: 2px; }
 .expert-card-titles h2 {
@@ -2413,43 +2527,120 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   text-decoration: none;
 }
 .expert-card-titles h2 a:hover { color: var(--primary); }
-.expert-card-titles p {
+.expert-card-role {
   margin: 0;
-  overflow-wrap: anywhere;
+  font-size: var(--font-meta);
 }
+.expert-pin {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  align-self: flex-start;
+  height: 28px;
+  max-height: 28px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-meta);
+  line-height: 1;
+  cursor: pointer;
+}
+.expert-pin.is-on { color: var(--primary); }
+.expert-pin-label { white-space: nowrap; }
+.expert-card-body,
 .expert-qa {
-  margin: 0;
   display: grid;
-  gap: var(--space-1);
-}
-.expert-qa div {
-  display: grid;
-  grid-template-columns: 4.5rem minmax(0, 1fr);
-  gap: var(--space-2);
-  align-items: baseline;
-  font-size: var(--font-ui);
+  gap: var(--space-3);
   min-width: 0;
 }
-.expert-qa dt {
+.expert-block { display: grid; gap: var(--space-1); min-width: 0; }
+.expert-block h3,
+.expert-detail h2 {
   margin: 0;
   color: var(--text-muted);
   font-size: var(--font-meta);
+  font-weight: 600;
 }
-.expert-qa dd {
+.expert-block p,
+.expert-detail p {
   margin: 0;
+  font-size: var(--font-ui);
   overflow-wrap: anywhere;
 }
-.expert-card-cta { display: flex; }
+.expert-skill-list,
+.expert-help-list,
+.expert-prompt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.expert-help-list {
+  display: grid;
+  gap: 4px;
+}
+.expert-help-list li {
+  font-size: var(--font-ui);
+  overflow-wrap: anywhere;
+}
+.expert-skill {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: var(--font-meta);
+  white-space: nowrap;
+}
+.expert-prompt {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  height: auto;
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-meta);
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.expert-prompt:hover:not(:disabled) {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.expert-prompt:disabled { opacity: 0.45; cursor: not-allowed; }
+.expert-card-cta {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: auto;
+  padding-top: var(--space-1);
+}
+.expert-card-cta .btn.work {
+  width: auto;
+  flex: 0 0 auto;
+}
 .expert-detail {
   display: grid;
   gap: var(--space-4);
+  max-width: 40rem;
+  height: auto;
 }
 .expert-detail section { display: grid; gap: var(--space-2); }
-.expert-detail h2 {
-  margin: 0;
-  font-size: var(--font-section);
-}
-.expert-detail p { margin: 0; font-size: var(--font-ui); overflow-wrap: anywhere; }
 .expert-prompt-list {
   margin: 0;
   padding-left: 1.1rem;
@@ -2493,17 +2684,30 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .agent-hero a { color: var(--primary); }
 .agent-tabs {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  align-items: center;
+  align-content: center;
   gap: var(--space-2);
+  height: 40px;
+  max-height: 40px;
 }
 .agent-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  align-self: center;
+  height: 36px;
+  max-height: 40px;
+  white-space: nowrap;
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--text);
   border-radius: 999px;
-  padding: var(--space-1) var(--space-3);
+  padding: 0 var(--space-3);
   font: inherit;
   font-size: var(--font-ui);
+  line-height: 1;
   cursor: pointer;
 }
 .agent-tab.on {
