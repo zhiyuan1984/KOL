@@ -10,7 +10,7 @@
 | 2026-09-13 | 邮件往来摘要 Codex `thread/start` 与识别一致：`CODEX_MODEL` / CLI 默认，不传 `gpt-5.6-luna`。Luna digest 需要 `OPENAI_BASE_URL` 及该端点 key | 公共 OpenAI `sk-proj` 打默认 Luna 会 HTTP 401。不改 provider 顺序或 sticky-fail。 |
 | 2026-09-13 | 邮件往来摘要 `analysis_failed` 改为冷却后自动再试，并持久化 `error` / `attempted` / `failed_at` | 不是新 ADR。不改 provider、指纹、寒暄过滤或超时。详见 `docs/evidence-mail-digest-analysis-plan-2026-09-13.md`。 |
 | 2026-09-14 | 并列能力面与 Agent / 任务解耦：知识库、审批、考试、连接器使用面是独立产品面，不隶属 KOL Agent，也不因进行中任务才存在 | 不是第五套 Home。治理仍 Admin-only。见 ADR-015、`19-ui-ux-constitution.md`、`21-admin-employee-page-roles.md`。 |
-| 2026-09-14 | 首版 Expert / DigitalEmployee 后端：`ExpertManifest` + `GET/POST /api/experts`；仅 `expert:kol` 已发布；召唤只建绑定会话 | 不改 `/agents` IA，不是第五套 Home，不 LIVE。见 ADR-016、`docs/evidence-expert-manifest-2026-09-14.md`。 |
+| 2026-09-14 | 首版 Expert / DigitalEmployee 后端：`ExpertManifest` + `GET/POST /api/experts`；仅 `expert:kol` 已发布；召唤只建绑定会话 | 员工字段锁定见 ADR-016。不改 `/agents` IA，不是第五套 Home，不 LIVE。 |
 
 ## 已固化决策
 
@@ -202,16 +202,16 @@ Admin 导航和页面与员工连接器/智能体表面重叠：员工侧栏深�
 
 ### 决定
 
-1. **命名。** 领域对象仍是 DigitalEmployee；本版 API / 资产路径用 `expert` / `ExpertManifest` / `expert:kol`。
-2. **资产位置。** `experts/<id>/manifest.yaml`，与 `agents/<id>/manifest.yaml` 并列。Agent 包继续只发布 skills / workflows / policies / mcp / employee_views。
-3. **员工可见。** 仅 `publish_gate.state: published` 出现在 `GET /api/experts`；未发布不可召唤（409 `expert_not_published`）。当前只发布 `expert:kol`。
-4. **召唤。** `POST /api/experts/:id/summon` 复用 `POST /api/sessions` / `openKolSession`，在会话上写入 `expert_id`。不发信、不写阶段、不调 LIVE Gateway、不入队副作用。
-5. **诚实缺字段。** 知识范围、LIVE 健康、运行投影、岗位 owner、数字部门编制等未落地字段列入 `missing_fields`，API 省略，不伪造。
-6. **不改 IA。** `/agents` 仍是工作入口。本 API 支持召唤已发布专家，不把专家做成第五套 Home，也不重定义 `19` 并列能力面。
+1. **命名。** 领域对象仍是 DigitalEmployee；员工端文案是「数字员工」。API / 资产路径用 `expert` / `ExpertManifest` / `expert:kol`。内部发布包仍是 Agent。
+2. **资产位置。** `experts/<id>/manifest.yaml`，与 `agents/<id>/manifest.yaml` 并列。员工页不得用 `/profiles` + `/skills` + `/connectors` 拼装。
+3. **员工可见。** `GET /api/experts` **只**返回 `status=published`。未发布不可召唤（409 `expert_not_published`）。当前只发布 `expert:kol`。
+4. **锁定字段。** `id` / `version` / `status` / `display_name`（`KOL 合作专员`）/ `profession` / `description` / `avatar` / `category` / `tags` / `mission` / `quick_prompts` / `entry_skill`。
+5. **召唤。** `POST /api/experts/:id/summon` 创建绑定会话，持久化 `expert_id` + `expert_version`，响应恰好 `{ session_id, expert_id, expert_version, intro }`。不发信、不写阶段、不自动高风险、不 LIVE。
+6. **不改 IA。** 路由可以是 `/agents` 或 `/experts`（UI 决定）。本 API 不做成第五套 Home，不重定义 `19` 并列能力面。
 
 ### 不决定的范围
 
-不重做 Chat / Agents UI，不实施数字部门，不放宽 LIVE / confirm-before-send / stage 写入。
+不重做 Chat / Agents UI。不做组织/部门/品牌授权、审批模型、专家团队成员。不放宽 LIVE / confirm-before-send / stage 写入。
 
 ### 影响
 

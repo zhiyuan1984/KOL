@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
-import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import {
   clearExpertCache,
   clearExpertPublishOverrides,
@@ -19,6 +18,21 @@ import {
 
 type Json = Record<string, unknown>;
 
+const PUBLIC_KEYS = [
+  "id",
+  "version",
+  "status",
+  "display_name",
+  "profession",
+  "description",
+  "avatar",
+  "category",
+  "tags",
+  "mission",
+  "quick_prompts",
+  "entry_skill",
+];
+
 let tmp: string;
 let app: Hono;
 
@@ -26,9 +40,8 @@ async function request(
   method: string,
   url: string,
   body?: unknown,
-  headers: Record<string, string> = {},
 ): Promise<{ status: number; json: () => Promise<Json | Json[]>; text: () => Promise<string> }> {
-  const init: RequestInit = { method, headers: { "Content-Type": "application/json", ...headers } };
+  const init: RequestInit = { method, headers: { "Content-Type": "application/json" } };
   if (body !== undefined) init.body = JSON.stringify(body);
   const res = await app.request(url, init);
   const text = await res.text();
@@ -43,12 +56,11 @@ function sideEffects(sessionId?: string) {
   const messages = sessionId
     ? (getConn().prepare("SELECT kind FROM messages WHERE session_id=?").all(sessionId) as { kind: string }[])
     : [];
-  const drafts = sessionId
-    ? Number((getConn().prepare("SELECT COUNT(*) AS n FROM drafts WHERE session_id=?").get(sessionId) as { n: number }).n)
-    : 0;
   return {
     messages: messages.map((row) => row.kind),
-    drafts,
+    drafts: sessionId
+      ? Number((getConn().prepare("SELECT COUNT(*) AS n FROM drafts WHERE session_id=?").get(sessionId) as { n: number }).n)
+      : 0,
     sends: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get() as { n: number }).n),
     stageWrites: Number((getConn().prepare("SELECT COUNT(*) AS n FROM starry_stage_writes").get() as { n: number }).n),
     transitions: Number((getConn().prepare("SELECT COUNT(*) AS n FROM stage_transitions").get() as { n: number }).n),
@@ -66,7 +78,6 @@ beforeEach(async () => {
   seedAll();
   const { createApp } = await import("../src/app.js");
   app = createApp();
-  seedWorkbenchFixtures();
 });
 
 afterEach(() => {
@@ -77,35 +88,38 @@ afterEach(() => {
 });
 
 describe("ExpertManifest loader", () => {
-  it("loads the published DigitalEmployee asset for expert:kol only", () => {
+  it("loads only the locked first-phase fields for published expert:kol", () => {
     const manifest = findExpertManifest("expert:kol");
     expect(manifest?.id).toBe("expert:kol");
-    expect(manifest?.title).toBe("KOL 专家");
-    expect(manifest?.available_agents).toEqual(["agent:kol"]);
-    expect(manifest?.domain_object).toBe("DigitalEmployee");
-    expect(manifest?.knowledge_scope).toEqual([]);
-    expect(manifest?.missing_fields).toContain("knowledge_scope");
-    expect(manifest?.missing_fields).toContain("live_health");
+    expect(manifest?.status).toBe("published");
+    expect(manifest?.display_name).toBe("KOL 合作专员");
+    expect(manifest?.entry_skill).toBe("stage_sop");
+    expect(Array.isArray(manifest?.tags)).toBe(true);
+    expect(Array.isArray(manifest?.quick_prompts)).toBe(true);
     expect(expertPublished(manifest!)).toBe(true);
-    expect(listPublishedExperts()).toEqual([
-      expect.objectContaining({ id: "expert:kol", title: "KOL 专家", publish_gate: { state: "published" } }),
-    ]);
+    const listed = listPublishedExperts();
+    expect(listed).toHaveLength(1);
+    expect(Object.keys(listed[0]).sort()).toEqual([...PUBLIC_KEYS].sort());
   });
 });
 
 describe("GET /api/experts", () => {
-  it("lists published summaries and hides unpublished", async () => {
+  it("returns only status=published experts with stable FE fields", async () => {
     const listed = await request("GET", "/api/experts");
     expect(listed.status).toBe(200);
     const rows = await listed.json() as Json[];
     expect(rows).toHaveLength(1);
+    expect(Object.keys(rows[0]).sort()).toEqual([...PUBLIC_KEYS].sort());
     expect(rows[0]).toMatchObject({
       id: "expert:kol",
-      title: "KOL 专家",
-      role: "KOL 建联与合作推进岗位",
-      publish_gate: { state: "published" },
+      status: "published",
+      display_name: "KOL 合作专员",
+      profession: "达人合作",
+      entry_skill: "stage_sop",
     });
-    expect(rows[0]).not.toHaveProperty("live_health");
+    expect(rows[0]).not.toHaveProperty("organization_scope");
+    expect(rows[0]).not.toHaveProperty("permissions");
+    expect(rows[0]).not.toHaveProperty("available_agents");
     setExpertPublishOverride("expert:kol", false);
     const empty = await request("GET", "/api/experts");
     expect(empty.status).toBe(200);
@@ -114,29 +128,21 @@ describe("GET /api/experts", () => {
 });
 
 describe("GET /api/experts/:id", () => {
-  it("returns the full published projection and 404s unknown or unpublished", async () => {
+  it("returns the locked projection and 404s unknown or unpublished", async () => {
     const found = await request("GET", "/api/experts/expert:kol");
     expect(found.status).toBe(200);
     const body = await found.json() as Json;
+    expect(Object.keys(body).sort()).toEqual([...PUBLIC_KEYS].sort());
     expect(body).toMatchObject({
       id: "expert:kol",
-      title: "KOL 专家",
-      domain_object: "DigitalEmployee",
-      available_agents: ["agent:kol"],
-      knowledge_scope: [],
-      publish_gate: { state: "published" },
-      organization_scope: ["org:lt_team", "org:pq_ro_tb_team"],
-      permissions: { declaration: "read-only", policy_refs: ["send_email", "change_stage", "import_creator"] },
+      version: "0.1.0",
+      status: "published",
+      display_name: "KOL 合作专员",
+      category: "达人合作",
+      entry_skill: "stage_sop",
     });
-    expect(body).not.toHaveProperty("live_health");
-    expect(body).not.toHaveProperty("owner_ref");
-    expect(body.missing_fields).toEqual(expect.arrayContaining([
-      "knowledge_scope",
-      "knowledge_manifest",
-      "owner_ref",
-      "live_health",
-      "runtime_projection",
-    ]));
+    expect(body.tags).toEqual(["建联", "跟进", "阶段建议"]);
+    expect(body.quick_prompts).toEqual(expect.arrayContaining(["准备一封建联邮件"]));
     expect((await request("GET", "/api/experts/expert:nope")).status).toBe(404);
     setExpertPublishOverride("expert:kol", false);
     const hidden = await request("GET", "/api/experts/expert:kol");
@@ -146,25 +152,32 @@ describe("GET /api/experts/:id", () => {
 });
 
 describe("POST /api/experts/:id/summon", () => {
-  it("creates an owned session bound to the expert without LIVE side effects", async () => {
-    const summoned = await request("POST", "/api/experts/expert:kol/summon", { title: "跟 KOL 专家开一单" });
+  it("creates a session traceable to the expert without LIVE side effects", async () => {
+    const summoned = await request("POST", "/api/experts/expert:kol/summon", {});
     expect(summoned.status, await summoned.text()).toBe(200);
     const body = await summoned.json() as Json;
+    expect(Object.keys(body).sort()).toEqual(["expert_id", "expert_version", "intro", "session_id"]);
     expect(body).toMatchObject({
       expert_id: "expert:kol",
-      title: "跟 KOL 专家开一单",
-      created: true,
+      expert_version: "0.1.0",
     });
-    expect(body.session_id).toMatch(/^ses_/);
-    const row = getConn().prepare("SELECT * FROM sessions WHERE id=?").get(body.session_id) as {
+    expect(String(body.session_id)).toMatch(/^ses_/);
+    expect(String(body.intro)).toContain("KOL 合作专员");
+    expect(String(body.intro)).not.toMatch(/MCP|Codex|LIVE/i);
+    const row = getConn().prepare("SELECT expert_id, expert_version, title FROM sessions WHERE id=?").get(body.session_id) as {
       expert_id?: string;
-      owner_user_id?: string | null;
+      expert_version?: string;
       title?: string;
     };
     expect(row.expert_id).toBe("expert:kol");
-    expect(row.title).toBe("跟 KOL 专家开一单");
-    const listed = await request("GET", `/api/sessions/${body.session_id}`);
-    expect((await listed.json() as Json).expert_id).toBe("expert:kol");
+    expect(row.expert_version).toBe("0.1.0");
+    expect(row.title).toBe("KOL 合作专员");
+    const session = await request("GET", `/api/sessions/${body.session_id}`);
+    expect(session.status).toBe(200);
+    expect(await session.json()).toMatchObject({
+      expert_id: "expert:kol",
+      expert_version: "0.1.0",
+    });
     expect(sideEffects(String(body.session_id))).toEqual({
       messages: [],
       drafts: 0,
@@ -172,44 +185,6 @@ describe("POST /api/experts/:id/summon", () => {
       stageWrites: 0,
       transitions: 0,
     });
-  });
-
-  it("follows openKolSession when collaboration_id is present and still only binds the expert", async () => {
-    const before = getConn().prepare("SELECT stage_code, stage_version FROM collaborations WHERE id=?").get("col_xiaomei") as {
-      stage_code: string;
-      stage_version: number;
-    };
-    const summoned = await request("POST", "/api/experts/expert:kol/summon", { collaboration_id: "col_xiaomei" });
-    expect(summoned.status, await summoned.text()).toBe(200);
-    const body = await summoned.json() as Json;
-    expect(body).toMatchObject({
-      expert_id: "expert:kol",
-      collaboration_id: "col_xiaomei",
-      created: true,
-    });
-    const row = getConn().prepare("SELECT expert_id, collaboration_id FROM sessions WHERE id=?").get(body.session_id) as {
-      expert_id?: string;
-      collaboration_id?: string;
-    };
-    expect(row.expert_id).toBe("expert:kol");
-    expect(row.collaboration_id).toBe("col_xiaomei");
-    const after = getConn().prepare("SELECT stage_code, stage_version FROM collaborations WHERE id=?").get("col_xiaomei") as {
-      stage_code: string;
-      stage_version: number;
-    };
-    expect(after.stage_code).toBe(before.stage_code);
-    expect(after.stage_version).toBe(before.stage_version);
-    const effects = sideEffects(String(body.session_id));
-    expect(effects.sends).toBe(0);
-    expect(effects.stageWrites).toBe(0);
-    expect(effects.transitions).toBe(0);
-    expect(effects.drafts).toBe(0);
-    expect(effects.messages.every((kind) => kind !== "confirm_stage_card")).toBe(true);
-    const again = await request("POST", "/api/experts/expert:kol/summon", { collaboration_id: "col_xiaomei" });
-    const reused = await again.json() as Json;
-    expect(reused.session_id).toBe(body.session_id);
-    expect(reused.created).toBe(false);
-    expect(reused.expert_id).toBe("expert:kol");
   });
 
   it("returns 404 for unknown and 409 for unpublished experts", async () => {

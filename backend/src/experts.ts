@@ -1,34 +1,41 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { isAdmin, scopedUser } from "./auth.js";
+import { scopedUser } from "./auth.js";
 import { getConn, nowIso, tx } from "./db.js";
 import { HttpFail } from "./host/errors.js";
 import { nid } from "./ids.js";
 import type { Json } from "./types.js";
 
-export type ExpertPublishGate = { state?: string };
-export type ExpertPermissions = {
-  declaration?: string;
-  policy_refs?: string[];
-};
-
 export type ExpertManifest = {
   id: string;
-  version?: string;
-  title: string;
-  role: string;
-  goal: string;
-  knowledge_scope?: unknown[];
-  permissions?: ExpertPermissions;
-  available_agents?: string[];
-  publish_gate?: ExpertPublishGate;
-  organization_scope?: string[];
-  brand_scope?: string[];
-  region_scope?: string[];
-  domain_object?: string;
-  missing_fields?: string[];
+  version: string;
+  status: string;
+  display_name: string;
+  profession: string;
+  description: string;
+  avatar: string;
+  category: string;
+  tags: string[];
+  mission: string;
+  quick_prompts: string[];
+  entry_skill: string;
 };
+
+const PUBLIC_FIELDS = [
+  "id",
+  "version",
+  "status",
+  "display_name",
+  "profession",
+  "description",
+  "avatar",
+  "category",
+  "tags",
+  "mission",
+  "quick_prompts",
+  "entry_skill",
+] as const;
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const expertsDir = path.join(repoRoot, "experts");
@@ -60,7 +67,7 @@ export function clearExpertCache(): void {
   cached = null;
 }
 
-/** Tests only. Temporarily stub the expert publish gate without rewriting the manifest. */
+/** Tests only. Temporarily stub published status without rewriting the manifest. */
 export function setExpertPublishOverride(id: string, published?: boolean | null): void {
   if (published === undefined || published === null) publishOverrides.delete(id);
   else publishOverrides.set(id, published);
@@ -73,11 +80,7 @@ export function clearExpertPublishOverrides(): void {
 export function expertPublished(manifest: ExpertManifest): boolean {
   const override = publishOverrides.get(manifest.id);
   if (override !== undefined) return override;
-  return String(manifest.publish_gate?.state || "") === "published";
-}
-
-export function listExpertManifests(): ExpertManifest[] {
-  return loadExperts();
+  return String(manifest.status || "") === "published";
 }
 
 export function findExpertManifest(id: string): ExpertManifest | undefined {
@@ -91,58 +94,34 @@ export function requireExpertManifest(id: string): ExpertManifest {
   return found;
 }
 
-function canViewUnpublished(): boolean {
-  return Boolean(scopedUser() && isAdmin());
-}
-
-export function expertSummary(manifest: ExpertManifest): Json {
+export function expertPublic(manifest: ExpertManifest): Json {
+  const published = expertPublished(manifest);
   return {
     id: manifest.id,
-    title: manifest.title,
-    role: manifest.role,
-    goal: manifest.goal,
-    publish_gate: { state: expertPublished(manifest) ? "published" : (manifest.publish_gate?.state || "unpublished") },
+    version: manifest.version,
+    status: published ? "published" : (manifest.status || "unpublished"),
+    display_name: manifest.display_name,
+    profession: manifest.profession,
+    description: manifest.description,
+    avatar: manifest.avatar,
+    category: manifest.category,
+    tags: Array.isArray(manifest.tags) ? [...manifest.tags] : [],
+    mission: manifest.mission,
+    quick_prompts: Array.isArray(manifest.quick_prompts) ? [...manifest.quick_prompts] : [],
+    entry_skill: manifest.entry_skill,
   };
-}
-
-export function expertDetail(manifest: ExpertManifest): Json {
-  const missing = Array.isArray(manifest.missing_fields) ? [...manifest.missing_fields] : [];
-  const knowledgeScope = Array.isArray(manifest.knowledge_scope) ? [...manifest.knowledge_scope] : [];
-  const detail: Json = {
-    id: manifest.id,
-    title: manifest.title,
-    role: manifest.role,
-    goal: manifest.goal,
-    knowledge_scope: knowledgeScope,
-    permissions: manifest.permissions || { declaration: "read-only", policy_refs: [] },
-    available_agents: Array.isArray(manifest.available_agents) ? [...manifest.available_agents] : [],
-    publish_gate: { state: expertPublished(manifest) ? "published" : (manifest.publish_gate?.state || "unpublished") },
-    version: manifest.version || null,
-    domain_object: manifest.domain_object || "DigitalEmployee",
-  };
-  if (Array.isArray(manifest.organization_scope) && manifest.organization_scope.length) {
-    detail.organization_scope = [...manifest.organization_scope];
-  }
-  if (Array.isArray(manifest.brand_scope) && manifest.brand_scope.length) {
-    detail.brand_scope = [...manifest.brand_scope];
-  }
-  if (Array.isArray(manifest.region_scope) && manifest.region_scope.length) {
-    detail.region_scope = [...manifest.region_scope];
-  }
-  if (missing.length) detail.missing_fields = missing;
-  return detail;
 }
 
 export function listPublishedExperts(): Json[] {
-  return loadExperts().filter(expertPublished).map(expertSummary);
+  return loadExperts().filter(expertPublished).map(expertPublic);
 }
 
-export function getExpertForViewer(id: string): Json {
+export function getPublishedExpert(id: string): Json {
   const manifest = requireExpertManifest(id);
-  if (!expertPublished(manifest) && !canViewUnpublished()) {
+  if (!expertPublished(manifest)) {
     throw new HttpFail(404, { code: "expert_not_found", message: "未找到该专家" });
   }
-  return expertDetail(manifest);
+  return expertPublic(manifest);
 }
 
 export function assertExpertSummonable(id: string): ExpertManifest {
@@ -157,50 +136,45 @@ export function assertExpertSummonable(id: string): ExpertManifest {
   return manifest;
 }
 
-function bindExpertId(sessionId: string, expertId: string, title?: string): void {
-  const now = nowIso();
-  if (title) {
-    getConn().prepare("UPDATE sessions SET expert_id=?, title=?, updated_at=? WHERE id=?").run(expertId, title, now, sessionId);
-  } else {
-    getConn().prepare("UPDATE sessions SET expert_id=?, updated_at=? WHERE id=?").run(expertId, now, sessionId);
-  }
+export function expertIntro(manifest: ExpertManifest): string {
+  return `你好，我是${manifest.display_name}。告诉我要跟进哪位红人或哪段合作，我来帮你看阶段、准备沟通。发信和改阶段需要你确认，我不会自己做。`;
+}
+
+export function expertAvatarPath(id: string): string {
+  const manifest = requireExpertManifest(id);
+  const slug = manifest.id.includes(":") ? manifest.id.split(":")[1] : manifest.id;
+  return path.join(expertsDir, slug, "avatar.svg");
 }
 
 /**
  * Open a bound work session for a published expert.
- * Reuses POST /api/sessions + openKolSession; does not send mail, write stage, or call LIVE Gateway.
+ * Persists expert_id + expert_version. Does not send mail, write stage, or run LIVE.
  */
-export async function summonExpert(
-  id: string,
-  body: { title?: string; collaboration_id?: string } = {},
-): Promise<Json> {
+export function summonExpert(id: string): Json {
   const manifest = assertExpertSummonable(id);
-  const title = String(body.title || "").trim() || manifest.title;
-  const collaborationId = String(body.collaboration_id || "").trim();
-  if (collaborationId) {
-    const { openKolSession } = await import("./host/kol-journey.js");
-    const opened = openKolSession(collaborationId);
-    bindExpertId(String(opened.id), manifest.id, body.title ? title : undefined);
-    return {
-      session_id: opened.id,
-      expert_id: manifest.id,
-      title: body.title ? title : opened.title,
-      created: Boolean(opened.created),
-      collaboration_id: collaborationId,
-    };
-  }
   const sid = nid("ses");
   const now = nowIso();
   tx((db) => {
     db.prepare(
-      "INSERT INTO sessions (id, title, created_at, updated_at, kind, disabled, owner_user_id, expert_id) VALUES (?,?,?,?,?,?,?,?)",
-    ).run(sid, title, now, now, "work", 0, scopedUser()?.id || null, manifest.id);
+      "INSERT INTO sessions (id, title, created_at, updated_at, kind, disabled, owner_user_id, expert_id, expert_version) VALUES (?,?,?,?,?,?,?,?,?)",
+    ).run(
+      sid,
+      manifest.display_name,
+      now,
+      now,
+      "work",
+      0,
+      scopedUser()?.id || null,
+      manifest.id,
+      manifest.version,
+    );
   });
   return {
     session_id: sid,
     expert_id: manifest.id,
-    title,
-    created: true,
-    created_at: now,
+    expert_version: manifest.version,
+    intro: expertIntro(manifest),
   };
 }
+
+export const EXPERT_PUBLIC_FIELDS = PUBLIC_FIELDS;

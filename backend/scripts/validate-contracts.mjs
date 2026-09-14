@@ -103,41 +103,29 @@ const expertFiles = fs.existsSync(expertDir)
 if (!expertFiles.length) errors.push("missing contract: experts/<id>/manifest.yaml");
 const experts = [];
 const publishedExperts = [];
+const expertRequired = ["id", "version", "status", "display_name", "profession", "description", "avatar", "category", "tags", "mission", "quick_prompts", "entry_skill"];
+const expertForbidden = ["organization_scope", "brand_scope", "region_scope", "permissions", "available_agents", "team_members", "approval_model", "title", "role", "goal", "publish_gate"];
 for (const file of expertFiles) {
   let expert = null;
   try { expert = readJsonYaml(file); } catch (error) { errors.push(error.message); continue; }
   experts.push(expert);
   requireId(expert.id, "expert:", `${path.relative(root, file)} id`);
-  for (const field of ["title", "role", "goal"]) {
-    if (typeof expert[field] !== "string" || !expert[field].trim()) errors.push(`expert ${expert.id || file} is missing ${field}`);
+  for (const field of expertRequired) {
+    if (expert[field] == null || expert[field] === "") errors.push(`expert ${expert.id || file} is missing ${field}`);
   }
-  if (!expert.publish_gate?.state) errors.push(`expert ${expert.id || file} publish_gate.state is required`);
-  if (!Array.isArray(expert.available_agents) || !expert.available_agents.length) {
-    errors.push(`expert ${expert.id || file} must declare available_agents`);
-  } else {
-    for (const agentId of expert.available_agents) {
-      if (agentId !== "agent:kol") errors.push(`expert ${expert.id || file} references unknown agent: ${agentId}`);
-    }
+  for (const field of expertForbidden) {
+    if (expert[field] != null) errors.push(`expert ${expert.id || file} must not declare first-phase-out-of-scope field ${field}`);
   }
-  if (expert.permissions && expert.permissions.declaration !== "read-only") {
-    errors.push(`expert ${expert.id || file} permissions must be a read-only declaration`);
+  if (typeof expert.display_name === "string" && expert.id === "expert:kol" && expert.display_name !== "KOL 合作专员") {
+    errors.push("expert:kol display_name must be KOL 合作专员");
   }
-  for (const policy of expert.permissions?.policy_refs || []) {
-    if (!policies.has(policy)) errors.push(`expert ${expert.id || file} policy ref is missing: ${policy}`);
+  if (!Array.isArray(expert.tags)) errors.push(`expert ${expert.id || file} tags must be an array`);
+  if (!Array.isArray(expert.quick_prompts)) errors.push(`expert ${expert.id || file} quick_prompts must be an array`);
+  if (expert.entry_skill) {
+    const skillFile = path.join(root, "backend", "skills", expert.entry_skill, "SKILL.md");
+    if (!fs.existsSync(skillFile)) errors.push(`expert ${expert.id || file} entry_skill is missing: ${expert.entry_skill}`);
   }
-  for (const unit of expert.organization_scope || []) {
-    requireId(unit, "org:", "expert organization_scope");
-    if (!(org?.organization_units || []).some((item) => item.id === unit)) errors.push(`expert organization is not registered: ${unit}`);
-  }
-  for (const brand of expert.brand_scope || []) {
-    requireId(brand, "brand:", "expert brand_scope");
-    if (!brandIds.has(brand)) errors.push(`expert brand is not registered: ${brand}`);
-  }
-  for (const region of expert.region_scope || []) {
-    requireId(region, "region:", "expert region_scope");
-    if (!regionIds.has(region)) errors.push(`expert region is not registered: ${region}`);
-  }
-  if (String(expert.publish_gate?.state || "") === "published") publishedExperts.push(expert);
+  if (String(expert.status || "") === "published") publishedExperts.push(expert);
 }
 
 if (publishedExperts.filter((item) => item.id === "expert:kol").length !== 1) {

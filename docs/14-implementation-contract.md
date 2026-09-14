@@ -58,27 +58,28 @@ knowledge_manifest: knowledge/kol/manifest.yaml
 
 发布校验必须拒绝：未注册的组织/品牌/区域、缺少 Skill schema、MCP 工具未列白名单、Policy 没有副作用规则、没有评价集或没有回滚方案。
 
-## ExpertManifest 最低结构
+## ExpertManifest 最低结构（首版字段锁定）
 
 ```yaml
 id: expert:kol
-version: 0.1.0-pilot
-title: KOL 专家
-role: KOL 建联与合作推进岗位
-goal: 协助员工完成达人发现、建联沟通、回复分析和阶段建议
-knowledge_scope: []
-permissions:
-  declaration: read-only
-  policy_refs: [send_email, change_stage, import_creator]
-available_agents: [agent:kol]
-publish_gate:
-  state: published
-organization_scope: [org:lt_team, org:pq_ro_tb_team]
-brand_scope: [brand:lt, brand:pq, brand:ro, brand:tb]
-region_scope: [region:eu, region:us, region:ca_au]
+version: 0.1.0
+status: published
+display_name: KOL 合作专员
+profession: 达人合作
+description: 分析合作、展示适用 SOP、准备草稿和跟进建议。发信与正式阶段写入必须由你确认。
+avatar: /api/experts/expert:kol/avatar
+category: 达人合作
+tags: [建联, 跟进, 阶段建议]
+mission: 帮你把达人合作往前推进：看清阶段、准备沟通、给出跟进建议。
+quick_prompts:
+  - 帮我看一下这个红人现在该怎么跟进
+  - 准备一封建联邮件
+  - 这封回复是什么意思
+  - 这一阶段要准备什么
+entry_skill: stage_sop
 ```
 
-未落地字段写入 `missing_fields` 并在 API 中省略，禁止伪造 LIVE 健康或知识条目。`validate:contracts` 校验 Expert 发布门、可用 Agent 引用和范围注册。召唤只建绑定会话。
+`GET /api/experts` 只返回 `status=published`。召唤响应恰好为 `{ session_id, expert_id, expert_version, intro }`。本阶段禁止组织/部门/品牌授权、审批模型和专家团队成员字段。`validate:contracts` 校验上述锁定字段与 `entry_skill` 存在。
 
 ## 前后端契约
 

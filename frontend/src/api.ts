@@ -3,36 +3,30 @@ export type SessionRow = {
   title: string;
   archived_at?: string | null;
   expert_id?: string | null;
+  expert_version?: string | null;
   agent_status?: "listening" | "running" | "waiting_approval";
 };
 
-export type ExpertSummary = {
+export type ExpertManifestView = {
   id: string;
-  title: string;
-  role: string;
-  goal: string;
-  publish_gate?: { state?: string };
-};
-
-export type ExpertManifestView = ExpertSummary & {
-  version?: string | null;
-  knowledge_scope?: unknown[];
-  permissions?: { declaration?: string; policy_refs?: string[] };
-  available_agents?: string[];
-  organization_scope?: string[];
-  brand_scope?: string[];
-  region_scope?: string[];
-  domain_object?: string;
-  missing_fields?: string[];
+  version: string;
+  status: string;
+  display_name: string;
+  profession: string;
+  description: string;
+  avatar: string;
+  category: string;
+  tags: string[];
+  mission: string;
+  quick_prompts: string[];
+  entry_skill: string;
 };
 
 export type ExpertSummonResult = {
   session_id: string;
   expert_id: string;
-  title?: string;
-  created?: boolean;
-  collaboration_id?: string;
-  created_at?: string;
+  expert_version: string;
+  intro: string;
 };
 
 export type AgentRunStatus = NonNullable<SessionRow["agent_status"]>;
@@ -582,12 +576,12 @@ export const api = {
       "/api/task-definitions",
     ),
   agentManifest: () => request<AgentManifestView>("/api/agent-manifest"),
-  experts: () => request<ExpertSummary[]>("/api/experts"),
+  experts: () => request<ExpertManifestView[]>("/api/experts"),
   expert: (id: string) => request<ExpertManifestView>(`/api/experts/${encodeURIComponent(id)}`),
-  summonExpert: (id: string, body?: { title?: string; collaboration_id?: string }) =>
+  summonExpert: (id: string) =>
     request<ExpertSummonResult>(`/api/experts/${encodeURIComponent(id)}/summon`, {
       method: "POST",
-      body: JSON.stringify(body || {}),
+      body: JSON.stringify({}),
     }),
   createTask: (body: Record<string, unknown>) =>
     request<Task | { task: Task }>("/api/tasks", { method: "POST", body: JSON.stringify(body) }),

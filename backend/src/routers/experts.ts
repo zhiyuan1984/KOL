@@ -1,17 +1,21 @@
+import fs from "node:fs";
 import { Hono } from "hono";
-import { getExpertForViewer, listPublishedExperts, summonExpert } from "../experts.js";
-import type { Json } from "../types.js";
+import { expertAvatarPath, getPublishedExpert, listPublishedExperts, summonExpert } from "../experts.js";
+import { HttpFail } from "../host/errors.js";
 
 export const experts = new Hono();
 
 experts.get("/experts", (c) => c.json(listPublishedExperts()));
 
-experts.get("/experts/:id", (c) => c.json(getExpertForViewer(c.req.param("id"))));
-
-experts.post("/experts/:id/summon", async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as Json;
-  return c.json(await summonExpert(c.req.param("id"), {
-    title: body.title ? String(body.title) : undefined,
-    collaboration_id: body.collaboration_id ? String(body.collaboration_id) : undefined,
-  }));
+experts.get("/experts/:id/avatar", (c) => {
+  getPublishedExpert(c.req.param("id"));
+  const file = expertAvatarPath(c.req.param("id"));
+  if (!fs.existsSync(file)) throw new HttpFail(404, { code: "expert_not_found", message: "未找到该专家" });
+  c.header("Content-Type", "image/svg+xml; charset=utf-8");
+  c.header("Cache-Control", "public, max-age=3600");
+  return c.body(Uint8Array.from(fs.readFileSync(file)));
 });
+
+experts.get("/experts/:id", (c) => c.json(getPublishedExpert(c.req.param("id"))));
+
+experts.post("/experts/:id/summon", (c) => c.json(summonExpert(c.req.param("id"))));

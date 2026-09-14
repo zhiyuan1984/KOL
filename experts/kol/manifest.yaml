@@ -1,29 +1,19 @@
 {
   "id": "expert:kol",
-  "version": "0.1.0-pilot",
-  "title": "KOL 专家",
-  "role": "KOL 建联与合作推进岗位",
-  "goal": "协助员工完成达人发现、建联沟通、回复分析和阶段建议。发信与正式阶段写入仍走 Host 闸门，召唤本身不发送、不改阶段。",
-  "knowledge_scope": [],
-  "permissions": {
-    "declaration": "read-only",
-    "policy_refs": ["send_email", "change_stage", "import_creator"]
-  },
-  "available_agents": ["agent:kol"],
-  "publish_gate": {
-    "state": "published"
-  },
-  "organization_scope": ["org:lt_team", "org:pq_ro_tb_team"],
-  "brand_scope": ["brand:lt", "brand:pq", "brand:ro", "brand:tb"],
-  "region_scope": ["region:eu", "region:us", "region:ca_au"],
-  "domain_object": "DigitalEmployee",
-  "missing_fields": [
-    "knowledge_scope",
-    "knowledge_manifest",
-    "owner_ref",
-    "live_health",
-    "runtime_projection",
-    "organization_unit_membership",
-    "exam_gate"
-  ]
+  "version": "0.1.0",
+  "status": "published",
+  "display_name": "KOL 合作专员",
+  "profession": "达人合作",
+  "description": "分析合作、展示适用 SOP、准备草稿和跟进建议。发信与正式阶段写入必须由你确认。",
+  "avatar": "/api/experts/expert:kol/avatar",
+  "category": "达人合作",
+  "tags": ["建联", "跟进", "阶段建议"],
+  "mission": "帮你把达人合作往前推进：看清阶段、准备沟通、给出跟进建议。",
+  "quick_prompts": [
+    "帮我看一下这个红人现在该怎么跟进",
+    "准备一封建联邮件",
+    "这封回复是什么意思",
+    "这一阶段要准备什么"
+  ],
+  "entry_skill": "stage_sop"
 }
