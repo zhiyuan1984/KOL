@@ -1885,7 +1885,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   flex: 1 1 100%;
   max-width: 100%;
   min-width: 0;
-  font-size: var(--font-title);
+  font-size: var(--font-section);
   font-weight: 600;
   line-height: var(--leading-tight);
   color: var(--text);

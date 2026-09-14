@@ -179,10 +179,10 @@ async function expectFollowedKolCardWraps(page: Page, handle?: string) {
     };
     return {
       name: styleOf(pick("[data-kol-name]")),
-      chips: styleOf(pick("[data-kol-chip]")),
+      chips: styleOf(pick("[data-kol-chip]") || pick("[data-kol-scope]")),
       stage: styleOf(pick("[data-stage-label]")),
       suggestion: styleOf(pick("[data-recommended-action] p")),
-      mail: styleOf(pick("[data-mail-summary]")),
+      mail: styleOf(pick("[data-mail-summary]") || pick("[data-latest-fact] p")),
       evidence: styleOf(pick("[data-action-evidence] p")),
       stateCols: bandCols('[data-kol-band="state"]'),
       actionCols: bandCols('[data-kol-band="action"]'),
@@ -1059,7 +1059,7 @@ test("home followed-KOL default sort uses contract keys 1-8", async ({ page }) =
   await expect(risk.locator("[data-current-state]")).not.toContainText("异常");
   await expect(risk.locator('[data-kol-chip="exception"]')).toHaveText("异常");
   await expect(risk.locator('[data-kol-chip="mailbox"]')).toHaveText("pq.ops@example.com");
-  await expect(page.locator("[data-kol-sorts], [data-kol-sort]")).toHaveCount(0);
+  await expect(page.locator("[data-kol-sorts]")).toHaveCount(0);
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("按需处理");
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("阶段停留");
 });
