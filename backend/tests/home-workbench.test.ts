@@ -53,6 +53,8 @@ describe("home workbench", () => {
     expect(todo.find((row) => row.id === "tsk_home_trip_stage")?.current_stage).toContain("争议");
     expect(isTodoWorkItem({ source: "ai", status: "pending" })).toBe(false);
     expect(isInsightWorkItem({ source: "ai", status: "pending" })).toBe(true);
+    expect(isTodoWorkItem({ source: "discovery", status: "pending" })).toBe(false);
+    expect(isInsightWorkItem({ source: "discovery", status: "pending" })).toBe(false);
   });
 
   it("surfaces numbered icon recommendations beyond 3 and pads from the catalog", () => {
@@ -64,13 +66,13 @@ describe("home workbench", () => {
     expect(recs.every((row) => String(row.reason || "").trim())).toBe(true);
     expect(recs.every((row) => String(row.icon || "").trim())).toBe(true);
     expect(recs.map((row) => Number(row.n))).toEqual(recs.map((_, index) => index + 1));
-    expect(recs.every((row) => ["按阶段", "AI发现", "任务模板"].includes(String(row.source_label)))).toBe(true);
+    expect(recs.every((row) => ["按阶段", "今日任务", "任务模板"].includes(String(row.source_label)))).toBe(true);
     expect(JSON.stringify(recs)).not.toMatch(/下一阶段/);
     expect(JSON.stringify(recs)).not.toMatch(/MCP|Codex|线程/);
     expect(recs[0]).toMatchObject({
       n: 1,
       source: "ai",
-      source_label: "AI发现",
+      source_label: "今日任务",
       intent: "email_compose",
       handle: "小美妆日记",
     });

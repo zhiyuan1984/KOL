@@ -115,7 +115,7 @@ function taskValue(value: Task | { task: Task }): Task {
 }
 
 function sourceLabel(source?: string) {
-  return source === "ai" ? "AI 发现" : "手动创建";
+  return source === "ai" ? "今日任务" : "手动创建";
 }
 
 function statusLabel(status?: string) {
@@ -166,7 +166,7 @@ function workPriorityScore(task: Task) {
 }
 
 function whyLine(task: Task) {
-  const origin = task.source === "ai" ? "AI发现" : "我的任务";
+  const origin = task.source === "ai" ? "今日任务" : "我的任务";
   if (waitDisplayOf(task.status) === "failed") {
     const hint = failureHint(task);
     return hint ? `${origin} · ${hint}` : `${origin} · 执行失败`;
@@ -1436,7 +1436,7 @@ export default function Home() {
               <section className="today-workbench" data-today-tasks>
                 <div className="task-controls">
                   <div className="task-filters" aria-label="筛选全部工作">
-                    {([["all", "全部"], ["open", "待处理"], ["high", "高优先级"], ["ai", "✦ AI发现"]] as const).map(([value, label]) => (
+                    {([["all", "全部"], ["open", "待处理"], ["high", "高优先级"], ["ai", "✦ 今日任务"]] as const).map(([value, label]) => (
                       <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)} data-panel-filter={value}>
                         {label} {taskCounts[value]}
                       </button>
@@ -1540,12 +1540,12 @@ function RecommendedTaskList({
   const fold = useFoldedItems(items);
   if (!items.length) return null;
   return (
-    <section className="recommended-tasks process-md" data-recommended-tasks data-list-total={items.length} aria-label="AI发现">
+    <section className="recommended-tasks process-md" data-recommended-tasks data-list-total={items.length} aria-label="今日任务">
       <ol className="recommend-md-list">
         {fold.visible.map((item) => {
           const n = item.n || 0;
           const icon = item.icon || recIcon(item.intent);
-          const source = item.source_label || (item.source === "ai" ? "AI发现" : item.source === "catalog" ? "任务模板" : "按阶段");
+          const source = item.source_label || (item.source === "ai" ? "今日任务" : item.source === "catalog" ? "任务模板" : "按阶段");
           return (
             <li key={item.id}>
               <button
@@ -1711,7 +1711,7 @@ function InsightList({
           <div className="insight-card-body">
             <div className="todo-card-head">
               <strong>{task.title}</strong>
-              <span className="todo-urgency">AI发现</span>
+              <span className="todo-urgency">今日任务</span>
               {isHighValueInsight(task) ? <span className="insight-high">高价值</span> : null}
             </div>
             {handleLine(task) ? <p className="todo-handle">{handleLine(task)}</p> : null}

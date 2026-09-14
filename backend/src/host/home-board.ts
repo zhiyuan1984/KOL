@@ -239,7 +239,9 @@ export function isTodoWorkItem(task: {
   dismissed_at?: unknown;
 }): boolean {
   if (isClosedWorkItem(task) || task.dismissed_at) return false;
-  return String(task.source || "manual") !== "ai" || Boolean(task.promoted_at);
+  const source = String(task.source || "manual");
+  if (source === "ai" || source === "discovery") return Boolean(task.promoted_at);
+  return true;
 }
 
 export function dueFlags(dueAt: unknown): { overdue: boolean; due_today: boolean } {
@@ -316,7 +318,7 @@ function inboundUnread(kol: Json): Json | undefined {
 function decorateRecommended(row: Json, index: number): Json {
   const n = index + 1;
   const icon = recIcon(String(row.intent || ""));
-  const sourceLabel = String(row.source_label || (row.source === "ai" ? "AI发现" : row.source === "catalog" ? "任务模板" : "按阶段"));
+  const sourceLabel = String(row.source_label || (row.source === "ai" ? "今日任务" : row.source === "catalog" ? "任务模板" : "按阶段"));
   return {
     ...row,
     act: "ask",
@@ -349,7 +351,7 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[]): Json[] {
       title: recTitle("reply_analysis", handle),
       reason: snippet ? `${snippet.slice(0, 48)}${snippet.length > 48 ? "…" : ""} · 待判断` : "有未读来信，先做回复分析",
       source: "ai",
-      source_label: "AI发现",
+      source_label: "今日任务",
       intent: "reply_analysis",
       prompt: recPrompt("reply_analysis", handle),
       handle,
@@ -370,7 +372,7 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[]): Json[] {
       title: recTitle(intent, handle, days, String(kol?.stage_code || "")),
       reason,
       source: "ai",
-      source_label: "AI发现",
+      source_label: "今日任务",
       intent,
       prompt: recPrompt(intent, handle, String(kol?.stage_code || "")),
       handle,
