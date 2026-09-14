@@ -13,6 +13,8 @@ import {
   statusLabel,
   versionLine,
 } from "../knowledgeCopy";
+import { knowledgeArchiveConfirm, knowledgeHardDeleteConfirm } from "../adminConfirm";
+import { useAdminConfirm } from "../components/ConfirmDialog";
 
 type Row = Record<string, unknown>;
 
@@ -82,10 +84,12 @@ export default function AdminKnowledge() {
   const published = useMemo(() => rows.filter((row) => row.status === "published"), [rows]);
   const archived = useMemo(() => rows.filter((row) => row.status === "archived"), [rows]);
   const editing = rows.find((row) => row.status === "pending_review" || row.status === "draft");
+  const { ask, dialog } = useAdminConfirm();
 
   return (
     <section className="admin-kb" data-admin-knowledge>
-      {notice && <p className="status-ok" role="status">{notice}</p>}
+      {dialog}
+      {notice && <p className="admin-receipt status-ok" data-admin-receipt role="status">{notice}</p>}
       {error && <p className="error" role="alert">{error}</p>}
 
       <header className="kb-hero kb-hero-admin">
@@ -179,7 +183,14 @@ export default function AdminKnowledge() {
                 <div className="chip-row">
                   <button className="btn" type="button" onClick={() => fillEdit(row)}>填入编辑</button>
                   <button className="btn work" type="button" onClick={() => void run(() => api.approveKnowledge(row.id), "已审批发布")}>审批发布</button>
-                  <button className="btn" type="button" onClick={() => void run(() => api.deleteKnowledge(row.id), "草稿已删除")}>彻底删除</button>
+                  <button
+                    className="btn danger"
+                    type="button"
+                    data-kb-hard-delete={row.id}
+                    onClick={() => ask(knowledgeHardDeleteConfirm(row.title), () => run(() => api.deleteKnowledge(row.id), "草稿已删除"))}
+                  >
+                    彻底删除
+                  </button>
                 </div>
               </article>
             ))}
@@ -294,7 +305,14 @@ export default function AdminKnowledge() {
                 >
                   {openVersions === row.id ? "收起版本" : "查看版本"}
                 </button>
-                <button className="btn" type="button" onClick={() => void run(() => api.archiveKnowledge(row.id), "已归档，运营首页不再出现")}>归档</button>
+                <button
+                  className="btn danger"
+                  type="button"
+                  data-kb-archive={row.id}
+                  onClick={() => ask(knowledgeArchiveConfirm(row.title, row.current_version), () => run(() => api.archiveKnowledge(row.id), "已归档，运营首页不再出现"))}
+                >
+                  归档
+                </button>
               </div>
             </div>
             {openVersions === row.id && (

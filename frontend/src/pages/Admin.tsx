@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { FUNNEL, HubTile, skillFunnel, skillKind, type SkillRow } from "./SkillHub";
+import { skillDeleteConfirm } from "../adminConfirm";
+import { useAdminConfirm } from "../components/ConfirmDialog";
 
 type AdminSkill = SkillRow & {
   grants?: { org: string[]; team: string[]; user: string[] };
@@ -56,6 +58,8 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
   const [sopAliases, setSopAliases] = useState("");
   const [sopSaving, setSopSaving] = useState(false);
   const [sopErr, setSopErr] = useState("");
+  const [sopNotice, setSopNotice] = useState("");
+  const { ask, dialog } = useAdminConfirm();
   const [user, setUser] = useState("");
   const [password, setPassword] = useState("");
   const [loginErr, setLoginErr] = useState("");
@@ -220,8 +224,10 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
   const removeSkill = async (s: AdminSkill) => {
     if (s.source !== "published") return;
     setSopErr("");
+    setSopNotice("");
     try {
       await api.deleteAdminSkill(s.id);
+      setSopNotice(`技能「${s.title}」已删除`);
       await load();
     } catch (e) {
       setSopErr(e instanceof Error ? e.message : String(e));
@@ -320,10 +326,12 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
 
       {(embedded || tab === "skills") && (
         <>
+          {dialog}
           <div className="panel" data-sop-policy>
             <p className="muted">{data?.sop?.note || "技能说明在本页维护。运营在技能页只能选用动作。"}</p>
             <p className="muted">新建技能会写入运行时目录，下一轮 Codex turn 即可 extraRoots / config/write 生效。</p>
           </div>
+          {sopNotice && <p className="admin-receipt status-ok" data-admin-receipt role="status">{sopNotice}</p>}
           {sopErr && <p className="error">{sopErr}</p>}
           <form
             className="panel sop-editor"
@@ -474,7 +482,12 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
                         {s.in_market ? "下架" : "上架"}
                       </button>
                       {s.source === "published" && (
-                        <button type="button" className="btn" data-skill-delete={s.id} onClick={() => void removeSkill(s)}>
+                        <button
+                          type="button"
+                          className="btn danger"
+                          data-skill-delete={s.id}
+                          onClick={() => ask(skillDeleteConfirm(s.title, s.id), () => removeSkill(s))}
+                        >
                           删除
                         </button>
                       )}

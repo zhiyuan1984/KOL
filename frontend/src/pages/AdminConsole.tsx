@@ -26,6 +26,8 @@ import {
   userStatusLabel,
 } from "../labels";
 import { SKILL_OPTIONS } from "../knowledgeCopy";
+import { userDeactivateConfirm } from "../adminConfirm";
+import { useAdminConfirm } from "../components/ConfirmDialog";
 
 const TABS: [string, string][] = [
   ["employees", "员工"],
@@ -149,7 +151,7 @@ export default function AdminConsole() {
           </div>
         </header>
         <AdminHealth connectors={connectors} />
-        {notice && <p className="status-ok" role="status">{notice}</p>}
+        {notice && <p className="admin-receipt status-ok" data-admin-receipt role="status">{notice}</p>}
         {error && <p className="error" role="alert">{error}</p>}
 
         {tab === "employees" && <EmployeesPanel users={users} onSave={save} />}
@@ -197,22 +199,42 @@ function AdminHealth({ connectors }: { connectors: AdminRow[] }) {
 }
 
 function EmployeesPanel({ users, onSave }: { users: AdminRow[]; onSave: SaveFn }) {
+  const { ask, dialog } = useAdminConfirm();
   return (
     <section className="admin-grid">
+      {dialog}
       <AdminList
         title="员工目录"
         empty="暂无员工"
         rows={users}
-        render={(user) => (
-          <>
-            <p className="muted">{String(user.email || user.username || "")}</p>
-            <span className="chip">{userStatusLabel(String(user.status || (user.active === false ? "inactive" : "active")))}</span>
-            <p className="muted">{Array.isArray(user.roles) ? user.roles.map((role) => roleLabel(String(role))).join(" / ") : ""}</p>
-            <button className="btn" onClick={() => void onSave(`/api/admin/users/${user.id}`, { active: user.active === false }, "员工状态已更新", "PATCH")}>
-              {user.active === false ? "启用" : "停用"}
-            </button>
-          </>
-        )}
+        render={(user) => {
+          const inactive = user.active === false;
+          const name = rowTitle(user);
+          const email = String(user.email || user.username || "");
+          return (
+            <>
+              <p className="muted">{email}</p>
+              <span className="chip">{userStatusLabel(String(user.status || (inactive ? "inactive" : "active")))}</span>
+              <p className="muted">{Array.isArray(user.roles) ? user.roles.map((role) => roleLabel(String(role))).join(" / ") : ""}</p>
+              <button
+                type="button"
+                className={inactive ? "btn" : "btn danger"}
+                data-admin-user-action={inactive ? "activate" : "deactivate"}
+                onClick={() => {
+                  if (inactive) {
+                    void onSave(`/api/admin/users/${user.id}`, { active: true }, "员工已启用", "PATCH");
+                    return;
+                  }
+                  ask(userDeactivateConfirm(name, email), () =>
+                    onSave(`/api/admin/users/${user.id}`, { active: false }, "员工已停用", "PATCH"),
+                  );
+                }}
+              >
+                {inactive ? "启用" : "停用"}
+              </button>
+            </>
+          );
+        }}
       />
       <form
         className="panel settings-form"
