@@ -296,6 +296,22 @@ export function isAdminAccount(me?: {
   return Boolean(me?.available_modes?.includes("admin") || me?.roles?.includes("admin"));
 }
 
+export function accountDisplayName(me?: { name?: string | null } | null): string {
+  return String(me?.name || "").trim() || "当前账户";
+}
+
+/** Existing account id / handle only — do not invent a second employee number. */
+export function accountEmployeeId(me?: {
+  id?: string | null;
+  handle?: string | null;
+} | null): string {
+  return String(me?.id || me?.handle || "").trim();
+}
+
+export function accountInitial(me?: { name?: string | null } | null): string {
+  return accountDisplayName(me).slice(0, 1) || "我";
+}
+
 /** Sidebar account chip: who is signed in, not demo handle / exam jargon. */
 export function accountChipLabel(me?: {
   name?: string | null;
@@ -304,7 +320,7 @@ export function accountChipLabel(me?: {
   roles?: string[] | null;
   role?: string | null;
 } | null): string {
-  const name = String(me?.name || "").trim() || "当前账户";
+  const name = accountDisplayName(me);
   if (me?.exam_passed === false) return `${name} · 待完成考试`;
   const admin = isAdminAccount(me);
   return `${name} · ${admin ? "管理员" : (roleLabel(me?.role) || "员工")}`;

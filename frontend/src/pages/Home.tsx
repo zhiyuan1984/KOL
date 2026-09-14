@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   api,
   type FromTextResult,
@@ -21,7 +21,8 @@ import { recIcon, withRecommendedDisplay } from "../recommendedTasks";
 import { clearComposerFill, composerStarter, peekComposerFill } from "../knowledgeCopy";
 import { FOLLOWED_KOL_TABS } from "../kolStages";
 import { rememberJourney } from "../journey";
-import { missingFieldsMessage, fieldLabel } from "../labels";
+import { missingFieldsMessage, fieldLabel, accountDisplayName, accountEmployeeId, accountInitial } from "../labels";
+import { useAccount } from "../components/AuthGate";
 import FollowedKolWorkCard from "../components/FollowedKolWorkCard";
 import {
   HOME_CONFIRM_STAGE_BLOCKED_COPY,
@@ -366,7 +367,23 @@ function CardFields({
   );
 }
 
+function ChromeIco({ path }: { path: string }) {
+  return (
+    <svg className="home-chrome-ico" viewBox="0 0 24 24" aria-hidden>
+      <path
+        d={path}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export default function Home() {
+  const { account } = useAccount();
   const [home, setHome] = useState<{ brand: string; h1: string; recs: Rec[] }>({
     brand: "灵工 工作",
     h1: "今天有什么工作要处理？",
@@ -1056,7 +1073,68 @@ export default function Home() {
     >
       <div className="home-stage">
         <div className="home-hero">
-          <BrandLockup variant="home" />
+          <div className="home-chrome" data-home-chrome>
+            <div className="home-chrome-cluster">
+              <div className="home-chrome-account" data-home-account>
+                <span className="home-chrome-avatar" data-home-account-avatar aria-hidden>
+                  {accountInitial(account)}
+                </span>
+                <div className="home-chrome-who">
+                  <strong data-home-account-name>{accountDisplayName(account)}</strong>
+                  {accountEmployeeId(account) ? (
+                    <span data-home-account-id>{accountEmployeeId(account)}</span>
+                  ) : null}
+                </div>
+              </div>
+              <div className="home-chrome-actions" data-home-chrome-actions>
+                <button
+                  type="button"
+                  className="home-chrome-icon"
+                  data-home-chrome-action="search"
+                  aria-label="搜索任务"
+                  title="搜索任务"
+                  onClick={() => {
+                    const input = document.querySelector<HTMLTextAreaElement>("[data-home] [data-composer-input]");
+                    input?.focus();
+                    input?.scrollIntoView({ block: "nearest" });
+                  }}
+                >
+                  <ChromeIco path="M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z M16 16l5 5" />
+                </button>
+                <button
+                  type="button"
+                  className="home-chrome-icon"
+                  data-home-chrome-action="refresh"
+                  aria-label="刷新工作台"
+                  title="刷新工作台"
+                  onClick={() => void refreshBoard(true)}
+                >
+                  <ChromeIco path="M4 12a8 8 0 0 1 13.7-5.6L20 8 M20 12a8 8 0 0 1-13.7 5.6L4 16 M20 4v4h-4 M4 20v-4h4" />
+                </button>
+                <a
+                  className="home-chrome-icon"
+                  data-home-chrome-action="external"
+                  href="/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="新窗口打开工作台"
+                  title="新窗口打开工作台"
+                >
+                  <ChromeIco path="M10 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4 M14 4h6v6 M10 14L20 4" />
+                </a>
+                <Link
+                  className="home-chrome-icon"
+                  data-home-chrome-action="settings"
+                  to="/settings"
+                  aria-label="个人设置"
+                  title="个人设置"
+                >
+                  <ChromeIco path="M12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7z M19.4 13a7.8 7.8 0 0 0 .1-2l2-1.2-2-3.4-2.2.6a8 8 0 0 0-1.7-1L15 4h-4l-.6 2a8 8 0 0 0-1.7 1l-2.2-.6-2 3.4 2 1.2a7.8 7.8 0 0 0 0 2l-2 1.2 2 3.4 2.2-.6a8 8 0 0 0 1.7 1l.6 2h4l.6-2a8 8 0 0 0 1.7-1l2.2.6 2-3.4z" />
+                </Link>
+              </div>
+            </div>
+            <BrandLockup variant="home" />
+          </div>
           <h1>{home.h1}</h1>
           <p className="home-stats" data-today-summary data-home-stats>
             {statsText}
@@ -1145,13 +1223,6 @@ export default function Home() {
                   );
                 })}
               </div>
-              <h2 data-followed-kol-heading>
-                {kolTab === "all"
-                  ? "我跟进的红人"
-                  : kolTab === "exception"
-                    ? "异常 KOL"
-                    : (FOLLOWED_KOL_TABS.find((item) => item.code === kolTab)?.label || "这一阶段")}
-              </h2>
               </div>
               {visibleKols.length ? (
                 <ol className="recommend-list followed-kol-list" data-followed-kol-list>

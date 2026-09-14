@@ -75,6 +75,44 @@ async function expectHomeModeOrder(page: Page) {
   ))).toEqual(["ai", "todo", "lifecycle"]);
 }
 
+async function expectHomeChromeRow(page: Page) {
+  const chrome = page.locator("[data-home-chrome]");
+  await expect(chrome).toBeVisible();
+  await expect(chrome.locator("[data-home-account-name]")).not.toHaveText("");
+  await expect(chrome.locator("[data-home-account-id]")).not.toHaveText("");
+  await expect(chrome.locator("[data-home-chrome-action]")).toHaveCount(4);
+  await expect(page.locator('[data-brand-lockup="home"] [data-brand-mark]')).toHaveText("LIFE & DISCOVERY");
+  await expect(page.locator('[data-brand-lockup="home"] .brand-slogan-en')).toHaveText(
+    "Powering Outdoor Adventures for Generations!",
+  );
+  await expect(page.locator('[data-brand-lockup="home"] .brand-slogan-zh')).toHaveText("服务几代人的户外生活");
+  const accountBox = await chrome.locator("[data-home-account]").boundingBox();
+  const brandBox = await chrome.locator("[data-brand-lockup='home']").boundingBox();
+  expect(accountBox && brandBox).toBeTruthy();
+  expect(brandBox!.x).toBeGreaterThan(accountBox!.x + accountBox!.width - 2);
+  expect(Math.abs(brandBox!.y - accountBox!.y)).toBeLessThan(24);
+}
+
+async function expectFollowedKolHeadingRemoved(page: Page) {
+  await expect(page.locator("[data-followed-kol-heading]")).toHaveCount(0);
+  await expect(page.locator("[data-home-pane=lifecycle] h2")).toHaveCount(0);
+  await expect(page.locator('[data-home-mode="lifecycle"]')).toContainText("我跟进的红人");
+}
+
+async function expectFollowedKolListAlignsWithTabs(page: Page) {
+  const tabs = page.locator("[data-kol-tabs]");
+  const list = page.locator("[data-followed-kol-list]");
+  const stage = page.locator("[data-home] .home-stage");
+  await expect(tabs).toBeVisible();
+  await expect(list).toBeVisible();
+  const tabsBox = await tabs.boundingBox();
+  const listBox = await list.boundingBox();
+  const stageBox = await stage.boundingBox();
+  expect(tabsBox && listBox && stageBox).toBeTruthy();
+  expect(Math.abs(listBox!.width - tabsBox!.width)).toBeLessThan(8);
+  expect(listBox!.width).toBeLessThan(stageBox!.width - 8);
+}
+
 async function openFollowedKolDetail(page: Page, handle?: string) {
   const card = handle
     ? page.locator(`[data-followed-kol="${handle}"]`)
@@ -331,10 +369,7 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await page.goto("/");
   await expect(page.locator("aside .brand-name")).toHaveText("灵工 工作");
   await expect(page.locator("[data-home] h1")).toHaveText("今天有什么工作要处理？");
-  await expect(page.locator('[data-brand-lockup="home"] .brand-slogan-en')).toHaveText(
-    "Powering Outdoor Adventures for Generations!",
-  );
-  await expect(page.locator('[data-brand-lockup="home"] .brand-slogan-zh')).toHaveText("服务几代人的户外生活");
+  await expectHomeChromeRow(page);
   await expect(page.locator('[data-brand-lockup="home"] .brand-logo')).toHaveAttribute("src", "/brand/litime-logo.png");
   await expect(page.locator("aside [data-brand-lockup]")).toHaveCount(0);
   await expect(page.locator("aside")).not.toContainText("Powering Outdoor Adventures");
@@ -401,6 +436,7 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expect(page.locator("[data-today-work]")).not.toContainText("后续");
   await expect(page.locator("[data-today-work] h2, [data-todo-md] strong").filter({ hasText: "我的待办" })).toHaveCount(0);
   await openHomeLifecycle(page);
+  await expectFollowedKolHeadingRemoved(page);
   await expect(page.getByRole("link", { name: /查看KOL全生命周期/ })).toHaveCount(0);
   await expect(page.locator('a[href="/pipeline"]')).toHaveCount(0);
   await expect(page.locator("[data-kol-sorts], [data-kol-secondary-filters]")).toHaveCount(0);
@@ -768,15 +804,15 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await page.goto("/");
   await openHomeLifecycle(page);
   const card = page.locator('[data-followed-kol="小美妆日记"]');
-  const board = page.locator("[data-home-pane=lifecycle]");
   await expect(card.locator("[data-kol-band]")).toHaveCount(4);
   await expect(card.locator('[data-kol-card-cols="5"]')).toHaveCount(0);
   await expect(card.locator(".task-main")).toHaveCount(0);
-  const boardBox = await board.boundingBox();
+  await expectFollowedKolHeadingRemoved(page);
+  await expectFollowedKolListAlignsWithTabs(page);
+  const stageBox = await page.locator("[data-home] .home-stage").boundingBox();
   const cardBox = await card.boundingBox();
-  expect(boardBox && cardBox).toBeTruthy();
-  expect((cardBox?.width || 0)).toBeGreaterThan((boardBox?.width || 0) * 0.7);
-  expect((cardBox?.width || 0)).toBeLessThanOrEqual((boardBox?.width || 0) + 1);
+  expect(stageBox && cardBox).toBeTruthy();
+  expect((cardBox?.width || 0)).toBeLessThan(stageBox!.width - 8);
   await expectNoHorizontalOverflow(page, "[data-home-modes]");
   await expectNoHorizontalOverflow(page, "[data-kol-tabs]");
   await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
@@ -2524,6 +2560,9 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await expect(page.locator("[data-insight-card]")).toContainText("AI 风险发现");
   await expect(page.locator("[data-insight-mark]")).toBeVisible();
   await openHomeLifecycle(page);
+  await expectHomeChromeRow(page);
+  await expectFollowedKolHeadingRemoved(page);
+  await expectFollowedKolListAlignsWithTabs(page);
   await expect(page.locator("[data-kol-tab]")).toHaveCount(17);
   await expect(page.locator('[data-kol-tab="INITIAL_CONTACT"]')).toBeVisible();
   await expect(page.locator('[data-kol-tab="needs_me"]')).toHaveCount(0);

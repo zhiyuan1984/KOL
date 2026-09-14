@@ -49,6 +49,8 @@ export default function FollowedKolWorkCard({
     ...card.risk.chips,
     card.unread_count > 0 ? { id: "unread", label: `未读 ${card.unread_count}` } : null,
   ].filter(Boolean) as { id: string; label: string }[];
+  const factLine = [fact.source, fact.summary].filter(Boolean).join(" · ");
+  const initial = card.identity.display.replace(/^@/, "").slice(0, 1) || "红";
 
   return (
     <article
@@ -62,28 +64,30 @@ export default function FollowedKolWorkCard({
       data-action-owner={card.owner}
     >
       <div className="kol-band kol-band-identity" data-kol-band="identity">
-        <strong data-kol-identity data-kol-name>{card.identity.display}</strong>
-        <span className="kol-chip-row" data-kol-scope>
-          {chips.map((chip) => (
-            <span
-              key={chip.id + chip.label}
-              className={
-                "kol-chip"
-                + (chip.id === "unread" ? " is-unread" : "")
-                + (chip.id === "exception" || chip.id === "high-risk" ? " is-risk" : "")
-              }
-              data-kol-chip={chip.id}
-              data-unread-count={chip.id === "unread" ? card.unread_count : undefined}
-            >
-              {chip.label}
-            </span>
-          ))}
-        </span>
+        <span className="kol-avatar" data-kol-avatar aria-hidden>{initial}</span>
+        <div className="kol-identity-main">
+          <strong data-kol-identity data-kol-name>{card.identity.display}</strong>
+          <span className="kol-chip-row" data-kol-scope>
+            {chips.map((chip) => (
+              <span
+                key={chip.id + chip.label}
+                className={
+                  "kol-chip"
+                  + (chip.id === "unread" ? " is-unread" : "")
+                  + (chip.id === "exception" || chip.id === "high-risk" ? " is-risk" : "")
+                }
+                data-kol-chip={chip.id}
+                data-unread-count={chip.id === "unread" ? card.unread_count : undefined}
+              >
+                {chip.label}
+              </span>
+            ))}
+          </span>
+        </div>
       </div>
 
       <div className="kol-band kol-band-state" data-kol-band="state">
         <div className="kol-state-block" data-current-state data-current-stage>
-          <span className="kol-band-label">当前状态</span>
           <div className="kol-state-fields">
             <p data-stage-code={card.current_state.stage_code || undefined} data-stage-label>
               {card.current_state.stage_label}
@@ -95,23 +99,19 @@ export default function FollowedKolWorkCard({
             ) : null}
           </div>
         </div>
-        <div className="kol-state-block" data-latest-fact data-fact-kind={fact.kind}>
-          <span className="kol-band-label">最新事实</span>
-          <p data-mail-summary={fact.thread_id || undefined} title={fact.summary}>
-            {fact.source ? `${fact.source} · ` : ""}
-            {fact.summary}
-            {fact.at ? <span data-thread-time> · {formatFactTime(fact.at)}</span> : null}
-          </p>
+        <div className="kol-state-block" data-recommended-action={rec.kind}>
+          <p>{rec.label}</p>
         </div>
       </div>
 
       <div className="kol-band kol-band-recommend" data-kol-band="action">
-        <div className="kol-state-block" data-recommended-action={rec.kind}>
-          <span className="kol-band-label">建议动作</span>
-          <p>{rec.label}</p>
+        <div className="kol-state-block" data-latest-fact data-fact-kind={fact.kind}>
+          <p data-mail-summary={fact.thread_id || undefined} title={factLine}>
+            {factLine}
+            {fact.at ? <span data-thread-time> · {formatFactTime(fact.at)}</span> : null}
+          </p>
         </div>
         <div className="kol-state-block" data-action-evidence={card.evidence.kind}>
-          <span className="kol-band-label">依据</span>
           <p title={rec.why}>{rec.why}</p>
         </div>
       </div>
