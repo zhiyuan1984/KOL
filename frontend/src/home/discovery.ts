@@ -14,10 +14,12 @@ export type DiscoveryMode = "search" | "detail" | "creator";
 export type DiscoveryRunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 export type CreatorCandidateStatus = "suggested" | "dismissed" | "followed";
 export type DiscoveryPhase = "idle" | "plan" | "running" | "results" | "error";
-export type DiscoveryRegion = "all" | "na" | "eu" | "sea";
+export type DiscoveryRegion = "all" | "us" | "ca" | "eu" | "au" | "na" | "sea";
 
 export type DiscoveryFilters = {
   region?: DiscoveryRegion | string;
+  directions?: string[];
+  /** Legacy single-direction field; Host merges it into `directions`. */
   niche?: string;
   [key: string]: unknown;
 };
@@ -142,8 +144,11 @@ const PLATFORM_LABEL: Record<DiscoveryPlatform, string> = {
 
 const REGION_LABEL: Record<DiscoveryRegion, string> = {
   all: "不限地区",
-  na: "北美",
+  us: "美国",
+  ca: "加拿大",
   eu: "欧洲",
+  au: "澳洲",
+  na: "北美",
   sea: "东南亚",
 };
 
