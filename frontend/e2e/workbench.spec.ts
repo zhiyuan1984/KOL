@@ -2599,7 +2599,7 @@ test("approval, knowledge, and exam are vertical primary nav items before cloud"
   await expect(page.locator(".approval-page")).not.toContainText("等我确认");
   await expect(page.locator('[data-nav="approvals"]')).toHaveClass(/active/);
   await page.locator('[data-nav="knowledge"]').click();
-  await expect(page.getByRole("heading", { name: "我的知识库" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "知识库" })).toBeVisible();
   await page.locator('[data-nav="exam"]').click();
   await expect(page.getByRole("heading", { name: "学习考试" })).toBeVisible();
 });
@@ -3416,8 +3416,8 @@ test("cited knowledge template appears in the home picker and only prefills", as
   await expect(page).toHaveURL(/\/(?:\?.*)?$/);
   await expect(page.locator("[data-home] [data-mail-fields]")).toHaveCount(0);
   await page.locator('[data-nav="knowledge"]').click();
-  await expect(page.getByRole("heading", { name: "我的知识库" })).toBeVisible();
-  await expect(page.locator('[data-knowledge="kb_mail_followup"]')).toContainText("已启用");
+  await expect(page.getByRole("heading", { name: "知识库" })).toBeVisible();
+  await expect(page.locator('[data-knowledge="kb_mail_followup"]')).toContainText("已发布");
   await page.locator('[data-fill-composer="kb_mail_followup"]').click();
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/LiTime collab kit/);
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/Just a quick follow-up/);
@@ -3426,6 +3426,51 @@ test("cited knowledge template appears in the home picker and only prefills", as
   await expect(page.locator("[data-home] [data-knowledge-preview='kb_mail_followup']")).toHaveAttribute("data-knowledge-preview-mode", "lock");
   await expect(page.locator("[data-home] [data-knowledge-preview-body]")).toHaveCount(0);
   await expect(page.locator("[data-home] [data-knowledge-preview-title]")).toContainText("阶段跟进");
+});
+
+test("employee knowledge base uses task copy, category tabs, and a content drawer", async ({ page }) => {
+  await page.goto("/kb");
+  const kb = page.locator("[data-kb-page='mine']");
+  await expect(page.getByRole("heading", { name: "知识库", exact: true })).toBeVisible();
+  await expect(kb.locator(".page-kicker")).toHaveText("知识库");
+  await expect(kb.locator(".kb-lead")).toContainText("选择适合当前任务的资料，AI 会据此生成草稿。正式发送前仍需要你确认。");
+  await expect(kb).not.toContainText(/Codex|Harness|MCP|发送不等于推进阶段|发送不等于改阶段|发送\s*≠|不会改阶段|用这份写信|资产·不发送|资产 · 不发送|知识市场|我的知识库|口径与其它/);
+  const tabOrder = await kb.locator("[data-kb-tab]").evaluateAll((els) => els.map((el) => el.getAttribute("data-kb-tab")));
+  expect(tabOrder).toEqual(["all", "sop", "mail", "quote", "recent"]);
+  await expect(kb.locator("[data-kb-tab='sop']")).toHaveText("KOL合作SOP");
+  await expect(kb.locator("[data-kb-tab='brand']")).toHaveCount(0);
+
+  const followup = kb.locator('[data-knowledge="kb_mail_followup"]');
+  await expect(followup.locator("[data-kb-summary]")).toBeVisible();
+  await expect(followup).not.toContainText("Happy to share the spec sheet");
+  await expect(followup).not.toContainText("unboxing angle");
+  await expect(followup.getByRole("button", { name: "用于当前任务" })).toBeVisible();
+  await expect(followup.getByRole("button", { name: "查看内容" })).toBeVisible();
+  await expect(followup.getByRole("button", { name: "收藏" })).toBeVisible();
+  await expect(followup.getByRole("button", { name: "从本账号停用" })).toHaveCount(0);
+  await expect(followup.getByRole("button", { name: "对本账号隐藏" })).toHaveCount(0);
+
+  await followup.locator("[data-kb-open]").click();
+  const drawer = page.locator('[data-kb-preview="kb_mail_followup"]');
+  await expect(drawer).toBeVisible();
+  await expect(drawer.locator("[data-kb-preview-body]")).toContainText("Just a quick follow-up");
+  await expect(drawer.locator("[data-kb-preview-body]")).toContainText("LiTime collab kit");
+  await expect(drawer.locator("[data-kb-preview-body]")).toContainText("Happy to share the spec sheet");
+  await drawer.getByRole("button", { name: "关闭" }).click();
+  await expect(drawer).toHaveCount(0);
+
+  await kb.locator("[data-kb-tab='mail']").click();
+  await expect(kb.locator(".page-kicker")).toHaveText("知识库 · 邮件模板");
+  await expect(kb.locator("[data-kind='mail_template']").first()).toBeVisible();
+  await expect(kb.locator("[data-kind='policy']")).toHaveCount(0);
+
+  await followup.getByRole("button", { name: "收藏" }).click();
+  await expect(followup.getByRole("button", { name: "已收藏" })).toBeVisible();
+
+  await page.locator('[data-fill-composer="kb_mail_followup"]').click();
+  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/LiTime collab kit/);
+  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/Just a quick follow-up/);
+  await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 });
 
 test("HTML session payload is shown as a connection error, not SyntaxError", async ({ page, request }) => {
