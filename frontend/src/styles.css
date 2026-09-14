@@ -1192,6 +1192,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .discovery-confirm strong {
   font-size: var(--font-section);
 }
+.discovery-confirm [data-discovery-follow-error] {
+  color: var(--danger, #b42318);
+}
 @media (max-width: 720px) {
   .recommend-md-row {
     grid-template-columns: minmax(0, 1fr);

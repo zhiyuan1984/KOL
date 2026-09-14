@@ -288,6 +288,20 @@ function mockCall(name: string, args: Json): Json {
   if (name === "addKolProfile") {
     return { kolUid: "KOLTEST001" };
   }
+  if (name === "importKolProfilesFromCrawler") {
+    const fileName = String(args.fileName || "discovery-follow.csv");
+    const csv = Buffer.from(String(args.fileBase64 || ""), "base64").toString("utf8");
+    const line = csv.split(/\r?\n/).map((row) => row.replace(/^\uFEFF/, "")).find((row, index) => index > 0 && row.trim());
+    const cells = line ? line.split(",").map((cell) => cell.replace(/^"|"$/g, "").trim()) : [];
+    const account = cells[2] || cells[1] || "DISC";
+    const slug = account.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 12) || "DISC";
+    return {
+      kolUid: `KOL${slug}`,
+      imported: 1,
+      fileName,
+      list: [{ kolUid: `KOL${slug}`, kolName: cells[1] || account }],
+    };
+  }
   if (name === "pageKolProfiles") {
     let body: Json = {};
     try {
@@ -1000,6 +1014,8 @@ const TOOL_LABELS: Record<string, string> = {
   getEmailConversation: "读取会话详情",
   createEmailConversation: "建立往来记录",
   addKolProfile: "新增红人画像",
+  importKolProfilesFromCrawler: "导入红人档案",
+  importKolProfilesV2: "标准模板导入",
   pageKolProfiles: "分页查询达人画像",
   listAllKolProfiles: "全量查询达人画像",
   getKolProfileDetail: "查询达人详情",

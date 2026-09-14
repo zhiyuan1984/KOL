@@ -38,6 +38,7 @@ export type CreatorCandidate = {
   handle: string;
   nickname: string;
   followers: number;
+  avg_views_10?: number;
   score: number;
   avatar_url?: string | null;
   title?: string;
@@ -316,6 +317,7 @@ export function asCandidate(row: unknown): CreatorCandidate {
     handle,
     nickname: String(item.nickname || item.handle || ""),
     followers: Number(item.followers || 0),
+    avg_views_10: Number(item.avg_views_10 || 0),
     score: Number(item.score || 0),
     avatar_url: item.avatar_url == null ? null : String(item.avatar_url),
     title: item.title ? String(item.title) : undefined,
@@ -588,8 +590,11 @@ export async function waitForDiscoveryResults(
   return latest;
 }
 
-export async function followCandidate(id: string): Promise<DiscoveryFollowResult> {
-  const body = await api.followDiscoveryCandidate(id);
+export async function followCandidate(
+  id: string,
+  extra?: Record<string, unknown>,
+): Promise<DiscoveryFollowResult> {
+  const body = await api.followDiscoveryCandidate(id, extra);
   const row = asRecord(body);
   return {
     ...asCandidate(body),

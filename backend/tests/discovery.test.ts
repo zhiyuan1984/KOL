@@ -12,6 +12,7 @@ import { setCrawlMcpClientFactory } from "../src/crawl/service.js";
 import { monitorCrawlJob } from "../src/crawl/service.js";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
+import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import { buildHomeBoard, buildRecommendedTasks, isInsightWorkItem, isTodoWorkItem } from "../src/host/home-board.js";
 import { OVERSEAS_CRAWL_PLATFORMS } from "../src/crawl/platforms.js";
 import type { Json } from "../src/types.js";
@@ -156,12 +157,14 @@ afterEach(() => {
   setCrawlMcpClientFactory();
   setCollectorProbeClientFactory();
   setCollectorProbeFetch();
+  setStarryKolClientFactory();
   resetCollectorConnectionCache();
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.MEDIACRAWLER_MCP_URL;
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
   delete process.env.AUTH_MODE;
+  delete process.env.LIVE_REMOTE_SIDE_EFFECTS;
 });
 
 describe("discovery request create", () => {
@@ -281,7 +284,7 @@ describe("follow and dismiss", () => {
     const first = items.find((row) => row.nickname === "OutdoorPower") || items[0];
     const second = items.find((row) => row.id !== first.id);
 
-    const followed = await request("POST", `/api/discovery/candidates/${first.id}/follow`);
+    const followed = await request("POST", `/api/discovery/candidates/${first.id}/follow`, { confirmed: true });
     expect(followed.status).toBe(200);
     expect(followed.body.status).toBe("followed");
     expect(followed.body.collaboration).toMatchObject({
@@ -290,15 +293,18 @@ describe("follow and dismiss", () => {
       source: "discovery",
       stage_code: "INITIAL_CONTACT",
     });
+    expect(String((followed.body.collaboration as Json).kol_uid)).toMatch(/^KOL/i);
+    expect(String((followed.body.collaboration as Json).kol_uid)).not.toMatch(/^disc_/);
     expect(followed.body.created).toBe(true);
     expect((followed.body.collaboration as Json).owner_name == null
       || (followed.body.collaboration as Json).owner_name === "").toBe(true);
     assertEmployeeCopy(followed.body);
 
-    const again = await request("POST", `/api/discovery/candidates/${first.id}/follow`);
+    const again = await request("POST", `/api/discovery/candidates/${first.id}/follow`, { confirmed: true });
     expect(again.status).toBe(200);
     expect(again.body.created).toBe(false);
     expect((again.body.collaboration as Json).id).toBe((followed.body.collaboration as Json).id);
+    expect((again.body.collaboration as Json).kol_uid).toBe((followed.body.collaboration as Json).kol_uid);
     expect(Number((getConn().prepare(
       "SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'",
     ).get() as { n: number }).n)).toBe(1);
@@ -334,10 +340,12 @@ describe("follow and dismiss", () => {
     const items = results.candidates as Json[];
     expect(items).toHaveLength(1);
     assertGetCreatorsMcpContract(creatorCallArgs[0], "youtube");
-    const followed = await request("POST", `/api/discovery/candidates/${items[0].id}/follow`);
+    const followed = await request("POST", `/api/discovery/candidates/${items[0].id}/follow`, { confirmed: true });
     expect(followed.status).toBe(200);
     expect(followed.body.status).toBe("followed");
     expect(followed.body.created).toBe(true);
+    expect(String((followed.body.collaboration as Json).kol_uid)).toMatch(/^KOL/i);
+    expect(String((followed.body.collaboration as Json).kol_uid)).not.toMatch(/^disc_/);
     assertEmployeeCopy(followed.body);
     expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
@@ -365,7 +373,7 @@ describe("AI发现 is not 今日任务 recommendations", () => {
     expect((buildRecommendedTasks([], []) as Json[]).some((row) => row.candidate_id)).toBe(false);
     expect(((board.workbench as Json).todo as Json[]).some((row) => String(row.source) === "discovery")).toBe(false);
 
-    await request("POST", `/api/discovery/candidates/${candidate.id}/follow`);
+    await request("POST", `/api/discovery/candidates/${candidate.id}/follow`, { confirmed: true });
     expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
 });

@@ -57,6 +57,9 @@ discovery.get("/discovery/runs/:id/candidates", (c) => {
 
 discovery.get("/discovery/candidates/:id", (c) => c.json(getCandidate(c.req.param("id"))));
 
-discovery.post("/discovery/candidates/:id/follow", (c) => c.json(followCandidate(c.req.param("id"))));
+discovery.post("/discovery/candidates/:id/follow", async (c) => {
+  const body = await c.req.json().catch(() => ({})) as Json;
+  return c.json(await followCandidate(c.req.param("id"), body));
+});
 
 discovery.post("/discovery/candidates/:id/dismiss", (c) => c.json(dismissCandidate(c.req.param("id"))));

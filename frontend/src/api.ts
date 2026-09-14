@@ -1046,10 +1046,10 @@ export const api = {
   },
   discoveryCandidate: (id: string) =>
     request<Record<string, unknown>>(`/api/discovery/candidates/${encodeURIComponent(id)}`),
-  followDiscoveryCandidate: (id: string) =>
+  followDiscoveryCandidate: (id: string, body?: Record<string, unknown>) =>
     request<Record<string, unknown>>(`/api/discovery/candidates/${encodeURIComponent(id)}/follow`, {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify({ confirmed: true, ...(body || {}) }),
     }),
   dismissDiscoveryCandidate: (id: string) =>
     request<Record<string, unknown>>(`/api/discovery/candidates/${encodeURIComponent(id)}/dismiss`, {
