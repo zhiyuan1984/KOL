@@ -6,6 +6,7 @@
 
 | 日期 | 记录 | 说明 |
 |---|---|---|
+| 2026-09-14 | MediaCrawler → Starry 跟进桥：三模式（单个 / 勾选批量 / 条件批量）。条件批量**本期全开**：粉丝 ≥ N、近10均播 ≥ M、Host 评分 ≥ S、平台 / 地区沿用发现计划芯片。无邮箱仍单行 `importKolProfilesFromCrawler`；跟进+主档=一张 L3 确认卡（每 `source_batch` 一次）；采集只产线索；成功才跟进（真实 `kolUid`）；本路径禁发信/改阶段/解密/编造邮箱；入库仍 Host-only；门槛只在 Host（列表预览 + 写入前复核） | 产品锁定。见 ADR-022、`07-mcp-data-contract.md`、`19-ui-ux-constitution.md`。本记录不实施 FE/BE，不 LIVE，不在跟进时改阶段。 |
 | 2026-09-14 | 员工 `/kb` **不是**邮件模板管理台。只回答查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务；邮件模板只是一类资料；主 CTA「用于当前任务」只产未发送草稿；卡片元数据底线可后补字段 | 产品裁定现行员工 `/kb` 不适合。见 ADR-021、`19-ui-ux-constitution.md`。本记录不实施 FE/BE。 |
 | 2026-09-14 | 员工工作台**全局正文基线 16px**（约比旧 13–14px 大 15–20%）；控件 / 按钮 / Tab / helper **≥14px**；禁止 `transform: scale` / `zoom` 假装字号。Linear 密度仍在，但不靠缩小正文 | 产品确认。见 ADR-020、`20-visual-design-system.md`。字号 CSS 由实现 PR 落地。 |
 | 2026-09-14 | Home 内四模式：**今日任务 → 我的待办 → AI发现 → 我跟进的红人**；旧「AI发现」改名为今日任务；新「AI发现」= CreatorCandidate 线索；加入跟进才建 Collaboration | 默认 `tab` 为空即今日任务。推荐仍只预填不自动执行。见 ADR-018、`19-ui-ux-constitution.md`。 |
@@ -43,6 +44,7 @@
 | ADR-019 | Home AI发现条件区：平台/地区单选芯片；方向多选最多 8；NL 主输入、芯片纠正、计划跟芯片；重置不清空 NL；无 TikTok、无「全部平台」。服从 ADR-018 | `19-ui-ux-constitution.md` |
 | ADR-020 | 员工工作台正文基线 **16px**；UI / 按钮 / Tab / helper **≥14px**；禁止 scale/zoom 假装字号；Linear 密度靠间距与阴影，不靠缩小正文 | `20-visual-design-system.md`、`19-ui-ux-constitution.md` |
 | ADR-021 | 员工 `/kb` 是并列能力面（ADR-015）：查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务；禁止邮件模板管理台与引擎行话；应用只产未发送草稿；卡片元数据底线先立法、schema 可后补 | `19-ui-ux-constitution.md`、`14-implementation-contract.md`、`21-admin-employee-page-roles.md` |
+| ADR-022 | MediaCrawler → Starry 跟进桥：三模式；条件批量本期全开（粉丝 / 近10均播 / Host 评分 / 平台 / 地区）；无邮箱仍单行 `importKolProfilesFromCrawler`；跟进+主档一张 L3 卡（每 `source_batch` 一次）；采集不写 Starry；成功才跟进（真实 `kolUid`）；禁发信/改阶段/解密/编造邮箱；门槛只在 Host。服从 ADR-018 / ADR-011 / ADR-019 | `07-mcp-data-contract.md`、`19-ui-ux-constitution.md`、`08-permission-approval-audit.md`、`policies/import_creator.yaml` |
 
 ## 新增 Agent 分级
 
@@ -400,3 +402,57 @@ ADR-018 已锁定新「AI发现」= CreatorCandidate 线索，不是任务推荐
 - 规范：`19-ui-ux-constitution.md` 知识库 `/kb` 节；`14-implementation-contract.md` 知识库契约一句；`21-admin-employee-page-roles.md` / `04-ux-ui-system.md` 短指针；`docs/README.md` 索引
 - 代码：本 ADR 不改 JSX / API
 - 测试：文档评审 only；后续 FE / BE 以本记录 + `19` 知识库节为对照
+
+## ADR-022 — MediaCrawler → Starry 跟进桥：三模式、单卡确认、成功才写跟进（2026-09-14）
+
+**状态**：已固化  
+**决策人**：产品负责人
+
+### 问题与背景
+
+ADR-018 已锁定：采集完成只产 CreatorCandidate；**加入跟进才建 Collaboration**；发现阶段不得自动写合作。现行 `confirm-follow` 仍只落本地 Collaboration，并用 `disc_` 假编号当成功，也不写 Starry。产品已锁定 MediaCrawler → Starry 跟进桥，否则后续实现会：编造邮箱、两步确认、采集结束自动写主档、本地假编号当成功、在跟进路径发信/改阶段/解密，或让采集侧直接写 Starry。
+
+本记录只立法，服从 ADR-018（对象分属 / 加入跟进才建合作）、ADR-011（跟进 ≠ 改阶段）、ADR-019（条件芯片不另造）、`07` / `08`（导入是 L3，发送 / 阶段 / 解密 / 导入不得混成一张副作用卡）、`19`（员工面无引擎行话）。
+
+相关已有证据：`docs/evidence-ai-discovery-backend-2026-09-14.md`（采集只入库线索）、`docs/evidence-ai-discovery-smoke-2026-09-14.md`。分析稿路径 `docs/evidence-mediacrawler-starry-align-2026-09-14.md` 立法时不在本仓库；产品决定不依赖该稿是否入库。
+
+### 决定
+
+1. **三种加入跟进模式。** 本桥只支持：**(A) 单个加入**、**(B) 勾选后批量加入**、**(C) 按条件批量加入**。条件批量 / 确认跟进的门槛**本期全部必支持**（不是「粉丝先做、其余以后」）：
+
+   | 门槛 | 员工含义 | 字段 / 来源 | 控件 |
+   |---|---|---|---|
+   | 粉丝数 ≥ N | 粉丝数不少于 N | 线索字段 `followers` | Host 条件（列表预览 + 写入前复核） |
+   | 近10均播 ≥ M | 近 10 条均播放不少于 M | Host 用线索 `recent_views` / MediaCrawler 最近 10 条 `views` 算算术平均，记为 `avg_views_10` | Host 条件（列表预览 + 写入前复核） |
+   | Host 评分 ≥ S | 评分不少于 S | 线索字段 `score`（Host 已算，不另发明评分器） | Host 条件（列表预览 + 写入前复核） |
+   | 平台 | 只跟所选平台 | 发现计划芯片（ADR-019）；线索也带 `platform`，写入前对照计划 | **复用**发现计划平台芯片，**禁止**第二套平台控件 |
+   | 地区 | 只跟所选地区 | 发现计划地区芯片（ADR-019）；线索若带地区则对照计划，缺字段诚实省略、不得伪造 | **复用**发现计划地区芯片，**禁止**另造地区控件 |
+
+   **不另造一套筛选 IA。** 平台 / 地区不是跟进页新芯片。方向标签仍属发现计划（ADR-019），本桥不新做方向门槛。
+
+2. **无联系邮箱仍写 Starry。** 单个加入即使没有 `contactEmail`，也必须走 **单行** `importKolProfilesFromCrawler` 映射写入 Starry。**禁止**编造邮箱。**禁止**只落本地、把主档写入推迟成「以后有邮箱再说」。
+
+3. **跟进 + 主档写入 = 一张 L3 确认卡。** 员工确认一次：加入跟进与写入主档是同一意图、同一张确认卡，**不是**先跟进再另批导入。幂等 / 审批粒度是每个 `source_batch` 一次（对齐 `policies/import_creator.yaml` 的 `creator_external_id + source_batch`）。这**不是**把发送、改阶段、解密与导入并成一张副作用卡（`00` / `04` / `08` 仍分家）。
+
+4. **采集完成只产线索。** Crawl 结束只写 CreatorCandidate。**禁止**采集完成自动写 Starry、自动建 Collaboration（ADR-018）。`upload_creators` / `KOL_INGESTION_URL` 仍是 Host 侧入库，见第 7 条。
+
+5. **成功才跟进。** 只有 Starry 写入回传**真实** `kolUid` 之后，才把线索标成已跟进并建立 Collaboration。**禁止**再用 `disc_` 假编号当本桥成功路径。现行本地 `disc_` follow 是 residual，实现 PR 必须替换，不得当新成功语义。
+
+6. **本路径禁止。** 跟进桥不得调用 `sendEmail` / `sendEmailNow`、`changeLifecycleStage`、`decryptKolContact`；不得编造邮箱。跟进 ≠ 发信 ≠ 改阶段 ≠ 解密。
+
+7. **入库与主档写入分家。** `upload_creators` / `KOL_INGESTION_URL` 仍是 **Host-only** 入库（CreatorCandidate / 本地创作者）。MediaCrawler **不得**直接写 Starry。Starry 只在人确认后由 Host Gateway 调 `importKolProfilesFromCrawler`（Policy `import_creator`）。
+
+8. **全部门槛只在 Host。** 粉丝 / 近10均播 / Host 评分 / 平台 / 地区都在列表预览筛一次，写入前再核一次。MediaCrawler 工具**没有** min-followers / min-views / min-score 入参；不得把门槛下放到采集侧。
+
+9. **Policy 扩权。** `policies/import_creator.yaml` 的 `mcp_tools` 必须包含 `starrykol.importKolProfilesFromCrawler`（与既有 `addKolProfile` / `importKolProfilesV2` 并列）。本路径的确认闸门走该 Policy，不另发明一条无确认写入。
+
+### 不决定的范围
+
+不实施前端 / 后端 / CSS / e2e。不 LIVE。不在跟进时改阶段、发信或解密。不新增 UX ID。不发明 TikTok 或「全部平台」。不削弱四页法律、ADR-011 / 018 / 019、发送 ≠ 推进阶段、Collaboration-on-follow-only、连接器使用面 vs 治理面。不扩张组织权限或审批系统。不把 MediaCrawler 采集伪装成同步 Skill。不重做 Chat。实现 PR 另开。
+
+### 影响
+
+- 规范：`07-mcp-data-contract.md` 跟进桥物理路径；`19-ui-ux-constitution.md`「加入跟进」；`docs/README.md` 索引
+- Policy：`policies/import_creator.yaml` 增加 `starrykol.importKolProfilesFromCrawler`
+- 代码：本 ADR 不改 TS / JSX / API
+- 测试：文档评审 + `validate:contracts`；后续实现 PR 以本记录 + `19` / `07` 为对照
