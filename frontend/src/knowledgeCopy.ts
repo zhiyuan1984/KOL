@@ -1,4 +1,5 @@
 import type { KnowledgeRow } from "./api";
+import { stageLabel } from "./labels";
 
 export const KB_FILL_STASH = "kb_fill_composer";
 
@@ -6,7 +7,7 @@ export const HIDE_REASONS = [
   {
     code: "outdated",
     label: "内容过时",
-    result: "对本账号隐藏；写邮件不再带进 Codex；已发信不受影响。",
+    result: "对本账号隐藏；写邮件时不再带上这份资料；已发信不受影响。",
   },
   {
     code: "brand_mismatch",
@@ -251,4 +252,177 @@ export function versionLine(ver: Record<string, unknown>) {
   const when = formatKbTime(String(ver.created_at || ""));
   const note = String(ver.note || "").trim() || "保存";
   return `第 ${n} 版${when ? ` · ${when}` : ""} · ${note}`;
+}
+
+export const KB_FAVORITES_KEY = "kb:favorites";
+export const KB_RECENT_KEY = "kb:recent";
+export const KB_LEAD = "选择适合当前任务的资料，AI 会据此生成草稿。正式发送前仍需要你确认。";
+export const KB_MARKET_LEAD = "这些是组织已发布、可直接选用的资料。选一份后，AI 会据此生成草稿。正式发送前仍需要你确认。";
+
+export type KbBrowseTab = "all" | "mail" | "brand" | "sop" | "quote" | "recent";
+
+export const KB_TAB_LABEL: Record<KbBrowseTab, string> = {
+  all: "全部资料",
+  sop: "KOL合作SOP",
+  mail: "邮件模板",
+  brand: "品牌与产品",
+  quote: "报价与谈判",
+  recent: "最近使用",
+};
+
+export function kbKicker(tab: KbBrowseTab) {
+  return tab === "all" ? "知识库" : `知识库 · ${KB_TAB_LABEL[tab]}`;
+}
+
+export function kbSanitizeEmployeeCopy(text?: string) {
+  return String(text || "")
+    .replace(/Codex\s*harness/gi, "")
+    .replace(/Codex/gi, "")
+    .replace(/Harness/gi, "")
+    .replace(/发送不等于推进阶段/g, "")
+    .replace(/发送不等于改阶段/g, "")
+    .replace(/\s+[。.]{2,}/g, "。")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function kbHaystack(row: Pick<KnowledgeRow, "title" | "tags" | "body" | "kind" | "subject">) {
+  return [row.title, row.tags, row.body, row.kind, row.subject].filter(Boolean).join(" ");
+}
+
+export function kbIsMail(row: Pick<KnowledgeRow, "kind">) {
+  return row.kind === "mail_template";
+}
+
+export function kbIsQuote(
+  row: Pick<KnowledgeRow, "title" | "tags" | "body" | "kind" | "subject" | "stage_codes">,
+) {
+  const stages = row.stage_codes || [];
+  if (stages.some((code) => code === "QUOTE_PENDING" || code === "NEGOTIATING")) return true;
+  return /报价|谈判|审批带/.test(kbHaystack(row));
+}
+
+export function kbIsBrandProduct(
+  row: Pick<KnowledgeRow, "title" | "tags" | "body" | "kind" | "subject">,
+) {
+  if (kbIsMail(row)) return false;
+  return /品牌资料|产品资料|产品规格|卖点|参数表/.test(kbHaystack(row));
+}
+
+export function kbIsSop(
+  row: Pick<KnowledgeRow, "title" | "tags" | "body" | "kind" | "subject" | "stage_codes">,
+) {
+  if (kbIsMail(row) || kbIsQuote(row) || kbIsBrandProduct(row)) return false;
+  if (row.kind === "policy" || row.kind === "pattern") return true;
+  return /SOP|口径|门槛|核验|流程/.test(kbHaystack(row));
+}
+
+export function kbMatchesTab(
+  row: KnowledgeRow,
+  tab: KbBrowseTab,
+  recentIds: string[],
+) {
+  if (tab === "all") return true;
+  if (tab === "mail") return kbIsMail(row);
+  if (tab === "brand") return kbIsBrandProduct(row);
+  if (tab === "sop") return kbIsSop(row);
+  if (tab === "quote") return kbIsQuote(row);
+  if (tab === "recent") return recentIds.includes(row.id);
+  return true;
+}
+
+export function kbVisibleTabs(rows: KnowledgeRow[], recentIds: string[]): KbBrowseTab[] {
+  const tabs: KbBrowseTab[] = ["all"];
+  if (rows.some(kbIsSop)) tabs.push("sop");
+  if (rows.some(kbIsMail)) tabs.push("mail");
+  if (rows.some(kbIsBrandProduct)) tabs.push("brand");
+  if (rows.some(kbIsQuote)) tabs.push("quote");
+  tabs.push("recent");
+  return tabs;
+}
+
+export function kbStatusLabel(row: Pick<KnowledgeRow, "deprecated" | "status">) {
+  if (row.deprecated) return "已隐藏";
+  if (!row.status || row.status === "published") return "已发布";
+  return statusLabel(row.status);
+}
+
+export function kbScopeLine(row: Pick<KnowledgeRow, "stage_codes" | "brand" | "kind">) {
+  const stages = (row.stage_codes || []).map((code) => stageLabel(code)).filter(Boolean);
+  const brand = row.brand ? brandLabel(row.brand) : "";
+  const parts: string[] = [];
+  if (brand) parts.push(`品牌 ${brand}`);
+  if (stages.length) parts.push(`阶段 ${stages.join(" / ")}`);
+  if (!parts.length) return "";
+  return `适用：${parts.join(" · ")}`;
+}
+
+export function kbSummary(row: Pick<KnowledgeRow, "kind" | "subject" | "body_en" | "body" | "title">) {
+  const raw = kbIsMail(row)
+    ? (row.subject || templateBodyExcerpt(row.body_en || row.body, 90))
+    : templateBodyExcerpt(row.body, 90);
+  return kbSanitizeEmployeeCopy(raw) || row.title || "暂无摘要。";
+}
+
+export function kbVariableLine(row: Pick<KnowledgeRow, "placeholders">) {
+  const vars = (row.placeholders || []).map((part) => part.replace(/^\[|\]$/g, "")).filter(Boolean);
+  if (!vars.length) return "";
+  return `待填：${vars.join("、")}`;
+}
+
+export function kbProvenanceLine(
+  row: Pick<KnowledgeRow, "current_version" | "updated_at" | "approved_at" | "created_at" | "created_by" | "status">,
+) {
+  const bits: string[] = [];
+  if (row.current_version) bits.push(`第 ${row.current_version} 版`);
+  const when = formatKbTime(row.updated_at || row.approved_at || row.created_at);
+  if (when) bits.push(`更新于 ${when}`);
+  bits.push(!row.created_by || row.created_by === "system" ? "来源 组织发布" : `来源 ${row.created_by}`);
+  return bits.join(" · ");
+}
+
+function readJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+export function readKbFavorites(): string[] {
+  const ids = readJson<string[]>(KB_FAVORITES_KEY, []);
+  return Array.isArray(ids) ? ids.filter(Boolean) : [];
+}
+
+export function writeKbFavorites(ids: string[]) {
+  try {
+    localStorage.setItem(KB_FAVORITES_KEY, JSON.stringify([...new Set(ids)]));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
+export function toggleKbFavorite(id: string): string[] {
+  const current = readKbFavorites();
+  const next = current.includes(id) ? current.filter((item) => item !== id) : [id, ...current];
+  writeKbFavorites(next);
+  return next;
+}
+
+export function readKbRecent(): { id: string; at: number }[] {
+  const rows = readJson<{ id: string; at: number }[]>(KB_RECENT_KEY, []);
+  if (!Array.isArray(rows)) return [];
+  return rows.filter((row) => row?.id).sort((a, b) => b.at - a.at);
+}
+
+export function rememberKbRecent(id: string): { id: string; at: number }[] {
+  const next = [{ id, at: Date.now() }, ...readKbRecent().filter((row) => row.id !== id)].slice(0, 20);
+  try {
+    localStorage.setItem(KB_RECENT_KEY, JSON.stringify(next));
+  } catch {
+    /* ignore quota / private mode */
+  }
+  return next;
 }

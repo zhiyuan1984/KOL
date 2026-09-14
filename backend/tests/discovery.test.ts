@@ -3,16 +3,23 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
+import {
+  resetCollectorConnectionCache,
+  setCollectorProbeClientFactory,
+  setCollectorProbeFetch,
+} from "../src/crawl/connection.js";
 import { setCrawlMcpClientFactory } from "../src/crawl/service.js";
 import { monitorCrawlJob } from "../src/crawl/service.js";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
+import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import { buildHomeBoard, buildRecommendedTasks, isInsightWorkItem, isTodoWorkItem } from "../src/host/home-board.js";
 import { OVERSEAS_CRAWL_PLATFORMS } from "../src/crawl/platforms.js";
 import type { Json } from "../src/types.js";
 
 const calls: string[] = [];
 const creatorCallArgs: Json[] = [];
+const crawlStartArgs: Json[] = [];
 let tmp = "";
 let app: Hono;
 let creators: Json[] = [{
@@ -27,7 +34,10 @@ function mockMcp() {
   return {
     async callTool(name: string, args: Json = {}) {
       calls.push(name);
-      if (name === "start_crawl") return { task_id: "remote-disc-1", status: "running" };
+      if (name === "start_crawl") {
+        crawlStartArgs.push(args);
+        return { task_id: "remote-disc-1", status: "running" };
+      }
       if (name === "get_crawl_status") return { task_id: "remote-disc-1", status: "idle" };
       if (name === "get_crawl_logs") return { logs: ["Authorization: Bearer hidden-secret"] };
       if (name === "get_creators") {
@@ -72,7 +82,9 @@ function sideEffects() {
 
 function assertEmployeeCopy(value: unknown): void {
   const text = JSON.stringify(value);
-  expect(text).not.toMatch(/MediaCrawler|mediacrawler|MCP|Codex|Job ID|crawl_job|remote_task|hidden-secret/i);
+  expect(text).not.toMatch(
+    /MediaCrawler|mediacrawler|MCP|Codex|Job ID|crawl_job|remote_task|hidden-secret|Streamable|ECONNREFUSED|Failed to fetch|HTTP 404/i,
+  );
 }
 
 function crawlJobIdFor(requestId: string): string {
@@ -123,6 +135,7 @@ beforeEach(async () => {
   process.env.MEDIACRAWLER_MCP_TOKEN = "test-secret";
   calls.length = 0;
   creatorCallArgs.length = 0;
+  crawlStartArgs.length = 0;
   creators = [{
     platform: "youtube",
     platform_creator_id: "yt-outdoor-1",
@@ -132,6 +145,9 @@ beforeEach(async () => {
   }];
   resetConn();
   seedAll();
+  resetCollectorConnectionCache();
+  setCollectorProbeClientFactory();
+  setCollectorProbeFetch();
   setCrawlMcpClientFactory(mockMcp);
   const { createApp } = await import("../src/app.js");
   app = createApp();
@@ -139,11 +155,16 @@ beforeEach(async () => {
 
 afterEach(() => {
   setCrawlMcpClientFactory();
+  setCollectorProbeClientFactory();
+  setCollectorProbeFetch();
+  setStarryKolClientFactory();
+  resetCollectorConnectionCache();
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.MEDIACRAWLER_MCP_URL;
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
   delete process.env.AUTH_MODE;
+  delete process.env.LIVE_REMOTE_SIDE_EFFECTS;
 });
 
 describe("discovery request create", () => {
@@ -160,6 +181,11 @@ describe("discovery request create", () => {
     });
     expect(String(created.body.plan_summary)).toContain("portable power");
     expect(created.body.latest_run).toBeNull();
+    expect(created.body.connection).toMatchObject({
+      credentials_present: true,
+      status: "unchecked",
+      status_label: "待检查",
+    });
     expect(calls).not.toContain("start_crawl");
     assertEmployeeCopy(created.body);
     const listed = await request("GET", "/api/discovery/requests");
@@ -221,6 +247,7 @@ describe("discovery run lifecycle", () => {
       run: { status_label: "已完成" },
     });
     expect(OVERSEAS_CRAWL_PLATFORMS).toContain(candidates[0].platform);
+    expect(results.empty_hint).toBeNull();
     expect(creatorCallArgs.length).toBeGreaterThan(0);
     assertGetCreatorsMcpContract(creatorCallArgs[0], "youtube");
     expect(candidates[0]).not.toHaveProperty("platform_creator_id");
@@ -257,7 +284,7 @@ describe("follow and dismiss", () => {
     const first = items.find((row) => row.nickname === "OutdoorPower") || items[0];
     const second = items.find((row) => row.id !== first.id);
 
-    const followed = await request("POST", `/api/discovery/candidates/${first.id}/follow`);
+    const followed = await request("POST", `/api/discovery/candidates/${first.id}/follow`, { confirmed: true });
     expect(followed.status).toBe(200);
     expect(followed.body.status).toBe("followed");
     expect(followed.body.collaboration).toMatchObject({
@@ -266,15 +293,18 @@ describe("follow and dismiss", () => {
       source: "discovery",
       stage_code: "INITIAL_CONTACT",
     });
+    expect(String((followed.body.collaboration as Json).kol_uid)).toMatch(/^KOL/i);
+    expect(String((followed.body.collaboration as Json).kol_uid)).not.toMatch(/^disc_/);
     expect(followed.body.created).toBe(true);
     expect((followed.body.collaboration as Json).owner_name == null
       || (followed.body.collaboration as Json).owner_name === "").toBe(true);
     assertEmployeeCopy(followed.body);
 
-    const again = await request("POST", `/api/discovery/candidates/${first.id}/follow`);
+    const again = await request("POST", `/api/discovery/candidates/${first.id}/follow`, { confirmed: true });
     expect(again.status).toBe(200);
     expect(again.body.created).toBe(false);
     expect((again.body.collaboration as Json).id).toBe((followed.body.collaboration as Json).id);
+    expect((again.body.collaboration as Json).kol_uid).toBe((followed.body.collaboration as Json).kol_uid);
     expect(Number((getConn().prepare(
       "SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'",
     ).get() as { n: number }).n)).toBe(1);
@@ -310,10 +340,12 @@ describe("follow and dismiss", () => {
     const items = results.candidates as Json[];
     expect(items).toHaveLength(1);
     assertGetCreatorsMcpContract(creatorCallArgs[0], "youtube");
-    const followed = await request("POST", `/api/discovery/candidates/${items[0].id}/follow`);
+    const followed = await request("POST", `/api/discovery/candidates/${items[0].id}/follow`, { confirmed: true });
     expect(followed.status).toBe(200);
     expect(followed.body.status).toBe("followed");
     expect(followed.body.created).toBe(true);
+    expect(String((followed.body.collaboration as Json).kol_uid)).toMatch(/^KOL/i);
+    expect(String((followed.body.collaboration as Json).kol_uid)).not.toMatch(/^disc_/);
     assertEmployeeCopy(followed.body);
     expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
@@ -341,7 +373,7 @@ describe("AI发现 is not 今日任务 recommendations", () => {
     expect((buildRecommendedTasks([], []) as Json[]).some((row) => row.candidate_id)).toBe(false);
     expect(((board.workbench as Json).todo as Json[]).some((row) => String(row.source) === "discovery")).toBe(false);
 
-    await request("POST", `/api/discovery/candidates/${candidate.id}/follow`);
+    await request("POST", `/api/discovery/candidates/${candidate.id}/follow`, { confirmed: true });
     expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
 });
@@ -401,25 +433,49 @@ describe("discovery filters directions and region", () => {
     expect(String(sea.body.plan_summary)).toContain("东南亚");
   });
 
-  it("folds directions into the run search keywords without expanding platforms", async () => {
+  it("expands Chinese niches to English crawl keywords without expanding platforms", async () => {
     const created = await request("POST", "/api/discovery/requests", {
-      keywords: ["portable power"],
+      keywords: ["找北美户外评测达人"],
       platforms: ["youtube"],
-      filters: { region: "ca", directions: ["户外电源"] },
+      filters: { region: "us", directions: ["户外电源"] },
     });
     expect(created.body.platforms).toEqual(["youtube"]);
+    expect(created.body.keywords).toEqual(["找北美户外评测达人"]);
+    expect(String(created.body.plan_summary)).toContain("户外电源");
+    expect(String(created.body.plan_summary)).toContain("找北美户外评测达人");
     const started = await request("POST", `/api/discovery/requests/${created.body.id}/runs`, {});
     expect(started.status).toBe(202);
     expect(started.body.platform).toBe("youtube");
+    expect(started.body.search_keywords).toEqual(["portable power station", "outdoor review", "USA"]);
     const job = getConn().prepare(
       "SELECT platform, parameters FROM crawl_jobs ORDER BY created_at DESC LIMIT 1",
     ).get() as { platform?: string; parameters?: string } | undefined;
     expect(job?.platform).toBe("youtube");
     expect(JSON.parse(String(job?.parameters || "{}"))).toMatchObject({
-      region: "ca",
+      region: "us",
       directions: ["户外电源"],
-      keywords: ["portable power", "户外电源"],
+      keywords: ["portable power station", "outdoor review", "USA"],
     });
+    expect(String(crawlStartArgs[0]?.keywords || "")).toContain("portable power station");
+    expect(String(crawlStartArgs[0]?.keywords || "")).not.toMatch(/找北美|户外电源|达人/);
+    expect(JSON.stringify(started.body)).not.toMatch(/MediaCrawler|MCP|Job ID|crawl_job/i);
+  });
+
+  it("returns employee empty copy with the English search terms actually used", async () => {
+    creators = [];
+    const { results } = await confirmAndComplete(["户外电源"]);
+    expect(results.status).toBe("succeeded");
+    expect((results.counts as Json).candidate_count).toBe(0);
+    expect(results.search_keywords).toEqual(["portable power station"]);
+    expect(results.empty_hint).toBe("按「portable power station」没有找到线索，可换词再试。");
+    expect((results.run as Json).search_keywords).toEqual(["portable power station"]);
+    expect((results.run as Json).empty_hint).toBe("按「portable power station」没有找到线索，可换词再试。");
+    expect(results.ready).toBe(false);
+    assertEmployeeCopy(results);
+    assertEmployeeCopy(results.empty_hint);
+    assertEmployeeCopy((results.run as Json).empty_hint);
+    expect(String(results.empty_hint)).not.toMatch(/MCP|MediaCrawler|Job|crawl/i);
+    expect(String(crawlStartArgs[0]?.keywords || "")).toBe("portable power station");
   });
 
   it("rejects oversized, overlong, non-array, and invalid region input with 400", async () => {
@@ -516,12 +572,16 @@ describe("discovery auth and secrets", () => {
     });
     const started = await request("POST", `/api/discovery/requests/${created.body.id}/runs`, {});
     expect(started.status).toBeGreaterThanOrEqual(400);
+    expect(started.body.detail).toMatchObject({
+      code: "collector_unreachable",
+      message: "采集服务连接失败",
+    });
     expect(JSON.stringify(started.body)).not.toContain("super-secret-token");
     assertEmployeeCopy(started.body);
     const failed = getConn().prepare("SELECT error FROM discovery_runs ORDER BY created_at DESC LIMIT 1").get() as
       | { error?: string }
       | undefined;
+    expect(String(failed?.error || "")).toBe("采集服务连接失败");
     expect(String(failed?.error || "")).not.toContain("super-secret-token");
-    expect(String(failed?.error || "")).toMatch(/\*\*\*/);
   });
 });

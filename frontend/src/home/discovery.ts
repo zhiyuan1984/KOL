@@ -38,7 +38,10 @@ export type CreatorCandidate = {
   handle: string;
   nickname: string;
   followers: number;
+  avg_views_10?: number;
   score: number;
+  has_contact_email?: boolean;
+  region?: string | null;
   avatar_url?: string | null;
   title?: string;
   reason?: string;
@@ -55,6 +58,18 @@ export type CreatorCandidate = {
   updated_at?: string;
 };
 
+export type DiscoveryConnectionStatus = "not_configured" | "unchecked" | "unreachable" | "ok";
+
+export type DiscoveryConnection = {
+  status: DiscoveryConnectionStatus | string;
+  credentials_present: boolean;
+  reachable: boolean | null;
+  connected: boolean | null;
+  checked_at?: string | null;
+  message: string;
+  status_label?: string;
+};
+
 export type DiscoveryRun = {
   id: string;
   request_id?: string;
@@ -68,6 +83,9 @@ export type DiscoveryRun = {
   updated_at?: string;
   completed_at?: string | null;
   duplicate?: boolean;
+  connection?: DiscoveryConnection;
+  search_keywords?: string[];
+  empty_hint?: string | null;
 };
 
 export type DiscoveryRequest = {
@@ -85,6 +103,7 @@ export type DiscoveryRequest = {
   updated_at?: string;
   filters?: DiscoveryFilters;
   mode?: string;
+  connection?: DiscoveryConnection;
 };
 
 export type DiscoveryResults = {
@@ -106,6 +125,10 @@ export type DiscoveryResults = {
   };
   ready?: boolean;
   pending_confirm?: boolean;
+  error?: string | null;
+  connection?: DiscoveryConnection;
+  search_keywords?: string[];
+  empty_hint?: string | null;
 };
 
 export type DiscoveryFollowResult = CreatorCandidate & {
@@ -120,6 +143,43 @@ export type DiscoveryFollowResult = CreatorCandidate & {
     source?: string;
   };
   created?: boolean;
+  skipped_duplicate?: boolean;
+};
+
+export type FollowFilter = {
+  min_followers?: number;
+  min_avg_views_10?: number;
+  min_score?: number;
+  platform?: string;
+  region?: string;
+};
+
+export type DiscoveryFollowFail = {
+  candidate_id: string;
+  handle?: string;
+  code?: string;
+  message: string;
+};
+
+export type DiscoveryFollowBatchResult = {
+  source_batch?: string;
+  confirmed?: boolean;
+  preview?: boolean;
+  followed: DiscoveryFollowResult[];
+  failed: DiscoveryFollowFail[];
+  skipped_duplicate: DiscoveryFollowResult[];
+  filter?: FollowFilter | null;
+  counts: {
+    selected?: number;
+    preview?: number;
+    followed: number;
+    failed: number;
+    skipped_duplicate: number;
+    missing_email?: number;
+  };
+  message?: string;
+  sent?: boolean;
+  stage_changed?: boolean;
 };
 
 export const OVERSEAS_DISCOVERY_PLATFORMS: DiscoveryPlatform[] = ["youtube", "instagram", "facebook"];
@@ -152,7 +212,95 @@ export const DISCOVERY_BANNED_JARGON = [
   "Harness",
   "crawl_plan",
   "Thread",
+  "Streamable",
 ] as const;
+
+export type DiscoveryErrorKind = "connection" | "generic";
+
+export type DiscoveryErrorView = {
+  kind: DiscoveryErrorKind;
+  title: string;
+  message: string;
+  detail: string | null;
+  retryDisabled: boolean;
+  checkConnection: boolean;
+};
+
+export const DISCOVERY_CONNECTION_TITLE = "采集服务连接失败";
+export const DISCOVERY_CONNECTION_MESSAGE = "暂时连不上采集服务。请确认服务可用后再检索。";
+export const DISCOVERY_GENERIC_TITLE = "检索没有完成";
+export const DISCOVERY_GENERIC_FALLBACK = "可调整条件后重试。";
+
+const CONNECTION_SIGNAL =
+  /streamable|econnrefused|enotfound|econnreset|etimedout|eai_again|failed to fetch|fetch failed|network ?error|connection refused|connection reset|err_connection|err_name_not_resolved|err_internet_disconnected|socket hang up|error posting to endpoint|posting to endpoint|远程采集服务未配置|采集服务未配置|发现服务暂未就绪|discovery_not_ready/i;
+
+const ENGINE_DUMP =
+  /streamable|http error|status code|econn|enotfound|stack trace|posix|errno|posting to endpoint/i;
+
+function errorText(raw: unknown): string {
+  if (raw instanceof Error) return raw.message.trim();
+  if (typeof raw === "string") return raw.trim();
+  return "";
+}
+
+function errorStatus(raw: unknown): number | undefined {
+  if (!raw || typeof raw !== "object" || !("status" in raw)) return undefined;
+  const status = Number((raw as { status?: unknown }).status);
+  return Number.isFinite(status) && status > 0 ? status : undefined;
+}
+
+function looksLikeEngineDump(text: string): boolean {
+  if (!text) return false;
+  if (DISCOVERY_BANNED_JARGON.some((word) => text.toLowerCase().includes(word.toLowerCase()))) {
+    return true;
+  }
+  if (ENGINE_DUMP.test(text)) return true;
+  const compact = text.replace(/\s/g, "");
+  const ascii = compact.replace(/[^\x00-\x7F]/g, "");
+  return ascii.length >= 12
+    && ascii.length / Math.max(compact.length, 1) > 0.7
+    && /error|failed|exception|timeout|refused/i.test(text);
+}
+
+export function isDiscoveryConnectionFailure(raw: unknown): boolean {
+  const text = errorText(raw);
+  const status = errorStatus(raw);
+  if (CONNECTION_SIGNAL.test(text)) return true;
+  if ((status === 404 || /\b404\b/.test(text)) && /http|streamable|endpoint|status/i.test(text)) {
+    return true;
+  }
+  if (status === 502 || status === 503 || status === 504) return true;
+  return false;
+}
+
+/** Map engine / HTTP dumps to employee-facing copy. Raw text stays in `detail` only. */
+export function presentDiscoveryError(
+  raw: unknown,
+  fallback = DISCOVERY_GENERIC_FALLBACK,
+): DiscoveryErrorView {
+  const text = errorText(raw);
+  const status = errorStatus(raw);
+  const detail = text || (status ? `HTTP ${status}` : "");
+  if (isDiscoveryConnectionFailure(raw) || isDiscoveryConnectionFailure(text)) {
+    return {
+      kind: "connection",
+      title: DISCOVERY_CONNECTION_TITLE,
+      message: DISCOVERY_CONNECTION_MESSAGE,
+      detail: detail || null,
+      retryDisabled: true,
+      checkConnection: true,
+    };
+  }
+  const human = text && !looksLikeEngineDump(text) ? text : fallback;
+  return {
+    kind: "generic",
+    title: DISCOVERY_GENERIC_TITLE,
+    message: human,
+    detail: detail && (looksLikeEngineDump(detail) || detail !== human) ? detail : null,
+    retryDisabled: false,
+    checkConnection: false,
+  };
+}
 
 const PLATFORM_LABEL: Record<DiscoveryPlatform, string> = {
   youtube: "YouTube",
@@ -181,6 +329,21 @@ function asStringList(value: unknown): string[] {
   return [];
 }
 
+export function asConnection(value: unknown): DiscoveryConnection | undefined {
+  const item = asRecord(value);
+  if (!item.status && item.credentials_present == null && item.reachable == null) return undefined;
+  const status = String(item.status || (item.credentials_present ? "unchecked" : "not_configured"));
+  return {
+    status,
+    credentials_present: Boolean(item.credentials_present),
+    reachable: item.reachable == null ? null : Boolean(item.reachable),
+    connected: item.connected == null ? null : Boolean(item.connected),
+    checked_at: item.checked_at == null ? null : String(item.checked_at),
+    message: String(item.message || ""),
+    status_label: item.status_label ? String(item.status_label) : undefined,
+  };
+}
+
 export function asCandidate(row: unknown): CreatorCandidate {
   const item = asRecord(row);
   const handle = String(item.handle || item.nickname || "");
@@ -193,7 +356,10 @@ export function asCandidate(row: unknown): CreatorCandidate {
     handle,
     nickname: String(item.nickname || item.handle || ""),
     followers: Number(item.followers || 0),
+    avg_views_10: Number(item.avg_views_10 || 0),
     score: Number(item.score || 0),
+    has_contact_email: Boolean(item.has_contact_email),
+    region: item.region == null || item.region === "" ? null : String(item.region),
     avatar_url: item.avatar_url == null ? null : String(item.avatar_url),
     title: item.title ? String(item.title) : undefined,
     reason: item.reason ? String(item.reason) : undefined,
@@ -226,6 +392,9 @@ export function asRun(row: unknown): DiscoveryRun {
     updated_at: item.updated_at ? String(item.updated_at) : undefined,
     completed_at: item.completed_at == null ? null : String(item.completed_at),
     duplicate: Boolean(item.duplicate),
+    connection: asConnection(item.connection),
+    search_keywords: asStringList(item.search_keywords),
+    empty_hint: item.empty_hint == null ? null : String(item.empty_hint),
   };
 }
 
@@ -246,6 +415,7 @@ export function asRequest(row: unknown): DiscoveryRequest {
     updated_at: item.updated_at ? String(item.updated_at) : undefined,
     filters: asFilters(item.filters),
     mode: item.mode ? String(item.mode) : undefined,
+    connection: asConnection(item.connection),
   };
 }
 
@@ -269,6 +439,12 @@ export function asResults(row: unknown): DiscoveryResults {
     counts: asRecord(item.counts) as DiscoveryResults["counts"],
     ready: Boolean(item.ready),
     pending_confirm: Boolean(item.pending_confirm),
+    error: item.error == null ? request.error ?? null : String(item.error),
+    connection: asConnection(item.connection) || asConnection(item.collector_status) || request.connection,
+    search_keywords: asStringList(item.search_keywords).length
+      ? asStringList(item.search_keywords)
+      : asStringList(item.run && typeof item.run === "object" ? (item.run as { search_keywords?: unknown }).search_keywords : []),
+    empty_hint: item.empty_hint == null ? null : String(item.empty_hint),
   };
 }
 
@@ -342,11 +518,33 @@ export function addDirections(current: string[], incoming: Iterable<string>): {
   return { directions: next, atMax: next.length >= MAX_DIRECTIONS };
 }
 
+const QUERY_FILLER = /^(找|寻找|尋找|达人|達人|网红|網紅|博主|kol|请|請|一下)$/i;
+
 export function keywordsFromQuery(query: string): string[] {
   return query
     .split(/[\s,，、]+/)
     .map((part) => part.trim())
-    .filter(Boolean);
+    .filter((part) => part && !QUERY_FILLER.test(part));
+}
+
+export function emptyResultsHint(searchKeywords: string[]): string {
+  const shown = searchKeywords.map((item) => String(item || "").trim()).filter(Boolean);
+  if (!shown.length) return "这次计划没有找到红人线索，可换关键词再试。";
+  return `按「${shown.slice(0, 2).join(" / ")}」没有找到线索，可换词再试。`;
+}
+
+/** Empty success copy: payload `empty_hint` / `search_keywords` only. Never invents terms. */
+export function discoveryEmptyCopy(input: {
+  empty_hint?: string | null;
+  search_keywords?: string[];
+  run?: { empty_hint?: string | null; search_keywords?: string[] } | null;
+}): string {
+  const hint = String(input.empty_hint || input.run?.empty_hint || "").trim();
+  if (hint) return hint;
+  const keywords = input.search_keywords?.length
+    ? input.search_keywords
+    : input.run?.search_keywords || [];
+  return emptyResultsHint(keywords);
 }
 
 export function candidateReason(row: CreatorCandidate): string {
@@ -433,8 +631,7 @@ export async function waitForDiscoveryResults(
   return latest;
 }
 
-export async function followCandidate(id: string): Promise<DiscoveryFollowResult> {
-  const body = await api.followDiscoveryCandidate(id);
+function asFollowResult(body: unknown): DiscoveryFollowResult {
   const row = asRecord(body);
   return {
     ...asCandidate(body),
@@ -451,9 +648,139 @@ export async function followCandidate(id: string): Promise<DiscoveryFollowResult
         }
       : undefined,
     created: Boolean(row.created),
+    skipped_duplicate: Boolean(row.skipped_duplicate),
+  };
+}
+
+export function parseFollowFilterInput(input: {
+  min_followers?: string;
+  min_avg_views_10?: string;
+  min_score?: string;
+}): FollowFilter | undefined {
+  const out: FollowFilter = {};
+  const followers = String(input.min_followers || "").trim();
+  const avg = String(input.min_avg_views_10 || "").trim();
+  const score = String(input.min_score || "").trim();
+  if (followers) out.min_followers = Number(followers);
+  if (avg) out.min_avg_views_10 = Number(avg);
+  if (score) out.min_score = Number(score);
+  const clean = Object.fromEntries(
+    Object.entries(out).filter(([, value]) => Number.isFinite(value) && Number(value) >= 0),
+  ) as FollowFilter;
+  return Object.keys(clean).length ? clean : undefined;
+}
+
+export function candidateMatchesFollowFilter(
+  candidate: CreatorCandidate,
+  filter?: FollowFilter | null,
+  plan?: { platforms?: string[]; region?: string },
+): boolean {
+  if (!filter && !plan) return true;
+  const minFollowers = filter?.min_followers;
+  const minAvg = filter?.min_avg_views_10;
+  const minScore = filter?.min_score;
+  if (minFollowers != null && Number(candidate.followers || 0) < minFollowers) return false;
+  if (minAvg != null && Number(candidate.avg_views_10 || 0) < minAvg) return false;
+  if (minScore != null && Number(candidate.score || 0) < minScore) return false;
+  const wantPlatform = String(filter?.platform || (plan?.platforms?.length === 1 ? plan.platforms[0] : "") || "")
+    .trim()
+    .toLowerCase();
+  const platform = String(candidate.platform || "").trim().toLowerCase();
+  if (wantPlatform && platform && platform !== wantPlatform) return false;
+  const wantRegion = String(filter?.region || plan?.region || "").trim().toLowerCase();
+  const expected = wantRegion && wantRegion !== "all" ? wantRegion : "";
+  const actual = String(candidate.region || "").trim().toLowerCase();
+  if (expected && actual && actual !== expected) return false;
+  return true;
+}
+
+export function missingContactEmail(candidate: CreatorCandidate): boolean {
+  return !candidate.has_contact_email;
+}
+
+export function summarizeFollowFilter(filter?: FollowFilter | null): string {
+  if (!filter) return "";
+  const bits = [
+    filter.min_followers != null ? `粉丝 ≥ ${filter.min_followers}` : "",
+    filter.min_avg_views_10 != null ? `近10均播 ≥ ${filter.min_avg_views_10}` : "",
+    filter.min_score != null ? `评分 ≥ ${filter.min_score}` : "",
+  ].filter(Boolean);
+  return bits.join(" · ");
+}
+
+export async function followCandidate(
+  id: string,
+  extra?: Record<string, unknown>,
+): Promise<DiscoveryFollowResult> {
+  return asFollowResult(await api.followDiscoveryCandidate(id, extra));
+}
+
+export async function followCandidatesBatch(input: {
+  confirmed?: boolean;
+  preview?: boolean;
+  candidate_ids?: string[];
+  request_id?: string;
+  run_id?: string;
+  filter?: FollowFilter;
+  source_batch?: string;
+}): Promise<DiscoveryFollowBatchResult> {
+  const body = await api.followDiscoveryCandidatesBatch({
+    confirmed: input.confirmed,
+    preview: input.preview,
+    candidate_ids: input.candidate_ids,
+    request_id: input.request_id,
+    run_id: input.run_id,
+    filter: input.filter,
+    source_batch: input.source_batch,
+  });
+  const row = asRecord(body);
+  const counts = asRecord(row.counts);
+  const failed = Array.isArray(row.failed)
+    ? row.failed.map((item) => {
+        const fail = asRecord(item);
+        return {
+          candidate_id: String(fail.candidate_id || fail.id || ""),
+          handle: fail.handle ? String(fail.handle) : undefined,
+          code: fail.code ? String(fail.code) : undefined,
+          message: String(fail.message || "加入跟进没有完成。"),
+        };
+      })
+    : [];
+  const followed = (Array.isArray(row.followed) ? row.followed : []).map(asFollowResult);
+  const skipped = (Array.isArray(row.skipped_duplicate) ? row.skipped_duplicate : []).map(asFollowResult);
+  return {
+    source_batch: row.source_batch ? String(row.source_batch) : undefined,
+    confirmed: Boolean(row.confirmed),
+    preview: Boolean(row.preview),
+    followed,
+    failed,
+    skipped_duplicate: skipped,
+    filter: row.filter && typeof row.filter === "object" ? row.filter as FollowFilter : null,
+    counts: {
+      selected: Number(counts.selected || 0),
+      preview: Number(counts.preview || 0),
+      followed: Number(counts.followed ?? followed.length),
+      failed: Number(counts.failed ?? failed.length),
+      skipped_duplicate: Number(counts.skipped_duplicate ?? skipped.length),
+      missing_email: Number(counts.missing_email || 0),
+    },
+    message: row.message ? String(row.message) : undefined,
+    sent: Boolean(row.sent),
+    stage_changed: Boolean(row.stage_changed),
   };
 }
 
 export async function dismissCandidate(id: string): Promise<CreatorCandidate> {
   return asCandidate(await api.dismissDiscoveryCandidate(id));
+}
+
+export async function checkDiscoveryConnection(): Promise<DiscoveryConnection> {
+  return asConnection(await api.checkDiscoveryConnection()) || {
+    status: "unchecked",
+    credentials_present: false,
+    reachable: null,
+    connected: null,
+    checked_at: null,
+    message: "采集服务待检查",
+  };
 }

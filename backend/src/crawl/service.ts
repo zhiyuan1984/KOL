@@ -1,6 +1,7 @@
 import { ingestMediacrawler } from "../adapters/claw.js";
 import { mediaCrawlerConfigured } from "../config.js";
 import { getConn, isSqliteClosedError, isSqliteForeignKeyError, nowIso, onConnReset, tx } from "../db.js";
+import { collectorFailureCode, persistableEmployeeError } from "../discovery-errors.js";
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import { RemoteMcpClient } from "../mcp/remote.js";
@@ -254,7 +255,11 @@ export async function startCrawl(input: {
     return publicJob(getConn().prepare("SELECT * FROM crawl_jobs WHERE id=?").get(id) as Row);
   } catch (error) {
     failJob(id, error);
-    throw new HttpFail(502, sanitize(error instanceof Error ? error.message : error));
+    const source = error instanceof Error ? error.message : error;
+    throw new HttpFail(502, {
+      code: collectorFailureCode(source),
+      message: persistableEmployeeError(source),
+    });
   }
 }
 
@@ -318,19 +323,29 @@ export async function monitorCrawlJob(jobId: string): Promise<Json> {
     } catch {
       // Older MediaCrawler deployments may not expose logs; status monitoring remains authoritative.
     }
-    if (status === "idle" || status === "completed" || status === "done") await completeJob(jobId);
+    if (status === "idle" || status === "completed" || status === "done") {
+      try {
+        await completeJob(jobId);
+      } catch (error) {
+        failJob(jobId, error);
+      }
+    }
     else if ((status === "error" || status === "failed") && uploadError) {
       event(jobId, "upload_fallback", "analyzing",
         "远程自动上传失败，Host 将通过 get_creators 主动拉取结果。",
         { upload_error: sanitize(uploadError) });
-      await completeJob(jobId);
+      try {
+        await completeJob(jobId);
+      } catch (error) {
+        failJob(jobId, error);
+      }
     }
     else if (status === "error" || status === "failed") {
       failJob(jobId, remoteError || "remote crawl failed");
     }
     return publicJob(getConn().prepare("SELECT * FROM crawl_jobs WHERE id=?").get(jobId) as Row);
   } catch (error) {
-    event(jobId, "monitor_error", "running", error instanceof Error ? error.message : error);
+    event(jobId, "monitor_error", "running", persistableEmployeeError(error));
     throw error;
   }
 }
@@ -445,7 +460,7 @@ async function completeJob(jobId: string): Promise<void> {
 }
 
 function failJob(jobId: string, error: unknown): void {
-  const safe = sanitize(error instanceof Error ? error.message : error);
+  const safe = persistableEmployeeError(error);
   const job = getConn().prepare("SELECT work_item_id FROM crawl_jobs WHERE id=?").get(jobId) as Row | undefined;
   const now = nowIso();
   tx((db) => {

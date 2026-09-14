@@ -1210,6 +1210,28 @@ export function employeeProcessLabel(raw: string) {
   return human;
 }
 
+function looksLikeJsonLabel(text: string) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  if (/^```/.test(raw)) return true;
+  return (raw.startsWith("{") && raw.endsWith("}")) || (raw.startsWith("[") && raw.endsWith("]"));
+}
+
+/** Reasoning summaries are user-visible prose — do not force「正在处理这项工作」. */
+export function employeeReasoningLabel(raw: string) {
+  const text = String(raw || "").trim();
+  if (!text || looksLikeJsonLabel(text) || looksLikeInferenceJson(text)) return "正在分析…";
+  const cleaned = stripEngineCopy(text.replace(/\b(?:reasoning|rsn):[A-Za-z0-9_-]+\b/gi, ""));
+  if (!cleaned || looksLikeJsonLabel(cleaned) || /[{[]/.test(cleaned)) return "正在分析…";
+  // UX-COPY-ENGINE: a jargon-only title is not a summary. Keep real prose.
+  if (isHarnessLabel(cleaned) || isToolId(cleaned) || /^[a-z0-9_.:/-]+$/i.test(cleaned)) return "正在分析…";
+  return cleaned;
+}
+
+export function employeeTraceLabel(raw: string, kind?: string) {
+  return kind === "reasoning" ? employeeReasoningLabel(raw) : employeeProcessLabel(raw);
+}
+
 function employeeMessageBody(text: string, debug = false, onRefresh?: () => void) {
   if (looksLikeInferenceJson(text) || taskResultCardsFrom(text).length) {
     return <HumanizedInference text={text} debug={debug} onRefresh={onRefresh} />;
@@ -1613,8 +1635,8 @@ export function ChatThread({
         if (m.kind === "process_trace") {
           const items = traceItems(m.payload);
           const summaries = summaryLines(m.payload, items)
-            .map((line) => employeeProcessLabel(line))
-            .filter((line) => line && !/[{[]/.test(line));
+            .map((line) => employeeReasoningLabel(line))
+            .filter((line) => line && line !== "正在分析…" && !/[{[]/.test(line));
           const hasThinking = items.some((item) => item.kind === "reasoning" || Boolean(item.summary || item.reasoning_summary));
           return (
             <ThreadMessage
@@ -1627,9 +1649,10 @@ export function ChatThread({
               <strong>{employeeProcessLabel(String(m.payload.title || "处理过程"))}</strong>
               <ul className="trace-list">
                 {items.map((item, index) => {
-                  const label = employeeProcessLabel(String(
+                  const rawLabel = String(
                     item.label || item.summary || item.reasoning_summary || item.title || item.phase || `阶段 ${index + 1}`,
-                  ));
+                  );
+                  const label = employeeTraceLabel(rawLabel, item.kind);
                   const status = safeStatus(item.status);
                   const streaming = item.kind === "reasoning" && (item.streaming || status === "running");
                   return (

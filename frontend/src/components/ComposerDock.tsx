@@ -247,7 +247,7 @@ export default function ComposerDock({
     if (!textarea) return;
     if (variant === "workspace") {
       textarea.style.height = "auto";
-      textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 110), 220)}px`;
+      textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 40), 220)}px`;
       return;
     }
     textarea.style.height = "0";
@@ -708,7 +708,7 @@ export default function ComposerDock({
         <div className="composer-add-wrap" ref={menuRef}>
         <button
           type="button"
-          className="composer-plus"
+          className={"composer-plus" + (plusOpen ? " is-selected" : "")}
           data-attach
           aria-label="添加资料"
           title="添加资料"
@@ -731,8 +731,24 @@ export default function ComposerDock({
         </button>
         {workspace && (
           <>
-            <button type="button" className="composer-tool" data-composer-tool="project" onClick={() => openToolbarMenu("projects")}>项目</button>
-            <button type="button" className="composer-tool" data-composer-tool="skills" onClick={() => openToolbarMenu("skills")}>技能</button>
+            <button
+              type="button"
+              className={"composer-tool" + (activeSubmenu === "projects" ? " is-selected" : "")}
+              data-composer-tool="project"
+              aria-pressed={activeSubmenu === "projects"}
+              onClick={() => openToolbarMenu("projects")}
+            >
+              项目
+            </button>
+            <button
+              type="button"
+              className={"composer-tool" + (activeSubmenu === "skills" ? " is-selected" : "")}
+              data-composer-tool="skills"
+              aria-pressed={activeSubmenu === "skills"}
+              onClick={() => openToolbarMenu("skills")}
+            >
+              技能
+            </button>
           </>
         )}
         {plusOpen && (
@@ -780,6 +796,8 @@ export default function ComposerDock({
           </div>
         )}
         </div>
+        <span className="composer-toolbar-divider" data-composer-divider aria-hidden="true" />
+        <div className="composer-toolbar-end">
         <label className="tier-control">
           <span className="sr-only">模型档位</span>
           <select value={modelTier} onChange={(e) => { setModelTier(e.target.value); localStorage.setItem("composer:model-tier", e.target.value); }} aria-label="模型档位">
@@ -802,12 +820,28 @@ export default function ComposerDock({
           </button>
         ) : null}
         <button className={"btn send" + (workspace ? " send-arrow" : "")} type="submit" data-send data-ai-prompt-submit disabled={busy || empty} aria-label={running ? "加入队列" : "发送"}>
-          {workspace ? "➜" : "发送"}
+          {workspace ? <SendArrowIcon ready={!busy && !empty} /> : "发送"}
         </button>
+        </div>
         </div>
       </form>
       <span className="sr-only" role="status">{uploading ? "正在上传附件" : attachErr || ""}</span>
     </div>
+  );
+}
+
+function SendArrowIcon({ ready }: { ready: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden data-send-arrow={ready ? "ready" : "idle"}>
+      <path
+        d="M12 19V6m0 0-5.5 5.5M12 6l5.5 5.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 

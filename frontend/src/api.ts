@@ -307,8 +307,12 @@ export type KnowledgeRow = {
   cite_count?: number;
   in_market?: number;
   intent?: string;
-    starter?: string;
+  starter?: string;
   enabled?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  created_by?: string;
+  approved_at?: string;
 };
 
 export type StarryBinding = {
@@ -1042,13 +1046,25 @@ export const api = {
   },
   discoveryCandidate: (id: string) =>
     request<Record<string, unknown>>(`/api/discovery/candidates/${encodeURIComponent(id)}`),
-  followDiscoveryCandidate: (id: string) =>
+  followDiscoveryCandidate: (id: string, body?: Record<string, unknown>) =>
     request<Record<string, unknown>>(`/api/discovery/candidates/${encodeURIComponent(id)}/follow`, {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify({ confirmed: true, ...(body || {}) }),
+    }),
+  followDiscoveryCandidatesBatch: (body: Record<string, unknown>) =>
+    request<Record<string, unknown>>("/api/discovery/candidates/follow-batch", {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
   dismissDiscoveryCandidate: (id: string) =>
     request<Record<string, unknown>>(`/api/discovery/candidates/${encodeURIComponent(id)}/dismiss`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  discoveryConnection: () =>
+    request<Record<string, unknown>>("/api/discovery/connection"),
+  checkDiscoveryConnection: () =>
+    request<Record<string, unknown>>("/api/discovery/connection", {
       method: "POST",
       body: JSON.stringify({}),
     }),

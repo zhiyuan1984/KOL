@@ -30,9 +30,11 @@
 ## 代码入口
 
 - `backend/src/discovery.ts`
+- `backend/src/discovery-keywords.ts`（海外平台中文方向 → 英文检索词；计划卡仍用员工原词）
 - `backend/src/routers/discovery.ts`
 - `backend/migrations/004_ai_discovery.sql`
 - `backend/tests/discovery.test.ts`
+- `backend/tests/discovery-keywords.test.ts`
 
 ## 2026-09-14 补记：REAL `get_creators` 契约
 

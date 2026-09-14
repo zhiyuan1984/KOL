@@ -57,6 +57,56 @@ describe("Codex harness process traces", () => {
     expect(JSON.stringify(completed)).not.toContain("raw hidden reasoning");
   });
 
+  it("applies item/delta summary_text and ignores raw reasoning_text deltas", () => {
+    const memory = emptyHarnessMemory();
+    progressFromHarness(
+      "item/started",
+      { item: { id: "rsn_2", type: "reasoning", summary: [] } },
+      memory,
+    );
+    const streamed = progressFromHarness(
+      "item/delta",
+      { itemId: "rsn_2", delta: { summary_text: "Narrow the crawl to YouTube camping creators." } },
+      memory,
+    );
+    expect(streamed?.trace).toMatchObject({
+      id: "reasoning:rsn_2",
+      label: "Narrow the crawl to YouTube camping creators.",
+      kind: "reasoning",
+      streaming: true,
+    });
+
+    const leaked = progressFromHarness(
+      "item/reasoning/textDelta",
+      { itemId: "rsn_2", delta: "raw hidden reasoning must not be shown" },
+      memory,
+    );
+    expect(leaked?.trace?.label).toBe("Narrow the crawl to YouTube camping creators.");
+    expect(JSON.stringify(leaked)).not.toContain("raw hidden");
+  });
+
+  it("keeps reasoning summary rows when a later host step fails", () => {
+    const failed = finishProcessItems(
+      [
+        { id: "host:preparing", label: "准备任务", status: "done", kind: "host" },
+        { id: "reasoning:rsn_1", label: "Narrow the crawl to YouTube camping creators.", status: "done", kind: "reasoning" },
+        { id: "host:validating", label: "校验输出", status: "running", kind: "result" },
+      ],
+      true,
+    );
+    expect(failed.find((item) => item.kind === "reasoning")).toMatchObject({
+      id: "reasoning:rsn_1",
+      label: "Narrow the crawl to YouTube camping creators.",
+      status: "done",
+      streaming: false,
+    });
+    expect(failed.find((item) => item.id === "host:validating")).toMatchObject({
+      label: "校验输出",
+      status: "failed",
+    });
+    expect(reasoningSummariesOf(failed)).toEqual(["Narrow the crawl to YouTube camping creators."]);
+  });
+
   it("grows process items from real events instead of a fixed five-step template", () => {
     let items = applyProgress([], { phase: "preparing", trace: { id: "host:preparing", label: "准备任务", status: "running", kind: "host" } });
     items = applyProgress(items, { phase: "skill_ready", trace: { id: "host:skill_ready", label: "加载任务规则", status: "done", kind: "host" } });

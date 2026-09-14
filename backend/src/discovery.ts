@@ -7,9 +7,41 @@
  */
 import { authDisabled, isAdmin, scopedUser } from "./auth.js";
 import { BRAND_MAILBOXES, DEMO_USER } from "./config.js";
+import {
+  getCollectorConnectionSnapshot,
+  probeMediaCrawlerConnection,
+  publicCollectorConnection,
+} from "./crawl/connection.js";
 import { startCrawl, onCrawlJobSettled } from "./crawl/service.js";
 import { OVERSEAS_CRAWL_PLATFORMS } from "./crawl/platforms.js";
 import { audit, getConn, nowIso, tx } from "./db.js";
+import {
+  collectorFailureCode,
+  employeeError,
+  mapEmployeeError,
+  persistableEmployeeError,
+} from "./discovery-errors.js";
+import { emptyDiscoveryHint, expandOverseasSearchKeywords } from "./discovery-keywords.js";
+import {
+  avgViews10,
+  buildCrawlerImportFile,
+  candidateHasContactEmail,
+  candidateRegionOf,
+  creatorExternalId,
+  employeeImportError,
+  evaluateFollowFilters,
+  isPlaceholderKolUid,
+  isRealKolUid,
+  mapCandidateToCrawlerRow,
+  parseFollowThresholds,
+  planRegionOf,
+  recheckFollowFilters,
+  shouldWarnMissingCandidateRegion,
+  sourceBatchFor,
+  sourceBatchForFollowSet,
+  type FollowThresholds,
+} from "./discovery-import.js";
+import { importKolProfilesFromCrawlerConfirmed } from "./gateway/import-creator.js";
 import { HttpFail } from "./host/errors.js";
 import { nid } from "./ids.js";
 import type { Json, Row } from "./types.js";
@@ -22,6 +54,8 @@ const RUN_ACTIVE = new Set(["queued", "running"]);
 const CRAWL_ACTIVE = new Set(["queued", "crawling", "uploading", "analyzing", "starting", "running", "stopping"]);
 const MAX_DIRECTIONS = 8;
 const MAX_DIRECTION_LEN = 30;
+const MAX_FOLLOW_BATCH = 100;
+const FOLLOW_BATCH_CONCURRENCY = 3;
 const REGION_CODES = new Set(["all", "us", "ca", "eu", "au", "na", "sea"]);
 const REQUEST_STATUS_LABEL: Record<string, string> = {
   open: "待确认",
@@ -67,23 +101,8 @@ function ownerId(): string {
   throw new HttpFail(401, "authentication required");
 }
 
-function sanitize(value: unknown): string {
-  return String(value || "")
-    .replace(/Bearer\s+[^\s"']+/gi, "Bearer ***")
-    .replace(/(token|authorization)\s*[:=]\s*[^\s,;}]+/gi, "$1=***")
-    .slice(0, 1000);
-}
-
-function employeeError(value: unknown): string | null {
-  if (value == null || value === "") return null;
-  const cleaned = sanitize(value)
-    .replace(/MediaCrawler|mediacrawler|RemoteMcpClient|MCP|Codex/gi, "")
-    .replace(/\b(crawl_job_id|remote_task_id|work_item_id|task_id|job[_ ]?id)\b/gi, "")
-    .replace(/\b(crawl_[a-z0-9]+|tsk_[a-z0-9]+|drun_[a-z0-9]+)\b/gi, "")
-    .replace(/\s{2,}/g, " ")
-    .replace(/\s+([,.;:])/g, "$1")
-    .trim();
-  return cleaned || "发现未完成，请稍后重试。";
+function connectionPayload(): Json {
+  return publicCollectorConnection(getCollectorConnectionSnapshot());
 }
 
 function platformLabel(code: unknown): string {
@@ -209,6 +228,19 @@ function foldSearchKeywords(keywords: string[], directions: string[]): string[] 
   return out;
 }
 
+function crawlSearchKeywords(keywords: string[], filters: { region: string; directions: string[] }): string[] {
+  return expandOverseasSearchKeywords({
+    keywords,
+    directions: filters.directions,
+    region: filters.region,
+  });
+}
+
+function searchKeywordsOf(row?: Row | null): string[] {
+  if (!row) return [];
+  return asStringList(parseJson(row.parameters).keywords);
+}
+
 function storedFilters(row: Row): { region: string; directions: string[] } {
   const raw = parseJson(row.filters);
   const directions = asStringList(raw.directions);
@@ -297,7 +329,10 @@ function publicCandidate(row: Row): Json {
     handle,
     nickname,
     followers: Number(row.followers || 0),
+    avg_views_10: avgViews10(row),
     score: Number(row.score || 0),
+    has_contact_email: candidateHasContactEmail(row),
+    region: candidateRegionOf(row) || null,
     avatar_url: payload.avatar_url || payload.avatar || payload.profile_image || null,
     title,
     reason,
@@ -355,6 +390,7 @@ export function discoveryResult(requestId: string, run?: Row | null): Json {
     errors,
     ready: counts.suggested_count > 0,
     pending_confirm: counts.suggested_count > 0,
+    connection: connectionPayload(),
   };
 }
 
@@ -362,6 +398,8 @@ function publicRun(row: Row): Json {
   syncRunFromCrawl(row);
   const current = getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(row.id) as Row;
   const status = String(current.status);
+  const searchKeywords = searchKeywordsOf(current);
+  const candidateCount = Number(current.candidate_count || 0);
   return {
     id: current.id,
     request_id: current.request_id,
@@ -369,11 +407,14 @@ function publicRun(row: Row): Json {
     status,
     status_label: RUN_STATUS_LABEL[status] || status,
     error: employeeError(current.error),
-    candidate_count: Number(current.candidate_count || 0),
+    search_keywords: searchKeywords,
+    empty_hint: status === "succeeded" && candidateCount === 0 ? emptyDiscoveryHint(searchKeywords) : null,
+    candidate_count: candidateCount,
     created_at: current.created_at,
     started_at: current.started_at,
     updated_at: current.updated_at,
     completed_at: current.completed_at,
+    connection: connectionPayload(),
   };
 }
 
@@ -415,6 +456,7 @@ function publicRequest(row: Row): Json {
     error: employeeError(current.error),
     created_at: current.created_at,
     updated_at: current.updated_at,
+    connection: connectionPayload(),
   };
 }
 
@@ -437,6 +479,8 @@ export function getDiscoveryResults(id: string): Json {
                score DESC, followers DESC, created_at DESC`,
   ).all(current.id) as Row[]).map(publicCandidate);
   const summary = planSummary(current);
+  const searchKeywords = searchKeywordsOf(run);
+  const succeeded = String(current.status) === "succeeded" || String(run?.status) === "succeeded";
   return {
     id: current.id,
     status: current.status,
@@ -452,8 +496,12 @@ export function getDiscoveryResults(id: string): Json {
     run: run ? publicRun(run) : null,
     candidates,
     counts,
+    error: employeeError(current.error),
+    search_keywords: searchKeywords,
+    empty_hint: succeeded && counts.candidate_count === 0 ? emptyDiscoveryHint(searchKeywords) : null,
     ready: counts.suggested_count > 0,
     pending_confirm: String(current.status) === "open" || counts.suggested_count > 0,
+    connection: connectionPayload(),
   };
 }
 
@@ -467,7 +515,7 @@ function refreshRequestStatus(requestId: string): void {
   else if (runs.some((run) => String(run.status) === "succeeded")) status = "succeeded";
   else if (runs.some((run) => String(run.status) === "failed")) status = "failed";
   else if (runs.some((run) => String(run.status) === "cancelled")) status = "cancelled";
-  const error = latest?.error ? sanitize(latest.error) : null;
+  const error = latest?.error ? persistableEmployeeError(latest.error) : null;
   getConn().prepare(
     `UPDATE discovery_requests
         SET status=?, error=?, latest_run_id=COALESCE(
@@ -489,7 +537,7 @@ function persistRunFromCrawl(run: Row, job: Row): void {
   ).run(
     status,
     job.remote_task_id || null,
-    job.error ? sanitize(job.error) : null,
+    job.error ? persistableEmployeeError(job.error) : null,
     job.started_at || now,
     completed,
     now,
@@ -657,7 +705,8 @@ export async function startDiscoveryRun(input: {
   const platform = pickPlatform(request, input.platform);
   const mode = String(request.mode || "search");
   const filters = storedFilters(request);
-  const keywords = foldSearchKeywords(parseArray(request.keywords).map(String), filters.directions);
+  const submitted = parseArray(request.keywords).map(String);
+  const keywords = crawlSearchKeywords(submitted, filters);
   const parameters: Json = { ...filters, keywords };
   const idempotencyKey = String(input.idempotencyKey || `disc:${request.id}:${platform}:${nid("idem")}`);
   const existing = getConn().prepare("SELECT * FROM discovery_runs WHERE idempotency_key=?").get(idempotencyKey) as
@@ -711,7 +760,9 @@ export async function startDiscoveryRun(input: {
     if (String(job.status) === "result_ready") ingestDiscoveryFromCrawlJob(job as Row);
     return publicRun(run);
   } catch (error) {
-    const safe = employeeError(error instanceof HttpFail ? error.detail : error) || "发现未完成，请稍后重试。";
+    const source = error instanceof HttpFail ? error.detail ?? error : error;
+    const mapped = mapEmployeeError(source);
+    const safe = mapped.message;
     getConn().prepare(
       `UPDATE discovery_runs
           SET status='failed', error=?, completed_at=?, updated_at=?, data_version=data_version+1
@@ -719,10 +770,21 @@ export async function startDiscoveryRun(input: {
     ).run(safe, nowIso(), nowIso(), runId);
     refreshRequestStatus(String(request.id));
     if (error instanceof HttpFail && error.status === 503) {
-      throw new HttpFail(503, { code: "discovery_not_ready", message: "发现服务暂未就绪，请稍后重试。", next_action: "请确认后再启动发现。" });
+      throw new HttpFail(503, {
+        code: "discovery_not_ready",
+        message: "发现服务暂未就绪，请稍后重试。",
+        next_action: "请确认后再启动发现。",
+      });
     }
-    throw new HttpFail(error instanceof HttpFail ? error.status : 502, safe);
+    throw new HttpFail(error instanceof HttpFail ? error.status : 502, {
+      code: collectorFailureCode(source),
+      message: safe,
+    });
   }
+}
+
+export async function checkDiscoveryConnection(): Promise<Json> {
+  return publicCollectorConnection(await probeMediaCrawlerConnection());
 }
 
 export function createDiscoveryRequest(body: Json): Json {
@@ -818,50 +880,158 @@ export function getCandidate(id: string): Json {
   return publicCandidate(candidateRow(id));
 }
 
-function existingCollaboration(candidate: Row): Row | undefined {
+/**
+ * Link an existing Collaboration to this candidate.
+ * Prefer real kol_uid, then platform + platform_creator_id / candidate.collaboration_id.
+ * Bare handle/display_name is only for leftover source=discovery + disc_* rows of THIS creator.
+ * Never attach a real Starry kolUid onto an unrelated Starry-sourced collab via handle.
+ */
+function existingCollaboration(candidate: Row, kolUid?: string): Row | undefined {
   if (candidate.collaboration_id) {
     const byId = getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(candidate.collaboration_id) as
       | Row
       | undefined;
     if (byId) return byId;
   }
-  const handle = String(candidate.handle || candidate.nickname || "").trim();
-  const uid = discoveryKolUid(candidate);
-  const byUid = getConn().prepare("SELECT * FROM collaborations WHERE kol_uid=?").get(uid) as Row | undefined;
-  if (byUid) return byUid;
-  if (!handle) return undefined;
-  return getConn().prepare(
-    "SELECT * FROM collaborations WHERE handle=? OR display_name=?",
-  ).get(handle, handle) as Row | undefined;
+  if (kolUid && isRealKolUid(kolUid)) {
+    const byReal = getConn().prepare("SELECT * FROM collaborations WHERE kol_uid=?").get(kolUid) as Row | undefined;
+    if (byReal) return byReal;
+  }
+  const sibling = getConn().prepare(
+    `SELECT c.* FROM creator_candidates cand
+       JOIN collaborations c ON c.id = cand.collaboration_id
+      WHERE cand.platform=? AND cand.platform_creator_id=? AND cand.status='followed'
+        AND cand.collaboration_id IS NOT NULL
+      ORDER BY cand.followed_at DESC LIMIT 1`,
+  ).get(candidate.platform, candidate.platform_creator_id) as Row | undefined;
+  if (sibling) return sibling;
+  return leftoverDiscoveryPlaceholderByHandle(candidate);
 }
 
-function discoveryKolUid(candidate: Row): string {
+function leftoverDiscoveryPlaceholderByHandle(candidate: Row): Row | undefined {
+  const handle = String(candidate.handle || candidate.nickname || "").trim();
+  if (!handle) return undefined;
+  const expected = discoveryPlaceholderKolUid(candidate);
+  const rows = getConn().prepare(
+    `SELECT * FROM collaborations
+      WHERE (handle=? OR display_name=?) AND source='discovery'`,
+  ).all(handle, handle) as Row[];
+  return rows.find((row) => isPlaceholderKolUid(row.kol_uid) && String(row.kol_uid) === expected);
+}
+
+/** Residual local placeholder from pre-ADR-022 follow. Success path must not keep this. */
+export function discoveryPlaceholderKolUid(candidate: Row): string {
   return `disc_${candidate.platform}_${String(candidate.platform_creator_id).replace(/[^A-Za-z0-9._-]/g, "_")}`.slice(0, 80);
 }
 
-/**
- * Employee confirm-follow. The only discovery path that may create/link a Collaboration.
- * Does not send mail and does not write/advance official stage.
- */
-export function followCandidate(id: string): Json {
-  const candidate = candidateRow(id);
-  const existing = existingCollaboration(candidate);
+function followResult(candidateId: string, collaborationId: string, created: boolean, extra: Json = {}): Json {
+  const collaboration = getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(collaborationId) as Row;
+  return {
+    ...publicCandidate(getConn().prepare("SELECT * FROM creator_candidates WHERE id=?").get(candidateId) as Row),
+    collaboration: {
+      id: collaboration.id,
+      handle: collaboration.handle,
+      display_name: collaboration.display_name,
+      platform: collaboration.platform,
+      brand: collaboration.brand,
+      stage_code: collaboration.stage_code,
+      kol_uid: collaboration.kol_uid,
+      source: collaboration.source,
+    },
+    created,
+    ...extra,
+  };
+}
+
+function markCandidateFollowed(candidateId: string, collaborationId: string): void {
   const now = nowIso();
-  const brand = String(
-    (getConn().prepare("SELECT brand FROM discovery_requests WHERE id=?").get(candidate.request_id) as { brand?: string } | undefined)?.brand
-    || "LT",
+  getConn().prepare(
+    `UPDATE creator_candidates
+        SET status='followed', collaboration_id=?, followed_at=COALESCE(followed_at, ?),
+            dismissed_at=NULL, updated_at=?
+      WHERE id=?`,
+  ).run(collaborationId, now, now, candidateId);
+}
+
+/**
+ * Employee confirm-follow (ADR-022 P0). One L3 confirm → Host import_creator
+ * → backfill real kolUid → then mark followed + Collaboration.
+ * Does not send mail, decrypt contact, or write/advance official stage.
+ */
+export async function followCandidate(id: string, input: Json = {}): Promise<Json> {
+  const candidate = candidateRow(id);
+  const request = getConn().prepare("SELECT * FROM discovery_requests WHERE id=?").get(candidate.request_id) as
+    | Row
+    | undefined;
+  recheckFollowFilters(candidate, request, parseFollowThresholds(input.thresholds ?? input.filters));
+  if (shouldWarnMissingCandidateRegion(candidate, request)) {
+    audit(ownerId(), "discovery.candidate.region_unverified", {
+      candidate_id: candidate.id,
+      request_id: candidate.request_id,
+      plan_region: planRegionOf(request),
+      candidate_region: "",
+    });
+  }
+  const sourceBatch = sourceBatchFor(candidate, input.source_batch);
+  const externalId = creatorExternalId(candidate.platform, candidate.platform_creator_id);
+  const existing = existingCollaboration(candidate);
+  if (existing && isRealKolUid(existing.kol_uid) && String(candidate.status) === "followed") {
+    markCandidateFollowed(String(candidate.id), String(existing.id));
+    audit(ownerId(), "discovery.candidate.followed", {
+      candidate_id: candidate.id,
+      collaboration_id: existing.id,
+      kol_uid: existing.kol_uid,
+      source_batch: sourceBatch,
+      created: false,
+      reused: true,
+    });
+    return followResult(String(candidate.id), String(existing.id), false, { skipped_duplicate: true });
+  }
+  if (existing && isRealKolUid(existing.kol_uid) && String(candidate.status) !== "followed") {
+    markCandidateFollowed(String(candidate.id), String(existing.id));
+    audit(ownerId(), "discovery.candidate.followed", {
+      candidate_id: candidate.id,
+      collaboration_id: existing.id,
+      kol_uid: existing.kol_uid,
+      source_batch: sourceBatch,
+      created: false,
+      reused: true,
+    });
+    return followResult(String(candidate.id), String(existing.id), false);
+  }
+
+  const file = buildCrawlerImportFile(
+    [mapCandidateToCrawlerRow(candidate)],
+    `discovery-follow-${String(candidate.id).slice(0, 24)}.csv`,
   );
+  const imported = await importKolProfilesFromCrawlerConfirmed({
+    file,
+    sourceBatch,
+    creatorExternalId: externalId,
+    candidateId: String(candidate.id),
+    actor: ownerId(),
+  });
+  const kolUid = String(imported.kol_uid || "");
+  if (!isRealKolUid(kolUid)) {
+    throw new HttpFail(502, {
+      code: "import_creator_no_kol_uid",
+      message: "档案未回传红人编号，未加入跟进。",
+    });
+  }
+
+  const linked = existingCollaboration(candidate, kolUid);
+  const brand = String(request?.brand || "LT");
   const handle = String(candidate.handle || candidate.nickname || candidate.platform_creator_id).trim();
-  const cid = String(existing?.id || nid("col"));
-  if (!existing) {
-    const uid = discoveryKolUid(candidate);
+  const cid = String(linked?.id || nid("col"));
+  const created = !linked;
+  if (!linked) {
     tx((db) => {
       db.prepare(
         `INSERT INTO collaborations
          (id, handle, display_name, brand, platform, followers, email, mailbox_from,
           lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,
-          stage_version, locked, kol_uid, source)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          stage_version, locked, kol_uid, source, avg_views_10)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       ).run(
         cid,
         handle,
@@ -879,36 +1049,288 @@ export function followCandidate(id: string): Json {
         0,
         0,
         0,
-        uid,
+        kolUid,
         "discovery",
+        String(avgViews10(candidate) || ""),
       );
     });
+  } else if (isPlaceholderKolUid(linked.kol_uid) || !String(linked.kol_uid || "").trim()) {
+    getConn().prepare(
+      "UPDATE collaborations SET kol_uid=?, avg_views_10=COALESCE(NULLIF(avg_views_10,''), ?) WHERE id=?",
+    ).run(kolUid, String(avgViews10(candidate) || ""), cid);
   }
-  getConn().prepare(
-    `UPDATE creator_candidates
-        SET status='followed', collaboration_id=?, followed_at=COALESCE(followed_at, ?),
-            dismissed_at=NULL, updated_at=?
-      WHERE id=?`,
-  ).run(cid, now, now, candidate.id);
+  markCandidateFollowed(String(candidate.id), cid);
   audit(ownerId(), "discovery.candidate.followed", {
     candidate_id: candidate.id,
     collaboration_id: cid,
-    created: !existing,
+    kol_uid: kolUid,
+    source_batch: sourceBatch,
+    creator_external_id: externalId,
+    created,
+    sent: false,
+    stage_changed: false,
   });
-  const collaboration = getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(cid) as Row;
+  return followResult(String(candidate.id), cid, created);
+}
+
+function requestForCandidate(candidate: Row): Row | undefined {
+  return getConn().prepare("SELECT * FROM discovery_requests WHERE id=?").get(candidate.request_id) as
+    | Row
+    | undefined;
+}
+
+function loadFollowBatchCandidates(input: Json): Row[] {
+  const ids = asStringList(input.candidate_ids ?? input.candidateIds);
+  if (ids.length) {
+    if (ids.length > MAX_FOLLOW_BATCH) {
+      throw new HttpFail(400, {
+        code: "follow_batch_too_large",
+        message: "一次最多加入 100 条线索。",
+        max: MAX_FOLLOW_BATCH,
+      });
+    }
+    return ids.map((id) => candidateRow(id));
+  }
+  const runId = String(input.run_id || input.runId || "").trim();
+  if (runId) {
+    const run = runRow(runId);
+    return getConn().prepare(
+      `SELECT * FROM creator_candidates WHERE run_id=? AND status IN ('suggested','followed')
+        ORDER BY CASE status WHEN 'suggested' THEN 0 ELSE 1 END, score DESC, followers DESC, created_at DESC
+        LIMIT ?`,
+    ).all(run.id, MAX_FOLLOW_BATCH) as Row[];
+  }
+  const requestId = String(input.request_id || input.requestId || "").trim();
+  if (requestId) {
+    const request = requestRow(requestId);
+    return getConn().prepare(
+      `SELECT * FROM creator_candidates WHERE request_id=? AND status IN ('suggested','followed')
+        ORDER BY CASE status WHEN 'suggested' THEN 0 ELSE 1 END, score DESC, followers DESC, created_at DESC
+        LIMIT ?`,
+    ).all(request.id, MAX_FOLLOW_BATCH) as Row[];
+  }
+  throw new HttpFail(400, {
+    code: "follow_batch_empty",
+    message: "请先勾选红人，或按条件筛选后再加入跟进。",
+  });
+}
+
+function batchFailItem(candidate: Row, code: string, message: string): Json {
   return {
-    ...publicCandidate(getConn().prepare("SELECT * FROM creator_candidates WHERE id=?").get(candidate.id) as Row),
-    collaboration: {
-      id: collaboration.id,
-      handle: collaboration.handle,
-      display_name: collaboration.display_name,
-      platform: collaboration.platform,
-      brand: collaboration.brand,
-      stage_code: collaboration.stage_code,
-      kol_uid: collaboration.kol_uid,
-      source: collaboration.source,
+    candidate_id: candidate.id,
+    handle: String(candidate.handle || candidate.nickname || ""),
+    code,
+    message,
+  };
+}
+
+function failFromFollowError(candidate: Row, error: unknown): Json {
+  if (error instanceof HttpFail) {
+    const detail = error.detail;
+    if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+      const body = detail as Json;
+      return batchFailItem(
+        candidate,
+        String(body.code || "follow_failed"),
+        String(body.message || employeeImportError(error)),
+      );
+    }
+    if (typeof detail === "string") {
+      return batchFailItem(candidate, "follow_failed", employeeImportError(detail));
+    }
+  }
+  return batchFailItem(candidate, "follow_failed", employeeImportError(error));
+}
+
+async function runLimited<T, R>(items: T[], limit: number, worker: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  if (!items.length) return [];
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, limit), items.length) }, async () => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await worker(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+function mergePlanFilter(
+  request: Row | undefined,
+  thresholds: FollowThresholds | null,
+): FollowThresholds | null {
+  if (!thresholds && !request) return null;
+  const planPlatforms = parseArray(request?.platforms).map((item) => String(item || "").trim().toLowerCase()).filter(Boolean);
+  const planRegion = planRegionOf(request);
+  const merged: FollowThresholds = { ...(thresholds || {}) };
+  if (!merged.platform && planPlatforms.length === 1) merged.platform = planPlatforms[0];
+  if (!merged.region && planRegion && planRegion !== "all") merged.region = planRegion;
+  return Object.keys(merged).length ? merged : null;
+}
+
+/**
+ * ADR-022 P1: selected (B) or conditional (C) batch follow.
+ * One L3 confirm / source_batch. Per-candidate P0 pipeline, limited concurrency.
+ * Partial success: never mark the whole batch followed when some fail.
+ */
+export async function followCandidatesBatch(input: Json = {}): Promise<Json> {
+  const rawFilter = input.filter ?? input.filters ?? input.thresholds;
+  const thresholds = parseFollowThresholds(rawFilter);
+  const selectedIds = asStringList(input.candidate_ids ?? input.candidateIds);
+  const applyPlanChips = !selectedIds.length || rawFilter != null;
+  const candidates = loadFollowBatchCandidates(input);
+  const preview: Row[] = [];
+  const skipped: Json[] = [];
+  const failed: Json[] = [];
+
+  for (const candidate of candidates) {
+    if (String(candidate.status) === "dismissed") {
+      failed.push(batchFailItem(candidate, "candidate_dismissed", "已忽略的线索不能加入跟进。"));
+      continue;
+    }
+    const request = requestForCandidate(candidate);
+    const writeFilter = applyPlanChips ? mergePlanFilter(request, thresholds) : null;
+    const check = evaluateFollowFilters(candidate, request, writeFilter);
+    if (!check.ok) {
+      failed.push(batchFailItem(candidate, check.code, check.message));
+      continue;
+    }
+    const existing = existingCollaboration(candidate);
+    if (String(candidate.status) === "followed" && existing && isRealKolUid(existing.kol_uid)) {
+      skipped.push(followResult(String(candidate.id), String(existing.id), false, { skipped_duplicate: true }));
+      continue;
+    }
+    preview.push(candidate);
+  }
+
+  const requestId = String(
+    input.request_id || input.requestId || preview[0]?.request_id || candidates[0]?.request_id || "",
+  ).trim();
+  const sourceBatch = sourceBatchForFollowSet({
+    requestId,
+    candidateIds: preview.map((row) => String(row.id)),
+    filter: thresholds,
+    override: input.source_batch,
+  });
+  const missingEmailCount = preview.filter((row) => !candidateHasContactEmail(row)).length;
+  const previewPayload = {
+    source_batch: sourceBatch,
+    confirmed: false,
+    preview: true,
+    items: preview.map(publicCandidate),
+    followed: [],
+    failed,
+    skipped_duplicate: skipped,
+    filter: thresholds,
+    counts: {
+      selected: candidates.length,
+      preview: preview.length,
+      followed: 0,
+      failed: failed.length,
+      skipped_duplicate: skipped.length,
+      missing_email: missingEmailCount,
     },
-    created: !existing,
+    sent: false,
+    stage_changed: false,
+  };
+  if (input.preview === true || input.confirmed === false || input.confirmed === "false") {
+    return previewPayload;
+  }
+  if (input.confirmed !== true && input.confirmed !== "true") {
+    throw new HttpFail(409, {
+      code: "follow_not_confirmed",
+      message: "请先确认后再加入跟进。",
+      source_batch: sourceBatch,
+    });
+  }
+  if (!preview.length) {
+    audit(ownerId(), "discovery.candidates.follow_batch", {
+      source_batch: sourceBatch,
+      followed: 0,
+      failed: failed.length,
+      skipped_duplicate: skipped.length,
+      sent: false,
+      stage_changed: false,
+    });
+    return {
+      source_batch: sourceBatch,
+      confirmed: true,
+      followed: [],
+      failed,
+      skipped_duplicate: skipped,
+      filter: thresholds,
+      counts: {
+        selected: candidates.length,
+        preview: 0,
+        followed: 0,
+        failed: failed.length,
+        skipped_duplicate: skipped.length,
+        missing_email: missingEmailCount,
+      },
+      message: skipped.length || failed.length ? undefined : "没有符合条件的线索。",
+      sent: false,
+      stage_changed: false,
+    };
+  }
+
+  const followed: Json[] = [];
+  const outcomes = await runLimited(preview, FOLLOW_BATCH_CONCURRENCY, async (candidate) => {
+    const request = requestForCandidate(candidate);
+    const writeFilter = applyPlanChips ? mergePlanFilter(request, thresholds) : null;
+    const check = evaluateFollowFilters(candidate, request, writeFilter);
+    if (!check.ok) {
+      return { kind: "failed" as const, item: batchFailItem(candidate, check.code, check.message) };
+    }
+    try {
+      const result = await followCandidate(String(candidate.id), {
+        confirmed: true,
+        source_batch: sourceBatch,
+        ...(writeFilter ? { thresholds: writeFilter } : {}),
+      });
+      if (result.skipped_duplicate) {
+        return { kind: "skipped" as const, item: result };
+      }
+      return { kind: "followed" as const, item: result };
+    } catch (error) {
+      return { kind: "failed" as const, item: failFromFollowError(candidate, error) };
+    }
+  });
+
+  for (const outcome of outcomes) {
+    if (outcome.kind === "followed") followed.push(outcome.item);
+    else if (outcome.kind === "skipped") skipped.push(outcome.item);
+    else failed.push(outcome.item);
+  }
+
+  audit(ownerId(), "discovery.candidates.follow_batch", {
+    source_batch: sourceBatch,
+    followed: followed.length,
+    failed: failed.length,
+    skipped_duplicate: skipped.length,
+    sent: false,
+    stage_changed: false,
+    policy: "import_creator",
+  });
+
+  return {
+    source_batch: sourceBatch,
+    confirmed: true,
+    followed,
+    failed,
+    skipped_duplicate: skipped,
+    filter: thresholds,
+    counts: {
+      selected: candidates.length,
+      preview: preview.length,
+      followed: followed.length,
+      failed: failed.length,
+      skipped_duplicate: skipped.length,
+      missing_email: preview.filter((row) => !candidateHasContactEmail(row)).length,
+    },
+    sent: false,
+    stage_changed: false,
   };
 }
 

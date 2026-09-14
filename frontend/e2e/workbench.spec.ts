@@ -459,7 +459,19 @@ test("composer plus menu exposes projects, recent files, and published skills", 
 
   await menu.getByRole("menuitem", { name: "技能" }).hover();
   const skills = page.getByRole("menu", { name: "技能" });
-  await expect(skills.getByRole("menuitem", { name: /写合作邮件/ })).toBeVisible();
+  const skillItem = skills.getByRole("menuitem", { name: /写合作邮件/ });
+  await expect(skillItem).toBeVisible();
+  const skillLayout = await skillItem.evaluate((el) => {
+    const icon = el.querySelector(".cascade-icon");
+    const label = el.querySelector("strong");
+    if (!icon || !label) return null;
+    return {
+      iconRight: icon.getBoundingClientRect().right,
+      labelLeft: label.getBoundingClientRect().left,
+    };
+  });
+  expect(skillLayout).toBeTruthy();
+  expect(skillLayout!.iconRight).toBeLessThan(skillLayout!.labelLeft);
   await expect(skills.getByRole("menuitem", { name: "创建技能" })).toHaveCount(0);
   await expect(skills.getByRole("menuitem", { name: "管理技能" })).toHaveCount(0);
   await expect(menu.getByRole("menuitem", { name: "添加连接器" })).toHaveCount(0);
@@ -1088,7 +1100,7 @@ test("home followed-KOL stage chips stay one row and match card width", async ({
     await expectHomeFollowedRailWide(page, width);
     await expectNoPageHorizontalScroll(page);
     await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
-    await expectNoHorizontalOverflow(page, "[data-followed-kol]");
+    await expectNoHorizontalOverflow(page, "[data-followed-kol-list] li:first-child [data-followed-kol]");
   }
 });
 
@@ -2370,7 +2382,8 @@ test("composer sends the selected model tier", async ({ page }) => {
 
 test("admin skill page exposes create form after product manager login", async ({ page }) => {
   await page.goto("/admin/skills");
-  await expect(page.getByRole("heading", { name: "组织管理" })).toBeVisible();
+  await expect(page.locator("[data-admin-account]")).toBeVisible();
+  await expect(page.locator("[data-admin-nav='skills']")).toHaveClass(/active/);
   const login = page.locator("[data-admin-login]");
   if (await login.count()) {
     await page.locator("[data-login-name]").fill("鄢棽");
@@ -2403,8 +2416,11 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator('.sidebar a[href="/admin/connectors"]')).toHaveCount(0);
   await expect(page.locator('[data-nav="connectors"]')).toHaveAttribute("href", "/connectors");
   await page.locator(".user-chip").click();
-  await expect(page.getByRole("link", { name: "管理控制台" })).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "连接 Starry 邮箱" })).toBeVisible();
+  const employeeMenu = page.locator(".sidebar .user-popover");
+  await expect(employeeMenu.getByRole("link", { name: "管理控制台" })).toHaveCount(0);
+  await expect(employeeMenu.getByRole("link", { name: "连接器" })).toHaveCount(0);
+  await expect(employeeMenu.getByRole("link", { name: /Starry|连接 Starry 邮箱/ })).toHaveCount(0);
+  await expect(employeeMenu.locator("[data-starry-menu], [data-connector-use-menu]")).toHaveCount(0);
   await expect(page.locator("[data-debug-toggle]")).toHaveCount(0);
   await page.goto("/market/skills");
   await expect(page.locator("[data-hub-new]")).toHaveCount(0);
@@ -2552,15 +2568,34 @@ test("admin debug toggle reveals connector tiles on the skill hub", async ({ pag
 
 test("user menu switches employee, admin, and settings workspaces", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".user-chip").click();
-  await expect(page.getByRole("link", { name: "员工工作台" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "管理控制台" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "个人设置" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "连接 Starry 邮箱" })).toBeVisible();
-  await page.getByRole("link", { name: "管理控制台" }).click();
-  await expect(page.getByRole("heading", { name: "组织管理" })).toBeVisible();
-  await page.getByRole("link", { name: "返回员工工作台" }).click();
+  await page.locator(".sidebar .user-chip").click();
+  const userMenu = page.locator(".sidebar .user-popover");
+  await expect(userMenu.getByRole("link", { name: "员工工作台" })).toBeVisible();
+  await expect(userMenu.getByRole("link", { name: "管理控制台" })).toBeVisible();
+  await expect(userMenu.getByRole("link", { name: "个人设置" })).toBeVisible();
+  await expect(userMenu.getByRole("button", { name: "打开调试视图" })).toBeVisible();
+  await expect(userMenu.getByRole("button", { name: "退出登录" })).toBeVisible();
+  await expect(userMenu.getByRole("link", { name: "连接器" })).toHaveCount(0);
+  await expect(userMenu.getByRole("link", { name: /Starry|连接 Starry 邮箱/ })).toHaveCount(0);
+  await expect(userMenu.locator("[data-starry-menu], [data-connector-use-menu]")).toHaveCount(0);
+  await userMenu.getByRole("link", { name: "管理控制台" }).click();
+  await expect(page.locator("[data-admin-ia='governance']")).toBeVisible();
+  await expect(page.locator("[data-admin-account]")).toContainText("当前账户");
+  await expect(page.locator("[data-admin-context]")).toHaveText("管理");
+  await expect(page.locator(".admin-nav .user-chip")).toBeVisible();
+  await expect(page.locator(".admin-nav .user-chip")).toContainText("管理员");
+  await page.locator(".admin-nav .user-chip").click();
+  const adminMenu = page.locator(".admin-nav .user-popover");
+  await expect(adminMenu.getByRole("link", { name: "员工工作台" })).toBeVisible();
+  await expect(adminMenu.getByRole("link", { name: "管理控制台" })).toBeVisible();
+  await expect(adminMenu.getByRole("link", { name: "个人设置" })).toBeVisible();
+  await expect(adminMenu.getByRole("link", { name: "连接器" })).toHaveCount(0);
+  await expect(adminMenu.locator("[data-starry-menu], [data-connector-use-menu]")).toHaveCount(0);
+  await adminMenu.getByRole("link", { name: "员工工作台" }).click();
   await expect(page.locator("[data-home]")).toBeVisible();
+  await page.locator(".sidebar .user-chip").click();
+  await page.locator(".sidebar .user-popover").getByRole("link", { name: "个人设置" }).click();
+  await expect(page).toHaveURL(/\/settings/);
 });
 
 test("approval, knowledge, and exam are vertical primary nav items before cloud", async ({ page }) => {
@@ -2599,7 +2634,7 @@ test("approval, knowledge, and exam are vertical primary nav items before cloud"
   await expect(page.locator(".approval-page")).not.toContainText("等我确认");
   await expect(page.locator('[data-nav="approvals"]')).toHaveClass(/active/);
   await page.locator('[data-nav="knowledge"]').click();
-  await expect(page.getByRole("heading", { name: "我的知识库" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "知识库" })).toBeVisible();
   await page.locator('[data-nav="exam"]').click();
   await expect(page.getByRole("heading", { name: "学习考试" })).toBeVisible();
 });
@@ -2643,11 +2678,51 @@ test("docs/21 employee sidebar has no admin connectors deep-link", async ({ page
 test("docs/21 admin agents governance is reachable from admin chrome", async ({ page }) => {
   await page.goto("/admin");
   await expect(page.locator(".admin-header a[href='/agents']")).toHaveCount(0);
-  await page.locator("[data-admin-agents-link]").click();
+  await page.locator("[data-admin-nav='agents']").click();
   await expect(page).toHaveURL(/\/admin\/agents$/);
   await expect(page.locator("[data-admin-page='agents']")).toBeVisible();
   await expect(page.getByRole("heading", { name: "数字员工治理" })).toBeVisible();
+  await expect(page.locator("[data-admin-nav='agents']")).toHaveClass(/active/);
   await expect(page.locator("[data-admin-tab='agents']")).toHaveClass(/active/);
+});
+
+test("admin console uses a left sidebar with short labels for the current account", async ({ page }) => {
+  await page.goto("/admin");
+  await expect(page.locator(".workbench")).toHaveClass(/admin-surface/);
+  await expect(page.locator(".workbench > .sidebar")).not.toBeVisible();
+  await expect(page.locator(".settings-tabs.admin-tabs")).toHaveCount(0);
+  await expect(page.locator("[data-admin-nav]").first()).toBeVisible();
+  const labels = await page.locator("nav[aria-label='管理分类'] [data-admin-nav]").allTextContents();
+  expect(labels.map((label) => label.trim())).toEqual([
+    "员工", "数字员工", "连接器", "技能", "审批", "考试", "数据", "知识", "配置",
+  ]);
+  await expect(page.locator("[data-admin-nav='employees']")).toHaveClass(/active/);
+  await expect(page.locator("[data-admin-account]")).toContainText("当前账户");
+  await expect(page.locator("[data-admin-context]")).toHaveText("管理");
+  await expect(page.locator("[data-admin-role]")).toBeVisible();
+  await expect(page.locator(".admin-nav .user-chip")).toBeVisible();
+  await expect(page.locator(".admin-nav .user-chip")).toContainText("管理员");
+  await expect(page.getByRole("link", { name: "返回员工工作台" })).toBeVisible();
+
+  await page.locator("[data-admin-nav='connectors']").click();
+  await expect(page).toHaveURL(/\/admin\/connectors$/);
+  await expect(page.locator("[data-admin-nav='connectors']")).toHaveClass(/active/);
+  await page.locator("[data-admin-connectors-table] a").first().click();
+  await expect(page).toHaveURL(/\/admin\/connectors\//);
+  await expect(page.locator("[data-admin-page='connector-detail']")).toBeVisible();
+  await expect(page.locator("[data-admin-nav='connectors']")).toHaveClass(/active/);
+
+  await page.locator("[data-admin-nav='approvals']").click();
+  await expect(page).toHaveURL(/\/admin\/approvals$/);
+  await expect(page.getByRole("heading", { name: "审批角色授权" })).toBeVisible();
+  await page.locator("[data-admin-nav='exams']").click();
+  await expect(page).toHaveURL(/\/admin\/exams$/);
+  await page.locator("[data-admin-nav='data']").click();
+  await expect(page).toHaveURL(/\/admin\/data$/);
+  await page.locator("[data-admin-nav='knowledge']").click();
+  await expect(page).toHaveURL(/\/admin\/knowledge$/);
+  await page.locator("[data-admin-nav='kol']").click();
+  await expect(page).toHaveURL(/\/admin\/kol$/);
 });
 
 test("employee connector use surface is independent of admin hub", async ({ page, request }) => {
@@ -2680,7 +2755,7 @@ test("docs/21 admin connectors hub renders", async ({ page }) => {
   await expect(page.getByRole("button", { name: /启用|停用/ })).toHaveCount(0);
   await expect(page.locator("textarea[name='bearer']")).toHaveCount(0);
   await page.goto("/admin");
-  await page.locator('[data-admin-tab="connectors"]').click();
+  await page.locator('[data-admin-nav="connectors"]').click();
   await expect(page).toHaveURL(/\/admin\/connectors$/);
   await expect(page.locator("[data-admin-page='connectors']")).toBeVisible();
   await expect(page.getByRole("heading", { name: "连接器枢纽" })).toBeVisible();
@@ -2691,9 +2766,13 @@ test("docs/21 admin connectors hub renders", async ({ page }) => {
 
 test("admin and settings expose bind Starry mailbox menus", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".user-chip").click();
-  await expect(page.locator("[data-starry-menu]")).toHaveText("连接 Starry 邮箱");
-  await page.locator("[data-starry-menu]").click();
+  await page.locator(".sidebar .user-chip").click();
+  const userMenu = page.locator(".sidebar .user-popover");
+  await expect(userMenu.locator("[data-starry-menu], [data-connector-use-menu]")).toHaveCount(0);
+  await expect(userMenu.getByRole("link", { name: /Starry|连接 Starry 邮箱/ })).toHaveCount(0);
+  await userMenu.getByRole("link", { name: "个人设置" }).click();
+  await expect(page).toHaveURL(/\/settings/);
+  await page.getByRole("tab", { name: "连接 Starry" }).click();
   await expect(page).toHaveURL(/\/settings\?tab=starry/);
   await expect(page.getByRole("tab", { name: "连接 Starry" })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-starry-bind]")).toBeVisible();
@@ -2701,8 +2780,10 @@ test("admin and settings expose bind Starry mailbox menus", async ({ page }) => 
   await expect(page.getByRole("button", { name: "读取可用邮箱" })).toBeVisible();
 
   await page.goto("/admin");
-  await expect(page.locator('[data-admin-tab="starry"]')).toHaveCount(0);
+  await expect(page.locator('[data-admin-nav="starry"], [data-admin-tab="starry"]')).toHaveCount(0);
   await expect(page.locator("[data-starry-bind]")).toHaveCount(0);
+  await page.locator(".admin-nav .user-chip").click();
+  await expect(page.locator(".admin-nav .user-popover [data-starry-menu], .admin-nav .user-popover [data-connector-use-menu]")).toHaveCount(0);
   await page.goto("/admin/starry");
   await expect(page).toHaveURL(/\/settings\?tab=starry/);
   await expect(page.locator("[data-starry-bind]")).toBeVisible();
@@ -3054,6 +3135,49 @@ test("process trace shows harness thinking in the list instead of a fixed five-s
   await expect(trace).not.toContainText("加载 Skill");
   await expect(trace).not.toContainText("校验安全边界与格式");
   await expect(page.locator("[data-reasoning-summaries]")).toHaveCount(0);
+});
+
+test("process trace keeps reasoning summary prose instead of generic processing copy", async ({ page }) => {
+  const now = new Date().toISOString();
+  const english = "Narrow the crawl to YouTube camping creators and skip off-topic channels.";
+  const extra = "Also consider keyword overlap with outdoor power brands.";
+  await page.route("**/api/sessions/session-reasoning", (route) => route.fulfill({ json: {
+    agent_status: "running",
+    messages: [
+      { id: "me", session_id: "session-reasoning", role: "user", kind: "me", created_at: now, payload: { text: "搜索 YouTube 露营达人" } },
+      { id: "process", session_id: "session-reasoning", role: "assistant", kind: "process_trace", created_at: now, payload: {
+        title: "处理过程",
+        items: [
+          { id: "host:preparing", label: "准备任务", status: "done", kind: "host" },
+          { id: "host:skill_ready", label: "加载任务规则", status: "done", kind: "host" },
+          { id: "reasoning:rsn_1", label: english, status: "running", kind: "reasoning", streaming: true },
+          { id: "reasoning:rsn_jargon", label: "Using Codex MCP to read the Skill Thread for camping creators.", status: "done", kind: "reasoning" },
+          { id: "reasoning:rsn_title", label: "Preparing skill execution", status: "done", kind: "reasoning" },
+          { id: "reasoning:rsn_json", label: "{\"type\":\"reasoning\",\"text\":\"secret\"}", status: "done", kind: "reasoning" },
+          { id: "host:mcp", label: "calling capabilities", status: "done", kind: "host" },
+          { id: "host:validating", label: "校验输出", status: "failed", kind: "result" },
+        ],
+        summaries: [extra],
+      } },
+    ],
+  } }));
+  await page.goto("/s/session-reasoning");
+  const trace = page.locator('[data-kind="process-trace"]');
+  await expect(trace).toContainText(english);
+  await expect(trace.locator('[data-kind="reasoning"] span.is-streaming')).toContainText(english);
+  await expect(trace.locator("[data-reasoning-summaries]")).toContainText(extra);
+  await expect(trace).toContainText("准备任务");
+  await expect(trace).toContainText("加载任务规则");
+  await expect(trace).toContainText("正在调用系统能力");
+  await expect(trace).toContainText("校验输出");
+  await expect(trace).toContainText("正在分析…");
+  await expect(trace).not.toContainText("正在处理这项工作");
+  await expect(trace).toContainText("Using to read the for camping creators.");
+  await expect(trace).not.toContainText("calling capabilities");
+  await expect(trace).not.toContainText("secret");
+  await expectNoEngineJargon(trace);
+  await expectNoEngineJargon(page.locator("[data-run-status]"));
+  await expect(page.locator("[data-run-status]")).toContainText(english);
 });
 
 test("creator discovery shows auto-started crawl progress in the middle and can stop", async ({ page }) => {
@@ -3416,8 +3540,8 @@ test("cited knowledge template appears in the home picker and only prefills", as
   await expect(page).toHaveURL(/\/(?:\?.*)?$/);
   await expect(page.locator("[data-home] [data-mail-fields]")).toHaveCount(0);
   await page.locator('[data-nav="knowledge"]').click();
-  await expect(page.getByRole("heading", { name: "我的知识库" })).toBeVisible();
-  await expect(page.locator('[data-knowledge="kb_mail_followup"]')).toContainText("已启用");
+  await expect(page.getByRole("heading", { name: "知识库" })).toBeVisible();
+  await expect(page.locator('[data-knowledge="kb_mail_followup"]')).toContainText("已发布");
   await page.locator('[data-fill-composer="kb_mail_followup"]').click();
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/LiTime collab kit/);
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/Just a quick follow-up/);
@@ -3426,6 +3550,51 @@ test("cited knowledge template appears in the home picker and only prefills", as
   await expect(page.locator("[data-home] [data-knowledge-preview='kb_mail_followup']")).toHaveAttribute("data-knowledge-preview-mode", "lock");
   await expect(page.locator("[data-home] [data-knowledge-preview-body]")).toHaveCount(0);
   await expect(page.locator("[data-home] [data-knowledge-preview-title]")).toContainText("阶段跟进");
+});
+
+test("employee knowledge base uses task copy, category tabs, and a content drawer", async ({ page }) => {
+  await page.goto("/kb");
+  const kb = page.locator("[data-kb-page='mine']");
+  await expect(page.getByRole("heading", { name: "知识库", exact: true })).toBeVisible();
+  await expect(kb.locator(".page-kicker")).toHaveText("知识库");
+  await expect(kb.locator(".kb-lead")).toContainText("选择适合当前任务的资料，AI 会据此生成草稿。正式发送前仍需要你确认。");
+  await expect(kb).not.toContainText(/Codex|Harness|MCP|发送不等于推进阶段|发送不等于改阶段|发送\s*≠|不会改阶段|用这份写信|资产·不发送|资产 · 不发送|知识市场|我的知识库|口径与其它/);
+  const tabOrder = await kb.locator("[data-kb-tab]").evaluateAll((els) => els.map((el) => el.getAttribute("data-kb-tab")));
+  expect(tabOrder).toEqual(["all", "sop", "mail", "quote", "recent"]);
+  await expect(kb.locator("[data-kb-tab='sop']")).toHaveText("KOL合作SOP");
+  await expect(kb.locator("[data-kb-tab='brand']")).toHaveCount(0);
+
+  const followup = kb.locator('[data-knowledge="kb_mail_followup"]');
+  await expect(followup.locator("[data-kb-summary]")).toBeVisible();
+  await expect(followup).not.toContainText("Happy to share the spec sheet");
+  await expect(followup).not.toContainText("unboxing angle");
+  await expect(followup.getByRole("button", { name: "用于当前任务" })).toBeVisible();
+  await expect(followup.getByRole("button", { name: "查看内容" })).toBeVisible();
+  await expect(followup.getByRole("button", { name: "收藏" })).toBeVisible();
+  await expect(followup.getByRole("button", { name: "从本账号停用" })).toHaveCount(0);
+  await expect(followup.getByRole("button", { name: "对本账号隐藏" })).toHaveCount(0);
+
+  await followup.locator("[data-kb-open]").click();
+  const drawer = page.locator('[data-kb-preview="kb_mail_followup"]');
+  await expect(drawer).toBeVisible();
+  await expect(drawer.locator("[data-kb-preview-body]")).toContainText("Just a quick follow-up");
+  await expect(drawer.locator("[data-kb-preview-body]")).toContainText("LiTime collab kit");
+  await expect(drawer.locator("[data-kb-preview-body]")).toContainText("Happy to share the spec sheet");
+  await drawer.getByRole("button", { name: "关闭" }).click();
+  await expect(drawer).toHaveCount(0);
+
+  await kb.locator("[data-kb-tab='mail']").click();
+  await expect(kb.locator(".page-kicker")).toHaveText("知识库 · 邮件模板");
+  await expect(kb.locator("[data-kind='mail_template']").first()).toBeVisible();
+  await expect(kb.locator("[data-kind='policy']")).toHaveCount(0);
+
+  await followup.getByRole("button", { name: "收藏" }).click();
+  await expect(followup.getByRole("button", { name: "已收藏" })).toBeVisible();
+
+  await page.locator('[data-fill-composer="kb_mail_followup"]').click();
+  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/LiTime collab kit/);
+  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/Just a quick follow-up/);
+  await expect(page).toHaveURL(/\/(?:\?.*)?$/);
 });
 
 test("HTML session payload is shown as a connection error, not SyntaxError", async ({ page, request }) => {

@@ -1,8 +1,8 @@
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
-import { api, type Account, type SessionRow, type StarryBinding } from "../api";
+import { api, type Account, type SessionRow } from "../api";
 import { useAccount } from "../components/AuthGate";
-import { accountChipLabel } from "../labels";
+import UserMenu from "../components/UserMenu";
 import { useViewMode } from "../viewMode";
 
 function Ico({ path }: { path: string }) {
@@ -23,22 +23,16 @@ function Ico({ path }: { path: string }) {
 export default function Workbench() {
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [approvalCount, setApprovalCount] = useState(0);
-  const { account, logout } = useAccount();
-  const { admin, debug, setDebug } = useViewMode();
+  const { account } = useAccount();
+  const { admin, debug } = useViewMode();
   const [me, setMe] = useState<Account | null>(account);
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("ui:left-collapsed") === "true");
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [userOpen, setUserOpen] = useState(false);
-  const [starryBind, setStarryBind] = useState<StarryBinding | null>(null);
   const loc = useLocation();
 
   useEffect(() => {
     api.sessions().then(setSessions).catch(() => setSessions([]));
-    api.me().then((row) => {
-      setMe(row);
-      if (row.starry_binding) setStarryBind(row.starry_binding);
-    }).catch(() => setMe(null));
-    api.starryBinding().then(setStarryBind).catch(() => setStarryBind(null));
+    api.me().then(setMe).catch(() => setMe(null));
     api.approvals()
       .then((rows) => {
         const list = Array.isArray(rows) ? rows : [];
@@ -65,10 +59,6 @@ export default function Workbench() {
     }).catch(() => undefined);
   }, [account?.id]);
 
-  useEffect(() => {
-    if (account?.starry_binding) setStarryBind(account.starry_binding);
-  }, [account?.starry_binding]);
-
   const skillsActive = loc.pathname === "/skills" || loc.pathname.startsWith("/market/skills");
   const adminAvailable = admin || me?.available_modes?.includes("admin") === true;
 
@@ -85,6 +75,7 @@ export default function Workbench() {
     sessionId && sessions.some((s) => s.id === sessionId && s.agent_status === "running"),
   );
   const onAgents = loc.pathname === "/agents" || loc.pathname.startsWith("/agents/");
+  const onAdmin = loc.pathname === "/admin" || loc.pathname.startsWith("/admin/");
 
   const toggleCollapsed = () => {
     setCollapsed((value) => {
@@ -96,7 +87,7 @@ export default function Workbench() {
 
   return (
     <div
-      className={"workbench" + (collapsed ? " sidebar-collapsed" : "")}
+      className={"workbench" + (collapsed ? " sidebar-collapsed" : "") + (onAdmin ? " admin-surface" : "")}
       data-ui-shell="agent-v1"
       data-view-mode={debug ? "debug" : "business"}
       data-account-role={adminAvailable ? "admin" : "employee"}
@@ -206,36 +197,7 @@ export default function Workbench() {
         </div>
 
         <div className="sidebar-foot">
-          <div className="user-menu-wrap">
-            <button className="user-chip" data-exam={me?.exam_passed === false ? "blocked" : "ok"} aria-expanded={userOpen} onClick={() => setUserOpen((v) => !v)}>
-              <span className="sidebar-label">{accountChipLabel(me)}</span>
-              <span className="rail-user" aria-hidden>{me?.name?.slice(0, 1) || "我"}</span>
-            </button>
-            {userOpen && <div className="menu-popover user-popover">
-              <NavLink to="/" onClick={() => setUserOpen(false)}>员工工作台</NavLink>
-              {adminAvailable && <NavLink to="/admin" onClick={() => setUserOpen(false)}>管理控制台</NavLink>}
-              {adminAvailable && (
-                <button
-                  type="button"
-                  data-debug-toggle
-                  onClick={() => {
-                    setDebug(!debug);
-                    setUserOpen(false);
-                  }}
-                >
-                  {debug ? "关闭调试视图" : "打开调试视图"}
-                </button>
-              )}
-              <NavLink to="/settings" onClick={() => setUserOpen(false)}>个人设置</NavLink>
-              <NavLink to="/connectors" data-connector-use-menu onClick={() => setUserOpen(false)}>连接器</NavLink>
-              <NavLink to="/settings?tab=starry" data-starry-menu onClick={() => setUserOpen(false)}>
-                {starryBind?.bound
-                  ? `Starry 已连接${starryBind.mailbox_email ? ` · ${starryBind.mailbox_email.split("@")[0]}` : ""}`
-                  : "连接 Starry 邮箱"}
-              </NavLink>
-              <button onClick={() => void logout()}>退出登录</button>
-            </div>}
-          </div>
+          <UserMenu account={me} />
         </div>
       </aside>
       <main className="main">

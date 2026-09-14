@@ -1,9 +1,11 @@
 import { Hono } from "hono";
 import { requireConnector } from "../auth.js";
 import {
+  checkDiscoveryConnection,
   createDiscoveryRequest,
   dismissCandidate,
   followCandidate,
+  followCandidatesBatch,
   getCandidate,
   getDiscoveryRequest,
   getDiscoveryResults,
@@ -16,6 +18,10 @@ import { nid } from "../ids.js";
 import type { Json } from "../types.js";
 
 export const discovery = new Hono();
+
+discovery.get("/discovery/connection", async (c) => c.json(await checkDiscoveryConnection()));
+
+discovery.post("/discovery/connection", async (c) => c.json(await checkDiscoveryConnection()));
 
 discovery.post("/discovery/requests", async (c) => {
   const body = await c.req.json().catch(() => ({})) as Json;
@@ -52,6 +58,14 @@ discovery.get("/discovery/runs/:id/candidates", (c) => {
 
 discovery.get("/discovery/candidates/:id", (c) => c.json(getCandidate(c.req.param("id"))));
 
-discovery.post("/discovery/candidates/:id/follow", (c) => c.json(followCandidate(c.req.param("id"))));
+discovery.post("/discovery/candidates/follow-batch", async (c) => {
+  const body = await c.req.json().catch(() => ({})) as Json;
+  return c.json(await followCandidatesBatch(body));
+});
+
+discovery.post("/discovery/candidates/:id/follow", async (c) => {
+  const body = await c.req.json().catch(() => ({})) as Json;
+  return c.json(await followCandidate(c.req.param("id"), body));
+});
 
 discovery.post("/discovery/candidates/:id/dismiss", (c) => c.json(dismissCandidate(c.req.param("id"))));
