@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type Message, type SessionRow, type Task, type TaskEvent } from "../api";
-import { employeeProcessLabel } from "../components/ChatBlocks";
+import { employeeProcessLabel, employeeTraceLabel } from "../components/ChatBlocks";
 
 export type AgentRunStatus = SessionRow["agent_status"];
 
@@ -10,19 +10,23 @@ function phaseFromMessages(messages: Message[]): string | undefined {
     const kind = String(m.kind || "");
     const payload = (m.payload && typeof m.payload === "object" ? m.payload : {}) as Record<string, unknown>;
     if (kind === "process_trace") {
-      const phases = Array.isArray(payload.phases) ? payload.phases as { label?: string; status?: string }[] : [];
-      const active = [...phases].reverse().find((p) => p.status === "running") || phases[phases.length - 1];
-      if (active?.label) return String(active.label);
-      if (payload.title) return String(payload.title);
+      const source = Array.isArray(payload.items) && payload.items.length
+        ? payload.items
+        : Array.isArray(payload.phases) ? payload.phases : [];
+      const rows = source as { label?: string; status?: string; kind?: string; summary?: string; reasoning_summary?: string }[];
+      const active = [...rows].reverse().find((p) => p.status === "running") || rows[rows.length - 1];
+      const raw = String(active?.label || active?.summary || active?.reasoning_summary || "");
+      if (raw) return employeeTraceLabel(raw, active?.kind);
+      if (payload.title) return employeeProcessLabel(String(payload.title));
     }
     if (kind === "operation_trace") {
       const items = Array.isArray(payload.items) ? payload.items as { label?: string; name?: string }[] : [];
       const last = items[items.length - 1];
-      if (last?.label) return String(last.label);
+      if (last?.label) return employeeProcessLabel(String(last.label));
     }
     if (kind === "assistant" && payload.text) {
       const text = String(payload.text);
-      if (text.length < 80) return text;
+      if (text.length < 80) return employeeProcessLabel(text);
     }
   }
   return undefined;
@@ -74,7 +78,9 @@ export function useRunStatus(sessionId: string | undefined, messages: Message[],
 
   const phase = useMemo(
     () => {
-      const raw = phaseFromMessages(messages) || phaseFromEvents(events);
+      const fromMessages = phaseFromMessages(messages);
+      if (fromMessages) return fromMessages;
+      const raw = phaseFromEvents(events);
       return raw ? employeeProcessLabel(raw) : undefined;
     },
     [messages, events],
