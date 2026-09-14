@@ -10,7 +10,7 @@ KOL 试点的可执行 UX 实例是 [`specs/UX-KOL.md`](../specs/UX-KOL.md)，�
 
 超级用户可以进入两端和显式调试视图，但仍不能跳过发送、阶段、解密、导入、删除和审批闸门。
 
-表面分类以 `CONSTITUTION.md` 为准：Home、Chat、Pipeline 是员工核心工作表面，Admin 是治理域，Agents、KB、审批、考试、连接器和 Settings 是支撑能力面。详细员工 IA 见 `employee-surface-contracts.md`。Home **内**四模式为今日任务、我的待办、AI发现、我跟进的红人；Pipeline 不得复用首页四模式、待办桶或会话技能启动器。管理端配套套件与员工表面的硬边界见 `21-admin-employee-page-roles.md`。
+表面分类以 `CONSTITUTION.md` 为准：十六项一等能力见 §4.1；KOL 是首个试点不是平台壳见 §4.2。Home、Chat 是员工核心工作表面；Pipeline 与 Home「AI发现」「我跟进的红人」是 KOL 试点特化。Admin 是治理域。「支撑能力面」≠ 二等。详细员工 IA 见 `employee-surface-contracts.md`。Home **内**四模式为今日任务、我的待办、AI发现、我跟进的红人；Pipeline 不得复用首页四模式、待办桶或会话技能启动器。管理端配套套件与员工表面的硬边界见 `21-admin-employee-page-roles.md`。
 
 ## 任务驱动体验
 
