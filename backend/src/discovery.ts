@@ -21,6 +21,7 @@ import {
   mapEmployeeError,
   persistableEmployeeError,
 } from "./discovery-errors.js";
+import { emptyDiscoveryHint, expandOverseasSearchKeywords } from "./discovery-keywords.js";
 import { HttpFail } from "./host/errors.js";
 import { nid } from "./ids.js";
 import type { Json, Row } from "./types.js";
@@ -205,6 +206,19 @@ function foldSearchKeywords(keywords: string[], directions: string[]): string[] 
   return out;
 }
 
+function crawlSearchKeywords(keywords: string[], filters: { region: string; directions: string[] }): string[] {
+  return expandOverseasSearchKeywords({
+    keywords,
+    directions: filters.directions,
+    region: filters.region,
+  });
+}
+
+function searchKeywordsOf(row?: Row | null): string[] {
+  if (!row) return [];
+  return asStringList(parseJson(row.parameters).keywords);
+}
+
 function storedFilters(row: Row): { region: string; directions: string[] } {
   const raw = parseJson(row.filters);
   const directions = asStringList(raw.directions);
@@ -366,6 +380,7 @@ function publicRun(row: Row): Json {
     status,
     status_label: RUN_STATUS_LABEL[status] || status,
     error: employeeError(current.error),
+    search_keywords: searchKeywordsOf(current),
     candidate_count: Number(current.candidate_count || 0),
     created_at: current.created_at,
     started_at: current.started_at,
@@ -436,6 +451,8 @@ export function getDiscoveryResults(id: string): Json {
                score DESC, followers DESC, created_at DESC`,
   ).all(current.id) as Row[]).map(publicCandidate);
   const summary = planSummary(current);
+  const searchKeywords = searchKeywordsOf(run);
+  const succeeded = String(current.status) === "succeeded" || String(run?.status) === "succeeded";
   return {
     id: current.id,
     status: current.status,
@@ -452,6 +469,8 @@ export function getDiscoveryResults(id: string): Json {
     candidates,
     counts,
     error: employeeError(current.error),
+    search_keywords: searchKeywords,
+    empty_hint: succeeded && counts.candidate_count === 0 ? emptyDiscoveryHint(searchKeywords) : null,
     ready: counts.suggested_count > 0,
     pending_confirm: String(current.status) === "open" || counts.suggested_count > 0,
     connection: connectionPayload(),
@@ -658,7 +677,8 @@ export async function startDiscoveryRun(input: {
   const platform = pickPlatform(request, input.platform);
   const mode = String(request.mode || "search");
   const filters = storedFilters(request);
-  const keywords = foldSearchKeywords(parseArray(request.keywords).map(String), filters.directions);
+  const submitted = parseArray(request.keywords).map(String);
+  const keywords = crawlSearchKeywords(submitted, filters);
   const parameters: Json = { ...filters, keywords };
   const idempotencyKey = String(input.idempotencyKey || `disc:${request.id}:${platform}:${nid("idem")}`);
   const existing = getConn().prepare("SELECT * FROM discovery_runs WHERE idempotency_key=?").get(idempotencyKey) as

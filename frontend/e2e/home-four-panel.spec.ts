@@ -137,6 +137,19 @@ test("home discovery persists plan and requires confirm before crawl or follow",
 
   await page.locator("[data-discovery-confirm-plan]").click();
   await expect(page.locator("[data-discovery-loading], [data-discovery-error]")).toBeVisible();
+  const afterRun = await request.get(`/api/discovery/requests/${requestId}/results`);
+  expect(afterRun.ok()).toBeTruthy();
+  const afterBody = await afterRun.json() as {
+    search_keywords?: string[];
+    run?: { search_keywords?: string[] } | null;
+    keywords?: string[];
+  };
+  expect(afterBody.keywords).toEqual(["找北美户外电源评测达人"]);
+  const used = afterBody.search_keywords?.length
+    ? afterBody.search_keywords
+    : afterBody.run?.search_keywords || [];
+  expect(used).toEqual(expect.arrayContaining(["portable power station"]));
+  expect(used.join(" ")).not.toMatch(/找北美|达人/);
   expect(discoveryPosts.some((path) => path.includes("/runs"))).toBeTruthy();
   expect(discoveryPosts.some((path) => path.includes("/follow"))).toBeFalsy();
   expect(livePosts).toEqual([]);
