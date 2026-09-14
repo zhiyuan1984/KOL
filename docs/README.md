@@ -46,6 +46,7 @@ CONSTITUTION.md 中相关边界
 |---|---|
 | 安全、权限、数据事实 | FS、Policy、数据契约 |
 | 产品闭环与表面职责 | `CONSTITUTION.md` |
+| 平台一等能力 vs KOL 试点壳 | `CONSTITUTION.md` §4.1–4.2（十六项清单；KOL=首个试点，ADR-023） |
 | 可执行交互与发布验收 | `specs/UX-KOL.md`、追踪矩阵 |
 | 全局视觉与组件 | `design-system/kol-workbench/MASTER.md` |
 | 单页布局与状态 | 对应 `pages/*.md` |
@@ -75,7 +76,7 @@ CONSTITUTION.md 中相关边界
 17. `16-production-test-plan.md`：功能、红线、真实链路和发布门禁测试
 18. `17-code-conformance-scan.md`：前后端代码违宪扫描报告
 19. `18-mcp-master-data-assessment.md`：MCP 主数据能力与组织主数据边界
-20. `employee-surface-contracts.md`：员工核心工作表面与支撑能力面的详细契约；`19-ui-ux-constitution.md` 只保留历史链接兼容
+20. `employee-surface-contracts.md`：员工核心工作表面与一等能力面的详细契约（含技能/数字团队位阶）；`19-ui-ux-constitution.md` 只保留历史链接兼容
 21. `20-visual-design-system.md`：旧视觉方案与 token 迁移依据；现行视觉入口为 `design-system/kol-workbench/MASTER.md`
 22. `21-admin-employee-page-roles.md`：管理端 ↔ 员工端边界（连接器治理 vs 员工使用、员工 `/kb` vs 管理知识治理、`/admin/agents` vs 员工专家中心）
 23. `90-codebase-handbook.md`：代码地图和修改归属
@@ -93,7 +94,16 @@ CONSTITUTION.md 中相关边界
 
 - `SPEC-TEMPLATE.md`：功能规格模板。
 - `EVAL-TEMPLATE.md`：Agent 评价样例模板。
-- `DECISIONS.md`：跨文档架构决策记录（近期：ADR-018 Home 内四模式；ADR-019 AI发现条件区；ADR-020 工作台正文 16px；ADR-021 员工 `/kb` 知识库立法；ADR-022 MediaCrawler → Starry 跟进桥）。
+- `DECISIONS.md`：跨文档架构决策记录（近期：ADR-018 Home 内四模式；ADR-019 AI发现条件区；ADR-020 工作台正文 16px；ADR-021 员工 `/kb` 知识库立法；ADR-022 MediaCrawler → Starry 跟进桥；ADR-023 智能体中台十六项一等能力 / KOL=首个试点）。
+
+### 平台能力 vs KOL 试点
+
+| 问题 | 读取并服从 |
+|---|---|
+| 哪些面是一等能力、KOL 是否等于平台壳 | `CONSTITUTION.md` §4.1–4.2 十六项清单与试点元条款（ADR-023）；证据 `evidence-platform-law-gap-2026-09-14.md` |
+| 能力面「只回答」与员工侧栏密度 | `employee-surface-contracts.md`（技能入口=UX；数字团队预留；禁止专家团假导航） |
+| KOL 试点域（Pipeline、AI发现、我跟进的红人、报价邮件） | `12-kol-agent.md`、Home 四模式（ADR-018）、`employee-surface-contracts.md` |
+| 连接器使用 ≠ 治理 | `21-admin-employee-page-roles.md`、ADR-013 |
 
 历史重复规范已删除；追溯使用 Git 历史。业务规则只在功能规格/Skill/Workflow/Policy 的 canonical 位置维护；物理接口只在物理资料维护；平台硬规则只在 Host/内核契约维护。任何冲突必须写决策记录并更新追踪矩阵。
 
@@ -116,3 +126,4 @@ CONSTITUTION.md 中相关边界
 - `evidence-expert-manifest-2026-09-14.md`：首版 `/api/experts` 落实 ADR-016；仅已发布岗位专家；召唤只绑定会话。
 - `evidence-adr022-p0-follow-import-stub-2026-09-14.md`：ADR-022 P0 stub PASS——单个加入跟进确认后单行 `importKolProfilesFromCrawler`，成功才回填真实 `kolUid`；非 LIVE。
 - `evidence-adr022-p1-batch-follow-stub-2026-09-14.md`：ADR-022 P1 stub——勾选批量 / 条件批量加入跟进（粉丝 / 近10均播 / 评分 / 计划平台地区），部分成功不整批标已跟进；非 LIVE。
+- `evidence-platform-law-gap-2026-09-14.md`：智能体中台十六项一等能力缺口扫描；ADR-023 修宪已落地（文档 only，非 LIVE）。

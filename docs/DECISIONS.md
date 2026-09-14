@@ -6,6 +6,7 @@
 
 | 日期 | 记录 | 说明 |
 |---|---|---|
+| 2026-09-14 | 产品是**智能体中台**。十六项一等能力（含技能、数字团队预留未实现、考试、项目/云盘/遥控占位、定时、通知、设置等）互不隶属、不隶属 KOL Agent。「支撑」≠ 二等。KOL 只是首个试点；Pipeline / Home「AI发现」「我跟进的红人」是试点特化。技能侧栏露出=UX，不是「员工永远不许看见」。禁止专家团假导航；不得永久禁止名词「数字团队」 | 用户锁定。见 ADR-023、`CONSTITUTION.md` §4.1–4.2、`docs/evidence-platform-law-gap-2026-09-14.md`。本记录不实施 FE/BE，不 LIVE。 |
 | 2026-09-14 | MediaCrawler → Starry 跟进桥：三模式（单个 / 勾选批量 / 条件批量）。条件批量**本期全开**：粉丝 ≥ N、近10均播 ≥ M、Host 评分 ≥ S、平台 / 地区沿用发现计划芯片。无邮箱仍单行 `importKolProfilesFromCrawler`；跟进+主档=一张 L3 确认卡（每 `source_batch` 一次）；采集只产线索；成功才跟进（真实 `kolUid`）；本路径禁发信/改阶段/解密/编造邮箱；入库仍 Host-only；门槛只在 Host（列表预览 + 写入前复核） | 产品锁定。见 ADR-022、`07-mcp-data-contract.md`、`19-ui-ux-constitution.md`。本记录不实施 FE/BE，不 LIVE，不在跟进时改阶段。 |
 | 2026-09-14 | 员工 `/kb` **不是**邮件模板管理台。只回答查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务；邮件模板只是一类资料；主 CTA「用于当前任务」只产未发送草稿；卡片元数据底线可后补字段 | 产品裁定现行员工 `/kb` 不适合。见 ADR-021、`19-ui-ux-constitution.md`。本记录不实施 FE/BE。 |
 | 2026-09-14 | 员工工作台**全局正文基线 16px**（约比旧 13–14px 大 15–20%）；控件 / 按钮 / Tab / helper **≥14px**；禁止 `transform: scale` / `zoom` 假装字号。Linear 密度仍在，但不靠缩小正文 | 产品确认。见 ADR-020、`20-visual-design-system.md`。字号 CSS 由实现 PR 落地。 |
@@ -45,6 +46,7 @@
 | ADR-020 | 员工工作台正文基线 **16px**；UI / 按钮 / Tab / helper **≥14px**；禁止 scale/zoom 假装字号；Linear 密度靠间距与阴影，不靠缩小正文 | `20-visual-design-system.md`、`19-ui-ux-constitution.md` |
 | ADR-021 | 员工 `/kb` 是并列能力面（ADR-015）：查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务；禁止邮件模板管理台与引擎行话；应用只产未发送草稿；卡片元数据底线先立法、schema 可后补 | `19-ui-ux-constitution.md`、`14-implementation-contract.md`、`21-admin-employee-page-roles.md` |
 | ADR-022 | MediaCrawler → Starry 跟进桥：三模式；条件批量本期全开（粉丝 / 近10均播 / Host 评分 / 平台 / 地区）；无邮箱仍单行 `importKolProfilesFromCrawler`；跟进+主档一张 L3 卡（每 `source_batch` 一次）；采集不写 Starry；成功才跟进（真实 `kolUid`）；禁发信/改阶段/解密/编造邮箱；门槛只在 Host。服从 ADR-018 / ADR-011 / ADR-019 | `07-mcp-data-contract.md`、`19-ui-ux-constitution.md`、`08-permission-approval-audit.md`、`policies/import_creator.yaml` |
+| ADR-023 | 智能体中台十六项一等能力；KOL=首个试点不是平台壳；技能入口密度=UX（禁止图鉴压过任务脊柱）；数字团队预留未实现，禁止专家团假导航，不得永久禁「数字团队」名词。「支撑」≠ 二等。服从 ADR-015 精神；修订 ADR-016 中「员工默认禁技能 / 不要求数字团队」的过度读法 | `CONSTITUTION.md`、`employee-surface-contracts.md`、`21-admin-employee-page-roles.md`、`docs/evidence-platform-law-gap-2026-09-14.md` |
 
 ## 新增 Agent 分级
 
@@ -216,8 +218,8 @@ Admin 导航和页面与员工连接器/智能体表面重叠：员工侧栏深�
 ### 决定
 
 1. **专家中心只回答「找谁协作」。** 员工 `/agents`（专家中心 / 数字员工入口）列出已发布、可供召唤的岗位专家并建立协作绑定。不是技能目录、不是第二套 Home 任务页、不是连接器目录。不发明第五套主脊柱；`/agents` 仍是 P0 工作入口 chrome。
-2. **无专家团。** 员工默认表面完全没有专家团：无入口、无占位、无假导航。侧栏入口文案「数字员工」；不要求「数字团队」（易被读成专家团）。
-3. **员工默认禁止引擎与目录 chrome。** 默认员工 `/agents` 及数字员工相关 chrome 不得展示 Profile 内部、Harness、MCP、Codex、技能目录 / Skill picker、连接器状态 / connector pills 作为主 IA。引擎行话仍按 `UX-COPY-ENGINE`。技能目录仅显式调试或管理端。
+2. **无专家团。** 员工默认表面完全没有专家团：无入口、无占位、无假导航。侧栏入口文案「数字员工」。**修订（ADR-023）：** 「数字团队」是独立一等能力、尚未实现；预留名词与位阶，禁止用专家团冒充，**不得**把该产品名词永久写成禁词。
+3. **员工默认禁止引擎与目录 chrome。** 默认员工 `/agents` 及数字员工相关 chrome 不得展示 Profile 内部、Harness、MCP、Codex、技能图鉴 / Skill picker、连接器状态 / connector pills 作为主 IA。引擎行话仍按 `UX-COPY-ENGINE`。**修订（ADR-023）：** 技能是一等能力；侧栏是否露出是 UX 密度，不是「员工永远不许看见技能」。仍禁止能力图鉴压过任务脊柱，也禁止把图鉴做成 `/agents` 主 IA。
 4. **召唤 ≠ 发送 / 推进阶段。** 召唤只建立绑定会话 / 协作绑定。无 send-mail 副作用，无 stage-change 副作用。「发送 ≠ 推进阶段」仍然有效；召唤更早，必须两都不做。
 5. **Home 独占任务；能力面仍解耦。** Home 仍回答现在做什么 / 今日待办 / 任务计数。专家中心不得复制 Home 待办桶。知识库 / 审批 / 考试 / 连接器使用面仍是并列能力面（ADR-015），专家中心不拥有它们。
 6. **对象命名。** 内部：Expert 或 Agent 均可。员工文案：「数字员工」/ 岗位专家。`/admin/agents` 仍是治理（发布 / 授权 / 考试闸门），不得与员工专家中心混读；员工专家中心禁止连接器状态 chrome。
@@ -456,3 +458,40 @@ ADR-018 已锁定：采集完成只产 CreatorCandidate；**加入跟进才建 C
 - Policy：`policies/import_creator.yaml` 增加 `starrykol.importKolProfilesFromCrawler`
 - 代码：本 ADR 不改 TS / JSX / API
 - 测试：文档评审 + `validate:contracts`；后续实现 PR 以本记录 + `19` / `07` 为对照
+
+## ADR-023 — 智能体中台十六项一等能力；KOL 是首个试点（2026-09-14）
+
+**状态**：已固化  
+**决策人**：产品负责人（用户确认 2026-09-14）
+
+### 问题与背景
+
+宪法标题与表面表把产品写成「KOL Workbench」，并把 Agents / KB / 审批 / 考试 / 连接器 / Settings 收进「支撑能力面」，容易被读成二等、隶属 KOL Agent，或把 Home「AI发现」「我跟进的红人」与 Pipeline 当成中台壳。员工契约与 ADR-016 又把「技能目录不是员工默认入口」和「不要求数字团队（易被读成专家团）」写成硬禁，导致：(a) 技能被读成「员工永远不许看见」；(b) 产品名词「数字团队」被与「专家团」永久划等号并禁掉。缺口扫描见 `docs/evidence-platform-law-gap-2026-09-14.md`。
+
+### 决定
+
+1. **产品是智能体中台 / Agent middle platform。** 不是 KOL 专用壳。`design-system/kol-workbench/` 只是现行试点皮肤路径名，不是产品身份。
+2. **十六项全部是一等公民**，互不隶属，也不隶属 KOL Agent。未实现或占位不降等。清单以 `CONSTITUTION.md` §4.1 为权威：任务/会话、数字员工、数字团队、技能、知识库、连接器、审批、人员与权限、审计/Trace、考试、项目、云盘、手机遥控电脑、定时/自动化、通知/收件箱、个人设置。
+3. **「支撑」≠ 二等。** ADR-015 精神保留：能力主权、调用单向（Chat 可调能力，能力面不做第二会话/第二 Home）、使用 ≠ 治理、支撑面不复制 Home IA。这些是 IA 禁令，不是位阶降等。
+4. **KOL 只是首个业务实现 / 试点。** Pipeline 与 Home「AI发现」「我跟进的红人」是 KOL 试点特化，不是平台壳。Home「今日任务 / 我的待办」与 Chat 是平台任务/会话面。
+5. **技能是一等能力。** 侧栏是否露出是 UX 密度，**不是**硬「员工必须永远看不见技能」。仍禁止能力图鉴压过任务脊柱，禁止把技能做成 `/agents` 或连接器/知识的上级目录。本记录**不**强制把技能加进员工侧栏。
+6. **数字团队是一等能力，尚未实现。** 预留法律地位与产品名词。禁止「专家团」假导航 / 占位 / 冒名。**不得**永久禁止名词「数字团队」。本记录**不**实施数字团队 UI。
+7. **不变量不变。** 发送 ≠ 推进阶段；L1–L3；连接器使用 ≠ 管理治理。
+
+### 修订范围（相对 ADR-016）
+
+ADR-016 专家中心「只召唤岗位专家 / 无专家团 / 召唤 ≠ 发送与阶段 / Home 独占任务」仍有效。下列读法被本记录修订：
+
+- 「不要求数字团队（易被读成专家团）」→ 禁止专家团；数字团队另列、预留、未实现。
+- 「技能目录仅显式调试或管理端 / 员工默认禁止 Skill」→ 禁止图鉴压过脊柱与 `/agents` 主 IA；技能一等；入口密度=UX。
+
+### 不决定的范围
+
+不实施前端 / 后端 / CSS / e2e。不 LIVE。不实施数字团队 UI。不强制员工侧栏加技能。不重命名 `design-system/kol-workbench/`。不新增 UX ID。不削弱核心闭环、发送 ≠ 推进阶段、L1–L3、ADR-015 能力主权、连接器使用面 vs 治理面、无可见侧栏组标题。不重做 Chat。不改写全部 19 时代历史正文。
+
+### 影响
+
+- 规范：`CONSTITUTION.md` §4；`employee-surface-contracts.md` 技能/数字团队/占位只回答；`21-admin-employee-page-roles.md` 轻同步；`docs/README.md` 平台 vs 试点路由；`04-ux-ui-system.md` 一句指针
+- 证据：`docs/evidence-platform-law-gap-2026-09-14.md`
+- 代码：本 ADR 不改 JSX / API / CSS
+- 测试：文档评审 only；现行 E2E「侧栏无技能 / 无数字团队」仍是实现快照，不是本记录的永远禁令
