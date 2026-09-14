@@ -100,9 +100,10 @@ test("home discovery mock happy path never goes LIVE and stays out of followed K
   await openMode(page, "lifecycle");
   await expect(page.locator("[data-followed-kol-list]")).toBeVisible();
   await expect(page.locator("[data-discovery-candidate]")).toHaveCount(0);
-  await expect(page.locator("[data-followed-kol]")).not.toContainText("trailpower_reviews");
-  await expect(page.locator("[data-followed-kol]")).not.toContainText("camp_lantern_lab");
+  await expect(page.locator("[data-followed-kol-list]")).not.toContainText("trailpower_reviews");
+  await expect(page.locator("[data-followed-kol-list]")).not.toContainText("camp_lantern_lab");
   await expect(page.locator(`[data-followed-kol="${handle}"]`)).toHaveCount(0);
+  await expect(page.locator('[data-followed-kol="trailpower_reviews"]')).toHaveCount(0);
   await expect(page.locator("[data-followed-origin]")).toHaveAttribute("data-followed-origin", "collaboration");
   expect(livePosts).toEqual([]);
 });
@@ -110,14 +111,16 @@ test("home discovery mock happy path never goes LIVE and stays out of followed K
 test("today suggestion convert to todo dedupes", async ({ page }) => {
   await page.goto("/");
   await openMode(page, "todo");
+  await expect(page.locator("[data-todo-card]").first()).toBeVisible({ timeout: 15000 });
   const before = await page.locator("[data-todo-card]").count();
+  expect(before).toBeGreaterThan(0);
   await openMode(page, "today");
   const convert = page.locator("[data-suggestion-to-todo]").first();
   await expect(convert).toHaveText("加入待办");
   await convert.click();
   await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
-  const afterFirst = await page.locator("[data-todo-card]").count();
-  expect(afterFirst).toBe(before + 1);
+  await expect(page.locator("[data-todo-card]")).toHaveCount(before + 1);
+  const afterFirst = before + 1;
   await openMode(page, "today");
   await expect(page.locator("[data-suggestion-to-todo]").first()).toHaveText("已在待办");
   await expect(page.locator("[data-suggestion-to-todo]").first()).toBeDisabled();
