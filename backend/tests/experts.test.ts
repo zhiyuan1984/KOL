@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
+import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import {
   clearExpertCache,
   clearExpertPublishOverrides,
@@ -65,6 +66,7 @@ beforeEach(async () => {
   seedAll();
   const { createApp } = await import("../src/app.js");
   app = createApp();
+  seedWorkbenchFixtures();
 });
 
 afterEach(() => {
