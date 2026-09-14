@@ -31,11 +31,11 @@ const TABS: [string, string][] = [
   ["agents", "数字员工"],
   ["connectors", "连接器"],
   ["skills", "技能"],
-  ["approvals", "审批角色"],
-  ["exams", "考试与分配"],
-  ["data", "数据·留存·审计"],
+  ["approvals", "审批"],
+  ["exams", "考试"],
+  ["data", "数据"],
   ["knowledge", "知识"],
-  ["kol", "KOL配置"],
+  ["kol", "配置"],
 ];
 
 function accountRoleChip(account: { roles?: string[] | null; role?: string | null; available_modes?: string[] | null } | null) {
