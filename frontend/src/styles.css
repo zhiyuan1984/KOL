@@ -1133,6 +1133,34 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
+.discovery-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+}
+.discovery-error-detail,
+.task-empty.discovery-error .discovery-error-debug {
+  margin: 0 auto var(--space-3);
+  max-width: 36rem;
+  text-align: left;
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+  line-height: 1.5;
+}
+.discovery-error-detail summary {
+  cursor: pointer;
+  color: var(--text);
+  font-size: var(--font-sm);
+}
+.discovery-error-detail pre,
+.discovery-error-debug {
+  margin: var(--space-2) 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--font-sm);
+  color: var(--text-muted);
+}
 .discovery-plan ol {
   margin: 0;
   padding-left: 1.2em;
