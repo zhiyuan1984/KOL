@@ -101,8 +101,8 @@ CONSTITUTION.md 中相关边界
 | 问题 | 读取并服从 |
 |---|---|
 | 哪些面是一等能力、KOL 是否等于平台壳 | `CONSTITUTION.md` §4.1–4.2 十六项清单与试点元条款（ADR-023）；证据 `evidence-platform-law-gap-2026-09-14.md` |
-| 能力面「只回答」与员工侧栏密度 | `employee-surface-contracts.md`（技能入口=UX；Pipeline 默认侧栏=KOL 试点 UX，缺则不是违约；数字团队预留；禁止专家团假导航） |
-| KOL 试点域（Pipeline、AI发现、我跟进的红人、报价邮件） | `12-kol-agent.md`、Home 平台模式 + 试点挂件（ADR-018）、`employee-surface-contracts.md`。Pipeline 页仍在（FS-KOL-010）；不是平台默认导航义务 |
+| 能力面「只回答」与员工侧栏 | `employee-surface-contracts.md`（技能入口=UX；**禁止**侧栏挂「生命周期」或 `/pipeline` 主入口；数字团队预留；禁止专家团假导航） |
+| KOL 试点域（Pipeline、AI发现、我跟进的红人、报价邮件） | `12-kol-agent.md`、Home 平台模式 + 试点挂件（ADR-018）、`employee-surface-contracts.md`。Pipeline 页仍在（FS-KOL-010），只许深链 / 产品内 CTA，不是左栏项 |
 | 连接器使用 ≠ 治理 | `21-admin-employee-page-roles.md`、ADR-013 |
 
 历史重复规范已删除；追溯使用 Git 历史。业务规则只在功能规格/Skill/Workflow/Policy 的 canonical 位置维护；物理接口只在物理资料维护；平台硬规则只在 Host/内核契约维护。任何冲突必须写决策记录并更新追踪矩阵。
@@ -127,4 +127,4 @@ CONSTITUTION.md 中相关边界
 - `evidence-adr022-p0-follow-import-stub-2026-09-14.md`：ADR-022 P0 stub PASS——单个加入跟进确认后单行 `importKolProfilesFromCrawler`，成功才回填真实 `kolUid`；非 LIVE。
 - `evidence-adr022-p1-batch-follow-stub-2026-09-14.md`：ADR-022 P1 stub——勾选批量 / 条件批量加入跟进（粉丝 / 近10均播 / 评分 / 计划平台地区），部分成功不整批标已跟进；非 LIVE。
 - `evidence-platform-law-gap-2026-09-14.md`：智能体中台十六项一等能力缺口扫描；ADR-023 修宪已落地（文档 only，非 LIVE）。
-- `evidence-constitution-reconcile-2026-09-14.md`：ADR-023 后残留违宪条款和解——Pipeline 默认侧栏不再是平台义务；技能硬禁改为 UX；各法条删改清单。
+- `evidence-constitution-reconcile-2026-09-14.md`：ADR-023 后残留违宪条款和解 + 侧栏硬锁——**禁止**员工侧栏挂「生命周期」或 `/pipeline` 主入口；技能硬禁改为 UX；各法条删改清单。
