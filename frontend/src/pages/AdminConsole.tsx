@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, Navigate, NavLink, useLocation } from "react-router-dom";
 import { api } from "../api";
 import { useAccount } from "../components/AuthGate";
+import UserMenu from "../components/UserMenu";
 import { Admin as LegacyAdmin } from "./SimplePages";
 import { Admin as SkillAdmin } from "./Admin";
 import AdminKnowledge from "./AdminKnowledge";
@@ -126,6 +127,9 @@ export default function AdminConsole() {
             );
           })}
         </nav>
+        <div className="admin-nav-foot">
+          <UserMenu account={account} />
+        </div>
       </aside>
       <div className="admin-body">
         <header className="admin-header">
