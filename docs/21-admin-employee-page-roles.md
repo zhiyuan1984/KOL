@@ -8,7 +8,7 @@
 
 | 文档 | 本文件不得改写的内容 | 本文件补的缺口 |
 |---|---|---|
-| `19-ui-ux-constitution.md` | 核心闭环五问、四页分工（Home / Pipeline / Chat / Admin）、Agent 表面、`/agents` 是工作入口 | Admin 行展开为**配套套件**，不是第二套员工工作台 |
+| `19-ui-ux-constitution.md` | 核心闭环五问、四页分工（Home / Pipeline / Chat / Admin）、并列能力面与 Agent / 任务解耦、Agent 表面、`/agents` 是工作入口 | Admin 行展开为**配套套件**，不是第二套员工工作台 |
 | `04-ux-ui-system.md` | 双端边界、状态可见、L1–L3、语义色、无障碍 | 管理端路由与员工表面的一一对应（配套，不是副本） |
 | `specs/UX-KOL.md` | 可执行 UX ID、Given/When/Then、发布门禁绑定 | 不发明 Admin UX ID；员工端继续禁 MCP / Codex / Thread / Skill / 原始堆栈 |
 | `20-visual-design-system.md` | 密度、token、indigo 主色、禁止第二套主题 | 管理端用同一 token；IA 是治理表/授权矩阵，不是 Home/Agents 工作台 |
@@ -71,7 +71,9 @@
 
 ## 员工使用面（`/connectors`）
 
-独立员工表面，**不是** `/admin/connectors` 的只读镜像，也不是第五套主表面（四页法律不变；本页与 Settings / 考试 / 知识一样是可选 chrome）。只回答三句：我已被授权可用哪些、当前对我意味着什么、个人绑定去哪。
+独立员工表面，**不是** `/admin/connectors` 的只读镜像，也不是第五套主表面（四页法律不变；本页与知识库 / 审批 / 考试同属 `19` 的并列能力面 / 可选 chrome）。只回答三句：我已被授权可用哪些、当前对我意味着什么、个人绑定去哪。
+
+`19` 已锁定：本面及同列能力面与数字员工开工入口、今日任务队列相互独立——不隶属 KOL Agent，也不因「有没有进行中任务」才存在。KOL / 合作只可作为数据或示例，不得定义本面 IA。**治理仍只在管理端**枢纽 / 详情（本文件下文）；使用面 vs 治理面不因本条而合并。
 
 | 必须 | 禁止 |
 |---|---|

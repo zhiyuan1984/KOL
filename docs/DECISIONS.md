@@ -9,6 +9,7 @@
 | 2026-09-13 | Home 视图顺序改为 **AI发现 → 我的待办 → 我跟进的红人**；今天推荐只挂 AI发现；我的待办去掉「后续」历史桶 | 默认 `tab` 为空即 AI发现；推荐仍只预填不自动执行（`04`）。见 `19-ui-ux-constitution.md`。 |
 | 2026-09-13 | 邮件往来摘要 Codex `thread/start` 与识别一致：`CODEX_MODEL` / CLI 默认，不传 `gpt-5.6-luna`。Luna digest 需要 `OPENAI_BASE_URL` 及该端点 key | 公共 OpenAI `sk-proj` 打默认 Luna 会 HTTP 401。不改 provider 顺序或 sticky-fail。 |
 | 2026-09-13 | 邮件往来摘要 `analysis_failed` 改为冷却后自动再试，并持久化 `error` / `attempted` / `failed_at` | 不是新 ADR。不改 provider、指纹、寒暄过滤或超时。详见 `docs/evidence-mail-digest-analysis-plan-2026-09-13.md`。 |
+| 2026-09-14 | 并列能力面与 Agent / 任务解耦：知识库、审批、考试、连接器使用面是独立产品面，不隶属 KOL Agent，也不因进行中任务才存在 | 不是第五套 Home。治理仍 Admin-only。见 ADR-015、`19-ui-ux-constitution.md`、`21-admin-employee-page-roles.md`。 |
 
 ## 已固化决策
 
@@ -28,6 +29,7 @@
 | ADR-012 | 员工端四页分工：Home=现在做什么；Pipeline=正式生命周期资产；Chat=完成一件任务；Admin=谁/权限/审计。Pipeline 禁止复制 Home 待办语义 | `19-ui-ux-constitution.md`、`specs/FS-KOL-010-pipeline.md` |
 | ADR-013 | 管理端是员工四表面的配套治理套件，不是副本；连接器**治理**只在 `/admin/connectors`，员工**使用面**独立（`/connectors`），Agent 治理在 `/admin/agents`，个人 Starry 绑定只留 Settings | `21-admin-employee-page-roles.md`、`19-ui-ux-constitution.md` |
 | ADR-014 | 员工侧栏：定时任务归今日工作簇；簇间用分割线，不画可见「今日 / 智能体 / 资产」组标题 | `19-ui-ux-constitution.md` |
+| ADR-015 | 员工并列能力面（知识库 / 审批 / 考试 / 连接器使用面等）与数字员工开工入口、今日任务队列解耦；KOL 只作数据不定义 IA；治理仍 Admin-only | `19-ui-ux-constitution.md`、`21-admin-employee-page-roles.md` |
 
 ## 新增 Agent 分级
 
@@ -160,3 +162,29 @@ Admin 导航和页面与员工连接器/智能体表面重叠：员工侧栏深�
 - 规范：`19-ui-ux-constitution.md` 员工侧栏 IA、`04-ux-ui-system.md` 一句指向
 - 代码：`frontend/src/layout/Workbench.tsx`、`frontend/src/styles.css` 侧栏
 - 测试：员工侧栏 stub E2E（定时任务在今日簇；无可见组标题）
+
+## ADR-015 — 并列能力面与 Agent / 任务解耦（2026-09-14）
+
+**状态**：已固化  
+**决策人**：产品负责人
+
+### 问题与背景
+
+资产簇已列出知识库、审批、考试、连接器使用面，但未写明这些入口相对 KOL Agent 与今日任务队列的主权。若不立法，后续容易把它们降成 Agent 设置、任务详情 Tab，或按「有没有进行中任务」才挂入口，也容易用 KOL / 合作对象重写这些面的信息架构。
+
+### 决定
+
+1. **并列能力面是独立产品面。** 知识库、审批、考试、连接器使用面（及明示非本期的云盘 / 遥控 / 项目）与 `/agents` 开工入口、今日任务队列相互独立：不隶属 KOL Agent，也不因进行中任务才存在。
+2. **数据可进、壳子不出。** KOL / 合作 / 邮件只作记录类型或示例；IA / 导航 / 空态不得改成「先选 Agent / 先开任务」。
+3. **调用单向。** Chat / Agent 可调用已授权连接器、检索知识、提交审批；能力面不得复制 Chat 主线程或 Home 待办桶，也不得做成第二会话台。
+4. **不是第五套 Home，也不是能力图鉴。** 四页法律不变。技能目录不得做连接器 / 知识的上级目录。连接器仍遵守 `21` 的使用面 vs 治理面；治理仍 Admin-only。
+
+### 不决定的范围
+
+不实施前端 / 后端，不 LIVE，不新增 UX ID，不削弱核心闭环、发送 ≠ 推进阶段、或无可见侧栏组标题。不重做 Chat，不改数字员工对象模型。
+
+### 影响
+
+- 规范：`19-ui-ux-constitution.md` 并列能力面条款、`21-admin-employee-page-roles.md` 交叉引用
+- 代码：本 ADR 不改 JSX / API
+- 测试：文档评审 only；无新发布门禁项
