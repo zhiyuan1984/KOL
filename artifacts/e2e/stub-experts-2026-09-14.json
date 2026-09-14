@@ -1,0 +1,125 @@
+{
+  "date": "2026-09-14",
+  "pr": [55, 54],
+  "pr_url": [
+    "https://github.com/zhiyuan1984/KOL/pull/55",
+    "https://github.com/zhiyuan1984/KOL/pull/54"
+  ],
+  "pr_state": "merged",
+  "branch": "cursor/expert-center-v1-56fe",
+  "verified_ref": "origin/main",
+  "git": {
+    "sha": "c5abaf7e8401c66302d26e3c3fb232f977346013",
+    "subject": "Merge pull request #55 from zhiyuan1984/cursor/expert-center-v1-56fe"
+  },
+  "sha": "c5abaf7e8401c66302d26e3c3fb232f977346013",
+  "commit": "Merge pull request #55 from zhiyuan1984/cursor/expert-center-v1-56fe",
+  "mode": "stub",
+  "e2e_mode": "stub",
+  "LIVE": false,
+  "live": false,
+  "LIVE_REMOTE_SIDE_EFFECTS": "not used for judgment",
+  "e2e_auth_mode": "disabled",
+  "spec": "frontend/e2e/workbench.spec.ts",
+  "focus": "discover → detail → summon identity; no mail/stage; no 专家团; no Skill/MCP/Profile",
+  "runs": {
+    "primary": {
+      "result": "PASS",
+      "passed": 3,
+      "failed": 0,
+      "tests": [
+        {
+          "n": 1,
+          "name": "agents expert center has recommend/mine/all/search and one KOL expert",
+          "status": "PASS"
+        },
+        {
+          "n": 2,
+          "name": "home does not pile expert task lists",
+          "status": "PASS"
+        },
+        {
+          "n": 3,
+          "name": "expert center list → detail → summon binds a session without send/stage",
+          "status": "PASS"
+        }
+      ]
+    },
+    "supplemental": {
+      "result": "PASS",
+      "passed": 3,
+      "failed": 0,
+      "tests": [
+        {
+          "n": 1,
+          "name": "sidebar does not list 最近 sessions",
+          "status": "PASS"
+        },
+        {
+          "n": 2,
+          "name": "employee persona hides admin chrome and connector config",
+          "status": "PASS"
+        },
+        {
+          "n": 3,
+          "name": "docs/21 employee sidebar has no admin connectors deep-link",
+          "status": "PASS"
+        }
+      ]
+    },
+    "jargon": {
+      "result": "PASS",
+      "passed": true,
+      "checks": [
+        {
+          "name": "no 专家团",
+          "status": "PASS"
+        },
+        {
+          "name": "no Skill/MCP/Profile",
+          "status": "PASS"
+        },
+        {
+          "name": "summon identity expert:kol / KOL 合作专员",
+          "status": "PASS"
+        }
+      ]
+    }
+  },
+  "coverage": [
+    {
+      "focus": "discover → detail → summon identity",
+      "status": "PASS",
+      "how_covered": "list expert:kol → /agents/kol → POST /api/experts/:id/summon keys exactly session_id, expert_id, expert_version, intro; bound session data-expert-identity=expert:kol and data-expert-name=KOL 合作专员"
+    },
+    {
+      "focus": "no mail / no stage",
+      "status": "PASS",
+      "how_covered": "summon side-effect watcher for POST/PUT/PATCH /messages, /drafts/.../send, /confirm-stage is empty"
+    },
+    {
+      "focus": "no 专家团",
+      "status": "PASS",
+      "how_covered": "employee /agents and sidebar not.toContainText 专家团; no 数字团队; /teams redirects to /agents"
+    },
+    {
+      "focus": "no Skill / MCP / Profile",
+      "status": "PASS",
+      "how_covered": "expert page has no 技能目录 / 关联技能; sidebar data-nav=skills count 0; body has no Starry KOL MCP / Host + / Codex; data-agent-profile count 0; detail has no Harness"
+    }
+  ],
+  "coverage_pass_count": 4,
+  "negatives": {
+    "no_mail": "PASS",
+    "no_stage": "PASS",
+    "no_专家团": "PASS",
+    "no_Skill_MCP_Profile": "PASS"
+  },
+  "not_run": [
+    "Full stub suite",
+    "E2E_MODE=real / LIVE remotes",
+    "LIVE send / LIVE stage"
+  ],
+  "verdict": "PASS",
+  "kol_one_liner": "main@c5abaf7 (PR#55/#54) stub Expert Center: primary 3/3 PASS + supplemental 3/3 PASS + jargon PASS; discover→detail→summon identity expert:kol / KOL 合作专员; no mail/stage; no 专家团; no Skill/MCP/Profile; verdict PASS; no LIVE."
+}
