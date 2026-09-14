@@ -1,4 +1,4 @@
-import { api } from "./api";
+import { api, type ExpertManifestView } from "./api";
 
 export type ExpertTask = {
   id: string;
@@ -20,7 +20,6 @@ export type Expert = {
   recommended_tasks: ExpertTask[];
   intro: string;
   recommended?: boolean;
-  // TODO: organization_scope / available_agents when ExpertManifest ships
 };
 
 /** Coordinator POST /api/experts/:id/summon. Only these fields are required. */
@@ -96,12 +95,17 @@ function isNotFound(error: unknown): boolean {
   return Boolean(error && typeof error === "object" && (error as { status?: number }).status === 404);
 }
 
-function normalizeExpert(row: Partial<Expert> | null | undefined): Expert | null {
+type ExpertApiRow = Partial<Expert> & Partial<ExpertManifestView> & {
+  expert_version?: string;
+  recommended?: boolean;
+};
+
+function normalizeExpert(row: ExpertApiRow | null | undefined): Expert | null {
   if (!row || typeof row !== "object") return null;
   const id = canonicalExpertId(String(row.id || ""));
   if (!id) return null;
   const fallback = id === KOL_EXPERT_ID ? KOL_EXPERT : null;
-  const name = String(row.name || fallback?.name || "").trim();
+  const name = String(row.name || row.display_name || fallback?.name || "").trim();
   if (!name) return null;
   const tasks = Array.isArray(row.recommended_tasks)
     ? row.recommended_tasks
@@ -115,17 +119,25 @@ function normalizeExpert(row: Partial<Expert> | null | undefined): Expert | null
   return {
     id,
     name,
-    expert_version: String(row.expert_version || fallback?.expert_version || ""),
-    who: String(row.who || name),
+    expert_version: String(row.expert_version || row.version || fallback?.expert_version || ""),
+    who: String(row.who || row.profession || name),
     mission: String(row.mission || fallback?.mission || ""),
-    good_at: Array.isArray(row.good_at) ? row.good_at.map(String) : fallback?.good_at || [],
+    good_at: Array.isArray(row.good_at)
+      ? row.good_at.map(String)
+      : Array.isArray(row.tags)
+        ? row.tags.map(String)
+        : fallback?.good_at || [],
     can_finish: Array.isArray(row.can_finish) ? row.can_finish.map(String) : fallback?.can_finish || [],
     how_to_start: String(row.how_to_start || fallback?.how_to_start || ""),
-    working_style: String(row.working_style || fallback?.working_style || ""),
+    working_style: String(row.working_style || row.description || fallback?.working_style || ""),
     quick_prompts: Array.isArray(row.quick_prompts) ? row.quick_prompts.map(String) : fallback?.quick_prompts || [],
     recommended_tasks: tasks.slice(0, 3),
     intro: String(row.intro || fallback?.intro || ""),
-    recommended: row.recommended !== undefined ? Boolean(row.recommended) : fallback?.recommended,
+    recommended: row.recommended !== undefined
+      ? Boolean(row.recommended)
+      : row.status
+        ? row.status === "published"
+        : fallback?.recommended,
   };
 }
 
@@ -136,7 +148,7 @@ function unwrapList(payload: unknown): Expert[] {
       ? (payload as { experts: unknown[] }).experts
       : [];
   return rows
-    .map((row) => normalizeExpert(row as Partial<Expert>))
+    .map((row) => normalizeExpert(row as ExpertApiRow))
     .filter((row): row is Expert => Boolean(row));
 }
 
@@ -153,7 +165,7 @@ export async function fetchExperts(): Promise<Expert[]> {
 export async function fetchExpert(id: string): Promise<Expert | null> {
   const canonical = canonicalExpertId(id);
   try {
-    const row = normalizeExpert(await api.expert(canonical) as Partial<Expert>);
+    const row = normalizeExpert(await api.expert(canonical) as ExpertApiRow);
     if (row) return row;
   } catch (error) {
     if (!isNotFound(error)) throw error;
