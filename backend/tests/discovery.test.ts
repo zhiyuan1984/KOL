@@ -3,6 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
+import {
+  resetCollectorConnectionCache,
+  setCollectorProbeClientFactory,
+  setCollectorProbeFetch,
+} from "../src/crawl/connection.js";
 import { setCrawlMcpClientFactory } from "../src/crawl/service.js";
 import { monitorCrawlJob } from "../src/crawl/service.js";
 import { getConn, resetConn } from "../src/db.js";
@@ -72,7 +77,9 @@ function sideEffects() {
 
 function assertEmployeeCopy(value: unknown): void {
   const text = JSON.stringify(value);
-  expect(text).not.toMatch(/MediaCrawler|mediacrawler|MCP|Codex|Job ID|crawl_job|remote_task|hidden-secret/i);
+  expect(text).not.toMatch(
+    /MediaCrawler|mediacrawler|MCP|Codex|Job ID|crawl_job|remote_task|hidden-secret|Streamable|ECONNREFUSED|Failed to fetch|HTTP 404/i,
+  );
 }
 
 function crawlJobIdFor(requestId: string): string {
@@ -132,6 +139,9 @@ beforeEach(async () => {
   }];
   resetConn();
   seedAll();
+  resetCollectorConnectionCache();
+  setCollectorProbeClientFactory();
+  setCollectorProbeFetch();
   setCrawlMcpClientFactory(mockMcp);
   const { createApp } = await import("../src/app.js");
   app = createApp();
@@ -139,6 +149,9 @@ beforeEach(async () => {
 
 afterEach(() => {
   setCrawlMcpClientFactory();
+  setCollectorProbeClientFactory();
+  setCollectorProbeFetch();
+  resetCollectorConnectionCache();
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
   delete process.env.MEDIACRAWLER_MCP_URL;
@@ -160,6 +173,11 @@ describe("discovery request create", () => {
     });
     expect(String(created.body.plan_summary)).toContain("portable power");
     expect(created.body.latest_run).toBeNull();
+    expect(created.body.connection).toMatchObject({
+      credentials_present: true,
+      status: "unchecked",
+      status_label: "待检查",
+    });
     expect(calls).not.toContain("start_crawl");
     assertEmployeeCopy(created.body);
     const listed = await request("GET", "/api/discovery/requests");
@@ -516,12 +534,16 @@ describe("discovery auth and secrets", () => {
     });
     const started = await request("POST", `/api/discovery/requests/${created.body.id}/runs`, {});
     expect(started.status).toBeGreaterThanOrEqual(400);
+    expect(started.body.detail).toMatchObject({
+      code: "collector_unreachable",
+      message: "采集服务连接失败",
+    });
     expect(JSON.stringify(started.body)).not.toContain("super-secret-token");
     assertEmployeeCopy(started.body);
     const failed = getConn().prepare("SELECT error FROM discovery_runs ORDER BY created_at DESC LIMIT 1").get() as
       | { error?: string }
       | undefined;
+    expect(String(failed?.error || "")).toBe("采集服务连接失败");
     expect(String(failed?.error || "")).not.toContain("super-secret-token");
-    expect(String(failed?.error || "")).toMatch(/\*\*\*/);
   });
 });

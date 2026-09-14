@@ -7,9 +7,20 @@
  */
 import { authDisabled, isAdmin, scopedUser } from "./auth.js";
 import { BRAND_MAILBOXES, DEMO_USER } from "./config.js";
+import {
+  getCollectorConnectionSnapshot,
+  probeMediaCrawlerConnection,
+  publicCollectorConnection,
+} from "./crawl/connection.js";
 import { startCrawl, onCrawlJobSettled } from "./crawl/service.js";
 import { OVERSEAS_CRAWL_PLATFORMS } from "./crawl/platforms.js";
 import { audit, getConn, nowIso, tx } from "./db.js";
+import {
+  collectorFailureCode,
+  employeeError,
+  mapEmployeeError,
+  persistableEmployeeError,
+} from "./discovery-errors.js";
 import { HttpFail } from "./host/errors.js";
 import { nid } from "./ids.js";
 import type { Json, Row } from "./types.js";
@@ -67,23 +78,8 @@ function ownerId(): string {
   throw new HttpFail(401, "authentication required");
 }
 
-function sanitize(value: unknown): string {
-  return String(value || "")
-    .replace(/Bearer\s+[^\s"']+/gi, "Bearer ***")
-    .replace(/(token|authorization)\s*[:=]\s*[^\s,;}]+/gi, "$1=***")
-    .slice(0, 1000);
-}
-
-function employeeError(value: unknown): string | null {
-  if (value == null || value === "") return null;
-  const cleaned = sanitize(value)
-    .replace(/MediaCrawler|mediacrawler|RemoteMcpClient|MCP|Codex/gi, "")
-    .replace(/\b(crawl_job_id|remote_task_id|work_item_id|task_id|job[_ ]?id)\b/gi, "")
-    .replace(/\b(crawl_[a-z0-9]+|tsk_[a-z0-9]+|drun_[a-z0-9]+)\b/gi, "")
-    .replace(/\s{2,}/g, " ")
-    .replace(/\s+([,.;:])/g, "$1")
-    .trim();
-  return cleaned || "发现未完成，请稍后重试。";
+function connectionPayload(): Json {
+  return publicCollectorConnection(getCollectorConnectionSnapshot());
 }
 
 function platformLabel(code: unknown): string {
@@ -355,6 +351,7 @@ export function discoveryResult(requestId: string, run?: Row | null): Json {
     errors,
     ready: counts.suggested_count > 0,
     pending_confirm: counts.suggested_count > 0,
+    connection: connectionPayload(),
   };
 }
 
@@ -374,6 +371,7 @@ function publicRun(row: Row): Json {
     started_at: current.started_at,
     updated_at: current.updated_at,
     completed_at: current.completed_at,
+    connection: connectionPayload(),
   };
 }
 
@@ -415,6 +413,7 @@ function publicRequest(row: Row): Json {
     error: employeeError(current.error),
     created_at: current.created_at,
     updated_at: current.updated_at,
+    connection: connectionPayload(),
   };
 }
 
@@ -452,8 +451,10 @@ export function getDiscoveryResults(id: string): Json {
     run: run ? publicRun(run) : null,
     candidates,
     counts,
+    error: employeeError(current.error),
     ready: counts.suggested_count > 0,
     pending_confirm: String(current.status) === "open" || counts.suggested_count > 0,
+    connection: connectionPayload(),
   };
 }
 
@@ -467,7 +468,7 @@ function refreshRequestStatus(requestId: string): void {
   else if (runs.some((run) => String(run.status) === "succeeded")) status = "succeeded";
   else if (runs.some((run) => String(run.status) === "failed")) status = "failed";
   else if (runs.some((run) => String(run.status) === "cancelled")) status = "cancelled";
-  const error = latest?.error ? sanitize(latest.error) : null;
+  const error = latest?.error ? persistableEmployeeError(latest.error) : null;
   getConn().prepare(
     `UPDATE discovery_requests
         SET status=?, error=?, latest_run_id=COALESCE(
@@ -489,7 +490,7 @@ function persistRunFromCrawl(run: Row, job: Row): void {
   ).run(
     status,
     job.remote_task_id || null,
-    job.error ? sanitize(job.error) : null,
+    job.error ? persistableEmployeeError(job.error) : null,
     job.started_at || now,
     completed,
     now,
@@ -711,7 +712,9 @@ export async function startDiscoveryRun(input: {
     if (String(job.status) === "result_ready") ingestDiscoveryFromCrawlJob(job as Row);
     return publicRun(run);
   } catch (error) {
-    const safe = employeeError(error instanceof HttpFail ? error.detail : error) || "发现未完成，请稍后重试。";
+    const source = error instanceof HttpFail ? error.detail ?? error : error;
+    const mapped = mapEmployeeError(source);
+    const safe = mapped.message;
     getConn().prepare(
       `UPDATE discovery_runs
           SET status='failed', error=?, completed_at=?, updated_at=?, data_version=data_version+1
@@ -719,10 +722,21 @@ export async function startDiscoveryRun(input: {
     ).run(safe, nowIso(), nowIso(), runId);
     refreshRequestStatus(String(request.id));
     if (error instanceof HttpFail && error.status === 503) {
-      throw new HttpFail(503, { code: "discovery_not_ready", message: "发现服务暂未就绪，请稍后重试。", next_action: "请确认后再启动发现。" });
+      throw new HttpFail(503, {
+        code: "discovery_not_ready",
+        message: "发现服务暂未就绪，请稍后重试。",
+        next_action: "请确认后再启动发现。",
+      });
     }
-    throw new HttpFail(error instanceof HttpFail ? error.status : 502, safe);
+    throw new HttpFail(error instanceof HttpFail ? error.status : 502, {
+      code: collectorFailureCode(source),
+      message: safe,
+    });
   }
+}
+
+export async function checkDiscoveryConnection(): Promise<Json> {
+  return publicCollectorConnection(await probeMediaCrawlerConnection());
 }
 
 export function createDiscoveryRequest(body: Json): Json {
