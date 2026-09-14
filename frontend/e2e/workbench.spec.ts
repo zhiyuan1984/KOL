@@ -3445,7 +3445,7 @@ test("employee knowledge base uses task copy, category tabs, and a content drawe
   await expect(followup).not.toContainText("Happy to share the spec sheet");
   await expect(followup).not.toContainText("unboxing angle");
   await expect(followup.getByRole("button", { name: "用于当前任务" })).toBeVisible();
-  await expect(followup.getByRole("button", { name: "查看" })).toBeVisible();
+  await expect(followup.getByRole("button", { name: "查看内容" })).toBeVisible();
   await expect(followup.getByRole("button", { name: "收藏" })).toBeVisible();
   await expect(followup.getByRole("button", { name: "从本账号停用" })).toHaveCount(0);
   await expect(followup.getByRole("button", { name: "对本账号隐藏" })).toHaveCount(0);

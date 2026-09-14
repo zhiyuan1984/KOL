@@ -278,7 +278,7 @@ export default function Knowledge({ market = false }: { market?: boolean }) {
                   aria-pressed={preview?.id === k.id}
                   onClick={() => openPreview(k)}
                 >
-                  查看
+                  查看内容
                 </button>
               </Hinted>
               <Hinted
