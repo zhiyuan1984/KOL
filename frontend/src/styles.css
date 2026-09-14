@@ -4528,37 +4528,72 @@ summary:focus-visible,
 }
 
 .list-page { display: grid; gap: 12px; max-width: none; width: 100%; }
-.connector-use-page { max-width: 720px; }
-.connector-use-page h1 { font-size: var(--font-title); line-height: var(--leading-hero); }
+.connector-use-page {
+  max-width: 40rem;
+  gap: var(--space-5);
+}
+.connector-use-hero {
+  display: grid;
+  gap: var(--space-2);
+}
+.connector-use-hero .page-kicker { margin-bottom: 0; }
+.connector-use-page h1 {
+  margin: 0;
+  font-size: var(--font-page-title);
+  line-height: var(--leading-tight);
+  font-weight: 600;
+}
+.connector-use-hero .muted { margin: 0; max-width: 36em; }
+.connector-use-error {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+}
+.connector-use-error .error { margin: 0; }
 .connector-use-list {
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: var(--bg);
 }
 .connector-use-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--space-2) var(--space-4);
+  gap: var(--space-3) var(--space-4);
   align-items: start;
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-4);
   border-top: 1px solid var(--border);
   font-size: var(--font-body);
 }
 .connector-use-row:first-child { border-top: 0; }
 .connector-use-row strong { display: block; font-size: var(--font-section); font-weight: 600; }
-.connector-use-row .muted { margin: 4px 0 0; }
+.connector-use-row .muted { margin: var(--space-1) 0 0; }
 .connector-use-aside {
   display: grid;
   justify-items: end;
+  align-content: start;
   gap: var(--space-2);
 }
 .connector-use-status {
-  font-size: var(--font-meta);
+  font-size: var(--font-sm);
   color: var(--text-muted);
   white-space: nowrap;
 }
-.connector-use-status[data-status="available"] { color: var(--success); }
-.connector-use-status[data-status="needs_personal_bind"] { color: var(--warning); }
+.connector-use-status[data-status="needs_personal_bind"] { color: var(--text); }
+.connector-use-page .btn,
+.connector-use-page a.btn {
+  min-height: 44px;
+  min-width: 44px;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+@media (max-width: 720px) {
+  .connector-use-row { grid-template-columns: minmax(0, 1fr); }
+  .connector-use-aside { justify-items: start; }
+}
 .list-page.kb-page { max-width: none; gap: 18px; }
 .kb-page, .admin-kb {
   --kb-accent: #ea5504;

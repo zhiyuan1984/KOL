@@ -2732,8 +2732,11 @@ test("employee connector use surface is independent of admin hub", async ({ page
   await page.locator('[data-nav="connectors"]').click();
   await expect(page).toHaveURL(/\/connectors$/);
   await expect(page.locator("[data-connector-use]")).toBeVisible();
+  await expect(page.locator("[data-connector-use] .page-kicker")).toHaveText("连接器");
   await expect(page.getByRole("heading", { name: "连接器" })).toBeVisible();
   await expect(page.locator("[data-connector-use]")).toContainText("凭据和组织策略不在本页");
+  await expect(page.locator("[data-connector-use] .page-kicker")).not.toHaveText("账户");
+  await expect(page.locator("[data-connector-use-retry]")).toHaveCount(0);
   await expect(page.locator("textarea[name='bearer']")).toHaveCount(0);
   await expect(page.locator("[data-admin-page='connectors']")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /启用|停用/ })).toHaveCount(0);
@@ -2746,6 +2749,32 @@ test("employee connector use surface is independent of admin hub", async ({ page
   await page.goto("/admin/connectors");
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator("[data-admin-page='connectors']")).toHaveCount(0);
+});
+
+test("employee connector use retries after load failure", async ({ page }) => {
+  await page.route("**/api/connectors", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "无法读取已授权的连接能力" }),
+    });
+  });
+  await page.goto("/connectors");
+  await expect(page.locator("[data-connector-use]")).toBeVisible();
+  await expect(page.locator("[data-connector-use] [role='alert']")).toContainText("无法读取已授权的连接能力");
+  await expect(page.locator("[data-connector-use-retry]")).toBeVisible();
+  await expect(page.locator("[data-connector-use-row]")).toHaveCount(0);
+  await expect(page.locator("textarea[name='bearer']")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /启用|停用/ })).toHaveCount(0);
+  await page.unroute("**/api/connectors");
+  await page.locator("[data-connector-use-retry]").click();
+  await expect(page.locator("[data-connector-use-row]").first()).toBeVisible();
+  await expect(page.locator("[data-connector-use-retry]")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /启用|停用/ })).toHaveCount(0);
 });
 
 test("docs/21 admin connectors hub renders", async ({ page }) => {
