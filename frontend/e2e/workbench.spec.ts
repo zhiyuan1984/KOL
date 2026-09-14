@@ -1100,7 +1100,7 @@ test("home followed-KOL stage chips stay one row and match card width", async ({
     await expectHomeFollowedRailWide(page, width);
     await expectNoPageHorizontalScroll(page);
     await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
-    await expectNoHorizontalOverflow(page, "[data-followed-kol]");
+    await expectNoHorizontalOverflow(page, "[data-followed-kol-list] li:first-child [data-followed-kol]");
   }
 });
 
