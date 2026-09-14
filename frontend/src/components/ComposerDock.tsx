@@ -247,7 +247,7 @@ export default function ComposerDock({
     if (!textarea) return;
     if (variant === "workspace") {
       textarea.style.height = "auto";
-      textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 110), 220)}px`;
+      textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 110), 320)}px`;
       return;
     }
     textarea.style.height = "0";
