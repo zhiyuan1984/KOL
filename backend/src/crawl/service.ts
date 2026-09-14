@@ -339,18 +339,25 @@ async function fetchCreators(job: Row): Promise<Json[]> {
   const maxPages = Math.max(1, Math.min(20, Number(process.env.MEDIACRAWLER_MAX_CREATOR_PAGES || 10)));
   const pageSize = Math.max(1, Math.min(200, Number(process.env.MEDIACRAWLER_CREATOR_PAGE_SIZE || 100)));
   const creators: Json[] = [];
-  for (let page = 0; page < maxPages; page += 1) {
-    const offset = page * pageSize;
+  // MediaCrawler MCP get_creators is 1-based page + page_size (pydantic). Extra fields such as
+  // task_id / offset / limit are rejected and leave the crawl job stuck in analyzing.
+  for (let page = 1; page <= maxPages; page += 1) {
     const result = await remoteCall("get_creators", {
-      task_id: job.remote_task_id, platform: job.platform, offset, limit: pageSize,
+      platform: job.platform,
+      page,
+      page_size: pageSize,
     }, String(job.id));
     const data = json(result.data);
     const batch = (result.creators || result.items || data.creators || data.items || data) as unknown;
     const rows = Array.isArray(batch) ? batch.filter((item) => item && typeof item === "object") as Json[] : [];
     creators.push(...rows);
     const total = Number(result.total ?? data.total ?? 0);
-    const hasMore = Boolean(result.has_more ?? data.has_more) || (total > 0 && offset + rows.length < total);
-    if (!hasMore) break;
+    const hasMoreFlag = result.has_more ?? data.has_more;
+    if (rows.length === 0) break;
+    if (hasMoreFlag === false) break;
+    if (total > 0 && creators.length >= total) break;
+    if (hasMoreFlag === true) continue;
+    if (rows.length < pageSize) break;
   }
   return creators;
 }

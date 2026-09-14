@@ -12,6 +12,7 @@ import { OVERSEAS_CRAWL_PLATFORMS } from "../src/crawl/platforms.js";
 import type { Json } from "../src/types.js";
 
 const calls: string[] = [];
+const creatorCallArgs: Json[] = [];
 let tmp = "";
 let app: Hono;
 let creators: Json[] = [{
@@ -24,17 +25,31 @@ let creators: Json[] = [{
 
 function mockMcp() {
   return {
-    async callTool(name: string) {
+    async callTool(name: string, args: Json = {}) {
       calls.push(name);
       if (name === "start_crawl") return { task_id: "remote-disc-1", status: "running" };
       if (name === "get_crawl_status") return { task_id: "remote-disc-1", status: "idle" };
       if (name === "get_crawl_logs") return { logs: ["Authorization: Bearer hidden-secret"] };
-      if (name === "get_creators") return { creators, has_more: false };
+      if (name === "get_creators") {
+        creatorCallArgs.push(args);
+        return { creators, has_more: false };
+      }
       if (name === "stop_crawl") return { stopped: true };
       return {};
     },
     async close() {},
   };
+}
+
+function assertGetCreatorsMcpContract(args: Json, platform: string): void {
+  expect(args).toEqual(expect.objectContaining({
+    platform,
+    page: 1,
+    page_size: expect.any(Number),
+  }));
+  expect(args).not.toHaveProperty("offset");
+  expect(args).not.toHaveProperty("limit");
+  expect(args.task_id).toBeUndefined();
 }
 
 async function request(method: string, url: string, body?: unknown, headers?: Record<string, string>) {
@@ -107,6 +122,7 @@ beforeEach(async () => {
   process.env.MEDIACRAWLER_MCP_URL = "http://127.0.0.1:9/mcp";
   process.env.MEDIACRAWLER_MCP_TOKEN = "test-secret";
   calls.length = 0;
+  creatorCallArgs.length = 0;
   creators = [{
     platform: "youtube",
     platform_creator_id: "yt-outdoor-1",
@@ -204,6 +220,8 @@ describe("discovery run lifecycle", () => {
       run: { status_label: "已完成" },
     });
     expect(OVERSEAS_CRAWL_PLATFORMS).toContain(candidates[0].platform);
+    expect(creatorCallArgs.length).toBeGreaterThan(0);
+    assertGetCreatorsMcpContract(creatorCallArgs[0], "youtube");
     expect(candidates[0]).not.toHaveProperty("platform_creator_id");
     expect(results.run).not.toHaveProperty("crawl_job_id");
     expect(results.run).not.toHaveProperty("remote_task_id");
@@ -267,6 +285,35 @@ describe("follow and dismiss", () => {
       expect(dismissed.body.collaboration_id).toBeNull();
     }
 
+    expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
+  });
+
+  it("mocked REAL get_creators page contract still unblocks results and follow", async () => {
+    setCrawlMcpClientFactory(() => ({
+      async callTool(name: string, args: Json = {}) {
+        calls.push(name);
+        if (name === "start_crawl") return { task_id: "remote-disc-1", status: "running" };
+        if (name === "get_crawl_status") return { task_id: "remote-disc-1", status: "idle" };
+        if (name === "get_crawl_logs") return { logs: [] };
+        if (name === "get_creators") {
+          creatorCallArgs.push(args);
+          const extra = Object.keys(args).filter((key) => !["platform", "page", "page_size"].includes(key));
+          if (extra.length) throw new Error(`pydantic: unexpected fields ${extra.join(",")}`);
+          return { creators, has_more: false, total: creators.length };
+        }
+        return {};
+      },
+      async close() {},
+    }));
+    const { results } = await confirmAndComplete();
+    const items = results.candidates as Json[];
+    expect(items).toHaveLength(1);
+    assertGetCreatorsMcpContract(creatorCallArgs[0], "youtube");
+    const followed = await request("POST", `/api/discovery/candidates/${items[0].id}/follow`);
+    expect(followed.status).toBe(200);
+    expect(followed.body.status).toBe("followed");
+    expect(followed.body.created).toBe(true);
+    assertEmployeeCopy(followed.body);
     expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
 

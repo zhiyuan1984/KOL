@@ -29,6 +29,7 @@ let tmp = "";
 let httpServer: http.Server | null = null;
 let baseUrl = "";
 const calls: string[] = [];
+const creatorCallArgs: Json[] = [];
 let crawlStatus: Json = { task_id: "remote-1", status: "idle" };
 
 async function startMockMcp(): Promise<void> {
@@ -49,13 +50,16 @@ async function startMockMcp(): Promise<void> {
     tool("start_crawl", () => ({ task_id: "remote-1", status: "running" }));
     tool("get_crawl_status", () => crawlStatus);
     tool("get_crawl_logs", () => ({ logs: ["crawl completed", "Authorization: Bearer hidden"] }));
-    tool("get_creators", () => ({
-      creators: [{
-        platform: "youtube", platform_creator_id: "creator-1", nickname: "真实达人",
-        followers: 1000, recent_views: [100, 200, 300],
-      }],
-      has_more: false,
-    }));
+    tool("get_creators", (args) => {
+      creatorCallArgs.push(args);
+      return {
+        creators: [{
+          platform: "youtube", platform_creator_id: "creator-1", nickname: "真实达人",
+          followers: 1000, recent_views: [100, 200, 300],
+        }],
+        has_more: false,
+      };
+    });
     tool("stop_crawl", () => ({ stopped: true }));
     tool("upload_creators", () => ({ uploaded: true }));
     tool("clear_history", () => ({ cleared: true }));
@@ -107,6 +111,7 @@ beforeEach(async () => {
   process.env.CODEX_MODE = "stub";
   process.env.CLAW_MODE = "mock";
   calls.length = 0;
+  creatorCallArgs.length = 0;
   crawlStatus = { task_id: "remote-1", status: "idle" };
   resetConn();
   seedAll();
@@ -125,6 +130,7 @@ afterEach(async () => {
   delete process.env.MEDIACRAWLER_MCP_TOKEN;
   delete process.env.MEDIACRAWLER_INGEST_TOKEN;
   delete process.env.MEDIACRAWLER_AUTO_START;
+  delete process.env.MEDIACRAWLER_CREATOR_PAGE_SIZE;
   delete process.env.AUTH_MODE;
 });
 
@@ -333,6 +339,14 @@ describe("crawl lifecycle", () => {
     const events = await (await app.request(`/api/tasks/${task.id}/crawl-job/events`)).json() as Json[];
     expect(events.map((event) => event.event_type)).toContain("upload_fallback");
     expect(calls).toContain("get_creators");
+    expect(creatorCallArgs[0]).toEqual(expect.objectContaining({
+      platform: "youtube",
+      page: 1,
+      page_size: expect.any(Number),
+    }));
+    expect(creatorCallArgs[0]).not.toHaveProperty("offset");
+    expect(creatorCallArgs[0]).not.toHaveProperty("limit");
+    expect(creatorCallArgs[0].task_id).toBeUndefined();
   });
 
   it("enforces one active job, emits task events, persists result artifact, and supports admin tools", async () => {
@@ -392,7 +406,74 @@ describe("crawl lifecycle", () => {
     expect(calls).toEqual(expect.arrayContaining([
       "start_crawl", "get_crawl_status", "get_crawl_logs", "get_creators", "upload_creators", "clear_history",
     ]));
+    expect(creatorCallArgs[0]).toEqual(expect.objectContaining({
+      platform: "youtube",
+      page: 1,
+      page_size: expect.any(Number),
+    }));
+    expect(creatorCallArgs[0]).not.toHaveProperty("offset");
+    expect(creatorCallArgs[0]).not.toHaveProperty("limit");
+    expect(creatorCallArgs[0].task_id).toBeUndefined();
     expect(JSON.stringify(events)).not.toContain("Bearer hidden");
+  });
+
+  it("pages get_creators with platform/page/page_size; pydantic extras would fail REAL", async () => {
+    process.env.MEDIACRAWLER_CREATOR_PAGE_SIZE = "2";
+    const pages: Json[] = [];
+    const catalog = [
+      { platform: "youtube", platform_creator_id: "yt-a", nickname: "Alpha", followers: 100, recent_views: [10] },
+      { platform: "youtube", platform_creator_id: "yt-b", nickname: "Beta", followers: 200, recent_views: [20] },
+      { platform: "youtube", platform_creator_id: "yt-c", nickname: "Gamma", followers: 300, recent_views: [30] },
+    ];
+    setCrawlMcpClientFactory(() => ({
+      async callTool(name: string, args: Json = {}) {
+        calls.push(name);
+        if (name === "start_crawl") return { task_id: "remote-1", status: "running" };
+        if (name === "get_crawl_status") return { task_id: "remote-1", status: "idle" };
+        if (name === "get_crawl_logs") return { logs: [] };
+        if (name === "get_creators") {
+          pages.push(args);
+          const extra = Object.keys(args).filter((key) => !["platform", "page", "page_size"].includes(key));
+          if (extra.length) {
+            throw new Error(`validation error: extra fields not permitted: ${extra.join(",")}`);
+          }
+          const page = Number(args.page);
+          const pageSize = Number(args.page_size);
+          expect(Number.isInteger(page) && page >= 1).toBe(true);
+          const start = (page - 1) * pageSize;
+          const slice = catalog.slice(start, start + pageSize);
+          return {
+            creators: slice,
+            has_more: start + slice.length < catalog.length,
+            total: catalog.length,
+          };
+        }
+        return {};
+      },
+      async close() {},
+    }));
+    const { createApp } = await import("../src/app.js");
+    const app = createApp();
+    const created = await app.request("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ task_type: "creator_discovery", title: "采集达人" }),
+    });
+    const task = await created.json() as Json;
+    const started = await app.request(`/api/tasks/${task.id}/actions/start-crawl`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform: "youtube", mode: "search", keywords: ["户外"] }),
+    });
+    const job = await started.json() as Json;
+    const completed = await monitorCrawlJob(String(job.id));
+    expect(completed.status).toBe("result_ready");
+    expect(pages).toEqual([
+      { platform: "youtube", page: 1, page_size: 2 },
+      { platform: "youtube", page: 2, page_size: 2 },
+    ]);
+    const candidates = ((completed.result as Json).candidates as Json[]);
+    expect(candidates.map((row) => row.platform_creator_id).sort()).toEqual(["yt-a", "yt-b", "yt-c"]);
   });
 
   it("calls remote stop_crawl and releases the active lock", async () => {

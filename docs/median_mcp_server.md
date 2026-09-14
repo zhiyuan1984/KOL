@@ -48,7 +48,7 @@ MEDIACRAWLER_MCP_TOKEN=    # 为空时 --tunnel 会自动生成
 | `get_crawl_status`  | 查看 `task_id`、运行状态、平台、上传错误                     |
 | `get_crawl_logs`    | 查看最近采集/上传日志                                        |
 | `stop_crawl`        | 停止采集和浏览器                                             |
-| `get_creators`      | 分页读取标准化创作者（`platform`、`platform_creator_id`、`nickname`、`followers`、最近 10 条 `views`） |
+| `get_creators`      | 分页读取标准化创作者。**入参**只接受 `platform`、`page`（1-based）、`page_size`；不要传 `task_id` / `offset` / `limit`（pydantic 会拒收）。每条含 `platform`、`platform_creator_id`、`nickname`、`followers`、最近 10 条 `views`；响应可带 `has_more` / `total` |
 | `list_result_files` | 列出创作者结果文件                                           |
 | `upload_creators`   | 按 `task_id` 重试入库                                        |
 | `clear_history`     | 清空历史数据，必须 `confirm=true`                            |
