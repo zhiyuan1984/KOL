@@ -1051,6 +1051,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ confirmed: true, ...(body || {}) }),
     }),
+  followDiscoveryCandidatesBatch: (body: Record<string, unknown>) =>
+    request<Record<string, unknown>>("/api/discovery/candidates/follow-batch", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   dismissDiscoveryCandidate: (id: string) =>
     request<Record<string, unknown>>(`/api/discovery/candidates/${encodeURIComponent(id)}/dismiss`, {
       method: "POST",

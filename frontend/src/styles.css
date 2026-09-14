@@ -1113,11 +1113,68 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .discovery-plan,
 .discovery-candidate {
   display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: var(--space-2);
   min-width: 0;
   padding: var(--space-3) 0;
   border-bottom: 1px solid var(--border);
   overflow-x: hidden;
+}
+.discovery-candidate-actions {
+  grid-column: 2;
+}
+.discovery-candidate[data-discovery-preview="out"] {
+  opacity: 0.55;
+}
+.discovery-candidate-select {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 1.25rem;
+  margin-top: 0.2rem;
+  color: var(--text);
+  font-size: var(--font-ui);
+}
+.discovery-candidate-select input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0.15rem 0 0;
+}
+.discovery-batch-bar {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+  list-style: none;
+}
+.discovery-batch-select,
+.discovery-batch-conditions,
+.discovery-batch-plan {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.discovery-threshold {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--text);
+  font-size: var(--font-ui);
+}
+.discovery-threshold input {
+  width: 5.5rem;
+  min-height: 2rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-ui);
+}
+.discovery-batch-plan .discovery-chip {
+  pointer-events: none;
+  cursor: default;
 }
 .discovery-plan strong,
 .discovery-candidate strong {

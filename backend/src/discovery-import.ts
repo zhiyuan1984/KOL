@@ -3,6 +3,7 @@
  * Thresholds and CSV live here so batch follow can reuse the same write-time mapping.
  * Never fabricates contactEmail. Never calls send / stage / decrypt.
  */
+import { createHash } from "node:crypto";
 import { employeeError } from "./discovery-errors.js";
 import { HttpFail } from "./host/errors.js";
 import type { Json, Row } from "./types.js";
@@ -102,6 +103,25 @@ export function sourceBatchFor(candidate: Row, override?: unknown): string {
     String(candidate.platform || "").trim().toLowerCase(),
     String(candidate.platform_creator_id || "").trim(),
   ].filter(Boolean).join(":");
+}
+
+/** One L3 confirm / idempotency key for a selected or conditional follow set. */
+export function sourceBatchForFollowSet(input: {
+  requestId?: unknown;
+  candidateIds: string[];
+  filter?: FollowThresholds | null;
+  override?: unknown;
+}): string {
+  const explicit = String(input.override || "").trim();
+  if (explicit) return explicit;
+  const digest = createHash("sha1")
+    .update(JSON.stringify({
+      ids: [...input.candidateIds].map((id) => String(id || "").trim()).filter(Boolean).sort(),
+      filter: input.filter || null,
+    }))
+    .digest("hex")
+    .slice(0, 16);
+  return ["disc", String(input.requestId || "").trim(), "batch", digest].filter(Boolean).join(":");
 }
 
 export function profileUrlOf(source: Row | Json): string {
@@ -215,6 +235,23 @@ export function candidateRegionOf(source: Row | Json): string {
   ).toLowerCase();
 }
 
+/** Honest detect only. Never invents a contact email for import. */
+export function candidateHasContactEmail(source: Row | Json): boolean {
+  const payload = asObject(source.payload);
+  const signals = asObject(source.signals);
+  const email = firstString(
+    source.contact_email,
+    source.email,
+    payload.contact_email,
+    payload.contactEmail,
+    payload.email,
+    signals.contact_email,
+    signals.contactEmail,
+    signals.email,
+  );
+  return /@/.test(email);
+}
+
 export function planRegionOf(request: Row | null | undefined): string {
   return String(asObject(request?.filters).region || "all").trim().toLowerCase() || "all";
 }
@@ -228,12 +265,17 @@ export function shouldWarnMissingCandidateRegion(
   return Boolean(plan && plan !== "all" && !candidateRegionOf(candidate));
 }
 
-export function recheckFollowFilters(
+export type FollowFilterEvaluation =
+  | { ok: true }
+  | { ok: false; code: "follow_filter_rejected"; message: string };
+
+/** List preview + write-time recheck. Missing region is not a reject (audit warn only). */
+export function evaluateFollowFilters(
   candidate: Row,
   request: Row | null | undefined,
   thresholds: FollowThresholds | null | undefined,
-): void {
-  if (!thresholds) return;
+): FollowFilterEvaluation {
+  if (!thresholds) return { ok: true };
   const followers = Number(candidate.followers || 0);
   const score = Number(candidate.score || 0);
   const avg = avgViews10(candidate);
@@ -243,25 +285,35 @@ export function recheckFollowFilters(
   const candidateRegion = candidateRegionOf(candidate);
 
   if (thresholds.min_followers != null && followers < thresholds.min_followers) {
-    failFilter("该线索粉丝数未达到跟进条件，未加入跟进。");
+    return { ok: false, code: "follow_filter_rejected", message: "该线索粉丝数未达到跟进条件，未加入跟进。" };
   }
   if (thresholds.min_avg_views_10 != null && avg < thresholds.min_avg_views_10) {
-    failFilter("该线索近 10 条均播放未达到跟进条件，未加入跟进。");
+    return { ok: false, code: "follow_filter_rejected", message: "该线索近 10 条均播放未达到跟进条件，未加入跟进。" };
   }
   if (thresholds.min_score != null && score < thresholds.min_score) {
-    failFilter("该线索评分未达到跟进条件，未加入跟进。");
+    return { ok: false, code: "follow_filter_rejected", message: "该线索评分未达到跟进条件，未加入跟进。" };
   }
   const wantPlatform = thresholds.platform || (planPlatforms.length === 1 ? planPlatforms[0] : "");
   if (wantPlatform && platform && platform !== wantPlatform) {
-    failFilter("该线索平台与当前计划不一致，未加入跟进。");
+    return { ok: false, code: "follow_filter_rejected", message: "该线索平台与当前计划不一致，未加入跟进。" };
   }
   const wantRegion = thresholds.region && thresholds.region !== "all" ? thresholds.region : "";
   const planWant = !thresholds.region && planRegion && planRegion !== "all" ? planRegion : "";
   const expectedRegion = wantRegion || planWant;
-  // Missing candidate region is not a reject in P0 (audit warn in followCandidate). Do not invent region.
+  // Missing candidate region is not a reject (P0/P1 audit warn). Do not invent region.
   if (expectedRegion && candidateRegion && candidateRegion !== expectedRegion) {
-    failFilter("该线索地区与当前计划不一致，未加入跟进。");
+    return { ok: false, code: "follow_filter_rejected", message: "该线索地区与当前计划不一致，未加入跟进。" };
   }
+  return { ok: true };
+}
+
+export function recheckFollowFilters(
+  candidate: Row,
+  request: Row | null | undefined,
+  thresholds: FollowThresholds | null | undefined,
+): void {
+  const result = evaluateFollowFilters(candidate, request, thresholds);
+  if (!result.ok) failFilter(result.message);
 }
 
 export function employeeImportError(error: unknown, fallback = "写入红人档案失败，未加入跟进。请稍后重试。"): string {
