@@ -67,7 +67,7 @@ export default function FollowedKolWorkCard({
         <span className="kol-avatar" data-kol-avatar aria-hidden>{initial}</span>
         <div className="kol-identity-main">
           <div className="kol-identity-line">
-            <strong data-kol-identity data-kol-name>{card.identity.display}</strong>
+            <strong className="kol-name" data-kol-identity data-kol-name>{card.identity.display}</strong>
             <span className="kol-chip-row" data-kol-scope>
               {chips.map((chip) => (
                 <span
@@ -91,7 +91,7 @@ export default function FollowedKolWorkCard({
       <div className="kol-band kol-band-state" data-kol-band="state">
         <div className="kol-state-block" data-current-state data-current-stage>
           <div className="kol-state-fields">
-            <p data-stage-code={card.current_state.stage_code || undefined} data-stage-label>
+            <p className="kol-stage" data-stage-code={card.current_state.stage_code || undefined} data-stage-label>
               {card.current_state.stage_label}
             </p>
             {days != null && days > 0 ? (
@@ -102,30 +102,30 @@ export default function FollowedKolWorkCard({
           </div>
         </div>
         <div className="kol-state-block" data-recommended-action={rec.kind}>
-          <p>{rec.label}</p>
+          <p className="kol-suggestion">{rec.label}</p>
         </div>
       </div>
 
       <div className="kol-band kol-band-recommend" data-kol-band="action">
         <div className="kol-state-block" data-latest-fact data-fact-kind={fact.kind}>
-          <p data-mail-summary={fact.thread_id || undefined} title={factLine}>
+          <p className="kol-mail-digest" data-mail-summary={fact.thread_id || undefined}>
             {factLine}
             {fact.at ? <span data-thread-time> · {formatFactTime(fact.at)}</span> : null}
           </p>
         </div>
         <div className="kol-state-block" data-action-evidence={card.evidence.kind}>
-          <p title={rec.why}>{rec.why}</p>
+          <p className="kol-evidence">{rec.why}</p>
         </div>
       </div>
 
       <div className="kol-band kol-band-actions" data-kol-band="cta">
-        <button type="button" className="btn ghost sm" data-open-kol-detail onClick={onOpenDetail}>
+        <button type="button" className="btn ghost sm kol-cta-btn" data-open-kol-detail onClick={onOpenDetail}>
           查看详情
         </button>
         {showMail ? (
           <button
             type="button"
-            className="btn ghost sm"
+            className="btn ghost sm kol-cta-btn"
             data-open-original-mail
             data-thread-id={fact.thread_id}
             onClick={onOpenMail}
@@ -136,7 +136,7 @@ export default function FollowedKolWorkCard({
         {showCompose ? (
           <button
             type="button"
-            className="btn work sm"
+            className="btn work sm kol-cta-btn"
             data-kol-primary-action={primary}
             onClick={onCompose || onPrimary}
           >
@@ -146,7 +146,7 @@ export default function FollowedKolWorkCard({
         {showConfirm ? (
           <button
             type="button"
-            className="btn ghost sm"
+            className="btn ghost sm kol-cta-btn"
             data-kol-primary-action="confirm-stage"
             data-confirm-enter-stage
             data-confirm-stage-priority="secondary"
@@ -161,7 +161,7 @@ export default function FollowedKolWorkCard({
         {primary && !showCompose && !showConfirm ? (
           <button
             type="button"
-            className="btn work sm"
+            className="btn work sm kol-cta-btn"
             data-kol-primary-action={primary}
             disabled={actionBusy}
             onClick={onPrimary}
