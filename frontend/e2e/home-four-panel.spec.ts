@@ -27,6 +27,8 @@ test("home four-panel tab order and pane visibility", async ({ page }) => {
   await expect(page.locator("[data-home] h1")).toHaveText("今天有什么工作要处理？");
   await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
   await expect(page.locator("[data-today-suggestions]")).toBeVisible();
+  await expect(page.locator("[data-recommended-task]").first()).toContainText("今天推荐");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("AI发现");
   await expect(page.locator("[data-suggest-cta='prefill']").first()).toBeVisible();
   await expect(page.locator("[data-suggest-cta='todo']").first()).toBeVisible();
   await expect(page.locator('[data-home-pane="todo"]')).toHaveCount(0);
@@ -44,6 +46,8 @@ test("home four-panel tab order and pane visibility", async ({ page }) => {
   await openMode(page, "discovery");
   await expect(page.locator("[data-home] h1")).toHaveCount(0);
   await expect(page.locator("[data-discovery-panel]")).toBeVisible();
+  await expect(page.locator("[data-discovery-panel]")).toContainText("红人线索");
+  await expect(page.locator("[data-discovery-panel]")).not.toContainText("加入待办");
   await expect(page.locator("[data-discovery-live]")).toHaveAttribute("data-discovery-live", "false");
   await expect(page.locator("[data-discovery-empty='idle']")).toBeVisible();
 

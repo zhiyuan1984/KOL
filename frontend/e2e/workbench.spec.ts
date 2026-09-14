@@ -443,7 +443,8 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expectHomeModeOrder(page);
   await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-recommended-tasks]")).toBeVisible();
-  await expect(page.locator("[data-home]")).not.toContainText("今天推荐");
+  await expect(page.locator("[data-recommended-task]").first()).toContainText("今天推荐");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("AI发现");
   await expect(page.locator("[data-today-work]")).toHaveCount(0);
   await expect(page.locator("[data-today-summary]")).toContainText("项待处理");
   await expect(page.locator("[data-today-summary]")).toContainText("逾期");
@@ -1242,7 +1243,8 @@ test("home AI insight is confirmed into 我的待办 and 立即处理 opens the 
   await expectHomeModeOrder(page);
   await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-recommended-tasks]")).toBeVisible();
-  await expect(page.locator("[data-home]")).not.toContainText("今天推荐");
+  await expect(page.locator("[data-recommended-task]").first()).toContainText("今天推荐");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("AI发现");
   await expect(page.locator("[data-today-work]")).toHaveCount(0);
   const listedAi = Number(await page.locator("[data-recommended-tasks]").getAttribute("data-list-total") || 0)
     + Number(await page.locator("[data-insight-list]").getAttribute("data-list-total") || 0);
@@ -1254,7 +1256,8 @@ test("home AI insight is confirmed into 我的待办 and 立即处理 opens the 
   await expect(page.locator("[data-task-n='2']")).toBeVisible();
   await expect(page.locator("[data-task-n='3']")).toBeVisible();
   await expect(page.locator("[data-recommended-task]").first()).toContainText("1.");
-  await expect(page.locator("[data-recommended-task]").first()).toContainText("今日任务");
+  await expect(page.locator("[data-recommended-task]").first()).toContainText("今天推荐");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("AI发现");
   await expect(page.locator("[data-recommended-reason]").first()).not.toHaveText("");
   await expect(page.locator("[data-recommended-tasks]")).not.toContainText("下一阶段");
   await expect(page.locator("[data-recommended-tasks] [data-fold-more]")).toBeVisible();

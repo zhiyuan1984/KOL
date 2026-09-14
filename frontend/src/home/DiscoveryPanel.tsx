@@ -48,8 +48,8 @@ export default function DiscoveryPanel() {
   );
 
   const emptyHint = useMemo(() => {
-    if (phase === "results" && !visible.length) return "这次计划没有找到候选人，可换关键词再试。";
-    return "用一句话描述想找的达人，确认计划后才会开始检索。";
+    if (phase === "results" && !visible.length) return "这次计划没有找到红人线索，可换关键词再试。";
+    return "用一句话描述想找的达人。确认计划后只检索线索，不会写成待办，也不会自动建合作。";
   }, [phase, visible.length]);
 
   const buildPlan = async () => {
@@ -125,6 +125,7 @@ export default function DiscoveryPanel() {
       data-discovery-phase={phase}
       data-discovery-live="false"
     >
+      <p className="home-lane-label">红人线索</p>
       <form
         className="discovery-form"
         data-discovery-form
@@ -191,7 +192,7 @@ export default function DiscoveryPanel() {
 
       {phase === "idle" ? (
         <div className="task-empty" data-discovery-empty="idle">
-          <strong>先确认计划，再看候选人</strong>
+          <strong>先确认计划，再看红人线索</strong>
           <p>{emptyHint}</p>
         </div>
       ) : null}
@@ -206,7 +207,7 @@ export default function DiscoveryPanel() {
             ))}
           </ol>
           <p className="discovery-quiet" data-discovery-no-live>
-            确认后只检索候选人，不会自动发信或改阶段。
+            确认后只检索红人线索，不会自动发信、改阶段或写成待办。
           </p>
           <div className="discovery-plan-actions">
             <button type="button" className="btn work sm" data-discovery-confirm-plan disabled={busy} onClick={() => void confirmPlan()}>
@@ -222,7 +223,7 @@ export default function DiscoveryPanel() {
       {phase === "running" ? (
         <section className="task-empty" data-discovery-loading role="status" aria-busy="true">
           <strong>检索中</strong>
-          <p>正在按已确认的计划找候选人，不会改正式阶段。</p>
+          <p>正在按已确认的计划找红人线索，不会改正式阶段，也不会写成待办。</p>
         </section>
       ) : null}
 
@@ -238,7 +239,7 @@ export default function DiscoveryPanel() {
 
       {phase === "results" && !visible.length ? (
         <div className="task-empty" data-discovery-empty="results">
-          <strong>没有候选人</strong>
+          <strong>没有红人线索</strong>
           <p>{emptyHint}</p>
         </div>
       ) : null}
@@ -263,7 +264,7 @@ export default function DiscoveryPanel() {
                   <p className="discovery-candidate-reason">{candidateReason(candidate)}</p>
                   {candidate.status === "followed" ? (
                     <p className="discovery-quiet" data-discovery-followed>
-                      已确认跟进意向。模拟环境不会写进「我跟进的红人」；接上接口后才会建合作。
+                      已确认跟进意向。未接上发现接口前不会写进「我跟进的红人」；加入跟进才建合作。
                     </p>
                   ) : null}
                 </div>
@@ -307,7 +308,7 @@ export default function DiscoveryPanel() {
           <div className="discovery-confirm">
             <strong>确认加入跟进？</strong>
             <p>
-              把 @{pendingFollow.handle} 记为跟进意向。不会发信，也不会改正式阶段。接上发现接口后，确认才会建合作。
+              把 @{pendingFollow.handle} 记为跟进意向。不会发信，也不会改正式阶段。加入跟进后才会建合作。
             </p>
             <div className="discovery-plan-actions">
               <button type="button" className="btn work sm" data-discovery-follow-yes onClick={() => void confirmFollow()}>

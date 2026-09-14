@@ -448,7 +448,7 @@ tasks.post("/tasks/:id/promote", async (c) => {
     ).run(now, now, item.id);
   });
   if (!item.promoted_at) {
-    appendTaskEvent(String(item.id), null, "task.promoted", "转为我的待办", String(item.status), "已从 AI 发现转入待办");
+    appendTaskEvent(String(item.id), null, "task.promoted", "转为我的待办", String(item.status), "已从今日任务转入待办");
     audit(ownerId(), "task.promoted", { work_item_id: item.id });
   }
   return c.json(publicWorkItem(ownedWorkItem(String(item.id))));
@@ -466,7 +466,7 @@ tasks.post("/tasks/:id/dismiss", async (c) => {
     ).run(now, now, item.id);
   });
   if (!item.dismissed_at) {
-    appendTaskEvent(String(item.id), null, "task.dismissed", "忽略发现", String(item.status), "已从 AI 发现中移除");
+    appendTaskEvent(String(item.id), null, "task.dismissed", "忽略建议", String(item.status), "已从今日任务中移除");
     audit(ownerId(), "task.dismissed", { work_item_id: item.id });
   }
   return c.json(publicWorkItem(ownedWorkItem(String(item.id))));

@@ -2,6 +2,14 @@ export type HomeMode = "today" | "todo" | "discovery" | "lifecycle";
 
 export const HOME_MODES: HomeMode[] = ["today", "todo", "discovery", "lifecycle"];
 
+/** ADR-018 employee tab order and labels. */
+export const HOME_MODE_LABELS: Record<HomeMode, string> = {
+  today: "今日任务",
+  todo: "我的待办",
+  discovery: "AI发现",
+  lifecycle: "我跟进的红人",
+};
+
 const HOME_MODE_ALIASES: Record<string, HomeMode> = {
   today: "today",
   todo: "todo",
@@ -9,6 +17,25 @@ const HOME_MODE_ALIASES: Record<string, HomeMode> = {
   lifecycle: "lifecycle",
   ai: "today",
 };
+
+const LEGACY_AI_DISCOVERY_LABELS = new Set(["AI发现", "AI 发现", "✦ AI发现", "✦ AI 发现"]);
+
+/** Old「AI发现」task-recommendation copy → 今天推荐 (ADR-018). */
+export function recommendationSourceLabel(item: { source?: string; source_label?: string }): string {
+  const raw = String(item.source_label || "").trim();
+  if (LEGACY_AI_DISCOVERY_LABELS.has(raw) || (!raw && item.source === "ai")) return "今天推荐";
+  if (raw) return raw;
+  if (item.source === "catalog") return "任务模板";
+  return "按阶段";
+}
+
+export function todayTaskOriginLabel(source?: string): string {
+  return source === "ai" ? "今天推荐" : "我的任务";
+}
+
+export function todayTaskSourceLabel(source?: string): string {
+  return source === "ai" ? "今天推荐" : "手动创建";
+}
 
 export function parseHomeMode(value: string | null): HomeMode {
   if (!value) return "today";

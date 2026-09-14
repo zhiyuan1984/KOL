@@ -31,7 +31,15 @@ import { missingFieldsMessage, fieldLabel, accountDisplayName, accountEmployeeId
 import { useAccount } from "../components/AuthGate";
 import FollowedKolWorkCard from "../components/FollowedKolWorkCard";
 import DiscoveryPanel from "../home/DiscoveryPanel";
-import { homeModeQuery, parseHomeMode, type HomeMode } from "../home/modes";
+import {
+  HOME_MODE_LABELS,
+  homeModeQuery,
+  parseHomeMode,
+  recommendationSourceLabel,
+  todayTaskOriginLabel,
+  todayTaskSourceLabel,
+  type HomeMode,
+} from "../home/modes";
 import { findDuplicateTodo, recommendationIdentity } from "../home/todoDedupe";
 import {
   HOME_CONFIRM_STAGE_BLOCKED_COPY,
@@ -117,7 +125,7 @@ function taskValue(value: Task | { task: Task }): Task {
 }
 
 function sourceLabel(source?: string) {
-  return source === "ai" ? "今日任务" : "手动创建";
+  return todayTaskSourceLabel(source);
 }
 
 function statusLabel(status?: string) {
@@ -168,7 +176,7 @@ function workPriorityScore(task: Task) {
 }
 
 function whyLine(task: Task) {
-  const origin = task.source === "ai" ? "今日任务" : "我的任务";
+  const origin = todayTaskOriginLabel(task.source);
   if (waitDisplayOf(task.status) === "failed") {
     const hint = failureHint(task);
     return hint ? `${origin} · ${hint}` : `${origin} · 执行失败`;
@@ -1264,7 +1272,7 @@ export default function Home() {
             {awaitingApprovalCount ? ` · ${awaitingApprovalCount}等审批` : ""}
           </p>
 
-          <div className="home-mode-tabs" role="tablist" aria-label="工作台视图" data-home-modes>
+          <div className="home-mode-tabs" role="tablist" aria-label="首页模式" data-home-modes>
             <button
               type="button"
               role="tab"
@@ -1273,8 +1281,8 @@ export default function Home() {
               data-ai-count={insightCount}
               onClick={() => setMode("today")}
             >
-              今日任务 {insightCount}
-              {highValueCount ? <span className="home-mode-dot" data-insight-mark aria-label="有高价值发现" /> : null}
+              {HOME_MODE_LABELS.today} {insightCount}
+              {highValueCount ? <span className="home-mode-dot" data-insight-mark aria-label="有高价值建议" /> : null}
             </button>
             <button
               type="button"
@@ -1283,7 +1291,7 @@ export default function Home() {
               data-home-mode="todo"
               onClick={() => setMode("todo")}
             >
-              我的待办 {openCount}
+              {HOME_MODE_LABELS.todo} {openCount}
             </button>
             <button
               type="button"
@@ -1292,7 +1300,7 @@ export default function Home() {
               data-home-mode="discovery"
               onClick={() => setMode("discovery")}
             >
-              AI发现
+              {HOME_MODE_LABELS.discovery}
             </button>
             <button
               type="button"
@@ -1301,7 +1309,7 @@ export default function Home() {
               data-home-mode="lifecycle"
               onClick={() => setMode("lifecycle")}
             >
-              我跟进的红人
+              {HOME_MODE_LABELS.lifecycle}
             </button>
             <button type="button" className="home-templates-link" data-open-work-panel onClick={() => openPanel("templates")}>
               任务模板
@@ -1577,7 +1585,7 @@ export default function Home() {
               <section className="today-workbench" data-today-tasks>
                 <div className="task-controls">
                   <div className="task-filters" aria-label="筛选全部工作">
-                    {([["all", "全部"], ["open", "待处理"], ["high", "高优先级"], ["ai", "✦ 今日任务"]] as const).map(([value, label]) => (
+                    {([["all", "全部"], ["open", "待处理"], ["high", "高优先级"], ["ai", "✦ 今天推荐"]] as const).map(([value, label]) => (
                       <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)} data-panel-filter={value}>
                         {label} {taskCounts[value]}
                       </button>
@@ -1691,7 +1699,7 @@ function RecommendedTaskList({
         {fold.visible.map((item) => {
           const n = item.n || 0;
           const icon = item.icon || recIcon(item.intent);
-          const source = item.source_label || (item.source === "ai" ? "今天推荐" : item.source === "catalog" ? "任务模板" : "按阶段");
+          const source = recommendationSourceLabel(item);
           const alreadyTodo = Boolean(findDuplicateTodo(todos, recommendationIdentity(item)));
           return (
             <li key={item.id} className="recommend-md-row" data-today-suggestion={item.id}>
@@ -1789,7 +1797,7 @@ function TodoActionList({ tasks, onOpen }: { tasks: Task[]; onOpen: (task: Task)
   if (!tasks.length) {
     return (
       <div className="todo-md-empty">
-        <Markdown>{"AI 发现不会自动变成待办。确认后才会出现在这里。"}</Markdown>
+        <Markdown>{"今日任务不会自动变成待办。确认后才会出现在这里。"}</Markdown>
       </div>
     );
   }
@@ -1850,14 +1858,14 @@ function InsightList({
   if (!tasks.length) {
     return (
       <div className="task-empty">
-        <strong>暂时没有新的发现</strong>
-        <p>系统注意到的信号会先停在这里，确认后才进入我的待办。</p>
+        <strong>暂时没有新的建议</strong>
+        <p>邮件和阶段建议会先停在这里，确认后才进入我的待办。</p>
       </div>
     );
   }
   return (
-    <section className="insight-confirm process-md" data-insight-list data-list-total={tasks.length} aria-label="待确认发现">
-      <Markdown>{"**待确认发现**"}</Markdown>
+    <section className="insight-confirm process-md" data-insight-list data-list-total={tasks.length} aria-label="待确认建议">
+      <Markdown>{"**待确认建议**"}</Markdown>
       <ol className="insight-card-list">
       {fold.visible.map((task) => (
         <li
@@ -1869,7 +1877,7 @@ function InsightList({
           <div className="insight-card-body">
             <div className="todo-card-head">
               <strong>{task.title}</strong>
-              <span className="todo-urgency">今日任务</span>
+              <span className="todo-urgency">今天推荐</span>
               {isHighValueInsight(task) ? <span className="insight-high">高价值</span> : null}
             </div>
             {handleLine(task) ? <p className="todo-handle">{handleLine(task)}</p> : null}

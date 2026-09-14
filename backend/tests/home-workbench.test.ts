@@ -66,13 +66,13 @@ describe("home workbench", () => {
     expect(recs.every((row) => String(row.reason || "").trim())).toBe(true);
     expect(recs.every((row) => String(row.icon || "").trim())).toBe(true);
     expect(recs.map((row) => Number(row.n))).toEqual(recs.map((_, index) => index + 1));
-    expect(recs.every((row) => ["按阶段", "今日任务", "任务模板"].includes(String(row.source_label)))).toBe(true);
+    expect(recs.every((row) => ["按阶段", "今天推荐", "任务模板"].includes(String(row.source_label)))).toBe(true);
     expect(JSON.stringify(recs)).not.toMatch(/下一阶段/);
     expect(JSON.stringify(recs)).not.toMatch(/MCP|Codex|线程/);
     expect(recs[0]).toMatchObject({
       n: 1,
       source: "ai",
-      source_label: "今日任务",
+      source_label: "今天推荐",
       intent: "email_compose",
       handle: "小美妆日记",
     });

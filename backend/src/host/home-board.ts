@@ -318,7 +318,8 @@ function inboundUnread(kol: Json): Json | undefined {
 function decorateRecommended(row: Json, index: number): Json {
   const n = index + 1;
   const icon = recIcon(String(row.intent || ""));
-  const sourceLabel = String(row.source_label || (row.source === "ai" ? "今日任务" : row.source === "catalog" ? "任务模板" : "按阶段"));
+  const rawLabel = String(row.source_label || (row.source === "ai" ? "今天推荐" : row.source === "catalog" ? "任务模板" : "按阶段"));
+  const sourceLabel = rawLabel === "AI发现" || rawLabel === "AI 发现" || rawLabel === "今日任务" ? "今天推荐" : rawLabel;
   return {
     ...row,
     act: "ask",
@@ -351,7 +352,7 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[]): Json[] {
       title: recTitle("reply_analysis", handle),
       reason: snippet ? `${snippet.slice(0, 48)}${snippet.length > 48 ? "…" : ""} · 待判断` : "有未读来信，先做回复分析",
       source: "ai",
-      source_label: "今日任务",
+      source_label: "今天推荐",
       intent: "reply_analysis",
       prompt: recPrompt("reply_analysis", handle),
       handle,
@@ -372,7 +373,7 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[]): Json[] {
       title: recTitle(intent, handle, days, String(kol?.stage_code || "")),
       reason,
       source: "ai",
-      source_label: "今日任务",
+      source_label: "今天推荐",
       intent,
       prompt: recPrompt(intent, handle, String(kol?.stage_code || "")),
       handle,

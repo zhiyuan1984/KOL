@@ -56,6 +56,13 @@ export type CreatorCandidate = {
   updated_at: string;
   insight: boolean;
   contact_needed: boolean;
+  avatar_url?: string | null;
+  title?: string;
+  reason?: string;
+  summary?: string;
+  source?: "ai";
+  source_label?: string;
+  intent?: string;
 };
 
 export type DiscoveryResult = {
@@ -286,7 +293,7 @@ export function keywordsFromQuery(query: string): string[] {
 export function candidateReason(row: CreatorCandidate): string {
   const signals = row.signals || {};
   const payload = row.payload || {};
-  return String(signals.reason || payload.reason || signals.summary || "").trim();
+  return String(row.reason || row.summary || signals.reason || payload.reason || signals.summary || "").trim();
 }
 
 function matchesSeed(seed: MockSeed, request: DiscoveryRequest): boolean {
@@ -323,6 +330,12 @@ function toCandidate(seed: MockSeed, request: DiscoveryRequest, runId: string): 
     updated_at: stamp,
     insight: true,
     contact_needed: true,
+    title: seed.handle ? `发现 @${seed.handle}` : "发现新达人",
+    reason: seed.reason,
+    summary: seed.reason,
+    source: "ai",
+    source_label: "AI发现",
+    intent: "creator_profile",
   };
 }
 
@@ -360,7 +373,7 @@ export function planSteps(request: DiscoveryRequest): Array<{ id: string; label:
   return [
     { id: "scope", label: `按关键词「${request.keywords.join(" ") || "…"}」和平台缩小范围` },
     { id: "dedupe", label: "对照已跟进名单去掉重复对象" },
-    { id: "review", label: "列出候选人，收藏或确认后加入跟进" },
+    { id: "review", label: "列出红人线索，收藏或确认后加入跟进" },
   ];
 }
 
