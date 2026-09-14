@@ -20,7 +20,8 @@ export type AdminConfirmKind =
 function named(label: string, extra = ""): string {
   const name = String(label || "").trim() || "未命名";
   const suffix = String(extra || "").trim();
-  return suffix ? `${name}（${suffix}）` : name;
+  if (!suffix || suffix === name) return name;
+  return `${name}（${suffix}）`;
 }
 
 export function userDeactivateConfirm(name: string, email = ""): AdminConfirmCopy {
