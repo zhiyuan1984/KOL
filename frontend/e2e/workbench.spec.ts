@@ -2178,6 +2178,7 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator("[data-expert-page]")).not.toContainText("专家团");
   await expect(page.locator("[data-expert-page]")).not.toContainText("关联技能");
   await expect(page.locator("[data-expert-page]")).not.toContainText("在会话里用");
+  await expect(page.getByRole("button", { name: "在会话里用" })).toHaveCount(0);
   await expect(page.locator("[data-agent-profile]")).toHaveCount(0);
   await expect(page.locator("body")).not.toContainText("Codex");
   await expect(page.locator("body")).not.toContainText("Starry KOL MCP");
