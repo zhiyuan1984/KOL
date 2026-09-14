@@ -136,7 +136,7 @@ export function expandOverseasSearchKeywords(input: {
 }): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const item of [...(input.keywords || []), ...(input.directions || [])]) {
+  for (const item of [...(input.directions || []), ...(input.keywords || [])]) {
     for (const part of expandOne(item)) uniquePush(out, seen, part);
   }
   const region = String(input.region || "all").trim().toLowerCase();

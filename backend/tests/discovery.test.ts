@@ -438,7 +438,7 @@ describe("discovery filters directions and region", () => {
     const started = await request("POST", `/api/discovery/requests/${created.body.id}/runs`, {});
     expect(started.status).toBe(202);
     expect(started.body.platform).toBe("youtube");
-    expect(started.body.search_keywords).toEqual(["outdoor review", "portable power station", "USA"]);
+    expect(started.body.search_keywords).toEqual(["portable power station", "outdoor review", "USA"]);
     const job = getConn().prepare(
       "SELECT platform, parameters FROM crawl_jobs ORDER BY created_at DESC LIMIT 1",
     ).get() as { platform?: string; parameters?: string } | undefined;
@@ -446,7 +446,7 @@ describe("discovery filters directions and region", () => {
     expect(JSON.parse(String(job?.parameters || "{}"))).toMatchObject({
       region: "us",
       directions: ["户外电源"],
-      keywords: ["outdoor review", "portable power station", "USA"],
+      keywords: ["portable power station", "outdoor review", "USA"],
     });
     expect(String(crawlStartArgs[0]?.keywords || "")).toContain("portable power station");
     expect(String(crawlStartArgs[0]?.keywords || "")).not.toMatch(/找北美|户外电源|达人/);

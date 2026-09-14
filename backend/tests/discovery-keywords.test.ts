@@ -12,7 +12,7 @@ describe("expandOverseasSearchKeywords", () => {
       keywords: ["找北美户外评测达人"],
       directions: ["户外电源"],
       region: "us",
-    })).toEqual(["outdoor review", "portable power station", "USA"]);
+    })).toEqual(["portable power station", "outdoor review", "USA"]);
   });
 
   it("expands each direction preset to English", () => {
@@ -36,7 +36,7 @@ describe("expandOverseasSearchKeywords", () => {
       keywords: ["portable power"],
       directions: ["户外电源"],
       region: "ca",
-    })).toEqual(["portable power", "portable power station", "Canada"]);
+    })).toEqual(["portable power station", "portable power", "Canada"]);
   });
 
   it("falls back to the submitted text when nothing maps", () => {
