@@ -246,7 +246,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   text-decoration: none;
   padding: 8px 10px;
   border-radius: 0;
-  font-size: var(--font-sm);
+  font-size: var(--font-ui);
   font-weight: 500;
   border: 1px solid transparent;
   display: flex;
@@ -320,7 +320,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 .menu-popover a, .menu-popover button {
   border: 0; background: none; color: var(--text); text-decoration: none;
-  text-align: left; font: inherit; font-size: var(--font-sm); padding: 7px 9px; border-radius: 0; cursor: pointer;
+  text-align: left; font: inherit; font-size: var(--font-ui); padding: 7px 9px; border-radius: 0; cursor: pointer;
   min-height: 36px;
 }
 .menu-popover a:hover, .menu-popover button:hover { background: #fff4ee; color: var(--orange); }
@@ -759,7 +759,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   padding: 8px 0 10px;
   color: var(--muted);
   font: inherit;
-  font-size: var(--font-sm);
+  font-size: var(--font-ui);
   white-space: nowrap;
   cursor: pointer;
   min-height: 36px;
@@ -2275,7 +2275,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   padding: 10px 2px 9px;
   color: var(--muted);
   font: inherit;
-  font-size: var(--font-sm);
+  font-size: var(--font-ui);
   cursor: pointer;
   min-height: 36px;
 }
@@ -3596,7 +3596,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   border: 1px solid var(--line);
   text-decoration: none;
   color: var(--muted);
-  font-size: var(--font-sm);
+  font-size: var(--font-ui);
   white-space: nowrap;
   min-height: 36px;
   display: inline-flex;
@@ -3621,7 +3621,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   cursor: pointer;
   background: var(--canvas);
   color: var(--text);
-  font-size: var(--font-sm);
+  font-size: var(--font-ui);
   min-height: 36px;
   box-sizing: border-box;
 }
@@ -5821,7 +5821,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .settings-page > h1 { margin-bottom: 16px; }
 .settings-tabs { display: flex; gap: 4px; flex-wrap: nowrap; overflow-x: auto; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
 .settings-tabs.admin-tabs { flex-wrap: wrap; overflow: visible; }
-.settings-tabs button { border: 0; border-bottom: 2px solid transparent; background: none; padding: 9px 12px; cursor: pointer; color: var(--muted); font: inherit; font-size: var(--font-sm); white-space: nowrap; min-height: 36px; }
+.settings-tabs button { border: 0; border-bottom: 2px solid transparent; background: none; padding: 9px 12px; cursor: pointer; color: var(--muted); font: inherit; font-size: var(--font-ui); white-space: nowrap; min-height: 36px; }
 .settings-tabs button.active { color: var(--star); border-color: var(--star); font-weight: 500; }
 .settings-form { display: grid; gap: 14px; max-width: 780px; }
 .settings-form h2, .admin-shell h2 { font-size: var(--font-section); margin: 0; }
