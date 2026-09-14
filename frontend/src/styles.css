@@ -1409,12 +1409,14 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   background: var(--bg);
   color: var(--text-muted);
   font: inherit;
-  font-size: var(--font-meta);
-  line-height: 1.2;
-  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-sm);
+  line-height: var(--leading-tight);
+  padding: 6px 10px;
   cursor: pointer;
   text-align: center;
   white-space: nowrap;
+  min-height: 36px;
+  box-sizing: border-box;
 }
 .kol-stage-tabs button[aria-selected="true"],
 .kol-owner-tabs button[aria-selected="true"] {
@@ -1435,7 +1437,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   align-items: center;
   gap: var(--space-1);
   color: var(--text-muted);
-  font-size: var(--font-meta);
+  font-size: var(--font-sm);
 }
 .kol-filter-label select {
   border: 1px solid var(--border);
@@ -1443,9 +1445,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   background: var(--bg);
   color: var(--text);
   font: inherit;
-  font-size: var(--font-meta);
-  padding: 2px 6px;
+  font-size: var(--font-sm);
+  padding: 6px 8px;
   max-width: 12rem;
+  min-height: 36px;
 }
 .kol-sorts {
   display: flex;
@@ -1458,9 +1461,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   background: var(--bg);
   color: var(--text-muted);
   font: inherit;
-  font-size: var(--font-meta);
-  padding: 2px var(--space-2);
+  font-size: var(--font-sm);
+  padding: 6px var(--space-2);
   cursor: pointer;
+  min-height: 36px;
 }
 .kol-sorts button[aria-pressed="true"] {
   color: var(--primary);
@@ -2195,7 +2199,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   background: var(--canvas);
   color: var(--muted);
   font: inherit;
-  font-size: var(--font-xs);
+  font-size: var(--font-sm);
   padding: 6px 11px;
   cursor: pointer;
   text-decoration: none;
@@ -2203,6 +2207,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   max-width: min(100%, 28rem);
   overflow: hidden;
   text-overflow: ellipsis;
+  min-height: 36px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
 }
 .task-filters button[aria-pressed="true"] {
   color: var(--primary);
