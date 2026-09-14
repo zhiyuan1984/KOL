@@ -85,6 +85,7 @@ export default function Workbench() {
     sessionId && sessions.some((s) => s.id === sessionId && s.agent_status === "running"),
   );
   const onAgents = loc.pathname === "/agents" || loc.pathname.startsWith("/agents/");
+  const onAdmin = loc.pathname === "/admin" || loc.pathname.startsWith("/admin/");
 
   const toggleCollapsed = () => {
     setCollapsed((value) => {
@@ -96,7 +97,7 @@ export default function Workbench() {
 
   return (
     <div
-      className={"workbench" + (collapsed ? " sidebar-collapsed" : "")}
+      className={"workbench" + (collapsed ? " sidebar-collapsed" : "") + (onAdmin ? " admin-surface" : "")}
       data-ui-shell="agent-v1"
       data-view-mode={debug ? "debug" : "business"}
       data-account-role={adminAvailable ? "admin" : "employee"}

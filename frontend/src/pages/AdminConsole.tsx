@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, NavLink, useLocation } from "react-router-dom";
 import { api } from "../api";
 import { useAccount } from "../components/AuthGate";
 import { Admin as LegacyAdmin } from "./SimplePages";
@@ -16,7 +16,14 @@ import {
   rowTitle,
   type AdminRow,
 } from "../adminGovernance";
-import { APPROVAL_ROLE_OPTIONS, auditEventLabel, roleLabel, userStatusLabel } from "../labels";
+import {
+  APPROVAL_ROLE_OPTIONS,
+  accountDisplayName,
+  auditEventLabel,
+  isAdminAccount,
+  roleLabel,
+  userStatusLabel,
+} from "../labels";
 import { SKILL_OPTIONS } from "../knowledgeCopy";
 
 const TABS: [string, string][] = [
@@ -24,12 +31,20 @@ const TABS: [string, string][] = [
   ["agents", "数字员工"],
   ["connectors", "连接器"],
   ["skills", "技能"],
-  ["approvals", "审批角色"],
-  ["exams", "考试与分配"],
-  ["data", "数据 / 留存 / 审计"],
+  ["approvals", "审批"],
+  ["exams", "考试"],
+  ["data", "数据"],
   ["knowledge", "知识"],
-  ["kol", "KOL 配置"],
+  ["kol", "配置"],
 ];
+
+function accountRoleChip(account: { roles?: string[] | null; role?: string | null; available_modes?: string[] | null } | null) {
+  if (isAdminAccount(account)) return "管理员";
+  if (Array.isArray(account?.roles) && account.roles.length) {
+    return account.roles.map((role) => roleLabel(String(role))).filter(Boolean).join(" / ") || "员工";
+  }
+  return roleLabel(account?.role) || "员工";
+}
 
 function parseAdminPath(pathname: string): { section: string; detailId: string } {
   const rest = pathname.replace(/^\/admin\/?/, "");
@@ -41,7 +56,6 @@ function parseAdminPath(pathname: string): { section: string; detailId: string }
 export default function AdminConsole() {
   const { account } = useAccount();
   const location = useLocation();
-  const navigate = useNavigate();
   const { section, detailId } = parseAdminPath(location.pathname);
   const [users, setUsers] = useState<AdminRow[]>([]);
   const [connectors, setConnectors] = useState<AdminRow[]>([]);
@@ -86,53 +100,72 @@ export default function AdminConsole() {
 
   const tab = TABS.some(([id]) => id === section) ? section : "employees";
 
+  const accountName = accountDisplayName(account);
+  const accountEmail = String(account?.email || account?.handle || "").trim();
+  const accountRole = accountRoleChip(account);
+
   return (
     <div className="admin-shell" data-admin-ia="governance" data-visual="docs20">
-      <header className="admin-header">
-        <div>
-          <div className="page-kicker">管理控制台</div>
-          <h1>组织管理</h1>
-        </div>
-        <div className="admin-header-actions">
-          <Link className="btn ghost sm nowrap" to="/admin/agents" data-admin-agents-link>数字员工治理</Link>
-          <Link className="btn work admin-return nowrap" to="/">← 返回员工工作台</Link>
-        </div>
-      </header>
-      <AdminHealth connectors={connectors} />
-      <nav className="settings-tabs admin-tabs" aria-label="管理分类">
-        {TABS.map(([id, label]) => (
-          <button
-            key={id}
-            className={tab === id ? "active" : ""}
-            data-admin-tab={id}
-            onClick={() => {
-              navigate(id === "employees" ? "/admin" : `/admin/${id}`);
-            }}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
-      {notice && <p className="status-ok" role="status">{notice}</p>}
-      {error && <p className="error" role="alert">{error}</p>}
+      <aside className="admin-nav" data-admin-nav>
+        <div className="admin-nav-kicker">管理</div>
+        <nav className="admin-nav-list" aria-label="管理分类">
+          {TABS.map(([id, label]) => {
+            const href = id === "employees" ? "/admin" : `/admin/${id}`;
+            return (
+              <NavLink
+                key={id}
+                to={href}
+                end={id === "employees"}
+                className={"admin-nav-item" + (tab === id ? " active" : "")}
+                data-admin-nav={id}
+                data-admin-tab={id}
+                data-admin-agents-link={id === "agents" ? true : undefined}
+              >
+                {label}
+              </NavLink>
+            );
+          })}
+        </nav>
+      </aside>
+      <div className="admin-body">
+        <header className="admin-header">
+          <div className="admin-account" data-admin-account>
+            <div className="page-kicker">当前账户</div>
+            <div className="admin-title-row">
+              <h1>{accountName}</h1>
+              <span className="chip" data-admin-context>管理</span>
+            </div>
+            <div className="admin-account-meta">
+              {accountEmail && <span className="muted">{accountEmail}</span>}
+              <span className="chip" data-admin-role>{accountRole}</span>
+            </div>
+          </div>
+          <div className="admin-header-actions">
+            <Link className="btn work admin-return nowrap" to="/">← 返回员工工作台</Link>
+          </div>
+        </header>
+        <AdminHealth connectors={connectors} />
+        {notice && <p className="status-ok" role="status">{notice}</p>}
+        {error && <p className="error" role="alert">{error}</p>}
 
-      {tab === "employees" && <EmployeesPanel users={users} onSave={save} />}
-      {tab === "agents" && (
-        <AdminAgents users={users} connectors={connectors} exams={exams} assignments={assignments} />
-      )}
-      {tab === "connectors" && (
-        detailId
-          ? <AdminConnectorDetail connectorId={detailId} connectors={connectors} users={users} auditRows={auditRows} onSave={save} />
-          : <AdminConnectorsHub connectors={connectors} users={users} hiddenConnectors={hiddenConnectors} onSave={save} />
-      )}
-      {tab === "skills" && <SkillAdmin embedded />}
-      {tab === "approvals" && (
-        <GrantEditor kind="approval-roles" label="审批角色" users={users} options={[...APPROVAL_ROLE_OPTIONS]} onSave={save} />
-      )}
-      {tab === "exams" && <ExamsPanel exams={exams} assignments={assignments} users={users} onSave={save} />}
-      {tab === "data" && <DataPanel policy={policy} auditRows={auditRows} onSave={save} />}
-      {tab === "knowledge" && <AdminKnowledge />}
-      {tab === "kol" && <LegacyAdmin />}
+        {tab === "employees" && <EmployeesPanel users={users} onSave={save} />}
+        {tab === "agents" && (
+          <AdminAgents users={users} connectors={connectors} exams={exams} assignments={assignments} />
+        )}
+        {tab === "connectors" && (
+          detailId
+            ? <AdminConnectorDetail connectorId={detailId} connectors={connectors} users={users} auditRows={auditRows} onSave={save} />
+            : <AdminConnectorsHub connectors={connectors} users={users} hiddenConnectors={hiddenConnectors} onSave={save} />
+        )}
+        {tab === "skills" && <SkillAdmin embedded />}
+        {tab === "approvals" && (
+          <GrantEditor kind="approval-roles" label="审批角色" users={users} options={[...APPROVAL_ROLE_OPTIONS]} onSave={save} />
+        )}
+        {tab === "exams" && <ExamsPanel exams={exams} assignments={assignments} users={users} onSave={save} />}
+        {tab === "data" && <DataPanel policy={policy} auditRows={auditRows} onSave={save} />}
+        {tab === "knowledge" && <AdminKnowledge />}
+        {tab === "kol" && <LegacyAdmin />}
+      </div>
     </div>
   );
 }

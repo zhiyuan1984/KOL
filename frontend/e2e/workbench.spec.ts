@@ -2382,7 +2382,8 @@ test("composer sends the selected model tier", async ({ page }) => {
 
 test("admin skill page exposes create form after product manager login", async ({ page }) => {
   await page.goto("/admin/skills");
-  await expect(page.getByRole("heading", { name: "组织管理" })).toBeVisible();
+  await expect(page.locator("[data-admin-account]")).toBeVisible();
+  await expect(page.locator("[data-admin-nav='skills']")).toHaveClass(/active/);
   const login = page.locator("[data-admin-login]");
   if (await login.count()) {
     await page.locator("[data-login-name]").fill("鄢棽");
@@ -2565,12 +2566,15 @@ test("admin debug toggle reveals connector tiles on the skill hub", async ({ pag
 test("user menu switches employee, admin, and settings workspaces", async ({ page }) => {
   await page.goto("/");
   await page.locator(".user-chip").click();
-  await expect(page.getByRole("link", { name: "员工工作台" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "管理控制台" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "个人设置" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "连接 Starry 邮箱" })).toBeVisible();
-  await page.getByRole("link", { name: "管理控制台" }).click();
-  await expect(page.getByRole("heading", { name: "组织管理" })).toBeVisible();
+  const userMenu = page.locator(".user-popover");
+  await expect(userMenu.getByRole("link", { name: "员工工作台" })).toBeVisible();
+  await expect(userMenu.getByRole("link", { name: "管理控制台" })).toBeVisible();
+  await expect(userMenu.getByRole("link", { name: "个人设置" })).toBeVisible();
+  await expect(userMenu.getByRole("link", { name: "连接 Starry 邮箱" })).toBeVisible();
+  await userMenu.getByRole("link", { name: "管理控制台" }).click();
+  await expect(page.locator("[data-admin-ia='governance']")).toBeVisible();
+  await expect(page.locator("[data-admin-account]")).toContainText("当前账户");
+  await expect(page.locator("[data-admin-context]")).toHaveText("管理");
   await page.getByRole("link", { name: "返回员工工作台" }).click();
   await expect(page.locator("[data-home]")).toBeVisible();
 });
@@ -2655,11 +2659,49 @@ test("docs/21 employee sidebar has no admin connectors deep-link", async ({ page
 test("docs/21 admin agents governance is reachable from admin chrome", async ({ page }) => {
   await page.goto("/admin");
   await expect(page.locator(".admin-header a[href='/agents']")).toHaveCount(0);
-  await page.locator("[data-admin-agents-link]").click();
+  await page.locator("[data-admin-nav='agents']").click();
   await expect(page).toHaveURL(/\/admin\/agents$/);
   await expect(page.locator("[data-admin-page='agents']")).toBeVisible();
   await expect(page.getByRole("heading", { name: "数字员工治理" })).toBeVisible();
+  await expect(page.locator("[data-admin-nav='agents']")).toHaveClass(/active/);
   await expect(page.locator("[data-admin-tab='agents']")).toHaveClass(/active/);
+});
+
+test("admin console uses a left sidebar with short labels for the current account", async ({ page }) => {
+  await page.goto("/admin");
+  await expect(page.locator(".workbench")).toHaveClass(/admin-surface/);
+  await expect(page.locator(".workbench > .sidebar")).not.toBeVisible();
+  await expect(page.locator(".settings-tabs.admin-tabs")).toHaveCount(0);
+  await expect(page.locator("[data-admin-nav]").first()).toBeVisible();
+  const labels = await page.locator("nav[aria-label='管理分类'] [data-admin-nav]").allTextContents();
+  expect(labels.map((label) => label.trim())).toEqual([
+    "员工", "数字员工", "连接器", "技能", "审批", "考试", "数据", "知识", "配置",
+  ]);
+  await expect(page.locator("[data-admin-nav='employees']")).toHaveClass(/active/);
+  await expect(page.locator("[data-admin-account]")).toContainText("当前账户");
+  await expect(page.locator("[data-admin-context]")).toHaveText("管理");
+  await expect(page.locator("[data-admin-role]")).toBeVisible();
+  await expect(page.getByRole("link", { name: "返回员工工作台" })).toBeVisible();
+
+  await page.locator("[data-admin-nav='connectors']").click();
+  await expect(page).toHaveURL(/\/admin\/connectors$/);
+  await expect(page.locator("[data-admin-nav='connectors']")).toHaveClass(/active/);
+  await page.locator("[data-admin-connectors-table] a").first().click();
+  await expect(page).toHaveURL(/\/admin\/connectors\//);
+  await expect(page.locator("[data-admin-page='connector-detail']")).toBeVisible();
+  await expect(page.locator("[data-admin-nav='connectors']")).toHaveClass(/active/);
+
+  await page.locator("[data-admin-nav='approvals']").click();
+  await expect(page).toHaveURL(/\/admin\/approvals$/);
+  await expect(page.getByRole("heading", { name: "审批角色授权" })).toBeVisible();
+  await page.locator("[data-admin-nav='exams']").click();
+  await expect(page).toHaveURL(/\/admin\/exams$/);
+  await page.locator("[data-admin-nav='data']").click();
+  await expect(page).toHaveURL(/\/admin\/data$/);
+  await page.locator("[data-admin-nav='knowledge']").click();
+  await expect(page).toHaveURL(/\/admin\/knowledge$/);
+  await page.locator("[data-admin-nav='kol']").click();
+  await expect(page).toHaveURL(/\/admin\/kol$/);
 });
 
 test("employee connector use surface is independent of admin hub", async ({ page, request }) => {
@@ -2692,7 +2734,7 @@ test("docs/21 admin connectors hub renders", async ({ page }) => {
   await expect(page.getByRole("button", { name: /启用|停用/ })).toHaveCount(0);
   await expect(page.locator("textarea[name='bearer']")).toHaveCount(0);
   await page.goto("/admin");
-  await page.locator('[data-admin-tab="connectors"]').click();
+  await page.locator('[data-admin-nav="connectors"]').click();
   await expect(page).toHaveURL(/\/admin\/connectors$/);
   await expect(page.locator("[data-admin-page='connectors']")).toBeVisible();
   await expect(page.getByRole("heading", { name: "连接器枢纽" })).toBeVisible();
@@ -2713,7 +2755,7 @@ test("admin and settings expose bind Starry mailbox menus", async ({ page }) => 
   await expect(page.getByRole("button", { name: "读取可用邮箱" })).toBeVisible();
 
   await page.goto("/admin");
-  await expect(page.locator('[data-admin-tab="starry"]')).toHaveCount(0);
+  await expect(page.locator('[data-admin-nav="starry"], [data-admin-tab="starry"]')).toHaveCount(0);
   await expect(page.locator("[data-starry-bind]")).toHaveCount(0);
   await page.goto("/admin/starry");
   await expect(page).toHaveURL(/\/settings\?tab=starry/);
