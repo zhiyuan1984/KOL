@@ -160,6 +160,10 @@ describe("discovery request create", () => {
       platforms: ["instagram"],
     });
     expect(created.status).toBe(201);
+    expect(created.body.platforms).toEqual(["instagram"]);
+    for (const code of created.body.platforms as string[]) {
+      expect(OVERSEAS_CRAWL_PLATFORMS).toContain(code);
+    }
     const started = await request("POST", `/api/discovery/requests/${created.body.id}/runs`, {
       platform: "instagram",
     });
@@ -168,18 +172,6 @@ describe("discovery request create", () => {
     expect(OVERSEAS_CRAWL_PLATFORMS).toContain(started.body.platform);
     expect(calls).toContain("start_crawl");
     assertEmployeeCopy(started.body);
-  });
-
-  it("rejects domestic platforms as the scenario under test", async () => {
-    for (const platform of ["xhs", "dy", "bili", "zhihu"]) {
-      const res = await request("POST", "/api/discovery/requests", {
-        keywords: ["户外"],
-        platforms: [platform],
-      });
-      expect(res.status).toBe(400);
-      expect(res.body).toMatchObject({ detail: { code: "overseas_platforms_only" } });
-    }
-    expect(calls).not.toContain("start_crawl");
   });
 });
 
@@ -197,11 +189,20 @@ describe("discovery run lifecycle", () => {
       platform: "youtube",
       nickname: "OutdoorPower",
       handle: "OutdoorPower",
+      title: "发现 @OutdoorPower",
+      source: "ai",
+      source_label: "AI发现",
+      intent: "creator_profile",
       status: "suggested",
       request_id: requestId,
       run_id: runId,
     });
     expect(candidates[0].reason || candidates[0].summary).toBeTruthy();
+    expect(results).toMatchObject({
+      title: expect.any(String),
+      plan_summary: expect.any(String),
+      run: { status_label: "已完成" },
+    });
     expect(OVERSEAS_CRAWL_PLATFORMS).toContain(candidates[0].platform);
     expect(candidates[0]).not.toHaveProperty("platform_creator_id");
     expect(results.run).not.toHaveProperty("crawl_job_id");

@@ -183,6 +183,7 @@ function publicCandidate(row: Row): Json {
   const handle = String(row.handle || row.nickname || "");
   const nickname = String(row.nickname || row.handle || "");
   const reason = candidateReason(row);
+  const title = handle ? `发现 @${handle}` : "发现新达人";
   return {
     id: row.id,
     request_id: row.request_id,
@@ -193,8 +194,12 @@ function publicCandidate(row: Row): Json {
     followers: Number(row.followers || 0),
     score: Number(row.score || 0),
     avatar_url: payload.avatar_url || payload.avatar || payload.profile_image || null,
+    title,
     reason,
     summary: reason,
+    source: "ai",
+    source_label: "AI发现",
+    intent: "creator_profile",
     signals: parseJson(row.signals),
     status: row.status,
     collaboration_id: row.collaboration_id || null,
@@ -288,13 +293,15 @@ function publicRequest(row: Row): Json {
   if (latest) syncRunFromCrawl(latest);
   const current = getConn().prepare("SELECT * FROM discovery_requests WHERE id=?").get(row.id) as Row;
   const status = String(current.status);
+  const summary = planSummary(current);
   return {
     id: current.id,
     status,
     status_label: REQUEST_STATUS_LABEL[status] || status,
     keywords: parseArray(current.keywords).map(String),
     platforms: parseArray(current.platforms).map(String),
-    plan_summary: planSummary(current),
+    title: summary,
+    plan_summary: summary,
     brand: current.brand || null,
     latest_run: latest ? publicRun(latest) : null,
     error: employeeError(current.error),
@@ -321,13 +328,15 @@ export function getDiscoveryResults(id: string): Json {
       ORDER BY CASE status WHEN 'suggested' THEN 0 WHEN 'followed' THEN 1 ELSE 2 END,
                score DESC, followers DESC, created_at DESC`,
   ).all(current.id) as Row[]).map(publicCandidate);
+  const summary = planSummary(current);
   return {
     id: current.id,
     status: current.status,
     status_label: REQUEST_STATUS_LABEL[String(current.status)] || String(current.status),
     keywords: parseArray(current.keywords).map(String),
     platforms: parseArray(current.platforms).map(String),
-    plan_summary: planSummary(current),
+    title: summary,
+    plan_summary: summary,
     created_at: current.created_at,
     updated_at: current.updated_at,
     request: publicRequest(current),

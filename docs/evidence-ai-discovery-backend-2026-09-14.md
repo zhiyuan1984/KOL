@@ -17,6 +17,8 @@
 
 配套：`GET /api/discovery/requests`、`POST /api/discovery/requests/:id/runs`（确认后启动 Run）、`GET /api/discovery/runs/:id`。
 
+候选人字段与 Home 芯片重叠处对齐：`title`、`reason`、`source` / `source_label`、`handle`、`intent`，另有 `nickname`、`followers`、`score`、`avatar_url`、`summary`、`request_id`、`run_id`。默认平台 `youtube` + `instagram`。
+
 ## 不变量
 
 - 创建请求 ≠ 启动 MediaCrawler；确认/start 才走既有 `startCrawl`。
