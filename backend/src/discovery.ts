@@ -15,9 +15,29 @@ import { nid } from "./ids.js";
 import type { Json, Row } from "./types.js";
 
 const OVERSEAS = new Set<string>(OVERSEAS_CRAWL_PLATFORMS);
+const DEFAULT_PLATFORMS = ["youtube", "instagram"] as const;
 const MODES = new Set(["search", "detail", "creator"]);
 const RUN_ACTIVE = new Set(["queued", "running"]);
 const CRAWL_ACTIVE = new Set(["queued", "crawling", "uploading", "analyzing", "starting", "running", "stopping"]);
+const REQUEST_STATUS_LABEL: Record<string, string> = {
+  open: "待确认",
+  running: "采集中",
+  succeeded: "已完成",
+  failed: "失败",
+  cancelled: "已取消",
+};
+const RUN_STATUS_LABEL: Record<string, string> = {
+  queued: "排队中",
+  running: "采集中",
+  succeeded: "已完成",
+  failed: "失败",
+  cancelled: "已取消",
+};
+const PLATFORM_LABEL: Record<string, string> = {
+  youtube: "YouTube",
+  instagram: "Instagram",
+  facebook: "Facebook",
+};
 
 let hookRegistered = false;
 
@@ -39,6 +59,30 @@ function sanitize(value: unknown): string {
     .replace(/Bearer\s+[^\s"']+/gi, "Bearer ***")
     .replace(/(token|authorization)\s*[:=]\s*[^\s,;}]+/gi, "$1=***")
     .slice(0, 1000);
+}
+
+function employeeError(value: unknown): string | null {
+  if (value == null || value === "") return null;
+  const cleaned = sanitize(value)
+    .replace(/MediaCrawler|mediacrawler|RemoteMcpClient|MCP|Codex/gi, "")
+    .replace(/\b(crawl_job_id|remote_task_id|work_item_id|task_id|job[_ ]?id)\b/gi, "")
+    .replace(/\b(crawl_[a-z0-9]+|tsk_[a-z0-9]+|drun_[a-z0-9]+)\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+([,.;:])/g, "$1")
+    .trim();
+  return cleaned || "发现未完成，请稍后重试。";
+}
+
+function platformLabel(code: unknown): string {
+  const key = String(code || "").toLowerCase();
+  return PLATFORM_LABEL[key] || String(code || "");
+}
+
+function formatFollowers(value: unknown): string {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  if (n >= 10000) return `${Math.round(n / 10000)}万粉`;
+  return `${n}粉`;
 }
 
 function parseJson(value: unknown): Json {
@@ -72,16 +116,16 @@ function keywordsValue(keywords: string[]): string {
 }
 
 function validateOverseasPlatforms(platforms: string[]): string[] {
-  if (!platforms.length) throw new HttpFail(400, { code: "platforms_required", message: "至少选择一个海外平台。" });
-  const invalid = platforms.filter((code) => !OVERSEAS.has(code));
+  const list = platforms.length ? platforms : [...DEFAULT_PLATFORMS];
+  const invalid = list.filter((code) => !OVERSEAS.has(code));
   if (invalid.length) {
     throw new HttpFail(400, {
       code: "overseas_platforms_only",
-      message: "AI发现只接受海外平台：youtube / instagram / facebook。",
+      message: "AI发现只支持 YouTube、Instagram、Facebook。",
       platforms: invalid,
     });
   }
-  return [...new Set(platforms)];
+  return [...new Set(list)];
 }
 
 function validateMode(mode: string): string {
@@ -122,28 +166,42 @@ function candidateRow(id: string): Row {
   return row;
 }
 
+function candidateReason(row: Row): string {
+  const handle = String(row.handle || row.nickname || "").trim();
+  const bits = [
+    platformLabel(row.platform),
+    handle ? `@${handle}` : "",
+    formatFollowers(row.followers),
+    Number(row.score) > 0 ? `评分 ${Number(row.score)}` : "",
+    String(row.status) === "suggested" ? "待加入跟进" : "",
+  ].filter(Boolean);
+  return bits.join(" · ") || "发现候选人";
+}
+
 function publicCandidate(row: Row): Json {
+  const payload = parseJson(row.payload);
+  const handle = String(row.handle || row.nickname || "");
+  const nickname = String(row.nickname || row.handle || "");
+  const reason = candidateReason(row);
   return {
     id: row.id,
     request_id: row.request_id,
     run_id: row.run_id,
     platform: row.platform,
-    platform_creator_id: row.platform_creator_id,
-    claw_creator_id: row.claw_creator_id || null,
-    handle: row.handle || row.nickname || "",
-    nickname: row.nickname || row.handle || "",
+    handle,
+    nickname,
     followers: Number(row.followers || 0),
     score: Number(row.score || 0),
+    avatar_url: payload.avatar_url || payload.avatar || payload.profile_image || null,
+    reason,
+    summary: reason,
     signals: parseJson(row.signals),
-    payload: parseJson(row.payload),
     status: row.status,
     collaboration_id: row.collaboration_id || null,
     dismissed_at: row.dismissed_at || null,
     followed_at: row.followed_at || null,
     created_at: row.created_at,
     updated_at: row.updated_at,
-    insight: String(row.status) === "suggested",
-    contact_needed: true,
   };
 }
 
@@ -180,40 +238,41 @@ function topCandidates(requestId: string, limit = 8): Json[] {
 export function discoveryResult(requestId: string, run?: Row | null): Json {
   const counts = countsFor(requestId);
   const latest = run || latestRun(requestId);
-  const errors = [latest?.error, latest && String(latest.status) === "failed" ? "run_failed" : null]
-    .filter(Boolean)
-    .map((value) => sanitize(value));
+  const errors = [employeeError(latest?.error)].filter(Boolean);
   return {
     ...counts,
     top_candidates: topCandidates(requestId),
     errors,
     ready: counts.suggested_count > 0,
-    source: "ai",
-    pending_confirm: true,
+    pending_confirm: counts.suggested_count > 0,
   };
 }
 
 function publicRun(row: Row): Json {
   syncRunFromCrawl(row);
   const current = getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(row.id) as Row;
+  const status = String(current.status);
   return {
     id: current.id,
     request_id: current.request_id,
-    crawl_job_id: current.crawl_job_id || null,
-    work_item_id: current.work_item_id || null,
     platform: current.platform,
-    mode: current.mode,
-    parameters: parseJson(current.parameters),
-    remote_task_id: current.remote_task_id || null,
-    status: current.status,
-    error: current.error ? sanitize(current.error) : null,
+    status,
+    status_label: RUN_STATUS_LABEL[status] || status,
+    error: employeeError(current.error),
     candidate_count: Number(current.candidate_count || 0),
     created_at: current.created_at,
     started_at: current.started_at,
     updated_at: current.updated_at,
     completed_at: current.completed_at,
-    result: discoveryResult(String(current.request_id), current),
   };
+}
+
+function planSummary(row: Row): string {
+  const keywords = parseArray(row.keywords).map(String).filter(Boolean);
+  const platforms = parseArray(row.platforms).map(platformLabel).filter(Boolean);
+  const topic = keywords.length ? `「${keywords.join(" / ")}」` : "关键词";
+  const where = platforms.length ? platforms.join("、") : "海外平台";
+  return `按 ${topic} 在 ${where} 发现达人`;
 }
 
 function latestRun(requestId: string): Row | undefined {
@@ -228,21 +287,55 @@ function publicRequest(row: Row): Json {
     : latestRun(String(row.id));
   if (latest) syncRunFromCrawl(latest);
   const current = getConn().prepare("SELECT * FROM discovery_requests WHERE id=?").get(row.id) as Row;
+  const status = String(current.status);
   return {
     id: current.id,
-    owner_user_id: current.owner_user_id,
+    status,
+    status_label: REQUEST_STATUS_LABEL[status] || status,
     keywords: parseArray(current.keywords).map(String),
     platforms: parseArray(current.platforms).map(String),
-    mode: current.mode,
-    filters: parseJson(current.filters),
+    plan_summary: planSummary(current),
     brand: current.brand || null,
-    scope: parseJson(current.scope),
-    status: current.status,
-    error: current.error ? sanitize(current.error) : null,
     latest_run: latest ? publicRun(latest) : null,
-    result: discoveryResult(String(current.id), latest),
+    error: employeeError(current.error),
     created_at: current.created_at,
     updated_at: current.updated_at,
+  };
+}
+
+export function getDiscoveryResults(id: string): Json {
+  const request = requestRow(id);
+  const latest = latestRun(String(request.id));
+  if (latest) {
+    syncRunFromCrawl(latest);
+    if (latest.crawl_job_id) {
+      const job = getConn().prepare("SELECT * FROM crawl_jobs WHERE id=?").get(latest.crawl_job_id) as Row | undefined;
+      if (job && String(job.status) === "result_ready") ingestDiscoveryFromCrawlJob(job);
+    }
+  }
+  const current = getConn().prepare("SELECT * FROM discovery_requests WHERE id=?").get(request.id) as Row;
+  const run = latestRun(String(current.id));
+  const counts = countsFor(String(current.id));
+  const candidates = (getConn().prepare(
+    `SELECT * FROM creator_candidates WHERE request_id=?
+      ORDER BY CASE status WHEN 'suggested' THEN 0 WHEN 'followed' THEN 1 ELSE 2 END,
+               score DESC, followers DESC, created_at DESC`,
+  ).all(current.id) as Row[]).map(publicCandidate);
+  return {
+    id: current.id,
+    status: current.status,
+    status_label: REQUEST_STATUS_LABEL[String(current.status)] || String(current.status),
+    keywords: parseArray(current.keywords).map(String),
+    platforms: parseArray(current.platforms).map(String),
+    plan_summary: planSummary(current),
+    created_at: current.created_at,
+    updated_at: current.updated_at,
+    request: publicRequest(current),
+    run: run ? publicRun(run) : null,
+    candidates,
+    counts,
+    ready: counts.suggested_count > 0,
+    pending_confirm: String(current.status) === "open" || counts.suggested_count > 0,
   };
 }
 
@@ -499,23 +592,25 @@ export async function startDiscoveryRun(input: {
     if (String(job.status) === "result_ready") ingestDiscoveryFromCrawlJob(job as Row);
     return publicRun(run);
   } catch (error) {
-    const safe = sanitize(error instanceof Error ? error.message : error);
+    const safe = employeeError(error instanceof HttpFail ? error.detail : error) || "发现未完成，请稍后重试。";
     getConn().prepare(
       `UPDATE discovery_runs
           SET status='failed', error=?, completed_at=?, updated_at=?, data_version=data_version+1
         WHERE id=?`,
     ).run(safe, nowIso(), nowIso(), runId);
     refreshRequestStatus(String(request.id));
-    throw error instanceof HttpFail ? error : new HttpFail(502, safe);
+    if (error instanceof HttpFail && error.status === 503) {
+      throw new HttpFail(503, { code: "discovery_not_ready", message: "发现服务暂未就绪，请稍后重试。", next_action: "请确认后再启动发现。" });
+    }
+    throw new HttpFail(error instanceof HttpFail ? error.status : 502, safe);
   }
 }
 
-export async function createDiscoveryRequest(body: Json, idempotencyKey?: string): Promise<{ status: number; body: Json }> {
-  registerDiscoveryCrawlHook();
+export function createDiscoveryRequest(body: Json): Json {
   const keywords = asStringList(body.keywords ?? body.keyword);
   const mode = validateMode(String(body.mode || "search"));
   if (mode === "search" && !keywords.length) {
-    throw new HttpFail(400, { code: "keywords_required", message: "启动发现前需要补充关键词。" });
+    throw new HttpFail(400, { code: "keywords_required", message: "请先填写要发现的关键词。" });
   }
   const platforms = validateOverseasPlatforms(
     asStringList(body.platforms ?? body.platform).map((code) => code.toLowerCase()),
@@ -523,7 +618,6 @@ export async function createDiscoveryRequest(body: Json, idempotencyKey?: string
   const owner = ownerId();
   const id = nid("dreq");
   const now = nowIso();
-  const start = body.start !== false;
   tx((db) => {
     db.prepare(
       `INSERT INTO discovery_requests
@@ -543,15 +637,7 @@ export async function createDiscoveryRequest(body: Json, idempotencyKey?: string
     );
   });
   audit(owner, "discovery.request.created", { request_id: id, platforms, mode });
-  if (!start) {
-    return { status: 201, body: publicRequest(requestRow(id)) };
-  }
-  const run = await startDiscoveryRun({
-    requestId: id,
-    platform: platforms[0],
-    idempotencyKey,
-  });
-  return { status: run.duplicate ? 200 : 202, body: publicRequest(requestRow(id)) };
+  return publicRequest(requestRow(id));
 }
 
 export function listDiscoveryRequests(): Json[] {
@@ -641,10 +727,8 @@ export function followCandidate(id: string): Json {
   const candidate = candidateRow(id);
   const existing = existingCollaboration(candidate);
   const now = nowIso();
-  const user = scopedUser();
   const brand = String(
-    parseJson((getConn().prepare("SELECT scope FROM discovery_requests WHERE id=?").get(candidate.request_id) as Row | undefined)?.scope).brand
-    || (getConn().prepare("SELECT brand FROM discovery_requests WHERE id=?").get(candidate.request_id) as { brand?: string } | undefined)?.brand
+    (getConn().prepare("SELECT brand FROM discovery_requests WHERE id=?").get(candidate.request_id) as { brand?: string } | undefined)?.brand
     || "LT",
   );
   const handle = String(candidate.handle || candidate.nickname || candidate.platform_creator_id).trim();
@@ -656,8 +740,8 @@ export function followCandidate(id: string): Json {
         `INSERT INTO collaborations
          (id, handle, display_name, brand, platform, followers, email, mailbox_from,
           lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,
-          stage_version, locked, owner_name, kol_uid, source)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          stage_version, locked, kol_uid, source)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       ).run(
         cid,
         handle,
@@ -675,7 +759,6 @@ export function followCandidate(id: string): Json {
         0,
         0,
         0,
-        user?.name || DEMO_USER.name,
         uid,
         "discovery",
       );

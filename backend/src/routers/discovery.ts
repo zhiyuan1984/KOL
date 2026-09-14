@@ -6,6 +6,7 @@ import {
   followCandidate,
   getCandidate,
   getDiscoveryRequest,
+  getDiscoveryResults,
   getDiscoveryRun,
   listDiscoveryRequests,
   listRunCandidates,
@@ -17,14 +18,13 @@ import type { Json } from "../types.js";
 export const discovery = new Hono();
 
 discovery.post("/discovery/requests", async (c) => {
-  requireConnector("claw", "write");
   const body = await c.req.json().catch(() => ({})) as Json;
-  const idempotencyKey = String(c.req.header("Idempotency-Key") || body.idempotency_key || "");
-  const result = await createDiscoveryRequest(body, idempotencyKey || undefined);
-  return c.json(result.body, result.status as 200 | 201 | 202);
+  return c.json(createDiscoveryRequest(body), 201);
 });
 
 discovery.get("/discovery/requests", (c) => c.json(listDiscoveryRequests()));
+
+discovery.get("/discovery/requests/:id/results", (c) => c.json(getDiscoveryResults(c.req.param("id"))));
 
 discovery.get("/discovery/requests/:id", (c) => c.json(getDiscoveryRequest(c.req.param("id"))));
 

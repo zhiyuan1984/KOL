@@ -9,7 +9,6 @@ import { restoreOfficialCollaborationStage } from "../starrykol/library-sync.js"
 import { stageMailAction } from "./compose-loop.js";
 import { threadsForCollaboration, unreadCountForCollaboration } from "../starrykol/mail-sync.js";
 import { readFollowStyleTags } from "../follow-style-tags.js";
-import { listPendingDiscoveryCandidates } from "../discovery.js";
 
 const NICHE_LABEL: Record<string, string> = {
   beauty: "美妆",
@@ -330,33 +329,7 @@ function decorateRecommended(row: Json, index: number): Json {
   };
 }
 
-function discoveryRec(candidate: Json): Json {
-  const handle = bareHandle(candidate.handle || candidate.nickname);
-  const followers = Number(candidate.followers || 0);
-  const platform = String(candidate.platform || "");
-  const score = Number(candidate.score || 0);
-  const reasonBits = [
-    platform || "海外平台",
-    followers ? `${followers}粉` : "",
-    score ? `评分 ${score}` : "",
-    "待确认跟进，确认后才建合作",
-  ].filter(Boolean);
-  return {
-    id: `rec-disc-${candidate.id}`,
-    title: handle ? `发现 @${handle}` : "发现新达人",
-    reason: reasonBits.join(" · "),
-    source: "ai",
-    source_label: "AI发现",
-    intent: "creator_profile",
-    prompt: recPrompt("creator_profile", handle),
-    handle,
-    collaboration_id: null,
-    candidate_id: candidate.id,
-    insight: true,
-  };
-}
-
-export function buildRecommendedTasks(tasks: Json[], kols: Json[], discovery: Json[] = []): Json[] {
+export function buildRecommendedTasks(tasks: Json[], kols: Json[]): Json[] {
   const insights = tasks.filter(isInsightWorkItem).sort((a, b) => Number(highValueInsight(b)) - Number(highValueInsight(a)));
   const picked: Json[] = [];
   const seen = new Set<string>();
@@ -405,11 +378,6 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[], discovery: Js
       handle,
       collaboration_id: task.collaboration_id || kol?.id || null,
     }, handle);
-  }
-
-  for (const candidate of discovery) {
-    const handle = bareHandle(candidate.handle || candidate.nickname);
-    take(discoveryRec(candidate), handle);
   }
 
   for (const kol of kols) {
@@ -503,7 +471,7 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[], discovery: Js
   return picked.slice(0, MAX_RECOMMENDED_TASKS).map(decorateRecommended);
 }
 
-export function buildWorkbench(tasks: Json[], kols: Json[], discovery: Json[] = []): Json {
+export function buildWorkbench(tasks: Json[], kols: Json[]): Json {
   const todo = tasks.filter((task) => isTodoWorkItem(task));
   const insights = tasks.filter((task) => isInsightWorkItem(task));
   const waiting = todo.filter((task) => ["waiting", "queued"].includes(String(task.status || "")));
@@ -530,12 +498,7 @@ export function buildWorkbench(tasks: Json[], kols: Json[], discovery: Json[] = 
     },
     todo,
     insights,
-    recommendations: buildRecommendedTasks(tasks, kols, discovery),
-    discovery: {
-      pending_count: discovery.length,
-      ready: discovery.length > 0,
-      candidates: discovery,
-    },
+    recommendations: buildRecommendedTasks(tasks, kols),
     lifecycle: {
       stages,
       domains,
@@ -733,7 +696,7 @@ export function buildHomeBoard(): Json {
     kols,
     tasks: decoratedTasks,
     tabs,
-    workbench: buildWorkbench(decoratedTasks, kols, listPendingDiscoveryCandidates(owner)),
+    workbench: buildWorkbench(decoratedTasks, kols),
     stages: MAIN_STAGES.map((stage) => ({ code: stage.code, label: stage.label })),
     side_stages: SIDE_STAGES.map((stage) => ({ code: stage.code, label: stage.label })),
     creators_loaded: kols.length,
