@@ -82,6 +82,11 @@ test("home discovery persists plan and requires confirm before crawl or follow",
   await expect(page.locator('[data-discovery-filter="platform"] [data-discovery-chip="instagram"]')).toHaveCount(1);
   await expect(page.locator('[data-discovery-filter="platform"] [data-discovery-chip="facebook"]')).toHaveCount(1);
   await expect(page.locator('[data-discovery-filter="platform"] [data-discovery-chip="youtube"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('[data-discovery-filter="region"] [data-discovery-chip="all"]')).toHaveText("不限地区");
+  await expect(page.locator('[data-discovery-filter="region"] [data-discovery-chip="us"]')).toHaveText("美国");
+  await expect(page.locator('[data-discovery-filter="region"] [data-discovery-chip="ca"]')).toHaveText("加拿大");
+  await expect(page.locator('[data-discovery-filter="region"] [data-discovery-chip="eu"]')).toHaveText("欧洲");
+  await expect(page.locator('[data-discovery-filter="region"] [data-discovery-chip="au"]')).toHaveText("澳洲");
   await page.locator("[data-discovery-query]").fill("找北美户外电源评测达人");
   await page.locator('[data-discovery-filter="platform"] [data-discovery-chip="youtube"]').click();
   await page.locator('[data-discovery-filter="region"] [data-discovery-chip="us"]').click();
@@ -110,6 +115,7 @@ test("home discovery persists plan and requires confirm before crawl or follow",
     latest_run?: unknown;
     keywords?: string[];
     platforms?: string[];
+    filters?: { region?: string; directions?: string[]; niche?: unknown };
   };
   expect(body.status).toBe("open");
   expect(body.status_label).toBe("待确认");
@@ -117,6 +123,9 @@ test("home discovery persists plan and requires confirm before crawl or follow",
   expect(body.platforms).toEqual(["youtube"]);
   expect(createdBodies[0]?.platforms).toEqual(["youtube"]);
   expect(createdBodies[0]?.filters).toEqual({ region: "us", directions: ["户外电源"] });
+  expect(createdBodies[0]?.filters).not.toHaveProperty("niche");
+  expect(body.filters).toEqual({ region: "us", directions: ["户外电源"] });
+  expect(body.filters).not.toHaveProperty("niche");
   expect(JSON.stringify(body)).not.toMatch(/MCP|Codex|MediaCrawler|Harness|crawl_job/i);
 
   const results = await request.get(`/api/discovery/requests/${requestId}/results`);

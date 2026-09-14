@@ -124,7 +124,10 @@ export type DiscoveryFollowResult = CreatorCandidate & {
 
 export const OVERSEAS_DISCOVERY_PLATFORMS: DiscoveryPlatform[] = ["youtube", "instagram", "facebook"];
 
-export const DISCOVERY_REGION_OPTIONS: Array<{ value: DiscoveryRegion; label: string }> = [
+export const CHIP_REGION_CODES = ["all", "us", "ca", "eu", "au"] as const;
+export type ChipRegion = (typeof CHIP_REGION_CODES)[number];
+
+export const DISCOVERY_REGION_OPTIONS: Array<{ value: ChipRegion; label: string }> = [
   { value: "all", label: "不限地区" },
   { value: "us", label: "美国" },
   { value: "ca", label: "加拿大" },
@@ -275,7 +278,19 @@ export function asFilters(value: unknown): DiscoveryFilters {
   const niche = String(item.niche || "").trim();
   return {
     region: String(item.region || DEFAULT_DISCOVERY_FILTERS.region),
-    directions: directions.length ? directions : (niche ? [niche] : []),
+    directions: addDirections([], directions.length ? directions : (niche ? [niche] : [])).directions,
+  };
+}
+
+/** POST body for Host #69: only `{ region, directions }`, never `niche`. */
+export function requestFilters(input?: DiscoveryFilters): DiscoveryFilters {
+  const parsed = asFilters(input);
+  const region = CHIP_REGION_CODES.includes(parsed.region as ChipRegion)
+    ? parsed.region
+    : parsed.region || "all";
+  return {
+    region,
+    directions: parsed.directions.slice(0, MAX_DIRECTIONS),
   };
 }
 
@@ -320,7 +335,7 @@ export function addDirections(current: string[], incoming: Iterable<string>): {
   for (const raw of incoming) {
     const name = String(raw || "").trim();
     if (!name || name.length > MAX_DIRECTION_CHARS) continue;
-    if (next.some((item) => item === name)) continue;
+    if (next.some((item) => item.toLowerCase() === name.toLowerCase())) continue;
     if (next.length >= MAX_DIRECTIONS) break;
     next.push(name);
   }
@@ -361,7 +376,7 @@ export async function createDiscoveryRequest(input: DiscoveryRequestInput): Prom
     keywords: input.keywords,
     platforms: input.platforms,
     mode: input.mode || "search",
-    filters: input.filters || {},
+    filters: requestFilters(input.filters),
     brand: input.brand,
     scope: input.scope,
     start: false,
