@@ -127,6 +127,25 @@ describe("GET /api/experts", () => {
   });
 });
 
+describe("ADR-016 employee expert surface", () => {
+  it("does not expose 专家团 or engine catalog APIs", async () => {
+    for (const url of [
+      "/api/expert-teams",
+      "/api/experts/teams",
+      "/api/experts/expert:kol/members",
+      "/api/experts/expert:kol/team",
+      "/api/experts/expert:kol/squad",
+    ]) {
+      const res = await request("GET", url);
+      expect(res.status, url).toBe(404);
+    }
+    const body = await (await request("GET", "/api/experts/expert:kol")).json() as Json;
+    for (const leaked of ["harness", "mcp", "mcp_servers", "profiles", "profileIds", "connectors", "skill_catalog", "teams", "members", "codex"]) {
+      expect(body).not.toHaveProperty(leaked);
+    }
+  });
+});
+
 describe("GET /api/experts/:id", () => {
   it("returns the locked projection and 404s unknown or unpublished", async () => {
     const found = await request("GET", "/api/experts/expert:kol");

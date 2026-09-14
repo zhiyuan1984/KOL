@@ -1,40 +1,33 @@
-# Expert / 数字员工 首版后端（2026-09-14）
+# 首版 `/api/experts` 落实 ADR-016（2026-09-14）
 
-对照 kol / 产品首版字段锁定。本文件记录命名、资产位置和召唤边界。不宣称 LIVE，不重定义 `19` 并列能力面。
+立法：PR #53 / **ADR-016**（已入 `main`）：员工 `/agents`（专家中心 / 数字员工入口）只回答「找谁协作 / 召唤岗位专家」。本文件是该法律的第一版后端落地记录。不宣称 LIVE，不重定义 `19` 并列能力面（ADR-015）。
+
+## 服从 ADR-016
+
+| 法律 | 本后端 |
+|---|---|
+| 只列出已发布、可供召唤的岗位专家 | `GET /api/experts` 仅 `status=published` |
+| 无专家团 | 无 list / members / placeholder 端点 |
+| 召唤 = 绑定会话，≠ 发信 / 改阶段 | `POST /api/experts/:id/summon` 只写 `expert_id` + `expert_version` |
+| 员工默认不见 Profile / Harness / MCP / Codex / Skill catalog / 连接器状态 | 专家 API 不投影这些字段；`/profiles` `/skills` `/connectors` `/api/agent-manifest` 不是专家中心 API |
+| `/admin/agents` 是治理 | 本 PR 不改管理端 |
+| 并列能力面仍解耦 | 不拥有知识库 / 审批 / 考试 / 连接器使用面 |
 
 ## 命名
 
 | 名称 | 角色 |
 |---|---|
-| 数字员工 | 员工端文案 / 侧栏用词 |
+| 数字员工 / 岗位专家 | 员工端文案（ADR-016） |
 | DigitalEmployee | `docs/02` 领域对象 |
 | Expert / ExpertManifest / `expert:kol` | 本版机器可读资产与 **API** 命名 |
-| Agent / `agent:kol` | 内部发布包。`GET /api/agent-manifest` 不变；员工专家页不得用 `/profiles` + `/skills` + `/connectors` 拼装 |
+| Agent / `agent:kol` | 内部发布包。`GET /api/agent-manifest` 不变 |
 
-## 资产位置
+## 锁定字段（`expert:kol` / `KOL 合作专员`）
 
-`experts/kol/manifest.yaml`，与 Agent 包分离。
+`id` / `version` / `status` / `display_name` / `profession` / `description` / `avatar` / `category` / `tags` / `mission` / `quick_prompts` / `entry_skill`
 
-## 已发布对象
+## 召唤响应
 
-仅 `expert:kol`，`status: published`，`display_name: KOL 合作专员`。
-
-锁定字段：`id` / `version` / `status` / `display_name` / `profession` / `description` / `avatar` / `category` / `tags` / `mission` / `quick_prompts` / `entry_skill`。
-
-本阶段明确不做：组织/部门/品牌授权、审批模型、专家团队成员。
-
-## API
-
-| 方法 | 行为 |
-|---|---|
-| `GET /api/experts` | **只**返回 `status=published`；未认证走现有 401 |
-| `GET /api/experts/:id` | 锁定字段投影；未知或未发布 → 404 |
-| `POST /api/experts/:id/summon` | 响应恰好 `{ session_id, expert_id, expert_version, intro }`；会话持久化 `expert_id` + `expert_version` |
-
-`intro` 是给人看的中文说明。召唤不发信、不改阶段、不自动做高风险动作、不 LIVE。
-
-## 与 `19` 并列能力面
-
-本 API 让员工召唤已发布专家。页面路由可由 UI 决定（`/agents` 或 `/experts`）。不把专家升格为第五套 Home。
+恰好 `{ session_id, expert_id, expert_version, intro }`。`intro` 是给人看的中文说明。
 
 ## 请评审链到 agent **kol**

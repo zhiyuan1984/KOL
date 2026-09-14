@@ -15,7 +15,7 @@
 | Skill frontmatter/catalog | `backend/skills/*/SKILL.md`、`backend/src/tasks/registry.ts` | 有 Skill 体系，但缺少 Agent manifest、组织/品牌 scope 和统一 Policy manifest |
 | KOL 业务资料 | `data/kol/*.md`、`backend/scripts/validate-kol-data.mjs`、`agents/kol/manifest.yaml` | 已建立 canonical Markdown 入口、试点 manifest 和安培时代试点组织/PEP registry；尚未接入全平台 Agent registry |
 | 契约编译器 | `config/*.yaml`、`agents/kol/manifest.yaml`、`experts/kol/manifest.yaml`、`workflows/*.yaml`、`policies/*.yaml`、`schemas/*.json`、`evals/kol/core.jsonl`、`backend/scripts/validate-contracts.mjs` | 试点契约可解析；安培时代组织绑定已确认；仍未完成全平台 Agent registry |
-| DigitalEmployee / Expert | `experts/kol/manifest.yaml`、`GET/POST /api/experts` | 首版名册 + 召唤绑定会话；字段锁定 `display_name` / `quick_prompts` / `entry_skill` 等；组织授权与审批模型不做 |
+| DigitalEmployee / Expert | `experts/kol/manifest.yaml`、`GET/POST /api/experts` | 落实 ADR-016：已发布岗位专家名册 + 召唤绑定会话；无专家团 API；组织授权与审批模型不做 |
 | Codex app-server 路径 | `backend/src/worker/runner.ts` | 生产默认走 Codex，但仍保留 `runStub` 和 `compose_preview_only` 分支，需要环境门禁和验收隔离 |
 | 员工端/管理端 | `frontend/src/pages`、`backend/src/routers/enterprise.ts` | 页面和权限雏形存在；安培时代公司、组织树和部门负责人已确认，成员级身份/授权的长期同步仍待接入 |
 | L1/L2/L3、邮件和阶段 | `backend/src/host`、`backend/tests` | 部分规则有测试，但硬编码仍分散在 Host、前端和任务解析器 |

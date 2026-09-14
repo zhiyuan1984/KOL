@@ -23,9 +23,9 @@
 17. `16-production-test-plan.md`：功能、红线、真实链路和发布门禁测试
 18. `17-code-conformance-scan.md`：前后端代码违宪扫描报告
 19. `18-mcp-master-data-assessment.md`：MCP 主数据能力与组织主数据边界
-20. `19-ui-ux-constitution.md`：员工端体验宪法（核心闭环、四页分工、员工侧栏 IA、并列能力面与 Agent/任务解耦、Agent 表面、结果优先）
+20. `19-ui-ux-constitution.md`：员工端体验宪法（核心闭环、四页分工、员工侧栏 IA、并列能力面与 Agent/任务解耦、`/agents` 专家中心=召唤岗位专家、Agent 表面、结果优先）
 21. `20-visual-design-system.md`：KOL-UI 工作台视觉/token 默认（Linear 密度、shadcn 基底、indigo 主色）
-22. `21-admin-employee-page-roles.md`：管理端 ↔ 员工端页面角色（连接器治理枢纽/详情 vs 员工使用面、`/admin/agents` 治理、导航与遗留收敛；并列能力面独立于 Agent/任务队列见 `19`；不改 `19` 四页法律）
+22. `21-admin-employee-page-roles.md`：管理端 ↔ 员工端页面角色（连接器治理枢纽/详情 vs 员工使用面、`/admin/agents` 治理 ≠ 员工专家中心、导航与遗留收敛；并列能力面独立于 Agent/任务队列见 `19`；不改 `19` 四页法律）
 23. `90-codebase-handbook.md`：代码地图和修改归属
 
 ## 事实来源
@@ -41,7 +41,7 @@
 
 - `SPEC-TEMPLATE.md`：功能规格模板。
 - `EVAL-TEMPLATE.md`：Agent 评价样例模板。
-- `DECISIONS.md`：跨文档架构决策记录。
+- `DECISIONS.md`：跨文档架构决策记录（近期：ADR-015 并列能力面；ADR-016 专家中心 = 召唤岗位专家）。
 
 历史重复规范已删除；追溯使用 Git 历史。业务规则只在功能规格/Skill/Workflow/Policy 的 canonical 位置维护；物理接口只在物理资料维护；平台硬规则只在 Host/内核契约维护。任何冲突必须写决策记录并更新追踪矩阵。
 
@@ -61,4 +61,4 @@
 - `evidence-e2e-stub-pipeline-pr24-2026-09-13.md`：PR #24 Pipeline 生命周期清理后 stub E2E 3/3 PASS（`cd6ab81c9194a9ed3cc00aa9d0dbf648c3ba634b`；非 LIVE）。
 - `evidence-mail-digest-analysis-plan-2026-09-13.md`：邮件往来摘要 sticky fail / 可观测性只读审查；产品只批准冷却恢复与失败字段。后续小修：Codex digest 不传 `gpt-5.6-luna`；Luna digest 需要 `OPENAI_BASE_URL`。
 - `evidence-followed-kol-card-acceptance-2026-09-13.md`：首页「我跟进的红人」卡——改版前 FAIL 基线；PR #31 已在 Home 落地工作卡；residual 补齐 mailbox / 状态带 / 首页标签 / Journey copy。契约见 `../specs/UX-FOLLOWED-KOL-CARD.md`。未写入 `ux-traceability.json` 前仍不能当体验验收通过。
-- `evidence-expert-manifest-2026-09-14.md`：ExpertManifest / `expert:kol` 首版后端；员工字段锁定；召唤响应 `{ session_id, expert_id, expert_version, intro }`。
+- `evidence-expert-manifest-2026-09-14.md`：首版 `/api/experts` 落实 ADR-016；仅已发布岗位专家；召唤只绑定会话。
