@@ -44,18 +44,24 @@ function moneyPhrase(payload: Json): string {
   return `${currency} ${n(amount)}`;
 }
 
+function rejectClause(actor: string, reason?: string): string {
+  const why = String(reason || "").trim();
+  return why ? `${actor} 已驳回：${why}` : `${actor} 已驳回`;
+}
+
 function expenseNotice(
   payload: Json,
   phase: "ask" | "advance" | "reject" | "done",
   actor: string,
   previous?: string,
+  reason?: string,
 ): string {
   const requester = String(payload.requester_name || "申请人");
   const money = moneyPhrase(payload);
   const subject = money ? `${requester} 申请的 ${money} 费用审批` : `${requester} 的费用审批`;
   if (phase === "ask") return `请 ${actor} 确认：${subject}。`;
   if (phase === "advance") return `${previous} 已同意。请 ${actor} 确认：${subject}。`;
-  if (phase === "reject") return `${actor} 已驳回，${subject}已作废。`;
+  if (phase === "reject") return `${rejectClause(actor, reason)}，${subject}已作废。`;
   return `${actor} 已同意，${subject}已办结。`;
 }
 
@@ -64,13 +70,14 @@ function stageNotice(
   phase: "ask" | "advance" | "reject" | "done",
   actor: string,
   previous?: string,
+  reason?: string,
 ): string {
   const current = String(payload.stage_label || payload.current_stage || "当前阶段");
   const target = String(payload.target_label || payload.stage_code || "目标阶段");
   const subject = `确认阶段：从 ${current} 进入 ${target}`;
   if (phase === "ask") return `请 ${actor} ${subject}。`;
   if (phase === "advance") return `${previous} 已同意。请 ${actor} ${subject}。`;
-  if (phase === "reject") return `${actor} 已驳回，${subject}已作废。`;
+  if (phase === "reject") return `${rejectClause(actor, reason)}，${subject}已作废。`;
   return `${actor} 已同意，${subject}已办结。`;
 }
 
@@ -80,9 +87,10 @@ function approvalNotice(
   phase: "ask" | "advance" | "reject" | "done",
   actor: string,
   previous?: string,
+  reason?: string,
 ): string {
-  if (kind === "expense") return expenseNotice(payload, phase, actor, previous);
-  return stageNotice(payload, phase, actor, previous);
+  if (kind === "expense") return expenseNotice(payload, phase, actor, previous, reason);
+  return stageNotice(payload, phase, actor, previous, reason);
 }
 
 function actorOf(id: string, payload: Json = {}): { id: string; name: string; role: string } {
@@ -216,7 +224,12 @@ export function listWecomCards(): Row[] {
   }));
 }
 
-export async function decide(aid: string, decision: string, actorRole?: string | null): Promise<Json> {
+export async function decide(
+  aid: string,
+  decision: string,
+  actorRole?: string | null,
+  reason?: string | null,
+): Promise<Json> {
   const ap = getApproval(aid);
   if (!ap) throw new KeyError(aid);
   if (ap.status !== "pending") throw new Error(`approval status ${ap.status}`);
@@ -229,16 +242,29 @@ export async function decide(aid: string, decision: string, actorRole?: string |
   }
   const now = nowIso();
   if (decision === "reject") {
+    const rejectReason = String(reason || "").trim();
+    if (!rejectReason) {
+      throw new Error("reject_reason_required");
+    }
+    const actorName = actorOf(expected, ap.payload as Json).name;
+    const nextPayload = {
+      ...(ap.payload as Json),
+      reject_reason: rejectReason,
+      rejected_by: actorName,
+    };
     tx((c) => {
-      c.prepare("UPDATE approvals SET status = 'rejected' WHERE id = ?").run(aid);
+      c.prepare("UPDATE approvals SET status = 'rejected', payload = ? WHERE id = ?").run(
+        JSON.stringify(nextPayload),
+        aid,
+      );
       c.prepare("UPDATE wecom_cards SET status = 'rejected', body = ? WHERE approval_id = ?").run(
-        approvalNotice(kind, ap.payload as Json, "reject", actorOf(expected, ap.payload as Json).name),
+        approvalNotice(kind, nextPayload, "reject", actorName, undefined, rejectReason),
         aid,
       );
       if (ap.draft_id) c.prepare("UPDATE drafts SET status = 'discarded' WHERE id = ?").run(ap.draft_id);
     });
-    audit("gateway", "approval.reject", { approval_id: aid, kind });
-    return { ...getApproval(aid), sent: false, discarded: true, stage_changed: false };
+    audit("gateway", "approval.reject", { approval_id: aid, kind, reason: rejectReason });
+    return { ...getApproval(aid), sent: false, discarded: true, stage_changed: false, reject_reason: rejectReason };
   }
   if (decision !== "approve") throw new Error("decision must be approve or reject");
 

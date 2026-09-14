@@ -116,6 +116,8 @@ const ERROR_TITLES: Record<string, string> = {
   org_level_missing: "组织层级不足，无法算出审批人",
   unsupported_kind: "本页只能发起费用审批",
   empty_approval_chain: "规则没有算出可执行的审批链",
+  reject_reason_required: "驳回必须填写原因",
+  approval_role_required: "这一步不由你确认",
 };
 
 const USER_STATUS: Record<string, string> = {

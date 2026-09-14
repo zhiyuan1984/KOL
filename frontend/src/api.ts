@@ -853,12 +853,15 @@ export const api = {
       chain_detail?: { name: string; role: string }[];
       payload?: Record<string, unknown>;
     }>("/api/approvals", { method: "POST", body: JSON.stringify(body) }),
-  decide: (id: string, decision: string, actor?: string) =>
-    fetch(`/api/approvals/${id}/decide`, {
+  decide: (id: string, decision: string, actor?: string, reason?: string) =>
+    request<Record<string, unknown>>(`/api/approvals/${encodeURIComponent(id)}/decide`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ decision, actor }),
-    }).then((r) => r.json()),
+      body: JSON.stringify({
+        decision,
+        ...(actor ? { actor } : {}),
+        ...(reason ? { reason } : {}),
+      }),
+    }),
   skills: () => fetch("/api/skills").then((r) => r.json()),
   skill: (id: string) => fetch(`/api/skills/${encodeURIComponent(id)}`).then((r) => r.json()),
   saveSkillSop: async (id: string, body: { summary: string; body: string }) => {
