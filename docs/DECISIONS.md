@@ -373,7 +373,7 @@ ADR-018 已锁定新「AI发现」= CreatorCandidate 线索，不是任务推荐
 
 ### 决定
 
-1. **定位。** 员工 `/kb` 只回答：**查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务**。仍是 ADR-015 并列能力面 / 可选 chrome，**不是**第五套 Home。禁止员工 KB 出现 Codex / Harness / MCP / Thread / Skill 等引擎行话（`UX-COPY-ENGINE`）。禁止在 KB 首页 / 页头 / chrome 宣讲「发送 ≠ 改阶段」——该不变量仍有效，住处在 `19` §4 与 `UX-SEND-NE-STAGE`，KB 不是布道页。邮件模板是**一类资料**，不是整库。
+1. **定位。** 员工 `/kb` 只回答：**查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务**。仍是 ADR-015 并列能力面 / 可选 chrome，**不是**第五套 Home。禁止员工 KB 出现 Codex / Harness / MCP / Thread / Skill 等引擎行话（`UX-COPY-ENGINE`）。禁止在 KB 首页 / 页头 / chrome 宣讲「发送 ≠ 改阶段」——该不变量仍有效，住在 `19` §4 与 `UX-SEND-NE-STAGE`，KB 不是布道页。邮件模板是**一类资料**，不是整库。
 
 2. **员工 IA（Tab / 筛选，顺序锁定）：**
 
