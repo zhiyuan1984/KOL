@@ -14,6 +14,7 @@
 | 2026-09-14 | 专家中心 = 召唤岗位专家：员工 `/agents` 只找谁协作；无专家团；无员工默认 Skill/MCP/Profile/Harness；召唤 ≠ 发送/阶段；Home 独占任务；能力面仍解耦 | 见 ADR-016、`19-ui-ux-constitution.md`、`21-admin-employee-page-roles.md`。 |
 | 2026-09-14 | 首版 `/api/experts` 落实 ADR-016：仅已发布岗位专家 `expert:kol`；召唤只绑定会话，不发信不写阶段；无专家团 API | 见 ADR-017、`docs/evidence-expert-manifest-2026-09-14.md`。 |
 | 2026-09-14 | Home AI发现后端：DiscoveryRequest / Run / CreatorCandidate；海外 MediaCrawler 异步采集；confirm-follow 才建 Collaboration | 见 `docs/19-ui-ux-constitution.md`、`docs/evidence-ai-discovery-backend-2026-09-14.md`。 |
+| 2026-09-14 | Home AI发现条件区：平台/地区单选芯片；方向多选最多 8；NL 主输入、芯片纠正且生成计划以芯片为准；重置不清空 NL；无 TikTok、无「全部平台」 | 轻备注，服从 ADR-018。见 ADR-019、`19-ui-ux-constitution.md`。 |
 
 ## 已固化决策
 
@@ -37,6 +38,7 @@
 | ADR-016 | 员工 `/agents` 专家中心只召唤已发布岗位专家；无专家团；员工默认禁止 Skill/MCP/Profile/Harness/连接器状态主 IA；召唤只建绑定、不发信不写阶段；Home 独占任务；并列能力面仍解耦（ADR-015） | `19-ui-ux-constitution.md`、`21-admin-employee-page-roles.md` |
 | ADR-017 | 首版 `ExpertManifest` + `/api/experts` 落实 ADR-016：仅 `expert:kol` 已发布；召唤持久化 `expert_id`/`expert_version`；无专家团 API | `02-domain-model.md`、`14-implementation-contract.md`、`experts/kol/manifest.yaml` |
 | ADR-018 | Home **内**四模式：今日任务 / 我的待办 / AI发现 / 我跟进的红人；旧「AI发现」改名为今日任务；新「AI发现」= CreatorCandidate；加入跟进才建 Collaboration；不是第五页 | `19-ui-ux-constitution.md`、`04-ux-ui-system.md`、`21-admin-employee-page-roles.md` |
+| ADR-019 | Home AI发现条件区：平台/地区单选芯片；方向多选最多 8；NL 主输入、芯片纠正、计划跟芯片；重置不清空 NL；无 TikTok、无「全部平台」。服从 ADR-018 | `19-ui-ux-constitution.md` |
 
 ## 新增 Agent 分级
 
@@ -295,3 +297,34 @@ ADR-016（#53）立法：员工专家中心只召唤已发布岗位专家；召�
 - 规范：`19-ui-ux-constitution.md` Home 行与四模式条款、`04-ux-ui-system.md` / `21-admin-employee-page-roles.md` 短指针、`docs/README.md` 索引
 - 代码：本 ADR 不改 JSX / API
 - 测试：文档评审 only；无新发布门禁项，直到另有 FS / UX ID 绑定
+- 条件区细则见 ADR-019（2026-09-14 轻备注），不改本记录四模式
+
+## ADR-019 — Home AI发现条件区（2026-09-14）
+
+**状态**：已固化（轻备注；服从 ADR-018）  
+**决策人**：产品负责人
+
+### 问题与背景
+
+ADR-018 已锁定新「AI发现」= CreatorCandidate 线索，不是任务推荐。条件区若做成多选平台、「全部平台」或 TikTok，或让自然语言盖过芯片，生成的计划会超出可采集范围。
+
+### 决定
+
+只补条件区规则，不改四模式：
+
+1. **平台 / 地区：单选芯片。** 平台只展示已支持海外组合（YouTube / Instagram / Facebook）。**禁止 TikTok**，**禁止「全部平台」**。
+2. **方向：多选标签，最多 8 个。**
+3. **自然语言是主输入，芯片是纠正。** 生成计划以芯片为准（芯片覆盖 NL 里冲突的平台 / 地区 / 方向）。
+4. **重置条件芯片不清空 NL。**
+
+仍服从 ADR-018：Home 内四模式不变；发送 ≠ 改阶段；加入跟进才建 Collaboration；不 LIVE；无引擎行话。
+
+### 不决定的范围
+
+不实施前端 / 后端 / CSS / e2e。不新增 UX ID。不发明 TikTok 或「全部平台」支持。不削弱 ADR-018 四模式、四页法律、发送 ≠ 改阶段、Collaboration-on-follow-only。
+
+### 影响
+
+- 规范：`19-ui-ux-constitution.md`「AI发现条件区」
+- 代码：本备注不改 JSX / API
+- 测试：文档评审 only；后续 FE PR 以本记录 + `19` 条件区表为对照

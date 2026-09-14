@@ -41,7 +41,7 @@
 
 - `SPEC-TEMPLATE.md`：功能规格模板。
 - `EVAL-TEMPLATE.md`：Agent 评价样例模板。
-- `DECISIONS.md`：跨文档架构决策记录（近期：ADR-015 并列能力面；ADR-016 专家中心 = 召唤岗位专家；ADR-018 Home 内四模式）。
+- `DECISIONS.md`：跨文档架构决策记录（近期：ADR-015 并列能力面；ADR-016 专家中心 = 召唤岗位专家；ADR-018 Home 内四模式；ADR-019 AI发现条件区）。
 
 历史重复规范已删除；追溯使用 Git 历史。业务规则只在功能规格/Skill/Workflow/Policy 的 canonical 位置维护；物理接口只在物理资料维护；平台硬规则只在 Host/内核契约维护。任何冲突必须写决策记录并更新追踪矩阵。
 
