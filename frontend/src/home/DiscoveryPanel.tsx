@@ -45,6 +45,7 @@ export default function DiscoveryPanel() {
   const regionTouched = useRef(false);
   const addWrapRef = useRef<HTMLDivElement>(null);
   const addInputRef = useRef<HTMLInputElement>(null);
+  const errorRef = useRef<HTMLElement>(null);
   const [phase, setPhase] = useState<DiscoveryPhase>("idle");
   const [request, setRequest] = useState<DiscoveryRequest | null>(null);
   const [candidates, setCandidates] = useState<CreatorCandidate[]>([]);
@@ -71,6 +72,11 @@ export default function DiscoveryPanel() {
   }, [phase, visible.length]);
 
   const atDirectionMax = filters.directions.length >= MAX_DIRECTIONS;
+
+  useEffect(() => {
+    if (phase !== "error") return;
+    errorRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [phase, error?.kind]);
 
   useEffect(() => {
     if (!addOpen) return;
@@ -434,6 +440,7 @@ export default function DiscoveryPanel() {
 
       {phase === "error" ? (
         <section
+          ref={errorRef}
           className="task-empty discovery-error"
           data-discovery-error
           data-discovery-error-kind={error?.kind || "generic"}
