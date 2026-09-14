@@ -22,6 +22,20 @@ import {
   persistableEmployeeError,
 } from "./discovery-errors.js";
 import { emptyDiscoveryHint, expandOverseasSearchKeywords } from "./discovery-keywords.js";
+import {
+  avgViews10,
+  buildCrawlerImportFile,
+  creatorExternalId,
+  isPlaceholderKolUid,
+  isRealKolUid,
+  mapCandidateToCrawlerRow,
+  parseFollowThresholds,
+  planRegionOf,
+  recheckFollowFilters,
+  shouldWarnMissingCandidateRegion,
+  sourceBatchFor,
+} from "./discovery-import.js";
+import { importKolProfilesFromCrawlerConfirmed } from "./gateway/import-creator.js";
 import { HttpFail } from "./host/errors.js";
 import { nid } from "./ids.js";
 import type { Json, Row } from "./types.js";
@@ -307,6 +321,7 @@ function publicCandidate(row: Row): Json {
     handle,
     nickname,
     followers: Number(row.followers || 0),
+    avg_views_10: avgViews10(row),
     score: Number(row.score || 0),
     avatar_url: payload.avatar_url || payload.avatar || payload.profile_image || null,
     title,
@@ -855,50 +870,157 @@ export function getCandidate(id: string): Json {
   return publicCandidate(candidateRow(id));
 }
 
-function existingCollaboration(candidate: Row): Row | undefined {
+/**
+ * Link an existing Collaboration to this candidate.
+ * Prefer real kol_uid, then platform + platform_creator_id / candidate.collaboration_id.
+ * Bare handle/display_name is only for leftover source=discovery + disc_* rows of THIS creator.
+ * Never attach a real Starry kolUid onto an unrelated Starry-sourced collab via handle.
+ */
+function existingCollaboration(candidate: Row, kolUid?: string): Row | undefined {
   if (candidate.collaboration_id) {
     const byId = getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(candidate.collaboration_id) as
       | Row
       | undefined;
     if (byId) return byId;
   }
-  const handle = String(candidate.handle || candidate.nickname || "").trim();
-  const uid = discoveryKolUid(candidate);
-  const byUid = getConn().prepare("SELECT * FROM collaborations WHERE kol_uid=?").get(uid) as Row | undefined;
-  if (byUid) return byUid;
-  if (!handle) return undefined;
-  return getConn().prepare(
-    "SELECT * FROM collaborations WHERE handle=? OR display_name=?",
-  ).get(handle, handle) as Row | undefined;
+  if (kolUid && isRealKolUid(kolUid)) {
+    const byReal = getConn().prepare("SELECT * FROM collaborations WHERE kol_uid=?").get(kolUid) as Row | undefined;
+    if (byReal) return byReal;
+  }
+  const sibling = getConn().prepare(
+    `SELECT c.* FROM creator_candidates cand
+       JOIN collaborations c ON c.id = cand.collaboration_id
+      WHERE cand.platform=? AND cand.platform_creator_id=? AND cand.status='followed'
+        AND cand.collaboration_id IS NOT NULL
+      ORDER BY cand.followed_at DESC LIMIT 1`,
+  ).get(candidate.platform, candidate.platform_creator_id) as Row | undefined;
+  if (sibling) return sibling;
+  return leftoverDiscoveryPlaceholderByHandle(candidate);
 }
 
-function discoveryKolUid(candidate: Row): string {
+function leftoverDiscoveryPlaceholderByHandle(candidate: Row): Row | undefined {
+  const handle = String(candidate.handle || candidate.nickname || "").trim();
+  if (!handle) return undefined;
+  const expected = discoveryPlaceholderKolUid(candidate);
+  const rows = getConn().prepare(
+    `SELECT * FROM collaborations
+      WHERE (handle=? OR display_name=?) AND source='discovery'`,
+  ).all(handle, handle) as Row[];
+  return rows.find((row) => isPlaceholderKolUid(row.kol_uid) && String(row.kol_uid) === expected);
+}
+
+/** Residual local placeholder from pre-ADR-022 follow. Success path must not keep this. */
+export function discoveryPlaceholderKolUid(candidate: Row): string {
   return `disc_${candidate.platform}_${String(candidate.platform_creator_id).replace(/[^A-Za-z0-9._-]/g, "_")}`.slice(0, 80);
 }
 
-/**
- * Employee confirm-follow. The only discovery path that may create/link a Collaboration.
- * Does not send mail and does not write/advance official stage.
- */
-export function followCandidate(id: string): Json {
-  const candidate = candidateRow(id);
-  const existing = existingCollaboration(candidate);
+function followResult(candidateId: string, collaborationId: string, created: boolean): Json {
+  const collaboration = getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(collaborationId) as Row;
+  return {
+    ...publicCandidate(getConn().prepare("SELECT * FROM creator_candidates WHERE id=?").get(candidateId) as Row),
+    collaboration: {
+      id: collaboration.id,
+      handle: collaboration.handle,
+      display_name: collaboration.display_name,
+      platform: collaboration.platform,
+      brand: collaboration.brand,
+      stage_code: collaboration.stage_code,
+      kol_uid: collaboration.kol_uid,
+      source: collaboration.source,
+    },
+    created,
+  };
+}
+
+function markCandidateFollowed(candidateId: string, collaborationId: string): void {
   const now = nowIso();
-  const brand = String(
-    (getConn().prepare("SELECT brand FROM discovery_requests WHERE id=?").get(candidate.request_id) as { brand?: string } | undefined)?.brand
-    || "LT",
+  getConn().prepare(
+    `UPDATE creator_candidates
+        SET status='followed', collaboration_id=?, followed_at=COALESCE(followed_at, ?),
+            dismissed_at=NULL, updated_at=?
+      WHERE id=?`,
+  ).run(collaborationId, now, now, candidateId);
+}
+
+/**
+ * Employee confirm-follow (ADR-022 P0). One L3 confirm → Host import_creator
+ * → backfill real kolUid → then mark followed + Collaboration.
+ * Does not send mail, decrypt contact, or write/advance official stage.
+ */
+export async function followCandidate(id: string, input: Json = {}): Promise<Json> {
+  const candidate = candidateRow(id);
+  const request = getConn().prepare("SELECT * FROM discovery_requests WHERE id=?").get(candidate.request_id) as
+    | Row
+    | undefined;
+  recheckFollowFilters(candidate, request, parseFollowThresholds(input.thresholds ?? input.filters));
+  if (shouldWarnMissingCandidateRegion(candidate, request)) {
+    audit(ownerId(), "discovery.candidate.region_unverified", {
+      candidate_id: candidate.id,
+      request_id: candidate.request_id,
+      plan_region: planRegionOf(request),
+      candidate_region: "",
+    });
+  }
+  const sourceBatch = sourceBatchFor(candidate, input.source_batch);
+  const externalId = creatorExternalId(candidate.platform, candidate.platform_creator_id);
+  const existing = existingCollaboration(candidate);
+  if (existing && isRealKolUid(existing.kol_uid) && String(candidate.status) === "followed") {
+    markCandidateFollowed(String(candidate.id), String(existing.id));
+    audit(ownerId(), "discovery.candidate.followed", {
+      candidate_id: candidate.id,
+      collaboration_id: existing.id,
+      kol_uid: existing.kol_uid,
+      source_batch: sourceBatch,
+      created: false,
+      reused: true,
+    });
+    return followResult(String(candidate.id), String(existing.id), false);
+  }
+  if (existing && isRealKolUid(existing.kol_uid) && String(candidate.status) !== "followed") {
+    markCandidateFollowed(String(candidate.id), String(existing.id));
+    audit(ownerId(), "discovery.candidate.followed", {
+      candidate_id: candidate.id,
+      collaboration_id: existing.id,
+      kol_uid: existing.kol_uid,
+      source_batch: sourceBatch,
+      created: false,
+      reused: true,
+    });
+    return followResult(String(candidate.id), String(existing.id), false);
+  }
+
+  const file = buildCrawlerImportFile(
+    [mapCandidateToCrawlerRow(candidate)],
+    `discovery-follow-${String(candidate.id).slice(0, 24)}.csv`,
   );
+  const imported = await importKolProfilesFromCrawlerConfirmed({
+    file,
+    sourceBatch,
+    creatorExternalId: externalId,
+    candidateId: String(candidate.id),
+    actor: ownerId(),
+  });
+  const kolUid = String(imported.kol_uid || "");
+  if (!isRealKolUid(kolUid)) {
+    throw new HttpFail(502, {
+      code: "import_creator_no_kol_uid",
+      message: "档案未回传红人编号，未加入跟进。",
+    });
+  }
+
+  const linked = existingCollaboration(candidate, kolUid);
+  const brand = String(request?.brand || "LT");
   const handle = String(candidate.handle || candidate.nickname || candidate.platform_creator_id).trim();
-  const cid = String(existing?.id || nid("col"));
-  if (!existing) {
-    const uid = discoveryKolUid(candidate);
+  const cid = String(linked?.id || nid("col"));
+  const created = !linked;
+  if (!linked) {
     tx((db) => {
       db.prepare(
         `INSERT INTO collaborations
          (id, handle, display_name, brand, platform, followers, email, mailbox_from,
           lifecycle_id, conversation_id, stage_code, days_in_stage, notes, overdue,
-          stage_version, locked, kol_uid, source)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          stage_version, locked, kol_uid, source, avg_views_10)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       ).run(
         cid,
         handle,
@@ -916,37 +1038,28 @@ export function followCandidate(id: string): Json {
         0,
         0,
         0,
-        uid,
+        kolUid,
         "discovery",
+        String(avgViews10(candidate) || ""),
       );
     });
+  } else if (isPlaceholderKolUid(linked.kol_uid) || !String(linked.kol_uid || "").trim()) {
+    getConn().prepare(
+      "UPDATE collaborations SET kol_uid=?, avg_views_10=COALESCE(NULLIF(avg_views_10,''), ?) WHERE id=?",
+    ).run(kolUid, String(avgViews10(candidate) || ""), cid);
   }
-  getConn().prepare(
-    `UPDATE creator_candidates
-        SET status='followed', collaboration_id=?, followed_at=COALESCE(followed_at, ?),
-            dismissed_at=NULL, updated_at=?
-      WHERE id=?`,
-  ).run(cid, now, now, candidate.id);
+  markCandidateFollowed(String(candidate.id), cid);
   audit(ownerId(), "discovery.candidate.followed", {
     candidate_id: candidate.id,
     collaboration_id: cid,
-    created: !existing,
+    kol_uid: kolUid,
+    source_batch: sourceBatch,
+    creator_external_id: externalId,
+    created,
+    sent: false,
+    stage_changed: false,
   });
-  const collaboration = getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(cid) as Row;
-  return {
-    ...publicCandidate(getConn().prepare("SELECT * FROM creator_candidates WHERE id=?").get(candidate.id) as Row),
-    collaboration: {
-      id: collaboration.id,
-      handle: collaboration.handle,
-      display_name: collaboration.display_name,
-      platform: collaboration.platform,
-      brand: collaboration.brand,
-      stage_code: collaboration.stage_code,
-      kol_uid: collaboration.kol_uid,
-      source: collaboration.source,
-    },
-    created: !existing,
-  };
+  return followResult(String(candidate.id), cid, created);
 }
 
 export function dismissCandidate(id: string): Json {

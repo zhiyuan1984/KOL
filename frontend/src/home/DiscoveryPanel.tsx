@@ -54,6 +54,8 @@ export default function DiscoveryPanel() {
   const [error, setError] = useState<DiscoveryErrorView | null>(null);
   const [busy, setBusy] = useState(false);
   const [pendingFollow, setPendingFollow] = useState<CreatorCandidate | null>(null);
+  const [followError, setFollowError] = useState<string | null>(null);
+  const [followBusy, setFollowBusy] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [searchKeywords, setSearchKeywords] = useState<string[]>([]);
   const [emptyHintFromApi, setEmptyHintFromApi] = useState<string | null>(null);
@@ -213,11 +215,20 @@ export default function DiscoveryPanel() {
   };
 
   const confirmFollow = async () => {
-    if (!pendingFollow) return;
+    if (!pendingFollow || followBusy) return;
     const id = pendingFollow.id;
-    const followed = await followCandidate(id);
-    setCandidates((current) => current.map((row) => (row.id === id ? followed : row)));
-    setPendingFollow(null);
+    setFollowBusy(true);
+    setFollowError(null);
+    try {
+      const followed = await followCandidate(id, { confirmed: true });
+      setCandidates((current) => current.map((row) => (row.id === id ? followed : row)));
+      setPendingFollow(null);
+    } catch (caught) {
+      const view = presentDiscoveryError(caught, "加入跟进没有完成，红人档案未写入，也未建立合作。");
+      setFollowError(view.message);
+    } finally {
+      setFollowBusy(false);
+    }
   };
 
   const onDismiss = async (candidate: CreatorCandidate) => {
@@ -533,7 +544,7 @@ export default function DiscoveryPanel() {
                   <p className="discovery-candidate-reason">{candidateReason(candidate)}</p>
                   {candidate.status === "followed" ? (
                     <p className="discovery-quiet" data-discovery-followed>
-                      已加入跟进。加入跟进才建合作，不会发信或改阶段。
+                      已加入跟进。已写入红人档案并建立合作，不会发信或改阶段。
                     </p>
                   ) : null}
                 </div>
@@ -561,7 +572,10 @@ export default function DiscoveryPanel() {
                     className="btn work sm"
                     data-discovery-follow={candidate.id}
                     disabled={candidate.status === "followed"}
-                    onClick={() => setPendingFollow(candidate)}
+                    onClick={() => {
+                      setFollowError(null);
+                      setPendingFollow(candidate);
+                    }}
                   >
                     {candidate.status === "followed" ? "已确认跟进" : "加入跟进"}
                   </button>
@@ -577,13 +591,31 @@ export default function DiscoveryPanel() {
           <div className="discovery-confirm">
             <strong>确认加入跟进？</strong>
             <p>
-              把 @{pendingFollow.handle} 记为跟进意向。不会发信，也不会改正式阶段。加入跟进后才会建合作。
+              把 @{pendingFollow.handle} 加入跟进并写入红人档案。不会发信，也不会改正式阶段。只有写入成功后才会建立合作。
             </p>
+            {followError ? (
+              <p className="discovery-quiet" data-discovery-follow-error role="alert">{followError}</p>
+            ) : null}
             <div className="discovery-plan-actions">
-              <button type="button" className="btn work sm" data-discovery-follow-yes onClick={() => void confirmFollow()}>
-                确认加入跟进
+              <button
+                type="button"
+                className="btn work sm"
+                data-discovery-follow-yes
+                disabled={followBusy}
+                onClick={() => void confirmFollow()}
+              >
+                {followBusy ? "正在写入档案…" : "确认加入跟进"}
               </button>
-              <button type="button" className="btn ghost sm" data-discovery-follow-no onClick={() => setPendingFollow(null)}>
+              <button
+                type="button"
+                className="btn ghost sm"
+                data-discovery-follow-no
+                disabled={followBusy}
+                onClick={() => {
+                  setPendingFollow(null);
+                  setFollowError(null);
+                }}
+              >
                 取消
               </button>
             </div>
