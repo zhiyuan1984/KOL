@@ -3577,7 +3577,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   gap: var(--space-2);
   min-width: 0;
   min-height: 0;
-  overflow: auto;
+  overflow: visible;
 }
 .admin-nav-kicker {
   font-size: var(--font-sm);
@@ -3588,6 +3588,17 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   display: flex;
   flex-direction: column;
   gap: 2px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+.admin-nav-foot {
+  margin-top: auto;
+  padding: 8px 8px 4px;
+  border-top: 1px solid var(--line);
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 2;
 }
 .admin-nav-item {
   display: flex;
@@ -6200,6 +6211,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
     flex-wrap: wrap;
   }
   .admin-nav-item { width: auto; }
+  .admin-nav-foot { width: 100%; }
   .admin-body { padding: 16px 14px 36px; }
   .session-shell,
   .session-shell.has-tasklist,

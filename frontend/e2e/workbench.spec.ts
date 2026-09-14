@@ -2416,8 +2416,11 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator('.sidebar a[href="/admin/connectors"]')).toHaveCount(0);
   await expect(page.locator('[data-nav="connectors"]')).toHaveAttribute("href", "/connectors");
   await page.locator(".user-chip").click();
-  await expect(page.getByRole("link", { name: "管理控制台" })).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "连接 Starry 邮箱" })).toBeVisible();
+  const employeeMenu = page.locator(".sidebar .user-popover");
+  await expect(employeeMenu.getByRole("link", { name: "管理控制台" })).toHaveCount(0);
+  await expect(employeeMenu.getByRole("link", { name: "连接器" })).toHaveCount(0);
+  await expect(employeeMenu.getByRole("link", { name: /Starry|连接 Starry 邮箱/ })).toHaveCount(0);
+  await expect(employeeMenu.locator("[data-starry-menu], [data-connector-use-menu]")).toHaveCount(0);
   await expect(page.locator("[data-debug-toggle]")).toHaveCount(0);
   await page.goto("/market/skills");
   await expect(page.locator("[data-hub-new]")).toHaveCount(0);
@@ -2565,18 +2568,34 @@ test("admin debug toggle reveals connector tiles on the skill hub", async ({ pag
 
 test("user menu switches employee, admin, and settings workspaces", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".user-chip").click();
-  const userMenu = page.locator(".user-popover");
+  await page.locator(".sidebar .user-chip").click();
+  const userMenu = page.locator(".sidebar .user-popover");
   await expect(userMenu.getByRole("link", { name: "员工工作台" })).toBeVisible();
   await expect(userMenu.getByRole("link", { name: "管理控制台" })).toBeVisible();
   await expect(userMenu.getByRole("link", { name: "个人设置" })).toBeVisible();
-  await expect(userMenu.getByRole("link", { name: "连接 Starry 邮箱" })).toBeVisible();
+  await expect(userMenu.getByRole("button", { name: "打开调试视图" })).toBeVisible();
+  await expect(userMenu.getByRole("button", { name: "退出登录" })).toBeVisible();
+  await expect(userMenu.getByRole("link", { name: "连接器" })).toHaveCount(0);
+  await expect(userMenu.getByRole("link", { name: /Starry|连接 Starry 邮箱/ })).toHaveCount(0);
+  await expect(userMenu.locator("[data-starry-menu], [data-connector-use-menu]")).toHaveCount(0);
   await userMenu.getByRole("link", { name: "管理控制台" }).click();
   await expect(page.locator("[data-admin-ia='governance']")).toBeVisible();
   await expect(page.locator("[data-admin-account]")).toContainText("当前账户");
   await expect(page.locator("[data-admin-context]")).toHaveText("管理");
-  await page.getByRole("link", { name: "返回员工工作台" }).click();
+  await expect(page.locator(".admin-nav .user-chip")).toBeVisible();
+  await expect(page.locator(".admin-nav .user-chip")).toContainText("管理员");
+  await page.locator(".admin-nav .user-chip").click();
+  const adminMenu = page.locator(".admin-nav .user-popover");
+  await expect(adminMenu.getByRole("link", { name: "员工工作台" })).toBeVisible();
+  await expect(adminMenu.getByRole("link", { name: "管理控制台" })).toBeVisible();
+  await expect(adminMenu.getByRole("link", { name: "个人设置" })).toBeVisible();
+  await expect(adminMenu.getByRole("link", { name: "连接器" })).toHaveCount(0);
+  await expect(adminMenu.locator("[data-starry-menu], [data-connector-use-menu]")).toHaveCount(0);
+  await adminMenu.getByRole("link", { name: "员工工作台" }).click();
   await expect(page.locator("[data-home]")).toBeVisible();
+  await page.locator(".sidebar .user-chip").click();
+  await page.locator(".sidebar .user-popover").getByRole("link", { name: "个人设置" }).click();
+  await expect(page).toHaveURL(/\/settings/);
 });
 
 test("approval, knowledge, and exam are vertical primary nav items before cloud", async ({ page }) => {
@@ -2681,6 +2700,8 @@ test("admin console uses a left sidebar with short labels for the current accoun
   await expect(page.locator("[data-admin-account]")).toContainText("当前账户");
   await expect(page.locator("[data-admin-context]")).toHaveText("管理");
   await expect(page.locator("[data-admin-role]")).toBeVisible();
+  await expect(page.locator(".admin-nav .user-chip")).toBeVisible();
+  await expect(page.locator(".admin-nav .user-chip")).toContainText("管理员");
   await expect(page.getByRole("link", { name: "返回员工工作台" })).toBeVisible();
 
   await page.locator("[data-admin-nav='connectors']").click();
@@ -2745,9 +2766,13 @@ test("docs/21 admin connectors hub renders", async ({ page }) => {
 
 test("admin and settings expose bind Starry mailbox menus", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".user-chip").click();
-  await expect(page.locator("[data-starry-menu]")).toHaveText("连接 Starry 邮箱");
-  await page.locator("[data-starry-menu]").click();
+  await page.locator(".sidebar .user-chip").click();
+  const userMenu = page.locator(".sidebar .user-popover");
+  await expect(userMenu.locator("[data-starry-menu], [data-connector-use-menu]")).toHaveCount(0);
+  await expect(userMenu.getByRole("link", { name: /Starry|连接 Starry 邮箱/ })).toHaveCount(0);
+  await userMenu.getByRole("link", { name: "个人设置" }).click();
+  await expect(page).toHaveURL(/\/settings/);
+  await page.getByRole("tab", { name: "连接 Starry" }).click();
   await expect(page).toHaveURL(/\/settings\?tab=starry/);
   await expect(page.getByRole("tab", { name: "连接 Starry" })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-starry-bind]")).toBeVisible();
@@ -2757,6 +2782,8 @@ test("admin and settings expose bind Starry mailbox menus", async ({ page }) => 
   await page.goto("/admin");
   await expect(page.locator('[data-admin-nav="starry"], [data-admin-tab="starry"]')).toHaveCount(0);
   await expect(page.locator("[data-starry-bind]")).toHaveCount(0);
+  await page.locator(".admin-nav .user-chip").click();
+  await expect(page.locator(".admin-nav .user-popover [data-starry-menu], .admin-nav .user-popover [data-connector-use-menu]")).toHaveCount(0);
   await page.goto("/admin/starry");
   await expect(page).toHaveURL(/\/settings\?tab=starry/);
   await expect(page.locator("[data-starry-bind]")).toBeVisible();
