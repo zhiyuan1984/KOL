@@ -136,6 +136,14 @@ export function confirmStageCtaLabel(stageLabel: string): string {
   return `确认进入「${stageLabel}」`;
 }
 
+/** Short in-card headline. Full CTA sentence lives on the button only. */
+export function recommendedActionHeadline(rec: FollowedKolCardModel["recommended_action"]): string {
+  if (rec.kind === "confirm-stage" && rec.target_stage_label) {
+    return `建议进入「${rec.target_stage_label}」`;
+  }
+  return rec.label;
+}
+
 export function stageLabelForCode(code?: string): string {
   const hit = MAIN_STAGE_TABS.find((stage) => stage.code === code);
   return hit?.label || "";
