@@ -307,8 +307,12 @@ export type KnowledgeRow = {
   cite_count?: number;
   in_market?: number;
   intent?: string;
-    starter?: string;
+  starter?: string;
   enabled?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  created_by?: string;
+  approved_at?: string;
 };
 
 export type StarryBinding = {
