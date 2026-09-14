@@ -50,7 +50,7 @@ export default function FollowedKolWorkCard({
     card.unread_count > 0 ? { id: "unread", label: `未读 ${card.unread_count}` } : null,
   ].filter(Boolean) as { id: string; label: string }[];
   const factLine = [fact.source, fact.summary].filter(Boolean).join(" · ");
-  const initial = card.identity.display.slice(0, 1) || "红";
+  const initial = card.identity.display.replace(/^@/, "").slice(0, 1) || "红";
 
   return (
     <article
