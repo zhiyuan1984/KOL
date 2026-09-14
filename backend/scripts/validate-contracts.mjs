@@ -96,6 +96,57 @@ if (agent) {
   }
 }
 
+const expertDir = path.join(root, "experts");
+const expertFiles = fs.existsSync(expertDir)
+  ? fs.readdirSync(expertDir).map((name) => path.join(expertDir, name, "manifest.yaml")).filter((file) => fs.existsSync(file))
+  : [];
+if (!expertFiles.length) errors.push("missing contract: experts/<id>/manifest.yaml");
+const experts = [];
+const publishedExperts = [];
+for (const file of expertFiles) {
+  let expert = null;
+  try { expert = readJsonYaml(file); } catch (error) { errors.push(error.message); continue; }
+  experts.push(expert);
+  requireId(expert.id, "expert:", `${path.relative(root, file)} id`);
+  for (const field of ["title", "role", "goal"]) {
+    if (typeof expert[field] !== "string" || !expert[field].trim()) errors.push(`expert ${expert.id || file} is missing ${field}`);
+  }
+  if (!expert.publish_gate?.state) errors.push(`expert ${expert.id || file} publish_gate.state is required`);
+  if (!Array.isArray(expert.available_agents) || !expert.available_agents.length) {
+    errors.push(`expert ${expert.id || file} must declare available_agents`);
+  } else {
+    for (const agentId of expert.available_agents) {
+      if (agentId !== "agent:kol") errors.push(`expert ${expert.id || file} references unknown agent: ${agentId}`);
+    }
+  }
+  if (expert.permissions && expert.permissions.declaration !== "read-only") {
+    errors.push(`expert ${expert.id || file} permissions must be a read-only declaration`);
+  }
+  for (const policy of expert.permissions?.policy_refs || []) {
+    if (!policies.has(policy)) errors.push(`expert ${expert.id || file} policy ref is missing: ${policy}`);
+  }
+  for (const unit of expert.organization_scope || []) {
+    requireId(unit, "org:", "expert organization_scope");
+    if (!(org?.organization_units || []).some((item) => item.id === unit)) errors.push(`expert organization is not registered: ${unit}`);
+  }
+  for (const brand of expert.brand_scope || []) {
+    requireId(brand, "brand:", "expert brand_scope");
+    if (!brandIds.has(brand)) errors.push(`expert brand is not registered: ${brand}`);
+  }
+  for (const region of expert.region_scope || []) {
+    requireId(region, "region:", "expert region_scope");
+    if (!regionIds.has(region)) errors.push(`expert region is not registered: ${region}`);
+  }
+  if (String(expert.publish_gate?.state || "") === "published") publishedExperts.push(expert);
+}
+
+if (publishedExperts.filter((item) => item.id === "expert:kol").length !== 1) {
+  errors.push("exactly one published ExpertManifest expert:kol is required");
+}
+if (publishedExperts.some((item) => item.id !== "expert:kol")) {
+  errors.push("only expert:kol may be published in this contract set");
+}
+
 if (!uxTraceability || !Array.isArray(uxTraceability.entries)) {
   errors.push("specs/ux-traceability.json is required");
 } else if (!fs.existsSync(uxSpecFile)) {
@@ -147,6 +198,6 @@ if (process.argv.includes("--production")) {
   if ((brands?.brands || []).some((brand) => brand.status !== "active")) errors.push("production compilation requires all brands to be active in the external registry");
 }
 
-const result = { status: errors.length ? "invalid" : "valid", errors, warnings, agent: agent?.id || null, policyCount: policies.size, workflowCount: workflows.size, schemaCount: schemas.size, uxTraceCount: uxTraceability?.entries?.length || 0 };
+const result = { status: errors.length ? "invalid" : "valid", errors, warnings, agent: agent?.id || null, expert: publishedExperts[0]?.id || null, expertCount: experts.length, policyCount: policies.size, workflowCount: workflows.size, schemaCount: schemas.size, uxTraceCount: uxTraceability?.entries?.length || 0 };
 console.log(JSON.stringify(result, null, 2));
 if (errors.length) process.exitCode = 1;

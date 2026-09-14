@@ -10,6 +10,7 @@
 | 2026-09-13 | 邮件往来摘要 Codex `thread/start` 与识别一致：`CODEX_MODEL` / CLI 默认，不传 `gpt-5.6-luna`。Luna digest 需要 `OPENAI_BASE_URL` 及该端点 key | 公共 OpenAI `sk-proj` 打默认 Luna 会 HTTP 401。不改 provider 顺序或 sticky-fail。 |
 | 2026-09-13 | 邮件往来摘要 `analysis_failed` 改为冷却后自动再试，并持久化 `error` / `attempted` / `failed_at` | 不是新 ADR。不改 provider、指纹、寒暄过滤或超时。详见 `docs/evidence-mail-digest-analysis-plan-2026-09-13.md`。 |
 | 2026-09-14 | 并列能力面与 Agent / 任务解耦：知识库、审批、考试、连接器使用面是独立产品面，不隶属 KOL Agent，也不因进行中任务才存在 | 不是第五套 Home。治理仍 Admin-only。见 ADR-015、`19-ui-ux-constitution.md`、`21-admin-employee-page-roles.md`。 |
+| 2026-09-14 | 首版 Expert / DigitalEmployee 后端：`ExpertManifest` + `GET/POST /api/experts`；仅 `expert:kol` 已发布；召唤只建绑定会话 | 不改 `/agents` IA，不是第五套 Home，不 LIVE。见 ADR-016、`docs/evidence-expert-manifest-2026-09-14.md`。 |
 
 ## 已固化决策
 
@@ -30,6 +31,7 @@
 | ADR-013 | 管理端是员工四表面的配套治理套件，不是副本；连接器**治理**只在 `/admin/connectors`，员工**使用面**独立（`/connectors`），Agent 治理在 `/admin/agents`，个人 Starry 绑定只留 Settings | `21-admin-employee-page-roles.md`、`19-ui-ux-constitution.md` |
 | ADR-014 | 员工侧栏：定时任务归今日工作簇；簇间用分割线，不画可见「今日 / 智能体 / 资产」组标题 | `19-ui-ux-constitution.md` |
 | ADR-015 | 员工并列能力面（知识库 / 审批 / 考试 / 连接器使用面等）与数字员工开工入口、今日任务队列解耦；KOL 只作数据不定义 IA；治理仍 Admin-only | `19-ui-ux-constitution.md`、`21-admin-employee-page-roles.md` |
+| ADR-016 | DigitalEmployee 的机器可读发布对象是 `ExpertManifest`（API `expert` / `expert:kol`）；Agent 包保持 `agents/*/manifest.yaml`；召唤只建绑定会话 | `02-domain-model.md`、`14-implementation-contract.md`、`experts/kol/manifest.yaml` |
 
 ## 新增 Agent 分级
 
@@ -188,3 +190,31 @@ Admin 导航和页面与员工连接器/智能体表面重叠：员工侧栏深�
 - 规范：`19-ui-ux-constitution.md` 并列能力面条款、`21-admin-employee-page-roles.md` 交叉引用
 - 代码：本 ADR 不改 JSX / API
 - 测试：文档评审 only；无新发布门禁项
+
+## ADR-016 — ExpertManifest 是 DigitalEmployee 发布对象（2026-09-14）
+
+**状态**：已固化  
+**决策人**：工程（本 PR 落地首版后端）
+
+### 问题与背景
+
+`02` 把 DigitalEmployee 写成岗位身份、目标、知识范围、权限和可用 Agent。仓库此前只有 Agent 发布包 `agents/kol/manifest.yaml` 与 `GET /api/agent-manifest` 的 `employee_views` 投影。把岗位对象塞进 `entries[].skillId` 会再塌一层。员工端 `/agents` 仍是 `19` P0 工作入口，不是数字员工名册页。
+
+### 决定
+
+1. **命名。** 领域对象仍是 DigitalEmployee；本版 API / 资产路径用 `expert` / `ExpertManifest` / `expert:kol`。
+2. **资产位置。** `experts/<id>/manifest.yaml`，与 `agents/<id>/manifest.yaml` 并列。Agent 包继续只发布 skills / workflows / policies / mcp / employee_views。
+3. **员工可见。** 仅 `publish_gate.state: published` 出现在 `GET /api/experts`；未发布不可召唤（409 `expert_not_published`）。当前只发布 `expert:kol`。
+4. **召唤。** `POST /api/experts/:id/summon` 复用 `POST /api/sessions` / `openKolSession`，在会话上写入 `expert_id`。不发信、不写阶段、不调 LIVE Gateway、不入队副作用。
+5. **诚实缺字段。** 知识范围、LIVE 健康、运行投影、岗位 owner、数字部门编制等未落地字段列入 `missing_fields`，API 省略，不伪造。
+6. **不改 IA。** `/agents` 仍是工作入口。本 API 支持召唤已发布专家，不把专家做成第五套 Home，也不重定义 `19` 并列能力面。
+
+### 不决定的范围
+
+不重做 Chat / Agents UI，不实施数字部门，不放宽 LIVE / confirm-before-send / stage 写入。
+
+### 影响
+
+- 规范：`02-domain-model.md`、`14-implementation-contract.md`、本文件
+- 代码：`experts/kol/manifest.yaml`、`backend/src/experts.ts`、`GET/POST /api/experts`
+- 测试：`backend/tests/experts.test.ts`、`validate:contracts`

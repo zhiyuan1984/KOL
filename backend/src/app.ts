@@ -15,6 +15,7 @@ import { enterprise } from "./routers/enterprise.js";
 import { tasks } from "./routers/tasks.js";
 import { crawlRouter } from "./routers/crawl.js";
 import { knowledge } from "./routers/knowledge.js";
+import { experts } from "./routers/experts.js";
 import { restoreActiveCrawlJobs } from "./crawl/service.js";
 import { seedIfEmpty } from "./seed.js";
 
@@ -50,6 +51,7 @@ export function createApp(): Hono {
   app.route("/api", pipeline);
   app.route("/api", approvals);
   app.route("/api", knowledge);
+  app.route("/api", experts);
   app.route("/api", misc);
   app.route("/api", tasks);
   app.route("/api", crawlRouter);
