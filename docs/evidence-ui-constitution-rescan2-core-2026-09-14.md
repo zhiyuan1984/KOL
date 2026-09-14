@@ -19,6 +19,20 @@
 - Default sidebar: `nav[aria-label="数字员工"] [data-nav]` count 1; `[data-nav=skills]` / `nav[aria-label="技能"]` count 0; `[data-nav=pipeline]` count 0.
 - Debug toggle: `[data-nav=skills]` visible under `nav[aria-label="技能"]`, not inside the digital-employee cluster.
 
+## Verification (2026-09-14, no LIVE)
+
+Focused Playwright (`E2E_MODE=stub`): 7/7 PASS — Chat header, default sidebar (no skills / no pipeline), debug skills first-class, digital-employee cluster count 1.
+
+Headless chrome against stub `127.0.0.1:8876`:
+
+| Check | Result |
+|---|---|
+| `--primary` | `#4f46e5` (MASTER indigo; not OpenAI black) |
+| Active nav | `rgb(255,255,255)` / `rgb(26,26,26)` — not orange fill |
+| Default `[data-nav=pipeline]` / `[data-nav=skills]` | 0 / 0 |
+| Debug `nav[aria-label=技能] [data-nav=skills]` | 1; 0 inside `数字员工` |
+| Chat `[data-task-source=ai]` | `今天推荐`; header has no「AI 发现」 |
+
 ## Out of scope
 
 - LIVE send / stage write
