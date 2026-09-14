@@ -79,7 +79,7 @@ quick_prompts:
 entry_skill: stage_sop
 ```
 
-落实 ADR-016：`GET /api/experts` 只返回 `status=published` 岗位专家。召唤响应恰好为 `{ session_id, expert_id, expert_version, intro }`。无专家团 API。本阶段禁止组织/部门/品牌授权、审批模型和专家团队成员字段。员工专家 API 不投影 Profile / Harness / MCP / Codex / Skill catalog / 连接器状态。`validate:contracts` 校验上述锁定字段与 `entry_skill` 存在。
+落实 ADR-016：`GET /api/experts` 只返回 `status=published` 岗位专家。召唤响应恰好为 `{ session_id, expert_id, expert_version, intro }`。无专家团 API。本阶段禁止组织/部门/品牌授权、审批模型和专家团队成员字段。员工专家 API 不投影 Profile / Harness / MCP / Codex / Skill catalog / 连接器状态——这是专家中心不做成图鉴，**不是**「员工永远不许看见技能」（产品「技能」仍是 §4.1 一等能力）。`validate:contracts` 校验上述锁定字段与 `entry_skill` 存在。
 
 ## 前后端契约
 
@@ -91,7 +91,7 @@ entry_skill: stage_sop
 
 知识条目必须带 `tenant_id`、`organization_scope`、`brand_scope`、`region_scope`、`effective_from/to`、来源、版本和敏感级别。检索结果必须返回来源和范围；知识只能补充事实、模板和制度，不能覆盖 Host 状态机、权限、审批或接口 schema。
 
-员工 `/kb` 产品面见 `19` 与 ADR-021：查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务；邮件模板只是一类资料。卡片元数据底线（有数据才展示）：适用品牌 / 区域 / 阶段 / 场景、版本、生效、来源、已发布。契约字段可后补以喂卡片（适用品牌/区域 ← `brand_scope` / `region_scope`，生效 ← `effective_from/to`，加上版本、来源、已发布状态）；**不得**用缺字段当借口把员工面做成邮件模板管理台。本条不在此迁移 schema。员工「用于当前任务」只把资料填成当前任务 / composer 的**未发送草稿**（邮件类对齐 #75 正文进框），不发信、不写阶段。
+员工 `/kb` 产品面见 `employee-surface-contracts.md` 与 ADR-021（跨页位阶以 `CONSTITUTION.md` §4 为准）：查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务；邮件模板只是一类资料。卡片元数据底线（有数据才展示）：适用品牌 / 区域 / 阶段 / 场景、版本、生效、来源、已发布。契约字段可后补以喂卡片（适用品牌/区域 ← `brand_scope` / `region_scope`，生效 ← `effective_from/to`，加上版本、来源、已发布状态）；**不得**用缺字段当借口把员工面做成邮件模板管理台。本条不在此迁移 schema。员工「用于当前任务」只把资料填成当前任务 / composer 的**未发送草稿**（邮件类对齐 #75 正文进框），不发信、不写阶段。
 
 ## 可执行性判定
 

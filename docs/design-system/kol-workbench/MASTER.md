@@ -1,5 +1,7 @@
-# KOL Workbench Design System — MASTER
+# 智能体中台工作台 Design System — MASTER
 
+> 路径名 `design-system/kol-workbench/` 是 **KOL 试点皮肤**目录，不是产品身份。产品是智能体中台（`CONSTITUTION.md` §4.1–4.2）；不要把本目录读成「只做 KOL」。
+>
 > 本文件以 `frontend/src/styles.css` 已落地的 token 为基础，定义下一轮重新设计的视觉约束。**现有页面的布局、组件造型和视觉完成度不是设计基准，也不代表已经获得认可。**
 
 ## 0. 来源边界

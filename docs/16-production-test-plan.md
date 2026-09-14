@@ -216,7 +216,7 @@ Real 索引（不新造数字）：session-confirm / approval / admin / stage `t
 | F-APPROVAL | 商务/费用审批 | 缺引用、多人审批、拒绝、超时、重复决定 | 审批与发送/阶段独立；拒绝可解释 |
 | F-KB | 知识库 | 上传、抽取、引用、版本、废弃、跨品牌转移 | 有租户/品牌/有效期/来源；不可覆盖硬规则 |
 | F-ADMIN | 管理端 | 用户、连接器、Skill、Policy、审计、Trace | 只有管理员可配；管理员也不能绕过运行时闸门 |
-| F-EMPLOYEE | 员工端 | 任务驱动、推荐、草稿、审批、接管 | 隐藏 MCP/Codex/Thread；推荐只预填 |
+| F-EMPLOYEE | 员工端 | 任务驱动、§4.1 一等能力、推荐、草稿、审批、接管 | 隐藏 MCP/Codex/Thread/英文 Skill 时序；产品「技能」一等；推荐只预填 |
 | F-UX-STATE | 等待态和错误态 | queued/running/input/approval/retry/failed | 显示当前阶段、更新时间、产物、下一步和操作 |
 
 ## 4. 红线测试矩阵
@@ -333,7 +333,7 @@ Real 索引（不新造数字）：session-confirm / approval / admin / stage `t
 | TC-UX-001 | 任务进入 queued/running/waiting | 显示业务阶段、更新时间、已完成产物、下一步和停止/重试/接管 | BLOCKED（E2E 环境） |
 | TC-UX-002 | 发送/阶段/审批待确认 | 展示前后 diff、风险、证据和确认/拒绝 | SPEC only |
 | TC-UX-003 | MCP 失败、超时或未知回执 | 显示失败/重试/接管，不显示成功 | BLOCKED（E2E 环境） |
-| TC-UX-004 | 员工端全路径扫描文案 | 不出现 MCP/Codex/Thread/Skill/原始堆栈 | SPEC only |
+| TC-UX-004 | 员工端全路径扫描文案 | 不出现 MCP/Codex/Thread/英文 Skill 时序/原始堆栈。产品名词「技能」不是本条禁词 | SPEC only |
 | TC-UX-005 | 切换公司/品牌/区域 | 清空未提交草稿，所有请求使用新范围 | SPEC only |
 | TC-UX-006 | TB 远端绑定差异 | 保留无回退保护；本轮不作为产品验收阻断 | WAIVED（业务范围） |
 | TC-UX-007 | 未发布 Agent | 可查看说明但不能提交任务 | PASS（定向） |

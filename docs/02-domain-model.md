@@ -1,5 +1,7 @@
 # 数字员工与领域模型
 
+产品是智能体中台。本文件的对象层（DigitalEmployee / Agent / Skill / Task）是平台模型；`expert:kol` 只是首个已发布岗位专家，不是产品壳。能力面位阶见 `CONSTITUTION.md` §4.1–4.2。
+
 ## 核心对象
 
 - `DigitalEmployee`：岗位身份、目标、知识范围、权限和可用 Agent。员工端文案是「数字员工」/「岗位专家」（ADR-016）。首版机器可读发布资产是 `ExpertManifest`（API `/api/experts`，`expert:kol`）；不要把岗位对象塞进 Agent `employee_views.entries[].skillId`，也不要用 `/profiles` + `/skills` + `/connectors` 拼员工专家页。无专家团 API。
