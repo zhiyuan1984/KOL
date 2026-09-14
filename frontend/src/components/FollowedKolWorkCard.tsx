@@ -1,4 +1,4 @@
-import type { FollowedKolCardModel, RecommendedKind } from "../followedKolCard";
+import { recommendedActionHeadline, type FollowedKolCardModel, type RecommendedKind } from "../followedKolCard";
 
 function formatFactTime(value?: string | null): string {
   if (!value) return "";
@@ -35,6 +35,7 @@ export default function FollowedKolWorkCard({
 }) {
   const rec = card.recommended_action;
   const fact = card.latest_fact;
+  const headline = recommendedActionHeadline(rec);
   const primary = primaryKind(rec.kind);
   const showConfirm = rec.kind === "confirm-stage" && rec.can_write_stage && Boolean(rec.target_stage_label);
   const showCompose = rec.kind === "compose" || rec.kind === "confirm-send";
@@ -101,17 +102,20 @@ export default function FollowedKolWorkCard({
             ) : null}
           </div>
         </div>
-        <div className="kol-state-block" data-recommended-action={rec.kind}>
-          <p className="kol-suggestion">{rec.label}</p>
-        </div>
       </div>
 
-      <div className="kol-band kol-band-recommend" data-kol-band="action">
+      <div className="kol-band kol-band-fact" data-kol-band="fact">
         <div className="kol-state-block" data-latest-fact data-fact-kind={fact.kind}>
           <p className="kol-mail-digest" data-mail-summary={fact.thread_id || undefined}>
             {factLine}
             {fact.at ? <span data-thread-time> · {formatFactTime(fact.at)}</span> : null}
           </p>
+        </div>
+      </div>
+
+      <div className="kol-band kol-band-recommend" data-kol-band="action">
+        <div className="kol-state-block" data-recommended-action={rec.kind}>
+          <p className="kol-suggestion">{headline}</p>
         </div>
         <div className="kol-state-block" data-action-evidence={card.evidence.kind}>
           <p className="kol-evidence">{rec.why}</p>
@@ -146,10 +150,10 @@ export default function FollowedKolWorkCard({
         {showConfirm ? (
           <button
             type="button"
-            className="btn ghost sm kol-cta-btn"
+            className="btn work sm kol-cta-btn"
             data-kol-primary-action="confirm-stage"
             data-confirm-enter-stage
-            data-confirm-stage-priority="secondary"
+            data-confirm-stage-priority="primary"
             data-target-stage={rec.target_stage_code}
             data-confirm-stage-busy={actionBusy ? "true" : undefined}
             disabled={actionBusy}

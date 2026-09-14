@@ -1824,12 +1824,14 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   overflow-x: hidden;
   overflow-y: visible;
   overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
   text-align: left;
-  container-type: inline-size;
-  container-name: followed-card;
+  box-sizing: border-box;
 }
 .followed-kol-card * {
   min-width: 0;
+  box-sizing: border-box;
 }
 .followed-kol-card:hover {
   background: color-mix(in srgb, var(--bg-elevated) 72%, var(--bg));
@@ -1837,11 +1839,14 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .followed-kol-card.is-exception {
   box-shadow: inset 3px 0 0 var(--danger);
 }
-.kol-band {
+.kol-band,
+.followed-kol-card .kol-band,
+.followed-kol-card .kol-state-block {
   min-width: 0;
   max-width: 100%;
   width: 100%;
   overflow-x: hidden;
+  box-sizing: border-box;
 }
 .kol-band-identity {
   display: flex;
@@ -1930,23 +1935,19 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   background: #fff6e8;
   color: #8a5a12;
 }
-.kol-band-state,
-.kol-band-recommend {
+.followed-kol-card .kol-band-state,
+.followed-kol-card .kol-band-fact,
+.followed-kol-card .kol-band-recommend {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-2);
   align-items: start;
 }
-@container followed-card (min-width: 1100px) {
-  .kol-band-state,
-  .kol-band-recommend {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
-    gap: var(--space-2) var(--space-4);
-  }
-}
 .kol-state-block {
   min-width: 0;
   max-width: 100%;
+  overflow-x: hidden;
+  box-sizing: border-box;
 }
 .kol-state-fields {
   display: flex;
@@ -1961,6 +1962,18 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .kol-band-label {
   display: none;
 }
+.followed-kol-card .kol-name,
+.followed-kol-card .kol-chip,
+.followed-kol-card .kol-stage,
+.followed-kol-card .kol-suggestion,
+.followed-kol-card .kol-mail-digest,
+.followed-kol-card .kol-evidence,
+.followed-kol-card .kol-state-block p,
+.followed-kol-card .kol-cta-btn {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .kol-state-block p {
   margin: 0;
   min-width: 0;
@@ -1971,7 +1984,6 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
-  overflow: visible;
 }
 .kol-band-state .kol-stage,
 .kol-band-state [data-stage-label] {
@@ -1979,24 +1991,28 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   font-size: var(--font-body);
   line-height: var(--leading-tight);
 }
-.kol-band-state .kol-suggestion,
-.kol-band-state [data-recommended-action] p {
+.followed-kol-card .kol-suggestion,
+.followed-kol-card [data-recommended-action] .kol-suggestion {
   font-weight: 500;
   font-size: var(--font-body);
   color: var(--text);
 }
-.kol-band-recommend .kol-state-block p,
-.kol-band-recommend .kol-mail-digest,
-.kol-band-recommend .kol-evidence {
+.followed-kol-card .kol-mail-digest,
+.followed-kol-card .kol-evidence,
+.followed-kol-card [data-latest-fact] p,
+.followed-kol-card [data-action-evidence] p {
   font-size: var(--font-meta);
   color: var(--text-muted);
   line-height: var(--leading-body);
-}
-.kol-band-recommend .kol-mail-digest {
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  text-overflow: ellipsis;
+}
+.followed-kol-card .kol-evidence,
+.followed-kol-card [data-action-evidence] p {
+  word-break: break-all;
 }
 .kol-band-actions {
   display: flex;
