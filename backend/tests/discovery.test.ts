@@ -18,6 +18,7 @@ import type { Json } from "../src/types.js";
 
 const calls: string[] = [];
 const creatorCallArgs: Json[] = [];
+const crawlStartArgs: Json[] = [];
 let tmp = "";
 let app: Hono;
 let creators: Json[] = [{
@@ -32,7 +33,10 @@ function mockMcp() {
   return {
     async callTool(name: string, args: Json = {}) {
       calls.push(name);
-      if (name === "start_crawl") return { task_id: "remote-disc-1", status: "running" };
+      if (name === "start_crawl") {
+        crawlStartArgs.push(args);
+        return { task_id: "remote-disc-1", status: "running" };
+      }
       if (name === "get_crawl_status") return { task_id: "remote-disc-1", status: "idle" };
       if (name === "get_crawl_logs") return { logs: ["Authorization: Bearer hidden-secret"] };
       if (name === "get_creators") {
@@ -130,6 +134,7 @@ beforeEach(async () => {
   process.env.MEDIACRAWLER_MCP_TOKEN = "test-secret";
   calls.length = 0;
   creatorCallArgs.length = 0;
+  crawlStartArgs.length = 0;
   creators = [{
     platform: "youtube",
     platform_creator_id: "yt-outdoor-1",
@@ -239,6 +244,7 @@ describe("discovery run lifecycle", () => {
       run: { status_label: "已完成" },
     });
     expect(OVERSEAS_CRAWL_PLATFORMS).toContain(candidates[0].platform);
+    expect(results.empty_hint).toBeNull();
     expect(creatorCallArgs.length).toBeGreaterThan(0);
     assertGetCreatorsMcpContract(creatorCallArgs[0], "youtube");
     expect(candidates[0]).not.toHaveProperty("platform_creator_id");
@@ -419,25 +425,49 @@ describe("discovery filters directions and region", () => {
     expect(String(sea.body.plan_summary)).toContain("东南亚");
   });
 
-  it("folds directions into the run search keywords without expanding platforms", async () => {
+  it("expands Chinese niches to English crawl keywords without expanding platforms", async () => {
     const created = await request("POST", "/api/discovery/requests", {
-      keywords: ["portable power"],
+      keywords: ["找北美户外评测达人"],
       platforms: ["youtube"],
-      filters: { region: "ca", directions: ["户外电源"] },
+      filters: { region: "us", directions: ["户外电源"] },
     });
     expect(created.body.platforms).toEqual(["youtube"]);
+    expect(created.body.keywords).toEqual(["找北美户外评测达人"]);
+    expect(String(created.body.plan_summary)).toContain("户外电源");
+    expect(String(created.body.plan_summary)).toContain("找北美户外评测达人");
     const started = await request("POST", `/api/discovery/requests/${created.body.id}/runs`, {});
     expect(started.status).toBe(202);
     expect(started.body.platform).toBe("youtube");
+    expect(started.body.search_keywords).toEqual(["portable power station", "outdoor review", "USA"]);
     const job = getConn().prepare(
       "SELECT platform, parameters FROM crawl_jobs ORDER BY created_at DESC LIMIT 1",
     ).get() as { platform?: string; parameters?: string } | undefined;
     expect(job?.platform).toBe("youtube");
     expect(JSON.parse(String(job?.parameters || "{}"))).toMatchObject({
-      region: "ca",
+      region: "us",
       directions: ["户外电源"],
-      keywords: ["portable power", "户外电源"],
+      keywords: ["portable power station", "outdoor review", "USA"],
     });
+    expect(String(crawlStartArgs[0]?.keywords || "")).toContain("portable power station");
+    expect(String(crawlStartArgs[0]?.keywords || "")).not.toMatch(/找北美|户外电源|达人/);
+    expect(JSON.stringify(started.body)).not.toMatch(/MediaCrawler|MCP|Job ID|crawl_job/i);
+  });
+
+  it("returns employee empty copy with the English search terms actually used", async () => {
+    creators = [];
+    const { results } = await confirmAndComplete(["户外电源"]);
+    expect(results.status).toBe("succeeded");
+    expect((results.counts as Json).candidate_count).toBe(0);
+    expect(results.search_keywords).toEqual(["portable power station"]);
+    expect(results.empty_hint).toBe("按「portable power station」没有找到线索，可换词再试。");
+    expect((results.run as Json).search_keywords).toEqual(["portable power station"]);
+    expect((results.run as Json).empty_hint).toBe("按「portable power station」没有找到线索，可换词再试。");
+    expect(results.ready).toBe(false);
+    assertEmployeeCopy(results);
+    assertEmployeeCopy(results.empty_hint);
+    assertEmployeeCopy((results.run as Json).empty_hint);
+    expect(String(results.empty_hint)).not.toMatch(/MCP|MediaCrawler|Job|crawl/i);
+    expect(String(crawlStartArgs[0]?.keywords || "")).toBe("portable power station");
   });
 
   it("rejects oversized, overlong, non-array, and invalid region input with 400", async () => {

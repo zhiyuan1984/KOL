@@ -81,6 +81,8 @@ export type DiscoveryRun = {
   completed_at?: string | null;
   duplicate?: boolean;
   connection?: DiscoveryConnection;
+  search_keywords?: string[];
+  empty_hint?: string | null;
 };
 
 export type DiscoveryRequest = {
@@ -122,6 +124,8 @@ export type DiscoveryResults = {
   pending_confirm?: boolean;
   error?: string | null;
   connection?: DiscoveryConnection;
+  search_keywords?: string[];
+  empty_hint?: string | null;
 };
 
 export type DiscoveryFollowResult = CreatorCandidate & {
@@ -346,6 +350,8 @@ export function asRun(row: unknown): DiscoveryRun {
     completed_at: item.completed_at == null ? null : String(item.completed_at),
     duplicate: Boolean(item.duplicate),
     connection: asConnection(item.connection),
+    search_keywords: asStringList(item.search_keywords),
+    empty_hint: item.empty_hint == null ? null : String(item.empty_hint),
   };
 }
 
@@ -392,6 +398,10 @@ export function asResults(row: unknown): DiscoveryResults {
     pending_confirm: Boolean(item.pending_confirm),
     error: item.error == null ? request.error ?? null : String(item.error),
     connection: asConnection(item.connection) || asConnection(item.collector_status) || request.connection,
+    search_keywords: asStringList(item.search_keywords).length
+      ? asStringList(item.search_keywords)
+      : asStringList(item.run && typeof item.run === "object" ? (item.run as { search_keywords?: unknown }).search_keywords : []),
+    empty_hint: item.empty_hint == null ? null : String(item.empty_hint),
   };
 }
 
@@ -465,11 +475,33 @@ export function addDirections(current: string[], incoming: Iterable<string>): {
   return { directions: next, atMax: next.length >= MAX_DIRECTIONS };
 }
 
+const QUERY_FILLER = /^(找|寻找|尋找|达人|達人|网红|網紅|博主|kol|请|請|一下)$/i;
+
 export function keywordsFromQuery(query: string): string[] {
   return query
     .split(/[\s,，、]+/)
     .map((part) => part.trim())
-    .filter(Boolean);
+    .filter((part) => part && !QUERY_FILLER.test(part));
+}
+
+export function emptyResultsHint(searchKeywords: string[]): string {
+  const shown = searchKeywords.map((item) => String(item || "").trim()).filter(Boolean);
+  if (!shown.length) return "这次计划没有找到红人线索，可换关键词再试。";
+  return `按「${shown.slice(0, 2).join(" / ")}」没有找到线索，可换词再试。`;
+}
+
+/** Empty success copy: payload `empty_hint` / `search_keywords` only. Never invents terms. */
+export function discoveryEmptyCopy(input: {
+  empty_hint?: string | null;
+  search_keywords?: string[];
+  run?: { empty_hint?: string | null; search_keywords?: string[] } | null;
+}): string {
+  const hint = String(input.empty_hint || input.run?.empty_hint || "").trim();
+  if (hint) return hint;
+  const keywords = input.search_keywords?.length
+    ? input.search_keywords
+    : input.run?.search_keywords || [];
+  return emptyResultsHint(keywords);
 }
 
 export function candidateReason(row: CreatorCandidate): string {

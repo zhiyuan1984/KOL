@@ -9,6 +9,7 @@ import {
   addDirections,
   candidateReason,
   createDiscoveryRequest,
+  discoveryEmptyCopy,
   dismissCandidate,
   followCandidate,
   guessPlatformFromQuery,
@@ -54,6 +55,8 @@ export default function DiscoveryPanel() {
   const [busy, setBusy] = useState(false);
   const [pendingFollow, setPendingFollow] = useState<CreatorCandidate | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [searchKeywords, setSearchKeywords] = useState<string[]>([]);
+  const [emptyHintFromApi, setEmptyHintFromApi] = useState<string | null>(null);
   const { debug } = useViewMode();
 
   const showError = (raw: unknown, fallback: string) => {
@@ -67,9 +70,14 @@ export default function DiscoveryPanel() {
   );
 
   const emptyHint = useMemo(() => {
-    if (phase === "results" && !visible.length) return "这次计划没有找到红人线索，可换关键词再试。";
+    if (phase === "results" && !visible.length) {
+      return discoveryEmptyCopy({
+        empty_hint: emptyHintFromApi,
+        search_keywords: searchKeywords,
+      });
+    }
     return "用一句话描述想找的达人。确认计划后只检索线索，不会写成待办，也不会自动建合作。";
-  }, [phase, visible.length]);
+  }, [phase, visible.length, emptyHintFromApi, searchKeywords]);
 
   const atDirectionMax = filters.directions.length >= MAX_DIRECTIONS;
 
@@ -158,6 +166,8 @@ export default function DiscoveryPanel() {
       });
       setRequest(next);
       setCandidates([]);
+      setSearchKeywords([]);
+      setEmptyHintFromApi(null);
       setPhase("plan");
     } catch (caught) {
       showError(caught, "计划没有生成，可稍后重试。");
@@ -183,6 +193,8 @@ export default function DiscoveryPanel() {
       const results = await waitForDiscoveryResults(request.id);
       setRequest(results.request);
       setCandidates(results.candidates);
+      setSearchKeywords(results.search_keywords || results.run?.search_keywords || []);
+      setEmptyHintFromApi(results.empty_hint || results.run?.empty_hint || null);
       if (String(results.run?.status || results.status) === "failed") {
         showError(
           results.run?.error || results.request.error || "检索没有完成，可调整条件后重试。",
@@ -491,9 +503,13 @@ export default function DiscoveryPanel() {
       ) : null}
 
       {phase === "results" && !visible.length ? (
-        <div className="task-empty" data-discovery-empty="results">
+        <div
+          className="task-empty"
+          data-discovery-empty="results"
+          data-discovery-search-keywords={searchKeywords.join(" / ")}
+        >
           <strong>没有红人线索</strong>
-          <p>{emptyHint}</p>
+          <p data-discovery-empty-hint>{emptyHint}</p>
         </div>
       ) : null}
 

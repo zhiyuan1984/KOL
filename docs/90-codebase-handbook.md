@@ -12,7 +12,7 @@
 |---|---|
 | 业务意图、缺口、推荐、禁止事项 | Skill/Workflow |
 | DigitalEmployee / Expert 发布与召唤 | `experts/*/manifest.yaml`、`backend/src/experts.ts`、`/api/experts` |
-| Home AI发现（CreatorCandidate 线索；确认计划后采集；加入跟进才建合作） | `backend/src/discovery.ts`、`/api/discovery`、`004_ai_discovery.sql` |
+| Home AI发现（CreatorCandidate 线索；确认计划后采集；加入跟进才建合作） | `backend/src/discovery.ts`、`backend/src/discovery-keywords.ts`、`/api/discovery`、`004_ai_discovery.sql` |
 | 租户、权限、状态、幂等、审批、发送闸门 | Host/平台内核 |
 | 真实外部读写 | 授权远程 MCP / Gateway |
 | 员工端业务体验 | 前端通用工作台与 schema |
