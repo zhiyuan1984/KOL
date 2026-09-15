@@ -1306,7 +1306,7 @@ test("home followed multi-select shows one filled top CTA", async ({ page }) => 
   await expect(list.locator("[data-followed-kol]")).toHaveCount(3);
   await expect(list.locator("[data-followed-select]")).toHaveCount(3);
   await page.mouse.move(0, 0);
-  await expect(list.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
+  await expect(list.locator("[data-kol-primary-action].btn.ghost")).toHaveCount(3);
   await expect(list.locator("[data-kol-primary-action].btn.work")).toHaveCount(0);
   await expect(topCta).toHaveClass(/ghost/);
   await expect(topCta).toBeDisabled();
