@@ -151,12 +151,15 @@ function policyFlags(graph: StageGraphFile, actor: StageActor, kind: StageTransi
   if (kind === "host_terminal") return actor === "human" ? ["allow_human"] : ["forbid"];
   if (kind === "unknown") return ["forbid"];
   const policy = actor === "human" ? graph.human_policy || {} : graph.auto_policy || {};
-  if (kind === "leave_exception" && actor === "auto") {
+  if (kind === "leave_exception") {
     const { returnable, terminal } = exceptionSets(graph);
     const host = normalizeStage(from);
     if (terminal.has(host)) return policy.leave_exception_terminal || ["forbid"];
-    if (returnable.has(host)) return policy.leave_exception_returnable || ["allow_auto"];
-    return ["forbid"];
+    if (actor === "auto") {
+      if (returnable.has(host)) return policy.leave_exception_returnable || ["allow_auto"];
+      return ["forbid"];
+    }
+    return policy.leave_exception || ["allow_human", "require_reason"];
   }
   return policy[kind] || ["forbid"];
 }
