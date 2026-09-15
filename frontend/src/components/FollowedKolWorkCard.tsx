@@ -23,6 +23,23 @@ function primaryKind(kind: RecommendedKind): string | undefined {
   return kind;
 }
 
+function workCtaClass(opts: {
+  kind: RecommendedKind;
+  emphasized: boolean;
+  demoteDraft: boolean;
+}): string {
+  const draftQuiet = opts.kind === "compose" && opts.demoteDraft;
+  const filled = opts.emphasized && !draftQuiet;
+  return [
+    "btn",
+    filled ? "work" : "ghost",
+    "sm",
+    "kol-cta-btn",
+    "kol-cta-work",
+    draftQuiet ? "is-draft-quiet" : "",
+  ].filter(Boolean).join(" ");
+}
+
 export default function FollowedKolWorkCard({
   card,
   onOpenDetail,
@@ -33,6 +50,12 @@ export default function FollowedKolWorkCard({
   actionBusy = false,
   actionNotice,
   actionTone = "info",
+  selected = false,
+  hovered = false,
+  ctaEmphasis = "quiet",
+  onHoverChange,
+  onFocusChange,
+  onSelect,
 }: {
   card: FollowedKolCardModel;
   onOpenDetail: () => void;
@@ -43,6 +66,12 @@ export default function FollowedKolWorkCard({
   actionBusy?: boolean;
   actionNotice?: string;
   actionTone?: "info" | "error";
+  selected?: boolean;
+  hovered?: boolean;
+  ctaEmphasis?: "quiet" | "strong";
+  onHoverChange?: (hovered: boolean) => void;
+  onFocusChange?: (focused: boolean) => void;
+  onSelect?: () => void;
 }) {
   const rec = card.recommended_action;
   const fact = card.latest_fact;
@@ -50,6 +79,8 @@ export default function FollowedKolWorkCard({
   const primary = primaryKind(rec.kind);
   const showConfirm = rec.kind === "confirm-stage" && rec.can_write_stage && Boolean(rec.target_stage_label);
   const showCompose = rec.kind === "compose" || rec.kind === "confirm-send";
+  const demoteDraft = rec.kind === "compose" && showConfirm;
+  const emphasized = ctaEmphasis === "strong";
   const showMail = Boolean(fact.thread_id);
   const days = card.current_state.days_in_stage;
   const stageLabel = formatStageBadge(card.current_state.stage_label);
@@ -73,10 +104,27 @@ export default function FollowedKolWorkCard({
         "followed-kol-card"
         + (card.risk.exception ? " is-exception" : "")
         + (card.current_state.unbound ? " is-unbound" : "")
+        + (hovered ? " is-hovered" : "")
       }
       data-followed-kol={card.handle}
       data-kol-work-card
       data-action-owner={card.owner}
+      data-cta-emphasis={emphasized ? "strong" : "quiet"}
+      data-selected={selected ? "true" : undefined}
+      onMouseEnter={(event) => {
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && !event.currentTarget.contains(active)) {
+          active.blur();
+        }
+        onHoverChange?.(true);
+      }}
+      onMouseLeave={() => onHoverChange?.(false)}
+      onFocusCapture={() => onFocusChange?.(true)}
+      onBlurCapture={(event) => {
+        const next = event.relatedTarget as Node | null;
+        if (!event.currentTarget.contains(next)) onFocusChange?.(false);
+      }}
+      onClick={onSelect}
     >
       <div className="kol-band kol-band-identity" data-kol-band="identity">
         <span className="kol-avatar" data-kol-avatar aria-hidden>{initial}</span>
@@ -170,8 +218,10 @@ export default function FollowedKolWorkCard({
           {showCompose ? (
             <button
               type="button"
-              className="btn work sm kol-cta-btn"
+              className={workCtaClass({ kind: rec.kind, emphasized, demoteDraft })}
               data-kol-primary-action={primary}
+              data-cta-role={rec.kind === "compose" ? "draft" : "send"}
+              data-cta-visual={emphasized && !demoteDraft ? "filled" : "ghost"}
               onClick={onCompose || onPrimary}
             >
               {rec.label}
@@ -180,8 +230,10 @@ export default function FollowedKolWorkCard({
           {showConfirm ? (
             <button
               type="button"
-              className="btn work sm kol-cta-btn"
+              className={workCtaClass({ kind: "confirm-stage", emphasized, demoteDraft: false })}
               data-kol-primary-action="confirm-stage"
+              data-cta-role="stage"
+              data-cta-visual={emphasized ? "filled" : "ghost"}
               data-confirm-enter-stage
               data-confirm-stage-priority="primary"
               data-target-stage={rec.target_stage_code}
@@ -195,8 +247,10 @@ export default function FollowedKolWorkCard({
           {primary && !showCompose && !showConfirm ? (
             <button
               type="button"
-              className="btn work sm kol-cta-btn"
+              className={workCtaClass({ kind: rec.kind, emphasized, demoteDraft: false })}
               data-kol-primary-action={primary}
+              data-cta-role="other"
+              data-cta-visual={emphasized ? "filled" : "ghost"}
               disabled={actionBusy}
               onClick={onPrimary}
             >

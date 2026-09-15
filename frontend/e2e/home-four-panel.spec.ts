@@ -1054,6 +1054,124 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
   expect(stacked).toBe(true);
 });
 
+async function countFilledFollowedWorkCtas(page: Page): Promise<number> {
+  return page.locator("[data-followed-kol-list] [data-kol-primary-action]").evaluateAll((els) => (
+    els.filter((el) => {
+      if (el.classList.contains("work") || el.getAttribute("data-cta-visual") === "filled") return true;
+      return getComputedStyle(el).backgroundColor === "rgb(0, 0, 0)";
+    }).length
+  ));
+}
+
+test("home followed list keeps one strong work CTA", async ({ page }) => {
+  await page.route("**/api/home/board", (route) => route.fulfill({
+    json: {
+      kols: [
+        {
+          id: "col_stage_a",
+          handle: "阶段甲",
+          brand: "LT",
+          stage_code: "INITIAL_CONTACT",
+          stage_label: "初步接触",
+          suggested_stage: "已回复-有兴趣",
+          suggested_stage_code: "INTERESTED",
+          days_in_stage: 3,
+          mail_threads: [{
+            conversation_id: "thread-a",
+            subject: "Re: collab A",
+            unread_count: 0,
+            last_direction: "inbound",
+            last_snippet: "我对这次合作有兴趣",
+            last_at: "2026-09-12T10:00:00.000Z",
+          }],
+        },
+        {
+          id: "col_stage_b",
+          handle: "阶段乙",
+          brand: "LT",
+          stage_code: "INITIAL_CONTACT",
+          stage_label: "初步接触",
+          suggested_stage: "已回复-有兴趣",
+          suggested_stage_code: "INTERESTED",
+          days_in_stage: 2,
+          mail_threads: [{
+            conversation_id: "thread-b",
+            subject: "Re: collab B",
+            unread_count: 0,
+            last_direction: "inbound",
+            last_snippet: "我对这次合作有兴趣",
+            last_at: "2026-09-11T10:00:00.000Z",
+          }],
+        },
+        {
+          id: "col_draft_row",
+          handle: "起草卡",
+          brand: "LT",
+          stage_code: "QUOTE_PENDING",
+          stage_label: "报价待确认",
+          days_in_stage: 1,
+        },
+      ],
+      tasks: [{
+        id: "tsk_draft_row",
+        title: "写跟进邮件",
+        skill_id: "email_compose",
+        status: "pending",
+        collaboration_id: "col_draft_row",
+        kol_name: "起草卡",
+      }],
+    },
+  }));
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/");
+  await openMode(page, "lifecycle");
+  const list = page.locator("[data-followed-kol-list]");
+  const stageA = page.locator('[data-followed-kol="阶段甲"]');
+  const stageB = page.locator('[data-followed-kol="阶段乙"]');
+  const draft = page.locator('[data-followed-kol="起草卡"]');
+  await expect(list.locator("[data-followed-kol]")).toHaveCount(3);
+  await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveText("进入已回复 · 有兴趣 →");
+  await expect(draft.locator("[data-kol-primary-action]")).toHaveText("起草");
+  await expect(list.locator("[data-open-kol-detail]")).toHaveCount(3);
+  await expect(list.locator("[data-open-kol-detail].btn.work")).toHaveCount(0);
+
+  await page.mouse.move(0, 0);
+  await expect(list.locator("[data-kol-primary-action].btn.work")).toHaveCount(0);
+  await expect(stageA.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
+  await expect(stageB.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
+  await expect(draft.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
+  expect(await countFilledFollowedWorkCtas(page)).toBe(0);
+
+  await stageA.hover();
+  await expect(stageA).toHaveAttribute("data-cta-emphasis", "strong");
+  await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveClass(/work/);
+  await expect(stageB.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
+  await expect(draft.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
+  expect(await countFilledFollowedWorkCtas(page)).toBe(1);
+
+  await stageB.locator("[data-confirm-enter-stage]").focus();
+  await expect(stageB).toHaveAttribute("data-cta-emphasis", "strong");
+  await expect(stageB.locator("[data-confirm-enter-stage]")).toHaveClass(/work/);
+  await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
+  expect(await countFilledFollowedWorkCtas(page)).toBe(1);
+
+  await draft.hover();
+  await expect(draft.locator("[data-kol-primary-action]")).toHaveClass(/work/);
+  await expect(draft.locator("[data-cta-role='draft']")).toHaveAttribute("data-cta-visual", "filled");
+  await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
+  await expect(stageB.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
+  expect(await countFilledFollowedWorkCtas(page)).toBe(1);
+
+  await stageA.locator("[data-kol-name]").click();
+  await page.mouse.move(0, 0);
+  await expect(stageA).toHaveAttribute("data-selected", "true");
+  await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveClass(/work/);
+  await expect(stageB.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
+  await expect(draft.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
+  expect(await countFilledFollowedWorkCtas(page)).toBe(1);
+  expect(await list.locator("[data-followed-kol]").count()).toBeGreaterThan(1);
+});
+
 test("today suggestion convert to todo dedupes", async ({ page }) => {
   await page.goto("/");
   await openMode(page, "todo");
