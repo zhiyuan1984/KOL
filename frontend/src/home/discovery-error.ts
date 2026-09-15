@@ -41,6 +41,7 @@ export class DiscoveryWaitTimeoutError extends Error {
   constructor(results?: unknown, message = DISCOVERY_TIMEOUT_MESSAGE) {
     super(message);
     this.name = "DiscoveryWaitTimeoutError";
+    this.timedOut = true;
     this.results = results;
   }
 }
@@ -50,6 +51,7 @@ export class DiscoveryWaitCancelledError extends Error {
   constructor(message = DISCOVERY_CANCELLED_MESSAGE) {
     super(message);
     this.name = "DiscoveryWaitCancelledError";
+    this.cancelled = true;
   }
 }
 
@@ -115,13 +117,21 @@ export function isDiscoveryConnectionFailure(raw: unknown): boolean {
   return false;
 }
 
+function errorName(raw: unknown): string {
+  return raw && typeof raw === "object" && "name" in raw ? String((raw as { name?: unknown }).name || "") : "";
+}
+
 function isTimeoutError(raw: unknown): boolean {
   return raw instanceof DiscoveryWaitTimeoutError
+    || errorName(raw) === "DiscoveryWaitTimeoutError"
+    || errorText(raw) === DISCOVERY_TIMEOUT_MESSAGE
     || Boolean(raw && typeof raw === "object" && (raw as { timedOut?: unknown }).timedOut === true);
 }
 
 function isCancelledWait(raw: unknown): boolean {
   return raw instanceof DiscoveryWaitCancelledError
+    || errorName(raw) === "DiscoveryWaitCancelledError"
+    || errorText(raw) === DISCOVERY_CANCELLED_MESSAGE
     || Boolean(raw && typeof raw === "object" && (raw as { cancelled?: unknown }).cancelled === true);
 }
 

@@ -4,7 +4,11 @@ import { useViewMode } from "../viewMode";
 import {
   DEFAULT_DISCOVERY_FILTERS,
   DIRECTION_PRESETS,
+  DISCOVERY_CANCELLED_MESSAGE,
+  DISCOVERY_CANCELLED_TITLE,
   DISCOVERY_REGION_OPTIONS,
+  DISCOVERY_TIMEOUT_MESSAGE,
+  DISCOVERY_TIMEOUT_TITLE,
   MAX_DIRECTION_CHARS,
   MAX_DIRECTIONS,
   OVERSEAS_DISCOVERY_PLATFORMS,
@@ -231,7 +235,12 @@ export default function DiscoveryPanel() {
   };
 
   const applyTerminalResults = (results: DiscoveryResults) => {
-    setRequest(results.request);
+    setRequest((current) => ({
+      ...results.request,
+      id: results.request.id || current?.id || results.id,
+      keywords: results.request.keywords.length ? results.request.keywords : current?.keywords || [],
+      platforms: results.request.platforms.length ? results.request.platforms : current?.platforms || [],
+    }));
     setActiveRun(results.run);
     setCandidates(results.candidates);
     setSelectedIds([]);
@@ -263,16 +272,49 @@ export default function DiscoveryPanel() {
       ? abortRef.current
       : new AbortController();
     abortRef.current = ac;
-    const results = await waitForDiscoveryResults(requestId, {
+    const ended = await waitForDiscoveryResults(requestId, {
       signal: ac.signal,
       onUpdate: (latest) => {
         if (gen !== waitGen.current) return;
-        setRequest(latest.request);
+        setRequest((current) => ({
+          ...latest.request,
+          id: latest.request.id || current?.id || requestId,
+          keywords: latest.request.keywords.length ? latest.request.keywords : current?.keywords || [],
+          platforms: latest.request.platforms.length ? latest.request.platforms : current?.platforms || [],
+        }));
         setActiveRun(latest.run);
       },
     });
     if (gen !== waitGen.current) return;
-    applyTerminalResults(results);
+    if (ended.reason === "cancelled") {
+      setError({
+        kind: "cancelled",
+        title: DISCOVERY_CANCELLED_TITLE,
+        message: DISCOVERY_CANCELLED_MESSAGE,
+        detail: null,
+        retryDisabled: false,
+        checkConnection: false,
+        recover: "wait",
+        retryLabel: "继续等待",
+      });
+      setPhase("error");
+      return;
+    }
+    if (ended.reason === "timeout") {
+      setError({
+        kind: "timeout",
+        title: DISCOVERY_TIMEOUT_TITLE,
+        message: DISCOVERY_TIMEOUT_MESSAGE,
+        detail: null,
+        retryDisabled: false,
+        checkConnection: false,
+        recover: "wait",
+        retryLabel: "继续等待",
+      });
+      setPhase("error");
+      return;
+    }
+    applyTerminalResults(ended.results);
   };
 
   const buildPlan = async () => {
@@ -361,6 +403,8 @@ export default function DiscoveryPanel() {
   const resumeWait = async () => {
     if (!request) return;
     const gen = ++waitGen.current;
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
     setBusy(true);
     setError(null);
     setDetailOpen(false);

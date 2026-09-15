@@ -8,10 +8,6 @@
  * POST /candidates/:id/follow is the only path that creates Collaboration.
  */
 import { api } from "../api";
-import {
-  DiscoveryWaitCancelledError,
-  DiscoveryWaitTimeoutError,
-} from "./discovery-error";
 
 export type DiscoveryPlatform = "youtube" | "instagram" | "facebook";
 export type DiscoveryMode = "search" | "detail" | "creator";
@@ -694,19 +690,24 @@ export function discoveryWaitTimeoutMs(): number {
   return DISCOVERY_WAIT_TIMEOUT_MS;
 }
 
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
+export type DiscoveryWaitResult =
+  | { reason: "ready"; results: DiscoveryResults }
+  | { reason: "timeout"; results: DiscoveryResults }
+  | { reason: "cancelled" };
+
+function sleep(ms: number, signal?: AbortSignal): Promise<"ok" | "cancelled"> {
+  return new Promise((resolve) => {
     if (signal?.aborted) {
-      reject(new DiscoveryWaitCancelledError());
+      resolve("cancelled");
       return;
     }
     const timer = window.setTimeout(() => {
       signal?.removeEventListener("abort", onAbort);
-      resolve();
+      resolve("ok");
     }, ms);
     const onAbort = () => {
       window.clearTimeout(timer);
-      reject(new DiscoveryWaitCancelledError());
+      resolve("cancelled");
     };
     signal?.addEventListener("abort", onAbort, { once: true });
   });
@@ -720,20 +721,20 @@ export async function waitForDiscoveryResults(
     signal?: AbortSignal;
     onUpdate?: (results: DiscoveryResults) => void;
   },
-): Promise<DiscoveryResults> {
+): Promise<DiscoveryWaitResult> {
   const timeoutMs = opts?.timeoutMs ?? discoveryWaitTimeoutMs();
   const delayMs = opts?.delayMs ?? DISCOVERY_WAIT_POLL_MS;
   const started = Date.now();
   let latest = await getDiscoveryResults(requestId);
   opts?.onUpdate?.(latest);
   while (!isDiscoveryTerminal(latest)) {
-    if (opts?.signal?.aborted) throw new DiscoveryWaitCancelledError();
-    if (Date.now() - started >= timeoutMs) throw new DiscoveryWaitTimeoutError(latest);
-    await sleep(delayMs, opts?.signal);
+    if (opts?.signal?.aborted) return { reason: "cancelled" };
+    if (Date.now() - started >= timeoutMs) return { reason: "timeout", results: latest };
+    if (await sleep(delayMs, opts?.signal) === "cancelled") return { reason: "cancelled" };
     latest = await getDiscoveryResults(requestId);
     opts?.onUpdate?.(latest);
   }
-  return latest;
+  return { reason: "ready", results: latest };
 }
 
 export function readDiscoveryFavorites(): Record<string, boolean> {

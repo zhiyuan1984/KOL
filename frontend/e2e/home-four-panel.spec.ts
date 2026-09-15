@@ -487,23 +487,74 @@ test("home discovery timeout stays an error with recover, not empty results", as
   await page.locator("[data-discovery-plan]").click();
   await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
   await page.locator("[data-discovery-confirm-plan]").click();
-  await expect(page.locator("[data-discovery-loading]")).toBeVisible();
+  const loading = page.locator("[data-discovery-loading]");
+  await expect(loading).toBeVisible();
+  await expect(loading).toHaveAttribute("data-discovery-run-status", /queued|running/);
   await expect(page.locator("[data-discovery-empty='results']")).toHaveCount(0);
 
   const error = page.locator("[data-discovery-error]");
   await expect(error).toBeVisible({ timeout: 8000 });
   await expect(error).toHaveAttribute("data-discovery-error-kind", "timeout");
   await expect(error.locator("[data-discovery-error-title]")).toHaveText("检索尚未完成");
+  await expect(error.locator("[data-discovery-error-message]")).toContainText("没有得到完整结果");
   await expect(page.locator("[data-discovery-retry]")).toHaveText("继续等待");
   await expect(page.locator("[data-discovery-cancel-error]")).toHaveText("返回修改");
   await expect(page.locator("[data-discovery-empty='results']")).toHaveCount(0);
   await expect(page.locator("[data-discovery-panel]")).not.toContainText("没有红人线索");
-
   await page.locator("[data-discovery-retry]").click();
+  await expect(loading).toBeVisible();
+  await expect(error).toHaveCount(0);
+  await expect(error).toBeVisible({ timeout: 8000 });
+  await expect(error).toHaveAttribute("data-discovery-error-kind", "timeout");
+  await page.locator("[data-discovery-cancel-error]").click();
+  await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
+});
+
+test("home discovery cancel wait recovers without fake empty results", async ({ page }) => {
+  await page.route("**/api/discovery/requests/**/runs", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "drun_e2e_cancel",
+        status: "running",
+        status_label: "采集中",
+      }),
+    });
+  });
+  await page.route("**/api/discovery/requests/**/results", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "running",
+        status_label: "采集中",
+        keywords: ["找北美户外评测达人"],
+        candidates: [],
+        run: { id: "drun_e2e_cancel", status: "running", status_label: "采集中" },
+        request: { keywords: ["找北美户外评测达人"], status: "running" },
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await openMode(page, "discovery");
+  await page.locator("[data-discovery-query]").fill("找北美户外评测达人");
+  await page.locator("[data-discovery-plan]").click();
+  await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
+  await page.locator("[data-discovery-confirm-plan]").click();
   await expect(page.locator("[data-discovery-loading]")).toBeVisible();
-  await expect(page.locator("[data-discovery-run-status]")).toHaveAttribute("data-discovery-run-status", "running");
   await page.locator("[data-discovery-cancel-wait]").click();
-  await expect(page.locator("[data-discovery-error]")).toHaveAttribute("data-discovery-error-kind", "cancelled");
+  const error = page.locator("[data-discovery-error]");
+  await expect(error).toBeVisible();
+  await expect(error).toHaveAttribute("data-discovery-error-kind", "cancelled");
+  await expect(page.locator("[data-discovery-retry]")).toHaveText("继续等待");
+  await expect(page.locator("[data-discovery-empty='results']")).toHaveCount(0);
+  await expect(page.locator("[data-discovery-panel]")).not.toContainText("没有红人线索");
   await page.locator("[data-discovery-cancel-error]").click();
   await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
 });
