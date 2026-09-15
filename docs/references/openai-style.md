@@ -1,6 +1,6 @@
 # OpenAI — Style Reference
 
-> 默认观感规范来源（主按钮色除外：项目主色仍为 MASTER `--primary`）。Token hex 仍只住 MASTER；本文件不授权把黑色实底 CTA 或本页 hex 抄进 `design.md` / CSS。项目规则见 `../design-system/kol-workbench/MASTER.md`。
+> 默认观感 mood/spec（ADR-031：与 MASTER 审美冲突时 **本文件胜出**）。Token hex 仍只住 MASTER，不抄进 `design.md`。胜出后必须和解 MASTER（浅色填充主 CTA = Obsidian `#000000`，不是蓝 `--primary`）；CSS 同步另开 FE PR。本文件仍不授权把 hex 直接写入 `design.md`。项目规则见 `../design-system/kol-workbench/MASTER.md`。
 
 > Research lab notebook at noon.
 
