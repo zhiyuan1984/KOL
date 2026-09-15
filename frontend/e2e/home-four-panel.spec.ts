@@ -938,6 +938,88 @@ test("home todo action rows use full-width workbench layout", async ({ page }) =
   await expectNoPageHorizontalScroll(page);
 });
 
+test("home followed KOL card is a dense fact | AI decision row", async ({ page }) => {
+  await page.route("**/api/home/board", (route) => route.fulfill({
+    json: {
+      kols: [{
+        id: "col_xiaomei",
+        handle: "小美妆日记",
+        brand: "LT",
+        owner_name: "钟槿年",
+        platform: "小红书",
+        stage_code: "INITIAL_CONTACT",
+        stage_label: "初步接触",
+        days_in_stage: 12,
+        mailbox_from: "larry.zhao@amperetime.com",
+        suggested_stage: "已回复-有兴趣",
+        suggested_stage_code: "INTERESTED",
+        unread_count: 0,
+        mail_threads: [{
+          conversation_id: "3901",
+          subject: "Re: LiTime collab",
+          unread_count: 0,
+          last_direction: "inbound",
+          last_from: "amy@example.com",
+          last_snippet: "我对这次合作有兴趣",
+          last_at: "2026-09-12T10:00:00.000Z",
+        }],
+      }],
+      tasks: [],
+      tabs: [{ code: "all", count: 1 }],
+    },
+  }));
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/");
+  await openMode(page, "lifecycle");
+  const card = page.locator('[data-followed-kol="小美妆日记"]');
+  await expect(card).toBeVisible();
+  await expect(card.locator("[data-kol-band]")).toHaveCount(4);
+  await expect(card.locator("[data-kol-band='identity'] [data-stage-label]")).toHaveText("初步接触");
+  await expect(card.locator("[data-days-in-stage]")).toHaveText("停留 12 天");
+  await expect(card.locator('[data-kol-chip="mailbox"]')).toHaveCount(0);
+  await expect(card.locator("[data-latest-fact]")).toContainText("我对这次合作有兴趣");
+  await expect(card.locator("[data-latest-fact]")).toContainText("邮件 ·");
+  await expect(card.locator("[data-latest-fact]")).not.toContainText("From:");
+  await expect(card.locator("[data-latest-fact]")).not.toContainText("Reply-To");
+  await expect(card.locator("[data-recommended-action]")).toContainText("建议进入「已回复 · 有兴趣」");
+  await expect(card.locator("[data-action-why]")).toContainText("明确表达品牌合作意愿");
+  await expect(card).not.toContainText("支撑进入");
+  await expect(card).not.toContainText("support_transition");
+  await expect(card.locator("[data-action-evidence]")).toContainText("查看判断依据");
+  await expect(card.locator("[data-confirm-enter-stage]")).toHaveText("进入已回复 · 有兴趣 →");
+  await expect(card.locator("[data-confirm-enter-stage]")).toHaveClass(/work/);
+  await expect(card.locator("[data-open-kol-detail]")).toHaveText("查看详情");
+  await expect(card.locator("[data-open-original-mail]")).toHaveText("原邮件");
+  await expect(card.getByRole("button", { name: "确认阶段", exact: true })).toHaveCount(0);
+
+  const wide = await card.evaluate((el) => {
+    const name = el.querySelector("[data-kol-name]")?.getBoundingClientRect();
+    const stage = el.querySelector("[data-stage-label]")?.getBoundingClientRect();
+    const fact = el.querySelector("[data-latest-fact]")?.getBoundingClientRect();
+    const rec = el.querySelector("[data-recommended-action]")?.getBoundingClientRect();
+    const primary = el.querySelector("[data-confirm-enter-stage]")?.getBoundingClientRect();
+    const detail = el.querySelector("[data-open-kol-detail]")?.getBoundingClientRect();
+    return {
+      stageBesideName: Boolean(name && stage && Math.abs(name.top - stage.top) < 16 && stage.left + 1 >= name.right - 8),
+      factAiSideBySide: Boolean(fact && rec && rec.left + 2 >= fact.right - 8 && Math.abs(fact.top - rec.top) < 48),
+      primaryRightOfDetail: Boolean(primary && detail && primary.left + 2 >= detail.right - 8),
+      cardWidth: el.clientWidth,
+    };
+  });
+  expect(wide.stageBesideName).toBe(true);
+  expect(wide.factAiSideBySide).toBe(true);
+  expect(wide.primaryRightOfDetail).toBe(true);
+  expect(wide.cardWidth).toBeGreaterThan(900);
+
+  await page.setViewportSize({ width: 720, height: 900 });
+  const stacked = await card.evaluate((el) => {
+    const fact = el.querySelector("[data-latest-fact]")?.getBoundingClientRect();
+    const rec = el.querySelector("[data-recommended-action]")?.getBoundingClientRect();
+    return Boolean(fact && rec && rec.top + 1 >= fact.bottom - 8);
+  });
+  expect(stacked).toBe(true);
+});
+
 test("today suggestion convert to todo dedupes", async ({ page }) => {
   await page.goto("/");
   await openMode(page, "todo");

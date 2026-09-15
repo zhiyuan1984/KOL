@@ -4,6 +4,20 @@ export const MAIL_PREVIEW_MAX = 88;
 
 const GREETING_LEAD = /^(hi|hello|hey|dear|good\s+(morning|afternoon|evening))\b[\s,!.:-]*/i;
 const SIGN_OFF = /\b(best regards|kind regards|sincerely|cheers|thanks(?:\s+again)?|此致敬礼|谢谢)\b[\s\S]*$/i;
+const EMAIL_ADDR = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+const HEADER_FIELD = /^(from|to|reply-to|cc|bcc|subject|date|sent|sender|return-path)\s*:/im;
+const HEADER_DUMP = /原始发件人|reply-to\s*:|return-path|mime-version/i;
+
+/** True when the snippet is envelope/header residue, not a human quote. */
+export function isMailHeaderDump(raw: string): boolean {
+  const text = stripMailChrome(raw);
+  if (!text) return true;
+  if (HEADER_DUMP.test(text) || HEADER_FIELD.test(text)) return true;
+  const withoutEmails = text
+    .replace(new RegExp(EMAIL_ADDR.source, "gi"), "")
+    .replace(/[<>&;=\s,]/g, "");
+  return EMAIL_ADDR.test(text) && withoutEmails.length < 8;
+}
 
 export function stripMailChrome(raw: string): string {
   return String(raw || "")
@@ -33,6 +47,7 @@ const ZH_CLAUSE_WITH_LATIN =
 
 /** Prefer a short Chinese clause when the snippet is a bilingual dump. */
 export function pickMailPreviewSource(text: string): string {
+  if (isMailHeaderDump(text)) return "";
   const cleaned = stripMailChrome(text);
   if (!cleaned) return "";
   // Sentence punctuation only — never split on ASCII letters inside Chinese.

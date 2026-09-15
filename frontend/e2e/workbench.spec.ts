@@ -195,46 +195,66 @@ async function expectFollowedKolCardWraps(page: Page, handle?: string) {
       if (!(top instanceof HTMLElement) || !(bottom instanceof HTMLElement)) return false;
       return bottom.getBoundingClientRect().top + 1 >= top.getBoundingClientRect().bottom - 8;
     };
+    const nameBox = pick("[data-kol-name]")?.getBoundingClientRect();
+    const stageBox = pick("[data-stage-label]")?.getBoundingClientRect();
+    const factBox = pick("[data-latest-fact]")?.getBoundingClientRect();
+    const recBox = pick("[data-recommended-action]")?.getBoundingClientRect();
     return {
       name: styleOf(pick("[data-kol-name]")),
       chips: styleOf(pick("[data-kol-chip]") || pick("[data-kol-scope]")),
       stage: styleOf(pick("[data-stage-label]")),
-      suggestion: styleOf(pick("[data-recommended-action] p")),
-      mail: styleOf(pick("[data-mail-summary]") || pick("[data-latest-fact] p")),
-      evidence: styleOf(pick("[data-action-evidence] p")),
-      stateCols: bandCols('[data-kol-band="state"]'),
+      suggestion: styleOf(pick("[data-recommended-action] .kol-suggestion") || pick("[data-recommended-action] p")),
+      mail: styleOf(pick("[data-mail-summary]") || pick("[data-latest-fact] .kol-mail-digest")),
+      evidence: styleOf(pick("[data-action-evidence] p") || pick("[data-action-why]")),
+      splitCols: (() => {
+        const split = pick("[data-kol-split]");
+        return split instanceof HTMLElement ? getComputedStyle(split).gridTemplateColumns : "";
+      })(),
       factCols: bandCols('[data-kol-band="fact"]'),
       actionCols: bandCols('[data-kol-band="action"]'),
-      factBelowState: below("[data-current-state]", "[data-latest-fact]"),
-      suggestionBelowFact: below("[data-latest-fact]", "[data-recommended-action]"),
-      evidenceBelowHeadline: below("[data-recommended-action]", "[data-action-evidence]"),
-      suggestionBelowStage: below("[data-current-state]", "[data-recommended-action]"),
-      evidenceBelowFact: below("[data-latest-fact]", "[data-action-evidence]"),
+      factBelowIdentity: below("[data-kol-identity]", "[data-latest-fact]"),
+      stageBesideName: Boolean(
+        nameBox && stageBox && Math.abs(nameBox.top - stageBox.top) < 16 && stageBox.left + 1 >= nameBox.right - 8,
+      ),
+      factAiSideBySide: Boolean(
+        factBox && recBox && recBox.left + 2 >= factBox.right - 8 && Math.abs(factBox.top - recBox.top) < 48,
+      ),
+      factAiStacked: Boolean(
+        factBox && recBox && recBox.top + 1 >= factBox.bottom - 8,
+      ),
       cardWidth: el.clientWidth,
       cardOverflows: el.scrollWidth > el.clientWidth + 1,
     };
   });
-  for (const style of [layout.name, layout.chips, layout.stage, layout.suggestion, layout.mail, layout.evidence]) {
-    expect(style).toBeTruthy();
+  for (const style of [layout.name, layout.stage, layout.suggestion, layout.mail, layout.chips].filter(Boolean)) {
     expect(style!.whiteSpace).not.toBe("nowrap");
     expect(["anywhere", "break-word"]).toContain(style!.overflowWrap);
   }
+  if (layout.evidence) {
+    expect(layout.evidence.whiteSpace).not.toBe("nowrap");
+    expect(["anywhere", "break-word"]).toContain(layout.evidence.overflowWrap);
+    const evClamp = Number(layout.evidence.webkitLineClamp);
+    if (!Number.isNaN(evClamp) && evClamp > 0) {
+      expect(evClamp).toBeGreaterThanOrEqual(2);
+      expect(evClamp).toBeLessThanOrEqual(3);
+    }
+  }
   const mailClamp = Number(layout.mail!.webkitLineClamp);
-  const evClamp = Number(layout.evidence!.webkitLineClamp);
   expect(mailClamp).toBeGreaterThanOrEqual(2);
   expect(mailClamp).toBeLessThanOrEqual(3);
-  expect(evClamp).toBeGreaterThanOrEqual(2);
-  expect(evClamp).toBeLessThanOrEqual(3);
   expect(layout.stage!.webkitLineClamp === "none" || !layout.stage!.webkitLineClamp).toBeTruthy();
   expect(layout.suggestion!.webkitLineClamp === "none" || !layout.suggestion!.webkitLineClamp).toBeTruthy();
-  expect(layout.stateCols.split(" ").filter(Boolean)).toHaveLength(1);
   expect(layout.factCols.split(" ").filter(Boolean)).toHaveLength(1);
   expect(layout.actionCols.split(" ").filter(Boolean)).toHaveLength(1);
-  expect(layout.factBelowState).toBe(true);
-  expect(layout.suggestionBelowFact).toBe(true);
-  expect(layout.evidenceBelowHeadline).toBe(true);
-  expect(layout.suggestionBelowStage).toBe(true);
-  expect(layout.evidenceBelowFact).toBe(true);
+  expect(layout.factBelowIdentity).toBe(true);
+  expect(layout.stageBesideName).toBe(true);
+  if (layout.cardWidth >= 860) {
+    expect(layout.splitCols.split(" ").filter(Boolean).length).toBeGreaterThanOrEqual(2);
+    expect(layout.factAiSideBySide).toBe(true);
+  } else {
+    expect(layout.splitCols.split(" ").filter(Boolean)).toHaveLength(1);
+    expect(layout.factAiStacked).toBe(true);
+  }
   expect(layout.cardOverflows).toBe(false);
 }
 
@@ -934,7 +954,7 @@ test("home followed-KOL object list opens the KOL session", async ({ page }) => 
   await expect(outdoor.locator("[data-kol-identity]")).toContainText("户外电源达人");
   await expect(outdoor.locator("[data-kol-identity]")).not.toContainText("KOL 名称");
   await expect(outdoor.locator("[data-kol-scope]")).toContainText("LT");
-  await expect(outdoor.locator("[data-kol-band]")).toHaveCount(5);
+  await expect(outdoor.locator("[data-kol-band]")).toHaveCount(4);
   await expect(outdoor.locator('[data-kol-card-cols="5"]')).toHaveCount(0);
   await expect(outdoor.locator(".task-main")).toHaveCount(0);
   await expect(outdoor.locator("[data-current-state]")).toContainText("初步接触");
@@ -1065,7 +1085,7 @@ async function expectHomeFollowedRailWide(page: Page, viewportWidth: number) {
 }
 
 async function expectFollowedKolStackedNoOverflow(page: Page, handle: string) {
-  await expect(page.locator(`[data-followed-kol="${handle}"] [data-kol-band]`)).toHaveCount(5);
+  await expect(page.locator(`[data-followed-kol="${handle}"] [data-kol-band]`)).toHaveCount(4);
   await expectFollowedKolCardWraps(page, handle);
   await expectFollowedKolListAlignsWithToolbar(page);
   await expectObjectToolbarAligned(page);
@@ -1148,7 +1168,7 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await openHomeLifecycle(page);
   const card = page.locator('[data-followed-kol="小美妆日记"]');
   const confirmCard = page.locator('[data-followed-kol="测试网红-qq-01"]');
-  await expect(card.locator("[data-kol-band]")).toHaveCount(5);
+  await expect(card.locator("[data-kol-band]")).toHaveCount(4);
   await expect(card.locator('[data-kol-card-cols="5"]')).toHaveCount(0);
   await expect(card.locator(".task-main")).toHaveCount(0);
   await expectFollowedKolHeadingRemoved(page);
@@ -1160,26 +1180,34 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   expect(Math.abs((cardBox?.width || 0) - (toolbarBox?.width || 0))).toBeLessThan(8);
   await expect(card.locator("[data-mail-summary]")).toBeVisible();
   await expect(card.locator("[data-mail-summary]")).toContainText("想和贵品牌litime合作");
-  await expect(card.locator('[data-kol-chip="mailbox"]')).toHaveText("larry.zhao@amperetime.com");
+  await expect(card.locator('[data-kol-chip="mailbox"]')).toHaveCount(0);
   await expect(card.locator('[data-kol-chip="owner"]')).toHaveText("钟槿年");
   await expect(card.locator("[data-stage-label]")).toHaveText("初步接触");
+  await expect(card.locator("[data-kol-band='identity']")).toContainText("初步接触");
   await expect(card.locator("[data-days-in-stage]")).toHaveText("停留 12 天");
   await expect(card.locator("[data-current-state]")).not.toContainText(" · ");
   await expect(card.locator("[data-current-state]")).not.toContainText("异常");
   await expect(card.locator('[data-follow-style-tag]')).toHaveCount(0);
   await expect(card.locator("[data-kol-scope]")).not.toContainText("犹豫谨慎");
   await expect(card.locator("[data-mail-summary]")).not.toContainText("posting calendar");
-  await expect(card.locator("[data-open-original-mail]")).toHaveText("查看原邮件");
+  await expect(card.locator("[data-latest-fact]")).not.toContainText("From:");
+  await expect(card.locator("[data-latest-fact]")).not.toContainText("Reply-To");
+  await expect(card.locator("[data-open-original-mail]")).toHaveText("原邮件");
   await expect(card.locator("[data-kol-primary-action]")).toHaveCount(1);
   await expect(card.locator('[data-kol-primary-action="open-session"]')).toHaveText("查看来信");
   await expect(card.locator("[data-recommended-action]")).toContainText("查看来信");
   await expect(card.locator("[data-latest-fact]")).toContainText("想和贵品牌litime合作");
+  await expect(card.locator("[data-latest-fact]")).toContainText("邮件 ·");
+  await expect(card).not.toContainText("支撑进入");
 
-  await expect(confirmCard.locator("[data-recommended-action]")).toContainText("建议进入「已回复-有兴趣」");
-  await expect(confirmCard.locator("[data-recommended-action]")).not.toContainText("确认进入「已回复-有兴趣」");
-  await expect(confirmCard.locator("[data-confirm-enter-stage]")).toHaveText("确认进入「已回复-有兴趣」");
+  await expect(confirmCard.locator("[data-recommended-action]")).toContainText("建议进入「已回复 · 有兴趣」");
+  await expect(confirmCard.locator("[data-recommended-action]")).not.toContainText("确认进入");
+  await expect(confirmCard.locator("[data-confirm-enter-stage]")).toHaveText("进入已回复 · 有兴趣 →");
   await expect(confirmCard.locator("[data-confirm-enter-stage]")).toHaveClass(/work/);
-  await expect(confirmCard.locator("[data-action-evidence]")).toContainText("10070757521@qq.com");
+  await expect(confirmCard.locator("[data-action-why]")).toContainText("明确表达品牌合作意愿");
+  await expect(confirmCard).not.toContainText("支撑进入");
+  await expect(confirmCard.locator("[data-latest-fact]")).not.toContainText("10070757521@qq.com");
+  await expect(confirmCard.locator("[data-action-evidence]")).toContainText("查看判断依据");
   await expectFollowedKolStackedNoOverflow(page, "测试网红-qq-01");
 
   await page.setViewportSize({ width: 1600, height: 900 });
@@ -1327,7 +1355,7 @@ test("home followed-KOL default sort uses contract keys 1-8", async ({ page }) =
   await expect(risk.locator("[data-current-state]")).not.toContainText(" · ");
   await expect(risk.locator("[data-current-state]")).not.toContainText("异常");
   await expect(risk.locator('[data-kol-chip="exception"]')).toHaveText("异常");
-  await expect(risk.locator('[data-kol-chip="mailbox"]')).toHaveText("pq.ops@example.com");
+  await expect(risk.locator('[data-kol-chip="mailbox"]')).toHaveCount(0);
   await expect(page.locator("[data-kol-sorts]")).toHaveCount(0);
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("按需处理");
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("阶段停留");
@@ -1362,12 +1390,13 @@ test("home confirm CTA names the target stage and opens confirm_stage", async ({
   await page.goto("/");
   await openHomeLifecycle(page);
   const card = page.locator('[data-followed-kol="小美妆日记"]');
-  await expect(card.locator("[data-kol-band]")).toHaveCount(5);
+  await expect(card.locator("[data-kol-band]")).toHaveCount(4);
   await expect(card.locator("[data-latest-fact]")).toContainText("我对这次合作有兴趣");
-  await expect(card.locator("[data-recommended-action]")).toContainText("建议进入「已回复-有兴趣」");
-  await expect(card.locator("[data-recommended-action]")).not.toContainText("确认进入「已回复-有兴趣」");
+  await expect(card.locator("[data-recommended-action]")).toContainText("建议进入「已回复 · 有兴趣」");
+  await expect(card.locator("[data-recommended-action]")).not.toContainText("确认进入");
+  await expect(card).not.toContainText("支撑进入");
   const cta = card.locator("[data-confirm-enter-stage]");
-  await expect(cta).toHaveText("确认进入「已回复-有兴趣」");
+  await expect(cta).toHaveText("进入已回复 · 有兴趣 →");
   await expect(cta).toHaveClass(/work/);
   await expect(card.getByRole("button", { name: "确认阶段", exact: true })).toHaveCount(0);
   await cta.click();
@@ -3541,10 +3570,10 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await expectFollowedObjectToolbar(page);
   await expect(page.getByRole("link", { name: /查看KOL全生命周期/ })).toHaveCount(0);
   await expect(page.locator("[data-followed-kol]")).toHaveCount(4);
-  await expect(page.locator("[data-followed-kol] [data-kol-band]")).toHaveCount(20);
+  await expect(page.locator("[data-followed-kol] [data-kol-band]")).toHaveCount(16);
   const card = page.locator('[data-followed-kol="小美妆日记"]');
   await expect(card.locator('[data-kol-card-cols="5"]')).toHaveCount(0);
-  await expect(card.locator("[data-kol-band]")).toHaveCount(5);
+  await expect(card.locator("[data-kol-band]")).toHaveCount(4);
   await expect(card.locator("[data-current-state]")).toContainText("初步接触");
   await expect(card.locator("[data-recommended-action]")).toContainText("建议依据不足");
   await expect(card.locator("[data-confirm-enter-stage]")).toHaveCount(0);

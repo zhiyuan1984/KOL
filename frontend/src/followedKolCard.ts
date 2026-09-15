@@ -8,7 +8,7 @@
  */
 import type { Task } from "./api";
 import { MAIN_STAGE_TABS } from "./kolStages";
-import { latestMailThread, summarizeMailSnippet } from "./mailPreview";
+import { isMailHeaderDump, latestMailThread, summarizeMailSnippet } from "./mailPreview";
 
 export type FollowedKolRecord = {
   id: string;
@@ -124,16 +124,41 @@ export type FollowedKolCardModel = {
 
 const CLOSED = new Set(["completed", "done", "cancelled"]);
 
-export function confirmStageCtaLabel(stageLabel: string): string {
-  return `确认进入「${stageLabel}」`;
+/** Quiet badge / CTA stage copy: 已回复-有兴趣 → 已回复 · 有兴趣. */
+export function formatStageBadge(label: string): string {
+  return String(label || "").replace(/(\S)-(\S)/g, "$1 · $2").trim();
 }
 
-/** Short in-card headline. Full CTA sentence lives on the button only. */
+/** Primary stage CTA. Drop 「确认」 unless the write is irreversible (it is not). */
+export function confirmStageCtaLabel(stageLabel: string): string {
+  const stage = formatStageBadge(stageLabel);
+  return stage ? `进入${stage} →` : "进入下一阶段 →";
+}
+
+/** Short in-card AI headline. Action verb lives on the button only. */
 export function recommendedActionHeadline(rec: FollowedKolCardModel["recommended_action"]): string {
   if (rec.kind === "confirm-stage" && rec.target_stage_label) {
-    return `建议进入「${rec.target_stage_label}」`;
+    return `建议进入「${formatStageBadge(rec.target_stage_label)}」`;
   }
   return rec.label;
+}
+
+/** Product-language judgment. Never leak support_transition / 「支撑进入」. */
+export function inboundJudgmentWhy(summary: string): string {
+  const text = String(summary || "");
+  if (/合作|品牌|有兴趣|感兴趣|意愿|collab|interested/i.test(text)) {
+    return "明确表达品牌合作意愿";
+  }
+  if (/报价|价格|rate\s*card|fee|报价单/i.test(text)) {
+    return "来信涉及报价或商务条件";
+  }
+  if (/样品|sample|寄样|签收/i.test(text)) {
+    return "来信提到样品或寄送";
+  }
+  if (text && !isMailHeaderDump(text)) {
+    return "来信内容足以判断阶段";
+  }
+  return "来信显示可推进阶段";
 }
 
 export function stageLabelForCode(code?: string): string {
@@ -215,19 +240,30 @@ function heuristicTarget(kol: FollowedKolRecord): { code: string; label: string 
   return { code: next.code, label: next.label };
 }
 
+function digestMailQuote(thread: FollowedMailThread): string {
+  const snippet = isMailHeaderDump(thread.last_snippet || "")
+    ? ""
+    : summarizeMailSnippet(thread.last_snippet || "");
+  if (snippet) return snippet;
+  const subject = String(thread.subject || "").trim();
+  if (subject && !isMailHeaderDump(subject) && !/^re:\s*$/i.test(subject)) {
+    return subject.replace(/^((re|fw|fwd)\s*:\s*)+/i, "").trim() || subject;
+  }
+  return "";
+}
+
 function latestFact(kol: FollowedKolRecord, related?: Task): FollowedKolCardModel["latest_fact"] {
   const thread = latestMailThread(kol.mail_threads);
   if (thread) {
     const direction = thread.last_direction === "outbound" ? "outbound" : thread.last_direction === "inbound" ? "inbound" : "none";
     const kind: FactKind = direction === "outbound" ? "outbound" : direction === "inbound" ? "inbound" : "none";
-    const snippet = summarizeMailSnippet(thread.last_snippet || "");
-    const dirLabel = kind === "outbound" ? "去信" : kind === "inbound" ? "来信" : "往来";
+    const quote = digestMailQuote(thread);
     return {
       kind: kind === "none" ? "inbound" : kind,
-      summary: snippet || thread.subject || `${dirLabel}往来`,
+      summary: quote || "最近一封往来邮件",
       at: thread.last_at || null,
       at_ms: timeMs(thread.last_at),
-      source: dirLabel,
+      source: "邮件",
       thread_id: String(thread.conversation_id || ""),
     };
   }
@@ -371,7 +407,7 @@ export function projectFollowedKolCard(kol: FollowedKolRecord, tasks: Task[] = [
       label: "查看来信",
       target_stage_code: "",
       target_stage_label: "",
-      why: fact.summary || "有未读来信，先看事实再决定是否改阶段。",
+      why: "有未读来信，先看事实再决定是否改阶段。",
       can_write_stage: false,
     };
     evidence = {
@@ -388,7 +424,7 @@ export function projectFollowedKolCard(kol: FollowedKolRecord, tasks: Task[] = [
       label: confirmStageCtaLabel(target.label),
       target_stage_code: target.code,
       target_stage_label: target.label,
-      why: `${fact.summary || related.title} · 建议写入「${target.label}」`,
+      why: inboundJudgmentWhy(fact.summary || related.title || ""),
       can_write_stage: true,
     };
     evidence = {
@@ -407,7 +443,7 @@ export function projectFollowedKolCard(kol: FollowedKolRecord, tasks: Task[] = [
       label: confirmStageCtaLabel(target.label),
       target_stage_code: target.code,
       target_stage_label: target.label,
-      why: `来信「${fact.summary}」支撑进入「${target.label}」`,
+      why: inboundJudgmentWhy(fact.summary),
       can_write_stage: true,
     };
     evidence = {
@@ -454,7 +490,7 @@ export function projectFollowedKolCard(kol: FollowedKolRecord, tasks: Task[] = [
       target_stage_code: "",
       target_stage_label: "",
       why: fact.kind === "outbound"
-        ? `已去信「${fact.summary}」，先等对方。`
+        ? "已去信，先等对方。"
         : "没有邮件或任务证据，不能把下一正式格当成建议。",
       can_write_stage: false,
     };

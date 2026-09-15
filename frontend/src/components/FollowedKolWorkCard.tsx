@@ -1,10 +1,21 @@
-import { recommendedActionHeadline, type FollowedKolCardModel, type RecommendedKind } from "../followedKolCard";
+import {
+  formatStageBadge,
+  recommendedActionHeadline,
+  type FollowedKolCardModel,
+  type RecommendedKind,
+} from "../followedKolCard";
 
 function formatFactTime(value?: string | null): string {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString("zh-CN", { hour12: false });
+  const diff = Date.now() - date.getTime();
+  if (diff < 45_000) return "刚刚";
+  if (diff < 3_600_000) return `${Math.max(1, Math.round(diff / 60_000))} 分钟前`;
+  if (diff < 86_400_000) return `${Math.max(1, Math.round(diff / 3_600_000))} 小时前`;
+  if (diff < 2 * 86_400_000) return "昨天";
+  if (diff < 7 * 86_400_000) return `${Math.max(2, Math.round(diff / 86_400_000))} 天前`;
+  return date.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
 }
 
 function primaryKind(kind: RecommendedKind): string | undefined {
@@ -41,17 +52,20 @@ export default function FollowedKolWorkCard({
   const showCompose = rec.kind === "compose" || rec.kind === "confirm-send";
   const showMail = Boolean(fact.thread_id);
   const days = card.current_state.days_in_stage;
+  const stageLabel = formatStageBadge(card.current_state.stage_label);
   const chips = [
     card.identity.platform ? { id: "platform", label: card.identity.platform } : null,
     card.scope.brand ? { id: "brand", label: card.scope.brand } : null,
     card.scope.region ? { id: "region", label: card.scope.region } : null,
     card.scope.owner ? { id: "owner", label: card.scope.owner } : null,
-    card.scope.mailbox ? { id: "mailbox", label: card.scope.mailbox } : null,
     ...card.risk.chips,
     card.unread_count > 0 ? { id: "unread", label: `未读 ${card.unread_count}` } : null,
   ].filter(Boolean) as { id: string; label: string }[];
-  const factLine = [fact.source, fact.summary].filter(Boolean).join(" · ");
   const initial = card.identity.display.replace(/^@/, "").slice(0, 1) || "红";
+  const hasEvidence = card.evidence.kind !== "none" && Boolean(card.evidence.label);
+  const factMeta = [fact.source || (fact.thread_id ? "邮件" : ""), fact.at ? formatFactTime(fact.at) : ""]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <article
@@ -69,6 +83,21 @@ export default function FollowedKolWorkCard({
         <div className="kol-identity-main">
           <div className="kol-identity-line">
             <strong className="kol-name" data-kol-identity data-kol-name>{card.identity.display}</strong>
+            <span
+              className="kol-stage-badge"
+              data-current-state
+              data-current-stage
+              data-stage-code={card.current_state.stage_code || undefined}
+            >
+              <span className="kol-stage" data-stage-label>{stageLabel}</span>
+            </span>
+            {days != null && days > 0 ? (
+              <span className="kol-stage-stay" data-days-in-stage={days} data-kol-chip="stay">
+                停留 {days} 天
+              </span>
+            ) : null}
+          </div>
+          {chips.length ? (
             <span className="kol-chip-row" data-kol-scope>
               {chips.map((chip) => (
                 <span
@@ -85,94 +114,96 @@ export default function FollowedKolWorkCard({
                 </span>
               ))}
             </span>
-          </div>
+          ) : null}
         </div>
       </div>
 
-      <div className="kol-band kol-band-state" data-kol-band="state">
-        <div className="kol-state-block" data-current-state data-current-stage>
-          <div className="kol-state-fields">
-            <p className="kol-stage" data-stage-code={card.current_state.stage_code || undefined} data-stage-label>
-              {card.current_state.stage_label}
+      <div className="kol-split" data-kol-split>
+        <div className="kol-band kol-band-fact" data-kol-band="fact">
+          <div className="kol-state-block" data-latest-fact data-fact-kind={fact.kind}>
+            <p className="kol-split-kicker">最新互动</p>
+            <p className="kol-mail-digest" data-mail-summary={fact.thread_id || undefined}>
+              {fact.summary}
             </p>
-            {days != null && days > 0 ? (
-              <span className="kol-chip" data-days-in-stage={days} data-kol-chip="stay">
-                停留 {days} 天
-              </span>
+            {factMeta ? (
+              <p className="kol-mail-meta">
+                {factMeta}
+                {fact.at ? <span data-thread-time className="sr-only">{fact.at}</span> : null}
+              </p>
             ) : null}
           </div>
         </div>
-      </div>
 
-      <div className="kol-band kol-band-fact" data-kol-band="fact">
-        <div className="kol-state-block" data-latest-fact data-fact-kind={fact.kind}>
-          <p className="kol-mail-digest" data-mail-summary={fact.thread_id || undefined}>
-            {factLine}
-            {fact.at ? <span data-thread-time> · {formatFactTime(fact.at)}</span> : null}
-          </p>
-        </div>
-      </div>
-
-      <div className="kol-band kol-band-recommend" data-kol-band="action">
-        <div className="kol-state-block" data-recommended-action={rec.kind}>
-          <p className="kol-suggestion">{headline}</p>
-        </div>
-        <div className="kol-state-block" data-action-evidence={card.evidence.kind}>
-          <p className="kol-evidence">{rec.why}</p>
+        <div className="kol-band kol-band-recommend" data-kol-band="action">
+          <div className="kol-state-block" data-recommended-action={rec.kind}>
+            <p className="kol-split-kicker">✦ AI 建议</p>
+            <p className="kol-suggestion">{headline}</p>
+            {rec.why ? <p className="kol-judgment" data-action-why>{rec.why}</p> : null}
+          </div>
+          {hasEvidence ? (
+            <details className="kol-evidence-disclosure" data-action-evidence={card.evidence.kind}>
+              <summary>查看判断依据</summary>
+              <p className="kol-evidence">{card.evidence.label}</p>
+            </details>
+          ) : null}
         </div>
       </div>
 
       <div className="kol-band kol-band-actions" data-kol-band="cta">
-        <button type="button" className="btn ghost sm kol-cta-btn" data-open-kol-detail onClick={onOpenDetail}>
-          查看详情
-        </button>
-        {showMail ? (
-          <button
-            type="button"
-            className="btn ghost sm kol-cta-btn"
-            data-open-original-mail
-            data-thread-id={fact.thread_id}
-            onClick={onOpenMail}
-          >
-            查看原邮件
+        <div className="kol-cta-secondary">
+          <button type="button" className="btn ghost sm kol-cta-btn" data-open-kol-detail onClick={onOpenDetail}>
+            查看详情
           </button>
-        ) : null}
-        {showCompose ? (
-          <button
-            type="button"
-            className="btn work sm kol-cta-btn"
-            data-kol-primary-action={primary}
-            onClick={onCompose || onPrimary}
-          >
-            {rec.label}
-          </button>
-        ) : null}
-        {showConfirm ? (
-          <button
-            type="button"
-            className="btn work sm kol-cta-btn"
-            data-kol-primary-action="confirm-stage"
-            data-confirm-enter-stage
-            data-confirm-stage-priority="primary"
-            data-target-stage={rec.target_stage_code}
-            data-confirm-stage-busy={actionBusy ? "true" : undefined}
-            disabled={actionBusy}
-            onClick={onConfirmStage || onPrimary}
-          >
-            {actionBusy ? "正在打开…" : rec.label}
-          </button>
-        ) : null}
-        {primary && !showCompose && !showConfirm ? (
-          <button
-            type="button"
-            className="btn work sm kol-cta-btn"
-            data-kol-primary-action={primary}
-            disabled={actionBusy}
-            onClick={onPrimary}
-          >
-            {actionBusy ? "正在打开…" : rec.label}
-          </button>
-        ) : null}
+          {showMail ? (
+            <button
+              type="button"
+              className="kol-cta-link"
+              data-open-original-mail
+              data-thread-id={fact.thread_id}
+              onClick={onOpenMail}
+            >
+              原邮件
+            </button>
+          ) : null}
+        </div>
+        <div className="kol-cta-primary">
+          {showCompose ? (
+            <button
+              type="button"
+              className="btn work sm kol-cta-btn"
+              data-kol-primary-action={primary}
+              onClick={onCompose || onPrimary}
+            >
+              {rec.label}
+            </button>
+          ) : null}
+          {showConfirm ? (
+            <button
+              type="button"
+              className="btn work sm kol-cta-btn"
+              data-kol-primary-action="confirm-stage"
+              data-confirm-enter-stage
+              data-confirm-stage-priority="primary"
+              data-target-stage={rec.target_stage_code}
+              data-confirm-stage-busy={actionBusy ? "true" : undefined}
+              disabled={actionBusy}
+              onClick={onConfirmStage || onPrimary}
+            >
+              {actionBusy ? "正在打开…" : rec.label}
+            </button>
+          ) : null}
+          {primary && !showCompose && !showConfirm ? (
+            <button
+              type="button"
+              className="btn work sm kol-cta-btn"
+              data-kol-primary-action={primary}
+              disabled={actionBusy}
+              onClick={onPrimary}
+            >
+              {actionBusy ? "正在打开…" : rec.label}
+            </button>
+          ) : null}
+        </div>
       </div>
       {actionNotice ? (
         <p
