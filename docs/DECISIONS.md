@@ -6,6 +6,7 @@
 
 | 日期 | 记录 | 说明 |
 |---|---|---|
+| 2026-09-15 | Home「我跟进的红人」是业务对象（Collaboration）管理面，不是第二套今日任务/待办，也不是 Pipeline 15 段主筛。对象面主筛不立法。纠正 #120 过任务化 | 用户锁定。见 ADR-030。文档 only。不 FE / 不 LIVE。 |
 | 2026-09-15 | OpenAI-quiet 为默认产品观感；填充主按钮仍 MASTER `--primary` / `--primary-fg`（蓝），不改黑。Linear 密度可作间距手法，不再是品牌默认 mood/chrome | 用户锁定。见 ADR-029。文档 only。不 LIVE。 |
 | 2026-09-15 | C/D 各收成单一正文：`org-permissions.md`、`domain-objects.md`。旧 `01`/`08`/`21` 与 `02`/字典文件物理删除。LAW-MAP C、D 行只列新路径，禁止组合权威 | 用户锁定。见 ADR-028。文档 only。不 LIVE。 |
 | 2026-09-15 | 产品阶段图（15 正式码 + `exception`）是产品边权威；人可跨段 / 回退 / 进出异常（须原因）；自动路径更严。ADR-011「相邻写入=产品法」**废止**；Starry hop 限制 ≠ 产品 | 用户锁定。见 ADR-027、`docs/business-rules/stage-transitions.md`。本记录不改 LIVE walk。 |
@@ -48,14 +49,15 @@
 | ADR-020 | 员工工作台正文基线 **16px**；UI / 按钮 / Tab / helper **≥14px**；禁止 scale/zoom 假装字号。**修订（ADR-029）：** Linear 密度仅作间距手法（与 OpenAI-quiet 兼容处）；默认 mood/chrome 不再是 Linear-first | `design.md`、`MASTER.md`、ADR-029 |
 | ADR-021 | 员工 `/kb` 是并列能力面（ADR-015）：查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务；禁止邮件模板管理台与引擎行话；应用只产未发送草稿；卡片元数据底线先立法、schema 可后补 | `CONSTITUTION.md` §4.1、`14-implementation-contract.md`、`org-permissions.md` |
 | ADR-023 | 智能体中台十六项一等能力；KOL=首个试点不是平台壳；技能入口密度=UX；数字团队预留未实现，禁止专家团假导航。Pipeline 页只许深链 / CTA | `CONSTITUTION.md`、`org-permissions.md` |
-| ADR-024 | 删除 `UX-KOL.md` / `UX-FOLLOWED-KOL-CARD.md` / `UX-SEND-NE-STAGE`-as-file-ID。员工 UX 从宪法派生为 `specs/UX-EMPLOYEE.md`。门禁只绑 `SEND_NE_STAGE`、`L3_CONFIRM` | `CONSTITUTION.md` §4–5、`specs/UX-EMPLOYEE.md` |
+| ADR-024 | 删除 `UX-KOL.md` / `UX-FOLLOWED-KOL-CARD.md` / `UX-SEND-NE-STAGE`-as-file-ID。员工 UX 从宪法派生为 `specs/UX-EMPLOYEE.md`。门禁只绑 `SEND_NE_STAGE`、`L3_CONFIRM`。**修订（ADR-030）：** 跟进面主 IA 既不是任务状态导航也不是 15 段板；对象面主筛不立法 | `CONSTITUTION.md` §4–5、`specs/UX-EMPLOYEE.md`、ADR-030 |
 | ADR-025 | 删除全部 `docs/evidence-*`、`04`、`19`、`employee-surface-contracts.md`、`FS-KOL-006`、`FS-KOL-010`、ADR-018、ADR-022。必须项只住在宪法 + 瘦 `UX-EMPLOYEE`。不新开 FS | `CONSTITUTION.md`、`specs/UX-EMPLOYEE.md` |
 | ADR-026 | #105 后法律层 A–K 重组。导航以 `LAW-MAP.md` 为准，不以 `00`–`21` 为主线。UI 设计路径 = `docs/design.md`；MASTER 仍是 token 源。ADR-011 由阶段图 track 废止 | `docs/LAW-MAP.md`、`docs/README.md`、`docs/business-rules/stage-transitions.md` |
 | ADR-027 | 产品阶段图（15 + `exception`）取代「相邻写入」产品法；人可跨段 / 回退 / 进出异常（须原因）；自动路径保持 `autoLegalTargets` 精神。Starry hop 限制 ≠ 产品边 | `docs/business-rules/stage-transitions.md`、`05-agent-workflow-skill-policy.md`、`07-mcp-data-contract.md` |
 | ADR-028 | C/D 各收成单一权威正文；旧编号组织/权限/配套与对象/字典文件删除。禁止组合权威 | `docs/org-permissions.md`、`docs/domain-objects.md`、`docs/LAW-MAP.md` |
 | ADR-029 | OpenAI-quiet 为默认产品观感（mood：`references/openai-style.md`）；token 数值仍只住 MASTER；填充主按钮仍 `--primary` 蓝，不采用 OpenAI 黑色实底 CTA。修订 ADR-020：Linear 密度可作间距手法，不再是默认品牌 mood | `docs/design.md`、`MASTER.md`、`docs/references/openai-style.md` |
+| ADR-030 | Home 跟进面是业务对象管理，不是第二套今日任务/待办，也不是 Pipeline 15 段主筛。对象面主筛/分组不立法。纠正 #120 过任务化 | `CONSTITUTION.md` §4.2–4.3、`ia-information-architecture.md`、`specs/UX-EMPLOYEE.md` |
 
-**废止读法：** 「四页法律 / 四页分工 / 员工四表面」不得再被读成 Pipeline 是平台核心导航。现行：Home+Chat = 平台任务/会话脊柱；Pipeline = KOL 试点页（§4.2）。后文若仍写「四页法律」一律按此句，不以旧 P0 为准。权威清单仍是 `CONSTITUTION.md` §4.1–4.2。
+**废止读法：** 「四页法律 / 四页分工 / 员工四表面」不得再被读成 Pipeline 是平台核心导航。现行：Home+Chat = 平台任务/会话脊柱；Pipeline = KOL 试点页（§4.2）。后文若仍写「四页法律」一律按此句，不以旧 P0 为准。权威清单仍是 `CONSTITUTION.md` §4.1–4.2。「我跟进的红人」不得再被读成第二套待办状态桶或 15 段主筛（ADR-030）。
 
 ## 新增 Agent 分级
 
@@ -422,7 +424,7 @@ ADR-016 专家中心「只召唤岗位专家 / 无专家团 / 召唤 ≠ 发送�
 1. **删除。** 整文件删除 `specs/UX-KOL.md` 与 `specs/UX-FOLLOWED-KOL-CARD.md`。废止把 `UX-SEND-NE-STAGE` 当独立合同 ID / 文件级绑定的读法。旧 ID 目录（`UX-CTX-BRAND`、`UX-DEF-MAILBOX-N`、`UX-MAIL-STATUS`、`UX-TB-BIND`、`UX-AGENT-UNPUBLISHED`、`UX-OWNER-NOT-SKIP`、`UX-SEND-NE-STAGE`、`UX-STATE-VISIBLE`、`UX-COPY-ENGINE`）不再进 `ux-traceability.json` 门禁。
 2. **重派生。** 新瘦契约 `specs/UX-EMPLOYEE.md` 只从 `CONSTITUTION.md` §4–5 导出，位阶低于宪法，不发明新平台法。
 3. **门禁只留硬不变量。** `SEND_NE_STAGE`（发送卡无阶段选择；发送不推进阶段；阶段写入用具体 `stage_code` + 展示名）与 `L3_CONFIRM`（高影响写前：对象/范围/后果 → 确认 → 执行 → 持久回执；拒绝要原因）。其余系统法（员工禁词、Home 试点模式名、Pipeline 深链）留在宪法，不各自升格为合同 ID。
-4. **跟进卡只留目标。** Home「我跟进的红人」回答谁 / 卡在哪 / 最新事实 / 建议+依据 / 主行动。允许阶段筛选作二次或产品自选主筛选，但不得克隆 Pipeline 正式资产板。不恢复四带教条、排序键表、字段黑名单、强制 CTA 文案。
+4. **跟进卡只留目标。** Home「我跟进的红人」回答谁 / 卡在哪 / 最新事实 / 建议+依据 / 主行动。允许阶段筛选作二次或产品自选主筛选，但不得克隆 Pipeline 正式资产板。不恢复四带教条、排序键表、字段黑名单、强制 CTA 文案。**修订（ADR-030）：** 跟进面是对象管理，不是第二套待办；主 IA 不得为任务状态导航或 15 段板；对象面主筛/分组不立法，「产品自选主筛选」不得读成可以立法主筛形态。
 5. **不削弱。** 发送 ≠ 推进阶段、L1–L3、员工禁引擎行话、Pipeline 页可深链且非必挂侧栏、ADR-023 表面职责，全部保留。
 
 ### 不决定的范围
@@ -570,4 +572,33 @@ LAW-MAP 层 C 被写成 `01` + `08`（+ `21`）组合，层 D 被写成 `02` + �
 - 规范：`docs/design.md`、`docs/CONSTITUTION.md`、`docs/LAW-MAP.md`、`docs/design-system/kol-workbench/MASTER.md`、`docs/references/openai-style.md`、`docs/20-visual-design-system.md`、`docs/README.md`、`docs/CONTEXT-MANIFEST.md`、`pages/approvals.md`、本记录 ADR-020 修订句
 - 代码：无（文档 only）
 - 测试：文档评审 only
+
+## ADR-030 — Home 跟进面是对象管理，不是任务状态导航（2026-09-15）
+
+**状态**：已固化（文档 only；不 FE / 不 LIVE）  
+**决策人**：产品负责人（用户锁定 2026-09-15）
+
+### 问题与背景
+
+#120 正确去掉了 Home「我跟进的红人」以 15 正式阶段条带作主 IA 的读法，但把主 tablist 换成责任/动作桶。这把 Collaboration **对象跟进面**过任务化成第二套「今日任务 / 我的待办」。ADR-024 第 4 条「允许阶段筛选作二次或产品自选主筛选」也被读成可以立法主筛形态。对象面的主筛/分组必须完全交给实现；法律层只锁薄原则，不写芯片文案、Tab 目录或筛选项清单。
+
+### 决定
+
+1. **跟进面 = 业务对象管理。** Home 上的业务对象跟进面（KOL 试点实例名：我跟进的红人）以已跟进对象为组织单位，回答「我在跟哪些对象、对象事实是什么、能对对象做什么」。
+2. **不是第二套任务面。** 不得复制今日任务 / 我的待办的任务状态导航。任务态分属任务面。
+3. **不是第二套 Pipeline。** 不得复制 Pipeline 的正式阶段主导航 / 15 段主筛。正式阶段推进分属 Pipeline（及 L3）。Home ≠ Pipeline 不变。
+4. **可展示、不作主 IA。** 跟进面可展示任务态与正式阶段的相关事实与入口，但不以它们为主信息架构。
+5. **筛选不立法。** 对象面主筛/分组完全交给实现。不立法芯片文案、六 Tab、下拉字段或筛选目录。#120 的责任桶 tablist 是实现快照，不是宪法 / IA / UX 处方。
+6. **不复活过细合同。** 不恢复 `UX-FOLLOWED-KOL-CARD.md`、排序键表、四带教条、字段黑名单、强制 CTA。不改 ADR-029 主按钮蓝锁。
+
+### 不决定的范围
+
+不实施前端。不改 #120 的 FE。不 LIVE。不立法任何跟进面芯片 / Tab / 下拉清单。不改 OpenAI-quiet / `--primary` 蓝（ADR-029）。不新开 UX ID / FS。不改阶段图或发送 ≠ 推进阶段。
+
+### 影响
+
+- 规范：`CONSTITUTION.md` §4.2–4.3；`ia-information-architecture.md`；`specs/UX-EMPLOYEE.md`；本记录；`LAW-MAP.md` / `README.md` 一行指针
+- 代码：无
+- 测试：文档评审 only
+
 
