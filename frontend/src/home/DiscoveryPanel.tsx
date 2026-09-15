@@ -508,20 +508,20 @@ export default function DiscoveryPanel() {
         </div>
         <label className="discovery-query-label">
           <span className="home-lane-label">想找什么样的达人</span>
-          <textarea
-            className="discovery-query"
-            data-discovery-query
-            rows={2}
-            value={query}
-            placeholder="例如：找北美户外电源评测达人"
-            onChange={(event) => onQueryChange(event.target.value)}
-          />
+          <span className="discovery-query-row">
+            <textarea
+              className="discovery-query"
+              data-discovery-query
+              rows={1}
+              value={query}
+              placeholder="例如：找北美户外电源评测达人"
+              onChange={(event) => onQueryChange(event.target.value)}
+            />
+            <button type="submit" className="btn work sm" data-discovery-plan disabled={busy}>
+              生成计划
+            </button>
+          </span>
         </label>
-        <div className="discovery-form-actions">
-          <button type="submit" className="btn work sm" data-discovery-plan disabled={busy}>
-            生成计划
-          </button>
-        </div>
       </form>
 
       {phase === "idle" ? (
@@ -538,16 +538,10 @@ export default function DiscoveryPanel() {
           data-discovery-request={request.id}
           data-discovery-request-status={request.status}
         >
-          <strong>检索计划</strong>
-          <p data-discovery-plan-summary>{planSummary(request)}</p>
-          <ol data-discovery-plan-steps>
-            {planSteps(request).map((step) => (
-              <li key={step.id}>{step.label}</li>
-            ))}
-          </ol>
-          <p className="discovery-quiet" data-discovery-no-live>
-            确认后只检索红人线索，不会自动发信、改阶段或写成待办。
-          </p>
+          <div className="discovery-plan-head">
+            <strong>检索计划</strong>
+            <p data-discovery-plan-summary>{planSummary(request)}</p>
+          </div>
           <div className="discovery-plan-actions">
             <button type="button" className="btn work sm" data-discovery-confirm-plan disabled={busy} onClick={() => void confirmPlan()}>
               确认并开始
@@ -556,6 +550,14 @@ export default function DiscoveryPanel() {
               返回修改
             </button>
           </div>
+          <p className="discovery-quiet" data-discovery-no-live>
+            确认后只检索红人线索，不会自动发信、改阶段或写成待办。
+          </p>
+          <ol data-discovery-plan-steps>
+            {planSteps(request).map((step) => (
+              <li key={step.id}>{step.label}</li>
+            ))}
+          </ol>
         </section>
       ) : null}
 

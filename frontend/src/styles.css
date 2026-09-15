@@ -960,10 +960,13 @@ summary:focus-visible,
   max-width: 42rem;
   overflow-x: hidden;
 }
+.discovery-pane > .home-lane-label {
+  margin: 0 0 var(--space-1);
+}
 .discovery-form {
   display: grid;
   gap: var(--space-2);
-  margin: 0 0 var(--space-3);
+  margin: 0 0 var(--space-2);
 }
 .discovery-query-label {
   display: grid;
@@ -971,6 +974,12 @@ summary:focus-visible,
 }
 .discovery-query-label .home-lane-label {
   margin: 0;
+}
+.discovery-query-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-2);
 }
 .discovery-query {
   width: 100%;
@@ -981,9 +990,10 @@ summary:focus-visible,
   color: var(--text);
   font: inherit;
   font-size: var(--font-ui);
+  line-height: var(--leading-tight);
   padding: var(--space-2) var(--space-3);
   resize: vertical;
-  min-height: 48px;
+  min-height: 36px;
 }
 .discovery-filters {
   display: grid;
@@ -1138,7 +1148,23 @@ summary:focus-visible,
   flex-wrap: wrap;
   gap: var(--space-2);
 }
-.discovery-plan,
+.discovery-plan {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) 0 0;
+  overflow-x: hidden;
+}
+.discovery-plan-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+.discovery-plan-head p {
+  flex: 1 1 12rem;
+}
 .discovery-candidate {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -1258,8 +1284,8 @@ summary:focus-visible,
   margin: 0;
   padding-left: 1.2em;
   color: var(--text);
-  font-size: var(--font-ui);
-  line-height: 1.55;
+  font-size: var(--font-sm);
+  line-height: var(--leading-tight);
 }
 .discovery-candidate-list {
   list-style: none;
