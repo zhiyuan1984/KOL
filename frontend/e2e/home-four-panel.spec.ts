@@ -1081,22 +1081,22 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
   });
   expect(type.name!.size).toBeGreaterThanOrEqual(16);
   expect(type.name!.weight).toBeGreaterThanOrEqual(600);
-  expect(type.name!.color).toBe("rgb(26, 26, 26)");
+  expect(type.name!.color).toBe("rgb(0, 0, 0)");
   expect(type.stage!.size).toBeGreaterThanOrEqual(14);
   expect(type.stage!.weight).toBeLessThan(type.name!.weight);
-  expect(type.stage!.color).toBe("rgb(107, 114, 128)");
+  expect(type.stage!.color).toBe("rgb(102, 102, 102)");
   expect(type.kicker!.size).toBeGreaterThanOrEqual(14);
-  expect(type.kicker!.color).toBe("rgb(107, 114, 128)");
+  expect(type.kicker!.color).toBe("rgb(102, 102, 102)");
   expect(type.fact!.size).toBeGreaterThanOrEqual(16);
-  expect(type.fact!.color).toBe("rgb(26, 26, 26)");
+  expect(type.fact!.color).toBe("rgb(0, 0, 0)");
   expect(type.ai!.size).toBeGreaterThanOrEqual(14);
-  expect(type.ai!.color).toBe("rgb(26, 26, 26)");
+  expect(type.ai!.color).toBe("rgb(0, 0, 0)");
   expect(type.why!.size).toBeGreaterThanOrEqual(14);
-  expect(type.why!.color).toBe("rgb(107, 114, 128)");
+  expect(type.why!.color).toBe("rgb(102, 102, 102)");
   expect(type.detail!.size).toBeGreaterThanOrEqual(14);
-  expect(type.detail!.color).toBe("rgb(107, 114, 128)");
+  expect(type.detail!.color).toBe("rgb(102, 102, 102)");
   expect(type.mail!.size).toBeGreaterThanOrEqual(14);
-  expect(type.mail!.color).toBe("rgb(107, 114, 128)");
+  expect(type.mail!.color).toBe("rgb(102, 102, 102)");
   if (wide.columnWidth > 1000) {
     expect(wide.cardWidth).toBeLessThan(wide.columnWidth - 24);
   }

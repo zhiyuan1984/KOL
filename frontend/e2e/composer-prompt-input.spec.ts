@@ -99,7 +99,7 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   expect(parseFloat(chrome.radius)).toBeGreaterThanOrEqual(999);
   near(rgb(chrome.borderColor) as number[], [229, 230, 232]);
   near(rgb(chrome.background) as number[], [255, 255, 255]);
-  near(rgb(chrome.placeholderColor) as number[], [166, 166, 166]);
+  near(rgb(chrome.placeholderColor) as number[], [143, 143, 143]);
   expect(chrome.placeholderSize).toBe("16px");
   expect(parseFloat(chrome.plusWidth)).toBe(36);
   expect(parseFloat(chrome.plusHeight)).toBe(36);
@@ -168,7 +168,7 @@ test("session PromptInput stays at the thread foot with the same tokens", async 
   expect(parseFloat(chrome.radius)).toBeGreaterThanOrEqual(24);
   expect(parseFloat(chrome.radius)).toBeLessThanOrEqual(26);
   near(rgb(chrome.borderColor) as number[], [229, 230, 232]);
-  near(rgb(chrome.placeholderColor) as number[], [166, 166, 166]);
+  near(rgb(chrome.placeholderColor) as number[], [143, 143, 143]);
 
   await page.locator(".session-composer [data-attach]").click();
   await expect(page.getByRole("menu", { name: "添加内容" })).toBeVisible();

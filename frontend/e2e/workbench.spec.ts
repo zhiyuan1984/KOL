@@ -1176,31 +1176,31 @@ async function expectFollowedTypeColor(page: Page, handle?: string) {
   expect(type.name).toBeTruthy();
   expect(type.name!.size).toBeGreaterThanOrEqual(16);
   expect(type.name!.weight).toBeGreaterThanOrEqual(600);
-  expect(type.name!.color).toBe("rgb(26, 26, 26)");
+  expect(type.name!.color).toBe("rgb(0, 0, 0)");
   expect(type.stage).toBeTruthy();
   expect(type.stage!.size).toBeGreaterThanOrEqual(14);
   expect(type.stage!.weight).toBeLessThan(type.name!.weight);
-  expect(type.stage!.color).toBe("rgb(107, 114, 128)");
+  expect(type.stage!.color).toBe("rgb(102, 102, 102)");
   expect(type.kicker).toBeTruthy();
   expect(type.kicker!.size).toBeGreaterThanOrEqual(14);
-  expect(type.kicker!.color).toBe("rgb(107, 114, 128)");
+  expect(type.kicker!.color).toBe("rgb(102, 102, 102)");
   expect(type.fact).toBeTruthy();
   expect(type.fact!.size).toBeGreaterThanOrEqual(16);
-  expect(type.fact!.color).toBe("rgb(26, 26, 26)");
+  expect(type.fact!.color).toBe("rgb(0, 0, 0)");
   expect(type.ai).toBeTruthy();
   expect(type.ai!.size).toBeGreaterThanOrEqual(14);
-  expect(type.ai!.color).toBe("rgb(26, 26, 26)");
+  expect(type.ai!.color).toBe("rgb(0, 0, 0)");
   expect(type.detail).toBeTruthy();
   expect(type.detail!.size).toBeGreaterThanOrEqual(14);
-  expect(type.detail!.color).toBe("rgb(107, 114, 128)");
+  expect(type.detail!.color).toBe("rgb(102, 102, 102)");
   if (type.chip) expect(type.chip.size).toBeGreaterThanOrEqual(14);
   if (type.why) {
     expect(type.why.size).toBeGreaterThanOrEqual(14);
-    expect(type.why.color).toBe("rgb(107, 114, 128)");
+    expect(type.why.color).toBe("rgb(102, 102, 102)");
   }
   if (type.mail) {
     expect(type.mail.size).toBeGreaterThanOrEqual(14);
-    expect(type.mail.color).toBe("rgb(107, 114, 128)");
+    expect(type.mail.color).toBe("rgb(102, 102, 102)");
   }
 }
 

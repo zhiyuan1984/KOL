@@ -1,18 +1,27 @@
 :root {
-  /* Landed source tokens — mirrored by docs/design-system/kol-workbench/MASTER.md */
-  --bg: #ffffff;
-  --bg-elevated: #f6f7f8;
-  --border: #e5e6e8;
-  --border-strong: #8b93a1;
-  --control-border: #8b93a1;
-  --control-border-hover: #6b7280;
-  --control-border-invalid: #c43c3c;
-  --focus-ring: #000000;
-  --text: #1a1a1a;
-  --text-muted: #6b7280;
+  /* MASTER (openai-style body) — parallel --color-* then wired into workbench tokens */
+  --color-obsidian: #000000;
+  --color-graphite: #666666;
+  --color-smoke: #8f8f8f;
+  --color-paper: #ffffff;
+  --color-ash: #f1f1f1;
+  --color-hairline: #0000001f;
+  --color-whisper: #0000000a;
+  --font-openai-sans: "OpenAI Sans", Inter, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "微软雅黑", system-ui, sans-serif;
 
-  --primary: #000000;
-  --primary-fg: #ffffff;
+  --bg: var(--color-paper);
+  --bg-elevated: var(--color-ash);
+  --border: color-mix(in srgb, var(--color-obsidian) 12%, var(--color-paper));
+  --border-strong: var(--color-smoke);
+  --control-border: var(--color-smoke);
+  --control-border-hover: var(--color-graphite);
+  --control-border-invalid: #c43c3c;
+  --focus-ring: var(--color-obsidian);
+  --text: var(--color-obsidian);
+  --text-muted: var(--color-graphite);
+
+  --primary: var(--color-obsidian);
+  --primary-fg: var(--color-paper);
   --danger: #c43c3c;
   --success: #2f7d73;
   --warning: #ea5504;
@@ -63,7 +72,7 @@
   --left-width: clamp(220px, 15vw, 248px);
   --page-gutter: clamp(16px, 2.2vw, 28px);
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  /* ADR-031: OpenAI wins on typeface. Inter now; OpenAI Sans when licensed. */
+  /* ADR-031: OpenAI Sans when licensed; Inter is the required live substitute. */
   --sans: Inter, "OpenAI Sans", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "微软雅黑", system-ui, sans-serif;
   font-family: var(--sans);
   font-size: var(--font-body);
@@ -3226,7 +3235,7 @@ summary:focus-visible,
   --composer-border: var(--border);
   --composer-radius: 25px;
   --composer-accent: var(--primary);
-  --composer-placeholder: #a6a6a6;
+  --composer-placeholder: var(--color-smoke);
   --composer-toolbar-fg: #000000;
   --composer-send-idle: var(--text-muted);
   --composer-divider: #e5e5e5;
