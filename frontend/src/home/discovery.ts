@@ -497,13 +497,12 @@ export function distinctNickname(row: Pick<CreatorCandidate, "handle" | "nicknam
   return nickname;
 }
 
-/** Line 2: 平台 · 粉丝 · 近10均播 · 评分 — omit empty fields. */
+/** Quiet meta: 粉丝 · 均播 · 匹配度 — platform is a chip, not a metric. */
 export function candidateMetrics(row: CreatorCandidate): string {
   const bits = [
-    platformLabel(row.platform),
     formatFollowers(Number(row.followers || 0)),
-    Number(row.avg_views_10) > 0 ? `近10均播 ${Math.round(Number(row.avg_views_10))}` : "",
-    Number(row.score) > 0 ? `评分 ${row.score}` : "",
+    Number(row.avg_views_10) > 0 ? `均播 ${Math.round(Number(row.avg_views_10))}` : "",
+    Number(row.score) > 0 ? `匹配度 ${row.score}` : "",
   ].filter(Boolean);
   return bits.join(" · ");
 }
@@ -546,13 +545,15 @@ function isRestatementPart(part: string, row: CreatorCandidate): boolean {
     nickname ? `@${nickname.replace(/^@/, "")}` : "",
     ...followerReasonVariants(Number(row.followers || 0)),
     score > 0 ? `评分 ${score}` : "",
+    score > 0 ? `匹配度 ${score}` : "",
     score > 0 ? String(score) : "",
     views > 0 ? `近10均播 ${Math.round(views)}` : "",
+    views > 0 ? `均播 ${Math.round(views)}` : "",
     views > 0 ? String(Math.round(views)) : "",
   ].filter(Boolean).map(normalizeReasonToken);
   const norm = normalizeReasonToken(text);
   if (known.includes(norm)) return true;
-  if (score > 0 && /^(评分|score)/i.test(norm)) {
+  if (score > 0 && /^(评分|匹配度|score)/i.test(norm)) {
     const parsed = Number(norm.replace(/[^\d.]/g, ""));
     if (Number.isFinite(parsed) && Math.abs(parsed - score) < 0.051) return true;
   }
@@ -583,8 +584,10 @@ function isRestatementBlob(text: string, row: CreatorCandidate): boolean {
     String(row.nickname || ""),
     ...followerReasonVariants(Number(row.followers || 0)),
     Number(row.score) > 0 ? `评分${row.score}` : "",
+    Number(row.score) > 0 ? `匹配度${row.score}` : "",
     Number(row.score) > 0 ? String(row.score) : "",
     Number(row.avg_views_10) > 0 ? `近10均播${Math.round(Number(row.avg_views_10))}` : "",
+    Number(row.avg_views_10) > 0 ? `均播${Math.round(Number(row.avg_views_10))}` : "",
     "待加入跟进",
     "已加入跟进",
     "已确认跟进",

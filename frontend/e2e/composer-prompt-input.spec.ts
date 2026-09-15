@@ -90,7 +90,8 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   expect(layout!.overflowX).not.toBe("scroll");
 
   const chrome = await composerChrome(page, "[data-home]");
-  expect(parseFloat(chrome.minHeight)).toBeGreaterThanOrEqual(96);
+  expect(parseFloat(chrome.minHeight)).toBeGreaterThanOrEqual(72);
+  expect(parseFloat(chrome.minHeight)).toBeLessThanOrEqual(96);
   expect(parseFloat(chrome.radius)).toBeGreaterThanOrEqual(24);
   expect(parseFloat(chrome.radius)).toBeLessThanOrEqual(26);
   near(rgb(chrome.borderColor) as number[], [229, 230, 232]);
@@ -103,7 +104,7 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   expect(parseFloat(chrome.dividerWidth)).toBe(1);
   expect(parseFloat(chrome.dividerHeight)).toBe(16);
   near(rgb(chrome.dividerColor) as number[], [229, 229, 229]);
-  near(rgb(chrome.sendColor) as number[], [107, 114, 128]);
+  near(rgb(chrome.sendColor) as number[], [255, 255, 255]);
 
   await page.locator("[data-home] [data-attach]").click();
   const menu = page.getByRole("menu", { name: "添加内容" });
@@ -115,7 +116,7 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
     const cs = getComputedStyle(el);
     return { width: cs.width, height: cs.height, radius: cs.borderTopLeftRadius, bg: cs.backgroundColor, color: cs.color };
   });
-  expect(parseFloat(skillChip.width)).toBe(98);
+  expect(parseFloat(skillChip.width)).toBeGreaterThanOrEqual(98);
   expect(parseFloat(skillChip.height)).toBe(32);
   expect(parseFloat(skillChip.radius)).toBe(12);
   near(rgb(skillChip.bg) as number[], [246, 247, 248]);
@@ -124,8 +125,12 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   await expect(menu).toHaveCount(0);
 
   await page.locator("[data-home] [data-composer-input]").fill("给@小美妆日记 写阶段跟进邮件");
-  const ready = await page.locator("[data-home] [data-send]").evaluate((el) => getComputedStyle(el).color);
-  near(rgb(ready) as number[], [0, 0, 0]);
+  const ready = await page.locator("[data-home] [data-send]").evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { color: cs.color, background: cs.backgroundColor };
+  });
+  near(rgb(ready.color) as number[], [255, 255, 255]);
+  near(rgb(ready.background) as number[], [0, 0, 0]);
   await page.locator("[data-home] [data-send]").click();
   await page.waitForURL(/\/s\//);
   await expect(page.locator('[data-kind="me"]')).toContainText("给@小美妆日记 写阶段跟进邮件", { timeout: 15000 });

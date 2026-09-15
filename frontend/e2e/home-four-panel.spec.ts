@@ -7,6 +7,14 @@ async function openMode(page: Page, mode: "today" | "todo" | "discovery" | "life
   await expect(page.locator(`[data-home-pane="${mode}"]`)).toBeVisible();
 }
 
+async function openDiscoveryConditions(page: Page) {
+  const editor = page.locator("[data-discovery-condition-editor]");
+  if (await editor.count() === 0) {
+    await page.locator("[data-discovery-add-condition]").click();
+  }
+  await expect(editor).toBeVisible();
+}
+
 test.beforeEach(async ({ request }) => {
   await request.post("/api/demo/reset", { data: { workbench: true } });
   await request.post("/api/me/persona", { data: { persona: "sriphy" } });
@@ -89,6 +97,13 @@ test("home discovery persists plan and requires confirm before crawl or follow",
       node.hasAttribute("data-discovery-filters") ? "filters" : "query"
     ))
   ))).toEqual(["filters", "query"]);
+  await expect(page.locator('[data-discovery-active-chip="youtube"]')).toBeVisible();
+  await expect(page.locator('[data-discovery-active-chip="all"]')).toContainText("不限地区");
+  await expect(page.locator("[data-discovery-advanced]")).toBeVisible();
+  await expect(page.locator("[data-discovery-advanced-panel]")).toHaveCount(0);
+  await expect(page.locator("[data-discovery-plan]")).toHaveClass(/ghost/);
+  await page.locator("[data-discovery-query]").fill("找北美户外电源评测达人");
+  await openDiscoveryConditions(page);
   await expect(page.locator('[data-discovery-filter="platform"]')).not.toContainText("全部平台");
   await expect(page.locator('[data-discovery-filter="platform"] [data-discovery-chip="tiktok"]')).toHaveCount(0);
   await expect(page.locator('[data-discovery-filter="platform"] [data-discovery-chip="youtube"]')).toHaveCount(1);
@@ -100,10 +115,8 @@ test("home discovery persists plan and requires confirm before crawl or follow",
   await expect(page.locator('[data-discovery-filter="region"] [data-discovery-chip="ca"]')).toHaveText("加拿大");
   await expect(page.locator('[data-discovery-filter="region"] [data-discovery-chip="eu"]')).toHaveText("欧洲");
   await expect(page.locator('[data-discovery-filter="region"] [data-discovery-chip="au"]')).toHaveText("澳洲");
-  await page.locator("[data-discovery-query]").fill("找北美户外电源评测达人");
   await page.locator('[data-discovery-filter="platform"] [data-discovery-chip="youtube"]').click();
   await page.locator('[data-discovery-filter="region"] [data-discovery-chip="us"]').click();
-  await page.locator("[data-discovery-add-direction]").click();
   await page.locator('[data-discovery-preset="户外电源"]').click();
   await expect(page.locator('[data-discovery-direction="户外电源"]')).toBeVisible();
   await expect(page.locator("[data-discovery-direction-popover]")).toHaveCount(0);
@@ -180,30 +193,32 @@ test("home discovery chips keep query on reset and persist when editing plan", a
   await openMode(page, "discovery");
   const query = page.locator("[data-discovery-query]");
   await query.fill("找 Instagram 美国家庭旅行达人");
+  await expect(page.locator('[data-discovery-active-chip="instagram"]')).toBeVisible();
+  await expect(page.locator('[data-discovery-active-chip="us"]')).toBeVisible();
+  await openDiscoveryConditions(page);
   await expect(page.locator('[data-discovery-filter="platform"] [data-discovery-chip="instagram"]')).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator('[data-discovery-filter="region"] [data-discovery-chip="us"]')).toHaveAttribute("aria-pressed", "true");
-  await page.locator("[data-discovery-add-direction]").click();
   await page.locator("[data-discovery-direction-input]").fill("家庭旅行");
   await page.locator("[data-discovery-direction-input]").press("Enter");
   await expect(page.locator('[data-discovery-direction="家庭旅行"]')).toBeVisible();
   await expect(page.getByLabel("删除方向：家庭旅行")).toBeVisible();
   await page.locator("[data-discovery-reset]").click();
   await expect(query).toHaveValue("找 Instagram 美国家庭旅行达人");
-  await expect(page.locator('[data-discovery-filter="platform"] [data-discovery-chip="youtube"]')).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator('[data-discovery-filter="region"] [data-discovery-chip="all"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('[data-discovery-active-chip="youtube"]')).toBeVisible();
+  await expect(page.locator('[data-discovery-active-chip="all"]')).toBeVisible();
   await expect(page.locator("[data-discovery-direction]")).toHaveCount(0);
 
+  await openDiscoveryConditions(page);
   await page.locator('[data-discovery-filter="platform"] [data-discovery-chip="facebook"]').click();
   await page.locator('[data-discovery-filter="region"] [data-discovery-chip="ca"]').click();
-  await page.locator("[data-discovery-add-direction]").click();
   await page.locator('[data-discovery-preset="户外露营"]').click();
   await expect(page.locator("[data-discovery-direction-popover]")).toHaveCount(0);
   await page.locator("[data-discovery-plan]").click();
   await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
   await page.locator("[data-discovery-cancel-plan]").click();
   await expect(query).toHaveValue("找 Instagram 美国家庭旅行达人");
-  await expect(page.locator('[data-discovery-filter="platform"] [data-discovery-chip="facebook"]')).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator('[data-discovery-filter="region"] [data-discovery-chip="ca"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('[data-discovery-active-chip="facebook"]')).toBeVisible();
+  await expect(page.locator('[data-discovery-active-chip="ca"]')).toBeVisible();
   await expect(page.locator('[data-discovery-direction="户外露营"]')).toBeVisible();
 });
 
@@ -778,9 +793,11 @@ test("home discovery candidate rows use workbench layout and dedupe metrics", as
   await expect(page.locator("[data-discovery-candidate]")).toHaveCount(3);
 
   const solar = page.locator('[data-discovery-candidate="TheSolarLab"]');
-  await expect(solar.locator("[data-discovery-candidate-identity]")).toHaveText("@TheSolarLab");
+  await expect(solar.locator("[data-discovery-candidate-identity]")).toContainText("@TheSolarLab");
+  await expect(solar.locator("[data-discovery-candidate-nickname]")).toHaveCount(0);
+  await expect(solar.locator("[data-discovery-candidate-identity]")).toContainText("YouTube");
   await expect(solar.locator("[data-discovery-candidate-meta]")).toHaveText(
-    "YouTube · 153k · 近10均播 8597338 · 评分 82.94",
+    "153k · 均播 8597338 · 匹配度 82.94",
   );
   await expect(solar.locator("[data-discovery-candidate-reason]")).toHaveCount(0);
   await expect(solar).not.toContainText("待加入跟进");
@@ -792,20 +809,25 @@ test("home discovery candidate rows use workbench layout and dedupe metrics", as
   await expect(gear.locator("[data-discovery-candidate-identity]")).toContainText("@OutdoorGearLab");
   await expect(gear.locator("[data-discovery-candidate-identity]")).toContainText("Outdoor Gear Lab");
   await expect(gear.locator("[data-discovery-candidate-meta]")).toHaveText(
-    "YouTube · 89k · 近10均播 120000 · 评分 88",
+    "89k · 均播 120000 · 匹配度 88",
   );
   await expect(gear.locator("[data-discovery-candidate-reason]")).toHaveText("匹配户外电源评测方向，近期内容稳定");
 
   const longHandle = page.locator('[data-discovery-candidate="VeryLongCreatorHandleNameThatShouldWrapInsteadOfScroll"]');
-  await expect(longHandle.locator("[data-discovery-candidate-meta]")).toHaveText("Instagram");
+  await expect(longHandle.locator("[data-discovery-candidate-identity]")).toContainText("Instagram");
+  await expect(longHandle.locator("[data-discovery-candidate-meta]")).toHaveCount(0);
   await expect(longHandle.locator("[data-discovery-candidate-reason]")).toHaveCount(0);
 
-  await expect(solar.locator("[data-discovery-follow]")).toHaveClass(/btn work/);
-  await expect(solar.locator("[data-discovery-favorite]")).toHaveClass(/btn ghost/);
+  await expect(solar.locator("[data-discovery-follow]")).toHaveClass(/discovery-follow-quiet/);
+  await expect(solar.locator("[data-discovery-follow]")).toHaveText("＋ 跟进");
   await expect(solar.locator("[data-discovery-favorite]")).toHaveAttribute("title", "收藏保存在此浏览器");
-  await expect(solar.locator("[data-discovery-dismiss]")).toHaveClass(/btn ghost/);
+  await expect(solar.locator("[data-discovery-dismiss]")).toHaveCount(0);
+  await solar.locator("[data-discovery-more]").click();
+  await expect(solar.locator("[data-discovery-dismiss]")).toHaveText("忽略");
+  await page.keyboard.press("Escape");
+  await expect(solar.locator("[data-discovery-dismiss]")).toHaveCount(0);
   await solar.locator("[data-discovery-favorite]").click();
-  await expect(solar.locator("[data-discovery-favorite]")).toHaveText("已收藏");
+  await expect(solar.locator("[data-discovery-favorite]")).toHaveAttribute("aria-label", "已收藏");
   await page.reload();
   await openMode(page, "discovery");
   await page.locator("[data-discovery-query]").fill("找北美户外评测达人");
@@ -813,7 +835,7 @@ test("home discovery candidate rows use workbench layout and dedupe metrics", as
   await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
   await page.locator("[data-discovery-confirm-plan]").click();
   await expect(page.locator("[data-discovery-candidates]")).toBeVisible();
-  await expect(page.locator('[data-discovery-candidate="TheSolarLab"] [data-discovery-favorite]')).toHaveText("已收藏");
+  await expect(page.locator('[data-discovery-candidate="TheSolarLab"] [data-discovery-favorite]')).toHaveAttribute("aria-label", "已收藏");
 
   const wide = await candidateRowLayout(solar);
   expect(wide.gridColumnStart === "auto" || wide.gridColumnStart === "3").toBeTruthy();
@@ -830,6 +852,18 @@ test("home discovery candidate rows use workbench layout and dedupe metrics", as
   await page.locator("[data-discovery-follow-no]").click();
   await expect(page.locator("[data-discovery-follow-confirm]")).toHaveCount(0);
   expect(followPosts).toEqual([]);
+
+  await expect(page.locator("[data-discovery-candidates] .btn.work")).toHaveCount(0);
+  await expect(page.locator("[data-discovery-batch-follow]")).toHaveClass(/ghost/);
+  await page.locator("[data-discovery-select-all]").check();
+  await expect(page.locator("[data-discovery-batch-follow]")).toHaveClass(/work/);
+  await expect(page.locator("[data-discovery-candidates] .btn.work")).toHaveCount(1);
+  await expect(page.locator("[data-discovery-preview-count]")).toContainText("位达人符合条件");
+  await expect(page.locator("[data-discovery-advanced-panel]")).toHaveCount(0);
+  await page.locator("[data-discovery-advanced]").click();
+  await expect(page.locator("[data-discovery-advanced-panel]")).toBeVisible();
+  await expect(page.locator("[data-discovery-conditional-follow]")).toHaveClass(/ghost/);
+  await expect(page.locator("[data-discovery-threshold-followers]")).toBeVisible();
 
   await page.setViewportSize({ width: 720, height: 900 });
   const stacked = await candidateRowLayout(solar);

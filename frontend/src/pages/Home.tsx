@@ -1219,6 +1219,7 @@ export default function Home() {
         + (composerReading ? " is-composer-reading" : "")
       }
       data-home
+      data-home-active-mode={mode}
       data-home-task-poll={hasActiveRuns ? "active" : "idle"}
     >
       <div className="home-stage">

@@ -700,7 +700,7 @@ export default function ComposerDock({
               void attachFiles(files);
             }
           }}
-          rows={workspace ? 4 : 1}
+          rows={workspace ? 2 : 1}
           placeholder={placeholder}
           aria-label="发消息或创建任务"
         />
@@ -738,6 +738,9 @@ export default function ComposerDock({
               aria-pressed={activeSubmenu === "projects"}
               onClick={() => openToolbarMenu("projects")}
             >
+              <svg className="composer-tool-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden>
+                <path d="M3.5 7.5h6l1.5 2h9v9a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2zM3.5 7.5v-1a2 2 0 0 1 2-2h4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+              </svg>
               项目
             </button>
             <button
@@ -747,6 +750,9 @@ export default function ComposerDock({
               aria-pressed={activeSubmenu === "skills"}
               onClick={() => openToolbarMenu("skills")}
             >
+              <svg className="composer-tool-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden>
+                <path d="M5 5h5v5H5zm9 0h5v5h-5zM5 14h5v5H5zm9 0h5v5h-5z" fill="none" stroke="currentColor" strokeWidth="1.6" />
+              </svg>
               技能
             </button>
           </>
