@@ -12,6 +12,7 @@ import {
   mergeRemoteLibraryStage,
   normalizeStage,
   planStarryAdjacentWalk,
+  planStarryPhysicalAdapterWalk,
   preferLaterMainStage,
   toLegacyStarryStage,
   toStarryStage,
@@ -198,5 +199,6 @@ describe("15-stage state machine", () => {
       nativeHops: ["COMPLETED"],
       kind: "adjacent",
     });
+    expect(planStarryPhysicalAdapterWalk).toBe(planStarryAdjacentWalk);
   });
 });

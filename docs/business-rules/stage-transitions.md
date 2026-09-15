@@ -2,7 +2,7 @@
 
 **权威（产品法）**：本文件 + `config/stage-transitions.json`。  
 **决策**：ADR-027。ADR-011「远程必须相邻写入」**已废止**，不得再当产品边。  
-**本记录只立法**。LIVE Host 的 Starry 逐格 walk **尚未**按本图改写；实现另开 code PR。
+Host `confirm_stage` **按本图闸门**（`config/stage-transitions.json`）。Starry 逐格 walk 仍是物理适配，不能回写产品边。
 
 节点锁定为现行 Host 15 个正式阶段码 + 一条异常旁路，与 `frontend/src/kolStages.ts` 的 `MAIN_STAGE_TABS` + `EXCEPTION_TAB` 一致。
 

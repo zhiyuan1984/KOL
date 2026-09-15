@@ -27,7 +27,7 @@ Home AI发现跟进写入 Starry 的物理路径（L3 确认→执行→持久�
 下列只描述 Host ↔ Starry 适配器，**不得**当成「人只能相邻前进」的产品法（ADR-011 废止，ADR-027）：
 
 1. **字段形状。** LIVE `changeLifecycleStage` 顶层只有 `{ lifecycleId, requestJson }`；`requestJson` 为 `{ toStageCode, reason }`；`toStageCode` 是 Starry 原生码（Host `NEGOTIATING` → `BUSINESS_NEGOTIATION`）。不要写 `cooperationStageCode` / `targetStageCode` / `stageCode`（会误报回退）。
-2. **hop 残差。** 现行远程 API 仍可能只接受相邻前进；Host LIVE 仍用 `planStarryAdjacentWalk` 逐格 walk。这是物理限制与未改写的实现，**不是**产品边。产品允许人跨段 / 回退 / 进出异常（须原因）。后续 code PR 按产品图改 Host 闸门；若 adapter 仍只能一格一格写，确认卡须诚实说明同步残差。
+2. **hop 残差。** 现行远程 API 仍可能只接受相邻前进；`planStarryAdjacentWalk` 只是物理适配器。Host 产品闸门读 `config/stage-transitions.json`，**不得**把远程 hop 限制说成「产品只允许相邻」。产品允许人跨段 / 回退 / 进出异常（须原因）。adapter 若不能一次写，应逐格 walk 或诚实失败 `not_supported_by_remote`。
 3. **宪法。** 正式阶段写入必须给出具体 `stage_code`，不能用「下一阶段」代替（`CONSTITUTION.md` §4.2）。
 
 密钥只引用环境变量或 Secret 名称，不能写入 Markdown、Skill、日志或提交记录。

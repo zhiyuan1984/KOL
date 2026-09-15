@@ -1,11 +1,12 @@
 {
   "version": 1,
-  "status": "policy-text-only",
+  "status": "host-enforced",
+  "host_enforced": true,
   "live_enforced": false,
   "authority": "ADR-027",
   "supersedes": "ADR-011 adjacent-write-as-business-law",
   "canonical_doc": "docs/business-rules/stage-transitions.md",
-  "follow_up": "LIVE Host Starry walk is unchanged in this PR; a later code PR must enforce this graph.",
+  "follow_up": "Host confirm_stage evaluates this graph. Starry planStarryAdjacentWalk is a physical adapter only; remote may walk hops or return not_supported_by_remote.",
   "nodes": [
     { "id": "INITIAL_CONTACT", "label": "初步接触", "kind": "main", "domain": "Lead" },
     { "id": "INTERESTED", "label": "已回复-有兴趣", "kind": "main", "domain": "Opportunity" },
