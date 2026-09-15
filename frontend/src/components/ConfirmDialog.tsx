@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { AdminConfirmCopy } from "../adminConfirm";
+import { ADMIN_CANCEL_HINT, ADMIN_CANCEL_LABEL, type AdminConfirmCopy } from "../adminConfirm";
 
 const FOCUSABLE = "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
@@ -25,7 +25,8 @@ export function ConfirmDialog({
   scope,
   consequence,
   confirmLabel,
-  cancelLabel = "取消",
+  cancelLabel = ADMIN_CANCEL_LABEL,
+  cancelHint,
   requireReason = false,
   reasonLabel = "原因",
   reasonPlaceholder = "填写原因",
@@ -131,6 +132,12 @@ export function ConfirmDialog({
             />
           </label>
         ) : null}
+        <p className="admin-confirm-cancel-hint muted" data-admin-confirm-cancel-hint>
+          {cancelHint
+            || (requireReason
+              ? "取消只关闭确认，不会写入。确认这条关闭路径才需要填写原因。"
+              : ADMIN_CANCEL_HINT)}
+        </p>
         {error ? <p className="error" role="alert">{error}</p> : null}
         <div className="admin-confirm-actions">
           <button
@@ -180,6 +187,8 @@ export function useAdminConfirm(): { ask: AskAdminConfirm; dialog: ReactNode } {
       scope={pending?.scope || ""}
       consequence={pending?.consequence || ""}
       confirmLabel={pending?.confirmLabel || "确认"}
+      cancelLabel={pending?.cancelLabel}
+      cancelHint={pending?.cancelHint}
       requireReason={pending?.requireReason}
       reasonLabel={pending?.reasonLabel}
       reasonPlaceholder={pending?.reasonPlaceholder}

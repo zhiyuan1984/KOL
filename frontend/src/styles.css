@@ -3825,7 +3825,7 @@ summary:focus-visible,
   gap: 2px;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow: visible;
 }
 .admin-nav-foot {
   margin-top: auto;
@@ -4042,6 +4042,11 @@ summary:focus-visible,
   font-size: var(--font-sm);
   color: var(--text-muted);
 }
+.admin-confirm-cancel-hint {
+  margin: 0;
+  font-size: var(--font-sm);
+  line-height: var(--leading-body);
+}
 .admin-confirm-reason textarea {
   width: 100%;
   min-height: 72px;
@@ -4076,16 +4081,11 @@ summary:focus-visible,
   background: color-mix(in srgb, var(--danger) 8%, var(--bg));
   border-color: var(--danger);
 }
-.admin-kb { gap: 0; }
-.admin-kb .kb-hero-admin { padding-bottom: var(--space-4); }
-.admin-kb .kb-step {
-  background: transparent;
-  border: 0;
-  border-top: 1px solid var(--border);
-  border-radius: 0;
-  box-shadow: none;
-  padding: var(--space-5) 0;
+.admin-kb { gap: var(--space-4); }
+.admin-danger-zone {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
 }
+.admin-danger-zone h2 { color: var(--danger); }
 .admin-body .hub-tile {
   box-shadow: none;
   background: var(--bg);

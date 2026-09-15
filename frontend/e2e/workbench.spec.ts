@@ -2457,19 +2457,55 @@ test("admin skill page exposes create form after product manager login", async (
   await expect(page.locator("[data-skill-create]")).toBeVisible();
   await expect(page.locator("[data-skill-create-save]")).toContainText("发布并写入 Codex");
   await expect(page.locator("[data-skill-admin]")).toHaveAttribute("data-skill-admin", "embedded");
+  await expect(page.locator("[data-funnel-tab]")).toHaveCount(0);
+  await expect(page.locator("[data-admin-skills-table]")).toBeVisible();
   await page.locator("[data-skill-create-id]").fill("daily_brief_ui");
   await page.locator("[data-skill-create-title]").fill("每日简报");
   await page.locator("[data-skill-create-summary]").fill("整理今天要跟进的达人");
   await page.locator("[data-skill-create-body]").fill("# 每日简报\n\n整理今天要处理的达人跟进。\n\n## 禁止事项\n\n- 禁止发送消息。\n- 禁止修改阶段。\n");
   await page.locator("[data-skill-create-save]").click();
+  const publishDialog = page.locator("[data-admin-confirm='skill-publish']");
+  await expect(publishDialog).toBeVisible();
+  await expect(publishDialog.locator("[data-admin-confirm-object]")).toContainText("daily_brief_ui");
+  await expect(publishDialog.locator("[data-admin-confirm-scope]")).toContainText("运行时目录");
+  await expect(publishDialog.locator("[data-admin-confirm-consequence]")).toContainText("员工技能目录");
+  await expect(page.locator("[data-admin-confirm-cancel-hint]")).toContainText("不会写入");
+  await page.locator("[data-admin-confirm-ok]").click();
   await expect(page.locator('[data-skill="daily_brief_ui"]')).toBeVisible();
-  await expect(page.locator('[data-skill="daily_brief_ui"] .hub-kind')).toHaveText("自建");
+  await expect(page.locator('[data-skill="daily_brief_ui"]')).toHaveAttribute("data-skill-source", "published");
+  await expect(page.locator("[data-admin-skill-danger] [data-skill-delete='daily_brief_ui']")).toBeVisible();
+  await page.locator("[data-skill-grant='daily_brief_ui']").click();
+  await expect(page.locator("[data-grant-editor='daily_brief_ui']")).toBeVisible();
+  await page.locator("[data-grant-save]").click();
+  const grantSkillDialog = page.locator("[data-admin-confirm='skill-grant']");
+  await expect(grantSkillDialog).toBeVisible();
+  await expect(grantSkillDialog.locator("[data-admin-confirm-scope]")).toContainText("组织");
+  await expect(page.locator("[data-admin-confirm-cancel-hint]")).toContainText("不会写入");
+  await page.locator("[data-admin-confirm-cancel]").click();
+  await expect(grantSkillDialog).toHaveCount(0);
+  await page.locator("[data-skill-market='daily_brief_ui']").click();
+  const unpublishDialog = page.locator("[data-admin-confirm='skill-unpublish']");
+  await expect(unpublishDialog).toBeVisible();
+  await page.locator("[data-admin-confirm-cancel]").click();
+  await expect(unpublishDialog).toHaveCount(0);
   await page.goto("/skills");
   await expect(page.locator('[data-skill="daily_brief_ui"]')).toBeVisible();
   await expect(page.locator('[data-skill="daily_brief_ui"] .hub-kind')).toHaveText("自建");
   await page.goto("/market/skills");
   await expect(page.locator("[data-hub-new]")).toHaveCount(0);
   await expect(page.locator('[data-skill="daily_brief_ui"] .hub-kind')).toHaveText("自建");
+  await page.goto("/admin/skills");
+  await expect(page.locator("[data-admin-skills-table]")).toBeVisible();
+  await page.locator("[data-skill-market='daily_brief_ui']").click();
+  await page.locator("[data-admin-confirm-ok]").click();
+  await expect(page.locator("[data-skill-market='daily_brief_ui']")).toHaveText("上架");
+  await page.locator("[data-skill-market='daily_brief_ui']").click();
+  const listDialog = page.locator("[data-admin-confirm='skill-list']");
+  await expect(listDialog).toBeVisible();
+  await expect(listDialog.locator("[data-admin-confirm-scope]")).toContainText("员工技能目录可见性");
+  await expect(listDialog.locator("[data-admin-confirm-consequence]")).toContainText("将出现");
+  await page.locator("[data-admin-confirm-cancel]").click();
+  await expect(listDialog).toHaveCount(0);
 });
 
 test("employee persona hides admin chrome and connector config", async ({ page, request }) => {
@@ -2866,7 +2902,7 @@ test("admin console uses a left sidebar with short labels for the current accoun
   await expect(page.locator("[data-admin-nav]").first()).toBeVisible();
   const labels = await page.locator("nav[aria-label='管理分类'] [data-admin-nav]").allTextContents();
   expect(labels.map((label) => label.trim())).toEqual([
-    "员工", "数字员工", "连接器", "技能", "审批", "考试", "数据", "知识", "配置",
+    "员工", "数字员工治理", "连接器枢纽", "技能", "审批", "考试", "数据", "知识", "配置",
   ]);
   await expect(page.locator("[data-admin-nav='employees']")).toHaveClass(/active/);
   await expect(page.locator("[data-admin-account]")).toContainText("当前账户");
@@ -2895,6 +2931,9 @@ test("admin console uses a left sidebar with short labels for the current accoun
   await expect(page).toHaveURL(/\/admin\/knowledge$/);
   await page.locator("[data-admin-nav='kol']").click();
   await expect(page).toHaveURL(/\/admin\/kol$/);
+  await expect(page.locator(".admin-body a[href='/connectors']")).toHaveCount(0);
+  await expect(page.locator(".admin-body")).not.toContainText("打开员工使用面");
+  await expect(page.getByRole("link", { name: "打开连接器枢纽" })).toBeVisible();
 });
 
 test("employee connector use surface is independent of admin hub", async ({ page, request }) => {
@@ -2970,6 +3009,8 @@ test("admin L3 destructive writes open confirm dialog with cancel focused", asyn
   await expect(dialog.locator("[data-admin-confirm-object]")).not.toHaveText("");
   await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("组织账号");
   await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("无法登录");
+  await expect(page.locator("[data-admin-confirm-cancel]")).toHaveText("取消，不执行");
+  await expect(page.locator("[data-admin-confirm-cancel-hint]")).toContainText("不会写入");
   await expect(page.locator("[data-admin-confirm-cancel]")).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
@@ -3001,6 +3042,9 @@ test("admin L3 destructive writes open confirm dialog with cancel focused", asyn
 
   await page.locator("[data-admin-nav='knowledge']").click();
   await expect(page.locator("[data-admin-knowledge]")).toBeVisible();
+  await expect(page.locator(".kb-step-n, .kb-hero-admin")).toHaveCount(0);
+  await expect(page.locator("[data-admin-knowledge-review]")).toBeVisible();
+  await expect(page.locator("[data-admin-knowledge-assets]")).toBeVisible();
   const hardDelete = page.locator("[data-kb-hard-delete]").first();
   if (await hardDelete.count()) {
     await hardDelete.click();
@@ -3021,6 +3065,8 @@ test("admin L3 destructive writes open confirm dialog with cancel focused", asyn
   }
 
   await page.locator("[data-admin-nav='skills']").click();
+  await expect(page.locator("[data-skill-admin]")).toBeVisible();
+  await expect(page.locator("[data-funnel-tab]")).toHaveCount(0);
   const skillDelete = page.locator("[data-skill-delete]").first();
   if (await skillDelete.count()) {
     await skillDelete.click();
@@ -3058,6 +3104,27 @@ test("admin L3 confirm covers retention policy writes", async ({ page }) => {
   await expect(grantDialog.locator("[data-admin-confirm-scope]")).toContainText("write");
   await page.locator("[data-admin-confirm-cancel]").click();
   await expect(grantDialog).toHaveCount(0);
+  const grantRead = page.locator("[data-admin-grant-action='read']").first();
+  await expect(grantRead).toBeVisible();
+  await grantRead.click();
+  const readDialog = page.locator("[data-admin-confirm='grant-read']");
+  await expect(readDialog).toBeVisible();
+  await expect(readDialog.locator("[data-admin-confirm-scope]")).toContainText("read");
+  await expect(page.locator("[data-admin-confirm-cancel-hint]")).toContainText("不会写入");
+  await page.locator("[data-admin-confirm-cancel]").click();
+  await expect(readDialog).toHaveCount(0);
+
+  await page.locator("[data-admin-nav='approvals']").click();
+  await expect(page.getByRole("heading", { name: "审批角色授权" })).toBeVisible();
+  await page.locator('select[name="user_id"]').selectOption({ index: 1 });
+  await page.locator(".check input").first().check();
+  await page.locator("[data-admin-approval-save]").click();
+  const roleDialog = page.locator("[data-admin-confirm='approval-role']");
+  await expect(roleDialog).toBeVisible();
+  await expect(roleDialog.locator("[data-admin-confirm-scope]")).not.toHaveText("");
+  await expect(page.locator("[data-admin-confirm-cancel]")).toHaveText("取消，不执行");
+  await page.locator("[data-admin-confirm-cancel]").click();
+  await expect(roleDialog).toHaveCount(0);
 });
 
 test("docs/21 admin connectors hub renders", async ({ page }) => {

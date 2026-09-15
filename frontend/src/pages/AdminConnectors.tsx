@@ -13,7 +13,7 @@ import {
   type PublicConnector,
 } from "../adminGovernance";
 import { auditEventLabel } from "../labels";
-import { connectorDisableConfirm, credentialRefConfirm, grantRevokeConfirm, grantWriteConfirm } from "../adminConfirm";
+import { connectorDisableConfirm, credentialRefConfirm, grantReadConfirm, grantRevokeConfirm, grantWriteConfirm } from "../adminConfirm";
 import { useAdminConfirm, type AskAdminConfirm } from "../components/ConfirmDialog";
 
 type SaveFn = (path: string, body: AdminRow, message: string, method?: string) => Promise<void>;
@@ -304,7 +304,9 @@ function ConnectorGrantTable({
       );
       return;
     }
-    void onSave(`/api/admin/users/${userId}/connectors/${connectorId}`, { access }, "连接器授权已保存");
+    ask(grantReadConfirm(rowTitle(user), connectorLabel), () =>
+      onSave(`/api/admin/users/${userId}/connectors/${connectorId}`, { access }, "连接器授权已保存"),
+    );
   };
 
   return (
@@ -334,7 +336,7 @@ function ConnectorGrantTable({
                   <td>{access === "read" || access === "write" || access === "admin" ? "已授" : "—"}</td>
                   <td>{access === "write" || access === "admin" ? "已授" : "—"}</td>
                   <td className="admin-inline-actions">
-                    <button type="button" className="btn sm" onClick={() => setAccess(user, "read")}>授予 read</button>
+                    <button type="button" className="btn sm" data-admin-grant-action="read" onClick={() => setAccess(user, "read")}>授予 read</button>
                     <button type="button" className="btn sm" data-admin-grant-action="write" onClick={() => setAccess(user, "write")}>授予 write</button>
                     <button type="button" className="btn sm danger" data-admin-grant-action="revoke" disabled={!access} onClick={() => setAccess(user, "")}>收回</button>
                   </td>

@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
-import { FUNNEL, HubTile, skillFunnel, skillKind, type SkillRow } from "./SkillHub";
-import { skillDeleteConfirm, skillUnpublishConfirm } from "../adminConfirm";
+import { FUNNEL, skillKind, type SkillRow } from "./SkillHub";
+import {
+  skillDeleteConfirm,
+  skillGrantSaveConfirm,
+  skillListConfirm,
+  skillPublishConfirm,
+  skillUnpublishConfirm,
+} from "../adminConfirm";
 import { useAdminConfirm } from "../components/ConfirmDialog";
 
 type AdminSkill = SkillRow & {
@@ -11,7 +17,34 @@ type AdminSkill = SkillRow & {
   summary?: string;
   source?: "bundled" | "published";
   aliases?: string[];
+  updated_at?: string | null;
+  edited?: boolean;
 };
+
+function grantLine(grants?: { org: string[]; team: string[]; user: string[] }) {
+  const org = grants?.org?.length || 0;
+  const team = grants?.team?.length || 0;
+  const user = grants?.user?.length || 0;
+  if (!org && !team && !user) return "未分配";
+  return `组织 ${org} · 团队 ${team} · 个人 ${user}`;
+}
+
+function lastEditLabel(skill: AdminSkill) {
+  const raw = String(skill.updated_at || "").trim();
+  if (raw) {
+    const date = new Date(raw);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toLocaleString("zh-CN", {
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    }
+  }
+  return skill.edited ? "已改说明" : "—";
+}
 
 type SkillMeta = {
   profiles: string[];
@@ -40,7 +73,6 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
   const nav = useNavigate();
   const [data, setData] = useState<AdminPayload | null>(null);
   const [tab, setTab] = useState<"skills" | "connectors">("skills");
-  const [chip, setChip] = useState("reach");
   const [q, setQ] = useState("");
   const [skills, setSkills] = useState<AdminSkill[]>([]);
   const [meta, setMeta] = useState<SkillMeta>({ profiles: [], outputs: [], funnels: [], mcp: [] });
@@ -185,8 +217,10 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
   const saveGrant = async () => {
     if (!grantId) return;
     setSopErr("");
+    setSopNotice("");
     try {
       await api.saveSkillGrants(grantId, grantDraft);
+      setSopNotice(`技能「${skills.find((row) => row.id === grantId)?.title || grantId}」分配已保存`);
       await load();
       setGrantId(null);
     } catch (e) {
@@ -196,12 +230,14 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
 
   const createSkill = async () => {
     setSopErr("");
+    setSopNotice("");
     setCreating(true);
     try {
       await api.createAdminSkill({
         ...createDraft,
         aliases: createDraft.aliases,
       });
+      setSopNotice(`技能「${createDraft.title || createDraft.id}」已发布`);
       setCreateDraft((cur) => ({ ...cur, id: "", title: "", description: "", aliases: "" }));
       await load();
     } catch (e) {
@@ -213,8 +249,10 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
 
   const toggleMarket = async (s: AdminSkill) => {
     setSopErr("");
+    setSopNotice("");
     try {
       await api.patchAdminSkill(s.id, { in_market: !s.in_market });
+      setSopNotice(s.in_market ? `技能「${s.title}」已下架` : `技能「${s.title}」已上架`);
       await load();
     } catch (e) {
       setSopErr(e instanceof Error ? e.message : String(e));
@@ -244,11 +282,11 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
   const needle = q.trim().toLowerCase();
   const shown = useMemo(() => {
     return skills.filter((s) => {
-      if (skillFunnel(s) !== chip) return false;
       if (!needle) return true;
-      return (s.title + (s.summary || "")).toLowerCase().includes(needle);
+      return (s.id + s.title + (s.summary || "")).toLowerCase().includes(needle);
     });
-  }, [skills, chip, needle]);
+  }, [skills, needle]);
+  const publishedSkills = useMemo(() => shown.filter((s) => s.source === "published"), [shown]);
 
   if (!loggedIn) {
     return (
@@ -338,7 +376,7 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
             data-skill-create
             onSubmit={(e) => {
               e.preventDefault();
-              void createSkill();
+              ask(skillPublishConfirm(createDraft.title, createDraft.id, createDraft.in_market), () => createSkill());
             }}
           >
             <h3>新建技能</h3>
@@ -435,91 +473,96 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
               </button>
             </div>
           </form>
-          <label className="hub-search-wrap" style={{ width: 240 }}>
-            <input className="hub-search" placeholder="搜索技能" value={q} onChange={(e) => setQ(e.target.value)} />
-          </label>
-          <div className="hub-chips" role="tablist" aria-label="建联进度">
-            {FUNNEL.map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                role="tab"
-                className={"hub-chip" + (chip === f.id ? " on" : "")}
-                data-funnel-tab={f.id}
-                onClick={() => setChip(f.id)}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-          <section className="skill-funnel" data-funnel={chip} data-admin-skills>
-            <h2 className="hub-section-title">
-              {FUNNEL.find((f) => f.id === chip)?.label}
-              <span className="hub-section-hint">{FUNNEL.find((f) => f.id === chip)?.hint}</span>
-            </h2>
-            <div className="hub-grid">
-              {shown.map((s) => (
-                <HubTile
-                  key={s.id}
-                  id={s.id}
-                  title={s.title}
-                  kind={skillKind(s)}
-                  summary={s.summary || s.title}
-                  dataKey="data-skill"
-                  plusLabel={"编辑 " + s.title}
-                  sopMark
-                  badge={s.in_market ? undefined : "未上架"}
-                  onPlus={() => void openSop(s)}
-                  actions={
-                    <span className="hub-tile-actions">
-                      <button type="button" className="btn" data-skill-sop={s.id} onClick={() => void openSop(s)}>
-                        编辑说明
-                      </button>
-                      <button type="button" className="btn" data-skill-grant={s.id} onClick={() => openGrant(s)}>
-                        分配
-                      </button>
-                      <button
-                        type="button"
-                        className="btn"
-                        data-skill-market={s.id}
-                        onClick={() => {
-                          if (s.in_market) {
-                            ask(skillUnpublishConfirm(s.title, s.id), () => toggleMarket(s));
-                            return;
-                          }
-                          void toggleMarket(s);
-                        }}
-                      >
-                        {s.in_market ? "下架" : "上架"}
-                      </button>
-                      {s.source === "published" && (
+          <section className="panel" data-admin-skills>
+            <div className="admin-section-head">
+              <div>
+                <h2>技能治理</h2>
+                <p className="muted">主键、上架、分配和最近改说明。漏斗分类只在员工目录使用。</p>
+              </div>
+              <label className="hub-search-wrap">
+                <input className="hub-search" placeholder="搜索主键或名称" value={q} onChange={(e) => setQ(e.target.value)} />
+              </label>
+            </div>
+            <div className="admin-table-wrap">
+              <table className="admin-table" data-admin-skills-table>
+                <thead>
+                  <tr>
+                    <th>主键</th>
+                    <th>上架</th>
+                    <th>分配</th>
+                    <th>最近改说明</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {shown.map((s) => (
+                    <tr
+                      key={s.id}
+                      data-skill={s.id}
+                      data-skill-source={s.source || "bundled"}
+                    >
+                      <td>
+                        <strong>{s.id}</strong>
+                        <p className="muted">{s.title} · {skillKind(s)}</p>
+                      </td>
+                      <td>
+                        <span className={"admin-status is-" + (s.in_market ? "configured" : "unattached")}>
+                          {s.in_market ? "已上架" : "未上架"}
+                        </span>
+                      </td>
+                      <td>{grantLine(s.grants)}</td>
+                      <td>{lastEditLabel(s)}</td>
+                      <td className="admin-inline-actions">
+                        <button type="button" className="btn sm" data-skill-sop={s.id} onClick={() => void openSop(s)}>
+                          编辑说明
+                        </button>
+                        <button type="button" className="btn sm" data-skill-grant={s.id} onClick={() => openGrant(s)}>
+                          分配
+                        </button>
                         <button
                           type="button"
-                          className="btn danger"
-                          data-skill-delete={s.id}
-                          onClick={() => ask(skillDeleteConfirm(s.title, s.id), () => removeSkill(s))}
+                          className="btn sm"
+                          data-skill-market={s.id}
+                          onClick={() => {
+                            if (s.in_market) {
+                              ask(skillUnpublishConfirm(s.title, s.id), () => toggleMarket(s));
+                              return;
+                            }
+                            ask(skillListConfirm(s.title, s.id), () => toggleMarket(s));
+                          }}
                         >
-                          删除
+                          {s.in_market ? "下架" : "上架"}
                         </button>
-                      )}
-                    </span>
-                  }
-                />
-              ))}
-              {chip === "settle" && (
-                <HubTile
-                  id="attribution_review"
-                  title="归因复盘"
-                  kind="暂未开放"
-                  summary="本期还不能做转化归因。超时或失联请先用风险扫描。"
-                  dataKey="data-skill"
-                  plusLabel="未开放"
-                  disabled
-                  onPlus={() => undefined}
-                />
-              )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
+            {!shown.length && <p className="muted">没有匹配的技能。</p>}
           </section>
+          {publishedSkills.length > 0 && (
+            <section className="panel admin-danger-zone" data-admin-skill-danger>
+              <h2>危险区</h2>
+              <p className="muted">删除已发布技能包。内置技能不能删除。下架不会出现在这里。</p>
+              {publishedSkills.map((s) => (
+                <article className="admin-row" key={s.id} data-skill-danger={s.id}>
+                  <div>
+                    <strong>{s.id}</strong>
+                    <p className="muted">{s.title}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn danger"
+                    data-skill-delete={s.id}
+                    onClick={() => ask(skillDeleteConfirm(s.title, s.id), () => removeSkill(s))}
+                  >
+                    删除
+                  </button>
+                </article>
+              ))}
+            </section>
+          )}
           {editId && (
             <form
               className="panel sop-editor"
@@ -607,7 +650,15 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
                 </fieldset>
               </div>
               <div className="skill-card-actions">
-                <button type="button" className="btn" data-grant-save onClick={() => void saveGrant()}>
+                <button
+                  type="button"
+                  className="btn"
+                  data-grant-save
+                  onClick={() => {
+                    const row = skills.find((item) => item.id === grantId);
+                    ask(skillGrantSaveConfirm(row?.title || grantId || "", grantDraft), () => saveGrant());
+                  }}
+                >
                   保存分配
                 </button>
                 <button type="button" className="btn" onClick={() => setGrantId(null)}>
