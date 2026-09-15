@@ -103,6 +103,7 @@ import { assertSessionAccess } from "../routers/enterprise.js";
 import { appendTaskEvent } from "../routers/tasks.js";
 import { taskDefinition } from "../tasks/registry.js";
 import { recognizeTaskIntent } from "../tasks/recognize.js";
+import { insertSessionMessage, isSessionNotFound } from "./session-messages.js";
 import { publishSession, subscribeSession } from "./session-events.js";
 import { agentSubmissionAllowed } from "../contract-scope.js";
 import { extractTaskEntities, mergeExtractedOntoIntent } from "../tasks/resolver.js";
@@ -194,22 +195,7 @@ function addMsg(sid: string, role: string, kind: string, payload: Json): Json {
       }
     }
   }
-  const mid = nid("msg");
-  const now = nowIso();
-  tx((c) => {
-    c.prepare("INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES (?,?,?,?,?,?)").run(
-      mid,
-      sid,
-      role,
-      kind,
-      JSON.stringify(payload),
-      now,
-    );
-    c.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(now, sid);
-  });
-  const row = { id: mid, session_id: sid, role, kind, payload, created_at: now };
-  publishSession(sid, { type: "upsert", message: row });
-  return row;
+  return insertSessionMessage(sid, role, kind, payload);
 }
 
 function updateMsg(mid: string, payload: Json): void {
@@ -339,7 +325,7 @@ function finishBoundTask(bound: BoundTask | null, sid: string, result?: Json, er
     (codexMode() !== "stub" || process.env.MEDIACRAWLER_AUTO_START === "1")
   ) {
     void autoStartBoundCrawl(bound, sid, result.crawl_plan as Json).catch((error) => {
-      if (isSqliteForeignKeyError(error) || isSqliteClosedError(error)) return;
+      if (isSqliteForeignKeyError(error) || isSqliteClosedError(error) || isSessionNotFound(error)) return;
     });
   }
 }
@@ -415,7 +401,7 @@ async function autoStartBoundCrawl(bound: BoundTask, sid: string, plan: Json): P
         text: "远程创作者采集已自动启动，进度会持续更新。",
       });
     } catch (error) {
-      if (isSqliteForeignKeyError(error) || isSqliteClosedError(error)) return;
+      if (isSqliteForeignKeyError(error) || isSqliteClosedError(error) || isSessionNotFound(error)) return;
       if (!getConn().prepare("SELECT id FROM work_items WHERE id=?").get(bound.workItemId)) return;
       const detail = error instanceof HttpFail && error.detail && typeof error.detail === "object"
         ? error.detail as Json
@@ -436,7 +422,7 @@ async function autoStartBoundCrawl(bound: BoundTask, sid: string, plan: Json): P
       });
     }
   } catch (error) {
-    if (isSqliteForeignKeyError(error) || isSqliteClosedError(error)) return;
+    if (isSqliteForeignKeyError(error) || isSqliteClosedError(error) || isSessionNotFound(error)) return;
     throw error;
   }
 }
@@ -475,22 +461,31 @@ function runInBackground(sid: string, me: Json, intent: Intent, col: Row | null,
     publishQueue(sid);
     return;
   }
-  const progress = addMsg(sid, "assistant", "job_status", {
-    status: "running",
-    text: "正在准备任务…",
-  });
+  let progress: Json;
+  let trace: Json;
+  let operations: Json;
+  try {
+    progress = addMsg(sid, "assistant", "job_status", {
+      status: "running",
+      text: "正在准备任务…",
+    });
+    trace = addMsg(sid, "assistant", "process_trace", {
+      title: "处理过程",
+      items: [{ id: "host:preparing", label: "准备任务", status: "running", kind: "host" }],
+    });
+    operations = addMsg(sid, "assistant", "operation_trace", {
+      title: REMOTE_MCP_TITLE,
+      persistent: true,
+      active: true,
+      items: [],
+    });
+  } catch (error) {
+    clearSessionRunning(sid);
+    if (isSessionNotFound(error)) return;
+    throw error;
+  }
   const progressId = String(progress.id);
-  const trace = addMsg(sid, "assistant", "process_trace", {
-    title: "处理过程",
-    items: [{ id: "host:preparing", label: "准备任务", status: "running", kind: "host" }],
-  });
   const traceId = String(trace.id);
-  const operations = addMsg(sid, "assistant", "operation_trace", {
-    title: REMOTE_MCP_TITLE,
-    persistent: true,
-    active: true,
-    items: [],
-  });
   const operationId = String(operations.id);
   let operationItems: { id: string; name: string; label: string; status: string }[] = [];
   let processItems: WorkerTraceItem[] = [
@@ -585,6 +580,10 @@ function runInBackground(sid: string, me: Json, intent: Intent, col: Row | null,
           });
     })
     .catch((e: unknown) => {
+      if (isSessionNotFound(e)) {
+        finishBoundTask(bound, sid, undefined, e);
+        return;
+      }
       const stopped = wasSessionStopped(sid) || (e instanceof Error && e.name === "WorkerStopped");
       if (stopped) {
         finishBoundTask(bound, sid, {});
@@ -611,13 +610,17 @@ function runInBackground(sid: string, me: Json, intent: Intent, col: Row | null,
         text: "处理失败，请查看下方提示。",
       });
       if (!isEmailMcpTask(intent.type) && !isKolClawTask(intent.type)) {
-        addMsg(sid, "assistant", "error_card", {
-          code: "worker_failed",
-          status: "worker_failed",
-          message: "任务生成失败。",
-          next_action: message,
-          persistent: true,
-        });
+        try {
+          addMsg(sid, "assistant", "error_card", {
+            code: "worker_failed",
+            status: "worker_failed",
+            message: "任务生成失败。",
+            next_action: message,
+            persistent: true,
+          });
+        } catch (writeError) {
+          if (!isSessionNotFound(writeError)) throw writeError;
+        }
       }
       audit("host", "worker.failed", { message });
     })
@@ -647,8 +650,13 @@ function publishQueue(sid: string): void {
 }
 
 function launchQueuedAsk(sid: string, item: QueuedAsk): void {
-  const col = resolveCollab(item.intent);
-  runInBackground(sid, item.me, item.intent, col, item.text);
+  try {
+    const col = resolveCollab(item.intent);
+    runInBackground(sid, item.me, item.intent, col, item.text);
+  } catch (error) {
+    if (isSessionNotFound(error)) return;
+    throw error;
+  }
 }
 
 function ok(sid: string, me: Json, intent: Intent, extra: Json = {}): Json {

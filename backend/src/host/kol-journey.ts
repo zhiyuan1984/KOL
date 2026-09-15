@@ -1,5 +1,6 @@
 import { scopedUser } from "../auth.js";
 import { audit, getConn, nowIso, onConnReset, tx } from "../db.js";
+import { assertSessionRowExists, insertSessionMessage } from "./session-messages.js";
 import { nid } from "../ids.js";
 import { judgeCollaborationStage, type StageJudgment, type StageJudgmentInput } from "../stage-judgment.js";
 import {
@@ -42,17 +43,7 @@ import { publishSession } from "./session-events.js";
 import { FOLLOW_STYLE_PRESETS, readFollowStyleTags } from "../follow-style-tags.js";
 
 function addMsg(sid: string, role: string, kind: string, payload: Json): Json {
-  const mid = nid("msg");
-  const now = nowIso();
-  tx((db) => {
-    db.prepare("INSERT INTO messages (id, session_id, role, kind, payload, created_at) VALUES (?,?,?,?,?,?)").run(
-      mid, sid, role, kind, JSON.stringify(payload), now,
-    );
-    db.prepare("UPDATE sessions SET updated_at = ? WHERE id = ?").run(now, sid);
-  });
-  const row = { id: mid, session_id: sid, role, kind, payload, created_at: now };
-  publishSession(sid, { type: "upsert", message: row });
-  return row;
+  return insertSessionMessage(sid, role, kind, payload);
 }
 
 export function recommendedCollabActions(col: Row): Json[] {
@@ -440,8 +431,10 @@ export function ingestKolMail(collaborationId: string, input: {
   provider_message_id?: string;
   message_id?: string;
 }, opts?: { deferDigest?: boolean }): Json {
+  const requested = String(input.session_id || "").trim();
+  if (requested) assertSessionRowExists(requested);
   const opened = openKolSession(collaborationId);
-  const sid = String(input.session_id || opened.id);
+  const sid = requested || String(opened.id);
   const col = getConn().prepare("SELECT * FROM collaborations WHERE id = ?").get(collaborationId) as Row;
   if (!col) throw new HttpFail(404, "collaboration not found");
   const subject = String(input.subject || "").trim();
