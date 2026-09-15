@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { recognizeElapsedSeconds } from "../waitStatus";
+import { useViewMode } from "../viewMode";
 import {
   DEFAULT_DISCOVERY_FILTERS,
   DIRECTION_PRESETS,
@@ -10,10 +12,13 @@ import {
   candidateMatchesFollowFilter,
   candidateMetrics,
   candidateReason,
+  checkDiscoveryConnection,
   createDiscoveryRequest,
-  distinctNickname,
+  DiscoveryWaitCancelledError,
   discoveryEmptyCopy,
+  discoveryRunStatusLabel,
   dismissCandidate,
+  distinctNickname,
   followCandidate,
   followCandidatesBatch,
   guessPlatformFromQuery,
@@ -25,22 +30,27 @@ import {
   planSummary,
   platformLabel,
   presentDiscoveryError,
+  readDiscoveryFavorites,
   regionLabel,
   splitDirectionDraft,
   startDiscoveryRun,
   summarizeFollowFilter,
   waitForDiscoveryResults,
+  writeDiscoveryFavorites,
   type CreatorCandidate,
+  type DiscoveryConnection,
   type DiscoveryErrorView,
   type DiscoveryFilters,
   type DiscoveryFollowBatchResult,
   type DiscoveryPhase,
   type DiscoveryPlatform,
+  type DiscoveryRecoverAction,
   type DiscoveryRequest,
+  type DiscoveryResults,
+  type DiscoveryRun,
   type FollowFilter,
 } from "./discovery";
 import { DiscoveryFollowConfirm } from "./DiscoveryFollowConfirm";
-import { useViewMode } from "../viewMode";
 
 export default function DiscoveryPanel() {
   const [query, setQuery] = useState("");
@@ -56,9 +66,16 @@ export default function DiscoveryPanel() {
   const [phase, setPhase] = useState<DiscoveryPhase>("idle");
   const [request, setRequest] = useState<DiscoveryRequest | null>(null);
   const [candidates, setCandidates] = useState<CreatorCandidate[]>([]);
-  const [favorited, setFavorited] = useState<Record<string, boolean>>({});
+  const [favorited, setFavorited] = useState<Record<string, boolean>>(readDiscoveryFavorites);
   const [error, setError] = useState<DiscoveryErrorView | null>(null);
   const [busy, setBusy] = useState(false);
+  const [waitStartedAt, setWaitStartedAt] = useState<number | null>(null);
+  const [waitNow, setWaitNow] = useState(() => Date.now());
+  const [activeRun, setActiveRun] = useState<DiscoveryRun | null>(null);
+  const [connectionCheck, setConnectionCheck] = useState<DiscoveryConnection | null>(null);
+  const [checkingConnection, setCheckingConnection] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const waitGen = useRef(0);
   const [pendingFollow, setPendingFollow] = useState<CreatorCandidate | null>(null);
   const [followError, setFollowError] = useState<string | null>(null);
   const [followBusy, setFollowBusy] = useState(false);
@@ -72,10 +89,26 @@ export default function DiscoveryPanel() {
   const [searchKeywords, setSearchKeywords] = useState<string[]>([]);
   const [emptyHintFromApi, setEmptyHintFromApi] = useState<string | null>(null);
   const { debug } = useViewMode();
+  const waitSeconds = recognizeElapsedSeconds(waitStartedAt, waitNow);
+  const runStatus = String(activeRun?.status || "");
+  const runLabel = discoveryRunStatusLabel(runStatus, activeRun?.status_label);
 
-  const showError = (raw: unknown, fallback: string) => {
+  const showError = (raw: unknown, fallback: string, recover: DiscoveryRecoverAction = "plan") => {
     setDetailOpen(false);
-    setError(presentDiscoveryError(raw, fallback));
+    setError(presentDiscoveryError(raw, fallback, recover));
+  };
+
+  const clearWait = () => {
+    setWaitStartedAt(null);
+    setActiveRun(null);
+  };
+
+  const toggleFavorite = (id: string) => {
+    setFavorited((current) => {
+      const next = { ...current, [id]: !current[id] };
+      writeDiscoveryFavorites(next);
+      return next;
+    });
   };
 
   const visible = useMemo(
@@ -126,6 +159,17 @@ export default function DiscoveryPanel() {
     if (phase !== "error") return;
     errorRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [phase, error?.kind]);
+
+  useEffect(() => {
+    if (phase !== "planning" && phase !== "running") return;
+    setWaitNow(Date.now());
+    const timer = window.setInterval(() => setWaitNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [phase]);
+
+  useEffect(() => () => {
+    abortRef.current?.abort();
+  }, []);
 
   useEffect(() => {
     if (!addOpen) return;
@@ -186,18 +230,70 @@ export default function DiscoveryPanel() {
     setAddOpen(false);
   };
 
+  const applyTerminalResults = (results: DiscoveryResults) => {
+    setRequest(results.request);
+    setActiveRun(results.run);
+    setCandidates(results.candidates);
+    setSelectedIds([]);
+    setBatchResult(null);
+    setPendingBatch(null);
+    setSearchKeywords(results.search_keywords || results.run?.search_keywords || []);
+    setEmptyHintFromApi(results.empty_hint || results.run?.empty_hint || null);
+    const status = String(results.run?.status || results.status);
+    if (status === "failed") {
+      showError(
+        results.run?.error || results.request.error || "检索没有完成，可调整条件后重试。",
+        "检索没有完成，可调整条件后重试。",
+        "confirm",
+      );
+      setPhase("error");
+      return;
+    }
+    if (status === "cancelled") {
+      showError("检索已取消。", "检索已取消，可再确认计划后重试。", "confirm");
+      setPhase("error");
+      return;
+    }
+    setError(null);
+    setPhase("results");
+  };
+
+  const watchResults = async (requestId: string, gen: number) => {
+    const ac = abortRef.current && !abortRef.current.signal.aborted
+      ? abortRef.current
+      : new AbortController();
+    abortRef.current = ac;
+    const results = await waitForDiscoveryResults(requestId, {
+      signal: ac.signal,
+      onUpdate: (latest) => {
+        if (gen !== waitGen.current) return;
+        setRequest(latest.request);
+        setActiveRun(latest.run);
+      },
+    });
+    if (gen !== waitGen.current) return;
+    applyTerminalResults(results);
+  };
+
   const buildPlan = async () => {
     setAddOpen(false);
     const text = query.trim();
     if (!text) {
-      showError("先写一句想找的达人，再生成计划。", "先写一句想找的达人，再生成计划。");
+      showError("先写一句想找的达人，再生成计划。", "先写一句想找的达人，再生成计划。", "plan");
       setPhase("error");
       return;
     }
+    waitGen.current += 1;
+    abortRef.current?.abort();
     setBusy(true);
     setError(null);
     setDetailOpen(false);
+    setConnectionCheck(null);
     setPendingFollow(null);
+    setCandidates([]);
+    setActiveRun(null);
+    setPhase("planning");
+    setWaitStartedAt(Date.now());
     try {
       const next = await createDiscoveryRequest({
         keywords: keywordsFromQuery(text),
@@ -206,15 +302,15 @@ export default function DiscoveryPanel() {
         filters: { region: filters.region, directions: filters.directions },
       });
       setRequest(next);
-      setCandidates([]);
       setSelectedIds([]);
       setBatchResult(null);
       setPendingBatch(null);
       setSearchKeywords([]);
       setEmptyHintFromApi(null);
+      clearWait();
       setPhase("plan");
     } catch (caught) {
-      showError(caught, "计划没有生成，可稍后重试。");
+      showError(caught, "计划没有生成，可稍后重试。", "plan");
       setPhase("error");
     } finally {
       setBusy(false);
@@ -223,39 +319,111 @@ export default function DiscoveryPanel() {
 
   const confirmPlan = async () => {
     if (!request) return;
+    const gen = ++waitGen.current;
+    abortRef.current?.abort();
     setBusy(true);
     setError(null);
     setDetailOpen(false);
+    setConnectionCheck(null);
     setPhase("running");
+    setWaitStartedAt(Date.now());
+    setActiveRun({ id: "", status: "queued", status_label: "排队中" });
+    const ac = new AbortController();
+    abortRef.current = ac;
     try {
       const run = await startDiscoveryRun(request.id, { platform: request.platforms[0] });
-      if (run.status === "failed" || run.status === "cancelled") {
-        showError(run.error || "检索没有完成，可调整条件后重试。", "检索没有完成，可调整条件后重试。");
+      if (gen !== waitGen.current) return;
+      if (ac.signal.aborted) {
+        showError(new DiscoveryWaitCancelledError(), "已停止等待检索结果。", "wait");
         setPhase("error");
         return;
       }
-      const results = await waitForDiscoveryResults(request.id);
-      setRequest(results.request);
-      setCandidates(results.candidates);
-      setSelectedIds([]);
-      setBatchResult(null);
-      setPendingBatch(null);
-      setSearchKeywords(results.search_keywords || results.run?.search_keywords || []);
-      setEmptyHintFromApi(results.empty_hint || results.run?.empty_hint || null);
-      if (String(results.run?.status || results.status) === "failed") {
+      setActiveRun(run);
+      if (run.status === "failed" || run.status === "cancelled") {
         showError(
-          results.run?.error || results.request.error || "检索没有完成，可调整条件后重试。",
+          run.error || "检索没有完成，可调整条件后重试。",
           "检索没有完成，可调整条件后重试。",
+          "confirm",
         );
         setPhase("error");
         return;
       }
-      setPhase("results");
+      await watchResults(request.id, gen);
     } catch (caught) {
-      showError(caught, "检索没有完成，可调整条件后重试。");
+      if (gen !== waitGen.current) return;
+      showError(caught, "检索没有完成，可调整条件后重试。", "confirm");
       setPhase("error");
     } finally {
-      setBusy(false);
+      if (gen === waitGen.current) setBusy(false);
+    }
+  };
+
+  const resumeWait = async () => {
+    if (!request) return;
+    const gen = ++waitGen.current;
+    setBusy(true);
+    setError(null);
+    setDetailOpen(false);
+    setConnectionCheck(null);
+    setPhase("running");
+    setWaitStartedAt(Date.now());
+    try {
+      await watchResults(request.id, gen);
+    } catch (caught) {
+      if (gen !== waitGen.current) return;
+      showError(caught, "检索没有完成，可调整条件后重试。", "wait");
+      setPhase("error");
+    } finally {
+      if (gen === waitGen.current) setBusy(false);
+    }
+  };
+
+  const cancelWait = () => {
+    abortRef.current?.abort();
+  };
+
+  const returnToPlan = () => {
+    waitGen.current += 1;
+    abortRef.current?.abort();
+    setError(null);
+    setConnectionCheck(null);
+    clearWait();
+    setPhase(request ? "plan" : "idle");
+  };
+
+  const onRetry = () => {
+    const recover = error?.recover || (request ? "confirm" : "plan");
+    if (recover === "wait") {
+      void resumeWait();
+      return;
+    }
+    if (recover === "confirm") {
+      void confirmPlan();
+      return;
+    }
+    void buildPlan();
+  };
+
+  const diagnoseConnection = async () => {
+    setCheckingConnection(true);
+    try {
+      const next = await checkDiscoveryConnection();
+      setConnectionCheck(next);
+      if (String(next.status) === "ok") {
+        setError((current) => (current ? { ...current, retryDisabled: false } : current));
+      }
+    } catch (caught) {
+      const view = presentDiscoveryError(caught, "暂时无法完成连接检查。", error?.recover || "plan");
+      setConnectionCheck({
+        status: "unreachable",
+        credentials_present: false,
+        reachable: false,
+        connected: false,
+        message: view.message,
+        status_label: "检查失败",
+      });
+    } finally {
+      setCheckingConnection(false);
     }
   };
 
@@ -529,6 +697,22 @@ export default function DiscoveryPanel() {
         </div>
       ) : null}
 
+      {phase === "planning" ? (
+        <section
+          className="task-empty"
+          data-discovery-planning
+          data-wait-status="生成计划"
+          role="status"
+          aria-busy="true"
+        >
+          <strong>正在生成计划</strong>
+          <p data-discovery-planning-reason>
+            正在根据关键词和条件整理检索计划，不会启动采集，也不会写成待办。
+            {waitSeconds ? ` 已等待 ${waitSeconds} 秒。` : ""}
+          </p>
+        </section>
+      ) : null}
+
       {phase === "plan" && request ? (
         <section
           className="discovery-plan"
@@ -560,9 +744,29 @@ export default function DiscoveryPanel() {
       ) : null}
 
       {phase === "running" ? (
-        <section className="task-empty" data-discovery-loading role="status" aria-busy="true">
-          <strong>检索中</strong>
-          <p>正在按已确认的计划找红人线索，不会改正式阶段，也不会写成待办。</p>
+        <section
+          className="task-empty"
+          data-discovery-loading
+          data-discovery-run-status={runStatus || "queued"}
+          data-wait-status={runLabel}
+          role="status"
+          aria-busy="true"
+        >
+          <strong data-discovery-run-label>{runLabel}</strong>
+          <p data-discovery-running-reason>
+            正在按已确认的计划找红人线索，不会改正式阶段，也不会写成待办。
+            {waitSeconds ? ` 已用时 ${waitSeconds} 秒。` : ""}
+          </p>
+          <div className="discovery-error-actions">
+            <button
+              type="button"
+              className="btn ghost sm"
+              data-discovery-cancel-wait
+              onClick={cancelWait}
+            >
+              取消等待
+            </button>
+          </div>
         </section>
       ) : null}
 
@@ -593,25 +797,46 @@ export default function DiscoveryPanel() {
               </details>
             )
           ) : null}
+          {connectionCheck ? (
+            <p
+              className="discovery-quiet"
+              data-discovery-connection-diagnosis
+              data-connection-status={connectionCheck.status}
+              role="status"
+            >
+              {connectionCheck.status_label || connectionCheck.status}
+              {connectionCheck.message ? `：${connectionCheck.message}` : ""}
+            </p>
+          ) : null}
           <div className="discovery-error-actions">
             <button
               type="button"
               className="btn work sm"
               data-discovery-retry
               disabled={busy || Boolean(error?.retryDisabled)}
-              onClick={() => void buildPlan()}
+              onClick={() => void onRetry()}
             >
-              重试
+              {error?.retryLabel || "重试"}
+            </button>
+            <button
+              type="button"
+              className="btn ghost sm"
+              data-discovery-cancel-error
+              disabled={busy}
+              onClick={returnToPlan}
+            >
+              返回修改
             </button>
             {error?.checkConnection ? (
               <button
                 type="button"
                 className="btn ghost sm"
                 data-discovery-check-connection
-                disabled={busy}
-                onClick={() => setDetailOpen(true)}
+                disabled={busy || checkingConnection}
+                aria-busy={checkingConnection || undefined}
+                onClick={() => void diagnoseConnection()}
               >
-                检查连接
+                {checkingConnection ? "正在检查…" : "检查连接"}
               </button>
             ) : null}
           </div>
@@ -787,7 +1012,8 @@ export default function DiscoveryPanel() {
                       className="btn ghost sm"
                       data-discovery-favorite={candidate.id}
                       aria-pressed={Boolean(favorited[candidate.id])}
-                      onClick={() => setFavorited((current) => ({ ...current, [candidate.id]: !current[candidate.id] }))}
+                      title="收藏保存在此浏览器"
+                      onClick={() => toggleFavorite(candidate.id)}
                     >
                       {favorited[candidate.id] ? "已收藏" : "收藏"}
                     </button>

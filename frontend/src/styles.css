@@ -1300,6 +1300,7 @@ summary:focus-visible,
   flex-wrap: wrap;
   justify-content: center;
   gap: var(--space-2);
+  margin-top: var(--space-3);
 }
 .discovery-error-detail,
 .task-empty.discovery-error .discovery-error-debug {

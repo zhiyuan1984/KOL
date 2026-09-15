@@ -8,12 +8,27 @@
  * POST /candidates/:id/follow is the only path that creates Collaboration.
  */
 import { api } from "../api";
+import {
+  DiscoveryWaitCancelledError,
+  DiscoveryWaitTimeoutError,
+} from "./discovery-error";
 
 export type DiscoveryPlatform = "youtube" | "instagram" | "facebook";
 export type DiscoveryMode = "search" | "detail" | "creator";
 export type DiscoveryRunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
 export type CreatorCandidateStatus = "suggested" | "dismissed" | "followed";
-export type DiscoveryPhase = "idle" | "plan" | "running" | "results" | "error";
+export type DiscoveryPhase = "idle" | "planning" | "plan" | "running" | "results" | "error";
+export const DISCOVERY_TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled"]);
+export const DISCOVERY_WAIT_TIMEOUT_MS = 180_000;
+export const DISCOVERY_WAIT_POLL_MS = 1_000;
+export const DISCOVERY_FAVORITES_KEY = "discovery:favorites";
+export const DISCOVERY_RUN_STATUS_LABEL: Record<string, string> = {
+  queued: "排队中",
+  running: "采集中",
+  succeeded: "已完成",
+  failed: "失败",
+  cancelled: "已取消",
+};
 export type DiscoveryRegion = "all" | "us" | "ca" | "eu" | "au" | "na" | "sea";
 
 export type DiscoveryFilters = {
@@ -207,15 +222,22 @@ export const MAX_DIRECTION_CHARS = 30;
 
 export {
   DISCOVERY_BANNED_JARGON,
+  DISCOVERY_CANCELLED_MESSAGE,
+  DISCOVERY_CANCELLED_TITLE,
   DISCOVERY_CONNECTION_MESSAGE,
   DISCOVERY_CONNECTION_TITLE,
   DISCOVERY_CRAWL_ACTIVE_MESSAGE,
   DISCOVERY_GENERIC_FALLBACK,
   DISCOVERY_GENERIC_TITLE,
+  DISCOVERY_TIMEOUT_MESSAGE,
+  DISCOVERY_TIMEOUT_TITLE,
+  DiscoveryWaitCancelledError,
+  DiscoveryWaitTimeoutError,
   isDiscoveryConnectionFailure,
   presentDiscoveryError,
   type DiscoveryErrorKind,
   type DiscoveryErrorView,
+  type DiscoveryRecoverAction,
 } from "./discovery-error";
 
 const PLATFORM_LABEL: Record<DiscoveryPlatform, string> = {
@@ -648,27 +670,97 @@ export async function getDiscoveryRun(runId: string): Promise<DiscoveryRun> {
   return asRun(await api.discoveryRun(runId));
 }
 
+export function isDiscoveryTerminalStatus(status?: string | null): boolean {
+  return DISCOVERY_TERMINAL_STATUSES.has(String(status || "").toLowerCase());
+}
+
+/** Terminal only when the run (or failed request without a run) has settled. Candidates alone are not done. */
+export function isDiscoveryTerminal(results: Pick<DiscoveryResults, "run" | "status" | "request">): boolean {
+  if (isDiscoveryTerminalStatus(results.run?.status)) return true;
+  if (!results.run && isDiscoveryTerminalStatus(results.status || results.request?.status)) return true;
+  return false;
+}
+
+export function discoveryRunStatusLabel(status?: string | null, fallback?: string | null): string {
+  const key = String(status || "").toLowerCase();
+  return String(fallback || "").trim() || DISCOVERY_RUN_STATUS_LABEL[key] || "检索中";
+}
+
+export function discoveryWaitTimeoutMs(): number {
+  if (typeof window !== "undefined") {
+    const override = Number((window as Window & { __discoveryWaitTimeoutMs?: number }).__discoveryWaitTimeoutMs);
+    if (Number.isFinite(override) && override > 0) return override;
+  }
+  return DISCOVERY_WAIT_TIMEOUT_MS;
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DiscoveryWaitCancelledError());
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      window.clearTimeout(timer);
+      reject(new DiscoveryWaitCancelledError());
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 export async function waitForDiscoveryResults(
   requestId: string,
-  opts?: { attempts?: number; delayMs?: number },
+  opts?: {
+    timeoutMs?: number;
+    delayMs?: number;
+    signal?: AbortSignal;
+    onUpdate?: (results: DiscoveryResults) => void;
+  },
 ): Promise<DiscoveryResults> {
-  const attempts = opts?.attempts ?? 20;
-  const delayMs = opts?.delayMs ?? 500;
+  const timeoutMs = opts?.timeoutMs ?? discoveryWaitTimeoutMs();
+  const delayMs = opts?.delayMs ?? DISCOVERY_WAIT_POLL_MS;
+  const started = Date.now();
   let latest = await getDiscoveryResults(requestId);
-  for (let index = 0; index < attempts; index += 1) {
-    const status = String(latest.run?.status || latest.status);
-    if (
-      latest.candidates.length
-      || status === "succeeded"
-      || status === "failed"
-      || status === "cancelled"
-    ) {
-      return latest;
-    }
-    await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+  opts?.onUpdate?.(latest);
+  while (!isDiscoveryTerminal(latest)) {
+    if (opts?.signal?.aborted) throw new DiscoveryWaitCancelledError();
+    if (Date.now() - started >= timeoutMs) throw new DiscoveryWaitTimeoutError(latest);
+    await sleep(delayMs, opts?.signal);
     latest = await getDiscoveryResults(requestId);
+    opts?.onUpdate?.(latest);
   }
   return latest;
+}
+
+export function readDiscoveryFavorites(): Record<string, boolean> {
+  try {
+    const raw = window.localStorage.getItem(DISCOVERY_FAVORITES_KEY);
+    const parsed = raw ? JSON.parse(raw) as unknown : [];
+    if (Array.isArray(parsed)) {
+      return Object.fromEntries(parsed.filter((id) => typeof id === "string" && id).map((id) => [id, true]));
+    }
+    if (parsed && typeof parsed === "object") {
+      return Object.fromEntries(
+        Object.entries(parsed as Record<string, unknown>).filter(([, value]) => value === true),
+      ) as Record<string, boolean>;
+    }
+  } catch {
+    /* ignore quota / private mode / bad JSON */
+  }
+  return {};
+}
+
+export function writeDiscoveryFavorites(map: Record<string, boolean>): void {
+  try {
+    const ids = Object.entries(map).filter(([, on]) => on).map(([id]) => id);
+    window.localStorage.setItem(DISCOVERY_FAVORITES_KEY, JSON.stringify(ids));
+  } catch {
+    /* ignore quota / private mode */
+  }
 }
 
 function asFollowResult(body: unknown): DiscoveryFollowResult {

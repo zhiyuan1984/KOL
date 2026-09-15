@@ -11,7 +11,8 @@ export const DISCOVERY_BANNED_JARGON = [
   "Streamable",
 ] as const;
 
-export type DiscoveryErrorKind = "connection" | "generic";
+export type DiscoveryErrorKind = "connection" | "timeout" | "cancelled" | "generic";
+export type DiscoveryRecoverAction = "plan" | "confirm" | "wait";
 
 export type DiscoveryErrorView = {
   kind: DiscoveryErrorKind;
@@ -20,6 +21,8 @@ export type DiscoveryErrorView = {
   detail: string | null;
   retryDisabled: boolean;
   checkConnection: boolean;
+  recover: DiscoveryRecoverAction;
+  retryLabel: string;
 };
 
 export const DISCOVERY_CONNECTION_TITLE = "采集服务连接失败";
@@ -27,6 +30,28 @@ export const DISCOVERY_CONNECTION_MESSAGE = "暂时连不上采集服务。请�
 export const DISCOVERY_GENERIC_TITLE = "检索没有完成";
 export const DISCOVERY_GENERIC_FALLBACK = "可调整条件后重试。";
 export const DISCOVERY_CRAWL_ACTIVE_MESSAGE = "已有采集任务在进行，请稍后再试";
+export const DISCOVERY_TIMEOUT_TITLE = "检索尚未完成";
+export const DISCOVERY_TIMEOUT_MESSAGE = "仍在按计划检索红人线索，没有得到完整结果。可继续等待或取消。";
+export const DISCOVERY_CANCELLED_TITLE = "已停止等待";
+export const DISCOVERY_CANCELLED_MESSAGE = "已停止等待检索结果。检索可能仍在进行。可继续等待或返回修改计划。";
+
+export class DiscoveryWaitTimeoutError extends Error {
+  readonly timedOut = true;
+  readonly results: unknown;
+  constructor(results?: unknown, message = DISCOVERY_TIMEOUT_MESSAGE) {
+    super(message);
+    this.name = "DiscoveryWaitTimeoutError";
+    this.results = results;
+  }
+}
+
+export class DiscoveryWaitCancelledError extends Error {
+  readonly cancelled = true;
+  constructor(message = DISCOVERY_CANCELLED_MESSAGE) {
+    super(message);
+    this.name = "DiscoveryWaitCancelledError";
+  }
+}
 
 const CONNECTION_SIGNAL =
   /streamable|econnrefused|enotfound|econnreset|etimedout|eai_again|failed to fetch|fetch failed|network ?error|connection refused|connection reset|err_connection|err_name_not_resolved|err_internet_disconnected|socket hang up|error posting to endpoint|posting to endpoint|远程采集服务未配置|采集服务未配置|发现服务暂未就绪|discovery_not_ready/i;
@@ -90,52 +115,94 @@ export function isDiscoveryConnectionFailure(raw: unknown): boolean {
   return false;
 }
 
+function isTimeoutError(raw: unknown): boolean {
+  return raw instanceof DiscoveryWaitTimeoutError
+    || Boolean(raw && typeof raw === "object" && (raw as { timedOut?: unknown }).timedOut === true);
+}
+
+function isCancelledWait(raw: unknown): boolean {
+  return raw instanceof DiscoveryWaitCancelledError
+    || Boolean(raw && typeof raw === "object" && (raw as { cancelled?: unknown }).cancelled === true);
+}
+
+function withRecover(
+  view: Omit<DiscoveryErrorView, "recover" | "retryLabel">,
+  recover: DiscoveryRecoverAction = "plan",
+): DiscoveryErrorView {
+  return {
+    ...view,
+    recover,
+    retryLabel: recover === "wait" ? "继续等待" : "重试",
+  };
+}
+
 /** Map engine / HTTP dumps to employee-facing copy. Raw text stays in `detail` only. */
 export function presentDiscoveryError(
   raw: unknown,
   fallback = DISCOVERY_GENERIC_FALLBACK,
+  recover: DiscoveryRecoverAction = "plan",
 ): DiscoveryErrorView {
   const text = errorText(raw);
   const status = errorStatus(raw);
   const detail = text || (status ? `HTTP ${status}` : "");
+  if (isTimeoutError(raw)) {
+    return withRecover({
+      kind: "timeout",
+      title: DISCOVERY_TIMEOUT_TITLE,
+      message: DISCOVERY_TIMEOUT_MESSAGE,
+      detail: null,
+      retryDisabled: false,
+      checkConnection: false,
+    }, "wait");
+  }
+  if (isCancelledWait(raw)) {
+    return withRecover({
+      kind: "cancelled",
+      title: DISCOVERY_CANCELLED_TITLE,
+      message: DISCOVERY_CANCELLED_MESSAGE,
+      detail: null,
+      retryDisabled: false,
+      checkConnection: false,
+    }, "wait");
+  }
   if (isDiscoveryConnectionFailure(raw) || isDiscoveryConnectionFailure(text)) {
-    return {
+    return withRecover({
       kind: "connection",
       title: DISCOVERY_CONNECTION_TITLE,
       message: DISCOVERY_CONNECTION_MESSAGE,
       detail: detail || null,
       retryDisabled: true,
       checkConnection: true,
-    };
+    }, recover);
   }
   const crawlActive = crawlActiveCopy(text);
   if (crawlActive) {
-    return {
+    return withRecover({
       kind: "generic",
       title: DISCOVERY_GENERIC_TITLE,
       message: crawlActive,
       detail: looksLikeEngineDump(detail) ? detail : null,
       retryDisabled: false,
       checkConnection: false,
-    };
+    }, recover);
   }
   if (looksLikeJsonText(text)) {
-    return {
+    return withRecover({
       kind: "generic",
       title: DISCOVERY_GENERIC_TITLE,
       message: fallback,
       detail: looksLikeEngineDump(detail) ? detail : null,
       retryDisabled: false,
       checkConnection: false,
-    };
+    }, recover);
   }
   const human = text && !looksLikeEngineDump(text) ? text : fallback;
-  return {
+  return withRecover({
     kind: "generic",
     title: DISCOVERY_GENERIC_TITLE,
     message: human,
     detail: detail && (looksLikeEngineDump(detail) || detail !== human) ? detail : null,
     retryDisabled: false,
     checkConnection: false,
-  };
+  }, recover);
 }

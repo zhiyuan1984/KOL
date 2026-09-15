@@ -238,13 +238,27 @@ test("home discovery maps streamable connection failures to employee copy", asyn
   await expect(page.locator("[data-discovery-check-connection]")).toBeVisible();
   await expect(page.locator("[data-discovery-check-connection]")).toHaveText("检查连接");
 
-  const detail = page.locator("[data-discovery-error-detail]");
-  await expect(detail).toBeVisible();
-  await expect(detail).not.toHaveAttribute("open");
+  await page.route("**/api/discovery/connection", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "unreachable",
+        status_label: "连接失败",
+        message: "采集服务连接失败",
+        credentials_present: true,
+        reachable: false,
+        connected: false,
+        checked_at: "2026-09-15T00:00:00.000Z",
+      }),
+    });
+  });
   await page.locator("[data-discovery-check-connection]").click();
-  await expect(detail).toHaveAttribute("open");
-  await expect(detail.locator("pre")).toContainText("Streamable HTTP error");
-  await expect(detail.locator("pre")).toContainText("404");
+  const diagnosis = page.locator("[data-discovery-connection-diagnosis]");
+  await expect(diagnosis).toBeVisible();
+  await expect(diagnosis).toHaveAttribute("data-connection-status", "unreachable");
+  await expect(diagnosis).toContainText("连接失败");
+  await expect(diagnosis).toContainText("采集服务连接失败");
 });
 
 test("home discovery maps failed run engine errors without showing raw copy", async ({ page }) => {
@@ -341,6 +355,157 @@ test("home discovery empty success shows actual search keywords", async ({ page 
   await expect(page.locator("[data-discovery-empty-hint]")).toHaveText(emptyHint);
   await expect(page.locator("[data-discovery-empty-hint]")).toContainText("portable power station");
   await expect(page.locator("[data-discovery-panel]")).not.toContainText(/MCP|Codex|MediaCrawler|start_crawl|Harness|Job ID/);
+});
+
+test("home discovery shows planning wait instead of idle empty copy", async ({ page }) => {
+  await page.route("**/api/discovery/requests", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    await route.continue();
+  });
+
+  await page.goto("/");
+  await openMode(page, "discovery");
+  await page.locator("[data-discovery-query]").fill("找北美户外电源评测达人");
+  await page.locator("[data-discovery-plan]").click();
+
+  const planning = page.locator("[data-discovery-planning]");
+  await expect(planning).toBeVisible();
+  await expect(planning).toHaveAttribute("aria-busy", "true");
+  await expect(planning).toHaveAttribute("data-wait-status", "生成计划");
+  await expect(planning.locator("strong")).toHaveText("正在生成计划");
+  await expect(page.locator("[data-discovery-planning-reason]")).toContainText("不会启动采集");
+  await expect(page.locator("[data-discovery-empty='idle']")).toHaveCount(0);
+  await expect(page.locator("[data-discovery-empty='results']")).toHaveCount(0);
+  await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
+  await expect(planning).toHaveCount(0);
+});
+
+test("home discovery keeps waiting until terminal and never fakes empty results", async ({ page }) => {
+  let polls = 0;
+  await page.route("**/api/discovery/requests/**/runs", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "drun_e2e_wait",
+        status: "running",
+        status_label: "采集中",
+      }),
+    });
+  });
+  await page.route("**/api/discovery/requests/**/results", async (route) => {
+    polls += 1;
+    const done = polls >= 3;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: done ? "succeeded" : "running",
+        status_label: done ? "已完成" : "采集中",
+        keywords: ["找北美户外评测达人"],
+        search_keywords: ["portable power station"],
+        empty_hint: "按「portable power station」没有找到线索，可换词再试。",
+        candidates: [],
+        run: {
+          id: "drun_e2e_wait",
+          status: done ? "succeeded" : "running",
+          status_label: done ? "已完成" : "采集中",
+          search_keywords: ["portable power station"],
+        },
+        request: { keywords: ["找北美户外评测达人"], status: done ? "succeeded" : "running" },
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await openMode(page, "discovery");
+  await page.locator("[data-discovery-query]").fill("找北美户外评测达人");
+  await page.locator("[data-discovery-plan]").click();
+  await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
+  await page.locator("[data-discovery-confirm-plan]").click();
+
+  const loading = page.locator("[data-discovery-loading]");
+  await expect(loading).toBeVisible();
+  await expect(loading).toHaveAttribute("aria-busy", "true");
+  await expect(loading).toHaveAttribute("data-discovery-run-status", /queued|running/);
+  await expect(loading.locator("[data-discovery-run-label]")).toHaveText(/排队中|采集中/);
+  await expect(page.locator("[data-discovery-cancel-wait]")).toBeVisible();
+  await expect(page.locator("[data-discovery-empty='results']")).toHaveCount(0);
+  await expect(page.locator("[data-discovery-panel]")).not.toContainText("没有红人线索");
+
+  const empty = page.locator("[data-discovery-empty='results']");
+  await expect(empty).toBeVisible({ timeout: 8000 });
+  await expect(empty.locator("strong")).toHaveText("没有红人线索");
+  expect(polls).toBeGreaterThanOrEqual(3);
+});
+
+test("home discovery timeout stays an error with recover, not empty results", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as Window & { __discoveryWaitTimeoutMs?: number }).__discoveryWaitTimeoutMs = 1500;
+  });
+  await page.route("**/api/discovery/requests/**/runs", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "drun_e2e_timeout",
+        status: "running",
+        status_label: "采集中",
+      }),
+    });
+  });
+  await page.route("**/api/discovery/requests/**/results", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "running",
+        status_label: "采集中",
+        keywords: ["找北美户外评测达人"],
+        candidates: [],
+        run: { id: "drun_e2e_timeout", status: "running", status_label: "采集中" },
+        request: { keywords: ["找北美户外评测达人"], status: "running" },
+      }),
+    });
+  });
+
+  await page.goto("/");
+  await openMode(page, "discovery");
+  await page.locator("[data-discovery-query]").fill("找北美户外评测达人");
+  await page.locator("[data-discovery-plan]").click();
+  await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
+  await page.locator("[data-discovery-confirm-plan]").click();
+  await expect(page.locator("[data-discovery-loading]")).toBeVisible();
+  await expect(page.locator("[data-discovery-empty='results']")).toHaveCount(0);
+
+  const error = page.locator("[data-discovery-error]");
+  await expect(error).toBeVisible({ timeout: 8000 });
+  await expect(error).toHaveAttribute("data-discovery-error-kind", "timeout");
+  await expect(error.locator("[data-discovery-error-title]")).toHaveText("检索尚未完成");
+  await expect(page.locator("[data-discovery-retry]")).toHaveText("继续等待");
+  await expect(page.locator("[data-discovery-cancel-error]")).toHaveText("返回修改");
+  await expect(page.locator("[data-discovery-empty='results']")).toHaveCount(0);
+  await expect(page.locator("[data-discovery-panel]")).not.toContainText("没有红人线索");
+
+  await page.locator("[data-discovery-retry]").click();
+  await expect(page.locator("[data-discovery-loading]")).toBeVisible();
+  await expect(page.locator("[data-discovery-run-status]")).toHaveAttribute("data-discovery-run-status", "running");
+  await page.locator("[data-discovery-cancel-wait]").click();
+  await expect(page.locator("[data-discovery-error]")).toHaveAttribute("data-discovery-error-kind", "cancelled");
+  await page.locator("[data-discovery-cancel-error]").click();
+  await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
 });
 
 function stubDiscoveryCandidates(count: number) {
@@ -586,7 +751,18 @@ test("home discovery candidate rows use workbench layout and dedupe metrics", as
 
   await expect(solar.locator("[data-discovery-follow]")).toHaveClass(/btn work/);
   await expect(solar.locator("[data-discovery-favorite]")).toHaveClass(/btn ghost/);
+  await expect(solar.locator("[data-discovery-favorite]")).toHaveAttribute("title", "收藏保存在此浏览器");
   await expect(solar.locator("[data-discovery-dismiss]")).toHaveClass(/btn ghost/);
+  await solar.locator("[data-discovery-favorite]").click();
+  await expect(solar.locator("[data-discovery-favorite]")).toHaveText("已收藏");
+  await page.reload();
+  await openMode(page, "discovery");
+  await page.locator("[data-discovery-query]").fill("找北美户外评测达人");
+  await page.locator("[data-discovery-plan]").click();
+  await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
+  await page.locator("[data-discovery-confirm-plan]").click();
+  await expect(page.locator("[data-discovery-candidates]")).toBeVisible();
+  await expect(page.locator('[data-discovery-candidate="TheSolarLab"] [data-discovery-favorite]')).toHaveText("已收藏");
 
   const wide = await candidateRowLayout(solar);
   expect(wide.gridColumnStart === "auto" || wide.gridColumnStart === "3").toBeTruthy();

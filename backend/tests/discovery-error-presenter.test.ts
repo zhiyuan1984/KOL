@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  DISCOVERY_CANCELLED_MESSAGE,
+  DISCOVERY_CANCELLED_TITLE,
   DISCOVERY_CRAWL_ACTIVE_MESSAGE,
   DISCOVERY_GENERIC_FALLBACK,
   DISCOVERY_GENERIC_TITLE,
+  DISCOVERY_TIMEOUT_MESSAGE,
+  DISCOVERY_TIMEOUT_TITLE,
+  DiscoveryWaitCancelledError,
+  DiscoveryWaitTimeoutError,
   presentDiscoveryError,
 } from "../../frontend/src/home/discovery-error.ts";
 
@@ -38,5 +44,24 @@ describe("presentDiscoveryError", () => {
     const view = presentDiscoveryError("发现未完成，请稍后重试。", DISCOVERY_GENERIC_FALLBACK);
     expect(view.message).toBe("发现未完成，请稍后重试。");
     expect(view.detail).toBeNull();
+  });
+
+  it("maps wait timeout to recover-wait, never as empty success", () => {
+    const view = presentDiscoveryError(new DiscoveryWaitTimeoutError({ candidates: [] }));
+    expect(view.kind).toBe("timeout");
+    expect(view.title).toBe(DISCOVERY_TIMEOUT_TITLE);
+    expect(view.message).toBe(DISCOVERY_TIMEOUT_MESSAGE);
+    expect(view.recover).toBe("wait");
+    expect(view.retryLabel).toBe("继续等待");
+    expect(view.detail).toBeNull();
+  });
+
+  it("maps cancelled wait to recover-wait", () => {
+    const view = presentDiscoveryError(new DiscoveryWaitCancelledError());
+    expect(view.kind).toBe("cancelled");
+    expect(view.title).toBe(DISCOVERY_CANCELLED_TITLE);
+    expect(view.message).toBe(DISCOVERY_CANCELLED_MESSAGE);
+    expect(view.recover).toBe("wait");
+    expect(view.retryLabel).toBe("继续等待");
   });
 });
