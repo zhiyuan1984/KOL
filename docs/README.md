@@ -38,7 +38,7 @@ CONSTITUTION.md 中相关边界
 
 ### 研究、追溯和历史决策
 
-只有需要回答“为什么这样设计”时才读取 `DECISIONS.md`、证据文档或 `references/`。它们不能覆盖现行契约。
+只有需要回答“为什么这样设计”时才读取 `DECISIONS.md` 或 `references/`。它们不能覆盖现行契约。
 
 ### 文档裁决
 
@@ -47,7 +47,7 @@ CONSTITUTION.md 中相关边界
 | 安全、权限、数据事实 | FS、Policy、数据契约 |
 | 产品闭环与表面职责 | `CONSTITUTION.md` |
 | 平台一等能力 vs KOL 试点壳 | `CONSTITUTION.md` §4.1–4.2（十六项清单；KOL=首个试点，ADR-023） |
-| 可执行交互与发布验收 | 宪法 §4–5、`04-ux-ui-system.md`、派生的 `specs/UX-EMPLOYEE.md`、追踪矩阵 |
+| 可执行交互与发布验收 | 宪法 §4–5、派生的 `specs/UX-EMPLOYEE.md`、追踪矩阵 |
 | 全局视觉与组件 | `design-system/kol-workbench/MASTER.md` |
 | 单页布局与状态 | 对应 `pages/*.md` |
 
@@ -61,25 +61,24 @@ CONSTITUTION.md 中相关边界
 2. `01-organization-tenancy.md`：公司、组织、品牌、角色和数据范围
 3. `02-domain-model.md`：数字员工、Agent、Skill、Task 和 WorkItem
 4. `03-prd-and-functional-spec.md`：概念、PRD、功能规格和需求追踪
-5. `04-ux-ui-system.md`：双端、任务驱动、等待态、L1-L3 和无障碍；仅在交互、风险或验收任务中按需读取
-6. `05-agent-workflow-skill-policy.md`：Agent、Workflow、Skill、Policy、8/15 阶段
-7. `06-codex-harness.md`：Codex app-server、Host 边界和 Stub
-8. `07-mcp-data-contract.md`：真实 MCP、数据字典和适配规则
-9. `08-permission-approval-audit.md`：权限、审批、副作用、幂等和审计
-10. `09-development-method.md`：氛围/规约/测试/评价驱动开发
-11. `10-test-evaluation.md`：测试分层、评价集、红线和验收证据
-12. `11-release-operations.md`：版本、灰度、回滚、监控和运营
-13. `12-kol-agent.md`：KOL 试点和报价邮件闭环
-14. `13-migration-roadmap.md`：Host 硬编码退场路线
-15. `14-implementation-contract.md`：Markdown 到代码、Skill、知识库和前后端的落地契约
-16. `15-conformance-gaps.md`：当前实现与目标规范的符合度和缺口
-17. `16-production-test-plan.md`：功能、红线、真实链路和发布门禁测试
-18. `17-code-conformance-scan.md`：前后端代码违宪扫描报告
-19. `18-mcp-master-data-assessment.md`：MCP 主数据能力与组织主数据边界
-20. `employee-surface-contracts.md`：员工核心工作表面与一等能力面的详细契约（含技能/数字团队位阶）；`19-ui-ux-constitution.md` 只保留历史链接兼容
-21. `20-visual-design-system.md`：旧视觉方案与 token 迁移依据；现行视觉入口为 `design-system/kol-workbench/MASTER.md`
-22. `21-admin-employee-page-roles.md`：管理端 ↔ 员工端边界（连接器治理 vs 员工使用、员工 `/kb` vs 管理知识治理、`/admin/agents` vs 员工专家中心）
-23. `90-codebase-handbook.md`：代码地图和修改归属
+5. `05-agent-workflow-skill-policy.md`：Agent、Workflow、Skill、Policy、8/15 阶段
+6. `06-codex-harness.md`：Codex app-server、Host 边界和 Stub
+7. `07-mcp-data-contract.md`：真实 MCP、数据字典和适配规则
+8. `08-permission-approval-audit.md`：权限、审批、副作用、幂等和审计
+9. `09-development-method.md`：氛围/规约/测试/评价驱动开发
+10. `10-test-evaluation.md`：测试分层、评价集、红线和验收证据
+11. `11-release-operations.md`：版本、灰度、回滚、监控和运营
+12. `12-kol-agent.md`：KOL 试点和报价邮件闭环
+13. `13-migration-roadmap.md`：Host 硬编码退场路线
+14. `14-implementation-contract.md`：Markdown 到代码、Skill、知识库和前后端的落地契约
+15. `15-conformance-gaps.md`：当前实现与目标规范的符合度和缺口
+16. `16-production-test-plan.md`：功能、红线、真实链路和发布门禁测试
+17. `17-code-conformance-scan.md`：前后端代码违宪扫描报告
+18. `18-mcp-master-data-assessment.md`：MCP 主数据能力与组织主数据边界
+19. `20-visual-design-system.md`：旧视觉方案与 token 迁移依据；现行视觉入口为 `design-system/kol-workbench/MASTER.md`
+20. `21-admin-employee-page-roles.md`：管理端 ↔ 员工端边界（使用 ≠ 治理）
+21. `90-codebase-handbook.md`：代码地图和修改归属
+22. `specs/UX-EMPLOYEE.md`：从宪法派生的瘦员工 UX；门禁只认 `SEND_NE_STAGE`、`L3_CONFIRM`
 
 ## 事实来源
 
@@ -94,38 +93,28 @@ CONSTITUTION.md 中相关边界
 
 - `SPEC-TEMPLATE.md`：功能规格模板。
 - `EVAL-TEMPLATE.md`：Agent 评价样例模板。
-- `DECISIONS.md`：跨文档架构决策记录（近期：ADR-018 Home 内四模式；ADR-019 AI发现条件区；ADR-020 工作台正文 16px；ADR-021 员工 `/kb` 知识库立法；ADR-022 MediaCrawler → Starry 跟进桥；ADR-023 智能体中台十六项一等能力 / KOL=首个试点；ADR-024 从宪法重派生员工 UX，删除过细 UX-KOL 合同）。
+- `DECISIONS.md`：跨文档架构决策记录（近期：ADR-023 十六项一等 / KOL=试点；ADR-024 删除过细 UX-KOL；ADR-025 删除 evidence/04/19/employee-surface/FS-006/010/ADR-018/022）。
 
 ### 平台能力 vs KOL 试点
 
 | 问题 | 读取并服从 |
 |---|---|
-| 哪些面是一等能力、KOL 是否等于平台壳 | `CONSTITUTION.md` §4.1–4.2 十六项清单与试点元条款（ADR-023）；证据 `evidence-platform-law-gap-2026-09-14.md` |
-| 能力面「只回答」与员工侧栏 | `employee-surface-contracts.md`（技能入口=UX；数字团队预留；禁止专家团假导航） |
-| KOL 试点域（Pipeline、AI发现、我跟进的红人、报价邮件） | `12-kol-agent.md`、Home 平台模式 + 试点挂件（ADR-018）、`employee-surface-contracts.md`。Pipeline 页仍在（FS-KOL-010），只许深链 / 产品内 CTA，不是左栏项 |
+| 哪些面是一等能力、KOL 是否等于平台壳 | `CONSTITUTION.md` §4.1–4.2 十六项清单与试点元条款（ADR-023） |
+| 能力面「只回答」与使用 ≠ 治理 | `CONSTITUTION.md` §4、`21-admin-employee-page-roles.md` |
+| KOL 试点域（Pipeline、AI发现、我跟进的红人、报价邮件） | `CONSTITUTION.md` §4.2、`12-kol-agent.md`。Pipeline 页可深链 / CTA，不是必挂侧栏 |
 | 连接器使用 ≠ 治理 | `21-admin-employee-page-roles.md`、ADR-013 |
 
 历史重复规范已删除；追溯使用 Git 历史。业务规则只在功能规格/Skill/Workflow/Policy 的 canonical 位置维护；物理接口只在物理资料维护；平台硬规则只在 Host/内核契约维护。任何冲突必须写决策记录并更新追踪矩阵。
 
-## 可执行资产与证据入口
+## 可执行资产
 
 - `../config/org-registry.yaml`、`../config/brand-registry.yaml`：公司、组织、品牌、区域和 PEP 范围事实。
 - `../agents/kol/manifest.yaml`：KOL Agent 唯一发布包入口。
-- `../experts/kol/manifest.yaml`：数字员工发布资产（API `/api/experts`，`expert:kol`）；员工字段锁定见 `evidence-expert-manifest-2026-09-14.md`。
+- `../experts/kol/manifest.yaml`：数字员工发布资产（API `/api/experts`，`expert:kol`）。
 - `../workflows/`、`../policies/`、`../schemas/`、`../evals/`：运行契约、写入闸门、输入输出 schema 和评价样例。
 - `../specs/traceability.json`、`../specs/ux-traceability.json`：FS/BR/TEST/EVAL 与 UX/测试/E2E 追踪。
 - `../backend/scripts/validate-contracts.mjs`：唯一契约校验入口；同时校验 UX 追踪，不另建编译器。
 - `../backend/scripts/validate-tb-binding.mjs`：TB 本地字典、远端品牌字典和邮箱品牌列表三方绑定校验。
 - `../backend/scripts/release-gate.mjs`、`../.github/workflows/release-gate.yml`：本地和 CI 的统一发布门禁。
-- `evidence-kol-stage-write-2026-09-12.md`：阶段写入与邮件发送分离的真实验证证据。
-- `evidence-release-gate-2026-09-13.md`：`main` @ `9f9c5a8` stub production `release:gate` PASS（TB 豁免；非生产上线）。
-- `evidence-kb-acceptance-2026-09-13.md`：`/kb` 验收 FAIL（邮件模板资产中心可试点；企业 KB / Agent RAG / 生产资格不通过）。
-- `evidence-e2e-stub-pipeline-pr24-2026-09-13.md`：PR #24 Pipeline 生命周期清理后 stub E2E 3/3 PASS（`cd6ab81c9194a9ed3cc00aa9d0dbf648c3ba634b`；非 LIVE）。
-- `evidence-mail-digest-analysis-plan-2026-09-13.md`：邮件往来摘要 sticky fail / 可观测性只读审查；产品只批准冷却恢复与失败字段。后续小修：Codex digest 不传 `gpt-5.6-luna`；Luna digest 需要 `OPENAI_BASE_URL`。
-- `evidence-followed-kol-card-acceptance-2026-09-13.md`：首页「我跟进的红人」卡——改版前 FAIL 基线与 PR #31 实现快照。**已 superseded：** `UX-FOLLOWED-KOL-CARD.md` / `UX-KOL.md` 已删除；现行派生见 `../specs/UX-EMPLOYEE.md` 与 `evidence-ux-rederive-from-constitution-2026-09-15.md`。
-- `evidence-ux-rederive-from-constitution-2026-09-15.md`：删除过细 UX-KOL / FOLLOWED-KOL-CARD / SEND-NE-STAGE-as-file-ID，从宪法 §4–5 + 04 重派生瘦契约。
-- `evidence-expert-manifest-2026-09-14.md`：首版 `/api/experts` 落实 ADR-016；仅已发布岗位专家；召唤只绑定会话。
-- `evidence-adr022-p0-follow-import-stub-2026-09-14.md`：ADR-022 P0 stub PASS——单个加入跟进确认后单行 `importKolProfilesFromCrawler`，成功才回填真实 `kolUid`；非 LIVE。
-- `evidence-adr022-p1-batch-follow-stub-2026-09-14.md`：ADR-022 P1 stub——勾选批量 / 条件批量加入跟进（粉丝 / 近10均播 / 评分 / 计划平台地区），部分成功不整批标已跟进；非 LIVE。
-- `evidence-platform-law-gap-2026-09-14.md`：智能体中台十六项一等能力缺口扫描；ADR-023 修宪已落地（文档 only，非 LIVE）。
-- `evidence-constitution-reconcile-2026-09-14.md`：ADR-023 和解 + UX/mainline/21 hunt 续扫——`04` 十六项清单；员工禁词与产品「技能」分家（旧 `UX-COPY-ENGINE` ID 已废，见 ADR-024）。
+
+`docs/evidence-*` 已全部删除（ADR-025）。历史快照只在 git。

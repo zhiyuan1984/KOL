@@ -65,7 +65,7 @@ Pop-Location
 | 前端生产构建 | PASS（警告） | Vite 构建通过；chunk 仍大于 500 kB |
 | Playwright Windows 启动 | PASS | 已能拉起前端、后端和 Chromium；完整 72 条套件前 3 条因既有等待/断言失败，随后主动停止长时间运行 |
 | Starry MCP 只读探测 | PASS | 邮箱列表、测试 KOL 画像、邮件列表均可读；没有解密联系方式 |
-| Starry 阶段写入 | BLOCKED BY REMOTE DATA | 测试 KOL 没有远程生命周期记录，MCP 返回“合作轮次不存在/不支持回退合作阶段”，未产生可验证写入；详见 [`evidence-kol-stage-write-2026-09-12.md`](evidence-kol-stage-write-2026-09-12.md) |
+| Starry 阶段写入 | BLOCKED BY REMOTE DATA | 测试 KOL 没有远程生命周期记录，MCP 返回“合作轮次不存在/不支持回退合作阶段”，未产生可验证写入 |
 | 真实发信（受控） | PASS | 使用 `larry.zhao@amperetime.com` 向已授权收件人 `qiyou1984@gmail.com` 发送；KOL `KOL20260901LINGONG` 通过 allowlist；远端消息 `1218`、会话 `327` 返回 `SENT`，只读回读一致 |
 
 ### 2.3 统一发布门禁复跑（2026-09-12）
@@ -179,13 +179,13 @@ Pop-Location
 
 同时修复 Host 识别/Turn 封装：Codex app-server 使用**整段会话预算**（不再把 `account/read` 20s 与 `turn/start` 叠成 60–90s）；识别 Turn 不再把 Luna 的 `gpt-5.6-luna` 当作 Codex 模型名。最小 `turn/start` 已能在云上约 3s 完成；本修复针对首页 `recognizing` 卡死和真实业务 Turn 超时，而不是用 Stub 结果冒充 real。
 
-云端探针证明：`changeLifecycleStage` 必须是顶层 `{ lifecycleId, requestJson }`，`requestJson` 用 **`toStageCode`**（原生码）+ `reason`。`KOL202607300002` lifecycle **16** 上相邻 `INTEREST_CONFIRMED` → `COOPERATION_EVALUATION` 已 LIVE 写入并回读。`cooperationStageCode` / `targetStageCode` / `stageCode` 会误报回退。Host 现按此形状发送；跨格 skip 仍走相邻 `toStageCode` walk（ADR-011）。**这解除相邻 hop 的 LIVE 写入阻断，不是完整生产放行。** 详见 `docs/evidence-stage-request-shape-2026-09-13.md`。
+云端探针证明：`changeLifecycleStage` 必须是顶层 `{ lifecycleId, requestJson }`，`requestJson` 用 **`toStageCode`**（原生码）+ `reason`。`KOL202607300002` lifecycle **16** 上相邻 `INTEREST_CONFIRMED` → `COOPERATION_EVALUATION` 已 LIVE 写入并回读。`cooperationStageCode` / `targetStageCode` / `stageCode` 会误报回退。Host 现按此形状发送；跨格 skip 仍走相邻 `toStageCode` walk（ADR-011）。**这解除相邻 hop 的 LIVE 写入阻断，不是完整生产放行。** 详见 ADR-011。
 
 仍不宣称生产放行：TB 远程品牌字典、Real 全量 72 条未跑、skip-walk 未宣称完整 LIVE PASS。
 
 ### 2.11 Stub production `release:gate` pass（2026-09-13，`main` @ `9f9c5a8`）
 
-Merge PR #12 之后，在 `9f9c5a8` 上以 `CODEX_MODE=stub` 复跑 production `npm run release:gate`。总判定 **pass**。`tb-binding` **WAIVED**（用户批准；校验器仍 blocked，远端仅 LT/RO/PQ）。**仍不是生产上线。** 来源：[`evidence-release-gate-2026-09-13.md`](evidence-release-gate-2026-09-13.md)。产物名 `artifacts/release-gate-stub-2026-09-13-main-pr12.{log,json,judgment.json}`（本检出未见文件）。Agent manifest 为官方发布（PR #3：`production` / `published` / `employee_submission=true`），不是本地 unlock。
+Merge PR #12 之后，在 `9f9c5a8` 上以 `CODEX_MODE=stub` 复跑 production `npm run release:gate`。总判定 **pass**。`tb-binding` **WAIVED**（用户批准；校验器仍 blocked，远端仅 LT/RO/PQ）。**仍不是生产上线。** 来源：git 历史（`docs/evidence-*` 已删，见 ADR-025）。产物名 `artifacts/release-gate-stub-2026-09-13-main-pr12.{log,json,judgment.json}`（本检出未见文件）。Agent manifest 为官方发布（PR #3：`production` / `published` / `employee_submission=true`），不是本地 unlock。
 
 | 门禁项 | 结果 | 证据/限制 |
 |---|---|---|
@@ -197,7 +197,7 @@ Merge PR #12 之后，在 `9f9c5a8` 上以 `CODEX_MODE=stub` 复跑 production `
 | `kol-evals` / `kol-data` | PASS | 门禁步骤通过 |
 | typecheck / build / redaction / rollback | PASS | 前后端 typecheck、frontend build、脱敏扫描、回滚演练 |
 
-Real 索引（不新造数字）：session-confirm / approval / admin / stage `toStageCode` 为 **ready**（2.2 / 2.10 / [`evidence-stage-request-shape-2026-09-13.md`](evidence-stage-request-shape-2026-09-13.md)）；mediacrawler 与完整 stage-write **仍 blocked**。Real staging 握手 PASS、Turn/业务 E2E BLOCKED、Starry 只读 62/221/5/16 见 2.8；stub crawl 仅 YouTube / Instagram 见 2.9。不得把本次 stub 78 绿改写成 real-mode 或生产放行。
+Real 索引（不新造数字）：session-confirm / approval / admin / stage `toStageCode` 为 **ready**（2.2 / 2.10 / ADR-011）；mediacrawler 与完整 stage-write **仍 blocked**。Real staging 握手 PASS、Turn/业务 E2E BLOCKED、Starry 只读 62/221/5/16 见 2.8；stub crawl 仅 YouTube / Instagram 见 2.9。不得把本次 stub 78 绿改写成 real-mode 或生产放行。
 
 ## 3. 功能测试矩阵
 

@@ -6,7 +6,7 @@
 
 规则：BR-UX-001 等待期间必须有状态响应；BR-UX-002 失败不得显示成功；BR-AUDIT-002 管理端可追溯 thread/turn/skill/policy/MCP 版本。
 
-实现引用：`frontend/src/agentUx.ts`、`frontend/src/api.ts`、`docs/04-ux-ui-system.md`。
+实现引用：`frontend/src/agentUx.ts`、`frontend/src/api.ts`、`docs/CONSTITUTION.md` §5。
 
 验收（TEST-KOL-009）：等待、审批、失败和人工接管均可见；员工端不出现引擎术语；管理员 Trace 可定位一次外部副作用。
 

@@ -10,7 +10,7 @@
 | `01-organization-tenancy` | 组织主数据、关系表、权限上下文、Admin API | 后端/安全 |
 | `02-domain-model` | 领域 schema、实体迁移、Agent manifest | 后端/产品 |
 | `03-prd-and-functional-spec` | `specs/FS-*.md`、用户故事、API/事件契约、验收测试 | 产品/测试 |
-| `04-ux-ui-system` | 前端页面、组件、状态机映射、无障碍测试 | 前端/UED |
+| `CONSTITUTION` §4–5 + `UX-EMPLOYEE` | 前端页面、组件、状态机映射、无障碍测试 | 前端/UED |
 | `05-agent-workflow-skill-policy` | `agents/*.yaml`、`workflows/*.yaml`、`skills/*/SKILL.md`、`policies/*.yaml` | 产品/业务/工程 |
 | `06-codex-harness` | app-server adapter、Thread/Turn runner、Item 校验、Host 闸门 | 后端 |
 | `07-mcp-data-contract` | MCP catalog、adapter、请求/响应 schema、契约测试 | 后端/接口负责人 |
@@ -91,7 +91,7 @@ entry_skill: stage_sop
 
 知识条目必须带 `tenant_id`、`organization_scope`、`brand_scope`、`region_scope`、`effective_from/to`、来源、版本和敏感级别。检索结果必须返回来源和范围；知识只能补充事实、模板和制度，不能覆盖 Host 状态机、权限、审批或接口 schema。
 
-员工 `/kb` 产品面见 `employee-surface-contracts.md` 与 ADR-021（跨页位阶以 `CONSTITUTION.md` §4 为准）：查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务；邮件模板只是一类资料。卡片元数据底线（有数据才展示）：适用品牌 / 区域 / 阶段 / 场景、版本、生效、来源、已发布。契约字段可后补以喂卡片（适用品牌/区域 ← `brand_scope` / `region_scope`，生效 ← `effective_from/to`，加上版本、来源、已发布状态）；**不得**用缺字段当借口把员工面做成邮件模板管理台。本条不在此迁移 schema。员工「用于当前任务」只把资料填成当前任务 / composer 的**未发送草稿**（邮件类对齐 #75 正文进框），不发信、不写阶段。
+员工 `/kb` 产品面见 `CONSTITUTION.md` §4.1 与 ADR-021：查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务；邮件模板只是一类资料。卡片元数据底线（有数据才展示）：适用品牌 / 区域 / 阶段 / 场景、版本、生效、来源、已发布。契约字段可后补以喂卡片（适用品牌/区域 ← `brand_scope` / `region_scope`，生效 ← `effective_from/to`，加上版本、来源、已发布状态）；**不得**用缺字段当借口把员工面做成邮件模板管理台。本条不在此迁移 schema。员工「用于当前任务」只把资料填成当前任务 / composer 的**未发送草稿**（邮件类对齐 #75 正文进框），不发信、不写阶段。
 
 ## 可执行性判定
 

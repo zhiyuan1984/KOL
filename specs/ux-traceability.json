@@ -2,7 +2,6 @@
   "version": 2,
   "derived_from": [
     "docs/CONSTITUTION.md",
-    "docs/04-ux-ui-system.md",
     "specs/UX-EMPLOYEE.md"
   ],
   "retired_ids": [
@@ -15,18 +14,20 @@
     "UX-SEND-NE-STAGE",
     "UX-STATE-VISIBLE",
     "UX-COPY-ENGINE",
-    "UX-FOLLOWED-KOL-CARD"
+    "UX-FOLLOWED-KOL-CARD",
+    "FS-KOL-006",
+    "FS-KOL-010"
   ],
   "entries": [
     {
       "id": "SEND_NE_STAGE",
-      "fs": ["FS-KOL-004", "FS-KOL-006"],
+      "fs": ["FS-KOL-004"],
       "tests": ["R-006", "R-008"],
       "e2e": ["send-stage-separation"]
     },
     {
       "id": "L3_CONFIRM",
-      "fs": ["FS-KOL-004", "FS-KOL-006"],
+      "fs": ["FS-KOL-004"],
       "tests": ["R-004", "R-007"],
       "e2e": ["owner-gate"]
     }

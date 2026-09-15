@@ -1,7 +1,6 @@
 /**
  * Homepage 「我跟进的红人」 work-card projection.
- * Goals (not a layout dogma): specs/UX-EMPLOYEE.md — who / where stuck /
- * latest fact / suggestion+evidence / primary action.
+ * Goals (not a layout dogma): CONSTITUTION §4.2 + specs/UX-EMPLOYEE.md.
  * Home followed list is a KOL-pilot Collaboration surface, not Pipeline.
  *
  * Board bags stay source material. Cards only render this model.
