@@ -17,13 +17,13 @@
 | **E** 规则与过程 | [`stage-graph.md`](stage-graph.md) | 合法转移；**矩阵未写入前不要发明边** |
 | **F** 业务动作 | [`specs/FS-*`](../specs/)、[`policies/`](../policies/)、[`03`](03-prd-and-functional-spec.md)、[`05`](05-agent-workflow-skill-policy.md)、[`12`](12-kol-agent.md) | 可开发动作与闸门 |
 | **G** 交互原则 | [`specs/UX-EMPLOYEE.md`](../specs/UX-EMPLOYEE.md) | 员工 UX；门禁只认 `SEND_NE_STAGE`、`L3_CONFIRM` |
-| **H** IA 约束 | [`ia-information-architecture.md`](ia-information-architecture.md) | 导航 / 簇 / 谁答哪一问（兄弟 track） |
+| **H** IA 约束 | [`ia-information-architecture.md`](ia-information-architecture.md) | 导航 / 簇 / 谁答哪一问（一页一问、使用 ≠ 治理） |
 | **I** UI 设计 | [`design.md`](design.md) | 页面视觉法；**token 仍是** [`MASTER.md`](design-system/kol-workbench/MASTER.md) |
 | **J** 技术宪法 | [`technical-constitution.md`](technical-constitution.md) | Host / Codex / MCP / Gateway / 仓库边界 |
 | **K** 集成 / 物理 | [`07`](07-mcp-data-contract.md)、[`../schemas/`](../schemas/)、物理 MCP 目录 | 真实工具、schema、接口漂移 |
 | **ADR** | [`DECISIONS.md`](DECISIONS.md) | 只追溯决策；不覆盖 A–K |
 
-H / I 正文由兄弟 track 创建；J 已落地为 [`technical-constitution.md`](technical-constitution.md)。E 目前是占位。已删的 `04` / `19` / `evidence-*` 不是任何一层。
+H / I / J 已落地。E 目前是占位（矩阵由阶段图 track 写）。已删的 `04` / `19` / `evidence-*` 不是任何一层。
 
 ## 最终使用方法
 
@@ -33,7 +33,8 @@ H / I 正文由兄弟 track 创建；J 已落地为 [`technical-constitution.md`
 B CONSTITUTION.md
 → C 若涉及权限 / 使用≠治理
 → F 对应 FS（如有）+ G UX-EMPLOYEE 硬不变量
-→ I design.md（落地后）+ MASTER token + pages/<当前页>.md
+→ H ia-information-architecture.md（导航 / 一页一问 / 使用≠治理）
+→ I design.md（视觉入口）+ MASTER token + pages/<当前页>.md
 → 仅针对未解决问题调用 ui-ux-pro-max
 → 按 UX 硬不变量、视口和无障碍验证
 ```
@@ -78,8 +79,8 @@ B 中相关边界
 | 合法转移 / 过程图 | E | `stage-graph.md`（占位；矩阵待写） |
 | 可开发动作与闸门 | F | FS、Policy |
 | 可执行交互与发布验收 | G | `UX-EMPLOYEE.md`（派生自 B §4–5） |
-| 导航 / 簇 / 页面只答一问 | H | `ia-information-architecture.md`（待创建）；在此之前 B §4 + `21` |
-| 页面视觉与布局 | I | `design.md`（待创建）；token = `MASTER.md` |
+| 导航 / 簇 / 页面只答一问 | H | `ia-information-architecture.md`；配套套件仍在 `21` |
+| 页面视觉与布局 | I | `design.md`（入口）；token = `MASTER.md` |
 | Host / 内核边界 | J | `technical-constitution.md` |
 | 真实 MCP 与 IO | K | `07`、`schemas/`、物理目录 |
 
@@ -89,7 +90,9 @@ B 中相关边界
 |---|---|
 | 哪些面是一等能力、KOL 是否等于平台壳 | B `CONSTITUTION.md` §4.1–4.2（ADR-023） |
 | Host / Codex / MCP / Gateway / 仓库边界 | J `technical-constitution.md`；细则 `06` / `07` / `14` |
-| 使用 ≠ 治理 | C `21`、ADR-013 |
+| 跨页面 IA（一页一问、导航密度、使用 ≠ 治理） | H `ia-information-architecture.md`；配套套件仍在 C `21` |
+| 视觉入口 / token | I `design.md` → `MASTER.md`（禁止在 `design.md` 复制 hex） |
+| 使用 ≠ 治理 | H `ia-information-architecture.md`、C `21`、ADR-013 |
 | KOL 试点域（Pipeline、AI发现、我跟进的红人、报价邮件） | B §4.2、F `12-kol-agent.md`。Pipeline 页可深链 / CTA，不是必挂侧栏 |
 
 ## 编号文件（次要别名）

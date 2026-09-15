@@ -1,6 +1,6 @@
 # 设计规范文档总结提示词
 
-> 历史提示词，仅供追溯。新任务按 `../CONTEXT-MANIFEST.md` 渐进加载，不再要求每次读取单一 `design.md`。
+> 历史提示词，仅供追溯。现行视觉入口仍是用户锁定的 `docs/design.md`，但该文件只作入口、**禁止内嵌 hex**；数值读 `../design-system/kol-workbench/MASTER.md`。新任务按 `../CONTEXT-MANIFEST.md` 渐进加载。
 
 请把我们现在这套设计风格，总结成一份设计规范文档
 保存为`design.md`，内容包括

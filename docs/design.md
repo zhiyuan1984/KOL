@@ -1,0 +1,89 @@
+# UI 设计系统入口
+
+> **文档类 I（视觉入口）。用户锁定路径：`docs/design.md`。**
+>
+> 本文件是 UI 设计与前端实现的**唯一视觉入口**。它不保存色值。
+>
+> **Token 源**仍是 [`design-system/kol-workbench/MASTER.md`](design-system/kol-workbench/MASTER.md)（KOL 试点皮肤目录名，不是产品身份）。单页布局与状态在 [`design-system/kol-workbench/pages/`](design-system/kol-workbench/pages/)。
+>
+> **禁止**在本文件写入或复制十六进制色值、业务规则、阶段图、权限模型。冲突时：安全 / 权限 / 数据 → FS / Policy；页面职责 / IA → [`CONSTITUTION.md`](CONSTITUTION.md) §4 与 [`ia-information-architecture.md`](ia-information-architecture.md)；视觉数值 → MASTER。
+>
+> 历史「每次先读一份 `design.md` 并内嵌色值」的提示词已废止（见 [`references/legacy-design-summary-prompt.md`](references/legacy-design-summary-prompt.md)）。锁定的是**本路径作为入口**，不是把 MASTER 再抄一遍。
+
+## 1. 怎么用
+
+```text
+CONSTITUTION.md §4（表面职责）
+→ ia-information-architecture.md（若问题是导航 / 一页一问 / 使用≠治理）
+→ UX-EMPLOYEE 硬不变量（SEND_NE_STAGE、L3_CONFIRM）
+→ docs/design.md          ← 你在这里（入口，不读色值）
+→ design-system/kol-workbench/MASTER.md
+→ design-system/kol-workbench/pages/<当前页面>.md
+→ 仅针对未解决问题调用 ui-ux-pro-max
+```
+
+1. 先用本文件确认：**改视觉读哪份、禁止写什么**。
+2. 需要主色 / 辅色 / 危险 / 成功、边框、圆角、字号阶梯时，打开 MASTER 对应节，**按 token 名引用**，不要把 hex 抄回本文件或新页面。
+3. 做某一个页面时，再读 `pages/<page>.md`。它覆盖该页布局、状态矩阵和响应式差异，不覆盖 MASTER token，也不覆盖宪法 / IA。
+4. `frontend/src/styles.css` 是 token 的实现事实；改数值必须同时改 CSS 与 MASTER，不在本文件改。
+
+`docs/20-visual-design-system.md` 只是迁移索引，不是实施入口。
+
+## 2. 语义色、边框、圆角、字号（只引用 MASTER）
+
+下列角色**必须**使用 MASTER 已命名的语义 token。本表不写 hex。浅色 / 深色成对数值以 MASTER §2 为准。
+
+| 角色 | 引用 | MASTER |
+|---|---|---|
+| 主色 primary | `--primary`、`--primary-fg`、`--focus-ring` | §2 核心语义 |
+| 辅色 secondary | MASTER **没有**独立的 `--secondary`。辅层级用 `--text-muted`、`--bg-elevated`、`--border`；不要新发明一条辅色 hex | §2 |
+| 危险 danger | `--danger`；控件错误边框 `--control-border-invalid` | §2 |
+| 成功 success | `--success` | §2 |
+| 警告 warning | `--warning` | §2 |
+| 背景 / 文字 | `--bg`、`--bg-elevated`、`--text`、`--text-muted` | §2 |
+| 边框 | 低强调分隔 `--border`；强分隔 `--border-strong`；可操作控件 `--control-border` / `--control-border-hover` / `--control-border-invalid` | §2 Token 分类 |
+| 圆角 | 小控件 `--radius-sm`；面板 `--radius-md`。Composer 容器与 Chip 半径只在 MASTER §2 Composer 行 | §2–§3 |
+| 字号阶梯 | `--font-xs`、`--font-sm`、`--font-body`、`--font-section`、`--font-title`、`--font-page-title`；行高 `--leading-body`、`--leading-tight` | §2 字体系统、§3 |
+| 间距 | `--space-1` … `--space-5`（4 / 8 / 12 / 16 / 24） | §3 |
+| 阴影 | 仅抬升 / 浮层 `--shadow-quiet` | §3 |
+
+Composer token（`--composer-*`）只服务任务输入容器，不扩散到普通按钮、卡片或页面背景。迁移别名（`--star`、`--canvas`、`--line`、`--muted`、`--red`、`--ok`、`--orange` 等）禁止出现在新代码。
+
+禁止用 `transform: scale()` 或 `zoom` 假装密度。正文基线与控件下限见 MASTER §3 / ADR-020。
+
+## 3. `pages/*.md` 怎么用
+
+`design-system/kol-workbench/pages/` 是**单页覆盖规则**，不是第二套设计系统。
+
+| 文件 | 何时读 |
+|---|---|
+| [`pages/home.md`](design-system/kol-workbench/pages/home.md) | Home 布局、模式 Tab、发现 / 跟进状态 |
+| [`pages/chat.md`](design-system/kol-workbench/pages/chat.md) | 会话时间线、Composer、结果卡 |
+| [`pages/pipeline.md`](design-system/kol-workbench/pages/pipeline.md) | KOL 试点 Pipeline 页密度与阶段列（页不是必挂侧栏） |
+| [`pages/admin.md`](design-system/kol-workbench/pages/admin.md) | 治理表 / 授权矩阵的视觉结构 |
+| [`pages/approvals.md`](design-system/kol-workbench/pages/approvals.md) | 员工审批队列的确认与回执 chrome |
+
+用法：
+
+- 先完成本文件 → MASTER，再打开当前页的 `pages/*.md`。
+- `pages/*.md` 可以规定该页的区块顺序、状态矩阵、窄屏折行。它**不能**改 token 数值，也不能改一页一问或使用 ≠ 治理。
+- 没有对应 `pages/*.md` 的一等能力面（如 `/kb`、`/connectors`、`/exam`、`/cron`）：沿用 MASTER + 宪法 / IA 的「只答一问」，不要为了视觉另立法。
+- 现有页面截图不是设计基准（MASTER 开篇）。重做页面时用 token 与页面规范，不反向把现状写入 MASTER。
+
+## 4. 本文件禁止写入
+
+| 禁止 | 应去的位置 |
+|---|---|
+| 任何 hex / rgb 色值，或「本页主色改成 #…」 | MASTER §2；改数值同步 `styles.css` |
+| 业务规则、阶段机、15 段图、`stage_code` 迁移 | FS、Policy、`05` / 阶段契约（不在视觉文档） |
+| 权限、租户、PEP、谁能看见哪条数据 | FS、`08`、`01` |
+| 发送 ≠ 推进阶段、L3 确认文案、拒绝原因 | 宪法 §3 / §5、`UX-EMPLOYEE` |
+| 导航该挂谁、Pipeline 是否侧栏、使用 ≠ 治理 | [`ia-information-architecture.md`](ia-information-architecture.md)、宪法 §4 |
+| 连接器枢纽字段、Admin 遗留收敛 | `21` |
+| 把 `ui-ux-pro-max` 或 OpenAI 风格对照升级为 token | MASTER §8：对照 only |
+
+页面和组件不得自行定义与 MASTER 冲突的颜色、字号、圆角或间距（宪法 §3）。
+
+## 5. 交付时仍按 MASTER 检查
+
+键盘、焦点、对比度、触控目标、减少动态效果、视口（360 / 768 / 1024 / 1366 / ≥1440）以 MASTER §6–§9 为准。本入口不重复那份清单。

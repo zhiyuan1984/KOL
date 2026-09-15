@@ -14,6 +14,8 @@
 | `02-domain-model` | 领域 schema、实体迁移、Agent manifest | 后端/产品 |
 | `03-prd-and-functional-spec` | `specs/FS-*.md`、用户故事、API/事件契约、验收测试 | 产品/测试 |
 | `CONSTITUTION` §4–5 + `UX-EMPLOYEE` | 前端页面、组件、状态机映射、无障碍测试 | 前端/UED |
+| `ia-information-architecture.md`（class H） | 导航、一页一问、使用 ≠ 治理的 IA 坐落 | 产品/前端 |
+| `design.md`（class I 入口）→ `MASTER.md` / `pages/*.md` | 语义 token、单页布局；禁止把业务规则写入 `design.md` | 前端/UED |
 | `05-agent-workflow-skill-policy` | `agents/*.yaml`、`workflows/*.yaml`、`skills/*/SKILL.md`、`policies/*.yaml` | 产品/业务/工程 |
 | `06-codex-harness` | app-server adapter、Thread/Turn runner、Item 校验、Host 闸门 | 后端 |
 | `07-mcp-data-contract` | MCP catalog、adapter、请求/响应 schema、契约测试 | 后端/接口负责人 |

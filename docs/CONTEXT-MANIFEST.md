@@ -15,9 +15,9 @@ Pipeline / Home「AI发现」「我跟进的红人」是 KOL 试点特化，不�
 ```text
 B CONSTITUTION.md
 → F 对应 FS（如有）/ G UX-EMPLOYEE 硬不变量（SEND_NE_STAGE、L3_CONFIRM）
-→ I design.md（落地后）+ MASTER.md（token only）
+→ H ia-information-architecture.md（导航 / 一页一问 / 使用≠治理）
+→ I design.md（视觉入口）+ MASTER.md（token only）
 → I pages/<当前页面>.md
-→ H ia-information-architecture.md（落地后；此前用 B §4 + C `21`）
 → 仅针对未解决的设计问题调用 ui-ux-pro-max
 ```
 
@@ -36,7 +36,8 @@ B CONSTITUTION.md
 | 数字团队（一等；尚未实现） | B §4.1 | 禁止专家团假导航；不得永久禁该名词 |
 | 审批 / 考试 | B §4.1；C `08`；I `pages/approvals.md` | 管理闸门再加载 C `21` |
 | `/cron` 定时 | B §4.1 | 不得做成第二套 Home |
-| 纯视觉 / 组件 | I `MASTER.md` + 当前页 | token 只改 MASTER；设计法落地后读 `design.md`。追溯迁移才读 `20` |
+| 导航 / 一页一问 / 使用≠治理 | H `ia-information-architecture.md` | 配套套件、枢纽字段再加载 C `21` |
+| 纯视觉 / 组件 | I `design.md` → `MASTER.md` + 当前页 | token 只改 MASTER；禁止在 `design.md` 复制 hex。追溯迁移才读 `20` |
 | 组织 / 范围 / PEP | C `01` | 注册表：`config/org-registry.yaml` |
 | 对象 / 字典 | D `02`、`DATA_DICTIONARY.md` | 物理值冲突时记 K 接口漂移，不改 D 编造 |
 | API / 后端 | J `technical-constitution.md`；F 对应 FS；D 数据模型 | 副作用 / 确认：C `08`；物理 IO：K `07` / `schemas/`；细则 `06` / `07` / `14` |
@@ -47,7 +48,7 @@ B CONSTITUTION.md
 - `references/`：风格研究和历史提示词，不是实施规则。
 - `DECISIONS.md`：仅用于追溯具体决策（ADR 不是法律层）。
 - 已删除的 `docs/evidence-*`、`04`、`19`、`employee-surface-contracts.md`：不要从 git 历史恢复为现行法。
-- `06`、`09`–`11`、`13`–`17`、`90`：实现与运营手册，不是 A–K；J 落地前仅在任务明确需要时打开。
+- `06`、`09`–`11`、`13`–`17`、`90`：实现与运营手册，不是 A–K；仅在任务明确需要细则时打开。
 - 完整 F 目录：只读当前动作对应的 FS / Policy。
 
 ## 检索纪律
@@ -63,8 +64,8 @@ B CONSTITUTION.md
 - 新增跨页面硬约束：改 **B** `CONSTITUTION.md`。
 - 新增 Host / Codex / Gateway / 仓库边界硬约束：改 **J** `technical-constitution.md`。
 - 新增 / 修改合法转移：改 **E** `stage-graph.md`（由阶段图 track 写；本仓库其它 PR 不得先填边）。
-- 修改导航 / 簇 / 谁答哪一问：改 **H**（落地后）；落地前不要把 IA 写进 I 的 token 文件。
-- 修改全局视觉 token：改 **I** 的 `MASTER.md`，并同步实现 token。`design.md` 是设计法，不是 token 源。
+- 新增或收紧跨页面 IA（一页一问、导航密度、使用≠治理原则）：改 **H** `ia-information-architecture.md`，不得与宪法 §4 冲突。
+- 修改全局视觉 token：改 **I** 的 `MASTER.md`，并同步实现 token。`design.md` 是设计法入口，禁止写入 hex。
 - 修改单页布局或行为：只改对应 `pages/*.md`。
 - 修改业务状态、权限或验收：改 C / D / F / G，不把业务事实复制进视觉文档。
 - ADR 只追加变更日志，不把新法只写在 `DECISIONS.md`。

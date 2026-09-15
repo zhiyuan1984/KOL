@@ -14,8 +14,8 @@
 | 产品闭环、页面职责、跨页面边界 | 本宪法（B） |
 | 合法转移 / 过程图 | E `stage-graph.md`（矩阵由兄弟 track 写） |
 | 可执行交互与发布验收 | G：本宪法 §4–5、派生的 `specs/UX-EMPLOYEE.md`、`specs/ux-traceability.json` |
-| IA 约束 | H `ia-information-architecture.md`（兄弟 track；落地前以本宪法 §4 与 `21` 为准） |
-| 全局视觉 token | I：`design-system/kol-workbench/MASTER.md`（token 源；设计法见 `design.md`） |
+| 跨页面 IA（一页一问、导航密度、使用 ≠ 治理原则） | H [`ia-information-architecture.md`](ia-information-architecture.md)（不得改写本宪法 §4） |
+| 全局视觉 token | I [`design.md`](design.md)（设计法入口）→ `design-system/kol-workbench/MASTER.md`（token 源） |
 | 单页布局与状态差异 | `design-system/kol-workbench/pages/<page>.md` |
 | Host、Codex、MCP、Gateway、TypeScript 仓库边界 | J [`technical-constitution.md`](technical-constitution.md) |
 
@@ -51,6 +51,8 @@
 - 页面和组件不得自行定义与设计系统冲突的颜色、字号、圆角或间距。
 
 ## 4. 表面职责
+
+跨页面 IA 约束见 `docs/ia-information-architecture.md`（class H，正式、非可选）。视觉入口见 `docs/design.md`（class I）；token 源仍是 `design-system/kol-workbench/MASTER.md`。
 
 ### 4.1 一等能力清单（锁定，2026-09-14）
 
