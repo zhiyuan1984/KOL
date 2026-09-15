@@ -100,7 +100,7 @@ test("inbound mail card replies only; stage write stays on confirm_stage card", 
   await expect(confirm).toContainText("初步接触");
   await expect(confirm.locator("[data-confirm-stage]")).toBeVisible();
   await expect(page.locator("body")).not.toContainText("Starry KOL MCP");
-}
+});
 
 test("draft send opens L3 confirm with object/scope/consequence; cancel does not send", async ({ page, request }) => {
   const ses = await request.post("/api/collaborations/col_xiaomei/session").then((r) => r.json() as Promise<{ id: string }>);
