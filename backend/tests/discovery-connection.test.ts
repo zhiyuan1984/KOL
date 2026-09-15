@@ -13,6 +13,7 @@ import { getConn, resetConn } from "../src/db.js";
 import {
   COLLECTOR_CONNECT_MESSAGE,
   COLLECTOR_NOT_CONFIGURED_MESSAGE,
+  CRAWL_ACTIVE_MESSAGE,
   employeeError,
   isConnectionClassError,
 } from "../src/discovery-errors.js";
@@ -231,6 +232,62 @@ describe("discovery run / completeJob surfaces Chinese connection errors", () =>
       | { error?: string }
       | undefined;
     expect(stored?.error).toBe(COLLECTOR_CONNECT_MESSAGE);
+  });
+
+  it("maps crawl_active to Chinese copy and never persists empty-code JSON", async () => {
+    const now = new Date().toISOString();
+    getConn().prepare(
+      `INSERT INTO work_items
+       (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      "tsk_active_crawl",
+      "usr_sriphy",
+      "creator_discovery",
+      "active crawl blocker",
+      "manual",
+      "running",
+      "normal",
+      "creator_discovery",
+      "lead",
+      "{}",
+      "{}",
+      now,
+      now,
+    );
+    getConn().prepare(
+      `INSERT INTO crawl_jobs
+       (id,idempotency_key,owner_user_id,work_item_id,platform,mode,parameters,status,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      "crawl_activeblocker",
+      "idem-active-blocker",
+      "usr_sriphy",
+      "tsk_active_crawl",
+      "youtube",
+      "search",
+      JSON.stringify({ keywords: ["blocker"] }),
+      "crawling",
+      now,
+      now,
+    );
+    const created = await request("POST", "/api/discovery/requests", {
+      keywords: ["portable power station", "outdoor review"],
+      platforms: ["youtube"],
+    });
+    const started = await request("POST", `/api/discovery/requests/${created.body.id}/runs`, {});
+    expect(started.status).toBe(409);
+    expect(started.body.detail).toMatchObject({
+      code: "crawl_active",
+      message: CRAWL_ACTIVE_MESSAGE,
+    });
+    expect(JSON.stringify(started.body)).not.toMatch(/\{\"code\":\"\"/);
+    assertEmployeeCopy(started.body);
+    const stored = getConn().prepare("SELECT error, started_at FROM discovery_runs ORDER BY created_at DESC LIMIT 1").get() as
+      | { error?: string; started_at?: string | null }
+      | undefined;
+    expect(stored?.error).toBe(CRAWL_ACTIVE_MESSAGE);
+    expect(stored?.error).not.toMatch(/\{/);
   });
 
   it("maps completeJob / get_creators connection failure into the discovery run", async () => {

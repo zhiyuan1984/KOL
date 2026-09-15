@@ -1,7 +1,12 @@
 import { ingestMediacrawler } from "../adapters/claw.js";
 import { mediaCrawlerConfigured } from "../config.js";
 import { getConn, isSqliteClosedError, isSqliteForeignKeyError, nowIso, onConnReset, tx } from "../db.js";
-import { collectorFailureCode, persistableEmployeeError } from "../discovery-errors.js";
+import {
+  CRAWL_ACTIVE_MESSAGE,
+  collectorFailureCode,
+  persistableEmployeeError,
+  sanitizeSecret,
+} from "../discovery-errors.js";
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import { RemoteMcpClient } from "../mcp/remote.js";
@@ -96,8 +101,12 @@ function publicJob(row: Row): Json {
 }
 
 function validateInput(platform: string, mode: string, parameters: Json): void {
-  if (!CRAWL_PLATFORM_SET.has(platform)) throw new HttpFail(400, "invalid crawl platform");
-  if (!MODES.has(mode)) throw new HttpFail(400, "invalid crawl mode");
+  if (!CRAWL_PLATFORM_SET.has(platform)) {
+    throw new HttpFail(400, { code: "invalid_crawl_platform", message: "采集平台不正确。" });
+  }
+  if (!MODES.has(mode)) {
+    throw new HttpFail(400, { code: "invalid_crawl_mode", message: "采集方式不正确。" });
+  }
   const required = mode === "search" ? "keywords" : mode === "detail" ? "specified_ids" : "creator_ids";
   const value = parameters[required];
   if (!(typeof value === "string" && value.trim()) && !(Array.isArray(value) && value.length)) {
@@ -208,7 +217,13 @@ export async function startCrawl(input: {
           WHERE status IN ('queued','crawling','uploading','analyzing','starting','running','stopping')
           LIMIT 1`,
       ).get() as { id: string } | undefined;
-      if (active) throw new HttpFail(409, { code: "crawl_active", crawl_job_id: active.id });
+      if (active) {
+        throw new HttpFail(409, {
+          code: "crawl_active",
+          message: CRAWL_ACTIVE_MESSAGE,
+          crawl_job_id: active.id,
+        });
+      }
       db.prepare(
         `INSERT INTO crawl_jobs
          (id,idempotency_key,owner_user_id,work_item_id,session_id,platform,mode,parameters,status,
@@ -256,6 +271,11 @@ export async function startCrawl(input: {
   } catch (error) {
     failJob(id, error);
     const source = error instanceof Error ? error.message : error;
+    console.warn("[discovery.crawl] start_crawl failed", {
+      crawl_job_id: id,
+      code: collectorFailureCode(error instanceof HttpFail ? error.detail ?? error : error),
+      error: sanitizeSecret(error),
+    });
     throw new HttpFail(502, {
       code: collectorFailureCode(source),
       message: persistableEmployeeError(source),
@@ -292,7 +312,7 @@ function scheduleMonitor(jobId: string): void {
 
 export async function monitorCrawlJob(jobId: string): Promise<Json> {
   const job = getConn().prepare("SELECT * FROM crawl_jobs WHERE id=?").get(jobId) as Row | undefined;
-  if (!job) throw new HttpFail(404, "crawl job not found");
+  if (!job) throw new HttpFail(404, { code: "crawl_job_not_found", message: "未找到该采集任务。" });
   if (!ACTIVE.has(String(job.status)) || !job.remote_task_id) return publicJob(job);
   try {
     const result = await remoteCall("get_crawl_status", {}, jobId);
@@ -478,7 +498,7 @@ function failJob(jobId: string, error: unknown): void {
 
 export async function stopCrawl(jobId: string): Promise<Json> {
   const job = getConn().prepare("SELECT * FROM crawl_jobs WHERE id=?").get(jobId) as Row | undefined;
-  if (!job) throw new HttpFail(404, "crawl job not found");
+  if (!job) throw new HttpFail(404, { code: "crawl_job_not_found", message: "未找到该采集任务。" });
   if (!ACTIVE.has(String(job.status))) return publicJob(job);
   getConn().prepare("UPDATE crawl_jobs SET status='stopping',updated_at=? WHERE id=?").run(nowIso(), jobId);
   try {
@@ -501,7 +521,9 @@ export async function stopCrawl(jobId: string): Promise<Json> {
 
 export async function retryUpload(jobId: string): Promise<Json> {
   const job = getConn().prepare("SELECT * FROM crawl_jobs WHERE id=?").get(jobId) as Row | undefined;
-  if (!job?.remote_task_id) throw new HttpFail(409, "crawl job has no remote task");
+  if (!job?.remote_task_id) {
+    throw new HttpFail(409, { code: "crawl_job_no_remote_task", message: "采集任务尚未关联远程任务。" });
+  }
   const result = await remoteCall("upload_creators", { task_id: job.remote_task_id }, jobId);
   getConn().prepare("UPDATE crawl_jobs SET upload_error=NULL,updated_at=? WHERE id=?").run(nowIso(), jobId);
   event(jobId, "upload_retried", String(job.status), "Creator upload retried");
