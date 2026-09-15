@@ -74,6 +74,53 @@
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   /* ADR-031: OpenAI Sans when licensed; Inter is the required live substitute. */
   --sans: Inter, "OpenAI Sans", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "微软雅黑", system-ui, sans-serif;
+
+  /* MASTER Quick Start aliases — parallel names, existing --font-* / --space-* stay canonical */
+  --text-caption: var(--font-xs);
+  --leading-caption: 1.51;
+  --tracking-caption: -0.13px;
+  --text-input: var(--font-ui);
+  --leading-input: 1.5;
+  --tracking-input: -0.16px;
+  --text-body-lg: var(--font-section);
+  --leading-body-lg: 1.32;
+  --tracking-body-lg: -0.18px;
+  --text-subheading: 22px;
+  --leading-subheading: 1.26;
+  --tracking-subheading: -0.22px;
+  --text-heading: var(--font-page-title);
+  --leading-heading: 1.21;
+  --tracking-heading: 0.31px;
+  --text-display: 48px;
+  --leading-display: 1.16;
+  --tracking-display: -1.44px;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --spacing-unit: 4px;
+  --spacing-4: var(--space-1);
+  --spacing-8: var(--space-2);
+  --spacing-12: var(--space-3);
+  --spacing-16: var(--space-4);
+  --spacing-20: 20px;
+  --spacing-24: var(--space-5);
+  --spacing-32: 32px;
+  --spacing-40: 40px;
+  --spacing-52: 52px;
+  --spacing-64: 64px;
+  --spacing-80: 80px;
+  --spacing-120: 120px;
+  --radius-full: 9999px;
+  --radius-tags: 9999px;
+  --radius-cards: 6px;
+  --radius-links: 4px;
+  --radius-inputs: 9999px;
+  --radius-buttons: 9999px;
+  --shadow-sm: var(--shadow-quiet);
+  --surface-paper: var(--color-paper);
+  --surface-ash: var(--color-ash);
+  --surface-whisper: var(--color-whisper);
+
   font-family: var(--sans);
   font-size: var(--font-body);
   line-height: var(--leading-body);
@@ -2641,6 +2688,9 @@ summary:focus-visible,
 .followed-kol-card .kol-cta-link:hover {
   color: var(--text);
 }
+.followed-kol-card .kol-cta-primary .kol-cta-work {
+  border-radius: var(--radius-buttons);
+}
 /* One strong Obsidian CTA in the followed list (ADR-031 / Discovery #139). */
 .followed-kol-card .kol-cta-primary .kol-cta-work.btn.ghost {
   background: var(--bg);
@@ -3329,17 +3379,17 @@ summary:focus-visible,
 .home-composer-dock,
 .home-composer-dock .composer-dock,
 .home-composer-dock .composer {
-  --composer-radius: 9999px;
+  --composer-radius: var(--radius-inputs);
 }
 .home-composer-dock .composer.composer--workspace {
   flex-direction: row;
   align-items: center;
   min-height: 72px;
   max-height: 220px;
-  border-radius: 9999px;
+  border-radius: var(--radius-inputs);
   padding: 10px 12px 10px 14px;
   gap: 8px;
-  box-shadow: var(--shadow-quiet);
+  box-shadow: var(--shadow-sm);
 }
 .home-pane.is-composer-reading .home-composer-dock .composer.composer--workspace { min-height: 80px; }
 .home-pane.is-composer-focused .home-composer-dock .composer.composer--workspace { min-height: 88px; }
