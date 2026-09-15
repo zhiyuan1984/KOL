@@ -37,6 +37,7 @@ import {
   type DiscoveryRequest,
   type FollowFilter,
 } from "./discovery";
+import { DiscoveryFollowConfirm } from "./DiscoveryFollowConfirm";
 import { useViewMode } from "../viewMode";
 
 function formatFollowers(value: number): string {
@@ -814,99 +815,54 @@ export default function DiscoveryPanel() {
         </ol>
       ) : null}
 
-      {pendingFollow ? (
-        <div className="discovery-confirm-layer" data-discovery-follow-confirm data-discovery-follow-mode="single">
-          <div className="discovery-confirm">
-            <strong>确认加入跟进？</strong>
-            <p>
-              把 @{pendingFollow.handle} 加入跟进并写入红人档案。不会发信，也不会改正式阶段。只有写入成功后才会建立合作。
-            </p>
-            {followError ? (
-              <p className="discovery-quiet" data-discovery-follow-error role="alert">{followError}</p>
-            ) : null}
-            <div className="discovery-plan-actions">
-              <button
-                type="button"
-                className="btn work sm"
-                data-discovery-follow-yes
-                disabled={followBusy}
-                onClick={() => void confirmFollow()}
-              >
-                {followBusy ? "正在写入档案…" : "确认加入跟进"}
-              </button>
-              <button
-                type="button"
-                className="btn ghost sm"
-                data-discovery-follow-no
-                disabled={followBusy}
-                onClick={() => {
-                  setPendingFollow(null);
-                  setFollowError(null);
-                }}
-              >
-                取消
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <DiscoveryFollowConfirm
+        open={Boolean(pendingFollow)}
+        mode="single"
+        busy={followBusy}
+        error={followError}
+        onConfirm={() => void confirmFollow()}
+        onCancel={() => {
+          setPendingFollow(null);
+          setFollowError(null);
+        }}
+      >
+        <p>
+          把 @{pendingFollow?.handle} 加入跟进并写入红人档案。不会发信，也不会改正式阶段。只有写入成功后才会建立合作。
+        </p>
+      </DiscoveryFollowConfirm>
 
-      {pendingBatch ? (
-        <div
-          className="discovery-confirm-layer"
-          data-discovery-follow-confirm
-          data-discovery-follow-mode={pendingBatch}
-        >
-          <div className="discovery-confirm">
-            <strong>确认加入跟进？</strong>
-            <p data-discovery-batch-summary>
-              将把 {pendingBatchCandidates.length} 条线索加入跟进并写入红人档案。
-              其中 <span data-discovery-missing-email-count>{pendingMissingEmail}</span> 条没有联系邮箱（仍会写入，不会编造邮箱）。
-              {pendingFilterSummary ? ` 门槛：${pendingFilterSummary}。` : ""}
-              平台 / 地区沿用当前计划
-              {request?.platforms?.length ? `（${request.platforms.map(platformLabel).join("、")}）` : ""}
-              {request?.filters?.region && request.filters.region !== "all"
-                ? ` · ${regionLabel(request.filters.region)}`
-                : ""}
-              。不会发信，也不会改正式阶段。只有写入成功后才会建立合作。
-            </p>
-            {batchResult?.failed.length ? (
-              <p className="discovery-quiet" data-discovery-batch-partial role="status">
-                已加入 {batchResult.counts.followed} 人，未加入 {batchResult.counts.failed} 人
-                {batchResult.counts.skipped_duplicate ? `，已跟进跳过 ${batchResult.counts.skipped_duplicate} 人` : ""}
-                。未成功的线索不会标成已跟进。
-              </p>
-            ) : null}
-            {followError ? (
-              <p className="discovery-quiet" data-discovery-follow-error role="alert">{followError}</p>
-            ) : null}
-            <div className="discovery-plan-actions">
-              <button
-                type="button"
-                className="btn work sm"
-                data-discovery-follow-yes
-                disabled={followBusy || !pendingBatchCandidates.length}
-                onClick={() => void confirmBatchFollow()}
-              >
-                {followBusy ? "正在写入档案…" : "确认加入跟进"}
-              </button>
-              <button
-                type="button"
-                className="btn ghost sm"
-                data-discovery-follow-no
-                disabled={followBusy}
-                onClick={() => {
-                  setPendingBatch(null);
-                  setBatchResult(null);
-                  setFollowError(null);
-                }}
-              >
-                取消
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <DiscoveryFollowConfirm
+        open={Boolean(pendingBatch)}
+        mode={pendingBatch || "selected"}
+        busy={followBusy}
+        error={followError}
+        confirmDisabled={!pendingBatchCandidates.length}
+        onConfirm={() => void confirmBatchFollow()}
+        onCancel={() => {
+          setPendingBatch(null);
+          setBatchResult(null);
+          setFollowError(null);
+        }}
+      >
+        <p data-discovery-batch-summary>
+          将把 {pendingBatchCandidates.length} 条线索加入跟进并写入红人档案。
+          其中 <span data-discovery-missing-email-count>{pendingMissingEmail}</span> 条没有联系邮箱（仍会写入，不会编造邮箱）。
+          {pendingFilterSummary ? ` 门槛：${pendingFilterSummary}。` : ""}
+          平台 / 地区沿用当前计划
+          {request?.platforms?.length ? `（${request.platforms.map(platformLabel).join("、")}）` : ""}
+          {request?.filters?.region && request.filters.region !== "all"
+            ? ` · ${regionLabel(request.filters.region)}`
+            : ""}
+          。不会发信，也不会改正式阶段。只有写入成功后才会建立合作。
+        </p>
+        {batchResult?.failed.length ? (
+          <p className="discovery-quiet" data-discovery-batch-partial role="status">
+            已加入 {batchResult.counts.followed} 人，未加入 {batchResult.counts.failed} 人
+            {batchResult.counts.skipped_duplicate ? `，已跟进跳过 ${batchResult.counts.skipped_duplicate} 人` : ""}
+            。未成功的线索不会标成已跟进。
+          </p>
+        ) : null}
+      </DiscoveryFollowConfirm>
     </section>
   );
 }
