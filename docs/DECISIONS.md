@@ -6,6 +6,7 @@
 
 | 日期 | 记录 | 说明 |
 |---|---|---|
+| 2026-09-15 | 正式 IA 约束 `docs/ia-information-architecture.md`（class H，非可选）；视觉入口锁定 `docs/design.md`（class I）。MASTER 仍是 token 源，禁止在 `design.md` 复制 hex。`21` 保留为配套套件 | 用户锁定路径。不复活 employee-surface 长文。不 LIVE。 |
 | 2026-09-15 | Host / Codex / MCP / Gateway / TS 边界立法为 `technical-constitution.md`（class J）。不写业务阶段邻接；物理限制不升格为产品法 | 折叠 ADR-001 / 005 / 006 精神。细则仍 `06` / `07` / `14`。文档 only。不 LIVE。 |
 | 2026-09-15 | #105 之后法律层重组为 A–K。目录 `LAW-MAP.md`；导航不再以 `00`–`21` 为主线。`design.md` = `docs/design.md`（MASTER 仍是 token）。ADR-011 由阶段图兄弟 track 废止 | 见 ADR-026。文档 only。不 LIVE。不发明阶段边。 |
 | 2026-09-15 | 删除全部 `docs/evidence-*`、`04`、`19`、`employee-surface-contracts.md`、`FS-KOL-006`、`FS-KOL-010`、ADR-018、ADR-022。必须项只留在宪法 + 瘦 `UX-EMPLOYEE` | 用户锁定。见 ADR-025。文档 / 契约 only。不 LIVE。 |
