@@ -6,6 +6,7 @@
 
 | 日期 | 记录 | 说明 |
 |---|---|---|
+| 2026-09-15 | 删除过细 UX 合同 `UX-KOL.md`、`UX-FOLLOWED-KOL-CARD.md`，以及把 `UX-SEND-NE-STAGE` 当独立合同 ID 的绑定。从宪法 §4–5 + `04` 重派生瘦契约 `specs/UX-EMPLOYEE.md`。门禁硬不变量只留 `SEND_NE_STAGE`、`L3_CONFIRM` | 用户锁定。见 ADR-024、`docs/evidence-ux-rederive-from-constitution-2026-09-15.md`。文档 / 契约 only。不 LIVE。不重画 Home 跟进列表。 |
 | 2026-09-14 | 产品是**智能体中台**。十六项一等能力（含技能、数字团队预留未实现、考试、项目/云盘/遥控占位、定时、通知、设置等）互不隶属、不隶属 KOL Agent。「支撑」≠ 二等。KOL 只是首个试点；Pipeline / Home「AI发现」「我跟进的红人」是试点特化。技能侧栏露出=UX，不是「员工永远不许看见」。禁止专家团假导航；不得永久禁止名词「数字团队」 | 用户锁定。见 ADR-023、`CONSTITUTION.md` §4.1–4.2、`docs/evidence-platform-law-gap-2026-09-14.md`。本记录不实施 FE/BE，不 LIVE。 |
 | 2026-09-14 | MediaCrawler → Starry 跟进桥：三模式（单个 / 勾选批量 / 条件批量）。条件批量**本期全开**：粉丝 ≥ N、近10均播 ≥ M、Host 评分 ≥ S、平台 / 地区沿用发现计划芯片。无邮箱仍单行 `importKolProfilesFromCrawler`；跟进+主档=一张 L3 确认卡（每 `source_batch` 一次）；采集只产线索；成功才跟进（真实 `kolUid`）；本路径禁发信/改阶段/解密/编造邮箱；入库仍 Host-only；门槛只在 Host（列表预览 + 写入前复核） | 产品锁定。见 ADR-022、`07-mcp-data-contract.md`、`19-ui-ux-constitution.md`。本记录不实施 FE/BE，不 LIVE，不在跟进时改阶段。 |
 | 2026-09-14 | 员工 `/kb` **不是**邮件模板管理台。只回答查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务；邮件模板只是一类资料；主 CTA「用于当前任务」只产未发送草稿；卡片元数据底线可后补字段 | 产品裁定现行员工 `/kb` 不适合。见 ADR-021、`19-ui-ux-constitution.md`。本记录不实施 FE/BE。 |
@@ -47,6 +48,7 @@
 | ADR-021 | 员工 `/kb` 是并列能力面（ADR-015）：查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务；禁止邮件模板管理台与引擎行话；应用只产未发送草稿；卡片元数据底线先立法、schema 可后补 | `19-ui-ux-constitution.md`、`14-implementation-contract.md`、`21-admin-employee-page-roles.md` |
 | ADR-022 | MediaCrawler → Starry 跟进桥：三模式；条件批量本期全开（粉丝 / 近10均播 / Host 评分 / 平台 / 地区）；无邮箱仍单行 `importKolProfilesFromCrawler`；跟进+主档一张 L3 卡（每 `source_batch` 一次）；采集不写 Starry；成功才跟进（真实 `kolUid`）；禁发信/改阶段/解密/编造邮箱；门槛只在 Host。服从 ADR-018 / ADR-011 / ADR-019 | `07-mcp-data-contract.md`、`19-ui-ux-constitution.md`、`08-permission-approval-audit.md`、`policies/import_creator.yaml` |
 | ADR-023 | 智能体中台十六项一等能力；KOL=首个试点不是平台壳；技能入口密度=UX（禁止图鉴压过任务脊柱）；数字团队预留未实现，禁止专家团假导航，不得永久禁「数字团队」名词。「支撑」≠ 二等。服从 ADR-015 精神；修订 ADR-016 中「员工默认禁技能 / 不要求数字团队」的过度读法。Pipeline 页只许深链 / CTA | `CONSTITUTION.md`、`employee-surface-contracts.md`、`21-admin-employee-page-roles.md`、`docs/evidence-platform-law-gap-2026-09-14.md`、`docs/evidence-constitution-reconcile-2026-09-14.md` |
+| ADR-024 | 删除 `UX-KOL.md` / `UX-FOLLOWED-KOL-CARD.md` / `UX-SEND-NE-STAGE`-as-file-ID。员工 UX 从宪法 §4–5 + `04` 重派生为 `specs/UX-EMPLOYEE.md`。门禁只绑 `SEND_NE_STAGE`、`L3_CONFIRM`。不复活排序键 / 四带 / 字段黑名单 / 强制 CTA 文案 | `CONSTITUTION.md` §4–5、`04-ux-ui-system.md`、`specs/UX-EMPLOYEE.md`、`docs/evidence-ux-rederive-from-constitution-2026-09-15.md` |
 
 **废止读法：** 「四页法律 / 四页分工 / 员工四表面」不得再被读成 Pipeline 是平台核心导航。现行：Home+Chat = 平台任务/会话脊柱；Pipeline = KOL 试点页（§4.2）。后文若仍写「四页法律」一律按此句，不以旧 P0 为准。权威清单仍是 `CONSTITUTION.md` §4.1–4.2。
 
@@ -221,7 +223,7 @@ Admin 导航和页面与员工连接器/智能体表面重叠：员工侧栏深�
 
 1. **专家中心只回答「找谁协作」。** 员工 `/agents`（专家中心 / 数字员工入口）列出已发布、可供召唤的岗位专家并建立协作绑定。不是技能目录、不是第二套 Home 任务页、不是连接器目录。不发明第五套主脊柱；`/agents` 仍是 P0 工作入口 chrome。
 2. **无专家团。** 员工默认表面完全没有专家团：无入口、无占位、无假导航。侧栏入口文案「数字员工」。**修订（ADR-023）：** 「数字团队」是独立一等能力、尚未实现；预留名词与位阶，禁止用专家团冒充，**不得**把该产品名词永久写成禁词。
-3. **员工默认禁止引擎与目录 chrome。** 默认员工 `/agents` 及数字员工相关 chrome 不得展示 Profile 内部、Harness、MCP、Codex、技能图鉴 / Skill picker、连接器状态 / connector pills 作为主 IA。引擎行话仍按 `UX-COPY-ENGINE`。**修订（ADR-023）：** 技能是一等能力；侧栏是否露出是 UX 密度，不是「员工永远不许看见技能」。仍禁止能力图鉴压过任务脊柱，也禁止把图鉴做成 `/agents` 主 IA。
+3. **员工默认禁止引擎与目录 chrome。** 默认员工 `/agents` 及数字员工相关 chrome 不得展示 Profile 内部、Harness、MCP、Codex、技能图鉴 / Skill picker、连接器状态 / connector pills 作为主 IA。引擎行话仍按 `04` 员工禁词（旧 `UX-COPY-ENGINE` ID 已废，见 ADR-024）。**修订（ADR-023）：** 技能是一等能力；侧栏是否露出是 UX 密度，不是「员工永远不许看见技能」。仍禁止能力图鉴压过任务脊柱，也禁止把图鉴做成 `/agents` 主 IA。
 4. **召唤 ≠ 发送 / 推进阶段。** 召唤只建立绑定会话 / 协作绑定。无 send-mail 副作用，无 stage-change 副作用。「发送 ≠ 推进阶段」仍然有效；召唤更早，必须两都不做。
 5. **Home 独占任务；能力面仍解耦。** Home 仍回答现在做什么 / 今日待办 / 任务计数。专家中心不得复制 Home 待办桶。知识库 / 审批 / 考试 / 连接器使用面仍是并列能力面（ADR-015），专家中心不拥有它们。
 6. **对象命名。** 内部：Expert 或 Agent 均可。员工文案：「数字员工」/ 岗位专家。`/admin/agents` 仍是治理（发布 / 授权 / 考试闸门），不得与员工专家中心混读；员工专家中心禁止连接器状态 chrome。
@@ -281,7 +283,7 @@ ADR-016（#53）立法：员工专家中心只召唤已发布岗位专家；召�
    今日任务 | 我的待办 | AI发现 | 我跟进的红人
    ```
 
-   未指定 `tab` 时默认 **今日任务**。员工 Home 禁止 MCP / Codex / Thread / Skill 等引擎行话（`UX-COPY-ENGINE`）。
+   未指定 `tab` 时默认 **今日任务**。员工 Home 禁止 MCP / Codex / Thread / Skill 等引擎行话（`04` / `UX-EMPLOYEE` 员工禁词；旧 `UX-COPY-ENGINE` ID 已废，见 ADR-024）。
 
 2. **对象分属，不得串用。**
 
@@ -379,7 +381,7 @@ ADR-018 已锁定新「AI发现」= CreatorCandidate 线索，不是任务推荐
 
 ### 决定
 
-1. **定位。** 员工 `/kb` 只回答：**查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务**。仍是 ADR-015 并列能力面 / 可选 chrome，**不是**第五套 Home。禁止员工 KB 出现 Codex / Harness / MCP / Thread / Skill 等引擎行话（`UX-COPY-ENGINE`）。禁止在 KB 首页 / 页头 / chrome 宣讲「发送 ≠ 改阶段」——该不变量仍有效，住在 `19` §4 与 `UX-SEND-NE-STAGE`，KB 不是布道页。邮件模板是**一类资料**，不是整库。
+1. **定位。** 员工 `/kb` 只回答：**查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务**。仍是 ADR-015 并列能力面 / 可选 chrome，**不是**第五套 Home。禁止员工 KB 出现 Codex / Harness / MCP / Thread / Skill 等引擎行话（`04` / `UX-EMPLOYEE` 员工禁词）。禁止在 KB 首页 / 页头 / chrome 宣讲「发送 ≠ 改阶段」——该不变量仍有效，住在宪法 / `04` / `SEND_NE_STAGE`（旧 `UX-SEND-NE-STAGE` 文件级 ID 已废，见 ADR-024），KB 不是布道页。邮件模板是**一类资料**，不是整库。
 
 2. **员工 IA（Tab / 筛选，顺序锁定）：**
 
@@ -498,3 +500,31 @@ ADR-016 专家中心「只召唤岗位专家 / 无专家团 / 召唤 ≠ 发送�
 - 证据：`docs/evidence-platform-law-gap-2026-09-14.md`、`docs/evidence-constitution-reconcile-2026-09-14.md`
 - 代码：本 ADR 不改 JSX / API / CSS
 - 测试：文档评审 only；现行 E2E「侧栏无技能 / 无数字团队」仍是实现快照，不是本记录的永远禁令
+
+## ADR-024 — 删除过细 UX 合同，从宪法重派生员工 UX（2026-09-15）
+
+**状态**：已固化  
+**决策人**：产品负责人（用户锁定 2026-09-15）
+
+### 问题与背景
+
+`specs/UX-KOL.md`、`specs/UX-FOLLOWED-KOL-CARD.md`，以及把 `UX-SEND-NE-STAGE` 当独立合同 ID 的绑定，含大量不合理过细处方：1→8 排序键表、绝对禁止阶段筛选、强制四带-only 布局、长字段黑名单、强制每张 Home 卡 CTA 拼「确认进入「目标阶段」」、以及把邮箱默认 / TB 绑定 / 未发布 Agent 等实现细节升格为发布门禁 UX ID。这些文件位阶被读成可改写宪法 / `04`，造成员工面过约。
+
+### 决定
+
+1. **删除。** 整文件删除 `specs/UX-KOL.md` 与 `specs/UX-FOLLOWED-KOL-CARD.md`。废止把 `UX-SEND-NE-STAGE` 当独立合同 ID / 文件级绑定的读法。旧 ID 目录（`UX-CTX-BRAND`、`UX-DEF-MAILBOX-N`、`UX-MAIL-STATUS`、`UX-TB-BIND`、`UX-AGENT-UNPUBLISHED`、`UX-OWNER-NOT-SKIP`、`UX-SEND-NE-STAGE`、`UX-STATE-VISIBLE`、`UX-COPY-ENGINE`）不再进 `ux-traceability.json` 门禁。
+2. **重派生。** 新瘦契约 `specs/UX-EMPLOYEE.md` 只从 `CONSTITUTION.md` §4–5 与 `docs/04-ux-ui-system.md` 导出，位阶低于宪法与 04，不发明新平台法。
+3. **门禁只留硬不变量。** `SEND_NE_STAGE`（发送卡无阶段选择；发送不推进阶段；阶段写入用具体 `stage_code` + 展示名）与 `L3_CONFIRM`（高影响写前：对象/范围/后果 → 确认 → 执行 → 持久回执；拒绝要原因）。其余系统法（员工禁词、状态可见、分卡、Home 四模式、Pipeline 深链）留在宪法 / 04 / employee-surface，不各自升格为合同 ID。
+4. **跟进卡只留目标。** Home「我跟进的红人」回答谁 / 卡在哪 / 最新事实 / 建议+依据 / 主行动。允许阶段筛选作二次或产品自选主筛选，但不得克隆 Pipeline 正式资产板。不恢复四带教条、排序键表、字段黑名单、强制 CTA 文案。
+5. **不削弱。** 发送 ≠ 推进阶段、L1–L3、员工禁引擎行话、Pipeline 页可深链且非必挂侧栏、ADR-018 四模式、ADR-023 表面职责，全部保留。
+
+### 不决定的范围
+
+不实施 Home 跟进列表视觉重写。不 LIVE。不 force-push `main`。不把已删除文件的过细处方写回 04 或 employee-surface。
+
+### 影响
+
+- 规范：`specs/UX-EMPLOYEE.md`（新）；删除两份旧 UX MD；`specs/ux-traceability.json`；`04` 验收表瘦身；宪法 / README / CONTEXT / 21 / employee-surface 指针
+- 证据：`docs/evidence-ux-rederive-from-constitution-2026-09-15.md`
+- 代码：`validate-contracts.mjs` 改认 `UX-EMPLOYEE.md`；FE 注释去掉对已删文件名的硬绑定
+- 测试：契约校验仍要求硬不变量 ID 出现在瘦契约中，并绑定 FS / 红线 / E2E 名

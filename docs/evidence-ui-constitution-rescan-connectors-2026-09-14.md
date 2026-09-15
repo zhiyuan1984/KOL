@@ -1,5 +1,7 @@
 # 员工连接器使用面宪法复扫（2026-09-14）— 新平台法
 
+> **Note (2026-09-15):** 扫描当时用 `UX-COPY-ENGINE` 作验收标签。该 ID 已废；员工禁词原则仍在 `04` / `UX-EMPLOYEE`。
+
 对照基准：**`origin/main` merge commit `5b218671875fd9633db32a9cc479fe3a91c012b7`**（短 SHA `5b21867`）= **Merge pull request #94** `cursor/agent-platform-law-docs-5661`（ADR-023 / 十六项一等能力）。只读、无应用代码改动、无 LIVE。本文件是审查记录，不是实施单。
 
 **事实 vs 建议：** 带「事实」的段落只陈述该 SHA 的仓库现状；带「建议」的段落未实施。

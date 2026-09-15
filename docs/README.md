@@ -8,7 +8,7 @@
 
 ```text
 CONSTITUTION.md
-→ 对应 FS / UX-KOL 验收条目
+→ 对应 FS / `UX-EMPLOYEE` 硬不变量（`SEND_NE_STAGE`、`L3_CONFIRM`）
 → design-system/kol-workbench/MASTER.md
 → design-system/kol-workbench/pages/<当前页面>.md
 → 仅针对未解决问题调用 ui-ux-pro-max
@@ -47,7 +47,7 @@ CONSTITUTION.md 中相关边界
 | 安全、权限、数据事实 | FS、Policy、数据契约 |
 | 产品闭环与表面职责 | `CONSTITUTION.md` |
 | 平台一等能力 vs KOL 试点壳 | `CONSTITUTION.md` §4.1–4.2（十六项清单；KOL=首个试点，ADR-023） |
-| 可执行交互与发布验收 | `specs/UX-KOL.md`、追踪矩阵 |
+| 可执行交互与发布验收 | 宪法 §4–5、`04-ux-ui-system.md`、派生的 `specs/UX-EMPLOYEE.md`、追踪矩阵 |
 | 全局视觉与组件 | `design-system/kol-workbench/MASTER.md` |
 | 单页布局与状态 | 对应 `pages/*.md` |
 
@@ -94,7 +94,7 @@ CONSTITUTION.md 中相关边界
 
 - `SPEC-TEMPLATE.md`：功能规格模板。
 - `EVAL-TEMPLATE.md`：Agent 评价样例模板。
-- `DECISIONS.md`：跨文档架构决策记录（近期：ADR-018 Home 内四模式；ADR-019 AI发现条件区；ADR-020 工作台正文 16px；ADR-021 员工 `/kb` 知识库立法；ADR-022 MediaCrawler → Starry 跟进桥；ADR-023 智能体中台十六项一等能力 / KOL=首个试点）。
+- `DECISIONS.md`：跨文档架构决策记录（近期：ADR-018 Home 内四模式；ADR-019 AI发现条件区；ADR-020 工作台正文 16px；ADR-021 员工 `/kb` 知识库立法；ADR-022 MediaCrawler → Starry 跟进桥；ADR-023 智能体中台十六项一等能力 / KOL=首个试点；ADR-024 从宪法重派生员工 UX，删除过细 UX-KOL 合同）。
 
 ### 平台能力 vs KOL 试点
 
@@ -122,9 +122,10 @@ CONSTITUTION.md 中相关边界
 - `evidence-kb-acceptance-2026-09-13.md`：`/kb` 验收 FAIL（邮件模板资产中心可试点；企业 KB / Agent RAG / 生产资格不通过）。
 - `evidence-e2e-stub-pipeline-pr24-2026-09-13.md`：PR #24 Pipeline 生命周期清理后 stub E2E 3/3 PASS（`cd6ab81c9194a9ed3cc00aa9d0dbf648c3ba634b`；非 LIVE）。
 - `evidence-mail-digest-analysis-plan-2026-09-13.md`：邮件往来摘要 sticky fail / 可观测性只读审查；产品只批准冷却恢复与失败字段。后续小修：Codex digest 不传 `gpt-5.6-luna`；Luna digest 需要 `OPENAI_BASE_URL`。
-- `evidence-followed-kol-card-acceptance-2026-09-13.md`：首页「我跟进的红人」卡——改版前 FAIL 基线；PR #31 已在 Home 落地工作卡；residual 补齐 mailbox / 状态带 / 首页标签 / Journey copy。契约见 `../specs/UX-FOLLOWED-KOL-CARD.md`。未写入 `ux-traceability.json` 前仍不能当体验验收通过。
+- `evidence-followed-kol-card-acceptance-2026-09-13.md`：首页「我跟进的红人」卡——改版前 FAIL 基线与 PR #31 实现快照。**已 superseded：** `UX-FOLLOWED-KOL-CARD.md` / `UX-KOL.md` 已删除；现行派生见 `../specs/UX-EMPLOYEE.md` 与 `evidence-ux-rederive-from-constitution-2026-09-15.md`。
+- `evidence-ux-rederive-from-constitution-2026-09-15.md`：删除过细 UX-KOL / FOLLOWED-KOL-CARD / SEND-NE-STAGE-as-file-ID，从宪法 §4–5 + 04 重派生瘦契约。
 - `evidence-expert-manifest-2026-09-14.md`：首版 `/api/experts` 落实 ADR-016；仅已发布岗位专家；召唤只绑定会话。
 - `evidence-adr022-p0-follow-import-stub-2026-09-14.md`：ADR-022 P0 stub PASS——单个加入跟进确认后单行 `importKolProfilesFromCrawler`，成功才回填真实 `kolUid`；非 LIVE。
 - `evidence-adr022-p1-batch-follow-stub-2026-09-14.md`：ADR-022 P1 stub——勾选批量 / 条件批量加入跟进（粉丝 / 近10均播 / 评分 / 计划平台地区），部分成功不整批标已跟进；非 LIVE。
 - `evidence-platform-law-gap-2026-09-14.md`：智能体中台十六项一等能力缺口扫描；ADR-023 修宪已落地（文档 only，非 LIVE）。
-- `evidence-constitution-reconcile-2026-09-14.md`：ADR-023 和解 + UX/mainline/21 hunt 续扫——`04` 十六项清单；`UX-COPY-ENGINE` 与产品「技能」分家。
+- `evidence-constitution-reconcile-2026-09-14.md`：ADR-023 和解 + UX/mainline/21 hunt 续扫——`04` 十六项清单；员工禁词与产品「技能」分家（旧 `UX-COPY-ENGINE` ID 已废，见 ADR-024）。

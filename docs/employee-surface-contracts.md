@@ -4,7 +4,7 @@
 
 员工端与会话工作台的产品级体验法律。日期：2026-09-13；2026-09-14 修订：`/agents` 专家中心（数字员工入口）只回答「找谁协作 / 召唤岗位专家」。同日再修订：Home **内**四模式（今日任务 / 我的待办 / AI发现 / 我跟进的红人），见 ADR-018。同日轻备注：AI发现条件区（NL 主输入、芯片纠正），见 ADR-019。同日再修订：员工知识库 `/kb` 是并列能力面（查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务），**不是**邮件模板管理台，见 ADR-021。同日再修订：AI发现「加入跟进」与写入主档是同一张确认卡（三模式；成功才跟进），见 ADR-022。同日再修订：产品是智能体中台；十六项一等能力（含技能、数字团队预留）；KOL 只是首个试点，见 ADR-023 / `CONSTITUTION.md` §4.1–4.2。Pipeline 页仍在，只许深链 / 产品内 CTA。来源：产品负责人反馈，固化为后续界面取舍的默认立场。
 
-本文件管各能力面的**注意力、信息架构和主路径感觉**。闸门、风险分级和无障碍仍以 `04-ux-ui-system.md` 与 `specs/UX-KOL.md` 为准。视觉与 token 默认见 `design-system/kol-workbench/MASTER.md`。
+本文件管各能力面的**注意力、信息架构和主路径感觉**。闸门、风险分级和无障碍仍以 `04-ux-ui-system.md` 与派生的 `specs/UX-EMPLOYEE.md` 为准。视觉与 token 默认见 `design-system/kol-workbench/MASTER.md`。
 
 ## 核心闭环语义
 
@@ -46,13 +46,13 @@ Express goal → Agent understands task → Make execution plan → Call system 
 
 删除「下一步：写合作邮件 →」这类教人去点哪个菜单的卡片。Agent 应直接做，或给出可改的草稿 / 结果。
 
-Journey 条可以留作**紧凑定向**，不能再当教练剧本。`04` / `UX-STATE-VISIBLE` 里的「下一步」是等待态操作（停止 / 重试 / 接管）和缺口补全，不是「建议你去打开某某技能」。
+Journey 条可以留作**紧凑定向**，不能再当教练剧本。`04` 状态可见性里的「下一步」是等待态操作（停止 / 重试 / 接管）和缺口补全，不是「建议你去打开某某技能」。
 
 ### 4. 发送 ≠ 推进阶段
 
 硬产品不变量。只保留一句安静的说明即可，禁止在每张卡上重复横幅。
 
-发送卡不得带阶段选择；阶段写入必须是独立确认，且选择具体 `stage_code`。见 `UX-SEND-NE-STAGE` 与平台不变量。
+发送卡不得带阶段选择；阶段写入必须是独立确认，且选择具体 `stage_code` 与展示名。见宪法 §3 / §4.2、`04`、`UX-EMPLOYEE` 的 `SEND_NE_STAGE`。
 
 召唤岗位专家比发送更早：只建立绑定会话 / 协作绑定，**不**发信、**不**写阶段。见「`/agents` 专家中心」下的召唤副作用法律。
 
@@ -98,7 +98,7 @@ Home 仍是**一页**。平台模式是今日任务 / 我的待办；后两项�
 今日任务 | 我的待办 | AI发现 | 我跟进的红人
 ```
 
-未指定 `tab` 时默认落在 **今日任务**。员工 Home 禁止 MCP / Codex / Thread / Skill 等引擎行话（`UX-COPY-ENGINE`）。
+未指定 `tab` 时默认落在 **今日任务**。员工 Home 禁止 MCP / Codex / Thread / Skill 等引擎行话（`04` / `UX-EMPLOYEE` 员工禁词原则）。
 
 | 模式 | 只回答 | 主对象 |
 |---|---|---|
@@ -177,7 +177,7 @@ Pipeline 的筛选只允许 `brand|owner|stage|region|kol|sync` 与生命周期�
 | 能力 | 只回答 | 禁止 |
 |---|---|---|
 | **数字团队** | 哪些数字员工组成协作单元、如何编排。法律地位已预留，**尚未实现** | 「专家团」假导航或占位；把本名词永久写成禁词；挂在 `/agents` 冒充已上线 |
-| **技能** | 我有哪些可调用技能、如何用于当前任务。一等能力；侧栏露出 = UX | 能力图鉴压过任务脊柱；做成 `/agents` 或连接器/知识的上级目录；把英文 Skill / MCP 摊给员工（`UX-COPY-ENGINE`） |
+| **技能** | 我有哪些可调用技能、如何用于当前任务。一等能力；侧栏露出 = UX | 能力图鉴压过任务脊柱；做成 `/agents` 或连接器/知识的上级目录；把英文 Skill / MCP 摊给员工（`04` 员工禁词） |
 | **项目** | 这项工作属于哪个项目容器 | 做成第二套 Home 或 Pipeline |
 | **云盘** | 文件在哪、如何取用 | 做成治理目录或第二会话台 |
 | **手机遥控电脑** | 如何从手机驱动桌面会话 | 做成连接器治理或调试 chrome |
@@ -202,8 +202,8 @@ Pipeline 的筛选只允许 `brand|owner|stage|region|kol|sync` 与生命周期�
 
 | 禁止 | 原因 |
 |---|---|
-| Codex / Harness / MCP / Thread / Skill 等引擎行话 | `UX-COPY-ENGINE`。现行「启用后走 Codex harness」违约 |
-| 在 KB 首页 / 页头 / chrome 宣讲「发送 ≠ 改阶段」 | 该不变量仍有效（本文件 §4、`UX-SEND-NE-STAGE`），但不在知识库说教；KB 不是布道页 |
+| Codex / Harness / MCP / Thread / Skill 等引擎行话 | `04` / `UX-EMPLOYEE` 员工禁词。现行「启用后走 Codex harness」违约 |
+| 在 KB 首页 / 页头 / chrome 宣讲「发送 ≠ 改阶段」 | 该不变量仍有效（本文件 §4、宪法 / `SEND_NE_STAGE`），但不在知识库说教；KB 不是布道页 |
 | 把整库做成邮件模板管理台 | 邮件模板只是一类资料，不是整库 IA |
 | 主 CTA 做成启用 / 停用 / 发布 / 隐藏 | 治理在管理端；隐藏若残留只许次要偏好 |
 | 从 KB 应用动作发信或写阶段 | 应用只产未发送草稿 |
@@ -280,7 +280,7 @@ Pipeline 的筛选只允许 `brand|owner|stage|region|kol|sync` 与生命周期�
 | | 把未实现的「数字团队」做成专家团冒名或挂在本页 |
 | | Home 待办桶、任务计数或四模式（今日任务 / 线索 / 跟进） |
 
-引擎行话仍按 `UX-COPY-ENGINE` 禁止（MCP / Codex / Thread / 英文 Skill / 原始堆栈）。产品名词「技能」是一等能力，与引擎词 Skill 分家：员工可以有独立技能面；禁止把图鉴塞进 `/agents` 或压过任务脊柱。侧栏是否露出技能入口是 UX 密度，不是本页硬隐藏令。本条不强制本轮加侧栏入口，也不实施技能面 UI。
+引擎行话仍按 `04` / `UX-EMPLOYEE` 员工禁词禁止（MCP / Codex / Thread / 英文 Skill / 原始堆栈）。产品名词「技能」是一等能力，与引擎词 Skill 分家：员工可以有独立技能面；禁止把图鉴塞进 `/agents` 或压过任务脊柱。侧栏是否露出技能入口是 UX 密度，不是本页硬隐藏令。本条不强制本轮加侧栏入口，也不实施技能面 UI。
 
 ### 召唤副作用法律
 
@@ -289,7 +289,7 @@ Pipeline 的筛选只允许 `brand|owner|stage|region|kol|sync` 与生命周期�
 - 发送邮件（无 send-mail 副作用）
 - 写入或推进阶段（无 stage-change 副作用）
 
-「发送 ≠ 推进阶段」仍然有效。召唤更早：它既不是发送，也不是阶段写入。后续若要发信或改阶段，必须走既有独立确认卡（`UX-SEND-NE-STAGE`）。
+「发送 ≠ 推进阶段」仍然有效。召唤更早：它既不是发送，也不是阶段写入。后续若要发信或改阶段，必须走既有独立确认卡（`SEND_NE_STAGE` / L3）。
 
 ### 对象命名与页面位阶
 
@@ -323,7 +323,7 @@ Pipeline 的筛选只允许 `brand|owner|stage|region|kol|sync` 与生命周期�
 |---|---|
 | 本文件 | 员工核心工作表面与一等能力面的详细契约、Home 四模式、AI发现条件、关注确认、员工侧栏、`/kb` 与 `/agents`、预留/占位能力；表面分类与十六项清单以 `CONSTITUTION.md` §4 为准 |
 | `00-platform-charter.md` | 租户、审批、发送/阶段/导入/解密/删除分离等平台不变量 |
-| `04-ux-ui-system.md` | 双端、状态可见、L1–L3、组件义务；可执行实例在 `specs/UX-KOL.md` |
+| `04-ux-ui-system.md` | 双端、状态可见、L1–L3、组件义务；派生瘦契约在 `specs/UX-EMPLOYEE.md` |
 | `design-system/kol-workbench/MASTER.md` | 现行 token、视觉、组件、交互和响应式规则；不改注意力法律 |
 | `21-admin-employee-page-roles.md` | 管理端配套套件与双端导航；`/admin/agents` 治理 ≠ 员工专家中心 |
 | `05-agent-workflow-skill-policy.md` | 8 段展示 vs 15 阶段写入；Journey / SOP 的业务含义 |
@@ -348,6 +348,6 @@ Pipeline 的筛选只允许 `brand|owner|stage|region|kol|sync` 与生命周期�
 ## 落地顺序
 
 1. 新员工端 PR 先用“核心闭环”五问自检，再读取 `CONSTITUTION.md` §4.1–4.2 与 `design-system/kol-workbench/MASTER.md`（路径是试点皮肤名，不是产品身份）。`/agents` 先过本文件专家中心条款（只召唤岗位专家；无专家团；不把「数字团队」做成假导航；召唤不发信、不写阶段）。技能面先过「一等能力；入口密度=UX；禁止图鉴压过任务脊柱」。员工 `/kb` 先过本文件知识库条款（查找/预览/收藏/用于当前任务；非邮件台；无引擎行话；应用不发信不写阶段）。管理端导航/连接器/Agent 治理先过 `21-admin-employee-page-roles.md`，再谈视觉。
-2. 可执行验收仍走 `specs/UX-KOL.md` 与 `specs/ux-traceability.json`；本文件不新增 UX ID。
+2. 可执行验收仍走宪法 / `04` / `specs/UX-EMPLOYEE.md` 硬不变量与 `specs/ux-traceability.json`；本文件不新增 UX ID。
 3. 会话页若重设计，先压缩辅助条、去掉教练卡、让结果回到脊柱，再考虑新组件。
 4. 冲突写入 `DECISIONS.md`，不要在前端分支里另立一套体验规则。

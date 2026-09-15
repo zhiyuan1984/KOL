@@ -2,7 +2,7 @@
 
 管理端与员工端的**页面角色法律**，尤其连接器与 Agent 治理。日期：2026-09-13；2026-09-14 交叉引用：`/admin/agents` 治理 ≠ 员工 `/agents` 专家中心；员工专家中心禁止连接器状态 chrome。同日交叉引用：员工 `/kb`（查找 / 预览 / 收藏 / 用于当前任务）≠ 管理端知识治理（停用 / 发布 / 版本 / 范围），见 ADR-021。同日交叉引用：十六项一等能力、技能入口密度=UX、数字团队预留未实现、KOL=首个试点，见 ADR-023 / `CONSTITUTION.md` §4.1–4.2。来源：产品发现两端导航/页面重叠（员工侧栏深链 `/admin/connectors`、管理端顶栏跳员工 `/agents`、远端 pill 克隆、Starry 绑定双挂、遗留连接器清单），固化为后续信息架构取舍的默认立场。
 
-本文件**只**管双端谁答哪一问、管理端配套套件、**员工使用面 vs 管理治理面**、导航与遗留收敛。它不改 `CONSTITUTION.md` 的表面职责，不新增 UX ID，也不实施后端。闸门、L1–L3、无障碍和员工禁词仍以 `04-ux-ui-system.md` 与 `specs/UX-KOL.md`（`UX-COPY-ENGINE`）为准。视觉与 token 统一读取 `design-system/kol-workbench/MASTER.md`：同一套 token，**不同信息架构**。
+本文件**只**管双端谁答哪一问、管理端配套套件、**员工使用面 vs 管理治理面**、导航与遗留收敛。它不改 `CONSTITUTION.md` 的表面职责，不新增 UX ID，也不实施后端。闸门、L1–L3、无障碍和员工禁词仍以 `04-ux-ui-system.md` 与派生的 `specs/UX-EMPLOYEE.md` 为准。视觉与 token 统一读取 `design-system/kol-workbench/MASTER.md`：同一套 token，**不同信息架构**。
 
 ## 与现行法律的关系
 
@@ -10,7 +10,7 @@
 |---|---|---|
 | `CONSTITUTION.md`、`employee-surface-contracts.md` | 风险压缩闭环、表面职责、一等能力清单与 Agent/任务解耦、员工 `/kb`、`/agents` 专家中心、技能/数字团队位阶（ADR-023） | 治理域展开为配套套件，不是第二套员工工作台 |
 | `04-ux-ui-system.md` | 双端边界、状态可见、L1–L3、语义色、无障碍 | 管理端路由与员工表面的一一对应（配套，不是副本） |
-| `specs/UX-KOL.md` | 可执行 UX ID、Given/When/Then、发布门禁绑定 | 不发明 Admin UX ID；员工端继续禁 MCP / Codex / Thread / Skill / 原始堆栈 |
+| `specs/UX-EMPLOYEE.md` | 从宪法 / 04 派生的瘦 UX 契约；硬不变量 ID 才进门禁 | 不发明 Admin UX ID；员工端继续禁 MCP / Codex / Thread / Skill / 原始堆栈 |
 | `design-system/kol-workbench/MASTER.md` | token、视觉、交互、响应式与无障碍 | 管理端用同一 token；IA 是治理表/授权矩阵，不是 Home/Agents 工作台 |
 
 评审管理端 PR 时先过 `CONSTITUTION.md` 的风险压缩闭环与本文件硬边界，再按 MASTER 与 `pages/admin.md` 评审视觉交互。
@@ -129,7 +129,7 @@
 | **考试闸门** | 哪些考试挡住哪些 Agent / 员工；分配是否完成 | 把员工 `/exam` 做成第二份答题页 |
 | **连接器授权矩阵** | 每个 Agent × 连接器的 read/write 授予 | 矩阵单元格深链员工 Agents 开工；把 MCP 工具名摊成员工文案 |
 
-`UX-AGENT-UNPUBLISHED` 仍是员工端契约：未发布可看说明、不可提交。本页是管理端改变该状态的地方，不是员工空态的副本。
+未发布 Agent 仍按 `04` / FS：员工可看说明、不可提交。本页是管理端改变该状态的地方，不是员工空态的副本。不再把 `UX-AGENT-UNPUBLISHED` 当独立合同 ID。
 
 管理端顶栏允许：「返回员工工作台」（回 Home）。不允许：「员工 · 智能体」跳 `/agents`。若管理员要自己干活，走员工导航，不从治理顶栏抄一条工作入口。
 
@@ -157,7 +157,7 @@
 | 管理端信息架构 | 员工目录、连接器枢纽、`/admin/agents`、审批角色、考试分配、知识、数据/审计 | 再要一个「我的智能体」页、再要一个 Pipeline、再要一份个人 Starry 表 |
 | 调试视图 | 显式打开后，管理员才可见引擎图例 / SkillHub 连接器砖 | 把调试砖留在员工默认侧栏或默认 Agents 英雄区 |
 
-员工默认表面继续遵守 `UX-COPY-ENGINE`：不出现 MCP、Codex、Thread、英文 Skill、原始堆栈、内部工具名。产品名词「技能」是一等能力，与引擎词分家（ADR-023）。管理端 Trace 可以显示引擎信息，必须脱敏。SkillHub / `/market/skills` / `/partners` 若仍是调试或目录实验页，其连接器砖只允许在**显式调试且具备 admin** 时出现，并指向管理端枢纽；**不得**出现在员工默认侧栏或默认 Agents 英雄区。独立技能面若落地，不得做成连接器治理入口。默认员工的「连接器」入口只去使用面。
+员工默认表面继续遵守 `04` / `UX-EMPLOYEE` 员工禁词：不出现 MCP、Codex、Thread、英文 Skill、原始堆栈、内部工具名。产品名词「技能」是一等能力，与引擎词分家（ADR-023）。管理端 Trace 可以显示引擎信息，必须脱敏。SkillHub / `/market/skills` / `/partners` 若仍是调试或目录实验页，其连接器砖只允许在**显式调试且具备 admin** 时出现，并指向管理端枢纽；**不得**出现在员工默认侧栏或默认 Agents 英雄区。独立技能面若落地，不得做成连接器治理入口。默认员工的「连接器」入口只去使用面。
 
 ## 遗留收敛
 
@@ -189,7 +189,7 @@
 ## 非目标
 
 - **不 LIVE。** 本契约不授权真实 MCP 写入、生产放行或把「已启用」写成「远端已通」。
-- **不把 MCP 行话交给员工。** `UX-COPY-ENGINE` 继续有效。管理端可以说连接器短名与状态；员工端只说已授权能力与业务结果。
+- **不把 MCP 行话交给员工。** `04` / `UX-EMPLOYEE` 员工禁词继续有效。管理端可以说连接器短名与状态；员工端只说已授权能力与业务结果。
 - **管理端不是第二套 Pipeline。** 不扫视 15 阶段，不提阶段变更，不复制 Home 待办。
 - **管理端不是第二套 Agents 工作台。** `/admin/agents` 只治理（发布 / 授权 / 考试闸门），不召唤、不开工；不得与员工专家中心混读。
 - **本文件不新增 UX ID**，不写 `specs/UX-ADMIN-PAGES.md`，不改 `ux-traceability.json`。没有绑定 FS 的交互描述不能进发布门禁。
@@ -204,4 +204,4 @@
 2. **纯前端：导航 + 枢纽壳 + 员工使用面。** 去掉员工侧栏管理端深链；员工若有连接器入口只链 `/connectors`；管理端顶栏改为 `/admin/agents`；Starry 个人绑定只留 Settings；遗留「本期连接器」指向或并入枢纽。只使用已有 API 能支撑的只读/启停/授权壳与员工只读消费。不夹带 LIVE、不新造 UX ID。
 3. **后端字段另开计划。** 组织 Starry 策略、授权矩阵、审计切片若缺字段，单独规格 + 迁移 + 契约测试。禁止在第 2 步的前端 PR 里假装字段已齐。
 
-可执行员工体验验收仍走 `specs/UX-KOL.md` 与 `specs/ux-traceability.json`。管理端配套套件在没有 FS / UX ID 绑定前，只当信息架构法律，不当发布门禁绿项。
+可执行员工体验验收仍走宪法 / `04` / `specs/UX-EMPLOYEE.md` 硬不变量与 `specs/ux-traceability.json`。管理端配套套件在没有 FS / 硬不变量绑定前，只当信息架构法律，不当发布门禁绿项。

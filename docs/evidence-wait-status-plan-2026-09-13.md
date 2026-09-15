@@ -1,5 +1,7 @@
 # 等待中任务状态：只读审查与落地方案（2026-09-13）
 
+> **Superseded as current UX-ID law (2026-09-15):** `specs/UX-KOL.md` 与 `UX-STATE-VISIBLE` 作为独立合同 ID 已删除。等待态系统法仍在 `docs/04-ux-ui-system.md`「状态可见性」与宪法 §3；门禁硬不变量见 `specs/UX-EMPLOYEE.md`。下文是当时方案快照。
+
 ## 一行结论
 
 `FE-only 可做`（总结论不变；Agents「运行中 / 最近」壳与失败列表可用现有 session / task API 拼，不单独改成需后端。仅当要会话级 `last_error`、崩溃后仍可信的 running、或专用 retry-last-turn 时，才需后端，且只影响 Agents 投影。）

@@ -1,6 +1,8 @@
 # KOL-UI 工作台视觉系统（历史归档）
 
 > **历史与迁移文档：** 现行视觉和组件入口为 `design-system/kol-workbench/MASTER.md`。本文件保留原方案、迁移映射与决策背景，只有追溯这些细节时才读取。
+>
+> **Superseded as current UX-ID law (2026-09-15):** 下文若仍写 `specs/UX-KOL.md` 为可执行合同，已废。现行派生见 `specs/UX-EMPLOYEE.md` 与 `docs/evidence-ux-rederive-from-constitution-2026-09-15.md`。
 
 员工端 KOL 会话工作台的**视觉与 token 默认**。日期：2026-09-13；2026-09-14 修订：产品确认工作台**全局正文基线 16px**、控件/helper/Tab **≥14px**，禁止用 `scale` / `zoom` 假装字号（ADR-020）；本实现 PR 按用户指定档落地 CSS（section / title / page-title 可高于 ADR 下限）。来源：产品负责人批准的默认视觉栈，供后续前端 PR 对齐。
 

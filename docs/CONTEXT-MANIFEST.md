@@ -10,7 +10,7 @@
 
 ```text
 CONSTITUTION.md
-→ 对应 FS / UX-KOL 验收条目
+→ 对应 FS / `UX-EMPLOYEE` 硬不变量（`SEND_NE_STAGE`、`L3_CONFIRM`）
 → design-system/kol-workbench/MASTER.md
 → design-system/kol-workbench/pages/<当前页面>.md
 → 仅针对未解决的设计问题调用 ui-ux-pro-max
@@ -22,12 +22,12 @@ CONSTITUTION.md
 
 | 任务 | 默认加载 | 条件触发后再加载 |
 |---|---|---|
-| Home | `pages/home.md` | AI 发现、关注：相应 `FS-*` 与 `UX-KOL` ID；能力面细节：`employee-surface-contracts.md` |
+| Home | `pages/home.md` | AI 发现、关注：相应 `FS-*` 与 `UX-EMPLOYEE` 硬不变量；能力面细节：`employee-surface-contracts.md` |
 | Chat/任务执行 | `pages/chat.md`、`04-ux-ui-system.md` | 按动作加载相应 FS；涉及发送/导入/解密/删除时加载 L3 验收 |
 | Pipeline（KOL 试点页；深链 / CTA 可达） | `pages/pipeline.md` | 加载生命周期、Collaboration、阶段变更对应 FS |
 | Admin | `pages/admin.md` | 权限、连接器或审计时加载 `21-admin-employee-page-roles.md` 及对应 FS |
 | `/kb`、`/agents`、员工连接器 | `employee-surface-contracts.md` 中对应章节 | 连接器治理再加载 `21-admin-employee-page-roles.md` |
-| 技能（一等；侧栏露出=UX） | `employee-surface-contracts.md`「预留 / 占位能力」+ `CONSTITUTION.md` §4.1 | 禁止图鉴压过任务脊柱；引擎词仍走 `UX-COPY-ENGINE` |
+| 技能（一等；侧栏露出=UX） | `employee-surface-contracts.md`「预留 / 占位能力」+ `CONSTITUTION.md` §4.1 | 禁止图鉴压过任务脊柱；引擎词仍走 `04` / `UX-EMPLOYEE` 员工禁词原则 |
 | 数字团队（一等；尚未实现） | `CONSTITUTION.md` §4.1 + `employee-surface-contracts.md` | 禁止专家团假导航；不得永久禁该名词 |
 | 审批 / 考试 | `employee-surface-contracts.md`、`08-permission-approval-audit.md`、`pages/approvals.md` | 管理闸门再加载 `21-admin-employee-page-roles.md` |
 | `/cron` 定时 | `employee-surface-contracts.md` 今日工作簇 | 不得画进资产簇 |

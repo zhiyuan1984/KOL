@@ -20,4 +20,4 @@
 2. `CONTEXT-MANIFEST.md`
 3. `design-system/kol-workbench/MASTER.md`
 4. `design-system/kol-workbench/pages/<当前页面>.md`
-5. 对应 FS / UX-KOL 验收条目
+5. 对应 FS / `UX-EMPLOYEE` 硬不变量

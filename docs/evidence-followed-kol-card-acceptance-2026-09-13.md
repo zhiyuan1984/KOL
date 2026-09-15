@@ -1,5 +1,7 @@
 # 首页「我跟进的红人」卡验收证据（2026-09-13）
 
+> **Superseded as current law (2026-09-15):** `specs/UX-FOLLOWED-KOL-CARD.md` 与 `specs/UX-KOL.md`（含 `UX-SEND-NE-STAGE` 文件级 ID）已删除。现行派生见 `specs/UX-EMPLOYEE.md` 与 `docs/evidence-ux-rederive-from-constitution-2026-09-15.md`。下文是 PR #31 实现快照，不再当可执行合同。
+
 ## 总判
 
 首页「我跟进的红人」工作卡已在 **PR #31** 落地，本 residual 补齐验收 PARTIAL。契约不再是「未实现」。

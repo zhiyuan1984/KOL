@@ -1,5 +1,7 @@
 # Agents「我的智能体」宪法审查：是否为数字员工页（2026-09-13）
 
+> **Superseded as current UX-ID law (2026-09-15):** `UX-COPY-ENGINE` 不再是独立合同 ID；员工禁词原则仍在 `docs/04-ux-ui-system.md` 与 `specs/UX-EMPLOYEE.md`。下文是当时审查快照。
+
 对照基准：`origin/main` @ `aeb76fc`（2026-09-13 远程最新）。只读、无代码改动、无 LIVE。本文件是审查记录，不是实施单。
 
 **事实 vs 建议：** 带「事实」的段落只陈述仓库现状；带「建议」的段落是未实施选项。

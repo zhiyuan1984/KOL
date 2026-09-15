@@ -12,7 +12,7 @@
 |---|---|
 | 安全、权限、租户边界、数据事实 | FS、Policy、数据契约 |
 | 产品闭环、页面职责、跨页面边界 | 本宪法 |
-| 可执行交互与发布验收 | `specs/UX-KOL.md`、`specs/ux-traceability.json` |
+| 可执行交互与发布验收 | `CONSTITUTION.md` §4–5、`docs/04-ux-ui-system.md`、派生的 `specs/UX-EMPLOYEE.md`、`specs/ux-traceability.json` |
 | 全局视觉、组件、响应式、无障碍参数 | `design-system/kol-workbench/MASTER.md` |
 | 单页布局与状态差异 | `design-system/kol-workbench/pages/<page>.md` |
 

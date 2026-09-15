@@ -1,5 +1,7 @@
 # 员工连接器使用面宪法复扫 v3（2026-09-14）— rescan2
 
+> **Note (2026-09-15):** 扫描当时用 `UX-COPY-ENGINE` 作验收标签。该 ID 已废；员工禁词原则仍在 `04` / `UX-EMPLOYEE`。
+
 对照基准：**`origin/main` merge commit `41227bb8eadcd18f8c1418f29ab0eb03642601af`**（短 SHA `41227bb`）= **Merge pull request #97** `cursor/docs-strip-sidebar-pipeline-ban-fb82`。`git rev-parse HEAD` 在本审查开分支时 = 该完整 SHA。只读、无应用代码改动、无 LIVE。本文件是审查记录，不是实施单。
 
 **事实 vs 建议：** 带「事实」的段落只陈述该 SHA 的仓库现状；带「建议」的段落未实施。

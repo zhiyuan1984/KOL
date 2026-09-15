@@ -1,5 +1,7 @@
 # Evidence: ADR-023 残留违宪条款和解 + 侧栏硬锁（2026-09-14）
 
+> **Note (2026-09-15):** 下文 `UX-COPY-ENGINE` 指当时 `04` 验收表行。该 ID 已废；员工禁词原则仍在 `04` / `UX-EMPLOYEE`。现行 UX 派生见 `docs/evidence-ux-rederive-from-constitution-2026-09-15.md`。
+
 - **Date:** 2026-09-14
 - **Authority:** `CONSTITUTION.md` §4.1–4.2 + ADR-023（`5b21867`+）仍最高。本文件只列删改，不另立法。
 - **Mode:** 文档 only。**No LIVE.** 不改 JSX / CSS / API。不删除 Pipeline 页，不改 `FS-KOL-010`。
