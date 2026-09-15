@@ -2474,12 +2474,38 @@ test("admin skill page exposes create form after product manager login", async (
   await expect(page.locator('[data-skill="daily_brief_ui"]')).toBeVisible();
   await expect(page.locator('[data-skill="daily_brief_ui"]')).toHaveAttribute("data-skill-source", "published");
   await expect(page.locator("[data-admin-skill-danger] [data-skill-delete='daily_brief_ui']")).toBeVisible();
+  await page.locator("[data-skill-grant='daily_brief_ui']").click();
+  await expect(page.locator("[data-grant-editor='daily_brief_ui']")).toBeVisible();
+  await page.locator("[data-grant-save]").click();
+  const grantSkillDialog = page.locator("[data-admin-confirm='skill-grant']");
+  await expect(grantSkillDialog).toBeVisible();
+  await expect(grantSkillDialog.locator("[data-admin-confirm-scope]")).toContainText("组织");
+  await expect(page.locator("[data-admin-confirm-cancel-hint]")).toContainText("不会写入");
+  await page.locator("[data-admin-confirm-cancel]").click();
+  await expect(grantSkillDialog).toHaveCount(0);
+  await page.locator("[data-skill-market='daily_brief_ui']").click();
+  const unpublishDialog = page.locator("[data-admin-confirm='skill-unpublish']");
+  await expect(unpublishDialog).toBeVisible();
+  await page.locator("[data-admin-confirm-cancel]").click();
+  await expect(unpublishDialog).toHaveCount(0);
   await page.goto("/skills");
   await expect(page.locator('[data-skill="daily_brief_ui"]')).toBeVisible();
   await expect(page.locator('[data-skill="daily_brief_ui"] .hub-kind')).toHaveText("自建");
   await page.goto("/market/skills");
   await expect(page.locator("[data-hub-new]")).toHaveCount(0);
   await expect(page.locator('[data-skill="daily_brief_ui"] .hub-kind')).toHaveText("自建");
+  await page.goto("/admin/skills");
+  await expect(page.locator("[data-admin-skills-table]")).toBeVisible();
+  await page.locator("[data-skill-market='daily_brief_ui']").click();
+  await page.locator("[data-admin-confirm-ok]").click();
+  await expect(page.locator("[data-skill-market='daily_brief_ui']")).toHaveText("上架");
+  await page.locator("[data-skill-market='daily_brief_ui']").click();
+  const listDialog = page.locator("[data-admin-confirm='skill-list']");
+  await expect(listDialog).toBeVisible();
+  await expect(listDialog.locator("[data-admin-confirm-scope]")).toContainText("员工技能目录可见性");
+  await expect(listDialog.locator("[data-admin-confirm-consequence]")).toContainText("将出现");
+  await page.locator("[data-admin-confirm-cancel]").click();
+  await expect(listDialog).toHaveCount(0);
 });
 
 test("employee persona hides admin chrome and connector config", async ({ page, request }) => {
@@ -3039,34 +3065,8 @@ test("admin L3 destructive writes open confirm dialog with cancel focused", asyn
   }
 
   await page.locator("[data-admin-nav='skills']").click();
-  const skillLogin = page.locator("[data-admin-login]");
-  if (await skillLogin.count()) {
-    await page.locator("[data-login-name]").fill("鄢棽");
-    await page.locator("[data-login-password]").fill("123456789");
-    await page.locator("[data-login-submit]").click();
-  }
-  await expect(page.locator("[data-admin-skills-table]")).toBeVisible();
+  await expect(page.locator("[data-skill-admin]")).toBeVisible();
   await expect(page.locator("[data-funnel-tab]")).toHaveCount(0);
-  const skillGrant = page.locator("[data-skill-grant]").first();
-  if (await skillGrant.count()) {
-    await skillGrant.click();
-    await expect(page.locator("[data-grant-editor]")).toBeVisible();
-    await page.locator("[data-grant-save]").click();
-    const grantSkillDialog = page.locator("[data-admin-confirm='skill-grant']");
-    await expect(grantSkillDialog).toBeVisible();
-    await expect(grantSkillDialog.locator("[data-admin-confirm-scope]")).toContainText("组织");
-    await page.locator("[data-admin-confirm-cancel]").click();
-    await expect(grantSkillDialog).toHaveCount(0);
-  }
-  const skillList = page.locator("[data-skill-market]").filter({ hasText: "上架" }).first();
-  if (await skillList.count()) {
-    await skillList.click();
-    const listDialog = page.locator("[data-admin-confirm='skill-list']");
-    await expect(listDialog).toBeVisible();
-    await expect(listDialog.locator("[data-admin-confirm-scope]")).toContainText("员工技能目录可见性");
-    await page.locator("[data-admin-confirm-cancel]").click();
-    await expect(listDialog).toHaveCount(0);
-  }
   const skillDelete = page.locator("[data-skill-delete]").first();
   if (await skillDelete.count()) {
     await skillDelete.click();
