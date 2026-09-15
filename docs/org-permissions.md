@@ -1,10 +1,173 @@
-# 管理端 ↔ 员工端页面角色契约
+# 组织权限与治理
 
-管理端与员工端的**页面角色法律**，尤其连接器与 Agent 治理。日期：2026-09-13；2026-09-14 交叉引用：`/admin/agents` 治理 ≠ 员工 `/agents` 专家中心；员工专家中心禁止连接器状态 chrome。同日交叉引用：员工 `/kb`（查找 / 预览 / 收藏 / 用于当前任务）≠ 管理端知识治理（停用 / 发布 / 版本 / 范围），见 ADR-021。同日交叉引用：十六项一等能力、技能入口密度=UX、数字团队预留未实现、KOL=首个试点，见 ADR-023 / `CONSTITUTION.md` §4.1–4.2。来源：产品发现两端导航/页面重叠（员工侧栏深链 `/admin/connectors`、管理端顶栏跳员工 `/agents`、远端 pill 克隆、Starry 绑定双挂、遗留连接器清单），固化为后续信息架构取舍的默认立场。
+> **Class C 权威。** 本文件是组织/租户、权限与副作用、审批审计、使用 ≠ 治理与管理端配套套件的**唯一正文**。不得再把 C 读成旧编号文件的组合。
+>
+> 跨页面 IA（一页一问、十六项坐落、导航密度、使用 ≠ 治理**原则**）以 [`ia-information-architecture.md`](ia-information-architecture.md) 为正式入口（class H）。本文件**只**管租户/registry/PEP、确认/审批/审计字段，以及管理端配套套件、连接器枢纽/详情、`/admin/agents`、审计切片与遗留收敛。
+>
+> 它不改 [`CONSTITUTION.md`](CONSTITUTION.md) 的表面职责，不新增 UX ID，也不实施后端。闸门、L1–L3、无障碍和员工禁词仍以 `CONSTITUTION.md` §5 与派生的 `specs/UX-EMPLOYEE.md` 为准。视觉入口是 `docs/design.md`；token 统一读取 `design-system/kol-workbench/MASTER.md`：同一套 token，**不同信息架构**。
 
-跨页面 IA（一页一问、十六项坐落、导航密度、使用 ≠ 治理**原则**）以 [`ia-information-architecture.md`](ia-information-architecture.md) 为正式入口（class H）。本文件**只**管管理端配套套件、连接器枢纽/详情、`/admin/agents`、审计切片与遗留收敛。它不改 `CONSTITUTION.md` 的表面职责，不新增 UX ID，也不实施后端。闸门、L1–L3、无障碍和员工禁词仍以 `CONSTITUTION.md` §5 与派生的 `specs/UX-EMPLOYEE.md` 为准。视觉入口是 `docs/design.md`；token 统一读取 `design-system/kol-workbench/MASTER.md`：同一套 token，**不同信息架构**。
+日期与交叉引用（来自原管理端配套立法，2026-09-13 / 2026-09-14）：`/admin/agents` 治理 ≠ 员工 `/agents` 专家中心；员工专家中心禁止连接器状态 chrome。员工 `/kb`（查找 / 预览 / 收藏 / 用于当前任务）≠ 管理端知识治理（停用 / 发布 / 版本 / 范围），见 ADR-021。十六项一等能力、技能入口密度=UX、数字团队预留未实现、KOL=首个试点，见 ADR-023 / `CONSTITUTION.md` §4.1–4.2。来源：产品发现两端导航/页面重叠（员工侧栏深链 `/admin/connectors`、管理端顶栏跳员工 `/agents`、远端 pill 克隆、Starry 绑定双挂、遗留连接器清单），固化为后续信息架构取舍的默认立场。
 
-## 与现行法律的关系
+---
+
+## 组织与租户
+
+### 层级
+
+```text
+Platform
+└── Company / Tenant
+    ├── OrganizationUnit（人员与职责归属树）
+    │   └── OrganizationMembership → User
+    ├── Brand（业务经营维度）
+    │   └── BrandScope / RegionScope
+    ├── ResponsibilityAssignment（业务负责人/品牌负责人/审批人）
+    ├── DigitalEmployee / Agent
+    └── Task / WorkItem
+```
+
+人员不是组织树节点。`User` 通过 `CompanyMembership` 隶属于公司，再通过 `OrganizationMembership` 归属主组织和协作组织；公司级管理员、审计员或共享服务人员可以没有普通部门归属，但必须有明确的公司级数据范围。跨部门人员通过成员关系表达，不复制用户记录。安培时代当前组织政策已确认：部门负责人自动拥有本公司全部品牌、全部区域和普通业务数据读写范围；高风险副作用仍必须经过 Host Gateway、确认和审批。
+
+### Canonical 标识与 KOL 试点注册表
+
+以下标识是规范 ID，不是前端展示名称。真实公司 ID、用户 ID 和部门成员由组织系统绑定；在组织系统尚未接入前，必须用外部引用表，不得把姓名直接当主键。
+
+```yaml
+tenant: company:amperetime
+organization_units:
+  - id: org:brand_user_growth_center
+    type: center
+    parent: company:amperetime
+  - id: org:brand_project_group
+    display_name: 品牌项目组
+    type: project_group
+    parent: org:brand_user_growth_center
+  - id: org:market_department
+    display_name: 市场部
+    type: department
+    parent: org:brand_user_growth_center
+  - id: org:promotion_department
+    display_name: 推广部
+    type: department
+    parent: org:brand_user_growth_center
+  - id: org:lt_team
+    type: team
+    parent: org:promotion_department
+    brand_scope: [brand:lt]
+  - id: org:pq_ro_tb_team
+    type: team
+    parent: org:promotion_department
+    brand_scope: [brand:pq, brand:ro, brand:tb]
+brands: [brand:lt, brand:pq, brand:ro, brand:tb]
+regions: [region:eu, region:us, region:ca_au]
+responsibilities:
+  - id: resp:kol_business_owner
+    domain: kol
+    principal_ref: user:<liu_min>
+    org_unit: org:promotion_department
+    decision_rights: [business_goal, workflow, acceptance, escalation]
+```
+
+`company:amperetime`、`user:liu_min` 是当前试点的 canonical 引用；张慧玲的正式外部 user_ref、双方邮箱、工号、任职时间以及普通成员的品牌/区域明细仍记录在非阻断待办中。张慧玲、刘敏的部门负责人关系以已确认组织证据和 registry 绑定为准，不再等待额外组织系统接入才能执行 PEP。
+
+机器可读事实：`config/org-registry.yaml`、`config/brand-registry.yaml`。`12-kol-agent.md` 只描述业务流程和能力，不得再次定义组织层级、人员归属或品牌主数据。
+
+### 关系模型
+
+| 关系 | 主体 | 目标 | 含义 |
+|---|---|---|---|
+| `company_membership` | User | Company | 用户属于哪个租户 |
+| `organization_membership` | User | OrganizationUnit | 主组织/协作组织、任期和岗位 |
+| `brand_scope_membership` | User/OrganizationUnit | Brand + Region | 可服务哪些品牌和区域；部门负责人按公司政策自动为全部范围 |
+| `responsibility_assignment` | User/Role | Domain/Brand/Campaign | 对目标和规则负责 |
+| `task_assignment` | User/Team | Task/WorkItem | 当前执行责任 |
+| `approval_assignment` | User/Role | Action/Policy | 某次高风险动作的审批权 |
+
+这些关系不能合并成 `owner_id`。一个人可以是 KOL 业务负责人、某品牌执行人和某封邮件的审批人，但三者是不同关系、不同授权和不同审计记录。
+
+### 角色
+
+- `platform_admin`：平台级配置和运维。
+- `company_admin`：公司组织、资产、连接器和 Agent 发布。
+- `department_admin`：部门范围内的 Agent、知识、审批和任务配置。
+- `agent_operator`：运行和接管指定 Agent 任务。
+- `employee`：使用已发布 Agent、补充信息和确认高风险动作。
+- `auditor`：只读审计和运行记录。
+
+角色不是数据范围。安培时代的部门负责人是已确认的范围授予关系，但不等同于平台管理员；普通数据读写可覆盖公司全部品牌和区域，高风险动作仍检查角色、公司、对象、确认和 Gateway 闸门。
+
+`company_admin` / `department_admin` 的范围：公司组织资产与部门范围内的 Agent / 知识 / 审批。管理员改授权也不能让自己跳过运行时闸门。
+
+### KOL 归属
+
+KOL 是跨租户的外部画像；价格、阶段、邮箱、合同、负责人和 ROI 不应挂在全局 KOL 上，而应挂在合作关系上：
+
+```text
+Company + Brand + Campaign + KOL = Collaboration
+```
+
+同一 KOL 可与多个公司、品牌或活动存在多条独立 Collaboration。所有读写必须带 `company_id`、`organization_scope`、`brand_id` 和必要的 `region_id`。
+
+### Agent 数据范围
+
+每个 Agent 发布版本必须声明：可用公司、组织、品牌、区域、知识库、对象类型、可用工具和可见字段。Codex Turn 的 CONTEXT 必须包含这些范围，不能让模型自行推断。部门负责人还必须携带公司级 `all` 品牌/区域范围和普通数据 `read/write` 策略。未注册的组织、品牌或关系不能出现在 Agent 包中。
+
+### KOL 试点唯一映射
+
+KOL Agent 的组织映射只能写成：
+
+```yaml
+agent: agent:kol
+business_domain: kol
+business_owner_ref: resp:kol_business_owner
+execution_org_units: [org:lt_team, org:pq_ro_tb_team]
+brand_scope: [brand:lt, brand:pq, brand:ro, brand:tb]
+region_scope: [region:eu, region:us, region:ca_au]
+```
+
+---
+
+## 权限与副作用
+
+### 三类执行
+
+- `agent_authorized`：低风险读取和草稿。
+- `agent_proposed`：只能产生结构化提案。
+- `host_committed`：人工确认后由平台提交外部副作用。
+
+管理员也不能跳过发送、阶段、解密、导入和破坏性操作的运行时闸门。确认发送不等于组织审批；组织 MCP 未就绪时不能假装已经完成组织审批。超级用户可以进两端和显式调试视图，但仍不能跳过发送、阶段、解密、导入、删除和审批闸门（宪法 §5）。进管理端不等于旁路 Host。
+
+### 数据范围
+
+权限同时检查公司、部门、品牌、区域、对象、动作和版本。品牌邮箱必须在当前品牌授权范围内；不能默认第一只发件箱，不能编造 KOL 邮箱，普通组信路径不能调用联系方式解密。
+
+安培时代当前已确认部门负责人政策：张慧玲、刘敏自动拥有公司全部品牌、区域和普通业务数据读写权限。该授权属于公司级数据范围，不等于平台管理员；发送、阶段写入、导入、解密等高风险动作仍必须经过确认、审批、幂等和审计。
+
+---
+
+## 审批审计
+
+### 审批链
+
+审批链不是一个按钮：
+
+```text
+工具权限 → 业务 Policy → 人工确认 → 组织审批（如需）→ 外部提交 → 回执
+```
+
+### 审批和审计记录
+
+保存请求对象、前后 diff、证据、风险、申请人、审批人、Policy/Skill/Agent 版本、时间、决定、幂等键和外部回执。运行链记录租户、用户、Task、WorkItem、Thread、Turn、Skill、MCP server/tool、参数摘要、结果摘要、错误和数据对象；敏感字段脱敏，原始秘密不入日志。
+
+本文件不新增审计表 schema；后端缺字段时另开计划，不得在纯前端 PR 里假装已有 LIVE 回放。
+
+---
+
+## 使用≠治理与管理端配套套件
+
+纯 IA（一页一问、十六项坐落、导航密度、使用 ≠ 治理原则）见 H [`ia-information-architecture.md`](ia-information-architecture.md)。下列是 C 的落地：配套套件、枢纽字段、双端硬边界、遗留收敛。不得把治理做成第二套 Home。
+
+### 与现行法律的关系
 
 | 文档 | 本文件不得改写的内容 | 本文件补的缺口 |
 |---|---|---|
@@ -17,7 +180,7 @@
 
 宪法中的治理域只回答“谁 / 权限 / 审计”。本文件把治理域写成可落地的配套套件：连接器枢纽、Agent 治理、授权与审计切片。`/agents` 继续是员工端 P0 专家中心（找谁协作 / 召唤岗位专家），不是管理端。`/admin/agents` 只做发布 / 授权 / 考试闸门，不得与员工专家中心混读。
 
-## 为何需要这份契约
+### 为何需要这份契约
 
 现状把「治理」和「干活」叠在同一套导航与 chrome 上：
 
@@ -31,14 +194,14 @@
 
 本文件的立场：员工端继续干活；管理端只治理。两端可以**配套**（同一对象、不同问题），禁止**复制**（同一 IA、同一 chrome、同一 CTA）。
 
-## 硬边界（双端各答一问）
+### 硬边界（双端各答一问）
+
+一页一问的 IA 表见 H。下表是 C 的执行边界（含超级用户与闸门；Pipeline 只回答细则比 H 更具体，故保留）。
 
 | 端 | 只回答 | 禁止 |
 |---|---|---|
 | **员工端** | 现在做什么、如何完成这一件、召唤哪位已发布岗位专家；已被授权可用哪些连接能力（使用/状态，不是配置）。正式生命周期资产板（Pipeline）是 **KOL 试点页**，只许深链 / 产品内 CTA | 连接器配置、凭据、组织授权树、发布闸门、考试门槛、引擎 Trace、MCP/Codex/Thread/Skill 行话；员工专家中心上的连接器状态主 IA |
 | **管理端** | 谁能用、用到哪、连到哪、是否发布、考试是否挡住、授权与绑定如何变更、审计能否回放 | 员工待办桶、生命周期扫视、再开一单、会话开工、把 Pipeline 或 Home 再做一遍 |
-
-超级用户可以进两端和显式调试视图，但仍不能跳过发送、阶段、解密、导入、删除和审批闸门（宪法 §5 / `08`）。进管理端不等于旁路 Host。
 
 核心工作表面、治理域和一等能力面的边界不变（「支撑」≠ 二等；清单见 `CONSTITUTION.md` §4.1）：
 
@@ -51,9 +214,9 @@
 
 `/agents` 是员工一等能力面「数字员工」，不是 Admin，也不是「数字团队」。宪法 §4.1：员工 `/agents` 只回答“找谁协作 / 召唤岗位专家”，不是技能图鉴、平行 Home 或连接器目录。禁止「专家团」假导航；未实现的「数字团队」不得做成冒名入口，也不得把该产品名词永久写成禁词。管理端不得再链回这个入口充当治理页；连接器治理仍只在管理端枢纽。
 
-## 员工表面 vs 管理端配套套件
+### 员工表面 vs 管理端配套套件
 
-配套 = 同一业务对象，回答治理问题。副本 = 同一信息架构、同一开工 CTA、同一远端 pill。
+配套 = 同一业务对象，回答治理问题。副本 = 同一信息架构、同一开工 CTA、同一远端 pill。H §3 锁原则；下表是 C 的配套清单。
 
 | 员工表面 | 员工只回答 | 管理端配套（不是副本） | 管理端只回答 | 禁止做成副本的做法 |
 |---|---|---|---|---|
@@ -70,7 +233,7 @@
 
 个人邮箱绑定（例如把当前账号绑到一只 Starry 发件箱，供首页「我跟进的红人」过滤）**只留**「个人设置 → 连接 Starry」。组织级 Starry 策略（是否对本组织启用、谁可绑、员工 read/write）落在连接器详情，不落在个人绑定表。员工使用面若出现绑定 CTA，只链到 Settings，不复刻 `StarryBindForm`。
 
-## 员工使用面（`/connectors`）
+### 员工使用面（`/connectors`）
 
 独立的员工一等能力面，不是 `/admin/connectors` 的只读镜像，也不复制 Home。只回答三句：我已被授权可用哪些、当前对我意味着什么、个人绑定去哪。
 
@@ -87,7 +250,7 @@
 
 现有员工 API **不**返回未授权或已停用的连接器。因此使用面不能诚实地画出「未授权」行；缺行用空态说明，不要前端补一份治理目录。授权矩阵、组织策略字段仍属后端另开计划。
 
-## `/admin/connectors` 枢纽
+### `/admin/connectors` 枢纽
 
 唯一的组织连接器目录。只回答：组织现在挂了哪些连接器、是否启用、凭据是否已登记（只显示引用态，不显示秘密）、最近一次治理变更指向哪条详情。
 
@@ -100,7 +263,7 @@
 
 进程级 URL / API Key 仍在 Host 环境变量；用户 JWT 不准填进连接器凭据位置。枢纽可以提示「进程级密钥不在本页」，但不得提供粘贴框当第二套 env 编辑器。
 
-## `/admin/connectors/:id` 详情
+### `/admin/connectors/:id` 详情
 
 单条连接器的治理页。只回答这一条的启用、凭据引用、员工授权、组织策略。
 
@@ -114,9 +277,7 @@
 
 个人邮箱绑定继续走 Settings。详情页可以写一句安静说明：「跟进邮箱在个人设置按人绑定；本页只定组织策略。」不要把 Settings 表单嵌进来。
 
-`company_admin` / `department_admin` 的范围仍以 `01-organization-tenancy.md` 为准：公司组织资产与部门范围内的 Agent / 知识 / 审批。管理员改授权也不能让自己跳过运行时闸门。
-
-## `/admin/agents` 治理页
+### `/admin/agents` 治理页
 
 **新页面**。替换管理端顶栏「员工 · 智能体 → `/agents`」。只回答组织里的数字能力是否可被员工召唤，不回答「今天从哪张卡再开一单」，也不回答「找谁协作」（那是员工专家中心）。
 
@@ -133,7 +294,7 @@
 
 管理端顶栏允许：「返回员工工作台」（回 Home）。不允许：「员工 · 智能体」跳 `/agents`。若管理员要自己干活，走员工导航，不从治理顶栏抄一条工作入口。
 
-## 审计切片（连接器 / 授权 / 绑定）
+### 审计切片（连接器 / 授权 / 绑定）
 
 管理端必须能单独扫到这三类变更，而不是只靠「数据 / 留存 / 审计」里最近 20 条大杂烩。
 
@@ -143,11 +304,11 @@
 | 授权 | 员工/角色对连接器或 Agent 的 read/write 授予与收回 | 无业务必要的账号秘密 |
 | 绑定 | 个人 Starry 绑定/解绑（谁、哪只邮箱、何时）；组织策略变更 | Bearer / JWT 正文 |
 
-切片可以是 `/admin` 审计区的过滤，或连接器/Agent 详情上的「本对象最近变更」。不要新做员工「等我确认」页，也不要把 Pipeline 近期事件当审计。审计字段义务仍以 `08-permission-approval-audit.md` 为准（申请人、前后摘要、时间、决定、幂等键；敏感字段脱敏）。
+切片可以是 `/admin` 审计区的过滤，或连接器/Agent 详情上的「本对象最近变更」。不要新做员工「等我确认」页，也不要把 Pipeline 近期事件当审计。审计字段义务见上文「审批和审计记录」（申请人、前后摘要、时间、决定、幂等键；敏感字段脱敏）。
 
-本文件不新增审计表 schema；后端缺字段时另开计划，不得在纯前端 PR 里假装已有 LIVE 回放。
+### 导航规则
 
-## 导航规则
+导航密度原则见 H §4。下表保留配套套件与调试/健康条细则（H 未列管理端顶栏健康条、调试砖、SkillHub / `/market/skills` / `/partners`）。
 
 | 位置 | 必须 | 禁止 |
 |---|---|---|
@@ -159,7 +320,7 @@
 
 员工默认表面继续遵守宪法任务/结果工作台原则与 `UX-EMPLOYEE` 员工禁词：不出现 MCP、Codex、Thread、英文 Skill、原始堆栈、内部工具名。产品名词「技能」是一等能力，与引擎词分家（ADR-023）。管理端 Trace 可以显示引擎信息，必须脱敏。SkillHub / `/market/skills` / `/partners` 若仍是调试或目录实验页，其连接器砖只允许在**显式调试且具备 admin** 时出现，并指向管理端枢纽；**不得**出现在员工默认侧栏或默认 Agents 英雄区。独立技能面若落地，不得做成连接器治理入口。默认员工的「连接器」入口只去使用面。
 
-## 遗留收敛
+### 遗留收敛
 
 下列表面不再各自维护一份连接器真相。后续纯前端 PR 把它们收进 `/admin/connectors`（枢纽）与 `/:id`（详情）；本文件只立法，不改 JSX。
 
@@ -173,7 +334,7 @@
 
 收敛完成的判定：组织里「有哪些连接器、开没开、谁能读写」只在管理端枢纽/详情出现一次；**员工端零处治理目录**。员工使用面可以列出「我已被授权可用哪些」，但不得复制枢纽的启停、凭据引用或授权矩阵。
 
-## 视觉：同一 token，不同 IA
+### 视觉：同一 token，不同 IA
 
 管理端与员工端共用 MASTER 的语义 token。管理端页面可以重新设计，但不得另开平行色盘，也不得做成第二套 Home / Agents。
 
@@ -186,7 +347,7 @@
 
 阴影、字号、主色槽位不另立法。若有人要把管理端做成仪表盘卡片墙或第二套 Agents 英雄区，先过本文件硬边界，再谈好看。
 
-## 非目标
+### 非目标
 
 - **不 LIVE。** 本契约不授权真实 MCP 写入、生产放行或把「已启用」写成「远端已通」。
 - **不把 MCP 行话交给员工。** `UX-EMPLOYEE` 员工禁词继续有效。管理端可以说连接器短名与状态；员工端只说已授权能力与业务结果。
@@ -195,10 +356,10 @@
 - **本文件不新增 UX ID**，不写 `specs/UX-ADMIN-PAGES.md`，不改 `ux-traceability.json`。没有绑定 FS 的交互描述不能进发布门禁。
 - **不重做 `Chat.tsx`，不改数字员工对象模型，不实施 ExpertManifest API。** 员工专家中心契约见宪法 §4.1 / ADR-016。
 - **不把员工 `/kb` 写成治理页。** 员工知识库契约见宪法 §4.1 / ADR-021；本文件只锁定员工 KB 与管理知识治理的边界。
-- **不在本契约里加后端字段、新权限模型或 Host 旁路。** 管理员也不能跳过 `08` 闸门。
+- **不在本契约里加后端字段、新权限模型或 Host 旁路。** 管理员也不能跳过本文件「权限与副作用」闸门。
 - **不为体验层再写调度器或状态机。**
 
-## 落地顺序
+### 落地顺序
 
 1. **本契约先合并。** 后续 PR 用本文件硬边界自检；冲突写入 `DECISIONS.md`，不要在前端分支另立一套双端规则。
 2. **纯前端：导航 + 枢纽壳 + 员工使用面。** 去掉员工侧栏管理端深链；员工若有连接器入口只链 `/connectors`；管理端顶栏改为 `/admin/agents`；Starry 个人绑定只留 Settings；遗留「本期连接器」指向或并入枢纽。只使用已有 API 能支撑的只读/启停/授权壳与员工只读消费。不夹带 LIVE、不新造 UX ID。

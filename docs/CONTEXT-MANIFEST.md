@@ -31,17 +31,17 @@ B CONSTITUTION.md
 | Chat / 任务执行 | B §5；I `pages/chat.md` | 按动作加载 F 对应 FS |
 | Pipeline（KOL 试点页；深链 / CTA） | B §4.2；I `pages/pipeline.md` | 阶段写入：B §5 + E `stage-transitions.md` + F `policies/change_stage.yaml` |
 | 阶段转移 / confirm_stage | E `docs/business-rules/stage-transitions.md`、ADR-027 | 物理 hop / 原生码：K `07`（adapter ≠ 产品边） |
-| Admin | I `pages/admin.md`；C `21` | 权限 / 连接器 / 审计：C `08` |
-| `/kb`、`/agents`、员工连接器 | B §4.1 | 连接器治理再加载 C `21` |
+| Admin | I `pages/admin.md`；C `org-permissions.md` | 权限 / 连接器 / 审计：同 C |
+| `/kb`、`/agents`、员工连接器 | B §4.1 | 连接器治理再加载 C `org-permissions.md` |
 | 技能（一等；侧栏露出=UX） | B §4.1 | 禁止图鉴压过任务脊柱 |
 | 数字团队（一等；尚未实现） | B §4.1 | 禁止专家团假导航；不得永久禁该名词 |
-| 审批 / 考试 | B §4.1；C `08`；I `pages/approvals.md` | 管理闸门再加载 C `21` |
+| 审批 / 考试 | B §4.1；C `org-permissions.md`；I `pages/approvals.md` | 管理闸门再加载同 C |
 | `/cron` 定时 | B §4.1 | 不得做成第二套 Home |
-| 导航 / 一页一问 / 使用≠治理 | H `ia-information-architecture.md` | 配套套件、枢纽字段再加载 C `21` |
+| 导航 / 一页一问 / 使用≠治理 | H `ia-information-architecture.md` | 配套套件、枢纽字段再加载 C `org-permissions.md` |
 | 纯视觉 / 组件 | I `design.md` → `MASTER.md` + 当前页 | token 只改 MASTER；禁止在 `design.md` 复制 hex。追溯迁移才读 `20` |
-| 组织 / 范围 / PEP | C `01` | 注册表：`config/org-registry.yaml` |
-| 对象 / 字典 | D `02`、`DATA_DICTIONARY.md` | 物理值冲突时记 K 接口漂移，不改 D 编造 |
-| API / 后端 | J `technical-constitution.md`；F 对应 FS；D 数据模型 | 副作用 / 确认：C `08`；物理 IO：K `07` / `schemas/`；细则 `06` / `07` / `14` |
+| 组织 / 范围 / PEP | C `org-permissions.md` | 注册表：`config/org-registry.yaml` |
+| 对象 / 字典 | D `domain-objects.md` | 物理值冲突时记 K 接口漂移，不改 D 编造 |
+| API / 后端 | J `technical-constitution.md`；F 对应 FS；D `domain-objects.md` | 副作用 / 确认：C `org-permissions.md`；物理 IO：K `07` / `schemas/`；细则 `06` / `07` / `14` |
 | 回归 / 验收 | 改动对应的 F / G 硬不变量 | 追溯决策时读 ADR，不把 ADR 当现行法 |
 
 ## 默认不加载

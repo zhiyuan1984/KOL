@@ -6,6 +6,7 @@
 
 | 日期 | 记录 | 说明 |
 |---|---|---|
+| 2026-09-15 | C/D 各收成单一正文：`org-permissions.md`、`domain-objects.md`。旧 `01`/`08`/`21` 与 `02`/字典文件物理删除。LAW-MAP C、D 行只列新路径，禁止组合权威 | 用户锁定。见 ADR-028。文档 only。不 LIVE。 |
 | 2026-09-15 | 产品阶段图（15 正式码 + `exception`）是产品边权威；人可跨段 / 回退 / 进出异常（须原因）；自动路径更严。ADR-011「相邻写入=产品法」**废止**；Starry hop 限制 ≠ 产品 | 用户锁定。见 ADR-027、`docs/business-rules/stage-transitions.md`。本记录不改 LIVE walk。 |
 | 2026-09-15 | 正式 IA 约束 `docs/ia-information-architecture.md`（class H，非可选）；视觉入口锁定 `docs/design.md`（class I）。MASTER 仍是 token 源，禁止在 `design.md` 复制 hex。`21` 保留为配套套件 | 用户锁定路径。不复活 employee-surface 长文。不 LIVE。 |
 | 2026-09-15 | Host / Codex / MCP / Gateway / TS 边界立法为 `technical-constitution.md`（class J）。不写业务阶段邻接；物理限制不升格为产品法 | 折叠 ADR-001 / 005 / 006 精神。细则仍 `06` / `07` / `14`。文档 only。不 LIVE。 |
@@ -16,8 +17,8 @@
 | 2026-09-14 | 员工 `/kb` **不是**邮件模板管理台 | 见 ADR-021、宪法 §4.1。 |
 | 2026-09-14 | 员工工作台**全局正文基线 16px**；控件 ≥14px；禁止 scale/zoom 假装字号 | 见 ADR-020、`20-visual-design-system.md`。 |
 | 2026-09-13 | 邮件往来摘要 Codex `thread/start` 与识别一致：`CODEX_MODEL` / CLI 默认，不传 `gpt-5.6-luna` | 不改 provider 顺序或 sticky-fail。 |
-| 2026-09-14 | 并列能力面与 Agent / 任务解耦 | 见 ADR-015、`21-admin-employee-page-roles.md`。 |
-| 2026-09-14 | 专家中心 = 召唤岗位专家；召唤 ≠ 发送/阶段 | 见 ADR-016、`21-admin-employee-page-roles.md`。 |
+| 2026-09-14 | 并列能力面与 Agent / 任务解耦 | 见 ADR-015、`org-permissions.md`。 |
+| 2026-09-14 | 专家中心 = 召唤岗位专家；召唤 ≠ 发送/阶段 | 见 ADR-016、`org-permissions.md`。 |
 | 2026-09-14 | 首版 `/api/experts` 落实 ADR-016：仅已发布岗位专家 `expert:kol` | 见 ADR-017。 |
 | 2026-09-14 | Home AI发现条件区：平台/地区单选芯片；方向多选最多 8；NL 主输入、芯片纠正 | 见 ADR-019。服从宪法 §4.2，不再服从已删 ADR-018。 |
 
@@ -26,30 +27,31 @@
 | ID | 决策 | 依据 |
 |---|---|---|
 | ADR-001 | Codex harness = Codex app-server；Host 是内核，不是业务调度器 | `technical-constitution.md`（class J）、`06-codex-harness.md` |
-| ADR-002 | 组织树与品牌维度分离；LT/PQ/RO/TB 是品牌 | `01-organization-tenancy.md`、`12-kol-agent.md` |
+| ADR-002 | 组织树与品牌维度分离；LT/PQ/RO/TB 是品牌 | `org-permissions.md`、`12-kol-agent.md` |
 | ADR-003 | 展示 8 段与正式写入 15 阶段分离 | `05-agent-workflow-skill-policy.md` |
-| ADR-004 | 草稿、发送、阶段变更是独立产物和动作 | `03-prd-and-functional-spec.md`、`08-permission-approval-audit.md` |
+| ADR-004 | 草稿、发送、阶段变更是独立产物和动作 | `03-prd-and-functional-spec.md`、`org-permissions.md` |
 | ADR-005 | Stub 只用于确定性测试，真实验收必须走 app-server + 授权 MCP | `technical-constitution.md`（class J）、`06-codex-harness.md`、`10-test-evaluation.md` |
 | ADR-006 | 新增 Agent 以配置、Skill、Workflow、Policy、MCP 声明为主 | `technical-constitution.md`（class J）、`13-migration-roadmap.md` |
 | ADR-007 | 新增 Agent 分为配置型、Skill 型、MCP 型、内核型；配置化不代表零代码 | `agents/kol/manifest.yaml`、`13-migration-roadmap.md` |
-| ADR-008 | Starry MCP 不是独立组织授权源，但其邮箱负责人/授权结果可与已确认组织证据和 registry 绑定共同完成安培时代试点 PEP 核验 | `18-mcp-master-data-assessment.md`、`01-organization-tenancy.md` |
-| ADR-009 | 安培时代部门负责人（张慧玲、刘敏）自动拥有公司全部品牌、区域和普通业务数据读写；高风险动作仍受 Gateway/确认/审批约束 | `config/org-registry.yaml`、`01-organization-tenancy.md` |
+| ADR-008 | Starry MCP 不是独立组织授权源，但其邮箱负责人/授权结果可与已确认组织证据和 registry 绑定共同完成安培时代试点 PEP 核验 | `18-mcp-master-data-assessment.md`、`org-permissions.md` |
+| ADR-009 | 安培时代部门负责人（张慧玲、刘敏）自动拥有公司全部品牌、区域和普通业务数据读写；高风险动作仍受 Gateway/确认/审批约束 | `config/org-registry.yaml`、`org-permissions.md` |
 | ADR-010 | 试点 PEP 的授权证据由组织截图、100%真实邮箱负责人清单、远程 Starry MCP 只读结果和 registry 绑定共同构成；未补齐的身份元数据不阻断试点授权 | `config/org-registry.yaml`、`18-mcp-master-data-assessment.md` |
 | ADR-011 | **废止**（2026-09-15，ADR-027）。「远程只走相邻前进」不得再读成产品法。原生码 `toStageCode` 形状仍是物理适配，见 `07` | 废止正文仍留档；产品边改读 ADR-027 |
 | ADR-012 | 页职责：Home+Chat=平台任务/会话脊柱；Pipeline=**KOL 试点**生命周期页（禁止复制 Home 待办）；Admin=谁/权限/审计 | `CONSTITUTION.md` §4.2 |
-| ADR-013 | 管理端是员工表面的配套治理套件，不是副本；连接器**治理**只在 `/admin/connectors`，员工**使用面**独立（`/connectors`），Agent 治理在 `/admin/agents`，个人 Starry 绑定只留 Settings。Pipeline 是 KOL 试点页，不是「员工四表面」平台核 | `21-admin-employee-page-roles.md`、`CONSTITUTION.md` §4.2 |
-| ADR-014 | 员工侧栏：定时任务归今日工作簇；簇间用分割线，不画可见「今日 / 智能体 / 资产」组标题 | `CONSTITUTION.md` §4.1、`21-admin-employee-page-roles.md` |
-| ADR-015 | 并列能力面与任务/数字员工解耦；清单以 §4.1 十六项为准（含技能、数字团队预留）。KOL 只作数据不定义 IA；「支撑」≠ 二等；治理仍 Admin-only | `CONSTITUTION.md` §4.1、`21-admin-employee-page-roles.md` |
-| ADR-016 | 员工 `/agents` 只召唤已发布岗位专家；无专家团；禁止把引擎 chrome / 技能图鉴做成 `/agents` 主 IA。**修订（ADR-023）：** 产品「技能」一等，侧栏露出=UX，不是「员工默认禁止 Skill」。召唤只建绑定、不发信不写阶段 | `CONSTITUTION.md` §4.1、`21-admin-employee-page-roles.md` |
-| ADR-017 | 首版 `ExpertManifest` + `/api/experts` 落实 ADR-016：仅 `expert:kol` 已发布；召唤持久化 `expert_id`/`expert_version`；无专家团 API | `02-domain-model.md`、`14-implementation-contract.md`、`experts/kol/manifest.yaml` |
+| ADR-013 | 管理端是员工表面的配套治理套件，不是副本；连接器**治理**只在 `/admin/connectors`，员工**使用面**独立（`/connectors`），Agent 治理在 `/admin/agents`，个人 Starry 绑定只留 Settings。Pipeline 是 KOL 试点页，不是「员工四表面」平台核 | `org-permissions.md`、`CONSTITUTION.md` §4.2 |
+| ADR-014 | 员工侧栏：定时任务归今日工作簇；簇间用分割线，不画可见「今日 / 智能体 / 资产」组标题 | `CONSTITUTION.md` §4.1、`org-permissions.md` |
+| ADR-015 | 并列能力面与任务/数字员工解耦；清单以 §4.1 十六项为准（含技能、数字团队预留）。KOL 只作数据不定义 IA；「支撑」≠ 二等；治理仍 Admin-only | `CONSTITUTION.md` §4.1、`org-permissions.md` |
+| ADR-016 | 员工 `/agents` 只召唤已发布岗位专家；无专家团；禁止把引擎 chrome / 技能图鉴做成 `/agents` 主 IA。**修订（ADR-023）：** 产品「技能」一等，侧栏露出=UX，不是「员工默认禁止 Skill」。召唤只建绑定、不发信不写阶段 | `CONSTITUTION.md` §4.1、`org-permissions.md` |
+| ADR-017 | 首版 `ExpertManifest` + `/api/experts` 落实 ADR-016：仅 `expert:kol` 已发布；召唤持久化 `expert_id`/`expert_version`；无专家团 API | `domain-objects.md`、`14-implementation-contract.md`、`experts/kol/manifest.yaml` |
 | ADR-019 | Home AI发现条件区：平台/地区单选芯片；方向多选最多 8；NL 主输入、芯片纠正、计划跟芯片；重置不清空 NL；无 TikTok、无「全部平台」。服从宪法 §4.2 | `CONSTITUTION.md` §4.2 |
 | ADR-020 | 员工工作台正文基线 **16px**；UI / 按钮 / Tab / helper **≥14px**；禁止 scale/zoom 假装字号；Linear 密度靠间距与阴影，不靠缩小正文 | `20-visual-design-system.md` |
-| ADR-021 | 员工 `/kb` 是并列能力面（ADR-015）：查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务；禁止邮件模板管理台与引擎行话；应用只产未发送草稿；卡片元数据底线先立法、schema 可后补 | `CONSTITUTION.md` §4.1、`14-implementation-contract.md`、`21-admin-employee-page-roles.md` |
-| ADR-023 | 智能体中台十六项一等能力；KOL=首个试点不是平台壳；技能入口密度=UX；数字团队预留未实现，禁止专家团假导航。Pipeline 页只许深链 / CTA | `CONSTITUTION.md`、`21-admin-employee-page-roles.md` |
+| ADR-021 | 员工 `/kb` 是并列能力面（ADR-015）：查找 / 理解适用场景 / 预览 / 收藏 / 用于当前任务；禁止邮件模板管理台与引擎行话；应用只产未发送草稿；卡片元数据底线先立法、schema 可后补 | `CONSTITUTION.md` §4.1、`14-implementation-contract.md`、`org-permissions.md` |
+| ADR-023 | 智能体中台十六项一等能力；KOL=首个试点不是平台壳；技能入口密度=UX；数字团队预留未实现，禁止专家团假导航。Pipeline 页只许深链 / CTA | `CONSTITUTION.md`、`org-permissions.md` |
 | ADR-024 | 删除 `UX-KOL.md` / `UX-FOLLOWED-KOL-CARD.md` / `UX-SEND-NE-STAGE`-as-file-ID。员工 UX 从宪法派生为 `specs/UX-EMPLOYEE.md`。门禁只绑 `SEND_NE_STAGE`、`L3_CONFIRM` | `CONSTITUTION.md` §4–5、`specs/UX-EMPLOYEE.md` |
 | ADR-025 | 删除全部 `docs/evidence-*`、`04`、`19`、`employee-surface-contracts.md`、`FS-KOL-006`、`FS-KOL-010`、ADR-018、ADR-022。必须项只住在宪法 + 瘦 `UX-EMPLOYEE`。不新开 FS | `CONSTITUTION.md`、`specs/UX-EMPLOYEE.md` |
 | ADR-026 | #105 后法律层 A–K 重组。导航以 `LAW-MAP.md` 为准，不以 `00`–`21` 为主线。UI 设计路径 = `docs/design.md`；MASTER 仍是 token 源。ADR-011 由阶段图 track 废止 | `docs/LAW-MAP.md`、`docs/README.md`、`docs/business-rules/stage-transitions.md` |
 | ADR-027 | 产品阶段图（15 + `exception`）取代「相邻写入」产品法；人可跨段 / 回退 / 进出异常（须原因）；自动路径保持 `autoLegalTargets` 精神。Starry hop 限制 ≠ 产品边 | `docs/business-rules/stage-transitions.md`、`05-agent-workflow-skill-policy.md`、`07-mcp-data-contract.md` |
+| ADR-028 | C/D 各收成单一权威正文；旧编号组织/权限/配套与对象/字典文件删除。禁止组合权威 | `docs/org-permissions.md`、`docs/domain-objects.md`、`docs/LAW-MAP.md` |
 
 **废止读法：** 「四页法律 / 四页分工 / 员工四表面」不得再被读成 Pipeline 是平台核心导航。现行：Home+Chat = 平台任务/会话脊柱；Pipeline = KOL 试点页（§4.2）。后文若仍写「四页法律」一律按此句，不以旧 P0 为准。权威清单仍是 `CONSTITUTION.md` §4.1–4.2。
 
@@ -158,7 +160,7 @@ Admin 导航和页面与员工连接器/智能体表面重叠：员工侧栏深�
 
 ### 影响
 
-- 规范：`21-admin-employee-page-roles.md`（正文）、`CONSTITUTION.md` §4–5、`docs/README.md` 索引
+- 规范：`org-permissions.md`（正文）、`CONSTITUTION.md` §4–5、`docs/README.md` 索引
 - 代码：员工使用面是后续纯前端（`/connectors`）；本 ADR 修订不改后端
 - 测试：无新发布门禁项，直到另有 FS / UX ID 绑定
 
@@ -201,7 +203,7 @@ Admin 导航和页面与员工连接器/智能体表面重叠：员工侧栏深�
 1. **并列能力面是独立产品面。** 清单以 `CONSTITUTION.md` §4.1 十六项为准（含技能、数字团队预留、知识库、审批、考试、连接器使用面，及可占位的云盘 / 遥控 / 项目）。与 `/agents` 开工入口、今日任务队列相互独立：不隶属 KOL Agent，也不因进行中任务才存在。「支撑」≠ 二等。
 2. **数据可进、壳子不出。** KOL / 合作 / 邮件只作记录类型或示例；IA / 导航 / 空态不得改成「先选 Agent / 先开任务」。
 3. **调用单向。** Chat / Agent 可调用已授权连接器、检索知识、提交审批；能力面不得复制 Chat 主线程或 Home 待办桶，也不得做成第二会话台。
-4. **不是第五套 Home，也不是能力图鉴。** Home+Chat 是平台脊柱；Pipeline 是 KOL 试点页。技能是一等能力，不得做连接器 / 知识的上级目录，也不得压过任务脊柱。连接器仍遵守 `21` 的使用面 vs 治理面；治理仍 Admin-only。
+4. **不是第五套 Home，也不是能力图鉴。** Home+Chat 是平台脊柱；Pipeline 是 KOL 试点页。技能是一等能力，不得做连接器 / 知识的上级目录，也不得压过任务脊柱。连接器仍遵守 `org-permissions.md` 的使用面 vs 治理面；治理仍 Admin-only。
 
 ### 不决定的范围
 
@@ -209,7 +211,7 @@ Admin 导航和页面与员工连接器/智能体表面重叠：员工侧栏深�
 
 ### 影响
 
-- 规范：`CONSTITUTION.md` §4.1、`21-admin-employee-page-roles.md`
+- 规范：`CONSTITUTION.md` §4.1、`org-permissions.md`
 - 代码：本 ADR 不改 JSX / API
 - 测试：文档评审 only；无新发布门禁项
 
@@ -237,7 +239,7 @@ Admin 导航和页面与员工连接器/智能体表面重叠：员工侧栏深�
 
 ### 影响
 
-- 规范：`CONSTITUTION.md` §4.1、`21-admin-employee-page-roles.md`
+- 规范：`CONSTITUTION.md` §4.1、`org-permissions.md`
 - 代码：本 ADR 不改 JSX / API
 - 测试：文档评审 only；无新发布门禁项
 
@@ -263,7 +265,7 @@ ADR-016（#53）立法：员工专家中心只召唤已发布岗位专家；召�
 
 ### 影响
 
-- 规范：引用 ADR-016、`02-domain-model.md`、`14-implementation-contract.md`
+- 规范：引用 ADR-016、`domain-objects.md`、`14-implementation-contract.md`
 - 代码：`experts/kol/manifest.yaml`、`backend/src/experts.ts`、`GET/POST /api/experts`
 - 测试：`backend/tests/experts.test.ts`、`validate:contracts`
 
@@ -362,7 +364,7 @@ ADR-015 已把知识库列为并列能力面，但未写员工 `/kb` 答哪一�
 
 ### 影响
 
-- 规范：`CONSTITUTION.md` §4.1、`14-implementation-contract.md`、`21-admin-employee-page-roles.md`
+- 规范：`CONSTITUTION.md` §4.1、`14-implementation-contract.md`、`org-permissions.md`
 - 代码：本 ADR 不改 JSX / API
 - 测试：文档评审 only；后续 FE / BE 以本记录 + 宪法 §4.1 知识库面为对照
 
@@ -400,7 +402,7 @@ ADR-016 专家中心「只召唤岗位专家 / 无专家团 / 召唤 ≠ 发送�
 
 ### 影响
 
-- 规范：`CONSTITUTION.md` §4；`21-admin-employee-page-roles.md`；`docs/README.md` 平台 vs 试点路由；`CONTEXT-MANIFEST.md`
+- 规范：`CONSTITUTION.md` §4；`org-permissions.md`；`docs/README.md` 平台 vs 试点路由；`CONTEXT-MANIFEST.md`
 - 代码：本 ADR 不改 JSX / API / CSS
 - 测试：文档评审 only；现行 E2E「侧栏无技能 / 无数字团队」仍是实现快照，不是本记录的永远禁令
 
@@ -511,4 +513,31 @@ ADR-011 把 Starry「只接受相邻前进 / 跨段必须逐格 walk」写成业
 - 规范：本记录、`docs/business-rules/stage-transitions.md`、`05`、`07`、宪法 §4.2 一句指针、`16` 去产品法措辞
 - 代码：仅 adapter 注释；`planStarryAdjacentWalk` 行为本 PR 不动
 - 测试：`validate:contracts`；无 FE 重写
+
+## ADR-028 — C/D 收成单一权威正文（2026-09-15）
+
+**状态**：已固化（文档 only；不 FE / 不 LIVE）  
+**决策人**：产品负责人（用户锁定 2026-09-15）
+
+### 问题与背景
+
+LAW-MAP 层 C 被写成 `01` + `08`（+ `21`）组合，层 D 被写成 `02` + 数据字典组合。组合权威会让读者在多份旧文件之间拼现行法，也容易漏改指针。用户锁定：C、D **只**生成新的单一 canonical 文件，并**物理删除**旧文件；不得接受 combo-of-olds。
+
+### 决定
+
+1. **C 单一正文。** 组织/租户、权限与副作用、审批审计、使用 ≠ 治理与管理端配套套件全部写入 [`docs/org-permissions.md`](org-permissions.md)。LAW-MAP C 行只列这一条路径。
+2. **D 单一正文。** 核心对象与关系、Agent 包、数据字典与枚举全部写入 [`docs/domain-objects.md`](domain-objects.md)。LAW-MAP D 行只列这一条路径。
+3. **物理删除（不得再当现行权威）：** `docs/01-organization-tenancy.md`、`docs/08-permission-approval-audit.md`、`docs/21-admin-employee-page-roles.md`、`docs/02-domain-model.md`、`docs/DATA_DICTIONARY.md`。
+4. **禁止组合权威。** 不得再写「C = 01 + 08 (+21)」或「D = 02 + 数据字典」。编号别名只指向新文件。
+5. **不编造、不省略。** 新文件保留源文件实质（registry ID、命名政策、字典 API 与全部枚举行）。与 H 完全相同的纯 IA 原则用一句 + 指针，不静默丢只存在于原配套套件的细则。
+
+### 不决定的范围
+
+不实施前端或后端。不 LIVE。不改 `validate-contracts` 门禁形状。不复活已删 evidence / `04` / `19`。不改 E 阶段图、J 技术宪法或 I token。
+
+### 影响
+
+- 规范：`docs/org-permissions.md`、`docs/domain-objects.md`、`docs/LAW-MAP.md`、`docs/README.md`、`docs/CONTEXT-MANIFEST.md` 及仓库内全部现行指针
+- 代码：无
+- 测试：`validate:contracts`
 

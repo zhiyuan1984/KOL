@@ -28,7 +28,7 @@
 - Codex / Host 执行流程 → `06-codex-harness.md`
 - MCP 物理契约与工具风险目录 → `07-mcp-data-contract.md`
 - Markdown 到代码的落点 → `14-implementation-contract.md`
-- 权限 / 审批 / 审计记录形态 → `08-permission-approval-audit.md`
+- 权限 / 审批 / 审计记录形态 → `org-permissions.md`
 - 代码地图（不定义规则）→ `90-codebase-handbook.md`
 
 ## 2. 五层架构
@@ -69,7 +69,7 @@ Host **只能否决**越权、非法状态、缺审批、版本冲突、未知 I
 
 前端、Prompt、Skill、Worker 和 MCP **不得**直接发信或写正式阶段。体验层只提交确认意图；员工端根据 Host 返回的状态与 schema 渲染，不重新判定权限、阶段合法性或副作用。管理端进入治理面也不等于旁路 Host。
 
-三类执行（细则 `08`）：`agent_authorized`（低风险读 / 草稿）、`agent_proposed`（结构化提案）、`host_committed`（确认后由平台提交）。管理员和部门负责人的公司级数据范围不等于跳过发送、阶段、导入、解密、删除闸门。
+三类执行（细则 C `org-permissions.md`）：`agent_authorized`（低风险读 / 草稿）、`agent_proposed`（结构化提案）、`host_committed`（确认后由平台提交）。管理员和部门负责人的公司级数据范围不等于跳过发送、阶段、导入、解密、删除闸门。
 
 ## 4. Codex：语义编排
 

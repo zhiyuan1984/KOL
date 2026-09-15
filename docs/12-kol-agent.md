@@ -4,7 +4,7 @@
 
 ## 组织和责任
 
-组织、品牌、区域和责任关系唯一以 [`01-organization-tenancy.md`](01-organization-tenancy.md) 的 canonical ID 为准。本领域只引用其映射：`agent:kol` 的业务负责人关系是 `resp:kol_business_owner`（当前业务联系人为刘敏），执行组织是 `org:lt_team` 与 `org:pq_ro_tb_team`，品牌范围是 `brand:lt`、`brand:pq`、`brand:ro`、`brand:tb`，区域范围是 `region:eu`、`region:us`、`region:ca_au`。安培时代部门负责人按公司级政策自动拥有全部品牌、区域和普通业务数据读写范围；LT/PQ/RO/TB 是品牌，不是组织树节点；成员标签不能替代 Host scope。
+组织、品牌、区域和责任关系唯一以 [`org-permissions.md`](org-permissions.md) 的 canonical ID 为准。本领域只引用其映射：`agent:kol` 的业务负责人关系是 `resp:kol_business_owner`（当前业务联系人为刘敏），执行组织是 `org:lt_team` 与 `org:pq_ro_tb_team`，品牌范围是 `brand:lt`、`brand:pq`、`brand:ro`、`brand:tb`，区域范围是 `region:eu`、`region:us`、`region:ca_au`。安培时代部门负责人按公司级政策自动拥有全部品牌、区域和普通业务数据读写范围；LT/PQ/RO/TB 是品牌，不是组织树节点；成员标签不能替代 Host scope。
 
 ## 能力域
 
