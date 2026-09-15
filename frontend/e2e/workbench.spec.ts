@@ -131,14 +131,14 @@ async function expectFollowedKolHeadingRemoved(page: Page) {
   await expect(page.locator('[data-home-mode="lifecycle"]')).toContainText("我跟进的红人");
 }
 
-async function expectFollowedKolListAlignsWithTabs(page: Page) {
-  const tabs = page.locator("[data-kol-tabs]");
+async function expectFollowedKolListAlignsWithToolbar(page: Page) {
+  const toolbar = page.locator("[data-followed-object-toolbar]");
   const list = page.locator("[data-followed-kol-list]");
   const card = page.locator("[data-followed-kol]").first();
-  await expect(tabs).toBeVisible();
+  await expect(toolbar).toBeVisible();
   await expect(list).toBeVisible();
   const metrics = await page.evaluate(() => {
-    const tabEl = document.querySelector("[data-kol-tabs]");
+    const toolbarEl = document.querySelector("[data-followed-object-toolbar]");
     const listEl = document.querySelector("[data-followed-kol-list]");
     const cardEl = document.querySelector("[data-followed-kol]");
     const columnEl = document.querySelector("[data-followed-kol-column]");
@@ -149,20 +149,20 @@ async function expectFollowedKolListAlignsWithTabs(page: Page) {
       return { width: el.clientWidth, left: rect.left, right: rect.right };
     };
     return {
-      tabs: box(tabEl),
+      toolbar: box(toolbarEl),
       list: box(listEl),
       card: box(cardEl),
       column: box(columnEl),
       pane: box(paneEl),
     };
   });
-  expect(metrics.tabs.width).toBeGreaterThan(0);
-  expect(Math.abs(metrics.list.width - metrics.tabs.width)).toBeLessThan(8);
-  expect(Math.abs(metrics.card.width - metrics.tabs.width)).toBeLessThan(8);
-  expect(Math.abs(metrics.column.width - metrics.tabs.width)).toBeLessThan(8);
-  expect(Math.abs(metrics.pane.width - metrics.tabs.width)).toBeLessThan(8);
-  expect(Math.abs(metrics.card.left - metrics.tabs.left)).toBeLessThan(4);
-  expect(Math.abs(metrics.card.right - metrics.tabs.right)).toBeLessThan(4);
+  expect(metrics.toolbar.width).toBeGreaterThan(0);
+  expect(Math.abs(metrics.list.width - metrics.toolbar.width)).toBeLessThan(8);
+  expect(Math.abs(metrics.card.width - metrics.toolbar.width)).toBeLessThan(8);
+  expect(Math.abs(metrics.column.width - metrics.toolbar.width)).toBeLessThan(8);
+  expect(Math.abs(metrics.pane.width - metrics.toolbar.width)).toBeLessThan(8);
+  expect(Math.abs(metrics.card.left - metrics.toolbar.left)).toBeLessThan(4);
+  expect(Math.abs(metrics.card.right - metrics.toolbar.right)).toBeLessThan(4);
 }
 
 async function expectFollowedKolCardWraps(page: Page, handle?: string) {
@@ -335,16 +335,17 @@ async function askKolSession(page: Page, request: APIRequestContext, collaborati
   await page.locator("[data-send]").click();
 }
 
-async function expectFollowedOwnerTabs(page: Page) {
-  await expect(page.locator("[data-kol-tab]")).toHaveCount(6);
-  await expect(page.locator('[data-kol-tab="needs_me"]')).toBeVisible();
-  await expect(page.locator('[data-kol-tab="waiting_them"]')).toBeVisible();
-  await expect(page.locator('[data-kol-tab="waiting_approval"]')).toBeVisible();
-  await expect(page.locator('[data-kol-tab="exception"]')).toBeVisible();
-  await expect(page.locator('[data-kol-tab="recent"]')).toBeVisible();
-  await expect(page.locator('[data-kol-tab="all"]')).toBeVisible();
+async function expectFollowedObjectToolbar(page: Page) {
+  await expect(page.locator("[data-kol-tabs]")).toHaveCount(0);
+  await expect(page.locator("[data-kol-tab]")).toHaveCount(0);
+  await expect(page.locator(".kol-owner-tabs")).toHaveCount(0);
+  await expect(page.locator('[data-kol-tab="needs_me"]')).toHaveCount(0);
   await expect(page.locator('[data-kol-tab="INITIAL_CONTACT"]')).toHaveCount(0);
+  await expect(page.locator("[data-followed-object-toolbar]")).toBeVisible();
+  await expect(page.locator("[data-followed-object-search]")).toBeVisible();
   await expect(page.locator("[data-kol-stage-filter]")).toBeVisible();
+  await expect(page.locator('[data-home-pane="lifecycle"]')).not.toContainText("需要我处理");
+  await expect(page.locator('[data-home-pane="lifecycle"]')).not.toContainText("正式阶段共 15 个");
 }
 
 async function askConfirmStage(page: Page, handle: string, stageLabel: string) {
@@ -615,12 +616,8 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("发送 ≠ 推进阶段");
   await expect(page.locator("[data-lifecycle-domains]")).toHaveCount(0);
   await expect(page.locator("[data-lifecycle-library]")).toHaveCount(0);
-  await expectFollowedOwnerTabs(page);
-  await expect(page.locator('[data-kol-tab="all"]')).toContainText("全部");
-  await expect(page.locator('[data-kol-tab="exception"]')).toContainText("异常");
-  await expect(page.locator('[data-kol-tab="needs_me"]')).toContainText("需要我处理");
-  await expect(page.locator('[data-kol-tab="waiting_them"]')).toContainText("等待对方");
-  await expect(page.locator('[data-kol-tab="waiting_approval"]')).toContainText("等待审批");
+  await expectFollowedObjectToolbar(page);
+  await expect(page.locator("[data-followed-object-count]")).toBeVisible();
   await openHomeTemplates(page);
   await homeRecByTitle(page, "写合作邮件").click();
   await expectHomeComposerDraft(page, "写合作邮件 发件箱 [发件邮箱] 发给 [收件邮箱] 主题：[主题]");
@@ -877,15 +874,13 @@ test("home lifecycle followed KOL opens the mail rail not the task list", async 
   await expect(page.locator(".chat")).toHaveAttribute("data-session-stream", /idle|live/);
 });
 
-test("home followed-KOL tabs group by owner action and open the KOL session", async ({ page }) => {
+test("home followed-KOL object list opens the KOL session", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-today-summary]")).toContainText("项待处理");
   await openHomeLifecycle(page);
-  await expectFollowedOwnerTabs(page);
-  await expect(page.locator('[data-kol-tab="all"]')).toHaveAttribute("aria-selected", "true");
-  // Tabs are static (17) even before /api/home/board lands. Wait for the stub
-  // listAllKolProfiles pair first; demo fixtures like 小美妆日记 have no kol_uid.
+  await expectFollowedObjectToolbar(page);
+  // Wait for the stub listAllKolProfiles pair first; demo fixtures like 小美妆日记 have no kol_uid.
   await expect(page.locator('[data-followed-kol="户外电源达人"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator('[data-followed-kol="营地灯测评娘"]')).toBeVisible();
   await expect(page.locator('[data-followed-kol="小美妆日记"]')).toHaveCount(0);
@@ -900,8 +895,13 @@ test("home followed-KOL tabs group by owner action and open the KOL session", as
   await expect(outdoor.locator("[data-current-state]")).toContainText("初步接触");
   await expect(outdoor.locator("[data-recommended-action]")).toContainText("建议依据不足");
   await expect(outdoor.locator("[data-confirm-enter-stage]")).toHaveCount(0);
-  await expect(page.locator('[data-kol-tab="all"]')).not.toContainText("失联跟进");
-  await expect(page.locator('[data-kol-tab="all"] .kol-tab-history')).toHaveCount(0);
+  await expect(page.locator("[data-followed-object-toolbar]")).not.toContainText("失联跟进");
+  await expect(page.locator("[data-followed-object-toolbar] .kol-tab-history")).toHaveCount(0);
+  await page.locator("[data-followed-object-search]").fill("户外电源");
+  await expect(page.locator("[data-followed-kol]")).toHaveCount(1);
+  await expect(page.locator('[data-followed-kol="户外电源达人"]')).toBeVisible();
+  await page.locator("[data-followed-object-search]").fill("");
+  await expect(page.locator("[data-followed-kol]")).toHaveCount(2);
   await openFollowedKolDetail(page, "户外电源达人");
   await expect(page).toHaveURL(/\/s\//);
   await expect(page.locator("[data-kol-journey]")).toContainText("户外电源达人");
@@ -983,38 +983,24 @@ async function expectNoPageHorizontalScroll(page: Page) {
   expect(box.board.scroll).toBeLessThanOrEqual(box.board.client + 1);
 }
 
-/** Tabs stay one row and match card width. Internal scrollWidth > clientWidth is allowed. */
-async function expectStageTabsSingleLine(page: Page) {
+/** Object toolbar stays aligned with cards. Lightweight search/stage filters may wrap. */
+async function expectObjectToolbarAligned(page: Page) {
   const metrics = await page.evaluate(() => {
-    const tabs = document.querySelector("[data-kol-tabs]");
+    const toolbar = document.querySelector("[data-followed-object-toolbar]");
+    const search = document.querySelector("[data-followed-object-search]");
     const card = document.querySelector("[data-followed-kol]");
-    if (!(tabs instanceof HTMLElement)) return null;
-    const cs = getComputedStyle(tabs);
-    const buttons = [...tabs.querySelectorAll("[data-kol-tab]")].filter((el): el is HTMLElement => el instanceof HTMLElement);
-    const tops = buttons.map((button) => button.getBoundingClientRect().top);
-    const heights = buttons.map((button) => button.getBoundingClientRect().height);
-    const minTop = Math.min(...tops);
-    const selected = tabs.querySelector('[aria-selected="true"]');
-    const selectedCs = selected instanceof HTMLElement ? getComputedStyle(selected) : null;
+    if (!(toolbar instanceof HTMLElement)) return null;
+    const searchCs = search instanceof HTMLElement ? getComputedStyle(search) : null;
     return {
-      flexWrap: cs.flexWrap,
-      overflowX: cs.overflowX,
-      clientWidth: tabs.clientWidth,
-      scrollWidth: tabs.scrollWidth,
+      clientWidth: toolbar.clientWidth,
       cardWidth: card instanceof HTMLElement ? card.clientWidth : 0,
-      sameRow: tops.every((top) => Math.abs(top - minTop) <= 2),
-      minHeight: Math.min(...heights),
-      selectedFont: selectedCs ? Number.parseFloat(selectedCs.fontSize) : 0,
-      selectedColor: selectedCs?.color || "",
+      searchHeight: search instanceof HTMLElement ? search.getBoundingClientRect().height : 0,
+      searchFont: searchCs ? Number.parseFloat(searchCs.fontSize) : 0,
     };
   });
   expect(metrics).toBeTruthy();
-  expect(metrics!.flexWrap).toBe("nowrap");
-  expect(["auto", "scroll", "overlay"]).toContain(metrics!.overflowX);
-  expect(metrics!.sameRow).toBe(true);
-  expect(metrics!.minHeight).toBeGreaterThanOrEqual(36);
-  expect(metrics!.selectedFont).toBeGreaterThanOrEqual(14);
-  expect(metrics!.selectedColor).not.toBe("rgba(0, 0, 0, 0)");
+  expect(metrics!.searchHeight).toBeGreaterThanOrEqual(36);
+  expect(metrics!.searchFont).toBeGreaterThanOrEqual(14);
   expect(Math.abs(metrics!.clientWidth - metrics!.cardWidth)).toBeLessThan(8);
 }
 
@@ -1036,8 +1022,8 @@ async function expectHomeFollowedRailWide(page: Page, viewportWidth: number) {
 async function expectFollowedKolStackedNoOverflow(page: Page, handle: string) {
   await expect(page.locator(`[data-followed-kol="${handle}"] [data-kol-band]`)).toHaveCount(5);
   await expectFollowedKolCardWraps(page, handle);
-  await expectFollowedKolListAlignsWithTabs(page);
-  await expectStageTabsSingleLine(page);
+  await expectFollowedKolListAlignsWithToolbar(page);
+  await expectObjectToolbarAligned(page);
   await expectNoHorizontalOverflow(page, "[data-home-modes]");
   await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
   await expectNoHorizontalOverflow(page, `[data-followed-kol="${handle}"]`);
@@ -1123,10 +1109,10 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expectFollowedKolHeadingRemoved(page);
   await expectFollowedKolStackedNoOverflow(page, "小美妆日记");
   await expectHomeFollowedRailWide(page, 1280);
-  const tabsBox = await page.locator("[data-kol-tabs]").boundingBox();
+  const toolbarBox = await page.locator("[data-followed-object-toolbar]").boundingBox();
   const cardBox = await card.boundingBox();
-  expect(tabsBox && cardBox).toBeTruthy();
-  expect(Math.abs((cardBox?.width || 0) - (tabsBox?.width || 0))).toBeLessThan(8);
+  expect(toolbarBox && cardBox).toBeTruthy();
+  expect(Math.abs((cardBox?.width || 0) - (toolbarBox?.width || 0))).toBeLessThan(8);
   await expect(card.locator("[data-mail-summary]")).toBeVisible();
   await expect(card.locator("[data-mail-summary]")).toContainText("想和贵品牌litime合作");
   await expect(card.locator('[data-kol-chip="mailbox"]')).toHaveText("larry.zhao@amperetime.com");
@@ -1164,15 +1150,15 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expectHomeFollowedRailWide(page, 1920);
 });
 
-test("home followed-KOL owner tabs stay one row and match card width", async ({ page }) => {
+test("home followed-KOL object toolbar matches card width", async ({ page }) => {
   await page.goto("/");
   await openHomeLifecycle(page);
-  await expectFollowedOwnerTabs(page);
+  await expectFollowedObjectToolbar(page);
   for (const width of [1280, 1600, 1920] as const) {
     await page.setViewportSize({ width, height: 900 });
     await expect(page.locator("[data-followed-kol-column]")).toBeVisible();
-    await expectFollowedKolListAlignsWithTabs(page);
-    await expectStageTabsSingleLine(page);
+    await expectFollowedKolListAlignsWithToolbar(page);
+    await expectObjectToolbarAligned(page);
     await expectHomeFollowedRailWide(page, width);
     await expectNoPageHorizontalScroll(page);
     await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
@@ -1300,7 +1286,7 @@ test("home followed-KOL default sort uses contract keys 1-8", async ({ page }) =
   await expect(page.locator("[data-kol-sorts]")).toHaveCount(0);
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("按需处理");
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("阶段停留");
-  await expectFollowedOwnerTabs(page);
+  await expectFollowedObjectToolbar(page);
 });
 
 test("home confirm CTA names the target stage and opens confirm_stage", async ({ page }) => {
@@ -3359,9 +3345,9 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await openHomeLifecycle(page);
   await expectHomeChromeRow(page);
   await expectFollowedKolHeadingRemoved(page);
-  await expectFollowedKolListAlignsWithTabs(page);
+  await expectFollowedKolListAlignsWithToolbar(page);
   await expectFollowedKolCardWraps(page, "小美妆日记");
-  await expectFollowedOwnerTabs(page);
+  await expectFollowedObjectToolbar(page);
   await expect(page.getByRole("link", { name: /查看KOL全生命周期/ })).toHaveCount(0);
   await expect(page.locator("[data-followed-kol]")).toHaveCount(4);
   await expect(page.locator("[data-followed-kol] [data-kol-band]")).toHaveCount(20);
@@ -3380,7 +3366,7 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   const ctaBox = await card.locator("[data-kol-band='cta']").boundingBox();
   expect(cardBox && identityBox && stateBox && factBox && recBox && ctaBox).toBeTruthy();
   expect((cardBox?.width || 0)).toBeLessThanOrEqual(1280);
-  await expectStageTabsSingleLine(page);
+  await expectObjectToolbarAligned(page);
   await expectNoHorizontalOverflow(page, "[data-home-modes]");
   await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
   await expectNoPageHorizontalScroll(page);
@@ -3388,8 +3374,11 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await expect(page.locator("[data-followed-kol]")).toHaveCount(1);
   await expect(page.locator("[data-followed-kol]")).toContainText("小美妆日记");
   await page.locator("[data-kol-stage-filter]").selectOption("");
-  await page.locator('[data-kol-tab="exception"]').click();
+  await page.locator("[data-followed-object-search]").fill("旅行电源菌");
+  await expect(page.locator("[data-followed-kol]")).toHaveCount(1);
   await expect(page.locator("[data-followed-kol]")).toContainText("旅行电源菌");
+  await page.locator("[data-kol-stage-filter]").selectOption("exception");
+  await expect(page.locator("[data-followed-kol]")).toHaveCount(1);
   const exceptionCard = page.locator('[data-followed-kol="旅行电源菌"]');
   await expect(exceptionCard.locator("[data-stage-label]")).toHaveText("争议中");
   await expect(exceptionCard.locator("[data-current-state]")).not.toContainText(" · 异常");

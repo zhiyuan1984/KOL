@@ -57,10 +57,12 @@ test("home four-panel tab order and pane visibility", async ({ page }) => {
   await expect(page.locator("[data-followed-kol-column]")).toBeVisible();
   await expect(page.locator("[data-followed-origin]")).toHaveAttribute("data-followed-origin", "collaboration");
   await expect(page.locator("[data-discovery-candidate]")).toHaveCount(0);
-  await expect(page.locator("[data-kol-tab]")).toHaveCount(6);
-  await expect(page.locator('[data-kol-tab="needs_me"]')).toBeVisible();
+  await expect(page.locator("[data-kol-tab]")).toHaveCount(0);
+  await expect(page.locator("[data-followed-object-search]")).toBeVisible();
+  await expect(page.locator('[data-kol-tab="needs_me"]')).toHaveCount(0);
   await expect(page.locator('[data-kol-tab="INITIAL_CONTACT"]')).toHaveCount(0);
   await expect(page.locator("[data-kol-stage-filter]")).toBeVisible();
+  await expect(page.locator('[data-home-pane="lifecycle"]')).not.toContainText("需要我处理");
   await expect(page.locator('[data-home-pane="lifecycle"]')).not.toContainText("正式阶段共 15 个");
 });
 
