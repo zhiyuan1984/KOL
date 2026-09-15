@@ -484,6 +484,7 @@ test("skills page 使用 on email_compose starts ask with intent email_compose",
   await expect(page.locator("[data-journey-guide]")).toHaveCount(0);
   await expect(page.locator("[data-funnel-tab]")).toHaveCount(0);
   await expect(page.locator('[data-hub-chip="reach"], [data-hub-chip="biz"], [data-hub-chip="settle"]')).toHaveCount(0);
+  await expect(page.locator("[data-hub-chrome], [data-hub-mode], [data-hub-mine]")).toHaveCount(0);
   await expect(page.locator("[data-skills-page='mine']")).not.toContainText("建联进度");
   await page.locator('[data-skill-use="email_compose"]').click();
   await page.waitForURL(/\/s\//);
@@ -2490,6 +2491,7 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator('[data-connector="starrykol"]')).toHaveCount(0);
   await expect(page.locator('[data-hub-chip="connectors"]')).toHaveCount(0);
   await expect(page.locator('[data-hub-mode="catalog"]')).toHaveText("技能目录");
+  await expect(page.locator('[data-hub-mode="partners"]')).toHaveCount(0);
   await expect(page.locator("[data-funnel-tab]")).toHaveCount(0);
   await expect(page.locator('[data-hub-chip="reach"]')).toHaveCount(0);
   await expect(page.locator('[data-hub-chip="biz"]')).toHaveCount(0);
@@ -2503,6 +2505,9 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator('[data-hub-banner="email_compose"]')).toBeVisible();
   await page.goto("/skills");
   await expect(page.locator("[data-skills-page='mine']")).toBeVisible();
+  await expect(page.locator("[data-skills-chrome='mine']")).toBeVisible();
+  await expect(page.locator("[data-hub-chrome]")).toHaveCount(0);
+  await expect(page.locator('[data-hub-mode="catalog"], [data-hub-mode="partners"], [data-hub-mine]')).toHaveCount(0);
   await expect(page.locator('[data-skill="email_compose"]')).toBeVisible();
   await expect(page.locator("[data-journey-guide]")).toHaveCount(0);
   await page.goto("/agents");
@@ -2626,6 +2631,41 @@ test("expert center list → detail → summon binds a session without send/stag
   expect(sideEffects).toEqual([]);
 });
 
+test("my skills page distinguishes load error from empty list", async ({ page }) => {
+  await page.route("**/api/skills", async (route) => {
+    if (route.request().method() !== "GET" || new URL(route.request().url()).pathname !== "/api/skills") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "无法加载我的技能" }),
+    });
+  });
+  await page.goto("/skills");
+  await expect(page.locator("[data-skills-error]")).toContainText("无法加载我的技能");
+  await expect(page.locator("[data-skills-empty]")).toHaveCount(0);
+});
+
+test("skill hub distinguishes load error from empty catalog", async ({ page }) => {
+  await page.route("**/api/skills/market", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 500,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "无法加载技能目录" }),
+    });
+  });
+  await page.goto("/market/skills");
+  await expect(page.locator("[data-hub-error]")).toContainText("无法加载技能目录");
+  await expect(page.locator("[data-hub-empty]")).toHaveCount(0);
+  await expect(page.locator("[data-hub-featured]")).toHaveCount(0);
+});
+
 test("admin debug toggle reveals connector tiles on the skill hub", async ({ page }) => {
   await page.goto("/market/skills");
   await expect(page.locator(".workbench")).toHaveAttribute("data-view-mode", "business");
@@ -2718,6 +2758,8 @@ test("approval, knowledge, and exam are vertical primary nav items before cloud"
   await expect(exam.locator(".page-kicker")).toHaveText("考试");
   await expect(exam.getByRole("heading", { name: "考试未就绪" })).toBeVisible();
   await expect(exam.locator("[data-exam-empty='unready']")).toBeVisible();
+  await expect(exam).not.toContainText("闸门");
+  await expect(exam).not.toContainText("体验账号");
   await expect(exam.getByRole("button", { name: "完成考试" })).toHaveCount(0);
   await expect(exam.locator("[data-persona-switch], [data-persona]")).toHaveCount(0);
   await expect(exam.getByRole("heading", { name: "演示身份" })).toHaveCount(0);
@@ -2728,7 +2770,9 @@ test("employee exam stays unready and never one-click passes", async ({ page, re
   await page.goto("/exam");
   const exam = page.locator("[data-exam-page]");
   await expect(exam.getByRole("heading", { name: "考试未就绪" })).toBeVisible();
-  await expect(exam.locator("[data-exam-gate='blocked']")).toContainText("发信仍会被考试闸门拦住");
+  await expect(exam.locator("[data-exam-gate='blocked']")).toContainText("开通前不能完成考试");
+  await expect(exam).not.toContainText("闸门");
+  await expect(exam).not.toContainText("体验账号");
   await expect(exam.getByRole("button", { name: "完成考试" })).toHaveCount(0);
   await expect(exam.locator("[data-persona]")).toHaveCount(0);
   await expect(page.locator('[data-nav="exam"] .nav-badge')).toContainText("待完成");
@@ -2759,30 +2803,30 @@ test("employee sidebar puts cron in today cluster and hides group titles", async
   await expect(today.locator('[data-nav="cron"]')).toHaveClass(/active/);
 });
 
-test("employee partners path has no pipeline hero or admin squad links", async ({ page }) => {
+test("employee partners path is an honest stub, not a Home or skill board", async ({ page }) => {
+  const boardHits: string[] = [];
   const pipelineHits: string[] = [];
   page.on("request", (request) => {
+    if (request.url().includes("/api/home/board")) boardHits.push(request.url());
     if (request.url().includes("/api/pipeline")) pipelineHits.push(request.url());
   });
   await page.goto("/partners");
-  await expect(page.locator("[data-skill-hub='partners']")).toBeVisible();
-  await expect(page.locator('[data-hub-banner="pipeline"]')).toHaveCount(0);
-  await expect(page.locator('[data-hub-banner="squad"]')).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "全生命周期管理" })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "品牌小队" })).toHaveCount(0);
+  await expect(page.locator("[data-partners-page='stub']")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "工作伙伴" })).toBeVisible();
+  await expect(page.locator("[data-partners-lead]")).toContainText("不是首页「我跟进的红人」");
+  await expect(page.locator("[data-partners-home]")).toHaveAttribute("href", "/");
+  await expect(page.locator("[data-skill-hub]")).toHaveCount(0);
+  await expect(page.locator("[data-hub-chrome], [data-hub-mode], [data-partner]")).toHaveCount(0);
   await expect(page.locator('a[href="/pipeline"]')).toHaveCount(0);
-  await expect(page.locator('a[href="/admin"], a[href="/admin/connectors"], [data-partner^="brand-"]')).toHaveCount(0);
-  await expect(page.locator('[data-hub-chip="squad"], [data-hub-chip="approvals"], [data-hub-chip="kols"]')).toHaveCount(0);
-  await expect(page.locator('[data-hub-mode="partners"]')).toHaveText("工作伙伴");
-  await expect(page.locator("[data-skill-hub='partners']")).not.toContainText("LiTime 小队");
-  await expect(page.locator("[data-skill-hub='partners']")).not.toContainText("15 个正式阶段");
-  await expect(page.locator("[data-skill-hub='partners']")).not.toContainText("初步接触");
-  await expect(page.locator("[data-skill-hub='partners']")).not.toContainText("报价待确认");
-  await expect(page.locator("[data-hub-new]")).toHaveCount(0);
+  await expect(page.locator('a[href="/admin"], a[href="/admin/connectors"]')).toHaveCount(0);
+  await expect(page.locator('[data-nav="skills"].active')).toHaveCount(0);
   await expect.poll(() => pipelineHits).toEqual([]);
-  const partner = page.locator("[data-partner]").first();
-  if (await partner.count()) {
-    await expect(partner).toHaveAttribute("data-partner-follow", /跟进中|需关注|待跟进|未绑定邮箱/);
+  await expect.poll(() => boardHits).toEqual([]);
+  await page.locator(".user-chip").click();
+  if (await page.locator("[data-debug-toggle]").count()) {
+    await page.locator("[data-debug-toggle]").click();
+    await expect(page.locator('[data-nav="skills"]')).toBeVisible();
+    await expect(page.locator('[data-nav="skills"]')).not.toHaveClass(/active/);
   }
 });
 
@@ -3044,8 +3088,12 @@ test("admin and settings expose bind Starry mailbox menus", async ({ page }) => 
   await expect(page).toHaveURL(/\/settings\?tab=starry/);
   await expect(page.getByRole("tab", { name: "连接 Starry" })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-starry-bind]")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "连接 Starry KOL" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "绑定跟进邮箱" })).toBeVisible();
   await expect(page.getByRole("button", { name: "读取可用邮箱" })).toBeVisible();
+  await expect(page.locator("[data-starry-bind]")).not.toContainText("JWT");
+  await expect(page.locator("[data-starry-bind]")).not.toContainText("Bearer");
+  await expect(page.locator("[data-starry-bind]")).not.toContainText("Host");
+  await expect(page.locator("textarea[name='bearer']")).toHaveCount(0);
 
   await page.goto("/admin");
   await expect(page.locator('[data-admin-nav="starry"], [data-admin-tab="starry"]')).toHaveCount(0);
@@ -3074,6 +3122,16 @@ test("settings delete memory uses L3 confirm and keeps a durable receipt", async
   await expect(dialog.locator("[data-admin-confirm-object]")).toContainText("测试记忆");
   await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("本账号 Markdown 记忆");
   await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("不可恢复");
+  await expect(dialog.locator("[data-admin-confirm-reason]")).toBeVisible();
+  await page.locator("[data-admin-confirm-cancel]").click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator("[role='alert']")).toContainText("拒绝原因");
+  await dialog.locator("[data-admin-confirm-reason]").fill("先不删，还要对照");
+  await page.locator("[data-admin-confirm-cancel]").click();
+  await expect(dialog).toHaveCount(0);
+  await editor.locator("[data-memory-delete]").click();
+  await expect(dialog).toBeVisible();
+  await dialog.locator("[data-admin-confirm-reason]").fill("这条记忆不再需要");
   await page.locator("[data-admin-confirm-ok]").click();
   const receipt = page.locator("[data-settings-receipt='memory-delete']");
   await expect(receipt).toBeVisible();
@@ -3102,6 +3160,16 @@ test("settings delete session uses L3 confirm and keeps a durable receipt", asyn
   await expect(dialog.locator("[data-admin-confirm-object]")).not.toHaveText("");
   await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("消息、草稿、运行箱");
   await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("合规迁移记录保留");
+  await expect(dialog.locator("[data-admin-confirm-reason]")).toBeVisible();
+  await page.locator("[data-admin-confirm-cancel]").click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator("[role='alert']")).toContainText("拒绝原因");
+  await dialog.locator("[data-admin-confirm-reason]").fill("误点，先保留会话");
+  await page.locator("[data-admin-confirm-cancel]").click();
+  await expect(dialog).toHaveCount(0);
+  await page.locator("[data-session-delete]").first().click();
+  await expect(dialog).toBeVisible();
+  await dialog.locator("[data-admin-confirm-reason]").fill("会话已结束");
   await page.locator("[data-admin-confirm-ok]").click();
   const receipt = page.locator("[data-settings-receipt='session-delete']");
   await expect(receipt).toBeVisible();
@@ -3138,6 +3206,16 @@ test("settings unbind Starry uses L3 confirm and keeps a durable receipt", async
   await expect(dialog.locator("[data-admin-confirm-object]")).toContainText("lt.ops@example.com");
   await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("个人跟进邮箱绑定");
   await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("我跟进的红人");
+  await expect(dialog.locator("[data-admin-confirm-reason]")).toBeVisible();
+  await page.locator("[data-admin-confirm-cancel]").click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator("[role='alert']")).toContainText("拒绝原因");
+  await dialog.locator("[data-admin-confirm-reason]").fill("还要继续用这个邮箱");
+  await page.locator("[data-admin-confirm-cancel]").click();
+  await expect(dialog).toHaveCount(0);
+  await page.locator("[data-starry-unbind]").click();
+  await expect(dialog).toBeVisible();
+  await dialog.locator("[data-admin-confirm-reason]").fill("换绑另一只邮箱");
   await page.locator("[data-admin-confirm-ok]").click();
   const receipt = page.locator("[data-settings-receipt='starry-unbind']");
   await expect(receipt).toBeVisible();
@@ -3922,6 +4000,14 @@ test("cited knowledge template appears in the home picker and only prefills", as
   await expect(page.locator("[data-home] [data-knowledge-preview='kb_mail_followup']")).toHaveAttribute("data-knowledge-preview-mode", "lock");
   await expect(page.locator("[data-home] [data-knowledge-preview-body]")).toHaveCount(0);
   await expect(page.locator("[data-home] [data-knowledge-preview-title]")).toContainText("阶段跟进");
+});
+
+test("employee knowledge market URL redirects to /kb", async ({ page }) => {
+  await page.goto("/market/kb");
+  await expect(page).toHaveURL(/\/kb$/);
+  await expect(page.locator("[data-kb-page='mine']")).toBeVisible();
+  await expect(page.locator("[data-kb-page='market']")).toHaveCount(0);
+  await expect(page.locator(".kb-lead")).not.toContainText("知识市场");
 });
 
 test("employee knowledge base uses task copy, category tabs, and a content drawer", async ({ page }) => {

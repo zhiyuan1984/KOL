@@ -189,6 +189,10 @@ export function useAdminConfirm(): { ask: AskAdminConfirm; dialog: ReactNode } {
       error={error}
       onCancel={() => {
         if (busy) return;
+        if (pending?.requireReason && !reason.trim()) {
+          setError(pending.reasonLabel || "请填写原因");
+          return;
+        }
         setPending(null);
         setError("");
         setReason("");

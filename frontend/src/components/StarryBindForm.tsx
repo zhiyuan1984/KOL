@@ -26,15 +26,14 @@ export default function StarryBindForm({
     void load();
   }, []);
 
-  const bearerFrom = (form: HTMLFormElement) => String(new FormData(form).get("bearer") || "").trim();
+  const expired = binding.bound && binding.status === "expired";
 
-  const probe = async (form: HTMLFormElement) => {
-    const bearer = bearerFrom(form);
+  const probe = async () => {
     setBusy("probe");
     setError("");
     setNotice("");
     try {
-      const result = await api.probeStarryBinding(bearer ? { bearer } : {});
+      const result = await api.probeStarryBinding();
       setMailboxes(result.mailboxes || []);
       const unique = result.mailboxes.length === 1 ? result.mailboxes[0] : undefined;
       setChosen(unique?.mailbox_email || "");
@@ -46,8 +45,7 @@ export default function StarryBindForm({
     }
   };
 
-  const save = async (form: HTMLFormElement) => {
-    const bearer = bearerFrom(form);
+  const save = async () => {
     if (!chosen) {
       setError("请选择要绑定的发件邮箱");
       return;
@@ -60,7 +58,6 @@ export default function StarryBindForm({
         mailbox_email: chosen,
         mailbox_id: picked?.id,
         owner_name: picked?.owner_name,
-        bearer: bearer || undefined,
       });
       setBinding(saved);
       setNotice(`已连接 ${saved.mailbox_email}${saved.owner_name ? ` · ${saved.owner_name}` : ""}`);
@@ -74,13 +71,13 @@ export default function StarryBindForm({
 
   return (
     <section className="panel settings-form" data-starry-bind>
-      <h2>连接 Starry KOL</h2>
-      <p className="muted">把当前灵工账号绑到一个 Starry 发件箱。首页「我跟进的红人」只显示该邮箱负责人跟进的红人。JWT 不会回显。</p>
+      <h2>绑定跟进邮箱</h2>
+      <p className="muted">选择要绑定的跟进邮箱。首页「我跟进的红人」只显示该邮箱负责人跟进的红人。</p>
       {binding.bound ? (
         <p className="status-ok" data-starry-status="connected">
           已连接 · {binding.mailbox_email}
           {binding.owner_name ? ` · ${binding.owner_name}` : ""}
-          {binding.status === "expired" ? " · 已过期" : ""}
+          {expired ? " · 已过期" : ""}
         </p>
       ) : (
         <p className="muted" data-starry-status="unbound">尚未绑定跟进邮箱。</p>
@@ -90,25 +87,18 @@ export default function StarryBindForm({
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          void (mailboxes.length ? save(event.currentTarget) : probe(event.currentTarget));
+          void (mailboxes.length ? save() : probe());
         }}
       >
-        <label className="field">
-          Starry 用户 JWT（可选）
-          <textarea name="bearer" rows={3} autoComplete="off" spellCheck={false} placeholder="已配置 Host Bearer 时可留空；过期时再粘贴新的 JWT" />
-        </label>
         <div className="actions">
           <button
             className="btn"
             type="button"
             data-starry-probe
             disabled={Boolean(busy)}
-            onClick={(event) => {
-              const form = event.currentTarget.form;
-              if (form) void probe(form);
-            }}
+            onClick={() => void probe()}
           >
-            {busy === "probe" ? "读取中…" : "读取可用邮箱"}
+            {busy === "probe" ? "验证中…" : expired ? "重新验证" : "读取可用邮箱"}
           </button>
         </div>
         {mailboxes.length ? (

@@ -2,26 +2,32 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { storePending } from "../components/ChatBlocks";
-import { HubTile, SkillHubChrome, skillKind, type SkillRow } from "./SkillHub";
+import { HubTile, skillKind, type SkillRow } from "./SkillHub";
 import { rememberJourney } from "../journey";
 import { profileNameLabel } from "../labels";
 import { REMOTE_BACKEND_LABEL, remoteForSkill } from "../agentConfig";
 import { useViewMode } from "../viewMode";
 import { brandLabel } from "../knowledgeCopy";
 
-export function Skills({ market = false }: { market?: boolean }) {
+export function Skills() {
   const { debug } = useViewMode();
   const [rows, setRows] = useState<SkillRow[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
   const [q, setQ] = useState("");
+  const [loading, setLoading] = useState(true);
   const nav = useNavigate();
 
   useEffect(() => {
-    (market ? api.skillMarket() : api.skills()).then((data: unknown) => {
-      setRows(Array.isArray(data) ? (data as SkillRow[]) : []);
-    });
-  }, [market]);
+    setLoading(true);
+    api.skills()
+      .then((data: unknown) => {
+        setRows(Array.isArray(data) ? (data as SkillRow[]) : []);
+        setErr("");
+      })
+      .catch((e) => setErr(e instanceof Error ? e.message : "无法加载我的技能"))
+      .finally(() => setLoading(false));
+  }, []);
 
   const useSkill = async (s: SkillRow) => {
     const label = s.label || s.title;
@@ -49,11 +55,31 @@ export function Skills({ market = false }: { market?: boolean }) {
 
   return (
     <div className="hub-page skills-page" data-skills-page="mine">
-      <SkillHubChrome mode="mine" q={q} onQ={setQ} />
+      <header className="hub-chrome" data-skills-chrome="mine">
+        <div>
+          <div className="page-kicker">技能</div>
+          <h1 className="hub-section-title">我的技能</h1>
+        </div>
+        <div className="hub-tools">
+          <label className="hub-search-wrap">
+            <svg viewBox="0 0 24 24" aria-hidden>
+              <circle cx="11" cy="11" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.7" />
+              <path d="M16 16.4 20 20.4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+            </svg>
+            <input
+              className="hub-search"
+              data-hub-search
+              placeholder="搜索技能"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </label>
+        </div>
+      </header>
       <p className="hub-lead muted">已授权、可用于当前任务的技能。</p>
-      {err && <p className="error">{err}</p>}
+      {err && <p className="error" role="alert" data-skills-error>{err}</p>}
+      {loading && !err && <p className="muted" data-skills-loading>正在加载技能…</p>}
       <section>
-        <h2 className="hub-section-title">我的技能</h2>
         <div className="hub-grid">
           {skills.map((s) => (
             <HubTile
@@ -70,7 +96,9 @@ export function Skills({ market = false }: { market?: boolean }) {
             />
           ))}
         </div>
-        {skills.length === 0 && <p className="muted hub-empty">没有匹配的技能</p>}
+        {!loading && !err && skills.length === 0 && (
+          <p className="muted hub-empty" data-skills-empty>没有匹配的技能</p>
+        )}
       </section>
     </div>
   );
