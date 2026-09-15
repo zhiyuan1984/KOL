@@ -1,10 +1,10 @@
 # 代码与运行手册
 
-本手册是代码地图，不定义业务规则。规则以 `00`–`13` 主线和真实物理资料为准。
+本手册是代码地图，不定义业务规则。规则以 [`LAW-MAP.md`](LAW-MAP.md) 的 A–K 与真实物理资料（K）为准，不要按 `00`–`21` 编号当主线。
 
 ## 阅读顺序
 
-先读 `00-platform-charter.md`、`01-organization-tenancy.md`、`03-prd-and-functional-spec.md`、`05-agent-workflow-skill-policy.md`、`06-codex-harness.md`，再读目标模块的 Skill、MCP 物理资料和测试。
+先按 A–K 定位法律层（入口 [`README.md`](README.md)），再读目标模块的 Skill、MCP 物理资料和测试。典型实现再打开 `06`（harness 手册）即可。
 
 ## 修改归属
 

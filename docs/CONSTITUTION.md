@@ -1,6 +1,6 @@
 # 智能体中台产品与 UI 宪法
 
-> 所有产品与 UI 工作必须读取。本产品是**智能体中台 / Agent middle platform** 工作台，不是 KOL 专用壳。本文件只保存跨页面、长期稳定且违反后会造成产品错误的规则；细节由 `CONTEXT-MANIFEST.md` 按任务加载。
+> 所有产品与 UI 工作必须读取。本产品是**智能体中台 / Agent middle platform** 工作台，不是 KOL 专用壳。本文件只保存跨页面、长期稳定且违反后会造成产品错误的规则；细节由 `CONTEXT-MANIFEST.md` 按任务加载。权威分层见 [`LAW-MAP.md`](LAW-MAP.md)（A–K）。已删的 `04` / `19` 不再承担过程图 / IA / 技术法；分别见 E [`stage-graph.md`](stage-graph.md)、H [`ia-information-architecture.md`](ia-information-architecture.md)、J [`technical-constitution.md`](technical-constitution.md)。
 >
 > `design-system/kol-workbench/` 是现行视觉皮肤的路径名（KOL 试点皮肤），不是产品身份；不要把该目录名读成「本平台只做 KOL」。一等能力清单与试点元条款见 §4.1–4.2（ADR-023，用户锁定 2026-09-14）。
 
@@ -10,11 +10,14 @@
 
 | 冲突领域 | 最终权威 |
 |---|---|
-| 安全、权限、租户边界、数据事实 | FS、Policy、数据契约 |
-| 产品闭环、页面职责、跨页面边界 | 本宪法 |
-| 可执行交互与发布验收 | `CONSTITUTION.md` §4–5、派生的 `specs/UX-EMPLOYEE.md`、`specs/ux-traceability.json` |
-| 全局视觉、组件、响应式、无障碍参数 | `design-system/kol-workbench/MASTER.md` |
+| 安全、权限、租户边界、数据事实 | C / F / K：FS、Policy、数据契约 |
+| 产品闭环、页面职责、跨页面边界 | 本宪法（B） |
+| 合法转移 / 过程图 | E `stage-graph.md`（矩阵由兄弟 track 写） |
+| 可执行交互与发布验收 | G：本宪法 §4–5、派生的 `specs/UX-EMPLOYEE.md`、`specs/ux-traceability.json` |
+| IA 约束 | H `ia-information-architecture.md`（兄弟 track；落地前以本宪法 §4 与 `21` 为准） |
+| 全局视觉 token | I：`design-system/kol-workbench/MASTER.md`（token 源；设计法见 `design.md`） |
 | 单页布局与状态差异 | `design-system/kol-workbench/pages/<page>.md` |
+| 技术内核边界 | J `technical-constitution.md`（兄弟 track） |
 
 低层文档不能改写高层领域的规则；上层也不能越权覆盖安全、权限或真实数据。重大冲突记录到 `docs/DECISIONS.md`，文字澄清和路径修正直接同步相关文档。
 
