@@ -6,7 +6,7 @@
 >
 > **Token 源**仍是 [`design-system/kol-workbench/MASTER.md`](design-system/kol-workbench/MASTER.md)（KOL 试点皮肤目录名，不是产品身份）。单页布局与状态在 [`design-system/kol-workbench/pages/`](design-system/kol-workbench/pages/)。
 >
-> **默认观感**是 OpenAI-quiet（安静白底、低饱和、发丝级阴影、排版克制）。mood/spec 来源是 [`references/openai-style.md`](references/openai-style.md)。**token 数值仍只住 MASTER**，但 MASTER 与 OpenAI 在审美 / 布局 / 字体 / 间距 / 阴影 / mood / 主 CTA 上冲突时，**OpenAI 胜**（ADR-031）；胜出后必须和解 MASTER，禁止把冲突 hex 留在 MASTER 当胜出法。填充主按钮：OpenAI 黑色 / Obsidian 实底胜于蓝 `--primary`。CSS token 同步另开 FE PR。这不是 Linear-first 品牌。
+> **默认观感**是 OpenAI-quiet（安静白底、低饱和、发丝级阴影、排版克制）。mood/spec 来源是 [`references/openai-style.md`](references/openai-style.md)。**token 数值仍只住 MASTER**，但 MASTER 与 OpenAI 在审美 / 布局 / 字体 / 间距 / 阴影 / mood / 主 CTA 上冲突时，**OpenAI 胜**（ADR-031）；胜出后必须和解 MASTER，禁止把冲突 hex 留在 MASTER 当胜出法。填充主按钮：OpenAI 黑色 / Obsidian 实底。MASTER 与 `styles.css` 已按该胜出值和解。这不是 Linear-first 品牌。
 >
 > **禁止**在本文件写入或复制十六进制色值、业务规则、阶段图、权限模型。冲突时：安全 / 权限 / 数据 → FS / Policy；页面职责 / IA / L1–L3 / SEND≠STAGE → [`CONSTITUTION.md`](CONSTITUTION.md) §4 与 [`ia-information-architecture.md`](ia-information-architecture.md)（高于审美工具）；审美冲突 → OpenAI 胜，再和解 MASTER。
 >
@@ -30,7 +30,7 @@ CONSTITUTION.md §4（表面职责；L1–L3 / SEND≠STAGE 高于审美）
 1. 先用本文件确认：**改视觉读哪份、禁止写什么**。默认观感走 OpenAI-quiet。`ui-ux-pro-max` 是外观 UIUX 的必经分析步，不是「仅针对未解决问题」的末端对照。
 2. 需要主色 / 辅色 / 危险 / 成功、边框、圆角、字号阶梯时，打开 MASTER 对应节，**按 token 名引用**，不要把 hex 从 MASTER 或 `openai-style.md` 抄回本文件或新页面。MASTER 若与 OpenAI 冲突，先和解 MASTER，再引用。
 3. 做某一个页面时，再读 `pages/<page>.md`。它覆盖该页布局、状态矩阵和响应式差异，不覆盖 MASTER token，也不覆盖宪法 / IA。
-4. `frontend/src/styles.css` 是 token 的实现事实；改数值必须同时改 CSS 与 MASTER，不在本文件改。OpenAI 胜出后的 `--primary` / 阴影 / `--font-*` 等 CSS 同步另开 FE PR。
+4. `frontend/src/styles.css` 是 token 的实现事实；改数值必须同时改 CSS 与 MASTER，不在本文件改。`--primary` / 阴影 / `--font-*` 已与 OpenAI 胜出值和解。
 
 `docs/20-visual-design-system.md` 只是迁移索引，不是实施入口。
 
