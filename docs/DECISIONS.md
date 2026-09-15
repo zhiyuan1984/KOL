@@ -6,6 +6,7 @@
 
 | 日期 | 记录 | 说明 |
 |---|---|---|
+| 2026-09-15 | Host / Codex / MCP / Gateway / TS 边界立法为 `technical-constitution.md`（class J）。不写业务阶段邻接；物理限制不升格为产品法 | 折叠 ADR-001 / 005 / 006 精神。细则仍 `06` / `07` / `14`。文档 only。不 LIVE。 |
 | 2026-09-15 | #105 之后法律层重组为 A–K。目录 `LAW-MAP.md`；导航不再以 `00`–`21` 为主线。`design.md` = `docs/design.md`（MASTER 仍是 token）。ADR-011 由阶段图兄弟 track 废止 | 见 ADR-026。文档 only。不 LIVE。不发明阶段边。 |
 | 2026-09-15 | 删除全部 `docs/evidence-*`、`04`、`19`、`employee-surface-contracts.md`、`FS-KOL-006`、`FS-KOL-010`、ADR-018、ADR-022。必须项只留在宪法 + 瘦 `UX-EMPLOYEE` | 用户锁定。见 ADR-025。文档 / 契约 only。不 LIVE。 |
 | 2026-09-15 | 删除过细 UX 合同 `UX-KOL.md`、`UX-FOLLOWED-KOL-CARD.md`，以及把 `UX-SEND-NE-STAGE` 当独立合同 ID 的绑定。瘦契约 `specs/UX-EMPLOYEE.md` 只从宪法派生。门禁硬不变量只留 `SEND_NE_STAGE`、`L3_CONFIRM` | 见 ADR-024 / ADR-025。 |
@@ -22,12 +23,12 @@
 
 | ID | 决策 | 依据 |
 |---|---|---|
-| ADR-001 | Codex harness = Codex app-server；Host 是内核，不是业务调度器 | `06-codex-harness.md` |
+| ADR-001 | Codex harness = Codex app-server；Host 是内核，不是业务调度器 | `technical-constitution.md`（class J）、`06-codex-harness.md` |
 | ADR-002 | 组织树与品牌维度分离；LT/PQ/RO/TB 是品牌 | `01-organization-tenancy.md`、`12-kol-agent.md` |
 | ADR-003 | 展示 8 段与正式写入 15 阶段分离 | `05-agent-workflow-skill-policy.md` |
 | ADR-004 | 草稿、发送、阶段变更是独立产物和动作 | `03-prd-and-functional-spec.md`、`08-permission-approval-audit.md` |
-| ADR-005 | Stub 只用于确定性测试，真实验收必须走 app-server + 授权 MCP | `06-codex-harness.md`、`10-test-evaluation.md` |
-| ADR-006 | 新增 Agent 以配置、Skill、Workflow、Policy、MCP 声明为主 | `13-migration-roadmap.md` |
+| ADR-005 | Stub 只用于确定性测试，真实验收必须走 app-server + 授权 MCP | `technical-constitution.md`（class J）、`06-codex-harness.md`、`10-test-evaluation.md` |
+| ADR-006 | 新增 Agent 以配置、Skill、Workflow、Policy、MCP 声明为主 | `technical-constitution.md`（class J）、`13-migration-roadmap.md` |
 | ADR-007 | 新增 Agent 分为配置型、Skill 型、MCP 型、内核型；配置化不代表零代码 | `agents/kol/manifest.yaml`、`13-migration-roadmap.md` |
 | ADR-008 | Starry MCP 不是独立组织授权源，但其邮箱负责人/授权结果可与已确认组织证据和 registry 绑定共同完成安培时代试点 PEP 核验 | `18-mcp-master-data-assessment.md`、`01-organization-tenancy.md` |
 | ADR-009 | 安培时代部门负责人（张慧玲、刘敏）自动拥有公司全部品牌、区域和普通业务数据读写；高风险动作仍受 Gateway/确认/审批约束 | `config/org-registry.yaml`、`01-organization-tenancy.md` |

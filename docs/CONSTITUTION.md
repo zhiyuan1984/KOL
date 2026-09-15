@@ -17,7 +17,7 @@
 | IA 约束 | H `ia-information-architecture.md`（兄弟 track；落地前以本宪法 §4 与 `21` 为准） |
 | 全局视觉 token | I：`design-system/kol-workbench/MASTER.md`（token 源；设计法见 `design.md`） |
 | 单页布局与状态差异 | `design-system/kol-workbench/pages/<page>.md` |
-| 技术内核边界 | J `technical-constitution.md`（兄弟 track） |
+| Host、Codex、MCP、Gateway、TypeScript 仓库边界 | J [`technical-constitution.md`](technical-constitution.md) |
 
 低层文档不能改写高层领域的规则；上层也不能越权覆盖安全、权限或真实数据。重大冲突记录到 `docs/DECISIONS.md`，文字澄清和路径修正直接同步相关文档。
 

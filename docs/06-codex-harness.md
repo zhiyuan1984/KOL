@@ -1,5 +1,7 @@
 # Codex harness 与 Host 执行契约
 
+> 技术入口：`docs/technical-constitution.md`（**class J**）。本文件是 Codex / Host 执行细则；冲突时服从技术宪法，不在此重立法。
+
 Codex harness 唯一指 Codex app-server：负责意图理解、Skill 选择、字段抽取、Workflow 编排、授权 MCP 调用、Item/草稿/建议和继续执行。Host 是平台内核：负责会话 HTTP、租户与 PEP、状态、审批、事务、幂等、超时、熔断、审计和外部副作用提交。
 
 对于已确认的部门负责人，CONTEXT 还必须携带 `department_head_scope_policy`；其 `brand_scope` 和 `region_scope` 为 `all`，普通业务数据动作允许 `read/write`，但不得据此绕过高风险 Gateway。

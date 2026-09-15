@@ -19,11 +19,11 @@
 | **G** 交互原则 | [`specs/UX-EMPLOYEE.md`](../specs/UX-EMPLOYEE.md) | 员工 UX；门禁只认 `SEND_NE_STAGE`、`L3_CONFIRM` |
 | **H** IA 约束 | [`ia-information-architecture.md`](ia-information-architecture.md) | 导航 / 簇 / 谁答哪一问（兄弟 track） |
 | **I** UI 设计 | [`design.md`](design.md) | 页面视觉法；**token 仍是** [`MASTER.md`](design-system/kol-workbench/MASTER.md) |
-| **J** 技术宪法 | [`technical-constitution.md`](technical-constitution.md) | Host / 内核边界（兄弟 track） |
+| **J** 技术宪法 | [`technical-constitution.md`](technical-constitution.md) | Host / Codex / MCP / Gateway / 仓库边界 |
 | **K** 集成 / 物理 | [`07`](07-mcp-data-contract.md)、[`../schemas/`](../schemas/)、物理 MCP 目录 | 真实工具、schema、接口漂移 |
 | **ADR** | [`DECISIONS.md`](DECISIONS.md) | 只追溯决策；不覆盖 A–K |
 
-H / I / J 正文由兄弟 track 创建；E 目前是占位。已删的 `04` / `19` / `evidence-*` 不是任何一层。
+H / I 正文由兄弟 track 创建；J 已落地为 [`technical-constitution.md`](technical-constitution.md)。E 目前是占位。已删的 `04` / `19` / `evidence-*` 不是任何一层。
 
 ## 最终使用方法
 
@@ -46,11 +46,12 @@ B 中相关边界
 → D 对象 / 字典
 → E 阶段图（矩阵未写入前：不发明边；闸门仍走 F 的 Policy）
 → F 对应 FS / Policy
-→ K MCP / schema
-→ J 技术宪法（落地后）+ traceability 测试与红线
+→ J `technical-constitution.md`（Host / Codex / Gateway 边界）
+→ K MCP / schema（`06` / `07` / `14` 为细则）
+→ traceability 测试与红线
 ```
 
-安全、权限、租户边界和真实数据永远以 C / F / K 为准，不能被 G 或 I 覆盖。
+安全、权限、租户边界和真实数据永远以 C / F / K 为准，不能被 G 或 I 覆盖。Host / Codex / Gateway 边界以 J 技术宪法为准。
 
 ### 验收或回归
 
@@ -79,7 +80,7 @@ B 中相关边界
 | 可执行交互与发布验收 | G | `UX-EMPLOYEE.md`（派生自 B §4–5） |
 | 导航 / 簇 / 页面只答一问 | H | `ia-information-architecture.md`（待创建）；在此之前 B §4 + `21` |
 | 页面视觉与布局 | I | `design.md`（待创建）；token = `MASTER.md` |
-| Host / 内核边界 | J | `technical-constitution.md`（待创建） |
+| Host / 内核边界 | J | `technical-constitution.md` |
 | 真实 MCP 与 IO | K | `07`、`schemas/`、物理目录 |
 
 ### 平台能力 vs KOL 试点
@@ -87,6 +88,7 @@ B 中相关边界
 | 问题 | 读取并服从 |
 |---|---|
 | 哪些面是一等能力、KOL 是否等于平台壳 | B `CONSTITUTION.md` §4.1–4.2（ADR-023） |
+| Host / Codex / MCP / Gateway / 仓库边界 | J `technical-constitution.md`；细则 `06` / `07` / `14` |
 | 使用 ≠ 治理 | C `21`、ADR-013 |
 | KOL 试点域（Pipeline、AI发现、我跟进的红人、报价邮件） | B §4.2、F `12-kol-agent.md`。Pipeline 页可深链 / CTA，不是必挂侧栏 |
 
