@@ -1,5 +1,7 @@
 # 文档到实现的落地契约
 
+> 技术入口：`docs/technical-constitution.md`（**class J**）。本文件回答 Markdown 如何落到代码、Skill、知识库和前后端。配置与文档不能绕过 Host 内核；冲突时服从技术宪法。
+
 本文件回答“Markdown 如何指导代码、Skill、知识库、前端和后端”。Markdown 不是代码本身；只有能被校验、生成、测试或追踪的内容才算实现契约。
 
 ## 文档类型与落点
@@ -7,6 +9,7 @@
 | 主线文档 | 必须落到的实现资产 | 责任人 |
 |---|---|---|
 | `00-platform-charter` | 评审门禁、角色签署、CI 发布规则 | 产品/工程/测试/SRE |
+| `technical-constitution`（class J） | Host 闸门、Codex/Stub、Gateway 写路径、仓库边界、`validate-contracts` | 工程/安全 |
 | `01-organization-tenancy` | 组织主数据、关系表、权限上下文、Admin API | 后端/安全 |
 | `02-domain-model` | 领域 schema、实体迁移、Agent manifest | 后端/产品 |
 | `03-prd-and-functional-spec` | `specs/FS-*.md`、用户故事、API/事件契约、验收测试 | 产品/测试 |

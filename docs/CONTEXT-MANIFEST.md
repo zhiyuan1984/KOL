@@ -5,7 +5,7 @@
 ## 固定入口
 
 1. 用 [`LAW-MAP.md`](LAW-MAP.md) 判断问题属于 A–K 哪一层。
-2. 任何实现任务再读 **B** [`CONSTITUTION.md`](CONSTITUTION.md)（§4.1 十六项一等能力；§4.2 KOL=首个试点）。
+2. 任何实现任务再读 **B** [`CONSTITUTION.md`](CONSTITUTION.md)（§4.1 十六项一等能力；§4.2 KOL=首个试点）。Host / Codex / MCP / Gateway / 仓库边界任务再读 **J** [`technical-constitution.md`](technical-constitution.md)。
 3. 只有任务触发某个条件时，才继续读取该层正文。
 
 Pipeline / Home「AI发现」「我跟进的红人」是 KOL 试点特化，不是平台一等清单。
@@ -39,7 +39,7 @@ B CONSTITUTION.md
 | 纯视觉 / 组件 | I `MASTER.md` + 当前页 | token 只改 MASTER；设计法落地后读 `design.md`。追溯迁移才读 `20` |
 | 组织 / 范围 / PEP | C `01` | 注册表：`config/org-registry.yaml` |
 | 对象 / 字典 | D `02`、`DATA_DICTIONARY.md` | 物理值冲突时记 K 接口漂移，不改 D 编造 |
-| API / 后端 | F 对应 FS；D 数据模型 | 副作用 / 确认：C `08`；物理 IO：K `07` / `schemas/`；内核：J（落地后） |
+| API / 后端 | J `technical-constitution.md`；F 对应 FS；D 数据模型 | 副作用 / 确认：C `08`；物理 IO：K `07` / `schemas/`；细则 `06` / `07` / `14` |
 | 回归 / 验收 | 改动对应的 F / G 硬不变量 | 追溯决策时读 ADR，不把 ADR 当现行法 |
 
 ## 默认不加载
@@ -61,6 +61,7 @@ B CONSTITUTION.md
 ## 维护规则
 
 - 新增跨页面硬约束：改 **B** `CONSTITUTION.md`。
+- 新增 Host / Codex / Gateway / 仓库边界硬约束：改 **J** `technical-constitution.md`。
 - 新增 / 修改合法转移：改 **E** `stage-graph.md`（由阶段图 track 写；本仓库其它 PR 不得先填边）。
 - 修改导航 / 簇 / 谁答哪一问：改 **H**（落地后）；落地前不要把 IA 写进 I 的 token 文件。
 - 修改全局视觉 token：改 **I** 的 `MASTER.md`，并同步实现 token。`design.md` 是设计法，不是 token 源。

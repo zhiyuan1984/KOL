@@ -19,7 +19,7 @@
 | **G** | 交互原则 | [`specs/UX-EMPLOYEE.md`](../specs/UX-EMPLOYEE.md) | 从 B 派生的瘦员工 UX；门禁只认 `SEND_NE_STAGE`、`L3_CONFIRM` | 新平台法、排序键表、四带教条、字段黑名单、强制 CTA |
 | **H** | IA 约束 | [`ia-information-architecture.md`](ia-information-architecture.md)（**兄弟 track 创建**） | 导航、簇、谁答哪一问的信息架构硬约束 | 视觉 token、阶段边、权限 PEP 细则（回 C） |
 | **I** | UI 设计 | [`design.md`](design.md)（**兄弟 track 创建**） | 页面视觉与布局法 | **token 仍只住** [`design-system/kol-workbench/MASTER.md`](design-system/kol-workbench/MASTER.md)；不把 MASTER 改成产品宪法 |
-| **J** | 技术宪法 | [`technical-constitution.md`](technical-constitution.md)（**兄弟 track 创建**） | Host / harness / 内核边界、实现门禁 | 产品表面职责（回 B）、业务对象定义（回 D）、物理工具目录（回 K） |
+| **J** | 技术宪法 | [`technical-constitution.md`](technical-constitution.md) | Host / harness / 内核边界、实现门禁 | 产品表面职责（回 B）、业务对象定义（回 D）、物理工具目录（回 K） |
 | **K** | 集成 / 物理 | [`07-mcp-data-contract.md`](07-mcp-data-contract.md)、[`../schemas/`](../schemas/)、[`starry-kol-mcp-server.md`](starry-kol-mcp-server.md)、[`median_mcp_server.md`](median_mcp_server.md) | 真实 MCP、IO schema、适配与接口漂移 | 业务编排、员工文案、合法转移矩阵 |
 | **ADR** | 变更日志 only | [`DECISIONS.md`](DECISIONS.md) | 决策时间线、废止与取舍理由 | 现行法正文；不得用 ADR 覆盖 A–K |
 
@@ -32,7 +32,7 @@
 | `docs/stage-graph.md` | 阶段图 track 写矩阵 | 只建占位 + 链接；**零条阶段边** |
 | `docs/ia-information-architecture.md` | IA track | 只链路径，不写正文 |
 | `docs/design.md` | 设计 track | 只链路径；MASTER 仍是 token 源 |
-| `docs/technical-constitution.md` | 技术宪法 track | 只链路径，不写正文 |
+| `docs/technical-constitution.md` | 技术宪法 track（**已落地**） | 正文见该文件；本目录只链路径 |
 | ADR-011 | 阶段图 track **废止** | 本 track 不删 ADR-011 正文；见 [ADR-026](DECISIONS.md#adr-026--法律层-ak-重组2026-09-15) |
 
 ## 编号别名（次要）

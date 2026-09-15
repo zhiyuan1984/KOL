@@ -4,7 +4,7 @@
 
 ## 阅读顺序
 
-先按 A–K 定位法律层（入口 [`README.md`](README.md)），再读目标模块的 Skill、MCP 物理资料和测试。典型实现再打开 `06`（harness 手册）即可。
+先按 A–K 定位法律层（入口 [`README.md`](README.md)）。Host / Codex / MCP / Gateway / 仓库边界再读 J [`technical-constitution.md`](technical-constitution.md)，再读目标模块的 Skill、MCP 物理资料和测试。典型实现再打开 `06`（harness 手册）即可。
 
 ## 修改归属
 
