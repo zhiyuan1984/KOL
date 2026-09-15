@@ -3849,6 +3849,112 @@ summary:focus-visible,
 .admin-kv dd { margin: 0; }
 .admin-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .admin-inline-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.admin-shell[data-admin-ia="governance"] .panel {
+  background: var(--bg);
+  border-color: var(--border);
+  box-shadow: none;
+  border-radius: var(--radius-sm);
+}
+.admin-shell[data-admin-ia="governance"] .admin-health {
+  background: transparent;
+  border-color: transparent;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 0 0 var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.admin-receipt {
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--success) 40%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--success) 8%, var(--bg));
+  color: var(--success);
+  font-size: var(--font-body);
+  line-height: var(--leading-body);
+}
+.admin-confirm-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: var(--space-5);
+}
+.admin-confirm-backdrop {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--text) 28%, transparent);
+}
+.admin-confirm {
+  position: relative;
+  width: min(440px, 100%);
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-quiet);
+}
+.admin-confirm h2 {
+  margin: 0;
+  font-size: var(--font-section);
+  line-height: var(--leading-tight);
+  letter-spacing: -0.01em;
+}
+.admin-confirm-facts {
+  margin: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+.admin-confirm-facts div { display: grid; gap: 2px; }
+.admin-confirm-facts dt {
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+}
+.admin-confirm-facts dd {
+  margin: 0;
+  font-size: var(--font-body);
+  line-height: var(--leading-body);
+}
+.admin-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.admin-confirm-actions .btn { margin: 0; min-height: 40px; }
+.admin-shell .btn.danger,
+.admin-confirm .btn.danger,
+.admin-kb .btn.danger,
+.admin-body .btn.danger {
+  color: var(--danger);
+  background: var(--bg);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+.admin-shell .btn.danger:hover,
+.admin-confirm .btn.danger:hover,
+.admin-kb .btn.danger:hover,
+.admin-body .btn.danger:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg));
+  border-color: var(--danger);
+}
+.admin-kb { gap: 0; }
+.admin-kb .kb-hero-admin { padding-bottom: var(--space-4); }
+.admin-kb .kb-step {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  box-shadow: none;
+  padding: var(--space-5) 0;
+}
+.admin-body .hub-tile {
+  box-shadow: none;
+  background: var(--bg);
+}
 .admin-matrix { margin-top: 8px; }
 .approval-title {
   display: flex;
@@ -4053,7 +4159,7 @@ summary:focus-visible,
   box-shadow: none;
 }
 .btn.ghost { background: var(--canvas); color: var(--text); border-color: var(--line); }
-.btn.danger { background: var(--canvas); color: var(--red); border-color: rgba(196, 60, 60, 0.45); }
+.btn.danger { background: var(--bg); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
 .btn.selected {
   box-shadow: inset 2px 0 0 var(--star);
   border-color: var(--star);

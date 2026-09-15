@@ -2823,6 +2823,90 @@ test("employee connector use retries after load failure", async ({ page }) => {
   await expect(page.getByRole("button", { name: /启用|停用/ })).toHaveCount(0);
 });
 
+test("admin L3 destructive writes open confirm dialog with cancel focused", async ({ page }) => {
+  await page.goto("/admin");
+  await expect(page.locator("[data-admin-ia='governance']")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "员工目录" })).toBeVisible();
+  const deactivate = page.locator("[data-admin-user-action='deactivate']");
+  await expect(page.getByText("暂无员工").or(deactivate.first())).toBeVisible();
+  if (await deactivate.count() === 0) {
+    const email = `e2e-deactivate-${Date.now()}@example.com`;
+    await page.locator('input[name="name"]').fill("E2E 停用对象");
+    await page.locator('input[name="email"]').fill(email);
+    await page.locator('input[name="password"]').fill("1234567890");
+    await page.getByRole("button", { name: "创建员工" }).click();
+    await expect(deactivate.first()).toBeVisible();
+  }
+  await deactivate.click();
+  const dialog = page.locator("[data-admin-confirm='user-deactivate']");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "停用员工" })).toBeVisible();
+  await expect(dialog.locator("[data-admin-confirm-object]")).not.toHaveText("");
+  await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("组织账号");
+  await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("无法登录");
+  await expect(page.locator("[data-admin-confirm-cancel]")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+
+  await page.locator("[data-admin-nav='connectors']").click();
+  await expect(page.locator("[data-admin-page='connectors']")).toBeVisible();
+  await page.locator("[data-admin-connector-action='disable']").first().click();
+  const connectorDialog = page.locator("[data-admin-confirm='connector-disable']");
+  await expect(connectorDialog).toBeVisible();
+  await expect(connectorDialog.locator("[data-admin-confirm-object]")).not.toHaveText("");
+  await expect(connectorDialog.locator("[data-admin-confirm-scope]")).toContainText("组织级启用状态");
+  await expect(connectorDialog.locator("[data-admin-confirm-consequence]")).toContainText("凭据");
+  await expect(page.locator("[data-admin-confirm-cancel]")).toBeFocused();
+  await page.locator("[data-admin-confirm-cancel]").click();
+  await expect(connectorDialog).toHaveCount(0);
+
+  await page.locator("[data-admin-connectors-table] a").first().click();
+  await expect(page.locator("[data-admin-page='connector-detail']")).toBeVisible();
+  const revoke = page.locator("[data-admin-grant-action='revoke']:not([disabled])").first();
+  if (await revoke.count()) {
+    await revoke.click();
+    const grantDialog = page.locator("[data-admin-confirm='grant-revoke']");
+    await expect(grantDialog).toBeVisible();
+    await expect(grantDialog.locator("[data-admin-confirm-scope]")).toContainText("read / write");
+    await expect(page.locator("[data-admin-confirm-cancel]")).toBeFocused();
+    await page.locator("[data-admin-confirm-cancel]").click();
+    await expect(grantDialog).toHaveCount(0);
+  }
+
+  await page.locator("[data-admin-nav='knowledge']").click();
+  await expect(page.locator("[data-admin-knowledge]")).toBeVisible();
+  const hardDelete = page.locator("[data-kb-hard-delete]").first();
+  if (await hardDelete.count()) {
+    await hardDelete.click();
+    const deleteDialog = page.locator("[data-admin-confirm='knowledge-hard-delete']");
+    await expect(deleteDialog).toBeVisible();
+    await expect(deleteDialog.locator("[data-admin-confirm-consequence]")).toContainText("不能撤销");
+    await page.locator("[data-admin-confirm-cancel]").click();
+    await expect(deleteDialog).toHaveCount(0);
+  }
+  const archive = page.locator("[data-kb-archive]").first();
+  if (await archive.count()) {
+    await archive.click();
+    const archiveDialog = page.locator("[data-admin-confirm='knowledge-archive']");
+    await expect(archiveDialog).toBeVisible();
+    await expect(archiveDialog.locator("[data-admin-confirm-scope]")).toContainText("归档");
+    await page.locator("[data-admin-confirm-cancel]").click();
+    await expect(archiveDialog).toHaveCount(0);
+  }
+
+  await page.locator("[data-admin-nav='skills']").click();
+  const skillDelete = page.locator("[data-skill-delete]").first();
+  if (await skillDelete.count()) {
+    await skillDelete.click();
+    const skillDialog = page.locator("[data-admin-confirm='skill-delete']");
+    await expect(skillDialog).toBeVisible();
+    await expect(skillDialog.locator("[data-admin-confirm-object]")).not.toHaveText("");
+    await expect(page.locator("[data-admin-confirm-cancel]")).toBeFocused();
+    await page.locator("[data-admin-confirm-cancel]").click();
+    await expect(skillDialog).toHaveCount(0);
+  }
+});
+
 test("docs/21 admin connectors hub renders", async ({ page }) => {
   await page.goto("/connectors");
   await expect(page.locator("[data-connector-use]")).toBeVisible();

@@ -13,6 +13,8 @@ import {
   type PublicConnector,
 } from "../adminGovernance";
 import { auditEventLabel } from "../labels";
+import { connectorDisableConfirm, grantRevokeConfirm } from "../adminConfirm";
+import { useAdminConfirm, type AskAdminConfirm } from "../components/ConfirmDialog";
 
 type SaveFn = (path: string, body: AdminRow, message: string, method?: string) => Promise<void>;
 
@@ -28,9 +30,11 @@ export function AdminConnectorsHub({
   onSave: SaveFn;
 }) {
   const rows = useMemo(() => connectors.map(publicConnectorView).filter((row) => row.id), [connectors]);
+  const { ask, dialog } = useAdminConfirm();
 
   return (
     <section className="admin-govern" data-admin-page="connectors">
+      {dialog}
       <div className="panel">
         <div className="admin-section-head">
           <div>
@@ -57,7 +61,7 @@ export function AdminConnectorsHub({
               </thead>
               <tbody>
                 {rows.map((connector) => (
-                  <ConnectorHubRow key={connector.id} connector={connector} users={users} onSave={onSave} />
+                  <ConnectorHubRow key={connector.id} connector={connector} users={users} onSave={onSave} ask={ask} />
                 ))}
               </tbody>
             </table>
@@ -100,10 +104,12 @@ function ConnectorHubRow({
   connector,
   users,
   onSave,
+  ask,
 }: {
   connector: PublicConnector;
   users: AdminRow[];
   onSave: SaveFn;
+  ask: AskAdminConfirm;
 }) {
   const status = governanceStatus(connector);
   const purpose = connectorPurpose(connector.id);
@@ -123,8 +129,17 @@ function ConnectorHubRow({
       <td>
         <button
           type="button"
-          className="btn sm"
-          onClick={() => void onSave(`/api/admin/connectors/${connector.id}`, { enabled: !connector.enabled }, "连接器已更新", "PATCH")}
+          className={connector.enabled ? "btn sm danger" : "btn sm"}
+          data-admin-connector-action={connector.enabled ? "disable" : "enable"}
+          onClick={() => {
+            if (!connector.enabled) {
+              void onSave(`/api/admin/connectors/${connector.id}`, { enabled: true }, "连接器已启用", "PATCH");
+              return;
+            }
+            ask(connectorDisableConfirm(connector.label, connector.id), () =>
+              onSave(`/api/admin/connectors/${connector.id}`, { enabled: false }, "连接器已停用", "PATCH"),
+            );
+          }}
         >
           {connector.enabled ? "停用" : "启用"}
         </button>
@@ -150,6 +165,7 @@ export function AdminConnectorDetail({
   const raw = connectors.find((row) => String(row.id) === connectorId);
   const connector = raw ? publicConnectorView(raw) : null;
   const [refDraft, setRefDraft] = useState("");
+  const { ask, dialog } = useAdminConfirm();
 
   if (!connector) {
     return (
@@ -175,6 +191,7 @@ export function AdminConnectorDetail({
 
   return (
     <section className="admin-govern" data-admin-page="connector-detail" data-connector-id={connector.id}>
+      {dialog}
       <p className="admin-crumb"><Link to="/admin/connectors">连接器枢纽</Link> / {connector.label}</p>
       <div className="panel">
         <div className="admin-section-head">
@@ -192,8 +209,17 @@ export function AdminConnectorDetail({
         <div className="admin-actions">
           <button
             type="button"
-            className="btn work"
-            onClick={() => void onSave(`/api/admin/connectors/${connector.id}`, { enabled: !connector.enabled }, "连接器已更新", "PATCH")}
+            className={connector.enabled ? "btn danger" : "btn work"}
+            data-admin-connector-action={connector.enabled ? "disable" : "enable"}
+            onClick={() => {
+              if (!connector.enabled) {
+                void onSave(`/api/admin/connectors/${connector.id}`, { enabled: true }, "连接器已启用", "PATCH");
+                return;
+              }
+              ask(connectorDisableConfirm(connector.label, connector.id), () =>
+                onSave(`/api/admin/connectors/${connector.id}`, { enabled: false }, "连接器已停用", "PATCH"),
+              );
+            }}
           >
             {connector.enabled ? "停用" : "启用"}
           </button>
@@ -216,7 +242,7 @@ export function AdminConnectorDetail({
         <button className="btn work" disabled={!refDraft.trim()}>更新引用</button>
       </form>
 
-      <ConnectorGrantTable connectorId={connector.id} users={users} onSave={onSave} />
+      <ConnectorGrantTable connectorId={connector.id} connectorLabel={connector.label} users={users} onSave={onSave} ask={ask} />
 
       {starry && (
         <div className="panel" data-admin-starry-policy>
@@ -250,16 +276,23 @@ export function AdminConnectorDetail({
 
 function ConnectorGrantTable({
   connectorId,
+  connectorLabel,
   users,
   onSave,
+  ask,
 }: {
   connectorId: string;
+  connectorLabel: string;
   users: AdminRow[];
   onSave: SaveFn;
+  ask: AskAdminConfirm;
 }) {
-  const setAccess = (userId: string, access: "read" | "write" | "") => {
+  const setAccess = (user: AdminRow, access: "read" | "write" | "") => {
+    const userId = String(user.id || "");
     if (!access) {
-      void onSave(`/api/admin/users/${userId}/connectors/${connectorId}`, {}, "连接器授权已收回", "DELETE");
+      ask(grantRevokeConfirm(rowTitle(user), connectorLabel), () =>
+        onSave(`/api/admin/users/${userId}/connectors/${connectorId}`, {}, "连接器授权已收回", "DELETE"),
+      );
       return;
     }
     void onSave(`/api/admin/users/${userId}/connectors/${connectorId}`, { access }, "连接器授权已保存");
@@ -292,9 +325,9 @@ function ConnectorGrantTable({
                   <td>{access === "read" || access === "write" || access === "admin" ? "已授" : "—"}</td>
                   <td>{access === "write" || access === "admin" ? "已授" : "—"}</td>
                   <td className="admin-inline-actions">
-                    <button type="button" className="btn sm" onClick={() => setAccess(uid, "read")}>授予 read</button>
-                    <button type="button" className="btn sm" onClick={() => setAccess(uid, "write")}>授予 write</button>
-                    <button type="button" className="btn sm" disabled={!access} onClick={() => setAccess(uid, "")}>收回</button>
+                    <button type="button" className="btn sm" onClick={() => setAccess(user, "read")}>授予 read</button>
+                    <button type="button" className="btn sm" onClick={() => setAccess(user, "write")}>授予 write</button>
+                    <button type="button" className="btn sm danger" data-admin-grant-action="revoke" disabled={!access} onClick={() => setAccess(user, "")}>收回</button>
                   </td>
                 </tr>
               );
