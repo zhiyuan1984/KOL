@@ -1234,6 +1234,7 @@ export default function Home() {
       }
       data-home
       data-home-active-mode={mode}
+      data-followed-chrome={mode === "lifecycle" ? "compact" : undefined}
       data-home-task-poll={hasActiveRuns ? "active" : "idle"}
     >
       <div className="home-stage">
@@ -1428,7 +1429,7 @@ export default function Home() {
 
           {mode === "lifecycle" ? (
             <section className="home-mode-pane recommend-work followed-kol-pane" data-home-pane="lifecycle" data-lifecycle-overview>
-              <div className="followed-kol-column" data-followed-kol-column>
+              <div className="followed-kol-column" data-followed-kol-column data-followed-decision-max="880">
               <div className="home-pane-sticky">
               <div className="followed-object-toolbar" data-followed-object-toolbar>
                 <label className="followed-object-search">

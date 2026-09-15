@@ -1,18 +1,27 @@
 :root {
-  /* Landed source tokens — mirrored by docs/design-system/kol-workbench/MASTER.md */
-  --bg: #ffffff;
-  --bg-elevated: #f6f7f8;
-  --border: #e5e6e8;
-  --border-strong: #8b93a1;
-  --control-border: #8b93a1;
-  --control-border-hover: #6b7280;
-  --control-border-invalid: #c43c3c;
-  --focus-ring: #000000;
-  --text: #1a1a1a;
-  --text-muted: #6b7280;
+  /* MASTER (openai-style body) — parallel --color-* then wired into workbench tokens */
+  --color-obsidian: #000000;
+  --color-graphite: #666666;
+  --color-smoke: #8f8f8f;
+  --color-paper: #ffffff;
+  --color-ash: #f1f1f1;
+  --color-hairline: #0000001f;
+  --color-whisper: #0000000a;
+  --font-openai-sans: "OpenAI Sans", Inter, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "微软雅黑", system-ui, sans-serif;
 
-  --primary: #000000;
-  --primary-fg: #ffffff;
+  --bg: var(--color-paper);
+  --bg-elevated: var(--color-ash);
+  --border: color-mix(in srgb, var(--color-obsidian) 12%, var(--color-paper));
+  --border-strong: var(--color-smoke);
+  --control-border: var(--color-smoke);
+  --control-border-hover: var(--color-graphite);
+  --control-border-invalid: #c43c3c;
+  --focus-ring: var(--color-obsidian);
+  --text: var(--color-obsidian);
+  --text-muted: var(--color-graphite);
+
+  --primary: var(--color-obsidian);
+  --primary-fg: var(--color-paper);
   --danger: #c43c3c;
   --success: #2f7d73;
   --warning: #ea5504;
@@ -63,12 +72,60 @@
   --left-width: clamp(220px, 15vw, 248px);
   --page-gutter: clamp(16px, 2.2vw, 28px);
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --sans: "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "微软雅黑", system-ui, sans-serif;
+  /* ADR-031: OpenAI Sans when licensed; Inter is the required live substitute. */
+  --sans: Inter, "OpenAI Sans", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "微软雅黑", system-ui, sans-serif;
+
+  /* MASTER Quick Start aliases — parallel names, existing --font-* / --space-* stay canonical */
+  --text-caption: var(--font-xs);
+  --leading-caption: 1.51;
+  --tracking-caption: -0.13px;
+  --text-input: var(--font-ui);
+  --leading-input: 1.5;
+  --tracking-input: -0.16px;
+  --text-body-lg: var(--font-section);
+  --leading-body-lg: 1.32;
+  --tracking-body-lg: -0.18px;
+  --text-subheading: 22px;
+  --leading-subheading: 1.26;
+  --tracking-subheading: -0.22px;
+  --text-heading: var(--font-page-title);
+  --leading-heading: 1.21;
+  --tracking-heading: 0.31px;
+  --text-display: 48px;
+  --leading-display: 1.16;
+  --tracking-display: -1.44px;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --spacing-unit: 4px;
+  --spacing-4: var(--space-1);
+  --spacing-8: var(--space-2);
+  --spacing-12: var(--space-3);
+  --spacing-16: var(--space-4);
+  --spacing-20: 20px;
+  --spacing-24: var(--space-5);
+  --spacing-32: 32px;
+  --spacing-40: 40px;
+  --spacing-52: 52px;
+  --spacing-64: 64px;
+  --spacing-80: 80px;
+  --spacing-120: 120px;
+  --radius-full: 9999px;
+  --radius-tags: 9999px;
+  --radius-cards: 6px;
+  --radius-links: 4px;
+  --radius-inputs: 9999px;
+  --radius-buttons: 9999px;
+  --shadow-sm: var(--shadow-quiet);
+  --surface-paper: var(--color-paper);
+  --surface-ash: var(--color-ash);
+  --surface-whisper: var(--color-whisper);
+
   font-family: var(--sans);
   font-size: var(--font-body);
   line-height: var(--leading-body);
   letter-spacing: 0;
-  font-feature-settings: "kern" 1;
+  font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
 }
 
 :root[data-theme="dark"] {
@@ -515,7 +572,7 @@ summary:focus-visible,
   width: 36px;
   height: 36px;
   flex: 0 0 auto;
-  border-radius: 50%;
+  border-radius: 9999px;
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   color: var(--text);
@@ -611,18 +668,22 @@ summary:focus-visible,
 }
 .brand-mark {
   font-size: var(--font-xs);
-  font-weight: 500;
-  letter-spacing: 0;
-  color: var(--text);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
   white-space: nowrap;
 }
 .brand-slogan-en {
   color: var(--text-muted);
+  font-weight: 400;
+  opacity: 0.72;
   white-space: normal;
   overflow-wrap: anywhere;
 }
 .brand-slogan-zh {
-  color: var(--text);
+  color: var(--text-muted);
+  font-weight: 400;
+  opacity: 0.72;
   white-space: normal;
   overflow-wrap: anywhere;
 }
@@ -797,6 +858,16 @@ summary:focus-visible,
   line-height: 1.5;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+/* Followed/lifecycle: collapse the task-spine summary so the object list
+   gets the vertical pixels. Other modes keep 「N项待处理 · 逾期 · 今天到期」. */
+[data-home-active-mode="lifecycle"] .home-stats,
+[data-followed-chrome="compact"] .home-stats {
+  display: none;
+}
+[data-home-active-mode="lifecycle"] .home-mode-tabs,
+[data-followed-chrome="compact"] .home-mode-tabs {
+  margin-bottom: var(--space-2);
 }
 .home-mode-tabs {
   display: flex;
@@ -1849,7 +1920,7 @@ summary:focus-visible,
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  margin: 0 0 var(--space-2);
+  margin: 0 0 var(--space-1);
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -2239,10 +2310,19 @@ summary:focus-visible,
   min-width: 0;
   align-self: stretch;
 }
+/*
+ * Followed decision column: 880px.
+ * OpenAI-quiet readable workbench (content-first, not stretched ERP rows).
+ * Midpoint of the 720–960px band: two dense columns (fact + AI 280–340)
+ * without hollow gutters on ultra-wide. Cards left-align; the rail/pane
+ * may stay full width. Density dial 8.
+ */
 .followed-kol-column {
+  --followed-decision-max: 880px;
+  --followed-ai-col: 320px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  justify-items: stretch;
+  justify-items: start;
   align-items: stretch;
   width: 100%;
   max-width: 100%;
@@ -2250,11 +2330,16 @@ summary:focus-visible,
   overflow-x: hidden;
 }
 .followed-kol-column .home-pane-sticky,
-.followed-kol-column .followed-object-toolbar,
 .followed-kol-column .followed-kol-list,
-.followed-kol-column .followed-kol-item,
-.followed-kol-column .followed-kol-card,
 .followed-kol-column .task-empty {
+  width: 100%;
+  max-width: var(--followed-decision-max);
+  min-width: 0;
+  box-sizing: border-box;
+}
+.followed-kol-column .followed-object-toolbar,
+.followed-kol-column .followed-kol-item,
+.followed-kol-column .followed-kol-card {
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -2262,6 +2347,7 @@ summary:focus-visible,
 }
 .followed-kol-column .home-pane-sticky {
   overflow-x: hidden;
+  padding: 0 0 var(--space-1);
 }
 .followed-kol-list {
   display: grid;
@@ -2270,7 +2356,6 @@ summary:focus-visible,
   gap: 0;
   min-width: 0;
   width: 100%;
-  max-width: 100%;
   overflow-x: hidden;
 }
 .followed-kol-item {
@@ -2283,11 +2368,11 @@ summary:focus-visible,
 .followed-kol-card {
   display: grid;
   justify-items: stretch;
-  gap: var(--space-2);
+  gap: 6px;
   width: 100%;
   min-width: 0;
-  max-width: none;
-  padding: var(--space-2) 0;
+  max-width: 100%;
+  padding: 6px 0;
   border-bottom: 1px solid var(--border);
   overflow-x: hidden;
   overflow-y: visible;
@@ -2331,7 +2416,7 @@ summary:focus-visible,
   height: 24px;
   flex: 0 0 auto;
   margin-top: 2px;
-  border-radius: var(--radius-sm);
+  border-radius: 9999px;
   background: var(--bg-elevated);
   color: var(--text-muted);
   font-size: var(--font-xs);
@@ -2360,7 +2445,7 @@ summary:focus-visible,
   flex: 0 1 auto;
   max-width: 100%;
   min-width: 0;
-  font-size: var(--font-ui);
+  font-size: var(--font-body);
   font-weight: 600;
   line-height: var(--leading-tight);
   color: var(--text);
@@ -2377,19 +2462,19 @@ summary:focus-visible,
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg-elevated);
-  color: var(--text);
+  color: var(--text-muted);
 }
 .kol-stage-badge .kol-stage,
 .kol-stage-badge [data-stage-label] {
   margin: 0;
-  font-size: var(--font-xs);
-  font-weight: 600;
+  font-size: var(--font-sm);
+  font-weight: 500;
   line-height: 1.35;
-  color: var(--text);
+  color: var(--text-muted);
 }
 .kol-stage-stay {
   color: var(--text-muted);
-  font-size: var(--font-xs);
+  font-size: var(--font-sm);
   line-height: 1.35;
 }
 .kol-chip-row {
@@ -2417,6 +2502,9 @@ summary:focus-visible,
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+.followed-kol-card .kol-chip {
+  font-size: var(--font-sm);
 }
 .kol-chip.is-unread {
   padding: 1px var(--space-2);
@@ -2448,6 +2536,9 @@ summary:focus-visible,
   grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   align-items: start;
+}
+.followed-kol-card .kol-band-recommend {
+  gap: var(--space-1);
 }
 .kol-state-block {
   min-width: 0;
@@ -2481,40 +2572,41 @@ summary:focus-visible,
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-.kol-state-block p,
-.followed-kol-card .kol-split-kicker {
+.kol-state-block p {
   margin: 0;
   min-width: 0;
   max-width: 100%;
-  font-size: var(--font-xs);
-  line-height: 1.4;
-  color: var(--text-muted);
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 .followed-kol-card .kol-split-kicker {
+  margin: 0;
+  font-size: var(--font-sm);
   font-weight: 500;
-  letter-spacing: 0;
+  line-height: 1.4;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 .followed-kol-card .kol-suggestion,
 .followed-kol-card [data-recommended-action] .kol-suggestion {
   font-weight: 500;
-  font-size: var(--font-sm);
-  line-height: 1.4;
+  font-size: var(--font-ui);
+  line-height: var(--leading-tight);
   color: var(--text);
 }
 .followed-kol-card .kol-judgment,
 .followed-kol-card [data-action-why] {
-  font-size: var(--font-xs);
+  font-size: var(--font-sm);
   color: var(--text-muted);
   line-height: 1.4;
 }
 .followed-kol-card .kol-mail-digest,
 .followed-kol-card [data-latest-fact] .kol-mail-digest {
-  font-size: var(--font-sm);
+  font-size: var(--font-body);
   color: var(--text);
-  line-height: 1.45;
+  line-height: var(--leading-tight);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -2523,7 +2615,7 @@ summary:focus-visible,
 }
 .followed-kol-card .kol-mail-meta {
   margin: 0;
-  font-size: var(--font-xs);
+  font-size: var(--font-sm);
   color: var(--text-muted);
   line-height: 1.35;
 }
@@ -2533,7 +2625,7 @@ summary:focus-visible,
 .followed-kol-card .kol-evidence-disclosure summary {
   cursor: pointer;
   color: var(--text-muted);
-  font-size: var(--font-xs);
+  font-size: var(--font-sm);
   line-height: 1.35;
   list-style: none;
 }
@@ -2542,7 +2634,7 @@ summary:focus-visible,
 }
 .followed-kol-card .kol-evidence,
 .followed-kol-card [data-action-evidence] p {
-  font-size: var(--font-xs);
+  font-size: var(--font-sm);
   color: var(--text-muted);
   line-height: 1.4;
   display: -webkit-box;
@@ -2556,10 +2648,10 @@ summary:focus-visible,
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: var(--space-1) var(--space-2);
   min-width: 0;
-  padding-top: 0;
+  padding-top: 2px;
 }
 .followed-kol-card .kol-cta-secondary,
 .followed-kol-card .kol-cta-primary {
@@ -2570,7 +2662,7 @@ summary:focus-visible,
   min-width: 0;
 }
 .followed-kol-card .kol-cta-primary {
-  margin-left: auto;
+  margin-left: 0;
 }
 .followed-kol-card .kol-cta-btn {
   flex: 0 1 auto;
@@ -2587,7 +2679,8 @@ summary:focus-visible,
   padding: 0;
   color: var(--text-muted);
   font: inherit;
-  font-size: var(--font-xs);
+  font-size: var(--font-sm);
+  line-height: 1.35;
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -2595,11 +2688,14 @@ summary:focus-visible,
 .followed-kol-card .kol-cta-link:hover {
   color: var(--text);
 }
+.followed-kol-card .kol-cta-primary .kol-cta-work {
+  border-radius: var(--radius-buttons);
+}
 /* One strong Obsidian CTA in the followed list (ADR-031 / Discovery #139). */
 .followed-kol-card .kol-cta-primary .kol-cta-work.btn.ghost {
-  background: var(--canvas);
+  background: var(--bg);
   color: var(--text);
-  border-color: var(--line);
+  border-color: var(--border);
 }
 .followed-kol-card.is-hovered .kol-cta-primary .kol-cta-work:not(.is-draft-quiet),
 .followed-kol-card:focus-within .kol-cta-primary .kol-cta-work:not(.is-draft-quiet),
@@ -2614,22 +2710,22 @@ summary:focus-visible,
 .followed-kol-card:focus-within .kol-cta-primary .kol-cta-work.is-draft-quiet,
 .followed-kol-card[data-selected] .kol-cta-primary .kol-cta-work.is-draft-quiet,
 .followed-kol-card[data-cta-emphasis="strong"] .kol-cta-primary .kol-cta-work.is-draft-quiet {
-  background: var(--canvas);
+  background: var(--bg);
   color: var(--text);
-  border-color: var(--line);
+  border-color: var(--border);
 }
 .followed-kol-list:has(:focus-within) .followed-kol-card:not(:focus-within) .kol-cta-primary .kol-cta-work.btn {
-  background: var(--canvas);
+  background: var(--bg);
   color: var(--text);
-  border-color: var(--line);
+  border-color: var(--border);
 }
 .followed-kol-card[data-selected] {
   background: color-mix(in srgb, var(--bg-elevated) 55%, var(--bg));
 }
 @media (min-width: 900px) {
   .followed-kol-card .kol-split {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    column-gap: var(--space-4);
+    grid-template-columns: minmax(0, 1fr) minmax(280px, var(--followed-ai-col, 320px));
+    column-gap: var(--space-2);
     align-items: start;
   }
   .followed-kol-card .kol-band-fact {
@@ -3121,7 +3217,7 @@ summary:focus-visible,
   line-height: 20px;
   border: 1px solid transparent;
   background: var(--composer-chip-bg);
-  border-radius: var(--composer-chip-radius, 12px);
+  border-radius: 9999px;
   padding: 3px 10px;
   color: var(--composer-accent, var(--primary));
 }
@@ -3189,7 +3285,7 @@ summary:focus-visible,
   --composer-border: var(--border);
   --composer-radius: 25px;
   --composer-accent: var(--primary);
-  --composer-placeholder: #a6a6a6;
+  --composer-placeholder: var(--color-smoke);
   --composer-toolbar-fg: #000000;
   --composer-send-idle: var(--text-muted);
   --composer-divider: #e5e5e5;
@@ -3278,6 +3374,56 @@ summary:focus-visible,
 .home-pane.is-composer-reading .composer.composer--workspace { min-height: 80px; }
 .home-pane.is-composer-focused .composer.composer--workspace { min-height: 96px; }
 .home-pane.is-composer-reading:not(.is-composer-focused) .composer.composer--workspace textarea { min-height: 40px; }
+
+/* Home capsule — ChatGPT-like pill; session Composer stays 25px */
+.home-composer-dock,
+.home-composer-dock .composer-dock,
+.home-composer-dock .composer {
+  --composer-radius: var(--radius-inputs);
+}
+.home-composer-dock .composer.composer--workspace {
+  flex-direction: row;
+  align-items: center;
+  min-height: 72px;
+  max-height: 220px;
+  border-radius: var(--radius-inputs);
+  padding: 10px 12px 10px 14px;
+  gap: 8px;
+  box-shadow: var(--shadow-sm);
+}
+.home-pane.is-composer-reading .home-composer-dock .composer.composer--workspace { min-height: 80px; }
+.home-pane.is-composer-focused .home-composer-dock .composer.composer--workspace { min-height: 88px; }
+.home-composer-dock .composer-toolbar {
+  display: contents;
+}
+.home-composer-dock .composer.composer--workspace textarea {
+  order: 2;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 40px;
+  max-height: 72px;
+}
+.home-composer-dock .composer-add-wrap { order: 1; }
+.home-composer-dock .composer-toolbar-end { order: 3; margin-left: 0; }
+.home-composer-dock .composer-toolbar-divider { display: none; }
+.home-composer-dock .composer-plus {
+  background: transparent;
+  color: var(--text-muted);
+}
+.home-composer-dock .composer-plus:hover,
+.home-composer-dock .composer-plus.is-selected,
+.home-composer-dock .composer-plus[aria-expanded="true"] {
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+.home-composer-dock .tier-control select {
+  background: transparent;
+  color: var(--text-muted);
+}
+.home-composer-dock:focus-within .tier-control select {
+  color: var(--text);
+}
+
 .composer-plus {
   width: var(--composer-side-btn-size, 36px);
   height: var(--composer-side-btn-size, 36px);
@@ -4734,22 +4880,49 @@ summary:focus-visible,
   opacity: 0.38;
 }
 .home-composer-dock .composer-tool {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
   color: var(--text-muted);
+  border-radius: 9999px;
 }
 .home-composer-dock .composer-tool-icon {
   flex: 0 0 auto;
   color: inherit;
 }
-.home-composer-dock .composer-tool.is-selected,
+.home-composer-dock .composer-tool-label {
+  font-size: var(--font-sm);
+}
+.home-composer-dock .composer-tool:not(.is-selected) .composer-tool-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.home-composer-dock .composer-tool.is-selected {
+  width: auto;
+  min-width: 32px;
+  padding: 0 10px;
+  color: var(--composer-toolbar-fg, #000000);
+}
 .home-composer-dock:focus-within .composer-tool {
+  color: var(--text-muted);
+}
+.home-composer-dock:focus-within .composer-tool.is-selected {
   color: var(--composer-toolbar-fg, #000000);
 }
 .home-composer-dock:not(:focus-within) .composer-tool:not(.is-selected) {
-  color: var(--text-muted);
+  display: none;
 }
 .composer-stop {
   width: auto;

@@ -61,6 +61,8 @@ test("home four-panel tab order and pane visibility", async ({ page }) => {
 
   await openMode(page, "lifecycle");
   await expect(page.locator("[data-home] h1")).toHaveCount(0);
+  await expect(page.locator("[data-home]")).toHaveAttribute("data-followed-chrome", "compact");
+  await expect(page.locator("[data-today-summary]")).toBeHidden();
   await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
   await expect(page.locator("[data-followed-kol-column]")).toBeVisible();
   await expect(page.locator("[data-followed-origin]")).toHaveAttribute("data-followed-origin", "collaboration");
@@ -72,6 +74,11 @@ test("home four-panel tab order and pane visibility", async ({ page }) => {
   await expect(page.locator("[data-kol-stage-filter]")).toBeVisible();
   await expect(page.locator('[data-home-pane="lifecycle"]')).not.toContainText("需要我处理");
   await expect(page.locator('[data-home-pane="lifecycle"]')).not.toContainText("正式阶段共 15 个");
+
+  await openMode(page, "todo");
+  await expect(page.locator("[data-today-summary]")).toBeVisible();
+  await expect(page.locator("[data-today-summary]")).toContainText("项待处理");
+  await expect(page.locator("[data-home]")).not.toHaveAttribute("data-followed-chrome", "compact");
 });
 
 test("home discovery persists plan and requires confirm before crawl or follow", async ({ page, request }) => {
@@ -1023,6 +1030,7 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
   await expect(card.locator("[data-confirm-enter-stage]")).toHaveText("进入已回复 · 有兴趣 →");
   await expect(card.locator("[data-confirm-enter-stage]")).toHaveClass(/work/);
   await expect(card.locator("[data-open-kol-detail]")).toHaveText("查看详情");
+  await expect(card.locator("[data-open-kol-detail]")).not.toHaveClass(/btn/);
   await expect(card.locator("[data-open-original-mail]")).toHaveText("原邮件");
   await expect(card.getByRole("button", { name: "确认阶段", exact: true })).toHaveCount(0);
 
@@ -1032,18 +1040,66 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
     const fact = el.querySelector("[data-latest-fact]")?.getBoundingClientRect();
     const rec = el.querySelector("[data-recommended-action]")?.getBoundingClientRect();
     const primary = el.querySelector("[data-confirm-enter-stage]")?.getBoundingClientRect();
-    const detail = el.querySelector("[data-open-kol-detail]")?.getBoundingClientRect();
+    const recBand = el.querySelector('[data-kol-band="action"]')?.getBoundingClientRect();
+    const column = document.querySelector("[data-followed-kol-column]");
     return {
       stageBesideName: Boolean(name && stage && Math.abs(name.top - stage.top) < 16 && stage.left + 1 >= name.right - 8),
       factAiSideBySide: Boolean(fact && rec && rec.left + 2 >= fact.right - 8 && Math.abs(fact.top - rec.top) < 48),
-      primaryRightOfDetail: Boolean(primary && detail && primary.left + 2 >= detail.right - 8),
+      gutter: fact && rec ? Math.max(0, rec.left - fact.right) : 0,
+      primaryInAi: Boolean(
+        primary && recBand
+        && primary.left + 2 >= recBand.left - 4
+        && primary.right <= recBand.right + 4
+      ),
       cardWidth: el.clientWidth,
+      columnWidth: column instanceof HTMLElement ? column.clientWidth : 0,
     };
   });
   expect(wide.stageBesideName).toBe(true);
   expect(wide.factAiSideBySide).toBe(true);
-  expect(wide.primaryRightOfDetail).toBe(true);
-  expect(wide.cardWidth).toBeGreaterThan(900);
+  expect(wide.gutter).toBeLessThanOrEqual(16);
+  expect(wide.primaryInAi).toBe(true);
+  expect(wide.cardWidth).toBeGreaterThan(700);
+  expect(wide.cardWidth).toBeLessThanOrEqual(880);
+
+  const type = await card.evaluate((el) => {
+    const read = (node: Element | null) => {
+      if (!(node instanceof HTMLElement)) return null;
+      const cs = getComputedStyle(node);
+      return { size: Number.parseFloat(cs.fontSize), weight: Number.parseFloat(cs.fontWeight), color: cs.color };
+    };
+    return {
+      name: read(el.querySelector("[data-kol-name]")),
+      stage: read(el.querySelector("[data-stage-label]")),
+      kicker: read(el.querySelector(".kol-split-kicker")),
+      fact: read(el.querySelector("[data-latest-fact] .kol-mail-digest")),
+      ai: read(el.querySelector("[data-recommended-action] .kol-suggestion")),
+      why: read(el.querySelector("[data-action-why]")),
+      detail: read(el.querySelector("[data-open-kol-detail]")),
+      mail: read(el.querySelector("[data-open-original-mail]")),
+    };
+  });
+  expect(type.name!.size).toBeGreaterThanOrEqual(16);
+  expect(type.name!.weight).toBeGreaterThanOrEqual(600);
+  expect(type.name!.color).toBe("rgb(0, 0, 0)");
+  expect(type.stage!.size).toBeGreaterThanOrEqual(14);
+  expect(type.stage!.weight).toBeLessThan(type.name!.weight);
+  expect(type.stage!.color).toBe("rgb(102, 102, 102)");
+  expect(type.kicker!.size).toBeGreaterThanOrEqual(14);
+  expect(type.kicker!.color).toBe("rgb(102, 102, 102)");
+  expect(type.fact!.size).toBeGreaterThanOrEqual(16);
+  expect(type.fact!.color).toBe("rgb(0, 0, 0)");
+  expect(type.ai!.size).toBeGreaterThanOrEqual(14);
+  expect(type.ai!.color).toBe("rgb(0, 0, 0)");
+  expect(type.why!.size).toBeGreaterThanOrEqual(14);
+  expect(type.why!.color).toBe("rgb(102, 102, 102)");
+  expect(type.detail!.size).toBeGreaterThanOrEqual(14);
+  expect(type.detail!.color).toBe("rgb(102, 102, 102)");
+  expect(type.mail!.size).toBeGreaterThanOrEqual(14);
+  expect(type.mail!.color).toBe("rgb(102, 102, 102)");
+  if (wide.columnWidth > 1000) {
+    expect(wide.cardWidth).toBeLessThan(wide.columnWidth - 24);
+  }
 
   await page.setViewportSize({ width: 720, height: 900 });
   const stacked = await card.evaluate((el) => {

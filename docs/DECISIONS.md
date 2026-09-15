@@ -6,6 +6,7 @@
 
 | 日期 | 记录 | 说明 |
 |---|---|---|
+| 2026-09-15 | ADR-031 字体和解：现行 UI sans 为 **Inter**（Google Fonts）；栈 `Inter, "OpenAI Sans", "PingFang SC", "Noto Sans SC", …`。OpenAI Sans 待许可文件后再切主脸。 | FE 随 Home 跟进列表 / Composer 胶囊 PR。不 LIVE。 |
 | 2026-09-15 | MASTER 与 OpenAI 审美冲突时 **OpenAI 胜**；强制视觉链改为 CONSTITUTION → ui-ux-pro-max → design.md → MASTER。修订 ADR-029：主按钮蓝锁废止，黑色 / Obsidian 实底 CTA 胜出；`ui-ux-pro-max` 升为视觉链必经分析。CSS token 同步另开 FE PR | 用户锁定。见 ADR-031。文档 only。不 FE / 不 LIVE。 |
 | 2026-09-15 | Home「我跟进的红人」是业务对象（Collaboration）管理面，不是第二套今日任务/待办，也不是 Pipeline 15 段主筛。对象面主筛不立法。纠正 #120 过任务化 | 用户锁定。见 ADR-030。文档 only。不 FE / 不 LIVE。 |
 | 2026-09-15 | OpenAI-quiet 为默认产品观感；填充主按钮仍 MASTER `--primary` / `--primary-fg`（蓝），不改黑。Linear 密度可作间距手法，不再是品牌默认 mood/chrome | 用户锁定。见 ADR-029。文档 only。不 LIVE。 |

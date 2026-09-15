@@ -720,13 +720,23 @@ export default function ComposerDock({
           }}
         >
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
-            <path
-              d="M16.5 6.5v9.2a4.5 4.5 0 0 1-9 0V7.2a3 3 0 0 1 6 0v8.1a1.5 1.5 0 0 1-3 0V8"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-            />
+            {workspace ? (
+              <path
+                d="M12 5v14M5 12h14"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+            ) : (
+              <path
+                d="M16.5 6.5v9.2a4.5 4.5 0 0 1-9 0V7.2a3 3 0 0 1 6 0v8.1a1.5 1.5 0 0 1-3 0V8"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+              />
+            )}
           </svg>
         </button>
         {workspace && (
@@ -735,25 +745,27 @@ export default function ComposerDock({
               type="button"
               className={"composer-tool" + (activeSubmenu === "projects" ? " is-selected" : "")}
               data-composer-tool="project"
+              aria-label="项目"
               aria-pressed={activeSubmenu === "projects"}
               onClick={() => openToolbarMenu("projects")}
             >
               <svg className="composer-tool-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden>
                 <path d="M3.5 7.5h6l1.5 2h9v9a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2zM3.5 7.5v-1a2 2 0 0 1 2-2h4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
               </svg>
-              项目
+              <span className="composer-tool-label">项目</span>
             </button>
             <button
               type="button"
               className={"composer-tool" + (activeSubmenu === "skills" ? " is-selected" : "")}
               data-composer-tool="skills"
+              aria-label="技能"
               aria-pressed={activeSubmenu === "skills"}
               onClick={() => openToolbarMenu("skills")}
             >
               <svg className="composer-tool-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden>
                 <path d="M5 5h5v5H5zm9 0h5v5h-5zM5 14h5v5H5zm9 0h5v5h-5z" fill="none" stroke="currentColor" strokeWidth="1.6" />
               </svg>
-              技能
+              <span className="composer-tool-label">技能</span>
             </button>
           </>
         )}

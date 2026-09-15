@@ -160,10 +160,14 @@ async function expectFollowedKolListAlignsWithToolbar(page: Page) {
   expect(metrics.toolbar.width).toBeGreaterThan(0);
   expect(Math.abs(metrics.list.width - metrics.toolbar.width)).toBeLessThan(8);
   expect(Math.abs(metrics.card.width - metrics.toolbar.width)).toBeLessThan(8);
-  expect(Math.abs(metrics.column.width - metrics.toolbar.width)).toBeLessThan(8);
-  expect(Math.abs(metrics.pane.width - metrics.toolbar.width)).toBeLessThan(8);
   expect(Math.abs(metrics.card.left - metrics.toolbar.left)).toBeLessThan(4);
   expect(Math.abs(metrics.card.right - metrics.toolbar.right)).toBeLessThan(4);
+  expect(metrics.card.width).toBeGreaterThan(320);
+  expect(metrics.card.width).toBeLessThanOrEqual(880);
+  if (metrics.column.width > 1000) {
+    expect(metrics.card.width).toBeLessThan(metrics.column.width - 24);
+    expect(metrics.toolbar.width).toBeLessThan(metrics.pane.width - 24);
+  }
 }
 
 async function expectFollowedKolCardWraps(page: Page, handle?: string) {
@@ -640,6 +644,8 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expect(page.locator("[data-today-work]")).not.toContainText("后续");
   await expect(page.locator("[data-today-work] h2, [data-todo-md] strong").filter({ hasText: "我的待办" })).toHaveCount(0);
   await openHomeLifecycle(page);
+  await expect(page.locator("[data-home]")).toHaveAttribute("data-followed-chrome", "compact");
+  await expect(page.locator("[data-today-summary]")).toBeHidden();
   await expectFollowedKolHeadingRemoved(page);
   await expect(page.getByRole("link", { name: /查看KOL全生命周期/ })).toHaveCount(0);
   await expect(page.locator('a[href="/pipeline"]')).toHaveCount(0);
@@ -1073,20 +1079,135 @@ async function expectHomeFollowedRailWide(page: Page, viewportWidth: number) {
   const metrics = await page.evaluate(() => {
     const stage = document.querySelector(".home-stage");
     const column = document.querySelector("[data-followed-kol-column]");
+    const card = document.querySelector("[data-followed-kol]");
     if (!(stage instanceof HTMLElement) || !(column instanceof HTMLElement)) return null;
     return {
       gutter: Number.parseFloat(getComputedStyle(stage).paddingLeft),
       columnWidth: column.clientWidth,
+      cardWidth: card instanceof HTMLElement ? card.clientWidth : 0,
     };
   });
   expect(metrics).toBeTruthy();
   expect(metrics!.gutter).toBeLessThanOrEqual(16);
   expect(metrics!.columnWidth).toBeGreaterThan(viewportWidth - 320);
+  expect(metrics!.cardWidth).toBeGreaterThan(320);
+  expect(metrics!.cardWidth).toBeLessThanOrEqual(880);
+  if (metrics!.columnWidth > 1000) {
+    expect(metrics!.cardWidth).toBeLessThan(metrics!.columnWidth - 24);
+  }
+}
+
+async function expectFollowedDecisionDensity(page: Page) {
+  const metrics = await page.evaluate(() => {
+    const cards = [...document.querySelectorAll("[data-followed-kol]")];
+    const column = document.querySelector("[data-followed-kol-column]");
+    const first = cards[0];
+    if (!(first instanceof HTMLElement) || !(column instanceof HTMLElement)) return null;
+    const fact = first.querySelector("[data-latest-fact]")?.getBoundingClientRect();
+    const rec = first.querySelector("[data-recommended-action]")?.getBoundingClientRect();
+    const primary = first.querySelector("[data-kol-primary-action], [data-confirm-enter-stage]")?.getBoundingClientRect();
+    const recBand = first.querySelector('[data-kol-band="action"]')?.getBoundingClientRect();
+    const vh = window.innerHeight;
+    const inView = cards.filter((el) => {
+      const r = el.getBoundingClientRect();
+      return r.top < vh - 8 && r.bottom > 80 && r.height > 0;
+    }).length;
+    return {
+      cardWidth: first.clientWidth,
+      columnWidth: column.clientWidth,
+      gutter: fact && rec ? Math.max(0, rec.left - fact.right) : 0,
+      factAiSideBySide: Boolean(fact && rec && rec.left + 2 >= fact.right - 8 && Math.abs(fact.top - rec.top) < 48),
+      hasPrimary: Boolean(primary),
+      primaryInAi: !primary || Boolean(
+        recBand
+        && primary.left + 2 >= recBand.left - 4
+        && primary.right <= recBand.right + 4
+        && primary.top + 2 >= recBand.top - 4
+        && primary.bottom <= recBand.bottom + 4
+      ),
+      cardsInViewport: inView,
+      cardCount: cards.length,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    };
+  });
+  expect(metrics).toBeTruthy();
+  expect(metrics!.cardWidth).toBeGreaterThan(320);
+  expect(metrics!.cardWidth).toBeLessThanOrEqual(880);
+  if (metrics!.columnWidth > 1000) {
+    expect(metrics!.cardWidth).toBeLessThan(metrics!.columnWidth - 24);
+  }
+  if (metrics!.cardWidth >= 860) {
+    expect(metrics!.factAiSideBySide).toBe(true);
+    expect(metrics!.gutter).toBeLessThanOrEqual(16);
+    expect(metrics!.primaryInAi).toBe(true);
+  }
+  if (metrics!.viewportHeight >= 800 && metrics!.cardCount >= 3) {
+    expect(metrics!.cardsInViewport).toBeGreaterThanOrEqual(3);
+  }
+}
+
+async function expectFollowedTypeColor(page: Page, handle?: string) {
+  const card = handle
+    ? page.locator(`[data-followed-kol="${handle}"]`)
+    : page.locator("[data-followed-kol]").first();
+  const type = await card.evaluate((el) => {
+    const read = (node: Element | null) => {
+      if (!(node instanceof HTMLElement)) return null;
+      const cs = getComputedStyle(node);
+      return {
+        size: Number.parseFloat(cs.fontSize),
+        weight: Number.parseFloat(cs.fontWeight),
+        color: cs.color,
+      };
+    };
+    return {
+      name: read(el.querySelector("[data-kol-name]")),
+      stage: read(el.querySelector("[data-stage-label]")),
+      chip: read(el.querySelector("[data-kol-chip]")),
+      kicker: read(el.querySelector(".kol-split-kicker")),
+      fact: read(el.querySelector("[data-latest-fact] .kol-mail-digest") || el.querySelector("[data-mail-summary]")),
+      ai: read(el.querySelector("[data-recommended-action] .kol-suggestion")),
+      why: read(el.querySelector("[data-action-why]")),
+      detail: read(el.querySelector("[data-open-kol-detail]")),
+      mail: read(el.querySelector("[data-open-original-mail]")),
+    };
+  });
+  expect(type.name).toBeTruthy();
+  expect(type.name!.size).toBeGreaterThanOrEqual(16);
+  expect(type.name!.weight).toBeGreaterThanOrEqual(600);
+  expect(type.name!.color).toBe("rgb(0, 0, 0)");
+  expect(type.stage).toBeTruthy();
+  expect(type.stage!.size).toBeGreaterThanOrEqual(14);
+  expect(type.stage!.weight).toBeLessThan(type.name!.weight);
+  expect(type.stage!.color).toBe("rgb(102, 102, 102)");
+  expect(type.kicker).toBeTruthy();
+  expect(type.kicker!.size).toBeGreaterThanOrEqual(14);
+  expect(type.kicker!.color).toBe("rgb(102, 102, 102)");
+  expect(type.fact).toBeTruthy();
+  expect(type.fact!.size).toBeGreaterThanOrEqual(16);
+  expect(type.fact!.color).toBe("rgb(0, 0, 0)");
+  expect(type.ai).toBeTruthy();
+  expect(type.ai!.size).toBeGreaterThanOrEqual(14);
+  expect(type.ai!.color).toBe("rgb(0, 0, 0)");
+  expect(type.detail).toBeTruthy();
+  expect(type.detail!.size).toBeGreaterThanOrEqual(14);
+  expect(type.detail!.color).toBe("rgb(102, 102, 102)");
+  if (type.chip) expect(type.chip.size).toBeGreaterThanOrEqual(14);
+  if (type.why) {
+    expect(type.why.size).toBeGreaterThanOrEqual(14);
+    expect(type.why.color).toBe("rgb(102, 102, 102)");
+  }
+  if (type.mail) {
+    expect(type.mail.size).toBeGreaterThanOrEqual(14);
+    expect(type.mail.color).toBe("rgb(102, 102, 102)");
+  }
 }
 
 async function expectFollowedKolStackedNoOverflow(page: Page, handle: string) {
   await expect(page.locator(`[data-followed-kol="${handle}"] [data-kol-band]`)).toHaveCount(4);
   await expectFollowedKolCardWraps(page, handle);
+  await expectFollowedTypeColor(page, handle);
   await expectFollowedKolListAlignsWithToolbar(page);
   await expectObjectToolbarAligned(page);
   await expectNoHorizontalOverflow(page, "[data-home-modes]");
@@ -1174,6 +1295,7 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expectFollowedKolHeadingRemoved(page);
   await expectFollowedKolStackedNoOverflow(page, "小美妆日记");
   await expectHomeFollowedRailWide(page, 1280);
+  await expectFollowedDecisionDensity(page);
   const toolbarBox = await page.locator("[data-followed-object-toolbar]").boundingBox();
   const cardBox = await card.boundingBox();
   expect(toolbarBox && cardBox).toBeTruthy();
@@ -1220,11 +1342,13 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expectFollowedKolStackedNoOverflow(page, "小美妆日记");
   await expectFollowedKolStackedNoOverflow(page, "测试网红-qq-01");
   await expectHomeFollowedRailWide(page, 1600);
+  await expectFollowedDecisionDensity(page);
 
   await page.setViewportSize({ width: 1920, height: 900 });
   await expect(card).toBeVisible();
   await expectFollowedKolStackedNoOverflow(page, "小美妆日记");
   await expectHomeFollowedRailWide(page, 1920);
+  await expectFollowedDecisionDensity(page);
 });
 
 test("home followed-KOL object toolbar matches card width", async ({ page }) => {
@@ -1237,6 +1361,7 @@ test("home followed-KOL object toolbar matches card width", async ({ page }) => 
     await expectFollowedKolListAlignsWithToolbar(page);
     await expectObjectToolbarAligned(page);
     await expectHomeFollowedRailWide(page, width);
+    await expectFollowedDecisionDensity(page);
     await expectNoPageHorizontalScroll(page);
     await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
     await expectNoHorizontalOverflow(page, "[data-followed-kol-list] li:first-child [data-followed-kol]");
@@ -2450,6 +2575,17 @@ test("two buttons stay separate: send keeps stage, confirm-stage advances", asyn
   expect(x2.stage_code).toBe("INTERESTED");
 });
 
+test("sidebar 新工作任务 is not active on 我跟进的红人", async ({ page }) => {
+  await page.goto("/?tab=lifecycle");
+  await expect(page.locator("[data-home]")).toHaveAttribute("data-home-active-mode", "lifecycle");
+  await expect(page.locator('[data-nav="new-task"]')).not.toHaveClass(/active/);
+  await expect(page.locator('[data-nav="new-task"]')).not.toHaveAttribute("aria-current", "page");
+  await page.locator('[data-home-mode="today"]').click();
+  await expect(page.locator("[data-home]")).toHaveAttribute("data-home-active-mode", "today");
+  await expect(page.locator('[data-nav="new-task"]')).toHaveClass(/active/);
+  await expect(page.locator('[data-nav="new-task"]')).toHaveAttribute("aria-current", "page");
+});
+
 test("sidebar 新工作任务 highlight does not also select 进行中", async ({ page }) => {
   await page.goto("/");
   await page.locator('[data-nav="new-task"]').click();
@@ -3568,9 +3704,13 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await expect(page.locator("[data-insight-mark]")).toBeVisible();
   await openHomeLifecycle(page);
   await expectHomeChromeRow(page);
+  await expect(page.locator("[data-home]")).toHaveAttribute("data-followed-chrome", "compact");
+  await expect(page.locator("[data-today-summary]")).toBeHidden();
   await expectFollowedKolHeadingRemoved(page);
   await expectFollowedKolListAlignsWithToolbar(page);
   await expectFollowedKolCardWraps(page, "小美妆日记");
+  await expectFollowedTypeColor(page, "小美妆日记");
+  await expectFollowedDecisionDensity(page);
   await expectFollowedObjectToolbar(page);
   await expect(page.getByRole("link", { name: /查看KOL全生命周期/ })).toHaveCount(0);
   await expect(page.locator("[data-followed-kol]")).toHaveCount(4);
