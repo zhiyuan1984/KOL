@@ -108,7 +108,7 @@ export default function AdminConsole() {
   const accountRole = accountRoleChip(account);
 
   return (
-    <div className="admin-shell" data-admin-ia="governance" data-visual="docs20">
+    <div className="admin-shell" data-admin-ia="governance">
       <aside className="admin-nav" data-admin-nav>
         <div className="admin-nav-kicker">管理</div>
         <nav className="admin-nav-list" aria-label="管理分类">

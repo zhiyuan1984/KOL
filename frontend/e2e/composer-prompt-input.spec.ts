@@ -197,4 +197,31 @@ test("settings fields keep a MASTER focus ring and login error-summary uses defi
   });
   near(rgb(summary.color) as number[], [196, 60, 60]);
   near(rgb(summary.bg) as number[], [242, 232, 233]);
+
+  const work = page.locator(".btn.work").first();
+  await expect(work).toBeVisible();
+  const workIdle = await work.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { bg: cs.backgroundColor, color: cs.color, fontSize: cs.fontSize };
+  });
+  near(rgb(workIdle.bg) as number[], [0, 0, 0]);
+  near(rgb(workIdle.color) as number[], [255, 255, 255]);
+  expect(parseFloat(workIdle.fontSize)).toBeGreaterThanOrEqual(14);
+
+  await work.focus();
+  const workFocus = await work.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return {
+      outlineColor: cs.outlineColor,
+      outlineStyle: cs.outlineStyle,
+      outlineWidth: cs.outlineWidth,
+      outlineOffset: cs.outlineOffset,
+      boxShadow: cs.boxShadow,
+    };
+  });
+  expect(workFocus.outlineStyle).not.toBe("none");
+  expect(parseFloat(workFocus.outlineWidth)).toBeGreaterThanOrEqual(2);
+  expect(parseFloat(workFocus.outlineOffset)).toBeGreaterThanOrEqual(2);
+  near(rgb(workFocus.outlineColor) as number[], [255, 255, 255]);
+  expect(workFocus.boxShadow).toMatch(/rgb\(0,\s*0,\s*0\)|rgba\(0,\s*0,\s*0/);
 });
