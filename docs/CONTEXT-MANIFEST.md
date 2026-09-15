@@ -16,9 +16,10 @@ Pipeline / Home「AI发现」「我跟进的红人」是 KOL 试点特化，不�
 B CONSTITUTION.md
 → F 对应 FS（如有）/ G UX-EMPLOYEE 硬不变量（SEND_NE_STAGE、L3_CONFIRM）
 → H ia-information-architecture.md（导航 / 一页一问 / 使用≠治理）
-→ I design.md（视觉入口）+ MASTER.md（token only）
+→ I design.md（视觉入口；默认观感 OpenAI-quiet）+ MASTER.md（token only；主按钮 `--primary`）
+→ I references/openai-style.md（mood；主按钮色除外）
 → I pages/<当前页面>.md
-→ 仅针对未解决的设计问题调用 ui-ux-pro-max
+→ 仅针对未解决的设计问题调用 ui-ux-pro-max（对照 only）
 ```
 
 先建立 B / F / G 事实，再使用 `ui-ux-pro-max`。其输出是候选建议，不能覆盖 A–K。
@@ -38,7 +39,7 @@ B CONSTITUTION.md
 | 审批 / 考试 | B §4.1；C `org-permissions.md`；I `pages/approvals.md` | 管理闸门再加载同 C |
 | `/cron` 定时 | B §4.1 | 不得做成第二套 Home |
 | 导航 / 一页一问 / 使用≠治理 | H `ia-information-architecture.md` | 配套套件、枢纽字段再加载 C `org-permissions.md` |
-| 纯视觉 / 组件 | I `design.md` → `MASTER.md` + 当前页 | token 只改 MASTER；禁止在 `design.md` 复制 hex。追溯迁移才读 `20` |
+| 纯视觉 / 组件 | I `design.md` → `MASTER.md` + 当前页 | token 只改 MASTER；禁止在 `design.md` 复制 hex。默认观感 mood 读 `references/openai-style.md`（主按钮仍 `--primary`）。追溯迁移才读 `20` |
 | 组织 / 范围 / PEP | C `org-permissions.md` | 注册表：`config/org-registry.yaml` |
 | 对象 / 字典 | D `domain-objects.md` | 物理值冲突时记 K 接口漂移，不改 D 编造 |
 | API / 后端 | J `technical-constitution.md`；F 对应 FS；D `domain-objects.md` | 副作用 / 确认：C `org-permissions.md`；物理 IO：K `07` / `schemas/`；细则 `06` / `07` / `14` |
@@ -46,7 +47,7 @@ B CONSTITUTION.md
 
 ## 默认不加载
 
-- `references/`：风格研究和历史提示词，不是实施规则。
+- `references/`：历史提示词与其它风格研究不是实施规则。例外：`references/openai-style.md` 是默认观感 mood 来源（主按钮色除外；token hex 仍只住 MASTER）。
 - `DECISIONS.md`：仅用于追溯具体决策（ADR 不是法律层）。
 - 已删除的 `docs/evidence-*`、`04`、`19`、`employee-surface-contracts.md`：不要从 git 历史恢复为现行法。
 - `06`、`09`–`11`、`13`–`17`、`90`：实现与运营手册，不是 A–K；仅在任务明确需要细则时打开。

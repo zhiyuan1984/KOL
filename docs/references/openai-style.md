@@ -1,6 +1,6 @@
 # OpenAI — Style Reference
 
-> 参考资料，不是 KOL Workbench 实施规范。仅在研究 OpenAI 风格时按需读取；项目规则见 `../design-system/kol-workbench/MASTER.md`。
+> 默认观感规范来源（主按钮色除外：项目主色仍为 MASTER `--primary`）。Token hex 仍只住 MASTER；本文件不授权把黑色实底 CTA 或本页 hex 抄进 `design.md` / CSS。项目规则见 `../design-system/kol-workbench/MASTER.md`。
 
 > Research lab notebook at noon.
 

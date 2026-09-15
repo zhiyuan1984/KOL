@@ -6,6 +6,8 @@
 >
 > **Token 源**仍是 [`design-system/kol-workbench/MASTER.md`](design-system/kol-workbench/MASTER.md)（KOL 试点皮肤目录名，不是产品身份）。单页布局与状态在 [`design-system/kol-workbench/pages/`](design-system/kol-workbench/pages/)。
 >
+> **默认观感**是 OpenAI-quiet（安静白底、低饱和、发丝级阴影、排版克制）。mood 规范来源是 [`references/openai-style.md`](references/openai-style.md)；**token 数值仍只住 MASTER**。填充主按钮继续用 MASTER `--primary` / `--primary-fg`，**不**采用 OpenAI 黑色实底 CTA。这不是 Linear-first 品牌。
+>
 > **禁止**在本文件写入或复制十六进制色值、业务规则、阶段图、权限模型。冲突时：安全 / 权限 / 数据 → FS / Policy；页面职责 / IA → [`CONSTITUTION.md`](CONSTITUTION.md) §4 与 [`ia-information-architecture.md`](ia-information-architecture.md)；视觉数值 → MASTER。
 >
 > 历史「每次先读一份 `design.md` 并内嵌色值」的提示词已废止（见 [`references/legacy-design-summary-prompt.md`](references/legacy-design-summary-prompt.md)）。锁定的是**本路径作为入口**，不是把 MASTER 再抄一遍。
@@ -17,13 +19,14 @@ CONSTITUTION.md §4（表面职责）
 → ia-information-architecture.md（若问题是导航 / 一页一问 / 使用≠治理）
 → UX-EMPLOYEE 硬不变量（SEND_NE_STAGE、L3_CONFIRM）
 → docs/design.md          ← 你在这里（入口，不读色值）
-→ design-system/kol-workbench/MASTER.md
+→ design-system/kol-workbench/MASTER.md（token 源；主按钮 `--primary`）
+→ references/openai-style.md（默认观感 mood；主按钮色除外）
 → design-system/kol-workbench/pages/<当前页面>.md
-→ 仅针对未解决问题调用 ui-ux-pro-max
+→ 仅针对未解决问题调用 ui-ux-pro-max（对照 only）
 ```
 
-1. 先用本文件确认：**改视觉读哪份、禁止写什么**。
-2. 需要主色 / 辅色 / 危险 / 成功、边框、圆角、字号阶梯时，打开 MASTER 对应节，**按 token 名引用**，不要把 hex 抄回本文件或新页面。
+1. 先用本文件确认：**改视觉读哪份、禁止写什么**。默认观感走 OpenAI-quiet；色值仍只打开 MASTER。
+2. 需要主色 / 辅色 / 危险 / 成功、边框、圆角、字号阶梯时，打开 MASTER 对应节，**按 token 名引用**，不要把 hex 从 MASTER 或 `openai-style.md` 抄回本文件或新页面。
 3. 做某一个页面时，再读 `pages/<page>.md`。它覆盖该页布局、状态矩阵和响应式差异，不覆盖 MASTER token，也不覆盖宪法 / IA。
 4. `frontend/src/styles.css` 是 token 的实现事实；改数值必须同时改 CSS 与 MASTER，不在本文件改。
 
@@ -80,7 +83,8 @@ Composer token（`--composer-*`）只服务任务输入容器，不扩散到普�
 | 发送 ≠ 推进阶段、L3 确认文案、拒绝原因 | 宪法 §3 / §5、`UX-EMPLOYEE` |
 | 导航该挂谁、Pipeline 是否侧栏、使用 ≠ 治理 | [`ia-information-architecture.md`](ia-information-architecture.md)、宪法 §4 |
 | 连接器枢纽字段、Admin 遗留收敛 | C [`org-permissions.md`](org-permissions.md) |
-| 把 `ui-ux-pro-max` 或 OpenAI 风格对照升级为 token | MASTER §8：对照 only |
+| 把 `ui-ux-pro-max` 建议升级为 token / 项目视觉法 | MASTER §8：`ui-ux-pro-max` 仍是对照 only |
+| 把 `openai-style.md` 的 hex、OpenAI Sans 或黑色实底 CTA 抄进本文件 | token 数值只改 MASTER；主按钮仍 `--primary` / `--primary-fg`，不改黑 |
 
 页面和组件不得自行定义与 MASTER 冲突的颜色、字号、圆角或间距（宪法 §3）。
 

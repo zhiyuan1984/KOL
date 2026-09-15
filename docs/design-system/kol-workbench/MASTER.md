@@ -4,6 +4,8 @@
 >
 > UI 任务先读 [`docs/design.md`](../../design.md)（class I 入口）。本文件是 token 源；不要把 hex 抄进 `design.md`。
 >
+> **规范观感来源**是 [`docs/references/openai-style.md`](../../references/openai-style.md)（mood：安静白底、低饱和、发丝级阴影、排版克制）。Token hex 仍只住本文件。填充主按钮继续用 `--primary` / `--primary-fg`（蓝），**不**采用 OpenAI 黑色实底按钮。
+>
 > 本文件以 `frontend/src/styles.css` 已落地的 token 为基础，定义下一轮重新设计的视觉约束。**现有页面的布局、组件造型和视觉完成度不是设计基准，也不代表已经获得认可。**
 
 ## 0. 来源边界
@@ -12,7 +14,8 @@
 
 - `:root`、深色主题和 Composer 中已经命名的 CSS token；
 - 已确认的 16px 正文、间距阶梯、语义色、圆角与无障碍底线；
-- 产品宪法、FS 和 UX 中的页面职责、状态、权限与副作用规则。
+- 产品宪法、FS 和 UX 中的页面职责、状态、权限与副作用规则；
+- OpenAI-quiet 默认观感（mood 读 `docs/references/openai-style.md`）。色值不从该 mood 文件抄入；黑色实底 CTA 不继承。
 
 以下内容不得从现有页面反向写入 MASTER：
 
@@ -24,7 +27,9 @@
 
 ## 1. 目标观感
 
-目标是轻、安静、精确的 Agent 工作台：白色主画布、浅灰层次、细边框、克制的靛蓝强调色，依靠排版和留白建立层级。工作结果和状态优先于装饰。避免过度阴影、卡片套卡片、后台表单堆叠和营销落地页式大标题。
+默认产品观感是 OpenAI-quiet：安静白底、低饱和、发丝级 / 克制阴影、排版克制。mood 以 [`docs/references/openai-style.md`](../../references/openai-style.md) 为规范来源；**填充主按钮仍用本表 `--primary` / `--primary-fg`（蓝），不采用 OpenAI 黑色实底 CTA。** Token hex 只住本文件，不把该 mood 文件色值抄进 `design.md` 或页面规范。
+
+目标是轻、安静、精确的 Agent 工作台：白色主画布、浅灰层次、细边框、克制的主色强调，依靠排版和留白建立层级。工作结果和状态优先于装饰。避免过度阴影、卡片套卡片、后台表单堆叠和营销落地页式大标题。这不是 Linear-first 品牌；Linear 密度只可在与 OpenAI-quiet 兼容时作为间距手法（ADR-020 / ADR-029）。
 
 “高密度”表示信息组织紧凑、扫描路径清楚，不表示压缩字号、塞满首屏或沿用当前页面的拥挤布局。
 
@@ -124,9 +129,11 @@
 - 浏览器前进/返回保持可预测。筛选、模式或详情如果需要刷新、分享和深链，应进入 URL；临时 Dialog、抽屉和 tooltip 不写入历史。
 - 只有三层及以上稳定层级使用面包屑；返回入口必须指向用户上一层任务语境。
 
-## 8. ui-ux-pro-max 使用方式
+## 8. 观感来源与 ui-ux-pro-max
 
-按当前问题搜索风格、颜色、字体、UX、图表或技术栈建议。只采纳能解释具体问题、与项目技术栈兼容且不违反契约的部分。通用落地页模式、未经验证的颜色方案和搜索结果中的示例代码不得直接升级为项目规范。
+OpenAI-quiet 是**规范观感来源**（mood 读 `docs/references/openai-style.md`）。Token 数值仍只住本文件。填充主按钮必须继续映射 `--primary` / `--primary-fg`；OpenAI 黑色实底按钮**不采纳**。不从该 mood 文件引入 OpenAI Sans、黑色主 CTA，或把其中 hex 提升为本表 token。
+
+`ui-ux-pro-max` 仍是对照 only。按当前问题搜索风格、颜色、字体、UX、图表或技术栈建议。只采纳能解释具体问题、与项目技术栈兼容且不违反契约的部分。通用落地页模式、未经验证的颜色方案、Glassmorphism、新字体、橙色强调和搜索结果中的示例代码不得直接升级为项目规范。
 
 ## 9. 交付检查
 
