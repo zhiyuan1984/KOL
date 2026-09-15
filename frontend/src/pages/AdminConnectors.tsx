@@ -13,7 +13,7 @@ import {
   type PublicConnector,
 } from "../adminGovernance";
 import { auditEventLabel } from "../labels";
-import { connectorDisableConfirm, grantRevokeConfirm } from "../adminConfirm";
+import { connectorDisableConfirm, credentialRefConfirm, grantRevokeConfirm, grantWriteConfirm } from "../adminConfirm";
 import { useAdminConfirm, type AskAdminConfirm } from "../components/ConfirmDialog";
 
 type SaveFn = (path: string, body: AdminRow, message: string, method?: string) => Promise<void>;
@@ -185,8 +185,11 @@ export function AdminConnectorDetail({
     e.preventDefault();
     const next = refDraft.trim();
     if (!next) return;
-    void onSave(`/api/admin/connectors/${connector.id}`, { credential_ref: next }, "凭据引用已更新", "PATCH");
-    setRefDraft("");
+    ask(credentialRefConfirm(connector.label, connector.id), () =>
+      onSave(`/api/admin/connectors/${connector.id}`, { credential_ref: next }, "凭据引用已更新", "PATCH").then(() => {
+        setRefDraft("");
+      }),
+    );
   };
 
   return (
@@ -239,7 +242,7 @@ export function AdminConnectorDetail({
             placeholder="credential 位置，不是秘密原值"
           />
         </label>
-        <button className="btn work" disabled={!refDraft.trim()}>更新引用</button>
+        <button className="btn work" data-admin-credential-ref disabled={!refDraft.trim()}>更新引用</button>
       </form>
 
       <ConnectorGrantTable connectorId={connector.id} connectorLabel={connector.label} users={users} onSave={onSave} ask={ask} />
@@ -295,6 +298,12 @@ function ConnectorGrantTable({
       );
       return;
     }
+    if (access === "write") {
+      ask(grantWriteConfirm(rowTitle(user), connectorLabel), () =>
+        onSave(`/api/admin/users/${userId}/connectors/${connectorId}`, { access }, "连接器授权已保存"),
+      );
+      return;
+    }
     void onSave(`/api/admin/users/${userId}/connectors/${connectorId}`, { access }, "连接器授权已保存");
   };
 
@@ -326,7 +335,7 @@ function ConnectorGrantTable({
                   <td>{access === "write" || access === "admin" ? "已授" : "—"}</td>
                   <td className="admin-inline-actions">
                     <button type="button" className="btn sm" onClick={() => setAccess(user, "read")}>授予 read</button>
-                    <button type="button" className="btn sm" onClick={() => setAccess(user, "write")}>授予 write</button>
+                    <button type="button" className="btn sm" data-admin-grant-action="write" onClick={() => setAccess(user, "write")}>授予 write</button>
                     <button type="button" className="btn sm danger" data-admin-grant-action="revoke" disabled={!access} onClick={() => setAccess(user, "")}>收回</button>
                   </td>
                 </tr>

@@ -26,7 +26,7 @@ import {
   userStatusLabel,
 } from "../labels";
 import { SKILL_OPTIONS } from "../knowledgeCopy";
-import { userDeactivateConfirm } from "../adminConfirm";
+import { retentionPolicyConfirm, userDeactivateConfirm } from "../adminConfirm";
 import { useAdminConfirm } from "../components/ConfirmDialog";
 
 const TABS: [string, string][] = [
@@ -334,6 +334,7 @@ function DataPanel({
   auditRows: AdminRow[];
   onSave: SaveFn;
 }) {
+  const { ask, dialog } = useAdminConfirm();
   const [slice, setSlice] = useState<"all" | "connector" | "grant" | "bind">("all");
   const filtered = auditRows.filter((row) => {
     const eventType = String(row.event_type || "");
@@ -345,22 +346,27 @@ function DataPanel({
 
   return (
     <section className="admin-grid">
+      {dialog}
       <form
         className="panel settings-form"
         onSubmit={(e) => {
           e.preventDefault();
           const d = new FormData(e.currentTarget);
-          void onSave("/api/admin/retention-policy", {
-            session_days: Number(d.get("session_days")),
-            audit_days: Number(d.get("audit_days")),
-          }, "数据策略已保存", "PATCH");
+          const sessionDays = Number(d.get("session_days"));
+          const auditDays = Number(d.get("audit_days"));
+          ask(retentionPolicyConfirm(sessionDays, auditDays), () =>
+            onSave("/api/admin/retention-policy", {
+              session_days: sessionDays,
+              audit_days: auditDays,
+            }, "数据策略已保存", "PATCH"),
+          );
         }}
       >
         <h2>数据与留存策略</h2>
         <label className="field">会话留存天数<input name="session_days" type="number" min="1" defaultValue={Number(policy.session_days || 365)} /></label>
         <label className="field">审计留存天数<input name="audit_days" type="number" min="1" defaultValue={Number(policy.audit_days || 730)} /></label>
         <p className="muted">当前策略：{String(policy.summary || "分享链接默认 24 小时过期；私有数据默认排除。")}</p>
-        <button className="btn work">保存策略</button>
+        <button className="btn work" data-admin-retention-save>保存策略</button>
       </form>
       <div className="panel">
         <h2>治理审计切片</h2>
