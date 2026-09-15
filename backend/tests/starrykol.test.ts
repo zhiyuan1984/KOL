@@ -906,6 +906,29 @@ describe("Email MCP task run path", () => {
     expect(recorded).toHaveLength(0);
   });
 
+  it("does not treat a product-legal rollback as a Host forbid; remote walk is not_supported_by_remote", async () => {
+    const recorded: { name: string; args: Json }[] = [];
+    setEmailMcpClientFactory(() => ({
+      async callTool(name: string, args: Json = {}) {
+        recorded.push({ name, args });
+        return { data: { updated: true } };
+      },
+      async close() { /* noop */ },
+    }));
+    const result = await writeRemoteOfficialStageWalk({
+      kolUid: "KOL20260901LINGONG",
+      lastLifecycleId: 320,
+      fromStage: "NEGOTIATING",
+      stageCode: "INTERESTED",
+    });
+    expect(result).toMatchObject({
+      skipped: true,
+      reason: "not_supported_by_remote",
+      updated: false,
+    });
+    expect(recorded).toHaveLength(0);
+  });
+
   it("walks a human skip as successive adjacent Starry-native hops", async () => {
     const recorded: { name: string; args: Json }[] = [];
     setEmailMcpClientFactory(() => ({

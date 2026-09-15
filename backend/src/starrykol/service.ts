@@ -547,8 +547,10 @@ type RemoteStageWriteInput = {
 };
 
 /**
- * Host kernel only: one adjacent-forward Starry hop (physical adapter residual,
- * not product law — ADR-027). Worker must not call this.
+ * Host kernel only: one Starry hop (physical adapter). Worker must not call this.
+ * Product-legal jumps are accepted on Host; this function only talks to a remote
+ * that currently needs adjacent hops. Use writeRemoteOfficialStageWalk for
+ * multi-hop, or return not_supported_by_remote.
  *
  * LIVE-proven ChangeStageRequest (KOL202607300002 / lifecycle 16):
  * top-level args are exactly `{ lifecycleId, requestJson }`;
@@ -562,7 +564,7 @@ export async function writeRemoteOfficialStage(input: RemoteStageWriteInput): Pr
     if (plan.kind !== "adjacent") {
       throw new HttpFail(400, {
         code: "not_adjacent_forward",
-        message: "Starry 只接受相邻前进，禁止一次写入非相邻落地阶段",
+        message: "远程 Starry 单次写入只接受相邻 hop（物理适配，不是产品禁止）。跨段请走 walk 适配器，回退/异常请诚实失败 not_supported_by_remote。",
         from: plan.from,
         to: plan.to,
         hops: plan.nativeHops,
@@ -593,11 +595,17 @@ export async function writeRemoteOfficialStage(input: RemoteStageWriteInput): Pr
   };
 }
 
-/** Adapter residual: walk Starry with successive adjacent forwards. Product skip/jump is Host-local (ADR-027). */
+/** Physical adapter: successive adjacent Starry hops. Host already accepted the product edge. */
 export async function writeRemoteOfficialStageWalk(input: RemoteStageWriteInput & { fromStage: string }): Promise<Json> {
   const plan = planStarryAdjacentWalk(input.fromStage, input.stageCode);
   if (plan.kind === "not_forward") {
-    return { skipped: true, reason: "not_adjacent_forward", walk: plan, tool: "changeLifecycleStage", updated: false };
+    return {
+      skipped: true,
+      reason: "not_supported_by_remote",
+      walk: plan,
+      tool: "changeLifecycleStage",
+      updated: false,
+    };
   }
   const hops: Json[] = [];
   let cursor = plan.from;

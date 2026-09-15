@@ -1,6 +1,7 @@
 import { audit, getConn, nowIso, tx } from "../db.js";
 import { nid } from "../ids.js";
-import { BY_CODE, label as stageLabel, legalTargets, normalizeStage, STAGES } from "../stages.js";
+import { BY_CODE, label as stageLabel, normalizeStage, STAGES } from "../stages.js";
+import { assertStageTransition } from "../stage-transitions-graph.js";
 import { dictionaryOptionsFor } from "../starrykol/remote-contract.js";
 import { isUsableInternalZh, stubInternalZh } from "../starrykol/translate-zh.js";
 import type { Json, Row, StageTransitionInput } from "../types.js";
@@ -39,9 +40,10 @@ export function confirmStage(lifecycleId: string, body: Json): Json {
   if (!row) throw new KeyError(lifecycleId);
   const from = normalizeStage(String(row.stage_code));
   if (!BY_CODE[code]) throw new Error(`unknown stage: ${code}`);
-  if (!legalTargets(from).includes(code)) throw new Error(`illegal stage transition: ${from} -> ${code}`);
-  const before = Number(row.stage_version || 0);
   const supplied = (body.transition && typeof body.transition === "object" ? body.transition : {}) as Partial<StageTransitionInput>;
+  const graphActor = String(supplied.recommender || body.recommender || "") === "fact_advance" ? "auto" : "human";
+  assertStageTransition(from, code, graphActor, String(body.reason || supplied.reason_code || body.reason_code || ""));
+  const before = Number(row.stage_version || 0);
   const stage = BY_CODE[code];
   const occurredAt = String(supplied.occurred_at || body.occurred_at || nowIso());
   const transition: StageTransitionInput = {

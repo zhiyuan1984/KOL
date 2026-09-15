@@ -26,17 +26,15 @@ import {
   BY_CODE,
   LOCKED_PROMISE,
   approvalKindForStage,
-  autoLegalTargets,
   confirmTargetKind,
-  confirmTargetNeedsReason,
   confirmTargetViews,
   groupedStageTracks,
   label,
-  legalTargets,
   normalizeStage,
   skippedStagesForConfirm,
   toLegacyStarryStage,
 } from "../stages.js";
+import { assertStageTransition } from "../stage-transitions-graph.js";
 import type { Intent, Json, Row, SessionStatus, StageTransitionInput, WorkerResult } from "../types.js";
 import { mcpSyncAssistantNote } from "../confirm-stage-feedback.js";
 import { CodexUnavailable } from "../worker/errors.js";
@@ -2271,27 +2269,9 @@ export function hostConfirmStage(
     throw new HttpFail(403, { code: "locked_promise", message: "承诺锁定期，禁止改阶段" });
   }
   const autoWrite = String(metadata.recommender || "") === "fact_advance";
-  const allowed = autoWrite ? autoLegalTargets(current) : legalTargets(current);
-  if (!allowed.includes(target)) {
-    throw new HttpFail(400, {
-      code: "illegal_edge",
-      message: autoWrite
-        ? "自动写入只能进入下一格，跳过和纠正必须由人确认"
-        : "请从主流程、分支流程或异常流程中选择具体阶段",
-      current,
-      target,
-      allowed,
-      tracks: groupedStageTracks(current, target),
-    });
-  }
-  if (!autoWrite && confirmTargetNeedsReason(current, target) && !String(reason || "").trim()) {
-    throw new HttpFail(400, {
-      code: "stage_reason_required",
-      message: "跳过、纠正或进入异常流程必须填写原因，系统只建议、由你确认。",
-      current,
-      target,
-    });
-  }
+  const actor = autoWrite ? "auto" : "human";
+  assertStageTransition(current, target, actor, reason);
+  // require_approval from the graph is enforced below via approvalKindForStage.
   const skip = humanSkipRecord(current, target, reason, autoWrite);
   const ver = Number(col.stage_version || 0);
   if (expectedVersion != null && Number(expectedVersion) !== ver) {

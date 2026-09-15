@@ -32,7 +32,8 @@ const MCP_SKIP_REASONS: Record<string, string> = {
   kol_not_in_live_test_allowlist: "该红人不在现场测试白名单",
   missing_kol_uid: "该合作未绑定远端 UID",
   mcp_not_configured: "未配置远程连接",
-  not_adjacent_forward: "远程只接受相邻前进，本次纠正或异常未写远程",
+  not_adjacent_forward: "远程接口暂无法一次同步该跳转（物理适配），不是产品禁止",
+  not_supported_by_remote: "远程接口不支持该跳转（物理适配，不是产品禁止），本地已按产品图确认",
   missing_from_stage: "缺少变更前阶段，无法同步",
 };
 

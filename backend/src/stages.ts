@@ -404,10 +404,11 @@ export type StarryAdjacentWalk = {
 };
 
 /**
- * Physical Starry adapter: remote API currently accepts adjacent-forward hops.
- * NOT product law (ADR-011 abolished; ADR-027). Product graph:
- * `docs/business-rules/stage-transitions.md`. LIVE walk is residual until a
- * follow-up code PR. Empty hops = not a forward main walk for this adapter.
+ * Physical Starry adapter only (ADR-027). Remote `changeLifecycleStage` currently
+ * accepts adjacent-forward hops. This is NOT a Host product gate — Host confirm
+ * uses `config/stage-transitions.json`. Empty hops = this adapter cannot express
+ * the hop (rollback / exception); caller should walk multi-hop or return
+ * `not_supported_by_remote`. Do not tell operators「产品只允许相邻」.
  */
 export function planStarryAdjacentWalk(from: string, to: string): StarryAdjacentWalk {
   const start = codeFromLabel(from) || normalizeStage(from);
@@ -428,6 +429,9 @@ export function planStarryAdjacentWalk(from: string, to: string): StarryAdjacent
     kind: hops.length === 1 ? "adjacent" : "walk",
   };
 }
+
+/** @deprecated Name kept for callers; same as planStarryAdjacentWalk (physical adapter). */
+export const planStarryPhysicalAdapterWalk = planStarryAdjacentWalk;
 
 export function isStarryAdjacentForward(from: string, to: string): boolean {
   return planStarryAdjacentWalk(from, to).kind === "adjacent";

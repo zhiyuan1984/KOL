@@ -24,7 +24,13 @@ describe("confirm-stage operator copy", () => {
       "该合作未绑定远端 UID",
     );
     expect(mcpSyncAssistantNote({ skipped: true, reason: "not_adjacent_forward" })).toContain(
-      "远程只接受相邻前进",
+      "物理适配",
+    );
+    expect(mcpSyncAssistantNote({ skipped: true, reason: "not_adjacent_forward" })).not.toContain(
+      "产品只允许相邻",
+    );
+    expect(mcpSyncAssistantNote({ skipped: true, reason: "not_supported_by_remote" })).toContain(
+      "不是产品禁止",
     );
   });
 
