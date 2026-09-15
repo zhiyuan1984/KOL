@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { FUNNEL, HubTile, skillFunnel, skillKind, type SkillRow } from "./SkillHub";
-import { skillDeleteConfirm } from "../adminConfirm";
+import { skillDeleteConfirm, skillUnpublishConfirm } from "../adminConfirm";
 import { useAdminConfirm } from "../components/ConfirmDialog";
 
 type AdminSkill = SkillRow & {
@@ -478,7 +478,18 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
                       <button type="button" className="btn" data-skill-grant={s.id} onClick={() => openGrant(s)}>
                         分配
                       </button>
-                      <button type="button" className="btn" data-skill-market={s.id} onClick={() => void toggleMarket(s)}>
+                      <button
+                        type="button"
+                        className="btn"
+                        data-skill-market={s.id}
+                        onClick={() => {
+                          if (s.in_market) {
+                            ask(skillUnpublishConfirm(s.title, s.id), () => toggleMarket(s));
+                            return;
+                          }
+                          void toggleMarket(s);
+                        }}
+                      >
                         {s.in_market ? "下架" : "上架"}
                       </button>
                       {s.source === "published" && (

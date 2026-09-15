@@ -309,11 +309,23 @@ function chatStream(page: Page) {
   return page.locator(".chat");
 }
 
-async function proposePipelineStage(page: Page, handle: string) {
+async function proposePipelineStage(page: Page, handle: string, stageCode?: string) {
   const row = page.locator(`[data-kol="${handle}"]`);
   await row.locator("[data-pipeline-row]").click();
   await expect(page.locator("[data-pipeline-drawer]")).toBeVisible();
+  const picker = page.locator("[data-pipeline-drawer] [data-stage-target]");
+  if (stageCode) {
+    await page.locator(`[data-pipeline-drawer] [data-stage-target="${stageCode}"]`).click();
+  } else {
+    await expect(picker.first()).toBeVisible();
+    await picker.first().click();
+  }
+  await expect(page.locator("[data-pipeline-drawer] [data-propose-stage]")).toBeEnabled();
   await page.locator("[data-pipeline-drawer] [data-propose-stage]").click();
+  const dialog = page.locator("[data-admin-confirm='pipeline-stage']");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator("[data-admin-confirm-object]")).not.toHaveText("");
+  await page.locator("[data-admin-confirm-ok]").click();
 }
 
 async function askKolSession(page: Page, request: APIRequestContext, collaborationId: string, text: string) {
@@ -751,8 +763,15 @@ test("pipeline shows a 15-stage milestone timeline and lifecycle drawer", async 
   await expect(page.locator("[data-creator-ledger]")).toContainText("钟槿年");
   await expect(page.locator("[data-pipeline-drawer]")).toContainText("本页未返回往来摘要");
   await expect(page.locator("[data-pipeline-drawer] [data-propose-stage]")).toHaveText("提出阶段变更");
+  await expect(page.locator("[data-pipeline-drawer] [data-propose-stage]")).toBeDisabled();
+  await expect(page.locator("[data-pipeline-drawer] [data-stage-graph-note]")).toContainText("不是只能相邻前进");
+  await expect(page.locator("[data-pipeline-drawer] [data-stage-target='INTERESTED']")).toBeVisible();
+  await expect(page.locator("[data-pipeline-drawer] [data-stage-target='CONTENT_PLANNING']")).toBeVisible();
+  await expect(page.locator("[data-pipeline-drawer] [data-stage-target='PAUSED']")).toBeVisible();
+  await expect(page.locator("[data-pipeline-drawer] [data-stage-target='COMPLETED']")).toHaveCount(0);
   await expect(page.locator("[data-pipeline-drawer]")).not.toContainText("写合作邮件");
   await expect(page.locator("[data-pipeline-drawer]")).not.toContainText("记状态");
+  await expect(page.locator("[data-pipeline-drawer] [data-stage-target]", { hasText: /^下一阶段$/ })).toHaveCount(0);
   await page.locator('[data-kol="数码老张"] [data-pipeline-row]').click();
   await expect(page.locator("[data-pipeline-drawer]")).toContainText("报价待确认");
   await page.locator("[data-pipeline-filters] [data-filter='brand']").selectOption("RO");
@@ -765,6 +784,35 @@ test("pipeline shows a 15-stage milestone timeline and lifecycle drawer", async 
   await expect(page.locator('[data-kol="母婴小课"]')).toBeVisible();
   await page.goto("/pipeline?kol=数码老张");
   await expect(page.locator("[data-pipeline-drawer]")).toContainText("报价待确认");
+});
+
+test("pipeline stage CTA passes concrete stage_code into confirm_stage", async ({ page }) => {
+  let posted: { intent?: string; entities?: { stage_code?: string; handle?: string }; text?: string } | null = null;
+  page.on("request", (request) => {
+    if (request.method() !== "POST") return;
+    if (!/\/api\/sessions\/[^/]+\/messages$/.test(new URL(request.url()).pathname)) return;
+    posted = request.postDataJSON() as typeof posted;
+  });
+  await page.goto("/pipeline");
+  await page.locator('[data-kol="小美妆日记"] [data-pipeline-row]').click();
+  await expect(page.locator("[data-pipeline-drawer]")).toBeVisible();
+  await expect(page.locator("[data-pipeline-drawer] [data-stage-target]", { hasText: /^下一阶段$/ })).toHaveCount(0);
+  await page.locator('[data-pipeline-drawer] [data-stage-target="INTERESTED"]').click();
+  await expect(page.locator("[data-pipeline-drawer] [data-propose-stage]")).toHaveAttribute("data-target-stage", "INTERESTED");
+  await page.locator("[data-pipeline-drawer] [data-propose-stage]").click();
+  const dialog = page.locator("[data-admin-confirm='pipeline-stage']");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator("[data-admin-confirm-object]")).toContainText("INTERESTED");
+  await expect(dialog.locator("[data-admin-confirm-object]")).toContainText("已回复-有兴趣");
+  await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("confirm_stage");
+  await expect(dialog).not.toContainText("下一阶段");
+  await page.locator("[data-admin-confirm-ok]").click();
+  await page.waitForURL(/\/s\//);
+  await expect.poll(() => posted?.entities?.stage_code || "").toBe("INTERESTED");
+  expect(posted?.intent).toBe("confirm_stage");
+  expect(posted?.text || "").toContain("已回复-有兴趣");
+  expect(posted?.text || "").not.toContain("下一阶段");
+  await expect(page.locator('[data-workbench] [data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 15000 });
 });
 
 test("session page has no coach next-step card and keeps composer skills", async ({ page }) => {
@@ -2922,6 +2970,33 @@ test("admin L3 destructive writes open confirm dialog with cancel focused", asyn
     await page.locator("[data-admin-confirm-cancel]").click();
     await expect(skillDialog).toHaveCount(0);
   }
+});
+
+test("admin L3 confirm covers retention policy writes", async ({ page }) => {
+  await page.goto("/admin/data");
+  await expect(page.getByRole("heading", { name: "数据与留存策略" })).toBeVisible();
+  await page.locator("[data-admin-retention-save]").click();
+  const dialog = page.locator("[data-admin-confirm='retention-policy']");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "保存留存策略" })).toBeVisible();
+  await expect(dialog.locator("[data-admin-confirm-object]")).toContainText("会话");
+  await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("组织数据留存");
+  await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("新策略立即生效");
+  await expect(page.locator("[data-admin-confirm-cancel]")).toBeFocused();
+  await page.locator("[data-admin-confirm-cancel]").click();
+  await expect(dialog).toHaveCount(0);
+
+  await page.locator("[data-admin-nav='connectors']").click();
+  await page.locator("[data-admin-connectors-table] a").first().click();
+  await expect(page.locator("[data-admin-page='connector-detail']")).toBeVisible();
+  const grantWrite = page.locator("[data-admin-grant-action='write']").first();
+  await expect(grantWrite).toBeVisible();
+  await grantWrite.click();
+  const grantDialog = page.locator("[data-admin-confirm='grant-write']");
+  await expect(grantDialog).toBeVisible();
+  await expect(grantDialog.locator("[data-admin-confirm-scope]")).toContainText("write");
+  await page.locator("[data-admin-confirm-cancel]").click();
+  await expect(grantDialog).toHaveCount(0);
 });
 
 test("docs/21 admin connectors hub renders", async ({ page }) => {

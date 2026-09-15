@@ -4,13 +4,15 @@ import type { AdminConfirmCopy } from "../adminConfirm";
 
 const FOCUSABLE = "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
-export type AskAdminConfirm = (copy: AdminConfirmCopy, run: () => Promise<void>) => void;
+export type AskAdminConfirm = (copy: AdminConfirmCopy, run: (reason: string) => Promise<void>) => void;
 
 type ConfirmDialogProps = AdminConfirmCopy & {
   open: boolean;
   busy?: boolean;
   error?: string;
   cancelLabel?: string;
+  reason?: string;
+  onReasonChange?: (value: string) => void;
   onConfirm: () => void;
   onCancel: () => void;
 };
@@ -24,8 +26,13 @@ export function ConfirmDialog({
   consequence,
   confirmLabel,
   cancelLabel = "取消",
+  requireReason = false,
+  reasonLabel = "原因",
+  reasonPlaceholder = "填写原因",
+  reason = "",
   busy = false,
   error = "",
+  onReasonChange,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -111,6 +118,19 @@ export function ConfirmDialog({
             <dd data-admin-confirm-consequence>{consequence}</dd>
           </div>
         </dl>
+        {requireReason ? (
+          <label className="admin-confirm-reason field">
+            {reasonLabel}
+            <textarea
+              data-admin-confirm-reason
+              value={reason}
+              placeholder={reasonPlaceholder}
+              rows={3}
+              disabled={busy}
+              onChange={(event) => onReasonChange?.(event.target.value)}
+            />
+          </label>
+        ) : null}
         {error ? <p className="error" role="alert">{error}</p> : null}
         <div className="admin-confirm-actions">
           <button
@@ -127,7 +147,7 @@ export function ConfirmDialog({
             type="button"
             className="btn danger"
             data-admin-confirm-ok
-            disabled={busy}
+            disabled={busy || (requireReason && !reason.trim())}
             onClick={() => void onConfirm()}
           >
             {busy ? "执行中…" : confirmLabel}
@@ -140,12 +160,14 @@ export function ConfirmDialog({
 }
 
 export function useAdminConfirm(): { ask: AskAdminConfirm; dialog: ReactNode } {
-  const [pending, setPending] = useState<(AdminConfirmCopy & { run: () => Promise<void> }) | null>(null);
+  const [pending, setPending] = useState<(AdminConfirmCopy & { run: (reason: string) => Promise<void> }) | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [reason, setReason] = useState("");
 
   const ask: AskAdminConfirm = (copy, run) => {
     setError("");
+    setReason("");
     setPending({ ...copy, run });
   };
 
@@ -158,20 +180,31 @@ export function useAdminConfirm(): { ask: AskAdminConfirm; dialog: ReactNode } {
       scope={pending?.scope || ""}
       consequence={pending?.consequence || ""}
       confirmLabel={pending?.confirmLabel || "确认"}
+      requireReason={pending?.requireReason}
+      reasonLabel={pending?.reasonLabel}
+      reasonPlaceholder={pending?.reasonPlaceholder}
+      reason={reason}
+      onReasonChange={setReason}
       busy={busy}
       error={error}
       onCancel={() => {
         if (busy) return;
         setPending(null);
         setError("");
+        setReason("");
       }}
       onConfirm={async () => {
         if (!pending || busy) return;
+        if (pending.requireReason && !reason.trim()) {
+          setError(pending.reasonLabel || "请填写原因");
+          return;
+        }
         setBusy(true);
         setError("");
         try {
-          await pending.run();
+          await pending.run(reason.trim());
           setPending(null);
+          setReason("");
         } catch (err) {
           setError(err instanceof Error ? err.message : String(err));
         } finally {

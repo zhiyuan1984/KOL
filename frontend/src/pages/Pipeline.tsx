@@ -2,8 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { storePending } from "../components/ChatBlocks";
+import { useAdminConfirm } from "../components/ConfirmDialog";
 import { FALLBACK_MAIN_STAGES, SHORT_STAGE_LABEL } from "../kolStages";
 import { rememberJourney } from "../journey";
+import {
+  EXCEPTION_PRODUCT_KINDS,
+  groupedPipelineTargets,
+  pipelineStageConfirm,
+  type PipelineStageTarget,
+} from "../stageTargets";
 
 type StageSpec = {
   code: string;
@@ -60,14 +67,14 @@ function stageIndex(stages: StageSpec[], code?: string) {
   return stages.findIndex((stage) => stage.code === code);
 }
 
-const EXCEPTION_STATES = [
-  { code: "PAUSED", label: "已暂停" },
-  { code: "LOST", label: "已流失" },
-  { code: "REJECTED", label: "已拒绝" },
-  { code: "CANCELLED", label: "已取消" },
-  { code: "DISPUTED", label: "争议中" },
-  { code: "COMPLETED", label: "已完成" },
-];
+const EXCEPTION_STATES = EXCEPTION_PRODUCT_KINDS.map((item) => ({
+  code: item.code,
+  label: item.label,
+}));
+
+function isCompletedNode(code?: string) {
+  return String(code || "") === "COMPLETED";
+}
 
 function domainSpans(stages: StageSpec[]) {
   const spans: { domain: string; start: number; count: number }[] = [];
@@ -114,7 +121,9 @@ export default function Pipeline() {
   } | null>(null);
   const [onlyEx, setOnlyEx] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [targetCode, setTargetCode] = useState("");
   const [proposing, setProposing] = useState(false);
+  const { ask, dialog } = useAdminConfirm();
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
   const kolQuery = params.get("kol");
@@ -201,18 +210,30 @@ export default function Pipeline() {
     setParams(next, { replace: true });
   };
 
-  const proposeStageChange = async (card: Card) => {
+  const proposeStageChange = async (card: Card, target: PipelineStageTarget) => {
     if (proposing) return;
     setProposing(true);
     try {
       const ses = await api.openKolSession(card.id);
-      storePending(ses.id, { text: `提出阶段变更 @${card.handle}`, collaboration_id: card.id, intent: "confirm_stage" });
+      storePending(ses.id, {
+        text: `提出阶段变更 @${card.handle} 到 ${target.label}`,
+        collaboration_id: card.id,
+        intent: "confirm_stage",
+        entities: {
+          handle: card.handle,
+          stage_code: target.code,
+        },
+      });
       sessionStorage.setItem(`kol-session:${ses.id}`, "1");
       nav(`/s/${ses.id}`, { state: { kolSession: true } });
     } finally {
       setProposing(false);
     }
   };
+
+  useEffect(() => {
+    setTargetCode("");
+  }, [selectedId]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -227,9 +248,12 @@ export default function Pipeline() {
 
   const domains = domainSpans(stages);
   const exceptionNames = (data.side_stages?.length ? data.side_stages : EXCEPTION_STATES)
+    .filter((stage) => !isCompletedNode(stage.code))
     .map((stage) => stage.label)
     .join("、");
   const selected = selectedId ? pool.find((card) => card.id === selectedId) || null : null;
+  const targetGroups = selected ? groupedPipelineTargets(selected.stage_code, selected.exception) : [];
+  const pickedTarget = targetGroups.flatMap((group) => group.items).find((item) => item.code === targetCode) || null;
   const filterOptions = {
     brand: unique(pool.map((card) => card.brand)),
     owner: unique(pool.map((card) => card.owner_name)),
@@ -247,8 +271,9 @@ export default function Pipeline() {
       <h1 style={{ marginTop: 0 }}>KOL 全生命周期管理</h1>
       <p className="muted">
         这是合作资产页，不是创建新项目，也不是今日待办。看正式阶段、负责人、停留和旁路状态。
-        点选红人打开右侧详情；阶段动作只有「提出阶段变更」。
+        点选红人打开右侧详情；阶段动作必须选定具体目标阶段后再「提出阶段变更」，不能用「下一阶段」。
       </p>
+      {dialog}
 
       <div className="pipeline-filters" data-pipeline-filters>
         <label>
@@ -313,7 +338,7 @@ export default function Pipeline() {
             ))}
           </strong>
           <p className="muted" style={{ margin: "4px 0 0" }}>
-            {exceptionNames} 是生命周期侧状态，会离开主时间线，可在此筛选。不是首页的「等待中」。
+            {exceptionNames} 是异常这一个产品节点的种类，会离开主时间线，可在此筛选。不是首页的「等待中」，已完成也不是产品图节点。
           </p>
         </div>
         <label className="btn ghost" data-exception-filter>
@@ -335,7 +360,7 @@ export default function Pipeline() {
                 </span>
               ))}
             </div>
-            <ol className="stage-track stage-track-legend" data-stage-axis>
+            <ol className="stage-track stage-track-legend" data-stage-axis aria-label="15 个正式阶段位置图例，人确认可跳转、回退、进出异常">
               {stages.map((stage) => (
                 <li key={stage.code} title={stage.label}>
                   {SHORT_STAGE_LABEL[stage.code] || stage.label}
@@ -371,7 +396,7 @@ export default function Pipeline() {
                   </span>
                 </span>
                 <span className="pipeline-track-col">
-                  <ol className="stage-track" aria-label={`${c.handle} 的 15 阶段进度`}>
+                  <ol className="stage-track" aria-label={`${c.handle} 的 15 阶段位置（可跳转、回退、进出异常）`}>
                     {stages.map((stage, i) => {
                       const state = c.exception
                         ? "idle"
@@ -457,8 +482,11 @@ export default function Pipeline() {
               </section>
 
               <section>
-                <h3>阶段时间线</h3>
-                <ol className="stage-track pipeline-drawer-track" aria-label={`${selected.handle} 的 15 阶段进度`}>
+                <h3>阶段位置</h3>
+                <p className="muted" data-stage-graph-note>
+                  下图是 15 个正式阶段的位置图例，不是只能相邻前进。人确认可以跳转、回退、进出异常。
+                </p>
+                <ol className="stage-track pipeline-drawer-track" aria-label={`${selected.handle} 的 15 阶段位置图例`}>
                   {stages.map((stage, i) => {
                     const idx = stageIndex(stages, selected.stage_code);
                     const state = selected.exception
@@ -478,6 +506,46 @@ export default function Pipeline() {
                     );
                   })}
                 </ol>
+              </section>
+
+              <section data-stage-graph="product">
+                <h3>合法目标阶段</h3>
+                <p className="muted" data-pipeline-stage-hint>
+                  从产品图选择具体目标阶段。不能用「下一阶段」。已完成不是可选节点。
+                </p>
+                {targetGroups.length ? (
+                  <div className="stage-chip-picker" data-stage-select data-value={targetCode} role="radiogroup" aria-label="目标阶段">
+                    {targetGroups.map((group) => (
+                      <div key={group.id} className="stage-chip-group" data-stage-track={group.id}>
+                        <p className="stage-chip-group-label">{group.label}</p>
+                        <div className="stage-chip-row">
+                          {group.items.map((item) => {
+                            const selectedTarget = item.code === targetCode;
+                            return (
+                              <button
+                                key={item.code}
+                                type="button"
+                                role="radio"
+                                aria-checked={selectedTarget}
+                                className={"stage-chip" + (selectedTarget ? " is-selected" : "")}
+                                data-stage-chip
+                                data-stage-code={item.code}
+                                data-stage-target={item.code}
+                                data-stage-kind={item.kind}
+                                title={item.note}
+                                onClick={() => setTargetCode(item.code)}
+                              >
+                                <span className="stage-chip-name">{item.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="muted">当前阶段没有可写的产品图目标。</p>
+                )}
               </section>
 
               <section>
@@ -561,8 +629,14 @@ export default function Pipeline() {
                 data-propose-stage
                 data-act="ask"
                 data-intent="confirm_stage"
-                disabled={proposing}
-                onClick={() => void proposeStageChange(selected)}
+                data-target-stage={pickedTarget?.code || undefined}
+                disabled={proposing || !pickedTarget}
+                onClick={() => {
+                  if (!pickedTarget) return;
+                  ask(pipelineStageConfirm(selected.handle, selected.stage_label, pickedTarget), () =>
+                    proposeStageChange(selected, pickedTarget),
+                  );
+                }}
               >
                 提出阶段变更
               </button>

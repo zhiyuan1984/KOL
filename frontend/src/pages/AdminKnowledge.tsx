@@ -13,7 +13,7 @@ import {
   statusLabel,
   versionLine,
 } from "../knowledgeCopy";
-import { knowledgeArchiveConfirm, knowledgeHardDeleteConfirm } from "../adminConfirm";
+import { knowledgeArchiveConfirm, knowledgeHardDeleteConfirm, knowledgeProposalRejectConfirm, knowledgePublishConfirm } from "../adminConfirm";
 import { useAdminConfirm } from "../components/ConfirmDialog";
 
 type Row = Record<string, unknown>;
@@ -165,7 +165,7 @@ export default function AdminKnowledge() {
             </div>
             <div className="chip-row">
               <button className="btn" type="button" onClick={() => fillEdit(row)}>填入编辑</button>
-              <button className="btn work" type="button" onClick={() => void run(() => api.approveKnowledge(row.id), "已发布。运营启用后，写合作邮件会按本版英文正文走 Codex")}>审批发布</button>
+              <button className="btn work" type="button" data-kb-publish={row.id} onClick={() => ask(knowledgePublishConfirm(row.title, row.current_version), () => run(() => api.approveKnowledge(row.id), "已发布。运营启用后，写合作邮件会按本版英文正文走 Codex"))}>审批发布</button>
             </div>
           </article>
         ))}
@@ -182,7 +182,7 @@ export default function AdminKnowledge() {
                 </div>
                 <div className="chip-row">
                   <button className="btn" type="button" onClick={() => fillEdit(row)}>填入编辑</button>
-                  <button className="btn work" type="button" onClick={() => void run(() => api.approveKnowledge(row.id), "已审批发布")}>审批发布</button>
+                  <button className="btn work" type="button" data-kb-publish={row.id} onClick={() => ask(knowledgePublishConfirm(row.title, row.current_version), () => run(() => api.approveKnowledge(row.id), "已审批发布"))}>审批发布</button>
                   <button
                     className="btn danger"
                     type="button"
@@ -455,7 +455,7 @@ export default function AdminKnowledge() {
             {p.status === "pending" && (
               <div className="chip-row">
                 <button className="btn work" type="button" onClick={() => void run(() => api.reviewKnowledgeProposal(String(p.id), "approve"), "已批准（未改线上技能说明）")}>批准</button>
-                <button className="btn" type="button" onClick={() => void run(() => api.reviewKnowledgeProposal(String(p.id), "reject", "否决保留"), "已否决并留档")}>否决</button>
+                <button className="btn" type="button" data-kb-proposal-reject={String(p.id)} onClick={() => ask(knowledgeProposalRejectConfirm(proposalKindLabel(String(p.kind))), (reason) => run(() => api.reviewKnowledgeProposal(String(p.id), "reject", reason), "已否决并留档"))}>否决</button>
               </div>
             )}
           </article>
