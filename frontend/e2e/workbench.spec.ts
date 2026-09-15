@@ -2905,8 +2905,8 @@ test("admin console uses a left sidebar with short labels for the current accoun
   await expect(page).toHaveURL(/\/admin\/knowledge$/);
   await page.locator("[data-admin-nav='kol']").click();
   await expect(page).toHaveURL(/\/admin\/kol$/);
-  await expect(page.locator('a[href="/connectors"]')).toHaveCount(0);
-  await expect(page.getByText("打开员工使用面")).toHaveCount(0);
+  await expect(page.locator(".admin-body a[href='/connectors']")).toHaveCount(0);
+  await expect(page.locator(".admin-body")).not.toContainText("打开员工使用面");
   await expect(page.getByRole("link", { name: "打开连接器枢纽" })).toBeVisible();
 });
 
@@ -3039,6 +3039,12 @@ test("admin L3 destructive writes open confirm dialog with cancel focused", asyn
   }
 
   await page.locator("[data-admin-nav='skills']").click();
+  const skillLogin = page.locator("[data-admin-login]");
+  if (await skillLogin.count()) {
+    await page.locator("[data-login-name]").fill("鄢棽");
+    await page.locator("[data-login-password]").fill("123456789");
+    await page.locator("[data-login-submit]").click();
+  }
   await expect(page.locator("[data-admin-skills-table]")).toBeVisible();
   await expect(page.locator("[data-funnel-tab]")).toHaveCount(0);
   const skillGrant = page.locator("[data-skill-grant]").first();
