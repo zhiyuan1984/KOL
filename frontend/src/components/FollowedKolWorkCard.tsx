@@ -196,7 +196,7 @@ export default function FollowedKolWorkCard({
           ) : null}
           <div className="kol-band kol-band-actions" data-kol-band="cta">
             <div className="kol-cta-secondary">
-              <button type="button" className="btn ghost sm kol-cta-btn" data-open-kol-detail onClick={onOpenDetail}>
+              <button type="button" className="kol-cta-link" data-open-kol-detail onClick={onOpenDetail}>
                 查看详情
               </button>
               {showMail ? (

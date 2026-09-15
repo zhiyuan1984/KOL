@@ -2384,7 +2384,7 @@ summary:focus-visible,
   flex: 0 1 auto;
   max-width: 100%;
   min-width: 0;
-  font-size: var(--font-ui);
+  font-size: var(--font-body);
   font-weight: 600;
   line-height: var(--leading-tight);
   color: var(--text);
@@ -2401,19 +2401,19 @@ summary:focus-visible,
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--bg-elevated);
-  color: var(--text);
+  color: var(--text-muted);
 }
 .kol-stage-badge .kol-stage,
 .kol-stage-badge [data-stage-label] {
   margin: 0;
-  font-size: var(--font-xs);
-  font-weight: 600;
+  font-size: var(--font-sm);
+  font-weight: 500;
   line-height: 1.35;
-  color: var(--text);
+  color: var(--text-muted);
 }
 .kol-stage-stay {
   color: var(--text-muted);
-  font-size: var(--font-xs);
+  font-size: var(--font-sm);
   line-height: 1.35;
 }
 .kol-chip-row {
@@ -2441,6 +2441,9 @@ summary:focus-visible,
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+.followed-kol-card .kol-chip {
+  font-size: var(--font-sm);
 }
 .kol-chip.is-unread {
   padding: 1px var(--space-2);
@@ -2508,40 +2511,41 @@ summary:focus-visible,
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-.kol-state-block p,
-.followed-kol-card .kol-split-kicker {
+.kol-state-block p {
   margin: 0;
   min-width: 0;
   max-width: 100%;
-  font-size: var(--font-xs);
-  line-height: 1.4;
-  color: var(--text-muted);
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 .followed-kol-card .kol-split-kicker {
+  margin: 0;
+  font-size: var(--font-sm);
   font-weight: 500;
-  letter-spacing: 0;
+  line-height: 1.4;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 .followed-kol-card .kol-suggestion,
 .followed-kol-card [data-recommended-action] .kol-suggestion {
   font-weight: 500;
-  font-size: var(--font-sm);
-  line-height: 1.4;
+  font-size: var(--font-ui);
+  line-height: var(--leading-tight);
   color: var(--text);
 }
 .followed-kol-card .kol-judgment,
 .followed-kol-card [data-action-why] {
-  font-size: var(--font-xs);
+  font-size: var(--font-sm);
   color: var(--text-muted);
   line-height: 1.4;
 }
 .followed-kol-card .kol-mail-digest,
 .followed-kol-card [data-latest-fact] .kol-mail-digest {
-  font-size: var(--font-sm);
+  font-size: var(--font-body);
   color: var(--text);
-  line-height: 1.45;
+  line-height: var(--leading-tight);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -2550,7 +2554,7 @@ summary:focus-visible,
 }
 .followed-kol-card .kol-mail-meta {
   margin: 0;
-  font-size: var(--font-xs);
+  font-size: var(--font-sm);
   color: var(--text-muted);
   line-height: 1.35;
 }
@@ -2560,7 +2564,7 @@ summary:focus-visible,
 .followed-kol-card .kol-evidence-disclosure summary {
   cursor: pointer;
   color: var(--text-muted);
-  font-size: var(--font-xs);
+  font-size: var(--font-sm);
   line-height: 1.35;
   list-style: none;
 }
@@ -2569,7 +2573,7 @@ summary:focus-visible,
 }
 .followed-kol-card .kol-evidence,
 .followed-kol-card [data-action-evidence] p {
-  font-size: var(--font-xs);
+  font-size: var(--font-sm);
   color: var(--text-muted);
   line-height: 1.4;
   display: -webkit-box;
@@ -2614,7 +2618,8 @@ summary:focus-visible,
   padding: 0;
   color: var(--text-muted);
   font: inherit;
-  font-size: var(--font-xs);
+  font-size: var(--font-sm);
+  line-height: 1.35;
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -2624,9 +2629,9 @@ summary:focus-visible,
 }
 /* One strong Obsidian CTA in the followed list (ADR-031 / Discovery #139). */
 .followed-kol-card .kol-cta-primary .kol-cta-work.btn.ghost {
-  background: var(--canvas);
+  background: var(--bg);
   color: var(--text);
-  border-color: var(--line);
+  border-color: var(--border);
 }
 .followed-kol-card.is-hovered .kol-cta-primary .kol-cta-work:not(.is-draft-quiet),
 .followed-kol-card:focus-within .kol-cta-primary .kol-cta-work:not(.is-draft-quiet),
@@ -2641,14 +2646,14 @@ summary:focus-visible,
 .followed-kol-card:focus-within .kol-cta-primary .kol-cta-work.is-draft-quiet,
 .followed-kol-card[data-selected] .kol-cta-primary .kol-cta-work.is-draft-quiet,
 .followed-kol-card[data-cta-emphasis="strong"] .kol-cta-primary .kol-cta-work.is-draft-quiet {
-  background: var(--canvas);
+  background: var(--bg);
   color: var(--text);
-  border-color: var(--line);
+  border-color: var(--border);
 }
 .followed-kol-list:has(:focus-within) .followed-kol-card:not(:focus-within) .kol-cta-primary .kol-cta-work.btn {
-  background: var(--canvas);
+  background: var(--bg);
   color: var(--text);
-  border-color: var(--line);
+  border-color: var(--border);
 }
 .followed-kol-card[data-selected] {
   background: color-mix(in srgb, var(--bg-elevated) 55%, var(--bg));

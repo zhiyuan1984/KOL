@@ -1147,9 +1147,67 @@ async function expectFollowedDecisionDensity(page: Page) {
   }
 }
 
+async function expectFollowedTypeColor(page: Page, handle?: string) {
+  const card = handle
+    ? page.locator(`[data-followed-kol="${handle}"]`)
+    : page.locator("[data-followed-kol]").first();
+  const type = await card.evaluate((el) => {
+    const read = (node: Element | null) => {
+      if (!(node instanceof HTMLElement)) return null;
+      const cs = getComputedStyle(node);
+      return {
+        size: Number.parseFloat(cs.fontSize),
+        weight: Number.parseFloat(cs.fontWeight),
+        color: cs.color,
+      };
+    };
+    return {
+      name: read(el.querySelector("[data-kol-name]")),
+      stage: read(el.querySelector("[data-stage-label]")),
+      chip: read(el.querySelector("[data-kol-chip]")),
+      kicker: read(el.querySelector(".kol-split-kicker")),
+      fact: read(el.querySelector("[data-latest-fact] .kol-mail-digest") || el.querySelector("[data-mail-summary]")),
+      ai: read(el.querySelector("[data-recommended-action] .kol-suggestion")),
+      why: read(el.querySelector("[data-action-why]")),
+      detail: read(el.querySelector("[data-open-kol-detail]")),
+      mail: read(el.querySelector("[data-open-original-mail]")),
+    };
+  });
+  expect(type.name).toBeTruthy();
+  expect(type.name!.size).toBeGreaterThanOrEqual(16);
+  expect(type.name!.weight).toBeGreaterThanOrEqual(600);
+  expect(type.name!.color).toBe("rgb(26, 26, 26)");
+  expect(type.stage).toBeTruthy();
+  expect(type.stage!.size).toBeGreaterThanOrEqual(14);
+  expect(type.stage!.weight).toBeLessThan(type.name!.weight);
+  expect(type.stage!.color).toBe("rgb(107, 114, 128)");
+  expect(type.kicker).toBeTruthy();
+  expect(type.kicker!.size).toBeGreaterThanOrEqual(14);
+  expect(type.kicker!.color).toBe("rgb(107, 114, 128)");
+  expect(type.fact).toBeTruthy();
+  expect(type.fact!.size).toBeGreaterThanOrEqual(16);
+  expect(type.fact!.color).toBe("rgb(26, 26, 26)");
+  expect(type.ai).toBeTruthy();
+  expect(type.ai!.size).toBeGreaterThanOrEqual(14);
+  expect(type.ai!.color).toBe("rgb(26, 26, 26)");
+  expect(type.detail).toBeTruthy();
+  expect(type.detail!.size).toBeGreaterThanOrEqual(14);
+  expect(type.detail!.color).toBe("rgb(107, 114, 128)");
+  if (type.chip) expect(type.chip.size).toBeGreaterThanOrEqual(14);
+  if (type.why) {
+    expect(type.why.size).toBeGreaterThanOrEqual(14);
+    expect(type.why.color).toBe("rgb(107, 114, 128)");
+  }
+  if (type.mail) {
+    expect(type.mail.size).toBeGreaterThanOrEqual(14);
+    expect(type.mail.color).toBe("rgb(107, 114, 128)");
+  }
+}
+
 async function expectFollowedKolStackedNoOverflow(page: Page, handle: string) {
   await expect(page.locator(`[data-followed-kol="${handle}"] [data-kol-band]`)).toHaveCount(4);
   await expectFollowedKolCardWraps(page, handle);
+  await expectFollowedTypeColor(page, handle);
   await expectFollowedKolListAlignsWithToolbar(page);
   await expectObjectToolbarAligned(page);
   await expectNoHorizontalOverflow(page, "[data-home-modes]");
@@ -3640,6 +3698,7 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await expectFollowedKolHeadingRemoved(page);
   await expectFollowedKolListAlignsWithToolbar(page);
   await expectFollowedKolCardWraps(page, "小美妆日记");
+  await expectFollowedTypeColor(page, "小美妆日记");
   await expectFollowedDecisionDensity(page);
   await expectFollowedObjectToolbar(page);
   await expect(page.getByRole("link", { name: /查看KOL全生命周期/ })).toHaveCount(0);
