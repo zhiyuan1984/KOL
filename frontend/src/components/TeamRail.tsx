@@ -1,5 +1,4 @@
 import { Link } from "react-router-dom";
-import { REMOTE_BACKEND_LABEL, remoteForSkill } from "../agentConfig";
 import { useAgentManifest } from "../hooks/useAgentManifest";
 
 export type TeamProgress = { teamId: string; stepIndex: number };
@@ -28,7 +27,7 @@ export default function TeamRail({ progress }: { progress: TeamProgress }) {
         {team.steps.map((step, index) => {
           const state = index < progress.stepIndex ? "done" : index === progress.stepIndex ? "current" : "idle";
           return (
-            <li key={step.skillId} data-state={state} title={`${step.label} · ${REMOTE_BACKEND_LABEL[remoteForSkill(step.skillId)]}`}>
+            <li key={step.skillId} data-state={state} title={step.label}>
               <i>{index + 1}</i>
               <span>{step.label}</span>
             </li>

@@ -689,10 +689,10 @@ export const api = {
       body: JSON.stringify({ title, ...(collaborationId ? { collaboration_id: collaborationId } : {}) }),
     }),
   openKolSession: (collaborationId: string) =>
-    fetch(`/api/collaborations/${encodeURIComponent(collaborationId)}/session`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    }).then((r) => r.json() as Promise<{ id: string; collaboration_id?: string; journey?: Record<string, unknown> }>),
+    request<{ id: string; collaboration_id?: string; journey?: Record<string, unknown> }>(
+      `/api/collaborations/${encodeURIComponent(collaborationId)}/session`,
+      { method: "POST" },
+    ),
   saveFollowStyleTags: (
     collaborationId: string,
     body: { tags: Array<{ id?: string; label: string } | string>; mode?: "replace" | "add"; session_id?: string },
