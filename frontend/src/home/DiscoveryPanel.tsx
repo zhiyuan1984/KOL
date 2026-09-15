@@ -358,30 +358,11 @@ export default function DiscoveryPanel() {
           void buildPlan();
         }}
       >
-        <label className="discovery-query-label">
-          <span className="home-lane-label">想找什么样的达人</span>
-          <textarea
-            className="discovery-query"
-            data-discovery-query
-            rows={2}
-            value={query}
-            placeholder="例如：找北美户外电源评测达人"
-            onChange={(event) => onQueryChange(event.target.value)}
-          />
-        </label>
-        <div className="discovery-filters" data-discovery-filters>
-          <div className="discovery-filters-toolbar">
-            <p className="discovery-filters-hint">已识别并可调整</p>
-            <button
-              type="button"
-              className="discovery-filters-reset"
-              data-discovery-reset
-              onClick={resetConditions}
-            >
-              重置条件
-            </button>
-          </div>
-
+        <div
+          className="discovery-filters"
+          data-discovery-filters
+          aria-label="检索条件，已识别并可调整"
+        >
           <div className="discovery-filter-group" data-discovery-filter="platform">
             <span className="discovery-filter-title">平台</span>
             <div className="discovery-chip-row">
@@ -401,6 +382,14 @@ export default function DiscoveryPanel() {
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              className="discovery-filters-reset"
+              data-discovery-reset
+              onClick={resetConditions}
+            >
+              重置条件
+            </button>
           </div>
 
           <div className="discovery-filter-group" data-discovery-filter="region">
@@ -517,6 +506,17 @@ export default function DiscoveryPanel() {
             ) : null}
           </div>
         </div>
+        <label className="discovery-query-label">
+          <span className="home-lane-label">想找什么样的达人</span>
+          <textarea
+            className="discovery-query"
+            data-discovery-query
+            rows={2}
+            value={query}
+            placeholder="例如：找北美户外电源评测达人"
+            onChange={(event) => onQueryChange(event.target.value)}
+          />
+        </label>
         <div className="discovery-form-actions">
           <button type="submit" className="btn work sm" data-discovery-plan disabled={busy}>
             生成计划
