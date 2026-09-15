@@ -1936,7 +1936,7 @@ summary:focus-visible,
   width: 100%;
   min-height: 36px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-inputs);
   background: var(--bg);
   color: var(--text);
   font: inherit;
@@ -2406,7 +2406,7 @@ summary:focus-visible,
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   justify-items: stretch;
-  gap: 0;
+  gap: var(--space-3);
   min-width: 0;
   width: 100%;
   overflow-x: hidden;
@@ -2421,13 +2421,14 @@ summary:focus-visible,
 .followed-kol-card {
   display: grid;
   justify-items: stretch;
-  gap: 6px;
+  gap: var(--space-3);
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border);
-  overflow-x: hidden;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-cards);
+  background: var(--bg);
   overflow-y: visible;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -2440,7 +2441,7 @@ summary:focus-visible,
   box-sizing: border-box;
 }
 .followed-kol-card:hover {
-  background: color-mix(in srgb, var(--bg-elevated) 55%, var(--bg));
+  background: color-mix(in srgb, var(--text) 4%, var(--bg));
 }
 .followed-kol-card.is-exception {
   box-shadow: inset 2px 0 0 var(--danger);
@@ -2451,7 +2452,6 @@ summary:focus-visible,
   min-width: 0;
   max-width: 100%;
   width: 100%;
-  overflow-x: hidden;
   box-sizing: border-box;
 }
 .kol-band-identity {
@@ -2499,7 +2499,7 @@ summary:focus-visible,
   max-width: 100%;
   min-width: 0;
   font-size: var(--font-body);
-  font-weight: 600;
+  font-weight: 500;
   line-height: var(--leading-tight);
   color: var(--text);
   white-space: normal;
@@ -2558,6 +2558,13 @@ summary:focus-visible,
 }
 .followed-kol-card .kol-chip {
   font-size: var(--font-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.followed-kol-card .kol-stage,
+.followed-kol-card .kol-stage-stay {
+  white-space: nowrap;
 }
 .kol-chip.is-unread {
   padding: 1px var(--space-2);
@@ -2591,12 +2598,11 @@ summary:focus-visible,
   align-items: start;
 }
 .followed-kol-card .kol-band-recommend {
-  gap: var(--space-1);
+  gap: var(--space-2);
 }
 .kol-state-block {
   min-width: 0;
   max-width: 100%;
-  overflow-x: hidden;
   box-sizing: border-box;
 }
 .kol-state-fields {
@@ -2613,8 +2619,6 @@ summary:focus-visible,
   display: none;
 }
 .followed-kol-card .kol-name,
-.followed-kol-card .kol-chip,
-.followed-kol-card .kol-stage,
 .followed-kol-card .kol-suggestion,
 .followed-kol-card .kol-mail-digest,
 .followed-kol-card .kol-judgment,
@@ -2638,8 +2642,7 @@ summary:focus-visible,
   font-size: var(--font-sm);
   font-weight: 500;
   line-height: 1.4;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  letter-spacing: 0;
   color: var(--text-muted);
 }
 .followed-kol-card .kol-suggestion,
@@ -2750,42 +2753,32 @@ summary:focus-visible,
   color: var(--text);
   border-color: var(--border);
 }
-.followed-kol-list:not([data-followed-selecting="true"]) .followed-kol-card.is-hovered .kol-cta-primary .kol-cta-work:not(.is-draft-quiet),
-.followed-kol-list:not([data-followed-selecting="true"]) .followed-kol-card:focus-within .kol-cta-primary .kol-cta-work:not(.is-draft-quiet),
-.followed-kol-list:not([data-followed-selecting="true"]) .followed-kol-card[data-cta-emphasis="strong"] .kol-cta-primary .kol-cta-work:not(.is-draft-quiet) {
-  background: var(--primary);
-  color: var(--primary-fg);
-  border-color: var(--primary);
-}
-.followed-kol-card .kol-cta-primary .kol-cta-work.is-draft-quiet,
-.followed-kol-card.is-hovered .kol-cta-primary .kol-cta-work.is-draft-quiet,
-.followed-kol-card:focus-within .kol-cta-primary .kol-cta-work.is-draft-quiet,
-.followed-kol-card[data-selected] .kol-cta-primary .kol-cta-work.is-draft-quiet,
-.followed-kol-card[data-cta-emphasis="strong"] .kol-cta-primary .kol-cta-work.is-draft-quiet,
-.followed-kol-list[data-followed-selecting="true"] .followed-kol-card .kol-cta-primary .kol-cta-work {
-  background: var(--bg);
+
+.followed-kol-card .kol-cta-primary .kol-cta-work:hover:not(:disabled),
+.followed-kol-card .kol-cta-primary .kol-cta-work:focus-visible {
+  background: color-mix(in srgb, var(--text) 4%, var(--bg));
   color: var(--text);
-  border-color: var(--border);
-}
-.followed-kol-list:not([data-followed-selecting="true"]):has(:focus-within) .followed-kol-card:not(:focus-within) .kol-cta-primary .kol-cta-work.btn {
-  background: var(--bg);
-  color: var(--text);
-  border-color: var(--border);
+  border-color: var(--border-strong);
 }
 .followed-kol-card[data-selected] {
-  background: color-mix(in srgb, var(--bg-elevated) 55%, var(--bg));
+  background: color-mix(in srgb, var(--text) 4%, var(--bg));
 }
 @media (min-width: 900px) {
   .followed-kol-card .kol-split {
     grid-template-columns: minmax(0, 1fr) minmax(280px, var(--followed-ai-col, 320px));
     column-gap: var(--space-2);
-    align-items: start;
+    align-items: stretch;
   }
   .followed-kol-card .kol-band-fact {
     grid-column: 1;
   }
   .followed-kol-card .kol-band-recommend {
     grid-column: 2;
+    display: flex;
+    flex-direction: column;
+  }
+  .followed-kol-card .kol-band-actions {
+    margin-top: auto;
   }
 }
 @media (max-width: 720px) {

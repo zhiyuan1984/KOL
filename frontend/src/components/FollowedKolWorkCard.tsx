@@ -165,6 +165,7 @@ export default function FollowedKolWorkCard({
                   }
                   data-kol-chip={chip.id}
                   data-unread-count={chip.id === "unread" ? card.unread_count : undefined}
+                  title={chip.label}
                 >
                   {chip.label}
                 </span>
@@ -192,7 +193,7 @@ export default function FollowedKolWorkCard({
 
         <div className="kol-band kol-band-recommend" data-kol-band="action">
           <div className="kol-state-block" data-recommended-action={rec.kind}>
-            <p className="kol-split-kicker">✦ AI 建议</p>
+            <p className="kol-split-kicker">AI 建议</p>
             <p className="kol-suggestion">{headline}</p>
             {rec.why ? <p className="kol-judgment" data-action-why>{rec.why}</p> : null}
           </div>
