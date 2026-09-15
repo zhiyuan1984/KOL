@@ -16,7 +16,7 @@
 
 证据：[`frontend/src/components/ChatBlocks.tsx`](../frontend/src/components/ChatBlocks.tsx) 使用 `targets.find(item.kind === "adjacent")` 作为默认目标。
 
-违反：人工确认使用 `legalTargets`，不受相邻约束。前端可以展示分组，但不能自动选择或限制人工目标；候选和默认值必须由后端确认卡明确提供。
+违反：人工确认使用产品阶段图 / `legalTargets`，不受相邻约束（ADR-027：人可跨段 / 回退 / 进出异常）。前端可以展示分组，但不能自动选择或限制人工目标；候选和默认值必须由后端确认卡明确提供。
 
 测试：`R-008`。
 

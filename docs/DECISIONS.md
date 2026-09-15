@@ -6,9 +6,10 @@
 
 | 日期 | 记录 | 说明 |
 |---|---|---|
+| 2026-09-15 | 产品阶段图（15 正式码 + `exception`）是产品边权威；人可跨段 / 回退 / 进出异常（须原因）；自动路径更严。ADR-011「相邻写入=产品法」**废止**；Starry hop 限制 ≠ 产品 | 用户锁定。见 ADR-027、`docs/business-rules/stage-transitions.md`。本记录不改 LIVE walk。 |
 | 2026-09-15 | 正式 IA 约束 `docs/ia-information-architecture.md`（class H，非可选）；视觉入口锁定 `docs/design.md`（class I）。MASTER 仍是 token 源，禁止在 `design.md` 复制 hex。`21` 保留为配套套件 | 用户锁定路径。不复活 employee-surface 长文。不 LIVE。 |
 | 2026-09-15 | Host / Codex / MCP / Gateway / TS 边界立法为 `technical-constitution.md`（class J）。不写业务阶段邻接；物理限制不升格为产品法 | 折叠 ADR-001 / 005 / 006 精神。细则仍 `06` / `07` / `14`。文档 only。不 LIVE。 |
-| 2026-09-15 | #105 之后法律层重组为 A–K。目录 `LAW-MAP.md`；导航不再以 `00`–`21` 为主线。`design.md` = `docs/design.md`（MASTER 仍是 token）。ADR-011 由阶段图兄弟 track 废止 | 见 ADR-026。文档 only。不 LIVE。不发明阶段边。 |
+| 2026-09-15 | #105 之后法律层重组为 A–K。目录 `LAW-MAP.md`；导航不再以 `00`–`21` 为主线。`design.md` = `docs/design.md`（MASTER 仍是 token）。ADR-011 由阶段图 track 废止（ADR-027） | 见 ADR-026。文档 only。不 LIVE。 |
 | 2026-09-15 | 删除全部 `docs/evidence-*`、`04`、`19`、`employee-surface-contracts.md`、`FS-KOL-006`、`FS-KOL-010`、ADR-018、ADR-022。必须项只留在宪法 + 瘦 `UX-EMPLOYEE` | 用户锁定。见 ADR-025。文档 / 契约 only。不 LIVE。 |
 | 2026-09-15 | 删除过细 UX 合同 `UX-KOL.md`、`UX-FOLLOWED-KOL-CARD.md`，以及把 `UX-SEND-NE-STAGE` 当独立合同 ID 的绑定。瘦契约 `specs/UX-EMPLOYEE.md` 只从宪法派生。门禁硬不变量只留 `SEND_NE_STAGE`、`L3_CONFIRM` | 见 ADR-024 / ADR-025。 |
 | 2026-09-14 | 产品是**智能体中台**。十六项一等能力互不隶属、不隶属 KOL Agent。KOL 只是首个试点；Pipeline / Home「AI发现」「我跟进的红人」是试点特化 | 见 ADR-023、`CONSTITUTION.md` §4.1–4.2。 |
@@ -34,7 +35,7 @@
 | ADR-008 | Starry MCP 不是独立组织授权源，但其邮箱负责人/授权结果可与已确认组织证据和 registry 绑定共同完成安培时代试点 PEP 核验 | `18-mcp-master-data-assessment.md`、`01-organization-tenancy.md` |
 | ADR-009 | 安培时代部门负责人（张慧玲、刘敏）自动拥有公司全部品牌、区域和普通业务数据读写；高风险动作仍受 Gateway/确认/审批约束 | `config/org-registry.yaml`、`01-organization-tenancy.md` |
 | ADR-010 | 试点 PEP 的授权证据由组织截图、100%真实邮箱负责人清单、远程 Starry MCP 只读结果和 registry 绑定共同构成；未补齐的身份元数据不阻断试点授权 | `config/org-registry.yaml`、`18-mcp-master-data-assessment.md` |
-| ADR-011 | Starry 阶段写入用原生码；人跳过只在 Host 记账；远程只走相邻前进（跨段则逐格 walk）。**将由阶段图 track 废止**（ADR-026）；本记录暂留正文 | `05-agent-workflow-skill-policy.md`、`planStarryAdjacentWalk` / `changeLifecycleStage` |
+| ADR-011 | **废止**（2026-09-15，ADR-027）。「远程只走相邻前进」不得再读成产品法。原生码 `toStageCode` 形状仍是物理适配，见 `07` | 废止正文仍留档；产品边改读 ADR-027 |
 | ADR-012 | 页职责：Home+Chat=平台任务/会话脊柱；Pipeline=**KOL 试点**生命周期页（禁止复制 Home 待办）；Admin=谁/权限/审计 | `CONSTITUTION.md` §4.2 |
 | ADR-013 | 管理端是员工表面的配套治理套件，不是副本；连接器**治理**只在 `/admin/connectors`，员工**使用面**独立（`/connectors`），Agent 治理在 `/admin/agents`，个人 Starry 绑定只留 Settings。Pipeline 是 KOL 试点页，不是「员工四表面」平台核 | `21-admin-employee-page-roles.md`、`CONSTITUTION.md` §4.2 |
 | ADR-014 | 员工侧栏：定时任务归今日工作簇；簇间用分割线，不画可见「今日 / 智能体 / 资产」组标题 | `CONSTITUTION.md` §4.1、`21-admin-employee-page-roles.md` |
@@ -47,7 +48,8 @@
 | ADR-023 | 智能体中台十六项一等能力；KOL=首个试点不是平台壳；技能入口密度=UX；数字团队预留未实现，禁止专家团假导航。Pipeline 页只许深链 / CTA | `CONSTITUTION.md`、`21-admin-employee-page-roles.md` |
 | ADR-024 | 删除 `UX-KOL.md` / `UX-FOLLOWED-KOL-CARD.md` / `UX-SEND-NE-STAGE`-as-file-ID。员工 UX 从宪法派生为 `specs/UX-EMPLOYEE.md`。门禁只绑 `SEND_NE_STAGE`、`L3_CONFIRM` | `CONSTITUTION.md` §4–5、`specs/UX-EMPLOYEE.md` |
 | ADR-025 | 删除全部 `docs/evidence-*`、`04`、`19`、`employee-surface-contracts.md`、`FS-KOL-006`、`FS-KOL-010`、ADR-018、ADR-022。必须项只住在宪法 + 瘦 `UX-EMPLOYEE`。不新开 FS | `CONSTITUTION.md`、`specs/UX-EMPLOYEE.md` |
-| ADR-026 | #105 后法律层 A–K 重组。导航以 `LAW-MAP.md` 为准，不以 `00`–`21` 为主线。UI 设计路径 = `docs/design.md`；MASTER 仍是 token 源。ADR-011 由阶段图兄弟 track 废止 | `docs/LAW-MAP.md`、`docs/README.md`、`docs/stage-graph.md` |
+| ADR-026 | #105 后法律层 A–K 重组。导航以 `LAW-MAP.md` 为准，不以 `00`–`21` 为主线。UI 设计路径 = `docs/design.md`；MASTER 仍是 token 源。ADR-011 由阶段图 track 废止 | `docs/LAW-MAP.md`、`docs/README.md`、`docs/business-rules/stage-transitions.md` |
+| ADR-027 | 产品阶段图（15 + `exception`）取代「相邻写入」产品法；人可跨段 / 回退 / 进出异常（须原因）；自动路径保持 `autoLegalTargets` 精神。Starry hop 限制 ≠ 产品边 | `docs/business-rules/stage-transitions.md`、`05-agent-workflow-skill-policy.md`、`07-mcp-data-contract.md` |
 
 **废止读法：** 「四页法律 / 四页分工 / 员工四表面」不得再被读成 Pipeline 是平台核心导航。现行：Home+Chat = 平台任务/会话脊柱；Pipeline = KOL 试点页（§4.2）。后文若仍写「四页法律」一律按此句，不以旧 P0 为准。权威清单仍是 `CONSTITUTION.md` §4.1–4.2。
 
@@ -74,8 +76,10 @@ ID / 日期 / 状态
 
 ## ADR-011 — Starry 写入原生码与 Host-only 跳过（2026-09-13）
 
-**状态**：已固化；**将由阶段图 track 废止**（ADR-026）。本文件暂留正文，本 track 不删除。  
-**决策人**：业务 owner
+**状态**：**废止**（2026-09-15，由 ADR-027 取代「相邻写入 = 产品法」）  
+**决策人**：业务 owner（原文）；废止：产品负责人
+
+> **废止读法：** 第 2 条「远程只接受相邻前进 / 跨段必须逐格 walk」不得再当产品边。产品边以 ADR-027 与 `docs/business-rules/stage-transitions.md` 为准。第 1 条字段形状（`{ lifecycleId, requestJson: { toStageCode, reason } }`、Starry 原生码）仍是物理适配，迁到 `07`，不再由本 ADR 立法。LIVE walk 残差见 ADR-027「不决定的范围」。
 
 ### 问题与背景
 
@@ -465,19 +469,46 @@ ADR-016 专家中心「只召唤岗位专家 / 无专家团 / 召唤 ≠ 发送�
 ### 决定
 
 1. **权威顺序锁定为 A–K。** 目录见 `docs/LAW-MAP.md`。`docs/README.md` 与 `docs/CONTEXT-MANIFEST.md` 按字母层导航，不以 `00`–`21` 编号为主线。编号文件只是路径别名。
-2. **E 只建占位。** `docs/stage-graph.md` 是业务规则与过程的权威路径。矩阵由阶段图兄弟 track 写入。本记录与本 track **不发明阶段边**。
-3. **H / I / J 只链路径。** `docs/ia-information-architecture.md`、`docs/design.md`、`docs/technical-constitution.md` 由兄弟 track 创建。
+2. **E 路径预留后由阶段图 track 写入矩阵。** 现行正文：`docs/business-rules/stage-transitions.md` 与 `config/stage-transitions.json`（ADR-027）。`docs/stage-graph.md` 只作别名跳转。
+3. **H / I / J 只链路径（已由后续 track 落地）。** `docs/ia-information-architecture.md`、`docs/design.md`、`docs/technical-constitution.md`。
 4. **UI 设计路径 = `docs/design.md`。** `design-system/kol-workbench/MASTER.md` 仍是 token 源，不是产品宪法，也不是设计法正文。
 5. **ADR 只做变更日志。** `DECISIONS.md` 不能覆盖 A–K 现行正文。
-6. **ADR-011 由阶段图兄弟 track 废止。** 本 track 不删 ADR-011 正文，只在索引与本记录标注。
+6. **ADR-011 由阶段图 track 废止。** 见 ADR-027。
 
 ### 不决定的范围
 
-不实施 FE / LIVE。不写阶段边、walk 算法或 Starry 原生码映射。不创建 H / I / J 正文。不复活 evidence / 04 / 19。不改 `validate-contracts` 门禁形状。
+不实施 FE / LIVE。不写 Starry 原生码 walk 为产品边。不复活 evidence / 04 / 19。不改 `validate-contracts` 门禁形状。
 
 ### 影响
 
 - 规范：`docs/LAW-MAP.md`、`docs/README.md`、`docs/CONTEXT-MANIFEST.md`、`docs/stage-graph.md`；宪法 §1 指向 E / H / J；根 `README.md` 入口改指 A–K
 - 契约：无新 FS / UX ID；`validate-contracts` 仍认剩余 ≥8 份 FS 与 `UX-EMPLOYEE`
 - 代码：无
+
+## ADR-027 — 产品阶段图取代相邻写入产品法（2026-09-15）
+
+**状态**：已固化（文档 / 政策文本；LIVE walk 未改）  
+**决策人**：产品负责人（用户锁定 2026-09-15）
+
+### 问题与背景
+
+ADR-011 把 Starry「只接受相邻前进 / 跨段必须逐格 walk」写成业务法。产品已锁定：人确认**可以**跨段前进、回退、进出异常旁路，且跨段 / 回退 / 异常必须写原因。自动路径保持更严的 `autoLegalTargets` 精神。继续把远程 hop 限制读成产品边，会禁止合法人工跳转，或把适配器残差当成 Host 闸门。
+
+### 决定
+
+1. **废止 ADR-011 的产品法读法。** 「远程只走相邻前进」不再定义产品边。ADR-011 第 1 条字段形状（原生码 `toStageCode`）降为物理适配，见 `07`。
+2. **产品节点。** 现行 Host 15 个正式码（`MAIN_STAGE_TABS`）+ `exception`（旁路/异常）。权威：`docs/business-rules/stage-transitions.md` 与 `config/stage-transitions.json`。
+3. **人确认。** `allow_human`：相邻 +1、跨段前进、回退、进入/离开 `exception`。跨段、回退、进出异常 `require_reason`。进入方案/合同/内容审核/待发布/结算叠 `require_approval`。
+4. **自动路径。** 更严：默认只 `allow_auto` 主链下一格与异常侧出口；`forbid` 跨段与回退。精神对齐 `autoLegalTargets`，不在本记录放宽自动跳过。
+5. **Starry ≠ 产品。** 相邻 hop / `planStarryAdjacentWalk` 只是 adapter。不得用远程 API 能力回写产品图。
+
+### 不决定的范围
+
+不改 LIVE Host walk、确认卡运行时、前端筛选或 `changeLifecycleStage` 调用。不放宽 `LIVE_*` / Gateway / 发送 ≠ 阶段。实现按本图改闸门须另开 code PR。
+
+### 影响
+
+- 规范：本记录、`docs/business-rules/stage-transitions.md`、`05`、`07`、宪法 §4.2 一句指针、`16` 去产品法措辞
+- 代码：仅 adapter 注释；`planStarryAdjacentWalk` 行为本 PR 不动
+- 测试：`validate:contracts`；无 FE 重写
 

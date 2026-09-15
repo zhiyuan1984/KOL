@@ -179,7 +179,7 @@ Pop-Location
 
 同时修复 Host 识别/Turn 封装：Codex app-server 使用**整段会话预算**（不再把 `account/read` 20s 与 `turn/start` 叠成 60–90s）；识别 Turn 不再把 Luna 的 `gpt-5.6-luna` 当作 Codex 模型名。最小 `turn/start` 已能在云上约 3s 完成；本修复针对首页 `recognizing` 卡死和真实业务 Turn 超时，而不是用 Stub 结果冒充 real。
 
-云端探针证明：`changeLifecycleStage` 必须是顶层 `{ lifecycleId, requestJson }`，`requestJson` 用 **`toStageCode`**（原生码）+ `reason`。`KOL202607300002` lifecycle **16** 上相邻 `INTEREST_CONFIRMED` → `COOPERATION_EVALUATION` 已 LIVE 写入并回读。`cooperationStageCode` / `targetStageCode` / `stageCode` 会误报回退。Host 现按此形状发送；跨格 skip 仍走相邻 `toStageCode` walk（ADR-011）。**这解除相邻 hop 的 LIVE 写入阻断，不是完整生产放行。** 详见 ADR-011。
+云端探针证明：`changeLifecycleStage` 必须是顶层 `{ lifecycleId, requestJson }`，`requestJson` 用 **`toStageCode`**（原生码）+ `reason`。`KOL202607300002` lifecycle **16** 上相邻 `INTEREST_CONFIRMED` → `COOPERATION_EVALUATION` 已 LIVE 写入并回读。`cooperationStageCode` / `targetStageCode` / `stageCode` 会误报回退。Host 现按此**物理**形状发送；跨格 skip 的 LIVE 残差仍是 adapter 逐格 `toStageCode` walk（**不是**产品法；ADR-011 废止，见 ADR-027 / `07`）。**这解除相邻 hop 的 LIVE 写入阻断，不是完整生产放行，也不定义产品边。** 产品边见 `docs/business-rules/stage-transitions.md`。
 
 仍不宣称生产放行：TB 远程品牌字典、Real 全量 72 条未跑、skip-walk 未宣称完整 LIVE PASS。
 
@@ -197,7 +197,7 @@ Merge PR #12 之后，在 `9f9c5a8` 上以 `CODEX_MODE=stub` 复跑 production `
 | `kol-evals` / `kol-data` | PASS | 门禁步骤通过 |
 | typecheck / build / redaction / rollback | PASS | 前后端 typecheck、frontend build、脱敏扫描、回滚演练 |
 
-Real 索引（不新造数字）：session-confirm / approval / admin / stage `toStageCode` 为 **ready**（2.2 / 2.10 / ADR-011）；mediacrawler 与完整 stage-write **仍 blocked**。Real staging 握手 PASS、Turn/业务 E2E BLOCKED、Starry 只读 62/221/5/16 见 2.8；stub crawl 仅 YouTube / Instagram 见 2.9。不得把本次 stub 78 绿改写成 real-mode 或生产放行。
+Real 索引（不新造数字）：session-confirm / approval / admin / stage `toStageCode` 为 **ready**（2.2 / 2.10；字段形状见 `07`）；mediacrawler 与完整 stage-write **仍 blocked**。Real staging 握手 PASS、Turn/业务 E2E BLOCKED、Starry 只读 62/221/5/16 见 2.8；stub crawl 仅 YouTube / Instagram 见 2.9。不得把本次 stub 78 绿改写成 real-mode 或生产放行。
 
 ## 3. 功能测试矩阵
 
@@ -211,7 +211,7 @@ Real 索引（不新造数字）：session-confirm / approval / admin / stage `t
 | F-EMAIL-READ | 邮件箱/会话/摘要 | 一次打开摘要、分页、未读、回复分析 | 不重复拉取；摘要有来源；不推进阶段 |
 | F-EMAIL-DRAFT | 报价/建联/跟进草稿 | 缺发件箱、收件人、主题、金额、阶段 | 进入 waiting_input；不猜邮箱/金额 |
 | F-EMAIL-SEND | 确认发送 | 编辑、取消、拒绝、重复点击、回执不确定 | 仅确认后 Gateway 提交；幂等只发一次 |
-| F-STAGE | 阶段提案/确认 | 跳过、回退、异常、错误版本、终态 | 人工 legalTargets 无相邻限制；写入带 expected_version |
+| F-STAGE | 阶段提案/确认 | 跳过、回退、异常、错误版本、终态 | 人工产品边见阶段图（可跨段/回退/异常，须原因）；写入带 expected_version |
 | F-CRAWL | MediaCrawler Job | 启动、轮询、停止、失败、重试上传 | 有 Job 生命周期；不得同步伪装 |
 | F-APPROVAL | 商务/费用审批 | 缺引用、多人审批、拒绝、超时、重复决定 | 审批与发送/阶段独立；拒绝可解释 |
 | F-KB | 知识库 | 上传、抽取、引用、版本、废弃、跨品牌转移 | 有租户/品牌/有效期/来源；不可覆盖硬规则 |
@@ -362,7 +362,7 @@ Real 索引（不新造数字）：session-confirm / approval / admin / stage `t
 
 ### 当前阻断（不能宣称完成）
 
-1. 相邻 LIVE 阶段写入已在 allowlist KOL/lifecycle 上用 `{ lifecycleId, requestJson: { toStageCode, reason } }` 解除阻断；跨格 skip-walk、非 allowlist KOL、以及缺 `lastLifecycleId` 的画像仍不能宣称完整阶段写入验收。发送证据仍不能替代未覆盖路径。
+1. 相邻 LIVE 阶段写入已在 allowlist KOL/lifecycle 上用 `{ lifecycleId, requestJson: { toStageCode, reason } }` 解除阻断（物理适配残差，不是产品边）。跨格 skip-walk、非 allowlist KOL、以及缺 `lastLifecycleId` 的画像仍不能宣称完整阶段写入验收。发送证据仍不能替代未覆盖路径。产品法见 ADR-027。
 2. Stub Playwright 在 cloud Linux Chromium 上已 72/72（见 2.9）。Real 全量 72 条未跑；等待态、审批、失败和接管的 **real-mode** 路径仍没有绿灯证据。
 3. Agent 已发布（`status: production`，`publish_gate.employee_submission: true`），`validate:contracts --production` 不再因 unpublished 失败。TB 远程品牌字典差异仍按业务指示不计入本轮结论，且不得用品牌回退冒充绑定。这不是生产放行声明。
 

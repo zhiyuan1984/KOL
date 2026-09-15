@@ -547,7 +547,8 @@ type RemoteStageWriteInput = {
 };
 
 /**
- * Host kernel only: one adjacent-forward Starry hop. Worker must not call this.
+ * Host kernel only: one adjacent-forward Starry hop (physical adapter residual,
+ * not product law — ADR-027). Worker must not call this.
  *
  * LIVE-proven ChangeStageRequest (KOL202607300002 / lifecycle 16):
  * top-level args are exactly `{ lifecycleId, requestJson }`;
@@ -592,7 +593,7 @@ export async function writeRemoteOfficialStage(input: RemoteStageWriteInput): Pr
   };
 }
 
-/** Walk Starry with successive adjacent forwards. Human skip reason stays Host-local. */
+/** Adapter residual: walk Starry with successive adjacent forwards. Product skip/jump is Host-local (ADR-027). */
 export async function writeRemoteOfficialStageWalk(input: RemoteStageWriteInput & { fromStage: string }): Promise<Json> {
   const plan = planStarryAdjacentWalk(input.fromStage, input.stageCode);
   if (plan.kind === "not_forward") {

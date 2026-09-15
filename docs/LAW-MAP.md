@@ -14,7 +14,7 @@
 | **B** | 产品宪法 | [`CONSTITUTION.md`](CONSTITUTION.md) | 跨页面硬规则、十六项一等能力、KOL=试点、L1–L3、发送 ≠ 推进阶段 | 单页布局、合法转移矩阵、物理工具形状、视觉 token |
 | **C** | 组织 / 权限 | [`01-organization-tenancy.md`](01-organization-tenancy.md)、[`08-permission-approval-audit.md`](08-permission-approval-audit.md)；配套 [`21-admin-employee-page-roles.md`](21-admin-employee-page-roles.md) | 租户/组织/品牌范围、PEP、确认/审批/审计、使用 ≠ 治理 | 阶段图、UI 皮肤、MCP 物理目录、把治理做成第二套 Home |
 | **D** | 业务对象 / 关系 | [`02-domain-model.md`](02-domain-model.md)、[`DATA_DICTIONARY.md`](DATA_DICTIONARY.md) | 对象是什么、彼此关系、字典值与展示名 | 谁可以转哪一阶段、交互原则、物理 request 形状 |
-| **E** | 业务规则与过程 | [`stage-graph.md`](stage-graph.md)（**占位**） | 合法转移 / 过程图（矩阵由兄弟 track 写） | **本 track 不发明阶段边**；不写 UI、不写 Starry 原生码 walk |
+| **E** | 业务规则与过程 | [`business-rules/stage-transitions.md`](business-rules/stage-transitions.md)（机器副本 [`../config/stage-transitions.json`](../config/stage-transitions.json)；别名 [`stage-graph.md`](stage-graph.md)） | 合法转移 / 过程图（15 + `exception`；ADR-027） | 不把 Starry hop / 原生码 walk 写成产品边（回 K） |
 | **F** | 业务动作 | [`specs/`](../specs/) 剩余 `FS-*`、[`policies/`](../policies/)、索引 [`03-prd-and-functional-spec.md`](03-prd-and-functional-spec.md)；Skill/Policy 说明 [`05-agent-workflow-skill-policy.md`](05-agent-workflow-skill-policy.md)；KOL 试点动作 [`12-kol-agent.md`](12-kol-agent.md) | 可开发动作、闸门、副作用、Given/When/Then | 新开平台法、复活已删 FS-006/010、改写 E 阶段图 |
 | **G** | 交互原则 | [`specs/UX-EMPLOYEE.md`](../specs/UX-EMPLOYEE.md) | 从 B 派生的瘦员工 UX；门禁只认 `SEND_NE_STAGE`、`L3_CONFIRM` | 新平台法、排序键表、四带教条、字段黑名单、强制 CTA |
 | **H** | IA 约束 | [`ia-information-architecture.md`](ia-information-architecture.md) | 导航、簇、谁答哪一问的信息架构硬约束 | 视觉 token、阶段边、权限 PEP 细则（回 C） |
@@ -29,11 +29,12 @@
 
 | 路径 | 谁写 | 本 track |
 |---|---|---|
-| `docs/stage-graph.md` | 阶段图 track 写矩阵 | 只建占位 + 链接；**零条阶段边** |
+| `docs/business-rules/stage-transitions.md` | 阶段图 track（**已落地**，ADR-027） | 正文见该文件；`stage-graph.md` 只作别名 |
+| `docs/stage-graph.md` | 阶段图 track | 别名跳转，不写边 |
 | `docs/ia-information-architecture.md` | IA track（**已落地**） | 正文见该文件；本目录只链路径 |
 | `docs/design.md` | 设计 track（**已落地**） | 正文见该文件；MASTER 仍是 token 源 |
 | `docs/technical-constitution.md` | 技术宪法 track（**已落地**） | 正文见该文件；本目录只链路径 |
-| ADR-011 | 阶段图 track **废止** | 本 track 不删 ADR-011 正文；见 [ADR-026](DECISIONS.md#adr-026--法律层-ak-重组2026-09-15) |
+| ADR-011 | 阶段图 track **已废止**（ADR-027） | 废止正文仍留档；产品边改读 ADR-027 |
 
 ## 编号别名（次要）
 
@@ -45,7 +46,7 @@
 | `CONSTITUTION.md` | B |
 | `01`、`08`、`21` | C |
 | `02`、`DATA_DICTIONARY.md` | D |
-| `stage-graph.md` | E |
+| `business-rules/stage-transitions.md`、`stage-graph.md`（别名）、`config/stage-transitions.json` | E |
 | `03`、`05`、`12`、`specs/FS-*`、`policies/*` | F |
 | `specs/UX-EMPLOYEE.md` | G |
 | `ia-information-architecture.md` | H |

@@ -172,7 +172,7 @@ REST `/api/**` 仍走 JWT。这 62 个 Tool **不会**进入站内 `ChatClient`�
 
 ### 阶段
 
-Host 读取归一成 Host-local 码；`changeLifecycleStage` / `updateKolProfile` 阶段写入发 **Starry 原生码**（ADR-011）。`listCooperationStageOptions` 仍列 Host 官方 15+6 码，原生码在 `aliases`：
+Host 读取归一成 Host-local 码；`changeLifecycleStage` / `updateKolProfile` 阶段写入发 **Starry 原生码**（物理适配，见 `docs/07-mcp-data-contract.md`；ADR-011 产品法已废）。`listCooperationStageOptions` 仍列 Host 官方 15+6 码，原生码在 `aliases`：
 
 | 官方码 | 旧码别名 |
 |---|---|
@@ -187,7 +187,7 @@ Host 读取归一成 Host-local 码；`changeLifecycleStage` / `updateKolProfile
 
 旁路/终态：`PAUSED`、`LOST`、`REJECTED`、`CANCELLED`、`DISPUTED`、`COMPLETED`。
 
-`updateKolProfile` 写画像阶段字段时仍用 `cooperationStageCode` + 中文名。`changeLifecycleStage` 顶层只有 `{ lifecycleId, requestJson }`，`requestJson` 为 `{ toStageCode, reason }`（Starry 原生码，如 `BUSINESS_NEGOTIATION`）。人跳过只在 Host 记账；远程只接受相邻前进，跨格 skip 按 `planStarryAdjacentWalk` 逐格 `toStageCode` walk。
+`updateKolProfile` 写画像阶段字段时仍用 `cooperationStageCode` + 中文名。`changeLifecycleStage` 顶层只有 `{ lifecycleId, requestJson }`，`requestJson` 为 `{ toStageCode, reason }`（Starry 原生码，如 `BUSINESS_NEGOTIATION`）。产品边（人可跨段 / 回退 / 进出异常）见 `docs/business-rules/stage-transitions.md`。远程若仍只吃相邻 hop，是 adapter 残差（`planStarryAdjacentWalk`），**不是**产品法。
 
 ### 风险标签
 
