@@ -39,7 +39,7 @@ const schemas = new Map(files("schemas", ".json").map((file) => [path.basename(f
 const traceabilityFile = path.join(root, "specs", "traceability.json");
 const traceability = fs.existsSync(traceabilityFile) ? JSON.parse(fs.readFileSync(traceabilityFile, "utf8")) : null;
 const uxTraceabilityFile = path.join(root, "specs", "ux-traceability.json");
-const uxSpecFile = path.join(root, "specs", "UX-KOL.md");
+const uxSpecFile = path.join(root, "specs", "UX-EMPLOYEE.md");
 const uxTraceability = fs.existsSync(uxTraceabilityFile) ? JSON.parse(fs.readFileSync(uxTraceabilityFile, "utf8")) : null;
 
 if (org) {
@@ -138,11 +138,11 @@ if (publishedExperts.some((item) => item.id !== "expert:kol")) {
 if (!uxTraceability || !Array.isArray(uxTraceability.entries)) {
   errors.push("specs/ux-traceability.json is required");
 } else if (!fs.existsSync(uxSpecFile)) {
-  errors.push("specs/UX-KOL.md is required");
+  errors.push("specs/UX-EMPLOYEE.md is required");
 } else {
   const uxText = fs.readFileSync(uxSpecFile, "utf8");
   for (const entry of uxTraceability.entries) {
-    if (typeof entry.id !== "string" || !uxText.includes(entry.id)) errors.push(`UX contract is missing from UX-KOL.md: ${entry.id}`);
+    if (typeof entry.id !== "string" || !uxText.includes(entry.id)) errors.push(`UX contract is missing from UX-EMPLOYEE.md: ${entry.id}`);
     if (!Array.isArray(entry.fs) || entry.fs.length === 0) errors.push(`UX trace has no FS mapping: ${entry.id}`);
     if (!Array.isArray(entry.tests) || entry.tests.length === 0) errors.push(`UX trace has no test mapping: ${entry.id}`);
     if (!Array.isArray(entry.e2e) || entry.e2e.length === 0) errors.push(`UX trace has no E2E mapping: ${entry.id}`);

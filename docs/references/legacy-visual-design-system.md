@@ -1,6 +1,8 @@
 # KOL-UI 工作台视觉系统（历史归档）
 
 > **历史与迁移文档：** 现行视觉和组件入口为 `design-system/kol-workbench/MASTER.md`。本文件保留原方案、迁移映射与决策背景，只有追溯这些细节时才读取。
+>
+> **Superseded (2026-09-15, ADR-025):** 下文若仍写 `04` / `19` / `UX-KOL.md` 为现行法，已废。现行入口：`CONSTITUTION.md` + `specs/UX-EMPLOYEE.md` + MASTER。
 
 员工端 KOL 会话工作台的**视觉与 token 默认**。日期：2026-09-13；2026-09-14 修订：产品确认工作台**全局正文基线 16px**、控件/helper/Tab **≥14px**，禁止用 `scale` / `zoom` 假装字号（ADR-020）；本实现 PR 按用户指定档落地 CSS（section / title / page-title 可高于 ADR 下限）。来源：产品负责人批准的默认视觉栈，供后续前端 PR 对齐。
 
@@ -8,13 +10,7 @@
 
 ## 法律层（禁止重定义）
 
-以下三份是体验法律，本文件只负责「看起来怎么长」，不得另写一套注意力规则或 UX ID：
-
-| 文档 | 本文件不得改写的内容 |
-|---|---|
-| `19-ui-ux-constitution.md` | 核心闭环五问、Agent 表面、一条主线程、禁止教练「下一步」、发送 ≠ 推进阶段、禁止嵌套滚动、结果优于说明书 |
-| `04-ux-ui-system.md` | 双端边界、任务驱动、状态可见、L1–L3、语义色职责、无障碍 |
-| `specs/UX-KOL.md` | 可执行 UX ID、Given/When/Then、与 FS / 红线 / E2E 的绑定 |
+本文件只负责「看起来怎么长」，不得另写一套注意力规则或 UX ID。现行体验法律是 `CONSTITUTION.md`（闭环、表面、L1–L3、发送 ≠ 推进阶段）与派生的 `specs/UX-EMPLOYEE.md`。下文若仍点名已删的 `04` / `19` / `UX-KOL.md`，只作历史对照，不是现行入口。
 
 评审视觉 PR 时先过宪法五问，再核对本文件的密度、token 和 Do / Don't。任一法律层失败，该改动违约，不论是否「更好看」。
 
@@ -98,8 +94,8 @@ Home workspace 与 session Chat 共用同一套 token；Chat 可以略紧，但�
 ### 4. 主色：indigo / violet；语义色沿用 04
 
 - **主操作**用 indigo / violet（主按钮、焦点环、链接强调、当前项）。
-- **语义职责**继续遵守 `04`：主操作、高风险、成功/已发布、错误。04 写「蓝色表示主操作」时，本文件把该槽位**映射**到 indigo，而不是再发明第五种主色。
-- 高风险仍是橙、成功仍是绿、错误仍是红。改这些职责必须先写 `DECISIONS.md`，再改 `04`。
+- **语义职责**继续遵守宪法 / MASTER：主操作、高风险、成功/已发布、错误。历史 `04` 写「蓝色表示主操作」时，本文件把该槽位**映射**到 indigo，而不是再发明第五种主色。
+- 高风险仍是橙、成功仍是绿、错误仍是红。改这些职责必须先写 `DECISIONS.md`，再改 MASTER。
 
 ## Token（`styles.css` 已落地）
 
@@ -221,18 +217,18 @@ Home workspace 与 session Chat 共用同一套 token；Chat 可以略紧，但�
 
 | 文档 | 角色 |
 |---|---|
-| `19-ui-ux-constitution.md` | 注意力 / Agent 闭环法律 |
-| `04-ux-ui-system.md` + `specs/UX-KOL.md` | 可执行 UX ID / 闸门 / 状态 / 无障碍 |
-| 本文件（`20`） | 视觉 / token 默认，供 KOL-UI 工作台前端对齐 |
-| `21-admin-employee-page-roles.md` | 管理端 IA（治理表，不是第二套 Home/Agents）；token 仍用本文件 |
+| `CONSTITUTION.md` | 注意力 / Agent 闭环 / L1–L3 / 发送 ≠ 推进阶段 |
+| `specs/UX-EMPLOYEE.md` | 从宪法派生的瘦 UX 硬不变量 |
+| 本文件（历史归档） | 旧视觉 / token 对照；现行入口是 MASTER |
+| `21-admin-employee-page-roles.md` | 管理端 IA（治理表，不是第二套 Home/Agents） |
 
-冲突时：注意力与主路径以 `19` 为准；UX ID 与闸门以 `04` + `UX-KOL` 为准；色值、字号与密度以本文件为准（字号可读性优先，见 ADR-020；用户指定档可高于 ADR 下限）。04 的「蓝色主操作」与本文件 indigo 主色的**职责**一致，只换槽位色值。若有人要把主操作改回蓝、或改橙/绿/红的职责，或把正文压回 13–14px，先登记 `DECISIONS.md`。
+冲突时：注意力与主路径以宪法为准；UX 硬不变量以 `UX-EMPLOYEE` 为准；色值、字号与密度以 MASTER 为准（字号可读性优先，见 ADR-020；用户指定档可高于 ADR 下限）。历史 `04` 的「蓝色主操作」与本文件 indigo 主色的**职责**一致，只换槽位色值。若有人要把主操作改回蓝、或改橙/绿/红的职责，或把正文压回 13–14px，先登记 `DECISIONS.md`。
 
 ## 非目标
 
 - 本实现 **不**安装 shadcn/ui、Radix Themes 或 Vercel AI Elements。
 - 本实现 **不**重设计 `Chat.tsx`（会话 Agent 闭环已在 PR #15）。
-- 本文件 **不**废止 `04` 的语义色职责，也不新增 UX ID。
+- 本文件 **不**废止宪法 / MASTER 的语义色职责，也不新增 UX ID。
 - 不为视觉层再写一套调度器、状态机或 Host 旁路。
 - 不把「建议 / 预填」升级成自动执行。
 - 不削弱核心闭环、四页法律、Home 四模式、并列能力面、专家中心法律。
@@ -240,8 +236,8 @@ Home workspace 与 session Chat 共用同一套 token；Chat 可以略紧，但�
 
 ## 落地顺序
 
-1. 新员工端 PR 先过 `19` 五问，再按本文件选组件、字号、色和滚动。
-2. 可执行验收仍走 `specs/UX-KOL.md` 与 `specs/ux-traceability.json`。
+1. 新员工端 PR 先过宪法五问，再按 MASTER 选组件、字号、色和滚动。
+2. 可执行验收仍走 `specs/UX-EMPLOYEE.md` 与 `specs/ux-traceability.json`。
 3. 改 `styles.css` 色名或字号 token 时，只做 token 迁移，不夹带 Chat 重设计、也不夹带 Discovery 筛选芯片重做，也不用 scale 过渡。
 4. 安装 shadcn 或 AI Elements 必须单独开 PR，并证明没有引入第二套主题（尤其禁止 Radix Themes）。
 5. 冲突写入 `DECISIONS.md`，不要在前端分支里另立色盘、字号或密度规范。

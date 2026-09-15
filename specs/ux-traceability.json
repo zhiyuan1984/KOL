@@ -1,14 +1,35 @@
 {
-  "version": 1,
+  "version": 2,
+  "derived_from": [
+    "docs/CONSTITUTION.md",
+    "specs/UX-EMPLOYEE.md"
+  ],
+  "retired_ids": [
+    "UX-CTX-BRAND",
+    "UX-DEF-MAILBOX-N",
+    "UX-MAIL-STATUS",
+    "UX-TB-BIND",
+    "UX-AGENT-UNPUBLISHED",
+    "UX-OWNER-NOT-SKIP",
+    "UX-SEND-NE-STAGE",
+    "UX-STATE-VISIBLE",
+    "UX-COPY-ENGINE",
+    "UX-FOLLOWED-KOL-CARD",
+    "FS-KOL-006",
+    "FS-KOL-010"
+  ],
   "entries": [
-    { "id": "UX-CTX-BRAND", "fs": ["FS-KOL-001", "FS-KOL-004"], "tests": ["F-ORG", "R-019"], "e2e": ["employee-context"] },
-    { "id": "UX-DEF-MAILBOX-N", "fs": ["FS-KOL-003", "FS-KOL-004"], "tests": ["R-010", "R-011"], "e2e": ["email-mailbox-selection"] },
-    { "id": "UX-MAIL-STATUS", "fs": ["FS-KOL-001", "FS-KOL-004"], "tests": ["F-EMAIL-READ"], "e2e": ["email-status-card"] },
-    { "id": "UX-TB-BIND", "fs": ["FS-KOL-004", "FS-KOL-008"], "tests": ["R-002", "R-015"], "e2e": ["tb-binding-failure"] },
-    { "id": "UX-AGENT-UNPUBLISHED", "fs": ["FS-KOL-009"], "tests": ["R-013", "R-014"], "e2e": ["agent-unpublished"] },
-    { "id": "UX-OWNER-NOT-SKIP", "fs": ["FS-KOL-004", "FS-KOL-006"], "tests": ["R-004", "R-007"], "e2e": ["owner-gate"] },
-    { "id": "UX-SEND-NE-STAGE", "fs": ["FS-KOL-004", "FS-KOL-006"], "tests": ["R-006", "R-008"], "e2e": ["send-stage-separation"] },
-    { "id": "UX-STATE-VISIBLE", "fs": ["FS-KOL-009"], "tests": ["F-UX-STATE"], "e2e": ["waiting-and-failure-states"] },
-    { "id": "UX-COPY-ENGINE", "fs": ["FS-KOL-009"], "tests": ["R-018"], "e2e": ["employee-copy-scan"] }
+    {
+      "id": "SEND_NE_STAGE",
+      "fs": ["FS-KOL-004"],
+      "tests": ["R-006", "R-008"],
+      "e2e": ["send-stage-separation"]
+    },
+    {
+      "id": "L3_CONFIRM",
+      "fs": ["FS-KOL-004"],
+      "tests": ["R-004", "R-007"],
+      "e2e": ["owner-gate"]
+    }
   ]
 }

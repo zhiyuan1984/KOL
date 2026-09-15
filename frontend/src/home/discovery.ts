@@ -1,6 +1,6 @@
 /**
  * Home AI发现 client — live `/api/discovery/*` (PR #63).
- * See `docs/evidence-ai-discovery-backend-2026-09-14.md`.
+ * Discovery plan / candidate projection. Surface law: CONSTITUTION §4.2.
  *
  * POST /requests persists a plan only (`status=open`, no crawl).
  * POST /requests/:id/runs starts a Run after employee confirm.

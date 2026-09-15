@@ -1,5 +1,5 @@
 /**
- * Employee-safe discovery / collector errors (docs/19 UX-COPY-ENGINE).
+ * Employee-safe discovery / collector errors (docs/04 + specs/UX-EMPLOYEE copy principle).
  * Never put Streamable HTTP / MCP / Job ID / URL / token in employee message / error / status_label.
  */
 import { HttpFail } from "./host/errors.js";

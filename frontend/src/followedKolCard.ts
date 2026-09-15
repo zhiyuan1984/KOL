@@ -1,6 +1,7 @@
 /**
  * Homepage 「我跟进的红人」 work-card projection.
- * Contract: specs/UX-FOLLOWED-KOL-CARD.md
+ * Goals (not a layout dogma): CONSTITUTION §4.2 + specs/UX-EMPLOYEE.md.
+ * Home followed list is a KOL-pilot Collaboration surface, not Pipeline.
  *
  * Board bags stay source material. Cards only render this model.
  */

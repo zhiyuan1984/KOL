@@ -6,10 +6,8 @@
     { "fs": "FS-KOL-003", "br": ["BR-DRAFT-001", "BR-MAIL-001", "BR-STAGE-001"], "tests": ["TEST-KOL-003"], "evals": ["EVAL-KOL-001", "EVAL-KOL-002", "EVAL-KOL-008"] },
     { "fs": "FS-KOL-004", "br": ["BR-SEND-001", "BR-IDEMP-001", "BR-SEND-002", "BR-STAGE-001"], "tests": ["TEST-KOL-004"], "evals": ["EVAL-KOL-003", "EVAL-KOL-007", "EVAL-KOL-008"] },
     { "fs": "FS-KOL-005", "br": ["BR-STAGE-002", "BR-STAGE-003", "BR-TRACE-002"], "tests": ["TEST-KOL-005"], "evals": ["EVAL-KOL-004", "EVAL-KOL-005"] },
-    { "fs": "FS-KOL-006", "br": ["BR-STAGE-004", "BR-VERSION-001", "BR-STAGE-005", "BR-AUDIT-001"], "tests": ["TEST-KOL-006"], "evals": ["EVAL-KOL-005", "EVAL-KOL-006"] },
     { "fs": "FS-KOL-007", "br": ["BR-JOB-001", "BR-IDEMP-002", "BR-IMPORT-001"], "tests": ["TEST-KOL-007"], "evals": ["EVAL-KOL-006", "EVAL-KOL-007"] },
     { "fs": "FS-KOL-008", "br": ["BR-SCOPE-001", "BR-SCOPE-002"], "tests": ["TEST-KOL-008"], "evals": ["EVAL-KOL-003", "EVAL-KOL-004"] },
-    { "fs": "FS-KOL-009", "br": ["BR-UX-001", "BR-UX-002", "BR-AUDIT-002"], "tests": ["TEST-KOL-009"], "evals": ["EVAL-KOL-006", "EVAL-KOL-008"] },
-    { "fs": "FS-KOL-010", "br": ["BR-PIPE-001", "BR-PIPE-002", "BR-PIPE-003", "BR-STAGE-004"], "tests": ["TEST-KOL-010"], "evals": ["EVAL-KOL-006"] }
+    { "fs": "FS-KOL-009", "br": ["BR-UX-001", "BR-UX-002", "BR-AUDIT-002"], "tests": ["TEST-KOL-009"], "evals": ["EVAL-KOL-006", "EVAL-KOL-008"] }
   ]
 }

@@ -1223,7 +1223,7 @@ export function employeeReasoningLabel(raw: string) {
   if (!text || looksLikeJsonLabel(text) || looksLikeInferenceJson(text)) return "正在分析…";
   const cleaned = stripEngineCopy(text.replace(/\b(?:reasoning|rsn):[A-Za-z0-9_-]+\b/gi, ""));
   if (!cleaned || looksLikeJsonLabel(cleaned) || /[{[]/.test(cleaned)) return "正在分析…";
-  // UX-COPY-ENGINE: a jargon-only title is not a summary. Keep real prose.
+  // Employee copy (04 / UX-EMPLOYEE): a jargon-only title is not a summary. Keep real prose.
   if (isHarnessLabel(cleaned) || isToolId(cleaned) || /^[a-z0-9_.:/-]+$/i.test(cleaned)) return "正在分析…";
   return cleaned;
 }
