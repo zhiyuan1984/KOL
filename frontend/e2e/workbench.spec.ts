@@ -3071,16 +3071,18 @@ test("admin and settings expose bind Starry mailbox menus", async ({ page }) => 
   await expect(page.locator("[data-starry-bind]")).toBeVisible();
 });
 
-test("settings delete memory uses L3 confirm and keeps a durable receipt", async ({ page, request }) => {
+test("settings delete memory uses L3 confirm and keeps a durable receipt", async ({ page }) => {
   const nativeConfirms: string[] = [];
   page.on("dialog", (dialog) => {
     nativeConfirms.push(dialog.message());
     void dialog.dismiss();
   });
-  await request.post("/api/memory", { data: { title: "测试记忆", body_md: "只用于确认删除", scope: "private" } });
   await page.goto("/settings?tab=memories");
   await expect(page.getByRole("heading", { name: "Markdown 记忆" })).toBeVisible();
-  await page.locator("[data-memory-delete]").first().click();
+  await page.getByRole("button", { name: "新建" }).click();
+  const editor = page.locator(".memory-editor").last();
+  await editor.getByLabel("记忆标题").fill("测试记忆");
+  await editor.locator("[data-memory-delete]").click();
   const dialog = page.locator("[data-admin-confirm='memory-delete']");
   await expect(dialog).toBeVisible();
   await expect(dialog.locator("[data-admin-confirm-object]")).toContainText("测试记忆");
