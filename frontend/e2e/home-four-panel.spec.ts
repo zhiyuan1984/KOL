@@ -356,17 +356,7 @@ function stubDiscoveryCandidates(count: number) {
   }));
 }
 
-test("home discovery follow confirm stays in viewport without scrolling the list", async ({ page }) => {
-  const livePosts: string[] = [];
-  const followPosts: string[] = [];
-  page.on("request", (item) => {
-    if (item.method() !== "POST") return;
-    const path = new URL(item.url()).pathname;
-    if (LIVE_SIDE_EFFECT.test(path)) livePosts.push(path);
-    if (path.includes("/follow")) followPosts.push(path);
-  });
-
-  const candidates = stubDiscoveryCandidates(16);
+async function mockDiscoveryCandidateResults(page: Page, candidates: Array<Record<string, unknown>>) {
   await page.route("**/api/discovery/requests/**/runs", async (route) => {
     if (route.request().method() !== "POST") {
       await route.continue();
@@ -376,7 +366,7 @@ test("home discovery follow confirm stays in viewport without scrolling the list
       status: 202,
       contentType: "application/json",
       body: JSON.stringify({
-        id: "drun_e2e_follow_confirm",
+        id: "drun_e2e_candidates",
         status: "succeeded",
         status_label: "已完成",
         search_keywords: ["portable power station"],
@@ -397,14 +387,14 @@ test("home discovery follow confirm stays in viewport without scrolling the list
         candidates,
         counts: { candidate_count: candidates.length, suggested_count: candidates.length },
         run: {
-          id: "drun_e2e_follow_confirm",
+          id: "drun_e2e_candidates",
           status: "succeeded",
           status_label: "已完成",
           search_keywords: ["portable power station"],
           candidate_count: candidates.length,
         },
         request: {
-          id: "dreq_e2e_follow_confirm",
+          id: "dreq_e2e_candidates",
           keywords: ["找北美户外评测达人"],
           platforms: ["youtube"],
           status: "succeeded",
@@ -412,6 +402,64 @@ test("home discovery follow confirm stays in viewport without scrolling the list
       }),
     });
   });
+}
+
+async function openDiscoveryResults(page: Page) {
+  await page.goto("/");
+  await openMode(page, "discovery");
+  await page.locator("[data-discovery-query]").fill("找北美户外评测达人");
+  await page.locator("[data-discovery-plan]").click();
+  await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
+  await page.locator("[data-discovery-confirm-plan]").click();
+  await expect(page.locator("[data-discovery-candidates]")).toBeVisible();
+}
+
+async function expectNoPageHorizontalScroll(page: Page) {
+  const box = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth,
+    client: document.documentElement.clientWidth,
+  }));
+  expect(box.scroll).toBeLessThanOrEqual(box.client + 1);
+}
+
+async function candidateRowLayout(card: ReturnType<Page["locator"]>) {
+  return card.evaluate((el) => {
+    const copy = el.querySelector(".discovery-candidate-copy") as HTMLElement | null;
+    const actions = el.querySelector(".discovery-candidate-actions") as HTMLElement | null;
+    if (!copy || !actions) {
+      throw new Error("discovery candidate row is missing copy or actions");
+    }
+    const cardBox = el.getBoundingClientRect();
+    const copyBox = copy.getBoundingClientRect();
+    const actionsBox = actions.getBoundingClientRect();
+    return {
+      cardWidth: cardBox.width,
+      copyWidth: copyBox.width,
+      copyRight: copyBox.right,
+      copyTop: copyBox.top,
+      copyBottom: copyBox.bottom,
+      actionsLeft: actionsBox.left,
+      actionsTop: actionsBox.top,
+      actionsRight: actionsBox.right,
+      cardRight: cardBox.right,
+      gridColumnStart: getComputedStyle(actions).gridColumnStart,
+      template: getComputedStyle(el).gridTemplateColumns,
+    };
+  });
+}
+
+test("home discovery follow confirm stays in viewport without scrolling the list", async ({ page }) => {
+  const livePosts: string[] = [];
+  const followPosts: string[] = [];
+  page.on("request", (item) => {
+    if (item.method() !== "POST") return;
+    const path = new URL(item.url()).pathname;
+    if (LIVE_SIDE_EFFECT.test(path)) livePosts.push(path);
+    if (path.includes("/follow")) followPosts.push(path);
+  });
+
+  const candidates = stubDiscoveryCandidates(24);
+  await mockDiscoveryCandidateResults(page, candidates);
   await page.route("**/api/discovery/candidates/**", async (route) => {
     if (route.request().method() === "POST" && /\/follow/.test(new URL(route.request().url()).pathname)) {
       await route.fulfill({
@@ -424,14 +472,8 @@ test("home discovery follow confirm stays in viewport without scrolling the list
     await route.continue();
   });
 
-  await page.goto("/");
-  await openMode(page, "discovery");
-  await page.locator("[data-discovery-query]").fill("找北美户外评测达人");
-  await page.locator("[data-discovery-plan]").click();
-  await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
-  await page.locator("[data-discovery-confirm-plan]").click();
-  await expect(page.locator("[data-discovery-candidates]")).toBeVisible();
-  await expect(page.locator("[data-discovery-candidate]")).toHaveCount(16);
+  await openDiscoveryResults(page);
+  await expect(page.locator("[data-discovery-candidate]")).toHaveCount(24);
 
   const listBox = await page.locator("[data-discovery-candidates]").boundingBox();
   const viewport = page.viewportSize();
@@ -468,6 +510,103 @@ test("home discovery follow confirm stays in viewport without scrolling the list
   await expect(page.locator("[data-discovery-candidates] [data-discovery-follow-confirm]")).toHaveCount(0);
   expect(followPosts).toEqual([]);
   expect(livePosts).toEqual([]);
+});
+
+test("home discovery candidate rows use workbench layout and dedupe metrics", async ({ page }) => {
+  const followPosts: string[] = [];
+  page.on("request", (item) => {
+    if (item.method() === "POST" && new URL(item.url()).pathname.includes("/follow")) {
+      followPosts.push(new URL(item.url()).pathname);
+    }
+  });
+
+  const candidates = [
+    {
+      id: "cand_solar",
+      handle: "TheSolarLab",
+      nickname: "TheSolarLab",
+      platform: "youtube",
+      followers: 153000,
+      avg_views_10: 8597338,
+      score: 82.94,
+      status: "suggested",
+      reason: "YouTube · @TheSolarLab · 15万粉 · 评分 82.94 · 待加入跟进",
+      summary: "YouTube · @TheSolarLab · 15万粉 · 评分 82.94 · 待加入跟进",
+    },
+    {
+      id: "cand_gear",
+      handle: "OutdoorGearLab",
+      nickname: "Outdoor Gear Lab",
+      platform: "youtube",
+      followers: 89000,
+      avg_views_10: 120000,
+      score: 88,
+      status: "suggested",
+      reason: "匹配户外电源评测方向，近期内容稳定",
+    },
+    {
+      id: "cand_long",
+      handle: "VeryLongCreatorHandleNameThatShouldWrapInsteadOfScroll",
+      nickname: "VeryLongCreatorHandleNameThatShouldWrapInsteadOfScroll",
+      platform: "instagram",
+      followers: 0,
+      score: 0,
+      status: "suggested",
+      reason: "Instagram · @VeryLongCreatorHandleNameThatShouldWrapInsteadOfScroll · 待加入跟进",
+    },
+  ];
+  await mockDiscoveryCandidateResults(page, candidates);
+  await openDiscoveryResults(page);
+  await expect(page.locator("[data-discovery-candidate]")).toHaveCount(3);
+
+  const solar = page.locator('[data-discovery-candidate="TheSolarLab"]');
+  await expect(solar.locator("[data-discovery-candidate-identity]")).toHaveText("@TheSolarLab");
+  await expect(solar.locator("[data-discovery-candidate-meta]")).toHaveText(
+    "YouTube · 153k · 近10均播 8597338 · 评分 82.94",
+  );
+  await expect(solar.locator("[data-discovery-candidate-reason]")).toHaveCount(0);
+  await expect(solar).not.toContainText("待加入跟进");
+  await expect(solar).not.toContainText("15万粉");
+  expect((await solar.innerText()).match(/YouTube/g)?.length).toBe(1);
+  expect((await solar.innerText()).match(/82\.94/g)?.length).toBe(1);
+
+  const gear = page.locator('[data-discovery-candidate="OutdoorGearLab"]');
+  await expect(gear.locator("[data-discovery-candidate-identity]")).toContainText("@OutdoorGearLab");
+  await expect(gear.locator("[data-discovery-candidate-identity]")).toContainText("Outdoor Gear Lab");
+  await expect(gear.locator("[data-discovery-candidate-meta]")).toHaveText(
+    "YouTube · 89k · 近10均播 120000 · 评分 88",
+  );
+  await expect(gear.locator("[data-discovery-candidate-reason]")).toHaveText("匹配户外电源评测方向，近期内容稳定");
+
+  const longHandle = page.locator('[data-discovery-candidate="VeryLongCreatorHandleNameThatShouldWrapInsteadOfScroll"]');
+  await expect(longHandle.locator("[data-discovery-candidate-meta]")).toHaveText("Instagram");
+  await expect(longHandle.locator("[data-discovery-candidate-reason]")).toHaveCount(0);
+
+  await expect(solar.locator("[data-discovery-follow]")).toHaveClass(/btn work/);
+  await expect(solar.locator("[data-discovery-favorite]")).toHaveClass(/btn ghost/);
+  await expect(solar.locator("[data-discovery-dismiss]")).toHaveClass(/btn ghost/);
+
+  const wide = await candidateRowLayout(solar);
+  expect(wide.gridColumnStart === "auto" || wide.gridColumnStart === "3").toBeTruthy();
+  expect(wide.gridColumnStart).not.toBe("2");
+  expect(wide.actionsLeft).toBeGreaterThan(wide.copyRight - 2);
+  expect(Math.abs(wide.actionsTop - wide.copyTop)).toBeLessThan(48);
+  expect(wide.copyWidth).toBeGreaterThan(wide.cardWidth * 0.4);
+  expect(wide.cardRight - wide.actionsRight).toBeLessThan(24);
+  await expectNoPageHorizontalScroll(page);
+
+  await solar.locator("[data-discovery-follow]").click();
+  await expect(page.locator("[data-discovery-follow-confirm]")).toBeVisible();
+  await expect(page.locator("[data-discovery-follow-confirm]")).toHaveAttribute("data-discovery-follow-mode", "single");
+  await page.locator("[data-discovery-follow-no]").click();
+  await expect(page.locator("[data-discovery-follow-confirm]")).toHaveCount(0);
+  expect(followPosts).toEqual([]);
+
+  await page.setViewportSize({ width: 720, height: 900 });
+  const stacked = await candidateRowLayout(solar);
+  expect(stacked.gridColumnStart).toBe("2");
+  expect(stacked.actionsTop).toBeGreaterThan(stacked.copyBottom - 4);
+  await expectNoPageHorizontalScroll(page);
 });
 
 test("today suggestion convert to todo dedupes", async ({ page }) => {

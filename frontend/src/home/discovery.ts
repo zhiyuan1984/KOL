@@ -463,9 +463,133 @@ export function discoveryEmptyCopy(input: {
   return emptyResultsHint(keywords);
 }
 
+export function formatFollowers(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "";
+  if (value >= 10000) return `${Math.round(value / 1000)}k`;
+  return String(Math.round(value));
+}
+
+/** Nickname only when it is not the same token as the handle. */
+export function distinctNickname(row: Pick<CreatorCandidate, "handle" | "nickname">): string {
+  const handle = String(row.handle || "").trim().replace(/^@/, "");
+  const nickname = String(row.nickname || "").trim();
+  if (!nickname) return "";
+  const norm = (value: string) => value.replace(/^@/, "").toLowerCase();
+  if (handle && norm(nickname) === norm(handle)) return "";
+  return nickname;
+}
+
+/** Line 2: 平台 · 粉丝 · 近10均播 · 评分 — omit empty fields. */
+export function candidateMetrics(row: CreatorCandidate): string {
+  const bits = [
+    platformLabel(row.platform),
+    formatFollowers(Number(row.followers || 0)),
+    Number(row.avg_views_10) > 0 ? `近10均播 ${Math.round(Number(row.avg_views_10))}` : "",
+    Number(row.score) > 0 ? `评分 ${row.score}` : "",
+  ].filter(Boolean);
+  return bits.join(" · ");
+}
+
+const RESTATEMENT_STATUS = /^(待加入跟进|已加入跟进|已确认跟进|发现候选人|已忽略)$/;
+
+function normalizeReasonToken(value: string): string {
+  return value.replace(/\s+/g, "").toLowerCase();
+}
+
+function followerReasonVariants(followers: number): string[] {
+  const formatted = formatFollowers(followers);
+  if (!formatted) return [];
+  const wan = followers >= 10000 ? `${Math.round(followers / 10000)}万` : "";
+  return [
+    formatted,
+    `${formatted}粉`,
+    String(Math.round(followers)),
+    `${Math.round(followers)}粉`,
+    wan,
+    wan ? `${wan}粉` : "",
+  ].filter(Boolean);
+}
+
+function isRestatementPart(part: string, row: CreatorCandidate): boolean {
+  const text = part.trim();
+  if (!text) return true;
+  if (RESTATEMENT_STATUS.test(text)) return true;
+  const handle = String(row.handle || "").trim().replace(/^@/, "");
+  const nickname = String(row.nickname || "").trim();
+  const platform = String(row.platform || "").trim();
+  const score = Number(row.score || 0);
+  const views = Number(row.avg_views_10 || 0);
+  const known = [
+    platform,
+    platformLabel(platform),
+    handle,
+    handle ? `@${handle}` : "",
+    nickname,
+    nickname ? `@${nickname.replace(/^@/, "")}` : "",
+    ...followerReasonVariants(Number(row.followers || 0)),
+    score > 0 ? `评分 ${score}` : "",
+    score > 0 ? String(score) : "",
+    views > 0 ? `近10均播 ${Math.round(views)}` : "",
+    views > 0 ? String(Math.round(views)) : "",
+  ].filter(Boolean).map(normalizeReasonToken);
+  const norm = normalizeReasonToken(text);
+  if (known.includes(norm)) return true;
+  if (score > 0 && /^(评分|score)/i.test(norm)) {
+    const parsed = Number(norm.replace(/[^\d.]/g, ""));
+    if (Number.isFinite(parsed) && Math.abs(parsed - score) < 0.051) return true;
+  }
+  if (Number(row.followers) > 0 && /(粉|followers?|k)$/i.test(text)) {
+    const parsed = Number(text.replace(/[^\d.]/g, ""));
+    const followers = Number(row.followers);
+    if (
+      Number.isFinite(parsed)
+      && (parsed === followers
+        || parsed === Math.round(followers / 1000)
+        || parsed === Math.round(followers / 10000))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isRestatementBlob(text: string, row: CreatorCandidate): boolean {
+  if (isRestatementPart(text, row)) return true;
+  let leftover = normalizeReasonToken(text);
+  const handle = String(row.handle || "").trim().replace(/^@/, "");
+  const fragments = [
+    String(row.platform || ""),
+    platformLabel(row.platform),
+    handle,
+    handle ? `@${handle}` : "",
+    String(row.nickname || ""),
+    ...followerReasonVariants(Number(row.followers || 0)),
+    Number(row.score) > 0 ? `评分${row.score}` : "",
+    Number(row.score) > 0 ? String(row.score) : "",
+    Number(row.avg_views_10) > 0 ? `近10均播${Math.round(Number(row.avg_views_10))}` : "",
+    "待加入跟进",
+    "已加入跟进",
+    "已确认跟进",
+    "发现候选人",
+    "已忽略",
+  ].filter(Boolean).map(normalizeReasonToken).sort((a, b) => b.length - a.length);
+  for (const fragment of fragments) {
+    leftover = leftover.split(fragment).join("");
+  }
+  leftover = leftover.replace(/[·•|,./:\-@_]/g, "");
+  return leftover.length === 0;
+}
+
+/** Match reason only when it is not a restatement of platform / handle / score / followers. */
 export function candidateReason(row: CreatorCandidate): string {
   const signals = row.signals || {};
-  return String(row.reason || row.summary || signals.reason || signals.summary || "").trim();
+  const raw = String(row.reason || row.summary || signals.reason || signals.summary || "").trim();
+  if (!raw) return "";
+  const parts = raw.split(/\s*[·•|]\s*/).map((item) => item.trim()).filter(Boolean);
+  const unique = parts.filter((part) => !isRestatementPart(part, row) && !isRestatementBlob(part, row));
+  if (!unique.length) return "";
+  const joined = unique.join(" · ");
+  return isRestatementBlob(joined, row) ? "" : joined;
 }
 
 export function planSummary(request: DiscoveryRequest): string {

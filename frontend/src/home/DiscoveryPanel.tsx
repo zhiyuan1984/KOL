@@ -8,8 +8,10 @@ import {
   OVERSEAS_DISCOVERY_PLATFORMS,
   addDirections,
   candidateMatchesFollowFilter,
+  candidateMetrics,
   candidateReason,
   createDiscoveryRequest,
+  distinctNickname,
   discoveryEmptyCopy,
   dismissCandidate,
   followCandidate,
@@ -39,11 +41,6 @@ import {
 } from "./discovery";
 import { DiscoveryFollowConfirm } from "./DiscoveryFollowConfirm";
 import { useViewMode } from "../viewMode";
-
-function formatFollowers(value: number): string {
-  if (value >= 10000) return `${Math.round(value / 1000)}k`;
-  return String(value);
-}
 
 export default function DiscoveryPanel() {
   const [query, setQuery] = useState("");
@@ -736,82 +733,92 @@ export default function DiscoveryPanel() {
               <p className="discovery-quiet">平台 / 地区沿用发现计划，不另设一套。</p>
             </div>
           </li>
-          {visible.map((candidate) => (
-            <li key={candidate.id}>
-              <article
-                className="discovery-candidate"
-                data-discovery-candidate={candidate.handle}
-                data-discovery-origin="discovery"
-                data-candidate-id={candidate.id}
-                data-candidate-status={candidate.status}
-                data-discovery-preview={
-                  candidate.status === "suggested" && !candidateMatchesFollowFilter(candidate, followFilter, planForFilter)
-                    ? "out"
-                    : "in"
-                }
-              >
-                {candidate.status === "suggested" ? (
-                  <label className="discovery-candidate-select">
-                    <input
-                      type="checkbox"
-                      data-discovery-select={candidate.id}
-                      checked={selectedIds.includes(candidate.id)}
-                      onChange={(event) => toggleSelected(candidate.id, event.target.checked)}
-                    />
-                    <span className="sr-only">选择 @{candidate.handle}</span>
-                  </label>
-                ) : <span className="discovery-candidate-select" />}
-                <div className="discovery-candidate-copy">
-                  <strong>@{candidate.handle}</strong>
-                  <p className="discovery-candidate-meta">
-                    {candidate.nickname} · {platformLabel(candidate.platform)} · {formatFollowers(candidate.followers)}
-                    {candidate.avg_views_10 ? ` · 近10均播 ${Math.round(candidate.avg_views_10)}` : ""}
-                    {candidate.score ? ` · 评分 ${candidate.score}` : ""}
-                  </p>
-                  <p className="discovery-candidate-reason">{candidateReason(candidate)}</p>
-                  {candidate.status === "followed" ? (
-                    <p className="discovery-quiet" data-discovery-followed>
-                      已加入跟进。已写入红人档案并建立合作，不会发信或改阶段。
-                    </p>
-                  ) : null}
-                </div>
-                <div className="discovery-candidate-actions">
-                  <button
-                    type="button"
-                    className="btn ghost sm"
-                    data-discovery-favorite={candidate.id}
-                    aria-pressed={Boolean(favorited[candidate.id])}
-                    onClick={() => setFavorited((current) => ({ ...current, [candidate.id]: !current[candidate.id] }))}
-                  >
-                    {favorited[candidate.id] ? "已收藏" : "收藏"}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn ghost sm"
-                    data-discovery-dismiss={candidate.id}
-                    disabled={candidate.status === "followed"}
-                    onClick={() => void onDismiss(candidate)}
-                  >
-                    忽略
-                  </button>
-                  <button
-                    type="button"
-                    className="btn work sm"
-                    data-discovery-follow={candidate.id}
-                    disabled={candidate.status === "followed"}
-                    onClick={() => {
-                      setFollowError(null);
-                      setBatchResult(null);
-                      setPendingBatch(null);
-                      setPendingFollow(candidate);
-                    }}
-                  >
-                    {candidate.status === "followed" ? "已确认跟进" : "加入跟进"}
-                  </button>
-                </div>
-              </article>
-            </li>
-          ))}
+          {visible.map((candidate) => {
+            const nickname = distinctNickname(candidate);
+            const metrics = candidateMetrics(candidate);
+            const reason = candidateReason(candidate);
+            return (
+              <li key={candidate.id}>
+                <article
+                  className="discovery-candidate"
+                  data-discovery-candidate={candidate.handle}
+                  data-discovery-origin="discovery"
+                  data-candidate-id={candidate.id}
+                  data-candidate-status={candidate.status}
+                  data-discovery-preview={
+                    candidate.status === "suggested" && !candidateMatchesFollowFilter(candidate, followFilter, planForFilter)
+                      ? "out"
+                      : "in"
+                  }
+                >
+                  {candidate.status === "suggested" ? (
+                    <label className="discovery-candidate-select">
+                      <input
+                        type="checkbox"
+                        data-discovery-select={candidate.id}
+                        checked={selectedIds.includes(candidate.id)}
+                        onChange={(event) => toggleSelected(candidate.id, event.target.checked)}
+                      />
+                      <span className="sr-only">选择 @{candidate.handle}</span>
+                    </label>
+                  ) : <span className="discovery-candidate-select" />}
+                  <div className="discovery-candidate-copy">
+                    <strong className="discovery-candidate-identity" data-discovery-candidate-identity>
+                      <span className="discovery-candidate-handle">@{candidate.handle}</span>
+                      {nickname ? (
+                        <span className="discovery-candidate-nickname">{nickname}</span>
+                      ) : null}
+                    </strong>
+                    {metrics ? (
+                      <p className="discovery-candidate-meta" data-discovery-candidate-meta>{metrics}</p>
+                    ) : null}
+                    {reason ? (
+                      <p className="discovery-candidate-reason" data-discovery-candidate-reason>{reason}</p>
+                    ) : null}
+                    {candidate.status === "followed" ? (
+                      <p className="discovery-quiet" data-discovery-followed>
+                        已加入跟进。已写入红人档案并建立合作，不会发信或改阶段。
+                      </p>
+                    ) : null}
+                  </div>
+                  <div className="discovery-candidate-actions">
+                    <button
+                      type="button"
+                      className="btn ghost sm"
+                      data-discovery-favorite={candidate.id}
+                      aria-pressed={Boolean(favorited[candidate.id])}
+                      onClick={() => setFavorited((current) => ({ ...current, [candidate.id]: !current[candidate.id] }))}
+                    >
+                      {favorited[candidate.id] ? "已收藏" : "收藏"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn ghost sm"
+                      data-discovery-dismiss={candidate.id}
+                      disabled={candidate.status === "followed"}
+                      onClick={() => void onDismiss(candidate)}
+                    >
+                      忽略
+                    </button>
+                    <button
+                      type="button"
+                      className="btn work sm"
+                      data-discovery-follow={candidate.id}
+                      disabled={candidate.status === "followed"}
+                      onClick={() => {
+                        setFollowError(null);
+                        setBatchResult(null);
+                        setPendingBatch(null);
+                        setPendingFollow(candidate);
+                      }}
+                    >
+                      {candidate.status === "followed" ? "已确认跟进" : "加入跟进"}
+                    </button>
+                  </div>
+                </article>
+              </li>
+            );
+          })}
         </ol>
       ) : null}
 
