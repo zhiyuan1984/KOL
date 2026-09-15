@@ -81,6 +81,12 @@ test("home discovery persists plan and requires confirm before crawl or follow",
   await page.goto("/");
   await openMode(page, "discovery");
   await expect(page.locator("[data-discovery-panel]")).not.toContainText(/MCP|Codex|MediaCrawler|Harness|Job|stub/);
+  await expect(page.locator("[data-discovery-panel]")).not.toContainText("已识别并可调整");
+  expect(await page.locator("[data-discovery-form]").evaluate((form) => (
+    [...form.querySelectorAll("[data-discovery-filters], [data-discovery-query]")].map((node) => (
+      node.hasAttribute("data-discovery-filters") ? "filters" : "query"
+    ))
+  ))).toEqual(["filters", "query"]);
   await expect(page.locator('[data-discovery-filter="platform"]')).not.toContainText("全部平台");
   await expect(page.locator('[data-discovery-filter="platform"] [data-discovery-chip="tiktok"]')).toHaveCount(0);
   await expect(page.locator('[data-discovery-filter="platform"] [data-discovery-chip="youtube"]')).toHaveCount(1);
