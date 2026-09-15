@@ -20,6 +20,7 @@ import {
   employeeError,
   mapEmployeeError,
   persistableEmployeeError,
+  sanitizeSecret,
 } from "./discovery-errors.js";
 import { emptyDiscoveryHint, expandOverseasSearchKeywords } from "./discovery-keywords.js";
 import {
@@ -267,7 +268,9 @@ function validateOverseasPlatforms(platforms: string[]): string[] {
 
 function validateMode(mode: string): string {
   const value = mode.toLowerCase() || "search";
-  if (!MODES.has(value)) throw new HttpFail(400, "invalid crawl mode");
+  if (!MODES.has(value)) {
+    throw new HttpFail(400, { code: "invalid_crawl_mode", message: "采集方式不正确。" });
+  }
   return value;
 }
 
@@ -763,6 +766,18 @@ export async function startDiscoveryRun(input: {
     const source = error instanceof HttpFail ? error.detail ?? error : error;
     const mapped = mapEmployeeError(source);
     const safe = mapped.message;
+    const sourceObj = source && typeof source === "object" && !Array.isArray(source)
+      ? source as { crawl_job_id?: unknown }
+      : null;
+    console.warn("[discovery.run] failed", {
+      request_id: String(request.id),
+      run_id: runId,
+      code: collectorFailureCode(source),
+      error: sanitizeSecret(source),
+      ...(typeof sourceObj?.crawl_job_id === "string" && sourceObj.crawl_job_id
+        ? { crawl_job_id: sourceObj.crawl_job_id }
+        : {}),
+    });
     getConn().prepare(
       `UPDATE discovery_runs
           SET status='failed', error=?, completed_at=?, updated_at=?, data_version=data_version+1

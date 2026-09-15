@@ -31,7 +31,7 @@ function jobForTask(taskId: string): Row {
   const row = getConn().prepare(
     "SELECT * FROM crawl_jobs WHERE work_item_id=? ORDER BY created_at DESC LIMIT 1",
   ).get(taskId) as Row | undefined;
-  if (!row) throw new HttpFail(404, "crawl job not found");
+  if (!row) throw new HttpFail(404, { code: "crawl_job_not_found", message: "未找到该采集任务。" });
   return row;
 }
 
