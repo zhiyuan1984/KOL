@@ -798,6 +798,16 @@ summary:focus-visible,
   white-space: normal;
   overflow-wrap: anywhere;
 }
+/* Followed/lifecycle: collapse the task-spine summary so the object list
+   gets the vertical pixels. Other modes keep 「N项待处理 · 逾期 · 今天到期」. */
+[data-home-active-mode="lifecycle"] .home-stats,
+[data-followed-chrome="compact"] .home-stats {
+  display: none;
+}
+[data-home-active-mode="lifecycle"] .home-mode-tabs,
+[data-followed-chrome="compact"] .home-mode-tabs {
+  margin-bottom: var(--space-2);
+}
 .home-mode-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -1849,7 +1859,7 @@ summary:focus-visible,
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  margin: 0 0 var(--space-2);
+  margin: 0 0 var(--space-1);
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -2239,10 +2249,19 @@ summary:focus-visible,
   min-width: 0;
   align-self: stretch;
 }
+/*
+ * Followed decision column: 880px.
+ * OpenAI-quiet readable workbench (content-first, not stretched ERP rows).
+ * Midpoint of the 720–960px band: two dense columns (fact + AI 280–340)
+ * without hollow gutters on ultra-wide. Cards left-align; the rail/pane
+ * may stay full width. Density dial 8.
+ */
 .followed-kol-column {
+  --followed-decision-max: 880px;
+  --followed-ai-col: 320px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  justify-items: stretch;
+  justify-items: start;
   align-items: stretch;
   width: 100%;
   max-width: 100%;
@@ -2250,11 +2269,16 @@ summary:focus-visible,
   overflow-x: hidden;
 }
 .followed-kol-column .home-pane-sticky,
-.followed-kol-column .followed-object-toolbar,
 .followed-kol-column .followed-kol-list,
-.followed-kol-column .followed-kol-item,
-.followed-kol-column .followed-kol-card,
 .followed-kol-column .task-empty {
+  width: 100%;
+  max-width: var(--followed-decision-max);
+  min-width: 0;
+  box-sizing: border-box;
+}
+.followed-kol-column .followed-object-toolbar,
+.followed-kol-column .followed-kol-item,
+.followed-kol-column .followed-kol-card {
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -2262,6 +2286,7 @@ summary:focus-visible,
 }
 .followed-kol-column .home-pane-sticky {
   overflow-x: hidden;
+  padding: 0 0 var(--space-1);
 }
 .followed-kol-list {
   display: grid;
@@ -2270,7 +2295,6 @@ summary:focus-visible,
   gap: 0;
   min-width: 0;
   width: 100%;
-  max-width: 100%;
   overflow-x: hidden;
 }
 .followed-kol-item {
@@ -2283,11 +2307,11 @@ summary:focus-visible,
 .followed-kol-card {
   display: grid;
   justify-items: stretch;
-  gap: var(--space-2);
+  gap: 6px;
   width: 100%;
   min-width: 0;
-  max-width: none;
-  padding: var(--space-2) 0;
+  max-width: 100%;
+  padding: 6px 0;
   border-bottom: 1px solid var(--border);
   overflow-x: hidden;
   overflow-y: visible;
@@ -2449,6 +2473,9 @@ summary:focus-visible,
   gap: 2px;
   align-items: start;
 }
+.followed-kol-card .kol-band-recommend {
+  gap: var(--space-1);
+}
 .kol-state-block {
   min-width: 0;
   max-width: 100%;
@@ -2556,10 +2583,10 @@ summary:focus-visible,
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: var(--space-1) var(--space-2);
   min-width: 0;
-  padding-top: 0;
+  padding-top: 2px;
 }
 .followed-kol-card .kol-cta-secondary,
 .followed-kol-card .kol-cta-primary {
@@ -2570,7 +2597,7 @@ summary:focus-visible,
   min-width: 0;
 }
 .followed-kol-card .kol-cta-primary {
-  margin-left: auto;
+  margin-left: 0;
 }
 .followed-kol-card .kol-cta-btn {
   flex: 0 1 auto;
@@ -2628,8 +2655,8 @@ summary:focus-visible,
 }
 @media (min-width: 900px) {
   .followed-kol-card .kol-split {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    column-gap: var(--space-4);
+    grid-template-columns: minmax(0, 1fr) minmax(280px, var(--followed-ai-col, 320px));
+    column-gap: var(--space-2);
     align-items: start;
   }
   .followed-kol-card .kol-band-fact {

@@ -194,69 +194,68 @@ export default function FollowedKolWorkCard({
               <p className="kol-evidence">{card.evidence.label}</p>
             </details>
           ) : null}
-        </div>
-      </div>
-
-      <div className="kol-band kol-band-actions" data-kol-band="cta">
-        <div className="kol-cta-secondary">
-          <button type="button" className="btn ghost sm kol-cta-btn" data-open-kol-detail onClick={onOpenDetail}>
-            查看详情
-          </button>
-          {showMail ? (
-            <button
-              type="button"
-              className="kol-cta-link"
-              data-open-original-mail
-              data-thread-id={fact.thread_id}
-              onClick={onOpenMail}
-            >
-              原邮件
-            </button>
-          ) : null}
-        </div>
-        <div className="kol-cta-primary">
-          {showCompose ? (
-            <button
-              type="button"
-              className={workCtaClass({ kind: rec.kind, emphasized, demoteDraft })}
-              data-kol-primary-action={primary}
-              data-cta-role={rec.kind === "compose" ? "draft" : "send"}
-              data-cta-visual={emphasized && !demoteDraft ? "filled" : "ghost"}
-              onClick={onCompose || onPrimary}
-            >
-              {rec.label}
-            </button>
-          ) : null}
-          {showConfirm ? (
-            <button
-              type="button"
-              className={workCtaClass({ kind: "confirm-stage", emphasized, demoteDraft: false })}
-              data-kol-primary-action="confirm-stage"
-              data-cta-role="stage"
-              data-cta-visual={emphasized ? "filled" : "ghost"}
-              data-confirm-enter-stage
-              data-confirm-stage-priority="primary"
-              data-target-stage={rec.target_stage_code}
-              data-confirm-stage-busy={actionBusy ? "true" : undefined}
-              disabled={actionBusy}
-              onClick={onConfirmStage || onPrimary}
-            >
-              {actionBusy ? "正在打开…" : rec.label}
-            </button>
-          ) : null}
-          {primary && !showCompose && !showConfirm ? (
-            <button
-              type="button"
-              className={workCtaClass({ kind: rec.kind, emphasized, demoteDraft: false })}
-              data-kol-primary-action={primary}
-              data-cta-role="other"
-              data-cta-visual={emphasized ? "filled" : "ghost"}
-              disabled={actionBusy}
-              onClick={onPrimary}
-            >
-              {actionBusy ? "正在打开…" : rec.label}
-            </button>
-          ) : null}
+          <div className="kol-band kol-band-actions" data-kol-band="cta">
+            <div className="kol-cta-secondary">
+              <button type="button" className="btn ghost sm kol-cta-btn" data-open-kol-detail onClick={onOpenDetail}>
+                查看详情
+              </button>
+              {showMail ? (
+                <button
+                  type="button"
+                  className="kol-cta-link"
+                  data-open-original-mail
+                  data-thread-id={fact.thread_id}
+                  onClick={onOpenMail}
+                >
+                  原邮件
+                </button>
+              ) : null}
+            </div>
+            <div className="kol-cta-primary">
+              {showCompose ? (
+                <button
+                  type="button"
+                  className={workCtaClass({ kind: rec.kind, emphasized, demoteDraft })}
+                  data-kol-primary-action={primary}
+                  data-cta-role={rec.kind === "compose" ? "draft" : "send"}
+                  data-cta-visual={emphasized && !demoteDraft ? "filled" : "ghost"}
+                  onClick={onCompose || onPrimary}
+                >
+                  {rec.label}
+                </button>
+              ) : null}
+              {showConfirm ? (
+                <button
+                  type="button"
+                  className={workCtaClass({ kind: "confirm-stage", emphasized, demoteDraft: false })}
+                  data-kol-primary-action="confirm-stage"
+                  data-cta-role="stage"
+                  data-cta-visual={emphasized ? "filled" : "ghost"}
+                  data-confirm-enter-stage
+                  data-confirm-stage-priority="primary"
+                  data-target-stage={rec.target_stage_code}
+                  data-confirm-stage-busy={actionBusy ? "true" : undefined}
+                  disabled={actionBusy}
+                  onClick={onConfirmStage || onPrimary}
+                >
+                  {actionBusy ? "正在打开…" : rec.label}
+                </button>
+              ) : null}
+              {primary && !showCompose && !showConfirm ? (
+                <button
+                  type="button"
+                  className={workCtaClass({ kind: rec.kind, emphasized, demoteDraft: false })}
+                  data-kol-primary-action={primary}
+                  data-cta-role="other"
+                  data-cta-visual={emphasized ? "filled" : "ghost"}
+                  disabled={actionBusy}
+                  onClick={onPrimary}
+                >
+                  {actionBusy ? "正在打开…" : rec.label}
+                </button>
+              ) : null}
+            </div>
+          </div>
         </div>
       </div>
       {actionNotice ? (
