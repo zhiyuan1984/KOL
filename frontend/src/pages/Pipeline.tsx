@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import { storePending } from "../components/ChatBlocks";
 import { useAdminConfirm } from "../components/ConfirmDialog";
+import { useFocusLock } from "../hooks/useFocusLock";
 import { FALLBACK_MAIN_STAGES, SHORT_STAGE_LABEL } from "../kolStages";
 import { rememberJourney } from "../journey";
 import {
@@ -123,7 +124,10 @@ export default function Pipeline() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [targetCode, setTargetCode] = useState("");
   const [proposing, setProposing] = useState(false);
-  const { ask, dialog } = useAdminConfirm();
+  const { ask, dialog, open: confirmOpen } = useAdminConfirm();
+  const drawerRef = useRef<HTMLElement>(null);
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
   const kolQuery = params.get("kol");
@@ -197,6 +201,8 @@ export default function Pipeline() {
       closeDrawer();
       return;
     }
+    const prev = document.activeElement;
+    if (prev instanceof HTMLElement) returnFocusRef.current = prev;
     setSelectedId(card.id);
     const next = new URLSearchParams(params);
     next.set("kol", card.handle);
@@ -208,20 +214,30 @@ export default function Pipeline() {
     const next = new URLSearchParams(params);
     next.delete("kol");
     setParams(next, { replace: true });
+    const node = returnFocusRef.current;
+    queueMicrotask(() => {
+      if (node?.isConnected) node.focus();
+    });
   };
 
-  const proposeStageChange = async (card: Card, target: PipelineStageTarget) => {
+  const proposeStageChange = async (card: Card, target: PipelineStageTarget, reason: string) => {
     if (proposing) return;
     setProposing(true);
     try {
       const ses = await api.openKolSession(card.id);
+      const note = reason.trim();
       storePending(ses.id, {
-        text: `提出阶段变更 @${card.handle} 到 ${target.label}`,
+        text: note
+          ? `提出阶段变更 @${card.handle} 到 ${target.label}。原因：${note}`
+          : `提出阶段变更 @${card.handle} 到 ${target.label}`,
         collaboration_id: card.id,
         intent: "confirm_stage",
         entities: {
           handle: card.handle,
           stage_code: target.code,
+          proposed_stage: target.code,
+          kind: target.kind,
+          ...(note ? { reason: note } : {}),
         },
       });
       sessionStorage.setItem(`kol-session:${ses.id}`, "1");
@@ -235,14 +251,14 @@ export default function Pipeline() {
     setTargetCode("");
   }, [selectedId]);
 
-  useEffect(() => {
-    if (!selectedId) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") closeDrawer();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [selectedId, params]);
+  useFocusLock({
+    open: Boolean(selectedId) && Boolean(data) && !confirmOpen,
+    rootRef: drawerRef,
+    initialRef: closeBtnRef,
+    onEscape: closeDrawer,
+    lockBody: false,
+    restore: false,
+  });
 
   if (!data) return <p className="muted">加载生命周期…</p>;
 
@@ -429,9 +445,11 @@ export default function Pipeline() {
 
       {selected ? (
         <aside
+          ref={drawerRef}
           className="pipeline-drawer"
           data-pipeline-drawer
           role="dialog"
+          aria-modal="true"
           aria-label={`${selected.handle} 合作详情`}
         >
             <header className="pipeline-drawer-head">
@@ -443,7 +461,15 @@ export default function Pipeline() {
                   {selected.owner_name ? <span className="pipeline-owner">{selected.owner_name}</span> : null}
                 </div>
               </div>
-              <button type="button" className="btn ghost" data-pipeline-drawer-close onClick={closeDrawer}>关闭</button>
+              <button
+                ref={closeBtnRef}
+                type="button"
+                className="btn ghost"
+                data-pipeline-drawer-close
+                onClick={closeDrawer}
+              >
+                关闭
+              </button>
             </header>
 
             <div className="pipeline-drawer-body">
@@ -625,7 +651,7 @@ export default function Pipeline() {
             <footer className="pipeline-drawer-foot">
               <button
                 type="button"
-                className="btn work"
+                className="btn primary"
                 data-propose-stage
                 data-act="ask"
                 data-intent="confirm_stage"
@@ -633,8 +659,8 @@ export default function Pipeline() {
                 disabled={proposing || !pickedTarget}
                 onClick={() => {
                   if (!pickedTarget) return;
-                  ask(pipelineStageConfirm(selected.handle, selected.stage_label, pickedTarget), () =>
-                    proposeStageChange(selected, pickedTarget),
+                  ask(pipelineStageConfirm(selected.handle, selected.stage_label, pickedTarget), (reason) =>
+                    proposeStageChange(selected, pickedTarget, reason),
                   );
                 }}
               >

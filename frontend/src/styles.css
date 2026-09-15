@@ -4065,6 +4065,14 @@ summary:focus-visible,
   gap: var(--space-2);
 }
 .admin-confirm-actions .btn { margin: 0; min-height: 40px; }
+.admin-confirm .btn.primary {
+  background: var(--primary);
+  color: var(--primary-fg);
+  border: 1px solid var(--primary);
+}
+.admin-confirm .btn.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) 88%, var(--bg));
+}
 .admin-shell .btn.danger,
 .admin-confirm .btn.danger,
 .admin-kb .btn.danger,
@@ -4221,7 +4229,8 @@ summary:focus-visible,
   margin-top: var(--space-3);
 }
 .approval-page .approval-actions .btn { margin-top: 0; min-height: 44px; }
-.approval-page .btn.work {
+.approval-page .btn.work,
+.approval-page .btn.primary {
   background: var(--primary);
   color: var(--primary-fg);
   border: 1px solid var(--primary);
@@ -4329,6 +4338,21 @@ summary:focus-visible,
   font-size: var(--font-ui);
   min-height: 36px;
   box-sizing: border-box;
+}
+.btn.primary {
+  background: var(--primary);
+  color: var(--primary-fg);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-sm);
+  box-shadow: none;
+}
+.btn.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) 88%, var(--bg));
+}
+.btn.primary:focus-visible {
+  outline: 2px solid var(--bg);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--primary);
 }
 .btn:hover { border-color: #cfd2d6; }
 .btn.send {
@@ -4632,6 +4656,9 @@ summary:focus-visible,
 
 .pipeline-page { max-width: 1180px; }
 .pipeline-page.has-drawer { padding-right: min(428px, 42vw); }
+.main > .pipeline-page.has-drawer {
+  overflow: hidden;
+}
 .pipeline-filters {
   display: flex;
   flex-wrap: wrap;
@@ -5867,6 +5894,11 @@ summary:focus-visible,
 .stage-chip:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
+}
+.pipeline-drawer .stage-chip.is-selected:focus-visible {
+  outline: 2px solid var(--bg);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--primary);
 }
 .stage-chip.is-suggested:not(.is-selected) {
   border-color: var(--primary);

@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
+import { approvalDecideConfirm } from "../adminConfirm";
 import { api } from "../api";
 import { useAccount } from "../components/AuthGate";
+import { useAdminConfirm } from "../components/ConfirmDialog";
 import { approvalStatusLabel, friendlyError, stripApprovalRecordIds } from "../labels";
 
 type Approval = {
@@ -273,7 +275,7 @@ function InitiateExpenseForm({ onCreated }: { onCreated: (id: string) => void })
       {preview && preview.steps.length > 0 && (
         <div data-approval-preview>
           <p className="muted">
-            {preview.plan?.rule_id ? `将按 ${preview.plan.rule_id} 提交。` : "将按费用规则提交。"}
+            将按费用规则提交。
             审批链如下，确认后提交。
           </p>
           <ol className="approval-path">
@@ -287,7 +289,7 @@ function InitiateExpenseForm({ onCreated }: { onCreated: (id: string) => void })
         </div>
       )}
       {formErr && <p className="error" role="alert">{formErr}</p>}
-      <button className="btn work" type="submit" disabled={busy}>
+      <button className="btn primary" type="submit" disabled={busy}>
         {busy ? "提交中…" : "提交费用审批"}
       </button>
     </form>
@@ -302,11 +304,8 @@ export default function Approvals() {
   const [err, setErr] = useState("");
   const [slice, setSlice] = useState<Slice>("mine");
   const [pending, setPending] = useState<PendingConfirm | null>(null);
-  const [rejectReason, setRejectReason] = useState("");
-  const [busy, setBusy] = useState(false);
   const [receipts, setReceipts] = useState<Record<string, SessionReceipt>>({});
-  const confirmRef = useRef<HTMLDivElement | null>(null);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const { ask, dialog, open: confirmOpen } = useAdminConfirm();
 
   const load = () => {
     api.approvals().then((r) => setRows(r as Approval[]));
@@ -314,58 +313,44 @@ export default function Approvals() {
   };
   useEffect(load, []);
 
-  const closeConfirm = () => {
-    setPending(null);
-    setRejectReason("");
-    queueMicrotask(() => triggerRef.current?.focus());
-  };
-
-  const act = async () => {
-    if (!pending) return;
-    const row = rows.find((item) => item.id === pending.id);
-    if (!row) return;
-    const reason = rejectReason.trim();
-    if (pending.decision === "reject" && !reason) {
-      setErr("驳回必须填写原因");
-      confirmRef.current?.querySelector<HTMLTextAreaElement>("[name='reject_reason']")?.focus();
-      return;
-    }
+  const decide = (row: Approval, decision: Decision) => {
     setErr("");
-    setBusy(true);
-    try {
-      const result = await api.decide(
-        pending.id,
-        pending.decision,
-        pending.actor,
-        pending.decision === "reject" ? reason : undefined,
-      );
-      const receipt = receiptCopy(row, pending.decision, result, reason);
-      setReceipts((prev) => ({ ...prev, [row.id]: receipt }));
-      setSearchParams({ id: row.id });
-      setPending(null);
-      setRejectReason("");
-      load();
-    } catch (e) {
-      setErr(friendlyError(e, "审批未完成，请稍后重试"));
-    } finally {
-      setBusy(false);
-    }
+    setPending({ id: row.id, decision, actor: row.chain[row.current_index] });
+    const current = waitingName(row);
+    ask(
+      approvalDecideConfirm({
+        decision,
+        object: moneyLine(row),
+        scope: [
+          `当前等待 ${current}（第 ${row.current_index + 1}/${row.chain_detail?.length || row.chain.length} 人）`,
+          row.kind && row.kind !== "expense" ? "按审批规则" : "按费用规则",
+        ].join(" · "),
+        consequence: consequenceCopy(row, decision),
+      }),
+      async (reason) => {
+        try {
+          const result = await api.decide(
+            row.id,
+            decision,
+            row.chain[row.current_index],
+            decision === "reject" ? reason : undefined,
+          );
+          const receipt = receiptCopy(row, decision, result, reason);
+          setReceipts((prev) => ({ ...prev, [row.id]: receipt }));
+          setSearchParams({ id: row.id });
+          setPending(null);
+          load();
+        } catch (e) {
+          throw new Error(friendlyError(e, "审批未完成，请稍后重试"));
+        }
+      },
+    );
   };
 
   useEffect(() => {
-    if (!pending) return;
-    const root = confirmRef.current;
-    root?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    const target = pending.decision === "reject"
-      ? root?.querySelector<HTMLElement>("[name='reject_reason']")
-      : root?.querySelector<HTMLElement>("[data-approval-confirm-yes]");
-    target?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) closeConfirm();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [pending, busy]);
+    if (confirmOpen) return;
+    setPending(null);
+  }, [confirmOpen]);
 
   useEffect(() => {
     if (!focusId || !rows.length) return;
@@ -395,7 +380,8 @@ export default function Approvals() {
   }, [focusId, visible]);
 
   return (
-    <div className="list-page approval-page" data-visual="docs20">
+    <div className="list-page approval-page">
+      {dialog}
       <header className="approval-page-head">
         <div className="page-kicker">审批</div>
         <h1>工作审批</h1>
@@ -424,9 +410,8 @@ export default function Approvals() {
       {visible.map((a) => {
         const current = waitingName(a);
         const notice = stripApprovalRecordIds(a.wecom_card?.body);
-        const rule = String(a.payload?.rule_id || "");
         const receipt = durableReceipt(a, receipts[a.id]);
-        const confirming = pending?.id === a.id;
+        const confirming = confirmOpen && pending?.id === a.id;
         return (
           <article
             className={"panel approval-card" + (a.status === "pending" ? " is-pending" : "") + (focusId === a.id ? " is-focus" : "")}
@@ -442,7 +427,7 @@ export default function Approvals() {
               <span className="nowrap">{approvalStatusLabel(a.status)}</span>
             </h3>
             <p className="muted">
-              {rule ? `适用 ${rule}` : ""}
+              {a.kind && a.kind !== "expense" ? "按审批规则" : "按费用规则"}
               {a.need_manual_band ? " · 需人工确认金额档" : ""}
               {a.status === "pending" ? ` · 当前等待 ${current}（第 ${a.current_index + 1}/${a.chain_detail?.length || a.chain.length} 人）` : ""}
             </p>
@@ -469,84 +454,18 @@ export default function Approvals() {
               <div className="approval-actions">
                 <button
                   type="button"
-                  className="btn work"
-                  onClick={(event) => {
-                    triggerRef.current = event.currentTarget;
-                    setErr("");
-                    setRejectReason("");
-                    setPending({ id: a.id, decision: "approve", actor: a.chain[a.current_index] });
-                  }}
+                  className="btn primary"
+                  onClick={() => decide(a, "approve")}
                 >
                   同意
                 </button>
                 <button
                   type="button"
                   className="btn danger"
-                  onClick={(event) => {
-                    triggerRef.current = event.currentTarget;
-                    setErr("");
-                    setRejectReason("");
-                    setPending({ id: a.id, decision: "reject", actor: a.chain[a.current_index] });
-                  }}
+                  onClick={() => decide(a, "reject")}
                 >
                   驳回
                 </button>
-              </div>
-            )}
-            {confirming && (
-              <div
-                className="approval-confirm"
-                ref={confirmRef}
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby={`approval-confirm-${a.id}`}
-                data-approval-confirm
-                data-approval-confirm-decision={pending.decision}
-                aria-busy={busy || undefined}
-              >
-                <strong id={`approval-confirm-${a.id}`}>
-                  {pending.decision === "reject" ? "确认驳回？" : "确认同意？"}
-                </strong>
-                <p data-approval-confirm-object>对象：{moneyLine(a)}</p>
-                <p data-approval-confirm-scope>
-                  范围：当前等待 {current}（第 {a.current_index + 1}/{a.chain_detail?.length || a.chain.length} 人）
-                  {rule ? ` · 适用 ${rule}` : ""}
-                </p>
-                <p data-approval-confirm-consequence>{consequenceCopy(a, pending.decision)}</p>
-                {pending.decision === "reject" && (
-                  <label className="field">
-                    驳回原因
-                    <textarea
-                      name="reject_reason"
-                      value={rejectReason}
-                      onChange={(event) => setRejectReason(event.target.value)}
-                      rows={3}
-                      required
-                      disabled={busy}
-                      placeholder="说明为什么驳回"
-                    />
-                  </label>
-                )}
-                <div className="approval-actions">
-                  <button
-                    type="button"
-                    className={pending.decision === "reject" ? "btn danger" : "btn work"}
-                    data-approval-confirm-yes
-                    disabled={busy || (pending.decision === "reject" && !rejectReason.trim())}
-                    onClick={() => void act()}
-                  >
-                    {busy ? "处理中…" : pending.decision === "reject" ? "确认驳回" : "确认同意"}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn ghost"
-                    data-approval-confirm-no
-                    disabled={busy}
-                    onClick={closeConfirm}
-                  >
-                    取消
-                  </button>
-                </div>
               </div>
             )}
             {a.status === "pending" && a.can_decide === false && (

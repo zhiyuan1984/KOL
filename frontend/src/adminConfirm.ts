@@ -1,5 +1,8 @@
 /** L3 confirm copy for admin destructive writes. Object / scope / consequence only. */
 
+export type AdminConfirmTone = "danger" | "primary";
+export type AdminConfirmFocus = "cancel" | "confirm" | "reason";
+
 export type AdminConfirmCopy = {
   kind: AdminConfirmKind;
   title: string;
@@ -12,6 +15,8 @@ export type AdminConfirmCopy = {
   requireReason?: boolean;
   reasonLabel?: string;
   reasonPlaceholder?: string;
+  confirmTone?: AdminConfirmTone;
+  initialFocus?: AdminConfirmFocus;
 };
 
 export type AdminConfirmKind =
@@ -33,6 +38,8 @@ export type AdminConfirmKind =
   | "retention-policy"
   | "proposal-reject"
   | "pipeline-stage"
+  | "approval-approve"
+  | "approval-reject"
   | "memory-delete"
   | "session-delete"
   | "starry-unbind";
@@ -273,6 +280,28 @@ export function sessionDeleteConfirm(title: string): AdminConfirmCopy {
     requireReason: true,
     reasonLabel: "拒绝原因",
     reasonPlaceholder: "关闭或取消删除前，说明为什么不继续",
+  };
+}
+
+export function approvalDecideConfirm(input: {
+  decision: "approve" | "reject";
+  object: string;
+  scope: string;
+  consequence: string;
+}): AdminConfirmCopy {
+  const reject = input.decision === "reject";
+  return {
+    kind: reject ? "approval-reject" : "approval-approve",
+    title: reject ? "确认驳回？" : "确认同意？",
+    object: input.object,
+    scope: input.scope,
+    consequence: input.consequence,
+    confirmLabel: reject ? "确认驳回" : "确认同意",
+    confirmTone: reject ? "danger" : "primary",
+    requireReason: reject,
+    reasonLabel: "驳回原因",
+    reasonPlaceholder: "说明为什么驳回",
+    initialFocus: reject ? "reason" : "confirm",
   };
 }
 

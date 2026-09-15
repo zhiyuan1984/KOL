@@ -11,8 +11,9 @@ async function confirmApprovalDecision(
   decision: "approve" | "reject",
   reason = "超出本月预算",
 ): Promise<void> {
+  const page = card.page();
   await card.getByRole("button", { name: decision === "approve" ? "同意" : "驳回" }).click();
-  const dialog = card.locator("[data-approval-confirm]");
+  const dialog = page.locator("[data-approval-confirm]");
   await expect(dialog).toBeVisible();
   if (decision === "reject") {
     await dialog.locator("[name='reject_reason']").fill(reason);
@@ -325,6 +326,10 @@ async function proposePipelineStage(page: Page, handle: string, stageCode?: stri
   const dialog = page.locator("[data-admin-confirm='pipeline-stage']");
   await expect(dialog).toBeVisible();
   await expect(dialog.locator("[data-admin-confirm-object]")).not.toHaveText("");
+  const reason = dialog.locator("[data-admin-confirm-reason]");
+  if (await reason.count()) {
+    await reason.fill("测试跳转或回退原因");
+  }
   await page.locator("[data-admin-confirm-ok]").click();
 }
 
@@ -812,6 +817,8 @@ test("pipeline stage CTA passes concrete stage_code into confirm_stage", async (
   await expect(page.locator("[data-pipeline-drawer] [data-stage-target]", { hasText: /^下一阶段$/ })).toHaveCount(0);
   await page.locator('[data-pipeline-drawer] [data-stage-target="INTERESTED"]').click();
   await expect(page.locator("[data-pipeline-drawer] [data-propose-stage]")).toHaveAttribute("data-target-stage", "INTERESTED");
+  await expect(page.locator("[data-pipeline-drawer]")).toHaveAttribute("aria-modal", "true");
+  await expect(page.locator("[data-pipeline-drawer] [data-propose-stage]")).toHaveClass(/primary/);
   await page.locator("[data-pipeline-drawer] [data-propose-stage]").click();
   const dialog = page.locator("[data-admin-confirm='pipeline-stage']");
   await expect(dialog).toBeVisible();
@@ -819,13 +826,41 @@ test("pipeline stage CTA passes concrete stage_code into confirm_stage", async (
   await expect(dialog.locator("[data-admin-confirm-object]")).toContainText("已回复-有兴趣");
   await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("confirm_stage");
   await expect(dialog).not.toContainText("下一阶段");
+  await expect(dialog.locator("[data-admin-confirm-reason]")).toHaveCount(0);
+  await expect(page.locator("[data-admin-confirm-ok]")).toHaveClass(/primary/);
   await page.locator("[data-admin-confirm-ok]").click();
   await page.waitForURL(/\/s\//);
   await expect.poll(() => posted?.entities?.stage_code || "").toBe("INTERESTED");
   expect(posted?.intent).toBe("confirm_stage");
+  expect(posted?.entities?.reason).toBeFalsy();
   expect(posted?.text || "").toContain("已回复-有兴趣");
   expect(posted?.text || "").not.toContain("下一阶段");
   await expect(page.locator('[data-workbench] [data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 15000 });
+});
+
+test("pipeline skip/exception require a reason on confirm_stage handoff", async ({ page }) => {
+  let posted: { intent?: string; entities?: { stage_code?: string; reason?: string; kind?: string }; text?: string } | null = null;
+  page.on("request", (request) => {
+    if (request.method() !== "POST") return;
+    if (!/\/api\/sessions\/[^/]+\/messages$/.test(new URL(request.url()).pathname)) return;
+    posted = request.postDataJSON() as typeof posted;
+  });
+  await page.goto("/pipeline");
+  await page.locator('[data-kol="小美妆日记"] [data-pipeline-row]').click();
+  await page.locator('[data-pipeline-drawer] [data-stage-target="CONTENT_PLANNING"]').click();
+  await page.locator("[data-pipeline-drawer] [data-propose-stage]").click();
+  const dialog = page.locator("[data-admin-confirm='pipeline-stage']");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator("[data-admin-confirm-reason]")).toBeVisible();
+  await expect(page.locator("[data-admin-confirm-ok]")).toBeDisabled();
+  await dialog.locator("[data-admin-confirm-reason]").fill("不寄样，直接进内容策划");
+  await page.locator("[data-admin-confirm-ok]").click();
+  await page.waitForURL(/\/s\//);
+  await expect.poll(() => posted?.entities?.reason || "").toBe("不寄样，直接进内容策划");
+  expect(posted?.entities?.stage_code).toBe("CONTENT_PLANNING");
+  expect(posted?.entities?.kind).toBe("skip");
+  expect(posted?.intent).toBe("confirm_stage");
+  expect(posted?.text || "").toContain("原因：不寄样，直接进内容策划");
 });
 
 test("session page has no coach next-step card and keeps composer skills", async ({ page }) => {
@@ -4251,6 +4286,9 @@ test("expense approval walks FIN-EXP-004 to 已办结 without record ids", async
   await page.goto(`/approvals?id=${id}`);
   const card = page.locator(`[data-approval-id="${id}"]`);
   await expect(card).toBeVisible();
+  await expect(page.locator(".approval-page[data-visual='docs20']")).toHaveCount(0);
+  await expect(card.locator("h3 + .muted")).toContainText("按费用规则");
+  await expect(card.locator("h3 + .muted")).not.toContainText("FIN-EXP");
   await expect(page.locator("body")).not.toContainText("approval_id=");
   await expect(page.locator("body")).not.toContainText("chain_id=");
   await expect(card).toContainText("折合人民币");
@@ -4276,7 +4314,7 @@ test("expense approval reject requires a reason and leaves a durable receipt", a
   const card = page.locator(`[data-approval-id="${id}"]`);
   await expect(card).toBeVisible();
   await card.getByRole("button", { name: "驳回" }).click();
-  const dialog = card.locator("[data-approval-confirm]");
+  const dialog = page.locator("[data-approval-confirm]");
   await expect(dialog).toBeVisible();
   await expect(dialog.locator("[data-approval-confirm-consequence]")).toContainText("整单作废");
   await expect(dialog.getByRole("button", { name: "确认驳回" })).toBeDisabled();
