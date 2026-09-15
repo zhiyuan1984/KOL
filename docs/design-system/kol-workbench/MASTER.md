@@ -1,159 +1,366 @@
-# 智能体中台工作台 Design System — MASTER
-
-> 路径名 `design-system/kol-workbench/` 是 **KOL 试点皮肤**目录，不是产品身份。产品是智能体中台（`CONSTITUTION.md` §4.1–4.2）；不要把本目录读成「只做 KOL」。
+> **I-layer path:** this file remains `docs/design-system/kol-workbench/MASTER.md` (KOL workbench path name; token/source slot). Do not rename or move it.
 >
-> UI 任务先读宪法 / IA / UX 硬不变量，再经 `ui-ux-pro-max`，再读 [`docs/design.md`](../../design.md)（class I 入口），再到本文件。强制视觉链：**CONSTITUTION → ui-ux-pro-max → design.md → MASTER**。本文件是 token 源；不要把 hex 抄进 `design.md`。
->
-> **规范观感来源**是 [`docs/references/openai-style.md`](../../references/openai-style.md)（mood/spec：安静白底、低饱和、发丝级阴影、排版克制）。Token hex 仍只住本文件。本文件与 OpenAI 在审美 / 布局 / 字体 / 间距 / 阴影 / mood / 主 CTA 上冲突时，**OpenAI 胜**（ADR-031）；胜出后必须把本表和解到 OpenAI，**不得把冲突 hex 留作胜出法**。填充主按钮：OpenAI 黑色 / Obsidian 实底。本表与 `styles.css` 已按该胜出值和解；历史 indigo `#4F46E5` / `#818CF8` 只是滞后实现，**不是**现行法。
->
-> 本文件以 `frontend/src/styles.css` 已落地的 token 为基础，定义下一轮重新设计的视觉约束。**现有页面的布局、组件造型和视觉完成度不是设计基准，也不代表已经获得认可。**
+> **Content:** the body below is the full OpenAI style spec (same document as `docs/references/openai-style.md`). Content authority is now that OpenAI body; LAW-MAP / `design.md` still treat this path as the I-layer token source.
 
-## 0. 来源边界
+# OpenAI — Style Reference
 
-本设计系统继承的内容只有：
+> 默认观感 mood/spec（ADR-031：与 MASTER 审美冲突时 **本文件胜出**）。Token hex 仍只住 MASTER，不抄进 `design.md`。胜出后必须和解 MASTER（浅色填充主 CTA = Obsidian `#000000`）。MASTER 与 `styles.css` 已按该胜出值和解。本文件仍不授权把 hex 直接写入 `design.md`。项目规则见 `../design-system/kol-workbench/MASTER.md`。
 
-- `:root`、深色主题和 Composer 中已经命名的 CSS token；
-- 已确认的正文下限（ADR-020：不得低于 16px；现行正文取 OpenAI 对齐的 17px / 1.65）、间距阶梯、语义色、圆角与无障碍底线；
-- 产品宪法、FS 和 UX 中的页面职责、状态、权限与副作用规则；
-- OpenAI-quiet 默认观感（mood/spec 读 `docs/references/openai-style.md`）。色值不抄进 `design.md`；与本表冲突时 OpenAI 胜，须和解本表（含黑色 / Obsidian 实底主 CTA）。
+> Research lab notebook at noon.
 
-以下内容不得从现有页面反向写入 MASTER：
+**Theme:** light
 
-- 当前页面的排版、信息密度、卡片形态、导航形态和局部颜色搭配；
-- 现有 class 的尺寸、魔法数、历史兼容写法和视觉缺陷；
-- “代码里已经这样写了”但没有对应 token 或产品契约的样式。
+OpenAI's interface operates as a typographic, editorial canvas — pure white surfaces, near-black type, and almost no chromatic identity. The system is defined by restraint: the only filled element on the page is the black 'Try ChatGPT' button, which functions as a single period at the end of an otherwise monochrome sentence. Hairline borders at 12% black opacity create structure without weight; cards carry a barely-perceptible 6px radius that whispers geometry rather than announcing it. Typography does the heavy lifting: a custom sans (OpenAI Sans) set at a Major Second scale with progressively tighter tracking — -0.03em at display, normal at body — gives headlines a compressed, almost newsprint authority. Components feel deliberately lightweight: pill-shaped controls, ghost buttons, transparent surfaces, and minimal elevation. The visual mood is 'research lab notebook' — quiet, confident, and trusting the reader to focus on content rather than chrome.
 
-因此，重做页面时可以彻底调整结构和组件外观，只需继续使用下列 token；如果 token 本身不足，应先提出新增的语义 token，再实现页面。
+## Tokens — Colors
 
-## 1. 目标观感
+| Name | Value | Token | Role |
+|------|-------|-------|------|
+| Obsidian | `#000000` | `--color-obsidian` | Primary text, filled action button (Try ChatGPT), strongest interactive emphasis — the single period of chromatic punctuation in an otherwise achromatic system |
+| Graphite | `#666666` | `--color-graphite` | Muted captions, helper text, and de-emphasized UI labels. |
+| Smoke | `#8f8f8f` | `--color-smoke` | Tertiary text, disabled states, icon strokes, placeholder text — the dimmest readable voice |
+| Paper | `#ffffff` | `--color-paper` | Page canvas, card surfaces, input fills — the infinite background that lets type and imagery carry all weight |
+| Ash | `#f1f1f1` | `--color-ash` | Subtle surface elevation, hover states, language selector background — a barely-visible plane shift from Paper |
+| Hairline | `#0000001f` | `--color-hairline` | All borders, dividers, card outlines, button outlines — structure without weight, defined as a semi-transparent black rather than a gray hex |
+| Whisper | `#0000000a` | `--color-whisper` | Supporting palette color for small decorative accents when the core palette needs contrast. Do not promote it to the primary CTA color |
 
-默认产品观感是 OpenAI-quiet：安静白底、低饱和、发丝级 / 克制阴影、排版克制。mood/spec 以 [`docs/references/openai-style.md`](../../references/openai-style.md) 为规范来源。**本表 hex 不再对 OpenAI 永远胜出。** 审美 / 布局 / 字体 / 间距 / 阴影 / mood / 主 CTA 冲突时 OpenAI 胜；胜出后更新本表，不得把冲突 hex 留作胜出法。填充主按钮是 OpenAI 黑色 / Obsidian 实底（浅色 `--primary` = `#000000`，`--primary-fg` = `#FFFFFF`）。历史 indigo `#4F46E5` / `#818CF8` 是 ADR-031 落地前的滞后实现，**不是**胜出法，不得再写回本表。Token hex 只住本文件，不把 mood 文件色值抄进 `design.md` 或页面规范。
+## Tokens — Typography
 
-目标是轻、安静、精确的 Agent 工作台：白色主画布、浅灰层次、细边框、克制的主色强调，依靠排版和留白建立层级。工作结果和状态优先于装饰。避免过度阴影、卡片套卡片、后台表单堆叠和营销落地页式大标题。这不是 Linear-first 品牌；Linear 密度只可在与 OpenAI-quiet 兼容时作为间距手法（ADR-020 / ADR-029；冲突规则见 ADR-031）。
+### OpenAI Sans — Primary typeface for all UI text — custom geometric sans with humanist warmth, used at weight 400 for body, 500 for nav/labels/headings, 600 only for the largest headings. Signature: -0.03em tracking at display sizes creates compressed authority; +0.011em at 28px adds subtle breathing for subheads. Font features: 'calt' and 'liga' enable contextual alternates and ligatures. · `--font-openai-sans`
+- **Substitute:** Inter, Söhne, or system-ui sans-serif
+- **Weights:** 400, 500, 600
+- **Sizes:** 13px, 14px, 16px, 17px, 18px, 22px, 28px, 48px
+- **Line height:** 1.00–1.65
+- **Letter spacing:** -0.03em at 48px, 0.011em at 28px, -0.01em at 22px and below
+- **OpenType features:** `'calt' on, 'liga' on`
+- **Role:** Primary typeface for all UI text — custom geometric sans with humanist warmth, used at weight 400 for body, 500 for nav/labels/headings, 600 only for the largest headings. Signature: -0.03em tracking at display sizes creates compressed authority; +0.011em at 28px adds subtle breathing for subheads. Font features: 'calt' and 'liga' enable contextual alternates and ligatures.
 
-“高密度”表示信息组织紧凑、扫描路径清楚，不表示压缩字号、塞满首屏或沿用当前页面的拥挤布局。
+### Type Scale
 
-技术基线为 React 19 + Vite + 普通 CSS。组件边界、状态和可访问语义由本文件与页面契约定义，不假定任何未安装组件库的结构或类名。
+| Role | Size | Line Height | Letter Spacing | Token |
+|------|------|-------------|----------------|-------|
+| caption | 13px | 1.51 | -0.13px | `--text-caption` |
+| input | 16px | 1.5 | -0.16px | `--text-input` |
+| body-lg | 18px | 1.32 | -0.18px | `--text-body-lg` |
+| subheading | 22px | 1.26 | -0.22px | `--text-subheading` |
+| heading | 28px | 1.21 | 0.31px | `--text-heading` |
+| display | 48px | 1.16 | -1.44px | `--text-display` |
 
-## 2. 已落地 Token
+## Tokens — Spacing & Shapes
 
-`frontend/src/styles.css` 是 token 的实现事实来源，本节是供设计与评审使用的镜像。组件只引用语义变量；修改数值时必须同时修改 CSS 和本表。与 OpenAI 冲突的行已按 ADR-031 和解；历史 indigo 不得再写回本表。
+**Base unit:** 4px
 
-| 类别 | Token | 浅色 | 深色 |
-|---|---|---:|---:|
-| 背景 | `--bg` | `#FFFFFF` | `#17191D` |
-| 抬升背景 | `--bg-elevated` | `#F6F7F8` | `#101216` |
-| 边框 | `--border` | `#E5E6E8` | `#30343B` |
-| 强边框 | `--border-strong` | `#8B93A1` | `#77808C` |
-| 控件边框 | `--control-border` | `#8B93A1` | `#77808C` |
-| 控件悬停边框 | `--control-border-hover` | `#6B7280` | `#A2A8B2` |
-| 控件错误边框 | `--control-border-invalid` | `#C43C3C` | `#EF7777` |
-| 焦点环 | `--focus-ring` | `#000000`（OpenAI-quiet；可见环服从 §6 / 宪法，不用 indigo） | `#FFFFFF` |
-| 主文字 | `--text` | `#1A1A1A` | `#F1F3F5` |
-| 次文字 | `--text-muted` | `#6B7280` | `#A2A8B2` |
-| 主色 | `--primary` | `#000000`（Obsidian 实底主 CTA） | `#FFFFFF`（深色反相，保证可读） |
-| 主色前景 | `--primary-fg` | `#FFFFFF` | `#000000` |
-| 危险 | `--danger` | `#C43C3C` | 同语义变量 |
-| 成功 | `--success` | `#2F7D73` | 同语义变量 |
-| 警告 | `--warning` | `#EA5504` | 同语义变量 |
+**Density:** comfortable
 
-已落地的 Composer token：`--composer-bg: #FFFFFF`、`--composer-border`（=`--border`）、`--composer-radius: 25px`、`--composer-accent`（=`--primary`）、`--composer-placeholder: #A6A6A6`、`--composer-send-idle`（=`--text-muted`）、`--composer-divider: #E5E5E5`、`--composer-chip-bg`（=`--bg-elevated`）、`--composer-chip-radius: 12px`、`--composer-side-btn-bg`（=`--bg-elevated`）、`--composer-side-btn-size: 36px`。它们只服务输入容器，不扩散到普通按钮、卡片或页面背景。历史蓝相 `#C2D1FF` / `#F3F6FF` 已弃用。
+### Spacing Scale
 
-### 已和解（ADR-031；indigo 是滞后，不是现行法）
+| Name | Value | Token |
+|------|-------|-------|
+| 4 | 4px | `--spacing-4` |
+| 8 | 8px | `--spacing-8` |
+| 12 | 12px | `--spacing-12` |
+| 16 | 16px | `--spacing-16` |
+| 20 | 20px | `--spacing-20` |
+| 24 | 24px | `--spacing-24` |
+| 32 | 32px | `--spacing-32` |
+| 40 | 40px | `--spacing-40` |
+| 52 | 52px | `--spacing-52` |
+| 64 | 64px | `--spacing-64` |
+| 80 | 80px | `--spacing-80` |
+| 120 | 120px | `--spacing-120` |
 
-| Token | 历史滞后（非胜出法） | 现行和解值 |
-|---|---|---|
-| `--primary`（浅色） | indigo `#4F46E5` | Obsidian `#000000` 实底主 CTA |
-| `--primary-fg`（浅色） | `#FFFFFF` | Paper `#FFFFFF` |
-| `--focus-ring`（浅色） | indigo `#4F46E5` | `#000000`（克制、可见；不用蓝品牌主色） |
-| `--primary` / `--focus-ring`（深色） | indigo `#818CF8` | `#FFFFFF` / 前景 `#000000`（反相，保证暗色可读） |
-| `--font-body` / `--leading-body` | `16px` / `1.55` | `17px` / `1.65`（ADR-020 下限仍是 16；取 OpenAI 偏好） |
-| `--shadow-quiet` | `0 1px 2px rgba(15,23,42,.06)` | 发丝级：`rgba(0,0,0,.02) 0 4px 6px, rgba(0,0,0,.05) 0 0 2px` |
+### Border Radius
 
-### Token 分类
+| Element | Value |
+|---------|-------|
+| tags | 9999px |
+| cards | 6px |
+| links | 4px |
+| inputs | 9999px |
+| buttons | 9999px |
 
-| 类型 | 已落地 token | 新设计用法 |
-|---|---|---|
-| 核心语义 | `--bg`、`--bg-elevated`、`--border`、`--border-strong`、`--control-border*`、`--focus-ring`、`--text`、`--text-muted`、`--primary`、`--primary-fg`、`--danger`、`--success`、`--warning` | 新页面直接使用 |
-| 尺寸系统 | `--radius-sm`、`--radius-md`、`--space-1` 至 `--space-5`、`--shadow-quiet` | 新页面直接使用 |
-| 字体系统 | `--font-xs`、`--font-sm`、`--font-ui`（16px 控件）、`--font-body`（17px）、`--font-section`、`--font-title`、`--font-page-title`、`--leading-body`、`--leading-tight`、`--sans`、`--mono` | 新页面直接使用 |
-| Composer | `--composer-*` | 只在任务输入容器及其子控件使用 |
-| 迁移别名 | `--canvas`、`--chrome`、`--line`、`--muted`、`--star`、`--orange`、`--ok`、`--red`、`--font-ui`、`--font-table`、`--font-meta` 等 | 仅保持旧代码可运行；新代码使用对应核心 token |
-| 当前壳层变量 | `--chrome-2`、`--sidebar-thumb`、`--left-width`、`--page-gutter` | 属于现有实现，不据此锁定新页面结构；需要时先评审其语义和数值 |
+### Shadows
 
-普通 `--border` 只用于低强调分隔。可操作控件边界使用 `--control-border`；hover 使用 `--control-border-hover`；错误使用 `--control-border-invalid`；键盘焦点使用 `--focus-ring`。浅色 `--border` 与 Composer 默认边框对比度不足 3:1，不能独立承担状态或可操作性提示。
+| Name | Value | Token |
+|------|-------|-------|
+| sm | `rgba(0, 0, 0, 0.02) 0px 4px 6px 0px, rgba(0, 0, 0, 0.05) ...` | `--shadow-sm` |
 
-页面局部变量（例如 `--home-gutter`、`--kb-*`）不自动进入设计系统。只有经过跨页面复用验证并被提升到 `:root` 的语义变量，才加入 MASTER。
+### Layout
 
-## 3. 字体与密度
+- **Page max-width:** 1200px
+- **Section gap:** 32-64px
+- **Card padding:** 12px
+- **Element gap:** 12-16px
 
-- 字体：系统无衬线中文栈；正文 `17px/1.65`（OpenAI 对齐；ADR-020 下限 16px，不得再压回）。控件 `--font-ui` 为 `16px`（≥14px）；元数据 `13–14px`（`--font-xs` / `--font-sm`），不得承载关键说明。
-- 辅助文字：`14px`；极少量数据标签允许 `13px`。
-- 小节标题 `18px/1.35`，卡片/面板标题 `24px/1.35`，页面标题 `28px/1.35`。
-- 使用顺序正确的 `h1`–`h6` 表达结构，不用字号或粗细模拟标题语义。
-- 连续阅读内容控制在约 36–48 个中文字符或 60–80 个拉丁字符的行长；结构化数据区不受此限制。
-- 间距阶梯：`4 / 8 / 12 / 16 / 24px`。优先组合这些值，不新增相近魔法数。
-- 圆角：小控件 `6px`，面板 `10px`；Composer 容器可用 `25px`，选择项 `12px`。
-- 阴影：仅抬升或浮层使用 `--shadow-quiet`（发丝级 / OpenAI-quiet，无重抬升）；常规分区使用边框和背景层级。
+## Components
 
-禁止用 `transform: scale()` 或 `zoom` 修正整体密度；应修改真实字号、行高、间距和容器尺寸。
+### Filled Action Button
+**Role:** Primary conversion — the only filled button in the system
 
-## 4. 新页面布局原则
+Solid #000000 background, white text at 14px weight 500, full pill radius (9999px), 8px vertical / 20px horizontal padding. Used sparingly — currently only for 'Try ChatGPT'. This is the system's only chromatic punctuation.
 
-- 页面从用户目标和主任务重新排版，不照抄现有 DOM 或 CSS class。
-- 主框架由导航、页面上下文和单一主滚动区组成；具体导航形态由新方案决定。
-- 内容宽度按任务决定：对话与表单保持可读行长，表格和 Pipeline 可扩展到可用宽度。
-- 一级层级之间通常 24px，组件组 16px，控件内部 8–12px。
-- 空间不足时先折行、收起低频辅助信息或切换窄屏结构，不缩小关键文字。
+### Outlined Pill Button
+**Role:** Secondary actions and category filters
 
-## 5. 组件规则
+Transparent background, #000000 text at 14px weight 500, 1px solid border at rgba(0,0,0,0.12), full pill radius (9999px), 8px vertical / 20px horizontal padding. The default for tag chips like 'Talk with ChatGPT', 'Research', 'API Platform'.
 
-- 按钮：同一区域只保留一个主要动作；主按钮用主色实底，次按钮用中性背景或边框，危险动作独立使用危险语义。
-- 图标：使用统一 SVG 图标库；不以 emoji 充当产品图标。图标按钮必须有可访问名称和 tooltip。
-- Chip：用于紧凑选择和过滤；选中状态同时改变背景、边框和文字，不只改变颜色。
-- Card/Panel：只有真实的分组、结果或可独立操作对象才使用；不得为每段文字加卡片。
-- 表单：标签常驻，错误靠近字段，帮助文字说明约束。placeholder 不能代替标签。
-- 状态：加载、等待、空、错误、部分成功、成功均使用同一状态语言，并提供适用的恢复动作。
-- 加载：短操作避免闪烁 spinner；较长操作使用稳定 skeleton 或进度，并预留最终内容尺寸，避免布局跳动。
-- 表格：固定表头只在长列表需要时使用；批量操作必须显示选择数量和影响范围。无界数据使用服务端分页；预计同时渲染超过 200 行时评估虚拟化，并保证键盘与读屏顺序正确。
-- Composer：承担自然语言输入与高频能力入口；低频设置渐进披露，不能把工具栏变成完整设置页。
+### Ghost Text Button
+**Role:** Lowest-emphasis actions and navigation
 
-## 6. 交互与无障碍
+No background, no border, #000000 text at 13-14px weight 500. Used for nav items, breadcrumb-style links, and the 'Log in' control. Relies on hover state (Whisper background) for affordance.
 
-- 所有操作支持键盘；焦点环清晰可见，不能通过 `outline: none` 无替代地移除。
-- 焦点顺序与视觉顺序一致；固定栏、Composer 和浮层不得遮挡焦点。Dialog/抽屉关闭后，焦点返回触发控件。
-- Chip 优先使用原生按钮并暴露 `aria-pressed`；展开控件暴露 `aria-expanded`；加载容器使用 `aria-busy`；重要错误和完成结果使用适当的 live region。
-- 普通文字与背景对比度至少 4.5:1，大号文字和非文本控件至少 3:1。
-- 触控目标至少 44×44px；桌面密集控件高度 36–40px，并保留足够间隔。
-- hover、focus、active、disabled、loading 必须有明确差异；禁用状态说明原因时提供附近帮助。
-- 即时按压反馈使用 `--duration-instant: 100ms`；hover/focus/控件状态使用 `--duration-control: 140ms`；浮层进入使用 `--duration-enter: 220ms`；退出使用 `--duration-exit: 180ms`。
-- 动效只表达进入、退出、展开和状态过渡；避免动画修改布局宽高。`prefers-reduced-motion` 下直接呈现可读最终状态。
+### Search Input
+**Role:** Primary interaction surface — the ChatGPT prompt bar
 
-## 7. 响应式与导航
+Transparent background, #000000 text at 16px weight 400, 1px solid border at rgb(229,231,235), full pill radius (9999px), 10px vertical / 24px right / 52px left padding (left padding reserves space for an icon). Placeholder at #666666. No visible focus ring — system relies on the cursor.
 
-- `360px`：单列，导航与辅助面板转菜单/抽屉。
-- `768px`：紧凑布局，主要任务保持完整，辅助详情按需展开。
-- `1024px`：标准工作台，可显示稳定导航与主工作区。
-- `1366px`：主要桌面验收宽度，可显示辅助详情栏。
-- `≥1440px`：正文保持可读行长，表格和数据区才扩展到剩余宽度。
-- 表格可使用受控横向滚动或摘要行；页面主体不得横向溢出。URL、ID 和用户长文本使用可控换行，flex/grid 文本子项允许收缩。
-- 浏览器前进/返回保持可预测。筛选、模式或详情如果需要刷新、分享和深链，应进入 URL；临时 Dialog、抽屉和 tooltip 不写入历史。
-- 只有三层及以上稳定层级使用面包屑；返回入口必须指向用户上一层任务语境。
+### Article Card
+**Role:** Content cards in the news/stories grid
 
-## 8. 观感来源与 ui-ux-pro-max
+Transparent background, 6px border-radius, no shadow, no padding — the card is defined entirely by its image and text block. The 6px radius applies to images, creating softly clipped photographic edges. Text sits directly below or overlaid on the image.
 
-OpenAI-quiet 是**规范观感来源**（mood/spec 读 `docs/references/openai-style.md`）。Token 数值仍只住本文件，但**不再对 OpenAI 永远胜出**。审美 / 布局 / 字体 / 间距 / 阴影 / mood / 主 CTA 冲突时 OpenAI 胜（ADR-031）。本表与 `styles.css` 已和解：填充主按钮映射 `--primary` / `--primary-fg`（浅色 `#000000` / `#FFFFFF`）。历史 indigo **不是**现行法。`design.md` 仍禁止写入 hex。
+### Featured Article Hero Card
+**Role:** Large editorial card — one per grid section
 
-`ui-ux-pro-max` 是外观 UIUX 强制视觉链中的**必经分析 / 对照**（位于 CONSTITUTION / IA 事实之后、`design.md` → 本文件之前）。按当前问题搜索风格、颜色、字体、UX、图表或技术栈建议。其 **OpenAI 对齐**且不违反宪法 / FS / Policy 的建议可以驱动本表更新（当 MASTER 落后于 OpenAI 时必须更新）。它仍不得发明 Glassmorphism、随机新品牌字体、或与 OpenAI-quiet + 宪法硬不变量矛盾的橙色强调；不得覆盖 SEND≠STAGE、L3、无障碍底线。通用落地页模式、未经验证的颜色方案和搜索结果中的示例代码不得直接升级为项目规范。
+Full-width or two-column span, large photographic header (planets, space, etc.), 48px display headline in weight 500 with -0.03em tracking below, metadata at 14px weight 500 in Graphite (#666666). The image does the visual work; type provides editorial gravity.
 
-## 9. 交付检查
+### Section Header
+**Role:** Dividing labels between content zones
 
-- 使用语义 token，无散落的未说明十六进制颜色。
-- 方案有独立的线框或视觉稿依据，不能以当前页面截图作为默认答案。
-- 评审明确区分“复用 token”和“复用现有页面设计”；后者需要单独批准。
-- 页面符合对应 `pages/*.md` 职责，没有跨页面复制功能。
-- 关键状态、权限、确认和恢复路径齐全。
-- 360、768、1024、1366 和 ≥1440px 下无意外横滚、遮挡或嵌套滚动。
-- 键盘、焦点、标签、对比度和减少动态效果可用。
-- 浏览器返回、深链、刷新后的筛选/模式恢复符合页面契约。
-- Skeleton、图片和异步结果预留空间，关键流程没有可见布局跳动。
+Small caps-style labels at 14px weight 500 in Graphite, generous top margin (32-64px), often accompanied by a 'View more' ghost link. Functions as a section anchor without using a colored bar or rule.
+
+### Top Navigation Bar
+**Role:** Global site navigation
+
+Fixed or sticky top bar, Paper (#ffffff) background, OpenAI wordmark left, nav items (Research, Products, Business, Developers, Company, Foundation) at 14px weight 500 in #000, search icon, Log in ghost button, Try ChatGPT filled button right. Total height ~64px. No border-bottom — separation is whitespace alone.
+
+### Tag Chip Row
+**Role:** Suggested prompts below the search input
+
+Horizontal row of outlined pill buttons (see Outlined Pill Button) at 13-14px, spaced 8px apart. Functions as quick-action shortcuts. Sits centered below the prompt input on the hero.
+
+### Footer
+**Role:** Site footer with legal and secondary navigation
+
+Paper background, multi-column layout with link groups at 13-14px weight 500, Graphite text color, generous top padding (64px+). No social icons, no newsletter signup — utilitarian and quiet.
+
+## Do's and Don'ts
+
+### Do
+- Use #000000 as the sole filled button color — the 'Try ChatGPT' button is the system's only chromatic punctuation and filling any other button dilutes its signal
+- Set all borders to rgba(0,0,0,0.12) rather than a gray hex — the semi-transparent black adapts to the background and maintains consistent visual weight on white and light-gray surfaces
+- Apply 9999px radius to all buttons, tags, and inputs — the pill shape is the primary geometric signature and must be consistent across all interactive elements
+- Use 6px radius for cards and images — this near-zero radius is a deliberate choice that feels architectural rather than soft; avoid 12px or 16px which would shift the system toward 'friendly SaaS' territory
+- Set body text at 17px with 1.65 line-height and -0.01em tracking — the slightly larger base and generous leading create the editorial reading rhythm
+- Use weight 500 for navigation, labels, and subheads — weight 400 is reserved for body copy and weight 600 only for the 28px heading tier
+- Trust whitespace over dividers — sections are separated by 32-64px gaps and margin-bottom rather than horizontal rules or background color shifts
+
+### Don't
+- Do not introduce accent colors, gradients, or brand hues — the system is deliberately monochromatic; any chromatic addition competes with the single black CTA and breaks the editorial mood
+- Do not use box-shadows on cards or content surfaces — the design relies on hairline borders and whitespace for structure; shadows would add visual noise the system explicitly avoids
+- Do not use 8px or 12px radius on buttons — the pill (9999px) is a signature; non-pill buttons would break visual continuity with the tag chip row and search input
+- Do not use weight 700 or 800 anywhere — the heaviest weight in the system is 600, and only at the 28px heading size; heavier weights would feel aggressive against the restrained type
+- Do not set body text below 16px — 17px is the base; smaller text (13-14px) is reserved for nav, labels, and metadata where compactness is functional
+- Do not use colored backgrounds for section breaks — separate sections with whitespace alone; the system has exactly two surface tones (Paper and Ash) and they appear only for interactive hover states
+- Do not add icons inside buttons or text links — the system is text-first; icons appear only in the search input and nav utility area
+
+## Surfaces
+
+| Level | Name | Value | Purpose |
+|-------|------|-------|---------|
+| 0 | Paper | `#ffffff` | Base canvas — all content sits directly on this surface |
+| 1 | Ash | `#f1f1f1` | Elevated surface for language selector and subtle hover/selected states |
+| 2 | Whisper | `#0000000a` | Interactive surface tint for ghost button hover and card selection |
+
+## Elevation
+
+- **Outlined Pill Button (hover state):** `rgba(0, 0, 0, 0.02) 0px 4px 6px 0px, rgba(0, 0, 0, 0.05) 0px 0px 2px 0px`
+
+## Imagery
+
+Photography is high-impact and editorial: large-format cosmic/space imagery (planets, solar surfaces, nebulae) for hero articles, product UI screenshots for business sections, and abstract gradient washes (sunrise oranges, soft purples) for story cards. Images are edge-to-edge within cards with 6px corner radius — no padding insets, no drop shadows. The visual treatment is cinematic and full-bleed rather than lifestyle or product-shot. Illustrations and 3D renders are absent; the system uses photography as its primary visual medium. Icon style is minimal: thin-stroke line icons (search magnifier, arrow-up submit) at monochrome #000, no filled icons, no multi-color iconography.
+
+## Layout
+
+Page model is max-width contained (approximately 1200px) with generous side margins. The hero is a vertically centered prompt interaction on an empty white canvas — the search input is the entire first screen, creating a 'command line' feeling. Below the hero, content flows in a 2-column asymmetric grid: a large featured article (spanning ~65% width) on the left with full-bleed photography, and a stacked column of smaller article cards on the right. Section rhythm is consistent vertical spacing (32-64px gaps) with no background color shifts between sections. Navigation is a minimal top bar — no mega-menu, no sidebar. The overall density is spacious and editorial: one article per visual unit, large type, breathing room between elements. No card grids with 3+ columns; the layout favors 2-column editorial compositions over dashboard-style information density.
+
+## Agent Prompt Guide
+
+**Quick Color Reference**
+- text primary: #000000
+- text secondary: #666666
+- text tertiary: #8f8f8f
+- background: #ffffff
+- surface subtle: #f1f1f1
+- border: rgba(0,0,0,0.12)
+- primary action: no distinct CTA color
+
+**Example Component Prompts**
+
+1. **Hero Prompt Input**: Center a search-style input on a #ffffff canvas. Input: transparent background, 1px solid rgba(0,0,0,0.12) border, 9999px radius, 10px/52px/10px/24px padding, placeholder text 'Plan a surf trip to Costa Rica in August' at 16px weight 400 in #666666. Above it, a heading 'What can I help with?' at 48px weight 500, #000000, letter-spacing -1.44px. Below, a row of 4 outlined pill buttons (tag chips) spaced 8px apart.
+
+2. **Featured Article Card (Left Column)**: Full-bleed photographic header (no border, 6px radius), 48px display headline below in #000 weight 500 with -0.03em tracking, metadata line at 14px weight 500 in #666666 reading 'Product · 12 min read'. Card has no background, no shadow, no padding — structure comes from spacing alone.
+
+3. **Outlined Pill Tag Chip**: Transparent background, 1px solid rgba(0,0,0,0.12) border, 9999px radius, 8px/20px padding, text at 14px weight 500 in #000000. Use for category filters, suggested actions, and quick-prompt shortcuts.
+
+4. **Secondary Article Card (Right Column)**: Smaller format — 16:9 image header with 6px radius, 22px subheading in #000 weight 500 with -0.01em tracking, 14px metadata in #666666. Stacks vertically with 32px gap between cards.
+
+5. **Top Navigation Bar**: 64px height, #ffffff background, OpenAI wordmark (text-based) at far left at 14px weight 500, nav items (Research, Products, Business, Developers, Company, Foundation) spaced 16px apart at 14px weight 500 in #000, a search icon, a 'Log in' ghost text button, and a 'Try ChatGPT' filled black button (9999px radius, white text) at far right.
+
+## Similar Brands
+
+- **Anthropic** — Same monochromatic editorial approach — black text on white, no accent colors, pill-shaped buttons, and a focus on large-format photography for content cards
+- **Vercel** — Identical restraint philosophy — pure black/white palette, hairline borders at low opacity, generous whitespace, and the same anti-decorative flatness
+- **Linear** — Similar dark-on-light typographic confidence with custom sans, pill buttons, and 6-8px card radii — though Linear adds subtle gradients Linear omits
+- **Stripe** — Shared editorial-composition approach: 2-column asymmetric article grids, large display headlines, photography as visual anchor, and zero chromatic UI accents
+- **xAI / Grok** — Monochrome product interface with a single filled black CTA, pill-shaped controls, and the same 'research lab' typographic authority
+
+## Quick Start
+
+### CSS Custom Properties
+
+```css
+:root {
+  /* Colors */
+  --color-obsidian: #000000;
+  --color-graphite: #666666;
+  --color-smoke: #8f8f8f;
+  --color-paper: #ffffff;
+  --color-ash: #f1f1f1;
+  --color-hairline: #0000001f;
+  --color-whisper: #0000000a;
+
+  /* Typography — Font Families */
+  --font-openai-sans: 'OpenAI Sans', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* Typography — Scale */
+  --text-caption: 13px;
+  --leading-caption: 1.51;
+  --tracking-caption: -0.13px;
+  --text-input: 16px;
+  --leading-input: 1.5;
+  --tracking-input: -0.16px;
+  --text-body-lg: 18px;
+  --leading-body-lg: 1.32;
+  --tracking-body-lg: -0.18px;
+  --text-subheading: 22px;
+  --leading-subheading: 1.26;
+  --tracking-subheading: -0.22px;
+  --text-heading: 28px;
+  --leading-heading: 1.21;
+  --tracking-heading: 0.31px;
+  --text-display: 48px;
+  --leading-display: 1.16;
+  --tracking-display: -1.44px;
+
+  /* Typography — Weights */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* Spacing */
+  --spacing-unit: 4px;
+  --spacing-4: 4px;
+  --spacing-8: 8px;
+  --spacing-12: 12px;
+  --spacing-16: 16px;
+  --spacing-20: 20px;
+  --spacing-24: 24px;
+  --spacing-32: 32px;
+  --spacing-40: 40px;
+  --spacing-52: 52px;
+  --spacing-64: 64px;
+  --spacing-80: 80px;
+  --spacing-120: 120px;
+
+  /* Layout */
+  --page-max-width: 1200px;
+  --section-gap: 32-64px;
+  --card-padding: 12px;
+  --element-gap: 12-16px;
+
+  /* Border Radius */
+  --radius-md: 4px;
+  --radius-md-2: 6.08px;
+  --radius-3xl: 24px;
+  --radius-3xl-2: 40px;
+  --radius-full: 9999px;
+
+  /* Named Radii */
+  --radius-tags: 9999px;
+  --radius-cards: 6px;
+  --radius-links: 4px;
+  --radius-inputs: 9999px;
+  --radius-buttons: 9999px;
+
+  /* Shadows */
+  --shadow-sm: rgba(0, 0, 0, 0.02) 0px 4px 6px 0px, rgba(0, 0, 0, 0.05) 0px 0px 2px 0px;
+
+  /* Surfaces */
+  --surface-paper: #ffffff;
+  --surface-ash: #f1f1f1;
+  --surface-whisper: #0000000a;
+}
+```
+
+### Tailwind v4
+
+```css
+@theme {
+  /* Colors */
+  --color-obsidian: #000000;
+  --color-graphite: #666666;
+  --color-smoke: #8f8f8f;
+  --color-paper: #ffffff;
+  --color-ash: #f1f1f1;
+  --color-hairline: #0000001f;
+  --color-whisper: #0000000a;
+
+  /* Typography */
+  --font-openai-sans: 'OpenAI Sans', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* Typography — Scale */
+  --text-caption: 13px;
+  --leading-caption: 1.51;
+  --tracking-caption: -0.13px;
+  --text-input: 16px;
+  --leading-input: 1.5;
+  --tracking-input: -0.16px;
+  --text-body-lg: 18px;
+  --leading-body-lg: 1.32;
+  --tracking-body-lg: -0.18px;
+  --text-subheading: 22px;
+  --leading-subheading: 1.26;
+  --tracking-subheading: -0.22px;
+  --text-heading: 28px;
+  --leading-heading: 1.21;
+  --tracking-heading: 0.31px;
+  --text-display: 48px;
+  --leading-display: 1.16;
+  --tracking-display: -1.44px;
+
+  /* Spacing */
+  --spacing-4: 4px;
+  --spacing-8: 8px;
+  --spacing-12: 12px;
+  --spacing-16: 16px;
+  --spacing-20: 20px;
+  --spacing-24: 24px;
+  --spacing-32: 32px;
+  --spacing-40: 40px;
+  --spacing-52: 52px;
+  --spacing-64: 64px;
+  --spacing-80: 80px;
+  --spacing-120: 120px;
+
+  /* Border Radius */
+  --radius-md: 4px;
+  --radius-md-2: 6.08px;
+  --radius-3xl: 24px;
+  --radius-3xl-2: 40px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: rgba(0, 0, 0, 0.02) 0px 4px 6px 0px, rgba(0, 0, 0, 0.05) 0px 0px 2px 0px;
+}
+```
