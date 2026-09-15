@@ -93,7 +93,7 @@ B 中相关边界
 | 跨页面 IA（一页一问、导航密度、使用 ≠ 治理） | H `ia-information-architecture.md`；配套套件仍在 C `org-permissions.md` |
 | 视觉入口 / token | I `design.md` → `MASTER.md`（禁止在 `design.md` 复制 hex）；默认观感 OpenAI-quiet，主按钮仍 `--primary` |
 | 使用 ≠ 治理 | H `ia-information-architecture.md`、C `org-permissions.md`、ADR-013 |
-| KOL 试点域（Pipeline、AI发现、我跟进的红人、报价邮件） | B §4.2、F `12-kol-agent.md`。Pipeline 页可深链 / CTA，不是必挂侧栏 |
+| KOL 试点域（Pipeline、AI发现、我跟进的红人、报价邮件） | B §4.2、F `12-kol-agent.md`。Pipeline 页可深链 / CTA，不是必挂侧栏。「我跟进的红人」= 对象跟进面，不是第二套待办、不是 15 段主筛（ADR-030） |
 | KOL 产品阶段边（15 + exception；人可跨段/回退） | E `business-rules/stage-transitions.md`（ADR-027）。Starry hop ≠ 产品 |
 
 ## 编号文件（次要别名）
@@ -114,7 +114,7 @@ B 中相关边界
 
 - `SPEC-TEMPLATE.md`：功能规格模板。
 - `EVAL-TEMPLATE.md`：Agent 评价样例模板。
-- `DECISIONS.md`：ADR 变更日志（近期：ADR-029 OpenAI-quiet 默认观感且主按钮仍 `--primary`；ADR-028 C/D 单一正文；ADR-027 产品阶段图并废止 ADR-011；ADR-026 法律层 A–K；ADR-025 删除 evidence/04/19；ADR-024 删除过细 UX-KOL）。
+- `DECISIONS.md`：ADR 变更日志（近期：ADR-030 跟进面=对象管理不是任务状态导航；ADR-029 OpenAI-quiet 默认观感且主按钮仍 `--primary`；ADR-028 C/D 单一正文；ADR-027 产品阶段图并废止 ADR-011；ADR-026 法律层 A–K；ADR-025 删除 evidence/04/19；ADR-024 删除过细 UX-KOL）。
 - `business-rules/stage-transitions.md`：KOL 试点产品阶段图（15 + `exception`）。Starry hop 限制见 `07`，不是产品边。
 
 历史重复规范已删除；追溯使用 Git 历史。业务规则只在 E / F 的 canonical 位置维护；物理接口只在 K 维护。任何冲突必须写 ADR 并更新追踪矩阵。

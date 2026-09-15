@@ -8,7 +8,7 @@
 2. 任何实现任务再读 **B** [`CONSTITUTION.md`](CONSTITUTION.md)（§4.1 十六项一等能力；§4.2 KOL=首个试点）。Host / Codex / MCP / Gateway / 仓库边界任务再读 **J** [`technical-constitution.md`](technical-constitution.md)。
 3. 只有任务触发某个条件时，才继续读取该层正文。
 
-Pipeline / Home「AI发现」「我跟进的红人」是 KOL 试点特化，不是平台一等清单。
+Pipeline / Home「AI发现」「我跟进的红人」是 KOL 试点特化，不是平台一等清单。「我跟进的红人」是对象跟进面，不是第二套待办、不是 15 段主筛（ADR-030）。
 
 ## UI 任务顺序
 
@@ -28,7 +28,7 @@ B CONSTITUTION.md
 
 | 任务 | 默认法律层 | 条件触发后再加载 |
 |---|---|---|
-| Home | B §4.2；I `pages/home.md` | 发送 / 阶段 / 导入：G 硬不变量；阶段边：E `business-rules/stage-transitions.md` |
+| Home | B §4.2（跟进面=对象管理，ADR-030）；I `pages/home.md` | 发送 / 阶段 / 导入：G 硬不变量；阶段边：E `business-rules/stage-transitions.md`。不把 #120 责任桶 tablist 读成法律 |
 | Chat / 任务执行 | B §5；I `pages/chat.md` | 按动作加载 F 对应 FS |
 | Pipeline（KOL 试点页；深链 / CTA） | B §4.2；I `pages/pipeline.md` | 阶段写入：B §5 + E `stage-transitions.md` + F `policies/change_stage.yaml` |
 | 阶段转移 / confirm_stage | E `docs/business-rules/stage-transitions.md`、ADR-027 | 物理 hop / 原生码：K `07`（adapter ≠ 产品边） |

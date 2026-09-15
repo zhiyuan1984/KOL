@@ -8,8 +8,8 @@
 
 ## 权威顺序（高 → 低）
 
-1. `docs/CONSTITUTION.md`（§4.1–4.2；§5 L1–L3；发送 ≠ 推进阶段；表面职责）
-2. ADR-023 / ADR-015（若仍在 `DECISIONS.md`）
+1. `docs/CONSTITUTION.md`（§4.1–4.3；§5 L1–L3；发送 ≠ 推进阶段；表面职责）
+2. ADR-023 / ADR-015 / ADR-030（若仍在 `DECISIONS.md`）
 3. `docs/ia-information-architecture.md`（IA：一页一问 / 导航密度 / 使用 ≠ 治理原则）
 4. `docs/org-permissions.md`（管理端配套套件细则）
 5. `docs/design.md`（视觉入口）→ `docs/design-system/kol-workbench/MASTER.md`（token only）
@@ -63,11 +63,12 @@ KOL 试点 Home 模式名（只点名，不立法微 IA）：
 今日任务 | 我的待办 | AI发现 | 我跟进的红人
 ```
 
-前两项是平台任务；后两项是试点挂件。「我跟进的红人」是 Collaboration 跟进面，不是第二套 Pipeline 正式资产板。Pipeline **页**可深链或经产品内 CTA 到达，不要求出现在默认侧栏，也不得复制 Home 待办 IA。
+前两项是平台任务；后两项是试点挂件。「我跟进的红人」是 Collaboration 对象跟进面，不是第二套 Pipeline 正式资产板，也不是第二套今日任务/我的待办。Pipeline **页**可深链或经产品内 CTA 到达，不要求出现在默认侧栏，也不得复制 Home 待办 IA。对象面主筛/分组不在本契约立法。
 
 ```gherkin
 Given 员工打开 Home「我跟进的红人」
-Then 该表面按跟进合作组织，而不是正式生命周期资产板
+Then 该表面以已跟进对象为组织单位
+And 主信息架构既不是任务状态导航，也不是 15 段正式阶段板
 And Pipeline 不是第二套 Home，也不是必挂侧栏
 ```
 

@@ -16,8 +16,8 @@
 | **D** | 业务对象 / 关系 | [`domain-objects.md`](domain-objects.md) | 对象是什么、彼此关系、字典值与展示名 | 谁可以转哪一阶段、交互原则、物理 request 形状 |
 | **E** | 业务规则与过程 | [`business-rules/stage-transitions.md`](business-rules/stage-transitions.md)（机器副本 [`../config/stage-transitions.json`](../config/stage-transitions.json)；别名 [`stage-graph.md`](stage-graph.md)） | 合法转移 / 过程图（15 + `exception`；ADR-027） | 不把 Starry hop / 原生码 walk 写成产品边（回 K） |
 | **F** | 业务动作 | [`specs/`](../specs/) 剩余 `FS-*`、[`policies/`](../policies/)、索引 [`03-prd-and-functional-spec.md`](03-prd-and-functional-spec.md)；Skill/Policy 说明 [`05-agent-workflow-skill-policy.md`](05-agent-workflow-skill-policy.md)；KOL 试点动作 [`12-kol-agent.md`](12-kol-agent.md) | 可开发动作、闸门、副作用、Given/When/Then | 新开平台法、复活已删 FS-006/010、改写 E 阶段图 |
-| **G** | 交互原则 | [`specs/UX-EMPLOYEE.md`](../specs/UX-EMPLOYEE.md) | 从 B 派生的瘦员工 UX；门禁只认 `SEND_NE_STAGE`、`L3_CONFIRM` | 新平台法、排序键表、四带教条、字段黑名单、强制 CTA |
-| **H** | IA 约束 | [`ia-information-architecture.md`](ia-information-architecture.md) | 导航、簇、谁答哪一问的信息架构硬约束 | 视觉 token、阶段边、权限 PEP 细则（回 C） |
+| **G** | 交互原则 | [`specs/UX-EMPLOYEE.md`](../specs/UX-EMPLOYEE.md) | 从 B 派生的瘦员工 UX；门禁只认 `SEND_NE_STAGE`、`L3_CONFIRM` | 新平台法、排序键表、四带教条、字段黑名单、强制 CTA、跟进面芯片/六 Tab/筛选目录 |
+| **H** | IA 约束 | [`ia-information-architecture.md`](ia-information-architecture.md) | 导航、簇、谁答哪一问；跟进面=对象管理（不得抄待办状态桶 / 15 段主筛） | 视觉 token、阶段边、权限 PEP 细则（回 C）；跟进面芯片/Tab/筛选目录 |
 | **I** | UI 设计 | [`design.md`](design.md) | 页面视觉与布局法；默认观感 = OpenAI-quiet（[`references/openai-style.md`](references/openai-style.md) 管 mood；主按钮仍 MASTER `--primary`） | **token 仍只住** [`design-system/kol-workbench/MASTER.md`](design-system/kol-workbench/MASTER.md)；不把 MASTER 改成产品宪法 |
 | **J** | 技术宪法 | [`technical-constitution.md`](technical-constitution.md) | Host / harness / 内核边界、实现门禁 | 产品表面职责（回 B）、业务对象定义（回 D）、物理工具目录（回 K） |
 | **K** | 集成 / 物理 | [`07-mcp-data-contract.md`](07-mcp-data-contract.md)、[`../schemas/`](../schemas/)、[`starry-kol-mcp-server.md`](starry-kol-mcp-server.md)、[`median_mcp_server.md`](median_mcp_server.md) | 真实 MCP、IO schema、适配与接口漂移 | 业务编排、员工文案、合法转移矩阵 |
