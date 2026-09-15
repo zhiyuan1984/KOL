@@ -957,7 +957,7 @@ summary:focus-visible,
   background: color-mix(in srgb, var(--primary) 8%, var(--bg));
 }
 .discovery-pane {
-  max-width: 42rem;
+  max-width: 100%;
   overflow-x: hidden;
 }
 .discovery-pane > .home-lane-label {
@@ -1168,11 +1168,35 @@ summary:focus-visible,
 .discovery-candidate {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
   gap: var(--space-2);
   min-width: 0;
   padding: var(--space-2) 0;
   border-bottom: 1px solid var(--border);
   overflow-x: hidden;
+}
+.discovery-candidate-copy {
+  min-width: 0;
+  overflow-x: hidden;
+}
+.discovery-candidate-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.discovery-candidate-handle {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.discovery-candidate-nickname {
+  font-weight: 500;
+  color: var(--text-muted);
+  font-size: var(--font-ui);
 }
 .discovery-pane .task-empty {
   padding: var(--space-3) var(--space-4);
@@ -1184,6 +1208,24 @@ summary:focus-visible,
 }
 .discovery-candidate-actions {
   grid-column: 2;
+  min-width: 0;
+  justify-content: flex-start;
+}
+@media (min-width: 900px) {
+  .discovery-candidate {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  .discovery-candidate-actions {
+    grid-column: auto;
+    justify-self: end;
+    align-self: center;
+    justify-content: flex-end;
+  }
+  .discovery-candidate-select {
+    align-self: center;
+    margin-top: 0;
+  }
 }
 .discovery-candidate[data-discovery-preview="out"] {
   opacity: 0.55;
@@ -1293,6 +1335,8 @@ summary:focus-visible,
   padding: 0;
   display: grid;
   gap: 0;
+  min-width: 0;
+  overflow-x: hidden;
 }
 .discovery-confirm-layer {
   position: fixed;
