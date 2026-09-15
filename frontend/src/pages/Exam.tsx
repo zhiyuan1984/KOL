@@ -67,7 +67,7 @@ export default function Exam() {
         <div className="page-kicker">考试</div>
         <h1 style={{ marginTop: 0 }}>学习考试</h1>
         <p className="muted">
-          应试与发信闸门。题卷由管理员分配并开放后才能作答。本页不能提交成绩，也不能切换体验账号。
+          还没有可作答的题卷时，开通前不能完成考试。本页不能提交成绩。
         </p>
       </div>
       {err && <p className="error" role="alert">{err}</p>}
@@ -80,7 +80,7 @@ export default function Exam() {
           </p>
           {gateBlocked && (
             <p className="muted" data-exam-gate="blocked">
-              发信仍会被考试闸门拦住。题卷开放前无法在这里完成。
+              开通前不能完成考试。题卷开放前无法在这里完成。
             </p>
           )}
         </div>

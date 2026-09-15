@@ -61,8 +61,7 @@ export default function Workbench() {
 
   const skillsActive =
     loc.pathname === "/skills"
-    || loc.pathname.startsWith("/market/skills")
-    || loc.pathname === "/partners";
+    || loc.pathname.startsWith("/market/skills");
   const adminAvailable = admin || me?.available_modes?.includes("admin") === true;
 
   const runningCount = useMemo(

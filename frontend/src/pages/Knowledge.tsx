@@ -4,7 +4,6 @@ import { api, type KnowledgeRow } from "../api";
 import {
   HIDE_REASONS,
   KB_LEAD,
-  KB_MARKET_LEAD,
   KB_TAB_LABEL,
   hideReasonLabel,
   kbIsMail,
@@ -79,12 +78,10 @@ function parseBrowseTab(raw: string | null): KbBrowseTab {
 
 function ContentDrawer({
   row,
-  market,
   onClose,
   onUse,
 }: {
   row: KnowledgeRow;
-  market: boolean;
   onClose: () => void;
   onUse: (row: KnowledgeRow) => void;
 }) {
@@ -119,18 +116,16 @@ function ContentDrawer({
         )}
         <pre className="kb-preview-body" data-kb-preview-body>{row.body_en || row.body}</pre>
       </div>
-      {!market && (
-        <footer className="kb-drawer-foot">
-          <button className="btn work" type="button" data-kb-use={row.id} onClick={() => onUse(row)}>
-            用于当前任务
-          </button>
-        </footer>
-      )}
+      <footer className="kb-drawer-foot">
+        <button className="btn work" type="button" data-kb-use={row.id} onClick={() => onUse(row)}>
+          用于当前任务
+        </button>
+      </footer>
     </aside>
   );
 }
 
-export default function Knowledge({ market = false }: { market?: boolean }) {
+export default function Knowledge() {
   const [rows, setRows] = useState<KnowledgeRow[]>([]);
   const [preview, setPreview] = useState<KnowledgeRow | null>(null);
   const [hideFor, setHideFor] = useState("");
@@ -145,12 +140,12 @@ export default function Knowledge({ market = false }: { market?: boolean }) {
   const recentIds = useMemo(() => recent.map((item) => item.id), [recent]);
 
   const load = () => {
-    (market ? api.kbMarket() : api.knowledge())
+    api.knowledge()
       .then(setRows)
       .catch((e) => setErr(e instanceof Error ? e.message : "无法加载知识库"));
   };
 
-  useEffect(load, [market]);
+  useEffect(load, []);
 
   useEffect(() => {
     if (!preview) return;
@@ -205,7 +200,7 @@ export default function Knowledge({ market = false }: { market?: boolean }) {
   }, [recentIds, rows, tab]);
 
   return (
-    <div className={"list-page kb-page" + (preview ? " has-drawer" : "")} data-kb-page={market ? "market" : "mine"}>
+    <div className={"list-page kb-page" + (preview ? " has-drawer" : "")} data-kb-page="mine">
       <header className="kb-hero">
         <div className="page-kicker">{kbKicker(tab)}</div>
         <h1>知识库</h1>
@@ -223,7 +218,7 @@ export default function Knowledge({ market = false }: { market?: boolean }) {
             </button>
           ))}
         </nav>
-        <p className="kb-lead">{market ? KB_MARKET_LEAD : KB_LEAD}</p>
+        <p className="kb-lead">{KB_LEAD}</p>
       </header>
       {err && <p className="error">{err}</p>}
       {visible.map((k) => {
@@ -302,45 +297,43 @@ export default function Knowledge({ market = false }: { market?: boolean }) {
                 </button>
               </Hinted>
             </div>
-            {!market && (
-              <details className="kb-more" data-kb-more={k.id}>
-                <summary>更多</summary>
-                <div className="kb-more-actions">
-                  {k.deprecated ? (
-                    <button className="btn" type="button" onClick={() => void api.undeprecateKnowledge(k.id).then(() => { setHideFor(""); load(); })}>
-                      取消隐藏
-                    </button>
-                  ) : (
-                    <button
-                      className={"btn" + (hideFor === k.id ? " is-on" : "")}
-                      type="button"
-                      aria-expanded={hideFor === k.id}
-                      aria-pressed={hideFor === k.id}
-                      onClick={() => setHideFor((cur) => (cur === k.id ? "" : k.id))}
-                    >
-                      对本账号隐藏
-                    </button>
-                  )}
-                </div>
-                {hideFor === k.id && !k.deprecated && (
-                  <div className="kb-hide-panel">
-                    <p className="kb-hide-title">选择隐藏原因 · 只影响你这个账号</p>
-                    {HIDE_REASONS.map((reason) => (
-                      <button
-                        key={reason.code}
-                        className="kb-hide-option"
-                        type="button"
-                        data-deprecate-reason={reason.code}
-                        onClick={() => void api.deprecateKnowledge(k.id, reason.code).then(() => { setHideFor(""); load(); })}
-                      >
-                        <strong>{reason.label}</strong>
-                        <span>{reason.result}</span>
-                      </button>
-                    ))}
-                  </div>
+            <details className="kb-more" data-kb-more={k.id}>
+              <summary>更多</summary>
+              <div className="kb-more-actions">
+                {k.deprecated ? (
+                  <button className="btn" type="button" onClick={() => void api.undeprecateKnowledge(k.id).then(() => { setHideFor(""); load(); })}>
+                    取消隐藏
+                  </button>
+                ) : (
+                  <button
+                    className={"btn" + (hideFor === k.id ? " is-on" : "")}
+                    type="button"
+                    aria-expanded={hideFor === k.id}
+                    aria-pressed={hideFor === k.id}
+                    onClick={() => setHideFor((cur) => (cur === k.id ? "" : k.id))}
+                  >
+                    对本账号隐藏
+                  </button>
                 )}
-              </details>
-            )}
+              </div>
+              {hideFor === k.id && !k.deprecated && (
+                <div className="kb-hide-panel">
+                  <p className="kb-hide-title">选择隐藏原因 · 只影响你这个账号</p>
+                  {HIDE_REASONS.map((reason) => (
+                    <button
+                      key={reason.code}
+                      className="kb-hide-option"
+                      type="button"
+                      data-deprecate-reason={reason.code}
+                      onClick={() => void api.deprecateKnowledge(k.id, reason.code).then(() => { setHideFor(""); load(); })}
+                    >
+                      <strong>{reason.label}</strong>
+                      <span>{reason.result}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </details>
           </article>
         );
       })}
@@ -353,7 +346,6 @@ export default function Knowledge({ market = false }: { market?: boolean }) {
       {preview && (
         <ContentDrawer
           row={preview}
-          market={market}
           onClose={() => setPreview(null)}
           onUse={useForTask}
         />

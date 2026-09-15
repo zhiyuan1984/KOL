@@ -15,6 +15,7 @@ import ConnectorUse from "./pages/ConnectorUse";
 import AdminConsole from "./pages/AdminConsole";
 import SharedSession from "./pages/SharedSession";
 import { SkillHub } from "./pages/SkillHub";
+import Partners from "./pages/Partners";
 import Agents from "./pages/Agents";
 import AgentTeams from "./pages/AgentTeams";
 
@@ -34,9 +35,9 @@ export default function App() {
           <Route path="/agents" element={<Agents />} />
           <Route path="/teams" element={<AgentTeams />} />
           <Route path="/kb" element={<Knowledge />} />
-          <Route path="/market/skills" element={<SkillHub view="catalog" />} />
-          <Route path="/partners" element={<SkillHub view="partners" />} />
-          <Route path="/market/kb" element={<Knowledge market />} />
+          <Route path="/market/skills" element={<SkillHub />} />
+          <Route path="/partners" element={<Partners />} />
+          <Route path="/market/kb" element={<Navigate to="/kb" replace />} />
           <Route path="/exam" element={<Exam />} />
           <Route path="/approvals" element={<Approvals />} />
           <Route path="/settings" element={<AccountSettings />} />

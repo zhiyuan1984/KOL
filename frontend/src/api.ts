@@ -862,7 +862,7 @@ export const api = {
         ...(reason ? { reason } : {}),
       }),
     }),
-  skills: () => fetch("/api/skills").then((r) => r.json()),
+  skills: () => request<Array<Record<string, unknown>>>("/api/skills"),
   skill: (id: string) => fetch(`/api/skills/${encodeURIComponent(id)}`).then((r) => r.json()),
   saveSkillSop: async (id: string, body: { summary: string; body: string }) => {
     const r = await fetch(`/api/skills/${encodeURIComponent(id)}/sop`, {
@@ -909,7 +909,7 @@ export const api = {
     return data;
   },
   profiles: () => fetch("/api/profiles").then((r) => r.json()),
-  skillMarket: () => fetch("/api/skills/market").then((r) => r.json()),
+  skillMarket: () => request<Array<Record<string, unknown>>>("/api/skills/market"),
   knowledge: () => request<KnowledgeRow[]>("/api/knowledge"),
   kbMarket: () => request<KnowledgeRow[]>("/api/knowledge/market"),
   knowledgeItem: (id: string) => request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}`),

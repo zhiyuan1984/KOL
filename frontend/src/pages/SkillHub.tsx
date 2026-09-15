@@ -63,7 +63,7 @@ export type SkillRow = {
   source?: "bundled" | "published";
 };
 
-type HubMode = "catalog" | "partners" | "mine";
+type HubMode = "catalog" | "mine";
 
 const CONNECTORS = [
   {
@@ -220,9 +220,6 @@ export function SkillHubChrome({
         <Link to="/market/skills" className={"hub-mode" + (mode === "catalog" ? " on" : "")} data-hub-mode="catalog">
           {debug ? "技能 · 连接器" : "技能目录"}
         </Link>
-        <Link to="/partners" className={"hub-mode" + (mode === "partners" ? " on" : "")} data-hub-mode="partners">
-          工作伙伴
-        </Link>
       </nav>
       <div className="hub-tools">
         <label className="hub-search-wrap">
@@ -233,7 +230,7 @@ export function SkillHubChrome({
           <input
             className="hub-search"
             data-hub-search
-            placeholder={mode === "partners" ? "搜索伙伴" : "搜索技能"}
+            placeholder="搜索技能"
             value={q}
             onChange={(e) => onQ(e.target.value)}
           />
@@ -247,67 +244,32 @@ export function SkillHubChrome({
   );
 }
 
-function partnerFollowStatus(row: {
-  unbound?: boolean;
-  exception?: boolean;
-  overdue?: boolean | number;
-}): string {
-  if (row.unbound) return "未绑定邮箱";
-  if (row.exception) return "需关注";
-  if (row.overdue) return "待跟进";
-  return "跟进中";
-}
-
 async function startAsk(nav: ReturnType<typeof useNavigate>, text: string, intent?: string, collaborationId?: string) {
   const ses = await api.createSession(text.slice(0, 24));
   storePending(ses.id, { text, intent, collaboration_id: collaborationId });
   nav(`/s/${ses.id}`);
 }
 
-export function SkillHub({ view = "catalog" }: { view?: "catalog" | "partners" }) {
+export function SkillHub() {
   const { admin, debug } = useViewMode();
   const nav = useNavigate();
   const [q, setQ] = useState("");
   const [skills, setSkills] = useState<SkillRow[]>([]);
-  const [partners, setPartners] = useState<
-    { id: string; handle: string; brand: string; platform: string; follow_status: string; collaboration_id?: string }[]
-  >([]);
   const [chip, setChip] = useState("skills");
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setChip("skills");
-  }, [view]);
-
-  useEffect(() => {
-    api.skillMarket().then((data: unknown) => setSkills(Array.isArray(data) ? (data as SkillRow[]) : []));
-    if (view !== "partners") return;
-    api.homeBoard().then((board) => {
-      const rows = Array.isArray(board.kols) ? board.kols : [];
-      setPartners(
-        rows.map((raw) => {
-          const r = raw as {
-            id?: string;
-            handle?: string;
-            brand?: string;
-            platform?: string;
-            unbound?: boolean;
-            exception?: boolean;
-            overdue?: boolean | number;
-          };
-          return {
-            id: String(r.id || r.handle || ""),
-            handle: String(r.handle || ""),
-            brand: String(r.brand || ""),
-            platform: String(r.platform || ""),
-            follow_status: partnerFollowStatus(r),
-            collaboration_id: String(r.id || ""),
-          };
-        }).filter((row) => row.handle),
-      );
-    }).catch((e) => setErr(e instanceof Error ? e.message : "无法加载工作伙伴"));
-  }, [view]);
+    setLoading(true);
+    api.skillMarket()
+      .then((data: unknown) => {
+        setSkills(Array.isArray(data) ? (data as SkillRow[]) : []);
+        setErr("");
+      })
+      .catch((e) => setErr(e instanceof Error ? e.message : "无法加载技能目录"))
+      .finally(() => setLoading(false));
+  }, []);
 
   const useSkill = async (s: SkillRow) => {
     if (s.granted === false) {
@@ -341,29 +303,19 @@ export function SkillHub({ view = "catalog" }: { view?: "catalog" | "partners" }
   }, [skills, chip, needle]);
 
   const connectorTiles = useMemo(() => {
-    if (!debug || !admin || view !== "catalog") return [];
+    if (!debug || !admin) return [];
     if (chip !== "skills" && chip !== "connectors") return [];
     return CONNECTORS.filter((c) => match(c.title, c.summary));
-  }, [admin, debug, view, chip, needle]);
+  }, [admin, debug, chip, needle]);
 
-  const partnerKols = useMemo(() => {
-    if (view !== "partners") return [];
-    return partners.filter((p) => match(p.handle, `${p.follow_status} ${p.brand} ${p.platform}`));
-  }, [view, partners, needle]);
-
-  const empty =
-    (view === "catalog" && skillTiles.length === 0 && connectorTiles.length === 0) ||
-    (view === "partners" && partnerKols.length === 0);
+  const empty = !loading && !err && skillTiles.length === 0 && connectorTiles.length === 0;
 
   return (
-    <div className="hub-page" data-skill-hub={view}>
-      <SkillHubChrome mode={view} q={q} onQ={setQ} />
-      <p className="hub-lead muted">
-        {view === "partners"
-          ? "当前合作中的达人，用于当前任务。"
-          : "已授权、可用于当前任务的技能。"}
-      </p>
-      {err && <p className="error">{err}</p>}
+    <div className="hub-page" data-skill-hub="catalog">
+      <SkillHubChrome mode="catalog" q={q} onQ={setQ} />
+      <p className="hub-lead muted">已授权、可用于当前任务的技能。</p>
+      {err && <p className="error" role="alert" data-hub-error>{err}</p>}
+      {loading && !err && <p className="muted" data-hub-loading>正在加载技能…</p>}
       {catalogChips.length > 0 && (
         <div className="hub-chips" role="tablist">
           {catalogChips.map((c) => (
@@ -381,7 +333,7 @@ export function SkillHub({ view = "catalog" }: { view?: "catalog" | "partners" }
         </div>
       )}
 
-      {view === "catalog" && chip !== "connectors" && !needle && (
+      {!loading && !err && chip !== "connectors" && !needle && (
         <section className="hub-featured" data-hub-featured>
           <button type="button" className="hub-banner" data-hub-banner="email_compose" onClick={() => void useSkill({ id: "email_compose", title: "写合作邮件", in_market: true })}>
             <div>
@@ -406,23 +358,22 @@ export function SkillHub({ view = "catalog" }: { view?: "catalog" | "partners" }
       )}
 
       <section>
-        <h2 className="hub-section-title">{view === "catalog" ? "技能" : "工作伙伴"}</h2>
+        <h2 className="hub-section-title">技能</h2>
         <div className="hub-grid">
-          {view === "catalog" &&
-            skillTiles.map((s) => (
-              <HubTile
-                key={s.id}
-                id={s.id}
-                title={s.title}
-                kind={skillKind(s)}
-                summary={s.summary || s.title}
-                dataKey="data-skill"
-                plusLabel={s.granted === false ? "未开通" : "使用 " + s.title}
-                disabled={busy === s.id || s.granted === false}
-                badge={s.granted === false ? "未开通" : undefined}
-                onPlus={() => void useSkill(s)}
-              />
-            ))}
+          {skillTiles.map((s) => (
+            <HubTile
+              key={s.id}
+              id={s.id}
+              title={s.title}
+              kind={skillKind(s)}
+              summary={s.summary || s.title}
+              dataKey="data-skill"
+              plusLabel={s.granted === false ? "未开通" : "使用 " + s.title}
+              disabled={busy === s.id || s.granted === false}
+              badge={s.granted === false ? "未开通" : undefined}
+              onPlus={() => void useSkill(s)}
+            />
+          ))}
           {connectorTiles.map((c) => (
             <HubTile
               key={c.id}
@@ -435,21 +386,8 @@ export function SkillHub({ view = "catalog" }: { view?: "catalog" | "partners" }
               onPlus={() => nav(c.to)}
             />
           ))}
-          {partnerKols.map((p) => (
-            <HubTile
-              key={p.id}
-              id={p.handle}
-              title={p.handle}
-              kind="达人"
-              summary={[p.brand, p.platform, p.follow_status].filter(Boolean).join(" · ")}
-              dataKey="data-partner"
-              followStatus={p.follow_status}
-              plusLabel={"跟进 " + p.handle}
-              onPlus={() => void startAsk(nav, `写合作邮件 @${p.handle}`, "email_compose", p.collaboration_id)}
-            />
-          ))}
         </div>
-        {empty && <p className="muted hub-empty">没有匹配的{view === "partners" ? "伙伴" : "技能"}</p>}
+        {empty && <p className="muted hub-empty" data-hub-empty>没有匹配的技能</p>}
       </section>
     </div>
   );
