@@ -1028,7 +1028,8 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
   await expect(card).not.toContainText("support_transition");
   await expect(card.locator("[data-action-evidence]")).toContainText("查看判断依据");
   await expect(card.locator("[data-confirm-enter-stage]")).toHaveText("进入已回复 · 有兴趣 →");
-  await expect(card.locator("[data-confirm-enter-stage]")).toHaveClass(/work/);
+  await expect(card.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
+  await expect(page.locator("[data-followed-batch-confirm]")).toHaveClass(/ghost/);
   await expect(card.locator("[data-open-kol-detail]")).toHaveText("查看详情");
   await expect(card.locator("[data-open-kol-detail]")).not.toHaveClass(/btn/);
   await expect(card.locator("[data-open-original-mail]")).toHaveText("原邮件");
@@ -1196,6 +1197,7 @@ test("home followed list keeps one strong work CTA", async ({ page }) => {
   await expect(stageA.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
   await expect(stageB.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
   await expect(draft.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
+  await expect(page.locator("[data-followed-batch-confirm]")).toHaveClass(/ghost/);
   expect(await countFilledFollowedWorkCtas(page)).toBe(0);
 
   await stageA.hover();
@@ -1218,14 +1220,127 @@ test("home followed list keeps one strong work CTA", async ({ page }) => {
   await expect(stageB.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
   expect(await countFilledFollowedWorkCtas(page)).toBe(1);
 
-  await stageA.locator("[data-kol-name]").click();
   await page.mouse.move(0, 0);
+  await stageA.locator("[data-followed-select]").check();
+  await stageB.locator("[data-followed-select]").check();
   await expect(stageA).toHaveAttribute("data-selected", "true");
-  await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveClass(/work/);
+  await expect(stageB).toHaveAttribute("data-selected", "true");
+  await expect(page.locator("[data-followed-selected-count]")).toHaveText("已选 2 人");
+  await expect(page.locator("[data-followed-batch-confirm]")).toHaveClass(/work/);
+  await expect(page.locator("[data-followed-batch-confirm]")).toHaveText("确认进入已回复 · 有兴趣（2）");
+  await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
   await expect(stageB.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
   await expect(draft.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
-  expect(await countFilledFollowedWorkCtas(page)).toBe(1);
+  expect(await countFilledFollowedWorkCtas(page)).toBe(0);
+  await expect(page.locator("[data-home-pane='lifecycle'] .btn.work")).toHaveCount(1);
   expect(await list.locator("[data-followed-kol]").count()).toBeGreaterThan(1);
+});
+
+test("home followed multi-select shows one filled top CTA", async ({ page }) => {
+  await page.route("**/api/home/board", (route) => route.fulfill({
+    json: {
+      kols: [
+        {
+          id: "col_stage_a",
+          handle: "阶段甲",
+          brand: "LT",
+          stage_code: "INITIAL_CONTACT",
+          stage_label: "初步接触",
+          suggested_stage: "已回复-有兴趣",
+          suggested_stage_code: "INTERESTED",
+          days_in_stage: 3,
+          mail_threads: [{
+            conversation_id: "thread-a",
+            subject: "Re: collab A",
+            unread_count: 0,
+            last_direction: "inbound",
+            last_snippet: "我对这次合作有兴趣",
+            last_at: "2026-09-12T10:00:00.000Z",
+          }],
+        },
+        {
+          id: "col_stage_b",
+          handle: "阶段乙",
+          brand: "LT",
+          stage_code: "INITIAL_CONTACT",
+          stage_label: "初步接触",
+          suggested_stage: "已回复-有兴趣",
+          suggested_stage_code: "INTERESTED",
+          days_in_stage: 2,
+          mail_threads: [{
+            conversation_id: "thread-b",
+            subject: "Re: collab B",
+            unread_count: 0,
+            last_direction: "inbound",
+            last_snippet: "我对这次合作有兴趣",
+            last_at: "2026-09-11T10:00:00.000Z",
+          }],
+        },
+        {
+          id: "col_draft_row",
+          handle: "起草卡",
+          brand: "LT",
+          stage_code: "QUOTE_PENDING",
+          stage_label: "报价待确认",
+          days_in_stage: 1,
+        },
+      ],
+      tasks: [{
+        id: "tsk_draft_row",
+        title: "写跟进邮件",
+        skill_id: "email_compose",
+        status: "pending",
+        collaboration_id: "col_draft_row",
+        kol_name: "起草卡",
+      }],
+    },
+  }));
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/");
+  await openMode(page, "lifecycle");
+  const list = page.locator("[data-followed-kol-list]");
+  const stageA = page.locator('[data-followed-kol="阶段甲"]');
+  const stageB = page.locator('[data-followed-kol="阶段乙"]');
+  const draft = page.locator('[data-followed-kol="起草卡"]');
+  const topCta = page.locator("[data-followed-batch-confirm]");
+  await expect(list.locator("[data-followed-kol]")).toHaveCount(3);
+  await expect(list.locator("[data-followed-select]")).toHaveCount(3);
+  await page.mouse.move(0, 0);
+  await expect(list.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
+  await expect(list.locator("[data-kol-primary-action].btn.work")).toHaveCount(0);
+  await expect(topCta).toHaveClass(/ghost/);
+  await expect(topCta).toBeDisabled();
+  expect(await countFilledFollowedWorkCtas(page)).toBe(0);
+
+  await stageA.locator("[data-followed-select]").check();
+  await expect(topCta).toHaveClass(/work/);
+  await expect(topCta).toHaveText("进入已回复 · 有兴趣 →");
+  await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
+  await expect(stageB.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
+  await expect(draft.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
+  await expect(page.locator("[data-home-pane='lifecycle'] .btn.work")).toHaveCount(1);
+
+  await stageB.locator("[data-followed-select]").check();
+  await expect(page.locator("[data-followed-selected-count]")).toHaveText("已选 2 人");
+  await expect(topCta).toHaveClass(/work/);
+  await expect(topCta).toHaveText("确认进入已回复 · 有兴趣（2）");
+  await expect(list.locator("[data-kol-primary-action].btn.work")).toHaveCount(0);
+  await expect(page.locator("[data-home-pane='lifecycle'] .btn.work")).toHaveCount(1);
+  await stageA.hover();
+  await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
+
+  await topCta.click();
+  const dialog = page.locator("[data-followed-batch-confirm-dialog]");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("不会发信");
+  await expect(dialog).toContainText("发送与改阶段分开");
+  await expect(dialog.locator("[data-followed-batch-item]")).toHaveCount(2);
+  await expect(dialog.locator("[data-followed-batch-confirm-yes]")).toHaveClass(/work/);
+  await expect(dialog.locator("[data-followed-batch-confirm-yes]")).toHaveText("打开阶段确认");
+  await dialog.locator("[data-followed-batch-confirm-no]").click();
+  await expect(dialog).toHaveCount(0);
+  await expect(topCta).toHaveClass(/work/);
+  await expect(list.locator("[data-kol-primary-action].btn.work")).toHaveCount(0);
 });
 
 test("today suggestion convert to todo dedupes", async ({ page }) => {

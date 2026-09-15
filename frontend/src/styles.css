@@ -1955,6 +1955,58 @@ summary:focus-visible,
   font-size: var(--font-sm);
   white-space: nowrap;
 }
+.followed-batch-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-8);
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: var(--spacing-8) 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.followed-batch-bar.is-selecting {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+.followed-batch-select {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-8);
+}
+.followed-batch-select .followed-kol-select {
+  margin-top: 0;
+  align-items: center;
+  gap: var(--spacing-8);
+  color: var(--text);
+  font-size: var(--font-sm);
+}
+.followed-batch-cta {
+  border-radius: var(--radius-buttons);
+}
+.followed-kol-select {
+  display: inline-flex;
+  align-items: flex-start;
+  flex: 0 0 auto;
+  margin-top: 4px;
+}
+.followed-kol-select input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--color-obsidian);
+}
+.followed-batch-confirm-list {
+  margin: var(--spacing-8) 0 0;
+  padding-left: 1.2rem;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--leading-body);
+}
 .kol-secondary-filters {
   display: flex;
   flex-wrap: wrap;
@@ -2338,6 +2390,7 @@ summary:focus-visible,
   box-sizing: border-box;
 }
 .followed-kol-column .followed-object-toolbar,
+.followed-kol-column .followed-batch-bar,
 .followed-kol-column .followed-kol-item,
 .followed-kol-column .followed-kol-card {
   width: 100%;
@@ -2691,16 +2744,15 @@ summary:focus-visible,
 .followed-kol-card .kol-cta-primary .kol-cta-work {
   border-radius: var(--radius-buttons);
 }
-/* One strong Obsidian CTA in the followed list (ADR-031 / Discovery #139). */
+/* Row CTAs stay ghost; the one filled Obsidian CTA lives on the bulk top bar. */
 .followed-kol-card .kol-cta-primary .kol-cta-work.btn.ghost {
   background: var(--bg);
   color: var(--text);
   border-color: var(--border);
 }
-.followed-kol-card.is-hovered .kol-cta-primary .kol-cta-work:not(.is-draft-quiet),
-.followed-kol-card:focus-within .kol-cta-primary .kol-cta-work:not(.is-draft-quiet),
-.followed-kol-card[data-selected][data-cta-emphasis="strong"] .kol-cta-primary .kol-cta-work:not(.is-draft-quiet),
-.followed-kol-card[data-cta-emphasis="strong"] .kol-cta-primary .kol-cta-work:not(.is-draft-quiet) {
+.followed-kol-list:not([data-followed-selecting="true"]) .followed-kol-card.is-hovered .kol-cta-primary .kol-cta-work:not(.is-draft-quiet),
+.followed-kol-list:not([data-followed-selecting="true"]) .followed-kol-card:focus-within .kol-cta-primary .kol-cta-work:not(.is-draft-quiet),
+.followed-kol-list:not([data-followed-selecting="true"]) .followed-kol-card[data-cta-emphasis="strong"] .kol-cta-primary .kol-cta-work:not(.is-draft-quiet) {
   background: var(--primary);
   color: var(--primary-fg);
   border-color: var(--primary);
@@ -2709,12 +2761,13 @@ summary:focus-visible,
 .followed-kol-card.is-hovered .kol-cta-primary .kol-cta-work.is-draft-quiet,
 .followed-kol-card:focus-within .kol-cta-primary .kol-cta-work.is-draft-quiet,
 .followed-kol-card[data-selected] .kol-cta-primary .kol-cta-work.is-draft-quiet,
-.followed-kol-card[data-cta-emphasis="strong"] .kol-cta-primary .kol-cta-work.is-draft-quiet {
+.followed-kol-card[data-cta-emphasis="strong"] .kol-cta-primary .kol-cta-work.is-draft-quiet,
+.followed-kol-list[data-followed-selecting="true"] .followed-kol-card .kol-cta-primary .kol-cta-work {
   background: var(--bg);
   color: var(--text);
   border-color: var(--border);
 }
-.followed-kol-list:has(:focus-within) .followed-kol-card:not(:focus-within) .kol-cta-primary .kol-cta-work.btn {
+.followed-kol-list:not([data-followed-selecting="true"]):has(:focus-within) .followed-kol-card:not(:focus-within) .kol-cta-primary .kol-cta-work.btn {
   background: var(--bg);
   color: var(--text);
   border-color: var(--border);

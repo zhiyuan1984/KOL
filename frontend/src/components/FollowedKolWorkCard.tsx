@@ -55,7 +55,7 @@ export default function FollowedKolWorkCard({
   ctaEmphasis = "quiet",
   onHoverChange,
   onFocusChange,
-  onSelect,
+  onToggleSelect,
 }: {
   card: FollowedKolCardModel;
   onOpenDetail: () => void;
@@ -71,7 +71,7 @@ export default function FollowedKolWorkCard({
   ctaEmphasis?: "quiet" | "strong";
   onHoverChange?: (hovered: boolean) => void;
   onFocusChange?: (focused: boolean) => void;
-  onSelect?: () => void;
+  onToggleSelect?: (on: boolean) => void;
 }) {
   const rec = card.recommended_action;
   const fact = card.latest_fact;
@@ -124,9 +124,17 @@ export default function FollowedKolWorkCard({
         const next = event.relatedTarget as Node | null;
         if (!event.currentTarget.contains(next)) onFocusChange?.(false);
       }}
-      onClick={onSelect}
     >
       <div className="kol-band kol-band-identity" data-kol-band="identity">
+        <label className="followed-kol-select" onClick={(event) => event.stopPropagation()}>
+          <input
+            type="checkbox"
+            data-followed-select={card.id}
+            checked={selected}
+            onChange={(event) => onToggleSelect?.(event.target.checked)}
+          />
+          <span className="sr-only">选择 {card.identity.display}</span>
+        </label>
         <span className="kol-avatar" data-kol-avatar aria-hidden>{initial}</span>
         <div className="kol-identity-main">
           <div className="kol-identity-line">

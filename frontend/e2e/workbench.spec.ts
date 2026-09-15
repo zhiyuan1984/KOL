@@ -1326,10 +1326,11 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expect(confirmCard.locator("[data-recommended-action]")).not.toContainText("确认进入");
   await page.mouse.move(0, 0);
   await expect(confirmCard.locator("[data-confirm-enter-stage]")).toHaveText("进入已回复 · 有兴趣 →");
-  await expect(confirmCard.locator("[data-confirm-enter-stage]")).toHaveClass(/work/);
-  await expect(confirmCard).toHaveAttribute("data-cta-emphasis", "strong");
+  await expect(confirmCard.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
+  await expect(confirmCard).toHaveAttribute("data-cta-emphasis", "quiet");
   await expect(card.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
-  await expect(page.locator("[data-followed-kol-list] [data-kol-primary-action].btn.work")).toHaveCount(1);
+  await expect(page.locator("[data-followed-kol-list] [data-kol-primary-action].btn.work")).toHaveCount(0);
+  await expect(page.locator("[data-followed-batch-confirm]")).toHaveClass(/ghost/);
   await expect(confirmCard.locator("[data-action-why]")).toContainText("明确表达品牌合作意愿");
   await expect(confirmCard).not.toContainText("支撑进入");
   await expect(confirmCard.locator("[data-latest-fact]")).not.toContainText("10070757521@qq.com");
@@ -1526,7 +1527,8 @@ test("home confirm CTA names the target stage and opens confirm_stage", async ({
   await expect(card).not.toContainText("支撑进入");
   const cta = card.locator("[data-confirm-enter-stage]");
   await expect(cta).toHaveText("进入已回复 · 有兴趣 →");
-  await expect(cta).toHaveClass(/work/);
+  await expect(cta).toHaveClass(/ghost/);
+  await expect(page.locator("[data-followed-batch-confirm]")).toHaveClass(/ghost/);
   await expect(card.getByRole("button", { name: "确认阶段", exact: true })).toHaveCount(0);
   await cta.click();
   await expect(page).toHaveURL(/\/s\//);

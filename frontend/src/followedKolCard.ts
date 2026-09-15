@@ -576,7 +576,7 @@ export function matchesStageTab(card: FollowedKolCardModel, tab: string): boolea
 
 export type FollowedKolCtaEmphasis = "quiet" | "strong";
 
-/** L3 stage-enter is the only auto-emphasized list action (ADR-031 one-strong-CTA). */
+/** Writable L3 stage-enter — the only action the bulk top bar may fill. */
 export function isTopPriorityWorkAction(card: FollowedKolCardModel): boolean {
   return card.recommended_action.kind === "confirm-stage"
     && card.recommended_action.can_write_stage
@@ -587,21 +587,46 @@ export function isDraftWorkAction(card: FollowedKolCardModel): boolean {
   return card.recommended_action.kind === "compose";
 }
 
-/** At most one auto-strong CTA: unique writable stage-enter in the viewport. */
+export function followedStageEnterCards(cards: FollowedKolCardModel[]): FollowedKolCardModel[] {
+  return cards.filter(isTopPriorityWorkAction);
+}
+
+/** Optional #140 helper. Bulk Actions prefer 0 auto-filled row CTAs, so Home does not call this. */
 export function soleTopPriorityCardId(cards: FollowedKolCardModel[]): string | null {
-  const hits = cards.filter(isTopPriorityWorkAction);
+  const hits = followedStageEnterCards(cards);
   return hits.length === 1 ? hits[0].id : null;
 }
 
-/** Hover/focus beat selection; selection beats the sole list-priority. One card only. */
+/** Top-bar label. Stage-enter only — SEND≠STAGE; draft never fills this slot. */
+export function followedBulkCtaLabel(selected: FollowedKolCardModel[]): string {
+  const stage = followedStageEnterCards(selected);
+  if (stage.length === 1) return stage[0].recommended_action.label;
+  if (stage.length > 1) {
+    const targets = new Set(
+      stage.map((card) => formatStageBadge(card.recommended_action.target_stage_label || "")),
+    );
+    if (targets.size === 1) {
+      const [label] = [...targets];
+      return `确认进入${label}（${stage.length}）`;
+    }
+    return `确认进入建议阶段（${stage.length}）`;
+  }
+  return "确认进入建议阶段";
+}
+
+/**
+ * Bulk Actions: selection owns the one filled CTA (top bar).
+ * Idle rows stay ghost. Hover/focus may strengthen one row only when nothing is selected.
+ * Sole-priority auto-fill is unused so multiple stage-enter rows stay 0 filled.
+ */
 export function pickFollowedListCtaEmphasis(input: {
   cardId: string;
   hoveredId?: string | null;
   focusedId?: string | null;
-  selectedId?: string | null;
-  solePriorityId?: string | null;
+  selectedIds?: readonly string[] | null;
 }): FollowedKolCtaEmphasis {
-  const active = input.hoveredId || input.focusedId || input.selectedId || input.solePriorityId || "";
+  if (input.selectedIds && input.selectedIds.length > 0) return "quiet";
+  const active = input.hoveredId || input.focusedId || "";
   return active && active === input.cardId ? "strong" : "quiet";
 }
 
