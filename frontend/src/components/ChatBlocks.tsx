@@ -19,6 +19,8 @@ import { useViewMode } from "../viewMode";
 import { occurredAtMs } from "../mail-time";
 import { officialStageReached } from "../journey";
 import { MESSAGE_RISK_LABEL, messageRisk, type MessageRisk } from "../agentUx";
+import { draftSendConfirm } from "../adminConfirm";
+import { useAdminConfirm } from "./ConfirmDialog";
 
 type ThreadRole = "user" | "assistant" | "system";
 type ResultShape = "task_result" | "draft" | "confirm" | "send" | "stage";
@@ -311,6 +313,7 @@ export function DraftArtifact({
   const [body, setBody] = useState(card.body || "");
   const [err, setErr] = useState(card.send_error || "");
   const [busy, setBusy] = useState<string | null>(null);
+  const { ask, dialog } = useAdminConfirm();
   const sent = card.status === "sent" || !!card.send_disabled;
   const resolvedFrom = pickFromAddr(fromAddr, opts);
   const fromOptionsKey = opts.map((row) => row.email).join("|");
@@ -385,6 +388,13 @@ export function DraftArtifact({
     } finally {
       setBusy(null);
     }
+  };
+
+  const requestSend = () => {
+    if (card.send_disabled || busy) return;
+    ask(draftSendConfirm({ from: resolvedFrom, to: toAddr, subject }), async () => {
+      await send();
+    });
   };
 
   return (
@@ -470,7 +480,7 @@ export function DraftArtifact({
         <button className="btn ghost" data-email-action="translate" onClick={() => void translate()} disabled={!!busy}>
           一键翻译中文（内部）
         </button>
-        <button className="btn work" data-email-action="send" onClick={() => void send()} disabled={!!busy || !!card.send_disabled || !resolvedFrom.trim() || !toAddr.trim()}>
+        <button className="btn work" data-email-action="send" onClick={requestSend} disabled={!!busy || !!card.send_disabled || !resolvedFrom.trim() || !toAddr.trim()}>
           校验并发送原文
         </button>
       </div>
@@ -482,6 +492,7 @@ export function DraftArtifact({
           {err}
         </div>
       )}
+      {dialog}
     </article>
   );
 }
@@ -918,6 +929,7 @@ export function ResultDraftPreview({ card, onRefresh }: { card: Record<string, u
     .filter(Boolean);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const { ask, dialog } = useAdminConfirm();
   const confirmSend = async () => {
     if (!draftId) return;
     setBusy(true);
@@ -930,6 +942,12 @@ export function ResultDraftPreview({ card, onRefresh }: { card: Record<string, u
     } finally {
       setBusy(false);
     }
+  };
+  const requestSend = () => {
+    if (!draftId || busy) return;
+    ask(draftSendConfirm({ from, to, subject }), async () => {
+      await confirmSend();
+    });
   };
   if (!from && !to && !subject && !body && !draftId && !actions.some((item) => /确认发送/.test(item))) return null;
   return (
@@ -944,14 +962,15 @@ export function ResultDraftPreview({ card, onRefresh }: { card: Record<string, u
             type="button"
             className="btn work"
             data-email-action="send"
-            onClick={() => void confirmSend()}
+            onClick={requestSend}
             disabled={busy || !draftId}
           >
             {busy ? "正在发送…" : "确认发送"}
           </button>
         </div>
       ) : null}
-      {err ? <p className="error">{err}</p> : null}
+      {err ? <p className="error" data-persistent-error>{err}</p> : null}
+      {dialog}
     </div>
   );
 }
@@ -1302,6 +1321,13 @@ export function KolMailCard({
   const replySubject = replySubjectOf(subject);
   const suggestedLabel = stageLabel(suggested, String(judgment.suggested_label || ""));
   const currentLabel = stageLabel(String(payload.current_stage || ""), String(payload.current_label || ""));
+  const autoAdvanced = payload.auto_advanced && typeof payload.auto_advanced === "object"
+    ? payload.auto_advanced as { to_stage?: string; label?: string }
+    : null;
+  const factSuggestLabel = autoAdvanced
+    ? String(autoAdvanced.label || stageLabel(String(autoAdvanced.to_stage || "")) || suggestedLabel)
+    : "";
+  const suggestText = factSuggestLabel || suggestedLabel;
   const reply = async () => {
     if (!sessionId) return;
     const conversationId = String(payload.conversation_id || "");
@@ -1367,10 +1393,14 @@ export function KolMailCard({
         : <p className="muted" data-mail-empty>正文未拉取到，请回到首页点「刷新收取」后再打开。</p>}
       {inbound && judgment.reason ? <p className="muted" data-mail-judgment>{String(judgment.reason)}</p> : null}
       {currentLabel ? <p className="muted" data-mail-current-stage>当前 {currentLabel}</p> : null}
-      {payload.auto_advanced ? (
-        <p data-auto-advanced>已按事实进入 {String((payload.auto_advanced as { label?: string }).label || suggestedLabel)}</p>
-      ) : suggestedLabel ? (
-        <p className="muted" data-mail-suggest>建议进入 {suggestedLabel}。改阶段请走阶段确认卡，回复不会改阶段。</p>
+      {suggestText ? (
+        <p
+          className="muted"
+          data-mail-suggest
+          data-auto-advanced={autoAdvanced ? "suggest" : undefined}
+        >
+          建议进入 {suggestText}。改阶段请走阶段确认卡，回复不会改阶段。
+        </p>
       ) : null}
       <div className="action-row">
         <button type="button" className="btn work" data-mail-reply onClick={() => void reply()} disabled={!sessionId}>

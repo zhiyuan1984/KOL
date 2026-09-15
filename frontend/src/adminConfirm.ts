@@ -1,6 +1,6 @@
 /** L3 confirm copy for admin destructive writes. Object / scope / consequence only. */
 
-export type AdminConfirmTone = "danger" | "primary";
+export type AdminConfirmTone = "danger" | "primary" | "work";
 export type AdminConfirmFocus = "cancel" | "confirm" | "reason";
 
 export type AdminConfirmCopy = {
@@ -40,6 +40,7 @@ export type AdminConfirmKind =
   | "pipeline-stage"
   | "approval-approve"
   | "approval-reject"
+  | "draft-send"
   | "memory-delete"
   | "session-delete"
   | "starry-unbind";
@@ -302,6 +303,21 @@ export function approvalDecideConfirm(input: {
     reasonLabel: "驳回原因",
     reasonPlaceholder: "说明为什么驳回",
     initialFocus: reject ? "reason" : "confirm",
+  };
+}
+
+export function draftSendConfirm(input: { from?: string; to?: string; subject?: string }): AdminConfirmCopy {
+  const from = String(input.from || "").trim() || "未指定发件邮箱";
+  const to = String(input.to || "").trim() || "未指定收件邮箱";
+  const subject = String(input.subject || "").trim() || "无主题";
+  return {
+    kind: "draft-send",
+    title: "确认发送原文",
+    object: `${from} → ${to} · ${subject}`,
+    scope: "外发 SMTP · 英文原文（内部中文不发送）",
+    consequence: "确认后将真正发出这封信。发送不等于推进阶段，正式 stage_code 保持不变。失败会留在本卡，不会假装已发送。",
+    confirmLabel: "确认发送",
+    confirmTone: "work",
   };
 }
 

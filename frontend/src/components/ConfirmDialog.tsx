@@ -75,9 +75,9 @@ export function ConfirmDialog({
         className="admin-confirm"
         role="dialog"
         aria-modal="true"
+        aria-busy={busy || undefined}
         aria-labelledby={titleId}
         aria-describedby={descId}
-        aria-busy={busy || undefined}
         data-approval-confirm={approval ? "" : undefined}
         data-approval-confirm-decision={kind === "approval-reject" ? "reject" : kind === "approval-approve" ? "approve" : undefined}
       >
@@ -133,7 +133,7 @@ export function ConfirmDialog({
           <button
             ref={confirmRef}
             type="button"
-            className={tone === "primary" ? "btn primary" : "btn danger"}
+            className={tone === "primary" ? "btn primary" : tone === "work" ? "btn work" : "btn danger"}
             data-admin-confirm-ok
             data-approval-confirm-yes={approval ? "" : undefined}
             disabled={busy || (requireReason && !reason.trim())}

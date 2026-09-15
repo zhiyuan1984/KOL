@@ -1,4 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
+import path from "node:path";
+
+async function saveScreenshot(page: Page, name: string): Promise<void> {
+  const dir = process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results";
+  await page.screenshot({ path: path.join(dir, name), fullPage: true });
+}
 
 async function openFollowed(page: Page) {
   await page.locator('[data-home-mode="lifecycle"]').click();
@@ -75,6 +81,7 @@ test("send chrome has no stage picker; Chat header is not a lifecycle board", as
   await expect(page.locator("[data-workbench] [data-kind='stage-from-draft']")).toHaveCount(0);
   await expect(page.locator('[data-workbench] [data-email-action="confirm-stage"]')).toHaveCount(0);
   await expect(page.locator("[data-workbench] [data-kind='email-card']")).not.toContainText("确认推进阶段");
+  await expect(page.locator("[data-admin-confirm='draft-send']")).toHaveCount(0);
 });
 
 test("inbound mail card replies only; stage write stays on confirm_stage card", async ({ page, request }) => {
@@ -99,4 +106,141 @@ test("inbound mail card replies only; stage write stays on confirm_stage card", 
   await expect(confirm).toContainText("初步接触");
   await expect(confirm.locator("[data-confirm-stage]")).toBeVisible();
   await expect(page.locator("body")).not.toContainText("Starry KOL MCP");
+});
+
+test("draft send opens L3 confirm with object/scope/consequence; cancel does not send", async ({ page, request }) => {
+  const ses = await request.post("/api/collaborations/col_xiaomei/session").then((r) => r.json() as Promise<{ id: string }>);
+  await page.goto(`/s/${ses.id}`);
+  await page.locator("[data-composer-input]").fill("写跟进邮件 @小美妆日记");
+  await page.locator("[data-send]").click();
+  await expect(page.locator("[data-admin-confirm='draft-send']")).toHaveCount(0);
+  await expect(page.locator("[data-workbench] [data-kind='email-card']")).toBeVisible({ timeout: 20000 });
+  const sendPosts: string[] = [];
+  page.on("request", (req) => {
+    if (req.method() === "POST" && /\/api\/drafts\/[^/]+\/send$/.test(new URL(req.url()).pathname)) {
+      sendPosts.push(req.url());
+    }
+  });
+  await page.locator('[data-workbench] [data-email-action="send"]').click();
+  const dialog = page.locator("[data-admin-confirm='draft-send']");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveAttribute("data-risk", "L3");
+  await expect(dialog.locator("[data-admin-confirm-object]")).not.toHaveText("");
+  await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("外发");
+  await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("发送不等于推进阶段");
+  await expect(dialog.locator("[data-admin-confirm-ok]")).toHaveText("确认发送");
+  await saveScreenshot(page, "chat_l3_draft_send_confirm.png");
+  await page.locator("[data-admin-confirm-cancel]").click();
+  await expect(dialog).toHaveCount(0);
+  expect(sendPosts).toEqual([]);
+  await expect(page.getByText(/已发送原文/)).toHaveCount(0);
+});
+
+test("result draft 确认发送 also requires L3 confirm before SMTP", async ({ page }) => {
+  const now = new Date().toISOString();
+  let sent = false;
+  await page.route("**/api/sessions/result-send**", (route) => route.fulfill({
+    json: {
+      id: "result-send",
+      agent_status: "listening",
+      collaboration_id: "col_xiaomei",
+      messages: [{
+        id: "result",
+        session_id: "result-send",
+        role: "assistant",
+        kind: "task_result_card",
+        created_at: now,
+        payload: {
+          type: "task_result",
+          title: "合作邮件草稿",
+          summary: "已写好一封建联信",
+          subject: "Collaboration with LiTime",
+          body: "Hi, we would love to collaborate.",
+          from: "brand@litime.com",
+          to: "kol@example.com",
+          draft_id: "draft_json",
+          actions: ["确认发送"],
+        },
+      }],
+    },
+  }));
+  await page.route("**/api/drafts/draft_json/send", async (route) => {
+    sent = true;
+    await route.fulfill({ json: { ok: true } });
+  });
+  await page.goto("/s/result-send");
+  const sendBtn = page.locator("[data-workbench] [data-result-draft] [data-email-action='send']");
+  await expect(sendBtn).toHaveText("确认发送");
+  await sendBtn.click();
+  const dialog = page.locator("[data-admin-confirm='draft-send']");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator("[data-admin-confirm-object]")).toContainText("brand@litime.com");
+  await expect(dialog.locator("[data-admin-confirm-object]")).toContainText("kol@example.com");
+  await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("发送不等于推进阶段");
+  await saveScreenshot(page, "chat_l3_result_draft_send_confirm.png");
+  expect(sent).toBe(false);
+  await page.locator("[data-admin-confirm-ok]").click();
+  await expect.poll(() => sent).toBe(true);
+});
+
+test("KolMailCard treats auto_advanced as a suggestion, not a written stage", async ({ page }) => {
+  const now = new Date().toISOString();
+  await page.route("**/api/sessions/auto-adv**", (route) => route.fulfill({
+    json: {
+      id: "auto-adv",
+      agent_status: "listening",
+      collaboration_id: "col_ship",
+      journey: {
+        handle: "Wendell Fishing",
+        collaboration_id: "col_ship",
+        stage_code: "SAMPLE_PENDING",
+        stage_label: "待寄样",
+      },
+      messages: [
+        {
+          id: "mail",
+          session_id: "auto-adv",
+          role: "assistant",
+          kind: "kol_mail_card",
+          created_at: now,
+          payload: {
+            direction: "inbound",
+            subject: "Your LiTime Product Has Shipped",
+            body: "The sample shipped via UPS. Tracking number 1Z999AA10123456784.",
+            from: "ops@litime.example",
+            current_stage: "SAMPLE_PENDING",
+            current_label: "待寄样",
+            auto_advanced: { to_stage: "SHIPPED", label: "已发货" },
+            judgment: { suggested_stage: "SHIPPED", suggested_label: "已发货", reason: "物流运单" },
+          },
+        },
+        {
+          id: "stage",
+          session_id: "auto-adv",
+          role: "assistant",
+          kind: "confirm_stage_card",
+          created_at: now,
+          payload: {
+            current_stage: "SAMPLE_PENDING",
+            current_label: "待寄样",
+            proposed_stage: "SHIPPED",
+            targets: [{ code: "SHIPPED", label: "已发货", track: "main" }],
+          },
+        },
+      ],
+    },
+  }));
+  await page.goto("/s/auto-adv");
+  const mail = page.locator("[data-workbench] [data-kind='kol-mail-card']");
+  await expect(mail).toBeVisible();
+  await expect(mail).not.toContainText("已按事实进入");
+  await expect(mail.locator("[data-mail-suggest][data-auto-advanced='suggest']")).toContainText("建议进入 已发货");
+  await expect(mail.locator("[data-mail-suggest]")).toContainText("阶段确认卡");
+  await expect(mail).not.toContainText("已按事实进入");
+  await expect(mail.locator("[data-mail-confirm]")).toHaveCount(0);
+  await expect(mail.locator("[data-mail-stage-select]")).toHaveCount(0);
+  const confirm = page.locator("[data-workbench] [data-kind='confirm-stage-card']");
+  await expect(confirm).toBeVisible();
+  await expect(confirm.locator("[data-confirm-stage]")).toBeVisible();
+  await saveScreenshot(page, "chat_auto_advanced_as_suggestion.png");
 });

@@ -359,6 +359,15 @@ async function askConfirmStage(page: Page, handle: string, stageLabel: string) {
   await expect(page.locator('[data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 20000 });
 }
 
+async function confirmDraftSend(page: Page) {
+  const dialog = page.locator("[data-admin-confirm='draft-send']");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator("[data-admin-confirm-object]")).not.toHaveText("");
+  await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("外发");
+  await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("发送不等于推进阶段");
+  await page.locator("[data-admin-confirm-ok]").click();
+}
+
 test("home task template 写合作邮件 prefills home composer then follows the home ask path", async ({ page, request }) => {
   const createdPosts: string[] = [];
   page.on("request", (r) => {
@@ -2345,6 +2354,7 @@ test("send failure stays as persistent error, not toast-success", async ({ page,
   await expectDraft(page);
   await openDraftTab(page);
   await page.locator('[data-email-action="send"]').click();
+  await confirmDraftSend(page);
   await expect(page.locator("[data-persistent-error]").first()).toBeVisible();
   await expect(page.getByText("已发送原文")).toHaveCount(0);
   await expect(page.locator(".toast-success")).toHaveCount(0);
@@ -2383,6 +2393,7 @@ test("two buttons stay separate: send keeps stage, confirm-stage advances", asyn
   await expect(page.locator("[data-workbench] [data-kind='stage-from-draft']")).toHaveCount(0);
   await expect(page.locator('[data-workbench] [data-email-action="confirm-stage"]')).toHaveCount(0);
   await page.locator('[data-email-action="send"]').click();
+  await confirmDraftSend(page);
   await expect(page.getByText(/已发送原文/).first()).toBeVisible();
   const pipe = await request.get("/api/pipeline");
   const body = await pipe.json();
