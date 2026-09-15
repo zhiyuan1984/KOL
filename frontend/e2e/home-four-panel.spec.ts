@@ -611,6 +611,106 @@ test("home discovery candidate rows use workbench layout and dedupe metrics", as
   await expectNoPageHorizontalScroll(page);
 });
 
+async function stubHomeTodos(page: Page, todos: Array<Record<string, unknown>>) {
+  const payload = {
+    kols: [],
+    tabs: [{ code: "all", count: 0 }],
+    tasks: todos,
+    workbench: {
+      summary: { open: todos.length, overdue: 0, due_today: 1, waiting: 0, insights: 0 },
+      todo: todos,
+    },
+  };
+  await page.route("**/api/home/board", (route) => route.fulfill({ json: payload }));
+  await page.route("**/api/tasks", (route) => route.fulfill({ json: todos }));
+}
+
+async function todoRowLayout(card: ReturnType<Page["locator"]>) {
+  return card.evaluate((el) => {
+    const act = (el.matches(".todo-card-act") ? el : el.querySelector(".todo-card-act")) as HTMLElement | null;
+    const copy = el.querySelector(".todo-card-copy") as HTMLElement | null;
+    const main = el.querySelector(".todo-card-main") as HTMLElement | null;
+    const status = el.querySelector(".todo-card-status") as HTMLElement | null;
+    const pane = el.closest("[data-todo-md]") as HTMLElement | null;
+    if (!act || !copy || !main || !status) {
+      throw new Error("todo action row is missing mark/copy/status");
+    }
+    const actBox = act.getBoundingClientRect();
+    const copyBox = copy.getBoundingClientRect();
+    const mainBox = main.getBoundingClientRect();
+    const statusBox = status.getBoundingClientRect();
+    const paneBox = pane?.getBoundingClientRect();
+    return {
+      actWidth: actBox.width,
+      copyWidth: copyBox.width,
+      paneWidth: paneBox?.width ?? 0,
+      actMaxWidth: getComputedStyle(act).maxWidth,
+      copyMaxWidth: getComputedStyle(copy).maxWidth,
+      paneMaxWidth: pane ? getComputedStyle(pane).maxWidth : "",
+      copyTemplate: getComputedStyle(copy).gridTemplateColumns,
+      mainRight: mainBox.right,
+      mainBottom: mainBox.bottom,
+      mainTop: mainBox.top,
+      statusLeft: statusBox.left,
+      statusTop: statusBox.top,
+      statusRight: statusBox.right,
+      actRight: actBox.right,
+    };
+  });
+}
+
+test("home todo action rows use full-width workbench layout", async ({ page }) => {
+  const due = new Date();
+  due.setHours(18, 0, 0, 0);
+  const todos = [
+    {
+      id: "tsk_wide_quote",
+      title: "写北美户外评测达人合作报价并核对样品寄送地址",
+      source: "manual",
+      status: "pending",
+      priority: "high",
+      kol_name: "TheSolarLab",
+      current_stage: "初步接触",
+      due_at: due.toISOString(),
+      history_summary: "金额待确认，今天需要发出报价",
+    },
+    {
+      id: "tsk_wide_follow",
+      title: "跟进 Outdoor Gear Lab 样品签收",
+      source: "manual",
+      status: "pending",
+      kol_name: "OutdoorGearLab",
+      due_at: new Date(due.getTime() + 86_400_000).toISOString(),
+    },
+  ];
+  await stubHomeTodos(page, todos);
+  await page.goto("/");
+  await openMode(page, "todo");
+  await expect(page.locator("[data-todo-md]")).toBeVisible();
+  const quote = page.locator("[data-todo-card]").filter({ hasText: "写北美户外评测达人合作报价并核对样品寄送地址" });
+  await expect(quote).toBeVisible();
+  await expect(quote.locator("[data-todo-act]")).toBeVisible();
+  await expect(quote.locator("[data-todo-status]")).toContainText("今天到期");
+
+  const wide = await todoRowLayout(quote);
+  expect(wide.actMaxWidth).toMatch(/^(none|100%)$/);
+  expect(wide.copyMaxWidth).toMatch(/^(none|100%)$/);
+  expect(wide.paneMaxWidth).toMatch(/^(none|100%)$/);
+  expect(wide.copyTemplate.split(" ").filter(Boolean).length).toBeGreaterThanOrEqual(2);
+  expect(wide.statusLeft).toBeGreaterThan(wide.mainRight - 2);
+  expect(Math.abs(wide.statusTop - wide.mainTop)).toBeLessThan(48);
+  expect(wide.actWidth).toBeGreaterThan(wide.paneWidth * 0.9);
+  expect(wide.actWidth).toBeGreaterThan(42 * 16);
+  expect(wide.actRight - wide.statusRight).toBeLessThan(24);
+  await expectNoPageHorizontalScroll(page);
+
+  await page.setViewportSize({ width: 720, height: 900 });
+  const stacked = await todoRowLayout(quote);
+  expect(stacked.statusTop).toBeGreaterThan(stacked.mainBottom - 4);
+  expect(stacked.actWidth).toBeGreaterThan(stacked.paneWidth * 0.9);
+  await expectNoPageHorizontalScroll(page);
+});
+
 test("today suggestion convert to todo dedupes", async ({ page }) => {
   await page.goto("/");
   await openMode(page, "todo");

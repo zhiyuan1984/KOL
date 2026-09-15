@@ -927,7 +927,8 @@ summary:focus-visible,
 }
 .today-existing-todos {
   margin: var(--space-4) 0 0;
-  max-width: 42rem;
+  width: 100%;
+  max-width: none;
 }
 .home-dedupe-notice {
   margin: 0 0 var(--space-2);
@@ -1384,11 +1385,12 @@ summary:focus-visible,
     grid-template-columns: minmax(0, 1fr);
   }
 }
-.todo-md { margin: 8px 0 0; max-width: 42rem; }
+.todo-md { margin: 8px 0 0; width: 100%; max-width: none; min-width: 0; }
 .todo-md-empty {
   color: var(--text-muted);
   font-size: var(--font-xs);
-  max-width: 42rem;
+  width: 100%;
+  max-width: none;
 }
 .todo-card-act {
   display: grid;
@@ -1396,7 +1398,7 @@ summary:focus-visible,
   gap: var(--space-2);
   align-items: start;
   width: 100%;
-  max-width: 42rem;
+  max-width: none;
   border: 0;
   background: transparent;
   text-align: left;
@@ -1417,10 +1419,17 @@ summary:focus-visible,
   display: grid;
   gap: 4px;
   min-width: 0;
-  max-width: 40rem;
+  max-width: none;
+  width: 100%;
   text-align: left;
   justify-items: start;
   overflow-x: hidden;
+}
+.todo-card-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  width: 100%;
 }
 .todo-card-copy strong {
   display: block;
@@ -1439,14 +1448,40 @@ summary:focus-visible,
 .todo-card-why {
   margin: 0;
   max-width: 100%;
-  color: color-mix(in srgb, var(--text) 70%, var(--text-muted));
+  color: color-mix(in srgb, var(--text) 78%, var(--text-muted));
   font-size: var(--font-ui);
   line-height: 1.5;
   overflow-wrap: anywhere;
   word-break: break-word;
   white-space: normal;
 }
-.todo-card-kicker { color: color-mix(in srgb, var(--text) 82%, var(--text-muted)); }
+.todo-card-kicker { color: color-mix(in srgb, var(--text) 88%, var(--text-muted)); }
+.todo-card-status { color: color-mix(in srgb, var(--text) 82%, var(--text-muted)); }
+@media (min-width: 900px) {
+  .todo-card-act {
+    align-items: center;
+  }
+  .todo-card-copy {
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: var(--space-4);
+    align-items: start;
+  }
+  .todo-card-main {
+    grid-column: 1;
+  }
+  .todo-card-status {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    align-self: center;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .todo-card-progress,
+  .todo-card-why {
+    grid-column: 1;
+  }
+}
 .insight-confirm { margin: 16px 0 0; }
 .home-fold-more {
   display: inline-flex;
