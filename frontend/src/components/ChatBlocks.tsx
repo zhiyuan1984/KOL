@@ -501,7 +501,7 @@ export function ConfirmStageArtifact({
   const [code, setCode] = useState(() => (
     suggested && targets.some((item) => item.code === suggested) ? suggested : (targets[0]?.code || "")
   ));
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState(() => String(payload.reason || ""));
   const [reasonCode, setReasonCode] = useState("HUMAN_CONFIRMED");
   const [err, setErr] = useState("");
   const [notice, setNotice] = useState("");

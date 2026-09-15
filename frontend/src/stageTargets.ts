@@ -151,14 +151,20 @@ export function pipelineStageConfirm(
   target: PipelineStageTarget,
 ): AdminConfirmCopy {
   const named = `${target.label}（${target.code}）`;
+  const needsReason = pipelineStageNeedsReason(target);
   return {
     kind: "pipeline-stage",
     title: "提出阶段变更",
     object: `@${handle} · ${currentLabel || "当前阶段"} → ${named}`,
     scope: "正式阶段 · confirm_stage（Host 闸门，本页不写库）",
-    consequence: pipelineStageNeedsReason(target)
-      ? `打开确认卡并带上具体目标 ${target.code}。${target.note}。跳转、回退或进出异常必须在确认卡填写原因。发送不等于改阶段。`
+    consequence: needsReason
+      ? `打开确认卡并带上具体目标 ${target.code}。${target.note}。跳转、回退或进出异常必须填写原因。发送不等于改阶段。`
       : `打开确认卡并带上具体目标 ${target.code}。发送不等于改阶段。正式写入仍要在会话里确认。`,
     confirmLabel: "打开确认卡",
+    confirmTone: "primary",
+    requireReason: needsReason,
+    reasonLabel: "阶段变更原因",
+    reasonPlaceholder: "说明为什么跳转、回退或进出异常",
+    initialFocus: needsReason ? "reason" : "cancel",
   };
 }

@@ -242,14 +242,19 @@ function genericResult(log: Json[], skill: string, col: Json, extra: Json = {}):
 function stageProposal(log: Json[], col: Json, extra: Json = {}): Json {
   const c = Object.keys(col).length ? col : collab(log, String(col.handle || extra.handle || ""));
   const current = String(c.stage_code || "INITIAL_CONTACT");
+  const entities = extra.entities && typeof extra.entities === "object" ? extra.entities as Json : {};
+  const hinted = String(entities.proposed_stage || extra.proposed_stage || "").trim();
+  const operatorReason = String(entities.reason || extra.reason || "").trim();
   const judgment = judgeCollaborationStage(judgmentInput(extra, c, current));
   const completed = judgment.suggested_stage && judgment.suggested_stage !== current
     ? [judgment.suggested_stage]
     : [];
   const legal = legalTargets(current);
-  const proposed = (judgment.suggested_stage && legal.includes(judgment.suggested_stage)
-    ? judgment.suggested_stage
-    : legal[0]) || current;
+  const proposed = (hinted && legal.includes(hinted)
+    ? hinted
+    : (judgment.suggested_stage && legal.includes(judgment.suggested_stage)
+      ? judgment.suggested_stage
+      : legal[0])) || current;
   return {
     type: "propose_stage",
     collaboration_id: c.id,
@@ -258,12 +263,12 @@ function stageProposal(log: Json[], col: Json, extra: Json = {}): Json {
     tracks: groupedStageTracks(current, proposed),
     evidence: {
       source: "skill",
-      summary: judgment.reason || `只读证据支持从 ${label(current)}评估推进至 ${label(proposed)}`,
+      summary: operatorReason || judgment.reason || `只读证据支持从 ${label(current)}评估推进至 ${label(proposed)}`,
       weight: ["body", "attachment", "fulfillment", "subject"],
       hits: judgment.evidence,
       completed,
     },
-    reason: judgment.reason || "基于当前合作记录提出候选阶段；等待人工确认。",
+    reason: operatorReason || judgment.reason || "基于当前合作记录提出候选阶段；等待人工确认。",
     auto_propose: false,
     flags: judgment.flags,
   };
