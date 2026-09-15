@@ -66,8 +66,12 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   const dock = page.locator("[data-home] .home-composer-dock");
   const shell = page.locator("[data-home] [data-composer] .composer");
   await expect(shell).toBeVisible();
-  await expect(page.locator("[data-home] [data-composer-divider]")).toBeVisible();
+  await expect(page.locator("[data-home] [data-composer-divider]")).toBeHidden();
+  await expect(page.locator("[data-home] [data-composer-tool='project']")).toBeHidden();
+  await expect(page.locator("[data-home] [data-composer-tool='skills']")).toBeHidden();
   await expect(page.locator("[data-coach-next], [data-next-step-card]")).toHaveCount(0);
+  const sans = await page.evaluate(() => getComputedStyle(document.documentElement).fontFamily);
+  expect(sans.toLowerCase()).toContain("inter");
 
   const layout = await page.evaluate(() => {
     const pane = document.querySelector("[data-home]");
@@ -92,18 +96,15 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   const chrome = await composerChrome(page, "[data-home]");
   expect(parseFloat(chrome.minHeight)).toBeGreaterThanOrEqual(72);
   expect(parseFloat(chrome.minHeight)).toBeLessThanOrEqual(96);
-  expect(parseFloat(chrome.radius)).toBeGreaterThanOrEqual(24);
-  expect(parseFloat(chrome.radius)).toBeLessThanOrEqual(26);
+  expect(parseFloat(chrome.radius)).toBeGreaterThanOrEqual(999);
   near(rgb(chrome.borderColor) as number[], [229, 230, 232]);
   near(rgb(chrome.background) as number[], [255, 255, 255]);
   near(rgb(chrome.placeholderColor) as number[], [166, 166, 166]);
   expect(chrome.placeholderSize).toBe("16px");
   expect(parseFloat(chrome.plusWidth)).toBe(36);
   expect(parseFloat(chrome.plusHeight)).toBe(36);
-  near(rgb(chrome.plusBg) as number[], [246, 247, 248]);
-  expect(parseFloat(chrome.dividerWidth)).toBe(1);
-  expect(parseFloat(chrome.dividerHeight)).toBe(16);
-  near(rgb(chrome.dividerColor) as number[], [229, 229, 229]);
+  expect(chrome.plusBg).toMatch(/rgba\(\s*0,\s*0,\s*0,\s*0\s*\)|transparent/);
+  expect(parseFloat(chrome.dividerWidth) === 0 || chrome.dividerWidth === "auto").toBeTruthy();
   near(rgb(chrome.sendColor) as number[], [255, 255, 255]);
 
   await page.locator("[data-home] [data-attach]").click();
@@ -116,10 +117,9 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
     const cs = getComputedStyle(el);
     return { width: cs.width, height: cs.height, radius: cs.borderTopLeftRadius, bg: cs.backgroundColor, color: cs.color };
   });
-  expect(parseFloat(skillChip.width)).toBeGreaterThanOrEqual(98);
+  expect(parseFloat(skillChip.width)).toBeGreaterThanOrEqual(32);
   expect(parseFloat(skillChip.height)).toBe(32);
-  expect(parseFloat(skillChip.radius)).toBe(12);
-  near(rgb(skillChip.bg) as number[], [246, 247, 248]);
+  expect(parseFloat(skillChip.radius)).toBeGreaterThanOrEqual(16);
   near(rgb(skillChip.color) as number[], [0, 0, 0]);
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);

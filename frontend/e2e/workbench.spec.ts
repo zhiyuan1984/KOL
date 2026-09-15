@@ -2575,6 +2575,17 @@ test("two buttons stay separate: send keeps stage, confirm-stage advances", asyn
   expect(x2.stage_code).toBe("INTERESTED");
 });
 
+test("sidebar 新工作任务 is not active on 我跟进的红人", async ({ page }) => {
+  await page.goto("/?tab=lifecycle");
+  await expect(page.locator("[data-home]")).toHaveAttribute("data-home-active-mode", "lifecycle");
+  await expect(page.locator('[data-nav="new-task"]')).not.toHaveClass(/active/);
+  await expect(page.locator('[data-nav="new-task"]')).not.toHaveAttribute("aria-current", "page");
+  await page.locator('[data-home-mode="today"]').click();
+  await expect(page.locator("[data-home]")).toHaveAttribute("data-home-active-mode", "today");
+  await expect(page.locator('[data-nav="new-task"]')).toHaveClass(/active/);
+  await expect(page.locator('[data-nav="new-task"]')).toHaveAttribute("aria-current", "page");
+});
+
 test("sidebar 新工作任务 highlight does not also select 进行中", async ({ page }) => {
   await page.goto("/");
   await page.locator('[data-nav="new-task"]').click();

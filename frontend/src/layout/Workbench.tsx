@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api, type Account, type SessionRow } from "../api";
 import { useAccount } from "../components/AuthGate";
 import UserMenu from "../components/UserMenu";
+import { parseHomeMode } from "../home/modes";
 import { useViewMode } from "../viewMode";
 
 function Ico({ path }: { path: string }) {
@@ -62,6 +63,10 @@ export default function Workbench() {
   const skillsActive =
     loc.pathname === "/skills"
     || loc.pathname.startsWith("/market/skills");
+  const homeMode = loc.pathname === "/"
+    ? parseHomeMode(new URLSearchParams(loc.search).get("tab"))
+    : null;
+  const newTaskActive = homeMode === "today";
   const adminAvailable = admin || me?.available_modes?.includes("admin") === true;
 
   const runningCount = useMemo(
@@ -111,10 +116,16 @@ export default function Workbench() {
         <div className="sidebar-scroll">
         <div className="sidebar-nav-stack">
         <nav className="nav-group" aria-label="今日">
-          <NavLink to="/" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} end data-nav="new-task">
+          <Link
+            to="/"
+            className={"nav-link" + (newTaskActive ? " active" : "")}
+            aria-current={newTaskActive ? "page" : undefined}
+            data-nav="new-task"
+            onClick={() => setMobileOpen(false)}
+          >
             <Ico path="M4 20h4L18 10l-4-4L4 16v4z M14 6l4 4" />
             <span className="sidebar-label">新工作任务</span>
-          </NavLink>
+          </Link>
           <Link
             to={firstRunning ? `/s/${firstRunning.id}` : "/"}
             className={"nav-link" + (runningActive ? " active" : "")}
