@@ -155,6 +155,7 @@ export function HubTile({
   actions,
   sopMark,
   badge,
+  followStatus,
 }: {
   id: string;
   title: string;
@@ -167,6 +168,7 @@ export function HubTile({
   actions?: ReactNode;
   sopMark?: boolean;
   badge?: string;
+  followStatus?: string;
 }) {
   return (
     <div
@@ -174,6 +176,7 @@ export function HubTile({
       data-skill={dataKey === "data-skill" ? id : undefined}
       data-connector={dataKey === "data-connector" ? id : undefined}
       data-partner={dataKey === "data-partner" ? id : undefined}
+      data-partner-follow={dataKey === "data-partner" ? followStatus : undefined}
       data-sop-skill={sopMark ? id : undefined}
     >
       <HubMark id={id} fallback={title} />
@@ -209,7 +212,7 @@ export function SkillHubChrome({
   q: string;
   onQ: (v: string) => void;
 }) {
-  const { admin, debug } = useViewMode();
+  const { debug } = useViewMode();
   return (
     <header className="hub-chrome" data-hub-chrome>
       <nav className="hub-modes" aria-label="技能">
@@ -239,14 +242,20 @@ export function SkillHubChrome({
           <PuzzleIco />
           我的技能
         </Link>
-        {admin && (
-          <Link to="/admin/skills" className="hub-new" data-hub-new>
-            + 新建技能
-          </Link>
-        )}
       </div>
     </header>
   );
+}
+
+function partnerFollowStatus(row: {
+  unbound?: boolean;
+  exception?: boolean;
+  overdue?: boolean | number;
+}): string {
+  if (row.unbound) return "未绑定邮箱";
+  if (row.exception) return "需关注";
+  if (row.overdue) return "待跟进";
+  return "跟进中";
 }
 
 async function startAsk(nav: ReturnType<typeof useNavigate>, text: string, intent?: string, collaborationId?: string) {
@@ -261,7 +270,7 @@ export function SkillHub({ view = "catalog" }: { view?: "catalog" | "partners" }
   const [q, setQ] = useState("");
   const [skills, setSkills] = useState<SkillRow[]>([]);
   const [partners, setPartners] = useState<
-    { id: string; handle: string; stage_label: string; brand: string; platform: string; collaboration_id?: string }[]
+    { id: string; handle: string; brand: string; platform: string; follow_status: string; collaboration_id?: string }[]
   >([]);
   const [chip, setChip] = useState("skills");
   const [busy, setBusy] = useState<string | null>(null);
@@ -274,19 +283,30 @@ export function SkillHub({ view = "catalog" }: { view?: "catalog" | "partners" }
   useEffect(() => {
     api.skillMarket().then((data: unknown) => setSkills(Array.isArray(data) ? (data as SkillRow[]) : []));
     if (view !== "partners") return;
-    api.pipeline().then((data: { groups?: Record<string, { id: string; handle: string; stage_label: string; brand: string; platform: string }[]> }) => {
-      const rows = Object.values(data.groups || {}).flat();
+    api.homeBoard().then((board) => {
+      const rows = Array.isArray(board.kols) ? board.kols : [];
       setPartners(
-        rows.map((r) => ({
-          id: r.id,
-          handle: r.handle,
-          stage_label: r.stage_label,
-          brand: r.brand,
-          platform: r.platform,
-          collaboration_id: r.id,
-        })),
+        rows.map((raw) => {
+          const r = raw as {
+            id?: string;
+            handle?: string;
+            brand?: string;
+            platform?: string;
+            unbound?: boolean;
+            exception?: boolean;
+            overdue?: boolean | number;
+          };
+          return {
+            id: String(r.id || r.handle || ""),
+            handle: String(r.handle || ""),
+            brand: String(r.brand || ""),
+            platform: String(r.platform || ""),
+            follow_status: partnerFollowStatus(r),
+            collaboration_id: String(r.id || ""),
+          };
+        }).filter((row) => row.handle),
       );
-    });
+    }).catch((e) => setErr(e instanceof Error ? e.message : "无法加载工作伙伴"));
   }, [view]);
 
   const useSkill = async (s: SkillRow) => {
@@ -328,7 +348,7 @@ export function SkillHub({ view = "catalog" }: { view?: "catalog" | "partners" }
 
   const partnerKols = useMemo(() => {
     if (view !== "partners") return [];
-    return partners.filter((p) => match(p.handle, `${p.stage_label} ${p.brand} ${p.platform}`));
+    return partners.filter((p) => match(p.handle, `${p.follow_status} ${p.brand} ${p.platform}`));
   }, [view, partners, needle]);
 
   const empty =
@@ -421,8 +441,9 @@ export function SkillHub({ view = "catalog" }: { view?: "catalog" | "partners" }
               id={p.handle}
               title={p.handle}
               kind="达人"
-              summary={`${p.brand} · ${p.platform} · ${p.stage_label}`}
+              summary={[p.brand, p.platform, p.follow_status].filter(Boolean).join(" · ")}
               dataKey="data-partner"
+              followStatus={p.follow_status}
               plusLabel={"跟进 " + p.handle}
               onPlus={() => void startAsk(nav, `写合作邮件 @${p.handle}`, "email_compose", p.collaboration_id)}
             />

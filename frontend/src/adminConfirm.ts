@@ -25,7 +25,10 @@ export type AdminConfirmKind =
   | "credential-ref"
   | "retention-policy"
   | "proposal-reject"
-  | "pipeline-stage";
+  | "pipeline-stage"
+  | "memory-delete"
+  | "session-delete"
+  | "starry-unbind";
 
 function named(label: string, extra = ""): string {
   const name = String(label || "").trim() || "未命名";
@@ -168,5 +171,38 @@ export function knowledgeProposalRejectConfirm(title: string): AdminConfirmCopy 
     requireReason: true,
     reasonLabel: "否决原因",
     reasonPlaceholder: "说明为何否决，将写入提案记录",
+  };
+}
+
+export function memoryDeleteConfirm(title: string, scopeLabel = "仅自己"): AdminConfirmCopy {
+  return {
+    kind: "memory-delete",
+    title: "删除记忆",
+    object: named(title),
+    scope: `本账号 Markdown 记忆 · ${scopeLabel}`,
+    consequence: "这条记忆立即从任务上下文移除，不可恢复。已完成的任务结果不受影响。",
+    confirmLabel: "确认删除",
+  };
+}
+
+export function sessionDeleteConfirm(title: string): AdminConfirmCopy {
+  return {
+    kind: "session-delete",
+    title: "删除会话",
+    object: named(title),
+    scope: "该会话的消息、草稿、运行箱与可归属附件",
+    consequence: "会话从工作台移除，不可恢复。合规迁移记录保留。",
+    confirmLabel: "确认删除",
+  };
+}
+
+export function starryUnbindConfirm(mailbox = "", owner = ""): AdminConfirmCopy {
+  return {
+    kind: "starry-unbind",
+    title: "解除跟进邮箱绑定",
+    object: named(mailbox || "已绑定的跟进邮箱", owner),
+    scope: "当前账号的个人跟进邮箱绑定",
+    consequence: "首页「我跟进的红人」不再按该邮箱过滤。组织连接器与已发出的邮件不受影响。可再次绑定。",
+    confirmLabel: "确认解除",
   };
 }

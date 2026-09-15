@@ -21,7 +21,6 @@ import { AGENT_TASK_STATUS_LABEL, agentTaskUxStatus } from "../agentUx";
 import { useAccount } from "../components/AuthGate";
 import { useViewMode } from "../viewMode";
 import RunHud from "../components/RunHud";
-import TeamRail, { readTeamProgress } from "../components/TeamRail";
 import { REMOTE_BACKEND_LABEL, remoteForSkill } from "../agentConfig";
 import { useRunStatus } from "../hooks/useRunStatus";
 import { rememberJourney } from "../journey";
@@ -691,7 +690,6 @@ export default function Chat() {
 
   const status: AgentRunStatus = agentStatus === "running" || pending ? "running" : (agentStatus as AgentRunStatus) || "listening";
   const { phase, task: runTask } = useRunStatus(id, messages, status);
-  const teamProgress = readTeamProgress(id);
   const skillId = String(task?.skill_id || task?.skill || task?.task_type || runTask?.skill_id || runTask?.skill || "");
   const remoteLabel = debug && skillId ? REMOTE_BACKEND_LABEL[remoteForSkill(skillId)] : undefined;
   const hasVisibleTrace = messages.some((message) => message.kind === "process_trace" || message.kind === "operation_trace");
@@ -932,7 +930,6 @@ export default function Chat() {
               {confirmStageNotice}
             </p>
           ) : null}
-          {teamProgress && <TeamRail progress={teamProgress} />}
           {journey?.handle ? (
             <div className={"kol-journey" + (journey.exception ? " is-exception" : "")} data-kol-journey data-exception={journey.exception ? "true" : undefined}>
               <div className="kol-journey-title">

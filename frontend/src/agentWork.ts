@@ -7,8 +7,6 @@ import { starterPrompt } from "./taskStarters";
 export const MAX_AGENT_NEXT_STEPS = 6;
 const RECENT_KEY = "lingong:recent-agents";
 
-export type AgentPageTab = "work" | "teams" | "spec";
-
 export type AgentKolLike = {
   id?: string;
   handle: string;
@@ -46,11 +44,6 @@ export type RecentAgent = {
 };
 
 const CLOSED = new Set(["completed", "done", "cancelled"]);
-
-export function parseAgentTab(value: string | null): AgentPageTab {
-  if (value === "teams" || value === "spec") return value;
-  return "work";
-}
 
 export function kolPrompt(intent: string, handle?: string): string {
   const raw = handle ? handle.replace(/^@/, "").trim() : "";
