@@ -2595,6 +2595,37 @@ summary:focus-visible,
 .followed-kol-card .kol-cta-link:hover {
   color: var(--text);
 }
+/* One strong Obsidian CTA in the followed list (ADR-031 / Discovery #139). */
+.followed-kol-card .kol-cta-primary .kol-cta-work.btn.ghost {
+  background: var(--canvas);
+  color: var(--text);
+  border-color: var(--line);
+}
+.followed-kol-card.is-hovered .kol-cta-primary .kol-cta-work:not(.is-draft-quiet),
+.followed-kol-card:focus-within .kol-cta-primary .kol-cta-work:not(.is-draft-quiet),
+.followed-kol-card[data-selected][data-cta-emphasis="strong"] .kol-cta-primary .kol-cta-work:not(.is-draft-quiet),
+.followed-kol-card[data-cta-emphasis="strong"] .kol-cta-primary .kol-cta-work:not(.is-draft-quiet) {
+  background: var(--primary);
+  color: var(--primary-fg);
+  border-color: var(--primary);
+}
+.followed-kol-card .kol-cta-primary .kol-cta-work.is-draft-quiet,
+.followed-kol-card.is-hovered .kol-cta-primary .kol-cta-work.is-draft-quiet,
+.followed-kol-card:focus-within .kol-cta-primary .kol-cta-work.is-draft-quiet,
+.followed-kol-card[data-selected] .kol-cta-primary .kol-cta-work.is-draft-quiet,
+.followed-kol-card[data-cta-emphasis="strong"] .kol-cta-primary .kol-cta-work.is-draft-quiet {
+  background: var(--canvas);
+  color: var(--text);
+  border-color: var(--line);
+}
+.followed-kol-list:has(:focus-within) .followed-kol-card:not(:focus-within) .kol-cta-primary .kol-cta-work.btn {
+  background: var(--canvas);
+  color: var(--text);
+  border-color: var(--line);
+}
+.followed-kol-card[data-selected] {
+  background: color-mix(in srgb, var(--bg-elevated) 55%, var(--bg));
+}
 @media (min-width: 900px) {
   .followed-kol-card .kol-split {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

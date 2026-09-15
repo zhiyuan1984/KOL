@@ -49,7 +49,9 @@ import {
 import {
   matchesKolSearch,
   matchesStageFilter,
+  pickFollowedListCtaEmphasis,
   projectFollowedKolCard,
+  soleTopPriorityCardId,
   sortFollowedKolCards,
   type FollowedKolCardModel,
   type FollowedKolRecord,
@@ -413,6 +415,9 @@ export default function Home() {
   const [todoFilter, setTodoFilter] = useState<TodoListFilter>("all");
   const [kolQuery, setKolQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("");
+  const [selectedKolId, setSelectedKolId] = useState<string | null>(null);
+  const [hoveredKolId, setHoveredKolId] = useState<string | null>(null);
+  const [focusedKolId, setFocusedKolId] = useState<string | null>(null);
   const [dedupeNotice, setDedupeNotice] = useState("");
   const [followedKols, setFollowedKols] = useState<FollowedKol[]>([]);
   const [boardWorkbench, setBoardWorkbench] = useState<HomeWorkbench | null>(null);
@@ -1135,6 +1140,15 @@ export default function Home() {
     return sortFollowedKolCards(filtered, "need");
   }, [kolCards, kolQuery, stageFilter]);
 
+  const solePriorityKolId = useMemo(() => soleTopPriorityCardId(visibleKols), [visibleKols]);
+
+  useEffect(() => {
+    const ids = new Set(visibleKols.map((card) => card.id));
+    if (selectedKolId && !ids.has(selectedKolId)) setSelectedKolId(null);
+    if (hoveredKolId && !ids.has(hoveredKolId)) setHoveredKolId(null);
+    if (focusedKolId && !ids.has(focusedKolId)) setFocusedKolId(null);
+  }, [visibleKols, selectedKolId, hoveredKolId, focusedKolId]);
+
   const followEmptyKind = followScope?.required && !followScope.bound
     ? "unbound"
     : followScope?.status === "expired"
@@ -1465,6 +1479,32 @@ export default function Home() {
                         actionBusy={confirmStageBusyId === card.id}
                         actionNotice={confirmStageFeedback?.id === card.id ? confirmStageFeedback.text : undefined}
                         actionTone={confirmStageFeedback?.id === card.id ? confirmStageFeedback.tone : "info"}
+                        selected={selectedKolId === card.id}
+                        hovered={hoveredKolId === card.id}
+                        ctaEmphasis={pickFollowedListCtaEmphasis({
+                          cardId: card.id,
+                          hoveredId: hoveredKolId,
+                          focusedId: focusedKolId,
+                          selectedId: selectedKolId,
+                          solePriorityId: solePriorityKolId,
+                        })}
+                        onHoverChange={(next) => {
+                          if (next) {
+                            setFocusedKolId(null);
+                            setHoveredKolId(card.id);
+                            return;
+                          }
+                          setHoveredKolId((id) => (id === card.id ? null : id));
+                        }}
+                        onFocusChange={(next) => {
+                          if (next) {
+                            setHoveredKolId(null);
+                            setFocusedKolId(card.id);
+                            return;
+                          }
+                          setFocusedKolId((id) => (id === card.id ? null : id));
+                        }}
+                        onSelect={() => setSelectedKolId(card.id)}
                       />
                     </li>
                   ))}

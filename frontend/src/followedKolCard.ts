@@ -574,6 +574,37 @@ export function matchesStageTab(card: FollowedKolCardModel, tab: string): boolea
   return card.current_state.stage_code === tab;
 }
 
+export type FollowedKolCtaEmphasis = "quiet" | "strong";
+
+/** L3 stage-enter is the only auto-emphasized list action (ADR-031 one-strong-CTA). */
+export function isTopPriorityWorkAction(card: FollowedKolCardModel): boolean {
+  return card.recommended_action.kind === "confirm-stage"
+    && card.recommended_action.can_write_stage
+    && Boolean(card.recommended_action.target_stage_label);
+}
+
+export function isDraftWorkAction(card: FollowedKolCardModel): boolean {
+  return card.recommended_action.kind === "compose";
+}
+
+/** At most one auto-strong CTA: unique writable stage-enter in the viewport. */
+export function soleTopPriorityCardId(cards: FollowedKolCardModel[]): string | null {
+  const hits = cards.filter(isTopPriorityWorkAction);
+  return hits.length === 1 ? hits[0].id : null;
+}
+
+/** Hover/focus beat selection; selection beats the sole list-priority. One card only. */
+export function pickFollowedListCtaEmphasis(input: {
+  cardId: string;
+  hoveredId?: string | null;
+  focusedId?: string | null;
+  selectedId?: string | null;
+  solePriorityId?: string | null;
+}): FollowedKolCtaEmphasis {
+  const active = input.hoveredId || input.focusedId || input.selectedId || input.solePriorityId || "";
+  return active && active === input.cardId ? "strong" : "quiet";
+}
+
 function flag(value: boolean): number {
   return value ? 1 : 0;
 }

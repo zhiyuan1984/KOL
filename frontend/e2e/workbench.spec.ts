@@ -1202,8 +1202,12 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
 
   await expect(confirmCard.locator("[data-recommended-action]")).toContainText("建议进入「已回复 · 有兴趣」");
   await expect(confirmCard.locator("[data-recommended-action]")).not.toContainText("确认进入");
+  await page.mouse.move(0, 0);
   await expect(confirmCard.locator("[data-confirm-enter-stage]")).toHaveText("进入已回复 · 有兴趣 →");
   await expect(confirmCard.locator("[data-confirm-enter-stage]")).toHaveClass(/work/);
+  await expect(confirmCard).toHaveAttribute("data-cta-emphasis", "strong");
+  await expect(card.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
+  await expect(page.locator("[data-followed-kol-list] [data-kol-primary-action].btn.work")).toHaveCount(1);
   await expect(confirmCard.locator("[data-action-why]")).toContainText("明确表达品牌合作意愿");
   await expect(confirmCard).not.toContainText("支撑进入");
   await expect(confirmCard.locator("[data-latest-fact]")).not.toContainText("10070757521@qq.com");
