@@ -31,6 +31,7 @@ import { missingFieldsMessage, fieldLabel, accountDisplayName, accountEmployeeId
 import { useAccount } from "../components/AuthGate";
 import FollowedKolWorkCard from "../components/FollowedKolWorkCard";
 import DiscoveryPanel from "../home/DiscoveryPanel";
+import { FollowedBatchConfirm } from "../home/FollowedBatchConfirm";
 import {
   HOME_MODE_LABELS,
   homeModeQuery,
@@ -49,9 +50,10 @@ import {
 import {
   matchesKolSearch,
   matchesStageFilter,
+  followedBulkCtaLabel,
+  followedStageEnterCards,
   pickFollowedListCtaEmphasis,
   projectFollowedKolCard,
-  soleTopPriorityCardId,
   sortFollowedKolCards,
   type FollowedKolCardModel,
   type FollowedKolRecord,
@@ -415,9 +417,10 @@ export default function Home() {
   const [todoFilter, setTodoFilter] = useState<TodoListFilter>("all");
   const [kolQuery, setKolQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("");
-  const [selectedKolId, setSelectedKolId] = useState<string | null>(null);
+  const [selectedKolIds, setSelectedKolIds] = useState<string[]>([]);
   const [hoveredKolId, setHoveredKolId] = useState<string | null>(null);
   const [focusedKolId, setFocusedKolId] = useState<string | null>(null);
+  const [pendingBatchCards, setPendingBatchCards] = useState<FollowedKolCardModel[] | null>(null);
   const [dedupeNotice, setDedupeNotice] = useState("");
   const [followedKols, setFollowedKols] = useState<FollowedKol[]>([]);
   const [boardWorkbench, setBoardWorkbench] = useState<HomeWorkbench | null>(null);
@@ -833,6 +836,33 @@ export default function Home() {
     openKol(kol, card.focus_thread);
   };
 
+  const toggleSelectedKol = (id: string, on: boolean) => {
+    setSelectedKolIds((current) => {
+      if (on) return current.includes(id) ? current : [...current, id];
+      return current.filter((item) => item !== id);
+    });
+  };
+
+  const toggleSelectAllKols = (on: boolean) => {
+    setSelectedKolIds(on ? visibleKols.map((card) => card.id) : []);
+  };
+
+  const runSelectedStageEnter = () => {
+    const targets = selectedStageEnterCards;
+    if (!targets.length) return;
+    if (targets.length === 1) {
+      openConfirmStage(targets[0].source, targets[0]);
+      return;
+    }
+    setPendingBatchCards(targets);
+  };
+
+  const confirmSelectedStageEnter = () => {
+    const first = pendingBatchCards?.[0];
+    setPendingBatchCards(null);
+    if (first) openConfirmStage(first.source, first);
+  };
+
   const openTask = async (task: Task) => {
     rememberJourney({
       kind: "task",
@@ -1140,14 +1170,26 @@ export default function Home() {
     return sortFollowedKolCards(filtered, "need");
   }, [kolCards, kolQuery, stageFilter]);
 
-  const solePriorityKolId = useMemo(() => soleTopPriorityCardId(visibleKols), [visibleKols]);
+  const selectedKolCards = useMemo(
+    () => visibleKols.filter((card) => selectedKolIds.includes(card.id)),
+    [visibleKols, selectedKolIds],
+  );
+  const selectedStageEnterCards = useMemo(
+    () => followedStageEnterCards(selectedKolCards),
+    [selectedKolCards],
+  );
+  const bulkCtaLabel = followedBulkCtaLabel(selectedKolCards);
+  const selecting = selectedKolIds.length > 0;
 
   useEffect(() => {
     const ids = new Set(visibleKols.map((card) => card.id));
-    if (selectedKolId && !ids.has(selectedKolId)) setSelectedKolId(null);
+    setSelectedKolIds((current) => {
+      const next = current.filter((id) => ids.has(id));
+      return next.length === current.length ? current : next;
+    });
     if (hoveredKolId && !ids.has(hoveredKolId)) setHoveredKolId(null);
     if (focusedKolId && !ids.has(focusedKolId)) setFocusedKolId(null);
-  }, [visibleKols, selectedKolId, hoveredKolId, focusedKolId]);
+  }, [visibleKols, hoveredKolId, focusedKolId]);
 
   const followEmptyKind = followScope?.required && !followScope.bound
     ? "unbound"
@@ -1462,9 +1504,44 @@ export default function Home() {
                   {visibleKols.length} 个跟进对象
                 </p>
               </div>
+              {visibleKols.length ? (
+                <div
+                  className={"followed-batch-bar" + (selecting ? " is-selecting" : "")}
+                  data-followed-batch-bar
+                  data-followed-selecting={selecting ? "true" : "false"}
+                >
+                  <div className="followed-batch-select">
+                    <label className="followed-kol-select">
+                      <input
+                        type="checkbox"
+                        data-followed-select-all
+                        checked={visibleKols.length > 0 && selectedKolIds.length === visibleKols.length}
+                        disabled={!visibleKols.length}
+                        onChange={(event) => toggleSelectAllKols(event.target.checked)}
+                      />
+                      <span data-followed-selected-count>已选 {selectedKolIds.length} 人</span>
+                    </label>
+                    <button
+                      type="button"
+                      className={(selecting && selectedStageEnterCards.length ? "btn work sm" : "btn ghost sm") + " followed-batch-cta"}
+                      data-followed-batch-confirm
+                      disabled={!selectedStageEnterCards.length}
+                      onClick={runSelectedStageEnter}
+                    >
+                      {bulkCtaLabel}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               </div>
               {visibleKols.length ? (
-                <ol className="recommend-list followed-kol-list" data-followed-kol-list data-followed-origin="collaboration" data-kol-sort="need">
+                <ol
+                  className="recommend-list followed-kol-list"
+                  data-followed-kol-list
+                  data-followed-origin="collaboration"
+                  data-kol-sort="need"
+                  data-followed-selecting={selecting ? "true" : "false"}
+                >
                   {visibleKols.map((card) => (
                     <li
                       key={card.id}
@@ -1480,14 +1557,13 @@ export default function Home() {
                         actionBusy={confirmStageBusyId === card.id}
                         actionNotice={confirmStageFeedback?.id === card.id ? confirmStageFeedback.text : undefined}
                         actionTone={confirmStageFeedback?.id === card.id ? confirmStageFeedback.tone : "info"}
-                        selected={selectedKolId === card.id}
+                        selected={selectedKolIds.includes(card.id)}
                         hovered={hoveredKolId === card.id}
                         ctaEmphasis={pickFollowedListCtaEmphasis({
                           cardId: card.id,
                           hoveredId: hoveredKolId,
                           focusedId: focusedKolId,
-                          selectedId: selectedKolId,
-                          solePriorityId: solePriorityKolId,
+                          selectedIds: selectedKolIds,
                         })}
                         onHoverChange={(next) => {
                           if (next) {
@@ -1505,7 +1581,7 @@ export default function Home() {
                           }
                           setFocusedKolId((id) => (id === card.id ? null : id));
                         }}
-                        onSelect={() => setSelectedKolId(card.id)}
+                        onToggleSelect={(on) => toggleSelectedKol(card.id, on)}
                       />
                     </li>
                   ))}
@@ -1708,6 +1784,14 @@ export default function Home() {
           </aside>
         </div>
       )}
+
+      <FollowedBatchConfirm
+        open={Boolean(pendingBatchCards?.length)}
+        cards={pendingBatchCards || []}
+        busy={Boolean(pendingBatchCards?.[0] && confirmStageBusyId === pendingBatchCards[0].id)}
+        onConfirm={confirmSelectedStageEnter}
+        onCancel={() => setPendingBatchCards(null)}
+      />
     </div>
   );
 }
