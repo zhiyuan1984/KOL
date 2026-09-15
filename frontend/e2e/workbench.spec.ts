@@ -2560,6 +2560,10 @@ test("admin debug toggle reveals connector tiles on the skill hub", async ({ pag
   await expect(page.locator(".workbench")).toHaveAttribute("data-view-mode", "debug");
   await expect(page.locator('[data-connector="starrykol"]')).toBeVisible();
   await expect(page.locator('[data-nav="skills"]')).toBeVisible();
+  await expect(page.locator('nav[aria-label="数字员工"] [data-nav]')).toHaveCount(1);
+  await expect(page.locator('nav[aria-label="数字员工"] [data-nav="skills"]')).toHaveCount(0);
+  await expect(page.locator('nav[aria-label="技能"] [data-nav="skills"]')).toBeVisible();
+  await expect(page.locator('nav[aria-label="技能"]')).toHaveAttribute("aria-label", "技能");
 });
 
 test("user menu switches employee, admin, and settings workspaces", async ({ page }) => {
@@ -2677,12 +2681,14 @@ test("employee sidebar puts cron in today cluster and hides group titles", async
 test("docs/21 employee sidebar has no admin connectors deep-link", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
+  await expect(page.locator('nav[aria-label="技能"]')).toHaveCount(0);
   await expect(page.locator(".sidebar")).not.toContainText("技能目录");
   await expect(page.locator('[data-nav="connectors"]')).toHaveAttribute("href", "/connectors");
   await expect(page.locator('.sidebar a[href="/admin/connectors"]')).toHaveCount(0);
   await expect(page.locator('[data-nav="agents"]')).toHaveText("数字员工");
   await expect(page.locator('[data-nav="agents"]')).toHaveAttribute("href", "/agents");
   await expect(page.locator('nav[aria-label="数字员工"] [data-nav]')).toHaveCount(1);
+  await expect(page.locator('[data-nav="pipeline"]')).toHaveCount(0);
   await expect(page.locator('[data-nav="teams"]')).toHaveCount(0);
   await expect(page.locator('[data-nav="agents-teams"]')).toHaveCount(0);
   await expect(page.locator(".sidebar")).not.toContainText("数字团队");
@@ -3143,7 +3149,9 @@ test("task detail keeps process in center, result on right, and supports complet
   } }));
   await page.goto("/s/session-detail");
   await expect(page.getByRole("link", { name: "返回任务列表" })).toBeVisible();
-  await expect(page.locator("[data-task-detail]")).toContainText("AI 发现");
+  await expect(page.locator("[data-task-detail]")).toContainText("今天推荐");
+  await expect(page.locator("[data-task-detail]")).not.toContainText("AI 发现");
+  await expect(page.locator("[data-task-source='ai']")).toHaveText("今天推荐");
   await expect(page.locator('[data-kind="process-trace"]')).toContainText("汇总合作状态");
   await expect(page.locator('.chat [data-kind="task-result-card"]')).toHaveCount(0);
   await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("一项合作需要优先处理");

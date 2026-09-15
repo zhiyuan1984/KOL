@@ -28,6 +28,7 @@ import { rememberJourney, SOP_PHASES, sopPhaseByStage } from "../journey";
 import { FollowStyleTagBar } from "../components/FollowStyleTags";
 import { friendlyError, missingFieldsMessage } from "../labels";
 import { readBoundExpert } from "../experts";
+import { todayTaskOriginLabel } from "../home/modes";
 import type { SessionMailRow } from "../components/AgentTaskList";
 
 type RecommendedAction = {
@@ -1012,8 +1013,8 @@ export default function Chat() {
             <>
             <div className="task-detail-title">
               <div>
-                <span className={`detail-source source-${task.source || "manual"}`}>
-                  {task.source === "ai" ? "✦ AI 发现" : "今天的工作"}
+                <span className={`detail-source source-${task.source || "manual"}`} data-task-source={task.source || "manual"}>
+                  {task.source === "ai" ? todayTaskOriginLabel(task.source) : "今天的工作"}
                 </span>
                 {contextKicker && <span className="conversation-kicker">{contextKicker}</span>}
                 <h1>{task.title}</h1>
