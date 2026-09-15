@@ -93,7 +93,7 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   expect(parseFloat(chrome.minHeight)).toBeGreaterThanOrEqual(96);
   expect(parseFloat(chrome.radius)).toBeGreaterThanOrEqual(24);
   expect(parseFloat(chrome.radius)).toBeLessThanOrEqual(26);
-  near(rgb(chrome.borderColor) as number[], [194, 209, 255]);
+  near(rgb(chrome.borderColor) as number[], [229, 230, 232]);
   near(rgb(chrome.background) as number[], [255, 255, 255]);
   near(rgb(chrome.placeholderColor) as number[], [166, 166, 166]);
   expect(chrome.placeholderSize).toBe("16px");
@@ -118,14 +118,14 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   expect(parseFloat(skillChip.width)).toBe(98);
   expect(parseFloat(skillChip.height)).toBe(32);
   expect(parseFloat(skillChip.radius)).toBe(12);
-  near(rgb(skillChip.bg) as number[], [243, 246, 255]);
-  near(rgb(skillChip.color) as number[], [79, 70, 229]);
+  near(rgb(skillChip.bg) as number[], [246, 247, 248]);
+  near(rgb(skillChip.color) as number[], [0, 0, 0]);
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
 
   await page.locator("[data-home] [data-composer-input]").fill("给@小美妆日记 写阶段跟进邮件");
   const ready = await page.locator("[data-home] [data-send]").evaluate((el) => getComputedStyle(el).color);
-  near(rgb(ready) as number[], [79, 70, 229]);
+  near(rgb(ready) as number[], [0, 0, 0]);
   await page.locator("[data-home] [data-send]").click();
   await page.waitForURL(/\/s\//);
   await expect(page.locator('[data-kind="me"]')).toContainText("给@小美妆日记 写阶段跟进邮件", { timeout: 15000 });
@@ -162,7 +162,7 @@ test("session PromptInput stays at the thread foot with the same tokens", async 
   const chrome = await composerChrome(page, ".session-composer");
   expect(parseFloat(chrome.radius)).toBeGreaterThanOrEqual(24);
   expect(parseFloat(chrome.radius)).toBeLessThanOrEqual(26);
-  near(rgb(chrome.borderColor) as number[], [194, 209, 255]);
+  near(rgb(chrome.borderColor) as number[], [229, 230, 232]);
   near(rgb(chrome.placeholderColor) as number[], [166, 166, 166]);
 
   await page.locator(".session-composer [data-attach]").click();
@@ -181,7 +181,7 @@ test("settings fields keep a MASTER focus ring and login error-summary uses defi
   });
   expect(fieldFocus.outlineStyle).not.toBe("none");
   expect(parseFloat(fieldFocus.outlineWidth)).toBeGreaterThanOrEqual(2);
-  near(rgb(fieldFocus.outlineColor) as number[], [79, 70, 229]);
+  near(rgb(fieldFocus.outlineColor) as number[], [0, 0, 0]);
 
   const summary = await page.evaluate(() => {
     const host = document.createElement("div");

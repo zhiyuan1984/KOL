@@ -7,11 +7,11 @@
   --control-border: #8b93a1;
   --control-border-hover: #6b7280;
   --control-border-invalid: #c43c3c;
-  --focus-ring: #4f46e5;
+  --focus-ring: #000000;
   --text: #1a1a1a;
   --text-muted: #6b7280;
 
-  --primary: #4f46e5;
+  --primary: #000000;
   --primary-fg: #ffffff;
   --danger: #c43c3c;
   --success: #2f7d73;
@@ -24,25 +24,25 @@
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 24px;
-  --shadow-quiet: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-quiet: rgba(0, 0, 0, 0.02) 0 4px 6px 0, rgba(0, 0, 0, 0.05) 0 0 2px 0;
   --duration-instant: 100ms;
   --duration-control: 140ms;
   --duration-enter: 220ms;
   --duration-exit: 180ms;
 
-  /* Type scale — readability-first 16px body (docs/20) */
+  /* Type scale — OpenAI-aligned 17px/1.65 body; ADR-020 floor 16px */
   --font-xs: 13px;
   --font-sm: 14px;
-  --font-body: 16px;
+  --font-body: 17px;
   --font-section: 18px;
   --font-title: 24px;
   --font-page-title: 28px;
-  --leading-body: 1.55;
+  --leading-body: 1.65;
   --leading-tight: 1.35;
 
   /* Legacy aliases — old names map into the scale above */
   --font-hero: var(--font-page-title);
-  --font-ui: var(--font-body);
+  --font-ui: 16px;
   --font-table: var(--font-sm);
   --font-meta: var(--font-sm);
   --leading-hero: var(--leading-tight);
@@ -79,11 +79,11 @@
   --control-border: #77808c;
   --control-border-hover: #a2a8b2;
   --control-border-invalid: #ef7777;
-  --focus-ring: #818cf8;
+  --focus-ring: #ffffff;
   --text: #f1f3f5;
   --text-muted: #a2a8b2;
-  --primary: #818cf8;
-  --primary-fg: #111827;
+  --primary: #ffffff;
+  --primary-fg: #000000;
   --chrome-2: #23262c;
   --sidebar-thumb: #5a616b;
 }
@@ -97,11 +97,11 @@
     --control-border: #77808c;
     --control-border-hover: #a2a8b2;
     --control-border-invalid: #ef7777;
-    --focus-ring: #818cf8;
+    --focus-ring: #ffffff;
     --text: #f1f3f5;
     --text-muted: #a2a8b2;
-    --primary: #818cf8;
-    --primary-fg: #111827;
+    --primary: #ffffff;
+    --primary-fg: #000000;
     --chrome-2: #23262c;
     --sidebar-thumb: #5a616b;
   }
@@ -420,7 +420,7 @@ summary:focus-visible,
   margin-bottom: 6px;
 }
 
-/* Home + Agents visual pass: docs/20 Linear density, indigo tokens, no card-wall. */
+/* Home + Agents visual pass: OpenAI-quiet tokens, no card-wall. */
 .home-pane {
   flex: 1;
   height: 100%;
@@ -2424,9 +2424,9 @@ summary:focus-visible,
   border-radius: var(--composer-chip-radius, 12px);
   cursor: pointer;
 }
-.composer-tool:hover { color: var(--composer-toolbar-fg, #000000); background: var(--composer-chip-bg, #f3f6ff); }
+.composer-tool:hover { color: var(--composer-toolbar-fg, #000000); background: var(--composer-chip-bg); }
 .composer-tool.is-selected {
-  background: var(--composer-chip-bg, #f3f6ff);
+  background: var(--composer-chip-bg);
   color: var(--composer-accent, var(--primary));
 }
 .composer-toolbar .tier-control { margin-left: 0; }
@@ -2752,7 +2752,7 @@ summary:focus-visible,
   font-size: 14px;
   line-height: 20px;
   border: 1px solid transparent;
-  background: var(--composer-chip-bg, #f3f6ff);
+  background: var(--composer-chip-bg);
   border-radius: var(--composer-chip-radius, 12px);
   padding: 3px 10px;
   color: var(--composer-accent, var(--primary));
@@ -2818,14 +2818,14 @@ summary:focus-visible,
 .home-composer-dock,
 .session-composer {
   --composer-bg: #ffffff;
-  --composer-border: #c2d1ff;
+  --composer-border: var(--border);
   --composer-radius: 25px;
   --composer-accent: var(--primary);
   --composer-placeholder: #a6a6a6;
   --composer-toolbar-fg: #000000;
   --composer-send-idle: var(--text-muted);
   --composer-divider: #e5e5e5;
-  --composer-chip-bg: #f3f6ff;
+  --composer-chip-bg: var(--bg-elevated);
   --composer-chip-radius: 12px;
   --composer-side-btn-bg: var(--bg-elevated);
   --composer-side-btn-size: 36px;
@@ -2928,7 +2928,7 @@ summary:focus-visible,
 .composer-plus.is-selected,
 .composer-plus[aria-expanded="true"] {
   color: var(--composer-accent, var(--primary));
-  background: var(--composer-chip-bg, #f3f6ff);
+  background: var(--composer-chip-bg);
 }
 .composer textarea, .field input, .field textarea, .field select, .search-box,
 .action-row input, .action-row select {
@@ -4332,7 +4332,7 @@ summary:focus-visible,
 .composer .btn.send.send-arrow:not(:disabled):hover,
 .btn.send.send-arrow:not(:disabled):hover {
   filter: none;
-  background: var(--composer-chip-bg, #f3f6ff);
+  background: var(--composer-chip-bg);
 }
 .composer-stop {
   width: auto;
@@ -5614,8 +5614,8 @@ summary:focus-visible,
   width: 8px;
   height: 8px;
   border-radius: 99px;
-  background: #ea5504;
-  box-shadow: 0 0 0 2px color-mix(in srgb, #ea5504 20%, transparent);
+  background: var(--warning);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning) 20%, transparent);
 }
 .sop-mail-block dd {
   display: grid;
@@ -5658,9 +5658,9 @@ summary:focus-visible,
   padding: 0 2px 8px;
 }
 .composer-suggestions button {
-  border: 1px solid var(--composer-border, #c2d1ff);
+  border: 1px solid var(--composer-border);
   border-radius: var(--composer-chip-radius, 12px);
-  background: var(--composer-chip-bg, #f3f6ff);
+  background: var(--composer-chip-bg);
   color: var(--composer-accent, var(--primary));
   padding: 4px 9px;
   font: inherit;
@@ -6553,7 +6553,12 @@ summary:focus-visible,
 .mobile-top { display: none; }
 
 .auth-page { min-height: 100%; display: grid; place-items: center; padding: 24px; overflow: auto; background: var(--chrome); }
-.auth-card { width: min(420px, 100%); display: grid; gap: 16px; padding: 28px; background: var(--canvas); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 18px 50px rgba(15,23,42,.08); }
+.auth-card { width: min(420px, 100%); display: grid; gap: 16px; padding: 28px; background: var(--canvas); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow-quiet); }
+.auth-card .btn.work {
+  background: var(--primary);
+  color: var(--primary-fg);
+  border: 1px solid var(--primary);
+}
 .auth-card h1, .settings-page h1, .admin-header h1, .shared-page h1 { margin: 0; }
 .auth-card .error-summary {
   border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));

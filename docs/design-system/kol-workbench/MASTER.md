@@ -4,7 +4,7 @@
 >
 > UI 任务先读宪法 / IA / UX 硬不变量，再经 `ui-ux-pro-max`，再读 [`docs/design.md`](../../design.md)（class I 入口），再到本文件。强制视觉链：**CONSTITUTION → ui-ux-pro-max → design.md → MASTER**。本文件是 token 源；不要把 hex 抄进 `design.md`。
 >
-> **规范观感来源**是 [`docs/references/openai-style.md`](../../references/openai-style.md)（mood/spec：安静白底、低饱和、发丝级阴影、排版克制）。Token hex 仍只住本文件。本文件与 OpenAI 在审美 / 布局 / 字体 / 间距 / 阴影 / mood / 主 CTA 上冲突时，**OpenAI 胜**（ADR-031）；胜出后必须把本表和解到 OpenAI，**不得把冲突 hex 留作胜出法**。填充主按钮：OpenAI 黑色 / Obsidian 实底胜于蓝 `--primary`。CSS 同步另开 FE PR。
+> **规范观感来源**是 [`docs/references/openai-style.md`](../../references/openai-style.md)（mood/spec：安静白底、低饱和、发丝级阴影、排版克制）。Token hex 仍只住本文件。本文件与 OpenAI 在审美 / 布局 / 字体 / 间距 / 阴影 / mood / 主 CTA 上冲突时，**OpenAI 胜**（ADR-031）；胜出后必须把本表和解到 OpenAI，**不得把冲突 hex 留作胜出法**。填充主按钮：OpenAI 黑色 / Obsidian 实底。本表与 `styles.css` 已按该胜出值和解；历史 indigo `#4F46E5` / `#818CF8` 只是滞后实现，**不是**现行法。
 >
 > 本文件以 `frontend/src/styles.css` 已落地的 token 为基础，定义下一轮重新设计的视觉约束。**现有页面的布局、组件造型和视觉完成度不是设计基准，也不代表已经获得认可。**
 
@@ -13,7 +13,7 @@
 本设计系统继承的内容只有：
 
 - `:root`、深色主题和 Composer 中已经命名的 CSS token；
-- 已确认的 16px 正文、间距阶梯、语义色、圆角与无障碍底线；
+- 已确认的正文下限（ADR-020：不得低于 16px；现行正文取 OpenAI 对齐的 17px / 1.65）、间距阶梯、语义色、圆角与无障碍底线；
 - 产品宪法、FS 和 UX 中的页面职责、状态、权限与副作用规则；
 - OpenAI-quiet 默认观感（mood/spec 读 `docs/references/openai-style.md`）。色值不抄进 `design.md`；与本表冲突时 OpenAI 胜，须和解本表（含黑色 / Obsidian 实底主 CTA）。
 
@@ -27,7 +27,7 @@
 
 ## 1. 目标观感
 
-默认产品观感是 OpenAI-quiet：安静白底、低饱和、发丝级 / 克制阴影、排版克制。mood/spec 以 [`docs/references/openai-style.md`](../../references/openai-style.md) 为规范来源。**本表 hex 不再对 OpenAI 永远胜出。** 审美 / 布局 / 字体 / 间距 / 阴影 / mood / 主 CTA 冲突时 OpenAI 胜；胜出后更新本表，不得把冲突 hex 留作胜出法。填充主按钮的法律目标是 OpenAI 黑色 / Obsidian 实底（浅色 `--primary` → `#000000`，`--primary-fg` → `#FFFFFF`），不是蓝 indigo。下表浅色 `--primary` `#4F46E5` 是 `styles.css` 实现滞后，**不是**胜出法；后续 FE PR 必须同时改 CSS 与本表。Token hex 只住本文件，不把 mood 文件色值抄进 `design.md` 或页面规范。
+默认产品观感是 OpenAI-quiet：安静白底、低饱和、发丝级 / 克制阴影、排版克制。mood/spec 以 [`docs/references/openai-style.md`](../../references/openai-style.md) 为规范来源。**本表 hex 不再对 OpenAI 永远胜出。** 审美 / 布局 / 字体 / 间距 / 阴影 / mood / 主 CTA 冲突时 OpenAI 胜；胜出后更新本表，不得把冲突 hex 留作胜出法。填充主按钮是 OpenAI 黑色 / Obsidian 实底（浅色 `--primary` = `#000000`，`--primary-fg` = `#FFFFFF`）。历史 indigo `#4F46E5` / `#818CF8` 是 ADR-031 落地前的滞后实现，**不是**胜出法，不得再写回本表。Token hex 只住本文件，不把 mood 文件色值抄进 `design.md` 或页面规范。
 
 目标是轻、安静、精确的 Agent 工作台：白色主画布、浅灰层次、细边框、克制的主色强调，依靠排版和留白建立层级。工作结果和状态优先于装饰。避免过度阴影、卡片套卡片、后台表单堆叠和营销落地页式大标题。这不是 Linear-first 品牌；Linear 密度只可在与 OpenAI-quiet 兼容时作为间距手法（ADR-020 / ADR-029；冲突规则见 ADR-031）。
 
@@ -37,7 +37,7 @@
 
 ## 2. 已落地 Token
 
-`frontend/src/styles.css` 是 token 的实现事实来源，本节是供设计与评审使用的镜像。组件只引用语义变量；修改数值时必须同时修改 CSS 和本表。**法律例外（ADR-031）：** 与 OpenAI 冲突的行（尤其浅色 `--primary` / `--primary-fg` / `--focus-ring`）以 OpenAI 为胜出目标；下表 indigo 是实现滞后，不得再读成「MASTER hex 永远赢」。FE 和解 PR 必须同时改 CSS 与本表，和解后不得再留下冲突 hex。
+`frontend/src/styles.css` 是 token 的实现事实来源，本节是供设计与评审使用的镜像。组件只引用语义变量；修改数值时必须同时修改 CSS 和本表。与 OpenAI 冲突的行已按 ADR-031 和解；历史 indigo 不得再写回本表。
 
 | 类别 | Token | 浅色 | 深色 |
 |---|---|---:|---:|
@@ -48,26 +48,27 @@
 | 控件边框 | `--control-border` | `#8B93A1` | `#77808C` |
 | 控件悬停边框 | `--control-border-hover` | `#6B7280` | `#A2A8B2` |
 | 控件错误边框 | `--control-border-invalid` | `#C43C3C` | `#EF7777` |
-| 焦点环 | `--focus-ring` | `#4F46E5`（实现滞后；随主 CTA 和解） | `#818CF8`（深色随 FE 和解） |
+| 焦点环 | `--focus-ring` | `#000000`（OpenAI-quiet；可见环服从 §6 / 宪法，不用 indigo） | `#FFFFFF` |
 | 主文字 | `--text` | `#1A1A1A` | `#F1F3F5` |
 | 次文字 | `--text-muted` | `#6B7280` | `#A2A8B2` |
-| 主色 | `--primary` | `#4F46E5`（实现滞后；法律目标 `#000000` Obsidian） | `#818CF8`（深色随 FE 和解） |
-| 主色前景 | `--primary-fg` | `#FFFFFF` | `#111827` |
+| 主色 | `--primary` | `#000000`（Obsidian 实底主 CTA） | `#FFFFFF`（深色反相，保证可读） |
+| 主色前景 | `--primary-fg` | `#FFFFFF` | `#000000` |
 | 危险 | `--danger` | `#C43C3C` | 同语义变量 |
 | 成功 | `--success` | `#2F7D73` | 同语义变量 |
 | 警告 | `--warning` | `#EA5504` | 同语义变量 |
 
-已落地的 Composer token：`--composer-bg: #FFFFFF`、`--composer-border: #C2D1FF`、`--composer-radius: 25px`、`--composer-accent`（=`--primary`）、`--composer-placeholder: #A6A6A6`、`--composer-send-idle`（=`--text-muted`）、`--composer-divider: #E5E5E5`、`--composer-chip-bg: #F3F6FF`、`--composer-chip-radius: 12px`、`--composer-side-btn-bg`（=`--bg-elevated`）、`--composer-side-btn-size: 36px`。它们只服务输入容器，不扩散到普通按钮、卡片或页面背景。Composer 描边 / chip 的蓝相 hex 若与 OpenAI-quiet 冲突，同样 OpenAI 胜，随 FE PR 和解。
+已落地的 Composer token：`--composer-bg: #FFFFFF`、`--composer-border`（=`--border`）、`--composer-radius: 25px`、`--composer-accent`（=`--primary`）、`--composer-placeholder: #A6A6A6`、`--composer-send-idle`（=`--text-muted`）、`--composer-divider: #E5E5E5`、`--composer-chip-bg`（=`--bg-elevated`）、`--composer-chip-radius: 12px`、`--composer-side-btn-bg`（=`--bg-elevated`）、`--composer-side-btn-size: 36px`。它们只服务输入容器，不扩散到普通按钮、卡片或页面背景。历史蓝相 `#C2D1FF` / `#F3F6FF` 已弃用。
 
-### 与 OpenAI 的冲突（ADR-031；法律目标，不是 CSS 已落地）
+### 已和解（ADR-031；indigo 是滞后，不是现行法）
 
-| Token | 当前实现（滞后，非胜出法） | OpenAI 胜出目标 |
+| Token | 历史滞后（非胜出法） | 现行和解值 |
 |---|---|---|
-| `--primary`（浅色） | `#4F46E5` | Obsidian `#000000` 实底主 CTA |
-| `--primary-fg`（浅色） | `#FFFFFF` | Paper `#FFFFFF`（已一致） |
-| `--focus-ring`（浅色） | `#4F46E5` | 随主 CTA 和解（OpenAI 克制焦点，禁止继续把蓝 indigo 当品牌主色） |
-
-后续 FE PR 必须同时改 `styles.css` 与本表，使上列 hex 不再冲突。`--font-*`、阴影等若落后于 OpenAI，同一 PR 一并和解。
+| `--primary`（浅色） | indigo `#4F46E5` | Obsidian `#000000` 实底主 CTA |
+| `--primary-fg`（浅色） | `#FFFFFF` | Paper `#FFFFFF` |
+| `--focus-ring`（浅色） | indigo `#4F46E5` | `#000000`（克制、可见；不用蓝品牌主色） |
+| `--primary` / `--focus-ring`（深色） | indigo `#818CF8` | `#FFFFFF` / 前景 `#000000`（反相，保证暗色可读） |
+| `--font-body` / `--leading-body` | `16px` / `1.55` | `17px` / `1.65`（ADR-020 下限仍是 16；取 OpenAI 偏好） |
+| `--shadow-quiet` | `0 1px 2px rgba(15,23,42,.06)` | 发丝级：`rgba(0,0,0,.02) 0 4px 6px, rgba(0,0,0,.05) 0 0 2px` |
 
 ### Token 分类
 
@@ -75,7 +76,7 @@
 |---|---|---|
 | 核心语义 | `--bg`、`--bg-elevated`、`--border`、`--border-strong`、`--control-border*`、`--focus-ring`、`--text`、`--text-muted`、`--primary`、`--primary-fg`、`--danger`、`--success`、`--warning` | 新页面直接使用 |
 | 尺寸系统 | `--radius-sm`、`--radius-md`、`--space-1` 至 `--space-5`、`--shadow-quiet` | 新页面直接使用 |
-| 字体系统 | `--font-xs`、`--font-sm`、`--font-body`、`--font-section`、`--font-title`、`--font-page-title`、`--leading-body`、`--leading-tight`、`--sans`、`--mono` | 新页面直接使用 |
+| 字体系统 | `--font-xs`、`--font-sm`、`--font-ui`（16px 控件）、`--font-body`（17px）、`--font-section`、`--font-title`、`--font-page-title`、`--leading-body`、`--leading-tight`、`--sans`、`--mono` | 新页面直接使用 |
 | Composer | `--composer-*` | 只在任务输入容器及其子控件使用 |
 | 迁移别名 | `--canvas`、`--chrome`、`--line`、`--muted`、`--star`、`--orange`、`--ok`、`--red`、`--font-ui`、`--font-table`、`--font-meta` 等 | 仅保持旧代码可运行；新代码使用对应核心 token |
 | 当前壳层变量 | `--chrome-2`、`--sidebar-thumb`、`--left-width`、`--page-gutter` | 属于现有实现，不据此锁定新页面结构；需要时先评审其语义和数值 |
@@ -86,14 +87,14 @@
 
 ## 3. 字体与密度
 
-- 字体：系统无衬线中文栈；正文 `16px/1.55`。
-- 辅助文字：`14px`；极少量数据标签允许 `13px`，不得承载关键说明。
+- 字体：系统无衬线中文栈；正文 `17px/1.65`（OpenAI 对齐；ADR-020 下限 16px，不得再压回）。控件 `--font-ui` 为 `16px`（≥14px）；元数据 `13–14px`（`--font-xs` / `--font-sm`），不得承载关键说明。
+- 辅助文字：`14px`；极少量数据标签允许 `13px`。
 - 小节标题 `18px/1.35`，卡片/面板标题 `24px/1.35`，页面标题 `28px/1.35`。
 - 使用顺序正确的 `h1`–`h6` 表达结构，不用字号或粗细模拟标题语义。
 - 连续阅读内容控制在约 36–48 个中文字符或 60–80 个拉丁字符的行长；结构化数据区不受此限制。
 - 间距阶梯：`4 / 8 / 12 / 16 / 24px`。优先组合这些值，不新增相近魔法数。
 - 圆角：小控件 `6px`，面板 `10px`；Composer 容器可用 `25px`，选择项 `12px`。
-- 阴影：仅抬升或浮层使用 `0 1px 2px rgba(15,23,42,.06)`；常规分区使用边框和背景层级。
+- 阴影：仅抬升或浮层使用 `--shadow-quiet`（发丝级 / OpenAI-quiet，无重抬升）；常规分区使用边框和背景层级。
 
 禁止用 `transform: scale()` 或 `zoom` 修正整体密度；应修改真实字号、行高、间距和容器尺寸。
 
@@ -141,7 +142,7 @@
 
 ## 8. 观感来源与 ui-ux-pro-max
 
-OpenAI-quiet 是**规范观感来源**（mood/spec 读 `docs/references/openai-style.md`）。Token 数值仍只住本文件，但**不再对 OpenAI 永远胜出**。审美 / 布局 / 字体 / 间距 / 阴影 / mood / 主 CTA 冲突时 OpenAI 胜（ADR-031）。胜出后必须把本表（及后续 FE 的 CSS）和解到 OpenAI；**不得把冲突 hex 留在本表当胜出法**。填充主按钮的法律目标是 OpenAI 黑色 / Obsidian 实底，映射到 `--primary` / `--primary-fg`（浅色法律目标 `#000000` / `#FFFFFF`），不是「继续用蓝 indigo」。`design.md` 仍禁止写入 hex。
+OpenAI-quiet 是**规范观感来源**（mood/spec 读 `docs/references/openai-style.md`）。Token 数值仍只住本文件，但**不再对 OpenAI 永远胜出**。审美 / 布局 / 字体 / 间距 / 阴影 / mood / 主 CTA 冲突时 OpenAI 胜（ADR-031）。本表与 `styles.css` 已和解：填充主按钮映射 `--primary` / `--primary-fg`（浅色 `#000000` / `#FFFFFF`）。历史 indigo **不是**现行法。`design.md` 仍禁止写入 hex。
 
 `ui-ux-pro-max` 是外观 UIUX 强制视觉链中的**必经分析 / 对照**（位于 CONSTITUTION / IA 事实之后、`design.md` → 本文件之前）。按当前问题搜索风格、颜色、字体、UX、图表或技术栈建议。其 **OpenAI 对齐**且不违反宪法 / FS / Policy 的建议可以驱动本表更新（当 MASTER 落后于 OpenAI 时必须更新）。它仍不得发明 Glassmorphism、随机新品牌字体、或与 OpenAI-quiet + 宪法硬不变量矛盾的橙色强调；不得覆盖 SEND≠STAGE、L3、无障碍底线。通用落地页模式、未经验证的颜色方案和搜索结果中的示例代码不得直接升级为项目规范。
 
