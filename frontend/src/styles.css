@@ -2353,7 +2353,7 @@ summary:focus-visible,
 .composer-tool:hover { color: var(--composer-toolbar-fg, #000000); background: var(--composer-chip-bg, #f3f6ff); }
 .composer-tool.is-selected {
   background: var(--composer-chip-bg, #f3f6ff);
-  color: var(--composer-accent, #3568ff);
+  color: var(--composer-accent, var(--primary));
 }
 .composer-toolbar .tier-control { margin-left: 0; }
 .send-arrow {
@@ -2362,11 +2362,11 @@ summary:focus-visible,
   padding: 0;
   border-radius: 999px;
   border-color: transparent;
-  background: var(--composer-side-btn-bg, #f5f5f5);
-  color: var(--composer-send-idle, #cccccc);
+  background: var(--composer-side-btn-bg, var(--bg-elevated));
+  color: var(--composer-send-idle, var(--text-muted));
   font-size: 16px;
 }
-.send-arrow:disabled { opacity: 1; color: var(--composer-send-idle, #cccccc); }
+.send-arrow:disabled { opacity: 1; color: var(--composer-send-idle, var(--text-muted)); }
 .work-panel-layer {
   position: fixed;
   inset: 0;
@@ -2681,7 +2681,7 @@ summary:focus-visible,
   background: var(--composer-chip-bg, #f3f6ff);
   border-radius: var(--composer-chip-radius, 12px);
   padding: 3px 10px;
-  color: var(--composer-accent, #3568ff);
+  color: var(--composer-accent, var(--primary));
 }
 .attach-chip { color: var(--star); }
 .chip-x {
@@ -2746,14 +2746,14 @@ summary:focus-visible,
   --composer-bg: #ffffff;
   --composer-border: #c2d1ff;
   --composer-radius: 25px;
-  --composer-accent: #3568ff;
+  --composer-accent: var(--primary);
   --composer-placeholder: #a6a6a6;
   --composer-toolbar-fg: #000000;
-  --composer-send-idle: #cccccc;
+  --composer-send-idle: var(--text-muted);
   --composer-divider: #e5e5e5;
   --composer-chip-bg: #f3f6ff;
   --composer-chip-radius: 12px;
-  --composer-side-btn-bg: #f5f5f5;
+  --composer-side-btn-bg: var(--bg-elevated);
   --composer-side-btn-size: 36px;
 }
 :root[data-theme="dark"] .composer-dock,
@@ -2761,12 +2761,12 @@ summary:focus-visible,
 :root[data-theme="dark"] .home-composer-dock,
 :root[data-theme="dark"] .session-composer {
   --composer-bg: var(--bg);
-  --composer-border: color-mix(in srgb, #3568ff 42%, var(--border));
+  --composer-border: color-mix(in srgb, var(--primary) 42%, var(--border));
   --composer-placeholder: #8b8f96;
   --composer-toolbar-fg: var(--text);
-  --composer-send-idle: #6b7280;
+  --composer-send-idle: var(--text-muted);
   --composer-divider: var(--border);
-  --composer-chip-bg: color-mix(in srgb, #3568ff 18%, var(--bg-elevated));
+  --composer-chip-bg: color-mix(in srgb, var(--primary) 18%, var(--bg-elevated));
   --composer-side-btn-bg: var(--bg-elevated);
 }
 @media (prefers-color-scheme: dark) {
@@ -2775,12 +2775,12 @@ summary:focus-visible,
   :root:not([data-theme="light"]) .home-composer-dock,
   :root:not([data-theme="light"]) .session-composer {
     --composer-bg: var(--bg);
-    --composer-border: color-mix(in srgb, #3568ff 42%, var(--border));
+    --composer-border: color-mix(in srgb, var(--primary) 42%, var(--border));
     --composer-placeholder: #8b8f96;
     --composer-toolbar-fg: var(--text);
-    --composer-send-idle: #6b7280;
+    --composer-send-idle: var(--text-muted);
     --composer-divider: var(--border);
-    --composer-chip-bg: color-mix(in srgb, #3568ff 18%, var(--bg-elevated));
+    --composer-chip-bg: color-mix(in srgb, var(--primary) 18%, var(--bg-elevated));
     --composer-side-btn-bg: var(--bg-elevated);
   }
 }
@@ -2840,7 +2840,7 @@ summary:focus-visible,
   width: var(--composer-side-btn-size, 36px);
   height: var(--composer-side-btn-size, 36px);
   border: 0;
-  background: var(--composer-side-btn-bg, #f5f5f5);
+  background: var(--composer-side-btn-bg, var(--bg-elevated));
   color: var(--composer-toolbar-fg, #000000);
   font-size: 20px;
   line-height: 1;
@@ -2853,7 +2853,7 @@ summary:focus-visible,
 .composer-plus:hover,
 .composer-plus.is-selected,
 .composer-plus[aria-expanded="true"] {
-  color: var(--composer-accent, #3568ff);
+  color: var(--composer-accent, var(--primary));
   background: var(--composer-chip-bg, #f3f6ff);
 }
 .composer textarea, .field input, .field textarea, .field select, .search-box,
@@ -2864,8 +2864,17 @@ summary:focus-visible,
   font: inherit;
   font-size: var(--font-body);
   line-height: var(--leading-body);
-  outline: none;
   color: var(--text);
+}
+.composer textarea { outline: none; }
+.field input:focus-visible,
+.field textarea:focus-visible,
+.field select:focus-visible,
+.search-box:focus-visible,
+.action-row input:focus-visible,
+.action-row select:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 .composer textarea { resize: none; font-size: 16px; line-height: 24px; max-height: 180px; }
 .composer textarea::placeholder { color: var(--composer-placeholder, #a6a6a6); font-size: 16px; line-height: 24px; }
@@ -2878,7 +2887,7 @@ summary:focus-visible,
   font-size: var(--font-xs);
   color: var(--muted);
 }
-.composer-tools a { color: var(--composer-accent, #3568ff); text-decoration: none; }
+.composer-tools a { color: var(--composer-accent, var(--primary)); text-decoration: none; }
 .composer-hint { color: var(--muted); }
 .composer-tier {
   margin-left: auto;
@@ -4197,9 +4206,9 @@ summary:focus-visible,
 }
 .btn:hover { border-color: #cfd2d6; }
 .btn.send {
-  background: var(--orange);
-  color: #ffffff;
-  border-color: var(--orange);
+  background: var(--primary);
+  color: var(--primary-fg);
+  border-color: var(--primary);
   border-radius: 999px;
   padding: 7px 16px;
 }
@@ -4210,9 +4219,9 @@ summary:focus-visible,
   height: var(--composer-side-btn-size, 36px);
   padding: 0;
   border-radius: 999px;
-  background: var(--composer-side-btn-bg, #f5f5f5);
+  background: var(--composer-side-btn-bg, var(--bg-elevated));
   border-color: transparent;
-  color: var(--composer-send-idle, #cccccc);
+  color: var(--composer-send-idle, var(--text-muted));
   font-size: 16px;
   display: inline-flex;
   align-items: center;
@@ -4221,13 +4230,13 @@ summary:focus-visible,
 .composer .btn.send.send-arrow:disabled,
 .btn.send.send-arrow:disabled {
   opacity: 1;
-  color: var(--composer-send-idle, #cccccc);
-  background: var(--composer-side-btn-bg, #f5f5f5);
+  color: var(--composer-send-idle, var(--text-muted));
+  background: var(--composer-side-btn-bg, var(--bg-elevated));
 }
 .composer .btn.send.send-arrow:not(:disabled),
 .btn.send.send-arrow:not(:disabled) {
-  color: var(--composer-accent, #3568ff);
-  background: var(--composer-side-btn-bg, #f5f5f5);
+  color: var(--composer-accent, var(--primary));
+  background: var(--composer-side-btn-bg, var(--bg-elevated));
 }
 .composer .btn.send.send-arrow:not(:disabled):hover,
 .btn.send.send-arrow:not(:disabled):hover {
@@ -4241,7 +4250,7 @@ summary:focus-visible,
   padding: 0 12px;
   border-radius: 999px;
   border-color: transparent;
-  background: var(--composer-side-btn-bg, #f5f5f5);
+  background: var(--composer-side-btn-bg, var(--bg-elevated));
   color: var(--composer-toolbar-fg, #000000);
   font-size: 14px;
   line-height: 20px;
@@ -5555,7 +5564,7 @@ summary:focus-visible,
   border: 1px solid var(--composer-border, #c2d1ff);
   border-radius: var(--composer-chip-radius, 12px);
   background: var(--composer-chip-bg, #f3f6ff);
-  color: var(--composer-accent, #3568ff);
+  color: var(--composer-accent, var(--primary));
   padding: 4px 9px;
   font: inherit;
   font-size: var(--font-sm);
@@ -6450,11 +6459,11 @@ summary:focus-visible,
 .auth-card { width: min(420px, 100%); display: grid; gap: 16px; padding: 28px; background: var(--canvas); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 18px 50px rgba(15,23,42,.08); }
 .auth-card h1, .settings-page h1, .admin-header h1, .shared-page h1 { margin: 0; }
 .auth-card .error-summary {
-  border: 1px solid color-mix(in srgb, var(--red) 40%, var(--line));
-  background: color-mix(in srgb, var(--red) 8%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg-elevated));
   border-radius: 10px;
   padding: 10px 12px;
-  color: var(--red);
+  color: var(--danger);
 }
 .auth-card .error-summary strong { display: block; margin-bottom: 4px; }
 .field-error { color: var(--red); font-size: var(--font-xs); margin: 0; }

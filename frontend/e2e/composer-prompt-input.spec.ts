@@ -93,11 +93,11 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   expect(chrome.placeholderSize).toBe("16px");
   expect(parseFloat(chrome.plusWidth)).toBe(36);
   expect(parseFloat(chrome.plusHeight)).toBe(36);
-  near(rgb(chrome.plusBg) as number[], [245, 245, 245]);
+  near(rgb(chrome.plusBg) as number[], [246, 247, 248]);
   expect(parseFloat(chrome.dividerWidth)).toBe(1);
   expect(parseFloat(chrome.dividerHeight)).toBe(16);
   near(rgb(chrome.dividerColor) as number[], [229, 229, 229]);
-  near(rgb(chrome.sendColor) as number[], [204, 204, 204]);
+  near(rgb(chrome.sendColor) as number[], [107, 114, 128]);
 
   await page.locator("[data-home] [data-attach]").click();
   const menu = page.getByRole("menu", { name: "添加内容" });
@@ -113,13 +113,13 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   expect(parseFloat(skillChip.height)).toBe(32);
   expect(parseFloat(skillChip.radius)).toBe(12);
   near(rgb(skillChip.bg) as number[], [243, 246, 255]);
-  near(rgb(skillChip.color) as number[], [53, 104, 255]);
+  near(rgb(skillChip.color) as number[], [79, 70, 229]);
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
 
   await page.locator("[data-home] [data-composer-input]").fill("给@小美妆日记 写阶段跟进邮件");
   const ready = await page.locator("[data-home] [data-send]").evaluate((el) => getComputedStyle(el).color);
-  near(rgb(ready) as number[], [53, 104, 255]);
+  near(rgb(ready) as number[], [79, 70, 229]);
   await page.locator("[data-home] [data-send]").click();
   await page.waitForURL(/\/s\//);
   await expect(page.locator('[data-kind="me"]')).toContainText("给@小美妆日记 写阶段跟进邮件", { timeout: 15000 });
@@ -162,4 +162,33 @@ test("session PromptInput stays at the thread foot with the same tokens", async 
   await page.locator(".session-composer [data-attach]").click();
   await expect(page.getByRole("menu", { name: "添加内容" })).toBeVisible();
   await page.keyboard.press("Escape");
+});
+
+test("settings fields keep a MASTER focus ring and login error-summary uses defined tokens", async ({ page }) => {
+  await page.goto("/settings");
+  const input = page.locator(".field input").first();
+  await expect(input).toBeVisible();
+  await input.focus();
+  const fieldFocus = await input.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { outlineColor: cs.outlineColor, outlineStyle: cs.outlineStyle, outlineWidth: cs.outlineWidth };
+  });
+  expect(fieldFocus.outlineStyle).not.toBe("none");
+  expect(parseFloat(fieldFocus.outlineWidth)).toBeGreaterThanOrEqual(2);
+  near(rgb(fieldFocus.outlineColor) as number[], [79, 70, 229]);
+
+  const summary = await page.evaluate(() => {
+    const host = document.createElement("div");
+    host.className = "auth-card";
+    const el = document.createElement("div");
+    el.className = "error-summary";
+    host.appendChild(el);
+    document.body.appendChild(host);
+    const cs = getComputedStyle(el);
+    const out = { bg: cs.backgroundColor, color: cs.color };
+    host.remove();
+    return out;
+  });
+  near(rgb(summary.color) as number[], [196, 60, 60]);
+  near(rgb(summary.bg) as number[], [242, 232, 233]);
 });

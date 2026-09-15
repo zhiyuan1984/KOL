@@ -52,7 +52,7 @@
 | 成功 | `--success` | `#2F7D73` | 同语义变量 |
 | 警告 | `--warning` | `#EA5504` | 同语义变量 |
 
-已落地的 Composer token：`--composer-bg: #FFFFFF`、`--composer-border: #C2D1FF`、`--composer-radius: 25px`、`--composer-accent: #3568FF`、`--composer-placeholder: #A6A6A6`、`--composer-send-idle: #CCCCCC`、`--composer-divider: #E5E5E5`、`--composer-chip-bg: #F3F6FF`、`--composer-chip-radius: 12px`、`--composer-side-btn-size: 36px`。它们只服务输入容器，不扩散到普通按钮、卡片或页面背景。
+已落地的 Composer token：`--composer-bg: #FFFFFF`、`--composer-border: #C2D1FF`、`--composer-radius: 25px`、`--composer-accent`（=`--primary`）、`--composer-placeholder: #A6A6A6`、`--composer-send-idle`（=`--text-muted`）、`--composer-divider: #E5E5E5`、`--composer-chip-bg: #F3F6FF`、`--composer-chip-radius: 12px`、`--composer-side-btn-bg`（=`--bg-elevated`）、`--composer-side-btn-size: 36px`。它们只服务输入容器，不扩散到普通按钮、卡片或页面背景。
 
 ### Token 分类
 
