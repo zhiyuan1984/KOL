@@ -6,9 +6,15 @@ test.beforeEach(async ({ request }) => {
 });
 
 function rgb(css: string) {
-  const match = css.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-  if (!match) return css;
-  return [Number(match[1]), Number(match[2]), Number(match[3])];
+  const rgbMatch = css.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if (rgbMatch) return [Number(rgbMatch[1]), Number(rgbMatch[2]), Number(rgbMatch[3])];
+  const spaceMatch = css.match(/rgba?\((\d+)\s+(\d+)\s+(\d+)/);
+  if (spaceMatch) return [Number(spaceMatch[1]), Number(spaceMatch[2]), Number(spaceMatch[3])];
+  const srgb = css.match(/color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/i);
+  if (srgb) {
+    return [srgb[1], srgb[2], srgb[3]].map((n) => Math.round(Number(n) * 255));
+  }
+  return css;
 }
 
 function near(actual: number[], expected: number[], slop = 8) {
