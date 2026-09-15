@@ -60,11 +60,14 @@ export default function DiscoveryPanel() {
   const [query, setQuery] = useState("");
   const [platform, setPlatform] = useState<DiscoveryPlatform>("youtube");
   const [filters, setFilters] = useState<DiscoveryFilters>(DEFAULT_DISCOVERY_FILTERS);
-  const [addOpen, setAddOpen] = useState(false);
+  const [conditionsOpen, setConditionsOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [rowMenuId, setRowMenuId] = useState<string | null>(null);
   const [directionDraft, setDirectionDraft] = useState("");
   const platformTouched = useRef(false);
   const regionTouched = useRef(false);
-  const addWrapRef = useRef<HTMLDivElement>(null);
+  const conditionsRef = useRef<HTMLDivElement>(null);
+  const advancedRef = useRef<HTMLDivElement>(null);
   const addInputRef = useRef<HTMLInputElement>(null);
   const errorRef = useRef<HTMLElement>(null);
   const [phase, setPhase] = useState<DiscoveryPhase>("idle");
@@ -176,15 +179,28 @@ export default function DiscoveryPanel() {
   }, []);
 
   useEffect(() => {
-    if (!addOpen) return;
-    addInputRef.current?.focus();
+    if (!conditionsOpen && !advancedOpen && !rowMenuId) return;
+    if (conditionsOpen) addInputRef.current?.focus();
     const onPointerDown = (event: PointerEvent) => {
-      if (addWrapRef.current && !addWrapRef.current.contains(event.target as Node)) {
-        setAddOpen(false);
+      const target = event.target as Node;
+      const el = event.target instanceof Element ? event.target : null;
+      if (el?.closest("[data-discovery-add-condition], [data-discovery-advanced]")) return;
+      if (conditionsOpen && conditionsRef.current && !conditionsRef.current.contains(target)) {
+        setConditionsOpen(false);
+      }
+      if (advancedOpen && advancedRef.current && !advancedRef.current.contains(target)) {
+        setAdvancedOpen(false);
+      }
+      if (rowMenuId) {
+        const menu = document.querySelector(`[data-discovery-row-menu="${rowMenuId}"]`);
+        if (menu && !menu.contains(target)) setRowMenuId(null);
       }
     };
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setAddOpen(false);
+      if (event.key !== "Escape") return;
+      setConditionsOpen(false);
+      setAdvancedOpen(false);
+      setRowMenuId(null);
     };
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKey);
@@ -192,7 +208,7 @@ export default function DiscoveryPanel() {
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKey);
     };
-  }, [addOpen]);
+  }, [conditionsOpen, advancedOpen, rowMenuId]);
 
   const applyDirections = (incoming: Iterable<string>) => {
     setFilters((current) => {
@@ -231,7 +247,8 @@ export default function DiscoveryPanel() {
     regionTouched.current = false;
     setPlatform("youtube");
     setFilters({ region: "all", directions: [] });
-    setAddOpen(false);
+    setConditionsOpen(false);
+    setAdvancedOpen(false);
   };
 
   const applyTerminalResults = (results: DiscoveryResults) => {
@@ -318,7 +335,8 @@ export default function DiscoveryPanel() {
   };
 
   const buildPlan = async () => {
-    setAddOpen(false);
+    setConditionsOpen(false);
+    setAdvancedOpen(false);
     const text = query.trim();
     if (!text) {
       showError("先写一句想找的达人，再生成计划。", "先写一句想找的达人，再生成计划。", "plan");
@@ -568,64 +586,55 @@ export default function DiscoveryPanel() {
           void buildPlan();
         }}
       >
-        <div
-          className="discovery-filters"
-          data-discovery-filters
-          aria-label="检索条件，已识别并可调整"
-        >
-          <div className="discovery-filter-group" data-discovery-filter="platform">
-            <span className="discovery-filter-title">平台</span>
+        <div className="discovery-filters" data-discovery-filters aria-label="检索条件">
+          <div className="discovery-condition-bar">
             <div className="discovery-chip-row">
-              {OVERSEAS_DISCOVERY_PLATFORMS.map((value) => (
+              <span className="discovery-chip discovery-chip-tag" data-discovery-active-chip={platform}>
                 <button
-                  key={value}
                   type="button"
-                  className="discovery-chip"
-                  data-discovery-chip={value}
-                  aria-pressed={platform === value}
+                  className="discovery-chip-label"
+                  onClick={() => {
+                    setAdvancedOpen(false);
+                    setConditionsOpen(true);
+                  }}
+                >
+                  {platformLabel(platform)}
+                </button>
+                <button
+                  type="button"
+                  className="discovery-chip-remove"
+                  aria-label={`重置平台：${platformLabel(platform)}`}
                   onClick={() => {
                     platformTouched.current = true;
-                    setPlatform(value);
+                    setPlatform("youtube");
                   }}
                 >
-                  {platformLabel(value)}
+                  ×
                 </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              className="discovery-filters-reset"
-              data-discovery-reset
-              onClick={resetConditions}
-            >
-              重置条件
-            </button>
-          </div>
-
-          <div className="discovery-filter-group" data-discovery-filter="region">
-            <span className="discovery-filter-title">地区</span>
-            <div className="discovery-chip-row">
-              {DISCOVERY_REGION_OPTIONS.map((option) => (
+              </span>
+              <span className="discovery-chip discovery-chip-tag" data-discovery-active-chip={filters.region}>
                 <button
-                  key={option.value}
                   type="button"
-                  className="discovery-chip"
-                  data-discovery-chip={option.value}
-                  aria-pressed={filters.region === option.value}
+                  className="discovery-chip-label"
+                  onClick={() => {
+                    setAdvancedOpen(false);
+                    setConditionsOpen(true);
+                  }}
+                >
+                  {regionLabel(filters.region)}
+                </button>
+                <button
+                  type="button"
+                  className="discovery-chip-remove"
+                  aria-label={`重置地区：${regionLabel(filters.region)}`}
                   onClick={() => {
                     regionTouched.current = true;
-                    setFilters((current) => ({ ...current, region: option.value }));
+                    setFilters((current) => ({ ...current, region: "all" }));
                   }}
                 >
-                  {option.label}
+                  ×
                 </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="discovery-filter-group" data-discovery-filter="directions">
-            <span className="discovery-filter-title">方向</span>
-            <div className="discovery-chip-row">
+              </span>
               {filters.directions.map((name) => (
                 <span
                   key={name}
@@ -647,74 +656,211 @@ export default function DiscoveryPanel() {
                   </button>
                 </span>
               ))}
-              <div className="discovery-direction-add" ref={addWrapRef} data-open={addOpen || undefined}>
-                <button
-                  type="button"
-                  className="discovery-chip discovery-chip-add"
-                  data-discovery-add-direction
-                  aria-expanded={addOpen}
-                  aria-haspopup="dialog"
-                  onClick={() => setAddOpen((open) => !open)}
-                >
-                  + 添加方向
-                </button>
-                {addOpen ? (
-                  <div
-                    className="discovery-direction-popover"
-                    data-discovery-direction-popover
-                    role="dialog"
-                    aria-label="添加方向"
-                  >
-                    <input
-                      ref={addInputRef}
-                      className="discovery-direction-input"
-                      data-discovery-direction-input
-                      value={directionDraft}
-                      placeholder="输入方向，回车添加"
-                      maxLength={MAX_DIRECTION_CHARS}
-                      onChange={(event) => onDirectionDraftChange(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Escape") {
-                          event.preventDefault();
-                          setAddOpen(false);
-                          return;
-                        }
-                        if (event.key === "Enter" || event.key === "," || event.key === "、") {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          commitDirectionDraft(directionDraft);
-                        }
-                      }}
-                    />
-                    <div className="discovery-chip-row discovery-preset-row">
-                      {DIRECTION_PRESETS.map((name) => (
-                        <button
-                          key={name}
-                          type="button"
-                          className="discovery-chip discovery-chip-preset"
-                          data-discovery-preset={name}
-                          aria-pressed={filters.directions.includes(name)}
-                          disabled={atDirectionMax && !filters.directions.includes(name)}
-                          onClick={() => {
-                            applyDirections([name]);
-                            setAddOpen(false);
-                          }}
-                        >
-                          {name}
-                        </button>
-                      ))}
-                    </div>
-                    {atDirectionMax ? (
-                      <p className="discovery-direction-limit" role="status">最多添加 8 个方向</p>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
+              <button
+                type="button"
+                className="discovery-chip discovery-chip-add"
+                data-discovery-add-condition
+                data-discovery-add-direction
+                aria-expanded={conditionsOpen}
+                aria-haspopup="dialog"
+                onClick={() => {
+                  setAdvancedOpen(false);
+                  setConditionsOpen((open) => !open);
+                }}
+              >
+                ＋ 添加条件
+              </button>
             </div>
-            {atDirectionMax && !addOpen ? (
-              <p className="discovery-direction-limit" role="status">最多添加 8 个方向</p>
-            ) : null}
+            <div className="discovery-condition-meta">
+              {phase === "results" && visible.length ? (
+                <p className="discovery-match-count" data-discovery-preview-count>
+                  {previewMatches.length} 位达人符合条件
+                </p>
+              ) : null}
+              <button
+                type="button"
+                className="discovery-advanced-link"
+                data-discovery-advanced
+                aria-expanded={advancedOpen}
+                onClick={() => {
+                  setConditionsOpen(false);
+                  setAdvancedOpen((open) => !open);
+                }}
+              >
+                高级筛选
+              </button>
+              <button
+                type="button"
+                className="discovery-filters-reset"
+                data-discovery-reset
+                onClick={resetConditions}
+              >
+                重置条件
+              </button>
+            </div>
           </div>
+
+          {conditionsOpen ? (
+            <div
+              className="discovery-condition-editor"
+              data-discovery-condition-editor
+              ref={conditionsRef}
+              role="dialog"
+              aria-label="添加条件"
+            >
+              <div className="discovery-filter-group" data-discovery-filter="platform">
+                <span className="discovery-filter-title">平台</span>
+                <div className="discovery-chip-row">
+                  {OVERSEAS_DISCOVERY_PLATFORMS.map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className="discovery-chip"
+                      data-discovery-chip={value}
+                      aria-pressed={platform === value}
+                      onClick={() => {
+                        platformTouched.current = true;
+                        setPlatform(value);
+                      }}
+                    >
+                      {platformLabel(value)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="discovery-filter-group" data-discovery-filter="region">
+                <span className="discovery-filter-title">地区</span>
+                <div className="discovery-chip-row">
+                  {DISCOVERY_REGION_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className="discovery-chip"
+                      data-discovery-chip={option.value}
+                      aria-pressed={filters.region === option.value}
+                      onClick={() => {
+                        regionTouched.current = true;
+                        setFilters((current) => ({ ...current, region: option.value }));
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="discovery-filter-group" data-discovery-filter="directions">
+                <span className="discovery-filter-title">方向</span>
+                <div className="discovery-direction-editor">
+                  <input
+                    ref={addInputRef}
+                    className="discovery-direction-input"
+                    data-discovery-direction-input
+                    value={directionDraft}
+                    placeholder="输入方向，回车添加"
+                    maxLength={MAX_DIRECTION_CHARS}
+                    onChange={(event) => onDirectionDraftChange(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        setConditionsOpen(false);
+                        return;
+                      }
+                      if (event.key === "Enter" || event.key === "," || event.key === "、") {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        commitDirectionDraft(directionDraft);
+                      }
+                    }}
+                  />
+                  <div className="discovery-chip-row discovery-preset-row">
+                    {DIRECTION_PRESETS.map((name) => (
+                      <button
+                        key={name}
+                        type="button"
+                        className="discovery-chip discovery-chip-preset"
+                        data-discovery-preset={name}
+                        aria-pressed={filters.directions.includes(name)}
+                        disabled={atDirectionMax && !filters.directions.includes(name)}
+                        onClick={() => {
+                          applyDirections([name]);
+                          setConditionsOpen(false);
+                        }}
+                      >
+                        {name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {atDirectionMax ? (
+                <p className="discovery-direction-limit" role="status">最多添加 8 个方向</p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {advancedOpen ? (
+            <div
+              className="discovery-advanced-panel"
+              data-discovery-advanced-panel
+              data-discovery-batch-conditions
+              ref={advancedRef}
+              role="dialog"
+              aria-label="高级筛选"
+            >
+              <label className="discovery-threshold">
+                <span>粉丝 ≥</span>
+                <input
+                  type="number"
+                  min={0}
+                  inputMode="numeric"
+                  data-discovery-threshold-followers
+                  value={minFollowers}
+                  placeholder="N"
+                  onChange={(event) => setMinFollowers(event.target.value)}
+                />
+              </label>
+              <label className="discovery-threshold">
+                <span>均播 ≥</span>
+                <input
+                  type="number"
+                  min={0}
+                  inputMode="numeric"
+                  data-discovery-threshold-avg-views
+                  value={minAvgViews}
+                  placeholder="M"
+                  onChange={(event) => setMinAvgViews(event.target.value)}
+                />
+              </label>
+              <label className="discovery-threshold">
+                <span>匹配度 ≥</span>
+                <input
+                  type="number"
+                  min={0}
+                  inputMode="numeric"
+                  data-discovery-threshold-score
+                  value={minScore}
+                  placeholder="S"
+                  onChange={(event) => setMinScore(event.target.value)}
+                />
+              </label>
+              <button
+                type="button"
+                className="btn ghost sm"
+                data-discovery-conditional-follow
+                disabled={!previewMatches.length || followBusy || phase !== "results"}
+                onClick={() => {
+                  setAdvancedOpen(false);
+                  openBatchConfirm("conditional");
+                }}
+              >
+                按条件加入跟进
+              </button>
+            </div>
+          ) : atDirectionMax && !conditionsOpen ? (
+            <p className="discovery-direction-limit" role="status">最多添加 8 个方向</p>
+          ) : null}
         </div>
         <label className="discovery-query-label">
           <span className="home-lane-label">想找什么样的达人</span>
@@ -727,7 +873,7 @@ export default function DiscoveryPanel() {
               placeholder="例如：找北美户外电源评测达人"
               onChange={(event) => onQueryChange(event.target.value)}
             />
-            <button type="submit" className="btn work sm" data-discovery-plan disabled={busy}>
+            <button type="submit" className="btn ghost sm" data-discovery-plan disabled={busy}>
               生成计划
             </button>
           </span>
@@ -900,7 +1046,10 @@ export default function DiscoveryPanel() {
 
       {phase === "results" && visible.length ? (
         <ol className="discovery-candidate-list" data-discovery-candidates>
-          <li className="discovery-batch-bar" data-discovery-batch-bar>
+          <li
+            className={"discovery-batch-bar" + (selectedCandidates.length ? " is-selecting" : "")}
+            data-discovery-batch-bar
+          >
             <div className="discovery-batch-select">
               <label className="discovery-candidate-select">
                 <input
@@ -914,7 +1063,7 @@ export default function DiscoveryPanel() {
               </label>
               <button
                 type="button"
-                className="btn work sm"
+                className={selectedCandidates.length ? "btn work sm" : "btn ghost sm"}
                 data-discovery-batch-follow
                 disabled={!selectedCandidates.length || followBusy}
                 onClick={() => openBatchConfirm("selected")}
@@ -922,90 +1071,12 @@ export default function DiscoveryPanel() {
                 按所选加入跟进
               </button>
             </div>
-            <div className="discovery-batch-conditions" data-discovery-batch-conditions>
-              <span className="discovery-filter-title">按条件加入</span>
-              <label className="discovery-threshold">
-                <span>粉丝 ≥</span>
-                <input
-                  type="number"
-                  min={0}
-                  inputMode="numeric"
-                  data-discovery-threshold-followers
-                  value={minFollowers}
-                  placeholder="N"
-                  onChange={(event) => setMinFollowers(event.target.value)}
-                />
-              </label>
-              <label className="discovery-threshold">
-                <span>近10均播 ≥</span>
-                <input
-                  type="number"
-                  min={0}
-                  inputMode="numeric"
-                  data-discovery-threshold-avg-views
-                  value={minAvgViews}
-                  placeholder="M"
-                  onChange={(event) => setMinAvgViews(event.target.value)}
-                />
-              </label>
-              <label className="discovery-threshold">
-                <span>评分 ≥</span>
-                <input
-                  type="number"
-                  min={0}
-                  inputMode="numeric"
-                  data-discovery-threshold-score
-                  value={minScore}
-                  placeholder="S"
-                  onChange={(event) => setMinScore(event.target.value)}
-                />
-              </label>
-              <p className="discovery-quiet" data-discovery-preview-count>
-                符合条件 {previewMatches.length} 人
-              </p>
-              <button
-                type="button"
-                className="btn work sm"
-                data-discovery-conditional-follow
-                disabled={!previewMatches.length || followBusy}
-                onClick={() => openBatchConfirm("conditional")}
-              >
-                按条件加入跟进
-              </button>
-            </div>
-            <div className="discovery-batch-plan" data-discovery-batch-plan>
-              <span className="discovery-filter-title">当前计划</span>
-              <div className="discovery-chip-row" data-discovery-filter="plan-platform">
-                {OVERSEAS_DISCOVERY_PLATFORMS.map((value) => (
-                  <span
-                    key={value}
-                    className="discovery-chip"
-                    data-discovery-plan-chip={value}
-                    aria-pressed={request?.platforms.includes(value) || undefined}
-                  >
-                    {platformLabel(value)}
-                  </span>
-                ))}
-              </div>
-              <div className="discovery-chip-row" data-discovery-filter="plan-region">
-                {DISCOVERY_REGION_OPTIONS.map((option) => (
-                  <span
-                    key={option.value}
-                    className="discovery-chip"
-                    data-discovery-plan-chip={option.value}
-                    aria-pressed={(request?.filters?.region || "all") === option.value || undefined}
-                  >
-                    {option.label}
-                  </span>
-                ))}
-              </div>
-              <p className="discovery-quiet">平台 / 地区沿用发现计划，不另设一套。</p>
-            </div>
           </li>
           {visible.map((candidate) => {
             const nickname = distinctNickname(candidate);
             const metrics = candidateMetrics(candidate);
             const reason = candidateReason(candidate);
+            const followed = candidate.status === "followed";
             return (
               <li key={candidate.id}>
                 <article
@@ -1037,14 +1108,17 @@ export default function DiscoveryPanel() {
                       {nickname ? (
                         <span className="discovery-candidate-nickname">{nickname}</span>
                       ) : null}
+                      {candidate.platform ? (
+                        <span className="discovery-chip discovery-chip-soft">{platformLabel(candidate.platform)}</span>
+                      ) : null}
                     </strong>
-                    {metrics ? (
-                      <p className="discovery-candidate-meta" data-discovery-candidate-meta>{metrics}</p>
-                    ) : null}
                     {reason ? (
                       <p className="discovery-candidate-reason" data-discovery-candidate-reason>{reason}</p>
                     ) : null}
-                    {candidate.status === "followed" ? (
+                    {metrics ? (
+                      <p className="discovery-candidate-meta" data-discovery-candidate-meta>{metrics}</p>
+                    ) : null}
+                    {followed ? (
                       <p className="discovery-quiet" data-discovery-followed>
                         已加入跟进。已写入红人档案并建立合作，不会发信或改阶段。
                       </p>
@@ -1053,28 +1127,61 @@ export default function DiscoveryPanel() {
                   <div className="discovery-candidate-actions">
                     <button
                       type="button"
-                      className="btn ghost sm"
+                      className="discovery-icon-btn"
                       data-discovery-favorite={candidate.id}
                       aria-pressed={Boolean(favorited[candidate.id])}
+                      aria-label={favorited[candidate.id] ? "已收藏" : "收藏"}
                       title="收藏保存在此浏览器"
                       onClick={() => toggleFavorite(candidate.id)}
                     >
-                      {favorited[candidate.id] ? "已收藏" : "收藏"}
+                      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden>
+                        <path
+                          d="M12 3.8 14.6 9l5.8.6-4.4 3.8 1.3 5.7L12 16.6 6.7 19.1 8 13.4 3.6 9.6 9.4 9z"
+                          fill={favorited[candidate.id] ? "currentColor" : "none"}
+                          stroke="currentColor"
+                          strokeWidth="1.6"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
                     </button>
-                    <button
-                      type="button"
-                      className="btn ghost sm"
-                      data-discovery-dismiss={candidate.id}
-                      disabled={candidate.status === "followed"}
-                      onClick={() => void onDismiss(candidate)}
+                    <div
+                      className="discovery-row-more"
+                      data-discovery-row-menu={candidate.id}
                     >
-                      忽略
-                    </button>
+                      <button
+                        type="button"
+                        className="discovery-icon-btn"
+                        data-discovery-more={candidate.id}
+                        aria-expanded={rowMenuId === candidate.id}
+                        aria-haspopup="menu"
+                        aria-label={`更多操作 @${candidate.handle}`}
+                        onClick={() => setRowMenuId((current) => current === candidate.id ? null : candidate.id)}
+                      >
+                        ···
+                      </button>
+                      {rowMenuId === candidate.id ? (
+                        <div className="discovery-row-menu" role="menu" aria-label={`@${candidate.handle} 操作`}>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="discovery-row-menu-item"
+                            data-discovery-dismiss={candidate.id}
+                            disabled={followed}
+                            onClick={() => {
+                              setRowMenuId(null);
+                              void onDismiss(candidate);
+                            }}
+                          >
+                            忽略
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                     <button
                       type="button"
-                      className="btn work sm"
+                      className="discovery-follow-quiet"
                       data-discovery-follow={candidate.id}
-                      disabled={candidate.status === "followed"}
+                      disabled={followed}
                       onClick={() => {
                         setFollowError(null);
                         setBatchResult(null);
@@ -1082,7 +1189,7 @@ export default function DiscoveryPanel() {
                         setPendingFollow(candidate);
                       }}
                     >
-                      {candidate.status === "followed" ? "已确认跟进" : "加入跟进"}
+                      {followed ? "已跟进" : "＋ 跟进"}
                     </button>
                   </div>
                 </article>
