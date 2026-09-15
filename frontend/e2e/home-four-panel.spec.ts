@@ -1061,7 +1061,7 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
   expect(wide.gutter).toBeLessThanOrEqual(16);
   expect(wide.primaryInAi).toBe(true);
   expect(wide.cardWidth).toBeGreaterThan(700);
-  expect(wide.cardWidth).toBeLessThanOrEqual(880);
+  expect(wide.cardWidth).toBeLessThanOrEqual(1180);
 
   const type = await card.evaluate((el) => {
     const read = (node: Element | null) => {

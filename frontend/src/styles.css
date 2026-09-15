@@ -1927,9 +1927,9 @@ summary:focus-visible,
 }
 .followed-object-search {
   display: block;
-  flex: 1 1 16rem;
-  min-width: 12rem;
-  max-width: 28rem;
+  flex: 0 1 22rem;
+  min-width: min(12rem, 100%);
+  max-width: 22rem;
 }
 .followed-object-search input {
   display: block;
@@ -1954,6 +1954,65 @@ summary:focus-visible,
   color: var(--text-muted);
   font-size: var(--font-sm);
   white-space: nowrap;
+}
+.followed-stage-filter {
+  display: flex;
+  flex: 1 1 100%;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 2px 0 4px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.followed-stage-filter button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-sm);
+  line-height: 1.2;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.followed-stage-filter button:hover {
+  background: color-mix(in srgb, var(--text) 4%, var(--bg));
+  color: var(--text);
+}
+.followed-stage-filter button.is-active {
+  border-color: var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  font-weight: 500;
+}
+.followed-stage-count {
+  min-width: 1.25em;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.followed-stage-filter button.is-active .followed-stage-count {
+  color: var(--text);
+}
+.followed-stage-select-compat {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
 }
 .followed-batch-bar {
   display: flex;
@@ -2363,14 +2422,14 @@ summary:focus-visible,
   align-self: stretch;
 }
 /*
- * Followed decision column: 880px.
+ * Followed decision column: 1180px.
  * OpenAI-quiet readable workbench (content-first, not stretched ERP rows).
- * Midpoint of the 720–960px band: two dense columns (fact + AI 280–340)
- * without hollow gutters on ultra-wide. Cards left-align; the rail/pane
- * may stay full width. Density dial 8.
+ * Keep the two-column card readable while using the available desktop rail.
+ * The column centers inside the workbench so wide screens retain balanced
+ * breathing room on both sides. Density dial 8.
  */
 .followed-kol-column {
-  --followed-decision-max: 880px;
+  --followed-decision-max: 1180px;
   --followed-ai-col: 320px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -2380,6 +2439,7 @@ summary:focus-visible,
   max-width: 100%;
   min-width: 0;
   overflow-x: hidden;
+  margin-inline: auto;
 }
 .followed-kol-column .home-pane-sticky,
 .followed-kol-column .followed-kol-list,

@@ -163,7 +163,7 @@ async function expectFollowedKolListAlignsWithToolbar(page: Page) {
   expect(Math.abs(metrics.card.left - metrics.toolbar.left)).toBeLessThan(4);
   expect(Math.abs(metrics.card.right - metrics.toolbar.right)).toBeLessThan(4);
   expect(metrics.card.width).toBeGreaterThan(320);
-  expect(metrics.card.width).toBeLessThanOrEqual(880);
+  expect(metrics.card.width).toBeLessThanOrEqual(1180);
   if (metrics.column.width > 1000) {
     expect(metrics.card.width).toBeLessThan(metrics.column.width - 24);
     expect(metrics.toolbar.width).toBeLessThan(metrics.pane.width - 24);
@@ -1091,7 +1091,7 @@ async function expectHomeFollowedRailWide(page: Page, viewportWidth: number) {
   expect(metrics!.gutter).toBeLessThanOrEqual(16);
   expect(metrics!.columnWidth).toBeGreaterThan(viewportWidth - 320);
   expect(metrics!.cardWidth).toBeGreaterThan(320);
-  expect(metrics!.cardWidth).toBeLessThanOrEqual(880);
+  expect(metrics!.cardWidth).toBeLessThanOrEqual(1180);
   if (metrics!.columnWidth > 1000) {
     expect(metrics!.cardWidth).toBeLessThan(metrics!.columnWidth - 24);
   }
@@ -1133,7 +1133,7 @@ async function expectFollowedDecisionDensity(page: Page) {
   });
   expect(metrics).toBeTruthy();
   expect(metrics!.cardWidth).toBeGreaterThan(320);
-  expect(metrics!.cardWidth).toBeLessThanOrEqual(880);
+  expect(metrics!.cardWidth).toBeLessThanOrEqual(1180);
   if (metrics!.columnWidth > 1000) {
     expect(metrics!.cardWidth).toBeLessThan(metrics!.columnWidth - 24);
   }

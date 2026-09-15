@@ -6,7 +6,7 @@ const GREETING_LEAD = /^(hi|hello|hey|dear|good\s+(morning|afternoon|evening))\b
 const SIGN_OFF = /\b(best regards|kind regards|sincerely|cheers|thanks(?:\s+again)?|此致敬礼|谢谢)\b[\s\S]*$/i;
 const EMAIL_ADDR = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
 const HEADER_FIELD = /^(from|to|reply-to|cc|bcc|subject|date|sent|sender|return-path)\s*:/im;
-const HEADER_DUMP = /原始发件人|reply-to\s*:|return-path|mime-version/i;
+const HEADER_DUMP = /原始(?:发件人|邮件)|(?:发件人|收件人|回复地址|主题|日期)\s*[:：]|reply-to\s*:|return-path|mime-version/i;
 
 /** True when the snippet is envelope/header residue, not a human quote. */
 export function isMailHeaderDump(raw: string): boolean {

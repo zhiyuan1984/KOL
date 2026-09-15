@@ -1170,6 +1170,22 @@ export default function Home() {
     return sortFollowedKolCards(filtered, "need");
   }, [kolCards, kolQuery, stageFilter]);
 
+  const followedStageTabs = useMemo(() => {
+    const isException = (card: FollowedKolCardModel) => (
+      card.source.exception || card.current_state.exception || card.risk.exception
+    );
+    const regularCards = kolCards.filter((card) => !isException(card));
+    return [
+      { code: "all", label: "全部", count: kolCards.length },
+      ...MAIN_STAGE_TABS.map((stage) => ({
+        code: stage.code,
+        label: stage.label,
+        count: regularCards.filter((card) => card.current_state.stage_code === stage.code).length,
+      })),
+      { code: "exception", label: "异常", count: kolCards.filter(isException).length },
+    ];
+  }, [kolCards]);
+
   const selectedKolCards = useMemo(
     () => visibleKols.filter((card) => selectedKolIds.includes(card.id)),
     [visibleKols, selectedKolIds],
@@ -1471,7 +1487,7 @@ export default function Home() {
 
           {mode === "lifecycle" ? (
             <section className="home-mode-pane recommend-work followed-kol-pane" data-home-pane="lifecycle" data-lifecycle-overview>
-              <div className="followed-kol-column" data-followed-kol-column data-followed-decision-max="880">
+              <div className="followed-kol-column" data-followed-kol-column data-followed-decision-max="1180">
               <div className="home-pane-sticky">
               <div className="followed-object-toolbar" data-followed-object-toolbar>
                 <label className="followed-object-search">
@@ -1485,21 +1501,40 @@ export default function Home() {
                     data-followed-object-search
                   />
                 </label>
-                <label className="kol-filter-label">
-                  阶段
-                  <select
-                    aria-label="按阶段筛选"
-                    data-kol-stage-filter
-                    value={stageFilter}
-                    onChange={(event) => setStageFilter(event.target.value)}
-                  >
-                    <option value="">全部阶段</option>
-                    {MAIN_STAGE_TABS.map((stage) => (
-                      <option key={stage.code} value={stage.code}>{stage.label}</option>
-                    ))}
-                    <option value="exception">异常</option>
-                  </select>
-                </label>
+                <div className="followed-stage-filter" role="tablist" aria-label="按阶段筛选" data-kol-stage-tabs>
+                  {followedStageTabs.map((stage) => {
+                    const active = (stageFilter || "all") === stage.code;
+                    return (
+                      <button
+                        key={stage.code}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        aria-controls="followed-kol-results"
+                        className={active ? "is-active" : ""}
+                        data-kol-stage-tab={stage.code}
+                        onClick={() => setStageFilter(stage.code === "all" ? "" : stage.code)}
+                      >
+                        <span>{stage.label}</span>
+                        <span className="followed-stage-count">{stage.count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <select
+                  className="followed-stage-select-compat"
+                  aria-label="按阶段筛选"
+                  data-kol-stage-filter
+                  tabIndex={-1}
+                  value={stageFilter}
+                  onChange={(event) => setStageFilter(event.target.value)}
+                >
+                  <option value="">全部阶段</option>
+                  {MAIN_STAGE_TABS.map((stage) => (
+                    <option key={stage.code} value={stage.code}>{stage.label}</option>
+                  ))}
+                  <option value="exception">异常</option>
+                </select>
                 <p className="followed-object-count" data-followed-object-count>
                   {visibleKols.length} 个跟进对象
                 </p>
@@ -1538,6 +1573,7 @@ export default function Home() {
                 <ol
                   className="recommend-list followed-kol-list"
                   data-followed-kol-list
+                  id="followed-kol-results"
                   data-followed-origin="collaboration"
                   data-kol-sort="need"
                   data-followed-selecting={selecting ? "true" : "false"}

@@ -260,7 +260,7 @@ function latestFact(kol: FollowedKolRecord, related?: Task): FollowedKolCardMode
     const quote = digestMailQuote(thread);
     return {
       kind: kind === "none" ? "inbound" : kind,
-      summary: quote || "最近一封往来邮件",
+      summary: quote || "暂无可用互动摘要",
       at: thread.last_at || null,
       at_ms: timeMs(thread.last_at),
       source: "邮件",
