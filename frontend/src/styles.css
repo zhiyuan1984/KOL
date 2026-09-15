@@ -2110,11 +2110,11 @@ summary:focus-visible,
 .followed-kol-card {
   display: grid;
   justify-items: stretch;
-  gap: var(--space-3);
+  gap: var(--space-2);
   width: 100%;
   min-width: 0;
-  max-width: 100%;
-  padding: var(--space-4) 0;
+  max-width: none;
+  padding: var(--space-2) 0;
   border-bottom: 1px solid var(--border);
   overflow-x: hidden;
   overflow-y: visible;
@@ -2129,10 +2129,10 @@ summary:focus-visible,
   box-sizing: border-box;
 }
 .followed-kol-card:hover {
-  background: color-mix(in srgb, var(--bg-elevated) 72%, var(--bg));
+  background: color-mix(in srgb, var(--bg-elevated) 55%, var(--bg));
 }
 .followed-kol-card.is-exception {
-  box-shadow: inset 3px 0 0 var(--danger);
+  box-shadow: inset 2px 0 0 var(--danger);
 }
 .kol-band,
 .followed-kol-card .kol-band,
@@ -2154,14 +2154,14 @@ summary:focus-visible,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   flex: 0 0 auto;
   margin-top: 2px;
   border-radius: var(--radius-sm);
   background: var(--bg-elevated);
   color: var(--text-muted);
-  font-size: var(--font-meta);
+  font-size: var(--font-xs);
   font-weight: 600;
   line-height: 1;
 }
@@ -2169,23 +2169,25 @@ summary:focus-visible,
   min-width: 0;
   flex: 1 1 auto;
   width: 100%;
+  display: grid;
+  gap: 2px;
 }
 .kol-identity-line {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   column-gap: var(--space-2);
-  row-gap: var(--space-1);
+  row-gap: 2px;
   min-width: 0;
   width: 100%;
 }
 .kol-band-identity .kol-name,
 .kol-band-identity strong {
-  display: block;
-  flex: 1 1 100%;
+  display: inline;
+  flex: 0 1 auto;
   max-width: 100%;
   min-width: 0;
-  font-size: var(--font-section);
+  font-size: var(--font-ui);
   font-weight: 600;
   line-height: var(--leading-tight);
   color: var(--text);
@@ -2193,12 +2195,35 @@ summary:focus-visible,
   overflow-wrap: anywhere;
   word-break: break-word;
 }
+.kol-stage-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  max-width: 100%;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+.kol-stage-badge .kol-stage,
+.kol-stage-badge [data-stage-label] {
+  margin: 0;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text);
+}
+.kol-stage-stay {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.35;
+}
 .kol-chip-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  flex: 1 1 100%;
-  gap: var(--space-1);
+  gap: 2px var(--space-1);
   margin-top: 0;
   min-width: 0;
   width: 100%;
@@ -2208,19 +2233,24 @@ summary:focus-visible,
   display: inline-flex;
   align-items: center;
   border: 1px solid transparent;
-  background: var(--bg-elevated);
+  background: transparent;
   color: var(--text-muted);
   border-radius: 999px;
-  font-size: var(--font-meta);
-  line-height: 1.35;
-  padding: 2px var(--space-2);
+  font-size: var(--font-xs);
+  line-height: 1.3;
+  padding: 0 2px;
   max-width: 100%;
   min-width: 0;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
+.kol-chip.is-unread {
+  padding: 1px var(--space-2);
+  background: color-mix(in srgb, var(--danger) 12%, var(--bg));
+}
 .kol-chip.is-risk {
+  padding: 1px var(--space-2);
   border-color: color-mix(in srgb, var(--danger) 35%, var(--border));
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 8%, var(--bg));
@@ -2230,12 +2260,20 @@ summary:focus-visible,
   background: var(--bg-elevated);
   color: var(--text);
 }
+.followed-kol-card .kol-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: start;
+  width: 100%;
+  min-width: 0;
+}
 .followed-kol-card .kol-band-state,
 .followed-kol-card .kol-band-fact,
 .followed-kol-card .kol-band-recommend {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-2);
+  gap: 2px;
   align-items: start;
 }
 .kol-state-block {
@@ -2262,6 +2300,7 @@ summary:focus-visible,
 .followed-kol-card .kol-stage,
 .followed-kol-card .kol-suggestion,
 .followed-kol-card .kol-mail-digest,
+.followed-kol-card .kol-judgment,
 .followed-kol-card .kol-evidence,
 .followed-kol-card .kol-state-block p,
 .followed-kol-card .kol-cta-btn {
@@ -2269,53 +2308,96 @@ summary:focus-visible,
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-.kol-state-block p {
+.kol-state-block p,
+.followed-kol-card .kol-split-kicker {
   margin: 0;
   min-width: 0;
   max-width: 100%;
-  font-size: var(--font-body);
-  line-height: var(--leading-body);
-  color: var(--text);
+  font-size: var(--font-xs);
+  line-height: 1.4;
+  color: var(--text-muted);
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-.kol-band-state .kol-stage,
-.kol-band-state [data-stage-label] {
-  font-weight: 600;
-  font-size: var(--font-body);
-  line-height: var(--leading-tight);
+.followed-kol-card .kol-split-kicker {
+  font-weight: 500;
+  letter-spacing: 0;
 }
 .followed-kol-card .kol-suggestion,
 .followed-kol-card [data-recommended-action] .kol-suggestion {
   font-weight: 500;
-  font-size: var(--font-body);
+  font-size: var(--font-sm);
+  line-height: 1.4;
   color: var(--text);
 }
-.followed-kol-card .kol-mail-digest,
-.followed-kol-card .kol-evidence,
-.followed-kol-card [data-latest-fact] p,
-.followed-kol-card [data-action-evidence] p {
-  font-size: var(--font-meta);
+.followed-kol-card .kol-judgment,
+.followed-kol-card [data-action-why] {
+  font-size: var(--font-xs);
   color: var(--text-muted);
-  line-height: var(--leading-body);
+  line-height: 1.4;
+}
+.followed-kol-card .kol-mail-digest,
+.followed-kol-card [data-latest-fact] .kol-mail-digest {
+  font-size: var(--font-sm);
+  color: var(--text);
+  line-height: 1.45;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.followed-kol-card .kol-mail-meta {
+  margin: 0;
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+.followed-kol-card .kol-evidence-disclosure {
+  margin: 0;
+}
+.followed-kol-card .kol-evidence-disclosure summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.35;
+  list-style: none;
+}
+.followed-kol-card .kol-evidence-disclosure summary::-webkit-details-marker {
+  display: none;
+}
 .followed-kol-card .kol-evidence,
 .followed-kol-card [data-action-evidence] p {
-  word-break: break-all;
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
 }
 .kol-band-actions {
   display: flex;
   flex-wrap: wrap;
-  align-items: stretch;
-  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-2);
   min-width: 0;
-  padding-top: var(--space-1);
+  padding-top: 0;
+}
+.followed-kol-card .kol-cta-secondary,
+.followed-kol-card .kol-cta-primary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+}
+.followed-kol-card .kol-cta-primary {
+  margin-left: auto;
 }
 .followed-kol-card .kol-cta-btn {
   flex: 0 1 auto;
@@ -2325,6 +2407,33 @@ summary:focus-visible,
   white-space: normal;
   overflow-wrap: anywhere;
   text-align: center;
+}
+.followed-kol-card .kol-cta-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--font-xs);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.followed-kol-card .kol-cta-link:hover {
+  color: var(--text);
+}
+@media (min-width: 900px) {
+  .followed-kol-card .kol-split {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: var(--space-4);
+    align-items: start;
+  }
+  .followed-kol-card .kol-band-fact {
+    grid-column: 1;
+  }
+  .followed-kol-card .kol-band-recommend {
+    grid-column: 2;
+  }
 }
 @media (max-width: 720px) {
   .home-chrome {
