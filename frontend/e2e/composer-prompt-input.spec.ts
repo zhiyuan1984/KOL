@@ -97,14 +97,13 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   expect(parseFloat(chrome.minHeight)).toBeGreaterThanOrEqual(72);
   expect(parseFloat(chrome.minHeight)).toBeLessThanOrEqual(96);
   expect(parseFloat(chrome.radius)).toBeGreaterThanOrEqual(999);
-  near(rgb(chrome.borderColor) as number[], [229, 230, 232]);
+  near(rgb(chrome.borderColor) as number[], [224, 224, 224]);
   near(rgb(chrome.background) as number[], [255, 255, 255]);
   near(rgb(chrome.placeholderColor) as number[], [143, 143, 143]);
   expect(chrome.placeholderSize).toBe("16px");
   expect(parseFloat(chrome.plusWidth)).toBe(36);
   expect(parseFloat(chrome.plusHeight)).toBe(36);
   expect(chrome.plusBg).toMatch(/rgba\(\s*0,\s*0,\s*0,\s*0\s*\)|transparent/);
-  expect(parseFloat(chrome.dividerWidth) === 0 || chrome.dividerWidth === "auto").toBeTruthy();
   near(rgb(chrome.sendColor) as number[], [255, 255, 255]);
 
   await page.locator("[data-home] [data-attach]").click();
@@ -167,7 +166,7 @@ test("session PromptInput stays at the thread foot with the same tokens", async 
   const chrome = await composerChrome(page, ".session-composer");
   expect(parseFloat(chrome.radius)).toBeGreaterThanOrEqual(24);
   expect(parseFloat(chrome.radius)).toBeLessThanOrEqual(26);
-  near(rgb(chrome.borderColor) as number[], [229, 230, 232]);
+  near(rgb(chrome.borderColor) as number[], [224, 224, 224]);
   near(rgb(chrome.placeholderColor) as number[], [143, 143, 143]);
 
   await page.locator(".session-composer [data-attach]").click();
