@@ -2481,7 +2481,7 @@ test("admin skill page exposes create form after product manager login", async (
   await expect(page.locator('[data-skill="daily_brief_ui"]')).toBeVisible();
   await expect(page.locator('[data-skill="daily_brief_ui"] .hub-kind')).toHaveText("自建");
   await page.goto("/market/skills");
-  await expect(page.locator("[data-hub-new]")).toHaveAttribute("href", "/admin/skills");
+  await expect(page.locator("[data-hub-new]")).toHaveCount(0);
   await expect(page.locator('[data-skill="daily_brief_ui"] .hub-kind')).toHaveText("自建");
 });
 
@@ -2766,10 +2766,18 @@ test("employee sidebar puts cron in today cluster and hides group titles", async
   await today.locator('[data-nav="cron"]').click();
   await expect(page).toHaveURL(/\/cron/);
   await expect(page.getByRole("heading", { name: "定时任务" })).toBeVisible();
+  await expect(page.locator("[data-cron-page]")).toBeVisible();
+  await expect(page.locator("[data-cron-page]")).toContainText("失联与延期扫描");
+  await expect(page.locator("[data-cron-page]")).not.toContainText("T8");
+  await expect(page.locator("[data-cron-page]")).not.toContainText("P0 仅");
   await expect(today.locator('[data-nav="cron"]')).toHaveClass(/active/);
 });
 
 test("employee partners path has no pipeline hero or admin squad links", async ({ page }) => {
+  const pipelineHits: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("/api/pipeline")) pipelineHits.push(request.url());
+  });
   await page.goto("/partners");
   await expect(page.locator("[data-skill-hub='partners']")).toBeVisible();
   await expect(page.locator('[data-hub-banner="pipeline"]')).toHaveCount(0);
@@ -2782,6 +2790,14 @@ test("employee partners path has no pipeline hero or admin squad links", async (
   await expect(page.locator('[data-hub-mode="partners"]')).toHaveText("工作伙伴");
   await expect(page.locator("[data-skill-hub='partners']")).not.toContainText("LiTime 小队");
   await expect(page.locator("[data-skill-hub='partners']")).not.toContainText("15 个正式阶段");
+  await expect(page.locator("[data-skill-hub='partners']")).not.toContainText("初步接触");
+  await expect(page.locator("[data-skill-hub='partners']")).not.toContainText("报价待确认");
+  await expect(page.locator("[data-hub-new]")).toHaveCount(0);
+  await expect.poll(() => pipelineHits).toEqual([]);
+  const partner = page.locator("[data-partner]").first();
+  if (await partner.count()) {
+    await expect(partner).toHaveAttribute("data-partner-follow", /跟进中|需关注|待跟进|未绑定邮箱/);
+  }
 });
 
 test("docs/21 employee sidebar has no admin connectors deep-link", async ({ page }) => {
@@ -3053,6 +3069,106 @@ test("admin and settings expose bind Starry mailbox menus", async ({ page }) => 
   await page.goto("/admin/starry");
   await expect(page).toHaveURL(/\/settings\?tab=starry/);
   await expect(page.locator("[data-starry-bind]")).toBeVisible();
+});
+
+test("settings delete memory uses L3 confirm and keeps a durable receipt", async ({ page, request }) => {
+  const nativeConfirms: string[] = [];
+  page.on("dialog", (dialog) => {
+    nativeConfirms.push(dialog.message());
+    void dialog.dismiss();
+  });
+  await request.post("/api/memory", { data: { title: "测试记忆", body_md: "只用于确认删除", scope: "private" } });
+  await page.goto("/settings?tab=memories");
+  await expect(page.getByRole("heading", { name: "Markdown 记忆" })).toBeVisible();
+  await page.locator("[data-memory-delete]").first().click();
+  const dialog = page.locator("[data-admin-confirm='memory-delete']");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator("[data-admin-confirm-object]")).toContainText("测试记忆");
+  await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("本账号 Markdown 记忆");
+  await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("不可恢复");
+  await page.locator("[data-admin-confirm-ok]").click();
+  const receipt = page.locator("[data-settings-receipt='memory-delete']");
+  await expect(receipt).toBeVisible();
+  await expect(receipt.locator("[data-settings-receipt-text]")).toContainText("已删除记忆");
+  await expect(receipt.locator("[data-settings-receipt-object]")).toContainText("测试记忆");
+  await expect(receipt.locator("[data-settings-receipt-scope]")).toContainText("本账号 Markdown 记忆");
+  await expect(receipt.locator("[data-settings-receipt-consequence]")).toContainText("不可恢复");
+  await page.reload();
+  await expect(page.locator("[data-settings-receipt='memory-delete']")).toBeVisible();
+  await expect(page.locator("[data-settings-receipt-text]")).toContainText("已删除记忆");
+  expect(nativeConfirms).toEqual([]);
+});
+
+test("settings delete session uses L3 confirm and keeps a durable receipt", async ({ page, request }) => {
+  const nativeConfirms: string[] = [];
+  page.on("dialog", (dialog) => {
+    nativeConfirms.push(dialog.message());
+    void dialog.dismiss();
+  });
+  await request.post("/api/sessions", { data: { title: "待删除会话" } });
+  await page.goto("/settings?tab=privacy");
+  await expect(page.getByRole("heading", { name: "隐私与数据" })).toBeVisible();
+  await page.locator("[data-session-delete]").first().click();
+  const dialog = page.locator("[data-admin-confirm='session-delete']");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator("[data-admin-confirm-object]")).not.toHaveText("");
+  await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("消息、草稿、运行箱");
+  await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("合规迁移记录保留");
+  await page.locator("[data-admin-confirm-ok]").click();
+  const receipt = page.locator("[data-settings-receipt='session-delete']");
+  await expect(receipt).toBeVisible();
+  await expect(receipt.locator("[data-settings-receipt-text]")).toContainText("已删除会话");
+  await page.reload();
+  await expect(page.locator("[data-settings-receipt='session-delete']")).toBeVisible();
+  expect(nativeConfirms).toEqual([]);
+});
+
+test("settings unbind Starry uses L3 confirm and keeps a durable receipt", async ({ page }) => {
+  const nativeConfirms: string[] = [];
+  page.on("dialog", (dialog) => {
+    nativeConfirms.push(dialog.message());
+    void dialog.dismiss();
+  });
+  await page.route("**/api/me/starry-binding", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        json: { bound: true, status: "connected", mailbox_email: "lt.ops@example.com", owner_name: "李婷" },
+      });
+      return;
+    }
+    if (route.request().method() === "DELETE") {
+      await route.fulfill({ json: { bound: false, status: "unbound" } });
+      return;
+    }
+    await route.continue();
+  });
+  await page.goto("/settings?tab=starry");
+  await expect(page.locator("[data-starry-unbind]")).toBeVisible();
+  await page.locator("[data-starry-unbind]").click();
+  const dialog = page.locator("[data-admin-confirm='starry-unbind']");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator("[data-admin-confirm-object]")).toContainText("lt.ops@example.com");
+  await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("个人跟进邮箱绑定");
+  await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("我跟进的红人");
+  await page.locator("[data-admin-confirm-ok]").click();
+  const receipt = page.locator("[data-settings-receipt='starry-unbind']");
+  await expect(receipt).toBeVisible();
+  await expect(receipt.locator("[data-settings-receipt-text]")).toContainText("已解除跟进邮箱绑定");
+  await expect(receipt.locator("[data-settings-receipt-object]")).toContainText("lt.ops@example.com");
+  await page.reload();
+  await expect(page.locator("[data-settings-receipt='starry-unbind']")).toBeVisible();
+  expect(nativeConfirms).toEqual([]);
+});
+
+test("session chat does not render unimplemented TeamRail", async ({ page, request }) => {
+  const ses = await request.post("/api/sessions", { data: { title: "无团队轨" } }).then((r) => r.json()) as { id: string };
+  await page.goto(`/s/${ses.id}`);
+  await page.evaluate((id) => {
+    sessionStorage.setItem(`team:${id}`, JSON.stringify({ teamId: "kol-squad", stepIndex: 0 }));
+  }, ses.id);
+  await page.reload();
+  await expect(page.locator("[data-team-rail]")).toHaveCount(0);
+  await expect(page.locator(".team-rail")).toHaveCount(0);
 });
 
 test("home composer renders before delayed task data finishes", async ({ page }) => {
@@ -3856,6 +3972,12 @@ test("employee knowledge base uses task copy, category tabs, and a content drawe
   await followup.getByRole("button", { name: "收藏" }).click();
   await expect(followup.getByRole("button", { name: "已收藏" })).toBeVisible();
 
+  await kb.locator("[data-kb-tab='sop']").click();
+  const sop = kb.locator('[data-knowledge="kb_followup"]');
+  await expect(sop.getByRole("button", { name: "用于当前任务" })).toBeVisible();
+  await expect(sop.locator("[data-fill-composer='kb_followup']")).toBeVisible();
+  await kb.locator("[data-kb-tab='all']").click();
+
   await page.locator('[data-fill-composer="kb_mail_followup"]').click();
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/LiTime collab kit/);
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/Just a quick follow-up/);
@@ -3929,6 +4051,8 @@ test("达人库查询 starter placeholder still lists profiles", async ({ page }
 test("cron 跑一次风险扫描 opens the same Host MCP result", async ({ page }) => {
   await page.goto("/cron");
   await expect(page.getByRole("heading", { name: "定时任务" })).toBeVisible();
+  await expect(page.locator("[data-cron-page]")).not.toContainText("T8");
+  await expect(page.locator("[data-cron-job] h3")).toHaveText("失联与延期扫描");
   await page.getByRole("button", { name: "跑一次风险扫描" }).click();
   await page.waitForURL(/\/s\//);
   const card = page.locator('[data-workbench] [data-kind="task-result-card"]');

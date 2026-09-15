@@ -119,7 +119,7 @@ function ContentDrawer({
         )}
         <pre className="kb-preview-body" data-kb-preview-body>{row.body_en || row.body}</pre>
       </div>
-      {kbIsMail(row) && !market && (
+      {!market && (
         <footer className="kb-drawer-foot">
           <button className="btn work" type="button" data-kb-use={row.id} onClick={() => onUse(row)}>
             用于当前任务
@@ -185,7 +185,6 @@ export default function Knowledge({ market = false }: { market?: boolean }) {
 
   const useForTask = (row: KnowledgeRow) => {
     closeTip();
-    if (!kbIsMail(row)) return;
     const go = () => {
       setRecent(rememberKbRecent(row.id));
       stashComposerFill(row);
@@ -253,19 +252,21 @@ export default function Knowledge({ market = false }: { market?: boolean }) {
               <p className="kb-card-hidden">已隐藏 · {hideReasonLabel(k.deprecate_reason) || k.deprecate_reason_label}</p>
             )}
             <div className="kb-actions">
-              {kbIsMail(k) && (
-                <Hinted
-                  id={`${k.id}-fill`}
-                  open={tipId === `${k.id}-fill`}
-                  onOpen={setTipId}
-                  onClose={closeTip}
-                  hint="锁定这份资料并打开首页草稿。英文正文会填进输入框，可改后再发，不会直接发送。"
-                >
-                  <button className="btn work" type="button" data-fill-composer={k.id} onClick={() => useForTask(k)}>
-                    用于当前任务
-                  </button>
-                </Hinted>
-              )}
+              <Hinted
+                id={`${k.id}-fill`}
+                open={tipId === `${k.id}-fill`}
+                onOpen={setTipId}
+                onClose={closeTip}
+                hint={
+                  kbIsMail(k)
+                    ? "锁定这份资料并打开首页草稿。英文正文会填进输入框，可改后再发，不会直接发送。"
+                    : "把适用说明带进当前任务。只作为参考草稿，不会直接发送，也不会改阶段。"
+                }
+              >
+                <button className="btn work" type="button" data-fill-composer={k.id} onClick={() => useForTask(k)}>
+                  用于当前任务
+                </button>
+              </Hinted>
               <Hinted
                 id={`${k.id}-preview`}
                 open={tipId === `${k.id}-preview`}

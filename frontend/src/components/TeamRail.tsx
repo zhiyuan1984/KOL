@@ -16,6 +16,7 @@ export function readTeamProgress(sessionId?: string): TeamProgress | null {
   }
 }
 
+/** Unimplemented #3 数字团队 chrome. Chat must not mount this until the surface exists. */
 export default function TeamRail({ progress }: { progress: TeamProgress }) {
   const manifest = useAgentManifest();
   const team = manifest?.teams.find((row) => row.id === progress.teamId);

@@ -1,14 +1,24 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { StarryBinding } from "../api";
+import { starryUnbindConfirm } from "../adminConfirm";
+import { useAdminConfirm } from "./ConfirmDialog";
+import type { SettingsReceipt } from "../settingsReceipt";
 
-export default function StarryBindForm({ onSaved }: { onSaved: () => void }) {
+export default function StarryBindForm({
+  onSaved,
+  onReceipt,
+}: {
+  onSaved: () => void;
+  onReceipt?: (receipt: Omit<SettingsReceipt, "at">) => void;
+}) {
   const [binding, setBinding] = useState<StarryBinding>({ bound: false, status: "unbound" });
   const [mailboxes, setMailboxes] = useState<Array<{ id: string; mailbox_email: string; owner_name: string; brand: string }>>([]);
   const [chosen, setChosen] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const { ask, dialog } = useAdminConfirm();
 
   const load = () => api.starryBinding().then(setBinding).catch(() => undefined);
 
@@ -128,18 +138,27 @@ export default function StarryBindForm({ onSaved }: { onSaved: () => void }) {
           type="button"
           data-starry-unbind
           onClick={() => {
-            if (!confirm("解除绑定后，首页不再按该邮箱过滤跟进红人。")) return;
-            void api.clearStarryBinding().then((next) => {
+            const copy = starryUnbindConfirm(binding.mailbox_email || "", binding.owner_name || "");
+            ask(copy, async () => {
+              const next = await api.clearStarryBinding();
               setBinding(next);
               setMailboxes([]);
               setNotice("已解除绑定");
+              onReceipt?.({
+                kind: "starry-unbind",
+                object: copy.object,
+                scope: copy.scope,
+                consequence: copy.consequence,
+                text: `已解除跟进邮箱绑定「${copy.object}」。`,
+              });
               onSaved();
-            }).catch((e) => setError(e instanceof Error ? e.message : "解除失败"));
+            });
           }}
         >
           解除绑定
         </button>
       )}
+      {dialog}
     </section>
   );
 }

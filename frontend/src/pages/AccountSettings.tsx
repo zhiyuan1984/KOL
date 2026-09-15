@@ -2,9 +2,17 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import type { SessionRow } from "../api";
+import { memoryDeleteConfirm, sessionDeleteConfirm } from "../adminConfirm";
 import { useAccount } from "../components/AuthGate";
+import { useAdminConfirm } from "../components/ConfirmDialog";
 import StarryBindForm from "../components/StarryBindForm";
 import { dataSummaryLabel, formatDataSummaryValue } from "../labels";
+import {
+  formatSettingsReceiptTime,
+  readSettingsReceipt,
+  writeSettingsReceipt,
+  type SettingsReceipt,
+} from "../settingsReceipt";
 
 type Memory = { id?: string; title?: string; body_md?: string; enabled?: boolean; scope?: string; version?: number };
 
@@ -35,6 +43,12 @@ export default function AccountSettings() {
   const [cookies, setCookies] = useState<Record<string, unknown>>({});
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [receipt, setReceipt] = useState<SettingsReceipt | null>(() => readSettingsReceipt());
+  const { ask, dialog } = useAdminConfirm();
+
+  const recordReceipt = (next: Omit<SettingsReceipt, "at">) => {
+    setReceipt(writeSettingsReceipt(next));
+  };
 
   useEffect(() => {
     api.preferences().then((p) => setPreferences({ ...defaults, ...p })).catch(() => undefined);
@@ -69,8 +83,29 @@ export default function AccountSettings() {
       <div className="settings-tabs" role="tablist" aria-label="设置分类">
         {tabs.map(([id, label]) => <button key={id} className={tab === id ? "active" : ""} role="tab" aria-selected={tab === id} onClick={() => openTab(id)}>{label}</button>)}
       </div>
+      {receipt && (
+        <aside className="settings-receipt" data-settings-receipt={receipt.kind} role="status">
+          <p className="settings-receipt-kicker">最近一次确认操作{receipt.at ? ` · ${formatSettingsReceiptTime(receipt.at)}` : ""}</p>
+          <p data-settings-receipt-text>{receipt.text}</p>
+          <dl>
+            <div>
+              <dt>对象</dt>
+              <dd data-settings-receipt-object>{receipt.object}</dd>
+            </div>
+            <div>
+              <dt>范围</dt>
+              <dd data-settings-receipt-scope>{receipt.scope}</dd>
+            </div>
+            <div>
+              <dt>后果</dt>
+              <dd data-settings-receipt-consequence>{receipt.consequence}</dd>
+            </div>
+          </dl>
+        </aside>
+      )}
       {notice && <p className="status-ok" role="status">{notice}</p>}
       {error && <p className="error" role="alert">{error}</p>}
+      {dialog}
 
       {tab === "profile" && (
         <form className="settings-form panel" onSubmit={(e) => {
@@ -87,7 +122,7 @@ export default function AccountSettings() {
         </form>
       )}
 
-      {tab === "starry" && <StarryBindForm onSaved={() => void refresh()} />}
+      {tab === "starry" && <StarryBindForm onSaved={() => void refresh()} onReceipt={recordReceipt} />}
 
       {tab === "preferences" && (
         <form className="settings-form panel" onSubmit={(e) => {
@@ -143,10 +178,28 @@ export default function AccountSettings() {
                   const saved = memory.id ? await api.updateMemory(memory.id, memory) : await api.createMemory(memory);
                   setMemories((m) => m.map((x, i) => i === index ? saved as Memory : x));
                 }, "记忆已保存")}>保存</button>
-                <button className="btn danger" onClick={() => {
-                  if (!confirm(`永久删除“${memory.title || "这条记忆"}”？`)) return;
-                  void run(async () => { if (memory.id) await api.deleteMemory(memory.id); setMemories((m) => m.filter((_, i) => i !== index)); }, "记忆已删除");
-                }}>删除</button>
+                <button
+                  className="btn danger"
+                  type="button"
+                  data-memory-delete={memory.id || `new-${index}`}
+                  onClick={() => {
+                    const copy = memoryDeleteConfirm(
+                      memory.title || "这条记忆",
+                      memory.scope === "team" ? "团队" : "仅自己",
+                    );
+                    ask(copy, async () => {
+                      if (memory.id) await api.deleteMemory(memory.id);
+                      setMemories((m) => m.filter((_, i) => i !== index));
+                      recordReceipt({
+                        kind: "memory-delete",
+                        object: copy.object,
+                        scope: copy.scope,
+                        consequence: copy.consequence,
+                        text: `已删除记忆「${copy.object}」。`,
+                      });
+                    });
+                  }}
+                >删除</button>
               </div>
             </article>
           ))}
@@ -180,13 +233,25 @@ export default function AccountSettings() {
                     setSessions((rows) => rows.map((row) => row.id === session.id ? { ...row, archived_at: new Date().toISOString() } : row));
                   }
                 }, session.archived_at ? "会话已恢复" : "会话已归档")}>{session.archived_at ? "恢复" : "归档"}</button>
-                <button className="btn danger" onClick={() => {
-                  if (!confirm(`删除会话“${session.title}”？消息、草稿、运行箱和可归属附件将被清理；合规迁移记录保留。`)) return;
-                  void run(async () => {
-                    await api.deleteSession(session.id);
-                    setSessions((rows) => rows.filter((row) => row.id !== session.id));
-                  }, "会话已删除");
-                }}>删除</button>
+                <button
+                  className="btn danger"
+                  type="button"
+                  data-session-delete={session.id}
+                  onClick={() => {
+                    const copy = sessionDeleteConfirm(session.title);
+                    ask(copy, async () => {
+                      await api.deleteSession(session.id);
+                      setSessions((rows) => rows.filter((row) => row.id !== session.id));
+                      recordReceipt({
+                        kind: "session-delete",
+                        object: copy.object,
+                        scope: copy.scope,
+                        consequence: copy.consequence,
+                        text: `已删除会话「${copy.object}」。`,
+                      });
+                    });
+                  }}
+                >删除</button>
               </div>
             </div>
           ))}
