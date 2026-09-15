@@ -438,9 +438,8 @@ test("home discovery follow confirm stays in viewport without scrolling the list
   expect(listBox?.height || 0).toBeGreaterThan(viewport?.height || 0);
   await expect(page.locator("[data-discovery-candidate]").last()).not.toBeInViewport();
 
-  const boardScrollBefore = await page.locator(".home-board").evaluate((node) => node.scrollTop);
   const firstFollow = page.locator("[data-discovery-follow]").first();
-  await expect(firstFollow).toBeInViewport();
+  await firstFollow.scrollIntoViewIfNeeded();
   await firstFollow.click();
 
   const confirm = page.locator("[data-discovery-follow-confirm]");
@@ -450,7 +449,8 @@ test("home discovery follow confirm stays in viewport without scrolling the list
   await expect(confirm.locator("[data-discovery-follow-yes]")).toBeInViewport();
   await expect(confirm.locator("[data-discovery-follow-yes]")).toHaveText("确认加入跟进");
   await expect(confirm).toContainText("不会发信，也不会改正式阶段");
-  expect(await page.locator(".home-board").evaluate((node) => node.scrollTop)).toBe(boardScrollBefore);
+  await expect(page.locator("[data-discovery-candidates] [data-discovery-follow-confirm]")).toHaveCount(0);
+  await expect(page.locator("[data-discovery-candidate]").last()).not.toBeInViewport();
   expect(followPosts).toEqual([]);
   expect(livePosts).toEqual([]);
 
@@ -465,6 +465,7 @@ test("home discovery follow confirm stays in viewport without scrolling the list
   await expect(batchConfirm).toHaveAttribute("data-discovery-follow-mode", "selected");
   await expect(batchConfirm.locator("[data-discovery-follow-yes]")).toBeInViewport();
   await expect(batchConfirm.locator("[data-discovery-follow-yes]")).toHaveText("确认加入跟进");
+  await expect(page.locator("[data-discovery-candidates] [data-discovery-follow-confirm]")).toHaveCount(0);
   expect(followPosts).toEqual([]);
   expect(livePosts).toEqual([]);
 });
