@@ -341,6 +341,134 @@ test("home discovery empty success shows actual search keywords", async ({ page 
   await expect(page.locator("[data-discovery-panel]")).not.toContainText(/MCP|Codex|MediaCrawler|start_crawl|Harness|Job ID/);
 });
 
+function stubDiscoveryCandidates(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `cand_e2e_follow_${index + 1}`,
+    handle: `Creator${index + 1}`,
+    nickname: `Creator ${index + 1}`,
+    platform: "youtube",
+    followers: 12000 + index * 800,
+    avg_views_10: 4100 + index * 50,
+    score: 68 + (index % 8),
+    status: "suggested",
+    has_contact_email: index % 3 !== 0,
+    reason: `YouTube · @Creator${index + 1} · ${12000 + index * 800}粉 · 待加入跟进`,
+  }));
+}
+
+test("home discovery follow confirm stays in viewport without scrolling the list", async ({ page }) => {
+  const livePosts: string[] = [];
+  const followPosts: string[] = [];
+  page.on("request", (item) => {
+    if (item.method() !== "POST") return;
+    const path = new URL(item.url()).pathname;
+    if (LIVE_SIDE_EFFECT.test(path)) livePosts.push(path);
+    if (path.includes("/follow")) followPosts.push(path);
+  });
+
+  const candidates = stubDiscoveryCandidates(16);
+  await page.route("**/api/discovery/requests/**/runs", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "drun_e2e_follow_confirm",
+        status: "succeeded",
+        status_label: "已完成",
+        search_keywords: ["portable power station"],
+        candidate_count: candidates.length,
+      }),
+    });
+  });
+  await page.route("**/api/discovery/requests/**/results", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        status: "succeeded",
+        status_label: "已完成",
+        keywords: ["找北美户外评测达人"],
+        platforms: ["youtube"],
+        search_keywords: ["portable power station"],
+        candidates,
+        counts: { candidate_count: candidates.length, suggested_count: candidates.length },
+        run: {
+          id: "drun_e2e_follow_confirm",
+          status: "succeeded",
+          status_label: "已完成",
+          search_keywords: ["portable power station"],
+          candidate_count: candidates.length,
+        },
+        request: {
+          id: "dreq_e2e_follow_confirm",
+          keywords: ["找北美户外评测达人"],
+          platforms: ["youtube"],
+          status: "succeeded",
+        },
+      }),
+    });
+  });
+  await page.route("**/api/discovery/candidates/**", async (route) => {
+    if (route.request().method() === "POST" && /\/follow/.test(new URL(route.request().url()).pathname)) {
+      await route.fulfill({
+        status: 409,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "e2e visibility test does not write follow" }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.goto("/");
+  await openMode(page, "discovery");
+  await page.locator("[data-discovery-query]").fill("找北美户外评测达人");
+  await page.locator("[data-discovery-plan]").click();
+  await expect(page.locator("[data-discovery-plan-card]")).toBeVisible();
+  await page.locator("[data-discovery-confirm-plan]").click();
+  await expect(page.locator("[data-discovery-candidates]")).toBeVisible();
+  await expect(page.locator("[data-discovery-candidate]")).toHaveCount(16);
+
+  const listBox = await page.locator("[data-discovery-candidates]").boundingBox();
+  const viewport = page.viewportSize();
+  expect(listBox?.height || 0).toBeGreaterThan(viewport?.height || 0);
+  await expect(page.locator("[data-discovery-candidate]").last()).not.toBeInViewport();
+
+  const boardScrollBefore = await page.locator(".home-board").evaluate((node) => node.scrollTop);
+  const firstFollow = page.locator("[data-discovery-follow]").first();
+  await expect(firstFollow).toBeInViewport();
+  await firstFollow.click();
+
+  const confirm = page.locator("[data-discovery-follow-confirm]");
+  await expect(confirm).toBeVisible();
+  await expect(confirm).toBeInViewport();
+  await expect(confirm).toHaveAttribute("data-discovery-follow-mode", "single");
+  await expect(confirm.locator("[data-discovery-follow-yes]")).toBeInViewport();
+  await expect(confirm.locator("[data-discovery-follow-yes]")).toHaveText("确认加入跟进");
+  await expect(confirm).toContainText("不会发信，也不会改正式阶段");
+  expect(await page.locator(".home-board").evaluate((node) => node.scrollTop)).toBe(boardScrollBefore);
+  expect(followPosts).toEqual([]);
+  expect(livePosts).toEqual([]);
+
+  await page.locator("[data-discovery-follow-no]").click();
+  await expect(page.locator("[data-discovery-follow-confirm]")).toHaveCount(0);
+
+  await page.locator("[data-discovery-select-all]").check();
+  await page.locator("[data-discovery-batch-follow]").click();
+  const batchConfirm = page.locator("[data-discovery-follow-confirm]");
+  await expect(batchConfirm).toBeVisible();
+  await expect(batchConfirm).toBeInViewport();
+  await expect(batchConfirm).toHaveAttribute("data-discovery-follow-mode", "selected");
+  await expect(batchConfirm.locator("[data-discovery-follow-yes]")).toBeInViewport();
+  await expect(batchConfirm.locator("[data-discovery-follow-yes]")).toHaveText("确认加入跟进");
+  expect(followPosts).toEqual([]);
+  expect(livePosts).toEqual([]);
+});
+
 test("today suggestion convert to todo dedupes", async ({ page }) => {
   await page.goto("/");
   await openMode(page, "todo");
