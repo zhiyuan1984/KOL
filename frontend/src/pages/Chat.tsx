@@ -24,7 +24,7 @@ import RunHud from "../components/RunHud";
 import TeamRail, { readTeamProgress } from "../components/TeamRail";
 import { REMOTE_BACKEND_LABEL, remoteForSkill } from "../agentConfig";
 import { useRunStatus } from "../hooks/useRunStatus";
-import { rememberJourney, SOP_PHASES, sopPhaseByStage } from "../journey";
+import { rememberJourney } from "../journey";
 import { FollowStyleTagBar } from "../components/FollowStyleTags";
 import { friendlyError, missingFieldsMessage } from "../labels";
 import { readBoundExpert } from "../experts";
@@ -801,23 +801,6 @@ export default function Chat() {
     || Boolean(task?.task_result || task?.crawl_result) || crawlJob?.status === "result_ready" || Boolean(focusedMail)
     || Boolean(kolSession && sessionMails && sessionMails.length);
   const showRightWorkbench = Boolean(id && (hasRightArtifact || kolSession));
-  const journeyPhases = journey?.handle
-    ? (Array.isArray(journey.phases) && (journey.phases as unknown[]).length
-      ? journey.phases as { id: string; label: string; state?: string; official_labels?: string[] }[]
-      : SOP_PHASES.map((phase) => {
-        const current = sopPhaseByStage(String(journey.stage_code || ""));
-        const idx = SOP_PHASES.findIndex((item) => item.id === phase.id);
-        const currentIdx = current ? SOP_PHASES.findIndex((item) => item.id === current.id) : -1;
-        return {
-          id: phase.id,
-          label: phase.label,
-          official_labels: [] as string[],
-          state: currentIdx < 0 ? "idle" : idx < currentIdx ? "done" : idx === currentIdx ? "current" : "idle",
-        };
-      }))
-    : [];
-  const journeyPhaseIdx = journeyPhases.findIndex((phase) => String(phase.state || "") === "current");
-  const journeyProgress = journeyPhaseIdx < 0 ? 0 : journeyPhaseIdx / Math.max(journeyPhases.length - 1, 1);
 
   const complete = async () => {
     if (!task || completing) return;
@@ -961,11 +944,6 @@ export default function Chat() {
                     : null}
                 </span>
                 {journey.exception ? <span className="exception-mark" data-exception-kind={String(journey.exception_kind || "")}>异常旁路</span> : null}
-                {journey.pipeline_href ? (
-                  <Link to={String(journey.pipeline_href)} className="task-back" data-open-lifecycle>
-                    在生命周期中打开
-                  </Link>
-                ) : null}
               </div>
               <FollowStyleTagBar
                 collaborationId={String(collaborationId || journey.collaboration_id || "")}
@@ -974,25 +952,6 @@ export default function Chat() {
                 presets={Array.isArray(journey.follow_style_presets) ? journey.follow_style_presets as { id: string; label: string }[] : undefined}
                 onSaved={() => void reload()}
               />
-              <ol
-                className="stage-track journey-track is-phases"
-                aria-label="八个阶段"
-                data-journey-track
-                style={{ ["--phase-progress" as string]: String(journeyProgress) }}
-              >
-                {journeyPhases.map((phase) => {
-                  const state = String(phase.state || "idle");
-                  const title = `${phase.label}：${(phase.official_labels || []).join(" / ")}`;
-                  return (
-                    <li key={phase.id} data-journey-phase={phase.id} data-phase-state={state}>
-                      <span className={"milestone is-" + state} aria-hidden data-stage-node={state} />
-                      <span className={"phase-chip is-" + state} title={title} data-milestone={phase.id}>
-                        {phase.label}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ol>
               {journey.sop && typeof journey.sop === "object" ? (
                 <details className="kol-stage-sop" data-stage-sop key={String(journey.stage_code || "")}>
                   <summary>

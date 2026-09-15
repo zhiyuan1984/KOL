@@ -18,7 +18,6 @@ import {
   KolMailCard,
   OverdueArtifact,
   ResultDraftPreview,
-  StageFromDraft,
   storeComposerDraft,
   SupplementArtifact,
   taskResultCardsFrom,
@@ -542,11 +541,6 @@ export default function SideWorkbench({
                 <ConfirmStageArtifact payload={stageMsg.payload} sessionId={sessionId} onRefresh={onRefresh} />
               </section>
             )}
-            {!stageMsg && draft && draft.targets && draft.targets.length > 0 && (
-              <section data-tab="stage" aria-selected={primary === "stage"}>
-                <StageFromDraft card={draft} sessionId={sessionId} onRefresh={onRefresh} />
-              </section>
-            )}
             {inboundMsg && (
               <section data-tab="inbound" aria-selected={primary === "inbound"}>
                 <InboundArtifact payload={inboundMsg.payload} onRefresh={onRefresh} />
@@ -562,7 +556,6 @@ export default function SideWorkbench({
                   createdAt={mailRow.created_at}
                   messageId={mailRow.id}
                   showSubject
-                  showStage
                 />
               </section>
             ))}

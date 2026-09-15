@@ -525,7 +525,7 @@ export function matchesStageFilter(card: FollowedKolCardModel, stageCode: string
   return card.current_state.stage_code === stageCode;
 }
 
-/** Primary Home filter: 全部 + 15 formal stages + 异常. Exception cards stay off their stage tab. */
+/** Secondary stage filter helper. Exception cards stay off their formal stage tab. */
 export function matchesStageTab(card: FollowedKolCardModel, tab: string): boolean {
   if (!tab || tab === "all") return true;
   if (tab === "exception") return Boolean(card.source.exception || card.current_state.exception || card.risk.exception);

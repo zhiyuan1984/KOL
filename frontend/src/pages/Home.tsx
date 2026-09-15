@@ -25,7 +25,7 @@ import {
   peekComposerFill,
   type LockedMailTemplate,
 } from "../knowledgeCopy";
-import { FOLLOWED_KOL_TABS } from "../kolStages";
+import { MAIN_STAGE_TABS } from "../kolStages";
 import { rememberJourney } from "../journey";
 import { missingFieldsMessage, fieldLabel, accountDisplayName, accountEmployeeId, accountInitial } from "../labels";
 import { useAccount } from "../components/AuthGate";
@@ -47,11 +47,15 @@ import {
   HOME_OPENED_EXISTING_SESSION_LANDED_COPY,
 } from "../confirmStageFeedback";
 import {
-  matchesStageTab,
+  FOLLOWED_KOL_OWNER_TABS,
+  matchesOwnerGroup,
+  matchesStageFilter,
+  ownerGroupCount,
   projectFollowedKolCard,
   sortFollowedKolCards,
   type FollowedKolCardModel,
   type FollowedKolRecord,
+  type OwnerGroup,
 } from "../followedKolCard";
 import {
   HOME_TASK_POLL_MS,
@@ -71,7 +75,7 @@ import {
 type HomeTab = "today" | "templates";
 type TaskFilter = "all" | "open" | "high" | "ai";
 type TodoListFilter = "all" | "open" | "high";
-type KolTab = string;
+type KolOwnerTab = OwnerGroup;
 type ActionableTodoBucket = "overdue" | "today" | "waiting" | "approval" | "queued" | "running";
 type TodoBucket = ActionableTodoBucket | "open";
 type FollowedKol = FollowedKolRecord;
@@ -411,7 +415,8 @@ export default function Home() {
   const [tab, setTab] = useState<HomeTab>("today");
   const [filter, setFilter] = useState<TaskFilter>("all");
   const [todoFilter, setTodoFilter] = useState<TodoListFilter>("all");
-  const [kolTab, setKolTab] = useState<KolTab>("all");
+  const [ownerTab, setOwnerTab] = useState<KolOwnerTab>("all");
+  const [stageFilter, setStageFilter] = useState("");
   const [dedupeNotice, setDedupeNotice] = useState("");
   const [followedKols, setFollowedKols] = useState<FollowedKol[]>([]);
   const [boardWorkbench, setBoardWorkbench] = useState<HomeWorkbench | null>(null);
@@ -688,10 +693,11 @@ export default function Home() {
       return;
     }
     void api.openKolSession(kol.id).then((session) => {
+      if (!session?.id) throw new Error("未能打开会话，请稍后重试。");
       sessionStorage.setItem(`kol-session:${session.id}`, "1");
       nav(`/s/${session.id}`, { state: { kolSession: true, focusThread: focusThread || undefined } });
-    }).catch(() => {
-      nav(`/pipeline?kol=${encodeURIComponent(kol.handle)}`);
+    }).catch((error) => {
+      setErr(error instanceof Error && error.message ? error.message : "未能打开会话，请稍后重试。");
     });
   };
 
@@ -777,6 +783,7 @@ export default function Home() {
       tone: "info",
     });
     void api.openKolSession(kol.id).then((session) => {
+      if (!session?.id) throw new Error("未能打开会话，请稍后重试。");
       storePending(session.id, {
         text: `提出阶段变更 @${kol.handle} 到 ${card.recommended_action.target_stage_label}`,
         collaboration_id: kol.id,
@@ -788,14 +795,15 @@ export default function Home() {
       });
       sessionStorage.setItem(`kol-session:${session.id}`, "1");
       nav(`/s/${session.id}`, { state: { kolSession: true } });
-    }).catch(() => {
+    }).catch((error) => {
       setConfirmStageBusyId(null);
+      const text = error instanceof Error && error.message ? error.message : "未能打开会话，请稍后重试。";
       setConfirmStageFeedback({
         id: card.id,
-        text: "未能打开会话，已转到生命周期页。",
+        text,
         tone: "error",
       });
-      nav(`/pipeline?kol=${encodeURIComponent(kol.handle)}`);
+      setErr(text);
     });
   };
 
@@ -1125,20 +1133,16 @@ export default function Home() {
   );
 
   const visibleKols = useMemo(() => {
-    const filtered = kolCards.filter((card) => matchesStageTab(card, kolTab));
-    return sortFollowedKolCards(filtered, "need");
-  }, [kolCards, kolTab]);
+    const filtered = kolCards.filter((card) => (
+      matchesOwnerGroup(card, ownerTab) && matchesStageFilter(card, stageFilter)
+    ));
+    return sortFollowedKolCards(filtered, ownerTab === "recent" ? "recent" : "need");
+  }, [kolCards, ownerTab, stageFilter]);
 
-  const kolCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: kolCards.length, exception: 0 };
-    for (const tabSpec of FOLLOWED_KOL_TABS) {
-      if (tabSpec.code !== "all") counts[tabSpec.code] = 0;
-    }
-    for (const card of kolCards) {
-      if (card.source.exception || card.current_state.exception) counts.exception += 1;
-      else if (card.current_state.stage_code) {
-        counts[card.current_state.stage_code] = (counts[card.current_state.stage_code] || 0) + 1;
-      }
+  const ownerCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const tabSpec of FOLLOWED_KOL_OWNER_TABS) {
+      counts[tabSpec.code] = ownerGroupCount(kolCards, tabSpec.code);
     }
     return counts;
   }, [kolCards]);
@@ -1392,23 +1396,39 @@ export default function Home() {
             <section className="home-mode-pane recommend-work followed-kol-pane" data-home-pane="lifecycle" data-lifecycle-overview>
               <div className="followed-kol-column" data-followed-kol-column>
               <div className="home-pane-sticky">
-              <div className="kol-stage-tabs" role="tablist" aria-label="跟进红人状态" data-kol-tabs>
-                {FOLLOWED_KOL_TABS.map((tabSpec) => {
-                  const count = kolCounts[tabSpec.code] ?? 0;
+              <div className="kol-owner-tabs" role="tablist" aria-label="跟进分组" data-kol-tabs>
+                {FOLLOWED_KOL_OWNER_TABS.map((tabSpec) => {
+                  const count = ownerCounts[tabSpec.code] ?? 0;
                   return (
                     <button
                       key={tabSpec.code}
                       type="button"
                       role="tab"
-                      aria-selected={kolTab === tabSpec.code}
+                      aria-selected={ownerTab === tabSpec.code}
                       title={tabSpec.label}
-                      onClick={() => setKolTab(tabSpec.code)}
+                      onClick={() => setOwnerTab(tabSpec.code)}
                       data-kol-tab={tabSpec.code}
                     >
-                      <span className="kol-tab-name">{tabSpec.short} {count}</span>
+                      <span className="kol-tab-name">{tabSpec.label} {count}</span>
                     </button>
                   );
                 })}
+              </div>
+              <div className="kol-secondary-filters" data-kol-secondary-filters>
+                <label className="kol-filter-label">
+                  阶段
+                  <select
+                    aria-label="按阶段筛选"
+                    data-kol-stage-filter
+                    value={stageFilter}
+                    onChange={(event) => setStageFilter(event.target.value)}
+                  >
+                    <option value="">全部阶段</option>
+                    {MAIN_STAGE_TABS.map((stage) => (
+                      <option key={stage.code} value={stage.code}>{stage.label}</option>
+                    ))}
+                  </select>
+                </label>
               </div>
               </div>
               {visibleKols.length ? (
@@ -1448,7 +1468,7 @@ export default function Home() {
                         ? "重新连接后即可继续查看你跟进的红人。"
                         : followScope?.bound
                           ? `当前绑定 ${followScope.mailbox_email || "已选邮箱"}${followScope.owner_name ? ` · ${followScope.owner_name}` : ""}。`
-                          : "正式阶段共 15 个，异常状态单独一栏。"}
+                          : "按需要我处理、等待对方或异常查看跟进中的合作。"}
                   </p>
                   {followScope?.required && (!followScope.bound || followScope.status === "expired") ? (
                     <button type="button" className="btn work" onClick={() => nav("/settings?tab=starry")}>
@@ -1461,7 +1481,7 @@ export default function Home() {
             </section>
           ) : null}
 
-          {err && <p className="error composer-err" role="alert">{err}</p>}
+          {err && <p className="error composer-err" role="alert" data-home-session-error={err.includes("未能打开会话") ? "true" : undefined}>{err}</p>}
           {busy && !feedback && !err ? (
             <section className="creation-feedback" data-kind="recognizing" data-creation-feedback data-wait-status="识别中" role="status" aria-busy="true">
               <strong>识别中</strong>

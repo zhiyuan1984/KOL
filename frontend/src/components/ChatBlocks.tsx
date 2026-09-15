@@ -486,70 +486,6 @@ export function DraftArtifact({
   );
 }
 
-export function StageFromDraft({
-  card,
-  sessionId,
-  onRefresh,
-}: {
-  card: EmailCard;
-  sessionId: string;
-  onRefresh: () => void;
-}) {
-  const groups = stageTrackGroups({ targets: card.targets, tracks: card.tracks });
-  const [target, setTarget] = useState(card.targets?.[0]?.code || groups[0]?.items[0]?.code || "");
-  const [err, setErr] = useState("");
-  const [notice, setNotice] = useState("");
-  const [busy, setBusy] = useState(false);
-  const confirm = async () => {
-    if (!target) {
-      setNotice("");
-      setErr(MISSING_TARGET_STAGE_COPY);
-      return;
-    }
-    const picked = groups.flatMap((group) => group.items).find((item) => item.code === target);
-    setBusy(true);
-    setErr("");
-    setNotice("");
-    try {
-      const result = await api.confirmSessionStage(sessionId, {
-        stage_code: target,
-        collaboration_id: card.collaboration_id,
-        expected_version: card.expected_version,
-        reason: [picked?.note, "从草稿工作台确认"].filter(Boolean).join("；"),
-        reason_code: picked?.kind === "correct" ? "STAGE_CORRECTION" : picked?.kind === "skip" ? "SKIP_AHEAD" : "HUMAN_CONFIRMED",
-        evidence: { source: "draft_workbench", draft_id: card.draft_id, kind: picked?.kind, track: picked?.track },
-        recommender: "Commander",
-      }) as ConfirmStageResult;
-      const outcome = confirmStageOutcomeCopy(result);
-      if (outcome.tone === "error") setErr(outcome.text);
-      else setNotice(outcome.text);
-      onRefresh();
-    } catch (e) {
-      setErr(friendlyError(e, "阶段确认未完成，请稍后重试"));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <article className="artifact" data-kind="stage-from-draft">
-      <Markdown>
-        {`### 确认推进阶段\n\n当前正式阶段：**${stageLabel(card.official_stage, card.official_stage_label)}**\n\n> 发送邮件不会修改阶段。请选择具体目标阶段后再确认。`}
-      </Markdown>
-      {groups.length > 0 && (
-        <StageTrackSelect value={target} onChange={setTarget} groups={groups} disabled={busy} />
-      )}
-      {!target ? <StageActionFeedback tone="error" text={MISSING_TARGET_STAGE_COPY} /> : null}
-      <div className="action-row">
-        <button className="btn work" data-email-action="confirm-stage" onClick={confirm} disabled={busy}>
-          {busy ? "正在确认…" : "确认推进阶段"}
-        </button>
-      </div>
-      {err && err !== MISSING_TARGET_STAGE_COPY ? <StageActionFeedback tone="error" text={err} /> : null}
-      {!err && notice ? <StageActionFeedback tone="info" text={notice} /> : null}
-    </article>
-  );
-}
-
 export function ConfirmStageArtifact({
   payload,
   sessionId,
@@ -1330,12 +1266,10 @@ function firstRealMailbox(...values: unknown[]): string {
 export function KolMailCard({
   payload,
   sessionId,
-  officialStage,
   onRefresh,
   createdAt,
   messageId,
   showSubject = true,
-  showStage = true,
   bodyOnly = false,
 }: {
   payload: Record<string, unknown>;
@@ -1345,7 +1279,6 @@ export function KolMailCard({
   createdAt?: string;
   messageId?: string;
   showSubject?: boolean;
-  showStage?: boolean;
   bodyOnly?: boolean;
 }) {
   const judgment = (payload.judgment && typeof payload.judgment === "object"
@@ -1368,26 +1301,7 @@ export function KolMailCard({
   const occurred = mailCardTime(payload, createdAt);
   const replySubject = replySubjectOf(subject);
   const suggestedLabel = stageLabel(suggested, String(judgment.suggested_label || ""));
-  const currentStage = String(payload.current_stage || "");
-  const currentLabel = stageLabel(currentStage, String(payload.current_label || ""));
-  const expectedVersion = payload.expected_version;
-  const targets = (Array.isArray(payload.targets) ? payload.targets : []) as StageTargetOption[];
-  const groups = stageTrackGroups({ targets, tracks: Array.isArray(payload.tracks) ? payload.tracks as StageTrackGroup[] : [] });
-  const defaultPick = suggested && targets.some((item) => item.code === suggested)
-    ? suggested
-    : "";
-  const [picked, setPicked] = useState(defaultPick);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  const alreadyThere = officialStageReached(officialStage, picked)
-    || officialStageReached(officialStage, suggested);
-  const canConfirm = Boolean(
-    showStage
-    && !payload.auto_advanced
-    && !alreadyThere
-    && (targets.length || (suggested && judgment.auto_propose)),
-  );
-  const pickedLabel = stageLabel(picked, targets.find((item) => item.code === picked)?.label || "");
+  const currentLabel = stageLabel(String(payload.current_stage || ""), String(payload.current_label || ""));
   const reply = async () => {
     if (!sessionId) return;
     const conversationId = String(payload.conversation_id || "");
@@ -1413,32 +1327,6 @@ export function KolMailCard({
     });
     onRefresh?.();
   };
-  const confirm = async () => {
-    if (!sessionId || !canConfirm) return;
-    if (!picked) {
-      setErr("请选择具体目标阶段，不能用「下一阶段」");
-      return;
-    }
-    setBusy(true);
-    setErr("");
-    try {
-      await api.confirmSessionStage(sessionId, {
-        stage_code: picked,
-        collaboration_id: collaborationId || undefined,
-        handle: handle || undefined,
-        expected_version: expectedVersion,
-        reason: String(judgment.reason || targets.find((item) => item.code === picked)?.note || "来信正文"),
-        reason_code: "REPLY_EVIDENCE",
-        evidence: { source: "kol_mail_card", flags: judgment.flags, snippets: judgment.evidence },
-        recommender: "reply_analysis",
-      });
-      onRefresh?.();
-    } catch (e) {
-      setErr(friendlyError(e, "阶段确认未完成，请稍后重试"));
-    } finally {
-      setBusy(false);
-    }
-  };
   if (bodyOnly) {
     return (
       <article
@@ -1460,16 +1348,12 @@ export function KolMailCard({
   }
   return (
     <article
-      className={"bubble assistant kol-mail" + (inbound ? " is-in" : " is-out") + (canConfirm ? " risk-l3" : "")}
+      className={"bubble assistant kol-mail" + (inbound ? " is-in" : " is-out")}
       data-kind="kol-mail-card"
       data-thread-id={String(payload.conversation_id || "")}
       data-mail-id={messageId || String(payload.provider_message_id || "")}
       data-mail-direction={inbound ? "inbound" : "outbound"}
-      data-risk={canConfirm ? "L3" : undefined}
     >
-      {canConfirm ? (
-        <span className="risk-kicker">{MESSAGE_RISK_LABEL.L3}</span>
-      ) : null}
       <header className="kol-mail-head">
         <strong>{inbound ? "来信" : "去信"}{showSubject ? ` · ${subject}` : ""}</strong>
         <time className="muted" data-mail-time dateTime={String(payload.occurred_at || createdAt || "")}>
@@ -1482,32 +1366,17 @@ export function KolMailCard({
         ? <p className="kol-mail-body">{body}</p>
         : <p className="muted" data-mail-empty>正文未拉取到，请回到首页点「刷新收取」后再打开。</p>}
       {inbound && judgment.reason ? <p className="muted" data-mail-judgment>{String(judgment.reason)}</p> : null}
+      {currentLabel ? <p className="muted" data-mail-current-stage>当前 {currentLabel}</p> : null}
       {payload.auto_advanced ? (
         <p data-auto-advanced>已按事实进入 {String((payload.auto_advanced as { label?: string }).label || suggestedLabel)}</p>
-      ) : null}
-      {canConfirm ? (
-        <div className="stage-diff" data-stage-diff>
-          <div className="diff-from">变更前：{currentLabel || "当前阶段"}</div>
-          <div className="diff-to">变更后：{pickedLabel || "请选择具体正式阶段"}</div>
-        </div>
-      ) : null}
-      {canConfirm && suggestedLabel ? (
-        <p className="muted" data-mail-suggest>建议 {suggestedLabel}。请你选定具体正式阶段，不能用「下一阶段」。</p>
-      ) : null}
-      {canConfirm && groups.length ? (
-        <StageTrackSelect value={picked} onChange={setPicked} groups={groups} suggested={suggested} mail disabled={busy} />
+      ) : suggestedLabel ? (
+        <p className="muted" data-mail-suggest>建议进入 {suggestedLabel}。改阶段请走阶段确认卡，回复不会改阶段。</p>
       ) : null}
       <div className="action-row">
         <button type="button" className="btn work" data-mail-reply onClick={() => void reply()} disabled={!sessionId}>
           回复
         </button>
-        {canConfirm ? (
-          <button type="button" className="btn work" data-mail-confirm onClick={() => void confirm()} disabled={!sessionId || busy || !picked}>
-            {busy ? "正在确认…" : "确认写入所选阶段"}
-          </button>
-        ) : null}
       </div>
-      {err ? <div className="error" data-mail-confirm-error>{err}</div> : null}
     </article>
   );
 }
@@ -1572,7 +1441,7 @@ export function ChatThread({
           mailPointer = true;
           return (
             <ThreadMessage key={m.id} role="assistant" risk="L1" data-kind="kol-mail-pointer">
-              <p>来信已放入结果。需要确认阶段时在结果中操作。</p>
+              <p>来信已放入结果。改阶段请走阶段确认卡。</p>
             </ThreadMessage>
           );
         }

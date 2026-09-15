@@ -323,6 +323,24 @@ async function askKolSession(page: Page, request: APIRequestContext, collaborati
   await page.locator("[data-send]").click();
 }
 
+async function expectFollowedOwnerTabs(page: Page) {
+  await expect(page.locator("[data-kol-tab]")).toHaveCount(6);
+  await expect(page.locator('[data-kol-tab="needs_me"]')).toBeVisible();
+  await expect(page.locator('[data-kol-tab="waiting_them"]')).toBeVisible();
+  await expect(page.locator('[data-kol-tab="waiting_approval"]')).toBeVisible();
+  await expect(page.locator('[data-kol-tab="exception"]')).toBeVisible();
+  await expect(page.locator('[data-kol-tab="recent"]')).toBeVisible();
+  await expect(page.locator('[data-kol-tab="all"]')).toBeVisible();
+  await expect(page.locator('[data-kol-tab="INITIAL_CONTACT"]')).toHaveCount(0);
+  await expect(page.locator("[data-kol-stage-filter]")).toBeVisible();
+}
+
+async function askConfirmStage(page: Page, handle: string, stageLabel: string) {
+  await page.locator("[data-composer-input]").fill(`提出阶段变更 @${handle} 到 ${stageLabel}`);
+  await page.locator("[data-send]").click();
+  await expect(page.locator('[data-kind="confirm-stage-card"]')).toBeVisible({ timeout: 20000 });
+}
+
 test("home task template 写合作邮件 prefills home composer then follows the home ask path", async ({ page, request }) => {
   const createdPosts: string[] = [];
   page.on("request", (r) => {
@@ -577,23 +595,20 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expectFollowedKolHeadingRemoved(page);
   await expect(page.getByRole("link", { name: /查看KOL全生命周期/ })).toHaveCount(0);
   await expect(page.locator('a[href="/pipeline"]')).toHaveCount(0);
-  await expect(page.locator("[data-kol-sorts], [data-kol-secondary-filters]")).toHaveCount(0);
+  await expect(page.locator("[data-kol-sorts]")).toHaveCount(0);
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("按需处理");
-  await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("最近更新");
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("阶段停留");
   await expect(page.locator("[data-home] [data-journey-guide]")).toHaveCount(0);
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("发送不等于改阶段");
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("发送 ≠ 推进阶段");
   await expect(page.locator("[data-lifecycle-domains]")).toHaveCount(0);
   await expect(page.locator("[data-lifecycle-library]")).toHaveCount(0);
-  await expect(page.locator("[data-kol-tab]")).toHaveCount(17);
+  await expectFollowedOwnerTabs(page);
   await expect(page.locator('[data-kol-tab="all"]')).toContainText("全部");
-  await expect(page.locator('[data-kol-tab="INITIAL_CONTACT"]')).toContainText("接触");
   await expect(page.locator('[data-kol-tab="exception"]')).toContainText("异常");
-  await expect(page.locator('[data-kol-tab="needs_me"]')).toHaveCount(0);
-  await expect(page.locator('[data-kol-tab="waiting_them"]')).toHaveCount(0);
-  await expect(page.locator('[data-kol-tab="waiting_approval"]')).toHaveCount(0);
-  await expect(page.locator("[data-kol-stage-filter]")).toHaveCount(0);
+  await expect(page.locator('[data-kol-tab="needs_me"]')).toContainText("需要我处理");
+  await expect(page.locator('[data-kol-tab="waiting_them"]')).toContainText("等待对方");
+  await expect(page.locator('[data-kol-tab="waiting_approval"]')).toContainText("等待审批");
   await openHomeTemplates(page);
   await homeRecByTitle(page, "写合作邮件").click();
   await expectHomeComposerDraft(page, "写合作邮件 发件箱 [发件邮箱] 发给 [收件邮箱] 主题：[主题]");
@@ -791,12 +806,10 @@ test("session page has no coach next-step card and keeps composer skills", async
     expect(Math.abs(handleLeft - sopLeft)).toBeLessThan(6);
   }
   await expect(page.locator("[data-session-stream-pane] [data-mail-digest], [data-session-stream-pane] [data-mail-summaries]")).toBeVisible();
-  await expect(page.locator("[data-journey-track]")).toBeVisible();
-  const trackHasLine = await page.locator("[data-journey-track]").evaluate((el) => {
-    const before = getComputedStyle(el, "::before");
-    return before.display !== "none" && before.content !== "none" && parseFloat(before.height || "0") > 0;
-  });
-  expect(trackHasLine).toBeTruthy();
+  await expect(page.locator("[data-journey-track]")).toHaveCount(0);
+  await expect(page.locator("[data-open-lifecycle]")).toHaveCount(0);
+  await expect(page.locator("[data-kol-journey]")).not.toContainText("在生命周期中打开");
+  await expect(page.locator("[data-kol-journey]")).not.toContainText("八个阶段");
   await expect(page.locator("[data-session-stream-pane]")).not.toContainText("{");
   await expect(page.locator("[data-session-stream-pane]")).not.toContainText("右侧结果");
   await expect(page.locator("[data-workbench]")).toBeVisible();
@@ -816,15 +829,13 @@ test("home lifecycle followed KOL opens the mail rail not the task list", async 
   await expect(page.locator(".chat")).toHaveAttribute("data-session-stream", /idle|live/);
 });
 
-test("home followed-KOL tabs filter 17 statuses and open the KOL session", async ({ page }) => {
+test("home followed-KOL tabs group by owner action and open the KOL session", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-today-summary]")).toContainText("项待处理");
   await openHomeLifecycle(page);
-  await expect(page.locator("[data-kol-tab]")).toHaveCount(17);
+  await expectFollowedOwnerTabs(page);
   await expect(page.locator('[data-kol-tab="all"]')).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator('[data-kol-tab="INITIAL_CONTACT"]')).toBeVisible();
-  await expect(page.locator('[data-kol-tab="needs_me"]')).toHaveCount(0);
   // Tabs are static (17) even before /api/home/board lands. Wait for the stub
   // listAllKolProfiles pair first; demo fixtures like 小美妆日记 have no kol_uid.
   await expect(page.locator('[data-followed-kol="户外电源达人"]')).toBeVisible({ timeout: 15000 });
@@ -847,9 +858,9 @@ test("home followed-KOL tabs filter 17 statuses and open the KOL session", async
   await expect(page).toHaveURL(/\/s\//);
   await expect(page.locator("[data-kol-journey]")).toContainText("户外电源达人");
   await expect(page.locator("[data-session-stage]")).toBeVisible();
-  await page.locator("[data-kol-journey] [data-open-lifecycle]").click();
-  await expect(page).toHaveURL(/\/pipeline\?kol=/);
-  await expect(page.getByRole("heading", { name: "KOL 全生命周期管理" })).toBeVisible();
+  await expect(page.locator("[data-open-lifecycle]")).toHaveCount(0);
+  await expect(page.locator("[data-journey-track]")).toHaveCount(0);
+  await expect(page).not.toHaveURL(/\/pipeline/);
 });
 
 test("KOL session header can tag a followed creator as 犹豫谨慎", async ({ page }) => {
@@ -1105,10 +1116,10 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expectHomeFollowedRailWide(page, 1920);
 });
 
-test("home followed-KOL stage chips stay one row and match card width", async ({ page }) => {
+test("home followed-KOL owner tabs stay one row and match card width", async ({ page }) => {
   await page.goto("/");
   await openHomeLifecycle(page);
-  await expect(page.locator("[data-kol-tab]")).toHaveCount(17);
+  await expectFollowedOwnerTabs(page);
   for (const width of [1280, 1600, 1920] as const) {
     await page.setViewportSize({ width, height: 900 });
     await expect(page.locator("[data-followed-kol-column]")).toBeVisible();
@@ -1241,6 +1252,7 @@ test("home followed-KOL default sort uses contract keys 1-8", async ({ page }) =
   await expect(page.locator("[data-kol-sorts]")).toHaveCount(0);
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("按需处理");
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("阶段停留");
+  await expectFollowedOwnerTabs(page);
 });
 
 test("home confirm CTA names the target stage and opens confirm_stage", async ({ page }) => {
@@ -1581,12 +1593,8 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   await page.locator("[data-session-stream-pane] [data-digest-excerpt] summary").click();
   await expect(page.locator("[data-session-stream-pane] [data-mail-digest]")).toContainText("would love to collaborate");
   await expect(page.locator("[data-workbench]")).toBeVisible();
-  await expect(page.locator("[data-journey-track]")).toBeVisible();
-  const ingestTrackLine = await page.locator("[data-journey-track]").evaluate((el) => {
-    const before = getComputedStyle(el, "::before");
-    return before.display !== "none" && before.content !== "none" && parseFloat(before.height || "0") > 0;
-  });
-  expect(ingestTrackLine).toBeTruthy();
+  await expect(page.locator("[data-journey-track]")).toHaveCount(0);
+  await expect(page.locator("[data-open-lifecycle]")).toHaveCount(0);
   const ingestHandleLeft = await page.locator("[data-kol-journey] h1").evaluate((el) => el.getBoundingClientRect().left);
   const ingestSopLeft = await page.locator("[data-stage-sop]").evaluate((el) => el.getBoundingClientRect().left);
   expect(Math.abs(ingestHandleLeft - ingestSopLeft)).toBeLessThan(6);
@@ -1602,7 +1610,7 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   await expect(page.locator("[data-portrait-field='tags'] .chip")).toHaveCount(2);
   await expect(page.locator("[data-portrait-field='tags'] .chip").nth(0)).toHaveText("首封已读未回");
   await expect(page.locator("[data-portrait-field='tags'] .chip").nth(1)).toHaveText("适合跟进");
-  await expect(page.locator("[data-journey-phase] .phase-chip")).toHaveCount(8);
+  await expect(page.locator("[data-journey-phase]")).toHaveCount(0);
   await expect(page.locator("[data-stage-sop]")).not.toContainText("输入");
   await expect(page.locator("[data-stage-sop]")).not.toContainText("would love to collaborate");
   await expect(page.locator("[data-stage-sop]")).not.toContainText("完成条件");
@@ -1614,22 +1622,24 @@ test("ingested inbound mail appears in the KOL session and can confirm 有兴趣
   const card = page.locator('[data-kind="kol-mail-card"]').filter({ hasText: "would love to collaborate" });
   await expect(card).toBeVisible();
   await expect(card.locator("[data-mail-reply]")).toBeVisible();
-  await expect(card.locator("[data-stage-diff]")).toContainText("已回复-有兴趣");
-  await expect(card.locator("[data-mail-stage-select]")).toBeVisible();
-  await expectSelectedStage(card, "INTERESTED");
-  await expect(card.locator("[data-mail-confirm]")).toHaveText("确认写入所选阶段");
-  await card.locator("[data-mail-confirm]").click();
+  await expect(card.locator("[data-stage-diff]")).toHaveCount(0);
+  await expect(card.locator("[data-mail-stage-select]")).toHaveCount(0);
+  await expect(card.locator("[data-mail-confirm]")).toHaveCount(0);
+  await expect(card.locator("[data-mail-suggest]")).toContainText("阶段确认卡");
+  await askConfirmStage(page, "小美妆日记", "已回复-有兴趣");
+  const confirmCard = page.locator('[data-kind="confirm-stage-card"]');
+  await expect(confirmCard).toBeVisible();
+  await pickStageChip(confirmCard, "INTERESTED");
+  await confirmCard.locator("[data-confirm-stage]").click();
   await expect(page.locator("[data-session-stage]")).toContainText("已回复-有兴趣", { timeout: 15000 });
   await expect(page.locator("[data-session-stage]")).toContainText("意向");
   await expect(page.locator("[data-journey-guide]")).toHaveCount(0);
-  await expect(page.locator("[data-journey-phase]")).toHaveCount(8);
-  await expect(page.locator("[data-journey-phase='intent']")).toHaveAttribute("data-phase-state", "current");
+  await expect(page.locator("[data-journey-phase]")).toHaveCount(0);
   await expect(page.locator("[data-session-stage]")).toContainText("已回复-有兴趣");
   await expect(page.locator("[data-session-stage]")).toContainText("意向");
   await expect(page.locator("[data-session-stage]")).not.toContainText("初步接触");
   await expect(page.locator(".chat")).not.toContainText("的合作会话。当前阶段：");
   await expect(card.locator("[data-mail-confirm]")).toHaveCount(0);
-  await expect(page.locator("[data-kind='confirm-stage-pointer']")).toHaveCount(0);
   await expect(page.locator("[data-stage-sop]")).toHaveJSProperty("open", false);
   await openStageSop(page);
   await expect(page.locator("[data-stage-sop]")).toContainText("意向");
@@ -2300,6 +2310,8 @@ test("two buttons stay separate: send keeps stage, confirm-stage advances", asyn
   await askKolSession(page, request, "col_xiaomei", "写跟进邮件 @小美妆日记");
   await expectDraft(page);
   await openDraftTab(page);
+  await expect(page.locator("[data-workbench] [data-kind='stage-from-draft']")).toHaveCount(0);
+  await expect(page.locator('[data-workbench] [data-email-action="confirm-stage"]')).toHaveCount(0);
   await page.locator('[data-email-action="send"]').click();
   await expect(page.getByText(/已发送原文/).first()).toBeVisible();
   const pipe = await request.get("/api/pipeline");
@@ -2308,10 +2320,13 @@ test("two buttons stay separate: send keeps stage, confirm-stage advances", asyn
     stage_code: string;
   };
   expect(x.stage_code).toBe("INITIAL_CONTACT");
+  await expect(page.locator("[data-workbench] [data-kind='stage-from-draft']")).toHaveCount(0);
+  await expect(page.locator('[data-workbench] [data-email-action="confirm-stage"]')).toHaveCount(0);
 
-  await page.locator('[data-tab="stage"]').click();
-  await pickStageChip(page.locator("[data-workbench]"), "INTERESTED");
-  await page.locator('[data-workbench] [data-email-action="confirm-stage"], [data-workbench] [data-confirm-stage]').click();
+  await askConfirmStage(page, "小美妆日记", "已回复-有兴趣");
+  const confirmCard = page.locator('[data-workbench] [data-kind="confirm-stage-card"]');
+  await pickStageChip(confirmCard, "INTERESTED");
+  await confirmCard.locator("[data-confirm-stage]").click();
   await expect(page.getByText(/正式阶段已按你的确认更新/).first()).toBeVisible();
   const pipe2 = await request.get("/api/pipeline");
   const body2 = await pipe2.json();
@@ -3153,10 +3168,7 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await expectFollowedKolHeadingRemoved(page);
   await expectFollowedKolListAlignsWithTabs(page);
   await expectFollowedKolCardWraps(page, "小美妆日记");
-  await expect(page.locator("[data-kol-tab]")).toHaveCount(17);
-  await expect(page.locator('[data-kol-tab="INITIAL_CONTACT"]')).toBeVisible();
-  await expect(page.locator('[data-kol-tab="needs_me"]')).toHaveCount(0);
-  await expect(page.locator("[data-kol-stage-filter]")).toHaveCount(0);
+  await expectFollowedOwnerTabs(page);
   await expect(page.getByRole("link", { name: /查看KOL全生命周期/ })).toHaveCount(0);
   await expect(page.locator("[data-followed-kol]")).toHaveCount(4);
   await expect(page.locator("[data-followed-kol] [data-kol-band]")).toHaveCount(20);
@@ -3179,10 +3191,10 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await expectNoHorizontalOverflow(page, "[data-home-modes]");
   await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
   await expectNoPageHorizontalScroll(page);
-  await page.locator('[data-kol-tab="INITIAL_CONTACT"]').click();
+  await page.locator("[data-kol-stage-filter]").selectOption("INITIAL_CONTACT");
   await expect(page.locator("[data-followed-kol]")).toHaveCount(1);
   await expect(page.locator("[data-followed-kol]")).toContainText("小美妆日记");
-  await page.locator('[data-kol-tab="all"]').click();
+  await page.locator("[data-kol-stage-filter]").selectOption("");
   await page.locator('[data-kol-tab="exception"]').click();
   await expect(page.locator("[data-followed-kol]")).toContainText("旅行电源菌");
   const exceptionCard = page.locator('[data-followed-kol="旅行电源菌"]');
