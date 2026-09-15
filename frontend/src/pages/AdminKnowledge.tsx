@@ -87,72 +87,23 @@ export default function AdminKnowledge() {
   const { ask, dialog } = useAdminConfirm();
 
   return (
-    <section className="admin-kb" data-admin-knowledge>
+    <section className="admin-kb admin-govern" data-admin-knowledge>
       {dialog}
       {notice && <p className="admin-receipt status-ok" data-admin-receipt role="status">{notice}</p>}
       {error && <p className="error" role="alert">{error}</p>}
 
-      <header className="kb-hero kb-hero-admin">
-        <div className="page-kicker">知识生命周期</div>
-        <h2>原文进库 → 抽出待审 → 发布给运营 → 看反馈，提案隔离</h2>
-        <p className="kb-lead">删除 = 归档。彻底删除仅未发布草稿。已被已发送邮件引用的不能彻底删除。批准隔离提案也不会改线上技能说明。邮件模板发布后，运营启用才会进入 Codex harness。</p>
+      <header className="admin-section-head">
+        <div>
+          <h2>知识治理</h2>
+          <p className="muted">谁发布、是否停用、哪个版本、适用哪些品牌。运营选用走员工知识库，不在本页开工。</p>
+        </div>
       </header>
 
-      <article className="panel kb-step">
-        <div className="kb-step-head">
-          <span className="kb-step-n">1</span>
+      <article className="panel" data-admin-knowledge-review>
+        <div className="admin-section-head">
           <div>
-            <h2>收录原文</h2>
-            <p className="muted">上传 md / txt / eml / pdf / docx，或失败会话自动入库。原文不上线，也不改线上技能说明。</p>
-          </div>
-        </div>
-        <label className="kb-upload">
-          <span>选择文件写入原文库</span>
-          <input
-            type="file"
-            accept=".md,.txt,.eml,.pdf,.docx"
-            data-kb-upload
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void run(() => api.uploadKnowledgeRaw(file), "已写入原文库，尚未抽取");
-              e.currentTarget.value = "";
-            }}
-          />
-        </label>
-        {raw.map((item) => (
-          <article className="admin-row" key={String(item.id)}>
-            <div>
-              <strong>{String(item.filename || item.source)}</strong>
-              <p className="muted">{String(item.source)} · {formatKbTime(String(item.created_at || ""))}</p>
-            </div>
-            <button className="btn work" type="button" onClick={() => void run(() => api.extractKnowledge(String(item.id)), "已抽取为待审页，未发布")}>抽取成待审页</button>
-          </article>
-        ))}
-        {!raw.length && <p className="muted">暂无原文。失败会话（催大纲缺创作者、报价被拦）会自动出现在这里。</p>}
-      </article>
-
-      <article className="panel kb-step">
-        <div className="kb-step-head">
-          <span className="kb-step-n">2</span>
-          <div>
-            <h2>抽取成待审页</h2>
-            <p className="muted">抽取只生成待审批草稿，不会自动发布，也不会改线上邮件。</p>
-          </div>
-        </div>
-        {jobs.map((job) => (
-          <p key={String(job.id)} className="muted">
-            {jobStatusLabel(String(job.status))} · {job.result_knowledge_id ? "已生成待审页" : String(job.error || "等待结果")} · {formatKbTime(String(job.created_at || ""))}
-          </p>
-        ))}
-        {!jobs.length && <p className="muted">还没有抽取任务。</p>}
-      </article>
-
-      <article className="panel kb-step">
-        <div className="kb-step-head">
-          <span className="kb-step-n">3</span>
-          <div>
-            <h2>编辑 / 审批发布</h2>
-            <p className="muted">待审页要人点「审批发布」才会进运营知识库。编辑会写成新版本，旧版留档。</p>
+            <h2>待审队列</h2>
+            <p className="muted">待审和草稿要人点「审批发布」才会进运营知识库。编辑会写成新版本，旧版留档。</p>
           </div>
         </div>
 
@@ -270,81 +221,96 @@ export default function AdminKnowledge() {
         </form>
       </article>
 
-      <article className="panel kb-step">
-        <div className="kb-step-head">
-          <span className="kb-step-n">4</span>
+      <article className="panel" data-admin-knowledge-assets>
+        <div className="admin-section-head">
           <div>
             <h2>已发布资产</h2>
-            <p className="muted">运营启用后才会进 Codex 写信。归档后新会话选不到，已发信仍留着当时的版本号。</p>
+            <p className="muted">运营启用后才会进写信。归档后新会话选不到，已发信仍留着当时的版本号。</p>
           </div>
         </div>
-        {published.map((row) => (
-          <article className={"kb-asset" + (openVersions === row.id ? " is-open" : "")} key={row.id} data-admin-knowledge-id={row.id}>
-            <div className="kb-asset-head">
-              <div>
-                <strong>{row.title}</strong>
-                <p className="kb-card-meta">
-                  <span className="chip">{kindLabel(row.kind)}</span>
-                  <span className="chip">{statusLabel(row.status)}</span>
-                  <span className="chip">{brandLabel(row.brand)}</span>
-                  <span className="chip">{skillLabel(row.skill_id)}</span>
-                  <span className="chip">第 {row.current_version || 1} 版</span>
-                  <span className={"chip" + ((row.cite_count || 0) > 0 ? " chip-ok" : "")}>被 {row.cite_count || 0} 人启用</span>
-                  {row.kind === "mail_template" && Array.isArray(row.stage_codes) && row.stage_codes.length > 0 && (
-                    <span className="chip">{row.stage_codes.join(" / ")}</span>
-                  )}
-                </p>
-              </div>
-              <div className="chip-row">
-                <button className={"btn" + (editId === row.id ? " is-on" : "")} type="button" onClick={() => fillEdit(row)}>填入编辑</button>
-                <button
-                  className={"btn" + (openVersions === row.id ? " is-on" : "")}
-                  type="button"
-                  aria-pressed={openVersions === row.id}
-                  onClick={() => void toggleVersions(row.id).catch((e) => setError(e instanceof Error ? e.message : "无法加载版本"))}
-                >
-                  {openVersions === row.id ? "收起版本" : "查看版本"}
-                </button>
-                <button
-                  className="btn danger"
-                  type="button"
-                  data-kb-archive={row.id}
-                  onClick={() => ask(knowledgeArchiveConfirm(row.title, row.current_version), () => run(() => api.archiveKnowledge(row.id), "已归档，运营首页不再出现"))}
-                >
-                  归档
-                </button>
-              </div>
-            </div>
-            {openVersions === row.id && (
-              <ul className="kb-versions">
-                {(versionsById[row.id] || []).map((ver) => (
-                  <li key={String(ver.id)}>{versionLine(ver)}</li>
+        {published.length > 0 ? (
+          <div className="admin-table-wrap">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>标题</th>
+                  <th>状态</th>
+                  <th>品牌 / 技能</th>
+                  <th>版本</th>
+                  <th>启用</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {published.map((row) => (
+                  <tr key={row.id} data-admin-knowledge-id={row.id} className={openVersions === row.id ? "is-open" : undefined}>
+                    <td>
+                      <strong>{row.title}</strong>
+                      <p className="muted">{kindLabel(row.kind)}</p>
+                    </td>
+                    <td>{statusLabel(row.status)}</td>
+                    <td>
+                      {brandLabel(row.brand)}
+                      <p className="muted">{skillLabel(row.skill_id)}</p>
+                    </td>
+                    <td>第 {row.current_version || 1} 版</td>
+                    <td>被 {row.cite_count || 0} 人启用</td>
+                    <td className="admin-inline-actions">
+                      <button className={"btn sm" + (editId === row.id ? " is-on" : "")} type="button" onClick={() => fillEdit(row)}>填入编辑</button>
+                      <button
+                        className={"btn sm" + (openVersions === row.id ? " is-on" : "")}
+                        type="button"
+                        aria-pressed={openVersions === row.id}
+                        onClick={() => void toggleVersions(row.id).catch((e) => setError(e instanceof Error ? e.message : "无法加载版本"))}
+                      >
+                        {openVersions === row.id ? "收起版本" : "查看版本"}
+                      </button>
+                      <button
+                        className="btn sm danger"
+                        type="button"
+                        data-kb-archive={row.id}
+                        onClick={() => ask(knowledgeArchiveConfirm(row.title, row.current_version), () => run(() => api.archiveKnowledge(row.id), "已归档，运营首页不再出现"))}
+                      >
+                        归档
+                      </button>
+                    </td>
+                  </tr>
                 ))}
-                {!(versionsById[row.id] || []).length && <li className="muted">还没有版本记录。</li>}
-              </ul>
-            )}
-            {row.kind === "mail_template" && (
-              <div className="kb-transfer">
-                <p className="kb-result">
-                  复制到另一品牌邮箱：按 LiTime / Renogy / PowerQueen 的发件箱白名单再存一份。会生成<strong>待审批提案</strong>，不会立刻改线上邮件，也不会改线上技能说明。
-                </p>
-                <div className="chip-row">
-                  {BRANDS.filter((brand) => brand !== row.brand).map((brand) => (
-                    <button
-                      key={brand}
-                      className="btn"
-                      type="button"
-                      onClick={() => void run(() => api.transferKnowledgeBrand(row.id, brand), `已提交复制到 ${brandLabel(brand)} 的待审提案`)}
-                    >
-                      复制到 {brandLabel(brand)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </article>
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="muted">还没有已发布资产。</p>
+        )}
+        {published.map((row) => (
+          openVersions === row.id ? (
+            <ul className="kb-versions" key={`${row.id}-versions`}>
+              {(versionsById[row.id] || []).map((ver) => (
+                <li key={String(ver.id)}>{versionLine(ver)}</li>
+              ))}
+              {!(versionsById[row.id] || []).length && <li className="muted">还没有版本记录。</li>}
+            </ul>
+          ) : null
         ))}
-        {!published.length && <p className="muted">还没有已发布资产。</p>}
+        {published.filter((row) => row.kind === "mail_template").map((row) => (
+          <div className="kb-transfer" key={`${row.id}-transfer`}>
+            <p className="muted">
+              {row.title} · 复制到另一品牌邮箱会生成<strong>待审批提案</strong>，不会立刻改线上邮件，也不会改线上技能说明。
+            </p>
+            <div className="chip-row">
+              {BRANDS.filter((brand) => brand !== row.brand).map((brand) => (
+                <button
+                  key={brand}
+                  className="btn sm"
+                  type="button"
+                  onClick={() => void run(() => api.transferKnowledgeBrand(row.id, brand), `已提交复制到 ${brandLabel(brand)} 的待审提案`)}
+                >
+                  复制到 {brandLabel(brand)}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
 
         {archived.length > 0 && (
           <>
@@ -369,9 +335,45 @@ export default function AdminKnowledge() {
         )}
       </article>
 
-      <article className="panel kb-step">
-        <div className="kb-step-head">
-          <span className="kb-step-n">5</span>
+      <article className="panel" data-admin-knowledge-ingest>
+        <div className="admin-section-head">
+          <div>
+            <h2>原文入库</h2>
+            <p className="muted">上传 md / txt / eml / pdf / docx，或失败会话自动入库。原文不上线，抽取只生成待审草稿。</p>
+          </div>
+        </div>
+        <label className="kb-upload">
+          <span>选择文件写入原文库</span>
+          <input
+            type="file"
+            accept=".md,.txt,.eml,.pdf,.docx"
+            data-kb-upload
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void run(() => api.uploadKnowledgeRaw(file), "已写入原文库，尚未抽取");
+              e.currentTarget.value = "";
+            }}
+          />
+        </label>
+        {raw.map((item) => (
+          <article className="admin-row" key={String(item.id)}>
+            <div>
+              <strong>{String(item.filename || item.source)}</strong>
+              <p className="muted">{String(item.source)} · {formatKbTime(String(item.created_at || ""))}</p>
+            </div>
+            <button className="btn work" type="button" onClick={() => void run(() => api.extractKnowledge(String(item.id)), "已抽取为待审页，未发布")}>抽取成待审页</button>
+          </article>
+        ))}
+        {!raw.length && <p className="muted">暂无原文。失败会话（催大纲缺创作者、报价被拦）会自动出现在这里。</p>}
+        {jobs.map((job) => (
+          <p key={String(job.id)} className="muted">
+            {jobStatusLabel(String(job.status))} · {job.result_knowledge_id ? "已生成待审页" : String(job.error || "等待结果")} · {formatKbTime(String(job.created_at || ""))}
+          </p>
+        ))}
+      </article>
+
+      <article className="panel" data-admin-knowledge-feedback>
+        <div className="admin-section-head">
           <div>
             <h2>运营反馈</h2>
             <p className="muted">数字 = 有多少次「对本账号隐藏」选了这个原因。不是拦截次数，也不改已发信。</p>
@@ -392,9 +394,8 @@ export default function AdminKnowledge() {
         <p className="muted">合计 {Number(stats.total || 0)} 次隐藏（按账号计，不是全员下线）。</p>
       </article>
 
-      <article className="panel kb-step">
-        <div className="kb-step-head">
-          <span className="kb-step-n">6</span>
+      <article className="panel" data-admin-knowledge-proposals>
+        <div className="admin-section-head">
           <div>
             <h2>隔离提案</h2>
             <p className="muted">演化走隔离队列。批准只留档，不会改线上技能说明，也不会立刻改线上邮件。</p>

@@ -7,6 +7,8 @@ export type AdminConfirmCopy = {
   scope: string;
   consequence: string;
   confirmLabel: string;
+  cancelLabel?: string;
+  cancelHint?: string;
   requireReason?: boolean;
   reasonLabel?: string;
   reasonPlaceholder?: string;
@@ -17,11 +19,16 @@ export type AdminConfirmKind =
   | "connector-disable"
   | "grant-revoke"
   | "grant-write"
+  | "grant-read"
   | "knowledge-archive"
   | "knowledge-hard-delete"
   | "knowledge-publish"
   | "skill-delete"
+  | "skill-publish"
+  | "skill-list"
   | "skill-unpublish"
+  | "skill-grant"
+  | "approval-role"
   | "credential-ref"
   | "retention-policy"
   | "proposal-reject"
@@ -29,6 +36,10 @@ export type AdminConfirmKind =
   | "memory-delete"
   | "session-delete"
   | "starry-unbind";
+
+/** Admin-opened confirms: Cancel abandons the write. It is not Host-proposal 拒绝. */
+export const ADMIN_CANCEL_LABEL = "取消，不执行";
+export const ADMIN_CANCEL_HINT = "取消只关闭确认，不会写入，也不需要填原因。";
 
 function named(label: string, extra = ""): string {
   const name = String(label || "").trim() || "未命名";
@@ -127,6 +138,67 @@ export function grantWriteConfirm(userLabel: string, connectorLabel: string): Ad
   };
 }
 
+export function grantReadConfirm(userLabel: string, connectorLabel: string): AdminConfirmCopy {
+  return {
+    kind: "grant-read",
+    title: "授予连接器 read",
+    object: `${named(userLabel)} × ${named(connectorLabel)}`,
+    scope: "该员工对此连接器的 read（不含 write）",
+    consequence: "该员工立即获得此连接器读取权。read 不等于发送、改阶段或解密旁路。审计留下授权记录。",
+    confirmLabel: "确认授予 read",
+  };
+}
+
+export function approvalRoleSaveConfirm(userLabel: string, roleLabels: string[]): AdminConfirmCopy {
+  const roles = roleLabels.map((item) => item.trim()).filter(Boolean);
+  return {
+    kind: "approval-role",
+    title: "保存审批角色",
+    object: named(userLabel),
+    scope: roles.length ? roles.join(" / ") : "未选择角色",
+    consequence: "该员工立即按所选角色进入审批链。未勾选的角色立即失效。审计留下授权记录。",
+    confirmLabel: "确认保存授权",
+  };
+}
+
+export function skillGrantSaveConfirm(
+  title: string,
+  grants: { org: string[]; team: string[]; user: string[] },
+): AdminConfirmCopy {
+  return {
+    kind: "skill-grant",
+    title: "保存技能分配",
+    object: named(title),
+    scope: `组织 ${grants.org.length} · 团队 ${grants.team.length} · 个人 ${grants.user.length}`,
+    consequence: "命中的组织、团队或个人立即可以使用该技能。未勾选的立即失去授权。审计留下分配记录。",
+    confirmLabel: "确认保存分配",
+  };
+}
+
+export function skillPublishConfirm(title: string, id = "", inMarket = true): AdminConfirmCopy {
+  return {
+    kind: "skill-publish",
+    title: "发布技能并写入 Codex",
+    object: named(title, id),
+    scope: "运行时目录 · 下一轮 Codex turn 可 extraRoots / config/write",
+    consequence: inMarket
+      ? "技能写入运行时目录，并出现在员工技能目录。不是草稿预览。内置技能不受影响。"
+      : "技能写入运行时目录，但不会出现在员工技能目录。可稍后上架。",
+    confirmLabel: "确认发布",
+  };
+}
+
+export function skillListConfirm(title: string, id = ""): AdminConfirmCopy {
+  return {
+    kind: "skill-list",
+    title: "上架技能",
+    object: named(title, id),
+    scope: "员工技能目录可见性 · 不是新建技能包",
+    consequence: "员工技能目录将出现此项。已打开的会话不受影响。可再次下架。",
+    confirmLabel: "确认上架",
+  };
+}
+
 export function credentialRefConfirm(label: string, id = ""): AdminConfirmCopy {
   return {
     kind: "credential-ref",
@@ -168,6 +240,8 @@ export function knowledgeProposalRejectConfirm(title: string): AdminConfirmCopy 
     scope: "知识演化隔离队列 · 不会改线上技能说明",
     consequence: "提案留档为已否决。必须填写否决原因，不能用固定「否决保留」。线上邮件与技能说明不变。",
     confirmLabel: "确认否决",
+    cancelLabel: "取消，不否决",
+    cancelHint: "取消只关闭确认，不会否决提案。否决必须点确认并填写原因。",
     requireReason: true,
     reasonLabel: "否决原因",
     reasonPlaceholder: "说明为何否决，将写入提案记录",

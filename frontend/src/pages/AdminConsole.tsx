@@ -26,13 +26,13 @@ import {
   userStatusLabel,
 } from "../labels";
 import { SKILL_OPTIONS } from "../knowledgeCopy";
-import { retentionPolicyConfirm, userDeactivateConfirm } from "../adminConfirm";
+import { approvalRoleSaveConfirm, retentionPolicyConfirm, userDeactivateConfirm } from "../adminConfirm";
 import { useAdminConfirm } from "../components/ConfirmDialog";
 
 const TABS: [string, string][] = [
   ["employees", "员工"],
-  ["agents", "数字员工"],
-  ["connectors", "连接器"],
+  ["agents", "数字员工治理"],
+  ["connectors", "连接器枢纽"],
   ["skills", "技能"],
   ["approvals", "审批"],
   ["exams", "考试"],
@@ -422,19 +422,25 @@ function GrantEditor({ kind, label, users, options, onSave }: {
   options: { id: string; label: string }[];
   onSave: SaveFn;
 }) {
+  const { ask, dialog } = useAdminConfirm();
   const [userId, setUserId] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
   const toggle = (id: string) => setPicked((cur) => cur.includes(id) ? cur.filter((item) => item !== id) : [...cur, id]);
   const items = options.length ? options : SKILL_OPTIONS;
+  const user = users.find((row) => String(row.id) === userId);
+  const roleLabels = picked.map((id) => items.find((item) => item.id === id)?.label || id);
   return (
     <form
       className="panel settings-form"
       onSubmit={(e) => {
         e.preventDefault();
         if (!userId || !picked.length) return;
-        void onSave(`/api/admin/users/${userId}/${kind}`, { [kind === "approval-roles" ? "roles" : kind]: picked }, `${label}授权已保存`);
+        ask(approvalRoleSaveConfirm(rowTitle(user || {}), roleLabels), () =>
+          onSave(`/api/admin/users/${userId}/${kind}`, { [kind === "approval-roles" ? "roles" : kind]: picked }, `${label}授权已保存`),
+        );
       }}
     >
+      {dialog}
       <h2>{label}授权</h2>
       <label className="field">
         员工
@@ -455,7 +461,7 @@ function GrantEditor({ kind, label, users, options, onSave }: {
         </div>
         {!items.length && <p className="muted">暂无可选项。</p>}
       </fieldset>
-      <button className="btn work" disabled={!userId || !picked.length}>保存授权</button>
+      <button className="btn work" data-admin-approval-save disabled={!userId || !picked.length}>保存授权</button>
     </form>
   );
 }

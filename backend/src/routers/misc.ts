@@ -54,6 +54,7 @@ function skillMeta(name: string): Json {
   const title = definition?.title || cat?.label || name;
   const funnel = cat?.funnel || "reach";
   const stage = FUNNEL_STAGES.find((f) => f.id === funnel);
+  const over = overlayRow(name);
   return {
     id: name,
     title,
@@ -72,7 +73,8 @@ function skillMeta(name: string): Json {
     keeps_stage: true,
     sop_editable: false,
     sop_owner: SOP_POLICY.owner,
-    edited: Boolean(overlayRow(name)),
+    edited: Boolean(over),
+    updated_at: over?.updated_at || null,
   };
 }
 
