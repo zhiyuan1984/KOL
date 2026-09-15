@@ -138,7 +138,7 @@ approvals.get("/approvals/:aid", (c) => {
 });
 
 approvals.post("/approvals/:aid/decide", async (c) => {
-  const body = (await c.req.json()) as { decision: string; actor?: string };
+  const body = (await c.req.json()) as { decision: string; actor?: string; reason?: string };
   const approval = getApproval(c.req.param("aid"));
   if (!approval) throw new HttpFail(404, "Not Found");
   let actor = body.actor;
@@ -153,10 +153,17 @@ approvals.post("/approvals/:aid/decide", async (c) => {
     }
     actor = expected;
   }
+  if (body.decision === "reject" && !String(body.reason || "").trim()) {
+    throw new HttpFail(400, { code: "reject_reason_required", message: "驳回必须填写原因。" });
+  }
   try {
-    return c.json(await decide(c.req.param("aid"), body.decision, actor));
+    return c.json(await decide(c.req.param("aid"), body.decision, actor, body.reason));
   } catch (e) {
     if (e instanceof KeyError) throw new HttpFail(404, "Not Found");
+    if (e instanceof HttpFail) throw e;
+    if (e instanceof Error && e.message === "reject_reason_required") {
+      throw new HttpFail(400, { code: "reject_reason_required", message: "驳回必须填写原因。" });
+    }
     throw new HttpFail(400, String(e));
   }
 });

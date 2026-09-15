@@ -6,6 +6,22 @@ async function saveScreenshot(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: path.join(dir, name), fullPage: true });
 }
 
+async function confirmApprovalDecision(
+  card: Locator,
+  decision: "approve" | "reject",
+  reason = "超出本月预算",
+): Promise<void> {
+  await card.getByRole("button", { name: decision === "approve" ? "同意" : "驳回" }).click();
+  const dialog = card.locator("[data-approval-confirm]");
+  await expect(dialog).toBeVisible();
+  if (decision === "reject") {
+    await dialog.locator("[name='reject_reason']").fill(reason);
+    await dialog.getByRole("button", { name: "确认驳回" }).click();
+  } else {
+    await dialog.getByRole("button", { name: "确认同意" }).click();
+  }
+}
+
 test.beforeEach(async ({ request }) => {
   await request.post("/api/demo/reset", { data: { workbench: true } });
   await request.post("/api/me/persona", { data: { persona: "sriphy" } });
@@ -1990,8 +2006,9 @@ test("记状态 to CONTENT_REVIEW queues content approval and writes after manag
   await expect(row).toBeVisible();
   await expect(row).toContainText("内容审核");
   await expect(page.locator("body")).toContainText("确认阶段");
-  await row.getByRole("button", { name: "同意" }).click();
-  await expect(row).toHaveCount(0, { timeout: 15000 });
+  await confirmApprovalDecision(row, "approve");
+  await expect(row).toHaveAttribute("data-approval-status", "consumed", { timeout: 15000 });
+  await expect(row.locator("[data-approval-receipt]")).toContainText("已办结");
   const after = await request.get("/api/pipeline").then((r) => r.json());
   const written = Object.values(after.groups).flat().find(
     (c: { handle: string }) => c.handle === "母婴小课",
@@ -3884,10 +3901,36 @@ test("expense approval walks FIN-EXP-004 to 已办结 without record ids", async
   await expect(card).toContainText("折合人民币");
   for (const name of ["林桐", "王主管", "财务负责人", "张总"]) {
     await expect(card).toContainText(`当前等待 ${name}`);
-    await card.getByRole("button", { name: "同意" }).click();
+    await confirmApprovalDecision(card, "approve");
   }
   await expect(card).toHaveAttribute("data-approval-status", "consumed", { timeout: 15000 });
   await expect(card).toContainText("已办结");
+  await expect(card.locator("[data-approval-receipt]")).toBeVisible();
   await expect(page.locator("body")).not.toContainText("approval_id=");
   await expect(page.locator("body")).not.toContainText("appr_");
+});
+
+test("expense approval reject requires a reason and leaves a durable receipt", async ({ page, request }) => {
+  const session = await request.post("/api/sessions", { data: { title: "费用驳回" } }).then((r) => r.json());
+  const posted = await request.post(`/api/sessions/${session.id}/messages`, {
+    data: { text: "Please file an expense approval for 黎玉燕 50000 USD KOL spend" },
+  }).then((r) => r.json());
+  const id = String(posted.approval?.id || "");
+  expect(id).toBeTruthy();
+  await page.goto(`/approvals?id=${id}`);
+  const card = page.locator(`[data-approval-id="${id}"]`);
+  await expect(card).toBeVisible();
+  await card.getByRole("button", { name: "驳回" }).click();
+  const dialog = card.locator("[data-approval-confirm]");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator("[data-approval-confirm-consequence]")).toContainText("整单作废");
+  await expect(dialog.getByRole("button", { name: "确认驳回" })).toBeDisabled();
+  await dialog.locator("[name='reject_reason']").fill("超出本月预算");
+  await dialog.getByRole("button", { name: "确认驳回" }).click();
+  await expect(card).toHaveAttribute("data-approval-status", "rejected", { timeout: 15000 });
+  await expect(card.locator("[data-approval-receipt]")).toContainText("超出本月预算");
+  await expect(card.locator("[data-approval-receipt]")).toContainText("已作废");
+  await page.reload();
+  await expect(page.locator(`[data-approval-id="${id}"] [data-approval-receipt]`)).toContainText("超出本月预算");
+  await expect(page.locator("body")).not.toContainText("approval_id=");
 });

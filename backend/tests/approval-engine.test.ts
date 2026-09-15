@@ -608,6 +608,36 @@ describe("expense approval host path", () => {
     expect(cards.some((card) => String(card.body || "").includes("已办结"))).toBe(true);
   });
 
+  it("rejects expense approval only with a persisted reason", async () => {
+    const posted = await ask("Please file an expense approval for 黎玉燕 50000 USD KOL spend");
+    const approval = posted.body.approval as { id: string; chain: string[] };
+    const missing = await request("POST", `/api/approvals/${approval.id}/decide`, {
+      decision: "reject",
+      actor: approval.chain[0],
+    });
+    expect(missing.status).toBe(400);
+    expect((missing.body.detail as { code?: string }).code).toBe("reject_reason_required");
+
+    const rejected = await request("POST", `/api/approvals/${approval.id}/decide`, {
+      decision: "reject",
+      actor: approval.chain[0],
+      reason: "超出本月预算",
+    });
+    expect(rejected.status).toBe(200);
+    const row = rejected.body as {
+      status: string;
+      payload?: { reject_reason?: string };
+      wecom_card?: { body?: string };
+      discarded?: boolean;
+    };
+    expect(row.status).toBe("rejected");
+    expect(row.discarded).toBe(true);
+    expect(row.payload?.reject_reason).toBe("超出本月预算");
+    expect(String(row.wecom_card?.body || "")).toContain("超出本月预算");
+    expect(String(row.wecom_card?.body || "")).toContain("已作废");
+    expect(String(row.wecom_card?.body || "")).not.toMatch(/approval_id|chain_id|appr_/);
+  });
+
   it("POST /api/approvals previews then creates an expense using the Host plan", async () => {
     const before = await request("GET", "/api/approvals");
     const beforeCount = (before.body as unknown as unknown[]).length;
