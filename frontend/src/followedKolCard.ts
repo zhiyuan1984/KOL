@@ -1,7 +1,8 @@
 /**
  * Homepage 「我跟进的红人」 work-card projection.
  * Goals (not a layout dogma): CONSTITUTION §4.2 + specs/UX-EMPLOYEE.md.
- * Home followed list is a KOL-pilot Collaboration surface, not Pipeline.
+ * Home followed list is an object list of followed Collaboration/KOL records,
+ * not a todo-status bar and not Pipeline.
  *
  * Board bags stay source material. Cards only render this model.
  */
@@ -55,7 +56,6 @@ export type FollowedMailThread = {
 };
 
 export type ActionOwner = "me" | "them" | "approver" | "exception" | "none";
-export type OwnerGroup = "needs_me" | "waiting_them" | "waiting_approval" | "exception" | "recent" | "all";
 export type KolSortMode = "need" | "recent" | "stay" | "unread";
 export type FactKind = "inbound" | "outbound" | "confirmed" | "none";
 export type RecommendedKind =
@@ -121,15 +121,6 @@ export type FollowedKolCardModel = {
   focus_thread: string;
   source: FollowedKolRecord;
 };
-
-export const FOLLOWED_KOL_OWNER_TABS: { code: OwnerGroup; label: string }[] = [
-  { code: "needs_me", label: "需要我处理" },
-  { code: "waiting_them", label: "等待对方" },
-  { code: "waiting_approval", label: "等待审批" },
-  { code: "exception", label: "异常" },
-  { code: "recent", label: "最近更新" },
-  { code: "all", label: "全部" },
-];
 
 const CLOSED = new Set(["completed", "done", "cancelled"]);
 
@@ -511,17 +502,31 @@ export function projectFollowedKolCard(kol: FollowedKolRecord, tasks: Task[] = [
   };
 }
 
-export function matchesOwnerGroup(card: FollowedKolCardModel, group: OwnerGroup): boolean {
-  if (group === "all" || group === "recent") return true;
-  if (group === "needs_me") return card.owner === "me";
-  if (group === "waiting_them") return card.owner === "them";
-  if (group === "waiting_approval") return card.owner === "approver";
-  if (group === "exception") return card.owner === "exception" || card.risk.exception || card.risk.high_risk;
-  return true;
+export function matchesKolSearch(card: FollowedKolCardModel, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  const hay = [
+    card.handle,
+    card.identity.display,
+    card.identity.platform,
+    card.scope.brand,
+    card.scope.region,
+    card.scope.owner,
+    card.scope.mailbox,
+    card.current_state.stage_code,
+    card.current_state.stage_label,
+    card.source.kol_name,
+    card.source.collab_summary,
+    card.source.notes,
+  ].join(" ").toLowerCase();
+  return hay.includes(needle);
 }
 
 export function matchesStageFilter(card: FollowedKolCardModel, stageCode: string): boolean {
   if (!stageCode) return true;
+  if (stageCode === "exception") {
+    return Boolean(card.source.exception || card.current_state.exception || card.risk.exception);
+  }
   return card.current_state.stage_code === stageCode;
 }
 
@@ -596,8 +601,4 @@ export function sortFollowedKolCards(cards: FollowedKolCardModel[], mode: KolSor
     }
     return keysNeed(a, b);
   });
-}
-
-export function ownerGroupCount(cards: FollowedKolCardModel[], group: OwnerGroup): number {
-  return cards.filter((card) => matchesOwnerGroup(card, group)).length;
 }

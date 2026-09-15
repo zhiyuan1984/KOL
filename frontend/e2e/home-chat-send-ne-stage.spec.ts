@@ -10,21 +10,29 @@ test.beforeEach(async ({ request }) => {
   await request.post("/api/me/persona", { data: { persona: "sriphy" } });
 });
 
-test("followed KOL pane uses owner groups, not a 15-stage board", async ({ page }) => {
+test("followed KOL pane is an object list, not task-status or 15-stage chips", async ({ page }) => {
   await page.goto("/");
   await openFollowed(page);
-  await expect(page.locator("[data-kol-tab]")).toHaveCount(6);
-  await expect(page.locator('[data-kol-tab="needs_me"]')).toContainText("需要我处理");
-  await expect(page.locator('[data-kol-tab="waiting_them"]')).toContainText("等待对方");
-  await expect(page.locator('[data-kol-tab="waiting_approval"]')).toContainText("等待审批");
-  await expect(page.locator('[data-kol-tab="exception"]')).toContainText("异常");
-  await expect(page.locator('[data-kol-tab="recent"]')).toContainText("最近更新");
-  await expect(page.locator('[data-kol-tab="all"]')).toContainText("全部");
+  await expect(page.locator("[data-kol-tabs]")).toHaveCount(0);
+  await expect(page.locator("[data-kol-tab]")).toHaveCount(0);
+  await expect(page.locator(".kol-owner-tabs")).toHaveCount(0);
+  await expect(page.locator('[data-home-pane="lifecycle"]')).not.toContainText("需要我处理");
   await expect(page.locator('[data-kol-tab="INITIAL_CONTACT"]')).toHaveCount(0);
   await expect(page.locator('[data-kol-tab="SETTLING"]')).toHaveCount(0);
+  await expect(page.locator("[data-followed-object-toolbar]")).toBeVisible();
+  await expect(page.locator("[data-followed-object-search]")).toBeVisible();
+  await expect(page.locator("[data-followed-kol-list]")).toBeVisible();
+  await expect(page.locator("[data-followed-origin]")).toHaveAttribute("data-followed-origin", "collaboration");
   await expect(page.locator("[data-kol-stage-filter]")).toBeVisible();
   await expect(page.locator('[data-home-pane="lifecycle"]')).not.toContainText("正式阶段共 15 个");
+  await expect(page.locator('[data-home-pane="lifecycle"]')).not.toContainText("这一状态还没有");
   await expect(page.locator('a[href="/pipeline"]')).toHaveCount(0);
+  await expect(page.locator("[data-followed-kol]").first()).toBeVisible({ timeout: 15000 });
+  await page.locator("[data-followed-object-search]").fill("___no_such_followed_object___");
+  await expect(page.locator("[data-follow-empty='filtered']")).toBeVisible();
+  await expect(page.locator("[data-follow-empty='filtered'] strong")).toHaveText("没有匹配的跟进对象");
+  await expect(page.locator("[data-follow-empty='filtered']")).toContainText("跟进中的红人");
+  await expect(page.locator("[data-follow-empty='filtered']")).not.toContainText("这一状态还没有");
 });
 
 test("session-open failure stays on Home with an honest error", async ({ page }) => {

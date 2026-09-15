@@ -47,15 +47,12 @@ import {
   HOME_OPENED_EXISTING_SESSION_LANDED_COPY,
 } from "../confirmStageFeedback";
 import {
-  FOLLOWED_KOL_OWNER_TABS,
-  matchesOwnerGroup,
+  matchesKolSearch,
   matchesStageFilter,
-  ownerGroupCount,
   projectFollowedKolCard,
   sortFollowedKolCards,
   type FollowedKolCardModel,
   type FollowedKolRecord,
-  type OwnerGroup,
 } from "../followedKolCard";
 import {
   HOME_TASK_POLL_MS,
@@ -75,7 +72,6 @@ import {
 type HomeTab = "today" | "templates";
 type TaskFilter = "all" | "open" | "high" | "ai";
 type TodoListFilter = "all" | "open" | "high";
-type KolOwnerTab = OwnerGroup;
 type ActionableTodoBucket = "overdue" | "today" | "waiting" | "approval" | "queued" | "running";
 type TodoBucket = ActionableTodoBucket | "open";
 type FollowedKol = FollowedKolRecord;
@@ -415,7 +411,7 @@ export default function Home() {
   const [tab, setTab] = useState<HomeTab>("today");
   const [filter, setFilter] = useState<TaskFilter>("all");
   const [todoFilter, setTodoFilter] = useState<TodoListFilter>("all");
-  const [ownerTab, setOwnerTab] = useState<KolOwnerTab>("all");
+  const [kolQuery, setKolQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("");
   const [dedupeNotice, setDedupeNotice] = useState("");
   const [followedKols, setFollowedKols] = useState<FollowedKol[]>([]);
@@ -1134,18 +1130,40 @@ export default function Home() {
 
   const visibleKols = useMemo(() => {
     const filtered = kolCards.filter((card) => (
-      matchesOwnerGroup(card, ownerTab) && matchesStageFilter(card, stageFilter)
+      matchesKolSearch(card, kolQuery) && matchesStageFilter(card, stageFilter)
     ));
-    return sortFollowedKolCards(filtered, ownerTab === "recent" ? "recent" : "need");
-  }, [kolCards, ownerTab, stageFilter]);
+    return sortFollowedKolCards(filtered, "need");
+  }, [kolCards, kolQuery, stageFilter]);
 
-  const ownerCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const tabSpec of FOLLOWED_KOL_OWNER_TABS) {
-      counts[tabSpec.code] = ownerGroupCount(kolCards, tabSpec.code);
-    }
-    return counts;
-  }, [kolCards]);
+  const followEmptyKind = followScope?.required && !followScope.bound
+    ? "unbound"
+    : followScope?.status === "expired"
+      ? "expired"
+      : followedKols.length
+        ? "filtered"
+        : followScope?.bound
+          ? "mailbox"
+          : "none";
+
+  const followEmptyTitle = followEmptyKind === "unbound"
+    ? "尚未绑定跟进邮箱"
+    : followEmptyKind === "expired"
+      ? "Starry 连接已过期"
+      : followEmptyKind === "filtered"
+        ? "没有匹配的跟进对象"
+        : followEmptyKind === "mailbox"
+          ? "该邮箱下暂无跟进红人"
+          : "还没有跟进中的红人";
+
+  const followEmptyBody = followEmptyKind === "unbound"
+    ? "绑定 Starry 发件箱后，这里只显示该邮箱负责人跟进的红人。"
+    : followEmptyKind === "expired"
+      ? "重新连接后即可继续查看你跟进的红人。"
+      : followEmptyKind === "filtered"
+        ? "换个关键词或阶段，再看跟进中的红人和合作对象。"
+        : followEmptyKind === "mailbox"
+          ? `当前绑定 ${followScope?.mailbox_email || "已选邮箱"}${followScope?.owner_name ? ` · ${followScope.owner_name}` : ""}。`
+          : "跟进中的红人和合作对象会出现在这里。可从 AI发现 加入。";
 
   const taskCounts = {
     all: tasks.length,
@@ -1396,25 +1414,18 @@ export default function Home() {
             <section className="home-mode-pane recommend-work followed-kol-pane" data-home-pane="lifecycle" data-lifecycle-overview>
               <div className="followed-kol-column" data-followed-kol-column>
               <div className="home-pane-sticky">
-              <div className="kol-owner-tabs" role="tablist" aria-label="跟进分组" data-kol-tabs>
-                {FOLLOWED_KOL_OWNER_TABS.map((tabSpec) => {
-                  const count = ownerCounts[tabSpec.code] ?? 0;
-                  return (
-                    <button
-                      key={tabSpec.code}
-                      type="button"
-                      role="tab"
-                      aria-selected={ownerTab === tabSpec.code}
-                      title={tabSpec.label}
-                      onClick={() => setOwnerTab(tabSpec.code)}
-                      data-kol-tab={tabSpec.code}
-                    >
-                      <span className="kol-tab-name">{tabSpec.label} {count}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="kol-secondary-filters" data-kol-secondary-filters>
+              <div className="followed-object-toolbar" data-followed-object-toolbar>
+                <label className="followed-object-search">
+                  <span className="sr-only">搜索跟进对象</span>
+                  <input
+                    type="search"
+                    value={kolQuery}
+                    onChange={(event) => setKolQuery(event.target.value)}
+                    placeholder="搜索红人或合作对象"
+                    aria-label="搜索跟进中的红人或合作对象"
+                    data-followed-object-search
+                  />
+                </label>
                 <label className="kol-filter-label">
                   阶段
                   <select
@@ -1427,8 +1438,12 @@ export default function Home() {
                     {MAIN_STAGE_TABS.map((stage) => (
                       <option key={stage.code} value={stage.code}>{stage.label}</option>
                     ))}
+                    <option value="exception">异常</option>
                   </select>
                 </label>
+                <p className="followed-object-count" data-followed-object-count>
+                  {visibleKols.length} 个跟进对象
+                </p>
               </div>
               </div>
               {visibleKols.length ? (
@@ -1453,23 +1468,9 @@ export default function Home() {
                   ))}
                 </ol>
               ) : (
-                <div className="task-empty" data-follow-empty={followScope?.required && !followScope.bound ? "unbound" : followScope?.status === "expired" ? "expired" : "none"}>
-                  <strong>
-                    {followScope?.required && !followScope.bound
-                      ? "尚未绑定跟进邮箱"
-                      : followScope?.status === "expired"
-                        ? "Starry 连接已过期"
-                        : followedKols.length ? "这一状态还没有跟进中的红人" : followScope?.bound ? "该邮箱下暂无跟进红人" : "还没有跟进中的红人"}
-                  </strong>
-                  <p>
-                    {followScope?.required && !followScope.bound
-                      ? "绑定 Starry 发件箱后，这里只显示该邮箱负责人跟进的红人。"
-                      : followScope?.status === "expired"
-                        ? "重新连接后即可继续查看你跟进的红人。"
-                        : followScope?.bound
-                          ? `当前绑定 ${followScope.mailbox_email || "已选邮箱"}${followScope.owner_name ? ` · ${followScope.owner_name}` : ""}。`
-                          : "按需要我处理、等待对方或异常查看跟进中的合作。"}
-                  </p>
+                <div className="task-empty" data-follow-empty={followEmptyKind}>
+                  <strong>{followEmptyTitle}</strong>
+                  <p>{followEmptyBody}</p>
                   {followScope?.required && (!followScope.bound || followScope.status === "expired") ? (
                     <button type="button" className="btn work" onClick={() => nav("/settings?tab=starry")}>
                       {followScope.status === "expired" ? "重新连接" : "去绑定"}

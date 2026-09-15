@@ -1622,43 +1622,45 @@ summary:focus-visible,
   max-width: 46rem;
 }
 .today-summary .task-filters { margin-bottom: 18px; }
-.kol-stage-tabs,
-.kol-owner-tabs {
+.followed-object-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1);
-  margin-bottom: var(--space-2);
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  overflow: visible;
 }
-.kol-stage-tabs button,
-.kol-owner-tabs button {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-  min-width: 0;
-  max-width: none;
+.followed-object-search {
+  display: block;
+  flex: 1 1 16rem;
+  min-width: 12rem;
+  max-width: 28rem;
+}
+.followed-object-search input {
+  display: block;
+  width: 100%;
+  min-height: 36px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   background: var(--bg);
-  color: var(--text-muted);
+  color: var(--text);
   font: inherit;
   font-size: var(--font-sm);
   line-height: var(--leading-tight);
   padding: 6px 10px;
-  cursor: pointer;
-  text-align: center;
-  white-space: nowrap;
-  min-height: 36px;
   box-sizing: border-box;
 }
-.kol-stage-tabs button[aria-selected="true"],
-.kol-owner-tabs button[aria-selected="true"] {
-  color: var(--primary);
-  border-color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 8%, var(--bg));
+.followed-object-search input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.followed-object-count {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+  white-space: nowrap;
 }
 .kol-secondary-filters {
   display: flex;
@@ -1706,7 +1708,6 @@ summary:focus-visible,
   color: var(--primary);
   border-color: var(--primary);
 }
-.kol-tab-name { font-weight: 500; color: inherit; }
 .profile-tags {
   display: flex;
   flex-wrap: wrap;
@@ -2021,8 +2022,7 @@ summary:focus-visible,
   overflow-x: hidden;
 }
 .followed-kol-column .home-pane-sticky,
-.followed-kol-column .kol-stage-tabs,
-.followed-kol-column .kol-owner-tabs,
+.followed-kol-column .followed-object-toolbar,
 .followed-kol-column .followed-kol-list,
 .followed-kol-column .followed-kol-item,
 .followed-kol-column .followed-kol-card,
@@ -2032,35 +2032,8 @@ summary:focus-visible,
   min-width: 0;
   box-sizing: border-box;
 }
-/* Owner groups span the same rail as cards; one row, even grow, tabs-only H-scroll. */
 .followed-kol-column .home-pane-sticky {
   overflow-x: hidden;
-}
-.followed-kol-column .kol-stage-tabs,
-.followed-kol-column .kol-owner-tabs {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: stretch;
-  justify-content: stretch;
-  gap: var(--space-1);
-  overflow-x: auto;
-  overflow-y: hidden;
-  overscroll-behavior-x: contain;
-  scrollbar-width: thin;
-}
-.followed-kol-column .kol-stage-tabs button,
-.followed-kol-column .kol-owner-tabs button {
-  display: inline-flex;
-  flex: 1 1 0;
-  min-width: max-content;
-  max-width: none;
-  justify-content: center;
-  padding: 6px 8px;
-  min-height: 36px;
-}
-.followed-kol-column .kol-stage-tabs button[aria-selected="true"],
-.followed-kol-column .kol-owner-tabs button[aria-selected="true"] {
-  font-weight: 600;
 }
 .followed-kol-list {
   display: grid;
@@ -2378,8 +2351,7 @@ summary:focus-visible,
   min-height: 36px;
 }
 .work-panel-open:hover { color: var(--primary); }
-.recommend-work .kol-stage-tabs,
-.recommend-work .kol-owner-tabs { margin-top: 4px; }
+.recommend-work .followed-object-toolbar { margin-top: 4px; }
 .home-composer-dock {
   flex: 0 0 auto;
   width: 100%;
