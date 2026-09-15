@@ -6,29 +6,31 @@
 >
 > **Token 源**仍是 [`design-system/kol-workbench/MASTER.md`](design-system/kol-workbench/MASTER.md)（KOL 试点皮肤目录名，不是产品身份）。单页布局与状态在 [`design-system/kol-workbench/pages/`](design-system/kol-workbench/pages/)。
 >
-> **默认观感**是 OpenAI-quiet（安静白底、低饱和、发丝级阴影、排版克制）。mood 规范来源是 [`references/openai-style.md`](references/openai-style.md)；**token 数值仍只住 MASTER**。填充主按钮继续用 MASTER `--primary` / `--primary-fg`，**不**采用 OpenAI 黑色实底 CTA。这不是 Linear-first 品牌。
+> **默认观感**是 OpenAI-quiet（安静白底、低饱和、发丝级阴影、排版克制）。mood/spec 来源是 [`references/openai-style.md`](references/openai-style.md)。**token 数值仍只住 MASTER**，但 MASTER 与 OpenAI 在审美 / 布局 / 字体 / 间距 / 阴影 / mood / 主 CTA 上冲突时，**OpenAI 胜**（ADR-031）；胜出后必须和解 MASTER，禁止把冲突 hex 留在 MASTER 当胜出法。填充主按钮：OpenAI 黑色 / Obsidian 实底胜于蓝 `--primary`。CSS token 同步另开 FE PR。这不是 Linear-first 品牌。
 >
-> **禁止**在本文件写入或复制十六进制色值、业务规则、阶段图、权限模型。冲突时：安全 / 权限 / 数据 → FS / Policy；页面职责 / IA → [`CONSTITUTION.md`](CONSTITUTION.md) §4 与 [`ia-information-architecture.md`](ia-information-architecture.md)；视觉数值 → MASTER。
+> **禁止**在本文件写入或复制十六进制色值、业务规则、阶段图、权限模型。冲突时：安全 / 权限 / 数据 → FS / Policy；页面职责 / IA / L1–L3 / SEND≠STAGE → [`CONSTITUTION.md`](CONSTITUTION.md) §4 与 [`ia-information-architecture.md`](ia-information-architecture.md)（高于审美工具）；审美冲突 → OpenAI 胜，再和解 MASTER。
 >
 > 历史「每次先读一份 `design.md` 并内嵌色值」的提示词已废止（见 [`references/legacy-design-summary-prompt.md`](references/legacy-design-summary-prompt.md)）。锁定的是**本路径作为入口**，不是把 MASTER 再抄一遍。
 
 ## 1. 怎么用
 
 ```text
-CONSTITUTION.md §4（表面职责）
+CONSTITUTION.md §4（表面职责；L1–L3 / SEND≠STAGE 高于审美）
 → ia-information-architecture.md（若问题是导航 / 一页一问 / 使用≠治理）
 → UX-EMPLOYEE 硬不变量（SEND_NE_STAGE、L3_CONFIRM）
-→ docs/design.md          ← 你在这里（入口，不读色值）
-→ design-system/kol-workbench/MASTER.md（token 源；主按钮 `--primary`）
-→ references/openai-style.md（默认观感 mood；主按钮色除外）
+→ ui-ux-pro-max（外观 UIUX 必经分析 / 对照；OpenAI 对齐）
+→ docs/design.md          ← 你在这里（入口，不读、不写色值）
+→ design-system/kol-workbench/MASTER.md（token 源；与 OpenAI 冲突须和解）
 → design-system/kol-workbench/pages/<当前页面>.md
-→ 仅针对未解决问题调用 ui-ux-pro-max（对照 only）
+→ references/openai-style.md（OpenAI mood/spec；与 MASTER 审美冲突时胜出）
 ```
 
-1. 先用本文件确认：**改视觉读哪份、禁止写什么**。默认观感走 OpenAI-quiet；色值仍只打开 MASTER。
-2. 需要主色 / 辅色 / 危险 / 成功、边框、圆角、字号阶梯时，打开 MASTER 对应节，**按 token 名引用**，不要把 hex 从 MASTER 或 `openai-style.md` 抄回本文件或新页面。
+强制视觉链（headline）：**CONSTITUTION → ui-ux-pro-max → design.md → MASTER**。
+
+1. 先用本文件确认：**改视觉读哪份、禁止写什么**。默认观感走 OpenAI-quiet。`ui-ux-pro-max` 是外观 UIUX 的必经分析步，不是「仅针对未解决问题」的末端对照。
+2. 需要主色 / 辅色 / 危险 / 成功、边框、圆角、字号阶梯时，打开 MASTER 对应节，**按 token 名引用**，不要把 hex 从 MASTER 或 `openai-style.md` 抄回本文件或新页面。MASTER 若与 OpenAI 冲突，先和解 MASTER，再引用。
 3. 做某一个页面时，再读 `pages/<page>.md`。它覆盖该页布局、状态矩阵和响应式差异，不覆盖 MASTER token，也不覆盖宪法 / IA。
-4. `frontend/src/styles.css` 是 token 的实现事实；改数值必须同时改 CSS 与 MASTER，不在本文件改。
+4. `frontend/src/styles.css` 是 token 的实现事实；改数值必须同时改 CSS 与 MASTER，不在本文件改。OpenAI 胜出后的 `--primary` / 阴影 / `--font-*` 等 CSS 同步另开 FE PR。
 
 `docs/20-visual-design-system.md` 只是迁移索引，不是实施入口。
 
@@ -68,7 +70,7 @@ Composer token（`--composer-*`）只服务任务输入容器，不扩散到普�
 
 用法：
 
-- 先完成本文件 → MASTER，再打开当前页的 `pages/*.md`。
+- 先完成宪法 / IA / UX 硬不变量 → `ui-ux-pro-max` → 本文件 → MASTER，再打开当前页的 `pages/*.md`。
 - `pages/*.md` 可以规定该页的区块顺序、状态矩阵、窄屏折行。它**不能**改 token 数值，也不能改一页一问或使用 ≠ 治理。
 - 没有对应 `pages/*.md` 的一等能力面（如 `/kb`、`/connectors`、`/exam`、`/cron`）：沿用 MASTER + 宪法 / IA 的「只答一问」，不要为了视觉另立法。
 - 现有页面截图不是设计基准（MASTER 开篇）。重做页面时用 token 与页面规范，不反向把现状写入 MASTER。
@@ -83,8 +85,8 @@ Composer token（`--composer-*`）只服务任务输入容器，不扩散到普�
 | 发送 ≠ 推进阶段、L3 确认文案、拒绝原因 | 宪法 §3 / §5、`UX-EMPLOYEE` |
 | 导航该挂谁、Pipeline 是否侧栏、使用 ≠ 治理 | [`ia-information-architecture.md`](ia-information-architecture.md)、宪法 §4 |
 | 连接器枢纽字段、Admin 遗留收敛 | C [`org-permissions.md`](org-permissions.md) |
-| 把 `ui-ux-pro-max` 建议升级为 token / 项目视觉法 | MASTER §8：`ui-ux-pro-max` 仍是对照 only |
-| 把 `openai-style.md` 的 hex、OpenAI Sans 或黑色实底 CTA 抄进本文件 | token 数值只改 MASTER；主按钮仍 `--primary` / `--primary-fg`，不改黑 |
+| 把 `ui-ux-pro-max` 输出写成可覆盖 FS / Policy / 宪法硬不变量的法 | 它是视觉链必经分析；OpenAI 对齐且不违反宪法的建议可以驱动 MASTER 更新；仍不得发明 Glassmorphism / 随机品牌字体 / 橙强调 |
+| 把 `openai-style.md` 的 hex 抄进本文件 | token 数值只改 MASTER。与 OpenAI 冲突时 OpenAI 胜，和解 MASTER（主 CTA = 黑 / Obsidian 实底），不要把冲突 hex 留在 MASTER |
 
 页面和组件不得自行定义与 MASTER 冲突的颜色、字号、圆角或间距（宪法 §3）。
 

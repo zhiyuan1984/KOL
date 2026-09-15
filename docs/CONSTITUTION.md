@@ -15,7 +15,7 @@
 | 合法转移 / 过程图 | E [`business-rules/stage-transitions.md`](business-rules/stage-transitions.md)（ADR-027） |
 | 可执行交互与发布验收 | G：本宪法 §4–5、派生的 `specs/UX-EMPLOYEE.md`、`specs/ux-traceability.json` |
 | 跨页面 IA（一页一问、导航密度、使用 ≠ 治理原则） | H [`ia-information-architecture.md`](ia-information-architecture.md)（不得改写本宪法 §4） |
-| 全局视觉 token | I [`design.md`](design.md)（设计法入口）→ `design-system/kol-workbench/MASTER.md`（token 源）。默认观感 = OpenAI-quiet（[`references/openai-style.md`](references/openai-style.md) 管 mood），不是 Linear-first 品牌；填充主按钮仍 `--primary` |
+| 全局视觉 token | I 视觉链 **CONSTITUTION → ui-ux-pro-max → [`design.md`](design.md) → MASTER**。默认观感 = OpenAI-quiet（[`references/openai-style.md`](references/openai-style.md) 为 mood/spec）。MASTER 与 OpenAI 审美冲突时 **OpenAI 胜**，须和解 MASTER（ADR-031）。§4 / L1–L3 / SEND≠STAGE 仍高于审美工具 |
 | 单页布局与状态差异 | `design-system/kol-workbench/pages/<page>.md` |
 | Host、Codex、MCP、Gateway、TypeScript 仓库边界 | J [`technical-constitution.md`](technical-constitution.md) |
 
@@ -52,7 +52,7 @@
 
 ## 4. 表面职责
 
-跨页面 IA 约束见 `docs/ia-information-architecture.md`（class H，正式、非可选）。视觉入口见 `docs/design.md`（class I）；token 源仍是 `design-system/kol-workbench/MASTER.md`。默认观感是 OpenAI-quiet，不是 Linear-first 品牌。L3 确认与真实等待诚实（§5 / §3）不因观感放松。
+跨页面 IA 约束见 `docs/ia-information-architecture.md`（class H，正式、非可选）。视觉入口见 `docs/design.md`（class I）；token 源仍是 `design-system/kol-workbench/MASTER.md`。外观 UIUX 的强制加载链是 **CONSTITUTION → ui-ux-pro-max → design.md → MASTER**。默认观感是 OpenAI-quiet；与 MASTER 审美冲突时 OpenAI 胜（ADR-031）。L3 确认与真实等待诚实（§5 / §3）不因观感放松。
 
 ### 4.1 一等能力清单（锁定，2026-09-14）
 
