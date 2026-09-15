@@ -1364,9 +1364,11 @@ export default function Home() {
                         <button type="button" className="todo-card-act" data-today-todo-act onClick={() => void openTask(task)}>
                           <span className="todo-card-mark" aria-hidden>{todoMark(task)}</span>
                           <div className="todo-card-copy">
-                            <strong>{task.title}</strong>
-                            {handleLine(task) ? <p className="todo-card-kicker">{handleLine(task)}</p> : null}
-                            <p className="todo-card-status">{[urgencyLabel(task), dueLabel(task)].filter(Boolean).join(" · ") || "待处理"}</p>
+                            <div className="todo-card-main">
+                              <strong>{task.title}</strong>
+                              {handleLine(task) ? <p className="todo-card-kicker">{handleLine(task)}</p> : null}
+                            </div>
+                            <p className="todo-card-status" data-todo-status>{[urgencyLabel(task), dueLabel(task)].filter(Boolean).join(" · ") || "待处理"}</p>
                           </div>
                         </button>
                       </li>
@@ -1852,10 +1854,12 @@ function TodoMarkdownRow({ task, onOpen }: { task: Task; onOpen: () => void }) {
       <button type="button" className="todo-card-act" data-todo-act onClick={onOpen}>
         <span className="todo-card-mark" aria-hidden>{todoMark(task)}</span>
         <div className="todo-card-copy">
-          <strong>{task.title}</strong>
-          {handle ? <p className="todo-card-kicker">{handle}</p> : null}
+          <div className="todo-card-main">
+            <strong>{task.title}</strong>
+            {handle ? <p className="todo-card-kicker">{handle}</p> : null}
+          </div>
           {urgency || due ? (
-            <p className="todo-card-status">{[urgency, due].filter(Boolean).join(" · ")}</p>
+            <p className="todo-card-status" data-todo-status>{[urgency, due].filter(Boolean).join(" · ")}</p>
           ) : null}
           {progress ? <p className="todo-card-progress">{progress}</p> : null}
           {why ? <p className="todo-card-why" data-todo-reason>{why}</p> : null}
