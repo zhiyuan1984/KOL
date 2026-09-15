@@ -272,7 +272,7 @@ export default function Agents() {
     const pinned = Boolean(detail && (pins.includes(detail.id) || isExpertPinned(detail.id)));
 
     return (
-      <div className="list-page agent-page expert-page" data-expert-page="detail" data-visual="docs20">
+      <div className="list-page agent-page expert-page" data-expert-page="detail">
         <div className="expert-hero">
           <Link className="expert-back" to="/agents">← 全部数字员工</Link>
           <div className="expert-hero-row">
@@ -358,7 +358,7 @@ export default function Agents() {
   }
 
   return (
-    <div className="list-page agent-page expert-page" data-expert-page={view} data-visual="docs20">
+    <div className="list-page agent-page expert-page" data-expert-page={view}>
       <div className="expert-hero">
         <h1>数字员工</h1>
         <p className="muted">选择一个岗位，直接说你要完成什么结果。</p>

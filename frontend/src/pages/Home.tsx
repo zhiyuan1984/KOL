@@ -1219,7 +1219,6 @@ export default function Home() {
         + (composerReading ? " is-composer-reading" : "")
       }
       data-home
-      data-visual="docs20"
       data-home-task-poll={hasActiveRuns ? "active" : "idle"}
     >
       <div className="home-stage">

@@ -62,7 +62,7 @@ export default function Exam() {
   const pending = rows.filter((row) => !isPassed(row));
 
   return (
-    <div className="list-page exam-page" data-exam-page data-visual="docs20">
+    <div className="list-page exam-page" data-exam-page>
       <div>
         <div className="page-kicker">考试</div>
         <h1 style={{ marginTop: 0 }}>学习考试</h1>

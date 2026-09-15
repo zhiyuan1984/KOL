@@ -26,9 +26,6 @@ export const MAIN_STAGE_TABS: KolStageTab[] = [
 export const EXCEPTION_TAB: KolStageTab = { code: "exception", label: "异常", short: "异常" };
 export const ALL_TAB: KolStageTab = { code: "all", label: "全部", short: "全部" };
 
-/** 全部 + 15 正式阶段 + 异常 = 17 */
-export const FOLLOWED_KOL_TABS: KolStageTab[] = [ALL_TAB, ...MAIN_STAGE_TABS, EXCEPTION_TAB];
-
 export const SHORT_STAGE_LABEL: Record<string, string> = Object.fromEntries(
   MAIN_STAGE_TABS.map((stage) => [stage.code, stage.short]),
 );
