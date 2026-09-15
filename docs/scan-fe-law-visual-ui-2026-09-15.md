@@ -62,16 +62,12 @@ Severity:
 
 `outline: none` is shared by Composer **and** `.field` controls. Composer later gets a `focus-within` box-shadow (`styles.css:2802–2805`). `.field` / `.search-box` / `.action-row` do not.
 
-```2859:2868:frontend/src/styles.css
+```css
+/* frontend/src/styles.css:2859–2868 */
 .composer textarea, .field input, .field textarea, .field select, .search-box,
 .action-row input, .action-row select {
-  flex: 1;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  font-size: var(--font-body);
-  line-height: var(--leading-body);
   outline: none;
+}
 ```
 
 Same-specificity later rule beats `input:focus-visible` at `styles.css:133–139`. Auth / Settings / mailbox fields (`styles.css:6464–6466` re-adds a border but does not restore a ring) therefore fail MASTER §6 (“不能通过 `outline: none` 无替代地移除”) and CONSTITUTION §6.
@@ -80,10 +76,12 @@ Same-specificity later rule beats `input:focus-visible` at `styles.css:133–139
 
 ### P0-2 Login error chrome references undefined `--panel`
 
-```6452:6458:frontend/src/styles.css
+```css
+/* frontend/src/styles.css:6452–6454 */
 .auth-card .error-summary {
   border: 1px solid color-mix(in srgb, var(--red) 40%, var(--line));
   background: color-mix(in srgb, var(--red) 8%, var(--panel));
+}
 ```
 
 `--panel` is **never defined**. `color-mix` with a missing component is invalid; the error summary can lose its wash and fail 4.5:1 / 3:1 non-text contrast on the one screen that must explain login failure.
@@ -92,18 +90,13 @@ Same-specificity later rule beats `input:focus-visible` at `styles.css:133–139
 
 ### P0-3 Idle send control is nearly invisible
 
-```4207:4226:frontend/src/styles.css
-.composer .btn.send.send-arrow,
+```css
+/* frontend/src/styles.css:4207–4226 */
 .btn.send.send-arrow {
-  ...
   background: var(--composer-side-btn-bg, #f5f5f5);
-  ...
   color: var(--composer-send-idle, #cccccc);
 }
-...
-.composer .btn.send.send-arrow:disabled,
 .btn.send.send-arrow:disabled {
-  opacity: 1;
   color: var(--composer-send-idle, #cccccc);
   background: var(--composer-side-btn-bg, #f5f5f5);
 }
@@ -131,11 +124,13 @@ MASTER §2 lists Composer tokens and says they **must not spread** to ordinary b
 
 ### P1-2 `.btn.send` paints warning as the primary send
 
-```4199:4205:frontend/src/styles.css
+```css
+/* frontend/src/styles.css:4199–4202 */
 .btn.send {
   background: var(--orange);
   color: #ffffff;
   border-color: var(--orange);
+}
 ```
 
 MASTER §5: primary action uses **primary fill**; danger is reserved. `--orange` is the `--warning` alias. Non-arrow send (and any leftover `.btn.send` outside Composer) reads as “warning / interrupt”, not “do the task”.
@@ -232,12 +227,10 @@ Aliases currently equal core tokens, so *hue* is not wrong — the law break is 
 
 ### P1-8 Composer / sticky overlay fights “quiet hairline”
 
-```2971:3006:frontend/src/styles.css
-  border: 1px solid #f0d58a; ...
-  background: linear-gradient(145deg, #fff9c4 0%, #ffe082 100%);
-  transform: rotate(-1deg);
-...
-.sticky-note { ... transform: rotate(-2deg); ... }
+```css
+/* frontend/src/styles.css:2971–2992 */
+.attachment-card { border: 1px solid #f0d58a; background: linear-gradient(145deg, #fff9c4, #ffe082); transform: rotate(-1deg); }
+.sticky-note { transform: rotate(-2deg); /* gold gradient + glow */ }
 ```
 
 MASTER §1: 轻、安静、细边框; 避免营销落地页. §3: no `scale()`/`zoom` for density; rotate is the same class of fake decoration. `prefers-reduced-motion` kills animation duration, **not** the static tilt.
