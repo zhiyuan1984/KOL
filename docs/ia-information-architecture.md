@@ -4,7 +4,7 @@
 >
 > 跨页面「一页一问」、十六项一等能力的坐落、使用 ≠ 治理，以及导航密度。位阶低于 [`CONSTITUTION.md`](CONSTITUTION.md) §4.1–4.2，不得改写宪法，不得复活已删的 `employee-surface-contracts.md`。
 >
-> 管理端配套套件（连接器枢纽 / Agent 治理 / 遗留收敛）仍在 [`21-admin-employee-page-roles.md`](21-admin-employee-page-roles.md)。**IA 问题先读本文件**，再按需打开 `21`。
+> 管理端配套套件（连接器枢纽 / Agent 治理 / 遗留收敛）仍在 [`org-permissions.md`](org-permissions.md)（class C）。**IA 问题先读本文件**，再按需打开 C。
 >
 > 等待诚实、禁止伪造完成、L1–L3 确认与回执属于 UX 原则，见宪法 §3 / §5 与 [`specs/UX-EMPLOYEE.md`](../specs/UX-EMPLOYEE.md)。本文件不重写 L3 长文。
 >
@@ -67,7 +67,7 @@ KOL 是**首个业务试点**，不是平台壳（宪法 §4.2）。下列对象
 | 知识库 | `/kb`：查找 / 预览 / 收藏 / 用于当前任务 | 发布 / 停用 / 版本 / 范围 |
 | 个人绑定 | Settings（例如 Starry 发件箱） | 组织策略在连接器详情，不再挂一份个人绑定表 |
 
-配套细则、枢纽字段、遗留收敛仍以 [`21-admin-employee-page-roles.md`](21-admin-employee-page-roles.md) 为准。本文件只锁 IA 原则：员工默认路径不得深链 Admin 治理；管理端顶栏不得跳员工开工入口充当治理页。
+配套细则、枢纽字段、遗留收敛仍以 [`org-permissions.md`](org-permissions.md) 为准。本文件只锁 IA 原则：员工默认路径不得深链 Admin 治理；管理端顶栏不得跳员工开工入口充当治理页。
 
 ## 4. 导航密度
 
@@ -103,7 +103,7 @@ KOL 是**首个业务试点**，不是平台壳（宪法 §4.2）。下列对象
 | 等待诚实、禁止伪造完成、发送 ≠ 推进阶段、L3 确认 / 回执 / 拒绝原因 | 宪法 §3 / §5；[`UX-EMPLOYEE`](../specs/UX-EMPLOYEE.md)（`SEND_NE_STAGE`、`L3_CONFIRM`） |
 | 颜色、字号、圆角、组件 | [`design.md`](design.md) → [`design-system/kol-workbench/MASTER.md`](design-system/kol-workbench/MASTER.md) |
 | 单页布局与状态 | `design-system/kol-workbench/pages/<page>.md` |
-| 连接器枢纽字段、Admin 配套套件、遗留清单 | [`21-admin-employee-page-roles.md`](21-admin-employee-page-roles.md) |
+| 连接器枢纽字段、Admin 配套套件、遗留清单 | [`org-permissions.md`](org-permissions.md) |
 | 阶段图、权限、租户、真实数据 | FS、Policy、数据契约 |
 
 本文件不实施前端或后端，不新增 UX ID，不授权 LIVE。

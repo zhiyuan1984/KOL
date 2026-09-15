@@ -11,7 +11,7 @@
 1. `docs/CONSTITUTION.md`（§4.1–4.2；§5 L1–L3；发送 ≠ 推进阶段；表面职责）
 2. ADR-023 / ADR-015（若仍在 `DECISIONS.md`）
 3. `docs/ia-information-architecture.md`（IA：一页一问 / 导航密度 / 使用 ≠ 治理原则）
-4. `docs/21-admin-employee-page-roles.md`（管理端配套套件细则）
+4. `docs/org-permissions.md`（管理端配套套件细则）
 5. `docs/design.md`（视觉入口）→ `docs/design-system/kol-workbench/MASTER.md`（token only）
 
 ## L1–L3（摘录宪法，不改写）

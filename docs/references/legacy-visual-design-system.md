@@ -220,7 +220,7 @@ Home workspace 与 session Chat 共用同一套 token；Chat 可以略紧，但�
 | `CONSTITUTION.md` | 注意力 / Agent 闭环 / L1–L3 / 发送 ≠ 推进阶段 |
 | `specs/UX-EMPLOYEE.md` | 从宪法派生的瘦 UX 硬不变量 |
 | 本文件（历史归档） | 旧视觉 / token 对照；现行入口是 MASTER |
-| `21-admin-employee-page-roles.md` | 管理端 IA（治理表，不是第二套 Home/Agents） |
+| `org-permissions.md` | 管理端配套套件（治理表，不是第二套 Home/Agents）；纯 IA 见 `ia-information-architecture.md` |
 
 冲突时：注意力与主路径以宪法为准；UX 硬不变量以 `UX-EMPLOYEE` 为准；色值、字号与密度以 MASTER 为准（字号可读性优先，见 ADR-020；用户指定档可高于 ADR 下限）。历史 `04` 的「蓝色主操作」与本文件 indigo 主色的**职责**一致，只换槽位色值。若有人要把主操作改回蓝、或改橙/绿/红的职责，或把正文压回 13–14px，先登记 `DECISIONS.md`。
 

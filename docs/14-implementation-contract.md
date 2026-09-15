@@ -10,8 +10,8 @@
 |---|---|---|
 | `00-platform-charter` | 评审门禁、角色签署、CI 发布规则 | 产品/工程/测试/SRE |
 | `technical-constitution`（class J） | Host 闸门、Codex/Stub、Gateway 写路径、仓库边界、`validate-contracts` | 工程/安全 |
-| `01-organization-tenancy` | 组织主数据、关系表、权限上下文、Admin API | 后端/安全 |
-| `02-domain-model` | 领域 schema、实体迁移、Agent manifest | 后端/产品 |
+| `org-permissions`（C） | 组织主数据、关系表、权限上下文、Admin API、PEP、审批、Gateway、幂等、审计表和脱敏策略 | 后端/安全 |
+| `domain-objects`（D） | 领域 schema、实体迁移、Agent manifest、字典与枚举 | 后端/产品 |
 | `03-prd-and-functional-spec` | `specs/FS-*.md`、用户故事、API/事件契约、验收测试 | 产品/测试 |
 | `CONSTITUTION` §4–5 + `UX-EMPLOYEE` | 前端页面、组件、状态机映射、无障碍测试 | 前端/UED |
 | `ia-information-architecture.md`（class H） | 导航、一页一问、使用 ≠ 治理的 IA 坐落 | 产品/前端 |
@@ -19,7 +19,6 @@
 | `05-agent-workflow-skill-policy` | `agents/*.yaml`、`workflows/*.yaml`、`skills/*/SKILL.md`、`policies/*.yaml` | 产品/业务/工程 |
 | `06-codex-harness` | app-server adapter、Thread/Turn runner、Item 校验、Host 闸门 | 后端 |
 | `07-mcp-data-contract` | MCP catalog、adapter、请求/响应 schema、契约测试 | 后端/接口负责人 |
-| `08-permission-approval-audit` | PEP、审批服务、Gateway、幂等、审计表和脱敏策略 | 后端/安全 |
 | `09-development-method` | Codex 任务模板、PR 检查、决策记录 | 全员 |
 | `10-test-evaluation` | 单测/集成/E2E、`evals/*.jsonl`、评分器和红线流水线 | 测试/评价 |
 | `11-release-operations` | CI/CD、配置锁定、灰度、监控、告警和回滚脚本 | SRE |

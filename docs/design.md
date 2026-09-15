@@ -76,10 +76,10 @@ Composer token（`--composer-*`）只服务任务输入容器，不扩散到普�
 |---|---|
 | 任何 hex / rgb 色值，或「本页主色改成 #…」 | MASTER §2；改数值同步 `styles.css` |
 | 业务规则、阶段机、15 段图、`stage_code` 迁移 | FS、Policy、`05` / 阶段契约（不在视觉文档） |
-| 权限、租户、PEP、谁能看见哪条数据 | FS、`08`、`01` |
+| 权限、租户、PEP、谁能看见哪条数据 | FS、C [`org-permissions.md`](org-permissions.md) |
 | 发送 ≠ 推进阶段、L3 确认文案、拒绝原因 | 宪法 §3 / §5、`UX-EMPLOYEE` |
 | 导航该挂谁、Pipeline 是否侧栏、使用 ≠ 治理 | [`ia-information-architecture.md`](ia-information-architecture.md)、宪法 §4 |
-| 连接器枢纽字段、Admin 遗留收敛 | `21` |
+| 连接器枢纽字段、Admin 遗留收敛 | C [`org-permissions.md`](org-permissions.md) |
 | 把 `ui-ux-pro-max` 或 OpenAI 风格对照升级为 token | MASTER §8：对照 only |
 
 页面和组件不得自行定义与 MASTER 冲突的颜色、字号、圆角或间距（宪法 §3）。

@@ -2,7 +2,7 @@
 
 > 技术入口：`docs/technical-constitution.md`（**class J**）。本文件是物理契约与工具风险细则。Starry 等物理限制留在这里，不升格为产品法；冲突时服从技术宪法。
 
-物理事实来源是 `starry-kol-mcp-server.md`、`median_mcp_server.md`、`DATA_DICTIONARY.md` 和 `codex/` 协议 schema。它们描述工具、参数、响应、错误、鉴权、限流、异步生命周期和版本，不描述员工体验或业务编排。
+物理事实来源是 `starry-kol-mcp-server.md`、`median_mcp_server.md`、`domain-objects.md`（字典与枚举）和 `codex/` 协议 schema。它们描述工具、参数、响应、错误、鉴权、限流、异步生命周期和版本，不描述员工体验或业务编排。
 
 Starry KOL MCP 和 `data/kol/邮箱-负责人绑定清单.md` 提供 KOL 域事实；安培时代组织注册表提供部门负责人和公司级范围政策。MCP/Skill 不得重新解释部门负责人范围，统一消费 Host 注入的 scope。
 

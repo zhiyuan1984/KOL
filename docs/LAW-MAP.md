@@ -1,6 +1,6 @@
 # 法律目录（A–K）
 
-本文件是规范权威顺序的目录。**先按字母层判断问题属于哪一层，再打开该层正文。** `00`–`21` 编号只是现存路径别名，不是阅读顺序，也不是位阶。
+本文件是规范权威顺序的目录。**先按字母层判断问题属于哪一层，再打开该层正文。** 旧 `00`–`21` 编号只是路径别名（C/D 已并入单一正文），不是阅读顺序，也不是位阶。
 
 冲突时：高层不能发明底层事实；底层不能改写高层产品法。ADR（`DECISIONS.md`）只记「为什么改 / 何时改」，**不能**覆盖 A–K 现行正文。
 
@@ -12,8 +12,8 @@
 |---|---|---|---|---|
 | **A** | 愿景 | [`00-platform-charter.md`](00-platform-charter.md) | 产品是什么、不变量、共创角色与退出条件 | 页面 IA、阶段边、MCP 字段、token、实现细节 |
 | **B** | 产品宪法 | [`CONSTITUTION.md`](CONSTITUTION.md) | 跨页面硬规则、十六项一等能力、KOL=试点、L1–L3、发送 ≠ 推进阶段 | 单页布局、合法转移矩阵、物理工具形状、视觉 token |
-| **C** | 组织 / 权限 | [`01-organization-tenancy.md`](01-organization-tenancy.md)、[`08-permission-approval-audit.md`](08-permission-approval-audit.md)；配套 [`21-admin-employee-page-roles.md`](21-admin-employee-page-roles.md) | 租户/组织/品牌范围、PEP、确认/审批/审计、使用 ≠ 治理 | 阶段图、UI 皮肤、MCP 物理目录、把治理做成第二套 Home |
-| **D** | 业务对象 / 关系 | [`02-domain-model.md`](02-domain-model.md)、[`DATA_DICTIONARY.md`](DATA_DICTIONARY.md) | 对象是什么、彼此关系、字典值与展示名 | 谁可以转哪一阶段、交互原则、物理 request 形状 |
+| **C** | 组织 / 权限 | [`org-permissions.md`](org-permissions.md) | 租户/组织/品牌范围、PEP、确认/审批/审计、使用 ≠ 治理与管理端配套套件 | 阶段图、UI 皮肤、MCP 物理目录、把治理做成第二套 Home |
+| **D** | 业务对象 / 关系 | [`domain-objects.md`](domain-objects.md) | 对象是什么、彼此关系、字典值与展示名 | 谁可以转哪一阶段、交互原则、物理 request 形状 |
 | **E** | 业务规则与过程 | [`business-rules/stage-transitions.md`](business-rules/stage-transitions.md)（机器副本 [`../config/stage-transitions.json`](../config/stage-transitions.json)；别名 [`stage-graph.md`](stage-graph.md)） | 合法转移 / 过程图（15 + `exception`；ADR-027） | 不把 Starry hop / 原生码 walk 写成产品边（回 K） |
 | **F** | 业务动作 | [`specs/`](../specs/) 剩余 `FS-*`、[`policies/`](../policies/)、索引 [`03-prd-and-functional-spec.md`](03-prd-and-functional-spec.md)；Skill/Policy 说明 [`05-agent-workflow-skill-policy.md`](05-agent-workflow-skill-policy.md)；KOL 试点动作 [`12-kol-agent.md`](12-kol-agent.md) | 可开发动作、闸门、副作用、Given/When/Then | 新开平台法、复活已删 FS-006/010、改写 E 阶段图 |
 | **G** | 交互原则 | [`specs/UX-EMPLOYEE.md`](../specs/UX-EMPLOYEE.md) | 从 B 派生的瘦员工 UX；门禁只认 `SEND_NE_STAGE`、`L3_CONFIRM` | 新平台法、排序键表、四带教条、字段黑名单、强制 CTA |
@@ -23,7 +23,7 @@
 | **K** | 集成 / 物理 | [`07-mcp-data-contract.md`](07-mcp-data-contract.md)、[`../schemas/`](../schemas/)、[`starry-kol-mcp-server.md`](starry-kol-mcp-server.md)、[`median_mcp_server.md`](median_mcp_server.md) | 真实 MCP、IO schema、适配与接口漂移 | 业务编排、员工文案、合法转移矩阵 |
 | **ADR** | 变更日志 only | [`DECISIONS.md`](DECISIONS.md) | 决策时间线、废止与取舍理由 | 现行法正文；不得用 ADR 覆盖 A–K |
 
-已删、不得复活：`docs/evidence-*`、`04-ux-ui-system.md`、`19-ui-ux-constitution.md`、`employee-surface-contracts.md`。历史只在 git（ADR-025）。
+已删、不得复活：`docs/evidence-*`、`04-ux-ui-system.md`、`19-ui-ux-constitution.md`、`employee-surface-contracts.md`（ADR-025）。C/D 旧编号文件已并入单一正文后删除（ADR-028）；不得再写成旧文件组合。历史只在 git。
 
 ## 兄弟 track 预留
 
@@ -44,8 +44,8 @@
 |---|---|
 | `00` | A |
 | `CONSTITUTION.md` | B |
-| `01`、`08`、`21` | C |
-| `02`、`DATA_DICTIONARY.md` | D |
+| `01`、`08`、`21`（已并入 C 单一正文） | C [`org-permissions.md`](org-permissions.md) |
+| `02`、旧字典文件（已并入 D 单一正文） | D [`domain-objects.md`](domain-objects.md) |
 | `business-rules/stage-transitions.md`、`stage-graph.md`（别名）、`config/stage-transitions.json` | E |
 | `03`、`05`、`12`、`specs/FS-*`、`policies/*` | F |
 | `specs/UX-EMPLOYEE.md` | G |

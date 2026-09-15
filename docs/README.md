@@ -12,8 +12,8 @@
 |---|---|---|
 | **A** 愿景 | [`00-platform-charter.md`](00-platform-charter.md) | 产品是什么、不变量、角色否决权 |
 | **B** 产品宪法 | [`CONSTITUTION.md`](CONSTITUTION.md) | 任何产品 / UI 任务的固定入口（§4.1–4.2、L1–L3） |
-| **C** 组织 / 权限 | [`01`](01-organization-tenancy.md)、[`08`](08-permission-approval-audit.md)、[`21`](21-admin-employee-page-roles.md) | 租户、范围、确认/审批、使用 ≠ 治理 |
-| **D** 对象 / 关系 | [`02`](02-domain-model.md)、[`DATA_DICTIONARY.md`](DATA_DICTIONARY.md) | 对象是什么、字典值 |
+| **C** 组织 / 权限 | [`org-permissions.md`](org-permissions.md) | 租户、范围、确认/审批、使用 ≠ 治理与管理端配套套件 |
+| **D** 对象 / 关系 | [`domain-objects.md`](domain-objects.md) | 对象是什么、字典值 |
 | **E** 规则与过程 | [`business-rules/stage-transitions.md`](business-rules/stage-transitions.md) | 合法转移（15 + `exception`；ADR-027） |
 | **F** 业务动作 | [`specs/FS-*`](../specs/)、[`policies/`](../policies/)、[`03`](03-prd-and-functional-spec.md)、[`05`](05-agent-workflow-skill-policy.md)、[`12`](12-kol-agent.md) | 可开发动作与闸门 |
 | **G** 交互原则 | [`specs/UX-EMPLOYEE.md`](../specs/UX-EMPLOYEE.md) | 员工 UX；门禁只认 `SEND_NE_STAGE`、`L3_CONFIRM` |
@@ -74,12 +74,12 @@ B 中相关边界
 |---|---|---|
 | 产品是什么、不变量 | A | `00-platform-charter.md` |
 | 产品闭环、一等能力、KOL=试点 | B | `CONSTITUTION.md` §4.1–4.2 |
-| 安全、权限、租户、审批 | C | `01`、`08`、`21` |
-| 对象与字典 | D | `02`、`DATA_DICTIONARY.md` |
+| 安全、权限、租户、审批 | C | `org-permissions.md` |
+| 对象与字典 | D | `domain-objects.md` |
 | 合法转移 / 过程图 | E | `business-rules/stage-transitions.md`（ADR-027）；Starry hop ≠ 产品边 |
 | 可开发动作与闸门 | F | FS、Policy |
 | 可执行交互与发布验收 | G | `UX-EMPLOYEE.md`（派生自 B §4–5） |
-| 导航 / 簇 / 页面只答一问 | H | `ia-information-architecture.md`；配套套件仍在 `21` |
+| 导航 / 簇 / 页面只答一问 | H | `ia-information-architecture.md`；配套套件仍在 C `org-permissions.md` |
 | 页面视觉与布局 | I | `design.md`（入口）；token = `MASTER.md` |
 | Host / 内核边界 | J | `technical-constitution.md` |
 | 真实 MCP 与 IO | K | `07`、`schemas/`、物理目录 |
@@ -90,9 +90,9 @@ B 中相关边界
 |---|---|
 | 哪些面是一等能力、KOL 是否等于平台壳 | B `CONSTITUTION.md` §4.1–4.2（ADR-023） |
 | Host / Codex / MCP / Gateway / 仓库边界 | J `technical-constitution.md`；细则 `06` / `07` / `14` |
-| 跨页面 IA（一页一问、导航密度、使用 ≠ 治理） | H `ia-information-architecture.md`；配套套件仍在 C `21` |
+| 跨页面 IA（一页一问、导航密度、使用 ≠ 治理） | H `ia-information-architecture.md`；配套套件仍在 C `org-permissions.md` |
 | 视觉入口 / token | I `design.md` → `MASTER.md`（禁止在 `design.md` 复制 hex） |
-| 使用 ≠ 治理 | H `ia-information-architecture.md`、C `21`、ADR-013 |
+| 使用 ≠ 治理 | H `ia-information-architecture.md`、C `org-permissions.md`、ADR-013 |
 | KOL 试点域（Pipeline、AI发现、我跟进的红人、报价邮件） | B §4.2、F `12-kol-agent.md`。Pipeline 页可深链 / CTA，不是必挂侧栏 |
 | KOL 产品阶段边（15 + exception；人可跨段/回退） | E `business-rules/stage-transitions.md`（ADR-027）。Starry hop ≠ 产品 |
 
@@ -104,7 +104,7 @@ B 中相关边界
 
 - `starry-kol-mcp-server.md`：Starry KOL MCP 的物理工具目录
 - `median_mcp_server.md`：MediaCrawler MCP 的物理工具和异步作业
-- `DATA_DICTIONARY.md`：真实字典（对象层 D；值来自物理源）
+- `domain-objects.md`：真实字典（对象层 D；值来自物理源）
 - `codex/`：Codex app-server 版本对应的协议 schema
 - `../schemas/`：写入闸门 IO schema
 
@@ -114,7 +114,7 @@ B 中相关边界
 
 - `SPEC-TEMPLATE.md`：功能规格模板。
 - `EVAL-TEMPLATE.md`：Agent 评价样例模板。
-- `DECISIONS.md`：ADR 变更日志（近期：ADR-027 产品阶段图并废止 ADR-011；ADR-026 法律层 A–K；ADR-025 删除 evidence/04/19；ADR-024 删除过细 UX-KOL）。
+- `DECISIONS.md`：ADR 变更日志（近期：ADR-028 C/D 单一正文；ADR-027 产品阶段图并废止 ADR-011；ADR-026 法律层 A–K；ADR-025 删除 evidence/04/19；ADR-024 删除过细 UX-KOL）。
 - `business-rules/stage-transitions.md`：KOL 试点产品阶段图（15 + `exception`）。Starry hop 限制见 `07`，不是产品边。
 
 历史重复规范已删除；追溯使用 Git 历史。业务规则只在 E / F 的 canonical 位置维护；物理接口只在 K 维护。任何冲突必须写 ADR 并更新追踪矩阵。
