@@ -555,7 +555,7 @@ LAW-MAP 层 C 被写成 `01` + `08`（+ `21`）组合，层 D 被写成 `02` + �
 ### 决定
 
 1. **默认观感 = OpenAI-quiet。** mood 规范来源是 [`docs/references/openai-style.md`](references/openai-style.md)。class I 入口仍是 `docs/design.md` → MASTER（token 源）。这不是 Linear-first 品牌。
-2. **Token 数值仍只住 MASTER。** 禁止把对照文件 hex、OpenAI Sans 或黑色实底 CTA 抄进 `design.md`。`design.md` 仍禁止写入 hex。
+2. **Token 数值仍只住 MASTER。** 禁止把 `openai-style.md` 的 hex、OpenAI Sans 或黑色实底 CTA 抄进 `design.md`。`design.md` 仍禁止写入 hex。
 3. **主按钮色锁定。** 填充主按钮继续映射 `--primary` / `--primary-fg`。OpenAI 黑色实底按钮**不采纳**。
 4. **修订 ADR-020 冲突。** Linear 密度只可在与 OpenAI-quiet 兼容时作为间距手法（紧间距、低装饰、不靠缩小正文）。默认 mood / chrome 以 OpenAI-quiet 为准。
 5. **`ui-ux-pro-max` 仍是对照 only。** 不采纳 Glassmorphism、新字体或橙色强调。不复活已删 `04` / `19`。
@@ -567,7 +567,7 @@ LAW-MAP 层 C 被写成 `01` + `08`（+ `21`）组合，层 D 被写成 `02` + �
 
 ### 影响
 
-- 规范：`docs/design.md`、`docs/CONSTITUTION.md`、`docs/LAW-MAP.md`、`docs/design-system/kol-workbench/MASTER.md`、`docs/references/openai-style.md`、`docs/20-visual-design-system.md`、本记录 ADR-020 修订句
+- 规范：`docs/design.md`、`docs/CONSTITUTION.md`、`docs/LAW-MAP.md`、`docs/design-system/kol-workbench/MASTER.md`、`docs/references/openai-style.md`、`docs/20-visual-design-system.md`、`docs/README.md`、`docs/CONTEXT-MANIFEST.md`、`pages/approvals.md`、本记录 ADR-020 修订句
 - 代码：无（文档 only）
 - 测试：文档评审 only
 

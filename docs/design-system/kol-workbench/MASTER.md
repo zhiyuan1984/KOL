@@ -131,7 +131,7 @@
 
 ## 8. 观感来源与 ui-ux-pro-max
 
-OpenAI-quiet 是**规范观感来源**（mood 读 `docs/references/openai-style.md`）。Token 数值仍只住本文件。填充主按钮必须继续映射 `--primary` / `--primary-fg`；OpenAI 黑色实底按钮**不采纳**。不从该对照文件引入 OpenAI Sans、黑色主 CTA，或把其中 hex 提升为本表 token。
+OpenAI-quiet 是**规范观感来源**（mood 读 `docs/references/openai-style.md`）。Token 数值仍只住本文件。填充主按钮必须继续映射 `--primary` / `--primary-fg`；OpenAI 黑色实底按钮**不采纳**。不从该 mood 文件引入 OpenAI Sans、黑色主 CTA，或把其中 hex 提升为本表 token。
 
 `ui-ux-pro-max` 仍是对照 only。按当前问题搜索风格、颜色、字体、UX、图表或技术栈建议。只采纳能解释具体问题、与项目技术栈兼容且不违反契约的部分。通用落地页模式、未经验证的颜色方案、Glassmorphism、新字体、橙色强调和搜索结果中的示例代码不得直接升级为项目规范。
 
