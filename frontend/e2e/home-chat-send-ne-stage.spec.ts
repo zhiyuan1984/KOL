@@ -1,4 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
+import path from "node:path";
+
+async function saveScreenshot(page: Page, name: string): Promise<void> {
+  const dir = process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results";
+  await page.screenshot({ path: path.join(dir, name), fullPage: true });
+}
 
 async function openFollowed(page: Page) {
   await page.locator('[data-home-mode="lifecycle"]').click();
@@ -123,6 +129,7 @@ test("draft send opens L3 confirm with object/scope/consequence; cancel does not
   await expect(dialog.locator("[data-admin-confirm-scope]")).toContainText("外发");
   await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("发送不等于推进阶段");
   await expect(dialog.locator("[data-admin-confirm-ok]")).toHaveText("确认发送");
+  await saveScreenshot(page, "chat_l3_draft_send_confirm.png");
   await page.locator("[data-admin-confirm-cancel]").click();
   await expect(dialog).toHaveCount(0);
   expect(sendPosts).toEqual([]);
@@ -170,6 +177,7 @@ test("result draft 确认发送 also requires L3 confirm before SMTP", async ({ 
   await expect(dialog.locator("[data-admin-confirm-object]")).toContainText("brand@litime.com");
   await expect(dialog.locator("[data-admin-confirm-object]")).toContainText("kol@example.com");
   await expect(dialog.locator("[data-admin-confirm-consequence]")).toContainText("发送不等于推进阶段");
+  await saveScreenshot(page, "chat_l3_result_draft_send_confirm.png");
   expect(sent).toBe(false);
   await page.locator("[data-admin-confirm-ok]").click();
   await expect.poll(() => sent).toBe(true);
@@ -228,9 +236,11 @@ test("KolMailCard treats auto_advanced as a suggestion, not a written stage", as
   await expect(mail).not.toContainText("已按事实进入");
   await expect(mail.locator("[data-mail-suggest][data-auto-advanced='suggest']")).toContainText("建议进入 已发货");
   await expect(mail.locator("[data-mail-suggest]")).toContainText("阶段确认卡");
+  await expect(mail).not.toContainText("已按事实进入");
   await expect(mail.locator("[data-mail-confirm]")).toHaveCount(0);
   await expect(mail.locator("[data-mail-stage-select]")).toHaveCount(0);
   const confirm = page.locator("[data-workbench] [data-kind='confirm-stage-card']");
   await expect(confirm).toBeVisible();
   await expect(confirm.locator("[data-confirm-stage]")).toBeVisible();
+  await saveScreenshot(page, "chat_auto_advanced_as_suggestion.png");
 });
