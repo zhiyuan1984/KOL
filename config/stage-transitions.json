@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "status": "policy-text-only",
+  "live_enforced": false,
+  "authority": "ADR-027",
+  "supersedes": "ADR-011 adjacent-write-as-business-law",
+  "canonical_doc": "docs/business-rules/stage-transitions.md",
+  "follow_up": "LIVE Host Starry walk is unchanged in this PR; a later code PR must enforce this graph.",
+  "nodes": [
+    { "id": "INITIAL_CONTACT", "label": "初步接触", "kind": "main", "domain": "Lead" },
+    { "id": "INTERESTED", "label": "已回复-有兴趣", "kind": "main", "domain": "Opportunity" },
+    { "id": "EVALUATING", "label": "合作评估", "kind": "main", "domain": "Opportunity" },
+    { "id": "QUOTE_PENDING", "label": "报价待确认", "kind": "main", "domain": "Negotiation" },
+    { "id": "NEGOTIATING", "label": "商务谈判", "kind": "main", "domain": "Negotiation" },
+    { "id": "PLAN_PENDING", "label": "方案待确认", "kind": "main", "domain": "Negotiation" },
+    { "id": "CONTRACTING", "label": "合同签署", "kind": "main", "domain": "Execution" },
+    { "id": "SAMPLE_PENDING", "label": "待寄样", "kind": "main", "domain": "Execution" },
+    { "id": "SHIPPED", "label": "已发货", "kind": "main", "domain": "Execution" },
+    { "id": "TESTING", "label": "已签收-测试中", "kind": "main", "domain": "Execution" },
+    { "id": "CONTENT_PLANNING", "label": "内容策划", "kind": "main", "domain": "Execution" },
+    { "id": "CONTENT_REVIEW", "label": "内容审核", "kind": "main", "domain": "Execution" },
+    { "id": "PUBLISH_PENDING", "label": "待发布", "kind": "main", "domain": "Execution" },
+    { "id": "PUBLISHED", "label": "已发布", "kind": "main", "domain": "Execution" },
+    { "id": "SETTLING", "label": "结算中 / 已付款", "kind": "main", "domain": "Settlement-Growth" },
+    { "id": "exception", "label": "异常", "kind": "exception", "domain": null }
+  ],
+  "exception_kinds_host_only": {
+    "bypass_returnable": ["PAUSED", "DISPUTED"],
+    "terminal": ["LOST", "REJECTED", "CANCELLED"],
+    "not_a_product_node": ["COMPLETED"]
+  },
+  "edge_kinds": ["allow_human", "allow_auto", "forbid", "require_approval", "require_reason"],
+  "happy_path": [
+    ["INITIAL_CONTACT", "INTERESTED"],
+    ["INTERESTED", "EVALUATING"],
+    ["EVALUATING", "QUOTE_PENDING"],
+    ["QUOTE_PENDING", "NEGOTIATING"],
+    ["NEGOTIATING", "PLAN_PENDING"],
+    ["PLAN_PENDING", "CONTRACTING"],
+    ["CONTRACTING", "SAMPLE_PENDING"],
+    ["SAMPLE_PENDING", "SHIPPED"],
+    ["SHIPPED", "TESTING"],
+    ["TESTING", "CONTENT_PLANNING"],
+    ["CONTENT_PLANNING", "CONTENT_REVIEW"],
+    ["CONTENT_REVIEW", "PUBLISH_PENDING"],
+    ["PUBLISH_PENDING", "PUBLISHED"],
+    ["PUBLISHED", "SETTLING"]
+  ],
+  "human_policy": {
+    "forward_adjacent": ["allow_human"],
+    "forward_skip": ["allow_human", "require_reason"],
+    "rollback": ["allow_human", "require_reason"],
+    "enter_exception": ["allow_human", "require_reason"],
+    "leave_exception": ["allow_human", "require_reason"],
+    "notes": "A person may jump forward across stages, roll back, and enter or leave exception. Cross-stage, rollback, and exception edges require a reason. This is product law."
+  },
+  "auto_policy": {
+    "forward_adjacent": ["allow_auto"],
+    "forward_skip": ["forbid"],
+    "rollback": ["forbid"],
+    "enter_exception": ["allow_auto"],
+    "leave_exception_returnable": ["allow_auto"],
+    "leave_exception_terminal": ["forbid"],
+    "notes": "Stricter than human. Spirit of autoLegalTargets: next main or side exit; no skip or correct. Return-from-exception only for returnable Host kinds."
+  },
+  "require_approval_on_enter": [
+    "PLAN_PENDING",
+    "CONTRACTING",
+    "CONTENT_REVIEW",
+    "PUBLISH_PENDING",
+    "SETTLING"
+  ],
+  "starry_adapter": {
+    "redefines_product_edges": false,
+    "native_write_field": "requestJson.toStageCode",
+    "current_live_residual": "planStarryAdjacentWalk successive hops",
+    "see": [
+      "docs/07-mcp-data-contract.md",
+      "docs/CONSTITUTION.md"
+    ]
+  }
+}

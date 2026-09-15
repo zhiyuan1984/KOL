@@ -1,10 +1,9 @@
 # 业务规则与过程（E）— 阶段图
 
-**本路径是 E 层权威占位。** 合法转移矩阵由另一条 track 写入。
+**本路径是别名。** E 层现行权威是 [`business-rules/stage-transitions.md`](business-rules/stage-transitions.md) 与 [`../config/stage-transitions.json`](../config/stage-transitions.json)（ADR-027）。
 
-本文件现在不得包含任何阶段边、相邻规则、walk 算法或 Starry 原生码映射。
+不要在本文件写阶段边。产品法（人可跨段 / 回退 / 进出异常，须原因；自动更严）只住在上述正文。Starry 相邻 hop 是物理适配，见 `07`，不得改写产品边。
 
 - 现行动作闸门仍在 F：`policies/change_stage.yaml` 与剩余 `specs/FS-*`。
-- `05-agent-workflow-skill-policy.md` 里的 8/15 叙述不是 E 权威，待阶段图 track 迁移或废止。
-- ADR-011 由阶段图 track 废止（见 ADR-026）。本占位不改写 ADR-011。
+- ADR-011「相邻写入 = 产品法」已废止（ADR-027）。
 - 权威分层：[`LAW-MAP.md`](LAW-MAP.md)。

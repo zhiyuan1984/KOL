@@ -1,6 +1,7 @@
 /**
  * Host ↔ Starry email-agent MCP contract.
- * Reads normalize onto Host-local codes. Writes emit Starry-native codes (ADR-011).
+ * Reads normalize onto Host-local codes. Writes emit Starry-native codes
+ * (physical adapter; ADR-027). Adjacency hop limits are not product edges.
  */
 import { FOLLOW_STYLE_PRESETS } from "../follow-style-tags.js";
 import {

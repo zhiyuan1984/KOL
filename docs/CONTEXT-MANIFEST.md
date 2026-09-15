@@ -27,9 +27,10 @@ B CONSTITUTION.md
 
 | 任务 | 默认法律层 | 条件触发后再加载 |
 |---|---|---|
-| Home | B §4.2；I `pages/home.md` | 发送 / 阶段 / 导入：G 硬不变量；阶段边：E（矩阵未写入前不发明） |
+| Home | B §4.2；I `pages/home.md` | 发送 / 阶段 / 导入：G 硬不变量；阶段边：E `business-rules/stage-transitions.md` |
 | Chat / 任务执行 | B §5；I `pages/chat.md` | 按动作加载 F 对应 FS |
-| Pipeline（KOL 试点页；深链 / CTA） | B §4.2；I `pages/pipeline.md` | 阶段写入：B §5 + F `policies/change_stage.yaml`；过程图：E |
+| Pipeline（KOL 试点页；深链 / CTA） | B §4.2；I `pages/pipeline.md` | 阶段写入：B §5 + E `stage-transitions.md` + F `policies/change_stage.yaml` |
+| 阶段转移 / confirm_stage | E `docs/business-rules/stage-transitions.md`、ADR-027 | 物理 hop / 原生码：K `07`（adapter ≠ 产品边） |
 | Admin | I `pages/admin.md`；C `21` | 权限 / 连接器 / 审计：C `08` |
 | `/kb`、`/agents`、员工连接器 | B §4.1 | 连接器治理再加载 C `21` |
 | 技能（一等；侧栏露出=UX） | B §4.1 | 禁止图鉴压过任务脊柱 |
@@ -57,13 +58,13 @@ B CONSTITUTION.md
 2. 用 `rg` 定位相关标题或 ID，只读取命中段落及必要上下文。
 3. 外部建议只进入当前研究笔记；未经验证不得写入 B、G、I 的 MASTER / `design.md`。
 4. 任务完成后只持久化稳定规则、明确决策和验收变更，不保存冗长研究过程。
-5. E 未写入矩阵前，禁止在对话里发明阶段边。
+5. 阶段边只服从 E `docs/business-rules/stage-transitions.md`（ADR-027）。禁止在对话里发明边；Starry hop ≠ 产品边。
 
 ## 维护规则
 
 - 新增跨页面硬约束：改 **B** `CONSTITUTION.md`。
 - 新增 Host / Codex / Gateway / 仓库边界硬约束：改 **J** `technical-constitution.md`。
-- 新增 / 修改合法转移：改 **E** `stage-graph.md`（由阶段图 track 写；本仓库其它 PR 不得先填边）。
+- 修改 KOL 产品阶段边：改 **E** `docs/business-rules/stage-transitions.md`（及 `config/stage-transitions.json`）；Starry hop 只改 K `07`，不得回写产品图。
 - 新增或收紧跨页面 IA（一页一问、导航密度、使用≠治理原则）：改 **H** `ia-information-architecture.md`，不得与宪法 §4 冲突。
 - 修改全局视觉 token：改 **I** 的 `MASTER.md`，并同步实现 token。`design.md` 是设计法入口，禁止写入 hex。
 - 修改单页布局或行为：只改对应 `pages/*.md`。

@@ -1,6 +1,6 @@
 # 智能体中台产品与 UI 宪法
 
-> 所有产品与 UI 工作必须读取。本产品是**智能体中台 / Agent middle platform** 工作台，不是 KOL 专用壳。本文件只保存跨页面、长期稳定且违反后会造成产品错误的规则；细节由 `CONTEXT-MANIFEST.md` 按任务加载。权威分层见 [`LAW-MAP.md`](LAW-MAP.md)（A–K）。已删的 `04` / `19` 不再承担过程图 / IA / 技术法；分别见 E [`stage-graph.md`](stage-graph.md)、H [`ia-information-architecture.md`](ia-information-architecture.md)、J [`technical-constitution.md`](technical-constitution.md)。
+> 所有产品与 UI 工作必须读取。本产品是**智能体中台 / Agent middle platform** 工作台，不是 KOL 专用壳。本文件只保存跨页面、长期稳定且违反后会造成产品错误的规则；细节由 `CONTEXT-MANIFEST.md` 按任务加载。权威分层见 [`LAW-MAP.md`](LAW-MAP.md)（A–K）。已删的 `04` / `19` 不再承担过程图 / IA / 技术法；分别见 E [`business-rules/stage-transitions.md`](business-rules/stage-transitions.md)、H [`ia-information-architecture.md`](ia-information-architecture.md)、J [`technical-constitution.md`](technical-constitution.md)。
 >
 > `design-system/kol-workbench/` 是现行视觉皮肤的路径名（KOL 试点皮肤），不是产品身份；不要把该目录名读成「本平台只做 KOL」。一等能力清单与试点元条款见 §4.1–4.2（ADR-023，用户锁定 2026-09-14）。
 
@@ -12,7 +12,7 @@
 |---|---|
 | 安全、权限、租户边界、数据事实 | C / F / K：FS、Policy、数据契约 |
 | 产品闭环、页面职责、跨页面边界 | 本宪法（B） |
-| 合法转移 / 过程图 | E `stage-graph.md`（矩阵由兄弟 track 写） |
+| 合法转移 / 过程图 | E [`business-rules/stage-transitions.md`](business-rules/stage-transitions.md)（ADR-027） |
 | 可执行交互与发布验收 | G：本宪法 §4–5、派生的 `specs/UX-EMPLOYEE.md`、`specs/ux-traceability.json` |
 | 跨页面 IA（一页一问、导航密度、使用 ≠ 治理原则） | H [`ia-information-architecture.md`](ia-information-architecture.md)（不得改写本宪法 §4） |
 | 全局视觉 token | I [`design.md`](design.md)（设计法入口）→ `design-system/kol-workbench/MASTER.md`（token 源） |
@@ -87,7 +87,7 @@ KOL Agent 只是本中台上的**第一个业务实现 / 试点**。下列是 KO
 - Pipeline（正式合作生命周期资产板）
 - KOL / Collaboration / CreatorCandidate 等试点对象
 
-后续业务试点不得把上述 IA 写成平台唯一脊柱。Home「今日任务 / 我的待办」与 Chat 是平台任务/会话面；Pipeline 与红人发现/跟进是试点特化。Pipeline **页**仍存在，只许深链或产品内 CTA 到达，**不是**第二套 Home，也**不是**必挂侧栏。能力主权、会话单向调用、使用≠治理、支撑面不做第二套 Home，仍服从 ADR-015。发送 ≠ 推进阶段与 L1–L3 不变。正式阶段写入必须给出具体 `stage_code`，不能用「下一阶段」代替。
+后续业务试点不得把上述 IA 写成平台唯一脊柱。Home「今日任务 / 我的待办」与 Chat 是平台任务/会话面；Pipeline 与红人发现/跟进是试点特化。Pipeline **页**仍存在，只许深链或产品内 CTA 到达，**不是**第二套 Home，也**不是**必挂侧栏。能力主权、会话单向调用、使用≠治理、支撑面不做第二套 Home，仍服从 ADR-015。发送 ≠ 推进阶段与 L1–L3 不变。正式阶段写入必须给出具体 `stage_code`，不能用「下一阶段」代替。产品阶段边（15 正式码 + `exception`；人可跨段 / 回退 / 进出异常，须原因）以 `docs/business-rules/stage-transitions.md` 为准（ADR-027）。Starry 相邻 hop 只是物理适配，不得改写产品边。
 
 KOL 试点 Home 模式名（只点名）：今日任务 | 我的待办 | AI发现 | 我跟进的红人。前两项是平台任务脊柱；后两项是试点特化。
 

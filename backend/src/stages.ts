@@ -371,8 +371,9 @@ const TO_STARRY_STAGE: Record<string, string> = Object.fromEntries(
 );
 
 /**
- * Starry-native write code (ADR-011). Inverse of `LEGACY_STAGE_ALIASES`.
+ * Starry-native write code (physical adapter; ADR-027). Inverse of `LEGACY_STAGE_ALIASES`.
  * Host-local codes stay the read/canonical Host model via `normalizeStage`.
+ * Product edges live in `docs/business-rules/stage-transitions.md`, not Starry hop limits.
  */
 export function toStarryStage(code: string): string {
   const normalized = normalizeStage(code);
@@ -403,8 +404,10 @@ export type StarryAdjacentWalk = {
 };
 
 /**
- * Starry only accepts adjacent forward hops. Human skip stays Host-local;
- * remote sync must walk this list (ADR-011). Empty hops = not a forward main walk.
+ * Physical Starry adapter: remote API currently accepts adjacent-forward hops.
+ * NOT product law (ADR-011 abolished; ADR-027). Product graph:
+ * `docs/business-rules/stage-transitions.md`. LIVE walk is residual until a
+ * follow-up code PR. Empty hops = not a forward main walk for this adapter.
  */
 export function planStarryAdjacentWalk(from: string, to: string): StarryAdjacentWalk {
   const start = codeFromLabel(from) || normalizeStage(from);
