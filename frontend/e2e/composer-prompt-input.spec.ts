@@ -129,7 +129,7 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
     return { color: cs.color, background: cs.backgroundColor };
   });
   near(rgb(ready.color) as number[], [255, 255, 255]);
-  near(rgb(ready.background) as number[], [0, 0, 0]);
+  near(rgb(ready.background) as number[], [199, 59, 122]);
   await page.locator("[data-home] [data-send]").click();
   await page.waitForURL(/\/s\//);
   await expect(page.locator('[data-kind="me"]')).toContainText("给@小美妆日记 写阶段跟进邮件", { timeout: 15000 });
@@ -208,7 +208,7 @@ test("settings fields keep a MASTER focus ring and login error-summary uses defi
     const cs = getComputedStyle(el);
     return { bg: cs.backgroundColor, color: cs.color, fontSize: cs.fontSize };
   });
-  near(rgb(workIdle.bg) as number[], [0, 0, 0]);
+  near(rgb(workIdle.bg) as number[], [199, 59, 122]);
   near(rgb(workIdle.color) as number[], [255, 255, 255]);
   expect(parseFloat(workIdle.fontSize)).toBeGreaterThanOrEqual(14);
 
