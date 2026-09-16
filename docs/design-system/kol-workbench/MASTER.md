@@ -4,7 +4,7 @@
 >
 > **ADR-031 / 2026-09-16：** mood（安静白底 / 发丝边 / 胶囊 / 排版）跟 OpenAI。~~浅色填充主 CTA = Obsidian `#000000`~~ **废止。** 填充主 CTA = 产品粉红 `--primary`。
 >
-> **2026-09-16 壳刷新：** 员工 Workbench 锁定紧凑页框（侧栏 264、Logo 左上、账户底座、15/24 正文、Composer 22px 圆角矩形）。与 OpenAI 17px / Inter / 胶囊输入冲突时，本轮 FE 跟用户锁定壳 brief；硬不变量仍高于审美。
+> **2026-09-16 壳刷新：** 员工 Workbench 锁定紧凑页框（侧栏 312、Logo 左上、账户底座、15/24 正文、Composer 22px 圆角矩形）。与 OpenAI 17px / Inter / 胶囊输入冲突时，本轮 FE 跟用户锁定壳 brief；硬不变量仍高于审美。
 
 # Product tokens（唯一可审计 hex）
 
@@ -19,10 +19,10 @@
 | `--font-sans` | `ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", …` | 紧凑壳 live 栈；Linux 追加 WenQuanYi / Droid Sans Fallback。ADR-031 Inter-first 让位于本轮锁定 brief |
 | `--color-ink` | `#1a1a1a` | 正文。不是纯 `#000` |
 | `--font-body` | `15px / 24px / 400` | 紧凑壳正文。冲突：ADR-020 16px / OpenAI 17px |
-| `--font-section` | `15px / 500–600` | 节标题 |
-| `--font-page-title` | `18–20px / 600` | 页结论 / Home 主标题。禁止 24px+700 |
+| `--font-section` | `14–15px / 500` | 节标题 |
+| `--font-page-title` | `16–18px / 500` | 页结论 / Home 主标题。禁止 600/700 |
 | `--font-meta` | `13px / 20px / 400` `#6b6b6b` | 元信息 |
-| `--left-width` | `264px` | 桌面侧栏。折叠=图标。手机不强制 264 |
+| `--left-width` | `312px` | 桌面侧栏。折叠=图标。手机不强制 312 |
 | `--composer-radius` | `22px` | 圆角矩形，不是胶囊 9999 |
 
 `--focus-ring` 可用 `--primary` 的低透明描边，或保持发丝近黑；不要另发明第二品牌色。

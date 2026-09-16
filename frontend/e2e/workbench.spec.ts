@@ -132,8 +132,8 @@ async function expectEmployeeShell(page: Page) {
   const accountBox = await sidebar.locator("[data-account-pedestal]").boundingBox();
   const sidebarRect = await sidebar.evaluate((el) => el.getBoundingClientRect().width);
   expect(brandBox && accountBox).toBeTruthy();
-  expect(sidebarRect).toBeGreaterThanOrEqual(263);
-  expect(sidebarRect).toBeLessThanOrEqual(265);
+  expect(sidebarRect).toBeGreaterThanOrEqual(311);
+  expect(sidebarRect).toBeLessThanOrEqual(313);
   expect(brandBox!.y).toBeLessThan(accountBox!.y);
   await expect(sidebar.locator("[data-account-name]")).not.toHaveText("");
   await expect(sidebar.locator("[data-account-role]")).not.toHaveText("");
@@ -588,18 +588,18 @@ test("employee shell keeps compact sidebar brand and icon-only top chrome", asyn
     const cs = getComputedStyle(el);
     return { size: Number.parseFloat(cs.fontSize), weight: Number.parseFloat(cs.fontWeight) };
   });
-  expect(title.size).toBeGreaterThanOrEqual(18);
-  expect(title.size).toBeLessThanOrEqual(20);
-  expect(title.weight).toBeLessThanOrEqual(600);
+  expect(title.size).toBeGreaterThanOrEqual(16);
+  expect(title.size).toBeLessThanOrEqual(18);
+  expect(title.weight).toBe(500);
   await page.locator('[data-home-mode="lifecycle"]').click();
   await expect(page.locator("[data-followed-agent-report] .page-conclusion")).toBeVisible();
   const conclusion = await page.locator("[data-followed-agent-report] .page-conclusion").evaluate((el) => {
     const cs = getComputedStyle(el);
     return { size: Number.parseFloat(cs.fontSize), weight: Number.parseFloat(cs.fontWeight) };
   });
-  expect(conclusion.size).toBeGreaterThanOrEqual(18);
-  expect(conclusion.size).toBeLessThanOrEqual(20);
-  expect(conclusion.weight).toBeLessThanOrEqual(600);
+  expect(conclusion.size).toBeGreaterThanOrEqual(16);
+  expect(conclusion.size).toBeLessThanOrEqual(18);
+  expect(conclusion.weight).toBe(500);
   await expect(page.locator("[data-home-chrome] [data-brand-lockup]")).toHaveCount(0);
   await expect(page.locator(".composer")).toBeVisible();
   const composer = await page.locator("[data-home] [data-composer] .composer").evaluate((el) => {

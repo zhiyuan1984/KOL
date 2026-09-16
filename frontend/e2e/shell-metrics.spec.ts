@@ -60,7 +60,7 @@ async function collectShellMetrics(page: Page) {
   };
 }
 
-test("desktop employee shell computed 264 rail and compact type", async ({ page }) => {
+test("desktop employee shell computed 312 rail and Codex Regular type", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await expect(page.locator(".sidebar")).toBeVisible();
@@ -68,30 +68,36 @@ test("desktop employee shell computed 264 rail and compact type", async ({ page 
 
   const beforeLifecycle = await collectShellMetrics(page);
   const sidebarRect = await page.locator(".sidebar").evaluate((el) => el.getBoundingClientRect().width);
-  expect(beforeLifecycle.workbenchFirstCol).toBe("264px");
-  expect(beforeLifecycle.sidebarWidth).toBe("264px");
-  expect(sidebarRect).toBeGreaterThanOrEqual(263);
-  expect(sidebarRect).toBeLessThanOrEqual(265);
-  expect(Math.round(beforeLifecycle.sidebarRect)).toBe(264);
-  await expect(page.locator(".workbench")).toHaveAttribute("data-left-width", "264");
+  expect(beforeLifecycle.workbenchFirstCol).toBe("312px");
+  expect(beforeLifecycle.sidebarWidth).toBe("312px");
+  expect(sidebarRect).toBeGreaterThanOrEqual(311);
+  expect(sidebarRect).toBeLessThanOrEqual(313);
+  expect(Math.round(beforeLifecycle.sidebarRect)).toBe(312);
+  await expect(page.locator(".workbench")).toHaveAttribute("data-left-width", "312");
   expect(beforeLifecycle.body.fontFamily.startsWith("ui-sans-serif, system-ui, \"PingFang SC\", \"Noto Sans SC\"")).toBe(true);
   expect(beforeLifecycle.body.fontFamily).not.toContain("Microsoft YaHei");
   expect(beforeLifecycle.body.fontFamily).not.toContain("Noto Sans CJK SC");
   expect(beforeLifecycle.body.fontSize).toBe("15px");
   expect(beforeLifecycle.body.fontWeight).toBe("400");
   expect(beforeLifecycle.body.color).toBe("rgb(26, 26, 26)");
-  expect(beforeLifecycle.homeTitle.fontSize).toBeGreaterThanOrEqual(18);
-  expect(beforeLifecycle.homeTitle.fontSize).toBeLessThanOrEqual(20);
-  expect(beforeLifecycle.homeTitle.fontWeight).toBeLessThanOrEqual(600);
-  expect(beforeLifecycle.navItem.fontSize).toBeGreaterThanOrEqual(14);
-  expect(beforeLifecycle.navItem.fontSize).toBeLessThanOrEqual(15);
+  expect(beforeLifecycle.homeTitle.fontSize).toBeGreaterThanOrEqual(16);
+  expect(beforeLifecycle.homeTitle.fontSize).toBeLessThanOrEqual(18);
+  expect(beforeLifecycle.homeTitle.fontWeight).toBe(500);
+  expect(beforeLifecycle.navItem.fontSize).toBe(14);
   expect(beforeLifecycle.navItem.fontWeight).toBe(400);
   expect(beforeLifecycle.navActive.fontWeight).toBe(500);
+  expect(beforeLifecycle.navActive.fontWeight).toBeLessThan(700);
   expect(beforeLifecycle.username.fontSize).toBe(13);
   expect(beforeLifecycle.username.fontWeight).toBe(400);
   const composer = await typeOf(page, "[data-home] [data-composer-input]");
   expect(composer.fontSize).toBeLessThanOrEqual(15);
   expect(composer.fontWeight).toBeLessThanOrEqual(400);
+  const composerRadius = await page.locator("[data-home] [data-composer] .composer").evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return Number.parseFloat(cs.borderTopLeftRadius);
+  });
+  expect(composerRadius).toBeGreaterThanOrEqual(20);
+  expect(composerRadius).toBeLessThanOrEqual(24);
 
   await page.locator('[data-home-mode="lifecycle"]').click();
   const conclusion = page.locator("[data-followed-agent-report] .page-conclusion");
@@ -100,9 +106,9 @@ test("desktop employee shell computed 264 rail and compact type", async ({ page 
   const handle = page.locator("[data-followed-agent-report] [data-kol-scope]").first();
   await expect(handle).toBeVisible();
   const handleType = await typeOf(page, "[data-followed-agent-report] [data-kol-scope] >> nth=0");
-  expect(conclusionType.fontSize).toBeGreaterThanOrEqual(18);
-  expect(conclusionType.fontSize).toBeLessThanOrEqual(20);
-  expect(conclusionType.fontWeight).toBeLessThanOrEqual(600);
+  expect(conclusionType.fontSize).toBeGreaterThanOrEqual(16);
+  expect(conclusionType.fontSize).toBeLessThanOrEqual(18);
+  expect(conclusionType.fontWeight).toBe(500);
   expect(handleType.fontSize).toBe(13);
   expect(handleType.fontWeight).toBeLessThanOrEqual(400);
 
@@ -132,12 +138,12 @@ test("desktop employee shell computed 264 rail and compact type", async ({ page 
     };
   });
   expect(mobile.display).toBe("flex");
-  expect(mobile.width).not.toBe("264px");
+  expect(mobile.width).not.toBe("312px");
 
   const dest = path.join(process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results", "shell-metrics-after.json");
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.writeFileSync(dest, JSON.stringify({
-    desktop: { ...beforeLifecycle, conclusion: conclusionType, handle: handleType },
+    desktop: { ...beforeLifecycle, conclusion: conclusionType, handle: handleType, composerRadius },
     collapsed,
     mobile,
   }, null, 2));
