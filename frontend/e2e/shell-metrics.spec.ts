@@ -71,8 +71,9 @@ test("desktop employee shell computed 264 rail and compact type", async ({ page 
   expect(beforeLifecycle.sidebarWidth).toBe("264px");
   expect(Math.round(beforeLifecycle.sidebarRect)).toBe(264);
   await expect(page.locator(".workbench")).toHaveAttribute("data-left-width", "264");
-  expect(beforeLifecycle.body.fontFamily).toBe('ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", sans-serif');
-  expect(beforeLifecycle.body.fontFamily).not.toContain("WenQuanYi");
+  expect(beforeLifecycle.body.fontFamily.startsWith("ui-sans-serif, system-ui, \"PingFang SC\", \"Noto Sans SC\"")).toBe(true);
+  expect(beforeLifecycle.body.fontFamily).not.toContain("Microsoft YaHei");
+  expect(beforeLifecycle.body.fontFamily).not.toContain("Noto Sans CJK SC");
   expect(beforeLifecycle.body.fontSize).toBe("15px");
   expect(beforeLifecycle.body.fontWeight).toBe("400");
   expect(beforeLifecycle.body.color).toBe("rgb(26, 26, 26)");
@@ -92,7 +93,7 @@ test("desktop employee shell computed 264 rail and compact type", async ({ page 
   const conclusionType = await typeOf(page, "[data-followed-agent-report] .page-conclusion");
   const handle = page.locator("[data-followed-agent-report] [data-kol-scope]").first();
   await expect(handle).toBeVisible();
-  const handleType = await typeOf(page, "[data-followed-agent-report] [data-kol-scope]");
+  const handleType = await typeOf(page, "[data-followed-agent-report] [data-kol-scope] >> nth=0");
   expect(conclusionType.fontSize).toBeGreaterThanOrEqual(18);
   expect(conclusionType.fontSize).toBeLessThanOrEqual(20);
   expect(conclusionType.fontWeight).toBeLessThanOrEqual(600);

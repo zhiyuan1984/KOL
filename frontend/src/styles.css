@@ -10,7 +10,7 @@
   --color-whisper: #0000000a;
   --color-primary: #C73B7A;
   --color-primary-hover: #A82F66;
-  --font-openai-sans: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", sans-serif;
+  --font-openai-sans: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", "WenQuanYi Micro Hei", "Droid Sans Fallback", sans-serif;
 
   --bg: var(--color-paper);
   --bg-elevated: var(--color-ash);
@@ -78,7 +78,7 @@
   --left-width: 264px;
   --page-gutter: clamp(16px, 2.2vw, 28px);
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --sans: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", sans-serif;
+  --sans: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", "WenQuanYi Micro Hei", "Droid Sans Fallback", sans-serif;
 
   /* MASTER Quick Start aliases — parallel names, existing --font-* / --space-* stay canonical */
   --text-caption: var(--font-xs);
@@ -8402,13 +8402,13 @@ body {
     max-width: 56px;
   }
   html {
-    font-family: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", sans-serif;
+    font-family: var(--sans);
     font-size: 15px;
     font-weight: 400;
     color: #1a1a1a;
   }
   body {
-    font-family: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", sans-serif;
+    font-family: var(--sans);
     font-size: 15px;
     font-weight: 400;
     color: var(--text);
