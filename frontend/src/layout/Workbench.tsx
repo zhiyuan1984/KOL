@@ -2,6 +2,7 @@ import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { api, type Account, type SessionRow } from "../api";
 import { useAccount } from "../components/AuthGate";
+import BrandLockup from "../components/BrandLockup";
 import UserMenu from "../components/UserMenu";
 import { parseHomeMode } from "../home/modes";
 import { useViewMode } from "../viewMode";
@@ -107,8 +108,9 @@ export default function Workbench() {
       </div>
       <aside className={"sidebar" + (mobileOpen ? " mobile-open" : "")}>
         <div className="sidebar-head">
-          <NavLink to="/" className="brand-name" end>
-            <span className="sidebar-label">灵工 工作</span><span className="rail-logo" aria-hidden />
+          <NavLink to="/" className="sidebar-brand" data-sidebar-brand end>
+            <BrandLockup variant="sidebar" />
+            <span className="brand-name sidebar-label">灵工 工作</span>
           </NavLink>
           <button type="button" className="sidebar-search-btn collapse-toggle" onClick={toggleCollapsed} aria-label={collapsed ? "展开侧栏" : "收起侧栏"} title={collapsed ? "展开侧栏" : "收起侧栏"}>{collapsed ? "›" : "‹"}</button>
         </div>

@@ -71,7 +71,7 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   await expect(page.locator("[data-home] [data-composer-tool='skills']")).toBeHidden();
   await expect(page.locator("[data-coach-next], [data-next-step-card]")).toHaveCount(0);
   const sans = await page.evaluate(() => getComputedStyle(document.documentElement).fontFamily);
-  expect(sans.toLowerCase()).toContain("inter");
+  expect(sans.toLowerCase()).toMatch(/ui-sans-serif|system-ui|pingfang|noto sans/);
 
   const layout = await page.evaluate(() => {
     const pane = document.querySelector("[data-home]");
@@ -96,11 +96,12 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   const chrome = await composerChrome(page, "[data-home]");
   expect(parseFloat(chrome.minHeight)).toBeGreaterThanOrEqual(72);
   expect(parseFloat(chrome.minHeight)).toBeLessThanOrEqual(96);
-  expect(parseFloat(chrome.radius)).toBeGreaterThanOrEqual(999);
-  near(rgb(chrome.borderColor) as number[], [224, 224, 224]);
+  expect(parseFloat(chrome.radius)).toBeGreaterThanOrEqual(20);
+  expect(parseFloat(chrome.radius)).toBeLessThanOrEqual(24);
+  near(rgb(chrome.borderColor) as number[], [238, 238, 238], 16);
   near(rgb(chrome.background) as number[], [255, 255, 255]);
-  near(rgb(chrome.placeholderColor) as number[], [143, 143, 143]);
-  expect(chrome.placeholderSize).toBe("16px");
+  near(rgb(chrome.placeholderColor) as number[], [138, 138, 138], 16);
+  expect(chrome.placeholderSize).toBe("15px");
   expect(parseFloat(chrome.plusWidth)).toBe(36);
   expect(parseFloat(chrome.plusHeight)).toBe(36);
   expect(chrome.plusBg).toMatch(/rgba\(\s*0,\s*0,\s*0,\s*0\s*\)|transparent/);
@@ -119,7 +120,7 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   expect(parseFloat(skillChip.width)).toBeGreaterThanOrEqual(32);
   expect(parseFloat(skillChip.height)).toBe(32);
   expect(parseFloat(skillChip.radius)).toBeGreaterThanOrEqual(16);
-  near(rgb(skillChip.color) as number[], [0, 0, 0]);
+  near(rgb(skillChip.color) as number[], [26, 26, 26], 16);
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
 
@@ -164,10 +165,10 @@ test("session PromptInput stays at the thread foot with the same tokens", async 
   expect(placement!.footTop).toBeGreaterThanOrEqual(placement!.streamBottom - 12);
 
   const chrome = await composerChrome(page, ".session-composer");
-  expect(parseFloat(chrome.radius)).toBeGreaterThanOrEqual(24);
-  expect(parseFloat(chrome.radius)).toBeLessThanOrEqual(26);
-  near(rgb(chrome.borderColor) as number[], [224, 224, 224]);
-  near(rgb(chrome.placeholderColor) as number[], [143, 143, 143]);
+  expect(parseFloat(chrome.radius)).toBeGreaterThanOrEqual(20);
+  expect(parseFloat(chrome.radius)).toBeLessThanOrEqual(24);
+  near(rgb(chrome.borderColor) as number[], [238, 238, 238], 16);
+  near(rgb(chrome.placeholderColor) as number[], [138, 138, 138], 16);
 
   await page.locator(".session-composer [data-attach]").click();
   await expect(page.getByRole("menu", { name: "添加内容" })).toBeVisible();

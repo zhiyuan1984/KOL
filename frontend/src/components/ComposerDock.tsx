@@ -52,6 +52,10 @@ function labelOf(s: SkillOption): string {
   return s.label || s.title;
 }
 
+function isQuietSkill(s: SkillOption): boolean {
+  return /approval|审批/.test(`${s.id} ${labelOf(s)}`);
+}
+
 function triggerQuery(value: string, caret: number): { start: number; q: string; mark: "/" | "@" } | null {
   const before = value.slice(0, caret);
   for (let i = before.length - 1; i >= 0; i--) {
@@ -543,7 +547,7 @@ export default function ComposerDock({
       {(chipSkills.length > 0 || attachments.length > 0 || selectedProject || lockedKnowledgeId) && (
         <div className="composer-chips">
           {chipSkills.map((s) => (
-            <span key={s.id} className="skill-chip" data-skill-chip={s.id}>
+            <span key={s.id} className={"skill-chip" + (isQuietSkill(s) ? " skill-chip--quiet" : "")} data-skill-chip={s.id}>
               {value.includes(`/${labelOf(s)}`) ? "/" : value.includes(`@${labelOf(s)}`) ? "@" : ""}
               {s.id === "email_compose" && (lockedLabel === "写合作邮件" || value.includes("写合作邮件"))
                 ? "写合作邮件"

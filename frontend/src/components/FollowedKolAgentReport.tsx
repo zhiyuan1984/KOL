@@ -87,8 +87,9 @@ function DetailEntry({ card, index, busyId, onOpenDetail, onPrimary, onOpenMail,
         <span className="agent-report-count">共 {card.collaboration_count} 个合作</span>
       </div>
       <div className="agent-report-fact" data-kol-band="fact">
-        <p>当前状态：{card.current_state.stage_label || "阶段未知"}</p>
-        <p>合作摘要：{card.source.collab_summary || card.recommended_action.why || "暂无合作摘要"}</p>
+        <p data-current-state data-stage-label>当前状态：{card.current_state.stage_label || "阶段未知"}</p>
+        <p data-latest-fact>合作摘要：{card.source.collab_summary || "暂无合作摘要"}</p>
+        <p data-recommended-action>{card.recommended_action.why || actionLabel(card)}</p>
       </div>
       <div className="agent-report-tags" data-kol-band="action">
         {humanTags.length ? <p><span>人工标签：</span>{humanTags.join("、")}</p> : null}
@@ -96,19 +97,34 @@ function DetailEntry({ card, index, busyId, onOpenDetail, onPrimary, onOpenMail,
         <Evidence card={card} onOpenMail={() => onOpenMail(card)} />
       </div>
       <div className="agent-report-actions" data-kol-band="cta">
-        <button
-          type="button"
-          className="agent-report-action agent-report-action-primary"
-          data-kol-primary-action={primary}
-          data-agent-draft-action={card.recommended_action.kind === "compose" ? "true" : undefined}
-          disabled={busyId === card.id}
-          onClick={runPrimary}
-        >
-          {busyId === card.id ? "处理中…" : actionLabel(card)} ↗
-        </button>
-        <button type="button" className="agent-report-action" data-open-kol-detail onClick={() => onOpenDetail(card)}>
-          查看详情 ↗
-        </button>
+        {actionLabel(card) === "查看详情" ? (
+          <button
+            type="button"
+            className="agent-report-detail-link"
+            data-kol-primary-action={primary}
+            data-open-kol-detail
+            disabled={busyId === card.id}
+            onClick={() => onOpenDetail(card)}
+          >
+            {busyId === card.id ? "处理中…" : "查看详情"}
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              className={"agent-report-action" + (primary === "confirm-stage" ? " agent-report-action-primary" : "")}
+              data-kol-primary-action={primary}
+              data-agent-draft-action={card.recommended_action.kind === "compose" ? "true" : undefined}
+              disabled={busyId === card.id}
+              onClick={runPrimary}
+            >
+              {busyId === card.id ? "处理中…" : actionLabel(card)}
+            </button>
+            <button type="button" className="agent-report-detail-link" data-open-kol-detail onClick={() => onOpenDetail(card)}>
+              查看详情
+            </button>
+          </>
+        )}
       </div>
     </article>
   );
@@ -124,7 +140,7 @@ export default function FollowedKolAgentReport(props: Props) {
       <header className="agent-report-head">
         <div className="agent-report-agent-line"><span className="agent-report-glyph" aria-hidden>✦</span>合作助理 · 示例任务</div>
         <p className="agent-report-complete" role="status">✓ 已整理 {props.cards.length} 位红人的最新互动</p>
-        <h2>有 {interested} 位红人可以继续推进</h2>
+        <p className="page-conclusion">有 {interested} 位红人可以继续推进</p>
         <p className="agent-report-summary">{interested} 位有兴趣，{waiting} 位待回复；另有 {refused} 位明确拒绝。</p>
       </header>
       <div className="agent-report-details" data-followed-kol-list id="followed-kol-results" data-followed-origin="collaboration">

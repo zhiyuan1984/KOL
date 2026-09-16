@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { NavLink } from "react-router-dom";
 import type { Account } from "../api";
-import { accountChipLabel } from "../labels";
+import { accountDisplayName, accountInitial, accountRoleLabel } from "../labels";
 import { useViewMode } from "../viewMode";
 import { useAccount } from "./AuthGate";
 
@@ -11,18 +11,26 @@ export default function UserMenu({ account: accountProp }: { account?: Account |
   const [open, setOpen] = useState(false);
   const me = accountProp ?? sessionAccount;
   const adminAvailable = admin || me?.available_modes?.includes("admin") === true;
+  const name = accountDisplayName(me);
+  const role = accountRoleLabel(me);
 
   return (
     <div className="user-menu-wrap">
       <button
         type="button"
-        className="user-chip"
+        className="user-chip account-pedestal"
+        data-account-pedestal
         data-exam={me?.exam_passed === false ? "blocked" : "ok"}
         aria-expanded={open}
+        aria-label={`${name} · ${role}`}
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="sidebar-label">{accountChipLabel(me)}</span>
-        <span className="rail-user" aria-hidden>{me?.name?.slice(0, 1) || "我"}</span>
+        <span className="account-avatar" aria-hidden>{accountInitial(me)}</span>
+        <span className="account-copy sidebar-label">
+          <span className="account-name" data-account-name>{name}</span>
+          <span className="account-role" data-account-role>{role}</span>
+        </span>
+        <span className="account-more sidebar-label" aria-hidden>⋯</span>
       </button>
       {open && (
         <div className="menu-popover user-popover">

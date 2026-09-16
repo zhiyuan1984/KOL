@@ -2,7 +2,9 @@
 >
 > **Content:** 下方仍保留 OpenAI-quiet mood 正文（与 `docs/references/openai-style.md` 同源）。**产品 token 以本文件顶部「Product tokens」为准。** LAW-MAP / `design.md` 仍把本路径当 I 层 token 源。`design.md` 禁止抄 hex。
 >
-> **ADR-031 / 2026-09-16：** mood（安静白底 / 发丝边 / 胶囊 / 排版）跟 OpenAI。~~浅色填充主 CTA = Obsidian `#000000`~~ **废止。** 填充主 CTA = 产品粉红 `--primary`。现行 UI sans = Inter；OpenAI Sans 待许可。本 PR 不改 `frontend/src/styles.css`。
+> **ADR-031 / 2026-09-16：** mood（安静白底 / 发丝边 / 胶囊 / 排版）跟 OpenAI。~~浅色填充主 CTA = Obsidian `#000000`~~ **废止。** 填充主 CTA = 产品粉红 `--primary`。
+>
+> **2026-09-16 壳刷新：** 员工 Workbench 锁定紧凑页框（侧栏 264、Logo 左上、账户底座、15/24 正文、Composer 22px 圆角矩形）。与 OpenAI 17px / Inter / 胶囊输入冲突时，本轮 FE 跟用户锁定壳 brief；硬不变量仍高于审美。
 
 # Product tokens（唯一可审计 hex）
 
@@ -14,9 +16,18 @@
 | `--primary-fg` | `#FFFFFF` | Label on filled primary |
 | `--primary-hover` | `#A82F66` | Hover / pressed of the same hue；不是第二主色 |
 | `--color-obsidian` | `#000000` | **正文 / 近黑字 / 发丝源 only**。不再是填充主按钮 |
-| `--font-sans` | `Inter, "OpenAI Sans", "PingFang SC", "Noto Sans SC", ui-sans-serif, system-ui, sans-serif` | 现行 UI sans。OpenAI Sans 待许可后再切主脸 |
+| `--font-sans` | `ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", …` | 紧凑壳 live 栈；Linux 追加 WenQuanYi / Droid Sans Fallback。ADR-031 Inter-first 让位于本轮锁定 brief |
+| `--color-ink` | `#1a1a1a` | 正文。不是纯 `#000` |
+| `--font-body` | `15px / 24px / 400` | 紧凑壳正文。冲突：ADR-020 16px / OpenAI 17px |
+| `--font-section` | `15px / 500–600` | 节标题 |
+| `--font-page-title` | `18–20px / 600` | 页结论 / Home 主标题。禁止 24px+700 |
+| `--font-meta` | `13px / 20px / 400` `#6b6b6b` | 元信息 |
+| `--left-width` | `264px` | 桌面侧栏。折叠=图标。手机不强制 264 |
+| `--composer-radius` | `22px` | 圆角矩形，不是胶囊 9999 |
 
 `--focus-ring` 可用 `--primary` 的低透明描边，或保持发丝近黑；不要另发明第二品牌色。
+
+**本轮壳/字号冲突（记录，不改硬不变量）：** 用户锁定紧凑壳（15px / `#1a1a1a` / 侧栏 Logo / Composer 圆角矩形）。ADR-020 16px 底、ADR-031 Inter + OpenAI 17px/Obsidian 正文、MASTER 胶囊输入让位给该 brief。SEND≠STAGE / L3 / 同一视口 0–1 实底主 CTA / 禁止引擎行话不变。`--primary` 仍是产品粉红。
 
 # OpenAI — Style Reference（mood；主填充以 Product tokens 为准）
 

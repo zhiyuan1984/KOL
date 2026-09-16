@@ -12,7 +12,6 @@ import {
   type TaskDefinition,
   type TaskRunResult,
 } from "../api";
-import BrandLockup from "../components/BrandLockup";
 import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
 import { storePending } from "../components/ChatBlocks";
 import Markdown from "../components/Markdown";
@@ -27,8 +26,7 @@ import {
 } from "../knowledgeCopy";
 import { MAIN_STAGE_TABS } from "../kolStages";
 import { rememberJourney } from "../journey";
-import { missingFieldsMessage, fieldLabel, accountDisplayName, accountEmployeeId, accountInitial } from "../labels";
-import { useAccount } from "../components/AuthGate";
+import { missingFieldsMessage, fieldLabel } from "../labels";
 import FollowedKolAgentReport from "../components/FollowedKolAgentReport";
 import DiscoveryPanel from "../home/DiscoveryPanel";
 import { FollowedBatchConfirm } from "../home/FollowedBatchConfirm";
@@ -421,7 +419,6 @@ function ChromeIco({ path }: { path: string }) {
 }
 
 export default function Home() {
-  const { account } = useAccount();
   const [home, setHome] = useState<{ brand: string; h1: string; recs: Rec[] }>({
     brand: "灵工 工作",
     h1: "今天有什么工作要处理？",
@@ -1315,19 +1312,7 @@ export default function Home() {
       <div className="home-stage">
         <div className="home-hero">
           <div className="home-chrome" data-home-chrome>
-            <div className="home-chrome-cluster">
-              <div className="home-chrome-account" data-home-account>
-                <span className="home-chrome-avatar" data-home-account-avatar aria-hidden>
-                  {accountInitial(account)}
-                </span>
-                <div className="home-chrome-who">
-                  <strong data-home-account-name>{accountDisplayName(account)}</strong>
-                  {accountEmployeeId(account) ? (
-                    <span data-home-account-id>{accountEmployeeId(account)}</span>
-                  ) : null}
-                </div>
-              </div>
-              <div className="home-chrome-actions" data-home-chrome-actions>
+            <div className="home-chrome-actions" data-home-chrome-actions>
                 <button
                   type="button"
                   className="home-chrome-icon"
@@ -1372,10 +1357,6 @@ export default function Home() {
                 >
                   <ChromeIco path="M12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7z M19.4 13a7.8 7.8 0 0 0 .1-2l2-1.2-2-3.4-2.2.6a8 8 0 0 0-1.7-1L15 4h-4l-.6 2a8 8 0 0 0-1.7 1l-2.2-.6-2 3.4 2 1.2a7.8 7.8 0 0 0 0 2l-2 1.2 2 3.4 2.2-.6a8 8 0 0 0 1.7 1l.6 2h4l.6-2a8 8 0 0 0 1.7-1l2.2.6 2-3.4z" />
                 </Link>
-              </div>
-            </div>
-            <div className="home-chrome-brand" data-home-chrome-brand>
-              <BrandLockup variant="home" />
             </div>
           </div>
           {mode === "today" ? <h1 data-home-title="today">{home.h1}</h1> : null}
@@ -1393,7 +1374,7 @@ export default function Home() {
               data-ai-count={insightCount}
               onClick={() => setMode("today")}
             >
-              {HOME_MODE_LABELS.today} {insightCount}
+              {HOME_MODE_LABELS.today} <span className="home-mode-count">{insightCount}</span>
               {highValueCount ? <span className="home-mode-dot" data-insight-mark aria-label="有高价值建议" /> : null}
             </button>
             <button
@@ -1403,7 +1384,7 @@ export default function Home() {
               data-home-mode="todo"
               onClick={() => setMode("todo")}
             >
-              {HOME_MODE_LABELS.todo} {openCount}
+              {HOME_MODE_LABELS.todo} <span className="home-mode-count">{openCount}</span>
             </button>
             <button
               type="button"
