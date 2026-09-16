@@ -1972,9 +1972,9 @@ summary:focus-visible,
   align-items: center;
   gap: 6px;
   min-height: 32px;
-  padding: 5px 9px;
+  padding: 5px 12px;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
   background: transparent;
   color: var(--text-muted);
   font: inherit;
@@ -2430,7 +2430,7 @@ summary:focus-visible,
  */
 .followed-kol-column {
   --followed-decision-max: 1180px;
-  --followed-ai-col: 320px;
+  --followed-ai-col: 380px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   justify-items: start;
@@ -2644,7 +2644,7 @@ summary:focus-visible,
 .followed-kol-card .kol-split {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-2);
+  gap: var(--space-4);
   align-items: start;
   width: 100%;
   min-width: 0;
@@ -2825,20 +2825,22 @@ summary:focus-visible,
 }
 @media (min-width: 900px) {
   .followed-kol-card .kol-split {
-    grid-template-columns: minmax(0, 1fr) minmax(280px, var(--followed-ai-col, 320px));
-    column-gap: var(--space-2);
-    align-items: stretch;
+    grid-template-columns: minmax(0, 1.75fr) minmax(340px, var(--followed-ai-col, 380px));
+    column-gap: var(--space-4);
+    align-items: start;
   }
   .followed-kol-card .kol-band-fact {
     grid-column: 1;
   }
   .followed-kol-card .kol-band-recommend {
     grid-column: 2;
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+    gap: var(--space-2);
   }
   .followed-kol-card .kol-band-actions {
-    margin-top: auto;
+    margin-top: 0;
   }
 }
 @media (max-width: 720px) {
