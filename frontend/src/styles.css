@@ -6405,7 +6405,7 @@ summary:focus-visible,
 :root {
   --left-width: 248px;
   --page-gutter: clamp(16px, 2.4vw, 40px);
-  --content-max: 1480px;
+  --content-max: 1200px;
   --conversation-measure: 900px;
   --scrollbar-size: 6px;
   --layer-popover: 40;
@@ -6740,6 +6740,7 @@ body {
     width: 100%;
   }
 }
+
 [data-compose-loop] .task-result {
   margin-bottom: 0;
 }
@@ -8260,3 +8261,60 @@ body {
 .kol-mail.is-out { margin-left: 28px; border-left: 3px solid var(--primary); }
 .kol-mail.is-in { border-left: 3px solid var(--line); }
 .kol-mail-body { margin: 0; white-space: pre-wrap; }
+
+/* Final shared-frame overrides stay after the legacy Home media rules. */
+.home-pane {
+  box-sizing: border-box;
+  width: 100%;
+  --home-gutter: var(--page-gutter);
+}
+
+.home-stage {
+  box-sizing: border-box;
+  width: min(100%, var(--content-max));
+  margin-inline: auto;
+  padding-inline: var(--page-gutter);
+}
+
+.home-composer-dock {
+  box-sizing: border-box;
+  width: min(100%, var(--content-max));
+  margin-inline: auto;
+  padding-inline: 0;
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+
+.home-composer-dock > .composer-dock {
+  width: 100%;
+  margin-inline: auto;
+}
+
+.home-board {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 28%, transparent) transparent;
+}
+
+.home-board::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+.home-board::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.home-board::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 28%, transparent);
+  border-radius: var(--radius-full);
+}
+
+@media (max-width: 720px) {
+  .home-stage {
+    padding-top: 16px;
+  }
+
+  .home-composer-dock {
+    padding-inline: var(--page-gutter);
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+}
