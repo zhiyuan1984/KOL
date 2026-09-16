@@ -97,6 +97,7 @@ export default function Workbench() {
     <div
       className={"workbench" + (collapsed ? " sidebar-collapsed" : "") + (onAdmin ? " admin-surface" : "")}
       data-ui-shell="agent-v1"
+      data-left-width={collapsed ? "56" : "264"}
       data-view-mode={debug ? "debug" : "business"}
       data-account-role={adminAvailable ? "admin" : "employee"}
     >

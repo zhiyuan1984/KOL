@@ -10,7 +10,7 @@
   --color-whisper: #0000000a;
   --color-primary: #C73B7A;
   --color-primary-hover: #A82F66;
-  --font-openai-sans: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
+  --font-openai-sans: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", sans-serif;
 
   --bg: var(--color-paper);
   --bg-elevated: var(--color-ash);
@@ -49,7 +49,7 @@
   --font-body: 15px;
   --font-section: 15px;
   --font-title: 18px;
-  --font-page-title: 20px;
+  --font-page-title: 18px;
   --leading-body: 24px;
   --leading-tight: 1.35;
   --font-product: 12px;
@@ -78,7 +78,7 @@
   --left-width: 264px;
   --page-gutter: clamp(16px, 2.2vw, 28px);
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --sans: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei", "Droid Sans Fallback", "Microsoft YaHei", sans-serif;
+  --sans: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", sans-serif;
 
   /* MASTER Quick Start aliases — parallel names, existing --font-* / --space-* stay canonical */
   --text-caption: var(--font-xs);
@@ -90,7 +90,7 @@
   --text-body-lg: var(--font-section);
   --leading-body-lg: 1.32;
   --tracking-body-lg: -0.18px;
-  --text-subheading: 22px;
+  --text-subheading: var(--font-page-title);
   --leading-subheading: 1.26;
   --tracking-subheading: -0.22px;
   --text-heading: var(--font-page-title);
@@ -190,13 +190,18 @@
 *::-webkit-scrollbar-thumb:hover { background: #c4c4c4; }
 html, body, #root { height: 100%; margin: 0; overflow: hidden; }
 html, body {
-  font-size: var(--font-body);
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 400;
   line-height: var(--leading-body);
+  color: #1a1a1a;
 }
 body {
   background: var(--bg-elevated);
   color: var(--text);
   font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 400;
 }
 h1 {
   font-size: var(--font-title);
@@ -249,6 +254,7 @@ summary:focus-visible,
 }
 .workbench.sidebar-collapsed { --left-width: 56px; }
 .sidebar {
+  width: var(--left-width);
   background: var(--bg-elevated);
   border-right: 1px solid var(--border);
   padding: 12px 16px;
@@ -764,9 +770,9 @@ summary:focus-visible,
 }
 .task-group h2 {
   margin: 0 0 8px;
-  color: var(--muted);
-  font-size: var(--font-meta);
-  font-weight: 500;
+  color: var(--text);
+  font-size: var(--font-section);
+  font-weight: 600;
   letter-spacing: 0;
 }
 .recs {
@@ -6439,7 +6445,7 @@ summary:focus-visible,
    Geometry is intentionally centralized here so the shell, conversation and
    composer share one rhythm without changing business behavior. */
 :root {
-  --left-width: 264px;
+  --left-width: 264px; /* literal desktop rail; never clamp(220px, 15vw, 248px) */
   --page-gutter: clamp(16px, 2.4vw, 40px);
   --content-max: 1200px;
   --conversation-measure: 900px;
@@ -6465,6 +6471,7 @@ body {
 }
 
 .sidebar {
+  width: var(--left-width);
   padding: 12px 16px;
   gap: 12px;
 }
@@ -6706,7 +6713,10 @@ body {
 
   .sidebar {
     top: 48px;
+    /* Mobile drawer only — do not inherit the desktop 264 rail. */
     width: min(320px, calc(100vw - 24px));
+    min-width: 0;
+    max-width: none;
   }
 
   .session-stream.conversation {
@@ -7850,7 +7860,7 @@ body {
   }
   .mobile-top a { color: var(--star); min-height: 36px; display: inline-flex; align-items: center; }
   .workbench { grid-template-columns: 1fr; }
-  .sidebar { display: none; position: fixed; z-index: 100; top: 45px; bottom: 0; left: 0; width: min(300px, 88vw); box-shadow: var(--shadow-quiet); border-right: 1px solid var(--border); }
+  .sidebar { display: none; position: fixed; z-index: 100; top: 45px; bottom: 0; left: 0; width: min(300px, 88vw); min-width: 0; max-width: none; box-shadow: var(--shadow-quiet); border-right: 1px solid var(--border); }
   .sidebar.mobile-open { display: flex; }
   .home-hero h1 { font-size: var(--font-title); margin: var(--space-2) 0 var(--space-3); }
   .home-stage { padding: 20px 16px 12px; }
@@ -8368,5 +8378,50 @@ body {
   .home-composer-dock {
     padding-inline: var(--page-gutter);
     padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+}
+
+/* Last-wins desktop rail lock. Must stay after every .sidebar / .workbench width rule.
+   Mobile drawers above (860 / 720) keep min(300px)/min(320px) and never get 264. */
+@media (min-width: 861px) {
+  .workbench:not(.admin-surface):not(.sidebar-collapsed) {
+    grid-template-columns: 264px minmax(0, 1fr);
+  }
+  .workbench:not(.admin-surface):not(.sidebar-collapsed) > .sidebar {
+    width: 264px;
+    min-width: 264px;
+    max-width: 264px;
+  }
+  .workbench.sidebar-collapsed:not(.admin-surface) {
+    --left-width: 56px;
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+  .workbench.sidebar-collapsed:not(.admin-surface) > .sidebar {
+    width: 56px;
+    min-width: 56px;
+    max-width: 56px;
+  }
+  html {
+    font-family: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", sans-serif;
+    font-size: 15px;
+    font-weight: 400;
+    color: #1a1a1a;
+  }
+  body {
+    font-family: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", sans-serif;
+    font-size: 15px;
+    font-weight: 400;
+    color: var(--text);
+  }
+  .home-hero h1,
+  .page-conclusion,
+  .agent-report-head .page-conclusion {
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .home-pane h2,
+  .task-group h2 {
+    font-size: 15px;
+    font-weight: 600;
   }
 }
