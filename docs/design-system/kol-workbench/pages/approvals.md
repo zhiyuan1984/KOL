@@ -1,6 +1,6 @@
 # 审批页面覆盖规则
 
-> 员工 `/approvals` 是宪法 §4.1 #7 一等能力面：确认与审批队列，不是第二套 Home。本文件约束本页布局、L3 确认与回执。视觉 token 以 `MASTER.md` 为准；`docs/references/openai-style.md` 是默认观感 mood/spec（与 MASTER 审美冲突时 OpenAI 胜，须和解 MASTER）。
+> 员工 `/approvals` 是宪法 §4.1 #7 一等能力面：确认与审批队列，不是第二套 Home。本文件约束本页布局、L3 确认与回执。视觉 token 以 `MASTER.md` 为准；`docs/references/openai-style.md` 是默认观感 mood/spec（quiet/white/hairline/capsule 冲突时 OpenAI 胜；主填充 = 产品粉红，hex 只住 MASTER）。
 
 ## 职责
 

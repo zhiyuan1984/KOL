@@ -1,33 +1,51 @@
 > **I-layer path:** this file remains `docs/design-system/kol-workbench/MASTER.md` (KOL workbench path name; token/source slot). Do not rename or move it.
 >
-> **Content:** the body below is the full OpenAI style spec (same document as `docs/references/openai-style.md`). Content authority is now that OpenAI body; LAW-MAP / `design.md` still treat this path as the I-layer token source.
+> **Content:** 下方仍保留 OpenAI-quiet mood 正文（与 `docs/references/openai-style.md` 同源）。**产品 token 以本文件顶部「Product tokens」为准。** LAW-MAP / `design.md` 仍把本路径当 I 层 token 源。`design.md` 禁止抄 hex。
+>
+> **ADR-031 / 2026-09-16：** mood（安静白底 / 发丝边 / 胶囊 / 排版）跟 OpenAI。~~浅色填充主 CTA = Obsidian `#000000`~~ **废止。** 填充主 CTA = 产品粉红 `--primary`。现行 UI sans = Inter；OpenAI Sans 待许可。本 PR 不改 `frontend/src/styles.css`。
 
-# OpenAI — Style Reference
+# Product tokens（唯一可审计 hex）
 
-> 默认观感 mood/spec（ADR-031：与 MASTER 审美冲突时 **本文件胜出**）。Token hex 仍只住 MASTER，不抄进 `design.md`。胜出后必须和解 MASTER（浅色填充主 CTA = Obsidian `#000000`）。MASTER 与 `styles.css` 已按该胜出值和解。本文件仍不授权把 hex 直接写入 `design.md`。项目规则见 `../design-system/kol-workbench/MASTER.md`。
+浅色主题填充主 CTA。白字。同一视口 0–1 个实底。对照建议 `#E85A9B` 对 14px/500 白字只有约 3.3:1，不满足 WCAG AA 正文对比；本表取同色相、更安静、白字 ≥4.5:1 的法律目标。
+
+| Token | Hex | Role |
+|---|---|---|
+| `--primary` | `#C73B7A` | Light filled primary CTA（产品粉红实底） |
+| `--primary-fg` | `#FFFFFF` | Label on filled primary |
+| `--primary-hover` | `#A82F66` | Hover / pressed of the same hue；不是第二主色 |
+| `--color-obsidian` | `#000000` | **正文 / 近黑字 / 发丝源 only**。不再是填充主按钮 |
+| `--font-sans` | `Inter, "OpenAI Sans", "PingFang SC", "Noto Sans SC", ui-sans-serif, system-ui, sans-serif` | 现行 UI sans。OpenAI Sans 待许可后再切主脸 |
+
+`--focus-ring` 可用 `--primary` 的低透明描边，或保持发丝近黑；不要另发明第二品牌色。
+
+# OpenAI — Style Reference（mood；主填充以 Product tokens 为准）
+
+> 本段是 OpenAI mood 对照。产品填充主 CTA **不**用本段的 Obsidian 黑钮，改读上方 `--primary` `#C73B7A`。
 
 > Research lab notebook at noon.
 
 **Theme:** light
 
-OpenAI's interface operates as a typographic, editorial canvas — pure white surfaces, near-black type, and almost no chromatic identity. The system is defined by restraint: the only filled element on the page is the black 'Try ChatGPT' button, which functions as a single period at the end of an otherwise monochrome sentence. Hairline borders at 12% black opacity create structure without weight; cards carry a barely-perceptible 6px radius that whispers geometry rather than announcing it. Typography does the heavy lifting: a custom sans (OpenAI Sans) set at a Major Second scale with progressively tighter tracking — -0.03em at display, normal at body — gives headlines a compressed, almost newsprint authority. Components feel deliberately lightweight: pill-shaped controls, ghost buttons, transparent surfaces, and minimal elevation. The visual mood is 'research lab notebook' — quiet, confident, and trusting the reader to focus on content rather than chrome.
+OpenAI's interface operates as a typographic, editorial canvas — pure white surfaces, near-black type, and almost no chromatic identity. The system is defined by restraint: the only filled element on the page is the product-pink primary button (`--primary`), which functions as a single period at the end of an otherwise quiet sentence. ~~black 'Try ChatGPT' button~~ **废止为产品 CTA。** Hairline borders at 12% black opacity create structure without weight; cards carry a barely-perceptible 6px radius that whispers geometry rather than announcing it. Typography does the heavy lifting: a custom sans (OpenAI Sans) set at a Major Second scale with progressively tighter tracking — -0.03em at display, normal at body — gives headlines a compressed, almost newsprint authority. Components feel deliberately lightweight: pill-shaped controls, ghost buttons, transparent surfaces, and minimal elevation. The visual mood is 'research lab notebook' — quiet, confident, and trusting the reader to focus on content rather than chrome.
 
 ## Tokens — Colors
 
 | Name | Value | Token | Role |
 |------|-------|-------|------|
-| Obsidian | `#000000` | `--color-obsidian` | Primary text, filled action button (Try ChatGPT), strongest interactive emphasis — the single period of chromatic punctuation in an otherwise achromatic system |
+| Obsidian | `#000000` | `--color-obsidian` | Primary **text** and hairline source. ~~filled action button~~ **废止（ADR-031）：** 填充主按钮改 `--primary` `#C73B7A` |
+| Product pink | `#C73B7A` | `--primary` | Light filled primary CTA + white `--primary-fg`. The single chromatic punctuation in an otherwise quiet system |
 | Graphite | `#666666` | `--color-graphite` | Muted captions, helper text, and de-emphasized UI labels. |
 | Smoke | `#8f8f8f` | `--color-smoke` | Tertiary text, disabled states, icon strokes, placeholder text — the dimmest readable voice |
 | Paper | `#ffffff` | `--color-paper` | Page canvas, card surfaces, input fills — the infinite background that lets type and imagery carry all weight |
 | Ash | `#f1f1f1` | `--color-ash` | Subtle surface elevation, hover states, language selector background — a barely-visible plane shift from Paper |
 | Hairline | `#0000001f` | `--color-hairline` | All borders, dividers, card outlines, button outlines — structure without weight, defined as a semi-transparent black rather than a gray hex |
-| Whisper | `#0000000a` | `--color-whisper` | Supporting palette color for small decorative accents when the core palette needs contrast. Do not promote it to the primary CTA color |
+| Whisper | `#0000000a` | `--color-whisper` | Supporting palette color for small decorative accents when the core palette needs contrast. Do not promote it to the primary CTA color（主 CTA 是 `--primary`，不是 Whisper） |
 
 ## Tokens — Typography
 
-### OpenAI Sans — Primary typeface for all UI text — custom geometric sans with humanist warmth, used at weight 400 for body, 500 for nav/labels/headings, 600 only for the largest headings. Signature: -0.03em tracking at display sizes creates compressed authority; +0.011em at 28px adds subtle breathing for subheads. Font features: 'calt' and 'liga' enable contextual alternates and ligatures. · `--font-openai-sans`
-- **Substitute:** Inter, Söhne, or system-ui sans-serif
+### Inter / OpenAI Sans — Primary typeface for all UI text
+现行栈：`Inter, "OpenAI Sans", "PingFang SC", "Noto Sans SC", …`（`--font-sans`）。OpenAI Sans 待许可后再切主脸。Weight 400 for body, 500 for nav/labels/headings, 600 only for the largest headings.
+- **Substitute:** Inter (current), OpenAI Sans (licensed later), Söhne, or system-ui sans-serif
 - **Weights:** 400, 500, 600
 - **Sizes:** 13px, 14px, 16px, 17px, 18px, 22px, 28px, 48px
 - **Line height:** 1.00–1.65
@@ -97,7 +115,7 @@ OpenAI's interface operates as a typographic, editorial canvas — pure white su
 ### Filled Action Button
 **Role:** Primary conversion — the only filled button in the system
 
-Solid #000000 background, white text at 14px weight 500, full pill radius (9999px), 8px vertical / 20px horizontal padding. Used sparingly — currently only for 'Try ChatGPT'. This is the system's only chromatic punctuation.
+Solid `--primary` `#C73B7A` background, `--primary-fg` `#FFFFFF` text at 14px weight 500, full pill radius (9999px), 8px vertical / 20px horizontal padding. Used sparingly — 0–1 filled primary per viewport. ~~Solid #000000 / Obsidian~~ is **not** the product filled CTA. This pink fill is the system's only chromatic punctuation.
 
 ### Outlined Pill Button
 **Role:** Secondary actions and category filters
@@ -147,7 +165,7 @@ Paper background, multi-column layout with link groups at 13-14px weight 500, Gr
 ## Do's and Don'ts
 
 ### Do
-- Use #000000 as the sole filled button color — the 'Try ChatGPT' button is the system's only chromatic punctuation and filling any other button dilutes its signal
+- Use `--primary` `#C73B7A` as the sole filled button color — one filled primary per viewport. ~~Use #000000 as the sole filled button color~~ **废止。** Filling any other button dilutes its signal
 - Set all borders to rgba(0,0,0,0.12) rather than a gray hex — the semi-transparent black adapts to the background and maintains consistent visual weight on white and light-gray surfaces
 - Apply 9999px radius to all buttons, tags, and inputs — the pill shape is the primary geometric signature and must be consistent across all interactive elements
 - Use 6px radius for cards and images — this near-zero radius is a deliberate choice that feels architectural rather than soft; avoid 12px or 16px which would shift the system toward 'friendly SaaS' territory
@@ -156,7 +174,7 @@ Paper background, multi-column layout with link groups at 13-14px weight 500, Gr
 - Trust whitespace over dividers — sections are separated by 32-64px gaps and margin-bottom rather than horizontal rules or background color shifts
 
 ### Don't
-- Do not introduce accent colors, gradients, or brand hues — the system is deliberately monochromatic; any chromatic addition competes with the single black CTA and breaks the editorial mood
+- Do not introduce extra accent colors, gradients, or a second brand hue — the system stays quiet white; the **only** allowed chromatic fill is `--primary` pink. ~~any chromatic addition competes with the single black CTA~~ **修订：** 黑钮已废止，粉红是唯一实底。
 - Do not use box-shadows on cards or content surfaces — the design relies on hairline borders and whitespace for structure; shadows would add visual noise the system explicitly avoids
 - Do not use 8px or 12px radius on buttons — the pill (9999px) is a signature; non-pill buttons would break visual continuity with the tag chip row and search input
 - Do not use weight 700 or 800 anywhere — the heaviest weight in the system is 600, and only at the 28px heading size; heavier weights would feel aggressive against the restrained type
@@ -193,7 +211,7 @@ Page model is max-width contained (approximately 1200px) with generous side marg
 - background: #ffffff
 - surface subtle: #f1f1f1
 - border: rgba(0,0,0,0.12)
-- primary action: no distinct CTA color
+- primary action: `--primary` `#C73B7A` + `--primary-fg` `#FFFFFF`（不是 Obsidian 黑）
 
 **Example Component Prompts**
 
@@ -205,7 +223,7 @@ Page model is max-width contained (approximately 1200px) with generous side marg
 
 4. **Secondary Article Card (Right Column)**: Smaller format — 16:9 image header with 6px radius, 22px subheading in #000 weight 500 with -0.01em tracking, 14px metadata in #666666. Stacks vertically with 32px gap between cards.
 
-5. **Top Navigation Bar**: 64px height, #ffffff background, OpenAI wordmark (text-based) at far left at 14px weight 500, nav items (Research, Products, Business, Developers, Company, Foundation) spaced 16px apart at 14px weight 500 in #000, a search icon, a 'Log in' ghost text button, and a 'Try ChatGPT' filled black button (9999px radius, white text) at far right.
+5. **Top Navigation Bar**: 64px height, #ffffff background, wordmark at far left at 14px weight 500, nav items spaced 16px apart at 14px weight 500 in #000, a search icon, a ghost text button, and one filled `--primary` pink button (9999px radius, white text) at far right. ~~filled black button~~ **废止。**
 
 ## Similar Brands
 
@@ -213,7 +231,7 @@ Page model is max-width contained (approximately 1200px) with generous side marg
 - **Vercel** — Identical restraint philosophy — pure black/white palette, hairline borders at low opacity, generous whitespace, and the same anti-decorative flatness
 - **Linear** — Similar dark-on-light typographic confidence with custom sans, pill buttons, and 6-8px card radii — though Linear adds subtle gradients Linear omits
 - **Stripe** — Shared editorial-composition approach: 2-column asymmetric article grids, large display headlines, photography as visual anchor, and zero chromatic UI accents
-- **xAI / Grok** — Monochrome product interface with a single filled black CTA, pill-shaped controls, and the same 'research lab' typographic authority
+- **xAI / Grok** — Monochrome product interface with a single filled CTA, pill-shaped controls, and the same 'research lab' typographic authority（对照品牌用黑钮；本产品主填充是 `--primary` 粉红）
 
 ## Quick Start
 
@@ -222,7 +240,10 @@ Page model is max-width contained (approximately 1200px) with generous side marg
 ```css
 :root {
   /* Colors */
-  --color-obsidian: #000000;
+  --primary: #C73B7A;
+  --primary-fg: #FFFFFF;
+  --primary-hover: #A82F66;
+  --color-obsidian: #000000; /* text / hairline source only; not filled CTA */
   --color-graphite: #666666;
   --color-smoke: #8f8f8f;
   --color-paper: #ffffff;
@@ -231,7 +252,8 @@ Page model is max-width contained (approximately 1200px) with generous side marg
   --color-whisper: #0000000a;
 
   /* Typography — Font Families */
-  --font-openai-sans: 'OpenAI Sans', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-sans: Inter, "OpenAI Sans", "PingFang SC", "Noto Sans SC", ui-sans-serif, system-ui, sans-serif;
+  --font-openai-sans: Inter, "OpenAI Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 
   /* Typography — Scale */
   --text-caption: 13px;
@@ -308,7 +330,9 @@ Page model is max-width contained (approximately 1200px) with generous side marg
 ```css
 @theme {
   /* Colors */
-  --color-obsidian: #000000;
+  --color-primary: #C73B7A;
+  --color-primary-fg: #FFFFFF;
+  --color-obsidian: #000000; /* text only */
   --color-graphite: #666666;
   --color-smoke: #8f8f8f;
   --color-paper: #ffffff;
@@ -317,7 +341,8 @@ Page model is max-width contained (approximately 1200px) with generous side marg
   --color-whisper: #0000000a;
 
   /* Typography */
-  --font-openai-sans: 'OpenAI Sans', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-sans: Inter, "OpenAI Sans", "PingFang SC", "Noto Sans SC", ui-sans-serif, system-ui, sans-serif;
+  --font-openai-sans: Inter, "OpenAI Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 
   /* Typography — Scale */
   --text-caption: 13px;
