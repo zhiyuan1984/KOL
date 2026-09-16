@@ -285,7 +285,8 @@ function findDuplicateTodoRow(owner: string, suggestion: {
     const source = String(row.source || "manual");
     if ((source === "ai" || source === "discovery") && !row.promoted_at) return false;
     const entities = parseJson(row.entities) as Record<string, unknown>;
-    if (recId && (normDedupe(row.id) === recId || normDedupe(entities.recommendation_id) === recId)) return true;
+    const fromRec = recId.startsWith("rec-ai-") ? recId.slice("rec-ai-".length) : recId;
+    if (recId && (normDedupe(row.id) === recId || normDedupe(row.id) === fromRec || normDedupe(entities.recommendation_id) === recId)) return true;
     const rowKey = [
       normDedupe(row.skill || row.task_type),
       normDedupe(entities.handle) || normDedupe(row.collaboration_id),

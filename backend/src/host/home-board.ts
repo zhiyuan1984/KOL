@@ -345,7 +345,10 @@ function decorateRecommended(row: Json, index: number): Json {
 }
 
 export function buildRecommendedTasks(tasks: Json[], kols: Json[]): Json[] {
-  const insights = tasks.filter(isInsightWorkItem).sort((a, b) => Number(highValueInsight(b)) - Number(highValueInsight(a)));
+  const insights = tasks.filter((task) => (
+    isInsightWorkItem(task)
+    || (String(task.source || "") === "ai" && Boolean(task.promoted_at) && !isClosedWorkItem(task) && !task.dismissed_at)
+  )).sort((a, b) => Number(highValueInsight(b)) - Number(highValueInsight(a)));
   const picked: Json[] = [];
   const seen = new Set<string>();
   const take = (row: Json, handle: string) => {

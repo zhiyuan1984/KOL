@@ -39,7 +39,8 @@ export function findDuplicateTodo(todos: Task[], suggestion: SuggestionIdentity)
     const entities = task.entities && typeof task.entities === "object"
       ? task.entities as Record<string, unknown>
       : {};
-    if (recId && (norm(task.id) === recId || norm(entities.recommendation_id) === recId)) return true;
+    const fromRec = recId.startsWith("rec-ai-") ? recId.slice("rec-ai-".length) : recId;
+    if (recId && (norm(task.id) === recId || norm(task.id) === fromRec || norm(entities.recommendation_id) === recId)) return true;
     if (todoDedupeKey(task) === key && title) return true;
     if (!title || norm(task.title) !== title) return false;
     const taskHandle = norm(task.kol_name) || norm(task.collaboration_id);
