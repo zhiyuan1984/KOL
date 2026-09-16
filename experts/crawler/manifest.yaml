@@ -1,0 +1,22 @@
+{
+  "id": "expert:crawler",
+  "version": "0.1.0",
+  "status": "published",
+  "display_name": "爬虫工程师",
+  "profession": "采集作业",
+  "description": "把海外发现目标变成可追踪的采集作业。采集完成只形成候选人，不导入正式库、不发信、不创建合作承诺。",
+  "avatar": "/api/experts/expert:crawler/avatar",
+  "category": "采集作业",
+  "tags": ["海外采集", "候选人", "作业控制台"],
+  "mission": "把海外平台的发现目标变成可查进度、可取消、可重试的采集作业；完成后只形成候选人，由员工确认后才导入。不通过思考会话召唤，请使用任务控制台。",
+  "quick_prompts": [
+    "查看进行中的采集作业",
+    "按关键词发现海外候选人",
+    "采集完成后只保留候选人"
+  ],
+  "entry_skill": "creator_discovery",
+  "kind": "collector",
+  "primary_entry": "job_console",
+  "skill_ids": ["creator_discovery"],
+  "tool_ids": ["mediacrawler"]
+}

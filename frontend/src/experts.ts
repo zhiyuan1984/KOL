@@ -75,12 +75,12 @@ const KOL_MANIFEST: ExpertManifestView = {
   id: KOL_EXPERT_ID,
   version: "0.1.0",
   status: "published",
-  display_name: "KOL 合作专员",
-  profession: "达人合作",
+  display_name: "KOL推广",
+  profession: "KOL推广",
   description: "帮助你推进 KOL 合作，从邮件理解、跟进建议到沟通草稿逐步完成。",
   avatar: "/api/experts/expert:kol/avatar",
-  category: "达人合作",
-  tags: ["建联", "跟进", "阶段建议"],
+  category: "KOL推广",
+  tags: ["KOL推广", "建联", "跟进", "阶段建议"],
   mission: KOL_MISSION_COPY,
   quick_prompts: [
     "帮我看一下这个红人现在该怎么跟进",
@@ -89,6 +89,18 @@ const KOL_MANIFEST: ExpertManifestView = {
     "这一阶段要准备什么",
   ],
   entry_skill: "stage_sop",
+  kind: "business",
+  primary_entry: "think",
+  skill_ids: [
+    "stage_sop",
+    "creator_outreach",
+    "email_compose",
+    "reply_analysis",
+    "creator_profile",
+    "confirm_stage",
+    "email_conversation_read",
+  ],
+  tool_ids: ["starrykol"],
 };
 
 const MOCK_CATALOG = [KOL_MANIFEST];
