@@ -4155,12 +4155,81 @@ summary:focus-visible,
   display: flex;
   justify-content: flex-end;
   align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
   margin-top: auto;
   padding-top: var(--space-1);
+  min-width: 0;
 }
-.expert-card-cta .btn.work {
+.expert-card-cta .btn.work,
+.expert-card-cta .btn.ghost {
   width: auto;
   flex: 0 0 auto;
+}
+.expert-card-count {
+  margin: 0;
+  font-size: var(--font-meta);
+  white-space: nowrap;
+}
+.expert-work-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.crawler-page,
+.approver-page {
+  overflow-x: hidden;
+  min-width: 0;
+}
+.crawler-jobs,
+.crawler-analyze {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.crawler-job-card,
+.crawler-analyze {
+  min-width: 0;
+}
+.crawler-job-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.crawler-job-head h3 {
+  margin: 0;
+  font-size: var(--font-section);
+  overflow-wrap: anywhere;
+}
+.crawler-job-head strong {
+  flex: 0 0 auto;
+  font-size: var(--font-meta);
+}
+.crawler-candidate-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+.crawler-candidate {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.crawler-candidate strong,
+.crawler-candidate p {
+  overflow-wrap: anywhere;
+}
+.approval-page.is-embedded {
+  padding: 0;
+  max-width: none;
 }
 .expert-detail {
   display: grid;

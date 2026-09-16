@@ -9,6 +9,7 @@ export type SessionRow = {
 
 export type ExpertKind = "business" | "collector" | "governance";
 export type ExpertPrimaryEntry = "think" | "job_console" | "approval_queue";
+export type ExpertSummonNextAction = "open_job_console" | "open_approval_queue" | "use_primary_entry";
 
 export type ExpertManifestView = {
   id: string;
@@ -27,6 +28,10 @@ export type ExpertManifestView = {
   primary_entry: ExpertPrimaryEntry;
   skill_ids: string[];
   tool_ids: string[];
+  can_summon?: boolean;
+  open_count?: number;
+  pending_count?: number;
+  count?: number;
 };
 
 export type ExpertSummonResult = {
