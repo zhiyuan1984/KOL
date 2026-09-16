@@ -1999,6 +1999,23 @@ summary:focus-visible,
   font-size: var(--font-sm);
   white-space: nowrap;
 }
+.followed-advanced-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+}
+.followed-advanced-filter select {
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-inputs);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-sm);
+  padding: 4px 8px;
+}
 .followed-stage-filter {
   display: flex;
   flex: 1 1 100%;

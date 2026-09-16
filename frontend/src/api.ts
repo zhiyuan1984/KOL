@@ -185,6 +185,8 @@ export type Task = {
   next_action_code?: string | null;
   progress?: number;
   session_id?: string;
+  /** PROD-AGENT-08: unadopted recs/insights. Formal WorkItems are candidate:false. */
+  candidate?: boolean;
   suggested_actions?: Array<string | { label?: string; title?: string; prompt?: string }>;
   [key: string]: unknown;
 };
@@ -204,6 +206,7 @@ export type RecommendedTask = {
   handle?: string;
   collaboration_id?: string | null;
   candidate_id?: string;
+  candidate?: boolean;
 };
 
 export type HomeWorkbench = {
@@ -215,6 +218,7 @@ export type HomeWorkbench = {
     insights?: number;
   };
   todo?: Task[];
+  today?: Task[];
   insights?: Task[];
   recommendations?: RecommendedTask[];
   discovery?: {
@@ -652,6 +656,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+  adoptRecommendation: (body: Record<string, unknown>) =>
+    request<Task & { reused?: boolean; created?: boolean }>("/api/tasks/adopt-recommendation", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  homeFollowing: () =>
+    request<{
+      entry?: string;
+      creates_session?: boolean;
+      kols?: Array<Record<string, unknown>>;
+      follow_scope?: StarryBinding;
+    }>("/api/home/following"),
   dismissTask: (id: string) =>
     request<Task>(`/api/tasks/${encodeURIComponent(id)}/dismiss`, {
       method: "POST",

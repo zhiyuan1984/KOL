@@ -188,6 +188,13 @@ export default function FollowedKolWorkCard({
                 {fact.at ? <span data-thread-time className="sr-only">{fact.at}</span> : null}
               </p>
             ) : null}
+            {card.source.release_due_at || card.source.last_interaction_at ? (
+              <p className="kol-mail-meta" data-release-timer data-release-scheduler="false">
+                14 日计时（只读）
+                {card.source.last_interaction_at ? ` · 上次互动 ${formatFactTime(card.source.last_interaction_at)}` : ""}
+                {card.source.days_since_interaction != null ? ` · 已过 ${card.source.days_since_interaction} 天` : ""}
+              </p>
+            ) : null}
           </div>
         </div>
 
@@ -216,7 +223,7 @@ export default function FollowedKolWorkCard({
                   data-thread-id={fact.thread_id}
                   onClick={onOpenMail}
                 >
-                  原邮件
+                  查看互动
                 </button>
               ) : null}
             </div>

@@ -41,6 +41,7 @@ import {
   summarizeFollowFilter,
   waitForDiscoveryResults,
   writeDiscoveryFavorites,
+  getDiscoveryResults,
   type CreatorCandidate,
   type DiscoveryConnection,
   type DiscoveryErrorView,
@@ -55,6 +56,8 @@ import {
   type FollowFilter,
 } from "./discovery";
 import { DiscoveryFollowConfirm } from "./DiscoveryFollowConfirm";
+
+const LAST_DISCOVERY_REQUEST_KEY = "discovery:last-request-id";
 
 export default function DiscoveryPanel() {
   const [query, setQuery] = useState("");
@@ -176,6 +179,39 @@ export default function DiscoveryPanel() {
 
   useEffect(() => () => {
     abortRef.current?.abort();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const lastId = (() => {
+      try {
+        return window.sessionStorage.getItem(LAST_DISCOVERY_REQUEST_KEY) || "";
+      } catch {
+        return "";
+      }
+    })();
+    const loadExisting = async () => {
+      if (!lastId) return;
+      const results = await getDiscoveryResults(lastId);
+      if (cancelled) return;
+      const status = String(results.run?.status || results.status || "");
+      if (status === "queued" || status === "running") {
+        setRequest(results.request);
+        setActiveRun(results.run);
+        setPhase("running");
+        setWaitStartedAt(Date.now());
+        const gen = ++waitGen.current;
+        void watchResults(lastId, gen);
+        return;
+      }
+      applyTerminalResults(results);
+    };
+    void loadExisting().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+    // Restore last batch via GET only. New analysis still POSTs /runs after confirm.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -362,6 +398,11 @@ export default function DiscoveryPanel() {
         filters: { region: filters.region, directions: filters.directions },
       });
       setRequest(next);
+      try {
+        window.sessionStorage.setItem(LAST_DISCOVERY_REQUEST_KEY, next.id);
+      } catch {
+        /* ignore */
+      }
       setSelectedIds([]);
       setBatchResult(null);
       setPendingBatch(null);

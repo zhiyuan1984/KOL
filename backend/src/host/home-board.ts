@@ -232,6 +232,20 @@ export function isInsightWorkItem(task: {
     && !isClosedWorkItem(task);
 }
 
+export function isTodayWorkItem(task: {
+  source?: unknown;
+  status?: unknown;
+  promoted_at?: unknown;
+  dismissed_at?: unknown;
+  due_at?: unknown;
+}): boolean {
+  if (!isTodoWorkItem(task)) return false;
+  const flags = dueFlags(task.due_at);
+  if (flags.overdue || flags.due_today) return true;
+  const status = String(task.status || "");
+  return ["waiting", "queued", "running", "waiting_approval", "in_progress"].includes(status);
+}
+
 export function isTodoWorkItem(task: {
   source?: unknown;
   status?: unknown;
@@ -469,12 +483,51 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[]): Json[] {
     });
   }
 
-  return picked.slice(0, MAX_RECOMMENDED_TASKS).map(decorateRecommended);
+  return picked.slice(0, MAX_RECOMMENDED_TASKS).map((row, index) => ({
+    ...decorateRecommended(row, index),
+    candidate: true,
+  }));
+}
+
+/** BIZ-06 14-day timer fields — read-only projection. No scheduler, no auto-release. */
+export function followReleaseTimer(lastInteractionAt?: string | null): {
+  last_interaction_at: string | null;
+  days_since_interaction: number | null;
+  release_due_at: string | null;
+  release_scheduler: false;
+} {
+  const raw = String(lastInteractionAt || "").trim();
+  if (!raw) {
+    return {
+      last_interaction_at: null,
+      days_since_interaction: null,
+      release_due_at: null,
+      release_scheduler: false,
+    };
+  }
+  const start = new Date(raw);
+  if (Number.isNaN(start.getTime())) {
+    return {
+      last_interaction_at: raw,
+      days_since_interaction: null,
+      release_due_at: null,
+      release_scheduler: false,
+    };
+  }
+  const days = Math.max(0, Math.floor((Date.now() - start.getTime()) / 86_400_000));
+  const due = new Date(start.getTime() + 14 * 86_400_000);
+  return {
+    last_interaction_at: start.toISOString(),
+    days_since_interaction: days,
+    release_due_at: due.toISOString(),
+    release_scheduler: false,
+  };
 }
 
 export function buildWorkbench(tasks: Json[], kols: Json[]): Json {
-  const todo = tasks.filter((task) => isTodoWorkItem(task));
-  const insights = tasks.filter((task) => isInsightWorkItem(task));
+  const todo = tasks.filter((task) => isTodoWorkItem(task)).map((task) => ({ ...task, candidate: false } as Json));
+  const insights = tasks.filter((task) => isInsightWorkItem(task)).map((task) => ({ ...task, candidate: true } as Json));
+  const today = todo.filter((task) => isTodayWorkItem(task));
   const waiting = todo.filter((task) => ["waiting", "queued"].includes(String(task.status || "")));
   const overdue = todo.filter((task) => dueFlags(task.due_at).overdue);
   const dueToday = todo.filter((task) => dueFlags(task.due_at).due_today);
@@ -498,6 +551,7 @@ export function buildWorkbench(tasks: Json[], kols: Json[]): Json {
       insights: insights.length,
     },
     todo,
+    today,
     insights,
     recommendations: buildRecommendedTasks(tasks, kols),
     lifecycle: {
@@ -647,11 +701,14 @@ export function buildHomeBoard(): Json {
       last_direction: String(thread.last_direction || ""),
     }));
     const unreadCount = unreadCountForCollaboration(String(row.id));
+    const lastInteraction = mailThreads.find((thread) => thread.last_at)?.last_at
+      || (mailThreads[0] ? mailThreads[0].last_at : null);
     kols.push({
       ...kol,
       session_id: session?.id || null,
       unread_count: unreadCount,
       mail_threads: mailThreads,
+      ...followReleaseTimer(lastInteraction ? String(lastInteraction) : null),
       profile_tags: profileTags(kol),
       follow_style_tags: readFollowStyleTags(row),
       tasks: related.map((task) => ({
@@ -687,6 +744,7 @@ export function buildHomeBoard(): Json {
     const stageCode = normalizeStage(String((kol || collab)?.stage_code || ""));
     return {
       ...task,
+      candidate: isInsightWorkItem(task),
       ...cardFields(kol || (collab ? {
         handle: collab.handle,
         display_name: collab.display_name,
@@ -704,6 +762,8 @@ export function buildHomeBoard(): Json {
   });
 
   return {
+    entry: "memory",
+    creates_session: false,
     kols,
     tasks: decoratedTasks,
     tabs,

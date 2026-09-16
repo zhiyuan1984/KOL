@@ -2,7 +2,7 @@ export type HomeMode = "today" | "todo" | "discovery" | "lifecycle";
 
 export const HOME_MODES: HomeMode[] = ["today", "todo", "discovery", "lifecycle"];
 
-/** CONSTITUTION §4.2 Home mode names (KOL pilot). */
+/** law-v2 PROD-PLAT-02 / UX-02 Home mode names (KOL pilot). */
 export const HOME_MODE_LABELS: Record<HomeMode, string> = {
   today: "今日任务",
   todo: "我的待办",
@@ -20,7 +20,7 @@ const HOME_MODE_ALIASES: Record<string, HomeMode> = {
 
 const LEGACY_AI_DISCOVERY_LABELS = new Set(["AI发现", "AI 发现", "✦ AI发现", "✦ AI 发现"]);
 
-/** Old「AI发现」task-recommendation copy → 今天推荐 (CONSTITUTION §4.2). */
+/** Old「AI发现」task-recommendation copy → 今天推荐 (law-v2 Home). */
 export function recommendationSourceLabel(item: { source?: string; source_label?: string }): string {
   const raw = String(item.source_label || "").trim();
   if (LEGACY_AI_DISCOVERY_LABELS.has(raw) || (!raw && item.source === "ai")) return "今天推荐";

@@ -12,10 +12,9 @@ import { useViewMode } from "../viewMode";
 
 const PLACEHOLDER = "输入 / 使用技能";
 const WORKSPACE_PLACEHOLDERS = [
-  "发消息、创建任务或让 AI 帮你处理工作……",
-  "复盘今天的 KOL 流水线……",
-  "分析本周异常订单……",
-  "帮我整理今天需要跟进的事项……",
+  "让 Agent 分析/安排",
+  "让 Agent 分析/安排今天的跟进",
+  "让 Agent 分析/安排本周异常",
 ];
 
 export type ComposerVariant = "compact" | "workspace";

@@ -260,6 +260,114 @@ tasks.post("/tasks", async (c) => {
   return c.json(createWorkItem(body, String(body.source || "manual")), 201);
 });
 
+function normDedupe(value: unknown): string {
+  return String(value || "").replace(/^@/, "").trim().toLowerCase();
+}
+
+/** FE `todoDedupe` semantics — same identity must not create a second formal WorkItem. */
+function findDuplicateTodoRow(owner: string, suggestion: {
+  id?: string;
+  title?: string;
+  handle?: string;
+  intent?: string;
+  collaboration_id?: string | null;
+}): Row | undefined {
+  const rows = getConn().prepare(
+    "SELECT * FROM work_items WHERE owner_user_id=? AND dismissed_at IS NULL ORDER BY updated_at DESC",
+  ).all(owner) as Row[];
+  const recId = normDedupe(suggestion.id);
+  const title = normDedupe(suggestion.title);
+  const handle = normDedupe(suggestion.handle) || normDedupe(suggestion.collaboration_id);
+  const intent = normDedupe(suggestion.intent);
+  const key = [intent, handle, title].join("|");
+  return rows.find((row) => {
+    if (["completed", "done", "cancelled"].includes(String(row.status || ""))) return false;
+    const source = String(row.source || "manual");
+    if ((source === "ai" || source === "discovery") && !row.promoted_at) return false;
+    const entities = parseJson(row.entities) as Record<string, unknown>;
+    if (recId && (normDedupe(row.id) === recId || normDedupe(entities.recommendation_id) === recId)) return true;
+    const rowKey = [
+      normDedupe(row.skill || row.task_type),
+      normDedupe(entities.handle) || normDedupe(row.collaboration_id),
+      normDedupe(row.title),
+    ].join("|");
+    if (title && rowKey === key) return true;
+    if (!title || normDedupe(row.title) !== title) return false;
+    const rowHandle = normDedupe(entities.handle) || normDedupe(row.collaboration_id);
+    if (handle && rowHandle) return handle === rowHandle;
+    if (handle !== rowHandle) return false;
+    const rowIntent = normDedupe(row.skill || row.task_type);
+    if (intent && rowIntent) return intent === rowIntent;
+    return true;
+  });
+}
+
+tasks.post("/tasks/adopt-recommendation", async (c) => {
+  const body = await c.req.json() as Json;
+  const owner = ownerId();
+  const workItemId = String(body.work_item_id || "").trim();
+  const recId = String(body.recommendation_id || body.id || "").trim();
+  const fromInsight = recId.startsWith("rec-ai-") ? recId.slice("rec-ai-".length) : "";
+  const existingId = workItemId || fromInsight;
+  if (existingId) {
+    try {
+      const item = ownedWorkItem(existingId);
+      if (["completed", "cancelled"].includes(String(item.status))) {
+        throw new HttpFail(409, `task cannot adopt from ${item.status}`);
+      }
+      const now = nowIso();
+      tx((db) => {
+        db.prepare(
+          "UPDATE work_items SET promoted_at=COALESCE(promoted_at,?),dismissed_at=NULL,source=CASE WHEN source='ai' THEN source ELSE source END,updated_at=?,data_version=data_version+1 WHERE id=?",
+        ).run(now, now, item.id);
+      });
+      if (!item.promoted_at) {
+        appendTaskEvent(String(item.id), null, "task.promoted", "转为我的待办", String(item.status), "已从今天推荐转入待办");
+        audit(owner, "task.adopted", { work_item_id: item.id, recommendation_id: recId || null });
+      }
+      return c.json({ ...publicWorkItem(ownedWorkItem(String(item.id))), candidate: false, reused: Boolean(item.promoted_at), created: false });
+    } catch (error) {
+      if (!(error instanceof HttpFail) || error.status !== 404) throw error;
+    }
+  }
+  const identity = {
+    id: recId,
+    title: String(body.title || ""),
+    handle: String(body.handle || ""),
+    intent: String(body.intent || body.task_type || ""),
+    collaboration_id: body.collaboration_id ? String(body.collaboration_id) : null,
+  };
+  const duplicate = findDuplicateTodoRow(owner, identity);
+  if (duplicate) {
+    return c.json({ ...publicWorkItem(duplicate), candidate: false, reused: true, created: false });
+  }
+  const intent = String(body.intent || body.task_type || "creator_daily_tasks");
+  const created = createWorkItem({
+    ...body,
+    task_type: intent,
+    title: body.title,
+    description: body.reason || body.description,
+    prompt: body.prompt || body.title,
+    source: "manual",
+    intent,
+    collaboration_id: body.collaboration_id,
+    entities: {
+      ...((body.entities && typeof body.entities === "object") ? body.entities as Json : {}),
+      handle: body.handle,
+      recommendation_id: recId || undefined,
+    },
+  }, "manual");
+  const now = nowIso();
+  tx((db) => {
+    db.prepare(
+      "UPDATE work_items SET promoted_at=COALESCE(promoted_at,?),dismissed_at=NULL,updated_at=? WHERE id=?",
+    ).run(now, now, created.id);
+  });
+  appendTaskEvent(String(created.id), null, "task.adopted", "采纳为待办", String(created.status), "今天推荐已写入正式待办");
+  audit(owner, "task.adopted", { work_item_id: created.id, recommendation_id: recId || null });
+  return c.json({ ...publicWorkItem(ownedWorkItem(String(created.id))), candidate: false, reused: false, created: true }, 201);
+});
+
 tasks.post("/tasks/recognize", async (c) => {
   const body = await c.req.json() as Json;
   const text = String(body.text || "").trim();
