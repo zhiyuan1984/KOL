@@ -34,10 +34,24 @@ const LEGACY_OF: Record<string, string> = {
   crawl: "mediacrawl",
 };
 
-export type ConnectorUseStatusKey = "available" | "needs_personal_bind";
+export type ConnectorUseStatusKey = "available" | "needs_personal_bind" | "expired";
+export type ConnectorUseAccess = "read" | "write";
 
 export function isBindableConnector(id: string): boolean {
   return /starry/i.test(id);
+}
+
+export function connectorUseAccess(value: unknown): ConnectorUseAccess {
+  return value === "read" ? "read" : "write";
+}
+
+export function connectorBindHref(id: string): string {
+  const params = new URLSearchParams({
+    tab: "starry",
+    from: "connectors",
+    connector: id,
+  });
+  return `/settings?${params.toString()}`;
 }
 
 export function connectorUseLabel(id: string, fallback?: unknown): string {
@@ -66,7 +80,13 @@ export function connectorUseStatus(
   id: string,
   binding: StarryBinding | null,
 ): { key: ConnectorUseStatusKey; label: string } {
-  if (isBindableConnector(id) && (!binding?.bound || binding.status === "expired" || binding.status === "unbound")) {
+  if (!isBindableConnector(id)) {
+    return { key: "available", label: "可用" };
+  }
+  if (binding?.status === "expired") {
+    return { key: "expired", label: "已过期" };
+  }
+  if (!binding?.bound || binding.status === "unbound") {
     return { key: "needs_personal_bind", label: "需个人绑定" };
   }
   return { key: "available", label: "可用" };

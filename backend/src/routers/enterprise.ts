@@ -75,6 +75,20 @@ function connectorPublic(row: unknown): Json {
   };
 }
 
+/** Employee use-surface DTO. Never emit credential refs or governance status. */
+function projectEmployeeAccess(value: unknown): "read" | "write" {
+  return String(value || "") === "read" ? "read" : "write";
+}
+
+function connectorEmployee(row: unknown): Json {
+  const value = row as Row;
+  return {
+    id: String(value.id || ""),
+    label: String(value.label || value.id || ""),
+    access: projectEmployeeAccess(value.access),
+  };
+}
+
 function roles(value: unknown): string[] {
   const allowed = new Set(["employee", "admin"]);
   const values = Array.isArray(value) ? value.map(String) : [];
@@ -191,14 +205,16 @@ enterprise.get("/admin/connectors", (c) => {
 enterprise.get("/connectors", (c) => {
   const user = scopedUser();
   if (authDisabled() || (user && isAdmin(user))) {
-    return c.json((getConn().prepare("SELECT * FROM connectors WHERE enabled=1 ORDER BY id").all()).map(connectorPublic));
+    return c.json((getConn().prepare(
+      "SELECT id,label FROM connectors WHERE enabled=1 ORDER BY id",
+    ).all()).map((row) => connectorEmployee({ ...(row as Row), access: "write" })));
   }
   if (!user) throw new HttpFail(401, "authentication required");
   return c.json((getConn().prepare(
-    `SELECT c.*,g.access FROM connectors c
+    `SELECT c.id,c.label,g.access FROM connectors c
       JOIN user_connector_grants g ON g.connector_id=c.id
      WHERE g.user_id=? AND c.enabled=1 ORDER BY c.id`,
-  ).all(user.id)).map(connectorPublic));
+  ).all(user.id)).map(connectorEmployee));
 });
 
 enterprise.post("/admin/connectors", async (c) => {

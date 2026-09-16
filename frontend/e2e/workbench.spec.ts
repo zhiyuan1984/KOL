@@ -3187,12 +3187,75 @@ test("employee connector use surface is independent of admin hub", async ({ page
   await expect(page.locator("body")).not.toContainText("Starry KOL MCP");
   await expect(page.locator("body")).not.toContainText("LIVE");
   await expect(page.locator("body")).not.toContainText("Codex");
+  await expect(page.locator('a[href="/admin/connectors"], a[href^="/admin/connectors/"]')).toHaveCount(0);
+  const bindCta = page.locator("[data-connector-use-bind]").first();
+  if (await bindCta.count()) {
+    await expect(bindCta).toHaveAttribute("href", /\/settings\?tab=starry&from=connectors&connector=/);
+  }
   await page.locator("[data-connector-use-bind-hint] a").click();
   await expect(page).toHaveURL(/\/settings\?tab=starry/);
+  await expect(page).toHaveURL(/from=connectors/);
   await expect(page.locator("[data-starry-bind]")).toBeVisible();
+  await expect(page.locator("[data-connectors-return]")).toHaveText("返回连接器");
+  await page.locator("[data-connectors-return] a").click();
+  await expect(page).toHaveURL(/\/connectors$/);
+  await expect(page.locator("[data-connector-use]")).toBeVisible();
   await page.goto("/admin/connectors");
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator("[data-admin-page='connectors']")).toHaveCount(0);
+});
+
+test("employee connector use shows expired badge and returns from settings", async ({ page }) => {
+  await page.route("**/api/connectors", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        { id: "starrykol", label: "红人库与跟进邮箱", access: "read" },
+        { id: "enterprise_mail", label: "品牌邮箱", access: "write" },
+      ]),
+    });
+  });
+  await page.route("**/api/me/starry-binding", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        bound: true,
+        status: "expired",
+        mailbox_email: "larry.zhao@amperetime.com",
+      }),
+    });
+  });
+  await page.goto("/connectors");
+  const expired = page.locator('[data-connector-use-row="starrykol"]');
+  await expect(expired).toBeVisible();
+  await expect(expired.locator("[data-status='expired']")).toHaveText("已过期");
+  await expect(expired.locator("[data-connector-use-access='read']")).toHaveText("只读");
+  await expect(expired.locator("[data-connector-use-read-hint]")).toHaveText("不能外发");
+  await expect(expired.locator("[data-connector-use-bind]")).toHaveAttribute(
+    "href",
+    "/settings?tab=starry&from=connectors&connector=starrykol",
+  );
+  await expect(page.locator('[data-connector-use-row="enterprise_mail"] [data-status]')).toHaveText("可用");
+  await expect(page.locator('[data-connector-use-row="enterprise_mail"] [data-connector-use-access]')).toHaveCount(0);
+  await expect(page.locator("[data-connector-use]")).not.toContainText("admin");
+  await expect(page.locator("[data-connector-use]")).not.toContainText("LIVE");
+  await expired.locator("[data-connector-use-bind]").click();
+  await expect(page).toHaveURL(/\/settings\?tab=starry&from=connectors&connector=starrykol/);
+  await expect(page.locator("[data-connectors-return] a")).toHaveAttribute("href", "/connectors");
+  await page.locator("[data-connectors-return] a").click();
+  await expect(page).toHaveURL(/\/connectors$/);
+  await expect(page.locator("[data-connector-use]")).toBeVisible();
+  await expect(page.locator('[data-connector-use-row="starrykol"] [data-status="expired"]')).toHaveText("已过期");
 });
 
 test("employee connector use retries after load failure", async ({ page }) => {
