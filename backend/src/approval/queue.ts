@@ -207,13 +207,19 @@ function receiptProjection(approval: Row) {
     else if (sent === true) external = "succeeded";
     else external = "pending_check";
   }
+  const externalLabel = {
+    succeeded: "外部回执成功",
+    failed: "外部回执失败",
+    pending_check: "待核对",
+    none: "无外部回执",
+  } as const;
   return {
     decision: decided,
     decision_label: decided === "approved" ? "已批准" : decided === "rejected" ? "已驳回" : "尚未决定",
     gateway: gateway,
     gateway_label: gateway === "accepted" ? "网关已接受" : "网关未接受",
     external,
-    external_label: external === "succeeded" ? "外部回执成功" : external === "failed" ? "外部回执失败" : external === "pending_check" ? "待核对" : "无外部回执",
+    external_label: externalLabel[external],
   };
 }
 

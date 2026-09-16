@@ -14,6 +14,7 @@ import {
   createReceipt,
   createWorkApproval,
   decide,
+  decideReceipt,
   getApproval,
   KeyError,
   listApprovals,
@@ -236,6 +237,14 @@ approvals.post("/approvals/:aid/decide", async (c) => {
   if (!approval) throw new HttpFail(404, "Not Found");
   const expectedVersion = requireExpectedVersion(body.expected_version);
   const idempotencyKey = requireIdempotencyKey(body.idempotency_key);
+  const replayed = decideReceipt(c.req.param("aid"), idempotencyKey);
+  if (replayed) {
+    if (!authDisabled()) {
+      requireConnector("wecom", "read");
+      requireVisible(approval);
+    }
+    return c.json(enrich({ ...getApproval(c.req.param("aid")), ...replayed, replayed: true } as Row));
+  }
   let actor = body.actor;
   if (!authDisabled()) {
     requireConnector("wecom", "write");

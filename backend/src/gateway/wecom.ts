@@ -255,7 +255,7 @@ export type DecideGate = {
   idempotency_key: string;
 };
 
-function decideReceipt(aid: string, key: string): Json | null {
+export function decideReceipt(aid: string, key: string): Json | null {
   const row = getConn().prepare(
     "SELECT result_json FROM approval_idempotency WHERE action = 'decide' AND approval_id = ? AND idempotency_key = ?",
   ).get(aid, key) as { result_json: string } | undefined;
