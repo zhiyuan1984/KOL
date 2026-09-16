@@ -4,7 +4,7 @@
 
 给 Codex 下达任务时，可以直接要求：“先按 `docs/LAW-MAP.md` 的 A–K 定位法律层，再按 `docs/README.md` 加载所需规范，再实施和验证。”
 
-`references/` 默认只用于研究和追溯。例外：`references/openai-style.md` 是默认观感 mood/spec；与 MASTER 审美冲突时 OpenAI 胜，须和解 MASTER（token hex 不进 `design.md`）。ADR 只回答「为什么」，不能覆盖现行契约。
+`references/` 默认只用于研究和追溯。例外：`references/openai-style.md` 是默认观感 mood/spec；quiet/white/hairline/capsule 冲突时 OpenAI 胜，须和解 MASTER。主填充是产品粉红（hex 只住 MASTER，不进 `design.md`）。ADR 只回答「为什么」，不能覆盖现行契约。
 
 ## 权威顺序 A–K
 
@@ -18,7 +18,7 @@
 | **F** 业务动作 | [`specs/FS-*`](../specs/)、[`policies/`](../policies/)、[`03`](03-prd-and-functional-spec.md)、[`05`](05-agent-workflow-skill-policy.md)、[`12`](12-kol-agent.md) | 可开发动作与闸门 |
 | **G** 交互原则 | [`specs/UX-EMPLOYEE.md`](../specs/UX-EMPLOYEE.md) | 员工 UX；门禁只认 `SEND_NE_STAGE`、`L3_CONFIRM` |
 | **H** IA 约束 | [`ia-information-architecture.md`](ia-information-architecture.md) | 导航 / 簇 / 谁答哪一问（一页一问、使用 ≠ 治理） |
-| **I** UI 设计 | [`design.md`](design.md) | 页面视觉法；视觉链 CONSTITUTION → ui-ux-pro-max → design.md → MASTER；默认观感 OpenAI-quiet（冲突时 OpenAI 胜）；**token 仍是** [`MASTER.md`](design-system/kol-workbench/MASTER.md) |
+| **I** UI 设计 | [`design.md`](design.md) | 页面视觉法；视觉链 CONSTITUTION → ui-ux-pro-max → design.md → MASTER；默认观感 OpenAI-quiet（mood 冲突时 OpenAI 胜；主填充 = 产品粉红）；**token 仍是** [`MASTER.md`](design-system/kol-workbench/MASTER.md) |
 | **J** 技术宪法 | [`technical-constitution.md`](technical-constitution.md) | Host / Codex / MCP / Gateway / 仓库边界 |
 | **K** 集成 / 物理 | [`07`](07-mcp-data-contract.md)、[`../schemas/`](../schemas/)、物理 MCP 目录 | 真实工具、schema、接口漂移 |
 | **ADR** | [`DECISIONS.md`](DECISIONS.md) | 只追溯决策；不覆盖 A–K |
@@ -35,8 +35,8 @@ B CONSTITUTION.md
 → F 对应 FS（如有）+ G UX-EMPLOYEE 硬不变量
 → H ia-information-architecture.md（导航 / 一页一问 / 使用≠治理）
 → ui-ux-pro-max（外观 UIUX 必经分析；OpenAI 对齐）
-→ I design.md（视觉入口，禁止 hex）→ MASTER（冲突时和解到 OpenAI）→ pages/<当前页>.md
-→ references/openai-style.md（mood/spec；与 MASTER 审美冲突时胜出）
+→ I design.md（视觉入口，禁止 hex）→ MASTER（mood 和解到 OpenAI；主填充和解到产品粉红）→ pages/<当前页>.md
+→ references/openai-style.md（mood/spec；quiet/white/hairline/capsule 冲突时胜出；黑钮不是产品 CTA 法）
 → 按 UX 硬不变量、视口和无障碍验证
 ```
 
@@ -81,7 +81,7 @@ B 中相关边界
 | 可开发动作与闸门 | F | FS、Policy |
 | 可执行交互与发布验收 | G | `UX-EMPLOYEE.md`（派生自 B §4–5） |
 | 导航 / 簇 / 页面只答一问 | H | `ia-information-architecture.md`；配套套件仍在 C `org-permissions.md` |
-| 页面视觉与布局 | I | 视觉链 CONSTITUTION → ui-ux-pro-max → `design.md` → `MASTER.md`；默认观感 OpenAI-quiet（冲突时 OpenAI 胜；主 CTA = 黑 / Obsidian 实底） |
+| 页面视觉与布局 | I | 视觉链 CONSTITUTION → ui-ux-pro-max → `design.md` → `MASTER.md`；默认观感 OpenAI-quiet（mood 冲突时 OpenAI 胜；~~主 CTA = 黑 / Obsidian 实底~~ **修订：** 主填充 = 产品粉红，hex 只住 MASTER） |
 | Host / 内核边界 | J | `technical-constitution.md` |
 | 真实 MCP 与 IO | K | `07`、`schemas/`、物理目录 |
 
@@ -92,9 +92,9 @@ B 中相关边界
 | 哪些面是一等能力、KOL 是否等于平台壳 | B `CONSTITUTION.md` §4.1–4.2（ADR-023） |
 | Host / Codex / MCP / Gateway / 仓库边界 | J `technical-constitution.md`；细则 `06` / `07` / `14` |
 | 跨页面 IA（一页一问、导航密度、使用 ≠ 治理） | H `ia-information-architecture.md`；配套套件仍在 C `org-permissions.md` |
-| 视觉入口 / token | I `CONSTITUTION → ui-ux-pro-max → design.md → MASTER`（禁止在 `design.md` 复制 hex）；默认观感 OpenAI-quiet，冲突时 OpenAI 胜 |
+| 视觉入口 / token | I `CONSTITUTION → ui-ux-pro-max → design.md → MASTER`（禁止在 `design.md` 复制 hex）；默认观感 OpenAI-quiet，mood 冲突时 OpenAI 胜；主填充 = 产品粉红 |
 | 使用 ≠ 治理 | H `ia-information-architecture.md`、C `org-permissions.md`、ADR-013 |
-| KOL 试点域（Pipeline、AI发现、我跟进的红人、报价邮件） | B §4.2、F `12-kol-agent.md`。Pipeline 页可深链 / CTA，不是必挂侧栏。「我跟进的红人」= 对象跟进面，不是第二套待办、不是 15 段主筛（ADR-030） |
+| KOL 试点域（Pipeline、AI发现、我跟进的红人、报价邮件） | B §4.2、F `12-kol-agent.md`。Pipeline 页可深链 / CTA，不是必挂侧栏。「我跟进的红人」= 对象跟进面，不是第二套待办、不是 15 段主筛（ADR-030）；表面可为助理结果（ADR-032） |
 | KOL 产品阶段边（15 + exception；人可跨段/回退） | E `business-rules/stage-transitions.md`（ADR-027）。Starry hop ≠ 产品 |
 
 ## 编号文件（次要别名）
@@ -115,7 +115,7 @@ B 中相关边界
 
 - `SPEC-TEMPLATE.md`：功能规格模板。
 - `EVAL-TEMPLATE.md`：Agent 评价样例模板。
-- `DECISIONS.md`：ADR 变更日志（近期：ADR-031 MASTER 与 OpenAI 冲突时 OpenAI 胜、ui-ux-pro-max 进入强制视觉链；ADR-030 跟进面=对象管理不是任务状态导航；ADR-029 OpenAI-quiet 默认观感（主按钮蓝锁已被 ADR-031 修订）；ADR-028 C/D 单一正文；ADR-027 产品阶段图并废止 ADR-011；ADR-026 法律层 A–K；ADR-025 删除 evidence/04/19；ADR-024 删除过细 UX-KOL）。
+- `DECISIONS.md`：ADR 变更日志（近期：ADR-032 助理优先；ADR-031 修订主填充为产品粉红、mood 仍 OpenAI 胜；ADR-030 跟进面=对象管理且可表现为助理结果；ADR-029 OpenAI-quiet 默认观感（主按钮蓝锁 / 黑锁均已修订）；ADR-028 C/D 单一正文；ADR-027 产品阶段图并废止 ADR-011；ADR-026 法律层 A–K；ADR-025 删除 evidence/04/19；ADR-024 删除过细 UX-KOL）。
 - `business-rules/stage-transitions.md`：KOL 试点产品阶段图（15 + `exception`）。Starry hop 限制见 `07`，不是产品边。
 
 历史重复规范已删除；追溯使用 Git 历史。业务规则只在 E / F 的 canonical 位置维护；物理接口只在 K 维护。任何冲突必须写 ADR 并更新追踪矩阵。

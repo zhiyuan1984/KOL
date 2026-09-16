@@ -9,7 +9,7 @@
 ## 权威顺序（高 → 低）
 
 1. `docs/CONSTITUTION.md`（§4.1–4.3；§5 L1–L3；发送 ≠ 推进阶段；表面职责）
-2. ADR-023 / ADR-015 / ADR-030（若仍在 `DECISIONS.md`）
+2. ADR-023 / ADR-015 / ADR-030 / ADR-032（若仍在 `DECISIONS.md`）
 3. `docs/ia-information-architecture.md`（IA：一页一问 / 导航密度 / 使用 ≠ 治理原则）
 4. `docs/org-permissions.md`（管理端配套套件细则）
 5. `docs/design.md`（视觉入口）→ `docs/design-system/kol-workbench/MASTER.md`（token only）
@@ -55,7 +55,7 @@ And 拒绝必须填写原因
 
 ## Home 与 KOL 试点表面（§4.2 派生，一段）
 
-宪法 §4.1–4.3：Home「今日任务 / 我的待办」+ Chat 是平台任务脊柱；Home「AI发现」「我跟进的红人」与 Pipeline 是 KOL 试点特化，不是中台壳。
+宪法 §4.1–4.3：Home「今日任务 / 我的待办」+ Chat 是平台任务脊柱；Home「AI发现」「我跟进的红人」与 Pipeline 是 KOL 试点特化，不是中台壳。员工表面唯一交互范式是助理优先（ADR-032）：用户说意图 → 助理组织对象 → 优先卡 / 折叠分组 → 下一步。不是第二套会话，也不是列表为主 + AI 叠加。
 
 KOL 试点 Home 模式名（只点名，不立法微 IA）：
 
@@ -63,13 +63,17 @@ KOL 试点 Home 模式名（只点名，不立法微 IA）：
 今日任务 | 我的待办 | AI发现 | 我跟进的红人
 ```
 
-前两项是平台任务；后两项是试点挂件。「我跟进的红人」是 Collaboration 对象跟进面，不是第二套 Pipeline 正式资产板，也不是第二套今日任务/我的待办。Pipeline **页**可深链或经产品内 CTA 到达，不要求出现在默认侧栏，也不得复制 Home 待办 IA。对象面主筛/分组不在本契约立法。
+前两项是平台任务；后两项是试点挂件。「我跟进的红人」是 Collaboration 对象跟进面，不是第二套 Pipeline 正式资产板，也不是第二套今日任务/我的待办。对象管理可以表现为助理结果（会话脊柱 + 对象卡）；Composer 是页控件。「Home ≠ Chat」只禁止再做一套带独立任务脊柱的完整 Chat 工作台，不禁止该模式的助理线程 UX。Pipeline **页**可深链或经产品内 CTA 到达，不要求出现在默认侧栏，也不得复制 Home 待办 IA。对象面**耐久**主筛/分组不在本契约立法。优先跟进 / 等待 / 拒绝只许作为一次回答内的情境分区，不是耐久 Tab。
+
+仍禁止：助理话语自动写 `stage_code`；同一视口多个实底主 CTA；只用颜色表达状态；未定义的「处理」在无 L3 时写入 `REJECTED`；把任务状态 owner tabs 复活成主 IA。准备回复 = L2；阶段进入 = L3。
 
 ```gherkin
 Given 员工打开 Home「我跟进的红人」
 Then 该表面以已跟进对象为组织单位
 And 主信息架构既不是任务状态导航，也不是 15 段正式阶段板
+And 对象管理可以表现为助理结果而不是 ERP 列表
 And Pipeline 不是第二套 Home，也不是必挂侧栏
+And 助理话语不得自动改写 stage_code
 ```
 
 ## 员工禁词（原则）

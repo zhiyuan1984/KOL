@@ -2,7 +2,7 @@
 
 > 所有产品与 UI 工作必须读取。本产品是**智能体中台 / Agent middle platform** 工作台，不是 KOL 专用壳。本文件只保存跨页面、长期稳定且违反后会造成产品错误的规则；细节由 `CONTEXT-MANIFEST.md` 按任务加载。权威分层见 [`LAW-MAP.md`](LAW-MAP.md)（A–K）。已删的 `04` / `19` 不再承担过程图 / IA / 技术法；分别见 E [`business-rules/stage-transitions.md`](business-rules/stage-transitions.md)、H [`ia-information-architecture.md`](ia-information-architecture.md)、J [`technical-constitution.md`](technical-constitution.md)。
 >
-> `design-system/kol-workbench/` 是现行视觉皮肤的路径名（KOL 试点皮肤），不是产品身份；不要把该目录名读成「本平台只做 KOL」。一等能力清单与试点元条款见 §4.1–4.2（ADR-023，用户锁定 2026-09-14）。跟进面对象原则见 §4.2（ADR-030，用户锁定 2026-09-15）。
+> `design-system/kol-workbench/` 是现行视觉皮肤的路径名（KOL 试点皮肤），不是产品身份；不要把该目录名读成「本平台只做 KOL」。一等能力清单与试点元条款见 §4.1–4.2（ADR-023，用户锁定 2026-09-14）。跟进面对象原则见 §4.2（ADR-030，用户锁定 2026-09-15；2026-09-16 修订：对象管理可表现为助理结果）。员工交互范式见 §3 / ADR-032（助理优先）。填充主 CTA 见 ADR-031（产品粉红；hex 只住 MASTER）。
 
 ## 1. 按领域裁决
 
@@ -15,7 +15,7 @@
 | 合法转移 / 过程图 | E [`business-rules/stage-transitions.md`](business-rules/stage-transitions.md)（ADR-027） |
 | 可执行交互与发布验收 | G：本宪法 §4–5、派生的 `specs/UX-EMPLOYEE.md`、`specs/ux-traceability.json` |
 | 跨页面 IA（一页一问、导航密度、使用 ≠ 治理原则） | H [`ia-information-architecture.md`](ia-information-architecture.md)（不得改写本宪法 §4） |
-| 全局视觉 token | I 视觉链 **CONSTITUTION → ui-ux-pro-max → [`design.md`](design.md) → MASTER**。默认观感 = OpenAI-quiet（[`references/openai-style.md`](references/openai-style.md) 为 mood/spec）。MASTER 与 OpenAI 审美冲突时 **OpenAI 胜**，须和解 MASTER（ADR-031）。§4 / L1–L3 / SEND≠STAGE 仍高于审美工具 |
+| 全局视觉 token | I 视觉链 **CONSTITUTION → ui-ux-pro-max → [`design.md`](design.md) → MASTER**。默认观感 = OpenAI-quiet（[`references/openai-style.md`](references/openai-style.md) 为 mood/spec）。MASTER 与 OpenAI 在安静白底 / 发丝边 / 胶囊 / 排版上冲突时 **OpenAI 胜**；填充主 CTA 法律目标是产品粉红实底 + 白字（ADR-031 修订，hex 只住 MASTER），不是 ~~Obsidian 黑~~。§4 / L1–L3 / SEND≠STAGE 仍高于审美工具 |
 | 单页布局与状态差异 | `design-system/kol-workbench/pages/<page>.md` |
 | Host、Codex、MCP、Gateway、TypeScript 仓库边界 | J [`technical-constitution.md`](technical-constitution.md) |
 
@@ -41,7 +41,7 @@
 
 ## 3. 跨页面硬规则
 
-- 这是 Agent 工作台。主界面围绕任务、对话、结果和正式资产组织，不以后台配置表单替代工作流。
+- 这是 Agent 工作台。员工交互的**唯一**范式是助理优先（ADR-032）：用户说出意图 → 助理组织对象 → 优先卡 / 折叠分组 → 下一步动作。这不是「第二套会话」，也不是「列表为主 + AI 叠加」。主界面围绕任务、对话、结果和正式资产组织，不以后台配置表单替代工作流。
 - 同一任务必须维持连续上下文和可追溯关系；允许子任务、分支执行和独立审批，但必须能返回原任务。不得用“下一步教学卡”迫使用户重新描述上下文。
 - `发送`、`暂存`、`导入`、`解密`、`删除`是不同副作用，必须使用独立动作和状态，不得相互暗示已经完成。
 - 真实等待必须显示原因、阶段与恢复入口；不得伪造完成、联系人、邮箱、结果或进度。
@@ -52,7 +52,7 @@
 
 ## 4. 表面职责
 
-跨页面 IA 约束见 `docs/ia-information-architecture.md`（class H，正式、非可选）。视觉入口见 `docs/design.md`（class I）；token 源仍是 `design-system/kol-workbench/MASTER.md`。外观 UIUX 的强制加载链是 **CONSTITUTION → ui-ux-pro-max → design.md → MASTER**。默认观感是 OpenAI-quiet；与 MASTER 审美冲突时 OpenAI 胜（ADR-031）。L3 确认与真实等待诚实（§5 / §3）不因观感放松。
+跨页面 IA 约束见 `docs/ia-information-architecture.md`（class H，正式、非可选）。视觉入口见 `docs/design.md`（class I）；token 源仍是 `design-system/kol-workbench/MASTER.md`。外观 UIUX 的强制加载链是 **CONSTITUTION → ui-ux-pro-max → design.md → MASTER**。默认观感是 OpenAI-quiet；与 MASTER 在安静白底 / 发丝边 / 胶囊 / 排版上冲突时 OpenAI 胜。填充主 CTA 是产品粉红实底（ADR-031 修订；hex 只住 MASTER），不是 Obsidian 黑。L3 确认与真实等待诚实（§5 / §3）不因观感放松。同一视口只许 0–1 个实底主 CTA。
 
 ### 4.1 一等能力清单（锁定，2026-09-14）
 
@@ -91,14 +91,18 @@ KOL Agent 只是本中台上的**第一个业务实现 / 试点**。下列是 KO
 
 KOL 试点 Home 模式名（只点名）：今日任务 | 我的待办 | AI发现 | 我跟进的红人。前两项是平台任务脊柱；后两项是试点特化。
 
-Home 上的业务对象跟进面（KOL 试点实例名：我跟进的红人）以已跟进对象为组织单位，回答「我在跟哪些对象、对象事实是什么、能对对象做什么」。它不得复制今日任务/我的待办的任务状态导航，也不得复制 Pipeline 的正式阶段主导航。任务态与正式阶段推进分属任务面与 Pipeline（及 L3）；跟进面可展示相关事实与入口，但不以它们为主信息架构。对象面的主筛/分组完全交给实现，本宪法不立法芯片文案、Tab 目录或筛选项清单。Home ≠ Pipeline 不变。
+Home 上的业务对象跟进面（KOL 试点实例名：我跟进的红人）以已跟进对象为组织单位，回答「我在跟哪些对象、对象事实是什么、能对对象做什么」。对象管理可以表现为助理结果（会话脊柱 + 嵌入对象卡），不要求做成 ERP 列表页。表面范式是助理原生：自然语言 + Composer 作页控件 + 结果卡（ADR-032）。「优先跟进 / 等待 / 拒绝」一类分组只许作为**一次回答内的情境分区**，不得做成耐久的任务状态导航 Tab。
+
+它不得复制今日任务/我的待办的任务状态导航（责任桶 / 待办状态桶作主 IA），也不得复制 Pipeline 的正式阶段主导航 / 15 段主筛。任务态与正式阶段推进分属任务面与 Pipeline（及 L3）；跟进面可展示相关事实与入口，但不以它们为主信息架构。对象面的**耐久**主筛/分组完全交给实现，本宪法不立法芯片文案、Tab 目录或筛选项清单。Home ≠ Pipeline 不变。
+
+「Home ≠ Chat」只禁止再做一套带独立任务脊柱的完整 Chat 工作台；当某一 Home 模式的问题由助理回答时，**不禁止**该模式使用助理线程 UX。助理话语不得自动写入 `stage_code`。SEND ≠ 推进阶段与 L3 确认不变。未定义的「处理」不得在无 L3 时写入 `REJECTED`。状态不能只靠颜色表达。
 
 ### 4.3 页面只答一问
 
 | 类型 | 表面 | 唯一职责 | 禁止混入 |
 |---|---|---|---|
-| 员工核心工作表面 | Home | “现在做什么”。平台模式：今日任务、我的待办。KOL 试点另挂 AI 发现、我跟进的红人（跟进面=已跟进对象管理，§4.2） | 正式 Pipeline 资产管理、Admin 治理；跟进面不得复制待办任务状态导航，也不得以 15 正式阶段作主 IA |
-| 员工核心工作表面 | Chat | 完成一个具体任务并产出可确认结果 | 全局运营看板、后台配置中心 |
+| 员工核心工作表面 | Home | “现在做什么”。平台模式：今日任务、我的待办。KOL 试点另挂 AI 发现、我跟进的红人（跟进面=已跟进对象管理，表面可为助理结果，§4.2 / ADR-032） | 正式 Pipeline 资产管理、Admin 治理；跟进面不得复制待办任务状态导航，也不得以 15 正式阶段作主 IA。禁止再做一套带独立任务脊柱的完整 Chat 工作台；不禁止本模式的助理线程 UX |
+| 员工核心工作表面 | Chat | 完成一个具体任务并产出可确认结果 | 全局运营看板、后台配置中心；不得被 Home 复制成第二套会话开工台 |
 | KOL 试点工作表面 | Pipeline | 管理进入正式生命周期的合作资产、阶段与推进动作 | Home 模式、待办入口、探索式搜索 |
 | 治理域 | Admin | 人员与权限、连接器治理、审计/Trace | 员工日常任务、业务流水线操作 |
 | 一等能力面 | §4.1 清单（含数字员工、技能、知识库、连接器使用、审批、考试、定时、设置等） | 各答本面的问题；与任务/数字员工解耦 | 复制 Home、Chat、Pipeline 或 Admin 的信息架构；降为 Agent 设置或任务 Tab；把「支撑」读成二等 |
