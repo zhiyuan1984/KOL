@@ -67,8 +67,11 @@ test("desktop employee shell computed 264 rail and compact type", async ({ page 
   await expect(page.locator("[data-home] h1")).toBeVisible();
 
   const beforeLifecycle = await collectShellMetrics(page);
+  const sidebarRect = await page.locator(".sidebar").evaluate((el) => el.getBoundingClientRect().width);
   expect(beforeLifecycle.workbenchFirstCol).toBe("264px");
   expect(beforeLifecycle.sidebarWidth).toBe("264px");
+  expect(sidebarRect).toBeGreaterThanOrEqual(263);
+  expect(sidebarRect).toBeLessThanOrEqual(265);
   expect(Math.round(beforeLifecycle.sidebarRect)).toBe(264);
   await expect(page.locator(".workbench")).toHaveAttribute("data-left-width", "264");
   expect(beforeLifecycle.body.fontFamily.startsWith("ui-sans-serif, system-ui, \"PingFang SC\", \"Noto Sans SC\"")).toBe(true);
@@ -86,6 +89,9 @@ test("desktop employee shell computed 264 rail and compact type", async ({ page 
   expect(beforeLifecycle.navActive.fontWeight).toBe(500);
   expect(beforeLifecycle.username.fontSize).toBe(13);
   expect(beforeLifecycle.username.fontWeight).toBe(400);
+  const composer = await typeOf(page, "[data-home] [data-composer-input]");
+  expect(composer.fontSize).toBeLessThanOrEqual(15);
+  expect(composer.fontWeight).toBeLessThanOrEqual(400);
 
   await page.locator('[data-home-mode="lifecycle"]').click();
   const conclusion = page.locator("[data-followed-agent-report] .page-conclusion");
