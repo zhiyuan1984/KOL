@@ -10,7 +10,7 @@
   --color-whisper: #0000000a;
   --color-primary: #C73B7A;
   --color-primary-hover: #A82F66;
-  --font-openai-sans: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", sans-serif;
+  --font-openai-sans: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
 
   --bg: var(--color-paper);
   --bg-elevated: var(--color-ash);
@@ -78,7 +78,7 @@
   --left-width: 264px;
   --page-gutter: clamp(16px, 2.2vw, 28px);
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --sans: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", sans-serif;
+  --sans: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", "Noto Sans CJK SC", "WenQuanYi Micro Hei", "Droid Sans Fallback", "Microsoft YaHei", sans-serif;
 
   /* MASTER Quick Start aliases — parallel names, existing --font-* / --space-* stay canonical */
   --text-caption: var(--font-xs);
@@ -489,21 +489,13 @@ summary:focus-visible,
 .status-dot.waiting_approval { background: var(--warning); animation: breath-dot 2.2s ease-in-out infinite; }
 
 .sidebar-foot {
-  margin-top: auto;
-  padding: 0;
-  border-top: 0;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #eee;
   display: flex;
   flex-direction: column;
   gap: 0;
   flex: 0 0 auto;
-}
-.sidebar-placeholders {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding-bottom: 8px;
-  margin-bottom: 8px;
-  border-bottom: 1px solid #eee;
 }
 .user-chip,
 .account-pedestal {

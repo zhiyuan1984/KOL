@@ -580,6 +580,36 @@ test("composer plus menu exposes projects, recent files, and published skills", 
   expect(bodies).toEqual([]);
 });
 
+test("employee shell keeps compact sidebar brand and icon-only top chrome", async ({ page }) => {
+  await page.goto("/");
+  await expectHomeChromeRow(page);
+  await expectEmployeeShell(page);
+  const title = await page.locator("[data-home] h1").evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { size: Number.parseFloat(cs.fontSize), weight: Number.parseFloat(cs.fontWeight) };
+  });
+  expect(title.size).toBeGreaterThanOrEqual(18);
+  expect(title.size).toBeLessThanOrEqual(20);
+  expect(title.weight).toBeLessThanOrEqual(600);
+  await page.locator('[data-home-mode="lifecycle"]').click();
+  await expect(page.locator("[data-followed-agent-report] .page-conclusion")).toBeVisible();
+  const conclusion = await page.locator("[data-followed-agent-report] .page-conclusion").evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { size: Number.parseFloat(cs.fontSize), weight: Number.parseFloat(cs.fontWeight) };
+  });
+  expect(conclusion.size).toBeGreaterThanOrEqual(18);
+  expect(conclusion.size).toBeLessThanOrEqual(20);
+  expect(conclusion.weight).toBeLessThanOrEqual(600);
+  await expect(page.locator("[data-home-chrome] [data-brand-lockup]")).toHaveCount(0);
+  await expect(page.locator(".composer")).toBeVisible();
+  const composer = await page.locator("[data-home] [data-composer] .composer").evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return Number.parseFloat(cs.borderTopLeftRadius);
+  });
+  expect(composer).toBeGreaterThanOrEqual(20);
+  expect(composer).toBeLessThanOrEqual(24);
+});
+
 test("home rec ask opens chat with grey bubble and draft on the right", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("aside .brand-name")).toHaveText("灵工 工作");

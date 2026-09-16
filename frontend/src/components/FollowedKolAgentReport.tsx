@@ -97,19 +97,34 @@ function DetailEntry({ card, index, busyId, onOpenDetail, onPrimary, onOpenMail,
         <Evidence card={card} onOpenMail={() => onOpenMail(card)} />
       </div>
       <div className="agent-report-actions" data-kol-band="cta">
-        <button
-          type="button"
-          className={"agent-report-action" + (primary === "confirm-stage" ? " agent-report-action-primary" : "")}
-          data-kol-primary-action={primary}
-          data-agent-draft-action={card.recommended_action.kind === "compose" ? "true" : undefined}
-          disabled={busyId === card.id}
-          onClick={runPrimary}
-        >
-          {busyId === card.id ? "处理中…" : actionLabel(card)}
-        </button>
-        <button type="button" className="agent-report-detail-link" data-open-kol-detail onClick={() => onOpenDetail(card)}>
-          查看详情
-        </button>
+        {actionLabel(card) === "查看详情" ? (
+          <button
+            type="button"
+            className="agent-report-detail-link"
+            data-kol-primary-action={primary}
+            data-open-kol-detail
+            disabled={busyId === card.id}
+            onClick={() => onOpenDetail(card)}
+          >
+            {busyId === card.id ? "处理中…" : "查看详情"}
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              className={"agent-report-action" + (primary === "confirm-stage" ? " agent-report-action-primary" : "")}
+              data-kol-primary-action={primary}
+              data-agent-draft-action={card.recommended_action.kind === "compose" ? "true" : undefined}
+              disabled={busyId === card.id}
+              onClick={runPrimary}
+            >
+              {busyId === card.id ? "处理中…" : actionLabel(card)}
+            </button>
+            <button type="button" className="agent-report-detail-link" data-open-kol-detail onClick={() => onOpenDetail(card)}>
+              查看详情
+            </button>
+          </>
+        )}
       </div>
     </article>
   );
