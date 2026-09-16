@@ -314,6 +314,17 @@ export function accountInitial(me?: { name?: string | null } | null): string {
   return accountDisplayName(me).slice(0, 1) || "我";
 }
 
+export function accountRoleLabel(me?: {
+  exam_passed?: boolean;
+  available_modes?: string[] | null;
+  roles?: string[] | null;
+  role?: string | null;
+} | null): string {
+  if (me?.exam_passed === false) return "待完成考试";
+  if (isAdminAccount(me)) return "管理员";
+  return roleLabel(me?.role) || "员工";
+}
+
 /** Sidebar account chip: who is signed in, not demo handle / exam jargon. */
 export function accountChipLabel(me?: {
   name?: string | null;
@@ -322,10 +333,7 @@ export function accountChipLabel(me?: {
   roles?: string[] | null;
   role?: string | null;
 } | null): string {
-  const name = accountDisplayName(me);
-  if (me?.exam_passed === false) return `${name} · 待完成考试`;
-  const admin = isAdminAccount(me);
-  return `${name} · ${admin ? "管理员" : (roleLabel(me?.role) || "员工")}`;
+  return `${accountDisplayName(me)} · ${accountRoleLabel(me)}`;
 }
 
 export function connectorStatusLabel(status?: string | null): string {

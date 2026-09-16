@@ -2,6 +2,7 @@ import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import { api, type Account, type SessionRow } from "../api";
 import { useAccount } from "../components/AuthGate";
+import BrandLockup from "../components/BrandLockup";
 import UserMenu from "../components/UserMenu";
 import { parseHomeMode } from "../home/modes";
 import { useViewMode } from "../viewMode";
@@ -107,8 +108,9 @@ export default function Workbench() {
       </div>
       <aside className={"sidebar" + (mobileOpen ? " mobile-open" : "")}>
         <div className="sidebar-head">
-          <NavLink to="/" className="brand-name" end>
-            <span className="sidebar-label">灵工 工作</span><span className="rail-logo" aria-hidden />
+          <NavLink to="/" className="sidebar-brand" data-sidebar-brand end>
+            <BrandLockup variant="sidebar" />
+            <span className="brand-name sidebar-label">灵工 工作</span>
           </NavLink>
           <button type="button" className="sidebar-search-btn collapse-toggle" onClick={toggleCollapsed} aria-label={collapsed ? "展开侧栏" : "收起侧栏"} title={collapsed ? "展开侧栏" : "收起侧栏"}>{collapsed ? "›" : "‹"}</button>
         </div>
@@ -190,29 +192,28 @@ export default function Workbench() {
             <Ico path="M10 13a5 5 0 0 0 7.1.4l1.5-1.5a5 5 0 1 0-7.1-7.1L10.3 6 M14 11a5 5 0 0 0-7.1-.4L5.4 12.1a5 5 0 1 0 7.1 7.1L13.7 18" />
             <span className="sidebar-label">连接器</span>
           </NavLink>
-          <div className="nav-link is-disabled" aria-disabled="true" data-nav-disabled="云盘">
-            <Ico path="M7 17h10a4 4 0 0 0 .4-8 5 5 0 0 0-9.6-1.2A3.5 3.5 0 0 0 7 17z" />
-            <span className="sidebar-label">云盘</span>
-            <span className="nav-tag">非本期</span>
-          </div>
-          <div className="nav-link is-disabled" aria-disabled="true" data-nav-disabled="手机遥控电脑">
-            <Ico path="M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z M10 6h4 M11 18h2" />
-            <span className="sidebar-label">手机遥控电脑</span>
-            <span className="nav-tag">非本期</span>
-          </div>
-        </nav>
-
-        <nav className="nav-group" aria-label="项目">
-          <div className="nav-link is-disabled" aria-disabled="true" data-nav-disabled="创建新项目">
-            <Ico path="M12 7v10 M7 12h10" />
-            <span className="sidebar-label">创建新项目</span>
-            <span className="nav-tag">非本期</span>
-          </div>
         </nav>
         </div>
         </div>
 
         <div className="sidebar-foot">
+          <nav className="sidebar-placeholders" aria-label="占位能力">
+            <div className="nav-link is-disabled" aria-disabled="true" data-nav-disabled="云盘">
+              <Ico path="M7 17h10a4 4 0 0 0 .4-8 5 5 0 0 0-9.6-1.2A3.5 3.5 0 0 0 7 17z" />
+              <span className="sidebar-label">云盘</span>
+              <span className="nav-tag">非本期</span>
+            </div>
+            <div className="nav-link is-disabled" aria-disabled="true" data-nav-disabled="手机遥控电脑">
+              <Ico path="M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z M10 6h4 M11 18h2" />
+              <span className="sidebar-label">手机遥控电脑</span>
+              <span className="nav-tag">非本期</span>
+            </div>
+            <div className="nav-link is-disabled" aria-disabled="true" data-nav-disabled="创建新项目">
+              <Ico path="M12 7v10 M7 12h10" />
+              <span className="sidebar-label">创建新项目</span>
+              <span className="nav-tag">非本期</span>
+            </div>
+          </nav>
           <UserMenu account={me} />
         </div>
       </aside>

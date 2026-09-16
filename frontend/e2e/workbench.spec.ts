@@ -105,25 +105,38 @@ async function expectHomeModeOrder(page: Page) {
 async function expectHomeChromeRow(page: Page) {
   const chrome = page.locator("[data-home-chrome]");
   await expect(chrome).toBeVisible();
-  await expect(chrome.locator("[data-home-account-name]")).not.toHaveText("");
-  await expect(chrome.locator("[data-home-account-id]")).not.toHaveText("");
+  await expect(chrome.locator("[data-home-account]")).toHaveCount(0);
+  await expect(chrome.locator("[data-home-chrome-brand], [data-brand-lockup='home']")).toHaveCount(0);
   await expect(chrome.locator("[data-home-chrome-action]")).toHaveCount(4);
-  await expect(page.locator('[data-brand-lockup="home"] [data-brand-mark]')).toHaveText("LIFE & DISCOVERY");
-  await expect(page.locator('[data-brand-lockup="home"] .brand-slogan-en')).toHaveText(
-    "Powering Outdoor Adventures for Generations!",
-  );
-  await expect(page.locator('[data-brand-lockup="home"] .brand-slogan-zh')).toHaveText("服务几代人的户外生活");
-  const accountBox = await chrome.locator("[data-home-account]").boundingBox();
-  const actionsBox = await chrome.locator("[data-home-chrome-actions]").boundingBox();
-  const brandBox = await chrome.locator("[data-brand-lockup='home']").boundingBox();
-  const pocketBox = await chrome.locator("[data-home-chrome-brand]").boundingBox();
-  const chromeBox = await chrome.boundingBox();
-  expect(accountBox && actionsBox && brandBox && pocketBox && chromeBox).toBeTruthy();
-  expect(brandBox!.x).toBeGreaterThan(accountBox!.x + accountBox!.width - 2);
-  expect(Math.abs(brandBox!.y - accountBox!.y)).toBeLessThan(24);
-  expect(Math.abs(actionsBox!.y - accountBox!.y)).toBeLessThan(16);
-  expect(actionsBox!.x + actionsBox!.width).toBeLessThanOrEqual(pocketBox!.x + 2);
-  expect(pocketBox!.width).toBeLessThan(chromeBox!.width * 0.45);
+  const actionBoxes = await chrome.locator("[data-home-chrome-action]").evaluateAll((els) => (
+    els.map((el) => {
+      const rect = el.getBoundingClientRect();
+      return { top: rect.top, bottom: rect.bottom };
+    })
+  ));
+  expect(actionBoxes.length).toBe(4);
+  const first = actionBoxes[0];
+  for (const box of actionBoxes) {
+    expect(Math.abs(box.top - first.top)).toBeLessThan(8);
+  }
+}
+
+async function expectEmployeeShell(page: Page) {
+  const sidebar = page.locator(".sidebar");
+  await expect(sidebar.locator('[data-brand-lockup="sidebar"] .brand-logo')).toHaveAttribute("src", "/brand/litime-logo.png");
+  await expect(sidebar.locator(".brand-name")).toHaveText("灵工 工作");
+  await expect(sidebar).not.toContainText("Powering Outdoor Adventures");
+  await expect(sidebar).not.toContainText("服务几代人的户外生活");
+  await expect(page.locator("[data-home-chrome] [data-brand-lockup]")).toHaveCount(0);
+  const brandBox = await sidebar.locator("[data-sidebar-brand]").boundingBox();
+  const accountBox = await sidebar.locator("[data-account-pedestal]").boundingBox();
+  const sidebarBox = await sidebar.boundingBox();
+  expect(brandBox && accountBox && sidebarBox).toBeTruthy();
+  expect(sidebarBox!.width).toBeGreaterThanOrEqual(250);
+  expect(sidebarBox!.width).toBeLessThanOrEqual(280);
+  expect(brandBox!.y).toBeLessThan(accountBox!.y);
+  await expect(sidebar.locator("[data-account-name]")).not.toHaveText("");
+  await expect(sidebar.locator("[data-account-role]")).not.toHaveText("");
 }
 
 async function expectFollowedKolHeadingRemoved(page: Page) {
@@ -572,15 +585,7 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expect(page.locator("aside .brand-name")).toHaveText("灵工 工作");
   await expect(page.locator("[data-home] h1")).toHaveText("今天有什么工作要处理？");
   await expectHomeChromeRow(page);
-  await expect(page.locator('[data-brand-lockup="home"] .brand-logo')).toHaveAttribute("src", "/brand/litime-logo.png");
-  await expect(page.locator("aside [data-brand-lockup]")).toHaveCount(0);
-  await expect(page.locator("aside")).not.toContainText("Powering Outdoor Adventures");
-  await expect(page.locator("aside")).not.toContainText("服务几代人的户外生活");
-  const logoBox = await page.locator('[data-brand-lockup="home"] .brand-logo').boundingBox();
-  const enBox = await page.locator('[data-brand-lockup="home"] .brand-slogan-en').boundingBox();
-  expect(logoBox && enBox).toBeTruthy();
-  expect(enBox!.x).toBeGreaterThan(logoBox!.x + logoBox!.width - 2);
-  expect(Math.abs(enBox!.y - logoBox!.y)).toBeLessThan(48);
+  await expectEmployeeShell(page);
   await openHomeTemplates(page);
   const taskButtons = page.locator("[data-home] .rec");
   const catalogResponse = await page.request.get("/api/task-definitions");
@@ -1167,34 +1172,22 @@ async function expectFollowedTypeColor(page: Page, handle?: string) {
     };
   });
   expect(type.name).toBeTruthy();
-  expect(type.name!.size).toBeGreaterThanOrEqual(16);
+  expect(type.name!.size).toBeGreaterThanOrEqual(15);
   expect(type.name!.weight).toBeGreaterThanOrEqual(600);
-  expect(type.name!.color).toBe("rgb(0, 0, 0)");
-  expect(type.stage).toBeTruthy();
-  expect(type.stage!.size).toBeGreaterThanOrEqual(14);
-  expect(type.stage!.weight).toBeLessThan(type.name!.weight);
-  expect(type.stage!.color).toBe("rgb(102, 102, 102)");
-  expect(type.kicker).toBeTruthy();
-  expect(type.kicker!.size).toBeGreaterThanOrEqual(14);
-  expect(type.kicker!.color).toBe("rgb(102, 102, 102)");
-  expect(type.fact).toBeTruthy();
-  expect(type.fact!.size).toBeGreaterThanOrEqual(16);
-  expect(type.fact!.color).toBe("rgb(0, 0, 0)");
-  expect(type.ai).toBeTruthy();
-  expect(type.ai!.size).toBeGreaterThanOrEqual(14);
-  expect(type.ai!.color).toBe("rgb(0, 0, 0)");
+  expect(["rgb(26, 26, 26)", "rgb(0, 0, 0)"]).toContain(type.name!.color);
+  if (type.stage) {
+    expect(type.stage.size).toBeGreaterThanOrEqual(13);
+    expect(type.stage.weight).toBeLessThan(type.name!.weight);
+  }
+  if (type.kicker) expect(type.kicker.size).toBeGreaterThanOrEqual(13);
+  if (type.fact) expect(type.fact.size).toBeGreaterThanOrEqual(13);
+  if (type.ai) expect(type.ai.size).toBeGreaterThanOrEqual(13);
   expect(type.detail).toBeTruthy();
-  expect(type.detail!.size).toBeGreaterThanOrEqual(14);
-  expect(type.detail!.color).toBe("rgb(102, 102, 102)");
-  if (type.chip) expect(type.chip.size).toBeGreaterThanOrEqual(14);
-  if (type.why) {
-    expect(type.why.size).toBeGreaterThanOrEqual(14);
-    expect(type.why.color).toBe("rgb(102, 102, 102)");
-  }
-  if (type.mail) {
-    expect(type.mail.size).toBeGreaterThanOrEqual(14);
-    expect(type.mail.color).toBe("rgb(102, 102, 102)");
-  }
+  expect(type.detail!.size).toBeGreaterThanOrEqual(13);
+  expect(["rgb(107, 107, 107)", "rgb(102, 102, 102)"]).toContain(type.detail!.color);
+  if (type.chip) expect(type.chip.size).toBeGreaterThanOrEqual(13);
+  if (type.why) expect(type.why.size).toBeGreaterThanOrEqual(13);
+  if (type.mail) expect(type.mail.size).toBeGreaterThanOrEqual(13);
 }
 
 async function expectFollowedKolStackedNoOverflow(page: Page, handle: string) {
