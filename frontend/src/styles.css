@@ -1984,7 +1984,7 @@ summary:focus-visible,
   background: var(--bg);
   color: var(--text);
   font: inherit;
-  font-size: var(--font-sm);
+  font-size: 14px;
   line-height: var(--leading-tight);
   padding: 6px 10px;
   box-sizing: border-box;
