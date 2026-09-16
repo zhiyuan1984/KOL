@@ -83,6 +83,23 @@ type FollowedKol = FollowedKolRecord;
 const openStatuses = new Set(["pending", "waiting", "running", "queued", "in_progress", "failed"]);
 const closedStatuses = new Set(["completed", "done", "cancelled"]);
 const HOME_FOLD_LIMIT = 6;
+const FOLLOWED_STAGE_LABELS: Record<string, string> = {
+  INITIAL_CONTACT: "初步接触",
+  INTERESTED: "有意向",
+  EVALUATING: "合作评估",
+  QUOTE_PENDING: "报价",
+  NEGOTIATING: "商务谈判",
+  PLAN_PENDING: "方案",
+  CONTRACTING: "合同签署",
+  SAMPLE_PENDING: "寄样",
+  SHIPPED: "已发货",
+  TESTING: "测试中",
+  CONTENT_PLANNING: "内容策划",
+  CONTENT_REVIEW: "内容审核",
+  PUBLISH_PENDING: "待发布",
+  PUBLISHED: "已发布",
+  SETTLING: "结算",
+};
 const HOME_TODO_BUCKETS = [
   ["overdue", "逾期"],
   ["today", "今天到期"],
@@ -1179,7 +1196,7 @@ export default function Home() {
       { code: "all", label: "全部", count: kolCards.length },
       ...MAIN_STAGE_TABS.map((stage) => ({
         code: stage.code,
-        label: stage.label,
+        label: FOLLOWED_STAGE_LABELS[stage.code] || stage.label,
         count: regularCards.filter((card) => card.current_state.stage_code === stage.code).length,
       })),
       { code: "exception", label: "异常", count: kolCards.filter(isException).length },
@@ -1487,7 +1504,7 @@ export default function Home() {
 
           {mode === "lifecycle" ? (
             <section className="home-mode-pane recommend-work followed-kol-pane" data-home-pane="lifecycle" data-lifecycle-overview>
-              <div className="followed-kol-column" data-followed-kol-column data-followed-decision-max="1180">
+              <div className="followed-kol-column" data-followed-kol-column data-followed-decision-max="full">
               <div className="home-pane-sticky">
               <div className="followed-object-toolbar" data-followed-object-toolbar>
                 <label className="followed-object-search">

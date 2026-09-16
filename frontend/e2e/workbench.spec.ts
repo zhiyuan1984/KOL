@@ -163,9 +163,9 @@ async function expectFollowedKolListAlignsWithToolbar(page: Page) {
   expect(Math.abs(metrics.card.left - metrics.toolbar.left)).toBeLessThan(4);
   expect(Math.abs(metrics.card.right - metrics.toolbar.right)).toBeLessThan(4);
   expect(metrics.card.width).toBeGreaterThan(320);
-  expect(metrics.card.width).toBeLessThanOrEqual(1180);
+  expect(metrics.card.width).toBeLessThanOrEqual(metrics.column.width);
   if (metrics.column.width > 1000) {
-    expect(metrics.card.width).toBeLessThan(metrics.column.width - 24);
+    expect(Math.abs(metrics.card.width - metrics.column.width)).toBeLessThan(24);
     expect(metrics.toolbar.width).toBeLessThan(metrics.pane.width - 24);
   }
 }
@@ -252,13 +252,8 @@ async function expectFollowedKolCardWraps(page: Page, handle?: string) {
   expect(layout.actionCols.split(" ").filter(Boolean)).toHaveLength(1);
   expect(layout.factBelowIdentity).toBe(true);
   expect(layout.stageBesideName).toBe(true);
-  if (layout.cardWidth >= 860) {
-    expect(layout.splitCols.split(" ").filter(Boolean).length).toBeGreaterThanOrEqual(2);
-    expect(layout.factAiSideBySide).toBe(true);
-  } else {
-    expect(layout.splitCols.split(" ").filter(Boolean)).toHaveLength(1);
-    expect(layout.factAiStacked).toBe(true);
-  }
+  expect(layout.splitCols.split(" ").filter(Boolean)).toHaveLength(1);
+  expect(layout.factAiStacked).toBe(true);
   expect(layout.cardOverflows).toBe(false);
 }
 
@@ -1091,9 +1086,9 @@ async function expectHomeFollowedRailWide(page: Page, viewportWidth: number) {
   expect(metrics!.gutter).toBeLessThanOrEqual(16);
   expect(metrics!.columnWidth).toBeGreaterThan(viewportWidth - 320);
   expect(metrics!.cardWidth).toBeGreaterThan(320);
-  expect(metrics!.cardWidth).toBeLessThanOrEqual(1180);
+  expect(metrics!.cardWidth).toBeLessThanOrEqual(metrics!.columnWidth);
   if (metrics!.columnWidth > 1000) {
-    expect(metrics!.cardWidth).toBeLessThan(metrics!.columnWidth - 24);
+    expect(Math.abs(metrics!.cardWidth - metrics!.columnWidth)).toBeLessThan(24);
   }
 }
 
@@ -1133,15 +1128,13 @@ async function expectFollowedDecisionDensity(page: Page) {
   });
   expect(metrics).toBeTruthy();
   expect(metrics!.cardWidth).toBeGreaterThan(320);
-  expect(metrics!.cardWidth).toBeLessThanOrEqual(1180);
+  expect(metrics!.cardWidth).toBeLessThanOrEqual(metrics!.columnWidth);
   if (metrics!.columnWidth > 1000) {
-    expect(metrics!.cardWidth).toBeLessThan(metrics!.columnWidth - 24);
+    expect(Math.abs(metrics!.cardWidth - metrics!.columnWidth)).toBeLessThan(24);
   }
-  if (metrics!.cardWidth >= 860) {
-    expect(metrics!.factAiSideBySide).toBe(true);
-    expect(metrics!.gutter).toBeLessThanOrEqual(16);
-    expect(metrics!.primaryInAi).toBe(true);
-  }
+  expect(metrics!.factAiSideBySide).toBe(false);
+  expect(metrics!.gutter).toBe(0);
+  expect(metrics!.primaryInAi).toBe(true);
   if (metrics!.viewportHeight >= 800 && metrics!.cardCount >= 3) {
     expect(metrics!.cardsInViewport).toBeGreaterThanOrEqual(3);
   }

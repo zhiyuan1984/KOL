@@ -1057,11 +1057,11 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
     };
   });
   expect(wide.stageBesideName).toBe(true);
-  expect(wide.factAiSideBySide).toBe(true);
-  expect(wide.gutter).toBeLessThanOrEqual(16);
+  expect(wide.factAiSideBySide).toBe(false);
+  expect(wide.gutter).toBe(0);
   expect(wide.primaryInAi).toBe(true);
   expect(wide.cardWidth).toBeGreaterThan(700);
-  expect(wide.cardWidth).toBeLessThanOrEqual(1180);
+  expect(wide.cardWidth).toBeLessThanOrEqual(wide.columnWidth);
 
   const type = await card.evaluate((el) => {
     const read = (node: Element | null) => {

@@ -178,7 +178,7 @@ export default function FollowedKolWorkCard({
       <div className="kol-split" data-kol-split>
         <div className="kol-band kol-band-fact" data-kol-band="fact">
           <div className="kol-state-block" data-latest-fact data-fact-kind={fact.kind}>
-            <p className="kol-split-kicker">最新互动</p>
+            <p className="kol-split-kicker"><span className="kol-split-icon" aria-hidden>✉</span>最新互动</p>
             <p className="kol-mail-digest" data-mail-summary={fact.thread_id || undefined}>
               {fact.summary}
             </p>
@@ -193,7 +193,7 @@ export default function FollowedKolWorkCard({
 
         <div className="kol-band kol-band-recommend" data-kol-band="action">
           <div className="kol-state-block" data-recommended-action={rec.kind}>
-            <p className="kol-split-kicker">AI 建议</p>
+            <p className="kol-split-kicker"><span className="kol-split-icon" aria-hidden>✦</span>AI 建议</p>
             <p className="kol-suggestion">{headline}</p>
             {rec.why ? <p className="kol-judgment" data-action-why>{rec.why}</p> : null}
           </div>
