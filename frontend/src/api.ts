@@ -7,6 +7,9 @@ export type SessionRow = {
   agent_status?: "listening" | "running" | "waiting_approval";
 };
 
+export type ExpertKind = "business" | "collector" | "governance";
+export type ExpertPrimaryEntry = "think" | "job_console" | "approval_queue";
+
 export type ExpertManifestView = {
   id: string;
   version: string;
@@ -20,6 +23,10 @@ export type ExpertManifestView = {
   mission: string;
   quick_prompts: string[];
   entry_skill: string;
+  kind: ExpertKind;
+  primary_entry: ExpertPrimaryEntry;
+  skill_ids: string[];
+  tool_ids: string[];
 };
 
 export type ExpertSummonResult = {

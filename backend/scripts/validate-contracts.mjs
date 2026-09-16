@@ -103,8 +103,12 @@ const expertFiles = fs.existsSync(expertDir)
 if (!expertFiles.length) errors.push("missing contract: experts/<id>/manifest.yaml");
 const experts = [];
 const publishedExperts = [];
-const expertRequired = ["id", "version", "status", "display_name", "profession", "description", "avatar", "category", "tags", "mission", "quick_prompts", "entry_skill"];
+const expertRequired = ["id", "version", "status", "display_name", "profession", "description", "avatar", "category", "tags", "mission", "quick_prompts", "entry_skill", "kind", "primary_entry", "skill_ids", "tool_ids"];
 const expertForbidden = ["organization_scope", "brand_scope", "region_scope", "permissions", "available_agents", "team_members", "approval_model", "title", "role", "goal", "publish_gate"];
+const expertKinds = new Set(["business", "collector", "governance"]);
+const expertEntries = new Set(["think", "job_console", "approval_queue"]);
+const lockedDisplayNames = { "expert:kol": "KOL推广", "expert:crawler": "爬虫工程师", "expert:approver": "审批员" };
+const allowedToolIds = new Set(["starrykol", "mediacrawler"]);
 for (const file of expertFiles) {
   let expert = null;
   try { expert = readJsonYaml(file); } catch (error) { errors.push(error.message); continue; }
@@ -116,11 +120,29 @@ for (const file of expertFiles) {
   for (const field of expertForbidden) {
     if (expert[field] != null) errors.push(`expert ${expert.id || file} must not declare first-phase-out-of-scope field ${field}`);
   }
-  if (typeof expert.display_name === "string" && expert.id === "expert:kol" && expert.display_name !== "KOL 合作专员") {
-    errors.push("expert:kol display_name must be KOL 合作专员");
+  if (lockedDisplayNames[expert.id] && expert.display_name !== lockedDisplayNames[expert.id]) {
+    errors.push(`${expert.id} display_name must be ${lockedDisplayNames[expert.id]}`);
   }
   if (!Array.isArray(expert.tags)) errors.push(`expert ${expert.id || file} tags must be an array`);
   if (!Array.isArray(expert.quick_prompts)) errors.push(`expert ${expert.id || file} quick_prompts must be an array`);
+  if (!expertKinds.has(expert.kind)) errors.push(`expert ${expert.id || file} kind must be business|collector|governance`);
+  if (!expertEntries.has(expert.primary_entry)) errors.push(`expert ${expert.id || file} primary_entry must be think|job_console|approval_queue`);
+  if (!Array.isArray(expert.skill_ids)) errors.push(`expert ${expert.id || file} skill_ids must be an array`);
+  else {
+    for (const skill of expert.skill_ids) {
+      const skillFile = path.join(root, "backend", "skills", skill, "SKILL.md");
+      if (!fs.existsSync(skillFile)) errors.push(`expert ${expert.id || file} skill_ids is missing: ${skill}`);
+    }
+    if (expert.entry_skill && !expert.skill_ids.includes(expert.entry_skill)) {
+      errors.push(`expert ${expert.id || file} entry_skill must be listed in skill_ids`);
+    }
+  }
+  if (!Array.isArray(expert.tool_ids)) errors.push(`expert ${expert.id || file} tool_ids must be an array`);
+  else {
+    for (const tool of expert.tool_ids) {
+      if (!allowedToolIds.has(tool)) errors.push(`expert ${expert.id || file} tool_ids references unregistered id: ${tool}`);
+    }
+  }
   if (expert.entry_skill) {
     const skillFile = path.join(root, "backend", "skills", expert.entry_skill, "SKILL.md");
     if (!fs.existsSync(skillFile)) errors.push(`expert ${expert.id || file} entry_skill is missing: ${expert.entry_skill}`);
@@ -128,11 +150,13 @@ for (const file of expertFiles) {
   if (String(expert.status || "") === "published") publishedExperts.push(expert);
 }
 
+const requiredPublished = ["expert:kol", "expert:crawler", "expert:approver"];
+const publishedIds = publishedExperts.map((item) => item.id).sort();
 if (publishedExperts.filter((item) => item.id === "expert:kol").length !== 1) {
   errors.push("exactly one published ExpertManifest expert:kol is required");
 }
-if (publishedExperts.some((item) => item.id !== "expert:kol")) {
-  errors.push("only expert:kol may be published in this contract set");
+if (publishedIds.join(",") !== [...requiredPublished].sort().join(",")) {
+  errors.push(`published ExpertManifest set must be ${requiredPublished.join(", ")}; found ${publishedIds.join(", ") || "(none)"}`);
 }
 
 if (!uxTraceability || !Array.isArray(uxTraceability.entries)) {
@@ -186,6 +210,6 @@ if (process.argv.includes("--production")) {
   if ((brands?.brands || []).some((brand) => brand.status !== "active")) errors.push("production compilation requires all brands to be active in the external registry");
 }
 
-const result = { status: errors.length ? "invalid" : "valid", errors, warnings, agent: agent?.id || null, expert: publishedExperts[0]?.id || null, expertCount: experts.length, policyCount: policies.size, workflowCount: workflows.size, schemaCount: schemas.size, uxTraceCount: uxTraceability?.entries?.length || 0 };
+const result = { status: errors.length ? "invalid" : "valid", errors, warnings, agent: agent?.id || null, expert: publishedExperts.find((item) => item.id === "expert:kol")?.id || publishedExperts[0]?.id || null, expertCount: experts.length, policyCount: policies.size, workflowCount: workflows.size, schemaCount: schemas.size, uxTraceCount: uxTraceability?.entries?.length || 0 };
 console.log(JSON.stringify(result, null, 2));
 if (errors.length) process.exitCode = 1;

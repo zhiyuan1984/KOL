@@ -2789,7 +2789,7 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.getByRole("heading", { name: "数字员工" })).toBeVisible();
   await expect(page.locator("[data-expert-page]")).toContainText("选择一个岗位，直接说你要完成什么结果。");
   await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
-  await expect(page.locator("[data-expert-card='expert:kol']")).toContainText("KOL 合作专员");
+  await expect(page.locator("[data-expert-card='expert:kol']")).toContainText("KOL推广");
   await expect(page.locator("[data-expert-summon='expert:kol']")).toHaveText("召唤专家");
   await expect(page.locator('nav[aria-label="数字员工"] [data-nav]')).toHaveCount(1);
   await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
@@ -2894,7 +2894,7 @@ test("expert center list → detail → summon binds a session without send/stag
   expect(summonBody.expert_version).toBeTruthy();
   expect(summonBody.intro).toBeTruthy();
   await expect(page.locator("[data-expert-identity='expert:kol']")).toBeVisible();
-  await expect(page.locator("[data-expert-name]")).toHaveText("KOL 合作专员");
+  await expect(page.locator("[data-expert-name]")).toHaveText("KOL推广");
   await expect(page.locator("[data-expert-intro]")).toBeVisible();
   await expect(page.locator("[data-expert-task]")).toHaveCount(3);
   expect(sideEffects).toEqual([]);
