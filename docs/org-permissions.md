@@ -243,9 +243,9 @@ region_scope: [region:eu, region:us, region:ca_au]
 
 | 必须 | 禁止 |
 |---|---|
-| 只列出当前用户经已有 `GET /api/connectors` 能看见的条目（已授权且已启用） | 伪造未返回的「未授权」清单、组织全量目录、或 LIVE 健康 |
-| 业务标签 + 诚实状态（可用 / 需个人绑定 等）；空态写「目前没有已授权给你的」 | 启用/停用、凭据引用编辑、员工 read/write 授予、组织 Starry 策略 |
-| 可绑定能力（如 Starry）的 CTA 只指向 `/settings?tab=starry` | 在本页或 Admin 再挂一份个人绑定表；JWT / API Key 粘贴框 |
+| 只列出当前用户经已有 `GET /api/connectors` 能看见的条目（已授权且已启用）。**员工使用面 DTO 不含凭据引用**（无 `credential_ref` / `credential_reference` / `credential_status` / 治理 `status`） | 伪造未返回的「未授权」清单、组织全量目录、或 LIVE 健康 |
+| 业务标签 + 诚实状态（可用 / 需个人绑定 / 已过期）；空态写「目前没有已授权给你的」 | 启用/停用、凭据引用编辑、员工 read/write 授予、组织 Starry 策略 |
+| 可绑定能力（如 Starry）的 CTA 只指向 `/settings?tab=starry&from=connectors&connector=<id>` | 在本页或 Admin 再挂一份个人绑定表；JWT / API Key 粘贴框 |
 | 侧栏若有入口，只链本页，且不进数字员工簇、不发明可见组标题 | 任何员工默认路径深链 `/admin/connectors` |
 
 现有员工 API **不**返回未授权或已停用的连接器。因此使用面不能诚实地画出「未授权」行；缺行用空态说明，不要前端补一份治理目录。授权矩阵、组织策略字段仍属后端另开计划。

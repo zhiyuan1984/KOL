@@ -1,0 +1,14 @@
+{
+  "forbidden_keys": [
+    "credential_ref",
+    "credential_reference",
+    "credential_status",
+    "status"
+  ],
+  "access": ["read", "write"],
+  "example": {
+    "id": "starry",
+    "label": "Starry",
+    "access": "read"
+  }
+}

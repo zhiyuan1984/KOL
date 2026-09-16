@@ -205,8 +205,15 @@ describe("production account and enterprise controls", () => {
 
     const cookie = await employeeLogin("grantee");
     const connectors = await call("GET", "/api/connectors", undefined, cookie);
-    expect((connectors.json as unknown as { id: string }[]).map((item) => item.id))
+    const connectorRows = connectors.json as unknown as Record<string, unknown>[];
+    expect(connectorRows.map((item) => item.id))
       .toEqual(expect.arrayContaining(["starry", "claw", "enterprise_mail", "wecom"]));
+    for (const row of connectorRows) {
+      expect(row).not.toHaveProperty("credential_ref");
+      expect(row).not.toHaveProperty("credential_reference");
+      expect(row).not.toHaveProperty("credential_status");
+      expect(row).not.toHaveProperty("status");
+    }
   });
 
   it("updates profile and password, invalidating old sessions", async () => {

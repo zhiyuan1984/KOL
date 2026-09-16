@@ -5731,7 +5731,15 @@ summary:focus-visible,
   color: var(--text-muted);
   white-space: nowrap;
 }
-.connector-use-status[data-status="needs_personal_bind"] { color: var(--text); }
+.connector-use-status[data-status="needs_personal_bind"],
+.connector-use-status[data-status="expired"] { color: var(--text); }
+.connector-use-access {
+  font-size: var(--font-sm);
+}
+.connector-use-aside [data-connector-use-read-hint] {
+  margin: 0;
+  text-align: right;
+}
 .connector-use-page .btn,
 .connector-use-page a.btn {
   min-height: 44px;
@@ -7823,6 +7831,8 @@ body {
   font-size: var(--font-body);
   line-height: var(--leading-body);
 }
+.settings-return { margin: 0 0 16px; }
+.settings-return a { font-size: var(--font-ui); }
 .settings-tabs { display: flex; gap: 4px; flex-wrap: nowrap; overflow-x: auto; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
 .settings-tabs.admin-tabs { flex-wrap: wrap; overflow: visible; }
 .settings-tabs button { border: 0; border-bottom: 2px solid transparent; background: none; padding: 9px 12px; cursor: pointer; color: var(--muted); font: inherit; font-size: var(--font-ui); white-space: nowrap; min-height: 36px; }

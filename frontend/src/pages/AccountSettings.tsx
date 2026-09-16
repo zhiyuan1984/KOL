@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import type { SessionRow } from "../api";
 import { memoryDeleteConfirm, sessionDeleteConfirm } from "../adminConfirm";
@@ -80,6 +80,11 @@ export default function AccountSettings() {
     <div className="settings-page">
       <div className="page-kicker">账户</div>
       <h1>个人设置</h1>
+      {params.get("from") === "connectors" && (
+        <p className="settings-return" data-connectors-return>
+          <Link to="/connectors">返回连接器</Link>
+        </p>
+      )}
       <div className="settings-tabs" role="tablist" aria-label="设置分类">
         {tabs.map(([id, label]) => <button key={id} className={tab === id ? "active" : ""} role="tab" aria-selected={tab === id} onClick={() => openTab(id)}>{label}</button>)}
       </div>

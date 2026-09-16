@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type StarryBinding } from "../api";
 import {
+  connectorBindHref,
+  connectorUseAccess,
   connectorUseLabel,
   connectorUseMeaning,
   connectorUseStatus,
@@ -48,6 +50,7 @@ export default function ConnectorUse() {
             id,
             label: connectorUseLabel(id, row.label || row.name),
             meaning: connectorUseMeaning(id),
+            access: connectorUseAccess(row.access),
             status: connectorUseStatus(id, binding),
           };
         })
@@ -105,8 +108,18 @@ export default function ConnectorUse() {
                 <span className="connector-use-status" data-status={item.status.key}>
                   {item.status.label}
                 </span>
-                {item.status.key === "needs_personal_bind" && (
-                  <Link className="btn ghost" to="/settings?tab=starry" data-connector-use-bind>
+                {item.access === "read" && (
+                  <>
+                    <span className="chip connector-use-access" data-connector-use-access="read">只读</span>
+                    <p className="muted" data-connector-use-read-hint>不能外发</p>
+                  </>
+                )}
+                {(item.status.key === "needs_personal_bind" || item.status.key === "expired") && (
+                  <Link
+                    className="btn ghost"
+                    to={connectorBindHref(item.id)}
+                    data-connector-use-bind={item.id}
+                  >
                     去个人设置绑定
                   </Link>
                 )}
@@ -118,7 +131,7 @@ export default function ConnectorUse() {
       <p className="muted" data-connector-use-bind-hint>
         跟进邮箱在
         {" "}
-        <Link to="/settings?tab=starry">个人设置</Link>
+        <Link to="/settings?tab=starry&from=connectors">个人设置</Link>
         {" "}
         按人绑定。本页不接收密钥，也不表示远端已经接通。
       </p>
