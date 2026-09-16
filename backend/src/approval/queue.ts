@@ -170,19 +170,17 @@ export function objectLabelOf(approval: Row): string {
 export function consequenceLabelOf(approval: Row): string {
   const payload = payloadOf(approval);
   const kind = String(approval.kind || "expense");
-  const versionCode = versionCodeOf(approval);
   if (kind !== "expense") {
     const current = String(payload.stage_label || payload.current_stage || "当前阶段");
     const target = String(payload.target_label || payload.stage_code || "目标阶段");
-    return versionCode ? `进入 ${target}（自 ${current}） · ${versionCode}` : `进入 ${target}（自 ${current}）`;
+    return `进入 ${target}（自 ${current}）`;
   }
   const currency = String(payload.currency || "CNY");
   const amount = payload.amount ?? approval.amount_usd;
   const base = payload.amount_base ?? approval.amount_usd;
-  const money = currency !== "CNY" && amount != null
+  return currency !== "CNY" && amount != null
     ? `${currency} ${formatAmount(amount)} · 人民币 ${formatAmount(base)}`
     : `人民币 ${formatAmount(base)}`;
-  return versionCode ? `${money} · ${versionCode}` : money;
 }
 
 export function versionCodeOf(approval: Row): string {
