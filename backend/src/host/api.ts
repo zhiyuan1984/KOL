@@ -2673,7 +2673,7 @@ host.post("/sessions", async (c) => {
 });
 
 host.post("/collaborations/:id/session", async (c) => {
-  const { openKolSession, syncKolSessionMail, journeyPayloadWithMailMemory, journeyPayload } = await import("./kol-journey.js");
+  const { openKolSession, syncKolSessionMail, isMailSyncing, journeyPayloadWithMailMemory, journeyPayload } = await import("./kol-journey.js");
   const opened = openKolSession(c.req.param("id"));
   const cid = c.req.param("id");
   void syncKolSessionMail(String(opened.id), cid)
@@ -2684,6 +2684,9 @@ host.post("/collaborations/:id/session", async (c) => {
     .catch(() => 0);
   opened.journey = {
     ...(journeyPayload(cid) || {}),
+    // Mail collection is started in the background. Expose its actual state in
+    // the opening response so the client can render progress immediately.
+    mail_sync_pending: isMailSyncing(cid),
   };
   return c.json(opened);
 });

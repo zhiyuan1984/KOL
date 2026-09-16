@@ -157,10 +157,12 @@ function ThreadMailDigest({
   digest,
   pending,
   mailCount,
+  onRefresh,
 }: {
   digest: JourneyMailDigest | null;
   pending: boolean;
   mailCount?: number;
+  onRefresh?: () => void;
 }) {
   const analysis = threadDigestView(digest, pending);
   const count = Number(digest?.mail_count || mailCount || 0);
@@ -197,6 +199,9 @@ function ThreadMailDigest({
             <Markdown>{analysis.excerpt}</Markdown>
           </div>
         </details>
+      ) : null}
+      {analysis.kind === "failed" && onRefresh ? (
+        <button type="button" className="digest-retry" onClick={onRefresh}>重试读取</button>
       ) : null}
     </article>
   );
@@ -996,10 +1001,22 @@ export default function Chat() {
             <p>{boundExpert.intro}</p>
           </article>
         ) : null}
-        {kolSession && (mailDigest || mailAnalysisPending || (sessionMails && sessionMails.length)) ? (
-          <ThreadMailDigest digest={mailDigest} pending={mailAnalysisPending} mailCount={sessionMails?.length} />
+        {kolSession && !sessionLoaded ? (
+          <section className="session-loading-status" data-session-loading role="status" aria-live="polite" aria-busy="true">
+            <span className="session-loading-dot" aria-hidden="true" />
+            <div>
+              <strong>正在打开红人合作会话</strong>
+              <p>正在读取最近往来邮件，结果会持续更新。等待期间不会发送邮件，也不会修改合作阶段。</p>
+            </div>
+          </section>
+        ) : kolSession && (mailDigest || mailAnalysisPending || (sessionMails && sessionMails.length)) ? (
+          <ThreadMailDigest digest={mailDigest} pending={mailAnalysisPending} mailCount={sessionMails?.length} onRefresh={() => reload(true, true)} />
         ) : kolSession ? (
-          <p className="thread-mail-digest is-empty muted" data-mail-digest data-mail-summaries>还没有往来邮件。</p>
+          <section className="thread-mail-digest is-empty muted" data-mail-digest data-mail-summaries role="status">
+            <strong>暂未读到往来邮件</strong>
+            <p>正在等待同步结果；你可以继续在输入框描述下一步工作。</p>
+            <button type="button" className="digest-retry" onClick={() => reload(true, true)}>刷新收取</button>
+          </section>
         ) : null}
         {task && (
           <section className="task-analysis-summary" data-task-analysis-summary>
