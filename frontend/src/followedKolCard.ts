@@ -42,6 +42,7 @@ export type FollowedKolRecord = {
   unread_count?: number;
   session_id?: string | null;
   mail_threads?: FollowedMailThread[];
+  collaboration_count?: number;
 };
 
 export type FollowedMailThread = {
@@ -117,6 +118,7 @@ export type FollowedKolCardModel = {
   waiting_confirm: boolean;
   days_in_stage: number;
   follow_style_tags: { id: string; label: string }[];
+  collaboration_count: number;
   task?: Task;
   focus_thread: string;
   source: FollowedKolRecord;
@@ -532,6 +534,7 @@ export function projectFollowedKolCard(kol: FollowedKolRecord, tasks: Task[] = [
     waiting_confirm: waitingConfirm,
     days_in_stage: Number.isFinite(Number(days)) ? Number(days) : 0,
     follow_style_tags: kol.follow_style_tags || [],
+    collaboration_count: Math.max(1, Number(kol.collaboration_count || 1)),
     task,
     focus_thread: focusThread,
     source: kol,

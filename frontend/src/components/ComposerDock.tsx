@@ -818,6 +818,9 @@ export default function ComposerDock({
         <div className="composer-toolbar-end">
         <label className="tier-control">
           <span className="sr-only">模型档位</span>
+          <svg className="tier-control-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M13.2 2.8 5.5 13h5.1l-.8 8.2L17.5 11h-5.1l.8-8.2Z" />
+          </svg>
           <select value={modelTier} onChange={(e) => { setModelTier(e.target.value); localStorage.setItem("composer:model-tier", e.target.value); }} aria-label="模型档位">
             <option value="fast">快速</option><option value="balanced">均衡</option><option value="quality">高质量</option>
           </select>

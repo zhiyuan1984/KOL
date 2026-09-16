@@ -29,7 +29,7 @@ import { MAIN_STAGE_TABS } from "../kolStages";
 import { rememberJourney } from "../journey";
 import { missingFieldsMessage, fieldLabel, accountDisplayName, accountEmployeeId, accountInitial } from "../labels";
 import { useAccount } from "../components/AuthGate";
-import FollowedKolWorkCard from "../components/FollowedKolWorkCard";
+import FollowedKolAgentReport from "../components/FollowedKolAgentReport";
 import DiscoveryPanel from "../home/DiscoveryPanel";
 import { FollowedBatchConfirm } from "../home/FollowedBatchConfirm";
 import {
@@ -1505,151 +1505,27 @@ export default function Home() {
           {mode === "lifecycle" ? (
             <section className="home-mode-pane recommend-work followed-kol-pane" data-home-pane="lifecycle" data-lifecycle-overview>
               <div className="followed-kol-column" data-followed-kol-column data-followed-decision-max="full">
-              <div className="home-pane-sticky">
-              <div className="followed-object-toolbar" data-followed-object-toolbar>
-                <label className="followed-object-search">
-                  <span className="sr-only">搜索跟进对象</span>
-                  <input
-                    type="search"
-                    value={kolQuery}
-                    onChange={(event) => setKolQuery(event.target.value)}
-                    placeholder="搜索红人或合作对象"
-                    aria-label="搜索跟进中的红人或合作对象"
-                    data-followed-object-search
+                {visibleKols.length ? (
+                  <FollowedKolAgentReport
+                    cards={visibleKols}
+                    busyId={confirmStageBusyId}
+                    onOpenDetail={(card) => openKol(card.source)}
+                    onPrimary={(card) => runKolCardAction(card.source, card)}
+                    onOpenMail={(card) => openKol(card.source, card.latest_fact.thread_id || card.focus_thread)}
+                    onCompose={(card) => runKolCardAction(card.source, card)}
+                    onConfirmStage={(card) => openConfirmStage(card.source, card)}
                   />
-                </label>
-                <div className="followed-stage-filter" role="tablist" aria-label="按阶段筛选" data-kol-stage-tabs>
-                  {followedStageTabs.map((stage) => {
-                    const active = (stageFilter || "all") === stage.code;
-                    return (
-                      <button
-                        key={stage.code}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        aria-controls="followed-kol-results"
-                        className={active ? "is-active" : ""}
-                        data-kol-stage-tab={stage.code}
-                        onClick={() => setStageFilter(stage.code === "all" ? "" : stage.code)}
-                      >
-                        <span>{stage.label}</span>
-                        <span className="followed-stage-count">{stage.count}</span>
+                ) : (
+                  <div className="task-empty" data-follow-empty={followEmptyKind}>
+                    <strong>{followEmptyTitle}</strong>
+                    <p>{followEmptyBody}</p>
+                    {followScope?.required && (!followScope.bound || followScope.status === "expired") ? (
+                      <button type="button" className="btn work" onClick={() => nav("/settings?tab=starry")}>
+                        {followScope.status === "expired" ? "重新连接" : "去绑定"}
                       </button>
-                    );
-                  })}
-                </div>
-                <select
-                  className="followed-stage-select-compat"
-                  aria-label="按阶段筛选"
-                  data-kol-stage-filter
-                  tabIndex={-1}
-                  value={stageFilter}
-                  onChange={(event) => setStageFilter(event.target.value)}
-                >
-                  <option value="">全部阶段</option>
-                  {MAIN_STAGE_TABS.map((stage) => (
-                    <option key={stage.code} value={stage.code}>{stage.label}</option>
-                  ))}
-                  <option value="exception">异常</option>
-                </select>
-                <p className="followed-object-count" data-followed-object-count>
-                  {visibleKols.length} 个跟进对象
-                </p>
-              </div>
-              {visibleKols.length ? (
-                <div
-                  className={"followed-batch-bar" + (selecting ? " is-selecting" : "")}
-                  data-followed-batch-bar
-                  data-followed-selecting={selecting ? "true" : "false"}
-                >
-                  <div className="followed-batch-select">
-                    <label className="followed-kol-select">
-                      <input
-                        type="checkbox"
-                        data-followed-select-all
-                        checked={visibleKols.length > 0 && selectedKolIds.length === visibleKols.length}
-                        disabled={!visibleKols.length}
-                        onChange={(event) => toggleSelectAllKols(event.target.checked)}
-                      />
-                      <span data-followed-selected-count>已选 {selectedKolIds.length} 人</span>
-                    </label>
-                    <button
-                      type="button"
-                      className={(selecting && selectedStageEnterCards.length ? "btn work sm" : "btn ghost sm") + " followed-batch-cta"}
-                      data-followed-batch-confirm
-                      disabled={!selectedStageEnterCards.length}
-                      onClick={runSelectedStageEnter}
-                    >
-                      {bulkCtaLabel}
-                    </button>
+                    ) : null}
                   </div>
-                </div>
-              ) : null}
-              </div>
-              {visibleKols.length ? (
-                <ol
-                  className="recommend-list followed-kol-list"
-                  data-followed-kol-list
-                  id="followed-kol-results"
-                  data-followed-origin="collaboration"
-                  data-kol-sort="need"
-                  data-followed-selecting={selecting ? "true" : "false"}
-                >
-                  {visibleKols.map((card) => (
-                    <li
-                      key={card.id}
-                      className={"followed-kol-item" + (card.risk.exception ? " is-exception" : "") + (card.current_state.unbound ? " is-unbound" : "")}
-                    >
-                      <FollowedKolWorkCard
-                        card={card}
-                        onOpenDetail={() => openKol(card.source)}
-                        onPrimary={() => runKolCardAction(card.source, card)}
-                        onOpenMail={() => openKol(card.source, card.latest_fact.thread_id || card.focus_thread)}
-                        onCompose={() => runKolCardAction(card.source, card)}
-                        onConfirmStage={() => openConfirmStage(card.source, card)}
-                        actionBusy={confirmStageBusyId === card.id}
-                        actionNotice={confirmStageFeedback?.id === card.id ? confirmStageFeedback.text : undefined}
-                        actionTone={confirmStageFeedback?.id === card.id ? confirmStageFeedback.tone : "info"}
-                        selected={selectedKolIds.includes(card.id)}
-                        hovered={hoveredKolId === card.id}
-                        ctaEmphasis={pickFollowedListCtaEmphasis({
-                          cardId: card.id,
-                          hoveredId: hoveredKolId,
-                          focusedId: focusedKolId,
-                          selectedIds: selectedKolIds,
-                        })}
-                        onHoverChange={(next) => {
-                          if (next) {
-                            setFocusedKolId(null);
-                            setHoveredKolId(card.id);
-                            return;
-                          }
-                          setHoveredKolId((id) => (id === card.id ? null : id));
-                        }}
-                        onFocusChange={(next) => {
-                          if (next) {
-                            setHoveredKolId(null);
-                            setFocusedKolId(card.id);
-                            return;
-                          }
-                          setFocusedKolId((id) => (id === card.id ? null : id));
-                        }}
-                        onToggleSelect={(on) => toggleSelectedKol(card.id, on)}
-                      />
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <div className="task-empty" data-follow-empty={followEmptyKind}>
-                  <strong>{followEmptyTitle}</strong>
-                  <p>{followEmptyBody}</p>
-                  {followScope?.required && (!followScope.bound || followScope.status === "expired") ? (
-                    <button type="button" className="btn work" onClick={() => nav("/settings?tab=starry")}>
-                      {followScope.status === "expired" ? "重新连接" : "去绑定"}
-                    </button>
-                  ) : null}
-                </div>
-              )}
+                )}
               </div>
             </section>
           ) : null}

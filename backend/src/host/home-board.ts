@@ -536,6 +536,15 @@ export function buildHomeBoard(): Json {
     return matchesFollowedMailbox(row, followScope);
   });
   const allCollabs = conn.prepare("SELECT * FROM collaborations").all() as Row[];
+  // A creator can have more than one Collaboration. Keep the count in the
+  // home projection so the assistant can describe the relationship without
+  // leaking internal IDs into the employee surface.
+  const collaborationCounts = new Map<string, number>();
+  for (const row of allCollabs) {
+    const key = String(row.kol_uid || row.handle || row.display_name || "").trim();
+    if (!key) continue;
+    collaborationCounts.set(key, (collaborationCounts.get(key) || 0) + 1);
+  }
   for (const row of collabs) restoreOfficialCollaborationStage(row);
   for (const row of allCollabs) restoreOfficialCollaborationStage(row);
   const creators = conn.prepare("SELECT * FROM claw_creators ORDER BY name").all() as Row[];
@@ -618,6 +627,7 @@ export function buildHomeBoard(): Json {
       audience_geo: String(row.audience_geo || ""),
       engagement_rate: String(row.engagement_rate || ""),
       duplicate_checked: Number(row.duplicate_checked || 0),
+      collaboration_count: collaborationCounts.get(String(row.kol_uid || row.handle || row.display_name || "").trim()) || 1,
     };
     const related = tasks.filter((task) => taskMatchesKol(task, { id: String(row.id), handle: String(row.handle) }));
     const recent = related.length
