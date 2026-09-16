@@ -262,6 +262,7 @@ function publicPath(path: string): boolean {
     path === "/api/logout" ||
     path === "/api/privacy/cookies" ||
     path === "/api/integrations/mediacrawler/creators" ||
+    path === "/api/cron/internal/tick" ||
     path.startsWith("/api/shared/");
 }
 

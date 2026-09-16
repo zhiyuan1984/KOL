@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { Hono } from "hono";
-import { authDisabled, isAdmin, requireAdmin, requireConnector, requireSkill, scopedUser } from "../auth.js";
+import { authDisabled, isAdmin, requireAdmin, scopedUser } from "../auth.js";
 import { starry } from "../adapters/clients.js";
 import { BRAND_MAILBOXES, clawMode, kolClawConfigured, starryKolMcpBearer, starryKolMcpConfigured } from "../config.js";
-import { getConn, listAudit, nowIso, tx } from "../db.js";
+import { getConn, listAudit, nowIso } from "../db.js";
 import { uploadsDir } from "../host/attachments.js";
 import { HttpFail } from "../host/errors.js";
 import { currentUser, setPersona } from "../host/persona.js";
@@ -234,33 +234,7 @@ misc.post("/attachments", async (c) => {
   return c.json({ id: uploadId, name: safe, path: dest, size: buf.length, type: mime });
 });
 
-misc.get("/cron/risks", (c) => {
-  const rows = (getConn().prepare("SELECT * FROM collaborations WHERE overdue = 1").all() as Row[]).map((r) => ({
-    ...r,
-    stage_label: label(String(r.stage_code)),
-  }));
-  return c.json({ p0: "T8 失联与延期扫描", items: rows });
-});
-
-misc.post("/cron/risk-scan", async (c) => {
-  requireSkill("risk_scan");
-  requireConnector("starrykol", "read");
-  let sid = c.req.query("session_id") || undefined;
-  if (!sid) {
-    sid = nid("ses");
-    const now = nowIso();
-    tx((db) => {
-      db.prepare("INSERT INTO sessions (id, title, created_at, updated_at, owner_user_id) VALUES (?,?,?,?,?)").run(
-        sid,
-        "T8 风险扫描",
-        now,
-        now,
-        scopedUser()?.id || null,
-      );
-    });
-  }
-  return c.json({ session_id: sid, worker: null });
-});
+// /cron/risks and /cron/risk-scan live in routers/cron.ts (overdue-scan view / manual run).
 
 misc.get("/me", (c) => {
   const user = currentUser();

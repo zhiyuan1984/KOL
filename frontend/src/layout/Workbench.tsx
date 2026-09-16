@@ -25,6 +25,7 @@ function Ico({ path }: { path: string }) {
 export default function Workbench() {
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [approvalCount, setApprovalCount] = useState(0);
+  const [cronAlertCount, setCronAlertCount] = useState(0);
   const { account } = useAccount();
   const { admin, debug } = useViewMode();
   const [me, setMe] = useState<Account | null>(account);
@@ -45,6 +46,12 @@ export default function Workbench() {
         }).length);
       })
       .catch(() => setApprovalCount(0));
+    api.cronJobs()
+      .then((data) => {
+        const alerts = data.alerts || {};
+        setCronAlertCount(Number(alerts.failed || 0) + Number(alerts.needs_takeover || 0));
+      })
+      .catch(() => setCronAlertCount(0));
   }, [loc.pathname]);
 
   useEffect(() => {
@@ -140,9 +147,10 @@ export default function Workbench() {
             <span className="sidebar-label">进行中</span>
             {runningCount > 0 && <span className="nav-badge">{runningCount}</span>}
           </Link>
-          <NavLink to="/cron" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} data-nav="cron" onClick={() => setMobileOpen(false)}>
-            <Ico path="M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M12 8v4l2.5 1.5" />
+          <NavLink to="/cron" className={() => "nav-link" + ((loc.pathname === "/cron" || loc.pathname.startsWith("/cron/")) ? " active" : "")} data-nav="cron" onClick={() => setMobileOpen(false)}>
+            <Ico path="M8 3v3 M16 3v3 M5 8h14 M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z M9 13h3 M14 17h3" />
             <span className="sidebar-label">定时任务</span>
+            {cronAlertCount > 0 && <span className="nav-badge warn" data-cron-alert>{cronAlertCount}</span>}
           </NavLink>
         </nav>
 
