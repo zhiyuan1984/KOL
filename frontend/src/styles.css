@@ -6398,6 +6398,348 @@ summary:focus-visible,
   padding-top: 16px;
   border-top: 1px solid var(--line);
 }
+
+/* 2026 workbench visual pass
+   Geometry is intentionally centralized here so the shell, conversation and
+   composer share one rhythm without changing business behavior. */
+:root {
+  --left-width: 248px;
+  --page-gutter: clamp(16px, 2.4vw, 40px);
+  --content-max: 1480px;
+  --conversation-measure: 900px;
+  --scrollbar-size: 6px;
+  --layer-popover: 40;
+  --layer-drawer: 60;
+  --layer-modal: 80;
+}
+
+html,
+body,
+#root {
+  min-width: 320px;
+}
+
+body {
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+.workbench {
+  grid-template-columns: var(--left-width) minmax(0, 1fr);
+}
+
+.sidebar {
+  padding: 16px 12px 12px;
+  gap: 12px;
+}
+
+.sidebar-scroll,
+.session-stream,
+.side-body,
+.pipeline-drawer-body,
+.kb-drawer-body,
+.agent-task-scroll,
+.work-panel .today-workbench,
+.work-panel .task-catalog {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 28%, transparent) transparent;
+}
+
+.sidebar-scroll::-webkit-scrollbar,
+.session-stream::-webkit-scrollbar,
+.side-body::-webkit-scrollbar,
+.pipeline-drawer-body::-webkit-scrollbar,
+.kb-drawer-body::-webkit-scrollbar,
+.agent-task-scroll::-webkit-scrollbar,
+.work-panel .today-workbench::-webkit-scrollbar,
+.work-panel .task-catalog::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+.sidebar-scroll::-webkit-scrollbar-track,
+.session-stream::-webkit-scrollbar-track,
+.side-body::-webkit-scrollbar-track,
+.pipeline-drawer-body::-webkit-scrollbar-track,
+.kb-drawer-body::-webkit-scrollbar-track,
+.agent-task-scroll::-webkit-scrollbar-track,
+.work-panel .today-workbench::-webkit-scrollbar-track,
+.work-panel .task-catalog::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb,
+.session-stream::-webkit-scrollbar-thumb,
+.side-body::-webkit-scrollbar-thumb,
+.pipeline-drawer-body::-webkit-scrollbar-thumb,
+.kb-drawer-body::-webkit-scrollbar-thumb,
+.agent-task-scroll::-webkit-scrollbar-thumb,
+.work-panel .today-workbench::-webkit-scrollbar-thumb,
+.work-panel .task-catalog::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text) 28%, transparent);
+  border-radius: var(--radius-full);
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb:hover,
+.session-stream::-webkit-scrollbar-thumb:hover,
+.side-body::-webkit-scrollbar-thumb:hover,
+.pipeline-drawer-body::-webkit-scrollbar-thumb:hover,
+.kb-drawer-body::-webkit-scrollbar-thumb:hover,
+.agent-task-scroll::-webkit-scrollbar-thumb:hover,
+.work-panel .today-workbench::-webkit-scrollbar-thumb:hover,
+.work-panel .task-catalog::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text) 44%, transparent);
+}
+
+/* The task rail used to hide its scrollbar entirely; keep it discoverable while scrolling. */
+.agent-task-scroll::-webkit-scrollbar {
+  display: block;
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+.main > :not(.session-shell):not(.home-pane):not(.admin-shell) {
+  width: 100%;
+  max-width: var(--content-max);
+  margin-inline: auto;
+  padding-inline: var(--page-gutter);
+}
+
+.session-shell {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 400px);
+}
+
+.session-shell.has-tasklist {
+  grid-template-columns: minmax(220px, var(--tasklist-width, 260px)) minmax(0, 1fr) minmax(320px, 400px);
+}
+
+.session-shell:has(.side-workbench.collapsed) {
+  grid-template-columns: minmax(0, 1fr) 56px;
+}
+
+.session-shell.has-tasklist:has(.side-workbench.collapsed) {
+  grid-template-columns: minmax(220px, var(--tasklist-width, 260px)) minmax(0, 1fr) 56px;
+}
+
+.session-center {
+  padding: 0;
+}
+
+.task-detail-header {
+  flex: 0 0 auto;
+  padding: 16px var(--page-gutter) 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.session-stream.conversation {
+  padding: 24px var(--page-gutter) 32px;
+  scroll-padding-block: 24px;
+}
+
+.session-center .conversation-content {
+  width: min(100%, var(--content-max));
+  max-width: var(--content-max);
+  margin-inline: auto;
+  gap: 24px;
+}
+
+.session-center .message.is-user {
+  max-width: min(42rem, 78%);
+  border-radius: 14px;
+  padding: 10px 14px;
+}
+
+.session-center .message.result-card {
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: var(--shadow-quiet);
+}
+
+.session-composer {
+  padding: 0 var(--page-gutter) max(12px, env(safe-area-inset-bottom));
+  border-top: 0;
+  background: var(--bg);
+}
+
+.session-composer.prompt-input .composer.composer--workspace {
+  width: min(100%, var(--content-max));
+  margin-inline: auto;
+  min-height: 88px;
+  max-height: 220px;
+  border-radius: 26px;
+  padding: 12px 16px 10px;
+  box-shadow: var(--shadow-quiet);
+}
+
+.session-composer.prompt-input .composer.composer--workspace textarea {
+  min-height: 40px;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.tier-control,
+.composer-stop {
+  min-width: 40px;
+  min-height: 40px;
+}
+
+.composer-tool {
+  min-width: 32px;
+  min-height: 32px;
+}
+
+.composer-plus,
+.send-arrow {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+}
+
+.composer textarea::placeholder {
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.admin-confirm-layer {
+  z-index: var(--layer-modal);
+  padding: 24px;
+}
+
+.admin-confirm {
+  width: min(560px, 100%);
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 18px 50px color-mix(in srgb, var(--text) 16%, transparent);
+}
+
+.admin-confirm-actions .btn {
+  min-height: 44px;
+}
+
+.pipeline-drawer,
+.kb-drawer,
+.work-panel {
+  z-index: var(--layer-drawer);
+}
+
+.pipeline-drawer,
+.kb-drawer {
+  width: min(440px, 94vw);
+}
+
+@media (max-width: 1199px) {
+  .session-shell,
+  .session-shell.has-tasklist {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .session-shell:has(.side-workbench.collapsed),
+  .session-shell.has-tasklist:has(.side-workbench.collapsed) {
+    grid-template-columns: minmax(0, 1fr) 56px;
+  }
+
+  .session-shell .side-workbench:not(.collapsed) {
+    position: absolute;
+    inset: 0 0 0 auto;
+    width: min(440px, 92vw);
+    z-index: var(--layer-drawer);
+    box-shadow: -16px 0 36px color-mix(in srgb, var(--text) 12%, transparent);
+  }
+
+  .agent-task-list {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  :root {
+    --page-gutter: 16px;
+    --scrollbar-size: 4px;
+  }
+
+  .mobile-top {
+    min-height: 48px;
+    padding-inline: 12px;
+  }
+
+  .sidebar {
+    top: 48px;
+    width: min(320px, calc(100vw - 24px));
+  }
+
+  .session-stream.conversation {
+    padding: 16px var(--page-gutter) 24px;
+    scroll-padding-block: 16px;
+  }
+
+  .task-detail-header {
+    padding: 12px var(--page-gutter) 10px;
+  }
+
+  .session-head-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .session-center .message.is-user {
+    max-width: 88%;
+  }
+
+  .session-center .message.result-card {
+    padding: 16px;
+    border-radius: 12px;
+  }
+
+  .session-composer {
+    padding-inline: var(--page-gutter);
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+
+  .session-composer.prompt-input .composer.composer--workspace {
+    min-height: 80px;
+    border-radius: 22px;
+    padding: 10px 12px 8px;
+  }
+
+  .composer-plus,
+  .send-arrow {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  .session-shell .side-workbench:not(.collapsed) {
+    inset: 0 0 0 8%;
+    width: 92%;
+  }
+
+  .admin-confirm-layer {
+    place-items: end center;
+    padding: 12px;
+  }
+
+  .admin-confirm {
+    width: 100%;
+    max-height: calc(100dvh - 24px);
+    border-radius: 14px;
+    padding: 20px 16px max(20px, env(safe-area-inset-bottom));
+  }
+
+  .admin-confirm-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-confirm-actions .btn {
+    width: 100%;
+  }
+}
 [data-compose-loop] .task-result {
   margin-bottom: 0;
 }
