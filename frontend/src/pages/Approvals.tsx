@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { approvalDecideConfirm } from "../adminConfirm";
 import { api } from "../api";
 import { useAccount } from "../components/AuthGate";
@@ -72,6 +72,10 @@ function formatAmount(value: unknown): string {
   const n = Number(value);
   if (!Number.isFinite(n)) return String(value ?? "");
   return n.toLocaleString("zh-CN");
+}
+
+export function approvalSubject(row: Approval): string {
+  return moneyLine(row);
 }
 
 function moneyLine(row: Approval) {
@@ -296,7 +300,15 @@ function InitiateExpenseForm({ onCreated }: { onCreated: (id: string) => void })
   );
 }
 
-export default function Approvals() {
+export type ApprovalRow = Approval;
+
+export default function Approvals({
+  embedded = false,
+  onExplainRisk,
+}: {
+  embedded?: boolean;
+  onExplainRisk?: (row: Approval) => void;
+} = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
   const focusId = searchParams.get("id") || "";
   const [rows, setRows] = useState<Approval[]>([]);
@@ -380,20 +392,29 @@ export default function Approvals() {
   }, [focusId, visible]);
 
   return (
-    <div className="list-page approval-page">
+    <div className={"list-page approval-page" + (embedded ? " is-embedded" : "")} data-approval-queue={embedded ? "embedded" : "page"}>
       {dialog}
-      <header className="approval-page-head">
-        <div className="page-kicker">审批</div>
-        <h1>工作审批</h1>
-        <p className="muted">费用按规则一位通过再到下一位。最后一位同意即办结；任一位驳回则整单作废。「待我处理」只列出轮到你确认的单；还没轮到时可在「待处理」查看。</p>
-      </header>
-      <InitiateExpenseForm
-        onCreated={(id) => {
-          setErr("");
-          setSearchParams({ id });
-          load();
-        }}
-      />
+      {!embedded ? (
+        <header className="approval-page-head">
+          <div className="page-kicker">审批</div>
+          <h1>工作审批</h1>
+          <p className="muted">费用按规则一位通过再到下一位。最后一位同意即办结；任一位驳回则整单作废。「待我处理」只列出轮到你确认的单；还没轮到时可在「待处理」查看。</p>
+        </header>
+      ) : null}
+      {embedded ? (
+        <p className="muted" data-approval-workbench-hint>
+          同意或驳回必须由你点下。需要分析风险时，走合作专员思考页，分析页不会出现批准按钮。
+          发起费用审批请到 <Link to="/approvals">工作审批</Link>。
+        </p>
+      ) : (
+        <InitiateExpenseForm
+          onCreated={(id) => {
+            setErr("");
+            setSearchParams({ id });
+            load();
+          }}
+        />
+      )}
       <div className="task-filters approval-filters" aria-label="筛选审批">
         {([["mine", "待我处理"], ["all", "待处理"], ["done", "已结束"]] as const).map(([id, label]) => (
           <button key={id} type="button" aria-pressed={slice === id} onClick={() => setSlice(id)} data-approval-slice={id}>
@@ -455,6 +476,7 @@ export default function Approvals() {
                 <button
                   type="button"
                   className="btn primary"
+                  data-approval-approve={a.id}
                   onClick={() => decide(a, "approve")}
                 >
                   同意
@@ -462,12 +484,35 @@ export default function Approvals() {
                 <button
                   type="button"
                   className="btn danger"
+                  data-approval-reject={a.id}
                   onClick={() => decide(a, "reject")}
                 >
                   驳回
                 </button>
+                {onExplainRisk ? (
+                  <button
+                    type="button"
+                    className="btn ghost"
+                    data-approval-explain={a.id}
+                    onClick={() => onExplainRisk(a)}
+                  >
+                    说明风险
+                  </button>
+                ) : null}
               </div>
             )}
+            {a.status === "pending" && a.can_decide === false && onExplainRisk ? (
+              <div className="approval-actions">
+                <button
+                  type="button"
+                  className="btn ghost"
+                  data-approval-explain={a.id}
+                  onClick={() => onExplainRisk(a)}
+                >
+                  说明风险
+                </button>
+              </div>
+            ) : null}
             {a.status === "pending" && a.can_decide === false && (
               <p className="muted">当前等待 {current}。你可以查看进度，但这一步不由你确认。</p>
             )}

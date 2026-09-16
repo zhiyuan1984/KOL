@@ -2780,17 +2780,19 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator('[data-skill="email_compose"]')).toBeVisible();
   await expect(page.locator("[data-journey-guide]")).toHaveCount(0);
   await page.goto("/agents");
-  await expect(page.locator("[data-expert-page='recommend']")).toBeVisible();
-  await expect(page.locator("[data-expert-view='recommend']")).toHaveText("推荐");
-  await expect(page.locator("[data-expert-view='mine']")).toHaveText("我的数字员工");
-  await expect(page.locator("[data-expert-view='all']")).toHaveText("全部数字员工");
-  await expect(page.locator("[data-expert-view='search']")).toHaveCount(0);
-  await expect(page.locator("[data-expert-search]")).toBeVisible();
+  await expect(page.locator("[data-expert-page='roster']")).toBeVisible();
+  await expect(page.locator("[data-expert-view]")).toHaveCount(0);
+  await expect(page.locator("[data-expert-search]")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "数字员工" })).toBeVisible();
-  await expect(page.locator("[data-expert-page]")).toContainText("选择一个岗位，直接说你要完成什么结果。");
   await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
+  await expect(page.locator("[data-expert-card='expert:crawler']")).toBeVisible();
+  await expect(page.locator("[data-expert-card='expert:approver']")).toBeVisible();
   await expect(page.locator("[data-expert-card='expert:kol']")).toContainText("KOL推广");
-  await expect(page.locator("[data-expert-summon='expert:kol']")).toHaveText("召唤专家");
+  await expect(page.locator("[data-expert-summon='expert:kol']")).toHaveText("开始跟进工作");
+  await expect(page.locator("[data-expert-primary='expert:crawler']")).toHaveText("查看采集作业");
+  await expect(page.locator("[data-expert-primary='expert:approver']")).toHaveText("处理审批");
+  await expect(page.locator("[data-expert-summon='expert:crawler']")).toHaveCount(0);
+  await expect(page.locator("[data-expert-summon='expert:approver']")).toHaveCount(0);
   await expect(page.locator('nav[aria-label="数字员工"] [data-nav]')).toHaveCount(1);
   await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
   await expect(page.locator(".sidebar")).not.toContainText("技能目录");
@@ -2813,33 +2815,27 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator("body")).not.toContainText("Starry KOL MCP");
 });
 
-test("agents expert center has recommend/mine/all/search and one KOL expert", async ({ page }) => {
+test("agents roster shows three role cards and no market tabs", async ({ page }) => {
   await page.goto("/agents");
-  await expect(page.locator("[data-expert-view='recommend']")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("[data-expert-page='roster']")).toBeVisible();
+  await expect(page.locator("[data-expert-card]")).toHaveCount(3);
   await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
+  await expect(page.locator("[data-expert-card='expert:crawler']")).toBeVisible();
+  await expect(page.locator("[data-expert-card='expert:approver']")).toBeVisible();
   await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("岗位使命");
   await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("擅长");
   await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("可以帮你");
-  await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("你可以这样说");
   await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("建联");
-  await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("帮助你推进 KOL 合作");
-  await expect(page.locator("[data-expert-card='expert:kol'] [data-expert-pin='expert:kol']")).toBeVisible();
-  await expect(page.locator("[data-expert-card='expert:kol'] [data-expert-prompt]")).toHaveCount(3);
+  await expect(page.locator("[data-expert-view='recommend']")).toHaveCount(0);
+  await expect(page.locator("[data-expert-view='mine']")).toHaveCount(0);
+  await expect(page.locator("[data-expert-view='all']")).toHaveCount(0);
+  await expect(page.getByText("推荐", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("我的数字员工")).toHaveCount(0);
   await expect(page.locator("[data-expert-page]")).not.toContainText("stage_sop");
   await expect(page.locator("[data-expert-page]")).not.toContainText("关联技能");
   await expect(page.locator("[data-expert-page]")).not.toContainText("召唤进会话");
   await expect(page.locator("[data-expert-page]")).not.toContainText("发送和改阶段仍要你确认");
   await expect(page).toHaveURL(/\/agents\/?$/);
-  await page.locator("[data-expert-view='mine']").click();
-  await expect(page).toHaveURL(/view=mine/);
-  await expect(page.locator("[data-expert-empty='mine']")).toBeVisible();
-  await page.locator("[data-expert-view='all']").click();
-  await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
-  await page.locator("[data-expert-search]").fill("KOL");
-  await expect(page).toHaveURL(/view=search/);
-  await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
-  await page.locator("[data-expert-search]").fill("不存在的专家名");
-  await expect(page.locator("[data-expert-empty='search']")).toBeVisible();
   await page.locator('[data-nav="agents"]').click();
   await expect(page).toHaveURL(/\/agents\/?$/);
 });
@@ -2870,16 +2866,15 @@ test("expert center list → detail → summon binds a session without send/stag
   await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
   await page.locator("[data-expert-open='expert:kol']").click();
   await expect(page).toHaveURL(/\/agents\/kol/);
-  await expect(page.locator("[data-expert-page='detail']")).toBeVisible();
+  await expect(page.locator("[data-expert-page='kol']")).toBeVisible();
   await expect(page.getByRole("heading", { name: "岗位使命" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "擅长" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "可以帮你" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "你可以这样说" })).toBeVisible();
-  await expect(page.locator("[data-expert-summon='expert:kol']")).toBeVisible();
-  await expect(page.locator("[data-expert-page='detail']")).not.toContainText("关联技能");
-  await expect(page.locator("[data-expert-page='detail']")).not.toContainText("在会话里用");
-  await expect(page.locator("[data-expert-page='detail']")).not.toContainText("stage_sop");
-  await expect(page.locator("[data-expert-page='detail']")).not.toContainText("Harness");
+  await expect(page.locator("[data-expert-summon='expert:kol']")).toHaveText("开始工作");
+  await expect(page.locator("[data-expert-page='kol']")).not.toContainText("关联技能");
+  await expect(page.locator("[data-expert-page='kol']")).not.toContainText("在会话里用");
+  await expect(page.locator("[data-expert-page='kol']")).not.toContainText("stage_sop");
+  await expect(page.locator("[data-expert-page='kol']")).not.toContainText("Harness");
   const summonWait = page.waitForResponse((response) => (
     response.request().method() === "POST"
     && response.url().includes("/api/experts/")
