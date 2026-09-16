@@ -43,13 +43,14 @@
   --duration-enter: 220ms;
   --duration-exit: 180ms;
 
-  /* Type scale — compact shell: 15/24 body, 18–20 page titles. Ban 24px+700. */
+  /* Type scale — Codex Regular: 15/24 body, 16–18 page titles / 500. Ban 700. */
   --font-xs: 13px;
   --font-sm: 13px;
   --font-body: 15px;
+  --font-nav: 14px;
   --font-section: 15px;
-  --font-title: 18px;
-  --font-page-title: 18px;
+  --font-title: 17px;
+  --font-page-title: 17px;
   --leading-body: 24px;
   --leading-tight: 1.35;
   --font-product: 12px;
@@ -75,7 +76,7 @@
 
   --chrome-2: #eceef0;
   --sidebar-thumb: #d0d0d0;
-  --left-width: 264px;
+  --left-width: 312px;
   --page-gutter: clamp(16px, 2.2vw, 28px);
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --sans: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", "WenQuanYi Micro Hei", "Droid Sans Fallback", sans-serif;
@@ -205,7 +206,7 @@ body {
 }
 h1 {
   font-size: var(--font-title);
-  font-weight: 600;
+  font-weight: 500;
   line-height: var(--leading-hero);
   letter-spacing: 0;
 }
@@ -400,7 +401,7 @@ summary:focus-visible,
   text-decoration: none;
   padding: 8px 10px;
   border-radius: var(--radius-nav);
-  font-size: var(--font-ui);
+  font-size: var(--font-nav);
   font-weight: 400;
   border: 1px solid transparent;
   display: flex;
@@ -443,9 +444,9 @@ summary:focus-visible,
   color: inherit;
   text-decoration: none;
 }
-.nav-combo a.on { color: var(--text); font-weight: 600; }
+.nav-combo a.on { color: var(--text); font-weight: 500; }
 .nav-combo.active a { color: var(--text-muted); font-weight: 400; }
-.nav-combo.active a.on { color: var(--text); font-weight: 600; }
+.nav-combo.active a.on { color: var(--text); font-weight: 500; }
 .nav-dot { color: var(--muted); }
 .nav-combo.active .nav-dot { color: var(--text-muted); }
 .nav-link.is-disabled {
@@ -755,7 +756,7 @@ summary:focus-visible,
 .home-hero h1,
 .page-conclusion {
   font-size: var(--font-page-title);
-  font-weight: 600;
+  font-weight: 500;
   margin: var(--space-2) 0 var(--space-3);
   letter-spacing: -0.01em;
   line-height: var(--leading-tight);
@@ -772,7 +773,7 @@ summary:focus-visible,
   margin: 0 0 8px;
   color: var(--text);
   font-size: var(--font-section);
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: 0;
 }
 .recs {
@@ -3007,7 +3008,7 @@ summary:focus-visible,
   align-items: stretch;
   min-height: 80px;
   max-height: 300px;
-  border-radius: var(--composer-radius, 25px);
+  border-radius: var(--composer-radius, 22px);
   padding: 10px 16px 8px;
   gap: 6px;
 }
@@ -3112,7 +3113,7 @@ summary:focus-visible,
   justify-content: space-between;
   padding: 16px 18px 8px;
 }
-.work-panel-head h2 { margin: 0; font-size: var(--font-section); font-weight: 600; }
+.work-panel-head h2 { margin: 0; font-size: var(--font-section); font-weight: 500; }
 .work-panel .home-tabs { padding: 0 18px; margin: 0; }
 .work-panel .today-workbench,
 .work-panel .task-catalog {
@@ -3510,11 +3511,11 @@ summary:focus-visible,
   transition: border-color .18s ease, box-shadow .18s ease;
 }
 .composer:hover {
-  border-color: color-mix(in srgb, var(--composer-border) 70%, var(--composer-accent));
+  border-color: #e4e4e4;
 }
 .composer:focus-within {
-  border-color: var(--composer-accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--composer-accent) 14%, transparent);
+  border-color: #ddd;
+  box-shadow: none;
 }
 .composer:focus-within :is(button, textarea, select):focus-visible {
   outline-color: var(--composer-accent);
@@ -5882,7 +5883,7 @@ summary:focus-visible,
 .kb-hero {
   padding: var(--space-1) var(--space-1) 0;
 }
-.kb-hero h1, .kb-hero h2 { margin: 0 0 var(--space-2); font-size: var(--font-page-title); letter-spacing: -0.02em; font-weight: 600; line-height: var(--leading-tight); }
+.kb-hero h1, .kb-hero h2 { margin: 0 0 var(--space-2); font-size: var(--font-page-title); letter-spacing: -0.02em; font-weight: 500; line-height: var(--leading-tight); }
 .kb-lead { margin: var(--space-2) 0 var(--space-3); color: var(--muted); font-size: var(--font-body); line-height: var(--leading-body); max-width: 46em; }
 .kb-org-link { margin: 0 0 16px; font-size: var(--font-sm); }
 .kb-org-link a { color: var(--muted); }
@@ -6522,7 +6523,7 @@ summary:focus-visible,
    Geometry is intentionally centralized here so the shell, conversation and
    composer share one rhythm without changing business behavior. */
 :root {
-  --left-width: 264px; /* literal desktop rail; never clamp(220px, 15vw, 248px) */
+  --left-width: 312px; /* literal desktop rail; never clamp(220px, 15vw, 248px) or 264 */
   --page-gutter: clamp(16px, 2.4vw, 40px);
   --content-max: 1200px;
   --conversation-measure: 900px;
@@ -6790,7 +6791,7 @@ body {
 
   .sidebar {
     top: 48px;
-    /* Mobile drawer only — do not inherit the desktop 264 rail. */
+    /* Mobile drawer only — do not inherit the desktop 312 rail. */
     width: min(320px, calc(100vw - 24px));
     min-width: 0;
     max-width: none;
@@ -8060,7 +8061,7 @@ body {
 .agent-report-next h3 {
   margin: 0;
   color: var(--text);
-  font-weight: 600;
+  font-weight: 500;
 }
 .agent-report-head .page-conclusion { font-size: var(--font-page-title); line-height: var(--leading-tight); }
 .agent-report-summary { margin: 0; font-size: var(--font-body); line-height: var(--leading-body); }
@@ -8461,15 +8462,15 @@ body {
 }
 
 /* Last-wins desktop rail lock. Must stay after every .sidebar / .workbench width rule.
-   Mobile drawers above (860 / 720) keep min(300px)/min(320px) and never get 264. */
+   Mobile drawers above (860 / 720) keep min(300px)/min(320px) and never get 312. */
 @media (min-width: 861px) {
   .workbench:not(.admin-surface):not(.sidebar-collapsed) {
-    grid-template-columns: 264px minmax(0, 1fr);
+    grid-template-columns: 312px minmax(0, 1fr);
   }
   .workbench:not(.admin-surface):not(.sidebar-collapsed) > .sidebar {
-    width: 264px;
-    min-width: 264px;
-    max-width: 264px;
+    width: 312px;
+    min-width: 312px;
+    max-width: 312px;
   }
   .workbench.sidebar-collapsed:not(.admin-surface) {
     --left-width: 56px;
@@ -8492,16 +8493,40 @@ body {
     font-weight: 400;
     color: var(--text);
   }
+  .nav-link,
+  .nav-combo,
+  .nav-link .sidebar-label,
+  .nav-combo a {
+    font-size: 14px;
+    font-weight: 400;
+  }
+  .nav-link.active,
+  .nav-combo.active {
+    font-weight: 500;
+    background: var(--color-ash);
+  }
   .home-hero h1,
   .page-conclusion,
   .agent-report-head .page-conclusion {
-    font-size: 18px;
-    font-weight: 600;
+    font-size: 17px;
+    font-weight: 500;
   }
   .home-pane h2,
-  .task-group h2 {
+  .task-group h2,
+  .work-panel-head h2 {
     font-size: 15px;
-    font-weight: 600;
+    font-weight: 500;
+  }
+  .account-name,
+  .account-role,
+  .home-stats,
+  [data-kol-scope] {
+    font-size: 13px;
+    font-weight: 400;
+    color: #6b6b6b;
+  }
+  .account-name {
+    color: #1a1a1a;
   }
 }
 
@@ -8597,4 +8622,58 @@ body {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;
   }
+}
+
+/* Last-wins composer: rounded rect 22px, content-axis width, text model name, 15px placeholder. */
+.composer,
+.composer.composer--workspace,
+.home-composer-dock .composer.composer--workspace,
+.session-composer.prompt-input .composer.composer--workspace {
+  border-radius: 22px;
+  border-width: 1px;
+  border-style: solid;
+  box-shadow: none;
+}
+.home-composer-dock,
+.home-composer-dock > .composer-dock,
+.session-composer.prompt-input .composer.composer--workspace {
+  width: min(100%, var(--content-max));
+  margin-inline: auto;
+}
+.composer textarea,
+.composer textarea::placeholder,
+.home-composer-dock .composer textarea,
+.home-composer-dock .composer textarea::placeholder,
+.session-composer.prompt-input .composer textarea,
+.session-composer.prompt-input .composer textarea::placeholder {
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 24px;
+}
+.composer textarea::placeholder,
+.home-composer-dock .composer textarea::placeholder,
+.session-composer.prompt-input .composer textarea::placeholder {
+  color: #8a8a8a;
+}
+.tier-control,
+.composer .tier-control,
+.home-composer-dock .tier-control {
+  min-width: 0;
+  min-height: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+.tier-control select,
+.composer .tier-control select,
+.home-composer-dock .tier-control select {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0 2px;
+  min-height: 24px;
+  font-size: 13px;
+  font-weight: 400;
+  color: #6b6b6b;
 }
