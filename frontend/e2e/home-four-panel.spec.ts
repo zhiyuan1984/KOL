@@ -1419,5 +1419,5 @@ test("home composer copy is 让 Agent 分析/安排 and not 添加待办", async
   await expect(input).toBeVisible();
   await expect(input).toHaveAttribute("placeholder", /让 Agent 分析\/安排/);
   await expect(page.locator("[data-home]")).not.toContainText("添加待办");
-  await expect(page.locator("[data-home-entry='composer-analyze']")).toBeVisible();
+  await expect(page.locator(".home-composer-dock[data-home-entry='composer-analyze']")).toBeVisible();
 });

@@ -633,7 +633,7 @@ export function pickFollowedListCtaEmphasis(input: {
   selectedIds?: readonly string[] | null;
 }): FollowedKolCtaEmphasis {
   if (input.selectedIds && input.selectedIds.length > 0) return "quiet";
-  const active = input.hoveredId || input.focusedId || "";
+  const active = input.focusedId || input.hoveredId || "";
   return active && active === input.cardId ? "strong" : "quiet";
 }
 

@@ -250,6 +250,24 @@ describe("home workbench", () => {
     expect(insightIds).not.toContain(id);
   });
 
+  it("adopt-recommendation promotes an insight and keeps the recommendation title", async () => {
+    const first = await request("POST", "/api/tasks/adopt-recommendation", {
+      recommendation_id: "rec-ai-tsk_home_xiaomei_lost",
+      title: "给@小美妆日记 写合作邮件",
+      handle: "小美妆日记",
+      intent: "email_compose",
+    });
+    expect([200, 201]).toContain(first.status);
+    expect(first.body.id).toBe("tsk_home_xiaomei_lost");
+    expect(first.body.candidate).toBe(false);
+    expect(first.body.title).toBe("给@小美妆日记 写合作邮件");
+    expect(first.body.promoted_at).toBeTruthy();
+    const board = buildHomeBoard() as Json;
+    const todo = ((board.workbench as Json).todo as Json[]).find((row) => row.id === "tsk_home_xiaomei_lost");
+    expect(todo?.title).toBe("给@小美妆日记 写合作邮件");
+    expect(todo?.candidate).toBe(false);
+  });
+
   it("persists promote columns on work_items", () => {
     const cols = getConn().prepare("PRAGMA table_info(work_items)").all() as { name: string }[];
     expect(cols.map((col) => col.name)).toEqual(expect.arrayContaining(["promoted_at", "dismissed_at"]));

@@ -316,10 +316,11 @@ tasks.post("/tasks/adopt-recommendation", async (c) => {
         throw new HttpFail(409, `task cannot adopt from ${item.status}`);
       }
       const now = nowIso();
+      const nextTitle = String(body.title || "").trim().slice(0, 200);
       tx((db) => {
         db.prepare(
-          "UPDATE work_items SET promoted_at=COALESCE(promoted_at,?),dismissed_at=NULL,source=CASE WHEN source='ai' THEN source ELSE source END,updated_at=?,data_version=data_version+1 WHERE id=?",
-        ).run(now, now, item.id);
+          "UPDATE work_items SET promoted_at=COALESCE(promoted_at,?),dismissed_at=NULL,title=CASE WHEN ?!='' THEN ? ELSE title END,updated_at=?,data_version=data_version+1 WHERE id=?",
+        ).run(now, nextTitle, nextTitle, now, item.id);
       });
       if (!item.promoted_at) {
         appendTaskEvent(String(item.id), null, "task.promoted", "转为我的待办", String(item.status), "已从今天推荐转入待办");

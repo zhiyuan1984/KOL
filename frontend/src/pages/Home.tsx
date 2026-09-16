@@ -783,6 +783,22 @@ export default function Home() {
     setBusy(true);
     setErr("");
     setDedupeNotice("");
+    const mergeAdopted = (created: Task) => {
+      setTasks((current) => (
+        findDuplicateTodo(current.filter(isTodoTask), identity)
+          ? current
+          : current.some((task) => task.id === created.id) ? current : [created, ...current]
+      ));
+      setBoardWorkbench((current) => (
+        current
+          ? {
+            ...current,
+            todo: [created, ...(current.todo || []).filter((row) => row.id !== created.id)],
+            insights: (current.insights || []).filter((row) => row.id !== created.id),
+          }
+          : current
+      ));
+    };
     try {
       const adopted = await api.adoptRecommendation({
         recommendation_id: item.id,
@@ -793,12 +809,7 @@ export default function Home() {
         reason: item.reason,
         prompt: item.prompt || item.title,
       });
-      const created = taskValue(adopted);
-      setTasks((current) => (
-        findDuplicateTodo(current.filter(isTodoTask), identity)
-          ? current
-          : current.some((task) => task.id === created.id) ? current : [created, ...current]
-      ));
+      mergeAdopted({ ...taskValue(adopted), title: item.title, candidate: false });
       await refreshBoard();
       setMode("todo");
     } catch {
@@ -813,11 +824,10 @@ export default function Home() {
         description: item.reason,
         collaboration_id: item.collaboration_id || undefined,
         promoted_at: new Date().toISOString(),
+        candidate: false,
         entities: { recommendation_id: item.id, handle: item.handle },
       };
-      setTasks((current) => (
-        findDuplicateTodo(current.filter(isTodoTask), identity) ? current : [local, ...current]
-      ));
+      mergeAdopted(local);
       setMode("todo");
     } finally {
       setBusy(false);
@@ -933,10 +943,11 @@ export default function Home() {
     [boardWorkbench, followedKols, tasks],
   );
 
-  const todoItems = useMemo(
-    () => sortedTasks(mergeTaskDetails(workbench.todo || tasks.filter(isTodoTask), taskCatalog), "priority"),
-    [taskCatalog, tasks, workbench.todo],
-  );
+  const todoItems = useMemo(() => {
+    const fromBoard = workbench.todo || [];
+    const extras = tasks.filter(isTodoTask).filter((task) => !fromBoard.some((row) => row.id === task.id));
+    return sortedTasks(mergeTaskDetails([...fromBoard, ...extras], taskCatalog), "priority");
+  }, [taskCatalog, tasks, workbench.todo]);
 
   const todayTodos = useMemo(
     () => todoItems.filter(isTodayActionableTodo),
