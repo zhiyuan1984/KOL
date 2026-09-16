@@ -1,12 +1,14 @@
 :root {
-  /* MASTER (openai-style body) — parallel --color-* then wired into workbench tokens */
-  --color-obsidian: #000000;
+  /* MASTER Product tokens + OpenAI-quiet mood — --color-* then wired into workbench tokens */
+  --color-obsidian: #000000; /* text / hairline source only; not filled CTA */
   --color-graphite: #666666;
   --color-smoke: #8f8f8f;
   --color-paper: #ffffff;
   --color-ash: #f1f1f1;
   --color-hairline: #0000001f;
   --color-whisper: #0000000a;
+  --color-primary: #C73B7A;
+  --color-primary-hover: #A82F66;
   --font-openai-sans: "OpenAI Sans", Inter, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "微软雅黑", system-ui, sans-serif;
 
   --bg: var(--color-paper);
@@ -16,12 +18,13 @@
   --control-border: var(--color-smoke);
   --control-border-hover: var(--color-graphite);
   --control-border-invalid: #c43c3c;
-  --focus-ring: var(--color-obsidian);
+  --focus-ring: var(--color-obsidian); /* quiet hairline; not a second brand */
   --text: var(--color-obsidian);
   --text-muted: var(--color-graphite);
 
-  --primary: var(--color-obsidian);
-  --primary-fg: var(--color-paper);
+  --primary: #C73B7A;
+  --primary-fg: #FFFFFF;
+  --primary-hover: #A82F66;
   --danger: #c43c3c;
   --success: #2f7d73;
   --warning: #ea5504;
@@ -139,8 +142,9 @@
   --focus-ring: #ffffff;
   --text: #f1f3f5;
   --text-muted: #a2a8b2;
-  --primary: #ffffff;
-  --primary-fg: #000000;
+  --primary: #C73B7A;
+  --primary-fg: #FFFFFF;
+  --primary-hover: #A82F66;
   --chrome-2: #23262c;
   --sidebar-thumb: #5a616b;
 }
@@ -157,8 +161,9 @@
     --focus-ring: #ffffff;
     --text: #f1f3f5;
     --text-muted: #a2a8b2;
-    --primary: #ffffff;
-    --primary-fg: #000000;
+    --primary: #C73B7A;
+    --primary-fg: #FFFFFF;
+    --primary-hover: #A82F66;
     --chrome-2: #23262c;
     --sidebar-thumb: #5a616b;
   }
@@ -184,7 +189,7 @@ h1 {
 h2, h3, h4, strong, b {
   font-weight: 600;
 }
-a { color: var(--primary); }
+a { color: var(--text); } /* quiet shell: --primary is filled CTA, not link ink */
 a:focus-visible,
 button:focus-visible,
 input:focus-visible,
@@ -195,7 +200,7 @@ summary:focus-visible,
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
-/* Filled primary controls: --focus-ring equals --primary (Obsidian), so invert + outer halo. */
+/* Filled primary controls: invert outline on --primary pink + outer --focus-ring halo. */
 .btn.work:focus-visible,
 .btn.send:not(.send-arrow):focus-visible,
 .stage-chip.is-selected:focus-visible,
@@ -2063,7 +2068,7 @@ summary:focus-visible,
   width: 1rem;
   height: 1rem;
   margin: 0;
-  accent-color: var(--color-obsidian);
+  accent-color: var(--primary);
 }
 .followed-batch-confirm-list {
   margin: var(--spacing-8) 0 0;
@@ -2823,7 +2828,7 @@ summary:focus-visible,
 .followed-kol-card .kol-cta-primary .kol-cta-work {
   border-radius: var(--radius-buttons);
 }
-/* Row CTAs stay ghost; the one filled Obsidian CTA lives on the bulk top bar. */
+/* Row CTAs stay ghost; the one filled --primary CTA lives on the bulk top bar. */
 .followed-kol-card .kol-cta-primary .kol-cta-work.btn.ghost {
   background: var(--bg);
   color: var(--text);
@@ -4684,7 +4689,8 @@ summary:focus-visible,
   border: 1px solid var(--primary);
 }
 .admin-confirm .btn.primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--primary) 88%, var(--bg));
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
 }
 .admin-shell .btn.danger,
 .admin-confirm .btn.danger,
@@ -4956,7 +4962,8 @@ summary:focus-visible,
   box-shadow: none;
 }
 .btn.primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--primary) 88%, var(--bg));
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
 }
 .btn.primary:focus-visible {
   outline: 2px solid var(--bg);
@@ -5098,14 +5105,14 @@ summary:focus-visible,
   box-shadow: none;
 }
 .btn.work:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--primary) 86%, var(--primary-fg));
+  background: var(--primary-hover);
   color: var(--primary-fg);
-  border-color: var(--primary);
+  border-color: var(--primary-hover);
 }
 .btn.work:active:not(:disabled) {
-  background: color-mix(in srgb, var(--primary) 74%, var(--primary-fg));
+  background: var(--primary-hover);
   color: var(--primary-fg);
-  border-color: var(--primary);
+  border-color: var(--primary-hover);
 }
 .btn.ghost { background: var(--canvas); color: var(--text); border-color: var(--line); }
 .btn.danger { background: var(--bg); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
@@ -5724,8 +5731,8 @@ summary:focus-visible,
 }
 .kb-page .btn.work:active,
 .admin-kb .btn.work:active {
-  background: color-mix(in srgb, var(--primary) 74%, var(--primary-fg));
-  border-color: var(--primary);
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
   color: var(--primary-fg);
 }
 .kb-page .btn.is-on:hover,

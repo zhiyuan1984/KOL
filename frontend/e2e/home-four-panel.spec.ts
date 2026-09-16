@@ -1115,7 +1115,7 @@ async function countFilledFollowedWorkCtas(page: Page): Promise<number> {
   return page.locator("[data-followed-kol-list] [data-kol-primary-action]").evaluateAll((els) => (
     els.filter((el) => {
       if (el.classList.contains("work") || el.getAttribute("data-cta-visual") === "filled") return true;
-      return getComputedStyle(el).backgroundColor === "rgb(0, 0, 0)";
+      return getComputedStyle(el).backgroundColor === "rgb(199, 59, 122)";
     }).length
   ));
 }
