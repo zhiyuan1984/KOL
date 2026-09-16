@@ -9,6 +9,9 @@ export type AdminConfirmCopy = {
   object: string;
   scope: string;
   consequence: string;
+  change?: string;
+  approvalState?: string;
+  ruleVersion?: string;
   confirmLabel: string;
   cancelLabel?: string;
   cancelHint?: string;
@@ -40,6 +43,7 @@ export type AdminConfirmKind =
   | "pipeline-stage"
   | "approval-approve"
   | "approval-reject"
+  | "approval-initiate"
   | "draft-send"
   | "memory-delete"
   | "session-delete"
@@ -289,6 +293,9 @@ export function approvalDecideConfirm(input: {
   object: string;
   scope: string;
   consequence: string;
+  change?: string;
+  approvalState?: string;
+  ruleVersion?: string;
 }): AdminConfirmCopy {
   const reject = input.decision === "reject";
   return {
@@ -296,13 +303,41 @@ export function approvalDecideConfirm(input: {
     title: reject ? "确认驳回？" : "确认同意？",
     object: input.object,
     scope: input.scope,
+    change: input.change,
     consequence: input.consequence,
+    approvalState: input.approvalState,
+    ruleVersion: input.ruleVersion,
     confirmLabel: reject ? "确认驳回" : "确认同意",
     confirmTone: reject ? "danger" : "primary",
     requireReason: reject,
     reasonLabel: "驳回原因",
     reasonPlaceholder: "说明为什么驳回",
     initialFocus: reject ? "reason" : "confirm",
+    cancelHint: "取消只关闭确认，不会写入，也不需要填原因。",
+  };
+}
+
+export function approvalInitiateConfirm(input: {
+  object: string;
+  scope: string;
+  change: string;
+  consequence: string;
+  approvalState?: string;
+  ruleVersion?: string;
+}): AdminConfirmCopy {
+  return {
+    kind: "approval-initiate",
+    title: "确认提交费用审批？",
+    object: input.object,
+    scope: input.scope,
+    change: input.change,
+    consequence: input.consequence,
+    approvalState: input.approvalState,
+    ruleVersion: input.ruleVersion,
+    confirmLabel: "确认提交",
+    confirmTone: "primary",
+    initialFocus: "confirm",
+    cancelHint: "取消只关闭确认，不会提交。",
   };
 }
 

@@ -812,7 +812,10 @@ export const api = {
       body: JSON.stringify(body),
     }),
   pipeline: (exception = 0) => fetch(`/api/pipeline?exception=${exception}`).then((r) => r.json()),
-  approvals: () => fetch("/api/approvals").then((r) => r.json()),
+  approvals: (box?: "inbox" | "submitted" | "done") =>
+    fetch(box ? `/api/approvals?box=${encodeURIComponent(box)}` : "/api/approvals").then((r) => r.json()),
+  approvalBadge: () => request<{ count: number }>("/api/approvals/badge"),
+  approval: (id: string) => request<Record<string, unknown>>(`/api/approvals/${encodeURIComponent(id)}`),
   wecomCards: () => fetch("/api/wecom/cards").then((r) => r.json()),
   previewApproval: (body: {
     kind: "expense";
@@ -825,6 +828,7 @@ export const api = {
   }) =>
     request<{
       kind: "expense";
+      expected_version?: number;
       plan: {
         rule_id?: string;
         explanation?: string;
@@ -843,6 +847,8 @@ export const api = {
     requester_name?: string;
     purpose?: string;
     business_type?: string;
+    expected_version?: number;
+    idempotency_key?: string;
   }) =>
     request<{
       id: string;
@@ -853,13 +859,20 @@ export const api = {
       chain_detail?: { name: string; role: string }[];
       payload?: Record<string, unknown>;
     }>("/api/approvals", { method: "POST", body: JSON.stringify(body) }),
-  decide: (id: string, decision: string, actor?: string, reason?: string) =>
+  decide: (
+    id: string,
+    decision: string,
+    actor?: string,
+    reason?: string,
+    gate?: { expected_version: number; idempotency_key: string },
+  ) =>
     request<Record<string, unknown>>(`/api/approvals/${encodeURIComponent(id)}/decide`, {
       method: "POST",
       body: JSON.stringify({
         decision,
         ...(actor ? { actor } : {}),
         ...(reason ? { reason } : {}),
+        ...(gate || {}),
       }),
     }),
   skills: () => request<Array<Record<string, unknown>>>("/api/skills"),

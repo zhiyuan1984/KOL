@@ -12,7 +12,12 @@ async function confirmApprovalDecision(
   reason = "超出本月预算",
 ): Promise<void> {
   const page = card.page();
-  await card.getByRole("button", { name: decision === "approve" ? "同意" : "驳回" }).click();
+  const action = card.getByRole("button", { name: decision === "approve" ? "同意" : "驳回" });
+  if (!(await action.isVisible())) {
+    const decide = card.getByRole("button", { name: "决定" });
+    if (await decide.isVisible()) await decide.click();
+  }
+  await action.click();
   const dialog = page.locator("[data-approval-confirm]");
   await expect(dialog).toBeVisible();
   if (decision === "reject") {
@@ -4451,7 +4456,7 @@ test("approvals page can preview and initiate an expense approval", async ({ pag
   await expect(form).toBeVisible();
   await expect(form.getByRole("heading", { name: "发起费用审批" })).toBeVisible();
   await expect(form).toContainText("阶段变更请在合作确认里提交");
-  await expect(page.locator("[data-approval-slice='mine']")).toBeVisible();
+  await expect(page.locator("[data-approval-box='inbox']")).toBeVisible();
   await form.locator('[name="amount"]').fill("5000");
   await form.locator('[name="requester"]').fill("张三");
   await form.locator('[name="requester"]').blur();
@@ -4467,12 +4472,19 @@ test("approvals page can preview and initiate an expense approval", async ({ pag
   await expect(page.locator("[data-approval-preview]")).toContainText("张总");
   await saveScreenshot(page, "approvals_initiate_preview_chain.png");
   await form.getByRole("button", { name: "提交费用审批" }).click();
+  const initiateDialog = page.locator("[data-approval-confirm]");
+  await expect(initiateDialog).toBeVisible();
+  await expect(initiateDialog.locator("[data-approval-confirm-change]")).toContainText("林桐");
+  await initiateDialog.getByRole("button", { name: "确认提交" }).click();
+  await expect(page).toHaveURL(/box=submitted/);
   await expect(page).toHaveURL(/[?&]id=appr_/);
   const card = page.locator("[data-approval-id][data-approval-kind='expense']").first();
   await expect(card).toBeVisible();
   await expect(card).toHaveAttribute("data-approval-focus", "true");
   await expect(card).toContainText("黎玉燕");
   await expect(card).toContainText("林桐");
+  await expect(card.locator("[data-approval-receipt]")).toContainText("已提交");
+  await expect(card.locator("[data-path-state='current'] .path-state")).toContainText("当前");
   await expect(page.locator("body")).not.toContainText("approval_id=");
   await saveScreenshot(page, "approvals_initiate_focused_card.png");
 });
@@ -4528,4 +4540,57 @@ test("expense approval reject requires a reason and leaves a durable receipt", a
   await page.reload();
   await expect(page.locator(`[data-approval-id="${id}"] [data-approval-receipt]`)).toContainText("超出本月预算");
   await expect(page.locator("body")).not.toContainText("approval_id=");
+});
+
+test("approvals boxes, badge API, cancel reject, and stale decide", async ({ page, request }) => {
+  const badgeUrls: string[] = [];
+  const listForBadge: string[] = [];
+  page.on("request", (req) => {
+    const url = new URL(req.url());
+    if (!url.pathname.startsWith("/api/approvals")) return;
+    if (url.pathname.endsWith("/badge")) badgeUrls.push(url.pathname);
+    if (url.pathname === "/api/approvals") listForBadge.push(url.pathname + url.search);
+  });
+  await page.goto("/");
+  await expect.poll(() => badgeUrls.length).toBeGreaterThan(0);
+  expect(listForBadge).toEqual([]);
+
+  const session = await request.post("/api/sessions", { data: { title: "费用盒子" } }).then((r) => r.json());
+  const posted = await request.post(`/api/sessions/${session.id}/messages`, {
+    data: { text: "Please file an expense approval for 黎玉燕 50000 USD KOL spend" },
+  }).then((r) => r.json());
+  const id = String(posted.approval?.id || "");
+  expect(id).toBeTruthy();
+
+  await page.goto(`/approvals?box=inbox&id=${id}`);
+  await expect(page).toHaveURL(/box=inbox/);
+  const card = page.locator(`[data-approval-id="${id}"]`);
+  await expect(card).toBeVisible();
+  await expect(card.locator("[data-path-state='current'] .path-state")).toContainText("当前");
+  await expect(page.locator("[data-approval-box='submitted']")).toBeVisible();
+  await page.locator("[data-approval-box='submitted']").click();
+  await expect(page).toHaveURL(/box=submitted/);
+  await page.locator("[data-approval-box='inbox']").click();
+  await expect(page).toHaveURL(/box=inbox/);
+
+  await card.getByRole("button", { name: "驳回" }).click();
+  const dialog = page.locator("[data-approval-confirm]");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "取消，不执行" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(card).toHaveAttribute("data-approval-status", "pending");
+
+  await card.getByRole("button", { name: "同意" }).click();
+  await expect(page.locator("[data-approval-confirm]")).toBeVisible();
+  const version = Number(await card.getAttribute("data-approval-version") || "0");
+  const decided = await request.post(`/api/approvals/${id}/decide`, {
+    data: {
+      decision: "approve",
+      expected_version: version,
+      idempotency_key: `e2e-stale-${id}`,
+    },
+  });
+  expect(decided.ok()).toBeTruthy();
+  await page.locator("[data-approval-confirm]").getByRole("button", { name: "确认同意" }).click();
+  await expect(page.getByText("内容已变化，请重新确认")).toBeVisible();
 });

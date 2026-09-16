@@ -1,11 +1,28 @@
 import { Hono } from "hono";
-import { canDecideCurrent, employeeForUser } from "../approval/inbox.js";
-import { calculateApprovalPlan, type PlanInput } from "../approval/plan.js";
+import { employeeForUser } from "../approval/inbox.js";
+import { calculateApprovalPlan, planContentVersion, type PlanInput } from "../approval/plan.js";
+import {
+  inApprovalBox,
+  isVisibleToViewer,
+  parseApprovalBox,
+  projectApproval,
+  type ApprovalBox,
+} from "../approval/queue.js";
 import { authDisabled, requireConnector, scopedUser } from "../auth.js";
 import { audit } from "../db.js";
-import { createWorkApproval, decide, getApproval, KeyError, listApprovals, listWecomCards } from "../gateway/wecom.js";
+import {
+  createReceipt,
+  createWorkApproval,
+  decide,
+  getApproval,
+  KeyError,
+  listApprovals,
+  listWecomCards,
+  saveCreateReceipt,
+} from "../gateway/wecom.js";
 import { HttpFail } from "../host/errors.js";
 import { currentUser } from "../host/persona.js";
+import { parseExpectedVersion } from "../host/version.js";
 import type { Row } from "../types.js";
 
 export const approvals = new Hono();
@@ -18,19 +35,23 @@ type ExpenseCreateBody = {
   requester_name?: unknown;
   purpose?: unknown;
   business_type?: unknown;
+  expected_version?: unknown;
+  idempotency_key?: unknown;
 };
 
-function enrichApproval(approval: Row, user = scopedUser()) {
-  const chain = approval.chain as string[];
-  const index = Number(approval.current_index);
-  const expectedRole = chain[index] || null;
-  const viewer = employeeForUser(user);
-  return {
-    ...approval,
-    expected_role: expectedRole,
-    can_decide: String(approval.status) === "pending" && canDecideCurrent(user, chain, index),
-    viewer_name: viewer?.name || user?.name || null,
-  };
+function viewer() {
+  return scopedUser() || undefined;
+}
+
+function enrich(approval: Row) {
+  return projectApproval(approval, viewer());
+}
+
+function requireVisible(approval: Row) {
+  if (authDisabled()) return;
+  if (!isVisibleToViewer(approval, viewer())) {
+    throw new HttpFail(404, "Not Found");
+  }
 }
 
 function defaultRequester(): Pick<PlanInput, "requester_id" | "requester_name"> {
@@ -83,8 +104,42 @@ function planOrThrow(body: ExpenseCreateBody) {
   return plan;
 }
 
+function requireIdempotencyKey(value: unknown): string {
+  const key = String(value || "").trim();
+  if (!key) {
+    throw new HttpFail(400, { code: "idempotency_key_required", message: "提交需要幂等键。" });
+  }
+  return key;
+}
+
+function requireExpectedVersion(value: unknown): number {
+  const version = parseExpectedVersion(value);
+  if (version == null) {
+    throw new HttpFail(400, { code: "expected_version_required", message: "提交需要期望版本。" });
+  }
+  return version;
+}
+
 function createExpenseApproval(body: ExpenseCreateBody) {
   const plan = planOrThrow(body);
+  const planVersion = planContentVersion(plan);
+  const expected = body.expected_version == null || body.expected_version === ""
+    ? (authDisabled() ? planVersion : null)
+    : requireExpectedVersion(body.expected_version);
+  if (expected == null) {
+    throw new HttpFail(400, { code: "expected_version_required", message: "提交需要期望版本。" });
+  }
+  if (expected !== planVersion) {
+    throw new HttpFail(409, { code: "stale", message: "审批内容已变化，请重新确认。" });
+  }
+  const idempotencyKey = String(body.idempotency_key || "").trim();
+  if (!idempotencyKey && !authDisabled()) {
+    throw new HttpFail(400, { code: "idempotency_key_required", message: "提交需要幂等键。" });
+  }
+  if (idempotencyKey) {
+    const replayed = createReceipt(idempotencyKey);
+    if (replayed) return enrich(replayed);
+  }
   const approval = createWorkApproval({
     kind: "expense",
     brand: "LT",
@@ -103,18 +158,44 @@ function createExpenseApproval(body: ExpenseCreateBody) {
       message: plan.explanation || "规则没有算出可执行的审批链。",
     });
   }
+  if (idempotencyKey) saveCreateReceipt(idempotencyKey, approval);
   audit("host", "expense.approval.created", {
     approval_id: approval.id,
     policy_id: plan.policy_id,
     rule_id: plan.rule_id,
     requester_id: plan.requester_id,
+    idempotency_key: idempotencyKey || undefined,
   });
-  return enrichApproval(approval);
+  return enrich(approval);
 }
+
+function visibleRows(box?: ApprovalBox) {
+  const user = viewer();
+  return listApprovals()
+    .filter((approval) => {
+      if (!isVisibleToViewer(approval, user)) return false;
+      if (box) return inApprovalBox(approval, box, user);
+      return true;
+    })
+    .map((approval) => enrich(approval));
+}
+
+approvals.get("/approvals/badge", (c) => {
+  requireConnector("wecom", "read");
+  const user = viewer();
+  const count = listApprovals().filter((approval) => inApprovalBox(approval, "inbox", user)).length;
+  return c.json({ count });
+});
 
 approvals.get("/approvals", (c) => {
   requireConnector("wecom", "read");
-  return c.json(listApprovals().map((approval) => enrichApproval(approval)));
+  let box: ApprovalBox | undefined;
+  try {
+    box = parseApprovalBox(c.req.query("box"));
+  } catch {
+    throw new HttpFail(400, { code: "unknown_box", message: "box 只能是 inbox、submitted 或 done。" });
+  }
+  return c.json(visibleRows(box));
 });
 
 approvals.post("/approvals", async (c) => {
@@ -127,20 +208,34 @@ approvals.post("/approvals/preview", async (c) => {
   requireConnector("wecom", "read");
   const body = (await c.req.json()) as ExpenseCreateBody;
   const plan = planOrThrow(body);
-  return c.json({ kind: "expense", plan, steps: plan.steps });
+  return c.json({
+    kind: "expense",
+    plan,
+    steps: plan.steps,
+    expected_version: planContentVersion(plan),
+  });
 });
 
 approvals.get("/approvals/:aid", (c) => {
   requireConnector("wecom", "read");
   const row = getApproval(c.req.param("aid"));
   if (!row) throw new HttpFail(404, "Not Found");
-  return c.json(row);
+  requireVisible(row);
+  return c.json(enrich(row));
 });
 
 approvals.post("/approvals/:aid/decide", async (c) => {
-  const body = (await c.req.json()) as { decision: string; actor?: string; reason?: string };
+  const body = (await c.req.json()) as {
+    decision: string;
+    actor?: string;
+    reason?: string;
+    expected_version?: unknown;
+    idempotency_key?: unknown;
+  };
   const approval = getApproval(c.req.param("aid"));
   if (!approval) throw new HttpFail(404, "Not Found");
+  const expectedVersion = requireExpectedVersion(body.expected_version);
+  const idempotencyKey = requireIdempotencyKey(body.idempotency_key);
   let actor = body.actor;
   if (!authDisabled()) {
     requireConnector("wecom", "write");
@@ -148,7 +243,10 @@ approvals.post("/approvals/:aid/decide", async (c) => {
     const chain = approval.chain as string[];
     const index = Number(approval.current_index);
     const expected = chain[index];
-    if (!user || !canDecideCurrent(user, chain, index)) {
+    if (!user || !isVisibleToViewer(approval, user)) {
+      throw new HttpFail(404, "Not Found");
+    }
+    if (!canDecideProjected(approval, user)) {
       throw new HttpFail(403, { code: "approval_role_required", role: expected });
     }
     actor = expected;
@@ -157,7 +255,18 @@ approvals.post("/approvals/:aid/decide", async (c) => {
     throw new HttpFail(400, { code: "reject_reason_required", message: "驳回必须填写原因。" });
   }
   try {
-    return c.json(await decide(c.req.param("aid"), body.decision, actor, body.reason));
+    const result = await decide(c.req.param("aid"), body.decision, actor, body.reason, {
+      expected_version: expectedVersion,
+      idempotency_key: idempotencyKey,
+    });
+    audit("gateway", "approval.decide", {
+      approval_id: c.req.param("aid"),
+      decision: body.decision,
+      expected_version: expectedVersion,
+      idempotency_key: idempotencyKey,
+      replayed: Boolean((result as { replayed?: boolean }).replayed),
+    });
+    return c.json(enrich({ ...getApproval(c.req.param("aid")), ...result } as Row));
   } catch (e) {
     if (e instanceof KeyError) throw new HttpFail(404, "Not Found");
     if (e instanceof HttpFail) throw e;
@@ -172,3 +281,7 @@ approvals.get("/wecom/cards", (c) => {
   requireConnector("wecom", "read");
   return c.json(listWecomCards());
 });
+
+function canDecideProjected(approval: Row, user: ReturnType<typeof scopedUser>) {
+  return Boolean(projectApproval(approval, user || undefined).can_decide);
+}

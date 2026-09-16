@@ -936,6 +936,19 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "approvals", "payload", "TEXT");
   add(db, "approvals", "title", "TEXT");
   add(db, "approvals", "submitted_by", "TEXT");
+  add(db, "approvals", "version", "INTEGER NOT NULL DEFAULT 0");
+  add(db, "approvals", "updated_at", "TEXT");
+  db.exec(`
+        CREATE TABLE IF NOT EXISTS approval_idempotency (
+            id TEXT PRIMARY KEY,
+            action TEXT NOT NULL,
+            approval_id TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            result_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(action, approval_id, idempotency_key)
+        );
+  `);
   add(db, "sessions", "kind", "TEXT");
   add(db, "sessions", "disabled", "INTEGER NOT NULL DEFAULT 0");
   add(db, "sessions", "thread_ref", "TEXT");

@@ -4852,6 +4852,26 @@ summary:focus-visible,
   background: color-mix(in srgb, var(--danger) 8%, var(--bg));
 }
 .approval-path small { color: var(--text-muted); font-size: var(--font-xs); }
+.approval-path .path-state {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+}
+.approval-row-meta {
+  margin: var(--space-1) 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+}
+.approval-receipt-lines {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+}
+.approval-receipt-lines [data-receipt-state="pending_check"] { color: var(--text-muted); }
+.approval-receipt-lines [data-receipt-state="succeeded"] { color: var(--success); }
 .approval-initiate {
   padding: var(--space-4);
   box-shadow: none;

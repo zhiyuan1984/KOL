@@ -1,51 +1,82 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { useSearchParams } from "react-router-dom";
-import { approvalDecideConfirm } from "../adminConfirm";
+import { useParams, useSearchParams } from "react-router-dom";
+import { approvalDecideConfirm, approvalInitiateConfirm } from "../adminConfirm";
 import { api } from "../api";
 import { useAccount } from "../components/AuthGate";
 import { useAdminConfirm } from "../components/ConfirmDialog";
 import { approvalStatusLabel, friendlyError, stripApprovalRecordIds } from "../labels";
 
+type PathNode = { name: string; role: string; state?: string; state_label?: string };
+type Receipts = {
+  decision?: string;
+  decision_label?: string;
+  gateway?: string;
+  gateway_label?: string;
+  external?: string;
+  external_label?: string;
+};
+
 type Approval = {
   id: string;
   kind?: string;
   kind_label?: string;
+  action_id?: string;
   title?: string;
   brand: string;
   amount_usd: number;
   status: string;
+  business_status?: string;
+  business_status_label?: string;
   chain: string[];
   current_index: number;
   wecom_card_id: string;
   need_manual_band: number;
   chain_id?: string;
   can_decide?: boolean;
+  allowed_actions?: string[];
   expected_role?: string;
   submitted_by?: string;
   payload?: Record<string, unknown>;
+  version?: number;
+  version_code?: string;
+  object_label?: string;
+  consequence_label?: string;
+  requester_name?: string;
+  waiting_duration_label?: string;
+  current_node?: string;
+  path?: PathNode[];
+  receipts?: Receipts;
+  evidence?: {
+    object?: string;
+    scope?: string;
+    change?: string;
+    consequence?: string;
+    approval_state?: string;
+    rule_version?: string;
+  };
   chain_detail: { name: string; role: string }[];
   wecom_card?: { status: string; body: string; assignee: string };
 };
 
-type Slice = "mine" | "all" | "done";
+type Box = "inbox" | "submitted" | "done";
 type Decision = "approve" | "reject";
 
 type Preview = {
   steps: { name: string; role: string }[];
-  plan?: { rule_id?: string; amount_base?: number; currency?: string; amount?: number };
+  expected_version?: number;
+  plan?: { rule_id?: string; amount_base?: number; currency?: string; amount?: number; requester_name?: string };
 };
 
 type PendingConfirm = {
   id: string;
   decision: Decision;
-  actor: string;
 };
 
 type SessionReceipt = {
   id: string;
-  decision: Decision;
+  decision?: Decision | "submit";
   text: string;
-  tone: "ok" | "danger";
+  tone: "ok" | "danger" | "info";
 };
 
 const CURRENCIES = [
@@ -59,13 +90,36 @@ const CURRENCIES = [
   ["HKD", "港币"],
 ] as const;
 
+const BOXES: { id: Box; label: string }[] = [
+  { id: "inbox", label: "待我决定" },
+  { id: "submitted", label: "我发起的" },
+  { id: "done", label: "已处理" },
+];
+
+function parseBox(raw: string | null): Box {
+  if (raw === "submitted" || raw === "done") return raw;
+  return "inbox";
+}
+
+function newIdempotencyKey() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `idem_${Date.now().toString(16)}_${Math.random().toString(16).slice(2)}`;
+}
+
+function isStaleError(error: unknown): boolean {
+  const payload = error && typeof error === "object" ? (error as { payload?: { detail?: { code?: string } } }).payload : undefined;
+  const code = payload?.detail?.code;
+  if (code === "stale") return true;
+  return /内容已变化|stale/i.test(error instanceof Error ? error.message : String(error || ""));
+}
+
 function kindLabel(row: Approval) {
   return row.kind_label || ({
     expense: "费用审批",
     stage: "阶段审批",
     content: "内容审核",
     settlement: "结算审批",
-  }[row.kind || "expense"] || "审批");
+  }[row.kind || row.action_id || "expense"] || "审批");
 }
 
 function formatAmount(value: unknown): string {
@@ -75,6 +129,7 @@ function formatAmount(value: unknown): string {
 }
 
 function moneyLine(row: Approval) {
+  if (row.object_label) return row.object_label;
   if (row.kind && row.kind !== "expense") {
     return row.title || String(row.payload?.reason || "确认阶段");
   }
@@ -89,20 +144,23 @@ function moneyLine(row: Approval) {
   return `${requester} 人民币 ${formatAmount(base)}`;
 }
 
-function pathState(row: Approval, index: number): "done" | "current" | "rejected" | "todo" {
-  if (row.status === "consumed" || row.status === "sent") return "done";
-  if (row.status === "rejected") {
-    if (index < row.current_index) return "done";
-    if (index === row.current_index) return "rejected";
-    return "todo";
-  }
-  if (index < row.current_index) return "done";
-  if (index === row.current_index) return "current";
-  return "todo";
+function pathNodes(row: Approval): PathNode[] {
+  if (row.path?.length) return row.path;
+  return (row.chain_detail || []).map((step, index) => {
+    let state = "todo";
+    if (row.status === "consumed" || row.status === "sent") state = "done";
+    else if (row.status === "rejected") {
+      if (index < row.current_index) state = "done";
+      else if (index === row.current_index) state = "rejected";
+    } else if (index < row.current_index) state = "done";
+    else if (index === row.current_index) state = "current";
+    const labels = { done: "已通过", current: "当前", rejected: "已驳回", todo: "待处理" };
+    return { ...step, state, state_label: labels[state as keyof typeof labels] };
+  });
 }
 
 function waitingName(row: Approval) {
-  return row.chain_detail?.[row.current_index]?.name || "下一位审批人";
+  return row.current_node || row.chain_detail?.[row.current_index]?.name || "下一位审批人";
 }
 
 function isFinalStep(row: Approval) {
@@ -111,6 +169,10 @@ function isFinalStep(row: Approval) {
 
 function rejectReasonOf(row: Approval): string {
   return String(row.payload?.reject_reason || "").trim();
+}
+
+function statusCopy(row: Approval) {
+  return row.business_status_label || approvalStatusLabel(row.business_status || row.status);
 }
 
 function durableReceipt(row: Approval, session?: SessionReceipt | null): { text: string; tone: "ok" | "danger" | "info" } | null {
@@ -133,9 +195,7 @@ function durableReceipt(row: Approval, session?: SessionReceipt | null): { text:
 }
 
 function consequenceCopy(row: Approval, decision: Decision): string {
-  if (decision === "reject") {
-    return "驳回后整单作废，不能再同意。";
-  }
+  if (decision === "reject") return "驳回后整单作废，不能再同意。";
   if (isFinalStep(row)) {
     return row.kind && row.kind !== "expense"
       ? "你是最后一位。同意后本单办结，并写入已确认的阶段。"
@@ -147,12 +207,7 @@ function consequenceCopy(row: Approval, decision: Decision): string {
 
 function receiptCopy(row: Approval, decision: Decision, result: Record<string, unknown>, reason: string): SessionReceipt {
   if (decision === "reject") {
-    return {
-      id: row.id,
-      decision,
-      tone: "danger",
-      text: `已驳回，本单已作废。原因：${reason}`,
-    };
+    return { id: row.id, decision, tone: "danger", text: `已驳回，本单已作废。原因：${reason}` };
   }
   if (result.status === "consumed" || result.status === "sent") {
     return { id: row.id, decision, tone: "ok", text: "已同意，本单已办结。" };
@@ -163,7 +218,27 @@ function receiptCopy(row: Approval, decision: Decision, result: Record<string, u
   return { id: row.id, decision, tone: "ok", text: `已同意。下一任：${next}。` };
 }
 
-function InitiateExpenseForm({ onCreated }: { onCreated: (id: string) => void }) {
+function ReceiptLines({ row }: { row: Approval }) {
+  const receipts = row.receipts;
+  if (!receipts || receipts.decision === "none" || !receipts.decision) return null;
+  return (
+    <ul className="approval-receipt-lines" data-approval-receipt-lines>
+      <li data-receipt="decision">{receipts.decision_label || "尚未决定"}</li>
+      <li data-receipt="gateway">{receipts.gateway_label || "网关未接受"}</li>
+      <li data-receipt="external" data-receipt-state={receipts.external || "pending_check"}>
+        外部回执：{receipts.external_label || "待核对"}
+      </li>
+    </ul>
+  );
+}
+
+function InitiateExpenseForm({
+  onCreated,
+  ask,
+}: {
+  onCreated: (id: string) => void;
+  ask: ReturnType<typeof useAdminConfirm>["ask"];
+}) {
   const { account } = useAccount();
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState("CNY");
@@ -184,15 +259,17 @@ function InitiateExpenseForm({ onCreated }: { onCreated: (id: string) => void })
   const runPreview = async () => {
     if (!amount || Number(amount) <= 0) {
       setPreview(null);
-      return;
+      return null;
     }
     try {
       const result = await api.previewApproval(payload());
       setPreview(result);
       setFormErr("");
+      return result;
     } catch (e) {
       setPreview(null);
       setFormErr(friendlyError(e, "还无法计算审批路径"));
+      return null;
     }
   };
 
@@ -203,22 +280,31 @@ function InitiateExpenseForm({ onCreated }: { onCreated: (id: string) => void })
       setFormErr("请填写金额");
       return;
     }
-    setBusy(true);
-    try {
-      if (!preview) {
-        const result = await api.previewApproval(payload());
-        setPreview(result);
-      }
-      const created = await api.createApproval(payload());
-      setAmount("");
-      setPurpose("");
-      setPreview(null);
-      onCreated(String(created.id));
-    } catch (e) {
-      setFormErr(friendlyError(e, "费用审批未提交，请稍后重试"));
-    } finally {
-      setBusy(false);
-    }
+    const ready = preview || await runPreview();
+    if (!ready || ready.expected_version == null) return;
+    const object = `${ready.plan?.requester_name || requester.trim() || account?.name || "当前登录人"}申请 ${currency} ${formatAmount(Number(amount))}`;
+    const rule = ready.plan?.rule_id || "";
+    ask(
+      approvalInitiateConfirm({
+        object,
+        scope: "按费用规则发起 · 不会改合作阶段",
+        change: ready.steps.map((step) => step.name).join(" → ") || "按规则计算审批链",
+        consequence: "确认后生成待决定单据。现在不会批准，也不会产生外部回执。",
+        approvalState: "待提交",
+        ruleVersion: rule,
+      }),
+      async () => {
+        const created = await api.createApproval({
+          ...payload(),
+          expected_version: ready.expected_version,
+          idempotency_key: newIdempotencyKey(),
+        });
+        setAmount("");
+        setPurpose("");
+        setPreview(null);
+        onCreated(String(created.id));
+      },
+    );
   };
 
   return (
@@ -274,22 +360,20 @@ function InitiateExpenseForm({ onCreated }: { onCreated: (id: string) => void })
       </div>
       {preview && preview.steps.length > 0 && (
         <div data-approval-preview>
-          <p className="muted">
-            将按费用规则提交。
-            审批链如下，确认后提交。
-          </p>
+          <p className="muted">将按费用规则提交。审批链如下，确认后提交。</p>
           <ol className="approval-path">
             {preview.steps.map((step, index) => (
               <li key={`${step.name}-${index}`} data-path-state={index === 0 ? "current" : "todo"}>
                 <span>{step.name}</span>
                 <small>{step.role}</small>
+                <span className="path-state">{index === 0 ? "当前" : "待处理"}</span>
               </li>
             ))}
           </ol>
         </div>
       )}
       {formErr && <p className="error" role="alert">{formErr}</p>}
-      <button className="btn primary" type="submit" disabled={busy}>
+      <button className="btn" type="submit" disabled={busy}>
         {busy ? "提交中…" : "提交费用审批"}
       </button>
     </form>
@@ -297,50 +381,92 @@ function InitiateExpenseForm({ onCreated }: { onCreated: (id: string) => void })
 }
 
 export default function Approvals() {
+  const params = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-  const focusId = searchParams.get("id") || "";
+  const box = parseBox(searchParams.get("box"));
+  const focusId = params.id || searchParams.get("id") || "";
   const [rows, setRows] = useState<Approval[]>([]);
+  const [focused, setFocused] = useState<Approval | null>(null);
   const [cards, setCards] = useState<{ approval_id: string; body: string; status: string; assignee: string }[]>([]);
   const [err, setErr] = useState("");
-  const [slice, setSlice] = useState<Slice>("mine");
+  const [expandedId, setExpandedId] = useState("");
   const [pending, setPending] = useState<PendingConfirm | null>(null);
   const [receipts, setReceipts] = useState<Record<string, SessionReceipt>>({});
+  const [reloadTick, setReloadTick] = useState(0);
   const { ask, dialog, open: confirmOpen } = useAdminConfirm();
 
-  const load = () => {
-    api.approvals().then((r) => setRows(r as Approval[]));
-    api.wecomCards().then((r) => setCards(r as never));
+  const setQuery = (next: { box?: Box; id?: string }) => {
+    const paramsNext = new URLSearchParams();
+    paramsNext.set("box", next.box || box);
+    const id = next.id === undefined ? focusId : next.id;
+    if (id) paramsNext.set("id", id);
+    setSearchParams(paramsNext);
   };
-  useEffect(load, []);
+
+  const load = () => {
+    api.approvals(box).then((r) => setRows(Array.isArray(r) ? r as Approval[] : []));
+    api.wecomCards().then((r) => setCards(r as never)).catch(() => setCards([]));
+  };
+  useEffect(load, [box, reloadTick]);
+
+  useEffect(() => {
+    if (!focusId) {
+      setFocused(null);
+      return;
+    }
+    const local = rows.find((row) => row.id === focusId);
+    if (local) {
+      setFocused(local);
+      return;
+    }
+    api.approval(focusId)
+      .then((row) => setFocused(row as Approval))
+      .catch(() => setFocused(null));
+  }, [focusId, rows]);
 
   const decide = (row: Approval, decision: Decision) => {
     setErr("");
-    setPending({ id: row.id, decision, actor: row.chain[row.current_index] });
-    const current = waitingName(row);
+    if (row.version == null) {
+      setErr("缺少版本，无法确认。请刷新后重试。");
+      return;
+    }
+    setPending({ id: row.id, decision });
+    const evidence = row.evidence || {};
     ask(
       approvalDecideConfirm({
         decision,
-        object: moneyLine(row),
+        object: evidence.object || moneyLine(row),
         scope: [
-          `当前等待 ${current}（第 ${row.current_index + 1}/${row.chain_detail?.length || row.chain.length} 人）`,
-          row.kind && row.kind !== "expense" ? "按审批规则" : "按费用规则",
+          evidence.scope || (row.kind && row.kind !== "expense" ? "按审批规则" : "按费用规则"),
+          `当前等待 ${waitingName(row)}（第 ${row.current_index + 1}/${row.chain_detail?.length || row.chain.length} 人）`,
         ].join(" · "),
+        change: evidence.change || row.consequence_label || moneyLine(row),
         consequence: consequenceCopy(row, decision),
+        approvalState: evidence.approval_state || statusCopy(row),
+        ruleVersion: evidence.rule_version || row.version_code || "",
       }),
       async (reason) => {
         try {
           const result = await api.decide(
             row.id,
             decision,
-            row.chain[row.current_index],
+            undefined,
             decision === "reject" ? reason : undefined,
+            { expected_version: Number(row.version || 0), idempotency_key: newIdempotencyKey() },
           );
           const receipt = receiptCopy(row, decision, result, reason);
           setReceipts((prev) => ({ ...prev, [row.id]: receipt }));
-          setSearchParams({ id: row.id });
+          setQuery({ id: row.id, box: decision === "reject" || result.status === "consumed" ? "done" : box });
           setPending(null);
+          setExpandedId("");
           load();
         } catch (e) {
+          if (isStaleError(e)) {
+            setExpandedId("");
+            setPending(null);
+            load();
+            throw new Error("内容已变化，请重新确认。");
+          }
           throw new Error(friendlyError(e, "审批未完成，请稍后重试"));
         }
       },
@@ -353,25 +479,13 @@ export default function Approvals() {
   }, [confirmOpen]);
 
   useEffect(() => {
-    if (!focusId || !rows.length) return;
-    const target = rows.find((row) => row.id === focusId);
-    if (!target) return;
-    if (target.status !== "pending") setSlice("done");
-    else if (target.can_decide === false) setSlice("all");
-    else setSlice("mine");
-  }, [focusId, rows]);
+    if (focusId) setExpandedId(focusId);
+  }, [focusId]);
 
   const visible = useMemo(() => {
-    const focused = focusId ? rows.find((row) => row.id === focusId) : undefined;
-    let list: Approval[];
-    if (slice === "done") list = rows.filter((row) => row.status !== "pending");
-    else {
-      const pendingRows = rows.filter((row) => row.status === "pending");
-      list = slice === "mine" ? pendingRows.filter((row) => row.can_decide !== false) : pendingRows;
-    }
-    if (focused && !list.some((row) => row.id === focused.id)) list = [focused, ...list];
-    return list;
-  }, [rows, slice, focusId]);
+    const extra = focused && !rows.some((row) => row.id === focused.id) ? [focused] : [];
+    return [...extra, ...rows];
+  }, [rows, focused]);
 
   useEffect(() => {
     if (!focusId) return;
@@ -385,23 +499,28 @@ export default function Approvals() {
       <header className="approval-page-head">
         <div className="page-kicker">审批</div>
         <h1>工作审批</h1>
-        <p className="muted">费用按规则一位通过再到下一位。最后一位同意即办结；任一位驳回则整单作废。「待我处理」只列出轮到你确认的单；还没轮到时可在「待处理」查看。</p>
+        <p className="muted">待我决定只列出轮到你确认的单。同意或驳回是受控命令，不会进入对话。交给 Agent 只可分析，不能代批。</p>
       </header>
       <InitiateExpenseForm
+        ask={ask}
         onCreated={(id) => {
           setErr("");
-          setSearchParams({ id });
-          load();
+          setReceipts((prev) => ({ ...prev, [id]: { id, decision: "submit", tone: "info", text: "已提交" } }));
+          setQuery({ box: "submitted", id });
+          setReloadTick((value) => value + 1);
         }}
       />
       <div className="task-filters approval-filters" aria-label="筛选审批">
-        {([["mine", "待我处理"], ["all", "待处理"], ["done", "已结束"]] as const).map(([id, label]) => (
-          <button key={id} type="button" aria-pressed={slice === id} onClick={() => setSlice(id)} data-approval-slice={id}>
-            {label} {id === "mine"
-              ? rows.filter((row) => row.status === "pending" && row.can_decide !== false).length
-              : id === "all"
-                ? rows.filter((row) => row.status === "pending").length
-                : rows.filter((row) => row.status !== "pending").length}
+        {BOXES.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            aria-pressed={box === item.id}
+            onClick={() => setQuery({ box: item.id, id: focusId })}
+            data-approval-box={item.id}
+            data-approval-slice={item.id}
+          >
+            {item.label}
           </button>
         ))}
       </div>
@@ -412,60 +531,72 @@ export default function Approvals() {
         const notice = stripApprovalRecordIds(a.wecom_card?.body);
         const receipt = durableReceipt(a, receipts[a.id]);
         const confirming = confirmOpen && pending?.id === a.id;
+        const inbox = box === "inbox" && a.can_decide !== false && a.status === "pending";
+        const expanded = expandedId === a.id || focusId === a.id;
+        const nodes = pathNodes(a);
         return (
           <article
             className={"panel approval-card" + (a.status === "pending" ? " is-pending" : "") + (focusId === a.id ? " is-focus" : "")}
             key={a.id}
             data-approval-id={a.id}
-            data-approval-kind={a.kind || "expense"}
+            data-approval-kind={a.kind || a.action_id || "expense"}
             data-approval-status={a.status}
+            data-approval-box={box}
             data-approval-focus={focusId === a.id ? "true" : undefined}
+            data-approval-version={a.version ?? ""}
           >
             <h3 className="approval-title">
               <span className="approval-kind">{kindLabel(a)}</span>
               <span>{moneyLine(a)}</span>
-              <span className="nowrap">{approvalStatusLabel(a.status)}</span>
+              <span className="nowrap">{statusCopy(a)}</span>
             </h3>
             <p className="muted">
               {a.kind && a.kind !== "expense" ? "按审批规则" : "按费用规则"}
               {a.need_manual_band ? " · 需人工确认金额档" : ""}
+              {a.requester_name ? ` · 申请人 ${a.requester_name}` : ""}
+              {a.waiting_duration_label ? ` · ${a.waiting_duration_label}` : ""}
               {a.status === "pending" ? ` · 当前等待 ${current}（第 ${a.current_index + 1}/${a.chain_detail?.length || a.chain.length} 人）` : ""}
             </p>
+            <p className="approval-row-meta" data-approval-row-meta>
+              <span data-approval-action>{a.action_id || a.kind || "expense"}</span>
+              {a.consequence_label ? <span data-approval-consequence> · {a.consequence_label}</span> : null}
+              {a.version_code ? <span data-approval-version-code> · {a.version_code}</span> : null}
+            </p>
             <ol className="approval-path" data-approval-path>
-              {(a.chain_detail || []).map((step, index) => (
-                <li key={`${step.name}-${index}`} data-path-state={pathState(a, index)}>
+              {nodes.map((step, index) => (
+                <li key={`${step.name}-${index}`} data-path-state={step.state || "todo"}>
                   <span>{step.name}</span>
                   <small>{step.role}</small>
+                  <span className="path-state">{step.state_label || ""}</span>
                 </li>
               ))}
             </ol>
             {notice && !receipt && <p className="muted" data-approval-notice>{notice}</p>}
             {receipt && (
-              <p
-                className="approval-receipt"
-                data-approval-receipt
-                data-tone={receipt.tone}
-                role="status"
-              >
+              <p className="approval-receipt" data-approval-receipt data-tone={receipt.tone} role="status">
                 {receipt.text}
               </p>
             )}
-            {a.status === "pending" && a.can_decide !== false && !confirming && (
+            <ReceiptLines row={a} />
+            {inbox && !expanded && !confirming && (
               <div className="approval-actions">
                 <button
                   type="button"
-                  className="btn primary"
-                  onClick={() => decide(a, "approve")}
+                  className={focusId === a.id ? "btn primary" : "btn"}
+                  data-approval-decide
+                  onClick={() => {
+                    setExpandedId(a.id);
+                    setQuery({ id: a.id, box: "inbox" });
+                  }}
                 >
-                  同意
+                  决定
                 </button>
-                <button
-                  type="button"
-                  className="btn danger"
-                  onClick={() => decide(a, "reject")}
-                >
-                  驳回
-                </button>
+              </div>
+            )}
+            {inbox && expanded && !confirming && (
+              <div className="approval-actions" data-approval-detail>
+                <button type="button" className="btn primary" onClick={() => decide(a, "approve")}>同意</button>
+                <button type="button" className="btn danger" onClick={() => decide(a, "reject")}>驳回</button>
               </div>
             )}
             {a.status === "pending" && a.can_decide === false && (

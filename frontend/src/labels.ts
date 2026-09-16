@@ -118,6 +118,10 @@ const ERROR_TITLES: Record<string, string> = {
   empty_approval_chain: "规则没有算出可执行的审批链",
   reject_reason_required: "驳回必须填写原因",
   approval_role_required: "这一步不由你确认",
+  stale: "内容已变化，请重新确认",
+  expected_version_required: "提交需要期望版本",
+  idempotency_key_required: "提交需要幂等键",
+  unknown_box: "筛选无效",
 };
 
 const USER_STATUS: Record<string, string> = {
@@ -201,8 +205,16 @@ const AUDIT_EVENTS: Record<string, string> = {
 
 const APPROVAL_STATUS: Record<string, string> = {
   pending: "待处理",
+  waiting_next: "等待下一位",
+  approved_pending_exec: "已批准，待执行",
+  executing: "执行中",
+  succeeded: "已办结",
+  partial: "部分完成",
+  failed: "失败",
   approved: "已同意",
   rejected: "已驳回",
+  withdrawn: "已撤回",
+  stale: "已过期",
   cancelled: "已取消",
   waiting: "等待中",
   forwarded: "已转交",

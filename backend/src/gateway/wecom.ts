@@ -3,6 +3,7 @@
  * 审批人只来自 Host 规则引擎传入的 chain；本文件不点名。
  */
 import { audit, getConn, nowIso, tx } from "../db.js";
+import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import { currentUser } from "../host/persona.js";
 import type { WorkApprovalKind } from "../stages.js";
@@ -121,6 +122,8 @@ export function getApproval(aid: string): Row | null {
   if (d.wecom_card) {
     (d.wecom_card as Row).body = withoutRecordIds(String((d.wecom_card as Row).body || ""));
   }
+  d.version = Number(d.version || 0);
+  d.updated_at = d.updated_at || d.created_at;
   return d;
 }
 
@@ -169,8 +172,8 @@ export function createWorkApproval(input: {
       `INSERT INTO approvals
        (id, draft_id, brand, amount_usd, status, chain, current_index, uses_left,
         fingerprint, need_manual_band, wecom_card_id, created_at, chain_id,
-        kind, payload, title, submitted_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        kind, payload, title, submitted_by, version, updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     ).run(
       aid,
       input.draftId || "",
@@ -189,6 +192,8 @@ export function createWorkApproval(input: {
       JSON.stringify(payload),
       title,
       submittedBy,
+      0,
+      now,
     );
     c.prepare(
       `INSERT INTO wecom_cards (id, approval_id, title, body, status, assignee, payload, ts)
@@ -216,6 +221,27 @@ export function listApprovals(): Row[] {
   return ids.map((r) => getApproval(r.id)).filter((x): x is Row => Boolean(x));
 }
 
+export function createReceipt(key: string): Row | null {
+  const row = getConn().prepare(
+    "SELECT result_json FROM approval_idempotency WHERE action = 'create' AND approval_id = '*' AND idempotency_key = ?",
+  ).get(key) as { result_json: string } | undefined;
+  if (!row?.result_json) return null;
+  try {
+    const parsed = JSON.parse(row.result_json) as { id?: string };
+    return parsed.id ? getApproval(String(parsed.id)) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveCreateReceipt(key: string, approval: Row) {
+  getConn().prepare(
+    `INSERT OR IGNORE INTO approval_idempotency
+     (id, action, approval_id, idempotency_key, result_json, created_at)
+     VALUES (?,?,?,?,?,?)`,
+  ).run(nid("aidem"), "create", "*", key, JSON.stringify({ id: approval.id }), nowIso());
+}
+
 export function listWecomCards(): Row[] {
   return (getConn().prepare("SELECT * FROM wecom_cards ORDER BY ts DESC").all() as Row[]).map((r) => ({
     ...r,
@@ -224,15 +250,50 @@ export function listWecomCards(): Row[] {
   }));
 }
 
+export type DecideGate = {
+  expected_version: number;
+  idempotency_key: string;
+};
+
+function decideReceipt(aid: string, key: string): Json | null {
+  const row = getConn().prepare(
+    "SELECT result_json FROM approval_idempotency WHERE action = 'decide' AND approval_id = ? AND idempotency_key = ?",
+  ).get(aid, key) as { result_json: string } | undefined;
+  if (!row?.result_json) return null;
+  try {
+    return JSON.parse(row.result_json) as Json;
+  } catch {
+    return null;
+  }
+}
+
+function insertDecideReceipt(aid: string, key: string, result: Json, at: string) {
+  getConn().prepare(
+    `INSERT OR IGNORE INTO approval_idempotency
+     (id, action, approval_id, idempotency_key, result_json, created_at)
+     VALUES (?,?,?,?,?,?)`,
+  ).run(nid("aidem"), "decide", aid, key, JSON.stringify(result), at);
+}
+
+function staleFail(): never {
+  throw new HttpFail(409, { code: "stale", message: "内容已变化，请重新确认。" });
+}
+
 export async function decide(
   aid: string,
   decision: string,
   actorRole?: string | null,
   reason?: string | null,
+  gate?: DecideGate,
 ): Promise<Json> {
+  if (gate?.idempotency_key) {
+    const replay = decideReceipt(aid, gate.idempotency_key);
+    if (replay) return { ...replay, replayed: true };
+  }
   const ap = getApproval(aid);
   if (!ap) throw new KeyError(aid);
   if (ap.status !== "pending") throw new Error(`approval status ${ap.status}`);
+  if (gate && Number(ap.version || 0) !== gate.expected_version) staleFail();
   const kind = String(ap.kind || "expense") as WorkApprovalKind;
   const chain = ap.chain as string[];
   const idx = Number(ap.current_index);
@@ -241,6 +302,11 @@ export async function decide(
     throw new Error(`current level is ${expected}`);
   }
   const now = nowIso();
+  const nextVersion = Number(ap.version || 0) + 1;
+  const remember = (result: Json) => {
+    if (gate?.idempotency_key) insertDecideReceipt(aid, gate.idempotency_key, result, now);
+    return result;
+  };
   if (decision === "reject") {
     const rejectReason = String(reason || "").trim();
     if (!rejectReason) {
@@ -253,18 +319,18 @@ export async function decide(
       rejected_by: actorName,
     };
     tx((c) => {
-      c.prepare("UPDATE approvals SET status = 'rejected', payload = ? WHERE id = ?").run(
-        JSON.stringify(nextPayload),
-        aid,
-      );
+      const updated = c.prepare(
+        "UPDATE approvals SET status = 'rejected', payload = ?, version = ?, updated_at = ? WHERE id = ? AND status = 'pending' AND version = ?",
+      ).run(JSON.stringify(nextPayload), nextVersion, now, aid, Number(ap.version || 0));
+      if (!updated.changes) staleFail();
       c.prepare("UPDATE wecom_cards SET status = 'rejected', body = ? WHERE approval_id = ?").run(
         approvalNotice(kind, nextPayload, "reject", actorName, undefined, rejectReason),
         aid,
       );
       if (ap.draft_id) c.prepare("UPDATE drafts SET status = 'discarded' WHERE id = ?").run(ap.draft_id);
     });
-    audit("gateway", "approval.reject", { approval_id: aid, kind, reason: rejectReason });
-    return { ...getApproval(aid), sent: false, discarded: true, stage_changed: false, reject_reason: rejectReason };
+    audit("gateway", "approval.reject", { approval_id: aid, kind, reason: rejectReason, version: nextVersion });
+    return remember({ ...getApproval(aid), sent: false, discarded: true, stage_changed: false, reject_reason: rejectReason });
   }
   if (decision !== "approve") throw new Error("decision must be approve or reject");
 
@@ -273,7 +339,10 @@ export async function decide(
     const person = actorOf(nxt, ap.payload as Json);
     const expectedActor = actorOf(expected, ap.payload as Json);
     tx((c) => {
-      c.prepare("UPDATE approvals SET current_index = ? WHERE id = ?").run(idx + 1, aid);
+      const updated = c.prepare(
+        "UPDATE approvals SET current_index = ?, version = ?, updated_at = ? WHERE id = ? AND status = 'pending' AND version = ?",
+      ).run(idx + 1, nextVersion, now, aid, Number(ap.version || 0));
+      if (!updated.changes) staleFail();
       c.prepare("UPDATE wecom_cards SET status = 'forwarded', body = ? WHERE approval_id = ?").run(
         approvalNotice(kind, ap.payload as Json, "advance", person.name, expectedActor.name),
         aid,
@@ -285,21 +354,24 @@ export async function decide(
         aid,
       );
     });
-    audit("gateway", "approval.advance", { approval_id: aid, next: nxt, kind });
-    return { ...getApproval(aid), sent: false, advanced: true, stage_changed: false };
+    audit("gateway", "approval.advance", { approval_id: aid, next: nxt, kind, version: nextVersion });
+    return remember({ ...getApproval(aid), sent: false, advanced: true, stage_changed: false });
   }
 
   const { fulfillExpenseApproval } = await import("../host/approval-fulfill.js");
   const fulfilled = await fulfillExpenseApproval(ap);
   tx((c) => {
-    c.prepare("UPDATE approvals SET status = 'consumed', uses_left = 0 WHERE id = ?").run(aid);
+    const updated = c.prepare(
+      "UPDATE approvals SET status = 'consumed', uses_left = 0, version = ?, updated_at = ? WHERE id = ? AND status = 'pending' AND version = ?",
+    ).run(nextVersion, now, aid, Number(ap.version || 0));
+    if (!updated.changes) staleFail();
     c.prepare("UPDATE wecom_cards SET status = 'sent', body = ? WHERE approval_id = ?").run(
       approvalNotice(kind, ap.payload as Json, "done", actorOf(expected, ap.payload as Json).name),
       aid,
     );
   });
-  audit("gateway", "approval.final_fulfill", { approval_id: aid, kind });
-  return { ...getApproval(aid), ...fulfilled };
+  audit("gateway", "approval.final_fulfill", { approval_id: aid, kind, version: nextVersion });
+  return remember({ ...getApproval(aid), ...fulfilled });
 }
 
 export class KeyError extends Error {

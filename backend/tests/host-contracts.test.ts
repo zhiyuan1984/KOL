@@ -410,7 +410,11 @@ describe("host contracts", () => {
     expect(body.stage_code).toBe("CONTENT_PLANNING");
     const held = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_mum'").get() as Json;
     expect(held.stage_code).toBe("CONTENT_PLANNING");
-    const decided = await request("POST", `/api/approvals/${body.approval_id}/decide`, { decision: "approve" });
+    const decided = await request("POST", `/api/approvals/${body.approval_id}/decide`, {
+      decision: "approve",
+      expected_version: 0,
+      idempotency_key: `host-content-${body.approval_id}`,
+    });
     expect(decided.status, await decided.text()).toBe(200);
     const after = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_mum'").get() as Json;
     expect(after.stage_code).toBe("CONTENT_REVIEW");
@@ -431,7 +435,11 @@ describe("host contracts", () => {
     expect(body.kind).toBe("stage");
     const held = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_laozhang'").get() as Json;
     expect(held.stage_code).toBe("NEGOTIATING");
-    const decided = await request("POST", `/api/approvals/${body.approval_id}/decide`, { decision: "approve" });
+    const decided = await request("POST", `/api/approvals/${body.approval_id}/decide`, {
+      decision: "approve",
+      expected_version: 0,
+      idempotency_key: `host-stage-${body.approval_id}`,
+    });
     expect(decided.status, await decided.text()).toBe(200);
     const after = getConn().prepare("SELECT stage_code FROM collaborations WHERE id='col_laozhang'").get() as Json;
     expect(after.stage_code).toBe("PLAN_PENDING");
