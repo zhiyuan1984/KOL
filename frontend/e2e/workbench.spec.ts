@@ -4568,9 +4568,9 @@ test("approvals boxes, badge API, cancel reject, and stale decide", async ({ pag
   await expect(card).toBeVisible();
   await expect(card.locator("[data-path-state='current'] .path-state")).toContainText("当前");
   await expect(page.locator("[data-approval-box='submitted']")).toBeVisible();
-  await page.locator("[data-approval-box='submitted']").click();
+  await page.locator(".approval-filters [data-approval-box='submitted']").click();
   await expect(page).toHaveURL(/box=submitted/);
-  await page.locator("[data-approval-box='inbox']").click();
+  await page.locator(".approval-filters [data-approval-box='inbox']").click();
   await expect(page).toHaveURL(/box=inbox/);
 
   await card.getByRole("button", { name: "驳回" }).click();

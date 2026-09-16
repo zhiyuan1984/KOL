@@ -541,7 +541,6 @@ export default function Approvals() {
             data-approval-id={a.id}
             data-approval-kind={a.kind || a.action_id || "expense"}
             data-approval-status={a.status}
-            data-approval-box={box}
             data-approval-focus={focusId === a.id ? "true" : undefined}
             data-approval-version={a.version ?? ""}
           >
