@@ -1,6 +1,6 @@
 import { audit, getConn, nowIso, txImmediate, type SqliteConn } from "../db.js";
 import { HttpFail } from "../host/errors.js";
-import type { Json, Row } from "../types.js";
+import type { Row } from "../types.js";
 import type { AppUser } from "../auth.js";
 import { cronHandler } from "./handlers.js";
 import { nextRunAt } from "./schedule.js";
@@ -216,6 +216,3 @@ export function runCronJobNow(jobId: string, viewer?: AppUser, scheduledFor?: st
   return { run_id: enqueued.run_id };
 }
 
-export function uniqueEnqueueConstraintName(): string {
-  return "cron_runs.job_id, cron_runs.scheduled_for";
-}

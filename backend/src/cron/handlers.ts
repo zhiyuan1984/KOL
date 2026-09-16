@@ -52,16 +52,6 @@ const WORK_ITEM_BUCKETS: Record<string, string[]> = {
   negotiate: ["creator_lifecycle_kanban"],
 };
 
-function parseJson(raw: unknown, fallback: Json = {}): Json {
-  if (raw && typeof raw === "object" && !Array.isArray(raw)) return raw as Json;
-  try {
-    const parsed = JSON.parse(String(raw || "{}"));
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Json : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 function scopedRows(rows: Row[], viewer?: AppUser): Row[] {
   const brands = brandScope(viewer);
   if (!brands) return rows;
@@ -285,11 +275,3 @@ export function handlerContract(key: string): Json {
   return contracts[key] || { title: key, creates_session: false };
 }
 
-export function parseJobJson(job: Row): { scope: Json; condition: Json; retry: Json; takeover: Json } {
-  return {
-    scope: parseJson(job.scope_json),
-    condition: parseJson(job.condition_json),
-    retry: parseJson(job.retry_policy_json, { max_attempts: 1 }),
-    takeover: parseJson(job.takeover_policy_json, { after_minutes: 30 }),
-  };
-}
