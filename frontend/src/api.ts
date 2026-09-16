@@ -57,6 +57,52 @@ export type Rec = {
   granted?: boolean;
 };
 
+export type CronJob = {
+  id: string;
+  job_key: string;
+  title: string;
+  owner_account_id?: string | null;
+  execute_as?: string;
+  execute_identity?: string;
+  capability_expert_id?: string | null;
+  handler_key: string;
+  scope?: Record<string, unknown>;
+  condition?: Record<string, unknown>;
+  cron_expr?: string;
+  timezone?: string;
+  frequency?: string;
+  status: string;
+  enabled?: boolean;
+  retry_policy?: Record<string, unknown>;
+  takeover_policy?: Record<string, unknown>;
+  published_rev?: number;
+  next_run_at?: string | null;
+  last_run_at?: string | null;
+  last_terminal_status?: string | null;
+  system?: boolean;
+  legal_fields_readonly?: boolean;
+};
+
+export type CronRun = {
+  id: string;
+  job_id: string;
+  trigger: string;
+  status: string;
+  scheduled_for?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  error_code?: string | null;
+  error_summary?: string | null;
+  receipt?: Record<string, unknown>;
+  session_id?: string | null;
+  created_at?: string;
+};
+
+export type CronAlerts = {
+  failed?: number;
+  needs_takeover?: number;
+};
+
 export type TaskSource = "manual" | "ai" | string;
 export type TaskStatus = "pending" | "waiting" | "running" | "completed" | "failed" | string;
 
@@ -964,8 +1010,25 @@ export const api = {
     fd.append("file", file);
     return request<Record<string, unknown>>("/api/admin/knowledge/upload", { method: "POST", body: fd });
   },
-  cron: () => fetch("/api/cron/risks").then((r) => r.json()),
-  riskScan: () => fetch("/api/cron/risk-scan", { method: "POST" }).then((r) => r.json()),
+  cron: () => request<Record<string, unknown>>("/api/cron/risks"),
+  cronJobs: () => request<{ jobs: CronJob[]; alerts?: CronAlerts }>("/api/cron/jobs"),
+  cronJob: (id: string) =>
+    request<{ job: CronJob; runs: CronRun[] }>(`/api/cron/jobs/${encodeURIComponent(id)}`),
+  patchCronJob: (id: string, body: Record<string, unknown>) =>
+    request<{ job: CronJob }>(`/api/cron/jobs/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  runCronJob: (id: string) =>
+    request<{ run_id: string; session_id?: string }>(`/api/cron/jobs/${encodeURIComponent(id)}/run`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  cronJobRuns: (id: string) =>
+    request<{ runs: CronRun[] }>(`/api/cron/jobs/${encodeURIComponent(id)}/runs`),
+  cronRun: (runId: string) =>
+    request<{ run: CronRun; job?: CronJob }>(`/api/cron/runs/${encodeURIComponent(runId)}`),
+  riskScan: () => request<{ run_id: string; session_id?: string }>("/api/cron/risk-scan", { method: "POST" }),
   exam: () => fetch("/api/exam").then((r) => r.json()),
   admin: () => fetch("/api/admin").then((r) => r.json()),
   adminUsers: () => request<Record<string, unknown>[]>("/api/admin/users"),

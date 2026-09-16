@@ -17,6 +17,7 @@ import { crawlRouter } from "./routers/crawl.js";
 import { knowledge } from "./routers/knowledge.js";
 import { experts } from "./routers/experts.js";
 import { discovery } from "./routers/discovery.js";
+import { cron } from "./routers/cron.js";
 import { restoreActiveCrawlJobs } from "./crawl/service.js";
 import { restoreActiveDiscoveryRuns } from "./discovery.js";
 import { seedIfEmpty } from "./seed.js";
@@ -56,6 +57,7 @@ export function createApp(): Hono {
   app.route("/api", knowledge);
   app.route("/api", experts);
   app.route("/api", discovery);
+  app.route("/api", cron);
   app.route("/api", misc);
   app.route("/api", tasks);
   app.route("/api", crawlRouter);

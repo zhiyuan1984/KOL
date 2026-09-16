@@ -29,6 +29,7 @@ export default function App() {
           <Route path="/work" element={<Navigate to="/" replace />} />
           <Route path="/s/:id" element={<Chat />} />
           <Route path="/pipeline" element={<Pipeline />} />
+          <Route path="/cron/:jobId" element={<Cron />} />
           <Route path="/cron" element={<Cron />} />
           <Route path="/skills" element={<Skills />} />
           <Route path="/agents/:id" element={<Agents />} />

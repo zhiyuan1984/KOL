@@ -1,3 +1,4 @@
+import { ensureSystemCronJobs } from "./cron/store.js";
 import { getConn } from "./db.js";
 import { seedDirectory } from "./host/grants.js";
 import { seedKnowledge } from "./host/knowledge.js";
@@ -93,6 +94,7 @@ function seedCore(): void {
   seedKnowledge(conn);
   conn.prepare("INSERT OR REPLACE INTO app_state (key, value) VALUES ('persona', 'sriphy')").run();
   seedMailboxOwners();
+  ensureSystemCronJobs(conn);
 }
 
 function stripLegacyDemoData(): void {
