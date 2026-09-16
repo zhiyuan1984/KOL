@@ -16,7 +16,7 @@
 | `--primary-fg` | `#FFFFFF` | Label on filled primary |
 | `--primary-hover` | `#A82F66` | Hover / pressed of the same hue；不是第二主色 |
 | `--color-obsidian` | `#000000` | **正文 / 近黑字 / 发丝源 only**。不再是填充主按钮 |
-| `--font-sans` | `ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", sans-serif` | 紧凑壳 live 栈。冲突见下：ADR-031 Inter-first 让位于本轮锁定 brief |
+| `--font-sans` | `ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", …` | 紧凑壳 live 栈；Linux 追加 WenQuanYi / Droid Sans Fallback。ADR-031 Inter-first 让位于本轮锁定 brief |
 | `--color-ink` | `#1a1a1a` | 正文。不是纯 `#000` |
 | `--font-body` | `15px / 24px / 400` | 紧凑壳正文。冲突：ADR-020 16px / OpenAI 17px |
 | `--font-section` | `15px / 500–600` | 节标题 |
