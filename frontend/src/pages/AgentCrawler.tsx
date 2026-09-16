@@ -336,7 +336,7 @@ export default function AgentCrawler({
       <section className="crawler-jobs" data-crawler-jobs>
         <div className="expert-block">
           <h2>采集作业</h2>
-          <p className="muted">采集完成只形成候选。确认后才会跟进或导入，不会显示「已入库」。</p>
+          <p className="muted">采集完成只形成候选。确认后才会跟进或导入。</p>
         </div>
         {loading ? <p className="muted" data-crawler-loading>正在加载采集作业…</p> : null}
         {!loading && jobs.length === 0 ? (

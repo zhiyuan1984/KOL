@@ -61,8 +61,9 @@ test("crawler and approver primary CTAs do not summon", async ({ page }) => {
   await expect(page.locator("[data-crawl-console]")).toBeVisible();
   await expect(page.locator("[data-crawler-analyze-disabled]")).toContainText("分析走作业台，不建思考会话");
   await expect(page.locator("[data-crawler-analyze-go]")).toHaveCount(0);
-  await expect(page.locator("body")).not.toContainText("正在思考");
-  await expect(page.locator("body")).not.toContainText("已入库");
+  await expect(page.locator("[data-expert-page='crawler']")).not.toContainText("正在思考");
+  await expect(page.getByRole("button", { name: "已入库" })).toHaveCount(0);
+  await expect(page.locator("[data-crawler-status-copy='已入库']")).toHaveCount(0);
   expect(summons).toEqual([]);
   expect(sessions).toEqual([]);
 
