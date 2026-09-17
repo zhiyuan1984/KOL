@@ -128,6 +128,14 @@ describe("exam governance law-v2", () => {
     expect(String(generated.json.detail)).toMatch(/unpublished/i);
   });
 
+  it("does not let GET /api/exam fake a pass via persona", async () => {
+    const demo = await call("GET", "/api/exam");
+    expect(demo.response.status).toBe(200);
+    expect(demo.json.passed).toBe(true);
+    expect(demo.json).not.toHaveProperty("personas");
+    expect(String(demo.json.note || "")).toMatch(/不按演示身份假装通过/);
+  });
+
   it("rejects publishing while any item is still unaccepted", async () => {
     const exam = await call("POST", "/api/admin/exams", { title: "Need accept" });
     const item = await call("POST", `/api/admin/exams/${exam.json.id}/items`, {
@@ -138,5 +146,30 @@ describe("exam governance law-v2", () => {
     const blocked = await call("POST", `/api/admin/exams/${exam.json.id}/publish`, {});
     expect(blocked.response.status).toBe(409);
     expect(String(blocked.json.detail)).toMatch(/unaccepted/i);
+  });
+});
+
+describe("exam demo endpoint ignores persona pass", () => {
+  beforeEach(async () => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-exam-demo-"));
+    process.env.LINGONG_DB = path.join(tmp, "test.db");
+    process.env.LINGONG_DATA = tmp;
+    process.env.CODEX_MODE = "stub";
+    process.env.AUTH_MODE = "disabled";
+    resetConn();
+    const { createApp } = await import("../src/app.js");
+    app = createApp();
+    adminCookie = "";
+  });
+
+  it("stays honest when the exam_blocked persona is selected", async () => {
+    const switched = await call("POST", "/api/me/persona", { persona: "exam_blocked" }, "");
+    expect(switched.response.status).toBe(200);
+    expect(switched.json.exam_passed).toBe(false);
+    const demo = await call("GET", "/api/exam", undefined, "");
+    expect(demo.response.status).toBe(200);
+    expect(demo.json.passed).toBe(true);
+    expect(demo.json).not.toHaveProperty("personas");
+    expect(Number(demo.json.exam_todo_count)).toBe(0);
   });
 });
