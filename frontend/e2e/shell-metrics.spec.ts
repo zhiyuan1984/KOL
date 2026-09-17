@@ -21,10 +21,6 @@ async function typeOf(page: Page, selector: string): Promise<TypeMetrics> {
   });
 }
 
-function expectedLeftWidthPx(viewportWidth: number): number {
-  return Math.min(420, Math.max(312, viewportWidth * 0.16));
-}
-
 type RailMetrics = {
   tokenLeftWidth: string;
   workbenchFirstCol: string;
@@ -34,23 +30,25 @@ type RailMetrics = {
   sidebarRect: number;
 };
 
-function expectExpandedDesktopRail(metrics: RailMetrics, viewportWidth: number) {
-  const expected = expectedLeftWidthPx(viewportWidth);
+function expectExpandedDesktopRail(metrics: RailMetrics) {
   const firstCol = Number.parseFloat(metrics.workbenchFirstCol);
   const sidebarWidth = Number.parseFloat(metrics.sidebarWidth);
   const minWidth = Number.parseFloat(metrics.sidebarMinWidth);
   const maxWidth = Number.parseFloat(metrics.sidebarMaxWidth);
-  expect(metrics.tokenLeftWidth).toBe("clamp(312px, 16vw, 420px)");
-  expect(firstCol).toBeGreaterThanOrEqual(312);
-  expect(firstCol).toBeLessThanOrEqual(420);
-  expect(sidebarWidth).toBeGreaterThanOrEqual(312);
-  expect(sidebarWidth).toBeLessThanOrEqual(420);
-  expect(firstCol).toBeCloseTo(expected, 0);
-  expect(sidebarWidth).toBeCloseTo(expected, 0);
-  expect(minWidth).toBeCloseTo(expected, 0);
-  expect(maxWidth).toBeCloseTo(expected, 0);
-  expect(firstCol).toBeCloseTo(sidebarWidth, 1);
-  expect(metrics.sidebarRect).toBeCloseTo(expected, 0);
+  expect(metrics.tokenLeftWidth).toBe("264px");
+  expect(metrics.workbenchFirstCol).toBe("264px");
+  expect(metrics.sidebarWidth).toBe("264px");
+  expect(firstCol).toBeGreaterThanOrEqual(263);
+  expect(firstCol).toBeLessThanOrEqual(265);
+  expect(sidebarWidth).toBeGreaterThanOrEqual(263);
+  expect(sidebarWidth).toBeLessThanOrEqual(265);
+  expect(minWidth).toBeGreaterThanOrEqual(263);
+  expect(minWidth).toBeLessThanOrEqual(265);
+  expect(maxWidth).toBeGreaterThanOrEqual(263);
+  expect(maxWidth).toBeLessThanOrEqual(265);
+  expect(firstCol).toBeCloseTo(264, 0);
+  expect(sidebarWidth).toBeCloseTo(264, 0);
+  expect(metrics.sidebarRect).toBeCloseTo(264, 0);
 }
 
 async function collectShellMetrics(page: Page) {
@@ -90,23 +88,23 @@ async function collectShellMetrics(page: Page) {
   };
 }
 
-test("desktop employee shell scales sidebar with viewport and Codex Regular type", async ({ page }) => {
+test("desktop employee shell computed 264 rail and Codex Regular type", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await expect(page.locator(".sidebar")).toBeVisible();
   await expect(page.locator("[data-home] h1")).toBeVisible();
 
   const beforeLifecycle = await collectShellMetrics(page);
-  expectExpandedDesktopRail(beforeLifecycle, 1440);
-  await expect(page.locator(".workbench")).toHaveAttribute("data-left-width", "312");
+  expectExpandedDesktopRail(beforeLifecycle);
+  await expect(page.locator(".workbench")).toHaveAttribute("data-left-width", "264");
 
-  const clampViewports = [1920, 2560, 2048, 1707] as const;
-  const clampTable: Record<string, RailMetrics> = {};
-  for (const width of clampViewports) {
+  const fixedViewports = [1440, 1920, 2560] as const;
+  const fixedTable: Record<string, RailMetrics> = {};
+  for (const width of fixedViewports) {
     await page.setViewportSize({ width, height: 1600 });
     const rail = await collectShellMetrics(page);
-    expectExpandedDesktopRail(rail, width);
-    clampTable[String(width)] = {
+    expectExpandedDesktopRail(rail);
+    fixedTable[String(width)] = {
       tokenLeftWidth: rail.tokenLeftWidth,
       workbenchFirstCol: rail.workbenchFirstCol,
       sidebarWidth: rail.sidebarWidth,
@@ -167,15 +165,15 @@ test("desktop employee shell scales sidebar with viewport and Codex Regular type
     };
   });
   expect(mobile.display).toBe("flex");
-  expect(mobile.width).not.toBe("312px");
+  expect(mobile.width).not.toBe("264px");
   expect(mobile.width).not.toContain("clamp");
-  expect(Number.parseFloat(mobile.width)).toBeLessThan(312);
+  expect(Number.parseFloat(mobile.width)).not.toBe(264);
 
   const dest = path.join(process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results", "shell-metrics-after.json");
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.writeFileSync(dest, JSON.stringify({
     desktop: { ...beforeLifecycle, composerRadius },
-    clampTable,
+    fixedTable,
     collapsed,
     mobile,
   }, null, 2));

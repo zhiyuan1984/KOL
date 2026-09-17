@@ -137,8 +137,8 @@ async function expectEmployeeShell(page: Page) {
   const accountBox = await sidebar.locator("[data-account-pedestal]").boundingBox();
   const sidebarRect = await sidebar.evaluate((el) => el.getBoundingClientRect().width);
   expect(brandBox && accountBox).toBeTruthy();
-  expect(sidebarRect).toBeGreaterThanOrEqual(312);
-  expect(sidebarRect).toBeLessThanOrEqual(420);
+  expect(sidebarRect).toBeGreaterThanOrEqual(263);
+  expect(sidebarRect).toBeLessThanOrEqual(265);
   expect(brandBox!.y).toBeLessThan(accountBox!.y);
   await expect(sidebar.locator("[data-account-name]")).not.toHaveText("");
   await expect(sidebar.locator("[data-account-role]")).not.toHaveText("");
