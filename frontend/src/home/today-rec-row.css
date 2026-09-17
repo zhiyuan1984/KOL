@@ -1,0 +1,57 @@
+/* Today recommendation row: 1 title + 2 reason + 3 pink arrow on one line. */
+.recommend-md-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  gap: var(--space-2);
+  align-items: center;
+  min-width: 0;
+}
+.recommend-md-item {
+  align-items: center;
+}
+.recommend-md-copy {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.recommend-md-copy strong {
+  flex: 0 1 auto;
+  white-space: nowrap;
+}
+.recommend-md-reason {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recommend-to-todo-go {
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.recommend-to-todo-go:hover {
+  filter: brightness(0.96);
+  color: #fff;
+  border-color: transparent;
+}
+.recommend-to-todo-go.is-done,
+.recommend-to-todo-go:disabled {
+  background: var(--bg-elevated, #f3f3f3);
+  color: var(--text-muted, #8a8a8a);
+  border: 1px solid var(--border, #e5e5e5);
+  cursor: not-allowed;
+  opacity: 1;
+}
