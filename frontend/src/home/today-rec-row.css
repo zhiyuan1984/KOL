@@ -1,26 +1,36 @@
-/* Today recommendation row: 1 title + 2 reason + 3 solid pink right-arrow. */
-.recommend-md-row {
+/* Beat styles.css: title + reason + arrow stay on one vertically centered row. */
+.recommended-tasks .recommend-md-row,
+.recommend-md-list > .recommend-md-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 36px;
-  gap: var(--space-2);
+  gap: 12px;
   align-items: center;
   min-width: 0;
 }
-.recommend-md-item {
+.recommended-tasks .recommend-md-item,
+.recommend-md-row > .recommend-md-item {
+  display: grid;
+  grid-template-columns: 1.6em 1.4em minmax(0, 1fr);
   align-items: center;
-}
-.recommend-md-copy {
-  display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  gap: var(--space-2);
   min-width: 0;
 }
-.recommend-md-copy strong {
-  flex: 0 1 auto;
+.recommended-tasks .recommend-md-copy,
+.recommend-md-row .recommend-md-copy {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  gap: 10px;
+  min-width: 0;
+}
+.recommended-tasks .recommend-md-copy strong,
+.recommend-md-row .recommend-md-copy strong {
+  flex: 0 0 auto;
   white-space: nowrap;
 }
-.recommend-md-reason {
+.recommended-tasks .recommend-md-reason,
+.recommend-md-row .recommend-md-reason {
+  display: block;
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -43,6 +53,7 @@
   justify-content: center;
   cursor: pointer;
   box-shadow: none;
+  align-self: center;
 }
 .recommend-md-row > .recommend-to-todo.recommend-to-todo-go:hover {
   filter: brightness(0.96);
@@ -56,4 +67,10 @@
   border: 1px solid var(--border, #e5e5e5) !important;
   cursor: not-allowed;
   filter: none;
+}
+@media (max-width: 720px) {
+  .recommended-tasks .recommend-md-row,
+  .recommend-md-list > .recommend-md-row {
+    grid-template-columns: minmax(0, 1fr) 36px;
+  }
 }
