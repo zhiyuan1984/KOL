@@ -76,7 +76,7 @@
 
   --chrome-2: #eceef0;
   --sidebar-thumb: #d0d0d0;
-  --left-width: 264px;
+  --left-width: 260px;
   --page-gutter: clamp(16px, 2.2vw, 28px);
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --sans: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", "WenQuanYi Micro Hei", "Droid Sans Fallback", sans-serif;
@@ -190,9 +190,11 @@
 }
 *::-webkit-scrollbar-thumb:hover { background: #c4c4c4; }
 html, body, #root { height: 100%; margin: 0; overflow: hidden; }
+html {
+  font-size: 16px; /* match ChatGPT root font-size */
+}
 html, body {
   font-family: var(--sans);
-  font-size: 15px;
   font-weight: 400;
   line-height: var(--leading-body);
   color: #1a1a1a;
@@ -256,6 +258,7 @@ summary:focus-visible,
 .workbench.sidebar-collapsed { --left-width: 56px; }
 .sidebar {
   width: var(--left-width);
+  min-width: var(--left-width);
   background: var(--bg-elevated);
   border-right: 1px solid var(--border);
   padding: 12px 16px;
@@ -6543,7 +6546,7 @@ summary:focus-visible,
    Geometry is intentionally centralized here so the shell, conversation and
    composer share one rhythm without changing business behavior. */
 :root {
-  --left-width: 264px; /* ChatGPT/Codex desktop rail; mobile drawers keep their own width */
+  --left-width: 260px; /* ChatGPT desktop rail (--sidebar-width / w-[260px]); mobile drawers keep their own width */
   --page-gutter: clamp(16px, 2.4vw, 40px);
   --content-max: 1200px;
   --conversation-measure: 900px;
@@ -6570,6 +6573,7 @@ body {
 
 .sidebar {
   width: var(--left-width);
+  min-width: var(--left-width);
   padding: 12px 16px;
   gap: 12px;
 }
@@ -6811,7 +6815,7 @@ body {
 
   .sidebar {
     top: 48px;
-    /* Mobile drawer only — do not inherit the desktop 264 rail. */
+    /* Mobile drawer only — do not inherit the desktop 260 rail. */
     width: min(320px, calc(100vw - 24px));
     min-width: 0;
     max-width: none;
@@ -8482,29 +8486,30 @@ body {
 }
 
 /* Last-wins desktop rail. Must stay after every .sidebar / .workbench width rule.
-   Mobile drawers above (860 / 720) keep min(300px)/min(320px) and never get 264. */
+   Descendant (not only >) so the lock still wins if .sidebar is wrapped.
+   Mobile drawers above (860 / 720) keep min(300px)/min(320px) and never get 260. */
 @media (min-width: 861px) {
   .workbench:not(.admin-surface):not(.sidebar-collapsed) {
-    grid-template-columns: 264px minmax(0, 1fr);
+    grid-template-columns: 260px minmax(0, 1fr) !important;
   }
-  .workbench:not(.admin-surface):not(.sidebar-collapsed) > .sidebar {
-    width: 264px;
-    min-width: 264px;
-    max-width: 264px;
-    flex: 0 0 264px;
+  .workbench:not(.admin-surface):not(.sidebar-collapsed) .sidebar {
+    width: 260px !important;
+    min-width: 260px !important;
+    max-width: 260px !important;
+    flex: 0 0 260px !important;
   }
   .workbench.sidebar-collapsed:not(.admin-surface) {
     --left-width: 56px;
     grid-template-columns: 56px minmax(0, 1fr);
   }
-  .workbench.sidebar-collapsed:not(.admin-surface) > .sidebar {
+  .workbench.sidebar-collapsed:not(.admin-surface) .sidebar {
     width: 56px;
     min-width: 56px;
     max-width: 56px;
   }
   html {
     font-family: var(--sans);
-    font-size: 15px;
+    font-size: 16px; /* match ChatGPT root font-size */
     font-weight: 400;
     color: #1a1a1a;
   }

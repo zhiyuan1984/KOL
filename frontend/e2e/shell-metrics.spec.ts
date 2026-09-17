@@ -35,20 +35,20 @@ function expectExpandedDesktopRail(metrics: RailMetrics) {
   const sidebarWidth = Number.parseFloat(metrics.sidebarWidth);
   const minWidth = Number.parseFloat(metrics.sidebarMinWidth);
   const maxWidth = Number.parseFloat(metrics.sidebarMaxWidth);
-  expect(metrics.tokenLeftWidth).toBe("264px");
-  expect(metrics.workbenchFirstCol).toBe("264px");
-  expect(metrics.sidebarWidth).toBe("264px");
-  expect(firstCol).toBeGreaterThanOrEqual(263);
-  expect(firstCol).toBeLessThanOrEqual(265);
-  expect(sidebarWidth).toBeGreaterThanOrEqual(263);
-  expect(sidebarWidth).toBeLessThanOrEqual(265);
-  expect(minWidth).toBeGreaterThanOrEqual(263);
-  expect(minWidth).toBeLessThanOrEqual(265);
-  expect(maxWidth).toBeGreaterThanOrEqual(263);
-  expect(maxWidth).toBeLessThanOrEqual(265);
-  expect(firstCol).toBeCloseTo(264, 0);
-  expect(sidebarWidth).toBeCloseTo(264, 0);
-  expect(metrics.sidebarRect).toBeCloseTo(264, 0);
+  expect(metrics.tokenLeftWidth).toBe("260px");
+  expect(metrics.workbenchFirstCol).toBe("260px");
+  expect(metrics.sidebarWidth).toBe("260px");
+  expect(firstCol).toBeGreaterThanOrEqual(259);
+  expect(firstCol).toBeLessThanOrEqual(261);
+  expect(sidebarWidth).toBeGreaterThanOrEqual(259);
+  expect(sidebarWidth).toBeLessThanOrEqual(261);
+  expect(minWidth).toBeGreaterThanOrEqual(259);
+  expect(minWidth).toBeLessThanOrEqual(261);
+  expect(maxWidth).toBeGreaterThanOrEqual(259);
+  expect(maxWidth).toBeLessThanOrEqual(261);
+  expect(firstCol).toBeCloseTo(260, 0);
+  expect(sidebarWidth).toBeCloseTo(260, 0);
+  expect(metrics.sidebarRect).toBeCloseTo(260, 0);
 }
 
 async function collectShellMetrics(page: Page) {
@@ -88,7 +88,7 @@ async function collectShellMetrics(page: Page) {
   };
 }
 
-test("desktop employee shell computed 264 rail and Codex Regular type", async ({ page }) => {
+test("desktop employee shell computed 260 rail and Codex Regular type", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await expect(page.locator(".sidebar")).toBeVisible();
@@ -96,9 +96,10 @@ test("desktop employee shell computed 264 rail and Codex Regular type", async ({
 
   const beforeLifecycle = await collectShellMetrics(page);
   expectExpandedDesktopRail(beforeLifecycle);
-  await expect(page.locator(".workbench")).toHaveAttribute("data-left-width", "264");
+  await expect(page.locator(".workbench")).toHaveAttribute("data-left-width", "260");
 
-  const fixedViewports = [1440, 1920, 2560] as const;
+  // 1280 = 2560×1600 @ 200% CSS viewport — the machine where min-width:0 + > lock crushed to ~210.
+  const fixedViewports = [1280, 1920, 2560] as const;
   const fixedTable: Record<string, RailMetrics> = {};
   for (const width of fixedViewports) {
     await page.setViewportSize({ width, height: 1600 });
@@ -113,7 +114,35 @@ test("desktop employee shell computed 264 rail and Codex Regular type", async ({
       sidebarRect: rail.sidebarRect,
     };
   }
+
+  await page.setViewportSize({ width: 1280, height: 1600 });
+  const shrinkAttack = await page.evaluate(() => {
+    const rail = document.querySelector(".sidebar") as HTMLElement | null;
+    const shell = document.querySelector(".workbench") as HTMLElement | null;
+    if (!rail || !shell) throw new Error("missing shell");
+    rail.style.minWidth = "0";
+    rail.style.width = "16vw";
+    const grid = getComputedStyle(shell).gridTemplateColumns;
+    return {
+      width: getComputedStyle(rail).width,
+      minWidth: getComputedStyle(rail).minWidth,
+      firstCol: grid.split(/\s+/)[0],
+      rect: rail.getBoundingClientRect().width,
+    };
+  });
+  expect(Number.parseFloat(shrinkAttack.width)).toBeCloseTo(260, 0);
+  expect(Number.parseFloat(shrinkAttack.minWidth)).toBeCloseTo(260, 0);
+  expect(Number.parseFloat(shrinkAttack.firstCol)).toBeCloseTo(260, 0);
+  expect(shrinkAttack.rect).toBeCloseTo(260, 0);
+  await page.evaluate(() => {
+    const rail = document.querySelector(".sidebar") as HTMLElement | null;
+    if (!rail) throw new Error("missing sidebar");
+    rail.style.minWidth = "";
+    rail.style.width = "";
+  });
+
   await page.setViewportSize({ width: 1440, height: 900 });
+  expect(beforeLifecycle.html.fontSize).toBe("16px");
   expect(beforeLifecycle.body.fontFamily.startsWith("ui-sans-serif, system-ui, \"PingFang SC\", \"Noto Sans SC\"")).toBe(true);
   expect(beforeLifecycle.body.fontFamily).not.toContain("Microsoft YaHei");
   expect(beforeLifecycle.body.fontFamily).not.toContain("Noto Sans CJK SC");
@@ -165,15 +194,16 @@ test("desktop employee shell computed 264 rail and Codex Regular type", async ({
     };
   });
   expect(mobile.display).toBe("flex");
-  expect(mobile.width).not.toBe("264px");
+  expect(mobile.width).not.toBe("260px");
   expect(mobile.width).not.toContain("clamp");
-  expect(Number.parseFloat(mobile.width)).not.toBe(264);
+  expect(Number.parseFloat(mobile.width)).not.toBe(260);
 
   const dest = path.join(process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results", "shell-metrics-after.json");
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.writeFileSync(dest, JSON.stringify({
     desktop: { ...beforeLifecycle, composerRadius },
     fixedTable,
+    shrinkAttack,
     collapsed,
     mobile,
   }, null, 2));
