@@ -130,7 +130,7 @@
   --surface-whisper: var(--color-whisper);
 
   font-family: var(--sans);
-  font-size: var(--font-body);
+  font-size: 16px; /* match ChatGPT root; :root beats html, so this must not stay --font-body 15px */
   line-height: var(--leading-body);
   letter-spacing: 0;
   font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
@@ -8507,9 +8507,10 @@ body {
     min-width: 56px;
     max-width: 56px;
   }
-  html {
+  html,
+  :root {
     font-family: var(--sans);
-    font-size: 16px; /* match ChatGPT root font-size */
+    font-size: 16px; /* match ChatGPT root font-size; :root must win over --font-body */
     font-weight: 400;
     color: #1a1a1a;
   }
