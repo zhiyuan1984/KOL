@@ -804,7 +804,10 @@ describe("host contracts", () => {
     }
     const cron = await request("POST", "/api/cron/risk-scan");
     expect(cron.status, await cron.text()).toBe(200);
-    expect((await cron.json()).worker).toBeNull();
+    const cronBody = await cron.json() as Json;
+    expect(cronBody.run_id).toBeTruthy();
+    expect(cronBody.session_id).toBeUndefined();
+    expect(cronBody.worker).toBeUndefined();
   });
 
   it("market hides ops skills", async () => {
