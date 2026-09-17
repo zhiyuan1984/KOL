@@ -140,24 +140,6 @@ export function tx<T>(fn: (db: SqliteConn) => T): T {
   return db.transaction(fn)(db);
 }
 
-/** Multi-worker claim: BEGIN IMMEDIATE + status flip (SQLite SKIP LOCKED equivalent). */
-export function txImmediate<T>(fn: (db: SqliteConn) => T): T {
-  const db = getConn();
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    const out = fn(db);
-    db.exec("COMMIT");
-    return out;
-  } catch (error) {
-    try {
-      db.exec("ROLLBACK");
-    } catch {
-      /* ignore */
-    }
-    throw error;
-  }
-}
-
 /** True when SQLite rejected an insert/update because a parent row is gone. */
 export function isSqliteForeignKeyError(error: unknown): boolean {
   const code = error && typeof error === "object" && "code" in error
@@ -808,53 +790,6 @@ function initSchema(db: SqliteConn): void {
         CREATE INDEX IF NOT EXISTS creator_candidates_run
             ON creator_candidates(run_id, status);
 
-        CREATE TABLE IF NOT EXISTS cron_jobs (
-            id TEXT PRIMARY KEY,
-            job_key TEXT NOT NULL UNIQUE,
-            title TEXT NOT NULL,
-            owner_account_id TEXT,
-            execute_as TEXT NOT NULL,
-            capability_expert_id TEXT,
-            handler_key TEXT NOT NULL,
-            scope_json TEXT NOT NULL DEFAULT '{}',
-            condition_json TEXT NOT NULL DEFAULT '{}',
-            cron_expr TEXT NOT NULL,
-            timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
-            status TEXT NOT NULL DEFAULT 'draft',
-            retry_policy_json TEXT NOT NULL DEFAULT '{}',
-            takeover_policy_json TEXT NOT NULL DEFAULT '{}',
-            published_rev INTEGER NOT NULL DEFAULT 1,
-            next_run_at TEXT,
-            last_run_at TEXT,
-            last_terminal_status TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS cron_runs (
-            id TEXT PRIMARY KEY,
-            job_id TEXT NOT NULL,
-            trigger TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'queued',
-            scheduled_for TEXT NOT NULL,
-            started_at TEXT,
-            finished_at TEXT,
-            error_code TEXT,
-            error_summary TEXT,
-            receipt_json TEXT,
-            artifact_refs TEXT,
-            session_id TEXT,
-            created_at TEXT NOT NULL,
-            UNIQUE(job_id, scheduled_for),
-            FOREIGN KEY(job_id) REFERENCES cron_jobs(id) ON DELETE CASCADE
-        );
-        CREATE INDEX IF NOT EXISTS cron_jobs_status_next
-            ON cron_jobs(status, next_run_at);
-        CREATE INDEX IF NOT EXISTS cron_runs_job
-            ON cron_runs(job_id, created_at);
-        CREATE INDEX IF NOT EXISTS cron_runs_status
-            ON cron_runs(status, scheduled_for);
-
         CREATE TABLE IF NOT EXISTS user_uploads (
             id TEXT PRIMARY KEY,
             owner_user_id TEXT,
@@ -1001,6 +936,19 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "approvals", "payload", "TEXT");
   add(db, "approvals", "title", "TEXT");
   add(db, "approvals", "submitted_by", "TEXT");
+  add(db, "approvals", "version", "INTEGER NOT NULL DEFAULT 0");
+  add(db, "approvals", "updated_at", "TEXT");
+  db.exec(`
+        CREATE TABLE IF NOT EXISTS approval_idempotency (
+            id TEXT PRIMARY KEY,
+            action TEXT NOT NULL,
+            approval_id TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            result_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(action, approval_id, idempotency_key)
+        );
+  `);
   add(db, "sessions", "kind", "TEXT");
   add(db, "sessions", "disabled", "INTEGER NOT NULL DEFAULT 0");
   add(db, "sessions", "thread_ref", "TEXT");

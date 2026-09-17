@@ -104,7 +104,11 @@ async function hopApproval(sid: string, target: string): Promise<void> {
   expect(body.waiting_approval).toBe(true);
   expect(body.approval_id).toBeTruthy();
   expect(stageOf()).toBe(before);
-  const decided = await request("POST", `/api/approvals/${body.approval_id}/decide`, { decision: "approve" });
+  const decided = await request("POST", `/api/approvals/${body.approval_id}/decide`, {
+    decision: "approve",
+    expected_version: 0,
+    idempotency_key: `walk-${body.approval_id}`,
+  });
   expect(decided.status, await decided.text()).toBe(200);
   expect(stageOf()).toBe(target);
 }

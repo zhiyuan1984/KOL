@@ -1,4 +1,4 @@
-import { approvalRoles, authDisabled, isAdmin, type AppUser } from "../auth.js";
+import { approvalRoles, authDisabled, type AppUser } from "../auth.js";
 import { employeeById, employeeByMailbox, employeeByName } from "./org.js";
 import { defaultOrgSnapshot } from "./snapshot.js";
 import type { Employee } from "./types.js";
@@ -17,7 +17,6 @@ export function canDecideCurrent(
 ): boolean {
   if (authDisabled()) return true;
   if (!user) return false;
-  if (isAdmin(user)) return true;
   const expected = chain[currentIndex];
   if (!expected) return false;
   const person = employeeForUser(user);

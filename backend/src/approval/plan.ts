@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { employeeById, employeeByMailbox, employeeByName, getManagerChain, OrgError, roleHolder } from "./org.js";
 import { EXPENSE_POLICY, matchExpenseRule, normalizeCurrency, toBaseCny } from "./policy.js";
 import { defaultOrgSnapshot } from "./snapshot.js";
@@ -410,6 +411,21 @@ export function expenseFactsFromWorkerItem(item: Record<string, unknown> | undef
   if (item.currency) out.currency = String(item.currency).trim().toUpperCase();
   if (item.business_type) out.business_type = String(item.business_type);
   return out;
+}
+
+/** Stable integer of the published plan content. Used as create expected_version. */
+export function planContentVersion(plan: Pick<ApprovalPlan, "policy_id" | "rule_id" | "amount" | "currency" | "requester_id" | "steps">): number {
+  const digest = createHash("sha256")
+    .update(JSON.stringify({
+      policy_id: plan.policy_id || "",
+      rule_id: plan.rule_id || "",
+      amount: plan.amount,
+      currency: plan.currency,
+      requester_id: plan.requester_id || "",
+      steps: (plan.steps || []).map((step) => step.employee_id),
+    }))
+    .digest();
+  return digest.readUInt32BE(0);
 }
 
 export { getManagerChain, OrgError };

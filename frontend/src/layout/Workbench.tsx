@@ -36,15 +36,8 @@ export default function Workbench() {
   useEffect(() => {
     api.sessions().then(setSessions).catch(() => setSessions([]));
     api.me().then(setMe).catch(() => setMe(null));
-    api.approvals()
-      .then((rows) => {
-        const list = Array.isArray(rows) ? rows : [];
-        setApprovalCount(list.filter((row) => {
-          const status = String((row as { status?: string }).status || "");
-          const canDecide = (row as { can_decide?: boolean }).can_decide !== false;
-          return (status === "pending" || status === "waiting") && canDecide;
-        }).length);
-      })
+    api.approvalBadge()
+      .then((row) => setApprovalCount(Number(row.count) || 0))
       .catch(() => setApprovalCount(0));
     api.cronJobs()
       .then((data) => {

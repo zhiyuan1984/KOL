@@ -29,7 +29,6 @@ export default function App() {
           <Route path="/work" element={<Navigate to="/" replace />} />
           <Route path="/s/:id" element={<Chat />} />
           <Route path="/pipeline" element={<Pipeline />} />
-          <Route path="/cron/:jobId" element={<Cron />} />
           <Route path="/cron" element={<Cron />} />
           <Route path="/skills" element={<Skills />} />
           <Route path="/agents/:id" element={<Agents />} />
@@ -40,6 +39,7 @@ export default function App() {
           <Route path="/partners" element={<Partners />} />
           <Route path="/market/kb" element={<Navigate to="/kb" replace />} />
           <Route path="/exam" element={<Exam />} />
+          <Route path="/approvals/:id" element={<Approvals />} />
           <Route path="/approvals" element={<Approvals />} />
           <Route path="/settings" element={<AccountSettings />} />
           <Route path="/connectors" element={<ConnectorUse />} />

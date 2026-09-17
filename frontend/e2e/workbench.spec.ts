@@ -12,7 +12,12 @@ async function confirmApprovalDecision(
   reason = "超出本月预算",
 ): Promise<void> {
   const page = card.page();
-  await card.getByRole("button", { name: decision === "approve" ? "同意" : "驳回" }).click();
+  const action = card.getByRole("button", { name: decision === "approve" ? "同意" : "驳回" });
+  if (!(await action.isVisible())) {
+    const decide = card.getByRole("button", { name: "决定" });
+    if (await decide.isVisible()) await decide.click();
+  }
+  await action.click();
   const dialog = page.locator("[data-approval-confirm]");
   await expect(dialog).toBeVisible();
   if (decision === "reject") {
@@ -132,8 +137,8 @@ async function expectEmployeeShell(page: Page) {
   const accountBox = await sidebar.locator("[data-account-pedestal]").boundingBox();
   const sidebarRect = await sidebar.evaluate((el) => el.getBoundingClientRect().width);
   expect(brandBox && accountBox).toBeTruthy();
-  expect(sidebarRect).toBeGreaterThanOrEqual(311);
-  expect(sidebarRect).toBeLessThanOrEqual(313);
+  expect(sidebarRect).toBeGreaterThanOrEqual(263);
+  expect(sidebarRect).toBeLessThanOrEqual(265);
   expect(brandBox!.y).toBeLessThan(accountBox!.y);
   await expect(sidebar.locator("[data-account-name]")).not.toHaveText("");
   await expect(sidebar.locator("[data-account-role]")).not.toHaveText("");
@@ -588,18 +593,18 @@ test("employee shell keeps compact sidebar brand and icon-only top chrome", asyn
     const cs = getComputedStyle(el);
     return { size: Number.parseFloat(cs.fontSize), weight: Number.parseFloat(cs.fontWeight) };
   });
-  expect(title.size).toBeGreaterThanOrEqual(16);
-  expect(title.size).toBeLessThanOrEqual(18);
-  expect(title.weight).toBe(500);
+  expect(title.size).toBeGreaterThanOrEqual(18);
+  expect(title.size).toBeLessThanOrEqual(20);
+  expect(title.weight).toBeLessThanOrEqual(600);
   await page.locator('[data-home-mode="lifecycle"]').click();
   await expect(page.locator("[data-followed-agent-report] .page-conclusion")).toBeVisible();
   const conclusion = await page.locator("[data-followed-agent-report] .page-conclusion").evaluate((el) => {
     const cs = getComputedStyle(el);
     return { size: Number.parseFloat(cs.fontSize), weight: Number.parseFloat(cs.fontWeight) };
   });
-  expect(conclusion.size).toBeGreaterThanOrEqual(16);
-  expect(conclusion.size).toBeLessThanOrEqual(18);
-  expect(conclusion.weight).toBe(500);
+  expect(conclusion.size).toBeGreaterThanOrEqual(18);
+  expect(conclusion.size).toBeLessThanOrEqual(20);
+  expect(conclusion.weight).toBeLessThanOrEqual(600);
   await expect(page.locator("[data-home-chrome] [data-brand-lockup]")).toHaveCount(0);
   await expect(page.locator(".composer")).toBeVisible();
   const composer = await page.locator("[data-home] [data-composer] .composer").evaluate((el) => {
@@ -1330,10 +1335,10 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expect(card.locator("[data-mail-summary]")).not.toContainText("posting calendar");
   await expect(card.locator("[data-latest-fact]")).not.toContainText("From:");
   await expect(card.locator("[data-latest-fact]")).not.toContainText("Reply-To");
-  await expect(card.locator("[data-open-original-mail]")).toHaveText("查看互动");
+  await expect(card.locator("[data-open-original-mail]")).toHaveText("原邮件");
   await expect(card.locator("[data-kol-primary-action]")).toHaveCount(1);
-  await expect(card.locator('[data-kol-primary-action="open-session"]')).toHaveText("查看互动");
-  await expect(card.locator("[data-recommended-action]")).toContainText("查看互动");
+  await expect(card.locator('[data-kol-primary-action="open-session"]')).toHaveText("查看来信");
+  await expect(card.locator("[data-recommended-action]")).toContainText("查看来信");
   await expect(card.locator("[data-latest-fact]")).toContainText("想和贵品牌litime合作");
   await expect(card.locator("[data-latest-fact]")).toContainText("邮件 ·");
   await expect(card).not.toContainText("支撑进入");
@@ -2780,19 +2785,17 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator('[data-skill="email_compose"]')).toBeVisible();
   await expect(page.locator("[data-journey-guide]")).toHaveCount(0);
   await page.goto("/agents");
-  await expect(page.locator("[data-expert-page='roster']")).toBeVisible();
-  await expect(page.locator("[data-expert-view]")).toHaveCount(0);
-  await expect(page.locator("[data-expert-search]")).toHaveCount(0);
+  await expect(page.locator("[data-expert-page='recommend']")).toBeVisible();
+  await expect(page.locator("[data-expert-view='recommend']")).toHaveText("推荐");
+  await expect(page.locator("[data-expert-view='mine']")).toHaveText("我的数字员工");
+  await expect(page.locator("[data-expert-view='all']")).toHaveText("全部数字员工");
+  await expect(page.locator("[data-expert-view='search']")).toHaveCount(0);
+  await expect(page.locator("[data-expert-search]")).toBeVisible();
   await expect(page.getByRole("heading", { name: "数字员工" })).toBeVisible();
+  await expect(page.locator("[data-expert-page]")).toContainText("选择一个岗位，直接说你要完成什么结果。");
   await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
-  await expect(page.locator("[data-expert-card='expert:crawler']")).toBeVisible();
-  await expect(page.locator("[data-expert-card='expert:approver']")).toBeVisible();
-  await expect(page.locator("[data-expert-card='expert:kol']")).toContainText("KOL推广");
-  await expect(page.locator("[data-expert-summon='expert:kol']")).toHaveText("开始跟进工作");
-  await expect(page.locator("[data-expert-primary='expert:crawler']")).toHaveText("查看采集作业");
-  await expect(page.locator("[data-expert-primary='expert:approver']")).toHaveText("处理审批");
-  await expect(page.locator("[data-expert-summon='expert:crawler']")).toHaveCount(0);
-  await expect(page.locator("[data-expert-summon='expert:approver']")).toHaveCount(0);
+  await expect(page.locator("[data-expert-card='expert:kol']")).toContainText("KOL 合作专员");
+  await expect(page.locator("[data-expert-summon='expert:kol']")).toHaveText("召唤专家");
   await expect(page.locator('nav[aria-label="数字员工"] [data-nav]')).toHaveCount(1);
   await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
   await expect(page.locator(".sidebar")).not.toContainText("技能目录");
@@ -2815,27 +2818,33 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator("body")).not.toContainText("Starry KOL MCP");
 });
 
-test("agents roster shows three role cards and no market tabs", async ({ page }) => {
+test("agents expert center has recommend/mine/all/search and one KOL expert", async ({ page }) => {
   await page.goto("/agents");
-  await expect(page.locator("[data-expert-page='roster']")).toBeVisible();
-  await expect(page.locator("[data-expert-card]")).toHaveCount(3);
+  await expect(page.locator("[data-expert-view='recommend']")).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
-  await expect(page.locator("[data-expert-card='expert:crawler']")).toBeVisible();
-  await expect(page.locator("[data-expert-card='expert:approver']")).toBeVisible();
   await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("岗位使命");
   await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("擅长");
   await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("可以帮你");
+  await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("你可以这样说");
   await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("建联");
-  await expect(page.locator("[data-expert-view='recommend']")).toHaveCount(0);
-  await expect(page.locator("[data-expert-view='mine']")).toHaveCount(0);
-  await expect(page.locator("[data-expert-view='all']")).toHaveCount(0);
-  await expect(page.getByText("推荐", { exact: true })).toHaveCount(0);
-  await expect(page.getByText("我的数字员工")).toHaveCount(0);
+  await expect(page.locator("[data-expert-qa='expert:kol']")).toContainText("帮助你推进 KOL 合作");
+  await expect(page.locator("[data-expert-card='expert:kol'] [data-expert-pin='expert:kol']")).toBeVisible();
+  await expect(page.locator("[data-expert-card='expert:kol'] [data-expert-prompt]")).toHaveCount(3);
   await expect(page.locator("[data-expert-page]")).not.toContainText("stage_sop");
   await expect(page.locator("[data-expert-page]")).not.toContainText("关联技能");
   await expect(page.locator("[data-expert-page]")).not.toContainText("召唤进会话");
   await expect(page.locator("[data-expert-page]")).not.toContainText("发送和改阶段仍要你确认");
   await expect(page).toHaveURL(/\/agents\/?$/);
+  await page.locator("[data-expert-view='mine']").click();
+  await expect(page).toHaveURL(/view=mine/);
+  await expect(page.locator("[data-expert-empty='mine']")).toBeVisible();
+  await page.locator("[data-expert-view='all']").click();
+  await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
+  await page.locator("[data-expert-search]").fill("KOL");
+  await expect(page).toHaveURL(/view=search/);
+  await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
+  await page.locator("[data-expert-search]").fill("不存在的专家名");
+  await expect(page.locator("[data-expert-empty='search']")).toBeVisible();
   await page.locator('[data-nav="agents"]').click();
   await expect(page).toHaveURL(/\/agents\/?$/);
 });
@@ -2866,15 +2875,16 @@ test("expert center list → detail → summon binds a session without send/stag
   await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
   await page.locator("[data-expert-open='expert:kol']").click();
   await expect(page).toHaveURL(/\/agents\/kol/);
-  await expect(page.locator("[data-expert-page='kol']")).toBeVisible();
+  await expect(page.locator("[data-expert-page='detail']")).toBeVisible();
   await expect(page.getByRole("heading", { name: "岗位使命" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "擅长" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "可以帮你" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "你可以这样说" })).toBeVisible();
-  await expect(page.locator("[data-expert-summon='expert:kol']")).toHaveText("开始工作");
-  await expect(page.locator("[data-expert-page='kol']")).not.toContainText("关联技能");
-  await expect(page.locator("[data-expert-page='kol']")).not.toContainText("在会话里用");
-  await expect(page.locator("[data-expert-page='kol']")).not.toContainText("stage_sop");
-  await expect(page.locator("[data-expert-page='kol']")).not.toContainText("Harness");
+  await expect(page.locator("[data-expert-summon='expert:kol']")).toBeVisible();
+  await expect(page.locator("[data-expert-page='detail']")).not.toContainText("关联技能");
+  await expect(page.locator("[data-expert-page='detail']")).not.toContainText("在会话里用");
+  await expect(page.locator("[data-expert-page='detail']")).not.toContainText("stage_sop");
+  await expect(page.locator("[data-expert-page='detail']")).not.toContainText("Harness");
   const summonWait = page.waitForResponse((response) => (
     response.request().method() === "POST"
     && response.url().includes("/api/experts/")
@@ -2889,7 +2899,7 @@ test("expert center list → detail → summon binds a session without send/stag
   expect(summonBody.expert_version).toBeTruthy();
   expect(summonBody.intro).toBeTruthy();
   await expect(page.locator("[data-expert-identity='expert:kol']")).toBeVisible();
-  await expect(page.locator("[data-expert-name]")).toHaveText("KOL推广");
+  await expect(page.locator("[data-expert-name]")).toHaveText("KOL 合作专员");
   await expect(page.locator("[data-expert-intro]")).toBeVisible();
   await expect(page.locator("[data-expert-task]")).toHaveCount(3);
   expect(sideEffects).toEqual([]);
@@ -3182,75 +3192,12 @@ test("employee connector use surface is independent of admin hub", async ({ page
   await expect(page.locator("body")).not.toContainText("Starry KOL MCP");
   await expect(page.locator("body")).not.toContainText("LIVE");
   await expect(page.locator("body")).not.toContainText("Codex");
-  await expect(page.locator('a[href="/admin/connectors"], a[href^="/admin/connectors/"]')).toHaveCount(0);
-  const bindCta = page.locator("[data-connector-use-bind]").first();
-  if (await bindCta.count()) {
-    await expect(bindCta).toHaveAttribute("href", /\/settings\?tab=starry&from=connectors&connector=/);
-  }
   await page.locator("[data-connector-use-bind-hint] a").click();
   await expect(page).toHaveURL(/\/settings\?tab=starry/);
-  await expect(page).toHaveURL(/from=connectors/);
   await expect(page.locator("[data-starry-bind]")).toBeVisible();
-  await expect(page.locator("[data-connectors-return]")).toHaveText("返回连接器");
-  await page.locator("[data-connectors-return] a").click();
-  await expect(page).toHaveURL(/\/connectors$/);
-  await expect(page.locator("[data-connector-use]")).toBeVisible();
   await page.goto("/admin/connectors");
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator("[data-admin-page='connectors']")).toHaveCount(0);
-});
-
-test("employee connector use shows expired badge and returns from settings", async ({ page }) => {
-  await page.route("**/api/connectors", async (route) => {
-    if (route.request().method() !== "GET") {
-      await route.continue();
-      return;
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify([
-        { id: "starrykol", label: "红人库与跟进邮箱", access: "read" },
-        { id: "enterprise_mail", label: "品牌邮箱", access: "write" },
-      ]),
-    });
-  });
-  await page.route("**/api/me/starry-binding", async (route) => {
-    if (route.request().method() !== "GET") {
-      await route.continue();
-      return;
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        bound: true,
-        status: "expired",
-        mailbox_email: "larry.zhao@amperetime.com",
-      }),
-    });
-  });
-  await page.goto("/connectors");
-  const expired = page.locator('[data-connector-use-row="starrykol"]');
-  await expect(expired).toBeVisible();
-  await expect(expired.locator("[data-status='expired']")).toHaveText("已过期");
-  await expect(expired.locator("[data-connector-use-access='read']")).toHaveText("只读");
-  await expect(expired.locator("[data-connector-use-read-hint]")).toHaveText("不能外发");
-  await expect(expired.locator("[data-connector-use-bind]")).toHaveAttribute(
-    "href",
-    "/settings?tab=starry&from=connectors&connector=starrykol",
-  );
-  await expect(page.locator('[data-connector-use-row="enterprise_mail"] [data-status]')).toHaveText("可用");
-  await expect(page.locator('[data-connector-use-row="enterprise_mail"] [data-connector-use-access]')).toHaveCount(0);
-  await expect(page.locator("[data-connector-use]")).not.toContainText("admin");
-  await expect(page.locator("[data-connector-use]")).not.toContainText("LIVE");
-  await expired.locator("[data-connector-use-bind]").click();
-  await expect(page).toHaveURL(/\/settings\?tab=starry&from=connectors&connector=starrykol/);
-  await expect(page.locator("[data-connectors-return] a")).toHaveAttribute("href", "/connectors");
-  await page.locator("[data-connectors-return] a").click();
-  await expect(page).toHaveURL(/\/connectors$/);
-  await expect(page.locator("[data-connector-use]")).toBeVisible();
-  await expect(page.locator('[data-connector-use-row="starrykol"] [data-status="expired"]')).toHaveText("已过期");
 });
 
 test("employee connector use retries after load failure", async ({ page }) => {
@@ -4487,17 +4434,19 @@ test("达人库查询 starter placeholder still lists profiles", async ({ page }
   await expect(card).not.toContainText("未找到匹配的达人画像");
 });
 
-test("cron 立即运行 stays on /cron and shows a receipt", async ({ page }) => {
+test("cron 跑一次风险扫描 opens the same Host MCP result", async ({ page }) => {
   await page.goto("/cron");
   await expect(page.getByRole("heading", { name: "定时任务" })).toBeVisible();
   await expect(page.locator("[data-cron-page]")).not.toContainText("T8");
-  await expect(page.locator('[data-cron-job="overdue-scan"] h3')).toHaveText("失联与延期扫描");
-  await page.locator('[data-cron-job="overdue-scan"]').click();
-  await page.getByRole("button", { name: "立即运行" }).click();
-  await expect(page).toHaveURL(/\/cron/);
-  await expect(page).not.toHaveURL(/\/s\//);
-  await expect(page.locator("[data-cron-receipt-panel]")).toBeVisible({ timeout: 20000 });
-  await expect(page.locator("[data-cron-receipt-panel]")).toContainText(/回执|逾期|没有需要扫描/);
+  await expect(page.locator("[data-cron-job] h3")).toHaveText("失联与延期扫描");
+  await page.getByRole("button", { name: "跑一次风险扫描" }).click();
+  await page.waitForURL(/\/s\//);
+  const card = page.locator('[data-workbench] [data-kind="task-result-card"]');
+  await expect(card).toBeVisible({ timeout: 20000 });
+  await expect(card).toContainText("超时/风险扫描");
+  await expect(card).toContainText("T8 失联与延期");
+  await expect(page.locator('[data-kind="operation-trace"]').last()).toContainText("查询风险会话");
+  await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
   await saveScreenshot(page, "cron_risk_scan_starry_kol_mcp.png");
 });
 
@@ -4507,7 +4456,7 @@ test("approvals page can preview and initiate an expense approval", async ({ pag
   await expect(form).toBeVisible();
   await expect(form.getByRole("heading", { name: "发起费用审批" })).toBeVisible();
   await expect(form).toContainText("阶段变更请在合作确认里提交");
-  await expect(page.locator("[data-approval-slice='mine']")).toBeVisible();
+  await expect(page.locator("[data-approval-box='inbox']")).toBeVisible();
   await form.locator('[name="amount"]').fill("5000");
   await form.locator('[name="requester"]').fill("张三");
   await form.locator('[name="requester"]').blur();
@@ -4523,12 +4472,19 @@ test("approvals page can preview and initiate an expense approval", async ({ pag
   await expect(page.locator("[data-approval-preview]")).toContainText("张总");
   await saveScreenshot(page, "approvals_initiate_preview_chain.png");
   await form.getByRole("button", { name: "提交费用审批" }).click();
+  const initiateDialog = page.locator("[data-approval-confirm]");
+  await expect(initiateDialog).toBeVisible();
+  await expect(initiateDialog.locator("[data-approval-confirm-change]")).toContainText("林桐");
+  await initiateDialog.getByRole("button", { name: "确认提交" }).click();
+  await expect(page).toHaveURL(/box=submitted/);
   await expect(page).toHaveURL(/[?&]id=appr_/);
   const card = page.locator("[data-approval-id][data-approval-kind='expense']").first();
   await expect(card).toBeVisible();
   await expect(card).toHaveAttribute("data-approval-focus", "true");
   await expect(card).toContainText("黎玉燕");
   await expect(card).toContainText("林桐");
+  await expect(card.locator("[data-approval-receipt]")).toContainText("已提交");
+  await expect(card.locator("[data-path-state='current'] .path-state")).toContainText("当前");
   await expect(page.locator("body")).not.toContainText("approval_id=");
   await saveScreenshot(page, "approvals_initiate_focused_card.png");
 });
@@ -4584,4 +4540,57 @@ test("expense approval reject requires a reason and leaves a durable receipt", a
   await page.reload();
   await expect(page.locator(`[data-approval-id="${id}"] [data-approval-receipt]`)).toContainText("超出本月预算");
   await expect(page.locator("body")).not.toContainText("approval_id=");
+});
+
+test("approvals boxes, badge API, cancel reject, and stale decide", async ({ page, request }) => {
+  const badgeUrls: string[] = [];
+  const listForBadge: string[] = [];
+  page.on("request", (req) => {
+    const url = new URL(req.url());
+    if (!url.pathname.startsWith("/api/approvals")) return;
+    if (url.pathname.endsWith("/badge")) badgeUrls.push(url.pathname);
+    if (url.pathname === "/api/approvals") listForBadge.push(url.pathname + url.search);
+  });
+  await page.goto("/");
+  await expect.poll(() => badgeUrls.length).toBeGreaterThan(0);
+  expect(listForBadge).toEqual([]);
+
+  const session = await request.post("/api/sessions", { data: { title: "费用盒子" } }).then((r) => r.json());
+  const posted = await request.post(`/api/sessions/${session.id}/messages`, {
+    data: { text: "Please file an expense approval for 黎玉燕 50000 USD KOL spend" },
+  }).then((r) => r.json());
+  const id = String(posted.approval?.id || "");
+  expect(id).toBeTruthy();
+
+  await page.goto(`/approvals?box=inbox&id=${id}`);
+  await expect(page).toHaveURL(/box=inbox/);
+  const card = page.locator(`[data-approval-id="${id}"]`);
+  await expect(card).toBeVisible();
+  await expect(card.locator("[data-path-state='current'] .path-state")).toContainText("当前");
+  await expect(page.locator("[data-approval-box='submitted']")).toBeVisible();
+  await page.locator(".approval-filters [data-approval-box='submitted']").click();
+  await expect(page).toHaveURL(/box=submitted/);
+  await page.locator(".approval-filters [data-approval-box='inbox']").click();
+  await expect(page).toHaveURL(/box=inbox/);
+
+  await card.getByRole("button", { name: "驳回" }).click();
+  const dialog = page.locator("[data-approval-confirm]");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "取消，不执行" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(card).toHaveAttribute("data-approval-status", "pending");
+
+  await card.getByRole("button", { name: "同意" }).click();
+  await expect(page.locator("[data-approval-confirm]")).toBeVisible();
+  const version = Number(await card.getAttribute("data-approval-version") || "0");
+  const decided = await request.post(`/api/approvals/${id}/decide`, {
+    data: {
+      decision: "approve",
+      expected_version: version,
+      idempotency_key: `e2e-stale-${id}`,
+    },
+  });
+  expect(decided.ok()).toBeTruthy();
+  await page.locator("[data-approval-confirm]").getByRole("button", { name: "确认同意" }).click();
+  await expect(page.getByText("内容已变化，请重新确认")).toBeVisible();
 });

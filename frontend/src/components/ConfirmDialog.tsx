@@ -17,7 +17,7 @@ type ConfirmDialogProps = AdminConfirmCopy & {
 };
 
 function isApprovalKind(kind: string) {
-  return kind === "approval-approve" || kind === "approval-reject";
+  return kind === "approval-approve" || kind === "approval-reject" || kind === "approval-initiate";
 }
 
 export function ConfirmDialog({
@@ -26,7 +26,10 @@ export function ConfirmDialog({
   title,
   object,
   scope,
+  change,
   consequence,
+  approvalState,
+  ruleVersion,
   confirmLabel,
   cancelLabel = ADMIN_CANCEL_LABEL,
   cancelHint,
@@ -91,10 +94,28 @@ export function ConfirmDialog({
             <dt>范围</dt>
             <dd data-admin-confirm-scope data-approval-confirm-scope={approval ? "" : undefined}>{scope}</dd>
           </div>
+          {change ? (
+            <div>
+              <dt>变更</dt>
+              <dd data-admin-confirm-change data-approval-confirm-change={approval ? "" : undefined}>{change}</dd>
+            </div>
+          ) : null}
           <div>
             <dt>后果</dt>
             <dd data-admin-confirm-consequence data-approval-confirm-consequence={approval ? "" : undefined}>{consequence}</dd>
           </div>
+          {approvalState ? (
+            <div>
+              <dt>审批状态</dt>
+              <dd data-admin-confirm-state data-approval-confirm-state={approval ? "" : undefined}>{approvalState}</dd>
+            </div>
+          ) : null}
+          {ruleVersion ? (
+            <div>
+              <dt>规则版本</dt>
+              <dd data-admin-confirm-version data-approval-confirm-version={approval ? "" : undefined}>{ruleVersion}</dd>
+            </div>
+          ) : null}
         </dl>
         {requireReason ? (
           <label className="admin-confirm-reason field">
@@ -167,7 +188,10 @@ export function useAdminConfirm(): { ask: AskAdminConfirm; dialog: ReactNode; op
       title={pending?.title || ""}
       object={pending?.object || ""}
       scope={pending?.scope || ""}
+      change={pending?.change}
       consequence={pending?.consequence || ""}
+      approvalState={pending?.approvalState}
+      ruleVersion={pending?.ruleVersion}
       confirmLabel={pending?.confirmLabel || "确认"}
       cancelLabel={pending?.cancelLabel}
       cancelHint={pending?.cancelHint}
@@ -182,7 +206,10 @@ export function useAdminConfirm(): { ask: AskAdminConfirm; dialog: ReactNode; op
       error={error}
       onCancel={() => {
         if (busy) return;
-        if (pending?.requireReason && !reason.trim()) {
+        const approvalClose = pending?.kind === "approval-approve"
+          || pending?.kind === "approval-reject"
+          || pending?.kind === "approval-initiate";
+        if (pending?.requireReason && !approvalClose && !reason.trim()) {
           setError(pending.reasonLabel || "请填写原因");
           return;
         }

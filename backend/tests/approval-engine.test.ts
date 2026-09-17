@@ -417,6 +417,16 @@ describe("expense approval host path", () => {
     return { status: response.status, body: text ? JSON.parse(text) as Record<string, unknown> : {} };
   }
 
+  async function decideOf(id: string, body: { decision: string; actor?: string; reason?: string; expected_version?: number; idempotency_key?: string }) {
+    const detail = await request("GET", `/api/approvals/${id}`);
+    const version = body.expected_version ?? Number((detail.body as { version?: number }).version || 0);
+    return request("POST", `/api/approvals/${id}/decide`, {
+      ...body,
+      expected_version: version,
+      idempotency_key: body.idempotency_key || `test-${id}-${version}-${body.decision}`,
+    });
+  }
+
   async function ask(text: string, intent?: string) {
     const session = await request("POST", "/api/sessions", { title: text.slice(0, 20) });
     return request("POST", `/api/sessions/${String(session.body.id)}/messages`, {
@@ -575,7 +585,7 @@ describe("expense approval host path", () => {
     expect(String(approval.wecom_card?.body || "")).not.toMatch(/approval_id|chain_id|appr_/);
 
     for (let index = 0; index < approval.chain.length; index += 1) {
-      const decided = await request("POST", `/api/approvals/${approval.id}/decide`, {
+      const decided = await decideOf(approval.id, {
         decision: "approve",
         actor: approval.chain[index],
       });
@@ -611,14 +621,14 @@ describe("expense approval host path", () => {
   it("rejects expense approval only with a persisted reason", async () => {
     const posted = await ask("Please file an expense approval for 黎玉燕 50000 USD KOL spend");
     const approval = posted.body.approval as { id: string; chain: string[] };
-    const missing = await request("POST", `/api/approvals/${approval.id}/decide`, {
+    const missing = await decideOf(approval.id, {
       decision: "reject",
       actor: approval.chain[0],
     });
     expect(missing.status).toBe(400);
     expect((missing.body.detail as { code?: string }).code).toBe("reject_reason_required");
 
-    const rejected = await request("POST", `/api/approvals/${approval.id}/decide`, {
+    const rejected = await decideOf(approval.id, {
       decision: "reject",
       actor: approval.chain[0],
       reason: "超出本月预算",
