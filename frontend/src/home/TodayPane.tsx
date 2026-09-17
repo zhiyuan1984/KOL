@@ -13,8 +13,24 @@ import {
   dueLabel,
   whyLine,
 } from "./homeModel";
+import "./today-rec-row.css";
 
 const TODAY_FOLD_LIMIT = 3;
+
+function GoArrow() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden>
+      <path
+        d="M12 19V5M12 5l-6 6M12 5l6 6"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 function FoldMore({
   total,
@@ -78,7 +94,7 @@ function pickPrimary(tasks: Task[]): Task | null {
 function primaryCta(task: Task) {
   if (isExceptionTask(task)) return { icon: "⚠", label: "去处理这条异常" };
   const bucket = todoBucket(task);
-  if (bucket === "overdue") return { icon: "⏰", label: "先补上这条逾期" };
+  if (bucket === "overdue") return { icon: "⏰", label: "先补上这条逴期" };
   if (bucket === "today") return { icon: "📅", label: "今天先做完这条" };
   if (bucket === "approval") return { icon: "⏸", label: "去审批" };
   if (canOpenExistingTaskFlow(task)) return { icon: "▶", label: "打开这条继续" };
@@ -91,10 +107,10 @@ function briefingCopy(tasks: Task[]) {
   const dueToday = tasks.filter((task) => todoBucket(task) === "today").length;
   const exceptions = tasks.filter(isExceptionTask).length;
   const stats = exceptions
-    ? `${todayCount}项今天待处理 · ${overdue}逾期 · ${dueToday}今天到期 · ${exceptions}条异常`
-    : `${todayCount}项今天待处理 · ${overdue}逾期 · ${dueToday}今天到期`;
+    ? `${todayCount}项今天待处理 · ${overdue}逴期 · ${dueToday}今天到期 · ${exceptions}条异常`
+    : `${todayCount}项今天待处理 · ${overdue}逴期 · ${dueToday}今天到期`;
   if (exceptions) return { lead: "今天先处理异常。", stats };
-  if (overdue) return { lead: "今天先补逾期。", stats };
+  if (overdue) return { lead: "今天先补逴期。", stats };
   if (dueToday) return { lead: "今天没有异常，按到期顺序做。", stats };
   return { lead: "今天没有火烧事项，下面 1、2、3 按顺序做。", stats };
 }
@@ -154,7 +170,7 @@ function RecommendedTaskList({
                 data-act="ask"
                 data-intent={item.intent || ""}
                 data-prompt={item.prompt || item.title}
-                aria-label={`推荐 ${n}`}
+                aria-label={`推荐 ${n} ${item.title}`}
                 disabled={busy}
                 onClick={() => onPick(item)}
               >
@@ -167,27 +183,22 @@ function RecommendedTaskList({
                 <span className="recommend-md-copy">
                   <strong>{item.title}</strong>
                   <span className="recommend-md-reason" data-recommended-reason>
-                    {alreadyN ? `已在上面第 ${alreadyN} 条，不必再加` : `${item.reason} · ${source}`}
+                    {alreadyN ? `已在上面第 ${alreadyN} 条` : `${item.reason} · ${source}`}
                   </span>
                 </span>
               </button>
-              {alreadyN ? (
-                <button type="button" className="recommend-to-todo is-ghost" disabled>
-                  已在上面第 {alreadyN} 条
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="recommend-to-todo is-ghost"
-                  data-suggestion-to-todo={item.id}
-                  data-suggest-cta="todo"
-                  data-home-entry="adopt-recommendation"
-                  disabled={busy}
-                  onClick={() => onConvert(item)}
-                >
-                  ＋ 加入待办，今天跟
-                </button>
-              )}
+              <button
+                type="button"
+                className={"recommend-to-todo recommend-to-todo-go" + (alreadyN ? " is-done" : "")}
+                data-suggestion-to-todo={item.id}
+                data-suggest-cta="todo"
+                data-home-entry="adopt-recommendation"
+                disabled={busy || Boolean(alreadyN)}
+                onClick={() => onConvert(item)}
+                aria-label={alreadyN ? `已在上面第 ${alreadyN} 条` : "开始这条"}
+              >
+                {alreadyN ? "✓" : <GoArrow />}
+              </button>
             </li>
           );
         })}
@@ -241,7 +252,7 @@ function InsightList({
                 disabled={busy}
                 onClick={() => onPromote(task)}
               >
-                ＋ 加入待办，今天跟
+                开始这条
               </button>
               <button type="button" className="is-ghost" data-open-insight={task.id} disabled={busy} onClick={() => onOpen(task)}>
                 查看
