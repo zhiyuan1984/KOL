@@ -261,7 +261,8 @@ summary:focus-visible,
   min-width: var(--left-width);
   background: var(--bg-elevated);
   border-right: 1px solid var(--border);
-  padding: 12px 16px;
+  /* No right padding: .sidebar-scroll must reach the 260 rail edge (~255 thumb). */
+  padding: 12px 0 12px 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -272,7 +273,11 @@ summary:focus-visible,
 .sidebar-scroll {
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* Text inset only — do not use scrollbar-gutter:stable (eats ~16px). */
+  padding-right: 6px;
+  scrollbar-gutter: auto;
 }
 /* ChatGPT thin rail scrollbar — light thumb, transparent track, no Windows arrows. */
 .sidebar,
@@ -342,7 +347,8 @@ summary:focus-visible,
 .rail-logo { display: none; }
 .rail-logo::after { content: "灵"; }
 .collapse-toggle { margin-left: auto; }
-.sidebar-collapsed .sidebar { padding-inline: 8px; }
+.sidebar-collapsed .sidebar { padding-inline: 8px 0; }
+.sidebar-collapsed .sidebar-scroll { padding-right: 0; }
 .sidebar-collapsed .sidebar-label,
 .sidebar-collapsed .nav-label,
 .sidebar-collapsed .nav-tag,
@@ -6585,7 +6591,7 @@ body {
 .sidebar {
   width: var(--left-width);
   min-width: var(--left-width);
-  padding: 12px 16px;
+  padding: 12px 0 12px 16px;
   gap: 12px;
 }
 
@@ -8503,6 +8509,13 @@ body {
     min-width: 260px !important;
     max-width: 260px !important;
     flex: 0 0 260px !important;
+    padding-right: 0;
+  }
+  .workbench:not(.admin-surface):not(.sidebar-collapsed) .sidebar-scroll {
+    padding-right: 6px;
+    scrollbar-gutter: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
   .workbench.sidebar-collapsed:not(.admin-surface) {
     --left-width: 56px;
@@ -8512,6 +8525,12 @@ body {
     width: 56px;
     min-width: 56px;
     max-width: 56px;
+    overflow-x: hidden;
+    padding-right: 0;
+  }
+  .workbench.sidebar-collapsed:not(.admin-surface) .sidebar-scroll {
+    padding-right: 0;
+    scrollbar-gutter: auto;
   }
   html,
   :root {
@@ -8712,11 +8731,12 @@ body {
 }
 
 /* Last-wins ChatGPT sidebar scrollbar. Must beat earlier dark-thumb / Windows-arrow rules.
-   Desktop 260 rail lock above stays intact. */
+   Desktop 260 rail lock above stays intact. Thumb sits at the rail edge (~255), not ~235. */
 .sidebar,
 .sidebar-scroll {
   scrollbar-width: thin;
   scrollbar-color: #c7c7c7 transparent;
+  scrollbar-gutter: auto;
 }
 .sidebar::-webkit-scrollbar,
 .sidebar-scroll::-webkit-scrollbar {
