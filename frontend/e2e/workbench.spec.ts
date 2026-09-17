@@ -3612,7 +3612,12 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await page.route("**/api/home", (route) => route.fulfill({
     json: { brand: "灵工 工作", h1: "今天有什么工作要处理？", recs: templates },
   }));
-  await page.route("**/api/tasks", async (route) => {
+  await page.route("**/api/tasks**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname !== "/api/tasks") {
+      await route.fallback();
+      return;
+    }
     if (route.request().method() === "POST") {
       posted.push("/api/tasks");
       await route.fulfill({ json: { id: "task-created", title: "任务模板 1", source: "manual", status: "pending" } });
