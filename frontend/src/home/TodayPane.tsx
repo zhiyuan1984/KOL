@@ -1,59 +1,10 @@
 import type { Task } from "../api";
+import MemoryWorkRow from "./MemoryWorkRow";
 import {
-  dueLabel,
   isTodayActionableTodo,
   sortTodayTodos,
   todayBucket,
-  todayBucketLabel,
-  todayContentLine,
-  todayPrimaryAction,
-  type TodayBucket,
 } from "./homeModel";
-
-function TodayTodoRow({
-  task,
-  bucket,
-  busy,
-  onAct,
-}: {
-  task: Task;
-  bucket: TodayBucket;
-  busy: boolean;
-  onAct: (task: Task) => void;
-}) {
-  const due = dueLabel(task);
-  const content = todayContentLine(task);
-  const action = todayPrimaryAction(bucket);
-  const status = todayBucketLabel(bucket);
-  return (
-    <li
-      className="today-todo-row"
-      data-today-todo={task.id}
-      data-today-bucket={bucket}
-      data-today-status={status}
-    >
-      <div className="today-todo-line today-todo-line1">
-        <span className="today-todo-label" data-today-label={bucket}>{status}</span>
-        <span className="today-todo-title">
-          <strong>{task.title}</strong>
-          {due ? <span className="today-todo-due" data-today-due={task.due_at}> · {due}</span> : null}
-        </span>
-        <button
-          type="button"
-          className="today-todo-act"
-          data-today-todo-act
-          data-today-act={bucket === "approval" ? "approve" : "handle"}
-          data-home-entry="acknowledge-task"
-          disabled={busy}
-          onClick={() => onAct(task)}
-        >
-          {action}
-        </button>
-      </div>
-      {content ? <p className="today-todo-line today-todo-line2">{content}</p> : null}
-    </li>
-  );
-}
 
 export default function TodayPane({
   todayTodos,
@@ -80,12 +31,13 @@ export default function TodayPane({
               const bucket = todayBucket(task);
               if (!bucket) return null;
               return (
-                <TodayTodoRow
+                <MemoryWorkRow
                   key={task.id}
                   task={task}
                   bucket={bucket}
                   busy={busy}
                   onAct={onAct}
+                  pane="today"
                 />
               );
             })}

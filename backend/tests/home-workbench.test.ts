@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
-import { buildHomeBoard, buildRecommendedTasks, isInsightWorkItem, isTodayWorkItem, isTodoWorkItem } from "../src/host/home-board.js";
+import { buildHomeBoard, buildRecommendedTasks, isInsightWorkItem, isOpenWorkItem, isTodayWorkItem, isTodoWorkItem } from "../src/host/home-board.js";
 import { resetDemoRuntimeState, seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import type { Json } from "../src/types.js";
@@ -44,11 +44,18 @@ describe("home workbench", () => {
     const board = buildHomeBoard() as Json;
     const workbench = board.workbench as Json;
     const todo = workbench.todo as Json[];
+    const open = workbench.open as Json[];
     const insights = workbench.insights as Json[];
     const summary = workbench.summary as Json;
     expect(todo.map((row) => row.id).sort()).toEqual(["tsk_home_laozhang_quote", "tsk_home_trip_stage"]);
+    expect(open.map((row) => row.id).sort()).toEqual([
+      "tsk_home_laozhang_quote",
+      "tsk_home_outdoor_profile",
+      "tsk_home_trip_stage",
+      "tsk_home_xiaomei_lost",
+    ]);
     expect(insights.map((row) => row.id).sort()).toEqual(["tsk_home_outdoor_profile", "tsk_home_xiaomei_lost"]);
-    expect(summary).toMatchObject({ open: 2, overdue: 1, due_today: 1, waiting: 1, insights: 2 });
+    expect(summary).toMatchObject({ open: 4, overdue: 1, due_today: 1, waiting: 1, insights: 2 });
     expect(todo.find((row) => row.id === "tsk_home_laozhang_quote")?.current_stage).toContain("报价待确认");
     expect(todo.find((row) => row.id === "tsk_home_trip_stage")?.current_stage).toContain("争议");
     expect(isTodoWorkItem({ source: "ai", status: "pending" })).toBe(false);
@@ -186,7 +193,7 @@ describe("home workbench", () => {
     resetDemoRuntimeState();
     seedWorkbenchFixtures();
     expect((buildHomeBoard() as Json).workbench).toMatchObject({
-      summary: { open: 2, insights: 2 },
+      summary: { open: 4, insights: 2 },
     });
   });
 
@@ -216,6 +223,11 @@ describe("home workbench", () => {
     })).toBe(true);
     expect(isTodayWorkItem({ source: "ai", status: "pending", title: "待补画像" })).toBe(false);
     expect(isTodayWorkItem({ source: "ai", status: "queued", title: "队列画像" })).toBe(false);
+    expect(isOpenWorkItem({ source: "ai", status: "failed", title: "记状态" })).toBe(true);
+    expect(isOpenWorkItem({ source: "ai", status: "pending", title: "待补画像" })).toBe(true);
+    expect(isOpenWorkItem({ source: "ai", status: "queued", title: "队列画像" })).toBe(true);
+    expect(isOpenWorkItem({ source: "manual", status: "completed" })).toBe(false);
+    expect(isOpenWorkItem({ source: "manual", status: "pending", dismissed_at: "2026-09-01T00:00:00Z" })).toBe(false);
     expect(board.creates_session).toBe(false);
     expect(board.entry).toBe("memory");
   });
@@ -252,6 +264,10 @@ describe("home workbench", () => {
     const todoView = await request("GET", "/api/tasks?view=todo");
     expect(todoView.status).toBe(200);
     expect(todoView.body.creates_session).toBe(false);
+    const openView = await request("GET", "/api/tasks?view=open");
+    expect(openView.status).toBe(200);
+    expect(openView.body.creates_session).toBe(false);
+    expect(openView.body.view).toBe("open");
     const following = await request("GET", "/api/home/following");
     expect(following.status).toBe(200);
     expect(following.body.creates_session).toBe(false);

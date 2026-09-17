@@ -44,14 +44,15 @@ import {
   deriveWorkbench,
   isHighValueInsight,
   isInsightTask,
+  isOpenTask,
   isTodayActionableTodo,
   isTodoTask,
   matchesTodoFilter,
+  openBucket,
+  sortOpenWorkItems,
   sortTodayTodos,
   sortedTasks,
   taskValue,
-  todayBucket,
-  todoBucket,
   whyLine,
   withHomeCommandTemplates,
   type TodoListFilter,
@@ -344,7 +345,7 @@ export default function Home() {
   useEffect(() => {
     let cancelled = false;
     // Mount: task definitions + GET /api/tasks (full catalog).
-    // Today filters buckets in FE and does not use view=todo / promote.
+    // Today/Todo filter buckets in FE. view=open is the memory list (compat view=todo).
     // Do not GET /api/home or GET /api/home/board here — board waits for
     // first「我跟进的红人」entry or the refresh control.
     void api.taskDefinitions().then(definitionList).then((taskDefinitions) => {
@@ -693,7 +694,7 @@ export default function Home() {
     });
   };
 
-  const actOnTodayTask = async (task: Task) => {
+  const actOnMemoryTask = async (task: Task) => {
     rememberJourney({
       kind: "task",
       skillId: String(task.skill_id || task.skill || task.task_type || ""),
@@ -707,7 +708,7 @@ export default function Home() {
       const latest = taskValue(await api.task(written.id).catch(() => written));
       mergeCatalogTask(latest);
       void fetchHomeTasks().catch(() => undefined);
-      const bucket = todayBucket(latest) || todayBucket(task);
+      const bucket = openBucket(latest) || openBucket(task);
       if (bucket === "approval") {
         const approvalId = String(latest.approval_id || task.approval_id || "").trim();
         nav(approvalId ? `/approvals/${encodeURIComponent(approvalId)}` : "/approvals");
@@ -1000,7 +1001,7 @@ export default function Home() {
   );
 
   const todoItems = useMemo(
-    () => sortedTasks(taskCatalog.filter(isTodoTask), "priority"),
+    () => sortOpenWorkItems(taskCatalog.filter(isOpenTask)),
     [taskCatalog],
   );
 
@@ -1010,11 +1011,7 @@ export default function Home() {
   );
 
   const visibleTodoItems = useMemo(
-    () => todoItems.filter((task) => {
-      if (todoFilter === "high") return task.priority === "high" || task.priority === "urgent";
-      if (todoFilter === "open") return openStatuses.has(String(task.status || "pending"));
-      return true;
-    }),
+    () => todoItems.filter((task) => matchesTodoFilter(task, todoFilter)),
     [todoFilter, todoItems],
   );
 
@@ -1116,14 +1113,16 @@ export default function Home() {
   };
 
   const openCount = todoItems.length;
-  const overdueCount = todoItems.filter((task) => todoBucket(task) === "overdue").length;
-  const dueTodayCount = todoItems.filter((task) => todoBucket(task) === "today").length;
+  const overdueCount = todoItems.filter((task) => openBucket(task) === "overdue").length;
+  const dueTodayCount = todoItems.filter((task) => openBucket(task) === "due_today").length;
   const awaitingApprovalCount = todoItems.filter((task) => isAwaitingApproval(task)).length;
   const todayCount = todayTodos.length;
   const recognizeSeconds = recognizeElapsedSeconds(recognizeStartedAt, recognizeNow);
   const recognizeOverdue = recognizeTimedOut(recognizeStartedAt, recognizeNow);
 
-  const statsText = `${openCount}项待处理 · ${overdueCount}逾期 · ${dueTodayCount}今天到期`;
+  const statsText = mode === "todo"
+    ? `${openCount}项未了结 · ${overdueCount}已逾期 · ${dueTodayCount}今天到期`
+    : `${openCount}项待处理 · ${overdueCount}逾期 · ${dueTodayCount}今天到期`;
 
   const groups = definitions.reduce<Map<string, TaskDefinition[]>>((catalog, definition) => {
     const category = definition.category || definition.profile || "常用任务";
@@ -1280,7 +1279,7 @@ export default function Home() {
             <TodayPane
               todayTodos={todayTodos}
               busy={busy}
-              onAct={(task) => void actOnTodayTask(task)}
+              onAct={(task) => void actOnMemoryTask(task)}
             />
           ) : null}
 
@@ -1290,7 +1289,8 @@ export default function Home() {
               filter={todoFilter}
               onFilter={setTodoFilter}
               dedupeNotice={dedupeNotice}
-              onOpen={(task) => void openTask(task)}
+              busy={busy}
+              onAct={(task) => void actOnMemoryTask(task)}
             />
           ) : null}
 

@@ -80,7 +80,7 @@ test("home four-panel tab order and pane visibility", async ({ page }) => {
 
   await openMode(page, "todo");
   await expect(page.locator("[data-today-summary]")).toBeVisible();
-  await expect(page.locator("[data-today-summary]")).toContainText("项待处理");
+  await expect(page.locator("[data-today-summary]")).toContainText("项未了结");
   await expect(page.locator("[data-home]")).not.toHaveAttribute("data-followed-chrome", "compact");
 });
 
@@ -898,34 +898,27 @@ async function stubHomeTodos(page: Page, todos: Array<Record<string, unknown>>) 
 
 async function todoRowLayout(card: ReturnType<Page["locator"]>) {
   return card.evaluate((el) => {
-    const act = (el.matches(".todo-card-act") ? el : el.querySelector(".todo-card-act")) as HTMLElement | null;
-    const copy = el.querySelector(".todo-card-copy") as HTMLElement | null;
-    const main = el.querySelector(".todo-card-main") as HTMLElement | null;
-    const status = el.querySelector(".todo-card-status") as HTMLElement | null;
+    const line = el.querySelector(".today-todo-line1") as HTMLElement | null;
+    const title = el.querySelector(".today-todo-title") as HTMLElement | null;
+    const status = el.querySelector(".today-todo-label") as HTMLElement | null;
+    const act = el.querySelector(".today-todo-act") as HTMLElement | null;
     const pane = el.closest("[data-todo-md]") as HTMLElement | null;
-    if (!act || !copy || !main || !status) {
-      throw new Error("todo action row is missing mark/copy/status");
+    if (!line || !title || !status || !act) {
+      throw new Error("todo action row is missing status/title/act");
     }
-    const actBox = act.getBoundingClientRect();
-    const copyBox = copy.getBoundingClientRect();
-    const mainBox = main.getBoundingClientRect();
+    const titleBox = title.getBoundingClientRect();
     const statusBox = status.getBoundingClientRect();
+    const actBox = act.getBoundingClientRect();
     const paneBox = pane?.getBoundingClientRect();
     return {
-      actWidth: actBox.width,
-      copyWidth: copyBox.width,
       paneWidth: paneBox?.width ?? 0,
-      actMaxWidth: getComputedStyle(act).maxWidth,
-      copyMaxWidth: getComputedStyle(copy).maxWidth,
       paneMaxWidth: pane ? getComputedStyle(pane).maxWidth : "",
-      copyTemplate: getComputedStyle(copy).gridTemplateColumns,
-      mainRight: mainBox.right,
-      mainBottom: mainBox.bottom,
-      mainTop: mainBox.top,
+      titleRight: titleBox.right,
+      titleTop: titleBox.top,
       statusLeft: statusBox.left,
       statusTop: statusBox.top,
-      statusRight: statusBox.right,
-      actRight: actBox.right,
+      actLeft: actBox.left,
+      actTop: actBox.top,
     };
   });
 }
@@ -962,23 +955,21 @@ test("home todo action rows use full-width workbench layout", async ({ page }) =
   await expect(quote).toBeVisible();
   await expect(quote.locator("[data-todo-act]")).toBeVisible();
   await expect(quote.locator("[data-todo-status]")).toContainText("今天到期");
+  await expect(quote.locator("[data-todo-act]")).toHaveText("处理");
+  const follow = page.locator("[data-todo-card]").filter({ hasText: "跟进 Outdoor Gear Lab 样品签收" });
+  await expect(follow).toHaveAttribute("data-todo-bucket", "later");
+  await expect(follow).toContainText("后续");
+  await expect(follow.locator("[data-todo-act]")).toHaveText("打开");
 
   const wide = await todoRowLayout(quote);
-  expect(wide.actMaxWidth).toMatch(/^(none|100%)$/);
-  expect(wide.copyMaxWidth).toMatch(/^(none|100%)$/);
   expect(wide.paneMaxWidth).toMatch(/^(none|100%)$/);
-  expect(wide.copyTemplate.split(" ").filter(Boolean).length).toBeGreaterThanOrEqual(2);
-  expect(wide.statusLeft).toBeGreaterThan(wide.mainRight - 2);
-  expect(Math.abs(wide.statusTop - wide.mainTop)).toBeLessThan(48);
-  expect(wide.actWidth).toBeGreaterThan(wide.paneWidth * 0.9);
-  expect(wide.actWidth).toBeGreaterThan(42 * 16);
-  expect(wide.actRight - wide.statusRight).toBeLessThan(24);
+  expect(wide.actLeft).toBeGreaterThan(wide.titleRight - 8);
+  expect(Math.abs(wide.actTop - wide.titleTop)).toBeLessThan(48);
+  expect(wide.statusLeft).toBeLessThan(wide.titleRight);
   await expectNoPageHorizontalScroll(page);
 
   await page.setViewportSize({ width: 720, height: 900 });
-  const stacked = await todoRowLayout(quote);
-  expect(stacked.statusTop).toBeGreaterThan(stacked.mainBottom - 4);
-  expect(stacked.actWidth).toBeGreaterThan(stacked.paneWidth * 0.9);
+  await expect(quote.locator("[data-todo-act]")).toBeVisible();
   await expectNoPageHorizontalScroll(page);
 });
 

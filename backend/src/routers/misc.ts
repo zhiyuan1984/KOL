@@ -523,7 +523,7 @@ misc.get("/home/entries", (c) => {
   return c.json({
     entries: publicEntryRegistry(),
     composer_copy: "让 Agent 分析/安排",
-    note: "GET board / tasks?view=todo / following / discovery results never INSERT sessions. Board returns local DB first; remote library/mail sync is deferred.",
+    note: "GET board / tasks?view=open / following / discovery results never INSERT sessions. Board returns local DB first; remote library/mail sync is deferred.",
     registry: HOME_ENTRY_REGISTRY.map((row) => row.id),
   });
 });

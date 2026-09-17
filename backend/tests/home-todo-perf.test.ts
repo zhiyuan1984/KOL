@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
-import { isTodoWorkItem } from "../src/host/home-board.js";
+import { isOpenWorkItem } from "../src/host/home-board.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { resetStarryHomeLibrarySync } from "../src/starrykol/library-sync.js";
@@ -47,38 +47,54 @@ afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-describe("GET /api/tasks?view=todo", () => {
-  it("returns only open todos with history_summary, limit and total", async () => {
-    const listed = await request("GET", "/api/tasks?view=todo");
+describe("GET /api/tasks?view=open", () => {
+  it("returns all open work items including unpromoted source=ai", async () => {
+    const listed = await request("GET", "/api/tasks?view=open");
     expect(listed.status).toBe(200);
-    expect(listed.body.view).toBe("todo");
+    expect(listed.body.view).toBe("open");
     expect(listed.body.creates_session).toBe(false);
     expect(listed.body.entry).toBe("memory");
     expect(Number(listed.body.limit)).toBe(50);
     const tasks = listed.body.tasks as Json[];
     expect(listed.body.total).toBe(tasks.length);
-    expect(tasks.map((row) => row.id).sort()).toEqual(["tsk_home_laozhang_quote", "tsk_home_trip_stage"]);
-    expect(tasks.every((row) => isTodoWorkItem(row))).toBe(true);
+    expect(tasks.map((row) => row.id).sort()).toEqual([
+      "tsk_home_laozhang_quote",
+      "tsk_home_outdoor_profile",
+      "tsk_home_trip_stage",
+      "tsk_home_xiaomei_lost",
+    ]);
+    expect(tasks.every((row) => isOpenWorkItem(row))).toBe(true);
+    expect(tasks.some((row) => row.id === "tsk_home_xiaomei_lost" && row.source === "ai" && !row.promoted_at)).toBe(true);
     expect(tasks.every((row) => !("history" in row) || row.history == null)).toBe(true);
     expect(tasks.every((row) => String(row.history_summary || "").trim())).toBe(true);
     expect(tasks.find((row) => row.id === "tsk_home_laozhang_quote")?.current_stage).toContain("报价待确认");
     expect(JSON.stringify(listed.body)).not.toMatch(/"history":\s*\[/);
   });
 
-  it("omits completed, dismissed and unpromoted AI insights", async () => {
+  it("compat view=todo uses the same open semantics", async () => {
     const listed = await request("GET", "/api/tasks?view=todo");
+    expect(listed.status).toBe(200);
+    expect(listed.body.view).toBe("todo");
+    expect(listed.body.creates_session).toBe(false);
+    const ids = ((listed.body.tasks as Json[]) || []).map((row) => String(row.id));
+    expect(ids).toContain("tsk_home_xiaomei_lost");
+    expect(ids).toContain("tsk_home_outdoor_profile");
+    expect(ids).not.toContain("tsk_home_xiaomei_mail");
+    expect(ids).not.toContain("tsk_home_mum_nudge");
+  });
+
+  it("omits completed and dismissed items", async () => {
+    const listed = await request("GET", "/api/tasks?view=open");
     const ids = ((listed.body.tasks as Json[]) || []).map((row) => String(row.id));
     expect(ids).not.toContain("tsk_home_xiaomei_mail");
     expect(ids).not.toContain("tsk_home_mum_nudge");
-    expect(ids).not.toContain("tsk_home_xiaomei_lost");
-    expect(ids).not.toContain("tsk_home_outdoor_profile");
   });
 
   it("honors limit without changing total", async () => {
-    const listed = await request("GET", "/api/tasks?view=todo&limit=1");
+    const listed = await request("GET", "/api/tasks?view=open&limit=1");
     expect(listed.status).toBe(200);
     expect(listed.body.limit).toBe(1);
-    expect(listed.body.total).toBe(2);
+    expect(listed.body.total).toBe(4);
     expect((listed.body.tasks as Json[]).length).toBe(1);
   });
 
@@ -127,9 +143,16 @@ describe("GET /api/home/board local-first", () => {
     expect(tasks.every((row) => !("history" in row) || row.history == null)).toBe(true);
     const workbench = board.body.workbench as Json;
     const todo = (workbench.todo as Json[]) || [];
+    const open = (workbench.open as Json[]) || [];
     expect(todo.map((row) => row.id).sort()).toEqual(["tsk_home_laozhang_quote", "tsk_home_trip_stage"]);
+    expect(open.map((row) => row.id).sort()).toEqual([
+      "tsk_home_laozhang_quote",
+      "tsk_home_outdoor_profile",
+      "tsk_home_trip_stage",
+      "tsk_home_xiaomei_lost",
+    ]);
     expect(todo.every((row) => row.history == null && row.input == null && row.entities == null)).toBe(true);
-    expect((workbench.summary as Json).open).toBe(todo.length);
+    expect((workbench.summary as Json).open).toBe(open.length);
     resolveHang?.();
   });
 

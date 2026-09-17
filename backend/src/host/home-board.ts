@@ -264,6 +264,20 @@ export function isTodayWorkItem(task: {
   return false;
 }
 
+/** Full open memory list — not closed / not dismissed. No promote gate. */
+export function isOpenWorkItem(task: {
+  status?: unknown;
+  dismissed_at?: unknown;
+}): boolean {
+  return !isClosedWorkItem(task) && !task.dismissed_at;
+}
+
+/** SQL equivalent of isOpenWorkItem. view=open and compat view=todo. */
+export const OPEN_WORK_ITEM_SQL = `
+  status NOT IN ('completed','done','cancelled')
+  AND dismissed_at IS NULL
+`;
+
 export function isTodoWorkItem(task: {
   source?: unknown;
   status?: unknown;
@@ -569,12 +583,13 @@ export function followReleaseTimer(lastInteractionAt?: string | null): {
 }
 
 export function buildWorkbench(tasks: Json[], kols: Json[]): Json {
+  const open = tasks.filter((task) => isOpenWorkItem(task)).map((task) => ({ ...task } as Json));
   const todo = tasks.filter((task) => isTodoWorkItem(task)).map((task) => ({ ...task, candidate: false } as Json));
   const insights = tasks.filter((task) => isInsightWorkItem(task)).map((task) => ({ ...task, candidate: true } as Json));
   const today = tasks.filter((task) => isTodayWorkItem(task)).map((task) => ({ ...task } as Json));
-  const waiting = todo.filter((task) => ["waiting", "queued"].includes(String(task.status || "")));
-  const overdue = todo.filter((task) => dueFlags(task.due_at).overdue);
-  const dueToday = todo.filter((task) => dueFlags(task.due_at).due_today);
+  const waiting = open.filter((task) => ["waiting", "queued"].includes(String(task.status || "")));
+  const overdue = open.filter((task) => dueFlags(task.due_at).overdue);
+  const dueToday = open.filter((task) => dueFlags(task.due_at).due_today);
   const stayTooLong = kols.filter((kol) => !kol.unbound && Number(kol.days_in_stage || 0) >= 7);
   const stages = MAIN_STAGES.map((stage) => ({
     code: stage.code,
@@ -588,12 +603,13 @@ export function buildWorkbench(tasks: Json[], kols: Json[]): Json {
   }));
   return {
     summary: {
-      open: todo.length,
+      open: open.length,
       overdue: overdue.length,
       due_today: dueToday.length,
       waiting: waiting.length,
       insights: insights.length,
     },
+    open: open.map(slimWorkbenchTask),
     todo: todo.map(slimWorkbenchTask),
     today: today.map(slimWorkbenchTask),
     insights: insights.map(slimWorkbenchTask),

@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { Task } from "../api";
 import {
+  isOpenTask,
   isTodayActionableTodo,
   isTodoTask,
+  openBucket,
+  openBucketLabel,
+  openPrimaryAction,
+  sortOpenWorkItems,
   sortTodayTodos,
   todayBucket,
   todayContentLine,
@@ -70,6 +75,36 @@ describe("today pane buckets", () => {
     expect(todayBucket(approval)).toBe("approval");
     expect(sortTodayTodos([approval, running, dueToday, overdueFailed, overdue]).map((row) => row.id))
       .toEqual(["risk", "over", "today", "run", "appr"]);
+  });
+
+  it("open list includes source=ai and puts queued/pending no-due in 后续", () => {
+    const failed = task({
+      id: "ai-failed",
+      title: "记状态",
+      source: "ai",
+      status: "failed",
+    });
+    const queued = task({ id: "q", title: "queued", status: "queued" });
+    const pending = task({ id: "p", title: "open no due", status: "pending" });
+    const future = task({
+      id: "later-due",
+      title: "下周寄样",
+      status: "pending",
+      due_at: new Date(Date.now() + 3 * 86_400_000).toISOString(),
+      updated_at: "2026-09-01T00:00:00.000Z",
+    });
+    expect(isOpenTask(failed)).toBe(true);
+    expect(openBucket(failed)).toBe("high_risk");
+    expect(isOpenTask(queued)).toBe(true);
+    expect(openBucket(queued)).toBe("later");
+    expect(openBucket(pending)).toBe("later");
+    expect(openBucket(future)).toBe("later");
+    expect(openBucketLabel("later")).toBe("后续");
+    expect(openPrimaryAction("later")).toBe("打开");
+    expect(openPrimaryAction("approval")).toBe("去审批");
+    expect(openPrimaryAction("high_risk")).toBe("处理");
+    expect(isOpenTask(task({ id: "done", title: "完", status: "completed" }))).toBe(false);
+    expect(sortOpenWorkItems([future, queued, failed]).map((row) => row.id)).toEqual(["ai-failed", "later-due", "q"]);
   });
 
   it("builds content from real fields only", () => {

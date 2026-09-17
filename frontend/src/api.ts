@@ -271,6 +271,7 @@ export type HomeWorkbench = {
     insights?: number;
   };
   todo?: Task[];
+  open?: Task[];
   today?: Task[];
   insights?: Task[];
   recommendations?: RecommendedTask[];

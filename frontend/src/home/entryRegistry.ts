@@ -25,7 +25,7 @@ export type HomeEntry = {
 
 export const HOME_COMPOSER_COPY = "让 Agent 分析/安排";
 export const HOME_HANDOFF_TO_AGENT = "交给 Agent";
-export const HOME_TODO_EMPTY = "今日任务不会自动变成待办。确认后才会出现在这里。";
+export const HOME_TODO_EMPTY = "记忆里还没有未了结的工作。";
 
 /** 已落地入口登记。kind 即路由类型，前后端不得凭文案猜测。 */
 export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
@@ -50,11 +50,11 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
   {
     id: "list-todos",
     kind: "memory",
-    action: "我的待办列表",
+    action: "未了结工作列表",
     creates_session: false,
     creates_turn: false,
     calls_model: false,
-    route: "GET /api/tasks?view=todo",
+    route: "GET /api/tasks?view=open",
   },
   {
     id: "list-followed",
