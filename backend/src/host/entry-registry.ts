@@ -52,7 +52,7 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     creates_session: false,
     creates_turn: false,
     calls_model: false,
-    route: "GET /api/tasks · GET /api/home/board → workbench.todo",
+    route: "GET /api/tasks?view=todo · GET /api/home/board → workbench.summary",
   },
   {
     id: "list-followed",

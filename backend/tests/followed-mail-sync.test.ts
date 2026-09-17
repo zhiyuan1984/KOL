@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
-import { resetFollowedMailSync } from "../src/starrykol/mail-sync.js";
+import { ensureFollowedMailSync, resetFollowedMailSync } from "../src/starrykol/mail-sync.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import type { Json } from "../src/types.js";
 
@@ -91,7 +91,10 @@ afterEach(() => {
 
 describe("followed KOL unread mail sync", () => {
   it("collects Starry inbound threads on home refresh and shows unread by thread id", async () => {
-    const board = await request("GET", "/api/home/board?refresh=1");
+    const first = await request("GET", "/api/home/board?refresh=1");
+    expect(first.status).toBe(200);
+    await ensureFollowedMailSync(false);
+    const board = await request("GET", "/api/home/board");
     expect(board.status).toBe(200);
     expect(calls).toContain("pageEmailConversations");
     const kols = board.body.kols as Json[];
@@ -165,7 +168,10 @@ describe("followed KOL unread mail sync", () => {
       },
       async close() { /* noop */ },
     }));
-    const board = await request("GET", "/api/home/board?refresh=1");
+    const first = await request("GET", "/api/home/board?refresh=1");
+    expect(first.status).toBe(200);
+    await ensureFollowedMailSync(false);
+    const board = await request("GET", "/api/home/board");
     expect(board.status).toBe(200);
     const xiaomei = (board.body.kols as Json[]).find((row) => row.id === "col_xiaomei");
     const firstThread = (xiaomei?.mail_threads as Json[] | undefined)?.[0];

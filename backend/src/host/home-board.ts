@@ -5,9 +5,9 @@ import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
 import type { Json, Row } from "../types.js";
 import { authDisabled, isAdmin, scopedUser } from "../auth.js";
 import { currentFollowScope, matchesFollowedMailbox } from "./starry-bind.js";
-import { restoreOfficialCollaborationStage } from "../starrykol/library-sync.js";
+import { restoreOfficialCollaborationStages } from "../starrykol/library-sync.js";
 import { stageMailAction } from "./compose-loop.js";
-import { threadsForCollaboration, unreadCountForCollaboration } from "../starrykol/mail-sync.js";
+import { threadsByCollaborationIds } from "../starrykol/mail-sync.js";
 import { readFollowStyleTags } from "../follow-style-tags.js";
 
 const NICHE_LABEL: Record<string, string> = {
@@ -256,6 +256,28 @@ export function isTodoWorkItem(task: {
   const source = String(task.source || "manual");
   if (source === "ai" || source === "discovery") return Boolean(task.promoted_at);
   return true;
+}
+
+/** SQL equivalent of isTodoWorkItem — open pending/waiting/queued/running/failed + promoted AI. */
+export const TODO_WORK_ITEM_SQL = `
+  status NOT IN ('completed','done','cancelled')
+  AND dismissed_at IS NULL
+  AND (COALESCE(source, 'manual') NOT IN ('ai', 'discovery') OR promoted_at IS NOT NULL)
+`;
+
+const SLIM_WORKBENCH_KEYS = [
+  "id", "title", "status", "source", "priority", "candidate", "due_at",
+  "promoted_at", "dismissed_at", "history_summary", "kol_name", "collab_summary",
+  "recent_followup", "current_stage", "suggested_stage", "suggested_stage_code",
+  "collaboration_id", "next_action", "task_type", "skill",
+] as const;
+
+function slimWorkbenchTask(task: Json): Json {
+  const slim: Json = {};
+  for (const key of SLIM_WORKBENCH_KEYS) {
+    if (task[key] !== undefined) slim[key] = task[key];
+  }
+  return slim;
 }
 
 export function dueFlags(dueAt: unknown): { overdue: boolean; due_today: boolean } {
@@ -553,9 +575,9 @@ export function buildWorkbench(tasks: Json[], kols: Json[]): Json {
       waiting: waiting.length,
       insights: insights.length,
     },
-    todo,
-    today,
-    insights,
+    todo: todo.map(slimWorkbenchTask),
+    today: today.map(slimWorkbenchTask),
+    insights: insights.map(slimWorkbenchTask),
     recommendations: buildRecommendedTasks(tasks, kols),
     lifecycle: {
       stages,
@@ -602,8 +624,7 @@ export function buildHomeBoard(): Json {
     if (!key) continue;
     collaborationCounts.set(key, (collaborationCounts.get(key) || 0) + 1);
   }
-  for (const row of collabs) restoreOfficialCollaborationStage(row);
-  for (const row of allCollabs) restoreOfficialCollaborationStage(row);
+  restoreOfficialCollaborationStages([...allCollabs, ...collabs]);
   const creators = conn.prepare("SELECT * FROM claw_creators ORDER BY name").all() as Row[];
   const creatorByHandle = new Map(creators.map((row) => [String(row.handle || row.name || ""), row]));
 
@@ -611,31 +632,33 @@ export function buildHomeBoard(): Json {
     "SELECT * FROM work_items WHERE owner_user_id=? ORDER BY updated_at DESC",
   ).all(owner) as Row[];
   const taskIds = taskRows.map((row) => String(row.id));
-  const eventsByTask = new Map<string, Row[]>();
+  const lastEventByTask = new Map<string, Row>();
   if (taskIds.length) {
     const placeholders = taskIds.map(() => "?").join(",");
     const eventRows = conn.prepare(
-      `SELECT * FROM task_events WHERE work_item_id IN (${placeholders}) ORDER BY work_item_id, sequence`,
+      `SELECT te.* FROM task_events te
+       INNER JOIN (
+         SELECT work_item_id, MAX(sequence) AS sequence
+         FROM task_events WHERE work_item_id IN (${placeholders})
+         GROUP BY work_item_id
+       ) last ON last.work_item_id = te.work_item_id AND last.sequence = te.sequence`,
     ).all(...taskIds) as Row[];
-    for (const event of eventRows) {
-      const list = eventsByTask.get(String(event.work_item_id)) || [];
-      list.push(event);
-      eventsByTask.set(String(event.work_item_id), list);
-    }
+    for (const event of eventRows) lastEventByTask.set(String(event.work_item_id), event);
   }
 
   const tasks: Json[] = taskRows.map((row) => {
     const definition = taskDefinition(String(row.task_type));
-    const events = (eventsByTask.get(String(row.id)) || []).map((event) => ({
-      id: event.id,
-      type: event.event_type,
-      label: event.label,
-      status: event.status,
-      summary: event.safe_summary,
-      safe_summary: event.safe_summary,
-      time: event.time,
-      created_at: event.time,
-    }));
+    const last = lastEventByTask.get(String(row.id));
+    const events = last ? [{
+      id: last.id,
+      type: last.event_type,
+      label: last.label,
+      status: last.status,
+      summary: last.safe_summary,
+      safe_summary: last.safe_summary,
+      time: last.time,
+      created_at: last.time,
+    }] : [];
     return {
       id: String(row.id),
       title: String(row.title || ""),
@@ -656,10 +679,25 @@ export function buildHomeBoard(): Json {
       suggested_actions: definition?.actions || [],
       input: parseJson(row.input),
       entities: parseJson(row.entities),
-      history: events,
       history_summary: historySummary(events),
     } as Json;
   });
+
+  const collabIds = collabs.map((row) => String(row.id));
+  const sessionByCollab = new Map<string, string>();
+  if (collabIds.length) {
+    const placeholders = collabIds.map(() => "?").join(",");
+    const sessionRows = conn.prepare(
+      `SELECT collaboration_id, id FROM sessions
+       WHERE collaboration_id IN (${placeholders}) AND deleted_at IS NULL AND archived_at IS NULL
+       ORDER BY updated_at DESC`,
+    ).all(...collabIds) as { collaboration_id: string; id: string }[];
+    for (const row of sessionRows) {
+      const id = String(row.collaboration_id);
+      if (!sessionByCollab.has(id)) sessionByCollab.set(id, String(row.id));
+    }
+  }
+  const mailByCollab = threadsByCollaborationIds(collabIds);
 
   const kols: Json[] = [];
   for (const row of collabs) {
@@ -690,10 +728,7 @@ export function buildHomeBoard(): Json {
     const recent = related.length
       ? related.slice(0, 3).map((task) => `${task.title} · ${task.history_summary}`).join("；")
       : "暂无任务历史";
-    const session = conn.prepare(
-      "SELECT id FROM sessions WHERE collaboration_id=? AND deleted_at IS NULL AND archived_at IS NULL ORDER BY updated_at DESC LIMIT 1",
-    ).get(String(row.id)) as { id: string } | undefined;
-    const mailThreads = threadsForCollaboration(String(row.id)).map((thread) => ({
+    const mailThreads = (mailByCollab.get(String(row.id)) || []).map((thread) => ({
       conversation_id: String(thread.conversation_id || ""),
       subject: String(thread.subject || "(无主题)"),
       unread_count: Number(thread.unread_count || 0),
@@ -703,12 +738,12 @@ export function buildHomeBoard(): Json {
       last_at: thread.last_at ? String(thread.last_at) : null,
       last_direction: String(thread.last_direction || ""),
     }));
-    const unreadCount = unreadCountForCollaboration(String(row.id));
+    const unreadCount = mailThreads.reduce((sum, thread) => sum + Number(thread.unread_count || 0), 0);
     const lastInteraction = mailThreads.find((thread) => thread.last_at)?.last_at
       || (mailThreads[0] ? mailThreads[0].last_at : null);
     kols.push({
       ...kol,
-      session_id: session?.id || null,
+      session_id: sessionByCollab.get(String(row.id)) || null,
       unread_count: unreadCount,
       mail_threads: mailThreads,
       ...followReleaseTimer(lastInteraction ? String(lastInteraction) : null),

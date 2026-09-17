@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { DEMO_ADMIN } from "../src/config.js";
 import { getConn, resetConn } from "../src/db.js";
-import { resetStarryHomeLibrarySync } from "../src/starrykol/library-sync.js";
+import { ensureStarryHomeLibrary, resetStarryHomeLibrarySync } from "../src/starrykol/library-sync.js";
 import type { Json } from "../src/types.js";
 
 let tmp = "";
@@ -122,7 +122,7 @@ describe("admin identity and Starry mailbox bind", () => {
     });
     expect(JSON.stringify(me.json)).not.toContain("user-jwt-does-not-echo");
 
-    resetStarryHomeLibrarySync();
+    await ensureStarryHomeLibrary();
     const board = await call("GET", "/api/home/board");
     const kols = board.json.kols as Json[];
     expect(board.json.follow_scope).toMatchObject({

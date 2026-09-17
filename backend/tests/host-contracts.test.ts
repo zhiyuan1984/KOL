@@ -16,6 +16,7 @@ import { profileFor } from "../src/profiles.js";
 import { emailCardPayload, persistDraft } from "../src/host/api.js";
 import { emailMcpResultCard } from "../src/starrykol/service.js";
 import { classify } from "../src/host/intent.js";
+import { ensureStarryHomeLibrary } from "../src/starrykol/library-sync.js";
 
 type Json = Record<string, unknown>;
 
@@ -677,6 +678,9 @@ describe("host contracts", () => {
   });
 
   it("home board loads the Starry library, not demo seed KOLs", async () => {
+    const first = await request("GET", "/api/home/board");
+    expect(first.status).toBe(200);
+    await ensureStarryHomeLibrary();
     const board = await (await request("GET", "/api/home/board")).json() as Json;
     const kols = board.kols as Json[];
     const tasks = board.tasks as Json[];
