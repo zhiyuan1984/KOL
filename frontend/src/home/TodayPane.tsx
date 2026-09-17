@@ -85,33 +85,18 @@ function primaryCta(task: Task) {
   return { icon: "▶", label: "打开这条看看" };
 }
 
-function briefingCopy(tasks: Task[], openCount: number) {
+function briefingCopy(tasks: Task[]) {
+  const todayCount = tasks.length;
   const overdue = tasks.filter((task) => todoBucket(task) === "overdue").length;
   const dueToday = tasks.filter((task) => todoBucket(task) === "today").length;
   const exceptions = tasks.filter(isExceptionTask).length;
-  const open = openCount || tasks.length;
-  if (exceptions) {
-    return {
-      lead: `今天先处理异常，不要先扫 ${open} 条待办。`,
-      stats: `${open} 项待办 · ${overdue} 逾期 · ${dueToday} 今天到期 · ${exceptions} 条异常`,
-    };
-  }
-  if (overdue) {
-    return {
-      lead: "今天先补逾期。",
-      stats: `${open} 项待办 · ${overdue} 逾期 · ${dueToday} 今天到期`,
-    };
-  }
-  if (dueToday) {
-    return {
-      lead: "今天没有异常，按到期顺序做。",
-      stats: `${open} 项待办 · ${overdue} 逾期 · ${dueToday} 今天到期`,
-    };
-  }
-  return {
-    lead: "今天没有火烧事项，下面 1、2、3 按顺序做。",
-    stats: `${open} 项待办 · ${overdue} 逾期 · ${dueToday} 今天到期`,
-  };
+  const stats = exceptions
+    ? `${todayCount}项今天待处理 · ${overdue}逾期 · ${dueToday}今天到期 · ${exceptions}条异常`
+    : `${todayCount}项今天待处理 · ${overdue}逾期 · ${dueToday}今天到期`;
+  if (exceptions) return { lead: "今天先处理异常。", stats };
+  if (overdue) return { lead: "今天先补逾期。", stats };
+  if (dueToday) return { lead: "今天没有异常，按到期顺序做。", stats };
+  return { lead: "今天没有火烧事项，下面 1、2、3 按顺序做。", stats };
 }
 
 function duplicateIndex(todos: Task[], item: RecommendedTask, official: Task[]) {
@@ -299,7 +284,7 @@ export default function TodayPane({
   const official = todayTodos;
   const primary = pickPrimary(official);
   const cta = primary ? primaryCta(primary) : null;
-  const brief = briefingCopy(official, todos.filter((task) => !task.dismissed_at).length);
+  const brief = briefingCopy(official);
   const fold = useFoldedItems(official);
   const showInsights = recommendedItems.length === 0 && insightItems.length > 0;
 
@@ -360,7 +345,7 @@ export default function TodayPane({
         ) : (
           <div className="task-empty" data-today-formal-empty="no-data">
             <strong>今天还没有正式事项</strong>
-            <p>今天推荐需要你采纳后才会出现在这里，不会自动写成待办。</p>
+            <p>今天推荐需要你采纳后才会出现在这里，确认后才会进入已入队。</p>
           </div>
         )}
         <FoldMore total={fold.total} limit={fold.limit} expanded={fold.expanded} onToggle={fold.toggle} />
@@ -380,7 +365,7 @@ export default function TodayPane({
       ) : recommendedItems.length === 0 && official.length === 0 ? (
         <div className="task-empty" data-today-candidates-empty="no-data">
           <strong>暂时没有新的建议</strong>
-          <p>邮件和阶段建议会先停在这里，确认后才进入我的待办。</p>
+          <p>邮件和阶段建议会先停在这里，确认后才会进入已入队。</p>
         </div>
       ) : null}
     </section>
