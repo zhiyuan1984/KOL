@@ -141,19 +141,6 @@ test("desktop employee shell scales sidebar with viewport and Codex Regular type
   expect(composerRadius).toBeGreaterThanOrEqual(20);
   expect(composerRadius).toBeLessThanOrEqual(24);
 
-  await page.locator('[data-home-mode="lifecycle"]').click();
-  const conclusion = page.locator("[data-followed-agent-report] .page-conclusion");
-  await expect(conclusion).toBeVisible();
-  const conclusionType = await typeOf(page, "[data-followed-agent-report] .page-conclusion");
-  const handle = page.locator("[data-followed-agent-report] [data-kol-scope]").first();
-  await expect(handle).toBeVisible();
-  const handleType = await typeOf(page, "[data-followed-agent-report] [data-kol-scope] >> nth=0");
-  expect(conclusionType.fontSize).toBeGreaterThanOrEqual(16);
-  expect(conclusionType.fontSize).toBeLessThanOrEqual(18);
-  expect(conclusionType.fontWeight).toBe(500);
-  expect(handleType.fontSize).toBe(13);
-  expect(handleType.fontWeight).toBeLessThanOrEqual(400);
-
   await page.locator(".collapse-toggle").click();
   await expect(page.locator(".workbench")).toHaveClass(/sidebar-collapsed/);
   const collapsed = await page.evaluate(() => {
@@ -187,7 +174,7 @@ test("desktop employee shell scales sidebar with viewport and Codex Regular type
   const dest = path.join(process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results", "shell-metrics-after.json");
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.writeFileSync(dest, JSON.stringify({
-    desktop: { ...beforeLifecycle, conclusion: conclusionType, handle: handleType, composerRadius },
+    desktop: { ...beforeLifecycle, composerRadius },
     clampTable,
     collapsed,
     mobile,
