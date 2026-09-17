@@ -6,7 +6,6 @@ import {
   authDisabled,
   hashPassword,
   isAdmin,
-  mapUser,
   requireAdmin,
   scopedUser,
   tokenDigest,
@@ -340,86 +339,6 @@ enterprise.put("/admin/users/:uid/approval-roles", async (c) => {
   });
   audit(admin.id, "admin.approval_roles.replace", { user_id: uid, roles: values });
   return c.json({ ok: true, user_id: uid, roles: values });
-});
-
-enterprise.get("/admin/exams", (c) => {
-  requireAdmin();
-  return c.json(getConn().prepare("SELECT * FROM exams ORDER BY created_at DESC").all());
-});
-
-enterprise.get("/admin/exam-assignments", (c) => {
-  requireAdmin();
-  return c.json(getConn().prepare(
-    `SELECT a.*,e.title,u.name AS user_name
-       FROM exam_assignments a
-       JOIN exams e ON e.id=a.exam_id
-       JOIN users u ON u.id=a.user_id
-      ORDER BY a.created_at DESC`,
-  ).all());
-});
-
-enterprise.post("/admin/exam-assignments", async (c) => {
-  const admin = requireAdmin();
-  const body = (await c.req.json()) as Json;
-  const examId = String(body.exam_id || "");
-  const userId = String(body.user_id || "");
-  userById(userId);
-  if (!getConn().prepare("SELECT 1 FROM exams WHERE id=?").get(examId)) throw new HttpFail(404, "exam not found");
-  const id = nid("exa");
-  getConn().prepare(
-    "INSERT INTO exam_assignments (id,exam_id,user_id,required,due_at,created_at) VALUES (?,?,?,?,?,?)",
-  ).run(id, examId, userId, body.required === false ? 0 : 1, body.due_at || null, nowIso());
-  audit(admin.id, "admin.exam.assign", { assignment_id: id, user_id: userId, exam_id: examId });
-  return c.json(getConn().prepare("SELECT * FROM exam_assignments WHERE id=?").get(id), 201);
-});
-
-enterprise.post("/admin/exams", async (c) => {
-  const admin = requireAdmin();
-  const body = (await c.req.json()) as Json;
-  const id = nid("exm");
-  getConn().prepare("INSERT INTO exams (id,title,description,active,created_at) VALUES (?,?,?,?,?)")
-    .run(id, String(body.title || "Exam"), String(body.description || ""), body.active === false ? 0 : 1, nowIso());
-  audit(admin.id, "admin.exam.create", { exam_id: id });
-  return c.json(getConn().prepare("SELECT * FROM exams WHERE id=?").get(id), 201);
-});
-
-enterprise.post("/admin/exams/:id/assign", async (c) => {
-  const admin = requireAdmin();
-  const body = (await c.req.json()) as Json;
-  const uid = String(body.user_id || "");
-  userById(uid);
-  const id = nid("exa");
-  getConn().prepare(
-    "INSERT INTO exam_assignments (id,exam_id,user_id,required,due_at,created_at) VALUES (?,?,?,?,?,?)",
-  ).run(id, c.req.param("id"), uid, body.required === false ? 0 : 1, body.due_at || null, nowIso());
-  audit(admin.id, "admin.exam.assign", { assignment_id: id, user_id: uid, exam_id: c.req.param("id") });
-  return c.json(getConn().prepare("SELECT * FROM exam_assignments WHERE id=?").get(id), 201);
-});
-
-enterprise.get("/exams", (c) => {
-  const user = scopedUser();
-  if (!user) throw new HttpFail(401, "authentication required");
-  const rows = getConn().prepare(
-    `SELECT a.*,e.title,e.description,
-      EXISTS(SELECT 1 FROM exam_attempts t WHERE t.assignment_id=a.id AND t.passed=1) AS passed
-      FROM exam_assignments a JOIN exams e ON e.id=a.exam_id WHERE a.user_id=? ORDER BY a.created_at`,
-  ).all(user.id);
-  return c.json(rows);
-});
-
-enterprise.post("/exams/:assignmentId/submit", async (c) => {
-  const user = scopedUser();
-  if (!user) throw new HttpFail(401, "authentication required");
-  const assignment = getConn().prepare("SELECT * FROM exam_assignments WHERE id=? AND user_id=?")
-    .get(c.req.param("assignmentId"), user.id) as Row | undefined;
-  if (!assignment) throw new HttpFail(404, "assignment not found");
-  const body = (await c.req.json()) as Json;
-  const passed = body.passed === true || body.score === undefined || Number(body.score) >= Number(body.pass_score || 80);
-  const id = nid("ext");
-  getConn().prepare("INSERT INTO exam_attempts (id,assignment_id,user_id,answers,passed,submitted_at) VALUES (?,?,?,?,?,?)")
-    .run(id, assignment.id, user.id, JSON.stringify(body.answers || {}), passed ? 1 : 0, nowIso());
-  audit(user.id, "exam.submit", { assignment_id: assignment.id, passed });
-  return c.json({ id, assignment_id: assignment.id, passed, exam_passed: mapUser(userById(user.id)).exam_passed });
 });
 
 enterprise.get("/preferences", (c) => {

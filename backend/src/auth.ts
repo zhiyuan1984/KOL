@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import type { Context, MiddlewareHandler } from "hono";
 import { Hono } from "hono";
 import { audit, getConn, nowIso, tx } from "./db.js";
+import { examPassed, examTodoCount } from "./exam.js";
 import { HttpFail } from "./host/errors.js";
 import { nid } from "./ids.js";
 import type { Json, Row } from "./types.js";
@@ -32,6 +33,7 @@ export type AppUser = {
   manager_user_id: string | null;
   active: boolean;
   exam_passed: boolean;
+  exam_todo_count: number;
   exam_module: string;
 };
 
@@ -53,23 +55,11 @@ function jsonArray(value: unknown): string[] {
   }
 }
 
-function examPassed(userId: string): boolean {
-  const row = getConn().prepare(
-    `SELECT COUNT(*) AS missing
-       FROM exam_assignments a
-      WHERE a.user_id = ? AND a.required = 1
-        AND NOT EXISTS (
-          SELECT 1 FROM exam_attempts t
-           WHERE t.assignment_id = a.id AND t.user_id = a.user_id AND t.passed = 1
-        )`,
-  ).get(userId) as { missing: number };
-  return Number(row.missing) === 0;
-}
-
 export function mapUser(row: Row): AppUser {
   const roles = jsonArray(row.roles);
   const username = String(row.username);
   const email = String(row.email || (username.includes("@") ? username : "") || "");
+  const todo = examTodoCount(String(row.id));
   return {
     id: String(row.id),
     username,
@@ -84,6 +74,7 @@ export function mapUser(row: Row): AppUser {
     manager_user_id: row.manager_user_id ? String(row.manager_user_id) : null,
     active: Boolean(row.active),
     exam_passed: examPassed(String(row.id)),
+    exam_todo_count: todo,
     exam_module: "数据安全与最小权限",
   };
 }
@@ -111,7 +102,8 @@ export function requireAdmin(): AppUser {
       site: DEMO_USER.site,
       manager_user_id: null,
       active: true,
-      exam_passed: DEMO_USER.exam_passed,
+      exam_passed: examPassed(DEMO_USER.id),
+      exam_todo_count: examTodoCount(DEMO_USER.id),
       exam_module: DEMO_USER.exam_module,
     };
   }
@@ -335,6 +327,7 @@ authRouter.get("/auth/status", (c) => {
       username: persona.handle,
       email: persona.handle === "lingong" ? "" : DEMO_ADMIN.email,
       phone: persona.handle === "lingong" ? "" : DEMO_ADMIN.phone,
+      exam_todo_count: examTodoCount(persona.id),
       ...access,
     };
     return c.json({

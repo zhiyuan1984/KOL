@@ -3049,7 +3049,7 @@ test("employee exam stays unready and never one-click passes", async ({ page, re
   await expect(exam).not.toContainText("体验账号");
   await expect(exam.getByRole("button", { name: "完成考试" })).toHaveCount(0);
   await expect(exam.locator("[data-persona]")).toHaveCount(0);
-  await expect(page.locator('[data-nav="exam"] .nav-badge')).toContainText("待完成");
+  await expect(page.locator('[data-nav="exam"] .nav-badge')).toHaveCount(0);
 });
 
 test("employee sidebar puts cron in today cluster and hides group titles", async ({ page }) => {

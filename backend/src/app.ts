@@ -11,6 +11,7 @@ import { HostReject, HttpFail } from "./host/errors.js";
 import { approvals } from "./routers/approvals.js";
 import { misc } from "./routers/misc.js";
 import { pipeline } from "./routers/pipeline.js";
+import { examRouter } from "./exam.js";
 import { enterprise } from "./routers/enterprise.js";
 import { tasks } from "./routers/tasks.js";
 import { crawlRouter } from "./routers/crawl.js";
@@ -50,6 +51,7 @@ export function createApp(): Hono {
 
   app.get("/api/health", (c) => c.json({ ok: true, name: "灵工", ui: "agent-v1" }));
   app.route("/api", authRouter);
+  app.route("/api", examRouter);
   app.route("/api", enterprise);
   app.route("/api", host);
   app.route("/api", pipeline);

@@ -188,7 +188,9 @@ export default function Workbench() {
           <NavLink to="/exam" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} data-nav="exam" onClick={() => setMobileOpen(false)}>
             <Ico path="M3 9l9-5 9 5-9 5z M7 12v5c3 2 7 2 10 0v-5 M21 9v6" />
             <span className="sidebar-label">考试</span>
-            {me?.exam_passed === false && <span className="nav-badge warn">待完成</span>}
+            {Number(me?.exam_todo_count || 0) > 0 && (
+              <span className="nav-badge warn">{Number(me?.exam_todo_count) === 1 ? "待完成" : me?.exam_todo_count}</span>
+            )}
           </NavLink>
           <NavLink to="/connectors" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} data-nav="connectors" title="连接器" onClick={() => setMobileOpen(false)}>
             <Ico path="M10 13a5 5 0 0 0 7.1.4l1.5-1.5a5 5 0 1 0-7.1-7.1L10.3 6 M14 11a5 5 0 0 0-7.1-.4L5.4 12.1a5 5 0 1 0 7.1 7.1L13.7 18" />

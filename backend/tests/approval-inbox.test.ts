@@ -173,7 +173,7 @@ describe("approval inbox by login name", () => {
     expect((done.json as { status: string }).status).toBe("consumed");
     expect((done.json as { business_status: string }).business_status).toBe("succeeded");
     expect(canDecideCurrent(
-      { id: "u", username: "wang", name: "王主管", handle: "wang", roles: ["employee"], role: "employee", brands: [], site: "", manager_user_id: null, active: true, exam_passed: true, exam_module: "" },
+      { id: "u", username: "wang", name: "王主管", handle: "wang", roles: ["employee"], role: "employee", brands: [], site: "", manager_user_id: null, active: true, exam_passed: true, exam_todo_count: 0, exam_module: "" },
       ["emp_wang"],
       0,
     )).toBe(true);

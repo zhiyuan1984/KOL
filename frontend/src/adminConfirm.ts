@@ -31,6 +31,8 @@ export type AdminConfirmKind =
   | "knowledge-archive"
   | "knowledge-hard-delete"
   | "knowledge-publish"
+  | "exam-publish"
+  | "exam-assign"
   | "skill-delete"
   | "skill-publish"
   | "skill-list"
@@ -124,6 +126,31 @@ export function skillDeleteConfirm(title: string, id = ""): AdminConfirmCopy {
     scope: "已发布技能包 · 运行时目录",
     consequence: "从运行时目录移除，员工技能目录不再出现。内置技能不能删除。",
     confirmLabel: "确认删除",
+  };
+}
+
+export function examPublishConfirm(title: string, version?: number): AdminConfirmCopy {
+  const next = (version || 0) + 1;
+  return {
+    kind: "exam-publish",
+    title: "发布考试题卷",
+    object: named(title, `第 ${next} 版`),
+    scope: "草稿题卷 → 已发布快照 · 员工作答与资格按此版本",
+    consequence: "发布后才会写入快照并增加版本。草稿不能分配。前端自报通过不能成为授权依据。",
+    confirmLabel: "确认发布",
+    confirmTone: "primary",
+  };
+}
+
+export function examAssignConfirm(title: string, userLabel: string): AdminConfirmCopy {
+  return {
+    kind: "exam-assign",
+    title: "分配已发布考试",
+    object: `${named(title)} → ${named(userLabel)}`,
+    scope: "已发布题卷 · 该员工的必修资格",
+    consequence: "该员工立即出现待完成考试。未发布草稿不能分配。合格只按服务端对已发布快照的判分。",
+    confirmLabel: "确认分配",
+    confirmTone: "primary",
   };
 }
 

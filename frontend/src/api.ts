@@ -396,6 +396,7 @@ export type Account = {
   phone?: string;
   site?: string;
   exam_passed?: boolean;
+  exam_todo_count?: number;
   brands?: string[];
   mailboxes?: string[];
   roles?: string[];
@@ -1076,14 +1077,51 @@ export const api = {
   connectors: () => request<Record<string, unknown>[]>("/api/connectors"),
   adminConnectors: () => request<Record<string, unknown>[]>("/api/admin/connectors"),
   adminExams: () => request<Record<string, unknown>[]>("/api/admin/exams"),
+  adminExamItems: (id: string) =>
+    request<Record<string, unknown>[]>(`/api/admin/exams/${encodeURIComponent(id)}/items`),
+  createExam: (body: Record<string, unknown>) =>
+    request<Record<string, unknown>>("/api/admin/exams", { method: "POST", body: JSON.stringify(body) }),
+  addExamItem: (id: string, body: Record<string, unknown>) =>
+    request<Record<string, unknown>>(`/api/admin/exams/${encodeURIComponent(id)}/items`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  generateExamItems: (id: string, knowledgeIds: string[]) =>
+    request<Record<string, unknown>>(`/api/admin/exams/${encodeURIComponent(id)}/generate`, {
+      method: "POST",
+      body: JSON.stringify({ knowledge_ids: knowledgeIds }),
+    }),
+  acceptExamItem: (id: string) =>
+    request<Record<string, unknown>>(`/api/admin/exam-items/${encodeURIComponent(id)}/accept`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  publishExam: (id: string) =>
+    request<Record<string, unknown>>(`/api/admin/exams/${encodeURIComponent(id)}/publish`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  assignExam: (id: string, body: Record<string, unknown>) =>
+    request<Record<string, unknown>>(`/api/admin/exams/${encodeURIComponent(id)}/assign`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  adminExamScores: () => request<Record<string, unknown>[]>("/api/admin/exam-scores"),
   adminAssignments: () => request<Record<string, unknown>[]>("/api/admin/exam-assignments"),
   adminDataPolicy: () => request<Record<string, unknown>>("/api/admin/retention-policy"),
   adminAudit: () => request<Record<string, unknown>[]>("/api/audit"),
   adminSave: (path: string, body: Record<string, unknown>, method = "PUT") =>
     request<Record<string, unknown>>(path, { method, body: JSON.stringify(body) }),
   examAssignments: () => request<Record<string, unknown>[]>("/api/exams"),
+  startExam: (id: string) =>
+    request<Record<string, unknown>>(`/api/exams/${encodeURIComponent(id)}/start`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  examResult: (id: string) =>
+    request<Record<string, unknown>>(`/api/exams/${encodeURIComponent(id)}/result`),
   submitExam: (id: string, body: Record<string, unknown>) =>
-    request<Record<string, unknown>>(`/api/exams/${id}/submit`, {
+    request<Record<string, unknown>>(`/api/exams/${encodeURIComponent(id)}/submit`, {
       method: "POST",
       body: JSON.stringify(body),
     }),
