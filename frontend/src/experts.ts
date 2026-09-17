@@ -128,6 +128,8 @@ const KOL_MANIFEST: ExpertManifestView = {
     "email_conversation_read",
     "discovery_brief",
     "discovery_plan",
+    "today_plan",
+    "today_analyze",
   ],
   tool_ids: ["starrykol"],
 };

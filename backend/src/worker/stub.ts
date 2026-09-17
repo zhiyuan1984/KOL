@@ -22,6 +22,7 @@ import { approvalBoxGuardrails, persistWorker } from "./common.js";
 import { assertKolAnalyzeVerbsSafe, KOL_ANALYZE_TASK_TYPE } from "../host/kol-memory.js";
 import { judgeCollaborationStage, type StageJudgmentInput } from "../stage-judgment.js";
 import { requireTaskDefinition } from "../tasks/registry.js";
+import { planningHarnessMount } from "../host/today-plan-context.js";
 import { expenseFactsFromWorkerItem, hintRequesterFromOrg, readExpenseFactsFromText } from "../approval/plan.js";
 import { isSopSkill, isStageSopSkill } from "../sops.js";
 import { isEmailMcpTask } from "../starrykol/service.js";
@@ -61,9 +62,11 @@ function writeBox(wid: string, skill: string, prompt: string, extra: Json): stri
   const box = path.join(boxDir(), wid);
   fs.mkdirSync(box, { recursive: true });
   writeSkillIntoBox(box, skill);
+  const planning = extra.mode === "today_plan" || extra.mode === "today_analyze" || extra.skip_user_memory === true;
+  const planningMount = planning ? planningHarnessMount(skill) : null;
   fs.writeFileSync(
     path.join(box, "CONTEXT.md"),
-    `# CONTEXT\n\nprofile: ${profile.name}\nskill: ${skill}\nprompt: ${prompt}\nextra: ${JSON.stringify(workerSafeExtra(extra))}\n`,
+    `# CONTEXT\n\nprofile: ${profile.name}\nskill: ${skill}\nprompt: ${prompt}\nplanning_harness: ${JSON.stringify(planningMount)}\nextra: ${JSON.stringify(workerSafeExtra(extra))}\n`,
     "utf8",
   );
   writeAttachmentContext(box, extra);
@@ -74,11 +77,12 @@ function writeBox(wid: string, skill: string, prompt: string, extra: Json): stri
       "所有 Profile 共用同一 Codex app-server harness，不是独立运行时。",
       "读数用 MCP starry.* / claw.*。禁止裸 HTTP。",
       "只写 Item JSON。无 SMTP / WeCom secret / 阶段库凭据。",
+      ...(planning ? ["规划会话只读。禁止 follow / send / confirm-stage。"] : []),
       ...(skill === "business_approval" ? approvalBoxGuardrails() : []),
     ].join("\n") + "\n",
     "utf8",
   );
-  writeBoxCodexConfig(box, definition.mcp);
+  writeBoxCodexConfig(box, planningMount ? planningMount.tools : definition.mcp);
   return box;
 }
 
@@ -306,6 +310,83 @@ function stubExpenseItem(extra: Json): Json {
   };
 }
 
+function stubTodayBrief(extra: Json): Json {
+  const pack = extra.today_plan_context && typeof extra.today_plan_context === "object"
+    ? extra.today_plan_context as Json
+    : {};
+  const history = pack.history && typeof pack.history === "object" ? pack.history as Json : {};
+  const delta = pack.delta && typeof pack.delta === "object" ? pack.delta as Json : extra.delta && typeof extra.delta === "object" ? extra.delta as Json : {};
+  const unfinished = Array.isArray(history.unfinished_tasks) ? history.unfinished_tasks as Json[] : [];
+  const added = Array.isArray(delta.added) ? delta.added as Json[] : [];
+  const counts = pack.now_counts && typeof pack.now_counts === "object" ? pack.now_counts as Json : {};
+  const batch = added.find((item) => String(item.object_type || item.kind || "") === "batch" || String(item.kind) === "discovery_batch");
+  const firstTask = unfinished[0];
+  const primary = batch
+    ? {
+      verb: String(batch.status) === "failed" ? "retry_crawl" : "open_batch",
+      label: String(batch.status) === "failed" ? "重试采集" : "打开批次",
+      object_id: String(batch.id || ""),
+      object_type: "batch",
+      person_id: null,
+    }
+    : firstTask
+      ? {
+        verb: "open",
+        label: "打开未了结任务",
+        object_id: String(firstTask.id || ""),
+        object_type: String(firstTask.object_type || "task"),
+        person_id: firstTask.person_id ? String(firstTask.person_id) : null,
+      }
+      : {
+        verb: "analyze",
+        label: "查看今日清单",
+        object_id: null,
+        object_type: "task",
+        person_id: null,
+      };
+  const cursor = pack.source_cursor && typeof pack.source_cursor === "object"
+    ? pack.source_cursor as Json
+    : { cursor_from: null, cursor_to: "src:", added: [], removed: [], unchanged: [] };
+  return {
+    type: "today_brief",
+    lead: unfinished.length
+      ? `今天还有 ${unfinished.length} 项未了结工作`
+      : "今天先核对其来源增量",
+    stats: {
+      unfinished: Number(counts.unfinished || unfinished.length || 0),
+      discovery_anomalies: Number(counts.discovery_anomalies || 0),
+      failed_runs: Number(counts.failed_runs || 0),
+    },
+    primary,
+    sections: [
+      {
+        title: "未了结任务",
+        body: unfinished.length ? "昨日未完成项继续保留。" : "当前没有未了结正式任务。",
+        items: unfinished.map((item) => String(item.title || item.id)),
+      },
+      {
+        title: "来源增量",
+        body: added.length ? "新增来源需要核对。" : "增量空，仍按历史规划。",
+        items: added.map((item) => `${item.kind || ""} ${item.title || item.id}`),
+      },
+    ],
+    todo_layout: unfinished.filter((item) => item.work_item_id).map((item, index) => ({
+      work_item_id: String(item.work_item_id),
+      rank: index + 1,
+      why: String(item.reason || "未了结"),
+    })),
+    analysis_hints: added.filter((item) => item.object_type === "batch").map((item) => ({
+      object_id: String(item.id),
+      hint: String(item.reason || "核对发现批次"),
+      attach_skill: null,
+    })),
+    source_cursor: cursor,
+    increment_summary: added.length
+      ? `新增 ${added.length} 项来源`
+      : "增量空，历史未了结任务继续保留",
+  };
+}
+
 async function produceItems(
   log: Json[],
   skill: string,
@@ -314,6 +395,25 @@ async function produceItems(
 ): Promise<Json[]> {
   const handle = extra.handle as string | undefined;
   const col = handle ? collab(log, handle) : {};
+  if (skill === "today_plan") {
+    log.push({ method: "planning_harness", params: planningHarnessMount("today_plan") });
+    return [stubTodayBrief(extra)];
+  }
+  if (skill === "today_analyze") {
+    log.push({ method: "planning_harness", params: planningHarnessMount("today_analyze") });
+    return [{
+      type: "task_result",
+      title: "今日对象分析",
+      summary: "已分析所选对象。未写入正式状态。",
+      sections: [{
+        title: "建议",
+        body: "只读分析。对人可参考 stage_sop，发现批次不要 follow。",
+        items: ["retry_crawl / open_batch / analyze", "不自动改状态"],
+      }],
+      metrics: [{ label: "自动写状态", value: "否", detail: "分析附件不是正式状态" }],
+      recommended_actions: ["打开对象", "需要时人工确认阶段"],
+    }];
+  }
   if (skill === "confirm_stage") return [stageProposal(log, col, extra)];
   if (skill === "deal_memory") return collectDealMemoryItems(col, String(handle || col.handle || ""));
   if (isStageSopSkill(skill)) {
@@ -429,8 +529,10 @@ export async function runStub(
   const skillsRoot = runtimeSkillsRoot();
   log.push({ method: "skills/extraRoots/set", params: { extraRoots: [skillsRoot] } });
   log.push({ method: "skills/config/write", params: { path: skillPath, enabled: true } });
-  log.push({ method: "mcp_servers", params: { names: ["starry", "claw"] } });
-  log.push({ method: "thread/start", params: { resume: false, mcp: ["starry", "claw"] } });
+  const planning = extra.mode === "today_plan" || extra.mode === "today_analyze" || extra.skip_user_memory === true;
+  const mcpNames = planning ? planningHarnessMount(skill).tools : ["starry", "claw"];
+  log.push({ method: "mcp_servers", params: { names: mcpNames } });
+  log.push({ method: "thread/start", params: { resume: false, mcp: mcpNames } });
   log.push({ method: "turn/start", params: { prompt, skill } });
   const items = await produceItems(log, skill, { ...extra, raw: extra.raw || extra.text || prompt, text: extra.text || prompt }, onProgress);
   assertKolAnalyzeVerbsSafe(skill, { items }, extra.work_item_id ? String(extra.work_item_id) : null);

@@ -11,7 +11,18 @@ function dayIso(offset: number) {
   return day.toISOString();
 }
 
+async function mockTodayBrief(page: import("@playwright/test").Page, body: Record<string, unknown> = {}) {
+  await page.route("**/api/home/today-brief**", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({ json: { planning: false, brief: null, events: [], creates_session: false, ...body } });
+      return;
+    }
+    await route.fulfill({ json: { planning: true, work_item_id: "tsk_plan", session_id: "ses_plan", run_id: "run_plan" } });
+  });
+}
+
 test("sidebar 新工作任务 lands on today list without tab hop or recommend/queued copy", async ({ page }) => {
+  await mockTodayBrief(page);
   await page.goto("/?tab=lifecycle");
   await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
   await page.locator('[data-nav="new-task"]').click();
@@ -106,6 +117,7 @@ test("today pane shows bucket work items including unpromoted source=ai", async 
     },
   ];
   const writes: string[] = [];
+  await mockTodayBrief(page);
   await page.route("**/api/home/board", (route) => route.fulfill({
     json: { kols: [], tabs: [], tasks: todos, workbench: { today: todos.filter((row) => !["tsk_queued", "tsk_open", "tsk_ai_open"].includes(row.id)), todo: todos, recommendations: [{ id: "rec-1", title: "诱饵", reason: "不要出现", source: "ai" }] } },
   }));

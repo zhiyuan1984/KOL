@@ -738,6 +738,18 @@ function initSchema(db: SqliteConn): void {
             ON task_runs(work_item_id, created_at);
         CREATE INDEX IF NOT EXISTS task_events_work_item
             ON task_events(work_item_id, sequence);
+        CREATE TABLE IF NOT EXISTS employee_today_briefs (
+            owner_user_id TEXT PRIMARY KEY,
+            artifact_id TEXT NOT NULL,
+            work_item_id TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(artifact_id) REFERENCES task_artifacts(id) ON DELETE CASCADE,
+            FOREIGN KEY(work_item_id) REFERENCES work_items(id) ON DELETE CASCADE
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS one_running_today_plan
+            ON work_items(owner_user_id)
+            WHERE task_type='today_plan'
+              AND status IN ('pending','queued','running','in_progress','starting');
         DROP INDEX IF EXISTS crawl_jobs_one_active;
         CREATE UNIQUE INDEX crawl_jobs_one_active
             ON crawl_jobs((1))
@@ -1572,6 +1584,18 @@ function migrateSchema(db: SqliteConn): void {
         CREATE UNIQUE INDEX IF NOT EXISTS exam_attempts_idempotency
           ON exam_attempts(user_id, idempotency_key)
           WHERE idempotency_key IS NOT NULL AND idempotency_key != '';
+        CREATE TABLE IF NOT EXISTS employee_today_briefs (
+            owner_user_id TEXT PRIMARY KEY,
+            artifact_id TEXT NOT NULL,
+            work_item_id TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(artifact_id) REFERENCES task_artifacts(id) ON DELETE CASCADE,
+            FOREIGN KEY(work_item_id) REFERENCES work_items(id) ON DELETE CASCADE
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS one_running_today_plan
+            ON work_items(owner_user_id)
+            WHERE task_type='today_plan'
+              AND status IN ('pending','queued','running','in_progress','starting');
   `);
   db.exec(`
         CREATE TABLE IF NOT EXISTS kol_profile_index (

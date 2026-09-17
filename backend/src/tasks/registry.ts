@@ -12,7 +12,9 @@ export const TASK_PROFILES = [
 ] as const;
 
 export type TaskProfileId = (typeof TASK_PROFILES)[number];
-export const TASK_OUTPUTS = ["crawl_plan", "task_result", "propose_stage", "kol_analyze_brief"] as const;
+export const TASK_OUTPUTS = ["crawl_plan", "task_result", "propose_stage", "kol_analyze_brief", "today_brief"] as const;
+export const TASK_SIDE_EFFECTS = ["none", "write"] as const;
+export type TaskSideEffects = (typeof TASK_SIDE_EFFECTS)[number];
 export type TaskOutput = (typeof TASK_OUTPUTS)[number];
 export const TASK_FUNNELS = ["reach", "intent", "biz", "sample", "content", "settle", "exception"] as const;
 export type TaskFunnel = (typeof TASK_FUNNELS)[number];
@@ -32,6 +34,9 @@ export type TaskDefinition = {
   aliases: string[];
   in_market: boolean;
   funnel?: TaskFunnel;
+  side_effects: TaskSideEffects;
+  creates_session: boolean;
+  auto_ok: boolean;
   source: TaskSource;
   path: string;
 };
@@ -148,6 +153,19 @@ function parseDefinition(file: string, folder: string, source: TaskSource): Task
   if (!TASK_OUTPUTS.includes(values.output as TaskOutput)) {
     throw new Error(`manifest has unknown output ${String(values.output)}: ${file}`);
   }
+  let sideEffects: TaskSideEffects = "none";
+  if (values.side_effects !== undefined) {
+    if (!TASK_SIDE_EFFECTS.includes(values.side_effects as TaskSideEffects)) {
+      throw new Error(`manifest has unknown side_effects ${String(values.side_effects)}: ${file}`);
+    }
+    sideEffects = values.side_effects as TaskSideEffects;
+  }
+  if (values.creates_session !== undefined && typeof values.creates_session !== "boolean") {
+    throw new Error(`manifest creates_session must be a boolean: ${file}`);
+  }
+  if (values.auto_ok !== undefined && typeof values.auto_ok !== "boolean") {
+    throw new Error(`manifest auto_ok must be a boolean: ${file}`);
+  }
   let funnel: TaskFunnel | undefined;
   if (values.funnel !== undefined) {
     if (!TASK_FUNNELS.includes(values.funnel as TaskFunnel)) {
@@ -175,6 +193,9 @@ function parseDefinition(file: string, folder: string, source: TaskSource): Task
     ) as unknown as string[],
     in_market: values.in_market === undefined ? true : values.in_market === true,
     funnel,
+    side_effects: sideEffects,
+    creates_session: values.creates_session === true,
+    auto_ok: values.auto_ok === true,
     source,
     path: path.resolve(file),
   });

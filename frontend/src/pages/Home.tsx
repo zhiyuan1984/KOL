@@ -10,6 +10,7 @@ import {
   type Task,
   type TaskDefinition,
   type TaskRunResult,
+  type TodayBrief,
 } from "../api";
 import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
 import { storePending } from "../components/ChatBlocks";
@@ -476,6 +477,10 @@ export default function Home() {
     body: string;
     version: string;
   } | null>(null);
+  const [todayBrief, setTodayBrief] = useState<TodayBrief | null>(null);
+  const [todayPlanning, setTodayPlanning] = useState(false);
+  const [todayPlanProgress, setTodayPlanProgress] = useState("");
+  const todayPlanStartedRef = useRef(false);
   const nav = useNavigate();
   const mode = parseHomeMode(params.get("tab"));
 
@@ -1398,6 +1403,45 @@ export default function Home() {
     return () => window.clearInterval(timer);
   }, [hasActiveRuns]);
 
+  useEffect(() => {
+    if (mode !== "today" && mode !== "todo") {
+      todayPlanStartedRef.current = false;
+      return;
+    }
+    let cancelled = false;
+    const applyBrief = (row: Awaited<ReturnType<typeof api.todayBrief>>) => {
+      if (cancelled) return;
+      setTodayBrief(row.brief || null);
+      setTodayPlanning(Boolean(row.planning));
+      const last = Array.isArray(row.events) && row.events.length
+        ? String(row.events[row.events.length - 1]?.label || row.events[row.events.length - 1]?.title || "")
+        : "";
+      setTodayPlanProgress(row.planning ? (last || "正在为你规划今天") : "");
+      return row;
+    };
+    const load = async () => {
+      const current = applyBrief(await api.todayBrief());
+      if (!current || cancelled || mode !== "today") return;
+      if (!current.planning && !current.brief && !todayPlanStartedRef.current) {
+        todayPlanStartedRef.current = true;
+        setTodayPlanning(true);
+        setTodayPlanProgress("正在为你规划今天");
+        await api.planToday();
+        if (cancelled) return;
+        applyBrief(await api.todayBrief());
+      }
+    };
+    void load().catch(() => undefined);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible" || mode !== "today") return;
+      void api.todayBrief().then(applyBrief).catch(() => undefined);
+    }, HOME_TASK_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [mode]);
+
   const recommendedItems = useMemo(
     () => withRecommendedDisplay(workbench.recommendations || [], definitions),
     [definitions, workbench.recommendations],
@@ -1642,6 +1686,9 @@ export default function Home() {
               todayTodos={todayTodos}
               busy={busy}
               onAct={(task) => void actOnMemoryTask(task)}
+              brief={todayBrief}
+              planning={todayPlanning}
+              progress={todayPlanProgress}
             />
           ) : null}
 
@@ -1653,6 +1700,7 @@ export default function Home() {
               dedupeNotice={dedupeNotice}
               busy={busy}
               onAct={(task) => void actOnMemoryTask(task)}
+              todoLayout={todayBrief?.todo_layout}
             />
           ) : null}
 

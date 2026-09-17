@@ -1079,6 +1079,38 @@ summary:focus-visible,
   width: 100%;
   max-width: none;
 }
+.today-plan-progress,
+.today-brief {
+  margin: 0 0 var(--space-3);
+  color: var(--text);
+  font-size: var(--font-ui);
+}
+.today-brief-lead {
+  margin: 0 0 var(--space-2);
+  font-weight: 600;
+}
+.today-brief-primary {
+  margin: 0 0 var(--space-3);
+  color: var(--primary);
+  font-size: var(--font-sm);
+  font-weight: 600;
+}
+.today-brief-sections {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-3);
+}
+.today-brief-section h3 {
+  margin: 0 0 4px;
+  font-size: var(--font-sm);
+}
+.today-brief-section p,
+.today-brief-section ul {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.45;
+}
 .today-todo-list,
 .today-todo-ol,
 .today-todo-row {

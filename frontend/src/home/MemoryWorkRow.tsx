@@ -21,7 +21,7 @@ export default function MemoryWorkRow({
   pane: "today" | "todo";
 }) {
   const due = dueLabel(task);
-  const content = todayContentLine(task);
+  const content = String(task.layout_why || "").trim() || todayContentLine(task);
   const action = openPrimaryAction(bucket);
   const status = openBucketLabel(bucket);
   const actKind = bucket === "approval" ? "approve" : bucket === "later" ? "open" : "handle";
