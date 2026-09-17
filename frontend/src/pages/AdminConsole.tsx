@@ -6,6 +6,7 @@ import UserMenu from "../components/UserMenu";
 import { Admin as LegacyAdmin } from "./SimplePages";
 import { Admin as SkillAdmin } from "./Admin";
 import AdminKnowledge from "./AdminKnowledge";
+import AdminExams from "./AdminExams";
 import { AdminAgents } from "./AdminAgents";
 import { AdminConnectorDetail, AdminConnectorsHub } from "./AdminConnectors";
 import {
@@ -167,7 +168,7 @@ export default function AdminConsole() {
         {tab === "approvals" && (
           <GrantEditor kind="approval-roles" label="审批角色" users={users} options={[...APPROVAL_ROLE_OPTIONS]} onSave={save} />
         )}
-        {tab === "exams" && <ExamsPanel exams={exams} assignments={assignments} users={users} onSave={save} />}
+        {tab === "exams" && <AdminExams exams={exams} assignments={assignments} users={users} onReload={load} />}
         {tab === "data" && <DataPanel policy={policy} auditRows={auditRows} onSave={save} />}
         {tab === "knowledge" && <AdminKnowledge />}
         {tab === "kol" && <LegacyAdmin />}
@@ -253,73 +254,6 @@ function EmployeesPanel({ users, onSave }: { users: AdminRow[]; onSave: SaveFn }
         <label className="field">临时密码<input name="password" type="password" minLength={10} required /></label>
         <label className="field">站点<input name="site" /></label>
         <button className="btn work">创建员工</button>
-      </form>
-    </section>
-  );
-}
-
-function ExamsPanel({
-  exams,
-  assignments,
-  users,
-  onSave,
-}: {
-  exams: AdminRow[];
-  assignments: AdminRow[];
-  users: AdminRow[];
-  onSave: SaveFn;
-}) {
-  return (
-    <section className="admin-grid">
-      <AdminList title="考试" empty="暂无考试" rows={exams} render={(exam) => <p className="muted">{String(exam.description || exam.status || "")}</p>} />
-      <AdminList
-        title="分配记录"
-        empty="暂无分配"
-        rows={assignments}
-        render={(assignment) => (
-          <p className="muted">
-            {assignment.passed ? "已通过" : String(assignment.status) === "completed" ? "已完成" : "待完成"}
-            {assignment.due_at ? ` · 截止 ${assignment.due_at}` : ""}
-          </p>
-        )}
-      />
-      <form
-        className="panel settings-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const d = new FormData(e.currentTarget);
-          void onSave("/api/admin/exam-assignments", { exam_id: d.get("exam_id"), user_id: d.get("user_id") }, "考试已分配", "POST");
-        }}
-      >
-        <h2>分配考试</h2>
-        <label className="field">
-          考试
-          <select name="exam_id" required>
-            <option value="">选择考试</option>
-            {exams.map((exam) => <option key={String(exam.id)} value={String(exam.id)}>{rowTitle(exam)}</option>)}
-          </select>
-        </label>
-        <label className="field">
-          员工
-          <select name="user_id" required>
-            <option value="">选择员工</option>
-            {users.map((user) => <option key={String(user.id)} value={String(user.id)}>{rowTitle(user)}</option>)}
-          </select>
-        </label>
-        <button className="btn work">分配</button>
-      </form>
-      <form
-        className="panel settings-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const d = new FormData(e.currentTarget);
-          void onSave("/api/admin/exams", { title: d.get("title"), description: d.get("description") }, "考试已创建", "POST");
-        }}
-      >
-        <h2>创建考试</h2>
-        <label className="field">名称<input name="title" required /></label>
-        <label className="field">说明<textarea name="description" rows={3} /></label>
-        <button className="btn work">创建</button>
       </form>
     </section>
   );

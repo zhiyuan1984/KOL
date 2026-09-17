@@ -175,6 +175,14 @@ describe("production account and enterprise controls", () => {
   it("assigns an exam and derives exam_passed from required attempts", async () => {
     const employee = await createEmployee();
     const exam = await call("POST", "/api/admin/exams", { title: "Data handling" });
+    const item = await call("POST", `/api/admin/exams/${exam.json.id}/items`, {
+      prompt: "Handle personal data with least privilege",
+      kind: "true_false",
+    });
+    expect(item.response.status).toBe(201);
+    await call("POST", `/api/admin/exam-items/${item.json.id}/accept`, {});
+    const published = await call("POST", `/api/admin/exams/${exam.json.id}/publish`, {});
+    expect(published.response.status).toBe(200);
     const assignment = await call("POST", `/api/admin/exams/${exam.json.id}/assign`, {
       user_id: employee.id,
       required: true,
@@ -182,9 +190,9 @@ describe("production account and enterprise controls", () => {
     const cookie = await employeeLogin();
     const statusBefore = await call("GET", "/api/auth/status", undefined, cookie);
     expect((statusBefore.json.user as Record<string, unknown>).exam_passed).toBe(false);
+    expect((statusBefore.json.user as Record<string, unknown>).exam_todo_count).toBe(1);
     const submitted = await call("POST", `/api/exams/${assignment.json.id}/submit`, {
-      answers: { accepted: true },
-      score: 100,
+      options: { [String(item.json.id)]: "yes" },
     }, cookie);
     expect(submitted.json).toMatchObject({ passed: true, exam_passed: true });
   });

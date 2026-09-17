@@ -597,6 +597,11 @@ function initSchema(db: SqliteConn): void {
             title TEXT NOT NULL,
             description TEXT,
             active INTEGER NOT NULL DEFAULT 1,
+            status TEXT NOT NULL DEFAULT 'draft',
+            pass_score INTEGER NOT NULL DEFAULT 80,
+            version INTEGER NOT NULL DEFAULT 0,
+            effects TEXT NOT NULL DEFAULT '{}',
+            published_at TEXT,
             created_at TEXT NOT NULL
         );
 
@@ -619,6 +624,13 @@ function initSchema(db: SqliteConn): void {
             answers TEXT NOT NULL,
             passed INTEGER NOT NULL,
             submitted_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'graded',
+            score INTEGER,
+            total INTEGER,
+            paper_version INTEGER NOT NULL DEFAULT 0,
+            idempotency_key TEXT,
+            started_at TEXT,
+            breakdown_json TEXT,
             FOREIGN KEY(assignment_id) REFERENCES exam_assignments(id),
             FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
         );
@@ -1250,6 +1262,61 @@ function migrateSchema(db: SqliteConn): void {
   db.prepare(
     "INSERT OR IGNORE INTO retention_policy (id, session_days, audit_days, updated_at) VALUES (1,365,730,?)",
   ).run(now);
+  add(db, "exams", "status", "TEXT NOT NULL DEFAULT 'draft'");
+  add(db, "exams", "pass_score", "INTEGER NOT NULL DEFAULT 80");
+  add(db, "exams", "version", "INTEGER NOT NULL DEFAULT 0");
+  add(db, "exams", "effects", "TEXT NOT NULL DEFAULT '{}'");
+  add(db, "exams", "published_at", "TEXT");
+  add(db, "exam_attempts", "status", "TEXT NOT NULL DEFAULT 'graded'");
+  add(db, "exam_attempts", "score", "INTEGER");
+  add(db, "exam_attempts", "total", "INTEGER");
+  add(db, "exam_attempts", "paper_version", "INTEGER NOT NULL DEFAULT 0");
+  add(db, "exam_attempts", "idempotency_key", "TEXT");
+  add(db, "exam_attempts", "started_at", "TEXT");
+  add(db, "exam_attempts", "breakdown_json", "TEXT");
+  db.exec(`
+        CREATE TABLE IF NOT EXISTS exam_items (
+            id TEXT PRIMARY KEY,
+            exam_id TEXT NOT NULL,
+            knowledge_id TEXT,
+            prompt TEXT NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'true_false',
+            options_json TEXT NOT NULL DEFAULT '[]',
+            answer TEXT NOT NULL,
+            accepted INTEGER NOT NULL DEFAULT 0,
+            source TEXT NOT NULL DEFAULT 'manual',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(exam_id) REFERENCES exams(id)
+        );
+        CREATE TABLE IF NOT EXISTS exam_snapshots (
+            id TEXT PRIMARY KEY,
+            exam_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            pass_score INTEGER NOT NULL,
+            items_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(exam_id, version),
+            FOREIGN KEY(exam_id) REFERENCES exams(id)
+        );
+        CREATE TABLE IF NOT EXISTS exam_qualifications (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            exam_id TEXT NOT NULL,
+            assignment_id TEXT,
+            attempt_id TEXT,
+            paper_version INTEGER NOT NULL,
+            passed INTEGER NOT NULL,
+            score INTEGER,
+            total INTEGER,
+            awarded_at TEXT NOT NULL,
+            UNIQUE(user_id, exam_id, paper_version),
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY(exam_id) REFERENCES exams(id)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS exam_attempts_idempotency
+          ON exam_attempts(user_id, idempotency_key)
+          WHERE idempotency_key IS NOT NULL AND idempotency_key != '';
+  `);
 }
 
 export function nowIso(): string {

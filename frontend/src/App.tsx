@@ -38,6 +38,7 @@ export default function App() {
           <Route path="/market/skills" element={<SkillHub />} />
           <Route path="/partners" element={<Partners />} />
           <Route path="/market/kb" element={<Navigate to="/kb" replace />} />
+          <Route path="/exam/:assignmentId" element={<Exam />} />
           <Route path="/exam" element={<Exam />} />
           <Route path="/approvals/:id" element={<Approvals />} />
           <Route path="/approvals" element={<Approvals />} />

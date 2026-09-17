@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { Hono } from "hono";
 import { authDisabled, isAdmin, requireAdmin, scopedUser } from "../auth.js";
+import { examDemoStatus, examTodoCount } from "../exam.js";
 import { starry } from "../adapters/clients.js";
 import { BRAND_MAILBOXES, clawMode, kolClawConfigured, starryKolMcpBearer, starryKolMcpConfigured } from "../config.js";
 import { getConn, listAudit, nowIso } from "../db.js";
@@ -242,6 +243,7 @@ misc.get("/me", (c) => {
   const appUser = scopedUser();
   return c.json({
     ...user,
+    exam_todo_count: appUser?.exam_todo_count ?? examTodoCount(user.id),
     ...(appUser ? {
       username: appUser.username,
       email: appUser.email || appUser.username,
@@ -355,14 +357,7 @@ misc.post("/me/persona", async (c) => {
 
 misc.get("/exam", (c) => {
   const u = currentUser();
-  return c.json({
-    user: u.name,
-    passed: u.exam_passed,
-    brands: u.brands || [],
-    modules: ["品牌邮箱", "阶段 ≠ 发送", "费用审批", "数据安全与最小权限"],
-    personas: ["sriphy", "exam_blocked", "permission_blocked", "employee"],
-    note: "默认可过考试。切换「未通过考试」或「无发信权」可演示发送拦截。",
-  });
+  return c.json(examDemoStatus(u.id, u.name, u.brands || []));
 });
 
 misc.get("/admin", (c) => {

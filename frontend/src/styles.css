@@ -5768,6 +5768,10 @@ summary:focus-visible,
 .exam-empty .muted { margin: 0 0 var(--space-2); }
 .exam-list { display: grid; gap: var(--space-3); }
 .exam-card h3 { font-size: var(--font-section); font-weight: 600; }
+.exam-take, .exam-result { display: grid; gap: var(--space-3); }
+.exam-question legend { font-weight: 600; }
+.exam-question p { margin: 0 0 var(--space-2); }
+.admin-exams .chip-row { margin-bottom: var(--space-3); }
 .connector-use-page {
   max-width: 40rem;
   gap: var(--space-5);
