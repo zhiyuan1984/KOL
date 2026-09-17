@@ -1,0 +1,8 @@
+.followed-brief {
+  margin: 0 0 16px;
+}
+.followed-lane-label {
+  margin: 16px 0 8px;
+  color: var(--muted, #6b6b6b);
+  font-size: var(--font-sm, 13px);
+}
