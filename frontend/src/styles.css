@@ -76,7 +76,7 @@
 
   --chrome-2: #eceef0;
   --sidebar-thumb: #d0d0d0;
-  --left-width: 312px;
+  --left-width: clamp(312px, 16vw, 420px);
   --page-gutter: clamp(16px, 2.2vw, 28px);
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --sans: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", "WenQuanYi Micro Hei", "Droid Sans Fallback", sans-serif;
@@ -6544,7 +6544,7 @@ summary:focus-visible,
    Geometry is intentionally centralized here so the shell, conversation and
    composer share one rhythm without changing business behavior. */
 :root {
-  --left-width: 312px; /* literal desktop rail; never clamp(220px, 15vw, 248px) or 264 */
+  --left-width: clamp(312px, 16vw, 420px); /* desktop expanded rail; mobile drawers keep their own width */
   --page-gutter: clamp(16px, 2.4vw, 40px);
   --content-max: 1200px;
   --conversation-measure: 900px;
@@ -6812,7 +6812,7 @@ body {
 
   .sidebar {
     top: 48px;
-    /* Mobile drawer only — do not inherit the desktop 312 rail. */
+    /* Mobile drawer only — do not inherit the desktop clamp rail. */
     width: min(320px, calc(100vw - 24px));
     min-width: 0;
     max-width: none;
@@ -8482,16 +8482,16 @@ body {
   }
 }
 
-/* Last-wins desktop rail lock. Must stay after every .sidebar / .workbench width rule.
-   Mobile drawers above (860 / 720) keep min(300px)/min(320px) and never get 312. */
+/* Last-wins desktop rail. Must stay after every .sidebar / .workbench width rule.
+   Mobile drawers above (860 / 720) keep min(300px)/min(320px) and never get the desktop clamp. */
 @media (min-width: 861px) {
   .workbench:not(.admin-surface):not(.sidebar-collapsed) {
-    grid-template-columns: 312px minmax(0, 1fr);
+    grid-template-columns: var(--left-width) minmax(0, 1fr);
   }
   .workbench:not(.admin-surface):not(.sidebar-collapsed) > .sidebar {
-    width: 312px;
-    min-width: 312px;
-    max-width: 312px;
+    width: var(--left-width);
+    min-width: var(--left-width);
+    max-width: var(--left-width);
   }
   .workbench.sidebar-collapsed:not(.admin-surface) {
     --left-width: 56px;

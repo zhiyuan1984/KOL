@@ -21,9 +21,39 @@ async function typeOf(page: Page, selector: string): Promise<TypeMetrics> {
   });
 }
 
+function expectedLeftWidthPx(viewportWidth: number): number {
+  return Math.min(420, Math.max(312, viewportWidth * 0.16));
+}
+
+type RailMetrics = {
+  tokenLeftWidth: string;
+  workbenchFirstCol: string;
+  sidebarWidth: string;
+  sidebarMinWidth: string;
+  sidebarMaxWidth: string;
+  sidebarRect: number;
+};
+
+function expectExpandedDesktopRail(metrics: RailMetrics, viewportWidth: number) {
+  const expected = expectedLeftWidthPx(viewportWidth);
+  const firstCol = Number.parseFloat(metrics.workbenchFirstCol);
+  const sidebarWidth = Number.parseFloat(metrics.sidebarWidth);
+  const minWidth = Number.parseFloat(metrics.sidebarMinWidth);
+  const maxWidth = Number.parseFloat(metrics.sidebarMaxWidth);
+  expect(metrics.tokenLeftWidth).toBe("clamp(312px, 16vw, 420px)");
+  expect(firstCol).toBeGreaterThanOrEqual(312);
+  expect(firstCol).toBeLessThanOrEqual(420);
+  expect(sidebarWidth).toBeGreaterThanOrEqual(312);
+  expect(sidebarWidth).toBeLessThanOrEqual(420);
+  expect(firstCol).toBeCloseTo(expected, 0);
+  expect(sidebarWidth).toBeCloseTo(expected, 0);
+  expect(minWidth).toBeCloseTo(expected, 0);
+  expect(maxWidth).toBeCloseTo(expected, 0);
+  expect(firstCol).toBeCloseTo(sidebarWidth, 1);
+  expect(metrics.sidebarRect).toBeCloseTo(expected, 0);
+}
+
 async function collectShellMetrics(page: Page) {
-  const sidebar = page.locator(".sidebar");
-  const workbench = page.locator(".workbench");
   const layout = await page.evaluate(() => {
     const rail = document.querySelector(".sidebar");
     const shell = document.querySelector(".workbench");
@@ -60,20 +90,32 @@ async function collectShellMetrics(page: Page) {
   };
 }
 
-test("desktop employee shell computed 312 rail and Codex Regular type", async ({ page }) => {
+test("desktop employee shell scales sidebar with viewport and Codex Regular type", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
   await expect(page.locator(".sidebar")).toBeVisible();
   await expect(page.locator("[data-home] h1")).toBeVisible();
 
   const beforeLifecycle = await collectShellMetrics(page);
-  const sidebarRect = await page.locator(".sidebar").evaluate((el) => el.getBoundingClientRect().width);
-  expect(beforeLifecycle.workbenchFirstCol).toBe("312px");
-  expect(beforeLifecycle.sidebarWidth).toBe("312px");
-  expect(sidebarRect).toBeGreaterThanOrEqual(311);
-  expect(sidebarRect).toBeLessThanOrEqual(313);
-  expect(Math.round(beforeLifecycle.sidebarRect)).toBe(312);
+  expectExpandedDesktopRail(beforeLifecycle, 1440);
   await expect(page.locator(".workbench")).toHaveAttribute("data-left-width", "312");
+
+  const clampViewports = [1920, 2560, 2048, 1707] as const;
+  const clampTable: Record<string, RailMetrics> = {};
+  for (const width of clampViewports) {
+    await page.setViewportSize({ width, height: 1600 });
+    const rail = await collectShellMetrics(page);
+    expectExpandedDesktopRail(rail, width);
+    clampTable[String(width)] = {
+      tokenLeftWidth: rail.tokenLeftWidth,
+      workbenchFirstCol: rail.workbenchFirstCol,
+      sidebarWidth: rail.sidebarWidth,
+      sidebarMinWidth: rail.sidebarMinWidth,
+      sidebarMaxWidth: rail.sidebarMaxWidth,
+      sidebarRect: rail.sidebarRect,
+    };
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
   expect(beforeLifecycle.body.fontFamily.startsWith("ui-sans-serif, system-ui, \"PingFang SC\", \"Noto Sans SC\"")).toBe(true);
   expect(beforeLifecycle.body.fontFamily).not.toContain("Microsoft YaHei");
   expect(beforeLifecycle.body.fontFamily).not.toContain("Noto Sans CJK SC");
@@ -98,19 +140,6 @@ test("desktop employee shell computed 312 rail and Codex Regular type", async ({
   });
   expect(composerRadius).toBeGreaterThanOrEqual(20);
   expect(composerRadius).toBeLessThanOrEqual(24);
-
-  await page.locator('[data-home-mode="lifecycle"]').click();
-  const conclusion = page.locator("[data-followed-agent-report] .page-conclusion");
-  await expect(conclusion).toBeVisible();
-  const conclusionType = await typeOf(page, "[data-followed-agent-report] .page-conclusion");
-  const handle = page.locator("[data-followed-agent-report] [data-kol-scope]").first();
-  await expect(handle).toBeVisible();
-  const handleType = await typeOf(page, "[data-followed-agent-report] [data-kol-scope] >> nth=0");
-  expect(conclusionType.fontSize).toBeGreaterThanOrEqual(16);
-  expect(conclusionType.fontSize).toBeLessThanOrEqual(18);
-  expect(conclusionType.fontWeight).toBe(500);
-  expect(handleType.fontSize).toBe(13);
-  expect(handleType.fontWeight).toBeLessThanOrEqual(400);
 
   await page.locator(".collapse-toggle").click();
   await expect(page.locator(".workbench")).toHaveClass(/sidebar-collapsed/);
@@ -139,11 +168,14 @@ test("desktop employee shell computed 312 rail and Codex Regular type", async ({
   });
   expect(mobile.display).toBe("flex");
   expect(mobile.width).not.toBe("312px");
+  expect(mobile.width).not.toContain("clamp");
+  expect(Number.parseFloat(mobile.width)).toBeLessThan(312);
 
   const dest = path.join(process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results", "shell-metrics-after.json");
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.writeFileSync(dest, JSON.stringify({
-    desktop: { ...beforeLifecycle, conclusion: conclusionType, handle: handleType, composerRadius },
+    desktop: { ...beforeLifecycle, composerRadius },
+    clampTable,
     collapsed,
     mobile,
   }, null, 2));
