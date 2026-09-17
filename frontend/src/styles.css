@@ -76,7 +76,7 @@
 
   --chrome-2: #eceef0;
   --sidebar-thumb: #d0d0d0;
-  --left-width: clamp(312px, 16vw, 420px);
+  --left-width: 264px;
   --page-gutter: clamp(16px, 2.2vw, 28px);
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --sans: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", "WenQuanYi Micro Hei", "Droid Sans Fallback", sans-serif;
@@ -262,7 +262,6 @@ summary:focus-visible,
   display: flex;
   flex-direction: column;
   gap: 12px;
-  min-width: 0;
   min-height: 0;
   height: 100%;
   overflow: hidden;
@@ -6544,7 +6543,7 @@ summary:focus-visible,
    Geometry is intentionally centralized here so the shell, conversation and
    composer share one rhythm without changing business behavior. */
 :root {
-  --left-width: clamp(312px, 16vw, 420px); /* desktop expanded rail; mobile drawers keep their own width */
+  --left-width: 264px; /* ChatGPT/Codex desktop rail; mobile drawers keep their own width */
   --page-gutter: clamp(16px, 2.4vw, 40px);
   --content-max: 1200px;
   --conversation-measure: 900px;
@@ -6812,7 +6811,7 @@ body {
 
   .sidebar {
     top: 48px;
-    /* Mobile drawer only — do not inherit the desktop clamp rail. */
+    /* Mobile drawer only — do not inherit the desktop 264 rail. */
     width: min(320px, calc(100vw - 24px));
     min-width: 0;
     max-width: none;
@@ -8483,15 +8482,16 @@ body {
 }
 
 /* Last-wins desktop rail. Must stay after every .sidebar / .workbench width rule.
-   Mobile drawers above (860 / 720) keep min(300px)/min(320px) and never get the desktop clamp. */
+   Mobile drawers above (860 / 720) keep min(300px)/min(320px) and never get 264. */
 @media (min-width: 861px) {
   .workbench:not(.admin-surface):not(.sidebar-collapsed) {
-    grid-template-columns: var(--left-width) minmax(0, 1fr);
+    grid-template-columns: 264px minmax(0, 1fr);
   }
   .workbench:not(.admin-surface):not(.sidebar-collapsed) > .sidebar {
-    width: var(--left-width);
-    min-width: var(--left-width);
-    max-width: var(--left-width);
+    width: 264px;
+    min-width: 264px;
+    max-width: 264px;
+    flex: 0 0 264px;
   }
   .workbench.sidebar-collapsed:not(.admin-surface) {
     --left-width: 56px;
