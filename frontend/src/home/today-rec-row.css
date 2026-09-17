@@ -1,59 +1,105 @@
-/* Today recommendation row: 1 title + 2 reason + 3 solid pink right-arrow. */
-.recommend-md-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 36px;
-  gap: var(--space-2);
-  align-items: center;
+/* Beat styles.css grid stack: title + reason + arrow stay one row. */
+.recommended-tasks .recommend-md-row {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 12px;
   min-width: 0;
+  grid-template-columns: none !important;
 }
-.recommend-md-item {
-  align-items: center;
-}
-.recommend-md-copy {
-  display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  gap: var(--space-2);
-  min-width: 0;
-}
-.recommend-md-copy strong {
-  flex: 0 1 auto;
-  white-space: nowrap;
-}
-.recommend-md-reason {
+
+.recommended-tasks .recommend-md-row > .recommend-md-item {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 8px;
   flex: 1 1 auto;
   min-width: 0;
+  width: auto;
+  grid-template-columns: none !important;
+}
+
+.recommended-tasks .recommend-md-row .recommend-md-n,
+.recommended-tasks .recommend-md-row .recommend-md-icon {
+  flex: 0 0 auto;
+  line-height: 36px;
+}
+
+.recommended-tasks .recommend-md-row .recommend-md-copy {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  gap: 10px;
+  min-width: 0;
+  flex: 1 1 auto;
+  grid-template-columns: none !important;
+}
+
+.recommended-tasks .recommend-md-row .recommend-md-copy strong {
+  flex: 0 1 auto;
+  white-space: nowrap !important;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  font-weight: 500;
 }
-.recommend-md-row > .recommend-to-todo.recommend-to-todo-go {
-  width: 36px;
-  height: 36px;
-  min-width: 36px;
-  min-height: 36px;
-  margin: 0;
-  padding: 0;
+
+.recommended-tasks .recommend-md-row .recommend-md-reason {
+  display: inline-block !important;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis;
+  line-height: 36px;
+}
+
+.recommended-tasks .recommend-md-row > .recommend-to-todo,
+.recommended-tasks .recommend-md-row > .recommend-to-todo-go {
+  flex: 0 0 36px;
+  width: 36px !important;
+  height: 36px !important;
+  min-width: 36px !important;
+  min-height: 36px !important;
+  margin: 0 !important;
+  padding: 0 !important;
   border: 0 !important;
-  border-radius: 999px;
-  background: var(--primary, #c2185b) !important;
+  border-radius: 999px !important;
+  background: var(--primary, #C73B7A) !important;
   color: #fff !important;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
   cursor: pointer;
   box-shadow: none;
+  white-space: nowrap;
 }
-.recommend-md-row > .recommend-to-todo.recommend-to-todo-go:hover {
-  filter: brightness(0.96);
+
+.recommended-tasks .recommend-md-row > .recommend-to-todo-go svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+}
+
+.recommended-tasks .recommend-md-row > .recommend-to-todo-go:hover:not(:disabled) {
+  filter: brightness(1.06);
   color: #fff !important;
-  border-color: transparent !important;
 }
-.recommend-md-row > .recommend-to-todo.recommend-to-todo-go.is-done,
-.recommend-md-row > .recommend-to-todo.recommend-to-todo-go:disabled {
-  background: var(--bg-elevated, #f3f3f3) !important;
-  color: var(--text-muted, #8a8a8a) !important;
-  border: 1px solid var(--border, #e5e5e5) !important;
+
+.recommended-tasks .recommend-md-row > .recommend-to-todo-go.is-done,
+.recommended-tasks .recommend-md-row > .recommend-to-todo-go:disabled {
+  background: #f3f3f3 !important;
+  color: #8a8a8a !important;
+  border: 1px solid #e5e5e5 !important;
   cursor: not-allowed;
   filter: none;
+}
+
+@media (max-width: 720px) {
+  .recommended-tasks .recommend-md-row {
+    display: flex !important;
+    flex-direction: row !important;
+    grid-template-columns: none !important;
+  }
 }
