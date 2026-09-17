@@ -11,6 +11,7 @@ import { EMAIL_TEMPLATES, templateAllowedForStage } from "../src/email-templates
 import { LEGACY_STAGE_ALIASES, MAIN_STAGES, label, normalizeStage } from "../src/stages.js";
 import { judgeCollaborationStage } from "../src/stage-judgment.js";
 import { executeStarryKolTask, setStarryKolClientFactory } from "../src/starrykol/service.js";
+import { ensureStarryHomeLibrary } from "../src/starrykol/library-sync.js";
 import type { Json } from "../src/types.js";
 import {
   PORTRAIT_SHEET_EMAILS,
@@ -471,6 +472,9 @@ describe("Starry KOL MCP functional path with the real snapshot", () => {
 
 describe("home board and host flows with Starry + markdown creators", () => {
   it("loads Wendell Fishing from the Starry library sync, not markdown-only creators", async () => {
+    const first = await request("GET", "/api/home/board");
+    expect(first.status).toBe(200);
+    await ensureStarryHomeLibrary();
     const listed = await request("GET", "/api/home/board");
     expect(listed.status).toBe(200);
     const kols = listed.body.kols as Json[];

@@ -8,7 +8,7 @@ import type { Json, Row } from "../types.js";
 import { recognizeTaskIntent } from "../tasks/recognize.js";
 import { resolveTaskIntent } from "../tasks/resolver.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
-import { historySummary, decorateTaskFromCollab } from "../host/home-board.js";
+import { historySummary, decorateTaskFromCollab, isTodoWorkItem, TODO_WORK_ITEM_SQL } from "../host/home-board.js";
 import { formatMissingFields, missingFieldsMessage } from "../labels.js";
 import { agentSubmissionAllowed, kolAgentManifest } from "../contract-scope.js";
 
@@ -43,19 +43,84 @@ function taskInput(body: Json): Json {
   };
 }
 
-function publicWorkItem(row: Row): Json {
+function publicWorkItem(row: Row, collab?: Row | null): Json {
   const definition = taskDefinition(String(row.task_type));
-  const project = row.project_id
-    ? getConn().prepare("SELECT display_name FROM collaborations WHERE id=?").get(row.project_id) as { display_name?: string } | undefined
-    : undefined;
+  let project: string | null = collab?.display_name ? String(collab.display_name) : null;
+  if (!project && row.project_id && !collab) {
+    // Single-item paths only. List endpoints must pass the batched collab.
+    const hit = getConn().prepare("SELECT display_name FROM collaborations WHERE id=?").get(row.project_id) as
+      | { display_name?: string }
+      | undefined;
+    project = hit?.display_name || null;
+  }
   return {
     ...row,
     description: definition?.description || "",
     suggested_actions: definition?.actions || [],
-    project: project?.display_name || null,
+    project,
     input: parseJson(row.input),
     entities: parseJson(row.entities),
   };
+}
+
+function lastEventsByWorkItem(ids: string[]): Map<string, Row> {
+  const map = new Map<string, Row>();
+  if (!ids.length) return map;
+  const placeholders = ids.map(() => "?").join(",");
+  const rows = getConn().prepare(
+    `SELECT te.* FROM task_events te
+     INNER JOIN (
+       SELECT work_item_id, MAX(sequence) AS sequence
+       FROM task_events WHERE work_item_id IN (${placeholders})
+       GROUP BY work_item_id
+     ) last ON last.work_item_id = te.work_item_id AND last.sequence = te.sequence`,
+  ).all(...ids) as Row[];
+  for (const row of rows) map.set(String(row.work_item_id), row);
+  return map;
+}
+
+function eventsByWorkItem(ids: string[]): Map<string, Row[]> {
+  const map = new Map<string, Row[]>();
+  if (!ids.length) return map;
+  const placeholders = ids.map(() => "?").join(",");
+  const rows = getConn().prepare(
+    `SELECT * FROM task_events WHERE work_item_id IN (${placeholders}) ORDER BY work_item_id, sequence`,
+  ).all(...ids) as Row[];
+  for (const event of rows) {
+    const list = map.get(String(event.work_item_id)) || [];
+    list.push(event);
+    map.set(String(event.work_item_id), list);
+  }
+  return map;
+}
+
+function collabsByIds(ids: string[]): Map<string, Row> {
+  const map = new Map<string, Row>();
+  if (!ids.length) return map;
+  const placeholders = ids.map(() => "?").join(",");
+  const rows = getConn().prepare(`SELECT * FROM collaborations WHERE id IN (${placeholders})`).all(...ids) as Row[];
+  for (const row of rows) map.set(String(row.id), row);
+  return map;
+}
+
+function eventView(event: Row): Json {
+  return {
+    id: event.id,
+    type: event.event_type,
+    label: event.label,
+    status: event.status,
+    summary: event.safe_summary,
+    safe_summary: event.safe_summary,
+    time: event.time,
+    created_at: event.time,
+  };
+}
+
+function parseLimit(raw: string | undefined, fallback = 50): number {
+  if (raw == null || raw === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1) throw new HttpFail(400, "invalid limit");
+  return Math.min(200, Math.floor(n));
 }
 
 function ownedWorkItem(id: string): Row {
@@ -191,6 +256,8 @@ tasks.get("/agent-manifest", (c) => {
 });
 
 tasks.get("/tasks", (c) => {
+  const view = String(c.req.query("view") || "");
+  const todoView = view === "todo";
   const clauses: string[] = [];
   const values: unknown[] = [];
   if (!isAdmin() || c.req.query("scope") !== "all") {
@@ -204,6 +271,7 @@ tasks.get("/tasks", (c) => {
       values.push(value);
     }
   }
+  if (todoView) clauses.push(TODO_WORK_ITEM_SQL);
   const sort = c.req.query("sort") || "updated_desc";
   const order: Record<string, string> = {
     updated_desc: "updated_at DESC",
@@ -213,46 +281,40 @@ tasks.get("/tasks", (c) => {
   };
   if (!order[sort]) throw new HttpFail(400, "invalid sort");
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-  const rows = getConn().prepare(`SELECT * FROM work_items ${where} ORDER BY ${order[sort]}`).all(...values) as Row[];
+  const limit = todoView ? parseLimit(c.req.query("limit")) : 0;
+  const total = todoView
+    ? Number((getConn().prepare(`SELECT COUNT(*) AS c FROM work_items ${where}`).get(...values) as { c: number }).c || 0)
+    : 0;
+  const rows = getConn().prepare(
+    todoView
+      ? `SELECT * FROM work_items ${where} ORDER BY ${order[sort]} LIMIT ?`
+      : `SELECT * FROM work_items ${where} ORDER BY ${order[sort]}`,
+  ).all(...(todoView ? [...values, limit] : values)) as Row[];
   const ids = rows.map((row) => String(row.id));
-  const eventsByTask = new Map<string, Row[]>();
-  if (ids.length) {
-    const placeholders = ids.map(() => "?").join(",");
-    const eventRows = getConn().prepare(
-      `SELECT * FROM task_events WHERE work_item_id IN (${placeholders}) ORDER BY work_item_id, sequence`,
-    ).all(...ids) as Row[];
-    for (const event of eventRows) {
-      const list = eventsByTask.get(String(event.work_item_id)) || [];
-      list.push(event);
-      eventsByTask.set(String(event.work_item_id), list);
-    }
-  }
+  const lastByTask = todoView ? lastEventsByWorkItem(ids) : new Map<string, Row>();
+  const eventsByTask = todoView ? new Map<string, Row[]>() : eventsByWorkItem(ids);
   const collabIds = [...new Set(rows.map((row) => String(row.collaboration_id || row.project_id || "")).filter(Boolean))];
-  const collabById = new Map<string, Row>();
-  if (collabIds.length) {
-    const placeholders = collabIds.map(() => "?").join(",");
-    const collabRows = getConn().prepare(
-      `SELECT * FROM collaborations WHERE id IN (${placeholders})`,
-    ).all(...collabIds) as Row[];
-    for (const collab of collabRows) collabById.set(String(collab.id), collab);
-  }
-  return c.json(rows.map((row) => {
-    const events = (eventsByTask.get(String(row.id)) || []).map((event) => ({
-      id: event.id,
-      type: event.event_type,
-      label: event.label,
-      status: event.status,
-      summary: event.safe_summary,
-      safe_summary: event.safe_summary,
-      time: event.time,
-      created_at: event.time,
-    }));
+  const collabById = collabsByIds(collabIds);
+  const tasks = rows.map((row) => {
+    const collab = collabById.get(String(row.collaboration_id || row.project_id || ""));
+    const events = todoView
+      ? (lastByTask.get(String(row.id)) ? [eventView(lastByTask.get(String(row.id))!)] : [])
+      : (eventsByTask.get(String(row.id)) || []).map(eventView);
     return decorateTaskFromCollab({
-      ...publicWorkItem(row),
-      history: events,
+      ...publicWorkItem(row, collab),
+      ...(todoView ? {} : { history: events }),
       history_summary: historySummary(events),
-    }, collabById.get(String(row.collaboration_id || row.project_id || "")));
-  }));
+    }, collab);
+  });
+  if (!todoView) return c.json(tasks);
+  return c.json({
+    view: "todo",
+    tasks: tasks.filter((task) => isTodoWorkItem(task)),
+    total,
+    limit,
+    creates_session: false,
+    entry: "memory",
+  });
 });
 
 tasks.post("/tasks", async (c) => {

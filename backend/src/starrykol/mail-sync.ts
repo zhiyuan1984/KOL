@@ -72,12 +72,27 @@ export function followedMailStatus(): FollowedMailSync {
 }
 
 export function threadsForCollaboration(collaborationId: string): Json[] {
-  return getConn()
+  return threadsByCollaborationIds([collaborationId]).get(collaborationId) || [];
+}
+
+export function threadsByCollaborationIds(ids: string[]): Map<string, Json[]> {
+  const map = new Map<string, Json[]>();
+  const unique = [...new Set(ids.map((id) => String(id || "")).filter(Boolean))];
+  if (!unique.length) return map;
+  const placeholders = unique.map(() => "?").join(",");
+  const rows = getConn()
     .prepare(
-      `SELECT conversation_id, subject, last_direction, last_snippet, last_from, last_from_name, unread_count, last_at
-       FROM kol_mail_threads WHERE collaboration_id=? ORDER BY last_at DESC, updated_at DESC`,
+      `SELECT collaboration_id, conversation_id, subject, last_direction, last_snippet, last_from, last_from_name, unread_count, last_at
+       FROM kol_mail_threads WHERE collaboration_id IN (${placeholders}) ORDER BY last_at DESC, updated_at DESC`,
     )
-    .all(collaborationId) as Json[];
+    .all(...unique) as Json[];
+  for (const row of rows) {
+    const id = String(row.collaboration_id || "");
+    const list = map.get(id) || [];
+    list.push(row);
+    map.set(id, list);
+  }
+  return map;
 }
 
 export function itemsForCollaboration(collaborationId: string): Json[] {

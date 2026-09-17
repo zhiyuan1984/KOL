@@ -117,29 +117,64 @@ function remoteStageOf(profile: Json): string | null {
 }
 
 function recordedOfficialStage(existing: Row): string {
+  return recordedOfficialStages([existing]).get(String(existing.id || "")) || "";
+}
+
+function recordedOfficialStages(cols: Row[]): Map<string, string> {
+  const recorded = new Map<string, string>();
+  if (!cols.length) return recorded;
   const db = getConn();
-  const id = String(existing.id || "");
-  const lifecycleId = String(existing.lifecycle_id || "");
-  const transition = lifecycleId || id
-    ? db.prepare(
-      `SELECT to_stage FROM stage_transitions
-       WHERE collaboration_id = ? OR lifecycle_id = ?
-       ORDER BY data_version_after DESC, occurred_at DESC
-       LIMIT 1`,
-    ).get(id, lifecycleId) as { to_stage?: string } | undefined
-    : undefined;
-  const write = lifecycleId
-    ? db.prepare(
-      `SELECT stage_code FROM starry_stage_writes
-       WHERE lifecycle_id = ?
-       ORDER BY ts DESC, id DESC
-       LIMIT 1`,
-    ).get(lifecycleId) as { stage_code?: string } | undefined
-    : undefined;
-  return preferLaterMainStage(
-    normalizeStage(String(transition?.to_stage || "")),
-    normalizeStage(String(write?.stage_code || "")),
-  );
+  const ids = [...new Set(cols.map((col) => String(col.id || "")).filter(Boolean))];
+  const lifecycleIds = [...new Set(cols.map((col) => String(col.lifecycle_id || "")).filter(Boolean))];
+  if (!ids.length && !lifecycleIds.length) return recorded;
+
+  const transitionByCol = new Map<string, string>();
+  const idPh = ids.map(() => "?").join(",");
+  const lcPh = lifecycleIds.map(() => "?").join(",");
+  const transitionSql = lifecycleIds.length
+    ? `SELECT collaboration_id, lifecycle_id, to_stage FROM stage_transitions
+       WHERE ${ids.length ? `collaboration_id IN (${idPh}) OR ` : ""}lifecycle_id IN (${lcPh})
+       ORDER BY data_version_after DESC, occurred_at DESC`
+    : `SELECT collaboration_id, lifecycle_id, to_stage FROM stage_transitions
+       WHERE collaboration_id IN (${idPh})
+       ORDER BY data_version_after DESC, occurred_at DESC`;
+  const transitions = db.prepare(transitionSql).all(...ids, ...lifecycleIds) as Row[];
+  for (const row of transitions) {
+    for (const col of cols) {
+      const key = String(col.id || "");
+      if (!key || transitionByCol.has(key)) continue;
+      if (String(row.collaboration_id || "") === key) {
+        transitionByCol.set(key, normalizeStage(String(row.to_stage || "")));
+        continue;
+      }
+      if (row.lifecycle_id && String(col.lifecycle_id || "") === String(row.lifecycle_id)) {
+        transitionByCol.set(key, normalizeStage(String(row.to_stage || "")));
+      }
+    }
+  }
+
+  const writeByLifecycle = new Map<string, string>();
+  if (lifecycleIds.length) {
+    const writes = db.prepare(
+      `SELECT lifecycle_id, stage_code FROM starry_stage_writes
+       WHERE lifecycle_id IN (${lcPh})
+       ORDER BY ts DESC, id DESC`,
+    ).all(...lifecycleIds) as Row[];
+    for (const row of writes) {
+      const lc = String(row.lifecycle_id || "");
+      if (lc && !writeByLifecycle.has(lc)) writeByLifecycle.set(lc, normalizeStage(String(row.stage_code || "")));
+    }
+  }
+
+  for (const col of cols) {
+    const key = String(col.id || "");
+    if (!key || recorded.has(key)) continue;
+    recorded.set(key, preferLaterMainStage(
+      transitionByCol.get(key) || "",
+      writeByLifecycle.get(String(col.lifecycle_id || "")) || "",
+    ));
+  }
+  return recorded;
 }
 
 function resolvedLocalStage(existing: Row | undefined): string {
@@ -147,14 +182,44 @@ function resolvedLocalStage(existing: Row | undefined): string {
   return preferLaterMainStage(String(existing.stage_code || ""), recordedOfficialStage(existing));
 }
 
-export function restoreOfficialCollaborationStage(col: Row): string {
-  const next = mergeRemoteLibraryStage(resolvedLocalStage(col), null, Number(col.stage_version || 0));
-  const current = normalizeStage(String(col.stage_code || ""));
-  if (next && next !== current) {
-    getConn().prepare("UPDATE collaborations SET stage_code = ? WHERE id = ?").run(next, col.id);
-    col.stage_code = next;
+/** Batch official-stage restore. Mutates every supplied row sharing an id. */
+export function restoreOfficialCollaborationStages(cols: Row[]): Map<string, string> {
+  const resolved = new Map<string, string>();
+  if (!cols.length) return resolved;
+  const unique: Row[] = [];
+  const seen = new Set<string>();
+  for (const col of cols) {
+    const id = String(col.id || "");
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    unique.push(col);
   }
-  return next || current || "INITIAL_CONTACT";
+  const recorded = recordedOfficialStages(unique);
+  const updates: Array<{ id: string; stage: string }> = [];
+  for (const col of unique) {
+    const local = preferLaterMainStage(String(col.stage_code || ""), recorded.get(String(col.id)) || "");
+    const next = mergeRemoteLibraryStage(local, null, Number(col.stage_version || 0));
+    const current = normalizeStage(String(col.stage_code || ""));
+    if (next && next !== current) {
+      col.stage_code = next;
+      updates.push({ id: String(col.id), stage: next });
+    }
+    resolved.set(String(col.id), String(col.stage_code || next || current || "INITIAL_CONTACT"));
+  }
+  if (updates.length) {
+    const stmt = getConn().prepare("UPDATE collaborations SET stage_code = ? WHERE id = ?");
+    for (const row of updates) stmt.run(row.stage, row.id);
+  }
+  for (const col of cols) {
+    const stage = resolved.get(String(col.id || ""));
+    if (stage) col.stage_code = stage;
+  }
+  return resolved;
+}
+
+export function restoreOfficialCollaborationStage(col: Row): string {
+  restoreOfficialCollaborationStages([col]);
+  return normalizeStage(String(col.stage_code || "")) || "INITIAL_CONTACT";
 }
 
 function engagementOf(profile: Json): string {

@@ -44,8 +44,8 @@ import {
 } from "../host/starry-bind.js";
 import { looksLikePhone, normalizeEmail, normalizePhone } from "../host/identity.js";
 import { listStarryMailboxes } from "../starrykol/service.js";
-import { ensureStarryHomeLibrary, resetStarryHomeLibrarySync, startStarryHomeLibrarySync } from "../starrykol/library-sync.js";
-import { ensureFollowedMailSync, resetFollowedMailSync, startFollowedMailSync } from "../starrykol/mail-sync.js";
+import { ensureStarryHomeLibrary, resetStarryHomeLibrarySync, startStarryHomeLibrarySync, starryLibraryStatus } from "../starrykol/library-sync.js";
+import { ensureFollowedMailSync, followedMailStatus, resetFollowedMailSync, startFollowedMailSync } from "../starrykol/mail-sync.js";
 
 export const misc = new Hono();
 
@@ -473,15 +473,31 @@ misc.post("/demo/reset", async (c) => {
   return c.json({ ok: true });
 });
 
-misc.get("/home/board", async (c) => {
+misc.get("/home/board", (c) => {
   c.header("Cache-Control", "no-store");
   const refresh = c.req.query("refresh") === "1" || c.req.query("sync") === "1";
-  const library = await ensureStarryHomeLibrary();
-  const mail = await ensureFollowedMailSync(refresh);
+  // Local DB projection first. Remote Starry library/mail sync is started in
+  // the background and never blocks this response (including ?refresh=1).
+  // Poll a later GET or read library/mail.synced_at when fresh remote data is required.
+  const board = buildHomeBoard();
+  const library = starryLibraryStatus();
+  const mail = followedMailStatus();
+  if (refresh) {
+    void startStarryHomeLibrarySync().catch(() => undefined);
+    void startFollowedMailSync(true).catch(() => undefined);
+  } else {
+    void ensureStarryHomeLibrary().catch(() => undefined);
+    void ensureFollowedMailSync(false).catch(() => undefined);
+  }
   return c.json({
-    ...buildHomeBoard(),
+    ...board,
     library,
     mail,
+    sync: {
+      deferred: true,
+      refresh,
+      note: "Local projection is returned first. ensureStarryHomeLibrary + ensureFollowedMailSync run in the background and do not block todo consumers. ?refresh=1 forces a new sync start but still does not await it.",
+    },
     entries: publicEntryRegistry(),
     entry: "memory",
     creates_session: false,
@@ -507,7 +523,7 @@ misc.get("/home/entries", (c) => {
   return c.json({
     entries: publicEntryRegistry(),
     composer_copy: "让 Agent 分析/安排",
-    note: "GET board / todos / following / discovery results never INSERT sessions.",
+    note: "GET board / tasks?view=todo / following / discovery results never INSERT sessions. Board returns local DB first; remote library/mail sync is deferred.",
     registry: HOME_ENTRY_REGISTRY.map((row) => row.id),
   });
 });

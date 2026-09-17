@@ -211,8 +211,12 @@ describe("home workbench", () => {
     const board = await request("GET", "/api/home/board");
     expect(board.status).toBe(200);
     expect(board.body.creates_session).toBe(false);
+    expect(board.body.sync).toMatchObject({ deferred: true });
     const todos = await request("GET", "/api/tasks");
     expect(todos.status).toBe(200);
+    const todoView = await request("GET", "/api/tasks?view=todo");
+    expect(todoView.status).toBe(200);
+    expect(todoView.body.creates_session).toBe(false);
     const following = await request("GET", "/api/home/following");
     expect(following.status).toBe(200);
     expect(following.body.creates_session).toBe(false);
