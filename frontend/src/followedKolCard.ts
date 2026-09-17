@@ -28,6 +28,10 @@ export type FollowedKolRecord = {
   stage_version?: number | string;
   updated_at?: string | null;
   last_updated?: string | null;
+  last_interaction_at?: string | null;
+  days_since_interaction?: number | null;
+  release_due_at?: string | null;
+  release_scheduler?: false;
   profile_tags?: { id: string; label: string }[];
   follow_style_tags?: { id: string; label: string }[];
   task_history?: string;
@@ -388,7 +392,7 @@ export function projectFollowedKolCard(kol: FollowedKolRecord, tasks: Task[] = [
       || String(related.status || "") === "waiting";
     recommended = {
       kind: send ? "confirm-send" : "compose",
-      label: send ? "确认发送" : "起草",
+      label: send ? "确认发送" : "准备回复",
       target_stage_code: "",
       target_stage_label: "",
       why: related.history_summary || related.title || "待处理邮件任务",
@@ -406,7 +410,7 @@ export function projectFollowedKolCard(kol: FollowedKolRecord, tasks: Task[] = [
   } else if (unreadInbound) {
     recommended = {
       kind: "open-session",
-      label: "查看来信",
+      label: "查看互动",
       target_stage_code: "",
       target_stage_label: "",
       why: "有未读来信，先看事实再决定是否改阶段。",
@@ -629,7 +633,7 @@ export function pickFollowedListCtaEmphasis(input: {
   selectedIds?: readonly string[] | null;
 }): FollowedKolCtaEmphasis {
   if (input.selectedIds && input.selectedIds.length > 0) return "quiet";
-  const active = input.hoveredId || input.focusedId || "";
+  const active = input.focusedId || input.hoveredId || "";
   return active && active === input.cardId ? "strong" : "quiet";
 }
 

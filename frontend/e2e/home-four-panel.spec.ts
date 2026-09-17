@@ -1032,7 +1032,7 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
   await expect(page.locator("[data-followed-batch-confirm]")).toHaveClass(/ghost/);
   await expect(card.locator("[data-open-kol-detail]")).toHaveText("查看详情");
   await expect(card.locator("[data-open-kol-detail]")).not.toHaveClass(/btn/);
-  await expect(card.locator("[data-open-original-mail]")).toHaveText("原邮件");
+  await expect(card.locator("[data-open-original-mail]")).toHaveText("查看互动");
   await expect(card.getByRole("button", { name: "确认阶段", exact: true })).toHaveCount(0);
 
   const wide = await card.evaluate((el) => {
@@ -1184,7 +1184,7 @@ test("home followed list keeps one strong work CTA", async ({ page }) => {
   const draft = page.locator('[data-followed-kol="起草卡"]');
   await expect(list.locator("[data-followed-kol]")).toHaveCount(3);
   await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveText("进入已回复 · 有兴趣 →");
-  await expect(draft.locator("[data-kol-primary-action]")).toHaveText("起草");
+  await expect(draft.locator("[data-kol-primary-action]")).toHaveText("准备回复");
   await expect(list.locator("[data-open-kol-detail]")).toHaveCount(3);
   await expect(list.locator("[data-open-kol-detail].btn.work")).toHaveCount(0);
 
@@ -1358,4 +1358,66 @@ test("today suggestion convert to todo dedupes", async ({ page }) => {
   await openMode(page, "todo");
   await expect(page.locator("[data-todo-card]").filter({ hasText: title })).toHaveCount(1);
   await expect(page.locator("[data-todo-card]")).toHaveCount(afterFirst);
+});
+
+test("home four tabs live in ?tab= and switching does not POST sessions", async ({ page }) => {
+  const sessionPosts: string[] = [];
+  page.on("request", (item) => {
+    if (item.method() !== "POST") return;
+    const path = new URL(item.url()).pathname;
+    if (path === "/api/sessions" || /\/collaborations\/[^/]+\/session$/.test(path) || path.endsWith("/run")) {
+      sessionPosts.push(path);
+    }
+  });
+
+  await page.goto("/");
+  await expect(page).toHaveURL(/\/(?:\?|$)/);
+  await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
+  await expect(page.locator("[data-today-formal]")).toBeVisible();
+  await expect(page.locator("[data-today-candidates], [data-today-suggestions]")).toBeVisible();
+
+  await openMode(page, "todo");
+  await expect(page).toHaveURL(/[?&]tab=todo/);
+  await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
+
+  await openMode(page, "discovery");
+  await expect(page).toHaveURL(/[?&]tab=discovery/);
+  await expect(page.locator('[data-home-pane="discovery"]')).toBeVisible();
+
+  await openMode(page, "lifecycle");
+  await expect(page).toHaveURL(/[?&]tab=lifecycle/);
+  await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
+  await expect(page.locator("[data-followed-object-search]")).toBeVisible();
+  await expect(page.locator("[data-kol-stage-filter]")).toBeVisible();
+
+  await page.goto("/?tab=todo");
+  await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
+  await page.goto("/?tab=discovery");
+  await expect(page.locator('[data-home-pane="discovery"]')).toBeVisible();
+  await page.goto("/?tab=lifecycle");
+  await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
+  expect(sessionPosts).toEqual([]);
+});
+
+test("home follow confirm copy has no send-mail or change-stage", async ({ page }) => {
+  const candidates = stubDiscoveryCandidates(1);
+  await mockDiscoveryCandidateResults(page, candidates);
+  await openDiscoveryResults(page);
+  await page.locator("[data-discovery-follow]").first().click();
+  const confirm = page.locator("[data-discovery-follow-confirm]");
+  await expect(confirm).toBeVisible();
+  await expect(confirm).toContainText("不会发信，也不会改正式阶段");
+  await expect(confirm).not.toContainText("发送邮件");
+  await expect(confirm).not.toContainText("改阶段");
+  await expect(confirm).not.toContainText("自动回公海");
+  await page.locator("[data-discovery-follow-no]").click();
+});
+
+test("home composer copy is 让 Agent 分析/安排 and not 添加待办", async ({ page }) => {
+  await page.goto("/");
+  const input = page.locator("[data-home] [data-composer-input]");
+  await expect(input).toBeVisible();
+  await expect(input).toHaveAttribute("placeholder", /让 Agent 分析\/安排/);
+  await expect(page.locator("[data-home]")).not.toContainText("添加待办");
+  await expect(page.locator(".home-composer-dock[data-home-entry='composer-analyze']")).toBeVisible();
 });

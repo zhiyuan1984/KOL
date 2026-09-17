@@ -1985,7 +1985,7 @@ summary:focus-visible,
   background: var(--bg);
   color: var(--text);
   font: inherit;
-  font-size: var(--font-sm);
+  font-size: 14px;
   line-height: var(--leading-tight);
   padding: 6px 10px;
   box-sizing: border-box;
@@ -1999,6 +1999,23 @@ summary:focus-visible,
   color: var(--text-muted);
   font-size: var(--font-sm);
   white-space: nowrap;
+}
+.followed-advanced-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+}
+.followed-advanced-filter select {
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-inputs);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-sm);
+  padding: 4px 8px;
 }
 .followed-stage-filter {
   display: flex;
@@ -2618,7 +2635,7 @@ summary:focus-visible,
   max-width: 100%;
   min-width: 0;
   font-size: var(--font-body);
-  font-weight: 500;
+  font-weight: 600;
   line-height: var(--leading-tight);
   color: var(--text);
   white-space: normal;

@@ -190,6 +190,84 @@ describe("home workbench", () => {
     });
   });
 
+  it("marks today formal items vs candidate recommendations", () => {
+    const board = buildHomeBoard() as Json;
+    const workbench = board.workbench as Json;
+    const todo = workbench.todo as Json[];
+    const insights = workbench.insights as Json[];
+    const recs = workbench.recommendations as Json[];
+    const today = workbench.today as Json[];
+    expect(todo.every((row) => row.candidate === false)).toBe(true);
+    expect(insights.every((row) => row.candidate === true)).toBe(true);
+    expect(recs.every((row) => row.candidate === true)).toBe(true);
+    expect(Array.isArray(today)).toBe(true);
+    expect(today.every((row) => row.candidate === false)).toBe(true);
+    expect(board.creates_session).toBe(false);
+    expect(board.entry).toBe("memory");
+  });
+
+  it("GET board / tasks / following never insert sessions", async () => {
+    const before = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const board = await request("GET", "/api/home/board");
+    expect(board.status).toBe(200);
+    expect(board.body.creates_session).toBe(false);
+    const todos = await request("GET", "/api/tasks");
+    expect(todos.status).toBe(200);
+    const following = await request("GET", "/api/home/following");
+    expect(following.status).toBe(200);
+    expect(following.body.creates_session).toBe(false);
+    expect(following.body.index).toBe("我的跟进");
+    expect(Array.isArray(following.body.kols)).toBe(true);
+    const after = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    expect(after.c).toBe(before.c);
+  });
+
+  it("adopt-recommendation is idempotent and writes a formal WorkItem", async () => {
+    const first = await request("POST", "/api/tasks/adopt-recommendation", {
+      recommendation_id: "rec-e2e-quote",
+      title: "给 @户外电源达人 写报价",
+      handle: "户外电源达人",
+      intent: "email_compose",
+      reason: "今天推荐",
+    });
+    expect([200, 201]).toContain(first.status);
+    expect(first.body.candidate).toBe(false);
+    expect(first.body.promoted_at).toBeTruthy();
+    const id = String(first.body.id);
+    const second = await request("POST", "/api/tasks/adopt-recommendation", {
+      recommendation_id: "rec-e2e-quote",
+      title: "给 @户外电源达人 写报价",
+      handle: "户外电源达人",
+      intent: "email_compose",
+    });
+    expect(second.status).toBe(200);
+    expect(String(second.body.id)).toBe(id);
+    expect(second.body.reused).toBe(true);
+    const board = buildHomeBoard() as Json;
+    const todoIds = ((board.workbench as Json).todo as Json[]).map((row) => String(row.id));
+    const insightIds = ((board.workbench as Json).insights as Json[]).map((row) => String(row.id));
+    expect(todoIds).toContain(id);
+    expect(insightIds).not.toContain(id);
+  });
+
+  it("adopt-recommendation promotes an insight and keeps the recommendation title", async () => {
+    const first = await request("POST", "/api/tasks/adopt-recommendation", {
+      recommendation_id: "rec-ai-tsk_home_xiaomei_lost",
+      title: "给@小美妆日记 写合作邮件",
+      handle: "小美妆日记",
+      intent: "email_compose",
+    });
+    expect([200, 201]).toContain(first.status);
+    expect(first.body.id).toBe("tsk_home_xiaomei_lost");
+    expect(first.body.candidate).toBe(false);
+    expect(first.body.title).toBe("给@小美妆日记 写合作邮件");
+    expect(first.body.promoted_at).toBeTruthy();
+    const board = buildHomeBoard() as Json;
+    const todo = ((board.workbench as Json).todo as Json[]).find((row) => row.id === "tsk_home_xiaomei_lost");
+    expect(todo?.title).toBe("给@小美妆日记 写合作邮件");
+    expect(todo?.candidate).toBe(false);
+  });
+
   it("persists promote columns on work_items", () => {
     const cols = getConn().prepare("PRAGMA table_info(work_items)").all() as { name: string }[];
     expect(cols.map((col) => col.name)).toEqual(expect.arrayContaining(["promoted_at", "dismissed_at"]));

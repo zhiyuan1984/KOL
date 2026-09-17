@@ -1330,10 +1330,10 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expect(card.locator("[data-mail-summary]")).not.toContainText("posting calendar");
   await expect(card.locator("[data-latest-fact]")).not.toContainText("From:");
   await expect(card.locator("[data-latest-fact]")).not.toContainText("Reply-To");
-  await expect(card.locator("[data-open-original-mail]")).toHaveText("原邮件");
+  await expect(card.locator("[data-open-original-mail]")).toHaveText("查看互动");
   await expect(card.locator("[data-kol-primary-action]")).toHaveCount(1);
-  await expect(card.locator('[data-kol-primary-action="open-session"]')).toHaveText("查看来信");
-  await expect(card.locator("[data-recommended-action]")).toContainText("查看来信");
+  await expect(card.locator('[data-kol-primary-action="open-session"]')).toHaveText("查看互动");
+  await expect(card.locator("[data-recommended-action]")).toContainText("查看互动");
   await expect(card.locator("[data-latest-fact]")).toContainText("想和贵品牌litime合作");
   await expect(card.locator("[data-latest-fact]")).toContainText("邮件 ·");
   await expect(card).not.toContainText("支撑进入");

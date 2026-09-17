@@ -32,6 +32,7 @@ import { STAGES, label } from "../stages.js";
 import type { Json, Row } from "../types.js";
 import { taskDefinition } from "../tasks/registry.js";
 import { buildHomeBoard } from "../host/home-board.js";
+import { HOME_ENTRY_REGISTRY, publicEntryRegistry } from "../host/entry-registry.js";
 import {
   clearStarryBinding,
   currentFollowScope,
@@ -482,7 +483,38 @@ misc.get("/home/board", async (c) => {
   const refresh = c.req.query("refresh") === "1" || c.req.query("sync") === "1";
   const library = await ensureStarryHomeLibrary();
   const mail = await ensureFollowedMailSync(refresh);
-  return c.json({ ...buildHomeBoard(), library, mail });
+  return c.json({
+    ...buildHomeBoard(),
+    library,
+    mail,
+    entries: publicEntryRegistry(),
+    entry: "memory",
+    creates_session: false,
+  });
+});
+
+/** 我跟进的红人 — Collaborations by 跟进 index. Memory GET; never INSERT sessions. */
+misc.get("/home/following", (c) => {
+  c.header("Cache-Control", "no-store");
+  const board = buildHomeBoard();
+  return c.json({
+    entry: "memory",
+    creates_session: false,
+    kind: "memory",
+    kols: board.kols,
+    follow_scope: board.follow_scope,
+    index: "我的跟进",
+  });
+});
+
+misc.get("/home/entries", (c) => {
+  c.header("Cache-Control", "no-store");
+  return c.json({
+    entries: publicEntryRegistry(),
+    composer_copy: "让 Agent 分析/安排",
+    note: "GET board / todos / following / discovery results never INSERT sessions.",
+    registry: HOME_ENTRY_REGISTRY.map((row) => row.id),
+  });
 });
 
 misc.get("/home", (c) => {

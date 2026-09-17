@@ -24,21 +24,37 @@ import {
   peekComposerFill,
   type LockedMailTemplate,
 } from "../knowledgeCopy";
-import { MAIN_STAGE_TABS } from "../kolStages";
 import { rememberJourney } from "../journey";
 import { missingFieldsMessage, fieldLabel } from "../labels";
-import FollowedKolAgentReport from "../components/FollowedKolAgentReport";
 import DiscoveryPanel from "../home/DiscoveryPanel";
+import TodayPane from "../home/TodayPane";
+import TodoPane from "../home/TodoPane";
+import FollowedPane from "../home/FollowedPane";
 import { FollowedBatchConfirm } from "../home/FollowedBatchConfirm";
 import {
   HOME_MODE_LABELS,
   homeModeQuery,
   parseHomeMode,
-  recommendationSourceLabel,
-  todayTaskOriginLabel,
   todayTaskSourceLabel,
   type HomeMode,
 } from "../home/modes";
+import { HOME_COMPOSER_COPY, HOME_HANDOFF_TO_AGENT } from "../home/entryRegistry";
+import {
+  canOpenExistingTaskFlow,
+  definitionList,
+  deriveWorkbench,
+  isHighValueInsight,
+  isInsightTask,
+  isTodayActionableTodo,
+  isTodoTask,
+  matchesTodoFilter,
+  sortedTasks,
+  taskValue,
+  todoBucket,
+  whyLine,
+  withHomeCommandTemplates,
+  type TodoListFilter,
+} from "../home/homeModel";
 import { findDuplicateTodo, recommendationIdentity } from "../home/todoDedupe";
 import {
   HOME_CONFIRM_STAGE_BLOCKED_COPY,
@@ -48,9 +64,7 @@ import {
 import {
   matchesKolSearch,
   matchesStageFilter,
-  followedBulkCtaLabel,
   followedStageEnterCards,
-  pickFollowedListCtaEmphasis,
   projectFollowedKolCard,
   sortFollowedKolCards,
   type FollowedKolCardModel,
@@ -73,75 +87,9 @@ import {
 
 type HomeTab = "today" | "templates";
 type TaskFilter = "all" | "open" | "high" | "ai";
-type TodoListFilter = "all" | "open" | "high";
-type ActionableTodoBucket = "overdue" | "today" | "waiting" | "approval" | "queued" | "running";
-type TodoBucket = ActionableTodoBucket | "open";
 type FollowedKol = FollowedKolRecord;
 
 const openStatuses = new Set(["pending", "waiting", "running", "queued", "in_progress", "failed"]);
-const closedStatuses = new Set(["completed", "done", "cancelled"]);
-const HOME_FOLD_LIMIT = 6;
-const FOLLOWED_STAGE_LABELS: Record<string, string> = {
-  INITIAL_CONTACT: "初步接触",
-  INTERESTED: "有意向",
-  EVALUATING: "合作评估",
-  QUOTE_PENDING: "报价",
-  NEGOTIATING: "商务谈判",
-  PLAN_PENDING: "方案",
-  CONTRACTING: "合同签署",
-  SAMPLE_PENDING: "寄样",
-  SHIPPED: "已发货",
-  TESTING: "测试中",
-  CONTENT_PLANNING: "内容策划",
-  CONTENT_REVIEW: "内容审核",
-  PUBLISH_PENDING: "待发布",
-  PUBLISHED: "已发布",
-  SETTLING: "结算",
-};
-const HOME_TODO_BUCKETS = [
-  ["overdue", "逾期"],
-  ["today", "今天到期"],
-  ["approval", "等审批"],
-  ["queued", "已入队"],
-  ["running", "执行中"],
-] as const satisfies ReadonlyArray<readonly [Exclude<ActionableTodoBucket, "waiting">, string]>;
-const EXCEPTION_TEMPLATE: TaskDefinition = {
-  id: "exception_delay_care",
-  skill_id: "email_compose",
-  title: "延期关怀",
-  description: "对合作延期做关怀式跟进，不把延期直接判定为违约",
-  prompt: "延期关怀 [红人或合作]",
-  category: "异常",
-  profile: "lead",
-};
-
-const MAIL_COMMAND_TEMPLATES: TaskDefinition[] = [
-  {
-    id: "content_nudge",
-    skill_id: "email_compose",
-    title: "催大纲",
-    description: "仅测试中或内容策划阶段可催大纲",
-    prompt: "催大纲 [红人或合作]",
-    category: "履约",
-    profile: "lead",
-  },
-];
-
-function withHomeCommandTemplates(list: TaskDefinition[]): TaskDefinition[] {
-  const extras = [EXCEPTION_TEMPLATE, ...MAIL_COMMAND_TEMPLATES];
-  const extraIds = new Set(extras.map((row) => row.id));
-  return [...list.filter((row) => !extraIds.has(row.id)), ...extras];
-}
-
-function definitionList(
-  value: TaskDefinition[] | { task_definitions?: TaskDefinition[]; definitions?: TaskDefinition[] },
-): TaskDefinition[] {
-  return Array.isArray(value) ? value : value.task_definitions || value.definitions || [];
-}
-
-function taskValue(value: Task | { task: Task }): Task {
-  return (value as { task?: Task }).task || (value as Task);
-}
 
 function sourceLabel(source?: string) {
   return todayTaskSourceLabel(source);
@@ -172,51 +120,6 @@ function sourceMark(task: Task) {
   return task.source === "ai" ? "✦" : "○";
 }
 
-function dueTime(value?: string) {
-  if (!value) return Number.POSITIVE_INFINITY;
-  const time = new Date(value).getTime();
-  return Number.isNaN(time) ? Number.POSITIVE_INFINITY : time;
-}
-
-function workPriorityScore(task: Task) {
-  let score = 0;
-  if (task.risk || task.status === "failed") score += 100;
-  const due = dueTime(task.due_at);
-  if (Number.isFinite(due)) {
-    const days = (due - Date.now()) / 86_400_000;
-    if (days < 0) score += 90;
-    else if (days < 1) score += 70;
-    else if (days < 3) score += 40;
-  }
-  if (task.priority === "high" || task.priority === "urgent") score += 50;
-  if (task.status === "waiting" || task.status === "queued") score += 30;
-  if (task.source === "ai") score += 20;
-  return score;
-}
-
-function whyLine(task: Task) {
-  const origin = todayTaskOriginLabel(task.source);
-  if (waitDisplayOf(task.status) === "failed") {
-    const hint = failureHint(task);
-    return hint ? `${origin} · ${hint}` : `${origin} · 执行失败`;
-  }
-  if (task.risk) return `${origin} · ${task.risk}`;
-  if (task.description) return `${origin} · ${task.description}`;
-  if (task.context) return `${origin} · ${task.context}`;
-  if (task.history_summary) return `${origin} · ${task.history_summary}`;
-  if (task.due_at) {
-    const due = new Date(task.due_at);
-    if (!Number.isNaN(due.getTime())) {
-      const today = new Date();
-      const sameDay = due.toDateString() === today.toDateString();
-      if (due < today && !sameDay) return `${origin} · 已超过计划时间`;
-      if (sameDay) return `${origin} · 今天截止`;
-      return `${origin} · ${due.toLocaleDateString("zh-CN")} 截止`;
-    }
-  }
-  return [origin, task.skill, task.profile].filter(Boolean).join(" · ");
-}
-
 function dueBucket(task: Task): "today" | "tomorrow" | "later" {
   if (!task.due_at) return "today";
   const due = new Date(task.due_at);
@@ -236,112 +139,6 @@ function matchesFilter(task: Task, filter: TaskFilter) {
   if (filter === "high") return task.priority === "high" || task.priority === "urgent";
   if (filter === "ai") return task.source === "ai";
   return true;
-}
-
-function sortedTasks(rows: Task[], sort: string) {
-  return [...rows].sort((a, b) => {
-    if (sort === "due") return String(a.due_at || "9999").localeCompare(String(b.due_at || "9999"));
-    if (sort === "progress") return Number(b.progress || 0) - Number(a.progress || 0);
-    const byScore = workPriorityScore(b) - workPriorityScore(a);
-    if (byScore) return byScore;
-    const rank = { high: 0, urgent: 0, medium: 1, normal: 1, low: 2 };
-    return (rank[a.priority as keyof typeof rank] ?? 3) - (rank[b.priority as keyof typeof rank] ?? 3);
-  });
-}
-
-function isClosedTask(task: Task) {
-  return closedStatuses.has(String(task.status || ""));
-}
-
-function isInsightTask(task: Task) {
-  return task.source === "ai" && !task.promoted_at && !task.dismissed_at && !isClosedTask(task);
-}
-
-function isTodoTask(task: Task) {
-  if (isClosedTask(task) || task.dismissed_at) return false;
-  return task.source !== "ai" || Boolean(task.promoted_at);
-}
-
-function isHighValueInsight(task: Task) {
-  return task.priority === "high" || task.priority === "urgent" || Boolean(task.risk) || task.status === "failed";
-}
-
-function todoBucket(task: Task): TodoBucket {
-  if (task.due_at) {
-    const due = new Date(task.due_at);
-    if (!Number.isNaN(due.getTime())) {
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
-      const day = new Date(due);
-      day.setHours(0, 0, 0, 0);
-      const diff = Math.round((day.getTime() - start.getTime()) / 86_400_000);
-      if (diff < 0) return "overdue";
-      if (diff === 0) return "today";
-    }
-  }
-  const display = waitDisplayOf(task.status);
-  if (display === "awaiting_review") return "waiting";
-  if (display === "awaiting_approval") return "approval";
-  if (display === "queued") return "queued";
-  if (display === "running") return "running";
-  return "open";
-}
-
-function urgencyLabel(task: Task) {
-  const bucket = todoBucket(task);
-  if (bucket === "overdue") return "逾期";
-  if (bucket === "today") return "今天到期";
-  if (String(task.status || "") === "failed") return "失败";
-  if (task.risk) return "有风险";
-  if (task.priority === "high" || task.priority === "urgent") return "高优先";
-  if (bucket === "waiting") return waitStatusLabel(task.status);
-  return waitStatusLabel(task.status);
-}
-
-function dueLabel(task: Task) {
-  if (!task.due_at) return "";
-  const due = new Date(task.due_at);
-  if (Number.isNaN(due.getTime())) return "";
-  return due.toLocaleDateString("zh-CN");
-}
-
-function handleLine(task: Task) {
-  const handle = String(task.kol_name || "").replace(/^@/, "").trim();
-  const stage = String(task.current_stage || "").trim();
-  const named = handle && handle !== "未指定红人" ? `@${handle}` : "";
-  const staged = stage && stage !== "阶段未知" ? stage : "";
-  if (named && staged) return `${named} · ${staged}`;
-  return named || staged;
-}
-
-function isTodayActionableTodo(task: Task) {
-  const bucket = todoBucket(task);
-  return bucket === "overdue" || bucket === "today" || bucket === "approval" || bucket === "queued" || bucket === "running";
-}
-
-function deriveWorkbench(tasks: Task[], kols: FollowedKol[]): HomeWorkbench {
-  const todo = sortedTasks(tasks.filter(isTodoTask), "priority");
-  const insights = sortedTasks(tasks.filter(isInsightTask), "priority");
-  return {
-    summary: {
-      open: todo.length,
-      overdue: todo.filter((task) => todoBucket(task) === "overdue").length,
-      due_today: todo.filter((task) => todoBucket(task) === "today").length,
-      waiting: todo.filter((task) => isAwaitingReview(task)).length,
-      insights: insights.length,
-    },
-    todo,
-    insights,
-    recommendations: [],
-    lifecycle: {
-      exception_count: kols.filter((kol) => kol.exception).length,
-      stay_too_long: kols.filter((kol) => !kol.unbound && Number(kol.days_in_stage || 0) >= 7),
-    },
-  };
-}
-
-function canOpenExistingTaskFlow(task: Task): boolean {
-  return Boolean(task.session_id || task.collaboration_id || task.project_id);
 }
 
 function CardFields({
@@ -483,6 +280,7 @@ export default function Home() {
   const [draftFocus, setDraftFocus] = useState(initialFill ? 1 : 0);
   const [blockSubmit, setBlockSubmit] = useState(false);
   const [err, setErr] = useState("");
+  const [boardError, setBoardError] = useState("");
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<FromTextResult | null>(null);
   const lastComposer = useRef<ComposerSubmit | null>(null);
@@ -516,6 +314,7 @@ export default function Home() {
     if (Array.isArray(board.tasks)) setTasks(mergeTaskDetails(board.tasks as Task[], taskCatalogRef.current));
     setBoardWorkbench(board.workbench || null);
     setFollowScope(board.follow_scope || null);
+    setBoardError("");
   };
 
   const applyTaskCatalog = (catalog: Task[]) => {
@@ -545,7 +344,9 @@ export default function Home() {
     }).catch(() => undefined);
     void api.homeBoard().then((board) => {
       if (!cancelled) applyBoard(board);
-    }).catch(() => undefined);
+    }).catch((error) => {
+      if (!cancelled) setBoardError(error instanceof Error ? error.message : "工作台读取失败");
+    });
     void api.tasks().then(unwrapTaskList).then((catalog) => {
       if (!cancelled) applyTaskCatalog(catalog);
     }).catch(() => undefined);
@@ -914,7 +715,9 @@ export default function Home() {
   const refreshBoard = (force = false) => Promise.all([
     api.homeBoard({ refresh: force }).then(applyBoard),
     api.tasks().then(unwrapTaskList).then(applyTaskCatalog),
-  ]).catch(() => undefined);
+  ]).catch((error) => {
+    setBoardError(error instanceof Error ? error.message : "工作台读取失败");
+  });
 
   useEffect(() => {
     const onVisible = () => {
@@ -952,7 +755,14 @@ export default function Home() {
     setErr("");
     setDedupeNotice("");
     try {
-      await api.promoteTask(task.id);
+      await api.adoptRecommendation({
+        work_item_id: task.id,
+        recommendation_id: task.id,
+        title: task.title,
+        handle: task.kol_name,
+        intent: String(task.skill_id || task.skill || task.task_type || ""),
+        collaboration_id: task.collaboration_id,
+      });
       await refreshBoard();
       setMode("todo");
     } catch (error) {
@@ -973,26 +783,33 @@ export default function Home() {
     setBusy(true);
     setErr("");
     setDedupeNotice("");
-    try {
-      const response = await api.createTask({
-        task_type: item.intent || "creator_daily_tasks",
-        title: item.title,
-        description: item.reason,
-        prompt: item.prompt || item.title,
-        source: "manual",
-        intent: item.intent,
-        collaboration_id: item.collaboration_id,
-        entities: {
-          handle: item.handle,
-          recommendation_id: item.id,
-        },
-      });
-      const created = taskValue(response);
+    const mergeAdopted = (created: Task) => {
       setTasks((current) => (
         findDuplicateTodo(current.filter(isTodoTask), identity)
           ? current
           : current.some((task) => task.id === created.id) ? current : [created, ...current]
       ));
+      setBoardWorkbench((current) => (
+        current
+          ? {
+            ...current,
+            todo: [created, ...(current.todo || []).filter((row) => row.id !== created.id)],
+            insights: (current.insights || []).filter((row) => row.id !== created.id),
+          }
+          : current
+      ));
+    };
+    try {
+      const adopted = await api.adoptRecommendation({
+        recommendation_id: item.id,
+        title: item.title,
+        handle: item.handle,
+        intent: item.intent,
+        collaboration_id: item.collaboration_id,
+        reason: item.reason,
+        prompt: item.prompt || item.title,
+      });
+      mergeAdopted({ ...taskValue(adopted), title: item.title, candidate: false });
       await refreshBoard();
       setMode("todo");
     } catch {
@@ -1007,11 +824,10 @@ export default function Home() {
         description: item.reason,
         collaboration_id: item.collaboration_id || undefined,
         promoted_at: new Date().toISOString(),
+        candidate: false,
         entities: { recommendation_id: item.id, handle: item.handle },
       };
-      setTasks((current) => (
-        findDuplicateTodo(current.filter(isTodoTask), identity) ? current : [local, ...current]
-      ));
+      mergeAdopted(local);
       setMode("todo");
     } finally {
       setBusy(false);
@@ -1127,10 +943,11 @@ export default function Home() {
     [boardWorkbench, followedKols, tasks],
   );
 
-  const todoItems = useMemo(
-    () => sortedTasks(mergeTaskDetails(workbench.todo || tasks.filter(isTodoTask), taskCatalog), "priority"),
-    [taskCatalog, tasks, workbench.todo],
-  );
+  const todoItems = useMemo(() => {
+    const fromBoard = workbench.todo || [];
+    const extras = tasks.filter(isTodoTask).filter((task) => !fromBoard.some((row) => row.id === task.id));
+    return sortedTasks(mergeTaskDetails([...fromBoard, ...extras], taskCatalog), "priority");
+  }, [taskCatalog, tasks, workbench.todo]);
 
   const todayTodos = useMemo(
     () => todoItems.filter(isTodayActionableTodo),
@@ -1184,22 +1001,6 @@ export default function Home() {
     return sortFollowedKolCards(filtered, "need");
   }, [kolCards, kolQuery, stageFilter]);
 
-  const followedStageTabs = useMemo(() => {
-    const isException = (card: FollowedKolCardModel) => (
-      card.source.exception || card.current_state.exception || card.risk.exception
-    );
-    const regularCards = kolCards.filter((card) => !isException(card));
-    return [
-      { code: "all", label: "全部", count: kolCards.length },
-      ...MAIN_STAGE_TABS.map((stage) => ({
-        code: stage.code,
-        label: FOLLOWED_STAGE_LABELS[stage.code] || stage.label,
-        count: regularCards.filter((card) => card.current_state.stage_code === stage.code).length,
-      })),
-      { code: "exception", label: "异常", count: kolCards.filter(isException).length },
-    ];
-  }, [kolCards]);
-
   const selectedKolCards = useMemo(
     () => visibleKols.filter((card) => selectedKolIds.includes(card.id)),
     [visibleKols, selectedKolIds],
@@ -1208,8 +1009,6 @@ export default function Home() {
     () => followedStageEnterCards(selectedKolCards),
     [selectedKolCards],
   );
-  const bulkCtaLabel = followedBulkCtaLabel(selectedKolCards);
-  const selecting = selectedKolIds.length > 0;
 
   useEffect(() => {
     const ids = new Set(visibleKols.map((card) => card.id));
@@ -1331,6 +1130,7 @@ export default function Home() {
                   type="button"
                   className="home-chrome-icon"
                   data-home-chrome-action="refresh"
+                  data-home-entry="pull-board"
                   aria-label="刷新工作台"
                   title="刷新工作台"
                   onClick={() => void refreshBoard(true)}
@@ -1371,6 +1171,7 @@ export default function Home() {
               role="tab"
               aria-selected={mode === "today"}
               data-home-mode="today"
+              data-home-entry="switch-tab"
               data-ai-count={insightCount}
               onClick={() => setMode("today")}
             >
@@ -1382,6 +1183,7 @@ export default function Home() {
               role="tab"
               aria-selected={mode === "todo"}
               data-home-mode="todo"
+              data-home-entry="switch-tab"
               onClick={() => setMode("todo")}
             >
               {HOME_MODE_LABELS.todo} <span className="home-mode-count">{openCount}</span>
@@ -1391,6 +1193,7 @@ export default function Home() {
               role="tab"
               aria-selected={mode === "discovery"}
               data-home-mode="discovery"
+              data-home-entry="switch-tab"
               onClick={() => setMode("discovery")}
             >
               {HOME_MODE_LABELS.discovery}
@@ -1400,6 +1203,7 @@ export default function Home() {
               role="tab"
               aria-selected={mode === "lifecycle"}
               data-home-mode="lifecycle"
+              data-home-entry="switch-tab"
               onClick={() => setMode("lifecycle")}
             >
               {HOME_MODE_LABELS.lifecycle}
@@ -1418,96 +1222,79 @@ export default function Home() {
           }}
         >
           {mode === "today" ? (
-            <section className="home-mode-pane" data-home-pane="today" data-ai-insights data-ai-list-total={insightCount}>
-              <RecommendedTaskList
-                items={recommendedItems}
-                todos={todoItems}
-                busy={busy}
-                onPick={onRecommend}
-                onConvert={(item) => void convertSuggestion(item)}
-              />
-              {todayTodos.length ? (
-                <section className="today-existing-todos" data-today-existing-todos aria-label="待办">
-                  <p className="home-lane-label">待办</p>
-                  <ol className="recommend-md-list">
-                    {todayTodos.slice(0, HOME_FOLD_LIMIT).map((task) => (
-                      <li key={task.id} data-today-todo={task.id}>
-                        <button type="button" className="todo-card-act" data-today-todo-act onClick={() => void openTask(task)}>
-                          <span className="todo-card-mark" aria-hidden>{todoMark(task)}</span>
-                          <div className="todo-card-copy">
-                            <div className="todo-card-main">
-                              <strong>{task.title}</strong>
-                              {handleLine(task) ? <p className="todo-card-kicker">{handleLine(task)}</p> : null}
-                            </div>
-                            <p className="todo-card-status" data-todo-status>{[urgencyLabel(task), dueLabel(task)].filter(Boolean).join(" · ") || "待处理"}</p>
-                          </div>
-                        </button>
-                      </li>
-                    ))}
-                  </ol>
-                </section>
-              ) : null}
-              {showInsightList ? (
-                <InsightList
-                  tasks={insightItems}
-                  busy={busy}
-                  onPromote={(task) => void promoteInsight(task)}
-                  onDismiss={(task) => void dismissInsight(task)}
-                  onOpen={(task) => void openTask(task)}
-                />
-              ) : null}
-            </section>
+            <TodayPane
+              recommendedItems={recommendedItems}
+              todayTodos={todayTodos}
+              insightItems={insightItems}
+              todos={todoItems}
+              busy={busy}
+              onPick={onRecommend}
+              onConvert={(item) => void convertSuggestion(item)}
+              onPromote={(task) => void promoteInsight(task)}
+              onDismiss={(task) => void dismissInsight(task)}
+              onOpen={(task) => void openTask(task)}
+            />
           ) : null}
 
           {mode === "todo" ? (
-            <section className="home-mode-pane today-work-inline" data-today-work data-home-pane="todo">
-              {dedupeNotice ? (
-                <p className="home-dedupe-notice" data-todo-deduped role="status">{dedupeNotice}</p>
-              ) : null}
-              <div className="task-filters" data-todo-filters aria-label="筛选待办">
-                {([["all", "全部"], ["open", "待处理"], ["high", "高优先"]] as const).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    aria-pressed={todoFilter === value}
-                    data-todo-filter={value}
-                    onClick={() => setTodoFilter(value)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <TodoActionList tasks={visibleTodoItems} onOpen={(task) => void openTask(task)} />
-            </section>
+            <TodoPane
+              tasks={visibleTodoItems}
+              filter={todoFilter}
+              onFilter={setTodoFilter}
+              dedupeNotice={dedupeNotice}
+              onOpen={(task) => void openTask(task)}
+            />
           ) : null}
 
           {mode === "discovery" ? <DiscoveryPanel /> : null}
 
           {mode === "lifecycle" ? (
-            <section className="home-mode-pane recommend-work followed-kol-pane" data-home-pane="lifecycle" data-lifecycle-overview>
-              <div className="followed-kol-column" data-followed-kol-column data-followed-decision-max="full">
-                {visibleKols.length ? (
-                  <FollowedKolAgentReport
-                    cards={visibleKols}
-                    busyId={confirmStageBusyId}
-                    onOpenDetail={(card) => openKol(card.source)}
-                    onPrimary={(card) => runKolCardAction(card.source, card)}
-                    onOpenMail={(card) => openKol(card.source, card.latest_fact.thread_id || card.focus_thread)}
-                    onCompose={(card) => runKolCardAction(card.source, card)}
-                    onConfirmStage={(card) => openConfirmStage(card.source, card)}
-                  />
-                ) : (
-                  <div className="task-empty" data-follow-empty={followEmptyKind}>
-                    <strong>{followEmptyTitle}</strong>
-                    <p>{followEmptyBody}</p>
-                    {followScope?.required && (!followScope.bound || followScope.status === "expired") ? (
-                      <button type="button" className="btn work" onClick={() => nav("/settings?tab=starry")}>
-                        {followScope.status === "expired" ? "重新连接" : "去绑定"}
-                      </button>
-                    ) : null}
-                  </div>
-                )}
-              </div>
+            <FollowedPane
+              visibleKols={visibleKols}
+              allCards={kolCards}
+              kolQuery={kolQuery}
+              stageFilter={stageFilter}
+              selectedKolIds={selectedKolIds}
+              hoveredKolId={hoveredKolId}
+              focusedKolId={focusedKolId}
+              confirmStageBusyId={confirmStageBusyId}
+              confirmStageFeedback={confirmStageFeedback}
+              followScope={followScope}
+              followEmptyKind={followEmptyKind}
+              queryDown={Boolean(boardError) && !followedKols.length}
+              onQuery={setKolQuery}
+              onStageFilter={setStageFilter}
+              onHover={setHoveredKolId}
+              onFocus={setFocusedKolId}
+              onToggleSelect={toggleSelectedKol}
+              onToggleSelectAll={toggleSelectAllKols}
+              onOpenDetail={(card) => openKol(card.source)}
+              onPrimary={(card) => runKolCardAction(card.source, card)}
+              onOpenMail={(card) => openKol(card.source, card.latest_fact.thread_id || card.focus_thread)}
+              onCompose={(card) => runKolCardAction(card.source, card)}
+              onConfirmStage={(card) => openConfirmStage(card.source, card)}
+              onBatchConfirm={runSelectedStageEnter}
+              onBind={() => nav("/settings?tab=starry")}
+            />
+          ) : null}
+
+          {boardError ? (
+            <section className="task-empty" data-home-query-error data-empty-kind="service-down" role="alert">
+              <strong>工作台读取失败</strong>
+              <p>{boardError}</p>
+              <button
+                type="button"
+                className="btn work sm"
+                data-home-handoff-agent
+                data-home-entry="composer-analyze"
+                onClick={() => {
+                  setText(`${HOME_COMPOSER_COPY}：${boardError}`);
+                  setComposerFocused(true);
+                  setDraftFocus((value) => value + 1);
+                }}
+              >
+                {HOME_HANDOFF_TO_AGENT}
+              </button>
             </section>
           ) : null}
 
@@ -1602,7 +1389,7 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="home-composer-dock">
+      <div className="home-composer-dock" data-home-entry="composer-analyze">
         <ComposerDock
           variant="workspace"
           value={text}
@@ -1703,265 +1490,6 @@ export default function Home() {
         onCancel={() => setPendingBatchCards(null)}
       />
     </div>
-  );
-}
-
-function FoldMore({
-  total,
-  limit = HOME_FOLD_LIMIT,
-  expanded,
-  onToggle,
-}: {
-  total: number;
-  limit?: number;
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  if (total <= limit) return null;
-  const hidden = total - limit;
-  return (
-    <button type="button" className="home-fold-more" data-fold-more data-fold-expanded={expanded ? "true" : "false"} onClick={onToggle}>
-      {expanded ? "收起" : `展开更多（${hidden}）`}
-    </button>
-  );
-}
-
-function useFoldedItems<T>(items: T[], limit = HOME_FOLD_LIMIT) {
-  const [expanded, setExpanded] = useState(false);
-  const visible = expanded || items.length <= limit ? items : items.slice(0, limit);
-  return {
-    expanded,
-    visible,
-    toggle: () => setExpanded((value) => !value),
-    total: items.length,
-    limit,
-  };
-}
-
-function RecommendedTaskList({
-  items,
-  todos,
-  busy,
-  onPick,
-  onConvert,
-}: {
-  items: RecommendedTask[];
-  todos: Task[];
-  busy: boolean;
-  onPick: (item: RecommendedTask) => void;
-  onConvert: (item: RecommendedTask) => void;
-}) {
-  const fold = useFoldedItems(items);
-  if (!items.length) return null;
-  return (
-    <section className="recommended-tasks process-md" data-recommended-tasks data-today-suggestions data-list-total={items.length} aria-label="建议">
-      <p className="home-lane-label">建议</p>
-      <ol className="recommend-md-list">
-        {fold.visible.map((item) => {
-          const n = item.n || 0;
-          const icon = item.icon || recIcon(item.intent);
-          const source = recommendationSourceLabel(item);
-          const alreadyTodo = Boolean(findDuplicateTodo(todos, recommendationIdentity(item)));
-          return (
-            <li key={item.id} className="recommend-md-row" data-today-suggestion={item.id}>
-              <button
-                type="button"
-                className="recommend-md-item"
-                data-recommended-task={item.id}
-                data-task-n={n}
-                data-recommended-source={item.source || "stage"}
-                data-suggest-cta="prefill"
-                data-act="ask"
-                data-intent={item.intent || ""}
-                data-prompt={item.prompt || item.title}
-                aria-label={`推荐 ${n}`}
-                disabled={busy}
-                onClick={() => onPick(item)}
-              >
-                <span className="recommend-md-n" data-task-n-label>{n}.</span>
-                <span className="recommend-md-icon" aria-hidden>{icon}</span>
-                <span className="recommend-md-copy">
-                  <strong>{item.title}</strong>
-                  <span className="recommend-md-reason" data-recommended-reason>
-                    {item.reason} · {source}
-                  </span>
-                </span>
-              </button>
-              <button
-                type="button"
-                className="recommend-to-todo"
-                data-suggestion-to-todo={item.id}
-                data-suggest-cta="todo"
-                disabled={busy || alreadyTodo}
-                onClick={() => onConvert(item)}
-              >
-                {alreadyTodo ? "已在待办" : "加入待办"}
-              </button>
-            </li>
-          );
-        })}
-      </ol>
-      <FoldMore total={fold.total} limit={fold.limit} expanded={fold.expanded} onToggle={fold.toggle} />
-    </section>
-  );
-}
-
-function todoMark(task: Task) {
-  const bucket = todoBucket(task);
-  if (bucket === "overdue") return "!";
-  if (bucket === "today") return "⚠";
-  if (bucket === "waiting" || bucket === "approval") return "…";
-  if (bucket === "running") return "◷";
-  return "○";
-}
-
-function TodoBucketBlock({
-  bucket,
-  label,
-  tasks,
-  onOpen,
-}: {
-  bucket: TodoBucket;
-  label?: string;
-  tasks: Task[];
-  onOpen: (task: Task) => void;
-}) {
-  const fold = useFoldedItems(tasks);
-  if (!tasks.length) return null;
-  return (
-    <div className="work-day-group" data-todo-bucket={bucket}>
-      {label ? <Markdown>{`*${label}*`}</Markdown> : null}
-      <ol className="recommend-md-list">
-        {fold.visible.map((task) => (
-          <TodoMarkdownRow key={task.id} task={task} onOpen={() => onOpen(task)} />
-        ))}
-      </ol>
-      <FoldMore total={fold.total} limit={fold.limit} expanded={fold.expanded} onToggle={fold.toggle} />
-    </div>
-  );
-}
-
-function TodoActionList({ tasks, onOpen }: { tasks: Task[]; onOpen: (task: Task) => void }) {
-  const grouped: Record<Exclude<TodoBucket, "waiting">, Task[]> = {
-    overdue: [],
-    today: [],
-    approval: [],
-    queued: [],
-    running: [],
-    open: [],
-  };
-  for (const task of tasks) {
-    const bucket = todoBucket(task);
-    if (bucket === "waiting") grouped.open.push(task);
-    else grouped[bucket].push(task);
-  }
-  if (!tasks.length) {
-    return (
-      <div className="todo-md-empty">
-        <Markdown>{"今日任务不会自动变成待办。确认后才会出现在这里。"}</Markdown>
-      </div>
-    );
-  }
-  return (
-    <section className="todo-md process-md" data-todo-md>
-      {HOME_TODO_BUCKETS.map(([bucket, label]) => (
-        <TodoBucketBlock key={bucket} bucket={bucket} label={label} tasks={grouped[bucket]} onOpen={onOpen} />
-      ))}
-      <TodoBucketBlock bucket="open" tasks={grouped.open} onOpen={onOpen} />
-    </section>
-  );
-}
-
-function TodoMarkdownRow({ task, onOpen }: { task: Task; onOpen: () => void }) {
-  const handle = handleLine(task);
-  const due = dueLabel(task);
-  const urgency = urgencyLabel(task);
-  const progress = waitProgressHint(task);
-  const why = whyLine(task);
-  return (
-    <li
-      className={`task-${task.source || "manual"} status-${task.status || "pending"}`}
-      data-todo-card
-      data-task-source={task.source || "manual"}
-      data-task-status={task.status || "pending"}
-      data-wait-status={waitStatusLabel(task.status)}
-    >
-      <button type="button" className="todo-card-act" data-todo-act onClick={onOpen}>
-        <span className="todo-card-mark" aria-hidden>{todoMark(task)}</span>
-        <div className="todo-card-copy">
-          <div className="todo-card-main">
-            <strong>{task.title}</strong>
-            {handle ? <p className="todo-card-kicker">{handle}</p> : null}
-          </div>
-          {urgency || due ? (
-            <p className="todo-card-status" data-todo-status>{[urgency, due].filter(Boolean).join(" · ")}</p>
-          ) : null}
-          {progress ? <p className="todo-card-progress">{progress}</p> : null}
-          {why ? <p className="todo-card-why" data-todo-reason>{why}</p> : null}
-        </div>
-      </button>
-    </li>
-  );
-}
-
-function InsightList({
-  tasks,
-  busy,
-  onPromote,
-  onDismiss,
-  onOpen,
-}: {
-  tasks: Task[];
-  busy: boolean;
-  onPromote: (task: Task) => void;
-  onDismiss: (task: Task) => void;
-  onOpen: (task: Task) => void;
-}) {
-  const fold = useFoldedItems(tasks);
-  if (!tasks.length) {
-    return (
-      <div className="task-empty">
-        <strong>暂时没有新的建议</strong>
-        <p>邮件和阶段建议会先停在这里，确认后才进入我的待办。</p>
-      </div>
-    );
-  }
-  return (
-    <section className="insight-confirm process-md" data-insight-list data-list-total={tasks.length} aria-label="待确认建议">
-      <Markdown>{"**待确认建议**"}</Markdown>
-      <ol className="insight-card-list">
-      {fold.visible.map((task) => (
-        <li
-          key={task.id}
-          className={"insight-card" + (isHighValueInsight(task) ? " is-high" : "")}
-          data-insight-card
-          data-task-source="ai"
-        >
-          <div className="insight-card-body">
-            <div className="todo-card-head">
-              <strong>{task.title}</strong>
-              <span className="todo-urgency">今天推荐</span>
-              {isHighValueInsight(task) ? <span className="insight-high">高价值</span> : null}
-            </div>
-            {handleLine(task) ? <p className="todo-handle">{handleLine(task)}</p> : null}
-            <p className="todo-reason">{whyLine(task)}</p>
-          </div>
-          <div className="insight-actions">
-            <button type="button" className="insight-primary" data-promote-task={task.id} disabled={busy} onClick={() => onPromote(task)}>
-              转为我的待办
-            </button>
-            <button type="button" className="is-ghost" data-open-insight={task.id} disabled={busy} onClick={() => onOpen(task)}>
-              查看沟通记录
-            </button>
-            <button type="button" className="is-ghost" data-dismiss-insight={task.id} disabled={busy} onClick={() => onDismiss(task)}>
-              忽略
-            </button>
-          </div>
-        </li>
-      ))}
-    </ol>
-      <FoldMore total={fold.total} limit={fold.limit} expanded={fold.expanded} onToggle={fold.toggle} />
-    </section>
   );
 }
 
