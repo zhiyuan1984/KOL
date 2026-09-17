@@ -1,6 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
 
 type TypeMetrics = {
   fontFamily: string;
@@ -245,24 +248,46 @@ test("desktop employee shell computed 260 rail and Codex Regular type", async ({
   expect(mobile.width).not.toContain("clamp");
   expect(Number.parseFloat(mobile.width)).not.toBe(260);
 
-  const dest = path.join(process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results", "shell-metrics-after.json");
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-  fs.writeFileSync(dest, JSON.stringify({
+  const outDir = process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results";
+  await page.setViewportSize({ width: 1440, height: 520 });
+  const overflowEdge = await page.evaluate(() => {
+    const rail = document.querySelector(".sidebar") as HTMLElement | null;
+    const scroller = document.querySelector(".sidebar-scroll") as HTMLElement | null;
+    if (!rail || !scroller) throw new Error("missing rail");
+    const railRect = rail.getBoundingClientRect();
+    const scrollRect = scroller.getBoundingClientRect();
+    return {
+      railWidth: railRect.width,
+      railRight: railRect.right,
+      scrollRight: scrollRect.right,
+      thumbLeft: scrollRect.right - 6,
+      canScroll: scroller.scrollHeight > scroller.clientHeight,
+    };
+  });
+  expect(overflowEdge.railWidth).toBeCloseTo(260, 0);
+  expect(overflowEdge.canScroll).toBe(true);
+  expect(overflowEdge.scrollRight).toBeGreaterThanOrEqual(overflowEdge.railRight - 2);
+  expect(overflowEdge.thumbLeft).toBeGreaterThanOrEqual(250);
+  expect(overflowEdge.thumbLeft).toBeLessThanOrEqual(256);
+  await page.locator(".sidebar").screenshot({ path: path.join(outDir, "sidebar-rail-overflow.png") });
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(path.join(outDir, "shell-metrics-after.json"), JSON.stringify({
     desktop: { ...beforeLifecycle, composerRadius, railEdge },
     fixedTable,
     shrinkAttack,
     collapsed,
     mobile,
+    overflowEdge,
   }, null, 2));
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.screenshot({
-    path: path.join(process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results", "home-1440-after.png"),
+    path: path.join(outDir, "home-1440-after.png"),
     fullPage: false,
   });
 });
 
 test("sidebar CSS source keeps 260 rail and ChatGPT thin scrollbar", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../src/styles.css"), "utf8");
+  const source = fs.readFileSync(path.join(here, "../src/styles.css"), "utf8");
   expect(source).toMatch(/--left-width:\s*260px/);
   expect(source).toContain("width: 260px !important");
   expect(source).toContain("min-width: 260px !important");
@@ -272,7 +297,7 @@ test("sidebar CSS source keeps 260 rail and ChatGPT thin scrollbar", () => {
   expect(source).toContain(".sidebar-scroll::-webkit-scrollbar-button");
   expect(source).toContain("scrollbar-gutter: auto");
   expect(source).toMatch(/\.sidebar\s*\{[^}]*padding:\s*12px 0 12px 16px/);
-  expect(source).not.toMatch(/scrollbar-gutter:\s*stable/);
+  expect(source).not.toMatch(/scrollbar-gutter:\s*stable\s*;/);
   expect(source).not.toMatch(/\.sidebar\s*\{[^}]*padding:\s*12px 16px/);
   expect(source).not.toMatch(/clamp\([^)]*16vw/);
   expect(source).not.toMatch(/\.sidebar\s*\{[^}]*(?:width|min-width|max-width):\s*264px/);

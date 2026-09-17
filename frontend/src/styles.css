@@ -275,7 +275,7 @@ summary:focus-visible,
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  /* Text inset only — do not use scrollbar-gutter:stable (eats ~16px). */
+  /* Text inset only — do not reserve a classic ~16px gutter. */
   padding-right: 6px;
   scrollbar-gutter: auto;
 }
