@@ -608,6 +608,41 @@ tasks.post("/tasks/:id/run", async (c) => {
   }, 202);
 });
 
+tasks.post("/tasks/:id/acknowledge", async (c) => {
+  const item = ownedWorkItem(c.req.param("id"));
+  if (["completed", "cancelled"].includes(String(item.status))) {
+    throw new HttpFail(409, `task cannot acknowledge from ${item.status}`);
+  }
+  const now = nowIso();
+  const status = String(item.status || "");
+  const nextStatus = status === "pending" || status === "queued" ? "in_progress" : status;
+  tx((db) => {
+    db.prepare(
+      `UPDATE work_items
+       SET last_acted_at=?,
+           acknowledged_at=COALESCE(acknowledged_at,?),
+           status=?,
+           updated_at=?,
+           data_version=data_version+1
+       WHERE id=?`,
+    ).run(now, now, nextStatus, now, item.id);
+  });
+  appendTaskEvent(
+    String(item.id),
+    null,
+    "task.acknowledged",
+    "处理今日任务",
+    nextStatus,
+    "已记录打开/处理，未创建会话",
+  );
+  audit(ownerId(), "task.acknowledged", { work_item_id: item.id, creates_session: false });
+  return c.json({
+    ...publicWorkItem(ownedWorkItem(String(item.id))),
+    entry: "command",
+    creates_session: false,
+  });
+});
+
 tasks.post("/tasks/:id/promote", async (c) => {
   const item = ownedWorkItem(c.req.param("id"));
   if (["completed", "cancelled"].includes(String(item.status))) {

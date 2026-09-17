@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
-import { buildHomeBoard, buildRecommendedTasks, isInsightWorkItem, isTodoWorkItem } from "../src/host/home-board.js";
+import { buildHomeBoard, buildRecommendedTasks, isInsightWorkItem, isTodayWorkItem, isTodoWorkItem } from "../src/host/home-board.js";
 import { resetDemoRuntimeState, seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import type { Json } from "../src/types.js";
@@ -202,8 +202,35 @@ describe("home workbench", () => {
     expect(recs.every((row) => row.candidate === true)).toBe(true);
     expect(Array.isArray(today)).toBe(true);
     expect(today.every((row) => row.candidate === false)).toBe(true);
+    expect(today.map((row) => String(row.id)).sort()).toEqual(["tsk_home_laozhang_quote", "tsk_home_trip_stage"]);
+    expect(isTodayWorkItem({ source: "manual", status: "queued" })).toBe(false);
+    expect(isTodayWorkItem({ source: "manual", status: "pending" })).toBe(false);
+    expect(isTodayWorkItem({ source: "manual", status: "running" })).toBe(true);
+    expect(isTodayWorkItem({ source: "manual", status: "waiting_approval" })).toBe(true);
+    expect(isTodayWorkItem({ source: "manual", status: "failed", title: "记状态" })).toBe(true);
     expect(board.creates_session).toBe(false);
     expect(board.entry).toBe("memory");
+  });
+
+  it("acknowledge writes memory without creating a session", async () => {
+    const before = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    const first = await request("POST", "/api/tasks/tsk_home_laozhang_quote/acknowledge", {});
+    expect(first.status).toBe(200);
+    expect(first.body.creates_session).toBe(false);
+    expect(first.body.entry).toBe("command");
+    expect(first.body.acknowledged_at).toBeTruthy();
+    expect(first.body.last_acted_at).toBeTruthy();
+    expect(first.body.session_id).toBeFalsy();
+    const again = await request("POST", "/api/tasks/tsk_home_laozhang_quote/acknowledge", {});
+    expect(again.status).toBe(200);
+    expect(String(again.body.acknowledged_at)).toBe(String(first.body.acknowledged_at));
+    expect(String(again.body.last_acted_at) >= String(first.body.last_acted_at)).toBe(true);
+    const after = getConn().prepare("SELECT COUNT(*) AS c FROM sessions").get() as { c: number };
+    expect(after.c).toBe(before.c);
+    const reread = await request("GET", `/api/tasks/tsk_home_laozhang_quote`);
+    expect(reread.status).toBe(200);
+    expect(reread.body.acknowledged_at).toBeTruthy();
+    expect(reread.body.last_acted_at).toBeTruthy();
   });
 
   it("GET board / tasks / following never insert sessions", async () => {
@@ -274,6 +301,11 @@ describe("home workbench", () => {
 
   it("persists promote columns on work_items", () => {
     const cols = getConn().prepare("PRAGMA table_info(work_items)").all() as { name: string }[];
-    expect(cols.map((col) => col.name)).toEqual(expect.arrayContaining(["promoted_at", "dismissed_at"]));
+    expect(cols.map((col) => col.name)).toEqual(expect.arrayContaining([
+      "promoted_at",
+      "dismissed_at",
+      "last_acted_at",
+      "acknowledged_at",
+    ]));
   });
 });

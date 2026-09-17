@@ -91,6 +91,15 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     route: "POST /api/discovery/requests/:id/runs",
   },
   {
+    id: "acknowledge-task",
+    kind: "command",
+    action: "打开今日任务 / 记录处理",
+    creates_session: false,
+    creates_turn: false,
+    calls_model: false,
+    route: "POST /api/tasks/:id/acknowledge",
+  },
+  {
     id: "adopt-recommendation",
     kind: "command",
     action: "采纳推荐 → 正式待办",

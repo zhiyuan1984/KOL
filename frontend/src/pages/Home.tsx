@@ -47,8 +47,10 @@ import {
   isTodayActionableTodo,
   isTodoTask,
   matchesTodoFilter,
+  sortTodayTodos,
   sortedTasks,
   taskValue,
+  todayBucket,
   todoBucket,
   whyLine,
   withHomeCommandTemplates,
@@ -680,6 +682,53 @@ export default function Home() {
     if (first) openConfirmStage(first.source, first);
   };
 
+  const mergeCatalogTask = (updated: Task) => {
+    const next = (current: Task[]) => current.map((row) => (row.id === updated.id ? { ...row, ...updated } : row));
+    setTasks(next);
+    setTaskCatalog((current) => {
+      const mapped = next(current);
+      taskCatalogRef.current = mapped;
+      return mapped;
+    });
+  };
+
+  const actOnTodayTask = async (task: Task) => {
+    rememberJourney({
+      kind: "task",
+      skillId: String(task.skill_id || task.skill || task.task_type || ""),
+      skillLabel: task.title,
+      handle: task.kol_name,
+    });
+    setBusy(true);
+    setErr("");
+    try {
+      const written = taskValue(await api.acknowledgeTask(task.id));
+      const latest = taskValue(await api.task(written.id).catch(() => written));
+      mergeCatalogTask(latest);
+      void fetchHomeTasks().catch(() => undefined);
+      const bucket = todayBucket(latest) || todayBucket(task);
+      if (bucket === "approval") {
+        const approvalId = String(latest.approval_id || task.approval_id || "").trim();
+        nav(approvalId ? `/approvals/${encodeURIComponent(approvalId)}` : "/approvals");
+        return;
+      }
+      if (latest.session_id) {
+        sessionStorage.setItem(`task:${latest.session_id}`, latest.id);
+        if (latest.collaboration_id || latest.project_id) {
+          sessionStorage.setItem(`kol-session:${latest.session_id}`, "1");
+        }
+        nav(`/s/${latest.session_id}`, {
+          state: { kolSession: Boolean(latest.collaboration_id || latest.project_id) },
+        });
+        return;
+      }
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const openTask = async (task: Task) => {
     rememberJourney({
       kind: "task",
@@ -955,7 +1004,7 @@ export default function Home() {
   );
 
   const todayTodos = useMemo(
-    () => todoItems.filter(isTodayActionableTodo),
+    () => sortTodayTodos(todoItems.filter(isTodayActionableTodo)),
     [todoItems],
   );
 
@@ -1069,9 +1118,7 @@ export default function Home() {
   const overdueCount = todoItems.filter((task) => todoBucket(task) === "overdue").length;
   const dueTodayCount = todoItems.filter((task) => todoBucket(task) === "today").length;
   const awaitingApprovalCount = todoItems.filter((task) => isAwaitingApproval(task)).length;
-  const showInsightList = insightItems.length > 0 || recommendedItems.length === 0;
-  const insightCount = recommendedItems.length + (showInsightList ? insightItems.length : 0);
-  const highValueCount = insightItems.filter(isHighValueInsight).length;
+  const todayCount = todayTodos.length;
   const recognizeSeconds = recognizeElapsedSeconds(recognizeStartedAt, recognizeNow);
   const recognizeOverdue = recognizeTimedOut(recognizeStartedAt, recognizeNow);
 
@@ -1180,11 +1227,10 @@ export default function Home() {
               aria-selected={mode === "today"}
               data-home-mode="today"
               data-home-entry="switch-tab"
-              data-ai-count={insightCount}
+              data-today-count={todayCount}
               onClick={() => setMode("today")}
             >
-              {HOME_MODE_LABELS.today} <span className="home-mode-count">{insightCount}</span>
-              {highValueCount ? <span className="home-mode-dot" data-insight-mark aria-label="有高价值建议" /> : null}
+              {HOME_MODE_LABELS.today} <span className="home-mode-count">{todayCount}</span>
             </button>
             <button
               type="button"
@@ -1231,16 +1277,9 @@ export default function Home() {
         >
           {mode === "today" ? (
             <TodayPane
-              recommendedItems={recommendedItems}
               todayTodos={todayTodos}
-              insightItems={insightItems}
-              todos={todoItems}
               busy={busy}
-              onPick={onRecommend}
-              onConvert={(item) => void convertSuggestion(item)}
-              onPromote={(task) => void promoteInsight(task)}
-              onDismiss={(task) => void dismissInsight(task)}
-              onOpen={(task) => void openTask(task)}
+              onAct={(task) => void actOnTodayTask(task)}
             />
           ) : null}
 

@@ -34,11 +34,11 @@ test("home four-panel tab order and pane visibility", async ({ page }) => {
 
   await expect(page.locator("[data-home] h1")).toHaveText("今天有什么工作要处理？");
   await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
-  await expect(page.locator("[data-today-suggestions]")).toBeVisible();
-  await expect(page.locator("[data-recommended-task]").first()).toContainText("今天推荐");
+  await expect(page.locator("[data-today-list]")).toBeVisible();
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("今天推荐");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("已入队");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("AI发现");
-  await expect(page.locator("[data-suggest-cta='prefill']").first()).toBeVisible();
-  await expect(page.locator("[data-suggest-cta='todo']").first()).toBeVisible();
+  await expect(page.locator("[data-today-suggestions], [data-recommended-task], [data-insight-list]")).toHaveCount(0);
   await expect(page.locator('[data-home-pane="todo"]')).toHaveCount(0);
   await expect(page.locator('[data-home-pane="discovery"]')).toHaveCount(0);
   await expect(page.locator('[data-home-pane="lifecycle"]')).toHaveCount(0);
@@ -1339,25 +1339,15 @@ test("home followed multi-select shows one filled top CTA", async ({ page }) => 
   await expect(list.locator("[data-kol-primary-action].btn.work")).toHaveCount(0);
 });
 
-test("today suggestion convert to todo dedupes", async ({ page }) => {
+test("today pane has no recommend convert and keeps formal todos only", async ({ page }) => {
   await page.goto("/");
+  await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
+  await expect(page.locator("[data-today-list]")).toBeVisible();
+  await expect(page.locator("[data-recommended-task], [data-suggestion-to-todo], [data-today-suggestions]")).toHaveCount(0);
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("今天推荐");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("已入队");
   await openMode(page, "todo");
   await expect(page.locator("[data-todo-card]").first()).toBeVisible({ timeout: 15000 });
-  await openMode(page, "today");
-  const firstSuggest = page.locator("[data-recommended-task]").first();
-  const title = (await firstSuggest.locator("strong").innerText()).trim();
-  const convert = page.locator("[data-suggestion-to-todo]").first();
-  await expect(convert).toHaveText("加入待办");
-  await convert.click();
-  await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
-  await expect(page.locator("[data-todo-card]").filter({ hasText: title })).toHaveCount(1);
-  const afterFirst = await page.locator("[data-todo-card]").count();
-  await openMode(page, "today");
-  await expect(page.locator("[data-suggestion-to-todo]").first()).toHaveText("已在待办");
-  await expect(page.locator("[data-suggestion-to-todo]").first()).toBeDisabled();
-  await openMode(page, "todo");
-  await expect(page.locator("[data-todo-card]").filter({ hasText: title })).toHaveCount(1);
-  await expect(page.locator("[data-todo-card]")).toHaveCount(afterFirst);
 });
 
 test("home four tabs live in ?tab= and switching does not POST sessions", async ({ page }) => {
@@ -1373,8 +1363,8 @@ test("home four tabs live in ?tab= and switching does not POST sessions", async 
   await page.goto("/");
   await expect(page).toHaveURL(/\/(?:\?|$)/);
   await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
-  await expect(page.locator("[data-today-formal]")).toBeVisible();
-  await expect(page.locator("[data-today-candidates], [data-today-suggestions]")).toBeVisible();
+  await expect(page.locator("[data-today-list]")).toBeVisible();
+  await expect(page.locator("[data-today-candidates], [data-today-suggestions]")).toHaveCount(0);
 
   await openMode(page, "todo");
   await expect(page).toHaveURL(/[?&]tab=todo/);

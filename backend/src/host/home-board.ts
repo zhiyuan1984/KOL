@@ -232,18 +232,36 @@ export function isInsightWorkItem(task: {
     && !isClosedWorkItem(task);
 }
 
+const HIGH_RISK_TEXT = /异常|拒绝|暂缓/;
+
+export function isHighRiskWorkItem(task: {
+  risk?: unknown;
+  status?: unknown;
+  title?: unknown;
+  current_stage?: unknown;
+}): boolean {
+  if (task.risk || String(task.status || "") === "failed") return true;
+  return HIGH_RISK_TEXT.test(`${task.title || ""} ${task.current_stage || ""}`);
+}
+
 export function isTodayWorkItem(task: {
   source?: unknown;
   status?: unknown;
   promoted_at?: unknown;
   dismissed_at?: unknown;
   due_at?: unknown;
+  risk?: unknown;
+  title?: unknown;
+  current_stage?: unknown;
 }): boolean {
   if (!isTodoWorkItem(task)) return false;
+  if (isHighRiskWorkItem(task)) return true;
   const flags = dueFlags(task.due_at);
   if (flags.overdue || flags.due_today) return true;
-  const status = String(task.status || "");
-  return ["waiting", "queued", "running", "waiting_approval", "in_progress"].includes(status);
+  const status = String(task.status || "").toLowerCase();
+  if (status === "running" || status === "in_progress" || status === "starting") return true;
+  if (status === "waiting_approval" || status === "awaiting_approval") return true;
+  return false;
 }
 
 export function isTodoWorkItem(task: {
@@ -270,6 +288,7 @@ const SLIM_WORKBENCH_KEYS = [
   "promoted_at", "dismissed_at", "history_summary", "kol_name", "collab_summary",
   "recent_followup", "current_stage", "suggested_stage", "suggested_stage_code",
   "collaboration_id", "next_action", "task_type", "skill",
+  "risk", "session_id", "description", "context", "last_acted_at", "acknowledged_at",
 ] as const;
 
 function slimWorkbenchTask(task: Json): Json {

@@ -230,6 +230,8 @@ export type Task = {
   suggested_stage_code?: string;
   risk?: string;
   due_at?: string;
+  last_acted_at?: string | null;
+  acknowledged_at?: string | null;
   promoted_at?: string | null;
   dismissed_at?: string | null;
   next_action?: string;
@@ -708,6 +710,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+  acknowledgeTask: (id: string) =>
+    request<Task & { creates_session?: boolean; entry?: string }>(
+      `/api/tasks/${encodeURIComponent(id)}/acknowledge`,
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+      },
+    ),
   adoptRecommendation: (body: Record<string, unknown>) =>
     request<Task & { reused?: boolean; created?: boolean }>("/api/tasks/adopt-recommendation", {
       method: "POST",

@@ -1078,6 +1078,88 @@ summary:focus-visible,
   width: 100%;
   max-width: none;
 }
+.today-todo-list,
+.today-todo-ol,
+.today-todo-row {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+.today-todo-ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-3);
+}
+.today-todo-row {
+  display: grid;
+  gap: 4px;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+.today-todo-row:last-child {
+  border-bottom: 0;
+}
+.today-todo-line {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.today-todo-line1 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.today-todo-label {
+  flex: 0 0 auto;
+  color: var(--primary);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.today-todo-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-ui);
+}
+.today-todo-title strong {
+  font-weight: 500;
+}
+.today-todo-due {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.today-todo-act {
+  flex: 0 0 auto;
+  margin: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--primary);
+  color: #fff;
+  font: inherit;
+  font-size: var(--font-sm);
+  line-height: 1;
+  padding: 8px 12px;
+  min-height: 32px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.today-todo-act:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.today-todo-line2 {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .home-dedupe-notice {
   margin: 0 0 var(--space-2);
   color: var(--text-muted);
