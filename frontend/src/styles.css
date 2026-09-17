@@ -273,21 +273,32 @@ summary:focus-visible,
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
+}
+/* ChatGPT thin rail scrollbar — light thumb, transparent track, no Windows arrows. */
+.sidebar,
+.sidebar-scroll {
   scrollbar-width: thin;
-  scrollbar-color: var(--sidebar-thumb) transparent;
+  scrollbar-color: #c7c7c7 transparent;
 }
+.sidebar::-webkit-scrollbar,
 .sidebar-scroll::-webkit-scrollbar {
-  width: 5px;
+  width: 6px;
+  height: 6px;
 }
+.sidebar::-webkit-scrollbar-track,
 .sidebar-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
+.sidebar::-webkit-scrollbar-thumb,
 .sidebar-scroll::-webkit-scrollbar-thumb {
-  background: var(--sidebar-thumb);
-  border-radius: 999px;
+  background: #c7c7c7;
+  border-radius: 99px;
 }
-.sidebar-scroll::-webkit-scrollbar-thumb:hover {
-  background: #b0b6be;
+.sidebar::-webkit-scrollbar-button,
+.sidebar-scroll::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }
 .sidebar-nav-stack {
   display: flex;
@@ -6578,7 +6589,6 @@ body {
   gap: 12px;
 }
 
-.sidebar-scroll,
 .session-stream,
 .side-body,
 .pipeline-drawer-body,
@@ -6590,7 +6600,6 @@ body {
   scrollbar-color: color-mix(in srgb, var(--text) 28%, transparent) transparent;
 }
 
-.sidebar-scroll::-webkit-scrollbar,
 .session-stream::-webkit-scrollbar,
 .side-body::-webkit-scrollbar,
 .pipeline-drawer-body::-webkit-scrollbar,
@@ -6602,7 +6611,6 @@ body {
   height: var(--scrollbar-size);
 }
 
-.sidebar-scroll::-webkit-scrollbar-track,
 .session-stream::-webkit-scrollbar-track,
 .side-body::-webkit-scrollbar-track,
 .pipeline-drawer-body::-webkit-scrollbar-track,
@@ -6613,7 +6621,6 @@ body {
   background: transparent;
 }
 
-.sidebar-scroll::-webkit-scrollbar-thumb,
 .session-stream::-webkit-scrollbar-thumb,
 .side-body::-webkit-scrollbar-thumb,
 .pipeline-drawer-body::-webkit-scrollbar-thumb,
@@ -6625,7 +6632,6 @@ body {
   border-radius: var(--radius-full);
 }
 
-.sidebar-scroll::-webkit-scrollbar-thumb:hover,
 .session-stream::-webkit-scrollbar-thumb:hover,
 .side-body::-webkit-scrollbar-thumb:hover,
 .pipeline-drawer-body::-webkit-scrollbar-thumb:hover,
@@ -8703,4 +8709,32 @@ body {
   font-size: 13px;
   font-weight: 400;
   color: #6b6b6b;
+}
+
+/* Last-wins ChatGPT sidebar scrollbar. Must beat earlier dark-thumb / Windows-arrow rules.
+   Desktop 260 rail lock above stays intact. */
+.sidebar,
+.sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #c7c7c7 transparent;
+}
+.sidebar::-webkit-scrollbar,
+.sidebar-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.sidebar::-webkit-scrollbar-track,
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar::-webkit-scrollbar-thumb,
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: #c7c7c7;
+  border-radius: 99px;
+}
+.sidebar::-webkit-scrollbar-button,
+.sidebar-scroll::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }

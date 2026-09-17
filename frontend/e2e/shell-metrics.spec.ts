@@ -98,6 +98,15 @@ test("desktop employee shell computed 260 rail and Codex Regular type", async ({
   expectExpandedDesktopRail(beforeLifecycle);
   await expect(page.locator(".workbench")).toHaveAttribute("data-left-width", "260");
 
+  const sidebarScrollCss = await page.locator(".sidebar-scroll").evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { scrollbarWidth: cs.scrollbarWidth, scrollbarColor: cs.scrollbarColor };
+  });
+  expect(sidebarScrollCss.scrollbarWidth).toBe("thin");
+  expect(sidebarScrollCss.scrollbarColor.replace(/\s+/g, " ")).toMatch(
+    /^(#c7c7c7|rgb\(199, 199, 199\)) (transparent|rgba\(0, 0, 0, 0\))$/i,
+  );
+
   // 1280 = 2560×1600 @ 200% CSS viewport — the machine where min-width:0 + > lock crushed to ~210.
   const fixedViewports = [1280, 1920, 2560] as const;
   const fixedTable: Record<string, RailMetrics> = {};
@@ -212,4 +221,16 @@ test("desktop employee shell computed 260 rail and Codex Regular type", async ({
     path: path.join(process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results", "home-1440-after.png"),
     fullPage: false,
   });
+});
+
+test("sidebar CSS source keeps 260 rail and ChatGPT thin scrollbar", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../src/styles.css"), "utf8");
+  expect(source).toMatch(/--left-width:\s*260px/);
+  expect(source).toContain("width: 260px !important");
+  expect(source).toContain("min-width: 260px !important");
+  expect(source).toContain("flex: 0 0 260px !important");
+  expect(source).toContain("scrollbar-color: #c7c7c7 transparent");
+  expect(source).toContain(".sidebar::-webkit-scrollbar-button");
+  expect(source).toContain(".sidebar-scroll::-webkit-scrollbar-button");
+  expect(source).not.toMatch(/\.sidebar-scroll\s*\{[^}]*scrollbar-color:\s*var\(--sidebar-thumb\)/);
 });
