@@ -21,11 +21,14 @@ test("sidebar 新工作任务 lands on today list without tab hop or recommend/q
   await expect(page.locator("[data-today-list]")).toBeVisible();
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("已入队");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("今天推荐");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("加入待办");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("正式待办");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("待办");
   await expect(page.locator("[data-recommended-tasks], [data-today-suggestions], [data-insight-list]")).toHaveCount(0);
   await expect(page.locator("[data-today-brief], [data-today-primary]")).toHaveCount(0);
 });
 
-test("today pane shows only risk/overdue/due/running/approval formal todos", async ({ page }) => {
+test("today pane shows bucket work items including unpromoted source=ai", async ({ page }) => {
   const todos = [
     {
       id: "tsk_high",
@@ -81,15 +84,30 @@ test("today pane shows only risk/overdue/due/running/approval formal todos", asy
       status: "pending",
     },
     {
-      id: "tsk_ai",
-      title: "今天推荐画像",
+      id: "tsk_ai_open",
+      title: "画像补全",
       source: "ai",
       status: "pending",
+    },
+    {
+      id: "tsk_ai_failed",
+      title: "记状态争议",
+      source: "ai",
+      status: "failed",
+      history_summary: "样品丢失争议",
+    },
+    {
+      id: "tsk_ai_overdue",
+      title: "失联跟进",
+      source: "ai",
+      status: "pending",
+      due_at: dayIso(-2),
+      next_action: "再写一封跟进",
     },
   ];
   const writes: string[] = [];
   await page.route("**/api/home/board", (route) => route.fulfill({
-    json: { kols: [], tabs: [], tasks: todos, workbench: { today: todos.filter((row) => !["tsk_queued", "tsk_open", "tsk_ai"].includes(row.id)), todo: todos, recommendations: [{ id: "rec-1", title: "今天推荐诱饵", reason: "不要出现", source: "ai" }] } },
+    json: { kols: [], tabs: [], tasks: todos, workbench: { today: todos.filter((row) => !["tsk_queued", "tsk_open", "tsk_ai_open"].includes(row.id)), todo: todos, recommendations: [{ id: "rec-1", title: "诱饵", reason: "不要出现", source: "ai" }] } },
   }));
   await page.route("**/api/tasks**", async (route) => {
     const url = new URL(route.request().url());
@@ -120,16 +138,22 @@ test("today pane shows only risk/overdue/due/running/approval formal todos", asy
   await page.goto("/");
   await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
   await expect(page.locator("[data-today-list]")).toBeVisible();
-  await expect(page.locator("[data-today-todo]")).toHaveCount(5);
+  await expect(page.locator("[data-today-todo]")).toHaveCount(7);
   await expect(page.locator('[data-today-todo="tsk_high"]')).toContainText("高风险");
+  await expect(page.locator('[data-today-todo="tsk_ai_failed"]')).toContainText("高风险");
   await expect(page.locator('[data-today-todo="tsk_overdue"]')).toContainText("已逾期");
+  await expect(page.locator('[data-today-todo="tsk_ai_overdue"]')).toContainText("已逾期");
   await expect(page.locator('[data-today-todo="tsk_due"]')).toContainText("今天到期");
   await expect(page.locator('[data-today-todo="tsk_run"]')).toContainText("进行中");
   await expect(page.locator('[data-today-todo="tsk_approval"]')).toContainText("审批中");
+  await expect(page.locator('[data-today-todo="tsk_queued"], [data-today-todo="tsk_open"], [data-today-todo="tsk_ai_open"]')).toHaveCount(0);
   await expect(page.locator('[data-today-todo="tsk_high"] [data-today-todo-act]')).toHaveText("处理");
   await expect(page.locator('[data-today-todo="tsk_approval"] [data-today-todo-act]')).toHaveText("去审批");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("已入队");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("今天推荐");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("加入待办");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("正式待办");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("待办");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("现在做这一件");
   await expect(page.locator("[data-recommended-task], [data-insight-card]")).toHaveCount(0);
 

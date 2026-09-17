@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Task } from "../api";
 import {
   isTodayActionableTodo,
+  isTodoTask,
   sortTodayTodos,
   todayBucket,
   todayContentLine,
@@ -17,7 +18,30 @@ describe("today pane buckets", () => {
     expect(parseHomeMode(null)).toBe("today");
     expect(isTodayActionableTodo(task({ id: "q", title: "queued", status: "queued" }))).toBe(false);
     expect(isTodayActionableTodo(task({ id: "p", title: "open no due", status: "pending" }))).toBe(false);
-    expect(isTodayActionableTodo(task({ id: "ai", title: "unpromoted", source: "ai", status: "running" }))).toBe(false);
+    expect(isTodayActionableTodo(task({ id: "ai-open", title: "ai pending no due", source: "ai", status: "pending" }))).toBe(false);
+  });
+
+  it("shows source=ai work items that fit a bucket without promote", () => {
+    const failed = task({
+      id: "ai-failed",
+      title: "记状态",
+      source: "ai",
+      status: "failed",
+    });
+    const overdue = task({
+      id: "ai-overdue",
+      title: "失联跟进",
+      source: "ai",
+      status: "pending",
+      due_at: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+    });
+    expect(isTodoTask(failed)).toBe(false);
+    expect(isTodoTask(overdue)).toBe(false);
+    expect(isTodayActionableTodo(failed)).toBe(true);
+    expect(isTodayActionableTodo(overdue)).toBe(true);
+    expect(todayBucket(failed)).toBe("high_risk");
+    expect(todayBucket(overdue)).toBe("overdue");
+    expect(isTodayActionableTodo(task({ id: "ai-run", title: "扫描", source: "ai", status: "running" }))).toBe(true);
   });
 
   it("assigns exclusive buckets with high-risk winning overdue", () => {

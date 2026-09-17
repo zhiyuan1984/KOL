@@ -170,9 +170,9 @@ function isApprovalStatus(status?: string) {
   return waitDisplayOf(status) === "awaiting_approval" || value === "awaiting_approval" || value === "waiting_approval";
 }
 
-/** Exclusive today bucket. High-risk wins over overdue. Queued / open-with-no-due stay off this page. */
+/** Exclusive today bucket. Not closed / not dismissed only — no promote / isTodoTask gate. */
 export function todayBucket(task: Task): TodayBucket | null {
-  if (!isTodoTask(task)) return null;
+  if (isClosedTask(task) || task.dismissed_at) return null;
   if (isHighRiskTask(task)) return "high_risk";
   const diff = dueDayDiff(task.due_at);
   if (diff != null && diff < 0) return "overdue";
@@ -316,7 +316,7 @@ export function deriveWorkbench(tasks: Task[], kols: Array<{ exception?: boolean
       insights: insights.length,
     },
     todo,
-    today: todo.filter(isTodayActionableTodo),
+    today: sortTodayTodos(tasks.filter(isTodayActionableTodo)),
     insights,
     recommendations: [],
     lifecycle: {

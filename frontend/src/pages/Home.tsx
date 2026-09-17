@@ -330,7 +330,7 @@ export default function Home() {
     });
   };
 
-  const fetchHomeTasks = () => api.tasks({ view: "todo" }).then(unwrapTaskList).then(applyTaskCatalog);
+  const fetchHomeTasks = () => api.tasks().then(unwrapTaskList).then(applyTaskCatalog);
 
   const loadBoard = (force = false) => {
     if (!force && boardRequestedRef.current) return Promise.resolve();
@@ -343,7 +343,8 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
-    // Mount: task definitions + GET /api/tasks only.
+    // Mount: task definitions + GET /api/tasks (full catalog).
+    // Today filters buckets in FE and does not use view=todo / promote.
     // Do not GET /api/home or GET /api/home/board here — board waits for
     // first「我跟进的红人」entry or the refresh control.
     void api.taskDefinitions().then(definitionList).then((taskDefinitions) => {
@@ -351,7 +352,7 @@ export default function Home() {
         setDefinitions(withHomeCommandTemplates(taskDefinitions));
       }
     }).catch(() => undefined);
-    void api.tasks({ view: "todo" }).then(unwrapTaskList).then((catalog) => {
+    void api.tasks().then(unwrapTaskList).then((catalog) => {
       if (!cancelled) applyTaskCatalog(catalog);
     }).catch(() => undefined);
     return () => {
@@ -1004,8 +1005,8 @@ export default function Home() {
   );
 
   const todayTodos = useMemo(
-    () => sortTodayTodos(todoItems.filter(isTodayActionableTodo)),
-    [todoItems],
+    () => sortTodayTodos(taskCatalog.filter(isTodayActionableTodo)),
+    [taskCatalog],
   );
 
   const visibleTodoItems = useMemo(

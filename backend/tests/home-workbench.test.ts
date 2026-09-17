@@ -190,7 +190,7 @@ describe("home workbench", () => {
     });
   });
 
-  it("marks today formal items vs candidate recommendations", () => {
+  it("marks today bucket items vs candidate recommendations", () => {
     const board = buildHomeBoard() as Json;
     const workbench = board.workbench as Json;
     const todo = workbench.todo as Json[];
@@ -201,13 +201,21 @@ describe("home workbench", () => {
     expect(insights.every((row) => row.candidate === true)).toBe(true);
     expect(recs.every((row) => row.candidate === true)).toBe(true);
     expect(Array.isArray(today)).toBe(true);
-    expect(today.every((row) => row.candidate === false)).toBe(true);
     expect(today.map((row) => String(row.id)).sort()).toEqual(["tsk_home_laozhang_quote", "tsk_home_trip_stage"]);
     expect(isTodayWorkItem({ source: "manual", status: "queued" })).toBe(false);
     expect(isTodayWorkItem({ source: "manual", status: "pending" })).toBe(false);
     expect(isTodayWorkItem({ source: "manual", status: "running" })).toBe(true);
     expect(isTodayWorkItem({ source: "manual", status: "waiting_approval" })).toBe(true);
     expect(isTodayWorkItem({ source: "manual", status: "failed", title: "记状态" })).toBe(true);
+    expect(isTodayWorkItem({ source: "ai", status: "failed", title: "记状态" })).toBe(true);
+    expect(isTodayWorkItem({
+      source: "ai",
+      status: "pending",
+      title: "失联跟进",
+      due_at: new Date(Date.now() - 86_400_000).toISOString(),
+    })).toBe(true);
+    expect(isTodayWorkItem({ source: "ai", status: "pending", title: "待补画像" })).toBe(false);
+    expect(isTodayWorkItem({ source: "ai", status: "queued", title: "队列画像" })).toBe(false);
     expect(board.creates_session).toBe(false);
     expect(board.entry).toBe("memory");
   });

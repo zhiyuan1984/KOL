@@ -31,7 +31,6 @@ function TodayTodoRow({
       data-today-todo={task.id}
       data-today-bucket={bucket}
       data-today-status={status}
-      data-candidate="false"
     >
       <div className="today-todo-line today-todo-line1">
         <span className="today-todo-label" data-today-label={bucket}>{status}</span>
@@ -94,7 +93,7 @@ export default function TodayPane({
         ) : (
           <div className="task-empty" data-today-list-empty="no-data">
             <strong>今天没有待处理事项</strong>
-            <p>高风险、已逾期、今天到期、进行中和审批中的正式待办会出现在这里。</p>
+            <p>高风险、已逾期、今天到期、进行中和审批中的事项会出现在这里。</p>
           </div>
         )}
       </section>

@@ -254,7 +254,7 @@ export function isTodayWorkItem(task: {
   title?: unknown;
   current_stage?: unknown;
 }): boolean {
-  if (!isTodoWorkItem(task)) return false;
+  if (isClosedWorkItem(task) || task.dismissed_at) return false;
   if (isHighRiskWorkItem(task)) return true;
   const flags = dueFlags(task.due_at);
   if (flags.overdue || flags.due_today) return true;
@@ -571,7 +571,7 @@ export function followReleaseTimer(lastInteractionAt?: string | null): {
 export function buildWorkbench(tasks: Json[], kols: Json[]): Json {
   const todo = tasks.filter((task) => isTodoWorkItem(task)).map((task) => ({ ...task, candidate: false } as Json));
   const insights = tasks.filter((task) => isInsightWorkItem(task)).map((task) => ({ ...task, candidate: true } as Json));
-  const today = todo.filter((task) => isTodayWorkItem(task));
+  const today = tasks.filter((task) => isTodayWorkItem(task)).map((task) => ({ ...task } as Json));
   const waiting = todo.filter((task) => ["waiting", "queued"].includes(String(task.status || "")));
   const overdue = todo.filter((task) => dueFlags(task.due_at).overdue);
   const dueToday = todo.filter((task) => dueFlags(task.due_at).due_today);

@@ -1766,7 +1766,7 @@ test("home recognizing feedback is labeled 识别中", async ({ page }) => {
   await expect(recognizing).not.toContainText("等待中");
 });
 
-test("home today pane is formal todos only and 我的待办 still opens the KOL session", async ({ page }) => {
+test("home today pane lists bucket items and 我的待办 still opens the KOL session", async ({ page }) => {
   await page.goto("/");
   await expectHomeModeOrder(page);
   await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "true");
@@ -1774,6 +1774,9 @@ test("home today pane is formal todos only and 我的待办 still opens the KOL 
   await expect(page.locator("[data-recommended-tasks]")).toHaveCount(0);
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("今天推荐");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("已入队");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("加入待办");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("正式待办");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("待办");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("AI发现");
   await expect(page.locator("[data-today-work]")).toHaveCount(0);
   await expect(page.locator("[data-today-todo]").filter({ hasText: "旅行电源菌" })).toBeVisible();

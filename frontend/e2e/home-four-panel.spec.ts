@@ -37,6 +37,9 @@ test("home four-panel tab order and pane visibility", async ({ page }) => {
   await expect(page.locator("[data-today-list]")).toBeVisible();
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("今天推荐");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("已入队");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("加入待办");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("正式待办");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("待办");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("AI发现");
   await expect(page.locator("[data-today-suggestions], [data-recommended-task], [data-insight-list]")).toHaveCount(0);
   await expect(page.locator('[data-home-pane="todo"]')).toHaveCount(0);
@@ -1339,13 +1342,16 @@ test("home followed multi-select shows one filled top CTA", async ({ page }) => 
   await expect(list.locator("[data-kol-primary-action].btn.work")).toHaveCount(0);
 });
 
-test("today pane has no recommend convert and keeps formal todos only", async ({ page }) => {
+test("today pane has no recommend convert and no 待办 copy", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
   await expect(page.locator("[data-today-list]")).toBeVisible();
   await expect(page.locator("[data-recommended-task], [data-suggestion-to-todo], [data-today-suggestions]")).toHaveCount(0);
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("今天推荐");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("已入队");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("加入待办");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("正式待办");
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("待办");
   await openMode(page, "todo");
   await expect(page.locator("[data-todo-card]").first()).toBeVisible({ timeout: 15000 });
 });
