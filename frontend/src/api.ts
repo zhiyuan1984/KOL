@@ -637,7 +637,7 @@ export const api = {
   saveStarryBinding: (body: { mailbox_email: string; bearer?: string; mailbox_id?: string; owner_name?: string }) =>
     request<StarryBinding>("/api/me/starry-binding", { method: "POST", body: JSON.stringify(body) }),
   clearStarryBinding: () => request<StarryBinding>("/api/me/starry-binding", { method: "DELETE" }),
-  tasks: (params?: { status?: string; source?: string; priority?: string }) => {
+  tasks: (params?: { status?: string; source?: string; priority?: string; view?: string }) => {
     const query = new URLSearchParams();
     Object.entries(params || {}).forEach(([key, value]) => {
       if (value) query.set(key, value);

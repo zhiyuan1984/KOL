@@ -5,7 +5,6 @@ import {
   type FromTextResult,
   type HomeWorkbench,
   type KnowledgeRow,
-  type Rec,
   type RecommendedTask,
   type StarryBinding,
   type Task,
@@ -72,11 +71,8 @@ import {
 } from "../followedKolCard";
 import {
   HOME_TASK_POLL_MS,
-  failureHint,
   isActiveRun,
   isAwaitingApproval,
-  isAwaitingReview,
-  mergeTaskDetails,
   recognizeElapsedSeconds,
   recognizeTimedOut,
   unwrapTaskList,
@@ -215,12 +211,9 @@ function ChromeIco({ path }: { path: string }) {
   );
 }
 
+const HOME_TODAY_TITLE = "今天有什么工作要处理？";
+
 export default function Home() {
-  const [home, setHome] = useState<{ brand: string; h1: string; recs: Rec[] }>({
-    brand: "灵工 工作",
-    h1: "今天有什么工作要处理？",
-    recs: [],
-  });
   const [tasks, setTasks] = useState<Task[]>([]);
   const [definitions, setDefinitions] = useState<TaskDefinition[]>([]);
   const [tab, setTab] = useState<HomeTab>("today");
@@ -286,6 +279,7 @@ export default function Home() {
   const lastComposer = useRef<ComposerSubmit | null>(null);
   const taskCatalogRef = useRef<Task[]>([]);
   const [taskCatalog, setTaskCatalog] = useState<Task[]>([]);
+  const boardRequestedRef = useRef(false);
   const missingAlertRef = useRef<HTMLElement | null>(null);
   const [recognizeStartedAt, setRecognizeStartedAt] = useState<number | null>(null);
   const [recognizeNow, setRecognizeNow] = useState(() => Date.now());
@@ -311,7 +305,6 @@ export default function Home() {
 
   const applyBoard = (board: Awaited<ReturnType<typeof api.homeBoard>>) => {
     if (Array.isArray(board.kols)) setFollowedKols(board.kols as FollowedKol[]);
-    if (Array.isArray(board.tasks)) setTasks(mergeTaskDetails(board.tasks as Task[], taskCatalogRef.current));
     setBoardWorkbench(board.workbench || null);
     setFollowScope(board.follow_scope || null);
     setBoardError("");
@@ -320,34 +313,43 @@ export default function Home() {
   const applyTaskCatalog = (catalog: Task[]) => {
     taskCatalogRef.current = catalog;
     setTaskCatalog(catalog);
-    setTasks((current) => mergeTaskDetails(current, catalog));
+    setTasks(catalog);
+  };
+
+  const prependTask = (created: Task) => {
+    const next = (current: Task[]) => (
+      current.some((task) => task.id === created.id) ? current : [created, ...current]
+    );
+    setTasks(next);
+    setTaskCatalog((current) => {
+      const updated = next(current);
+      taskCatalogRef.current = updated;
+      return updated;
+    });
+  };
+
+  const fetchHomeTasks = () => api.tasks({ view: "todo" }).then(unwrapTaskList).then(applyTaskCatalog);
+
+  const loadBoard = (force = false) => {
+    if (!force && boardRequestedRef.current) return Promise.resolve();
+    boardRequestedRef.current = true;
+    return api.homeBoard({ refresh: force }).then(applyBoard).catch((error) => {
+      if (!force) boardRequestedRef.current = false;
+      setBoardError(error instanceof Error ? error.message : "工作台读取失败");
+    });
   };
 
   useEffect(() => {
     let cancelled = false;
-    void api.home().then((legacyHome) => {
-      if (cancelled) return;
-      setHome(legacyHome);
-      if (!legacyHome.recs?.length) return;
-      const incoming = withHomeCommandTemplates(legacyHome.recs.map((rec: Rec) => ({
-        ...rec,
-        description: rec.description || rec.profile,
-      })));
-      // `definitions` in this effect is the first-render []. Always merge extras
-      // and never replace a fuller registry catalog with the legacy rec list.
-      setDefinitions((current) => (current.length > incoming.length ? current : incoming));
-    }).catch(() => undefined);
+    // Mount: task definitions + GET /api/tasks only.
+    // Do not GET /api/home or GET /api/home/board here — board waits for
+    // first「我跟进的红人」entry or the refresh control.
     void api.taskDefinitions().then(definitionList).then((taskDefinitions) => {
       if (!cancelled && taskDefinitions.length) {
         setDefinitions(withHomeCommandTemplates(taskDefinitions));
       }
     }).catch(() => undefined);
-    void api.homeBoard().then((board) => {
-      if (!cancelled) applyBoard(board);
-    }).catch((error) => {
-      if (!cancelled) setBoardError(error instanceof Error ? error.message : "工作台读取失败");
-    });
-    void api.tasks().then(unwrapTaskList).then((catalog) => {
+    void api.tasks({ view: "todo" }).then(unwrapTaskList).then((catalog) => {
       if (!cancelled) applyTaskCatalog(catalog);
     }).catch(() => undefined);
     return () => {
@@ -437,7 +439,7 @@ export default function Home() {
     if (created.status === "needs_clarification") {
       const resolution = created.resolution as { missing_fields?: string[]; entities?: Record<string, unknown> } | undefined;
       const missing = resolution?.missing_fields || [];
-      setTasks((current) => current.some((task) => task.id === created.id) ? current : [created, ...current]);
+      prependTask(created);
       setFeedback({
         task: created,
         tasks: [created],
@@ -712,20 +714,27 @@ export default function Home() {
     }
   };
 
+  const refreshTasks = () => fetchHomeTasks().catch(() => undefined);
+
   const refreshBoard = (force = false) => Promise.all([
-    api.homeBoard({ refresh: force }).then(applyBoard),
-    api.tasks().then(unwrapTaskList).then(applyTaskCatalog),
-  ]).catch((error) => {
-    setBoardError(error instanceof Error ? error.message : "工作台读取失败");
-  });
+    loadBoard(force),
+    refreshTasks(),
+  ]);
 
   useEffect(() => {
     const onVisible = () => {
-      if (document.visibilityState === "visible") void refreshBoard(true);
+      if (document.visibilityState === "visible") void refreshTasks();
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
+
+  useEffect(() => {
+    if (mode !== "lifecycle") return;
+    void loadBoard();
+    // First entry to「我跟进的红人」loads board once; later tab switches stay local.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
 
   useEffect(() => {
     const recognizing = busy && !feedback && !err;
@@ -763,7 +772,7 @@ export default function Home() {
         intent: String(task.skill_id || task.skill || task.task_type || ""),
         collaboration_id: task.collaboration_id,
       });
-      await refreshBoard();
+      await refreshTasks();
       setMode("todo");
     } catch (error) {
       setErr(error instanceof Error ? error.message : String(error));
@@ -784,11 +793,8 @@ export default function Home() {
     setErr("");
     setDedupeNotice("");
     const mergeAdopted = (created: Task) => {
-      setTasks((current) => (
-        findDuplicateTodo(current.filter(isTodoTask), identity)
-          ? current
-          : current.some((task) => task.id === created.id) ? current : [created, ...current]
-      ));
+      if (findDuplicateTodo(taskCatalog.filter(isTodoTask), identity)) return;
+      prependTask(created);
       setBoardWorkbench((current) => (
         current
           ? {
@@ -810,7 +816,7 @@ export default function Home() {
         prompt: item.prompt || item.title,
       });
       mergeAdopted({ ...taskValue(adopted), title: item.title, candidate: false });
-      await refreshBoard();
+      await refreshTasks();
       setMode("todo");
     } catch {
       const local: Task = {
@@ -839,7 +845,7 @@ export default function Home() {
     setErr("");
     try {
       await api.dismissTask(task.id);
-      await refreshBoard();
+      await refreshTasks();
     } catch (error) {
       setErr(error instanceof Error ? error.message : String(error));
     } finally {
@@ -924,7 +930,7 @@ export default function Home() {
         return;
       }
       const created = recognized.task;
-      setTasks((current) => current.some((task) => task.id === created.id) ? current : [created, ...current]);
+      prependTask(created);
       clearLockedMail();
       openRun(await api.runTask(created.id));
     } catch (error) {
@@ -939,15 +945,14 @@ export default function Home() {
   );
 
   const workbench = useMemo(
-    () => boardWorkbench || deriveWorkbench(tasks, followedKols),
-    [boardWorkbench, followedKols, tasks],
+    () => boardWorkbench || deriveWorkbench(taskCatalog, mode === "lifecycle" ? followedKols : []),
+    [boardWorkbench, followedKols, mode, taskCatalog],
   );
 
-  const todoItems = useMemo(() => {
-    const fromBoard = workbench.todo || [];
-    const extras = tasks.filter(isTodoTask).filter((task) => !fromBoard.some((row) => row.id === task.id));
-    return sortedTasks(mergeTaskDetails([...fromBoard, ...extras], taskCatalog), "priority");
-  }, [taskCatalog, tasks, workbench.todo]);
+  const todoItems = useMemo(
+    () => sortedTasks(taskCatalog.filter(isTodoTask), "priority"),
+    [taskCatalog],
+  );
 
   const todayTodos = useMemo(
     () => todoItems.filter(isTodayActionableTodo),
@@ -964,8 +969,8 @@ export default function Home() {
   );
 
   const insightItems = useMemo(
-    () => sortedTasks(mergeTaskDetails(workbench.insights || tasks.filter(isInsightTask), taskCatalog), "priority"),
-    [taskCatalog, tasks, workbench.insights],
+    () => sortedTasks(taskCatalog.filter(isInsightTask), "priority"),
+    [taskCatalog],
   );
 
   const hasActiveRuns = useMemo(
@@ -977,7 +982,7 @@ export default function Home() {
     if (!hasActiveRuns) return;
     const tick = () => {
       if (document.visibilityState !== "visible") return;
-      void api.tasks().then(unwrapTaskList).then(applyTaskCatalog).catch(() => undefined);
+      void fetchHomeTasks().catch(() => undefined);
     };
     tick();
     const timer = window.setInterval(tick, HOME_TASK_POLL_MS);
@@ -990,8 +995,10 @@ export default function Home() {
   );
 
   const kolCards = useMemo(
-    () => followedKols.map((kol) => projectFollowedKolCard(kol, todoItems)),
-    [followedKols, todoItems],
+    () => mode === "lifecycle"
+      ? followedKols.map((kol) => projectFollowedKolCard(kol, todoItems))
+      : [],
+    [followedKols, mode, todoItems],
   );
 
   const visibleKols = useMemo(() => {
@@ -1011,6 +1018,7 @@ export default function Home() {
   );
 
   useEffect(() => {
+    if (mode !== "lifecycle") return;
     const ids = new Set(visibleKols.map((card) => card.id));
     setSelectedKolIds((current) => {
       const next = current.filter((id) => ids.has(id));
@@ -1018,7 +1026,7 @@ export default function Home() {
     });
     if (hoveredKolId && !ids.has(hoveredKolId)) setHoveredKolId(null);
     if (focusedKolId && !ids.has(focusedKolId)) setFocusedKolId(null);
-  }, [visibleKols, hoveredKolId, focusedKolId]);
+  }, [visibleKols, hoveredKolId, focusedKolId, mode]);
 
   const followEmptyKind = followScope?.required && !followScope.bound
     ? "unbound"
@@ -1159,7 +1167,7 @@ export default function Home() {
                 </Link>
             </div>
           </div>
-          {mode === "today" ? <h1 data-home-title="today">{home.h1}</h1> : null}
+          {mode === "today" ? <h1 data-home-title="today">{HOME_TODAY_TITLE}</h1> : null}
           <p className="home-stats" data-today-summary data-home-stats>
             {statsText}
             {awaitingApprovalCount ? ` · ${awaitingApprovalCount}等审批` : ""}
