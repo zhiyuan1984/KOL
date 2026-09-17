@@ -6,9 +6,11 @@ export const openStatuses = new Set(["pending", "waiting", "running", "queued", 
 export const closedStatuses = new Set(["completed", "done", "cancelled"]);
 export const HOME_FOLD_LIMIT = 6;
 
-export type TodoListFilter = "all" | "open" | "high";
+export type OpenBucket = "high_risk" | "overdue" | "due_today" | "running" | "approval" | "later";
+export type TodoListFilter = "all" | OpenBucket;
 export type ActionableTodoBucket = "overdue" | "today" | "waiting" | "approval" | "queued" | "running";
 export type TodoBucket = ActionableTodoBucket | "open";
+export type TodayBucket = Exclude<OpenBucket, "later">;
 
 export const HOME_TODO_BUCKETS = [
   ["overdue", "逾期"],
@@ -17,6 +19,42 @@ export const HOME_TODO_BUCKETS = [
   ["queued", "已入队"],
   ["running", "执行中"],
 ] as const satisfies ReadonlyArray<readonly [Exclude<ActionableTodoBucket, "waiting">, string]>;
+
+export const TODAY_BUCKETS = [
+  ["high_risk", "高风险"],
+  ["overdue", "已逾期"],
+  ["due_today", "今天到期"],
+  ["running", "进行中"],
+  ["approval", "审批中"],
+] as const satisfies ReadonlyArray<readonly [TodayBucket, string]>;
+
+export const OPEN_BUCKETS = [
+  ...TODAY_BUCKETS,
+  ["later", "后续"],
+] as const satisfies ReadonlyArray<readonly [OpenBucket, string]>;
+
+export const OPEN_FILTERS = [
+  ["all", "全部"],
+  ["high_risk", "高风险"],
+  ["overdue", "已逾期"],
+  ["due_today", "今天"],
+  ["running", "进行中"],
+  ["approval", "审批中"],
+  ["later", "后续"],
+] as const satisfies ReadonlyArray<readonly [TodoListFilter, string]>;
+
+const HIGH_RISK_TEXT = /异常|拒绝|暂缓/;
+const TODAY_BUCKET_RANK: Record<TodayBucket, number> = {
+  high_risk: 0,
+  overdue: 1,
+  due_today: 2,
+  running: 3,
+  approval: 4,
+};
+const OPEN_BUCKET_RANK: Record<OpenBucket, number> = {
+  ...TODAY_BUCKET_RANK,
+  later: 5,
+};
 
 export const EXCEPTION_TEMPLATE: TaskDefinition = {
   id: "exception_delay_care",
@@ -112,18 +150,22 @@ export function sortedTasks(rows: Task[], sort: string) {
   });
 }
 
+export function dueDayDiff(value?: string, now = new Date()): number | null {
+  if (!value) return null;
+  const due = new Date(value);
+  if (Number.isNaN(due.getTime())) return null;
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  const day = new Date(due);
+  day.setHours(0, 0, 0, 0);
+  return Math.round((day.getTime() - start.getTime()) / 86_400_000);
+}
+
 export function todoBucket(task: Task): TodoBucket {
-  if (task.due_at) {
-    const due = new Date(task.due_at);
-    if (!Number.isNaN(due.getTime())) {
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
-      const day = new Date(due);
-      day.setHours(0, 0, 0, 0);
-      const diff = Math.round((day.getTime() - start.getTime()) / 86_400_000);
-      if (diff < 0) return "overdue";
-      if (diff === 0) return "today";
-    }
+  const diff = dueDayDiff(task.due_at);
+  if (diff != null) {
+    if (diff < 0) return "overdue";
+    if (diff === 0) return "today";
   }
   const display = waitDisplayOf(task.status);
   if (display === "awaiting_review") return "waiting";
@@ -133,9 +175,95 @@ export function todoBucket(task: Task): TodoBucket {
   return "open";
 }
 
+export function isHighRiskTask(task: Task) {
+  if (task.risk || String(task.status || "") === "failed") return true;
+  return HIGH_RISK_TEXT.test(`${task.title || ""} ${task.current_stage || ""}`);
+}
+
+function isRunningStatus(status?: string) {
+  const value = String(status || "").toLowerCase();
+  return waitDisplayOf(status) === "running" || value === "in_progress" || value === "starting" || value === "running";
+}
+
+function isApprovalStatus(status?: string) {
+  const value = String(status || "").toLowerCase();
+  return waitDisplayOf(status) === "awaiting_approval" || value === "awaiting_approval" || value === "waiting_approval";
+}
+
+/** Exclusive today bucket. Not closed / not dismissed only — no promote / isTodoTask gate. */
+export function todayBucket(task: Task): TodayBucket | null {
+  if (isClosedTask(task) || task.dismissed_at) return null;
+  if (isHighRiskTask(task)) return "high_risk";
+  const diff = dueDayDiff(task.due_at);
+  if (diff != null && diff < 0) return "overdue";
+  if (diff === 0) return "due_today";
+  if (isRunningStatus(task.status)) return "running";
+  if (isApprovalStatus(task.status)) return "approval";
+  return null;
+}
+
+export function todayBucketLabel(bucket: TodayBucket) {
+  return TODAY_BUCKETS.find(([id]) => id === bucket)?.[1] || bucket;
+}
+
 export function isTodayActionableTodo(task: Task) {
-  const bucket = todoBucket(task);
-  return bucket === "overdue" || bucket === "today" || bucket === "approval" || bucket === "queued" || bucket === "running";
+  return todayBucket(task) !== null;
+}
+
+/** Full open memory list — not closed / not dismissed. No promote gate. */
+export function isOpenTask(task: Task) {
+  return !isClosedTask(task) && !task.dismissed_at;
+}
+
+export function openBucket(task: Task): OpenBucket | null {
+  if (!isOpenTask(task)) return null;
+  return todayBucket(task) || "later";
+}
+
+export function openBucketLabel(bucket: OpenBucket) {
+  return OPEN_BUCKETS.find(([id]) => id === bucket)?.[1] || bucket;
+}
+
+export function openPrimaryAction(bucket: OpenBucket) {
+  if (bucket === "later") return "打开";
+  return todayPrimaryAction(bucket);
+}
+
+export function sortOpenWorkItems(rows: Task[]): Task[] {
+  return [...rows].sort((a, b) => {
+    const left = openBucket(a);
+    const right = openBucket(b);
+    const byBucket = (left == null ? 99 : OPEN_BUCKET_RANK[left]) - (right == null ? 99 : OPEN_BUCKET_RANK[right]);
+    if (byBucket) return byBucket;
+    const dueA = dueTime(a.due_at);
+    const dueB = dueTime(b.due_at);
+    if (dueA !== dueB) return dueA - dueB;
+    return String(b.updated_at || "").localeCompare(String(a.updated_at || ""));
+  });
+}
+
+export function sortTodayTodos(rows: Task[]): Task[] {
+  return [...rows].sort((a, b) => {
+    const left = todayBucket(a);
+    const right = todayBucket(b);
+    const byBucket = (left == null ? 99 : TODAY_BUCKET_RANK[left]) - (right == null ? 99 : TODAY_BUCKET_RANK[right]);
+    if (byBucket) return byBucket;
+    return workPriorityScore(b) - workPriorityScore(a);
+  });
+}
+
+export function todayContentLine(task: Task) {
+  return [
+    String(task.description || "").trim(),
+    String(task.context || "").trim(),
+    String(task.history_summary || "").trim(),
+    String(task.next_action || "").trim(),
+    String(task.risk || "").trim(),
+  ].filter(Boolean).join(" · ");
+}
+
+export function todayPrimaryAction(bucket: TodayBucket) {
+  return bucket === "approval" ? "去审批" : "处理";
 }
 
 export function whyLine(task: Task) {
@@ -229,18 +357,20 @@ export function sortTodosByLaw(rows: Task[]): Task[] {
 }
 
 export function deriveWorkbench(tasks: Task[], kols: Array<{ exception?: boolean; unbound?: boolean; days_in_stage?: number }>): HomeWorkbench {
+  const open = sortOpenWorkItems(tasks.filter(isOpenTask));
   const todo = sortedTasks(tasks.filter(isTodoTask), "priority");
   const insights = sortedTasks(tasks.filter(isInsightTask), "priority");
   return {
     summary: {
-      open: todo.length,
-      overdue: todo.filter((task) => todoBucket(task) === "overdue").length,
-      due_today: todo.filter((task) => todoBucket(task) === "today").length,
-      waiting: todo.filter((task) => waitDisplayOf(task.status) === "awaiting_review").length,
+      open: open.length,
+      overdue: open.filter((task) => openBucket(task) === "overdue").length,
+      due_today: open.filter((task) => openBucket(task) === "due_today").length,
+      waiting: open.filter((task) => waitDisplayOf(task.status) === "awaiting_review").length,
       insights: insights.length,
     },
+    open,
     todo,
-    today: todo.filter(isTodayActionableTodo),
+    today: sortTodayTodos(tasks.filter(isTodayActionableTodo)),
     insights,
     recommendations: [],
     lifecycle: {
@@ -255,9 +385,8 @@ export function canOpenExistingTaskFlow(task: Task): boolean {
 }
 
 export function matchesTodoFilter(task: Task, filter: TodoListFilter) {
-  if (filter === "high") return task.priority === "high" || task.priority === "urgent";
-  if (filter === "open") return openStatuses.has(String(task.status || "pending"));
-  return true;
+  if (filter === "all") return isOpenTask(task);
+  return openBucket(task) === filter;
 }
 
 export function recommendationAsCandidate(item: RecommendedTask): RecommendedTask {

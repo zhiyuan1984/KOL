@@ -48,11 +48,11 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
   {
     id: "list-todos",
     kind: "memory",
-    action: "我的待办列表",
+    action: "未了结工作列表",
     creates_session: false,
     creates_turn: false,
     calls_model: false,
-    route: "GET /api/tasks?view=todo · GET /api/home/board → workbench.summary",
+    route: "GET /api/tasks?view=open · GET /api/home/board → workbench.open",
   },
   {
     id: "list-followed",
@@ -89,6 +89,15 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     creates_turn: false,
     calls_model: false,
     route: "POST /api/discovery/requests/:id/runs",
+  },
+  {
+    id: "acknowledge-task",
+    kind: "command",
+    action: "打开今日任务 / 记录处理",
+    creates_session: false,
+    creates_turn: false,
+    calls_model: false,
+    route: "POST /api/tasks/:id/acknowledge",
   },
   {
     id: "adopt-recommendation",

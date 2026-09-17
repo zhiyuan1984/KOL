@@ -8,7 +8,7 @@ import type { Json, Row } from "../types.js";
 import { recognizeTaskIntent } from "../tasks/recognize.js";
 import { resolveTaskIntent } from "../tasks/resolver.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
-import { historySummary, decorateTaskFromCollab, isTodoWorkItem, TODO_WORK_ITEM_SQL } from "../host/home-board.js";
+import { historySummary, decorateTaskFromCollab, isOpenWorkItem, OPEN_WORK_ITEM_SQL } from "../host/home-board.js";
 import { formatMissingFields, missingFieldsMessage } from "../labels.js";
 import { agentSubmissionAllowed, kolAgentManifest } from "../contract-scope.js";
 
@@ -257,7 +257,7 @@ tasks.get("/agent-manifest", (c) => {
 
 tasks.get("/tasks", (c) => {
   const view = String(c.req.query("view") || "");
-  const todoView = view === "todo";
+  const openView = view === "open" || view === "todo";
   const clauses: string[] = [];
   const values: unknown[] = [];
   if (!isAdmin() || c.req.query("scope") !== "all") {
@@ -271,7 +271,7 @@ tasks.get("/tasks", (c) => {
       values.push(value);
     }
   }
-  if (todoView) clauses.push(TODO_WORK_ITEM_SQL);
+  if (openView) clauses.push(OPEN_WORK_ITEM_SQL);
   const sort = c.req.query("sort") || "updated_desc";
   const order: Record<string, string> = {
     updated_desc: "updated_at DESC",
@@ -281,35 +281,35 @@ tasks.get("/tasks", (c) => {
   };
   if (!order[sort]) throw new HttpFail(400, "invalid sort");
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-  const limit = todoView ? parseLimit(c.req.query("limit")) : 0;
-  const total = todoView
+  const limit = openView ? parseLimit(c.req.query("limit")) : 0;
+  const total = openView
     ? Number((getConn().prepare(`SELECT COUNT(*) AS c FROM work_items ${where}`).get(...values) as { c: number }).c || 0)
     : 0;
   const rows = getConn().prepare(
-    todoView
+    openView
       ? `SELECT * FROM work_items ${where} ORDER BY ${order[sort]} LIMIT ?`
       : `SELECT * FROM work_items ${where} ORDER BY ${order[sort]}`,
-  ).all(...(todoView ? [...values, limit] : values)) as Row[];
+  ).all(...(openView ? [...values, limit] : values)) as Row[];
   const ids = rows.map((row) => String(row.id));
-  const lastByTask = todoView ? lastEventsByWorkItem(ids) : new Map<string, Row>();
-  const eventsByTask = todoView ? new Map<string, Row[]>() : eventsByWorkItem(ids);
+  const lastByTask = openView ? lastEventsByWorkItem(ids) : new Map<string, Row>();
+  const eventsByTask = openView ? new Map<string, Row[]>() : eventsByWorkItem(ids);
   const collabIds = [...new Set(rows.map((row) => String(row.collaboration_id || row.project_id || "")).filter(Boolean))];
   const collabById = collabsByIds(collabIds);
   const tasks = rows.map((row) => {
     const collab = collabById.get(String(row.collaboration_id || row.project_id || ""));
-    const events = todoView
+    const events = openView
       ? (lastByTask.get(String(row.id)) ? [eventView(lastByTask.get(String(row.id))!)] : [])
       : (eventsByTask.get(String(row.id)) || []).map(eventView);
     return decorateTaskFromCollab({
       ...publicWorkItem(row, collab),
-      ...(todoView ? {} : { history: events }),
+      ...(openView ? {} : { history: events }),
       history_summary: historySummary(events),
     }, collab);
   });
-  if (!todoView) return c.json(tasks);
+  if (!openView) return c.json(tasks);
   return c.json({
-    view: "todo",
-    tasks: tasks.filter((task) => isTodoWorkItem(task)),
+    view: view === "todo" ? "todo" : "open",
+    tasks: tasks.filter((task) => isOpenWorkItem(task)),
     total,
     limit,
     creates_session: false,
@@ -606,6 +606,41 @@ tasks.post("/tasks/:id/run", async (c) => {
     pending: pendingMessage,
     pending_message: pendingMessage,
   }, 202);
+});
+
+tasks.post("/tasks/:id/acknowledge", async (c) => {
+  const item = ownedWorkItem(c.req.param("id"));
+  if (["completed", "cancelled"].includes(String(item.status))) {
+    throw new HttpFail(409, `task cannot acknowledge from ${item.status}`);
+  }
+  const now = nowIso();
+  const status = String(item.status || "");
+  const nextStatus = status === "pending" || status === "queued" ? "in_progress" : status;
+  tx((db) => {
+    db.prepare(
+      `UPDATE work_items
+       SET last_acted_at=?,
+           acknowledged_at=COALESCE(acknowledged_at,?),
+           status=?,
+           updated_at=?,
+           data_version=data_version+1
+       WHERE id=?`,
+    ).run(now, now, nextStatus, now, item.id);
+  });
+  appendTaskEvent(
+    String(item.id),
+    null,
+    "task.acknowledged",
+    "处理今日任务",
+    nextStatus,
+    "已记录打开/处理，未创建会话",
+  );
+  audit(ownerId(), "task.acknowledged", { work_item_id: item.id, creates_session: false });
+  return c.json({
+    ...publicWorkItem(ownedWorkItem(String(item.id))),
+    entry: "command",
+    creates_session: false,
+  });
 });
 
 tasks.post("/tasks/:id/promote", async (c) => {

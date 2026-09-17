@@ -232,19 +232,51 @@ export function isInsightWorkItem(task: {
     && !isClosedWorkItem(task);
 }
 
+const HIGH_RISK_TEXT = /异常|拒绝|暂缓/;
+
+export function isHighRiskWorkItem(task: {
+  risk?: unknown;
+  status?: unknown;
+  title?: unknown;
+  current_stage?: unknown;
+}): boolean {
+  if (task.risk || String(task.status || "") === "failed") return true;
+  return HIGH_RISK_TEXT.test(`${task.title || ""} ${task.current_stage || ""}`);
+}
+
 export function isTodayWorkItem(task: {
   source?: unknown;
   status?: unknown;
   promoted_at?: unknown;
   dismissed_at?: unknown;
   due_at?: unknown;
+  risk?: unknown;
+  title?: unknown;
+  current_stage?: unknown;
 }): boolean {
-  if (!isTodoWorkItem(task)) return false;
+  if (isClosedWorkItem(task) || task.dismissed_at) return false;
+  if (isHighRiskWorkItem(task)) return true;
   const flags = dueFlags(task.due_at);
   if (flags.overdue || flags.due_today) return true;
-  const status = String(task.status || "");
-  return ["waiting", "queued", "running", "waiting_approval", "in_progress"].includes(status);
+  const status = String(task.status || "").toLowerCase();
+  if (status === "running" || status === "in_progress" || status === "starting") return true;
+  if (status === "waiting_approval" || status === "awaiting_approval") return true;
+  return false;
 }
+
+/** Full open memory list — not closed / not dismissed. No promote gate. */
+export function isOpenWorkItem(task: {
+  status?: unknown;
+  dismissed_at?: unknown;
+}): boolean {
+  return !isClosedWorkItem(task) && !task.dismissed_at;
+}
+
+/** SQL equivalent of isOpenWorkItem. view=open and compat view=todo. */
+export const OPEN_WORK_ITEM_SQL = `
+  status NOT IN ('completed','done','cancelled')
+  AND dismissed_at IS NULL
+`;
 
 export function isTodoWorkItem(task: {
   source?: unknown;
@@ -270,6 +302,7 @@ const SLIM_WORKBENCH_KEYS = [
   "promoted_at", "dismissed_at", "history_summary", "kol_name", "collab_summary",
   "recent_followup", "current_stage", "suggested_stage", "suggested_stage_code",
   "collaboration_id", "next_action", "task_type", "skill",
+  "risk", "session_id", "description", "context", "last_acted_at", "acknowledged_at",
 ] as const;
 
 function slimWorkbenchTask(task: Json): Json {
@@ -550,12 +583,13 @@ export function followReleaseTimer(lastInteractionAt?: string | null): {
 }
 
 export function buildWorkbench(tasks: Json[], kols: Json[]): Json {
+  const open = tasks.filter((task) => isOpenWorkItem(task)).map((task) => ({ ...task } as Json));
   const todo = tasks.filter((task) => isTodoWorkItem(task)).map((task) => ({ ...task, candidate: false } as Json));
   const insights = tasks.filter((task) => isInsightWorkItem(task)).map((task) => ({ ...task, candidate: true } as Json));
-  const today = todo.filter((task) => isTodayWorkItem(task));
-  const waiting = todo.filter((task) => ["waiting", "queued"].includes(String(task.status || "")));
-  const overdue = todo.filter((task) => dueFlags(task.due_at).overdue);
-  const dueToday = todo.filter((task) => dueFlags(task.due_at).due_today);
+  const today = tasks.filter((task) => isTodayWorkItem(task)).map((task) => ({ ...task } as Json));
+  const waiting = open.filter((task) => ["waiting", "queued"].includes(String(task.status || "")));
+  const overdue = open.filter((task) => dueFlags(task.due_at).overdue);
+  const dueToday = open.filter((task) => dueFlags(task.due_at).due_today);
   const stayTooLong = kols.filter((kol) => !kol.unbound && Number(kol.days_in_stage || 0) >= 7);
   const stages = MAIN_STAGES.map((stage) => ({
     code: stage.code,
@@ -569,12 +603,13 @@ export function buildWorkbench(tasks: Json[], kols: Json[]): Json {
   }));
   return {
     summary: {
-      open: todo.length,
+      open: open.length,
       overdue: overdue.length,
       due_today: dueToday.length,
       waiting: waiting.length,
       insights: insights.length,
     },
+    open: open.map(slimWorkbenchTask),
     todo: todo.map(slimWorkbenchTask),
     today: today.map(slimWorkbenchTask),
     insights: insights.map(slimWorkbenchTask),

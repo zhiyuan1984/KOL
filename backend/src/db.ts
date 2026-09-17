@@ -670,6 +670,8 @@ function initSchema(db: SqliteConn): void {
             collaboration_id TEXT,
             session_id TEXT,
             due_at TEXT,
+            last_acted_at TEXT,
+            acknowledged_at TEXT,
             promoted_at TEXT,
             dismissed_at TEXT,
             started_at TEXT,
@@ -1100,6 +1102,8 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "workers", "profile_id", "TEXT");
   add(db, "work_items", "promoted_at", "TEXT");
   add(db, "work_items", "dismissed_at", "TEXT");
+  add(db, "work_items", "last_acted_at", "TEXT");
+  add(db, "work_items", "acknowledged_at", "TEXT");
   add(db, "claw_creators", "platform_creator_id", "TEXT");
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS claw_creators_platform_identity
     ON claw_creators(platform, platform_creator_id) WHERE platform_creator_id IS NOT NULL`);
