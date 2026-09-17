@@ -22,7 +22,7 @@
 | `--font-section` | `14–15px / 500` | 节标题 |
 | `--font-page-title` | `16–18px / 500` | 页结论 / Home 主标题。禁止 600/700 |
 | `--font-meta` | `13px / 20px / 400` `#6b6b6b` | 元信息 |
-| `--left-width` | `312px` | 桌面侧栏。折叠=图标。手机不强制 312 |
+| `--left-width` | `clamp(312px, 16vw, 420px)` | 桌面侧栏随视口变宽，下限 312、上限 420。折叠=56。手机不强制 clamp |
 | `--composer-radius` | `22px` | 圆角矩形，不是胶囊 9999 |
 
 `--focus-ring` 可用 `--primary` 的低透明描边，或保持发丝近黑；不要另发明第二品牌色。
