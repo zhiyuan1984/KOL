@@ -3,11 +3,22 @@ import type { RecommendedTask, Task } from "../api";
 import { recIcon } from "../recommendedTasks";
 import { recommendationSourceLabel } from "./modes";
 import { findDuplicateTodo, recommendationIdentity } from "./todoDedupe";
-import { HOME_FOLD_LIMIT, handleLine, isHighValueInsight, todoMark, urgencyLabel, dueLabel, whyLine } from "./homeModel";
+import {
+  canOpenExistingTaskFlow,
+  handleLine,
+  isHighValueInsight,
+  nextStepLine,
+  todoBucket,
+  urgencyLabel,
+  dueLabel,
+  whyLine,
+} from "./homeModel";
+
+const TODAY_FOLD_LIMIT = 3;
 
 function FoldMore({
   total,
-  limit = HOME_FOLD_LIMIT,
+  limit = TODAY_FOLD_LIMIT,
   expanded,
   onToggle,
 }: {
@@ -25,7 +36,7 @@ function FoldMore({
   );
 }
 
-function useFoldedItems<T>(items: T[], limit = HOME_FOLD_LIMIT) {
+function useFoldedItems<T>(items: T[], limit = TODAY_FOLD_LIMIT) {
   const [expanded, setExpanded] = useState(false);
   const visible = expanded || items.length <= limit ? items : items.slice(0, limit);
   return {
@@ -37,15 +48,92 @@ function useFoldedItems<T>(items: T[], limit = HOME_FOLD_LIMIT) {
   };
 }
 
+function isExceptionTask(task: Task) {
+  if (task.risk || String(task.status || "") === "failed") return true;
+  const blob = `${task.title || ""} ${task.current_stage || ""} ${task.history_summary || ""}`;
+  return /异常|拒绝|暂缓/.test(blob);
+}
+
+function statusIcon(task: Task) {
+  if (isExceptionTask(task)) return "⚠";
+  const bucket = todoBucket(task);
+  if (bucket === "overdue") return "⏰";
+  if (bucket === "today") return "📅";
+  if (bucket === "approval" || bucket === "waiting") return "⏸";
+  if (bucket === "running") return "⟳";
+  return "○";
+}
+
+function pickPrimary(tasks: Task[]): Task | null {
+  if (!tasks.length) return null;
+  return (
+    tasks.find(isExceptionTask) ||
+    tasks.find((task) => todoBucket(task) === "overdue") ||
+    tasks.find((task) => todoBucket(task) === "today") ||
+    tasks.find((task) => todoBucket(task) === "approval") ||
+    tasks[0]
+  );
+}
+
+function primaryCta(task: Task) {
+  if (isExceptionTask(task)) return { icon: "⚠", label: "去处理这条异常" };
+  const bucket = todoBucket(task);
+  if (bucket === "overdue") return { icon: "⏰", label: "先补上这条逾期" };
+  if (bucket === "today") return { icon: "📅", label: "今天先做完这条" };
+  if (bucket === "approval") return { icon: "⏸", label: "去审批" };
+  if (canOpenExistingTaskFlow(task)) return { icon: "▶", label: "打开这条继续" };
+  return { icon: "▶", label: "打开这条看看" };
+}
+
+function briefingCopy(tasks: Task[], openCount: number) {
+  const overdue = tasks.filter((task) => todoBucket(task) === "overdue").length;
+  const dueToday = tasks.filter((task) => todoBucket(task) === "today").length;
+  const exceptions = tasks.filter(isExceptionTask).length;
+  const open = openCount || tasks.length;
+  if (exceptions) {
+    return {
+      lead: `今天先处理异常，不要先扫 ${open} 条待办。`,
+      stats: `${open} 项待办 · ${overdue} 逾期 · ${dueToday} 今天到期 · ${exceptions} 条异常`,
+    };
+  }
+  if (overdue) {
+    return {
+      lead: "今天先补逾期。",
+      stats: `${open} 项待办 · ${overdue} 逾期 · ${dueToday} 今天到期`,
+    };
+  }
+  if (dueToday) {
+    return {
+      lead: "今天没有异常，按到期顺序做。",
+      stats: `${open} 项待办 · ${overdue} 逾期 · ${dueToday} 今天到期`,
+    };
+  }
+  return {
+    lead: "今天没有火烧事项，下面 1、2、3 按顺序做。",
+    stats: `${open} 项待办 · ${overdue} 逾期 · ${dueToday} 今天到期`,
+  };
+}
+
+function duplicateIndex(todos: Task[], item: RecommendedTask, official: Task[]) {
+  const hit = findDuplicateTodo(todos, recommendationIdentity(item));
+  if (!hit) return 0;
+  const idx = official.findIndex((task) => task.id === hit.id);
+  if (idx >= 0) return idx + 1;
+  const byTitle = official.findIndex((task) => task.title === item.title);
+  return byTitle >= 0 ? byTitle + 1 : 0;
+}
+
 function RecommendedTaskList({
   items,
   todos,
+  official,
   busy,
   onPick,
   onConvert,
 }: {
   items: RecommendedTask[];
   todos: Task[];
+  official: Task[];
   busy: boolean;
   onPick: (item: RecommendedTask) => void;
   onConvert: (item: RecommendedTask) => void;
@@ -61,13 +149,13 @@ function RecommendedTaskList({
       data-list-total={items.length}
       aria-label="今天推荐"
     >
-      <p className="home-lane-label">今天推荐</p>
+      <p className="home-lane-label">2. 今天推荐</p>
       <ol className="recommend-md-list">
-        {fold.visible.map((item) => {
-          const n = item.n || 0;
+        {fold.visible.map((item, index) => {
+          const n = index + 1;
           const icon = item.icon || recIcon(item.intent);
           const source = recommendationSourceLabel(item);
-          const alreadyTodo = Boolean(findDuplicateTodo(todos, recommendationIdentity(item)));
+          const alreadyN = duplicateIndex(todos, item, official);
           return (
             <li key={item.id} className="recommend-md-row" data-today-suggestion={item.id} data-candidate="true">
               <button
@@ -85,26 +173,36 @@ function RecommendedTaskList({
                 disabled={busy}
                 onClick={() => onPick(item)}
               >
-                <span className="recommend-md-n" data-task-n-label>{n}.</span>
-                <span className="recommend-md-icon" aria-hidden>{icon}</span>
+                <span className="recommend-md-n" data-task-n-label>
+                  {n}.
+                </span>
+                <span className="recommend-md-icon" aria-hidden>
+                  {alreadyN ? "✓" : icon}
+                </span>
                 <span className="recommend-md-copy">
                   <strong>{item.title}</strong>
                   <span className="recommend-md-reason" data-recommended-reason>
-                    {item.reason} · {source}
+                    {alreadyN ? `已在上面第 ${alreadyN} 条，不必再加` : `${item.reason} · ${source}`}
                   </span>
                 </span>
               </button>
-              <button
-                type="button"
-                className="recommend-to-todo"
-                data-suggestion-to-todo={item.id}
-                data-suggest-cta="todo"
-                data-home-entry="adopt-recommendation"
-                disabled={busy || alreadyTodo}
-                onClick={() => onConvert(item)}
-              >
-                {alreadyTodo ? "已在待办" : "加入待办"}
-              </button>
+              {alreadyN ? (
+                <button type="button" className="recommend-to-todo is-ghost" disabled>
+                  已在上面第 {alreadyN} 条
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="recommend-to-todo is-ghost"
+                  data-suggestion-to-todo={item.id}
+                  data-suggest-cta="todo"
+                  data-home-entry="adopt-recommendation"
+                  disabled={busy}
+                  onClick={() => onConvert(item)}
+                >
+                  ＋ 加入待办，今天跟
+                </button>
+              )}
             </li>
           );
         })}
@@ -144,7 +242,6 @@ function InsightList({
             <div className="insight-card-body">
               <div className="todo-card-head">
                 <strong>{task.title}</strong>
-                <span className="todo-urgency">今天推荐</span>
                 {isHighValueInsight(task) ? <span className="insight-high">高价值</span> : null}
               </div>
               {handleLine(task) ? <p className="todo-handle">{handleLine(task)}</p> : null}
@@ -153,16 +250,16 @@ function InsightList({
             <div className="insight-actions">
               <button
                 type="button"
-                className="insight-primary"
+                className="is-ghost"
                 data-promote-task={task.id}
                 data-home-entry="adopt-recommendation"
                 disabled={busy}
                 onClick={() => onPromote(task)}
               >
-                转为我的待办
+                ＋ 加入待办，今天跟
               </button>
               <button type="button" className="is-ghost" data-open-insight={task.id} disabled={busy} onClick={() => onOpen(task)}>
-                查看沟通记录
+                查看
               </button>
               <button type="button" className="is-ghost" data-dismiss-insight={task.id} disabled={busy} onClick={() => onDismiss(task)}>
                 忽略
@@ -199,32 +296,63 @@ export default function TodayPane({
   onDismiss: (task: Task) => void;
   onOpen: (task: Task) => void;
 }) {
-  const showInsightList = insightItems.length > 0 || recommendedItems.length === 0;
-  const insightCount = recommendedItems.length + (showInsightList ? insightItems.length : 0);
+  const official = todayTodos;
+  const primary = pickPrimary(official);
+  const cta = primary ? primaryCta(primary) : null;
+  const brief = briefingCopy(official, todos.filter((task) => !task.dismissed_at).length);
+  const fold = useFoldedItems(official);
+  const showInsights = recommendedItems.length === 0 && insightItems.length > 0;
+
   return (
-    <section
-      className="home-mode-pane"
-      data-home-pane="today"
-      data-ai-insights
-      data-ai-list-total={insightCount}
-    >
-      <section className="today-formal-todos" data-today-formal data-today-existing-todos aria-label="今日正式事项">
-        <p className="home-lane-label">今日正式事项</p>
-        {todayTodos.length ? (
+    <section className="home-mode-pane" data-home-pane="today" data-ai-insights data-ai-list-total={recommendedItems.length + insightItems.length}>
+      <section className="today-brief" data-today-brief aria-label="今日简报">
+        <p className="today-brief-lead">
+          <span aria-hidden>📋</span> {brief.lead}
+        </p>
+        <p className="today-brief-stats">{brief.stats}</p>
+        {primary && cta ? (
+          <div className="today-primary" data-today-primary={primary.id}>
+            <p className="today-primary-kicker">现在做这一件</p>
+            <p className="today-primary-title">
+              <span aria-hidden>{cta.icon}</span> {primary.title}
+            </p>
+            {handleLine(primary) || nextStepLine(primary) ? (
+              <p className="today-primary-meta">
+                {[handleLine(primary), nextStepLine(primary)].filter(Boolean).join(" · ")}
+              </p>
+            ) : null}
+            <button
+              type="button"
+              className="todo-card-act today-primary-cta"
+              data-today-todo-act
+              data-home-entry="list-todos"
+              disabled={busy}
+              onClick={() => onOpen(primary)}
+              aria-label={cta.label}
+            >
+              <span aria-hidden>{cta.icon}</span> {cta.label}
+            </button>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="today-formal-todos" data-today-formal data-today-existing-todos aria-label="已入队">
+        <p className="home-lane-label">1. 已入队</p>
+        {official.length ? (
           <ol className="recommend-md-list">
-            {todayTodos.slice(0, HOME_FOLD_LIMIT).map((task) => (
+            {fold.visible.map((task, index) => (
               <li key={task.id} data-today-todo={task.id} data-candidate="false">
-                <button type="button" className="todo-card-act" data-today-todo-act data-home-entry="list-todos" onClick={() => onOpen(task)}>
-                  <span className="todo-card-mark" aria-hidden>{todoMark(task)}</span>
-                  <div className="todo-card-copy">
-                    <div className="todo-card-main">
-                      <strong>{task.title}</strong>
-                      {handleLine(task) ? <p className="todo-card-kicker">{handleLine(task)}</p> : null}
-                    </div>
-                    <p className="todo-card-status" data-todo-status>
-                      {[urgencyLabel(task), dueLabel(task)].filter(Boolean).join(" · ") || "待处理"}
-                    </p>
-                  </div>
+                <button type="button" className="recommend-md-item" data-home-entry="list-todos" onClick={() => onOpen(task)}>
+                  <span className="recommend-md-n">{index + 1}.</span>
+                  <span className="recommend-md-icon" aria-hidden>
+                    {statusIcon(task)}
+                  </span>
+                  <span className="recommend-md-copy">
+                    <strong>{task.title}</strong>
+                    <span className="recommend-md-reason">
+                      {[handleLine(task), nextStepLine(task) || urgencyLabel(task), dueLabel(task)].filter(Boolean).join(" · ")}
+                    </span>
+                  </span>
                 </button>
               </li>
             ))}
@@ -235,29 +363,25 @@ export default function TodayPane({
             <p>今天推荐需要你采纳后才会出现在这里，不会自动写成待办。</p>
           </div>
         )}
+        <FoldMore total={fold.total} limit={fold.limit} expanded={fold.expanded} onToggle={fold.toggle} />
       </section>
+
       <RecommendedTaskList
         items={recommendedItems}
         todos={todos}
+        official={official}
         busy={busy}
         onPick={onPick}
         onConvert={onConvert}
       />
-      {showInsightList ? (
-        insightItems.length ? (
-          <InsightList
-            tasks={insightItems}
-            busy={busy}
-            onPromote={onPromote}
-            onDismiss={onDismiss}
-            onOpen={onOpen}
-          />
-        ) : recommendedItems.length === 0 ? (
-          <div className="task-empty" data-today-candidates-empty="no-data">
-            <strong>暂时没有新的建议</strong>
-            <p>邮件和阶段建议会先停在这里，确认后才进入我的待办。</p>
-          </div>
-        ) : null
+
+      {showInsights ? (
+        <InsightList tasks={insightItems} busy={busy} onPromote={onPromote} onDismiss={onDismiss} onOpen={onOpen} />
+      ) : recommendedItems.length === 0 && official.length === 0 ? (
+        <div className="task-empty" data-today-candidates-empty="no-data">
+          <strong>暂时没有新的建议</strong>
+          <p>邮件和阶段建议会先停在这里，确认后才进入我的待办。</p>
+        </div>
       ) : null}
     </section>
   );
