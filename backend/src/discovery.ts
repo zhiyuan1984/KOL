@@ -15,6 +15,7 @@ import {
 import { startCrawl, onCrawlJobSettled } from "./crawl/service.js";
 import { OVERSEAS_CRAWL_PLATFORMS } from "./crawl/platforms.js";
 import { audit, getConn, nowIso, tx } from "./db.js";
+import { ingestFormalProfile } from "./host/kol-memory.js";
 import {
   collectorFailureCode,
   employeeError,
@@ -939,8 +940,28 @@ export function discoveryPlaceholderKolUid(candidate: Row): string {
   return `disc_${candidate.platform}_${String(candidate.platform_creator_id).replace(/[^A-Za-z0-9._-]/g, "_")}`.slice(0, 80);
 }
 
+function ingestDiscoveryProfile(collaboration: Row, candidate?: Row): void {
+  const kolUid = String(collaboration.kol_uid || "").trim();
+  if (!kolUid) return;
+  ingestFormalProfile({
+    kol_uid: kolUid,
+    handle: String(collaboration.handle || candidate?.handle || ""),
+    display_name: String(collaboration.display_name || candidate?.nickname || ""),
+    platform: String(collaboration.platform || candidate?.platform || ""),
+    homepage_url: String(candidate?.homepage_url || candidate?.url || ""),
+    followers: String(collaboration.followers || candidate?.followers || ""),
+    avg_plays: String(collaboration.avg_views_10 || ""),
+    engagement: String(collaboration.engagement_rate || ""),
+    direction: String(collaboration.niche || ""),
+    region: String(collaboration.audience_geo || ""),
+    public_stage: String(collaboration.stage_code || ""),
+    ingest_source: "discovery",
+  });
+}
+
 function followResult(candidateId: string, collaborationId: string, created: boolean, extra: Json = {}): Json {
   const collaboration = getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(collaborationId) as Row;
+  ingestDiscoveryProfile(collaboration);
   return {
     ...publicCandidate(getConn().prepare("SELECT * FROM creator_candidates WHERE id=?").get(candidateId) as Row),
     collaboration: {

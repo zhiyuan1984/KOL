@@ -11,6 +11,7 @@ import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
 import { historySummary, decorateTaskFromCollab, isOpenWorkItem, OPEN_WORK_ITEM_SQL } from "../host/home-board.js";
 import { formatMissingFields, missingFieldsMessage } from "../labels.js";
 import { agentSubmissionAllowed, kolAgentManifest } from "../contract-scope.js";
+import { applyKolAnalyzeAction, KOL_ANALYZE_TASK_TYPE } from "../host/kol-memory.js";
 
 export const tasks = new Hono();
 
@@ -677,6 +678,30 @@ tasks.post("/tasks/:id/dismiss", async (c) => {
     audit(ownerId(), "task.dismissed", { work_item_id: item.id });
   }
   return c.json(publicWorkItem(ownedWorkItem(String(item.id))));
+});
+
+tasks.post("/tasks/:id/actions", async (c) => {
+  const item = ownedWorkItem(c.req.param("id"));
+  const body = await c.req.json().catch(() => ({})) as Json;
+  if (String(item.task_type) !== KOL_ANALYZE_TASK_TYPE) {
+    throw new HttpFail(409, {
+      code: "actions_not_supported",
+      message: "generic actions are only enforced for kol_analyze",
+    });
+  }
+  const result = applyKolAnalyzeAction({
+    workItemId: String(item.id),
+    verb: body.verb ? String(body.verb) : undefined,
+    action: body.action ? String(body.action) : body.verb ? String(body.verb) : undefined,
+    artifact: (body.artifact && typeof body.artifact === "object" ? body.artifact : body) as Json,
+  });
+  return c.json({
+    entry: "command",
+    kind: "command",
+    creates_session: false,
+    calls_model: false,
+    ...result,
+  });
 });
 
 tasks.post("/tasks/:id/complete", async (c) => {

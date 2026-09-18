@@ -18,6 +18,7 @@ const FUNNEL_BY_ID: Record<string, FunnelId> = {
   creator_profile: "reach",
   creator_discovery: "reach",
   creator_scoring: "reach",
+  kol_analyze: "reach",
   creator_outreach: "reach",
   creator_library_query: "reach",
   creator_library_all: "reach",

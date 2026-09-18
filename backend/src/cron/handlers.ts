@@ -55,7 +55,10 @@ const WORK_ITEM_BUCKETS: Record<string, string[]> = {
 function scopedRows(rows: Row[], viewer?: AppUser): Row[] {
   const brands = brandScope(viewer);
   if (!brands) return rows;
-  return rows.filter((row) => collaborationInScope(row, viewer));
+  return rows.filter((row) => collaborationInScope({
+    brand: row.brand || row.scope_brand,
+    mailbox_from: row.mailbox_from,
+  }, viewer));
 }
 
 function overdueScan(ctx: CronHandlerContext): CronHandlerResult {
@@ -156,12 +159,13 @@ function ownershipRelease(ctx: CronHandlerContext): CronHandlerResult {
   const released: Json[] = [];
   const skipped: Json[] = [];
   for (const row of candidates) {
-    const lastAt = lastCorrespondenceAt(db, String(row.id));
+    const lastAt = row.last_effective_mail_at ? String(row.last_effective_mail_at) : lastCorrespondenceAt(db, String(row.collaboration_id || ""));
     const preview = evaluateOwnershipRelease(row, lastAt, ctx.nowMs);
     if (preview.action === "skip") {
       skipped.push({
         collaboration_id: preview.collaboration_id,
-        handle: row.handle,
+        follow_id: preview.follow_id,
+        kol_uid: row.kol_uid,
         reason: preview.reason,
         detail: preview.detail,
       });
@@ -169,7 +173,8 @@ function ownershipRelease(ctx: CronHandlerContext): CronHandlerResult {
     }
     const decision = releaseFollowOwnershipIfEligible({
       db,
-      collaborationId: String(row.id),
+      followId: String(row.id),
+      collaborationId: String(row.collaboration_id || ""),
       expectedOwner: preview.owner_before,
       expectedLastAt: lastAt || "",
       actor: ctx.actor,
@@ -178,14 +183,16 @@ function ownershipRelease(ctx: CronHandlerContext): CronHandlerResult {
     if (decision.action === "release") {
       released.push({
         collaboration_id: decision.collaboration_id,
-        handle: row.handle,
+        follow_id: decision.follow_id,
+        kol_uid: row.kol_uid,
         owner_before: decision.owner_before,
-        stage_unchanged: row.stage_code,
+        stage_unchanged: true,
       });
     } else {
       skipped.push({
         collaboration_id: decision.collaboration_id,
-        handle: row.handle,
+        follow_id: decision.follow_id,
+        kol_uid: row.kol_uid,
         reason: decision.reason,
         detail: decision.detail,
       });

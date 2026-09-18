@@ -20,6 +20,7 @@ import { isMissingInputDraft } from "../host/draft-quality.js";
 import { workerSafeExtra } from "../host/knowledge.js";
 import { runtimeSkillsRoot, writeRuntimeSkill, writeSkillIntoBox } from "../host/skill-sop.js";
 import { approvalBoxGuardrails, assertItemsSafe, persistWorker, sandboxPolicyForSkill } from "./common.js";
+import { assertKolAnalyzeVerbsSafe, KOL_ANALYZE_TASK_TYPE, KOL_ANALYZE_VERBS } from "../host/kol-memory.js";
 import { CodexAppServer } from "./codex.js";
 import { CodexUnavailable } from "./errors.js";
 import { parseAgentTexts, parseBoxFiles } from "./parse.js";
@@ -185,10 +186,51 @@ const CRAWL_PLAN_OUTPUT_SCHEMA: Json = {
   ],
   additionalProperties: false,
 };
+const KOL_ANALYZE_OUTPUT_SCHEMA: Json = {
+  type: "object",
+  properties: {
+    type: { type: "string", enum: ["kol_analyze_brief"] },
+    title: { type: "string" },
+    summary: { type: "string" },
+    sections: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          body: { type: "string" },
+          items: { type: "array", items: { type: "string" } },
+        },
+        required: ["title", "body", "items"],
+        additionalProperties: false,
+      },
+    },
+    metrics: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          label: { type: "string" },
+          value: { type: "string" },
+          detail: { type: "string" },
+        },
+        required: ["label", "value", "detail"],
+        additionalProperties: false,
+      },
+    },
+    recommended_actions: {
+      type: "array",
+      items: { type: "string", enum: [...KOL_ANALYZE_VERBS] },
+    },
+  },
+  required: ["type", "title", "summary", "sections", "metrics", "recommended_actions"],
+  additionalProperties: false,
+};
 
 export function skillOutputSchema(skill: string, definition: TaskDefinition): Json {
   if (definition.output === "crawl_plan") return CRAWL_PLAN_OUTPUT_SCHEMA;
   if (definition.output === "propose_stage") return PROPOSE_STAGE_OUTPUT_SCHEMA;
+  if (definition.output === "kol_analyze_brief" || skill === KOL_ANALYZE_TASK_TYPE) return KOL_ANALYZE_OUTPUT_SCHEMA;
   if (skill === "business_approval") return APPROVAL_OUTPUT_SCHEMA;
   if (skill === "email_compose") return COMPOSE_OUTPUT_SCHEMA;
   return TASK_RESULT_OUTPUT_SCHEMA;
@@ -205,6 +247,11 @@ export function requiredSkillOutputMissing(
   }
   if (definition.output === "propose_stage" && !items.some((item) => item.type === "propose_stage")) {
     return { message: "没有产出可确认的阶段建议。", next: "请指定合作对象后重试。" };
+  }
+  if (definition.output === "kol_analyze_brief" && !items.some((item) =>
+    item.type === "kol_analyze_brief" || item.type === "task_result" || item.artifact_type === "kol_analyze_brief"
+  )) {
+    return { message: "没有产出红人分析简报。", next: "请指定红人后重试。" };
   }
   if (definition.output === "task_result" && !items.some((item) => item.type === "task_result")) {
     if (skill === "email_compose" && items.some((item) => item.type === "create_draft")) return null;
@@ -618,6 +665,7 @@ export async function runCodex(
     items = items.map((i) => enrich(i, skill, extra, col));
     items = items.filter((i) => i.type !== "create_draft" || validDraft(i));
     assertItemsSafe(items);
+    assertKolAnalyzeVerbsSafe(skill, { items }, extra.work_item_id ? String(extra.work_item_id) : null);
     const mcpCalls = rpc.notifications
       .filter((n) => {
         const item = ((n.params as Json | undefined)?.item as Json | undefined);

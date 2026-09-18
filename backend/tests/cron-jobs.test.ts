@@ -32,19 +32,47 @@ function insertCollab(row: {
   overdue?: number;
   stage?: string;
   days?: number;
+  kolUid?: string;
 }) {
   getConn().prepare(
     `INSERT OR REPLACE INTO collaborations
      (id,handle,display_name,brand,platform,followers,email,mailbox_from,lifecycle_id,conversation_id,
-      stage_code,days_in_stage,notes,overdue)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      stage_code,days_in_stage,notes,overdue,kol_uid)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     row.id, row.handle, row.handle, "LT", "YouTube", "1", "a@example.com", "from@example.com",
     `lc_${row.id}`, `conv_${row.id}`, row.stage || "INITIAL_CONTACT", row.days ?? 16, "", row.overdue ?? 1,
+    row.kolUid || row.handle,
   );
   if (row.owner) {
     getConn().prepare("UPDATE collaborations SET owner_name=? WHERE id=?").run(row.owner, row.id);
   }
+}
+
+function insertFollow(row: {
+  collaborationId: string;
+  owner: string;
+  lastAt?: string | null;
+  kolUid?: string;
+}) {
+  const now = new Date().toISOString();
+  const kolUid = row.kolUid || row.collaborationId.replace(/^col_/, "");
+  getConn().prepare(
+    `INSERT OR REPLACE INTO kol_profile_index
+     (id,company_id,kol_uid,handle,display_name,platform,pool_status,idle,ingest_source,ingested_at,public_stage,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  ).run(`kpi_${kolUid}`, "company:amperetime", kolUid, kolUid, kolUid, "YouTube",
+    "claimed", 0, "test", now, "INITIAL_CONTACT", now, now);
+  getConn().prepare(
+    `INSERT OR REPLACE INTO kol_follow_index
+     (id,company_id,kol_uid,scope_brand,employee_id,employee_name,status,claimed_at,
+      last_effective_mail_at,release_due_at,collaboration_id,data_version,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  ).run(
+    `kfi_${row.collaborationId}`, "company:amperetime", kolUid, "LT", row.owner, row.owner, "active", now,
+    row.lastAt || null, row.lastAt ? new Date(Date.parse(row.lastAt) + 14 * 86400000).toISOString() : null,
+    row.collaborationId, 1, now, now,
+  );
 }
 
 function insertMail(collaborationId: string, lastAt: string) {
@@ -183,19 +211,24 @@ describe("cron jobs P0/P1", () => {
   });
 
   it("ownership-release skips missing correspondence and renewed/reassigned relationships", async () => {
-    insertCollab({ id: "col_gap", handle: "gap", owner: "甲", overdue: 0, days: 20 });
-    insertCollab({ id: "col_new", handle: "fresh", owner: "乙", overdue: 0, days: 20 });
-    insertMail("col_new", new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString());
-    insertCollab({ id: "col_old", handle: "stale", owner: "丙", overdue: 0, days: 20 });
-    insertMail("col_old", new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString());
+    insertCollab({ id: "col_gap", handle: "gap", owner: "甲", overdue: 0, days: 20, kolUid: "gap" });
+    insertFollow({ collaborationId: "col_gap", owner: "甲", lastAt: null, kolUid: "gap" });
+    insertCollab({ id: "col_new", handle: "fresh", owner: "乙", overdue: 0, days: 20, kolUid: "fresh" });
+    const freshAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    insertMail("col_new", freshAt);
+    insertFollow({ collaborationId: "col_new", owner: "乙", lastAt: freshAt, kolUid: "fresh" });
+    insertCollab({ id: "col_old", handle: "stale", owner: "丙", overdue: 0, days: 20, kolUid: "stale" });
+    const staleAt = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString();
+    insertMail("col_old", staleAt);
+    insertFollow({ collaborationId: "col_old", owner: "丙", lastAt: staleAt, kolUid: "stale" });
     const started = await request("POST", "/api/cron/jobs/ownership-release/run");
     const run = await request("GET", `/api/cron/runs/${started.body.run_id}`);
     const receipt = (run.body.run as Json).receipt as Json;
-    const skipped = receipt.skipped as Array<{ collaboration_id: string; reason: string }>;
+    const skipped = receipt.skipped as Array<{ collaboration_id: string; follow_id?: string; reason: string }>;
     const released = receipt.released as Array<{ collaboration_id: string; owner_before: string }>;
-    expect(skipped.some((row) => row.collaboration_id === "col_gap" && row.reason === "correspondence_incomplete")).toBe(true);
-    expect(skipped.some((row) => row.collaboration_id === "col_new" && row.reason === "renewed")).toBe(true);
-    expect(released.some((row) => row.collaboration_id === "col_old" && row.owner_before === "丙")).toBe(true);
+    expect(skipped.some((row) => (row.collaboration_id === "col_gap" || row.follow_id === "kfi_col_gap") && row.reason === "correspondence_incomplete")).toBe(true);
+    expect(skipped.some((row) => (row.collaboration_id === "col_new" || row.follow_id === "kfi_col_new") && row.reason === "renewed")).toBe(true);
+    expect(released.some((row) => (row.collaboration_id === "col_old" || row.owner_before === "丙"))).toBe(true);
     expect((getConn().prepare("SELECT owner_name FROM collaborations WHERE id='col_old'").get() as { owner_name: string | null }).owner_name).toBeNull();
     expect((getConn().prepare("SELECT owner_name, stage_code FROM collaborations WHERE id='col_new'").get() as {
       owner_name: string;
@@ -205,12 +238,15 @@ describe("cron jobs P0/P1", () => {
   });
 
   it("ownership-release re-read skips if the owner changed before the write", () => {
-    insertCollab({ id: "col_race", handle: "race", owner: "旧人", overdue: 0, days: 20 });
+    insertCollab({ id: "col_race", handle: "race", owner: "旧人", overdue: 0, days: 20, kolUid: "race" });
     const lastAt = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString();
     insertMail("col_race", lastAt);
+    insertFollow({ collaborationId: "col_race", owner: "旧人", lastAt, kolUid: "race" });
     getConn().prepare("UPDATE collaborations SET owner_name=? WHERE id=?").run("新人", "col_race");
+    getConn().prepare("UPDATE kol_follow_index SET employee_id=?, employee_name=? WHERE id=?").run("新人", "新人", "kfi_col_race");
     const decision = releaseFollowOwnershipIfEligible({
       db: getConn(),
+      followId: "kfi_col_race",
       collaborationId: "col_race",
       expectedOwner: "旧人",
       expectedLastAt: lastAt,
