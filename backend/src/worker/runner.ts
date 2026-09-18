@@ -810,6 +810,12 @@ export async function runCodex(
           error: item.error ? String((item.error as Json).message || item.error).slice(0, 500) : null,
         };
       });
+    if (rpc.reasoningTexts.length) {
+      log.push({
+        method: "turn/reasoning",
+        params: { texts: rpc.reasoningTexts.map((text) => text.slice(0, 500)).slice(0, 5) },
+      });
+    }
     log.push({
       method: "turn/output",
       params: {

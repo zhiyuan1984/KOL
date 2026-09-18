@@ -174,11 +174,18 @@ export async function executeTodayPlanRun(input: {
       "running",
       "正在生成今日简报",
     );
+    const reasoningEntry = (wr.contract_log || []).find((entry) => entry.method === "turn/reasoning");
+    const reasoningTexts = (reasoningEntry?.params as { texts?: unknown } | undefined)?.texts;
+    const brief = briefFromWorkerItems(wr.items);
+    if (brief && typeof brief === "object" && !Array.isArray(brief) && Array.isArray(reasoningTexts)) {
+      const lines = reasoningTexts.map((text) => String(text).trim()).filter(Boolean).slice(0, 5);
+      if (lines.length) (brief as Json).reasoning = lines;
+    }
     const written = writeTodayBriefArtifact({
       owner: input.owner,
       workItemId: input.workItemId,
       runId: input.runId,
-      brief: briefFromWorkerItems(wr.items),
+      brief,
     });
     if (!written.ok) {
       markTodayPlanFailed(input.workItemId, input.runId, written.reason);

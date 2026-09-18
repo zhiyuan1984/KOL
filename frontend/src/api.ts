@@ -276,6 +276,7 @@ export type TodayBrief = {
   primary?: TodayBriefPrimary;
   sections?: TodayBriefSection[];
   todo_layout?: TodoLayoutItem[];
+  reasoning?: string[];
   analysis_hints?: Array<Record<string, unknown>>;
   source_cursor?: Record<string, unknown>;
   increment_summary?: string;

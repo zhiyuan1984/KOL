@@ -59,8 +59,11 @@ export class CodexAppServer {
   private pending = new Map<number, { resolve: (v: Json) => void; reject: (e: Error) => void }>();
   notifications: Json[] = [];
   agentTexts: string[] = [];
+  reasoningTexts: string[] = [];
   private agentTextById = new Map<string, string>();
   private agentTextOrder: string[] = [];
+  private reasoningById = new Map<string, string>();
+  private reasoningOrder: string[] = [];
   onNotification?: (method: string | undefined, params: Json) => void;
   authVia: "account" | "api_key_login" | "no_openai_required" | null = null;
   stderr = "";
@@ -144,9 +147,38 @@ export class CodexAppServer {
 
     const item = (params.item as Json) || params;
     const type = String(item.type || item.itemType || "").replace(/[-_]/g, "").toLowerCase();
+    if (type === "reasoning") {
+      const text = this.textFromReasoningItem(item);
+      if (text) this.recordReasoning(String(item.id || ""), text);
+      return;
+    }
     if (type !== "agentmessage") return;
     const text = this.textFromAgentItem(item);
     if (text) this.recordAgentText(String(item.id || ""), text, false);
+  }
+
+  private textFromReasoningItem(item: Json): string {
+    const direct = String(item.text || "").trim();
+    if (direct) return direct;
+    const blocks = Array.isArray(item.content)
+      ? (item.content as Json[])
+      : Array.isArray(item.summary)
+        ? (item.summary as Json[])
+        : [];
+    return blocks
+      .map((block) => (block && typeof block === "object" ? String(block.text || block.value || "") : ""))
+      .join("")
+      .trim();
+  }
+
+  private recordReasoning(id: string, text: string): void {
+    const key = id || `anonymous:${this.reasoningOrder.length}`;
+    const current = this.reasoningById.get(key) || "";
+    this.reasoningById.set(key, current ? `${current}\n${text}` : text);
+    if (!this.reasoningOrder.includes(key)) this.reasoningOrder.push(key);
+    this.reasoningTexts = this.reasoningOrder
+      .map((entry) => this.reasoningById.get(entry) || "")
+      .filter(Boolean);
   }
 
   private textFromAgentItem(item: Json): string {

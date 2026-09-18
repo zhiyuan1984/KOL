@@ -304,4 +304,21 @@ describe("display task grouping", () => {
     expect(groups[2].rows.map((row) => row.id)).toEqual(["g2"]);
     expect(groups[3].rows.map((row) => row.id)).toEqual(["g1"]);
   });
+
+  it("drops rows whose host task reached a terminal state", () => {
+    const host = [
+      task({ id: "t1", title: "进行中", status: "running" }),
+      task({ id: "t2", title: "已完成", status: "completed" }),
+      task({ id: "t3", title: "已取消", status: "cancelled" }),
+      task({ id: "t4", title: "已忽略", dismissed_at: "2026-09-01T00:00:00Z" }),
+    ];
+    const rows = projectDisplayTasks([
+      { work_item_id: "t1", title: "还在", rank: 1 },
+      { work_item_id: "t2", title: "结束-完成", rank: 2 },
+      { work_item_id: "t3", title: "结束-取消", rank: 3 },
+      { work_item_id: "t4", title: "结束-忽略", rank: 4 },
+      { work_item_id: "", title: "无宿主保留", rank: 5 },
+    ], host);
+    expect(rows.map((row) => row.title)).toEqual(["还在", "无宿主保留"]);
+  });
 });

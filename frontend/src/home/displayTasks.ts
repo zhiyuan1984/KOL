@@ -37,6 +37,8 @@ export function groupDisplayTasks(tasks: Task[]): Array<{ group: string; rows: T
 }
 
 /** Result memory → list rows. Host tasks only supply bucket/due/id for actions. */
+const DISPLAY_CLOSED = new Set(["completed", "done", "cancelled"]);
+
 export function projectDisplayTasks(display: DisplayTaskRow[] | null | undefined, hostTasks: Task[] = []): Task[] {
   const hostById = new Map(hostTasks.map((task) => [task.id, task]));
   return (display || [])
@@ -60,5 +62,6 @@ export function projectDisplayTasks(display: DisplayTaskRow[] | null | undefined
         memory_kind: "task_result",
       } as Task;
     })
-    .filter((task) => task.title);
+    .filter((task) => task.title)
+    .filter((task) => !DISPLAY_CLOSED.has(String(task.status || "")) && !task.dismissed_at);
 }
