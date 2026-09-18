@@ -1187,6 +1187,52 @@ summary:focus-visible,
   border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
   background: color-mix(in srgb, var(--primary) 8%, var(--bg));
 }
+.discovery-composer-conditions {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0 4px 10px;
+  min-width: 0;
+  overflow-x: hidden;
+}
+.discovery-composer-conditions .discovery-chip-row {
+  flex-wrap: wrap;
+}
+.composer-override-hint {
+  margin: 0 4px 8px;
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+}
+.discovery-process {
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+}
+.discovery-result-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+  margin: 0 0 var(--space-3);
+  min-width: 0;
+}
+.discovery-result-head h2 {
+  margin: 0;
+  font-size: var(--font-section);
+  line-height: var(--leading-tight);
+}
+.discovery-result-head p,
+.discovery-toast {
+  margin: 0 0 var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+}
+.discovery-toast a {
+  color: var(--primary);
+}
 .discovery-pane {
   max-width: 100%;
   overflow-x: hidden;
@@ -1630,6 +1676,7 @@ summary:focus-visible,
   height: 1rem;
   margin: 0.15rem 0 0;
 }
+.discovery-run-bar,
 .discovery-batch-bar {
   display: flex;
   flex-wrap: wrap;
@@ -1640,6 +1687,7 @@ summary:focus-visible,
   list-style: none;
   background: var(--bg);
 }
+.discovery-run-bar.is-selecting,
 .discovery-batch-bar.is-selecting {
   position: sticky;
   top: 0;

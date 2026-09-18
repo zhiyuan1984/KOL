@@ -1,6 +1,7 @@
 /**
  * Home 入口登记 — 与 backend/src/host/entry-registry.ts 同构。
  * CONST-07 / PROD-AGENT-01 / UX-03 / TECH-ARCH-02 / TECH-FE-01
+ * design §4：切 Tab 不得创建 session；retry-discovery-run = command。
  *
  * think   = Codex 思考流程（允许 thread/turn/model）
  * memory  = 快捷查询，零 thread / 零 turn / 零 model
@@ -77,11 +78,20 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
   {
     id: "existing-discovery",
     kind: "memory",
-    action: "已有发现批次 / 结果",
+    action: "已有发现运行 / 结果",
     creates_session: false,
     creates_turn: false,
     calls_model: false,
-    route: "GET /api/discovery/requests · GET /api/discovery/requests/:id/results",
+    route: "GET /api/home/discovery/runs · GET /api/home/discovery/runs/:id · GET /api/home/discovery/runs/:id/candidates",
+  },
+  {
+    id: "open-discovery-template",
+    kind: "memory",
+    action: "开始发现 / 预填发现模板",
+    creates_session: false,
+    creates_turn: false,
+    calls_model: false,
+    route: "FE Composer prefill · GET /api/home/discovery/template",
   },
   {
     id: "composer-analyze",
@@ -95,11 +105,20 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
   {
     id: "new-discovery",
     kind: "think",
-    action: "新发现分析（确认后开 Run）",
+    action: "提交发现任务",
+    creates_session: true,
+    creates_turn: true,
+    calls_model: true,
+    route: "POST /api/home/discovery/run",
+  },
+  {
+    id: "retry-discovery-run",
+    kind: "command",
+    action: "重试发现采集",
     creates_session: false,
     creates_turn: false,
     calls_model: false,
-    route: "POST /api/discovery/requests/:id/runs",
+    route: "POST /api/home/discovery/run",
   },
   {
     id: "list-discovery-runs",
