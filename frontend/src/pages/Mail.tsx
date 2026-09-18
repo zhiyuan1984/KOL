@@ -244,7 +244,7 @@ export default function Mail() {
             </p>
           )}
         </div>
-        {bound ? (
+        {loadState === "ok" && bound ? (
           <button
             type="button"
             className="btn work"
@@ -255,11 +255,12 @@ export default function Mail() {
           >
             {syncing ? "正在收取…" : "收取"}
           </button>
-        ) : (
+        ) : null}
+        {loadState === "ok" && !bound ? (
           <Link className="btn work" to="/settings?tab=starry" data-mail-bind>
             去绑定邮箱
           </Link>
-        )}
+        ) : null}
       </header>
 
       {error ? <p className="error" role="alert" data-mail-error>{error}</p> : null}
