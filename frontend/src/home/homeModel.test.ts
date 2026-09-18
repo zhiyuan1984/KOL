@@ -12,6 +12,7 @@ import {
   todayBucket,
   todayContentLine,
   applyTodoLayout,
+  applyLayoutWhy,
   briefPrimaryLabel,
   isPlanningTask,
 } from "./homeModel";
@@ -139,5 +140,25 @@ describe("today pane buckets", () => {
     expect(briefPrimaryLabel({ verb: "follow", label: "处理", object_type: "batch" })).toBe("重试采集");
     expect(briefPrimaryLabel({ verb: "retry_crawl", label: "待补阶段", object_type: "batch" })).toBe("重试采集");
     expect(briefPrimaryLabel({ verb: "open_batch", label: "打开批次", object_type: "batch" })).toBe("打开批次");
+  });
+
+  it("stamps layout_why without reordering today buckets", () => {
+    const overdue = task({
+      id: "over",
+      title: "补样品",
+      due_at: new Date(Date.now() - 86_400_000).toISOString(),
+    });
+    const dueToday = task({
+      id: "today",
+      title: "写报价",
+      due_at: new Date().toISOString(),
+    });
+    const stamped = applyLayoutWhy([overdue, dueToday], [
+      { work_item_id: "today", rank: 1, why: "本轮先写报价" },
+      { work_item_id: "over", rank: 2, why: "昨日未完成" },
+    ]);
+    expect(stamped.map((row) => row.id)).toEqual(["over", "today"]);
+    expect(stamped[0].layout_why).toBe("昨日未完成");
+    expect(stamped[1].layout_why).toBe("本轮先写报价");
   });
 });

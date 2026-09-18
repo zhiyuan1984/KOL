@@ -21,6 +21,61 @@ async function mockTodayBrief(page: import("@playwright/test").Page, body: Recor
   });
 }
 
+test("entering today shows the memory list during planning and does not replace the page", async ({ page }) => {
+  const todos = [
+    {
+      id: "tsk_due",
+      title: "写报价确认邮件",
+      source: "manual",
+      status: "waiting",
+      due_at: dayIso(0),
+      description: "金额待确认",
+    },
+  ];
+  let briefGets = 0;
+  const posts: string[] = [];
+  await page.route("**/api/home/today-brief**", async (route) => {
+    const method = route.request().method();
+    const url = new URL(route.request().url());
+    if (method === "POST" && url.pathname.endsWith("/plan")) {
+      posts.push(url.pathname);
+      await route.fulfill({ json: { planning: true, attached: false, work_item_id: "tsk_plan", creates_session: true } });
+      return;
+    }
+    if (method === "GET") {
+      briefGets += 1;
+      await route.fulfill({
+        json: {
+          planning: briefGets > 1,
+          brief: null,
+          events: [],
+          creates_session: false,
+          calls_model: false,
+        },
+      });
+      return;
+    }
+    await route.fulfill({ json: { planning: true } });
+  });
+  await page.route("**/api/tasks**", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({ json: { view: "open", tasks: todos } });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.goto("/");
+  await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
+  await expect(page.locator("[data-today-list]")).toBeVisible();
+  await expect(page.locator('[data-today-todo="tsk_due"]')).toBeVisible();
+  await expect(page.locator("[data-today-plan-phase]")).toBeVisible();
+  await expect(page.locator("[data-today-plan-phase]")).toHaveText(/正在读取当前任务|正在按最新记忆规划今天|已按本轮规划刷新/);
+  await expect(page.locator('[data-home-pane="today"]')).not.toHaveText(/^正在为你规划今天$/);
+  await expect.poll(() => posts.some((path) => path.endsWith("/plan"))).toBeTruthy();
+  await expect(page.locator('[data-today-todo="tsk_due"]')).toBeVisible();
+});
+
 test("sidebar 新工作任务 lands on today list without tab hop or recommend/queued copy", async ({ page }) => {
   await mockTodayBrief(page);
   await page.goto("/?tab=lifecycle");

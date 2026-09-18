@@ -1085,6 +1085,12 @@ summary:focus-visible,
   color: var(--text);
   font-size: var(--font-ui);
 }
+.today-plan-progress[data-today-plan-phase="failed"] {
+  color: var(--danger);
+}
+.today-plan-progress[data-today-plan-phase="refreshed"] {
+  color: var(--text-muted);
+}
 .today-brief-lead {
   margin: 0 0 var(--space-2);
   font-weight: 600;
