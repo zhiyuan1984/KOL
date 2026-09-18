@@ -739,7 +739,7 @@ export async function runCodex(
       approvalPolicy: "never",
       sandboxPolicy: sandboxPolicyForSkill(skill, cwd),
       ...(skill === "business_approval" ? { config: { web_search: "live" } } : {}),
-      summary: "concise",
+      summary: extra.mode === "today_plan" ? "detailed" : "concise",
     };
     const tier = String(extra.model_tier || "balanced");
     turnParams.effort = tier === "fast" ? "low" : tier === "quality" ? "high" : "medium";

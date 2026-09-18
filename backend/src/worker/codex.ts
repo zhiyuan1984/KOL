@@ -160,14 +160,21 @@ export class CodexAppServer {
   private textFromReasoningItem(item: Json): string {
     const direct = String(item.text || "").trim();
     if (direct) return direct;
-    const blocks = Array.isArray(item.content)
-      ? (item.content as Json[])
-      : Array.isArray(item.summary)
-        ? (item.summary as Json[])
-        : [];
+    const content = Array.isArray(item.content) ? (item.content as unknown[]) : [];
+    const summary = Array.isArray(item.summary) ? (item.summary as unknown[]) : [];
+    const blocks = content.length ? content : summary;
     return blocks
-      .map((block) => (block && typeof block === "object" ? String(block.text || block.value || "") : ""))
-      .join("")
+      .map((block) => {
+        if (typeof block === "string") return block;
+        if (block && typeof block === "object") {
+          const rec = block as Json;
+          return String(rec.text || rec.value || "");
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n")
+      .replace(/\*\*/g, "")
       .trim();
   }
 
