@@ -8,6 +8,14 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+function ensureResultArtifactColumn(): void {
+  try {
+    getConn().exec("ALTER TABLE employee_today_briefs ADD COLUMN result_artifact_id TEXT");
+  } catch {
+    /* column may already exist */
+  }
+}
+
 export function parseTodayTaskResults(raw: unknown): TodayTaskResults | null {
   const root = asRecord(raw);
   if (!root) return null;
@@ -43,12 +51,13 @@ export function writeTodayTaskResults(input: {
   owner: string;
   workItemId: string;
   runId: string | null;
-  results: TodayTaskResults;
+  results: TodayTaskResults | unknown;
 }): { ok: true; artifact_id: string } | { ok: false; reason: string } {
   const parsed = parseTodayTaskResults(input.results);
   if (!parsed) return { ok: false, reason: "Codex did not produce display task rows" };
   const now = nowIso();
   const artifactId = nid("art");
+  ensureResultArtifactColumn();
   tx((db) => {
     db.prepare(
       `INSERT INTO task_artifacts
@@ -64,11 +73,6 @@ export function writeTodayTaskResults(input: {
       JSON.stringify({ memory_kind: TASK_RESULT_MEMORY, items: parsed.items, planned_at: now }),
       now,
     );
-    try {
-      db.exec("ALTER TABLE employee_today_briefs ADD COLUMN result_artifact_id TEXT");
-    } catch {
-      /* column may already exist */
-    }
     db.prepare(
       `UPDATE employee_today_briefs
           SET result_artifact_id=?, updated_at=?
@@ -79,9 +83,15 @@ export function writeTodayTaskResults(input: {
 }
 
 export function loadTodayTaskResults(owner: string): TodayTaskResults | null {
-  const pointer = getConn().prepare(
-    "SELECT result_artifact_id FROM employee_today_briefs WHERE owner_user_id=?",
-  ).get(owner) as { result_artifact_id?: string } | undefined;
+  ensureResultArtifactColumn();
+  let pointer: { result_artifact_id?: string } | undefined;
+  try {
+    pointer = getConn().prepare(
+      "SELECT result_artifact_id FROM employee_today_briefs WHERE owner_user_id=?",
+    ).get(owner) as { result_artifact_id?: string } | undefined;
+  } catch {
+    return null;
+  }
   if (!pointer?.result_artifact_id) return null;
   const row = getConn().prepare("SELECT payload FROM task_artifacts WHERE id=?").get(pointer.result_artifact_id) as
     | { payload: string }
