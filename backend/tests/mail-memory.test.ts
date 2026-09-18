@@ -252,7 +252,8 @@ describe("mailbox memory P0", () => {
   });
 
   it("writes rule preview without a model and labels digest_source honestly", async () => {
-    const preview = mailPreview("From: a@b.com\n这是一封测试邮件，请查收，我现在想和贵品牌litime合作 Thank you");
+    expect(mailPreview("From: a@b.com\nTo: b@c.com")).toBe("");
+    const preview = mailPreview("这是一封测试邮件，请查收，我现在想和贵品牌litime合作 Thank you");
     expect(preview).toMatch(/想和贵品牌litime合作/);
     expect(preview.length).toBeLessThanOrEqual(89);
     const letter = letterSummaryRecord({
@@ -266,7 +267,8 @@ describe("mailbox memory P0", () => {
     await ensureFollowedMailSync(true);
     const listed = await request("GET", "/api/mail/conversations");
     const thread = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "3901");
-    expect(String(thread?.last_preview)).toMatch(/想和贵品牌litime合作|测试邮件/);
+    expect(String(thread?.last_preview)).toMatch(/Please share the rate|想和贵品牌litime合作|测试邮件/);
+    expect(String(thread?.last_preview).length).toBeLessThanOrEqual(89);
     expect(String(thread?.digest_source)).toBe("body_analysis");
     expect(["codex_memory", "luna"]).not.toContain(thread?.digest_source);
 

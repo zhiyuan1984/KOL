@@ -1,5 +1,4 @@
 import { audit, getConn, nowIso, onConnReset } from "../db.js";
-import { currentMemoryEmployee } from "../host/kol-memory.js";
 import { mailPreview } from "../host/mail-preview.js";
 import {
   itemsForCollaboration,
@@ -15,7 +14,7 @@ import {
   type SyncReceipt,
 } from "../host/mail-memory.js";
 import { letterSummaryRecord, threadDigestOf, type ThreadDigest } from "../host/mail-summary.js";
-import { boundMailboxEmail, currentFollowScope, matchesFollowedMailbox } from "../host/starry-bind.js";
+import { boundMailboxEmail, currentFollowScope, matchesFollowedMailbox, safeEmployeeId } from "../host/starry-bind.js";
 import { inboundIdentity, mailAlreadySeen } from "../host/inbound-identity.js";
 import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
@@ -71,9 +70,8 @@ onConnReset(() => {
 });
 
 function mailboxSyncKey(): string {
-  const user = currentMemoryEmployee().id || "anon";
   const mailbox = boundMailboxEmail() || currentFollowScope().mailbox_email || "*";
-  return `${user}:${mailbox}`;
+  return `${safeEmployeeId() || "anon"}:${mailbox}`;
 }
 
 export function resetFollowedMailSync(): void {
@@ -111,9 +109,10 @@ export function followedMailStatus(): FollowedMailSync {
     | { value: string }
     | undefined;
   const unread = unreadCountForMailbox(mailbox);
-  const bind = currentMemoryEmployee().id
+  const employeeId = safeEmployeeId();
+  const bind = employeeId
     ? getConn().prepare("SELECT synced_at, last_error, last_tool, sync_cursor_at FROM user_starry_bindings WHERE user_id=?")
-      .get(currentMemoryEmployee().id) as {
+      .get(employeeId) as {
         synced_at?: string;
         last_error?: string;
         last_tool?: string;
@@ -420,7 +419,7 @@ export async function syncFollowedKolMail(): Promise<FollowedMailSync> {
   const scope = currentFollowScope();
   const mailbox = boundMailboxEmail() || scope.mailbox_email || "";
   const collabs = followedCollaborations(mailbox);
-  const userId = currentMemoryEmployee().id;
+  const userId = safeEmployeeId();
   if (!collabs.length && !mailbox) {
     const empty: FollowedMailSync = {
       ok: true,
@@ -474,7 +473,14 @@ export async function syncFollowedKolMail(): Promise<FollowedMailSync> {
       const latestInbound = inboundMessages[inboundMessages.length - 1] || inboundMessages[0];
       const inboundFrom = latestInbound ? messageFrom(latestInbound) : messageFrom(conv);
       const snippet = messageBody(latestInbound || conv) || listedSnippet;
-      const preview = mailPreview(snippet || listedSnippet);
+      const previewCandidates = [
+        snippet,
+        listedSnippet,
+        ...inboundMessages.map((row) => messageBody(row)),
+        ...messages.map((row) => messageBody(row)),
+      ].filter(Boolean);
+      const previews = previewCandidates.map((text) => mailPreview(text)).filter(Boolean);
+      const preview = previews.find((text) => /[\u4e00-\u9fff]/.test(text)) || previews[0] || "";
       const unreadFromMessages = inboundMessages.filter((row) => isUnread(row) || !firstString(row.messageId, row.id)).length;
       const unread = Number.isFinite(listedUnread) && listedUnread >= 0
         ? listedUnread

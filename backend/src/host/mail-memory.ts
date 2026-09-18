@@ -6,8 +6,7 @@ import { getConn, nowIso, tx } from "../db.js";
 import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
 import { inboundIdentity, inboundByIdentity } from "./inbound-identity.js";
-import { currentMemoryEmployee } from "./kol-memory.js";
-import { boundMailboxEmail, currentFollowScope, starryBindingRow } from "./starry-bind.js";
+import { boundMailboxEmail, currentFollowScope, safeEmployeeId, starryBindingRow } from "./starry-bind.js";
 import { normalizeEmail } from "./identity.js";
 
 export type MatchState = "matched" | "unbound" | "deferred" | "ignored";
@@ -233,7 +232,7 @@ export function findMailThread(id: string, mailbox?: string): Row | undefined {
 
 export function mailboxBoxStatus(mailbox?: string): MailBoxStatus {
   const box = mailbox === undefined ? currentMailbox() : mailbox;
-  const userId = currentMemoryEmployee().id;
+  const userId = safeEmployeeId();
   const bind = userId ? starryBindingRow(userId) : undefined;
   const unread = unreadCountForMailbox(box);
   return {
@@ -257,7 +256,7 @@ export function updateBindingSyncCursor(input: {
   error?: string;
   tool?: string;
 }): void {
-  const userId = String(input.userId || currentMemoryEmployee().id || "");
+  const userId = String(input.userId || safeEmployeeId() || "");
   if (!userId) return;
   const existing = starryBindingRow(userId);
   if (!existing) return;

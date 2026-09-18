@@ -51,6 +51,16 @@ export function starryBindingRow(userId: string): Row | undefined {
   return getConn().prepare("SELECT * FROM user_starry_bindings WHERE user_id=?").get(userId) as Row | undefined;
 }
 
+export function safeEmployeeId(): string {
+  const scoped = scopedUser()?.id;
+  if (scoped) return scoped;
+  try {
+    return String(currentMemoryEmployee().id || "").trim();
+  } catch {
+    return "";
+  }
+}
+
 export function boundMailboxEmail(userId?: string | null): string {
   try {
     const id = String(userId || scopedUser()?.id || "").trim();
