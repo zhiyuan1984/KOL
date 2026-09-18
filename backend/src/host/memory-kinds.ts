@@ -22,6 +22,8 @@ export type TodayTaskResultRow = {
   verb?: string;
   label?: string;
   bucket?: string;
+  icon?: string;
+  group?: string;
 };
 
 export type TodayTaskResults = {

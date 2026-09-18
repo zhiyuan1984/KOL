@@ -3,7 +3,7 @@ import type { Task, TaskEvent } from "../api";
 import DisplayWorkRow from "./DisplayWorkRow";
 import TodayPlanProgress from "./TodayPlanProgress";
 import { HOME_TODO_EMPTY } from "./entryRegistry";
-import { projectDisplayTasks, type DisplayTaskRow } from "./displayTasks";
+import { groupDisplayTasks, projectDisplayTasks, type DisplayTaskRow } from "./displayTasks";
 import { fetchTodayTasks } from "./todayTasksApi";
 import { isTodayScheduled } from "./schedule";
 import type { TodoListFilter } from "./homeModel";
@@ -15,6 +15,7 @@ export default function TodoPane({
   dedupeNotice,
   busy,
   onAct,
+  onEdit,
   phase = "idle",
   events,
 }: {
@@ -24,6 +25,7 @@ export default function TodoPane({
   dedupeNotice: string;
   busy: boolean;
   onAct: (task: Task) => void;
+  onEdit?: (task: Task) => void;
   todoLayout?: unknown;
   phase?: TodayPlanPhase;
   events?: TaskEvent[] | null;
@@ -45,6 +47,7 @@ export default function TodoPane({
     () => projectDisplayTasks(displayRows, tasks).filter((task) => !isTodayScheduled(task)),
     [displayRows, tasks],
   );
+  const groups = useMemo(() => groupDisplayTasks(official), [official]);
   const waiting = displayRows == null || phase === "loading-memory" || phase === "planning";
   return (
     <section className="home-mode-pane today-work-inline" data-today-work data-home-pane="todo" data-todo-source="task_result">
@@ -61,15 +64,20 @@ export default function TodoPane({
         aria-label="待办任务"
       >
         {official.length ? (
-          <ol className="today-todo-ol">
-            {official.map((task) => (
-              <DisplayWorkRow key={task.id} task={task} busy={busy} onAct={onAct} />
-            ))}
-          </ol>
+          groups.map(({ group, rows }) => (
+            <section className="today-display-group" data-todo-group={group} key={group}>
+              <h3 className="today-display-group-title">{group}</h3>
+              <ol className="today-todo-ol">
+                {rows.map((task) => (
+                  <DisplayWorkRow key={task.id} task={task} busy={busy} onAct={onAct} onEdit={onEdit} />
+                ))}
+              </ol>
+            </section>
+          ))
         ) : (
           <div className="task-empty" data-todo-empty={waiting ? "planning" : "no-display"}>
             <strong>{waiting ? "正在生成待办展示" : HOME_TODO_EMPTY}</strong>
-            <p>{waiting ? "规划结束后这里只显示模型处理后的任务行。" : "没有截止日期在今天之后的展示任务。"}</p>
+            <p>{waiting ? "规划结束后这里只显示模型处理后的任务行。" : "今日范围之外的展示任务会出现在这里。"}</p>
           </div>
         )}
       </section>

@@ -204,7 +204,7 @@ describe("today_plan harness", () => {
       brief: validBrief(),
     });
     expect(first.ok).toBe(true);
-    const missing = validateTodayBrief({ lead: "x", primary: { verb: "open" } });
+    const missing = validateTodayBrief({ primary: { verb: "open" } });
     expect(missing.ok).toBe(false);
     expect(String(missing.reason)).toMatch(/sections/);
     const keptMissing = writeTodayBriefArtifact({

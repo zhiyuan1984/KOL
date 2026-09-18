@@ -56,6 +56,89 @@ const OPEN_BUCKET_RANK: Record<OpenBucket, number> = {
   later: 5,
 };
 
+export const PRIORITY_LABEL_RANK: Record<string, number> = {
+  重要紧急: 0,
+  重要: 1,
+  紧急: 2,
+  中: 3,
+  低: 4,
+};
+const PRIORITY_CODE_RANK: Record<string, number> = {
+  important_urgent: 0,
+  urgent: 0,
+  important: 1,
+  high: 1,
+  normal: 3,
+  medium: 3,
+  low: 4,
+};
+const PRIORITY_CODE_LABEL: Record<string, string> = {
+  important_urgent: "重要紧急",
+  urgent: "重要紧急",
+  important: "重要",
+  high: "重要",
+  normal: "中",
+  medium: "中",
+  low: "低",
+};
+
+export function taskPriorityRank(task: { priority?: string; priority_label?: string }): number {
+  const label = String(task.priority_label || "").trim();
+  if (label && label in PRIORITY_LABEL_RANK) return PRIORITY_LABEL_RANK[label];
+  return PRIORITY_CODE_RANK[String(task.priority || "").trim()] ?? 5;
+}
+
+export function taskPriorityLabel(task: { priority?: string; priority_label?: string }): string {
+  const label = String(task.priority_label || "").trim();
+  if (label) return label;
+  return PRIORITY_CODE_LABEL[String(task.priority || "").trim()] || "";
+}
+
+export const RISK_LEVEL_LABELS: Record<string, string> = {
+  none: "无",
+  low: "低",
+  medium: "中",
+  high: "高",
+};
+
+export function riskLevelLabel(task: { risk_level?: string }): string {
+  return RISK_LEVEL_LABELS[String(task.risk_level || "none").trim()] || "无";
+}
+
+const DISPLAY_STATUS_FALLBACK_LABEL: Record<string, string> = {
+  overdue: "延期",
+  due_soon: "临期",
+  in_progress: "进行中",
+  not_started: "未开始",
+  completed: "完成",
+  cancelled: "取消",
+  failed: "失败",
+};
+
+/** Seven-state display label: backend display_status first, then real date/status derivation. */
+export function taskDisplayStatus(task: Task): { code: string; label: string } | null {
+  const code = String(task.display_status || "").trim();
+  const backendLabel = String(task.display_status_label || "").trim();
+  if (backendLabel) return { code: code || "unknown", label: backendLabel };
+  if (code && DISPLAY_STATUS_FALLBACK_LABEL[code]) return { code, label: DISPLAY_STATUS_FALLBACK_LABEL[code] };
+  if (isClosedTask(task)) {
+    const status = String(task.status || "");
+    return status === "cancelled"
+      ? { code: "cancelled", label: "取消" }
+      : { code: "completed", label: "完成" };
+  }
+  if (String(task.status || "") === "failed") return { code: "failed", label: "失败" };
+  const diff = dueDayDiff(task.due_at);
+  if (diff != null && diff < 0) return { code: "overdue", label: "延期" };
+  if (diff === 0) return { code: "due_soon", label: "临期" };
+  if (isRunningStatus(task.status)) return { code: "in_progress", label: "进行中" };
+  return { code: "not_started", label: "未开始" };
+}
+
+export function displayStatusLabel(task: Task): string {
+  return taskDisplayStatus(task)?.label || "";
+}
+
 export const EXCEPTION_TEMPLATE: TaskDefinition = {
   id: "exception_delay_care",
   skill_id: "email_compose",
@@ -138,7 +221,7 @@ export function workPriorityScore(task: Task) {
     else if (days < 1) score += 70;
     else if (days < 3) score += 40;
   }
-  if (task.priority === "high" || task.priority === "urgent") score += 50;
+  if (taskPriorityRank(task) <= 1) score += 50;
   if (task.status === "waiting" || task.status === "queued") score += 30;
   if (task.source === "ai") score += 20;
   return score;
@@ -148,10 +231,9 @@ export function sortedTasks(rows: Task[], sort: string) {
   return [...rows].sort((a, b) => {
     if (sort === "due") return String(a.due_at || "9999").localeCompare(String(b.due_at || "9999"));
     if (sort === "progress") return Number(b.progress || 0) - Number(a.progress || 0);
-    const byScore = workPriorityScore(b) - workPriorityScore(a);
-    if (byScore) return byScore;
-    const rank = { high: 0, urgent: 0, medium: 1, normal: 1, low: 2 };
-    return (rank[a.priority as keyof typeof rank] ?? 3) - (rank[b.priority as keyof typeof rank] ?? 3);
+    const byPriority = taskPriorityRank(a) - taskPriorityRank(b);
+    if (byPriority) return byPriority;
+    return workPriorityScore(b) - workPriorityScore(a);
   });
 }
 
@@ -182,15 +264,16 @@ export function todoBucket(task: Task): TodoBucket {
 
 export function isHighRiskTask(task: Task) {
   if (task.risk || String(task.status || "") === "failed") return true;
+  if (String(task.risk_level || "") === "high") return true;
   return HIGH_RISK_TEXT.test(`${task.title || ""} ${task.current_stage || ""}`);
 }
 
-function isRunningStatus(status?: string) {
+export function isRunningStatus(status?: string) {
   const value = String(status || "").toLowerCase();
   return waitDisplayOf(status) === "running" || value === "in_progress" || value === "starting" || value === "running";
 }
 
-function isApprovalStatus(status?: string) {
+export function isApprovalStatus(status?: string) {
   const value = String(status || "").toLowerCase();
   return waitDisplayOf(status) === "awaiting_approval" || value === "awaiting_approval" || value === "waiting_approval";
 }
@@ -238,6 +321,8 @@ export function openPrimaryAction(bucket: OpenBucket) {
 
 export function sortOpenWorkItems(rows: Task[]): Task[] {
   return [...rows].sort((a, b) => {
+    const byPriority = taskPriorityRank(a) - taskPriorityRank(b);
+    if (byPriority) return byPriority;
     const left = openBucket(a);
     const right = openBucket(b);
     const byBucket = (left == null ? 99 : OPEN_BUCKET_RANK[left]) - (right == null ? 99 : OPEN_BUCKET_RANK[right]);
@@ -251,6 +336,8 @@ export function sortOpenWorkItems(rows: Task[]): Task[] {
 
 export function sortTodayTodos(rows: Task[]): Task[] {
   return [...rows].sort((a, b) => {
+    const byPriority = taskPriorityRank(a) - taskPriorityRank(b);
+    if (byPriority) return byPriority;
     const left = todayBucket(a);
     const right = todayBucket(b);
     const byBucket = (left == null ? 99 : TODAY_BUCKET_RANK[left]) - (right == null ? 99 : TODAY_BUCKET_RANK[right]);

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { getConn, nowIso, tx } from "../db.js";
+import { getConn, nowIso, onConnReset, tx } from "../db.js";
 import { nid } from "../ids.js";
 import type { Json } from "../types.js";
 import { mergeMemoryItems, type MemoryFamily, type MemoryLayer } from "./memory-increment.js";
@@ -27,6 +27,10 @@ export type StoredMemoryItem = {
 };
 
 let ensured = false;
+
+onConnReset(() => {
+  ensured = false;
+});
 
 export function ensureEmployeeMemoriesTable(): void {
   if (ensured) return;

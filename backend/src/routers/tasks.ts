@@ -8,16 +8,29 @@ import type { Json, Row } from "../types.js";
 import { recognizeTaskIntent } from "../tasks/recognize.js";
 import { resolveTaskIntent } from "../tasks/resolver.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
-import { historySummary, decorateTaskFromCollab, isOpenWorkItem, OPEN_WORK_ITEM_SQL } from "../host/home-board.js";
+import { historySummary, decorateTaskFromCollab, isOpenWorkItem, OPEN_WORK_ITEM_SQL, displayStatusOf, normalizePriority, TASK_RISK_LEVELS, todayDateStr } from "../host/home-board.js";
 import { formatMissingFields, missingFieldsMessage } from "../labels.js";
 import { agentSubmissionAllowed, kolAgentManifest } from "../contract-scope.js";
 import { FROM_TEXT_FORBIDDEN_TASK_TYPES } from "../gateway/discovery-harness.js";
 import { applyKolAnalyzeAction, KOL_ANALYZE_TASK_TYPE } from "../host/kol-memory.js";
+import { extractTaskFieldUpdates, type TaskFieldUpdates } from "../tasks/openai-intent.js";
+import { parseTaskFieldUpdatesFallback } from "../tasks/task-field-updates.js";
 
 export const tasks = new Hono();
 
 const STATUSES = new Set(["needs_clarification", "pending", "running", "waiting", "completed", "failed", "cancelled"]);
-const PRIORITIES = new Set(["low", "normal", "high", "urgent"]);
+const EDITABLE_STATUSES = new Set([...STATUSES, "in_progress", "queued", "starting"]);
+const PRIORITIES = new Set(["important_urgent", "important", "urgent", "normal", "low", "high", "medium"]);
+
+const TASK_FIELD_LABELS: Record<string, string> = {
+  title: "标题",
+  content: "内容",
+  status: "状态",
+  priority: "优先级",
+  risk_level: "风险等级",
+  start_date: "开始日期",
+  due_at: "结束日期",
+};
 
 function ownerId(): string {
   const user = scopedUser();
@@ -60,6 +73,13 @@ function publicWorkItem(row: Row, collab?: Row | null): Json {
     description: definition?.description || "",
     suggested_actions: definition?.actions || [],
     project,
+    priority: normalizePriority(row.priority) || "normal",
+    risk_level: TASK_RISK_LEVELS.includes(String(row.risk_level || "none") as (typeof TASK_RISK_LEVELS)[number])
+      ? String(row.risk_level || "none")
+      : "none",
+    content: String(row.content || ""),
+    start_date: row.start_date || null,
+    ...displayStatusOf(row),
     input: parseJson(row.input),
     entities: parseJson(row.entities),
   };
@@ -132,6 +152,71 @@ function ownedWorkItem(id: string): Row {
   return row;
 }
 
+function dateInput(value: unknown, field: string): string {
+  const raw = String(value || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}/.test(raw)) throw new HttpFail(400, `invalid ${field}`);
+  return raw;
+}
+
+/** Shared structured field update for PATCH and the Codex /edit endpoint. */
+function applyTaskUpdate(item: Row, patch: Json, note?: string): { task: Json; applied: string[] } {
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  const applied: string[] = [];
+  const push = (field: string, value: unknown) => {
+    sets.push(`${field}=?`);
+    values.push(value);
+    applied.push(field);
+  };
+  if (patch.title !== undefined) {
+    const title = String(patch.title || "").trim().slice(0, 200);
+    if (!title) throw new HttpFail(400, "invalid title");
+    push("title", title);
+  }
+  if (patch.content !== undefined) push("content", String(patch.content || "").slice(0, 2000));
+  if (patch.status !== undefined) {
+    const status = String(patch.status || "");
+    if (!EDITABLE_STATUSES.has(status)) throw new HttpFail(400, "invalid status");
+    push("status", status);
+  }
+  if (patch.priority !== undefined) {
+    const priority = normalizePriority(patch.priority);
+    if (!priority) throw new HttpFail(400, "invalid priority");
+    push("priority", priority);
+  }
+  if (patch.risk_level !== undefined) {
+    const risk = String(patch.risk_level || "");
+    if (!(TASK_RISK_LEVELS as readonly string[]).includes(risk)) throw new HttpFail(400, "invalid risk_level");
+    push("risk_level", risk);
+  }
+  for (const field of ["start_date", "due_at"] as const) {
+    if (patch[field] === undefined) continue;
+    if (patch[field] === null) {
+      push(field, null);
+      continue;
+    }
+    const raw = dateInput(patch[field], field);
+    push(field, field === "start_date" ? raw.slice(0, 10) : raw.slice(0, 40));
+  }
+  if (!applied.length) return { task: publicWorkItem(item), applied };
+  const now = nowIso();
+  tx((db) => {
+    db.prepare(`UPDATE work_items SET ${sets.join(",")},updated_at=?,data_version=data_version+1 WHERE id=?`)
+      .run(...values, now, item.id);
+  });
+  const names = applied.map((field) => TASK_FIELD_LABELS[field] || field).join("、");
+  appendTaskEvent(
+    String(item.id),
+    null,
+    "task.updated",
+    "更新任务",
+    String(patch.status || item.status),
+    note ? `${note}：${names}` : `已更新：${names}`,
+  );
+  audit(ownerId(), "task.updated", { work_item_id: item.id, fields: applied });
+  return { task: publicWorkItem(ownedWorkItem(String(item.id))), applied };
+}
+
 export function appendTaskEvent(
   workItemId: string,
   runId: string | null,
@@ -200,9 +285,17 @@ function createWorkItem(body: Json, source: string): Json {
     input,
   });
   const status = resolution.needs_clarification ? "needs_clarification" : String(body.status || "pending");
-  const priority = String(body.priority || "normal");
   if (!STATUSES.has(status)) throw new HttpFail(400, "invalid status");
-  if (!PRIORITIES.has(priority)) throw new HttpFail(400, "invalid priority");
+  const rawPriority = body.priority == null || body.priority === "" ? "normal" : String(body.priority);
+  if (!PRIORITIES.has(rawPriority)) throw new HttpFail(400, "invalid priority");
+  const priority = normalizePriority(rawPriority) || "normal";
+  const content = String(body.content || "").slice(0, 2000);
+  const startDate = body.start_date == null || body.start_date === ""
+    ? todayDateStr()
+    : dateInput(body.start_date, "start_date").slice(0, 10);
+  const dueAt = body.due_at == null || body.due_at === "" ? todayDateStr() : String(body.due_at).slice(0, 40);
+  const riskLevel = body.risk_level == null || body.risk_level === "" ? "none" : String(body.risk_level);
+  if (!(TASK_RISK_LEVELS as readonly string[]).includes(riskLevel)) throw new HttpFail(400, "invalid risk_level");
   const now = nowIso();
   const id = nid("tsk");
   const owner = ownerId();
@@ -210,12 +303,13 @@ function createWorkItem(body: Json, source: string): Json {
     db.prepare(
       `INSERT INTO work_items
        (id,owner_user_id,task_type,title,source,status,priority,skill,profile,project_id,
-        collaboration_id,session_id,due_at,input,entities,data_version,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        collaboration_id,session_id,due_at,start_date,content,risk_level,input,entities,data_version,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     ).run(
       id, owner, definition.id, String(body.title || definition.title).slice(0, 200), source,
       status, priority, definition.id, definition.profile, body.project_id || null,
-      body.collaboration_id || input.collaboration_id || null, body.session_id || null, body.due_at || null,
+      body.collaboration_id || input.collaboration_id || null, body.session_id || null, dueAt,
+      startDate, content, riskLevel,
       JSON.stringify(input), JSON.stringify(resolution.entities), 1, now, now,
     );
   });
@@ -270,7 +364,7 @@ tasks.get("/tasks", (c) => {
     const value = c.req.query(key);
     if (value) {
       clauses.push(`${key}=?`);
-      values.push(value);
+      values.push(key === "priority" ? normalizePriority(value) || value : value);
     }
   }
   if (openView) clauses.push(OPEN_WORK_ITEM_SQL);
@@ -279,7 +373,7 @@ tasks.get("/tasks", (c) => {
     updated_desc: "updated_at DESC",
     updated_asc: "updated_at ASC",
     due_asc: "due_at IS NULL, due_at ASC",
-    priority_desc: "CASE priority WHEN 'urgent' THEN 4 WHEN 'high' THEN 3 WHEN 'normal' THEN 2 ELSE 1 END DESC, updated_at DESC",
+    priority_desc: "CASE priority WHEN 'important_urgent' THEN 5 WHEN 'important' THEN 4 WHEN 'high' THEN 4 WHEN 'urgent' THEN 3 WHEN 'normal' THEN 2 WHEN 'medium' THEN 2 ELSE 1 END DESC, updated_at DESC",
   };
   if (!order[sort]) throw new HttpFail(400, "invalid sort");
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
@@ -322,6 +416,43 @@ tasks.get("/tasks", (c) => {
 tasks.post("/tasks", async (c) => {
   const body = await c.req.json() as Json;
   return c.json(createWorkItem(body, String(body.source || "manual")), 201);
+});
+
+tasks.patch("/tasks/:id", async (c) => {
+  const item = ownedWorkItem(c.req.param("id"));
+  const body = await c.req.json().catch(() => ({})) as Json;
+  const { task, applied } = applyTaskUpdate(item, body);
+  if (!applied.length) throw new HttpFail(400, "no updatable fields");
+  return c.json(task);
+});
+
+tasks.post("/tasks/:id/edit", async (c) => {
+  const item = ownedWorkItem(c.req.param("id"));
+  const body = await c.req.json().catch(() => ({})) as Json;
+  const text = String(body.text || "").trim();
+  if (!text) throw new HttpFail(400, "text required");
+  let updates: TaskFieldUpdates = {};
+  let source: "llm" | "fallback" = "fallback";
+  try {
+    updates = await extractTaskFieldUpdates(text);
+    source = "llm";
+  } catch {
+    updates = parseTaskFieldUpdatesFallback(text);
+  }
+  const patch: Json = {};
+  for (const field of Object.keys(TASK_FIELD_LABELS)) {
+    const value = updates[field as keyof TaskFieldUpdates];
+    if (value === undefined || value === null || String(value).trim() === "") continue;
+    patch[field] = value;
+  }
+  if (!Object.keys(patch).length) {
+    return c.json({ code: "edit_not_recognized", message: "没有识别出要修改的字段" }, 422);
+  }
+  const { task, applied } = applyTaskUpdate(item, patch, `根据「${text.slice(0, 80)}」更新`);
+  if (!applied.length) {
+    return c.json({ code: "edit_not_recognized", message: "没有识别出要修改的字段" }, 422);
+  }
+  return c.json({ task, applied_fields: applied, source });
 });
 
 function normDedupe(value: unknown): string {

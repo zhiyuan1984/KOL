@@ -210,10 +210,16 @@ export type Task = {
   id: string;
   title: string;
   description?: string;
+  content?: string;
   context?: string;
   source?: TaskSource;
   status?: TaskStatus;
-  priority?: "high" | "medium" | "low" | string;
+  priority?: "important_urgent" | "important" | "urgent" | "normal" | "low" | "high" | "medium" | string;
+  priority_label?: string;
+  risk_level?: "none" | "low" | "medium" | "high" | string;
+  start_date?: string | null;
+  display_status?: "overdue" | "due_soon" | "in_progress" | "not_started" | "completed" | "cancelled" | "failed" | string;
+  display_status_label?: string;
   skill?: string;
   skill_id?: string;
   profile?: string;
@@ -768,6 +774,24 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+  updateTask: (id: string, fields: {
+    title?: string;
+    content?: string;
+    status?: string;
+    priority?: string;
+    risk_level?: string;
+    start_date?: string | null;
+    due_at?: string | null;
+  }) =>
+    request<Task | { task: Task }>(`/api/tasks/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: JSON.stringify(fields),
+    }),
+  editTaskByText: (id: string, text: string) =>
+    request<{ task: Task; applied_fields?: string[]; source?: string }>(
+      `/api/tasks/${encodeURIComponent(id)}/edit`,
+      { method: "POST", body: JSON.stringify({ text }) },
+    ),
   acknowledgeTask: (id: string) =>
     request<Task & { creates_session?: boolean; entry?: string }>(
       `/api/tasks/${encodeURIComponent(id)}/acknowledge`,

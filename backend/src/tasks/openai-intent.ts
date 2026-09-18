@@ -412,3 +412,192 @@ export async function classifyTaskIntent(text: string): Promise<IntentVerdict> {
   }
   return classifyWithCodexAppServer(text, remaining());
 }
+
+export type TaskFieldUpdates = {
+  title?: string;
+  content?: string;
+  status?: string;
+  priority?: string;
+  risk_level?: string;
+  start_date?: string;
+  due_at?: string;
+};
+
+export const TASK_FIELD_UPDATE_STATUSES = [
+  "needs_clarification", "pending", "running", "in_progress", "starting",
+  "waiting", "queued", "completed", "failed", "cancelled",
+] as const;
+export const TASK_FIELD_UPDATE_PRIORITIES = ["important_urgent", "important", "urgent", "normal", "low"] as const;
+export const TASK_FIELD_UPDATE_RISKS = ["none", "low", "medium", "high"] as const;
+
+export function taskFieldUpdateSystemPrompt(): string {
+  return [
+    "You extract task field edits from a Chinese instruction. Return JSON only.",
+    "Only include fields the user explicitly wants to change. Never invent fields or values.",
+    "priority codes: important_urgent=重要紧急, important=重要, urgent=紧急, normal=中, low=低.",
+    "risk_level codes: none=无, low=低, medium=中, high=高.",
+    "status codes: pending=未开始, in_progress=进行中, completed=完成, cancelled=取消, failed=失败, waiting=等待.",
+    "Dates are ISO YYYY-MM-DD in local time. 今天=today, 明天=+1 day, 后天=+2 days.",
+    "JSON keys: title, content, status, priority, risk_level, start_date, due_at. Unchanged fields must be null.",
+  ].join("\n");
+}
+
+export function taskFieldUpdateOutputSchema(): Record<string, unknown> {
+  const nullable = (extra: Record<string, unknown> = {}) => ({ type: ["string", "null"], ...extra });
+  const properties = {
+    title: nullable(),
+    content: nullable(),
+    status: nullable({ enum: [...TASK_FIELD_UPDATE_STATUSES, null] }),
+    priority: nullable({ enum: [...TASK_FIELD_UPDATE_PRIORITIES, null] }),
+    risk_level: nullable({ enum: [...TASK_FIELD_UPDATE_RISKS, null] }),
+    start_date: nullable(),
+    due_at: nullable(),
+  };
+  return {
+    type: "object",
+    properties,
+    required: Object.keys(properties),
+    additionalProperties: false,
+  };
+}
+
+/** Sanitize model JSON: unknown values are dropped, never written through. */
+export function parseTaskFieldUpdates(raw: string): TaskFieldUpdates {
+  const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(raw);
+  const blob = fence?.[1] || raw;
+  const start = blob.indexOf("{");
+  const end = blob.lastIndexOf("}");
+  if (start < 0 || end <= start) return {};
+  let parsed: Record<string, unknown> = {};
+  try {
+    parsed = JSON.parse(blob.slice(start, end + 1)) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+  const updates: TaskFieldUpdates = {};
+  if (typeof parsed.title === "string" && parsed.title.trim()) updates.title = parsed.title.trim().slice(0, 200);
+  if (typeof parsed.content === "string" && parsed.content.trim()) updates.content = parsed.content.trim().slice(0, 2000);
+  const status = String(parsed.status || "");
+  if ((TASK_FIELD_UPDATE_STATUSES as readonly string[]).includes(status)) updates.status = status;
+  const priority = String(parsed.priority || "");
+  if ((TASK_FIELD_UPDATE_PRIORITIES as readonly string[]).includes(priority)) updates.priority = priority;
+  const risk = String(parsed.risk_level || "");
+  if ((TASK_FIELD_UPDATE_RISKS as readonly string[]).includes(risk)) updates.risk_level = risk;
+  for (const field of ["start_date", "due_at"] as const) {
+    const value = String(parsed[field] || "").trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(value)) updates[field] = value.slice(0, 10);
+  }
+  return updates;
+}
+
+async function extractTaskFieldUpdatesWithLuna(text: string, timeoutSec = taskRecognizeTimeout()): Promise<TaskFieldUpdates> {
+  const key = intentLlmApiKey();
+  if (!key) {
+    throw new IntentLlmUnavailable("识别服务未就绪：未配置模型密钥。", "把 OPENAI_API_KEY 写入 .env 后重试。");
+  }
+  const base = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(1, timeoutSec) * 1000);
+  try {
+    const fetchFn = fetchOverride || fetch;
+    const response = await fetchFn(`${base}/responses`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: intentLlmModel(),
+        instructions: taskFieldUpdateSystemPrompt(),
+        input: text,
+        store: false,
+        reasoning: { effort: "low" },
+        text: {
+          format: {
+            type: "json_schema",
+            name: "task_field_updates",
+            strict: false,
+            schema: taskFieldUpdateOutputSchema(),
+          },
+        },
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new IntentLlmUnavailable(`识别服务未就绪（${response.status}）。`, "稍后点「再试一次」。");
+    }
+    return parseTaskFieldUpdates(extractRemoteIntentText(await response.json()));
+  } catch (error) {
+    if (error instanceof IntentLlmUnavailable) throw error;
+    throw new IntentLlmUnavailable("识别服务未就绪，请再试一次。", "检查网络或 OPENAI_API_KEY 后重试。");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function extractTaskFieldUpdatesWithCodex(text: string, timeoutSec = taskRecognizeTimeout()): Promise<TaskFieldUpdates> {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-task-edit-"));
+  const rpc = new CodexAppServer(Math.max(1, timeoutSec));
+  try {
+    await rpc.handshake();
+    await rpc.requireAuth();
+    const started = await rpc.request("thread/start", {
+      cwd,
+      approvalPolicy: "never",
+      sandbox: "read-only",
+      config: codexRecognizeThreadConfig(),
+    });
+    const thread = (started.thread as { id?: string } | undefined) || started;
+    const threadId = String((thread as { id?: string }).id || "");
+    if (!threadId) throw new CodexUnavailable("thread/start 未返回 thread.id。", "升级 Codex CLI 后重试。");
+    await rpc.request("turn/start", {
+      threadId,
+      input: [{ type: "text", text: `${taskFieldUpdateSystemPrompt()}\nUser: ${text}` }],
+      cwd,
+      approvalPolicy: "never",
+      sandboxPolicy: { type: "readOnly", networkAccess: false },
+      summary: "concise",
+      effort: "low",
+      outputSchema: taskFieldUpdateOutputSchema(),
+    });
+    const completed = await rpc.waitTurn();
+    return parseTaskFieldUpdates(parseCodexTexts(rpc, completed as { turn?: { output?: unknown } }).join("\n"));
+  } catch (error) {
+    if (error instanceof IntentLlmUnavailable) throw error;
+    const message = error instanceof CodexUnavailable ? error.message : "识别服务未就绪，请再试一次。";
+    throw new IntentLlmUnavailable(
+      message,
+      error instanceof CodexUnavailable
+        ? error.next_action
+        : "设置 OPENAI_API_KEY 后重启 Host，或确认已 `codex login` 后重试。",
+    );
+  } finally {
+    rpc.close();
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Codex channel for structured task edits. Throws IntentLlmUnavailable when no
+ * model is reachable; callers fall back to deterministic parsing.
+ */
+export async function extractTaskFieldUpdates(text: string): Promise<TaskFieldUpdates> {
+  if (intentLlmMode() === "stub") {
+    throw new IntentLlmUnavailable("识别服务未就绪：stub 模式。", "配置 OPENAI_API_KEY 后重试。");
+  }
+  const deadline = Date.now() + taskRecognizeTimeout() * 1000;
+  const remaining = () => Math.max(0, (deadline - Date.now()) / 1000);
+  if (intentLlmApiKey()) {
+    try {
+      return await extractTaskFieldUpdatesWithLuna(text, remaining());
+    } catch (lunaError) {
+      if (remaining() < 2) throw lunaError;
+      try {
+        return await extractTaskFieldUpdatesWithCodex(text, remaining());
+      } catch {
+        throw lunaError;
+      }
+    }
+  }
+  return extractTaskFieldUpdatesWithCodex(text, remaining());
+}

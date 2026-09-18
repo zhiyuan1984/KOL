@@ -49,15 +49,19 @@ Host 已锁定本 Skill。CONTEXT.md 里的 **HOST PACK（history / delta / now_
   "why": "上轮采集失败，今天先把批次拉起来",
   "rank": 1,
   "verb": "retry_crawl",
-  "label": "重试采集"
+  "label": "重试采集",
+  "icon": "⚠️",
+  "group": "重要"
 }
 ```
 
 - `title`：给用户看的标题。禁止原样复制 Host 的「AI发现 · youtube · …」。
 - `why`：为什么今天做。禁止写「待处理」「待补阶段」「已记录打开/处理」。
-- `verb`：`retry_crawl` / `open_batch` / `analyze` / `open` / `approve`。
-- `label`：箭头按钮文案。禁止「处理」。
-- `rank`：从 1 开始的顺序。
+- `verb`：`retry_crawl` / `open_batch` / `analyze` / `open` / `approve` / `edit` / `handle`（`edit`=需要用户编辑任务字段，`handle`=一般处理）。
+- `label`：箭头按钮文案。禁止「处理」——除非 `verb` 是 `handle`；其余动词保持原禁令。
+- `rank`：从 1 开始，按严重度排序：重要紧急（important_urgent）在最前，其次重要（important）、紧急（urgent），其余在后。
+- `icon`：单个拟人化 emoji，按任务性质选（如 ✉️📋⚠️🔎）。
+- `group`：按优先级严重度分组：`重要紧急` / `重要` / `紧急` / `其他`。优先级∈{重要紧急,重要,紧急}或开始日期为当天的行排入今日语义（用 `group` 体现），其余放后面。
 
 Host 只补机械字段（`stats` / `source_cursor` / `increment_summary`）。模型没写 `lead`+`sections` 或没写 `display_tasks` 时规划失败，Host 不代写封面也不代写列表。
 
@@ -67,7 +71,7 @@ Host 只补机械字段（`stats` / `source_cursor` / `increment_summary`）。�
 
 - 禁止发信、跟进、确认阶段、改正式状态。
 - 禁止把发现批次（无 person ID）建议为 follow。
-- 禁止把「处理」「待补阶段」写进 lead、primary、title、why、label。
+- 禁止把「待补阶段」写进 lead、primary、title、why、label；「处理」只允许作为 `verb=handle` 行的 label。
 - 禁止用写工具；`mcp` 为空。
 - 禁止把 HOST PACK 原文或任务标题列表当 brief 正文或展示行交差。
 

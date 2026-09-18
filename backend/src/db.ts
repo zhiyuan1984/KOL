@@ -1352,6 +1352,15 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "work_items", "dismissed_at", "TEXT");
   add(db, "work_items", "last_acted_at", "TEXT");
   add(db, "work_items", "acknowledged_at", "TEXT");
+  add(db, "work_items", "content", "TEXT NOT NULL DEFAULT ''");
+  add(db, "work_items", "start_date", "TEXT");
+  add(db, "work_items", "risk_level", "TEXT NOT NULL DEFAULT 'none'");
+  if (!db.prepare("SELECT value FROM app_state WHERE key='work_items_priority_v2'").get()) {
+    db.prepare("UPDATE work_items SET priority='important' WHERE priority='high'").run();
+    db.prepare("UPDATE work_items SET priority='important_urgent' WHERE priority='urgent'").run();
+    db.prepare("UPDATE work_items SET priority='normal' WHERE priority='medium'").run();
+    db.prepare("INSERT OR REPLACE INTO app_state (key, value) VALUES ('work_items_priority_v2','done')").run();
+  }
   add(db, "claw_creators", "platform_creator_id", "TEXT");
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS claw_creators_platform_identity
     ON claw_creators(platform, platform_creator_id) WHERE platform_creator_id IS NOT NULL`);

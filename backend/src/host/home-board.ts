@@ -249,8 +249,10 @@ export function isHighRiskWorkItem(task: {
   status?: unknown;
   title?: unknown;
   current_stage?: unknown;
+  risk_level?: unknown;
 }): boolean {
   if (task.risk || String(task.status || "") === "failed") return true;
+  if (String(task.risk_level || "").toLowerCase() === "high") return true;
   return HIGH_RISK_TEXT.test(`${task.title || ""} ${task.current_stage || ""}`);
 }
 
@@ -261,6 +263,9 @@ export function isTodayWorkItem(task: {
   dismissed_at?: unknown;
   due_at?: unknown;
   risk?: unknown;
+  risk_level?: unknown;
+  priority?: unknown;
+  start_date?: unknown;
   title?: unknown;
   current_stage?: unknown;
   task_type?: unknown;
@@ -269,6 +274,9 @@ export function isTodayWorkItem(task: {
   if (isPlanningWorkItem(task)) return false;
   if (isClosedWorkItem(task) || task.dismissed_at) return false;
   if (isHighRiskWorkItem(task)) return true;
+  const priority = normalizePriority(task.priority);
+  if (priority === "important_urgent" || priority === "important" || priority === "urgent") return true;
+  if (datePartOf(task.start_date) === todayDateStr()) return true;
   const flags = dueFlags(task.due_at);
   if (flags.overdue || flags.due_today) return true;
   const status = String(task.status || "").toLowerCase();
@@ -284,6 +292,7 @@ export function isOpenWorkItem(task: {
   task_type?: unknown;
   skill?: unknown;
   source?: unknown;
+  title?: unknown;
 }): boolean {
   if (isPlanningWorkItem(task)) return false;
   return !isClosedWorkItem(task) && !task.dismissed_at;
@@ -327,6 +336,7 @@ const SLIM_WORKBENCH_KEYS = [
   "recent_followup", "current_stage", "suggested_stage", "suggested_stage_code",
   "collaboration_id", "next_action", "task_type", "skill",
   "risk", "session_id", "description", "context", "last_acted_at", "acknowledged_at",
+  "start_date", "risk_level", "display_status", "display_status_label",
 ] as const;
 
 function slimWorkbenchTask(task: Json): Json {
@@ -345,6 +355,85 @@ export function dueFlags(dueAt: unknown): { overdue: boolean; due_today: boolean
     overdue: day.getTime() < today.getTime(),
     due_today: day.getTime() === today.getTime(),
   };
+}
+
+export const TASK_PRIORITY_CODES = ["important_urgent", "important", "urgent", "normal", "low"] as const;
+export const TASK_RISK_LEVELS = ["none", "low", "medium", "high"] as const;
+
+/** Canonical priority code; legacy high/medium map onto important/normal. */
+export function normalizePriority(value: unknown): string | null {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === "high") return "important";
+  if (raw === "medium") return "normal";
+  return (TASK_PRIORITY_CODES as readonly string[]).includes(raw) ? raw : null;
+}
+
+export function todayDateStr(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+/** Date part of a stored date/datetime string; "" when absent or unparseable. */
+export function datePartOf(value: unknown): string {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const iso = /^(\d{4}-\d{2}-\d{2})/.exec(raw);
+  if (iso) {
+    if (raw.length === 10) return iso[1];
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.getTime())) {
+      const month = String(parsed.getMonth() + 1).padStart(2, "0");
+      const day = String(parsed.getDate()).padStart(2, "0");
+      return `${parsed.getFullYear()}-${month}-${day}`;
+    }
+    return iso[1];
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  return `${parsed.getFullYear()}-${month}-${day}`;
+}
+
+const DISPLAY_STATUS_LABELS: Record<string, string> = {
+  overdue: "延期",
+  due_soon: "临期",
+  in_progress: "进行中",
+  not_started: "未开始",
+  completed: "完成",
+  cancelled: "取消",
+  failed: "失败",
+};
+
+/** Derived display status — never stored. */
+export function displayStatusOf(task: {
+  status?: unknown;
+  due_at?: unknown;
+  started_at?: unknown;
+}): { display_status: string; display_status_label: string } {
+  const status = String(task.status || "").toLowerCase();
+  let code = "";
+  if (status === "completed" || status === "done") code = "completed";
+  else if (status === "cancelled") code = "cancelled";
+  else if (status === "failed") code = "failed";
+  else {
+    const due = dueDay(task.due_at);
+    if (due) {
+      const diff = Math.round((due.getTime() - startOfDay().getTime()) / 86_400_000);
+      if (diff < 0) code = "overdue";
+      else if (diff <= 2) code = "due_soon";
+    }
+    if (!code) {
+      code = String(task.started_at || "").trim()
+        || ["running", "in_progress", "starting", "waiting", "queued"].includes(status)
+        ? "in_progress"
+        : "not_started";
+    }
+  }
+  return { display_status: code, display_status_label: DISPLAY_STATUS_LABELS[code] };
 }
 
 export const MAX_RECOMMENDED_TASKS = 8;
@@ -400,7 +489,9 @@ function bareHandle(value: unknown): string {
 }
 
 function highValueInsight(task: Json): boolean {
-  return task.priority === "high" || task.priority === "urgent" || Boolean(task.risk) || String(task.status || "") === "failed";
+  const priority = normalizePriority(task.priority);
+  return priority === "important_urgent" || priority === "important" || priority === "urgent"
+    || Boolean(task.risk) || String(task.status || "") === "failed";
 }
 
 function inboundUnread(kol: Json): Json | undefined {
@@ -723,7 +814,7 @@ export function buildHomeBoard(): Json {
       title: String(row.title || ""),
       status: String(row.status || ""),
       source: String(row.source || "manual"),
-      priority: String(row.priority || "normal"),
+      priority: normalizePriority(row.priority) || "normal",
       skill: String(row.skill || row.task_type || ""),
       profile: String(row.profile || ""),
       task_type: String(row.task_type || ""),
@@ -732,6 +823,10 @@ export function buildHomeBoard(): Json {
       session_id: row.session_id || null,
       owner_user_id: row.owner_user_id || null,
       due_at: row.due_at || null,
+      start_date: row.start_date || null,
+      content: String(row.content || ""),
+      risk_level: String(row.risk_level || "none"),
+      ...displayStatusOf(row),
       promoted_at: row.promoted_at || null,
       dismissed_at: row.dismissed_at || null,
       description: definition?.description || "",

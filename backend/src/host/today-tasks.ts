@@ -42,6 +42,8 @@ export function parseTodayTaskResults(raw: unknown): TodayTaskResults | null {
       verb: row?.verb || row?.action ? String(row.verb || row.action) : undefined,
       label: row?.label ? String(row.label) : undefined,
       bucket: row?.bucket ? String(row.bucket) : undefined,
+      icon: row?.icon ? String(row.icon).trim().slice(0, 8) || undefined : undefined,
+      group: row?.group ? String(row.group).trim().slice(0, 24) || undefined : undefined,
     });
   }
   if (!items.length) return null;

@@ -1,21 +1,29 @@
 /** Date split for Today vs Todo. Constitution does not encode this. */
+import type { Task } from "../api";
+import {
+  dueDayDiff,
+  isApprovalStatus,
+  isClosedTask,
+  isHighRiskTask,
+  isRunningStatus,
+  taskPriorityRank,
+} from "./homeModel";
 
-function dayDiff(value?: string | null, now = new Date()): number | null {
-  if (!value) return null;
-  const due = new Date(value);
-  if (Number.isNaN(due.getTime())) return null;
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  const day = new Date(due);
-  day.setHours(0, 0, 0, 0);
-  return Math.round((day.getTime() - start.getTime()) / 86_400_000);
+function isStartToday(value?: string | null, now = new Date()): boolean {
+  const raw = String(value || "").trim();
+  if (!raw) return false;
+  return dueDayDiff(raw, now) === 0;
 }
 
-export function isTodayScheduled(task: { due_at?: string | null; start_at?: string | null }): boolean {
-  const start = String(task.start_at || "").trim();
-  const due = String(task.due_at || "").trim();
-  if (!start && !due) return true;
-  if (!due) return true;
-  const diff = dayDiff(due);
-  return diff == null || diff <= 0;
+/** Today = high priority (重要紧急/重要/紧急) ∪ start today ∪ overdue/due today ∪ running ∪ approval ∪ high risk. */
+export function isTodayScheduled(task: Task): boolean {
+  if (isClosedTask(task) || task.dismissed_at) return false;
+  if (taskPriorityRank(task) <= 2) return true;
+  if (isStartToday(task.start_date || String(task.start_at || ""))) return true;
+  const diff = dueDayDiff(task.due_at);
+  if (diff != null && diff <= 0) return true;
+  if (isRunningStatus(task.status)) return true;
+  if (isApprovalStatus(task.status)) return true;
+  if (isHighRiskTask(task)) return true;
+  return false;
 }

@@ -94,7 +94,6 @@ import {
   isInsightTask,
   isOpenTask,
   isPlanningTask,
-  isTodayActionableTodo,
   isTodoTask,
   matchesTodoFilter,
   openBucket,
@@ -106,6 +105,8 @@ import {
   withHomeCommandTemplates,
   type TodoListFilter,
 } from "../home/homeModel";
+import { isTodayScheduled } from "../home/schedule";
+import EditTaskDialog from "../home/EditTaskDialog";
 import {
   TODAY_PLAN_REFRESHED_MS,
   TODAY_PLAN_REFRESH_EVENT,
@@ -511,6 +512,7 @@ export default function Home() {
     version: string;
   } | null>(null);
   const [todayBrief, setTodayBrief] = useState<TodayBrief | null>(null);
+  const [editTaskTarget, setEditTaskTarget] = useState<Task | null>(null);
   const [todayMemoryTasks, setTodayMemoryTasks] = useState<Task[] | null>(null);
   const [todayPlanEvents, setTodayPlanEvents] = useState<TaskEvent[]>([]);
   const [todayPlanPhase, setTodayPlanPhase] = useState<TodayPlanPhase>("loading-memory");
@@ -1024,7 +1026,18 @@ export default function Home() {
     });
   };
 
+  const handleTaskEdited = (updated: Task) => {
+    setEditTaskTarget(null);
+    mergeCatalogTask(updated);
+    void fetchHomeTasks().catch(() => undefined);
+    window.dispatchEvent(new Event(TODAY_PLAN_REFRESH_EVENT));
+  };
+
   const actOnMemoryTask = async (task: Task) => {
+    if (String(task.display_verb || "") === "edit") {
+      setEditTaskTarget(task);
+      return;
+    }
     rememberJourney({
       kind: "task",
       skillId: String(task.skill_id || task.skill || task.task_type || ""),
@@ -1414,7 +1427,7 @@ export default function Home() {
 
   const todayTodos = useMemo(
     () => applyLayoutWhy(
-      sortTodayTodos(homeMemoryTasks.filter(isTodayActionableTodo)),
+      sortTodayTodos(homeMemoryTasks.filter((task) => !isPlanningTask(task) && isTodayScheduled(task))),
       todayBrief?.todo_layout,
     ),
     [homeMemoryTasks, todayBrief],
@@ -1719,6 +1732,7 @@ export default function Home() {
               todayTodos={todayTodos}
               busy={busy}
               onAct={(task) => void actOnMemoryTask(task)}
+              onEdit={setEditTaskTarget}
               brief={todayBrief}
               phase={todayPlanPhase}
               events={todayPlanEvents}
@@ -1733,6 +1747,7 @@ export default function Home() {
               dedupeNotice={dedupeNotice}
               busy={busy}
               onAct={(task) => void actOnMemoryTask(task)}
+              onEdit={setEditTaskTarget}
               todoLayout={todayBrief?.todo_layout}
               phase={todayPlanPhase}
               events={todayPlanEvents}
@@ -2099,6 +2114,11 @@ export default function Home() {
         busy={Boolean(pendingBatchCards?.[0] && confirmStageBusyId === pendingBatchCards[0].id)}
         onConfirm={confirmSelectedStageEnter}
         onCancel={() => setPendingBatchCards(null)}
+      />
+      <EditTaskDialog
+        task={editTaskTarget}
+        onClose={() => setEditTaskTarget(null)}
+        onSaved={handleTaskEdited}
       />
       <ClaimFollowConfirm
         card={claimTarget}

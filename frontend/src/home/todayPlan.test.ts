@@ -76,7 +76,8 @@ describe("today plan wiring", () => {
     expect(home).not.toMatch(/runTodayPlanRefresh[\s\S]{0,800}homeBoard/);
     expect(home).not.toMatch(/setTodayBrief\(step\.brief[\s\S]{0,200}homeBoard/);
     expect(todo).toContain("<TodayPlanProgress");
-    expect(todo).toContain("todoPaneRows(tasks, filter, todoLayout)");
+    expect(todo).toContain("projectDisplayTasks(displayRows, tasks)");
+    expect(todo).toContain("!isTodayScheduled(task)");
     expect(homeModel).toContain("todoLayout?.length ? applyTodoLayout(members, todoLayout) : sortOpenWorkItems(members)");
     expect(todo).not.toContain("homeBoard");
     expect(todo).not.toContain("todayBrief()");
@@ -90,9 +91,9 @@ describe("today plan wiring", () => {
     expect(rows.map((row) => row.id)).toEqual(["tsk_due", "tsk_later"]);
     const here = path.dirname(fileURLToPath(import.meta.url));
     const todo = fs.readFileSync(path.resolve(here, "./TodoPane.tsx"), "utf8");
-    expect(todo).toContain("todoPaneRows(tasks, filter, todoLayout)");
+    expect(todo).toContain("projectDisplayTasks(displayRows, tasks)");
     expect(todo).not.toMatch(/if \(!todoLayout\)/);
-    expect(todo).not.toMatch(/phase === "planning"[\s\S]{0,80}return/);
+    expect(todo).not.toMatch(/if \(phase === "planning"\)[\s\S]{0,80}return/);
     expect(todo).not.toContain("today_brief");
   });
 });

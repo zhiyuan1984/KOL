@@ -3,8 +3,9 @@ import type { Task, TaskEvent, TodayBrief } from "../api";
 import DisplayWorkRow from "./DisplayWorkRow";
 import TodayPlanProgress from "./TodayPlanProgress";
 import { briefPrimaryLabel } from "./homeModel";
-import { projectDisplayTasks, type DisplayTaskRow } from "./displayTasks";
+import { groupDisplayTasks, projectDisplayTasks, type DisplayTaskRow } from "./displayTasks";
 import { fetchTodayTasks } from "./todayTasksApi";
+import { isTodayScheduled } from "./schedule";
 import type { TodayPlanPhase } from "./todayPlan";
 import "./today-display-row.css";
 
@@ -12,6 +13,7 @@ export default function TodayPane({
   todayTodos,
   busy,
   onAct,
+  onEdit,
   brief,
   phase = "idle",
   events,
@@ -19,6 +21,7 @@ export default function TodayPane({
   todayTodos: Task[];
   busy: boolean;
   onAct: (task: Task) => void;
+  onEdit?: (task: Task) => void;
   brief?: TodayBrief | null;
   phase?: TodayPlanPhase;
   events?: TaskEvent[] | null;
@@ -37,9 +40,10 @@ export default function TodayPane({
   }, [phase, brief?.lead, brief?.increment_summary]);
 
   const official = useMemo(
-    () => projectDisplayTasks(displayRows, todayTodos),
+    () => projectDisplayTasks(displayRows, todayTodos).filter(isTodayScheduled),
     [displayRows, todayTodos],
   );
+  const groups = useMemo(() => groupDisplayTasks(official), [official]);
   const sections = Array.isArray(brief?.sections) ? brief.sections : [];
   const primaryLabel = briefPrimaryLabel(brief?.primary);
   const bannedPrimary = /处理|待补阶段/.test(primaryLabel);
@@ -84,11 +88,16 @@ export default function TodayPane({
         aria-label="今日任务"
       >
         {official.length ? (
-          <ol className="today-todo-ol">
-            {official.map((task) => (
-              <DisplayWorkRow key={task.id} task={task} busy={busy} onAct={onAct} />
-            ))}
-          </ol>
+          groups.map(({ group, rows }) => (
+            <section className="today-display-group" data-today-group={group} key={group}>
+              <h3 className="today-display-group-title">{group}</h3>
+              <ol className="today-todo-ol">
+                {rows.map((task) => (
+                  <DisplayWorkRow key={task.id} task={task} busy={busy} onAct={onAct} onEdit={onEdit} />
+                ))}
+              </ol>
+            </section>
+          ))
         ) : (
           <div className="task-empty" data-today-list-empty={waiting ? "planning" : "no-display"}>
             <strong>{waiting ? "正在规划今天的任务" : "还没有 Codex 展示任务"}</strong>
