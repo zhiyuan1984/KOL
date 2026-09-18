@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execSync } from "node:child_process";
 import { Hono } from "hono";
 import { authDisabled, isAdmin, requireAdmin, scopedUser } from "../auth.js";
 import { examDemoStatus, examTodoCount } from "../exam.js";
@@ -104,6 +105,22 @@ function listedSkills(market: boolean): Json[] {
     .sort((a, b) => FUNNEL_ORDER.indexOf(a.funnel) - FUNNEL_ORDER.indexOf(b.funnel) || a.label.localeCompare(b.label, "zh"))
     .map((s) => skillMeta(s.id));
 }
+
+const VERSION_CACHE: { version: string; started_at: string } = { version: "", started_at: nowIso() };
+misc.get("/version", (c) => {
+  if (!VERSION_CACHE.version) {
+    let commit = String(process.env.LINGONG_VERSION || "").trim();
+    if (!commit) {
+      try {
+        commit = execSync("git rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+      } catch {
+        commit = "unknown";
+      }
+    }
+    VERSION_CACHE.version = commit || "unknown";
+  }
+  return c.json(VERSION_CACHE);
+});
 
 misc.get("/skills", (c) => {
   return c.json(listedSkills(false).map((s) => ({ ...s, granted: true })));

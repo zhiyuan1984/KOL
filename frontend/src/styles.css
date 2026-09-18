@@ -9127,3 +9127,9 @@ button.today-brief-primary-btn:disabled {
   opacity: 0.6;
   cursor: default;
 }
+.sidebar-version {
+  padding: 0 6px 4px;
+  font-size: 11px;
+  color: var(--text-muted, #6b6b6b);
+  user-select: all;
+}

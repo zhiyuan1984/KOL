@@ -247,6 +247,7 @@ function sessionUser(c: Context): AppUser | undefined {
 
 function publicPath(path: string): boolean {
   return path === "/api/health" ||
+    path === "/api/version" ||
     path === "/api/auth/status" ||
     path === "/api/auth/setup" ||
     path === "/api/auth/login" ||

@@ -33,9 +33,14 @@ export default function Workbench() {
   const { account } = useAccount();
   const { admin, debug } = useViewMode();
   const [me, setMe] = useState<Account | null>(account);
+  const [appVersion, setAppVersion] = useState("");
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("ui:left-collapsed") === "true");
   const [mobileOpen, setMobileOpen] = useState(false);
   const loc = useLocation();
+
+  useEffect(() => {
+    void api.version().then((row) => setAppVersion(String(row?.version || ""))).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     const refreshSessions = () => api.sessions().then((rows) => {
@@ -275,6 +280,9 @@ export default function Workbench() {
         </div>
 
         <div className="sidebar-foot">
+          {appVersion ? (
+            <div className="sidebar-version" data-app-version={appVersion}>v {appVersion}</div>
+          ) : null}
           <UserMenu account={me} />
         </div>
       </aside>

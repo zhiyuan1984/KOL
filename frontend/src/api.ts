@@ -711,6 +711,8 @@ export const api = {
     });
     return request<Task[] | { tasks: Task[] }>(`/api/tasks${query.size ? `?${query}` : ""}`);
   },
+  version: () =>
+    request<{ version: string; started_at: string }>("/api/version"),
   taskDefinitions: () =>
     request<TaskDefinition[] | { task_definitions?: TaskDefinition[]; definitions?: TaskDefinition[] }>(
       "/api/task-definitions",
