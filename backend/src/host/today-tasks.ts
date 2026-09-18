@@ -1,6 +1,7 @@
 import { getConn, nowIso, tx } from "../db.js";
 import { nid } from "../ids.js";
 import { TASK_RESULT_MEMORY, type TodayTaskResultRow, type TodayTaskResults } from "./memory-kinds.js";
+import { listMemories } from "./employee-memory.js";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -47,6 +48,29 @@ export function parseTodayTaskResults(raw: unknown): TodayTaskResults | null {
   return { items, planned_at: typeof root.planned_at === "string" ? root.planned_at : undefined };
 }
 
+function itemsFromDisplayMemory(owner: string): TodayTaskResults | null {
+  const rows = listMemories({ owner, memory_kind: "task_display", limit: 200 });
+  const items: TodayTaskResultRow[] = [];
+  for (const [index, row] of rows.entries()) {
+    const payload = asRecord(row.payload) || {};
+    const workItemId = String(payload.work_item_id || payload.id || row.item_key || "").trim();
+    if (!workItemId) continue;
+    items.push({
+      work_item_id: workItemId,
+      rank: Number(payload.rank || index + 1),
+      title: payload.title ? String(payload.title) : undefined,
+      why: payload.why ? String(payload.why) : undefined,
+      next_action: payload.next_action ? String(payload.next_action) : undefined,
+      verb: payload.verb || payload.action ? String(payload.verb || payload.action) : undefined,
+      label: payload.label ? String(payload.label) : undefined,
+      bucket: payload.bucket ? String(payload.bucket) : undefined,
+    });
+  }
+  if (!items.length) return null;
+  items.sort((a, b) => a.rank - b.rank);
+  return { items };
+}
+
 export function writeTodayTaskResults(input: {
   owner: string;
   workItemId: string;
@@ -90,16 +114,20 @@ export function loadTodayTaskResults(owner: string): TodayTaskResults | null {
       "SELECT result_artifact_id FROM employee_today_briefs WHERE owner_user_id=?",
     ).get(owner) as { result_artifact_id?: string } | undefined;
   } catch {
-    return null;
+    return itemsFromDisplayMemory(owner);
   }
-  if (!pointer?.result_artifact_id) return null;
-  const row = getConn().prepare("SELECT payload FROM task_artifacts WHERE id=?").get(pointer.result_artifact_id) as
-    | { payload: string }
-    | undefined;
-  if (!row) return null;
-  try {
-    return parseTodayTaskResults(JSON.parse(row.payload));
-  } catch {
-    return null;
+  if (pointer?.result_artifact_id) {
+    const row = getConn().prepare("SELECT payload FROM task_artifacts WHERE id=?").get(pointer.result_artifact_id) as
+      | { payload: string }
+      | undefined;
+    if (row) {
+      try {
+        const parsed = parseTodayTaskResults(JSON.parse(row.payload));
+        if (parsed?.items.length) return parsed;
+      } catch {
+        /* fall through to display memory */
+      }
+    }
   }
+  return itemsFromDisplayMemory(owner);
 }
