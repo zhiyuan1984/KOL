@@ -1,5 +1,6 @@
 import { test, expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import path from "node:path";
+import { stubFollowingFromServerBoard, stubHomeBoardAndFollowing } from "./kol-surface-stub";
 
 async function saveScreenshot(page: Page, name: string): Promise<void> {
   const dir = process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results";
@@ -28,9 +29,10 @@ async function confirmApprovalDecision(
   }
 }
 
-test.beforeEach(async ({ request }) => {
+test.beforeEach(async ({ page, request }) => {
   await request.post("/api/demo/reset", { data: { workbench: true } });
   await request.post("/api/me/persona", { data: { persona: "sriphy" } });
+  await stubFollowingFromServerBoard(page, request);
 });
 
 /** Stub Codex (Playwright webServer sets CODEX_MODE=stub). Drafts must appear — do not skip P0. */
@@ -1246,8 +1248,7 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
     "Hi there, I hope this message finds you in great spirits. I wanted to reach out about a possible collaboration with LiTime and share our media kit, rate card, posting calendar, and a long bilingual dump that used to stretch the home card into a wide table.",
     "你好，我现在想和贵品牌litime合作，方便发一下产品资料吗？Best regards, Amy",
   ].join("\n\n");
-  await page.route("**/api/home/board", (route) => route.fulfill({
-    json: {
+  await stubHomeBoardAndFollowing(page, {
       kols: [
         {
           id: "col_xiaomei",
@@ -1307,8 +1308,7 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
       ],
       tasks: [],
       tabs: [{ code: "all", count: 3 }, { code: "INITIAL_CONTACT", count: 2 }, { code: "QUOTE_PENDING", count: 1 }],
-    },
-  }));
+  });
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("/");
   await openHomeLifecycle(page);
@@ -1441,8 +1441,7 @@ test("home followed-KOL 查看互动 opens /mail without creating a session", as
 });
 
 test("home followed-KOL default sort uses contract keys 1-8", async ({ page }) => {
-  await page.route("**/api/home/board", (route) => route.fulfill({
-    json: {
+  await stubHomeBoardAndFollowing(page, {
       kols: [
         { id: "z-late", handle: "晚到的", brand: "LT", stage_code: "PUBLISHED", stage_label: "已发布", days_in_stage: 1 },
         { id: "e-stay", handle: "停留最长", brand: "LT", stage_code: "TESTING", stage_label: "已签收-测试中", days_in_stage: 40 },
@@ -1485,8 +1484,7 @@ test("home followed-KOL default sort uses contract keys 1-8", async ({ page }) =
         { id: "a-risk", handle: "异常菌", brand: "PQ", stage_code: "DISPUTED", stage_label: "争议中", exception: true, notes: "样品争议", days_in_stage: 8, mailbox_from: "pq.ops@example.com" },
       ],
       tasks: [],
-    },
-  }));
+  });
   await page.goto("/");
   await openHomeLifecycle(page);
   await expect(page.locator("[data-followed-kol]")).toHaveCount(6);
@@ -1508,8 +1506,7 @@ test("home followed-KOL default sort uses contract keys 1-8", async ({ page }) =
 });
 
 test("home confirm CTA names the target stage and opens confirm_stage", async ({ page }) => {
-  await page.route("**/api/home/board", (route) => route.fulfill({
-    json: {
+  await stubHomeBoardAndFollowing(page, {
       kols: [{
         id: "col_xiaomei",
         handle: "小美妆日记",
@@ -1530,8 +1527,7 @@ test("home confirm CTA names the target stage and opens confirm_stage", async ({
         }],
       }],
       tasks: [],
-    },
-  }));
+  });
   await page.goto("/");
   await openHomeLifecycle(page);
   const card = page.locator('[data-followed-kol="小美妆日记"]');
@@ -1603,8 +1599,7 @@ test("home open work items use six buckets and never show 已入队", async ({ p
       history_summary: "报价已提交，等负责人确认",
     },
   ];
-  await page.route("**/api/home/board", (route) => route.fulfill({
-    json: {
+  await stubHomeBoardAndFollowing(page, {
       kols: [],
       tabs: [{ code: "all", count: 0 }],
       tasks: todos,
@@ -1612,8 +1607,7 @@ test("home open work items use six buckets and never show 已入队", async ({ p
         summary: { open: 5, overdue: 0, due_today: 0, waiting: 1, insights: 0 },
         todo: todos,
       },
-    },
-  }));
+  });
   await page.route("**/api/tasks", (route) => route.fulfill({ json: todos }));
   await page.goto("/");
   await openHomeTodo(page);
@@ -1652,8 +1646,7 @@ test("home todo lists all later items without folding or 已入队 copy", async 
     status: "waiting",
     history_summary: "金额待确认发送",
   }));
-  await page.route("**/api/home/board", (route) => route.fulfill({
-    json: {
+  await stubHomeBoardAndFollowing(page, {
       kols: [],
       tabs: [{ code: "all", count: 0 }],
       tasks: todos,
@@ -1661,8 +1654,7 @@ test("home todo lists all later items without folding or 已入队 copy", async 
         summary: { open: 9, overdue: 0, due_today: 0, waiting: 9, insights: 0 },
         todo: todos,
       },
-    },
-  }));
+  });
   await page.route("**/api/tasks", (route) => route.fulfill({ json: todos }));
   await page.goto("/");
   await openHomeTodo(page);
@@ -1686,14 +1678,12 @@ test("home polls GET /api/tasks while a run is executing", async ({ page }) => {
     started_at: new Date(Date.now() - 30_000).toISOString(),
     history_summary: "正在核对逾期合作",
   };
-  await page.route("**/api/home/board", (route) => route.fulfill({
-    json: {
+  await stubHomeBoardAndFollowing(page, {
       kols: [],
       tabs: [{ code: "all", count: 0 }],
       tasks: [running],
       workbench: { summary: { open: 1, overdue: 0, due_today: 0, waiting: 0, insights: 0 }, todo: [running] },
-    },
-  }));
+  });
   await page.route("**/api/tasks", async (route) => {
     if (route.request().method() === "GET") taskGets += 1;
     await route.fulfill({ json: [running] });
@@ -1714,14 +1704,12 @@ test("home does not keep polling GET /api/tasks for 结果待确认 only", async
     status: "waiting",
     history_summary: "金额 $680，待确认发送",
   };
-  await page.route("**/api/home/board", (route) => route.fulfill({
-    json: {
+  await stubHomeBoardAndFollowing(page, {
       kols: [],
       tabs: [{ code: "all", count: 0 }],
       tasks: [waiting],
       workbench: { summary: { open: 1, overdue: 0, due_today: 0, waiting: 1, insights: 0 }, todo: [waiting] },
-    },
-  }));
+  });
   await page.route("**/api/tasks", async (route) => {
     if (route.request().method() === "GET") taskGets += 1;
     await route.fulfill({ json: [waiting] });
@@ -3664,8 +3652,7 @@ test("task workbench switches today/templates, filters sources, and runs one of 
       exceptions: [{ id: "col_trip", handle: "旅行电源菌", brand: "PQ", stage_code: "DISPUTED", stage_label: "争议中", exception: true, notes: "样品丢失争议" }],
     },
   }));
-  await page.route("**/api/home/board", (route) => route.fulfill({
-    json: {
+  await stubHomeBoardAndFollowing(page, {
       kols: [
         { id: "col_xiaomei", handle: "小美妆日记", brand: "LT", stage_code: "INITIAL_CONTACT", stage_label: "初步接触", exception: false, profile_tags: [{ id: "niche", label: "美妆" }], kol_name: "小美妆日记", collab_summary: "LT品牌合作", recent_followup: "写跟进邮件 · 已完成", current_stage: "初步接触", suggested_stage: "已回复-有兴趣" },
         { id: "col_laozhang", handle: "数码老张", brand: "LT", stage_code: "QUOTE_PENDING", stage_label: "报价待确认", exception: false, profile_tags: [{ id: "niche", label: "数码" }], kol_name: "数码老张", collab_summary: "LT品牌合作", recent_followup: "写报价信 · 等待中", current_stage: "报价待确认", suggested_stage: "商务谈判" },
@@ -3684,8 +3671,7 @@ test("task workbench switches today/templates, filters sources, and runs one of 
         { code: "QUOTE_PENDING", count: 1 },
         { code: "CONTENT_PLANNING", count: 1 },
       ],
-    },
-  }));
+  });
   await page.goto("/");
   await expectHomeModeOrder(page);
   await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "true");

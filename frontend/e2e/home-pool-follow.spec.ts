@@ -153,9 +153,15 @@ async function stubKol172(page: Page) {
   });
 }
 
-async function openMode(page: Page, mode: "lifecycle" | "pool") {
-  await page.locator(`[data-home-mode="${mode}"]`).click();
-  await expect(page.locator(`[data-home-pane="${mode}"]`)).toBeVisible();
+async function openFollow(page: Page) {
+  await page.locator('[data-home-mode="lifecycle"]').click();
+  await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
+}
+
+async function openPool(page: Page) {
+  await page.locator('[data-nav="pool"]').click();
+  await expect(page).toHaveURL(/[?&]tab=pool/);
+  await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
 }
 
 test.beforeEach(async ({ page, request }) => {
@@ -220,7 +226,7 @@ test("selection prefills composer and enqueue is not from-text", async ({ page }
 
 test("follow cards stay object cards and brief prefers 拒信", async ({ page }) => {
   await page.goto("/");
-  await openMode(page, "lifecycle");
+  await openFollow(page);
   await expect(page.locator("[data-followed-kol-list]")).toBeVisible();
   await expect(page.locator("[data-followed-brief]")).toBeVisible();
   await expect(page.locator("[data-followed-brief]")).toHaveAttribute("data-brief-priority", "refused");
@@ -244,13 +250,35 @@ test("claim is L3 and posts confirm to /api/kols/:kolUid/claim", async ({ page }
   });
   await page.goto("/?tab=pool");
   await page.locator("[data-pool-claim]").first().click();
-  const confirm = page.locator("[data-discovery-follow-confirm]");
+  const confirm = page.locator("[data-claim-follow-confirm]");
   await expect(confirm).toBeVisible();
   await expect(confirm).toContainText("不会发信，也不会改正式阶段");
-  await page.locator("[data-discovery-follow-yes]").click();
+  await page.locator("[data-claim-follow-yes]").click();
   await expect.poll(() => claims.length).toBe(1);
   expect(claims[0].path).toBe("/api/kols/uid_outdoor/claim");
   expect(claims[0].body.confirm === true || claims[0].body.confirmed === true).toBe(true);
+});
+
+test("release is L3 and does not change stage", async ({ page }) => {
+  const releases: Array<{ path: string; body: Record<string, unknown> }> = [];
+  page.on("request", (item) => {
+    if (item.method() !== "POST") return;
+    const path = new URL(item.url()).pathname;
+    if (/\/api\/follows\/.+\/release$/.test(path)) {
+      releases.push({ path, body: item.postDataJSON() as Record<string, unknown> });
+    }
+  });
+  await page.goto("/");
+  await openFollow(page);
+  await page.locator("[data-release-follow]").first().click();
+  const confirm = page.locator("[data-release-follow-confirm]");
+  await expect(confirm).toBeVisible();
+  await expect(confirm).toContainText("不会改正式阶段");
+  await expect(confirm).toContainText("回公海 ≠ 改阶段");
+  await page.locator("[data-release-follow-yes]").click();
+  await expect.poll(() => releases.length).toBe(1);
+  expect(releases[0].path).toBe("/api/follows/kfi_refused/release");
+  expect(releases[0].body.confirm === true || releases[0].body.confirmed === true).toBe(true);
 });
 
 test("tab switch does not create sessions", async ({ page }) => {
@@ -261,8 +289,8 @@ test("tab switch does not create sessions", async ({ page }) => {
     }
   });
   await page.goto("/");
-  await openMode(page, "lifecycle");
-  await openMode(page, "pool");
+  await openFollow(page);
+  await openPool(page);
   await page.locator('[data-home-mode="today"]').click();
   expect(sessionPosts).toEqual([]);
 });
