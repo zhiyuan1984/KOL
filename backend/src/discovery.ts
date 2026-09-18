@@ -649,6 +649,7 @@ function upsertCandidatesFromJob(run: Row, job: Row): number {
 export function ingestDiscoveryFromCrawlJob(job: Row): void {
   const run = getConn().prepare("SELECT * FROM discovery_runs WHERE crawl_job_id=?").get(job.id) as Row | undefined;
   if (!run) return;
+  if (String(run.kind || "") === "home") return;
   persistRunFromCrawl(run, job);
   if (String(job.status) === "result_ready") {
     upsertCandidatesFromJob(run, job);

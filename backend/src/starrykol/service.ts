@@ -487,6 +487,8 @@ function mockCall(name: string, args: Json): Json {
 }
 
 export async function callStarryKolTool(name: string, args: Json = {}): Promise<Json> {
+  const { rejectDiscoveryHarnessTool } = await import("../gateway/discovery-harness.js");
+  rejectDiscoveryHarnessTool(name);
   return call(name, args);
 }
 

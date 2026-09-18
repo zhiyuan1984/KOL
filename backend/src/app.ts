@@ -18,10 +18,12 @@ import { crawlRouter } from "./routers/crawl.js";
 import { knowledge } from "./routers/knowledge.js";
 import { experts } from "./routers/experts.js";
 import { discovery } from "./routers/discovery.js";
+import { homeDiscovery } from "./routers/home-discovery.js";
 import { cron } from "./routers/cron.js";
 import { kolMemory } from "./routers/kol-memory.js";
 import { restoreActiveCrawlJobs } from "./crawl/service.js";
 import { restoreActiveDiscoveryRuns } from "./discovery.js";
+import { restoreActiveHomeDiscoveryRuns } from "./home-discovery.js";
 import { seedIfEmpty } from "./seed.js";
 
 export function createApp(): Hono {
@@ -30,6 +32,7 @@ export function createApp(): Hono {
   ensureDemoAdmin();
   restoreActiveCrawlJobs();
   restoreActiveDiscoveryRuns();
+  restoreActiveHomeDiscoveryRuns();
 
   const app = new Hono();
   const configuredOrigin = process.env.APP_ORIGIN || process.env.CORS_ORIGIN;
@@ -60,6 +63,7 @@ export function createApp(): Hono {
   app.route("/api", knowledge);
   app.route("/api", experts);
   app.route("/api", discovery);
+  app.route("/api", homeDiscovery);
   app.route("/api", cron);
   app.route("/api", kolMemory);
   app.route("/api", misc);
