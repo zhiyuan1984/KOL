@@ -253,6 +253,8 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     expect(after.transitions).toBe(before.transitions);
     const collabsAfter = Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations").get() as { n: number }).n);
     expect(collabsAfter).toBe(collabsBefore);
+    const poolAfter = Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_profile_index").get() as { n: number }).n);
+    expect(poolAfter).toBe(0);
     const events = (run.events as Json[]).map((row) => row.type);
     expect(events).toEqual(expect.arrayContaining([
       "discovery.queued",

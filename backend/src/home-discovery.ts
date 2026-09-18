@@ -2,7 +2,8 @@
  * Home AI Discovery harness — crawl job + discovery_brief.
  * Crawl complete writes CreatorCandidate only. Idle does not write Starry.
  * Follow on this path must not create Collaboration.
- * Real POST /api/home/discovery/ingest (Starry + A.open) is owned elsewhere.
+ * Real POST /api/home/discovery/ingest (Starry + A.open) is already on main (#174).
+ * This harness must not call it on crawl idle. Per-run/candidate ingest is 501 handoff.
  * No from-text. No LIVE send / stage / decrypt.
  */
 import { authDisabled, isAdmin, scopedUser } from "./auth.js";
@@ -1091,7 +1092,7 @@ const INGEST_HANDOFF = {
   executed: false,
   starry_written: false,
   code: "ingest_handoff",
-  message: "入库由网关执行，本路径不写 Starry。采集完成只保留 CreatorCandidate。",
+  message: "采集完成只保留 CreatorCandidate。正式入库由网关 POST /api/home/discovery/ingest 执行，本路径不写 Starry。",
 } as const;
 
 export function homeDiscoveryIngestPlaceholder(id: string): Json {
