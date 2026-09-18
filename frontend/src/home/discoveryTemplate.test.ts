@@ -13,7 +13,7 @@ import {
   togglePlatform,
 } from "./discoveryTemplate";
 import { discoveryEventCopy, presentDiscoveryEvents } from "./discoveryEvents";
-import { batchCountsLabel, displayMetric, displayText } from "./discoveryHome";
+import { asHomeRun, runCountsLabel, displayMetric, displayText } from "./discoveryHome";
 
 describe("discovery template fallback", () => {
   it("starts with 【发现任务】 and forbids mail/stage/fake email", () => {
@@ -84,7 +84,10 @@ describe("discovery metrics", () => {
     expect(displayMetric(0)).toBe("无");
     expect(displayMetric(153000)).toBe("153k");
     expect(displayText("")).toBe("无");
-    expect(batchCountsLabel({ id: "b1", headline: "x", raw_count: null, shortlist_count: 3, status: "ok" }, 3))
+    expect(runCountsLabel({ id: "r1", headline: "x", raw_count: null, shortlist_count: 3, status: "ok", brief_version: 1 }, 3))
       .toBe("原始 无 · 入围 3");
+    expect(asHomeRun({ run_id: "drun_1", brief: { headline: "北美美妆" }, candidate_count: 2, brief_version: 3 })?.id)
+      .toBe("drun_1");
+    expect(asHomeRun({ id: "drun_1", brief_version: 3 })?.brief_version).toBe(3);
   });
 });

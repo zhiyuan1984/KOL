@@ -1229,16 +1229,14 @@ export const api = {
     }),
   homeDiscoveryTemplate: () =>
     request<Record<string, unknown> | null>("/api/home/discovery/template", { optional: true }),
-  homeDiscoveryBatches: () =>
-    request<Record<string, unknown> | Array<Record<string, unknown>>>("/api/home/discovery/batches"),
-  homeDiscoveryCandidates: (batchId?: string) => {
-    const search = new URLSearchParams();
-    if (batchId) search.set("batch_id", batchId);
-    const qs = search.size ? `?${search}` : "";
-    return request<Record<string, unknown> | Array<Record<string, unknown>>>(
-      `/api/home/discovery/candidates${qs}`,
-    );
-  },
+  homeDiscoveryRuns: () =>
+    request<Record<string, unknown> | Array<Record<string, unknown>>>("/api/home/discovery/runs"),
+  homeDiscoveryRun: (runId: string) =>
+    request<Record<string, unknown>>(`/api/home/discovery/runs/${encodeURIComponent(runId)}`),
+  homeDiscoveryRunCandidates: (runId: string) =>
+    request<Record<string, unknown> | Array<Record<string, unknown>>>(
+      `/api/home/discovery/runs/${encodeURIComponent(runId)}/candidates`,
+    ),
   runHomeDiscovery: (body: Record<string, unknown>) =>
     request<Record<string, unknown>>("/api/home/discovery/run", {
       method: "POST",

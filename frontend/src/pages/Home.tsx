@@ -378,10 +378,9 @@ export default function Home() {
       const result = await runHomeDiscovery({
         brief,
         body,
-        expected_brief_version: version,
       });
-      setDiscoveryTaskId(result.task_id || null);
-      setDiscoveryBatchId(result.batch_id || null);
+      setDiscoveryTaskId(result.work_item_id || null);
+      setDiscoveryRunId(result.run_id || null);
       refreshWorkbenchSessions();
       setText("");
       clearDiscoveryLock();
@@ -436,7 +435,7 @@ export default function Home() {
   const [discoveryVersion, setDiscoveryVersion] = useState<string>("discovery-brief.v1");
   const [discoveryOverride, setDiscoveryOverride] = useState(false);
   const [discoveryTaskId, setDiscoveryTaskId] = useState<string | null>(null);
-  const [discoveryBatchId, setDiscoveryBatchId] = useState<string | null>(null);
+  const [discoveryRunId, setDiscoveryRunId] = useState<string | null>(null);
   const [lastDiscoverySubmit, setLastDiscoverySubmit] = useState<{
     brief: DiscoveryBrief;
     body: string;
@@ -1453,8 +1452,7 @@ export default function Home() {
             <DiscoveryPanel
               templateOpen={Boolean(discoveryBrief) || text.startsWith(DISCOVERY_BODY_PREFIX)}
               activeTaskId={discoveryTaskId}
-              activeBatchId={discoveryBatchId}
-              briefVersion={discoveryVersion}
+              activeRunId={discoveryRunId}
               onOpenTemplate={() => void openDiscoveryTemplate()}
               onRetryRun={() => void retryDiscoveryRun()}
             />

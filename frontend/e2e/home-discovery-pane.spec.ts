@@ -2,10 +2,25 @@ import { test, expect, type Page } from "@playwright/test";
 
 const LIVE_SIDE_EFFECT = /\/(send|confirm-stage|start-crawl|crawl-job|actions\/start-crawl)(?:\?|$)/;
 const BANNED_FOLLOW = /加入跟进|\+\s*跟进|按所选加入跟进/;
+const BANNED_BATCH_PATH = /\/api\/home\/discovery\/batches/;
 
 async function openDiscovery(page: Page) {
   await page.goto("/?tab=discovery");
   await expect(page.locator('[data-home-pane="discovery"]')).toBeVisible();
+}
+
+function stubRun() {
+  return {
+    id: "drun_e2e",
+    run_id: "drun_e2e",
+    headline: "北美美妆 YouTube",
+    raw_count: 40,
+    candidate_count: 2,
+    status: "completed",
+    work_item_id: "tsk_disc_e2e",
+    session_id: "ses_disc_e2e",
+    brief_version: 1,
+  };
 }
 
 function stubCandidates() {
@@ -16,12 +31,13 @@ function stubCandidates() {
       nickname: "Solar Lab",
       platform: "youtube",
       followers: 153000,
-      avg_plays_10: 8597,
+      avg_views_10: 8597,
       why: "匹配美妆评测方向",
       band: "A",
       source_url: "https://youtube.com/@TheSolarLab",
-      in_library: false,
+      already_in_pool: false,
       status: "suggested",
+      run_id: "drun_e2e",
     },
     {
       id: "cand_zero",
@@ -29,12 +45,13 @@ function stubCandidates() {
       nickname: "",
       platform: "instagram",
       followers: 0,
-      avg_plays_10: 0,
+      avg_views_10: 0,
       why: "",
       band: "",
       source_url: "",
-      in_library: true,
+      already_in_pool: true,
       status: "suggested",
+      run_id: "drun_e2e",
     },
   ];
 }
@@ -44,11 +61,12 @@ test.beforeEach(async ({ request }) => {
   await request.post("/api/me/persona", { data: { persona: "sriphy" } });
 });
 
-test("tab switch only GETs discovery batches and does not create a session", async ({ page }) => {
+test("tab switch only GETs discovery runs and does not create a session", async ({ page }) => {
   const posts: string[] = [];
   const gets: string[] = [];
   page.on("request", (item) => {
     const path = new URL(item.url()).pathname;
+    expect(path).not.toMatch(BANNED_BATCH_PATH);
     if (item.method() === "POST") posts.push(path);
     if (item.method() === "GET" && path.startsWith("/api/home/discovery")) gets.push(path);
   });
@@ -59,7 +77,8 @@ test("tab switch only GETs discovery batches and does not create a session", asy
   await expect(page.locator("[data-discovery-panel]")).toContainText("尚未搜索");
   await expect(page.locator("[data-discovery-panel]")).not.toContainText(BANNED_FOLLOW);
   expect(posts.filter((path) => path === "/api/sessions" || path.includes("/run") || path.endsWith("/from-text"))).toEqual([]);
-  expect(gets.some((path) => path.includes("/api/home/discovery/batches"))).toBeTruthy();
+  expect(gets.some((path) => path === "/api/home/discovery/runs")).toBeTruthy();
+  expect(gets.some((path) => path.includes("/batches"))).toBeFalsy();
 });
 
 test("开始发现 prefills Composer without a session and + menu is not connectors admin", async ({ page }) => {
@@ -107,36 +126,60 @@ test("submit posts /api/home/discovery/run, shows process copy, and ingests to p
   const livePosts: string[] = [];
   const runPosts: string[] = [];
   const followPosts: string[] = [];
+  const claimPosts: string[] = [];
+  const ingestBodies: unknown[] = [];
   let eventTick = 0;
+  let ran = false;
   page.on("request", (item) => {
-    if (item.method() !== "POST") return;
     const path = new URL(item.url()).pathname;
+    expect(path).not.toMatch(BANNED_BATCH_PATH);
+    if (item.method() !== "POST") return;
     if (LIVE_SIDE_EFFECT.test(path)) livePosts.push(path);
     if (path === "/api/home/discovery/run") runPosts.push(path);
     if (path.includes("/follow")) followPosts.push(path);
+    if (path.includes("/claim")) claimPosts.push(path);
   });
 
-  await page.route("**/api/home/discovery/batches", (route) => route.fulfill({
-    json: {
-      batches: [{
-        id: "bat_e2e",
-        headline: "北美美妆 YouTube",
-        raw_count: 40,
-        shortlist_count: 2,
-        status: "succeeded",
-        task_id: "tsk_disc_e2e",
-      }],
-    },
-  }));
-  await page.route("**/api/home/discovery/candidates**", (route) => route.fulfill({
-    json: { candidates: stubCandidates() },
-  }));
-  await page.route("**/api/home/discovery/run", (route) => route.fulfill({
-    json: { task_id: "tsk_disc_e2e", session_id: "ses_disc_e2e", batch_id: "bat_e2e", agent_status: "running" },
-  }));
-  await page.route("**/api/home/discovery/ingest", (route) => route.fulfill({
-    json: { ingested: [{ id: "cand_solar" }], failed: [], pending_approval: false },
-  }));
+  await page.route("**/api/home/discovery/runs**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/candidates")) {
+      void route.fulfill({ json: { run_id: "drun_e2e", candidates: ran ? stubCandidates() : [] } });
+      return;
+    }
+    if (/\/runs\/[^/]+$/.test(path)) {
+      void route.fulfill({ json: { run: ran ? stubRun() : null } });
+      return;
+    }
+    void route.fulfill({ json: { runs: ran ? [stubRun()] : [] } });
+  });
+  await page.route("**/api/home/discovery/run", async (route) => {
+    ran = true;
+    await route.fulfill({
+      json: {
+        run_id: "drun_e2e",
+        id: "drun_e2e",
+        work_item_id: "tsk_disc_e2e",
+        session_id: "ses_disc_e2e",
+        agent_status: "running",
+        brief_version: 1,
+      },
+    });
+  });
+  await page.route("**/api/home/discovery/ingest", async (route) => {
+    ingestBodies.push(route.request().postDataJSON());
+    await route.fulfill({
+      json: {
+        status: "completed",
+        run_id: "drun_e2e",
+        items: [
+          { candidate_id: "cand_solar", status: "imported" },
+          { candidate_id: "cand_zero", status: "already_imported" },
+        ],
+        counts: { selected: 2, imported: 1, already_imported: 1, failed: 0 },
+        claimed: false,
+      },
+    });
+  });
   await page.route("**/api/tasks/tsk_disc_e2e/events", (route) => {
     eventTick += 1;
     const events = eventTick < 2
@@ -204,15 +247,22 @@ test("submit posts /api/home/discovery/run, shows process copy, and ingests to p
   await expect(confirm).toContainText("不会发信");
   await confirm.locator("[data-discovery-ingest-yes]").click();
   await expect(page.locator("[data-discovery-toast]")).toHaveText("去公海看这批");
-  await expect(page.locator("[data-discovery-pool-link]")).toHaveAttribute("href", "/pipeline");
+  await expect(page.locator("[data-discovery-pool-link]")).toHaveAttribute("href", "/?tab=pool");
   await expect(page.locator('[data-home-mode="lifecycle"]')).toHaveAttribute("aria-selected", "false");
+  expect(ingestBodies).toEqual([{
+    run_id: "drun_e2e",
+    candidate_ids: ["cand_solar", "cand_zero"],
+    expected_brief_version: 1,
+    confirmed: true,
+  }]);
   expect(followPosts).toEqual([]);
+  expect(claimPosts).toEqual([]);
   expect(livePosts).toEqual([]);
   await expect(page.locator("[data-nav='running'] .nav-badge")).toHaveText("1");
 });
 
 test("service-down and filtered empty states stay honest", async ({ page }) => {
-  await page.route("**/api/home/discovery/batches", (route) => route.fulfill({
+  await page.route("**/api/home/discovery/runs**", (route) => route.fulfill({
     status: 502,
     contentType: "application/json",
     body: JSON.stringify({ detail: "upstream down" }),

@@ -7,26 +7,26 @@ import {
   type DiscoveryProcessStep,
 } from "./discoveryEvents";
 import {
-  batchCountsLabel,
-  batchHeadline,
   displayMetric,
   displayText,
   ingestHomeDiscovery,
   isMissingEndpoint,
-  loadDiscoveryBatches,
   loadDiscoveryCandidates,
+  loadDiscoveryRun,
+  loadDiscoveryRuns,
   loadTaskEvents,
-  type HomeDiscoveryBatch,
+  runCountsLabel,
+  runHeadline,
   type HomeDiscoveryCandidate,
   type HomeDiscoveryEmptyKind,
+  type HomeDiscoveryRun,
 } from "./discoveryHome";
 import { platformLabel } from "./discoveryTemplate";
 
 type DiscoveryPanelProps = {
   templateOpen?: boolean;
   activeTaskId?: string | null;
-  activeBatchId?: string | null;
-  briefVersion?: string;
+  activeRunId?: string | null;
   onOpenTemplate: () => void;
   onRetryRun?: () => void;
 };
@@ -34,16 +34,14 @@ type DiscoveryPanelProps = {
 export default function DiscoveryPanel({
   templateOpen = false,
   activeTaskId = null,
-  activeBatchId = null,
-  briefVersion,
+  activeRunId = null,
   onOpenTemplate,
   onRetryRun,
 }: DiscoveryPanelProps) {
   const [emptyKind, setEmptyKind] = useState<HomeDiscoveryEmptyKind>("idle");
   const [emptyMessage, setEmptyMessage] = useState("还没有搜索过红人线索。");
-  const [batches, setBatches] = useState<HomeDiscoveryBatch[]>([]);
   const [candidates, setCandidates] = useState<HomeDiscoveryCandidate[]>([]);
-  const [activeBatch, setActiveBatch] = useState<HomeDiscoveryBatch | null>(null);
+  const [activeRun, setActiveRun] = useState<HomeDiscoveryRun | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [ignoredIds, setIgnoredIds] = useState<string[]>([]);
   const [steps, setSteps] = useState<DiscoveryProcessStep[]>([]);
@@ -64,40 +62,36 @@ export default function DiscoveryPanel({
     [visible, selectedIds],
   );
 
-  const loadExisting = async (preferBatchId?: string | null) => {
-    const listed = await loadDiscoveryBatches();
+  const loadExisting = async (preferRunId?: string | null) => {
+    const listed = await loadDiscoveryRuns();
     if (listed.down) {
       setEmptyKind("down");
       setEmptyMessage("发现服务不可用。已有输入会保留，可稍后重试。");
-      setBatches([]);
       setCandidates([]);
-      setActiveBatch(null);
+      setActiveRun(null);
       return;
     }
     const rows = listed.data;
-    setBatches(rows);
-    const chosen = rows.find((row) => row.id === preferBatchId)
-      || rows.find((row) => row.task_id && row.task_id === activeTaskId)
+    const chosen = rows.find((row) => row.id === preferRunId)
+      || rows.find((row) => row.work_item_id && row.work_item_id === activeTaskId)
       || rows[0]
       || null;
-    setActiveBatch(chosen);
     if (!chosen) {
-      const loose = await loadDiscoveryCandidates();
-      if (loose.down) {
-        setEmptyKind("down");
-        setEmptyMessage("发现服务不可用。已有输入会保留，可稍后重试。");
-        setCandidates([]);
-        return;
-      }
-      setCandidates(loose.data);
-      if (loose.data.length) {
-        setEmptyKind("filtered");
-        return;
-      }
+      setActiveRun(null);
+      setCandidates([]);
       setEmptyKind("idle");
       setEmptyMessage("还没有搜索过红人线索。");
       return;
     }
+    const detail = await loadDiscoveryRun(chosen.id);
+    if (detail.down) {
+      setEmptyKind("down");
+      setEmptyMessage("发现服务不可用。已有输入会保留，可稍后重试。");
+      setCandidates([]);
+      setActiveRun(chosen);
+      return;
+    }
+    setActiveRun(detail.data || chosen);
     const next = await loadDiscoveryCandidates(chosen.id);
     if (next.down) {
       setEmptyKind("down");
@@ -114,7 +108,7 @@ export default function DiscoveryPanel({
 
   useEffect(() => {
     let cancelled = false;
-    void loadExisting(activeBatchId).catch(() => {
+    void loadExisting(activeRunId).catch(() => {
       if (!cancelled) {
         setEmptyKind("down");
         setEmptyMessage("发现服务不可用。已有输入会保留，可稍后重试。");
@@ -123,14 +117,14 @@ export default function DiscoveryPanel({
     return () => {
       cancelled = true;
     };
-    // Tab switch: GET batches/candidates only. Never create a session here.
+    // Tab switch: GET runs / runs/:id / candidates only. Never /discovery/batches. Never create a session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    if (activeBatchId) void loadExisting(activeBatchId);
+    if (activeRunId) void loadExisting(activeRunId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeBatchId]);
+  }, [activeRunId]);
 
   useEffect(() => {
     if (!activeTaskId) return;
@@ -153,7 +147,7 @@ export default function DiscoveryPanel({
         }
         if (ranked) {
           setRunning(false);
-          await loadExisting(activeBatchId);
+          await loadExisting(activeRunId);
           return true;
         }
       } catch (error) {
@@ -195,10 +189,15 @@ export default function DiscoveryPanel({
     setIngestBusy(true);
     setIngestError(null);
     try {
+      const runId = activeRun?.id || activeRunId;
+      if (!runId) {
+        setIngestError("没有可入库的发现运行。");
+        return;
+      }
       const result = await ingestHomeDiscovery({
-        batch_id: activeBatch?.id || activeBatchId || undefined,
+        run_id: runId,
         candidate_ids: selected.map((row) => row.id),
-        expected_brief_version: briefVersion,
+        expected_brief_version: activeRun?.brief_version || 1,
       });
       if (result.pending_approval) {
         setApprovalState(result.approval_status || "pending");
@@ -287,19 +286,19 @@ export default function DiscoveryPanel({
 
       {toast ? (
         <p className="discovery-toast" data-discovery-toast role="status">
-          <Link to="/pipeline" data-discovery-pool-link>{toast}</Link>
+          <Link to="/?tab=pool" data-discovery-pool-link>{toast}</Link>
         </p>
       ) : null}
 
       {showResults ? (
         <>
           <header className="discovery-result-head">
-            <h2 data-discovery-headline>{batchHeadline(activeBatch)}</h2>
-            <p data-discovery-counts>{batchCountsLabel(activeBatch, visible.length)}</p>
+            <h2 data-discovery-headline>{runHeadline(activeRun)}</h2>
+            <p data-discovery-counts>{runCountsLabel(activeRun, visible.length)}</p>
           </header>
           <div
-            className={"discovery-batch-bar" + (selected.length ? " is-selecting" : "")}
-            data-discovery-batch-bar
+            className={"discovery-run-bar" + (selected.length ? " is-selecting" : "")}
+            data-discovery-run-bar
           >
             <label className="discovery-candidate-select">
               <input
@@ -315,7 +314,7 @@ export default function DiscoveryPanel({
                 type="button"
                 className="btn work sm"
                 data-discovery-ingest
-                data-home-entry="ingest-to-pool"
+                data-home-entry="discovery-ingest"
                 onClick={() => {
                   setIngestError(null);
                   setIngestOpen(true);
@@ -428,7 +427,7 @@ export default function DiscoveryPanel({
         <p data-discovery-ingest-summary>
           {`将把 ${selected.length} 条线索写入 Starry 并进入公海。`}
           {` 平台：${platforms.length ? platforms.map((code) => platformLabel(code)).join("、") : "无"}。`}
-          {` 来源批次：${activeBatch?.id || activeBatchId || "无"}。`}
+          {` 来源运行：${activeRun?.id || activeRunId || "无"}。`}
           不会建联，不会发信，也不会改阶段或认领跟进。
         </p>
       </DiscoveryIngestConfirm>

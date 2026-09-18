@@ -1,5 +1,6 @@
-export type HomeMode = "today" | "todo" | "discovery" | "lifecycle";
+export type HomeMode = "today" | "todo" | "discovery" | "lifecycle" | "pool";
 
+/** Visible Home tabs. `pool` is a real mode (`/?tab=pool`) but not a 5th tab here — #173 owns 公海页. */
 export const HOME_MODES: HomeMode[] = ["today", "todo", "discovery", "lifecycle"];
 
 /** law-v2 PROD-PLAT-02 / UX-02 Home mode names (KOL pilot). */
@@ -8,6 +9,7 @@ export const HOME_MODE_LABELS: Record<HomeMode, string> = {
   todo: "我的待办",
   discovery: "AI发现",
   lifecycle: "我跟进的红人",
+  pool: "公海",
 };
 
 const HOME_MODE_ALIASES: Record<string, HomeMode> = {
@@ -15,6 +17,7 @@ const HOME_MODE_ALIASES: Record<string, HomeMode> = {
   todo: "todo",
   discovery: "discovery",
   lifecycle: "lifecycle",
+  pool: "pool",
   ai: "today",
 };
 

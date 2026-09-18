@@ -101,7 +101,7 @@ export function DiscoveryIngestConfirm({
             type="button"
             className="btn work sm"
             data-discovery-ingest-yes
-            data-home-entry="ingest-to-pool"
+            data-home-entry="discovery-ingest"
             disabled={busy || confirmDisabled}
             onClick={() => void onConfirm()}
           >

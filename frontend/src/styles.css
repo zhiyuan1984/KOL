@@ -1676,6 +1676,7 @@ summary:focus-visible,
   height: 1rem;
   margin: 0.15rem 0 0;
 }
+.discovery-run-bar,
 .discovery-batch-bar {
   display: flex;
   flex-wrap: wrap;
@@ -1686,6 +1687,7 @@ summary:focus-visible,
   list-style: none;
   background: var(--bg);
 }
+.discovery-run-bar.is-selecting,
 .discovery-batch-bar.is-selecting {
   position: sticky;
   top: 0;

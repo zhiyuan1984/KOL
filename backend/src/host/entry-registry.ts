@@ -9,7 +9,8 @@
  * cron    = 已发布后台流程；Home 本页不新增
  *
  * GET /api/home/board · GET /api/tasks · GET /api/home/following ·
- * GET /api/home/discovery/batches · GET /api/home/discovery/candidates
+ * GET /api/home/discovery/runs · GET /api/home/discovery/runs/:id ·
+ * GET /api/home/discovery/runs/:id/candidates
  * 不得 INSERT sessions。
  */
 
@@ -77,11 +78,11 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
   {
     id: "existing-discovery",
     kind: "memory",
-    action: "已有发现批次 / 结果",
+    action: "已有发现运行 / 结果",
     creates_session: false,
     creates_turn: false,
     calls_model: false,
-    route: "GET /api/home/discovery/batches · GET /api/home/discovery/candidates",
+    route: "GET /api/home/discovery/runs · GET /api/home/discovery/runs/:id · GET /api/home/discovery/runs/:id/candidates",
   },
   {
     id: "open-discovery-template",
@@ -138,13 +139,13 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     route: "POST /api/tasks/adopt-recommendation",
   },
   {
-    id: "ingest-to-pool",
+    id: "follow-candidate",
     kind: "command",
-    action: "入库公海",
+    action: "确认加入跟进",
     creates_session: false,
     creates_turn: false,
     calls_model: false,
-    route: "POST /api/home/discovery/ingest",
+    route: "POST /api/discovery/candidates/:id/follow",
   },
   {
     id: "discovery-ingest",

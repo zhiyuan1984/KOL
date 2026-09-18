@@ -21,6 +21,7 @@ describe("today pane buckets", () => {
   it("keeps parseHomeMode default and drops queued / open-with-no-due", async () => {
     const { parseHomeMode } = await import("./modes");
     expect(parseHomeMode(null)).toBe("today");
+    expect(parseHomeMode("pool")).toBe("pool");
     expect(isTodayActionableTodo(task({ id: "q", title: "queued", status: "queued" }))).toBe(false);
     expect(isTodayActionableTodo(task({ id: "p", title: "open no due", status: "pending" }))).toBe(false);
     expect(isTodayActionableTodo(task({ id: "ai-open", title: "ai pending no due", source: "ai", status: "pending" }))).toBe(false);
