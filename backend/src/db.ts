@@ -961,6 +961,176 @@ function add(db: SqliteConn, table: string, name: string, ddl: string): void {
   }
 }
 
+function columnNotNull(db: SqliteConn, table: string, name: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string; notnull: number }[];
+  return Boolean(rows.find((row) => row.name === name)?.notnull);
+}
+
+function tableSql(db: SqliteConn, table: string): string {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name=?").get(table) as { sql?: string } | undefined;
+  return String(row?.sql || "");
+}
+
+function rebuildKolMailThreads(db: SqliteConn): void {
+  db.exec(`
+    CREATE TABLE kol_mail_threads_p0 (
+      id TEXT PRIMARY KEY,
+      collaboration_id TEXT,
+      conversation_id TEXT NOT NULL,
+      subject TEXT NOT NULL DEFAULT '',
+      mailbox TEXT,
+      last_direction TEXT,
+      last_snippet TEXT,
+      unread_count INTEGER NOT NULL DEFAULT 0,
+      last_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_from TEXT,
+      last_from_name TEXT,
+      peer_email TEXT,
+      peer_name TEXT,
+      last_preview TEXT,
+      match_state TEXT,
+      last_receipt TEXT,
+      digest_text TEXT,
+      digest_source TEXT,
+      digest_fingerprint TEXT,
+      digest_error TEXT,
+      digest_failed_at TEXT,
+      digest_mail_count INTEGER
+    );
+  `);
+  const have = cols(db, "kol_mail_threads");
+  const select = [
+    "id",
+    "collaboration_id",
+    "conversation_id",
+    "subject",
+    "mailbox",
+    "last_direction",
+    "last_snippet",
+    "unread_count",
+    "last_at",
+    "created_at",
+    "updated_at",
+    have.has("last_from") ? "last_from" : "NULL",
+    have.has("last_from_name") ? "last_from_name" : "NULL",
+    have.has("peer_email") ? "peer_email" : "NULL",
+    have.has("peer_name") ? "peer_name" : "NULL",
+    have.has("last_preview") ? "last_preview" : "NULL",
+    have.has("match_state") ? "match_state" : "NULL",
+    have.has("last_receipt") ? "last_receipt" : "NULL",
+    have.has("digest_text") ? "digest_text" : "NULL",
+    have.has("digest_source") ? "digest_source" : "NULL",
+    have.has("digest_fingerprint") ? "digest_fingerprint" : "NULL",
+    have.has("digest_error") ? "digest_error" : "NULL",
+    have.has("digest_failed_at") ? "digest_failed_at" : "NULL",
+    have.has("digest_mail_count") ? "digest_mail_count" : "NULL",
+  ].join(",");
+  db.exec(`INSERT INTO kol_mail_threads_p0 SELECT ${select} FROM kol_mail_threads`);
+  db.exec("DROP TABLE kol_mail_threads");
+  db.exec("ALTER TABLE kol_mail_threads_p0 RENAME TO kol_mail_threads");
+}
+
+function rebuildKolMailItems(db: SqliteConn): void {
+  db.exec(`
+    CREATE TABLE kol_mail_items_p0 (
+      id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      collaboration_id TEXT,
+      conversation_id TEXT NOT NULL,
+      provider_message_id TEXT,
+      direction TEXT,
+      subject TEXT,
+      snippet TEXT,
+      unread INTEGER NOT NULL DEFAULT 1,
+      occurred_at TEXT,
+      created_at TEXT NOT NULL,
+      from_addr TEXT,
+      from_name TEXT,
+      to_addr TEXT,
+      body_text TEXT,
+      summary TEXT,
+      summary_zh TEXT,
+      summary_source TEXT,
+      receipt_status TEXT,
+      receipt_at TEXT,
+      effective INTEGER
+    );
+  `);
+  const have = cols(db, "kol_mail_items");
+  const select = [
+    "id",
+    "thread_id",
+    "collaboration_id",
+    "conversation_id",
+    "provider_message_id",
+    "direction",
+    "subject",
+    "snippet",
+    "unread",
+    "occurred_at",
+    "created_at",
+    have.has("from_addr") ? "from_addr" : "NULL",
+    have.has("from_name") ? "from_name" : "NULL",
+    have.has("to_addr") ? "to_addr" : "NULL",
+    have.has("body_text") ? "body_text" : "NULL",
+    have.has("summary") ? "summary" : "NULL",
+    have.has("summary_zh") ? "summary_zh" : "NULL",
+    have.has("summary_source") ? "summary_source" : "NULL",
+    have.has("receipt_status") ? "receipt_status" : "NULL",
+    have.has("receipt_at") ? "receipt_at" : "NULL",
+    have.has("effective") ? "effective" : "NULL",
+  ].join(",");
+  db.exec(`INSERT INTO kol_mail_items_p0 SELECT ${select} FROM kol_mail_items`);
+  db.exec("DROP TABLE kol_mail_items");
+  db.exec("ALTER TABLE kol_mail_items_p0 RENAME TO kol_mail_items");
+}
+
+/**
+ * Best-effort: copy app_state `mail_digest:{collaborationId}` onto thread rows
+ * keyed by conversation. Gaps (left in app_state, not deleted):
+ * - no thread row for that collaboration → digest stays only in app_state
+ * - several conversations on one collaboration → the same collaboration-scoped
+ *   digest is copied onto every thread (not conversation-specific)
+ * - missing fingerprint / mail_count in old JSON → stored as empty / 0
+ */
+function migrateMailDigestState(db: SqliteConn): void {
+  if (!cols(db, "kol_mail_threads").has("digest_text")) return;
+  const rows = db.prepare("SELECT key, value FROM app_state WHERE key LIKE 'mail_digest:%'").all() as { key: string; value: string }[];
+  const update = db.prepare(
+    `UPDATE kol_mail_threads
+     SET digest_text=?, digest_source=?, digest_fingerprint=?, digest_error=?, digest_failed_at=?, digest_mail_count=?
+     WHERE collaboration_id=? AND IFNULL(digest_text,'')=''`,
+  );
+  for (const row of rows) {
+    const collaborationId = row.key.slice("mail_digest:".length);
+    if (!collaborationId) continue;
+    let parsed: {
+      text?: unknown;
+      source?: unknown;
+      fingerprint?: unknown;
+      error?: unknown;
+      failed_at?: unknown;
+      mail_count?: unknown;
+    } = {};
+    try {
+      parsed = JSON.parse(row.value) as typeof parsed;
+    } catch {
+      continue;
+    }
+    update.run(
+      String(parsed.text || ""),
+      String(parsed.source || ""),
+      String(parsed.fingerprint || ""),
+      parsed.error ? String(parsed.error) : "",
+      parsed.failed_at ? String(parsed.failed_at) : "",
+      Number(parsed.mail_count || 0),
+      collaborationId,
+    );
+  }
+}
+
 function migrateSchema(db: SqliteConn): void {
   add(db, "collaborations", "stage_version", "INTEGER NOT NULL DEFAULT 0");
   add(db, "collaborations", "recipient_name", "TEXT");
@@ -1057,7 +1227,7 @@ function migrateSchema(db: SqliteConn): void {
   db.exec(`
         CREATE TABLE IF NOT EXISTS kol_mail_threads (
             id TEXT PRIMARY KEY,
-            collaboration_id TEXT NOT NULL,
+            collaboration_id TEXT,
             conversation_id TEXT NOT NULL,
             subject TEXT NOT NULL DEFAULT '',
             mailbox TEXT,
@@ -1066,31 +1236,68 @@ function migrateSchema(db: SqliteConn): void {
             unread_count INTEGER NOT NULL DEFAULT 0,
             last_at TEXT,
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            last_from TEXT,
+            last_from_name TEXT,
+            peer_email TEXT,
+            peer_name TEXT,
+            last_preview TEXT,
+            match_state TEXT,
+            last_receipt TEXT,
+            digest_text TEXT,
+            digest_source TEXT,
+            digest_fingerprint TEXT,
+            digest_error TEXT,
+            digest_failed_at TEXT,
+            digest_mail_count INTEGER
         );
   `);
   add(db, "kol_mail_threads", "last_from", "TEXT");
   add(db, "kol_mail_threads", "last_from_name", "TEXT");
+  add(db, "kol_mail_threads", "peer_email", "TEXT");
+  add(db, "kol_mail_threads", "peer_name", "TEXT");
+  add(db, "kol_mail_threads", "last_preview", "TEXT");
+  add(db, "kol_mail_threads", "match_state", "TEXT");
+  add(db, "kol_mail_threads", "last_receipt", "TEXT");
+  add(db, "kol_mail_threads", "digest_text", "TEXT");
+  add(db, "kol_mail_threads", "digest_source", "TEXT");
+  add(db, "kol_mail_threads", "digest_fingerprint", "TEXT");
+  add(db, "kol_mail_threads", "digest_error", "TEXT");
+  add(db, "kol_mail_threads", "digest_failed_at", "TEXT");
+  add(db, "kol_mail_threads", "digest_mail_count", "INTEGER");
   db.exec("DROP INDEX IF EXISTS kol_mail_threads_key");
+  db.exec("DROP INDEX IF EXISTS kol_mail_threads_conv");
+  if (columnNotNull(db, "kol_mail_threads", "collaboration_id") || /collaboration_id TEXT NOT NULL/i.test(tableSql(db, "kol_mail_threads"))) {
+    rebuildKolMailThreads(db);
+  }
   const threadDupes = db.prepare(
-    `SELECT collaboration_id, conversation_id FROM kol_mail_threads
-     GROUP BY collaboration_id, conversation_id HAVING COUNT(*) > 1`,
-  ).all() as { collaboration_id: string; conversation_id: string }[];
+    `SELECT IFNULL(mailbox,'') AS mailbox, conversation_id FROM kol_mail_threads
+     GROUP BY IFNULL(mailbox,''), conversation_id HAVING COUNT(*) > 1`,
+  ).all() as { mailbox: string; conversation_id: string }[];
   for (const dupe of threadDupes) {
     const extras = db.prepare(
-      `SELECT id FROM kol_mail_threads WHERE collaboration_id=? AND conversation_id=? ORDER BY updated_at DESC`,
-    ).all(dupe.collaboration_id, dupe.conversation_id) as { id: string }[];
+      `SELECT id FROM kol_mail_threads WHERE IFNULL(mailbox,'')=? AND conversation_id=? ORDER BY updated_at DESC`,
+    ).all(dupe.mailbox, dupe.conversation_id) as { id: string }[];
     for (const extra of extras.slice(1)) {
       db.prepare("DELETE FROM kol_mail_threads WHERE id=?").run(extra.id);
     }
   }
-  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS kol_mail_threads_conv
-    ON kol_mail_threads(collaboration_id, conversation_id)`);
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS kol_mail_threads_mailbox_conv
+    ON kol_mail_threads(mailbox, conversation_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS kol_mail_threads_mailbox ON kol_mail_threads(mailbox)`);
+  db.prepare(
+    `UPDATE kol_mail_threads SET match_state='matched'
+     WHERE IFNULL(match_state,'')='' AND collaboration_id IS NOT NULL AND trim(collaboration_id) != ''`,
+  ).run();
+  db.prepare(
+    `UPDATE kol_mail_threads SET match_state='unbound'
+     WHERE IFNULL(match_state,'')='' AND (collaboration_id IS NULL OR trim(collaboration_id) = '')`,
+  ).run();
   db.exec(`
         CREATE TABLE IF NOT EXISTS kol_mail_items (
             id TEXT PRIMARY KEY,
             thread_id TEXT NOT NULL,
-            collaboration_id TEXT NOT NULL,
+            collaboration_id TEXT,
             conversation_id TEXT NOT NULL,
             provider_message_id TEXT,
             direction TEXT,
@@ -1098,12 +1305,36 @@ function migrateSchema(db: SqliteConn): void {
             snippet TEXT,
             unread INTEGER NOT NULL DEFAULT 1,
             occurred_at TEXT,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            from_addr TEXT,
+            from_name TEXT,
+            to_addr TEXT,
+            body_text TEXT,
+            summary TEXT,
+            summary_zh TEXT,
+            summary_source TEXT,
+            receipt_status TEXT,
+            receipt_at TEXT,
+            effective INTEGER
         );
   `);
+  add(db, "kol_mail_items", "from_addr", "TEXT");
+  add(db, "kol_mail_items", "from_name", "TEXT");
+  add(db, "kol_mail_items", "to_addr", "TEXT");
+  add(db, "kol_mail_items", "body_text", "TEXT");
+  add(db, "kol_mail_items", "summary", "TEXT");
+  add(db, "kol_mail_items", "summary_zh", "TEXT");
+  add(db, "kol_mail_items", "summary_source", "TEXT");
+  add(db, "kol_mail_items", "receipt_status", "TEXT");
+  add(db, "kol_mail_items", "receipt_at", "TEXT");
+  add(db, "kol_mail_items", "effective", "INTEGER");
+  if (columnNotNull(db, "kol_mail_items", "collaboration_id") || /collaboration_id TEXT NOT NULL/i.test(tableSql(db, "kol_mail_items"))) {
+    rebuildKolMailItems(db);
+  }
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS kol_mail_items_mid
     ON kol_mail_items(provider_message_id) WHERE provider_message_id IS NOT NULL AND provider_message_id != ''`);
   db.exec(`CREATE INDEX IF NOT EXISTS kol_mail_items_collab ON kol_mail_items(collaboration_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS kol_mail_items_conversation ON kol_mail_items(conversation_id)`);
   add(db, "workers", "profile_id", "TEXT");
   add(db, "work_items", "promoted_at", "TEXT");
   add(db, "work_items", "dismissed_at", "TEXT");
@@ -1143,9 +1374,20 @@ function migrateSchema(db: SqliteConn): void {
             bearer_token TEXT,
             status TEXT NOT NULL DEFAULT 'connected',
             updated_at TEXT NOT NULL,
+            sync_cursor_at TEXT,
+            sync_cursor_id TEXT,
+            synced_at TEXT,
+            last_error TEXT,
+            last_tool TEXT,
             FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
         );
   `);
+  add(db, "user_starry_bindings", "sync_cursor_at", "TEXT");
+  add(db, "user_starry_bindings", "sync_cursor_id", "TEXT");
+  add(db, "user_starry_bindings", "synced_at", "TEXT");
+  add(db, "user_starry_bindings", "last_error", "TEXT");
+  add(db, "user_starry_bindings", "last_tool", "TEXT");
+  migrateMailDigestState(db);
   db.exec(`
         CREATE TABLE IF NOT EXISTS knowledge_versions (
             id TEXT PRIMARY KEY,

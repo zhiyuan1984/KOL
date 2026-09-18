@@ -308,16 +308,39 @@ export function inferInbound(
   return false;
 }
 
-export function matchCollaboration(conv: Json, collabs: Row[]): Row | undefined {
+export function conversationMailboxOf(row: Json): string {
+  return firstEmail(row.mailboxEmail, row.mailbox_email, row.mailbox, row.mailboxFrom);
+}
+
+/** Brand-side mailboxes used when matching a conversation to a Collaboration. */
+export function collaborationMatchMailboxes(
+  col: Row,
+  extras: Array<string | undefined | null> = [],
+): string[] {
+  return [
+    String(col.mailbox_from || ""),
+    String(col.owner_mailbox || ""),
+    String(col.mailboxEmail || ""),
+    String(col.mailbox || ""),
+    ...extras,
+  ].filter(Boolean);
+}
+
+export function matchCollaboration(
+  conv: Json,
+  collabs: Row[],
+  boundMailbox = "",
+): Row | undefined {
   const uid = firstString(conv.kolUid, conv.kol_uid, conv.uid);
   if (uid) {
     const hit = collabs.find((row) => String(row.kol_uid || "") === uid);
     if (hit) return hit;
   }
-  const boxes = brandMailboxSet(collabs.flatMap((row) => [
-    String(row.mailbox_from || ""),
-    String(row.owner_mailbox || ""),
-  ]));
+  const conversationMailbox = conversationMailboxOf(conv);
+  const boxes = brandMailboxSet(collabs.flatMap((row) => collaborationMatchMailboxes(row, [
+    boundMailbox,
+    conversationMailbox,
+  ])));
   for (const email of conversationEmails(conv)) {
     if (isBrandSideEmail(email, boxes)) continue;
     const byEmail = collabs.filter((row) => normalizeEmail(String(row.email || "")) === email);

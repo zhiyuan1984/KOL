@@ -4,6 +4,8 @@ import type { Json, Row } from "../types.js";
 import { authDisabled, scopedUser } from "../auth.js";
 import { HttpFail } from "./errors.js";
 import { mailboxLocalPart, namesMatch, normalizeEmail } from "./identity.js";
+import { currentMemoryEmployee } from "./kol-memory.js";
+import { isPlaceholderMailbox } from "../starrykol/mail-fields.js";
 
 export type StarryBindingStatus = "connected" | "expired" | "unbound";
 
@@ -49,11 +51,29 @@ export function starryBindingRow(userId: string): Row | undefined {
   return getConn().prepare("SELECT * FROM user_starry_bindings WHERE user_id=?").get(userId) as Row | undefined;
 }
 
+export function safeEmployeeId(): string {
+  const scoped = scopedUser()?.id;
+  if (scoped) return scoped;
+  try {
+    return String(currentMemoryEmployee().id || "").trim();
+  } catch {
+    return "";
+  }
+}
+
 export function boundMailboxEmail(userId?: string | null): string {
   try {
     const id = String(userId || scopedUser()?.id || "").trim();
-    if (!id) return "";
-    return String(starryBindingRow(id)?.mailbox_email || "").trim();
+    if (id) {
+      const direct = String(starryBindingRow(id)?.mailbox_email || "").trim();
+      if (direct) return direct;
+    }
+    if (userId) return "";
+    const employeeId = String(currentMemoryEmployee().id || "").trim();
+    if (employeeId && employeeId !== id) {
+      return String(starryBindingRow(employeeId)?.mailbox_email || "").trim();
+    }
+    return "";
   } catch {
     return "";
   }
@@ -72,15 +92,35 @@ export function currentFollowScope(): FollowScope {
 }
 
 export function matchesFollowedMailbox(
-  kol: { owner_name?: unknown; owner_mailbox?: unknown; mailbox_from?: unknown; mailboxEmail?: unknown },
+  kol: {
+    owner_name?: unknown;
+    owner_mailbox?: unknown;
+    mailbox_from?: unknown;
+    mailboxEmail?: unknown;
+    mailbox?: unknown;
+  },
   scope: Pick<PublicStarryBinding, "mailbox_email" | "owner_name">,
+  extras: Array<string | undefined | null> = [],
 ): boolean {
   const mailbox = normalizeEmail(scope.mailbox_email);
   const owner = String(scope.owner_name || "").trim();
-  const rowMailbox = normalizeEmail(String(kol.owner_mailbox || kol.mailbox_from || kol.mailboxEmail || ""));
   const rowOwner = String(kol.owner_name || "").trim();
-  if (mailbox && rowMailbox && (rowMailbox === mailbox || mailboxLocalPart(rowMailbox) === mailboxLocalPart(mailbox))) {
-    return true;
+  const candidates = [
+    kol.owner_mailbox,
+    kol.mailbox_from,
+    kol.mailboxEmail,
+    kol.mailbox,
+    ...extras,
+  ].map((value) => normalizeEmail(String(value || ""))).filter(Boolean);
+  for (const rowMailbox of candidates) {
+    if (mailbox && (rowMailbox === mailbox || mailboxLocalPart(rowMailbox) === mailboxLocalPart(mailbox))) {
+      return true;
+    }
+    // Brand placeholder (kol.lt@litime.example) must not hide a bound operator mailbox.
+    if (mailbox && isPlaceholderMailbox(rowMailbox)) {
+      const ownerBox = normalizeEmail(String(kol.owner_mailbox || ""));
+      if (!ownerBox || ownerBox === mailbox || (owner && rowOwner && namesMatch(rowOwner, owner))) return true;
+    }
   }
   if (owner && rowOwner && namesMatch(rowOwner, owner)) return true;
   return false;

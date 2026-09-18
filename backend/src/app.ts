@@ -21,6 +21,7 @@ import { discovery } from "./routers/discovery.js";
 import { homeDiscovery } from "./routers/home-discovery.js";
 import { cron } from "./routers/cron.js";
 import { kolMemory } from "./routers/kol-memory.js";
+import { mail } from "./routers/mail.js";
 import { restoreActiveCrawlJobs } from "./crawl/service.js";
 import { restoreActiveDiscoveryRuns } from "./discovery.js";
 import { restoreActiveHomeDiscoveryRuns } from "./home-discovery.js";
@@ -66,6 +67,7 @@ export function createApp(): Hono {
   app.route("/api", homeDiscovery);
   app.route("/api", cron);
   app.route("/api", kolMemory);
+  app.route("/api", mail);
   app.route("/api", misc);
   app.route("/api", tasks);
   app.route("/api", crawlRouter);

@@ -83,4 +83,22 @@ describe("starry mail field helpers", () => {
     );
     expect(hit?.id).toBe("col_qiyou");
   });
+
+  it("treats the bound mailbox as brand-side when mailbox_from is a placeholder", () => {
+    const hit = matchCollaboration(
+      {
+        from: "xiaomei.beauty@example.com",
+        recipientEmail: "larry.zhao@amperetime.com",
+        mailboxEmail: "larry.zhao@amperetime.com",
+      },
+      [{
+        id: "col_xiaomei",
+        email: "xiaomei.beauty@example.com",
+        mailbox_from: "kol.lt@litime.example",
+        owner_mailbox: "",
+      }],
+      "larry.zhao@amperetime.com",
+    );
+    expect(hit?.id).toBe("col_xiaomei");
+  });
 });
