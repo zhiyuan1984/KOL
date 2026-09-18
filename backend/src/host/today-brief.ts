@@ -66,14 +66,23 @@ export type TodayPlanHydratePack = {
   delta?: { added?: unknown[]; removed?: unknown[]; unchanged?: unknown[] };
 };
 
-/** Fill Host-owned mechanical fields so a real Codex JSON can persist. */
+function sectionHasCopy(value: unknown): boolean {
+  if (!Array.isArray(value) || value.length === 0) return false;
+  return value.some((item) => {
+    const row = asRecord(item);
+    if (!row) return typeof item === "string" && Boolean(item.trim());
+    return Boolean(String(row.title || row.body || "").trim() || (Array.isArray(row.items) && row.items.length));
+  });
+}
+
+/** Host may fill mechanical fields only. Lead/sections/primary copy must come from Codex. */
 export function hydrateTodayBrief(raw: unknown, pack?: TodayPlanHydratePack | null): Json | null {
   const brief = asRecord(raw);
   if (!brief) return null;
   const next: Record<string, unknown> = { ...brief };
   delete next.type;
-  if (!Array.isArray(next.sections)) next.sections = [];
-  if (typeof next.lead !== "string") next.lead = "";
+  const lead = typeof next.lead === "string" ? next.lead.trim() : "";
+  if (!lead && !sectionHasCopy(next.sections)) return null;
   const counts = pack?.now_counts || {};
   if (!asRecord(next.stats)) {
     next.stats = {
@@ -81,9 +90,6 @@ export function hydrateTodayBrief(raw: unknown, pack?: TodayPlanHydratePack | nu
       discovery_anomalies: Number(counts.discovery_anomalies || 0),
       failed_runs: Number(counts.failed_runs || 0),
     };
-  }
-  if (!asRecord(next.primary)) {
-    next.primary = { verb: "open", label: "打开", object_id: null, object_type: "task", person_id: null };
   }
   if (!Array.isArray(next.todo_layout)) next.todo_layout = [];
   if (!Array.isArray(next.analysis_hints)) next.analysis_hints = [];
@@ -107,7 +113,11 @@ export function hydrateTodayBrief(raw: unknown, pack?: TodayPlanHydratePack | nu
 export function validateTodayBrief(value: unknown): TodayBriefValidation {
   const brief = asRecord(value);
   if (!brief) return { ok: false, reason: "today_brief must be an object", brief: null };
-  if (!Array.isArray(brief.sections)) {
+  const lead = typeof brief.lead === "string" ? brief.lead.trim() : "";
+  if (!lead && !sectionHasCopy(brief.sections)) {
+    return { ok: false, reason: "Codex did not produce lead or sections", brief: null };
+  }
+  if (brief.sections != null && !Array.isArray(brief.sections)) {
     return { ok: false, reason: "missing sections", brief: null };
   }
   const primary = asRecord(brief.primary) || {};
