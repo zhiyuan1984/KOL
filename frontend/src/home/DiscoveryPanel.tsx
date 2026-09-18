@@ -541,7 +541,7 @@ export default function DiscoveryPanel() {
       setSelectedIds((current) => current.filter((item) => item !== id));
       setPendingFollow(null);
     } catch (caught) {
-      const view = presentDiscoveryError(caught, "加入跟进没有完成，红人档案未写入，也未建立合作。");
+      const view = presentDiscoveryError(caught, "入库公海没有完成，红人档案未写入。");
       setFollowError(view.message);
     } finally {
       setFollowBusy(false);
@@ -598,7 +598,7 @@ export default function DiscoveryPanel() {
       setBatchResult(result);
       if (!result.failed.length) setPendingBatch(null);
     } catch (caught) {
-      const view = presentDiscoveryError(caught, "加入跟进没有完成，红人档案未写入，也未建立合作。");
+      const view = presentDiscoveryError(caught, "入库公海没有完成，红人档案未写入。");
       setFollowError(view.message);
     } finally {
       setFollowBusy(false);
@@ -896,7 +896,7 @@ export default function DiscoveryPanel() {
                   openBatchConfirm("conditional");
                 }}
               >
-                按条件加入跟进
+                按条件入库公海
               </button>
             </div>
           ) : atDirectionMax && !conditionsOpen ? (
@@ -1109,7 +1109,7 @@ export default function DiscoveryPanel() {
                 disabled={!selectedCandidates.length || followBusy}
                 onClick={() => openBatchConfirm("selected")}
               >
-                按所选加入跟进
+                按所选入库公海
               </button>
             </div>
           </li>
@@ -1161,7 +1161,7 @@ export default function DiscoveryPanel() {
                     ) : null}
                     {followed ? (
                       <p className="discovery-quiet" data-discovery-followed>
-                        已加入跟进。已写入红人档案并建立合作，不会发信或改阶段。
+                        已写入红人档案（公海）。不会发信或改阶段，也不会进入「我跟进」。
                       </p>
                     ) : null}
                   </div>
@@ -1230,7 +1230,7 @@ export default function DiscoveryPanel() {
                         setPendingFollow(candidate);
                       }}
                     >
-                      {followed ? "已跟进" : "＋ 跟进"}
+                      {followed ? "已入库" : "＋ 入库公海"}
                     </button>
                   </div>
                 </article>
@@ -1252,7 +1252,7 @@ export default function DiscoveryPanel() {
         }}
       >
         <p>
-          把 @{pendingFollow?.handle} 加入跟进并写入红人档案。不会发信，也不会改正式阶段。只有写入成功后才会建立合作。
+          把 @{pendingFollow?.handle} 写入红人档案（公海）。不会发信，也不会改正式阶段。不会进入「我跟进」。领取跟进需另行 L3 确认。
         </p>
       </DiscoveryFollowConfirm>
 
@@ -1270,7 +1270,7 @@ export default function DiscoveryPanel() {
         }}
       >
         <p data-discovery-batch-summary>
-          将把 {pendingBatchCandidates.length} 条线索加入跟进并写入红人档案。
+          将把 {pendingBatchCandidates.length} 条线索写入红人档案（公海）。
           其中 <span data-discovery-missing-email-count>{pendingMissingEmail}</span> 条没有联系邮箱（仍会写入，不会编造邮箱）。
           {pendingFilterSummary ? ` 门槛：${pendingFilterSummary}。` : ""}
           平台 / 地区沿用当前计划
@@ -1278,13 +1278,13 @@ export default function DiscoveryPanel() {
           {request?.filters?.region && request.filters.region !== "all"
             ? ` · ${regionLabel(request.filters.region)}`
             : ""}
-          。不会发信，也不会改正式阶段。只有写入成功后才会建立合作。
+          。不会发信，也不会改正式阶段。不会进入「我跟进」。领取跟进需另行 L3 确认。
         </p>
         {batchResult?.failed.length ? (
           <p className="discovery-quiet" data-discovery-batch-partial role="status">
-            已加入 {batchResult.counts.followed} 人，未加入 {batchResult.counts.failed} 人
-            {batchResult.counts.skipped_duplicate ? `，已跟进跳过 ${batchResult.counts.skipped_duplicate} 人` : ""}
-            。未成功的线索不会标成已跟进。
+            已入库 {batchResult.counts.followed} 人，未入库 {batchResult.counts.failed} 人
+            {batchResult.counts.skipped_duplicate ? `，公海已有跳过 ${batchResult.counts.skipped_duplicate} 人` : ""}
+            。未成功的线索不会标成已入库。
           </p>
         ) : null}
       </DiscoveryFollowConfirm>

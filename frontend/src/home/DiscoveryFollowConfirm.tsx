@@ -99,7 +99,7 @@ export function DiscoveryFollowConfirm({
         aria-describedby={descId}
         aria-busy={busy || undefined}
       >
-        <strong id={titleId}>确认加入跟进？</strong>
+        <strong id={titleId}>确认入库公海？</strong>
         <div id={descId}>{children}</div>
         {error ? (
           <p className="discovery-quiet" data-discovery-follow-error role="alert">{error}</p>
@@ -112,7 +112,7 @@ export function DiscoveryFollowConfirm({
             disabled={busy || confirmDisabled}
             onClick={() => void onConfirm()}
           >
-            {busy ? "正在写入档案…" : "确认加入跟进"}
+            {busy ? "正在写入档案…" : "确认入库公海"}
           </button>
           <button
             ref={cancelRef}

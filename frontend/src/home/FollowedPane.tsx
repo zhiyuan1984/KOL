@@ -44,7 +44,7 @@ function followEmptyCopy(kind: string, scope: StarryBinding | null) {
   if (kind === "down") {
     return { title: "跟进列表暂时不可用", body: "记忆查询失败，没有写入会话。可重试或交给 Agent 分析。" };
   }
-  return { title: "还没有跟进中的红人", body: "跟进中的红人和合作对象会出现在这里。可从 AI发现 加入。" };
+  return { title: "还没有跟进中的红人", body: "领取跟进后会出现在这里。AI发现入库只写入公海，不会自动进入「我跟进」。" };
 }
 
 export default function FollowedPane({

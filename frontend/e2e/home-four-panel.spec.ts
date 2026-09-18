@@ -595,7 +595,7 @@ function stubDiscoveryCandidates(count: number) {
     score: 68 + (index % 8),
     status: "suggested",
     has_contact_email: index % 3 !== 0,
-    reason: `YouTube · @Creator${index + 1} · ${12000 + index * 800}粉 · 待加入跟进`,
+    reason: `YouTube · @Creator${index + 1} · ${12000 + index * 800}粉 · 待入库公海`,
   }));
 }
 
@@ -732,7 +732,7 @@ test("home discovery follow confirm stays in viewport without scrolling the list
   await expect(confirm).toBeInViewport();
   await expect(confirm).toHaveAttribute("data-discovery-follow-mode", "single");
   await expect(confirm.locator("[data-discovery-follow-yes]")).toBeInViewport();
-  await expect(confirm.locator("[data-discovery-follow-yes]")).toHaveText("确认加入跟进");
+  await expect(confirm.locator("[data-discovery-follow-yes]")).toHaveText("确认入库公海");
   await expect(confirm).toContainText("不会发信，也不会改正式阶段");
   await expect(page.locator("[data-discovery-candidates] [data-discovery-follow-confirm]")).toHaveCount(0);
   await expect(page.locator("[data-discovery-candidate]").last()).not.toBeInViewport();
@@ -749,7 +749,7 @@ test("home discovery follow confirm stays in viewport without scrolling the list
   await expect(batchConfirm).toBeInViewport();
   await expect(batchConfirm).toHaveAttribute("data-discovery-follow-mode", "selected");
   await expect(batchConfirm.locator("[data-discovery-follow-yes]")).toBeInViewport();
-  await expect(batchConfirm.locator("[data-discovery-follow-yes]")).toHaveText("确认加入跟进");
+  await expect(batchConfirm.locator("[data-discovery-follow-yes]")).toHaveText("确认入库公海");
   await expect(page.locator("[data-discovery-candidates] [data-discovery-follow-confirm]")).toHaveCount(0);
   expect(followPosts).toEqual([]);
   expect(livePosts).toEqual([]);
@@ -773,8 +773,8 @@ test("home discovery candidate rows use workbench layout and dedupe metrics", as
       avg_views_10: 8597338,
       score: 82.94,
       status: "suggested",
-      reason: "YouTube · @TheSolarLab · 15万粉 · 评分 82.94 · 待加入跟进",
-      summary: "YouTube · @TheSolarLab · 15万粉 · 评分 82.94 · 待加入跟进",
+      reason: "YouTube · @TheSolarLab · 15万粉 · 评分 82.94 · 待入库公海",
+      summary: "YouTube · @TheSolarLab · 15万粉 · 评分 82.94 · 待入库公海",
     },
     {
       id: "cand_gear",
@@ -795,7 +795,7 @@ test("home discovery candidate rows use workbench layout and dedupe metrics", as
       followers: 0,
       score: 0,
       status: "suggested",
-      reason: "Instagram · @VeryLongCreatorHandleNameThatShouldWrapInsteadOfScroll · 待加入跟进",
+      reason: "Instagram · @VeryLongCreatorHandleNameThatShouldWrapInsteadOfScroll · 待入库公海",
     },
   ];
   await mockDiscoveryCandidateResults(page, candidates);
@@ -810,6 +810,7 @@ test("home discovery candidate rows use workbench layout and dedupe metrics", as
     "153k · 均播 8597338 · 匹配度 82.94",
   );
   await expect(solar.locator("[data-discovery-candidate-reason]")).toHaveCount(0);
+  await expect(solar).not.toContainText("待入库公海");
   await expect(solar).not.toContainText("待加入跟进");
   await expect(solar).not.toContainText("15万粉");
   expect((await solar.innerText()).match(/YouTube/g)?.length).toBe(1);
@@ -829,7 +830,7 @@ test("home discovery candidate rows use workbench layout and dedupe metrics", as
   await expect(longHandle.locator("[data-discovery-candidate-reason]")).toHaveCount(0);
 
   await expect(solar.locator("[data-discovery-follow]")).toHaveClass(/discovery-follow-quiet/);
-  await expect(solar.locator("[data-discovery-follow]")).toHaveText("＋ 跟进");
+  await expect(solar.locator("[data-discovery-follow]")).toHaveText("＋ 入库公海");
   await expect(solar.locator("[data-discovery-favorite]")).toHaveAttribute("title", "收藏保存在此浏览器");
   await expect(solar.locator("[data-discovery-dismiss]")).toHaveCount(0);
   await solar.locator("[data-discovery-more]").click();

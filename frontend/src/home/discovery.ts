@@ -509,7 +509,7 @@ export function candidateMetrics(row: CreatorCandidate): string {
   return bits.join(" · ");
 }
 
-const RESTATEMENT_STATUS = /^(待加入跟进|已加入跟进|已确认跟进|发现候选人|已忽略)$/;
+const RESTATEMENT_STATUS = /^(待入库公海|已入库公海|已写入红人档案（公海）|待加入跟进|已加入跟进|已确认跟进|发现候选人|已忽略)$/;
 
 function normalizeReasonToken(value: string): string {
   return value.replace(/\s+/g, "").toLowerCase();
@@ -590,6 +590,9 @@ function isRestatementBlob(text: string, row: CreatorCandidate): boolean {
     Number(row.score) > 0 ? String(row.score) : "",
     Number(row.avg_views_10) > 0 ? `近10均播${Math.round(Number(row.avg_views_10))}` : "",
     Number(row.avg_views_10) > 0 ? `均播${Math.round(Number(row.avg_views_10))}` : "",
+    "待入库公海",
+    "已入库公海",
+    "已写入红人档案（公海）",
     "待加入跟进",
     "已加入跟进",
     "已确认跟进",
@@ -627,8 +630,8 @@ export function planSummary(request: DiscoveryRequest): string {
 export function planSteps(request: DiscoveryRequest): Array<{ id: string; label: string }> {
   return [
     { id: "scope", label: `按关键词「${request.keywords.join(" ") || "…"}」和平台缩小范围` },
-    { id: "dedupe", label: "对照已跟进名单去掉重复对象" },
-    { id: "review", label: "列出红人线索，收藏或确认后加入跟进" },
+    { id: "dedupe", label: "对照已入库与已跟进名单去掉重复对象" },
+    { id: "review", label: "列出红人线索，收藏或确认后入库公海" },
   ];
 }
 
@@ -880,7 +883,7 @@ export async function followCandidatesBatch(input: {
           candidate_id: String(fail.candidate_id || fail.id || ""),
           handle: fail.handle ? String(fail.handle) : undefined,
           code: fail.code ? String(fail.code) : undefined,
-          message: String(fail.message || "加入跟进没有完成。"),
+          message: String(fail.message || "入库公海没有完成。"),
         };
       })
     : [];

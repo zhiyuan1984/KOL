@@ -1103,7 +1103,7 @@ export default function Home() {
         ? "换个关键词或阶段，再看跟进中的红人和合作对象。"
         : followEmptyKind === "mailbox"
           ? `当前绑定 ${followScope?.mailbox_email || "已选邮箱"}${followScope?.owner_name ? ` · ${followScope.owner_name}` : ""}。`
-          : "跟进中的红人和合作对象会出现在这里。可从 AI发现 加入。";
+          : "领取跟进后会出现在这里。AI发现入库只写入公海，不会自动进入「我跟进」。";
 
   const taskCounts = {
     all: tasks.length,

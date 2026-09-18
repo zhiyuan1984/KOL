@@ -252,7 +252,7 @@ export default function AgentCrawler({
       setFollow(null);
       await loadJobs();
     } catch (error) {
-      setFollowErr(error instanceof Error ? error.message : "确认跟进没有完成");
+      setFollowErr(error instanceof Error ? error.message : "入库公海没有完成");
     } finally {
       setFollowBusy(false);
     }
@@ -336,7 +336,7 @@ export default function AgentCrawler({
       <section className="crawler-jobs" data-crawler-jobs>
         <div className="expert-block">
           <h2>采集作业</h2>
-          <p className="muted">采集完成只形成候选。确认后才会跟进或导入。</p>
+          <p className="muted">采集完成只形成候选。确认后才会写入红人档案（公海）。</p>
         </div>
         {loading ? <p className="muted" data-crawler-loading>正在加载采集作业…</p> : null}
         {!loading && jobs.length === 0 ? (
@@ -378,11 +378,11 @@ export default function AgentCrawler({
                           data-crawler-follow={id}
                           onClick={() => { setFollowErr(""); setFollow({ id, label }); }}
                         >
-                          确认跟进
+                          入库公海
                         </button>
                       ) : (
                         <p className="muted" data-crawler-follow-disabled>
-                          这条候选还没有发现编号，不能确认跟进。
+                          这条候选还没有发现编号，不能入库公海。
                         </p>
                       )}
                     </li>
@@ -390,7 +390,7 @@ export default function AgentCrawler({
                 })}
               </ul>
             ) : job.tone === "confirm" ? (
-              <p className="muted">候选已就绪。打开结果后逐条确认跟进，不会自动入库。</p>
+              <p className="muted">候选已就绪。打开结果后逐条确认入库公海，不会自动领取跟进。</p>
             ) : null}
           </article>
         ))}
@@ -411,7 +411,7 @@ export default function AgentCrawler({
         onCancel={() => { if (!followBusy) { setFollow(null); setFollowErr(""); } }}
         onConfirm={() => void confirmFollow()}
       >
-        {follow ? <p>确认跟进「{follow.label}」？这会写入跟进关系，采集结果本身仍是候选。</p> : null}
+        {follow ? <p>确认把「{follow.label}」写入红人档案（公海）？采集结果本身仍是候选。不会进入「我跟进」。领取跟进需另行 L3 确认。</p> : null}
       </DiscoveryFollowConfirm>
     </div>
   );

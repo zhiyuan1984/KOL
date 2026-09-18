@@ -327,7 +327,7 @@ function candidateReason(row: Row): string {
     handle ? `@${handle}` : "",
     formatFollowers(row.followers),
     Number(row.score) > 0 ? `评分 ${Number(row.score)}` : "",
-    String(row.status) === "suggested" ? "待加入跟进" : "",
+    String(row.status) === "suggested" ? "待入库公海" : "",
   ].filter(Boolean);
   return bits.join(" · ") || "发现候选人";
 }
