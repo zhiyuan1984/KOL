@@ -88,7 +88,7 @@ function MailMessageCard({ message }: { message: MailMessage }) {
       <header className="mail-message-head">
         <strong>{inbound ? "对方" : "我方"}</strong>
         <span className="muted">{message.from_addr}</span>
-        <time className="muted" data-mail-time dateTime={message.occurred_at}>
+        <time className="muted" data-mail-time dateTime={message.occurred_at || undefined}>
           {formatMailTime(message.occurred_at)}
         </time>
       </header>
