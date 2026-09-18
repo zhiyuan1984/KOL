@@ -6,7 +6,10 @@
 .composer-dock,
 .composer,
 .home-composer-dock,
-.session-composer {
+.home-composer-dock .composer-dock,
+.home-composer-dock .composer,
+.session-composer,
+.session-composer .composer {
   --composer-bg: #ffffff;
   --composer-border: #e5e5e5;
   --composer-radius: 28px;
@@ -35,7 +38,7 @@
   min-height: 56px;
   max-height: none;
   border: 1px solid var(--composer-border);
-  border-radius: var(--composer-radius);
+  border-radius: 28px;
   padding: 8px 12px 8px 14px;
   gap: 4px;
   background: var(--composer-bg);
@@ -114,8 +117,16 @@
 }
 
 .home-composer-dock .composer-toolbar,
+.home-composer-dock .composer.composer--workspace .composer-toolbar,
 .session-composer .composer-toolbar {
   display: flex;
+}
+
+.home-composer-dock .composer.composer--workspace {
+  flex-direction: column;
+  align-items: stretch;
+  border-radius: 28px;
+  min-height: 56px;
 }
 
 .composer-plus,
@@ -228,6 +239,18 @@
   color: #0d0d0d;
   font-size: 13px;
   line-height: 20px;
+}
+
+.composer-chip[data-composer-chip="attachment"] {
+  height: auto;
+  min-height: 28px;
+  padding: 4px 10px;
+}
+
+.composer-chip small {
+  margin-left: 6px;
+  color: #8a8a8a;
+  font-size: 11px;
 }
 
 .composer-tool {

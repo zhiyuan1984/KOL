@@ -701,7 +701,13 @@ export default function ComposerDock({
   const discoveryLocked = entryIntent === "discover" || lockedIntent === DISCOVERY_INTENT || Boolean(discoveryBrief);
   const discoveryReady = Boolean(discoveryBrief && canSubmitDiscovery(discoveryBrief));
   const discoveryBlocked = Boolean(discoveryBrief && !canSubmitDiscovery(discoveryBrief));
-  const canSend = Boolean(value.trim() || attachments.length || discoveryReady);
+  const canSend = Boolean(
+    value.trim()
+    || attachments.length
+    || discoveryReady
+    || skillChips.length
+    || lockedSkill
+  );
   const busy = disabled || uploading;
   const sendDisabled = !running && (busy || !canSend || discoveryBlocked);
   const workspace = variant === "workspace";
@@ -710,7 +716,10 @@ export default function ComposerDock({
 
   const submit = () => {
     if (running || sendDisabled) return;
-    const text = value.trim() || attachments.map((a) => a.name).join("、") || "";
+    const text = value.trim()
+      || attachments.map((a) => a.name).join("、")
+      || railChips.filter((chip) => chip.kind === "skill").map((chip) => chip.label).join("、")
+      || "";
     const scope: ComposerScope = {
       skills: railChips.filter((chip) => chip.kind === "skill").map((chip) => chip.id),
       knowledge_bases: railChips.filter((chip) => chip.kind === "kb").map((chip) => chip.id),

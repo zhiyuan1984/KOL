@@ -1243,8 +1243,9 @@ export default function Home() {
 
   const onComposer = async (p: ComposerSubmit) => {
     const prompt = p.text.trim();
-    if (!prompt && !p.attachments?.length) return;
-    const intent = lockedIntent || p.intent;
+    const skillFromScope = p.scope?.skills?.[0];
+    if (!prompt && !p.attachments?.length && !skillFromScope) return;
+    const intent = lockedIntent || skillFromScope || p.intent;
     if (isAnalyzeEnqueuePrefill(prompt, intent)) {
       const people = analyzePeople.length ? analyzePeople : [];
       if (!people.length) {

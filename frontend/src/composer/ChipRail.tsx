@@ -24,7 +24,14 @@ export default function ChipRail({
           data-attachment-name={chip.kind === "attachment" ? chip.label : undefined}
           data-composer-draft-chip={chip.kind === "object" ? chip.id : undefined}
         >
-          <span>{chipLabel(chip)}</span>
+          <span>
+            {chipLabel(chip)}
+            {chip.kind === "attachment" ? (
+              <small>
+                {[chip.type, chip.size ? formatChipSize(chip.size) : "", "已上传"].filter(Boolean).join(" · ")}
+              </small>
+            ) : null}
+          </span>
           <button
             type="button"
             className="chip-x"
@@ -44,4 +51,10 @@ function chipLabel(chip: ComposerChip): string {
   if (chip.kind === "expert") return `岗 · ${chip.label}`;
   if (chip.kind === "connector") return `连 · ${chip.label}`;
   return chip.label;
+}
+
+function formatChipSize(size: number) {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }

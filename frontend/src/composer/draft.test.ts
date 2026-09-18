@@ -1,6 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 import { peekComposerDraft, stashComposerDraft, takeComposerDraftStash } from "./draft";
-import { clientEntryFor } from "./types";
+import { COMPOSER_DRAFT_STASH, clientEntryFor } from "./types";
+
+const memory = new Map<string, string>();
+
+beforeEach(() => {
+  memory.clear();
+  Object.defineProperty(globalThis, "sessionStorage", {
+    configurable: true,
+    value: {
+      getItem: (key: string) => memory.get(key) ?? null,
+      setItem: (key: string, value: string) => { memory.set(key, value); },
+      removeItem: (key: string) => { memory.delete(key); },
+    },
+  });
+  memory.delete(COMPOSER_DRAFT_STASH);
+});
 
 describe("stashComposerDraft", () => {
   it("stores the chip/scope shape without opening a page", () => {
