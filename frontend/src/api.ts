@@ -805,7 +805,7 @@ export const api = {
       items?: Array<Record<string, unknown>>;
       kols?: Array<Record<string, unknown>>;
     }>("/api/home/pool"),
-  enqueueKolAnalyze: (body: { kol_uids?: string[]; kolUids?: string[]; people?: string[]; handles?: string[]; title?: string }) =>
+  enqueueKolAnalyze: (body: { kol_uids?: string[]; kolUids?: string[]; people?: string[]; handles?: string[]; title?: string; prompt?: string }) =>
     request<{
       entry?: string;
       kind?: string;
@@ -1402,14 +1402,4 @@ export const api = {
       cursor_at?: string;
       error?: string;
     }>("/api/mail/sync", { method: "POST", body: JSON.stringify(body) }),
-  enqueueKolAnalyze: (body: { kol_uids: string[]; title?: string; prompt?: string }) =>
-    request<{
-      work_item_id?: string;
-      creates_session?: boolean;
-      people?: string[];
-      task_type?: string;
-    }>("/api/home/kol-analyze/enqueue", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
 };
