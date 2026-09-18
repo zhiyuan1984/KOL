@@ -176,7 +176,7 @@ test("pool is a separate entry and cards have no mail digest", async ({ page }) 
   await page.locator('[data-nav="pool"]').click();
   await expect(page).toHaveURL(/[?&]tab=pool/);
   await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
-  await expect(page.locator("[data-home-entry='list-pool']")).toBeVisible();
+  await expect(page.locator("[data-pool-toolbar][data-home-entry='list-pool']")).toBeVisible();
   await expect(page.locator("[data-pool-card]").first()).toBeVisible();
   await expect(page.locator("[data-pool-card] [data-mail-summary]")).toHaveCount(0);
   await expect(page.locator("[data-pool-card]")).not.toContainText("未读");
