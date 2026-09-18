@@ -25,7 +25,9 @@
     "reply_analysis",
     "creator_profile",
     "confirm_stage",
-    "email_conversation_read"
+    "email_conversation_read",
+    "discovery_brief",
+    "discovery_plan"
   ],
   "tool_ids": ["starrykol"]
 }

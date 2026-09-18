@@ -111,6 +111,8 @@ export function publicProfileFields(row: Row | Json): Json {
     idle: Boolean(Number(row.idle || 0)),
     public_stage: row.public_stage || "",
     pool_status: row.pool_status || "open",
+    source_batch: row.source_batch || "",
+    platform_creator_id: row.platform_creator_id || "",
   };
 }
 
@@ -211,6 +213,8 @@ export function upsertPublicProfile(input: {
   pool_status?: string;
   idle?: number;
   source_version?: string;
+  source_batch?: string;
+  platform_creator_id?: string;
 }, db: SqliteConn = getConn()): Row {
   const companyId = text(input.company_id) || memoryCompanyId();
   const kolUid = text(input.kol_uid);
@@ -222,8 +226,8 @@ export function upsertPublicProfile(input: {
     `INSERT INTO kol_profile_index
      (id,company_id,kol_uid,handle,display_name,platform,homepage_url,followers,avg_plays,
       engagement,direction,region,style,ingest_source,ingested_at,public_stage,pool_status,
-      idle,source_version,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      idle,source_version,source_batch,platform_creator_id,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(company_id, kol_uid) DO UPDATE SET
        handle=COALESCE(NULLIF(excluded.handle,''), kol_profile_index.handle),
        display_name=COALESCE(NULLIF(excluded.display_name,''), kol_profile_index.display_name),
@@ -239,6 +243,8 @@ export function upsertPublicProfile(input: {
        ingested_at=COALESCE(kol_profile_index.ingested_at, excluded.ingested_at),
        public_stage=COALESCE(NULLIF(excluded.public_stage,''), kol_profile_index.public_stage),
        source_version=COALESCE(excluded.source_version, kol_profile_index.source_version),
+       source_batch=COALESCE(NULLIF(excluded.source_batch,''), kol_profile_index.source_batch),
+       platform_creator_id=COALESCE(NULLIF(excluded.platform_creator_id,''), kol_profile_index.platform_creator_id),
        updated_at=excluded.updated_at`,
   ).run(
     id, companyId, kolUid,
@@ -258,6 +264,8 @@ export function upsertPublicProfile(input: {
     text(input.pool_status) || existing?.pool_status || "open",
     Number(input.idle ?? existing?.idle ?? 0),
     text(input.source_version),
+    text(input.source_batch),
+    text(input.platform_creator_id),
     existing?.created_at || now,
     now,
   );
@@ -279,6 +287,9 @@ export function ingestFormalProfile(input: {
   public_stage?: string;
   ingest_source?: string;
   company_id?: string;
+  source_batch?: string;
+  platform_creator_id?: string;
+  pool_status?: string;
 }): Row | null {
   const kolUid = text(input.kol_uid);
   if (!kolUid) return null;

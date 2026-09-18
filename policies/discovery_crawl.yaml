@@ -1,0 +1,15 @@
+{
+  "id": "discovery_crawl",
+  "action": "discovery_crawl",
+  "side_effect": true,
+  "requires_confirmation": true,
+  "gateway": "backend/src/crawl/service.ts",
+  "mcp_tools": ["mediacrawler.start_crawl"],
+  "platforms_allowlist": ["youtube", "instagram", "facebook"],
+  "platforms_forbidden": ["xhs", "dy", "ks", "bili", "wb", "tieba", "zhihu"],
+  "domestic_platforms": false,
+  "tenant_concurrency": 1,
+  "target_count_max": 80,
+  "writes_starry": false,
+  "note": "Policy only. Discovery crawl job itself is owned by PR #171. This file forbids domestic platforms and caps concurrency/target_count."
+}

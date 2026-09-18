@@ -28,7 +28,59 @@ export type ImportCreatorInput = {
   creatorExternalId: string;
   candidateId?: string;
   actor?: string;
+  lookupKeyword?: string;
 };
+
+export function isStarryTimeout(error: unknown): boolean {
+  const text = error instanceof Error ? `${error.name} ${error.message}` : String(error || "");
+  return /timeout|etimedout|aborted|und_err_connect_timeout|request timed? ?out/i.test(text);
+}
+
+function asObject(value: unknown): Json {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Json;
+  return {};
+}
+
+function firstString(...values: unknown[]): string {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function listOf(data: Json): Json[] {
+  const nested = [data.list, data.records, asObject(data.data).list, asObject(data.data).records];
+  for (const value of nested) {
+    if (Array.isArray(value)) return value.filter((item) => item && typeof item === "object") as Json[];
+  }
+  return [];
+}
+
+/** Timeout / uncertain path: query Starry first. Never blindly retry import. */
+export async function lookupImportedKolUid(input: {
+  keyword?: string;
+  creatorExternalId?: string;
+}): Promise<string> {
+  const keyword = firstString(input.keyword, String(input.creatorExternalId || "").split(":").pop());
+  if (!keyword) return "";
+  const listed = await callStarryKolTool("pageKolProfiles", {
+    requestJson: JSON.stringify({ pageNo: 1, pageSize: 20, keyword }),
+  });
+  const fromList = parseImportedKolUid(listed);
+  if (isRealKolUid(fromList)) return fromList;
+  for (const row of listOf(asObject(listed))) {
+    const uid = firstString(row.kolUid, row.kol_uid, row.uid);
+    const handle = firstString(row.kolName, row.nickname, row.handle, row.account);
+    if (handle && keyword && handle.toLowerCase() === keyword.toLowerCase() && isRealKolUid(uid)) {
+      return uid;
+    }
+    if (isRealKolUid(uid) && keyword && String(uid).toLowerCase().includes(keyword.toLowerCase())) {
+      return uid;
+    }
+  }
+  return parseImportedKolUid(listed);
+}
 
 export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreatorInput): Promise<Json> {
   const actor = input.actor || "host";
@@ -48,27 +100,66 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
     throw new HttpFail(500, { code: "fabricated_contact_email", message: "写入红人档案失败，未加入跟进。" });
   }
   let data: Json;
+  let lookedUpAfterTimeout = false;
   try {
     data = await callStarryKolTool(IMPORT_CREATOR_TOOL, {
       fileName: input.file.fileName,
       fileBase64: input.file.fileBase64,
     });
   } catch (error) {
-    audit(actor, "host.import_creator.failed", {
-      policy: IMPORT_CREATOR_POLICY,
-      tool: IMPORT_CREATOR_TOOL,
-      source_batch: input.sourceBatch,
-      creator_external_id: input.creatorExternalId,
-      candidate_id: input.candidateId || null,
-      sent: false,
-      stage_changed: false,
-      decrypted: false,
-    });
-    throw new HttpFail(502, {
-      code: "import_creator_failed",
-      message: employeeImportError(error),
-      policy: IMPORT_CREATOR_POLICY,
-    });
+    if (isStarryTimeout(error)) {
+      audit(actor, "host.import_creator.timeout_lookup", {
+        policy: IMPORT_CREATOR_POLICY,
+        tool: "pageKolProfiles",
+        source_batch: input.sourceBatch,
+        creator_external_id: input.creatorExternalId,
+        candidate_id: input.candidateId || null,
+        retried_import: false,
+      });
+      try {
+        const found = await lookupImportedKolUid({
+          keyword: input.lookupKeyword,
+          creatorExternalId: input.creatorExternalId,
+        });
+        if (isRealKolUid(found)) {
+          lookedUpAfterTimeout = true;
+          data = { kolUid: found, looked_up_after_timeout: true, retried: false };
+        } else {
+          throw new HttpFail(502, {
+            code: "import_creator_uncertain",
+            message: "写入超时且未能在达人库核对到档案，未盲目重试。",
+            policy: IMPORT_CREATOR_POLICY,
+            retried: false,
+            looked_up: true,
+          });
+        }
+      } catch (lookupError) {
+        if (lookupError instanceof HttpFail) throw lookupError;
+        throw new HttpFail(502, {
+          code: "import_creator_uncertain",
+          message: "写入超时且核对失败，未盲目重试。",
+          policy: IMPORT_CREATOR_POLICY,
+          retried: false,
+          looked_up: true,
+        });
+      }
+    } else {
+      audit(actor, "host.import_creator.failed", {
+        policy: IMPORT_CREATOR_POLICY,
+        tool: IMPORT_CREATOR_TOOL,
+        source_batch: input.sourceBatch,
+        creator_external_id: input.creatorExternalId,
+        candidate_id: input.candidateId || null,
+        sent: false,
+        stage_changed: false,
+        decrypted: false,
+      });
+      throw new HttpFail(502, {
+        code: "import_creator_failed",
+        message: employeeImportError(error),
+        policy: IMPORT_CREATOR_POLICY,
+      });
+    }
   }
   const kolUid = parseImportedKolUid(data);
   if (!isRealKolUid(kolUid)) {
@@ -109,6 +200,8 @@ export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreator
     policy: IMPORT_CREATOR_POLICY,
     sent: false,
     stage_changed: false,
+    looked_up_after_timeout: lookedUpAfterTimeout,
+    retried: false,
     data,
   };
 }
