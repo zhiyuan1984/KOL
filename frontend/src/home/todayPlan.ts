@@ -56,6 +56,14 @@ export function todayPlanStatusCopy(phase: TodayPlanPhase): string {
   return TODAY_PLAN_PHASE_COPY[phase];
 }
 
+/** Planning clock only. `7` → `0:07`, `62` → `1:02`. */
+export function formatTodayPlanElapsed(totalSeconds: number): string {
+  const safe = Number.isFinite(totalSeconds) ? Math.max(0, Math.floor(totalSeconds)) : 0;
+  const minutes = Math.floor(safe / 60);
+  const seconds = safe % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
 export function todayPlanEventLabels(events: TaskEvent[] | null | undefined): string[] {
   const seen = new Set<string>();
   const labels: string[] = [];
