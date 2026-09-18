@@ -36,10 +36,9 @@ kolMemory.post("/home/discovery/ingest", async (c) => {
   return c.json(result, status as 200 | 422);
 });
 
-kolMemory.get("/home/pool", (c) => {
-  c.header("Cache-Control", "no-store");
+function poolPayload() {
   const items = listOpenPool();
-  return c.json({
+  return {
     entry: "memory",
     kind: "memory",
     creates_session: false,
@@ -47,7 +46,19 @@ kolMemory.get("/home/pool", (c) => {
     index: "公海",
     items,
     kols: items,
-  });
+    total: items.length,
+  };
+}
+
+kolMemory.get("/home/pool", (c) => {
+  c.header("Cache-Control", "no-store");
+  return c.json(poolPayload());
+});
+
+/** Alias for discovery ingest tests / FE that look up table A by kols path. */
+kolMemory.get("/kols/pool", (c) => {
+  c.header("Cache-Control", "no-store");
+  return c.json(poolPayload());
 });
 
 kolMemory.get("/home/following", (c) => {

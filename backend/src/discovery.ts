@@ -49,6 +49,7 @@ import {
   parseFollowThresholds,
   planRegionOf,
   recheckFollowFilters,
+  requireStableExternalId,
   shouldWarnMissingCandidateRegion,
   requireStableExternalId,
   sourceBatchFor,

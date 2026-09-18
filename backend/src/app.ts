@@ -18,7 +18,6 @@ import { crawlRouter } from "./routers/crawl.js";
 import { knowledge } from "./routers/knowledge.js";
 import { experts } from "./routers/experts.js";
 import { discovery } from "./routers/discovery.js";
-import { kols } from "./routers/kols.js";
 import { cron } from "./routers/cron.js";
 import { kolMemory } from "./routers/kol-memory.js";
 import { restoreActiveCrawlJobs } from "./crawl/service.js";
@@ -61,7 +60,6 @@ export function createApp(): Hono {
   app.route("/api", knowledge);
   app.route("/api", experts);
   app.route("/api", discovery);
-  app.route("/api", kols);
   app.route("/api", cron);
   app.route("/api", kolMemory);
   app.route("/api", misc);

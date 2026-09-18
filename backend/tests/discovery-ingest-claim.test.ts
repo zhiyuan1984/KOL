@@ -10,7 +10,8 @@ import {
 } from "../src/crawl/connection.js";
 import { setCrawlMcpClientFactory } from "../src/crawl/service.js";
 import { monitorCrawlJob } from "../src/crawl/service.js";
-import { getConn, resetConn } from "../src/db.js";
+import { nowIso, getConn, resetConn } from "../src/db.js";
+import { sendDraft } from "../src/gateway/send.js";
 import { seedAll } from "../src/seed.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import type { Json } from "../src/types.js";
@@ -138,15 +139,15 @@ describe("discovery ingest vs exclusive claim", () => {
     expect(following.status).toBe(200);
     expect(followingHas(uid, following.body)).toBe(false);
 
-    const pool = await request("GET", "/api/kols/pool");
+    const pool = await request("GET", "/api/home/pool");
     expect(pool.status).toBe(200);
     expect(poolItem(uid, pool.body)).toMatchObject({
       kol_uid: uid,
       pool_status: "open",
-      claimed: false,
       platform: "youtube",
-      platform_creator_id: "yt-outdoor-1",
     });
+    const poolAlias = await request("GET", "/api/kols/pool");
+    expect(poolItem(uid, poolAlias.body)).toMatchObject({ kol_uid: uid, pool_status: "open" });
     expect(getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index WHERE kol_uid=?").get(uid)).toEqual({ n: 0 });
     expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
 
@@ -158,36 +159,49 @@ describe("discovery ingest vs exclusive claim", () => {
     expect(followingHas(uid, followingAgain.body)).toBe(false);
   });
 
-  it("claim after ingest shows on 我跟进 and holds the pool profile", async () => {
+  it("claim after ingest requires L3 confirm and then shows on 我跟进", async () => {
     const candidate = await readyCandidate();
     const ingested = await request("POST", `/api/discovery/candidates/${candidate.id}/follow`, { confirmed: true });
     const uid = String((ingested.body.collaboration as Json).kol_uid);
-    const claimed = await request("POST", `/api/kols/${encodeURIComponent(uid)}/claim`, {});
+    const unconfirmed = await request("POST", `/api/kols/${encodeURIComponent(uid)}/claim`, {});
+    expect(unconfirmed.status).toBe(422);
+    expect(unconfirmed.body.detail).toMatchObject({
+      code: "l3_confirm_required",
+      risk: "L3",
+    });
+    expect(getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index WHERE kol_uid=?").get(uid)).toEqual({ n: 0 });
+    expect(followingHas(uid, (await request("GET", "/api/home/following")).body)).toBe(false);
+
+    const claimed = await request("POST", `/api/kols/${encodeURIComponent(uid)}/claim`, { confirmed: true });
     expect([200, 201]).toContain(claimed.status);
-    expect(claimed.body).toMatchObject({
-      kol_uid: uid,
-      pool_status: "held",
-      claimed: true,
-      sent: false,
-      stage_changed: false,
+    expect(claimed.body.created).toBe(true);
+    expect(getConn().prepare("SELECT pool_status FROM kol_profile_index WHERE kol_uid=?").get(uid)).toEqual({
+      pool_status: "claimed",
     });
 
     const following = await request("GET", "/api/home/following");
     expect(followingHas(uid, following.body)).toBe(true);
-    const pool = await request("GET", "/api/kols/pool");
-    expect(poolItem(uid, pool.body)).toMatchObject({ pool_status: "held", claimed: true });
+    const pool = await request("GET", "/api/home/pool");
+    expect(poolItem(uid, pool.body)).toBeUndefined();
     expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
   });
 
-  it("follow with claim:true is explicit ingest-then-claim", async () => {
+  it("follow with claim:true is explicit ingest-then-claim and still needs L3 confirm", async () => {
     const candidate = await readyCandidate();
+    const refused = await request("POST", `/api/discovery/candidates/${candidate.id}/follow`, {
+      claim: true,
+    });
+    expect(refused.status).toBe(422);
+    expect(refused.body.detail).toMatchObject({ code: "l3_confirm_required" });
+    expect(getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index").get()).toEqual({ n: 0 });
+
     const followed = await request("POST", `/api/discovery/candidates/${candidate.id}/follow`, {
       confirmed: true,
       claim: true,
     });
     expect(followed.status).toBe(200);
     expect(followed.body.claimed).toBe(true);
-    expect(followed.body.pool_status).toBe("held");
+    expect(followed.body.pool_status).toBe("claimed");
     const uid = String((followed.body.collaboration as Json).kol_uid);
     const following = await request("GET", "/api/home/following");
     expect(followingHas(uid, following.body)).toBe(true);
@@ -233,11 +247,10 @@ describe("discovery ingest vs exclusive claim", () => {
   });
 
   it("claim without an official profile is refused", async () => {
-    const failed = await request("POST", "/api/kols/KOLNOTINPOOL/claim", {});
-    expect(failed.status).toBe(409);
+    const failed = await request("POST", "/api/kols/KOLNOTINPOOL/claim", { confirmed: true });
+    expect(failed.status).toBe(404);
     expect(failed.body.detail).toMatchObject({
-      code: "pool_profile_not_found",
-      message: "该红人尚未入库公海，不能领取跟进。",
+      code: "profile_not_in_index",
     });
     expect(getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index").get()).toEqual({ n: 0 });
     expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
@@ -303,5 +316,54 @@ describe("discovery ingest vs exclusive claim", () => {
     const following = await request("GET", "/api/home/following");
     expect(followingHas("KOLALPHAPOWER", following.body)).toBe(false);
     expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
+  });
+
+  it("first outreach send renews an existing follow and never creates B", async () => {
+    const candidate = await readyCandidate();
+    const ingested = await request("POST", `/api/discovery/candidates/${candidate.id}/ingest`, { confirmed: true });
+    const uid = String((ingested.body.collaboration as Json).kol_uid);
+    const colId = String((ingested.body.collaboration as Json).id);
+    const now = nowIso();
+    getConn().prepare(
+      "INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?,?,?,?)",
+    ).run("ses_outreach", "outreach", now, now);
+    getConn().prepare(
+      `INSERT INTO drafts
+       (id, session_id, collaboration_id, skill, from_addr, to_addr, cc, subject, body_en,
+        body_zh_internal, lang_label, keep_stage, official_stage, status)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      "dr_outreach",
+      "ses_outreach",
+      colId,
+      "email_compose",
+      "kol.lt@litime.example",
+      "creator@example.com",
+      "",
+      "Hi — LiTime collab",
+      "Hi, we would love to collaborate.",
+      "内部译稿",
+      "en",
+      1,
+      "INITIAL_CONTACT",
+      "draft",
+    );
+    const sent = await sendDraft("dr_outreach");
+    expect(sent.stage_changed).toBe(false);
+    expect(getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index WHERE kol_uid=?").get(uid)).toEqual({ n: 0 });
+    expect(followingHas(uid, (await request("GET", "/api/home/following")).body)).toBe(false);
+
+    const claimed = await request("POST", `/api/kols/${encodeURIComponent(uid)}/claim`, { confirmed: true });
+    expect([200, 201]).toContain(claimed.status);
+    getConn().prepare("UPDATE drafts SET sent_at=NULL, status='draft' WHERE id='dr_outreach'").run();
+    const renewed = await sendDraft("dr_outreach");
+    expect(renewed.stage_changed).toBe(false);
+    const follow = getConn().prepare(
+      "SELECT status, last_effective_mail_at FROM kol_follow_index WHERE kol_uid=?",
+    ).get(uid) as { status?: string; last_effective_mail_at?: string };
+    expect(follow.status).toBe("active");
+    expect(String(follow.last_effective_mail_at || "")).toBeTruthy();
+    expect(getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index WHERE kol_uid=?").get(uid)).toEqual({ n: 1 });
+    expect(getConn().prepare("SELECT COUNT(*) AS n FROM starry_stage_writes").get()).toEqual({ n: 0 });
   });
 });

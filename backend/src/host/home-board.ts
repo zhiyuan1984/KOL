@@ -9,7 +9,6 @@ import { restoreOfficialCollaborationStages } from "../starrykol/library-sync.js
 import { stageMailAction } from "./compose-loop.js";
 import { threadsByCollaborationIds } from "../starrykol/mail-sync.js";
 import { readFollowStyleTags } from "../follow-style-tags.js";
-import { collaborationVisibleInFollowing } from "../kol-pool.js";
 
 const NICHE_LABEL: Record<string, string> = {
   beauty: "美妆",
@@ -646,7 +645,6 @@ export function buildHomeBoard(): Json {
   const collabs = (conn.prepare(
     "SELECT * FROM collaborations WHERE kol_uid IS NOT NULL AND trim(kol_uid) != '' ORDER BY display_name",
   ).all() as Row[]).filter((row) => {
-    if (!collaborationVisibleInFollowing(row, owner)) return false;
     if (!followScope.required) return true;
     if (!followScope.bound || followScope.status === "expired") return false;
     return matchesFollowedMailbox(row, followScope);
