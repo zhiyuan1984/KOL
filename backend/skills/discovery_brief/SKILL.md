@@ -1,28 +1,60 @@
 ---
 id: discovery_brief
-title: 发现 Brief
-description: 整理发现任务的 Brief：关键词、平台、地区与方向。不启动采集，不导入正式库。
+title: 发现简报
+description: 采集空闲后，按 Host 已过滤的候选人写 discovery_brief/v1。不入库、不建联。
 category: 线索
 profile: lead
-output: crawl_plan
+output: task_result
+funnel: reach
 mcp: []
 required_inputs: []
 permissions: []
 actions: []
-aliases: ["发现Brief","discovery brief"]
-in_market: true
-funnel: reach
+aliases: ["发现简报","discovery brief"]
+in_market: false
 ---
-# 发现 Brief discovery_brief · Lead
+# 发现简报 discovery_brief · Lead
 
-整理员工已确认的发现 Brief（关键词、海外平台、地区、方向）。输出计划草案供确认。本 Skill 不调用 MediaCrawler，不创建达人，不发信，不推测联系方式。
+Host 已完成采集与过滤。CONTEXT 只包含：发现 spec、裁剪后的候选人、library_hits。不要读取或拼接最近记忆消息。
+
+只输出 `discovery_brief/v1`。不要启动采集、不要导入、不要发信、不要改阶段、不要解密、不要 follow。禁止召唤 `creator_discovery`。MediaCrawler 不是 Skill。正式入库走 Host `POST /api/home/discovery/ingest`（L3），本 Skill 不得执行。
+
+缺粉丝 / 近 10 均播时保留 `metrics_missing=true`，**禁止编造** followers、views、email。
+
+## 输出
+
+把下面 JSON 放在 `task_result.brief`（或整段作为唯一结构化结果）：
+
+```json
+{
+  "schema": "discovery_brief/v1",
+  "headline": "...",
+  "counts": { "raw": 0, "after_host_filter": 0, "shown": 0, "dropped": 0 },
+  "ranking": [{
+    "candidate_id": "...",
+    "score": 0,
+    "band": "high",
+    "why": [],
+    "gaps": [],
+    "fit": "...",
+    "recommend": "ingest"
+  }],
+  "dropped": [{ "candidate_id": "...", "reason": "..." }],
+  "gaps": [],
+  "next_actions": ["ingest", "ignore"]
+}
+```
+
+`band` 只能是 `high` / `mid` / `low` / `uncertain`。`recommend` 只能是 `ingest` / `ignore` / `need_human`。缺少 `ranking` 视为失败，不要用半段 JSON 当封面。
 
 ## 禁止事项
 
+- 禁止调用 `start_crawl` / `upload_creators` / import / `sendEmailNow` / `changeLifecycleStage` / `decryptKolContact` / follow。
+- 禁止在本回合写 Starry 或把「已入 Starry」当作采集完成。
+- 禁止把 入库 说成 领取跟进 或 建联。
+- 禁止拼接最近 20 条记忆冒充本轮证据。
 - 禁止把 MediaCrawler 包装成本 Skill 的工具。
-- 禁止启动采集或写入 Starry。
-- 禁止编造联系方式。
-- 禁止把国内平台（抖音/小红书/快手/B 站/微博等）写进计划。
+- 禁止把国内平台写进计划。
 
 ## 是否发信
 

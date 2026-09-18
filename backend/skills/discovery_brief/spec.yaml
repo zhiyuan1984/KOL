@@ -1,0 +1,37 @@
+id: discovery_brief
+version: 1
+schema: discovery_brief/v1
+task_type: discovery_crawl
+entry: think
+from_text: forbidden
+memory_stitch: forbidden
+side_effects: artifact_only
+crawl: false
+ingest: false
+starry_write: false
+callable_by:
+  - expert:kol
+pack:
+  - spec
+  - trimmed_candidates
+  - library_hits
+forbidden_tools:
+  - start_crawl
+  - upload_creators
+  - importKolProfilesFromCrawler
+  - sendEmailNow
+  - changeLifecycleStage
+  - decryptKolContact
+  - follow
+  - creator_discovery
+output:
+  schema: discovery_brief/v1
+  required: [schema, headline, counts, ranking, dropped, gaps, next_actions]
+  ranking_item:
+    required: [candidate_id, score, band, why, gaps, fit, recommend]
+    band: [high, mid, low, uncertain]
+    recommend: [ingest, ignore, need_human]
+failure:
+  missing_ranking: rank_failed
+  keep_raw_candidates: true
+  half_json_as_cover: forbidden

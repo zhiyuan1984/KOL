@@ -770,12 +770,14 @@ function initSchema(db: SqliteConn): void {
             owner_user_id TEXT NOT NULL,
             crawl_job_id TEXT,
             work_item_id TEXT,
+            session_id TEXT,
             platform TEXT NOT NULL,
             mode TEXT NOT NULL,
             parameters TEXT NOT NULL DEFAULT '{}',
             remote_task_id TEXT,
             idempotency_key TEXT NOT NULL UNIQUE,
             status TEXT NOT NULL DEFAULT 'queued',
+            kind TEXT NOT NULL DEFAULT 'legacy',
             error TEXT,
             candidate_count INTEGER NOT NULL DEFAULT 0,
             data_version INTEGER NOT NULL DEFAULT 1,
@@ -806,6 +808,9 @@ function initSchema(db: SqliteConn): void {
             collaboration_id TEXT,
             dismissed_at TEXT,
             followed_at TEXT,
+            order_index INTEGER,
+            metrics_missing INTEGER NOT NULL DEFAULT 0,
+            avg_views_10 REAL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             UNIQUE(request_id, platform, platform_creator_id),
@@ -1278,6 +1283,11 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "exam_attempts", "idempotency_key", "TEXT");
   add(db, "exam_attempts", "started_at", "TEXT");
   add(db, "exam_attempts", "breakdown_json", "TEXT");
+  add(db, "discovery_runs", "session_id", "TEXT");
+  add(db, "discovery_runs", "kind", "TEXT NOT NULL DEFAULT 'legacy'");
+  add(db, "creator_candidates", "order_index", "INTEGER");
+  add(db, "creator_candidates", "metrics_missing", "INTEGER NOT NULL DEFAULT 0");
+  add(db, "creator_candidates", "avg_views_10", "REAL");
   db.exec(`
         CREATE TABLE IF NOT EXISTS exam_items (
             id TEXT PRIMARY KEY,

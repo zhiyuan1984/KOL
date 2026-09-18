@@ -1,0 +1,36 @@
+id: discovery_plan
+version: 1
+schema: discovery_spec/v1
+task_type: discovery_plan
+entry: think
+from_text: forbidden
+side_effects: none
+crawl: false
+ingest: false
+starry_write: false
+callable_by:
+  - expert:kol
+forbidden_tools:
+  - start_crawl
+  - upload_creators
+  - importKolProfilesFromCrawler
+  - sendEmailNow
+  - changeLifecycleStage
+  - decryptKolContact
+  - follow
+  - creator_discovery
+output:
+  type: task_result
+  spec:
+    schema: discovery_spec/v1
+    platforms: [youtube, instagram, facebook]
+    mode: [search, detail, creator]
+    keywords: string[]
+    directions: string[]
+    brand: string
+    region: [na, eu, sea, jpkr, mena, latam, global_en]
+    thresholds:
+      min_followers: number
+      max_followers: number
+      min_avg_views_10: number
+      target_count: number

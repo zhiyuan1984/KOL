@@ -398,7 +398,8 @@ function writeBox(wid: string, definition: TaskDefinition, prompt: string, extra
     overdue: skill === "risk_scan" ? overdueSnapshot() : null,
   };
   let memory = "";
-  if (!authDisabled()) {
+  const skipMemoryStitch = skill === "discovery_brief" || skill === "discovery_plan" || extra.memory_stitch === false;
+  if (!authDisabled() && !skipMemoryStitch) {
     const user = scopedUser();
     if (user) {
       const entries = getConn().prepare(
@@ -446,6 +447,13 @@ function writeBox(wid: string, definition: TaskDefinition, prompt: string, extra
       "本 box 没有 SMTP、没有 WeCom secret、没有阶段库凭据。",
       "From 只能用 CONTEXT mailboxes 或 compose_route.from。",
       ...(skill === "business_approval" ? approvalBoxGuardrails() : []),
+      ...(skill === "discovery_brief" || skill === "discovery_plan"
+        ? [
+          "本回合禁止召唤 creator_discovery，禁止调用 start_crawl / import / sendEmailNow / changeLifecycleStage / decryptKolContact / follow。",
+          "不要拼接最近记忆消息。只使用 CONTEXT.extra.pack（spec + 裁剪候选人 + library_hits）。",
+          "MediaCrawler 不是 Skill。采集空闲后不得写 Starry。",
+        ]
+        : []),
     ].join("\n") + "\n",
     "utf8",
   );
