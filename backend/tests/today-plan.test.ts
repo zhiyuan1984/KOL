@@ -7,6 +7,7 @@ import { DEMO_USER } from "../src/config.js";
 import { getConn, nowIso, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { HOME_ENTRY_REGISTRY } from "../src/host/entry-registry.js";
+import { HOME_ENTRY_REGISTRY as FRONTEND_HOME_ENTRY_REGISTRY } from "../../frontend/src/home/entryRegistry.ts";
 import { packTodayPlanContext, planningHarnessMount } from "../src/host/today-plan-context.js";
 import { validateTodayBrief, writeTodayBriefArtifact } from "../src/host/today-brief.js";
 import { taskDefinition } from "../src/tasks/registry.js";
@@ -308,6 +309,16 @@ describe("today_plan harness", () => {
     expect(getBrief).toMatchObject({ kind: "memory", creates_session: false, calls_model: false });
     const plan = HOME_ENTRY_REGISTRY.find((row) => row.id === "plan-today");
     expect(plan).toMatchObject({ kind: "think", creates_session: true, route: "POST /api/home/today-brief/plan" });
+    const retry = HOME_ENTRY_REGISTRY.find((row) => row.id === "retry-discovery-run");
+    expect(retry?.kind).toBe("command");
+    expect(retry?.creates_session).toBe(false);
+    expect(retry?.calls_model).toBe(false);
+    expect(retry?.route).toBe("POST /api/discovery/requests/:id/runs");
+    const frontendRetry = FRONTEND_HOME_ENTRY_REGISTRY.find((row) => row.id === "retry-discovery-run");
+    expect(frontendRetry?.kind).toBe("command");
+    expect(frontendRetry?.creates_session).toBe(false);
+    expect(frontendRetry?.calls_model).toBe(false);
+    expect(frontendRetry?.route).toBe("POST /api/discovery/requests/:id/runs");
   });
 
   it("does not list planning work items as open todos", async () => {

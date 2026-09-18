@@ -113,7 +113,7 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
   },
   {
     id: "retry-discovery-run",
-    kind: "think",
+    kind: "command",
     action: "重试发现批次采集",
     creates_session: false,
     creates_turn: false,
