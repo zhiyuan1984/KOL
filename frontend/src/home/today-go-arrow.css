@@ -1,0 +1,47 @@
+.today-todo-list,
+.today-brief {
+  padding-right: 24px;
+}
+
+.today-todo-row {
+  padding-right: 8px;
+}
+
+.today-brief-primary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.today-todo-go,
+.today-brief-go {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  margin: 0 0 0 12px;
+  padding: 0 !important;
+  border: 0;
+  border-radius: 999px;
+  background: var(--primary, #C73B7A);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.today-todo-go svg,
+.today-brief-go svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+
+.today-todo-go:disabled,
+.today-brief-go:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
