@@ -108,6 +108,26 @@ export function writeTodayTaskResults(input: {
   return { ok: true, artifact_id: artifactId };
 }
 
+const DISPLAY_CLOSED = new Set(["completed", "done", "cancelled"]);
+
+/** TECH-BE-06: source rows closed/dismissed/deleted must drop out of display memory at read time. */
+function dropClosedItems(results: TodayTaskResults | null): TodayTaskResults | null {
+  if (!results?.items.length) return results;
+  const ids = results.items.map((item) => item.work_item_id);
+  const placeholders = ids.map(() => "?").join(",");
+  const rows = getConn().prepare(
+    `SELECT id, status, dismissed_at FROM work_items WHERE id IN (${placeholders})`,
+  ).all(...ids) as Array<{ id: string; status?: unknown; dismissed_at?: unknown }>;
+  const hostById = new Map(rows.map((row) => [String(row.id), row]));
+  const items = results.items.filter((item) => {
+    const host = hostById.get(item.work_item_id);
+    if (!host) return false;
+    return !DISPLAY_CLOSED.has(String(host.status || "")) && !host.dismissed_at;
+  });
+  if (!items.length) return null;
+  return { ...results, items };
+}
+
 export function loadTodayTaskResults(owner: string): TodayTaskResults | null {
   ensureResultArtifactColumn();
   let pointer: { result_artifact_id?: string } | undefined;
@@ -116,7 +136,7 @@ export function loadTodayTaskResults(owner: string): TodayTaskResults | null {
       "SELECT result_artifact_id FROM employee_today_briefs WHERE owner_user_id=?",
     ).get(owner) as { result_artifact_id?: string } | undefined;
   } catch {
-    return itemsFromDisplayMemory(owner);
+    return dropClosedItems(itemsFromDisplayMemory(owner));
   }
   if (pointer?.result_artifact_id) {
     const row = getConn().prepare("SELECT payload FROM task_artifacts WHERE id=?").get(pointer.result_artifact_id) as
@@ -125,11 +145,11 @@ export function loadTodayTaskResults(owner: string): TodayTaskResults | null {
     if (row) {
       try {
         const parsed = parseTodayTaskResults(JSON.parse(row.payload));
-        if (parsed?.items.length) return parsed;
+        if (parsed?.items.length) return dropClosedItems(parsed);
       } catch {
         /* fall through to display memory */
       }
     }
   }
-  return itemsFromDisplayMemory(owner);
+  return dropClosedItems(itemsFromDisplayMemory(owner));
 }

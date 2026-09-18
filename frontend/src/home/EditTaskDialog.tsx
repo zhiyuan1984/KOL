@@ -186,6 +186,10 @@ export default function EditTaskDialog({
 
   const fail = (cause: unknown) => {
     const err = cause as Error & { status?: number; payload?: unknown };
+    if (err.name === "AbortError" || /timed? ?out|abort/i.test(String(err.message || ""))) {
+      setError("请求超时，请检查网络后重试。");
+      return;
+    }
     const code = (err.payload as { code?: string } | undefined)?.code;
     if (err.status === 422 && code === "edit_not_recognized") {
       setError("没有识别出要修改的字段，请换种说法或用表单项。");

@@ -260,6 +260,34 @@ describe("fallback field parser", () => {
 });
 
 describe("today task display rows", () => {
+  it("drops closed or deleted work items at read time", async () => {
+    const open = await request("POST", "/api/tasks", { task_type: "risk_scan", title: "还开着" });
+    const done = await request("POST", "/api/tasks", { task_type: "risk_scan", title: "已了结" });
+    const openId = String(open.body.id);
+    const doneId = String(done.body.id);
+    const written = writeTodayTaskResults({
+      owner: "usr_sriphy",
+      workItemId: openId,
+      runId: null,
+      results: {
+        items: [
+          { work_item_id: openId, rank: 1, title: "还开着" },
+          { work_item_id: doneId, rank: 2, title: "已了结" },
+          { work_item_id: "tsk_deleted", rank: 3, title: "已被删" },
+        ],
+      },
+    });
+    expect(written.ok).toBe(true);
+    if (!written.ok) return;
+    getConn().prepare(
+      "INSERT INTO employee_today_briefs (owner_user_id, artifact_id, work_item_id, result_artifact_id, updated_at) VALUES (?,?,?,?,?)",
+    ).run("usr_sriphy", written.artifact_id, openId, written.artifact_id, new Date().toISOString());
+    const completed = await request("PATCH", `/api/tasks/${doneId}`, { status: "completed" });
+    expect(completed.status).toBe(200);
+    const loaded = loadTodayTaskResults("usr_sriphy");
+    expect((loaded?.items || []).map((item) => item.work_item_id)).toEqual([openId]);
+  });
+
   it("passes icon and group through write and load", async () => {
     const created = await request("POST", "/api/tasks", { task_type: "risk_scan", title: "展示行" });
     const id = String(created.body.id);

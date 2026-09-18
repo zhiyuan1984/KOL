@@ -787,11 +787,12 @@ export const api = {
     request<Task | { task: Task }>(`/api/tasks/${encodeURIComponent(id)}`, {
       method: "PATCH",
       body: JSON.stringify(fields),
+      signal: AbortSignal.timeout(30_000),
     }),
   editTaskByText: (id: string, text: string) =>
     request<{ task: Task; applied_fields?: string[]; source?: string }>(
       `/api/tasks/${encodeURIComponent(id)}/edit`,
-      { method: "POST", body: JSON.stringify({ text }) },
+      { method: "POST", body: JSON.stringify({ text }), signal: AbortSignal.timeout(90_000) },
     ),
   acknowledgeTask: (id: string) =>
     request<Task & { creates_session?: boolean; entry?: string }>(
