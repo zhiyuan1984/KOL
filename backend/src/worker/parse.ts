@@ -16,6 +16,7 @@ const ALLOWED = new Set([
   "note",
   "task_result",
   "crawl_plan",
+  "today_brief",
 ]);
 const FENCE_RE = /```(?:json)?\s*([\s\S]*?)```/gi;
 
