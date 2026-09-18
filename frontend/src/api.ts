@@ -4,7 +4,7 @@ export type SessionRow = {
   archived_at?: string | null;
   expert_id?: string | null;
   expert_version?: string | null;
-  agent_status?: "listening" | "running" | "waiting_approval";
+  agent_status?: "listening" | "running" | "waiting_approval" | "queued";
 };
 
 export type ExpertKind = "business" | "collector" | "governance";
@@ -731,9 +731,70 @@ export const api = {
     request<{
       entry?: string;
       creates_session?: boolean;
+      calls_model?: boolean;
+      kind?: string;
+      contract?: string;
+      index?: string;
+      authority?: string;
+      employee_id?: string;
+      items?: Array<Record<string, unknown>>;
       kols?: Array<Record<string, unknown>>;
       follow_scope?: StarryBinding;
     }>("/api/home/following"),
+  homePool: () =>
+    request<{
+      entry?: string;
+      creates_session?: boolean;
+      calls_model?: boolean;
+      kind?: string;
+      index?: string;
+      items?: Array<Record<string, unknown>>;
+      kols?: Array<Record<string, unknown>>;
+    }>("/api/home/pool"),
+  enqueueKolAnalyze: (body: { kol_uids?: string[]; kolUids?: string[]; people?: string[]; handles?: string[]; title?: string }) =>
+    request<{
+      entry?: string;
+      kind?: string;
+      creates_session?: boolean;
+      calls_model?: boolean;
+      task_type?: string;
+      work_item_id?: string;
+      session_id?: string | null;
+      people?: string[];
+      artifact_type?: string;
+      recognizeTaskIntent?: boolean;
+      status?: string;
+      queued_copy?: string;
+    }>("/api/home/kol-analyze/enqueue", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  claimKol: (kolUid: string, body?: Record<string, unknown>) =>
+    request<{
+      ok?: boolean;
+      reused?: boolean;
+      created?: boolean;
+      follow?: Record<string, unknown>;
+      kol_uid?: string;
+      follow_id?: string;
+      collaboration_id?: string;
+      stage_unchanged?: boolean;
+      sent?: boolean;
+    }>(`/api/kols/${encodeURIComponent(kolUid)}/claim`, {
+      method: "POST",
+      body: JSON.stringify({ confirm: true, confirmed: true, ...(body || {}) }),
+    }),
+  releaseFollow: (followId: string, body?: Record<string, unknown>) =>
+    request<{
+      ok?: boolean;
+      action?: string;
+      follow_id?: string;
+      kol_uid?: string;
+      stage_unchanged?: string | null;
+    }>(`/api/follows/${encodeURIComponent(followId)}/release`, {
+      method: "POST",
+      body: JSON.stringify({ confirm: true, confirmed: true, reason: "manual_release", ...(body || {}) }),
+    }),
   dismissTask: (id: string) =>
     request<Task>(`/api/tasks/${encodeURIComponent(id)}/dismiss`, {
       method: "POST",

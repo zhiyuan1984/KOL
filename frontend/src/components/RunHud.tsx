@@ -4,6 +4,7 @@ const STATUS_LABEL: Record<NonNullable<AgentRunStatus>, string> = {
   listening: "待命",
   running: "执行中",
   waiting_approval: "等你确认",
+  queued: "已入队，等待 Codex",
 };
 
 export default function RunHud({

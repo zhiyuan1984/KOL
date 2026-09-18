@@ -13,9 +13,12 @@ import { isMailHeaderDump, latestMailThread, summarizeMailSnippet } from "./mail
 export type FollowedKolRecord = {
   id: string;
   handle: string;
+  kol_uid?: string;
+  follow_id?: string;
   brand?: string;
   stage_code?: string;
   stage_label?: string;
+  public_stage?: string;
   owner_name?: string;
   platform?: string;
   days_in_stage?: number;
@@ -29,8 +32,10 @@ export type FollowedKolRecord = {
   updated_at?: string | null;
   last_updated?: string | null;
   last_interaction_at?: string | null;
+  last_effective_mail_at?: string | null;
   days_since_interaction?: number | null;
   release_due_at?: string | null;
+  countdown?: boolean;
   release_scheduler?: false;
   profile_tags?: { id: string; label: string }[];
   follow_style_tags?: { id: string; label: string }[];
@@ -284,7 +289,7 @@ function latestFact(kol: FollowedKolRecord, related?: Task): FollowedKolCardMode
       thread_id: "",
     };
   }
-  return { kind: "none", summary: "暂无最新事实", at: null, at_ms: 0, source: "", thread_id: "" };
+  return { kind: "none", summary: "尚未有效往来", at: null, at_ms: 0, source: "", thread_id: "" };
 }
 
 function riskOf(kol: FollowedKolRecord, related?: Task): FollowedKolCardModel["risk"] {
@@ -296,10 +301,17 @@ function riskOf(kol: FollowedKolRecord, related?: Task): FollowedKolCardModel["r
     || String(related?.status || "") === "failed"
     || /争议|失联|旁路|高风险/.test(`${kol.notes || ""} ${kol.stage_label || ""}`);
   const chips: { id: string; label: string }[] = [];
+  if (/拒绝|拒信|REJECTED/i.test(`${kol.stage_code || ""} ${kol.stage_label || ""} ${kol.public_stage || ""} ${kol.notes || ""}`)) {
+    chips.push({ id: "refused", label: "拒信" });
+  }
   if (exception) chips.push({ id: "exception", label: "异常" });
   if (highRisk && !exception) chips.push({ id: "high-risk", label: "高风险" });
   if (overdue) chips.push({ id: "overdue", label: "逾期跟进" });
   if (unbound) chips.push({ id: "unbound", label: "未绑定" });
+  const daysSince = kol.days_since_interaction == null ? null : Number(kol.days_since_interaction);
+  if (daysSince != null && Number.isFinite(daysSince) && daysSince >= 11) {
+    chips.push({ id: "near-14d", label: "临近14日" });
+  }
   return { exception, high_risk: highRisk, overdue, unbound, chips };
 }
 

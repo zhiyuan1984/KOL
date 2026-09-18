@@ -12,6 +12,7 @@ export default defineConfig({
       "../frontend/src/mail/digestView.test.ts",
       "../frontend/src/mail/fallback.test.ts",
       "../frontend/src/mail/client.test.ts",
+      "../frontend/src/home/kolContract.test.ts",
     ],
     setupFiles: ["./tests/setup.ts"],
     fileParallelism: false,

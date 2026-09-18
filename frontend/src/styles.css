@@ -920,6 +920,7 @@ summary:focus-visible,
 /* Followed/lifecycle: collapse the task-spine summary so the object list
    gets the vertical pixels. Other modes keep 「N项待处理 · 逾期 · 今天到期」. */
 [data-home-active-mode="lifecycle"] .home-stats,
+[data-home-active-mode="pool"] .home-stats,
 [data-followed-chrome="compact"] .home-stats {
   display: none;
 }
@@ -3047,6 +3048,32 @@ summary:focus-visible,
   color: var(--text);
   border-color: var(--border-strong);
 }
+.followed-brief {
+  margin: 0 0 16px;
+  padding: 0;
+}
+.followed-brief-lead,
+.followed-brief-title {
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+.followed-brief-stats,
+.followed-brief-meta,
+.followed-brief-kicker {
+  margin: 0 0 8px;
+  color: var(--muted, #6b6b6b);
+  font-size: var(--font-sm, 13px);
+}
+.followed-brief-primary {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.pool-kol-card [data-pool-profile-link] {
+  color: inherit;
+}
+
 .followed-kol-card[data-selected] {
   background: color-mix(in srgb, var(--text) 4%, var(--bg));
 }

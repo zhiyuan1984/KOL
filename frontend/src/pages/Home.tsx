@@ -29,6 +29,9 @@ import DiscoveryPanel from "../home/DiscoveryPanel";
 import TodayPane from "../home/TodayPane";
 import TodoPane from "../home/TodoPane";
 import FollowedPane from "../home/FollowedPane";
+import PoolPane from "../home/PoolPane";
+import ClaimFollowConfirm from "../home/ClaimFollowConfirm";
+import ReleaseFollowConfirm from "../home/ReleaseFollowConfirm";
 import { FollowedBatchConfirm } from "../home/FollowedBatchConfirm";
 import {
   applyChipOverride,
@@ -65,6 +68,17 @@ import {
   type ComposerDraftChip,
 } from "../mail/composerDraft";
 import { mailHref } from "../mail/fallback";
+import {
+  ANALYZE_QUEUED_COPY,
+  analyzePrefillPrompt,
+  followKolToRecord,
+  isAnalyzePrefill,
+  selectAllMax8,
+  toggleSelectMax8,
+  type KolSurface,
+  type PoolKol,
+} from "../home/kolContract";
+import { claimPoolKol, enqueueKolAnalyze, loadHomeFollowing, loadHomePool, releaseFollowedKol } from "../home/kolSurfaceApi";
 import {
   canOpenExistingTaskFlow,
   definitionList,
@@ -257,6 +271,17 @@ export default function Home() {
   const [pendingBatchCards, setPendingBatchCards] = useState<FollowedKolCardModel[] | null>(null);
   const [dedupeNotice, setDedupeNotice] = useState("");
   const [followedKols, setFollowedKols] = useState<FollowedKol[]>([]);
+  const [poolCards, setPoolCards] = useState<PoolKol[]>([]);
+  const [poolQuery, setPoolQuery] = useState("");
+  const [analyzeSurface, setAnalyzeSurface] = useState<KolSurface | null>(null);
+  const [analyzeUids, setAnalyzeUids] = useState<string[]>([]);
+  const [queuedNotice, setQueuedNotice] = useState("");
+  const [claimTarget, setClaimTarget] = useState<PoolKol | null>(null);
+  const [claimBusy, setClaimBusy] = useState(false);
+  const [claimError, setClaimError] = useState<string | null>(null);
+  const [releaseTarget, setReleaseTarget] = useState<FollowedKol | null>(null);
+  const [releaseBusy, setReleaseBusy] = useState(false);
+  const [releaseError, setReleaseError] = useState<string | null>(null);
   const [boardWorkbench, setBoardWorkbench] = useState<HomeWorkbench | null>(null);
   const [followScope, setFollowScope] = useState<StarryBinding | null>(null);
   const [sort, setSort] = useState("priority");
@@ -460,10 +485,17 @@ export default function Home() {
     if (!query) nextParams.delete("tab");
     else nextParams.set("tab", query);
     setParams(nextParams, { replace: true });
+    setSelectedKolIds([]);
+    setHoveredKolId(null);
+    setFocusedKolId(null);
+    setAnalyzeSurface(null);
+    setAnalyzeUids([]);
   };
 
+  const boardKolsRef = useRef<Array<Record<string, unknown>>>([]);
+
   const applyBoard = (board: Awaited<ReturnType<typeof api.homeBoard>>) => {
-    if (Array.isArray(board.kols)) setFollowedKols(board.kols as FollowedKol[]);
+    if (Array.isArray(board.kols)) boardKolsRef.current = board.kols;
     setBoardWorkbench(board.workbench || null);
     setFollowScope(board.follow_scope || null);
     setBoardError("");
@@ -496,6 +528,31 @@ export default function Home() {
       if (!force) boardRequestedRef.current = false;
       setBoardError(error instanceof Error ? error.message : "工作台读取失败");
     });
+  };
+
+  const loadFollowingSurface = async () => {
+    const loaded = await loadHomeFollowing({
+      kols: boardKolsRef.current,
+      follow_scope: followScope || undefined,
+    });
+    if (loaded.follow_scope) setFollowScope(loaded.follow_scope);
+    if (loaded.down) {
+      setBoardError(loaded.error || "跟进列表读取失败");
+      return;
+    }
+    setFollowedKols(loaded.items.map(followKolToRecord) as FollowedKol[]);
+  };
+
+  const loadPoolSurface = async () => {
+    const loaded = await loadHomePool({
+      kols: boardKolsRef.current,
+    });
+    if (loaded.down) {
+      setBoardError(loaded.error || "公海读取失败");
+      setPoolCards([]);
+      return;
+    }
+    setPoolCards(loaded.items);
   };
 
   useEffect(() => {
@@ -702,6 +759,7 @@ export default function Home() {
   };
 
   const startCompose = (kol: FollowedKol) => {
+    // 发信只续期 14 日钟，不等于建联 / claim / 改阶段。
     setText(`写合作邮件 @${kol.handle}`);
     setLockedIntent("email_compose");
     setLockedLabel("写合作邮件");
@@ -833,14 +891,36 @@ export default function Home() {
   };
 
   const toggleSelectedKol = (id: string, on: boolean) => {
-    setSelectedKolIds((current) => {
-      if (on) return current.includes(id) ? current : [...current, id];
-      return current.filter((item) => item !== id);
-    });
+    setSelectedKolIds((current) => toggleSelectMax8(current, id, on));
   };
 
   const toggleSelectAllKols = (on: boolean) => {
-    setSelectedKolIds(on ? visibleKols.map((card) => card.id) : []);
+    setSelectedKolIds(selectAllMax8(visibleKols.map((card) => card.id), on));
+  };
+
+  const toggleSelectedPool = (id: string, on: boolean) => {
+    setSelectedKolIds((current) => toggleSelectMax8(current, id, on));
+  };
+
+  const toggleSelectAllPool = (on: boolean) => {
+    const visible = poolCards.filter((card) => {
+      const needle = poolQuery.trim().toLowerCase();
+      if (!needle) return true;
+      return [card.identity.display, card.identity.platform, card.direction, card.region, card.style]
+        .join(" ")
+        .toLowerCase()
+        .includes(needle);
+    });
+    setSelectedKolIds(selectAllMax8(visible.map((card) => card.kol_uid), on));
+  };
+
+  const prefillAnalyze = (surface: KolSurface, cards: Array<{ identity: { display: string } }>, uids: string[]) => {
+    setAnalyzeSurface(surface);
+    setAnalyzeUids(uids);
+    setText(analyzePrefillPrompt(cards, surface));
+    setComposerFocused(true);
+    setDraftFocus((value) => value + 1);
+    setQueuedNotice("");
   };
 
   const runSelectedStageEnter = () => {
@@ -857,6 +937,42 @@ export default function Home() {
     const first = pendingBatchCards?.[0];
     setPendingBatchCards(null);
     if (first) openConfirmStage(first.source, first);
+  };
+
+  const confirmClaim = async () => {
+    if (!claimTarget) return;
+    setClaimBusy(true);
+    setClaimError(null);
+    try {
+      await claimPoolKol(claimTarget.kol_uid);
+      setClaimTarget(null);
+      setPoolCards((current) => current.filter((card) => card.kol_uid !== claimTarget.kol_uid));
+      setSelectedKolIds((current) => current.filter((id) => id !== claimTarget.kol_uid));
+      await loadFollowingSurface();
+    } catch (error) {
+      setClaimError(error instanceof Error ? error.message : "领取失败");
+    } finally {
+      setClaimBusy(false);
+    }
+  };
+
+  const confirmRelease = async () => {
+    const target = releaseTarget;
+    const followId = String(target?.follow_id || "").trim();
+    if (!target || !followId) return;
+    setReleaseBusy(true);
+    setReleaseError(null);
+    try {
+      await releaseFollowedKol(followId);
+      setFollowedKols((current) => current.filter((row) => row.follow_id !== followId && row.id !== target.id));
+      setSelectedKolIds((current) => current.filter((id) => id !== target.id));
+      setReleaseTarget(null);
+      await loadPoolSurface();
+    } catch (error) {
+      setReleaseError(error instanceof Error ? error.message : "释放失败");
+    } finally {
+      setReleaseBusy(false);
+    }
   };
 
   const mergeCatalogTask = (updated: Task) => {
@@ -945,7 +1061,10 @@ export default function Home() {
   const refreshBoard = (force = false) => Promise.all([
     loadBoard(force),
     refreshTasks(),
-  ]);
+  ]).then(() => {
+    if (mode === "lifecycle") return loadFollowingSurface();
+    if (mode === "pool") return loadPoolSurface();
+  });
 
   useEffect(() => {
     const onVisible = () => {
@@ -956,9 +1075,25 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    setSelectedKolIds([]);
+    setHoveredKolId(null);
+    setFocusedKolId(null);
+    setAnalyzeSurface(null);
+    setAnalyzeUids([]);
+    setQueuedNotice("");
+    setText((current) => (isAnalyzePrefill(current) ? "" : current));
+  }, [mode]);
+
+  useEffect(() => {
     if (mode !== "lifecycle") return;
-    void loadBoard();
-    // First entry to「我跟进的红人」loads board once; later tab switches stay local.
+    void loadBoard().then(() => void loadFollowingSurface());
+    // First entry to「我跟进的红人」loads following (B.active); tab switch does not create sessions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode !== "pool") return;
+    void loadBoard().then(() => void loadPoolSurface());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
@@ -1127,8 +1262,21 @@ export default function Home() {
     setBusy(true);
     setErr("");
     setFeedback(null);
+    setQueuedNotice("");
     rememberJourney({ kind: "compose", skillId: intent || undefined, skillLabel: lockedLabel || undefined });
     try {
+      const analyzeUidsNow = analyzeUids.length ? analyzeUids : selectedKolIds;
+      if ((analyzeSurface || isAnalyzePrefill(prompt)) && analyzeUidsNow.length) {
+        const queued = await enqueueKolAnalyze({
+          kol_uids: analyzeUidsNow.slice(0, 8),
+          prompt,
+          surface: analyzeSurface || (mode === "pool" ? "pool" : "following"),
+        });
+        setQueuedNotice(queued.queued_copy || ANALYZE_QUEUED_COPY);
+        setAnalyzeSurface(null);
+        setBusy(false);
+        return;
+      }
       // Exception care is a deliberate mail action. Keep it on the session
       // path so the worker can build the delay template from the KOL context;
       // it still cannot send or change the official stage automatically.
@@ -1374,7 +1522,7 @@ export default function Home() {
       }
       data-home
       data-home-active-mode={mode}
-      data-followed-chrome={mode === "lifecycle" ? "compact" : undefined}
+      data-followed-chrome={mode === "lifecycle" || mode === "pool" ? "compact" : undefined}
       data-home-task-poll={hasActiveRuns ? "active" : "idle"}
     >
       <div className="home-stage">
@@ -1547,7 +1695,39 @@ export default function Home() {
               onCompose={(card) => runKolCardAction(card.source, card)}
               onConfirmStage={(card) => openConfirmStage(card.source, card)}
               onBatchConfirm={runSelectedStageEnter}
+              onAnalyzeSelected={() => prefillAnalyze(
+                "following",
+                selectedKolCards,
+                selectedKolCards.map((card) => String(card.source.kol_uid || card.id)),
+              )}
+              onRelease={(card) => {
+                setReleaseError(null);
+                setReleaseTarget(card.source);
+              }}
               onBind={() => nav("/settings?tab=starry")}
+            />
+          ) : null}
+
+          {mode === "pool" ? (
+            <PoolPane
+              cards={poolCards}
+              selectedIds={selectedKolIds}
+              hoveredId={hoveredKolId}
+              query={poolQuery}
+              queryDown={Boolean(boardError) && !poolCards.length}
+              claimBusyId={claimBusy && claimTarget ? claimTarget.kol_uid : null}
+              onQuery={setPoolQuery}
+              onHover={setHoveredKolId}
+              onToggleSelect={toggleSelectedPool}
+              onToggleSelectAll={toggleSelectAllPool}
+              onAnalyzeSelected={() => {
+                const selected = poolCards.filter((card) => selectedKolIds.includes(card.kol_uid));
+                prefillAnalyze("pool", selected, selected.map((card) => card.kol_uid));
+              }}
+              onClaim={(card) => {
+                setClaimError(null);
+                setClaimTarget(card);
+              }}
             />
           ) : null}
 
@@ -1573,7 +1753,13 @@ export default function Home() {
 
           {enqueueNotice ? <p className="muted" role="status" data-analyze-enqueue>{enqueueNotice}</p> : null}
           {err && <p className="error composer-err" role="alert" data-home-session-error={err.includes("未能打开会话") ? "true" : undefined}>{err}</p>}
-          {busy && !feedback && !err ? (
+          {queuedNotice ? (
+            <section className="creation-feedback" data-kind="queued" data-analyze-queued role="status">
+              <strong>已入队</strong>
+              <p>{queuedNotice}</p>
+            </section>
+          ) : null}
+          {busy && !feedback && !err && !queuedNotice ? (
             <section className="creation-feedback" data-kind="recognizing" data-creation-feedback data-wait-status="识别中" role="status" aria-busy="true">
               <strong>识别中</strong>
               <p>
@@ -1665,7 +1851,11 @@ export default function Home() {
 
       <div
         className="home-composer-dock"
-        data-home-entry={discoveryBrief || lockedIntent === DISCOVERY_INTENT ? "new-discovery" : "composer-analyze"}
+        data-home-entry={
+          analyzeSurface || isAnalyzePrefill(text)
+            ? "kol-analyze-enqueue"
+            : (discoveryBrief || lockedIntent === DISCOVERY_INTENT ? "new-discovery" : "composer-analyze")
+        }
       >
         <ComposerDock
           variant="workspace"
@@ -1772,6 +1962,31 @@ export default function Home() {
         busy={Boolean(pendingBatchCards?.[0] && confirmStageBusyId === pendingBatchCards[0].id)}
         onConfirm={confirmSelectedStageEnter}
         onCancel={() => setPendingBatchCards(null)}
+      />
+      <ClaimFollowConfirm
+        card={claimTarget}
+        busy={claimBusy}
+        error={claimError}
+        onConfirm={() => void confirmClaim()}
+        onCancel={() => {
+          if (!claimBusy) {
+            setClaimTarget(null);
+            setClaimError(null);
+          }
+        }}
+      />
+      <ReleaseFollowConfirm
+        handle={releaseTarget?.handle}
+        open={Boolean(releaseTarget)}
+        busy={releaseBusy}
+        error={releaseError}
+        onConfirm={() => void confirmRelease()}
+        onCancel={() => {
+          if (!releaseBusy) {
+            setReleaseTarget(null);
+            setReleaseError(null);
+          }
+        }}
       />
     </div>
   );

@@ -6,9 +6,10 @@
 
 | Action | 路由类型 |
 |---|---|
-| 切换 Tab / 拉 board / 待办 / 跟进列表 / 已有发现运行 / 预填发现模板 | memory |
+| 切换 Tab / 拉 board / 待办 / 跟进列表 / 公海 / 已有发现运行 / 预填发现模板 | memory |
 | Composer「让 Agent 分析/安排」/ 提交发现任务 | think |
-| 采纳推荐 → 待办 / 重试发现 / 入库公海 / 确认阶段 / 确认发送 | command |
+| 分析已选 `kol-analyze-enqueue`（`creates_session:false`，入 `work_item`） | think |
+| 采纳推荐 → 待办 / 重试发现 / 入库公海（ingest ≠ claim）/ `claim-kol` / `release-follow` / 确认阶段 / 确认发送 | command |
 | （本页不新增 cron） | — |
 
 快捷查询失败展示真实状态，并提供「交给 Agent」；不得用「正在思考」掩饰。

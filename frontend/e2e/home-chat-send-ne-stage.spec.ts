@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
+import { stubFollowingFromServerBoard } from "./kol-surface-stub";
 
 async function saveScreenshot(page: Page, name: string): Promise<void> {
   const dir = process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results";
@@ -11,9 +12,10 @@ async function openFollowed(page: Page) {
   await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
 }
 
-test.beforeEach(async ({ request }) => {
+test.beforeEach(async ({ page, request }) => {
   await request.post("/api/demo/reset", { data: { workbench: true } });
   await request.post("/api/me/persona", { data: { persona: "sriphy" } });
+  await stubFollowingFromServerBoard(page, request);
 });
 
 test("followed KOL pane is an object list, not task-status or 15-stage chips", async ({ page }) => {

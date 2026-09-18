@@ -6,6 +6,8 @@ import {
   type FollowedKolCardModel,
 } from "../followedKolCard";
 import type { StarryBinding } from "../api";
+import FollowedBrief from "./FollowedBrief";
+import { KOL_SELECT_MAX } from "./kolContract";
 
 const FOLLOWED_STAGE_LABELS: Record<string, string> = {
   INITIAL_CONTACT: "初步接触",
@@ -72,6 +74,8 @@ export default function FollowedPane({
   onCompose,
   onConfirmStage,
   onBatchConfirm,
+  onAnalyzeSelected,
+  onRelease,
   onBind,
 }: {
   visibleKols: FollowedKolCardModel[];
@@ -98,6 +102,8 @@ export default function FollowedPane({
   onCompose: (card: FollowedKolCardModel) => void;
   onConfirmStage: (card: FollowedKolCardModel) => void;
   onBatchConfirm: () => void;
+  onAnalyzeSelected: () => void;
+  onRelease?: (card: FollowedKolCardModel) => void;
   onBind: () => void;
 }) {
   const selecting = selectedKolIds.length > 0;
@@ -116,6 +122,7 @@ export default function FollowedPane({
   return (
     <section className="home-mode-pane recommend-work followed-kol-pane" data-home-pane="lifecycle" data-lifecycle-overview>
       <div className="followed-kol-column" data-followed-kol-column data-followed-decision-max="full">
+        <FollowedBrief cards={visibleKols} onPrimary={onOpenDetail} />
         <div className="followed-object-toolbar" data-followed-object-toolbar data-home-entry="list-followed">
           <label className="followed-object-search">
             <span className="sr-only">搜索跟进对象</span>
@@ -128,7 +135,7 @@ export default function FollowedPane({
             />
           </label>
           <p className="followed-object-count" data-followed-selected-count>
-            {selecting ? `已选 ${selectedKolIds.length} 人` : `${visibleKols.length} 人`}
+            {selecting ? `已选 ${selectedKolIds.length} / ${KOL_SELECT_MAX}` : `${visibleKols.length} 人`}
           </p>
           <label className="followed-advanced-filter" data-followed-advanced>
             <span>阶段（高级）</span>
@@ -153,6 +160,16 @@ export default function FollowedPane({
             />
             <span className="sr-only">全选跟进对象</span>
           </label>
+          <button
+            type="button"
+            className="btn ghost sm"
+            data-analyze-selected
+            data-home-entry="kol-analyze-enqueue"
+            disabled={!selecting}
+            onClick={onAnalyzeSelected}
+          >
+            分析已选
+          </button>
           <button
             type="button"
             className={selecting && bulkLabel ? "btn work sm" : "btn ghost sm"}
@@ -189,6 +206,7 @@ export default function FollowedPane({
                 onOpenMail={() => onOpenMail(card)}
                 onCompose={() => onCompose(card)}
                 onConfirmStage={() => onConfirmStage(card)}
+                onRelease={card.source.follow_id && onRelease ? () => onRelease(card) : undefined}
               />
             ))}
           </div>

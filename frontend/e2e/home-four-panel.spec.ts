@@ -1,13 +1,15 @@
 import { test, expect, type Page } from "@playwright/test";
+import { stubFollowingFromServerBoard, stubHomeBoardAndFollowing } from "./kol-surface-stub";
 
 async function openMode(page: Page, mode: "today" | "todo" | "discovery" | "lifecycle") {
   await page.locator(`[data-home-mode="${mode}"]`).click();
   await expect(page.locator(`[data-home-pane="${mode}"]`)).toBeVisible();
 }
 
-test.beforeEach(async ({ request }) => {
+test.beforeEach(async ({ page, request }) => {
   await request.post("/api/demo/reset", { data: { workbench: true } });
   await request.post("/api/me/persona", { data: { persona: "sriphy" } });
+  await stubFollowingFromServerBoard(page, request);
 });
 
 test("home four-panel tab order and pane visibility", async ({ page }) => {
@@ -96,7 +98,7 @@ async function stubHomeTodos(page: Page, todos: Array<Record<string, unknown>>) 
       todo: todos,
     },
   };
-  await page.route("**/api/home/board", (route) => route.fulfill({ json: payload }));
+  await stubHomeBoardAndFollowing(page, payload);
   await page.route("**/api/tasks", (route) => route.fulfill({ json: todos }));
 }
 
@@ -158,7 +160,7 @@ test("home todo action rows use full-width workbench layout", async ({ page }) =
   const quote = page.locator("[data-todo-card]").filter({ hasText: "写北美户外评测达人合作报价并核对样品寄送地址" });
   await expect(quote).toBeVisible();
   await expect(quote.locator("[data-todo-act]")).toBeVisible();
-  await expect(quote.locator("[data-todo-status]")).toContainText("今天到期");
+  await expect(quote).toHaveAttribute("data-todo-status", "今天到期");
   await expect(quote.locator("[data-todo-act]")).toHaveText("处理");
   const follow = page.locator("[data-todo-card]").filter({ hasText: "跟进 Outdoor Gear Lab 样品签收" });
   await expect(follow).toHaveAttribute("data-todo-bucket", "later");
@@ -178,35 +180,33 @@ test("home todo action rows use full-width workbench layout", async ({ page }) =
 });
 
 test("home followed KOL card is a dense fact | AI decision row", async ({ page }) => {
-  await page.route("**/api/home/board", (route) => route.fulfill({
-    json: {
-      kols: [{
-        id: "col_xiaomei",
-        handle: "小美妆日记",
-        brand: "LT",
-        owner_name: "钟槿年",
-        platform: "小红书",
-        stage_code: "INITIAL_CONTACT",
-        stage_label: "初步接触",
-        days_in_stage: 12,
-        mailbox_from: "larry.zhao@amperetime.com",
-        suggested_stage: "已回复-有兴趣",
-        suggested_stage_code: "INTERESTED",
+  await stubHomeBoardAndFollowing(page, {
+    kols: [{
+      id: "col_xiaomei",
+      handle: "小美妆日记",
+      brand: "LT",
+      owner_name: "钟槿年",
+      platform: "小红书",
+      stage_code: "INITIAL_CONTACT",
+      stage_label: "初步接触",
+      days_in_stage: 12,
+      mailbox_from: "larry.zhao@amperetime.com",
+      suggested_stage: "已回复-有兴趣",
+      suggested_stage_code: "INTERESTED",
+      unread_count: 0,
+      mail_threads: [{
+        conversation_id: "3901",
+        subject: "Re: LiTime collab",
         unread_count: 0,
-        mail_threads: [{
-          conversation_id: "3901",
-          subject: "Re: LiTime collab",
-          unread_count: 0,
-          last_direction: "inbound",
-          last_from: "amy@example.com",
-          last_snippet: "我对这次合作有兴趣",
-          last_at: "2026-09-12T10:00:00.000Z",
-        }],
+        last_direction: "inbound",
+        last_from: "amy@example.com",
+        last_snippet: "我对这次合作有兴趣",
+        last_at: "2026-09-12T10:00:00.000Z",
       }],
-      tasks: [],
-      tabs: [{ code: "all", count: 1 }],
-    },
-  }));
+    }],
+    tasks: [],
+    tabs: [{ code: "all", count: 1 }],
+  });
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("/");
   await openMode(page, "lifecycle");
@@ -315,9 +315,8 @@ async function countFilledFollowedWorkCtas(page: Page): Promise<number> {
 }
 
 test("home followed list keeps one strong work CTA", async ({ page }) => {
-  await page.route("**/api/home/board", (route) => route.fulfill({
-    json: {
-      kols: [
+  await stubHomeBoardAndFollowing(page, {
+    kols: [
         {
           id: "col_stage_a",
           handle: "阶段甲",
@@ -371,8 +370,7 @@ test("home followed list keeps one strong work CTA", async ({ page }) => {
         collaboration_id: "col_draft_row",
         kol_name: "起草卡",
       }],
-    },
-  }));
+  });
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("/");
   await openMode(page, "lifecycle");
@@ -419,7 +417,7 @@ test("home followed list keeps one strong work CTA", async ({ page }) => {
   await stageB.locator("[data-followed-select]").check();
   await expect(stageA).toHaveAttribute("data-selected", "true");
   await expect(stageB).toHaveAttribute("data-selected", "true");
-  await expect(page.locator("[data-followed-selected-count]")).toHaveText("已选 2 人");
+  await expect(page.locator("[data-followed-selected-count]")).toHaveText("已选 2 / 8");
   await expect(page.locator("[data-followed-batch-confirm]")).toHaveClass(/work/);
   await expect(page.locator("[data-followed-batch-confirm]")).toHaveText("确认进入已回复 · 有兴趣（2）");
   await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
@@ -431,9 +429,8 @@ test("home followed list keeps one strong work CTA", async ({ page }) => {
 });
 
 test("home followed multi-select shows one filled top CTA", async ({ page }) => {
-  await page.route("**/api/home/board", (route) => route.fulfill({
-    json: {
-      kols: [
+  await stubHomeBoardAndFollowing(page, {
+    kols: [
         {
           id: "col_stage_a",
           handle: "阶段甲",
@@ -487,8 +484,7 @@ test("home followed multi-select shows one filled top CTA", async ({ page }) => 
         collaboration_id: "col_draft_row",
         kol_name: "起草卡",
       }],
-    },
-  }));
+  });
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto("/");
   await openMode(page, "lifecycle");
@@ -515,7 +511,7 @@ test("home followed multi-select shows one filled top CTA", async ({ page }) => 
   await expect(page.locator("[data-home-pane='lifecycle'] .btn.work")).toHaveCount(1);
 
   await stageB.locator("[data-followed-select]").check();
-  await expect(page.locator("[data-followed-selected-count]")).toHaveText("已选 2 人");
+  await expect(page.locator("[data-followed-selected-count]")).toHaveText("已选 2 / 8");
   await expect(topCta).toHaveClass(/work/);
   await expect(topCta).toHaveText("确认进入已回复 · 有兴趣（2）");
   await expect(list.locator("[data-kol-primary-action].btn.work")).toHaveCount(0);
@@ -587,6 +583,9 @@ test("home four tabs live in ?tab= and switching does not POST sessions", async 
   await expect(page.locator('[data-home-pane="discovery"]')).toBeVisible();
   await page.goto("/?tab=lifecycle");
   await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
+  await page.goto("/?tab=pool");
+  await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
+  await expect(page.locator("[data-home-mode]")).toHaveCount(4);
   expect(sessionPosts).toEqual([]);
 });
 
