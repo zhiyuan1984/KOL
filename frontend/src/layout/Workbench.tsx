@@ -133,6 +133,7 @@ export default function Workbench() {
   const runningActive = Boolean(
     sessionId && sessions.some((s) => s.id === sessionId && (s.agent_status === "running" || s.agent_status === "queued")),
   );
+  const discoveryActive = homeMode === "discovery";
   const poolActive = homeMode === "pool";
   const followActive = homeMode === "lifecycle";
   const onAgents = loc.pathname === "/agents" || loc.pathname.startsWith("/agents/");
@@ -194,15 +195,15 @@ export default function Workbench() {
             {runningCount > 0 && <span className="nav-badge" data-running-count={runningCount}>{runningCount}</span>}
           </Link>
           <Link
-            to="/?tab=lifecycle"
-            className={"nav-link" + (followActive ? " active" : "")}
-            aria-current={followActive ? "page" : undefined}
-            data-nav="followed"
-            data-home-entry="list-followed"
+            to="/?tab=discovery"
+            className={"nav-link" + (discoveryActive ? " active" : "")}
+            aria-current={discoveryActive ? "page" : undefined}
+            data-nav="discovery"
+            data-home-entry="existing-discovery"
             onClick={() => setMobileOpen(false)}
           >
-            <Ico path="M8 7h8 M6 12h12 M8 17h8" />
-            <span className="sidebar-label">我跟进的红人</span>
+            <Ico path="M12 3l1.5 5.5L19 10l-5.5 1.5L12 17l-1.5-5.5L5 10l5.5-1.5z M17 16l.8 2.4L20 19.2l-2.2.8L17 22.4l-.8-2.4L14 19.2l2.2-.8z" />
+            <span className="sidebar-label">AI发现</span>
           </Link>
           <Link
             to="/?tab=pool"
@@ -214,6 +215,17 @@ export default function Workbench() {
           >
             <Ico path="M4 7h16v10H4z M8 7V5h8v2" />
             <span className="sidebar-label">公海</span>
+          </Link>
+          <Link
+            to="/?tab=lifecycle"
+            className={"nav-link" + (followActive ? " active" : "")}
+            aria-current={followActive ? "page" : undefined}
+            data-nav="followed"
+            data-home-entry="list-followed"
+            onClick={() => setMobileOpen(false)}
+          >
+            <Ico path="M8 7h8 M6 12h12 M8 17h8" />
+            <span className="sidebar-label">我跟进的红人</span>
           </Link>
           <NavLink to="/cron" className={() => "nav-link" + ((loc.pathname === "/cron" || loc.pathname.startsWith("/cron/")) ? " active" : "")} data-nav="cron" onClick={() => setMobileOpen(false)}>
             <Ico path="M8 3v3 M16 3v3 M5 8h14 M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z M9 13h3 M14 17h3" />
