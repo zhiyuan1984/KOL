@@ -582,7 +582,7 @@ test("composer plus menu exposes projects, recent files, and published skills", 
   await expect(page.getByRole("menu", { name: "最近的文件" })).toBeVisible();
 
   await menu.getByRole("menuitem", { name: "添加到项目" }).dispatchEvent("mouseover");
-  await page.getByRole("menu", { name: "项目" }).getByRole("menuitem", { name: /小美妆日记/ }).evaluate((element: HTMLElement) => element.click());
+  await page.getByRole("menu", { name: "添加到项目" }).getByRole("menuitem", { name: /小美妆日记/ }).evaluate((element: HTMLElement) => element.click());
   await expect(page.locator('[data-project-id="col_xiaomei"]')).toContainText("小美妆日记");
   expect(bodies).toEqual([]);
 });
@@ -613,8 +613,8 @@ test("employee shell keeps compact sidebar brand and icon-only top chrome", asyn
     const cs = getComputedStyle(el);
     return Number.parseFloat(cs.borderTopLeftRadius);
   });
-  expect(composer).toBeGreaterThanOrEqual(20);
-  expect(composer).toBeLessThanOrEqual(24);
+  expect(composer).toBeGreaterThanOrEqual(26);
+  expect(composer).toBeLessThanOrEqual(30);
 });
 
 test("home rec ask opens chat with grey bubble and draft on the right", async ({ page }) => {

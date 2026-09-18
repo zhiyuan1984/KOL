@@ -21,6 +21,7 @@ import { officialStageReached } from "../journey";
 import { MESSAGE_RISK_LABEL, messageRisk, type MessageRisk } from "../agentUx";
 import { draftSendConfirm } from "../adminConfirm";
 import { useAdminConfirm } from "./ConfirmDialog";
+import { applyComposerDraft } from "../composer/draft";
 
 type ThreadRole = "user" | "assistant" | "system";
 type ResultShape = "task_result" | "draft" | "confirm" | "send" | "stage";
@@ -1337,21 +1338,20 @@ export function KolMailCard({
       kolAddr ? `收件: ${kolAddr}` : "",
       replySubject ? `主题: ${replySubject}` : "",
     ].filter(Boolean).join(" ");
-    await api.postMessage(sessionId, {
+    applyComposerDraft({
       text,
-      collaboration_id: collaborationId || undefined,
-      entities: {
-        conversationId: conversationId ? Number(conversationId) : undefined,
-        mailboxEmail: brandBox,
-        from: brandBox,
-        to: kolAddr ? [kolAddr] : [],
-        subject: replySubject,
-        handle,
-        suggested_stage: suggested || undefined,
-        prompt: "根据来信写一封简短的跟进回复，先不要发送。",
-      },
+      intent: "mail_reply",
+      chips: [
+        { kind: "skill", id: "email_compose", label: "写跟进邮件", write: true },
+        ...(handle ? [{ kind: "object" as const, id: handle, label: handle, objectKind: "kol" }] : []),
+      ],
+      object_refs: [
+        ...(conversationId ? [{ kind: "mail", id: conversationId, label: subject }] : []),
+        ...(handle ? [{ kind: "kol", id: handle, label: handle }] : []),
+      ],
+      client_entry: "compose-send",
+      scope: { skills: ["email_compose"], intent: "mail_reply" },
     });
-    onRefresh?.();
   };
   if (bodyOnly) {
     return (

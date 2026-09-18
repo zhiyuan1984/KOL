@@ -399,6 +399,9 @@ export type PendingAsk = {
   task_type?: string;
   run_id?: string;
   entities?: Record<string, unknown>;
+  scope?: Record<string, unknown>;
+  object_refs?: Array<{ kind: string; id: string; label?: string }>;
+  client_entry?: string;
 };
 
 export type KnowledgeRow = {
@@ -954,6 +957,9 @@ export const api = {
         task_type: p.task_type,
         run_id: p.run_id,
         entities: p.entities,
+        scope: p.scope,
+        object_refs: p.object_refs,
+        client_entry: p.client_entry,
       }),
     });
     const b = (await parse(r)) as {

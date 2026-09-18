@@ -202,14 +202,14 @@ test("desktop employee shell computed 260 rail and Codex Regular type", async ({
   expect(beforeLifecycle.username.fontSize).toBe(13);
   expect(beforeLifecycle.username.fontWeight).toBe(400);
   const composer = await typeOf(page, "[data-home] [data-composer-input]");
-  expect(composer.fontSize).toBeLessThanOrEqual(15);
+  expect(composer.fontSize).toBe(16);
   expect(composer.fontWeight).toBeLessThanOrEqual(400);
   const composerRadius = await page.locator("[data-home] [data-composer] .composer").evaluate((el) => {
     const cs = getComputedStyle(el);
     return Number.parseFloat(cs.borderTopLeftRadius);
   });
-  expect(composerRadius).toBeGreaterThanOrEqual(20);
-  expect(composerRadius).toBeLessThanOrEqual(24);
+  expect(composerRadius).toBeGreaterThanOrEqual(26);
+  expect(composerRadius).toBeLessThanOrEqual(30);
 
   await page.locator(".collapse-toggle").click();
   await expect(page.locator(".workbench")).toHaveClass(/sidebar-collapsed/);
