@@ -6,7 +6,7 @@ import BrandLockup from "../components/BrandLockup";
 import UserMenu from "../components/UserMenu";
 import { parseHomeMode } from "../home/modes";
 import { ANALYZE_WORK_EVENT, loadKolAnalyzeInFlight, type AnalyzeWorkItem } from "../home/kolSurfaceApi";
-import { isKolAnalyzeInFlight } from "../home/kolContract";
+import { isKolAnalyzeInFlight, runningBadgeCount, runningBadgeHref } from "../home/kolContract";
 import { useViewMode } from "../viewMode";
 
 function Ico({ path }: { path: string }) {
@@ -121,26 +121,14 @@ export default function Workbench() {
   const newTaskActive = homeMode === "today";
   const adminAvailable = admin || me?.available_modes?.includes("admin") === true;
 
-  const runningSessions = useMemo(
-    () => sessions.filter((s) => s.agent_status === "running" || s.agent_status === "queued"),
-    [sessions],
+  const runningCount = useMemo(
+    () => runningBadgeCount({ sessions, analyzeItems }),
+    [analyzeItems, sessions],
   );
-  const analyzeInFlight = useMemo(
-    () => analyzeItems.filter((item) => isKolAnalyzeInFlight(item.status)),
-    [analyzeItems],
+  const runningHref = useMemo(
+    () => runningBadgeHref({ sessions, analyzeItems }),
+    [analyzeItems, sessions],
   );
-  const runningCount = useMemo(() => {
-    const sessionIds = new Set(runningSessions.map((row) => row.id));
-    const extra = analyzeInFlight.filter((item) => !item.session_id || !sessionIds.has(item.session_id));
-    return runningSessions.length + extra.length;
-  }, [analyzeInFlight, runningSessions]);
-  const firstRunning = runningSessions[0];
-  const firstAnalyzeSession = analyzeInFlight.find((item) => item.session_id)?.session_id;
-  const runningHref = firstRunning
-    ? `/s/${firstRunning.id}`
-    : firstAnalyzeSession
-      ? `/s/${firstAnalyzeSession}`
-      : "/?tab=todo";
   const sessionId = loc.pathname.match(/^\/s\/([^/]+)$/)?.[1] ?? "";
   const runningActive = Boolean(
     sessionId && sessions.some((s) => s.id === sessionId && (s.agent_status === "running" || s.agent_status === "queued")),

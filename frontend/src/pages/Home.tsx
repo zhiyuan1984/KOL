@@ -492,8 +492,10 @@ export default function Home() {
     setAnalyzeUids([]);
   };
 
+  const boardKolsRef = useRef<Array<Record<string, unknown>>>([]);
+
   const applyBoard = (board: Awaited<ReturnType<typeof api.homeBoard>>) => {
-    if (Array.isArray(board.kols)) setFollowedKols(board.kols as FollowedKol[]);
+    if (Array.isArray(board.kols)) boardKolsRef.current = board.kols;
     setBoardWorkbench(board.workbench || null);
     setFollowScope(board.follow_scope || null);
     setBoardError("");
@@ -530,7 +532,7 @@ export default function Home() {
 
   const loadFollowingSurface = async () => {
     const loaded = await loadHomeFollowing({
-      kols: followedKols as unknown as Array<Record<string, unknown>>,
+      kols: boardKolsRef.current,
       follow_scope: followScope || undefined,
     });
     if (loaded.follow_scope) setFollowScope(loaded.follow_scope);
@@ -538,14 +540,12 @@ export default function Home() {
       setBoardError(loaded.error || "跟进列表读取失败");
       return;
     }
-    if (loaded.source === "following" || loaded.items.length) {
-      setFollowedKols(loaded.items.map(followKolToRecord) as FollowedKol[]);
-    }
+    setFollowedKols(loaded.items.map(followKolToRecord) as FollowedKol[]);
   };
 
   const loadPoolSurface = async () => {
     const loaded = await loadHomePool({
-      kols: followedKols as unknown as Array<Record<string, unknown>>,
+      kols: boardKolsRef.current,
     });
     if (loaded.down) {
       setBoardError(loaded.error || "公海读取失败");
@@ -759,6 +759,7 @@ export default function Home() {
   };
 
   const startCompose = (kol: FollowedKol) => {
+    // 发信只续期 14 日钟，不等于建联 / claim / 改阶段。
     setText(`写合作邮件 @${kol.handle}`);
     setLockedIntent("email_compose");
     setLockedLabel("写合作邮件");
@@ -1060,7 +1061,10 @@ export default function Home() {
   const refreshBoard = (force = false) => Promise.all([
     loadBoard(force),
     refreshTasks(),
-  ]);
+  ]).then(() => {
+    if (mode === "lifecycle") return loadFollowingSurface();
+    if (mode === "pool") return loadPoolSurface();
+  });
 
   useEffect(() => {
     const onVisible = () => {

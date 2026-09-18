@@ -6,11 +6,15 @@ import {
   clockFromRow,
   followHasDiscoveryField,
   followKolToRecord,
+  isActiveFollowRow,
   isAnalyzePrefill,
+  isOpenPoolRow,
   poolHasBannedField,
   selectAllMax8,
   sortByFollowedBriefPriority,
   toFollowKol,
+  runningBadgeCount,
+  runningBadgeHref,
   toPoolKol,
   toggleSelectMax8,
   type FollowKol,
@@ -62,6 +66,8 @@ describe("kol workbench contract (#172)", () => {
       public_stage: "公海",
       pool_status: "open",
       email: "secret@example.com",
+      quote: "1200",
+      contract: "ct_1",
       notes: "私有备注",
     });
     expect(card?.kol_uid).toBe("uid_outdoor");
@@ -71,7 +77,10 @@ describe("kol workbench contract (#172)", () => {
     expect(card?.idle?.idle).toBe(true);
     expect(card?.idle?.label).toBe("闲置");
     expect(poolHasBannedField(card!)).toBeNull();
-    expect(JSON.stringify(card)).not.toMatch(/unread|mail_threads|notes|release_due|email/);
+    expect(JSON.stringify(card)).not.toMatch(/unread|mail_threads|notes|release_due|email|quote|contract|wechat/);
+    expect(toPoolKol({ kol_uid: "uid_claimed", handle: "已领", pool_status: "claimed" })).toBeNull();
+    expect(isOpenPoolRow({ pool_status: "claimed" })).toBe(false);
+    expect(isOpenPoolRow({ pool_status: "open" })).toBe(true);
   });
 
   it("maps GET /api/home/following B.active clock and hides C/discovery fields", () => {
@@ -167,5 +176,22 @@ describe("kol workbench contract (#172)", () => {
     expect(followedBriefPriority(card)).toBe("refused");
     expect(briefingForFollowed([card]).priority).toBe("refused");
     expect(card.identity.display).toBe("@小美妆日记");
+  });
+
+  it("following list keeps B.active only and 进行中 counts kol_analyze work/sessions", () => {
+    expect(isActiveFollowRow({ follow_id: "kfi_1", status: "active", kol_uid: "u1" })).toBe(true);
+    expect(isActiveFollowRow({ follow_id: "kfi_1", status: "released", kol_uid: "u1" })).toBe(false);
+    expect(runningBadgeCount({
+      sessions: [],
+      analyzeItems: [{ id: "tsk_analyze_1", status: "queued", task_type: "kol_analyze" }],
+    })).toBe(1);
+    expect(runningBadgeHref({
+      sessions: [],
+      analyzeItems: [{ id: "tsk_analyze_1", status: "queued", task_type: "kol_analyze" }],
+    })).toBe("/?tab=todo");
+    expect(runningBadgeHref({
+      sessions: [],
+      analyzeItems: [{ id: "tsk_analyze_1", status: "queued", session_id: "ses_1", task_type: "kol_analyze" }],
+    })).toBe("/s/ses_1");
   });
 });

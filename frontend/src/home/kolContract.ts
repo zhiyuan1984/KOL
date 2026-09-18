@@ -19,7 +19,12 @@ export const POOL_BANNED_FIELDS = [
   "mail_threads",
   "last_snippet",
   "quote",
+  "contract",
   "notes",
+  "email",
+  "contact_email",
+  "phone",
+  "wechat",
   "release_due_at",
   "days_since_interaction",
   "clock_14d",
@@ -279,7 +284,21 @@ export function sortByFollowedBriefPriority<T extends { brief_priority: FollowBr
   return [...rows].sort((a, b) => rank[a.brief_priority] - rank[b.brief_priority]);
 }
 
+export function isOpenPoolRow(row: Record<string, unknown>): boolean {
+  const status = text(row.pool_status || row.status);
+  return !status || status === "open" || status === "discovered" || status === "pool" || status === "public";
+}
+
+export function isActiveFollowRow(row: Record<string, unknown>): boolean {
+  if (row.unbound) return false;
+  const status = text(row.creator_status || row.status);
+  if (row.follow_id || status === "active") return status === "active" || !status;
+  if (status === "discovered" || status === "pool" || status === "released" || status === "claimed") return false;
+  return Boolean(row.id || row.kol_uid || row.handle);
+}
+
 export function toPoolKol(row: Record<string, unknown>): PoolKol | null {
+  if (!isOpenPoolRow(row)) return null;
   const kolUid = text(row.kol_uid || row.creator_id || row.id);
   const handle = bare(row.handle || row.display_name || row.kol_name || row.name || row.identity);
   if (!kolUid && !handle) return null;
@@ -418,6 +437,28 @@ export function isAnalyzePrefill(text: string): boolean {
 
 export function isKolAnalyzeInFlight(status?: string | null): boolean {
   return ANALYZE_IN_FLIGHT_STATUSES.includes(String(status || "") as (typeof ANALYZE_IN_FLIGHT_STATUSES)[number]);
+}
+
+export function runningBadgeCount(input: {
+  sessions: Array<{ id: string; agent_status?: string | null }>;
+  analyzeItems: Array<{ id: string; status: string; session_id?: string | null }>;
+}): number {
+  const runningSessions = input.sessions.filter((row) => row.agent_status === "running" || row.agent_status === "queued");
+  const analyze = input.analyzeItems.filter((item) => isKolAnalyzeInFlight(item.status));
+  const sessionIds = new Set(runningSessions.map((row) => row.id));
+  const extraAnalyze = analyze.filter((item) => !item.session_id || !sessionIds.has(item.session_id));
+  return runningSessions.length + extraAnalyze.length;
+}
+
+export function runningBadgeHref(input: {
+  sessions: Array<{ id: string; agent_status?: string | null }>;
+  analyzeItems: Array<{ id: string; status: string; session_id?: string | null }>;
+}): string {
+  const firstSession = input.sessions.find((row) => row.agent_status === "running" || row.agent_status === "queued");
+  if (firstSession) return `/s/${firstSession.id}`;
+  const bound = input.analyzeItems.find((item) => isKolAnalyzeInFlight(item.status) && item.session_id);
+  if (bound?.session_id) return `/s/${bound.session_id}`;
+  return "/?tab=todo";
 }
 
 /** Map B.active follow contract onto the existing followed-kol-card model. */

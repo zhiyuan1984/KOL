@@ -2,7 +2,9 @@ import { api, type Task } from "../api";
 import {
   ANALYZE_QUEUED_COPY,
   KOL_ANALYZE_TASK_TYPE,
+  isActiveFollowRow,
   isKolAnalyzeInFlight,
+  isOpenPoolRow,
   toFollowKol,
   toPoolKol,
   type FollowKol,
@@ -56,27 +58,20 @@ function isMissingEndpoint(error: unknown): boolean {
   return status === 404 || status === 405;
 }
 
-function activeFollowRow(row: Record<string, unknown>): boolean {
-  if (row.unbound) return false;
-  const status = String(row.creator_status || row.status || "");
-  if (status === "discovered" || status === "pool" || status === "released") return false;
-  return Boolean(row.follow_id || row.id || row.kol_uid || row.handle);
-}
-
 function poolRow(row: Record<string, unknown>, followed: Set<string>): boolean {
+  if (!isOpenPoolRow(row)) return false;
   const uid = String(row.kol_uid || row.creator_id || row.id || "").trim();
   const handle = String(row.handle || row.name || "").replace(/^@/, "").trim();
   if ((uid && followed.has(uid)) || (handle && followed.has(handle))) return false;
   if (row.unbound) return true;
-  const status = String(row.creator_status || row.status || row.pool_status || "");
-  return status === "discovered" || status === "pool" || status === "public" || status === "open";
+  return isOpenPoolRow(row);
 }
 
 export async function loadHomePool(board?: { kols?: Array<Record<string, unknown>>; creators?: Array<Record<string, unknown>> }): Promise<PoolLoad> {
   try {
     const payload = await api.homePool();
     return {
-      items: asRows(payload).map(toPoolKol).filter((row): row is PoolKol => Boolean(row)),
+      items: asRows(payload).filter(isOpenPoolRow).map(toPoolKol).filter((row): row is PoolKol => Boolean(row)),
       source: "pool",
       creates_session: false,
     };
@@ -87,7 +82,7 @@ export async function loadHomePool(board?: { kols?: Array<Record<string, unknown
   }
   const followed = new Set<string>();
   for (const row of board?.kols || []) {
-    if (!activeFollowRow(row)) continue;
+    if (!isActiveFollowRow(row)) continue;
     const uid = String(row.kol_uid || "").trim();
     const handle = String(row.handle || "").replace(/^@/, "").trim();
     if (uid) followed.add(uid);
@@ -104,7 +99,7 @@ export async function loadHomePool(board?: { kols?: Array<Record<string, unknown
 export async function loadHomeFollowing(board?: { kols?: Array<Record<string, unknown>>; follow_scope?: import("../api").StarryBinding }): Promise<FollowingLoad> {
   try {
     const payload = await api.homeFollowing();
-    const raw = asRows(payload).filter(activeFollowRow);
+    const raw = asRows(payload).filter(isActiveFollowRow);
     return {
       items: raw.map(toFollowKol).filter((row): row is FollowKol => Boolean(row)),
       raw,
@@ -127,7 +122,7 @@ export async function loadHomeFollowing(board?: { kols?: Array<Record<string, un
       };
     }
   }
-  const raw = (board?.kols || []).filter(activeFollowRow);
+  const raw = (board?.kols || []).filter(isActiveFollowRow);
   return {
     items: raw.map(toFollowKol).filter((row): row is FollowKol => Boolean(row)),
     raw,
