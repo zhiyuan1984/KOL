@@ -1080,6 +1080,8 @@ export default function Home() {
     setFocusedKolId(null);
     setAnalyzeSurface(null);
     setAnalyzeUids([]);
+    setQueuedNotice("");
+    setText((current) => (isAnalyzePrefill(current) ? "" : current));
   }, [mode]);
 
   useEffect(() => {

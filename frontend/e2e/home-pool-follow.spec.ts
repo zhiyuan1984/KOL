@@ -222,6 +222,8 @@ test("selection prefills composer and enqueue is not from-text", async ({ page }
   expect(livePosts).toEqual([]);
   await expect(page.locator("[data-running-count]")).toHaveText("1");
   await expect(page.locator('[data-nav="running"]')).toHaveAttribute("href", /tab=todo/);
+  await page.locator('[data-home-mode="today"]').click();
+  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue("");
 });
 
 test("follow cards stay object cards and brief prefers 拒信", async ({ page }) => {
