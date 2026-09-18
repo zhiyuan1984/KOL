@@ -296,6 +296,16 @@ export function briefPrimaryLabel(primary?: TodayBriefPrimary | null): string {
   return raw || "打开";
 }
 
+/** Memory rows for My Todo. Layout is optional; never wait on today_brief. */
+export function todoPaneRows(
+  tasks: Task[],
+  filter: TodoListFilter,
+  todoLayout?: TodoLayoutItem[] | null,
+): Task[] {
+  const members = tasks.filter((task) => isOpenTask(task) && matchesTodoFilter(task, filter));
+  return todoLayout?.length ? applyTodoLayout(members, todoLayout) : sortOpenWorkItems(members);
+}
+
 export function applyTodoLayout(tasks: Task[], layout?: TodoLayoutItem[] | null): Task[] {
   if (!layout?.length) return sortOpenWorkItems(tasks);
   const byId = new Map(layout.map((row) => [row.work_item_id, row]));

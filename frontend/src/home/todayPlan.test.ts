@@ -7,11 +7,13 @@ import {
   TODAY_PLAN_PHASE_COPY,
   memoryTasksOf,
   runTodayPlanRefresh,
+  todayPlanEventLabels,
   todayPlanFailedFromBrief,
   todayPlanStatusCopy,
   type TodayPlanClient,
   type TodayPlanStep,
 } from "./todayPlan";
+import { todoPaneRows } from "./homeModel";
 
 function task(partial: Partial<Task> & Pick<Task, "id" | "title">): Task {
   return {
@@ -47,13 +49,49 @@ describe("today plan wiring", () => {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const home = fs.readFileSync(path.resolve(here, "../pages/Home.tsx"), "utf8");
     const pane = fs.readFileSync(path.resolve(here, "./TodayPane.tsx"), "utf8");
+    const progress = fs.readFileSync(path.resolve(here, "./TodayPlanProgress.tsx"), "utf8");
     expect(home).toContain('api.tasks({ view: "open" })');
     expect(home).toContain("api.todayBrief()");
     expect(home).toContain("api.planToday()");
     expect(home).toContain("runTodayPlanRefresh");
     expect(home).not.toContain("!current.brief");
-    expect(pane).toContain("data-today-plan-phase={phase}");
+    expect(progress).toContain("data-today-plan-phase={phase}");
+    expect(progress).toContain("data-today-plan-events=");
+    expect(pane).toContain("<TodayPlanProgress");
     expect(pane).not.toContain("planning && !sections.length");
+  });
+
+  it("switch to todo reuses open-task memory and does not trigger board", () => {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const home = fs.readFileSync(path.resolve(here, "../pages/Home.tsx"), "utf8");
+    const todo = fs.readFileSync(path.resolve(here, "./TodoPane.tsx"), "utf8");
+    expect(home).toContain("todayMemoryTasks ?? taskCatalog");
+    expect(home).toContain("homeMemoryTasks");
+    expect(home).toMatch(/\[todayEntryTick\]/);
+    expect(home).not.toMatch(/if \(mode !== "today"\)/);
+    expect(home).not.toMatch(/if \(mode !== "todo"\) return;/);
+    expect(home).not.toMatch(/mode === "todo"[\s\S]{0,240}todayBrief\(\)/);
+    expect(home).not.toMatch(/mode === "todo"[\s\S]{0,240}homeBoard/);
+    expect(home).not.toMatch(/runTodayPlanRefresh[\s\S]{0,800}homeBoard/);
+    expect(home).not.toMatch(/setTodayBrief\(step\.brief[\s\S]{0,200}homeBoard/);
+    expect(todo).toContain("<TodayPlanProgress");
+    expect(todo).toContain("sortOpenWorkItems");
+    expect(todo).not.toContain("homeBoard");
+    expect(todo).not.toContain("todayBrief()");
+  });
+
+  it("when tasks exist TodoPane shows rows immediately without layout", () => {
+    const rows = todoPaneRows([
+      task({ id: "tsk_due", title: "写报价", status: "waiting", due_at: new Date().toISOString() }),
+      task({ id: "tsk_later", title: "画像补全", status: "queued" }),
+    ], "all");
+    expect(rows.map((row) => row.id)).toEqual(["tsk_due", "tsk_later"]);
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const todo = fs.readFileSync(path.resolve(here, "./TodoPane.tsx"), "utf8");
+    expect(todo).toContain("todoPaneRows(tasks, filter, todoLayout)");
+    expect(todo).not.toMatch(/if \(!todoLayout\)/);
+    expect(todo).not.toMatch(/phase === "planning"[\s\S]{0,80}return/);
+    expect(todo).not.toContain("today_brief");
   });
 });
 
@@ -61,13 +99,13 @@ describe("today plan three-phase copy", () => {
   it("locks the four product strings", () => {
     expect(TODAY_PLAN_PHASE_COPY).toEqual({
       "loading-memory": "正在读取当前任务",
-      planning: "正在按最新记忆规划今天",
+      planning: "Lucas正在高效为你规划今天的任务",
       refreshed: "已按本轮规划刷新",
       failed: "规划失败，仍可按下面任务操作",
     });
     expect(todayPlanStatusCopy("idle")).toBe("");
     expect(todayPlanStatusCopy("loading-memory")).toBe("正在读取当前任务");
-    expect(todayPlanStatusCopy("planning")).toBe("正在按最新记忆规划今天");
+    expect(todayPlanStatusCopy("planning")).toBe("Lucas正在高效为你规划今天的任务");
   });
 
   it("drops today_plan rows from the memory list", () => {
@@ -126,19 +164,92 @@ describe("runTodayPlanRefresh", () => {
     released.resolve({
       planning: false,
       brief: brief(),
-      events: [{ type: "run.completed", label: "今日规划已完成" }],
+      events: [
+        { type: "run.progress", title: "已读取当前任务记忆" },
+        { type: "run.progress", title: "已打包来源增量" },
+        { type: "run.completed", label: "今日规划已完成" },
+      ],
     });
     const final = await run;
     expect(final.phase).toBe("refreshed");
     expect(final.brief?.lead).toBe("今天先核对其风险项");
     expect(final.tasks?.map((row) => row.id)).toEqual(["tsk_due"]);
     expect(final.tasks?.some((row) => row.id === "tsk_plan")).toBe(false);
+    expect(todayPlanEventLabels(final.events)).toEqual([
+      "已读取当前任务记忆",
+      "已打包来源增量",
+      "今日规划已完成",
+    ]);
     expect(steps[0]).toMatchObject({ phase: "loading-memory" });
     expect(steps.map((step) => step.phase)).toEqual(expect.arrayContaining([
       "loading-memory",
       "planning",
       "refreshed",
     ]));
+  });
+
+  it("polls pass new brief events into the pane and keep the task list", async () => {
+    const open = [task({ id: "tsk_due", title: "写报价" })];
+    let briefCalls = 0;
+    const client: TodayPlanClient = {
+      listOpenTasks: async () => open,
+      getBrief: async () => {
+        briefCalls += 1;
+        if (briefCalls === 1) {
+          return { planning: false, brief: null, events: [], creates_session: false, calls_model: false };
+        }
+        if (briefCalls === 2) {
+          return {
+            planning: true,
+            brief: null,
+            events: [
+              { type: "run.progress", title: "已读取当前任务记忆" },
+              { type: "run.progress", title: "已打包来源增量" },
+            ],
+          };
+        }
+        if (briefCalls === 3) {
+          return {
+            planning: true,
+            brief: null,
+            events: [
+              { type: "run.progress", title: "已读取当前任务记忆" },
+              { type: "run.progress", title: "已打包来源增量" },
+              { type: "run.progress", title: "已提交 Codex 规划" },
+              { type: "run.progress", title: "正在生成今日简报" },
+            ],
+          };
+        }
+        return {
+          planning: false,
+          brief: brief(),
+          events: [
+            { type: "run.progress", title: "已读取当前任务记忆" },
+            { type: "run.progress", title: "已打包来源增量" },
+            { type: "run.progress", title: "已提交 Codex 规划" },
+            { type: "run.progress", title: "正在生成今日简报" },
+            { type: "run.completed", title: "今日规划已完成" },
+          ],
+        };
+      },
+      startPlan: async () => ({ planning: true, attached: false }),
+    };
+    const steps: TodayPlanStep[] = [];
+    const final = await runTodayPlanRefresh(client, (step) => steps.push(step), {
+      pollMs: 0,
+      sleep: async () => undefined,
+    });
+    const planningSteps = steps.filter((step) => step.phase === "planning" && step.events?.length);
+    expect(planningSteps.some((step) => todayPlanEventLabels(step.events).includes("已提交 Codex 规划"))).toBe(true);
+    expect(planningSteps.every((step) => step.tasks?.some((row) => row.id === "tsk_due"))).toBe(true);
+    expect(todayPlanEventLabels(final.events)).toEqual([
+      "已读取当前任务记忆",
+      "已打包来源增量",
+      "已提交 Codex 规划",
+      "正在生成今日简报",
+      "今日规划已完成",
+    ]);
+    expect(final.tasks?.map((row) => row.id)).toEqual(["tsk_due"]);
   });
 
   it("GET brief in the memory phase does not start a session or call the model", async () => {

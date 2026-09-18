@@ -15,6 +15,7 @@ import {
   applyLayoutWhy,
   briefPrimaryLabel,
   isPlanningTask,
+  todoPaneRows,
 } from "./homeModel";
 
 function task(partial: Partial<Task> & Pick<Task, "id" | "title">): Task {
@@ -123,6 +124,13 @@ describe("today pane buckets", () => {
       next_action: "下一步",
       risk: "样品丢失",
     }))).toBe("描述 · 历史 · 下一步 · 样品丢失");
+  });
+
+  it("shows open todo rows immediately without waiting for layout", () => {
+    const due = task({ id: "tsk_due", title: "写报价", status: "waiting", due_at: new Date().toISOString() });
+    const later = task({ id: "tsk_later", title: "画像补全", status: "queued" });
+    expect(todoPaneRows([due, later], "all").map((row) => row.id)).toEqual(["tsk_due", "tsk_later"]);
+    expect(todoPaneRows([due, later], "all", []).map((row) => row.id)).toEqual(["tsk_due", "tsk_later"]);
   });
 
   it("sorts open todos by todo_layout why/rank and hides planning work items", () => {

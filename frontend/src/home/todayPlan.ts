@@ -1,14 +1,16 @@
 /**
  * Home Today planning chain — memory first, then think, never skip for freshness.
  *
- * Entering Home Today or clicking「新工作任务」:
- * 1. memory: parallel GET /api/tasks?view=open + GET /api/home/today-brief
+ * Entering Home (Today or My Todo share this chain):
+ * 1. memory: one GET /api/tasks?view=open (+ GET /api/home/today-brief)
+ *    The open-task list feeds BOTH TodayPane and TodoPane. Tab switch does not
+ *    re-fetch tasks or GET /api/home/board.
  * 2. think:  POST /api/home/today-brief/plan (or attach a running today_plan)
- * 3. poll GET today-brief until planning=false
- * 4. success → refresh brief + layout_why only (no formal todos)
+ * 3. poll GET today-brief until planning=false; pass events into the pane
+ * 4. success → write layout_why only (no board re-fetch, no formal todos)
  * 5. failure → keep the memory list
  */
-import type { Task, TodayBrief, TodayBriefResponse, TodayPlanResult } from "../api";
+import type { Task, TaskEvent, TodayBrief, TodayBriefResponse, TodayPlanResult } from "../api";
 import { applyLayoutWhy, isPlanningTask } from "./homeModel";
 
 export { applyLayoutWhy };
@@ -17,7 +19,7 @@ export const TODAY_PLAN_REFRESH_EVENT = "lingong:today-plan-refresh";
 
 export const TODAY_PLAN_PHASE_COPY = {
   "loading-memory": "正在读取当前任务",
-  planning: "正在按最新记忆规划今天",
+  planning: "Lucas正在高效为你规划今天的任务",
   refreshed: "已按本轮规划刷新",
   failed: "规划失败，仍可按下面任务操作",
 } as const;
@@ -38,6 +40,7 @@ export type TodayPlanStep = {
   phase: TodayPlanPhase;
   tasks?: Task[];
   brief?: TodayBrief | null;
+  events?: TaskEvent[];
   planning?: boolean;
   attached?: boolean;
 };
@@ -51,6 +54,22 @@ export type TodayPlanRefreshOptions = {
 export function todayPlanStatusCopy(phase: TodayPlanPhase): string {
   if (phase === "idle") return "";
   return TODAY_PLAN_PHASE_COPY[phase];
+}
+
+export function todayPlanEventLabels(events: TaskEvent[] | null | undefined): string[] {
+  const seen = new Set<string>();
+  const labels: string[] = [];
+  for (const event of events || []) {
+    const label = String(event.title || event.label || event.summary || "").trim();
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    labels.push(label);
+  }
+  return labels;
+}
+
+function eventsOf(row: TodayBriefResponse | undefined): TaskEvent[] | undefined {
+  return Array.isArray(row?.events) ? row.events : undefined;
 }
 
 export function memoryTasksOf(rows: Task[] | null | undefined): Task[] {
@@ -96,6 +115,7 @@ export async function runTodayPlanRefresh(
   let tasks: Task[] | undefined;
   let brief: TodayBrief | null = null;
   let memory: TodayBriefResponse | undefined;
+  let events: TaskEvent[] | undefined;
 
   const tasksPromise = client.listOpenTasks().then((rows) => {
     tasks = memoryTasksOf(rows);
@@ -104,6 +124,7 @@ export async function runTodayPlanRefresh(
       if (memory) {
         step.brief = brief;
         step.planning = Boolean(memory.planning);
+        if (events) step.events = events;
       }
       onStep(step);
     }
@@ -112,11 +133,14 @@ export async function runTodayPlanRefresh(
   const briefPromise = client.getBrief().then((row) => {
     memory = row;
     if (row.brief !== undefined) brief = row.brief ?? null;
+    const nextEvents = eventsOf(row);
+    if (nextEvents) events = nextEvents;
     if (!aborted(signal)) {
       onStep({
         phase: "loading-memory",
         tasks,
         brief,
+        events,
         planning: Boolean(row.planning),
       });
     }
@@ -124,12 +148,13 @@ export async function runTodayPlanRefresh(
   });
 
   await Promise.allSettled([tasksPromise, briefPromise]);
-  if (aborted(signal)) return { phase: "idle" };
+  if (aborted(signal)) return { phase: "idle", tasks, brief, events };
 
   onStep({
     phase: "planning",
     tasks,
     brief,
+    events,
     planning: true,
     attached: Boolean(memory?.planning),
   });
@@ -141,7 +166,7 @@ export async function runTodayPlanRefresh(
       if (aborted(signal)) return { phase: "idle" };
       attached = Boolean(started.attached);
     } catch {
-      const failed: TodayPlanStep = { phase: "failed", tasks, brief };
+      const failed: TodayPlanStep = { phase: "failed", tasks, brief, events };
       onStep(failed);
       return failed;
     }
@@ -154,11 +179,14 @@ export async function runTodayPlanRefresh(
       if (aborted(signal)) return { phase: "idle" };
       errors = 0;
       if (row.brief !== undefined) brief = row.brief ?? brief;
+      const nextEvents = eventsOf(row);
+      if (nextEvents) events = nextEvents;
       if (row.planning) {
         onStep({
           phase: "planning",
           tasks,
           brief,
+          events,
           planning: true,
           attached,
         });
@@ -166,22 +194,22 @@ export async function runTodayPlanRefresh(
         continue;
       }
       if (todayPlanFailedFromBrief(row)) {
-        const failed: TodayPlanStep = { phase: "failed", tasks, brief };
+        const failed: TodayPlanStep = { phase: "failed", tasks, brief, events };
         onStep(failed);
         return failed;
       }
-      const refreshed: TodayPlanStep = { phase: "refreshed", tasks, brief };
+      const refreshed: TodayPlanStep = { phase: "refreshed", tasks, brief, events };
       onStep(refreshed);
       return refreshed;
     } catch {
       errors += 1;
       if (errors >= 3) {
-        const failed: TodayPlanStep = { phase: "failed", tasks, brief };
+        const failed: TodayPlanStep = { phase: "failed", tasks, brief, events };
         onStep(failed);
         return failed;
       }
       await sleep(pollMs);
     }
   }
-  return { phase: "idle", tasks, brief };
+  return { phase: "idle", tasks, brief, events };
 }
