@@ -9,6 +9,7 @@ import { requireSkill } from "../auth.js";
 import { agentSubmissionAllowed } from "../contract-scope.js";
 import { audit, getConn, nowIso, tx } from "../db.js";
 import {
+  applyKolAnalyzeAction,
   claimFollow,
   countKolAnalyzeInFlight,
   currentMemoryEmployee,
@@ -156,4 +157,25 @@ kolMemory.post("/home/kol-analyze/enqueue", async (c) => {
     artifact_type: "kol_analyze_brief",
     recognizeTaskIntent: false,
   }, 201);
+});
+
+kolMemory.post("/home/kol-analyze/actions", async (c) => {
+  const body = await c.req.json().catch(() => ({})) as Json;
+  const workItemId = String(body.work_item_id || body.task_id || body.id || "").trim();
+  if (!workItemId) {
+    throw new HttpFail(400, { code: "work_item_required", message: "work_item_id required" });
+  }
+  const result = applyKolAnalyzeAction({
+    workItemId,
+    verb: body.verb ? String(body.verb) : undefined,
+    action: body.action ? String(body.action) : body.verb ? String(body.verb) : undefined,
+    artifact: (body.artifact && typeof body.artifact === "object" ? body.artifact : body) as Json,
+  });
+  return c.json({
+    entry: "command",
+    kind: "command",
+    creates_session: false,
+    calls_model: false,
+    ...result,
+  });
 });

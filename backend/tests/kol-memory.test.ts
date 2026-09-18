@@ -7,12 +7,15 @@ import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { DEMO_USER } from "../src/config.js";
 import {
+  applyKolAnalyzeAction,
   claimFollow,
   followClock,
   ingestFormalProfile,
   isEffectiveCorrespondence,
   recordEffectiveCorrespondence,
 } from "../src/host/kol-memory.js";
+import { runStub } from "../src/worker/stub.js";
+import { HttpFail } from "../src/host/errors.js";
 import { evaluateOwnershipRelease, releaseFollowOwnershipIfEligible } from "../src/gateway/ownership-release.js";
 import { callMemoryStarryTool } from "../src/host/starry-connectors.js";
 import * as recognize from "../src/tasks/recognize.js";
@@ -339,5 +342,80 @@ describe("kol follow/pool memory P0", () => {
     const res = await request("POST", "/api/home/kol-analyze/enqueue", { kol_uids: ["KOL_X"] });
     expect(res.status).toBe(409);
     expect((res.body.detail as Json)?.code || res.body.code).toBe("analyze_cap");
+  });
+
+  it("illegal kol_analyze verb fails the task at runtime and is not applied", async () => {
+    seedProfile("KOL_VERB");
+    const now = new Date().toISOString();
+    const insertItem = (id: string, status = "queued") => {
+      getConn().prepare(
+        `INSERT INTO work_items
+         (id,owner_user_id,task_type,title,source,status,priority,skill,profile,input,entities,data_version,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ).run(
+        id, DEMO_USER.id, "kol_analyze", "分析", "test", status,
+        "normal", "kol_analyze", "lead", "{}", "{}", 1, now, now,
+      );
+    };
+    insertItem("tsk_verb_illegal", "running");
+    getConn().prepare(
+      `INSERT INTO task_runs (id,work_item_id,status,input,entities,created_at)
+       VALUES (?,?,?,?,?,?)`,
+    ).run("run_verb_illegal", "tsk_verb_illegal", "running", "{}", "{}", now);
+
+    const draftsBefore = Number((getConn().prepare("SELECT COUNT(*) AS n FROM drafts").get() as { n: number }).n);
+    const followsBefore = Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index").get() as { n: number }).n);
+
+    const res = await request("POST", "/api/tasks/tsk_verb_illegal/actions", {
+      verb: "decrypt_contact",
+      artifact: { type: "kol_analyze_brief", recommended_actions: ["decrypt_contact"] },
+    });
+    expect(res.status).toBe(422);
+    const detail = ((res.body.detail as Json) || res.body) as Json;
+    expect(detail.code).toBe("illegal_kol_analyze_verb");
+    expect(detail.applied).toBe(false);
+    expect(detail.failed).toBe(true);
+
+    const item = getConn().prepare("SELECT status FROM work_items WHERE id='tsk_verb_illegal'").get() as { status: string };
+    expect(item.status).toBe("failed");
+    const run = getConn().prepare("SELECT status, error FROM task_runs WHERE id='run_verb_illegal'").get() as {
+      status: string;
+      error: string;
+    };
+    expect(run.status).toBe("failed");
+    expect(String(run.error)).toContain("illegal_kol_analyze_verb");
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM drafts").get() as { n: number }).n)).toBe(draftsBefore);
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index").get() as { n: number }).n)).toBe(followsBefore);
+
+    insertItem("tsk_verb_worker", "running");
+    await expect(runStub("ses_verb", "kol_analyze", "分析", {
+      work_item_id: "tsk_verb_worker",
+      actions: ["send_mail"],
+    })).rejects.toBeInstanceOf(HttpFail);
+    expect(
+      (getConn().prepare("SELECT status FROM work_items WHERE id='tsk_verb_worker'").get() as { status: string }).status,
+    ).toBe("failed");
+
+    insertItem("tsk_verb_legal", "waiting");
+    const legal = await request("POST", "/api/home/kol-analyze/actions", {
+      work_item_id: "tsk_verb_legal",
+      verb: "claim_follow",
+    });
+    expect(legal.status).toBe(200);
+    expect(legal.body.applied).toBe(false);
+    expect(legal.body.failed).toBe(false);
+    expect(
+      (getConn().prepare("SELECT status FROM work_items WHERE id='tsk_verb_legal'").get() as { status: string }).status,
+    ).toBe("waiting");
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index").get() as { n: number }).n)).toBe(followsBefore);
+
+    expect(() => applyKolAnalyzeAction({
+      workItemId: "tsk_verb_legal",
+      verb: "starry_stage",
+      artifact: { type: "kol_analyze_brief", actions: ["starry_stage"] },
+    })).toThrow(HttpFail);
+    expect(
+      (getConn().prepare("SELECT status FROM work_items WHERE id='tsk_verb_legal'").get() as { status: string }).status,
+    ).toBe("failed");
   });
 });

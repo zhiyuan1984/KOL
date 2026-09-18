@@ -19,6 +19,7 @@ import { writeAttachmentContext } from "../host/attachments.js";
 import { workerSafeExtra } from "../host/knowledge.js";
 import { suggestFollowStyleTags, readFollowStyleTags } from "../follow-style-tags.js";
 import { approvalBoxGuardrails, persistWorker } from "./common.js";
+import { assertKolAnalyzeVerbsSafe, KOL_ANALYZE_TASK_TYPE } from "../host/kol-memory.js";
 import { judgeCollaborationStage, type StageJudgmentInput } from "../stage-judgment.js";
 import { requireTaskDefinition } from "../tasks/registry.js";
 import { expenseFactsFromWorkerItem, hintRequesterFromOrg, readExpenseFactsFromText } from "../approval/plan.js";
@@ -326,6 +327,24 @@ async function produceItems(
   if (skill === "business_approval") {
     return [stubExpenseItem(extra)];
   }
+  if (skill === KOL_ANALYZE_TASK_TYPE) {
+    const injected = extra.actions ?? extra.recommended_actions ?? extra.verbs ?? extra.verb;
+    const actions = Array.isArray(injected) ? injected : injected ? [injected] : ["none"];
+    return [{
+      type: "kol_analyze_brief",
+      artifact_type: "kol_analyze_brief",
+      title: "红人分析简报",
+      summary: "只读分析完成，未发信、未改阶段、未解密。",
+      sections: [{
+        title: "结论",
+        body: "建议动作仅可走白名单动词，且不得在本任务内执行。",
+        items: ["证据与建议已分离", "领取与释放必须走独立 L3 命令"],
+      }],
+      metrics: [{ label: "副作用", value: "无", detail: "未发信未改阶段未解密" }],
+      recommended_actions: actions,
+      actions,
+    }];
+  }
   return [genericResult(log, skill, col, extra)];
 }
 
@@ -351,6 +370,7 @@ export async function runStub(
   log.push({ method: "thread/start", params: { resume: false, mcp: ["starry", "claw"] } });
   log.push({ method: "turn/start", params: { prompt, skill } });
   const items = await produceItems(log, skill, { ...extra, raw: extra.raw || extra.text || prompt, text: extra.text || prompt }, onProgress);
+  assertKolAnalyzeVerbsSafe(skill, { items }, extra.work_item_id ? String(extra.work_item_id) : null);
   audit("worker", "skill.invoked", {
     session_id: sessionId, worker_id: wid, skill, profile: profile.id,
   });

@@ -653,3 +653,143 @@ export function parseAnalyzePeople(body: Json): string[] {
   const list = Array.isArray(raw) ? raw : [raw];
   return [...new Set(list.map((item) => text(item)).filter(Boolean))];
 }
+
+const VERB_TOKEN = /^[a-z][a-z0-9_]*$/;
+const VERB_KEYS = [
+  "verb", "action", "actions", "recommended_actions", "suggested_actions",
+  "next_action", "next_actions",
+];
+
+export function isAllowedKolAnalyzeVerb(value: unknown): value is KolAnalyzeVerb {
+  return (KOL_ANALYZE_VERBS as readonly string[]).includes(text(value));
+}
+
+function verbTokensFrom(value: unknown, into: Set<string>): void {
+  if (value == null) return;
+  if (typeof value === "string") {
+    const token = text(value);
+    if (VERB_TOKEN.test(token)) into.add(token);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) verbTokensFrom(entry, into);
+    return;
+  }
+  if (typeof value !== "object") return;
+  const row = value as Record<string, unknown>;
+  for (const key of VERB_KEYS) {
+    if (key in row) verbTokensFrom(row[key], into);
+  }
+  if (typeof row.type === "string" && VERB_TOKEN.test(row.type) && row.type !== "task_result" && row.type !== "kol_analyze_brief") {
+    into.add(row.type);
+  }
+  if (Array.isArray(row.items)) verbTokensFrom(row.items, into);
+}
+
+export function extractKolAnalyzeVerbs(payload: unknown): string[] {
+  const into = new Set<string>();
+  verbTokensFrom(payload, into);
+  return [...into];
+}
+
+export function illegalKolAnalyzeVerbs(payload: unknown): string[] {
+  return extractKolAnalyzeVerbs(payload).filter((verb) => !isAllowedKolAnalyzeVerb(verb));
+}
+
+export function failKolAnalyzeIllegalVerb(workItemId: string | null | undefined, verbs: string[]): Json {
+  const now = nowIso();
+  const illegal = [...new Set(verbs.map(text).filter(Boolean))];
+  if (workItemId) {
+    const db = getConn();
+    db.prepare(
+      "UPDATE work_items SET status='failed',updated_at=?,data_version=data_version+1 WHERE id=?",
+    ).run(now, workItemId);
+    db.prepare(
+      `UPDATE task_runs
+          SET status='failed', error=?, completed_at=COALESCE(completed_at,?)
+        WHERE work_item_id=?`,
+    ).run(JSON.stringify({ code: "illegal_kol_analyze_verb", illegal_verbs: illegal, applied: false }), now, workItemId);
+  }
+  audit("host", "kol.analyze.illegal_verb", {
+    work_item_id: workItemId || null,
+    illegal_verbs: illegal,
+    applied: false,
+  });
+  return {
+    ok: false,
+    applied: false,
+    failed: true,
+    code: "illegal_kol_analyze_verb",
+    illegal_verbs: illegal,
+    work_item_id: workItemId || null,
+  };
+}
+
+export function assertKolAnalyzeVerbsSafe(skill: string, payload: unknown, workItemId?: string | null): void {
+  if (skill !== KOL_ANALYZE_TASK_TYPE) return;
+  const illegal = illegalKolAnalyzeVerbs(payload);
+  if (!illegal.length) return;
+  failKolAnalyzeIllegalVerb(workItemId, illegal);
+  throw new HttpFail(422, {
+    code: "illegal_kol_analyze_verb",
+    message: `kol_analyze 不允许动词：${illegal.join(", ")}`,
+    illegal_verbs: illegal,
+    applied: false,
+    work_item_id: workItemId || null,
+  });
+}
+
+/** Runtime gate for a kol_analyze artifact or action payload. */
+export function enforceKolAnalyzeArtifact(workItemId: string | null | undefined, payload: unknown): void {
+  assertKolAnalyzeVerbsSafe(KOL_ANALYZE_TASK_TYPE, payload, workItemId);
+}
+
+/** Legal verbs stay suggestions. Illegal verbs fail the task and are not applied. */
+export function applyKolAnalyzeAction(input: {
+  workItemId: string;
+  verb?: string;
+  action?: string;
+  artifact?: Json;
+}): Json {
+  const db = getConn();
+  const item = db.prepare("SELECT * FROM work_items WHERE id=?").get(input.workItemId) as Row | undefined;
+  if (!item) throw new HttpFail(404, { code: "task_not_found", message: "task not found" });
+  if (String(item.task_type) !== KOL_ANALYZE_TASK_TYPE) {
+    throw new HttpFail(409, { code: "not_kol_analyze", message: "only kol_analyze tasks enforce this verb whitelist" });
+  }
+  const payload = {
+    verb: input.verb,
+    action: input.action || input.verb,
+    ...(input.artifact && typeof input.artifact === "object" ? input.artifact : {}),
+  };
+  const illegal = illegalKolAnalyzeVerbs(payload);
+  if (illegal.length) {
+    const failed = failKolAnalyzeIllegalVerb(String(item.id), illegal);
+    throw new HttpFail(422, {
+      ...failed,
+      message: `kol_analyze 不允许动词：${illegal.join(", ")}`,
+    });
+  }
+  const verb = text(input.verb || input.action) || "none";
+  if (verb && !isAllowedKolAnalyzeVerb(verb) && VERB_TOKEN.test(verb)) {
+    const failed = failKolAnalyzeIllegalVerb(String(item.id), [verb]);
+    throw new HttpFail(422, {
+      ...failed,
+      message: `kol_analyze 不允许动词：${verb}`,
+    });
+  }
+  audit("host", "kol.analyze.action.suggested", {
+    work_item_id: item.id,
+    verb,
+    applied: false,
+  });
+  return {
+    ok: true,
+    applied: false,
+    failed: false,
+    verb,
+    work_item_id: item.id,
+    status: item.status,
+    note: "白名单动词仅可建议，须走独立 L3 命令；本任务未执行副作用",
+  };
+}

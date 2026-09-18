@@ -101,6 +101,12 @@ import { currentUser } from "./persona.js";
 import { boundMailboxEmail } from "./starry-bind.js";
 import { assertSessionAccess } from "../routers/enterprise.js";
 import { appendTaskEvent } from "../routers/tasks.js";
+import {
+  assertKolAnalyzeVerbsSafe,
+  failKolAnalyzeIllegalVerb,
+  illegalKolAnalyzeVerbs,
+  KOL_ANALYZE_TASK_TYPE,
+} from "./kol-memory.js";
 import { taskDefinition } from "../tasks/registry.js";
 import { recognizeTaskIntent } from "../tasks/recognize.js";
 import { insertSessionMessage, isSessionNotFound } from "./session-messages.js";
@@ -258,7 +264,23 @@ function bindTaskMessage(sid: string, body: Json): BoundTask | null {
 
 function finishBoundTask(bound: BoundTask | null, sid: string, result?: Json, error?: unknown): void {
   if (!bound) return;
-  const failed = Boolean(error || result?.error);
+  let failed = Boolean(error || result?.error);
+  if (bound.taskType === KOL_ANALYZE_TASK_TYPE) {
+    const worker = result?.worker && typeof result.worker === "object" ? result.worker as Json : {};
+    const payload = {
+      items: Array.isArray(worker.items) ? worker.items : result?.items,
+      recommended_actions: result?.recommended_actions,
+      actions: result?.actions,
+      verb: result?.verb,
+      action: result?.action,
+    };
+    const illegal = illegalKolAnalyzeVerbs(payload);
+    if (illegal.length) {
+      failKolAnalyzeIllegalVerb(bound.workItemId, illegal);
+      failed = true;
+      error = error || { code: "illegal_kol_analyze_verb", illegal_verbs: illegal, applied: false };
+    }
+  }
   const runStatus = failed ? "failed" : "completed";
   const taskStatus = failed ? "failed" : "waiting";
   const now = nowIso();
@@ -1278,6 +1300,10 @@ function ensureCompletedWorkerTrace(sid: string, wr: WorkerResult): void {
 
 /** Dify 节点输出 → Host Item → 会话 Markdown / 邮件卡 / 黄条 / 清单 */
 async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult): Promise<Json> {
+  const workItemId = intent.extras?.work_item_id ? String(intent.extras.work_item_id) : null;
+  if (wr.skill === KOL_ANALYZE_TASK_TYPE || intent.type === KOL_ANALYZE_TASK_TYPE) {
+    assertKolAnalyzeVerbsSafe(KOL_ANALYZE_TASK_TYPE, { items: wr.items }, workItemId);
+  }
   ensureCompletedWorkerTrace(sid, wr);
   const worker: Json = {
     id: wr.worker_id,
@@ -1295,8 +1321,10 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
   let draftRow: Row | null = null;
   let approval: Row | null = null;
   let crawlPlan: Json | null = null;
+  const skipKolAnalyzeApply = wr.skill === KOL_ANALYZE_TASK_TYPE || intent.type === KOL_ANALYZE_TASK_TYPE;
   for (const item of wr.items) {
     if (item.type === "create_draft") {
+      if (skipKolAnalyzeApply) continue;
       const col = resolveCollab(intent);
       item.to = assertDraftTo(sid, me, intent, col, item, intent.raw);
       if (col && !item.collaboration_id) item.collaboration_id = col.id;
@@ -1449,6 +1477,7 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
         });
       }
     } else if (item.type === "propose_stage") {
+      if (skipKolAnalyzeApply) continue;
       const cid = String(item.collaboration_id || "");
       const row = cid
         ? getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(cid) as Row | undefined
@@ -1515,7 +1544,13 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
   if (wr.skill === "creator_lifecycle_kanban" || intent.type === "creator_lifecycle_kanban") {
     attachUnboundInbound(sid);
   }
-  return ok(sid, me, intent, { worker, draft: draftRow, approval, ...(crawlPlan ? { crawl_plan: crawlPlan } : {}) });
+  return ok(sid, me, intent, {
+    worker: { ...worker, items: wr.items },
+    draft: draftRow,
+    approval,
+    items: wr.items,
+    ...(crawlPlan ? { crawl_plan: crawlPlan } : {}),
+  });
 }
 
 function attachUnboundInbound(sid: string): void {
