@@ -23,7 +23,6 @@ import type { Json, Row } from "../types.js";
 import { recordDiscoveryFact } from "./discovery-facts.js";
 import { HttpFail } from "./errors.js";
 import {
-  activeFollow,
   ingestFormalProfile,
   memoryCompanyId,
   publicProfileFields,
@@ -486,11 +485,6 @@ export async function ingestDiscoveryBatch(body: Json = {}): Promise<Json> {
   }
 
   const imported = items.filter((row) => row.status === "imported" || row.status === "already_imported");
-  const follows = imported
-    .map((row) => String(row.kol_uid || ""))
-    .filter(Boolean)
-    .map((kolUid) => activeFollow({ kol_uid: kolUid, scope_brand: "LT", company_id: memoryCompanyId() }))
-    .filter(Boolean);
   audit(actorId(), "discovery.ingest", {
     run_id: runId,
     source_batch: sourceBatch,
@@ -516,7 +510,7 @@ export async function ingestDiscoveryBatch(body: Json = {}): Promise<Json> {
       already_imported: items.filter((row) => row.status === "already_imported").length,
       failed: items.filter((row) => row.status === "failed").length,
     },
-    claimed: follows.length > 0 ? false : false,
+    claimed: false,
     b_active_written: false,
     collaboration_as_follow: false,
     sent: false,
