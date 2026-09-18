@@ -13,6 +13,7 @@ import { RemoteMcpClient } from "../mcp/remote.js";
 import { appendTaskEvent } from "../routers/tasks.js";
 import type { Json, Row } from "../types.js";
 import { CRAWL_PLATFORM_SET } from "./platforms.js";
+import { rejectDiscoveryHarnessTool } from "../gateway/discovery-harness.js";
 
 const MODES = new Set(["search", "detail", "creator"]);
 const ACTIVE = new Set(["queued", "crawling", "uploading", "analyzing", "starting", "running", "stopping"]);
@@ -185,6 +186,7 @@ export async function startCrawl(input: {
   parameters: Json;
   idempotencyKey: string;
 }): Promise<Json> {
+  rejectDiscoveryHarnessTool("start_crawl");
   const platform = input.platform.toLowerCase();
   const mode = input.mode.toLowerCase();
   validateInput(platform, mode, input.parameters);

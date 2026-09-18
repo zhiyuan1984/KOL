@@ -11,6 +11,7 @@ import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
 import { historySummary, decorateTaskFromCollab, isOpenWorkItem, OPEN_WORK_ITEM_SQL } from "../host/home-board.js";
 import { formatMissingFields, missingFieldsMessage } from "../labels.js";
 import { agentSubmissionAllowed, kolAgentManifest } from "../contract-scope.js";
+import { FROM_TEXT_FORBIDDEN_TASK_TYPES } from "../gateway/discovery-harness.js";
 import { applyKolAnalyzeAction, KOL_ANALYZE_TASK_TYPE } from "../host/kol-memory.js";
 
 export const tasks = new Hono();
@@ -459,6 +460,13 @@ tasks.post("/tasks/from-text", async (c) => {
   const text = String(body.text || "").trim();
   if (!text) throw new HttpFail(400, "text required");
   const requestedType = String(body.task_type || body.intent || "").trim();
+  if (FROM_TEXT_FORBIDDEN_TASK_TYPES.has(requestedType)) {
+    throw new HttpFail(400, {
+      code: "from_text_forbidden",
+      message: "发现计划与采集不能从 from-text 发起。",
+      task_type: requestedType,
+    });
+  }
   const lockedType = requestedType && taskDefinition(requestedType) ? requestedType : undefined;
   const resolution = await recognizeTaskIntent({
     text,
@@ -483,6 +491,13 @@ tasks.post("/tasks/from-text", async (c) => {
         task_type: candidate.task_type,
         title: candidate.title,
       })),
+    });
+  }
+  if (FROM_TEXT_FORBIDDEN_TASK_TYPES.has(String(resolution.task_type || ""))) {
+    throw new HttpFail(400, {
+      code: "from_text_forbidden",
+      message: "发现计划与采集不能从 from-text 发起。",
+      task_type: resolution.task_type,
     });
   }
   const created = createWorkItem({

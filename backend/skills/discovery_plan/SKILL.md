@@ -1,27 +1,54 @@
 ---
 id: discovery_plan
 title: 发现计划
-description: 把已确认 Brief 收成可执行的发现计划。不启动采集，不导入正式库。
+description: 当模板无法解析时，把发现目标写成可确认的 spec 草稿。不采集、不入库。
 category: 线索
 profile: lead
-output: crawl_plan
+output: task_result
+funnel: reach
 mcp: []
 required_inputs: []
 permissions: []
 actions: []
 aliases: ["发现计划","discovery plan"]
-in_market: true
-funnel: reach
+in_market: false
 ---
 # 发现计划 discovery_plan · Lead
 
-把已确认 Brief 收成发现计划（平台 allowlist、目标数量上限、关键词）。本 Skill 只出计划，不调用 MediaCrawler，不创建达人，不发信。正式采集由已登记的后台作业执行；正式入库走 Host `import_creator` L3 闸门。
+Host 已锁定本轮 Skill。只根据 CONTEXT 里的员工目标写出 `discovery_spec/v1` 草稿。
+
+本回合 **不采集、不入库、不建联、不发信、不改阶段**。禁止调用 `start_crawl`、`upload_creators`、`importKolProfilesFromCrawler`、`sendEmailNow`、`changeLifecycleStage`、`decryptKolContact`、`follow`。禁止召唤 `creator_discovery`。MediaCrawler 不是 Skill。正式采集由已登记的后台作业执行；正式入库走 Host `POST /api/home/discovery/ingest`（L3），本 Skill 不得执行。
+
+## 输出
+
+写一份 JSON，放在 `task_result` 的 `spec` 字段：
+
+```json
+{
+  "schema": "discovery_spec/v1",
+  "platforms": ["youtube"],
+  "mode": "search",
+  "keywords": ["clean beauty"],
+  "directions": [],
+  "brand": "LT",
+  "region": "global_en",
+  "thresholds": {
+    "min_followers": 10000,
+    "max_followers": 2000000,
+    "min_avg_views_10": 5000,
+    "target_count": 30
+  }
+}
+```
+
+平台只能是 `youtube` / `instagram` / `facebook`。不要写国内平台码。不要编造粉丝、播放或邮箱。目标数量不得超过已发布政策上限。
 
 ## 禁止事项
 
-- 禁止把 MediaCrawler 包装成本 Skill。
-- 禁止在本 Skill 里启动采集、导入 Starry 或领取跟进。
-- 禁止国内平台。目标数量不得超过已发布政策上限。
+- 禁止采集、入库、建联、发信、改正式阶段、解密联系方式。
+- 禁止 from-text 自由编排；本 Skill 只写 spec 草稿。
+- 禁止把 MediaCrawler 包装成 Skill 或自行启动采集。
+- 禁止国内平台。
 
 ## 是否发信
 

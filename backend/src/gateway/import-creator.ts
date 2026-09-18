@@ -83,6 +83,8 @@ export async function lookupImportedKolUid(input: {
 }
 
 export async function importKolProfilesFromCrawlerConfirmed(input: ImportCreatorInput): Promise<Json> {
+  const { rejectDiscoveryHarnessTool } = await import("./discovery-harness.js");
+  rejectDiscoveryHarnessTool("importKolProfilesFromCrawler");
   const actor = input.actor || "host";
   if (codexMode() !== "stub") {
     if (!liveRemoteSideEffectsEnabled() || !starryKolMcpConfigured()) {

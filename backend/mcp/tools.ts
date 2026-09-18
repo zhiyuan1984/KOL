@@ -5,6 +5,7 @@
 import { claw, starry } from "../src/adapters/clients.js";
 import { getConversation } from "../src/adapters/starry.js";
 import { getConn } from "../src/db.js";
+import { rejectDiscoveryHarnessTool } from "../src/gateway/discovery-harness.js";
 import { label } from "../src/stages.js";
 import type { Json } from "../src/types.js";
 
@@ -328,6 +329,7 @@ export function callClawTool(name: string, args: Json = {}): Json {
 }
 
 export function callMcpTool(server: "starry" | "claw", name: string, args: Json = {}): Json {
+  rejectDiscoveryHarnessTool(name);
   if (server === "starry") return callStarryTool(name, args);
   return callClawTool(name, args);
 }

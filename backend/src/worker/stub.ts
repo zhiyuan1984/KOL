@@ -345,6 +345,69 @@ async function produceItems(
       actions,
     }];
   }
+  if (skill === "discovery_plan") {
+    const entities = extra.entities && typeof extra.entities === "object" ? extra.entities as Json : {};
+    return [{
+      type: "task_result",
+      title: "发现计划草稿",
+      summary: "已写成 spec 草稿，尚未采集、尚未入库。",
+      spec: {
+        schema: "discovery_spec/v1",
+        platforms: Array.isArray(entities.platforms) ? entities.platforms : ["youtube"],
+        mode: "search",
+        keywords: Array.isArray(entities.keywords) ? entities.keywords : [],
+        directions: [],
+        brand: extra.employee && typeof extra.employee === "object"
+          ? (extra.employee as Json).default_brand || "LT"
+          : "LT",
+        region: "global_en",
+        thresholds: {
+          min_followers: 10000,
+          max_followers: 2000000,
+          min_avg_views_10: 5000,
+          target_count: 30,
+        },
+      },
+      sections: [],
+      metrics: [],
+      recommended_actions: ["确认后启动发现采集"],
+    }];
+  }
+  if (skill === "discovery_brief") {
+    const pack = extra.pack && typeof extra.pack === "object" ? extra.pack as Json : {};
+    const candidates = Array.isArray(pack.candidates) ? pack.candidates as Json[] : [];
+    const counts = pack.counts && typeof pack.counts === "object" ? pack.counts as Json : {};
+    return [{
+      type: "task_result",
+      title: "发现简报",
+      summary: candidates.length ? `已排序 ${candidates.length} 位候选人。` : "没有可展示的候选人。",
+      brief: {
+        schema: "discovery_brief/v1",
+        headline: candidates.length ? `找到 ${candidates.length} 位候选人` : "没有找到红人线索",
+        counts: {
+          raw: Number(counts.raw || candidates.length),
+          after_host_filter: Number(counts.after_host_filter || candidates.length),
+          shown: candidates.length,
+          dropped: Number(counts.dropped || 0),
+        },
+        ranking: candidates.map((row, index) => ({
+          candidate_id: String(row.id || ""),
+          score: Math.max(0, 1 - index * 0.05),
+          band: index === 0 ? "high" : index < 3 ? "mid" : "low",
+          why: [String(row.handle || row.nickname || row.platform || "候选人")],
+          gaps: row.metrics_missing ? ["缺少粉丝或近10均播"] : [],
+          fit: String(row.nickname || row.handle || ""),
+          recommend: row.already_followed ? "ignore" : "ingest",
+        })),
+        dropped: [],
+        gaps: candidates.some((row) => row.metrics_missing) ? ["部分候选人缺少可核验指标"] : [],
+        next_actions: candidates.length ? ["ingest", "ignore"] : ["ignore"],
+      },
+      sections: [],
+      metrics: [],
+      recommended_actions: candidates.length ? ["ingest", "ignore"] : ["ignore"],
+    }];
+  }
   return [genericResult(log, skill, col, extra)];
 }
 
