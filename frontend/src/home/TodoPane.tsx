@@ -6,6 +6,7 @@ import { HOME_TODO_EMPTY } from "./entryRegistry";
 import { projectDisplayTasks, type DisplayTaskRow } from "./displayTasks";
 import { fetchTodayTasks } from "./todayTasksApi";
 import { isTodayScheduled } from "./schedule";
+import type { TodoListFilter } from "./homeModel";
 import type { TodayPlanPhase } from "./todayPlan";
 import "./today-display-row.css";
 
@@ -18,8 +19,8 @@ export default function TodoPane({
   events,
 }: {
   tasks: Task[];
-  filter?: string;
-  onFilter?: (next: string) => void;
+  filter?: TodoListFilter;
+  onFilter?: (next: TodoListFilter) => void;
   dedupeNotice: string;
   busy: boolean;
   onAct: (task: Task) => void;
