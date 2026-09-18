@@ -189,14 +189,14 @@ export default function DiscoveryPanel({
 
   const confirmIngest = async () => {
     if (!selected.length || ingestBusy) return;
+    const runId = activeRun?.id || activeRunId;
+    if (!runId) {
+      setIngestError("没有可入库的发现运行。");
+      return;
+    }
     setIngestBusy(true);
     setIngestError(null);
     try {
-      const runId = activeRun?.id || activeRunId;
-      if (!runId) {
-        setIngestError("没有可入库的发现运行。");
-        return;
-      }
       const result = await ingestHomeDiscovery({
         run_id: runId,
         candidate_ids: selected.map((row) => row.id),
