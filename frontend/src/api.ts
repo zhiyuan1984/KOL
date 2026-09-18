@@ -1247,4 +1247,31 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  mailBox: () =>
+    request<Record<string, unknown>>("/api/mail/box"),
+  mailConversations: () =>
+    request<{ conversations?: Array<Record<string, unknown>>; mailbox?: string }>("/api/mail/conversations"),
+  mailConversation: (id: string) =>
+    request<Record<string, unknown>>(`/api/mail/conversations/${encodeURIComponent(id)}`),
+  syncMailboxMail: (body: Record<string, unknown> = {}) =>
+    request<{
+      ok?: boolean;
+      mailbox?: string;
+      listed?: number;
+      inserted?: number;
+      updated?: number;
+      unread?: number;
+      synced_at?: string;
+      error?: string;
+    }>("/api/mail/sync", { method: "POST", body: JSON.stringify(body) }),
+  enqueueKolAnalyze: (body: { kol_uids: string[]; title?: string; prompt?: string }) =>
+    request<{
+      work_item_id?: string;
+      creates_session?: boolean;
+      people?: string[];
+      task_type?: string;
+    }>("/api/home/kol-analyze/enqueue", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };

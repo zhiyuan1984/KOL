@@ -59,6 +59,13 @@ import {
 } from "../home/modes";
 import { HOME_COMPOSER_COPY, HOME_HANDOFF_TO_AGENT } from "../home/entryRegistry";
 import {
+  clearComposerDraft,
+  isAnalyzeEnqueuePrefill,
+  peekComposerDraft,
+  type ComposerDraftChip,
+} from "../mail/composerDraft";
+import { mailHref } from "../mail/fallback";
+import {
   canOpenExistingTaskFlow,
   definitionList,
   deriveWorkbench,
@@ -261,6 +268,9 @@ export default function Home() {
   const [lockedTemplate, setLockedTemplate] = useState<LockedMailTemplate | null>(
     initialFill ? lockedTemplateFromRow(initialFill) : null,
   );
+  const [composerChips, setComposerChips] = useState<ComposerDraftChip[]>([]);
+  const [analyzePeople, setAnalyzePeople] = useState<string[]>([]);
+  const [enqueueNotice, setEnqueueNotice] = useState("");
   const applyLockedKnowledge = (
     row: (Pick<KnowledgeRow, "id" | "title"> & {
       skill_id?: string;
@@ -534,6 +544,25 @@ export default function Home() {
       }
     });
   }, [params, setParams]);
+
+  useEffect(() => {
+    const draft = peekComposerDraft();
+    if (!draft) return;
+    setText(draft.text);
+    setComposerChips(draft.chips);
+    setComposerFocused(true);
+    setDraftFocus((value) => value + 1);
+    if (draft.kind === "mail-reply") {
+      setLockedIntent("email_compose");
+      setLockedLabel("回复");
+      setAnalyzePeople([]);
+    } else {
+      setLockedIntent("kol-analyze-enqueue");
+      setLockedLabel("分析");
+      setAnalyzePeople(draft.kol_uids);
+    }
+    clearComposerDraft();
+  }, []);
 
   const openRun = (result: TaskRunResult) => {
     sessionStorage.setItem(`task:${result.session_id}`, result.task.id);
@@ -1054,6 +1083,37 @@ export default function Home() {
     const prompt = p.text.trim();
     if (!prompt && !p.attachments?.length) return;
     const intent = lockedIntent || p.intent;
+    if (isAnalyzeEnqueuePrefill(prompt, intent)) {
+      const people = analyzePeople.length ? analyzePeople : [];
+      if (!people.length) {
+        setErr("请指定要分析的红人");
+        return;
+      }
+      setBusy(true);
+      setErr("");
+      setFeedback(null);
+      setEnqueueNotice("");
+      try {
+        const queued = await api.enqueueKolAnalyze({
+          kol_uids: people,
+          title: "分析已选",
+          prompt,
+        });
+        if (queued.creates_session) throw new Error("分析入队不应创建会话");
+        setComposerChips([]);
+        setAnalyzePeople([]);
+        setLockedIntent(null);
+        setLockedLabel(null);
+        setText("");
+        setEnqueueNotice("已入队，等待分析。没有走 from-text，也没有创建会话。");
+        rememberJourney({ kind: "compose", skillId: "kol-analyze-enqueue", skillLabel: "分析" });
+      } catch (error) {
+        setErr(error instanceof Error && error.message ? error.message : "无法入队分析");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     if (intent === DISCOVERY_INTENT || prompt.startsWith(DISCOVERY_BODY_PREFIX)) {
       const brief = discoveryBrief || mergeDiscoveryBrief(
         defaultDiscoveryBrief(),
@@ -1480,7 +1540,10 @@ export default function Home() {
               onToggleSelectAll={toggleSelectAllKols}
               onOpenDetail={(card) => openKol(card.source)}
               onPrimary={(card) => runKolCardAction(card.source, card)}
-              onOpenMail={(card) => openKol(card.source, card.latest_fact.thread_id || card.focus_thread)}
+              onOpenMail={(card) => {
+                const conversationId = card.latest_fact.thread_id || card.focus_thread;
+                nav(mailHref(followScope?.mailbox_email || "", conversationId));
+              }}
               onCompose={(card) => runKolCardAction(card.source, card)}
               onConfirmStage={(card) => openConfirmStage(card.source, card)}
               onBatchConfirm={runSelectedStageEnter}
@@ -1508,6 +1571,7 @@ export default function Home() {
             </section>
           ) : null}
 
+          {enqueueNotice ? <p className="muted" role="status" data-analyze-enqueue>{enqueueNotice}</p> : null}
           {err && <p className="error composer-err" role="alert" data-home-session-error={err.includes("未能打开会话") ? "true" : undefined}>{err}</p>}
           {busy && !feedback && !err ? (
             <section className="creation-feedback" data-kind="recognizing" data-creation-feedback data-wait-status="识别中" role="status" aria-busy="true">
@@ -1625,6 +1689,7 @@ export default function Home() {
           onDiscoveryBriefChange={onDiscoveryBriefChange}
           onOpenDiscoveryTemplate={() => void openDiscoveryTemplate()}
           onClearDiscoveryLock={clearDiscoveryLock}
+          contextChips={composerChips}
         />
       </div>
 

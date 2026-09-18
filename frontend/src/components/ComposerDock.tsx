@@ -118,6 +118,7 @@ export default function ComposerDock({
   onDiscoveryBriefChange,
   onOpenDiscoveryTemplate,
   onClearDiscoveryLock,
+  contextChips,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -148,6 +149,7 @@ export default function ComposerDock({
   onDiscoveryBriefChange?: (brief: DiscoveryBrief) => void;
   onOpenDiscoveryTemplate?: () => void;
   onClearDiscoveryLock?: () => void;
+  contextChips?: { id: string; label: string }[];
 }) {
   const [skills, setSkills] = useState<SkillOption[]>([]);
   const [templates, setTemplates] = useState<KnowledgeRow[]>([]);
@@ -584,8 +586,13 @@ export default function ComposerDock({
           {DISCOVERY_CHIP_OVERRIDE_HINT}
         </p>
       ) : null}
-      {(chipSkills.length > 0 || attachments.length > 0 || selectedProject || lockedKnowledgeId || discoveryBrief) && (
+      {(chipSkills.length > 0 || attachments.length > 0 || selectedProject || lockedKnowledgeId || discoveryBrief || (contextChips && contextChips.length > 0)) && (
         <div className="composer-chips">
+          {(contextChips || []).map((chip) => (
+            <span key={chip.id + chip.label} className="skill-chip" data-composer-draft-chip={chip.id}>
+              {chip.label}
+            </span>
+          ))}
           {discoveryLocked ? (
             <span className="skill-chip" data-skill-chip={DISCOVERY_INTENT} data-discovery-lock-chip>
               {lockedLabel || DISCOVERY_LOCK_LABEL}

@@ -9,6 +9,8 @@ export default defineConfig({
       "../frontend/src/connectorUse.test.ts",
       "../frontend/src/home/homeModel.test.ts",
       "../frontend/src/home/discoveryTemplate.test.ts",
+      "../frontend/src/mail/digestView.test.ts",
+      "../frontend/src/mail/fallback.test.ts",
     ],
     setupFiles: ["./tests/setup.ts"],
     fileParallelism: false,

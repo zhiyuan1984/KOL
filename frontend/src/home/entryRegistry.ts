@@ -300,6 +300,33 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     calls_model: false,
     route: "既有 L3 发信确认（本页不新开发送闸门）",
   },
+  {
+    id: "list-mailbox-mail",
+    kind: "memory",
+    action: "通讯 — 邮箱状态 / 会话列表",
+    creates_session: false,
+    creates_turn: false,
+    calls_model: false,
+    route: "GET /api/mail/box · GET /api/mail/conversations",
+  },
+  {
+    id: "open-mail-thread",
+    kind: "memory",
+    action: "通讯 — 打开会话时间线",
+    creates_session: false,
+    creates_turn: false,
+    calls_model: false,
+    route: "GET /api/mail/conversations/:id",
+  },
+  {
+    id: "sync-mailbox-mail",
+    kind: "command",
+    action: "通讯 — 同步邮箱",
+    creates_session: false,
+    creates_turn: false,
+    calls_model: false,
+    route: "POST /api/mail/sync",
+  },
 ] as const;
 
 export function homeEntryById(id: string): HomeEntry | undefined {
