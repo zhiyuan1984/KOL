@@ -37,6 +37,7 @@ Host 已锁定本 Skill。CONTEXT.md 里的 **HOST PACK（history / delta / now_
 - `lead`：一句话今日要点。
 - `sections`：必填数组。按来源分组说明为什么要做。
 - `primary`：今天唯一主建议。`verb` 只能是 `retry_crawl` / `open_batch` / `analyze` / `open` / `approve`。发现批次且没有 person ID 时禁止 `follow`。
+- `reasoning`：必填数组。3–5 条中文短句，向用户交代推理过程：读了哪些记忆与增量、为什么这样排序和取舍。只写决策理由，不贴原文、不写工具名。
 
 ### 2. 展示任务行（任务·展示记忆，用户看的列表）
 

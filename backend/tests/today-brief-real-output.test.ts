@@ -41,6 +41,7 @@ const REAL_CODEX_TODAY_BRIEF = JSON.stringify({
     },
   ],
   analysis_hints: [],
+  reasoning: ["读取了 37 项未了结任务与 40 项来源增量", "采集失败阻塞发现链路，排最前", "两封合作邮件对象明确，紧随其后"],
   source_cursor: { cursor_from: null, cursor_to: "src:x", added: ["task:tsk_c29224c0b37d"], removed: [], unchanged: [] },
   increment_summary: "首次规划：纳入 37 项未了结正式任务。",
 });
@@ -65,6 +66,7 @@ describe("today_brief real codex output", () => {
     };
     expect(schema.properties?.display_tasks).toBeTruthy();
     expect(schema.required || []).toContain("display_tasks");
+    expect(schema.required || []).toContain("reasoning");
     // OpenAI strict structured output: required must list every property key.
     const items = (schema.properties?.display_tasks as { items?: { properties?: Record<string, unknown>; required?: string[] } })
       ?.items;

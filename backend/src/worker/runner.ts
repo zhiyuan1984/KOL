@@ -314,6 +314,10 @@ const TODAY_BRIEF_OUTPUT_SCHEMA: Json = {
       additionalProperties: false,
     },
     increment_summary: { type: "string" },
+    reasoning: {
+      type: "array",
+      items: { type: "string" },
+    },
   },
   required: [
     "type",
@@ -325,6 +329,7 @@ const TODAY_BRIEF_OUTPUT_SCHEMA: Json = {
     "analysis_hints",
     "source_cursor",
     "increment_summary",
+    "reasoning",
   ],
   additionalProperties: false,
 };
