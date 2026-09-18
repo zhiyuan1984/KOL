@@ -122,11 +122,11 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
   {
     id: "follow-candidate",
     kind: "command",
-    action: "确认加入跟进",
+    action: "确认入库公海",
     creates_session: false,
     creates_turn: false,
     calls_model: false,
-    route: "POST /api/discovery/candidates/:id/follow",
+    route: "POST /api/discovery/candidates/:id/ingest · POST /api/discovery/candidates/:id/follow (ingest-only; claim separately)",
   },
   {
     id: "discovery-ingest",
@@ -140,7 +140,7 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
   {
     id: "claim-kol",
     kind: "command",
-    action: "L3 领取公海正式档案",
+    action: "L3 领取跟进（需 confirmed:true）",
     creates_session: false,
     creates_turn: false,
     calls_model: false,

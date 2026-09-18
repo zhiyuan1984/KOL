@@ -244,6 +244,11 @@ describe("ADR-022 P1 selected + conditional batch follow", () => {
     expect(JSON.stringify(followed.body)).not.toMatch(/MediaCrawler|MCP|Codex|disc_/);
     expect(sideEffects()).toEqual({ sends: 0, stageWrites: 0, transitions: 0 });
     expect(getConn().prepare("SELECT COUNT(*) AS n FROM creator_candidates WHERE status='followed'").get()).toEqual({ n: 3 });
+    expect(getConn().prepare("SELECT COUNT(*) AS n FROM kol_profile_index").get()).toEqual({ n: 3 });
+    expect(getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index").get()).toEqual({ n: 0 });
+    expect(getConn().prepare("SELECT COUNT(*) AS n FROM kol_profile_index WHERE pool_status='open'").get()).toEqual({ n: 3 });
+    const following = await request("GET", "/api/home/following");
+    expect(((following.body.kols as Json[]) || []).some((row) => String(row.source) === "discovery")).toBe(false);
     const audits = listAudit("discovery.candidates.follow_batch");
     expect(audits.length).toBe(1);
     expect((audits[0].payload as Json).sent).toBe(false);

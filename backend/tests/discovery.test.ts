@@ -308,6 +308,11 @@ describe("follow and dismiss", () => {
     expect(Number((getConn().prepare(
       "SELECT COUNT(*) AS n FROM collaborations WHERE source='discovery'",
     ).get() as { n: number }).n)).toBe(1);
+    expect(followed.body.claimed).toBe(false);
+    expect(followed.body.pool_status).toBe("open");
+    const uid = String((followed.body.collaboration as Json).kol_uid);
+    const following = await request("GET", "/api/home/following");
+    expect(((following.body.kols as Json[]) || []).some((row) => String(row.kol_uid) === uid)).toBe(false);
 
     if (second) {
       const dismissed = await request("POST", `/api/discovery/candidates/${second.id}/dismiss`);

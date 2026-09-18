@@ -6,6 +6,8 @@ import {
   dismissCandidate,
   followCandidate,
   followCandidatesBatch,
+  ingestCandidate,
+  ingestCandidatesBatch,
   getCandidate,
   getDiscoveryRequest,
   getDiscoveryResults,
@@ -58,9 +60,19 @@ discovery.get("/discovery/runs/:id/candidates", (c) => {
 
 discovery.get("/discovery/candidates/:id", (c) => c.json(getCandidate(c.req.param("id"))));
 
+discovery.post("/discovery/candidates/ingest-batch", async (c) => {
+  const body = await c.req.json().catch(() => ({})) as Json;
+  return c.json(await ingestCandidatesBatch(body));
+});
+
 discovery.post("/discovery/candidates/follow-batch", async (c) => {
   const body = await c.req.json().catch(() => ({})) as Json;
   return c.json(await followCandidatesBatch(body));
+});
+
+discovery.post("/discovery/candidates/:id/ingest", async (c) => {
+  const body = await c.req.json().catch(() => ({})) as Json;
+  return c.json(await ingestCandidate(c.req.param("id"), body));
 });
 
 discovery.post("/discovery/candidates/:id/follow", async (c) => {

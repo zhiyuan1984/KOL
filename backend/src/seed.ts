@@ -33,6 +33,7 @@ export function seedAll(): void {
 }
 
 function deleteCollaborationTree(conn: ReturnType<typeof getConn>, id: string): void {
+  const uid = String((conn.prepare("SELECT kol_uid FROM collaborations WHERE id=?").get(id) as { kol_uid?: string } | undefined)?.kol_uid || "").trim();
   conn.prepare("DELETE FROM kol_mail_items WHERE collaboration_id=?").run(id);
   conn.prepare("DELETE FROM kol_mail_threads WHERE collaboration_id=?").run(id);
   conn.prepare("DELETE FROM kol_mail_seen WHERE collaboration_id=?").run(id);
@@ -45,6 +46,15 @@ function deleteCollaborationTree(conn: ReturnType<typeof getConn>, id: string): 
     conn.prepare("DELETE FROM sessions WHERE id=?").run(row.id);
   }
   conn.prepare("DELETE FROM collaborations WHERE id=?").run(id);
+  if (uid) {
+    const still = conn.prepare(
+      "SELECT COUNT(*) AS n FROM collaborations WHERE kol_uid=? AND id!=?",
+    ).get(uid, id) as { n: number };
+    if (!Number(still.n || 0)) {
+      conn.prepare("DELETE FROM kol_follow_index WHERE kol_uid=?").run(uid);
+      conn.prepare("DELETE FROM kol_profile_index WHERE kol_uid=?").run(uid);
+    }
+  }
 }
 
 /** E2E / demo reset only. Wipe leftover official writes and tasks from prior runs. */

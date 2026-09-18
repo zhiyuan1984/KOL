@@ -227,6 +227,20 @@ describe("ADR-022 P0 follow import", () => {
     expect((regionWarns[0].payload as Json).candidate_region).toBe("");
     const row = getConn().prepare("SELECT status FROM creator_candidates WHERE id=?").get(candidate.id) as Row;
     expect(row.status).toBe("followed");
+    expect(followed.body.claimed).toBe(false);
+    expect(followed.body.pool_status).toBe("open");
+    expect(getConn().prepare("SELECT pool_status FROM kol_profile_index WHERE kol_uid=?").get("KOLOUTDOORPOWER")).toEqual({
+      pool_status: "open",
+    });
+    expect(getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index WHERE kol_uid=?").get("KOLOUTDOORPOWER")).toEqual({
+      n: 0,
+    });
+    const following = await request("GET", "/api/home/following");
+    expect(following.status).toBe(200);
+    expect(((following.body.kols as Json[]) || []).some((row) => String(row.kol_uid) === "KOLOUTDOORPOWER")).toBe(false);
+    const pool = await request("GET", "/api/kols/pool");
+    expect(pool.status).toBe(200);
+    expect(((pool.body.items as Json[]) || []).some((row) => row.kol_uid === "KOLOUTDOORPOWER" && row.pool_status === "open")).toBe(true);
   });
 
   it("same display handle + different platform_creator_id does not rewrite the other kol_uid", async () => {

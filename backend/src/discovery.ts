@@ -2,8 +2,11 @@
  * Home AI发现 — first-class discovery pipeline.
  *
  * Prefill / pending confirm only. Crawl completion writes CreatorCandidates.
- * Collaboration is created only on employee confirm-follow.
- * Never sends mail, never writes/advances official stage.
+ * Employee ingest writes official open-pool profile (kol_profile_index A) and
+ * may create Collaboration as a cooperation container only. It does not activate
+ * kol_follow_index (B) and does not put the KOL on GET /api/home/following.
+ * Exclusive follow is POST /api/kols/:kolUid/claim. Never sends mail, never
+ * writes/advances official stage.
  */
 import { authDisabled, isAdmin, scopedUser } from "./auth.js";
 import { BRAND_MAILBOXES, DEMO_USER } from "./config.js";
@@ -16,7 +19,14 @@ import { startCrawl, onCrawlJobSettled } from "./crawl/service.js";
 import { OVERSEAS_CRAWL_PLATFORMS } from "./crawl/platforms.js";
 import { audit, getConn, nowIso, tx } from "./db.js";
 import { recordDiscoveryFact } from "./host/discovery-facts.js";
-import { ingestFormalProfile } from "./host/kol-memory.js";
+import {
+  activeFollow,
+  claimFollow,
+  getProfile,
+  ingestFormalProfile,
+  memoryCompanyId,
+  resolveScopeBrand,
+} from "./host/kol-memory.js";
 import {
   collectorFailureCode,
   employeeError,
@@ -40,6 +50,7 @@ import {
   planRegionOf,
   recheckFollowFilters,
   shouldWarnMissingCandidateRegion,
+  requireStableExternalId,
   sourceBatchFor,
   sourceBatchForFollowSet,
   type FollowThresholds,
@@ -977,6 +988,10 @@ export function discoveryPlaceholderKolUid(candidate: Row): string {
   return `disc_${candidate.platform}_${String(candidate.platform_creator_id).replace(/[^A-Za-z0-9._-]/g, "_")}`.slice(0, 80);
 }
 
+function wantsClaim(input: Json): boolean {
+  return input.claim === true || input.claim === "true";
+}
+
 function ingestDiscoveryProfile(collaboration: Row, candidate?: Row): void {
   const kolUid = String(collaboration.kol_uid || "").trim();
   if (!kolUid) return;
@@ -996,9 +1011,27 @@ function ingestDiscoveryProfile(collaboration: Row, candidate?: Row): void {
   });
 }
 
+function maybeClaimAfterIngest(kolUid: string, input: Json): void {
+  if (!wantsClaim(input)) return;
+  claimFollow({
+    kolUid,
+    scopeBrand: String(input.scope_brand || input.brand || "").trim() || undefined,
+    confirm: input.confirmed === true || input.confirmed === "true" || input.confirm === true,
+  });
+}
+
 function followResult(candidateId: string, collaborationId: string, created: boolean, extra: Json = {}): Json {
   const collaboration = getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(collaborationId) as Row;
   ingestDiscoveryProfile(collaboration);
+  const kolUid = String(collaboration.kol_uid || "");
+  const profile = kolUid ? getProfile(kolUid) : undefined;
+  const follow = kolUid
+    ? activeFollow({
+      kol_uid: kolUid,
+      scope_brand: resolveScopeBrand(String(collaboration.brand || "")),
+      company_id: memoryCompanyId(),
+    })
+    : undefined;
   return {
     ...publicCandidate(getConn().prepare("SELECT * FROM creator_candidates WHERE id=?").get(candidateId) as Row),
     collaboration: {
@@ -1012,6 +1045,9 @@ function followResult(candidateId: string, collaborationId: string, created: boo
       source: collaboration.source,
     },
     created,
+    ingested: Boolean(profile),
+    claimed: Boolean(follow && follow.status === "active"),
+    pool_status: profile?.pool_status || null,
     ...extra,
   };
 }
@@ -1027,15 +1063,18 @@ function markCandidateFollowed(candidateId: string, collaborationId: string): vo
 }
 
 /**
- * Employee confirm-follow (ADR-022 P0). One L3 confirm → Host import_creator
- * → backfill real kolUid → then mark followed + Collaboration.
+ * Employee confirm-ingest (ADR-022 P0, product split). One L3 confirm → Host
+ * import_creator → backfill real kolUid → write kol_profile_index A (open) →
+ * optional Collaboration container. Default does **not** activate B / 「我跟进」.
+ * `{ claim: true }` is ingest-then-claim. `/follow` is this path (breaking).
  * Does not send mail, decrypt contact, or write/advance official stage.
  */
-export async function followCandidate(id: string, input: Json = {}): Promise<Json> {
+export async function ingestCandidate(id: string, input: Json = {}): Promise<Json> {
   const candidate = candidateRow(id);
   const request = getConn().prepare("SELECT * FROM discovery_requests WHERE id=?").get(candidate.request_id) as
     | Row
     | undefined;
+  const external = requireStableExternalId(candidate);
   recheckFollowFilters(candidate, request, parseFollowThresholds(input.thresholds ?? input.filters));
   if (shouldWarnMissingCandidateRegion(candidate, request)) {
     audit(ownerId(), "discovery.candidate.region_unverified", {
@@ -1046,29 +1085,35 @@ export async function followCandidate(id: string, input: Json = {}): Promise<Jso
     });
   }
   const sourceBatch = sourceBatchFor(candidate, input.source_batch);
-  const externalId = creatorExternalId(candidate.platform, candidate.platform_creator_id);
+  const externalId = creatorExternalId(external.platform, external.platform_creator_id);
   const existing = existingCollaboration(candidate);
   if (existing && isRealKolUid(existing.kol_uid) && String(candidate.status) === "followed") {
+    ingestDiscoveryProfile(existing, candidate);
     markCandidateFollowed(String(candidate.id), String(existing.id));
-    audit(ownerId(), "discovery.candidate.followed", {
+    maybeClaimAfterIngest(String(existing.kol_uid), input);
+    audit(ownerId(), "discovery.candidate.ingested", {
       candidate_id: candidate.id,
       collaboration_id: existing.id,
       kol_uid: existing.kol_uid,
       source_batch: sourceBatch,
       created: false,
       reused: true,
+      claimed: wantsClaim(input),
     });
     return followResult(String(candidate.id), String(existing.id), false, { skipped_duplicate: true });
   }
   if (existing && isRealKolUid(existing.kol_uid) && String(candidate.status) !== "followed") {
+    ingestDiscoveryProfile(existing, candidate);
     markCandidateFollowed(String(candidate.id), String(existing.id));
-    audit(ownerId(), "discovery.candidate.followed", {
+    maybeClaimAfterIngest(String(existing.kol_uid), input);
+    audit(ownerId(), "discovery.candidate.ingested", {
       candidate_id: candidate.id,
       collaboration_id: existing.id,
       kol_uid: existing.kol_uid,
       source_batch: sourceBatch,
       created: false,
       reused: true,
+      claimed: wantsClaim(input),
     });
     return followResult(String(candidate.id), String(existing.id), false);
   }
@@ -1132,18 +1177,29 @@ export async function followCandidate(id: string, input: Json = {}): Promise<Jso
       "UPDATE collaborations SET kol_uid=?, avg_views_10=COALESCE(NULLIF(avg_views_10,''), ?) WHERE id=?",
     ).run(kolUid, String(avgViews10(candidate) || ""), cid);
   }
+  ingestDiscoveryProfile(
+    (getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(cid) as Row) || { kol_uid: kolUid, handle, display_name: handle, platform: candidate.platform },
+    candidate,
+  );
   markCandidateFollowed(String(candidate.id), cid);
-  audit(ownerId(), "discovery.candidate.followed", {
+  maybeClaimAfterIngest(kolUid, input);
+  audit(ownerId(), "discovery.candidate.ingested", {
     candidate_id: candidate.id,
     collaboration_id: cid,
     kol_uid: kolUid,
     source_batch: sourceBatch,
     creator_external_id: externalId,
     created,
+    claimed: wantsClaim(input),
     sent: false,
     stage_changed: false,
   });
   return followResult(String(candidate.id), cid, created);
+}
+
+/** @deprecated Breaking: `/follow` is ingest-only. Use `{ claim: true }` or POST /api/kols/:kolUid/claim. */
+export async function followCandidate(id: string, input: Json = {}): Promise<Json> {
+  return ingestCandidate(id, input);
 }
 
 function requestForCandidate(candidate: Row): Row | undefined {
@@ -1244,11 +1300,11 @@ function mergePlanFilter(
 }
 
 /**
- * ADR-022 P1: selected (B) or conditional (C) batch follow.
- * One L3 confirm / source_batch. Per-candidate P0 pipeline, limited concurrency.
- * Partial success: never mark the whole batch followed when some fail.
+ * ADR-022 P1: selected or conditional batch ingest (open pool).
+ * One L3 confirm / source_batch. Per-candidate ingest pipeline, limited concurrency.
+ * Partial success: never redo the whole batch. Default does not claim B.active.
  */
-export async function followCandidatesBatch(input: Json = {}): Promise<Json> {
+export async function ingestCandidatesBatch(input: Json = {}): Promise<Json> {
   const rawFilter = input.filter ?? input.filters ?? input.thresholds;
   const thresholds = parseFollowThresholds(rawFilter);
   const selectedIds = asStringList(input.candidate_ids ?? input.candidateIds);
@@ -1357,9 +1413,10 @@ export async function followCandidatesBatch(input: Json = {}): Promise<Json> {
       return { kind: "failed" as const, item: batchFailItem(candidate, check.code, check.message) };
     }
     try {
-      const result = await followCandidate(String(candidate.id), {
+      const result = await ingestCandidate(String(candidate.id), {
         confirmed: true,
         source_batch: sourceBatch,
+        claim: wantsClaim(input),
         ...(writeFilter ? { thresholds: writeFilter } : {}),
       });
       if (result.skipped_duplicate) {
@@ -1380,8 +1437,10 @@ export async function followCandidatesBatch(input: Json = {}): Promise<Json> {
   audit(ownerId(), "discovery.candidates.follow_batch", {
     source_batch: sourceBatch,
     followed: followed.length,
+    ingested: followed.length,
     failed: failed.length,
     skipped_duplicate: skipped.length,
+    claimed: followed.filter((row) => Boolean(row.claimed)).length,
     sent: false,
     stage_changed: false,
     policy: "import_creator",
@@ -1391,6 +1450,7 @@ export async function followCandidatesBatch(input: Json = {}): Promise<Json> {
     source_batch: sourceBatch,
     confirmed: true,
     followed,
+    ingested: followed,
     failed,
     skipped_duplicate: skipped,
     filter: thresholds,
@@ -1398,13 +1458,20 @@ export async function followCandidatesBatch(input: Json = {}): Promise<Json> {
       selected: candidates.length,
       preview: preview.length,
       followed: followed.length,
+      ingested: followed.length,
       failed: failed.length,
       skipped_duplicate: skipped.length,
       missing_email: preview.filter((row) => !candidateHasContactEmail(row)).length,
+      claimed: followed.filter((row) => Boolean(row.claimed)).length,
     },
     sent: false,
     stage_changed: false,
   };
+}
+
+/** @deprecated Breaking: batch `/follow` is ingest-only. */
+export async function followCandidatesBatch(input: Json = {}): Promise<Json> {
+  return ingestCandidatesBatch(input);
 }
 
 export function dismissCandidate(id: string): Json {

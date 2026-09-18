@@ -5,7 +5,9 @@
  * POST /requests persists a plan only (`status=open`, no crawl).
  * POST /requests/:id/runs starts a Run after employee confirm.
  * GET /requests/:id/results is panel-ready.
- * POST /candidates/:id/follow is the only path that creates Collaboration.
+ * POST /candidates/:id/ingest (and /follow, ingest-only) writes official open-pool
+ * profile A. Exclusive follow is POST /api/kols/:kolUid/claim. Collaboration is a
+ * cooperation container only and does not put the KOL on 「我跟进」.
  */
 import { api } from "../api";
 
