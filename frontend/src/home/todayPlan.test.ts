@@ -65,6 +65,7 @@ describe("today plan wiring", () => {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const home = fs.readFileSync(path.resolve(here, "../pages/Home.tsx"), "utf8");
     const todo = fs.readFileSync(path.resolve(here, "./TodoPane.tsx"), "utf8");
+    const homeModel = fs.readFileSync(path.resolve(here, "./homeModel.ts"), "utf8");
     expect(home).toContain("todayMemoryTasks ?? taskCatalog");
     expect(home).toContain("homeMemoryTasks");
     expect(home).toMatch(/\[todayEntryTick\]/);
@@ -75,7 +76,8 @@ describe("today plan wiring", () => {
     expect(home).not.toMatch(/runTodayPlanRefresh[\s\S]{0,800}homeBoard/);
     expect(home).not.toMatch(/setTodayBrief\(step\.brief[\s\S]{0,200}homeBoard/);
     expect(todo).toContain("<TodayPlanProgress");
-    expect(todo).toContain("sortOpenWorkItems");
+    expect(todo).toContain("todoPaneRows(tasks, filter, todoLayout)");
+    expect(homeModel).toContain("todoLayout?.length ? applyTodoLayout(members, todoLayout) : sortOpenWorkItems(members)");
     expect(todo).not.toContain("homeBoard");
     expect(todo).not.toContain("todayBrief()");
   });
