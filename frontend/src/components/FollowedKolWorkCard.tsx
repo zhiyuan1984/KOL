@@ -47,6 +47,7 @@ export default function FollowedKolWorkCard({
   onOpenMail,
   onCompose,
   onConfirmStage,
+  onRelease,
   actionBusy = false,
   actionNotice,
   actionTone = "info",
@@ -63,6 +64,7 @@ export default function FollowedKolWorkCard({
   onOpenMail?: () => void;
   onCompose?: () => void;
   onConfirmStage?: () => void;
+  onRelease?: () => void;
   actionBusy?: boolean;
   actionNotice?: string;
   actionTone?: "info" | "error";
@@ -188,13 +190,17 @@ export default function FollowedKolWorkCard({
                 {fact.at ? <span data-thread-time className="sr-only">{fact.at}</span> : null}
               </p>
             ) : null}
-            {card.source.release_due_at || card.source.last_interaction_at ? (
+            {card.source.countdown !== false && (card.source.release_due_at || card.source.last_interaction_at) ? (
               <p className="kol-mail-meta" data-release-timer data-release-scheduler="false">
                 14 日计时（只读）
                 {card.source.last_interaction_at ? ` · 上次互动 ${formatFactTime(card.source.last_interaction_at)}` : ""}
                 {card.source.days_since_interaction != null ? ` · 已过 ${card.source.days_since_interaction} 天` : ""}
               </p>
-            ) : null}
+            ) : (
+              <p className="kol-mail-meta" data-release-timer data-release-scheduler="false" data-clock-none>
+                尚未有效往来
+              </p>
+            )}
           </div>
         </div>
 
@@ -224,6 +230,17 @@ export default function FollowedKolWorkCard({
                   onClick={onOpenMail}
                 >
                   查看互动
+                </button>
+              ) : null}
+              {onRelease ? (
+                <button
+                  type="button"
+                  className="kol-cta-link"
+                  data-release-follow
+                  data-home-entry="release-follow"
+                  onClick={onRelease}
+                >
+                  回公海
                 </button>
               ) : null}
             </div>

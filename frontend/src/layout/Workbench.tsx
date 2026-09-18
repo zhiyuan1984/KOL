@@ -5,6 +5,8 @@ import { useAccount } from "../components/AuthGate";
 import BrandLockup from "../components/BrandLockup";
 import UserMenu from "../components/UserMenu";
 import { parseHomeMode } from "../home/modes";
+import { ANALYZE_WORK_EVENT, loadKolAnalyzeInFlight, type AnalyzeWorkItem } from "../home/kolSurfaceApi";
+import { isKolAnalyzeInFlight } from "../home/kolContract";
 import { useViewMode } from "../viewMode";
 
 function Ico({ path }: { path: string }) {
@@ -24,6 +26,7 @@ function Ico({ path }: { path: string }) {
 
 export default function Workbench() {
   const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [analyzeItems, setAnalyzeItems] = useState<AnalyzeWorkItem[]>([]);
   const [approvalCount, setApprovalCount] = useState(0);
   const [cronAlertCount, setCronAlertCount] = useState(0);
   const [mailUnread, setMailUnread] = useState(0);
@@ -35,11 +38,51 @@ export default function Workbench() {
   const loc = useLocation();
 
   useEffect(() => {
-    const refreshSessions = () => {
-      api.sessions().then(setSessions).catch(() => setSessions([]));
+    const refreshSessions = () => api.sessions().then((rows) => {
+      setSessions((current) => {
+        const queued = current.filter((row) => row.agent_status === "queued");
+        const merged = rows.map((row) => {
+          const local = queued.find((item) => item.id === row.id);
+          if (local && row.agent_status === "listening") return { ...row, agent_status: "queued" as const };
+          return row;
+        });
+        const missing = queued.filter((row) => !merged.some((item) => item.id === row.id));
+        return [...missing, ...merged];
+      });
+    }).catch(() => undefined);
+    const refreshAnalyze = () => loadKolAnalyzeInFlight().then((rows) => {
+      setAnalyzeItems((current) => {
+        const local = current.filter((item) => isKolAnalyzeInFlight(item.status) && !rows.some((row) => row.id === item.id));
+        return [...local, ...rows];
+      });
+    }).catch(() => undefined);
+    void refreshSessions();
+    void refreshAnalyze();
+    const onAnalyze = (event: Event) => {
+      const item = (event as CustomEvent<AnalyzeWorkItem>).detail;
+      if (!item?.id) return;
+      setAnalyzeItems((current) => (
+        current.some((row) => row.id === item.id)
+          ? current.map((row) => (row.id === item.id ? { ...row, ...item } : row))
+          : [item, ...current]
+      ));
     };
-    refreshSessions();
+    window.addEventListener(ANALYZE_WORK_EVENT, onAnalyze);
     window.addEventListener("lingong:sessions-refresh", refreshSessions);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void refreshSessions();
+        void refreshAnalyze();
+      }
+    }, 8000);
+    return () => {
+      window.removeEventListener(ANALYZE_WORK_EVENT, onAnalyze);
+      window.removeEventListener("lingong:sessions-refresh", refreshSessions);
+      window.clearInterval(timer);
+    };
+  }, [loc.pathname]);
+
+  useEffect(() => {
     api.me().then(setMe).catch(() => setMe(null));
     api.approvalBadge()
       .then((row) => setApprovalCount(Number(row.count) || 0))
@@ -53,7 +96,6 @@ export default function Workbench() {
     api.mailBox()
       .then((row) => setMailUnread(Number(row.unread || 0) || 0))
       .catch(() => setMailUnread(0));
-    return () => window.removeEventListener("lingong:sessions-refresh", refreshSessions);
   }, [loc.pathname]);
 
   useEffect(() => {
@@ -79,18 +121,32 @@ export default function Workbench() {
   const newTaskActive = homeMode === "today";
   const adminAvailable = admin || me?.available_modes?.includes("admin") === true;
 
-  const runningCount = useMemo(
-    () => sessions.filter((s) => s.agent_status === "running").length,
+  const runningSessions = useMemo(
+    () => sessions.filter((s) => s.agent_status === "running" || s.agent_status === "queued"),
     [sessions],
   );
-  const firstRunning = useMemo(
-    () => sessions.find((s) => s.agent_status === "running"),
-    [sessions],
+  const analyzeInFlight = useMemo(
+    () => analyzeItems.filter((item) => isKolAnalyzeInFlight(item.status)),
+    [analyzeItems],
   );
+  const runningCount = useMemo(() => {
+    const sessionIds = new Set(runningSessions.map((row) => row.id));
+    const extra = analyzeInFlight.filter((item) => !item.session_id || !sessionIds.has(item.session_id));
+    return runningSessions.length + extra.length;
+  }, [analyzeInFlight, runningSessions]);
+  const firstRunning = runningSessions[0];
+  const firstAnalyzeSession = analyzeInFlight.find((item) => item.session_id)?.session_id;
+  const runningHref = firstRunning
+    ? `/s/${firstRunning.id}`
+    : firstAnalyzeSession
+      ? `/s/${firstAnalyzeSession}`
+      : "/?tab=todo";
   const sessionId = loc.pathname.match(/^\/s\/([^/]+)$/)?.[1] ?? "";
   const runningActive = Boolean(
-    sessionId && sessions.some((s) => s.id === sessionId && s.agent_status === "running"),
+    sessionId && sessions.some((s) => s.id === sessionId && (s.agent_status === "running" || s.agent_status === "queued")),
   );
+  const poolActive = homeMode === "pool";
+  const followActive = homeMode === "lifecycle";
   const onAgents = loc.pathname === "/agents" || loc.pathname.startsWith("/agents/");
   const onAdmin = loc.pathname === "/admin" || loc.pathname.startsWith("/admin/");
 
@@ -139,7 +195,7 @@ export default function Workbench() {
             <span className="sidebar-label">新工作任务</span>
           </Link>
           <Link
-            to={firstRunning ? `/s/${firstRunning.id}` : "/"}
+            to={runningHref}
             className={"nav-link" + (runningActive ? " active" : "")}
             aria-current={runningActive ? "page" : undefined}
             data-nav="running"
@@ -147,7 +203,29 @@ export default function Workbench() {
           >
             <Ico path="M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M12 8v4l2.5 1.5" />
             <span className="sidebar-label">进行中</span>
-            {runningCount > 0 && <span className="nav-badge">{runningCount}</span>}
+            {runningCount > 0 && <span className="nav-badge" data-running-count={runningCount}>{runningCount}</span>}
+          </Link>
+          <Link
+            to="/?tab=lifecycle"
+            className={"nav-link" + (followActive ? " active" : "")}
+            aria-current={followActive ? "page" : undefined}
+            data-nav="followed"
+            data-home-entry="list-followed"
+            onClick={() => setMobileOpen(false)}
+          >
+            <Ico path="M8 7h8 M6 12h12 M8 17h8" />
+            <span className="sidebar-label">我跟进的红人</span>
+          </Link>
+          <Link
+            to="/?tab=pool"
+            className={"nav-link" + (poolActive ? " active" : "")}
+            aria-current={poolActive ? "page" : undefined}
+            data-nav="pool"
+            data-home-entry="list-pool"
+            onClick={() => setMobileOpen(false)}
+          >
+            <Ico path="M4 7h16v10H4z M8 7V5h8v2" />
+            <span className="sidebar-label">公海</span>
           </Link>
           <NavLink to="/cron" className={() => "nav-link" + ((loc.pathname === "/cron" || loc.pathname.startsWith("/cron/")) ? " active" : "")} data-nav="cron" onClick={() => setMobileOpen(false)}>
             <Ico path="M8 3v3 M16 3v3 M5 8h14 M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z M9 13h3 M14 17h3" />

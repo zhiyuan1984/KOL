@@ -1,5 +1,5 @@
 /**
- * Home 入口登记 — 与 backend/src/host/entry-registry.ts 同构。
+ * Home 入口登记 — 与 backend/src/host/entry-registry.ts 同构（PR #172）。
  * CONST-07 / PROD-AGENT-01 / UX-03 / TECH-ARCH-02 / TECH-FE-01
  * design §4：切 Tab 不得创建 session；retry-discovery-run = command。
  *
@@ -55,7 +55,7 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     creates_session: false,
     creates_turn: false,
     calls_model: false,
-    route: "GET /api/tasks?view=open",
+    route: "GET /api/tasks?view=open · GET /api/home/board → workbench.open",
   },
   {
     id: "list-followed",

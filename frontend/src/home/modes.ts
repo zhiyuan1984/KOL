@@ -1,6 +1,6 @@
 export type HomeMode = "today" | "todo" | "discovery" | "lifecycle" | "pool";
 
-/** Visible Home tabs. `pool` is a real mode (`/?tab=pool`) but not a 5th tab here — #173 owns 公海页. */
+/** Visible Home tabs. `pool` is a business page (`/?tab=pool`) — not a 5th top-bar tab. */
 export const HOME_MODES: HomeMode[] = ["today", "todo", "discovery", "lifecycle"];
 
 /** law-v2 PROD-PLAT-02 / UX-02 Home mode names (KOL pilot). */
