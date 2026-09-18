@@ -12,7 +12,7 @@ export const TASK_PROFILES = [
 ] as const;
 
 export type TaskProfileId = (typeof TASK_PROFILES)[number];
-export const TASK_OUTPUTS = ["crawl_plan", "task_result", "propose_stage"] as const;
+export const TASK_OUTPUTS = ["crawl_plan", "task_result", "propose_stage", "kol_analyze_brief"] as const;
 export type TaskOutput = (typeof TASK_OUTPUTS)[number];
 export const TASK_FUNNELS = ["reach", "intent", "biz", "sample", "content", "settle", "exception"] as const;
 export type TaskFunnel = (typeof TASK_FUNNELS)[number];
