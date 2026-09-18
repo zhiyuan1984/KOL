@@ -15,6 +15,7 @@ import {
 import { startCrawl, onCrawlJobSettled } from "./crawl/service.js";
 import { OVERSEAS_CRAWL_PLATFORMS } from "./crawl/platforms.js";
 import { audit, getConn, nowIso, tx } from "./db.js";
+import { recordDiscoveryFact } from "./host/discovery-facts.js";
 import { ingestFormalProfile } from "./host/kol-memory.js";
 import {
   collectorFailureCode,
@@ -413,6 +414,7 @@ function publicRun(row: Row): Json {
     error: employeeError(current.error),
     search_keywords: searchKeywords,
     empty_hint: status === "succeeded" && candidateCount === 0 ? emptyDiscoveryHint(searchKeywords) : null,
+    brief_version: Number(current.brief_version || parseJson(current.parameters).brief_version || 1),
     candidate_count: candidateCount,
     created_at: current.created_at,
     started_at: current.started_at,
@@ -533,6 +535,7 @@ function persistRunFromCrawl(run: Row, job: Row): void {
   const status = runStatusFromCrawl(String(job.status));
   const now = nowIso();
   const completed = ["succeeded", "failed", "cancelled"].includes(status) ? (job.completed_at || now) : null;
+  const previous = String(run.status || "");
   getConn().prepare(
     `UPDATE discovery_runs
         SET status=?, remote_task_id=COALESCE(?, remote_task_id), error=?,
@@ -548,6 +551,17 @@ function persistRunFromCrawl(run: Row, job: Row): void {
     run.id,
   );
   refreshRequestStatus(String(run.request_id));
+  const jobStatus = String(job.status || "");
+  if ((jobStatus === "idle" || status === "succeeded") && previous !== "succeeded") {
+    recordDiscoveryFact({
+      kind: "crawl_idle",
+      object_type: "discovery_run",
+      object_id: String(run.id),
+      payload: { crawl_status: jobStatus, run_status: status },
+      actor: String(run.owner_user_id || "host"),
+      source_version: String(run.brief_version || 1),
+    });
+  }
 }
 
 function syncRunFromCrawl(run: Row): void {
@@ -726,15 +740,30 @@ export async function startDiscoveryRun(input: {
     db.prepare(
       `INSERT INTO discovery_runs
        (id,request_id,owner_user_id,work_item_id,platform,mode,parameters,idempotency_key,
-        status,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?, 'queued',?,?)`,
+        status,brief_version,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?, 'queued',?,?,?)`,
     ).run(
       runId, request.id, ownerUserId, workItemId, platform, mode,
-      JSON.stringify(parameters), idempotencyKey, now, now,
+      JSON.stringify({ ...parameters, brief_version: Number(request.brief_version || request.data_version || 1) }),
+      idempotencyKey,
+      Number(request.brief_version || request.data_version || 1),
+      now, now,
     );
     db.prepare(
       "UPDATE discovery_requests SET latest_run_id=?, status='running', updated_at=?, data_version=data_version+1 WHERE id=?",
     ).run(runId, now, request.id);
+  });
+  recordDiscoveryFact({
+    kind: "run_create",
+    object_type: "discovery_run",
+    object_id: runId,
+    payload: {
+      request_id: String(request.id),
+      platform,
+      brief_version: Number(request.brief_version || request.data_version || 1),
+    },
+    actor: ownerUserId,
+    source_version: String(request.brief_version || 1),
   });
 
   try {
@@ -835,6 +864,14 @@ export function createDiscoveryRequest(body: Json): Json {
     );
   });
   audit(owner, "discovery.request.created", { request_id: id, platforms, mode });
+  recordDiscoveryFact({
+    kind: "brief",
+    object_type: "discovery_request",
+    object_id: id,
+    payload: { platforms, mode, keywords, brief_version: 1 },
+    actor: owner,
+    source_version: "1",
+  });
   return publicRequest(requestRow(id));
 }
 

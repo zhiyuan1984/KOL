@@ -53,6 +53,43 @@ export function isRealKolUid(value: unknown): boolean {
   return Boolean(uid) && !isPlaceholderKolUid(uid);
 }
 
+export function stableExternalIdOf(source: Row | Json): {
+  platform: string;
+  platform_creator_id: string;
+  external_id: string;
+} | null {
+  const payload = asObject(source.payload);
+  const platform = firstString(source.platform, payload.platform).toLowerCase();
+  const creatorId = firstString(
+    source.platform_creator_id,
+    payload.platform_creator_id,
+    payload.platformCreatorId,
+  );
+  if (!platform || !creatorId) return null;
+  return {
+    platform,
+    platform_creator_id: creatorId,
+    external_id: `${platform}:${creatorId}`,
+  };
+}
+
+/** BIZ-10: no stable platform + platform_creator_id → refuse 入库. */
+export function requireStableExternalId(source: Row | Json): {
+  platform: string;
+  platform_creator_id: string;
+  external_id: string;
+} {
+  const id = stableExternalIdOf(source);
+  if (!id) {
+    throw new HttpFail(409, {
+      code: "ingest_missing_external_id",
+      message: "缺少稳定外部编号，无法入库公海。",
+      biz: "BIZ-10",
+    });
+  }
+  return id;
+}
+
 export function recentViewsOf(source: Row | Json): number[] {
   const payload = asObject(source.payload);
   const signals = asObject(source.signals);

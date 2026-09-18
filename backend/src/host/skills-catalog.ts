@@ -17,6 +17,8 @@ export const FUNNEL_STAGES: { id: FunnelId; label: string; hint: string }[] = [
 const FUNNEL_BY_ID: Record<string, FunnelId> = {
   creator_profile: "reach",
   creator_discovery: "reach",
+  discovery_brief: "reach",
+  discovery_plan: "reach",
   creator_scoring: "reach",
   kol_analyze: "reach",
   creator_outreach: "reach",

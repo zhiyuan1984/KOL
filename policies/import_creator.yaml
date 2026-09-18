@@ -2,8 +2,17 @@
   "id": "import_creator",
   "action": "import_creator",
   "side_effect": true,
-  "gateway": "backend/src/starrykol/service.ts",
-  "mcp_tools": ["starrykol.addKolProfile", "starrykol.importKolProfilesV2", "starrykol.importKolProfilesFromCrawler"],
+  "risk": "L3",
   "requires_confirmation": true,
-  "idempotency": "creator_external_id + source_batch"
+  "confirmations_per": "source_batch",
+  "gateway": "backend/src/gateway/import-creator.ts",
+  "mcp_tools": ["starrykol.importKolProfilesFromCrawler"],
+  "idempotency": "company_id + source_batch + platform + platform_creator_id",
+  "org_approval": false,
+  "org_approval_object": "discovery_batch",
+  "org_approval_gap": "No published approver roster or approval matrix for import_creator. Host ships L3-only; no org ticket until business expert publishes the chain.",
+  "writes_follow": false,
+  "writes_stage": false,
+  "sends_mail": false,
+  "fabricate_email": false
 }

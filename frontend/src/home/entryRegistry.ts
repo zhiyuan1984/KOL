@@ -129,6 +129,15 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     route: "POST /api/discovery/candidates/:id/follow",
   },
   {
+    id: "discovery-ingest",
+    kind: "command",
+    action: "L3 确认入库公海（不领取跟进）",
+    creates_session: false,
+    creates_turn: false,
+    calls_model: false,
+    route: "POST /api/home/discovery/ingest",
+  },
+  {
     id: "claim-kol",
     kind: "command",
     action: "L3 领取公海正式档案",

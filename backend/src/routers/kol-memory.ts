@@ -8,6 +8,7 @@ import { Hono } from "hono";
 import { requireSkill } from "../auth.js";
 import { agentSubmissionAllowed } from "../contract-scope.js";
 import { audit, getConn, nowIso, tx } from "../db.js";
+import { ingestDiscoveryBatch } from "../host/discovery-ingest.js";
 import {
   applyKolAnalyzeAction,
   claimFollow,
@@ -27,6 +28,13 @@ import { taskDefinition } from "../tasks/registry.js";
 import type { Json } from "../types.js";
 
 export const kolMemory = new Hono();
+
+kolMemory.post("/home/discovery/ingest", async (c) => {
+  const body = await c.req.json().catch(() => ({})) as Json;
+  const result = await ingestDiscoveryBatch(body);
+  const status = result.status === "needs_confirmation" ? 422 : 200;
+  return c.json(result, status as 200 | 422);
+});
 
 kolMemory.get("/home/pool", (c) => {
   c.header("Cache-Control", "no-store");
