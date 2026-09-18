@@ -60,14 +60,55 @@ function collectActions(brief: Record<string, unknown>): Record<string, unknown>
   return actions;
 }
 
+export type TodayPlanHydratePack = {
+  now_counts?: { unfinished?: number; discovery_anomalies?: number; failed_runs?: number };
+  source_cursor?: Json;
+  delta?: { added?: unknown[]; removed?: unknown[]; unchanged?: unknown[] };
+};
+
+/** Fill Host-owned mechanical fields so a real Codex JSON can persist. */
+export function hydrateTodayBrief(raw: unknown, pack?: TodayPlanHydratePack | null): Json | null {
+  const brief = asRecord(raw);
+  if (!brief) return null;
+  const next: Record<string, unknown> = { ...brief };
+  delete next.type;
+  if (!Array.isArray(next.sections)) next.sections = [];
+  if (typeof next.lead !== "string") next.lead = "";
+  const counts = pack?.now_counts || {};
+  if (!asRecord(next.stats)) {
+    next.stats = {
+      unfinished: Number(counts.unfinished || 0),
+      discovery_anomalies: Number(counts.discovery_anomalies || 0),
+      failed_runs: Number(counts.failed_runs || 0),
+    };
+  }
+  if (!asRecord(next.primary)) {
+    next.primary = { verb: "open", label: "打开", object_id: null, object_type: "task", person_id: null };
+  }
+  if (!Array.isArray(next.todo_layout)) next.todo_layout = [];
+  if (!Array.isArray(next.analysis_hints)) next.analysis_hints = [];
+  if (!asRecord(next.source_cursor)) {
+    next.source_cursor = pack?.source_cursor || {
+      cursor_from: null,
+      cursor_to: "",
+      added: [],
+      removed: [],
+      unchanged: [],
+    };
+  }
+  if (typeof next.increment_summary !== "string") {
+    const added = Array.isArray(pack?.delta?.added) ? pack!.delta!.added!.length : 0;
+    const removed = Array.isArray(pack?.delta?.removed) ? pack!.delta!.removed!.length : 0;
+    next.increment_summary = `added ${added} / removed ${removed}`;
+  }
+  return next as Json;
+}
+
 export function validateTodayBrief(value: unknown): TodayBriefValidation {
   const brief = asRecord(value);
   if (!brief) return { ok: false, reason: "today_brief must be an object", brief: null };
   if (!Array.isArray(brief.sections)) {
     return { ok: false, reason: "missing sections", brief: null };
-  }
-  for (const field of ["lead", "stats", "primary", "todo_layout", "analysis_hints", "source_cursor", "increment_summary"]) {
-    if (!(field in brief)) return { ok: false, reason: `missing ${field}`, brief: null };
   }
   const primary = asRecord(brief.primary) || {};
   const primaryVerb = String(primary.verb || primary.action || "").trim().toLowerCase();
