@@ -11,6 +11,7 @@ export default defineConfig({
       "../frontend/src/home/discoveryTemplate.test.ts",
       "../frontend/src/mail/digestView.test.ts",
       "../frontend/src/mail/fallback.test.ts",
+      "../frontend/src/mail/client.test.ts",
     ],
     setupFiles: ["./tests/setup.ts"],
     fileParallelism: false,

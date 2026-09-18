@@ -1,26 +1,29 @@
-/** FE contract for kol `/api/mail` P0. Do not send legacy follow-mail mailbox filters. */
+/** Formal FE contract for kol PR #177 `/api/mail`. Do not send legacy mailbox filter strings. */
 
 export type MailMatchState = "matched" | "unbound" | "deferred" | "ignored";
 export type MailDigestSource = "codex_memory" | "luna" | "body_analysis" | "analysis_failed";
 export type MailDirection = "inbound" | "outbound";
 export type MailDataSource = "api" | "fallback";
 
+/** GET /api/mail/box — MailBoxStatus + memory envelope. owner_name is display-only decorate. */
 export type MailBox = {
-  bound: boolean;
   mailbox: string;
-  owner_name: string;
-  status: "connected" | "expired" | "unbound" | string;
+  bound: boolean;
   unread: number;
   synced_at: string | null;
-  last_error?: string | null;
-  error?: string;
+  error: string | null;
+  last_tool?: string | null;
+  cursor_at?: string | null;
+  cursor_id?: string | null;
+  owner_name?: string;
 };
 
+/** GET /api/mail/conversations[] — ConversationRow */
 export type MailConversation = {
   id: string;
   mailbox: string;
   conversation_id: string;
-  collaboration_id?: string;
+  collaboration_id?: string | null;
   match_state: MailMatchState;
   subject: string;
   peer_email: string;
@@ -29,24 +32,28 @@ export type MailConversation = {
   last_direction: MailDirection | "";
   last_preview: string;
   unread_count: number;
+  last_receipt?: string;
   digest_source: MailDigestSource | "";
   digest_text?: string;
   kol_uid?: string;
   handle?: string;
 };
 
+/** GET /api/mail/conversations/:id messages[] — MessageRow */
 export type MailMessage = {
   id: string;
   conversation_id: string;
   provider_message_id?: string;
   direction: MailDirection;
-  occurred_at: string;
+  occurred_at: string | null;
   from_addr: string;
   subject: string;
   snippet: string;
   body_text?: string;
   letter_summary: string;
   summary_source: MailDigestSource | "body_digest" | "";
+  receipt_status?: string;
+  effective?: boolean;
 };
 
 export type MailDigest = {
@@ -63,6 +70,7 @@ export type MailThread = {
   digest: MailDigest;
 };
 
+/** POST /api/mail/sync — SyncReceipt + command envelope */
 export type MailSyncReceipt = {
   ok: boolean;
   mailbox?: string;
@@ -71,6 +79,7 @@ export type MailSyncReceipt = {
   updated?: number;
   unread?: number;
   synced_at?: string;
+  cursor_at?: string;
   error?: string;
 };
 

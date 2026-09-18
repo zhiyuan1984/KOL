@@ -51,7 +51,7 @@ export default function Workbench() {
       })
       .catch(() => setCronAlertCount(0));
     api.mailBox()
-      .then((row) => setMailUnread(Number(row.unread || row.unread_count || 0) || 0))
+      .then((row) => setMailUnread(Number(row.unread || 0) || 0))
       .catch(() => setMailUnread(0));
     return () => window.removeEventListener("lingong:sessions-refresh", refreshSessions);
   }, [loc.pathname]);

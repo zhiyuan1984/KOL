@@ -154,7 +154,7 @@ export default function Mail() {
     }
     let cancelled = false;
     setThreadError("");
-    void loadMailThread(selected.id || selected.conversation_id, selected)
+    void loadMailThread(selected.id || selected.conversation_id, selected, workspace?.source || "api")
       .then((next) => {
         if (cancelled) return;
         if (!next) {
@@ -173,7 +173,7 @@ export default function Mail() {
     return () => {
       cancelled = true;
     };
-  }, [selected?.id, selected?.conversation_id]);
+  }, [selected?.id, selected?.conversation_id, workspace?.source]);
 
   const openRow = (row: MailConversation) => {
     const next = new URLSearchParams();
@@ -223,7 +223,7 @@ export default function Mail() {
   };
 
   const box = workspace?.box;
-  const bound = Boolean(box?.bound);
+  const bound = Boolean(box?.bound && box.mailbox);
 
   return (
     <div className="list-page mail-page" data-mail-page data-mail-source={workspace?.source || undefined}>

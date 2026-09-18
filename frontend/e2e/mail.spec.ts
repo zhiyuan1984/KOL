@@ -117,81 +117,128 @@ test("opening a fallback thread and 收取 404 do not create sessions", async ({
   expect(sessionPosts).toEqual([]);
 });
 
-test("returned 往来要点 / 规则摘录 / 分析未完成 labels when /api/mail is present", async ({ page }) => {
+const FORMAL_BOX = {
+  entry: "memory",
+  kind: "memory",
+  creates_session: false,
+  creates_turn: false,
+  calls_model: false,
+  mailbox: "larry.zhao@amperetime.com",
+  bound: true,
+  unread: 2,
+  synced_at: "2026-09-18T01:00:00.000Z",
+  error: null,
+  last_tool: "pageEmailConversations",
+  cursor_at: "2026-09-18T01:00:00.000Z",
+  cursor_id: "3901",
+};
+
+const FORMAL_CONVERSATION = {
+  id: "thr_1",
+  mailbox: "larry.zhao@amperetime.com",
+  conversation_id: "3901",
+  collaboration_id: "col_xiaomei",
+  match_state: "matched" as const,
+  subject: "Re: LiTime collab",
+  peer_email: "amy@example.com",
+  peer_name: "Amy",
+  last_at: "2026-09-12T10:00:00.000Z",
+  last_direction: "inbound",
+  last_preview: "想和贵品牌合作",
+  unread_count: 1,
+  last_receipt: "",
+  digest_source: "codex_memory",
+  digest_text: "对方已确认档期",
+};
+
+const FORMAL_THREAD = {
+  entry: "memory",
+  kind: "memory",
+  creates_session: false,
+  creates_turn: false,
+  calls_model: false,
+  conversation: FORMAL_CONVERSATION,
+  messages: [{
+    id: "m1",
+    conversation_id: "3901",
+    provider_message_id: "mid-1",
+    direction: "inbound",
+    occurred_at: "2026-09-12T10:00:00.000Z",
+    from_addr: "amy@example.com",
+    subject: "Re: LiTime collab",
+    snippet: "想和贵品牌合作",
+    body_text: "Hello\n想和贵品牌litime合作",
+    letter_summary: "想和贵品牌合作",
+    summary_source: "body_analysis",
+    receipt_status: "",
+    effective: true,
+  }],
+  digest_text: "对方已确认档期",
+  digest_source: "codex_memory",
+};
+
+async function mockFormalMail(page: Page) {
   await page.route("**/api/mail/box", async (route) => {
-    await route.fulfill({
-      json: {
-        bound: true,
-        mailbox: "larry.zhao@amperetime.com",
-        owner_name: "钟槿年",
-        unread: 2,
-        synced_at: "2026-09-18T01:00:00.000Z",
-        status: "connected",
-      },
-    });
+    await route.fulfill({ json: FORMAL_BOX });
   });
   await page.route("**/api/mail/conversations", async (route) => {
-    if (route.request().url().includes("/conversations/")) return route.fallback();
+    if (/\/conversations\/[^/?]+/.test(route.request().url())) return route.fallback();
     await route.fulfill({
       json: {
+        entry: "memory",
+        creates_session: false,
         mailbox: "larry.zhao@amperetime.com",
-        conversations: [{
-          id: "thr_1",
-          mailbox: "larry.zhao@amperetime.com",
-          conversation_id: "3901",
-          match_state: "matched",
-          subject: "Re: LiTime collab",
-          peer_email: "amy@example.com",
-          peer_name: "Amy",
-          last_at: "2026-09-12T10:00:00.000Z",
-          last_direction: "inbound",
-          last_preview: "想和贵品牌合作",
-          unread_count: 1,
-          digest_source: "codex_memory",
-          digest_text: "对方已确认档期",
-          kol_uid: "KOL_X",
-          handle: "小美妆日记",
-        }],
+        conversations: [FORMAL_CONVERSATION],
       },
     });
   });
-  await page.route("**/api/mail/conversations/thr_1", async (route) => {
-    await route.fulfill({
-      json: {
-        thread: {
-          id: "thr_1",
-          mailbox: "larry.zhao@amperetime.com",
-          conversation_id: "3901",
-          match_state: "matched",
-          subject: "Re: LiTime collab",
-          peer_email: "amy@example.com",
-          peer_name: "Amy",
-          last_preview: "想和贵品牌合作",
-          unread_count: 1,
-          digest_source: "codex_memory",
-        },
-        messages: [{
-          id: "m1",
-          conversation_id: "3901",
-          direction: "inbound",
-          occurred_at: "2026-09-12T10:00:00.000Z",
-          from_addr: "amy@example.com",
-          subject: "Re: LiTime collab",
-          snippet: "想和贵品牌合作",
-          body_text: "Hello\n想和贵品牌litime合作",
-          letter_summary: "想和贵品牌合作",
-          summary_source: "body_analysis",
-        }],
-        digest: { text: "对方已确认档期", source: "codex_memory", mail_count: 1 },
-      },
-    });
+  await page.route("**/api/mail/conversations/*", async (route) => {
+    await route.fulfill({ json: FORMAL_THREAD });
   });
-  await page.goto("/mail");
+  await page.route("**/api/home/board**", async (route) => {
+    await route.fulfill({ json: BOARD });
+  });
+}
+
+test("returned 往来要点 when GET /api/mail is the primary path", async ({ page }) => {
+  await mockFormalMail(page);
+  await page.goto("/mail?c=3901");
   await expect(page.locator("[data-mail-page]")).toHaveAttribute("data-mail-source", "api");
   await expect(page.locator("[data-nav='mail'] [data-mail-unread-badge]")).toHaveText("2");
   await expect(page.locator("[data-mail-digest] [data-digest-label]")).toHaveText("往来要点");
   await expect(page.locator("[data-mail-page]")).not.toContainText("历史邮件往来摘要");
   await expect(page.locator("[data-mail-digest] [data-digest-body]")).toContainText("对方已确认档期");
+});
+
+test("POST /api/mail/sync uses SyncReceipt and does not create sessions", async ({ page }) => {
+  const sessionPosts: string[] = [];
+  await mockFormalMail(page);
+  await page.route("**/api/mail/sync", async (route) => {
+    await route.fulfill({
+      json: {
+        entry: "command",
+        kind: "command",
+        creates_session: false,
+        ok: true,
+        mailbox: "larry.zhao@amperetime.com",
+        listed: 3,
+        inserted: 1,
+        updated: 2,
+        unread: 2,
+        synced_at: "2026-09-18T02:00:00.000Z",
+        cursor_at: "2026-09-18T02:00:00.000Z",
+      },
+    });
+  });
+  page.on("request", (request) => {
+    if (request.method() === "POST" && /\/api\/(sessions|tasks\/from-text)/.test(request.url())) {
+      sessionPosts.push(request.url());
+    }
+  });
+  await page.goto("/mail");
+  await page.locator("[data-mail-sync]").click();
+  await expect(page.locator("[data-mail-notice]")).toContainText("已收取 3 封会话");
+  expect(sessionPosts).toEqual([]);
 });
 
 test("回复 only stashes composer chips; 分析 prefills enqueue", async ({ page }) => {

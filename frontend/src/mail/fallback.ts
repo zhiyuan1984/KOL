@@ -44,13 +44,12 @@ export function boxFromBinding(
   const mailbox = text(scope?.mailbox_email);
   const bound = Boolean(scope?.bound && mailbox && scope.status !== "unbound");
   return {
-    bound,
     mailbox,
-    owner_name: text(scope?.owner_name),
-    status: bound ? (scope?.status || "connected") : (scope?.status || "unbound"),
+    bound,
     unread: Number(board?.mail?.unread || 0),
     synced_at: scope?.updated_at || null,
-    last_error: board?.mail?.error || null,
+    error: board?.mail?.error || null,
+    owner_name: text(scope?.owner_name) || undefined,
   };
 }
 
@@ -99,7 +98,7 @@ export function threadFromFallback(row: MailConversation): MailThread {
           id: `preview-${row.conversation_id}`,
           conversation_id: row.conversation_id,
           direction: row.last_direction === "outbound" ? "outbound" : "inbound",
-          occurred_at: row.last_at || "",
+          occurred_at: row.last_at || null,
           from_addr: row.peer_email,
           subject: row.subject,
           snippet,
