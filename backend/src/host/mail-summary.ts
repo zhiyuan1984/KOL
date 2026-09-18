@@ -17,7 +17,7 @@ import {
   intentLlmMode,
   intentLlmModel,
 } from "../tasks/openai-intent.js";
-import { itemsForCollaboration } from "../starrykol/mail-sync.js";
+import { itemsForCollaboration, persistThreadDigest } from "./mail-memory.js";
 import { CodexAppServer } from "../worker/codex.js";
 import type { Json } from "../types.js";
 
@@ -90,6 +90,34 @@ export function mailSummaryOf(row: Json): string {
   return trustedRemoteSummary(row) || analyzeMailBody(row) || String(row.summary || row.summary_zh || "").trim() || digestMailBody(row);
 }
 
+/** Persistable letter summary. Rule text is never labeled as model success. */
+export function letterSummaryRecord(row: Json): { summary: string; summary_zh: string; summary_source: string } {
+  const trusted = trustedRemoteSummary(row);
+  if (trusted) {
+    const source = REMOTE_SOURCES.has(String(row.summary_source || "")) ? String(row.summary_source) : "codex_memory";
+    return {
+      summary: trusted,
+      summary_zh: String(row.summary_zh || trusted).trim() || trusted,
+      summary_source: source,
+    };
+  }
+  if (String(row.summary_source || "") === "analysis_failed") {
+    const stored = String(row.summary || row.summary_zh || "").trim();
+    return {
+      summary: stored || analyzeMailBody(row) || digestMailBody(row),
+      summary_zh: String(row.summary_zh || stored || analyzeMailBody(row) || "").trim(),
+      summary_source: "analysis_failed",
+    };
+  }
+  const analyzed = analyzeMailBody(row);
+  const summary = analyzed || digestMailBody(row);
+  return {
+    summary,
+    summary_zh: analyzed || "",
+    summary_source: analyzed ? "body_analysis" : "body_analysis",
+  };
+}
+
 export function analyzeThreadDigest(rows: Json[]): string {
   const listed = rows.filter((row) => String(row.body || row.snippet || "").trim());
   if (!listed.length) return "";
@@ -123,8 +151,44 @@ function digestStateKey(collaborationId: string): string {
   return `mail_digest:${collaborationId}`;
 }
 
+function digestFromThreadRow(row: {
+  digest_text?: unknown;
+  digest_source?: unknown;
+  digest_mail_count?: unknown;
+  digest_fingerprint?: unknown;
+  digest_error?: unknown;
+  digest_failed_at?: unknown;
+} | undefined): ThreadDigest | null {
+  if (!row) return null;
+  const text = String(row.digest_text || "").trim();
+  const source = String(row.digest_source || "");
+  if (!text && !source) return null;
+  return {
+    text,
+    source,
+    mail_count: Number(row.digest_mail_count || 0),
+    fingerprint: String(row.digest_fingerprint || ""),
+    ...(row.digest_error ? { error: String(row.digest_error) } : {}),
+    ...(row.digest_failed_at ? { failed_at: String(row.digest_failed_at) } : {}),
+  };
+}
+
 export function readThreadDigest(collaborationId: string): ThreadDigest | null {
   if (!collaborationId) return null;
+  const thread = getConn().prepare(
+    `SELECT digest_text, digest_source, digest_mail_count, digest_fingerprint, digest_error, digest_failed_at
+     FROM kol_mail_threads WHERE collaboration_id=? AND IFNULL(digest_text,'') != ''
+     ORDER BY updated_at DESC LIMIT 1`,
+  ).get(collaborationId) as {
+    digest_text?: string;
+    digest_source?: string;
+    digest_mail_count?: number;
+    digest_fingerprint?: string;
+    digest_error?: string;
+    digest_failed_at?: string;
+  } | undefined;
+  const fromThread = digestFromThreadRow(thread);
+  if (fromThread) return fromThread;
   const row = getConn().prepare("SELECT value FROM app_state WHERE key=?").get(digestStateKey(collaborationId)) as { value: string } | undefined;
   if (!row?.value) return null;
   try {
@@ -154,6 +218,17 @@ function writeThreadDigest(collaborationId: string, digest: ThreadDigest): void 
       JSON.stringify(digest),
     );
   });
+  const threads = getConn().prepare("SELECT id FROM kol_mail_threads WHERE collaboration_id=?").all(collaborationId) as { id: string }[];
+  for (const thread of threads) {
+    persistThreadDigest(thread.id, {
+      text: digest.text,
+      source: digest.source,
+      fingerprint: digest.fingerprint,
+      error: digest.error,
+      failed_at: digest.failed_at,
+      mail_count: digest.mail_count,
+    });
+  }
 }
 
 function trustedThreadDigest(digest: ThreadDigest | null): string {
@@ -278,7 +353,7 @@ export function mailHistoryRows(collaborationId: string): Json[] {
   const source = fromCards.length
     ? fromCards
     : itemsForCollaboration(collaborationId).map((item) => {
-      const body = String(item.body || item.snippet || "").trim();
+      const body = String(item.body_text || item.body || item.snippet || "").trim();
       const row = {
         id: String(item.id || ""),
         conversation_id: String(item.conversation_id || ""),
