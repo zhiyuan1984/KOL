@@ -339,6 +339,56 @@ test("ingest 422 keeps L3 open; 409 voids the old confirm", async ({ page }) => 
   await expect(page.locator("[data-discovery-toast]")).toHaveCount(0);
 });
 
+test("L3 cancel after 422 posts cancel:true and does not claim", async ({ page }) => {
+  const bodies: Array<Record<string, unknown>> = [];
+  const claimPosts: string[] = [];
+  page.on("request", (item) => {
+    const path = new URL(item.url()).pathname;
+    if (item.method() === "POST" && path.includes("/claim")) claimPosts.push(path);
+  });
+  await mockExistingRun(page);
+  await page.route("**/api/home/discovery/ingest", async (route) => {
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    bodies.push(body);
+    if (body.cancel === true) {
+      await route.fulfill({
+        json: { status: "cancelled", cancelled: true, claimed: false, items: [] },
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 422,
+      contentType: "application/json",
+      body: JSON.stringify({ status: "needs_confirmation", confirmed: false, claimed: false }),
+    });
+  });
+  await openDiscovery(page);
+  await page.locator("[data-discovery-select-all]").check();
+  await page.locator("[data-discovery-ingest]").click();
+  await page.locator("[data-discovery-ingest-no]").click();
+  expect(bodies).toEqual([]);
+
+  await page.locator("[data-discovery-ingest]").click();
+  await page.locator("[data-discovery-ingest-yes]").click();
+  await expect(page.locator("[data-discovery-ingest-error]")).toContainText("需要确认后才能入库公海");
+  await page.locator("[data-discovery-ingest-no]").click();
+  await expect.poll(() => bodies.length).toBe(2);
+  expect(bodies[0]).toMatchObject({
+    run_id: "drun_e2e",
+    expected_brief_version: 1,
+    confirmed: true,
+  });
+  expect(bodies[1]).toMatchObject({
+    run_id: "drun_e2e",
+    expected_brief_version: 1,
+    cancel: true,
+  });
+  expect(bodies[1].confirmed).toBeUndefined();
+  await expect(page.locator("[data-discovery-ingest-confirm]")).toHaveCount(0);
+  await expect(page.locator("[data-discovery-toast]")).toHaveCount(0);
+  expect(claimPosts).toEqual([]);
+});
+
 test("service-down and filtered empty states stay honest", async ({ page }) => {
   await page.route("**/api/home/discovery/runs**", (route) => route.fulfill({
     status: 502,

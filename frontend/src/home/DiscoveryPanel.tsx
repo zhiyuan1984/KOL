@@ -55,6 +55,7 @@ export default function DiscoveryPanel({
   const [toast, setToast] = useState<string | null>(null);
   const [approvalState, setApprovalState] = useState<string | null>(null);
   const [ingestMissing, setIngestMissing] = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState(false);
 
   const visible = useMemo(
     () => candidates.filter((row) => !ignoredIds.includes(row.id) && row.status !== "dismissed"),
@@ -201,8 +202,10 @@ export default function DiscoveryPanel({
         run_id: runId,
         candidate_ids: selected.map((row) => row.id),
         expected_brief_version: activeRun?.brief_version || 1,
+        confirmed: true,
       });
       if (result.pending_approval || result.approval_status === "needs_confirmation") {
+        setPendingConfirm(true);
         setIngestError("需要确认后才能入库公海。不会建联，也不会领取跟进。");
         return;
       }
@@ -217,25 +220,29 @@ export default function DiscoveryPanel({
         );
         return;
       }
+      setPendingConfirm(false);
       setIngestOpen(false);
       setToast("去公海看这批");
     } catch (error) {
       const kind = ingestFailureKind(error);
       if (kind === "missing") {
+        setPendingConfirm(false);
         setIngestOpen(false);
         setIngestMissing(true);
         setIngestError(null);
         return;
       }
       if (kind === "needs_confirmation") {
+        setPendingConfirm(true);
         setIngestError("需要确认后才能入库公海。不会建联，也不会领取跟进。");
         return;
       }
-      if (kind === "brief_mismatch") {
+      if (kind === "brief_mismatch" || kind === "voided") {
         const nextVersion = ingestFailureBriefVersion(error);
         if (nextVersion) {
           setActiveRun((current) => current ? { ...current, brief_version: nextVersion } : current);
         }
+        setPendingConfirm(false);
         setIngestOpen(false);
         setIngestError(null);
         setFailedReason(null);
@@ -244,9 +251,42 @@ export default function DiscoveryPanel({
         void loadExisting(runId);
         return;
       }
+      if (kind === "cancelled") {
+        setPendingConfirm(false);
+        setIngestOpen(false);
+        setIngestError(null);
+        setToast(null);
+        setApprovalState("cancelled");
+        return;
+      }
       setIngestError(presentDiscoveryError(error, "入库没有完成，未建联也未发信。").message);
     } finally {
       setIngestBusy(false);
+    }
+  };
+
+  const cancelIngest = async () => {
+    const runId = activeRun?.id || activeRunId;
+    const shouldCancel = pendingConfirm && Boolean(runId) && selected.length;
+    setIngestOpen(false);
+    setIngestError(null);
+    if (!shouldCancel || !runId) {
+      setPendingConfirm(false);
+      return;
+    }
+    try {
+      await ingestHomeDiscovery({
+        run_id: runId,
+        candidate_ids: selected.map((row) => row.id),
+        expected_brief_version: activeRun?.brief_version || 1,
+        cancel: true,
+      });
+    } catch (error) {
+      if (!isMissingEndpoint(error)) {
+        setIngestError(presentDiscoveryError(error, "取消没有完成。未入库，也未领取跟进。").message);
+      }
+    } finally {
+      setPendingConfirm(false);
     }
   };
 
@@ -304,6 +344,11 @@ export default function DiscoveryPanel({
           <strong>确认已作废</strong>
           <p>发现 Brief 已变化，原确认作废。请按当前 Brief 重新确认入库。不会建联，也不会领取跟进。</p>
         </section>
+      ) : approvalState === "cancelled" ? (
+        <section className="task-empty" data-discovery-ingest-cancelled role="status">
+          <strong>已取消入库</strong>
+          <p>该确认已取消，未写入达人库。不会建联，也不会领取跟进。</p>
+        </section>
       ) : approvalState ? (
         <section className="task-empty" data-discovery-approval={approvalState} role="status">
           <strong>待审批</strong>
@@ -352,7 +397,10 @@ export default function DiscoveryPanel({
                 onClick={() => {
                   setIngestError(null);
                   setIngestMissing(false);
-                  setApprovalState((current) => current === "brief_mismatch" ? null : current);
+                  setApprovalState((current) => (
+                    current === "brief_mismatch" || current === "cancelled" ? null : current
+                  ));
+                  setPendingConfirm(false);
                   setIngestOpen(true);
                 }}
               >
@@ -455,10 +503,7 @@ export default function DiscoveryPanel({
         error={ingestError}
         confirmDisabled={!selected.length}
         onConfirm={() => void confirmIngest()}
-        onCancel={() => {
-          setIngestOpen(false);
-          setIngestError(null);
-        }}
+        onCancel={() => void cancelIngest()}
       >
         <p data-discovery-ingest-summary>
           {`将把 ${selected.length} 条线索写入 Starry 并进入公海。`}

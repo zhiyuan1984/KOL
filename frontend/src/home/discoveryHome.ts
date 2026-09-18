@@ -110,7 +110,13 @@ export function isMissingEndpoint(error: unknown): boolean {
   return status === 404 || status === 405;
 }
 
-export type IngestFailureKind = "missing" | "needs_confirmation" | "brief_mismatch" | "other";
+export type IngestFailureKind =
+  | "missing"
+  | "needs_confirmation"
+  | "brief_mismatch"
+  | "cancelled"
+  | "voided"
+  | "other";
 
 function errorPayload(error: unknown): Record<string, unknown> {
   if (!error || typeof error !== "object") return {};
@@ -133,7 +139,9 @@ export function ingestFailureKind(error: unknown): IngestFailureKind {
   const code = asString(payload.code || payload.status);
   const status = httpStatus(error);
   if (status === 422 || code === "needs_confirmation") return "needs_confirmation";
-  if (status === 409 || code === "brief_version_mismatch") return "brief_mismatch";
+  if (code === "brief_version_mismatch") return "brief_mismatch";
+  if (code === "l3_cancelled") return "cancelled";
+  if (code === "l3_voided") return "voided";
   return "other";
 }
 
@@ -332,13 +340,17 @@ export async function ingestHomeDiscovery(input: {
   run_id: string;
   candidate_ids: string[];
   expected_brief_version: number;
+  confirmed?: true;
+  cancel?: true;
 }): Promise<HomeDiscoveryIngestResult> {
-  const raw = await api.ingestHomeDiscovery({
+  const body: Record<string, unknown> = {
     run_id: input.run_id,
     candidate_ids: input.candidate_ids,
     expected_brief_version: input.expected_brief_version,
-    confirmed: true,
-  });
+  };
+  if (input.cancel) body.cancel = true;
+  else body.confirmed = true;
+  const raw = await api.ingestHomeDiscovery(body);
   const row = asRecord(raw);
   const items = (Array.isArray(row.items) ? row.items : []).map(ingestItem);
   const ingested = items.filter((item) => item.status !== "failed");

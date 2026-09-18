@@ -100,6 +100,15 @@ describe("discovery ingest failures", () => {
       status: 409,
       payload: { detail: { code: "brief_version_mismatch", brief_version: 2 } },
     })).toBe("brief_mismatch");
+    expect(ingestFailureKind({
+      status: 409,
+      payload: { detail: { code: "l3_cancelled", message: "该确认已取消，未写入达人库。" } },
+    })).toBe("cancelled");
+    expect(ingestFailureKind({
+      status: 409,
+      payload: { detail: { code: "l3_voided" } },
+    })).toBe("voided");
+    expect(ingestFailureKind({ status: 409 })).toBe("other");
     expect(ingestFailureKind({ status: 500 })).toBe("other");
   });
 });
