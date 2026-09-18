@@ -303,6 +303,7 @@ describe("today_plan harness", () => {
       "switch-tab",
       "get-today-brief",
       "plan-today",
+      "enqueue-today-analyze",
       "retry-discovery-run",
     ]));
     const getBrief = HOME_ENTRY_REGISTRY.find((row) => row.id === "get-today-brief");
@@ -321,6 +322,57 @@ describe("today_plan harness", () => {
     expect(frontendRetries[0]?.creates_session).toBe(false);
     expect(frontendRetries[0]?.calls_model).toBe(false);
     expect(frontendRetries[0]?.route).toBe("POST /api/discovery/requests/:id/runs");
+    const enqueue = HOME_ENTRY_REGISTRY.find((row) => row.id === "enqueue-today-analyze");
+    expect(enqueue).toMatchObject({
+      kind: "think",
+      creates_session: true,
+      calls_model: true,
+      route: "POST /api/home/today-brief/enqueue",
+    });
+    const frontendEnqueue = FRONTEND_HOME_ENTRY_REGISTRY.find((row) => row.id === "enqueue-today-analyze");
+    expect(frontendEnqueue).toMatchObject({
+      kind: "think",
+      creates_session: true,
+      calls_model: true,
+      route: "POST /api/home/today-brief/enqueue",
+    });
+    const analyze = HOME_ENTRY_REGISTRY.find((row) => row.id === "kol-analyze-enqueue");
+    expect(analyze).toMatchObject({
+      kind: "command",
+      creates_session: false,
+      calls_model: false,
+      route: "POST /api/home/kol-analyze/enqueue",
+    });
+    const frontendAnalyze = FRONTEND_HOME_ENTRY_REGISTRY.find((row) => row.id === "kol-analyze-enqueue");
+    expect(frontendAnalyze).toMatchObject({
+      kind: "command",
+      creates_session: false,
+      calls_model: false,
+      route: "POST /api/home/kol-analyze/enqueue",
+    });
+    for (const row of [...HOME_ENTRY_REGISTRY, ...FRONTEND_HOME_ENTRY_REGISTRY]) {
+      if (row.kind === "think") {
+        expect(row.creates_session || row.calls_model, `${row.id} think must create a session or call a model`).toBe(true);
+      }
+      if (row.kind === "command" || row.kind === "memory") {
+        expect(row.creates_session, `${row.id} ${row.kind} must not create a session`).toBe(false);
+        expect(row.calls_model, `${row.id} ${row.kind} must not call a model`).toBe(false);
+      }
+    }
+  });
+
+  it("POST today-brief/enqueue creates a session and calls the model", async () => {
+    const run = vi.spyOn(runner, "runWorker");
+    const beforeSessions = Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n);
+    const res = await request("POST", "/api/home/today-brief/enqueue", { objects: [] });
+    expect(res.status).toBe(202);
+    expect(res.body.kind).toBe("think");
+    expect(res.body.creates_session).toBe(true);
+    expect(res.body.calls_model).toBe(true);
+    expect(res.body.task_type).toBe("today_analyze");
+    expect(res.body.session_id).toBeTruthy();
+    expect(run).toHaveBeenCalled();
+    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n)).toBe(beforeSessions + 1);
   });
 
   it("does not list planning work items as open todos", async () => {

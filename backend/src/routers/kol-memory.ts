@@ -2,7 +2,7 @@
  * KOL memory APIs — PROD-AGENT-01 entry kinds.
  * GET pool / following = memory (no session, no model)
  * POST claim / release = command L3
- * POST kol-analyze/enqueue = think, locked task_type=kol_analyze
+ * POST kol-analyze/enqueue = command: writes queued work_item only (no session, no model)
  */
 import { Hono } from "hono";
 import { requireSkill } from "../auth.js";
@@ -155,8 +155,8 @@ kolMemory.post("/home/kol-analyze/enqueue", async (c) => {
     recognizeTaskIntent: false,
   });
   return c.json({
-    entry: "think",
-    kind: "think",
+    entry: "command",
+    kind: "command",
     creates_session: false,
     calls_model: false,
     task_type: KOL_ANALYZE_TASK_TYPE,

@@ -112,6 +112,15 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     route: "POST /api/home/today-brief/plan",
   },
   {
+    id: "enqueue-today-analyze",
+    kind: "think",
+    action: "锁定 today_analyze 并运行（禁止 from-text 意图识别）",
+    creates_session: true,
+    creates_turn: true,
+    calls_model: true,
+    route: "POST /api/home/today-brief/enqueue",
+  },
+  {
     id: "retry-discovery-run",
     kind: "command",
     action: "重试发现批次采集",
@@ -257,7 +266,7 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
   },
   {
     id: "kol-analyze-enqueue",
-    kind: "think",
+    kind: "command",
     action: "锁定 kol_analyze 入队（禁止 from-text 意图识别）",
     creates_session: false,
     creates_turn: false,
