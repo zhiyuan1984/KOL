@@ -112,6 +112,7 @@ async function expectHomeModeOrder(page: Page) {
 }
 
 async function expectTodayNavOrder(page: Page) {
+  await expect(page.locator('nav[aria-label="今日"] [data-nav="new-task"]')).toBeVisible();
   const todayOrder = await page.locator('nav[aria-label="今日"] [data-nav]').evaluateAll((elements) =>
     elements.map((element) => element.getAttribute("data-nav")),
   );
