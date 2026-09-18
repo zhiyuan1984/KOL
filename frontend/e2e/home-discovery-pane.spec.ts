@@ -104,7 +104,7 @@ test("开始发现 prefills Composer without a session and + menu is not connect
 
   await page.locator("[data-home] [data-attach]").click();
   const menu = page.getByRole("menu", { name: "添加内容" });
-  await expect(menu.getByRole("menuitem", { name: "发现任务" })).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "发现红人模板" })).toBeVisible();
   await expect(menu).not.toContainText("/admin/connectors");
   await expect(menu).not.toContainText("连接器治理");
 });
