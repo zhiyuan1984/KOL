@@ -1,8 +1,12 @@
+import { useEffect, useMemo, useState } from "react";
 import type { Task, TaskEvent, TodayBrief } from "../api";
-import MemoryWorkRow from "./MemoryWorkRow";
+import DisplayWorkRow from "./DisplayWorkRow";
 import TodayPlanProgress from "./TodayPlanProgress";
-import { briefPrimaryLabel, isTodayActionableTodo, sortTodayTodos, todayBucket } from "./homeModel";
+import { briefPrimaryLabel } from "./homeModel";
+import { projectDisplayTasks, type DisplayTaskRow } from "./displayTasks";
+import { fetchTodayTasks } from "./todayTasksApi";
 import type { TodayPlanPhase } from "./todayPlan";
+import "./today-display-row.css";
 
 export default function TodayPane({
   todayTodos,
@@ -19,10 +23,27 @@ export default function TodayPane({
   phase?: TodayPlanPhase;
   events?: TaskEvent[] | null;
 }) {
-  const official = sortTodayTodos(todayTodos.filter(isTodayActionableTodo));
+  const [displayRows, setDisplayRows] = useState<DisplayTaskRow[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void fetchTodayTasks().then((rows) => {
+      if (!cancelled) setDisplayRows(rows);
+    }).catch(() => {
+      if (!cancelled) setDisplayRows([]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [phase, brief?.lead, brief?.increment_summary]);
+
+  const official = useMemo(
+    () => projectDisplayTasks(displayRows, todayTodos),
+    [displayRows, todayTodos],
+  );
   const sections = Array.isArray(brief?.sections) ? brief.sections : [];
   const primaryLabel = briefPrimaryLabel(brief?.primary);
   const bannedPrimary = /处理|待补阶段/.test(primaryLabel);
+  const waiting = displayRows == null || phase === "loading-memory" || phase === "planning";
   return (
     <section className="home-mode-pane" data-home-pane="today">
       <TodayPlanProgress phase={phase} events={events} />
@@ -57,30 +78,21 @@ export default function TodayPane({
         className="today-todo-list"
         data-today-list
         data-today-formal
+        data-today-source="task_result"
+        data-today-display="codex"
         data-list-total={official.length}
         aria-label="今日任务"
       >
         {official.length ? (
           <ol className="today-todo-ol">
-            {official.map((task) => {
-              const bucket = todayBucket(task);
-              if (!bucket) return null;
-              return (
-                <MemoryWorkRow
-                  key={task.id}
-                  task={task}
-                  bucket={bucket}
-                  busy={busy}
-                  onAct={onAct}
-                  pane="today"
-                />
-              );
-            })}
+            {official.map((task) => (
+              <DisplayWorkRow key={task.id} task={task} busy={busy} onAct={onAct} />
+            ))}
           </ol>
         ) : (
-          <div className="task-empty" data-today-list-empty="no-data">
-            <strong>今天没有待处理事项</strong>
-            <p>高风险、已逾期、今天到期、进行中和审批中的事项会出现在这里。</p>
+          <div className="task-empty" data-today-list-empty={waiting ? "planning" : "no-display"}>
+            <strong>{waiting ? "正在规划今天的任务" : "还没有 Codex 展示任务"}</strong>
+            <p>{waiting ? "规划结束后这里只显示模型处理后的任务行。" : "原料任务不会直接出现在今日列表。"}</p>
           </div>
         )}
       </section>

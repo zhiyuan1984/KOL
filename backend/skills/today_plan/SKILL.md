@@ -1,7 +1,7 @@
 ---
 id: today_plan
 title: 今日规划
-description: 根据 Host 打包的历史记忆与来源增量，产出只读 today_brief，不写正式待办或状态
+description: 根据 Host 打包的历史记忆与来源增量，产出封面 today_brief 和展示任务行 display_tasks，不写正式待办或状态
 category: 线索
 profile: commander
 output: today_brief
@@ -17,7 +17,7 @@ auto_ok: false
 ---
 # 今日规划 today_plan
 
-Host 已锁定本 Skill。CONTEXT.md 里的 **HOST PACK（history / delta / now_counts）只是输入**，不是 today_brief。禁止把 Host 文件或计数模板抄成 lead/sections。
+Host 已锁定本 Skill。CONTEXT.md 里的 **HOST PACK（history / delta / now_counts）只是输入**，不是展示任务，也不是 today_brief。禁止把 Host 文件、任务标题列表或计数模板抄成正文。
 
 不要读取 runner 的「最近 20 条 memory_entries」，也不要调用写工具。本轮是只读规划会话。禁止 follow / send / confirm-stage。禁止创建正式待办。Artifacts 不是正式状态。
 
@@ -30,26 +30,46 @@ Host 已锁定本 Skill。CONTEXT.md 里的 **HOST PACK（history / delta / now_
 
 ## 输出
 
-只产出一份 `today_brief` JSON。**模型必须自己写正文**：
+只产出一份 `today_brief` JSON。**模型必须自己写正文和列表行**。
 
-- `lead`：一句话今日要点。禁止把「处理」「待补阶段」写成主建议。禁止写成「今天还有 N 项未了结」。
+### 1. 封面（摘要·展示，不是列表）
+
+- `lead`：一句话今日要点。
 - `sections`：必填数组。按来源分组说明为什么要做。
-- `primary`：今天唯一主建议。`verb` 只能是只读/恢复类：`retry_crawl` / `open_batch` / `analyze` / `open` / `approve`。发现批次且没有 person ID 时禁止 `follow`。
+- `primary`：今天唯一主建议。`verb` 只能是 `retry_crawl` / `open_batch` / `analyze` / `open` / `approve`。发现批次且没有 person ID 时禁止 `follow`。
 
-Host 只会补机械字段（`stats` / `source_cursor` / `increment_summary`）。模型没写 `lead` 和 `sections` 时规划失败，Host 不会代写封面。
+### 2. 展示任务行（任务·展示记忆，用户看的列表）
 
-其余可选：
+必写 `display_tasks`：数组。每一行对应一项已有正式任务，禁止发明 work_item_id。
 
-- `todo_layout`：只给**已有**正式待办写 `work_item_id / rank / why`。禁止新建待办。
-- `analysis_hints`：可交给 today_analyze 的对象提示。
+```json
+{
+  "work_item_id": "tsk_xxx",
+  "title": "重试北美户外达人的 YouTube 采集",
+  "why": "上轮采集失败，今天先把批次拉起来",
+  "rank": 1,
+  "verb": "retry_crawl",
+  "label": "重试采集"
+}
+```
+
+- `title`：给用户看的标题。禁止原样复制 Host 的「AI发现 · youtube · …」。
+- `why`：为什么今天做。禁止写「待处理」「待补阶段」「已记录打开/处理」。
+- `verb`：`retry_crawl` / `open_batch` / `analyze` / `open` / `approve`。
+- `label`：箭头按钮文案。禁止「处理」。
+- `rank`：从 1 开始的顺序。
+
+Host 只补机械字段（`stats` / `source_cursor` / `increment_summary`）。模型没写 `lead`+`sections` 或没写 `display_tasks` 时规划失败，Host 不代写封面也不代写列表。
+
+`todo_layout` 已并进 `display_tasks`，不要再单独产出一套只有 id/rank/why 的布局。
 
 ## 禁止事项
 
 - 禁止发信、跟进、确认阶段、改正式状态。
 - 禁止把发现批次（无 person ID）建议为 follow。
-- 禁止把「处理」「待补阶段」当作 primary 文案。
+- 禁止把「处理」「待补阶段」写进 lead、primary、title、why、label。
 - 禁止用写工具；`mcp` 为空。
-- 禁止把 HOST PACK 原文或任务标题列表当作 brief 正文交差。
+- 禁止把 HOST PACK 原文或任务标题列表当 brief 正文或展示行交差。
 
 ## 是否发信
 

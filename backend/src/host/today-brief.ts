@@ -1,6 +1,7 @@
 import { getConn, nowIso, tx } from "../db.js";
 import { nid } from "../ids.js";
 import type { Json } from "../types.js";
+import { persistTodayDisplayFromBrief } from "./persist-today-display.js";
 import { loadLatestTodayBrief } from "./today-plan-context.js";
 
 export const BANNED_PRIMARY_COPY = /处理|待补阶段/;
@@ -75,6 +76,18 @@ function sectionHasCopy(value: unknown): boolean {
   });
 }
 
+function hasDisplayTasks(brief: Record<string, unknown>): boolean {
+  const list = Array.isArray(brief.display_tasks)
+    ? brief.display_tasks
+    : Array.isArray(brief.todo_layout)
+      ? brief.todo_layout
+      : [];
+  return list.some((item) => {
+    const row = asRecord(item);
+    return Boolean(String(row?.work_item_id || row?.id || "").trim());
+  });
+}
+
 /** Host may fill mechanical fields only. Lead/sections/primary copy must come from Codex. */
 export function hydrateTodayBrief(raw: unknown, pack?: TodayPlanHydratePack | null): Json | null {
   const brief = asRecord(raw);
@@ -119,6 +132,9 @@ export function validateTodayBrief(value: unknown): TodayBriefValidation {
   }
   if (brief.sections != null && !Array.isArray(brief.sections)) {
     return { ok: false, reason: "missing sections", brief: null };
+  }
+  if (!hasDisplayTasks(brief)) {
+    return { ok: false, reason: "Codex did not produce display_tasks", brief: null };
   }
   const primary = asRecord(brief.primary) || {};
   const primaryVerb = String(primary.verb || primary.action || "").trim().toLowerCase();
@@ -186,6 +202,16 @@ export function writeTodayBriefArtifact(input: {
     );
   });
   upsertTodayBriefPointer(input.owner, artifactId, input.workItemId);
+  const display = persistTodayDisplayFromBrief({
+    owner: input.owner,
+    workItemId: input.workItemId,
+    runId: input.runId,
+    brief: checked.brief,
+  });
+  if (!display.ok) {
+    const previous = loadLatestTodayBrief(input.owner);
+    return { ok: false, reason: display.reason, kept_artifact_id: previous.artifact_id };
+  }
   return { ok: true, artifact_id: artifactId, brief: checked.brief };
 }
 
