@@ -107,6 +107,21 @@ function createPlanningRun(workItemId: string, sessionId: string, payload: Json)
   return runId;
 }
 
+export const TODAY_PLAN_EMPLOYEE_EVENTS = {
+  memoryRead: "已读取当前任务记忆",
+  deltaPacked: "已打包来源增量",
+  codexSubmitted: "已提交 Codex 规划",
+  writingBrief: "正在生成今日简报",
+  completed: "今日规划已完成",
+  failed: "今日规划失败",
+  invalid: "今日规划未通过校验",
+} as const;
+
+function memoryReadSummary(pack: TodayPlanPack): string {
+  const unfinished = Number(pack.now_counts?.unfinished);
+  return Number.isFinite(unfinished) ? `未了结 ${unfinished} 项` : TODAY_PLAN_EMPLOYEE_EVENTS.memoryRead;
+}
+
 function briefFromWorkerItems(items: Json[]): unknown {
   const hit = items.find((item) => item.type === "today_brief" || (item.lead && item.sections));
   if (!hit) return null;
@@ -129,12 +144,28 @@ export async function executeTodayPlanRun(input: {
     task_run_id: input.runId,
   });
   try {
+    appendTaskEvent(
+      input.workItemId,
+      input.runId,
+      "run.progress",
+      TODAY_PLAN_EMPLOYEE_EVENTS.codexSubmitted,
+      "running",
+      "已提交 Codex 规划",
+    );
     const wr = await Promise.resolve(runWorker(
       input.sessionId,
       "today_plan",
       "规划今天的工作。只输出 today_brief JSON。",
       extra,
     ));
+    appendTaskEvent(
+      input.workItemId,
+      input.runId,
+      "run.progress",
+      TODAY_PLAN_EMPLOYEE_EVENTS.writingBrief,
+      "running",
+      "正在生成今日简报",
+    );
     const written = writeTodayBriefArtifact({
       owner: input.owner,
       workItemId: input.workItemId,
@@ -143,15 +174,15 @@ export async function executeTodayPlanRun(input: {
     });
     if (!written.ok) {
       markTodayPlanFailed(input.workItemId, input.runId, written.reason);
-      appendTaskEvent(input.workItemId, input.runId, "run.failed", "今日规划未通过校验", "failed", written.reason);
+      appendTaskEvent(input.workItemId, input.runId, "run.failed", TODAY_PLAN_EMPLOYEE_EVENTS.invalid, "failed", written.reason);
       return;
     }
     markTodayPlanCompleted(input.workItemId, input.runId);
-    appendTaskEvent(input.workItemId, input.runId, "run.completed", "今日规划已完成", "completed", "today_brief 已更新");
+    appendTaskEvent(input.workItemId, input.runId, "run.completed", TODAY_PLAN_EMPLOYEE_EVENTS.completed, "completed", "today_brief 已更新");
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     markTodayPlanFailed(input.workItemId, input.runId, reason);
-    appendTaskEvent(input.workItemId, input.runId, "run.failed", "今日规划失败", "failed", reason.slice(0, 1000));
+    appendTaskEvent(input.workItemId, input.runId, "run.failed", TODAY_PLAN_EMPLOYEE_EVENTS.failed, "failed", reason.slice(0, 1000));
   }
 }
 
@@ -183,7 +214,22 @@ export function startTodayPlan(owner = ownerId()): {
     payload,
   });
   const runId = createPlanningRun(workItemId, sessionId, payload);
-  appendTaskEvent(workItemId, runId, "run.started", "正在为你规划今天", "running", "Host 已打包历史记忆与来源增量");
+  appendTaskEvent(
+    workItemId,
+    runId,
+    "run.progress",
+    TODAY_PLAN_EMPLOYEE_EVENTS.memoryRead,
+    "running",
+    memoryReadSummary(pack),
+  );
+  appendTaskEvent(
+    workItemId,
+    runId,
+    "run.progress",
+    TODAY_PLAN_EMPLOYEE_EVENTS.deltaPacked,
+    "running",
+    `来源增量 ${pack.delta.added.length} 项`,
+  );
   audit(owner, "today_plan.started", {
     work_item_id: workItemId,
     session_id: sessionId,

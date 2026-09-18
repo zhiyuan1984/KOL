@@ -1,15 +1,14 @@
-import type { Task, TodoLayoutItem } from "../api";
+import type { Task, TaskEvent, TodoLayoutItem } from "../api";
 import MemoryWorkRow from "./MemoryWorkRow";
+import TodayPlanProgress from "./TodayPlanProgress";
 import { HOME_TODO_EMPTY } from "./entryRegistry";
 import {
   OPEN_FILTERS,
-  applyTodoLayout,
-  isOpenTask,
-  matchesTodoFilter,
   openBucket,
-  sortOpenWorkItems,
+  todoPaneRows,
   type TodoListFilter,
 } from "./homeModel";
+import type { TodayPlanPhase } from "./todayPlan";
 
 export default function TodoPane({
   tasks,
@@ -19,6 +18,8 @@ export default function TodoPane({
   busy,
   onAct,
   todoLayout,
+  phase = "idle",
+  events,
 }: {
   tasks: Task[];
   filter: TodoListFilter;
@@ -27,11 +28,13 @@ export default function TodoPane({
   busy: boolean;
   onAct: (task: Task) => void;
   todoLayout?: TodoLayoutItem[] | null;
+  phase?: TodayPlanPhase;
+  events?: TaskEvent[] | null;
 }) {
-  const members = tasks.filter((task) => isOpenTask(task) && matchesTodoFilter(task, filter));
-  const official = todoLayout?.length ? applyTodoLayout(members, todoLayout) : sortOpenWorkItems(members);
+  const official = todoPaneRows(tasks, filter, todoLayout);
   return (
     <section className="home-mode-pane today-work-inline" data-today-work data-home-pane="todo">
+      <TodayPlanProgress phase={phase} events={events} />
       {dedupeNotice ? (
         <p className="home-dedupe-notice" data-todo-deduped role="status">{dedupeNotice}</p>
       ) : null}

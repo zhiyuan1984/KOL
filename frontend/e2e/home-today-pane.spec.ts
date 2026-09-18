@@ -70,7 +70,7 @@ test("entering today shows the memory list during planning and does not replace 
   await expect(page.locator("[data-today-list]")).toBeVisible();
   await expect(page.locator('[data-today-todo="tsk_due"]')).toBeVisible();
   await expect(page.locator("[data-today-plan-phase]")).toBeVisible();
-  await expect(page.locator("[data-today-plan-phase]")).toHaveText(/正在读取当前任务|正在按最新记忆规划今天|已按本轮规划刷新/);
+  await expect(page.locator("[data-today-plan-phase]")).toHaveText(/正在读取当前任务|Lucas正在高效为你规划今天的任务|已按本轮规划刷新/);
   await expect(page.locator('[data-home-pane="today"]')).not.toHaveText(/^正在为你规划今天$/);
   await expect.poll(() => posts.some((path) => path.endsWith("/plan"))).toBeTruthy();
   await expect(page.locator('[data-today-todo="tsk_due"]')).toBeVisible();

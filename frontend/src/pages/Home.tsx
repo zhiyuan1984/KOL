@@ -9,6 +9,7 @@ import {
   type StarryBinding,
   type Task,
   type TaskDefinition,
+  type TaskEvent,
   type TaskRunResult,
   type TodayBrief,
 } from "../api";
@@ -511,6 +512,7 @@ export default function Home() {
   } | null>(null);
   const [todayBrief, setTodayBrief] = useState<TodayBrief | null>(null);
   const [todayMemoryTasks, setTodayMemoryTasks] = useState<Task[] | null>(null);
+  const [todayPlanEvents, setTodayPlanEvents] = useState<TaskEvent[]>([]);
   const [todayPlanPhase, setTodayPlanPhase] = useState<TodayPlanPhase>("loading-memory");
   const [todayEntryTick, setTodayEntryTick] = useState(0);
   const nav = useNavigate();
@@ -1403,17 +1405,19 @@ export default function Home() {
     [boardWorkbench, followedKols, mode, taskCatalog],
   );
 
+  const homeMemoryTasks = todayMemoryTasks ?? taskCatalog;
+
   const todoItems = useMemo(
-    () => sortOpenWorkItems(taskCatalog.filter(isOpenTask)),
-    [taskCatalog],
+    () => sortOpenWorkItems(homeMemoryTasks.filter(isOpenTask)),
+    [homeMemoryTasks],
   );
 
   const todayTodos = useMemo(
     () => applyLayoutWhy(
-      sortTodayTodos((todayMemoryTasks ?? taskCatalog).filter(isTodayActionableTodo)),
+      sortTodayTodos(homeMemoryTasks.filter(isTodayActionableTodo)),
       todayBrief?.todo_layout,
     ),
-    [taskCatalog, todayBrief, todayMemoryTasks],
+    [homeMemoryTasks, todayBrief],
   );
 
   const visibleTodoItems = useMemo(
@@ -1449,10 +1453,8 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (mode !== "today") {
-      setTodayPlanPhase("idle");
-      return;
-    }
+    // Home enter: one view=open memory fetch feeds Today + Todo. Do not restart
+    // or board-fetch when switching tabs. Planning write-back is layout_why only.
     const controller = new AbortController();
     let dismissTimer = 0;
     setTodayPlanPhase("loading-memory");
@@ -1470,6 +1472,9 @@ export default function Home() {
         }
         if (Object.prototype.hasOwnProperty.call(step, "brief")) {
           setTodayBrief(step.brief ?? null);
+        }
+        if (Array.isArray(step.events)) {
+          setTodayPlanEvents(step.events);
         }
       },
       { signal: controller.signal },
@@ -1489,18 +1494,7 @@ export default function Home() {
       controller.abort();
       if (dismissTimer) window.clearTimeout(dismissTimer);
     };
-  }, [mode, todayEntryTick]);
-
-  useEffect(() => {
-    if (mode !== "todo") return;
-    let cancelled = false;
-    void api.todayBrief().then((row) => {
-      if (!cancelled && row.brief) setTodayBrief(row.brief);
-    }).catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, [mode]);
+  }, [todayEntryTick]);
 
   const recommendedItems = useMemo(
     () => withRecommendedDisplay(workbench.recommendations || [], definitions),
@@ -1727,6 +1721,7 @@ export default function Home() {
               onAct={(task) => void actOnMemoryTask(task)}
               brief={todayBrief}
               phase={todayPlanPhase}
+              events={todayPlanEvents}
             />
           ) : null}
 
@@ -1739,6 +1734,8 @@ export default function Home() {
               busy={busy}
               onAct={(task) => void actOnMemoryTask(task)}
               todoLayout={todayBrief?.todo_layout}
+              phase={todayPlanPhase}
+              events={todayPlanEvents}
             />
           ) : null}
 

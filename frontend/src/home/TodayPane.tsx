@@ -1,7 +1,8 @@
-import type { Task, TodayBrief } from "../api";
+import type { Task, TaskEvent, TodayBrief } from "../api";
 import MemoryWorkRow from "./MemoryWorkRow";
+import TodayPlanProgress from "./TodayPlanProgress";
 import { briefPrimaryLabel, isTodayActionableTodo, sortTodayTodos, todayBucket } from "./homeModel";
-import { todayPlanStatusCopy, type TodayPlanPhase } from "./todayPlan";
+import type { TodayPlanPhase } from "./todayPlan";
 
 export default function TodayPane({
   todayTodos,
@@ -9,30 +10,22 @@ export default function TodayPane({
   onAct,
   brief,
   phase = "idle",
+  events,
 }: {
   todayTodos: Task[];
   busy: boolean;
   onAct: (task: Task) => void;
   brief?: TodayBrief | null;
   phase?: TodayPlanPhase;
+  events?: TaskEvent[] | null;
 }) {
   const official = sortTodayTodos(todayTodos.filter(isTodayActionableTodo));
   const sections = Array.isArray(brief?.sections) ? brief.sections : [];
   const primaryLabel = briefPrimaryLabel(brief?.primary);
   const bannedPrimary = /处理|待补阶段/.test(primaryLabel);
-  const status = todayPlanStatusCopy(phase);
   return (
     <section className="home-mode-pane" data-home-pane="today">
-      {status ? (
-        <p
-          className="today-plan-progress"
-          data-today-plan-phase={phase}
-          data-today-planning={phase === "planning" || phase === "loading-memory" ? true : undefined}
-          role="status"
-        >
-          {status}
-        </p>
-      ) : null}
+      <TodayPlanProgress phase={phase} events={events} />
 
       {brief ? (
         <section className="today-brief" data-today-brief>

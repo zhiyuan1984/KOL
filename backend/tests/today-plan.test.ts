@@ -10,6 +10,8 @@ import { HOME_ENTRY_REGISTRY } from "../src/host/entry-registry.js";
 import { HOME_ENTRY_REGISTRY as FRONTEND_HOME_ENTRY_REGISTRY } from "../../frontend/src/home/entryRegistry.ts";
 import { packTodayPlanContext, planningHarnessMount } from "../src/host/today-plan-context.js";
 import { validateTodayBrief, writeTodayBriefArtifact } from "../src/host/today-brief.js";
+import { TODAY_PLAN_EMPLOYEE_EVENTS } from "../src/host/today-plan-run.js";
+import type { WorkerResult } from "../src/types.js";
 import { taskDefinition } from "../src/tasks/registry.js";
 import * as recognize from "../src/tasks/recognize.js";
 import * as runner from "../src/worker/runner.js";
@@ -373,6 +375,49 @@ describe("today_plan harness", () => {
     expect(res.body.session_id).toBeTruthy();
     expect(run).toHaveBeenCalled();
     expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n)).toBe(beforeSessions + 1);
+  });
+
+  it("emits employee-facing mid events while planning and on complete", async () => {
+    insertWorkItem({ id: "tsk_open_quote", title: "未了结报价" });
+    let release!: (value: WorkerResult) => void;
+    const held = new Promise<WorkerResult>((resolve) => {
+      release = resolve;
+    });
+    vi.spyOn(runner, "runWorker").mockReturnValue(held);
+    const plan = await request("POST", "/api/home/today-brief/plan");
+    expect([200, 202]).toContain(plan.status);
+    const mid = await request("GET", "/api/home/today-brief");
+    expect(mid.body.planning).toBe(true);
+    const midLabels = ((mid.body.events as Json[]) || []).map((event) => String(event.title || event.label || ""));
+    expect(midLabels).toEqual(expect.arrayContaining([
+      TODAY_PLAN_EMPLOYEE_EVENTS.memoryRead,
+      TODAY_PLAN_EMPLOYEE_EVENTS.deltaPacked,
+      TODAY_PLAN_EMPLOYEE_EVENTS.codexSubmitted,
+    ]));
+    expect(midLabels).not.toContain(TODAY_PLAN_EMPLOYEE_EVENTS.completed);
+    const memoryEvent = ((mid.body.events as Json[]) || []).find((event) => (
+      String(event.title || event.label) === TODAY_PLAN_EMPLOYEE_EVENTS.memoryRead
+    ));
+    expect(String(memoryEvent?.summary || "")).toMatch(/未了结 \d+ 项/);
+    release({
+      worker_id: "stub",
+      status: "completed",
+      skill: "today_plan",
+      contract_log: [],
+      items: [validBrief({ type: "today_brief" })],
+    });
+    await vi.waitFor(async () => {
+      const done = await request("GET", "/api/home/today-brief");
+      expect(done.body.planning).toBe(false);
+      const labels = ((done.body.events as Json[]) || []).map((event) => String(event.title || event.label || ""));
+      expect(labels).toEqual(expect.arrayContaining([
+        TODAY_PLAN_EMPLOYEE_EVENTS.memoryRead,
+        TODAY_PLAN_EMPLOYEE_EVENTS.deltaPacked,
+        TODAY_PLAN_EMPLOYEE_EVENTS.codexSubmitted,
+        TODAY_PLAN_EMPLOYEE_EVENTS.writingBrief,
+        TODAY_PLAN_EMPLOYEE_EVENTS.completed,
+      ]));
+    });
   });
 
   it("does not list planning work items as open todos", async () => {

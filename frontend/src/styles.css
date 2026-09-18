@@ -1091,6 +1091,19 @@ summary:focus-visible,
 .today-plan-progress[data-today-plan-phase="refreshed"] {
   color: var(--text-muted);
 }
+.today-plan-progress-lead {
+  margin: 0;
+}
+.today-plan-events {
+  margin: 6px 0 0;
+  padding-left: 1.15em;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.45;
+}
+.today-plan-events li + li {
+  margin-top: 2px;
+}
 .today-brief-lead {
   margin: 0 0 var(--space-2);
   font-weight: 600;

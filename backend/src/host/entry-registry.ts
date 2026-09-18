@@ -55,7 +55,7 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     creates_session: false,
     creates_turn: false,
     calls_model: false,
-    route: "GET /api/tasks?view=open · GET /api/home/board → workbench.open",
+    route: "GET /api/tasks?view=open",
   },
   {
     id: "list-followed",
