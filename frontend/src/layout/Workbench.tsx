@@ -4,7 +4,6 @@ import { api, type Account, type SessionRow } from "../api";
 import { useAccount } from "../components/AuthGate";
 import BrandLockup from "../components/BrandLockup";
 import UserMenu from "../components/UserMenu";
-import { parseHomeMode } from "../home/modes";
 import { ANALYZE_WORK_EVENT, loadKolAnalyzeInFlight, type AnalyzeWorkItem } from "../home/kolSurfaceApi";
 import { isKolAnalyzeInFlight, runningBadgeCount, runningBadgeHref } from "../home/kolContract";
 import { useViewMode } from "../viewMode";
@@ -115,10 +114,7 @@ export default function Workbench() {
   const skillsActive =
     loc.pathname === "/skills"
     || loc.pathname.startsWith("/market/skills");
-  const homeMode = loc.pathname === "/"
-    ? parseHomeMode(new URLSearchParams(loc.search).get("tab"))
-    : null;
-  const newTaskActive = homeMode === "today";
+  const newTaskActive = loc.pathname === "/";
   const adminAvailable = admin || me?.available_modes?.includes("admin") === true;
 
   const runningCount = useMemo(
@@ -133,9 +129,6 @@ export default function Workbench() {
   const runningActive = Boolean(
     sessionId && sessions.some((s) => s.id === sessionId && (s.agent_status === "running" || s.agent_status === "queued")),
   );
-  const discoveryActive = homeMode === "discovery";
-  const poolActive = homeMode === "pool";
-  const followActive = homeMode === "lifecycle";
   const onAgents = loc.pathname === "/agents" || loc.pathname.startsWith("/agents/");
   const onAdmin = loc.pathname === "/admin" || loc.pathname.startsWith("/admin/");
 
@@ -193,39 +186,6 @@ export default function Workbench() {
             <Ico path="M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M12 8v4l2.5 1.5" />
             <span className="sidebar-label">进行中</span>
             {runningCount > 0 && <span className="nav-badge" data-running-count={runningCount}>{runningCount}</span>}
-          </Link>
-          <Link
-            to="/?tab=discovery"
-            className={"nav-link" + (discoveryActive ? " active" : "")}
-            aria-current={discoveryActive ? "page" : undefined}
-            data-nav="discovery"
-            data-home-entry="existing-discovery"
-            onClick={() => setMobileOpen(false)}
-          >
-            <Ico path="M12 3l1.5 5.5L19 10l-5.5 1.5L12 17l-1.5-5.5L5 10l5.5-1.5z M17 16l.8 2.4L20 19.2l-2.2.8L17 22.4l-.8-2.4L14 19.2l2.2-.8z" />
-            <span className="sidebar-label">AI发现</span>
-          </Link>
-          <Link
-            to="/?tab=pool"
-            className={"nav-link" + (poolActive ? " active" : "")}
-            aria-current={poolActive ? "page" : undefined}
-            data-nav="pool"
-            data-home-entry="list-pool"
-            onClick={() => setMobileOpen(false)}
-          >
-            <Ico path="M4 7h16v10H4z M8 7V5h8v2" />
-            <span className="sidebar-label">公海</span>
-          </Link>
-          <Link
-            to="/?tab=lifecycle"
-            className={"nav-link" + (followActive ? " active" : "")}
-            aria-current={followActive ? "page" : undefined}
-            data-nav="followed"
-            data-home-entry="list-followed"
-            onClick={() => setMobileOpen(false)}
-          >
-            <Ico path="M8 7h8 M6 12h12 M8 17h8" />
-            <span className="sidebar-label">我跟进的红人</span>
           </Link>
           <NavLink to="/cron" className={() => "nav-link" + ((loc.pathname === "/cron" || loc.pathname.startsWith("/cron/")) ? " active" : "")} data-nav="cron" onClick={() => setMobileOpen(false)}>
             <Ico path="M8 3v3 M16 3v3 M5 8h14 M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z M9 13h3 M14 17h3" />

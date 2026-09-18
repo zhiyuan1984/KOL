@@ -22,7 +22,8 @@ function task(partial: Partial<Task> & Pick<Task, "id" | "title">): Task {
 
 describe("today pane buckets", () => {
   it("keeps parseHomeMode default and drops queued / open-with-no-due", async () => {
-    const { parseHomeMode } = await import("./modes");
+    const { HOME_MODES, parseHomeMode } = await import("./modes");
+    expect(HOME_MODES).toEqual(["today", "todo", "discovery", "pool", "lifecycle"]);
     expect(parseHomeMode(null)).toBe("today");
     expect(parseHomeMode("pool")).toBe("pool");
     expect(isTodayActionableTodo(task({ id: "q", title: "queued", status: "queued" }))).toBe(false);

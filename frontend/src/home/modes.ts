@@ -1,7 +1,7 @@
 export type HomeMode = "today" | "todo" | "discovery" | "lifecycle" | "pool";
 
-/** Visible Home tabs. `pool` is a business page (`/?tab=pool`) — not a 5th top-bar tab. */
-export const HOME_MODES: HomeMode[] = ["today", "todo", "discovery", "lifecycle"];
+/** Visible Home top-bar tabs in「新工作任务」. */
+export const HOME_MODES: HomeMode[] = ["today", "todo", "discovery", "pool", "lifecycle"];
 
 /** law-v2 PROD-PLAT-02 / UX-02 Home mode names (KOL pilot). */
 export const HOME_MODE_LABELS: Record<HomeMode, string> = {
