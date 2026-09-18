@@ -14,6 +14,9 @@ import {
 } from "../api";
 import { ChatThread, clearComposerDraft, clearPending, employeeProcessLabel, resultCardsFromMessages, takeComposerDraft, takePending, useSessionMessages, type ComposerDraft } from "../components/ChatBlocks";
 import ComposerDock, { type ComposerSubmit, type ComposerSuggestion, type SkillOption } from "../components/ComposerDock";
+import ModelTierControl from "../composer/ModelTierControl";
+import { peekComposerDraft, takeComposerDraftStash } from "../composer/draft";
+import type { ComposerEntryIntent } from "../composer/types";
 import Markdown from "../components/Markdown";
 import AgentTaskList, { readTaskListWidth } from "../components/AgentTaskList";
 import SideWorkbench from "../components/SideWorkbench";
@@ -456,6 +459,7 @@ export default function Chat() {
   const { debug } = useViewMode();
   const { messages, err, reload, setMessages, agentStatus, setAgentStatus, journey, collaborationId, sessionLoaded, runQueue, setRunQueue } = useSessionMessages(id);
   const [text, setText] = useState("");
+  const [entryIntent, setEntryIntent] = useState<ComposerEntryIntent>("free");
   const [lockedIntent, setLockedIntent] = useState<string | null>(null);
   const [lockedLabel, setLockedLabel] = useState<string | null>(null);
   const [lockedKnowledgeId, setLockedKnowledgeId] = useState<string | null>(null);
@@ -556,17 +560,28 @@ export default function Chat() {
     if (!id) return;
     const fromNav = (location.state as { composerDraft?: ComposerDraft } | null)?.composerDraft;
     const draft = takeComposerDraft(id) || (fromNav?.text ? fromNav : null);
-    if (!draft) {
+    const stashed = peekComposerDraft();
+    if (!draft && !stashed) {
       setText("");
       setLockedIntent(null);
       setLockedLabel(null);
+      setEntryIntent("free");
       setFocusDraft(false);
       setBlockSubmit(false);
       return;
     }
-    setText(draft.text);
-    setLockedIntent(draft.intent || null);
-    setLockedLabel(draft.title || null);
+    if (stashed) {
+      takeComposerDraftStash();
+      setText(stashed.text || draft?.text || "");
+      setEntryIntent(stashed.intent || "free");
+      setLockedIntent(draft?.intent || null);
+      setLockedLabel(draft?.title || null);
+      setFocusDraft(true);
+      return;
+    }
+    setText(draft!.text);
+    setLockedIntent(draft!.intent || null);
+    setLockedLabel(draft!.title || null);
     setFocusDraft(true);
     setBlockSubmit(true);
     const timer = window.setTimeout(() => setBlockSubmit(false), DRAFT_SUBMIT_GUARD_MS);
@@ -646,6 +661,9 @@ export default function Chat() {
         knowledge_id: p.knowledge_id,
         attachments: p.attachments,
         model_tier: p.model_tier,
+        scope: p.scope,
+        object_refs: p.object_refs,
+        client_entry: p.client_entry,
         entities: {
           ...(p.entities || {}),
           ...((p.intent || lockedIntent) === "email_compose" && looksLikeEmailDraft(t) ? { body: t } : {}),
@@ -907,6 +925,7 @@ export default function Chat() {
         <header className="task-detail-header conversation-context" {...(task ? { "data-task-detail": true } : { "data-session-back": true })}>
           <div className="session-head-row">
             <Link to="/" className="task-back">← 返回任务列表</Link>
+            <ModelTierControl className="session-tier" compact />
             <RunHud status={status} phase={phase} taskTitle={task?.title || runTask?.title} remoteLabel={remoteLabel} />
           </div>
           {boundExpert ? (
@@ -1121,6 +1140,7 @@ export default function Chat() {
             onPickSuggestion={pickSuggestion}
             onPickSkill={pickSkill}
             hint={composerHint || undefined}
+            entryIntent={entryIntent}
           />
         </footer>
       </section>

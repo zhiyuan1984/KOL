@@ -66,9 +66,8 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   const dock = page.locator("[data-home] .home-composer-dock");
   const shell = page.locator("[data-home] [data-composer] .composer");
   await expect(shell).toBeVisible();
-  await expect(page.locator("[data-home] [data-composer-divider]")).toBeHidden();
-  await expect(page.locator("[data-home] [data-composer-tool='project']")).toBeHidden();
-  await expect(page.locator("[data-home] [data-composer-tool='skills']")).toBeHidden();
+  await expect(page.locator("[data-home] [data-composer-tool]")).toHaveCount(0);
+  await expect(page.locator("[data-home] [data-composer-input]")).toHaveAttribute("placeholder", "有问题，尽管问");
   await expect(page.locator("[data-coach-next], [data-next-step-card]")).toHaveCount(0);
   const sans = await page.evaluate(() => getComputedStyle(document.documentElement).fontFamily);
   expect(sans.toLowerCase()).toMatch(/ui-sans-serif|system-ui|pingfang|noto sans/);
@@ -88,49 +87,49 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
     };
   });
   expect(layout).toBeTruthy();
-  expect(Math.abs(layout!.pane - layout!.dock)).toBeLessThan(8);
-  expect(layout!.composer).toBeGreaterThan(layout!.dock * 0.86);
+  expect(layout!.composer).toBeLessThanOrEqual(768);
   expect(layout!.composer).toBeLessThanOrEqual(layout!.dock);
   expect(layout!.overflowX).not.toBe("scroll");
 
   const chrome = await composerChrome(page, "[data-home]");
-  expect(parseFloat(chrome.minHeight)).toBeGreaterThanOrEqual(72);
-  expect(parseFloat(chrome.minHeight)).toBeLessThanOrEqual(96);
-  expect(parseFloat(chrome.radius)).toBeGreaterThanOrEqual(20);
-  expect(parseFloat(chrome.radius)).toBeLessThanOrEqual(24);
-  near(rgb(chrome.borderColor) as number[], [238, 238, 238], 16);
+  expect(parseFloat(chrome.minHeight)).toBeGreaterThanOrEqual(52);
+  expect(parseFloat(chrome.minHeight)).toBeLessThanOrEqual(64);
+  expect(parseFloat(chrome.radius)).toBeGreaterThanOrEqual(26);
+  expect(parseFloat(chrome.radius)).toBeLessThanOrEqual(30);
+  near(rgb(chrome.borderColor) as number[], [229, 229, 229], 16);
   near(rgb(chrome.background) as number[], [255, 255, 255]);
   near(rgb(chrome.placeholderColor) as number[], [138, 138, 138], 16);
-  expect(chrome.placeholderSize).toBe("15px");
-  expect(parseFloat(chrome.plusWidth)).toBe(36);
-  expect(parseFloat(chrome.plusHeight)).toBe(36);
+  expect(chrome.placeholderSize).toBe("16px");
+  expect(parseFloat(chrome.plusWidth)).toBe(32);
+  expect(parseFloat(chrome.plusHeight)).toBe(32);
   expect(chrome.plusBg).toMatch(/rgba\(\s*0,\s*0,\s*0,\s*0\s*\)|transparent/);
-  near(rgb(chrome.sendColor) as number[], [255, 255, 255]);
+  near(rgb(chrome.sendColor) as number[], [180, 180, 180], 24);
 
   await page.locator("[data-home] [data-attach]").click();
   const menu = page.getByRole("menu", { name: "添加内容" });
   await expect(menu).toBeVisible();
   await expect(menu.getByRole("menuitem", { name: "上传文件" })).toBeVisible();
-  await page.locator("[data-home] [data-composer-tool='skills']").click();
-  await expect(page.locator("[data-home] [data-composer-tool='skills']")).toHaveClass(/is-selected/);
-  const skillChip = await page.locator("[data-home] [data-composer-tool='skills']").evaluate((el) => {
-    const cs = getComputedStyle(el);
-    return { width: cs.width, height: cs.height, radius: cs.borderTopLeftRadius, bg: cs.backgroundColor, color: cs.color };
-  });
-  expect(parseFloat(skillChip.width)).toBeGreaterThanOrEqual(32);
-  expect(parseFloat(skillChip.height)).toBe(32);
-  expect(parseFloat(skillChip.radius)).toBeGreaterThanOrEqual(16);
-  near(rgb(skillChip.color) as number[], [26, 26, 26], 16);
+  await expect(menu.getByRole("menuitem", { name: "上传图片" })).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "技能" })).toBeVisible();
+  await expect(page.locator("[data-home] [data-composer-tool]")).toHaveCount(0);
+  await expect(page.locator("[data-home] .tier-control").first()).toBeVisible();
+  await expect(page.locator("[data-home] .composer .tier-control")).toHaveCount(0);
+  await menu.getByRole("menuitem", { name: "技能" }).click();
+  await expect(page.locator("[data-composer-skill-search]")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
 
   await page.locator("[data-home] [data-composer-input]").fill("给@小美妆日记 写阶段跟进邮件");
   const ready = await page.locator("[data-home] [data-send]").evaluate((el) => {
     const cs = getComputedStyle(el);
-    return { color: cs.color, background: cs.backgroundColor };
+    return { color: cs.color, background: cs.backgroundColor, disabled: (el as HTMLButtonElement).disabled };
   });
+  expect(ready.disabled).toBe(false);
   near(rgb(ready.color) as number[], [255, 255, 255]);
-  near(rgb(ready.background) as number[], [199, 59, 122]);
+  const readyBg = rgb(ready.background) as number[];
+  const blackish = Math.abs(readyBg[0] - 13) <= 16 && Math.abs(readyBg[1] - 13) <= 16 && Math.abs(readyBg[2] - 13) <= 16;
+  const brand = Math.abs(readyBg[0] - 199) <= 16 && Math.abs(readyBg[1] - 59) <= 16 && Math.abs(readyBg[2] - 122) <= 16;
+  expect(blackish || brand).toBeTruthy();
   await page.locator("[data-home] [data-send]").click();
   await page.waitForURL(/\/s\//);
   await expect(page.locator('[data-kind="me"]')).toContainText("给@小美妆日记 写阶段跟进邮件", { timeout: 15000 });
@@ -165,9 +164,9 @@ test("session PromptInput stays at the thread foot with the same tokens", async 
   expect(placement!.footTop).toBeGreaterThanOrEqual(placement!.streamBottom - 12);
 
   const chrome = await composerChrome(page, ".session-composer");
-  expect(parseFloat(chrome.radius)).toBeGreaterThanOrEqual(20);
-  expect(parseFloat(chrome.radius)).toBeLessThanOrEqual(24);
-  near(rgb(chrome.borderColor) as number[], [238, 238, 238], 16);
+  expect(parseFloat(chrome.radius)).toBeGreaterThanOrEqual(26);
+  expect(parseFloat(chrome.radius)).toBeLessThanOrEqual(30);
+  near(rgb(chrome.borderColor) as number[], [229, 229, 229], 16);
   near(rgb(chrome.placeholderColor) as number[], [138, 138, 138], 16);
 
   await page.locator(".session-composer [data-attach]").click();

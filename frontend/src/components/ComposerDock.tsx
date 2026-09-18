@@ -1,5 +1,27 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { KnowledgeRow } from "../api";
+import ChipRail from "../composer/ChipRail";
+import { expertChipLabel, isWriteSkill, labelOfSkill, type CatalogSkill } from "../composer/catalog";
+import { peekComposerDraft, takeComposerDraftStash } from "../composer/draft";
+import PlusMenu, { type PlusSubpanel } from "../composer/PlusMenu";
+import {
+  clientEntryFor,
+  COMPOSER_DRAFT_EVENT,
+  COMPOSER_MAX_SKILL_CHIPS,
+  COMPOSER_PLACEHOLDER,
+  DEFAULT_EXPERT_ID,
+  MODEL_TIER_EVENT,
+  readModelTier,
+  type ComposerChip,
+  type ComposerClientEntry,
+  type ComposerDraftStash,
+  type ComposerEntryIntent,
+  type ComposerObjectRef,
+  type ComposerScope,
+  type ConnectorDto,
+  type KnowledgeLib,
+} from "../composer/types";
+import { connectorUseAccess, connectorUseLabel, connectorUseStatus, preferCanonicalConnectors } from "../connectorUse";
 import {
   canSubmitDiscovery,
   DISCOVERY_CHIP_OVERRIDE_HINT,
@@ -7,12 +29,9 @@ import {
   DISCOVERY_INTENT,
   DISCOVERY_LOCK_LABEL,
   DISCOVERY_REGION_OPTIONS,
-  directionLabel,
   keywordsForDirections,
   MAX_DISCOVERY_DIRECTIONS,
   OVERSEAS_DISCOVERY_PLATFORMS,
-  platformLabel,
-  regionLabel,
   toggleDirection,
   togglePlatform,
   type DiscoveryBrief,
@@ -28,16 +47,11 @@ import {
   templateBodyExcerpt,
   type LockedMailTemplate,
 } from "../knowledgeCopy";
+import { api, type StarryBinding } from "../api";
 import { useViewMode } from "../viewMode";
 
-const PLACEHOLDER = "输入 / 使用技能";
-const WORKSPACE_PLACEHOLDERS = [
-  "让 Agent 分析/安排",
-  "让 Agent 分析/安排今天的跟进",
-  "让 Agent 分析/安排本周异常",
-];
-
 export type ComposerVariant = "compact" | "workspace";
+export type ComposerPlacement = "hero" | "dock";
 
 export type AttachmentRef = { id?: string; name: string; path: string; size?: number; type?: string };
 type ProjectOption = { id: string; label: string; handle?: string; description?: string };
@@ -50,6 +64,9 @@ export type ComposerSubmit = {
   attachments?: AttachmentRef[];
   model_tier?: string;
   entities?: Record<string, unknown>;
+  scope?: ComposerScope;
+  object_refs?: ComposerObjectRef[];
+  client_entry?: ComposerClientEntry;
 };
 
 export type ComposerSuggestion = {
@@ -58,21 +75,10 @@ export type ComposerSuggestion = {
   intent?: string;
 };
 
-export type SkillOption = {
-  id: string;
-  title: string;
-  label?: string;
-  aliases?: string[];
-  in_market?: boolean;
-  granted?: boolean;
-};
+export type SkillOption = CatalogSkill;
 
 function labelOf(s: SkillOption): string {
-  return s.label || s.title;
-}
-
-function isQuietSkill(s: SkillOption): boolean {
-  return /approval|审批/.test(`${s.id} ${labelOf(s)}`);
+  return labelOfSkill(s);
 }
 
 function triggerQuery(value: string, caret: number): { start: number; q: string; mark: "/" | "@" } | null {
@@ -94,6 +100,7 @@ export default function ComposerDock({
   onSubmit,
   disabled,
   variant = "compact",
+  placement,
   onFocusChange,
   lockedIntent,
   lockedLabel,
@@ -119,12 +126,16 @@ export default function ComposerDock({
   onOpenDiscoveryTemplate,
   onClearDiscoveryLock,
   contextChips,
+  entryIntent = "free",
+  objectRefs = [],
+  onObjectRefsChange,
 }: {
   value: string;
   onChange: (v: string) => void;
   onSubmit: (payload: ComposerSubmit) => void;
   disabled?: boolean;
   variant?: ComposerVariant;
+  placement?: ComposerPlacement;
   onFocusChange?: (focused: boolean) => void;
   lockedIntent?: string | null;
   lockedLabel?: string | null;
@@ -150,10 +161,14 @@ export default function ComposerDock({
   onOpenDiscoveryTemplate?: () => void;
   onClearDiscoveryLock?: () => void;
   contextChips?: { id: string; label: string }[];
+  entryIntent?: ComposerEntryIntent;
+  objectRefs?: ComposerObjectRef[];
+  onObjectRefsChange?: (refs: ComposerObjectRef[]) => void;
 }) {
   const [skills, setSkills] = useState<SkillOption[]>([]);
   const [templates, setTemplates] = useState<KnowledgeRow[]>([]);
-  const [connectors, setConnectors] = useState<{ id: string; label: string }[]>([]);
+  const [knowledgeLibs, setKnowledgeLibs] = useState<KnowledgeLib[]>([]);
+  const [connectors, setConnectors] = useState<ConnectorDto[]>([]);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [recentFiles, setRecentFiles] = useState<(AttachmentRef & { available?: boolean })[]>([]);
   const [picker, setPicker] = useState(false);
@@ -164,15 +179,20 @@ export default function ComposerDock({
   const [uploading, setUploading] = useState(false);
   const [attachErr, setAttachErr] = useState("");
   const [plusOpen, setPlusOpen] = useState(false);
-  const [activeSubmenu, setActiveSubmenu] = useState<"projects" | "recent" | "skills" | "connectors" | null>(null);
+  const [activeSubmenu, setActiveSubmenu] = useState<PlusSubpanel>(null);
   const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
+  const [skillChips, setSkillChips] = useState<ComposerChip[]>([]);
+  const [kbChips, setKbChips] = useState<ComposerChip[]>([]);
+  const [connectorChips, setConnectorChips] = useState<ComposerChip[]>([]);
+  const [expertId, setExpertId] = useState(DEFAULT_EXPERT_ID);
   const [dragging, setDragging] = useState(false);
-  const [modelTier, setModelTier] = useState(() => localStorage.getItem("composer:model-tier") || "balanced");
-  const [hintIndex, setHintIndex] = useState(0);
+  const [modelTier, setModelTier] = useState(readModelTier);
   const [focused, setFocused] = useState(false);
+  const [composing, setComposing] = useState(false);
   const { debug } = useViewMode();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const imageRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const onKnowledgeChangeRef = useRef(onKnowledgeChange);
   const lockSourceRef = useRef<"auto" | "explicit" | null>(lockedKnowledgeId ? "explicit" : null);
@@ -215,6 +235,28 @@ export default function ComposerDock({
       .catch(() => {
         if (!cancelled) setTemplates([]);
       });
+    Promise.all([
+      fetch("/api/knowledge").then((r) => r.ok ? r.json() : []),
+      fetch("/api/knowledge/market").then((r) => r.ok ? r.json() : []).catch(() => []),
+    ]).then(([mine, market]) => {
+      if (cancelled) return;
+      const rows = [...(Array.isArray(mine) ? mine : []), ...(Array.isArray(market) ? market : [])] as KnowledgeRow[];
+      const map = new Map<string, KnowledgeLib>();
+      for (const row of rows) {
+        if (!row?.id || row.status && row.status !== "published") continue;
+        if (row.cited === false) continue;
+        if (!row.cited && row.kind === "mail_template") continue;
+        const title = String(row.title || row.id);
+        map.set(row.id, {
+          id: row.id,
+          title,
+          shortName: title.length > 8 ? `${title.slice(0, 8)}…` : title,
+        });
+      }
+      setKnowledgeLibs([...map.values()]);
+    }).catch(() => {
+      if (!cancelled) setKnowledgeLibs([]);
+    });
     return () => {
       cancelled = true;
     };
@@ -243,14 +285,26 @@ export default function ComposerDock({
   useEffect(() => {
     void Promise.all([
       fetch("/api/connectors").then((r) => r.ok ? r.json() : []),
+      api.starryBinding().catch(() => ({ bound: false, status: "unbound" } as StarryBinding)),
       fetch("/api/projects").then((r) => r.ok ? r.json() : []),
       fetch("/api/files/recent?limit=12").then((r) => r.ok ? r.json() : []),
-    ]).then(([connectorRows, projectRows, fileRows]) => {
+    ]).then(([connectorRows, binding, projectRows, fileRows]) => {
       if (Array.isArray(connectorRows)) {
-        setConnectors(connectorRows.filter((row) => row.id).map((row) => ({
-          id: String(row.id),
-          label: row.label || row.name || String(row.id),
-        })));
+        const mapped = preferCanonicalConnectors(
+          connectorRows
+            .filter((row: { id?: string }) => row.id)
+            .map((row: Record<string, unknown>) => {
+              const id = String(row.id);
+              const status = connectorUseStatus(id, binding);
+              return {
+                id,
+                label: connectorUseLabel(id, row.label || row.name),
+                access: connectorUseAccess(row.access),
+                expired: status.key === "expired",
+              } satisfies ConnectorDto;
+            }),
+        );
+        setConnectors(mapped);
       }
       if (Array.isArray(projectRows)) setProjects(projectRows);
       if (Array.isArray(fileRows)) setRecentFiles(fileRows);
@@ -282,27 +336,20 @@ export default function ComposerDock({
   useEffect(() => {
     const textarea = inputRef.current;
     if (!textarea) return;
-    if (variant === "workspace") {
-      textarea.style.height = "auto";
-      textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, 40), 220)}px`;
-      return;
-    }
-    textarea.style.height = "0";
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`;
+    textarea.style.height = "auto";
+    const min = variant === "workspace" ? 24 : 20;
+    textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, min), 220)}px`;
   }, [value, variant]);
 
   useEffect(() => {
-    if (variant !== "workspace" || value.trim() || focused) return;
-    const timer = window.setInterval(() => {
-      setHintIndex((current) => (current + 1) % WORKSPACE_PLACEHOLDERS.length);
-    }, 7000);
-    return () => window.clearInterval(timer);
-  }, [variant, value, focused]);
+    const sync = () => setModelTier(readModelTier());
+    window.addEventListener(MODEL_TIER_EVENT, sync);
+    return () => window.removeEventListener(MODEL_TIER_EVENT, sync);
+  }, []);
 
   useEffect(() => {
     if (!skills.length) return;
     refreshAt(value);
-    // Re-open the picker once the catalog arrives if the user already typed / or @.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skills]);
 
@@ -319,18 +366,132 @@ export default function ComposerDock({
       }
     }, 350);
     return () => window.clearTimeout(delay);
-    // Apply when a template draft lands on the home composer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoFocus, autoFocusToken]);
 
-  const selected = skills.filter((s) => {
-    const names = [labelOf(s), ...(s.aliases || [])];
-    return names.some((n) => value.includes(`/${n}`) || value.includes(`@${n}`) || value.includes(n));
-  });
-  const lockedSkill = lockedIntent ? skills.find((s) => s.id === lockedIntent) : undefined;
-  const chipSkills = lockedSkill && !selected.some((s) => s.id === lockedSkill.id)
-    ? [lockedSkill, ...selected]
-    : selected;
+  useEffect(() => {
+    const apply = (draft: ComposerDraftStash) => {
+      if (draft.text) onChange(draft.text);
+      if (draft.chips?.length) {
+        setSkillChips(draft.chips.filter((chip) => chip.kind === "skill"));
+        setKbChips(draft.chips.filter((chip) => chip.kind === "kb"));
+        setConnectorChips(draft.chips.filter((chip) => chip.kind === "connector"));
+        const expert = draft.chips.find((chip) => chip.kind === "expert");
+        if (expert) setExpertId(expert.id);
+      }
+      if (draft.attachments?.length) setAttachments(draft.attachments);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    };
+    const stashed = peekComposerDraft();
+    if (stashed) {
+      apply(takeComposerDraftStash() || stashed);
+    }
+    const onDraft = (event: Event) => {
+      const draft = (event as CustomEvent<ComposerDraftStash>).detail;
+      if (draft) apply(draft);
+    };
+    window.addEventListener(COMPOSER_DRAFT_EVENT, onDraft);
+    return () => window.removeEventListener(COMPOSER_DRAFT_EVENT, onDraft);
+    // Apply a stashed draft once on mount; parent text remains the source of truth after that.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const lockedSkill = lockedIntent && lockedIntent !== DISCOVERY_INTENT
+    ? skills.find((s) => s.id === lockedIntent) || (lockedIntent ? {
+      id: lockedIntent,
+      title: lockedLabel || lockedIntent,
+      label: lockedLabel || lockedIntent,
+    } : undefined)
+    : undefined;
+
+  const railChips = useMemo(() => {
+    const chips: ComposerChip[] = [];
+    if (entryIntent === "discover" || lockedIntent === DISCOVERY_INTENT || discoveryBrief) {
+      chips.push({
+        kind: "discovery",
+        id: DISCOVERY_INTENT,
+        label: lockedLabel || DISCOVERY_LOCK_LABEL,
+      });
+    }
+    const seenSkills = new Set<string>();
+    for (const chip of skillChips) {
+      if (seenSkills.has(chip.id)) continue;
+      seenSkills.add(chip.id);
+      chips.push(chip);
+    }
+    if (lockedSkill && !seenSkills.has(lockedSkill.id)) {
+      chips.push({
+        kind: "skill",
+        id: lockedSkill.id,
+        label: lockedLabel || labelOf(lockedSkill),
+        write: isWriteSkill(lockedSkill),
+      });
+    }
+    if (lockedKnowledgeId) {
+      const title = lockedTemplate?.title || templates.find((row) => row.id === lockedKnowledgeId)?.title || "资料";
+      chips.push({
+        kind: "kb",
+        id: lockedKnowledgeId,
+        label: title.length > 8 ? `${title.slice(0, 8)}…` : title,
+      });
+    }
+    for (const chip of kbChips) {
+      if (chip.id === lockedKnowledgeId) continue;
+      chips.push(chip);
+    }
+    if (expertId !== DEFAULT_EXPERT_ID) {
+      chips.push({ kind: "expert", id: expertId, label: expertChipLabel(expertId) });
+    }
+    chips.push(...connectorChips);
+    for (const file of attachments) {
+      chips.push({
+        kind: "attachment",
+        id: file.path,
+        label: file.name,
+        path: file.path,
+        size: file.size,
+        type: file.type,
+      });
+    }
+    if (selectedProject) {
+      chips.push({ kind: "project", id: selectedProject.id, label: selectedProject.label });
+    }
+    for (const ref of objectRefs) {
+      chips.push({
+        kind: "object",
+        id: ref.id,
+        label: ref.label || ref.id,
+        objectKind: ref.kind,
+      });
+    }
+    for (const chip of contextChips || []) {
+      if (chips.some((item) => item.id === chip.id && item.kind === "object")) continue;
+      chips.push({
+        kind: "object",
+        id: chip.id,
+        label: chip.label,
+        objectKind: "context",
+      });
+    }
+    return chips;
+  }, [
+    attachments,
+    connectorChips,
+    contextChips,
+    discoveryBrief,
+    entryIntent,
+    expertId,
+    kbChips,
+    lockedIntent,
+    lockedKnowledgeId,
+    lockedLabel,
+    lockedSkill,
+    lockedTemplate,
+    objectRefs,
+    selectedProject,
+    skillChips,
+    templates,
+  ]);
 
   const filtered = skills.filter((s) => {
     const q = query.trim().toLowerCase();
@@ -382,27 +543,44 @@ export default function ComposerDock({
     setPicker(true);
   };
 
+  const closePlus = () => {
+    setPlusOpen(false);
+    setActiveSubmenu(null);
+  };
+
+  const focusEditor = (pos?: number) => {
+    requestAnimationFrame(() => {
+      const node = inputRef.current;
+      if (!node) return;
+      node.focus();
+      const at = pos ?? node.value.length;
+      node.setSelectionRange(at, at);
+    });
+  };
+
+  const addSkillChip = (s: SkillOption, rest = value) => {
+    setSkillChips((current) => {
+      if (current.some((chip) => chip.id === s.id)) return current;
+      if (current.length >= COMPOSER_MAX_SKILL_CHIPS) return current;
+      return [...current, { kind: "skill", id: s.id, label: labelOf(s), write: isWriteSkill(s) }];
+    });
+    onPickSkill?.(s, { mention: labelOf(s), rest });
+    closePlus();
+    setPicker(false);
+    setQuery("");
+    focusEditor();
+  };
+
   const pickSkill = (s: SkillOption) => {
-    const lab = labelOf(s);
-    const mention = `${triggerMark}${lab}`;
     const el = inputRef.current;
     const caret = el?.selectionStart ?? value.length;
     const before = value.slice(0, atStart);
     const after = value.slice(caret);
-    const next = `${before}${mention} ${after}`.replace(/\s+/g, " ").trimStart();
+    const next = `${before}${after}`.replace(/\s+/g, " ").trimStart();
     onChange(next);
     lockSourceRef.current = null;
     onKnowledgeChange?.(null);
-    setPicker(false);
-    setQuery("");
-    onPickSkill?.(s, { mention, rest: `${before} ${after}`.replace(/\s+/g, " ").trim() });
-    requestAnimationFrame(() => {
-      const node = inputRef.current;
-      if (!node) return;
-      const pos = (before + mention + " ").length;
-      node.focus();
-      node.setSelectionRange(pos, pos);
-    });
+    addSkillChip(s, next);
   };
 
   const pickTemplate = (row: KnowledgeRow) => {
@@ -421,30 +599,22 @@ export default function ComposerDock({
     });
   };
 
-  const pickConnector = (connector: { id: string; label: string }) => {
-    const mention = `@${connector.label}`;
-    const el = inputRef.current;
-    const caret = el?.selectionStart ?? value.length;
-    const before = value.slice(0, atStart);
-    const after = value.slice(caret);
-    onChange(`${before}${mention} ${after}`.replace(/\s+/g, " ").trimStart());
+  const pickConnector = (connector: ConnectorDto) => {
+    if (connector.expired) return;
+    setConnectorChips((current) => (
+      current.some((chip) => chip.id === connector.id)
+        ? current
+        : [...current, { kind: "connector", id: connector.id, label: connector.label, access: connector.access }]
+    ));
     setPicker(false);
-    requestAnimationFrame(() => inputRef.current?.focus());
-  };
-
-  const appendMention = (mention: string) => {
-    const prefix = `${value}${value && !value.endsWith(" ") ? " " : ""}`;
-    onChange(`${prefix}${mention} `);
-    setPlusOpen(false);
-    setActiveSubmenu(null);
-    requestAnimationFrame(() => inputRef.current?.focus());
+    closePlus();
+    focusEditor();
   };
 
   const reuseRecentFile = (file: AttachmentRef & { available?: boolean }) => {
     if (file.available === false) return;
     setAttachments((current) => current.some((item) => item.path === file.path) ? current : [...current, file]);
-    setPlusOpen(false);
-    setActiveSubmenu(null);
+    closePlus();
   };
 
   const attachFiles = async (files: FileList | File[] | null) => {
@@ -471,12 +641,46 @@ export default function ComposerDock({
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
+      if (imageRef.current) imageRef.current.value = "";
     }
   };
 
-  const openToolbarMenu = (submenu: "projects" | "skills" | "connectors") => {
-    setPlusOpen(true);
-    setActiveSubmenu(submenu);
+  const removeChip = (chip: ComposerChip) => {
+    if (chip.kind === "skill") {
+      setSkillChips((current) => current.filter((item) => item.id !== chip.id));
+      return;
+    }
+    if (chip.kind === "kb") {
+      setKbChips((current) => current.filter((item) => item.id !== chip.id));
+      if (chip.id === lockedKnowledgeId) {
+        lockSourceRef.current = null;
+        onKnowledgeChange?.(null);
+      }
+      return;
+    }
+    if (chip.kind === "expert") {
+      setExpertId(DEFAULT_EXPERT_ID);
+      return;
+    }
+    if (chip.kind === "connector") {
+      setConnectorChips((current) => current.filter((item) => item.id !== chip.id));
+      return;
+    }
+    if (chip.kind === "attachment") {
+      setAttachments((current) => current.filter((item) => item.path !== chip.id));
+      return;
+    }
+    if (chip.kind === "project") {
+      setSelectedProject(null);
+      return;
+    }
+    if (chip.kind === "object") {
+      onObjectRefsChange?.(objectRefs.filter((item) => item.id !== chip.id));
+      return;
+    }
+    if (chip.kind === "discovery") {
+      onClearDiscoveryLock?.();
+    }
   };
 
   const setComposerFocus = (next: boolean) => {
@@ -484,35 +688,58 @@ export default function ComposerDock({
     onFocusChange?.(next);
   };
 
-  const intent = lockedIntent || undefined;
+  const intent = entryIntent !== "free" ? entryIntent : undefined;
   const lockedRow = templates.find((row) => row.id === lockedKnowledgeId);
   const previewTitle = lockedRow?.title || lockedTemplate?.title || "";
   const previewSubject = lockedRow?.subject || lockedTemplate?.subject || "";
   const previewBody = lockedRow?.body_en || lockedRow?.body || lockedTemplate?.body_en || "";
   const previewExcerpt = templateBodyExcerpt(previewBody);
   const bodyInComposer = composerHoldsTemplateBody(value, previewBody);
-  const discoveryLocked = lockedIntent === DISCOVERY_INTENT || Boolean(discoveryBrief);
+  const discoveryLocked = entryIntent === "discover" || lockedIntent === DISCOVERY_INTENT || Boolean(discoveryBrief);
+  const discoveryReady = Boolean(discoveryBrief && canSubmitDiscovery(discoveryBrief));
   const discoveryBlocked = Boolean(discoveryBrief && !canSubmitDiscovery(discoveryBrief));
-  const empty = !value.trim() && attachments.length === 0 && !selectedProject;
+  const canSend = Boolean(
+    value.trim()
+    || attachments.length
+    || discoveryReady
+    || skillChips.length
+    || lockedSkill
+  );
   const busy = disabled || uploading;
-  const sendDisabled = busy || empty || discoveryBlocked;
+  const sendDisabled = !running && (busy || !canSend || discoveryBlocked);
   const workspace = variant === "workspace";
-  const placeholder = (hint && !value.trim())
-    ? hint
-    : workspace
-      ? (value.trim() ? WORKSPACE_PLACEHOLDERS[0] : WORKSPACE_PLACEHOLDERS[hintIndex])
-      : PLACEHOLDER;
+  const placeholder = hint && !value.trim() ? hint : COMPOSER_PLACEHOLDER;
+  const sendState = running ? "stop" : canSend && !sendDisabled ? "ready" : "idle";
 
   const submit = () => {
-    if (sendDisabled) return;
-    const text = value.trim() || attachments.map((a) => a.name).join("、") || selectedProject?.label || "";
+    if (running || sendDisabled) return;
+    const text = value.trim()
+      || attachments.map((a) => a.name).join("、")
+      || railChips.filter((chip) => chip.kind === "skill").map((chip) => chip.label).join("、")
+      || "";
+    const scope: ComposerScope = {
+      skills: railChips.filter((chip) => chip.kind === "skill").map((chip) => chip.id),
+      knowledge_bases: railChips.filter((chip) => chip.kind === "kb").map((chip) => chip.id),
+      expert_id: expertId,
+      connectors: connectorChips
+        .filter((chip): chip is Extract<ComposerChip, { kind: "connector" }> => chip.kind === "connector")
+        .map((chip) => ({
+          id: chip.id,
+          label: chip.label,
+          access: chip.access || "write",
+        })),
+      intent: entryIntent,
+    };
     onSubmit({
       text,
       intent,
       collaboration_id: selectedProject?.id,
-      knowledge_id: lockedKnowledgeId || undefined,
+      knowledge_id: lockedKnowledgeId || kbChips[0]?.id || undefined,
       model_tier: modelTier,
       attachments: attachments.length ? attachments : undefined,
+      scope,
+      object_refs: objectRefs,
+      client_entry: clientEntryFor(entryIntent),
     });
     setAttachments([]);
     setSelectedProject(null);
@@ -520,11 +747,22 @@ export default function ComposerDock({
     setAttachErr("");
   };
 
+  const shellClass = [
+    "composer",
+    workspace ? "composer--workspace" : "",
+    placement === "hero" ? "composer--hero" : "",
+    placement === "dock" || (workspace && placement !== "hero") ? "composer--dock" : "",
+    plusOpen ? "is-plus-open" : "",
+    focused ? "is-focused" : "",
+    running ? "is-streaming" : "",
+  ].filter(Boolean).join(" ");
+
   return (
     <div
       className={"composer-dock" + (dragging ? " is-dragging" : "") + (workspace ? " composer-dock--workspace" : "")}
       data-composer
       data-composer-size={variant}
+      data-composer-placement={placement || (workspace ? "dock" : "compact")}
       data-composer-running={running ? "true" : undefined}
       data-composer-hint={hint || undefined}
       data-composer-discovery={discoveryLocked ? "true" : undefined}
@@ -576,7 +814,7 @@ export default function ComposerDock({
               onClick={() => pickSkill(s)}
             >
               <span className="skill-option-label">{labelOf(s)}</span>
-              <span className="skill-option-id">技能</span>
+              <span className="skill-option-id">{isWriteSkill(s) ? "需确认" : "技能"}</span>
             </button>
           ))}
         </div>
@@ -586,114 +824,6 @@ export default function ComposerDock({
           {DISCOVERY_CHIP_OVERRIDE_HINT}
         </p>
       ) : null}
-      {(chipSkills.length > 0 || attachments.length > 0 || selectedProject || lockedKnowledgeId || discoveryBrief || (contextChips && contextChips.length > 0)) && (
-        <div className="composer-chips">
-          {(contextChips || []).map((chip) => (
-            <span key={chip.id + chip.label} className="skill-chip" data-composer-draft-chip={chip.id}>
-              {chip.label}
-            </span>
-          ))}
-          {discoveryLocked ? (
-            <span className="skill-chip" data-skill-chip={DISCOVERY_INTENT} data-discovery-lock-chip>
-              {lockedLabel || DISCOVERY_LOCK_LABEL}
-              <button
-                type="button"
-                className="chip-x"
-                aria-label="移除发现任务模板"
-                data-discovery-clear-lock
-                onClick={() => onClearDiscoveryLock?.()}
-              >
-                ×
-              </button>
-            </span>
-          ) : null}
-          {discoveryBrief ? (
-            <>
-              {discoveryBrief.platforms.map((code) => (
-                <span key={`p-${code}`} className="skill-chip" data-discovery-chip={code}>
-                  {platformLabel(code, discoveryCatalog?.platforms)}
-                  <button
-                    type="button"
-                    className="chip-x"
-                    aria-label={`移除平台 ${platformLabel(code, discoveryCatalog?.platforms)}`}
-                    onClick={() => onDiscoveryBriefChange?.({
-                      ...discoveryBrief,
-                      platforms: discoveryBrief.platforms.filter((item) => item !== code),
-                    })}
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-              <span className="skill-chip" data-discovery-chip={discoveryBrief.region}>
-                {regionLabel(discoveryBrief.region, discoveryCatalog?.regions)}
-                <button
-                  type="button"
-                  className="chip-x"
-                  aria-label={`移除地区 ${regionLabel(discoveryBrief.region, discoveryCatalog?.regions)}`}
-                  onClick={() => onDiscoveryBriefChange?.({ ...discoveryBrief, region: "global_en" })}
-                >
-                  ×
-                </button>
-              </span>
-              {discoveryBrief.directions.map((code) => (
-                <span key={`d-${code}`} className="skill-chip" data-discovery-chip={code}>
-                  {directionLabel(code, discoveryCatalog?.directions)}
-                  <button
-                    type="button"
-                    className="chip-x"
-                    aria-label={`移除方向 ${directionLabel(code, discoveryCatalog?.directions)}`}
-                    onClick={() => {
-                      const next = toggleDirection(discoveryBrief.directions, code).directions;
-                      onDiscoveryBriefChange?.({
-                        ...discoveryBrief,
-                        directions: next,
-                        keywords: keywordsForDirections(next, discoveryCatalog?.directions || undefined),
-                      });
-                    }}
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </>
-          ) : null}
-          {chipSkills.filter((s) => s.id !== DISCOVERY_INTENT).map((s) => (
-            <span key={s.id} className={"skill-chip" + (isQuietSkill(s) ? " skill-chip--quiet" : "")} data-skill-chip={s.id}>
-              {value.includes(`/${labelOf(s)}`) ? "/" : value.includes(`@${labelOf(s)}`) ? "@" : ""}
-              {s.id === "email_compose" && (lockedLabel === "写合作邮件" || value.includes("写合作邮件"))
-                ? "写合作邮件"
-                : s.id === lockedIntent ? (lockedLabel || labelOf(s)) : labelOf(s)}
-            </span>
-          ))}
-          {lockedKnowledgeId && (
-            <span className="skill-chip" data-knowledge-chip={lockedKnowledgeId}>
-              本封按「{previewTitle || "已启用模板"}」
-            </span>
-          )}
-          {attachments.map((a) => (
-            <span key={a.path} className="attachment-card" data-attachment-name={a.name} title={a.path}>
-              <span className="attachment-icon" aria-hidden>▧</span>
-              <span className="attachment-meta"><strong>{a.name}</strong><small>{a.type || "文件"}{a.size ? ` · ${formatSize(a.size)}` : ""} · 已上传</small></span>
-              <button
-                type="button"
-                className="chip-x"
-                aria-label={`移除 ${a.name}`}
-                onClick={() => setAttachments((cur) => cur.filter((x) => x.path !== a.path))}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-          {selectedProject && (
-            <span className="project-chip" data-project-id={selectedProject.id}>
-              <span aria-hidden>▱</span>
-              <span><strong>{selectedProject.label}</strong><small>已添加到项目</small></span>
-              <button type="button" className="chip-x" aria-label={`移除项目 ${selectedProject.label}`} onClick={() => setSelectedProject(null)}>×</button>
-            </span>
-          )}
-        </div>
-      )}
       {discoveryBrief ? (
         <DiscoveryConditionEditor
           brief={discoveryBrief}
@@ -770,17 +900,27 @@ export default function ComposerDock({
         </div>
       ) : null}
       <form
-        className={"composer" + (workspace ? " composer--workspace" : "")}
+        className={shellClass}
         onSubmit={(e) => {
           e.preventDefault();
           submit();
         }}
       >
+        <ChipRail chips={railChips} onRemove={removeChip} />
         <input
           ref={fileRef}
           type="file"
           hidden
           data-attach-input
+          multiple
+          onChange={(e) => attachFiles(e.target.files)}
+        />
+        <input
+          ref={imageRef}
+          type="file"
+          hidden
+          accept="image/*"
+          data-attach-image
           multiple
           onChange={(e) => attachFiles(e.target.files)}
         />
@@ -790,15 +930,23 @@ export default function ComposerDock({
           data-ai-prompt-textarea
           data-composer-hint={hint || undefined}
           aria-busy={busy || undefined}
+          readOnly={Boolean(running)}
           value={value}
           onChange={(e) => {
             onChange(e.target.value);
             refreshAt(e.target.value, e.target.selectionStart ?? e.target.value.length);
           }}
+          onCompositionStart={() => setComposing(true)}
+          onCompositionEnd={() => setComposing(false)}
           onKeyUp={() => refreshAt(value)}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               setPicker(false);
+              return;
+            }
+            if (e.key === "Backspace" && !value && railChips.length && !composing) {
+              e.preventDefault();
+              removeChip(railChips[railChips.length - 1]);
               return;
             }
             if (e.key === "Enter" && picker && (filtered.length || filteredTemplates.length || filteredConnectors.length)) {
@@ -806,6 +954,11 @@ export default function ComposerDock({
               if (triggerMark === "@" && filteredConnectors.length) pickConnector(filteredConnectors[0]);
               else if (filteredTemplates.length) pickTemplate(filteredTemplates[0]);
               else if (filtered.length) pickSkill(filtered[0]);
+              return;
+            }
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && !composing && !picker) {
+              e.preventDefault();
+              submit();
             }
           }}
           onFocus={() => {
@@ -823,161 +976,105 @@ export default function ComposerDock({
               void attachFiles(files);
             }
           }}
-          rows={workspace ? 2 : 1}
+          rows={1}
           placeholder={placeholder}
           aria-label="发消息或创建任务"
         />
-        <div className={workspace ? "composer-toolbar" : "composer-inline-tools"} data-ai-prompt-tools>
-        <div className="composer-add-wrap" ref={menuRef}>
-        <button
-          type="button"
-          className={"composer-plus" + (plusOpen ? " is-selected" : "")}
-          data-attach
-          aria-label="添加资料"
-          title="添加资料"
-          disabled={busy}
-          aria-expanded={plusOpen}
-          onClick={() => {
-            setPlusOpen((v) => !v);
-            setActiveSubmenu(null);
-          }}
-        >
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
-            {workspace ? (
-              <path
-                d="M12 5v14M5 12h14"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-              />
-            ) : (
-              <path
-                d="M16.5 6.5v9.2a4.5 4.5 0 0 1-9 0V7.2a3 3 0 0 1 6 0v8.1a1.5 1.5 0 0 1-3 0V8"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.7"
-                strokeLinecap="round"
-              />
-            )}
-          </svg>
-        </button>
-        {workspace && (
-          <>
+        <div className="composer-toolbar" data-ai-prompt-tools>
+          <div className="composer-add-wrap" ref={menuRef}>
             <button
               type="button"
-              className={"composer-tool" + (activeSubmenu === "projects" ? " is-selected" : "")}
-              data-composer-tool="project"
-              aria-label="项目"
-              aria-pressed={activeSubmenu === "projects"}
-              onClick={() => openToolbarMenu("projects")}
+              className={"composer-plus" + (plusOpen ? " is-selected" : "")}
+              data-attach
+              aria-label="添加资料"
+              title="添加资料"
+              disabled={busy || running}
+              aria-expanded={plusOpen}
+              onClick={() => {
+                setPlusOpen((v) => !v);
+                setActiveSubmenu(null);
+              }}
             >
-              <svg className="composer-tool-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden>
-                <path d="M3.5 7.5h6l1.5 2h9v9a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2zM3.5 7.5v-1a2 2 0 0 1 2-2h4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden>
+                <path
+                  d="M12 5v14M5 12h14"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
               </svg>
-              <span className="composer-tool-label">项目</span>
             </button>
-            <button
-              type="button"
-              className={"composer-tool" + (activeSubmenu === "skills" ? " is-selected" : "")}
-              data-composer-tool="skills"
-              aria-label="技能"
-              aria-pressed={activeSubmenu === "skills"}
-              onClick={() => openToolbarMenu("skills")}
-            >
-              <svg className="composer-tool-icon" viewBox="0 0 24 24" width="14" height="14" aria-hidden>
-                <path d="M5 5h5v5H5zm9 0h5v5h-5zM5 14h5v5H5zm9 0h5v5h-5z" fill="none" stroke="currentColor" strokeWidth="1.6" />
-              </svg>
-              <span className="composer-tool-label">技能</span>
-            </button>
-          </>
-        )}
-        {plusOpen && (
-          <div className="menu-popover composer-add-menu cascade-menu" role="menu" aria-label="添加内容">
-            <MenuButton icon="upload" label="上传文件" onClick={() => { setPlusOpen(false); fileRef.current?.click(); }} />
-            <MenuButton icon="project" label="添加到项目" arrow onActivate={() => setActiveSubmenu("projects")} />
-            <MenuButton icon="recent" label="最近的文件" arrow onActivate={() => setActiveSubmenu("recent")} />
-            <div className="menu-divider" />
-            <MenuButton icon="skills" label="技能" arrow onActivate={() => setActiveSubmenu("skills")} />
-            {onOpenDiscoveryTemplate ? (
-              <MenuButton
-                icon="skills"
-                label="发现任务"
-                onClick={() => {
-                  setPlusOpen(false);
-                  setActiveSubmenu(null);
-                  onOpenDiscoveryTemplate();
+            <PlusMenu
+              open={plusOpen}
+              submenu={activeSubmenu}
+              onSubmenu={setActiveSubmenu}
+              onClose={closePlus}
+              onUploadFile={() => fileRef.current?.click()}
+              onUploadImage={() => imageRef.current?.click()}
+              onOpenDiscovery={onOpenDiscoveryTemplate}
+              onPickSkill={(skill) => addSkillChip(skill)}
+              onPickKb={(row) => {
+                setKbChips((current) => (
+                  current.some((chip) => chip.id === row.id)
+                    ? current
+                    : [...current, { kind: "kb", id: row.id, label: row.shortName }]
+                ));
+                closePlus();
+                focusEditor();
+              }}
+              onPickConnector={pickConnector}
+              onPickExpert={(id) => {
+                setExpertId(id);
+                closePlus();
+                focusEditor();
+              }}
+              onPickProject={(project) => {
+                setSelectedProject(project);
+                closePlus();
+                focusEditor();
+              }}
+              onReuseFile={reuseRecentFile}
+              skills={skills}
+              knowledgeLibs={knowledgeLibs}
+              connectors={connectors}
+              recentFiles={recentFiles}
+              projects={projects}
+              selectedSkillIds={skillChips.map((chip) => chip.id)}
+              expertId={expertId}
+            />
+          </div>
+          <div className="composer-toolbar-end">
+            {running ? (
+              <button
+                className="btn send send-arrow is-stop"
+                type="button"
+                data-stop-run
+                data-send
+                data-send-state="stop"
+                aria-label="停止生成"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onStop?.();
                 }}
-              />
-            ) : null}
-            {activeSubmenu === "projects" && (
-              <CascadeSubmenu label="项目">
-                {projects.map((project) => (
-                  <button type="button" role="menuitem" key={project.id} onClick={() => {
-                    setSelectedProject(project);
-                    setPlusOpen(false);
-                    setActiveSubmenu(null);
-                  }}>
-                    <MenuIcon kind="project" /><span><strong>{project.label}</strong><small>{project.description}</small></span>
-                  </button>
-                ))}
-                {!projects.length && <p className="menu-empty">暂无可用项目</p>}
-              </CascadeSubmenu>
-            )}
-            {activeSubmenu === "recent" && (
-              <CascadeSubmenu label="最近的文件">
-                {recentFiles.map((file) => (
-                  <button type="button" role="menuitem" key={file.id || file.path} disabled={file.available === false} onClick={() => reuseRecentFile(file)}>
-                    <MenuIcon kind="recent" /><span><strong>{file.name}</strong><small>{file.type || "文件"}{file.size ? ` · ${formatSize(file.size)}` : ""}</small></span>
-                  </button>
-                ))}
-                {!recentFiles.length && <p className="menu-empty">暂无最近文件</p>}
-              </CascadeSubmenu>
-            )}
-            {activeSubmenu === "skills" && (
-              <CascadeSubmenu label="技能">
-                <div className="submenu-scroll">
-                  {skills.map((skill) => (
-                    <button type="button" role="menuitem" key={skill.id} onClick={() => appendMention(`/${labelOf(skill)}`)}>
-                      <MenuIcon kind="skills" /><span><strong>{labelOf(skill)}</strong>{debug ? <small>{skill.id}</small> : null}</span>
-                    </button>
-                  ))}
-                </div>
-              </CascadeSubmenu>
+              >
+                <span className="composer-stop-square" aria-hidden />
+              </button>
+            ) : (
+              <button
+                className={"btn send send-arrow" + (sendState === "ready" ? " is-ready" : " is-idle")}
+                type="submit"
+                data-send
+                data-ai-prompt-submit
+                data-send-state={sendState}
+                disabled={sendDisabled}
+                aria-label="发送"
+              >
+                <SendArrowIcon ready={sendState === "ready"} />
+              </button>
             )}
           </div>
-        )}
-        </div>
-        <span className="composer-toolbar-divider" data-composer-divider aria-hidden="true" />
-        <div className="composer-toolbar-end">
-        <label className="tier-control">
-          <span className="sr-only">模型档位</span>
-          <svg className="tier-control-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-            <path d="M13.2 2.8 5.5 13h5.1l-.8 8.2L17.5 11h-5.1l.8-8.2Z" />
-          </svg>
-          <select value={modelTier} onChange={(e) => { setModelTier(e.target.value); localStorage.setItem("composer:model-tier", e.target.value); }} aria-label="模型档位">
-            <option value="fast">快速</option><option value="balanced">均衡</option><option value="quality">高质量</option>
-          </select>
-        </label>
-        {running ? (
-          <button
-            className="btn ghost composer-stop"
-            type="button"
-            data-stop-run
-            aria-label="停止生成"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onStop?.();
-            }}
-          >
-            停止
-          </button>
-        ) : null}
-        <button className={"btn send" + (workspace ? " send-arrow" : "")} type="submit" data-send data-ai-prompt-submit disabled={sendDisabled} aria-label={running ? "加入队列" : "发送"}>
-          {workspace ? <SendArrowIcon ready={!busy && !empty} /> : "发送"}
-        </button>
-        </div>
         </div>
       </form>
       <span className="sr-only" role="status">{uploading ? "正在上传附件" : attachErr || ""}</span>
@@ -987,7 +1084,7 @@ export default function ComposerDock({
 
 function SendArrowIcon({ ready }: { ready: boolean }) {
   return (
-    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden data-send-arrow={ready ? "ready" : "idle"}>
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden data-send-arrow={ready ? "ready" : "idle"}>
       <path
         d="M12 19V6m0 0-5.5 5.5M12 6l5.5 5.5"
         fill="none"
@@ -997,59 +1094,6 @@ function SendArrowIcon({ ready }: { ready: boolean }) {
         strokeLinejoin="round"
       />
     </svg>
-  );
-}
-
-type MenuKind = "upload" | "project" | "recent" | "skills" | "connector";
-
-function MenuIcon({ kind }: { kind: MenuKind }) {
-  const paths: Record<MenuKind, string> = {
-    upload: "M12 16V5m0 0-4 4m4-4 4 4M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4",
-    project: "M3.5 7.5h6l1.5 2h9v9a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2zM3.5 7.5v-1a2 2 0 0 1 2-2h4",
-    recent: "M5 6.5h11a2 2 0 0 1 2 2v11H7a2 2 0 0 1-2-2zm7 3v4l3 2",
-    skills: "M5 5h5v5H5zm9 0h5v5h-5zM5 14h5v5H5zm9 0h5v5h-5z",
-    connector: "M7 4v4m-2-2h4m8 10v4m-2-2h4M9 6h4a4 4 0 0 1 4 4v6M15 18h-4a4 4 0 0 1-4-4v-4",
-  };
-  return (
-    <svg className="cascade-icon" viewBox="0 0 24 24" aria-hidden>
-      <path d={paths[kind]} fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function MenuButton({
-  icon,
-  label,
-  arrow,
-  onClick,
-  onActivate,
-}: {
-  icon: MenuKind;
-  label: string;
-  arrow?: boolean;
-  onClick?: () => void;
-  onActivate?: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      onClick={onClick || onActivate}
-      onMouseEnter={onActivate}
-      onFocus={onActivate}
-    >
-      <MenuIcon kind={icon} />
-      <span>{label}</span>
-      {arrow && <span className="menu-arrow" aria-hidden>›</span>}
-    </button>
-  );
-}
-
-function CascadeSubmenu({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="menu-popover cascade-submenu" role="menu" aria-label={label}>
-      {children}
-    </div>
   );
 }
 
@@ -1138,10 +1182,4 @@ function DiscoveryConditionEditor({
       </div>
     </div>
   );
-}
-
-function formatSize(size: number) {
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
-  return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }

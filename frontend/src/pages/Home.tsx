@@ -14,6 +14,9 @@ import {
 } from "../api";
 import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
 import { storePending } from "../components/ChatBlocks";
+import ModelTierControl from "../composer/ModelTierControl";
+import { stashComposerDraft } from "../composer/draft";
+import type { ComposerEntryIntent, ComposerObjectRef } from "../composer/types";
 import Markdown from "../components/Markdown";
 import { starterPrompt } from "../taskStarters";
 import { recIcon, withRecommendedDisplay } from "../recommendedTasks";
@@ -336,6 +339,7 @@ export default function Home() {
       setLockedIntent(null);
       setLockedLabel(null);
     }
+    if (entryIntent === "discover") setEntryIntent("free");
   };
 
   const openDiscoveryTemplate = async () => {
@@ -353,10 +357,17 @@ export default function Home() {
       setText(template.body);
       setLockedIntent(DISCOVERY_INTENT);
       setLockedLabel(DISCOVERY_LOCK_LABEL);
+      setEntryIntent("discover");
       applyLockedKnowledge(null);
       setDiscoveryOverride(false);
       setComposerFocused(true);
       setDraftFocus((value) => value + 1);
+      stashComposerDraft({
+        text: template.body,
+        intent: "discover",
+        chips: [{ kind: "discovery", id: DISCOVERY_INTENT, label: DISCOVERY_LOCK_LABEL }],
+        client_entry: "start-crawl",
+      });
       if (mode !== "discovery") setMode("discovery");
     } catch {
       const template = fallbackDiscoveryTemplate();
@@ -370,10 +381,17 @@ export default function Home() {
       setText(template.body);
       setLockedIntent(DISCOVERY_INTENT);
       setLockedLabel(DISCOVERY_LOCK_LABEL);
+      setEntryIntent("discover");
       applyLockedKnowledge(null);
       setDiscoveryOverride(false);
       setComposerFocused(true);
       setDraftFocus((value) => value + 1);
+      stashComposerDraft({
+        text: template.body,
+        intent: "discover",
+        chips: [{ kind: "discovery", id: DISCOVERY_INTENT, label: DISCOVERY_LOCK_LABEL }],
+        client_entry: "start-crawl",
+      });
     }
   };
 
@@ -472,6 +490,10 @@ export default function Home() {
   const [discoveryOverride, setDiscoveryOverride] = useState(false);
   const [discoveryTaskId, setDiscoveryTaskId] = useState<string | null>(null);
   const [discoveryRunId, setDiscoveryRunId] = useState<string | null>(null);
+  const [entryIntent, setEntryIntent] = useState<ComposerEntryIntent>(
+    initialFill?.skill_id === DISCOVERY_INTENT ? "discover" : "free",
+  );
+  const [objectRefs, setObjectRefs] = useState<ComposerObjectRef[]>([]);
   const [lastDiscoverySubmit, setLastDiscoverySubmit] = useState<{
     brief: DiscoveryBrief;
     body: string;
@@ -1221,8 +1243,9 @@ export default function Home() {
 
   const onComposer = async (p: ComposerSubmit) => {
     const prompt = p.text.trim();
-    if (!prompt && !p.attachments?.length) return;
-    const intent = lockedIntent || p.intent;
+    const skillFromScope = p.scope?.skills?.[0];
+    if (!prompt && !p.attachments?.length && !skillFromScope) return;
+    const intent = lockedIntent || skillFromScope || p.intent;
     if (isAnalyzeEnqueuePrefill(prompt, intent)) {
       const people = analyzePeople.length ? analyzePeople : [];
       if (!people.length) {
@@ -1320,6 +1343,9 @@ export default function Home() {
         collaboration_id: p.collaboration_id,
         knowledge_id: knowledgeId,
         entities: p.entities,
+        scope: p.scope,
+        object_refs: p.object_refs,
+        client_entry: p.client_entry,
       });
       const resolution = recognized.resolution || {};
       const missing = resolution.missing_fields || [];
@@ -1523,6 +1549,8 @@ export default function Home() {
   const dueTodayCount = todoItems.filter((task) => openBucket(task) === "due_today").length;
   const awaitingApprovalCount = todoItems.filter((task) => isAwaitingApproval(task)).length;
   const todayCount = todayTodos.length;
+  const composerStreaming = busy || hasActiveRuns;
+  const composerHero = mode === "today" && todayCount === 0 && !composerStreaming;
   const recognizeSeconds = recognizeElapsedSeconds(recognizeStartedAt, recognizeNow);
   const recognizeOverdue = recognizeTimedOut(recognizeStartedAt, recognizeNow);
 
@@ -1563,6 +1591,7 @@ export default function Home() {
         "home-pane"
         + (composerFocused ? " is-composer-focused" : "")
         + (composerReading ? " is-composer-reading" : "")
+        + (composerHero ? " is-composer-hero" : " is-composer-dock")
       }
       data-home
       data-home-active-mode={mode}
@@ -1618,6 +1647,7 @@ export default function Home() {
                 >
                   <ChromeIco path="M12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7z M19.4 13a7.8 7.8 0 0 0 .1-2l2-1.2-2-3.4-2.2.6a8 8 0 0 0-1.7-1L15 4h-4l-.6 2a8 8 0 0 0-1.7 1l-2.2-.6-2 3.4 2 1.2a7.8 7.8 0 0 0 0 2l-2 1.2 2 3.4 2.2-.6a8 8 0 0 0 1.7 1l.6 2h4l.6-2a8 8 0 0 0 1.7-1l2.2.6 2-3.4z" />
                 </Link>
+                <ModelTierControl className="home-chrome-tier" />
             </div>
           </div>
           {mode === "today" ? <h1 data-home-title="today">{HOME_TODAY_TITLE}</h1> : null}
@@ -1898,15 +1928,17 @@ export default function Home() {
       </div>
 
       <div
-        className="home-composer-dock"
+        className={"home-composer-dock" + (composerHero ? " home-composer-dock--hero" : " home-composer-dock--dock")}
         data-home-entry={
           analyzeSurface || isAnalyzePrefill(text)
             ? "kol-analyze-enqueue"
             : (discoveryBrief || lockedIntent === DISCOVERY_INTENT ? "new-discovery" : "composer-analyze")
         }
+        data-composer-rhythm={composerHero ? "hero" : "dock"}
       >
         <ComposerDock
           variant="workspace"
+          placement={composerHero ? "hero" : "dock"}
           value={text}
           onChange={onComposerText}
           onSubmit={onComposer}
@@ -1928,7 +1960,59 @@ export default function Home() {
           onOpenDiscoveryTemplate={() => void openDiscoveryTemplate()}
           onClearDiscoveryLock={clearDiscoveryLock}
           contextChips={composerChips}
+          entryIntent={entryIntent}
+          objectRefs={objectRefs}
+          onObjectRefsChange={setObjectRefs}
         />
+        {composerHero ? (
+          <div className="home-composer-pills" data-home-composer-pills>
+            <button
+              type="button"
+              className="home-composer-pill"
+              data-home-pill="analyze"
+              onClick={() => {
+                setMode("lifecycle");
+                setEntryIntent("analyze_followed");
+                setText("分析跟进中的红人");
+                setLockedIntent(null);
+                setLockedLabel("分析跟进");
+                setComposerFocused(true);
+                setDraftFocus((value) => value + 1);
+                stashComposerDraft({
+                  text: "分析跟进中的红人",
+                  intent: "analyze_followed",
+                  client_entry: "enqueue-analyze",
+                });
+              }}
+            >
+              分析跟进
+            </button>
+            <button
+              type="button"
+              className="home-composer-pill"
+              data-home-pill="discover"
+              onClick={() => void openDiscoveryTemplate()}
+            >
+              开始发现
+            </button>
+            <button
+              type="button"
+              className="home-composer-pill"
+              data-home-pill="plan-today"
+              onClick={() => {
+                setMode("today");
+                setEntryIntent("free");
+                setText("安排今天");
+                setLockedIntent(null);
+                setLockedLabel("安排今天");
+                setComposerFocused(true);
+                setDraftFocus((value) => value + 1);
+              }}
+            >
+              安排今天
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {panelOpen && (
