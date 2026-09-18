@@ -51,7 +51,6 @@ export function stableExternalIdOf(source: Row | Json): {
     source.platform_creator_id,
     payload.platform_creator_id,
     payload.platformCreatorId,
-    payload.creator_id,
   );
   if (!platform || !creatorId) return null;
   return {

@@ -196,7 +196,24 @@ describe("discovery ingest vs exclusive claim", () => {
 
   it("refuses ingest without a stable external id and does not half-claim", async () => {
     const candidate = await readyCandidate();
-    getConn().prepare("UPDATE creator_candidates SET platform_creator_id='' WHERE id=?").run(candidate.id);
+    const row = getConn().prepare("SELECT payload, signals FROM creator_candidates WHERE id=?").get(candidate.id) as {
+      payload?: string;
+      signals?: string;
+    };
+    const strip = (raw: unknown) => {
+      try {
+        const parsed = JSON.parse(String(raw || "{}")) as Record<string, unknown>;
+        delete parsed.platform_creator_id;
+        delete parsed.platformCreatorId;
+        delete parsed.creator_id;
+        return JSON.stringify(parsed);
+      } catch {
+        return "{}";
+      }
+    };
+    getConn().prepare(
+      "UPDATE creator_candidates SET platform_creator_id='', payload=?, signals=? WHERE id=?",
+    ).run(strip(row.payload), strip(row.signals), candidate.id);
     const failed = await request("POST", `/api/discovery/candidates/${candidate.id}/ingest`, { confirmed: true });
     expect(failed.status).toBe(409);
     expect(failed.body.detail).toMatchObject({
