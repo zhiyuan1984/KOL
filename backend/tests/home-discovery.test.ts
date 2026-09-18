@@ -260,10 +260,24 @@ describe("POST /api/home/discovery/run lifecycle", () => {
       "crawl_idle",
     ]));
     const ingest = await request("POST", `/api/home/discovery/runs/${run.id}/ingest`);
-    expect(ingest.status).toBe(200);
+    expect(ingest.status).toBe(501);
     expect(ingest.body.executed).toBe(false);
     expect(ingest.body.starry_written).toBe(false);
+    expect(ingest.body.code).toBe("ingest_handoff");
     expect(String(ingest.body.message)).toMatch(/网关/);
+    expect(starryWrites().sends).toBe(before.sends);
+
+    const candidates = await request("GET", `/api/home/discovery/runs/${run.id}/candidates`);
+    const candidateId = String((candidates.body.candidates as Json[])[0].id);
+    const homeFollow = await request("POST", `/api/home/discovery/candidates/${candidateId}/follow`);
+    expect(homeFollow.status).toBe(403);
+    expect(homeFollow.body.code).toBe("home_discovery_follow_forbidden");
+    expect(homeFollow.body.collaboration_created).toBe(false);
+    const legacyFollow = await request("POST", `/api/discovery/candidates/${candidateId}/follow`);
+    expect(legacyFollow.status).toBe(403);
+    expect(legacyFollow.body.detail).toMatchObject({ code: "home_discovery_follow_forbidden" });
+    const collabsAfterFollow = Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations").get() as { n: number }).n);
+    expect(collabsAfterFollow).toBe(collabsBefore);
     expect(starryWrites().sends).toBe(before.sends);
   });
 

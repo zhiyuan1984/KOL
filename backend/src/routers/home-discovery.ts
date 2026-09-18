@@ -6,6 +6,7 @@ import {
   discoveryTemplate,
   getHomeDiscoveryRun,
   homeDiscoveryCandidateIngestPlaceholder,
+  homeDiscoveryFollowForbidden,
   homeDiscoveryIngestPlaceholder,
   ignoreHomeDiscoveryCandidate,
   listHomeDiscoveryCandidates,
@@ -60,7 +61,7 @@ homeDiscovery.post("/home/discovery/runs/:id/cancel", async (c) => {
 });
 
 homeDiscovery.post("/home/discovery/runs/:id/ingest", (c) => {
-  return c.json(homeDiscoveryIngestPlaceholder(c.req.param("id")));
+  return c.json(homeDiscoveryIngestPlaceholder(c.req.param("id")), 501);
 });
 
 homeDiscovery.post("/home/discovery/candidates/:id/ignore", (c) => {
@@ -68,5 +69,9 @@ homeDiscovery.post("/home/discovery/candidates/:id/ignore", (c) => {
 });
 
 homeDiscovery.post("/home/discovery/candidates/:id/ingest", (c) => {
-  return c.json(homeDiscoveryCandidateIngestPlaceholder(c.req.param("id")));
+  return c.json(homeDiscoveryCandidateIngestPlaceholder(c.req.param("id")), 501);
+});
+
+homeDiscovery.post("/home/discovery/candidates/:id/follow", (c) => {
+  return c.json(homeDiscoveryFollowForbidden(c.req.param("id")), 403);
 });

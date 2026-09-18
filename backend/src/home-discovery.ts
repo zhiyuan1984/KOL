@@ -1,6 +1,9 @@
 /**
  * Home AI Discovery harness — crawl job + discovery_brief.
- * Crawl complete writes CreatorCandidate only. No Starry write. No from-text.
+ * Crawl complete writes CreatorCandidate only. Idle does not write Starry.
+ * Follow on this path must not create Collaboration.
+ * Real POST /api/home/discovery/ingest (Starry + A.open) is owned elsewhere.
+ * No from-text. No LIVE send / stage / decrypt.
  */
 import { authDisabled, isAdmin, scopedUser } from "./auth.js";
 import { DEMO_USER } from "./config.js";
@@ -827,7 +830,7 @@ function onHomeCrawlSettled(job: Row): void {
       try {
         event(String(run.work_item_id || ""), "crawl_progress", "crawling", "采集结果已就绪");
         const counts = persistFilteredCandidates(run, job);
-        event(String(run.work_item_id || ""), "crawl_idle", "ranking", "采集空闲，候选人已入库线索");
+        event(String(run.work_item_id || ""), "crawl_idle", "ranking", "采集空闲，已写入 CreatorCandidate");
         track(rankHomeDiscoveryRun(getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(run.id) as Row, counts));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -1084,25 +1087,32 @@ export function ignoreHomeDiscoveryCandidate(id: string): Json {
   return publicCandidate(getConn().prepare("SELECT * FROM creator_candidates WHERE id=?").get(candidate.id) as Row);
 }
 
+const INGEST_HANDOFF = {
+  executed: false,
+  starry_written: false,
+  code: "ingest_handoff",
+  message: "入库由网关执行，本路径不写 Starry。采集完成只保留 CreatorCandidate。",
+} as const;
+
 export function homeDiscoveryIngestPlaceholder(id: string): Json {
   homeRunRow(id);
-  return {
-    executed: false,
-    starry_written: false,
-    message: "入库由网关执行：确认后写入红人档案（公海 A.open）。本路径不在采集空闲时写 Starry。领取跟进需另行 L3 确认，不在本 PR。",
-    next: "gateway.ingest → A.open；claim 不在本路径",
-    related: ["#171", "#172"],
-  };
+  return { ...INGEST_HANDOFF };
 }
 
 export function homeDiscoveryCandidateIngestPlaceholder(id: string): Json {
   homeCandidateRow(id);
+  return { ...INGEST_HANDOFF };
+}
+
+/** This path must not create Collaboration. Real ingest/claim is not owned here. */
+export function homeDiscoveryFollowForbidden(id: string): Json {
+  homeCandidateRow(id);
   return {
     executed: false,
+    collaboration_created: false,
     starry_written: false,
-    message: "入库由网关执行：确认后写入红人档案（公海 A.open）。采集完成只保留 CreatorCandidate。",
-    next: "gateway.ingest → A.open；claim 不在本路径",
-    related: ["#171", "#172"],
+    code: "home_discovery_follow_forbidden",
+    message: "本路径禁止 follow 创建 Collaboration。采集完成只保留 CreatorCandidate。",
   };
 }
 

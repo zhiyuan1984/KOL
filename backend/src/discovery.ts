@@ -308,6 +308,37 @@ function candidateRow(id: string): Row {
   return row;
 }
 
+/** Home discovery path: crawl → CreatorCandidate only. Follow must not create Collaboration. */
+function isHomeKindCandidate(candidate: Row): boolean {
+  if (candidate.run_id) {
+    const run = getConn().prepare("SELECT kind FROM discovery_runs WHERE id=?").get(candidate.run_id) as
+      | Row
+      | undefined;
+    if (run && String(run.kind || "") === "home") return true;
+  }
+  if (candidate.request_id) {
+    const request = getConn().prepare("SELECT scope FROM discovery_requests WHERE id=?").get(candidate.request_id) as
+      | Row
+      | undefined;
+    if (request) {
+      try {
+        const scope = JSON.parse(String(request.scope || "{}")) as { kind?: string };
+        if (String(scope.kind || "") === "home") return true;
+      } catch {
+        // ignore malformed scope
+      }
+    }
+  }
+  return false;
+}
+
+function rejectHomeDiscoveryFollow(): never {
+  throw new HttpFail(403, {
+    code: "home_discovery_follow_forbidden",
+    message: "本路径禁止 follow 创建 Collaboration。采集完成只保留 CreatorCandidate。",
+  });
+}
+
 function candidateReason(row: Row): string {
   const handle = String(row.handle || row.nickname || "").trim();
   const bits = [
@@ -1034,6 +1065,7 @@ function markCandidateFollowed(candidateId: string, collaborationId: string): vo
  */
 export async function followCandidate(id: string, input: Json = {}): Promise<Json> {
   const candidate = candidateRow(id);
+  if (isHomeKindCandidate(candidate)) rejectHomeDiscoveryFollow();
   const request = getConn().prepare("SELECT * FROM discovery_requests WHERE id=?").get(candidate.request_id) as
     | Row
     | undefined;
@@ -1260,6 +1292,14 @@ export async function followCandidatesBatch(input: Json = {}): Promise<Json> {
   const failed: Json[] = [];
 
   for (const candidate of candidates) {
+    if (isHomeKindCandidate(candidate)) {
+      failed.push(batchFailItem(
+        candidate,
+        "home_discovery_follow_forbidden",
+        "本路径禁止 follow 创建 Collaboration。采集完成只保留 CreatorCandidate。",
+      ));
+      continue;
+    }
     if (String(candidate.status) === "dismissed") {
       failed.push(batchFailItem(candidate, "candidate_dismissed", "已忽略的线索不能加入跟进。"));
       continue;
