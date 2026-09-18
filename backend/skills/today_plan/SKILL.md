@@ -17,9 +17,9 @@ auto_ok: false
 ---
 # 今日规划 today_plan
 
-Host 已锁定本 Skill。输入只有 CONTEXT 里的 **history / delta / now_counts**，不要读取 runner 的「最近 20 条 memory_entries」，也不要调用写工具。
+Host 已锁定本 Skill。CONTEXT.md 里的 **HOST PACK（history / delta / now_counts）只是输入**，不是 today_brief。禁止把 Host 文件或计数模板抄成 lead/sections。
 
-本轮是只读规划会话。禁止 follow / send / confirm-stage。禁止创建正式待办。Artifacts 不是正式状态。
+不要读取 runner 的「最近 20 条 memory_entries」，也不要调用写工具。本轮是只读规划会话。禁止 follow / send / confirm-stage。禁止创建正式待办。Artifacts 不是正式状态。
 
 ## 输入
 
@@ -30,16 +30,18 @@ Host 已锁定本 Skill。输入只有 CONTEXT 里的 **history / delta / now_co
 
 ## 输出
 
-只产出一份 `today_brief` JSON，字段：
+只产出一份 `today_brief` JSON。**模型必须自己写正文**：
 
-- `lead`：一句话今日要点。禁止把「处理」「待补阶段」写成主建议。
-- `stats`：与 now_counts 对齐的计数。
-- `primary`：今天唯一主建议。`verb` 只能是只读/恢复类：`retry_crawl` / `open_batch` / `analyze` / `open` / `approve`。发现批次且没有 person ID 时禁止 `follow`。
+- `lead`：一句话今日要点。禁止把「处理」「待补阶段」写成主建议。禁止写成「今天还有 N 项未了结」。
 - `sections`：必填数组。按来源分组说明为什么要做。
+- `primary`：今天唯一主建议。`verb` 只能是只读/恢复类：`retry_crawl` / `open_batch` / `analyze` / `open` / `approve`。发现批次且没有 person ID 时禁止 `follow`。
+
+Host 只会补机械字段（`stats` / `source_cursor` / `increment_summary`）。模型没写 `lead` 和 `sections` 时规划失败，Host 不会代写封面。
+
+其余可选：
+
 - `todo_layout`：只给**已有**正式待办写 `work_item_id / rank / why`。禁止新建待办。
 - `analysis_hints`：可交给 today_analyze 的对象提示。
-- `source_cursor`：写回本次目录游标，供下次 diff。
-- `increment_summary`：相对上次的增减说明。`removed` 必须从今日清单删除。
 
 ## 禁止事项
 
@@ -47,6 +49,7 @@ Host 已锁定本 Skill。输入只有 CONTEXT 里的 **history / delta / now_co
 - 禁止把发现批次（无 person ID）建议为 follow。
 - 禁止把「处理」「待补阶段」当作 primary 文案。
 - 禁止用写工具；`mcp` 为空。
+- 禁止把 HOST PACK 原文或任务标题列表当作 brief 正文交差。
 
 ## 是否发信
 
