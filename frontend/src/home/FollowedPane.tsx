@@ -162,7 +162,7 @@ export default function FollowedPane({
           </label>
           <button
             type="button"
-            className={selecting ? "btn work sm" : "btn ghost sm"}
+            className="btn ghost sm"
             data-analyze-selected
             data-home-entry="kol-analyze-enqueue"
             disabled={!selecting}
@@ -172,7 +172,7 @@ export default function FollowedPane({
           </button>
           <button
             type="button"
-            className="btn ghost sm"
+            className={selecting && bulkLabel ? "btn work sm" : "btn ghost sm"}
             data-followed-batch-confirm
             disabled={!selecting}
             onClick={onBatchConfirm}

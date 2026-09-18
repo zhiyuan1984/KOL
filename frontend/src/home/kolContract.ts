@@ -104,6 +104,13 @@ export type FollowKol = {
     high_risk?: boolean;
   };
   brief_priority: FollowBriefPriority;
+  suggested_stage?: string;
+  suggested_stage_code?: string;
+  brand?: string;
+  notes?: string;
+  overdue?: boolean;
+  mailbox_from?: string;
+  owner_name?: string;
 };
 
 export type KolAnalyzeEnqueueBody = {
@@ -357,6 +364,13 @@ export function toFollowKol(row: Record<string, unknown>): FollowKol | null {
       clock_14d: row.clock_14d as FollowClock14d,
       risk: (row.risk || { chips: [] }) as FollowKol["risk"],
       brief_priority: row.brief_priority as FollowBriefPriority,
+      suggested_stage: text(row.suggested_stage) || undefined,
+      suggested_stage_code: text(row.suggested_stage_code) || undefined,
+      brand: text(row.brand) || undefined,
+      notes: text(row.notes) || undefined,
+      overdue: flag(row.overdue) || undefined,
+      mailbox_from: text(row.mailbox_from) || undefined,
+      owner_name: text(row.owner_name) || undefined,
     };
   }
   const clock = clockFromRow(row);
@@ -393,6 +407,13 @@ export function toFollowKol(row: Record<string, unknown>): FollowKol | null {
       high_risk: exception || refused,
     },
     brief_priority: briefPriorityOf({ refused, near: clock.near, interested }),
+    suggested_stage: text(row.suggested_stage) || undefined,
+    suggested_stage_code: text(row.suggested_stage_code) || undefined,
+    brand: text(row.brand) || undefined,
+    notes: text(row.notes) || undefined,
+    overdue: flag(row.overdue) || undefined,
+    mailbox_from: text(row.mailbox_from) || undefined,
+    owner_name: text(row.owner_name) || undefined,
   };
 }
 
@@ -471,6 +492,13 @@ export function followKolToRecord(item: FollowKol): {
   stage_code: string;
   stage_label: string;
   public_stage?: string;
+  suggested_stage?: string;
+  suggested_stage_code?: string;
+  brand?: string;
+  notes?: string;
+  overdue?: boolean;
+  mailbox_from?: string;
+  owner_name?: string;
   days_in_stage: number | null;
   exception: boolean;
   last_interaction_at: string | null;
@@ -494,6 +522,13 @@ export function followKolToRecord(item: FollowKol): {
     stage_code: item.stage.code,
     stage_label: item.stage.label,
     public_stage: item.stage.label,
+    suggested_stage: item.suggested_stage,
+    suggested_stage_code: item.suggested_stage_code,
+    brand: item.brand,
+    notes: item.notes,
+    overdue: item.overdue,
+    mailbox_from: item.mailbox_from,
+    owner_name: item.owner_name,
     days_in_stage: item.dwell?.days ?? null,
     exception: Boolean(item.risk.exception),
     last_interaction_at: item.clock_14d.countdown ? (item.clock_14d.last_interaction_at || null) : null,

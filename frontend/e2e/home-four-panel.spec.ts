@@ -160,7 +160,7 @@ test("home todo action rows use full-width workbench layout", async ({ page }) =
   const quote = page.locator("[data-todo-card]").filter({ hasText: "写北美户外评测达人合作报价并核对样品寄送地址" });
   await expect(quote).toBeVisible();
   await expect(quote.locator("[data-todo-act]")).toBeVisible();
-  await expect(quote.locator("[data-todo-status]")).toContainText("今天到期");
+  await expect(quote).toHaveAttribute("data-todo-status", "今天到期");
   await expect(quote.locator("[data-todo-act]")).toHaveText("处理");
   const follow = page.locator("[data-todo-card]").filter({ hasText: "跟进 Outdoor Gear Lab 样品签收" });
   await expect(follow).toHaveAttribute("data-todo-bucket", "later");
@@ -417,7 +417,7 @@ test("home followed list keeps one strong work CTA", async ({ page }) => {
   await stageB.locator("[data-followed-select]").check();
   await expect(stageA).toHaveAttribute("data-selected", "true");
   await expect(stageB).toHaveAttribute("data-selected", "true");
-  await expect(page.locator("[data-followed-selected-count]")).toHaveText("已选 2 人");
+  await expect(page.locator("[data-followed-selected-count]")).toHaveText("已选 2 / 8");
   await expect(page.locator("[data-followed-batch-confirm]")).toHaveClass(/work/);
   await expect(page.locator("[data-followed-batch-confirm]")).toHaveText("确认进入已回复 · 有兴趣（2）");
   await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
@@ -511,7 +511,7 @@ test("home followed multi-select shows one filled top CTA", async ({ page }) => 
   await expect(page.locator("[data-home-pane='lifecycle'] .btn.work")).toHaveCount(1);
 
   await stageB.locator("[data-followed-select]").check();
-  await expect(page.locator("[data-followed-selected-count]")).toHaveText("已选 2 人");
+  await expect(page.locator("[data-followed-selected-count]")).toHaveText("已选 2 / 8");
   await expect(topCta).toHaveClass(/work/);
   await expect(topCta).toHaveText("确认进入已回复 · 有兴趣（2）");
   await expect(list.locator("[data-kol-primary-action].btn.work")).toHaveCount(0);

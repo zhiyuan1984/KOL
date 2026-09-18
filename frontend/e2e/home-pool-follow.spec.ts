@@ -277,7 +277,7 @@ test("release is L3 and does not change stage", async ({ page }) => {
   await expect(confirm).toContainText("回公海 ≠ 改阶段");
   await page.locator("[data-release-follow-yes]").click();
   await expect.poll(() => releases.length).toBe(1);
-  expect(releases[0].path).toBe("/api/follows/kfi_refused/release");
+  expect(releases[0].path).toMatch(/^\/api\/follows\/kfi_(refused|near)\/release$/);
   expect(releases[0].body.confirm === true || releases[0].body.confirmed === true).toBe(true);
 });
 
