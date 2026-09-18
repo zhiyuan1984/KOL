@@ -1,6 +1,26 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { KnowledgeRow } from "../api";
 import {
+  canSubmitDiscovery,
+  DISCOVERY_CHIP_OVERRIDE_HINT,
+  DISCOVERY_DIRECTION_PACKS,
+  DISCOVERY_INTENT,
+  DISCOVERY_LOCK_LABEL,
+  DISCOVERY_REGION_OPTIONS,
+  directionLabel,
+  keywordsForDirections,
+  MAX_DISCOVERY_DIRECTIONS,
+  OVERSEAS_DISCOVERY_PLATFORMS,
+  platformLabel,
+  regionLabel,
+  toggleDirection,
+  togglePlatform,
+  type DiscoveryBrief,
+  type DiscoveryDirectionCode,
+  type DiscoveryPlatformCode,
+  type DiscoveryTemplate,
+} from "../home/discoveryTemplate";
+import {
   composerFillText,
   composerHoldsTemplateBody,
   pickDefaultMailTemplate,
@@ -92,6 +112,12 @@ export default function ComposerDock({
   onStop,
   onRemoveQueued,
   hint,
+  discoveryBrief = null,
+  discoveryCatalog = null,
+  discoveryOverride = false,
+  onDiscoveryBriefChange,
+  onOpenDiscoveryTemplate,
+  onClearDiscoveryLock,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -116,6 +142,12 @@ export default function ComposerDock({
   onStop?: () => void;
   onRemoveQueued?: (id: string) => void;
   hint?: string;
+  discoveryBrief?: DiscoveryBrief | null;
+  discoveryCatalog?: Pick<DiscoveryTemplate, "platforms" | "regions" | "directions"> | null;
+  discoveryOverride?: boolean;
+  onDiscoveryBriefChange?: (brief: DiscoveryBrief) => void;
+  onOpenDiscoveryTemplate?: () => void;
+  onClearDiscoveryLock?: () => void;
 }) {
   const [skills, setSkills] = useState<SkillOption[]>([]);
   const [templates, setTemplates] = useState<KnowledgeRow[]>([]);
@@ -457,8 +489,11 @@ export default function ComposerDock({
   const previewBody = lockedRow?.body_en || lockedRow?.body || lockedTemplate?.body_en || "";
   const previewExcerpt = templateBodyExcerpt(previewBody);
   const bodyInComposer = composerHoldsTemplateBody(value, previewBody);
+  const discoveryLocked = lockedIntent === DISCOVERY_INTENT || Boolean(discoveryBrief);
+  const discoveryBlocked = Boolean(discoveryBrief && !canSubmitDiscovery(discoveryBrief));
   const empty = !value.trim() && attachments.length === 0 && !selectedProject;
   const busy = disabled || uploading;
+  const sendDisabled = busy || empty || discoveryBlocked;
   const workspace = variant === "workspace";
   const placeholder = (hint && !value.trim())
     ? hint
@@ -467,7 +502,7 @@ export default function ComposerDock({
       : PLACEHOLDER;
 
   const submit = () => {
-    if (empty || busy) return;
+    if (sendDisabled) return;
     const text = value.trim() || attachments.map((a) => a.name).join("、") || selectedProject?.label || "";
     onSubmit({
       text,
@@ -490,6 +525,7 @@ export default function ComposerDock({
       data-composer-size={variant}
       data-composer-running={running ? "true" : undefined}
       data-composer-hint={hint || undefined}
+      data-composer-discovery={discoveryLocked ? "true" : undefined}
       aria-busy={busy || running || undefined}
       onDragEnter={(e) => { e.preventDefault(); setDragging(true); }}
       onDragOver={(e) => e.preventDefault()}
@@ -543,9 +579,79 @@ export default function ComposerDock({
           ))}
         </div>
       )}
-      {(chipSkills.length > 0 || attachments.length > 0 || selectedProject || lockedKnowledgeId) && (
+      {discoveryOverride && discoveryLocked ? (
+        <p className="composer-override-hint" data-discovery-override-hint role="status">
+          {DISCOVERY_CHIP_OVERRIDE_HINT}
+        </p>
+      ) : null}
+      {(chipSkills.length > 0 || attachments.length > 0 || selectedProject || lockedKnowledgeId || discoveryBrief) && (
         <div className="composer-chips">
-          {chipSkills.map((s) => (
+          {discoveryLocked ? (
+            <span className="skill-chip" data-skill-chip={DISCOVERY_INTENT} data-discovery-lock-chip>
+              {lockedLabel || DISCOVERY_LOCK_LABEL}
+              <button
+                type="button"
+                className="chip-x"
+                aria-label="移除发现任务模板"
+                data-discovery-clear-lock
+                onClick={() => onClearDiscoveryLock?.()}
+              >
+                ×
+              </button>
+            </span>
+          ) : null}
+          {discoveryBrief ? (
+            <>
+              {discoveryBrief.platforms.map((code) => (
+                <span key={`p-${code}`} className="skill-chip" data-discovery-chip={code}>
+                  {platformLabel(code, discoveryCatalog?.platforms)}
+                  <button
+                    type="button"
+                    className="chip-x"
+                    aria-label={`移除平台 ${platformLabel(code, discoveryCatalog?.platforms)}`}
+                    onClick={() => onDiscoveryBriefChange?.({
+                      ...discoveryBrief,
+                      platforms: discoveryBrief.platforms.filter((item) => item !== code),
+                    })}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              <span className="skill-chip" data-discovery-chip={discoveryBrief.region}>
+                {regionLabel(discoveryBrief.region, discoveryCatalog?.regions)}
+                <button
+                  type="button"
+                  className="chip-x"
+                  aria-label={`移除地区 ${regionLabel(discoveryBrief.region, discoveryCatalog?.regions)}`}
+                  onClick={() => onDiscoveryBriefChange?.({ ...discoveryBrief, region: "global_en" })}
+                >
+                  ×
+                </button>
+              </span>
+              {discoveryBrief.directions.map((code) => (
+                <span key={`d-${code}`} className="skill-chip" data-discovery-chip={code}>
+                  {directionLabel(code, discoveryCatalog?.directions)}
+                  <button
+                    type="button"
+                    className="chip-x"
+                    aria-label={`移除方向 ${directionLabel(code, discoveryCatalog?.directions)}`}
+                    onClick={() => {
+                      const next = toggleDirection(discoveryBrief.directions, code).directions;
+                      onDiscoveryBriefChange?.({
+                        ...discoveryBrief,
+                        directions: next,
+                        keywords: keywordsForDirections(next, discoveryCatalog?.directions || undefined),
+                      });
+                    }}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </>
+          ) : null}
+          {chipSkills.filter((s) => s.id !== DISCOVERY_INTENT).map((s) => (
             <span key={s.id} className={"skill-chip" + (isQuietSkill(s) ? " skill-chip--quiet" : "")} data-skill-chip={s.id}>
               {value.includes(`/${labelOf(s)}`) ? "/" : value.includes(`@${labelOf(s)}`) ? "@" : ""}
               {s.id === "email_compose" && (lockedLabel === "写合作邮件" || value.includes("写合作邮件"))
@@ -581,6 +687,13 @@ export default function ComposerDock({
           )}
         </div>
       )}
+      {discoveryBrief ? (
+        <DiscoveryConditionEditor
+          brief={discoveryBrief}
+          catalog={discoveryCatalog}
+          onChange={(next) => onDiscoveryBriefChange?.(next)}
+        />
+      ) : null}
       {lockedKnowledgeId && (previewTitle || previewBody) ? (
         <aside
           className={"composer-template-preview" + (bodyInComposer ? " composer-template-preview--lock" : "")}
@@ -779,6 +892,17 @@ export default function ComposerDock({
             <MenuButton icon="recent" label="最近的文件" arrow onActivate={() => setActiveSubmenu("recent")} />
             <div className="menu-divider" />
             <MenuButton icon="skills" label="技能" arrow onActivate={() => setActiveSubmenu("skills")} />
+            {onOpenDiscoveryTemplate ? (
+              <MenuButton
+                icon="skills"
+                label="发现任务"
+                onClick={() => {
+                  setPlusOpen(false);
+                  setActiveSubmenu(null);
+                  onOpenDiscoveryTemplate();
+                }}
+              />
+            ) : null}
             {activeSubmenu === "projects" && (
               <CascadeSubmenu label="项目">
                 {projects.map((project) => (
@@ -843,7 +967,7 @@ export default function ComposerDock({
             停止
           </button>
         ) : null}
-        <button className={"btn send" + (workspace ? " send-arrow" : "")} type="submit" data-send data-ai-prompt-submit disabled={busy || empty} aria-label={running ? "加入队列" : "发送"}>
+        <button className={"btn send" + (workspace ? " send-arrow" : "")} type="submit" data-send data-ai-prompt-submit disabled={sendDisabled} aria-label={running ? "加入队列" : "发送"}>
           {workspace ? <SendArrowIcon ready={!busy && !empty} /> : "发送"}
         </button>
         </div>
@@ -918,6 +1042,93 @@ function CascadeSubmenu({ label, children }: { label: string; children: ReactNod
   return (
     <div className="menu-popover cascade-submenu" role="menu" aria-label={label}>
       {children}
+    </div>
+  );
+}
+
+function DiscoveryConditionEditor({
+  brief,
+  catalog,
+  onChange,
+}: {
+  brief: DiscoveryBrief;
+  catalog?: Pick<DiscoveryTemplate, "platforms" | "regions" | "directions"> | null;
+  onChange: (brief: DiscoveryBrief) => void;
+}) {
+  const platforms = catalog?.platforms?.length ? catalog.platforms : OVERSEAS_DISCOVERY_PLATFORMS;
+  const regions = catalog?.regions?.length ? catalog.regions : DISCOVERY_REGION_OPTIONS;
+  const directions = catalog?.directions?.length ? catalog.directions : DISCOVERY_DIRECTION_PACKS;
+  const atMax = brief.directions.length >= MAX_DISCOVERY_DIRECTIONS;
+  return (
+    <div className="discovery-composer-conditions" data-discovery-condition-editor aria-label="发现条件">
+      <div className="discovery-filter-group" data-discovery-filter="platform">
+        <span className="discovery-filter-title">平台</span>
+        <div className="discovery-chip-row">
+          {platforms.map((option) => (
+            <button
+              key={option.code}
+              type="button"
+              className="discovery-chip"
+              data-discovery-chip={option.code}
+              aria-pressed={brief.platforms.includes(option.code)}
+              onClick={() => onChange({
+                ...brief,
+                platforms: togglePlatform(brief.platforms, option.code as DiscoveryPlatformCode),
+              })}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="discovery-filter-group" data-discovery-filter="region">
+        <span className="discovery-filter-title">地区</span>
+        <div className="discovery-chip-row">
+          {regions.map((option) => (
+            <button
+              key={option.code}
+              type="button"
+              className="discovery-chip"
+              data-discovery-chip={option.code}
+              aria-pressed={brief.region === option.code}
+              onClick={() => onChange({ ...brief, region: option.code })}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="discovery-filter-group" data-discovery-filter="directions">
+        <span className="discovery-filter-title">方向</span>
+        <div className="discovery-chip-row">
+          {directions.map((option) => {
+            const code = option.code as DiscoveryDirectionCode;
+            const pressed = brief.directions.includes(code);
+            return (
+              <button
+                key={option.code}
+                type="button"
+                className="discovery-chip"
+                data-discovery-chip={option.code}
+                data-discovery-preset={option.code}
+                aria-pressed={pressed}
+                disabled={atMax && !pressed}
+                onClick={() => {
+                  const next = toggleDirection(brief.directions, code).directions;
+                  onChange({
+                    ...brief,
+                    directions: next,
+                    keywords: keywordsForDirections(next, directions),
+                  });
+                }}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+        {atMax ? <p className="discovery-direction-limit" role="status">最多添加 8 个方向</p> : null}
+      </div>
     </div>
   );
 }

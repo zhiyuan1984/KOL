@@ -451,12 +451,15 @@ async function readJson(response: Response): Promise<unknown> {
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { optional: _optional, ...init } = options;
+  const { optional, ...init } = options;
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
   const response = await fetch(path, { credentials: "same-origin", ...init, headers });
   const body = await readJson(response);
-  if (!response.ok) throw httpError(response.status, body);
+  if (!response.ok) {
+    if (optional && (response.status === 404 || response.status === 405)) return null as T;
+    throw httpError(response.status, body);
+  }
   return body as T;
 }
 
@@ -1223,5 +1226,27 @@ export const api = {
     request<Record<string, unknown>>("/api/discovery/connection", {
       method: "POST",
       body: JSON.stringify({}),
+    }),
+  homeDiscoveryTemplate: () =>
+    request<Record<string, unknown> | null>("/api/home/discovery/template", { optional: true }),
+  homeDiscoveryBatches: () =>
+    request<Record<string, unknown> | Array<Record<string, unknown>>>("/api/home/discovery/batches"),
+  homeDiscoveryCandidates: (batchId?: string) => {
+    const search = new URLSearchParams();
+    if (batchId) search.set("batch_id", batchId);
+    const qs = search.size ? `?${search}` : "";
+    return request<Record<string, unknown> | Array<Record<string, unknown>>>(
+      `/api/home/discovery/candidates${qs}`,
+    );
+  },
+  runHomeDiscovery: (body: Record<string, unknown>) =>
+    request<Record<string, unknown>>("/api/home/discovery/run", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  ingestHomeDiscovery: (body: Record<string, unknown>) =>
+    request<Record<string, unknown>>("/api/home/discovery/ingest", {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
 };

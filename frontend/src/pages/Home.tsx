@@ -31,6 +31,26 @@ import TodoPane from "../home/TodoPane";
 import FollowedPane from "../home/FollowedPane";
 import { FollowedBatchConfirm } from "../home/FollowedBatchConfirm";
 import {
+  applyChipOverride,
+  canSubmitDiscovery,
+  defaultDiscoveryBrief,
+  DISCOVERY_BODY_PREFIX,
+  DISCOVERY_INTENT,
+  DISCOVERY_LOCK_LABEL,
+  fallbackDiscoveryTemplate,
+  mergeDiscoveryBrief,
+  parseDiscoveryBody,
+  sameClassConflict,
+  type DiscoveryBrief,
+  type DiscoveryTemplate,
+} from "../home/discoveryTemplate";
+import {
+  isMissingEndpoint,
+  loadDiscoveryTemplate,
+  refreshWorkbenchSessions,
+  runHomeDiscovery,
+} from "../home/discoveryHome";
+import {
   HOME_MODE_LABELS,
   homeModeQuery,
   parseHomeMode,
@@ -272,6 +292,122 @@ export default function Home() {
     setLockedLabel(null);
     applyLockedKnowledge(null);
   };
+
+  const clearDiscoveryLock = () => {
+    setDiscoveryBrief(null);
+    setDiscoveryOverride(false);
+    if (lockedIntent === DISCOVERY_INTENT) {
+      setLockedIntent(null);
+      setLockedLabel(null);
+    }
+  };
+
+  const openDiscoveryTemplate = async () => {
+    setErr("");
+    setFeedback(null);
+    try {
+      const template = await loadDiscoveryTemplate();
+      setDiscoveryCatalog({
+        platforms: template.platforms,
+        regions: template.regions,
+        directions: template.directions,
+      });
+      setDiscoveryVersion(template.version);
+      setDiscoveryBrief(template.defaults);
+      setText(template.body);
+      setLockedIntent(DISCOVERY_INTENT);
+      setLockedLabel(DISCOVERY_LOCK_LABEL);
+      applyLockedKnowledge(null);
+      setDiscoveryOverride(false);
+      setComposerFocused(true);
+      setDraftFocus((value) => value + 1);
+      if (mode !== "discovery") setMode("discovery");
+    } catch {
+      const template = fallbackDiscoveryTemplate();
+      setDiscoveryCatalog({
+        platforms: template.platforms,
+        regions: template.regions,
+        directions: template.directions,
+      });
+      setDiscoveryVersion(template.version);
+      setDiscoveryBrief(template.defaults);
+      setText(template.body);
+      setLockedIntent(DISCOVERY_INTENT);
+      setLockedLabel(DISCOVERY_LOCK_LABEL);
+      applyLockedKnowledge(null);
+      setDiscoveryOverride(false);
+      setComposerFocused(true);
+      setDraftFocus((value) => value + 1);
+    }
+  };
+
+  const onDiscoveryBriefChange = (next: DiscoveryBrief) => {
+    const previous = discoveryBrief;
+    setDiscoveryBrief(next);
+    if (previous && sameClassConflict(parseDiscoveryBody(text), next)) {
+      setDiscoveryOverride(true);
+    }
+    setText(applyChipOverride(text.startsWith(DISCOVERY_BODY_PREFIX) ? text : `${DISCOVERY_BODY_PREFIX}\n${text}`, next));
+    setLockedIntent(DISCOVERY_INTENT);
+    setLockedLabel(DISCOVERY_LOCK_LABEL);
+  };
+
+  const onComposerText = (next: string) => {
+    setText(next);
+    if (!discoveryBrief && !next.includes(DISCOVERY_BODY_PREFIX)) return;
+    const parsed = parseDiscoveryBody(next);
+    const current = discoveryBrief;
+    if (!current) return;
+    const merged = mergeDiscoveryBrief(current, parsed);
+    setDiscoveryBrief(merged);
+    if (discoveryOverride && !sameClassConflict(parsed, merged)) {
+      setDiscoveryOverride(false);
+    }
+  };
+
+  const submitDiscovery = async (brief: DiscoveryBrief, body: string, version: string) => {
+    if (!canSubmitDiscovery(brief)) {
+      setErr("请选择平台并填写关键词后再发送。");
+      return;
+    }
+    setBusy(true);
+    setErr("");
+    setFeedback(null);
+    setLastDiscoverySubmit({ brief, body, version });
+    try {
+      const result = await runHomeDiscovery({
+        brief,
+        body,
+        expected_brief_version: version,
+      });
+      setDiscoveryTaskId(result.task_id || null);
+      setDiscoveryBatchId(result.batch_id || null);
+      refreshWorkbenchSessions();
+      setText("");
+      clearDiscoveryLock();
+      if (mode !== "discovery") setMode("discovery");
+    } catch (error) {
+      if (isMissingEndpoint(error)) {
+        setErr("发现提交接口尚未提供。不会发信、不会改阶段，也没有编造结果。");
+      } else {
+        setErr(error instanceof Error ? error.message : "发现任务没有提交。");
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const retryDiscoveryRun = async () => {
+    if (!lastDiscoverySubmit) {
+      await openDiscoveryTemplate();
+      return;
+    }
+    await submitDiscovery(
+      lastDiscoverySubmit.brief,
+      lastDiscoverySubmit.body,
+      lastDiscoverySubmit.version,
+    );
+  };
   const [params, setParams] = useSearchParams();
   const [draftFocus, setDraftFocus] = useState(initialFill ? 1 : 0);
   const [blockSubmit, setBlockSubmit] = useState(false);
@@ -295,6 +431,17 @@ export default function Home() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [composerFocused, setComposerFocused] = useState(Boolean(initialFill));
   const [stageScrolled, setStageScrolled] = useState(false);
+  const [discoveryBrief, setDiscoveryBrief] = useState<DiscoveryBrief | null>(null);
+  const [discoveryCatalog, setDiscoveryCatalog] = useState<Pick<DiscoveryTemplate, "platforms" | "regions" | "directions"> | null>(null);
+  const [discoveryVersion, setDiscoveryVersion] = useState<string>("discovery-brief.v1");
+  const [discoveryOverride, setDiscoveryOverride] = useState(false);
+  const [discoveryTaskId, setDiscoveryTaskId] = useState<string | null>(null);
+  const [discoveryBatchId, setDiscoveryBatchId] = useState<string | null>(null);
+  const [lastDiscoverySubmit, setLastDiscoverySubmit] = useState<{
+    brief: DiscoveryBrief;
+    body: string;
+    version: string;
+  } | null>(null);
   const nav = useNavigate();
   const mode = parseHomeMode(params.get("tab"));
 
@@ -908,6 +1055,14 @@ export default function Home() {
     const prompt = p.text.trim();
     if (!prompt && !p.attachments?.length) return;
     const intent = lockedIntent || p.intent;
+    if (intent === DISCOVERY_INTENT || prompt.startsWith(DISCOVERY_BODY_PREFIX)) {
+      const brief = discoveryBrief || mergeDiscoveryBrief(
+        defaultDiscoveryBrief(),
+        parseDiscoveryBody(prompt),
+      );
+      await submitDiscovery(brief, prompt, discoveryVersion);
+      return;
+    }
     const knowledgeId = lockedKnowledgeId || p.knowledge_id;
     lastComposer.current = { ...p, text: prompt, knowledge_id: knowledgeId };
     setBusy(true);
@@ -1294,7 +1449,16 @@ export default function Home() {
             />
           ) : null}
 
-          {mode === "discovery" ? <DiscoveryPanel /> : null}
+          {mode === "discovery" ? (
+            <DiscoveryPanel
+              templateOpen={Boolean(discoveryBrief) || text.startsWith(DISCOVERY_BODY_PREFIX)}
+              activeTaskId={discoveryTaskId}
+              activeBatchId={discoveryBatchId}
+              briefVersion={discoveryVersion}
+              onOpenTemplate={() => void openDiscoveryTemplate()}
+              onRetryRun={() => void retryDiscoveryRun()}
+            />
+          ) : null}
 
           {mode === "lifecycle" ? (
             <FollowedPane
@@ -1437,11 +1601,14 @@ export default function Home() {
         </div>
       </div>
 
-      <div className="home-composer-dock" data-home-entry="composer-analyze">
+      <div
+        className="home-composer-dock"
+        data-home-entry={discoveryBrief || lockedIntent === DISCOVERY_INTENT ? "new-discovery" : "composer-analyze"}
+      >
         <ComposerDock
           variant="workspace"
           value={text}
-          onChange={setText}
+          onChange={onComposerText}
           onSubmit={onComposer}
           disabled={busy || blockSubmit}
           onFocusChange={setComposerFocused}
@@ -1454,6 +1621,12 @@ export default function Home() {
           autoFocus={draftFocus > 0}
           autoFocusToken={draftFocus}
           selectFirstPlaceholder={draftFocus > 0}
+          discoveryBrief={discoveryBrief}
+          discoveryCatalog={discoveryCatalog}
+          discoveryOverride={discoveryOverride}
+          onDiscoveryBriefChange={onDiscoveryBriefChange}
+          onOpenDiscoveryTemplate={() => void openDiscoveryTemplate()}
+          onClearDiscoveryLock={clearDiscoveryLock}
         />
       </div>
 

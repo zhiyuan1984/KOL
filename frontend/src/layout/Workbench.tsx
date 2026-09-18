@@ -34,7 +34,11 @@ export default function Workbench() {
   const loc = useLocation();
 
   useEffect(() => {
-    api.sessions().then(setSessions).catch(() => setSessions([]));
+    const refreshSessions = () => {
+      api.sessions().then(setSessions).catch(() => setSessions([]));
+    };
+    refreshSessions();
+    window.addEventListener("lingong:sessions-refresh", refreshSessions);
     api.me().then(setMe).catch(() => setMe(null));
     api.approvalBadge()
       .then((row) => setApprovalCount(Number(row.count) || 0))
@@ -45,6 +49,7 @@ export default function Workbench() {
         setCronAlertCount(Number(alerts.failed || 0) + Number(alerts.needs_takeover || 0));
       })
       .catch(() => setCronAlertCount(0));
+    return () => window.removeEventListener("lingong:sessions-refresh", refreshSessions);
   }, [loc.pathname]);
 
   useEffect(() => {
