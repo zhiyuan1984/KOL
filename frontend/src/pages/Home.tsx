@@ -85,12 +85,14 @@ import {
 } from "../home/kolContract";
 import { claimPoolKol, enqueueKolAnalyze, loadHomeFollowing, loadHomePool, releaseFollowedKol } from "../home/kolSurfaceApi";
 import {
+  applyLayoutWhy,
   canOpenExistingTaskFlow,
   definitionList,
   deriveWorkbench,
   isHighValueInsight,
   isInsightTask,
   isOpenTask,
+  isPlanningTask,
   isTodayActionableTodo,
   isTodoTask,
   matchesTodoFilter,
@@ -103,6 +105,13 @@ import {
   withHomeCommandTemplates,
   type TodoListFilter,
 } from "../home/homeModel";
+import {
+  TODAY_PLAN_REFRESHED_MS,
+  TODAY_PLAN_REFRESH_EVENT,
+  memoryTasksOf,
+  runTodayPlanRefresh,
+  type TodayPlanPhase,
+} from "../home/todayPlan";
 import { findDuplicateTodo, recommendationIdentity } from "../home/todoDedupe";
 import {
   HOME_CONFIRM_STAGE_BLOCKED_COPY,
@@ -501,9 +510,9 @@ export default function Home() {
     version: string;
   } | null>(null);
   const [todayBrief, setTodayBrief] = useState<TodayBrief | null>(null);
-  const [todayPlanning, setTodayPlanning] = useState(false);
-  const [todayPlanProgress, setTodayPlanProgress] = useState("");
-  const todayPlanStartedRef = useRef(false);
+  const [todayMemoryTasks, setTodayMemoryTasks] = useState<Task[] | null>(null);
+  const [todayPlanPhase, setTodayPlanPhase] = useState<TodayPlanPhase>("loading-memory");
+  const [todayEntryTick, setTodayEntryTick] = useState(0);
   const nav = useNavigate();
   const mode = parseHomeMode(params.get("tab"));
 
@@ -1400,8 +1409,11 @@ export default function Home() {
   );
 
   const todayTodos = useMemo(
-    () => sortTodayTodos(taskCatalog.filter(isTodayActionableTodo)),
-    [taskCatalog],
+    () => applyLayoutWhy(
+      sortTodayTodos((todayMemoryTasks ?? taskCatalog).filter(isTodayActionableTodo)),
+      todayBrief?.todo_layout,
+    ),
+    [taskCatalog, todayBrief, todayMemoryTasks],
   );
 
   const visibleTodoItems = useMemo(
@@ -1431,41 +1443,62 @@ export default function Home() {
   }, [hasActiveRuns]);
 
   useEffect(() => {
-    if (mode !== "today" && mode !== "todo") {
-      todayPlanStartedRef.current = false;
+    const onRefresh = () => setTodayEntryTick((value) => value + 1);
+    window.addEventListener(TODAY_PLAN_REFRESH_EVENT, onRefresh);
+    return () => window.removeEventListener(TODAY_PLAN_REFRESH_EVENT, onRefresh);
+  }, []);
+
+  useEffect(() => {
+    if (mode !== "today") {
+      setTodayPlanPhase("idle");
       return;
     }
-    let cancelled = false;
-    const applyBrief = (row: Awaited<ReturnType<typeof api.todayBrief>>) => {
-      if (cancelled) return;
-      setTodayBrief(row.brief || null);
-      setTodayPlanning(Boolean(row.planning));
-      const last = Array.isArray(row.events) && row.events.length
-        ? String(row.events[row.events.length - 1]?.label || row.events[row.events.length - 1]?.title || "")
-        : "";
-      setTodayPlanProgress(row.planning ? (last || "正在为你规划今天") : "");
-      return row;
-    };
-    const load = async () => {
-      const current = applyBrief(await api.todayBrief());
-      if (!current || cancelled || mode !== "today") return;
-      if (!current.planning && !current.brief && !todayPlanStartedRef.current) {
-        todayPlanStartedRef.current = true;
-        setTodayPlanning(true);
-        setTodayPlanProgress("正在为你规划今天");
-        await api.planToday();
-        if (cancelled) return;
-        applyBrief(await api.todayBrief());
+    const controller = new AbortController();
+    let dismissTimer = 0;
+    setTodayPlanPhase("loading-memory");
+    void runTodayPlanRefresh(
+      {
+        listOpenTasks: () => api.tasks({ view: "open" }).then(unwrapTaskList),
+        getBrief: () => api.todayBrief(),
+        startPlan: () => api.planToday(),
+      },
+      (step) => {
+        if (controller.signal.aborted) return;
+        if (step.phase !== "idle") setTodayPlanPhase(step.phase);
+        if (step.tasks) {
+          setTodayMemoryTasks(memoryTasksOf(step.tasks).filter((row) => !isPlanningTask(row)));
+        }
+        if (Object.prototype.hasOwnProperty.call(step, "brief")) {
+          setTodayBrief(step.brief ?? null);
+        }
+      },
+      { signal: controller.signal },
+    ).then((final) => {
+      if (controller.signal.aborted) return;
+      if (final.phase === "refreshed") {
+        dismissTimer = window.setTimeout(() => {
+          if (!controller.signal.aborted) {
+            setTodayPlanPhase((current) => (current === "refreshed" ? "idle" : current));
+          }
+        }, TODAY_PLAN_REFRESHED_MS);
       }
+    }).catch(() => {
+      if (!controller.signal.aborted) setTodayPlanPhase("failed");
+    });
+    return () => {
+      controller.abort();
+      if (dismissTimer) window.clearTimeout(dismissTimer);
     };
-    void load().catch(() => undefined);
-    const timer = window.setInterval(() => {
-      if (document.visibilityState !== "visible" || mode !== "today") return;
-      void api.todayBrief().then(applyBrief).catch(() => undefined);
-    }, HOME_TASK_POLL_MS);
+  }, [mode, todayEntryTick]);
+
+  useEffect(() => {
+    if (mode !== "todo") return;
+    let cancelled = false;
+    void api.todayBrief().then((row) => {
+      if (!cancelled && row.brief) setTodayBrief(row.brief);
+    }).catch(() => undefined);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
     };
   }, [mode]);
 
@@ -1693,8 +1726,7 @@ export default function Home() {
               busy={busy}
               onAct={(task) => void actOnMemoryTask(task)}
               brief={todayBrief}
-              planning={todayPlanning}
-              progress={todayPlanProgress}
+              phase={todayPlanPhase}
             />
           ) : null}
 

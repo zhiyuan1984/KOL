@@ -313,6 +313,16 @@ export function applyTodoLayout(tasks: Task[], layout?: TodoLayoutItem[] | null)
   });
 }
 
+/** Keep today-bucket order; only stamp plan `why` onto matching rows. */
+export function applyLayoutWhy(tasks: Task[], layout?: TodoLayoutItem[] | null): Task[] {
+  if (!layout?.length) return tasks;
+  const byId = new Map(layout.map((row) => [row.work_item_id, row]));
+  return tasks.map((task) => {
+    const why = String(byId.get(task.id)?.why || "").trim();
+    return why ? { ...task, layout_why: why } : task;
+  });
+}
+
 export function whyLine(task: Task) {
   const layoutWhy = String(task.layout_why || "").trim();
   if (layoutWhy) return layoutWhy;

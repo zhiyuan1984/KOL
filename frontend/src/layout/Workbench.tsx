@@ -5,6 +5,7 @@ import { useAccount } from "../components/AuthGate";
 import BrandLockup from "../components/BrandLockup";
 import UserMenu from "../components/UserMenu";
 import { ANALYZE_WORK_EVENT, loadKolAnalyzeInFlight, type AnalyzeWorkItem } from "../home/kolSurfaceApi";
+import { TODAY_PLAN_REFRESH_EVENT } from "../home/todayPlan";
 import { isKolAnalyzeInFlight, runningBadgeCount, runningBadgeHref } from "../home/kolContract";
 import { useViewMode } from "../viewMode";
 
@@ -171,7 +172,10 @@ export default function Workbench() {
             className={"nav-link" + (newTaskActive ? " active" : "")}
             aria-current={newTaskActive ? "page" : undefined}
             data-nav="new-task"
-            onClick={() => setMobileOpen(false)}
+            onClick={() => {
+              setMobileOpen(false);
+              window.dispatchEvent(new Event(TODAY_PLAN_REFRESH_EVENT));
+            }}
           >
             <Ico path="M4 20h4L18 10l-4-4L4 16v4z M14 6l4 4" />
             <span className="sidebar-label">新工作任务</span>
