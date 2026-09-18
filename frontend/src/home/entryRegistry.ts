@@ -139,15 +139,6 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     route: "POST /api/home/discovery/run",
   },
   {
-    id: "retry-discovery-run",
-    kind: "command",
-    action: "重试发现采集",
-    creates_session: false,
-    creates_turn: false,
-    calls_model: false,
-    route: "POST /api/home/discovery/run",
-  },
-  {
     id: "list-discovery-runs",
     kind: "memory",
     action: "发现运行列表",
@@ -191,15 +182,6 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     creates_turn: true,
     calls_model: true,
     route: "POST /api/home/discovery/run",
-  },
-  {
-    id: "retry-discovery-run",
-    kind: "command",
-    action: "重试发现运行",
-    creates_session: false,
-    creates_turn: false,
-    calls_model: false,
-    route: "POST /api/home/discovery/runs/:id/retry",
   },
   {
     id: "cancel-discovery-run",

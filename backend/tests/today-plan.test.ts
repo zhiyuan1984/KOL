@@ -309,16 +309,18 @@ describe("today_plan harness", () => {
     expect(getBrief).toMatchObject({ kind: "memory", creates_session: false, calls_model: false });
     const plan = HOME_ENTRY_REGISTRY.find((row) => row.id === "plan-today");
     expect(plan).toMatchObject({ kind: "think", creates_session: true, route: "POST /api/home/today-brief/plan" });
-    const retry = HOME_ENTRY_REGISTRY.find((row) => row.id === "retry-discovery-run");
-    expect(retry?.kind).toBe("command");
-    expect(retry?.creates_session).toBe(false);
-    expect(retry?.calls_model).toBe(false);
-    expect(retry?.route).toBe("POST /api/discovery/requests/:id/runs");
-    const frontendRetry = FRONTEND_HOME_ENTRY_REGISTRY.find((row) => row.id === "retry-discovery-run");
-    expect(frontendRetry?.kind).toBe("command");
-    expect(frontendRetry?.creates_session).toBe(false);
-    expect(frontendRetry?.calls_model).toBe(false);
-    expect(frontendRetry?.route).toBe("POST /api/discovery/requests/:id/runs");
+    const retries = HOME_ENTRY_REGISTRY.filter((row) => row.id === "retry-discovery-run");
+    expect(retries).toHaveLength(1);
+    expect(retries[0]?.kind).toBe("command");
+    expect(retries[0]?.creates_session).toBe(false);
+    expect(retries[0]?.calls_model).toBe(false);
+    expect(retries[0]?.route).toBe("POST /api/discovery/requests/:id/runs");
+    const frontendRetries = FRONTEND_HOME_ENTRY_REGISTRY.filter((row) => row.id === "retry-discovery-run");
+    expect(frontendRetries).toHaveLength(1);
+    expect(frontendRetries[0]?.kind).toBe("command");
+    expect(frontendRetries[0]?.creates_session).toBe(false);
+    expect(frontendRetries[0]?.calls_model).toBe(false);
+    expect(frontendRetries[0]?.route).toBe("POST /api/discovery/requests/:id/runs");
   });
 
   it("does not list planning work items as open todos", async () => {
