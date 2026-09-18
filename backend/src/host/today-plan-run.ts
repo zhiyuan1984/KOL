@@ -122,9 +122,17 @@ function memoryReadSummary(pack: TodayPlanPack): string {
   return Number.isFinite(unfinished) ? `未了结 ${unfinished} 项` : TODAY_PLAN_EMPLOYEE_EVENTS.memoryRead;
 }
 
-function briefFromWorkerItems(items: Json[]): unknown {
-  const hit = items.find((item) => item.type === "today_brief" || (item.lead && item.sections));
-  if (!hit) return null;
+export function briefFromWorkerItems(items: Json[]): unknown {
+  const candidates = items.filter((item) => item.type === "today_brief" || (item.lead && item.sections));
+  if (!candidates.length) return null;
+  // Codex may emit an intermediate brief before the final structured message;
+  // the authoritative row set lives on the latest candidate carrying display_tasks.
+  const withDisplay = candidates.filter((item) => {
+    const list = (item as Json).display_tasks;
+    return Array.isArray(list) && list.length > 0;
+  });
+  const pool = withDisplay.length ? withDisplay : candidates;
+  const hit = pool[pool.length - 1];
   if (hit.type === "today_brief") {
     const { type: _type, ...rest } = hit;
     return rest;

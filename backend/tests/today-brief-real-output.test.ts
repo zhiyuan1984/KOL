@@ -8,6 +8,7 @@ import { parseAgentTexts } from "../src/worker/parse.js";
 import { requiredSkillOutputMissing, skillOutputSchema } from "../src/worker/runner.js";
 import { requireTaskDefinition } from "../src/tasks/registry.js";
 import { validateTodayBrief } from "../src/host/today-brief.js";
+import { briefFromWorkerItems } from "../src/host/today-plan-run.js";
 
 const REAL_CODEX_TODAY_BRIEF = JSON.stringify({
   type: "today_brief",
@@ -68,6 +69,17 @@ describe("today_brief real codex output", () => {
     const items = (schema.properties?.display_tasks as { items?: { properties?: Record<string, unknown>; required?: string[] } })
       ?.items;
     expect(Object.keys(items?.properties || {}).sort()).toEqual([...(items?.required || [])].sort());
+  });
+
+  it("prefers the latest brief candidate carrying display_tasks", () => {
+    const items = parseAgentTexts([REAL_CODEX_TODAY_BRIEF]);
+    const brief = items.find((item) => item.type === "today_brief") as Record<string, unknown>;
+    const earlyDraft = { ...brief, display_tasks: [] };
+    const picked = briefFromWorkerItems([earlyDraft, brief]) as Record<string, unknown>;
+    expect(Array.isArray(picked.display_tasks)).toBe(true);
+    expect((picked.display_tasks as unknown[]).length).toBeGreaterThan(0);
+    const checked = validateTodayBrief(picked);
+    expect(checked.ok).toBe(true);
   });
 
   it("parsed brief passes validateTodayBrief", () => {
