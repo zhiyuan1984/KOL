@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { stubFollowingFromServerBoard, stubHomeBoardAndFollowing } from "./kol-surface-stub";
 
-async function openMode(page: Page, mode: "today" | "todo" | "discovery" | "lifecycle") {
+async function openMode(page: Page, mode: "today" | "todo" | "discovery" | "pool" | "lifecycle") {
   await page.locator(`[data-home-mode="${mode}"]`).click();
   await expect(page.locator(`[data-home-pane="${mode}"]`)).toBeVisible();
 }
@@ -14,14 +14,15 @@ test.beforeEach(async ({ page, request }) => {
 
 test("home four-panel tab order and pane visibility", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator("[data-home-mode]")).toHaveCount(4);
+  await expect(page.locator("[data-home-mode]")).toHaveCount(5);
   expect(await page.locator("[data-home-mode]").evaluateAll((els) => (
     els.map((el) => el.getAttribute("data-home-mode"))
-  ))).toEqual(["today", "todo", "discovery", "lifecycle"]);
+  ))).toEqual(["today", "todo", "discovery", "pool", "lifecycle"]);
   await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator('[data-home-mode="today"]')).toContainText("今日任务");
   await expect(page.locator('[data-home-mode="todo"]')).toContainText("我的待办");
   await expect(page.locator('[data-home-mode="discovery"]')).toContainText("AI发现");
+  await expect(page.locator('[data-home-mode="pool"]')).toContainText("公海");
   await expect(page.locator('[data-home-mode="lifecycle"]')).toContainText("我跟进的红人");
 
   await expect(page.locator("[data-home] h1")).toHaveText("今天有什么工作要处理？");
@@ -36,6 +37,7 @@ test("home four-panel tab order and pane visibility", async ({ page }) => {
   await expect(page.locator("[data-today-suggestions], [data-recommended-task], [data-insight-list]")).toHaveCount(0);
   await expect(page.locator('[data-home-pane="todo"]')).toHaveCount(0);
   await expect(page.locator('[data-home-pane="discovery"]')).toHaveCount(0);
+  await expect(page.locator('[data-home-pane="pool"]')).toHaveCount(0);
   await expect(page.locator('[data-home-pane="lifecycle"]')).toHaveCount(0);
 
   await openMode(page, "todo");
@@ -56,6 +58,12 @@ test("home four-panel tab order and pane visibility", async ({ page }) => {
   await expect(page.locator("[data-discovery-live]")).toHaveAttribute("data-discovery-live", "false");
   await expect(page.locator("[data-discovery-empty='idle']")).toBeVisible();
   await expect(page.locator("[data-discovery-start]")).toHaveText("开始发现");
+
+  await openMode(page, "pool");
+  await expect(page.locator("[data-home] h1")).toHaveCount(0);
+  await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
+  await expect(page.locator("[data-discovery-panel]")).toHaveCount(0);
+  await expect(page.locator('[data-home-pane="lifecycle"]')).toHaveCount(0);
 
   await openMode(page, "lifecycle");
   await expect(page.locator("[data-home] h1")).toHaveCount(0);
@@ -571,6 +579,10 @@ test("home four tabs live in ?tab= and switching does not POST sessions", async 
   await expect(page).toHaveURL(/[?&]tab=discovery/);
   await expect(page.locator('[data-home-pane="discovery"]')).toBeVisible();
 
+  await openMode(page, "pool");
+  await expect(page).toHaveURL(/[?&]tab=pool/);
+  await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
+
   await openMode(page, "lifecycle");
   await expect(page).toHaveURL(/[?&]tab=lifecycle/);
   await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
@@ -585,7 +597,8 @@ test("home four tabs live in ?tab= and switching does not POST sessions", async 
   await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
   await page.goto("/?tab=pool");
   await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
-  await expect(page.locator("[data-home-mode]")).toHaveCount(4);
+  await expect(page.locator("[data-home-mode]")).toHaveCount(5);
+  await expect(page.locator('[data-home-mode="pool"]')).toHaveAttribute("aria-selected", "true");
   expect(sessionPosts).toEqual([]);
 });
 

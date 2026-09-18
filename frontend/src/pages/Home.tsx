@@ -58,6 +58,7 @@ import {
   runHomeDiscovery,
 } from "../home/discoveryHome";
 import {
+  HOME_MODES,
   HOME_MODE_LABELS,
   homeModeQuery,
   parseHomeMode,
@@ -1657,47 +1658,22 @@ export default function Home() {
           </p>
 
           <div className="home-mode-tabs" role="tablist" aria-label="首页模式" data-home-modes>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === "today"}
-              data-home-mode="today"
-              data-home-entry="switch-tab"
-              data-today-count={todayCount}
-              onClick={() => setMode("today")}
-            >
-              {HOME_MODE_LABELS.today} <span className="home-mode-count">{todayCount}</span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === "todo"}
-              data-home-mode="todo"
-              data-home-entry="switch-tab"
-              onClick={() => setMode("todo")}
-            >
-              {HOME_MODE_LABELS.todo} <span className="home-mode-count">{openCount}</span>
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === "discovery"}
-              data-home-mode="discovery"
-              data-home-entry="switch-tab"
-              onClick={() => setMode("discovery")}
-            >
-              {HOME_MODE_LABELS.discovery}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === "lifecycle"}
-              data-home-mode="lifecycle"
-              data-home-entry="switch-tab"
-              onClick={() => setMode("lifecycle")}
-            >
-              {HOME_MODE_LABELS.lifecycle}
-            </button>
+            {HOME_MODES.map((homeMode) => (
+              <button
+                key={homeMode}
+                type="button"
+                role="tab"
+                aria-selected={mode === homeMode}
+                data-home-mode={homeMode}
+                data-home-entry="switch-tab"
+                data-today-count={homeMode === "today" ? todayCount : undefined}
+                onClick={() => setMode(homeMode)}
+              >
+                {HOME_MODE_LABELS[homeMode]}
+                {homeMode === "today" ? <span className="home-mode-count">{todayCount}</span> : null}
+                {homeMode === "todo" ? <span className="home-mode-count">{openCount}</span> : null}
+              </button>
+            ))}
             <button type="button" className="home-templates-link" data-open-work-panel onClick={() => openPanel("templates")}>
               任务模板
             </button>

@@ -102,13 +102,13 @@ async function openHomeDiscovery(page: Page) {
   await expect(page.locator('[data-home-pane="discovery"]')).toBeVisible();
 }
 
-const TODAY_NAV_ORDER = ["new-task", "running", "discovery", "pool", "followed", "cron", "mail"];
+const TODAY_NAV_ORDER = ["new-task", "running", "cron", "mail"];
 
 async function expectHomeModeOrder(page: Page) {
-  await expect(page.locator("[data-home-mode]")).toHaveCount(4);
+  await expect(page.locator("[data-home-mode]")).toHaveCount(5);
   expect(await page.locator("[data-home-mode]").evaluateAll((els) => (
     els.map((el) => el.getAttribute("data-home-mode"))
-  ))).toEqual(["today", "todo", "discovery", "lifecycle"]);
+  ))).toEqual(["today", "todo", "discovery", "pool", "lifecycle"]);
 }
 
 async function expectTodayNavOrder(page: Page) {
@@ -2563,41 +2563,44 @@ test("two buttons stay separate: send keeps stage, confirm-stage advances", asyn
   expect(x2.stage_code).toBe("INTERESTED");
 });
 
-test("sidebar 今日组 locks funnel order", async ({ page }) => {
+test("sidebar 今日组 keeps discovery/pool/followed off the rail", async ({ page }) => {
   await page.goto("/");
   await expectTodayNavOrder(page);
-  await expect(page.locator('[data-nav="discovery"]')).toHaveText("AI发现");
-  await expect(page.locator('[data-nav="discovery"]')).toHaveAttribute("href", "/?tab=discovery");
-  await expect(page.locator('[data-nav="discovery"]')).toHaveAttribute("data-home-entry", "existing-discovery");
-  await expect(page.locator('[data-nav="pool"]')).toHaveText("公海");
-  await expect(page.locator('[data-nav="pool"]')).toHaveAttribute("href", "/?tab=pool");
-  await expect(page.locator('[data-nav="followed"]')).toHaveText("我跟进的红人");
-  await expect(page.locator("[data-home-mode]")).toHaveCount(4);
-  await expect(page.locator('[data-home-mode="pool"]')).toHaveCount(0);
+  const today = page.locator('nav[aria-label="今日"]');
+  await expect(today).not.toContainText("AI发现");
+  await expect(today).not.toContainText("公海");
+  await expect(today).not.toContainText("我跟进的红人");
+  await expect(page.locator('[data-nav="discovery"]')).toHaveCount(0);
+  await expect(page.locator('[data-nav="pool"]')).toHaveCount(0);
+  await expect(page.locator('[data-nav="followed"]')).toHaveCount(0);
+  await expectHomeModeOrder(page);
+  await expect(page.locator('[data-home-mode="pool"]')).toHaveText("公海");
 });
 
-test("sidebar 公海 highlights only 公海", async ({ page }) => {
+test("/?tab=pool highlights in-page 公海 only", async ({ page }) => {
   const sessionPosts: string[] = [];
   page.on("request", (item) => {
     if (item.method() === "POST" && new URL(item.url()).pathname.startsWith("/api/sessions")) {
       sessionPosts.push(new URL(item.url()).pathname);
     }
   });
-  await page.goto("/");
-  await page.locator('[data-nav="pool"]').click();
+  await page.goto("/?tab=pool");
   await expect(page).toHaveURL(/[?&]tab=pool/);
   await expect(page.locator("[data-home]")).toHaveAttribute("data-home-active-mode", "pool");
   await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
-  await expect(page.locator('[data-nav="pool"]')).toHaveClass(/active/);
-  await expect(page.locator('[data-nav="pool"]')).toHaveAttribute("aria-current", "page");
-  await expect(page.locator('[data-nav="followed"]')).not.toHaveClass(/active/);
-  await expect(page.locator('[data-nav="followed"]')).not.toHaveAttribute("aria-current", "page");
-  await expect(page.locator('[data-nav="discovery"]')).not.toHaveClass(/active/);
-  await expect(page.locator('[data-nav="new-task"]')).not.toHaveClass(/active/);
+  await expect(page.locator('[data-home-mode="pool"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "false");
+  await expect(page.locator('[data-home-mode="todo"]')).toHaveAttribute("aria-selected", "false");
+  await expect(page.locator('[data-home-mode="discovery"]')).toHaveAttribute("aria-selected", "false");
+  await expect(page.locator('[data-home-mode="lifecycle"]')).toHaveAttribute("aria-selected", "false");
+  await expect(page.locator('[data-nav="pool"]')).toHaveCount(0);
+  await expect(page.locator('[data-nav="followed"]')).toHaveCount(0);
+  await expect(page.locator('[data-nav="discovery"]')).toHaveCount(0);
+  await expect(page.locator('[data-nav="new-task"]')).toHaveClass(/active/);
   expect(sessionPosts).toEqual([]);
 });
 
-test("sidebar AI发现 highlights and opens discovery pane", async ({ page }) => {
+test("in-page AI发现 tab opens discovery pane without a sidebar item", async ({ page }) => {
   const sessionPosts: string[] = [];
   page.on("request", (item) => {
     if (item.method() === "POST" && new URL(item.url()).pathname.startsWith("/api/sessions")) {
@@ -2605,24 +2608,23 @@ test("sidebar AI发现 highlights and opens discovery pane", async ({ page }) =>
     }
   });
   await page.goto("/");
-  await page.locator('[data-nav="discovery"]').click();
+  await page.locator('[data-home-mode="discovery"]').click();
   await expect(page).toHaveURL(/[?&]tab=discovery/);
   await expect(page.locator("[data-home]")).toHaveAttribute("data-home-active-mode", "discovery");
   await expect(page.locator('[data-home-pane="discovery"]')).toBeVisible();
   await expect(page.locator('[data-home-mode="discovery"]')).toHaveAttribute("aria-selected", "true");
-  await expect(page.locator('[data-nav="discovery"]')).toHaveClass(/active/);
-  await expect(page.locator('[data-nav="discovery"]')).toHaveAttribute("aria-current", "page");
-  await expect(page.locator('[data-nav="pool"]')).not.toHaveClass(/active/);
-  await expect(page.locator('[data-nav="followed"]')).not.toHaveClass(/active/);
-  await expect(page.locator('[data-nav="new-task"]')).not.toHaveClass(/active/);
+  await expect(page.locator('[data-nav="discovery"]')).toHaveCount(0);
+  await expect(page.locator('[data-nav="pool"]')).toHaveCount(0);
+  await expect(page.locator('[data-nav="followed"]')).toHaveCount(0);
+  await expect(page.locator('[data-nav="new-task"]')).toHaveClass(/active/);
   expect(sessionPosts).toEqual([]);
 });
 
-test("sidebar 新工作任务 is not active on 我跟进的红人", async ({ page }) => {
+test("sidebar 新工作任务 stays active on in-page 我跟进的红人", async ({ page }) => {
   await page.goto("/?tab=lifecycle");
   await expect(page.locator("[data-home]")).toHaveAttribute("data-home-active-mode", "lifecycle");
-  await expect(page.locator('[data-nav="new-task"]')).not.toHaveClass(/active/);
-  await expect(page.locator('[data-nav="new-task"]')).not.toHaveAttribute("aria-current", "page");
+  await expect(page.locator('[data-nav="new-task"]')).toHaveClass(/active/);
+  await expect(page.locator('[data-nav="new-task"]')).toHaveAttribute("aria-current", "page");
   await page.locator('[data-home-mode="today"]').click();
   await expect(page.locator("[data-home]")).toHaveAttribute("data-home-active-mode", "today");
   await expect(page.locator('[data-nav="new-task"]')).toHaveClass(/active/);
@@ -3075,9 +3077,9 @@ test("employee sidebar puts cron in today cluster and hides group titles", async
   const assets = page.locator('nav[aria-label="资产"]');
   await expect(today.locator('[data-nav="new-task"]')).toBeVisible();
   await expect(today.locator('[data-nav="running"]')).toBeVisible();
-  await expect(today.locator('[data-nav="discovery"]')).toBeVisible();
-  await expect(today.locator('[data-nav="pool"]')).toBeVisible();
-  await expect(today.locator('[data-nav="followed"]')).toBeVisible();
+  await expect(today.locator('[data-nav="discovery"]')).toHaveCount(0);
+  await expect(today.locator('[data-nav="pool"]')).toHaveCount(0);
+  await expect(today.locator('[data-nav="followed"]')).toHaveCount(0);
   await expectTodayNavOrder(page);
   await expect(today.locator('[data-nav="cron"]')).toBeVisible();
   await expect(today.locator('[data-nav="cron"]')).toContainText("定时任务");

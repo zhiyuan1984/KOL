@@ -159,7 +159,7 @@ async function openFollow(page: Page) {
 }
 
 async function openPool(page: Page) {
-  await page.locator('[data-nav="pool"]').click();
+  await page.locator('[data-home-mode="pool"]').click();
   await expect(page).toHaveURL(/[?&]tab=pool/);
   await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
 }
@@ -178,8 +178,9 @@ test("pool is a separate entry and cards have no mail digest", async ({ page }) 
     }
   });
   await page.goto("/");
-  await expect(page.locator('[data-nav="pool"]')).toBeVisible();
-  await page.locator('[data-nav="pool"]').click();
+  await expect(page.locator('[data-nav="pool"]')).toHaveCount(0);
+  await expect(page.locator('[data-home-mode="pool"]')).toBeVisible();
+  await page.locator('[data-home-mode="pool"]').click();
   await expect(page).toHaveURL(/[?&]tab=pool/);
   await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
   await expect(page.locator("[data-pool-toolbar][data-home-entry='list-pool']")).toBeVisible();
