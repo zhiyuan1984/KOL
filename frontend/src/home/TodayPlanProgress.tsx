@@ -1,5 +1,31 @@
+import { useEffect, useState } from "react";
 import type { TaskEvent } from "../api";
-import { todayPlanEventLabels, todayPlanStatusCopy, type TodayPlanPhase } from "./todayPlan";
+import {
+  formatTodayPlanElapsed,
+  todayPlanEventLabels,
+  todayPlanStatusCopy,
+  type TodayPlanPhase,
+} from "./todayPlan";
+import "./today-plan-progress.css";
+
+function usePlanningElapsed(active: boolean): number | null {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!active) {
+      setElapsed(0);
+      return;
+    }
+    const startedAt = Date.now();
+    setElapsed(0);
+    const tick = window.setInterval(() => {
+      setElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    }, 1000);
+    return () => window.clearInterval(tick);
+  }, [active]);
+
+  return active ? elapsed : null;
+}
 
 export default function TodayPlanProgress({
   phase = "idle",
@@ -8,6 +34,8 @@ export default function TodayPlanProgress({
   phase?: TodayPlanPhase;
   events?: TaskEvent[] | null;
 }) {
+  const planning = phase === "planning";
+  const elapsed = usePlanningElapsed(planning);
   const status = todayPlanStatusCopy(phase);
   const labels = todayPlanEventLabels(events);
   if (!status && !labels.length) return null;
@@ -19,7 +47,20 @@ export default function TodayPlanProgress({
       data-today-planning={phase === "planning" || phase === "loading-memory" ? true : undefined}
       role="status"
     >
-      {status ? <p className="today-plan-progress-lead">{status}</p> : null}
+      {status ? (
+        <p className="today-plan-progress-lead">
+          <span data-today-plan-lead>{status}</span>
+          {elapsed != null ? (
+            <span
+              className="today-plan-elapsed"
+              data-today-plan-elapsed={elapsed}
+              aria-label={`已用时 ${formatTodayPlanElapsed(elapsed)}`}
+            >
+              {formatTodayPlanElapsed(elapsed)}
+            </span>
+          ) : null}
+        </p>
+      ) : null}
       {labels.length ? (
         <ol className="today-plan-events">
           {labels.map((label, index) => (
