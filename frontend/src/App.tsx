@@ -5,6 +5,7 @@ import Chat from "./pages/Chat";
 import Pipeline from "./pages/Pipeline";
 import Approvals from "./pages/Approvals";
 import Cron from "./pages/Cron";
+import Mail from "./pages/Mail";
 import { Skills } from "./pages/SimplePages";
 import Exam from "./pages/Exam";
 import Knowledge from "./pages/Knowledge";
@@ -30,6 +31,7 @@ export default function App() {
           <Route path="/s/:id" element={<Chat />} />
           <Route path="/pipeline" element={<Pipeline />} />
           <Route path="/cron" element={<Cron />} />
+          <Route path="/mail" element={<Mail />} />
           <Route path="/skills" element={<Skills />} />
           <Route path="/agents/:id" element={<Agents />} />
           <Route path="/agents" element={<Agents />} />

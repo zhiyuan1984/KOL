@@ -26,6 +26,7 @@ export default function Workbench() {
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [approvalCount, setApprovalCount] = useState(0);
   const [cronAlertCount, setCronAlertCount] = useState(0);
+  const [mailUnread, setMailUnread] = useState(0);
   const { account } = useAccount();
   const { admin, debug } = useViewMode();
   const [me, setMe] = useState<Account | null>(account);
@@ -49,6 +50,9 @@ export default function Workbench() {
         setCronAlertCount(Number(alerts.failed || 0) + Number(alerts.needs_takeover || 0));
       })
       .catch(() => setCronAlertCount(0));
+    api.mailBox()
+      .then((row) => setMailUnread(Number(row.unread || 0) || 0))
+      .catch(() => setMailUnread(0));
     return () => window.removeEventListener("lingong:sessions-refresh", refreshSessions);
   }, [loc.pathname]);
 
@@ -149,6 +153,11 @@ export default function Workbench() {
             <Ico path="M8 3v3 M16 3v3 M5 8h14 M6 5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z M9 13h3 M14 17h3" />
             <span className="sidebar-label">定时任务</span>
             {cronAlertCount > 0 && <span className="nav-badge warn" data-cron-alert>{cronAlertCount}</span>}
+          </NavLink>
+          <NavLink to="/mail" className={() => "nav-link" + ((loc.pathname === "/mail" || loc.pathname.startsWith("/mail/")) ? " active" : "")} data-nav="mail" onClick={() => setMobileOpen(false)}>
+            <Ico path="M4 6h16v12H4z M4 6l8 7 8-7" />
+            <span className="sidebar-label">通讯</span>
+            {mailUnread > 0 && <span className="nav-badge" data-mail-unread-badge>{mailUnread}</span>}
           </NavLink>
         </nav>
 

@@ -1394,9 +1394,15 @@ test("home followed-KOL object toolbar matches card width", async ({ page }) => 
   }
 });
 
-test("home followed-KOL 查看原邮件 opens the existing session mail rail", async ({ page }) => {
+test("home followed-KOL 查看互动 opens /mail without creating a session", async ({ page }) => {
+  const sessionPosts: string[] = [];
+  await page.route("**/api/mail/**", (route) => route.fulfill({ status: 404, json: { detail: "not found" } }));
+  await page.route("**/api/me/starry-binding", (route) => route.fulfill({
+    json: { bound: true, mailbox_email: "larry.zhao@amperetime.com", owner_name: "钟槿年", status: "connected" },
+  }));
   await page.route("**/api/home/board", (route) => route.fulfill({
     json: {
+      follow_scope: { bound: true, mailbox_email: "larry.zhao@amperetime.com", status: "connected" },
       kols: [{
         id: "col_xiaomei",
         handle: "小美妆日记",
@@ -1419,35 +1425,19 @@ test("home followed-KOL 查看原邮件 opens the existing session mail rail", a
       tabs: [{ code: "all", count: 1 }, { code: "INITIAL_CONTACT", count: 1 }],
     },
   }));
-  await page.route("**/api/collaborations/col_xiaomei/session", (route) => route.fulfill({
-    json: { id: "kol-mail-session", collaboration_id: "col_xiaomei" },
-  }));
-  await page.route("**/api/sessions/kol-mail-session**", (route) => route.fulfill({
-    json: {
-      id: "kol-mail-session",
-      collaboration_id: "col_xiaomei",
-      agent_status: "listening",
-      messages: [],
-      journey: {
-        handle: "小美妆日记",
-        stage_label: "初步接触",
-        collaboration_id: "col_xiaomei",
-        mail_history: [{
-          id: "mail-3901",
-          conversation_id: "3901",
-          subject: "Re: LiTime collab",
-          direction: "inbound",
-          body: "Hi there, I hope this message finds you well.\n\n你好，想和贵品牌litime合作",
-        }],
-      },
-    },
-  }));
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().includes("/api/collaborations/") && request.url().endsWith("/session")) {
+      sessionPosts.push(request.url());
+    }
+  });
   await page.goto("/");
   await openHomeLifecycle(page);
   await page.locator('[data-followed-kol="小美妆日记"] [data-open-original-mail]').click();
-  await expect(page).toHaveURL(/\/s\/kol-mail-session/);
-  await expect(page.locator("[data-workbench] [data-mail-body]")).toBeVisible();
-  await expect(page.locator("[data-workbench] [data-mail-body]")).toContainText("想和贵品牌litime合作");
+  await expect(page).toHaveURL(/\/mail\?/);
+  await expect(page).toHaveURL(/c=3901/);
+  await expect(page).not.toHaveURL(/\/s\//);
+  await expect(page.locator("[data-mail-page]")).toBeVisible();
+  expect(sessionPosts).toEqual([]);
 });
 
 test("home followed-KOL default sort uses contract keys 1-8", async ({ page }) => {
@@ -3038,7 +3028,11 @@ test("employee sidebar puts cron in today cluster and hides group titles", async
   await expect(today.locator('[data-nav="running"]')).toBeVisible();
   await expect(today.locator('[data-nav="cron"]')).toBeVisible();
   await expect(today.locator('[data-nav="cron"]')).toContainText("定时任务");
+  await expect(today.locator('[data-nav="mail"]')).toBeVisible();
+  await expect(today.locator('[data-nav="mail"]')).toContainText("通讯");
+  await expect(today.locator('[data-nav="mail"]')).toHaveAttribute("href", "/mail");
   await expect(assets.locator('[data-nav="cron"]')).toHaveCount(0);
+  await expect(assets.locator('[data-nav="mail"]')).toHaveCount(0);
   await expect(page.locator(".sidebar .nav-label")).toHaveCount(0);
   await expect(page.locator(".sidebar").getByText("今日", { exact: true })).toHaveCount(0);
   await expect(page.locator(".sidebar").getByText("智能体", { exact: true })).toHaveCount(0);
