@@ -189,6 +189,7 @@ describe("kol follow/pool memory P0", () => {
     expect(res.status).toBe(201);
     expect(res.body.task_type).toBe("kol_analyze");
     expect(res.body.recognizeTaskIntent).toBe(false);
+    expect(res.body.kind).toBe("command");
     expect(res.body.creates_session).toBe(false);
     expect(res.body.calls_model).toBe(false);
     expect(res.body.artifact_type).toBe("kol_analyze_brief");

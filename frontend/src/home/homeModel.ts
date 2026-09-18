@@ -1,4 +1,4 @@
-import type { HomeWorkbench, RecommendedTask, Task, TaskDefinition } from "../api";
+import type { HomeWorkbench, RecommendedTask, Task, TaskDefinition, TodayBriefPrimary, TodoLayoutItem } from "../api";
 import { waitDisplayOf, waitStatusLabel, failureHint } from "../waitStatus";
 import { todayTaskOriginLabel } from "./modes";
 
@@ -98,12 +98,17 @@ export function isClosedTask(task: Task) {
   return closedStatuses.has(String(task.status || ""));
 }
 
+export function isPlanningTask(task: Task) {
+  const type = String(task.task_type || task.skill || "");
+  return type === "today_plan" || type === "today_analyze" || task.source === "planning";
+}
+
 export function isInsightTask(task: Task) {
   return task.source === "ai" && !task.promoted_at && !task.dismissed_at && !isClosedTask(task);
 }
 
 export function isTodoTask(task: Task) {
-  if (isClosedTask(task) || task.dismissed_at) return false;
+  if (isPlanningTask(task) || isClosedTask(task) || task.dismissed_at) return false;
   return task.source !== "ai" || Boolean(task.promoted_at);
 }
 
@@ -207,11 +212,13 @@ export function todayBucketLabel(bucket: TodayBucket) {
 }
 
 export function isTodayActionableTodo(task: Task) {
+  if (isPlanningTask(task)) return false;
   return todayBucket(task) !== null;
 }
 
 /** Full open memory list — not closed / not dismissed. No promote gate. */
 export function isOpenTask(task: Task) {
+  if (isPlanningTask(task)) return false;
   return !isClosedTask(task) && !task.dismissed_at;
 }
 
@@ -266,7 +273,49 @@ export function todayPrimaryAction(bucket: TodayBucket) {
   return bucket === "approval" ? "去审批" : "处理";
 }
 
+const BANNED_BRIEF_PRIMARY = /处理|待补阶段/;
+const BATCH_PRIMARY_LABEL: Record<string, string> = {
+  retry_crawl: "重试采集",
+  open_batch: "打开批次",
+  analyze: "分析批次",
+};
+
+export function briefPrimaryLabel(primary?: TodayBriefPrimary | null): string {
+  if (!primary) return "";
+  const verb = String(primary.verb || "").trim();
+  const raw = String(primary.label || "").trim();
+  const batch = primary.object_type === "batch"
+    || (!primary.person_id && /batch|discovery/.test(String(primary.object_type || "")));
+  if (batch) {
+    if (verb === "follow" || BANNED_BRIEF_PRIMARY.test(raw) || BANNED_BRIEF_PRIMARY.test(verb)) {
+      return BATCH_PRIMARY_LABEL[verb] || BATCH_PRIMARY_LABEL.retry_crawl;
+    }
+    return BATCH_PRIMARY_LABEL[verb] || raw || "打开批次";
+  }
+  if (BANNED_BRIEF_PRIMARY.test(raw) || BANNED_BRIEF_PRIMARY.test(verb)) return "打开";
+  return raw || "打开";
+}
+
+export function applyTodoLayout(tasks: Task[], layout?: TodoLayoutItem[] | null): Task[] {
+  if (!layout?.length) return sortOpenWorkItems(tasks);
+  const byId = new Map(layout.map((row) => [row.work_item_id, row]));
+  return [...tasks].sort((a, b) => {
+    const left = byId.get(a.id);
+    const right = byId.get(b.id);
+    const rankA = left?.rank ?? 999;
+    const rankB = right?.rank ?? 999;
+    if (rankA !== rankB) return rankA - rankB;
+    return sortOpenWorkItems([a, b]).map((row) => row.id).indexOf(a.id)
+      - sortOpenWorkItems([a, b]).map((row) => row.id).indexOf(b.id);
+  }).map((task) => {
+    const row = byId.get(task.id);
+    return row?.why ? { ...task, layout_why: row.why } : task;
+  });
+}
+
 export function whyLine(task: Task) {
+  const layoutWhy = String(task.layout_why || "").trim();
+  if (layoutWhy) return layoutWhy;
   const origin = todayTaskOriginLabel(task.source);
   if (waitDisplayOf(task.status) === "failed") {
     const hint = failureHint(task);

@@ -244,6 +244,57 @@ export type Task = {
   [key: string]: unknown;
 };
 
+export type TodayBriefPrimary = {
+  verb?: string;
+  label?: string;
+  object_id?: string | null;
+  object_type?: string;
+  person_id?: string | null;
+};
+
+export type TodayBriefSection = {
+  title?: string;
+  body?: string;
+  items?: string[];
+};
+
+export type TodoLayoutItem = {
+  work_item_id: string;
+  rank?: number;
+  why?: string;
+};
+
+export type TodayBrief = {
+  lead?: string;
+  stats?: Record<string, number | string>;
+  primary?: TodayBriefPrimary;
+  sections?: TodayBriefSection[];
+  todo_layout?: TodoLayoutItem[];
+  analysis_hints?: Array<Record<string, unknown>>;
+  source_cursor?: Record<string, unknown>;
+  increment_summary?: string;
+};
+
+export type TodayBriefResponse = {
+  planning?: boolean;
+  brief?: TodayBrief | null;
+  events?: TaskEvent[];
+  work_item_id?: string | null;
+  session_id?: string | null;
+  run_id?: string | null;
+  creates_session?: boolean;
+  calls_model?: boolean;
+};
+
+export type TodayPlanResult = {
+  planning?: boolean;
+  attached?: boolean;
+  work_item_id?: string;
+  session_id?: string;
+  run_id?: string;
+  creates_session?: boolean;
+};
+
 export type RecommendedTask = {
   id: string;
   n?: number;
@@ -794,6 +845,18 @@ export const api = {
     }>(`/api/follows/${encodeURIComponent(followId)}/release`, {
       method: "POST",
       body: JSON.stringify({ confirm: true, confirmed: true, reason: "manual_release", ...(body || {}) }),
+    }),
+  todayBrief: () =>
+    request<TodayBriefResponse>("/api/home/today-brief"),
+  planToday: () =>
+    request<TodayPlanResult>("/api/home/today-brief/plan", {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  enqueueTodayAnalyze: (body: Record<string, unknown> = {}) =>
+    request<TodayPlanResult>("/api/home/today-brief/enqueue", {
+      method: "POST",
+      body: JSON.stringify(body),
     }),
   dismissTask: (id: string) =>
     request<Task>(`/api/tasks/${encodeURIComponent(id)}/dismiss`, {

@@ -1,8 +1,9 @@
-import type { Task } from "../api";
+import type { Task, TodoLayoutItem } from "../api";
 import MemoryWorkRow from "./MemoryWorkRow";
 import { HOME_TODO_EMPTY } from "./entryRegistry";
 import {
   OPEN_FILTERS,
+  applyTodoLayout,
   isOpenTask,
   matchesTodoFilter,
   openBucket,
@@ -17,6 +18,7 @@ export default function TodoPane({
   dedupeNotice,
   busy,
   onAct,
+  todoLayout,
 }: {
   tasks: Task[];
   filter: TodoListFilter;
@@ -24,8 +26,10 @@ export default function TodoPane({
   dedupeNotice: string;
   busy: boolean;
   onAct: (task: Task) => void;
+  todoLayout?: TodoLayoutItem[] | null;
 }) {
-  const official = sortOpenWorkItems(tasks.filter((task) => isOpenTask(task) && matchesTodoFilter(task, filter)));
+  const members = tasks.filter((task) => isOpenTask(task) && matchesTodoFilter(task, filter));
+  const official = todoLayout?.length ? applyTodoLayout(members, todoLayout) : sortOpenWorkItems(members);
   return (
     <section className="home-mode-pane today-work-inline" data-today-work data-home-pane="todo">
       {dedupeNotice ? (

@@ -11,6 +11,9 @@ import {
   sortTodayTodos,
   todayBucket,
   todayContentLine,
+  applyTodoLayout,
+  briefPrimaryLabel,
+  isPlanningTask,
 } from "./homeModel";
 
 function task(partial: Partial<Task> & Pick<Task, "id" | "title">): Task {
@@ -118,5 +121,22 @@ describe("today pane buckets", () => {
       next_action: "下一步",
       risk: "样品丢失",
     }))).toBe("描述 · 历史 · 下一步 · 样品丢失");
+  });
+
+  it("sorts open todos by todo_layout why/rank and hides planning work items", () => {
+    const later = task({ id: "b", title: "后", status: "pending", updated_at: "2026-09-02T00:00:00.000Z" });
+    const first = task({ id: "a", title: "先", status: "pending", updated_at: "2026-09-01T00:00:00.000Z" });
+    const laid = applyTodoLayout([later, first], [
+      { work_item_id: "a", rank: 1, why: "昨日未完成" },
+      { work_item_id: "b", rank: 2, why: "批次空结果" },
+    ]);
+    expect(laid.map((row) => row.id)).toEqual(["a", "b"]);
+    expect(laid[0].layout_why).toBe("昨日未完成");
+    expect(isPlanningTask(task({ id: "p", title: "规划", task_type: "today_plan", source: "planning", status: "running" }))).toBe(true);
+    expect(isOpenTask(task({ id: "p", title: "规划", task_type: "today_plan", source: "planning", status: "running" }))).toBe(false);
+    expect(isTodoTask(task({ id: "p", title: "规划", task_type: "today_plan", source: "planning", status: "running" }))).toBe(false);
+    expect(briefPrimaryLabel({ verb: "follow", label: "处理", object_type: "batch" })).toBe("重试采集");
+    expect(briefPrimaryLabel({ verb: "retry_crawl", label: "待补阶段", object_type: "batch" })).toBe("重试采集");
+    expect(briefPrimaryLabel({ verb: "open_batch", label: "打开批次", object_type: "batch" })).toBe("打开批次");
   });
 });

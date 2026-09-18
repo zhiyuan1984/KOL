@@ -195,6 +195,16 @@ export function cardFields(kol: {
 }
 
 const CLOSED_STATUSES = new Set(["completed", "done", "cancelled"]);
+export const PLANNING_TASK_TYPES = new Set(["today_plan", "today_analyze"]);
+
+export function isPlanningWorkItem(task: {
+  task_type?: unknown;
+  skill?: unknown;
+  source?: unknown;
+}): boolean {
+  const type = String(task.task_type || task.skill || "");
+  return PLANNING_TASK_TYPES.has(type) || String(task.source || "") === "planning";
+}
 const DOMAIN_LABEL: Record<string, string> = {
   Lead: "线索",
   Opportunity: "商机",
@@ -253,7 +263,10 @@ export function isTodayWorkItem(task: {
   risk?: unknown;
   title?: unknown;
   current_stage?: unknown;
+  task_type?: unknown;
+  skill?: unknown;
 }): boolean {
+  if (isPlanningWorkItem(task)) return false;
   if (isClosedWorkItem(task) || task.dismissed_at) return false;
   if (isHighRiskWorkItem(task)) return true;
   const flags = dueFlags(task.due_at);
@@ -268,7 +281,11 @@ export function isTodayWorkItem(task: {
 export function isOpenWorkItem(task: {
   status?: unknown;
   dismissed_at?: unknown;
+  task_type?: unknown;
+  skill?: unknown;
+  source?: unknown;
 }): boolean {
+  if (isPlanningWorkItem(task)) return false;
   return !isClosedWorkItem(task) && !task.dismissed_at;
 }
 
@@ -276,6 +293,8 @@ export function isOpenWorkItem(task: {
 export const OPEN_WORK_ITEM_SQL = `
   status NOT IN ('completed','done','cancelled')
   AND dismissed_at IS NULL
+  AND COALESCE(source, 'manual') != 'planning'
+  AND task_type NOT IN ('today_plan','today_analyze')
 `;
 
 export function isTodoWorkItem(task: {
@@ -283,7 +302,10 @@ export function isTodoWorkItem(task: {
   status?: unknown;
   promoted_at?: unknown;
   dismissed_at?: unknown;
+  task_type?: unknown;
+  skill?: unknown;
 }): boolean {
+  if (isPlanningWorkItem(task)) return false;
   if (isClosedWorkItem(task) || task.dismissed_at) return false;
   const source = String(task.source || "manual");
   if (source === "ai" || source === "discovery") return Boolean(task.promoted_at);
@@ -294,6 +316,8 @@ export function isTodoWorkItem(task: {
 export const TODO_WORK_ITEM_SQL = `
   status NOT IN ('completed','done','cancelled')
   AND dismissed_at IS NULL
+  AND COALESCE(source, 'manual') != 'planning'
+  AND task_type NOT IN ('today_plan','today_analyze')
   AND (COALESCE(source, 'manual') NOT IN ('ai', 'discovery') OR promoted_at IS NOT NULL)
 `;
 

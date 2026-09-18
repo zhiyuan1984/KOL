@@ -31,6 +31,8 @@ const FUNNEL_BY_ID: Record<string, FunnelId> = {
   creator_filter_options: "reach",
   creator_lifecycle_kanban: "intent",
   creator_daily_tasks: "reach",
+  today_plan: "reach",
+  today_analyze: "reach",
   confirm_stage: "intent",
   stage_sop: "intent",
   reply_analysis: "intent",

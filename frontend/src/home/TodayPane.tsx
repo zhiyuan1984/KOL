@@ -1,23 +1,60 @@
-import type { Task } from "../api";
+import type { Task, TodayBrief } from "../api";
 import MemoryWorkRow from "./MemoryWorkRow";
-import {
-  isTodayActionableTodo,
-  sortTodayTodos,
-  todayBucket,
-} from "./homeModel";
+import { briefPrimaryLabel, isTodayActionableTodo, sortTodayTodos, todayBucket } from "./homeModel";
 
 export default function TodayPane({
   todayTodos,
   busy,
   onAct,
+  brief,
+  planning,
+  progress,
 }: {
   todayTodos: Task[];
   busy: boolean;
   onAct: (task: Task) => void;
+  brief?: TodayBrief | null;
+  planning?: boolean;
+  progress?: string;
 }) {
   const official = sortTodayTodos(todayTodos.filter(isTodayActionableTodo));
+  const sections = Array.isArray(brief?.sections) ? brief.sections : [];
+  const primaryLabel = briefPrimaryLabel(brief?.primary);
+  const bannedPrimary = /处理|待补阶段/.test(primaryLabel);
   return (
     <section className="home-mode-pane" data-home-pane="today">
+      {planning && !sections.length ? (
+        <p className="today-plan-progress" data-today-planning role="status">
+          {progress || "正在为你规划今天"}
+        </p>
+      ) : null}
+
+      {brief ? (
+        <section className="today-brief" data-today-brief>
+          {brief.lead ? <p className="today-brief-lead" data-today-lead>{brief.lead}</p> : null}
+          {primaryLabel && !bannedPrimary ? (
+            <p className="today-brief-primary" data-today-primary data-today-primary-verb={brief.primary?.verb}>
+              {primaryLabel}
+            </p>
+          ) : null}
+          {sections.length ? (
+            <div className="today-brief-sections" data-today-sections>
+              {sections.map((section, index) => (
+                <article key={`${section.title || "sec"}-${index}`} className="today-brief-section" data-today-section>
+                  {section.title ? <h3>{section.title}</h3> : null}
+                  {section.body ? <p>{section.body}</p> : null}
+                  {Array.isArray(section.items) && section.items.length ? (
+                    <ul>
+                      {section.items.map((item) => <li key={item}>{item}</li>)}
+                    </ul>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
       <section
         className="today-todo-list"
         data-today-list
