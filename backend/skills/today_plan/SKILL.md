@@ -43,6 +43,8 @@ Host 已锁定本 Skill。CONTEXT.md 里的 **HOST PACK（history / delta / now_
 
 必写 `display_tasks`：数组。每一行对应一项已有正式任务，禁止发明 work_item_id。
 
+**逐条覆盖**:HOST PACK `history.unfinished_tasks` 里的每一个 `work_item_id` 都必须恰好出现一行——展示是逐条美化，不是总结归纳。禁止遗漏、合并或把多条任务写成一行。漏掉任何一项，Host 会判定本轮规划失败并保留上一轮展示。
+
 ```json
 {
   "work_item_id": "tsk_xxx",

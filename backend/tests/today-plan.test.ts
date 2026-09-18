@@ -8,7 +8,7 @@ import { getConn, nowIso, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { HOME_ENTRY_REGISTRY } from "../src/host/entry-registry.js";
 import { HOME_ENTRY_REGISTRY as FRONTEND_HOME_ENTRY_REGISTRY } from "../../frontend/src/home/entryRegistry.ts";
-import { packTodayPlanContext, planningHarnessMount } from "../src/host/today-plan-context.js";
+import { collectSourceCatalog, packTodayPlanContext, planningHarnessMount } from "../src/host/today-plan-context.js";
 import { validateTodayBrief, writeTodayBriefArtifact } from "../src/host/today-brief.js";
 import { TODAY_PLAN_EMPLOYEE_EVENTS } from "../src/host/today-plan-run.js";
 import type { WorkerResult } from "../src/types.js";
@@ -399,12 +399,18 @@ describe("today_plan harness", () => {
       String(event.title || event.label) === TODAY_PLAN_EMPLOYEE_EVENTS.memoryRead
     ));
     expect(String(memoryEvent?.summary || "")).toMatch(/未了结 \d+ 项/);
+    const unfinishedIds = collectSourceCatalog(owner())
+      .filter((item) => item.kind === "formal_task" && item.work_item_id)
+      .map((item) => String(item.work_item_id));
     release({
       worker_id: "stub",
       status: "completed",
       skill: "today_plan",
       contract_log: [],
-      items: [validBrief({ type: "today_brief" })],
+      items: [validBrief({
+        type: "today_brief",
+        todo_layout: unfinishedIds.map((id, index) => ({ work_item_id: id, rank: index + 1, why: "未了结" })),
+      })],
     });
     await vi.waitFor(async () => {
       const done = await request("GET", "/api/home/today-brief");

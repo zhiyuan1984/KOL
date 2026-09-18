@@ -47,6 +47,8 @@ export default function TodayPane({
   const sections = Array.isArray(brief?.sections) ? brief.sections : [];
   const primaryLabel = briefPrimaryLabel(brief?.primary);
   const bannedPrimary = /处理|待补阶段/.test(primaryLabel);
+  const primaryObjectId = String(brief?.primary?.object_id || "").trim();
+  const primaryTask = primaryObjectId ? official.find((task) => task.id === primaryObjectId) : undefined;
   const waiting = displayRows == null || phase === "loading-memory" || phase === "planning";
   return (
     <section className="home-mode-pane" data-home-pane="today">
@@ -65,9 +67,22 @@ export default function TodayPane({
         <section className="today-brief" data-today-brief>
           {brief.lead ? <p className="today-brief-lead" data-today-lead>{brief.lead}</p> : null}
           {primaryLabel && !bannedPrimary ? (
-            <p className="today-brief-primary" data-today-primary data-today-primary-verb={brief.primary?.verb}>
-              {primaryLabel}
-            </p>
+            primaryTask ? (
+              <button
+                type="button"
+                className="today-brief-primary today-brief-primary-btn"
+                data-today-primary
+                data-today-primary-verb={brief.primary?.verb}
+                disabled={busy}
+                onClick={() => onAct(primaryTask)}
+              >
+                {primaryLabel} →
+              </button>
+            ) : (
+              <p className="today-brief-primary" data-today-primary data-today-primary-verb={brief.primary?.verb}>
+                {primaryLabel}
+              </p>
+            )
           ) : null}
           {sections.length ? (
             <div className="today-brief-sections" data-today-sections>

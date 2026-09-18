@@ -8,7 +8,7 @@ import { parseAgentTexts } from "../src/worker/parse.js";
 import { requiredSkillOutputMissing, skillOutputSchema } from "../src/worker/runner.js";
 import { requireTaskDefinition } from "../src/tasks/registry.js";
 import { validateTodayBrief } from "../src/host/today-brief.js";
-import { briefFromWorkerItems } from "../src/host/today-plan-run.js";
+import { briefFromWorkerItems, missingDisplayCoverage } from "../src/host/today-plan-run.js";
 
 const REAL_CODEX_TODAY_BRIEF = JSON.stringify({
   type: "today_brief",
@@ -71,6 +71,23 @@ describe("today_brief real codex output", () => {
     const items = (schema.properties?.display_tasks as { items?: { properties?: Record<string, unknown>; required?: string[] } })
       ?.items;
     expect(Object.keys(items?.properties || {}).sort()).toEqual([...(items?.required || [])].sort());
+  });
+
+  it("display coverage: every unfinished work item must have its own row", () => {
+    const pack = {
+      history: {
+        unfinished_tasks: [
+          { work_item_id: "tsk_c29224c0b37d" },
+          { work_item_id: "tsk_other" },
+        ],
+      },
+    } as unknown as Parameters<typeof missingDisplayCoverage>[1];
+    const full = { display_tasks: [{ work_item_id: "tsk_c29224c0b37d" }, { work_item_id: "tsk_other" }] };
+    expect(missingDisplayCoverage(full, pack)).toEqual([]);
+    const partial = { display_tasks: [{ work_item_id: "tsk_c29224c0b37d" }] };
+    expect(missingDisplayCoverage(partial, pack)).toEqual(["tsk_other"]);
+    const legacy = { todo_layout: [{ work_item_id: "tsk_c29224c0b37d" }, { work_item_id: "tsk_other" }] };
+    expect(missingDisplayCoverage(legacy, pack)).toEqual([]);
   });
 
   it("prefers the latest brief candidate carrying display_tasks", () => {

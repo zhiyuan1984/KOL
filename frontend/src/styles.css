@@ -9111,3 +9111,19 @@ body {
 @media (max-width: 768px) {
   .mail-split { grid-template-columns: minmax(0, 1fr); }
 }
+button.today-brief-primary-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: var(--primary);
+  font-weight: 600;
+}
+button.today-brief-primary-btn:hover:not(:disabled) {
+  text-decoration: underline;
+}
+button.today-brief-primary-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

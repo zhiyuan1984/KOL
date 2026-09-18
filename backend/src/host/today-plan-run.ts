@@ -122,8 +122,7 @@ function memoryReadSummary(pack: TodayPlanPack): string {
   return Number.isFinite(unfinished) ? `未了结 ${unfinished} 项` : TODAY_PLAN_EMPLOYEE_EVENTS.memoryRead;
 }
 
-export function briefFromWorkerItems(items: Json[]): unknown {
-  const candidates = items.filter((item) => item.type === "today_brief" || (item.lead && item.sections));
+export function briefFromWorkerItems(items: Json[]): unknown {  const candidates = items.filter((item) => item.type === "today_brief" || (item.lead && item.sections));
   if (!candidates.length) return null;
   // Codex may emit an intermediate brief before the final structured message;
   // the authoritative row set lives on the latest candidate carrying display_tasks.
@@ -138,6 +137,26 @@ export function briefFromWorkerItems(items: Json[]): unknown {
     return rest;
   }
   return hit;
+}
+
+/**
+ * display_tasks（或旧 todo_layout）必须逐条覆盖 history.unfinished_tasks 的
+ * 每个 work_item_id —— 展示是逐条美化，不是总结。返回缺失的 id 列表。
+ */
+export function missingDisplayCoverage(brief: unknown, pack: TodayPlanPack): string[] {
+  const root = brief && typeof brief === "object" && !Array.isArray(brief) ? brief as Json : null;
+  if (!root) return [];
+  const rows = Array.isArray(root.display_tasks)
+    ? root.display_tasks
+    : Array.isArray(root.todo_layout)
+      ? root.todo_layout
+      : [];
+  const covered = new Set(
+    rows.map((row) => String((row as Json)?.work_item_id || (row as Json)?.id || "").trim()),
+  );
+  return pack.history.unfinished_tasks
+    .map((item) => String(item.work_item_id || "").trim())
+    .filter((id) => id && !covered.has(id));
 }
 
 export async function executeTodayPlanRun(input: {
@@ -174,11 +193,19 @@ export async function executeTodayPlanRun(input: {
       "running",
       "正在生成今日简报",
     );
+    const brief = briefFromWorkerItems(wr.items);
+    const missingCoverage = missingDisplayCoverage(brief, input.pack);
+    if (missingCoverage.length) {
+      const reason = `展示行漏了 ${missingCoverage.length} 项任务（${missingCoverage.slice(0, 3).join("、")}）`;
+      markTodayPlanFailed(input.workItemId, input.runId, reason);
+      appendTaskEvent(input.workItemId, input.runId, "run.failed", TODAY_PLAN_EMPLOYEE_EVENTS.invalid, "failed", reason);
+      return;
+    }
     const written = writeTodayBriefArtifact({
       owner: input.owner,
       workItemId: input.workItemId,
       runId: input.runId,
-      brief: briefFromWorkerItems(wr.items),
+      brief,
     });
     if (!written.ok) {
       markTodayPlanFailed(input.workItemId, input.runId, written.reason);
