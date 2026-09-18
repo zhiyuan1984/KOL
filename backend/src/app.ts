@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { authMiddleware, authRouter, ensureDemoAdmin } from "./auth.js";
 import { clawRouter, starryRouter } from "./adapters/httpMount.js";
-import { clawMode, codexMode, frontendDist } from "./config.js";
+import { clawMode, codexBinOk, codexMode, frontendDist, isTestRuntime } from "./config.js";
 import { getConn } from "./db.js";
 import { host } from "./host/api.js";
 import { HostReject, HttpFail } from "./host/errors.js";
@@ -49,13 +49,20 @@ export function createApp(): Hono {
       return c.json(err.payload, err.statusCode as 400 | 403 | 409 | 422 | 503);
     }
     if (err instanceof HttpFail) {
-      return c.json({ detail: err.detail }, err.status as 400 | 401 | 403 | 404 | 409 | 413 | 422 | 429 | 500 | 502);
+      return c.json({ detail: err.detail }, err.status as 400 | 401 | 403 | 404 | 409 | 413 | 422 | 429 | 500 | 502 | 503);
     }
     console.error(err);
     return c.json({ detail: err.message || "internal error" }, 500);
   });
 
-  app.get("/api/health", (c) => c.json({ ok: true, name: "灵工", ui: "agent-v1" }));
+  app.get("/api/health", (c) => c.json({
+    ok: true,
+    name: "灵工",
+    ui: "agent-v1",
+    codex_mode: codexMode(),
+    codex_bin_ok: codexBinOk(),
+    codex_stub_allowed: isTestRuntime(),
+  }));
   app.route("/api", authRouter);
   app.route("/api", examRouter);
   app.route("/api", enterprise);
