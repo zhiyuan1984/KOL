@@ -1,0 +1,13 @@
+.today-plan-progress-lead {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 8px;
+}
+
+.today-plan-elapsed {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  color: var(--text-muted, #6b6b6b);
+  letter-spacing: 0;
+}
