@@ -110,6 +110,38 @@ export function isMissingEndpoint(error: unknown): boolean {
   return status === 404 || status === 405;
 }
 
+export type IngestFailureKind = "missing" | "needs_confirmation" | "brief_mismatch" | "other";
+
+function errorPayload(error: unknown): Record<string, unknown> {
+  if (!error || typeof error !== "object") return {};
+  const payload = (error as { payload?: unknown }).payload;
+  const detail = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? (payload as Record<string, unknown>).detail
+    : undefined;
+  const fromDetail = detail && typeof detail === "object" && !Array.isArray(detail)
+    ? detail as Record<string, unknown>
+    : {};
+  const fromPayload = payload && typeof payload === "object" && !Array.isArray(payload)
+    ? payload as Record<string, unknown>
+    : {};
+  return { ...fromPayload, ...fromDetail };
+}
+
+export function ingestFailureKind(error: unknown): IngestFailureKind {
+  if (isMissingEndpoint(error)) return "missing";
+  const payload = errorPayload(error);
+  const code = asString(payload.code || payload.status);
+  const status = httpStatus(error);
+  if (status === 422 || code === "needs_confirmation") return "needs_confirmation";
+  if (status === 409 || code === "brief_version_mismatch") return "brief_mismatch";
+  return "other";
+}
+
+export function ingestFailureBriefVersion(error: unknown): number | null {
+  const payload = errorPayload(error);
+  return nullableNumber(payload.brief_version);
+}
+
 export function isServiceDown(error: unknown): boolean {
   const status = httpStatus(error);
   return status >= 500 || status === 0;

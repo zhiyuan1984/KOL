@@ -13,7 +13,7 @@ import {
   togglePlatform,
 } from "./discoveryTemplate";
 import { discoveryEventCopy, presentDiscoveryEvents } from "./discoveryEvents";
-import { asHomeRun, runCountsLabel, displayMetric, displayText } from "./discoveryHome";
+import { asHomeRun, ingestFailureKind, runCountsLabel, displayMetric, displayText } from "./discoveryHome";
 
 describe("discovery template fallback", () => {
   it("starts with 【发现任务】 and forbids mail/stage/fake email", () => {
@@ -89,5 +89,17 @@ describe("discovery metrics", () => {
     expect(asHomeRun({ run_id: "drun_1", brief: { headline: "北美美妆" }, candidate_count: 2, brief_version: 3 })?.id)
       .toBe("drun_1");
     expect(asHomeRun({ id: "drun_1", brief_version: 3 })?.brief_version).toBe(3);
+  });
+});
+
+describe("discovery ingest failures", () => {
+  it("classifies 404 / 422 / 409 without treating them as success", () => {
+    expect(ingestFailureKind({ status: 404 })).toBe("missing");
+    expect(ingestFailureKind({ status: 422, payload: { status: "needs_confirmation" } })).toBe("needs_confirmation");
+    expect(ingestFailureKind({
+      status: 409,
+      payload: { detail: { code: "brief_version_mismatch", brief_version: 2 } },
+    })).toBe("brief_mismatch");
+    expect(ingestFailureKind({ status: 500 })).toBe("other");
   });
 });

@@ -9,6 +9,8 @@ import {
 import {
   displayMetric,
   displayText,
+  ingestFailureBriefVersion,
+  ingestFailureKind,
   ingestHomeDiscovery,
   isMissingEndpoint,
   loadDiscoveryCandidates,
@@ -52,6 +54,7 @@ export default function DiscoveryPanel({
   const [ingestError, setIngestError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [approvalState, setApprovalState] = useState<string | null>(null);
+  const [ingestMissing, setIngestMissing] = useState(false);
 
   const visible = useMemo(
     () => candidates.filter((row) => !ignoredIds.includes(row.id) && row.status !== "dismissed"),
@@ -199,9 +202,8 @@ export default function DiscoveryPanel({
         candidate_ids: selected.map((row) => row.id),
         expected_brief_version: activeRun?.brief_version || 1,
       });
-      if (result.pending_approval) {
-        setApprovalState(result.approval_status || "pending");
-        setIngestOpen(false);
+      if (result.pending_approval || result.approval_status === "needs_confirmation") {
+        setIngestError("需要确认后才能入库公海。不会建联，也不会领取跟进。");
         return;
       }
       const ingestedIds = new Set(result.ingested.map((row) => row.id));
@@ -218,11 +220,31 @@ export default function DiscoveryPanel({
       setIngestOpen(false);
       setToast("去公海看这批");
     } catch (error) {
-      if (isMissingEndpoint(error)) {
-        setIngestError("入库接口尚未提供。不会建联，也不会发信。");
-      } else {
-        setIngestError(presentDiscoveryError(error, "入库没有完成，未建联也未发信。").message);
+      const kind = ingestFailureKind(error);
+      if (kind === "missing") {
+        setIngestOpen(false);
+        setIngestMissing(true);
+        setIngestError(null);
+        return;
       }
+      if (kind === "needs_confirmation") {
+        setIngestError("需要确认后才能入库公海。不会建联，也不会领取跟进。");
+        return;
+      }
+      if (kind === "brief_mismatch") {
+        const nextVersion = ingestFailureBriefVersion(error);
+        if (nextVersion) {
+          setActiveRun((current) => current ? { ...current, brief_version: nextVersion } : current);
+        }
+        setIngestOpen(false);
+        setIngestError(null);
+        setFailedReason(null);
+        setToast(null);
+        setApprovalState("brief_mismatch");
+        void loadExisting(runId);
+        return;
+      }
+      setIngestError(presentDiscoveryError(error, "入库没有完成，未建联也未发信。").message);
     } finally {
       setIngestBusy(false);
     }
@@ -277,11 +299,23 @@ export default function DiscoveryPanel({
         </section>
       ) : null}
 
-      {approvalState ? (
+      {approvalState === "brief_mismatch" ? (
+        <section className="task-empty" data-discovery-brief-mismatch role="alert">
+          <strong>确认已作废</strong>
+          <p>发现 Brief 已变化，原确认作废。请按当前 Brief 重新确认入库。不会建联，也不会领取跟进。</p>
+        </section>
+      ) : approvalState ? (
         <section className="task-empty" data-discovery-approval={approvalState} role="status">
           <strong>待审批</strong>
           <p>入库已提交，正在等待审批。审批链由服务端返回，前端不自行推算。</p>
         </section>
+      ) : null}
+
+      {ingestMissing ? (
+        <div className="task-empty" data-discovery-empty="ingest-missing">
+          <strong>入库接口尚未提供</strong>
+          <p>不会建联，不会发信，也不会领取跟进。可稍后重试。</p>
+        </div>
       ) : null}
 
       {toast ? (
@@ -317,6 +351,8 @@ export default function DiscoveryPanel({
                 data-home-entry="discovery-ingest"
                 onClick={() => {
                   setIngestError(null);
+                  setIngestMissing(false);
+                  setApprovalState((current) => current === "brief_mismatch" ? null : current);
                   setIngestOpen(true);
                 }}
               >

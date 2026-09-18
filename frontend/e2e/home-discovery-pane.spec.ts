@@ -261,6 +261,84 @@ test("submit posts /api/home/discovery/run, shows process copy, and ingests to p
   await expect(page.locator("[data-nav='running'] .nav-badge")).toHaveText("1");
 });
 
+async function mockExistingRun(page: Page) {
+  await page.route("**/api/home/discovery/runs**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/candidates")) {
+      void route.fulfill({ json: { run_id: "drun_e2e", candidates: stubCandidates() } });
+      return;
+    }
+    if (/\/runs\/[^/]+$/.test(path)) {
+      void route.fulfill({ json: { run: stubRun() } });
+      return;
+    }
+    void route.fulfill({ json: { runs: [stubRun()] } });
+  });
+}
+
+test("ingest 404 stays an empty-state and does not claim", async ({ page }) => {
+  const claimPosts: string[] = [];
+  page.on("request", (item) => {
+    const path = new URL(item.url()).pathname;
+    if (item.method() === "POST" && path.includes("/claim")) claimPosts.push(path);
+  });
+  await mockExistingRun(page);
+  await page.route("**/api/home/discovery/ingest", (route) => route.fulfill({
+    status: 404,
+    contentType: "application/json",
+    body: JSON.stringify({ detail: "not found" }),
+  }));
+  await openDiscovery(page);
+  await page.locator("[data-discovery-select-all]").check();
+  await page.locator("[data-discovery-ingest]").click();
+  await page.locator("[data-discovery-ingest-yes]").click();
+  await expect(page.locator("[data-discovery-empty='ingest-missing']")).toBeVisible();
+  await expect(page.locator("[data-discovery-empty='ingest-missing']")).toContainText("入库接口尚未提供");
+  await expect(page.locator("[data-discovery-toast]")).toHaveCount(0);
+  expect(claimPosts).toEqual([]);
+});
+
+test("ingest 422 keeps L3 open; 409 voids the old confirm", async ({ page }) => {
+  let ingestStatus = 422;
+  const bodies: unknown[] = [];
+  await mockExistingRun(page);
+  await page.route("**/api/home/discovery/ingest", async (route) => {
+    bodies.push(route.request().postDataJSON());
+    if (ingestStatus === 422) {
+      await route.fulfill({
+        status: 422,
+        contentType: "application/json",
+        body: JSON.stringify({ status: "needs_confirmation", confirmed: false, claimed: false }),
+      });
+      return;
+    }
+    await route.fulfill({
+      status: 409,
+      contentType: "application/json",
+      body: JSON.stringify({
+        detail: { code: "brief_version_mismatch", message: "发现 Brief 已变化，原确认作废。", brief_version: 2 },
+      }),
+    });
+  });
+  await openDiscovery(page);
+  await page.locator("[data-discovery-select-all]").check();
+  await page.locator("[data-discovery-ingest]").click();
+  await page.locator("[data-discovery-ingest-yes]").click();
+  await expect(page.locator("[data-discovery-ingest-confirm]")).toBeVisible();
+  await expect(page.locator("[data-discovery-ingest-error]")).toContainText("需要确认后才能入库公海");
+  expect(bodies[0]).toMatchObject({
+    run_id: "drun_e2e",
+    expected_brief_version: 1,
+    confirmed: true,
+  });
+
+  ingestStatus = 409;
+  await page.locator("[data-discovery-ingest-yes]").click();
+  await expect(page.locator("[data-discovery-ingest-confirm]")).toHaveCount(0);
+  await expect(page.locator("[data-discovery-brief-mismatch]")).toContainText("原确认作废");
+  await expect(page.locator("[data-discovery-toast]")).toHaveCount(0);
+});
+
 test("service-down and filtered empty states stay honest", async ({ page }) => {
   await page.route("**/api/home/discovery/runs**", (route) => route.fulfill({
     status: 502,
