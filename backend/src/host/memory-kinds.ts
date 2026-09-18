@@ -1,15 +1,25 @@
 /** Two employee memories. They update independently and must not upsert each other.
  *
- * task         = formal work_items (source != planning). GET /api/tasks?view=open
- *                Writes: command / acknowledge / approval / follow.
- *                today_plan must not UPDATE these rows.
- *
- * task_result  = Codex/worker artifacts. today_brief lives in task_artifacts +
- *                employee_today_briefs. GET /api/home/today-brief
- *                Writes: only a validated Codex today_brief.
- *                acknowledge must not move the brief pointer.
+ * task            = formal work_items (source != planning)
+ * task_result     = Codex/host artifacts such as today_brief
  */
-export const TASK_MEMORY_KIND = "task" as const;
-export const TASK_RESULT_MEMORY_KIND = "task_result" as const;
+export const TASK_MEMORY = "task" as const;
+export const TASK_RESULT_MEMORY = "task_result" as const;
 
-export type MemoryKind = typeof TASK_MEMORY_KIND | typeof TASK_RESULT_MEMORY_KIND;
+export type EmployeeMemoryKind = typeof TASK_MEMORY | typeof TASK_RESULT_MEMORY;
+
+export const TASK_MEMORY_READ = {
+  memory_kind: TASK_MEMORY,
+  entry: "memory",
+  kind: "memory",
+  creates_session: false,
+  calls_model: false,
+} as const;
+
+export const TASK_RESULT_MEMORY_READ = {
+  memory_kind: TASK_RESULT_MEMORY,
+  entry: "memory",
+  kind: "memory",
+  creates_session: false,
+  calls_model: false,
+} as const;
