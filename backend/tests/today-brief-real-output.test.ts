@@ -64,6 +64,10 @@ describe("today_brief real codex output", () => {
     };
     expect(schema.properties?.display_tasks).toBeTruthy();
     expect(schema.required || []).toContain("display_tasks");
+    // OpenAI strict structured output: required must list every property key.
+    const items = (schema.properties?.display_tasks as { items?: { properties?: Record<string, unknown>; required?: string[] } })
+      ?.items;
+    expect(Object.keys(items?.properties || {}).sort()).toEqual([...(items?.required || [])].sort());
   });
 
   it("parsed brief passes validateTodayBrief", () => {
