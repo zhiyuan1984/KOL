@@ -509,6 +509,51 @@ async function syncRemainingConversations(
       await hydrateConversationById(conversationId);
     });
   }
+
+  const MAX_BACKGROUND_PAGES = 20;
+  const pageSize = 50;
+  let pageNo = startPageNo + 1;
+  let pagesProcessed = 1; // startPage already counted by foreground
+  while (pagesProcessed < MAX_BACKGROUND_PAGES) {
+    const { conversations } = await fetchConversationPage(pageNo, pageSize, mailbox);
+    if (!conversations.length) break;
+
+    // Persist the fact that we are about to process this page
+    updateBindingSyncCursor({ userId, mailbox, syncedAt, pageNo, tool: "pageEmailConversations" });
+
+    const pageCandidates = conversations.filter((conv) => {
+      const conversationId = conversationIdOf(conv);
+      if (!conversationId) return false;
+      // Same logic as foreground detailCandidates filter
+      const lookupMailbox = mailbox || conversationMailboxOf(conv);
+      const existing = getConn().prepare(
+        "SELECT last_at FROM kol_mail_threads WHERE conversation_id=? ORDER BY updated_at DESC LIMIT 1",
+      ).get(conversationId) as { last_at?: string } | undefined;
+      const bindingRow = lookupMailbox
+        ? getConn().prepare("SELECT sync_cursor_at FROM user_starry_bindings WHERE lower(mailbox_email)=lower(?) LIMIT 1")
+            .get(lookupMailbox) as { sync_cursor_at?: string } | undefined
+        : undefined;
+      const unread = Number(conv.unreadCount ?? conv.unread_count);
+      const remoteAt = remoteConversationTime(conv);
+      const rememberedAt = Math.max(timestampMs(existing?.last_at), timestampMs(bindingRow?.sync_cursor_at));
+      return !existing || (Number.isFinite(unread) && unread > 0) || (timestampMs(remoteAt) > rememberedAt);
+    });
+
+    for (let i = 0; i < pageCandidates.length; i += 5) {
+      const batch = pageCandidates.slice(i, i + 5);
+      await mapLimited(batch, 5, async (conv) => {
+        const conversationId = conversationIdOf(conv);
+        if (!conversationId) return;
+        await hydrateConversationById(conversationId);
+      });
+    }
+
+    if (conversations.length < pageSize) break;
+    pageNo += 1;
+    pagesProcessed += 1;
+  }
+
+  updateBindingSyncCursor({ userId, mailbox, syncedAt, pageNo: 1, tool: "pageEmailConversations" });
 }
 
 function scheduleBackgroundSync(

@@ -33,7 +33,11 @@ function mockMcp(readMs: number, count: number) {
     async callTool(name: string, args: Json = {}): Promise<Json> {
       await new Promise((resolve) => setTimeout(resolve, readMs));
       if (name === "pageEmailConversations") {
-        return { data: { pageNo: 1, pageSize: 50, total: count, list: conversations } };
+        const pageNo = Number(args.pageNo ?? 1);
+        const pageSize = Number(args.pageSize ?? 50);
+        const start = (pageNo - 1) * pageSize;
+        const pageConversations = conversations.slice(start, start + pageSize);
+        return { data: { pageNo, pageSize, total: count, list: pageConversations } };
       }
       if (name === "getEmailConversation") {
         counters.getEmailConversation += 1;
