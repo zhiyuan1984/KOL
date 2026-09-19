@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { Task, TaskEvent } from "../api";
 import DisplayWorkRow from "./DisplayWorkRow";
 import TodayPlanProgress from "./TodayPlanProgress";
 import { HOME_TODO_EMPTY } from "./entryRegistry";
-import { groupDisplayTasks, projectDisplayTasks, type DisplayTaskRow } from "./displayTasks";
-import { fetchTodayTasks } from "./todayTasksApi";
+import { groupDisplayTasks } from "./displayTasks";
 import { isTodayScheduled } from "./schedule";
+import { whyLine } from "./homeModel";
 import type { TodoListFilter } from "./homeModel";
 import type { TodayPlanPhase } from "./todayPlan";
 import "./today-display-row.css";
@@ -30,27 +30,20 @@ export default function TodoPane({
   phase?: TodayPlanPhase;
   events?: TaskEvent[] | null;
 }) {
-  const [displayRows, setDisplayRows] = useState<DisplayTaskRow[] | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void fetchTodayTasks().then((rows) => {
-      if (!cancelled) setDisplayRows(rows);
-    }).catch(() => {
-      if (!cancelled) setDisplayRows([]);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [phase]);
-
-  const official = useMemo(
-    () => projectDisplayTasks(displayRows, tasks).filter((task) => !isTodayScheduled(task)),
-    [displayRows, tasks],
+  // Rows are fixed frontend projections of base work items — no Codex output needed.
+  const rows = useMemo(
+    () => tasks
+      .filter((task) => !isTodayScheduled(task))
+      .map((task) => ({
+        ...task,
+        layout_why: String(task.layout_why || "").trim() || whyLine(task),
+      })),
+    [tasks],
   );
-  const groups = useMemo(() => groupDisplayTasks(official), [official]);
-  const waiting = displayRows == null || phase === "loading-memory" || phase === "planning";
+  const groups = useMemo(() => groupDisplayTasks(rows), [rows]);
+  const loading = phase === "loading-memory" && !rows.length;
   return (
-    <section className="home-mode-pane today-work-inline" data-today-work data-home-pane="todo" data-todo-source="task_result">
+    <section className="home-mode-pane today-work-inline" data-today-work data-home-pane="todo" data-todo-source="work_items">
       <TodayPlanProgress phase={phase} events={events} />
       {dedupeNotice ? (
         <p className="home-dedupe-notice" data-todo-deduped role="status">{dedupeNotice}</p>
@@ -59,25 +52,24 @@ export default function TodoPane({
         className="today-todo-list"
         data-todo-md
         data-todo-list
-        data-todo-display="codex"
-        data-list-total={official.length}
+        data-list-total={rows.length}
         aria-label="待办任务"
       >
-        {official.length ? (
-          groups.map(({ group, rows }) => (
+        {rows.length ? (
+          groups.map(({ group, rows: groupRows }) => (
             <section className="today-display-group" data-todo-group={group} key={group}>
               <h3 className="today-display-group-title">{group}</h3>
               <ol className="today-todo-ol">
-                {rows.map((task) => (
+                {groupRows.map((task) => (
                   <DisplayWorkRow key={task.id} task={task} busy={busy} onAct={onAct} onEdit={onEdit} />
                 ))}
               </ol>
             </section>
           ))
         ) : (
-          <div className="task-empty" data-todo-empty={waiting ? "planning" : "no-display"}>
-            <strong>{waiting ? "正在生成待办展示" : HOME_TODO_EMPTY}</strong>
-            <p>{waiting ? "规划结束后这里只显示模型处理后的任务行。" : "今日范围之外的展示任务会出现在这里。"}</p>
+          <div className="task-empty" data-todo-empty={loading ? "loading" : "none"}>
+            <strong>{loading ? "正在读取当前任务" : HOME_TODO_EMPTY}</strong>
+            <p>{loading ? "正在读取任务记忆。" : "今日范围之外的未了结任务会出现在这里。"}</p>
           </div>
         )}
       </section>

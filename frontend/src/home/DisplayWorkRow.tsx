@@ -3,9 +3,29 @@ import { displayStatusLabel, taskDisplayStatus, taskPriorityLabel, taskPriorityR
 
 const PRIORITY_FALLBACK_ICON = ["🚨", "⭐", "⚡"] as const;
 
+const TASK_TYPE_ICON: Record<string, string> = {
+  email_compose: "✉️",
+  reply_analysis: "💬",
+  creator_profile: "👤",
+  confirm_stage: "📍",
+  risk_scan: "⚠️",
+  deal_memory: "📝",
+  creator_budget_report: "📊",
+  creator_discovery: "🔎",
+  discovery_plan: "🔎",
+  creator_daily_tasks: "📋",
+  kol_analyze: "🔎",
+  creator_outreach: "🤝",
+  business_approval: "💰",
+  creator_library_all: "📚",
+  creator_library_query: "📚",
+};
+
 export function displayRowIcon(task: Task): string {
   const icon = String(task.display_icon || "").trim();
   if (icon) return icon;
+  const typeIcon = TASK_TYPE_ICON[String(task.task_type || task.skill || "")];
+  if (typeIcon) return typeIcon;
   const rank = taskPriorityRank(task);
   return rank <= 2 ? PRIORITY_FALLBACK_ICON[rank] : "○";
 }
@@ -36,7 +56,7 @@ export default function DisplayWorkRow({
       className="today-display-row"
       data-today-todo={task.id}
       data-open-item={task.id}
-      data-today-display="codex"
+      data-today-display="host"
       data-today-verb={verb}
     >
       <div className="today-display-line">

@@ -1,11 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { Task, TaskEvent, TodayBrief } from "../api";
 import DisplayWorkRow from "./DisplayWorkRow";
 import TodayPlanProgress from "./TodayPlanProgress";
-import { briefPrimaryLabel } from "./homeModel";
-import { groupDisplayTasks, projectDisplayTasks, type DisplayTaskRow } from "./displayTasks";
-import { fetchTodayTasks } from "./todayTasksApi";
-import { isTodayScheduled } from "./schedule";
+import { briefPrimaryLabel, whyLine } from "./homeModel";
+import { groupDisplayTasks } from "./displayTasks";
 import type { TodayPlanPhase } from "./todayPlan";
 import "./today-display-row.css";
 
@@ -26,30 +24,21 @@ export default function TodayPane({
   phase?: TodayPlanPhase;
   events?: TaskEvent[] | null;
 }) {
-  const [displayRows, setDisplayRows] = useState<DisplayTaskRow[] | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void fetchTodayTasks().then((rows) => {
-      if (!cancelled) setDisplayRows(rows);
-    }).catch(() => {
-      if (!cancelled) setDisplayRows([]);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [phase, brief?.lead, brief?.increment_summary]);
-
-  const official = useMemo(
-    () => projectDisplayTasks(displayRows, todayTodos).filter(isTodayScheduled),
-    [displayRows, todayTodos],
+  // Rows are fixed frontend projections of base work items — no Codex output needed.
+  const rows = useMemo(
+    () => todayTodos.map((task) => ({
+      ...task,
+      layout_why: String(task.layout_why || "").trim() || whyLine(task),
+    })),
+    [todayTodos],
   );
-  const groups = useMemo(() => groupDisplayTasks(official), [official]);
+  const groups = useMemo(() => groupDisplayTasks(rows), [rows]);
   const sections = Array.isArray(brief?.sections) ? brief.sections : [];
   const primaryLabel = briefPrimaryLabel(brief?.primary);
   const bannedPrimary = /处理|待补阶段/.test(primaryLabel);
   const primaryObjectId = String(brief?.primary?.object_id || "").trim();
-  const primaryTask = primaryObjectId ? official.find((task) => task.id === primaryObjectId) : undefined;
-  const waiting = displayRows == null || phase === "loading-memory" || phase === "planning";
+  const primaryTask = primaryObjectId ? rows.find((task) => task.id === primaryObjectId) : undefined;
+  const loading = phase === "loading-memory" && !rows.length;
   return (
     <section className="home-mode-pane" data-home-pane="today">
       <TodayPlanProgress phase={phase} events={events} />
@@ -97,26 +86,25 @@ export default function TodayPane({
         className="today-todo-list"
         data-today-list
         data-today-formal
-        data-today-source="task_result"
-        data-today-display="codex"
-        data-list-total={official.length}
+        data-today-source="work_items"
+        data-list-total={rows.length}
         aria-label="今日任务"
       >
-        {official.length ? (
-          groups.map(({ group, rows }) => (
+        {rows.length ? (
+          groups.map(({ group, rows: groupRows }) => (
             <section className="today-display-group" data-today-group={group} key={group}>
               <h3 className="today-display-group-title">{group}</h3>
               <ol className="today-todo-ol">
-                {rows.map((task) => (
+                {groupRows.map((task) => (
                   <DisplayWorkRow key={task.id} task={task} busy={busy} onAct={onAct} onEdit={onEdit} />
                 ))}
               </ol>
             </section>
           ))
         ) : (
-          <div className="task-empty" data-today-list-empty={waiting ? "planning" : "no-display"}>
-            <strong>{waiting ? "正在规划今天的任务" : "还没有 Codex 展示任务"}</strong>
-            <p>{waiting ? "规划结束后这里只显示模型处理后的任务行。" : "原料任务不会直接出现在今日列表。"}</p>
+          <div className="task-empty" data-today-list-empty={loading ? "loading" : "none"}>
+            <strong>{loading ? "正在读取当前任务" : "今天没有需要处理的任务"}</strong>
+            <p>{loading ? "正在读取任务记忆。" : "逾期、今天开始或到期、进行中和高优先的任务会出现在这里。"}</p>
           </div>
         )}
       </section>
