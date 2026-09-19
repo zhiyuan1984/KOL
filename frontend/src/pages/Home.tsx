@@ -110,8 +110,12 @@ import EditTaskDialog from "../home/EditTaskDialog";
 import {
   TODAY_PLAN_REFRESHED_MS,
   TODAY_PLAN_REFRESH_EVENT,
+  TODAY_PLAN_CACHE_KEY,
+  TODO_PLAN_CACHE_KEY,
   memoryTasksOf,
+  restorePlanCache,
   runTodayPlanRefresh,
+  savePlanCache,
   type TodayPlanPhase,
 } from "../home/todayPlan";
 import { projectDisplayTasks } from "../home/displayTasks";
@@ -487,6 +491,8 @@ export default function Home() {
   const [taskCatalog, setTaskCatalog] = useState<Task[]>([]);
   const boardRequestedRef = useRef(false);
   const missingAlertRef = useRef<HTMLElement | null>(null);
+  const todayPlanFirstRun = useRef(true);
+  const todoPlanFirstRun = useRef(true);
   const [recognizeStartedAt, setRecognizeStartedAt] = useState<number | null>(null);
   const [recognizeNow, setRecognizeNow] = useState(() => Date.now());
   const [confirmStageBusyId, setConfirmStageBusyId] = useState<string | null>(null);
@@ -1480,6 +1486,18 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    // On first mount, restore fresh cached planning instead of re-running Codex.
+    if (todayPlanFirstRun.current) {
+      todayPlanFirstRun.current = false;
+      const cache = restorePlanCache(TODAY_PLAN_CACHE_KEY);
+      if (cache) {
+        setTodayMemoryTasks(cache.memoryTasks);
+        setTodayBrief(cache.brief);
+        setTodayPlanEvents(cache.events);
+        setTodayPlanPhase(cache.phase);
+        return;
+      }
+    }
     // Home enter: one view=open memory fetch feeds Today + Todo. Do not restart
     // or board-fetch when switching tabs. Planning write-back is layout_why only.
     const controller = new AbortController();
@@ -1527,8 +1545,30 @@ export default function Home() {
     };
   }, [todayEntryTick]);
 
+  useEffect(() => {
+    if (todayPlanPhase !== "refreshed" || !todayMemoryTasks) return;
+    savePlanCache(TODAY_PLAN_CACHE_KEY, {
+      timestamp: Date.now(),
+      memoryTasks: todayMemoryTasks,
+      brief: todayBrief,
+      events: todayPlanEvents,
+      phase: todayPlanPhase,
+    });
+  }, [todayPlanPhase, todayMemoryTasks, todayBrief, todayPlanEvents]);
+
   // Todo-scope planning chain: same pipeline as today, separate brief/events.
   useEffect(() => {
+    if (todoPlanFirstRun.current) {
+      todoPlanFirstRun.current = false;
+      const cache = restorePlanCache(TODO_PLAN_CACHE_KEY);
+      if (cache) {
+        setTodoMemoryTasks(cache.memoryTasks);
+        setTodoBrief(cache.brief);
+        setTodoPlanEvents(cache.events);
+        setTodoPlanPhase(cache.phase);
+        return;
+      }
+    }
     const controller = new AbortController();
     let dismissTimer = 0;
     setTodoPlanPhase("loading-memory");
@@ -1573,6 +1613,17 @@ export default function Home() {
       if (dismissTimer) window.clearTimeout(dismissTimer);
     };
   }, [todoEntryTick]);
+
+  useEffect(() => {
+    if (todoPlanPhase !== "refreshed" || !todoMemoryTasks) return;
+    savePlanCache(TODO_PLAN_CACHE_KEY, {
+      timestamp: Date.now(),
+      memoryTasks: todoMemoryTasks,
+      brief: todoBrief,
+      events: todoPlanEvents,
+      phase: todoPlanPhase,
+    });
+  }, [todoPlanPhase, todoMemoryTasks, todoBrief, todoPlanEvents]);
 
   const recommendedItems = useMemo(
     () => withRecommendedDisplay(workbench.recommendations || [], definitions),

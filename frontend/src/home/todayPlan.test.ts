@@ -4,9 +4,16 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import type { Task, TodayBrief, TodayBriefResponse, TodayPlanResult } from "../api";
 import {
+  PLAN_CACHE_TTL_MS,
+  TODAY_PLAN_CACHE_KEY,
   TODAY_PLAN_PHASE_COPY,
+  TODO_PLAN_CACHE_KEY,
+  clearPlanCache,
+  clearPlanCaches,
   memoryTasksOf,
+  restorePlanCache,
   runTodayPlanRefresh,
+  savePlanCache,
   todayPlanEventLabels,
   todayPlanFailedFromBrief,
   todayPlanStatusCopy,
@@ -409,5 +416,136 @@ describe("runTodayPlanRefresh", () => {
     expect(final.phase).toBe("failed");
     expect(final.tasks?.map((row) => row.id)).toEqual(["tsk_due"]);
     expect(final.brief?.lead).toBe("旧");
+  });
+});
+
+class MemoryStorage {
+  private store = new Map<string, string>();
+
+  getItem(key: string): string | null {
+    return this.store.has(key) ? this.store.get(key)! : null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.store.set(key, String(value));
+  }
+
+  removeItem(key: string): void {
+    this.store.delete(key);
+  }
+
+  clear(): void {
+    this.store.clear();
+  }
+}
+
+describe("plan cache", () => {
+  it("round-trips today/todo planning memory through sessionStorage", () => {
+    vi.stubGlobal("sessionStorage", new MemoryStorage());
+    const memory = {
+      timestamp: Date.now(),
+      memoryTasks: [task({ id: "tsk_due", title: "写报价" })],
+      brief: brief(),
+      events: [{ type: "run.completed", title: "今日规划已完成" }],
+      phase: "refreshed" as const,
+    };
+    savePlanCache(TODAY_PLAN_CACHE_KEY, memory);
+    const restored = restorePlanCache(TODAY_PLAN_CACHE_KEY);
+    expect(restored?.memoryTasks.map((row) => row.id)).toEqual(["tsk_due"]);
+    expect(restored?.brief?.lead).toBe("今天先核对其风险项");
+    expect(todayPlanEventLabels(restored?.events)).toEqual(["今日规划已完成"]);
+    expect(restored?.phase).toBe("refreshed");
+    expect(restorePlanCache(TODO_PLAN_CACHE_KEY)).toBeNull();
+  });
+
+  it("drops expired and corrupt entries", () => {
+    const storage = new MemoryStorage();
+    vi.stubGlobal("sessionStorage", storage);
+    savePlanCache(TODAY_PLAN_CACHE_KEY, {
+      timestamp: Date.now() - PLAN_CACHE_TTL_MS - 1,
+      memoryTasks: [],
+      brief: null,
+      events: [],
+      phase: "refreshed",
+    });
+    expect(restorePlanCache(TODAY_PLAN_CACHE_KEY)).toBeNull();
+
+    storage.setItem(TODAY_PLAN_CACHE_KEY, "{not json");
+    expect(restorePlanCache(TODAY_PLAN_CACHE_KEY)).toBeNull();
+
+    savePlanCache(TODAY_PLAN_CACHE_KEY, {
+      timestamp: Date.now(),
+      memoryTasks: [],
+      brief: null,
+      events: [],
+      phase: "refreshed",
+    });
+    clearPlanCache(TODAY_PLAN_CACHE_KEY);
+    expect(restorePlanCache(TODAY_PLAN_CACHE_KEY)).toBeNull();
+  });
+
+  it("Home restores cache before planning and writes it back on refresh", () => {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const home = fs.readFileSync(path.resolve(here, "../pages/Home.tsx"), "utf8");
+    expect(home).toContain("restorePlanCache(TODAY_PLAN_CACHE_KEY)");
+    expect(home).toContain("restorePlanCache(TODO_PLAN_CACHE_KEY)");
+    expect(home).toContain("savePlanCache(TODAY_PLAN_CACHE_KEY");
+    expect(home).toContain("savePlanCache(TODO_PLAN_CACHE_KEY");
+    const todayRestore = home.indexOf("restorePlanCache(TODAY_PLAN_CACHE_KEY)");
+    const todoRestore = home.indexOf("restorePlanCache(TODO_PLAN_CACHE_KEY)");
+    expect(todayRestore).toBeGreaterThan(-1);
+    expect(todoRestore).toBeGreaterThan(-1);
+    expect(todayRestore).toBeLessThan(home.indexOf("api.planToday()"));
+    expect(todoRestore).toBeLessThan(home.indexOf("api.planTodo()"));
+  });
+
+  it("keeps the sidebar 新工作任务 link free of refresh dispatch", () => {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const workbench = fs.readFileSync(path.resolve(here, "../layout/Workbench.tsx"), "utf8");
+    expect(workbench).not.toContain("TODAY_PLAN_REFRESH_EVENT");
+    const navStart = workbench.indexOf('data-nav="new-task"');
+    const navEnd = workbench.indexOf('data-nav="running"');
+    const newTaskLink = workbench.slice(
+      workbench.lastIndexOf("<Link", navStart),
+      navEnd,
+    );
+    expect(newTaskLink).not.toContain("dispatchEvent");
+  });
+
+  it("sidebar brand shows one 灵工 工作 name instead of a duplicate Li Time", () => {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const workbench = fs.readFileSync(path.resolve(here, "../layout/Workbench.tsx"), "utf8");
+    const brandStart = workbench.indexOf('data-sidebar-brand');
+    const brandEnd = workbench.indexOf("</NavLink>", brandStart);
+    const brandBlock = workbench.slice(brandStart, brandEnd);
+    expect(brandBlock).toContain('<BrandLockup variant="sidebar" />');
+    expect(brandBlock).toContain("灵工 工作");
+    expect(brandBlock).not.toContain(">Li Time<");
+    expect(brandBlock).not.toContain("sidebar-brand-sub");
+  });
+
+  it("clears cached plans on logout and login so rows never cross accounts", () => {
+    vi.stubGlobal("sessionStorage", new MemoryStorage());
+    savePlanCache(TODAY_PLAN_CACHE_KEY, {
+      timestamp: Date.now(),
+      memoryTasks: [task({ id: "tsk_due", title: "写报价" })],
+      brief: null,
+      events: [],
+      phase: "refreshed",
+    });
+    savePlanCache(TODO_PLAN_CACHE_KEY, {
+      timestamp: Date.now(),
+      memoryTasks: [task({ id: "tsk_todo", title: "补寄样品" })],
+      brief: null,
+      events: [],
+      phase: "refreshed",
+    });
+    clearPlanCaches();
+    expect(restorePlanCache(TODAY_PLAN_CACHE_KEY)).toBeNull();
+    expect(restorePlanCache(TODO_PLAN_CACHE_KEY)).toBeNull();
+
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const gate = fs.readFileSync(path.resolve(here, "../components/AuthGate.tsx"), "utf8");
+    expect(gate.match(/clearPlanCaches\(\)/g)?.length).toBeGreaterThanOrEqual(2);
   });
 });

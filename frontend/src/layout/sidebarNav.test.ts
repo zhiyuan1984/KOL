@@ -43,3 +43,26 @@ describe("今日 sidebar IA", () => {
     expect(HOME_MODE_LABELS.pool).toBe("公海");
   });
 });
+
+describe("brand lockups", () => {
+  it("shows the admin console its own brand lockup", () => {
+    const admin = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../pages/AdminConsole.tsx"),
+      "utf8",
+    );
+    const navStart = admin.indexOf('className="admin-nav"');
+    const navEnd = admin.indexOf("</aside>", navStart);
+    const navBlock = admin.slice(navStart, navEnd);
+    expect(navBlock).toContain('<BrandLockup variant="sidebar" />');
+    expect(navBlock).toContain('className="admin-nav-product"');
+  });
+
+  it("keeps exactly one Li Time mark in the employee sidebar", () => {
+    const brandStart = WORKBENCH.indexOf("data-sidebar-brand");
+    const brandBlock = WORKBENCH.slice(brandStart, WORKBENCH.indexOf("</NavLink>", brandStart));
+    const liTimeMarks = brandBlock.match(/Li Time/g) || [];
+    expect(liTimeMarks).toHaveLength(0);
+    expect(brandBlock).toContain('<BrandLockup variant="sidebar" />');
+    expect(brandBlock.match(/灵工 工作/g)).toHaveLength(1);
+  });
+});

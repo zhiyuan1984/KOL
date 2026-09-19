@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api, type Account } from "../api";
+import { clearPlanCaches } from "../home/todayPlan";
 
 type AuthContextValue = {
   account: Account | null;
@@ -67,6 +68,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     try {
       await api.logout();
     } finally {
+      clearPlanCaches();
       setAccount(null);
       setState("login");
     }
@@ -88,6 +90,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
               ? await api.setup(values)
               : await api.login({ ...adminLoginIdent(values.email), password: values.password });
             const resolved = result.account || result.user || (await api.me());
+            clearPlanCaches();
             setAccount({
               ...resolved,
               available_modes: resolved.available_modes || result.available_modes,

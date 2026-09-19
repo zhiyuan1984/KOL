@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, Navigate, NavLink, useLocation } from "react-router-dom";
 import { api } from "../api";
 import { useAccount } from "../components/AuthGate";
+import BrandLockup from "../components/BrandLockup";
 import UserMenu from "../components/UserMenu";
 import { Admin as LegacyAdmin } from "./SimplePages";
 import { Admin as SkillAdmin } from "./Admin";
@@ -111,6 +112,10 @@ export default function AdminConsole() {
   return (
     <div className="admin-shell" data-admin-ia="governance">
       <aside className="admin-nav" data-admin-nav>
+        <div className="admin-nav-brand">
+          <BrandLockup variant="sidebar" />
+          <span className="admin-nav-product">灵工 工作</span>
+        </div>
         <div className="admin-nav-kicker">管理</div>
         <nav className="admin-nav-list" aria-label="管理分类">
           {TABS.map(([id, label]) => {

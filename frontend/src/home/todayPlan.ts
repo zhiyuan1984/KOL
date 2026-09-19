@@ -43,6 +43,53 @@ export type TodayPlanPhase = TodayPlanActivePhase | "idle";
 export const TODAY_PLAN_POLL_MS = 1_000;
 export const TODAY_PLAN_REFRESHED_MS = 4_000;
 
+export const TODAY_PLAN_CACHE_KEY = "lingong:today-plan-cache";
+export const TODO_PLAN_CACHE_KEY = "lingong:todo-plan-cache";
+/** Cache planning results for 5 minutes to avoid re-running Codex on every Home remount. */
+export const PLAN_CACHE_TTL_MS = 5 * 60 * 1_000;
+
+export type PlanCache = {
+  timestamp: number;
+  memoryTasks: Task[];
+  brief: TodayBrief | null;
+  events: TaskEvent[];
+  phase: TodayPlanPhase;
+};
+
+export function savePlanCache(key: string, cache: PlanCache): void {
+  try {
+    sessionStorage.setItem(key, JSON.stringify(cache));
+  } catch {
+    // Ignore quota/security errors.
+  }
+}
+
+export function restorePlanCache(key: string): PlanCache | null {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PlanCache;
+    if (!parsed.timestamp || Date.now() - parsed.timestamp > PLAN_CACHE_TTL_MS) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function clearPlanCache(key: string): void {
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    // Ignore.
+  }
+}
+
+/** Cached plans carry task rows, so they must not survive a logout. */
+export function clearPlanCaches(): void {
+  clearPlanCache(TODAY_PLAN_CACHE_KEY);
+  clearPlanCache(TODO_PLAN_CACHE_KEY);
+}
+
 export type TodayPlanClient = {
   listOpenTasks: () => Promise<Task[]>;
   getBrief: () => Promise<TodayBriefResponse>;
