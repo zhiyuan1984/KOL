@@ -106,8 +106,8 @@ export default function EditTaskDialog({
     title: String(task?.title || ""),
     content: String(
       task?.content
-      ?? ((task?.input as { prompt?: unknown } | undefined)?.prompt ?? task?.description)
-      ?? "",
+      || ((task?.input as { prompt?: unknown } | undefined)?.prompt ?? task?.description)
+      || "",
     ),
     status: task ? initialStatusCode(task) : "pending",
     priority: task ? initialPriority(task) : "normal",
