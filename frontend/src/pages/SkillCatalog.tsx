@@ -498,7 +498,7 @@ export function SkillCatalog() {
                 <span className="skill-group-icon skill-group-icon-star">★</span>
                 <h2>{usage[skills[0]?.id || ""] ? "常用技能" : "常用技能"}</h2>
                 <span className="skill-group-hint">
-                  {usage[skills[0]?.id || ""] ? "你经常使用的技能，点击即可快速调用" : "推荐技能，点击即可快速调用"}
+                  {Object.keys(usage).length > 0 ? "你经常使用的技能，点击即可快速调用" : "推荐技能，点击即可快速调用"}
                 </span>
                 <Link to="/skills?tab=frequent" className="skill-group-more">查看全部</Link>
               </div>
