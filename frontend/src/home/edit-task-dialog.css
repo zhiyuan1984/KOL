@@ -13,7 +13,7 @@
 }
 .edit-task-dialog {
   position: relative;
-  width: min(520px, 100%);
+  width: min(440px, 100%);
   max-height: calc(100vh - 2 * var(--space-5));
   overflow-y: auto;
   display: grid;
@@ -30,7 +30,7 @@
 }
 .edit-task-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: 1fr 1fr;
   gap: var(--space-3) var(--space-4);
 }
 .edit-task-field {
@@ -38,12 +38,50 @@
   gap: var(--space-1);
   min-width: 0;
 }
-.edit-task-field label {
+.edit-task-field label,
+.edit-task-radios legend {
   font-size: var(--font-sm);
   color: var(--text-muted);
 }
+.edit-task-radios {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.edit-task-radio-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.edit-task-radio {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--control-border);
+  border-radius: 999px;
+  font-size: var(--font-sm);
+  cursor: pointer;
+  background: var(--bg);
+  color: var(--text);
+}
+.edit-task-radio input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.edit-task-radio.is-on {
+  border-color: var(--primary, #C73B7A);
+  background: var(--primary, #C73B7A);
+  color: var(--primary-fg, #fff);
+}
+.edit-task-radio.is-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .edit-task-field input,
-.edit-task-field select,
 .edit-task-field textarea {
   font-family: var(--sans);
   font-size: var(--font-body);
@@ -59,17 +97,6 @@
 .edit-task-field textarea {
   resize: vertical;
   line-height: var(--leading-body);
-}
-.edit-task-field input:hover:not(:disabled),
-.edit-task-field select:hover:not(:disabled),
-.edit-task-field textarea:hover:not(:disabled) {
-  border-color: var(--control-border-hover);
-}
-.edit-task-field input:disabled,
-.edit-task-field select:disabled,
-.edit-task-field textarea:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 .edit-task-error {
   margin: 0;

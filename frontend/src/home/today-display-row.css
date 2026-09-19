@@ -1,53 +1,49 @@
 .today-display-row {
   list-style: none;
   margin: 0;
-  padding: 10px 20px 10px 6px;
+  padding: 10px 16px 10px 6px;
   border-bottom: 1px solid var(--border, #eee);
-}
-.today-display-line {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 10px;
+  align-items: flex-end;
+  gap: 10px;
 }
 .today-display-icon {
   flex: 0 0 auto;
   width: 22px;
+  margin-bottom: 2px;
   text-align: center;
   font-size: 15px;
   line-height: 1;
   color: var(--text-muted, #6b6b6b);
 }
-.today-display-title {
-  flex: 0 1 auto;
+.today-display-copy {
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: 46%;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.today-display-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 15px;
   font-weight: 600;
+  line-height: 1.35;
   color: var(--text, #111);
 }
-.today-display-divider {
-  flex: 0 0 auto;
-  color: var(--border-strong, #d4d4d4);
-  font-size: 13px;
-}
 .today-display-why {
-  flex: 1 1 auto;
-  min-width: 120px;
+  margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12.5px;
-  line-height: 1.5;
+  line-height: 1.4;
   color: var(--text-muted, #6b6b6b);
 }
 .today-display-meta {
-  flex: 0 0 auto;
   display: inline-flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 6px;
 }
 .today-display-chip {
@@ -69,28 +65,34 @@
 }
 .today-display-actions {
   flex: 0 0 auto;
-  margin-left: auto;
-  margin-right: 8px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
-.today-display-go {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 36px;
-  padding: 6px 12px;
-  border: 1px solid var(--primary, #C73B7A);
+.today-display-go,
+.today-display-edit {
+  box-sizing: border-box;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 10px;
   border-radius: var(--radius-sm, 6px);
-  background: var(--primary, #C73B7A);
-  color: var(--primary-fg, #fff);
   font-size: 13px;
   cursor: pointer;
 }
-.today-display-go svg {
-  width: 14px;
-  height: 14px;
+.today-display-go {
+  width: 112px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--primary, #C73B7A);
+  background: var(--primary, #C73B7A);
+  color: var(--primary-fg, #fff);
+}
+.today-display-act-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
 .today-display-go:hover:not(:disabled) {
   background: var(--primary-hover, #A82F66);
@@ -102,14 +104,10 @@
   cursor: not-allowed;
 }
 .today-display-edit {
-  min-height: 36px;
-  padding: 6px 12px;
+  width: 52px;
   border: 1px solid var(--border, #eee);
-  border-radius: var(--radius-sm, 6px);
   background: var(--bg, #fff);
   color: var(--text, #111);
-  font-size: 13px;
-  cursor: pointer;
 }
 .today-display-edit:hover:not(:disabled) {
   border-color: var(--control-border-hover, #6b6b6b);
@@ -127,6 +125,12 @@
   font-weight: 600;
   color: var(--text-muted, #6b6b6b);
 }
+.today-brief-note {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted, #6b6b6b);
+}
 @keyframes today-brief-in {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
@@ -135,9 +139,6 @@
 .today-display-row {
   animation: today-brief-in 0.35s ease both;
 }
-.today-brief-section:nth-child(2) { animation-delay: 0.06s; }
-.today-brief-section:nth-child(3) { animation-delay: 0.12s; }
-.today-brief-section:nth-child(n+4) { animation-delay: 0.18s; }
 @media (prefers-reduced-motion: reduce) {
   .today-brief-section, .today-display-row { animation: none; }
 }

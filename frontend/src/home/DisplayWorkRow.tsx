@@ -21,6 +21,13 @@ const TASK_TYPE_ICON: Record<string, string> = {
   creator_library_query: "📚",
 };
 
+const RISK_LABEL: Record<string, string> = {
+  high: "高",
+  medium: "中",
+  mid: "中",
+  low: "低",
+};
+
 export function displayRowIcon(task: Task): string {
   const icon = String(task.display_icon || "").trim();
   if (icon) return icon;
@@ -49,7 +56,9 @@ export default function DisplayWorkRow({
   const status = taskDisplayStatus(task);
   const statusLabel = displayStatusLabel(task);
   const statusAccent = status?.code === "overdue" || status?.code === "due_soon";
-  const actionLabel = label || (verb === "approve" ? "去审批" : verb === "edit" ? "编辑" : "处理");
+  const risk = String(task.risk_level || "").trim();
+  const riskLabel = RISK_LABEL[risk];
+  const actionLabel = label || (verb === "approve" ? "去审批" : verb === "edit" ? "编辑" : verb === "open-mail" ? "查看邮件任务" : "打开");
   const editable = Boolean(onEdit) && !task.id.startsWith("display:");
   return (
     <li
@@ -59,20 +68,12 @@ export default function DisplayWorkRow({
       data-today-display="host"
       data-today-verb={verb}
     >
-      <div className="today-display-line">
-        <span className="today-display-icon" data-today-icon={icon} aria-hidden="true">{icon}</span>
+      <span className="today-display-icon" data-today-icon={icon} aria-hidden="true">{icon}</span>
+      <div className="today-display-copy">
         <strong className="today-display-title">{task.title}</strong>
-        {why ? (
-          <>
-            <span className="today-display-divider" aria-hidden="true">·</span>
-            <span className="today-display-why">{why}</span>
-          </>
-        ) : null}
-        {priority || statusLabel ? (
+        {why ? <p className="today-display-why">{why}</p> : null}
+        {priority || statusLabel || riskLabel ? (
           <span className="today-display-meta">
-            {priority ? (
-              <span className="today-display-chip" data-priority-label={priority}>{priority}</span>
-            ) : null}
             {status && statusLabel ? (
               <span
                 className={"today-display-chip" + (statusAccent ? " is-accent" : "")}
@@ -82,40 +83,43 @@ export default function DisplayWorkRow({
                 {statusLabel}
               </span>
             ) : null}
+            {priority ? (
+              <span className="today-display-chip" data-priority-label={priority}>{priority}</span>
+            ) : null}
+            {riskLabel && risk !== "none" ? (
+              <span className="today-display-chip" data-risk-level={risk}>风险{riskLabel}</span>
+            ) : null}
           </span>
         ) : null}
-        <div className="today-display-actions">
+      </div>
+      <div className="today-display-actions">
+        <button
+          type="button"
+          className="today-display-go"
+          data-today-todo-act
+          data-today-act={verb}
+          data-home-entry="acknowledge-task"
+          aria-label={actionLabel}
+          title={actionLabel}
+          disabled={busy}
+          onClick={() => onAct(task)}
+        >
+          <span className="today-display-act-label">{actionLabel}</span>
+        </button>
+        {editable ? (
           <button
             type="button"
-            className="today-display-go"
-            data-today-todo-act
-            data-today-act={verb}
-            data-home-entry="acknowledge-task"
-            aria-label={actionLabel}
-            title={actionLabel}
+            className="today-display-edit"
+            data-today-todo-edit
+            data-home-entry="edit-task"
+            aria-label={`编辑 ${task.title}`}
+            title="编辑"
             disabled={busy}
-            onClick={() => onAct(task)}
+            onClick={() => onEdit?.(task)}
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M5 12h12M13 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            <span className="today-display-act-label">{actionLabel}</span>
+            编辑
           </button>
-          {editable ? (
-            <button
-              type="button"
-              className="today-display-edit"
-              data-today-todo-edit
-              data-home-entry="edit-task"
-              aria-label={`编辑 ${task.title}`}
-              title="编辑"
-              disabled={busy}
-              onClick={() => onEdit?.(task)}
-            >
-              编辑
-            </button>
-          ) : null}
-        </div>
+        ) : null}
       </div>
     </li>
   );

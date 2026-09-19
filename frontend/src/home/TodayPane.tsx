@@ -7,6 +7,11 @@ import { groupDisplayTasks } from "./displayTasks";
 import type { TodayPlanPhase } from "./todayPlan";
 import "./today-display-row.css";
 
+function isPolicySection(section: { title?: string; body?: string }): boolean {
+  const blob = `${section.title || ""}${section.body || ""}`;
+  return /原则|缺一条就整轮|关闭的任务不会再出现/.test(blob);
+}
+
 export default function TodayPane({
   todayTodos,
   busy,
@@ -24,7 +29,6 @@ export default function TodayPane({
   phase?: TodayPlanPhase;
   events?: TaskEvent[] | null;
 }) {
-  // Rows are fixed frontend projections of base work items — no Codex output needed.
   const rows = useMemo(
     () => todayTodos.map((task) => ({
       ...task,
@@ -33,7 +37,8 @@ export default function TodayPane({
     [todayTodos],
   );
   const groups = useMemo(() => groupDisplayTasks(rows), [rows]);
-  const sections = Array.isArray(brief?.sections) ? brief.sections : [];
+  const sections = (Array.isArray(brief?.sections) ? brief.sections : []).filter((section) => !isPolicySection(section));
+  const note = sections[0]?.body || "";
   const primaryLabel = briefPrimaryLabel(brief?.primary);
   const bannedPrimary = /处理|待补阶段/.test(primaryLabel);
   const primaryObjectId = String(brief?.primary?.object_id || "").trim();
@@ -50,13 +55,13 @@ export default function TodayPane({
             primaryTask ? (
               <button
                 type="button"
-                className="today-brief-primary today-brief-primary-btn"
+                className="today-brief-primary today-brief-primary-btn today-display-go"
                 data-today-primary
                 data-today-primary-verb={brief.primary?.verb}
                 disabled={busy}
                 onClick={() => onAct(primaryTask)}
               >
-                {primaryLabel} →
+                <span className="today-display-act-label">{primaryLabel}</span>
               </button>
             ) : (
               <p className="today-brief-primary" data-today-primary data-today-primary-verb={brief.primary?.verb}>
@@ -64,21 +69,7 @@ export default function TodayPane({
               </p>
             )
           ) : null}
-          {sections.length ? (
-            <div className="today-brief-sections" data-today-sections key={String(brief.increment_summary || brief.lead || "")}>
-              {sections.map((section, index) => (
-                <article key={`${section.title || "sec"}-${index}`} className="today-brief-section" data-today-section>
-                  {section.title ? <h3>{section.title}</h3> : null}
-                  {section.body ? <p>{section.body}</p> : null}
-                  {Array.isArray(section.items) && section.items.length ? (
-                    <ul>
-                      {section.items.map((item) => <li key={item}>{item}</li>)}
-                    </ul>
-                  ) : null}
-                </article>
-              ))}
-            </div>
-          ) : null}
+          {note ? <p className="today-brief-note" data-today-sections>{note}</p> : null}
         </section>
       ) : null}
 
