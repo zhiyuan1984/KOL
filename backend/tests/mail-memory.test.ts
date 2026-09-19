@@ -58,8 +58,15 @@ function stubStarry(extraConversations: Json[] = []): void {
         return { data: { total: 0, list: [] } };
       }
       if (name === "pageEmailConversations") {
+        const pageNo = Number(args.pageNo ?? 1);
+        if (pageNo > 1) {
+          return { data: { pageNo, pageSize: 50, total: 1 + extraConversations.length, list: [] } };
+        }
         return {
           data: {
+            pageNo,
+            pageSize: 50,
+            total: 1 + extraConversations.length,
             list: [{
               id: 3901,
               conversationId: 3901,
@@ -203,7 +210,7 @@ describe("mailbox memory P0", () => {
     ]);
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(calls.filter((name) => name === "pageEmailConversations")).toHaveLength(1);
+    expect(calls.filter((name) => name === "pageEmailConversations")).toHaveLength(2);
     const bind = getConn().prepare("SELECT * FROM user_starry_bindings").get() as Json;
     expect(bind.synced_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(String(bind.sync_cursor_at || "")).toBeTruthy();
