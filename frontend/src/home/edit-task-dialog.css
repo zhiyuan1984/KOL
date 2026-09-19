@@ -134,12 +134,13 @@
   display: inline-flex;
   align-items: center;
   height: var(--control-pill-height, 36px);
-  padding: 0 16px;
-  border: 1px solid var(--control-border);
+  padding: 0 18px;
+  border: 1px solid var(--border);
   border-radius: 999px;
   font-size: var(--font-sm);
+  font-weight: 500;
   cursor: pointer;
-  background: var(--bg);
+  background: var(--control-bg, #efeff2);
   color: var(--text);
 }
 .edit-task-radio input {
@@ -164,8 +165,8 @@
   background: var(--control-bg, #f5f5f6);
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
-  padding: 9px 12px;
-  min-height: 40px;
+  padding: 10px 14px;
+  min-height: 42px;
   box-sizing: border-box;
   width: 100%;
 }
