@@ -14,14 +14,14 @@ export type DisplayTaskRow = {
   group?: string;
 };
 
-export const DISPLAY_GROUPS = ["重要紧急", "重要", "紧急", "其他"] as const;
+export const DISPLAY_GROUPS = ["重要紧急", "重要", "紧急", "任务明细"] as const;
 
 export function displayGroupOf(task: Task): string {
   const group = String(task.display_group || "").trim();
   if (group) return group;
   const rank = taskPriorityRank(task);
   if (rank <= 2) return DISPLAY_GROUPS[rank];
-  return "其他";
+  return "任务明细";
 }
 
 export function groupDisplayTasks(tasks: Task[]): Array<{ group: string; rows: Task[] }> {

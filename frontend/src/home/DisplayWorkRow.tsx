@@ -61,26 +61,29 @@ export default function DisplayWorkRow({
     >
       <div className="today-display-line">
         <span className="today-display-icon" data-today-icon={icon} aria-hidden="true">{icon}</span>
-        <div className="today-display-copy">
-          <strong className="today-display-title">{task.title}</strong>
-          {why ? <p className="today-display-why">{why}</p> : null}
-          {priority || statusLabel ? (
-            <p className="today-display-meta">
-              {priority ? (
-                <span className="today-display-chip" data-priority-label={priority}>{priority}</span>
-              ) : null}
-              {status && statusLabel ? (
-                <span
-                  className={"today-display-chip" + (statusAccent ? " is-accent" : "")}
-                  data-display-status={status.code}
-                >
-                  {statusAccent ? <span aria-hidden="true">{status.code === "overdue" ? "! " : "⚠ "}</span> : null}
-                  {statusLabel}
-                </span>
-              ) : null}
-            </p>
-          ) : null}
-        </div>
+        <strong className="today-display-title">{task.title}</strong>
+        {why ? (
+          <>
+            <span className="today-display-divider" aria-hidden="true">·</span>
+            <span className="today-display-why">{why}</span>
+          </>
+        ) : null}
+        {priority || statusLabel ? (
+          <span className="today-display-meta">
+            {priority ? (
+              <span className="today-display-chip" data-priority-label={priority}>{priority}</span>
+            ) : null}
+            {status && statusLabel ? (
+              <span
+                className={"today-display-chip" + (statusAccent ? " is-accent" : "")}
+                data-display-status={status.code}
+              >
+                {statusAccent ? <span aria-hidden="true">{status.code === "overdue" ? "! " : "⚠ "}</span> : null}
+                {statusLabel}
+              </span>
+            ) : null}
+          </span>
+        ) : null}
         <div className="today-display-actions">
           <button
             type="button"

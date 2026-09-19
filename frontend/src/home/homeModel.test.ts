@@ -298,7 +298,7 @@ describe("display task grouping", () => {
       task({ id: "g4", title: "最重", priority: "important_urgent" }),
     ] as Task[];
     const groups = groupDisplayTasks(rows);
-    expect(groups.map((entry) => entry.group)).toEqual(["重要紧急", "重要", "紧急", "其他"]);
+    expect(groups.map((entry) => entry.group)).toEqual(["重要紧急", "重要", "紧急", "任务明细"]);
     expect(groups[0].rows.map((row) => row.id)).toEqual(["g4"]);
     expect(groups[1].rows.map((row) => row.id)).toEqual(["g3"]);
     expect(groups[2].rows.map((row) => row.id)).toEqual(["g2"]);
