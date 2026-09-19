@@ -100,10 +100,8 @@ describe("mail sync performance", () => {
     const mcp = mockMcp(100, 12);
     setEmailMcpClientFactory(() => mcp);
     await syncFollowedKolMail();
-    console.log(`after sync: getEmailConversation=${mcp.counters.getEmailConversation}`);
     expect(mcp.counters.getEmailConversation).toBe(5);
     await waitForBackgroundSync();
-    console.log(`after background: getEmailConversation=${mcp.counters.getEmailConversation}`);
     expect(mcp.counters.getEmailConversation).toBe(12);
     const items = getConn().prepare("SELECT COUNT(*) as c FROM kol_mail_items").get() as { c: number };
     expect(items.c).toBeGreaterThanOrEqual(12);

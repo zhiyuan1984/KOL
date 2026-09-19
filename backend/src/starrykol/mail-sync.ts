@@ -472,10 +472,10 @@ export async function hydrateMailThread(thread: Row): Promise<number> {
   return inserted;
 }
 
-async function hydrateConversationById(conversationId: string, mailbox: string): Promise<number> {
+async function hydrateConversationById(conversationId: string): Promise<number> {
   const thread = getConn().prepare(
-    "SELECT * FROM kol_mail_threads WHERE conversation_id=? AND lower(mailbox)=lower(?) LIMIT 1",
-  ).get(conversationId, mailbox) as Row | undefined;
+    "SELECT * FROM kol_mail_threads WHERE conversation_id=? LIMIT 1",
+  ).get(conversationId) as Row | undefined;
   if (!thread) return 0;
   return hydrateMailThread(thread);
 }
@@ -486,7 +486,7 @@ async function syncRemainingConversations(remaining: Json[], mailbox: string): P
     await mapLimited(batch, 5, async (conv) => {
       const conversationId = conversationIdOf(conv);
       if (!conversationId) return;
-      await hydrateConversationById(conversationId, mailbox);
+      await hydrateConversationById(conversationId);
     });
   }
 }
@@ -623,7 +623,6 @@ export async function syncFollowedKolMail(): Promise<FollowedMailSync> {
     });
     const immediateCandidates = detailCandidates.slice(0, 5);
     const remainingCandidates = detailCandidates.slice(5);
-    console.log(`detailCandidates=${detailCandidates.length} immediate=${immediateCandidates.length} remaining=${remainingCandidates.length}`);
     const detailRows = await mapLimited(immediateCandidates, 5, async (conv) => ({
       conversationId: conversationIdOf(conv),
       detail: await readConversation(conversationIdOf(conv)),
