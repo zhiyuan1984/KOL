@@ -3,8 +3,19 @@ import { getConn } from "../db.js";
 import { taskDefinition } from "../tasks/registry.js";
 import type { Json, Row } from "../types.js";
 import { authDisabled, isAdmin, scopedUser } from "../auth.js";
-import { followReleaseTimer, isClosedWorkItem, isOpenWorkItem, isPlanningWorkItem } from "./home-board.js";
+import { followReleaseTimer, isClosedWorkItem, isOpenWorkItem, isPlanningWorkItem, isTodayWorkItem } from "./home-board.js";
 import { threadsByCollaborationIds } from "../starrykol/mail-sync.js";
+
+/** Plan scope: today = 今日规划, todo = 待办规划. Same pipeline, different input catalog. */
+export type PlanScope = "today" | "todo";
+
+export function planTaskType(scope: PlanScope): "today_plan" | "todo_plan" {
+  return scope === "todo" ? "todo_plan" : "today_plan";
+}
+
+export function briefPointerTable(scope: PlanScope): "employee_today_briefs" | "employee_todo_briefs" {
+  return scope === "todo" ? "employee_todo_briefs" : "employee_today_briefs";
+}
 
 export const PLANNING_FORBIDDEN_TOOL = /follow|send|confirm[_-]?stage/i;
 export const PLANNING_MAX_ADDED = 40;
@@ -170,7 +181,7 @@ function collectFailedRuns(owner: string): SourceItem[] {
        FROM task_runs r
        JOIN work_items w ON w.id = r.work_item_id
       WHERE w.owner_user_id=? AND r.status='failed'
-        AND w.task_type NOT IN ('today_plan','today_analyze')
+        AND w.task_type NOT IN ('today_plan','today_analyze','todo_plan')
       ORDER BY r.created_at DESC`,
   ).all(owner) as Row[];
   return rows.map((row) => ({
@@ -312,7 +323,7 @@ function collectFollowTimersAndAnomalies(): { timers: SourceItem[]; anomalies: S
   return { timers, anomalies };
 }
 
-export function collectSourceCatalog(owner = ownerId()): SourceItem[] {
+export function collectSourceCatalog(owner = ownerId(), scope: PlanScope = "today"): SourceItem[] {
   const formal = collectFormalTasks(owner);
   const discovery = collectDiscoveryAnomalies(owner);
   const failed = collectFailedRuns(owner);
@@ -326,7 +337,18 @@ export function collectSourceCatalog(owner = ownerId()): SourceItem[] {
     seen.add(item.id);
     out.push(item);
   }
-  return out;
+  if (scope === "today") return out;
+  // Todo scope: formal tasks that belong to the today pane are out of scope here.
+  const formalIds = out
+    .filter((item) => item.kind === "formal_task" && item.work_item_id)
+    .map((item) => String(item.work_item_id));
+  if (!formalIds.length) return out.filter((item) => item.kind !== "formal_task");
+  const placeholders = formalIds.map(() => "?").join(",");
+  const rows = getConn().prepare(
+    `SELECT * FROM work_items WHERE id IN (${placeholders})`,
+  ).all(...formalIds) as Row[];
+  const todayIds = new Set(rows.filter((row) => isTodayWorkItem(row)).map((row) => String(row.id)));
+  return out.filter((item) => item.kind !== "formal_task" || !todayIds.has(String(item.work_item_id)));
 }
 
 export function diffCatalog(current: SourceItem[], previous: SourceCursor | null): {
@@ -366,9 +388,9 @@ export function diffCatalog(current: SourceItem[], previous: SourceCursor | null
   };
 }
 
-export function loadLatestTodayBrief(owner = ownerId()): { brief: Json | null; artifact_id: string | null; work_item_id: string | null } {
+export function loadLatestTodayBrief(owner = ownerId(), scope: PlanScope = "today"): { brief: Json | null; artifact_id: string | null; work_item_id: string | null } {
   const pointer = getConn().prepare(
-    "SELECT artifact_id, work_item_id FROM employee_today_briefs WHERE owner_user_id=?",
+    `SELECT artifact_id, work_item_id FROM ${briefPointerTable(scope)} WHERE owner_user_id=?`,
   ).get(owner) as { artifact_id: string; work_item_id: string } | undefined;
   if (pointer) {
     const row = getConn().prepare("SELECT payload FROM task_artifacts WHERE id=?").get(pointer.artifact_id) as
@@ -383,17 +405,17 @@ export function loadLatestTodayBrief(owner = ownerId()): { brief: Json | null; a
     `SELECT a.id, a.payload, a.work_item_id
        FROM task_artifacts a
        JOIN work_items w ON w.id = a.work_item_id
-      WHERE w.owner_user_id=? AND a.artifact_type='today_brief'
+      WHERE w.owner_user_id=? AND a.artifact_type='today_brief' AND w.task_type=?
       ORDER BY a.created_at DESC LIMIT 1`,
-  ).get(owner) as { id: string; payload: string; work_item_id: string } | undefined;
+  ).get(owner, planTaskType(scope)) as { id: string; payload: string; work_item_id: string } | undefined;
   if (!latest) return { brief: null, artifact_id: null, work_item_id: null };
   return { brief: parseJson(latest.payload), artifact_id: latest.id, work_item_id: latest.work_item_id };
 }
 
-export function packTodayPlanContext(owner = ownerId()): TodayPlanPack {
-  const latest = loadLatestTodayBrief(owner);
+export function packTodayPlanContext(owner = ownerId(), scope: PlanScope = "today"): TodayPlanPack {
+  const latest = loadLatestTodayBrief(owner, scope);
   const previousCursor = sourceCursorFromBrief(latest.brief);
-  const catalog = collectSourceCatalog(owner);
+  const catalog = collectSourceCatalog(owner, scope);
   const diff = diffCatalog(catalog, previousCursor);
   const unfinished = catalog.filter((item) => item.kind === "formal_task");
   const discovery = catalog.filter((item) => item.kind === "discovery_batch");
@@ -423,13 +445,14 @@ export function packTodayPlanContext(owner = ownerId()): TodayPlanPack {
   };
 }
 
-export function planningRunInput(pack: TodayPlanPack, extra: Json = {}): Json {
-  const mount = planningHarnessMount("today_plan");
+export function planningRunInput(pack: TodayPlanPack, extra: Json = {}, scope: PlanScope = "today"): Json {
+  const taskType = planTaskType(scope);
+  const mount = planningHarnessMount(taskType);
   return {
-    mode: "today_plan",
+    mode: taskType,
     expert_id: "expert:kol",
     skip_user_memory: true,
-    today_plan_context: pack,
+    [`${taskType}_context`]: pack,
     history: pack.history,
     delta: pack.delta,
     now_counts: pack.now_counts,

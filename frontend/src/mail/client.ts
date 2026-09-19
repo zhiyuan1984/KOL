@@ -4,6 +4,7 @@ import { summarizeMailSnippet } from "../mailPreview";
 import { workspaceFromFallback, threadFromFallback, type BoardMailFallback } from "./fallback";
 import type {
   MailBox,
+  MailBoxBinding,
   MailConversation,
   MailDigestSource,
   MailDirection,
@@ -33,20 +34,52 @@ function directionOf(value: unknown): MailDirection | "" {
   return value === "outbound" || value === "inbound" ? value : "";
 }
 
+function normalizeBinding(raw: Record<string, unknown>): MailBoxBinding | null {
+  const mailbox = text(raw.mailbox || raw.mailbox_email);
+  if (!mailbox) return null;
+  return {
+    mailbox,
+    label: text(raw.label) || undefined,
+    brand: text(raw.brand) || undefined,
+    region: text(raw.region) || undefined,
+    unread: Number(raw.unread || raw.unread_count || 0),
+    bound: raw.bound == null ? true : Boolean(raw.bound),
+    synced_at: raw.synced_at ? String(raw.synced_at) : null,
+    error: raw.error != null && raw.error !== "" ? String(raw.error) : null,
+  };
+}
+
 export function normalizeBox(raw: Record<string, unknown> | null | undefined): MailBox | null {
   if (!raw) return null;
   const mailbox = text(raw.mailbox || raw.mailbox_email);
   const bound = raw.bound == null ? Boolean(mailbox) : Boolean(raw.bound);
+  const error = raw.error != null && raw.error !== "" ? String(raw.error) : (raw.last_error ? String(raw.last_error) : null);
+  const unread = Number(raw.unread || raw.unread_count || 0);
+  const syncedAt = raw.synced_at ? String(raw.synced_at) : null;
+  const bindingsRaw = Array.isArray(raw.bindings) ? raw.bindings : [];
+  const bindings = bindingsRaw
+    .map((row) => normalizeBinding(row as Record<string, unknown>))
+    .filter((row): row is MailBoxBinding => Boolean(row));
+  // Old single-mailbox shape: synthesize one chip so the boxbar always has data.
+  if (!bindings.length && bound && mailbox) {
+    bindings.push({ mailbox, unread, bound, synced_at: syncedAt, error });
+  }
   return {
     mailbox,
     bound,
-    unread: Number(raw.unread || raw.unread_count || 0),
-    synced_at: raw.synced_at ? String(raw.synced_at) : null,
-    error: raw.error != null && raw.error !== "" ? String(raw.error) : (raw.last_error ? String(raw.last_error) : null),
+    unread,
+    synced_at: syncedAt,
+    error,
     last_tool: raw.last_tool ? String(raw.last_tool) : null,
     cursor_at: raw.cursor_at ? String(raw.cursor_at) : null,
     cursor_id: raw.cursor_id ? String(raw.cursor_id) : null,
     owner_name: text(raw.owner_name) || undefined,
+    bindings,
+    total_unread: raw.total_unread != null
+      ? Number(raw.total_unread)
+      : bindings.length
+        ? bindings.reduce((sum, row) => sum + row.unread, 0)
+        : undefined,
   };
 }
 
@@ -68,6 +101,7 @@ export function normalizeConversation(raw: Record<string, unknown>, mailbox = ""
     last_direction: directionOf(raw.last_direction),
     last_preview: preview || summarizeMailSnippet(text(raw.last_snippet)),
     unread_count: Number(raw.unread_count || 0),
+    starred: raw.starred == null ? undefined : Boolean(raw.starred),
     last_receipt: text(raw.last_receipt) || undefined,
     digest_source: digestSourceOf(raw.digest_source),
     digest_text: text(raw.digest_text) || undefined,
@@ -91,6 +125,8 @@ function normalizeMessage(raw: Record<string, unknown>, conversationId: string):
     summary_source: digestSourceOf(raw.summary_source) || (raw.summary_source === "body_digest" ? "body_digest" : ""),
     receipt_status: text(raw.receipt_status) || undefined,
     effective: raw.effective == null ? undefined : Boolean(raw.effective),
+    translation_zh: text(raw.translation_zh || raw.translation) || undefined,
+    translation_source: text(raw.translation_source) || undefined,
   };
 }
 
@@ -163,8 +199,12 @@ async function loadFallbackWorkspace(): Promise<MailWorkspace> {
 
 export async function loadMailWorkspace(): Promise<MailWorkspace> {
   let boxRaw: Record<string, unknown>;
+  let listRaw: Record<string, unknown> | Array<Record<string, unknown>>;
   try {
-    boxRaw = await api.mailBox();
+    [boxRaw, listRaw] = await Promise.all([
+      api.mailBox(),
+      api.mailConversations(),
+    ]);
   } catch (error) {
     if (!isMissingEndpoint(error)) throw error;
     return loadFallbackWorkspace();
@@ -176,18 +216,11 @@ export async function loadMailWorkspace(): Promise<MailWorkspace> {
     synced_at: null,
     error: null,
   });
-  let rows: Array<Record<string, unknown>> = [];
-  try {
-    const listRaw = await api.mailConversations();
-    rows = Array.isArray(listRaw)
-      ? listRaw
-      : Array.isArray(listRaw.conversations)
-        ? listRaw.conversations
-        : [];
-  } catch (error) {
-    if (!isMissingEndpoint(error)) throw error;
-    rows = [];
-  }
+  const rows = Array.isArray(listRaw)
+    ? listRaw
+    : Array.isArray(listRaw.conversations)
+      ? listRaw.conversations as Array<Record<string, unknown>>
+      : [];
   return {
     source: "api",
     box,

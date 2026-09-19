@@ -1,6 +1,6 @@
 /** Incremental memory merge. Unchanged keys keep the previous payload. */
 
-export type MemoryFamily = "task" | "summary";
+export type MemoryFamily = "task" | "summary" | "todo";
 export type MemoryLayer = "raw" | "display";
 
 export type MemoryIncrement = {

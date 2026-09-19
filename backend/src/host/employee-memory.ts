@@ -8,7 +8,9 @@ export type EmployeeMemoryKind =
   | "task_raw"
   | "task_display"
   | "summary_raw"
-  | "summary_display";
+  | "summary_display"
+  | "todo_raw"
+  | "todo_display";
 
 export function memoryKindOf(family: MemoryFamily, layer: MemoryLayer): EmployeeMemoryKind {
   return `${family}_${layer}` as EmployeeMemoryKind;

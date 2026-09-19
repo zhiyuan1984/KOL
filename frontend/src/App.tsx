@@ -6,7 +6,7 @@ import Pipeline from "./pages/Pipeline";
 import Approvals from "./pages/Approvals";
 import Cron from "./pages/Cron";
 import Mail from "./pages/Mail";
-import { Skills } from "./pages/SimplePages";
+import { SkillCatalog } from "./pages/SkillCatalog";
 import Exam from "./pages/Exam";
 import Knowledge from "./pages/Knowledge";
 import AuthGate from "./components/AuthGate";
@@ -32,7 +32,7 @@ export default function App() {
           <Route path="/pipeline" element={<Pipeline />} />
           <Route path="/cron" element={<Cron />} />
           <Route path="/mail" element={<Mail />} />
-          <Route path="/skills" element={<Skills />} />
+          <Route path="/skills" element={<SkillCatalog />} />
           <Route path="/agents/:id" element={<Agents />} />
           <Route path="/agents" element={<Agents />} />
           <Route path="/teams" element={<AgentTeams />} />

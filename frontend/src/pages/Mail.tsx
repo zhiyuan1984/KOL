@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import Markdown from "../components/Markdown";
+import { api } from "../api";
 import { loadMailThread, loadMailWorkspace, syncMailboxMail } from "../mail/client";
 import { mailAnalyzeDraft, mailReplyDraft, stashComposerDraft } from "../mail/composerDraft";
 import { mailDigestView } from "../mail/digestView";
@@ -10,6 +11,7 @@ import {
   MAIL_SYNC_MISSING_COPY,
   MAIL_THREAD_MISSING_COPY,
   MAIL_UNBOUND_COPY,
+  type MailBoxBinding,
   type MailConversation,
   type MailMessage,
   type MailThread,
@@ -33,6 +35,11 @@ function peerOf(row: MailConversation): string {
   return row.peer_name || row.peer_email || "未知对方";
 }
 
+function initialsOf(name: string): string {
+  const trimmed = String(name || "").trim();
+  return trimmed ? trimmed.slice(0, 1).toUpperCase() : "?";
+}
+
 function analyzePeopleOf(row: MailConversation): string[] {
   return [row.kol_uid, row.handle].map((item) => String(item || "").replace(/^@/, "").trim()).filter(Boolean);
 }
@@ -44,6 +51,14 @@ function httpCopy(error: unknown, fallback: string): string {
   if (status === 404) return MAIL_THREAD_MISSING_COPY;
   return error instanceof Error && error.message ? error.message : fallback;
 }
+
+const MAIL_TABS = [
+  { key: "inbox", label: "收件箱" },
+  { key: "sent", label: "发件箱" },
+  { key: "unread", label: "未读" },
+  { key: "read", label: "已读" },
+] as const;
+type MailTab = (typeof MAIL_TABS)[number]["key"];
 
 function MailDigestStrip({ thread }: { thread: MailThread }) {
   const view = mailDigestView(thread.digest);
@@ -76,14 +91,23 @@ function MailDigestStrip({ thread }: { thread: MailThread }) {
   );
 }
 
-function MailMessageCard({ message }: { message: MailMessage }) {
+function MailMessageCard({
+  message,
+  current,
+  onSelect,
+}: {
+  message: MailMessage;
+  current: boolean;
+  onSelect: () => void;
+}) {
   const inbound = message.direction !== "outbound";
   const body = String(message.body_text || "").trim();
   return (
     <article
-      className={"mail-message" + (inbound ? " is-in" : " is-out")}
+      className={"mail-message" + (inbound ? " is-in" : " is-out") + (current ? " is-current" : "")}
       data-mail-message
       data-mail-direction={inbound ? "inbound" : "outbound"}
+      onClick={onSelect}
     >
       <header className="mail-message-head">
         <strong>{inbound ? "对方" : "我方"}</strong>
@@ -94,10 +118,9 @@ function MailMessageCard({ message }: { message: MailMessage }) {
       </header>
       {message.letter_summary ? <p className="mail-message-summary">{message.letter_summary}</p> : null}
       {body ? (
-        <details className="mail-message-body" data-mail-body>
-          <summary>查看正文</summary>
+        <div className="mail-message-body" data-mail-body>
           <p>{body}</p>
-        </details>
+        </div>
       ) : (
         <p className="muted" data-mail-empty>正文未缓存。点「收取」后可再打开，不会现场拉 Starry。</p>
       )}
@@ -105,10 +128,69 @@ function MailMessageCard({ message }: { message: MailMessage }) {
   );
 }
 
+function MailSummaryCard({ thread }: { thread: MailThread | null }) {
+  const text = String(thread?.digest?.text || "").trim();
+  return (
+    <section className="mail-side-card" data-mail-summary-card>
+      <header className="mail-side-card-head">
+        <strong>✦ 中文摘要</strong>
+        <span className="mail-side-tag">AI 生成</span>
+      </header>
+      {text ? (
+        <div className="mail-side-body" data-mail-summary-body>
+          <Markdown>{text}</Markdown>
+        </div>
+      ) : (
+        <p className="muted" data-mail-summary-pending>摘要生成中…点「收取」后可再试。</p>
+      )}
+    </section>
+  );
+}
+
+function MailTranslationCard({ message }: { message: MailMessage | null }) {
+  const [copied, setCopied] = useState(false);
+  const translation = String(message?.translation_zh || "").trim();
+  const paragraphs = useMemo(
+    () => translation.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean),
+    [translation],
+  );
+  const copy = () => {
+    if (!translation) return;
+    void navigator.clipboard?.writeText(translation).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    }).catch(() => undefined);
+  };
+  return (
+    <section className="mail-side-card mail-translation" data-mail-translation>
+      <header className="mail-side-card-head">
+        <strong>译 中文翻译</strong>
+        <button
+          type="button"
+          className="mail-copy-btn"
+          data-mail-copy-translation
+          disabled={!translation}
+          onClick={copy}
+        >
+          {copied ? "已复制" : "复制翻译"}
+        </button>
+      </header>
+      {paragraphs.length ? (
+        <div className="mail-side-body" data-mail-translation-body>
+          {paragraphs.map((p, i) => <p key={i}>{p}</p>)}
+        </div>
+      ) : (
+        <p className="muted" data-mail-translation-pending>翻译生成中…</p>
+      )}
+    </section>
+  );
+}
+
 export default function Mail() {
   const [params, setParams] = useSearchParams();
   const nav = useNavigate();
   const focusId = params.get("c") || "";
+  const boxParam = params.get("box") || "";
   const [workspace, setWorkspace] = useState<MailWorkspace | null>(null);
   const [thread, setThread] = useState<MailThread | null>(null);
   const [loadState, setLoadState] = useState<"loading" | "ok" | "error">("loading");
@@ -116,12 +198,31 @@ export default function Mail() {
   const [notice, setNotice] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [threadError, setThreadError] = useState("");
+  const [query, setQuery] = useState("");
+  const [tab, setTab] = useState<MailTab>("inbox");
+  const [currentMessageId, setCurrentMessageId] = useState("");
+  const [starOverrides, setStarOverrides] = useState<Record<string, boolean>>({});
+  const [mobilePanel, setMobilePanel] = useState<"original" | "summary" | "translation">("original");
 
   const conversations = useMemo(() => {
     const rows = [...(workspace?.conversations || [])];
     rows.sort((a, b) => occurredAtMs(b.last_at) - occurredAtMs(a.last_at));
     return rows;
   }, [workspace]);
+
+  const visibleConversations = useMemo(() => {
+    let rows = conversations;
+    if (tab === "sent") rows = rows.filter((row) => row.last_direction === "outbound");
+    else if (tab === "unread") rows = rows.filter((row) => row.unread_count > 0);
+    else if (tab === "read") rows = rows.filter((row) => row.unread_count <= 0);
+    const q = query.trim().toLowerCase();
+    if (q) {
+      rows = rows.filter((row) =>
+        [row.peer_name, row.peer_email, row.subject, row.last_preview]
+          .some((field) => String(field || "").toLowerCase().includes(q)));
+    }
+    return rows;
+  }, [conversations, tab, query]);
 
   const selected = useMemo(() => {
     if (!focusId) return conversations[0] || null;
@@ -154,6 +255,7 @@ export default function Mail() {
     }
     let cancelled = false;
     setThreadError("");
+    setCurrentMessageId("");
     void loadMailThread(selected.id || selected.conversation_id, selected, workspace?.source || "api")
       .then((next) => {
         if (cancelled) return;
@@ -177,9 +279,26 @@ export default function Mail() {
 
   const openRow = (row: MailConversation) => {
     const next = new URLSearchParams();
-    const box = workspace?.box.mailbox || "";
+    const box = row.mailbox || workspace?.box.mailbox || "";
     if (box) next.set("box", box);
     next.set("c", row.conversation_id);
+    setParams(next, { replace: true });
+    if (row.unread_count > 0) {
+      // Optional endpoint: ignore 404/other failures silently.
+      void api.markMailConversationRead(row.id || row.conversation_id);
+      setWorkspace((prev) => prev
+        ? {
+            ...prev,
+            conversations: prev.conversations.map((item) =>
+              item.conversation_id === row.conversation_id ? { ...item, unread_count: 0 } : item),
+          }
+        : prev);
+    }
+  };
+
+  const openBox = (binding: MailBoxBinding) => {
+    const next = new URLSearchParams();
+    if (binding.mailbox) next.set("box", binding.mailbox);
     setParams(next, { replace: true });
   };
 
@@ -211,6 +330,21 @@ export default function Mail() {
     nav("/");
   };
 
+  const generateReply = () => {
+    if (!selected || !workspace) return;
+    const draft = mailReplyDraft({
+      mailbox: selected.mailbox || workspace.box.mailbox,
+      conversation_id: selected.conversation_id,
+      peer: peerOf(selected),
+      subject: selected.subject,
+    });
+    stashComposerDraft({
+      ...draft,
+      text: `请根据与 ${peerOf(selected)} 的往来，为「${selected.subject || "(无主题)"}」生成一封回复草稿。`,
+    });
+    nav("/");
+  };
+
   const analyze = () => {
     if (!selected) return;
     const people = analyzePeopleOf(selected);
@@ -222,8 +356,32 @@ export default function Mail() {
     nav("/");
   };
 
+  const starredOf = (row: MailConversation | null | undefined): boolean => {
+    if (!row) return false;
+    const key = row.id || row.conversation_id;
+    return starOverrides[key] ?? Boolean(row.starred);
+  };
+
+  const toggleStar = () => {
+    if (!selected) return;
+    const key = selected.id || selected.conversation_id;
+    const next = !starredOf(selected);
+    // Optional endpoint: local state wins when PATCH is unavailable.
+    void api.updateMailConversation(key, { starred: next });
+    setStarOverrides((prev) => ({ ...prev, [key]: next }));
+  };
+
   const box = workspace?.box;
   const bound = Boolean(box?.bound && box.mailbox);
+  const bindings = box?.bindings || [];
+  const activeBox = boxParam || box?.mailbox || "";
+
+  const currentMessage = useMemo(() => {
+    if (!thread || !thread.messages.length) return null;
+    return thread.messages.find((m) => m.id === currentMessageId) || thread.messages[thread.messages.length - 1];
+  }, [thread, currentMessageId]);
+
+  const starred = starredOf(thread?.thread || selected);
 
   return (
     <div className="list-page mail-page" data-mail-page data-mail-source={workspace?.source || undefined}>
@@ -236,7 +394,7 @@ export default function Mail() {
               {box?.mailbox || "已绑定邮箱"}
               {box?.owner_name ? ` · ${box.owner_name}` : ""}
               {box?.synced_at ? ` · 同步 ${formatMailTime(box.synced_at)}` : " · 尚未收取"}
-              {` · 未读 ${Number(box?.unread || 0)}`}
+              {` · 未读 ${Number(box?.total_unread ?? box?.unread ?? 0)}`}
             </p>
           ) : (
             <p className="muted" data-mail-unbound-guide>
@@ -263,6 +421,37 @@ export default function Mail() {
         ) : null}
       </header>
 
+      {loadState === "ok" && bound && bindings.length ? (
+        <div className="mail-boxbar" data-mail-boxbar>
+          <div className="mail-box-chips">
+            {bindings.map((binding) => {
+              const active = binding.mailbox === activeBox;
+              const failed = Boolean(binding.error);
+              return (
+                <button
+                  key={binding.mailbox}
+                  type="button"
+                  className={"mail-box-chip" + (active ? " is-active" : "") + (failed ? " is-error" : "")}
+                  data-mail-boxchip={binding.mailbox}
+                  aria-pressed={active}
+                  title={failed ? String(binding.error) : binding.mailbox}
+                  onClick={() => openBox(binding)}
+                >
+                  <span className={"mail-box-dot" + (failed ? " is-error" : " is-ok")} aria-hidden="true" />
+                  <span className="mail-box-label">{binding.label || binding.mailbox}</span>
+                  <span className="mail-box-addr muted">{binding.mailbox}</span>
+                  {binding.unread > 0 ? <span className="mail-chip is-unread">{binding.unread}</span> : null}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mail-boxbar-actions">
+            <Link className="btn ghost" to="/settings?tab=starry" data-mail-addbox>+ 添加邮箱</Link>
+            <Link className="btn ghost" to="/settings?tab=starry" data-mail-boxsettings>邮箱设置</Link>
+          </div>
+        </div>
+      ) : null}
+
       {error ? <p className="error" role="alert" data-mail-error>{error}</p> : null}
       {notice ? <p className="muted" role="status" data-mail-notice>{notice}</p> : null}
       {workspace?.source === "fallback" && bound ? (
@@ -281,9 +470,36 @@ export default function Mail() {
       {loadState === "ok" && bound ? (
         <div className="mail-split" data-mail-state="ok">
           <aside className="mail-list" data-mail-list data-mail-entry="list-mailbox-mail">
-            {conversations.length === 0 ? (
-              <p className="muted" data-mail-empty-list>这只邮箱还没有缓存的往来。点「收取」同步。</p>
-            ) : conversations.map((row) => {
+            <div className="mail-list-tools">
+              <input
+                className="mail-search"
+                data-mail-search
+                type="search"
+                placeholder="搜索联系人 / 主题 / 预览"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <div className="mail-list-tabs" role="tablist" data-mail-list-tabs>
+                {MAIL_TABS.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={tab === item.key}
+                    onClick={() => setTab(item.key)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {visibleConversations.length === 0 ? (
+              <p className="muted" data-mail-empty-list>
+                {conversations.length === 0 && tab === "inbox" && !query
+                  ? "这只邮箱还没有缓存的往来。点「收取」同步。"
+                  : "没有匹配的会话。"}
+              </p>
+            ) : visibleConversations.map((row) => {
               const active = selected?.conversation_id === row.conversation_id;
               return (
                 <button
@@ -296,16 +512,19 @@ export default function Mail() {
                   aria-current={active ? "true" : undefined}
                   onClick={() => openRow(row)}
                 >
-                  <div className="mail-row-head">
-                    <strong>{peerOf(row)}</strong>
-                    <time className="muted">{formatMailTime(row.last_at)}</time>
-                  </div>
-                  <p className="mail-row-subject">{row.subject}</p>
-                  <p className="mail-row-preview">{row.last_preview || "暂无预览"}</p>
-                  <div className="mail-row-meta">
-                    {row.match_state === "unbound" ? <span className="mail-chip" data-mail-unbound-chip>未建档</span> : null}
-                    {row.unread_count > 0 ? <span className="mail-chip is-unread">未读 {row.unread_count}</span> : null}
-                  </div>
+                  <span className="mail-row-avatar" aria-hidden="true">{initialsOf(peerOf(row))}</span>
+                  <span className="mail-row-main">
+                    <span className="mail-row-head">
+                      <strong>{peerOf(row)}</strong>
+                      <time className="muted">{formatMailTime(row.last_at)}</time>
+                    </span>
+                    <span className="mail-row-subject">{row.subject}</span>
+                    <span className="mail-row-preview">{row.last_preview || "暂无预览"}</span>
+                    <span className="mail-row-meta">
+                      {row.match_state === "unbound" ? <span className="mail-chip" data-mail-unbound-chip>未建档</span> : null}
+                      {row.unread_count > 0 ? <span className="mail-chip is-unread">未读 {row.unread_count}</span> : null}
+                    </span>
+                  </span>
                 </button>
               );
             })}
@@ -316,14 +535,54 @@ export default function Mail() {
               <>
                 <div className="mail-thread-head">
                   <div>
-                    <h2>{thread.thread.subject}</h2>
+                    <h2>
+                      {thread.thread.subject}
+                      <button
+                        type="button"
+                        className={"mail-star" + (starred ? " is-starred" : "")}
+                        data-mail-star
+                        aria-pressed={starred}
+                        title={starred ? "取消星标" : "加星标"}
+                        onClick={toggleStar}
+                      >
+                        {starred ? "★" : "☆"}
+                      </button>
+                    </h2>
                     <p className="muted">
                       {peerOf(thread.thread)}
                       {thread.thread.peer_email ? ` · ${thread.thread.peer_email}` : ""}
                     </p>
                   </div>
-                  <div className="mail-thread-actions">
-                    <button type="button" className="btn ghost" data-mail-reply onClick={reply}>回复</button>
+                </div>
+                <div className="mail-mobiletabs" role="tablist" data-mail-mobiletabs>
+                  {([["original", "原文"], ["summary", "摘要"], ["translation", "翻译"]] as const).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      role="tab"
+                      aria-selected={mobilePanel === key}
+                      onClick={() => setMobilePanel(key)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div className={mobilePanel === "original" ? "" : "mail-hide-narrow"}>
+                  <MailDigestStrip thread={thread} />
+                  <div className="mail-timeline" data-mail-timeline>
+                    {thread.messages.length
+                      ? thread.messages.map((message) => (
+                          <MailMessageCard
+                            key={message.id}
+                            message={message}
+                            current={currentMessage?.id === message.id}
+                            onSelect={() => setCurrentMessageId(message.id)}
+                          />
+                        ))
+                      : <p className="muted">还没有缓存的往来正文。</p>}
+                  </div>
+                  <div className="mail-thread-actions" data-mail-thread-actions>
+                    <button type="button" className="btn work" data-mail-reply onClick={reply}>回复</button>
                     <button
                       type="button"
                       className="btn ghost"
@@ -331,21 +590,27 @@ export default function Mail() {
                       data-mail-entry="kol-analyze-enqueue"
                       onClick={analyze}
                     >
-                      分析
+                      快速分析
                     </button>
+                    <button type="button" className="btn ghost" data-mail-draft-reply onClick={generateReply}>生成回复</button>
                   </div>
                 </div>
-                <MailDigestStrip thread={thread} />
-                <div className="mail-timeline" data-mail-timeline>
-                  {thread.messages.length
-                    ? thread.messages.map((message) => <MailMessageCard key={message.id} message={message} />)
-                    : <p className="muted">还没有缓存的往来正文。</p>}
-                </div>
+                {mobilePanel === "summary" ? (
+                  <div className="mail-mobile-panel"><MailSummaryCard thread={thread} /></div>
+                ) : null}
+                {mobilePanel === "translation" ? (
+                  <div className="mail-mobile-panel"><MailTranslationCard message={currentMessage} /></div>
+                ) : null}
               </>
             ) : (
               <p className="muted" data-mail-thread-empty>{threadError || "选择左侧会话查看时间线。打开不会创建会话。"}</p>
             )}
           </section>
+
+          <aside className="mail-side" data-mail-side>
+            <MailSummaryCard thread={thread} />
+            <MailTranslationCard message={currentMessage} />
+          </aside>
         </div>
       ) : null}
 

@@ -164,7 +164,10 @@ export default function Workbench() {
         <div className="sidebar-head">
           <NavLink to="/" className="sidebar-brand" data-sidebar-brand end>
             <BrandLockup variant="sidebar" />
-            <span className="brand-name sidebar-label">灵工 工作</span>
+            <span className="sidebar-brand-copy">
+              <span className="brand-name sidebar-label">Li Time</span>
+              <span className="sidebar-brand-sub sidebar-label">灵工工作</span>
+            </span>
           </NavLink>
           <button type="button" className="sidebar-search-btn collapse-toggle" onClick={toggleCollapsed} aria-label={collapsed ? "展开侧栏" : "收起侧栏"} title={collapsed ? "展开侧栏" : "收起侧栏"}>{collapsed ? "›" : "‹"}</button>
         </div>
@@ -221,20 +224,18 @@ export default function Workbench() {
           </NavLink>
         </nav>
 
-        {debug ? (
-          <nav className="nav-group" aria-label="技能">
-            <NavLink
-              to="/skills"
-              className={() => "nav-link" + (skillsActive ? " active" : "")}
-              data-nav="skills"
-              title="技能目录"
-              onClick={() => setMobileOpen(false)}
-            >
-              <Ico path="M8 8h4v4H8z M12 12h4v4h-4z M7 16l-2 2 M17 8l2-2" />
-              <span className="sidebar-label">技能目录</span>
-            </NavLink>
-          </nav>
-        ) : null}
+        <nav className="nav-group" aria-label="技能">
+          <NavLink
+            to="/skills"
+            className={() => "nav-link" + (skillsActive ? " active" : "")}
+            data-nav="skills"
+            title="技能目录"
+            onClick={() => setMobileOpen(false)}
+          >
+            <Ico path="M8 8h4v4H8z M12 12h4v4h-4z M7 16l-2 2 M17 8l2-2" />
+            <span className="sidebar-label">技能目录</span>
+          </NavLink>
+        </nav>
 
         <nav className="nav-group" aria-label="资产">
           <NavLink to="/kb" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} data-nav="knowledge" onClick={() => setMobileOpen(false)}>

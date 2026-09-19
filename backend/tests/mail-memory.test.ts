@@ -294,6 +294,47 @@ describe("mailbox memory P0", () => {
     expect(dupes).toEqual([]);
   });
 
+  it("exposes bindings/total_unread, starred toggle, mark-read, and translation fields", async () => {
+    bindLarry();
+    await ensureFollowedMailSync(true);
+
+    const box = await request("GET", "/api/mail/box");
+    expect(box.status).toBe(200);
+    const bindings = box.body.bindings as Json[];
+    expect(Array.isArray(bindings)).toBe(true);
+    expect(bindings[0]).toMatchObject({ mailbox: "larry.zhao@amperetime.com", bound: true });
+    expect(typeof box.body.total_unread).toBe("number");
+    expect(Number(box.body.total_unread)).toBeGreaterThan(0);
+
+    const listed = await request("GET", "/api/mail/conversations");
+    const thread = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "3901");
+    expect(thread?.starred).toBe(false);
+
+    const starred = await request("PUT", `/api/mail/conversations/${thread?.id}`, { starred: true });
+    expect(starred.status).toBe(200);
+    expect((starred.body.conversation as Json).starred).toBe(true);
+    const listedAgain = await request("GET", "/api/mail/conversations");
+    expect((listedAgain.body.conversations as Json[]).find((row) => row.conversation_id === "3901")?.starred).toBe(true);
+
+    const opened = await request("GET", `/api/mail/conversations/${thread?.id}`);
+    const firstMessage = (opened.body.messages as Json[])[0];
+    expect(firstMessage).toHaveProperty("translation_zh");
+    expect(firstMessage).toHaveProperty("translation_source");
+    expect(firstMessage?.translation_zh).toBeNull();
+    expect(firstMessage?.translation_source).toBe("pending");
+
+    const read = await request("POST", `/api/mail/conversations/${thread?.id}/read`);
+    expect(read.status).toBe(200);
+    expect((read.body.conversation as Json).unread_count).toBe(0);
+    const remaining = getConn().prepare(
+      "SELECT COUNT(*) AS n FROM kol_mail_items WHERE thread_id=? AND unread=1",
+    ).get(String(thread?.id)) as { n: number };
+    expect(remaining.n).toBe(0);
+
+    const missing = await request("POST", "/api/mail/conversations/conv_missing/read");
+    expect(missing.status).toBe(404);
+  });
+
   it("registers the three mailbox-memory entries without changing confirm-send", () => {
     const byId = Object.fromEntries(HOME_ENTRY_REGISTRY.map((row) => [row.id, row]));
     expect(byId["list-mailbox-mail"]).toMatchObject({

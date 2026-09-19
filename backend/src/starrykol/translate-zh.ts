@@ -222,6 +222,25 @@ export function isStubInternalZh(zh: string): boolean {
   return String(zh || "").includes("发送仍用英文原文，本段仅内部查看");
 }
 
+/**
+ * 收件邮件正文的中文翻译：MCP → Codex → Luna，无确定性回退。
+ * 拿不到可用译文时返回 null，由调用方标记 translation_source='pending'。
+ */
+export async function translateMailBodyZh(body: string): Promise<{ text: string; source: string } | null> {
+  const source = String(body || "").trim();
+  if (!source) return null;
+  const fromMcp = await translateWithMcp(source);
+  if (fromMcp && !isStubInternalZh(fromMcp)) return { text: stripInternalZhHeader(fromMcp), source: "starry_mcp" };
+  if (!remoteMailAnalysisEnabled()) return null;
+  if (!intentLlmFetchOverridden()) {
+    const fromCodex = await translateWithCodex(source);
+    if (fromCodex) return { text: stripInternalZhHeader(fromCodex), source: "codex_memory" };
+  }
+  const fromLuna = await translateWithLuna(source);
+  if (fromLuna) return { text: stripInternalZhHeader(fromLuna), source: "luna" };
+  return null;
+}
+
 export async function translateDraftInternal(english: string, cached = ""): Promise<string> {
   const source = String(english || "").trim();
   const skipCache = remoteMailAnalysisEnabled() && isStubInternalZh(cached);

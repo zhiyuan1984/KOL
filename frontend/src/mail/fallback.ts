@@ -43,13 +43,17 @@ export function boxFromBinding(
   const scope = binding?.bound ? binding : board?.follow_scope;
   const mailbox = text(scope?.mailbox_email);
   const bound = Boolean(scope?.bound && mailbox && scope.status !== "unbound");
+  const unread = Number(board?.mail?.unread || 0);
+  const syncedAt = scope?.updated_at || null;
+  const error = board?.mail?.error || null;
   return {
     mailbox,
     bound,
-    unread: Number(board?.mail?.unread || 0),
-    synced_at: scope?.updated_at || null,
-    error: board?.mail?.error || null,
+    unread,
+    synced_at: syncedAt,
+    error,
     owner_name: text(scope?.owner_name) || undefined,
+    bindings: bound && mailbox ? [{ mailbox, unread, bound, synced_at: syncedAt, error }] : [],
   };
 }
 

@@ -53,6 +53,8 @@ describe("today plan wiring", () => {
     expect(home).toContain('api.tasks({ view: "open" })');
     expect(home).toContain("api.todayBrief()");
     expect(home).toContain("api.planToday()");
+    expect(home).toContain("fetchTodayTasks");
+    expect(home).toContain("projectDisplayTasks");
     expect(home).toContain("runTodayPlanRefresh");
     expect(home).not.toContain("!current.brief");
     expect(progress).toContain("data-today-plan-phase={phase}");
@@ -66,8 +68,8 @@ describe("today plan wiring", () => {
     const home = fs.readFileSync(path.resolve(here, "../pages/Home.tsx"), "utf8");
     const todo = fs.readFileSync(path.resolve(here, "./TodoPane.tsx"), "utf8");
     const homeModel = fs.readFileSync(path.resolve(here, "./homeModel.ts"), "utf8");
-    expect(home).toContain("todayMemoryTasks ?? taskCatalog");
     expect(home).toContain("homeMemoryTasks");
+    expect(home).toContain("todoMemoryTasks");
     expect(home).toMatch(/\[todayEntryTick\]/);
     expect(home).not.toMatch(/if \(mode !== "today"\)/);
     expect(home).not.toMatch(/if \(mode !== "todo"\) return;/);

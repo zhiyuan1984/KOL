@@ -7,7 +7,7 @@ import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
 import { inboundIdentity, inboundByIdentity } from "./inbound-identity.js";
 import { boundMailboxEmail, currentFollowScope, safeEmployeeId, starryBindingRow } from "./starry-bind.js";
-import { normalizeEmail } from "./identity.js";
+import { mailboxLocalPart, normalizeEmail } from "./identity.js";
 
 export type MatchState = "matched" | "unbound" | "deferred" | "ignored";
 
@@ -24,9 +24,12 @@ export type ConversationRow = {
   last_direction: string;
   last_preview: string;
   unread_count: number;
+  starred: boolean;
   last_receipt: string;
   digest_source: string;
   digest_text?: string;
+  kol_uid?: string;
+  handle?: string;
 };
 
 export type MessageRow = {
@@ -41,6 +44,8 @@ export type MessageRow = {
   body_text?: string;
   letter_summary: string;
   summary_source: string;
+  translation_zh: string | null;
+  translation_source: string;
   receipt_status: string;
   effective: boolean;
 };
@@ -96,9 +101,12 @@ export function conversationRowOf(row: Row | Json): ConversationRow {
     last_direction: String(row.last_direction || ""),
     last_preview: String(row.last_preview || ""),
     unread_count: Number(row.unread_count || 0),
+    starred: Boolean(Number(row.starred || 0)),
     last_receipt: String(row.last_receipt || ""),
     digest_source: String(row.digest_source || ""),
     ...(digestText ? { digest_text: digestText } : {}),
+    ...(row.kol_uid ? { kol_uid: String(row.kol_uid) } : {}),
+    ...(row.handle ? { handle: String(row.handle) } : {}),
   };
 }
 
@@ -116,6 +124,8 @@ export function messageRowOf(row: Row | Json): MessageRow {
     ...(body ? { body_text: body } : {}),
     letter_summary: String(row.summary || row.summary_zh || ""),
     summary_source: String(row.summary_source || ""),
+    translation_zh: row.translation_zh ? String(row.translation_zh) : null,
+    translation_source: String(row.translation_source || ""),
     receipt_status: String(row.receipt_status || ""),
     effective: Boolean(Number(row.effective || 0)),
   };
@@ -202,14 +212,35 @@ export function markCollaborationMailRead(collaborationId: string): void {
   });
 }
 
+export function markConversationMailRead(threadId: string): void {
+  if (!threadId) return;
+  tx((db) => {
+    db.prepare("UPDATE kol_mail_threads SET unread_count=0, updated_at=? WHERE id=?")
+      .run(nowIso(), threadId);
+    db.prepare("UPDATE kol_mail_items SET unread=0 WHERE thread_id=?").run(threadId);
+  });
+}
+
+export function setConversationStarred(threadId: string, starred: boolean): void {
+  if (!threadId) return;
+  getConn().prepare("UPDATE kol_mail_threads SET starred=?, updated_at=? WHERE id=?")
+    .run(starred ? 1 : 0, nowIso(), threadId);
+}
+
 export function listMailboxConversations(mailbox?: string): ConversationRow[] {
   const box = mailbox === undefined ? currentMailbox() : mailbox;
   const rows = box
     ? getConn().prepare(
-      `SELECT * FROM kol_mail_threads WHERE mailbox=? ORDER BY last_at DESC, updated_at DESC`,
+      `SELECT t.*, c.kol_uid, c.handle
+         FROM kol_mail_threads t
+         LEFT JOIN collaborations c ON c.id=t.collaboration_id
+        WHERE t.mailbox=? ORDER BY t.last_at DESC, t.updated_at DESC`,
     ).all(box) as Row[]
     : getConn().prepare(
-      `SELECT * FROM kol_mail_threads ORDER BY last_at DESC, updated_at DESC`,
+      `SELECT t.*, c.kol_uid, c.handle
+         FROM kol_mail_threads t
+         LEFT JOIN collaborations c ON c.id=t.collaboration_id
+        ORDER BY t.last_at DESC, t.updated_at DESC`,
     ).all() as Row[];
   return rows.map(conversationRowOf);
 }
@@ -245,6 +276,41 @@ export function mailboxBoxStatus(mailbox?: string): MailBoxStatus {
     cursor_at: bind?.sync_cursor_at ? String(bind.sync_cursor_at) : null,
     cursor_id: bind?.sync_cursor_id ? String(bind.sync_cursor_id) : null,
   };
+}
+
+export type MailboxBinding = {
+  mailbox: string;
+  label: string;
+  brand: string;
+  region: string;
+  unread: number;
+  bound: boolean;
+  synced_at: string | null;
+  error: string | null;
+};
+
+/**
+ * One entry per bound mailbox. Brand metadata comes from the mailbox_owners
+ * table when present; there is no per-mailbox region source yet.
+ */
+export function mailboxBindings(): MailboxBinding[] {
+  const box = mailboxBoxStatus();
+  const mailbox = String(box.mailbox || "");
+  if (!mailbox) return [];
+  const userId = safeEmployeeId();
+  const bind = userId ? starryBindingRow(userId) : undefined;
+  const owner = getConn().prepare("SELECT brand, owner_name, dept FROM mailbox_owners WHERE email=?")
+    .get(mailbox) as Row | undefined;
+  return [{
+    mailbox,
+    label: String(bind?.owner_name || owner?.owner_name || mailboxLocalPart(mailbox) || mailbox),
+    brand: String(owner?.brand || ""),
+    region: "",
+    unread: unreadCountForMailbox(mailbox),
+    bound: box.bound,
+    synced_at: box.synced_at,
+    error: box.error,
+  }];
 }
 
 export function updateBindingSyncCursor(input: {

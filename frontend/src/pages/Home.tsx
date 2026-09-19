@@ -114,6 +114,8 @@ import {
   runTodayPlanRefresh,
   type TodayPlanPhase,
 } from "../home/todayPlan";
+import { projectDisplayTasks } from "../home/displayTasks";
+import { fetchTodayTasks, fetchTodoTasks } from "../home/todayTasksApi";
 import { findDuplicateTodo, recommendationIdentity } from "../home/todoDedupe";
 import {
   HOME_CONFIRM_STAGE_BLOCKED_COPY,
@@ -514,9 +516,16 @@ export default function Home() {
   const [todayBrief, setTodayBrief] = useState<TodayBrief | null>(null);
   const [editTaskTarget, setEditTaskTarget] = useState<Task | null>(null);
   const [todayMemoryTasks, setTodayMemoryTasks] = useState<Task[] | null>(null);
+  const [todoMemoryTasks, setTodoMemoryTasks] = useState<Task[] | null>(null);
   const [todayPlanEvents, setTodayPlanEvents] = useState<TaskEvent[]>([]);
   const [todayPlanPhase, setTodayPlanPhase] = useState<TodayPlanPhase>("loading-memory");
+  const [todayPlanCollapsed, setTodayPlanCollapsed] = useState(false);
   const [todayEntryTick, setTodayEntryTick] = useState(0);
+  const [todoBrief, setTodoBrief] = useState<TodayBrief | null>(null);
+  const [todoPlanEvents, setTodoPlanEvents] = useState<TaskEvent[]>([]);
+  const [todoPlanPhase, setTodoPlanPhase] = useState<TodayPlanPhase>("loading-memory");
+  const [todoPlanCollapsed, setTodoPlanCollapsed] = useState(false);
+  const [todoEntryTick, setTodoEntryTick] = useState(0);
   const nav = useNavigate();
   const mode = parseHomeMode(params.get("tab"));
 
@@ -1418,7 +1427,7 @@ export default function Home() {
     [boardWorkbench, followedKols, mode, taskCatalog],
   );
 
-  const homeMemoryTasks = todayMemoryTasks ?? taskCatalog;
+  const homeMemoryTasks = (mode === "today" ? todayMemoryTasks : mode === "todo" ? todoMemoryTasks : null) ?? taskCatalog;
 
   const todoItems = useMemo(
     () => sortOpenWorkItems(homeMemoryTasks.filter(isOpenTask)),
@@ -1460,7 +1469,12 @@ export default function Home() {
   }, [hasActiveRuns]);
 
   useEffect(() => {
-    const onRefresh = () => setTodayEntryTick((value) => value + 1);
+    const onRefresh = () => {
+      setTodayPlanCollapsed(false);
+      setTodoPlanCollapsed(false);
+      setTodayEntryTick((value) => value + 1);
+      setTodoEntryTick((value) => value + 1);
+    };
     window.addEventListener(TODAY_PLAN_REFRESH_EVENT, onRefresh);
     return () => window.removeEventListener(TODAY_PLAN_REFRESH_EVENT, onRefresh);
   }, []);
@@ -1476,12 +1490,16 @@ export default function Home() {
         listOpenTasks: () => api.tasks({ view: "open" }).then(unwrapTaskList),
         getBrief: () => api.todayBrief(),
         startPlan: () => api.planToday(),
+        getDisplayTasks: () => fetchTodayTasks(),
       },
       (step) => {
         if (controller.signal.aborted) return;
         if (step.phase !== "idle") setTodayPlanPhase(step.phase);
         if (step.tasks) {
-          setTodayMemoryTasks(memoryTasksOf(step.tasks).filter((row) => !isPlanningTask(row)));
+          const base = memoryTasksOf(step.tasks).filter((row) => !isPlanningTask(row));
+          setTodayMemoryTasks(
+            step.displayTasks?.length ? projectDisplayTasks(step.displayTasks, base) : base,
+          );
         }
         if (Object.prototype.hasOwnProperty.call(step, "brief")) {
           setTodayBrief(step.brief ?? null);
@@ -1508,6 +1526,53 @@ export default function Home() {
       if (dismissTimer) window.clearTimeout(dismissTimer);
     };
   }, [todayEntryTick]);
+
+  // Todo-scope planning chain: same pipeline as today, separate brief/events.
+  useEffect(() => {
+    const controller = new AbortController();
+    let dismissTimer = 0;
+    setTodoPlanPhase("loading-memory");
+    void runTodayPlanRefresh(
+      {
+        listOpenTasks: () => api.tasks({ view: "open" }).then(unwrapTaskList),
+        getBrief: () => api.todoBrief(),
+        startPlan: () => api.planTodo(),
+        getDisplayTasks: () => fetchTodoTasks(),
+      },
+      (step) => {
+        if (controller.signal.aborted) return;
+        if (step.phase !== "idle") setTodoPlanPhase(step.phase);
+        if (step.tasks) {
+          const base = memoryTasksOf(step.tasks).filter((row) => !isPlanningTask(row));
+          setTodoMemoryTasks(
+            step.displayTasks?.length ? projectDisplayTasks(step.displayTasks, base) : base,
+          );
+        }
+        if (Object.prototype.hasOwnProperty.call(step, "brief")) {
+          setTodoBrief(step.brief ?? null);
+        }
+        if (Array.isArray(step.events)) {
+          setTodoPlanEvents(step.events);
+        }
+      },
+      { signal: controller.signal, scope: "todo" },
+    ).then((final) => {
+      if (controller.signal.aborted) return;
+      if (final.phase === "refreshed") {
+        dismissTimer = window.setTimeout(() => {
+          if (!controller.signal.aborted) {
+            setTodoPlanPhase((current) => (current === "refreshed" ? "idle" : current));
+          }
+        }, TODAY_PLAN_REFRESHED_MS);
+      }
+    }).catch(() => {
+      if (!controller.signal.aborted) setTodoPlanPhase("failed");
+    });
+    return () => {
+      controller.abort();
+      if (dismissTimer) window.clearTimeout(dismissTimer);
+    };
+  }, [todoEntryTick]);
 
   const recommendedItems = useMemo(
     () => withRecommendedDisplay(workbench.recommendations || [], definitions),
@@ -1736,6 +1801,8 @@ export default function Home() {
               brief={todayBrief}
               phase={todayPlanPhase}
               events={todayPlanEvents}
+              planCollapsed={todayPlanCollapsed}
+              onPlanCollapsedChange={setTodayPlanCollapsed}
             />
           ) : null}
 
@@ -1748,9 +1815,12 @@ export default function Home() {
               busy={busy}
               onAct={(task) => void actOnMemoryTask(task)}
               onEdit={setEditTaskTarget}
-              todoLayout={todayBrief?.todo_layout}
-              phase={todayPlanPhase}
-              events={todayPlanEvents}
+              brief={todoBrief}
+              todoLayout={todoBrief?.todo_layout}
+              phase={todoPlanPhase}
+              events={todoPlanEvents}
+              planCollapsed={todoPlanCollapsed}
+              onPlanCollapsedChange={setTodoPlanCollapsed}
             />
           ) : null}
 

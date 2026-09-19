@@ -17,12 +17,25 @@ export { applyLayoutWhy };
 
 export const TODAY_PLAN_REFRESH_EVENT = "lingong:today-plan-refresh";
 
-export const TODAY_PLAN_PHASE_COPY = {
-  "loading-memory": "正在读取当前任务",
-  planning: "Lucas正在高效为你规划今天的任务",
-  refreshed: "已按本轮规划刷新",
-  failed: "规划失败，仍可按下面任务操作",
-} as const;
+/** Plan scope mirrors the backend: today = 今日规划 chain, todo = 待办规划 chain. */
+export type PlanScope = "today" | "todo";
+
+const PLAN_PHASE_COPY: Record<PlanScope, { "loading-memory": string; planning: string; refreshed: string; failed: string }> = {
+  today: {
+    "loading-memory": "正在读取当前任务",
+    planning: "Lucas正在高效为你规划今天的任务",
+    refreshed: "已按本轮规划刷新",
+    failed: "规划失败，仍可按下面任务操作",
+  },
+  todo: {
+    "loading-memory": "正在读取待办任务",
+    planning: "Lucas正在高效为你规划待办任务",
+    refreshed: "已按本轮规划刷新",
+    failed: "待办规划失败，仍可按下面任务操作",
+  },
+};
+
+export const TODAY_PLAN_PHASE_COPY = PLAN_PHASE_COPY.today;
 
 export type TodayPlanActivePhase = keyof typeof TODAY_PLAN_PHASE_COPY;
 export type TodayPlanPhase = TodayPlanActivePhase | "idle";
@@ -51,11 +64,12 @@ export type TodayPlanRefreshOptions = {
   pollMs?: number;
   signal?: AbortSignal;
   sleep?: (ms: number) => Promise<void>;
+  scope?: PlanScope;
 };
 
-export function todayPlanStatusCopy(phase: TodayPlanPhase): string {
+export function todayPlanStatusCopy(phase: TodayPlanPhase, scope: PlanScope = "today"): string {
   if (phase === "idle") return "";
-  return TODAY_PLAN_PHASE_COPY[phase];
+  return PLAN_PHASE_COPY[scope][phase];
 }
 
 /** Planning clock only. `7` → `0:07`, `62` → `1:02`. */
@@ -86,7 +100,12 @@ export function memoryTasksOf(rows: Task[] | null | undefined): Task[] {
   return (rows || []).filter((row) => !isPlanningTask(row));
 }
 
-export function todayPlanFailedFromBrief(row: TodayBriefResponse): boolean {
+const PLAN_FAILED_LABEL: Record<PlanScope, RegExp> = {
+  today: /规划失败|今日规划失败|今日规划未通过/,
+  todo: /待办规划失败|待办规划未通过/,
+};
+
+export function todayPlanFailedFromBrief(row: TodayBriefResponse, scope: PlanScope = "today"): boolean {
   if (row.planning) return false;
   const events = Array.isArray(row.events) ? row.events : [];
   return events.some((event) => {
@@ -95,7 +114,7 @@ export function todayPlanFailedFromBrief(row: TodayBriefResponse): boolean {
     const status = String(event.status || "").toLowerCase();
     if (status === "failed") return true;
     const label = String(event.label || event.title || event.summary || "");
-    return /规划失败|今日规划失败|今日规划未通过/.test(label);
+    return PLAN_FAILED_LABEL[scope].test(label);
   });
 }
 
@@ -129,6 +148,7 @@ export async function runTodayPlanRefresh(
   const pollMs = options.pollMs ?? TODAY_PLAN_POLL_MS;
   const sleep = options.sleep || wait;
   const signal = options.signal;
+  const scope = options.scope ?? "today";
 
   onStep({ phase: "loading-memory" });
 
@@ -231,7 +251,7 @@ export async function runTodayPlanRefresh(
         await sleep(pollMs);
         continue;
       }
-      if (todayPlanFailedFromBrief(row)) {
+      if (todayPlanFailedFromBrief(row, scope)) {
         const failed: TodayPlanStep = { phase: "failed", tasks, displayTasks, brief, events };
         onStep(failed);
         return failed;

@@ -195,7 +195,7 @@ export function cardFields(kol: {
 }
 
 const CLOSED_STATUSES = new Set(["completed", "done", "cancelled"]);
-export const PLANNING_TASK_TYPES = new Set(["today_plan", "today_analyze"]);
+export const PLANNING_TASK_TYPES = new Set(["today_plan", "today_analyze", "todo_plan"]);
 
 export function isPlanningWorkItem(task: {
   task_type?: unknown;
@@ -303,7 +303,7 @@ export const OPEN_WORK_ITEM_SQL = `
   status NOT IN ('completed','done','cancelled')
   AND dismissed_at IS NULL
   AND COALESCE(source, 'manual') != 'planning'
-  AND task_type NOT IN ('today_plan','today_analyze')
+  AND task_type NOT IN ('today_plan','today_analyze','todo_plan')
 `;
 
 export function isTodoWorkItem(task: {

@@ -18,3 +18,14 @@ export async function fetchTodayTasks(): Promise<DisplayTaskRow[]> {
   const body = await response.json().catch(() => null) as TodayTasksResponse | null;
   return Array.isArray(body?.items) ? body.items : [];
 }
+
+export async function fetchTodoTasks(): Promise<DisplayTaskRow[]> {
+  const response = await fetch("/api/home/todo-tasks", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!response.ok) return [];
+  const body = await response.json().catch(() => null) as TodayTasksResponse | null;
+  return Array.isArray(body?.items) ? body.items : [];
+}

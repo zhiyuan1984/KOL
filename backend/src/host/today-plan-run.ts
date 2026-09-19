@@ -9,7 +9,15 @@ import { appendTaskEvent } from "../routers/tasks.js";
 import { runWorker } from "../worker/runner.js";
 import { HttpFail } from "./errors.js";
 import { runningTodayPlan, writeTodayBriefArtifact, markTodayPlanCompleted, markTodayPlanFailed } from "./today-brief.js";
-import { packTodayPlanContext, planningHarnessMount, planningRunInput, type TodayPlanPack } from "./today-plan-context.js";
+import {
+  briefPointerTable,
+  packTodayPlanContext,
+  planTaskType,
+  planningHarnessMount,
+  planningRunInput,
+  type PlanScope,
+  type TodayPlanPack,
+} from "./today-plan-context.js";
 
 function ownerId(): string {
   const user = scopedUser();
@@ -39,7 +47,7 @@ export function planningEvents(workItemId: string): Json[] {
   }));
 }
 
-function createPlanningSession(title: string, owner: string, expertId: string): string {
+function createPlanningSession(title: string, owner: string, expertId: string, kind = "today_plan"): string {
   const now = nowIso();
   const sid = nid("ses");
   tx((db) => {
@@ -47,14 +55,14 @@ function createPlanningSession(title: string, owner: string, expertId: string): 
       `INSERT INTO sessions
        (id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id,expert_version)
        VALUES (?,?,?,?,?,?,?,?,?)`,
-    ).run(sid, title, now, now, "today_plan", 0, owner, expertId, null);
+    ).run(sid, title, now, now, kind, 0, owner, expertId, null);
   });
   return sid;
 }
 
 function createPlanningWorkItem(input: {
   owner: string;
-  taskType: "today_plan" | "today_analyze";
+  taskType: "today_plan" | "today_analyze" | "todo_plan";
   title: string;
   sessionId: string;
   payload: Json;
@@ -108,19 +116,42 @@ function createPlanningRun(workItemId: string, sessionId: string, payload: Json)
   return runId;
 }
 
-export const TODAY_PLAN_EMPLOYEE_EVENTS = {
-  memoryRead: "已读取当前任务记忆",
-  deltaPacked: "已打包来源增量",
-  codexSubmitted: "已提交 Codex 规划",
-  writingBrief: "正在生成今日简报",
-  completed: "今日规划已完成",
-  failed: "今日规划失败",
-  invalid: "今日规划未通过校验",
-} as const;
+type PlanEventKey =
+  | "memoryRead"
+  | "deltaPacked"
+  | "codexSubmitted"
+  | "writingBrief"
+  | "completed"
+  | "failed"
+  | "invalid";
 
-function memoryReadSummary(pack: TodayPlanPack): string {
+export const PLAN_EMPLOYEE_EVENTS: Record<PlanScope, Record<PlanEventKey, string>> = {
+  today: {
+    memoryRead: "已读取当前任务记忆",
+    deltaPacked: "已打包来源增量",
+    codexSubmitted: "已提交 Codex 规划",
+    writingBrief: "正在生成今日简报",
+    completed: "今日规划已完成",
+    failed: "今日规划失败",
+    invalid: "今日规划未通过校验",
+  },
+  todo: {
+    memoryRead: "已读取待办任务记忆",
+    deltaPacked: "已打包待办增量",
+    codexSubmitted: "已提交 Codex 待办规划",
+    writingBrief: "正在生成待办简报",
+    completed: "待办规划已完成",
+    failed: "待办规划失败",
+    invalid: "待办规划未通过校验",
+  },
+};
+
+/** Back-compat export: today-scope copy (used by tests and the today chain). */
+export const TODAY_PLAN_EMPLOYEE_EVENTS = PLAN_EMPLOYEE_EVENTS.today;
+
+function memoryReadSummary(pack: TodayPlanPack, scope: PlanScope): string {
   const unfinished = Number(pack.now_counts?.unfinished);
-  return Number.isFinite(unfinished) ? `未了结 ${unfinished} 项` : TODAY_PLAN_EMPLOYEE_EVENTS.memoryRead;
+  return Number.isFinite(unfinished) ? `未了结 ${unfinished} 项` : PLAN_EMPLOYEE_EVENTS[scope].memoryRead;
 }
 
 export function briefFromWorkerItems(items: Json[]): unknown {  const candidates = items.filter((item) => item.type === "today_brief" || (item.lead && item.sections));
@@ -166,11 +197,14 @@ export async function executeTodayPlanRun(input: {
   sessionId: string;
   runId: string;
   pack: TodayPlanPack;
+  scope?: PlanScope;
 }): Promise<void> {
+  const scope = input.scope ?? "today";
+  const copy = PLAN_EMPLOYEE_EVENTS[scope];
   const extra = planningRunInput(input.pack, {
     work_item_id: input.workItemId,
     task_run_id: input.runId,
-  });
+  }, scope);
   let streamText = "";
   let streamHandle: ReturnType<typeof setTimeout> | null = null;
   const flushStream = () => {
@@ -190,14 +224,14 @@ export async function executeTodayPlanRun(input: {
       input.workItemId,
       input.runId,
       "run.progress",
-      TODAY_PLAN_EMPLOYEE_EVENTS.codexSubmitted,
+      copy.codexSubmitted,
       "running",
-      "已提交 Codex 规划",
+      copy.codexSubmitted,
     );
     const wr = await Promise.resolve(runWorker(
       input.sessionId,
-      "today_plan",
-      "规划今天的工作。只输出 today_brief JSON。",
+      planTaskType(scope),
+      scope === "todo" ? "规划待办工作。只输出 today_brief JSON。" : "规划今天的工作。只输出 today_brief JSON。",
       extra,
       undefined,
       onStream,
@@ -210,16 +244,24 @@ export async function executeTodayPlanRun(input: {
       input.workItemId,
       input.runId,
       "run.progress",
-      TODAY_PLAN_EMPLOYEE_EVENTS.writingBrief,
+      copy.writingBrief,
       "running",
-      "正在生成今日简报",
+      copy.writingBrief,
     );
     const brief = briefFromWorkerItems(wr.items);
+    if (brief && typeof brief === "object" && !Array.isArray(brief)) {
+      const root = brief as Json;
+      const stats = root.stats && typeof root.stats === "object" && !Array.isArray(root.stats)
+        ? { ...(root.stats as Json) }
+        : {};
+      if (stats.candidates == null) stats.candidates = input.pack.catalog.length;
+      root.stats = stats;
+    }
     const missingCoverage = missingDisplayCoverage(brief, input.pack);
     if (missingCoverage.length) {
       const reason = `展示行漏了 ${missingCoverage.length} 项任务（${missingCoverage.slice(0, 3).join("、")}）`;
       markTodayPlanFailed(input.workItemId, input.runId, reason);
-      appendTaskEvent(input.workItemId, input.runId, "run.failed", TODAY_PLAN_EMPLOYEE_EVENTS.invalid, "failed", reason);
+      appendTaskEvent(input.workItemId, input.runId, "run.failed", copy.invalid, "failed", reason);
       return;
     }
     const written = writeTodayBriefArtifact({
@@ -227,29 +269,30 @@ export async function executeTodayPlanRun(input: {
       workItemId: input.workItemId,
       runId: input.runId,
       brief,
+      scope,
     });
     if (!written.ok) {
       markTodayPlanFailed(input.workItemId, input.runId, written.reason);
-      appendTaskEvent(input.workItemId, input.runId, "run.failed", TODAY_PLAN_EMPLOYEE_EVENTS.invalid, "failed", written.reason);
+      appendTaskEvent(input.workItemId, input.runId, "run.failed", copy.invalid, "failed", written.reason);
       return;
     }
     markTodayPlanCompleted(input.workItemId, input.runId);
-    appendTaskEvent(input.workItemId, input.runId, "run.completed", TODAY_PLAN_EMPLOYEE_EVENTS.completed, "completed", "today_brief 已更新");
+    appendTaskEvent(input.workItemId, input.runId, "run.completed", copy.completed, "completed", "today_brief 已更新");
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     markTodayPlanFailed(input.workItemId, input.runId, reason);
-    appendTaskEvent(input.workItemId, input.runId, "run.failed", TODAY_PLAN_EMPLOYEE_EVENTS.failed, "failed", reason.slice(0, 1000));
+    appendTaskEvent(input.workItemId, input.runId, "run.failed", copy.failed, "failed", reason.slice(0, 1000));
   }
 }
 
-export function startTodayPlan(owner = ownerId()): {
+export function startTodayPlan(owner = ownerId(), scope: PlanScope = "today"): {
   work_item_id: string;
   session_id: string;
   run_id: string;
   attached: boolean;
   planning: boolean;
 } {
-  const existing = runningTodayPlan(owner);
+  const existing = runningTodayPlan(owner, scope);
   if (existing?.session_id && existing.run_id) {
     return {
       work_item_id: existing.work_item_id,
@@ -259,13 +302,16 @@ export function startTodayPlan(owner = ownerId()): {
       planning: true,
     };
   }
-  const pack = packTodayPlanContext(owner);
-  const payload = planningRunInput(pack);
-  const sessionId = createPlanningSession("今日规划", owner, "expert:kol");
+  const copy = PLAN_EMPLOYEE_EVENTS[scope];
+  const taskType = planTaskType(scope);
+  const title = scope === "todo" ? "待办规划" : "今日规划";
+  const pack = packTodayPlanContext(owner, scope);
+  const payload = planningRunInput(pack, {}, scope);
+  const sessionId = createPlanningSession(title, owner, "expert:kol", taskType);
   const workItemId = createPlanningWorkItem({
     owner,
-    taskType: "today_plan",
-    title: "今日规划",
+    taskType,
+    title,
     sessionId,
     payload,
   });
@@ -274,25 +320,25 @@ export function startTodayPlan(owner = ownerId()): {
     workItemId,
     runId,
     "run.progress",
-    TODAY_PLAN_EMPLOYEE_EVENTS.memoryRead,
+    copy.memoryRead,
     "running",
-    memoryReadSummary(pack),
+    memoryReadSummary(pack, scope),
   );
   appendTaskEvent(
     workItemId,
     runId,
     "run.progress",
-    TODAY_PLAN_EMPLOYEE_EVENTS.deltaPacked,
+    copy.deltaPacked,
     "running",
     `来源增量 ${pack.delta.added.length} 项`,
   );
-  audit(owner, "today_plan.started", {
+  audit(owner, `${taskType}.started`, {
     work_item_id: workItemId,
     session_id: sessionId,
     run_id: runId,
     creates_session: true,
   });
-  void executeTodayPlanRun({ owner, workItemId, sessionId, runId, pack });
+  void executeTodayPlanRun({ owner, workItemId, sessionId, runId, pack, scope });
   return {
     work_item_id: workItemId,
     session_id: sessionId,
@@ -343,10 +389,10 @@ export function startTodayAnalyze(body: Json, owner = ownerId()): {
   return { work_item_id: workItemId, session_id: sessionId, run_id: runId };
 }
 
-export function todayBriefSnapshot(owner = ownerId()): Json {
-  const running = runningTodayPlan(owner);
+export function todayBriefSnapshot(owner = ownerId(), scope: PlanScope = "today"): Json {
+  const running = runningTodayPlan(owner, scope);
   const latest = getConn().prepare(
-    "SELECT artifact_id, work_item_id FROM employee_today_briefs WHERE owner_user_id=?",
+    `SELECT artifact_id, work_item_id FROM ${briefPointerTable(scope)} WHERE owner_user_id=?`,
   ).get(owner) as { artifact_id: string; work_item_id: string } | undefined;
   let brief: Json | null = null;
   if (latest) {

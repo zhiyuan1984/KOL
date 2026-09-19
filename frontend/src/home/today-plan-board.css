@@ -1,0 +1,331 @@
+/* 今日工作计划 board — pink redesign */
+.today-board {
+  margin: 0 0 var(--space-4, 16px);
+  background: #fff;
+  border: 1px solid #f0f0f2;
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+  padding: 16px 20px 12px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+.today-board-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.today-board-head-icon {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+}
+.today-board-head-icon svg {
+  width: 24px;
+  height: 24px;
+  display: block;
+}
+.today-board-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #1a1a1a;
+}
+.today-board-count {
+  font-size: 13px;
+  color: #6B7280;
+}
+.today-board-tools {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.today-board-search {
+  border: 1px solid transparent;
+  background: #f5f5f6;
+  border-radius: 10px;
+  height: 34px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  min-width: 200px;
+  outline: none;
+}
+.today-board-search:focus {
+  border-color: #DB1860;
+  background: #fff;
+}
+.today-board-search::placeholder {
+  color: #9ca3af;
+}
+.today-board-plan-btn {
+  border: 0;
+  border-radius: 10px;
+  background: #DB1860;
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  height: 34px;
+  padding: 0 16px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.today-board-plan-btn:hover {
+  background: #b81451;
+}
+
+.today-board-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 12px;
+}
+.today-board-pill {
+  border: 1px solid #e7e7ea;
+  background: #fff;
+  color: #4b5563;
+  font: inherit;
+  font-size: 13px;
+  border-radius: 999px;
+  padding: 5px 14px;
+  cursor: pointer;
+  min-height: 30px;
+}
+.today-board-pill:hover {
+  border-color: #DB1860;
+  color: #DB1860;
+}
+.today-board-pill[aria-pressed="true"] {
+  background: #DB1860;
+  border-color: #DB1860;
+  color: #fff;
+}
+
+.today-board-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.today-board-table th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 400;
+  color: #9ca3af;
+  padding: 8px 10px;
+  border-bottom: 1px solid #f2f2f4;
+  white-space: nowrap;
+}
+.today-board-table td {
+  padding: 10px;
+  border-bottom: 1px solid #f7f7f9;
+  vertical-align: middle;
+}
+.today-board-row:hover td {
+  background: #fafafb;
+}
+.today-board-group-row td {
+  padding: 10px 10px 4px;
+  border-bottom: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6B7280;
+  background: #fff;
+}
+.today-board-cell-check {
+  width: 32px;
+}
+.today-board-check {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  accent-color: #DB1860;
+  cursor: pointer;
+}
+.today-board-cell-index {
+  width: 32px;
+  color: #9ca3af;
+  font-variant-numeric: tabular-nums;
+}
+.today-board-priority {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.today-board-priority.is-high {
+  color: #DB1860;
+  background: #FCE4EC;
+}
+.today-board-priority.is-mid {
+  color: #F59E0B;
+  background: #FEF3C7;
+}
+.today-board-priority.is-low {
+  color: #6B7280;
+  background: #f3f4f6;
+}
+.today-board-cell-title {
+  min-width: 0;
+}
+.today-board-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.today-board-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.today-board-icon {
+  flex: 0 0 auto;
+  font-size: 15px;
+  line-height: 1;
+}
+.today-board-title {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-weight: 500;
+  color: #1a1a1a;
+  cursor: pointer;
+  text-align: left;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: middle;
+}
+.today-board-title:hover {
+  color: #DB1860;
+}
+.today-board-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.today-board-why {
+  margin: 0;
+  font-size: 12px;
+  color: #6B7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.today-board-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.today-board-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 7px;
+  border: 1px solid #e7e7ea;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 17px;
+  color: #6B7280;
+  background: #fff;
+}
+.today-board-chip.is-accent {
+  color: #DB1860;
+  border-color: #f9b5c7;
+  background: #fff0f4;
+}
+.today-board-status {
+  margin-left: 8px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+.today-board-cell-source {
+  color: #6B7280;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.today-board-cell-actions {
+  white-space: nowrap;
+}
+.today-board-open {
+  border: 1px solid #e7e7ea;
+  background: #fff;
+  color: #374151;
+  font: inherit;
+  font-size: 13px;
+  border-radius: 999px;
+  padding: 4px 14px;
+  cursor: pointer;
+  min-height: 30px;
+}
+.today-board-open:hover:not(:disabled) {
+  border-color: #DB1860;
+  color: #DB1860;
+}
+.today-board-open:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.today-board-edit {
+  margin-left: 8px;
+  border: 1px solid #e7e7ea;
+  background: #fff;
+  color: #9ca3af;
+  font: inherit;
+  font-size: 13px;
+  border-radius: 999px;
+  padding: 4px 14px;
+  cursor: pointer;
+  min-height: 30px;
+}
+.today-board-edit:hover:not(:disabled) {
+  border-color: #c9cdd4;
+  color: #4b5563;
+}
+.today-board-edit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.today-board-expand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 8px;
+  border: 0;
+  background: none;
+  color: #6B7280;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 8px 0 4px;
+}
+.today-board-expand:hover {
+  color: #DB1860;
+}
+.today-board-expand-chevron {
+  display: inline-block;
+  font-size: 12px;
+  transition: transform 0.15s ease;
+}
+.today-board-expand-chevron.is-up {
+  transform: rotate(180deg);
+}
+.today-board .task-empty {
+  padding: 24px 8px;
+}

@@ -5,6 +5,18 @@ export type MailDigestSource = "codex_memory" | "luna" | "body_analysis" | "anal
 export type MailDirection = "inbound" | "outbound";
 export type MailDataSource = "api" | "fallback";
 
+/** One mailbox binding chip on GET /api/mail/box (extended shape). Brand/region stay bound to the mailbox chip only. */
+export type MailBoxBinding = {
+  mailbox: string;
+  label?: string;
+  brand?: string;
+  region?: string;
+  unread: number;
+  bound: boolean;
+  synced_at: string | null;
+  error: string | null;
+};
+
 /** GET /api/mail/box — MailBoxStatus + memory envelope. owner_name is display-only decorate. */
 export type MailBox = {
   mailbox: string;
@@ -16,6 +28,8 @@ export type MailBox = {
   cursor_at?: string | null;
   cursor_id?: string | null;
   owner_name?: string;
+  bindings?: MailBoxBinding[];
+  total_unread?: number;
 };
 
 /** GET /api/mail/conversations[] — ConversationRow */
@@ -32,6 +46,7 @@ export type MailConversation = {
   last_direction: MailDirection | "";
   last_preview: string;
   unread_count: number;
+  starred?: boolean;
   last_receipt?: string;
   digest_source: MailDigestSource | "";
   digest_text?: string;
@@ -54,6 +69,8 @@ export type MailMessage = {
   summary_source: MailDigestSource | "body_digest" | "";
   receipt_status?: string;
   effective?: boolean;
+  translation_zh?: string;
+  translation_source?: string;
 };
 
 export type MailDigest = {

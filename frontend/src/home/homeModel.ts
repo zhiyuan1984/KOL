@@ -183,7 +183,7 @@ export function isClosedTask(task: Task) {
 
 export function isPlanningTask(task: Task) {
   const type = String(task.task_type || task.skill || "");
-  return type === "today_plan" || type === "today_analyze" || task.source === "planning";
+  return type === "today_plan" || type === "today_analyze" || type === "todo_plan" || task.source === "planning";
 }
 
 export function isInsightTask(task: Task) {
@@ -381,6 +381,22 @@ export function briefPrimaryLabel(primary?: TodayBriefPrimary | null): string {
   }
   if (BANNED_BRIEF_PRIMARY.test(raw) || BANNED_BRIEF_PRIMARY.test(verb)) return "打开";
   return raw || "打开";
+}
+
+/** Primary action label shown on task rows across Today and Todo panes. */
+export function taskActionLabel(task: Task): string {
+  const label = String(task.display_label || "").trim();
+  if (label) return label;
+  const verb = String(task.display_verb || task.next_action_code || "open").trim();
+  if (verb === "approve") return "去审批";
+  if (verb === "edit") return "编辑";
+  if (verb === "open-mail") return "查看邮件任务";
+  return "打开";
+}
+
+/** Display-only rows (e.g. Codex projections) cannot be edited. */
+export function isDisplayOnlyTask(task: Task): boolean {
+  return task.id.startsWith("display:");
 }
 
 /** Memory rows for My Todo. Layout is optional; never wait on today_brief. */

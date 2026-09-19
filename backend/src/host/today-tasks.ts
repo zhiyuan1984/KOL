@@ -1,7 +1,13 @@
 import { getConn, nowIso, tx } from "../db.js";
 import { nid } from "../ids.js";
-import { TASK_RESULT_MEMORY, type TodayTaskResultRow, type TodayTaskResults } from "./memory-kinds.js";
+import {
+  TASK_RESULT_MEMORY,
+  TODO_TASK_RESULT_MEMORY,
+  type TodayTaskResultRow,
+  type TodayTaskResults,
+} from "./memory-kinds.js";
 import { listMemories } from "./employee-memory.js";
+import { briefPointerTable, type PlanScope } from "./today-plan-context.js";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -9,9 +15,9 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function ensureResultArtifactColumn(): void {
+function ensureResultArtifactColumn(scope: PlanScope): void {
   try {
-    getConn().exec("ALTER TABLE employee_today_briefs ADD COLUMN result_artifact_id TEXT");
+    getConn().exec(`ALTER TABLE ${briefPointerTable(scope)} ADD COLUMN result_artifact_id TEXT`);
   } catch {
     /* column may already exist */
   }
@@ -50,8 +56,12 @@ export function parseTodayTaskResults(raw: unknown): TodayTaskResults | null {
   return { items, planned_at: typeof root.planned_at === "string" ? root.planned_at : undefined };
 }
 
-function itemsFromDisplayMemory(owner: string): TodayTaskResults | null {
-  const rows = listMemories({ owner, memory_kind: "task_display", limit: 200 });
+function itemsFromDisplayMemory(owner: string, scope: PlanScope): TodayTaskResults | null {
+  const rows = listMemories({
+    owner,
+    memory_kind: scope === "todo" ? "todo_display" : "task_display",
+    limit: 200,
+  });
   const items: TodayTaskResultRow[] = [];
   for (const [index, row] of rows.entries()) {
     const payload = asRecord(row.payload) || {};
@@ -78,12 +88,14 @@ export function writeTodayTaskResults(input: {
   workItemId: string;
   runId: string | null;
   results: TodayTaskResults | unknown;
+  scope?: PlanScope;
 }): { ok: true; artifact_id: string } | { ok: false; reason: string } {
+  const scope = input.scope ?? "today";
   const parsed = parseTodayTaskResults(input.results);
   if (!parsed) return { ok: false, reason: "Codex did not produce display task rows" };
   const now = nowIso();
   const artifactId = nid("art");
-  ensureResultArtifactColumn();
+  ensureResultArtifactColumn(scope);
   tx((db) => {
     db.prepare(
       `INSERT INTO task_artifacts
@@ -93,14 +105,18 @@ export function writeTodayTaskResults(input: {
       artifactId,
       input.workItemId,
       input.runId,
-      "today_tasks",
+      scope === "todo" ? "todo_tasks" : "today_tasks",
       null,
       1,
-      JSON.stringify({ memory_kind: TASK_RESULT_MEMORY, items: parsed.items, planned_at: now }),
+      JSON.stringify({
+        memory_kind: scope === "todo" ? TODO_TASK_RESULT_MEMORY : TASK_RESULT_MEMORY,
+        items: parsed.items,
+        planned_at: now,
+      }),
       now,
     );
     db.prepare(
-      `UPDATE employee_today_briefs
+      `UPDATE ${briefPointerTable(scope)}
           SET result_artifact_id=?, updated_at=?
         WHERE owner_user_id=?`,
     ).run(artifactId, now, input.owner);
@@ -128,15 +144,15 @@ function dropClosedItems(results: TodayTaskResults | null): TodayTaskResults | n
   return { ...results, items };
 }
 
-export function loadTodayTaskResults(owner: string): TodayTaskResults | null {
-  ensureResultArtifactColumn();
+export function loadTodayTaskResults(owner: string, scope: PlanScope = "today"): TodayTaskResults | null {
+  ensureResultArtifactColumn(scope);
   let pointer: { result_artifact_id?: string } | undefined;
   try {
     pointer = getConn().prepare(
-      "SELECT result_artifact_id FROM employee_today_briefs WHERE owner_user_id=?",
+      `SELECT result_artifact_id FROM ${briefPointerTable(scope)} WHERE owner_user_id=?`,
     ).get(owner) as { result_artifact_id?: string } | undefined;
   } catch {
-    return dropClosedItems(itemsFromDisplayMemory(owner));
+    return dropClosedItems(itemsFromDisplayMemory(owner, scope));
   }
   if (pointer?.result_artifact_id) {
     const row = getConn().prepare("SELECT payload FROM task_artifacts WHERE id=?").get(pointer.result_artifact_id) as
@@ -151,5 +167,5 @@ export function loadTodayTaskResults(owner: string): TodayTaskResults | null {
       }
     }
   }
-  return dropClosedItems(itemsFromDisplayMemory(owner));
+  return dropClosedItems(itemsFromDisplayMemory(owner, scope));
 }

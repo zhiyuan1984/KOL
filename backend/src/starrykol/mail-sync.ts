@@ -13,7 +13,8 @@ import {
   updateBindingSyncCursor,
   type SyncReceipt,
 } from "../host/mail-memory.js";
-import { letterSummaryRecord, threadDigestOf, type ThreadDigest } from "../host/mail-summary.js";
+import { letterSummaryRecord, remoteMailAnalysisEnabled, threadDigestOf, type ThreadDigest } from "../host/mail-summary.js";
+import { translateMailBodyZh } from "./translate-zh.js";
 import { boundMailboxEmail, currentFollowScope, matchesFollowedMailbox, safeEmployeeId } from "../host/starry-bind.js";
 import { inboundIdentity, mailAlreadySeen } from "../host/inbound-identity.js";
 import { nid } from "../ids.js";
@@ -63,6 +64,7 @@ const MAIL_STATE_KEY = "starry_followed_mail_sync";
 const CACHE_MS = 8_000;
 const inflight = new Map<string, Promise<FollowedMailSync>>();
 const lastStarted = new Map<string, number>();
+let backgroundSyncTask: Promise<void> | null = null;
 
 onConnReset(() => {
   inflight.clear();
@@ -77,6 +79,10 @@ function mailboxSyncKey(): string {
 export function resetFollowedMailSync(): void {
   inflight.clear();
   lastStarted.clear();
+}
+
+export function waitForBackgroundSync(): Promise<void> {
+  return backgroundSyncTask || Promise.resolve();
 }
 
 export function startFollowedMailSync(force = false): Promise<FollowedMailSync> {
@@ -392,6 +398,37 @@ export async function readConversation(conversationId: string): Promise<{ messag
   }
 }
 
+/** Fill translation_zh for items with bodies; marks 'pending' when no LLM backend is available. */
+export async function ensureThreadItemTranslations(threadId: string): Promise<void> {
+  const pending = getConn().prepare(
+    `SELECT id, body_text FROM kol_mail_items
+     WHERE thread_id=? AND translation_zh IS NULL AND IFNULL(body_text,'') != ''`,
+  ).all(threadId) as { id: string; body_text: string }[];
+  if (!pending.length) return;
+  if (!remoteMailAnalysisEnabled()) {
+    getConn().prepare(
+      `UPDATE kol_mail_items SET translation_source='pending'
+       WHERE thread_id=? AND translation_zh IS NULL AND IFNULL(body_text,'') != ''`,
+    ).run(threadId);
+    return;
+  }
+  for (const row of pending) {
+    try {
+      const translated = await translateMailBodyZh(row.body_text);
+      if (translated) {
+        getConn().prepare("UPDATE kol_mail_items SET translation_zh=?, translation_source=? WHERE id=?")
+          .run(translated.text, translated.source, row.id);
+      } else {
+        getConn().prepare("UPDATE kol_mail_items SET translation_source='pending' WHERE id=? AND translation_zh IS NULL")
+          .run(row.id);
+      }
+    } catch {
+      getConn().prepare("UPDATE kol_mail_items SET translation_source='pending' WHERE id=? AND translation_zh IS NULL")
+        .run(row.id);
+    }
+  }
+}
+
 /** Fetch a thread body once on demand, then serve subsequent opens from local memory. */
 export async function hydrateMailThread(thread: Row): Promise<number> {
   const conversationId = String(thread.conversation_id || "");
@@ -431,7 +468,44 @@ export async function hydrateMailThread(thread: Row): Promise<number> {
     thread.id,
   );
   refreshThreadDigest(String(thread.id), conversationId, mailbox);
+  await ensureThreadItemTranslations(String(thread.id));
   return inserted;
+}
+
+async function hydrateConversationById(conversationId: string, mailbox: string): Promise<number> {
+  const thread = getConn().prepare(
+    "SELECT * FROM kol_mail_threads WHERE conversation_id=? AND lower(mailbox)=lower(?) LIMIT 1",
+  ).get(conversationId, mailbox) as Row | undefined;
+  if (!thread) return 0;
+  return hydrateMailThread(thread);
+}
+
+async function syncRemainingConversations(remaining: Json[], mailbox: string): Promise<void> {
+  for (let i = 0; i < remaining.length; i += 5) {
+    const batch = remaining.slice(i, i + 5);
+    await mapLimited(batch, 5, async (conv) => {
+      const conversationId = conversationIdOf(conv);
+      if (!conversationId) return;
+      await hydrateConversationById(conversationId, mailbox);
+    });
+  }
+}
+
+function scheduleBackgroundSync(remaining: Json[], mailbox: string): Promise<void> {
+  if (backgroundSyncTask) return backgroundSyncTask;
+  backgroundSyncTask = (async () => {
+    try {
+      await syncRemainingConversations(remaining, mailbox);
+    } catch (error) {
+      audit("host", "starrykol.followed_mail_sync_background_failed", {
+        error: error instanceof Error ? error.message : String(error),
+        mailbox,
+      });
+    } finally {
+      backgroundSyncTask = null;
+    }
+  })();
+  return backgroundSyncTask;
 }
 
 function timestampMs(value: unknown): number {
@@ -546,8 +620,11 @@ export async function syncFollowedKolMail(): Promise<FollowedMailSync> {
       return !existing
         || (Number.isFinite(unread) && unread > 0)
         || (timestampMs(remoteAt) > rememberedAt);
-    }).slice(0, 30);
-    const detailRows = await mapLimited(detailCandidates, 5, async (conv) => ({
+    });
+    const immediateCandidates = detailCandidates.slice(0, 5);
+    const remainingCandidates = detailCandidates.slice(5);
+    console.log(`detailCandidates=${detailCandidates.length} immediate=${immediateCandidates.length} remaining=${remainingCandidates.length}`);
+    const detailRows = await mapLimited(immediateCandidates, 5, async (conv) => ({
       conversationId: conversationIdOf(conv),
       detail: await readConversation(conversationIdOf(conv)),
     }));
@@ -661,6 +738,7 @@ export async function syncFollowedKolMail(): Promise<FollowedMailSync> {
       tool: "pageEmailConversations",
     });
     audit("host", "starrykol.followed_mail_sync", result);
+    scheduleBackgroundSync(remainingCandidates, mailbox);
     return result;
   } catch (error) {
     const result: FollowedMailSync = {

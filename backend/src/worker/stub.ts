@@ -62,7 +62,7 @@ function writeBox(wid: string, skill: string, prompt: string, extra: Json): stri
   const box = path.join(boxDir(), wid);
   fs.mkdirSync(box, { recursive: true });
   writeSkillIntoBox(box, skill);
-  const planning = extra.mode === "today_plan" || extra.mode === "today_analyze" || extra.skip_user_memory === true;
+  const planning = extra.mode === "today_plan" || extra.mode === "today_analyze" || extra.mode === "todo_plan" || extra.skip_user_memory === true;
   const planningMount = planning ? planningHarnessMount(skill) : null;
   fs.writeFileSync(
     path.join(box, "CONTEXT.md"),
@@ -311,8 +311,9 @@ function stubExpenseItem(extra: Json): Json {
 }
 
 function stubTodayBrief(extra: Json): Json {
-  const pack = extra.today_plan_context && typeof extra.today_plan_context === "object"
-    ? extra.today_plan_context as Json
+  const packSource = extra.today_plan_context || extra.todo_plan_context;
+  const pack = packSource && typeof packSource === "object"
+    ? packSource as Json
     : {};
   const history = pack.history && typeof pack.history === "object" ? pack.history as Json : {};
   const delta = pack.delta && typeof pack.delta === "object" ? pack.delta as Json : extra.delta && typeof extra.delta === "object" ? extra.delta as Json : {};
@@ -395,8 +396,8 @@ async function produceItems(
 ): Promise<Json[]> {
   const handle = extra.handle as string | undefined;
   const col = handle ? collab(log, handle) : {};
-  if (skill === "today_plan") {
-    log.push({ method: "planning_harness", params: planningHarnessMount("today_plan") });
+  if (skill === "today_plan" || skill === "todo_plan") {
+    log.push({ method: "planning_harness", params: planningHarnessMount(skill) });
     return [stubTodayBrief(extra)];
   }
   if (skill === "today_analyze") {
@@ -529,7 +530,7 @@ export async function runStub(
   const skillsRoot = runtimeSkillsRoot();
   log.push({ method: "skills/extraRoots/set", params: { extraRoots: [skillsRoot] } });
   log.push({ method: "skills/config/write", params: { path: skillPath, enabled: true } });
-  const planning = extra.mode === "today_plan" || extra.mode === "today_analyze" || extra.skip_user_memory === true;
+  const planning = extra.mode === "today_plan" || extra.mode === "today_analyze" || extra.mode === "todo_plan" || extra.skip_user_memory === true;
   const mcpNames = planning ? planningHarnessMount(skill).tools : ["starry", "claw"];
   log.push({ method: "mcp_servers", params: { names: mcpNames } });
   log.push({ method: "thread/start", params: { resume: false, mcp: mcpNames } });

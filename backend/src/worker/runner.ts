@@ -466,7 +466,7 @@ function writeBox(wid: string, definition: TaskDefinition, prompt: string, extra
   const box = path.join(boxDir(), wid);
   fs.mkdirSync(box, { recursive: true });
   writeSkillIntoBox(box, skill);
-  const planning = extra.mode === "today_plan" || extra.mode === "today_analyze" || extra.skip_user_memory === true;
+  const planning = extra.mode === "today_plan" || extra.mode === "today_analyze" || extra.mode === "todo_plan" || extra.skip_user_memory === true;
   const planningMount = planning ? planningHarnessMount(skill) : null;
   const mcpAllow = planningMount ? planningMount.tools : definition.mcp;
   const profile = profileFor(skill, col?.stage_code as string | undefined);
@@ -530,9 +530,10 @@ function writeBox(wid: string, definition: TaskDefinition, prompt: string, extra
       ).join("\n\n").slice(0, 8000);
     }
   }
-  const hostPack = planning && extra.today_plan_context
+  const hostPackSource = extra.today_plan_context || extra.todo_plan_context;
+  const hostPack = planning && hostPackSource
     ? "\n## HOST PACK (history + source delta; this is the only business memory)\n\n```json\n" +
-      JSON.stringify(extra.today_plan_context, null, 2) +
+      JSON.stringify(hostPackSource, null, 2) +
       "\n```\n"
     : "";
   fs.writeFileSync(
@@ -687,7 +688,7 @@ export async function runCodex(
     const threadRef = sessionThread(sessionId);
     const cwd = path.resolve(box);
     const hasEmbeddedCreator = skill === "kol" && extra.creator && typeof extra.creator === "object";
-    const planning = extra.mode === "today_plan" || extra.mode === "today_analyze" || extra.skip_user_memory === true;
+    const planning = extra.mode === "today_plan" || extra.mode === "today_analyze" || extra.mode === "todo_plan" || extra.skip_user_memory === true;
     const mcpServers = hasEmbeddedCreator
       ? {}
       : mcpServerSpecs(planning ? planningHarnessMount(skill).tools : definition.mcp);
@@ -744,7 +745,7 @@ export async function runCodex(
       approvalPolicy: "never",
       sandboxPolicy: sandboxPolicyForSkill(skill, cwd),
       ...(skill === "business_approval" ? { config: { web_search: "live" } } : {}),
-      summary: extra.mode === "today_plan" ? "detailed" : "concise",
+      summary: extra.mode === "today_plan" || extra.mode === "todo_plan" ? "detailed" : "concise",
     };
     const tier = String(extra.model_tier || "balanced");
     turnParams.effort = tier === "fast" ? "low" : tier === "quality" ? "high" : "medium";

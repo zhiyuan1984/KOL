@@ -899,6 +899,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+  todoBrief: () =>
+    request<TodayBriefResponse>("/api/home/todo-brief"),
+  planTodo: () =>
+    request<TodayPlanResult>("/api/home/todo-brief/plan", {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
   enqueueTodayAnalyze: (body: Record<string, unknown> = {}) =>
     request<TodayPlanResult>("/api/home/today-brief/enqueue", {
       method: "POST",
@@ -1445,4 +1452,18 @@ export const api = {
       cursor_at?: string;
       error?: string;
     }>("/api/mail/sync", { method: "POST", body: JSON.stringify(body) }),
+  /** Optional endpoint: resolves null on 404/405 so callers can ignore silently. */
+  markMailConversationRead: (id: string) =>
+    request<{ ok?: boolean } | null>(`/api/mail/conversations/${encodeURIComponent(id)}/read`, {
+      method: "POST",
+      body: "{}",
+      optional: true,
+    }).catch(() => null),
+  /** Optional endpoint: resolves null on 404/405; callers fall back to local state. */
+  updateMailConversation: (id: string, fields: { starred?: boolean }) =>
+    request<Record<string, unknown> | null>(`/api/mail/conversations/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(fields),
+      optional: true,
+    }).catch(() => null),
 };

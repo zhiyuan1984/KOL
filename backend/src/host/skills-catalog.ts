@@ -33,6 +33,7 @@ const FUNNEL_BY_ID: Record<string, FunnelId> = {
   creator_daily_tasks: "reach",
   today_plan: "reach",
   today_analyze: "reach",
+  todo_plan: "reach",
   confirm_stage: "intent",
   stage_sop: "intent",
   reply_analysis: "intent",

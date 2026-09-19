@@ -2,7 +2,10 @@ import { getConn, nowIso, tx } from "../db.js";
 import { nid } from "../ids.js";
 import type { Json } from "../types.js";
 import { persistTodayDisplayFromBrief } from "./persist-today-display.js";
-import { loadLatestTodayBrief } from "./today-plan-context.js";
+import { briefPointerTable, loadLatestTodayBrief, planTaskType, type PlanScope } from "./today-plan-context.js";
+
+export { briefPointerTable, planTaskType };
+export type { PlanScope };
 
 export const BANNED_PRIMARY_COPY = /处理|待补阶段/;
 export const BATCH_FORBIDDEN_VERBS = new Set(["follow"]);
@@ -158,11 +161,12 @@ export function validateTodayBrief(value: unknown): TodayBriefValidation {
   return { ok: true, brief };
 }
 
-export function upsertTodayBriefPointer(owner: string, artifactId: string, workItemId: string): void {
+export function upsertTodayBriefPointer(owner: string, artifactId: string, workItemId: string, scope: PlanScope = "today"): void {
   const now = nowIso();
+  const table = briefPointerTable(scope);
   tx((db) => {
     db.prepare(
-      `INSERT INTO employee_today_briefs (owner_user_id, artifact_id, work_item_id, updated_at)
+      `INSERT INTO ${table} (owner_user_id, artifact_id, work_item_id, updated_at)
        VALUES (?,?,?,?)
        ON CONFLICT(owner_user_id) DO UPDATE SET
          artifact_id=excluded.artifact_id,
@@ -177,10 +181,12 @@ export function writeTodayBriefArtifact(input: {
   workItemId: string;
   runId: string | null;
   brief: unknown;
+  scope?: PlanScope;
 }): { ok: true; artifact_id: string; brief: Json } | { ok: false; reason: string; kept_artifact_id: string | null } {
+  const scope = input.scope ?? "today";
   const checked = validateTodayBrief(input.brief);
   if (!checked.ok) {
-    const previous = loadLatestTodayBrief(input.owner);
+    const previous = loadLatestTodayBrief(input.owner, scope);
     return { ok: false, reason: checked.reason, kept_artifact_id: previous.artifact_id };
   }
   const now = nowIso();
@@ -201,15 +207,16 @@ export function writeTodayBriefArtifact(input: {
       now,
     );
   });
-  upsertTodayBriefPointer(input.owner, artifactId, input.workItemId);
+  upsertTodayBriefPointer(input.owner, artifactId, input.workItemId, scope);
   const display = persistTodayDisplayFromBrief({
     owner: input.owner,
     workItemId: input.workItemId,
     runId: input.runId,
     brief: checked.brief,
+    scope,
   });
   if (!display.ok) {
-    const previous = loadLatestTodayBrief(input.owner);
+    const previous = loadLatestTodayBrief(input.owner, scope);
     return { ok: false, reason: display.reason, kept_artifact_id: previous.artifact_id };
   }
   return { ok: true, artifact_id: artifactId, brief: checked.brief };
@@ -243,7 +250,7 @@ export function markTodayPlanCompleted(workItemId: string, runId: string | null)
   });
 }
 
-export function runningTodayPlan(owner: string): {
+export function runningTodayPlan(owner: string, scope: PlanScope = "today"): {
   work_item_id: string;
   session_id: string | null;
   run_id: string | null;
@@ -253,11 +260,11 @@ export function runningTodayPlan(owner: string): {
     `SELECT w.id AS work_item_id, w.session_id, w.status, r.id AS run_id
        FROM work_items w
        LEFT JOIN task_runs r ON r.work_item_id = w.id
-      WHERE w.owner_user_id=? AND w.task_type='today_plan'
+      WHERE w.owner_user_id=? AND w.task_type=?
         AND w.status IN ('pending','queued','running','in_progress','starting')
       ORDER BY w.updated_at DESC, r.created_at DESC
       LIMIT 1`,
-  ).get(owner) as {
+  ).get(owner, planTaskType(scope)) as {
     work_item_id: string;
     session_id: string | null;
     status: string;

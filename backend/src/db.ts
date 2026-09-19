@@ -746,9 +746,21 @@ function initSchema(db: SqliteConn): void {
             FOREIGN KEY(artifact_id) REFERENCES task_artifacts(id) ON DELETE CASCADE,
             FOREIGN KEY(work_item_id) REFERENCES work_items(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS employee_todo_briefs (
+            owner_user_id TEXT PRIMARY KEY,
+            artifact_id TEXT NOT NULL,
+            work_item_id TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(artifact_id) REFERENCES task_artifacts(id) ON DELETE CASCADE,
+            FOREIGN KEY(work_item_id) REFERENCES work_items(id) ON DELETE CASCADE
+        );
         CREATE UNIQUE INDEX IF NOT EXISTS one_running_today_plan
             ON work_items(owner_user_id)
             WHERE task_type='today_plan'
+              AND status IN ('pending','queued','running','in_progress','starting');
+        CREATE UNIQUE INDEX IF NOT EXISTS one_running_todo_plan
+            ON work_items(owner_user_id)
+            WHERE task_type='todo_plan'
               AND status IN ('pending','queued','running','in_progress','starting');
         DROP INDEX IF EXISTS crawl_jobs_one_active;
         CREATE UNIQUE INDEX crawl_jobs_one_active
@@ -1009,7 +1021,8 @@ function rebuildKolMailThreads(db: SqliteConn): void {
       digest_fingerprint TEXT,
       digest_error TEXT,
       digest_failed_at TEXT,
-      digest_mail_count INTEGER
+      digest_mail_count INTEGER,
+      starred INTEGER NOT NULL DEFAULT 0
     );
   `);
   const have = cols(db, "kol_mail_threads");
@@ -1038,6 +1051,7 @@ function rebuildKolMailThreads(db: SqliteConn): void {
     have.has("digest_error") ? "digest_error" : "NULL",
     have.has("digest_failed_at") ? "digest_failed_at" : "NULL",
     have.has("digest_mail_count") ? "digest_mail_count" : "NULL",
+    have.has("starred") ? "starred" : "0",
   ].join(",");
   db.exec(`INSERT INTO kol_mail_threads_p0 SELECT ${select} FROM kol_mail_threads`);
   db.exec("DROP TABLE kol_mail_threads");
@@ -1067,7 +1081,9 @@ function rebuildKolMailItems(db: SqliteConn): void {
       summary_source TEXT,
       receipt_status TEXT,
       receipt_at TEXT,
-      effective INTEGER
+      effective INTEGER,
+      translation_zh TEXT,
+      translation_source TEXT
     );
   `);
   const have = cols(db, "kol_mail_items");
@@ -1093,6 +1109,8 @@ function rebuildKolMailItems(db: SqliteConn): void {
     have.has("receipt_status") ? "receipt_status" : "NULL",
     have.has("receipt_at") ? "receipt_at" : "NULL",
     have.has("effective") ? "effective" : "NULL",
+    have.has("translation_zh") ? "translation_zh" : "NULL",
+    have.has("translation_source") ? "translation_source" : "NULL",
   ].join(",");
   db.exec(`INSERT INTO kol_mail_items_p0 SELECT ${select} FROM kol_mail_items`);
   db.exec("DROP TABLE kol_mail_items");
@@ -1277,6 +1295,7 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "kol_mail_threads", "digest_error", "TEXT");
   add(db, "kol_mail_threads", "digest_failed_at", "TEXT");
   add(db, "kol_mail_threads", "digest_mail_count", "INTEGER");
+  add(db, "kol_mail_threads", "starred", "INTEGER NOT NULL DEFAULT 0");
   db.exec("DROP INDEX IF EXISTS kol_mail_threads_key");
   db.exec("DROP INDEX IF EXISTS kol_mail_threads_conv");
   if (columnNotNull(db, "kol_mail_threads", "collaboration_id") || /collaboration_id TEXT NOT NULL/i.test(tableSql(db, "kol_mail_threads"))) {
@@ -1340,6 +1359,8 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "kol_mail_items", "receipt_status", "TEXT");
   add(db, "kol_mail_items", "receipt_at", "TEXT");
   add(db, "kol_mail_items", "effective", "INTEGER");
+  add(db, "kol_mail_items", "translation_zh", "TEXT");
+  add(db, "kol_mail_items", "translation_source", "TEXT");
   if (columnNotNull(db, "kol_mail_items", "collaboration_id") || /collaboration_id TEXT NOT NULL/i.test(tableSql(db, "kol_mail_items"))) {
     rebuildKolMailItems(db);
   }
@@ -1601,9 +1622,21 @@ function migrateSchema(db: SqliteConn): void {
             FOREIGN KEY(artifact_id) REFERENCES task_artifacts(id) ON DELETE CASCADE,
             FOREIGN KEY(work_item_id) REFERENCES work_items(id) ON DELETE CASCADE
         );
+        CREATE TABLE IF NOT EXISTS employee_todo_briefs (
+            owner_user_id TEXT PRIMARY KEY,
+            artifact_id TEXT NOT NULL,
+            work_item_id TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(artifact_id) REFERENCES task_artifacts(id) ON DELETE CASCADE,
+            FOREIGN KEY(work_item_id) REFERENCES work_items(id) ON DELETE CASCADE
+        );
         CREATE UNIQUE INDEX IF NOT EXISTS one_running_today_plan
             ON work_items(owner_user_id)
             WHERE task_type='today_plan'
+              AND status IN ('pending','queued','running','in_progress','starting');
+        CREATE UNIQUE INDEX IF NOT EXISTS one_running_todo_plan
+            ON work_items(owner_user_id)
+            WHERE task_type='todo_plan'
               AND status IN ('pending','queued','running','in_progress','starting');
   `);
   db.exec(`
