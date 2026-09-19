@@ -106,6 +106,13 @@ fi
 
 mkdir -p "$LINGONG_DATA/uploads" "$LINGONG_DATA/boxes" "$LINGONG_DATA/published-skills"
 
+# systemd 托管时禁止手动直启：start.sh 会先释放端口，手动实例与 lingong.service
+# 的 Restart=always 会互相 kill。手工操作一律走 systemctl restart lingong。
+if [ -z "${INVOCATION_ID:-}" ] && command -v systemctl >/dev/null 2>&1 \
+  && systemctl is-active --quiet lingong 2>/dev/null; then
+  die "灵工已由 systemd 托管（lingong.service 运行中）。请勿直跑 start.sh：端口释放逻辑会与服务互杀。请改用：sudo systemctl restart lingong"
+fi
+
 free_listen_port() {
   local port="$1"
   local pids=""
