@@ -108,6 +108,8 @@ OpenAI's interface operates as a typographic, editorial canvas — pure white su
 | inputs | 9999px |
 | buttons | 9999px |
 
+> 修订记录（2026-09-19）：经产品发起人确认，任务编辑类表单向「饱满柔和」质感演进——表单输入/多行文本改用 `--radius-sm: 10px` + 浅灰填充 `--control-bg: #f5f5f6`，对话框/卡片容器用 `--radius-md: 14px`，选择胶囊加高到 `--control-pill-height: 36px`。列表行、按钮、标签的 9999 胶囊体系不变。运行值以 [styles.css](../../../frontend/src/styles.css) 为准。
+
 ### Shadows
 
 | Name | Value | Token |

@@ -357,6 +357,10 @@ export default function EditTaskDialog({
 
           <Section title="负责人">
             <div className="edit-task-owner" data-edit-task-owner>
+              <svg className="edit-task-owner-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" strokeWidth="1.7" />
+                <path d="M4 20c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+              </svg>
               <span className="edit-task-owner-name">{ownerName}（默认本人）</span>
               <span className="edit-task-owner-hint">默认当前登录用户，无需手动选择</span>
             </div>
