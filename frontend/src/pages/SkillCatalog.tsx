@@ -397,9 +397,10 @@ export function SkillCatalog() {
     const used = skills
       .filter((s) => (usage[s.id] || 0) > 0)
       .sort((a, b) => (usage[b.id] || 0) - (usage[a.id] || 0));
-    // 如果没有使用记录，用推荐技能填充
-    if (used.length > 0) return used.slice(0, 4);
-    return skills.filter((s) => RECOMMENDED_IDS.includes(s.id)).slice(0, 4);
+    if (used.length >= 4) return used.slice(0, 4);
+    const recommended = skills.filter((s) => RECOMMENDED_IDS.includes(s.id));
+    const seen = new Set(used.map((s) => s.id));
+    return [...used, ...recommended.filter((s) => !seen.has(s.id))].slice(0, 4);
   }, [skills, usage]);
 
   const groupedSkills = useMemo(() => {
@@ -497,13 +498,11 @@ export function SkillCatalog() {
             <section className="skill-group skill-group-frequent">
               <div className="skill-group-header">
                 <span className="skill-group-icon skill-group-icon-star">★</span>
-                <h2>{usage[skills[0]?.id || ""] ? "常用技能" : "常用技能"}</h2>
-                <span className="skill-group-hint">
-                  {Object.keys(usage).length > 0 ? "你经常使用的技能，点击即可快速调用" : "推荐技能，点击即可快速调用"}
-                </span>
+                <h2>常用技能</h2>
+                <span className="skill-group-hint">你经常使用的技能，点击即可快速调用</span>
                 <Link to="/skills?tab=frequent" className="skill-group-more">查看全部</Link>
               </div>
-              <div className="skill-grid skill-grid-3">
+              <div className="skill-grid skill-grid-4">
                 {frequentSkills.map((s) => (
                   <SkillCard
                     key={s.id}
@@ -511,7 +510,7 @@ export function SkillCatalog() {
                     onSelect={(skill) => setSelectedSkill(skill)}
                     onUse={(skill) => void useSkill(skill)}
                     onNewSession={(skill) => void newSession(skill)}
-                    isFrequent={(usage[s.id] || 0) > 0}
+                    isFrequent={true}
                     selected={selectedSkill?.id === s.id}
                   />
                 ))}
