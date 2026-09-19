@@ -548,7 +548,7 @@ async function syncRemainingConversations(
       });
     }
 
-    if (conversations.length < pageSize) break;
+    if (!conversations.length) break;
     pageNo += 1;
     pagesProcessed += 1;
   }

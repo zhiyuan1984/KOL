@@ -24,9 +24,22 @@ function nextConversation() {
   };
 }
 
-function mockMcp(readMs: number, count: number) {
+function bindDemoUser(): void {
+  const now = new Date().toISOString();
+  getConn().prepare(
+    `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+  ).run("usr_sriphy", "sriphy", "鄢棽", "x", JSON.stringify(["employee", "admin"]), JSON.stringify(["LT", "RO", "PQ"]), "深圳站", 1, now, now);
+  getConn().prepare(
+    `INSERT INTO user_starry_bindings (user_id, mailbox_email, mailbox_id, owner_name, bearer_token, status, updated_at)
+     VALUES (?,?,?,?,?,?,?)
+     ON CONFLICT(user_id) DO UPDATE SET mailbox_email=excluded.mailbox_email, status=excluded.status, updated_at=excluded.updated_at`,
+  ).run("usr_sriphy", "larry.zhao@amperetime.com", "mbx_larry", "赵良玉", "", "connected", now);
+}
+
+function mockMcp(readMs: number, totalCount: number, pageSize = 10) {
   conversationId = 1000;
-  const conversations = Array.from({ length: count }, nextConversation);
+  const allConversations = Array.from({ length: totalCount }, nextConversation);
   const counters = { getEmailConversation: 0 };
   return {
     counters,
@@ -34,10 +47,10 @@ function mockMcp(readMs: number, count: number) {
       await new Promise((resolve) => setTimeout(resolve, readMs));
       if (name === "pageEmailConversations") {
         const pageNo = Number(args.pageNo ?? 1);
-        const pageSize = Number(args.pageSize ?? 50);
-        const start = (pageNo - 1) * pageSize;
-        const pageConversations = conversations.slice(start, start + pageSize);
-        return { data: { pageNo, pageSize, total: count, list: pageConversations } };
+        const ps = Math.min(Number(args.pageSize ?? pageSize), pageSize);
+        const start = (pageNo - 1) * ps;
+        const list = allConversations.slice(start, start + ps);
+        return { data: { pageNo, pageSize: ps, total: totalCount, list } };
       }
       if (name === "getEmailConversation") {
         counters.getEmailConversation += 1;
@@ -77,6 +90,7 @@ describe("mail sync performance", () => {
     process.env.LG_DATA_DIR = tmp;
     resetConn();
     seedAll();
+    bindDemoUser();
   });
 
   afterEach(async () => {
@@ -86,12 +100,12 @@ describe("mail sync performance", () => {
   });
 
   it.each([
-    { remoteCount: 30, syncCount: 30, readMs: 200, expectedMaxMs: 3000 },
-    { remoteCount: 30, syncCount: 30, readMs: 1000, expectedMaxMs: 10000 },
+    { remoteCount: 30, syncCount: 30, readMs: 200, expectedMaxMs: 3000, pageSize: 30 },
+    { remoteCount: 30, syncCount: 30, readMs: 1000, expectedMaxMs: 10000, pageSize: 30 },
     { remoteCount: 10, syncCount: 10, readMs: 1000, expectedMaxMs: 4000 },
-    { remoteCount: 30, syncCount: 5, readMs: 1000, expectedMaxMs: 3000 },
-  ])("syncs $remoteCount remote conversations with $syncCount local syncs and $readMs ms remote read", async ({ remoteCount, syncCount, readMs, expectedMaxMs }) => {
-    setEmailMcpClientFactory(() => mockMcp(readMs, remoteCount));
+    { remoteCount: 30, syncCount: 5, readMs: 1000, expectedMaxMs: 3000, pageSize: 30 },
+  ])("syncs $remoteCount remote conversations with $syncCount local syncs and $readMs ms remote read", async ({ remoteCount, syncCount, readMs, expectedMaxMs, pageSize }) => {
+    setEmailMcpClientFactory(() => mockMcp(readMs, remoteCount, pageSize));
     const start = Date.now();
     const result = await syncFollowedKolMail();
     const elapsed = Date.now() - start;
@@ -109,5 +123,39 @@ describe("mail sync performance", () => {
     expect(mcp.counters.getEmailConversation).toBe(12);
     const items = getConn().prepare("SELECT COUNT(*) as c FROM kol_mail_items").get() as { c: number };
     expect(items.c).toBeGreaterThanOrEqual(12);
+  });
+
+  it("hydrates conversations across multiple pages in the background", async () => {
+    const mcp = mockMcp(50, 30, 10); // 3 pages of 10
+    setEmailMcpClientFactory(() => mcp);
+    const start = Date.now();
+    const result = await syncFollowedKolMail();
+    const elapsed = Date.now() - start;
+    expect(result.conversations).toBe(10); // first page list length
+    expect(elapsed).toBeLessThan(1000);    // foreground only
+    expect(mcp.counters.getEmailConversation).toBe(5);
+
+    await waitForBackgroundSync();
+    expect(mcp.counters.getEmailConversation).toBe(30);
+
+    const items = getConn().prepare("SELECT COUNT(*) as c FROM kol_mail_items").get() as { c: number };
+    expect(items.c).toBeGreaterThanOrEqual(30);
+
+    const pageNo = getConn().prepare("SELECT sync_page_no FROM user_starry_bindings LIMIT 1").get() as { sync_page_no: number };
+    expect(pageNo.sync_page_no).toBe(1);
+  });
+
+  it("resumes background sync from the last page pointer", async () => {
+    const mcp = mockMcp(50, 30, 10);
+    setEmailMcpClientFactory(() => mcp);
+    // Simulate an interrupted previous run stopped at page 2
+    getConn().prepare("UPDATE user_starry_bindings SET sync_page_no=?").run(2);
+
+    await syncFollowedKolMail();
+    expect(mcp.counters.getEmailConversation).toBe(5); // page 2 first 5
+
+    await waitForBackgroundSync();
+    // page 2 remainder (5) + page 3 (10)
+    expect(mcp.counters.getEmailConversation).toBe(20);
   });
 });
