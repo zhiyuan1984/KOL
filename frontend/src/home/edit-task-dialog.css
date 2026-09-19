@@ -65,15 +65,6 @@
   padding-top: var(--space-4);
   border-top: 1px solid var(--border);
 }
-.edit-task-section-title {
-  margin: 0;
-  font-size: var(--font-body);
-  font-weight: 650;
-  color: var(--text);
-  padding-left: 8px;
-  border-left: 3px solid var(--primary, #C73B7A);
-  line-height: 1.2;
-}
 .edit-task-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -171,21 +162,6 @@
   resize: vertical;
   line-height: var(--leading-body);
 }
-.edit-task-owner {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 8px 10px;
-  background: var(--bg-subtle, rgba(0, 0, 0, 0.02));
-}
-.edit-task-owner-name {
-  font-size: var(--font-body);
-  color: var(--text);
-  font-weight: 600;
-}
 .edit-task-error {
   margin: 0;
   color: var(--danger);
@@ -207,10 +183,13 @@
 .edit-task-actions .btn.work {
   min-width: 120px;
 }
-.edit-task-owner-icon {
-  width: 18px;
-  height: 18px;
-  flex: 0 0 auto;
-  color: var(--text-muted);
-  align-self: center;
+
+.edit-task-attrs {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: var(--space-4);
+  align-items: start;
+}
+.edit-task-attrs .edit-task-radio {
+  padding: 0 12px;
 }

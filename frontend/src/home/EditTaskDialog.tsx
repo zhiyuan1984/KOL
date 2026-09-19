@@ -1,7 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, type Task } from "../api";
-import { useAccount } from "../components/AuthGate";
 import { taskValue } from "./homeModel";
 import { waitStatusLabel } from "../waitStatus";
 import "./edit-task-dialog.css";
@@ -49,6 +48,11 @@ function dateInputValue(value?: string | null): string {
   return match ? match[1] : "";
 }
 
+function todayLocal(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function initialStatusCode(task: Task): string {
   const display = String(task.display_status || "").trim();
   if (display === "overdue" || display === "due_soon") return display;
@@ -77,8 +81,7 @@ function initialRisk(task: Task): string {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="edit-task-section">
-      <h3 className="edit-task-section-title">{title}</h3>
+    <section className="edit-task-section" data-section={title}>
       {children}
     </section>
   );
@@ -98,18 +101,23 @@ export default function EditTaskDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const firstFieldRef = useRef<HTMLInputElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
-  const { account } = useAccount();
-  const ownerName = String(account?.name || account?.handle || "当前用户");
 
   const initial = useMemo(() => ({
     title: String(task?.title || ""),
-    content: String(task?.content ?? task?.description ?? ""),
+    content: String(
+      task?.content
+      ?? ((task?.input as { prompt?: unknown } | undefined)?.prompt ?? task?.description)
+      ?? "",
+    ),
     status: task ? initialStatusCode(task) : "pending",
     priority: task ? initialPriority(task) : "normal",
     risk_level: task ? initialRisk(task) : "none",
     start_date: dateInputValue(task?.start_date),
     due_at: dateInputValue(task?.due_at),
   }), [task]);
+
+  const [startTouched, setStartTouched] = useState(false);
+  const [dueTouched, setDueTouched] = useState(false);
 
   const [title, setTitle] = useState(initial.title);
   const [content, setContent] = useState(initial.content);
@@ -129,6 +137,8 @@ export default function EditTaskDialog({
     setRiskLevel(initial.risk_level);
     setStartDate(initial.start_date);
     setDueAt(initial.due_at);
+    setStartTouched(false);
+    setDueTouched(false);
     setBusy(false);
     setError("");
   }, [initial]);
@@ -192,8 +202,8 @@ export default function EditTaskDialog({
   if (status !== initial.status && SELECTABLE_STATUS.has(status)) fields.status = status;
   if (priority !== initial.priority) fields.priority = priority;
   if (riskLevel !== initial.risk_level) fields.risk_level = riskLevel;
-  if (startDate !== initial.start_date) fields.start_date = startDate || null;
-  if (dueAt !== initial.due_at) fields.due_at = dueAt || null;
+  if (startTouched && startDate !== initial.start_date) fields.start_date = startDate || null;
+  if (dueTouched && dueAt !== initial.due_at) fields.due_at = dueAt || null;
   const formDirty = Object.keys(fields).length > 0;
 
   const fail = (cause: unknown) => {
@@ -288,6 +298,7 @@ export default function EditTaskDialog({
           </Section>
 
           <Section title="任务属性">
+            <div className="edit-task-attrs">
             <RadioBlock
               legend="状态"
               required
@@ -312,6 +323,7 @@ export default function EditTaskDialog({
               options={RISK_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
               onChange={setRiskLevel}
             />
+            </div>
           </Section>
 
           <Section title="时间安排">
@@ -323,9 +335,12 @@ export default function EditTaskDialog({
                 <input
                   id="edit-task-start"
                   type="date"
-                  value={startDate}
+                  value={startDate || todayLocal()}
                   disabled={busy}
-                  onChange={(event) => setStartDate(event.target.value)}
+                  onChange={(event) => {
+                    setStartTouched(true);
+                    setStartDate(event.target.value);
+                  }}
                 />
               </div>
               <div className="edit-task-field">
@@ -335,23 +350,17 @@ export default function EditTaskDialog({
                 <input
                   id="edit-task-due"
                   type="date"
-                  value={dueAt}
+                  value={dueAt || todayLocal()}
                   disabled={busy}
-                  onChange={(event) => setDueAt(event.target.value)}
+                  onChange={(event) => {
+                    setDueTouched(true);
+                    setDueAt(event.target.value);
+                  }}
                 />
               </div>
             </div>
           </Section>
 
-          <Section title="负责人">
-            <div className="edit-task-owner" data-edit-task-owner>
-              <svg className="edit-task-owner-icon" viewBox="0 0 24 24" aria-hidden="true">
-                <circle cx="12" cy="8" r="4" fill="none" stroke="currentColor" strokeWidth="1.7" />
-                <path d="M4 20c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-              </svg>
-              <span className="edit-task-owner-name">{ownerName}（默认本人）</span>
-            </div>
-          </Section>
 
           {error ? <p className="edit-task-error" role="alert">{error}</p> : null}
         </div>
