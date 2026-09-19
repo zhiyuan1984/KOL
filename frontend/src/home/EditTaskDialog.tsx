@@ -103,7 +103,6 @@ export default function EditTaskDialog({
   const [riskLevel, setRiskLevel] = useState(initial.risk_level);
   const [startDate, setStartDate] = useState(initial.start_date);
   const [dueAt, setDueAt] = useState(initial.due_at);
-  const [nlText, setNlText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -115,7 +114,6 @@ export default function EditTaskDialog({
     setRiskLevel(initial.risk_level);
     setStartDate(initial.start_date);
     setDueAt(initial.due_at);
-    setNlText("");
     setBusy(false);
     setError("");
   }, [initial]);
@@ -173,7 +171,6 @@ export default function EditTaskDialog({
 
   if (!open || !task || typeof document === "undefined") return null;
 
-  const nlMode = Boolean(nlText.trim());
   const fields: Record<string, string | null> = {};
   if (title.trim() !== initial.title.trim()) fields.title = title.trim();
   if (content !== initial.content) fields.content = content;
@@ -190,11 +187,6 @@ export default function EditTaskDialog({
       setError("请求超时，请检查网络后重试。");
       return;
     }
-    const code = (err.payload as { code?: string } | undefined)?.code;
-    if (err.status === 422 && code === "edit_not_recognized") {
-      setError("没有识别出要修改的字段，请换种说法或用表单项。");
-      return;
-    }
     setError(err.message || "保存失败，请稍后重试。");
   };
 
@@ -208,19 +200,6 @@ export default function EditTaskDialog({
     try {
       const updated = taskValue(await api.updateTask(task.id, fields));
       onSaved(updated);
-    } catch (cause) {
-      fail(cause);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const submitText = async () => {
-    setBusy(true);
-    setError("");
-    try {
-      const result = await api.editTaskByText(task.id, nlText.trim());
-      onSaved(result.task);
     } catch (cause) {
       fail(cause);
     } finally {
@@ -251,7 +230,7 @@ export default function EditTaskDialog({
             id="edit-task-title"
             ref={firstFieldRef}
             value={title}
-            disabled={busy || nlMode}
+            disabled={busy}
             onChange={(event) => setTitle(event.target.value)}
           />
         </div>
@@ -261,64 +240,39 @@ export default function EditTaskDialog({
             id="edit-task-content"
             rows={3}
             value={content}
-            disabled={busy || nlMode}
+            disabled={busy}
             onChange={(event) => setContent(event.target.value)}
           />
         </div>
+        <RadioBlock
+          legend="状态"
+          value={status}
+          disabled={busy}
+          options={statusOptions}
+          onChange={setStatus}
+        />
+        <RadioBlock
+          legend="优先级"
+          value={priority}
+          disabled={busy}
+          options={PRIORITY_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+          onChange={setPriority}
+        />
+        <RadioBlock
+          legend="风险等级"
+          value={riskLevel}
+          disabled={busy}
+          options={RISK_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+          onChange={setRiskLevel}
+        />
         <div className="edit-task-grid">
-          <div className="edit-task-field">
-            <label htmlFor="edit-task-status">状态</label>
-            <select
-              id="edit-task-status"
-              value={status}
-              disabled={busy || nlMode}
-              onChange={(event) => setStatus(event.target.value)}
-            >
-              {statusOptions.map((option) => (
-                <option
-                  key={option.value}
-                  value={option.value}
-                  disabled={option.disabled}
-                  title={option.hint}
-                >
-                  {option.hint ? `${option.label}（${option.hint}）` : option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="edit-task-field">
-            <label htmlFor="edit-task-priority">优先级</label>
-            <select
-              id="edit-task-priority"
-              value={priority}
-              disabled={busy || nlMode}
-              onChange={(event) => setPriority(event.target.value)}
-            >
-              {PRIORITY_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="edit-task-field">
-            <label htmlFor="edit-task-risk">风险等级</label>
-            <select
-              id="edit-task-risk"
-              value={riskLevel}
-              disabled={busy || nlMode}
-              onChange={(event) => setRiskLevel(event.target.value)}
-            >
-              {RISK_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </div>
           <div className="edit-task-field">
             <label htmlFor="edit-task-start">开始日期</label>
             <input
               id="edit-task-start"
               type="date"
               value={startDate}
-              disabled={busy || nlMode}
+              disabled={busy}
               onChange={(event) => setStartDate(event.target.value)}
             />
           </div>
@@ -328,20 +282,10 @@ export default function EditTaskDialog({
               id="edit-task-due"
               type="date"
               value={dueAt}
-              disabled={busy || nlMode}
+              disabled={busy}
               onChange={(event) => setDueAt(event.target.value)}
             />
           </div>
-        </div>
-        <div className="edit-task-field">
-          <label htmlFor="edit-task-nl">用一句话说明修改</label>
-          <input
-            id="edit-task-nl"
-            value={nlText}
-            placeholder="例如：把优先级改成重要紧急，截止改到明天"
-            disabled={busy || formDirty}
-            onChange={(event) => setNlText(event.target.value)}
-          />
         </div>
         {error ? <p className="edit-task-error" role="alert">{error}</p> : null}
         <div className="edit-task-actions">
@@ -349,19 +293,10 @@ export default function EditTaskDialog({
             type="button"
             className="btn work sm"
             data-edit-task-save
-            disabled={busy || nlMode || !formDirty}
+            disabled={busy || !formDirty}
             onClick={() => void submitForm()}
           >
-            {busy && !nlMode ? "正在保存…" : "保存修改"}
-          </button>
-          <button
-            type="button"
-            className="btn ghost sm"
-            data-edit-task-apply-text
-            disabled={busy || !nlMode}
-            onClick={() => void submitText()}
-          >
-            {busy && nlMode ? "正在识别…" : "识别这句话"}
+            {busy ? "正在保存…" : "保存修改"}
           </button>
           <button
             type="button"
@@ -376,5 +311,46 @@ export default function EditTaskDialog({
       </div>
     </div>,
     document.body,
+  );
+}
+
+function RadioBlock({
+  legend,
+  value,
+  options,
+  disabled,
+  onChange,
+}: {
+  legend: string;
+  value: string;
+  options: Array<{ value: string; label: string; disabled?: boolean }>;
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <fieldset className="edit-task-radios" disabled={disabled}>
+      <legend>{legend}</legend>
+      <div className="edit-task-radio-row">
+        {options.map((option) => {
+          const on = option.value === value;
+          return (
+            <label
+              key={option.value}
+              className={"edit-task-radio" + (on ? " is-on" : "") + (option.disabled ? " is-disabled" : "")}
+            >
+              <input
+                type="radio"
+                name={legend}
+                value={option.value}
+                checked={on}
+                disabled={disabled || option.disabled}
+                onChange={() => onChange(option.value)}
+              />
+              {option.label}
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
   );
 }
