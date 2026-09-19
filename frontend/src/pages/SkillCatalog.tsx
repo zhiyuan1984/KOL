@@ -68,7 +68,85 @@ function recordUsage(skillId: string) {
 }
 
 // 推荐技能（静态规则）
-const RECOMMENDED_IDS = ["creator_discovery", "creator_profile", "creator_scoring", "today_plan"];
+const RECOMMENDED_IDS = ["creator_discovery", "creator_profile", "creator_scoring", "creator_daily_tasks"];
+
+// 技能图标映射（SVG paths）
+const SKILL_ICONS: Record<string, string> = {
+  creator_discovery: "M10 18a8 8 0 1 1 1.7-5.7M21 21l-4.3-4.3", // 放大镜
+  creator_profile: "M12 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z", // 人物
+  creator_scoring: "M3 13h2v8H3zm4-8h2v16H7zm4-2h2v18h-2zm4 4h2v14h-2zm4-2h2v16h-2z", // 柱状图
+  creator_daily_tasks: "M19 3h-1V1h-2v2H8V1H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM9 10H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2z", // 日历
+  creator_outreach: "M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.2L4 17.2V4h16v12z", // 对话
+  creator_library_query: "M4 6h4v2H4zm0 5h4v2H4zm0 5h4v2H4zm6-10h10v2H10zm0 5h10v2H10zm0 5h10v2H10z", // 列表
+  creator_library_all: "M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z", // 列表
+  creator_filter_options: "M3 5h18v2H3V5zm4 6h10v2H7v-2zm-4 6h18v2H3v-2z", // 筛选
+  creator_lifecycle_kanban: "M3 5h6v6H3V5zm0 8h6v6H3v-6zm8-8h10v6H11V5zm0 8h10v6H11v-6z", // 看板
+  creator_status_update: "M17.6 9.6l-1.4-1.4-5.2 5.2-2.6-2.6L7 12.4l4 4 8-8zM12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2z", // 勾选刷新
+  creator_owner_update: "M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm9-2v2m0 0v2m0-2h2m-2 0h-2", // 人物+编辑
+  kol_analyze: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z", // 分析
+  today_plan: "M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z", // 时间规划
+  today_analyze: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z", // 今日分析
+  reply_analysis: "M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V8l8 5 8-5v10zm-8-7L4 6h16l-8 5z", // 邮件
+  email_compose: "M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z", // 邮件编辑
+  email_conversation_list: "M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z", // 邮件列表
+  email_conversation_read: "M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z", // 邮件详情
+  email_mailbox_list: "M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z", // 邮箱
+  deal_memory: "M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z", // 文档
+  confirm_stage: "M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z", // 确认
+  stage_sop: "M12 2l-5.5 9h11L12 2zm0 3.84L13.93 9h-3.87L12 5.84zM17.5 13c-2.49 0-4.5 2.01-4.5 4.5s2.01 4.5 4.5 4.5 4.5-2.01 4.5-4.5-2.01-4.5-4.5-4.5zm0 7a2.5 2.5 0 0 1 0-5 2.5 2.5 0 0 1 0 5zM3 21.5h8v-8H3v8zm2-6h4v4H5v-4z", // 阶段/SOP
+  risk_scan: "M12 2L2 22h20L12 2zm0 3.5L18.5 20h-13L12 5.5zM11 10v6h2v-6h-2zM11 18v2h2v-2h-2z", // 风险
+  creator_budget_report: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.15-1.46-3.27-3.4h1.96c.1 1.05 1.18 1.91 2.53 1.91 1.29 0 2.13-.62 2.13-1.66 0-.87-.57-1.23-2.11-1.76l-.6-.19C9.27 13.48 8 12.81 8 10.96c0-1.65 1.24-2.86 3.01-3.21V6h2.67v1.73c1.38.31 2.74 1.18 2.83 3.01h-1.97c-.05-1.02-.99-1.64-2.08-1.64-1.21 0-1.95.59-1.95 1.5 0 .78.48 1.11 1.91 1.61l.6.2c2.36.74 3.37 1.55 3.37 3.4 0 1.93-1.57 3.18-3.57 3.5z", // 预算
+  creator_contact_decrypt: "M12 17c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm6-9h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM12 6c1.1 0 2 .9 2 2v2h-4V8c0-1.1.9-2 2-2z", // 解锁
+  creator_sync: "M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L4.24 7.74A7.93 7.93 0 0 0 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z", // 同步
+  discovery_plan: "M9 21c0 .55.45 1 1 1h4c.55 0 1-.45 1-1v-1H9v1zm3-19C8.14 2 5 5.14 5 9c0 2.38 1.19 4.47 3 5.74V17c0 .55.45 1 1 1h6c.55 0 1-.45 1-1v-2.26c1.81-1.27 3-3.36 3-5.74 0-3.86-3.14-7-7-7zm2.85 11.1l-.85.6V16h-4v-2.3l-.85-.6A4.997 4.997 0 0 1 7 9c0-2.76 2.24-5 5-5s5 2.24 5 5c0 1.63-.8 3.16-2.15 4.1z", // 发现
+  discovery_brief: "M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z", // 简报
+  business_approval: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm.5-13H11v6l5.2 3 .8-1.2-4.5-2.7V7z", // 审批
+};
+
+// 默认图标
+const DEFAULT_ICON = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z";
+
+// 技能来源映射
+const SKILL_SOURCE: Record<string, string> = {
+  creator_discovery: "MediaCrawler",
+  creator_library_query: "Starry KOL",
+  creator_library_all: "Starry KOL",
+  creator_profile: "Starry KOL",
+  creator_contact_decrypt: "Starry KOL",
+  creator_risk_conversations: "Starry KOL",
+  creator_lifecycle_kanban: "Starry KOL",
+  creator_status_update: "Starry KOL",
+  creator_owner_update: "Starry KOL",
+  creator_filter_options: "Starry KOL",
+  creator_daily_tasks: "KOL Agent",
+  creator_scoring: "KOL Agent",
+  creator_outreach: "KOL Agent",
+  kol_analyze: "KOL Agent",
+  today_plan: "KOL Agent",
+  today_analyze: "KOL Agent",
+  reply_analysis: "KOL Agent",
+  confirm_stage: "内核部门",
+  stage_sop: "内核部门",
+  discovery_plan: "内核部门",
+  discovery_brief: "内核部门",
+  risk_scan: "内核部门",
+  business_approval: "内核部门",
+  email_compose: "Starry KOL",
+  email_conversation_list: "Starry KOL",
+  email_conversation_read: "Starry KOL",
+  email_mailbox_list: "Starry KOL",
+  deal_memory: "Starry KOL",
+};
+
+// 分组图标（SVG paths）
+const GROUP_ICONS: Record<string, string> = {
+  reach: "M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z",
+  intent: "M16 6l2.29 2.29-4.88 4.88-4-4L2 16.59 3.41 18l6-6 4 4 6.3-6.29L22 12V6z",
+  biz: "M12 7V3H2v18h20V7H12zM6 19H4v-2h2v2zm0-4H4v-2h2v2zm0-4H4V9h2v2zm0-4H4V5h2v2zm4 12H8v-2h2v2zm0-4H8v-2h2v2zm0-4H8V9h2v2zm0-4H8V5h2v2zm10 12h-8v-2h2v-2h-2v-2h2v-2h-2V9h8v10z",
+  settle: "M19 5h-2V3H7v2H5c-1.1 0-2 .9-2 2v1c0 2.55 1.92 4.63 4.39 4.94.63 1.5 1.98 2.63 3.61 2.96V19H7v2h10v-2h-4v-3.1c1.63-.33 2.98-1.46 3.61-2.96C19.08 12.63 21 10.55 21 8V7c0-1.1-.9-2-2-2zM5 8V7h2v3.82C5.84 10.4 5 9.3 5 8zm14 0c0 1.3-.84 2.4-2 2.82V7h2v1z",
+  content: "M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zM5 15h14v2H5zm0-4h14v2H5zm0-4h14v2H5z",
+  exception: "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z",
+};
 
 // 场景标签映射
 const SCENE_TAGS: Record<string, string[]> = {
@@ -83,49 +161,86 @@ const SCENE_TAGS: Record<string, string[]> = {
 };
 
 // 输入/输出描述
-const IO_MAP: Record<string, { inputs: string[]; outputs: string[] }> = {
+const IO_MAP: Record<string, { inputs: string[]; outputs: string[]; example: string[] }> = {
   creator_outreach: {
     inputs: ["达人名称", "平台（如小红书/抖音）", "粉丝量", "合作目标（如寄样、推广、长期合作）"],
     outputs: ["首轮私信话术", "跟进话术", "微信添加文案"],
+    example: [
+      "Hi@夏天的旅行日记 👋",
+      "我是 LiTime 的产品运营，关注到你分享的户外生活内容，非常喜欢！我们正在做一款适合户外场景的便携装备，想和你合作体验。不知道你是否有兴趣？期待你的回复~",
+    ],
   },
   creator_discovery: {
     inputs: ["关键词", "平台", "粉丝量范围"],
     outputs: ["候选达人列表", "达人基础信息"],
+    example: ["关键词：户外露营", "平台：小红书", "粉丝量：1万-10万"],
   },
   creator_profile: {
     inputs: ["达人UID或昵称"],
     outputs: ["达人详情", "平台数据", "负责人信息"],
+    example: ["达人：夏天的旅行日记", "UID：xxx"],
   },
   creator_scoring: {
     inputs: ["达人UID列表"],
     outputs: ["影响力评分", "合作适配度评分"],
+    example: ["待评分达人列表"],
   },
 };
 
+function SkillIcon({ id }: { id: string }) {
+  const d = SKILL_ICONS[id] || DEFAULT_ICON;
+  return (
+    <svg viewBox="0 0 24 24" className="skill-card-svg" aria-hidden>
+      <path d={d} fill="currentColor" />
+    </svg>
+  );
+}
+
+function GroupIcon({ id }: { id: string }) {
+  const d = GROUP_ICONS[id] || GROUP_ICONS.reach;
+  return (
+    <svg viewBox="0 0 24 24" className="skill-group-svg" aria-hidden>
+      <path d={d} fill="currentColor" />
+    </svg>
+  );
+}
+
+function skillSource(id: string): string {
+  return SKILL_SOURCE[id] || "Starry KOL";
+}
+
 function SkillCard({
   skill,
+  onSelect,
   onUse,
   onNewSession,
   isFrequent,
+  selected,
 }: {
   skill: SkillRow;
+  onSelect: (skill: SkillRow) => void;
   onUse: (skill: SkillRow) => void;
   onNewSession: (skill: SkillRow) => void;
   isFrequent: boolean;
+  selected: boolean;
 }) {
   return (
-    <div className="skill-card" data-skill-id={skill.id}>
+    <div
+      className={"skill-card" + (selected ? " is-selected" : "")}
+      data-skill-id={skill.id}
+      onClick={() => onSelect(skill)}
+    >
       <div className="skill-card-icon">
-        {skill.title.slice(0, 1)}
+        <SkillIcon id={skill.id} />
         {isFrequent && <span className="skill-frequent-star">★</span>}
       </div>
       <div className="skill-card-body">
         <div className="skill-card-title">
           {skill.title}
-          <span className="skill-card-source">{skill.source === "published" ? "自建" : "Starry KOL"}</span>
+          <span className="skill-card-source">{skillSource(skill.id)}</span>
         </div>
         <p className="skill-card-desc">{skill.summary || skill.title}</p>
-        <div className="skill-card-actions">
+        <div className="skill-card-actions" onClick={(e) => e.stopPropagation()}>
           <button type="button" className="skill-btn skill-btn-primary" onClick={() => onUse(skill)}>
             <span className="skill-btn-icon">+</span>
             插入当前会话
@@ -149,7 +264,11 @@ function PreviewPanel({ skill }: { skill: SkillRow | null }) {
   }
 
   const scenes = SCENE_TAGS[skill.id] || [skill.funnel || "通用"];
-  const io = IO_MAP[skill.id] || { inputs: ["相关参数"], outputs: ["分析结果"] };
+  const io = IO_MAP[skill.id] || {
+    inputs: ["相关参数"],
+    outputs: ["分析结果"],
+    example: [skill.summary || skill.title],
+  };
 
   return (
     <div className="skill-preview">
@@ -163,7 +282,7 @@ function PreviewPanel({ skill }: { skill: SkillRow | null }) {
         <div className="skill-preview-title">
           <h2>{skill.title}</h2>
           <span className="skill-preview-tag">{skillKind(skill)}</span>
-          <span className="skill-preview-agent">KOL Agent</span>
+          <span className="skill-preview-agent">{skillSource(skill.id)}</span>
         </div>
         <p className="skill-preview-desc">{skill.summary || skill.title}</p>
 
@@ -198,8 +317,9 @@ function PreviewPanel({ skill }: { skill: SkillRow | null }) {
         <div className="skill-preview-section">
           <h4>内容示例</h4>
           <div className="skill-preview-example">
-            <p>Hi@夏天的旅行日记 👋</p>
-            <p>我是 LiTime 的产品运营，关注到你分享的户外生活内容，非常喜欢！我们正在做一款适合户外场景的便携装备，想和你合作体验。不知道你是否有兴趣？期待你的回复~</p>
+            {io.example.map((line, i) => (
+              <p key={i}>{line}</p>
+            ))}
           </div>
         </div>
       </div>
@@ -232,17 +352,24 @@ export function SkillCatalog() {
     setLoading(true);
     api.skills()
       .then((data: unknown) => {
-        setSkills(Array.isArray(data) ? (data as SkillRow[]) : []);
+        const rows = Array.isArray(data) ? (data as SkillRow[]) : [];
+        setSkills(rows);
         setErr("");
       })
       .catch((e) => setErr(e instanceof Error ? e.message : "无法加载技能目录"))
       .finally(() => setLoading(false));
   }, []);
 
+  // 默认选中第一个技能
+  useEffect(() => {
+    if (skills.length > 0 && !selectedSkill) {
+      setSelectedSkill(skills[0]);
+    }
+  }, [skills, selectedSkill]);
+
   const filteredSkills = useMemo(() => {
     let list = skills;
 
-    // 标签筛选
     if (tab === "frequent") {
       list = list.filter((s) => (usage[s.id] || 0) > 0).sort((a, b) => (usage[b.id] || 0) - (usage[a.id] || 0));
     } else if (tab === "recent") {
@@ -253,7 +380,6 @@ export function SkillCatalog() {
       list = list.filter((s) => s.funnel === tab);
     }
 
-    // 搜索
     const needle = q.trim().toLowerCase();
     if (needle) {
       list = list.filter((s) =>
@@ -267,10 +393,12 @@ export function SkillCatalog() {
   }, [skills, tab, q, usage, recent]);
 
   const frequentSkills = useMemo(() => {
-    return skills
+    const used = skills
       .filter((s) => (usage[s.id] || 0) > 0)
-      .sort((a, b) => (usage[b.id] || 0) - (usage[a.id] || 0))
-      .slice(0, 4);
+      .sort((a, b) => (usage[b.id] || 0) - (usage[a.id] || 0));
+    // 如果没有使用记录，用推荐技能填充
+    if (used.length > 0) return used.slice(0, 4);
+    return skills.filter((s) => RECOMMENDED_IDS.includes(s.id)).slice(0, 4);
   }, [skills, usage]);
 
   const groupedSkills = useMemo(() => {
@@ -286,7 +414,6 @@ export function SkillCatalog() {
     setUsage(loadUsage());
     setRecent(loadRecent());
 
-    // 如果当前在会话页面，直接发送消息
     const sessionMatch = location.pathname.match(/^\/s\/([^/]+)/);
     if (sessionMatch) {
       const sessionId = sessionMatch[1];
@@ -299,7 +426,6 @@ export function SkillCatalog() {
       return;
     }
 
-    // 否则创建新会话
     try {
       const prompt = `@${skill.label || skill.title}`;
       const ses = await api.createSession(prompt.slice(0, 24));
@@ -366,22 +492,26 @@ export function SkillCatalog() {
 
       <div className="skill-catalog-main">
         <div className="skill-catalog-content">
-          {frequentSkills.length > 0 && tab === "all" && !q && (
-            <section className="skill-group">
+          {tab === "all" && !q && (
+            <section className="skill-group skill-group-frequent">
               <div className="skill-group-header">
-                <span className="skill-group-icon">★</span>
-                <h2>常用技能</h2>
-                <span className="skill-group-hint">你经常使用的技能，点击即可快速调用</span>
+                <span className="skill-group-icon skill-group-icon-star">★</span>
+                <h2>{usage[skills[0]?.id || ""] ? "常用技能" : "常用技能"}</h2>
+                <span className="skill-group-hint">
+                  {usage[skills[0]?.id || ""] ? "你经常使用的技能，点击即可快速调用" : "推荐技能，点击即可快速调用"}
+                </span>
                 <Link to="/skills?tab=frequent" className="skill-group-more">查看全部</Link>
               </div>
-              <div className="skill-grid">
+              <div className="skill-grid skill-grid-3">
                 {frequentSkills.map((s) => (
                   <SkillCard
                     key={s.id}
                     skill={s}
-                    onUse={(skill) => { setSelectedSkill(skill); void useSkill(skill); }}
-                    onNewSession={(skill) => { setSelectedSkill(skill); void newSession(skill); }}
-                    isFrequent
+                    onSelect={(skill) => setSelectedSkill(skill)}
+                    onUse={(skill) => void useSkill(skill)}
+                    onNewSession={(skill) => void newSession(skill)}
+                    isFrequent={(usage[s.id] || 0) > 0}
+                    selected={selectedSkill?.id === s.id}
                   />
                 ))}
               </div>
@@ -394,21 +524,23 @@ export function SkillCatalog() {
             return (
               <section key={group.id} className="skill-group">
                 <div className="skill-group-header">
-                  <span className={`skill-group-icon skill-group-icon-${group.id}`}>
-                    {group.id === "reach" ? "✈" : group.id === "intent" ? "📊" : group.id === "biz" ? "📦" : group.id === "settle" ? "🏆" : "📌"}
+                  <span className="skill-group-icon">
+                    <GroupIcon id={group.id} />
                   </span>
                   <h2>{group.label}</h2>
                   <span className="skill-group-hint">{group.hint}</span>
                   <Link to={`/skills?tab=${group.id}`} className="skill-group-more">查看全部</Link>
                 </div>
-                <div className="skill-grid">
+                <div className="skill-grid skill-grid-3">
                   {groupSkills.map((s) => (
                     <SkillCard
                       key={s.id}
                       skill={s}
-                      onUse={(skill) => { setSelectedSkill(skill); void useSkill(skill); }}
-                      onNewSession={(skill) => { setSelectedSkill(skill); void newSession(skill); }}
+                      onSelect={(skill) => setSelectedSkill(skill)}
+                      onUse={(skill) => void useSkill(skill)}
+                      onNewSession={(skill) => void newSession(skill)}
                       isFrequent={(usage[s.id] || 0) > 0}
+                      selected={selectedSkill?.id === s.id}
                     />
                   ))}
                 </div>

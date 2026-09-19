@@ -9746,7 +9746,17 @@ button.today-brief-primary-btn:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  color: var(--primary);
+}
+
+.skill-group-icon-star {
+  color: var(--warning);
+  font-size: 18px;
+}
+
+.skill-group-svg {
+  width: 20px;
+  height: 20px;
 }
 
 .skill-group-header h2 {
@@ -9774,18 +9784,24 @@ button.today-brief-primary-btn:disabled {
 
 .skill-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-3);
+}
+
+.skill-grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .skill-card {
   display: flex;
+  flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-4);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg);
   transition: all var(--duration-control);
+  cursor: pointer;
 }
 
 .skill-card:hover {
@@ -9793,19 +9809,27 @@ button.today-brief-primary-btn:disabled {
   box-shadow: var(--shadow-quiet);
 }
 
+.skill-card.is-selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
 .skill-card-icon {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-elevated);
+  background: var(--color-pink-tint-soft);
   border-radius: var(--radius-sm);
-  font-size: var(--font-sm);
-  font-weight: 600;
   color: var(--primary);
   position: relative;
   flex-shrink: 0;
+}
+
+.skill-card-svg {
+  width: 24px;
+  height: 24px;
 }
 
 .skill-frequent-star {
@@ -9829,7 +9853,7 @@ button.today-brief-primary-btn:disabled {
   align-items: center;
   gap: var(--space-2);
   font-size: var(--font-body);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .skill-card-source {
@@ -9850,12 +9874,13 @@ button.today-brief-primary-btn:disabled {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  min-height: 2.7em;
 }
 
 .skill-card-actions {
   display: flex;
   gap: var(--space-2);
-  margin-top: var(--space-2);
+  margin-top: auto;
 }
 
 .skill-btn {
@@ -10059,6 +10084,12 @@ button.today-brief-primary-btn:disabled {
 }
 
 /* Responsive */
+@media (max-width: 1200px) {
+  .skill-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 1024px) {
   .skill-catalog-preview {
     display: none;
