@@ -68,21 +68,21 @@ function recordUsage(skillId: string) {
 }
 
 // 推荐技能（静态规则）
-const RECOMMENDED_IDS = ["creator_discovery", "creator_profile", "creator_scoring", "creator_daily_tasks"];
+const RECOMMENDED_IDS = ["creator_discovery", "creator_library_query", "creator_scoring", "creator_daily_tasks"];
 
 // 技能图标映射（SVG paths）
 const SKILL_ICONS: Record<string, string> = {
-  creator_discovery: "M10 18a8 8 0 1 1 1.7-5.7M21 21l-4.3-4.3", // 放大镜
+  creator_discovery: "M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z", // 放大镜
   creator_profile: "M12 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z", // 人物
-  creator_scoring: "M3 13h2v8H3zm4-8h2v16H7zm4-2h2v18h-2zm4 4h2v14h-2zm4-2h2v16h-2z", // 柱状图
+  creator_scoring: "M18 20V10M12 20V4M6 20v-6", // 柱状图
   creator_daily_tasks: "M19 3h-1V1h-2v2H8V1H6v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11zM9 10H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2z", // 日历
   creator_outreach: "M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H5.2L4 17.2V4h16v12z", // 对话
-  creator_library_query: "M4 6h4v2H4zm0 5h4v2H4zm0 5h4v2H4zm6-10h10v2H10zm0 5h10v2H10zm0 5h10v2H10z", // 列表
-  creator_library_all: "M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z", // 列表
+  creator_library_query: "M5.5 6c0-1.1 3.58-2 8-2s8 .9 8 2v12c0 1.1-3.58 2-8 2s-8-.9-8-2V6zm2 0v12c0 .55 2.46 1.5 6 1.5s6-.95 6-1.5V6c0-.55-2.46-1.5-6-1.5S7.5 5.45 7.5 6z", // 数据库
+  creator_library_all: "M5.5 6c0-1.1 3.58-2 8-2s8 .9 8 2v12c0 1.1-3.58 2-8 2s-8-.9-8-2V6zm2 0v12c0 .55 2.46 1.5 6 1.5s6-.95 6-1.5V6c0-.55-2.46-1.5-6-1.5S7.5 5.45 7.5 6z", // 数据库
   creator_filter_options: "M3 5h18v2H3V5zm4 6h10v2H7v-2zm-4 6h18v2H3v-2z", // 筛选
   creator_lifecycle_kanban: "M3 5h6v6H3V5zm0 8h6v6H3v-6zm8-8h10v6H11V5zm0 8h10v6H11v-6z", // 看板
-  creator_status_update: "M17.6 9.6l-1.4-1.4-5.2 5.2-2.6-2.6L7 12.4l4 4 8-8zM12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2z", // 勾选刷新
-  creator_owner_update: "M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm9-2v2m0 0v2m0-2h2m-2 0h-2", // 人物+编辑
+  creator_status_update: "M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L4.24 7.74A7.93 7.93 0 0 0 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z", // 刷新
+  creator_owner_update: "M12 12c2.2 0 4-1.8 4-4s-1.8-4-4-4-4 1.8-4 4 1.8 4 4 4zm0 2c-2.7 0-8 1.3-8 4v2h16v-2c0-2.7-5.3-4-8-4z M17 11h2v2h-2z", // 人物+编辑
   kol_analyze: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z", // 分析
   today_plan: "M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z", // 时间规划
   today_analyze: "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z", // 今日分析
@@ -360,10 +360,11 @@ export function SkillCatalog() {
       .finally(() => setLoading(false));
   }, []);
 
-  // 默认选中第一个技能
+  // 默认选中常用技能第一个（无使用记录时用推荐技能第一个）
   useEffect(() => {
     if (skills.length > 0 && !selectedSkill) {
-      setSelectedSkill(skills[0]);
+      const frequent = skills.filter((s) => RECOMMENDED_IDS.includes(s.id));
+      setSelectedSkill(frequent[0] || skills[0]);
     }
   }, [skills, selectedSkill]);
 
