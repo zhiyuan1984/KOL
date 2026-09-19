@@ -230,9 +230,9 @@ function SkillCard({
       data-skill-id={skill.id}
       onClick={() => onSelect(skill)}
     >
+      {isFrequent && <span className="skill-card-star" aria-hidden>★</span>}
       <div className="skill-card-icon">
         <SkillIcon id={skill.id} />
-        {isFrequent && <span className="skill-frequent-star">★</span>}
       </div>
       <div className="skill-card-body">
         <div className="skill-card-title">
@@ -317,9 +317,12 @@ function PreviewPanel({ skill }: { skill: SkillRow | null }) {
         <div className="skill-preview-section">
           <h4>内容示例</h4>
           <div className="skill-preview-example">
-            {io.example.map((line, i) => (
-              <p key={i}>{line}</p>
-            ))}
+            <span className="skill-preview-avatar" aria-hidden>AI</span>
+            <div className="skill-preview-bubble">
+              {io.example.map((line, i) => (
+                <p key={i}>{line}</p>
+              ))}
+            </div>
           </div>
         </div>
       </div>
