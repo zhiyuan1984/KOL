@@ -106,7 +106,29 @@ fi
 
 mkdir -p "$LINGONG_DATA/uploads" "$LINGONG_DATA/boxes" "$LINGONG_DATA/published-skills"
 
+free_listen_port() {
+  local port="$1"
+  local pids=""
+  if command -v ss >/dev/null 2>&1; then
+    pids="$(ss -lptn "sport = :${port}" 2>/dev/null | sed -n "s/.*pid=\\([0-9]*\\).*/\\1/p" | sort -u | tr "\\n" " ")"
+  fi
+  if [ -z "$pids" ] && command -v lsof >/dev/null 2>&1; then
+    pids="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+  fi
+  if [ -n "$pids" ]; then
+    echo "释放 ${port}（旧进程 ${pids}）"
+    # shellcheck disable=SC2086
+    kill $pids 2>/dev/null || true
+    sleep 0.4
+    # shellcheck disable=SC2086
+    kill -9 $pids 2>/dev/null || true
+  elif command -v fuser >/dev/null 2>&1; then
+    fuser -k "${port}/tcp" >/dev/null 2>&1 || true
+  fi
+}
+
 echo "灵工启动 → 0.0.0.0:${LINGONG_PORT}  CODEX_MODE=${CODEX_MODE}  AUTH_MODE=${AUTH_MODE}"
+free_listen_port "$LINGONG_PORT"
 cd "$ROOT/backend"
 if [ -x "$ROOT/backend/node_modules/.bin/tsx" ]; then
   exec "$ROOT/backend/node_modules/.bin/tsx" src/index.ts
