@@ -5,7 +5,6 @@ import { useAccount } from "../components/AuthGate";
 import BrandLockup from "../components/BrandLockup";
 import UserMenu from "../components/UserMenu";
 import { ANALYZE_WORK_EVENT, loadKolAnalyzeInFlight, type AnalyzeWorkItem } from "../home/kolSurfaceApi";
-import { TODAY_PLAN_REFRESH_EVENT } from "../home/todayPlan";
 import { isKolAnalyzeInFlight, runningBadgeCount, runningBadgeHref } from "../home/kolContract";
 import { useViewMode } from "../viewMode";
 
@@ -119,6 +118,7 @@ export default function Workbench() {
 
   const skillsActive =
     loc.pathname === "/skills"
+    || loc.pathname.startsWith("/skills/lifecycle")
     || loc.pathname.startsWith("/market/skills");
   const newTaskActive = loc.pathname === "/";
   const adminAvailable = admin || me?.available_modes?.includes("admin") === true;
@@ -165,8 +165,7 @@ export default function Workbench() {
           <NavLink to="/" className="sidebar-brand" data-sidebar-brand end>
             <BrandLockup variant="sidebar" />
             <span className="sidebar-brand-copy">
-              <span className="brand-name sidebar-label">Li Time</span>
-              <span className="sidebar-brand-sub sidebar-label">灵工工作</span>
+              <span className="brand-name sidebar-label">灵工 工作</span>
             </span>
           </NavLink>
           <button type="button" className="sidebar-search-btn collapse-toggle" onClick={toggleCollapsed} aria-label={collapsed ? "展开侧栏" : "收起侧栏"} title={collapsed ? "展开侧栏" : "收起侧栏"}>{collapsed ? "›" : "‹"}</button>
@@ -180,10 +179,7 @@ export default function Workbench() {
             className={"nav-link" + (newTaskActive ? " active" : "")}
             aria-current={newTaskActive ? "page" : undefined}
             data-nav="new-task"
-            onClick={() => {
-              setMobileOpen(false);
-              window.dispatchEvent(new Event(TODAY_PLAN_REFRESH_EVENT));
-            }}
+            onClick={() => setMobileOpen(false)}
           >
             <Ico path="M4 20h4L18 10l-4-4L4 16v4z M14 6l4 4" />
             <span className="sidebar-label">新工作任务</span>
@@ -234,6 +230,16 @@ export default function Workbench() {
           >
             <Ico path="M8 8h4v4H8z M12 12h4v4h-4z M7 16l-2 2 M17 8l2-2" />
             <span className="sidebar-label">技能目录</span>
+          </NavLink>
+          <NavLink
+            to="/skills/lifecycle"
+            className={() => "nav-link" + (loc.pathname.startsWith("/skills/lifecycle") ? " active" : "")}
+            data-nav="skill-lifecycle"
+            title="技能生命周期管理"
+            onClick={() => setMobileOpen(false)}
+          >
+            <Ico path="M4 18h4v-6h4V6h4v12h4 M4 6h4" />
+            <span className="sidebar-label">生命周期</span>
           </NavLink>
         </nav>
 

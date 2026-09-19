@@ -1163,6 +1163,52 @@ export const api = {
     return data;
   },
   adminSkills: () => fetch("/api/admin/skills").then((r) => r.json()),
+  skillLifecycleStage: (id: string, stage: string, reason?: string) =>
+    request<{ id: string; stage: string }>(`/api/admin/skills/${encodeURIComponent(id)}/stage`, {
+      method: "POST",
+      body: JSON.stringify({ stage, reason }),
+    }),
+  skillStageHistory: (id: string) =>
+    request<{ history: Array<Record<string, unknown>> }>(`/api/admin/skills/${encodeURIComponent(id)}/stage-history`),
+  skillLifecycleMetaSave: (id: string, body: { owner?: string; business_stage?: string; tags?: string[] }) =>
+    request<{ lifecycle: Record<string, unknown> }>(`/api/admin/skills/${encodeURIComponent(id)}/lifecycle`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  skillVersions: (id: string) =>
+    request<{ versions: Array<Record<string, unknown>> }>(`/api/admin/skills/${encodeURIComponent(id)}/versions`),
+  publishSkillVersion: (id: string, description?: string) =>
+    request<{ version: number }>(`/api/admin/skills/${encodeURIComponent(id)}/versions`, {
+      method: "POST",
+      body: JSON.stringify({ description }),
+    }),
+  rollbackSkillVersion: (id: string, version: number) =>
+    request<{ version: number }>(`/api/admin/skills/${encodeURIComponent(id)}/versions/rollback`, {
+      method: "POST",
+      body: JSON.stringify({ version }),
+    }),
+  skillTests: (id: string) =>
+    request<{ tests: Array<Record<string, unknown>>; runs: Array<Record<string, unknown>> }>(
+      `/api/admin/skills/${encodeURIComponent(id)}/tests`,
+    ),
+  createSkillTest: (id: string, body: { name: string; input?: string; expected?: string }) =>
+    request<Record<string, unknown>>(`/api/admin/skills/${encodeURIComponent(id)}/tests`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  deleteSkillTest: (id: string, testId: string) =>
+    request<{ ok: boolean }>(`/api/admin/skills/${encodeURIComponent(id)}/tests/${encodeURIComponent(testId)}`, {
+      method: "DELETE",
+    }),
+  runSkillTests: (id: string, results: { test_id: string; passed: boolean; fail_reason?: string }[]) =>
+    request<{ total: number; passed: number; failed: number }>(`/api/admin/skills/${encodeURIComponent(id)}/tests/run`, {
+      method: "POST",
+      body: JSON.stringify({ results }),
+    }),
+  skillMetrics: (id: string, days = 7) =>
+    request<{ calls: number; success_rate: number | null; avg_duration_ms: number | null; alerts: number; trend: { day: string; n: number }[] }>(
+      `/api/admin/skills/${encodeURIComponent(id)}/metrics?days=${days}`,
+    ),
   createAdminSkill: (body: Record<string, unknown>) =>
     request<Record<string, unknown>>("/api/admin/skills", { method: "POST", body: JSON.stringify(body) }),
   patchAdminSkill: (id: string, body: {

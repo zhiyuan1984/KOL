@@ -970,6 +970,55 @@ function initSchema(db: SqliteConn): void {
             in_market INTEGER NOT NULL DEFAULT 1,
             updated_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS skill_versions (
+            id TEXT PRIMARY KEY,
+            skill_id TEXT NOT NULL,
+            version INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'published',
+            description TEXT,
+            snapshot_path TEXT,
+            published_by TEXT,
+            published_at TEXT NOT NULL,
+            UNIQUE(skill_id, version)
+        );
+        CREATE TABLE IF NOT EXISTS skill_tests (
+            id TEXT PRIMARY KEY,
+            skill_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            input TEXT NOT NULL DEFAULT '',
+            expected TEXT NOT NULL DEFAULT '',
+            created_by TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS skill_test_runs (
+            id TEXT PRIMARY KEY,
+            skill_id TEXT NOT NULL,
+            test_id TEXT,
+            test_name TEXT NOT NULL,
+            version INTEGER,
+            passed INTEGER NOT NULL DEFAULT 0,
+            fail_reason TEXT,
+            ran_by TEXT,
+            ran_at TEXT NOT NULL,
+            duration_ms INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS skill_stage_history (
+            id TEXT PRIMARY KEY,
+            skill_id TEXT NOT NULL,
+            from_stage TEXT,
+            to_stage TEXT NOT NULL,
+            operator TEXT NOT NULL,
+            reason TEXT,
+            at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS skill_lifecycle (
+            skill_id TEXT PRIMARY KEY,
+            stage TEXT NOT NULL DEFAULT 'draft',
+            owner TEXT,
+            business_stage TEXT,
+            tags TEXT,
+            updated_at TEXT NOT NULL
+        );
   `);
   migrateSchema(db);
 }

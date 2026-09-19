@@ -27,6 +27,23 @@ import {
   skillAdminMeta,
   updatePublishedSkill,
 } from "../host/skill-publish.js";
+import {
+  createSkillTest,
+  deleteSkillTest,
+  listSkillTestRuns,
+  listSkillTests,
+  listSkillVersions,
+  publishSkillVersion,
+  recordSkillTestRun,
+  rollbackSkillVersion,
+  skillLifecycleMeta,
+  skillMetrics,
+  skillStageHistory,
+  SKILL_STAGES,
+  SKILL_STAGE_LABELS,
+  transitionSkillStage,
+  updateSkillLifecycleMeta,
+} from "../host/skill-lifecycle.js";
 import { nid } from "../ids.js";
 import { publicProfiles } from "../profiles.js";
 import { resetDemoRuntimeState, seedAll } from "../seed.js";
@@ -152,10 +169,11 @@ misc.get("/admin/skills", (c) => {
   return c.json({
     directory: directory(),
     funnel: FUNNEL_STAGES,
-    meta: skillAdminMeta(),
+    meta: { ...skillAdminMeta(), stages: SKILL_STAGES, stage_labels: SKILL_STAGE_LABELS },
     skills: skillCatalog().map((s) => ({
       ...skillMeta(s.id),
       grants: grantsForSkill(s.id),
+      lifecycle: skillLifecycleMeta(s.id),
     })),
   });
 });
@@ -181,6 +199,71 @@ misc.put("/admin/skills/:id/grants", async (c) => {
   const id = c.req.param("id");
   const body = (await c.req.json()) as { org?: string[]; team?: string[]; user?: string[] };
   return c.json({ id, grants: setSkillGrants(id, body) });
+});
+misc.post("/admin/skills/:id/stage", async (c) => {
+  requirePm();
+  const id = c.req.param("id");
+  const body = (await c.req.json()) as { stage?: string; reason?: string };
+  return c.json({ id, ...transitionSkillStage(id, String(body.stage || ""), body.reason) });
+});
+misc.patch("/admin/skills/:id/lifecycle", async (c) => {
+  requirePm();
+  const id = c.req.param("id");
+  const body = (await c.req.json()) as { owner?: string; business_stage?: string; tags?: string[] };
+  updateSkillLifecycleMeta(id, body);
+  return c.json({ id, lifecycle: skillLifecycleMeta(id) });
+});
+misc.get("/admin/skills/:id/stage-history", (c) => {
+  requirePm();
+  const id = c.req.param("id");
+  return c.json({ id, history: skillStageHistory(id) });
+});
+misc.get("/admin/skills/:id/versions", (c) => {
+  requirePm();
+  const id = c.req.param("id");
+  return c.json({ id, versions: listSkillVersions(id) });
+});
+misc.post("/admin/skills/:id/versions", async (c) => {
+  requirePm();
+  const id = c.req.param("id");
+  const body = (await c.req.json()) as { description?: string };
+  return c.json({ id, ...publishSkillVersion(id, body.description) });
+});
+misc.post("/admin/skills/:id/versions/rollback", async (c) => {
+  requirePm();
+  const id = c.req.param("id");
+  const body = (await c.req.json()) as { version?: number };
+  return c.json({ id, ...rollbackSkillVersion(id, Number(body.version || 0)) });
+});
+misc.get("/admin/skills/:id/tests", (c) => {
+  requirePm();
+  const id = c.req.param("id");
+  return c.json({ id, tests: listSkillTests(id), runs: listSkillTestRuns(id) });
+});
+misc.post("/admin/skills/:id/tests", async (c) => {
+  requirePm();
+  const id = c.req.param("id");
+  const body = (await c.req.json()) as { name?: string; input?: string; expected?: string };
+  return c.json(createSkillTest(id, body), 201);
+});
+misc.delete("/admin/skills/:id/tests/:testId", (c) => {
+  requirePm();
+  return c.json(deleteSkillTest(c.req.param("id"), c.req.param("testId")));
+});
+misc.post("/admin/skills/:id/tests/run", async (c) => {
+  requirePm();
+  const id = c.req.param("id");
+  const body = (await c.req.json()) as {
+    results?: { test_id: string; passed: boolean; fail_reason?: string; duration_ms?: number }[];
+    version?: number;
+  };
+  return c.json({ id, ...recordSkillTestRun(id, body.results || [], body.version) });
+});
+misc.get("/admin/skills/:id/metrics", (c) => {
+  requirePm();
+  const id = c.req.param("id");
+  const days = Math.min(90, Math.max(1, Number(c.req.query("days") || 7)));
+  return c.json(skillMetrics(id, days));
 });
 misc.post("/login", async (c) => {
   const body = (await c.req.json()) as { username?: string; password?: string };

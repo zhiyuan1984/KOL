@@ -4,8 +4,9 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { publishedSkillsDir } from "../config.js";
+import { dataDir, publishedSkillsDir } from "../config.js";
 import { audit, getConn, nowIso } from "../db.js";
+import { nid } from "../ids.js";
 import {
   ALLOWED_TASK_MCP,
   TASK_FUNNELS,
@@ -211,6 +212,9 @@ export function createPublishedSkill(input: CreateSkillInput): SkillEntry {
   const dir = path.join(publishedSkillsDir(), spec.id);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "SKILL.md"), formatSkillMarkdown(spec), "utf8");
+  getConn()
+    .prepare("INSERT INTO skill_stage_history (id, skill_id, from_stage, to_stage, operator, reason, at) VALUES (?,?,?,?,?,?,?)")
+    .run(nid("ssh"), spec.id, null, "draft", currentUser().handle, "created", nowIso());
   setMarketFlag(spec.id, spec.in_market);
   const runtimePath = activateSkillForHarness(spec.id);
   if (input.grant_org !== false) grantDefaultOrg(spec.id);
@@ -281,8 +285,14 @@ export function deletePublishedSkill(id: string): { ok: true; id: string } {
   getConn().prepare("DELETE FROM skill_sops WHERE id = ?").run(id);
   getConn().prepare("DELETE FROM skill_flags WHERE id = ?").run(id);
   getConn().prepare("DELETE FROM skill_grants WHERE skill_id = ?").run(id);
+  getConn().prepare("DELETE FROM skill_lifecycle WHERE skill_id = ?").run(id);
+  getConn().prepare("DELETE FROM skill_versions WHERE skill_id = ?").run(id);
+  getConn().prepare("DELETE FROM skill_tests WHERE skill_id = ?").run(id);
+  getConn().prepare("DELETE FROM skill_test_runs WHERE skill_id = ?").run(id);
+  getConn().prepare("DELETE FROM skill_stage_history WHERE skill_id = ?").run(id);
   fs.rmSync(path.join(publishedSkillsDir(), id), { recursive: true, force: true });
   fs.rmSync(path.join(runtimeSkillsRoot(), id), { recursive: true, force: true });
+  fs.rmSync(path.join(dataDir(), "skill-versions", id), { recursive: true, force: true });
   clearTaskRegistryCache();
   audit(currentUser().handle, "skill.delete", { skill: id });
   return { ok: true, id };
