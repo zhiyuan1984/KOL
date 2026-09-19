@@ -9815,6 +9815,12 @@ button.today-brief-primary-btn:disabled {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+@media (max-width: 1280px) {
+  .skill-grid-4 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 .skill-card {
   display: flex;
   flex-direction: column;
