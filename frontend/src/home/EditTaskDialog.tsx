@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api, type Task } from "../api";
+import { useAccount } from "../components/AuthGate";
 import { taskValue } from "./homeModel";
 import { waitStatusLabel } from "../waitStatus";
 import "./edit-task-dialog.css";
@@ -40,6 +41,9 @@ const RISK_OPTIONS = [
   { value: "high", label: "高" },
 ] as const;
 
+const TITLE_MAX = 100;
+const CONTENT_MAX = 500;
+
 function dateInputValue(value?: string | null): string {
   const match = String(value || "").trim().match(/^(\d{4}-\d{2}-\d{2})/);
   return match ? match[1] : "";
@@ -71,6 +75,20 @@ function initialRisk(task: Task): string {
   return RISK_OPTIONS.some((option) => option.value === level) ? level : "none";
 }
 
+function SourceTag({ pristine }: { pristine: boolean }) {
+  if (!pristine) return null;
+  return <span className="edit-task-source">源表带出</span>;
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="edit-task-section">
+      <h3 className="edit-task-section-title">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
 export default function EditTaskDialog({
   task,
   onClose,
@@ -85,6 +103,8 @@ export default function EditTaskDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const firstFieldRef = useRef<HTMLInputElement>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  const { account } = useAccount();
+  const ownerName = String(account?.name || account?.handle || "当前用户");
 
   const initial = useMemo(() => ({
     title: String(task?.title || ""),
@@ -223,81 +243,128 @@ export default function EditTaskDialog({
         aria-labelledby={titleId}
         aria-busy={busy || undefined}
       >
-        <strong id={titleId} className="edit-task-title">编辑任务</strong>
-        <div className="edit-task-field">
-          <label htmlFor="edit-task-title">标题</label>
-          <input
-            id="edit-task-title"
-            ref={firstFieldRef}
-            value={title}
-            disabled={busy}
-            onChange={(event) => setTitle(event.target.value)}
-          />
-        </div>
-        <div className="edit-task-field">
-          <label htmlFor="edit-task-content">任务内容</label>
-          <textarea
-            id="edit-task-content"
-            rows={3}
-            value={content}
-            disabled={busy}
-            onChange={(event) => setContent(event.target.value)}
-          />
-        </div>
-        <RadioBlock
-          legend="状态"
-          value={status}
-          disabled={busy}
-          options={statusOptions}
-          onChange={setStatus}
-        />
-        <RadioBlock
-          legend="优先级"
-          value={priority}
-          disabled={busy}
-          options={PRIORITY_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
-          onChange={setPriority}
-        />
-        <RadioBlock
-          legend="风险等级"
-          value={riskLevel}
-          disabled={busy}
-          options={RISK_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
-          onChange={setRiskLevel}
-        />
-        <div className="edit-task-grid">
-          <div className="edit-task-field">
-            <label htmlFor="edit-task-start">开始日期</label>
-            <input
-              id="edit-task-start"
-              type="date"
-              value={startDate}
-              disabled={busy}
-              onChange={(event) => setStartDate(event.target.value)}
-            />
-          </div>
-          <div className="edit-task-field">
-            <label htmlFor="edit-task-due">结束日期</label>
-            <input
-              id="edit-task-due"
-              type="date"
-              value={dueAt}
-              disabled={busy}
-              onChange={(event) => setDueAt(event.target.value)}
-            />
-          </div>
-        </div>
-        {error ? <p className="edit-task-error" role="alert">{error}</p> : null}
-        <div className="edit-task-actions">
+        <header className="edit-task-head">
+          <strong id={titleId} className="edit-task-title">编辑任务</strong>
           <button
             type="button"
-            className="btn work sm"
-            data-edit-task-save
-            disabled={busy || !formDirty}
-            onClick={() => void submitForm()}
+            className="edit-task-close"
+            aria-label="关闭"
+            disabled={busy}
+            onClick={onClose}
           >
-            {busy ? "正在保存…" : "保存修改"}
+            ×
           </button>
+        </header>
+        <div className="edit-task-body">
+          <Section title="基础信息">
+            <div className="edit-task-field">
+              <div className="edit-task-label-row">
+                <label htmlFor="edit-task-title">标题 <em className="edit-task-required">*</em></label>
+                <span className="edit-task-field-side">
+                  <SourceTag pristine={title === initial.title} />
+                  <span className="edit-task-count">{title.length}/{TITLE_MAX}</span>
+                </span>
+              </div>
+              <input
+                id="edit-task-title"
+                ref={firstFieldRef}
+                value={title}
+                maxLength={TITLE_MAX}
+                disabled={busy}
+                onChange={(event) => setTitle(event.target.value)}
+              />
+            </div>
+            <div className="edit-task-field">
+              <div className="edit-task-label-row">
+                <label htmlFor="edit-task-content">任务内容</label>
+                <span className="edit-task-field-side">
+                  <SourceTag pristine={content === initial.content} />
+                  <span className="edit-task-count">{content.length}/{CONTENT_MAX}</span>
+                </span>
+              </div>
+              <textarea
+                id="edit-task-content"
+                rows={3}
+                value={content}
+                maxLength={CONTENT_MAX}
+                placeholder="请输入任务的详细内容，例如目标、要求、参考链接等…"
+                disabled={busy}
+                onChange={(event) => setContent(event.target.value)}
+              />
+            </div>
+          </Section>
+
+          <Section title="任务属性">
+            <RadioBlock
+              legend="状态"
+              required
+              pristine={status === initial.status}
+              value={status}
+              disabled={busy}
+              options={statusOptions}
+              onChange={setStatus}
+            />
+            <RadioBlock
+              legend="优先级"
+              required
+              pristine={priority === initial.priority}
+              value={priority}
+              disabled={busy}
+              options={PRIORITY_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+              onChange={setPriority}
+            />
+            <RadioBlock
+              legend="风险等级"
+              required
+              pristine={riskLevel === initial.risk_level}
+              value={riskLevel}
+              disabled={busy}
+              options={RISK_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+              onChange={setRiskLevel}
+            />
+          </Section>
+
+          <Section title="时间安排">
+            <div className="edit-task-grid">
+              <div className="edit-task-field">
+                <div className="edit-task-label-row">
+                  <label htmlFor="edit-task-start">开始日期</label>
+                  <SourceTag pristine={startDate === initial.start_date} />
+                </div>
+                <input
+                  id="edit-task-start"
+                  type="date"
+                  value={startDate}
+                  disabled={busy}
+                  onChange={(event) => setStartDate(event.target.value)}
+                />
+              </div>
+              <div className="edit-task-field">
+                <div className="edit-task-label-row">
+                  <label htmlFor="edit-task-due">截止日期</label>
+                  <SourceTag pristine={dueAt === initial.due_at} />
+                </div>
+                <input
+                  id="edit-task-due"
+                  type="date"
+                  value={dueAt}
+                  disabled={busy}
+                  onChange={(event) => setDueAt(event.target.value)}
+                />
+              </div>
+            </div>
+          </Section>
+
+          <Section title="负责人">
+            <div className="edit-task-owner" data-edit-task-owner>
+              <span className="edit-task-owner-name">{ownerName}（默认本人）</span>
+              <span className="edit-task-owner-hint">默认当前登录用户，无需手动选择</span>
+            </div>
+          </Section>
+
+          {error ? <p className="edit-task-error" role="alert">{error}</p> : null}
+        </div>
+        <footer className="edit-task-actions">
           <button
             type="button"
             className="btn ghost sm"
@@ -307,7 +374,16 @@ export default function EditTaskDialog({
           >
             取消
           </button>
-        </div>
+          <button
+            type="button"
+            className="btn work sm"
+            data-edit-task-save
+            disabled={busy || !formDirty}
+            onClick={() => void submitForm()}
+          >
+            {busy ? "正在保存…" : "保存修改"}
+          </button>
+        </footer>
       </div>
     </div>,
     document.body,
@@ -320,16 +396,23 @@ function RadioBlock({
   options,
   disabled,
   onChange,
+  required,
+  pristine,
 }: {
   legend: string;
   value: string;
-  options: Array<{ value: string; label: string; disabled?: boolean }>;
+  options: Array<{ value: string; label: string; disabled?: boolean; hint?: string }>;
   disabled?: boolean;
   onChange: (value: string) => void;
+  required?: boolean;
+  pristine?: boolean;
 }) {
   return (
     <fieldset className="edit-task-radios" disabled={disabled}>
-      <legend>{legend}</legend>
+      <div className="edit-task-label-row">
+        <legend>{legend} {required ? <em className="edit-task-required">*</em> : null}</legend>
+        <SourceTag pristine={Boolean(pristine)} />
+      </div>
       <div className="edit-task-radio-row">
         {options.map((option) => {
           const on = option.value === value;
@@ -337,6 +420,7 @@ function RadioBlock({
             <label
               key={option.value}
               className={"edit-task-radio" + (on ? " is-on" : "") + (option.disabled ? " is-disabled" : "")}
+              title={option.hint || undefined}
             >
               <input
                 type="radio"
