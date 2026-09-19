@@ -480,7 +480,27 @@ async function hydrateConversationById(conversationId: string): Promise<number> 
   return hydrateMailThread(thread);
 }
 
-async function syncRemainingConversations(remaining: Json[], mailbox: string): Promise<void> {
+async function fetchConversationPage(pageNo: number, pageSize: number, mailbox: string): Promise<{ pageNo: number; pageSize: number; total: number; conversations: Json[] }> {
+  const listed = await executeStarryKolTask("email_conversation_list", {
+    pageNo,
+    pageSize,
+    ...(mailbox ? { mailboxEmail: mailbox } : {}),
+  }, "host");
+  const total = Number(listed.total ?? 0);
+  const conversations = listOf(listed.data).filter((conv) => {
+    const remoteMailbox = conversationMailboxOf(conv);
+    return !mailbox || !remoteMailbox || remoteMailbox.toLowerCase() === mailbox.toLowerCase();
+  });
+  return { pageNo, pageSize, total, conversations };
+}
+
+async function syncRemainingConversations(
+  remaining: Json[],
+  mailbox: string,
+  startPageNo: number,
+  userId: string,
+  syncedAt: string,
+): Promise<void> {
   for (let i = 0; i < remaining.length; i += 5) {
     const batch = remaining.slice(i, i + 5);
     await mapLimited(batch, 5, async (conv) => {
@@ -491,11 +511,17 @@ async function syncRemainingConversations(remaining: Json[], mailbox: string): P
   }
 }
 
-function scheduleBackgroundSync(remaining: Json[], mailbox: string): Promise<void> {
+function scheduleBackgroundSync(
+  remaining: Json[],
+  mailbox: string,
+  startPageNo: number,
+  userId: string,
+  syncedAt: string,
+): Promise<void> {
   if (backgroundSyncTask) return backgroundSyncTask;
   backgroundSyncTask = (async () => {
     try {
-      await syncRemainingConversations(remaining, mailbox);
+      await syncRemainingConversations(remaining, mailbox, startPageNo, userId, syncedAt);
     } catch (error) {
       audit("host", "starrykol.followed_mail_sync_background_failed", {
         error: error instanceof Error ? error.message : String(error),
@@ -569,6 +595,10 @@ export async function syncFollowedKolMail(): Promise<FollowedMailSync> {
   const mailbox = boundMailboxEmail() || scope.mailbox_email || "";
   const collabs = followedCollaborations(mailbox);
   const userId = safeEmployeeId();
+  const binding = userId
+    ? getConn().prepare("SELECT sync_page_no FROM user_starry_bindings WHERE user_id=?").get(userId) as { sync_page_no?: number } | undefined
+    : undefined;
+  const startPageNo = Number(binding?.sync_page_no ?? 1);
   if (!collabs.length && !mailbox) {
     const empty: FollowedMailSync = {
       ok: true,
@@ -588,17 +618,9 @@ export async function syncFollowedKolMail(): Promise<FollowedMailSync> {
     return empty;
   }
   try {
-    const listed = await executeStarryKolTask("email_conversation_list", {
-      pageNo: 1,
-      pageSize: 50,
-      ...(mailbox ? { mailboxEmail: mailbox } : {}),
-    }, "host");
     // pageEmailConversations does not expose a mailbox filter in its MCP schema.
     // The remote currently ignores mailboxEmail and may return other employees' rows.
-    const conversations = listOf(listed.data).filter((conv) => {
-      const remoteMailbox = conversationMailboxOf(conv);
-      return !mailbox || !remoteMailbox || remoteMailbox.toLowerCase() === mailbox.toLowerCase();
-    });
+    const { conversations, total: firstPageTotal } = await fetchConversationPage(startPageNo, 50, mailbox);
     let inbound = 0;
     let inserted = 0;
     let updated = 0;
@@ -737,7 +759,7 @@ export async function syncFollowedKolMail(): Promise<FollowedMailSync> {
       tool: "pageEmailConversations",
     });
     audit("host", "starrykol.followed_mail_sync", result);
-    scheduleBackgroundSync(remainingCandidates, mailbox);
+    scheduleBackgroundSync(remainingCandidates, mailbox, startPageNo, userId, syncedAt);
     return result;
   } catch (error) {
     const result: FollowedMailSync = {
