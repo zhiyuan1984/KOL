@@ -71,6 +71,11 @@ export type MailBoxStatus = {
   last_tool: string | null;
   cursor_at: string | null;
   cursor_id: string | null;
+  cursor_page_no: number | null;
+};
+
+type StarryBindingRow = Row & {
+  sync_page_no?: number;
 };
 
 const MATCH_STATES = new Set<MatchState>(["matched", "unbound", "deferred", "ignored"]);
@@ -264,7 +269,7 @@ export function findMailThread(id: string, mailbox?: string): Row | undefined {
 export function mailboxBoxStatus(mailbox?: string): MailBoxStatus {
   const box = mailbox === undefined ? currentMailbox() : mailbox;
   const userId = safeEmployeeId();
-  const bind = userId ? starryBindingRow(userId) : undefined;
+  const bind = userId ? starryBindingRow(userId) as StarryBindingRow | undefined : undefined;
   const unread = unreadCountForMailbox(box);
   return {
     mailbox: box || String(bind?.mailbox_email || ""),
@@ -275,6 +280,7 @@ export function mailboxBoxStatus(mailbox?: string): MailBoxStatus {
     last_tool: bind?.last_tool ? String(bind.last_tool) : null,
     cursor_at: bind?.sync_cursor_at ? String(bind.sync_cursor_at) : null,
     cursor_id: bind?.sync_cursor_id ? String(bind.sync_cursor_id) : null,
+    cursor_page_no: bind?.sync_page_no ?? 1,
   };
 }
 
@@ -319,20 +325,22 @@ export function updateBindingSyncCursor(input: {
   syncedAt: string;
   cursorAt?: string;
   cursorId?: string;
+  pageNo?: number;
   error?: string;
   tool?: string;
 }): void {
   const userId = String(input.userId || safeEmployeeId() || "");
   if (!userId) return;
-  const existing = starryBindingRow(userId);
+  const existing = starryBindingRow(userId) as StarryBindingRow | undefined;
   if (!existing) return;
   getConn().prepare(
     `UPDATE user_starry_bindings
-     SET sync_cursor_at=?, sync_cursor_id=?, synced_at=?, last_error=?, last_tool=?, updated_at=?
+     SET sync_cursor_at=?, sync_cursor_id=?, sync_page_no=?, synced_at=?, last_error=?, last_tool=?, updated_at=?
      WHERE user_id=?`,
   ).run(
     input.cursorAt || existing.sync_cursor_at || "",
     input.cursorId || existing.sync_cursor_id || "",
+    Number.isFinite(input.pageNo) ? input.pageNo : (existing.sync_page_no ?? 1),
     input.syncedAt,
     input.error || "",
     input.tool || "pageEmailConversations",

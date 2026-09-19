@@ -1418,6 +1418,7 @@ function migrateSchema(db: SqliteConn): void {
             updated_at TEXT NOT NULL,
             sync_cursor_at TEXT,
             sync_cursor_id TEXT,
+            sync_page_no INTEGER NOT NULL DEFAULT 1,
             synced_at TEXT,
             last_error TEXT,
             last_tool TEXT,
@@ -1426,6 +1427,7 @@ function migrateSchema(db: SqliteConn): void {
   `);
   add(db, "user_starry_bindings", "sync_cursor_at", "TEXT");
   add(db, "user_starry_bindings", "sync_cursor_id", "TEXT");
+  add(db, "user_starry_bindings", "sync_page_no", "INTEGER NOT NULL DEFAULT 1");
   add(db, "user_starry_bindings", "synced_at", "TEXT");
   add(db, "user_starry_bindings", "last_error", "TEXT");
   add(db, "user_starry_bindings", "last_tool", "TEXT");
