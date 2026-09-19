@@ -153,6 +153,7 @@
   --control-border: #77808c;
   --control-border-hover: #a2a8b2;
   --control-border-invalid: #ef7777;
+  --control-bg: #23262c;
   --focus-ring: #ffffff;
   --text: #f1f3f5;
   --text-muted: #a2a8b2;
@@ -172,6 +173,7 @@
     --control-border: #77808c;
     --control-border-hover: #a2a8b2;
     --control-border-invalid: #ef7777;
+    --control-bg: #23262c;
     --focus-ring: #ffffff;
     --text: #f1f3f5;
     --text-muted: #a2a8b2;
