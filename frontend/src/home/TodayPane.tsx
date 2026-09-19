@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { Task, TaskEvent, TodayBrief } from "../api";
 import PlanBriefCard from "./PlanBriefCard";
-import TodayPlanBoard from "./TodayPlanBoard";
+import TaskBoard from "./TaskBoard";
 import TodayPlanProgress from "./TodayPlanProgress";
 import { whyLine } from "./homeModel";
 import { TODAY_PLAN_REFRESH_EVENT, type TodayPlanPhase } from "./todayPlan";
-import "./today-display-row.css";
 
 export default function TodayPane({
   todayTodos,
@@ -58,7 +57,7 @@ export default function TodayPane({
 
       <PlanBriefCard brief={brief} phase={phase} events={events} busy={busy} onAct={onAct} rows={rows} />
 
-      <TodayPlanBoard rows={rows} busy={busy} loading={loading} onAct={onAct} onEdit={onEdit} />
+      <TaskBoard title="今日工作计划" scope="today" rows={rows} busy={busy} loading={loading} onAct={onAct} onEdit={onEdit} />
     </section>
   );
 }

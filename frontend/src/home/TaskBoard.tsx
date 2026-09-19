@@ -6,6 +6,7 @@ import { TODAY_PLAN_REFRESH_EVENT } from "./todayPlan";
 import "./today-plan-board.css";
 
 type BoardFilter = "all" | "iu" | "in" | "ui" | "nn";
+type TaskBoardScope = "today" | "todo";
 
 const FILTERS: Array<{ value: BoardFilter; label: string }> = [
   { value: "all", label: "全部" },
@@ -16,6 +17,17 @@ const FILTERS: Array<{ value: BoardFilter; label: string }> = [
 ];
 
 const COLLAPSED_ROWS = 5;
+
+const SCOPE_EMPTY_COPY: Record<TaskBoardScope, { title: string; hint: string }> = {
+  today: {
+    title: "今天没有需要处理的任务",
+    hint: "逾期、今天开始或到期、进行中和高优先的任务会出现在这里。",
+  },
+  todo: {
+    title: "没有待办任务",
+    hint: "今日范围之外的未了结任务会出现在这里。",
+  },
+};
 
 function isImportant(task: Task): boolean {
   return taskPriorityRank(task) <= 2;
@@ -45,18 +57,24 @@ function matchesQuery(task: Task, query: string): boolean {
     .includes(needle);
 }
 
-export default function TodayPlanBoard({
+export default function TaskBoard({
+  title,
+  scope,
   rows,
   busy,
   loading,
   onAct,
   onEdit,
+  showPlanButton = scope === "today",
 }: {
+  title: string;
+  scope: TaskBoardScope;
   rows: Task[];
   busy: boolean;
   loading: boolean;
   onAct: (task: Task) => void;
   onEdit?: (task: Task) => void;
+  showPlanButton?: boolean;
 }) {
   const [filter, setFilter] = useState<BoardFilter>("all");
   const [query, setQuery] = useState("");
@@ -93,14 +111,18 @@ export default function TodayPlanBoard({
     });
   };
 
+  const emptyCopy = SCOPE_EMPTY_COPY[scope];
+  const filterLabel = scope === "todo" ? "筛选待办任务" : "筛选今日任务";
+
   return (
     <section
       className="today-board"
-      data-today-list
+      data-today-list={scope === "today" ? true : undefined}
+      data-todo-list={scope === "todo" ? true : undefined}
       data-today-formal
       data-today-source="work_items"
       data-list-total={rows.length}
-      aria-label="今日任务"
+      aria-label={scope === "todo" ? "待办任务" : "今日任务"}
     >
       <header className="today-board-head">
         <span className="today-board-head-icon" aria-hidden>
@@ -109,7 +131,7 @@ export default function TodayPlanBoard({
             <path d="M8 12.2l2.6 2.6L16.4 9" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </span>
-        <h2 className="today-board-title">今日工作计划</h2>
+        <h2 className="today-board-title">{title}</h2>
         <span className="today-board-count">· {rows.length} 项任务</span>
         <div className="today-board-tools">
           <input
@@ -120,17 +142,19 @@ export default function TodayPlanBoard({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
-          <button
-            type="button"
-            className="today-board-plan-btn"
-            onClick={() => window.dispatchEvent(new Event(TODAY_PLAN_REFRESH_EVENT))}
-          >
-            自动启今日任务计划
-          </button>
+          {showPlanButton ? (
+            <button
+              type="button"
+              className="today-board-plan-btn"
+              onClick={() => window.dispatchEvent(new Event(TODAY_PLAN_REFRESH_EVENT))}
+            >
+              自动启今日任务计划
+            </button>
+          ) : null}
         </div>
       </header>
 
-      <div className="today-board-filters" role="group" aria-label="筛选今日任务">
+      <div className="today-board-filters" role="group" aria-label={filterLabel}>
         {FILTERS.map(({ value, label }) => (
           <button
             key={value}
@@ -182,8 +206,8 @@ export default function TodayPlanBoard({
         </table>
       ) : (
         <div className="task-empty" data-today-list-empty={loading ? "loading" : "none"}>
-          <strong>{loading ? "正在读取当前任务" : rows.length ? "没有符合筛选条件的任务" : "今天没有需要处理的任务"}</strong>
-          <p>{loading ? "正在读取任务记忆。" : "逾期、今天开始或到期、进行中和高优先的任务会出现在这里。"}</p>
+          <strong>{loading ? "正在读取当前任务" : rows.length ? "没有符合筛选条件的任务" : emptyCopy.title}</strong>
+          <p>{loading ? "正在读取任务记忆。" : emptyCopy.hint}</p>
         </div>
       )}
 
