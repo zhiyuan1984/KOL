@@ -3,6 +3,7 @@ import { audit, getConn, nowIso, tx } from "../db.js";
 import { nid } from "../ids.js";
 import { requireTaskDefinition } from "../tasks/registry.js";
 import type { Json } from "../types.js";
+import type { WorkerProgress } from "../worker/progress.js";
 import { authDisabled, isAdmin, scopedUser } from "../auth.js";
 import { appendTaskEvent } from "../routers/tasks.js";
 import { runWorker } from "../worker/runner.js";
@@ -170,6 +171,20 @@ export async function executeTodayPlanRun(input: {
     work_item_id: input.workItemId,
     task_run_id: input.runId,
   });
+  let streamText = "";
+  let streamHandle: ReturnType<typeof setTimeout> | null = null;
+  const flushStream = () => {
+    streamHandle = null;
+    const text = streamText.replace(/\*\*/g, "").trim().slice(-600);
+    if (text) {
+      appendTaskEvent(input.workItemId, input.runId, "run.stream", "Codex 推理", "running", text);
+    }
+  };
+  const onStream = (progress: WorkerProgress) => {
+    if (progress.trace?.kind !== "reasoning" || !progress.summary) return;
+    streamText = progress.summary;
+    if (!streamHandle) streamHandle = setTimeout(flushStream, 1200);
+  };
   try {
     appendTaskEvent(
       input.workItemId,
@@ -184,7 +199,13 @@ export async function executeTodayPlanRun(input: {
       "today_plan",
       "规划今天的工作。只输出 today_brief JSON。",
       extra,
+      undefined,
+      onStream,
     ));
+    if (streamHandle) {
+      clearTimeout(streamHandle);
+      flushStream();
+    }
     appendTaskEvent(
       input.workItemId,
       input.runId,

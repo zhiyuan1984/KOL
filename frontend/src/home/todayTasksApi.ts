@@ -12,6 +12,7 @@ export async function fetchTodayTasks(): Promise<DisplayTaskRow[]> {
   const response = await fetch("/api/home/today-tasks", {
     credentials: "same-origin",
     headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(30_000),
   });
   if (!response.ok) return [];
   const body = await response.json().catch(() => null) as TodayTasksResponse | null;

@@ -54,15 +54,6 @@ export default function TodayPane({
     <section className="home-mode-pane" data-home-pane="today">
       <TodayPlanProgress phase={phase} events={events} />
 
-      {Array.isArray(brief?.reasoning) && brief.reasoning.length ? (
-          <details className="today-reasoning" data-today-reasoning>
-            <summary>Codex 推理过程</summary>
-            <ol className="today-reasoning-ol">
-              {brief.reasoning.map((line, index) => <li key={index}>{line}</li>)}
-            </ol>
-          </details>
-        ) : null}
-
       {brief ? (
         <section className="today-brief" data-today-brief>
           {brief.lead ? <p className="today-brief-lead" data-today-lead>{brief.lead}</p> : null}
@@ -85,7 +76,7 @@ export default function TodayPane({
             )
           ) : null}
           {sections.length ? (
-            <div className="today-brief-sections" data-today-sections>
+            <div className="today-brief-sections" data-today-sections key={String(brief.increment_summary || brief.lead || "")}>
               {sections.map((section, index) => (
                 <article key={`${section.title || "sec"}-${index}`} className="today-brief-section" data-today-section>
                   {section.title ? <h3>{section.title}</h3> : null}

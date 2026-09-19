@@ -38,6 +38,10 @@ export default function TodayPlanProgress({
   const elapsed = usePlanningElapsed(planning);
   const status = todayPlanStatusCopy(phase);
   const labels = todayPlanEventLabels(events);
+  const streamEvent = planning
+    ? [...(events || [])].reverse().find((event) => String(event.type || "") === "run.stream")
+    : undefined;
+  const streamText = String(streamEvent?.summary || "").trim();
   if (!status && !labels.length) return null;
   return (
     <div
@@ -67,6 +71,12 @@ export default function TodayPlanProgress({
             <li key={`${label}-${index}`} data-today-plan-event={label}>{label}</li>
           ))}
         </ol>
+      ) : null}
+      {streamText ? (
+        <div className="today-plan-stream" data-today-plan-stream>
+          <span className="today-plan-stream-label">Codex 推理过程</span>
+          <p className="today-plan-stream-text">{streamText}</p>
+        </div>
       ) : null}
     </div>
   );

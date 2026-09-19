@@ -11,3 +11,34 @@
   color: var(--text-muted, #6b6b6b);
   letter-spacing: 0;
 }
+
+@keyframes today-plan-step-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.today-plan-events > li {
+  animation: today-plan-step-in 0.3s ease both;
+}
+.today-plan-stream {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--primary, #d46a8a);
+  background: var(--bg-subtle, rgba(0, 0, 0, 0.03));
+  border-radius: 6px;
+}
+.today-plan-stream-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted, #6b6b6b);
+  margin-bottom: 2px;
+}
+.today-plan-stream-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+@media (prefers-reduced-motion: reduce) {
+  .today-plan-events > li { animation: none; }
+}

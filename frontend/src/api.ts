@@ -515,7 +515,22 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
   const { optional, ...init } = options;
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
-  const response = await fetch(path, { credentials: "same-origin", ...init, headers });
+  const signals = [init.signal, AbortSignal.timeout(45_000)].filter(Boolean) as AbortSignal[];
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      credentials: "same-origin",
+      ...init,
+      headers,
+      signal: signals.length > 1 ? AbortSignal.any(signals) : signals[0],
+    });
+  } catch (cause) {
+    const name = String((cause as Error)?.name || "");
+    if (name === "TimeoutError" || name === "AbortError") {
+      throw httpError(0, null, "请求超时或网络中断，请稍后重试");
+    }
+    throw cause;
+  }
   const body = await readJson(response);
   if (!response.ok) {
     if (optional && (response.status === 404 || response.status === 405)) return null as T;
