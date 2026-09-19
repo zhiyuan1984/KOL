@@ -75,11 +75,6 @@ function initialRisk(task: Task): string {
   return RISK_OPTIONS.some((option) => option.value === level) ? level : "none";
 }
 
-function SourceTag({ pristine }: { pristine: boolean }) {
-  if (!pristine) return null;
-  return <span className="edit-task-source">源表带出</span>;
-}
-
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="edit-task-section">
@@ -261,7 +256,6 @@ export default function EditTaskDialog({
               <div className="edit-task-label-row">
                 <label htmlFor="edit-task-title">标题 <em className="edit-task-required">*</em></label>
                 <span className="edit-task-field-side">
-                  <SourceTag pristine={title === initial.title} />
                   <span className="edit-task-count">{title.length}/{TITLE_MAX}</span>
                 </span>
               </div>
@@ -278,7 +272,6 @@ export default function EditTaskDialog({
               <div className="edit-task-label-row">
                 <label htmlFor="edit-task-content">任务内容</label>
                 <span className="edit-task-field-side">
-                  <SourceTag pristine={content === initial.content} />
                   <span className="edit-task-count">{content.length}/{CONTENT_MAX}</span>
                 </span>
               </div>
@@ -298,7 +291,6 @@ export default function EditTaskDialog({
             <RadioBlock
               legend="状态"
               required
-              pristine={status === initial.status}
               value={status}
               disabled={busy}
               options={statusOptions}
@@ -307,7 +299,6 @@ export default function EditTaskDialog({
             <RadioBlock
               legend="优先级"
               required
-              pristine={priority === initial.priority}
               value={priority}
               disabled={busy}
               options={PRIORITY_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
@@ -316,7 +307,6 @@ export default function EditTaskDialog({
             <RadioBlock
               legend="风险等级"
               required
-              pristine={riskLevel === initial.risk_level}
               value={riskLevel}
               disabled={busy}
               options={RISK_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
@@ -329,7 +319,6 @@ export default function EditTaskDialog({
               <div className="edit-task-field">
                 <div className="edit-task-label-row">
                   <label htmlFor="edit-task-start">开始日期</label>
-                  <SourceTag pristine={startDate === initial.start_date} />
                 </div>
                 <input
                   id="edit-task-start"
@@ -342,7 +331,6 @@ export default function EditTaskDialog({
               <div className="edit-task-field">
                 <div className="edit-task-label-row">
                   <label htmlFor="edit-task-due">截止日期</label>
-                  <SourceTag pristine={dueAt === initial.due_at} />
                 </div>
                 <input
                   id="edit-task-due"
@@ -362,7 +350,6 @@ export default function EditTaskDialog({
                 <path d="M4 20c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
               </svg>
               <span className="edit-task-owner-name">{ownerName}（默认本人）</span>
-              <span className="edit-task-owner-hint">默认当前登录用户，无需手动选择</span>
             </div>
           </Section>
 
@@ -401,7 +388,6 @@ function RadioBlock({
   disabled,
   onChange,
   required,
-  pristine,
 }: {
   legend: string;
   value: string;
@@ -409,13 +395,11 @@ function RadioBlock({
   disabled?: boolean;
   onChange: (value: string) => void;
   required?: boolean;
-  pristine?: boolean;
 }) {
   return (
     <fieldset className="edit-task-radios" disabled={disabled}>
       <div className="edit-task-label-row">
         <legend>{legend} {required ? <em className="edit-task-required">*</em> : null}</legend>
-        <SourceTag pristine={Boolean(pristine)} />
       </div>
       <div className="edit-task-radio-row">
         {options.map((option) => {

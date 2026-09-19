@@ -92,7 +92,7 @@
 }
 .edit-task-field label,
 .edit-task-radios legend {
-  font-size: var(--font-sm);
+  font-size: 12px;
   color: var(--text-muted);
 }
 .edit-task-required {
@@ -103,15 +103,6 @@
   display: inline-flex;
   align-items: baseline;
   gap: 8px;
-}
-.edit-task-source {
-  font-size: 11px;
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0 7px;
-  line-height: 16px;
-  white-space: nowrap;
 }
 .edit-task-count {
   font-size: 11px;
@@ -160,7 +151,7 @@
 .edit-task-field input,
 .edit-task-field textarea {
   font-family: var(--sans);
-  font-size: var(--font-body);
+  font-size: 14px;
   color: var(--text);
   background: var(--control-bg, #f5f5f6);
   border: 1px solid transparent;
@@ -194,10 +185,6 @@
   font-size: var(--font-body);
   color: var(--text);
   font-weight: 600;
-}
-.edit-task-owner-hint {
-  font-size: 11px;
-  color: var(--text-muted);
 }
 .edit-task-error {
   margin: 0;
