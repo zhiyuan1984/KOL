@@ -6892,7 +6892,7 @@ body {
   height: var(--scrollbar-size);
 }
 
-.main > :not(.session-shell):not(.home-pane):not(.admin-shell) {
+.main > :not(.session-shell):not(.home-pane):not(.admin-shell):not(.skill-catalog-page) {
   width: 100%;
   max-width: var(--content-max);
   margin-inline: auto;
