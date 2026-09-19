@@ -12,7 +12,7 @@ import {
   mailboxBoxStatus,
   messageRowOf,
 } from "../host/mail-memory.js";
-import { ensureFollowedMailSync, lastSyncReceipt } from "../starrykol/mail-sync.js";
+import { ensureFollowedMailSync, hydrateMailThread, lastSyncReceipt } from "../starrykol/mail-sync.js";
 
 export const mail = new Hono();
 
@@ -43,12 +43,19 @@ mail.get("/mail/conversations", (c) => {
   });
 });
 
-mail.get("/mail/conversations/:id", (c) => {
+mail.get("/mail/conversations/:id", async (c) => {
   c.header("Cache-Control", "no-store");
   const thread = findMailThread(c.req.param("id"));
   if (!thread) throw new HttpFail(404, "conversation not found");
-  const conversation = conversationRowOf(thread);
-  const messages = itemsForConversation(conversation.conversation_id, conversation.mailbox).map(messageRowOf);
+  let conversation = conversationRowOf(thread);
+  let stored = itemsForConversation(conversation.conversation_id, conversation.mailbox);
+  if (!stored.some((item) => String(item.body_text || "").trim())) {
+    await hydrateMailThread(thread);
+    const refreshed = findMailThread(c.req.param("id")) || thread;
+    conversation = conversationRowOf(refreshed);
+    stored = itemsForConversation(conversation.conversation_id, conversation.mailbox);
+  }
+  const messages = stored.map(messageRowOf);
   return c.json({
     ...MEMORY,
     conversation,

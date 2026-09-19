@@ -392,6 +392,81 @@ export async function readConversation(conversationId: string): Promise<{ messag
   }
 }
 
+/** Fetch a thread body once on demand, then serve subsequent opens from local memory. */
+export async function hydrateMailThread(thread: Row): Promise<number> {
+  const conversationId = String(thread.conversation_id || "");
+  if (!conversationId) return 0;
+  const detail = await readConversation(conversationId);
+  if (!detail.messages.length) return 0;
+  const col = thread.collaboration_id
+    ? getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(thread.collaboration_id) as Row | undefined
+    : undefined;
+  const mailbox = String(thread.mailbox || "");
+  const subject = conversationSubject(
+    { subject: thread.subject },
+    { subject: detail.subject },
+    ...detail.messages,
+  ) || String(thread.subject || "(无主题)");
+  let inserted = 0;
+  for (const message of detail.messages) {
+    if (rememberItem(String(thread.id), col ? String(col.id) : null, conversationId, message, subject, col, mailbox)) {
+      inserted += 1;
+    }
+  }
+  const latest = detail.messages[detail.messages.length - 1];
+  const snippet = messageBody(latest);
+  const from = messageFrom(latest);
+  getConn().prepare(
+    `UPDATE kol_mail_threads
+       SET subject=?, last_snippet=?, last_preview=?, last_from=?, last_from_name=?, last_at=?, updated_at=?
+     WHERE id=?`,
+  ).run(
+    subject,
+    snippet,
+    mailPreview(snippet),
+    from.email,
+    from.name,
+    detail.occurredAt || thread.last_at || nowIso(),
+    nowIso(),
+    thread.id,
+  );
+  refreshThreadDigest(String(thread.id), conversationId, mailbox);
+  return inserted;
+}
+
+function timestampMs(value: unknown): number {
+  const raw = String(value || "").trim();
+  if (!raw) return 0;
+  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(raw)
+    ? `${raw.replace(" ", "T")}+08:00`
+    : raw;
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function remoteConversationTime(conv: Json): string {
+  return firstString(
+    conv.lastMessageTime,
+    conv.lastMessageAt,
+    conv.updatedTime,
+    conv.updatedAt,
+    conv.ts,
+  );
+}
+
+async function mapLimited<T, R>(values: T[], limit: number, fn: (value: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, limit), values.length) }, async () => {
+    while (cursor < values.length) {
+      const index = cursor++;
+      results[index] = await fn(values[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
 function toSyncReceipt(result: FollowedMailSync): SyncReceipt {
   return {
     ok: result.ok,
@@ -444,13 +519,39 @@ export async function syncFollowedKolMail(): Promise<FollowedMailSync> {
       pageSize: 50,
       ...(mailbox ? { mailboxEmail: mailbox } : {}),
     }, "host");
-    const conversations = listOf(listed.data);
+    // pageEmailConversations does not expose a mailbox filter in its MCP schema.
+    // The remote currently ignores mailboxEmail and may return other employees' rows.
+    const conversations = listOf(listed.data).filter((conv) => {
+      const remoteMailbox = conversationMailboxOf(conv);
+      return !mailbox || !remoteMailbox || remoteMailbox.toLowerCase() === mailbox.toLowerCase();
+    });
     let inbound = 0;
     let inserted = 0;
     let updated = 0;
     let cursorAt = "";
     let cursorId = "";
-    let detailBudget = 30;
+    const detailCandidates = conversations.filter((conv) => {
+      const conversationId = conversationIdOf(conv);
+      if (!conversationId) return false;
+      const lookupMailbox = mailbox || conversationMailboxOf(conv);
+      const existing = getConn().prepare(
+        "SELECT last_at FROM kol_mail_threads WHERE conversation_id=? ORDER BY updated_at DESC LIMIT 1",
+      ).get(conversationId) as { last_at?: string } | undefined;
+      const binding = lookupMailbox ? getConn().prepare(
+        "SELECT sync_cursor_at FROM user_starry_bindings WHERE lower(mailbox_email)=lower(?) LIMIT 1",
+      ).get(lookupMailbox) as { sync_cursor_at?: string } | undefined : undefined;
+      const unread = Number(conv.unreadCount ?? conv.unread_count);
+      const remoteAt = remoteConversationTime(conv);
+      const rememberedAt = Math.max(timestampMs(existing?.last_at), timestampMs(binding?.sync_cursor_at));
+      return !existing
+        || (Number.isFinite(unread) && unread > 0)
+        || (timestampMs(remoteAt) > rememberedAt);
+    }).slice(0, 30);
+    const detailRows = await mapLimited(detailCandidates, 5, async (conv) => ({
+      conversationId: conversationIdOf(conv),
+      detail: await readConversation(conversationIdOf(conv)),
+    }));
+    const details = new Map(detailRows.map((row) => [row.conversationId, row.detail]));
     for (const conv of conversations) {
       const conversationId = conversationIdOf(conv);
       if (!conversationId) continue;
@@ -460,11 +561,8 @@ export async function syncFollowedKolMail(): Promise<FollowedMailSync> {
       let messages: Json[] = [];
       const listedUnread = Number(conv.unreadCount ?? conv.unread_count);
       const listedSnippet = messageBody(conv);
-      const needsDetail = !subject || !listedSnippet || !Number.isFinite(listedUnread) || listedUnread > 0
-        || inboundOf(conv, col, mailbox);
-      if (needsDetail && detailBudget > 0) {
-        detailBudget -= 1;
-        const detail = await readConversation(conversationId);
+      const detail = details.get(conversationId);
+      if (detail) {
         messages = detail.messages;
         subject = conversationSubject({ subject }, { subject: detail.subject }, conv, ...detail.messages) || subject;
       }
@@ -485,7 +583,7 @@ export async function syncFollowedKolMail(): Promise<FollowedMailSync> {
       const unread = Number.isFinite(listedUnread) && listedUnread >= 0
         ? listedUnread
         : (unreadFromMessages || (inboundOf(conv, col, mailbox) && isUnread(conv) ? 1 : 0));
-      const lastAt = messageOccurredAt(latestInbound || conv) || firstString(conv.lastMessageAt, conv.updatedAt, conv.ts);
+      const lastAt = messageOccurredAt(latestInbound || conv) || remoteConversationTime(conv);
       const threadMailbox = mailbox || conversationMailboxOf(conv) || firstString(conv.mailboxEmail, col?.mailbox_from);
       const thread = upsertThread({
         collaborationId: col ? String(col.id) : null,

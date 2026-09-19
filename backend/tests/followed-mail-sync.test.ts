@@ -24,6 +24,19 @@ async function request(method: string, url: string, body?: unknown) {
   return { status: response.status, body: text ? JSON.parse(text) as Json : {} };
 }
 
+function bindLarry(): void {
+  const now = new Date().toISOString();
+  getConn().prepare(
+    `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+  ).run("usr_sriphy", "sriphy", "鄢棽", "x", JSON.stringify(["employee", "admin"]), "[]", "", 1, now, now);
+  getConn().prepare(
+    `INSERT INTO user_starry_bindings (user_id, mailbox_email, mailbox_id, owner_name, bearer_token, status, updated_at)
+     VALUES (?,?,?,?,?,?,?)
+     ON CONFLICT(user_id) DO UPDATE SET mailbox_email=excluded.mailbox_email, status=excluded.status, updated_at=excluded.updated_at`,
+  ).run("usr_sriphy", "larry.zhao@amperetime.com", "mbx_larry", "赵良玉", "", "connected", now);
+}
+
 beforeEach(async () => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lingong-mail-sync-"));
   process.env.LINGONG_DB = path.join(tmp, "mail.db");
@@ -90,6 +103,68 @@ afterEach(() => {
 });
 
 describe("followed KOL unread mail sync", () => {
+  it("uses local mail memory and skips unchanged remote conversation details", async () => {
+    bindLarry();
+    setStarryKolClientFactory(() => ({
+      async callTool(name: string) {
+        calls.push(name);
+        if (name === "pageEmailConversations") {
+          return { data: { list: [{
+            id: 4901,
+            conversationId: 4901,
+            subject: "Incremental sync",
+            mailboxEmail: "larry.zhao@amperetime.com",
+            unreadCount: 0,
+            lastMessageTime: "2020-09-19 10:00:00",
+          }] } };
+        }
+        if (name === "getEmailConversation") {
+          return { data: { id: 4901, subject: "Incremental sync", messages: [{
+            id: "mid-4901",
+            direction: "inbound",
+            from: "creator@example.com",
+            body: "Stored once",
+            sentAt: "2020-09-19 10:00:00",
+          }] } };
+        }
+        return { data: {} };
+      },
+      async close() { /* noop */ },
+    }));
+
+    await ensureFollowedMailSync(true);
+    expect(calls.filter((name) => name === "getEmailConversation")).toHaveLength(1);
+    expect(getConn().prepare("SELECT conversation_id,mailbox,last_at FROM kol_mail_threads WHERE conversation_id='4901'").get()).toBeTruthy();
+    calls.length = 0;
+    await ensureFollowedMailSync(true);
+    expect(calls).toContain("pageEmailConversations");
+    expect(calls.filter((name) => name === "getEmailConversation")).toHaveLength(0);
+  });
+
+  it("drops conversations belonging to another mailbox", async () => {
+    bindLarry();
+    setStarryKolClientFactory(() => ({
+      async callTool(name: string) {
+        calls.push(name);
+        if (name === "pageEmailConversations") {
+          return { data: { list: [{
+            id: 5901,
+            conversationId: 5901,
+            subject: "Other employee",
+            mailboxEmail: "henry.wei@amperetime.com",
+            unreadCount: 0,
+          }] } };
+        }
+        return { data: {} };
+      },
+      async close() { /* noop */ },
+    }));
+
+    await ensureFollowedMailSync(true);
+    expect(getConn().prepare("SELECT 1 FROM kol_mail_threads WHERE conversation_id='5901'").get()).toBeUndefined();
+    expect(calls).not.toContain("getEmailConversation");
+  });
+
   it("collects Starry inbound threads on home refresh and shows unread by thread id", async () => {
     const first = await request("GET", "/api/home/board?refresh=1");
     expect(first.status).toBe(200);
