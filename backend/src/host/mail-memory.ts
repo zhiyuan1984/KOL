@@ -71,7 +71,7 @@ export type MailBoxStatus = {
   last_tool: string | null;
   cursor_at: string | null;
   cursor_id: string | null;
-  cursor_page_no: number | null;
+  cursor_page_no: number;
 };
 
 type StarryBindingRow = Row & {

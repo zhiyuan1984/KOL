@@ -210,7 +210,8 @@ describe("mailbox memory P0", () => {
     ]);
     expect(first.status).toBe(200);
     expect(second.status).toBe(200);
-    expect(calls.filter((name) => name === "pageEmailConversations")).toHaveLength(2);
+    // total=1 with a single partial page: the background loop must not fetch page 2 (spec §3 stop conditions).
+    expect(calls.filter((name) => name === "pageEmailConversations")).toHaveLength(1);
     const bind = getConn().prepare("SELECT * FROM user_starry_bindings").get() as Json;
     expect(bind.synced_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(String(bind.sync_cursor_at || "")).toBeTruthy();

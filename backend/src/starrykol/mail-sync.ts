@@ -486,12 +486,14 @@ async function fetchConversationPage(pageNo: number, pageSize: number, mailbox: 
     pageSize,
     ...(mailbox ? { mailboxEmail: mailbox } : {}),
   }, "host");
-  const total = Number(listed.total ?? 0);
-  const conversations = listOf(listed.data).filter((conv) => {
+  const payload = (listed.data && typeof listed.data === "object" && !Array.isArray(listed.data) ? listed.data : listed) as Json;
+  const total = Number(payload.total ?? 0);
+  const responsePageSize = Number(payload.pageSize ?? pageSize);
+  const conversations = listOf(payload).filter((conv) => {
     const remoteMailbox = conversationMailboxOf(conv);
     return !mailbox || !remoteMailbox || remoteMailbox.toLowerCase() === mailbox.toLowerCase();
   });
-  return { pageNo, pageSize, total, conversations };
+  return { pageNo, pageSize: Number.isFinite(responsePageSize) && responsePageSize > 0 ? responsePageSize : pageSize, total, conversations };
 }
 
 async function syncRemainingConversations(
@@ -500,6 +502,8 @@ async function syncRemainingConversations(
   startPageNo: number,
   userId: string,
   syncedAt: string,
+  firstPageTotal = 0,
+  firstPageSize = 0,
 ): Promise<void> {
   for (let i = 0; i < remaining.length; i += 5) {
     const batch = remaining.slice(i, i + 5);
@@ -514,9 +518,16 @@ async function syncRemainingConversations(
   const pageSize = 50;
   let pageNo = startPageNo + 1;
   let pagesProcessed = 1; // startPage already counted by foreground
+  let knownTotal = Math.max(0, firstPageTotal);
+  let lastPageSize = Math.max(1, firstPageSize);
   while (pagesProcessed < MAX_BACKGROUND_PAGES) {
-    const { conversations } = await fetchConversationPage(pageNo, pageSize, mailbox);
+    // Spec §3: pageNo * pageSize >= total means no more data — skip the fetch entirely.
+    if (knownTotal > 0 && (pageNo - 1) * lastPageSize >= knownTotal) break;
+    const page = await fetchConversationPage(pageNo, pageSize, mailbox);
+    const conversations = page.conversations;
     if (!conversations.length) break;
+    knownTotal = page.total > 0 ? page.total : knownTotal;
+    lastPageSize = Math.max(1, page.pageSize);
 
     // Persist the fact that we are about to process this page
     updateBindingSyncCursor({ userId, mailbox, syncedAt, pageNo, tool: "pageEmailConversations" });
@@ -548,6 +559,9 @@ async function syncRemainingConversations(
       });
     }
 
+    // Spec §3: a partial page means no more data; so does reaching total.
+    if (conversations.length < lastPageSize) break;
+    if (knownTotal > 0 && pageNo * lastPageSize >= knownTotal) break;
     pageNo += 1;
     pagesProcessed += 1;
   }
@@ -561,11 +575,13 @@ function scheduleBackgroundSync(
   startPageNo: number,
   userId: string,
   syncedAt: string,
+  firstPageTotal = 0,
+  firstPageSize = 0,
 ): Promise<void> {
   if (backgroundSyncTask) return backgroundSyncTask;
   backgroundSyncTask = (async () => {
     try {
-      await syncRemainingConversations(remaining, mailbox, startPageNo, userId, syncedAt);
+      await syncRemainingConversations(remaining, mailbox, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize);
     } catch (error) {
       audit("host", "starrykol.followed_mail_sync_background_failed", {
         error: error instanceof Error ? error.message : String(error),
@@ -664,7 +680,7 @@ export async function syncFollowedKolMail(): Promise<FollowedMailSync> {
   try {
     // pageEmailConversations does not expose a mailbox filter in its MCP schema.
     // The remote currently ignores mailboxEmail and may return other employees' rows.
-    const { conversations, total: firstPageTotal } = await fetchConversationPage(startPageNo, 50, mailbox);
+    const { conversations, total: firstPageTotal, pageSize: firstPageSize } = await fetchConversationPage(startPageNo, 50, mailbox);
     let inbound = 0;
     let inserted = 0;
     let updated = 0;
@@ -803,7 +819,7 @@ export async function syncFollowedKolMail(): Promise<FollowedMailSync> {
       tool: "pageEmailConversations",
     });
     audit("host", "starrykol.followed_mail_sync", result);
-    scheduleBackgroundSync(remainingCandidates, mailbox, startPageNo, userId, syncedAt);
+    scheduleBackgroundSync(remainingCandidates, mailbox, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize);
     return result;
   } catch (error) {
     const result: FollowedMailSync = {
