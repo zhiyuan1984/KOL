@@ -1936,6 +1936,39 @@ summary:focus-visible,
 .ai-discovery-card .discovery-chip[aria-pressed="true"] {
   border-color: var(--color-primary); background: var(--color-pink-tint); color: var(--color-primary);
 }
+
+/* Crawl status / Completed：单行状态卡。左沿与检索区/工具栏/列表一致（只留纵向内边距）。 */
+.discovery-status-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  margin: 0 0 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.discovery-status-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--color-graphite);
+}
+.discovery-status-dot {
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--color-smoke);
+}
+/* 成功态：绿点 + 绿字 + 状态文案三者并存。 */
+.discovery-status-card.is-ok .discovery-status-state { color: var(--color-success-vivid); }
+.discovery-status-card.is-ok .discovery-status-dot { background: var(--color-success-vivid); }
+.discovery-status-rows { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 0; }
+.discovery-status-row { display: flex; align-items: baseline; gap: 6px; }
+.discovery-status-row dt { font-size: 12px; color: var(--color-graphite); }
+.discovery-status-row dd { margin: 0; font-size: 14px; color: var(--text); }
 @media (max-width: 720px) {
   .recommend-md-row {
     grid-template-columns: minmax(0, 1fr);
@@ -10539,4 +10572,117 @@ button.today-brief-primary-btn:disabled {
   .skill-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── T6：Result toolbar + Creator lead row（框线稿 §页面结构 3/4、§组件、§Auto Layout） ── */
+.discovery-run-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+.discovery-run-count { font-size: 14px; font-weight: 600; color: var(--text); }
+.discovery-run-sort { font-size: 12px; color: var(--color-graphite); }
+
+/* 候选列表：Vertical gap 0，以 1px 分隔线区分，不给每行套独立卡片。 */
+.discovery-candidate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.discovery-lead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 76px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.discovery-lead.is-expanded { flex-wrap: wrap; align-items: flex-start; }
+.discovery-lead-avatar {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--color-pink-tint-soft);
+  color: var(--color-primary);
+  font-size: 16px;
+  font-weight: 600;
+}
+.discovery-lead-main { flex: 1 1 320px; min-width: 0; }
+.discovery-lead-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.discovery-lead-nickname { font-size: 16px; font-weight: 600; color: var(--text); }
+.discovery-lead-tag {
+  font-size: 12px;
+  color: var(--color-graphite);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px 8px;
+}
+.discovery-lead-meta,
+.discovery-lead-reason {
+  margin: 4px 0 0;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--color-graphite);
+}
+.discovery-lead-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.discovery-follow-quiet.is-disabled,
+.discovery-follow-quiet[aria-disabled="true"] {
+  color: var(--color-smoke);
+  cursor: not-allowed;
+}
+.discovery-lead-detail {
+  flex: 1 1 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 24px;
+  margin: 12px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px dashed var(--border);
+}
+.discovery-lead-detail-item { display: flex; gap: 8px; min-width: 0; }
+.discovery-lead-detail-item.is-wide { grid-column: 1 / -1; }
+.discovery-lead-detail-item dt { flex: 0 0 auto; font-size: 12px; color: var(--color-graphite); }
+.discovery-lead-detail-item dd { margin: 0; font-size: 14px; color: var(--text); }
+
+/* ── T7：Token 补齐 / 成功态暗色 / 对比度 / 1024 断点 ── */
+:root {
+  --text-16: 16px;
+  --text-18: 18px;
+  --text-20: 20px;
+}
+:root[data-theme="dark"] { --success: #4bb99f; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --success: #4bb99f; }
+}
+/* 成功状态：绿点 + 绿字 + 状态文案三者并存（不靠颜色单独传达）。 */
+.discovery-status-card.is-ok .discovery-status-dot { background: var(--success); }
+.discovery-status-card.is-ok .discovery-status-copy { color: var(--success); }
+
+/* Tablet 1024：筛选项换两列，候选行隐藏次级指标（保留昵称/平台/粉丝/均播）。 */
+@media (max-width: 1024px) {
+  .discovery-condition-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .discovery-condition-row .ai-discovery-field.is-stacked { flex: initial; }
+  .discovery-lead { min-height: 64px; }
+  .discovery-lead-tag,
+  .discovery-lead-reason { display: none; }
+  .discovery-lead-detail { grid-template-columns: minmax(0, 1fr); }
 }

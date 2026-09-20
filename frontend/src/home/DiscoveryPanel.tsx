@@ -2,13 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { presentDiscoveryError, type DiscoveryErrorView } from "./discovery-error";
 import { DiscoveryIngestConfirm } from "./DiscoveryIngestConfirm";
+import DiscoveryRunStatusCard from "./DiscoveryRunStatusCard";
+import DiscoveryLeadRow from "./DiscoveryLeadRow";
+import { platformLabel } from "./discoveryTemplate";
 import {
   presentDiscoveryEvents,
   type DiscoveryProcessStep,
 } from "./discoveryEvents";
 import {
-  displayMetric,
-  displayText,
   ingestFailureBriefVersion,
   ingestFailureKind,
   ingestHomeDiscovery,
@@ -28,7 +29,6 @@ import {
   type HomeDiscoveryEmptyKind,
   type HomeDiscoveryRun,
 } from "./discoveryHome";
-import { platformLabel } from "./discoveryTemplate";
 
 const DISCOVERY_FAILED_FALLBACK = "检索没有完成。可稍后重试。";
 
@@ -55,6 +55,8 @@ export default function DiscoveryPanel({
   const [activeRun, setActiveRun] = useState<HomeDiscoveryRun | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [ignoredIds, setIgnoredIds] = useState<string[]>([]);
+  /** 「查看详情」展开的行；只影响本地展示，不发请求。 */
+  const [expandedIds, setExpandedIds] = useState<string[]>([]);
   const [steps, setSteps] = useState<DiscoveryProcessStep[]>([]);
   const [running, setRunning] = useState(false);
   const [failure, setFailure] = useState<DiscoveryErrorView | null>(null);
@@ -360,9 +362,8 @@ export default function DiscoveryPanel({
   const showResults = visible.length > 0 && !running;
 
   return (
-    <section
-      className="home-mode-pane discovery-pane"
-      data-home-pane="discovery"
+    <div
+      className="discovery-panel"
       data-discovery-panel
       data-discovery-live="false"
       data-discovery-running={inFlight ? "true" : undefined}
@@ -451,6 +452,7 @@ export default function DiscoveryPanel({
 
       {showResults ? (
         <>
+          <DiscoveryRunStatusCard run={activeRun} />
           <header className="discovery-result-head">
             <h2 data-discovery-headline>{runHeadline(activeRun)}</h2>
             <p data-discovery-counts>{runCountsLabel(activeRun, visible.length)}</p>
@@ -459,6 +461,10 @@ export default function DiscoveryPanel({
             className={"discovery-run-bar" + (selected.length ? " is-selecting" : "")}
             data-discovery-run-bar
           >
+            <span className="discovery-run-count" data-discovery-candidate-count>
+              {`候选 ${visible.length} 位`}
+            </span>
+            <span className="discovery-run-sort" data-discovery-sort-note>按推荐分与匹配度排序</span>
             <label className="discovery-candidate-select">
               <input
                 type="checkbox"
@@ -466,91 +472,44 @@ export default function DiscoveryPanel({
                 checked={visible.length > 0 && selected.length === visible.length}
                 onChange={(event) => setSelectedIds(event.target.checked ? visible.map((row) => row.id) : [])}
               />
-              <span>已选 {selected.length} 人</span>
+              <span>{`已选 ${selected.length} 人`}</span>
             </label>
-            {selected.length ? (
-              <button
-                type="button"
-                className="btn work sm"
-                data-discovery-ingest
-                data-home-entry="discovery-ingest"
-                onClick={() => {
-                  setIngestError(null);
-                  setIngestMissing(false);
-                  setApprovalState((current) => (
-                    current === "brief_mismatch" || current === "cancelled" ? null : current
-                  ));
-                  setPendingConfirm(false);
-                  setIngestOpen(true);
-                }}
-              >
-                {`入库公海（${selected.length}）`}
-              </button>
-            ) : null}
+            <button
+              type="button"
+              className="btn work sm"
+              data-discovery-ingest
+              data-home-entry="discovery-ingest"
+              disabled={!selected.length}
+              onClick={() => {
+                setIngestError(null);
+                setIngestMissing(false);
+                setApprovalState((current) => (
+                  current === "brief_mismatch" || current === "cancelled" ? null : current
+                ));
+                setPendingConfirm(false);
+                setIngestOpen(true);
+              }}
+            >
+              {selected.length ? `入库公海（${selected.length}）` : "入库公海"}
+            </button>
           </div>
           <ol className="discovery-candidate-list" data-discovery-candidates>
             {visible.map((candidate) => (
               <li key={candidate.id}>
-                <article
-                  className="discovery-candidate"
-                  data-discovery-candidate={candidate.handle || candidate.id}
-                  data-candidate-id={candidate.id}
-                  data-discovery-origin="discovery"
-                >
-                  <label className="discovery-candidate-select">
-                    <input
-                      type="checkbox"
-                      data-discovery-select={candidate.id}
-                      checked={selectedIds.includes(candidate.id)}
-                      onChange={(event) => toggleSelected(candidate.id, event.target.checked)}
-                    />
-                    <span className="sr-only">选择 {candidate.handle || candidate.nickname || "线索"}</span>
-                  </label>
-                  <div className="discovery-candidate-copy">
-                    <strong className="discovery-candidate-identity" data-discovery-candidate-identity>
-                      <span className="discovery-candidate-nickname">{displayText(candidate.nickname)}</span>
-                      {candidate.platform ? (
-                        <span className="discovery-chip discovery-chip-soft">{platformLabel(candidate.platform)}</span>
-                      ) : (
-                        <span className="discovery-chip discovery-chip-soft">无</span>
-                      )}
-                      {candidate.in_library ? (
-                        <span className="discovery-chip discovery-chip-soft" data-discovery-in-library>已在库</span>
-                      ) : null}
-                    </strong>
-                    <p className="discovery-candidate-meta" data-discovery-candidate-meta>
-                      {`账号 ${displayText(candidate.handle)} · 粉丝 ${displayMetric(candidate.followers)} · 均播 ${displayMetric(candidate.avg_plays_10)} · 档位 ${displayText(candidate.band)}`}
-                    </p>
-                    <p className="discovery-candidate-reason" data-discovery-candidate-reason>
-                      {`匹配：${displayText(candidate.why)}`}
-                    </p>
-                  </div>
-                  <div className="discovery-candidate-actions">
-                    {candidate.source_url ? (
-                      <a
-                        className="discovery-follow-quiet"
-                        data-discovery-source={candidate.id}
-                        href={candidate.source_url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        看来源
-                      </a>
-                    ) : (
-                      <span className="discovery-follow-quiet" data-discovery-source-missing>看来源 · 无</span>
-                    )}
-                    <button
-                      type="button"
-                      className="discovery-follow-quiet"
-                      data-discovery-ignore={candidate.id}
-                      onClick={() => setIgnoredIds((current) => (
-                        current.includes(candidate.id) ? current : [...current, candidate.id]
-                      ))}
-                    >
-                      忽略
-                    </button>
-                  </div>
-                </article>
+                <DiscoveryLeadRow
+                  candidate={candidate}
+                  selected={selectedIds.includes(candidate.id)}
+                  expanded={expandedIds.includes(candidate.id)}
+                  onToggleSelect={(on) => toggleSelected(candidate.id, on)}
+                  onToggleExpand={() => setExpandedIds((current) => (
+                    current.includes(candidate.id)
+                      ? current.filter((id) => id !== candidate.id)
+                      : [...current, candidate.id]
+                  ))}
+                  onIgnore={() => setIgnoredIds((current) => (
+                    current.includes(candidate.id) ? current : [...current, candidate.id]
+                  ))}
+                />
               </li>
             ))}
           </ol>
@@ -580,6 +539,6 @@ export default function DiscoveryPanel({
           不会建联，不会发信，也不会改阶段或认领跟进。
         </p>
       </DiscoveryIngestConfirm>
-    </section>
+    </div>
   );
 }

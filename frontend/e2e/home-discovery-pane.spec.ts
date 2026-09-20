@@ -294,7 +294,8 @@ test("submit posts /api/home/discovery/run, shows process copy, and ingests to p
   const missing = page.locator('[data-discovery-candidate="NoStats"]');
   await expect(missing).toContainText("粉丝 无");
   await expect(missing).toContainText("均播 无");
-  await expect(missing).toContainText("匹配：无");
+  await expect(missing).toContainText("匹配：暂无足够内容证据");
+  await expect(missing.locator("[data-discovery-source-missing]")).toHaveText("看来源 · 来源链接缺失");
   await expect(missing.locator("[data-discovery-in-library]")).toHaveText("已在库");
 
   await expect(page.locator("[data-discovery-panel]")).not.toContainText(BANNED_FOLLOW);

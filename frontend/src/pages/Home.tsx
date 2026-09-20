@@ -1979,21 +1979,20 @@ export default function Home() {
           ) : null}
 
           {mode === "discovery" ? (
-            <DiscoverySearchCard
-              brief={discoveryFormBrief ?? fallbackDiscoveryFormBrief}
-              catalog={discoveryCatalog}
-              onChange={onDiscoveryBriefChange}
-            />
-          ) : null}
-
-          {mode === "discovery" ? (
-            <DiscoveryPanel
-              templateOpen={Boolean(discoveryBrief) || text.startsWith(DISCOVERY_BODY_PREFIX)}
-              activeTaskId={discoveryTaskId}
-              activeRunId={discoveryRunId}
-              onOpenTemplate={() => void openDiscoveryTemplate()}
-              onRetryRun={() => void retryDiscoveryRun()}
-            />
+            <section className="home-mode-pane discovery-pane" data-home-pane="discovery">
+              <DiscoverySearchCard
+                brief={discoveryFormBrief ?? fallbackDiscoveryFormBrief}
+                catalog={discoveryCatalog}
+                onChange={onDiscoveryBriefChange}
+              />
+              <DiscoveryPanel
+                templateOpen={Boolean(discoveryBrief) || text.startsWith(DISCOVERY_BODY_PREFIX)}
+                activeTaskId={discoveryTaskId}
+                activeRunId={discoveryRunId}
+                onOpenTemplate={() => void openDiscoveryTemplate()}
+                onRetryRun={() => void retryDiscoveryRun()}
+              />
+            </section>
           ) : null}
 
           {mode === "lifecycle" ? (

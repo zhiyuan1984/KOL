@@ -50,7 +50,8 @@ test("home four-panel tab order and pane visibility", async ({ page }) => {
 
   await openMode(page, "discovery");
   await expect(page.locator("[data-home] h1")).toHaveCount(0);
-  await expect(page.locator("[data-discovery-panel]")).toBeVisible();
+  // AI发现 页在任何时刻都由检索区撑起；没有 run 时结果区为空（不再有「尚未搜索」占位）。
+  await expect(page.locator('[data-home-pane="discovery"]')).toBeVisible();
   await expect(page.locator("[data-discovery-search-card]")).toContainText("红人检索");
   await expect(page.locator("[data-discovery-panel]")).not.toContainText("加入待办");
   await expect(page.locator("[data-discovery-panel]")).not.toContainText("加入跟进");

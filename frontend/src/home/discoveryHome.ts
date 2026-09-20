@@ -207,7 +207,13 @@ export function asHomeRun(row: unknown): HomeDiscoveryRun | null {
   return {
     id,
     headline: asString(item.headline || brief.headline || item.title || item.summary),
-    raw_count: nullableNumber(item.raw_count ?? item.original_count ?? item.received_count),
+    // 运行级原始数优先读 raw_count；缺失回退 brief.counts.raw（rank_failed 时 brief 也可能没有）。
+    raw_count: nullableNumber(
+      item.raw_count
+      ?? item.original_count
+      ?? item.received_count
+      ?? asRecord(brief.counts).raw,
+    ),
     shortlist_count: nullableNumber(item.shortlist_count ?? item.candidate_count ?? item.ranked_count),
     status: asString(item.status || "succeeded") || "succeeded",
     work_item_id: workItemIdOf(item) || undefined,
@@ -275,7 +281,7 @@ export function asHomeCandidate(row: unknown): HomeDiscoveryCandidate | null {
     item.avg_plays_10 ?? item.avg_views_10 ?? item.last10_avg_plays ?? item.avg_plays,
   );
   const matchReason = asString(item.match_reason || item.why || item.reason || item.summary);
-  const profileUrl = asString(item.profile_url || item.url || item.link);
+  const profileUrl = asString(item.profile_url || item.source_url || item.url || item.link);
   const avatarUrl = asString(item.avatar_url || item.avatar);
   return {
     id,
