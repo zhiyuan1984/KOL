@@ -9,7 +9,7 @@ import { seedAll } from "../src/seed.js";
 import { HOME_ENTRY_REGISTRY } from "../src/host/entry-registry.js";
 import { HOME_ENTRY_REGISTRY as FRONTEND_HOME_ENTRY_REGISTRY } from "../../frontend/src/home/entryRegistry.ts";
 import { collectSourceCatalog, packTodayPlanContext, planningHarnessMount } from "../src/host/today-plan-context.js";
-import { validateTodayBrief, writeTodayBriefArtifact } from "../src/host/today-brief.js";
+import { validateTodayBrief, writeTodayBriefArtifact, runningTodayPlan, failStuckPlans } from "../src/host/today-brief.js";
 import { TODAY_PLAN_EMPLOYEE_EVENTS } from "../src/host/today-plan-run.js";
 import type { WorkerResult } from "../src/types.js";
 import { taskDefinition } from "../src/tasks/registry.js";
@@ -433,5 +433,74 @@ describe("today_plan harness", () => {
     const ids = ((listed.body.tasks as Json[]) || []).map((row) => String(row.id));
     expect(ids).toContain("tsk_open_quote");
     expect(ids).not.toContain(String(plan.body.work_item_id));
+  });
+});
+
+describe("stale planning watchdog", () => {
+  function insertPlanRun(id: string, status: string, at: string, taskType = "today_plan") {
+    const now = nowIso();
+    getConn().prepare(
+      "INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id) VALUES (?,?,?,?,?,?,?,?)",
+    ).run(`ses_${id}`, "规划", now, now, taskType, 0, owner(), "expert:kol");
+    insertWorkItem({
+      id: `tsk_${id}`,
+      title: "规划",
+      task_type: taskType,
+      status,
+      source: "planning",
+      session_id: `ses_${id}`,
+    });
+    getConn().prepare(
+      "INSERT INTO task_runs (id,work_item_id,session_id,status,input,entities,created_at,started_at) VALUES (?,?,?,?,?,?,?,?)",
+    ).run(`run_${id}`, `tsk_${id}`, `ses_${id}`, status, "{}", "{}", at, at);
+    getConn().prepare("UPDATE work_items SET created_at=?, updated_at=? WHERE id=?").run(at, at, `tsk_${id}`);
+  }
+
+  const statusOf = (table: "work_items" | "task_runs", id: string) =>
+    String((getConn().prepare(`SELECT status FROM ${table} WHERE id=?`).get(id) as { status: string }).status);
+
+  it("fails a planning run past the watchdog instead of capturing every later entry", () => {
+    const stale = new Date(Date.now() - 30 * 60 * 1_000).toISOString();
+    insertPlanRun("stuck", "running", stale);
+
+    // The dead run must not be returned: returning it is what left the card
+    // polling a plan that could never finish.
+    expect(runningTodayPlan(owner(), "today")).toBeNull();
+    expect(statusOf("work_items", "tsk_stuck")).toBe("failed");
+    expect(statusOf("task_runs", "run_stuck")).toBe("failed");
+    // Failing it first is what frees `one_running_today_plan`, so a new plan can
+    // actually be created afterwards.
+    insertWorkItem({
+      id: "tsk_after_stuck",
+      title: "今日规划",
+      task_type: "today_plan",
+      status: "running",
+      source: "planning",
+    });
+    expect(runningTodayPlan(owner(), "today")?.work_item_id).toBe("tsk_after_stuck");
+  });
+
+  it("still attaches to a plan that is genuinely running", () => {
+    insertPlanRun("live", "running", nowIso());
+    expect(runningTodayPlan(owner(), "today")?.work_item_id).toBe("tsk_live");
+    expect(statusOf("work_items", "tsk_live")).toBe("running");
+  });
+
+  it("boot reconcile fails open planning rows only", () => {
+    insertPlanRun("boot_open", "running", nowIso());
+    insertPlanRun("boot_pending", "pending", nowIso(), "todo_plan");
+    insertPlanRun("boot_done", "completed", nowIso());
+    insertWorkItem({ id: "tsk_boot_other", title: "普通任务", task_type: "email_compose", status: "running" });
+
+    const failed = failStuckPlans("Host 重启时该规划仍在运行");
+    expect(failed).toContain("tsk_boot_open");
+    expect(failed).toContain("tsk_boot_pending");
+    expect(failed).not.toContain("tsk_boot_done");
+    expect(failed).not.toContain("tsk_boot_other");
+    expect(statusOf("work_items", "tsk_boot_done")).toBe("completed");
+    expect(statusOf("work_items", "tsk_boot_other")).toBe("running");
+    // A reconciled plan no longer blocks a fresh one.
+    expect(runningTodayPlan(owner(), "today")).toBeNull();
+    expect(runningTodayPlan(owner(), "todo")).toBeNull();
   });
 });

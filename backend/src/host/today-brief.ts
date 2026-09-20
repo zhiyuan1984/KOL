@@ -250,6 +250,52 @@ export function markTodayPlanCompleted(workItemId: string, runId: string | null)
   });
 }
 
+/**
+ * A planning turn is bounded by the worker timeout (HOST_WORKER_TIMEOUT /
+ * CODEX_TURN_TIMEOUT), so a plan that has not been touched for this long can
+ * never finish. Without the watchdog a Host restart mid-turn left the work item
+ * and its run 'running' forever: every later 新工作任务 entry attached to that
+ * dead run, and the 思考过程 card then polled a plan that could never complete —
+ * frozen rows, identical timestamps, forever.
+ */
+export const PLAN_WATCHDOG_MS = 15 * 60 * 1_000;
+
+const PLANNING_TASK_TYPES = ["today_plan", "todo_plan", "today_analyze"] as const;
+const PLANNING_OPEN_STATUSES = ["pending", "queued", "running", "in_progress", "starting"] as const;
+
+function placeholders(count: number): string {
+  return Array.from({ length: count }, () => "?").join(",");
+}
+
+/**
+ * Fail planning work items that are still open with nothing left to run them.
+ * Called at boot, where nothing can be running yet, and by `runningTodayPlan`
+ * for rows past the watchdog. Returns the ids it failed.
+ */
+export function failStuckPlans(reason: string, olderThanMs?: number, ownerUserId?: string): string[] {
+  const cutoff = olderThanMs == null ? null : new Date(Date.now() - olderThanMs).toISOString();
+  const rows = getConn().prepare(
+    `SELECT id, updated_at, created_at FROM work_items
+      WHERE task_type IN (${placeholders(PLANNING_TASK_TYPES.length)})
+        AND status IN (${placeholders(PLANNING_OPEN_STATUSES.length)})
+        ${ownerUserId ? "AND owner_user_id=?" : ""}`,
+  ).all(
+    ...PLANNING_TASK_TYPES,
+    ...PLANNING_OPEN_STATUSES,
+    ...(ownerUserId ? [ownerUserId] : []),
+  ) as { id: string; updated_at?: string | null; created_at?: string | null }[];
+  const failed: string[] = [];
+  for (const row of rows) {
+    if (cutoff && String(row.updated_at || row.created_at || "") >= cutoff) continue;
+    const run = getConn().prepare(
+      "SELECT id FROM task_runs WHERE work_item_id=? ORDER BY created_at DESC LIMIT 1",
+    ).get(row.id) as { id: string } | undefined;
+    markTodayPlanFailed(String(row.id), run?.id || null, reason);
+    failed.push(String(row.id));
+  }
+  return failed;
+}
+
 export function runningTodayPlan(owner: string, scope: PlanScope = "today"): {
   work_item_id: string;
   session_id: string | null;
@@ -257,7 +303,8 @@ export function runningTodayPlan(owner: string, scope: PlanScope = "today"): {
   status: string;
 } | null {
   const row = getConn().prepare(
-    `SELECT w.id AS work_item_id, w.session_id, w.status, r.id AS run_id
+    `SELECT w.id AS work_item_id, w.session_id, w.status, r.id AS run_id,
+            COALESCE(r.created_at, w.updated_at) AS touched_at
        FROM work_items w
        LEFT JOIN task_runs r ON r.work_item_id = w.id
       WHERE w.owner_user_id=? AND w.task_type=?
@@ -269,6 +316,15 @@ export function runningTodayPlan(owner: string, scope: PlanScope = "today"): {
     session_id: string | null;
     status: string;
     run_id: string | null;
+    touched_at: string | null;
   } | undefined;
-  return row || null;
+  if (!row) return null;
+  // A run this old cannot still be alive: do not let it capture every later
+  // entry, fail it so the next GET settles and the pane can start a fresh plan.
+  const touched = Date.parse(String(row.touched_at || ""));
+  if (Number.isFinite(touched) && Date.now() - touched > PLAN_WATCHDOG_MS) {
+    failStuckPlans("规划运行已中断", PLAN_WATCHDOG_MS, owner);
+    return null;
+  }
+  return row;
 }
