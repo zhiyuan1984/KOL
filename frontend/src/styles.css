@@ -9694,20 +9694,25 @@ button.today-brief-primary-btn:disabled {
 
 .skill-tabs {
   display: flex;
-  gap: var(--space-1);
+  gap: 6px;
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
+  scrollbar-width: none;
   flex-shrink: 0;
 }
 
+.skill-tabs::-webkit-scrollbar {
+  display: none;
+}
+
 .skill-tab {
-  border: none;
-  background: transparent;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: var(--bg-elevated);
+  padding: 5px 14px;
+  border-radius: var(--radius-buttons);
   font: inherit;
-  font-size: var(--font-ui);
+  font-size: 13px;
   color: var(--text-muted);
   cursor: pointer;
   white-space: nowrap;
@@ -9715,7 +9720,7 @@ button.today-brief-primary-btn:disabled {
 }
 
 .skill-tab:hover {
-  background: var(--bg-elevated);
+  background: var(--color-pink-tint-soft);
   color: var(--text);
 }
 
@@ -9736,7 +9741,7 @@ button.today-brief-primary-btn:disabled {
   padding: var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  gap: var(--space-4);
 }
 
 .skill-catalog-preview {
@@ -9760,8 +9765,8 @@ button.today-brief-primary-btn:disabled {
 }
 
 .skill-group-icon {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -9770,12 +9775,12 @@ button.today-brief-primary-btn:disabled {
 
 .skill-group-icon-star {
   color: var(--warning);
-  font-size: 20px;
+  font-size: 17px;
 }
 
 .skill-group-svg {
-  width: 22px;
-  height: 22px;
+  width: 19px;
+  height: 19px;
 }
 
 .skill-group-header h2 {
@@ -9786,14 +9791,14 @@ button.today-brief-primary-btn:disabled {
 
 .skill-group-hint {
   color: var(--text-muted);
-  font-size: var(--font-sm);
+  font-size: 12.5px;
   margin-left: var(--space-2);
 }
 
 .skill-group-more {
   margin-left: auto;
   color: var(--primary);
-  font-size: var(--font-sm);
+  font-size: 12.5px;
   text-decoration: none;
 }
 
@@ -9815,103 +9820,98 @@ button.today-brief-primary-btn:disabled {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-@media (max-width: 1280px) {
-  .skill-grid-4 {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
 .skill-card {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  padding: 20px;
+  gap: 10px;
+  padding: 14px 16px;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-cards);
   background: var(--bg);
-  box-shadow: var(--shadow-quiet);
   transition: all var(--duration-control);
   cursor: pointer;
 }
 
 .skill-card:hover {
   border-color: var(--primary);
-  box-shadow: 0 8px 20px rgba(219, 24, 96, 0.1);
-  transform: translateY(-1px);
+  box-shadow: var(--shadow-quiet);
 }
 
 .skill-card.is-selected {
   border-color: var(--primary);
-  box-shadow: 0 0 0 2px var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+.skill-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding-right: 14px;
 }
 
 .skill-card-icon {
-  width: 46px;
-  height: 46px;
+  width: 34px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: var(--color-pink-tint-soft);
-  border-radius: 14px;
+  border-radius: 10px;
   color: var(--primary);
   flex-shrink: 0;
 }
 
 .skill-card-svg {
-  width: 24px;
-  height: 24px;
+  width: 19px;
+  height: 19px;
 }
 
 .skill-card-star {
   position: absolute;
-  top: 14px;
-  right: 16px;
+  top: 10px;
+  right: 12px;
   color: var(--warning);
-  font-size: 16px;
+  font-size: 13px;
   line-height: 1;
-}
-
-.skill-card-body {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
 }
 
 .skill-card-title {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  font-size: var(--font-body);
+  gap: 6px;
+  font-size: 14px;
   font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .skill-card-source {
-  font-size: var(--font-tag);
+  font-size: 11px;
   color: var(--text-muted);
   background: var(--bg-elevated);
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 1px 7px;
+  border-radius: var(--radius-buttons);
   font-weight: normal;
+  flex-shrink: 0;
 }
 
 .skill-card-desc {
   margin: 0;
   color: var(--text-muted);
-  font-size: var(--font-sm);
-  line-height: var(--leading-tight);
+  font-size: 12.5px;
+  line-height: 1.5;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  min-height: 2.7em;
 }
 
 .skill-card-actions {
   display: flex;
-  gap: var(--space-2);
+  gap: 8px;
   margin-top: auto;
 }
 
@@ -9920,10 +9920,10 @@ button.today-brief-primary-btn:disabled {
   align-items: center;
   justify-content: center;
   gap: var(--space-1);
-  padding: 8px 14px;
+  padding: 5px 12px;
   border-radius: var(--radius-buttons);
   font: inherit;
-  font-size: var(--font-sm);
+  font-size: 12.5px;
   cursor: pointer;
   transition: all var(--duration-control);
   border: 1px solid transparent;
@@ -9964,7 +9964,7 @@ button.today-brief-primary-btn:disabled {
 }
 
 .skill-btn-icon {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
 }
 
@@ -10086,19 +10086,29 @@ button.today-brief-primary-btn:disabled {
   border-radius: var(--radius-buttons);
 }
 
-.skill-preview-example {
+.skill-preview-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.skill-preview-msg {
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
 }
 
+.skill-preview-msg.is-user {
+  flex-direction: row-reverse;
+}
+
 .skill-preview-avatar {
-  width: 30px;
-  height: 30px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   background: var(--primary);
   color: #fff;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -10106,11 +10116,15 @@ button.today-brief-primary-btn:disabled {
   flex-shrink: 0;
 }
 
+.skill-preview-msg.is-user .skill-preview-avatar {
+  background: var(--color-pink-tint);
+  color: var(--primary);
+}
+
 .skill-preview-bubble {
   background: var(--bg);
-  border-radius: 4px 14px 14px 14px;
-  padding: var(--space-3);
-  font-size: var(--font-sm);
+  padding: 10px 12px;
+  font-size: 12.5px;
   line-height: 1.7;
   color: var(--text);
   box-shadow: var(--shadow-quiet);
@@ -10118,12 +10132,28 @@ button.today-brief-primary-btn:disabled {
   min-width: 0;
 }
 
+.skill-preview-msg.is-ai .skill-preview-bubble {
+  border-radius: 4px 14px 14px 14px;
+}
+
+.skill-preview-msg.is-user .skill-preview-bubble {
+  border-radius: 14px 4px 14px 14px;
+}
+
 .skill-preview-bubble p {
-  margin: 0 0 var(--space-2);
+  margin: 0 0 6px;
 }
 
 .skill-preview-bubble p:last-child {
   margin-bottom: 0;
+}
+
+.skill-preview-time {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: right;
 }
 
 .skill-preview-footer {
@@ -10140,8 +10170,15 @@ button.today-brief-primary-btn:disabled {
 }
 
 /* Responsive */
-@media (max-width: 1200px) {
-  .skill-grid {
+@media (max-width: 1400px) {
+  .skill-grid.skill-grid-4 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1100px) {
+  .skill-grid,
+  .skill-grid.skill-grid-4 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

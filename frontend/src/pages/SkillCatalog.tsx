@@ -160,8 +160,10 @@ const SCENE_TAGS: Record<string, string[]> = {
   deal_memory: ["成交", "商务谈判"],
 };
 
+type PreviewMessage = { role: "ai" | "user"; lines: string[]; time?: string };
+
 // 输入/输出描述
-const IO_MAP: Record<string, { inputs: string[]; outputs: string[]; example: string[] }> = {
+const IO_MAP: Record<string, { inputs: string[]; outputs: string[]; example: string[]; thread?: PreviewMessage[] }> = {
   creator_outreach: {
     inputs: ["达人名称", "平台（如小红书/抖音）", "粉丝量", "合作目标（如寄样、推广、长期合作）"],
     outputs: ["首轮私信话术", "跟进话术", "微信添加文案"],
@@ -169,21 +171,35 @@ const IO_MAP: Record<string, { inputs: string[]; outputs: string[]; example: str
       "Hi@夏天的旅行日记 👋",
       "我是 LiTime 的产品运营，关注到你分享的户外生活内容，非常喜欢！我们正在做一款适合户外场景的便携装备，想和你合作体验。不知道你是否有兴趣？期待你的回复~",
     ],
+    thread: [
+      {
+        role: "ai",
+        time: "10:24",
+        lines: [
+          "Hi@夏天的旅行日记 👋",
+          "我是 LiTime 的产品运营，关注到你分享的户外生活内容，非常喜欢！我们正在做一款适合户外场景的便携装备，想和你合作体验。不知道你是否有兴趣？期待你的回复~",
+        ],
+      },
+      { role: "user", time: "10:28", lines: ["你好！可以先发下产品资料看看~"] },
+    ],
   },
   creator_discovery: {
     inputs: ["关键词", "平台", "粉丝量范围"],
     outputs: ["候选达人列表", "达人基础信息"],
     example: ["关键词：户外露营", "平台：小红书", "粉丝量：1万-10万"],
+    thread: [{ role: "ai", time: "10:24", lines: ["关键词：户外露营", "平台：小红书", "粉丝量：1万-10万"] }],
   },
   creator_profile: {
     inputs: ["达人UID或昵称"],
     outputs: ["达人详情", "平台数据", "负责人信息"],
     example: ["达人：夏天的旅行日记", "UID：xxx"],
+    thread: [{ role: "ai", time: "10:24", lines: ["达人：夏天的旅行日记", "UID：xxx"] }],
   },
   creator_scoring: {
     inputs: ["达人UID列表"],
     outputs: ["影响力评分", "合作适配度评分"],
     example: ["待评分达人列表"],
+    thread: [{ role: "ai", time: "10:24", lines: ["待评分达人列表"] }],
   },
 };
 
@@ -231,24 +247,24 @@ function SkillCard({
       onClick={() => onSelect(skill)}
     >
       {isFrequent && <span className="skill-card-star" aria-hidden>★</span>}
-      <div className="skill-card-icon">
-        <SkillIcon id={skill.id} />
-      </div>
-      <div className="skill-card-body">
+      <div className="skill-card-head">
+        <div className="skill-card-icon">
+          <SkillIcon id={skill.id} />
+        </div>
         <div className="skill-card-title">
           {skill.title}
           <span className="skill-card-source">{skillSource(skill.id)}</span>
         </div>
-        <p className="skill-card-desc">{skill.summary || skill.title}</p>
-        <div className="skill-card-actions" onClick={(e) => e.stopPropagation()}>
-          <button type="button" className="skill-btn skill-btn-primary" onClick={() => onUse(skill)}>
-            <span className="skill-btn-icon">+</span>
-            插入当前会话
-          </button>
-          <button type="button" className="skill-btn skill-btn-secondary" onClick={() => onNewSession(skill)}>
-            新建会话
-          </button>
-        </div>
+      </div>
+      <p className="skill-card-desc">{skill.summary || skill.title}</p>
+      <div className="skill-card-actions" onClick={(e) => e.stopPropagation()}>
+        <button type="button" className="skill-btn skill-btn-primary" onClick={() => onUse(skill)}>
+          <span className="skill-btn-icon">+</span>
+          插入当前会话
+        </button>
+        <button type="button" className="skill-btn skill-btn-secondary" onClick={() => onNewSession(skill)}>
+          新建会话
+        </button>
       </div>
     </div>
   );
@@ -316,13 +332,18 @@ function PreviewPanel({ skill }: { skill: SkillRow | null }) {
 
         <div className="skill-preview-section">
           <h4>内容示例</h4>
-          <div className="skill-preview-example">
-            <span className="skill-preview-avatar" aria-hidden>AI</span>
-            <div className="skill-preview-bubble">
-              {io.example.map((line, i) => (
-                <p key={i}>{line}</p>
-              ))}
-            </div>
+          <div className="skill-preview-thread">
+            {(io.thread || [{ role: "ai" as const, lines: io.example }]).map((msg, i) => (
+              <div key={i} className={"skill-preview-msg is-" + msg.role}>
+                <span className="skill-preview-avatar" aria-hidden>{msg.role === "ai" ? "AI" : "我"}</span>
+                <div className="skill-preview-bubble">
+                  {msg.lines.map((line, j) => (
+                    <p key={j}>{line}</p>
+                  ))}
+                  {msg.time && <span className="skill-preview-time">{msg.time}</span>}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
