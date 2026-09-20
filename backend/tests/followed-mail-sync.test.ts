@@ -216,6 +216,18 @@ describe("followed KOL unread mail sync", () => {
     expect(getConn().prepare("SELECT 1 FROM kol_mail_threads WHERE conversation_id='6003'").get()).toBeTruthy();
   });
 
+  it("POST /api/mail/sync accepts immediately and syncs in the background", async () => {
+    bindLarry();
+    const started = Date.now();
+    const response = await request("POST", "/api/mail/sync");
+    const elapsed = Date.now() - started;
+    expect(response.status).toBe(202);
+    expect(response.body.accepted).toBe(true);
+    expect(elapsed).toBeLessThan(500);
+    await waitForBackgroundSync();
+    expect(getConn().prepare("SELECT 1 FROM kol_mail_threads WHERE conversation_id='3901'").get()).toBeTruthy();
+  });
+
   it("collects Starry inbound threads on home refresh and shows unread by thread id", async () => {
     const first = await request("GET", "/api/home/board?refresh=1");
     expect(first.status).toBe(200);

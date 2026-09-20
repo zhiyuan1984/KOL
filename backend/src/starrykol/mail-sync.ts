@@ -82,8 +82,11 @@ export function resetFollowedMailSync(): void {
   lastStarted.clear();
 }
 
-export function waitForBackgroundSync(): Promise<void> {
-  return backgroundSyncTask || Promise.resolve();
+export async function waitForBackgroundSync(): Promise<void> {
+  // Wait for in-flight foreground syncs first: they register the background
+  // task as their last step, so it is only observable after they resolve.
+  await Promise.all([...inflight.values()]);
+  if (backgroundSyncTask) await backgroundSyncTask;
 }
 
 export function startFollowedMailSync(force = false, mailbox = ""): Promise<FollowedMailSync> {

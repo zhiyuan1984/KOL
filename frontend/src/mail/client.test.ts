@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { hydratePollDelayMs, normalizeBox, normalizeConversation, normalizeThread } from "./client";
 
 describe("mail client vs PR #177 shapes", () => {
@@ -168,5 +168,45 @@ describe("thread hydrate polling", () => {
   it("stops instead of polling forever", () => {
     expect(hydratePollDelayMs(9)).toBeNull();
     expect(hydratePollDelayMs(0)).toBeNull();
+  });
+});
+
+describe("mail workspace load must not block on the heavy board call", () => {
+  it("returns the list from local memory even when homeBoard never resolves", async () => {
+    vi.resetModules();
+    vi.doMock("../api", () => ({
+      api: {
+        mailBox: vi.fn(async () => ({
+          mailbox: "larry.zhao@amperetime.com",
+          bound: true,
+          owner_name: "赵良玉",
+          unread: 3,
+          synced_at: "2026-09-20T03:00:00.000Z",
+          error: null,
+        })),
+        mailConversations: vi.fn(async () => ({
+          conversations: [{
+            id: "thr_1",
+            conversation_id: "267",
+            collaboration_id: "col_KOL1",
+            mailbox: "larry.zhao@amperetime.com",
+            match_state: "matched",
+            subject: "Exciting Collaboration Opportunity",
+            unread_count: 0,
+            last_at: "2026-09-19T13:43:14.492Z",
+          }],
+        })),
+        // The board endpoint ships a multi-megabyte payload; a page load must
+        // never wait on it (it hung the mail page at the skeleton state).
+        homeBoard: vi.fn(() => new Promise(() => { /* never resolves */ })),
+        starryBinding: vi.fn(async () => null),
+      },
+    }));
+    const { loadMailWorkspace } = await import("./client");
+    const workspace = await loadMailWorkspace();
+    expect(workspace.box.bound).toBe(true);
+    expect(workspace.box.mailbox).toBe("larry.zhao@amperetime.com");
+    expect(workspace.conversations).toHaveLength(1);
+    expect(workspace.conversations[0].conversation_id).toBe("267");
   });
 });

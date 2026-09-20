@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import Markdown from "../components/Markdown";
 import { api } from "../api";
-import { hydratePollDelayMs, loadMailThread, loadMailWorkspace, syncMailboxMail } from "../mail/client";
+import { hydratePollDelayMs, loadMailThread, loadMailWorkspace, normalizeBox, syncMailboxMail } from "../mail/client";
 import { mailAnalyzeDraft, mailReplyDraft, stashComposerDraft } from "../mail/composerDraft";
 import { mailDigestView } from "../mail/digestView";
 import { occurredAtMs } from "../mail-time";
@@ -310,6 +310,8 @@ export default function Mail() {
   const [mobilePanel, setMobilePanel] = useState<"original" | "summary" | "translation">("original");
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement | null>(null);
+  const syncPollRef = useRef<number | null>(null);
+  const baseSyncedAtRef = useRef<string>("");
 
   const conversations = useMemo(() => {
     const rows = [...(workspace?.conversations || [])];
@@ -337,7 +339,7 @@ export default function Mail() {
     return conversations.find((row) => row.conversation_id === focusId || row.id === focusId) || conversations[0] || null;
   }, [conversations, focusId]);
 
-  const load = (opts?: { keepNotice?: boolean }) => {
+  const load = (opts?: { keepNotice?: boolean; skipAutoSync?: boolean }) => {
     setLoadState("loading");
     setError("");
     if (!opts?.keepNotice) setNotice("");
@@ -345,6 +347,15 @@ export default function Mail() {
       .then((next) => {
         setWorkspace(next);
         setLoadState("ok");
+        return next;
+      })
+      .then((next) => {
+        // Local memory paints first; then refresh behind a background sync.
+        if (!opts?.skipAutoSync && next?.source === "api" && next.box.bound && next.box.mailbox) {
+          baseSyncedAtRef.current = next.box.synced_at || "";
+          setSyncing(true);
+          startSilentSync();
+        }
       })
       .catch((e) => {
         const status = (e as { status?: number }).status;
@@ -356,6 +367,7 @@ export default function Mail() {
 
   useEffect(() => {
     load();
+    return stopSyncPoll;
     // Reload list + thread for the mailbox selected via ?box= (card click).
   }, [boxParam]);
 
@@ -429,19 +441,54 @@ export default function Mail() {
     setParams(next, { replace: true });
   };
 
+  const stopSyncPoll = () => {
+    if (syncPollRef.current != null) {
+      window.clearInterval(syncPollRef.current);
+      syncPollRef.current = null;
+    }
+  };
+
+  // The sync endpoint returns immediately; the mailbox is filled in behind.
+  // Watch box.synced_at and refresh the list once the background run lands.
+  const pollForSync = () => {
+    stopSyncPoll();
+    let ticks = 0;
+    syncPollRef.current = window.setInterval(() => {
+      ticks += 1;
+      if (ticks > 60) {
+        stopSyncPoll();
+        setSyncing(false);
+        return;
+      }
+      void api.mailBox(boxParam || undefined)
+        .then((raw) => {
+          const next = normalizeBox(raw as Record<string, unknown>);
+          const syncedAt = next?.synced_at || "";
+          if (syncedAt && syncedAt !== baseSyncedAtRef.current) {
+            baseSyncedAtRef.current = syncedAt;
+            stopSyncPoll();
+            setSyncing(false);
+            load({ keepNotice: true, skipAutoSync: true });
+          }
+        })
+        .catch(() => undefined);
+    }, 2_000);
+  };
+
+  const startSilentSync = () => {
+    void syncMailboxMail(boxParam || undefined).then(() => pollForSync()).catch(() => undefined);
+  };
+
   const sync = async () => {
     setSyncing(true);
     setError("");
-    setNotice("");
+    setNotice("已在后台开始收取，完成后自动刷新。");
     try {
-      const receipt = await syncMailboxMail(boxParam || undefined);
-      setNotice(receipt.ok === false && receipt.error
-        ? String(receipt.error)
-        : `已收取${receipt.listed != null ? ` ${receipt.listed} 封会话` : ""}。`);
-      load({ keepNotice: true });
+      await syncMailboxMail(boxParam || undefined);
+      baseSyncedAtRef.current = workspace?.box?.synced_at || "";
+      pollForSync();
     } catch (e) {
       setError(httpCopy(e, MAIL_SYNC_MISSING_COPY));
-    } finally {
       setSyncing(false);
     }
   };
@@ -518,7 +565,11 @@ export default function Mail() {
             <h1>邮箱通讯</h1>
             <span className="muted mail-hero-sub">管理多邮箱的邮件沟通，推动合作进展</span>
           </div>
-          {bound ? (
+          {loadState === "ok" && !bound ? (
+            <p className="muted" data-mail-unbound-guide>
+              {MAIL_UNBOUND_COPY}
+            </p>
+          ) : bound ? (
             <p className="muted" data-mail-box>
               {box?.mailbox || "已绑定邮箱"}
               {box?.owner_name ? ` · ${box.owner_name}` : ""}
@@ -526,9 +577,7 @@ export default function Mail() {
               {` · 未读 ${Number(box?.total_unread ?? box?.unread ?? 0)}`}
             </p>
           ) : (
-            <p className="muted" data-mail-unbound-guide>
-              {MAIL_UNBOUND_COPY}
-            </p>
+            <p className="muted" data-mail-box-loading>正在读取本地邮件记忆…</p>
           )}
         </div>
         {loadState === "ok" && !bound ? (

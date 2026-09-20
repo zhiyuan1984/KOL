@@ -11,7 +11,7 @@ import { matchesFollowedMailbox, saveStarryBinding } from "../src/host/starry-bi
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { matchCollaboration } from "../src/starrykol/mail-fields.js";
-import { ensureFollowedMailSync, resetFollowedMailSync } from "../src/starrykol/mail-sync.js";
+import { ensureFollowedMailSync, resetFollowedMailSync, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import { bindStarryUser } from "./helpers/starry-binding.js";
 import type { Json } from "../src/types.js";
@@ -186,6 +186,7 @@ describe("mailbox memory P0", () => {
     bindLarry();
     const collabsBefore = Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations").get() as { n: number }).n);
     await request("POST", "/api/mail/sync");
+    await waitForBackgroundSync();
     const listed = await request("GET", "/api/mail/conversations");
     const unbound = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "8801");
     expect(unbound).toMatchObject({
@@ -204,8 +205,9 @@ describe("mailbox memory P0", () => {
       request("POST", "/api/mail/sync"),
       request("POST", "/api/mail/sync"),
     ]);
-    expect(first.status).toBe(200);
-    expect(second.status).toBe(200);
+    expect(first.status).toBe(202);
+    expect(second.status).toBe(202);
+    await waitForBackgroundSync();
     // total=1 with a single partial page: the background loop must not fetch page 2 (spec §3 stop conditions).
     expect(calls.filter((name) => name === "pageEmailConversations")).toHaveLength(1);
     const bind = getConn().prepare("SELECT * FROM user_starry_bindings").get() as Json;
@@ -213,7 +215,7 @@ describe("mailbox memory P0", () => {
     expect(String(bind.sync_cursor_at || "")).toBeTruthy();
     expect(String(bind.last_tool)).toBe("pageEmailConversations");
     expect(String(bind.last_error || "")).toBe("");
-    expect(first.body).toMatchObject({ ok: true, mailbox: "larry.zhao@amperetime.com", entry: "command" });
+    expect(first.body).toMatchObject({ accepted: true, entry: "command" });
   });
 
   it("finds threads when collaboration mailbox_from ≠ bound mailbox but peer/binding matches", async () => {

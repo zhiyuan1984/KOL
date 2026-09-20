@@ -171,26 +171,15 @@ async function decorateOwner(box: MailBox): Promise<MailBox> {
   return owner ? { ...box, owner_name: owner } : box;
 }
 
-/** Display/analyze only. Never mix board threads into an `/api/mail` list. */
+/**
+ * Display/analyze only. Never mix board threads into an `/api/mail` list.
+ * The conversations endpoint already LEFT JOINs collaborations and returns
+ * kol_uid / handle, so this is a no-op kept for the call-site shape. It must
+ * not fetch /api/home/board: that payload is multi-megabyte and waiting on it
+ * pinned the mail page at the skeleton state.
+ */
 async function decorateAnalyzePeople(conversations: MailConversation[]): Promise<MailConversation[]> {
-  const need = conversations.some((row) => row.collaboration_id && !row.kol_uid && !row.handle);
-  if (!need) return conversations;
-  const board = await api.homeBoard().catch(() => null as BoardMailFallback | null);
-  const byId = new Map<string, { kol_uid?: string; handle?: string }>();
-  for (const kol of board?.kols || []) {
-    const id = text(kol.id);
-    if (!id) continue;
-    const handle = text(kol.handle || kol.kol_name).replace(/^@/, "");
-    byId.set(id, {
-      kol_uid: text(kol.kol_uid) || handle || undefined,
-      handle: handle || undefined,
-    });
-  }
-  return conversations.map((row) => {
-    if (!row.collaboration_id || row.kol_uid || row.handle) return row;
-    const extra = byId.get(row.collaboration_id);
-    return extra ? { ...row, ...extra } : row;
-  });
+  return conversations;
 }
 
 async function loadFallbackWorkspace(): Promise<MailWorkspace> {

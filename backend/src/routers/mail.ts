@@ -17,7 +17,7 @@ import {
   messageRowOf,
   setConversationStarred,
 } from "../host/mail-memory.js";
-import { ensureFollowedMailSync, ensureThreadItemTranslations, hydrateMailThread, lastSyncReceipt, markThreadTranslationsPending } from "../starrykol/mail-sync.js";
+import { ensureThreadItemTranslations, hydrateMailThread, lastSyncReceipt, markThreadTranslationsPending, startFollowedMailSync } from "../starrykol/mail-sync.js";
 
 export const mail = new Hono();
 
@@ -158,22 +158,17 @@ mail.put("/mail/conversations/:id", async (c) => {
 
 mail.post("/mail/sync", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { box?: unknown };
-  const result = await ensureFollowedMailSync(true, requestedMailbox(String(body?.box || "")));
+  const mailbox = requestedMailbox(String(body?.box || ""));
+  // Fire-and-forget: the mail page renders local memory first, then polls
+  // synced_at and refreshes when this background sync lands. Never block here.
+  void startFollowedMailSync(true, mailbox).catch(() => undefined);
   return c.json({
     entry: "command",
     kind: "command",
     creates_session: false,
     creates_turn: false,
     calls_model: false,
+    accepted: true,
     ...lastSyncReceipt(),
-    ok: result.ok,
-    mailbox: result.mailbox || lastSyncReceipt().mailbox,
-    listed: result.listed ?? result.conversations,
-    inserted: result.inserted || 0,
-    updated: result.updated || 0,
-    unread: result.unread,
-    synced_at: result.synced_at,
-    cursor_at: result.cursor_at,
-    ...(result.error ? { error: result.error } : {}),
-  });
+  }, 202);
 });
