@@ -378,6 +378,26 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     expect(String(row.fit)).not.toBe("");
   });
 
+  it("passes the crawler's extra fields through to the candidate row", async () => {
+    creators = [{
+      platform: "youtube",
+      platform_creator_id: "yt-beauty-2",
+      nickname: "LinkedGlow",
+      followers: 22000,
+      recent_views: [7000, 7100, 7200, 7300, 7400, 7500, 7600, 7700, 7800, 7900],
+      profile_url: "https://youtube.com/@linkedglow",
+      avatar_url: "https://yt3.ggpht.com/linkedglow.jpg",
+      matched_keywords: ["clean beauty", "skincare routine"],
+    }];
+    const run = await completeRun();
+    const candidates = await request("GET", `/api/home/discovery/runs/${run.id}/candidates`);
+    expect((candidates.body.candidates as Json[])[0]).toMatchObject({
+      profile_url: "https://youtube.com/@linkedglow",
+      avatar_url: "https://yt3.ggpht.com/linkedglow.jpg",
+      matched_keywords: ["clean beauty", "skincare routine"],
+    });
+  });
+
   it("writes an honest empty result when crawl returns no creators", async () => {
     creators = [];
     const run = await completeRun({
