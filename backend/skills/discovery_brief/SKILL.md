@@ -23,7 +23,7 @@ Host 已完成采集与过滤。CONTEXT 只包含：发现 spec、裁剪后的�
 
 ## 输出
 
-把下面 JSON 放在 `task_result.brief`（或整段作为唯一结构化结果）：
+本回合的输出 schema 只接受 `task_result`，且 **`brief` 是必填字段**：把下面 JSON 整段放在 `task_result.brief` 里（**不要**只把它塞进 `title` / `summary` / `metrics`，Host 只从 `brief` 读取，放在别处等于没有产出）。`ranking[].candidate_id` 必须逐字取自 CONTEXT 候选人列表里的 `id`，不要自己编。
 
 ```json
 {

@@ -24,6 +24,7 @@ import { assertKolAnalyzeVerbsSafe, KOL_ANALYZE_TASK_TYPE, KOL_ANALYZE_VERBS } f
 import { CodexAppServer } from "./codex.js";
 import { CodexUnavailable } from "./errors.js";
 import { parseAgentTexts, parseBoxFiles } from "./parse.js";
+import { DISCOVERY_BRIEF_OUTPUT_SCHEMA } from "../discovery-brief.js";
 import { completeTurnItems } from "./session-items.js";
 import { CRAWL_PLATFORMS } from "../crawl/platforms.js";
 import { runStub } from "./stub.js";
@@ -341,6 +342,9 @@ export function skillOutputSchema(skill: string, definition: TaskDefinition): Js
   if (definition.output === "today_brief") return TODAY_BRIEF_OUTPUT_SCHEMA;
   if (skill === "business_approval") return APPROVAL_OUTPUT_SCHEMA;
   if (skill === "email_compose") return COMPOSE_OUTPUT_SCHEMA;
+  // discovery_brief reads its payload from `task_result.brief`, which the generic
+  // schema below forbids — without this branch the brief can never validate.
+  if (skill === "discovery_brief") return DISCOVERY_BRIEF_OUTPUT_SCHEMA;
   return TASK_RESULT_OUTPUT_SCHEMA;
 }
 

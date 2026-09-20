@@ -7,8 +7,86 @@ import type { Json } from "./types.js";
 export const DISCOVERY_BRIEF_SCHEMA = "discovery_brief/v1";
 export const DISCOVERY_SPEC_SCHEMA = "discovery_spec/v1";
 
-const BANDS = new Set(["high", "mid", "low", "uncertain"]);
-const RECOMMENDS = new Set(["ingest", "ignore", "need_human"]);
+/** Single source for the two enums, so the output schema and the validator cannot drift. */
+export const DISCOVERY_BRIEF_BANDS = ["high", "mid", "low", "uncertain"] as const;
+export const DISCOVERY_BRIEF_RECOMMENDS = ["ingest", "ignore", "need_human"] as const;
+
+const BANDS = new Set<string>(DISCOVERY_BRIEF_BANDS);
+const RECOMMENDS = new Set<string>(DISCOVERY_BRIEF_RECOMMENDS);
+
+/**
+ * Output schema for the `discovery_brief` turn.
+ *
+ * The generic `TASK_RESULT_OUTPUT_SCHEMA` in worker/runner.ts is
+ * `additionalProperties: false` with no `brief` key, so a model that obeys it can
+ * never produce what `validateDiscoveryBrief` reads — every Home run ended in
+ * `rank_failed`「发现简报缺少可校验结构。」 while the model had in fact followed its
+ * schema. Keep this in lockstep with the validator below:
+ * tests/discovery-brief-contract.test.ts asserts the pair, and the band/recommend
+ * enums are built from the same arrays the validator uses.
+ */
+export const DISCOVERY_BRIEF_OUTPUT_SCHEMA: Json = {
+  type: "object",
+  properties: {
+    type: { type: "string", enum: ["task_result"] },
+    title: { type: "string" },
+    summary: { type: "string" },
+    recommended_actions: { type: "array", items: { type: "string" } },
+    brief: {
+      type: "object",
+      properties: {
+        schema: { type: "string", enum: [DISCOVERY_BRIEF_SCHEMA] },
+        headline: { type: "string" },
+        counts: {
+          type: "object",
+          properties: {
+            raw: { type: "number" },
+            after_host_filter: { type: "number" },
+            shown: { type: "number" },
+            dropped: { type: "number" },
+          },
+          required: ["raw", "after_host_filter", "shown", "dropped"],
+          additionalProperties: false,
+        },
+        ranking: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              candidate_id: { type: "string" },
+              score: { type: "number" },
+              band: { type: "string", enum: [...DISCOVERY_BRIEF_BANDS] },
+              why: { type: "array", items: { type: "string" } },
+              gaps: { type: "array", items: { type: "string" } },
+              fit: { type: "string" },
+              recommend: { type: "string", enum: [...DISCOVERY_BRIEF_RECOMMENDS] },
+            },
+            required: ["candidate_id", "score", "band", "why", "gaps", "fit", "recommend"],
+            additionalProperties: false,
+          },
+        },
+        dropped: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              candidate_id: { type: "string" },
+              reason: { type: "string" },
+            },
+            required: ["candidate_id", "reason"],
+            additionalProperties: false,
+          },
+        },
+        gaps: { type: "array", items: { type: "string" } },
+        next_actions: { type: "array", items: { type: "string" } },
+      },
+      required: ["schema", "headline", "counts", "ranking", "dropped", "gaps", "next_actions"],
+      additionalProperties: false,
+    },
+  },
+  required: ["type", "title", "summary", "recommended_actions", "brief"],
+  additionalProperties: false,
+};
 
 export type DiscoveryBriefRanking = {
   candidate_id: string;
@@ -49,19 +127,35 @@ function asStringList(value: unknown): string[] | null {
   return value.map((item) => String(item ?? "").trim());
 }
 
+function briefOf(value: unknown): Record<string, unknown> | null {
+  const row = asObject(value);
+  if (!row) return null;
+  if (row.schema === DISCOVERY_BRIEF_SCHEMA) return row;
+  return row.brief && typeof row.brief === "object" ? asObject(row.brief) : null;
+}
+
+function rankingSize(brief: Record<string, unknown>): number {
+  return Array.isArray(brief.ranking) ? brief.ranking.length : 0;
+}
+
+/**
+ * The model opens with an acknowledgement `task_result` and then the real result, and the
+ * turn's output schema makes every `task_result` carry a `brief` — so the first match is a
+ * stub (headline「处理中」, zero counts). Prefer the last candidate that actually ranks
+ * someone, else the last one that carries a brief at all.
+ */
 function extractBriefCandidate(value: unknown): unknown {
   const root = asObject(value);
   if (!root) return null;
-  if (root.schema === DISCOVERY_BRIEF_SCHEMA) return root;
-  if (root.brief && typeof root.brief === "object") return root.brief;
-  const items = Array.isArray(root.items) ? root.items : [];
-  for (const item of items) {
-    const row = asObject(item);
-    if (!row) continue;
-    if (row.schema === DISCOVERY_BRIEF_SCHEMA) return row;
-    if (row.brief && typeof row.brief === "object") return row.brief;
-  }
-  return null;
+  const direct = briefOf(root);
+  if (!Array.isArray(root.items)) return direct;
+  const found = root.items
+    .map(briefOf)
+    .filter((brief): brief is Record<string, unknown> => Boolean(brief));
+  if (!found.length) return direct;
+  const ranked = found.filter((brief) => rankingSize(brief) > 0);
+  const chosen = ranked.length ? ranked[ranked.length - 1] : found[found.length - 1];
+  return chosen || direct;
 }
 
 export function validateDiscoveryBrief(value: unknown): BriefValidation {
