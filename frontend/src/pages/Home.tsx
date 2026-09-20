@@ -477,7 +477,9 @@ export default function Home() {
       setDiscoveryTaskId(result.work_item_id || null);
       setDiscoveryRunId(result.run_id || null);
       refreshWorkbenchSessions();
-      setText("");
+      // Composer 的草稿可能与本流程无关（用户先写了别的再切到 AI发现卡片提交），
+      // 只有确实是发现模板正文时才清空，避免连带丢掉无关输入。
+      if (text.startsWith(DISCOVERY_BODY_PREFIX)) setText("");
       clearDiscoveryLock();
       if (mode !== "discovery") setMode("discovery");
     } catch (error) {

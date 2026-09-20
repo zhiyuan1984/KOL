@@ -1906,6 +1906,14 @@ summary:focus-visible,
   min-height: 40px;
 }
 /* AI发现：条件配置 → 任务确认 → 开始检索 */
+h1[data-home-title="discovery"] {
+  max-width: 1240px;
+  margin: 0 auto 16px;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+  color: var(--text);
+}
 .ai-discovery-card {
   display: flex;
   flex-direction: column;
@@ -1914,7 +1922,7 @@ summary:focus-visible,
   max-width: 1240px;
   padding: 32px;
   background: var(--bg);
-  border: 1px solid #e8e9eb;
+  border: 1px solid var(--border);
   border-radius: 16px;
 }
 .ai-discovery-head h2 { margin: 0; font-size: 20px; font-weight: 600; line-height: 28px; }
@@ -1922,25 +1930,31 @@ summary:focus-visible,
 .ai-discovery-field { display: flex; align-items: center; gap: 16px; min-height: 40px; }
 .ai-discovery-label { flex: 0 0 88px; font-size: 14px; color: var(--color-graphite); }
 .ai-discovery-chips { display: flex; flex-wrap: wrap; gap: 8px 10px; }
-.ai-discovery-divider { height: 1px; margin: 4px 0; border: 0; background: #f0f1f2; }
+.ai-discovery-card .discovery-chip {
+  height: 36px;
+  min-height: 36px;
+  padding: 0 18px;
+  border-radius: 18px;
+}
+.ai-discovery-divider { height: 1px; margin: 4px 0; border: 0; background: var(--border); }
 .ai-discovery-input {
   flex: 1; min-width: 0; height: 44px; padding: 0 14px;
-  border: 1px solid #dfe1e5; border-radius: 10px; background: var(--bg);
-  font-size: 14px; color: var(--color-ink);
+  border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+  font-size: 14px; color: var(--text);
 }
 .ai-discovery-input.is-number { flex: 0 0 180px; }
 .ai-discovery-inline { display: flex; align-items: center; gap: 12px; }
 .ai-discovery-dash, .ai-discovery-op { color: var(--color-smoke); }
 .ai-discovery-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
 .ai-discovery-summary {
-  padding: 24px; background: #fafafb; border: 1px solid #e6e8eb; border-radius: 12px;
+  padding: 24px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px;
 }
 .ai-discovery-summary h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
 .ai-discovery-summary-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 48px; row-gap: 14px; margin: 0; }
 .ai-discovery-summary-grid .is-wide { grid-column: 1 / -1; }
 .ai-discovery-summary-grid div { display: flex; gap: 8px; }
 .ai-discovery-summary-grid dt { flex: 0 0 auto; margin: 0; font-size: 14px; color: var(--color-smoke); }
-.ai-discovery-summary-grid dd { margin: 0; font-size: 14px; font-weight: 500; color: #202124; }
+.ai-discovery-summary-grid dd { margin: 0; font-size: 14px; font-weight: 500; color: var(--text); }
 .ai-discovery-summary-note { margin: 12px 0 0; font-size: 12px; color: var(--color-smoke); }
 .ai-discovery-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 8px; }
 .ai-discovery-card .discovery-chip[aria-pressed="true"] {

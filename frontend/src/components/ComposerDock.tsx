@@ -33,7 +33,6 @@ import {
   MAX_DISCOVERY_DIRECTIONS,
   OVERSEAS_DISCOVERY_PLATFORMS,
   toggleDirection,
-  togglePlatform,
   type DiscoveryBrief,
   type DiscoveryDirectionCode,
   type DiscoveryPlatformCode,
@@ -1124,7 +1123,7 @@ function DiscoveryConditionEditor({
               aria-pressed={brief.platforms.includes(option.code)}
               onClick={() => onChange({
                 ...brief,
-                platforms: togglePlatform(brief.platforms, option.code as DiscoveryPlatformCode),
+                platforms: brief.platforms[0] === option.code ? [] : [option.code as DiscoveryPlatformCode],
               })}
             >
               {option.label}

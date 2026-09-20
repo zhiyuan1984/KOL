@@ -32,6 +32,27 @@ describe("discovery brief form helpers", () => {
     expect(value("关键词")).toBe("camping, portable power station");
   });
 
+  it("prefers the API catalog labels over the local tables", () => {
+    const catalog = {
+      platforms: [{ code: "youtube" as const, label: "油管" }],
+      regions: [{ code: "na" as const, label: "North America" }],
+      directions: [{ code: "camping" as const, label: "Camping（API）" }],
+    };
+    const rows = discoveryTaskSummaryRows(
+      {
+        ...defaultDiscoveryBrief(),
+        platforms: ["youtube"],
+        region: "na",
+        directions: ["camping"],
+      },
+      catalog,
+    );
+    const value = (label: string) => rows.find((row) => row.label === label)?.value;
+    expect(value("平台")).toBe("油管");
+    expect(value("地区")).toBe("North America");
+    expect(value("方向")).toBe("Camping（API）");
+  });
+
   it("never lets a numeric field go NaN", () => {
     expect(clampCountInput("", 10000)).toBe(10000);
     expect(clampCountInput("abc", 30)).toBe(30);
