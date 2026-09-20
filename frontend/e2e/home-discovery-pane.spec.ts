@@ -73,7 +73,8 @@ test("tab switch only GETs discovery runs and does not create a session", async 
   await page.goto("/");
   await page.locator('[data-home-mode="discovery"]').click();
   await expect(page.locator("[data-discovery-empty='idle']")).toBeVisible();
-  await expect(page.locator("[data-discovery-start]")).toHaveText("开始发现");
+  await expect(page.locator("[data-discovery-search-card]")).toBeVisible();
+  await expect(page.locator("[data-discovery-submit]")).toHaveText("开始检索");
   await expect(page.locator("[data-discovery-panel]")).toContainText("尚未搜索");
   await expect(page.locator("[data-discovery-panel]")).not.toContainText(BANNED_FOLLOW);
   expect(posts.filter((path) => path === "/api/sessions" || path.includes("/run") || path.endsWith("/from-text"))).toEqual([]);
@@ -81,45 +82,83 @@ test("tab switch only GETs discovery runs and does not create a session", async 
   expect(gets.some((path) => path.includes("/batches"))).toBeFalsy();
 });
 
-test("开始发现 prefills Composer without a session and + menu is not connectors admin", async ({ page }) => {
+test("condition card renders in-page without prefilling the Composer", async ({ page }) => {
   const posts: string[] = [];
   page.on("request", (item) => {
     if (item.method() === "POST") posts.push(new URL(item.url()).pathname);
   });
   await openDiscovery(page);
-  await page.locator("[data-discovery-start]").click();
+  await expect(page.locator("[data-discovery-search-card]")).toContainText("红人检索");
+  await expect(page.locator('[data-discovery-search-card] [data-discovery-filter="platform"] [data-discovery-chip="youtube"]')).toBeVisible();
+  await expect(page.locator('[data-discovery-search-card] [data-discovery-filter="platform"] [data-discovery-chip="tiktok"]')).toHaveCount(0);
+  await expect(page.locator('[data-discovery-search-card] [data-discovery-filter="platform"] [data-discovery-chip="douyin"]')).toHaveCount(0);
+  await expect(page.locator('[data-discovery-search-card] [data-discovery-filter="region"] [data-discovery-chip="na"]')).toHaveText("北美");
+  await expect(page.locator('[data-discovery-search-card] [data-discovery-filter="region"] [data-discovery-chip="jpkr"]')).toHaveText("日韩");
+  await expect(page.locator('[data-discovery-search-card] [data-discovery-filter="region"] [data-discovery-chip="global_en"]'))
+    .toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("[data-discovery-keywords]")).toHaveValue("户外露营, 户外能源");
+  expect(posts.filter((path) => path === "/api/sessions" || path.endsWith("/from-text"))).toEqual([]);
+});
+
+test("发现任务 summary follows the chips", async ({ page }) => {
+  await openDiscovery(page);
+  await page.locator('[data-discovery-search-card] [data-discovery-filter="platform"] [data-discovery-chip="youtube"]').click();
+  await page.locator('[data-discovery-search-card] [data-discovery-filter="directions"] [data-discovery-chip="camping"]').click();
+  const row = (key: string) => page.locator(`[data-discovery-summary-row="${key}"] dd`);
+  await expect(row("platforms")).toHaveText("YouTube");
+  await expect(row("directions")).toHaveText("户外露营");
+  await expect(row("region")).toHaveText("全球英文");
+  await expect(page.locator("[data-discovery-submit]")).toBeEnabled();
+});
+
+test("+ menu still opens the Composer discovery template", async ({ page }) => {
+  const posts: string[] = [];
+  page.on("request", (item) => {
+    if (item.method() === "POST") posts.push(new URL(item.url()).pathname);
+  });
+  await openDiscovery(page);
+  await page.locator("[data-home] [data-attach]").click();
+  const menu = page.getByRole("menu", { name: "添加内容" });
+  await expect(menu.getByRole("menuitem", { name: "发现红人模板" })).toBeVisible();
+  // 菜单在被点选后即卸载，这条「菜单不是连接器治理入口」的检查要在关闭前做。
+  await expect(menu).not.toContainText("/admin/connectors");
+  await menu.getByRole("menuitem", { name: "发现红人模板" }).click();
   const input = page.locator("[data-home] [data-composer-input]");
   await expect(input).toHaveValue(/【发现任务】/);
   await expect(input).toHaveValue(/不会发信/);
   await expect(input).toHaveValue(/不会改阶段/);
   await expect(input).toHaveValue(/不会编造邮箱/);
   await expect(page.locator("[data-home] [data-discovery-lock-chip]")).toContainText("发现任务");
-  await expect(page.locator('[data-home] [data-discovery-filter="platform"] [data-discovery-chip="youtube"]')).toBeVisible();
-  await expect(page.locator('[data-home] [data-discovery-filter="platform"] [data-discovery-chip="tiktok"]')).toHaveCount(0);
-  await expect(page.locator('[data-home] [data-discovery-filter="platform"] [data-discovery-chip="douyin"]')).toHaveCount(0);
-  await expect(page.locator('[data-home] [data-discovery-filter="region"] [data-discovery-chip="na"]')).toHaveText("北美");
-  await expect(page.locator('[data-home] [data-discovery-filter="region"] [data-discovery-chip="jpkr"]')).toHaveText("日韩");
-  await expect(page.locator("[data-nav='new-task']")).toHaveAttribute("href", "/");
   expect(posts.filter((path) => path === "/api/sessions" || path.endsWith("/from-text"))).toEqual([]);
-
-  await page.locator("[data-home] [data-attach]").click();
-  const menu = page.getByRole("menu", { name: "添加内容" });
-  await expect(menu.getByRole("menuitem", { name: "发现红人模板" })).toBeVisible();
-  await expect(menu).not.toContainText("/admin/connectors");
-  await expect(menu).not.toContainText("连接器治理");
 });
 
-test("chips override the body and missing platform/keywords disable send", async ({ page }) => {
+test("开始检索 needs a platform and keywords", async ({ page }) => {
   await openDiscovery(page);
-  await page.locator("[data-discovery-start]").click();
-  await page.locator('[data-home] [data-discovery-filter="platform"] [data-discovery-chip="instagram"]').click();
-  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/Instagram/);
-  await expect(page.locator("[data-discovery-override-hint]")).toBeVisible();
-  await expect(page.locator("[data-discovery-override-hint]")).toHaveText("已用芯片覆盖");
+  const card = page.locator("[data-discovery-search-card]");
+  const submit = page.locator("[data-discovery-submit]");
+  const instagram = card.locator('[data-discovery-filter="platform"] [data-discovery-chip="instagram"]');
+  const keywords = card.locator("[data-discovery-keywords]");
 
-  await page.locator('[data-home] [data-discovery-chip="youtube"] .chip-x').first().click();
-  await page.locator('[data-home] [data-discovery-chip="instagram"] .chip-x').first().click();
-  await expect(page.locator("[data-home] [data-send]")).toBeDisabled();
+  // 平台默认未选（单选，决策 D2）：有关键词也不能提交。
+  await expect(submit).toBeDisabled();
+
+  await instagram.click();
+  await expect(instagram).toHaveAttribute("aria-pressed", "true");
+  await expect(submit).toBeEnabled();
+
+  // 清空关键词：blur 才写回 brief（卡片只在解析得出词时回写输入框）。
+  await keywords.fill("");
+  await keywords.blur();
+  await expect(submit).toBeDisabled();
+
+  await keywords.fill("户外露营");
+  await keywords.blur();
+  await expect(submit).toBeEnabled();
+
+  // 二次点击同一平台即取消选择（单选），条件不完整时按钮回到禁用。
+  await instagram.click();
+  await expect(instagram).toHaveAttribute("aria-pressed", "false");
+  await expect(submit).toBeDisabled();
 });
 
 test("submit posts /api/home/discovery/run, shows process copy, and ingests to pool", async ({ page }) => {
@@ -209,8 +248,8 @@ test("submit posts /api/home/discovery/run, shows process copy, and ingests to p
   });
 
   await openDiscovery(page);
-  await page.locator("[data-discovery-start]").click();
-  await page.locator("[data-home] [data-send]").click();
+  await page.locator('[data-discovery-search-card] [data-discovery-filter="platform"] [data-discovery-chip="youtube"]').click();
+  await page.locator("[data-discovery-submit]").click();
   await expect.poll(() => runPosts).toEqual(["/api/home/discovery/run"]);
   await expect(page.locator("[data-discovery-process]")).toContainText("排队");
   await expect(page.locator("[data-discovery-process]")).toContainText("开始搜索关键词");
