@@ -78,8 +78,10 @@ export default function DiscoverySearchCard({
         <p>设置检索条件，快速发现符合要求的红人。</p>
       </header>
 
-      <div className="discovery-filter-block">
-        <div className="ai-discovery-field" data-discovery-filter="platform">
+      <section className="ai-discovery-section" data-discovery-section="basics">
+        <h3>基础筛选</h3>
+        <div className="ai-discovery-rows">
+        <div className="ai-discovery-row" data-discovery-filter="platform">
           <span className="ai-discovery-label">平台</span>
           <div className="ai-discovery-chips">
             {platforms.map((option) => (
@@ -98,7 +100,7 @@ export default function DiscoverySearchCard({
           </div>
         </div>
 
-        <div className="ai-discovery-field" data-discovery-filter="region">
+        <div className="ai-discovery-row" data-discovery-filter="region">
           <span className="ai-discovery-label">地区</span>
           <div className="ai-discovery-chips">
             {regions.map((option) => (
@@ -116,7 +118,7 @@ export default function DiscoverySearchCard({
           </div>
         </div>
 
-        <div className="ai-discovery-field" data-discovery-filter="directions">
+        <div className="ai-discovery-row" data-discovery-filter="directions">
           <span className="ai-discovery-label">方向</span>
           <div className="ai-discovery-chips">
             {directions.map((option) => {
@@ -139,10 +141,13 @@ export default function DiscoverySearchCard({
           </div>
           {atMax ? <span className="discovery-direction-limit">最多添加 {MAX_DISCOVERY_DIRECTIONS} 个方向</span> : null}
         </div>
-      </div>
+        </div>
+      </section>
 
-      <div className="discovery-condition-row">
-        <div className="ai-discovery-field is-stacked" data-discovery-keys>
+      <section className="ai-discovery-section" data-discovery-section="scale">
+        <h3>内容与账号规模</h3>
+        <div className="ai-discovery-rows">
+        <div className="ai-discovery-row" data-discovery-keys>
           <label className="ai-discovery-label" htmlFor="ai-discovery-keywords">关键词</label>
           <input
             id="ai-discovery-keywords"
@@ -166,7 +171,7 @@ export default function DiscoverySearchCard({
           />
         </div>
 
-        <div className="ai-discovery-field is-stacked" data-discovery-followers>
+        <div className="ai-discovery-row" data-discovery-followers>
           <span className="ai-discovery-label">粉丝数</span>
           <div className="ai-discovery-inline">
             <input
@@ -189,7 +194,13 @@ export default function DiscoverySearchCard({
           </div>
         </div>
 
-        <div className="ai-discovery-field is-stacked" data-discovery-plays>
+        </div>
+      </section>
+
+      <section className="ai-discovery-section" data-discovery-section="effect">
+        <h3>内容效果</h3>
+        <div className="ai-discovery-rows is-pair">
+        <div className="ai-discovery-row" data-discovery-plays>
           <span className="ai-discovery-label">近10条均播</span>
           <div className="ai-discovery-inline">
             <span className="ai-discovery-op">≥</span>
@@ -203,7 +214,7 @@ export default function DiscoverySearchCard({
           </div>
         </div>
 
-        <div className="ai-discovery-field is-stacked" data-discovery-count>
+        <div className="ai-discovery-row" data-discovery-count>
           <span className="ai-discovery-label">期望人数</span>
           <input
             className="ai-discovery-input is-number"
@@ -213,8 +224,8 @@ export default function DiscoverySearchCard({
             onChange={(event) => patch({ expect_count: clampCountInput(event.target.value, brief.expect_count) })}
           />
         </div>
-      </div>
-
+        </div>
+      </section>
     </section>
   );
 }

@@ -1890,70 +1890,137 @@ summary:focus-visible,
 .ai-discovery-card {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  margin: 0 0 20px;
+  gap: var(--ds-section-gap);
+  margin: 0 0 var(--ds-section-gap);
   padding: 0;
+  border: 0;
+  background: transparent;
 }
-.ai-discovery-head h2 { margin: 0; font-size: 18px; font-weight: 600; line-height: 26px; }
-.ai-discovery-head p { margin: 4px 0 0; font-size: 14px; color: var(--color-graphite); line-height: 22px; }
-.ai-discovery-field { display: flex; align-items: center; gap: 12px; min-height: 36px; }
-.ai-discovery-label { flex: 0 0 88px; font-size: 14px; color: var(--color-graphite); }
-.ai-discovery-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-/* Platform chip：高 36 / 内边距 12 / 间距 8 / 16px 图标（圆角按框线稿输入与按钮 8）。 */
+/* 选择器带上 `.ai-discovery-card` 是为了压过全局桌面密度规则
+   `.home-pane h2 { font-size: 15px; font-weight: 500 }`（同权重、在它之后）。 */
+.ai-discovery-card .ai-discovery-head h2 {
+  margin: 0;
+  font-size: var(--ds-font-title);
+  line-height: var(--ds-line-title);
+  font-weight: var(--ds-weight-title);
+  color: var(--text);
+}
+.ai-discovery-card .ai-discovery-head p {
+  margin: var(--ds-space-1) 0 0;
+  font-size: var(--ds-font-desc);
+  line-height: var(--ds-line-desc);
+  color: var(--ds-text-secondary);
+}
+/* 分区 = 一级信息；只有分区之间有线，分区内部靠间距（视觉规范 §10）。 */
+.ai-discovery-section { display: flex; flex-direction: column; gap: var(--ds-space-5); }
+.ai-discovery-section + .ai-discovery-section {
+  padding-top: var(--ds-section-gap);
+  border-top: 1px solid var(--ds-border);
+}
+.ai-discovery-section h3 {
+  margin: 0;
+  font-size: var(--ds-font-section);
+  line-height: var(--ds-line-section);
+  font-weight: var(--ds-weight-section);
+  color: var(--text);
+}
+.ai-discovery-rows { display: grid; gap: var(--ds-row-gap); min-width: 0; }
+/* 内容效果：两项并排，各自仍复用同一个 Label 列宽。 */
+.ai-discovery-rows.is-pair { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--ds-space-8); }
+/* 固定 Label 纵轴：平台/地区/方向/关键词/粉丝数/近10条均播/期望人数的控件都从同一条 X 起。 */
+.ai-discovery-row {
+  display: grid;
+  grid-template-columns: var(--ds-label-w) minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--ds-space-5);
+  min-width: 0;
+}
+.ai-discovery-label {
+  font-size: var(--ds-font-label);
+  line-height: var(--ds-line-label);
+  font-weight: var(--ds-weight-label);
+  color: var(--ds-text-secondary);
+}
+.ai-discovery-chips { display: flex; flex-wrap: wrap; gap: var(--ds-chip-gap); align-items: center; }
+.ai-discovery-inline { display: flex; align-items: center; gap: var(--ds-space-3); min-width: 0; }
+.ai-discovery-dash, .ai-discovery-op { color: var(--ds-text-secondary); }
+.ai-discovery-card .discovery-direction-limit {
+  flex: 1 1 100%;
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+  color: var(--ds-text-secondary);
+}
+/* Filter chip：默认「浅底 + 几近无描边」，靠底色与间距分组；描边只出现在选中态。 */
 .ai-discovery-card .discovery-chip {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 36px;
-  min-height: 36px;
-  padding: 0 12px;
-  border-radius: 8px;
-  font-size: 14px;
+  gap: var(--ds-space-2);
+  height: var(--ds-chip-h);
+  min-height: var(--ds-chip-h);
+  padding: 0 var(--ds-space-4);
+  border: 1px solid transparent;
+  border-radius: var(--ds-radius-chip);
+  background: var(--ds-surface);
+  color: var(--text);
+  font-size: var(--ds-font-body);
+  line-height: var(--ds-line-body);
+}
+.ai-discovery-card .discovery-chip:hover { background: var(--ds-surface-hover); }
+/* 选中态：底色 10% 品牌色 / 描边 35% / 文字 100%，三处不同权重，不再全是饱和红（§5）。 */
+.ai-discovery-card .discovery-chip[aria-pressed="true"] {
+  background: var(--ds-selected-bg);
+  border-color: var(--ds-selected-border);
+  color: var(--color-primary);
+}
+.ai-discovery-card .discovery-chip:disabled { opacity: .45; cursor: not-allowed; }
+.ai-discovery-card .discovery-chip:focus-visible {
+  outline: 2px solid var(--ds-selected-border);
+  outline-offset: 1px;
 }
 .discovery-platform-ico { width: 16px; height: 16px; flex: 0 0 16px; }
-.discovery-filter-block { display: flex; flex-direction: column; gap: 14px; }
-.discovery-condition-row { display: flex; flex-wrap: wrap; gap: 10px; }
-.discovery-condition-row .ai-discovery-field.is-stacked {
-  flex: 1 1 240px;
+/* Field System：所有输入框同高、同圆角、同描边、同字号（§8/§9）。 */
+.ai-discovery-card .ai-discovery-input {
+  width: 100%;
   min-width: 0;
-  min-height: 0;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
+  height: var(--ds-control-h);
+  padding: 0 var(--ds-space-3);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-input);
+  background: var(--bg);
+  font-size: var(--ds-font-body);
+  line-height: var(--ds-line-body);
+  color: var(--text);
 }
-.discovery-condition-row .ai-discovery-label { flex: 0 0 auto; }
-.ai-discovery-input {
-  flex: 1; min-width: 0; height: 40px; padding: 0 12px;
-  border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
-  font-size: 14px; color: var(--text);
+.ai-discovery-card .ai-discovery-input:focus-visible {
+  outline: none;
+  border-color: var(--ds-selected-border);
+  box-shadow: 0 0 0 3px var(--ds-selected-bg);
 }
-.ai-discovery-input.is-number { flex: 0 0 180px; }
-.discovery-condition-row .ai-discovery-input.is-number { flex: 1 1 0; }
-.ai-discovery-inline { display: flex; align-items: center; gap: 8px; }
-.ai-discovery-dash, .ai-discovery-op { color: var(--color-graphite); }
-/* 条件卡没有按钮：唯一的提交入口是 AI 提问框的发送按钮。 */
-.ai-discovery-note { margin: 0; font-size: 12px; color: var(--color-graphite); }
-.ai-discovery-card .discovery-chip[aria-pressed="true"] {
-  border-color: var(--color-primary); background: var(--color-pink-tint); color: var(--color-primary);
+.ai-discovery-card .ai-discovery-input.is-number {
+  flex: 0 0 var(--ds-control-w);
+  width: var(--ds-control-w);
 }
+/* 候选行里的平台/在库是「状态 Tag」：满圆角，与 Filter chip 区分开（§3 圆角层级）。 */
+.discovery-lead .discovery-chip-soft { border-radius: var(--ds-radius-tag); background: var(--ds-surface); }
 
 /* Crawl status / Completed：单行状态卡。左沿与检索区/工具栏/列表一致（只留纵向内边距）。 */
 .discovery-status-card {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 20px;
-  margin: 0 0 16px;
-  padding: 12px 0;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  gap: var(--ds-space-2) var(--ds-space-5);
+  margin: 0 0 var(--ds-space-4);
+  padding: var(--ds-space-3) 0;
+  border-top: 1px solid var(--ds-border);
+  border-bottom: 1px solid var(--ds-border);
 }
 .discovery-status-state {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  color: var(--color-graphite);
+  gap: var(--ds-space-2);
+  font-size: var(--ds-font-body);
+  line-height: var(--ds-line-body);
+  color: var(--ds-text-secondary);
 }
 .discovery-status-dot {
   flex: 0 0 8px;
@@ -1965,10 +2032,10 @@ summary:focus-visible,
 /* 成功态：绿点 + 绿字 + 状态文案三者并存。 */
 .discovery-status-card.is-ok .discovery-status-state { color: var(--color-success-vivid); }
 .discovery-status-card.is-ok .discovery-status-dot { background: var(--color-success-vivid); }
-.discovery-status-rows { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 0; }
-.discovery-status-row { display: flex; align-items: baseline; gap: 6px; }
-.discovery-status-row dt { font-size: 12px; color: var(--color-graphite); }
-.discovery-status-row dd { margin: 0; font-size: 14px; color: var(--text); }
+.discovery-status-rows { display: flex; flex-wrap: wrap; gap: var(--ds-space-2) var(--ds-space-5); margin: 0; }
+.discovery-status-row { display: flex; align-items: baseline; gap: var(--ds-space-2); }
+.discovery-status-row dt { font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); color: var(--ds-text-secondary); }
+.discovery-status-row dd { margin: 0; font-size: var(--ds-font-body); color: var(--text); }
 @media (max-width: 720px) {
   .recommend-md-row {
     grid-template-columns: minmax(0, 1fr);
@@ -10579,10 +10646,10 @@ button.today-brief-primary-btn:disabled {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px 16px;
+  gap: var(--ds-space-3) var(--ds-space-4);
 }
-.discovery-run-count { font-size: 14px; font-weight: 600; color: var(--text); }
-.discovery-run-sort { font-size: 12px; color: var(--color-graphite); }
+.discovery-run-count { font-size: var(--ds-font-body); font-weight: 600; color: var(--text); }
+.discovery-run-sort { font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); color: var(--ds-text-secondary); }
 
 /* 候选列表：Vertical gap 0，以 1px 分隔线区分，不给每行套独立卡片。 */
 .discovery-candidate-list {
@@ -10596,10 +10663,10 @@ button.today-brief-primary-btn:disabled {
 .discovery-lead {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--ds-space-3);
   min-height: 76px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border);
+  padding: var(--ds-space-3) 0;
+  border-bottom: 1px solid var(--ds-border);
 }
 .discovery-lead.is-expanded { flex-wrap: wrap; align-items: flex-start; }
 .discovery-lead-avatar {
@@ -10609,7 +10676,7 @@ button.today-brief-primary-btn:disabled {
   justify-content: center;
   width: 36px;
   height: 36px;
-  border-radius: 50%;
+  border-radius: var(--ds-radius-tag);
   background: var(--color-pink-tint-soft);
   color: var(--color-primary);
   font-size: 16px;
@@ -10620,29 +10687,30 @@ button.today-brief-primary-btn:disabled {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-2);
   margin: 0;
 }
-.discovery-lead-nickname { font-size: 16px; font-weight: 600; color: var(--text); }
+.discovery-lead-nickname { font-size: var(--ds-font-body); font-weight: 600; color: var(--text); }
 .discovery-lead-tag {
-  font-size: 12px;
-  color: var(--color-graphite);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 2px 8px;
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+  color: var(--ds-text-secondary);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-chip);
+  padding: 2px var(--ds-space-2);
 }
 .discovery-lead-meta,
 .discovery-lead-reason {
-  margin: 4px 0 0;
-  font-size: 14px;
-  line-height: 22px;
-  color: var(--color-graphite);
+  margin: var(--ds-space-1) 0 0;
+  font-size: var(--ds-font-body);
+  line-height: var(--ds-line-body);
+  color: var(--ds-text-secondary);
 }
 .discovery-lead-actions {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--ds-space-3);
 }
 .discovery-follow-quiet.is-disabled,
 .discovery-follow-quiet[aria-disabled="true"] {
@@ -10653,20 +10721,23 @@ button.today-brief-primary-btn:disabled {
   flex: 1 1 100%;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 24px;
-  margin: 12px 0 0;
-  padding: 12px 0 0;
-  border-top: 1px dashed var(--border);
+  gap: var(--ds-space-2) var(--ds-space-6);
+  margin: var(--ds-space-3) 0 0;
+  padding: var(--ds-space-3) 0 0;
+  border-top: 1px dashed var(--ds-border);
 }
-.discovery-lead-detail-item { display: flex; gap: 8px; min-width: 0; }
+.discovery-lead-detail-item { display: flex; gap: var(--ds-space-2); min-width: 0; }
 .discovery-lead-detail-item.is-wide { grid-column: 1 / -1; }
-.discovery-lead-detail-item dt { flex: 0 0 auto; font-size: 12px; color: var(--color-graphite); }
-.discovery-lead-detail-item dd { margin: 0; font-size: 14px; color: var(--text); }
+.discovery-lead-detail-item dt {
+  flex: 0 0 auto;
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+  color: var(--ds-text-secondary);
+}
+.discovery-lead-detail-item dd { margin: 0; font-size: var(--ds-font-body); color: var(--text); }
 
-/* ── T7：Token 补齐 / 成功态暗色 / 对比度 / 1024 断点 ── */
+/* ── T7：成功态暗色 / 对比度 ── */
 :root {
-  --text-16: 16px;
-  --text-20: 20px;
   /* 成功色只给 AI发现 状态卡用；暗色下换亮一档，别改全局 --success。 */
   --discovery-success: var(--color-success-vivid);
 }
@@ -10680,69 +10751,88 @@ button.today-brief-primary-btn:disabled {
 .discovery-status-card.is-ok .discovery-status-state { color: var(--discovery-success); }
 
 .discovery-lead-select { flex: 0 0 auto; display: inline-flex; align-items: center; }
-.discovery-lead-nickname { font-size: var(--text-16); }
-/* 框线稿 §Card Header：标题 20 / 600 / 28。 */
-.ai-discovery-head h2 { font-size: var(--text-20); line-height: 28px; }
+.discovery-lead-nickname { font-size: var(--ds-font-body); }
 
-/* ── 框线稿对齐 T8：检索区从「裸表单」回到设计里的白卡，内容列放宽（§1–§12） ── */
-/* §1/§2 内容列：AI发现 用更宽的上限，1920 屏下内容宽 1200（框线稿 §1 的「内容宽 1200」）。
-   1440 屏受 260 侧栏所限，内容宽仍是 1180 − 2×34.56，加宽上限对窄屏无影响。 */
-[data-home][data-home-active-mode="discovery"] { --content-max: 1280px; }
+/* ── 全局视觉 token（Design System v1） ──────────────────────────────────
+   一套尺度给全站用：间距走 8px 网格，圆角按层级分档，颜色/字号只从这里取。
+   页面不要各自写死 px，直接引用 --ds-*；新页面必须先落 token 再落样式。 */
+:root {
+  /* 间距：8px 网格 */
+  --ds-space-1: 4px;
+  --ds-space-2: 8px;
+  --ds-space-3: 12px;
+  --ds-space-4: 16px;
+  --ds-space-5: 20px;
+  --ds-space-6: 24px;
+  --ds-space-8: 32px;
+  --ds-space-12: 48px;
 
-/* §4 红人检索主 Card：Padding 32 / Radius 16 / 白底 / 1px #E8E9EB / 内部 gap 24。 */
-.discovery-pane .ai-discovery-card {
-  gap: 24px;
-  padding: 32px;
-  border: 1px solid #e8e9eb;
-  border-radius: 16px;
-  background: #fff;
+  /* 页面与分区 */
+  --ds-page-pad-x: 48px;
+  --ds-section-gap: var(--ds-space-8);
+  --ds-row-gap: var(--ds-space-5);
+
+  /* 圆角：层级从大到小，越大越「容器」，越小越「控件」，状态 Tag 才用满圆角 */
+  --ds-radius-page: 20px;
+  --ds-radius-section: 16px;
+  --ds-radius-input: 10px;
+  --ds-radius-chip: 10px;
+  --ds-radius-tag: 999px;
+
+  /* 控件尺寸 */
+  --ds-control-h: 44px;
+  --ds-control-w: 180px;
+  --ds-label-w: 120px;
+  --ds-chip-h: 40px;
+  --ds-chip-gap: var(--ds-space-2);
+
+  /* 颜色：中性色走 token，品牌色仍然只引用既有 --color-primary */
+  --ds-border: #e5e7eb;
+  --ds-surface: #f7f8f8;
+  --ds-surface-hover: #f1f2f3;
+  --ds-text-secondary: #6b7280;
+  /* 选中态三档权重：底色 10% / 描边 35% / 文字 100% */
+  --ds-selected-bg: color-mix(in srgb, var(--color-primary) 10%, #fff);
+  --ds-selected-border: color-mix(in srgb, var(--color-primary) 35%, transparent);
+
+  /* 字号：页面 → 描述 → 分区 → 标签 → 正文 → 辅助 */
+  --ds-font-title: 28px;   --ds-line-title: 36px;   --ds-weight-title: 700;
+  --ds-font-desc: 15px;    --ds-line-desc: 24px;
+  --ds-font-section: 18px; --ds-line-section: 26px; --ds-weight-section: 600;
+  --ds-font-label: 14px;   --ds-line-label: 20px;   --ds-weight-label: 500;
+  --ds-font-body: 14px;    --ds-line-body: 20px;
+  --ds-font-helper: 12px;  --ds-line-helper: 18px;
 }
-/* §5 Card Header：标题 20 / 600 / 28。 */
-.discovery-pane .ai-discovery-head h2 { font-weight: 600; }
-/* §6 Platform chip：高 36 / 内边距 0 18 / 圆角 18 / 边框 #E2E4E8。 */
-.discovery-pane .ai-discovery-card .discovery-chip {
-  padding: 0 18px;
-  border-radius: 18px;
-  border-color: #e2e4e8;
+:root[data-theme="dark"] {
+  --ds-border: #2f3134;
+  --ds-surface: #1f2124;
+  --ds-surface-hover: #26282b;
+  --ds-text-secondary: #9aa0a6;
+  --ds-selected-bg: color-mix(in srgb, var(--color-primary) 22%, transparent);
 }
-/* §9 分割线：#F0F1F2，把「分类选择」和「数值条件」分开。 */
-.discovery-pane .discovery-condition-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 20px 32px;
-  margin: 4px 0;
-  padding-top: 20px;
-  border-top: 1px solid #f0f1f2;
-}
-/* §10 关键词 / §11 粉丝数 各占整行；§12 均播与期望人数 50% / 50%。 */
-.discovery-pane .discovery-condition-row .ai-discovery-field.is-stacked {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
-}
-.discovery-pane .discovery-condition-row [data-discovery-keys],
-.discovery-pane .discovery-condition-row [data-discovery-followers] { grid-column: 1 / -1; }
-/* §10/§11/§12 输入框：高 44 / 圆角 10 / 边框 #DFE1E5；粉丝数两个框各 180、间距 12。 */
-.discovery-pane .ai-discovery-input {
-  height: 44px;
-  border-radius: 10px;
-  border-color: #dfe1e5;
-}
-.discovery-pane .discovery-condition-row .ai-discovery-inline { gap: 12px; }
-.discovery-pane .discovery-condition-row .ai-discovery-inline .ai-discovery-input.is-number { flex: 0 0 180px; }
-/* 输入框直接挂在纵向 flex 的字段里时，`flex: 1` 会作用在竖直主轴上，把高度压成内容高（18px）。
-   这里显式让高度回到 44px。 */
-.discovery-pane .discovery-condition-row .ai-discovery-field.is-stacked > .ai-discovery-input { flex: 0 0 auto; }
-/* 选中态必须保留品牌描边：上面的 chip 规则只统一了默认边框色。 */
-.discovery-pane .ai-discovery-card .discovery-chip[aria-pressed="true"] {
-  border-color: var(--color-primary);
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ds-border: #2f3134;
+    --ds-surface: #1f2124;
+    --ds-surface-hover: #26282b;
+    --ds-text-secondary: #9aa0a6;
+    --ds-selected-bg: color-mix(in srgb, var(--color-primary) 22%, transparent);
+  }
 }
 
-/* Tablet 1024：条件行收成一列，候选行只留一级字段（隐藏二级指标：播放中位数/稳定度/采集时间/在库状态）。 */
+/* AI发现 页的内容列与左右留白都取 token：1920 屏下内容宽 1200；1440 屏受 260 侧栏所限，
+   内容宽 1180 − 2×留白（留白本身仍是响应式的，上限 48）。 */
+[data-home][data-home-active-mode="discovery"] {
+  --content-max: 1280px;
+  --page-gutter: clamp(var(--ds-space-5), 2.4vw, var(--ds-page-pad-x));
+}
+
+/* Tablet 1024：并排的两项收成一列，Label 列收窄；候选行只留一级字段
+   （隐藏二级指标：播放中位数/稳定度/采集时间/在库状态）。 */
 @media (max-width: 1024px) {
-  .discovery-pane .discovery-condition-row { grid-template-columns: minmax(0, 1fr); }
+  .ai-discovery-rows.is-pair { grid-template-columns: minmax(0, 1fr); }
+  .ai-discovery-row { grid-template-columns: 96px minmax(0, 1fr); column-gap: var(--ds-space-3); }
   .discovery-lead { min-height: 64px; }
   .discovery-lead-detail-item:nth-child(-n + 4) { display: none; }
   .discovery-lead-detail { grid-template-columns: minmax(0, 1fr); }
-  .discovery-pane .ai-discovery-card { padding: 20px; }
 }
