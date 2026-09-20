@@ -118,7 +118,6 @@ export default function Workbench() {
 
   const skillsActive =
     loc.pathname === "/skills"
-    || loc.pathname.startsWith("/skills/lifecycle")
     || loc.pathname.startsWith("/market/skills");
   const newTaskActive = loc.pathname === "/";
   const adminAvailable = admin || me?.available_modes?.includes("admin") === true;
@@ -230,16 +229,6 @@ export default function Workbench() {
           >
             <Ico path="M8 8h4v4H8z M12 12h4v4h-4z M7 16l-2 2 M17 8l2-2" />
             <span className="sidebar-label">技能目录</span>
-          </NavLink>
-          <NavLink
-            to="/skills/lifecycle"
-            className={() => "nav-link" + (loc.pathname.startsWith("/skills/lifecycle") ? " active" : "")}
-            data-nav="skill-lifecycle"
-            title="技能生命周期管理"
-            onClick={() => setMobileOpen(false)}
-          >
-            <Ico path="M4 18h4v-6h4V6h4v12h4 M4 6h4" />
-            <span className="sidebar-label">生命周期</span>
           </NavLink>
         </nav>
 

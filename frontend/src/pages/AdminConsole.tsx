@@ -5,7 +5,6 @@ import { useAccount } from "../components/AuthGate";
 import BrandLockup from "../components/BrandLockup";
 import UserMenu from "../components/UserMenu";
 import { Admin as LegacyAdmin } from "./SimplePages";
-import { Admin as SkillAdmin } from "./Admin";
 import AdminKnowledge from "./AdminKnowledge";
 import AdminExams from "./AdminExams";
 import { AdminAgents } from "./AdminAgents";
@@ -30,6 +29,7 @@ import {
 import { SKILL_OPTIONS } from "../knowledgeCopy";
 import { approvalRoleSaveConfirm, retentionPolicyConfirm, userDeactivateConfirm } from "../adminConfirm";
 import { useAdminConfirm } from "../components/ConfirmDialog";
+import SkillLifecycle from "./SkillLifecycle";
 
 const TABS: [string, string][] = [
   ["employees", "员工"],
@@ -119,12 +119,12 @@ export default function AdminConsole() {
         <div className="admin-nav-kicker">管理</div>
         <nav className="admin-nav-list" aria-label="管理分类">
           {TABS.map(([id, label]) => {
-            const href = id === "employees" ? "/admin" : id === "skills" ? "/skills/lifecycle" : `/admin/${id}`;
+            const href = id === "employees" ? "/admin" : `/admin/${id}`;
             return (
               <NavLink
                 key={id}
                 to={href}
-                end={id === "employees" || id === "skills"}
+                end={id === "employees"}
                 className={"admin-nav-item" + (tab === id ? " active" : "")}
                 data-admin-nav={id}
                 data-admin-tab={id}
@@ -169,7 +169,7 @@ export default function AdminConsole() {
             ? <AdminConnectorDetail connectorId={detailId} connectors={connectors} users={users} auditRows={auditRows} onSave={save} />
             : <AdminConnectorsHub connectors={connectors} users={users} hiddenConnectors={hiddenConnectors} onSave={save} />
         )}
-        {tab === "skills" && <SkillAdmin embedded />}
+        {tab === "skills" && <SkillLifecycle />}
         {tab === "approvals" && (
           <GrantEditor kind="approval-roles" label="审批角色" users={users} options={[...APPROVAL_ROLE_OPTIONS]} onSave={save} />
         )}
