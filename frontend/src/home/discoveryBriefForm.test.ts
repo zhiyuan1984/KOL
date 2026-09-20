@@ -12,7 +12,7 @@ describe("discovery brief form helpers", () => {
     expect(value("平台")).toBe("（未选）");
     expect(value("地区")).toBe("全球英文");
     expect(value("方向")).toBe("（未选）");
-    expect(value("关键词")).toBe("户外露营, 户外能源");
+    expect(value("关键词")).toBe("camping, portable power station");
     expect(value("粉丝")).toBe("10000–2000000");
     expect(value("近10条均播")).toBe("≥ 5000");
     expect(value("期望人数")).toBe("30");

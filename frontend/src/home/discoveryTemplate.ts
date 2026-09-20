@@ -103,7 +103,7 @@ export function defaultDiscoveryBrief(): DiscoveryBrief {
     platforms: [],
     region: "global_en",
     directions: [],
-    keywords: ["户外露营", "户外能源"],
+    keywords: ["camping", "portable power station"],
     ...DEFAULT_DISCOVERY_THRESHOLDS,
   };
 }

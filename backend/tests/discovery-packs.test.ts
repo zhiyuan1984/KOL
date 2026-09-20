@@ -19,7 +19,7 @@ describe("discovery direction packs", () => {
     expect(template.defaults).toMatchObject({
       platforms: [],
       directions: [],
-      keywords: ["户外露营", "户外能源"],
+      keywords: ["camping", "portable power station"],
     });
   });
 
@@ -28,7 +28,7 @@ describe("discovery direction packs", () => {
       platforms: [],
       region: "global_en",
       directions: [],
-      keywords: ["户外露营", "户外能源"],
+      keywords: ["camping", "portable power station"],
     });
   });
 });

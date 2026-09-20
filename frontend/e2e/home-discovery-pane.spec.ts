@@ -96,7 +96,7 @@ test("condition card renders in-page without prefilling the Composer", async ({ 
   await expect(page.locator('[data-discovery-search-card] [data-discovery-filter="region"] [data-discovery-chip="jpkr"]')).toHaveText("日韩");
   await expect(page.locator('[data-discovery-search-card] [data-discovery-filter="region"] [data-discovery-chip="global_en"]'))
     .toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("[data-discovery-keywords]")).toHaveValue("户外露营, 户外能源");
+  await expect(page.locator("[data-discovery-keywords]")).toHaveValue("camping, portable power station");
   expect(posts.filter((path) => path === "/api/sessions" || path.endsWith("/from-text"))).toEqual([]);
 });
 

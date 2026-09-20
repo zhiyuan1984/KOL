@@ -139,7 +139,7 @@ export default function DiscoverySearchCard({
           className="ai-discovery-input"
           data-discovery-keywords
           value={keywordText}
-          placeholder="户外露营，户外能源"
+          placeholder="camping, portable power station"
           onChange={(event) => {
             // 中间态（例如刚敲完逗号）留在本地，只有解析得出词时才写回 brief，
             // 否则 join/split 往返会把分隔符吃掉，导致逗号根本打不进去。
