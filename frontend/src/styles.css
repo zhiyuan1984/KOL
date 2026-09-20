@@ -9731,7 +9731,7 @@ button.today-brief-primary-btn:disabled {
 }
 
 .skill-catalog-preview {
-  width: clamp(252px, 23vw, 330px);
+  width: clamp(240px, 19vw, 320px);
   border-left: 1px solid var(--border);
   background: var(--color-pink-tint-soft);
   overflow-y: auto;
@@ -9811,7 +9811,7 @@ button.today-brief-primary-btn:disabled {
   display: flex;
   flex-direction: column;
   gap: 7px;
-  padding: 11px 12px;
+  padding: 10px 11px;
   border: 1px solid var(--border);
   border-radius: var(--radius-cards);
   background: var(--bg);
@@ -9905,8 +9905,17 @@ button.today-brief-primary-btn:disabled {
 .skill-catalog-page .skill-card-actions {
   display: flex;
   flex-wrap: nowrap;
-  gap: 6px;
+  gap: 5px;
   margin-top: auto;
+}
+
+.skill-catalog-page .skill-card-actions .skill-btn {
+  padding: 3px 5px;
+  font-size: 10.5px;
+  gap: 2px;
+  white-space: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .skill-btn {
