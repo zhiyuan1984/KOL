@@ -92,7 +92,6 @@ export default function TaskBoard({
   const [filter, setFilter] = useState<BoardFilter>("all");
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState(false);
-  const [checkedIds, setCheckedIds] = useState<string[]>([]);
 
   const counts = useMemo(() => {
     const tally: Record<BoardFilter, number> = { all: rows.length, iu: 0, in: 0, ui: 0, nn: 0 };
@@ -110,19 +109,6 @@ export default function TaskBoard({
     [rows, filter, query],
   );
   const visible = expanded ? filtered : filtered.slice(0, COLLAPSED_ROWS);
-
-  const onCheck = (id: string, on: boolean) => {
-    setCheckedIds((current) => (on ? [...new Set([...current, id])] : current.filter((row) => row !== id)));
-  };
-  const allVisibleChecked = visible.length > 0 && visible.every((task) => checkedIds.includes(task.id));
-  const toggleAll = (on: boolean) => {
-    setCheckedIds((current) => {
-      const visibleIds = visible.map((task) => task.id);
-      return on
-        ? [...new Set([...current, ...visibleIds])]
-        : current.filter((id) => !visibleIds.includes(id));
-    });
-  };
 
   const emptyCopy = SCOPE_EMPTY_COPY[scope];
   const filterLabel = scope === "todo" ? "筛选待办任务" : "筛选今日任务";
@@ -193,15 +179,6 @@ export default function TaskBoard({
         <table className="today-board-table">
           <thead>
             <tr>
-              <th className="today-board-cell-check">
-                <input
-                  type="checkbox"
-                  className="today-board-check"
-                  checked={allVisibleChecked}
-                  aria-label="选择全部任务"
-                  onChange={(event) => toggleAll(event.target.checked)}
-                />
-              </th>
               <th className="today-board-cell-index">#</th>
               <th>优先级</th>
               <th>任务标题</th>
@@ -214,9 +191,7 @@ export default function TaskBoard({
                 key={task.id}
                 task={task}
                 index={index}
-                checked={checkedIds.includes(task.id)}
                 busy={busy}
-                onCheck={onCheck}
                 onAct={onAct}
                 onEdit={onEdit}
               />

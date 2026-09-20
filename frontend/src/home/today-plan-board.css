@@ -178,25 +178,6 @@
   color: #6B7280;
   background: #fff;
 }
-.today-board-cell-check {
-  width: 32px;
-}
-.today-board-check {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  accent-color: #DB1860;
-  cursor: pointer;
-  /* 批量不是这一屏的主价值：默认不占视觉，悬停/键盘聚焦/已选才显现。 */
-  opacity: 0;
-  transition: opacity 0.12s ease;
-}
-.today-board-row:hover .today-board-check,
-.today-board-row:has(.today-board-check:checked) .today-board-check,
-.today-board-table thead tr:hover .today-board-check,
-.today-board-check:focus-visible {
-  opacity: 1;
-}
 .today-board-cell-index {
   width: 32px;
   color: #9ca3af;
@@ -301,14 +282,6 @@
   margin-left: 8px;
   font-size: 12px;
   color: #9ca3af;
-}
-/* Source is a weak trailing note on the meta line, not a column. */
-.today-board-source-note {
-  color: #9ca3af;
-  font-size: 12px;
-}
-.today-board-source-note::before {
-  content: "· ";
 }
 .today-board-cell-actions {
   white-space: nowrap;

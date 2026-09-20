@@ -43,8 +43,8 @@ test("home four-panel tab order and pane visibility", async ({ page }) => {
   await openMode(page, "todo");
   await expect(page.locator("[data-home] h1")).toHaveCount(0);
   await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
-  await expect(page.locator("[data-todo-filters]")).toBeVisible();
-  await expect(page.locator("[data-todo-md]")).toBeVisible();
+  await expect(page.locator(".today-board-filters")).toBeVisible();
+  await expect(page.locator("[data-todo-list]")).toBeVisible();
   await expect(page.locator("[data-today-suggestions]")).toHaveCount(0);
   await expect(page.locator("[data-discovery-panel]")).toHaveCount(0);
 
@@ -104,17 +104,16 @@ async function stubHomeTodos(page: Page, todos: Array<Record<string, unknown>>) 
     },
   };
   await stubHomeBoardAndFollowing(page, payload);
-  await page.route("**/api/tasks", (route) => route.fulfill({ json: todos }));
+  await page.route(/\/api\/tasks(?:\?.*)?$/, (route) => route.fulfill({ json: todos }));
 }
 
 async function todoRowLayout(card: ReturnType<Page["locator"]>) {
   return card.evaluate((el) => {
-    const line = el.querySelector(".today-todo-line1") as HTMLElement | null;
-    const title = el.querySelector(".today-todo-title") as HTMLElement | null;
-    const status = el.querySelector(".today-todo-label") as HTMLElement | null;
-    const act = el.querySelector(".today-todo-act") as HTMLElement | null;
-    const pane = el.closest("[data-todo-md]") as HTMLElement | null;
-    if (!line || !title || !status || !act) {
+    const title = el.querySelector(".today-board-title") as HTMLElement | null;
+    const status = el.querySelector(".today-board-chip[data-board-status]") as HTMLElement | null;
+    const act = el.querySelector("[data-today-todo-act]") as HTMLElement | null;
+    const pane = el.closest("[data-todo-list]") as HTMLElement | null;
+    if (!title || !status || !act) {
       throw new Error("todo action row is missing status/title/act");
     }
     const titleBox = title.getBoundingClientRect();
@@ -161,18 +160,17 @@ test("home todo action rows use full-width workbench layout", async ({ page }) =
   await stubHomeTodos(page, todos);
   await page.goto("/");
   await openMode(page, "todo");
-  await expect(page.locator("[data-todo-md]")).toBeVisible();
-  const quote = page.locator("[data-todo-card]").filter({ hasText: "写北美户外评测达人合作报价并核对样品寄送地址" });
-  await expect(quote).toBeVisible();
-  await expect(quote.locator("[data-todo-act]")).toBeVisible();
-  await expect(quote).toHaveAttribute("data-todo-status", "今天到期");
-  await expect(quote.locator("[data-todo-act]")).toHaveText("处理");
-  const follow = page.locator("[data-todo-card]").filter({ hasText: "跟进 Outdoor Gear Lab 样品签收" });
-  await expect(follow).toHaveAttribute("data-todo-bucket", "later");
-  await expect(follow).toContainText("后续");
-  await expect(follow.locator("[data-todo-act]")).toHaveText("打开");
+  await expect(page.locator("[data-todo-list]")).toBeVisible();
+  // 高优先且今天到期的行（quote）改造后归今日面板；今日面板行来自 GET /api/home/today-tasks
+  // 的服务端展示记忆，本测试的 board/tasks stub 覆盖不到，故原 quote 行状态断言随分桶移除。
+  // 待办面板只留今日范围之外的行（follow），桶状态属性与「后续」文案随分桶分组移除。
+  const follow = page.locator("[data-today-todo]").filter({ hasText: "跟进 Outdoor Gear Lab 样品签收" });
+  await expect(follow).toBeVisible();
+  await expect(follow.locator("[data-today-todo-act]")).toBeVisible();
+  await expect(follow.locator("[data-board-status]")).toHaveText("未开始");
+  await expect(follow.locator("[data-today-todo-act]")).toHaveText("打开");
 
-  const wide = await todoRowLayout(quote);
+  const wide = await todoRowLayout(follow);
   expect(wide.paneMaxWidth).toMatch(/^(none|100%)$/);
   expect(wide.actLeft).toBeGreaterThan(wide.titleRight - 8);
   expect(Math.abs(wide.actTop - wide.titleTop)).toBeLessThan(48);
@@ -180,7 +178,7 @@ test("home todo action rows use full-width workbench layout", async ({ page }) =
   await expectNoPageHorizontalScroll(page);
 
   await page.setViewportSize({ width: 720, height: 900 });
-  await expect(quote.locator("[data-todo-act]")).toBeVisible();
+  await expect(follow.locator("[data-today-todo-act]")).toBeVisible();
   await expectNoPageHorizontalScroll(page);
 });
 
@@ -549,7 +547,7 @@ test("today pane has no recommend convert and no 待办 copy", async ({ page }) 
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("正式待办");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("待办");
   await openMode(page, "todo");
-  await expect(page.locator("[data-todo-card]").first()).toBeVisible({ timeout: 15000 });
+  await expect(page.locator("[data-today-todo]").first()).toBeVisible({ timeout: 15000 });
 });
 
 test("home four tabs live in ?tab= and switching does not POST sessions", async ({ page }) => {

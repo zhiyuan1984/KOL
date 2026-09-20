@@ -1,6 +1,5 @@
 import type { HomeWorkbench, RecommendedTask, Task, TaskDefinition, TodayBriefPrimary, TodoLayoutItem } from "../api";
 import { waitDisplayOf, waitStatusLabel, failureHint } from "../waitStatus";
-import { todayTaskOriginLabel } from "./modes";
 
 export const openStatuses = new Set(["pending", "waiting", "running", "queued", "in_progress", "failed"]);
 export const closedStatuses = new Set(["completed", "done", "cancelled"]);
@@ -436,29 +435,32 @@ export function applyLayoutWhy(tasks: Task[], layout?: TodoLayoutItem[] | null):
   });
 }
 
+/**
+ * 任务行的一句话说明。不再用「今天推荐 / 我的任务」这类来源前缀：来源是行的元信息，
+ * 由 source mark（及其 aria-label）承载，写进 why 会污染任务列表的正文
+ * （也让 今日任务/我的待办 出现「今天推荐」这类不该出现的字样）。
+ */
 export function whyLine(task: Task) {
   const layoutWhy = String(task.layout_why || "").trim();
   if (layoutWhy) return layoutWhy;
-  const origin = todayTaskOriginLabel(task.source);
   if (waitDisplayOf(task.status) === "failed") {
-    const hint = failureHint(task);
-    return hint ? `${origin} · ${hint}` : `${origin} · 执行失败`;
+    return failureHint(task) || "执行失败";
   }
-  if (task.risk) return `${origin} · ${task.risk}`;
-  if (task.description) return `${origin} · ${task.description}`;
-  if (task.context) return `${origin} · ${task.context}`;
-  if (task.history_summary) return `${origin} · ${task.history_summary}`;
+  if (task.risk) return task.risk;
+  if (task.description) return task.description;
+  if (task.context) return task.context;
+  if (task.history_summary) return task.history_summary;
   if (task.due_at) {
     const due = new Date(task.due_at);
     if (!Number.isNaN(due.getTime())) {
       const today = new Date();
       const sameDay = due.toDateString() === today.toDateString();
-      if (due < today && !sameDay) return `${origin} · 已超过计划时间`;
-      if (sameDay) return `${origin} · 今天截止`;
-      return `${origin} · ${due.toLocaleDateString("zh-CN")} 截止`;
+      if (due < today && !sameDay) return "已超过计划时间";
+      if (sameDay) return "今天截止";
+      return `${due.toLocaleDateString("zh-CN")} 截止`;
     }
   }
-  return [origin, task.skill, task.profile].filter(Boolean).join(" · ");
+  return [task.skill, task.profile].filter(Boolean).join(" · ");
 }
 
 export function urgencyLabel(task: Task) {

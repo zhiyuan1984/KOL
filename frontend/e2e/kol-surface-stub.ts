@@ -40,7 +40,7 @@ export async function stubHomeBoardAndFollowing(page: Page, board: Record<string
   await page.route("**/api/home/board", (route) => route.fulfill({ json: board }));
   await stubHomeFollowing(page, kols);
   if (Array.isArray(board.tasks)) {
-    await page.route("**/api/tasks", (route) => route.fulfill({ json: board.tasks }));
+    await page.route(/\/api\/tasks(?:\?.*)?$/, (route) => route.fulfill({ json: board.tasks }));
   }
 }
 

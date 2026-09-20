@@ -125,13 +125,17 @@ test("todo pane lists open memory items including unpromoted source=ai", async (
   await expect(page).toHaveURL(/[?&]tab=todo/);
   await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
   await expect(page.locator("[data-todo-list]")).toBeVisible();
-  await expect(page.locator("[data-todo-card]")).toHaveCount(7);
-  await expect(page.locator('[data-todo-card="tsk_ai_failed"]')).toContainText("高风险");
-  await expect(page.locator('[data-todo-card="tsk_queued"]')).toHaveAttribute("data-todo-bucket", "later");
-  await expect(page.locator('[data-todo-card="tsk_queued"]')).toContainText("后续");
-  await expect(page.locator('[data-todo-card="tsk_queued"] [data-todo-act]')).toHaveText("打开");
-  await expect(page.locator('[data-todo-card="tsk_ai_open"]')).toHaveAttribute("data-todo-bucket", "later");
-  await expect(page.locator('[data-todo-card="tsk_done"]')).toHaveCount(0);
+  // 今日相关行（失败/今天到期/进行中/等审批）改造后归今日面板；待办面板只剩 2 行（原 7 行的分桶集合已拆分）。
+  await expect(page.locator("[data-today-todo]")).toHaveCount(2);
+  // 原 tsk_ai_failed「高风险」桶行现在归今日面板，待办面板不再渲染该行。
+  await expect(page.locator('[data-today-todo="tsk_ai_failed"]')).toHaveCount(0);
+  // 分桶容器与「后续」文案随分桶分组移除；状态 chip 用 taskDisplayStatus 派生标签。
+  await expect(page.locator('[data-today-todo="tsk_queued"]')).toBeVisible();
+  await expect(page.locator('[data-today-todo="tsk_queued"] [data-board-status]')).toHaveText("未开始");
+  await expect(page.locator('[data-today-todo="tsk_queued"] [data-today-todo-act]')).toHaveText("打开");
+  await expect(page.locator('[data-today-todo="tsk_ai_open"]')).toBeVisible();
+  await expect(page.locator('[data-today-todo="tsk_ai_open"] [data-board-status]')).toHaveText("未开始");
+  await expect(page.locator('[data-today-todo="tsk_done"]')).toHaveCount(0);
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("已入队");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("今天推荐");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("待处理");
@@ -140,12 +144,8 @@ test("todo pane lists open memory items including unpromoted source=ai", async (
   await expect(page.locator("[data-recommended-task], [data-insight-card]")).toHaveCount(0);
   expect(sessionPosts).toEqual([]);
 
-  await page.locator('[data-todo-filter="later"]').click();
-  await expect(page.locator("[data-todo-card]")).toHaveCount(2);
-  await expect(page.locator('[data-todo-card="tsk_queued"]')).toBeVisible();
-
-  await page.locator('[data-todo-filter="all"]').click();
-  await page.locator('[data-todo-card="tsk_queued"] [data-todo-act]').click();
+  // 待办筛选已改为共享任务板的优先级筛选（全部/重要且紧急/…），原 later/all 过滤按钮移除。
+  await page.locator('[data-today-todo="tsk_queued"] [data-today-todo-act]').click();
   await expect.poll(() => writes).toEqual(["/api/tasks/tsk_queued/acknowledge"]);
   await expect(page).toHaveURL(/[?&]tab=todo/);
   expect(sessionPosts).toEqual([]);
@@ -162,7 +162,7 @@ test("tab=todo is a memory route and does not POST sessions", async ({ page }) =
   });
   await page.goto("/?tab=todo");
   await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
-  await expect(page.locator("[data-todo-filters]")).toBeVisible();
+  await expect(page.locator(".today-board-filters")).toBeVisible();
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("已入队");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("今天推荐");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("待处理");

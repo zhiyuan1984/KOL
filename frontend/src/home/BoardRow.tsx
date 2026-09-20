@@ -8,7 +8,6 @@ import {
   taskPriorityLabel,
   taskPriorityRank,
 } from "./homeModel";
-import { todayTaskSourceLabel } from "./modes";
 
 const PRIORITY_FALLBACK_ICON = ["🚨", "⭐", "⚡"] as const;
 
@@ -47,31 +46,20 @@ export function priorityTone(task: Task): { label: string; tone: "high" | "mid" 
   return { label, tone: "low" };
 }
 
-function boardSourceLabel(task: Task): string {
-  const source = String(task.source || "");
-  if (source === "ai") return "AI发现";
-  if (source === "pool") return "公海";
-  return todayTaskSourceLabel(source) === "今天推荐" ? "AI发现" : "我的待办";
-}
-
 /**
  * 统一任务行：今日任务表格和待办分组列表都渲染这一份。
- * 勾选/序号/优先级/标题(含 why 与状态/风险 chips)/来源/操作。
+ * 序号/优先级/标题(含 why 与状态/风险 chips)/操作 —— 每件事只说一次。
  */
 export default function BoardRow({
   task,
   index,
-  checked,
   busy,
-  onCheck,
   onAct,
   onEdit,
 }: {
   task: Task;
   index: number;
-  checked: boolean;
   busy: boolean;
-  onCheck: (id: string, on: boolean) => void;
   onAct: (task: Task) => void;
   onEdit?: (task: Task) => void;
 }) {
@@ -94,15 +82,6 @@ export default function BoardRow({
       data-today-display="host"
       data-today-verb={verb}
     >
-      <td className="today-board-cell-check">
-        <input
-          type="checkbox"
-          className="today-board-check"
-          checked={checked}
-          aria-label={`选择 ${task.title}`}
-          onChange={(event) => onCheck(task.id, event.target.checked)}
-        />
-      </td>
       <td className="today-board-cell-index">{index + 1}</td>
       <td>
         <span className={`today-board-priority is-${priority.tone}`}>{priority.label}</span>
@@ -121,7 +100,7 @@ export default function BoardRow({
               {task.title}
             </button>
           </div>
-          {(why || statusLabel || riskLabel || boardSourceLabel(task)) ? (
+          {(why || statusLabel || riskLabel) ? (
             <div className="today-board-meta">
               {why ? <p className="today-board-why">{why}</p> : null}
               <span className="today-board-chips">
@@ -133,8 +112,6 @@ export default function BoardRow({
                 {riskLabel ? (
                   <span className="today-board-chip" data-risk-level={task.risk_level}>风险{riskLabel}</span>
                 ) : null}
-                {/* 来源不再独占一列：作为弱化尾注留在元信息里。 */}
-                <span className="today-board-source-note">{boardSourceLabel(task)}</span>
               </span>
             </div>
           ) : null}

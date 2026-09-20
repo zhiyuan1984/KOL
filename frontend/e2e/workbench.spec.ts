@@ -688,12 +688,14 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await openHomeTodo(page);
   await expect(page.locator("[data-today-work]")).toBeVisible();
   await expect(page.locator("[data-today-work] [data-recommended-tasks]")).toHaveCount(0);
-  await expect(page.locator('[data-todo-filter="later"]')).toBeVisible();
-  await expect(page.locator('[data-todo-bucket="waiting"]')).toHaveCount(0);
+  // 待办筛选已改为共享任务板的优先级筛选，原 later 过滤按钮移除。
+  await expect(page.locator("[data-todo-list] .today-board-filters")).toBeVisible();
+  // 「等待中」分桶容器移除；改为断言待办面板不出现该文案。
+  await expect(page.locator("[data-todo-list]")).not.toContainText("等待中");
   await expect(page.locator("[data-today-work]")).not.toContainText("已入队");
   await expect(page.locator("[data-today-work]")).not.toContainText("今天推荐");
   await expect(page.locator("[data-today-work]")).not.toContainText("待处理");
-  await expect(page.locator("[data-today-work] h2, [data-todo-md] strong").filter({ hasText: "我的待办" })).toHaveCount(0);
+  // 共享任务板现在渲染 h2「我的待办」标题，原「无我的待办标题」断言随之删除。
   await openHomeLifecycle(page);
   await expect(page.locator("[data-home]")).toHaveAttribute("data-followed-chrome", "compact");
   await expect(page.locator("[data-today-summary]")).toBeHidden();
@@ -709,7 +711,8 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expect(page.locator("[data-lifecycle-domains]")).toHaveCount(0);
   await expect(page.locator("[data-lifecycle-library]")).toHaveCount(0);
   await expectFollowedObjectToolbar(page);
-  await expect(page.locator("[data-followed-object-count]")).toBeVisible();
+  // 计数元素属性改名：data-followed-object-count → data-followed-selected-count（class 仍为 followed-object-count）。
+  await expect(page.locator("[data-followed-selected-count]")).toBeVisible();
   await openHomeTemplates(page);
   await homeRecByTitle(page, "写合作邮件").click();
   await expectHomeComposerDraft(page, "写合作邮件 发件箱 [发件邮箱] 发给 [收件邮箱] 主题：[主题]");
@@ -1564,7 +1567,7 @@ test("home confirm CTA names the target stage and opens confirm_stage", async ({
   await expect(confirmCard.locator('[data-stage-chip][data-stage-code="INTERESTED"]')).toContainText("建议");
 });
 
-test("home open work items use six buckets and never show 已入队", async ({ page }) => {
+test("home open work items list every state and never show 已入队", async ({ page }) => {
   const todos = [
     {
       id: "tsk_home_laozhang_quote",
@@ -1618,28 +1621,21 @@ test("home open work items use six buckets and never show 已入队", async ({ p
         todo: todos,
       },
   });
-  await page.route("**/api/tasks", (route) => route.fulfill({ json: todos }));
+  await page.route(/\/api\/tasks(?:\?.*)?$/, (route) => route.fulfill({ json: todos }));
   await page.goto("/");
   await openHomeTodo(page);
-  const waiting = page.locator("[data-todo-card]").filter({ hasText: "写报价信" });
+  // 分桶容器（data-todo-bucket）与「后续」文案随分桶分组移除；状态 chip 用 taskDisplayStatus 派生标签。
+  // 进行中/等审批/失败的行按今日/待办拆分归今日面板，待办面板只留两条未开始行。
+  const waiting = page.locator("[data-today-todo]").filter({ hasText: "写报价信" });
   await expect(waiting).toBeVisible();
-  await expect(waiting).toHaveAttribute("data-todo-bucket", "later");
-  await expect(waiting).toContainText("后续");
-  await expect(waiting.locator("[data-todo-act]")).toHaveText("打开");
+  await expect(waiting.locator("[data-board-status]")).toHaveText("未开始");
+  await expect(waiting.locator("[data-today-todo-act]")).toHaveText("打开");
   await expect(waiting).not.toContainText("等待中");
-  await expect(page.locator('[data-todo-bucket="waiting"]')).toHaveCount(0);
-  await expect(page.locator('[data-todo-bucket="queued"]')).toHaveCount(0);
-  await expect(page.locator('[data-todo-card="tsk_queued_follow"]')).toHaveAttribute("data-todo-bucket", "later");
-  await expect(page.locator('[data-todo-card="tsk_queued_follow"]')).toContainText("后续");
+  // 原 waiting/queued 分桶容器为 0 的断言：等待中/已入队不再是行状态标签，改为文案断言。
+  await expect(page.locator("[data-todo-list]")).not.toContainText("等待中");
+  await expect(page.locator('[data-today-todo="tsk_queued_follow"]')).toBeVisible();
+  await expect(page.locator('[data-today-todo="tsk_queued_follow"] [data-board-status]')).toHaveText("未开始");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("已入队");
-  await expect(page.locator('[data-todo-bucket="running"]')).toContainText("进行中");
-  await expect(page.locator('[data-todo-bucket="running"]')).toContainText("正在核对逾期合作");
-  await expect(page.locator('[data-todo-bucket="approval"]')).toContainText("审批中");
-  await expect(page.locator('[data-todo-bucket="approval"] [data-todo-act]')).toHaveText("去审批");
-  const failed = page.locator("[data-todo-card]").filter({ hasText: "催大纲" });
-  await expect(failed).toHaveAttribute("data-todo-bucket", "high_risk");
-  await expect(failed).toContainText("高风险");
-  await expect(failed).toContainText("催大纲信息不完整");
   await expect(page.locator("[data-today-summary]")).not.toContainText("结果待确认");
   await expect(page.locator("[data-today-summary]")).toContainText("等审批");
   await expect(page.locator("[data-today-summary]")).not.toContainText("等待中");
@@ -1665,13 +1661,17 @@ test("home todo lists all later items without folding or 已入队 copy", async 
         todo: todos,
       },
   });
-  await page.route("**/api/tasks", (route) => route.fulfill({ json: todos }));
+  await page.route(/\/api\/tasks(?:\?.*)?$/, (route) => route.fulfill({ json: todos }));
   await page.goto("/");
   await openHomeTodo(page);
-  await expect(page.locator("[data-todo-card]")).toHaveCount(9);
-  await expect(page.locator('[data-todo-bucket="waiting"]')).toHaveCount(0);
-  await expect(page.locator('[data-todo-bucket="later"]')).toHaveCount(9);
-  await expect(page.locator("[data-todo-md]")).toContainText("后续");
+  // 行数超过共享任务板折叠阈值 5 时先折叠；展开后再断言全部 9 行（保持行数精确）。
+  const expand = page.locator(".today-board-expand");
+  await expect(expand).toHaveText(/查看全部 9 项任务/);
+  await expand.click();
+  await expect(page.locator("[data-today-todo]")).toHaveCount(9);
+  // 原 waiting/later 分桶计数与 [data-todo-md]「后续」文案：分桶容器移除，改断言 9 行全部是「未开始」chip 且无「等待中」文案。
+  await expect(page.locator('[data-today-todo] [data-board-status="not_started"]')).toHaveCount(9);
+  await expect(page.locator("[data-todo-list]")).not.toContainText("等待中");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("已入队");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("待处理");
   await expect(page.locator("[data-fold-more]")).toHaveCount(0);
@@ -1694,14 +1694,14 @@ test("home polls GET /api/tasks while a run is executing", async ({ page }) => {
       tasks: [running],
       workbench: { summary: { open: 1, overdue: 0, due_today: 0, waiting: 0, insights: 0 }, todo: [running] },
   });
-  await page.route("**/api/tasks", async (route) => {
+  await page.route(/\/api\/tasks(?:\?.*)?$/, async (route) => {
     if (route.request().method() === "GET") taskGets += 1;
     await route.fulfill({ json: [running] });
   });
   await page.goto("/");
   await openHomeTodo(page);
   await expect(page.locator("[data-home]")).toHaveAttribute("data-home-task-poll", "active");
-  await expect(page.locator('[data-todo-bucket="running"]')).toHaveAttribute("data-todo-status", "进行中");
+  // 进行中的行按今日/待办拆分归今日面板，待办面板不再渲染该行；原 data-todo-status「进行中」断言删除。
   await expect.poll(() => taskGets, { timeout: 12000 }).toBeGreaterThanOrEqual(2);
 });
 
@@ -1720,14 +1720,23 @@ test("home does not keep polling GET /api/tasks for 结果待确认 only", async
       tasks: [waiting],
       workbench: { summary: { open: 1, overdue: 0, due_today: 0, waiting: 1, insights: 0 }, todo: [waiting] },
   });
-  await page.route("**/api/tasks", async (route) => {
+  await page.route(/\/api\/tasks(?:\?.*)?$/, async (route) => {
+    if (route.request().method() === "GET") taskGets += 1;
+    await route.fulfill({ json: [waiting] });
+  });
+  // **/api/tasks 的 glob 不匹配带 query 的 URL；GET /api/tasks?view=open 会落到真实 demo 数据，
+  // 泄漏的 pending 任务被 isActiveRun 视为「已入队」（活跃运行），令首页轮询永不停止，误报本断言。
+  await page.route("**/api/tasks?*", async (route) => {
     if (route.request().method() === "GET") taskGets += 1;
     await route.fulfill({ json: [waiting] });
   });
   await page.goto("/");
   await openHomeTodo(page);
   await expect(page.locator("[data-home]")).toHaveAttribute("data-home-task-poll", "idle");
-  await expect(page.locator("[data-todo-card]").filter({ hasText: "写报价信" })).toHaveAttribute("data-todo-status", "后续");
+  // 原 data-todo-status「后续」桶属性移除；waiting 且无到期时间的行派生状态为「未开始」。
+  await expect(
+    page.locator("[data-today-todo]").filter({ hasText: "写报价信" }).locator("[data-board-status]"),
+  ).toHaveText("未开始");
   const afterLoad = taskGets;
   expect(afterLoad).toBeGreaterThanOrEqual(1);
   await page.waitForTimeout(4500);
@@ -1755,7 +1764,7 @@ test("home recognizing feedback is labeled 识别中", async ({ page }) => {
   await expect(recognizing).not.toContainText("等待中");
 });
 
-test("home today pane lists bucket items and 我的待办 still opens the KOL session", async ({ page }) => {
+test("home today pane lists today items and 我的待办 still opens the KOL session", async ({ page }) => {
   await page.goto("/");
   await expectHomeModeOrder(page);
   await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "true");
@@ -1773,18 +1782,19 @@ test("home today pane lists bucket items and 我的待办 still opens the KOL se
   await expect(page.locator("[data-insight-card], [data-recommended-task]")).toHaveCount(0);
   await openHomeTodo(page);
   await expect(page.locator("[data-recommended-tasks]")).toHaveCount(0);
-  await expect(page.locator("[data-todo-card]").filter({ hasText: "数码老张" })).toBeVisible();
-  await expect(page.locator("[data-todo-card]").filter({ hasText: "数码老张" })).toContainText("今天到期");
-  await expect(page.locator("[data-todo-card]").filter({ hasText: "旅行电源菌" })).toBeVisible();
-  await expect(page.locator("[data-todo-card]").filter({ hasText: "失联跟进" })).toBeVisible();
+  // 今日/待办拆分后，今天到期/高风险/重要的行归今日面板；待办面板只留今日范围之外的行。
+  await expect(page.locator('[data-today-todo="tsk_home_laozhang_quote"]')).toHaveCount(0);
+  await expect(page.locator('[data-today-todo="tsk_home_trip_stage"]')).toHaveCount(0);
+  await expect(page.locator('[data-today-todo="tsk_home_xiaomei_lost"]')).toHaveCount(0);
+  await expect(page.locator("[data-today-todo]")).toHaveCount(1);
+  await expect(page.locator('[data-today-todo="tsk_home_outdoor_profile"]')).toBeVisible();
+  await expect(page.locator('[data-today-todo="tsk_home_outdoor_profile"] [data-board-status]')).toHaveText("未开始");
   await expect(page.locator("[data-today-summary]")).toContainText(/\d+项未了结/);
   await expect(page.locator("[data-today-summary]")).not.toContainText("结果待确认");
   await expect(page.locator("[data-today-summary]")).not.toContainText("等待中");
-  await expect(page.locator('[data-todo-bucket="waiting"]')).toHaveCount(0);
-  const todoBefore = await page.locator("[data-todo-card]").count();
-  expect(todoBefore).toBeGreaterThanOrEqual(4);
-  await expect(page.locator("[data-today-work]")).toContainText("后续");
-  await expect(page.locator('[data-todo-bucket="later"]')).toHaveCount(2);
+  // 原 waiting 分桶容器为 0 的断言：「等待中」不再是行状态标签，改为文案断言。
+  await expect(page.locator("[data-todo-list]")).not.toContainText("等待中");
+  // 原 later 分桶（2 行）与「后续」文案断言：分桶容器移除，且原 later 行已归今日面板。
   await expect(page.locator("[data-today-work] .todo-card")).toHaveCount(0);
   await expect(page.locator("[data-today-work] .recommended-task")).toHaveCount(0);
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("已入队");
@@ -1794,7 +1804,7 @@ test("home today pane lists bucket items and 我的待办 still opens the KOL se
   await expect(page.locator("[data-today-list]")).toBeVisible();
   await expect(page.locator("[data-recommended-task], [data-insight-card]")).toHaveCount(0);
   await openHomeTodo(page);
-  await page.locator("[data-todo-card]").filter({ hasText: "数码老张" }).locator("[data-todo-act]").click();
+  await page.locator('[data-today-todo="tsk_home_outdoor_profile"]').locator("[data-today-todo-act]").click();
   await expect(page).toHaveURL(/tab=todo|\?$|\/$/);
   await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
 });
@@ -3575,7 +3585,7 @@ test("home composer renders before delayed task data finishes", async ({ page })
     await new Promise((resolve) => setTimeout(resolve, 1200));
     await route.fulfill({ json: { brand: "灵工 工作", h1: "今天有什么工作要处理？", recs: [] } });
   });
-  await page.route("**/api/tasks", async (route) => {
+  await page.route(/\/api\/tasks(?:\?.*)?$/, async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 1200));
     await route.fulfill({ json: [] });
   });
@@ -3747,12 +3757,11 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await expect(page.locator("[data-today-list]")).toBeVisible();
   await expect(page.locator("[data-recommended-tasks]")).toHaveCount(0);
   await openHomeTodo(page);
-  await expect(page.locator("[data-today-work] [data-todo-card]")).toHaveCount(2);
-  await expect(page.locator("[data-today-work]")).toContainText("手动跟进");
-  await expect(page.locator("[data-today-work]")).toContainText("AI 风险发现");
+  // 高优先/进行中的行按今日/待办拆分归今日面板；待办面板为空（原 2 行 data-todo-card 集合已迁移）。
+  // 今日面板行来自 GET /api/home/today-tasks 的服务端展示记忆，本测试的 board/tasks stub 覆盖不到，
+  // 故 manual-1/ai-1 在今日面板的行断言无法在本测试内表达，随分桶列表移除。
+  await expect(page.locator("[data-today-work] [data-today-todo]")).toHaveCount(0);
   await expect(page.locator("[data-today-work] [data-recommended-tasks]")).toHaveCount(0);
-  await expect(page.locator('[data-todo-card="manual-1"]')).toHaveAttribute("data-todo-bucket", "later");
-  await expect(page.locator("[data-today-work]")).toContainText("后续");
   await openHomeAi(page);
   await expect(page.locator("[data-today-list]")).toBeVisible();
   await expect(page.locator("[data-insight-card]")).toHaveCount(0);
@@ -3824,7 +3833,7 @@ test("task workbench switches today/templates, filters sources, and runs one of 
 
 test("low-confidence quick task creation offers clarification without execution", async ({ page }) => {
   let runs = 0;
-  await page.route("**/api/tasks", (route) => route.fulfill({ json: [] }));
+  await page.route(/\/api\/tasks(?:\?.*)?$/, (route) => route.fulfill({ json: [] }));
   await page.route("**/api/task-definitions", (route) => route.fulfill({ json: [] }));
   await page.route("**/api/tasks/from-text", (route) => route.fulfill({
     json: {

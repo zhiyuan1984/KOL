@@ -184,10 +184,14 @@ test("a failed run shows the failed step and its reason instead of a green check
   });
   await page.goto("/");
 
-  // Settled runs collapse to one line; the failure is still in the header.
+  // Settled runs collapse to one line; the failure is still in the header, and
+  // the step list is one click away. Wait for the collapse so the click below
+  // can only mean "open".
   await expect(page.locator("[data-today-plan-phase]")).toHaveAttribute("data-today-plan-phase", "failed");
   await expect(page.locator("[data-today-plan-phase]")).toContainText("规划失败");
+  await expect(page.locator("[data-today-plan-phase]")).toHaveAttribute("data-today-plan-open", "false");
   await page.locator(".today-plan-toggle").click();
+  await expect(page.locator("[data-today-plan-phase]")).toHaveAttribute("data-today-plan-open", "true");
   await expect(page.locator('[data-today-plan-event="校验输出"]')).toHaveAttribute("data-today-plan-state", "failed");
   await expect(page.locator('[data-today-plan-event="今日规划未通过校验"]')).toHaveAttribute("data-today-plan-state", "failed");
   await expect(page.locator("[data-today-plan-phase]")).toContainText("Codex did not produce display_tasks");
@@ -300,14 +304,13 @@ test("the previous version folds to one row and the row keeps no duplicate prior
   await previous.locator("button").click();
   await expect(page.locator(".today-plan-previous-body")).toContainText("上一版先把报价邮件发出去");
 
-  // 任务行不再重复：优先级只出现一次，来源不再独占一列。
+  // 任务行不再重复：优先级只出现一次，来源列已删，勾选列已删。
   const row = page.locator('[data-today-todo="tsk_1"]');
   await expect(row.locator("[data-priority-label]")).toHaveCount(0);
   await expect(row.locator("[data-board-status]")).toHaveCount(1);
-  await expect(row.locator(".today-board-source-note")).toHaveText("我的待办");
+  await expect(row.locator(".today-board-source-note")).toHaveCount(0);
   await expect(page.locator(".today-board-table thead")).not.toContainText("来源");
-  // 复选框默认不显形，悬停才出现。
-  await expect(row.locator(".today-board-check")).toHaveCSS("opacity", "0");
-  await row.hover();
-  await expect(row.locator(".today-board-check")).toHaveCSS("opacity", "1");
+  await expect(page.locator(".today-board-check, .today-board-cell-check")).toHaveCount(0);
+  // 今日 pane 不再出现「待办」字样（这是本条断言真正的意图）。
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("待办");
 });
