@@ -127,6 +127,8 @@ export type TaskEvent = {
   summary?: string;
   message?: string;
   created_at?: string;
+  /** Stable identity of a live process row (harness trace item). */
+  item_key?: string;
   [key: string]: unknown;
 };
 
@@ -450,6 +452,15 @@ export type StarryBinding = {
   status?: "connected" | "expired" | "unbound" | string;
   has_token?: boolean;
   updated_at?: string | null;
+  bindings?: Array<{
+    mailbox_email: string;
+    owner_name: string;
+    mailbox_id: string;
+    status: "connected" | "expired" | string;
+    is_default: boolean;
+    synced_at: string | null;
+    updated_at: string | null;
+  }>;
 };
 
 export type Account = {
@@ -1478,15 +1489,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  mailBox: () =>
-    request<Record<string, unknown>>("/api/mail/box"),
-  mailConversations: () =>
+  mailBox: (box?: string) =>
+    request<Record<string, unknown>>(box ? `/api/mail/box?box=${encodeURIComponent(box)}` : "/api/mail/box"),
+  mailConversations: (box?: string) =>
     request<{
       entry?: string;
       creates_session?: boolean;
       mailbox?: string;
       conversations?: Array<Record<string, unknown>>;
-    }>("/api/mail/conversations"),
+    }>(box ? `/api/mail/conversations?box=${encodeURIComponent(box)}` : "/api/mail/conversations"),
   mailConversation: (id: string) =>
     request<Record<string, unknown>>(`/api/mail/conversations/${encodeURIComponent(id)}`),
   syncMailboxMail: (body: Record<string, unknown> = {}) =>

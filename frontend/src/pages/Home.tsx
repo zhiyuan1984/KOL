@@ -116,6 +116,7 @@ import {
   restorePlanCache,
   runTodayPlanRefresh,
   savePlanCache,
+  todayPlanEventLabels,
   type TodayPlanPhase,
 } from "../home/todayPlan";
 import { projectDisplayTasks } from "../home/displayTasks";
@@ -1435,6 +1436,13 @@ export default function Home() {
 
   const homeMemoryTasks = (mode === "today" ? todayMemoryTasks : mode === "todo" ? todoMemoryTasks : null) ?? taskCatalog;
 
+  // The tab badges describe their own pane, so they read the matching memory
+  // scope instead of `homeMemoryTasks`, which follows the active tab. Reading
+  // the pane-scoped list keeps 今日任务 / 我的待办 numbers stable when the user
+  // switches to AI发现 and `homeMemoryTasks` falls back to the raw catalog.
+  const todayBadgeTasks = todayMemoryTasks ?? taskCatalog;
+  const todoBadgeTasks = todoMemoryTasks ?? taskCatalog;
+
   const todoItems = useMemo(
     () => sortOpenWorkItems(homeMemoryTasks.filter(isOpenTask)),
     [homeMemoryTasks],
@@ -1446,6 +1454,16 @@ export default function Home() {
       todayBrief?.todo_layout,
     ),
     [homeMemoryTasks, todayBrief],
+  );
+
+  const tabTodayCount = useMemo(
+    () => todayBadgeTasks.filter((task) => !isPlanningTask(task) && isTodayScheduled(task)).length,
+    [todayBadgeTasks],
+  );
+
+  const tabOpenTodoItems = useMemo(
+    () => todoBadgeTasks.filter(isOpenTask),
+    [todoBadgeTasks],
   );
 
   const visibleTodoItems = useMemo(
@@ -1701,13 +1719,18 @@ export default function Home() {
     ai: tasks.filter((task) => task.source === "ai").length,
   };
 
-  const openCount = todoItems.length;
-  const overdueCount = todoItems.filter((task) => openBucket(task) === "overdue").length;
-  const dueTodayCount = todoItems.filter((task) => openBucket(task) === "due_today").length;
-  const awaitingApprovalCount = todoItems.filter((task) => isAwaitingApproval(task)).length;
-  const todayCount = todayTodos.length;
+  const openCount = tabOpenTodoItems.length;
+  const overdueCount = tabOpenTodoItems.filter((task) => openBucket(task) === "overdue").length;
+  const dueTodayCount = tabOpenTodoItems.filter((task) => openBucket(task) === "due_today").length;
+  const awaitingApprovalCount = tabOpenTodoItems.filter((task) => isAwaitingApproval(task)).length;
+  const todayCount = tabTodayCount;
   const composerStreaming = busy || hasActiveRuns;
-  const composerHero = mode === "today" && todayCount === 0 && !composerStreaming;
+  // 居中大输入框只留给真正空白的首屏。规划卡/记忆列表/结论卡任何一项在场，
+  // 输入框就必须回到页面底部，否则 hero 的 flex 会把内容区压成一个几十像素的
+  // 内部滚动盒（Codex 卡片被裁切、却被读成“被输入框遮住”）。
+  const todayPlanVisible = todayPlanPhase !== "idle" || todayPlanEventLabels(todayPlanEvents).length > 0;
+  const todayPaneHasContent = Boolean(todayBrief) || todayTodos.length > 0 || todayPlanVisible;
+  const composerHero = mode === "today" && todayCount === 0 && !composerStreaming && !todayPaneHasContent;
   const recognizeSeconds = recognizeElapsedSeconds(recognizeStartedAt, recognizeNow);
   const recognizeOverdue = recognizeTimedOut(recognizeStartedAt, recognizeNow);
 

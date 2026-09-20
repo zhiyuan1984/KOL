@@ -390,7 +390,10 @@
 }
 
 .home-pane.is-composer-hero .home-board {
-  flex: 0 1 auto;
+  /* Never let the hero composer squeeze the content area: size the board to its
+     content and clamp it, so a card in view stays whole and scrolls on its own. */
+  flex: 0 0 auto;
+  max-height: min(45vh, 100%);
 }
 
 .home-composer-pills {

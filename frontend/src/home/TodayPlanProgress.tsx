@@ -56,6 +56,42 @@ function GearIcon() {
   );
 }
 
+type StepState = "running" | "done" | "failed";
+type StepKind = "step" | "think" | "tool";
+
+type PlanStep = {
+  key: string;
+  kind: StepKind;
+  label: string;
+  time: string;
+  state: StepState;
+  detail: string;
+};
+
+function eventTypeOf(event: TaskEvent): string {
+  return String(event.type || event.event_type || "").toLowerCase();
+}
+
+function stepKindOf(type: string): StepKind {
+  if (type === "run.think" || type === "run.stream") return "think";
+  if (type === "run.tool") return "tool";
+  return "step";
+}
+
+/**
+ * A milestone row (`run.progress`) is written when the step finishes, so it is
+ * done even though the run itself is still going. Everything else carries its
+ * own status; a leftover `running` after the run settled can only be stale.
+ */
+function stepStateOf(event: TaskEvent, planning: boolean): StepState {
+  const type = eventTypeOf(event);
+  const status = String(event.status || "").toLowerCase();
+  if (type === "run.failed" || type === "failed" || status === "failed") return "failed";
+  if (type === "run.progress" || type === "run.completed") return "done";
+  if (status === "running") return planning ? "running" : "done";
+  return "done";
+}
+
 export default function TodayPlanProgress({
   phase = "idle",
   events,
@@ -80,40 +116,74 @@ export default function TodayPlanProgress({
   const completedLabel = scope === "todo" ? "待办规划已完成" : "今日规划已完成";
   const status = todayPlanStatusCopy(phase, scope);
   const labels = todayPlanEventLabels(events);
-  const streamEvent = planning
-    ? [...(events || [])].reverse().find((event) => String(event.type || "") === "run.stream")
-    : undefined;
-  const streamText = String(streamEvent?.summary || "").trim();
 
   // Every step gets a clock time: the backend created_at when present,
   // otherwise a local stamp from the first time this client saw the step.
   const localStamps = useRef(new Map<string, string>());
   const steps = useMemo(() => {
-    const timed = new Map<string, string>();
-    for (const event of events || []) {
-      const label = String(event.title || event.label || event.summary || "").trim();
-      if (!label || timed.has(label)) continue;
-      timed.set(label, eventTime(event));
-    }
-    const stampFor = (label: string): string => {
-      const fromEvent = timed.get(label);
+    const order: string[] = [];
+    const byKey = new Map<string, PlanStep>();
+    const stampFor = (key: string, event?: TaskEvent): string => {
+      const fromEvent = eventTime(event);
       if (fromEvent) {
-        localStamps.current.set(label, fromEvent);
+        localStamps.current.set(key, fromEvent);
         return fromEvent;
       }
-      let stamp = localStamps.current.get(label);
+      let stamp = localStamps.current.get(key);
       if (!stamp) {
         stamp = formatClock(new Date());
-        localStamps.current.set(label, stamp);
+        localStamps.current.set(key, stamp);
       }
       return stamp;
     };
-    const rows = labels.map((label) => ({ label, time: stampFor(label), done: true }));
-    if (phase === "refreshed" && !labels.includes(completedLabel)) {
-      rows.push({ label: completedLabel, time: stampFor(completedLabel), done: true });
+    for (const event of events || []) {
+      const type = eventTypeOf(event);
+      const detail = String(event.summary || "").replace(/\*\*/g, "").trim();
+      const title = String(event.title || event.label || "").trim();
+      const kind = stepKindOf(type);
+      // A reasoning row streams its text, so it keeps a stable title: the text
+      // must not leak into the label or the row would be re-keyed every poll.
+      const label = kind === "think" ? "Codex 推理" : title || detail.slice(0, 40);
+      if (!label && !detail) continue;
+      const key = String(event.item_key || "").trim() || label;
+      const next: PlanStep = {
+        key,
+        kind,
+        label,
+        time: stampFor(key, event),
+        state: stepStateOf(event, planning),
+        detail,
+      };
+      const prev = byKey.get(key);
+      if (!prev) {
+        order.push(key);
+        byKey.set(key, next);
+        continue;
+      }
+      byKey.set(key, { ...prev, ...next, time: prev.time || next.time });
+    }
+    const rows = order.map((key) => byKey.get(key)!);
+    if (phase === "refreshed" && !rows.some((row) => row.label === completedLabel)) {
+      rows.push({
+        key: completedLabel,
+        kind: "step",
+        label: completedLabel,
+        time: stampFor(completedLabel),
+        state: "done",
+        detail: "",
+      });
     }
     return rows;
-  }, [events, labels, phase, completedLabel]);
+  }, [events, planning, phase, completedLabel]);
+
+  const liveThinking = steps.some((step) => step.kind === "think" && step.state === "running" && step.detail);
+  const thinkRef = useRef<HTMLParagraphElement | null>(null);
+  const thinkText = steps.find((step) => step.kind === "think" && step.state === "running")?.detail || "";
+  useEffect(() => {
+    const node = thinkRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }, [thinkText]);
 
   if (!status && !steps.length) return null;
   return (
@@ -155,32 +225,50 @@ export default function TodayPlanProgress({
         </button>
       </header>
       {!isCollapsed && steps.length ? (
-        <ol className="today-plan-steps">
+        <ol className="today-plan-steps" data-today-plan-steps>
           {steps.map((step, index) => {
             const isFinal = phase === "refreshed" && index === steps.length - 1;
+            const running = step.state === "running";
             return (
               <li
-                key={`${step.label}-${index}`}
-                className={isFinal ? "is-final" : undefined}
+                key={step.key}
+                className={
+                  (isFinal ? "is-final " : "")
+                  + `is-${step.state}`
+                  + (step.kind === "think" ? " is-think" : "")
+                  + (running && step.kind === "think" ? " is-live" : "")
+                }
                 data-today-plan-event={step.label}
+                data-today-plan-state={step.state}
               >
                 <span className="today-plan-step-dot" aria-hidden>
-                  {isFinal ? null : (
+                  {step.state === "failed" ? (
+                    <svg viewBox="0 0 12 12"><path d="M3.4 3.4l5.2 5.2M8.6 3.4L3.4 8.6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+                  ) : running ? (
+                    <span className="today-plan-step-spinner" />
+                  ) : (
                     <svg viewBox="0 0 12 12"><path d="M2.5 6.2l2.3 2.3 4.7-4.7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
                   )}
                 </span>
                 <span className="today-plan-step-label">{step.label}</span>
+                {step.kind === "tool" && step.detail ? (
+                  <span className="today-plan-step-op" title={step.detail}>{step.detail}</span>
+                ) : null}
                 <time className="today-plan-step-time">{step.time}</time>
+                {step.kind === "think" && step.detail ? (
+                  <p
+                    className="today-plan-think"
+                    data-today-plan-think
+                    ref={running && liveThinking ? thinkRef : undefined}
+                    tabIndex={0}
+                  >
+                    {step.detail}
+                  </p>
+                ) : null}
               </li>
             );
           })}
         </ol>
-      ) : null}
-      {!isCollapsed && streamText ? (
-        <div className="today-plan-stream" data-today-plan-stream>
-          <span className="today-plan-stream-label">Codex 思考过程</span>
-          <p className="today-plan-stream-text">{streamText}</p>
-        </div>
       ) : null}
     </section>
   );

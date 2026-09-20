@@ -15,9 +15,8 @@ import { login, logout, requirePm, isProductManager } from "../host/auth.js";
 import { directory, grantsForSkill, setSkillGrants, visibleSkillIds } from "../host/grants.js";
 import { FUNNEL_STAGES, SOP_POLICY, skillCatalog } from "../host/skills-catalog.js";
 import {
-  effectiveSummary,
   getSkillSop,
-  overlayRow,
+  overlaySummaries,
   resetSkillSop,
   saveSkillSop,
 } from "../host/skill-sop.js";
@@ -49,7 +48,7 @@ import { publicProfiles } from "../profiles.js";
 import { resetDemoRuntimeState, seedAll } from "../seed.js";
 import { STAGES, label } from "../stages.js";
 import type { Json, Row } from "../types.js";
-import { taskDefinition } from "../tasks/registry.js";
+import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
 import { buildHomeBoard } from "../host/home-board.js";
 import { HOME_ENTRY_REGISTRY, publicEntryRegistry } from "../host/entry-registry.js";
 import {
@@ -59,6 +58,7 @@ import {
   publicStarryBinding,
   saveStarryBinding,
   starryBindingRow,
+  starryBindingRows,
 } from "../host/starry-bind.js";
 import { looksLikePhone, normalizeEmail, normalizePhone } from "../host/identity.js";
 import { listStarryMailboxes } from "../starrykol/service.js";
@@ -68,13 +68,35 @@ import { ensureFollowedMailSync, followedMailStatus, resetFollowedMailSync, star
 export const misc = new Hono();
 
 const FUNNEL_ORDER = FUNNEL_STAGES.map((f) => f.id);
-function skillMeta(name: string): Json {
-  const definition = taskDefinition(name);
-  const cat = skillCatalog().find((s) => s.id === name);
+
+/**
+ * Per-request lookups for the skill list. `taskDefinition` and `skillCatalog`
+ * each rescan every SKILL.md, so calling them once per row made `/api/skills`
+ * quadratic: ~3s of synchronous work that stalled the whole single-threaded
+ * Host on every 新工作任务 mount.
+ */
+type SkillLookup = {
+  defs: Map<string, ReturnType<typeof taskDefinition>>;
+  cats: Map<string, ReturnType<typeof skillCatalog>[number]>;
+  overlays: Map<string, { summary: string; updated_at: string }>;
+};
+
+function skillLookup(): SkillLookup {
+  const defs = new Map<string, ReturnType<typeof taskDefinition>>();
+  for (const definition of taskDefinitions()) defs.set(definition.id, definition);
+  const cats = new Map<string, ReturnType<typeof skillCatalog>[number]>();
+  for (const entry of skillCatalog()) cats.set(entry.id, entry);
+  return { defs, cats, overlays: overlaySummaries() };
+}
+
+function skillMeta(name: string, lookup?: SkillLookup): Json {
+  const ctx = lookup || skillLookup();
+  const definition = ctx.defs.get(name);
+  const cat = ctx.cats.get(name);
+  const overlay = ctx.overlays.get(name);
   const title = definition?.title || cat?.label || name;
   const funnel = cat?.funnel || "reach";
   const stage = FUNNEL_STAGES.find((f) => f.id === funnel);
-  const over = overlayRow(name);
   return {
     id: name,
     title,
@@ -88,13 +110,13 @@ function skillMeta(name: string): Json {
     funnel,
     funnel_label: stage?.label || "",
     funnel_hint: stage?.hint || "",
-    summary: effectiveSummary(name),
+    summary: (overlay?.summary || cat?.summary || cat?.label || name).trim(),
     source: definition?.source || cat?.source || "bundled",
     keeps_stage: true,
     sop_editable: false,
     sop_owner: SOP_POLICY.owner,
-    edited: Boolean(over),
-    updated_at: over?.updated_at || null,
+    edited: Boolean(overlay),
+    updated_at: overlay?.updated_at || null,
   };
 }
 
@@ -117,10 +139,11 @@ function visibleForRequest(): Set<string> {
 
 function listedSkills(market: boolean): Json[] {
   const vis = visibleForRequest();
-  return skillCatalog()
+  const lookup = skillLookup();
+  return [...lookup.cats.values()]
     .filter((s) => (market ? s.in_market : vis.has(s.id)))
     .sort((a, b) => FUNNEL_ORDER.indexOf(a.funnel) - FUNNEL_ORDER.indexOf(b.funnel) || a.label.localeCompare(b.label, "zh"))
-    .map((s) => skillMeta(s.id));
+    .map((s) => skillMeta(s.id, lookup));
 }
 
 const VERSION_CACHE: { version: string; started_at: string } = { version: "", started_at: nowIso() };
@@ -391,7 +414,20 @@ misc.get("/me/starry-binding", (c) => {
   if (authDisabled()) return c.json(currentFollowScope());
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
-  return c.json({ required: true, ...publicStarryBinding(starryBindingRow(user.id)) });
+  const rows = starryBindingRows(user.id);
+  return c.json({
+    required: true,
+    ...publicStarryBinding(starryBindingRow(user.id)),
+    bindings: rows.map((row) => ({
+      mailbox_email: String(row.mailbox_email || ""),
+      owner_name: String(row.owner_name || ""),
+      mailbox_id: String(row.mailbox_id || ""),
+      status: String(row.status || "connected") === "expired" ? "expired" : "connected",
+      is_default: Boolean(Number(row.is_default || 0)),
+      synced_at: row.synced_at ? String(row.synced_at) : null,
+      updated_at: row.updated_at ? String(row.updated_at) : null,
+    })),
+  });
 });
 
 misc.post("/me/starry-binding/probe", async (c) => {
@@ -438,11 +474,15 @@ misc.post("/me/starry-binding", async (c) => {
   return c.json(saved);
 });
 
-misc.delete("/me/starry-binding", (c) => {
+misc.delete("/me/starry-binding", async (c) => {
   if (authDisabled()) return c.json(currentFollowScope());
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
-  return c.json(clearStarryBinding(user.id));
+  const body = (await c.req.json().catch(() => ({}))) as Json;
+  const mailbox = normalizeEmail(
+    String(body.mailbox_email || body.mailboxEmail || c.req.query("mailbox_email") || c.req.query("box") || ""),
+  );
+  return c.json(clearStarryBinding(user.id, mailbox || undefined));
 });
 
 misc.post("/me/persona", async (c) => {

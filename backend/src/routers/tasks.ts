@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { authDisabled, isAdmin, requireSkill, scopedUser } from "../auth.js";
 import { DEMO_USER } from "../config.js";
-import { audit, getConn, isSqliteClosedError, isSqliteForeignKeyError, nowIso, tx } from "../db.js";
+import { audit, getConn, isSqliteClosedError, isSqliteForeignKeyError, nowIso, tx, type SqliteConn } from "../db.js";
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
@@ -217,6 +217,19 @@ function applyTaskUpdate(item: Row, patch: Json, note?: string): { task: Json; a
   return { task: publicWorkItem(ownedWorkItem(String(item.id))), applied };
 }
 
+/** Shared guard: the work item (and run, when given) must still exist. */
+function taskEventTarget(db: SqliteConn, workItemId: string, runId: string | null): boolean {
+  const item = db.prepare("SELECT id FROM work_items WHERE id=?").get(workItemId) as
+    | { id: string }
+    | undefined;
+  if (!item) return false;
+  if (!runId) return true;
+  const run = db.prepare("SELECT id FROM task_runs WHERE id=? AND work_item_id=?").get(runId, workItemId) as
+    | { id: string }
+    | undefined;
+  return Boolean(run);
+}
+
 export function appendTaskEvent(
   workItemId: string,
   runId: string | null,
@@ -227,16 +240,7 @@ export function appendTaskEvent(
 ): Row | null {
   try {
     return tx((db) => {
-      const item = db.prepare("SELECT id FROM work_items WHERE id=?").get(workItemId) as
-        | { id: string }
-        | undefined;
-      if (!item) return null;
-      if (runId) {
-        const run = db.prepare("SELECT id FROM task_runs WHERE id=? AND work_item_id=?").get(runId, workItemId) as
-          | { id: string }
-          | undefined;
-        if (!run) return null;
-      }
+      if (!taskEventTarget(db, workItemId, runId)) return null;
       const current = db.prepare(
         "SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=?",
       ).get(workItemId) as { sequence: number };
@@ -264,6 +268,78 @@ export function appendTaskEvent(
     // Fire-and-forget crawl/worker follow-up can land after a test reset or
     // after the parent work item was already removed. Never surface that as
     // an unhandled SQLITE_CONSTRAINT_FOREIGNKEY.
+    if (isSqliteForeignKeyError(error) || isSqliteClosedError(error)) return null;
+    throw error;
+  }
+}
+
+/**
+ * Live process row for the harness trace. The same `item_key` updates in place
+ * (label / status / summary) so a streaming reasoning item stays one row instead
+ * of appending one row per delta. `time` is the first write, i.e. when the step
+ * started — a growing step keeps its start clock.
+ */
+export function upsertTaskEvent(
+  workItemId: string,
+  runId: string | null,
+  itemKey: string,
+  eventType: string,
+  label: string,
+  status: string,
+  safeSummary?: string,
+): Row | null {
+  const key = String(itemKey || "").trim().slice(0, 120);
+  if (!key) return null;
+  try {
+    return tx((db) => {
+      if (!taskEventTarget(db, workItemId, runId)) return null;
+      const summary = safeSummary?.slice(0, 1000) || null;
+      const existing = db.prepare(
+        "SELECT id, sequence, time, created_at FROM task_events WHERE work_item_id=? AND item_key=?",
+      ).get(workItemId, key) as { id: string; sequence: number; time: string; created_at: string } | undefined;
+      if (existing) {
+        db.prepare(
+          "UPDATE task_events SET event_type=?, label=?, status=?, safe_summary=?, run_id=COALESCE(run_id,?) WHERE id=?",
+        ).run(eventType, label.slice(0, 160), status, summary, runId, existing.id);
+        return {
+          id: existing.id,
+          work_item_id: workItemId,
+          run_id: runId,
+          sequence: existing.sequence,
+          event_type: eventType,
+          label: label.slice(0, 160),
+          status,
+          safe_summary: summary,
+          item_key: key,
+          time: existing.time,
+          created_at: existing.created_at,
+        };
+      }
+      const current = db.prepare(
+        "SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=?",
+      ).get(workItemId) as { sequence: number };
+      const row = {
+        id: nid("tev"),
+        work_item_id: workItemId,
+        run_id: runId,
+        sequence: Number(current.sequence) + 1,
+        event_type: eventType,
+        label: label.slice(0, 160),
+        status,
+        safe_summary: summary,
+        item_key: key,
+        time: nowIso(),
+        created_at: nowIso(),
+      };
+      db.prepare(
+        `INSERT INTO task_events
+         (id,work_item_id,run_id,sequence,event_type,label,status,safe_summary,item_key,time,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      ).run(row.id, row.work_item_id, row.run_id, row.sequence, row.event_type, row.label, row.status,
+        row.safe_summary, row.item_key, row.time, row.created_at);
+      return row;
+    });
+  } catch (error) {
     if (isSqliteForeignKeyError(error) || isSqliteClosedError(error)) return null;
     throw error;
   }

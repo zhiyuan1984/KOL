@@ -1210,6 +1210,51 @@ function migrateMailDigestState(db: SqliteConn): void {
   }
 }
 
+/**
+ * One Starry mailbox per row: user_starry_bindings used to key on user_id alone,
+ * so an existing DB still carries that single-column PK. Detect it via
+ * PRAGMA table_info (not table presence) and rebuild to (user_id, mailbox_email),
+ * marking the lone row of each user as the default mailbox.
+ */
+function rebuildUserStarryBindings(db: SqliteConn): void {
+  const pkCols = (db.prepare("PRAGMA table_info(user_starry_bindings)").all() as { name: string; pk: number }[])
+    .filter((row) => row.pk > 0)
+    .sort((a, b) => a.pk - b.pk)
+    .map((row) => row.name);
+  if (pkCols.join(",") !== "user_id") return;
+  db.exec("DROP TABLE IF EXISTS user_starry_bindings_p0");
+  db.exec(`
+    CREATE TABLE user_starry_bindings_p0 (
+      user_id TEXT NOT NULL,
+      mailbox_email TEXT NOT NULL,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      mailbox_id TEXT,
+      owner_name TEXT,
+      bearer_token TEXT,
+      status TEXT NOT NULL DEFAULT 'connected',
+      updated_at TEXT NOT NULL,
+      sync_cursor_at TEXT,
+      sync_cursor_id TEXT,
+      sync_page_no INTEGER NOT NULL DEFAULT 1,
+      synced_at TEXT,
+      last_error TEXT,
+      last_tool TEXT,
+      PRIMARY KEY (user_id, mailbox_email),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+  db.exec(`
+    INSERT INTO user_starry_bindings_p0
+      (user_id, mailbox_email, is_default, mailbox_id, owner_name, bearer_token, status, updated_at,
+       sync_cursor_at, sync_cursor_id, sync_page_no, synced_at, last_error, last_tool)
+    SELECT user_id, mailbox_email, 1, mailbox_id, owner_name, bearer_token, status, updated_at,
+       sync_cursor_at, sync_cursor_id, sync_page_no, synced_at, last_error, last_tool
+    FROM user_starry_bindings
+  `);
+  db.exec("DROP TABLE user_starry_bindings");
+  db.exec("ALTER TABLE user_starry_bindings_p0 RENAME TO user_starry_bindings");
+}
+
 function migrateSchema(db: SqliteConn): void {
   add(db, "collaborations", "stage_version", "INTEGER NOT NULL DEFAULT 0");
   add(db, "collaborations", "recipient_name", "TEXT");
@@ -1436,6 +1481,11 @@ function migrateSchema(db: SqliteConn): void {
     ON claw_creators(platform, platform_creator_id) WHERE platform_creator_id IS NOT NULL`);
   add(db, "task_events", "time", "TEXT");
   db.prepare("UPDATE task_events SET time=created_at WHERE time IS NULL").run();
+  // Live process rows (harness trace) are keyed so a growing item is updated in
+  // place instead of appending one row per delta.
+  add(db, "task_events", "item_key", "TEXT");
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS task_events_item_key
+    ON task_events(work_item_id, item_key) WHERE item_key IS NOT NULL`);
   add(db, "memory_entries", "title", "TEXT NOT NULL DEFAULT '记忆'");
   add(db, "crawl_jobs", "last_checked_at", "TEXT");
   add(db, "knowledge", "kind", "TEXT NOT NULL DEFAULT 'policy'");
@@ -1458,8 +1508,9 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "collaborations", "owner_mailbox", "TEXT");
   db.exec(`
         CREATE TABLE IF NOT EXISTS user_starry_bindings (
-            user_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
             mailbox_email TEXT NOT NULL,
+            is_default INTEGER NOT NULL DEFAULT 0,
             mailbox_id TEXT,
             owner_name TEXT,
             bearer_token TEXT,
@@ -1471,6 +1522,7 @@ function migrateSchema(db: SqliteConn): void {
             synced_at TEXT,
             last_error TEXT,
             last_tool TEXT,
+            PRIMARY KEY (user_id, mailbox_email),
             FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
         );
   `);
@@ -1480,6 +1532,7 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "user_starry_bindings", "synced_at", "TEXT");
   add(db, "user_starry_bindings", "last_error", "TEXT");
   add(db, "user_starry_bindings", "last_tool", "TEXT");
+  rebuildUserStarryBindings(db);
   migrateMailDigestState(db);
   db.exec(`
         CREATE TABLE IF NOT EXISTS knowledge_versions (

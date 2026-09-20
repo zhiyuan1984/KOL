@@ -65,6 +65,18 @@ export function effectiveSummary(id: string): string {
   return (over?.summary || cat?.summary || cat?.label || id).trim();
 }
 
+/**
+ * One read for every overlay instead of one per skill. `catalogSkill` rebuilds
+ * the whole catalog on each call, so a per-skill loop of overlay + summary is
+ * quadratic and blocks the single-threaded Host for seconds.
+ */
+export function overlaySummaries(): Map<string, { summary: string; updated_at: string }> {
+  const rows = getConn()
+    .prepare("SELECT id, summary, updated_at FROM skill_sops")
+    .all() as { id: string; summary: string; updated_at: string }[];
+  return new Map(rows.map((row) => [String(row.id), row]));
+}
+
 export function effectiveSkillBody(id: string): string {
   const over = overlayRow(id);
   if (over?.body) return over.body;

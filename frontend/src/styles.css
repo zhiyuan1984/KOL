@@ -924,9 +924,10 @@ summary:focus-visible,
   overflow-x: hidden;
   transition: opacity .2s ease;
 }
+/* Dimming the whole pane while the composer has focus reads as the ask box
+   covering the result. Keep the fade on the summary strips only. */
 .home-pane.is-composer-focused .today-summary,
-.home-pane.is-composer-focused .recommend-work,
-.home-pane.is-composer-focused .home-mode-pane {
+.home-pane.is-composer-focused .recommend-work {
   opacity: .85;
 }
 .home-stats {
@@ -9813,6 +9814,33 @@ button.today-brief-primary-btn:disabled {
 }
 :root[data-theme="dark"] .today-plan-step-label {
   color: var(--text);
+}
+/* New trace rows need dark-mode colours too: the running/failed accents and the
+   growing reasoning box are otherwise light-on-dark and unreadable. */
+:root[data-theme="dark"] .today-plan-steps > li.is-running .today-plan-step-label {
+  color: #C4B5FD;
+}
+:root[data-theme="dark"] .today-plan-steps > li.is-failed .today-plan-step-label {
+  color: #FCA5A5;
+}
+:root[data-theme="dark"] .today-plan-steps > li.is-running .today-plan-step-dot {
+  background: color-mix(in srgb, #9333EA 22%, transparent);
+  color: #C4B5FD;
+}
+:root[data-theme="dark"] .today-plan-steps > li.is-failed .today-plan-step-dot {
+  background: color-mix(in srgb, #DC2626 22%, transparent);
+  color: #FCA5A5;
+}
+:root[data-theme="dark"] .today-plan-step-op {
+  color: var(--text-muted);
+}
+:root[data-theme="dark"] .today-plan-think {
+  background: color-mix(in srgb, #9333EA 12%, transparent);
+  border-left-color: #7C3AED;
+  color: var(--text-muted);
+}
+:root[data-theme="dark"] .today-plan-steps > li.is-live .today-plan-think {
+  background: color-mix(in srgb, #9333EA 18%, transparent);
 }
 
 .sidebar-brand-copy {
