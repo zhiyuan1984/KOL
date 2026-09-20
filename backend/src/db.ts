@@ -1673,6 +1673,7 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "exam_attempts", "breakdown_json", "TEXT");
   add(db, "discovery_runs", "session_id", "TEXT");
   add(db, "discovery_runs", "kind", "TEXT NOT NULL DEFAULT 'legacy'");
+  add(db, "discovery_runs", "raw_count", "INTEGER");
   add(db, "creator_candidates", "order_index", "INTEGER");
   add(db, "creator_candidates", "metrics_missing", "INTEGER NOT NULL DEFAULT 0");
   add(db, "creator_candidates", "avg_views_10", "REAL");

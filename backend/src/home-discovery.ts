@@ -126,12 +126,29 @@ function parseArray(value: unknown): unknown[] {
   }
 }
 
+/** Nested payload values arrive already parsed; JSON columns arrive as text. */
+function objectOf(value: unknown): Json {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Json : parseJson(value);
+}
+
 function asStringList(value: unknown): string[] {
   if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
   if (typeof value === "string") {
     return value.split(/[,，\n]/).map((item) => item.trim()).filter(Boolean);
   }
   return [];
+}
+
+/** Absent / blank / non-numeric all fold to null — 0 is a value, not a stand-in for missing. */
+function nullableNumber(value: unknown): number | null {
+  if (value == null || String(value).trim() === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function nullableString(value: unknown): string | null {
+  const text = value == null ? "" : String(value).trim();
+  return text || null;
 }
 
 function tableExists(name: string): boolean {
@@ -377,7 +394,12 @@ function libraryHits(candidates: Row[]): Json[] {
   return hits;
 }
 
-function publicCandidate(row: Row): Json {
+/**
+ * The row the 结果页 renders. `ranking` is the brief's entry for this candidate —
+ * it carries the only copy of why/band/fit (see `briefRanking`), so a missing entry
+ * must leave those keys null rather than empty strings.
+ */
+function publicCandidate(row: Row, ranking?: Json | null): Json {
   const payload = parseJson(row.payload);
   const signals = parseJson(row.signals);
   const followersPresent = row.followers != null && String(row.followers) !== "";
@@ -386,6 +408,18 @@ function publicCandidate(row: Row): Json {
     || Boolean(signals.metrics_missing)
     || !followersPresent
     || !views.length;
+  const alreadyInPool = Boolean(signals.already_in_pool);
+  const alreadyFollowed = Boolean(signals.already_followed);
+  const alreadyInLibrary = Boolean(signals.already_in_library);
+  // 规格的 library 只有三态，`already_in_library`（在 Starry / 公海）没有第四态可落，
+  // 因此并入 pool；这样 in_library 与 library_status 的档位始终一致。
+  const libraryStatus = alreadyFollowed
+    ? "followed"
+    : alreadyInPool || alreadyInLibrary ? "pool" : "not_in_library";
+  const scoreDetails = objectOf(payload.score_details);
+  const why = asStringList(ranking?.why);
+  const matchReason = why.length ? why.join(" · ") : null;
+  const briefScore = nullableNumber(ranking?.score);
   return {
     id: row.id,
     request_id: row.request_id,
@@ -396,17 +430,63 @@ function publicCandidate(row: Row): Json {
     nickname: row.nickname || row.handle || "",
     followers: followersPresent ? Number(row.followers || 0) : null,
     avg_views_10: views.length ? avgViews10(row) : null,
-    score: Number(row.score || 0),
+    score: briefScore ?? Number(row.score || 0),
     order_index: row.order_index == null ? null : Number(row.order_index),
     metrics_missing: metricsMissing,
-    already_in_pool: Boolean(signals.already_in_pool),
-    already_followed: Boolean(signals.already_followed),
-    already_in_library: Boolean(signals.already_in_library),
+    already_in_pool: alreadyInPool,
+    already_followed: alreadyFollowed,
+    already_in_library: alreadyInLibrary,
+    in_library: libraryStatus !== "not_in_library",
+    library_status: libraryStatus,
+    band: nullableString(ranking?.band),
+    fit: nullableString(ranking?.fit),
+    match_reason: matchReason,
+    why: matchReason,
+    view_mean: nullableNumber(scoreDetails.view_mean),
+    view_median: nullableNumber(scoreDetails.view_median),
+    stability: nullableNumber(scoreDetails.stability),
+    view_follower_ratio: nullableNumber(scoreDetails.view_follower_ratio),
+    confidence: nullableNumber(ranking?.confidence) ?? nullableNumber(scoreDetails.sample_confidence),
+    sample_size: nullableNumber(scoreDetails.sample_size),
+    recent_views: views,
+    collected_at: nullableString(payload.collected_at),
+    profile_url: nullableString(payload.profile_url),
+    avatar_url: nullableString(payload.avatar_url),
+    matched_keywords: asStringList(payload.matched_keywords),
     status: row.status,
     payload,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
+}
+
+/**
+ * `applyRanking()` only writes score + order_index back onto the candidate, so the
+ * brief's ranking is the only source for why/band/fit. Read it once per list instead
+ * of querying per candidate.
+ */
+function briefRanking(workItemId: string): Map<string, Json> {
+  const index = new Map<string, Json>();
+  const brief = briefArtifact(workItemId);
+  const ranking = brief?.ranking;
+  if (!Array.isArray(ranking)) return index;
+  for (const item of ranking) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const entry = item as Json;
+    const candidateId = String(entry.candidate_id || "").trim();
+    if (candidateId) index.set(candidateId, entry);
+  }
+  return index;
+}
+
+function briefArtifact(workItemId: string): Json | null {
+  if (!workItemId) return null;
+  const artifact = getConn().prepare(
+    `SELECT payload FROM task_artifacts
+      WHERE work_item_id=? AND artifact_type='discovery_brief'
+      ORDER BY created_at DESC LIMIT 1`,
+  ).get(workItemId) as { payload?: string } | undefined;
+  return artifact?.payload ? parseJson(artifact.payload) : null;
 }
 
 function publicRun(row: Row): Json {
@@ -424,13 +504,6 @@ function publicRun(row: Row): Json {
         created_at: item.time,
       }))
     : [];
-  const artifact = workItemId
-    ? getConn().prepare(
-        `SELECT payload FROM task_artifacts
-          WHERE work_item_id=? AND artifact_type='discovery_brief'
-          ORDER BY created_at DESC LIMIT 1`,
-      ).get(workItemId) as { payload?: string } | undefined
-    : undefined;
   const status = String(row.status);
   return {
     id: row.id,
@@ -442,9 +515,10 @@ function publicRun(row: Row): Json {
     spec,
     search_keywords: searchKeywords,
     candidate_count: candidateCount,
+    raw_count: row.raw_count == null ? null : Number(row.raw_count),
     empty_hint: status === "completed" && candidateCount === 0 ? emptyDiscoveryHint(searchKeywords) : null,
     error: row.error || null,
-    brief: artifact?.payload ? parseJson(artifact.payload) : null,
+    brief: briefArtifact(workItemId),
     events,
     created_at: row.created_at,
     started_at: row.started_at,
@@ -591,7 +665,8 @@ function pumpQueuedHomeRuns(): void {
 function hostFilterSnapshots(run: Row, job: Row): { kept: Row[]; raw: number; dropped: number } {
   const spec = specOf(run);
   const snapshots = getConn().prepare(
-    `SELECT s.*, c.id AS claw_creator_id, c.handle AS claw_handle, c.name AS claw_name
+    `SELECT s.*, c.id AS claw_creator_id, c.handle AS claw_handle, c.name AS claw_name,
+            c.payload AS claw_payload
        FROM creator_snapshots s
        JOIN claw_creators c ON c.id = s.creator_id
       WHERE s.crawl_job_id=?
@@ -656,6 +731,7 @@ function persistFilteredCandidates(run: Row, job: Row): { written: number; raw: 
         crawl_job_id: job.id,
         source: "ai",
         contact_needed: true,
+        ...crawlerFieldsOf(parseJson(snap.claw_payload), snap),
       };
       const signals = {
         ...flags,
@@ -716,10 +792,31 @@ function persistFilteredCandidates(run: Row, job: Row): { written: number; raw: 
       written += 1;
     }
     db.prepare(
-      "UPDATE discovery_runs SET candidate_count=?, updated_at=?, data_version=data_version+1 WHERE id=?",
-    ).run(written, now, run.id);
+      `UPDATE discovery_runs
+          SET raw_count=?, candidate_count=?, updated_at=?, data_version=data_version+1
+        WHERE id=?`,
+    ).run(raw, written, now, run.id);
   });
   return { written, raw, dropped };
+}
+
+/**
+ * `claw_creators.payload` is where the crawler's extra fields land, but the candidate
+ * keeps a closed payload — so anything the result row must show has to be copied here.
+ * A missing key stays missing: `publicCandidate` reads it back as null / [].
+ */
+function crawlerFieldsOf(clawPayload: Json, snapshot: Row): Json {
+  const fields: Json = {};
+  const profileUrl = nullableString(clawPayload.profile_url);
+  if (profileUrl) fields.profile_url = profileUrl;
+  const avatarUrl = nullableString(clawPayload.avatar_url);
+  if (avatarUrl) fields.avatar_url = avatarUrl;
+  const keywords = asStringList(clawPayload.matched_keywords);
+  if (keywords.length) fields.matched_keywords = keywords;
+  const fromClaw = objectOf(clawPayload.score_details);
+  const scoreDetails = Object.keys(fromClaw).length ? fromClaw : objectOf(snapshot.score_details);
+  if (Object.keys(scoreDetails).length) fields.score_details = scoreDetails;
+  return fields;
 }
 
 function writeBriefArtifact(run: Row, brief: DiscoveryBrief, status: string): void {
@@ -924,12 +1021,13 @@ export function listHomeDiscoveryCandidates(id: string): Json {
     `SELECT * FROM creator_candidates WHERE run_id=?
       ORDER BY CASE WHEN order_index IS NULL THEN 1 ELSE 0 END, order_index ASC, score DESC, created_at DESC`,
   ).all(run.id) as Row[];
+  const ranking = briefRanking(String(run.work_item_id || ""));
   return {
     entry: "memory",
     creates_session: false,
     calls_model: false,
     run_id: run.id,
-    candidates: rows.map(publicCandidate),
+    candidates: rows.map((row) => publicCandidate(row, ranking.get(String(row.id)) || null)),
   };
 }
 

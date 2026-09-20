@@ -336,7 +336,46 @@ describe("POST /api/home/discovery/run lifecycle", () => {
       platform: "youtube",
       platform_creator_id: "yt-beauty-1",
       nickname: "CleanGlow",
+      library_status: "not_in_library",
     });
+    expect((candidates.body.candidates as Json[])[0]).toHaveProperty("score");
+    expect((candidates.body.candidates as Json[])[0]).toHaveProperty("confidence");
+    expect((candidates.body.candidates as Json[])[0]).toHaveProperty("collected_at");
+    // brief 的 ranking 必须 join 到候选上，否则行上永远是「匹配：无」
+    expect(run.raw_count).toBeGreaterThan(0);
+  });
+
+  it("projects the score details and the brief ranking onto the candidate row", async () => {
+    creators = [{
+      platform: "youtube",
+      platform_creator_id: "yt-beauty-12",
+      nickname: "TwelveViews",
+      followers: 18000,
+      recent_views: [8000, 9000, 7000, 8500, 9200, 8100, 8800, 7600, 8300, 8700, 8900, 9100],
+    }];
+    const run = await completeRun();
+    expect(run.status).toBe("completed");
+    const candidates = await request("GET", `/api/home/discovery/runs/${run.id}/candidates`);
+    expect(candidates.status).toBe(200);
+    const row = (candidates.body.candidates as Json[])[0];
+    expect(row).toMatchObject({
+      platform_creator_id: "yt-beauty-12",
+      library_status: "not_in_library",
+      confidence: 1,
+      sample_size: 10,
+      matched_keywords: [],
+      profile_url: null,
+      avatar_url: null,
+    });
+    expect(typeof row.view_follower_ratio).toBe("number");
+    expect(row.view_mean).toBeGreaterThan(0);
+    expect(row.recent_views as number[]).toHaveLength(10);
+    // ranking 的 why/band/fit 来自 run 的 brief artifact，不是列
+    expect(typeof row.match_reason).toBe("string");
+    expect(String(row.match_reason)).toContain("TwelveViews");
+    expect(row.why).toBe(row.match_reason);
+    expect(["high", "mid", "low", "uncertain"]).toContain(row.band);
+    expect(String(row.fit)).not.toBe("");
   });
 
   it("writes an honest empty result when crawl returns no creators", async () => {
