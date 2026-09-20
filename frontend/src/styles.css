@@ -10178,8 +10178,13 @@ button.today-brief-primary-btn:disabled {
 }
 
 .skill-preview-footer .skill-btn {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   justify-content: center;
+  white-space: nowrap;
+  padding: 7px 8px;
+  font-size: 11.5px;
+  gap: 3px;
 }
 
 /* Responsive */
