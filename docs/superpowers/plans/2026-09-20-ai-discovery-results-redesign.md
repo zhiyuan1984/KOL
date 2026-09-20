@@ -161,7 +161,7 @@ Expected: FAIL —— `library_status` / `confidence` / `raw_count` 均不存在
 
 （按现有实现的实际变量名落，不要造新名。）
 4. `publicCandidate()` 增加投影：`collected_at`（`payload.collected_at`）、`recent_views`（`payload.recent_views`）、`view_mean`/`view_follower_ratio`/`confidence`/`sample_size`（`payload.score_details` 里同名键，缺失为 null）、`library_status`（三布尔派生：`followed` > `pool` > `not_in_library`）、`profile_url`/`avatar_url`/`matched_keywords`（payload 直传，缺失为 null/空数组）。
-5. `listHomeDiscoveryCandidates()`：一次性读取该 run 的 `discovery_brief` artifact，按 `ranking[].candidate_id` 建索引，给每条候选补 `score`（brief 优先，回退列值）、`band`、`fit`、`match_reason`（`why` 数组）、`confidence`（brief 无此字段时留 payload 值）。
+5. `listHomeDiscoveryCandidates()`：一次性读取该 run 的 `discovery_brief` artifact，按 `ranking[].candidate_id` 建索引，给每条候选补 `score`（**只有 brief 的 ranking 里真有该候选时才给分，否则 null**——列上的 `score` 是 `NOT NULL DEFAULT 0`，回落列值会显示成「推荐分 0 分」，违反「缺失不得用 0 冒充」）、`band`、`fit`、`match_reason`（`why` 数组 join 成字符串）、`confidence`（brief 无此字段时留 payload 值）。
 6. `publicRun()` 增加 `raw_count: row.raw_count ?? null`。
 
 - [ ] **Step 4: 跑测试确认通过**

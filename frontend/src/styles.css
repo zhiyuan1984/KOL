@@ -1886,21 +1886,11 @@ summary:focus-visible,
   margin: 0;
   min-height: 40px;
 }
-/* AI发现：条件卡（无按钮）→ 条件同时是 AI 提问框里可编辑的【发现任务】正文 */
-h1[data-home-title="discovery"] {
-  max-width: 1240px;
-  margin: 0 auto 16px;
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 28px;
-  color: var(--text);
-}
 .ai-discovery-card {
   display: flex;
   flex-direction: column;
   gap: 24px;
   margin: 0 auto 24px;
-  max-width: 1240px;
   padding: 32px;
   background: var(--bg);
   border: 1px solid var(--border);

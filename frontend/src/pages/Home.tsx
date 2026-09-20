@@ -1864,6 +1864,8 @@ export default function Home() {
       >
         <div className="home-hero">
           <div className="home-chrome" data-home-chrome>
+            {/* AI发现 页按框线稿只留导航入口：重复标题与右上工具组都不渲染。 */}
+            {mode === "discovery" ? null : (
             <div className="home-chrome-actions" data-home-chrome-actions>
                 <button
                   type="button"
@@ -1912,6 +1914,7 @@ export default function Home() {
                 </Link>
                 <ModelTierControl className="home-chrome-tier" />
             </div>
+            )}
           </div>
           {mode === "today" ? <h1 data-home-title="today">{HOME_TODAY_TITLE}</h1> : null}
           <p className="home-stats" data-today-summary data-home-stats>
@@ -1975,7 +1978,6 @@ export default function Home() {
             />
           ) : null}
 
-          {mode === "discovery" ? <h1 data-home-title="discovery">AI发现</h1> : null}
           {mode === "discovery" ? (
             <DiscoverySearchCard
               brief={discoveryFormBrief ?? fallbackDiscoveryFormBrief}
