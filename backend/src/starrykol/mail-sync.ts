@@ -480,7 +480,7 @@ async function hydrateConversationById(conversationId: string): Promise<number> 
   return hydrateMailThread(thread);
 }
 
-async function fetchConversationPage(pageNo: number, pageSize: number, mailbox: string): Promise<{ pageNo: number; pageSize: number; total: number; conversations: Json[] }> {
+async function fetchConversationPage(pageNo: number, pageSize: number, mailbox: string): Promise<{ pageNo: number; pageSize: number; total: number; rawCount: number; conversations: Json[] }> {
   const listed = await executeStarryKolTask("email_conversation_list", {
     pageNo,
     pageSize,
@@ -489,11 +489,18 @@ async function fetchConversationPage(pageNo: number, pageSize: number, mailbox: 
   const payload = (listed.data && typeof listed.data === "object" && !Array.isArray(listed.data) ? listed.data : listed) as Json;
   const total = Number(payload.total ?? 0);
   const responsePageSize = Number(payload.pageSize ?? pageSize);
-  const conversations = listOf(payload).filter((conv) => {
+  const rawList = listOf(payload);
+  const conversations = rawList.filter((conv) => {
     const remoteMailbox = conversationMailboxOf(conv);
     return !mailbox || !remoteMailbox || remoteMailbox.toLowerCase() === mailbox.toLowerCase();
   });
-  return { pageNo, pageSize: Number.isFinite(responsePageSize) && responsePageSize > 0 ? responsePageSize : pageSize, total, conversations };
+  return {
+    pageNo,
+    pageSize: Number.isFinite(responsePageSize) && responsePageSize > 0 ? responsePageSize : pageSize,
+    total,
+    rawCount: rawList.length,
+    conversations,
+  };
 }
 
 async function syncRemainingConversations(
@@ -525,30 +532,16 @@ async function syncRemainingConversations(
     if (knownTotal > 0 && (pageNo - 1) * lastPageSize >= knownTotal) break;
     const page = await fetchConversationPage(pageNo, pageSize, mailbox);
     const conversations = page.conversations;
-    if (!conversations.length) break;
     knownTotal = page.total > 0 ? page.total : knownTotal;
     lastPageSize = Math.max(1, page.pageSize);
+    // Stop only when the remote itself returned nothing; a page whose rows are
+    // all filtered out has nothing to process but still advances the walk.
+    if (page.rawCount <= 0) break;
 
     // Persist the fact that we are about to process this page
     updateBindingSyncCursor({ userId, mailbox, syncedAt, pageNo, tool: "pageEmailConversations" });
 
-    const pageCandidates = conversations.filter((conv) => {
-      const conversationId = conversationIdOf(conv);
-      if (!conversationId) return false;
-      // Same logic as foreground detailCandidates filter
-      const lookupMailbox = mailbox || conversationMailboxOf(conv);
-      const existing = getConn().prepare(
-        "SELECT last_at FROM kol_mail_threads WHERE conversation_id=? ORDER BY updated_at DESC LIMIT 1",
-      ).get(conversationId) as { last_at?: string } | undefined;
-      const bindingRow = lookupMailbox
-        ? getConn().prepare("SELECT sync_cursor_at FROM user_starry_bindings WHERE lower(mailbox_email)=lower(?) LIMIT 1")
-            .get(lookupMailbox) as { sync_cursor_at?: string } | undefined
-        : undefined;
-      const unread = Number(conv.unreadCount ?? conv.unread_count);
-      const remoteAt = remoteConversationTime(conv);
-      const rememberedAt = Math.max(timestampMs(existing?.last_at), timestampMs(bindingRow?.sync_cursor_at));
-      return !existing || (Number.isFinite(unread) && unread > 0) || (timestampMs(remoteAt) > rememberedAt);
-    });
+    const pageCandidates = conversations.filter((conv) => conversationNeedsDetail(conv, mailbox));
 
     for (let i = 0; i < pageCandidates.length; i += 5) {
       const batch = pageCandidates.slice(i, i + 5);
@@ -560,7 +553,9 @@ async function syncRemainingConversations(
     }
 
     // Spec §3: a partial page means no more data; so does reaching total.
-    if (conversations.length < lastPageSize) break;
+    // Compare against the raw remote count: the remote may return other
+    // employees' rows that the mailbox filter drops.
+    if (page.rawCount < lastPageSize) break;
     if (knownTotal > 0 && pageNo * lastPageSize >= knownTotal) break;
     pageNo += 1;
     pagesProcessed += 1;
@@ -612,6 +607,27 @@ function remoteConversationTime(conv: Json): string {
     conv.updatedAt,
     conv.ts,
   );
+}
+
+// Shared by the foreground page and the background page walk: a conversation
+// needs a detail fetch when it is not remembered locally, still unread, or
+// changed remotely after the last thing we remembered about it.
+function conversationNeedsDetail(conv: Json, mailbox: string): boolean {
+  const conversationId = conversationIdOf(conv);
+  if (!conversationId) return false;
+  const lookupMailbox = mailbox || conversationMailboxOf(conv);
+  const existing = getConn().prepare(
+    "SELECT last_at FROM kol_mail_threads WHERE conversation_id=? ORDER BY updated_at DESC LIMIT 1",
+  ).get(conversationId) as { last_at?: string } | undefined;
+  const binding = lookupMailbox ? getConn().prepare(
+    "SELECT sync_cursor_at FROM user_starry_bindings WHERE lower(mailbox_email)=lower(?) LIMIT 1",
+  ).get(lookupMailbox) as { sync_cursor_at?: string } | undefined : undefined;
+  const unread = Number(conv.unreadCount ?? conv.unread_count);
+  const remoteAt = remoteConversationTime(conv);
+  const rememberedAt = Math.max(timestampMs(existing?.last_at), timestampMs(binding?.sync_cursor_at));
+  return !existing
+    || (Number.isFinite(unread) && unread > 0)
+    || (timestampMs(remoteAt) > rememberedAt);
 }
 
 async function mapLimited<T, R>(values: T[], limit: number, fn: (value: T) => Promise<R>): Promise<R[]> {
@@ -686,23 +702,7 @@ export async function syncFollowedKolMail(): Promise<FollowedMailSync> {
     let updated = 0;
     let cursorAt = "";
     let cursorId = "";
-    const detailCandidates = conversations.filter((conv) => {
-      const conversationId = conversationIdOf(conv);
-      if (!conversationId) return false;
-      const lookupMailbox = mailbox || conversationMailboxOf(conv);
-      const existing = getConn().prepare(
-        "SELECT last_at FROM kol_mail_threads WHERE conversation_id=? ORDER BY updated_at DESC LIMIT 1",
-      ).get(conversationId) as { last_at?: string } | undefined;
-      const binding = lookupMailbox ? getConn().prepare(
-        "SELECT sync_cursor_at FROM user_starry_bindings WHERE lower(mailbox_email)=lower(?) LIMIT 1",
-      ).get(lookupMailbox) as { sync_cursor_at?: string } | undefined : undefined;
-      const unread = Number(conv.unreadCount ?? conv.unread_count);
-      const remoteAt = remoteConversationTime(conv);
-      const rememberedAt = Math.max(timestampMs(existing?.last_at), timestampMs(binding?.sync_cursor_at));
-      return !existing
-        || (Number.isFinite(unread) && unread > 0)
-        || (timestampMs(remoteAt) > rememberedAt);
-    });
+    const detailCandidates = conversations.filter((conv) => conversationNeedsDetail(conv, mailbox));
     const immediateCandidates = detailCandidates.slice(0, 5);
     const remainingCandidates = detailCandidates.slice(5);
     const detailRows = await mapLimited(immediateCandidates, 5, async (conv) => ({

@@ -6,6 +6,7 @@ import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { setEmailMcpClientFactory } from "../src/starrykol/service.js";
 import { syncFollowedKolMail, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
+import { bindStarryUser } from "./helpers/starry-binding.js";
 import type { Json } from "../src/types.js";
 
 let conversationId = 1000;
@@ -25,16 +26,7 @@ function nextConversation() {
 }
 
 function bindDemoUser(): void {
-  const now = new Date().toISOString();
-  getConn().prepare(
-    `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-  ).run("usr_sriphy", "sriphy", "鄢棽", "x", JSON.stringify(["employee", "admin"]), JSON.stringify(["LT", "RO", "PQ"]), "深圳站", 1, now, now);
-  getConn().prepare(
-    `INSERT INTO user_starry_bindings (user_id, mailbox_email, mailbox_id, owner_name, bearer_token, status, updated_at)
-     VALUES (?,?,?,?,?,?,?)
-     ON CONFLICT(user_id) DO UPDATE SET mailbox_email=excluded.mailbox_email, status=excluded.status, updated_at=excluded.updated_at`,
-  ).run("usr_sriphy", "larry.zhao@amperetime.com", "mbx_larry", "赵良玉", "", "connected", now);
+  bindStarryUser({ brands: ["LT", "RO", "PQ"], site: "深圳站" });
 }
 
 function mockMcp(readMs: number, totalCount: number, pageSize = 10) {

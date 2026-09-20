@@ -13,6 +13,7 @@ import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { matchCollaboration } from "../src/starrykol/mail-fields.js";
 import { ensureFollowedMailSync, resetFollowedMailSync } from "../src/starrykol/mail-sync.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
+import { bindStarryUser } from "./helpers/starry-binding.js";
 import type { Json } from "../src/types.js";
 
 let tmp: string;
@@ -35,16 +36,7 @@ function sessionCount(): number {
 }
 
 function bindLarry(): void {
-  const now = new Date().toISOString();
-  getConn().prepare(
-    `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
-  ).run("usr_sriphy", "sriphy", "鄢棽", "x", JSON.stringify(["employee", "admin"]), "[]", "", 1, now, now);
-  getConn().prepare(
-    `INSERT INTO user_starry_bindings (user_id, mailbox_email, mailbox_id, owner_name, bearer_token, status, updated_at)
-     VALUES (?,?,?,?,?,?,?)
-     ON CONFLICT(user_id) DO UPDATE SET mailbox_email=excluded.mailbox_email, status=excluded.status, updated_at=excluded.updated_at`,
-  ).run("usr_sriphy", "larry.zhao@amperetime.com", "mbx_larry", "赵良玉", "", "connected", now);
+  bindStarryUser();
 }
 
 function stubStarry(extraConversations: Json[] = []): void {
