@@ -2186,6 +2186,7 @@ export default function Home() {
           discoveryBrief={discoveryBrief}
           discoveryCatalog={discoveryCatalog}
           discoveryOverride={discoveryOverride}
+          showDiscoveryEditor={false}
           onDiscoveryBriefChange={onDiscoveryBriefChange}
           onOpenDiscoveryTemplate={() => void openDiscoveryTemplate()}
           onClearDiscoveryLock={clearDiscoveryLock}

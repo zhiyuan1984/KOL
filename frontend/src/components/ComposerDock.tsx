@@ -121,6 +121,7 @@ export default function ComposerDock({
   discoveryBrief = null,
   discoveryCatalog = null,
   discoveryOverride = false,
+  showDiscoveryEditor = true,
   onDiscoveryBriefChange,
   onOpenDiscoveryTemplate,
   onClearDiscoveryLock,
@@ -156,6 +157,8 @@ export default function ComposerDock({
   discoveryBrief?: DiscoveryBrief | null;
   discoveryCatalog?: Pick<DiscoveryTemplate, "platforms" | "regions" | "directions"> | null;
   discoveryOverride?: boolean;
+  /** AI发现 tab 的页面上已有条件卡时，隐藏提问框里那套重复芯片；提交判定仍用 discoveryBrief。 */
+  showDiscoveryEditor?: boolean;
   onDiscoveryBriefChange?: (brief: DiscoveryBrief) => void;
   onOpenDiscoveryTemplate?: () => void;
   onClearDiscoveryLock?: () => void;
@@ -823,7 +826,7 @@ export default function ComposerDock({
           {DISCOVERY_CHIP_OVERRIDE_HINT}
         </p>
       ) : null}
-      {discoveryBrief ? (
+      {discoveryBrief && showDiscoveryEditor ? (
         <DiscoveryConditionEditor
           brief={discoveryBrief}
           catalog={discoveryCatalog}
