@@ -10183,6 +10183,12 @@ button.today-brief-primary-btn:disabled {
 }
 
 /* Responsive */
+@media (max-width: 1300px) {
+  .skill-grid-4 .skill-card-source {
+    display: none;
+  }
+}
+
 @media (max-width: 1180px) {
   .skill-grid.skill-grid-4 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
