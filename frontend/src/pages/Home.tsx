@@ -416,7 +416,11 @@ export default function Home() {
     }
   };
 
-  /** AI发现 tab 首屏只拉字典（memory GET，零 session / 零模型）。不预填 Composer。 */
+  /**
+   * AI发现 tab 首屏只拉字典（memory GET，零 session / 零模型）。不预填 Composer。
+   * ref 只守字典请求本身；表单真值补种到 discoveryFormBrief，`discoveryBrief`
+   * 仍只服务 Composer 的发现锁（openDiscoveryTemplate / 【发现任务】）。
+   */
   const ensureDiscoveryCatalog = async () => {
     if (discoveryCatalogRef.current) return;
     discoveryCatalogRef.current = true;
@@ -424,11 +428,11 @@ export default function Home() {
       const template = await loadDiscoveryTemplate();
       setDiscoveryCatalog({ platforms: template.platforms, regions: template.regions, directions: template.directions });
       setDiscoveryVersion(template.version);
-      if (!discoveryBrief) setDiscoveryBrief(template.defaults);
+      setDiscoveryFormBrief((current) => current ?? template.defaults);
     } catch {
       const template = fallbackDiscoveryTemplate();
       setDiscoveryCatalog({ platforms: template.platforms, regions: template.regions, directions: template.directions });
-      if (!discoveryBrief) setDiscoveryBrief(template.defaults);
+      setDiscoveryFormBrief((current) => current ?? template.defaults);
     }
   };
 
@@ -524,6 +528,8 @@ export default function Home() {
   const [composerFocused, setComposerFocused] = useState(Boolean(initialFill));
   const [stageScrolled, setStageScrolled] = useState(false);
   const [discoveryBrief, setDiscoveryBrief] = useState<DiscoveryBrief | null>(null);
+  /** 条件卡表单真值；与 Composer 的发现锁（discoveryBrief）分开，互不覆盖。 */
+  const [discoveryFormBrief, setDiscoveryFormBrief] = useState<DiscoveryBrief | null>(null);
   const [discoveryCatalog, setDiscoveryCatalog] = useState<Pick<DiscoveryTemplate, "platforms" | "regions" | "directions"> | null>(null);
   const [discoveryVersion, setDiscoveryVersion] = useState<string>("discovery-brief.v1");
   const [discoveryOverride, setDiscoveryOverride] = useState(false);
@@ -1925,14 +1931,14 @@ export default function Home() {
           ) : null}
 
           {mode === "discovery" ? <h1 data-home-title="discovery">AI发现</h1> : null}
-          {mode === "discovery" && discoveryBrief ? (
+          {mode === "discovery" && discoveryFormBrief ? (
             <DiscoverySearchCard
-              brief={discoveryBrief}
+              brief={discoveryFormBrief}
               catalog={discoveryCatalog}
               busy={busy}
-              onChange={onDiscoveryBriefChange}
+              onChange={setDiscoveryFormBrief}
               onSubmit={(next) => void submitDiscovery(next, renderDiscoveryBody(next, discoveryCatalog || undefined), discoveryVersion)}
-              onReset={() => setDiscoveryBrief(defaultDiscoveryBrief())}
+              onReset={() => setDiscoveryFormBrief(defaultDiscoveryBrief())}
             />
           ) : null}
 
