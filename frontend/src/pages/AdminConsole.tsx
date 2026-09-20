@@ -119,12 +119,12 @@ export default function AdminConsole() {
         <div className="admin-nav-kicker">管理</div>
         <nav className="admin-nav-list" aria-label="管理分类">
           {TABS.map(([id, label]) => {
-            const href = id === "employees" ? "/admin" : `/admin/${id}`;
+            const href = id === "employees" ? "/admin" : id === "skills" ? "/skills/lifecycle" : `/admin/${id}`;
             return (
               <NavLink
                 key={id}
                 to={href}
-                end={id === "employees"}
+                end={id === "employees" || id === "skills"}
                 className={"admin-nav-item" + (tab === id ? " active" : "")}
                 data-admin-nav={id}
                 data-admin-tab={id}
