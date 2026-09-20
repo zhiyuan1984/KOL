@@ -416,10 +416,6 @@
   width: 100%;
   overflow: hidden;
 }
-  width: 100%;
-  max-width: var(--composer-maxw);
-  margin-top: 14px;
-}
 
 .home-composer-pill {
   height: 32px;
