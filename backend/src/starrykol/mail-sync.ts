@@ -472,10 +472,33 @@ export async function hydrateMailThread(thread: Row): Promise<number> {
   return inserted;
 }
 
-async function hydrateConversationById(conversationId: string): Promise<number> {
-  const thread = getConn().prepare(
+async function hydrateConversationById(conv: Json, mailbox: string, collabs: Row[]): Promise<number> {
+  const conversationId = conversationIdOf(conv);
+  if (!conversationId) return 0;
+  let thread = getConn().prepare(
     "SELECT * FROM kol_mail_threads WHERE conversation_id=? LIMIT 1",
   ).get(conversationId) as Row | undefined;
+  if (!thread) {
+    // Conversation first seen on a later background page: create the thread
+    // shell from the list row, then hydrate the full message history below.
+    const col = matchCollaboration(conv, collabs, mailbox);
+    upsertThread({
+      collaborationId: col ? String(col.id) : null,
+      conversationId,
+      subject: conversationSubject(conv) || "(无主题)",
+      mailbox: mailbox || conversationMailboxOf(conv) || firstString(conv.mailboxEmail, col?.mailbox_from),
+      direction: inboundOf(conv, col, mailbox) ? "inbound" : "outbound",
+      snippet: messageBody(conv),
+      from: messageFrom(conv).email,
+      fromName: messageFrom(conv).name,
+      unread: Number(conv.unreadCount ?? conv.unread_count) || 0,
+      lastAt: messageOccurredAt(conv) || remoteConversationTime(conv),
+      matchState: col ? "matched" : "unbound",
+    });
+    thread = getConn().prepare(
+      "SELECT * FROM kol_mail_threads WHERE conversation_id=? LIMIT 1",
+    ).get(conversationId) as Row | undefined;
+  }
   if (!thread) return 0;
   return hydrateMailThread(thread);
 }
@@ -514,6 +537,7 @@ async function fetchConversationPage(pageNo: number, pageSize: number, mailbox: 
 async function syncRemainingConversations(
   remaining: Json[],
   mailbox: string,
+  collabs: Row[],
   startPageNo: number,
   userId: string,
   syncedAt: string,
@@ -523,9 +547,7 @@ async function syncRemainingConversations(
   for (let i = 0; i < remaining.length; i += 5) {
     const batch = remaining.slice(i, i + 5);
     await mapLimited(batch, 5, async (conv) => {
-      const conversationId = conversationIdOf(conv);
-      if (!conversationId) return;
-      await hydrateConversationById(conversationId);
+      await hydrateConversationById(conv, mailbox, collabs);
     });
   }
 
@@ -554,9 +576,7 @@ async function syncRemainingConversations(
     for (let i = 0; i < pageCandidates.length; i += 5) {
       const batch = pageCandidates.slice(i, i + 5);
       await mapLimited(batch, 5, async (conv) => {
-        const conversationId = conversationIdOf(conv);
-        if (!conversationId) return;
-        await hydrateConversationById(conversationId);
+        await hydrateConversationById(conv, mailbox, collabs);
       });
     }
 
@@ -575,6 +595,7 @@ async function syncRemainingConversations(
 function scheduleBackgroundSync(
   remaining: Json[],
   mailbox: string,
+  collabs: Row[],
   startPageNo: number,
   userId: string,
   syncedAt: string,
@@ -584,7 +605,7 @@ function scheduleBackgroundSync(
   if (backgroundSyncTask) return backgroundSyncTask;
   backgroundSyncTask = (async () => {
     try {
-      await syncRemainingConversations(remaining, mailbox, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize);
+      await syncRemainingConversations(remaining, mailbox, collabs, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize);
     } catch (error) {
       audit("host", "starrykol.followed_mail_sync_background_failed", {
         error: error instanceof Error ? error.message : String(error),
@@ -827,7 +848,7 @@ export async function syncFollowedKolMail(): Promise<FollowedMailSync> {
       tool: "pageEmailConversations",
     });
     audit("host", "starrykol.followed_mail_sync", result);
-    scheduleBackgroundSync(remainingCandidates, mailbox, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize);
+    scheduleBackgroundSync(remainingCandidates, mailbox, collabs, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize);
     return result;
   } catch (error) {
     const result: FollowedMailSync = {

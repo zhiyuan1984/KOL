@@ -79,7 +79,8 @@ function mockMcp(readMs: number, totalCount: number, pageSize = 10) {
 describe("mail sync performance", () => {
   beforeEach(() => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mail-sync-perf-"));
-    process.env.LG_DATA_DIR = tmp;
+    process.env.LINGONG_DATA = tmp;
+    process.env.CODEX_MODE = "stub";
     resetConn();
     seedAll();
     bindDemoUser();
