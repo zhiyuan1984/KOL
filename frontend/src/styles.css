@@ -600,7 +600,7 @@ summary:focus-visible,
   flex-direction: column;
   overflow: hidden;
 }
-.main > :not(.session-shell):not(.home-pane):not(.admin-shell) {
+.main > :not(.session-shell):not(.home-pane):not(.admin-shell):not(.skill-catalog-page) {
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
@@ -608,6 +608,15 @@ summary:focus-visible,
   width: min(100%, 1360px);
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+.main > .skill-catalog-page {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  padding: 20px var(--page-gutter) 24px;
+  overflow: hidden;
 }
 .main > .admin-shell {
   flex: 1 1 auto;
