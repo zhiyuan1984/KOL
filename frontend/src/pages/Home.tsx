@@ -31,6 +31,7 @@ import {
 import { rememberJourney } from "../journey";
 import { missingFieldsMessage, fieldLabel } from "../labels";
 import DiscoveryPanel from "../home/DiscoveryPanel";
+import DiscoverySearchCard from "../home/DiscoverySearchCard";
 import TodayPane from "../home/TodayPane";
 import TodoPane from "../home/TodoPane";
 import FollowedPane from "../home/FollowedPane";
@@ -48,6 +49,7 @@ import {
   fallbackDiscoveryTemplate,
   mergeDiscoveryBrief,
   parseDiscoveryBody,
+  renderDiscoveryBody,
   sameClassConflict,
   type DiscoveryBrief,
   type DiscoveryTemplate,
@@ -414,6 +416,22 @@ export default function Home() {
     }
   };
 
+  /** AI发现 tab 首屏只拉字典（memory GET，零 session / 零模型）。不预填 Composer。 */
+  const ensureDiscoveryCatalog = async () => {
+    if (discoveryCatalogRef.current) return;
+    discoveryCatalogRef.current = true;
+    try {
+      const template = await loadDiscoveryTemplate();
+      setDiscoveryCatalog({ platforms: template.platforms, regions: template.regions, directions: template.directions });
+      setDiscoveryVersion(template.version);
+      if (!discoveryBrief) setDiscoveryBrief(template.defaults);
+    } catch {
+      const template = fallbackDiscoveryTemplate();
+      setDiscoveryCatalog({ platforms: template.platforms, regions: template.regions, directions: template.directions });
+      if (!discoveryBrief) setDiscoveryBrief(template.defaults);
+    }
+  };
+
   const onDiscoveryBriefChange = (next: DiscoveryBrief) => {
     const previous = discoveryBrief;
     setDiscoveryBrief(next);
@@ -550,6 +568,7 @@ export default function Home() {
   };
 
   const boardKolsRef = useRef<Array<Record<string, unknown>>>([]);
+  const discoveryCatalogRef = useRef(false);
 
   const applyBoard = (board: Awaited<ReturnType<typeof api.homeBoard>>) => {
     if (Array.isArray(board.kols)) boardKolsRef.current = board.kols;
@@ -1162,6 +1181,13 @@ export default function Home() {
   useEffect(() => {
     if (mode !== "pool") return;
     void loadBoard().then(() => void loadPoolSurface());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode !== "discovery") return;
+    void ensureDiscoveryCatalog();
+    // Tab entry only loads the dictionary. Never prefills the Composer here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
@@ -1895,6 +1921,18 @@ export default function Home() {
               events={todoPlanEvents}
               planCollapsed={todoPlanCollapsed}
               onPlanCollapsedChange={setTodoPlanCollapsed}
+            />
+          ) : null}
+
+          {mode === "discovery" ? <h1 data-home-title="discovery">AI发现</h1> : null}
+          {mode === "discovery" && discoveryBrief ? (
+            <DiscoverySearchCard
+              brief={discoveryBrief}
+              catalog={discoveryCatalog}
+              busy={busy}
+              onChange={onDiscoveryBriefChange}
+              onSubmit={(next) => void submitDiscovery(next, renderDiscoveryBody(next, discoveryCatalog || undefined), discoveryVersion)}
+              onReset={() => setDiscoveryBrief(defaultDiscoveryBrief())}
             />
           ) : null}
 

@@ -40,6 +40,8 @@ type DiscoveryPanelProps = {
   onRetryRun?: () => void;
 };
 
+// 条件卡（DiscoverySearchCard）已接管「开始检索」，面板内不再需要 templateOpen /
+// onOpenTemplate；两者保留在 prop 签名里，Home 的调用点不必改。
 export default function DiscoveryPanel({
   templateOpen = false,
   activeTaskId = null,
@@ -355,7 +357,6 @@ export default function DiscoveryPanel({
   };
 
   const platforms = Array.from(new Set(selected.map((row) => row.platform).filter(Boolean))) as string[];
-  const showStart = !templateOpen && !inFlight && !failed && !visible.length && emptyKind !== "filtered";
   const showResults = visible.length > 0 && !running;
 
   return (
@@ -366,8 +367,6 @@ export default function DiscoveryPanel({
       data-discovery-live="false"
       data-discovery-running={inFlight ? "true" : undefined}
     >
-      <p className="home-lane-label">红人线索</p>
-
       {steps.length ? (
         <ol className="discovery-process" data-discovery-process role="status" aria-busy={running || undefined}>
           {steps.map((step) => (
@@ -564,17 +563,6 @@ export default function DiscoveryPanel({
             {emptyKind === "down" ? "服务不可用" : emptyKind === "filtered" ? "筛选无结果" : "尚未搜索"}
           </strong>
           <p>{emptyMessage}</p>
-          {showStart ? (
-            <button
-              type="button"
-              className="btn work sm"
-              data-discovery-start
-              data-home-entry="open-discovery-template"
-              onClick={onOpenTemplate}
-            >
-              开始发现
-            </button>
-          ) : null}
         </div>
       ) : null}
 
