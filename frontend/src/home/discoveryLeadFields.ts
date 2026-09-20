@@ -1,4 +1,4 @@
-import type { HomeDiscoveryCandidate, HomeDiscoveryRun } from "./discoveryHome";
+import { displayMetric, type HomeDiscoveryCandidate, type HomeDiscoveryRun } from "./discoveryHome";
 
 export const MISSING_TEXT = "无";
 
@@ -15,6 +15,7 @@ const RUN_STATUS_LABELS: Record<string, string> = {
   crawling: "采集中",
   ranking: "筛选中",
   running: "进行中",
+  succeeded: "已完成",
 };
 
 function pad(value: number): string {
@@ -43,22 +44,24 @@ export function elapsedLabel(
   return `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
 }
 
+/** 非正数按缺失处理：跑失败的 run 也会带 0，用 0 冒充「采集到 0 条」是假数据。 */
 function countLabel(value: number | null | undefined): string {
-  return value == null || !Number.isFinite(value) ? MISSING_TEXT : String(value);
+  return value == null || !Number.isFinite(value) || value <= 0 ? MISSING_TEXT : String(value);
 }
 
 /**
  * 状态卡四行：完成时间 / 耗时 / 原始数量 / 入围数量。
- * 缺失一律「无」——0 与空都不能冒充缺数据。
+ * 缺失一律「无」——0 与空都不能冒充缺数据；入围数缺失时与结果区表头用同一个回退值。
  */
 export function discoveryRunStatusRows(
   run: HomeDiscoveryRun | null | undefined,
+  shortlistFallback?: number | null,
 ): DiscoveryRunStatusRow[] {
   return [
     { key: "completed", label: "完成时间", value: minuteStamp(run?.completed_at) },
     { key: "elapsed", label: "耗时", value: elapsedLabel(run?.started_at, run?.completed_at) },
     { key: "raw", label: "原始数量", value: countLabel(run?.raw_count) },
-    { key: "shortlist", label: "入围数量", value: countLabel(run?.shortlist_count) },
+    { key: "shortlist", label: "入围数量", value: countLabel(run?.shortlist_count ?? shortlistFallback) },
   ];
 }
 
@@ -69,7 +72,8 @@ export function discoveryRunStatusLabel(run: HomeDiscoveryRun | null | undefined
 
 /** 成功态（绿点 + 绿字 + 状态文案）只在跑完时点亮，其余状态保持中性。 */
 export function discoveryRunStatusOk(run: HomeDiscoveryRun | null | undefined): boolean {
-  return String(run?.status || "").toLowerCase() === "completed";
+  const status = String(run?.status || "").toLowerCase();
+  return status === "completed" || status === "succeeded";
 }
 
 /** 有效播放样本：`recent_views` 里的正数（缺失、0、非数字都不算样本）。 */
@@ -169,7 +173,7 @@ export function scoreParts(candidate: HomeDiscoveryCandidate | null | undefined)
     parts.push(`稳定度 ${Math.round(candidate.stability * 100)}%`);
   }
   if (candidate?.followers != null && Number.isFinite(candidate.followers)) {
-    parts.push(`粉丝 ${candidate.followers}`);
+    parts.push(`粉丝 ${displayMetric(candidate.followers)}`);
   }
   return parts.length ? parts.join(" · ") : MISSING_TEXT;
 }

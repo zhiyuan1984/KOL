@@ -10666,23 +10666,29 @@ button.today-brief-primary-btn:disabled {
 /* ── T7：Token 补齐 / 成功态暗色 / 对比度 / 1024 断点 ── */
 :root {
   --text-16: 16px;
-  --text-18: 18px;
   --text-20: 20px;
+  /* 成功色只给 AI发现 状态卡用；暗色下换亮一档，别改全局 --success。 */
+  --discovery-success: var(--color-success-vivid);
 }
-:root[data-theme="dark"] { --success: #4bb99f; }
+:root[data-theme="dark"] { --discovery-success: #4bb99f; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) { --success: #4bb99f; }
+  :root:not([data-theme="light"]) { --discovery-success: #4bb99f; }
 }
 /* 成功状态：绿点 + 绿字 + 状态文案三者并存（不靠颜色单独传达）。 */
-.discovery-status-card.is-ok .discovery-status-dot { background: var(--success); }
-.discovery-status-card.is-ok .discovery-status-copy { color: var(--success); }
+.discovery-status-card.is-ok .discovery-status-dot { background: var(--discovery-success); }
+.discovery-status-card.is-ok .discovery-status-copy,
+.discovery-status-card.is-ok .discovery-status-state { color: var(--discovery-success); }
 
-/* Tablet 1024：筛选项换两列，候选行隐藏次级指标（保留昵称/平台/粉丝/均播）。 */
+.discovery-lead-select { flex: 0 0 auto; display: inline-flex; align-items: center; }
+.discovery-lead-nickname { font-size: var(--text-16); }
+/* 框线稿 §Card Header：标题 20 / 600 / 28。 */
+.ai-discovery-head h2 { font-size: var(--text-20); line-height: 28px; }
+
+/* Tablet 1024：筛选项换两列，候选行只留一级字段（隐藏二级指标：播放中位数/稳定度/采集时间/在库状态）。 */
 @media (max-width: 1024px) {
   .discovery-condition-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .discovery-condition-row .ai-discovery-field.is-stacked { flex: initial; }
   .discovery-lead { min-height: 64px; }
-  .discovery-lead-tag,
-  .discovery-lead-reason { display: none; }
+  .discovery-lead-detail-item:nth-child(-n + 4) { display: none; }
   .discovery-lead-detail { grid-template-columns: minmax(0, 1fr); }
 }

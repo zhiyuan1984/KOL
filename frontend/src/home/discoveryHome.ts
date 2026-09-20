@@ -262,7 +262,7 @@ function libraryStatusOf(item: Record<string, unknown>): HomeDiscoveryLibrarySta
   }
   // Host 没给三态时按同一优先级派生：followed > pool > not_in_library。
   if (item.already_followed) return "followed";
-  if (item.already_in_pool) return "pool";
+  if (item.already_in_pool || item.already_in_library) return "pool";
   return "not_in_library";
 }
 
@@ -295,7 +295,8 @@ export function asHomeCandidate(row: unknown): HomeDiscoveryCandidate | null {
     viewMean: nullableNumber(item.view_mean),
     viewMedian: nullableNumber(item.view_median),
     stability: nullableNumber(item.stability),
-    viewFollowerRatio: nullableNumber(item.view_follower_ratio),
+    // Host 在粉丝未知时把比值写成 0；那是「算不出来」，不是「比值为 0」。
+    viewFollowerRatio: followers ? nullableNumber(item.view_follower_ratio) : null,
     // 0 是真实测量值（没有样本），不是缺数据；只有真缺才 null。
     confidence: nullableNumber(item.confidence),
     sampleSize: nullableNumber(item.sample_size),
@@ -530,6 +531,6 @@ export function runCountsLabel(run: HomeDiscoveryRun | null, visible: number): s
   const raw = run?.raw_count;
   const shortlist = run?.shortlist_count ?? visible;
   const rawLabel = raw == null || raw <= 0 ? "无" : String(raw);
-  const shortLabel = shortlist == null || shortlist < 0 ? "无" : String(shortlist);
+  const shortLabel = shortlist == null || shortlist <= 0 ? "无" : String(shortlist);
   return `原始 ${rawLabel} · 入围 ${shortLabel}`;
 }

@@ -452,7 +452,7 @@ export default function DiscoveryPanel({
 
       {showResults ? (
         <>
-          <DiscoveryRunStatusCard run={activeRun} />
+          <DiscoveryRunStatusCard run={activeRun} shortlistFallback={visible.length} />
           <header className="discovery-result-head">
             <h2 data-discovery-headline>{runHeadline(activeRun)}</h2>
             <p data-discovery-counts>{runCountsLabel(activeRun, visible.length)}</p>

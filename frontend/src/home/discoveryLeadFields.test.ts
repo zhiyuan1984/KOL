@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { asHomeRun, type HomeDiscoveryRun } from "./discoveryHome";
+import { asHomeCandidate, asHomeRun, type HomeDiscoveryRun } from "./discoveryHome";
 import {
   collectedAtMinute,
   confidenceLabel,
@@ -68,12 +68,24 @@ describe("discovery run status rows", () => {
     expect(discoveryRunStatusRows(parsed)[2].value).toBe("37");
   });
 
+  it("treats a non-positive count as missing and reuses the on-screen shortlist", () => {
+    // 跑失败的 run 也带 0；0 不能冒充「采集到 0 条」。
+    expect(discoveryRunStatusRows(run({ raw_count: 0, shortlist_count: 0 })).map((row) => row.value))
+      .toEqual(["无", "无", "无", "无"]);
+    // 入围数量缺失时与结果区表头同口径（同一个回退值）。
+    expect(discoveryRunStatusRows(run({ shortlist_count: null }), 7)[3].value).toBe("7");
+    // 有真值就不看回退值。
+    expect(discoveryRunStatusRows(run({ shortlist_count: 7 }), 3)[3].value).toBe("7");
+  });
+
   it("only reports the success tone for a completed run", () => {
     expect(discoveryRunStatusOk(run({ status: "completed" }))).toBe(true);
+    expect(discoveryRunStatusOk(run({ status: "succeeded" }))).toBe(true);
     expect(discoveryRunStatusOk(run({ status: "rank_failed" }))).toBe(false);
     expect(discoveryRunStatusOk(null)).toBe(false);
     expect(discoveryRunStatusLabel(run({ status: "completed" }))).toBe("已完成");
     expect(discoveryRunStatusLabel(run({ status: "rank_failed" }))).toBe("筛选未完成");
+    expect(discoveryRunStatusLabel(run({ status: "succeeded" }))).toBe("已完成");
     expect(discoveryRunStatusLabel(null)).toBe("无");
   });
 });
@@ -151,5 +163,29 @@ describe("creator lead row fields", () => {
     expect(scoreParts(base)).toContain("均播 8597");
     expect(scoreParts({ ...base, viewMean: null, viewFollowerRatio: null, stability: null, followers: null }))
       .toBe("无");
+    // 推荐分构成里的粉丝数和行上一样走 displayMetric，别在同一行出现两种写法。
+    expect(scoreParts(base)).toContain("粉丝 153k");
+  });
+});
+
+describe("host payload mapping", () => {
+  it("keeps the ratio missing when followers are unknown", () => {
+    const noFollowers = asHomeCandidate({
+      id: "c1",
+      followers: 0,
+      view_mean: 1000,
+      view_follower_ratio: 0,
+    });
+    expect(noFollowers?.viewFollowerRatio).toBe(null);
+    expect(viewFollowerPercent(noFollowers)).toBe("无");
+    const known = asHomeCandidate({ id: "c2", followers: 1000, view_follower_ratio: 10.96 });
+    expect(viewFollowerPercent(known)).toBe("1096%");
+  });
+
+  it("reads 来源 from source_url and folds already_in_library into 已在库", () => {
+    const row = asHomeCandidate({ id: "c3", source_url: "https://youtube.com/@x", already_in_library: true });
+    expect(row?.profileUrl).toBe("https://youtube.com/@x");
+    expect(sourceState(row)).toEqual({ href: "https://youtube.com/@x" });
+    expect(libraryLabel(row)).toBe("已在库（含公海）");
   });
 });
