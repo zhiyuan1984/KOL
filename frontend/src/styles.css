@@ -10132,8 +10132,18 @@ button.today-brief-primary-btn:disabled {
 }
 
 .skill-preview-msg.is-user .skill-preview-avatar {
-  background: var(--color-pink-tint);
-  color: var(--primary);
+  background: #e3eefb;
+  color: #3b7dd8;
+}
+
+.skill-preview-avatar svg {
+  width: 16px;
+  height: 16px;
+}
+
+:root[data-theme="dark"] .skill-preview-msg.is-user .skill-preview-avatar {
+  background: #1e2f45;
+  color: #7fb0f0;
 }
 
 .skill-preview-bubble {

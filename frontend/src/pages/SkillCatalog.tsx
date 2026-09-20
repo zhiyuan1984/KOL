@@ -70,6 +70,9 @@ function recordUsage(skillId: string) {
 // 推荐技能（静态规则）
 const RECOMMENDED_IDS = ["creator_discovery", "creator_library_query", "creator_scoring", "creator_daily_tasks"];
 
+// 默认预览技能
+const DEFAULT_SKILL_ID = "creator_outreach";
+
 // 技能图标映射（SVG paths，全部使用 fill 渲染的封闭路径）
 const SKILL_ICONS: Record<string, string> = {
   creator_discovery: "M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z", // 放大镜
@@ -212,6 +215,17 @@ function SkillIcon({ id }: { id: string }) {
   );
 }
 
+function UserGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden>
+      <path
+        d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
 function GroupIcon({ id }: { id: string }) {
   const d = GROUP_ICONS[id] || GROUP_ICONS.reach;
   return (
@@ -335,7 +349,9 @@ function PreviewPanel({ skill }: { skill: SkillRow | null }) {
           <div className="skill-preview-thread">
             {(io.thread || [{ role: "ai" as const, lines: io.example }]).map((msg, i) => (
               <div key={i} className={"skill-preview-msg is-" + msg.role}>
-                <span className="skill-preview-avatar" aria-hidden>{msg.role === "ai" ? "AI" : "我"}</span>
+                <span className="skill-preview-avatar" aria-hidden>
+                  {msg.role === "ai" ? "AI" : <UserGlyph />}
+                </span>
                 <div className="skill-preview-bubble">
                   {msg.lines.map((line, j) => (
                     <p key={j}>{line}</p>
@@ -384,9 +400,14 @@ export function SkillCatalog() {
       .finally(() => setLoading(false));
   }, []);
 
-  // 默认选中常用技能第一个（无使用记录时用推荐技能第一个）
+  // 默认预览：优先选中达人建联话术，其次常用技能第一个
   useEffect(() => {
     if (skills.length > 0 && !selectedSkill) {
+      const preferred = skills.find((s) => s.id === DEFAULT_SKILL_ID);
+      if (preferred) {
+        setSelectedSkill(preferred);
+        return;
+      }
       const frequent = skills.filter((s) => RECOMMENDED_IDS.includes(s.id));
       setSelectedSkill(frequent[0] || skills[0]);
     }
