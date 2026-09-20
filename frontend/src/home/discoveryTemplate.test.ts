@@ -45,8 +45,11 @@ describe("discovery template fallback", () => {
     expect(togglePlatform(["youtube"], "youtube")).toEqual([]);
     expect(canSubmitDiscovery({ platforms: [], keywords: ["beauty"] })).toBe(false);
     expect(canSubmitDiscovery({ platforms: ["youtube"], keywords: [] })).toBe(false);
-    expect(canSubmitDiscovery(defaultDiscoveryBrief())).toBe(false); // 平台未选，需先选平台
-    expect(canSubmitDiscovery({ ...defaultDiscoveryBrief(), platforms: ["youtube"] })).toBe(true);
+    expect(defaultDiscoveryBrief().platforms).toEqual(["youtube"]); // 平台默认 YouTube
+    expect(canSubmitDiscovery(defaultDiscoveryBrief())).toBe(true);
+    // 显式取消平台后仍然不能提交。
+    expect(canSubmitDiscovery({ ...defaultDiscoveryBrief(), platforms: [] })).toBe(false);
+    expect(canSubmitDiscovery({ ...defaultDiscoveryBrief(), keywords: [] })).toBe(false);
     expect(toggleDirection(["camping", "vanlife", "portable_power", "road_trip", "off_grid", "backup_power", "camp_gear", "boat_life"], "camping").atMax).toBe(false);
   });
 

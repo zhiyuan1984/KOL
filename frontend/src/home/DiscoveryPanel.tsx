@@ -40,8 +40,8 @@ type DiscoveryPanelProps = {
   onRetryRun?: () => void;
 };
 
-// 条件卡（DiscoverySearchCard）已接管「开始检索」，面板内不再需要 templateOpen /
-// onOpenTemplate；两者保留在 prop 签名里，Home 的调用点不必改。
+// 条件卡与提问框正文已接管发现条件与提交（AI 提问框的发送按钮是唯一提交入口）；
+// 面板内不再需要 templateOpen / onOpenTemplate，两者保留在 prop 签名里，Home 的调用点不必改。
 export default function DiscoveryPanel({
   templateOpen = false,
   activeTaskId = null,
@@ -557,11 +557,10 @@ export default function DiscoveryPanel({
         </>
       ) : null}
 
-      {!inFlight && !showResults && !failure ? (
+      {/* 没有 run 时这块留空：进入 AI发现 不再出现「尚未搜索」占位。 */}
+      {!inFlight && !showResults && !failure && emptyKind !== "idle" ? (
         <div className="task-empty" data-discovery-empty={emptyKind}>
-          <strong>
-            {emptyKind === "down" ? "服务不可用" : emptyKind === "filtered" ? "筛选无结果" : "尚未搜索"}
-          </strong>
+          <strong>{emptyKind === "down" ? "服务不可用" : "筛选无结果"}</strong>
           <p>{emptyMessage}</p>
         </div>
       ) : null}

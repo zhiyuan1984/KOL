@@ -141,7 +141,7 @@ export function discoveryTemplate(): Json {
     defaults: {
       brand: defaultBrand,
       region: defaultRegion,
-      platforms: [],
+      platforms: ["youtube"],
       directions: [],
       keywords: ["camping", "portable power station"],
       thresholds: { ...DEFAULT_DISCOVERY_THRESHOLDS },

@@ -6,7 +6,8 @@ const BANNED_BATCH_PATH = /\/api\/home\/discovery\/batches/;
 
 async function openDiscovery(page: Page) {
   await page.goto("/?tab=discovery");
-  await expect(page.locator('[data-home-pane="discovery"]')).toBeVisible();
+  // 进入即有条件卡（没有 run 时结果区为空、面板本身零高，所以不能拿面板当可见性锚点）。
+  await expect(page.locator("[data-discovery-search-card]")).toBeVisible();
 }
 
 function stubRun() {
@@ -72,43 +73,61 @@ test("tab switch only GETs discovery runs and does not create a session", async 
   });
   await page.goto("/");
   await page.locator('[data-home-mode="discovery"]').click();
-  await expect(page.locator("[data-discovery-empty='idle']")).toBeVisible();
   await expect(page.locator("[data-discovery-search-card]")).toBeVisible();
-  await expect(page.locator("[data-discovery-submit]")).toHaveText("开始检索");
-  await expect(page.locator("[data-discovery-panel]")).toContainText("尚未搜索");
+  // 进入即有条件与可编辑的提问框正文，且不再有「尚未搜索」空态。
+  await expect(page.locator("[data-discovery-empty='idle']")).toHaveCount(0);
+  await expect(page.locator("[data-discovery-panel]")).not.toContainText("尚未搜索");
+  await expect(page.locator('[data-home] [data-composer-input]')).toHaveValue(/【发现任务】/);
   await expect(page.locator("[data-discovery-panel]")).not.toContainText(BANNED_FOLLOW);
   expect(posts.filter((path) => path === "/api/sessions" || path.includes("/run") || path.endsWith("/from-text"))).toEqual([]);
   expect(gets.some((path) => path === "/api/home/discovery/runs")).toBeTruthy();
   expect(gets.some((path) => path.includes("/batches"))).toBeFalsy();
 });
 
-test("condition card renders in-page without prefilling the Composer", async ({ page }) => {
+test("condition card renders in-page and pre-fills the editable ask box", async ({ page }) => {
   const posts: string[] = [];
   page.on("request", (item) => {
     if (item.method() === "POST") posts.push(new URL(item.url()).pathname);
   });
   await openDiscovery(page);
-  await expect(page.locator("[data-discovery-search-card]")).toContainText("红人检索");
-  await expect(page.locator('[data-discovery-search-card] [data-discovery-filter="platform"] [data-discovery-chip="youtube"]')).toBeVisible();
-  await expect(page.locator('[data-discovery-search-card] [data-discovery-filter="platform"] [data-discovery-chip="tiktok"]')).toHaveCount(0);
-  await expect(page.locator('[data-discovery-search-card] [data-discovery-filter="platform"] [data-discovery-chip="douyin"]')).toHaveCount(0);
-  await expect(page.locator('[data-discovery-search-card] [data-discovery-filter="region"] [data-discovery-chip="na"]')).toHaveText("北美");
-  await expect(page.locator('[data-discovery-search-card] [data-discovery-filter="region"] [data-discovery-chip="jpkr"]')).toHaveText("日韩");
-  await expect(page.locator('[data-discovery-search-card] [data-discovery-filter="region"] [data-discovery-chip="global_en"]'))
+  const card = page.locator("[data-discovery-search-card]");
+  await expect(card).toContainText("红人检索");
+  await expect(card.locator('[data-discovery-filter="platform"] [data-discovery-chip="youtube"]')).toBeVisible();
+  await expect(card.locator('[data-discovery-filter="platform"] [data-discovery-chip="tiktok"]')).toHaveCount(0);
+  await expect(card.locator('[data-discovery-filter="platform"] [data-discovery-chip="douyin"]')).toHaveCount(0);
+  await expect(card.locator('[data-discovery-filter="region"] [data-discovery-chip="na"]')).toHaveText("北美");
+  await expect(card.locator('[data-discovery-filter="region"] [data-discovery-chip="jpkr"]')).toHaveText("日韩");
+  // R2：平台默认 YouTube，地区默认全球英文，方向默认不选。
+  await expect(card.locator('[data-discovery-filter="platform"] [data-discovery-chip="youtube"]'))
     .toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("[data-discovery-keywords]")).toHaveValue("camping, portable power station");
+  await expect(card.locator('[data-discovery-filter="region"] [data-discovery-chip="global_en"]'))
+    .toHaveAttribute("aria-pressed", "true");
+  await expect(card.locator('[data-discovery-filter="directions"] [data-discovery-chip][aria-pressed="true"]')).toHaveCount(0);
+  await expect(card.locator("[data-discovery-keywords]")).toHaveValue("camping, portable power station");
+  // R3：条件摘要改为提问框里可编辑的【发现任务】正文，卡片上不再有摘要卡。
+  const input = page.locator("[data-home] [data-composer-input]");
+  await expect(input).toHaveValue(/【发现任务】/);
+  await expect(input).toHaveValue(/平台：YouTube/);
+  await expect(input).toHaveValue(/地区：全球英文/);
+  await expect(input).toBeEditable();
+  await expect(page.locator("[data-discovery-summary]")).toHaveCount(0);
+  // 正文可编辑：改关键词，卡片跟着走（逗号/空格都被解析成词）。
+  await input.fill("【发现任务】\n平台：YouTube\n地区：全球英文\n方向：（未选）\n关键词：beauty review\n粉丝：10000–2000000\n近10条均播 ≥ 5000\n期望人数：30");
+  await expect(card.locator("[data-discovery-keywords]")).toHaveValue("beauty, review");
   expect(posts.filter((path) => path === "/api/sessions" || path.endsWith("/from-text"))).toEqual([]);
 });
 
-test("发现任务 summary follows the chips", async ({ page }) => {
+test("condition chips rewrite the ask-box body and no card button remains", async ({ page }) => {
   await openDiscovery(page);
-  await page.locator('[data-discovery-search-card] [data-discovery-filter="platform"] [data-discovery-chip="youtube"]').click();
-  await page.locator('[data-discovery-search-card] [data-discovery-filter="directions"] [data-discovery-chip="camping"]').click();
-  const row = (key: string) => page.locator(`[data-discovery-summary-row="${key}"] dd`);
-  await expect(row("platforms")).toHaveText("YouTube");
-  await expect(row("directions")).toHaveText("户外露营");
-  await expect(row("region")).toHaveText("全球英文");
-  await expect(page.locator("[data-discovery-submit]")).toBeEnabled();
+  const card = page.locator("[data-discovery-search-card]");
+  const input = page.locator("[data-home] [data-composer-input]");
+  await card.locator('[data-discovery-filter="directions"] [data-discovery-chip="camping"]').click();
+  await expect(input).toHaveValue(/户外露营/);
+  await expect(card.locator("[data-discovery-keywords]")).toHaveValue(/camping/);
+  await expect(page.locator("[data-discovery-summary]")).toHaveCount(0);
+  await expect(page.locator("[data-discovery-reset]")).toHaveCount(0);
+  await expect(page.locator("[data-discovery-submit]")).toHaveCount(0);
+  await expect(page.locator("[data-discovery-no-side-effect]")).toContainText("不会发信");
 });
 
 test("+ menu still opens the Composer discovery template", async ({ page }) => {
@@ -132,38 +151,38 @@ test("+ menu still opens the Composer discovery template", async ({ page }) => {
   expect(posts.filter((path) => path === "/api/sessions" || path.endsWith("/from-text"))).toEqual([]);
 });
 
-test("开始检索 needs a platform and keywords", async ({ page }) => {
+test("ask-box send follows the platform and keyword guard", async ({ page }) => {
   await openDiscovery(page);
   const card = page.locator("[data-discovery-search-card]");
-  const submit = page.locator("[data-discovery-submit]");
+  const send = page.locator("[data-home] [data-ai-prompt-submit]");
   const instagram = card.locator('[data-discovery-filter="platform"] [data-discovery-chip="instagram"]');
   const keywords = card.locator("[data-discovery-keywords]");
 
-  // 平台默认未选（单选，决策 D2）：有关键词也不能提交。
-  await expect(submit).toBeDisabled();
-
-  await instagram.click();
-  await expect(instagram).toHaveAttribute("aria-pressed", "true");
-  await expect(submit).toBeEnabled();
+  // R2/R5：平台默认 YouTube + 默认关键词，所以提问框的发送按钮默认可用。
+  await expect(send).toBeEnabled();
 
   // 清空关键词：blur 才写回 brief（卡片只在解析得出词时回写输入框）。
   await keywords.fill("");
   await keywords.blur();
-  await expect(submit).toBeDisabled();
+  await expect(send).toBeDisabled();
 
   await keywords.fill("户外露营");
   await keywords.blur();
-  await expect(submit).toBeEnabled();
+  await expect(send).toBeEnabled();
 
-  // 二次点击同一平台即取消选择（单选），条件不完整时按钮回到禁用。
+  // 二次点击同一平台即取消选择（单选，决策 D2），条件不完整时按钮回到禁用。
+  await instagram.click();
+  await expect(instagram).toHaveAttribute("aria-pressed", "true");
+  await expect(send).toBeEnabled();
   await instagram.click();
   await expect(instagram).toHaveAttribute("aria-pressed", "false");
-  await expect(submit).toBeDisabled();
+  await expect(send).toBeDisabled();
 });
 
 test("submit posts /api/home/discovery/run, shows process copy, and ingests to pool", async ({ page }) => {
   const livePosts: string[] = [];
   const runPosts: string[] = [];
+  const runBodies: unknown[] = [];
   const followPosts: string[] = [];
   const claimPosts: string[] = [];
   const ingestBodies: unknown[] = [];
@@ -193,6 +212,7 @@ test("submit posts /api/home/discovery/run, shows process copy, and ingests to p
   });
   await page.route("**/api/home/discovery/run", async (route) => {
     ran = true;
+    runBodies.push(route.request().postDataJSON());
     await route.fulfill({
       json: {
         run_id: "drun_e2e",
@@ -248,9 +268,16 @@ test("submit posts /api/home/discovery/run, shows process copy, and ingests to p
   });
 
   await openDiscovery(page);
-  await page.locator('[data-discovery-search-card] [data-discovery-filter="platform"] [data-discovery-chip="youtube"]').click();
-  await page.locator("[data-discovery-submit]").click();
+  // 唯一的提交入口是 AI 提问框的发送按钮：默认 YouTube + 默认关键词即可提交。
+  await page.locator("[data-home] [data-ai-prompt-submit]").click();
   await expect.poll(() => runPosts).toEqual(["/api/home/discovery/run"]);
+  // 提交载荷必须带着条件与阈值名字（后端按 min_avg_plays_10 / expect_count 读）。
+  expect(runBodies).toEqual([expect.objectContaining({
+    platforms: ["youtube"],
+    keywords: ["camping", "portable power station"],
+    min_avg_plays_10: 5000,
+    expect_count: 30,
+  })]);
   await expect(page.locator("[data-discovery-process]")).toContainText("排队");
   await expect(page.locator("[data-discovery-process]")).toContainText("开始搜索关键词");
   await expect(page.locator("[data-discovery-process]")).toContainText("已收到 40 条");

@@ -17,15 +17,15 @@ describe("discovery direction packs", () => {
       DISCOVERY_KEYWORD_PACKS.map((pack) => ({ id: pack.id, label: pack.label, keywords: [...pack.keywords] })),
     );
     expect(template.defaults).toMatchObject({
-      platforms: [],
+      platforms: ["youtube"],
       directions: [],
       keywords: ["camping", "portable power station"],
     });
   });
 
-  it("defaults to no platform, 全球英文, no direction and the outdoor keywords", () => {
+  it("defaults to YouTube, 全球英文, no direction and the outdoor keywords", () => {
     expect(defaultDiscoveryBrief()).toMatchObject({
-      platforms: [],
+      platforms: ["youtube"],
       region: "global_en",
       directions: [],
       keywords: ["camping", "portable power station"],

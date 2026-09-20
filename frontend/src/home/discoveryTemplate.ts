@@ -100,7 +100,7 @@ export function isDomesticPlatform(code: string): boolean {
 
 export function defaultDiscoveryBrief(): DiscoveryBrief {
   return {
-    platforms: [],
+    platforms: ["youtube"],
     region: "global_en",
     directions: [],
     keywords: ["camping", "portable power station"],

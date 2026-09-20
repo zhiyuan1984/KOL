@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  canSubmitDiscovery,
   DISCOVERY_NO_SIDE_EFFECT,
   keywordsForDirections,
   MAX_DISCOVERY_DIRECTIONS,
@@ -13,7 +12,7 @@ import {
   type DiscoveryPlatformCode,
   type DiscoveryTemplate,
 } from "./discoveryTemplate";
-import { clampCountInput, discoveryTaskSummaryRows } from "./discoveryBriefForm";
+import { clampCountInput } from "./discoveryBriefForm";
 
 type Catalog = Pick<DiscoveryTemplate, "platforms" | "regions" | "directions"> | null | undefined;
 
@@ -28,17 +27,11 @@ function sameKeywords(text: string, words: string[]): boolean {
 export default function DiscoverySearchCard({
   brief,
   catalog,
-  busy = false,
   onChange,
-  onSubmit,
-  onReset,
 }: {
   brief: DiscoveryBrief;
   catalog?: Catalog;
-  busy?: boolean;
   onChange: (brief: DiscoveryBrief) => void;
-  onSubmit: (brief: DiscoveryBrief) => void;
-  onReset: () => void;
 }) {
   // 关键词是自由文本：本地保留输入串，方向芯片改了关键词时再同步回来。
   const [keywordText, setKeywordText] = useState(() => brief.keywords.join(", "));
@@ -60,7 +53,6 @@ export default function DiscoverySearchCard({
     onChange({ ...brief, directions: next, keywords: keywordsForDirections(next, directions) });
   };
   const patch = (next: Partial<DiscoveryBrief>) => onChange({ ...brief, ...next });
-  const ready = canSubmitDiscovery(brief);
   const atMax = brief.directions.length >= MAX_DISCOVERY_DIRECTIONS;
 
   return (
@@ -205,33 +197,7 @@ export default function DiscoverySearchCard({
         </div>
       </div>
 
-      <section className="ai-discovery-summary" data-discovery-summary aria-label="发现任务">
-        <h3>发现任务</h3>
-        <dl className="ai-discovery-summary-grid">
-          {discoveryTaskSummaryRows(brief, catalog).map((row) => (
-            <div key={row.key} className={row.wide ? "is-wide" : undefined} data-discovery-summary-row={row.key}>
-              <dt>{row.label}</dt>
-              <dd>{row.value}</dd>
-            </div>
-          ))}
-        </dl>
-        <p className="ai-discovery-summary-note">{DISCOVERY_NO_SIDE_EFFECT}</p>
-      </section>
-
-      <div className="ai-discovery-actions">
-        <button type="button" className="btn ghost" data-discovery-reset onClick={onReset}>
-          重置条件
-        </button>
-        <button
-          type="button"
-          className="btn work"
-          data-discovery-submit
-          disabled={!ready || busy}
-          onClick={() => onSubmit(brief)}
-        >
-          开始检索
-        </button>
-      </div>
+      <p className="ai-discovery-note" data-discovery-no-side-effect>{DISCOVERY_NO_SIDE_EFFECT}</p>
     </section>
   );
 }
