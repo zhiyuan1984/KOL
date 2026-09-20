@@ -375,32 +375,36 @@
   padding-inline: var(--page-gutter);
 }
 
-.home-composer-dock--hero {
-  flex: 1 1 auto;
-  justify-content: center;
-  padding-top: 24px;
-  padding-bottom: 40px;
-}
-
-.home-composer-dock--dock {
+/* The ask box is the workspace footer, never a floating layer: a flex sibling
+   below the single scroll container, full content width, opaque, separated by a
+   hairline so the eye reads "footer" rather than "box on top of the list".
+   Selectors are anchored on the pane class so they win regardless of bundle
+   order against the composer's own max-width rules. */
+.home-pane.is-composer-dock .home-composer-dock {
   flex: 0 0 auto;
   justify-content: flex-end;
-  padding-top: 8px;
-  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  width: min(100%, var(--content-max));
+  max-width: none;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
 }
-
-.home-pane.is-composer-hero .home-board {
-  /* Never let the hero composer squeeze the content area: size the board to its
-     content and clamp it, so a card in view stays whole and scrolls on its own. */
-  flex: 0 0 auto;
-  max-height: min(45vh, 100%);
+.home-pane.is-composer-dock .home-composer-dock > .composer-dock,
+.home-pane.is-composer-dock .home-composer-dock .composer {
+  width: 100%;
+  max-width: none;
 }
 
 .home-composer-pills {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  align-items: center;
   gap: 8px;
+  margin-top: 8px;
+  width: 100%;
+  overflow: hidden;
+}
   width: 100%;
   max-width: var(--composer-maxw);
   margin-top: 14px;

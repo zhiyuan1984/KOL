@@ -1,91 +1,116 @@
-/* Codex 思考过程 card — pink redesign */
-.today-plan-card {
-  margin: 0 0 var(--space-4, 16px);
-  background: #fff;
-  border: 1px solid #f0f0f2;
-  border-radius: 14px;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
-  padding: 16px 20px;
+/* Codex stream — a flat section inside the workspace.
+   No card frame, no border, and no inner scroller: the workspace itself is the
+   only scroll container, so a long trace must stay bounded by content rules
+   (steps + only the newest reasoning block) rather than by a nested scrollbar. */
+.today-plan {
+  --plan-accent: #8B5CF6;
+  --plan-accent-soft: #E9D5FF;
+  --plan-think-bg: #FAF8FF;
+  display: block;
+  min-width: 0;
+  padding: 0 0 var(--space-4, 16px);
   color: var(--text);
   font-size: 14px;
 }
-.today-plan-card[data-today-plan-phase="failed"] {
-  border-color: #f5c2c2;
-}
-.today-plan-card-head {
+.today-plan-head {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
+  min-height: 44px;
 }
-.today-plan-gear {
+.today-plan-state {
   flex: 0 0 auto;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  background: #F3E8FF;
-  color: #9333EA;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
-.today-plan-gear-svg {
-  width: 19px;
-  height: 19px;
+.today-plan-state svg {
+  width: 11px;
+  height: 11px;
   display: block;
 }
-.today-plan-card-title {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-  flex: 1 1 auto;
+.today-plan-state.is-live {
+  background: var(--plan-accent-soft);
+  color: var(--plan-accent);
 }
-.today-plan-card-title strong {
+.today-plan-state.is-done {
+  background: #10B981;
+  color: #fff;
+}
+.today-plan-state.is-failed {
+  background: #FEE2E2;
+  color: #DC2626;
+}
+.today-plan-spinner {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.8px solid currentColor;
+  border-top-color: transparent;
+  animation: today-plan-spin 0.8s linear infinite;
+}
+@keyframes today-plan-spin {
+  to { transform: rotate(360deg); }
+}
+.today-plan-title {
+  flex: 0 0 auto;
   font-size: 15px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--text);
+  white-space: nowrap;
 }
-.today-plan-card-sub {
-  font-size: 12px;
-  font-weight: 400;
-  color: #6B7280;
+.today-plan-lead {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.today-plan-card-status {
+.today-plan.is-live .today-plan-lead {
+  color: var(--plan-accent);
+}
+.today-plan-meta {
   flex: 0 0 auto;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
   font-size: 12px;
-  color: #6B7280;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
-.today-plan-card[data-today-plan-phase="failed"] .today-plan-card-status {
-  color: var(--danger);
-}
-.today-plan-elapsed {
+.today-plan-elapsed,
+.today-plan-finished {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 12px;
+  color: #9ca3af;
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
-  color: #9ca3af;
-  letter-spacing: 0;
+  white-space: nowrap;
 }
-.today-plan-collapse {
+.today-plan-finished + .today-plan-toggle {
+  margin-left: 0;
+}
+.today-plan-toggle {
   flex: 0 0 auto;
+  margin-left: auto;
   border: 0;
   background: none;
-  color: #6B7280;
+  color: var(--text-muted);
   font: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 4px;
-  border-radius: 8px;
+  gap: 3px;
+  padding: 4px 2px;
+  border-radius: 6px;
 }
-.today-plan-collapse:hover {
-  color: #DB1860;
+.today-plan-toggle:hover {
+  color: var(--plan-accent);
 }
 .today-plan-chevron {
   display: inline-block;
@@ -99,85 +124,57 @@
 
 .today-plan-steps {
   list-style: none;
-  margin: 14px 0 0;
+  margin: 6px 0 0;
   padding: 0;
   display: grid;
-  gap: 10px;
-  /* The trace is the point of the card; keep a usable window on it and scroll
-     inside instead of letting the row list push the card off screen. */
-  max-height: min(46vh, 420px);
-  overflow-y: auto;
-  scrollbar-width: thin;
-  overscroll-behavior: contain;
+  gap: 5px;
 }
-.today-plan-steps > li {
+.today-plan-step {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
-  animation: today-plan-step-in 0.3s ease both;
+  animation: today-plan-step-in 0.28s ease both;
 }
-.today-plan-step-dot {
+.today-plan-step-mark {
   flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: #10B981;
-  color: #fff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  width: 14px;
+  font-size: 11.5px;
+  line-height: 1;
+  text-align: center;
+  color: #10B981;
 }
-.today-plan-steps > li.is-running .today-plan-step-dot {
-  background: #F3E8FF;
-  color: #9333EA;
+.today-plan-step.is-running .today-plan-step-mark {
+  color: var(--plan-accent);
 }
-.today-plan-steps > li.is-failed .today-plan-step-dot {
-  background: #FEE2E2;
+.today-plan-step.is-failed .today-plan-step-mark {
   color: #DC2626;
 }
 .today-plan-step-spinner {
-  width: 11px;
-  height: 11px;
+  display: inline-block;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
-  border: 1.8px solid currentColor;
+  border: 1.6px solid currentColor;
   border-top-color: transparent;
   animation: today-plan-spin 0.8s linear infinite;
-}
-@keyframes today-plan-spin {
-  to { transform: rotate(360deg); }
-}
-.today-plan-step-dot svg {
-  width: 11px;
-  height: 11px;
-  display: block;
-}
-.today-plan-steps > li.is-final .today-plan-step-dot {
-  background: #DB1860;
 }
 .today-plan-step-label {
   flex: 0 1 auto;
   min-width: 0;
-  font-size: 13.5px;
-  color: #374151;
+  font-size: 13px;
+  color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.today-plan-steps > li.is-running .today-plan-step-label {
-  color: #6D28D9;
+.today-plan-step.is-running .today-plan-step-label {
+  color: var(--plan-accent);
+  font-weight: 500;
 }
-.today-plan-steps > li.is-failed .today-plan-step-label {
+.today-plan-step.is-failed .today-plan-step-label {
   color: #B91C1C;
 }
-.today-plan-steps > li.is-final .today-plan-step-label {
-  color: #DB1860;
-  font-weight: 600;
-}
-
-/* MCP / remote read: the label already carries the human name, so the
-   qualified tool name rides along dimmed instead of taking a second row. */
 .today-plan-step-op {
   flex: 0 1 auto;
   min-width: 0;
@@ -188,46 +185,110 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The failure reason has to be readable, not only a title tooltip. */
+.today-plan-step-reason {
+  flex: 1 1 100%;
+  order: 9;
+  margin-left: 22px;
+  font-size: 12px;
+  color: #B91C1C;
+  overflow-wrap: anywhere;
+}
 .today-plan-step-time {
   flex: 0 0 auto;
   margin-left: auto;
-  font-size: 12px;
+  font-size: 11.5px;
   color: #9ca3af;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-/* Growing reasoning text: the newest lines stay visible as the summary streams. */
+/* Only the newest reasoning block is expanded; older ones fold into the label.
+   The text is tailed in JS so this never needs its own scrollbar. */
 .today-plan-think {
-  flex: 1 0 100%;
-  order: 9;
-  margin: 2px 0 0 28px;
-  padding: 8px 10px;
-  border-left: 2px solid #E9D5FF;
-  background: #FAF5FF;
-  border-radius: 6px;
-  font-size: 12.5px;
+  margin: 8px 0 0 22px;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--plan-accent);
+  background: linear-gradient(90deg, var(--plan-think-bg, #FAF8FF) 0%, transparent 60%);
+}
+.today-plan-think-label {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+.today-plan-think-body {
+  margin: 0;
+  font-size: 13px;
   line-height: 1.6;
-  color: #4B5563;
+  color: var(--text);
   white-space: pre-wrap;
-  max-height: 150px;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
 }
-.today-plan-steps > li.is-live .today-plan-think {
-  border-left-color: #9333EA;
-  background: #F5F0FF;
+.today-plan-think-body.is-empty {
+  color: var(--text-muted);
 }
-.today-plan-think:focus-visible {
-  outline: 2px solid #9333EA;
-  outline-offset: 1px;
+.today-plan-think.is-streaming .today-plan-think-body::after {
+  content: "▍";
+  margin-left: 2px;
+  color: var(--plan-accent);
+  animation: today-plan-caret 1.1s steps(2, start) infinite;
+}
+@keyframes today-plan-caret {
+  50% { opacity: 0; }
+}
+/* Breathing is a border pulse, not a background wash: a hardcoded light
+   background here leaked through the dark theme. */
+.today-plan-think.is-streaming {
+  animation: today-plan-breathe 2.4s ease-in-out infinite;
+}
+@keyframes today-plan-breathe {
+  0%, 100% { border-left-color: var(--plan-accent-soft); }
+  50% { border-left-color: var(--plan-accent); }
+}
+
+/* 今日计划摘要 — light text block, deliberately not a card and with no action
+   button: the actionable line belongs to the task row. */
+.today-plan-summary {
+  display: block;
+  margin: 0 0 var(--space-4, 16px);
+  padding-top: var(--space-3, 12px);
+  border-top: 1px solid var(--border);
+}
+.today-plan-summary-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.today-plan-summary-lead {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.today-plan-summary-note {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+.today-plan-summary-stats {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 @keyframes today-plan-step-in {
-  from { opacity: 0; transform: translateY(4px); }
+  from { opacity: 0; transform: translateY(3px); }
   to { opacity: 1; transform: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .today-plan-steps > li { animation: none; }
+  .today-plan-step { animation: none; }
+  .today-plan-spinner,
   .today-plan-step-spinner { animation-duration: 2s; }
+  .today-plan-think.is-streaming,
+  .today-plan-think.is-streaming .today-plan-think-body::after { animation: none; }
 }

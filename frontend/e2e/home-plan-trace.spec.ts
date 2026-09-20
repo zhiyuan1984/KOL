@@ -1,10 +1,9 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 
 /**
- * The 思考过程 card must render the real harness trace, not a canned list:
+ * The 思考过程 stream must render the real harness trace, not a canned list:
  * Host phases, remote reads and the streaming reasoning summary each keep their
- * own row and their own state. A milestone row is complete the moment it is
- * written; only the row that is still streaming may spin.
+ * own row and their own state. Only the row that is still streaming may spin.
  */
 test.beforeEach(async ({ request }) => {
   await request.post("/api/me/persona", { data: { persona: "sriphy" } });
@@ -29,6 +28,15 @@ const TRACE = [
   {
     id: "e7",
     sequence: 7,
+    type: "run.step",
+    status: "running",
+    item_key: "host:generating",
+    title: "正在分析…",
+    created_at: "2026-09-20T06:51:06.000Z",
+  },
+  {
+    id: "e8",
+    sequence: 8,
     type: "run.think",
     status: "running",
     item_key: "reasoning:rs_1",
@@ -38,7 +46,7 @@ const TRACE = [
   },
 ];
 
-async function mockPlanningTrace(page: import("@playwright/test").Page) {
+async function mockPlanningTrace(page: Page) {
   await page.route("**/api/tasks**", (route) => route.fulfill({ json: { view: "open", tasks: [] } }));
   await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
   await page.route("**/api/home/todo-brief**", (route) =>
@@ -53,13 +61,13 @@ async function mockPlanningTrace(page: import("@playwright/test").Page) {
   });
 }
 
-test("thinking card renders the harness trace with per-row state, not a canned list", async ({ page }) => {
+test("thinking stream renders the harness trace with per-row state, not a canned list", async ({ page }) => {
   await mockPlanningTrace(page);
   await page.goto("/");
 
-  const card = page.locator("[data-today-plan-phase]");
-  await expect(card).toBeVisible({ timeout: 20000 });
-  await expect(card).toHaveAttribute("data-today-plan-phase", "planning");
+  const stream = page.locator("[data-today-plan-phase]");
+  await expect(stream).toBeVisible({ timeout: 20000 });
+  await expect(stream).toHaveAttribute("data-today-plan-phase", "planning");
 
   // Host phases and the remote read are rows of their own.
   for (const label of ["准备任务", "加载任务规则", "读取达人库 · creator_library_query"]) {
@@ -68,32 +76,92 @@ test("thinking card renders the harness trace with per-row state, not a canned l
   await expect(page.locator('[data-today-plan-event="读取达人库 · creator_library_query"]'))
     .toHaveAttribute("data-today-plan-state", "done");
 
-  // The milestone rows are done the moment they are written; only the streaming
-  // reasoning row is running. This is what used to be hardcoded to "done".
+  // The milestone rows are done the moment they are written, while the phase that
+  // is actually in flight is the only one spinning. This is what used to be
+  // hardcoded to "done".
   await expect(page.locator('[data-today-plan-event="已读取当前任务记忆"]'))
     .toHaveAttribute("data-today-plan-state", "done");
-  await expect(page.locator('[data-today-plan-event="Codex 推理"]'))
+  await expect(page.locator('[data-today-plan-event="正在分析…"]'))
     .toHaveAttribute("data-today-plan-state", "running");
   await expect(page.locator(".today-plan-step-spinner")).toHaveCount(1);
 
-  // The reasoning summary is the visible thinking box, not a 4-line stub.
+  // The reasoning summary is the visible thinking box, and it is honest about
+  // being reasoning (decision A) rather than the model's final answer.
   const think = page.locator("[data-today-plan-think]");
   await expect(think).toBeVisible();
+  await expect(think).toContainText("Codex 推理");
   await expect(think).toContainText("先核对逾期项");
 
-  // While planning, the ask box is docked at the bottom instead of covering the card.
-  await expect(page.locator("[data-composer-rhythm]")).toHaveAttribute("data-composer-rhythm", "dock");
-  const cardBox = await card.boundingBox();
-  const dockBox = await page.locator(".home-composer-dock").boundingBox();
-  expect(cardBox).not.toBeNull();
-  expect(dockBox).not.toBeNull();
-  expect(dockBox!.y).toBeGreaterThan(cardBox!.y);
-  // The card is not squeezed into a sliver by the hero composer.
-  expect(cardBox!.height).toBeGreaterThan(120);
+  // The button answers the click immediately.
+  await expect(page.locator(".today-board-plan-btn")).toHaveAttribute("data-plan-state", "planning");
+  await expect(page.locator(".today-board-plan-btn")).toBeDisabled();
 });
 
-test("a failed run shows the failed step instead of a green check", async ({ page }) => {
+test("the ask box is a footer and the workspace has exactly one scroll container", async ({ page }) => {
   await mockPlanningTrace(page);
+  // A tall task list is what used to create a second, nested scroller.
+  await page.route("**/api/tasks**", (route) => route.fulfill({
+    json: {
+      view: "open",
+      tasks: Array.from({ length: 30 }, (_, i) => ({
+        id: `tsk_${i}`,
+        title: `任务 ${i}`,
+        source: "manual",
+        status: "pending",
+        due_at: new Date().toISOString(),
+      })),
+    },
+  }));
+
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 1264, height: 600 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    await expect(page.locator("[data-today-plan-phase]")).toBeVisible({ timeout: 20000 });
+    await page.waitForTimeout(1500);
+
+    const probe = await page.evaluate(() => {
+      const scrollable = (el: Element): boolean => {
+        const node = el as HTMLElement;
+        const cs = getComputedStyle(node);
+        if (!/(auto|scroll|overlay)/.test(cs.overflowY)) return false;
+        return node.scrollHeight > node.clientHeight + 1;
+      };
+      const pane = document.querySelector(".home-pane");
+      const found: string[] = [];
+      if (pane) {
+        for (const el of Array.from(pane.querySelectorAll("*"))) {
+          if (el.matches("textarea, input, select")) continue;
+          if (scrollable(el)) found.push(`${el.tagName.toLowerCase()}.${el.className}`);
+        }
+      }
+      const dock = document.querySelector(".home-composer-dock") as HTMLElement | null;
+      const stage = document.querySelector(".home-stage") as HTMLElement | null;
+      return {
+        found,
+        docScrolls: document.documentElement.scrollHeight > window.innerHeight + 1,
+        dockTop: dock ? Math.round(dock.getBoundingClientRect().top) : null,
+        dockBottom: dock ? Math.round(dock.getBoundingClientRect().bottom) : null,
+        stageBottom: stage ? Math.round(stage.getBoundingClientRect().bottom) : null,
+        innerHeight: window.innerHeight,
+      };
+    });
+
+    expect(probe.docScrolls, `${viewport.width}x${viewport.height} 不该有整页滚动`).toBe(false);
+    // Exactly one scroll container, and it is the workspace stage.
+    expect(probe.found.length, `${viewport.width}x${viewport.height} 滚动容器：${probe.found.join(" | ")}`).toBe(1);
+    expect(probe.found[0]).toContain("home-stage");
+    // The composer is a footer beside the scroll area, not a layer over it, and it
+    // is fully on screen (it used to hang below the fold).
+    expect(probe.dockTop!, "输入框不能压在滚动区上").toBeGreaterThanOrEqual(probe.stageBottom!);
+    expect(probe.dockBottom!, "输入框必须完整在视口内").toBeLessThanOrEqual(probe.innerHeight + 1);
+  }
+});
+
+test("a failed run shows the failed step and its reason instead of a green check", async ({ page }) => {
+  await page.route("**/api/tasks**", (route) => route.fulfill({ json: { view: "open", tasks: [] } }));
+  await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
+  await page.route("**/api/home/todo-brief**", (route) =>
+    route.fulfill({ json: { planning: false, brief: null, events: [], creates_session: false } }));
   await page.route("**/api/home/today-brief**", async (route) => {
     const url = new URL(route.request().url());
     if (route.request().method() === "POST" && url.pathname.endsWith("/plan")) {
@@ -116,7 +184,62 @@ test("a failed run shows the failed step instead of a green check", async ({ pag
   });
   await page.goto("/");
 
+  // Settled runs collapse to one line; the failure is still in the header.
+  await expect(page.locator("[data-today-plan-phase]")).toHaveAttribute("data-today-plan-phase", "failed");
+  await expect(page.locator("[data-today-plan-phase]")).toContainText("规划失败");
+  await page.locator(".today-plan-toggle").click();
   await expect(page.locator('[data-today-plan-event="校验输出"]')).toHaveAttribute("data-today-plan-state", "failed");
   await expect(page.locator('[data-today-plan-event="今日规划未通过校验"]')).toHaveAttribute("data-today-plan-state", "failed");
-  await expect(page.locator(".today-plan-step-spinner")).toHaveCount(0);
+  await expect(page.locator("[data-today-plan-phase]")).toContainText("Codex did not produce display_tasks");
+  await expect(page.locator(".today-plan-spinner")).toHaveCount(0);
+});
+
+test("a settled run collapses to one line and expands on demand", async ({ page }) => {
+  await page.route("**/api/tasks**", (route) => route.fulfill({ json: { view: "open", tasks: [] } }));
+  await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
+  await page.route("**/api/home/todo-brief**", (route) =>
+    route.fulfill({ json: { planning: false, brief: null, events: [], creates_session: false } }));
+  await page.route("**/api/home/today-brief**", async (route) => {
+    const url = new URL(route.request().url());
+    if (route.request().method() === "POST" && url.pathname.endsWith("/plan")) {
+      await route.fulfill({ json: { planning: true, attached: true, work_item_id: "tsk_plan" } });
+      return;
+    }
+    await route.fulfill({
+      json: {
+        planning: false,
+        brief: {
+          lead: "今天先恢复采集，再核查风险。",
+          stats: { unfinished: 2, failed_runs: 1, discovery_anomalies: 1, candidates: 7 },
+        },
+        events: [
+          ...TRACE.slice(0, 6),
+          { id: "c1", sequence: 8, type: "run.completed", status: "completed", title: "今日规划已完成", created_at: "2026-09-20T06:52:00.000Z" },
+        ],
+        creates_session: false,
+        calls_model: false,
+      },
+    });
+  });
+  await page.goto("/");
+
+  const stream = page.locator("[data-today-plan-phase]");
+  await expect(stream).toHaveAttribute("data-today-plan-open", "false");
+  // Collapsed: one line, no step list.
+  await expect(page.locator("[data-today-plan-steps]")).toHaveCount(0);
+  await expect(stream).toContainText("Codex 已完成规划");
+  await expect(stream).toContainText("分析");
+  const collapsedHeight = (await stream.boundingBox())!.height;
+  expect(collapsedHeight).toBeLessThan(80);
+
+  // The summary is light text, and never a business action button.
+  const summary = page.locator("[data-today-brief]");
+  await expect(summary).toContainText("今天先恢复采集");
+  await expect(summary).toContainText("2 项任务");
+  await expect(page.locator("[data-today-primary]")).toHaveCount(0);
+
+  await page.locator(".today-plan-toggle").click();
+  await expect(stream).toHaveAttribute("data-today-plan-open", "true");
+  await expect(page.locator("[data-today-plan-steps]")).toBeVisible();
+  await expect(page.locator(".today-plan-toggle")).toContainText("收起过程");
 });

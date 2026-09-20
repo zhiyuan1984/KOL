@@ -91,8 +91,12 @@ test("a stale cache expires and plans again", async ({ page }) => {
 
   await page.goto("/");
   await expect.poll(() => planPosts.length, { timeout: 30000 }).toBe(1);
-
-  // Age the cached plan past the 5 minute TTL, then re-enter Home.
+  // Age the cached plan past the 5 minute TTL, then re-enter Home. The cache is
+  // written from a post-paint effect, so waiting for the POST is not enough —
+  // aging before the write lands would leave a fresh cache and never re-plan.
+  await expect
+    .poll(() => page.evaluate(() => sessionStorage.getItem("lingong:today-plan-cache") !== null), { timeout: 30000 })
+    .toBe(true);
   await page.evaluate(() => {
     for (const key of ["lingong:today-plan-cache", "lingong:todo-plan-cache"]) {
       const raw = sessionStorage.getItem(key);

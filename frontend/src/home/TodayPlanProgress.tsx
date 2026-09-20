@@ -41,19 +41,13 @@ function eventTime(event?: TaskEvent): string {
   return formatClock(date);
 }
 
-function GearIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden className="today-plan-gear-svg">
-      <path
-        d="M12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7z M19.4 13a7.8 7.8 0 0 0 .1-2l2-1.2-2-3.4-2.2.6a8 8 0 0 0-1.7-1L15 4h-4l-.6 2a8 8 0 0 0-1.7 1l-2.2-.6-2 3.4 2 1.2a7.8 7.8 0 0 0 0 2l-2 1.2 2 3.4 2.2-.6a8 8 0 0 0 1.7 1l.6 2h4l.6-2a8 8 0 0 0 1.7-1l2.2.6 2-3.4-2-1.2a7.8 7.8 0 0 0 .1 2z"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
+/** The stream shows the newest lines and never grows its own scrollbar. */
+export const THINK_TAIL_LINES = 6;
+
+export function thinkTail(text: string): { body: string; truncated: boolean } {
+  const lines = String(text || "").split("\n").filter((line, index, all) => line.trim() || index === 0);
+  if (lines.length <= THINK_TAIL_LINES) return { body: lines.join("\n").trim(), truncated: false };
+  return { body: lines.slice(-THINK_TAIL_LINES).join("\n").trim(), truncated: true };
 }
 
 type StepState = "running" | "done" | "failed";
@@ -83,37 +77,34 @@ function stepKindOf(type: string): StepKind {
  * done even though the run itself is still going. Everything else carries its
  * own status; a leftover `running` after the run settled can only be stale.
  */
-function stepStateOf(event: TaskEvent, planning: boolean): StepState {
+function stepStateOf(event: TaskEvent, live: boolean): StepState {
   const type = eventTypeOf(event);
   const status = String(event.status || "").toLowerCase();
   if (type === "run.failed" || type === "failed" || status === "failed") return "failed";
   if (type === "run.progress" || type === "run.completed") return "done";
-  if (status === "running") return planning ? "running" : "done";
+  if (status === "running") return live ? "running" : "done";
   return "done";
 }
 
+/**
+ * The Codex stream: Host phases, remote reads and the reasoning summary as one
+ * flat list inside the workspace. No card, no inner scroller — the workspace has
+ * exactly one scroll container, and only the newest reasoning block is expanded.
+ */
 export default function TodayPlanProgress({
   phase = "idle",
   events,
-  collapsed,
-  onCollapsedChange,
+  candidates,
   scope = "today",
 }: {
   phase?: TodayPlanPhase;
   events?: TaskEvent[] | null;
-  collapsed?: boolean;
-  onCollapsedChange?: (collapsed: boolean) => void;
+  candidates?: number | null;
   scope?: PlanScope;
 }) {
-  const planning = phase === "planning";
-  const elapsed = usePlanningElapsed(planning);
-  const [innerCollapsed, setInnerCollapsed] = useState(false);
-  const isCollapsed = collapsed ?? innerCollapsed;
-  const setCollapsed = (next: boolean) => {
-    if (collapsed === undefined) setInnerCollapsed(next);
-    onCollapsedChange?.(next);
-  };
-  const completedLabel = scope === "todo" ? "待办规划已完成" : "今日规划已完成";
+  const live = phase === "loading-memory" || phase === "planning";
+  const failed = phase === "failed";
+  const elapsed = usePlanningElapsed(live);
   const status = todayPlanStatusCopy(phase, scope);
   const labels = todayPlanEventLabels(events);
 
@@ -151,7 +142,7 @@ export default function TodayPlanProgress({
         kind,
         label,
         time: stampFor(key, event),
-        state: stepStateOf(event, planning),
+        state: stepStateOf(event, live),
         detail,
       };
       const prev = byKey.get(key);
@@ -162,113 +153,115 @@ export default function TodayPlanProgress({
       }
       byKey.set(key, { ...prev, ...next, time: prev.time || next.time });
     }
-    const rows = order.map((key) => byKey.get(key)!);
-    if (phase === "refreshed" && !rows.some((row) => row.label === completedLabel)) {
-      rows.push({
-        key: completedLabel,
-        kind: "step",
-        label: completedLabel,
-        time: stampFor(completedLabel),
-        state: "done",
-        detail: "",
-      });
-    }
-    return rows;
-  }, [events, planning, phase, completedLabel]);
+    return order.map((key) => byKey.get(key)!);
+  }, [events, live]);
 
-  const liveThinking = steps.some((step) => step.kind === "think" && step.state === "running" && step.detail);
-  const thinkRef = useRef<HTMLParagraphElement | null>(null);
-  const thinkText = steps.find((step) => step.kind === "think" && step.state === "running")?.detail || "";
+  // Steps stay out of the way once the run settles; a new run opens them again.
+  const [open, setOpen] = useState(live);
   useEffect(() => {
-    const node = thinkRef.current;
-    if (!node) return;
-    node.scrollTop = node.scrollHeight;
-  }, [thinkText]);
+    setOpen(live);
+  }, [live]);
+
+  const stepRows = steps.filter((step) => step.kind !== "think");
+  const thinkRows = steps.filter((step) => step.kind === "think");
+  const activeThink = thinkRows.length ? thinkRows[thinkRows.length - 1] : undefined;
+  const think = activeThink ? thinkTail(activeThink.detail) : { body: "", truncated: false };
+  const foldedThink = Math.max(0, thinkRows.length - 1);
+  const finishedAt = steps.length ? steps[steps.length - 1].time : "";
 
   if (!status && !steps.length) return null;
+
+  const title = failed ? "Codex 规划未通过" : live ? "Codex 思考过程" : "Codex 已完成规划";
   return (
     <section
-      className="today-plan-card"
+      className={"today-plan" + (live ? " is-live" : "")}
       data-today-plan-phase={phase}
       data-today-plan-events={labels.length}
-      data-today-planning={phase === "planning" || phase === "loading-memory" ? true : undefined}
+      data-today-planning={live ? true : undefined}
+      data-today-plan-open={open ? "true" : "false"}
       role="status"
     >
-      <header className="today-plan-card-head">
-        <span className="today-plan-gear" aria-hidden><GearIcon /></span>
-        <div className="today-plan-card-title">
-          <strong>Codex 思考过程</strong>
-          <span className="today-plan-card-sub">基于你的待办、AI发现、历史任务和上下文，生成今日工作计划</span>
-        </div>
-        {status ? (
-          <span className="today-plan-card-status">
-            <span data-today-plan-lead>{status}</span>
-            {elapsed != null ? (
-              <span
-                className="today-plan-elapsed"
-                data-today-plan-elapsed={elapsed}
-                aria-label={`已用时 ${formatTodayPlanElapsed(elapsed)}`}
-              >
-                {formatTodayPlanElapsed(elapsed)}
-              </span>
-            ) : null}
+      <header className="today-plan-head">
+        <span className={"today-plan-state" + (failed ? " is-failed" : live ? " is-live" : " is-done")} aria-hidden>
+          {failed ? (
+            <svg viewBox="0 0 12 12"><path d="M3.4 3.4l5.2 5.2M8.6 3.4L3.4 8.6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
+          ) : live ? (
+            <span className="today-plan-spinner" />
+          ) : (
+            <svg viewBox="0 0 12 12"><path d="M2.5 6.2l2.3 2.3 4.7-4.7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          )}
+        </span>
+        <strong className="today-plan-title">{title}</strong>
+        {status ? <span className="today-plan-lead" data-today-plan-lead>{status}</span> : null}
+        {!live && candidates != null && candidates > 0 ? (
+          <span className="today-plan-meta">· 分析 {candidates} 项候选任务</span>
+        ) : null}
+        {elapsed != null ? (
+          <span className="today-plan-elapsed" data-today-plan-elapsed={elapsed} aria-label={`已用时 ${formatTodayPlanElapsed(elapsed)}`}>
+            {formatTodayPlanElapsed(elapsed)}
           </span>
         ) : null}
-        <button
-          type="button"
-          className="today-plan-collapse"
-          aria-expanded={!isCollapsed}
-          onClick={() => setCollapsed(!isCollapsed)}
-        >
-          {isCollapsed ? "展开" : "收起"}
-          <span aria-hidden className={"today-plan-chevron" + (isCollapsed ? " is-down" : "")}>⌄</span>
-        </button>
+        {!live && finishedAt ? <time className="today-plan-finished">{finishedAt}</time> : null}
+        {steps.length ? (
+          <button
+            type="button"
+            className="today-plan-toggle"
+            aria-expanded={open}
+            onClick={() => setOpen((value) => !value)}
+          >
+            {open ? "收起过程" : "查看过程"}
+            <span aria-hidden className={"today-plan-chevron" + (open ? "" : " is-down")}>⌄</span>
+          </button>
+        ) : null}
       </header>
-      {!isCollapsed && steps.length ? (
-        <ol className="today-plan-steps" data-today-plan-steps>
-          {steps.map((step, index) => {
-            const isFinal = phase === "refreshed" && index === steps.length - 1;
-            const running = step.state === "running";
-            return (
-              <li
-                key={step.key}
-                className={
-                  (isFinal ? "is-final " : "")
-                  + `is-${step.state}`
-                  + (step.kind === "think" ? " is-think" : "")
-                  + (running && step.kind === "think" ? " is-live" : "")
-                }
-                data-today-plan-event={step.label}
-                data-today-plan-state={step.state}
-              >
-                <span className="today-plan-step-dot" aria-hidden>
-                  {step.state === "failed" ? (
-                    <svg viewBox="0 0 12 12"><path d="M3.4 3.4l5.2 5.2M8.6 3.4L3.4 8.6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
-                  ) : running ? (
-                    <span className="today-plan-step-spinner" />
-                  ) : (
-                    <svg viewBox="0 0 12 12"><path d="M2.5 6.2l2.3 2.3 4.7-4.7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                  )}
-                </span>
-                <span className="today-plan-step-label">{step.label}</span>
-                {step.kind === "tool" && step.detail ? (
-                  <span className="today-plan-step-op" title={step.detail}>{step.detail}</span>
-                ) : null}
-                <time className="today-plan-step-time">{step.time}</time>
-                {step.kind === "think" && step.detail ? (
-                  <p
-                    className="today-plan-think"
-                    data-today-plan-think
-                    ref={running && liveThinking ? thinkRef : undefined}
-                    tabIndex={0}
-                  >
-                    {step.detail}
-                  </p>
-                ) : null}
-              </li>
-            );
-          })}
-        </ol>
+
+      {open ? (
+        <>
+          {steps.length ? (
+            <ol className="today-plan-steps" data-today-plan-steps>
+              {stepRows.map((step) => (
+                <li
+                  key={step.key}
+                  className={`today-plan-step is-${step.state}${step.kind === "tool" ? " is-tool" : ""}`}
+                  data-today-plan-event={step.label}
+                  data-today-plan-state={step.state}
+                >
+                  <span className="today-plan-step-mark" aria-hidden>
+                    {step.state === "failed"
+                      ? "✗"
+                      : step.state === "running"
+                        ? <span className="today-plan-step-spinner" />
+                        : "✓"}
+                  </span>
+                  <span className="today-plan-step-label">{step.label}</span>
+                  {step.kind === "tool" && step.detail ? (
+                    <span className="today-plan-step-op" title={step.detail}>{step.detail}</span>
+                  ) : null}
+                  {step.state === "failed" && step.detail ? (
+                    <span className="today-plan-step-reason" title={step.detail}>{step.detail}</span>
+                  ) : null}
+                  <time className="today-plan-step-time">{step.time}</time>
+                </li>
+              ))}
+            </ol>
+          ) : null}
+
+          {activeThink ? (
+            <div className={"today-plan-think" + (activeThink.state === "running" ? " is-streaming" : "")} data-today-plan-think>
+              <span className="today-plan-think-label">
+                Codex 推理
+                {foldedThink ? ` · 已折叠 ${foldedThink} 段更早的推理` : ""}
+              </span>
+              {think.body ? (
+                <p className="today-plan-think-body">
+                  {think.truncated ? "…" : ""}{think.body}
+                </p>
+              ) : (
+                <p className="today-plan-think-body is-empty">正在分析…</p>
+              )}
+            </div>
+          ) : null}
+        </>
       ) : null}
     </section>
   );

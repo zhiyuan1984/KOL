@@ -655,13 +655,14 @@ summary:focus-visible,
   align-items: stretch;
   justify-content: flex-start;
   padding: 20px var(--home-gutter) 0;
-  overflow: hidden;
+  /* The single scroll container for the whole workspace. */
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 .home-board {
-  flex: 1;
-  min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
+  /* Plain flow inside the stage: no second scroll container, no flex squeeze. */
+  flex: 0 0 auto;
+  overflow: visible;
   padding-bottom: 8px;
 }
 .home-pane-sticky {
@@ -1100,30 +1101,10 @@ summary:focus-visible,
   width: 100%;
   max-width: none;
 }
-.today-plan-progress,
 .today-brief {
   margin: 0 0 var(--space-3);
   color: var(--text);
   font-size: var(--font-ui);
-}
-.today-plan-progress[data-today-plan-phase="failed"] {
-  color: var(--danger);
-}
-.today-plan-progress[data-today-plan-phase="refreshed"] {
-  color: var(--text-muted);
-}
-.today-plan-progress-lead {
-  margin: 0;
-}
-.today-plan-events {
-  margin: 6px 0 0;
-  padding-left: 1.15em;
-  color: var(--text-muted);
-  font-size: var(--font-xs);
-  line-height: 1.45;
-}
-.today-plan-events li + li {
-  margin-top: 2px;
 }
 .today-brief-lead {
   margin: 0 0 var(--space-2);
@@ -1905,7 +1886,7 @@ summary:focus-visible,
   margin: 0;
   min-height: 40px;
 }
-/* AI发现：条件配置 → 任务确认 → 开始检索 */
+/* AI发现：条件卡（无按钮）→ 条件同时是 AI 提问框里可编辑的【发现任务】正文 */
 h1[data-home-title="discovery"] {
   max-width: 1240px;
   margin: 0 auto 16px;
@@ -1946,17 +1927,8 @@ h1[data-home-title="discovery"] {
 .ai-discovery-inline { display: flex; align-items: center; gap: 12px; }
 .ai-discovery-dash, .ai-discovery-op { color: var(--color-smoke); }
 .ai-discovery-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
-.ai-discovery-summary {
-  padding: 24px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px;
-}
-.ai-discovery-summary h3 { margin: 0 0 12px; font-size: 14px; font-weight: 600; }
-.ai-discovery-summary-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 48px; row-gap: 14px; margin: 0; }
-.ai-discovery-summary-grid .is-wide { grid-column: 1 / -1; }
-.ai-discovery-summary-grid div { display: flex; gap: 8px; }
-.ai-discovery-summary-grid dt { flex: 0 0 auto; margin: 0; font-size: 14px; color: var(--color-smoke); }
-.ai-discovery-summary-grid dd { margin: 0; font-size: 14px; font-weight: 500; color: var(--text); }
-.ai-discovery-summary-note { margin: 12px 0 0; font-size: 12px; color: var(--color-smoke); }
-.ai-discovery-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 8px; }
+/* 条件卡没有按钮：唯一的提交入口是 AI 提问框的发送按钮。 */
+.ai-discovery-note { margin: 0; font-size: 12px; color: var(--color-smoke); }
 .ai-discovery-card .discovery-chip[aria-pressed="true"] {
   border-color: var(--color-primary); background: var(--color-pink-tint); color: var(--color-primary);
 }
@@ -8723,11 +8695,18 @@ body {
   --home-gutter: var(--page-gutter);
 }
 
+/* One workspace, one scroll container: the stage scrolls, the page header scrolls
+   away with the content, and the board is plain flow inside it. */
 .home-stage {
   box-sizing: border-box;
   width: min(100%, var(--content-max));
   margin-inline: auto;
   padding-inline: var(--page-gutter);
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text) 28%, transparent) transparent;
+  overscroll-behavior: contain;
 }
 
 .home-composer-dock {
@@ -8743,21 +8722,16 @@ body {
   margin-inline: auto;
 }
 
-.home-board {
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--text) 28%, transparent) transparent;
-}
-
-.home-board::-webkit-scrollbar {
+.home-stage::-webkit-scrollbar {
   width: var(--scrollbar-size);
   height: var(--scrollbar-size);
 }
 
-.home-board::-webkit-scrollbar-track {
+.home-stage::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.home-board::-webkit-scrollbar-thumb {
+.home-stage::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--text) 28%, transparent);
   border-radius: var(--radius-full);
 }
@@ -8967,6 +8941,29 @@ body {
 .session-composer.prompt-input .composer.composer--workspace {
   width: min(100%, var(--content-max));
   margin-inline: auto;
+}
+/* AI发现 / Home ask box: one content column. The dock, its rows and the composer
+   frame sit on the page content frame the cards use (same max-width and gutters),
+   and the inner rows span the frame — the 4px insets on the condition / notice /
+   template rows are what made the ask box look narrower than its frame. Scoped to
+   the Home pane so every other page keeps its own composer geometry. */
+.home-pane.is-composer-dock .home-composer-dock,
+.home-pane.is-composer-dock .home-composer-dock > .composer-dock {
+  width: min(100%, var(--content-max));
+  max-width: none;
+  margin-inline: auto;
+}
+.home-pane.is-composer-dock .home-composer-dock .composer.composer--workspace {
+  width: 100%;
+  max-width: none;
+  padding-inline: 12px;
+}
+.home-pane.is-composer-dock .home-composer-dock .composer-chips,
+.home-pane.is-composer-dock .home-composer-dock .composer-template-preview,
+.home-pane.is-composer-dock .home-composer-dock .discovery-composer-conditions,
+.home-pane.is-composer-dock .home-composer-dock .composer-override-hint {
+  padding-inline: 0;
+  margin-inline: 0;
 }
 .composer textarea,
 .composer textarea::placeholder,
@@ -9822,14 +9819,11 @@ button.today-brief-primary-btn:disabled {
   font-weight: 500;
 }
 
-/* Dark-mode legibility for the new today cards */
-:root[data-theme="dark"] .today-plan-card,
+/* Dark-mode legibility for the today workspace */
 :root[data-theme="dark"] .today-board {
   background: var(--bg);
   border-color: var(--border);
 }
-:root[data-theme="dark"] .today-plan-card-title strong,
-:root[data-theme="dark"] .today-board-title,
 :root[data-theme="dark"] .today-board-title,
 :root[data-theme="dark"] .today-board-head h2 {
   color: var(--text);
@@ -9867,35 +9861,54 @@ button.today-brief-primary-btn:disabled {
   border-color: var(--border);
   color: var(--text-muted);
 }
-:root[data-theme="dark"] .today-plan-step-label {
+:root[data-theme="dark"] .today-plan-title,
+:root[data-theme="dark"] .today-plan-step-label,
+:root[data-theme="dark"] .today-plan-summary-lead {
   color: var(--text);
 }
-/* New trace rows need dark-mode colours too: the running/failed accents and the
-   growing reasoning box are otherwise light-on-dark and unreadable. */
-:root[data-theme="dark"] .today-plan-steps > li.is-running .today-plan-step-label {
+/* The stream's accents and the reasoning block are otherwise light-on-dark. */
+:root[data-theme="dark"] .today-plan-lead,
+:root[data-theme="dark"] .today-plan-summary-note,
+:root[data-theme="dark"] .today-plan-summary-stats {
+  color: var(--text-muted);
+}
+:root[data-theme="dark"] .today-plan-step.is-running .today-plan-step-label,
+:root[data-theme="dark"] .today-plan-step.is-running .today-plan-step-mark {
   color: #C4B5FD;
 }
-:root[data-theme="dark"] .today-plan-steps > li.is-failed .today-plan-step-label {
+:root[data-theme="dark"] .today-plan-step.is-failed .today-plan-step-label,
+:root[data-theme="dark"] .today-plan-step.is-failed .today-plan-step-mark,
+:root[data-theme="dark"] .today-plan-step-reason {
   color: #FCA5A5;
 }
-:root[data-theme="dark"] .today-plan-steps > li.is-running .today-plan-step-dot {
+:root[data-theme="dark"] .today-plan-state.is-live {
   background: color-mix(in srgb, #9333EA 22%, transparent);
   color: #C4B5FD;
 }
-:root[data-theme="dark"] .today-plan-steps > li.is-failed .today-plan-step-dot {
+:root[data-theme="dark"] .today-plan-state.is-failed {
   background: color-mix(in srgb, #DC2626 22%, transparent);
   color: #FCA5A5;
 }
-:root[data-theme="dark"] .today-plan-step-op {
+:root[data-theme="dark"] .today-plan-step-op,
+:root[data-theme="dark"] .today-plan-meta,
+:root[data-theme="dark"] .today-plan-finished,
+:root[data-theme="dark"] .today-plan-toggle {
   color: var(--text-muted);
+}
+:root[data-theme="dark"] .today-plan {
+  --plan-accent: #A78BFA;
+  --plan-accent-soft: #4C1D95;
+  --plan-think-bg: color-mix(in srgb, #9333EA 16%, transparent);
 }
 :root[data-theme="dark"] .today-plan-think {
-  background: color-mix(in srgb, #9333EA 12%, transparent);
   border-left-color: #7C3AED;
+}
+:root[data-theme="dark"] .today-plan-think-label,
+:root[data-theme="dark"] .today-plan-summary-label {
   color: var(--text-muted);
 }
-:root[data-theme="dark"] .today-plan-steps > li.is-live .today-plan-think {
-  background: color-mix(in srgb, #9333EA 18%, transparent);
+:root[data-theme="dark"] .today-plan-summary {
+  border-top-color: var(--border);
 }
 
 .sidebar-brand-copy {

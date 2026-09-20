@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { Task, TaskEvent, TodayBrief, TodoLayoutItem } from "../api";
-import PlanBriefCard from "./PlanBriefCard";
+import PlanSummary from "./PlanSummary";
 import TaskBoard from "./TaskBoard";
 import TodayPlanProgress from "./TodayPlanProgress";
 import { isTodayScheduled } from "./schedule";
@@ -18,8 +18,6 @@ export default function TodoPane({
   phase = "idle",
   events,
   todoLayout,
-  planCollapsed,
-  onPlanCollapsedChange,
 }: {
   tasks: Task[];
   filter?: TodoListFilter;
@@ -32,8 +30,6 @@ export default function TodoPane({
   phase?: TodayPlanPhase;
   events?: TaskEvent[] | null;
   todoLayout?: TodoLayoutItem[] | null;
-  planCollapsed?: boolean;
-  onPlanCollapsedChange?: (collapsed: boolean) => void;
 }) {
   // Rows are fixed frontend projections of base work items — todo layout (if any)
   // only stamps Codex's why and ordering on top.
@@ -52,14 +48,6 @@ export default function TodoPane({
   const loading = phase === "loading-memory" && !rows.length;
   return (
     <section className="home-mode-pane today-work-inline" data-today-work data-home-pane="todo" data-todo-source="work_items">
-      <TodayPlanProgress
-        phase={phase}
-        events={events}
-        collapsed={planCollapsed}
-        onCollapsedChange={onPlanCollapsedChange}
-        scope="todo"
-      />
-      <PlanBriefCard brief={brief} phase={phase} events={events} busy={busy} onAct={onAct} rows={rows} />
       {dedupeNotice ? (
         <p className="home-dedupe-notice" data-todo-deduped role="status">{dedupeNotice}</p>
       ) : null}
@@ -72,6 +60,11 @@ export default function TodoPane({
         onAct={onAct}
         onEdit={onEdit}
         showPlanButton={false}
+        planPhase={phase}
+        stream={<>
+          <TodayPlanProgress phase={phase} events={events} scope="todo" />
+          <PlanSummary brief={brief} />
+        </>}
       />
     </section>
   );

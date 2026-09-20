@@ -1,11 +1,25 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { Task, TaskEvent, TodayBrief } from "../api";
-import PlanBriefCard from "./PlanBriefCard";
+import PlanSummary from "./PlanSummary";
 import TaskBoard from "./TaskBoard";
 import TodayPlanProgress from "./TodayPlanProgress";
 import { whyLine } from "./homeModel";
 import { TODAY_PLAN_REFRESH_EVENT, type TodayPlanPhase } from "./todayPlan";
 
+function candidateCount(brief?: TodayBrief | null): number | null {
+  const stats = brief?.stats || {};
+  for (const key of ["candidates", "candidate_count", "candidateCount"]) {
+    const value = Number(stats[key]);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return null;
+}
+
+/**
+ * One workspace: header (title / search / 自动启今日任务计划) → Codex stream →
+ * summary → filters → task list. The stream is a slot, not a sibling card, so the
+ * pane never grows a second frame or a second scroll container.
+ */
 export default function TodayPane({
   todayTodos,
   busy,
@@ -14,8 +28,6 @@ export default function TodayPane({
   brief,
   phase = "idle",
   events,
-  planCollapsed,
-  onPlanCollapsedChange,
 }: {
   todayTodos: Task[];
   busy: boolean;
@@ -24,8 +36,6 @@ export default function TodayPane({
   brief?: TodayBrief | null;
   phase?: TodayPlanPhase;
   events?: TaskEvent[] | null;
-  planCollapsed?: boolean;
-  onPlanCollapsedChange?: (collapsed: boolean) => void;
 }) {
   const rows = useMemo(
     () => todayTodos.map((task) => ({
@@ -35,29 +45,32 @@ export default function TodayPane({
     [todayTodos],
   );
   const loading = phase === "loading-memory" && !rows.length;
-  const planCardRef = useRef<HTMLDivElement | null>(null);
+  const streamRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const onRefresh = () => {
-      planCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      streamRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     };
     window.addEventListener(TODAY_PLAN_REFRESH_EVENT, onRefresh);
     return () => window.removeEventListener(TODAY_PLAN_REFRESH_EVENT, onRefresh);
   }, []);
   return (
     <section className="home-mode-pane" data-home-pane="today">
-      <div ref={planCardRef} className="today-plan-card-anchor">
-        <TodayPlanProgress
-          phase={phase}
-          events={events}
-          collapsed={planCollapsed}
-          onCollapsedChange={onPlanCollapsedChange}
+      <div ref={streamRef} className="today-plan-anchor">
+        <TaskBoard
+          title="今日工作计划"
           scope="today"
+          rows={rows}
+          busy={busy}
+          loading={loading}
+          onAct={onAct}
+          onEdit={onEdit}
+          planPhase={phase}
+          stream={<>
+            <TodayPlanProgress phase={phase} events={events} candidates={candidateCount(brief)} scope="today" />
+            <PlanSummary brief={brief} />
+          </>}
         />
       </div>
-
-      <PlanBriefCard brief={brief} phase={phase} events={events} busy={busy} onAct={onAct} rows={rows} />
-
-      <TaskBoard title="今日工作计划" scope="today" rows={rows} busy={busy} loading={loading} onAct={onAct} onEdit={onEdit} />
     </section>
   );
 }

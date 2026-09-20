@@ -118,7 +118,6 @@ import {
   restorePlanCache,
   runTodayPlanRefresh,
   savePlanCache,
-  todayPlanEventLabels,
   type TodayPlanPhase,
 } from "../home/todayPlan";
 import { projectDisplayTasks } from "../home/displayTasks";
@@ -311,9 +310,17 @@ export default function Home() {
   const [followScope, setFollowScope] = useState<StarryBinding | null>(null);
   const [sort, setSort] = useState("priority");
   const initialFill = peekComposerFill();
-  const [text, setText] = useState(initialFill ? composerFillText(initialFill) : "");
-  const [lockedIntent, setLockedIntent] = useState<string | null>(initialFill?.skill_id || null);
-  const [lockedLabel, setLockedLabel] = useState<string | null>(initialFill?.title || null);
+  // AI发现 tab：条件卡与提问框正文在首帧就位，不等 GET /api/home/discovery/template。
+  const discoveryEntryTab = parseHomeMode(new URLSearchParams(window.location.search).get("tab")) === "discovery";
+  const [text, setText] = useState(
+    initialFill ? composerFillText(initialFill) : discoveryEntryTab ? renderDiscoveryBody(defaultDiscoveryBrief()) : "",
+  );
+  const [lockedIntent, setLockedIntent] = useState<string | null>(
+    initialFill?.skill_id || (discoveryEntryTab ? DISCOVERY_INTENT : null),
+  );
+  const [lockedLabel, setLockedLabel] = useState<string | null>(
+    initialFill?.title || (discoveryEntryTab ? DISCOVERY_LOCK_LABEL : null),
+  );
   const [lockedKnowledgeId, setLockedKnowledgeId] = useState<string | null>(initialFill?.id || null);
   const [lockedTemplate, setLockedTemplate] = useState<LockedMailTemplate | null>(
     initialFill ? lockedTemplateFromRow(initialFill) : null,
@@ -417,9 +424,9 @@ export default function Home() {
   };
 
   /**
-   * AI发现 tab 首屏只拉字典（memory GET，零 session / 零模型）。不预填 Composer。
-   * ref 只守字典请求本身；表单真值补种到 discoveryFormBrief，`discoveryBrief`
-   * 仍只服务 Composer 的发现锁（openDiscoveryTemplate / 【发现任务】）。
+   * AI发现 tab 首屏只拉字典（memory GET，零 session / 零模型）。
+   * 条件卡与提问框正文由 seedDiscoveryEntry 本地补种（零 session / 零模型），
+   * 这里只负责用 API/fallback 标签精修（不覆盖用户已改的条件真值）。
    */
   const ensureDiscoveryCatalog = async () => {
     if (discoveryCatalogRef.current) return;
@@ -436,9 +443,29 @@ export default function Home() {
     }
   };
 
+  /**
+   * 进入 AI发现：条件卡与提问框正文都取本地默认 brief，首屏既有条件也可编辑。
+   * 只在提问框为空、或已经是【发现任务】正文时才写入 —— 用户别处打的字不动。
+   * 不走 openDiscoveryTemplate（那会 stash 草稿，等同显式点选）。
+   */
+  const seedDiscoveryEntry = () => {
+    const brief = discoveryFormBrief || discoveryBrief || defaultDiscoveryBrief();
+    setDiscoveryFormBrief((current) => current ?? brief);
+    if (text.trim() && !text.startsWith(DISCOVERY_BODY_PREFIX)) return;
+    setDiscoveryBrief((current) => current ?? brief);
+    setText((current) => (current.trim() && !current.startsWith(DISCOVERY_BODY_PREFIX)
+      ? current
+      : renderDiscoveryBody(brief)));
+    setLockedIntent(DISCOVERY_INTENT);
+    setLockedLabel(DISCOVERY_LOCK_LABEL);
+    setEntryIntent("discover");
+  };
+
   const onDiscoveryBriefChange = (next: DiscoveryBrief) => {
     const previous = discoveryBrief;
     setDiscoveryBrief(next);
+    // 条件卡与提问框的条件编辑共用同一真值：芯片改了条件，正文（可编辑）同步改写。
+    setDiscoveryFormBrief(next);
     if (previous && sameClassConflict(parseDiscoveryBody(text), next)) {
       setDiscoveryOverride(true);
     }
@@ -455,6 +482,8 @@ export default function Home() {
     if (!current) return;
     const merged = mergeDiscoveryBrief(current, parsed);
     setDiscoveryBrief(merged);
+    // 正文是条件卡的另一半：改正文，卡片跟着走。
+    setDiscoveryFormBrief(merged);
     if (discoveryOverride && !sameClassConflict(parsed, merged)) {
       setDiscoveryOverride(false);
     }
@@ -529,16 +558,21 @@ export default function Home() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [composerFocused, setComposerFocused] = useState(Boolean(initialFill));
   const [stageScrolled, setStageScrolled] = useState(false);
-  const [discoveryBrief, setDiscoveryBrief] = useState<DiscoveryBrief | null>(null);
-  /** 条件卡表单真值；与 Composer 的发现锁（discoveryBrief）分开，互不覆盖。 */
-  const [discoveryFormBrief, setDiscoveryFormBrief] = useState<DiscoveryBrief | null>(null);
+  const [discoveryBrief, setDiscoveryBrief] = useState<DiscoveryBrief | null>(
+    () => (discoveryEntryTab ? defaultDiscoveryBrief() : null),
+  );
+  /** 条件卡表单真值；进入 AI发现 时与 Composer 的发现锁同源（同一份 brief）。 */
+  const [discoveryFormBrief, setDiscoveryFormBrief] = useState<DiscoveryBrief | null>(
+    () => (discoveryEntryTab ? defaultDiscoveryBrief() : null),
+  );
+  const fallbackDiscoveryFormBrief = useMemo(() => defaultDiscoveryBrief(), []);
   const [discoveryCatalog, setDiscoveryCatalog] = useState<Pick<DiscoveryTemplate, "platforms" | "regions" | "directions"> | null>(null);
   const [discoveryVersion, setDiscoveryVersion] = useState<string>("discovery-brief.v1");
   const [discoveryOverride, setDiscoveryOverride] = useState(false);
   const [discoveryTaskId, setDiscoveryTaskId] = useState<string | null>(null);
   const [discoveryRunId, setDiscoveryRunId] = useState<string | null>(null);
   const [entryIntent, setEntryIntent] = useState<ComposerEntryIntent>(
-    initialFill?.skill_id === DISCOVERY_INTENT ? "discover" : "free",
+    initialFill?.skill_id === DISCOVERY_INTENT || discoveryEntryTab ? "discover" : "free",
   );
   const [objectRefs, setObjectRefs] = useState<ComposerObjectRef[]>([]);
   const [lastDiscoverySubmit, setLastDiscoverySubmit] = useState<{
@@ -552,12 +586,10 @@ export default function Home() {
   const [todoMemoryTasks, setTodoMemoryTasks] = useState<Task[] | null>(null);
   const [todayPlanEvents, setTodayPlanEvents] = useState<TaskEvent[]>([]);
   const [todayPlanPhase, setTodayPlanPhase] = useState<TodayPlanPhase>("loading-memory");
-  const [todayPlanCollapsed, setTodayPlanCollapsed] = useState(false);
   const [todayEntryTick, setTodayEntryTick] = useState(0);
   const [todoBrief, setTodoBrief] = useState<TodayBrief | null>(null);
   const [todoPlanEvents, setTodoPlanEvents] = useState<TaskEvent[]>([]);
   const [todoPlanPhase, setTodoPlanPhase] = useState<TodayPlanPhase>("loading-memory");
-  const [todoPlanCollapsed, setTodoPlanCollapsed] = useState(false);
   const [todoEntryTick, setTodoEntryTick] = useState(0);
   const nav = useNavigate();
   const mode = parseHomeMode(params.get("tab"));
@@ -1194,8 +1226,12 @@ export default function Home() {
 
   useEffect(() => {
     if (mode !== "discovery") return;
+    // Tab entry: condition card + ask-box body come from the local brief on the
+    // first paint (memory only), then the dictionary GET refines labels.
+    // Never openDiscoveryTemplate() here — that stashes a draft and behaves like
+    // an explicit click.
+    seedDiscoveryEntry();
     void ensureDiscoveryCatalog();
-    // Tab entry only loads the dictionary. Never prefills the Composer here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
@@ -1528,8 +1564,6 @@ export default function Home() {
 
   useEffect(() => {
     const onRefresh = () => {
-      setTodayPlanCollapsed(false);
-      setTodoPlanCollapsed(false);
       setTodayEntryTick((value) => value + 1);
       setTodoEntryTick((value) => value + 1);
     };
@@ -1758,13 +1792,6 @@ export default function Home() {
   const dueTodayCount = tabOpenTodoItems.filter((task) => openBucket(task) === "due_today").length;
   const awaitingApprovalCount = tabOpenTodoItems.filter((task) => isAwaitingApproval(task)).length;
   const todayCount = tabTodayCount;
-  const composerStreaming = busy || hasActiveRuns;
-  // 居中大输入框只留给真正空白的首屏。规划卡/记忆列表/结论卡任何一项在场，
-  // 输入框就必须回到页面底部，否则 hero 的 flex 会把内容区压成一个几十像素的
-  // 内部滚动盒（Codex 卡片被裁切、却被读成“被输入框遮住”）。
-  const todayPlanVisible = todayPlanPhase !== "idle" || todayPlanEventLabels(todayPlanEvents).length > 0;
-  const todayPaneHasContent = Boolean(todayBrief) || todayTodos.length > 0 || todayPlanVisible;
-  const composerHero = mode === "today" && todayCount === 0 && !composerStreaming && !todayPaneHasContent;
   const recognizeSeconds = recognizeElapsedSeconds(recognizeStartedAt, recognizeNow);
   const recognizeOverdue = recognizeTimedOut(recognizeStartedAt, recognizeNow);
 
@@ -1805,14 +1832,20 @@ export default function Home() {
         "home-pane"
         + (composerFocused ? " is-composer-focused" : "")
         + (composerReading ? " is-composer-reading" : "")
-        + (composerHero ? " is-composer-hero" : " is-composer-dock")
+        + " is-composer-dock"
       }
       data-home
       data-home-active-mode={mode}
       data-followed-chrome={mode === "lifecycle" || mode === "pool" ? "compact" : undefined}
       data-home-task-poll={hasActiveRuns ? "active" : "idle"}
     >
-      <div className="home-stage">
+      <div
+        className="home-stage"
+        onScroll={(event) => {
+          const top = event.currentTarget.scrollTop;
+          setStageScrolled((current) => (current ? top > 8 : top > 40));
+        }}
+      >
         <div className="home-hero">
           <div className="home-chrome" data-home-chrome>
             <div className="home-chrome-actions" data-home-chrome-actions>
@@ -1893,13 +1926,7 @@ export default function Home() {
           </div>
         </div>
 
-        <div
-          className="home-board"
-          onScroll={(event) => {
-            const top = event.currentTarget.scrollTop;
-            setStageScrolled((current) => (current ? top > 8 : top > 40));
-          }}
-        >
+        <div className="home-board">
           {mode === "today" ? (
             <TodayPane
               todayTodos={todayTodos}
@@ -1909,8 +1936,6 @@ export default function Home() {
               brief={todayBrief}
               phase={todayPlanPhase}
               events={todayPlanEvents}
-              planCollapsed={todayPlanCollapsed}
-              onPlanCollapsedChange={setTodayPlanCollapsed}
             />
           ) : null}
 
@@ -1927,20 +1952,15 @@ export default function Home() {
               todoLayout={todoBrief?.todo_layout}
               phase={todoPlanPhase}
               events={todoPlanEvents}
-              planCollapsed={todoPlanCollapsed}
-              onPlanCollapsedChange={setTodoPlanCollapsed}
             />
           ) : null}
 
           {mode === "discovery" ? <h1 data-home-title="discovery">AI发现</h1> : null}
-          {mode === "discovery" && discoveryFormBrief ? (
+          {mode === "discovery" ? (
             <DiscoverySearchCard
-              brief={discoveryFormBrief}
+              brief={discoveryFormBrief ?? fallbackDiscoveryFormBrief}
               catalog={discoveryCatalog}
-              busy={busy}
-              onChange={setDiscoveryFormBrief}
-              onSubmit={(next) => void submitDiscovery(next, renderDiscoveryBody(next, discoveryCatalog || undefined), discoveryVersion)}
-              onReset={() => setDiscoveryFormBrief(defaultDiscoveryBrief())}
+              onChange={onDiscoveryBriefChange}
             />
           ) : null}
 
@@ -2138,17 +2158,17 @@ export default function Home() {
       </div>
 
       <div
-        className={"home-composer-dock" + (composerHero ? " home-composer-dock--hero" : " home-composer-dock--dock")}
+        className="home-composer-dock home-composer-dock--dock"
         data-home-entry={
           analyzeSurface || isAnalyzePrefill(text)
             ? "kol-analyze-enqueue"
             : (discoveryBrief || lockedIntent === DISCOVERY_INTENT ? "new-discovery" : "composer-analyze")
         }
-        data-composer-rhythm={composerHero ? "hero" : "dock"}
+        data-composer-rhythm="dock"
       >
         <ComposerDock
           variant="workspace"
-          placement={composerHero ? "hero" : "dock"}
+          placement="dock"
           value={text}
           onChange={onComposerText}
           onSubmit={onComposer}
@@ -2174,55 +2194,53 @@ export default function Home() {
           objectRefs={objectRefs}
           onObjectRefsChange={setObjectRefs}
         />
-        {composerHero ? (
-          <div className="home-composer-pills" data-home-composer-pills>
-            <button
-              type="button"
-              className="home-composer-pill"
-              data-home-pill="analyze"
-              onClick={() => {
-                setMode("lifecycle");
-                setEntryIntent("analyze_followed");
-                setText("分析跟进中的红人");
-                setLockedIntent(null);
-                setLockedLabel("分析跟进");
-                setComposerFocused(true);
-                setDraftFocus((value) => value + 1);
-                stashComposerDraft({
-                  text: "分析跟进中的红人",
-                  intent: "analyze_followed",
-                  client_entry: "enqueue-analyze",
-                });
-              }}
-            >
-              分析跟进
-            </button>
-            <button
-              type="button"
-              className="home-composer-pill"
-              data-home-pill="discover"
-              onClick={() => void openDiscoveryTemplate()}
-            >
-              开始发现
-            </button>
-            <button
-              type="button"
-              className="home-composer-pill"
-              data-home-pill="plan-today"
-              onClick={() => {
-                setMode("today");
-                setEntryIntent("free");
-                setText("安排今天");
-                setLockedIntent(null);
-                setLockedLabel("安排今天");
-                setComposerFocused(true);
-                setDraftFocus((value) => value + 1);
-              }}
-            >
-              安排今天
-            </button>
-          </div>
-        ) : null}
+        <div className="home-composer-pills" data-home-composer-pills>
+          <button
+            type="button"
+            className="home-composer-pill"
+            data-home-pill="analyze"
+            onClick={() => {
+              setMode("lifecycle");
+              setEntryIntent("analyze_followed");
+              setText("分析跟进中的红人");
+              setLockedIntent(null);
+              setLockedLabel("分析跟进");
+              setComposerFocused(true);
+              setDraftFocus((value) => value + 1);
+              stashComposerDraft({
+                text: "分析跟进中的红人",
+                intent: "analyze_followed",
+                client_entry: "enqueue-analyze",
+              });
+            }}
+          >
+            分析跟进
+          </button>
+          <button
+            type="button"
+            className="home-composer-pill"
+            data-home-pill="discover"
+            onClick={() => void openDiscoveryTemplate()}
+          >
+            开始发现
+          </button>
+          <button
+            type="button"
+            className="home-composer-pill"
+            data-home-pill="plan-today"
+            onClick={() => {
+              setMode("today");
+              setEntryIntent("free");
+              setText("安排今天");
+              setLockedIntent(null);
+              setLockedLabel("安排今天");
+              setComposerFocused(true);
+              setDraftFocus((value) => value + 1);
+            }}
+          >
+            安排今天
+          </button>
+        </div>
       </div>
 
       {panelOpen && (
