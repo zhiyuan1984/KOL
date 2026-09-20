@@ -252,7 +252,7 @@ function SkillCard({
           <SkillIcon id={skill.id} />
         </div>
         <div className="skill-card-title">
-          {skill.title}
+          <span className="skill-card-name">{skill.title}</span>
           <span className="skill-card-source">{skillSource(skill.id)}</span>
         </div>
       </div>

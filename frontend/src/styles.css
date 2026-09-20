@@ -9884,8 +9884,14 @@ button.today-brief-primary-btn:disabled {
   font-size: 14px;
   font-weight: 600;
   min-width: 0;
+  flex: 1;
+}
+
+.skill-card-name {
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .skill-card-source {
