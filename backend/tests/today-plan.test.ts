@@ -10,7 +10,7 @@ import { HOME_ENTRY_REGISTRY } from "../src/host/entry-registry.js";
 import { HOME_ENTRY_REGISTRY as FRONTEND_HOME_ENTRY_REGISTRY } from "../../frontend/src/home/entryRegistry.ts";
 import { collectSourceCatalog, packTodayPlanContext, planningHarnessMount } from "../src/host/today-plan-context.js";
 import { validateTodayBrief, writeTodayBriefArtifact, runningTodayPlan, failStuckPlans } from "../src/host/today-brief.js";
-import { TODAY_PLAN_EMPLOYEE_EVENTS } from "../src/host/today-plan-run.js";
+import { TODAY_PLAN_EMPLOYEE_EVENTS, todayBriefSnapshot } from "../src/host/today-plan-run.js";
 import type { WorkerResult } from "../src/types.js";
 import { taskDefinition } from "../src/tasks/registry.js";
 import * as recognize from "../src/tasks/recognize.js";
@@ -502,5 +502,42 @@ describe("stale planning watchdog", () => {
     // A reconciled plan no longer blocks a fresh one.
     expect(runningTodayPlan(owner(), "today")).toBeNull();
     expect(runningTodayPlan(owner(), "todo")).toBeNull();
+  });
+});
+
+describe("previous plan snapshot", () => {
+  it("reports the version before the current one, never the current run twice", () => {
+    insertWorkItem({ id: "tsk_prev", title: "上一版规划", task_type: "today_plan", status: "completed" });
+    expect(writeTodayBriefArtifact({
+      owner: owner(),
+      workItemId: "tsk_prev",
+      runId: null,
+      brief: validBrief({ lead: "上一版先把报价邮件发出去" }),
+    }).ok).toBe(true);
+
+    insertWorkItem({ id: "tsk_now", title: "本轮规划", task_type: "today_plan", status: "completed" });
+    expect(writeTodayBriefArtifact({
+      owner: owner(),
+      workItemId: "tsk_now",
+      runId: null,
+      brief: validBrief({ lead: "本轮先恢复采集" }),
+    }).ok).toBe(true);
+
+    const snapshot = todayBriefSnapshot(owner(), "today");
+    expect((snapshot.brief as Json)?.lead).toBe("本轮先恢复采集");
+    expect((snapshot.previous_brief as Json)?.lead).toBe("上一版先把报价邮件发出去");
+    expect(snapshot.previous_work_item_id).toBe("tsk_prev");
+    expect(Array.isArray(snapshot.previous_events)).toBe(true);
+
+    // A second artifact of the same run must not read as a previous version.
+    expect(writeTodayBriefArtifact({
+      owner: owner(),
+      workItemId: "tsk_now",
+      runId: null,
+      brief: validBrief({ lead: "本轮改稿" }),
+    }).ok).toBe(true);
+    const again = todayBriefSnapshot(owner(), "today");
+    expect((again.previous_brief as Json)?.lead).toBe("上一版先把报价邮件发出去");
+    expect(again.previous_work_item_id).toBe("tsk_prev");
   });
 });
