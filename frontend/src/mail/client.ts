@@ -40,6 +40,7 @@ function normalizeBinding(raw: Record<string, unknown>): MailBoxBinding | null {
   return {
     mailbox,
     label: text(raw.label) || undefined,
+    owner_name: text(raw.owner_name) || undefined,
     brand: text(raw.brand) || undefined,
     region: text(raw.region) || undefined,
     unread: Number(raw.unread || raw.unread_count || 0),
@@ -159,6 +160,7 @@ export function normalizeThread(raw: Record<string, unknown>, mailbox = ""): Mai
       error: digestRaw.error ? String(digestRaw.error) : undefined,
       failed_at: digestRaw.failed_at ? String(digestRaw.failed_at) : undefined,
     },
+    hydrating: raw.hydrating === true,
   };
 }
 
@@ -199,13 +201,13 @@ async function loadFallbackWorkspace(): Promise<MailWorkspace> {
   return workspaceFromFallback(binding, board);
 }
 
-export async function loadMailWorkspace(): Promise<MailWorkspace> {
+export async function loadMailWorkspace(boxParam?: string): Promise<MailWorkspace> {
   let boxRaw: Record<string, unknown>;
   let listRaw: Record<string, unknown> | Array<Record<string, unknown>>;
   try {
     [boxRaw, listRaw] = await Promise.all([
-      api.mailBox(),
-      api.mailConversations(),
+      api.mailBox(boxParam),
+      api.mailConversations(boxParam),
     ]);
   } catch (error) {
     if (!isMissingEndpoint(error)) throw error;
@@ -262,8 +264,8 @@ export async function loadMailThread(
   return null;
 }
 
-export async function syncMailboxMail(): Promise<MailSyncReceipt> {
-  const receipt = await api.syncMailboxMail();
+export async function syncMailboxMail(box?: string): Promise<MailSyncReceipt> {
+  const receipt = await api.syncMailboxMail(box ? { box } : {});
   return {
     ok: receipt.ok !== false,
     mailbox: receipt.mailbox ? String(receipt.mailbox) : undefined,
@@ -275,4 +277,13 @@ export async function syncMailboxMail(): Promise<MailSyncReceipt> {
     cursor_at: receipt.cursor_at ? String(receipt.cursor_at) : undefined,
     error: receipt.error ? String(receipt.error) : undefined,
   };
+}
+
+/**
+ * Delay before re-reading a thread the server is still filling in the background.
+ * Bounded on purpose: remote translation runs per message and can outlast any window.
+ */
+export function hydratePollDelayMs(attempt: number): number | null {
+  if (!Number.isFinite(attempt) || attempt < 1) return null;
+  return attempt <= 8 ? 4000 : null;
 }

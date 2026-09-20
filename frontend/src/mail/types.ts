@@ -9,6 +9,7 @@ export type MailDataSource = "api" | "fallback";
 export type MailBoxBinding = {
   mailbox: string;
   label?: string;
+  owner_name?: string;
   brand?: string;
   region?: string;
   unread: number;
@@ -87,6 +88,8 @@ export type MailThread = {
   thread: MailConversation;
   messages: MailMessage[];
   digest: MailDigest;
+  /** Server is still pulling bodies/translations for this thread in the background. */
+  hydrating?: boolean;
 };
 
 /** POST /api/mail/sync — SyncReceipt + command envelope */

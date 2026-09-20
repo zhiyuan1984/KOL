@@ -6,7 +6,7 @@ import { getConn, nowIso, tx } from "../db.js";
 import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
 import { inboundIdentity, inboundByIdentity } from "./inbound-identity.js";
-import { boundMailboxEmail, currentFollowScope, safeEmployeeId, starryBindingRow } from "./starry-bind.js";
+import { boundMailboxEmail, currentFollowScope, safeEmployeeId, starryBindingRow, starryBindingRows } from "./starry-bind.js";
 import { mailboxLocalPart, normalizeEmail } from "./identity.js";
 
 export type MatchState = "matched" | "unbound" | "deferred" | "ignored";
@@ -273,7 +273,7 @@ export function findMailThread(id: string, mailbox?: string): Row | undefined {
 export function mailboxBoxStatus(mailbox?: string): MailBoxStatus {
   const box = mailbox === undefined ? currentMailbox() : mailbox;
   const userId = safeEmployeeId();
-  const bind = userId ? starryBindingRow(userId) as StarryBindingRow | undefined : undefined;
+  const bind = userId ? starryBindingRow(userId, box || undefined) as StarryBindingRow | undefined : undefined;
   const unread = unreadCountForMailbox(box);
   return {
     mailbox: box || String(bind?.mailbox_email || ""),
@@ -291,6 +291,7 @@ export function mailboxBoxStatus(mailbox?: string): MailBoxStatus {
 export type MailboxBinding = {
   mailbox: string;
   label: string;
+  owner_name: string;
   brand: string;
   region: string;
   unread: number;
@@ -300,27 +301,31 @@ export type MailboxBinding = {
 };
 
 /**
- * One entry per bound mailbox. Brand metadata comes from the mailbox_owners
- * table when present; there is no per-mailbox region source yet.
+ * One entry per binding row of the current user. Brand metadata comes from the
+ * mailbox_owners table when present; there is no per-mailbox region source yet
+ * and none may be invented from the address.
  */
 export function mailboxBindings(): MailboxBinding[] {
-  const box = mailboxBoxStatus();
-  const mailbox = String(box.mailbox || "");
-  if (!mailbox) return [];
   const userId = safeEmployeeId();
-  const bind = userId ? starryBindingRow(userId) : undefined;
-  const owner = getConn().prepare("SELECT brand, owner_name, dept FROM mailbox_owners WHERE email=?")
-    .get(mailbox) as Row | undefined;
-  return [{
-    mailbox,
-    label: String(bind?.owner_name || owner?.owner_name || mailboxLocalPart(mailbox) || mailbox),
-    brand: String(owner?.brand || ""),
-    region: "",
-    unread: unreadCountForMailbox(mailbox),
-    bound: box.bound,
-    synced_at: box.synced_at,
-    error: box.error,
-  }];
+  const rows = userId ? starryBindingRows(userId) : [];
+  return rows.map((row) => {
+    const mailbox = String(row.mailbox_email || "").trim();
+    const owner = mailbox
+      ? getConn().prepare("SELECT brand, owner_name FROM mailbox_owners WHERE email=?").get(mailbox) as Row | undefined
+      : undefined;
+    const ownerName = String(row.owner_name || owner?.owner_name || "");
+    return {
+      mailbox,
+      label: ownerName || mailboxLocalPart(mailbox) || mailbox,
+      owner_name: ownerName,
+      brand: String(owner?.brand || ""),
+      region: "",
+      unread: unreadCountForMailbox(mailbox),
+      bound: Boolean(mailbox),
+      synced_at: row.synced_at ? String(row.synced_at) : null,
+      error: row.last_error ? String(row.last_error) : null,
+    };
+  });
 }
 
 export function updateBindingSyncCursor(input: {
@@ -335,12 +340,13 @@ export function updateBindingSyncCursor(input: {
 }): void {
   const userId = String(input.userId || safeEmployeeId() || "");
   if (!userId) return;
-  const existing = starryBindingRow(userId) as StarryBindingRow | undefined;
+  const box = String(input.mailbox || "").trim();
+  const existing = starryBindingRow(userId, box || undefined) as StarryBindingRow | undefined;
   if (!existing) return;
   getConn().prepare(
     `UPDATE user_starry_bindings
      SET sync_cursor_at=?, sync_cursor_id=?, sync_page_no=?, synced_at=?, last_error=?, last_tool=?, updated_at=?
-     WHERE user_id=?`,
+     WHERE user_id=? AND mailbox_email=?`,
   ).run(
     input.cursorAt || existing.sync_cursor_at || "",
     input.cursorId || existing.sync_cursor_id || "",
@@ -350,6 +356,7 @@ export function updateBindingSyncCursor(input: {
     input.tool || "pageEmailConversations",
     nowIso(),
     userId,
+    String(existing.mailbox_email || ""),
   );
 }
 

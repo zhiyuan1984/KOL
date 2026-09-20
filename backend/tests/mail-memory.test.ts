@@ -7,7 +7,7 @@ import { getConn, resetConn } from "../src/db.js";
 import { HOME_ENTRY_REGISTRY } from "../src/host/entry-registry.js";
 import { mailPreview } from "../src/host/mail-preview.js";
 import { letterSummaryRecord } from "../src/host/mail-summary.js";
-import { matchesFollowedMailbox } from "../src/host/starry-bind.js";
+import { matchesFollowedMailbox, saveStarryBinding } from "../src/host/starry-bind.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { matchCollaboration } from "../src/starrykol/mail-fields.js";
@@ -33,6 +33,10 @@ async function request(method: string, url: string, body?: unknown) {
 
 function sessionCount(): number {
   return Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n);
+}
+
+function unreadOf(mailbox: string): number {
+  return Number((getConn().prepare("SELECT COALESCE(SUM(unread_count),0) AS n FROM kol_mail_threads WHERE mailbox=?").get(mailbox) as { n: number }).n);
 }
 
 function bindLarry(): void {
@@ -333,6 +337,33 @@ describe("mailbox memory P0", () => {
 
     const missing = await request("POST", "/api/mail/conversations/conv_missing/read");
     expect(missing.status).toBe(404);
+  });
+
+  it("serves ?box= per mailbox: bindings stay per-mailbox and unknown boxes fall back to the default", async () => {
+    bindLarry();
+    await ensureFollowedMailSync(true);
+    saveStarryBinding("usr_sriphy", { mailbox_email: "second.box@amperetime.com", owner_name: "赵良玉" });
+    const now = new Date().toISOString();
+    getConn().prepare(
+      `INSERT INTO kol_mail_threads (id, conversation_id, subject, mailbox, unread_count, last_at, created_at, updated_at)
+       VALUES ('thr_second', '9901', 'Second box mail', 'second.box@amperetime.com', 3, ?, ?, ?)`,
+    ).run(now, now, now);
+
+    const second = await request("GET", `/api/mail/box?box=${encodeURIComponent("second.box@amperetime.com")}`);
+    expect(second.body.mailbox).toBe("second.box@amperetime.com");
+    expect(Number(second.body.unread)).toBe(3);
+    const bindings = second.body.bindings as Json[];
+    expect(bindings.map((row) => row.mailbox)).toEqual(["larry.zhao@amperetime.com", "second.box@amperetime.com"]);
+    expect(bindings.every((row) => Number(row.unread) === unreadOf(String(row.mailbox)))).toBe(true);
+    expect(Number(second.body.total_unread)).toBe(
+      (bindings as Array<{ unread: number }>).reduce((sum, row) => sum + Number(row.unread), 0),
+    );
+
+    const listed = await request("GET", `/api/mail/conversations?box=${encodeURIComponent("second.box@amperetime.com")}`);
+    expect((listed.body.conversations as Json[]).map((row) => row.conversation_id)).toEqual(["9901"]);
+
+    const fallback = await request("GET", "/api/mail/box?box=unknown@example.com");
+    expect(fallback.body.mailbox).toBe("larry.zhao@amperetime.com");
   });
 
   it("registers the three mailbox-memory entries without changing confirm-send", () => {

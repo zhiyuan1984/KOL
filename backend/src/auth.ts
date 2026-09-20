@@ -274,7 +274,7 @@ export const authMiddleware: MiddlewareHandler = async (c, next) => {
 };
 
 function userPublic(user: AppUser): Json {
-  const bind = getConn().prepare("SELECT mailbox_email,mailbox_id,owner_name,status,bearer_token,updated_at FROM user_starry_bindings WHERE user_id=?").get(user.id) as Row | undefined;
+  const bind = getConn().prepare("SELECT mailbox_email,mailbox_id,owner_name,status,bearer_token,updated_at FROM user_starry_bindings WHERE user_id=? ORDER BY is_default DESC, updated_at ASC, mailbox_email ASC LIMIT 1").get(user.id) as Row | undefined;
   return {
     ...user,
     email: user.email || (user.username.includes("@") ? user.username : ""),

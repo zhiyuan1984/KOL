@@ -20,7 +20,6 @@ import {
   loadTaskEvents,
   retryHomeDiscoveryRun,
   runCountsLabel,
-  runFailed,
   runFailureReason,
   runHeadline,
   runInFlight,
@@ -111,20 +110,7 @@ export default function DiscoveryPanel({
     }
     const current = detail.data || chosen;
     setActiveRun(current);
-    // A run that never produced a shortlist (collector down, ranking failed) has
-    // its own reason. Reporting「筛选无结果」here would blame the filters for a
-    // retrieval that never ran — the reason has to reach the employee.
-    if (runFailed(current)) {
-      setFailure(presentDiscoveryError(runFailureReason(current) || "", DISCOVERY_FAILED_FALLBACK));
-      setCandidates([]);
-      setEmptyKind("idle");
-      return;
-    }
-    if (runInFlight(current)) {
-      setCandidates([]);
-      setEmptyKind("idle");
-      return;
-    }
+    const reason = runFailureReason(current);
     const next = await loadDiscoveryCandidates(chosen.id);
     if (next.down) {
       setEmptyKind("down");
@@ -133,10 +119,27 @@ export default function DiscoveryPanel({
       return;
     }
     setCandidates(next.data);
-    if (!next.data.length) {
-      setEmptyKind("filtered");
-      setEmptyMessage("按当前条件没有入围线索。");
+    if (next.data.length) {
+      // The Host keeps raw candidates when only the brief/ranking step failed
+      // (rank_failed). Listing them beats hiding a usable shortlist behind an
+      // error, so the reason becomes a banner above the results.
+      if (reason !== null) setFailure(presentDiscoveryError(reason, DISCOVERY_FAILED_FALLBACK));
+      return;
     }
+    // A run that never produced a shortlist (collector down, ranking failed) has
+    // its own reason. Reporting「筛选无结果」here would blame the filters for a
+    // retrieval that never ran — the reason has to reach the employee.
+    if (reason !== null) {
+      setFailure(presentDiscoveryError(reason, DISCOVERY_FAILED_FALLBACK));
+      setEmptyKind("idle");
+      return;
+    }
+    if (runInFlight(current)) {
+      setEmptyKind("idle");
+      return;
+    }
+    setEmptyKind("filtered");
+    setEmptyMessage("按当前条件没有入围线索。");
   };
 
   const retryRun = async () => {

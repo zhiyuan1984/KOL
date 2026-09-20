@@ -194,6 +194,23 @@ describe("POST /api/home/discovery/run validation", () => {
     expect(calls).not.toContain("start_crawl");
   });
 
+  it("reads the stored platform and keyword JSON back as plain codes", async () => {
+    const started = await request("POST", "/api/home/discovery/run", {
+      platforms: ["youtube", "instagram"],
+      mode: "search",
+      keywords: ["clean beauty"],
+      directions: ["beauty"],
+    });
+    expect(started.status).toBe(202);
+    const run = await request("GET", `/api/home/discovery/runs/${started.body.id}`);
+    expect((run.body.run as Json).spec).toMatchObject({
+      platforms: ["youtube", "instagram"],
+      keywords: ["clean beauty"],
+      directions: ["beauty"],
+    });
+    expect((run.body.run as Json).search_keywords).toEqual(["clean beauty"]);
+  });
+
   it("rejects unauthorized brand with 403", async () => {
     const result = await request("POST", "/api/home/discovery/run", {
       platforms: ["youtube"],

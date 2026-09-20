@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import Markdown from "../components/Markdown";
 import { api } from "../api";
-import { loadMailThread, loadMailWorkspace, syncMailboxMail } from "../mail/client";
+import { hydratePollDelayMs, loadMailThread, loadMailWorkspace, syncMailboxMail } from "../mail/client";
 import { mailAnalyzeDraft, mailReplyDraft, stashComposerDraft } from "../mail/composerDraft";
 import { mailDigestView } from "../mail/digestView";
 import { occurredAtMs } from "../mail-time";
@@ -341,7 +341,7 @@ export default function Mail() {
     setLoadState("loading");
     setError("");
     if (!opts?.keepNotice) setNotice("");
-    void loadMailWorkspace()
+    void loadMailWorkspace(boxParam || undefined)
       .then((next) => {
         setWorkspace(next);
         setLoadState("ok");
@@ -356,7 +356,8 @@ export default function Mail() {
 
   useEffect(() => {
     load();
-  }, []);
+    // Reload list + thread for the mailbox selected via ?box= (card click).
+  }, [boxParam]);
 
   useEffect(() => {
     if (!selected) {
@@ -364,26 +365,37 @@ export default function Mail() {
       return;
     }
     let cancelled = false;
+    let timer: number | null = null;
+    const key = selected.id || selected.conversation_id;
+    const source = workspace?.source || "api";
     setThreadError("");
     setCurrentMessageId("");
-    void loadMailThread(selected.id || selected.conversation_id, selected, workspace?.source || "api")
-      .then((next) => {
-        if (cancelled) return;
-        if (!next) {
-          setThread(null);
-          setThreadError(MAIL_THREAD_MISSING_COPY);
-          return;
-        }
-        setThread(next);
-      })
-      .catch((e) => {
-        if (!cancelled) {
-          setThread(null);
-          setThreadError(httpCopy(e, MAIL_THREAD_MISSING_COPY));
-        }
-      });
+    const fetchThread = (attempt: number) => {
+      void loadMailThread(key, selected, source)
+        .then((next) => {
+          if (cancelled) return;
+          if (!next) {
+            setThread(null);
+            setThreadError(MAIL_THREAD_MISSING_COPY);
+            return;
+          }
+          setThread(next);
+          // Bodies/translations are filled in behind the first paint; re-read on a
+          // bounded cadence instead of blocking on the remote mailbox.
+          const delay = next.hydrating ? hydratePollDelayMs(attempt + 1) : null;
+          if (delay != null) timer = window.setTimeout(() => fetchThread(attempt + 1), delay);
+        })
+        .catch((e) => {
+          if (!cancelled) {
+            setThread(null);
+            setThreadError(httpCopy(e, MAIL_THREAD_MISSING_COPY));
+          }
+        });
+    };
+    fetchThread(0);
     return () => {
       cancelled = true;
+      if (timer != null) window.clearTimeout(timer);
     };
   }, [selected?.id, selected?.conversation_id, workspace?.source]);
 
@@ -422,7 +434,7 @@ export default function Mail() {
     setError("");
     setNotice("");
     try {
-      const receipt = await syncMailboxMail();
+      const receipt = await syncMailboxMail(boxParam || undefined);
       setNotice(receipt.ok === false && receipt.error
         ? String(receipt.error)
         : `已收取${receipt.listed != null ? ` ${receipt.listed} 封会话` : ""}。`);
@@ -543,9 +555,9 @@ export default function Mail() {
                   onClick={() => openBox(binding)}
                 >
                   <span className={"mail-box-dot" + (failed ? " is-error" : " is-ok")} aria-hidden="true" />
-                  <span className="mail-box-label">{binding.label || binding.mailbox}</span>
+                  <span className="mail-box-label">{binding.mailbox}</span>
                   {binding.unread > 0 ? <span className="mail-count-pill">{binding.unread}</span> : null}
-                  <span className="mail-box-addr muted">{binding.mailbox}</span>
+                  {binding.owner_name ? <span className="mail-box-addr muted">{binding.owner_name}</span> : null}
                 </button>
               );
             })}

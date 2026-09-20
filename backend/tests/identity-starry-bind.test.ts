@@ -6,6 +6,7 @@ import type { Hono } from "hono";
 import { DEMO_ADMIN } from "../src/config.js";
 import { getConn, resetConn } from "../src/db.js";
 import { ensureStarryHomeLibrary, resetStarryHomeLibrarySync } from "../src/starrykol/library-sync.js";
+import { saveStarryBinding } from "../src/host/starry-bind.js";
 import type { Json } from "../src/types.js";
 
 let tmp = "";
@@ -152,5 +153,43 @@ describe("admin identity and Starry mailbox bind", () => {
     expect(otherBoard.json.follow_scope).toMatchObject({ required: true, bound: false });
     expect(otherBoard.json.kols as Json[]).toEqual([]);
     expect(JSON.stringify(otherBoard.json)).not.toContain("user-jwt-does-not-echo");
+  });
+
+  it("binds a second mailbox without moving the default and unbinds by mailbox", async () => {
+    const bound = await call("POST", "/api/me/starry-binding", {
+      mailbox_email: "larry.zhao@amperetime.com",
+      bearer: "user-jwt-does-not-echo",
+    });
+    expect(bound.status).toBe(200);
+    const user = getConn().prepare("SELECT id FROM users WHERE username='sriphy'").get() as { id: string };
+    saveStarryBinding(user.id, {
+      mailbox_email: "second.mailbox@amperetime.com",
+      owner_name: "赵良玉",
+    });
+
+    const pub = await call("GET", "/api/me/starry-binding");
+    const bindings = pub.json.bindings as Json[];
+    expect(bindings).toHaveLength(2);
+    expect(bindings[0]).toMatchObject({
+      mailbox_email: "larry.zhao@amperetime.com",
+      owner_name: "赵良玉",
+      is_default: true,
+    });
+    expect(bindings[1]).toMatchObject({
+      mailbox_email: "second.mailbox@amperetime.com",
+      is_default: false,
+    });
+
+    const box = await call("GET", "/api/mail/box");
+    expect((box.json.bindings as Json[]).map((row) => row.mailbox))
+      .toEqual(["larry.zhao@amperetime.com", "second.mailbox@amperetime.com"]);
+    expect(typeof box.json.total_unread).toBe("number");
+
+    const removed = await call("DELETE", "/api/me/starry-binding", {
+      mailbox_email: "second.mailbox@amperetime.com",
+    });
+    expect(removed.status).toBe(200);
+    const remaining = getConn().prepare("SELECT mailbox_email FROM user_starry_bindings").all() as Json[];
+    expect(remaining).toEqual([{ mailbox_email: "larry.zhao@amperetime.com" }]);
   });
 });

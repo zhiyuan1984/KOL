@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeBox, normalizeConversation, normalizeThread } from "./client";
+import { hydratePollDelayMs, normalizeBox, normalizeConversation, normalizeThread } from "./client";
 
 describe("mail client vs PR #177 shapes", () => {
   it("normalizes GET /api/mail/box MailBoxStatus", () => {
@@ -34,6 +34,23 @@ describe("mail client vs PR #177 shapes", () => {
     });
     expect(box?.bound).toBe(false);
     expect(box?.mailbox).toBe("");
+  });
+
+  it("carries one binding per mailbox with owner_name as the secondary line", () => {
+    const box = normalizeBox({
+      mailbox: "a@x.com",
+      bound: true,
+      unread: 1,
+      bindings: [
+        { mailbox: "a@x.com", owner_name: "甲", unread: 1, bound: true, synced_at: null, error: null },
+        { mailbox: "b@x.com", unread: 2, bound: true, synced_at: null, error: "boom" },
+      ],
+      total_unread: 3,
+    });
+    expect(box?.bindings).toHaveLength(2);
+    expect(box?.bindings?.[0]).toMatchObject({ mailbox: "a@x.com", owner_name: "甲", unread: 1 });
+    expect(box?.bindings?.[1]).toMatchObject({ mailbox: "b@x.com", owner_name: undefined, error: "boom" });
+    expect(box?.total_unread).toBe(3);
   });
 
   it("normalizes ConversationRow including last_receipt", () => {
@@ -139,5 +156,17 @@ describe("mail client vs PR #177 shapes", () => {
       summary_source: "body_analysis",
     });
     expect(thread?.digest.source).toBe("body_analysis");
+  });
+});
+
+describe("thread hydrate polling", () => {
+  it("keeps re-reading a hydrating thread every 4s for the first attempts", () => {
+    expect(hydratePollDelayMs(1)).toBe(4000);
+    expect(hydratePollDelayMs(8)).toBe(4000);
+  });
+
+  it("stops instead of polling forever", () => {
+    expect(hydratePollDelayMs(9)).toBeNull();
+    expect(hydratePollDelayMs(0)).toBeNull();
   });
 });

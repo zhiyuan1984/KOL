@@ -17,6 +17,7 @@ import { letterSummaryRecord, remoteMailAnalysisEnabled, threadDigestOf, type Th
 import { translateMailBodyZh } from "./translate-zh.js";
 import { boundMailboxEmail, currentFollowScope, matchesFollowedMailbox, safeEmployeeId } from "../host/starry-bind.js";
 import { inboundIdentity, mailAlreadySeen } from "../host/inbound-identity.js";
+import { starryKolMcpConfigured } from "../config.js";
 import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
 import {
@@ -71,9 +72,9 @@ onConnReset(() => {
   lastStarted.clear();
 });
 
-function mailboxSyncKey(): string {
-  const mailbox = boundMailboxEmail() || currentFollowScope().mailbox_email || "*";
-  return `${safeEmployeeId() || "anon"}:${mailbox}`;
+function mailboxSyncKey(mailbox = ""): string {
+  const box = mailbox || boundMailboxEmail() || currentFollowScope().mailbox_email || "*";
+  return `${safeEmployeeId() || "anon"}:${box}`;
 }
 
 export function resetFollowedMailSync(): void {
@@ -85,11 +86,11 @@ export function waitForBackgroundSync(): Promise<void> {
   return backgroundSyncTask || Promise.resolve();
 }
 
-export function startFollowedMailSync(force = false): Promise<FollowedMailSync> {
-  const key = mailboxSyncKey();
+export function startFollowedMailSync(force = false, mailbox = ""): Promise<FollowedMailSync> {
+  const key = mailboxSyncKey(mailbox);
   const existing = inflight.get(key);
   if (existing) return existing;
-  const pending = syncFollowedKolMail().finally(() => {
+  const pending = syncFollowedKolMail(mailbox).finally(() => {
     if (inflight.get(key) === pending) inflight.delete(key);
   });
   inflight.set(key, pending);
@@ -98,15 +99,15 @@ export function startFollowedMailSync(force = false): Promise<FollowedMailSync> 
   return pending;
 }
 
-export function ensureFollowedMailSync(force = false): Promise<FollowedMailSync> {
-  const key = mailboxSyncKey();
+export function ensureFollowedMailSync(force = false, mailbox = ""): Promise<FollowedMailSync> {
+  const key = mailboxSyncKey(mailbox);
   const existing = inflight.get(key);
   if (existing) return existing;
   if (!force && lastStarted.has(key) && Date.now() - (lastStarted.get(key) || 0) < CACHE_MS) {
     const cached = followedMailStatus();
     if (cached.synced_at) return Promise.resolve(cached);
   }
-  return startFollowedMailSync(force);
+  return startFollowedMailSync(force, mailbox);
 }
 
 export function followedMailStatus(): FollowedMailSync {
@@ -117,8 +118,9 @@ export function followedMailStatus(): FollowedMailSync {
   const unread = unreadCountForMailbox(mailbox);
   const employeeId = safeEmployeeId();
   const bind = employeeId
-    ? getConn().prepare("SELECT synced_at, last_error, last_tool, sync_cursor_at FROM user_starry_bindings WHERE user_id=?")
-      .get(employeeId) as {
+    ? getConn().prepare(
+      "SELECT synced_at, last_error, last_tool, sync_cursor_at FROM user_starry_bindings WHERE user_id=? ORDER BY is_default DESC, updated_at ASC, mailbox_email ASC LIMIT 1",
+    ).get(employeeId) as {
         synced_at?: string;
         last_error?: string;
         last_tool?: string;
@@ -398,6 +400,16 @@ export async function readConversation(conversationId: string): Promise<{ messag
   }
 }
 
+/** Local-only: flag untranslated bodies so the UI can say 翻译生成中… without touching the remote. */
+export function markThreadTranslationsPending(threadId: string): void {
+  if (!threadId) return;
+  getConn().prepare(
+    `UPDATE kol_mail_items SET translation_source='pending'
+     WHERE thread_id=? AND translation_zh IS NULL AND IFNULL(body_text,'') != ''
+       AND IFNULL(translation_source,'') = ''`,
+  ).run(threadId);
+}
+
 /** Fill translation_zh for items with bodies; marks 'pending' when no LLM backend is available. */
 export async function ensureThreadItemTranslations(threadId: string): Promise<void> {
   const pending = getConn().prepare(
@@ -406,10 +418,7 @@ export async function ensureThreadItemTranslations(threadId: string): Promise<vo
   ).all(threadId) as { id: string; body_text: string }[];
   if (!pending.length) return;
   if (!remoteMailAnalysisEnabled()) {
-    getConn().prepare(
-      `UPDATE kol_mail_items SET translation_source='pending'
-       WHERE thread_id=? AND translation_zh IS NULL AND IFNULL(body_text,'') != ''`,
-    ).run(threadId);
+    markThreadTranslationsPending(threadId);
     return;
   }
   for (const row of pending) {
@@ -686,22 +695,27 @@ function toSyncReceipt(result: FollowedMailSync): SyncReceipt {
   };
 }
 
-export async function syncMailboxMail(): Promise<FollowedMailSync> {
-  return ensureFollowedMailSync(true);
+export async function syncMailboxMail(mailbox = ""): Promise<FollowedMailSync> {
+  return ensureFollowedMailSync(true, mailbox);
 }
 
 export function lastSyncReceipt(): SyncReceipt {
   return toSyncReceipt(followedMailStatus());
 }
 
-export async function syncFollowedKolMail(): Promise<FollowedMailSync> {
+export async function syncFollowedKolMail(mailboxOverride = ""): Promise<FollowedMailSync> {
   const syncedAt = nowIso();
   const scope = currentFollowScope();
-  const mailbox = boundMailboxEmail() || scope.mailbox_email || "";
+  const mailbox = mailboxOverride || boundMailboxEmail() || scope.mailbox_email || "";
   const collabs = followedCollaborations(mailbox);
   const userId = safeEmployeeId();
   const binding = userId
-    ? getConn().prepare("SELECT sync_page_no FROM user_starry_bindings WHERE user_id=?").get(userId) as { sync_page_no?: number } | undefined
+    ? (mailbox
+      ? getConn().prepare("SELECT sync_page_no FROM user_starry_bindings WHERE user_id=? AND mailbox_email=?")
+          .get(userId, mailbox) as { sync_page_no?: number } | undefined
+      : getConn().prepare(
+        "SELECT sync_page_no FROM user_starry_bindings WHERE user_id=? ORDER BY is_default DESC, updated_at ASC, mailbox_email ASC LIMIT 1",
+      ).get(userId) as { sync_page_no?: number } | undefined)
     : undefined;
   const startPageNo = Number(binding?.sync_page_no ?? 1);
   if (!collabs.length && !mailbox) {
@@ -866,13 +880,17 @@ export async function syncFollowedKolMail(): Promise<FollowedMailSync> {
       updated: 0,
     };
     persistStatus(result);
-    updateBindingSyncCursor({
-      userId,
-      mailbox,
-      syncedAt,
-      error: result.error,
-      tool: "pageEmailConversations",
-    });
+    // A server-wide missing Starry config is not this mailbox's health: the receipt
+    // already carries the reason, so the binding keeps its previous last_error.
+    if (starryKolMcpConfigured()) {
+      updateBindingSyncCursor({
+        userId,
+        mailbox,
+        syncedAt,
+        error: result.error,
+        tool: "pageEmailConversations",
+      });
+    }
     audit("host", "starrykol.followed_mail_sync_failed", { error: result.error });
     return result;
   }

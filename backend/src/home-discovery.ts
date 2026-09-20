@@ -260,20 +260,30 @@ function validateSpec(body: Json): DiscoverySpec {
   };
 }
 
+/**
+ * Request columns hold JSON arrays. Reading them as plain strings kept the JSON
+ * punctuation, so `["youtube"]` came back as `['["youtube"]']` on every run spec.
+ * Legacy comma-separated rows still parse.
+ */
+function storedList(value: unknown): string[] {
+  const parsed = parseArray(value);
+  return parsed.length ? asStringList(parsed) : asStringList(value);
+}
+
 function specOf(run: Row): DiscoverySpec {
   const parameters = parseJson(run.parameters);
   const request = getConn().prepare("SELECT * FROM discovery_requests WHERE id=?").get(run.request_id) as
     | Row
     | undefined;
   const filters = parseJson(request?.filters);
+  const requestPlatforms = storedList(request?.platforms);
+  const requestKeywords = storedList(request?.keywords);
   return {
-    platforms: asStringList(request?.platforms).length
-      ? asStringList(request?.platforms)
-      : [String(run.platform || "youtube")],
+    platforms: requestPlatforms.length ? requestPlatforms : [String(run.platform || "youtube")],
     mode: String(run.mode || parameters.mode || "search"),
     keywords: asStringList(parameters.keywords).length
       ? asStringList(parameters.keywords)
-      : asStringList(request?.keywords),
+      : requestKeywords,
     directions: asStringList(filters.directions),
     brand: request?.brand ? String(request.brand) : null,
     region: String(filters.region || employeeDefaultRegion()),

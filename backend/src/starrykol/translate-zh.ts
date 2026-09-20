@@ -95,20 +95,67 @@ const zhSchema = {
   additionalProperties: false,
 };
 
-function parseZh(text: string, english: string): string | null {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start >= 0 && end > start) {
-    try {
-      const parsed = JSON.parse(text.slice(start, end + 1)) as Json;
-      const zh = String(parsed.zh || parsed.text || parsed.translation || "").trim();
-      if (isUsableInternalZh(zh, english)) return ensureInternalZhHeader(zh);
-    } catch {
-      /* fall through */
+/** First balanced `{...}` object at or after `from`, ignoring braces inside strings. */
+function firstJsonObject(text: string, from: number): { start: number; end: number } | null {
+  const start = text.indexOf("{", from);
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return { start, end: i };
     }
   }
+  return null;
+}
+
+/** A model answer that still looks like a schema envelope is not a translation. */
+function looksLikeZhEnvelope(text: string): boolean {
+  return /"\s*(zh|text|translation)\s*"\s*:/.test(String(text || ""));
+}
+
+function zhFieldOf(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw) as Json;
+    return String(parsed.zh || parsed.text || parsed.translation || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+export function parseTranslatedZh(text: string, english: string): string | null {
+  // The model may answer with several objects (`{...}\n{}`) or trailing prose, so
+  // walk the balanced objects instead of slicing from the first brace to the last.
+  let cursor = 0;
+  for (let guard = 0; guard < 5; guard += 1) {
+    const span = firstJsonObject(text, cursor);
+    if (!span) break;
+    cursor = span.end + 1;
+    const zh = zhFieldOf(text.slice(span.start, span.end + 1));
+    if (isUsableInternalZh(zh, english)) return ensureInternalZhHeader(zh);
+  }
   const raw = text.trim();
+  if (looksLikeZhEnvelope(raw)) return null;
   return isUsableInternalZh(raw, english) ? ensureInternalZhHeader(raw) : null;
+}
+
+/** Repair a translation already stored in the DB: unwrap the JSON envelope, or null to translate again. */
+export function repairStoredZh(stored: string, english: string): string | null {
+  const text = String(stored || "").trim();
+  if (!text) return null;
+  if (!looksLikeZhEnvelope(text)) return text;
+  return parseTranslatedZh(text, english);
 }
 
 async function translateWithCodex(english: string): Promise<string | null> {
@@ -153,7 +200,7 @@ async function translateWithCodex(english: string): Promise<string | null> {
     const extras = completed.turn && typeof completed.turn === "object"
       ? JSON.stringify((completed.turn as { output?: unknown }).output || {})
       : "";
-    return parseZh([...rpc.agentTexts, extras].join("\n"), english);
+    return parseTranslatedZh([...rpc.agentTexts, extras].join("\n"), english);
   } catch (err) {
     noteFailure("codex app-server", err);
     return null;
@@ -197,7 +244,7 @@ async function translateWithLuna(english: string): Promise<string | null> {
       noteFailure("luna", `HTTP ${response.status}`);
       return null;
     }
-    return parseZh(extractRemoteIntentText(await response.json()), english);
+    return parseTranslatedZh(extractRemoteIntentText(await response.json()), english);
   } catch (err) {
     noteFailure("luna", err);
     return null;

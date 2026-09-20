@@ -46,9 +46,23 @@ export function publicStarryBinding(row?: Row | null): PublicStarryBinding {
   };
 }
 
-export function starryBindingRow(userId: string): Row | undefined {
+export function starryBindingRows(userId: string): Row[] {
+  if (!userId) return [];
+  return getConn().prepare(
+    "SELECT * FROM user_starry_bindings WHERE user_id=? ORDER BY is_default DESC, updated_at ASC, mailbox_email ASC",
+  ).all(userId) as Row[];
+}
+
+export function starryBindingRow(userId: string, mailbox?: string): Row | undefined {
   if (!userId) return undefined;
-  return getConn().prepare("SELECT * FROM user_starry_bindings WHERE user_id=?").get(userId) as Row | undefined;
+  const box = String(mailbox || "").trim();
+  if (box) {
+    return getConn().prepare(
+      "SELECT * FROM user_starry_bindings WHERE user_id=? AND mailbox_email=?",
+    ).get(userId, box) as Row | undefined;
+  }
+  // No mailbox given: the default binding, else the oldest one.
+  return starryBindingRows(userId)[0];
 }
 
 export function safeEmployeeId(): string {
@@ -79,9 +93,9 @@ export function boundMailboxEmail(userId?: string | null): string {
   }
 }
 
-export function boundStarryBearer(userId?: string | null): string {
+export function boundStarryBearer(userId?: string | null, mailbox?: string): string {
   if (!userId) return "";
-  return String(starryBindingRow(userId)?.bearer_token || "").trim();
+  return String(starryBindingRow(userId, mailbox)?.bearer_token || "").trim();
 }
 
 export function currentFollowScope(): FollowScope {
@@ -135,14 +149,17 @@ export function saveStarryBinding(userId: string, input: {
 }): PublicStarryBinding {
   const mailbox = normalizeEmail(input.mailbox_email);
   if (!mailbox || !mailbox.includes("@")) throw new HttpFail(400, "请选择要绑定的 Starry 发件邮箱");
-  const existing = starryBindingRow(userId);
+  const existing = starryBindingRow(userId, mailbox);
   const bearer = String(input.bearer || existing?.bearer_token || "").trim();
+  const rowsBefore = starryBindingRows(userId);
+  // The first binding of a user becomes the default; adding another mailbox never
+  // moves the default off the existing primary mailbox.
+  const isDefault = rowsBefore.length === 0 ? 1 : 0;
   const now = nowIso();
   getConn().prepare(
-    `INSERT INTO user_starry_bindings (user_id,mailbox_email,mailbox_id,owner_name,bearer_token,status,updated_at)
-     VALUES (?,?,?,?,?,?,?)
-     ON CONFLICT(user_id) DO UPDATE SET
-       mailbox_email=excluded.mailbox_email,
+    `INSERT INTO user_starry_bindings (user_id,mailbox_email,is_default,mailbox_id,owner_name,bearer_token,status,updated_at)
+     VALUES (?,?,?,?,?,?,?,?)
+     ON CONFLICT(user_id, mailbox_email) DO UPDATE SET
        mailbox_id=excluded.mailbox_id,
        owner_name=excluded.owner_name,
        bearer_token=excluded.bearer_token,
@@ -151,6 +168,7 @@ export function saveStarryBinding(userId: string, input: {
   ).run(
     userId,
     mailbox,
+    isDefault,
     String(input.mailbox_id || existing?.mailbox_id || ""),
     String(input.owner_name || existing?.owner_name || ""),
     bearer,
@@ -162,13 +180,28 @@ export function saveStarryBinding(userId: string, input: {
     owner_name: String(input.owner_name || ""),
     admin: userId === DEMO_ADMIN.handle || userId === "usr_sriphy",
   });
-  return publicStarryBinding(starryBindingRow(userId));
+  return publicStarryBinding(starryBindingRow(userId, mailbox));
 }
 
-export function clearStarryBinding(userId: string): PublicStarryBinding {
-  getConn().prepare("DELETE FROM user_starry_bindings WHERE user_id=?").run(userId);
-  audit(userId, "starry.unbind", {});
-  return { ...EMPTY_BINDING };
+export function clearStarryBinding(userId: string, mailbox?: string): PublicStarryBinding {
+  const target = starryBindingRow(userId, mailbox);
+  if (!target) {
+    audit(userId, "starry.unbind", {});
+    return { ...EMPTY_BINDING };
+  }
+  const wasDefault = Boolean(Number(target.is_default || 0));
+  getConn().prepare("DELETE FROM user_starry_bindings WHERE user_id=? AND mailbox_email=?")
+    .run(userId, String(target.mailbox_email || ""));
+  // Removing the default mailbox promotes the oldest remaining one so a default always exists.
+  if (wasDefault) {
+    const rows = starryBindingRows(userId);
+    if (rows.length) {
+      getConn().prepare("UPDATE user_starry_bindings SET is_default=1 WHERE user_id=? AND mailbox_email=?")
+        .run(userId, String(rows[0].mailbox_email || ""));
+    }
+  }
+  audit(userId, "starry.unbind", { mailbox_email: String(target.mailbox_email || "") });
+  return publicStarryBinding(starryBindingRow(userId));
 }
 
 export function mailboxFromStarryRow(row: Json): {
