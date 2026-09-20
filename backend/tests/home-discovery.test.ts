@@ -147,9 +147,9 @@ describe("GET /api/home/discovery/template", () => {
     ]);
     const packs = result.body.keyword_packs as Json[];
     expect(packs).toHaveLength(8);
-    expect(packs.find((row) => row.id === "beauty")).toMatchObject({
-      label: "美妆护肤",
-      keywords: ["clean beauty", "skincare routine", "drugstore makeup"],
+    expect(packs.find((row) => row.id === "camping")).toMatchObject({
+      label: "户外露营",
+      keywords: ["camping", "outdoor camping", "camping gear"],
     });
     expect(result.body.defaults).toMatchObject({
       brand: "LT",

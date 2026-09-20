@@ -16,14 +16,14 @@ export const MAX_DISCOVERY_DIRECTIONS = 8;
 export type DiscoveryPlatformCode = "youtube" | "instagram" | "facebook";
 export type DiscoveryRegionCode = "na" | "eu" | "sea" | "jpkr" | "mena" | "latam" | "global_en";
 export type DiscoveryDirectionCode =
-  | "beauty"
-  | "fashion"
-  | "fitness"
-  | "food"
-  | "tech"
-  | "home"
-  | "parenting"
-  | "auto";
+  | "camping"
+  | "vanlife"
+  | "portable_power"
+  | "road_trip"
+  | "off_grid"
+  | "backup_power"
+  | "camp_gear"
+  | "boat_life";
 
 export type DiscoveryOption<T extends string = string> = {
   code: T;
@@ -75,14 +75,14 @@ export const DISCOVERY_REGION_OPTIONS: Array<DiscoveryOption<DiscoveryRegionCode
 ];
 
 export const DISCOVERY_DIRECTION_PACKS: Array<DiscoveryOption<DiscoveryDirectionCode>> = [
-  { code: "beauty", label: "美妆", keywords: ["beauty", "makeup", "skincare", "cosmetics"] },
-  { code: "fashion", label: "时尚", keywords: ["fashion", "outfit", "style", "lookbook"] },
-  { code: "fitness", label: "健身", keywords: ["fitness", "workout", "gym", "training"] },
-  { code: "food", label: "美食", keywords: ["food", "cooking", "recipe", "restaurant"] },
-  { code: "tech", label: "数码", keywords: ["tech", "gadget", "review", "unboxing"] },
-  { code: "home", label: "家居", keywords: ["home", "decor", "interior", "furniture"] },
-  { code: "parenting", label: "育儿", keywords: ["parenting", "mom", "baby", "family"] },
-  { code: "auto", label: "汽车", keywords: ["auto", "car", "ev", "review"] },
+  { code: "camping", label: "户外露营", keywords: ["camping", "outdoor camping", "camping gear"] },
+  { code: "vanlife", label: "房车", keywords: ["van life", "RV travel", "RV living"] },
+  { code: "portable_power", label: "户外能源", keywords: ["portable power station", "solar generator", "energy storage"] },
+  { code: "road_trip", label: "自驾旅行", keywords: ["road trip", "overland travel", "car camping"] },
+  { code: "off_grid", label: "离网生活", keywords: ["off grid living", "off grid solar", "homestead power"] },
+  { code: "backup_power", label: "应急备电", keywords: ["backup power", "power outage prep", "emergency power"] },
+  { code: "camp_gear", label: "露营装备", keywords: ["camping equipment", "outdoor gear review", "camp kitchen"] },
+  { code: "boat_life", label: "船用生活", keywords: ["boat life", "marine power", "sailboat living"] },
 ];
 
 export const DEFAULT_DISCOVERY_THRESHOLDS = {
@@ -99,12 +99,11 @@ export function isDomesticPlatform(code: string): boolean {
 }
 
 export function defaultDiscoveryBrief(): DiscoveryBrief {
-  const beauty = DISCOVERY_DIRECTION_PACKS[0];
   return {
-    platforms: ["youtube"],
-    region: "na",
-    directions: ["beauty"],
-    keywords: [...(beauty.keywords || [])],
+    platforms: [],
+    region: "global_en",
+    directions: [],
+    keywords: ["户外露营", "户外能源"],
     ...DEFAULT_DISCOVERY_THRESHOLDS,
   };
 }
@@ -198,8 +197,14 @@ function asStringList(value: unknown): string[] {
   return [];
 }
 
-function clampDirections(codes: string[]): DiscoveryDirectionCode[] {
-  const allowed = new Set(DISCOVERY_DIRECTION_PACKS.map((row) => row.code));
+function clampDirections(
+  codes: string[],
+  options: Array<DiscoveryOption> = DISCOVERY_DIRECTION_PACKS,
+): DiscoveryDirectionCode[] {
+  const allowed = new Set<string>([
+    ...DISCOVERY_DIRECTION_PACKS.map((row) => row.code),
+    ...options.map((row) => row.code),
+  ]);
   const next: DiscoveryDirectionCode[] = [];
   for (const raw of codes) {
     const code = String(raw || "").trim() as DiscoveryDirectionCode;
@@ -405,14 +410,13 @@ export function asDiscoveryTemplate(raw: unknown): DiscoveryTemplate | null {
     ? (row.directions as unknown[])
       .map((item) => {
         const rec = asRecord(item);
-        const code = String(rec.code || rec.id || "") as DiscoveryDirectionCode;
-        if (!DISCOVERY_DIRECTION_PACKS.some((pack) => pack.code === code)) return null;
+        const code = String(rec.code || rec.id || "").trim();
+        if (!code) return null;
+        const local = DISCOVERY_DIRECTION_PACKS.find((pack) => pack.code === code);
         return {
-          code,
-          label: String(rec.label || directionLabel(code)),
-          keywords: asStringList(rec.keywords).length
-            ? asStringList(rec.keywords)
-            : directionPack(code)?.keywords,
+          code: code as DiscoveryDirectionCode,
+          label: String(rec.label || local?.label || code),
+          keywords: asStringList(rec.keywords).length ? asStringList(rec.keywords) : local?.keywords,
         };
       })
       .filter(Boolean) as Array<DiscoveryOption<DiscoveryDirectionCode>>
@@ -430,12 +434,10 @@ export function asDiscoveryTemplate(raw: unknown): DiscoveryTemplate | null {
   const defaults = mergeDiscoveryBrief(fallback.defaults, {
     platforms: clampPlatforms(asStringList(defaultsRaw.platforms)),
     region: clampRegion(String(defaultsRaw.region || fallback.defaults.region)),
-    directions: clampDirections(asStringList(defaultsRaw.directions)),
+    directions: clampDirections(asStringList(defaultsRaw.directions), directions),
     keywords: asStringList(defaultsRaw.keywords).length
       ? asStringList(defaultsRaw.keywords)
-      : keywordsForDirections(clampDirections(asStringList(defaultsRaw.directions)).length
-        ? asStringList(defaultsRaw.directions)
-        : fallback.defaults.directions, directions),
+      : fallback.defaults.keywords,
     ...thresholds,
   });
   const body = String(row.body || "").trim().startsWith(DISCOVERY_BODY_PREFIX)

@@ -26,44 +26,44 @@ export type DiscoveryRegion = (typeof DISCOVERY_REGION_CODES)[number];
 
 export const DISCOVERY_KEYWORD_PACKS = [
   {
-    id: "beauty",
-    label: "美妆护肤",
-    keywords: ["clean beauty", "skincare routine", "drugstore makeup"],
+    id: "camping",
+    label: "户外露营",
+    keywords: ["camping", "outdoor camping", "camping gear"],
   },
   {
-    id: "fashion",
-    label: "服饰穿搭",
-    keywords: ["outfit of the day", "affordable fashion", "workwear"],
+    id: "vanlife",
+    label: "房车",
+    keywords: ["van life", "RV travel", "RV living"],
   },
   {
-    id: "fitness",
-    label: "健身运动",
-    keywords: ["home workout", "pilates", "gym routine"],
+    id: "portable_power",
+    label: "户外能源",
+    keywords: ["portable power station", "solar generator", "energy storage"],
   },
   {
-    id: "food",
-    label: "食品饮料",
-    keywords: ["healthy recipes", "energy drink review", "snack haul"],
+    id: "road_trip",
+    label: "自驾旅行",
+    keywords: ["road trip", "overland travel", "car camping"],
   },
   {
-    id: "tech",
-    label: "消费电子",
-    keywords: ["gadget review", "unboxing", "charging tips"],
+    id: "off_grid",
+    label: "离网生活",
+    keywords: ["off grid living", "off grid solar", "homestead power"],
   },
   {
-    id: "home",
-    label: "家居生活",
-    keywords: ["home organization", "apartment tour", "kitchen gadgets"],
+    id: "backup_power",
+    label: "应急备电",
+    keywords: ["backup power", "power outage prep", "emergency power"],
   },
   {
-    id: "parenting",
-    label: "亲子家庭",
-    keywords: ["mom routine", "toddler snacks", "family travel"],
+    id: "camp_gear",
+    label: "露营装备",
+    keywords: ["camping equipment", "outdoor gear review", "camp kitchen"],
   },
   {
-    id: "auto",
-    label: "汽车出行",
-    keywords: ["EV review", "charging road trip", "car maintenance"],
+    id: "boat_life",
+    label: "船用生活",
+    keywords: ["boat life", "marine power", "sailboat living"],
   },
 ] as const;
 
@@ -133,9 +133,17 @@ export function discoveryTemplate(): Json {
       label: pack.label,
       keywords: [...pack.keywords],
     })),
+    directions: DISCOVERY_KEYWORD_PACKS.map((pack) => ({
+      id: pack.id,
+      label: pack.label,
+      keywords: [...pack.keywords],
+    })),
     defaults: {
       brand: defaultBrand,
       region: defaultRegion,
+      platforms: [],
+      directions: [],
+      keywords: ["户外露营", "户外能源"],
       thresholds: { ...DEFAULT_DISCOVERY_THRESHOLDS },
     },
     employee: {

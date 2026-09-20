@@ -6,6 +6,7 @@ export default defineConfig({
     environment: "node",
     include: [
       "tests/**/*.test.ts",
+      "tests/discovery-packs.test.ts",
       "../frontend/src/connectorUse.test.ts",
       "../frontend/src/home/homeModel.test.ts",
       "../frontend/src/home/todayPlan.test.ts",

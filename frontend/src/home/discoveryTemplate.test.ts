@@ -26,8 +26,12 @@ describe("discovery template fallback", () => {
     expect(template.platforms.map((row) => row.code)).toEqual(["youtube", "instagram", "facebook"]);
     expect(template.regions.map((row) => row.code)).toEqual(["na", "eu", "sea", "jpkr", "mena", "latam", "global_en"]);
     expect(template.directions).toHaveLength(8);
-    expect(template.directions.find((row) => row.code === "beauty")?.keywords).toEqual([
-      "beauty", "makeup", "skincare", "cosmetics",
+    expect(template.directions.map((row) => row.code)).toEqual([
+      "camping", "vanlife", "portable_power", "road_trip",
+      "off_grid", "backup_power", "camp_gear", "boat_life",
+    ]);
+    expect(template.directions.find((row) => row.code === "portable_power")?.keywords).toEqual([
+      "portable power station", "solar generator", "energy storage",
     ]);
     expect(template.defaults.min_followers).toBe(10000);
     expect(template.defaults.max_followers).toBe(2000000);
@@ -41,13 +45,14 @@ describe("discovery template fallback", () => {
     expect(togglePlatform(["youtube"], "youtube")).toEqual([]);
     expect(canSubmitDiscovery({ platforms: [], keywords: ["beauty"] })).toBe(false);
     expect(canSubmitDiscovery({ platforms: ["youtube"], keywords: [] })).toBe(false);
-    expect(canSubmitDiscovery(defaultDiscoveryBrief())).toBe(true);
-    expect(toggleDirection(["beauty", "fashion", "fitness", "food", "tech", "home", "parenting", "auto"], "beauty").atMax).toBe(false);
+    expect(canSubmitDiscovery(defaultDiscoveryBrief())).toBe(false); // 平台未选，需先选平台
+    expect(canSubmitDiscovery({ ...defaultDiscoveryBrief(), platforms: ["youtube"] })).toBe(true);
+    expect(toggleDirection(["camping", "vanlife", "portable_power", "road_trip", "off_grid", "backup_power", "camp_gear", "boat_life"], "camping").atMax).toBe(false);
   });
 
   it("lets chips override the same-class body line", () => {
     const brief = defaultDiscoveryBrief();
-    const body = `${DISCOVERY_BODY_PREFIX}\n平台：Instagram\n地区：欧洲\n关键词：beauty`;
+    const body = `${DISCOVERY_BODY_PREFIX}\n平台：Instagram\n地区：欧洲\n关键词：camping`;
     expect(sameClassConflict(parseDiscoveryBody(body), brief)).toBe(true);
     const next = applyChipOverride(body, { ...brief, platforms: ["youtube"], region: "na" });
     expect(next).toContain("平台：YouTube");
