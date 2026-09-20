@@ -73,6 +73,39 @@ function crawlJobIdFor(runId: string): string {
   return String(row?.crawl_job_id || "");
 }
 
+/** `lookupFlags` reads already_in_pool off an open profile in kol_profile_index. */
+function seedPoolCreator(platformCreatorId: string): void {
+  const now = new Date().toISOString();
+  getConn().prepare(
+    `INSERT INTO kol_profile_index
+     (id, company_id, kol_uid, platform, platform_creator_id, pool_status, created_at, updated_at)
+     VALUES (?,?,?,?,?, 'open', ?, ?)`,
+  ).run(`kpi_${platformCreatorId}`, "cmp_test", `disc_${platformCreatorId}`, "youtube", platformCreatorId, now, now);
+}
+
+/** `lookupFlags` reads already_followed off a collaboration this tenant owns (owner_* 非空才算跟进). */
+function seedFollowedCreator(platformCreatorId: string): void {
+  getConn().prepare(
+    `INSERT INTO collaborations
+     (id, handle, display_name, brand, platform, email, mailbox_from, lifecycle_id,
+      conversation_id, stage_code, owner_name, owner_mailbox)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+  ).run(
+    `col_${platformCreatorId}`,
+    platformCreatorId,
+    platformCreatorId,
+    "LT",
+    "youtube",
+    "creator@example.com",
+    "ops@example.com",
+    "lc_sourcing",
+    "cv_sourcing",
+    "sourcing",
+    "钟槿年",
+    "ops@example.com",
+  );
+}
+
 async function completeRun(body: Json = {
   keywords: ["clean beauty"],
   platforms: ["youtube"],
@@ -341,8 +374,37 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     expect((candidates.body.candidates as Json[])[0]).toHaveProperty("score");
     expect((candidates.body.candidates as Json[])[0]).toHaveProperty("confidence");
     expect((candidates.body.candidates as Json[])[0]).toHaveProperty("collected_at");
+    // 没被排名就没有分数：列上的 0 是默认值，不是「推荐分 0 分」。
+    expect((candidates.body.candidates as Json[])[0]).toMatchObject({
+      score: null,
+      band: null,
+      match_reason: null,
+    });
     // brief 的 ranking 必须 join 到候选上，否则行上永远是「匹配：无」
     expect(run.raw_count).toBeGreaterThan(0);
+  });
+
+  it("derives library_status from pool / followed / library flags, followed first", async () => {
+    seedPoolCreator("yt-beauty-1");
+    const pooled = await completeRun();
+    expect(pooled.status).toBe("completed");
+    const pooledRows = await request("GET", `/api/home/discovery/runs/${pooled.id}/candidates`);
+    const pooledRow = (pooledRows.body.candidates as Json[])[0];
+    expect(pooledRow.library_status).toBe("pool");
+    // 旧口径的 in_library 只认「公海/在库」，不认 followed。
+    expect(pooledRow.in_library).toBe(true);
+
+    seedFollowedCreator("yt-beauty-1");
+    const followed = await completeRun({
+      keywords: ["van life"],
+      platforms: ["youtube"],
+      brand: "LT",
+    });
+    expect(followed.status).toBe("completed");
+    const followedRows = await request("GET", `/api/home/discovery/runs/${followed.id}/candidates`);
+    const followedRow = (followedRows.body.candidates as Json[])[0];
+    expect(followedRow.library_status).toBe("followed");
+    expect(followedRow.already_followed).toBe(true);
   });
 
   it("projects the score details and the brief ranking onto the candidate row", async () => {

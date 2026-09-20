@@ -412,14 +412,14 @@ function publicCandidate(row: Row, ranking?: Json | null): Json {
   const alreadyFollowed = Boolean(signals.already_followed);
   const alreadyInLibrary = Boolean(signals.already_in_library);
   // 规格的 library 只有三态，`already_in_library`（在 Starry / 公海）没有第四态可落，
-  // 因此并入 pool；这样 in_library 与 library_status 的档位始终一致。
+  // 因此并入 pool。`in_library` 保持旧口径（公海/在库，不含 followed），
+  // 否则「可入库」的行会被翻成「已在库」。followed 由 already_followed / library_status 表达。
   const libraryStatus = alreadyFollowed
     ? "followed"
     : alreadyInPool || alreadyInLibrary ? "pool" : "not_in_library";
   const scoreDetails = objectOf(payload.score_details);
   const why = asStringList(ranking?.why);
   const matchReason = why.length ? why.join(" · ") : null;
-  const briefScore = nullableNumber(ranking?.score);
   return {
     id: row.id,
     request_id: row.request_id,
@@ -430,13 +430,15 @@ function publicCandidate(row: Row, ranking?: Json | null): Json {
     nickname: row.nickname || row.handle || "",
     followers: followersPresent ? Number(row.followers || 0) : null,
     avg_views_10: views.length ? avgViews10(row) : null,
-    score: briefScore ?? Number(row.score || 0),
+    // 列上的 score 只由 applyRanking 写，没被排名的候选恒为列默认值 0（或同一 request
+    // 上一轮的旧分）。行上必须区分「真的 0 分」与「从没打过分」，所以只认 brief。
+    score: ranking ? nullableNumber(ranking.score) : null,
     order_index: row.order_index == null ? null : Number(row.order_index),
     metrics_missing: metricsMissing,
     already_in_pool: alreadyInPool,
     already_followed: alreadyFollowed,
     already_in_library: alreadyInLibrary,
-    in_library: libraryStatus !== "not_in_library",
+    in_library: alreadyInPool || alreadyInLibrary,
     library_status: libraryStatus,
     band: nullableString(ranking?.band),
     fit: nullableString(ranking?.fit),
@@ -813,8 +815,10 @@ function crawlerFieldsOf(clawPayload: Json, snapshot: Row): Json {
   if (avatarUrl) fields.avatar_url = avatarUrl;
   const keywords = asStringList(clawPayload.matched_keywords);
   if (keywords.length) fields.matched_keywords = keywords;
-  const fromClaw = objectOf(clawPayload.score_details);
-  const scoreDetails = Object.keys(fromClaw).length ? fromClaw : objectOf(snapshot.score_details);
+  // 本次快照优先：`claw_creators` 是每个 creator 一行、会被更晚的 ingest 覆盖，
+  // 用它的 score_details 会让 confidence / sample_size 与同一行的播放数不是同一次采集。
+  const fromSnapshot = objectOf(snapshot.score_details);
+  const scoreDetails = Object.keys(fromSnapshot).length ? fromSnapshot : objectOf(clawPayload.score_details);
   if (Object.keys(scoreDetails).length) fields.score_details = scoreDetails;
   return fields;
 }
