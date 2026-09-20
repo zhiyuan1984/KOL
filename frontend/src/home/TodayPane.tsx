@@ -28,6 +28,8 @@ export default function TodayPane({
   brief,
   phase = "idle",
   events,
+  previousBrief,
+  previousEvents,
 }: {
   todayTodos: Task[];
   busy: boolean;
@@ -36,6 +38,8 @@ export default function TodayPane({
   brief?: TodayBrief | null;
   phase?: TodayPlanPhase;
   events?: TaskEvent[] | null;
+  previousBrief?: TodayBrief | null;
+  previousEvents?: TaskEvent[] | null;
 }) {
   const rows = useMemo(
     () => todayTodos.map((task) => ({
@@ -66,7 +70,14 @@ export default function TodayPane({
           onEdit={onEdit}
           planPhase={phase}
           stream={<>
-            <TodayPlanProgress phase={phase} events={events} candidates={candidateCount(brief)} scope="today" />
+            <TodayPlanProgress
+              phase={phase}
+              events={events}
+              candidates={candidateCount(brief)}
+              previousBrief={previousBrief}
+              previousEvents={previousEvents}
+              scope="today"
+            />
             <PlanSummary brief={brief} />
           </>}
         />

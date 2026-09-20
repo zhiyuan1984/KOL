@@ -586,10 +586,14 @@ export default function Home() {
   const [todoMemoryTasks, setTodoMemoryTasks] = useState<Task[] | null>(null);
   const [todayPlanEvents, setTodayPlanEvents] = useState<TaskEvent[]>([]);
   const [todayPlanPhase, setTodayPlanPhase] = useState<TodayPlanPhase>("loading-memory");
+  const [todayPrevBrief, setTodayPrevBrief] = useState<TodayBrief | null>(null);
+  const [todayPrevEvents, setTodayPrevEvents] = useState<TaskEvent[]>([]);
   const [todayEntryTick, setTodayEntryTick] = useState(0);
   const [todoBrief, setTodoBrief] = useState<TodayBrief | null>(null);
   const [todoPlanEvents, setTodoPlanEvents] = useState<TaskEvent[]>([]);
   const [todoPlanPhase, setTodoPlanPhase] = useState<TodayPlanPhase>("loading-memory");
+  const [todoPrevBrief, setTodoPrevBrief] = useState<TodayBrief | null>(null);
+  const [todoPrevEvents, setTodoPrevEvents] = useState<TaskEvent[]>([]);
   const [todoEntryTick, setTodoEntryTick] = useState(0);
   const nav = useNavigate();
   const mode = parseHomeMode(params.get("tab"));
@@ -1608,6 +1612,12 @@ export default function Home() {
         if (Object.prototype.hasOwnProperty.call(step, "brief")) {
           setTodayBrief(step.brief ?? null);
         }
+        if (Object.prototype.hasOwnProperty.call(step, "previousBrief")) {
+          setTodayPrevBrief(step.previousBrief ?? null);
+        }
+        if (Array.isArray(step.previousEvents)) {
+          setTodayPrevEvents(step.previousEvents);
+        }
         if (Array.isArray(step.events)) {
           setTodayPlanEvents(step.events);
         }
@@ -1676,6 +1686,12 @@ export default function Home() {
         }
         if (Object.prototype.hasOwnProperty.call(step, "brief")) {
           setTodoBrief(step.brief ?? null);
+        }
+        if (Object.prototype.hasOwnProperty.call(step, "previousBrief")) {
+          setTodoPrevBrief(step.previousBrief ?? null);
+        }
+        if (Array.isArray(step.previousEvents)) {
+          setTodoPrevEvents(step.previousEvents);
         }
         if (Array.isArray(step.events)) {
           setTodoPlanEvents(step.events);
@@ -1936,6 +1952,8 @@ export default function Home() {
               brief={todayBrief}
               phase={todayPlanPhase}
               events={todayPlanEvents}
+              previousBrief={todayPrevBrief}
+              previousEvents={todayPrevEvents}
             />
           ) : null}
 
@@ -1952,6 +1970,8 @@ export default function Home() {
               todoLayout={todoBrief?.todo_layout}
               phase={todoPlanPhase}
               events={todoPlanEvents}
+              previousBrief={todoPrevBrief}
+              previousEvents={todoPrevEvents}
             />
           ) : null}
 

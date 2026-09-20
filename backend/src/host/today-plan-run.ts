@@ -504,6 +504,7 @@ export function todayBriefSnapshot(owner = ownerId(), scope: PlanScope = "today"
   ).get(owner, planTaskType(scope)) as { id: string } | undefined;
   const traceItem = running?.work_item_id || newestRun?.id || latest?.work_item_id || null;
   const briefItem = running?.work_item_id || latest?.work_item_id || null;
+  const previous = previousPlan(owner, scope, briefItem || traceItem);
   return {
     planning: Boolean(running),
     brief,
@@ -511,9 +512,43 @@ export function todayBriefSnapshot(owner = ownerId(), scope: PlanScope = "today"
     work_item_id: briefItem || traceItem,
     session_id: running?.session_id || null,
     run_id: running?.run_id || null,
+    previous_brief: previous.brief,
+    previous_events: previous.events,
+    previous_work_item_id: previous.work_item_id,
     entry: "memory",
     kind: "memory",
     creates_session: false,
     calls_model: false,
+  };
+}
+
+/**
+ * The plan before the current one, so the pane can fold it to a single row
+ * instead of stacking versions. Keyed off the current work item so a second
+ * artifact of the same run never counts as "previous".
+ */
+export function previousPlan(owner: string, scope: PlanScope, currentWorkItemId: string | null): {
+  brief: Json | null;
+  events: Json[];
+  work_item_id: string | null;
+} {
+  const current = String(currentWorkItemId || "");
+  const artifacts = getConn().prepare(
+    `SELECT a.work_item_id, a.payload
+       FROM task_artifacts a
+       JOIN work_items w ON w.id = a.work_item_id
+      WHERE w.owner_user_id=? AND w.task_type=? AND a.artifact_type='today_brief'
+      ORDER BY a.created_at DESC
+      LIMIT 4`,
+  ).all(owner, planTaskType(scope)) as { work_item_id: string; payload: string }[];
+  const previousArtifact = artifacts.find((row) => String(row.work_item_id) !== current) || null;
+  const runs = getConn().prepare(
+    `SELECT id FROM work_items WHERE owner_user_id=? AND task_type=? ORDER BY created_at DESC LIMIT 4`,
+  ).all(owner, planTaskType(scope)) as { id: string }[];
+  const previousRun = runs.find((row) => String(row.id) !== current) || null;
+  return {
+    brief: previousArtifact ? parseJson(previousArtifact.payload) : null,
+    events: previousRun ? planningEvents(String(previousRun.id)) : [],
+    work_item_id: previousRun ? String(previousRun.id) : null,
   };
 }

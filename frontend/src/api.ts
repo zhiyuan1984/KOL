@@ -291,6 +291,10 @@ export type TodayBriefResponse = {
   work_item_id?: string | null;
   session_id?: string | null;
   run_id?: string | null;
+  /** The plan before the current one, folded to one row by the pane. */
+  previous_brief?: TodayBrief | null;
+  previous_events?: TaskEvent[];
+  previous_work_item_id?: string | null;
   creates_session?: boolean;
   calls_model?: boolean;
 };

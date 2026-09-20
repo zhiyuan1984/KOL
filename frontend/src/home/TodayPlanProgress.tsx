@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { TaskEvent } from "../api";
+import type { TaskEvent, TodayBrief } from "../api";
 import {
   formatTodayPlanElapsed,
   todayPlanEventLabels,
@@ -95,11 +95,16 @@ export default function TodayPlanProgress({
   phase = "idle",
   events,
   candidates,
+  previousBrief,
+  previousEvents,
   scope = "today",
 }: {
   phase?: TodayPlanPhase;
   events?: TaskEvent[] | null;
   candidates?: number | null;
+  /** The version before this one, folded to a single row. */
+  previousBrief?: TodayBrief | null;
+  previousEvents?: TaskEvent[] | null;
   scope?: PlanScope;
 }) {
   const live = phase === "loading-memory" || phase === "planning";
@@ -107,6 +112,7 @@ export default function TodayPlanProgress({
   const elapsed = usePlanningElapsed(live);
   const status = todayPlanStatusCopy(phase, scope);
   const labels = todayPlanEventLabels(events);
+  const [previousOpen, setPreviousOpen] = useState(false);
 
   // Every step gets a clock time: the backend created_at when present,
   // otherwise a local stamp from the first time this client saw the step.
@@ -169,7 +175,16 @@ export default function TodayPlanProgress({
   const foldedThink = Math.max(0, thinkRows.length - 1);
   const finishedAt = steps.length ? steps[steps.length - 1].time : "";
 
-  if (!status && !steps.length) return null;
+  // The previous version stays reachable but never competes with the current one.
+  const previousSteps = useMemo(() => todayPlanEventLabels(previousEvents), [previousEvents]);
+  const previousStamp = (() => {
+    const last = (previousEvents || [])[previousEvents ? previousEvents.length - 1 : 0];
+    return last ? eventTime(last) : "";
+  })();
+  const previousTasks = Number(previousBrief?.stats?.unfinished);
+  const hasPrevious = Boolean(previousBrief) || previousSteps.length > 0;
+
+  if (!status && !steps.length && !hasPrevious) return null;
 
   const title = failed ? "Codex 规划未通过" : live ? "Codex 思考过程" : "Codex 已完成规划";
   return (
@@ -181,6 +196,35 @@ export default function TodayPlanProgress({
       data-today-plan-open={open ? "true" : "false"}
       role="status"
     >
+      {hasPrevious ? (
+        <div className="today-plan-previous" data-today-plan-previous>
+          <button
+            type="button"
+            className="today-plan-previous-head"
+            aria-expanded={previousOpen}
+            onClick={() => setPreviousOpen((value) => !value)}
+          >
+            <span className="today-plan-previous-label">上一版计划</span>
+            {previousStamp ? <time>{previousStamp}</time> : null}
+            {Number.isFinite(previousTasks) && previousTasks > 0 ? (
+              <span>· {previousTasks} 项任务</span>
+            ) : previousSteps.length ? (
+              <span>· {previousSteps.length} 步</span>
+            ) : null}
+            <span className="today-plan-previous-more">{previousOpen ? "收起 ‹" : "查看 ›"}</span>
+          </button>
+          {previousOpen ? (
+            <div className="today-plan-previous-body">
+              {previousBrief?.lead ? <p className="today-plan-previous-lead">{previousBrief.lead}</p> : null}
+              {previousSteps.length ? (
+                <ol className="today-plan-previous-steps">
+                  {previousSteps.map((label, index) => <li key={`${label}-${index}`}>{label}</li>)}
+                </ol>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
       <header className="today-plan-head">
         <span className={"today-plan-state" + (failed ? " is-failed" : live ? " is-live" : " is-done")} aria-hidden>
           {failed ? (

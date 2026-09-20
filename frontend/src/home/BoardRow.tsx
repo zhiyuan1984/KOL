@@ -121,7 +121,7 @@ export default function BoardRow({
               {task.title}
             </button>
           </div>
-          {(why || statusLabel || priority.label || riskLabel) ? (
+          {(why || statusLabel || riskLabel || boardSourceLabel(task)) ? (
             <div className="today-board-meta">
               {why ? <p className="today-board-why">{why}</p> : null}
               <span className="today-board-chips">
@@ -130,18 +130,16 @@ export default function BoardRow({
                     {statusLabel}
                   </span>
                 ) : null}
-                {priority.label ? (
-                  <span className="today-board-chip" data-priority-label={priority.label}>{priority.label}</span>
-                ) : null}
                 {riskLabel ? (
                   <span className="today-board-chip" data-risk-level={task.risk_level}>风险{riskLabel}</span>
                 ) : null}
+                {/* 来源不再独占一列：作为弱化尾注留在元信息里。 */}
+                <span className="today-board-source-note">{boardSourceLabel(task)}</span>
               </span>
             </div>
           ) : null}
         </div>
       </td>
-      <td className="today-board-cell-source">{boardSourceLabel(task)}</td>
       <td className="today-board-cell-actions">
         <button
           type="button"

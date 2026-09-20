@@ -394,6 +394,17 @@
   width: 100%;
   max-width: none;
 }
+/* §11: the ask box is the workspace footer bar — square, borderless, its only
+   edge is the dock's top hairline. */
+.home-pane.is-composer-dock .home-composer-dock .composer.composer--workspace {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.home-pane.is-composer-dock .home-composer-dock .composer.composer--workspace:focus-within,
+.home-pane.is-composer-dock .home-composer-dock .composer.composer--workspace.is-focused {
+  box-shadow: none;
+}
 
 .home-composer-pills {
   display: flex;

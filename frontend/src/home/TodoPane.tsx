@@ -17,6 +17,8 @@ export default function TodoPane({
   brief,
   phase = "idle",
   events,
+  previousBrief,
+  previousEvents,
   todoLayout,
 }: {
   tasks: Task[];
@@ -29,6 +31,8 @@ export default function TodoPane({
   brief?: TodayBrief | null;
   phase?: TodayPlanPhase;
   events?: TaskEvent[] | null;
+  previousBrief?: TodayBrief | null;
+  previousEvents?: TaskEvent[] | null;
   todoLayout?: TodoLayoutItem[] | null;
 }) {
   // Rows are fixed frontend projections of base work items — todo layout (if any)
@@ -62,7 +66,13 @@ export default function TodoPane({
         showPlanButton={false}
         planPhase={phase}
         stream={<>
-          <TodayPlanProgress phase={phase} events={events} scope="todo" />
+          <TodayPlanProgress
+            phase={phase}
+            events={events}
+            previousBrief={previousBrief}
+            previousEvents={previousEvents}
+            scope="todo"
+          />
           <PlanSummary brief={brief} />
         </>}
       />

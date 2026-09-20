@@ -248,6 +248,56 @@
   50% { border-left-color: var(--plan-accent); }
 }
 
+/* 上一版计划 — folded to one row so versions never stack. */
+.today-plan-previous {
+  margin: 0 0 var(--space-3, 12px);
+}
+.today-plan-previous-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  cursor: pointer;
+  text-align: left;
+}
+.today-plan-previous-head:hover {
+  color: var(--text);
+}
+.today-plan-previous-label {
+  font-weight: 600;
+}
+.today-plan-previous-head time,
+.today-plan-previous-head span {
+  font-variant-numeric: tabular-nums;
+}
+.today-plan-previous-more {
+  margin-left: auto;
+  white-space: nowrap;
+}
+.today-plan-previous-body {
+  padding: 0 0 4px 2px;
+}
+.today-plan-previous-lead {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+.today-plan-previous-steps {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+
 /* 今日计划摘要 — light text block, deliberately not a card and with no action
    button: the actionable line belongs to the task row. */
 .today-plan-summary {

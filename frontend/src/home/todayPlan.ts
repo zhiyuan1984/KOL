@@ -103,6 +103,8 @@ export type TodayPlanStep = {
   displayTasks?: DisplayTaskRow[];
   brief?: TodayBrief | null;
   events?: TaskEvent[];
+  previousBrief?: TodayBrief | null;
+  previousEvents?: TaskEvent[];
   planning?: boolean;
   attached?: boolean;
 };
@@ -204,6 +206,14 @@ export async function runTodayPlanRefresh(
   let brief: TodayBrief | null = null;
   let memory: TodayBriefResponse | undefined;
   let events: TaskEvent[] | undefined;
+  let previousBrief: TodayBrief | null | undefined;
+  let previousEvents: TaskEvent[] | undefined;
+
+  /** The previous version rides along with every brief read. */
+  const absorbPrevious = (row: TodayBriefResponse) => {
+    if (row.previous_brief !== undefined) previousBrief = row.previous_brief ?? null;
+    if (Array.isArray(row.previous_events)) previousEvents = row.previous_events;
+  };
 
   const tasksPromise = client.listOpenTasks().then((rows) => {
     tasks = memoryTasksOf(rows);
@@ -213,6 +223,8 @@ export async function runTodayPlanRefresh(
         step.brief = brief;
         step.planning = Boolean(memory.planning);
         if (events) step.events = events;
+        if (previousBrief !== undefined) step.previousBrief = previousBrief;
+        if (previousEvents) step.previousEvents = previousEvents;
       }
       onStep(step);
     }
@@ -223,6 +235,7 @@ export async function runTodayPlanRefresh(
     if (row.brief !== undefined) brief = row.brief ?? null;
     const nextEvents = eventsOf(row);
     if (nextEvents) events = nextEvents;
+    absorbPrevious(row);
     if (!aborted(signal)) {
       onStep({
         phase: "loading-memory",
@@ -230,6 +243,8 @@ export async function runTodayPlanRefresh(
         displayTasks,
         brief,
         events,
+        previousBrief,
+        previousEvents,
         planning: Boolean(row.planning),
       });
     }
@@ -244,6 +259,8 @@ export async function runTodayPlanRefresh(
         displayTasks,
         brief,
         events,
+        previousBrief,
+        previousEvents,
         planning: Boolean(memory?.planning),
       });
     }
@@ -251,7 +268,7 @@ export async function runTodayPlanRefresh(
   });
 
   await Promise.allSettled([tasksPromise, briefPromise, displayPromise]);
-  if (aborted(signal)) return { phase: "idle", tasks, displayTasks, brief, events };
+  if (aborted(signal)) return { phase: "idle", tasks, displayTasks, brief, events, previousBrief, previousEvents };
 
   onStep({
     phase: "planning",
@@ -259,6 +276,8 @@ export async function runTodayPlanRefresh(
     displayTasks,
     brief,
     events,
+    previousBrief,
+    previousEvents,
     planning: true,
     attached: Boolean(memory?.planning),
   });
@@ -285,6 +304,7 @@ export async function runTodayPlanRefresh(
       if (row.brief !== undefined) brief = row.brief ?? brief;
       const nextEvents = eventsOf(row);
       if (nextEvents) events = nextEvents;
+      absorbPrevious(row);
       if (row.planning) {
         onStep({
           phase: "planning",
@@ -292,6 +312,8 @@ export async function runTodayPlanRefresh(
           displayTasks,
           brief,
           events,
+          previousBrief,
+          previousEvents,
           planning: true,
           attached,
         });
@@ -299,19 +321,19 @@ export async function runTodayPlanRefresh(
         continue;
       }
       if (todayPlanFailedFromBrief(row, scope)) {
-        const failed: TodayPlanStep = { phase: "failed", tasks, displayTasks, brief, events };
+        const failed: TodayPlanStep = { phase: "failed", tasks, displayTasks, brief, events, previousBrief, previousEvents };
         onStep(failed);
         return failed;
       }
       const nextDisplay = await loadDisplayTasks(client);
       if (nextDisplay) displayTasks = nextDisplay;
-      const refreshed: TodayPlanStep = { phase: "refreshed", tasks, displayTasks, brief, events };
+      const refreshed: TodayPlanStep = { phase: "refreshed", tasks, displayTasks, brief, events, previousBrief, previousEvents };
       onStep(refreshed);
       return refreshed;
     } catch {
       errors += 1;
       if (errors >= 3) {
-        const failed: TodayPlanStep = { phase: "failed", tasks, displayTasks, brief, events };
+        const failed: TodayPlanStep = { phase: "failed", tasks, displayTasks, brief, events, previousBrief, previousEvents };
         onStep(failed);
         return failed;
       }

@@ -243,3 +243,71 @@ test("a settled run collapses to one line and expands on demand", async ({ page 
   await expect(page.locator("[data-today-plan-steps]")).toBeVisible();
   await expect(page.locator(".today-plan-toggle")).toContainText("收起过程");
 });
+
+test("the previous version folds to one row and the row keeps no duplicate priority", async ({ page }) => {
+  await page.route("**/api/tasks**", (route) => route.fulfill({
+    json: {
+      view: "open",
+      tasks: [{
+        id: "tsk_1",
+        title: "恢复美妆护肤类 YouTube 达人采集",
+        source: "manual",
+        status: "failed",
+        due_at: new Date().toISOString(),
+        priority: "high",
+        layout_why: "采集失败，本轮集中出现多项同类异常。",
+        display_verb: "retry",
+      }],
+    },
+  }));
+  await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
+  await page.route("**/api/home/todo-brief**", (route) =>
+    route.fulfill({ json: { planning: false, brief: null, events: [], creates_session: false } }));
+  await page.route("**/api/home/today-brief**", async (route) => {
+    const url = new URL(route.request().url());
+    if (route.request().method() === "POST" && url.pathname.endsWith("/plan")) {
+      await route.fulfill({ json: { planning: true, attached: true, work_item_id: "tsk_plan" } });
+      return;
+    }
+    await route.fulfill({
+      json: {
+        planning: false,
+        brief: { lead: "本轮先恢复采集。", stats: { unfinished: 1, failed_runs: 1, discovery_anomalies: 0, candidates: 12 } },
+        events: [
+          ...TRACE.slice(0, 6),
+          { id: "c1", sequence: 9, type: "run.completed", status: "completed", title: "今日规划已完成", created_at: "2026-09-20T06:52:00.000Z" },
+        ],
+        previous_brief: { lead: "上一版先把报价邮件发出去。", stats: { unfinished: 2 } },
+        previous_events: [
+          { id: "p1", sequence: 1, type: "run.step", status: "done", item_key: "host:preparing", title: "上一版准备任务", created_at: "2026-09-20T06:40:00.000Z" },
+          { id: "p2", sequence: 2, type: "run.completed", status: "completed", title: "上一版已完成", created_at: "2026-09-20T06:41:00.000Z" },
+        ],
+        creates_session: false,
+        calls_model: false,
+      },
+    });
+  });
+  await page.goto("/");
+
+  // 上一版默认折叠成一行（36-40px 量级），不与当前版本争视线。
+  const previous = page.locator("[data-today-plan-previous]");
+  await expect(previous).toBeVisible();
+  await expect(previous).toContainText("上一版计划");
+  await expect(previous).toContainText("2 项任务");
+  await expect(page.locator(".today-plan-previous-body")).toHaveCount(0);
+  const collapsed = (await previous.boundingBox())!.height;
+  expect(collapsed).toBeLessThan(48);
+  await previous.locator("button").click();
+  await expect(page.locator(".today-plan-previous-body")).toContainText("上一版先把报价邮件发出去");
+
+  // 任务行不再重复：优先级只出现一次，来源不再独占一列。
+  const row = page.locator('[data-today-todo="tsk_1"]');
+  await expect(row.locator("[data-priority-label]")).toHaveCount(0);
+  await expect(row.locator("[data-board-status]")).toHaveCount(1);
+  await expect(row.locator(".today-board-source-note")).toHaveText("我的待办");
+  await expect(page.locator(".today-board-table thead")).not.toContainText("来源");
+  // 复选框默认不显形，悬停才出现。
+  await expect(row.locator(".today-board-check")).toHaveCSS("opacity", "0");
+  await row.hover();
+  await expect(row.locator(".today-board-check")).toHaveCSS("opacity", "1");
+});
