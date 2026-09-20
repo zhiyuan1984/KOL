@@ -18,6 +18,7 @@ export default defineConfig({
       "../frontend/src/layout/sidebarNav.test.ts",
       "../frontend/src/composer/catalog.test.ts",
       "../frontend/src/composer/draft.test.ts",
+      "../frontend/src/home/discoveryBriefForm.test.ts",
     ],
     setupFiles: ["./tests/setup.ts"],
     fileParallelism: false,
