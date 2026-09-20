@@ -230,6 +230,21 @@ describe("POST /api/home/discovery/run validation", () => {
     expect(result.status).toBe(400);
     expect(result.body.detail).toMatchObject({ code: "too_many_directions" });
   });
+
+  it("honours the frontend threshold names for 均播 and 期望人数", async () => {
+    const started = await request("POST", "/api/home/discovery/run", {
+      platforms: ["youtube"],
+      mode: "search",
+      keywords: ["portable power station"],
+      min_avg_plays_10: 9000,
+      expect_count: 12,
+    });
+    expect(started.status).toBe(202);
+    const run = await request("GET", `/api/home/discovery/runs/${started.body.id}`);
+    expect((run.body.run as Json).spec).toMatchObject({
+      thresholds: { min_avg_views_10: 9000, target_count: 12 },
+    });
+  });
 });
 
 describe("POST /api/home/discovery/run lifecycle", () => {

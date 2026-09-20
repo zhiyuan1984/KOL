@@ -239,7 +239,11 @@ function validateSpec(body: Json): DiscoverySpec {
     .toLowerCase();
   const region = isDiscoveryRegion(regionRaw) ? regionRaw : employeeDefaultRegion();
   const rawThresholds = (body.thresholds && typeof body.thresholds === "object" ? body.thresholds : body) as Json;
-  let targetCount = Number(rawThresholds.target_count ?? DEFAULT_DISCOVERY_THRESHOLDS.target_count);
+  // Frontend ships `min_avg_plays_10` / `expect_count`; the Host columns keep the
+  // older names. Read both so the 均播 / 期望人数 inputs are not silently ignored.
+  let targetCount = Number(
+    rawThresholds.target_count ?? rawThresholds.expect_count ?? DEFAULT_DISCOVERY_THRESHOLDS.target_count,
+  );
   if (!Number.isFinite(targetCount) || targetCount <= 0) targetCount = DEFAULT_DISCOVERY_THRESHOLDS.target_count;
   const clamped = targetCount > MAX_DISCOVERY_TARGET;
   if (clamped) targetCount = MAX_DISCOVERY_TARGET;
@@ -253,7 +257,11 @@ function validateSpec(body: Json): DiscoverySpec {
     thresholds: {
       min_followers: Number(rawThresholds.min_followers ?? DEFAULT_DISCOVERY_THRESHOLDS.min_followers),
       max_followers: Number(rawThresholds.max_followers ?? DEFAULT_DISCOVERY_THRESHOLDS.max_followers),
-      min_avg_views_10: Number(rawThresholds.min_avg_views_10 ?? DEFAULT_DISCOVERY_THRESHOLDS.min_avg_views_10),
+      min_avg_views_10: Number(
+        rawThresholds.min_avg_views_10
+          ?? rawThresholds.min_avg_plays_10
+          ?? DEFAULT_DISCOVERY_THRESHOLDS.min_avg_views_10,
+      ),
       target_count: targetCount,
     },
     target_count_clamped: clamped,
