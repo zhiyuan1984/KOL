@@ -492,7 +492,15 @@ async function fetchConversationPage(pageNo: number, pageSize: number, mailbox: 
   const rawList = listOf(payload);
   const conversations = rawList.filter((conv) => {
     const remoteMailbox = conversationMailboxOf(conv);
-    return !mailbox || !remoteMailbox || remoteMailbox.toLowerCase() === mailbox.toLowerCase();
+    if (!mailbox || !remoteMailbox) return true;
+    const bound = mailbox.toLowerCase();
+    const remote = remoteMailbox.toLowerCase();
+    if (remote === bound) return true;
+    // The remote ignores mailboxEmail and mixes in other employees' rows.
+    // Drop only same-domain coworker mailboxes; keep brand and external mailboxes.
+    const boundDomain = bound.split("@")[1] || "";
+    const remoteDomain = remote.split("@")[1] || "";
+    return remoteDomain !== boundDomain;
   });
   return {
     pageNo,

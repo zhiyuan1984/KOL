@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
-import { ensureFollowedMailSync, resetFollowedMailSync } from "../src/starrykol/mail-sync.js";
+import { ensureFollowedMailSync, resetFollowedMailSync, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import type { Json } from "../src/types.js";
 
@@ -163,6 +163,57 @@ describe("followed KOL unread mail sync", () => {
     await ensureFollowedMailSync(true);
     expect(getConn().prepare("SELECT 1 FROM kol_mail_threads WHERE conversation_id='5901'").get()).toBeUndefined();
     expect(calls).not.toContain("getEmailConversation");
+  });
+
+  it("keeps brand-mailbox and external conversations, drops same-domain coworker mailboxes", async () => {
+    bindLarry();
+    setStarryKolClientFactory(() => ({
+      async callTool(name: string) {
+        calls.push(name);
+        if (name === "pageEmailConversations") {
+          return { data: { list: [
+            {
+              id: 6001,
+              conversationId: 6001,
+              subject: "Coworker thread",
+              mailboxEmail: "henry.wei@amperetime.com",
+              unreadCount: 1,
+            },
+            {
+              id: 6002,
+              conversationId: 6002,
+              subject: "Brand mailbox thread",
+              mailboxEmail: "brandmarketing@litime.com",
+              unreadCount: 1,
+            },
+            {
+              id: 6003,
+              conversationId: 6003,
+              subject: "External creator thread",
+              mailboxEmail: "creator@gmail.com",
+              unreadCount: 1,
+            },
+          ] } };
+        }
+        if (name === "getEmailConversation") {
+          return { data: { id: 1, subject: "Detail", messages: [{
+            id: "mid-detail",
+            direction: "inbound",
+            from: "creator@example.com",
+            body: "Interested in collaboration",
+            sentAt: "2020-09-19 10:00:00",
+          }] } };
+        }
+        return { data: {} };
+      },
+      async close() { /* noop */ },
+    }));
+
+    await ensureFollowedMailSync(true);
+    await waitForBackgroundSync();
+    expect(getConn().prepare("SELECT 1 FROM kol_mail_threads WHERE conversation_id='6001'").get()).toBeUndefined();
+    expect(getConn().prepare("SELECT 1 FROM kol_mail_threads WHERE conversation_id='6002'").get()).toBeTruthy();
+    expect(getConn().prepare("SELECT 1 FROM kol_mail_threads WHERE conversation_id='6003'").get()).toBeTruthy();
   });
 
   it("collects Starry inbound threads on home refresh and shows unread by thread id", async () => {
