@@ -1459,6 +1459,11 @@ export const api = {
     request<Record<string, unknown> | Array<Record<string, unknown>>>("/api/home/discovery/runs"),
   homeDiscoveryRun: (runId: string) =>
     request<Record<string, unknown>>(`/api/home/discovery/runs/${encodeURIComponent(runId)}`),
+  retryHomeDiscoveryRun: (runId: string) =>
+    request<Record<string, unknown>>(`/api/home/discovery/runs/${encodeURIComponent(runId)}/retry`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
   homeDiscoveryRunCandidates: (runId: string) =>
     request<Record<string, unknown> | Array<Record<string, unknown>>>(
       `/api/home/discovery/runs/${encodeURIComponent(runId)}/candidates`,

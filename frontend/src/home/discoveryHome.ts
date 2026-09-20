@@ -22,6 +22,7 @@ export type HomeDiscoveryRun = {
   session_id?: string;
   brief_version: number;
   created_at?: string;
+  error?: string | null;
 };
 
 export type HomeDiscoveryCandidate = {
@@ -189,7 +190,37 @@ export function asHomeRun(row: unknown): HomeDiscoveryRun | null {
     session_id: sessionIdOf(item) || undefined,
     brief_version: briefVersionOf(item.brief_version ?? brief.version),
     created_at: asString(item.created_at) || undefined,
+    error: asString(item.error || item.error_message || item.failure_reason) || null,
   };
+}
+
+/** Statuses the Host uses while a run still has work to do. */
+const IN_FLIGHT_RUN_STATUSES = new Set(["queued", "starting", "crawling", "ranking", "running"]);
+
+export function runInFlight(run: HomeDiscoveryRun | null | undefined): boolean {
+  if (!run) return false;
+  return IN_FLIGHT_RUN_STATUSES.has(String(run.status || "").toLowerCase());
+}
+
+/** Statuses the Host uses when a run stopped without producing a usable shortlist. */
+const FAILED_RUN_STATUSES = new Set(["crawl_failed", "rank_failed", "failed"]);
+/** Terminal statuses that are not failures, so a leftover job error never reads as one. */
+const SETTLED_RUN_STATUSES = new Set(["completed", "cancelled"]);
+
+export function runFailed(run: HomeDiscoveryRun | null | undefined): boolean {
+  if (!run) return false;
+  const status = String(run.status || "").toLowerCase();
+  if (SETTLED_RUN_STATUSES.has(status)) return false;
+  return FAILED_RUN_STATUSES.has(status) || Boolean(asString(run.error));
+}
+
+/**
+ * Reason a run failed, or null when it did not fail. An empty string means the
+ * run failed without a reason the Host could report — callers show generic copy.
+ */
+export function runFailureReason(run: HomeDiscoveryRun | null | undefined): string | null {
+  if (!runFailed(run)) return null;
+  return asString(run?.error);
 }
 
 export function asHomeCandidate(row: unknown): HomeDiscoveryCandidate | null {
@@ -378,6 +409,33 @@ export async function ingestHomeDiscovery(input: {
     org_approval: org,
     message: asString(row.message) || undefined,
     missing: false,
+  };
+}
+
+/** Retry a failed run's crawl. Returns the refreshed run when the Host echoes one. */
+export async function retryHomeDiscoveryRun(runId: string): Promise<HomeDiscoveryRun | null> {
+  const raw = await api.retryHomeDiscoveryRun(runId);
+  const row = asRecord(raw);
+  return asHomeRun(row.run || raw) || null;
+}
+
+export type HomeDiscoveryConnection = {
+  status: string;
+  label: string;
+  message: string;
+  connected: boolean;
+};
+
+/** Employee-facing collector status. `未配置` is the actionable "no collector" state. */
+export async function loadDiscoveryConnection(): Promise<HomeDiscoveryConnection> {
+  const raw = await api.discoveryConnection();
+  const row = asRecord(raw);
+  const status = asString(row.status || "unchecked") || "unchecked";
+  return {
+    status,
+    label: asString(row.status_label) || (status === "ok" ? "已配置" : "未配置"),
+    message: asString(row.message),
+    connected: row.connected === true,
   };
 }
 

@@ -13,7 +13,7 @@ import {
   togglePlatform,
 } from "./discoveryTemplate";
 import { discoveryEventCopy, presentDiscoveryEvents } from "./discoveryEvents";
-import { asHomeRun, ingestFailureKind, runCountsLabel, displayMetric, displayText } from "./discoveryHome";
+import { asHomeRun, ingestFailureKind, runCountsLabel, runFailed, runFailureReason, displayMetric, displayText } from "./discoveryHome";
 
 describe("discovery template fallback", () => {
   it("starts with 【发现任务】 and forbids mail/stage/fake email", () => {
@@ -89,6 +89,39 @@ describe("discovery metrics", () => {
     expect(asHomeRun({ run_id: "drun_1", brief: { headline: "北美美妆" }, candidate_count: 2, brief_version: 3 })?.id)
       .toBe("drun_1");
     expect(asHomeRun({ id: "drun_1", brief_version: 3 })?.brief_version).toBe(3);
+  });
+});
+
+describe("discovery run failures", () => {
+  it("keeps the Host failure reason on the run instead of reporting a filter miss", () => {
+    const failed = asHomeRun({
+      id: "drun_41afcbef680d",
+      status: "crawl_failed",
+      error: "远程采集服务未配置。",
+      candidate_count: 0,
+    });
+    expect(failed?.error).toBe("远程采集服务未配置。");
+    expect(runFailed(failed)).toBe(true);
+    expect(runFailureReason(failed)).toBe("远程采集服务未配置。");
+  });
+
+  it("reads the engine aliases and flags a reasonless failure", () => {
+    expect(asHomeRun({ id: "drun_2", status: "rank_failed", failure_reason: "打分失败" })?.error).toBe("打分失败");
+    expect(runFailureReason({ id: "drun_3", headline: "", raw_count: null, shortlist_count: null, status: "crawl_failed", brief_version: 1 }))
+      .toBe("");
+  });
+
+  it("does not treat completed, cancelled, or running runs as failures", () => {
+    for (const status of ["completed", "cancelled", "queued", "crawling", "ranking"]) {
+      const run = { id: "drun_4", headline: "", raw_count: 0, shortlist_count: 0, status, brief_version: 1 };
+      expect(runFailed(run)).toBe(false);
+      expect(runFailureReason(run)).toBe(null);
+    }
+    // A cancelled job can carry the engine's stop reason; it is still not a failure.
+    const cancelled = { id: "drun_5", headline: "", raw_count: null, shortlist_count: null, status: "cancelled", brief_version: 1, error: "stopped by user" };
+    expect(runFailed(cancelled)).toBe(false);
+    expect(runFailureReason(cancelled)).toBe(null);
+    expect(runFailureReason(null)).toBe(null);
   });
 });
 

@@ -118,6 +118,8 @@ function normalizeMessage(raw: Record<string, unknown>, conversationId: string):
     direction: directionOf(raw.direction) || "inbound",
     occurred_at: raw.occurred_at ? String(raw.occurred_at) : null,
     from_addr: text(raw.from_addr || raw.from || raw.from_name),
+    from_name: text(raw.from_name) || undefined,
+    to_addr: text(raw.to_addr) || undefined,
     subject: text(raw.subject),
     snippet: text(raw.snippet || raw.letter_summary || raw.summary || raw.summary_zh),
     body_text: raw.body_text ? String(raw.body_text) : undefined,

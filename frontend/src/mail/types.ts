@@ -62,6 +62,8 @@ export type MailMessage = {
   direction: MailDirection;
   occurred_at: string | null;
   from_addr: string;
+  from_name?: string;
+  to_addr?: string;
   subject: string;
   snippet: string;
   body_text?: string;

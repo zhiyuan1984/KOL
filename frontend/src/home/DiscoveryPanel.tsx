@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { presentDiscoveryError } from "./discovery-error";
+import { presentDiscoveryError, type DiscoveryErrorView } from "./discovery-error";
 import { DiscoveryIngestConfirm } from "./DiscoveryIngestConfirm";
 import {
   presentDiscoveryEvents,
@@ -14,16 +14,24 @@ import {
   ingestHomeDiscovery,
   isMissingEndpoint,
   loadDiscoveryCandidates,
+  loadDiscoveryConnection,
   loadDiscoveryRun,
   loadDiscoveryRuns,
   loadTaskEvents,
+  retryHomeDiscoveryRun,
   runCountsLabel,
+  runFailed,
+  runFailureReason,
   runHeadline,
+  runInFlight,
   type HomeDiscoveryCandidate,
+  type HomeDiscoveryConnection,
   type HomeDiscoveryEmptyKind,
   type HomeDiscoveryRun,
 } from "./discoveryHome";
 import { platformLabel } from "./discoveryTemplate";
+
+const DISCOVERY_FAILED_FALLBACK = "检索没有完成。可稍后重试。";
 
 type DiscoveryPanelProps = {
   templateOpen?: boolean;
@@ -48,7 +56,9 @@ export default function DiscoveryPanel({
   const [ignoredIds, setIgnoredIds] = useState<string[]>([]);
   const [steps, setSteps] = useState<DiscoveryProcessStep[]>([]);
   const [running, setRunning] = useState(false);
-  const [failedReason, setFailedReason] = useState<string | null>(null);
+  const [failure, setFailure] = useState<DiscoveryErrorView | null>(null);
+  const [retryBusy, setRetryBusy] = useState(false);
+  const [connection, setConnection] = useState<HomeDiscoveryConnection | null>(null);
   const [ingestOpen, setIngestOpen] = useState(false);
   const [ingestBusy, setIngestBusy] = useState(false);
   const [ingestError, setIngestError] = useState<string | null>(null);
@@ -65,8 +75,12 @@ export default function DiscoveryPanel({
     () => visible.filter((row) => selectedIds.includes(row.id)),
     [visible, selectedIds],
   );
+  const runId = activeRun?.id || activeRunId || "";
+  const inFlight = running || runInFlight(activeRun);
+  const failed = Boolean(failure);
 
   const loadExisting = async (preferRunId?: string | null) => {
+    setFailure(null);
     const listed = await loadDiscoveryRuns();
     if (listed.down) {
       setEmptyKind("down");
@@ -95,7 +109,22 @@ export default function DiscoveryPanel({
       setActiveRun(chosen);
       return;
     }
-    setActiveRun(detail.data || chosen);
+    const current = detail.data || chosen;
+    setActiveRun(current);
+    // A run that never produced a shortlist (collector down, ranking failed) has
+    // its own reason. Reporting「筛选无结果」here would blame the filters for a
+    // retrieval that never ran — the reason has to reach the employee.
+    if (runFailed(current)) {
+      setFailure(presentDiscoveryError(runFailureReason(current) || "", DISCOVERY_FAILED_FALLBACK));
+      setCandidates([]);
+      setEmptyKind("idle");
+      return;
+    }
+    if (runInFlight(current)) {
+      setCandidates([]);
+      setEmptyKind("idle");
+      return;
+    }
     const next = await loadDiscoveryCandidates(chosen.id);
     if (next.down) {
       setEmptyKind("down");
@@ -107,6 +136,37 @@ export default function DiscoveryPanel({
     if (!next.data.length) {
       setEmptyKind("filtered");
       setEmptyMessage("按当前条件没有入围线索。");
+    }
+  };
+
+  const retryRun = async () => {
+    setFailure(null);
+    if (!runId) {
+      onRetryRun?.();
+      return;
+    }
+    setRetryBusy(true);
+    try {
+      await retryHomeDiscoveryRun(runId);
+      await loadExisting(runId);
+    } catch (error) {
+      setFailure(presentDiscoveryError(error, DISCOVERY_FAILED_FALLBACK));
+    } finally {
+      setRetryBusy(false);
+    }
+  };
+
+  /** Employee-facing collector state — where a「采集服务未配置」run reason becomes actionable. */
+  const checkCollector = async () => {
+    try {
+      setConnection(await loadDiscoveryConnection());
+    } catch (error) {
+      setConnection({
+        status: "unreachable",
+        label: "连接失败",
+        message: presentDiscoveryError(error, "无法读取采集服务状态。").message,
+        connected: false,
+      });
     }
   };
 
@@ -134,7 +194,7 @@ export default function DiscoveryPanel({
     if (!activeTaskId) return;
     let cancelled = false;
     setRunning(true);
-    setFailedReason(null);
+    setFailure(null);
     setToast(null);
     const poll = async () => {
       try {
@@ -142,10 +202,10 @@ export default function DiscoveryPanel({
         if (cancelled) return;
         const next = presentDiscoveryEvents(events);
         setSteps(next);
-        const failed = next.find((step) => step.kind === "failed");
+        const failedStep = next.find((step) => step.kind === "failed");
         const ranked = next.some((step) => step.kind === "ranked");
-        if (failed) {
-          setFailedReason(failed.label);
+        if (failedStep) {
+          setFailure(presentDiscoveryError(failedStep.label, DISCOVERY_FAILED_FALLBACK));
           setRunning(false);
           return true;
         }
@@ -159,10 +219,13 @@ export default function DiscoveryPanel({
         if (isMissingEndpoint(error)) {
           setSteps([]);
           setRunning(false);
-          setFailedReason("过程订阅不可用，后端尚未提供 GET /api/tasks/:id/events。");
+          setFailure(presentDiscoveryError(
+            "过程订阅不可用，后端尚未提供 GET /api/tasks/:id/events。",
+            DISCOVERY_FAILED_FALLBACK,
+          ));
           return true;
         }
-        setFailedReason(presentDiscoveryError(error, "过程读取失败。").message);
+        setFailure(presentDiscoveryError(error, "过程读取失败。"));
         setRunning(false);
         return true;
       }
@@ -190,7 +253,6 @@ export default function DiscoveryPanel({
 
   const confirmIngest = async () => {
     if (!selected.length || ingestBusy) return;
-    const runId = activeRun?.id || activeRunId;
     if (!runId) {
       setIngestError("没有可入库的发现运行。");
       return;
@@ -245,7 +307,7 @@ export default function DiscoveryPanel({
         setPendingConfirm(false);
         setIngestOpen(false);
         setIngestError(null);
-        setFailedReason(null);
+        setFailure(null);
         setToast(null);
         setApprovalState("brief_mismatch");
         void loadExisting(runId);
@@ -266,7 +328,6 @@ export default function DiscoveryPanel({
   };
 
   const cancelIngest = async () => {
-    const runId = activeRun?.id || activeRunId;
     const shouldCancel = pendingConfirm && Boolean(runId) && selected.length;
     setIngestOpen(false);
     setIngestError(null);
@@ -291,7 +352,7 @@ export default function DiscoveryPanel({
   };
 
   const platforms = Array.from(new Set(selected.map((row) => row.platform).filter(Boolean))) as string[];
-  const showStart = !templateOpen && !running && !visible.length && emptyKind !== "filtered";
+  const showStart = !templateOpen && !inFlight && !failed && !visible.length && emptyKind !== "filtered";
   const showResults = visible.length > 0 && !running;
 
   return (
@@ -300,7 +361,7 @@ export default function DiscoveryPanel({
       data-home-pane="discovery"
       data-discovery-panel
       data-discovery-live="false"
-      data-discovery-running={running ? "true" : undefined}
+      data-discovery-running={inFlight ? "true" : undefined}
     >
       <p className="home-lane-label">红人线索</p>
 
@@ -312,29 +373,46 @@ export default function DiscoveryPanel({
         </ol>
       ) : null}
 
-      {running && !visible.length ? (
+      {inFlight && !visible.length ? (
         <section className="task-empty" data-discovery-loading role="status" aria-busy="true">
-          <strong>{steps.length ? steps[steps.length - 1].label : "排队"}</strong>
+          <strong>{steps.length ? steps[steps.length - 1].label : runInFlight(activeRun) ? "排队" : ""}</strong>
           <p>正在按已确认的条件检索红人线索。不会发信、不会改阶段、不会编造结果。</p>
         </section>
       ) : null}
 
-      {failedReason ? (
+      {failure ? (
         <section className="task-empty discovery-error" data-discovery-error role="alert">
-          <strong>检索没有完成</strong>
-          <p data-discovery-error-message>{failedReason}</p>
-          {onRetryRun ? (
+          <strong>{failure.title}</strong>
+          <p data-discovery-error-message>{failure.message}</p>
+          {failure.detail ? <p data-discovery-error-detail>{failure.detail}</p> : null}
+          {runId || onRetryRun ? (
             <div className="discovery-error-actions">
               <button
                 type="button"
                 className="btn work sm"
                 data-discovery-retry
                 data-home-entry="retry-discovery-run"
-                onClick={() => onRetryRun()}
+                disabled={retryBusy || (!runId && failure.retryDisabled)}
+                onClick={() => void retryRun()}
               >
-                重试
+                {failure.retryLabel}
               </button>
+              {failure.checkConnection ? (
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  data-discovery-check-connection
+                  onClick={() => void checkCollector()}
+                >
+                  检查采集服务
+                </button>
+              ) : null}
             </div>
+          ) : null}
+          {connection ? (
+            <p data-discovery-connection={connection.status}>
+              {`采集服务：${connection.label}${connection.message && connection.message !== connection.label ? ` · ${connection.message}` : ""}`}
+            </p>
           ) : null}
         </section>
       ) : null}
@@ -477,7 +555,7 @@ export default function DiscoveryPanel({
         </>
       ) : null}
 
-      {!running && !showResults && !failedReason ? (
+      {!inFlight && !showResults && !failure ? (
         <div className="task-empty" data-discovery-empty={emptyKind}>
           <strong>
             {emptyKind === "down" ? "服务不可用" : emptyKind === "filtered" ? "筛选无结果" : "尚未搜索"}

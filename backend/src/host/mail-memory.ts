@@ -39,6 +39,8 @@ export type MessageRow = {
   direction: string;
   occurred_at: string | null;
   from_addr: string;
+  from_name: string;
+  to_addr: string;
   subject: string;
   snippet: string;
   body_text?: string;
@@ -124,6 +126,8 @@ export function messageRowOf(row: Row | Json): MessageRow {
     direction: String(row.direction || "inbound") === "outbound" ? "outbound" : "inbound",
     occurred_at: row.occurred_at ? String(row.occurred_at) : null,
     from_addr: String(row.from_addr || row.from_name || ""),
+    from_name: String(row.from_name || ""),
+    to_addr: String(row.to_addr || ""),
     subject: String(row.subject || ""),
     snippet: String(row.snippet || ""),
     ...(body ? { body_text: body } : {}),

@@ -546,7 +546,15 @@ async function startHomeCrawl(run: Row): Promise<void> {
       return;
     }
     const message = error instanceof Error ? error.message : String(error);
-    updateRunStatus(String(run.id), "crawl_failed", { error: message, completed: true });
+    // Keep the Host's operator next_action with the reason: without it the run
+    // reads as an unexplained failure and the missing collector stays invisible.
+    const nextAction = error instanceof HttpFail
+      ? String((error.detail as Json | undefined)?.next_action || "").trim()
+      : "";
+    updateRunStatus(String(run.id), "crawl_failed", {
+      error: nextAction ? `${message}${nextAction}` : message,
+      completed: true,
+    });
     event(String(run.work_item_id || ""), "failed", "crawl_failed", "发现采集失败");
   }
 }

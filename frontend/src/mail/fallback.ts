@@ -104,6 +104,8 @@ export function threadFromFallback(row: MailConversation): MailThread {
           direction: row.last_direction === "outbound" ? "outbound" : "inbound",
           occurred_at: row.last_at || null,
           from_addr: row.peer_email,
+          from_name: row.peer_name || row.peer_email || undefined,
+          to_addr: row.mailbox || undefined,
           subject: row.subject,
           snippet,
           body_text: snippet,
