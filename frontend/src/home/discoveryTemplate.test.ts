@@ -13,7 +13,7 @@ import {
   togglePlatform,
 } from "./discoveryTemplate";
 import { discoveryEventCopy, presentDiscoveryEvents } from "./discoveryEvents";
-import { asHomeRun, ingestFailureKind, runCountsLabel, runFailed, runFailureReason, displayMetric, displayText } from "./discoveryHome";
+import { asHomeCandidate, asHomeRun, ingestFailureKind, runCountsLabel, runFailed, runFailureReason, displayMetric, displayText } from "./discoveryHome";
 
 describe("discovery template fallback", () => {
   it("starts with 【发现任务】 and forbids mail/stage/fake email", () => {
@@ -97,6 +97,64 @@ describe("discovery metrics", () => {
     expect(asHomeRun({ run_id: "drun_1", brief: { headline: "北美美妆" }, candidate_count: 2, brief_version: 3 })?.id)
       .toBe("drun_1");
     expect(asHomeRun({ id: "drun_1", brief_version: 3 })?.brief_version).toBe(3);
+  });
+
+  it("maps the lead fields without inventing missing values", () => {
+    const row = asHomeCandidate({
+      id: "c1",
+      platform_creator_id: "yt-1",
+      followers: 153000,
+      score: 88,
+      band: "high",
+      match_reason: "名称含 camping",
+      view_mean: 8597,
+      view_median: 8100,
+      stability: 0.9,
+      view_follower_ratio: 10.96,
+      confidence: 1,
+      sample_size: 10,
+      recent_views: [1, 2, 3],
+      collected_at: "2026-09-20T03:43:01.069Z",
+      library_status: "followed",
+      profile_url: "https://youtube.com/@x",
+      avatar_url: "",
+      matched_keywords: ["camping"],
+    });
+    expect(row).toMatchObject({
+      platformCreatorId: "yt-1",
+      score: 88,
+      band: "high",
+      matchReason: "名称含 camping",
+      viewMean: 8597,
+      viewMedian: 8100,
+      viewFollowerRatio: 10.96,
+      confidence: 1,
+      sampleSize: 10,
+      recentViews: [1, 2, 3],
+      libraryStatus: "followed",
+      profileUrl: "https://youtube.com/@x",
+      collectedAt: "2026-09-20T03:43:01.069Z",
+      matchedKeywords: ["camping"],
+    });
+    // 空字符串/缺失 → null，不是 ""
+    expect(row?.avatarUrl).toBe(null);
+    // 0 是真实测量值（没有样本），不得被当成缺数据
+    expect(asHomeCandidate({ id: "c0", confidence: 0, sample_size: 0 })?.confidence).toBe(0);
+    // 旧接口只给三个布尔时也要能派生出三态，且 followed 优先
+    expect(asHomeCandidate({ id: "c2", already_in_pool: true })?.libraryStatus).toBe("pool");
+    expect(asHomeCandidate({ id: "c3", already_in_pool: true, already_followed: true })?.libraryStatus)
+      .toBe("followed");
+    expect(asHomeCandidate({ id: "c4" })?.libraryStatus).toBe("not_in_library");
+    // 未排名：score/band/matchReason 都是 null，行上要显示缺失文案
+    const unranked = asHomeCandidate({ id: "c5" });
+    expect(unranked?.score).toBe(null);
+    expect(unranked?.band).toBe(null);
+    expect(unranked?.matchReason).toBe(null);
+    expect(asHomeRun({ id: "r2", raw_count: 22, started_at: "s", completed_at: "c" })).toMatchObject({
+      raw_count: 22,
+      started_at: "s",
+      completed_at: "c",
+    });
   });
 });
 

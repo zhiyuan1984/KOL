@@ -12,6 +12,8 @@ import {
 
 export type HomeDiscoveryEmptyKind = "idle" | "filtered" | "down";
 
+export type HomeDiscoveryLibraryStatus = "not_in_library" | "pool" | "followed";
+
 export type HomeDiscoveryRun = {
   id: string;
   headline: string;
@@ -22,6 +24,8 @@ export type HomeDiscoveryRun = {
   session_id?: string;
   brief_version: number;
   created_at?: string;
+  started_at?: string;
+  completed_at?: string;
   error?: string | null;
 };
 
@@ -29,10 +33,30 @@ export type HomeDiscoveryCandidate = {
   id: string;
   nickname: string | null;
   platform: string | null;
+  /** 平台内的账号 ID（Host 的 `platform_creator_id`），不是 `handle`。 */
+  platformCreatorId: string | null;
   handle: string | null;
   followers: number | null;
   avg_plays_10: number | null;
+  /** 原始样本（`recent_views`），缺失即空数组——「N/10 条样本」据此计算。 */
+  recentViews: number[];
+  viewMean: number | null;
+  viewMedian: number | null;
+  stability: number | null;
+  viewFollowerRatio: number | null;
+  /** 样本覆盖率（0–1），来自 Host 的 `confidence`；缺失为 null，不得当作 0。 */
+  confidence: number | null;
+  sampleSize: number | null;
+  /** 推荐分；只有被简报排名过的候选才有值，未排名为 null。 */
+  score: number | null;
+  matchReason: string | null;
+  fit: string | null;
   source_url: string | null;
+  profileUrl: string | null;
+  avatarUrl: string | null;
+  matchedKeywords: string[];
+  collectedAt: string | null;
+  libraryStatus: HomeDiscoveryLibraryStatus;
   why: string | null;
   band: string | null;
   in_library: boolean;
@@ -190,6 +214,8 @@ export function asHomeRun(row: unknown): HomeDiscoveryRun | null {
     session_id: sessionIdOf(item) || undefined,
     brief_version: briefVersionOf(item.brief_version ?? brief.version),
     created_at: asString(item.created_at) || undefined,
+    started_at: asString(item.started_at) || undefined,
+    completed_at: asString(item.completed_at) || undefined,
     error: asString(item.error || item.error_message || item.failure_reason) || null,
   };
 }
@@ -223,6 +249,23 @@ export function runFailureReason(run: HomeDiscoveryRun | null | undefined): stri
   return asString(run?.error);
 }
 
+function libraryStatusOf(item: Record<string, unknown>): HomeDiscoveryLibraryStatus {
+  const raw = asString(item.library_status).toLowerCase();
+  if (raw === "followed" || raw === "pool" || raw === "not_in_library") {
+    return raw as HomeDiscoveryLibraryStatus;
+  }
+  // Host 没给三态时按同一优先级派生：followed > pool > not_in_library。
+  if (item.already_followed) return "followed";
+  if (item.already_in_pool) return "pool";
+  return "not_in_library";
+}
+
+function numberList(value: unknown): number[] {
+  return Array.isArray(value)
+    ? value.map((item) => Number(item)).filter((item) => Number.isFinite(item))
+    : [];
+}
+
 export function asHomeCandidate(row: unknown): HomeDiscoveryCandidate | null {
   const item = asRecord(row);
   const id = asString(item.id);
@@ -231,15 +274,37 @@ export function asHomeCandidate(row: unknown): HomeDiscoveryCandidate | null {
   const plays = nullableNumber(
     item.avg_plays_10 ?? item.avg_views_10 ?? item.last10_avg_plays ?? item.avg_plays,
   );
+  const matchReason = asString(item.match_reason || item.why || item.reason || item.summary);
+  const profileUrl = asString(item.profile_url || item.url || item.link);
+  const avatarUrl = asString(item.avatar_url || item.avatar);
   return {
     id,
     nickname: asString(item.nickname || item.display_name || item.title) || null,
     platform: asString(item.platform) || null,
+    platformCreatorId: asString(item.platform_creator_id || item.platformCreatorId) || null,
     handle: asString(item.handle || item.username) || null,
     followers: followers != null && followers > 0 ? followers : null,
     avg_plays_10: plays != null && plays > 0 ? plays : null,
-    source_url: asString(item.source_url || item.url || item.link) || null,
-    why: asString(item.why || item.reason || item.summary) || null,
+    recentViews: numberList(item.recent_views ?? item.views ?? item.recent_10_views),
+    viewMean: nullableNumber(item.view_mean),
+    viewMedian: nullableNumber(item.view_median),
+    stability: nullableNumber(item.stability),
+    viewFollowerRatio: nullableNumber(item.view_follower_ratio),
+    // 0 是真实测量值（没有样本），不是缺数据；只有真缺才 null。
+    confidence: nullableNumber(item.confidence),
+    sampleSize: nullableNumber(item.sample_size),
+    score: nullableNumber(item.score),
+    matchReason: matchReason || null,
+    fit: asString(item.fit) || null,
+    source_url: profileUrl || null,
+    profileUrl: profileUrl || null,
+    avatarUrl: avatarUrl || null,
+    matchedKeywords: Array.isArray(item.matched_keywords)
+      ? (item.matched_keywords as unknown[]).map((word) => String(word || "").trim()).filter(Boolean)
+      : [],
+    collectedAt: asString(item.collected_at) || null,
+    libraryStatus: libraryStatusOf(item),
+    why: matchReason || null,
     band: asString(item.band || item.score_band || item.tier) || null,
     in_library: Boolean(
       item.in_library || item.in_starry || item.already_in_pool || item.already_in_library,
