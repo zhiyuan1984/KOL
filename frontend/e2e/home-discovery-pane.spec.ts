@@ -127,7 +127,9 @@ test("condition chips rewrite the ask-box body and no card button remains", asyn
   await expect(page.locator("[data-discovery-summary]")).toHaveCount(0);
   await expect(page.locator("[data-discovery-reset]")).toHaveCount(0);
   await expect(page.locator("[data-discovery-submit]")).toHaveCount(0);
-  await expect(page.locator("[data-discovery-no-side-effect]")).toContainText("不会发信");
+  // 框线稿 §15：卡片底部不留说明文案；「不会发信」这句只留在提问框正文里。
+  await expect(card.locator("[data-discovery-no-side-effect]")).toHaveCount(0);
+  await expect(page.locator('[data-home] [data-composer-input]')).toHaveValue(/不会发信/);
 });
 
 test("+ menu still opens the Composer discovery template", async ({ page }) => {

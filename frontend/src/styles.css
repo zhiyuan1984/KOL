@@ -10684,11 +10684,65 @@ button.today-brief-primary-btn:disabled {
 /* 框线稿 §Card Header：标题 20 / 600 / 28。 */
 .ai-discovery-head h2 { font-size: var(--text-20); line-height: 28px; }
 
-/* Tablet 1024：筛选项换两列，候选行只留一级字段（隐藏二级指标：播放中位数/稳定度/采集时间/在库状态）。 */
+/* ── 框线稿对齐 T8：检索区从「裸表单」回到设计里的白卡，内容列放宽（§1–§12） ── */
+/* §1/§2 内容列：AI发现 用更宽的上限，1920 屏下内容宽 1200（框线稿 §1 的「内容宽 1200」）。
+   1440 屏受 260 侧栏所限，内容宽仍是 1180 − 2×34.56，加宽上限对窄屏无影响。 */
+[data-home][data-home-active-mode="discovery"] { --content-max: 1280px; }
+
+/* §4 红人检索主 Card：Padding 32 / Radius 16 / 白底 / 1px #E8E9EB / 内部 gap 24。 */
+.discovery-pane .ai-discovery-card {
+  gap: 24px;
+  padding: 32px;
+  border: 1px solid #e8e9eb;
+  border-radius: 16px;
+  background: #fff;
+}
+/* §5 Card Header：标题 20 / 600 / 28。 */
+.discovery-pane .ai-discovery-head h2 { font-weight: 600; }
+/* §6 Platform chip：高 36 / 内边距 0 18 / 圆角 18 / 边框 #E2E4E8。 */
+.discovery-pane .ai-discovery-card .discovery-chip {
+  padding: 0 18px;
+  border-radius: 18px;
+  border-color: #e2e4e8;
+}
+/* §9 分割线：#F0F1F2，把「分类选择」和「数值条件」分开。 */
+.discovery-pane .discovery-condition-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px 32px;
+  margin: 4px 0;
+  padding-top: 20px;
+  border-top: 1px solid #f0f1f2;
+}
+/* §10 关键词 / §11 粉丝数 各占整行；§12 均播与期望人数 50% / 50%。 */
+.discovery-pane .discovery-condition-row .ai-discovery-field.is-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.discovery-pane .discovery-condition-row [data-discovery-keys],
+.discovery-pane .discovery-condition-row [data-discovery-followers] { grid-column: 1 / -1; }
+/* §10/§11/§12 输入框：高 44 / 圆角 10 / 边框 #DFE1E5；粉丝数两个框各 180、间距 12。 */
+.discovery-pane .ai-discovery-input {
+  height: 44px;
+  border-radius: 10px;
+  border-color: #dfe1e5;
+}
+.discovery-pane .discovery-condition-row .ai-discovery-inline { gap: 12px; }
+.discovery-pane .discovery-condition-row .ai-discovery-inline .ai-discovery-input.is-number { flex: 0 0 180px; }
+/* 输入框直接挂在纵向 flex 的字段里时，`flex: 1` 会作用在竖直主轴上，把高度压成内容高（18px）。
+   这里显式让高度回到 44px。 */
+.discovery-pane .discovery-condition-row .ai-discovery-field.is-stacked > .ai-discovery-input { flex: 0 0 auto; }
+/* 选中态必须保留品牌描边：上面的 chip 规则只统一了默认边框色。 */
+.discovery-pane .ai-discovery-card .discovery-chip[aria-pressed="true"] {
+  border-color: var(--color-primary);
+}
+
+/* Tablet 1024：条件行收成一列，候选行只留一级字段（隐藏二级指标：播放中位数/稳定度/采集时间/在库状态）。 */
 @media (max-width: 1024px) {
-  .discovery-condition-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .discovery-condition-row .ai-discovery-field.is-stacked { flex: initial; }
+  .discovery-pane .discovery-condition-row { grid-template-columns: minmax(0, 1fr); }
   .discovery-lead { min-height: 64px; }
   .discovery-lead-detail-item:nth-child(-n + 4) { display: none; }
   .discovery-lead-detail { grid-template-columns: minmax(0, 1fr); }
+  .discovery-pane .ai-discovery-card { padding: 20px; }
 }

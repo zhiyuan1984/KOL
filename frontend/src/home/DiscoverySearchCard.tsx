@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  DISCOVERY_NO_SIDE_EFFECT,
   keywordsForDirections,
   MAX_DISCOVERY_DIRECTIONS,
   OVERSEAS_DISCOVERY_PLATFORMS,
@@ -216,7 +215,6 @@ export default function DiscoverySearchCard({
         </div>
       </div>
 
-      <p className="ai-discovery-note" data-discovery-no-side-effect>{DISCOVERY_NO_SIDE_EFFECT}</p>
     </section>
   );
 }
