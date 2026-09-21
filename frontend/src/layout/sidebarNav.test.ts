@@ -63,6 +63,7 @@ describe("brand lockups", () => {
     const liTimeMarks = brandBlock.match(/Li Time/g) || [];
     expect(liTimeMarks).toHaveLength(0);
     expect(brandBlock).toContain('<BrandLockup variant="sidebar" />');
-    expect(brandBlock.match(/灵工 工作/g)).toHaveLength(1);
+    expect(brandBlock).toContain("Lucas6.webp");
+    expect(brandBlock).not.toContain("灵工 工作");
   });
 });

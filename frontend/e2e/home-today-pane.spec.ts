@@ -93,7 +93,7 @@ test("entering today lists memory without planning; 启动今日任务 starts th
   await startPlan.click();
   await expect.poll(() => posts.length, { timeout: 30000 }).toBe(1);
   await expect(page.locator("[data-today-plan-phase]")).toBeVisible();
-  await expect(page.locator("[data-today-plan-phase]")).toHaveText(/正在读取当前任务|Lucas正在高效为你规划今天的任务|已按本轮规划刷新/);
+  await expect(page.locator("[data-today-plan-phase]")).toHaveText(/Lucas 正在读取今天的任务|Lucas 正在规划今天的任务|Lucas 已完成规划/);
   await expect(page.locator('[data-today-todo="tsk_due"]')).toBeVisible();
 });
 

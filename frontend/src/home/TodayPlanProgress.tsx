@@ -3,7 +3,6 @@ import type { TaskEvent, TodayBrief } from "../api";
 import {
   formatTodayPlanElapsed,
   todayPlanEventLabels,
-  todayPlanStatusCopy,
   type PlanScope,
   type TodayPlanPhase,
 } from "./todayPlan";
@@ -62,6 +61,47 @@ type PlanStep = {
   detail: string;
 };
 
+const LUCAS_AVATAR: Record<TodayPlanPhase, number> = {
+  idle: 1,
+  "loading-memory": 7,
+  planning: 6,
+  refreshed: 9,
+  failed: 8,
+};
+
+export function lucasPlanCopy(
+  phase: TodayPlanPhase,
+  scope: PlanScope,
+  candidates?: number | null,
+  plannedTasks?: number | null,
+  failureReason?: string,
+): string {
+  const target = scope === "todo" ? "待办任务" : "今天的任务";
+  if (phase === "idle") return "";
+  if (phase === "loading-memory") return `Lucas 正在读取${target}`;
+  if (phase === "planning") {
+    return candidates != null && candidates > 0
+      ? `Lucas 正在分析 ${candidates} 项候选任务`
+      : `Lucas 正在规划${target}`;
+  }
+  if (phase === "failed") {
+    return failureReason ? `Lucas 规划失败：${failureReason}` : "Lucas 规划失败，上一版计划仍然可用";
+  }
+  return plannedTasks != null && plannedTasks > 0
+    ? `Lucas 已完成规划，共生成 ${plannedTasks} 项任务`
+    : "Lucas 已完成规划";
+}
+
+function LucasAvatar({ phase, size = 16 }: { phase: TodayPlanPhase; size?: number }) {
+  const avatar = LUCAS_AVATAR[phase];
+  return (
+    <picture className={`today-plan-lucas is-${phase}`} aria-hidden="true">
+      <source media="(prefers-reduced-motion: reduce)" srcSet={`/avatars/lucas/Lucas${avatar}.png`} />
+      <img src={`/avatars/lucas/Lucas${avatar}.webp`} alt="" width={size} height={size} />
+    </picture>
+  );
+}
+
 function eventTypeOf(event: TaskEvent): string {
   return String(event.type || event.event_type || "").toLowerCase();
 }
@@ -95,6 +135,7 @@ export default function TodayPlanProgress({
   phase = "idle",
   events,
   candidates,
+  plannedTasks,
   previousBrief,
   previousEvents,
   scope = "today",
@@ -102,6 +143,7 @@ export default function TodayPlanProgress({
   phase?: TodayPlanPhase;
   events?: TaskEvent[] | null;
   candidates?: number | null;
+  plannedTasks?: number | null;
   /** The version before this one, folded to a single row. */
   previousBrief?: TodayBrief | null;
   previousEvents?: TaskEvent[] | null;
@@ -110,7 +152,6 @@ export default function TodayPlanProgress({
   const live = phase === "loading-memory" || phase === "planning";
   const failed = phase === "failed";
   const elapsed = usePlanningElapsed(live);
-  const status = todayPlanStatusCopy(phase, scope);
   const labels = todayPlanEventLabels(events);
   const [previousOpen, setPreviousOpen] = useState(false);
 
@@ -174,6 +215,9 @@ export default function TodayPlanProgress({
   const think = activeThink ? thinkTail(activeThink.detail) : { body: "", truncated: false };
   const foldedThink = Math.max(0, thinkRows.length - 1);
   const finishedAt = steps.length ? steps[steps.length - 1].time : "";
+  const failedStep = [...steps].reverse().find((step) => step.state === "failed");
+  const displayPhase: TodayPlanPhase = phase === "idle" && steps.length ? "refreshed" : phase;
+  const status = lucasPlanCopy(displayPhase, scope, candidates, plannedTasks, failedStep?.detail);
 
   // The previous version stays reachable but never competes with the current one.
   const previousSteps = useMemo(() => todayPlanEventLabels(previousEvents), [previousEvents]);
@@ -186,7 +230,7 @@ export default function TodayPlanProgress({
 
   if (!status && !steps.length && !hasPrevious) return null;
 
-  const title = failed ? "Codex 规划未通过" : live ? "Codex 思考过程" : "Codex 已完成规划";
+  const title = failed ? "规划未通过" : live ? "规划中" : "规划完成";
   return (
     <section
       className={"today-plan" + (live ? " is-live" : "")}
@@ -226,15 +270,7 @@ export default function TodayPlanProgress({
         </div>
       ) : null}
       <header className="today-plan-head">
-        <span className={"today-plan-state" + (failed ? " is-failed" : live ? " is-live" : " is-done")} aria-hidden>
-          {failed ? (
-            <svg viewBox="0 0 12 12"><path d="M3.4 3.4l5.2 5.2M8.6 3.4L3.4 8.6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
-          ) : live ? (
-            <span className="today-plan-spinner" />
-          ) : (
-            <svg viewBox="0 0 12 12"><path d="M2.5 6.2l2.3 2.3 4.7-4.7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          )}
-        </span>
+        <LucasAvatar phase={displayPhase} />
         <strong className="today-plan-title">{title}</strong>
         {status ? <span className="today-plan-lead" data-today-plan-lead>{status}</span> : null}
         {!live && candidates != null && candidates > 0 ? (

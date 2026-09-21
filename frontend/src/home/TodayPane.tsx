@@ -91,6 +91,7 @@ export default function TodayPane({
             phase={phase}
             events={events}
             candidates={candidateCount(brief)}
+            plannedTasks={rows.length}
             previousBrief={previousBrief}
             previousEvents={previousEvents}
             scope="today"

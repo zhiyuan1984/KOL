@@ -231,7 +231,7 @@ test("a settled run collapses to one line and expands on demand", async ({ page 
   await expect(stream).toHaveAttribute("data-today-plan-open", "false");
   // Collapsed: one line, no step list.
   await expect(page.locator("[data-today-plan-steps]")).toHaveCount(0);
-  await expect(stream).toContainText("Codex 已完成规划");
+  await expect(stream).toContainText("Lucas 已完成规划");
   await expect(stream).toContainText("分析");
   const collapsedHeight = (await stream.boundingBox())!.height;
   expect(collapsedHeight).toBeLessThan(80);

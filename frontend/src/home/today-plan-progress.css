@@ -17,7 +17,20 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  min-height: 44px;
+  min-height: 28px;
+}
+.today-plan-lucas {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  display: inline-grid;
+  place-items: center;
+}
+.today-plan-lucas img {
+  display: block;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
 }
 .today-plan-state {
   flex: 0 0 auto;

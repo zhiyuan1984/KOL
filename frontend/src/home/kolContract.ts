@@ -308,10 +308,15 @@ export function hasConversation(row: Record<string, unknown>): boolean {
   return Boolean(text(row.last_conversation_id || row.lastConversationId)) || flag(row.has_conversation);
 }
 
-/** 无归属 = 远程两侧归属都空。无主也算公海对象，即使已经有过往来。 */
+/** 无归属 = 远程负责人姓名与两侧归属都空。无主也算公海对象，即使已经有过往来。 */
 export function isUnownedRow(row: Record<string, unknown>): boolean {
-  if (flag(row.unowned)) return true;
-  return !text(row.owner_user_id || row.ownerUserId) && !text(row.owner_mailbox || row.ownerMailbox);
+  if (row.unowned === true) return true;
+  const keys = ["owner_name", "ownerName", "owner_user_id", "ownerUserId", "owner_mailbox", "ownerMailbox"];
+  const present = keys.filter((key) => key in row);
+  // 页面上的行不一定带归属字段（板子适配、A 表形状）。缺字段时不能推定「无主」，
+  // 否则所有缺少归属信息的行都会涌进公海。
+  if (!present.length) return false;
+  return present.every((key) => !text(row[key]));
 }
 
 export function publicSeaReasonOf(row: Record<string, unknown>): PublicSeaReason | null {

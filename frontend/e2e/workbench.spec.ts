@@ -131,7 +131,8 @@ async function expectNoHomeChrome(page: Page) {
 async function expectEmployeeShell(page: Page) {
   const sidebar = page.locator(".sidebar");
   await expect(sidebar.locator('[data-brand-lockup="sidebar"] .brand-logo')).toHaveAttribute("src", "/brand/litime-logo.png");
-  await expect(sidebar.locator(".brand-name")).toHaveText("灵工 工作");
+  await expect(sidebar.locator(".brand-name")).toHaveCount(0);
+  await expect(sidebar.locator(".sidebar-lucas img")).toHaveAttribute("src", "/avatars/lucas/Lucas6.webp");
   await expect(sidebar).not.toContainText("Powering Outdoor Adventures");
   await expect(sidebar).not.toContainText("服务几代人的户外生活");
   await expect(page.locator(".home-hero [data-brand-lockup]")).toHaveCount(0);
@@ -619,7 +620,7 @@ test("employee shell keeps compact sidebar brand and has no home top chrome", as
 
 test("home rec ask opens chat with grey bubble and draft on the right", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator("aside .brand-name")).toHaveText("灵工 工作");
+  await expect(page.locator("aside .brand-name")).toHaveCount(0);
   await expect(page.locator("[data-home] h1")).toHaveText("今天有什么工作要处理？");
   await expectNoHomeChrome(page);
   await expectEmployeeShell(page);

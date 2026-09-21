@@ -566,14 +566,15 @@ describe("plan cache", () => {
     expect(newTaskLink).not.toContain("dispatchEvent");
   });
 
-  it("sidebar brand shows one 灵工 工作 name instead of a duplicate Li Time", () => {
+  it("sidebar brand shows the Li Time logo with Lucas and no duplicate product name", () => {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const workbench = fs.readFileSync(path.resolve(here, "../layout/Workbench.tsx"), "utf8");
     const brandStart = workbench.indexOf('data-sidebar-brand');
     const brandEnd = workbench.indexOf("</NavLink>", brandStart);
     const brandBlock = workbench.slice(brandStart, brandEnd);
     expect(brandBlock).toContain('<BrandLockup variant="sidebar" />');
-    expect(brandBlock).toContain("灵工 工作");
+    expect(brandBlock).toContain("Lucas6.webp");
+    expect(brandBlock).not.toContain("灵工 工作");
     expect(brandBlock).not.toContain(">Li Time<");
     expect(brandBlock).not.toContain("sidebar-brand-sub");
   });

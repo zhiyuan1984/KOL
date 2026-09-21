@@ -155,7 +155,6 @@ export default function Workbench() {
     >
       <div className="mobile-top">
         <button className="icon-btn" aria-label="打开导航" aria-expanded={mobileOpen} onClick={() => setMobileOpen((v) => !v)}>☰</button>
-        <strong>灵工 工作</strong>
         <NavLink to="/">任务</NavLink>
         <NavLink to="/agents" className={() => onAgents ? "active" : ""}>数字员工</NavLink>
       </div>
@@ -163,9 +162,10 @@ export default function Workbench() {
         <div className="sidebar-head">
           <NavLink to="/" className="sidebar-brand" data-sidebar-brand end>
             <BrandLockup variant="sidebar" />
-            <span className="sidebar-brand-copy">
-              <span className="brand-name sidebar-label">灵工 工作</span>
-            </span>
+            <picture className="sidebar-lucas" aria-hidden="true">
+              <source media="(prefers-reduced-motion: reduce)" srcSet="/avatars/lucas/Lucas6.png" />
+              <img src="/avatars/lucas/Lucas6.webp" alt="" />
+            </picture>
           </NavLink>
           <button type="button" className="sidebar-search-btn collapse-toggle" onClick={toggleCollapsed} aria-label={collapsed ? "展开侧栏" : "收起侧栏"} title={collapsed ? "展开侧栏" : "收起侧栏"}>{collapsed ? "›" : "‹"}</button>
         </div>

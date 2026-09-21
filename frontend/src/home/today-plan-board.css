@@ -419,8 +419,8 @@
   display: flex;
   align-items: baseline;
   gap: 10px;
-  min-height: 34px;
-  padding-bottom: 12px;
+  min-height: 24px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--ds-border);
   color: var(--ds-text-strong);
 }

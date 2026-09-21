@@ -2,7 +2,6 @@ import { api, type Task } from "../api";
 import {
   ANALYZE_QUEUED_COPY,
   KOL_ANALYZE_TASK_TYPE,
-  hasConversation,
   isActiveFollowRow,
   isKolAnalyzeInFlight,
   isOpenPoolRow,
@@ -60,7 +59,6 @@ function isMissingEndpoint(error: unknown): boolean {
 }
 
 function poolRow(row: Record<string, unknown>, followed: Set<string>): boolean {
-  if (hasConversation(row)) return false;
   if (!isOpenPoolRow(row)) return false;
   const uid = String(row.kol_uid || row.creator_id || row.id || "").trim();
   const handle = String(row.handle || row.name || "").replace(/^@/, "").trim();
@@ -69,14 +67,16 @@ function poolRow(row: Record<string, unknown>, followed: Set<string>): boolean {
   return isOpenPoolRow(row);
 }
 
+/** 无主优先是界面保证，不依赖后端排序：无主的红人最该被领取，先看到。 */
+function unownedFirst(rows: PoolKol[]): PoolKol[] {
+  return [...rows].sort((a, b) => Number(Boolean(b.unowned)) - Number(Boolean(a.unowned)));
+}
+
 export async function loadHomePool(board?: { kols?: Array<Record<string, unknown>>; creators?: Array<Record<string, unknown>> }): Promise<PoolLoad> {
   try {
     const payload = await api.homePool();
-    return {
-      items: asRows(payload).filter(isOpenPoolRow).map(toPoolKol).filter((row): row is PoolKol => Boolean(row)),
-      source: "pool",
-      creates_session: false,
-    };
+    const items = asRows(payload).filter(isOpenPoolRow).map(toPoolKol).filter((row): row is PoolKol => Boolean(row));
+    return { items: unownedFirst(items), source: "pool", creates_session: false };
   } catch (error) {
     if (!isMissingEndpoint(error)) {
       return { items: [], source: "pool", creates_session: false, down: true, error: error instanceof Error ? error.message : "公海读取失败" };
@@ -91,11 +91,8 @@ export async function loadHomePool(board?: { kols?: Array<Record<string, unknown
     if (handle) followed.add(handle);
   }
   const candidates = [...(board?.creators || []), ...(board?.kols || []).filter((row) => poolRow(row, followed))];
-  return {
-    items: candidates.filter((row) => poolRow(row, followed)).map(toPoolKol).filter((row): row is PoolKol => Boolean(row)),
-    source: "board-adapter",
-    creates_session: false,
-  };
+  const items = candidates.filter((row) => poolRow(row, followed)).map(toPoolKol).filter((row): row is PoolKol => Boolean(row));
+  return { items: unownedFirst(items), source: "board-adapter", creates_session: false };
 }
 
 export async function loadHomeFollowing(board?: { kols?: Array<Record<string, unknown>>; follow_scope?: import("../api").StarryBinding }): Promise<FollowingLoad> {

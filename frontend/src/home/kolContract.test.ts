@@ -86,13 +86,32 @@ describe("kol workbench contract (#172)", () => {
     expect(isOpenPoolRow({ pool_status: "claimed" })).toBe(false);
     expect(isOpenPoolRow({ pool_status: "open" })).toBe(true);
 
-    // 公海只收从未首次建联的行：有任何会话即不是公海。
+    // 未首次建联：有任何会话且不是无主 → 不是公海。
     expect(isOpenPoolRow({ pool_status: "open", last_conversation_id: "conv_1" })).toBe(false);
     expect(isOpenPoolRow({ pool_status: "open", lastConversationId: "conv_1" })).toBe(false);
     expect(isOpenPoolRow({ pool_status: "open", has_conversation: true })).toBe(false);
     expect(isOpenPoolRow({ pool_status: "open", has_conversation: false })).toBe(true);
     expect(toPoolKol({ kol_uid: "uid_talked", handle: "已建联", pool_status: "open", last_conversation_id: "conv_1" })).toBeNull();
     expect(toPoolKol({ kol_uid: "uid_plain", handle: "新红人", pool_status: "open" })?.public_stage?.label).toBe("未首次建联");
+
+    // 无主也算公海：三个归属信号都空时，即使已有往来也入选，并标明原因。
+    const unownedContacted = {
+      kol_uid: "uid_unowned",
+      handle: "无主",
+      pool_status: "open",
+      owner_name: null,
+      owner_mailbox: null,
+      owner_user_id: null,
+      last_conversation_id: "conv_u",
+    };
+    expect(isOpenPoolRow(unownedContacted)).toBe(true);
+    const unownedCard = toPoolKol(unownedContacted);
+    expect(unownedCard).toMatchObject({ unowned: true, has_conversation: true, sea_reason: "unowned" });
+    expect(unownedCard?.public_stage?.label).toBe("无主·已有往来");
+    // 缺归属字段不能推定无主，否则所有行都会涌进公海。
+    expect(isOpenPoolRow({ kol_uid: "uid_bare", pool_status: "open", last_conversation_id: "conv_b" })).toBe(false);
+    // 有主 + 已建联 → 仍不进公海。
+    expect(isOpenPoolRow({ pool_status: "open", owner_mailbox: "ops@example.com", last_conversation_id: "conv_o" })).toBe(false);
   });
 
   it("maps GET /api/home/following B.active clock and hides C/discovery fields", () => {

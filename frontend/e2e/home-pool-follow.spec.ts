@@ -24,14 +24,30 @@ const POOL_ITEM = {
   has_conversation: false,
 };
 
-/** 已有邮件会话 = 已建联，按新口径不属于公海，前端必须过滤掉。 */
+/** 已有邮件会话 + 有负责人 = 已建联且有主，前后端都必须过滤掉。 */
 const POOL_CONTACTED_ITEM = {
   ...POOL_ITEM,
   id: "kpi_contacted",
   kol_uid: "uid_contacted",
   handle: "已建联红人",
   display_name: "已建联红人",
+  owner_name: "负责人",
   last_conversation_id: "conv_contacted",
+};
+
+/** 无主：三个归属信号都空。已有往来也算公海，且必须排在有主行前面。 */
+const POOL_UNOWNED_ITEM = {
+  ...POOL_ITEM,
+  id: "kpi_unowned",
+  kol_uid: "uid_unowned",
+  handle: "无主红人",
+  display_name: "无主红人",
+  homepage_url: "",
+  owner_name: null,
+  owner_mailbox: null,
+  owner_user_id: null,
+  has_conversation: true,
+  last_conversation_id: "conv_unowned",
 };
 
 const FOLLOW_REFUSED = {
@@ -84,8 +100,8 @@ async function stubKol172(page: Page) {
         creates_session: false,
         calls_model: false,
         index: "公海",
-        items: [POOL_ITEM, POOL_CONTACTED_ITEM],
-        kols: [POOL_ITEM, POOL_CONTACTED_ITEM],
+        items: [POOL_ITEM, POOL_CONTACTED_ITEM, POOL_UNOWNED_ITEM],
+        kols: [POOL_ITEM, POOL_CONTACTED_ITEM, POOL_UNOWNED_ITEM],
       },
     });
   });
@@ -196,12 +212,17 @@ test("pool is a separate entry and cards have no mail digest", async ({ page }) 
   await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
   await expect(page.locator("[data-pool-toolbar][data-home-entry='list-pool']")).toBeVisible();
   await expect(page.locator("[data-pool-card]").first()).toBeVisible();
-  await expect(page.locator("[data-pool-card]")).toHaveCount(1);
+  await expect(page.locator("[data-pool-card]")).toHaveCount(2);
   await expect(page.locator("[data-pool-kol='uid_contacted']")).toHaveCount(0);
+  await expect(page.locator("[data-pool-kol='uid_unowned']")).toHaveCount(1);
+  // 无主优先：无主行排在未建联的有主行前面。
+  await expect(page.locator("[data-pool-card]").first()).toHaveAttribute("data-pool-kol", "uid_unowned");
   await expect(page.locator("[data-pool-card] [data-mail-summary]")).toHaveCount(0);
-  await expect(page.locator("[data-pool-card]")).not.toContainText("未读");
-  await expect(page.locator("[data-pool-card]")).not.toContainText("14 日计时");
-  await expect(page.locator("[data-pool-card]")).not.toContainText("私有");
+  // 公海不出现邮件摘要方言。整面板断言，不依赖卡片顺序或数量。
+  const poolPane = page.locator('[data-home-pane="pool"]');
+  await expect(poolPane).not.toContainText("未读");
+  await expect(poolPane).not.toContainText("14 日计时");
+  await expect(poolPane).not.toContainText("私有");
   await expect(page.locator("[data-kol-tab]")).toHaveCount(0);
   expect(sessionPosts).toEqual([]);
 });
@@ -221,7 +242,7 @@ test("selection prefills composer and enqueue is not from-text", async ({ page }
   });
   await page.goto("/?tab=pool");
   await expect(page.locator("[data-pool-card]").first()).toBeVisible();
-  await page.locator("[data-pool-select]").first().check();
+  await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-select]").check();
   await page.locator("[data-analyze-selected]").click();
   const input = page.locator("[data-home] [data-composer-input]");
   await expect(input).toHaveValue(/分析已选/);
@@ -265,7 +286,8 @@ test("claim is L3 and posts confirm to /api/kols/:kolUid/claim", async ({ page }
     }
   });
   await page.goto("/?tab=pool");
-  await page.locator("[data-pool-claim]").first().click();
+  // 明确领取未建联的有主行：无主行排在前面，不能靠「第一张卡」取对象。
+  await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").click();
   const confirm = page.locator("[data-claim-follow-confirm]");
   await expect(confirm).toBeVisible();
   await expect(confirm).toContainText("不会发信，也不会改正式阶段");
