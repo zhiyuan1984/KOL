@@ -1898,17 +1898,24 @@ summary:focus-visible,
 }
 /* 选择器带上 `.ai-discovery-card` 是为了压过全局桌面密度规则
    `.home-pane h2 { font-size: 15px; font-weight: 500 }`（同权重、在它之后）。 */
+/* 标题与说明同排一行：说明紧跟在标题后面，标题只占 block-title 那一档，不再撑一整行。 */
+.ai-discovery-card .ai-discovery-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--ds-space-3);
+}
 .ai-discovery-card .ai-discovery-head h2 {
   margin: 0;
-  font-size: var(--ds-font-title);
-  line-height: var(--ds-line-title);
-  font-weight: var(--ds-weight-title);
+  font-size: var(--ds-font-block-title);
+  line-height: var(--ds-line-block-title);
+  font-weight: var(--ds-weight-block-title);
   color: var(--text);
 }
 .ai-discovery-card .ai-discovery-head p {
-  margin: var(--ds-space-1) 0 0;
-  font-size: var(--ds-font-desc);
-  line-height: var(--ds-line-desc);
+  margin: 0;
+  font-size: var(--ds-font-body);
+  line-height: var(--ds-line-body);
   color: var(--ds-text-secondary);
 }
 /* 分区 = 一级信息；只有分区之间有线，分区内部靠间距（视觉规范 §10）。 */
@@ -10796,7 +10803,9 @@ button.today-brief-primary-btn:disabled {
   --ds-selected-border: color-mix(in srgb, var(--color-primary) 35%, transparent);
 
   /* 字号：页面 → 描述 → 分区 → 标签 → 正文 → 辅助 */
+  /* 字号阶梯：title 是全站页标题的上限，block-title 是表单/工作区里「标题 + 说明同排」用的那一档。 */
   --ds-font-title: 28px;   --ds-line-title: 36px;   --ds-weight-title: 700;
+  --ds-font-block-title: 20px; --ds-line-block-title: 28px; --ds-weight-block-title: 600;
   --ds-font-desc: 15px;    --ds-line-desc: 24px;
   --ds-font-section: 18px; --ds-line-section: 26px; --ds-weight-section: 600;
   --ds-font-label: 14px;   --ds-line-label: 20px;   --ds-weight-label: 500;
