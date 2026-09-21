@@ -332,3 +332,20 @@ test("expanding a conversation reveals its mail timeline in the list column", as
   await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(2);
   await expect(page.locator("[data-mail-timeline-item]").first()).toHaveAttribute("data-mail-selected", "true");
 });
+
+test("selecting another mail switches only the content and translation columns", async ({ page }) => {
+  await mockFormalMail(page);
+  await page.goto("/mail?c=3901");
+  await expect(page.locator('[data-mail-thread-row="3901"]')).toBeVisible();
+  await page.locator('[data-mail-thread-row="3901"]').click();
+  await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(2);
+
+  await expect(page.locator("[data-mail-content]")).toHaveCount(1);
+  const summaryBefore = await page.locator("[data-mail-summary-body]").innerText();
+  const firstId = await page.locator("[data-mail-content]").getAttribute("data-mail-content-id");
+
+  await page.locator("[data-mail-timeline-item]").nth(1).click();
+  await expect(page.locator("[data-mail-content]")).not.toHaveAttribute("data-mail-content-id", firstId || "");
+  await expect(page.locator("[data-mail-content]")).toHaveCount(1);
+  await expect(page.locator("[data-mail-summary-body]")).toHaveText(summaryBefore);
+});

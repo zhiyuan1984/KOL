@@ -4,6 +4,7 @@ import Markdown from "../components/Markdown";
 import { api } from "../api";
 import { hydratePollDelayMs, loadMailThread, loadMailWorkspace, normalizeBox, syncMailboxMail } from "../mail/client";
 import { ConversationItem } from "../mail/components/ConversationItem";
+import { MailContent } from "../mail/components/MailContent";
 import { MailTimelineItem } from "../mail/components/MailTimelineItem";
 import { avatarTone, formatMailTime, initialsOf } from "../mail/format";
 import { selectedMessageOf, timelineOf } from "../mail/selection";
@@ -123,91 +124,6 @@ function MailDigestStrip({ thread }: { thread: MailThread }) {
           </div>
         </details>
       ) : null}
-    </article>
-  );
-}
-
-function MailMessageCard({
-  message,
-  current,
-  onSelect,
-  peerName,
-  peerEmail,
-  ownerName,
-  mailbox,
-}: {
-  message: MailMessage;
-  current: boolean;
-  onSelect: () => void;
-  peerName: string;
-  peerEmail: string;
-  ownerName: string;
-  mailbox: string;
-}) {
-  const inbound = message.direction !== "outbound";
-  const body = String(message.body_text || "").trim();
-  const senderName = inbound ? peerName || mailbox || "对方" : ownerName || mailbox || "我方";
-  const senderEmail = message.from_addr || (inbound ? peerEmail : mailbox);
-  const toAddr = message.to_addr || (inbound ? mailbox : peerEmail);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  useDismissable(menuOpen, () => setMenuOpen(false), menuRef);
-  const copyText = (value: string) => {
-    if (value) void navigator.clipboard?.writeText(value).catch(() => undefined);
-    setMenuOpen(false);
-  };
-  return (
-    <article
-      className={"mail-message" + (inbound ? " is-in" : " is-out") + (current ? " is-current" : "")}
-      data-mail-message
-      data-mail-direction={inbound ? "inbound" : "outbound"}
-      onClick={onSelect}
-    >
-      <header className="mail-message-head">
-        <span className={`mail-row-avatar mail-avatar-t${avatarTone(senderName)}`} aria-hidden="true">
-          {initialsOf(senderName)}
-        </span>
-        <div className="mail-message-who">
-          <strong>{senderName}</strong>
-          {senderEmail ? <span className="muted">{`<${senderEmail}>`}</span> : null}
-          <span className="muted mail-message-to">发送给: {toAddr || "—"}</span>
-        </div>
-        <time className="muted" data-mail-time dateTime={message.occurred_at || undefined}>
-          {formatMailTime(message.occurred_at)}
-        </time>
-        {current ? (
-          <div className="mail-msg-more" ref={menuRef}>
-            <button
-              type="button"
-              className="mail-more-btn"
-              aria-label="更多操作"
-              aria-expanded={menuOpen}
-              onClick={(e) => {
-                e.stopPropagation();
-                setMenuOpen((v) => !v);
-              }}
-            >
-              <MailIcoMore />
-            </button>
-            {menuOpen ? (
-              <div className="mail-popover" onClick={(e) => e.stopPropagation()}>
-                <button type="button" disabled={!senderEmail} onClick={() => copyText(senderEmail)}>
-                  复制发件人地址
-                </button>
-                <button type="button" disabled={!body} onClick={() => copyText(body)}>复制正文</button>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </header>
-      {message.letter_summary ? <p className="mail-message-summary">{message.letter_summary}</p> : null}
-      {body ? (
-        <div className="mail-message-body" data-mail-body>
-          <p>{body}</p>
-        </div>
-      ) : (
-        <p className="muted" data-mail-empty>正文未缓存。点「收取」后可再打开，不会现场拉 Starry。</p>
-      )}
     </article>
   );
 }
@@ -695,8 +611,7 @@ export default function Mail() {
                         />
                       ))}
                     </div>
-                  ) : null}
-                </div>
+                  ) : null}                </div>
               );
             })}
           </aside>
@@ -740,23 +655,17 @@ export default function Mail() {
                 </div>
                 <div className={mobilePanel === "original" ? "" : "mail-hide-narrow"}>
                   <MailDigestStrip thread={thread} />
-                  <div className="mail-timeline" data-mail-timeline>
-                    {thread.messages.length
-                      ? thread.messages.map((message) => (
-                          <MailMessageCard
-                            key={message.id}
-                            message={message}
-                            current={currentMessage?.id === message.id}
-                            onSelect={() => selectMessage(message)}
-                            peerName={peerOf(thread.thread)}
-                            peerEmail={thread.thread.peer_email}
-                            ownerName={workspace?.box.owner_name || ""}
-                            mailbox={thread.thread.mailbox || workspace?.box.mailbox || ""}
-                          />
-                        ))
-                      : <p className="muted">还没有缓存的往来正文。</p>}
-                  </div>
-                  <div className="mail-thread-actions" data-mail-thread-actions>
+                  {currentMessage ? (
+                    <MailContent
+                      message={currentMessage}
+                      peerName={peerOf(thread.thread)}
+                      peerEmail={thread.thread.peer_email}
+                      ownerName={workspace?.box.owner_name || ""}
+                      mailbox={thread.thread.mailbox || workspace?.box.mailbox || ""}
+                    />
+                  ) : (
+                    <p className="muted">还没有缓存的往来正文。</p>
+                  )}                  <div className="mail-thread-actions" data-mail-thread-actions>
                     <button type="button" className="btn work" data-mail-reply onClick={reply}>
                       <MailIco d={ICO_REPLY} />
                       回复
