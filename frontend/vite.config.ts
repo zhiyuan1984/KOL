@@ -19,5 +19,15 @@ export default defineConfig({
   build: {
     outDir: process.env.VITE_OUT_DIR || "dist",
     emptyOutDir: process.env.VITE_EMPTY_OUT_DIR !== "false",
+    rollupOptions: {
+      output: {
+        // Framework and markdown renderer ride in their own long-lived chunks:
+        // route chunks stay small and the slow uplink can cache the rest.
+        manualChunks: {
+          vendor: ["react", "react-dom", "react-router-dom"],
+          markdown: ["react-markdown", "remark-gfm"],
+        },
+      },
+    },
   },
 });

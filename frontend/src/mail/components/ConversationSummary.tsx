@@ -1,5 +1,5 @@
 import { useState } from "react";
-import Markdown from "../../components/Markdown";
+import { PlainText } from "./PlainText";
 import { mailDigestView } from "../digestView";
 import type { MailThread } from "../types";
 
@@ -47,7 +47,7 @@ export function ConversationSummary({ thread }: { thread: MailThread | null }) {
             data-digest-body
             data-mail-summary-clamped={clamped ? "true" : "false"}
           >
-            <Markdown>{text}</Markdown>
+            <PlainText text={text} />
           </div>
           {long ? (
             <button
