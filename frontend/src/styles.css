@@ -31,7 +31,9 @@
   --text-muted: var(--color-graphite);
 
   --primary: #DB1860;
-  --primary-fg: #FFFFFF;
+  /* 实底上的字用画布色：浅色 = #FFFFFF（4.87:1 ✓），深色自动跟随 --bg = #17191d（4.77:1 ✓）。
+     此前深色写死 #FFFFFF，实测白字压在深色主色 #E0508C 上只有 **3.69:1**，不达 13px 文字的 4.5:1。 */
+  --primary-fg: var(--bg);
   --primary-hover: #B81451;
   /* 主色当文字 / 图标时必须用它（§5 规则 3）：#DB1860 在白底只有 4.87:1、在 --ds-surface 上 4.58:1，
      都低于正文的 4.5 余量要求；本值 = color-mix(--primary 84%, #000)，实测 #B81451 白底 6.45:1 / --ds-surface 6.06:1。
@@ -184,7 +186,9 @@
   --text: #f1f3f5;
   --text-muted: #a2a8b2;
   --primary: #E0508C;
-  --primary-fg: #FFFFFF;
+  /* 深色里主色本身较亮：实底上的字改用画布色 #17191d（4.77:1 ✓），白字只有 3.69:1。 */
+  --primary-fg: var(--bg);
+  --primary-text: var(--primary); /* 深色下派生方向翻转：提亮而非压暗（对深画布 4.77:1 ✓） */
   --primary-hover: #C73B7A;
   --chrome-2: #23262c;
   --sidebar-thumb: #5a616b;
@@ -204,7 +208,9 @@
     --text: #f1f3f5;
     --text-muted: #a2a8b2;
     --primary: #E0508C;
-    --primary-fg: #FFFFFF;
+    /* 同 :root[data-theme="dark"]：深色下实底字用画布色，主色文字档改提亮。 */
+    --primary-fg: var(--bg);
+    --primary-text: var(--primary);
     --primary-hover: #C73B7A;
     --chrome-2: #23262c;
     --sidebar-thumb: #5a616b;
@@ -10060,6 +10066,8 @@ button.today-brief-primary-btn:disabled {
   font: inherit;
   font-size: var(--ds-font-sm);
   line-height: var(--lh-control);
+  /* 命中区下限（§3 --hit-min 24px）：此前输入框自身只有 22px 高，是页面上最矮的可操作元素。 */
+  min-height: var(--hit-min);
   width: 100%;
   color: var(--text);
 }
@@ -10191,7 +10199,8 @@ button.today-brief-primary-btn:disabled {
 }
 
 /* 展开 / 关闭：24px 方形图标按钮，走 6px 圆角（§5 规则 14）。
-   图标按钮必须带 aria-label —— 语义不能只靠图形象征。 */
+   图标按钮必须带 aria-label —— 语义不能只靠图形象征。
+   自设 line-height：否则继承根的 24px 行盒（§5 规则 5，本页实测违规过）。 */
 .skill-detail-toggle,
 .skill-detail-close {
   display: inline-flex;
@@ -10204,6 +10213,8 @@ button.today-brief-primary-btn:disabled {
   border-radius: var(--radius-control);
   background: transparent;
   font: inherit;
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control-sm);
   color: var(--text-muted);
   cursor: pointer;
 }
@@ -10213,9 +10224,10 @@ button.today-brief-primary-btn:disabled {
   height: 14px;
 }
 
+/* 悬停面用 --surface-hover，不用 --bg-elevated（§5 规则 9：三级表面各有其 token）。 */
 .skill-detail-toggle:hover,
 .skill-detail-close:hover {
-  background: var(--bg-elevated);
+  background: var(--surface-hover);
   color: var(--text);
 }
 
@@ -10288,12 +10300,13 @@ button.today-brief-primary-btn:disabled {
   color: var(--text-muted);
 }
 
-/* 注意事项：左侧 2px 强调条（形状信号），不靠颜色单独表达（ui-ux-rules.md §5 规则 4）。 */
+/* 注意事项：左侧 2px 强调条（形状信号），不靠颜色单独表达（ui-ux-rules.md §5 规则 4）。
+   静止面用极浅面 --ds-surface(1.06:1)，不用 --bg-elevated(1.13:1，超规则 9 判据)。 */
 .skill-detail-warn {
   margin: 0;
   padding: var(--space-2) var(--space-3);
   border-left: 2px solid var(--control-border);
-  background: var(--bg-elevated);
+  background: var(--ds-surface);
   font-size: var(--ds-font-helper);
   line-height: var(--lh-control-sm);
   color: var(--text);
@@ -10329,8 +10342,12 @@ button.today-brief-primary-btn:disabled {
 }
 
 /* 窄屏遮罩：只在覆盖态出现 */
+/* 窄屏遮罩：只在覆盖态出现。显式声明透明底 ——
+   否则这个 <button> 会带上 UA 默认的 buttonface 灰(#F0F0F0)，
+   在「本页不重复色值」的统计里凭空多出一种灰。 */
 .skill-detail-scrim {
   display: none;
+  background: transparent;
 }
 
 .skill-group {
@@ -10381,6 +10398,11 @@ button.today-brief-primary-btn:disabled {
    此前用 12px（--ds-font-helper）属于下限内的违规。 */
 .skill-group-more {
   margin-left: auto;
+  /* 可点标签必须自撑命中区（§3 --hit-min 24px）：此前作为 inline 链接只有 16px 高。
+     .skill-group-header 由 22px 的图标砖撑起，24px 只让这一行长高 2px。 */
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--hit-min);
   color: var(--text-muted);
   font-size: var(--ds-font-sm);
   line-height: var(--lh-control-sm);
@@ -10495,6 +10517,14 @@ button.today-brief-primary-btn:disabled {
   background: none;
   padding: 0;
   font: inherit;
+  /* 自设 line-height（§5 规则 5）：此前继承根的 24px 行盒，实测 52 处违规。 */
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control-sm);
+  /* 但行高压到 16px 后命中区也跟着掉到 16px（§3 要求 ≥24px）。
+     用独立命中区补齐：卡片头由 28px 图标砖撑起，min-height 24 不改变卡片高度。 */
+  min-height: var(--hit-min);
+  display: inline-flex;
+  align-items: center;
   color: inherit;
   cursor: pointer;
   text-align: left;
@@ -10693,16 +10723,17 @@ button.today-brief-primary-btn:disabled {
   white-space: nowrap;
 }
 
-/* Badge secondary：浅面 + 前景色文字 */
+/* Badge secondary：极浅面 + 前景色文字。用 --ds-surface(1.06:1)，
+   不用 --bg-elevated(#F1F1F1, 1.13:1)——规则 9 判据是与白画布 ≤1.1:1。 */
 .skill-preview-tag {
   color: var(--text);
-  background: var(--bg-elevated);
+  background: var(--ds-surface);
 }
 
 /* Badge secondary（弱化）：来源信息不进视线中心 */
 .skill-preview-agent {
   color: var(--text-muted);
-  background: var(--bg-elevated);
+  background: var(--ds-surface);
 }
 
 /* Badge outline：场景 / 输入 / 产出标签，文字 + 描边 */
@@ -10731,8 +10762,9 @@ button.today-brief-primary-btn:disabled {
 .skill-preview-avatar {
   width: 24px;
   height: 24px;
+  /* 圆形头像：§4 的圆角阶梯不适用于正圆，见 ui-ux-rules.md §4 的例外说明。 */
   border-radius: 50%;
-  background: var(--bg-elevated);
+  background: var(--ds-surface);
   color: var(--text-muted);
   font-size: var(--ds-font-helper);
   font-weight: 600;
@@ -10744,7 +10776,7 @@ button.today-brief-primary-btn:disabled {
 
 /* 用户头像不再用写死的浅蓝：静止面不填彩色（ui-ux-rules.md §5 规则 2）。 */
 .skill-preview-msg.is-user .skill-preview-avatar {
-  background: var(--bg-elevated);
+  background: var(--ds-surface);
   color: var(--text-muted);
 }
 
@@ -10754,7 +10786,7 @@ button.today-brief-primary-btn:disabled {
 }
 
 :root[data-theme="dark"] .skill-preview-msg.is-user .skill-preview-avatar {
-  background: var(--bg-elevated);
+  background: var(--ds-surface);
   color: var(--text-muted);
 }
 
@@ -10769,12 +10801,15 @@ button.today-brief-primary-btn:disabled {
   min-width: 0;
 }
 
+/* 气泡的"尖角"用阶梯内最小的 --radius-control(6px)，其余三角用 --radius-card(8px)。
+   此前写 4px 与 var(--ds-radius-section)=14px：两个值都不在 §4 的圆角阶梯里。
+   注意不要用 --radius-lg：该 token 在本仓库**尚未定义**（另见 §8），用了等于 0 圆角。 */
 .skill-preview-msg.is-ai .skill-preview-bubble {
-  border-radius: 4px 12px 12px 12px;
+  border-radius: var(--radius-control) var(--radius-card) var(--radius-card) var(--radius-card);
 }
 
 .skill-preview-msg.is-user .skill-preview-bubble {
-  border-radius: var(--ds-radius-section) 4px 12px 12px;
+  border-radius: var(--radius-card) var(--radius-control) var(--radius-card) var(--radius-card);
 }
 
 .skill-preview-bubble p {
@@ -10858,7 +10893,11 @@ button.today-brief-primary-btn:disabled {
   .skill-search-wrap {
     width: 100%;
   }
-  .skill-grid {
+  /* S 档单栏（§6.2）。必须带上 .skill-grid-4：`.skill-grid.skill-grid-4` 的权重高于
+     `.skill-grid`，否则「常用技能」那一行在窄屏仍是 2 列（实测 375/414/720/768 都是 2 列）。 */
+  .skill-grid,
+  .skill-grid.skill-grid-4,
+  .skill-grid.skill-grid-3 {
     grid-template-columns: 1fr;
   }
 }
@@ -10893,6 +10932,355 @@ button.today-brief-primary-btn:disabled {
   }
   .skill-card {
     padding: var(--space-2);
+  }
+}
+
+/* ── 按 docs/DESIGN.md（Cursor 设计分析）落地本页 ──────────────────────
+   文档来源逐项对应：colors.* / typography.* / rounded.* / layout.spacing.* /
+   elevation（发丝线即深度，零投影）/ components.button-primary · button-secondary ·
+   button-tertiary-text · text-input · feature-card · badge-pill / responsive.breakpoints。
+
+   **无障碍覆盖（文档自身不达 AA 的三处，按 WCAG 优先于品牌细节）**
+   1. `colors.primary` #f54e00 压 `colors.on-primary` 白字只有 **3.52:1**，低于 14px 文字的 4.5:1。
+      实底改用 `colors.primary-active` #d04200（白字 **4.71:1 ✓**）——仍是文档内的合法 token，
+      且文档把 primary-active 定义为按下的状态色，视觉上同族。
+   2. `colors.muted` #807d72 在画布上只有 **3.84:1**，不能用于正文尺寸；正文弱化改用
+      `colors.body` #5a5852（**6.63:1 ✓**）。muted 仅留给 ≥18px 的副标题。
+   3. `colors.muted-soft` #a09c92 只有 2.55:1，只作禁用态（WCAG 对禁用态豁免）。
+
+   **未采纳（不适用于登录后的工作台，或与无障碍冲突）**
+   - `hero-band` / `cta-band` / `footer` / `pricing-tier-*` / `testimonial-card`：
+     文档是营销站分析，本页是工作台，无落地页结构。
+   - `spacing.section` 80px 段落节奏与 `feature-card` 的 24px 内边距：文档自己写明
+     "cards within bands sit close (16-24px gap)"，本页取 16px（密集目录，52 张卡）。
+   - `timeline-pill-*` 五色 pastel：文档限定"只在产品内 agent 时间线使用，
+     不得用于非时间线 UI"，因此**不**用于本页的阶段筛选（尽管形状相近）。
+   - `colors.surface-strong` 对画布只有 1.18:1：文档把它定义为 badge/tag 的底，本页照用，
+     不再套用"灰要 ≤1.1:1"的旧判据（文档为准）。
+   - 深色主题：**文档未定义**。本页深色沿用壳层既有 token，不替文档推测品牌色的深色变体。
+   - 文档未定义 warning 色：`需确认` 走 badge-pill 的中性处理，靠文字表达（不新造颜色，
+     也满足"状态不能只靠颜色"）。 */
+:root:not([data-theme="dark"]) .skill-catalog-page {
+  /* colors —— Brand & Accent */
+  --cr-accent: #d04200; /* colors.primary-active，白字 4.71:1（见上「无障碍覆盖」1） */
+  --cr-accent-hover: #b83800;
+  --cr-on-accent: #ffffff; /* colors.on-primary */
+  --cr-ring: #f54e00; /* colors.primary：焦点环非文字，3.28:1 ≥ 3:1 ✓ */
+  /* colors —— Surface */
+  --cr-canvas: #f7f7f4; /* colors.canvas：文档 Do「never pure white」 */
+  --cr-canvas-soft: #fafaf7;
+  --cr-card: #ffffff; /* colors.surface-card：白卡浮在米画布上 */
+  --cr-strong: #e6e5e0; /* colors.surface-strong：badge / tag 底 */
+  /* colors —— Hairlines */
+  --cr-hairline: #e6e5e0;
+  --cr-hairline-strong: #cfcdc4;
+  /* colors —— Text */
+  --cr-ink: #26251e;
+  --cr-body: #5a5852; /* 弱化文字用它，不用 colors.muted（见「无障碍覆盖」2） */
+  --cr-muted: #807d72;
+  /* colors —— Semantic */
+  --cr-success: #1f8a65;
+  --cr-error: #cf2d56;
+  /* rounded.*（文档的圆角阶梯） */
+  --cr-radius-xs: 4px; /* 行内 tag */
+  --cr-radius-sm: 6px; /* 紧凑行 */
+  --cr-radius-md: 8px; /* CTA / 输入框 */
+  --cr-radius-lg: 12px; /* 卡片 */
+  --cr-radius-pill: 9999px; /* 胶囊 / badge */
+
+  /* 把文档 token 接到本页消费的语义 token 上 */
+  --bg: var(--cr-canvas);
+  --text: var(--cr-ink);
+  /* 页根设基础文字色：否则页头等元素继承壳层的冷墨 #1a1a1a，而不是文档的暖墨 #26251e。 */
+  color: var(--cr-ink);
+  --text-muted: var(--cr-body);
+  --border: var(--cr-hairline);
+  --control-border: var(--cr-hairline-strong);
+  --ds-surface: var(--cr-strong);
+  --surface-hover: var(--cr-strong);
+  --primary: var(--cr-accent);
+  --primary-fg: var(--cr-on-accent);
+  --primary-hover: var(--cr-accent-hover);
+  --primary-text: var(--cr-body);
+  --focus-ring: var(--cr-ring);
+  --success: var(--cr-success);
+  --danger: var(--cr-error);
+}
+
+/* 深色：文档没有深色 palette，本页回落到壳层的深色 token（不推测）。 */
+:root[data-theme="dark"] .skill-catalog-page,
+:root[data-theme="dark"] .skill-catalog-page * {
+  /* 仅重置本页上方的色板覆盖，几何与排版不随主题变 */
+  --bg: #17191d;
+  --text: #f1f3f5;
+  --text-muted: #a2a8b2;
+  --border: #30343b;
+  --control-border: #77808c;
+  --ds-surface: #1f2124;
+  --surface-hover: #23262c;
+  --primary: #E0508C;
+  --primary-fg: var(--bg);
+  --primary-hover: #C73B7A;
+  --primary-text: var(--primary);
+}
+
+/* ── 排版层级（typography.*） */
+.skill-catalog-page .skill-catalog-header h1 {
+  font-size: 26px; /* typography.display-md */
+  font-weight: 400; /* 文档：display 一律 400，never bold */
+  letter-spacing: -0.325px;
+  line-height: 1.25;
+  color: var(--cr-ink);
+}
+.skill-catalog-page .skill-catalog-subtitle {
+  font-size: 14px; /* typography.body-sm */
+  line-height: 1.5;
+  color: var(--cr-body);
+}
+.skill-catalog-page .skill-group-header h2 {
+  font-size: 22px; /* typography.display-sm —— 文档给「Card group titles」 */
+  font-weight: 400;
+  letter-spacing: -0.11px;
+  line-height: 1.3;
+  color: var(--cr-ink);
+}
+.skill-catalog-page .skill-card-name {
+  font-size: 16px; /* typography.title-sm */
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--cr-ink);
+  min-height: var(--hit-min);
+}
+.skill-catalog-page .skill-card-desc {
+  font-size: 14px; /* typography.body-sm */
+  line-height: 1.5;
+  color: var(--cr-body);
+}
+.skill-catalog-page .skill-detail-head h2 {
+  font-size: 18px; /* typography.title-md */
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--cr-ink);
+}
+.skill-catalog-page .skill-detail-section h4 {
+  font-size: 16px; /* typography.title-sm */
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--cr-ink);
+}
+.skill-catalog-page .skill-detail-note,
+.skill-catalog-page .skill-detail-sub {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--cr-body);
+}
+.skill-catalog-page .skill-detail-header h3,
+.skill-catalog-page .skill-group-hint {
+  font-size: 11px; /* typography.caption-uppercase：区段标签 */
+  font-weight: 600;
+  letter-spacing: 0.88px;
+  line-height: 1.4;
+  /* 用 colors.body 而不是 colors.muted：muted(#807d72) 对画布只有 3.84:1，
+     11px 小字不达 4.5:1；文档把 muted 留给副标题（≥18px），本页没有那种用法。 */
+  color: var(--cr-body);
+}
+
+/* ── 组件：text-input（本页搜索框） */
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-search-wrap {
+  height: 44px; /* components.text-input: height 44px */
+  border: 1px solid var(--cr-hairline-strong);
+  border-radius: 8px; /* rounded.md */
+  background: var(--cr-card);
+  padding: 0 16px; /* padding 12px × 16px */
+}
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-search {
+  color: var(--cr-ink);
+}
+
+/* ── 组件：badge-pill（筛选 chip / 风险标记）
+   文档把 pastel 时间线胶囊限定在 agent 时间线内，本页阶段筛选不套用其配色，
+   只取 badge-pill 的形态：colors.surface-strong 底、uppercase 11/600/0.88px、pill 圆角。 */
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-tab,
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-mark {
+  height: 24px;
+  padding: 0 10px; /* padding 4px × 10px */
+  border: 1px solid transparent;
+  border-radius: var(--cr-radius-pill); /* rounded.pill（不能用 --radius-pill：该 token 未定义，见 §8 清单） */
+  background: var(--cr-strong);
+  color: var(--cr-ink);
+  letter-spacing: 0.88px; /* typography.caption-uppercase 的字距 */
+  line-height: 1.4;
+}
+/* 筛选 chip 是**可点标签**：文档的 caption-uppercase 只有 11px，11px 不得用于可点标签，
+   故命中区与字号取 13px（无障碍优先于文档的字号档）。 */
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-tab {
+  font-size: 13px;
+  font-weight: 500;
+}
+/* 风险 / 异步标记是**非交互标签**，照文档取 11/600。 */
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-mark {
+  font-size: 11px;
+  font-weight: 600;
+}
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-tabs-list {
+  /* badge-pill 自带底色，不需要外层容器再画一个面 */
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+/* 选中：文档 pricing-tier-featured 的做法——用 ink 反相表示「被选中」，不引入彩色标识 */
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-tab.on {
+  background: var(--cr-ink);
+  color: var(--cr-canvas);
+  border-color: var(--cr-ink);
+  font-weight: 600;
+  box-shadow: none; /* elevation：零投影 */
+}
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-tab-sep {
+  /* 分隔符是 13px 文字：colors.muted 只有 3.84:1，改用 colors.body（6.63:1）。 */
+  color: var(--cr-body);
+}
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-mark.is-write {
+  border-color: var(--cr-hairline-strong);
+  background: var(--cr-card);
+}
+
+/* ── 组件：feature-card */
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-card {
+  padding: 16px; /* 文档「cards within bands sit close (16-24px gap)」→ 取 16 */
+  border: 1px solid var(--cr-hairline);
+  border-radius: 12px; /* rounded.lg */
+  background: var(--cr-card);
+}
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-card:hover,
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-card:focus-within {
+  border-color: var(--cr-hairline-strong);
+  background: var(--cr-card);
+}
+/* 选中：colors.surface-strong 底 + hairline-strong 边 + 3px ink 强调条（形状信号，非颜色） */
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-card.is-selected {
+  border-color: var(--cr-ink);
+  background: var(--cr-strong);
+  box-shadow: inset 3px 0 0 0 var(--cr-ink);
+}
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-card-icon {
+  /* 发丝线即深度：图标砖用 canvas-soft 底 + hairline 边，而不是填色 */
+  background: var(--cr-canvas-soft);
+  border: 1px solid var(--cr-hairline);
+  border-radius: var(--radius-control); /* rounded.sm：compact rows */
+  color: var(--cr-ink);
+}
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-card-star {
+  color: var(--cr-muted);
+}
+
+/* ── 组件：button-primary / button-secondary / button-tertiary-text */
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-btn-primary {
+  height: 40px; /* components.button-primary: height 40px */
+  padding: 0 18px; /* padding 10px × 18px */
+  border-radius: 8px; /* 文档「Compact 8px CTA radius」 */
+  font-size: 14px; /* typography.button */
+  font-weight: 500;
+  line-height: 1;
+}
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-btn-outline {
+  background: var(--cr-card);
+  color: var(--cr-ink);
+  border-color: var(--cr-hairline-strong);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-link {
+  color: var(--cr-ink); /* button-tertiary-text：inline ink text link */
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* ── 详情列：发丝线分界、零投影 */
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-detail-pane {
+  background: var(--cr-card);
+  border-left: 1px solid var(--cr-hairline);
+}
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-detail-toggle,
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-detail-close {
+  background: var(--cr-card);
+  border-color: var(--cr-hairline-strong);
+  border-radius: var(--radius-control);
+  color: var(--cr-body);
+}
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-detail-warn {
+  border: 1px solid var(--cr-hairline);
+  border-left: 3px solid var(--cr-ink);
+  border-radius: 8px;
+  background: var(--cr-canvas-soft);
+  color: var(--cr-ink);
+}
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-preview-bubble {
+  /* 文档：不要投影，深度靠发丝线 */
+  box-shadow: none;
+  border: 1px solid var(--cr-hairline);
+  border-radius: 12px;
+  background: var(--cr-card);
+}
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-preview-avatar {
+  border-radius: var(--radius-full); /* rounded.full：avatars */
+  background: var(--cr-strong);
+  color: var(--cr-ink);
+}
+:root:not([data-theme="dark"]) .skill-catalog-page .skill-preview-tag-item {
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--cr-hairline-strong);
+  border-radius: 4px; /* rounded.xs：inline tags */
+  background: transparent;
+  color: var(--cr-body);
+  font-size: 13px; /* typography.caption */
+  font-weight: 400;
+}
+
+/* ── 布局：内容上限 1200px（layout.grid & container） */
+.skill-catalog-page .skill-catalog-content {
+  max-width: 1200px;
+  margin-inline: auto;
+  width: 100%;
+}
+
+/* ── 断点折叠（responsive.breakpoints：Mobile <640 / Tablet 640-1024 / Desktop 1024-1280 / Wide >1280）
+   文档的 feature grid 是 3-up → 2-up → 1-up，故本页一律不超过 3 列。 */
+@media (min-width: 1024px) {
+  .skill-catalog-page .skill-grid,
+  .skill-catalog-page .skill-grid.skill-grid-4,
+  .skill-catalog-page .skill-grid.skill-grid-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (min-width: 640px) and (max-width: 1023px) {
+  .skill-catalog-page .skill-grid,
+  .skill-catalog-page .skill-grid.skill-grid-4,
+  .skill-catalog-page .skill-grid.skill-grid-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 639px) {
+  .skill-catalog-page .skill-grid,
+  .skill-catalog-page .skill-grid.skill-grid-4,
+  .skill-catalog-page .skill-grid.skill-grid-3 {
+    grid-template-columns: 1fr;
+  }
+}
+/* 窄屏覆盖态的投影：文档禁止投影，但覆盖层需要与底层分出层次，此处保留（无障碍优先）。 */
+.skill-catalog-page .skill-detail-pane.is-open {
+  box-shadow: var(--shadow-popover);
+}
+
+/* 触摸档命中区必须在色板覆盖之后重新声明：上面的 .skill-catalog-page .skill-tab（0,2,0）
+   会盖掉原先 @media (pointer: coarse) 里的 .skill-tab（0,1,0），44px 触摸下限会被吃掉。 */
+@media (pointer: coarse) {
+  .skill-catalog-page .skill-tab {
+    min-height: 44px;
+    height: auto;
+    padding: 0 var(--space-4);
   }
 }
 
