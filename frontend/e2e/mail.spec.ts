@@ -457,7 +457,7 @@ test("a long conversation summary is clamped with an expand toggle", async ({ pa
   await expect(body).toBeVisible();
   const toggle = page.locator("[data-mail-summary-toggle]");
   await expect(toggle).toBeVisible();
-  await expect(toggle).toHaveText("展开全文");
+  await expect(toggle).toHaveText("▶ 查看摘要");
   expect(await body.evaluate((el) => el.clientHeight < el.scrollHeight)).toBe(true);
 
   await toggle.click();

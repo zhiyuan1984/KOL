@@ -20,12 +20,12 @@ export function TranslationPanel({ message }: { message: MailMessage | null }) {
   };
   return (
     <section
-      className="mail-side-card mail-translation"
+      className="mail-side-card"
       data-mail-translation
       data-mail-translation-for={message?.id || ""}
     >
       <header className="mail-side-card-head">
-        <strong>译 中文翻译</strong>
+        <strong className="mail-side-title">✦ 中文翻译</strong>
         <button
           type="button"
           className="mail-copy-btn"
@@ -33,7 +33,7 @@ export function TranslationPanel({ message }: { message: MailMessage | null }) {
           disabled={!translation}
           onClick={copy}
         >
-          {copied ? "已复制" : "复制翻译"}
+          {copied ? "已复制" : "复制"}
         </button>
       </header>
       {paragraphs.length ? (
@@ -41,7 +41,7 @@ export function TranslationPanel({ message }: { message: MailMessage | null }) {
           {paragraphs.map((p, i) => <p key={i}>{p}</p>)}
         </div>
       ) : (
-        <p className="muted" data-mail-translation-pending>翻译生成中…</p>
+        <p className="muted mail-side-hint" data-mail-translation-pending>翻译生成中…</p>
       )}
     </section>
   );

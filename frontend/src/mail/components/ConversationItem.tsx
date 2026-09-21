@@ -1,6 +1,9 @@
 import { avatarTone, formatMailTime, initialsOf } from "../format";
 import type { MailConversation } from "../types";
 
+const ICO_FOLDER =
+  "M3.2 6.2A1.7 1.7 0 0 1 4.9 4.5h3.1l1.5 1.9h8.6a1.7 1.7 0 0 1 1.7 1.7v8.2a1.7 1.7 0 0 1-1.7 1.7H4.9a1.7 1.7 0 0 1-1.7-1.7z";
+
 export function ConversationItem({
   row,
   expanded,
@@ -25,6 +28,21 @@ export function ConversationItem({
       aria-expanded={expanded}
       onClick={onToggle}
     >
+      <span className="mail-row-caret" aria-hidden="true" data-mail-row-caret>
+        {expanded ? "▾" : "▸"}
+      </span>
+      <span className={"mail-row-folder" + (expanded ? " is-open" : "")} aria-hidden="true" data-mail-row-folder>
+        <svg viewBox="0 0 24 24" width="15" height="15">
+          <path
+            d={ICO_FOLDER}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
       <span className={`mail-row-avatar mail-avatar-t${avatarTone(name)}`} aria-hidden="true">
         {initialsOf(name)}
       </span>

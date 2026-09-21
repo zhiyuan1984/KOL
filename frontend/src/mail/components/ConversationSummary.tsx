@@ -3,71 +3,67 @@ import Markdown from "../../components/Markdown";
 import { mailDigestView } from "../digestView";
 import type { MailThread } from "../types";
 
-/** Conversation-level digest. It follows the conversation id and never
- *  changes when the operator selects another mail inside the thread. */
-function DigestStrip({ thread }: { thread: MailThread }) {
-  const view = mailDigestView(thread.digest);
-  if (view.kind === "empty") return null;
-  return (
-    <article
-      className={`mail-digest is-${view.kind}`}
-      data-mail-digest
-      data-digest-kind={view.kind}
-      data-summary-source={thread.digest.source || undefined}
-    >
-      <strong data-digest-label>{view.label}</strong>
-      {thread.digest.mail_count ? <small data-digest-count>{thread.digest.mail_count} 封往来</small> : null}
-      {view.disclaimer ? <p className="muted" data-digest-disclaimer>{view.disclaimer}</p> : null}
-      {view.lede ? <p className="muted" data-digest-lede>{view.lede}</p> : null}
-      {view.kind === "model" && view.text ? (
-        <div className="mail-digest-body" data-digest-body>
-          <Markdown>{view.text}</Markdown>
-        </div>
-      ) : null}
-      {view.kind === "rule" && view.text ? (
-        <details className="mail-digest-excerpt" data-digest-excerpt>
-          <summary>查看摘录</summary>
-          <div className="mail-digest-body" data-digest-body>
-            <Markdown>{view.text}</Markdown>
-          </div>
-        </details>
-      ) : null}
-    </article>
-  );
-}
-
+/**
+ * Conversation-level digest, shaped like the existing 规则摘录 block: title row,
+ * a count line, an honest source note, then the body (clamped until asked for).
+ * It follows the conversation id and never changes when another mail is picked.
+ */
 export function ConversationSummary({ thread }: { thread: MailThread | null }) {
-  const text = String(thread?.digest?.text || "").trim();
   const [expanded, setExpanded] = useState(false);
+  const digest = thread?.digest || null;
+  const view = digest ? mailDigestView(digest) : null;
+  const text = String(digest?.text || "").trim();
   const long = text.length > 200;
+  const clamped = long && !expanded;
+
   return (
-    <section className="mail-side-card" data-mail-summary-card>
+    <section
+      className="mail-side-card"
+      data-mail-summary-card
+      data-mail-digest
+      data-digest-kind={view?.kind || undefined}
+      data-summary-source={digest?.source || undefined}
+    >
       <header className="mail-side-card-head">
-        <strong>✦ 会话摘要</strong>
+        <strong className="mail-side-title">✦ 会话摘要</strong>
         <span className="mail-side-tag">AI 生成</span>
       </header>
-      {text ? (
-        <div
-          className={"mail-side-body" + (long && !expanded ? " is-clamped" : "")}
-          data-mail-summary-body
-          data-mail-summary-clamped={long && !expanded ? "true" : "false"}
-        >
-          <Markdown>{text}</Markdown>
-        </div>
-      ) : (
-        <p className="muted" data-mail-summary-pending>摘要生成中…点「收取」后可再试。</p>
-      )}
-      {long ? (
-        <button
-          type="button"
-          className="mail-more-toggle"
-          data-mail-summary-toggle
-          onClick={() => setExpanded((v) => !v)}
-        >
-          {expanded ? "收起" : "展开全文"}
-        </button>
+
+      {view && view.kind !== "empty" ? (
+        <p className="mail-side-count" data-mail-digest-meta>
+          <span data-digest-label>{view.label}</span>
+          {digest?.mail_count ? <span data-digest-count> · {digest.mail_count} 封往来</span> : null}
+        </p>
       ) : null}
-      {thread ? <DigestStrip thread={thread} /> : null}
+      {view?.disclaimer ? (
+        <p className="muted mail-side-hint" data-digest-disclaimer>{view.disclaimer}</p>
+      ) : null}
+
+      {text ? (
+        <>
+          <div
+            className={"mail-side-body" + (clamped ? " is-clamped" : "")}
+            data-mail-summary-body
+            data-digest-body
+            data-mail-summary-clamped={clamped ? "true" : "false"}
+          >
+            <Markdown>{text}</Markdown>
+          </div>
+          {long ? (
+            <button
+              type="button"
+              className="mail-more-toggle"
+              data-mail-summary-toggle
+              aria-expanded={expanded}
+              onClick={() => setExpanded((v) => !v)}
+            >
+              {expanded ? "收起" : "▶ 查看摘要"}
+            </button>
+          ) : null}
+        </>
+      ) : (
+        <p className="muted mail-side-hint" data-mail-summary-pending>摘要生成中…点「收取」后可再试。</p>
+      )}
     </section>
   );
 }
