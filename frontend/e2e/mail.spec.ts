@@ -68,6 +68,7 @@ async function mockMailMissing(page: Page) {
 }
 
 test("sidebar 通讯 sits under 定时任务 and /mail uses board fallback", async ({ page }) => {
+  page.on("console", (m) => { if (m.type() === "error") console.log("[console]", m.text().slice(0, 200)); });
   const sessionPosts: string[] = [];
   await mockMailMissing(page);
   page.on("request", (request) => {

@@ -142,11 +142,11 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   expect(chrome.plusBg).toMatch(/rgba\(\s*0,\s*0,\s*0,\s*0\s*\)|transparent/);
   near(rgb(chrome.sendColor) as number[], [180, 180, 180], 24);
 
-  // The 分析跟进 / 开始发现 / 安排今天 row was removed from the ask box. Only the
-  // plural wrapper is asserted away: the singular .home-composer-pill still
-  // backs the 推荐技能 row at the top of Home and must stay.
+  // The 分析跟进 / 开始发现 / 安排今天 row is gone from the ask box, and the
+  // 推荐技能 row that briefly lived at the top of Home was removed too, so neither
+  // the plural wrapper nor the singular pill may render anywhere on Home.
   await expect(page.locator("[data-home-composer-pills]")).toHaveCount(0);
-  await expect(page.locator("[data-home] .home-composer-dock .home-composer-pill")).toHaveCount(0);
+  await expect(page.locator("[data-home] .home-composer-pill")).toHaveCount(0);
 
   // Focus still toggles is-composer-focused (it dims neighbouring panels), but it
   // must no longer move the box. Comparing the focused read against the idle one
@@ -178,7 +178,7 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   await expect(page.locator("[data-home] [data-composer-tool]")).toHaveCount(0);
   // The model tier moved into the composer toolbar, next to send.
   await expect(page.locator("[data-home] .composer .tier-control")).toHaveCount(1);
-  await expect(page.locator("[data-home] .home-chrome-actions .tier-control")).toHaveCount(0);
+  await expect(page.locator("[data-home] .home-composer-dock .tier-control")).toHaveCount(1);
   await menu.getByRole("menuitem", { name: "技能" }).click();
   await expect(page.locator("[data-composer-skill-search]")).toBeVisible();
   await page.keyboard.press("Escape");
