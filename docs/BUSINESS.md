@@ -156,7 +156,7 @@ KOL 索引包含稳定 ID、平台、方向、画像、来源和更新时间；�
 | `kol_analyze` | 红人分析简报，未定义快捷面与 Agent 面 |
 | `today_plan`、`today_analyze`、`todo_plan` | 今日任务与待办规划，与 `creator_daily_tasks` 的边界未定义 |
 
-在补齐前，员工端「技能目录」对这几项的详情会明确显示「待业务专家补齐」，不给出推测口径（`docs/DESIGN.md` §5；CONST-10 不得伪造）。
+在补齐前，员工端「技能目录」对这几项的详情会明确显示「待业务专家补齐」，不给出推测口径（[ui-ux-rules.md](ui-ux-rules.md) §5；CONST-10 不得伪造）。
 
 | 当前 Skill | 记忆快捷入口 | 需要 Agent 或受控动作的部分 |
 |---|---|---|
@@ -172,7 +172,7 @@ KOL 索引包含稳定 ID、平台、方向、画像、来源和更新时间；�
 
 ## 旧 spec 条款映射
 
-保留原追踪 ID，后续对齐其正文与测试；没有现行文件的 FS-KOL-006、FS-KOL-010 不恢复为新规则。完整旧映射见 [traceability.json](../specs/traceability.json)。
+保留原追踪 ID，后续对齐其正文与测试；没有正文的 FS-KOL-006、FS-KOL-010 不恢复为新规则。下表就是本独立规范集所需的完整旧规则映射，不依赖外部追踪文档。
 
 | 旧规格 | 原规则 ID | 新条款与取舍 |
 |---|---|---|
@@ -197,4 +197,4 @@ KOL 索引包含稳定 ID、平台、方向、画像、来源和更新时间；�
 | BIZ-07 | 公海可见字段、可领取人群、分配方式与历史资料移交范围 |
 | BIZ-14、15、17 | 现行费用制度来源、具体审批链、场景合规要求及报表公式；缺少哪项只阻止对应结论或动作 |
 
-沿用来源：[组织权限](./org-permissions.md)、[业务事实源评估](./18-mcp-master-data-assessment.md)、[领域对象](./domain-objects.md)、[阶段图](./business-rules/stage-transitions.md)、[阶段配置](../config/stage-transitions.json)、[TB 绑定](../config/tb-binding.yaml)、[技能](../backend/skills/)、[Policy](../policies/)、[Workflow](../workflows/)。旧文档提到的 `data/kol` 原目录本次工作区不存在；[测试夹具](../backend/tests/fixtures/real-data/)中的 SOP 可用于规则追溯与测试，不自动成为生产事实源。
+本目录内的规范来源为：[组织权限](org-permissions.md)、[业务事实源评估](18-mcp-master-data-assessment.md)、[领域对象](domain-objects.md)和[阶段图](business-rules/stage-transitions.md)。运行时配置、技能、Policy、Workflow 和测试夹具都是实施资产，必须服从这些正文；它们不因存在于代码仓库而自动成为业务事实源。

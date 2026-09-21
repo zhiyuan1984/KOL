@@ -1,8 +1,7 @@
 # 产品阶段转移图
 
-**权威（产品法）**：本文件 + `config/stage-transitions.json`。  
-**决策**：ADR-027。ADR-011「远程必须相邻写入」**已废止**，不得再当产品边。  
-Host `confirm_stage` **按本图闸门**（`config/stage-transitions.json`）。Starry 逐格 walk 仍是物理适配，不能回写产品边。
+**定位**：BIZ-08、BIZ-12 的阶段转移实施细则；本 Markdown 是本独立规范集中的规范正文。  
+“远程必须相邻写入”不得作为产品边。Host `confirm_stage` 必须按本图闸门；Starry 逐格 walk 仍是物理适配，不能回写产品边。
 
 节点锁定为现行 Host 15 个正式阶段码 + 一条异常旁路，与 `frontend/src/kolStages.ts` 的 `MAIN_STAGE_TABS` + `EXCEPTION_TAB` 一致。
 
@@ -65,7 +64,7 @@ Host `confirm_stage` **按本图闸门**（`config/stage-transitions.json`）。
 
 ## 4. 自动路径（更严）
 
-自动事实**不得**替人纠正或跨段跳过。精神对齐现行 `autoLegalTargets`（实现仍在 `backend/src/stages.ts`，本 PR 不改 LIVE 闸门）：
+自动事实**不得**替人纠正或跨段跳过。运行实现必须满足下表：
 
 | 从 | 自动可去 | 标记 |
 |---|---|---|
@@ -94,9 +93,9 @@ INITIAL_CONTACT → INTERESTED → EVALUATING → QUOTE_PENDING → NEGOTIATING
 Starry `changeLifecycleStage` 的相邻 hop、`planStarryAdjacentWalk` 逐格 walk、原生码 `toStageCode`，都是 **Host ↔ Starry 适配器** 的物理限制与字段形状。
 
 - **不得**用「远程只接受相邻前进」改写 §3 / §4。
-- 字段形状与 hop 残差见 `docs/07-mcp-data-contract.md`（「物理适配」）与宪法 §4.2 的 `stage_code` 句。
-- 本 PR **不**改 LIVE walk。后续 code PR 必须按本图放宽 Host 产品闸门；适配器若仍只能一格一格写，应留在 `07` / Starry adapter，并在确认卡上诚实说明「产品已允许、远程仍在逐格同步」。
+- 字段形状与 hop 残差见 [07-mcp-data-contract.md](../07-mcp-data-contract.md)“物理适配”；`stage_code` 要求见 BIZ-12。
+- 实施迁移必须按本图配置 Host 产品闸门；适配器若仍只能一格一格写，应留在 Starry adapter，并在确认卡上诚实说明「产品已允许、远程仍在逐格同步」。
 
-## 7. 机器可读副本
+## 7. 机器执行要求
 
-`config/stage-transitions.json` 与本文件同义。冲突时以本 Markdown 与 ADR-027 为准。`validate-contracts` 不把该 JSON 当发布门禁编译项（本轮只立法）。
+运行时阶段配置必须完整表达本文件的节点、边、原因和审批要求，并进入契约校验与发布门禁。机器配置与本文不一致时不得发布；不得靠运行代码、历史决定或远端限制静默改变产品边。

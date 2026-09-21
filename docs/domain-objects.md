@@ -1,8 +1,8 @@
 # 业务对象与关系
 
-> **Class D 权威。** 本文件是核心对象与关系、Agent 包、数据字典与枚举的**唯一正文**。不得再把 D 读成旧编号文件与字典文件的组合。
+> **定位：实施细则。** 本文件收敛核心对象与关系、Agent 包、数据字典与枚举，落实 PRODUCT 与 BUSINESS，不建立额外法律层级。
 >
-> 产品是智能体中台。本文件的对象层（DigitalEmployee / Agent / Skill / Task）是平台模型；`expert:kol` 只是首个已发布岗位专家，不是产品壳。能力面位阶见 `CONSTITUTION.md` §4.1–4.2。
+> 产品是智能体中台。本文件的对象层（DigitalEmployee / Agent / Skill / Task）是平台模型；`expert:kol` 只是首个已发布岗位专家，不是产品壳。能力范围见 [PRODUCT.md](PRODUCT.md) PROD-PLAT-02，信息架构见 [ia-information-architecture.md](ia-information-architecture.md)。
 >
 > 谁可以转哪一阶段见 E；交互原则见 G；物理 request 形状见 K。本文件不定义那些。
 
@@ -10,7 +10,7 @@
 
 ## 核心对象与关系
 
-- `DigitalEmployee`：岗位身份、目标、知识范围、权限和可用 Agent。员工端文案是「数字员工」/「岗位专家」（ADR-016）。首版机器可读发布资产是 `ExpertManifest`（API `/api/experts`，`expert:kol`）；不要把岗位对象塞进 Agent `employee_views.entries[].skillId`，也不要用 `/profiles` + `/skills` + `/connectors` 拼员工专家页。无专家团 API。
+- `DigitalEmployee`：岗位身份、目标、知识范围、权限和可用 Agent。员工端文案是「数字员工」/「岗位专家」。首版机器可读发布资产是 `ExpertManifest`（API `/api/experts`，`expert:kol`）；不要把岗位对象塞进 Agent `employee_views.entries[].skillId`，也不要用 `/profiles` + `/skills` + `/connectors` 拼员工专家页。无专家团 API。
 - `Agent`：面向一个业务目标的可发布能力组合。
 - `Workflow`：多个 Skill、人工决策和外部动作组成的业务流程。
 - `Skill`：一个可复用业务意图的输入、输出和禁止事项契约。
@@ -23,7 +23,7 @@ Agent 不拥有独立运行时。所有 Agent 共用同一个平台内核和 Cod
 
 ### Expert / DigitalEmployee 发布资产
 
-`experts/<id>/manifest.yaml` 是首版岗位专家发布包（当前仅 `expert:kol`），落实 ADR-016。员工端字段锁定为：`id` / `version` / `status` / `display_name` / `profession` / `description` / `avatar` / `category` / `tags` / `mission` / `quick_prompts` / `entry_skill`。`agents/<id>/manifest.yaml` 仍是 Agent 发布包（内部依赖，由后端解析）。`POST /api/experts/:id/summon` 只创建绑定会话并持久化 `expert_id` + `expert_version`，返回 `{ session_id, expert_id, expert_version, intro }`；不发信、不写阶段、不自动做高风险动作。无专家团 API。本阶段不做组织/部门/品牌授权、审批模型或专家团队成员。员工专家中心不拥有并列能力面（ADR-015）。
+`experts/<id>/manifest.yaml` 是首版岗位专家发布包（当前仅 `expert:kol`）。员工端字段锁定为：`id` / `version` / `status` / `display_name` / `profession` / `description` / `avatar` / `category` / `tags` / `mission` / `quick_prompts` / `entry_skill`。`agents/<id>/manifest.yaml` 仍是 Agent 发布包（内部依赖，由后端解析）。`POST /api/experts/:id/summon` 只创建绑定会话并持久化 `expert_id` + `expert_version`，返回 `{ session_id, expert_id, expert_version, intro }`；不发信、不写阶段、不自动做高风险动作。无专家团 API。本阶段不做组织/部门/品牌授权、审批模型或专家团队成员。员工专家中心不拥有并列能力面。
 
 安培时代已确认部门负责人公司级范围：`张慧玲`（品牌与用户增长中心）和 `刘敏`（推广部）自动获得全部品牌、全部区域和普通业务数据 `read/write`；发送、阶段变更、导入、解密等高风险动作仍由 Host Gateway 和确认/审批控制。
 

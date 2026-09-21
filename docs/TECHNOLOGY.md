@@ -140,30 +140,25 @@ Agent 不等于独立进程，数字员工不等于 Skill。工具适配器只�
 
 后端专家负责服务、队列、同步、错误、延迟、成本和审批积压的监控及恢复；前端专家负责客户端故障，测试经理验证回滚，业务专家判断业务补偿。出现泄露、越权或重复副作用时停止受影响的新提交；已发邮件、已付款等不可逆结果只能补偿，不能宣称已回滚消失。
 
-## 扫描发现的实施差距
+## 实施状态与迁移记录
 
-下表来自 2026-09-16 代码与文档核对，是迁移清单，不是新的业务规则或已完成声明。
+具体代码路径、缺口、负责人和完成日期变化频繁，不写入基本法正文。项目经理应维护独立的实施登记表，并至少包含：
 
-| 现状与证据 | 新版要求 | 主责 |
-|---|---|---|
-| [memory API](../backend/src/routers/enterprise.ts) 已有 CRUD；`team` 读取未表达真实组织范围；[runner](../backend/src/worker/runner.ts) 按最近 20 条拼记忆 | PROD-AGENT-05、06；TECH-BE-01、06：对象索引、当前权限和相关性检索 | 智能体产品经理定义契约，后端实现 |
-| [邮件摘要](../backend/src/host/mail-summary.ts) 已持久化，但存在独立模型调用及不完整指纹；[对象会话](../backend/src/host/kol-journey.ts) 的读取可触发摘要生成 | TECH-ARCH-02、TECH-BE-06：统一 harness；事件生成、快捷只读；可靠版本指纹 | 后端专家 |
-| [首页跟进绑定](../backend/src/host/starry-bind.ts) 仍有姓名或邮箱前缀匹配；[Pipeline](../backend/src/routers/pipeline.ts) 存在全量合作查询 | BIZ-03 至 BIZ-07、TECH-BE-01：稳定身份及对象级校验，覆盖全部读取路径 | 业务专家定范围，后端实现 |
-| ~~[Cron 页面](../frontend/src/pages/Cron.tsx) 的立即扫描会创建会话~~；14 天归属释放仍是安全子集（缺有效往来时间戳则 skip） | 已由 cron P0/P1 修复：确定作业走 `cron_jobs`/`cron_runs` + `tickCronDue()`，不再创建 session。外部调度：`POST /api/cron/internal/tick`（管理员或 `CRON_TICK_SECRET`）。 | 智能体产品经理、业务专家、前后端分别负责 |
-| [SOP](../backend/src/sops.ts)、[阶段](../backend/src/stages.ts)、[任务解析](../backend/src/tasks/resolver.ts) 等仍含业务判断与目录 | CONST-02、TECH-ARCH-03：迁出内核，转换成业务配置和技能；不以复制为“配置化” | 业务专家定义，架构师划边界，前后端迁移 |
-| 已有 [Task API](../backend/src/routers/tasks.ts)、知识治理、审批、发现和异步采集基础；部分入口仍为占位、重定向或局部闭环 | PROD-PLAT-02、TECH-TEST-03：逐能力登记状态、补充真实验收 | 平台产品经理、项目经理、测试经理 |
-| [org registry](../config/org-registry.yaml)、[品牌 registry](../config/brand-registry.yaml) 已存在；旧报告仍有部分过时“缺资产”描述，部分旧来源路径不存在 | BIZ-02、CONST-10：核对现有文件，不将旧报告当实时证据；夹具不作生产事实 | 业务专家、项目经理、测试经理 |
-| [契约校验器](../backend/scripts/validate-contracts.mjs) 与 `specs/` 仍引用旧体系；旧入口 `README.md` / `LAW-MAP.md` 已废止，仓库入口改由根 `AGENTS.md` 与 `docs/CONSTITUTION.md` 承担 | CONST-09：正式切换时更新引用、条款映射和校验规则，并保留历史溯源 | 项目经理协调，各法责任角色与测试经理验收 |
+| 字段 | 要求 |
+|---|---|
+| `requirement_refs` | 对应的 CONST / PROD / BIZ / TECH 条款 |
+| `implementation_assets` | 代码、配置、Skill、Policy、Workflow、schema 与数据迁移 |
+| `owner` | 规则责任角色和实施责任角色，分别记录 |
+| `status` | `not_started / in_progress / blocked / verified / released`；不得用文档完成代替生产完成 |
+| `evidence` | 测试、评价、授权集成回执、版本与验证时间 |
+| `known_gaps` | 未实现能力、规则空白、外部限制和补偿路径 |
 
-### Cron handlers（P0/P1）
+实施登记不能改变本文件规则。发现代码与规范不一致时，按 CONST-08 记录差距；代码不得自动成为新规则，规范也不得为了让测试通过而静默修改。
 
-| handler_key | 副作用级别 | 说明 |
-|---|---|---|
-| `overdue-scan` | 只读 | 列出逾期合作写入回执；不建 thread/turn/session |
-| `daily-task-snapshot` | 只读 | 本地问候/跟进/报价/谈判快照；不调用远端 daily-tasks，不建会话 |
-| `ownership-release` | 仅 BIZ-06 归属释放 | 执行前复核 owner + 往来时间；续期/改派/缺时间戳 skip+回执；不改正式阶段 |
-| `discovery-search` | 未启用 | 登记 handler，禁止采集器与伪造运行 |
+### 自动任务的最低执行契约
 
-外部分钟级调度示例（密钥只放环境变量，不要打印）：`curl -X POST -H "X-Cron-Tick-Secret: $CRON_TICK_SECRET" https://<host>/api/cron/internal/tick`。员工页不是调度器，不要用页面 `setInterval` 当唯一时钟。
+每个 handler 必须登记稳定 ID、执行身份、对象范围、风险级别、触发方式、去重键、重试、取消、恢复、终态、回执和人工接管方式。只读快照不得创建虚假 thread/turn；归属释放只能执行 BIZ-06 已授权的副作用；未启用处理器必须明确返回未启用，不得调用替代任务冒充运行。
 
-吸收来源（原文已归档到 `nothings/`，不再是现行法）：旧技术宪法、Harness、落地契约、测试、发布。物理接口与工具风险目录见 [07-mcp-data-contract.md](./07-mcp-data-contract.md)。当前 [后端脚本](../backend/package.json) 已包含契约校验、类型检查、测试、评价与发布门禁，[前端脚本](../frontend/package.json) 包含构建、类型检查和 E2E；应对齐新条款后复用。
+外部调度密钥只能放在受控秘密存储或环境变量中，不能写入日志、Markdown 或前端。员工页面不是调度器，不得使用页面计时器作为唯一执行时钟。
+
+物理接口与工具风险细则见 [07-mcp-data-contract.md](07-mcp-data-contract.md)。发布门禁必须覆盖契约校验、类型检查、测试、Agent 评价、授权集成验证及回滚证据；其中任一项通过都不能单独证明完整业务闭环已交付。
