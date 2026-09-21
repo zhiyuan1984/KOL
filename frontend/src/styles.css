@@ -8792,6 +8792,39 @@ body {
   margin-inline: auto;
 }
 
+/* In Today mode the existing task table owns the right rail. Keep the ask box
+   on the Codex center column instead of letting it run underneath that table. */
+@media (min-width: 981px) {
+  .home-pane[data-home-active-mode="today"]:has(.today-task-rail:not(.is-collapsed)) .home-stage {
+    width: 100%;
+    max-width: none;
+  }
+  .home-pane[data-home-active-mode="today"]:has(.today-task-rail:not(.is-collapsed)) .home-composer-dock {
+    width: calc(100% - clamp(500px, 42%, 680px));
+    max-width: none;
+    margin-left: 0;
+    margin-right: auto;
+    padding-right: 28px;
+  }
+  .home-pane[data-home-active-mode="today"]:has(.today-task-rail.is-collapsed) .home-stage {
+    width: 100%;
+    max-width: none;
+  }
+  .home-pane[data-home-active-mode="today"]:has(.today-task-rail.is-collapsed) .home-composer-dock {
+    width: calc(100% - 56px);
+    max-width: none;
+    margin-left: 0;
+    margin-right: 56px;
+  }
+}
+
+@media (min-width: 981px) and (max-width: 1280px) {
+  .home-pane[data-home-active-mode="today"]:has(.today-task-rail:not(.is-collapsed)) .home-composer-dock {
+    width: 54%;
+    padding-right: 20px;
+  }
+}
+
 .home-stage::-webkit-scrollbar {
   width: var(--scrollbar-size);
   height: var(--scrollbar-size);

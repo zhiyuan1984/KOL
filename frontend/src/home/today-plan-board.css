@@ -354,3 +354,193 @@
 .today-board .task-empty {
   padding: 24px 8px;
 }
+
+/* Today is a three-column workspace at the app level: global navigation,
+   Codex planning/execution, and the existing actionable task table. */
+.today-workspace {
+  --today-task-rail-width: clamp(500px, 42%, 680px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--today-task-rail-width);
+  align-items: stretch;
+  min-height: clamp(420px, 62vh, 760px);
+  overflow: visible;
+}
+.today-workspace.is-task-rail-collapsed {
+  grid-template-columns: minmax(0, 1fr) 56px;
+}
+.today-workspace-center {
+  min-width: 0;
+  padding: 4px 28px 24px 0;
+}
+.today-workspace-center-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-height: 34px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ds-border);
+  color: var(--ds-text-strong);
+}
+.today-workspace-center-head span {
+  font-size: var(--ds-font-section);
+  font-weight: 600;
+}
+.today-workspace-center-head small {
+  color: var(--ds-text-muted);
+  font-size: var(--ds-font-helper);
+}
+.today-workspace-center > .today-plan,
+.today-workspace-center > .today-plan-summary {
+  margin-top: 16px;
+}
+.today-workspace-empty {
+  display: grid;
+  gap: 6px;
+  max-width: 520px;
+  padding: 28px 0;
+  color: var(--ds-text-dim);
+}
+.today-workspace-empty strong {
+  color: var(--ds-text-strong);
+}
+.today-workspace-empty p {
+  margin: 0;
+  font-size: var(--ds-font-sm);
+}
+.today-task-rail {
+  position: relative;
+  min-width: 0;
+  padding: 4px 0 24px 28px;
+  border-left: 1px solid var(--ds-border);
+  background: var(--bg);
+}
+.today-task-rail > .today-board {
+  margin: 0;
+}
+.today-task-rail-toggle {
+  position: absolute;
+  z-index: 2;
+  top: 2px;
+  left: -16px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--radius-full);
+  background: var(--bg);
+  color: var(--ds-text-dim);
+  font: inherit;
+  cursor: pointer;
+}
+.today-task-rail-toggle:hover {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+.today-task-rail.is-collapsed {
+  display: flex;
+  align-items: center;
+  padding: 46px 6px 16px;
+}
+.today-task-rail.is-collapsed > .today-board {
+  display: none;
+}
+.today-task-rail.is-collapsed .today-task-rail-toggle {
+  position: static;
+  width: 100%;
+  height: auto;
+  min-height: 160px;
+  flex-direction: column;
+  gap: 10px;
+  border: 0;
+  border-radius: 0;
+}
+.today-task-rail-toggle strong {
+  writing-mode: vertical-rl;
+  font-size: var(--ds-font-sm);
+  letter-spacing: 0.12em;
+}
+.today-task-rail-toggle em {
+  min-width: 24px;
+  padding: 2px 6px;
+  border-radius: var(--ds-radius-tag);
+  background: var(--ds-surface);
+  color: var(--ds-text-strong);
+  font-size: var(--ds-font-helper);
+  font-style: normal;
+  text-align: center;
+}
+.today-task-rail .today-board-head {
+  padding-left: 4px;
+}
+.today-task-rail .today-board-tools {
+  width: 100%;
+  margin: 8px 0 0;
+}
+.today-task-rail .today-board-search {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+.today-task-rail .today-board-filters {
+  gap: 6px;
+}
+.today-task-rail .today-board-pill {
+  padding-inline: 10px;
+}
+
+@media (max-width: 1280px) {
+  .today-workspace {
+    --today-task-rail-width: minmax(440px, 46%);
+    grid-template-columns: minmax(0, 1fr) minmax(440px, 46%);
+  }
+  .today-workspace-center {
+    padding-right: 20px;
+  }
+  .today-task-rail {
+    padding-left: 20px;
+  }
+  .today-task-rail .today-board-cell-index,
+  .today-task-rail .today-board-table th:first-child,
+  .today-task-rail .today-board-table td:first-child {
+    display: none;
+  }
+}
+
+@media (max-width: 980px) {
+  .today-workspace,
+  .today-workspace.is-task-rail-collapsed {
+    display: block;
+    min-height: 0;
+  }
+  .today-workspace-center {
+    padding-right: 0;
+  }
+  .today-task-rail {
+    margin-top: 20px;
+    padding: 20px 0 0;
+    border-top: 1px solid var(--ds-border);
+    border-left: 0;
+  }
+  .today-task-rail.is-collapsed {
+    min-height: 44px;
+    padding: 6px 0;
+  }
+  .today-task-rail-toggle,
+  .today-task-rail.is-collapsed .today-task-rail-toggle {
+    position: static;
+    width: auto;
+    min-height: 36px;
+    height: 36px;
+    margin-left: auto;
+    padding: 0 12px;
+    flex-direction: row;
+    gap: 8px;
+    border: 1px solid var(--ds-border);
+    border-radius: var(--ds-radius-input);
+  }
+  .today-task-rail-toggle strong {
+    writing-mode: horizontal-tb;
+    letter-spacing: 0;
+  }
+}

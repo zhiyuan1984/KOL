@@ -67,7 +67,19 @@ test("entering today lists memory without planning; 启动今日任务 starts th
 
   await page.goto("/");
   await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
+  await expect(page.locator("[data-today-workspace] [data-today-ai-workspace]")).toBeVisible();
+  await expect(page.locator("[data-today-workspace] [data-today-task-rail]")).toBeVisible();
   await expect(page.locator("[data-today-list]")).toBeVisible();
+  await expect(page.locator('[data-today-todo="tsk_due"]')).toBeVisible();
+
+  const taskRail = page.locator("[data-today-task-rail]");
+  const taskRailToggle = taskRail.locator(".today-task-rail-toggle");
+  await taskRailToggle.click();
+  await expect(taskRail).toHaveClass(/is-collapsed/);
+  await expect(taskRailToggle).toHaveAttribute("aria-expanded", "false");
+  await expect(taskRailToggle).toContainText("今日任务");
+  await taskRailToggle.click();
+  await expect(taskRail).not.toHaveClass(/is-collapsed/);
   await expect(page.locator('[data-today-todo="tsk_due"]')).toBeVisible();
   // 进入今日只读记忆：没有 POST，计划按钮停在可点的「启动今日任务」。
   const startPlan = page.locator('[data-home-entry="plan-today"]');

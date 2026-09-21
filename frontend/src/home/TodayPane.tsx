@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Task, TaskEvent, TodayBrief } from "../api";
 import PlanSummary from "./PlanSummary";
 import TaskBoard from "./TaskBoard";
@@ -44,6 +44,9 @@ export default function TodayPane({
   /** Entering the pane reads memory without planning, so the empty state must not lie. */
   memoryPending?: boolean;
 }) {
+  const [taskRailCollapsed, setTaskRailCollapsed] = useState(() =>
+    localStorage.getItem("ui:home-today-task-rail-collapsed") === "true"
+  );
   const rows = useMemo(
     () => todayTodos.map((task) => ({
       ...task,
@@ -60,9 +63,57 @@ export default function TodayPane({
     window.addEventListener(TODAY_PLAN_REFRESH_EVENT, onRefresh);
     return () => window.removeEventListener(TODAY_PLAN_REFRESH_EVENT, onRefresh);
   }, []);
+  const toggleTaskRail = () => {
+    setTaskRailCollapsed((current) => {
+      const next = !current;
+      localStorage.setItem("ui:home-today-task-rail-collapsed", String(next));
+      return next;
+    });
+  };
   return (
-    <section className="home-mode-pane" data-home-pane="today">
-      <div ref={streamRef} className="today-plan-anchor">
+    <section
+      className={"home-mode-pane today-workspace" + (taskRailCollapsed ? " is-task-rail-collapsed" : "")}
+      data-home-pane="today"
+      data-today-workspace
+    >
+      <div ref={streamRef} className="today-plan-anchor today-workspace-center" data-today-ai-workspace>
+        <header className="today-workspace-center-head">
+          <span>AI 规划与执行</span>
+          <small>过程与结论</small>
+        </header>
+        <TodayPlanProgress
+          phase={phase}
+          events={events}
+          candidates={candidateCount(brief)}
+          previousBrief={previousBrief}
+          previousEvents={previousEvents}
+          scope="today"
+        />
+        <PlanSummary brief={brief} />
+        {phase === "idle" && !brief && !(events || []).length ? (
+          <div className="today-workspace-empty" data-today-ai-empty>
+            <strong>从今天的工作开始</strong>
+            <p>启动今日任务后，这里会展示 Codex 的真实规划过程与结果摘要。</p>
+          </div>
+        ) : null}
+      </div>
+
+      <aside
+        className={"today-task-rail" + (taskRailCollapsed ? " is-collapsed" : "")}
+        data-today-task-rail
+        aria-label="今日任务表"
+      >
+        <button
+          type="button"
+          className="today-task-rail-toggle"
+          aria-expanded={!taskRailCollapsed}
+          aria-label={taskRailCollapsed ? "展开今日任务表" : "收起今日任务表"}
+          onClick={toggleTaskRail}
+        >
+          <span aria-hidden>{taskRailCollapsed ? "‹" : "›"}</span>
+          {taskRailCollapsed ? <strong>今日任务</strong> : null}
+          {taskRailCollapsed ? <em>{rows.length}</em> : null}
+        </button>
         <TaskBoard
           title="今日工作计划"
           scope="today"
@@ -72,19 +123,8 @@ export default function TodayPane({
           onAct={onAct}
           onEdit={onEdit}
           planPhase={phase}
-          stream={<>
-            <TodayPlanProgress
-              phase={phase}
-              events={events}
-              candidates={candidateCount(brief)}
-              previousBrief={previousBrief}
-              previousEvents={previousEvents}
-              scope="today"
-            />
-            <PlanSummary brief={brief} />
-          </>}
         />
-      </div>
+      </aside>
     </section>
   );
 }
