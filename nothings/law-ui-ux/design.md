@@ -50,7 +50,7 @@ AI 提问框明确用于“让 Agent 分析或处理”；记忆快捷入口明�
 
 延续安静白底、克制排版、轻分隔和低强调的整体方向。产品主按钮使用统一的产品粉红语义 token；每个视口原则上只有一个主要实底动作，其余动作降低强调。
 
-色值、字体、间距、圆角和阴影统一维护在 [MASTER](../design-system/kol-workbench/MASTER.md)，实现同步到 [styles.css](../../frontend/src/styles.css)；本文件不复制色值。MASTER 内产品 token 优先于其参考样式段落，外部风格示例不能自行覆盖已发布 token。
+色值、字体、间距、圆角和阴影统一维护在 [MASTER](./design-system/kol-workbench/MASTER.md)，实现同步到 [styles.css](../frontend/src/styles.css)；本文件不复制色值。MASTER 内产品 token 优先于其参考样式段落，外部风格示例不能自行覆盖已发布 token。
 
 ### UX-09 组件与密度
 
@@ -74,7 +74,7 @@ AI 提问框明确用于“让 Agent 分析或处理”；记忆快捷入口明�
 
 保留使用与治理分离、统一 token、无障碍、真实状态、发送与阶段分离及明确确认。旧页面布局可以作为实施参考，但“必须先聊天”“必须固定卡片数量”“固定分组就是法律”不再作为新版要求。
 
-原 [design.md](../design.md)、[IA](../ia-information-architecture.md)、[页面规范](../design-system/kol-workbench/pages/)、[UX-EMPLOYEE](../../specs/UX-EMPLOYEE.md) 中未冲突的细节可继续复用；冲突部分按本包更新，不通过恢复已废止 UX ID 强制旧布局。
+原设计入口（v1 `design.md`）已由本文件取代。[IA](./ia-information-architecture.md)、[页面规范](./design-system/kol-workbench/pages/)、[UX-EMPLOYEE](../specs/UX-EMPLOYEE.md) 中未冲突的细节可继续复用；冲突部分按本包更新，不通过恢复已废止 UX ID 强制旧布局。
 
 ## 场景落点
 

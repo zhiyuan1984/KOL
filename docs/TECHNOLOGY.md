@@ -146,10 +146,14 @@ Agent 不等于独立进程，数字员工不等于 Skill。工具适配器只�
 
 | 现状与证据 | 新版要求 | 主责 |
 |---|---|---|
-| [memory API](../../backend/src/routers/enterprise.ts) 已有 CRUD；`team` 读取未表达真实组织范围；[runner](../../backend/src/worker/runner.ts) 按最近 20 条拼记忆 | PROD-AGENT-05、06；TECH-BE-01、06：对象索引、当前权限和相关性检索 | 智能体产品经理定义契约，后端实现 |
-| [邮件摘要](../../backend/src/host/mail-summary.ts) 已持久化，但存在独立模型调用及不完整指纹；[对象会话](../../backend/src/host/kol-journey.ts) 的读取可触发摘要生成 | TECH-ARCH-02、TECH-BE-06：统一 harness；事件生成、快捷只读；可靠版本指纹 | 后端专家 |
-| [首页跟进绑定](../../backend/src/host/starry-bind.ts) 仍有姓名或邮箱前缀匹配；[Pipeline](../../backend/src/routers/pipeline.ts) 存在全量合作查询 | BIZ-03 至 BIZ-07、TECH-BE-01：稳定身份及对象级校验，覆盖全部读取路径 | 业务专家定范围，后端实现 |
-| ~~[Cron 页面](../../frontend/src/pages/Cron.tsx) 的立即扫描会创建会话~~；14 天归属释放仍是安全子集（缺有效往来时间戳则 skip） | 已由 law-v2 cron P0/P1 修复：确定作业走 `cron_jobs`/`cron_runs` + `tickCronDue()`，不再创建 session。外部调度：`POST /api/cron/internal/tick`（管理员或 `CRON_TICK_SECRET`）。 | 智能体产品经理、业务专家、前后端分别负责 |
+| [memory API](../backend/src/routers/enterprise.ts) 已有 CRUD；`team` 读取未表达真实组织范围；[runner](../backend/src/worker/runner.ts) 按最近 20 条拼记忆 | PROD-AGENT-05、06；TECH-BE-01、06：对象索引、当前权限和相关性检索 | 智能体产品经理定义契约，后端实现 |
+| [邮件摘要](../backend/src/host/mail-summary.ts) 已持久化，但存在独立模型调用及不完整指纹；[对象会话](../backend/src/host/kol-journey.ts) 的读取可触发摘要生成 | TECH-ARCH-02、TECH-BE-06：统一 harness；事件生成、快捷只读；可靠版本指纹 | 后端专家 |
+| [首页跟进绑定](../backend/src/host/starry-bind.ts) 仍有姓名或邮箱前缀匹配；[Pipeline](../backend/src/routers/pipeline.ts) 存在全量合作查询 | BIZ-03 至 BIZ-07、TECH-BE-01：稳定身份及对象级校验，覆盖全部读取路径 | 业务专家定范围，后端实现 |
+| ~~[Cron 页面](../frontend/src/pages/Cron.tsx) 的立即扫描会创建会话~~；14 天归属释放仍是安全子集（缺有效往来时间戳则 skip） | 已由 cron P0/P1 修复：确定作业走 `cron_jobs`/`cron_runs` + `tickCronDue()`，不再创建 session。外部调度：`POST /api/cron/internal/tick`（管理员或 `CRON_TICK_SECRET`）。 | 智能体产品经理、业务专家、前后端分别负责 |
+| [SOP](../backend/src/sops.ts)、[阶段](../backend/src/stages.ts)、[任务解析](../backend/src/tasks/resolver.ts) 等仍含业务判断与目录 | CONST-02、TECH-ARCH-03：迁出内核，转换成业务配置和技能；不以复制为“配置化” | 业务专家定义，架构师划边界，前后端迁移 |
+| 已有 [Task API](../backend/src/routers/tasks.ts)、知识治理、审批、发现和异步采集基础；部分入口仍为占位、重定向或局部闭环 | PROD-PLAT-02、TECH-TEST-03：逐能力登记状态、补充真实验收 | 平台产品经理、项目经理、测试经理 |
+| [org registry](../config/org-registry.yaml)、[品牌 registry](../config/brand-registry.yaml) 已存在；旧报告仍有部分过时“缺资产”描述，部分旧来源路径不存在 | BIZ-02、CONST-10：核对现有文件，不将旧报告当实时证据；夹具不作生产事实 | 业务专家、项目经理、测试经理 |
+| [契约校验器](../backend/scripts/validate-contracts.mjs) 与 `specs/` 仍引用旧体系；旧入口 `README.md` / `LAW-MAP.md` 已废止，仓库入口改由根 `AGENTS.md` 与 `docs/CONSTITUTION.md` 承担 | CONST-09：正式切换时更新引用、条款映射和校验规则，并保留历史溯源 | 项目经理协调，各法责任角色与测试经理验收 |
 
 ### Cron handlers（P0/P1）
 
@@ -161,9 +165,5 @@ Agent 不等于独立进程，数字员工不等于 Skill。工具适配器只�
 | `discovery-search` | 未启用 | 登记 handler，禁止采集器与伪造运行 |
 
 外部分钟级调度示例（密钥只放环境变量，不要打印）：`curl -X POST -H "X-Cron-Tick-Secret: $CRON_TICK_SECRET" https://<host>/api/cron/internal/tick`。员工页不是调度器，不要用页面 `setInterval` 当唯一时钟。
-| [SOP](../../backend/src/sops.ts)、[阶段](../../backend/src/stages.ts)、[任务解析](../../backend/src/tasks/resolver.ts) 等仍含业务判断与目录 | CONST-02、TECH-ARCH-03：迁出内核，转换成业务配置和技能；不以复制为“配置化” | 业务专家定义，架构师划边界，前后端迁移 |
-| 已有 [Task API](../../backend/src/routers/tasks.ts)、知识治理、审批、发现和异步采集基础；部分入口仍为占位、重定向或局部闭环 | PROD-PLAT-02、TECH-TEST-03：逐能力登记状态、补充真实验收 | 平台产品经理、项目经理、测试经理 |
-| [org registry](../../config/org-registry.yaml)、[品牌 registry](../../config/brand-registry.yaml) 已存在；旧报告仍有部分过时“缺资产”描述，部分旧来源路径不存在 | BIZ-02、CONST-10：核对现有文件，不将旧报告当实时证据；夹具不作生产事实 | 业务专家、项目经理、测试经理 |
-| [旧入口](../README.md)、[LAW-MAP](../LAW-MAP.md)、[契约校验器](../../backend/scripts/validate-contracts.mjs)、spec 尚引用旧体系 | CONST-09：正式切换时更新引用、条款映射和校验规则，并保留历史溯源 | 项目经理协调，各法责任角色与测试经理验收 |
 
-吸收来源：[旧技术宪法](../technical-constitution.md)、[Harness](../06-codex-harness.md)、[物理接口](../07-mcp-data-contract.md)、[落地契约](../14-implementation-contract.md)、[测试](../10-test-evaluation.md)、[发布](../11-release-operations.md)。当前 [后端脚本](../../backend/package.json) 已包含契约校验、类型检查、测试、评价与发布门禁，[前端脚本](../../frontend/package.json) 包含构建、类型检查和 E2E；应对齐新条款后复用。
+吸收来源（原文已归档到 `nothings/`，不再是现行法）：旧技术宪法、Harness、落地契约、测试、发布。物理接口与工具风险目录见 [07-mcp-data-contract.md](./07-mcp-data-contract.md)。当前 [后端脚本](../backend/package.json) 已包含契约校验、类型检查、测试、评价与发布门禁，[前端脚本](../frontend/package.json) 包含构建、类型检查和 E2E；应对齐新条款后复用。

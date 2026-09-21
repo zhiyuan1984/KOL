@@ -4,7 +4,7 @@
 >
 > 跨页面 IA（一页一问、十六项坐落、导航密度、使用 ≠ 治理**原则**）以 [`ia-information-architecture.md`](ia-information-architecture.md) 为正式入口（class H）。本文件**只**管租户/registry/PEP、确认/审批/审计字段，以及管理端配套套件、连接器枢纽/详情、`/admin/agents`、审计切片与遗留收敛。
 >
-> 它不改 [`CONSTITUTION.md`](CONSTITUTION.md) 的表面职责，不新增 UX ID，也不实施后端。闸门、L1–L3、无障碍和员工禁词仍以 `CONSTITUTION.md` §5 与派生的 `specs/UX-EMPLOYEE.md` 为准。视觉与交互数值读 [`DESIGN.md`](DESIGN.md)（实施细则）；管理端与员工端**不同信息架构**这一点不变。
+> 它不改 [`CONSTITUTION.md`](CONSTITUTION.md) 的表面职责，不新增 UX ID，也不实施后端。闸门、L1–L3、无障碍和员工禁词仍以 `CONSTITUTION.md` §5 与派生的 `specs/UX-EMPLOYEE.md` 为准。视觉入口是 `docs/design.md`；token 统一读取 `design-system/kol-workbench/MASTER.md`：同一套 token，**不同信息架构**。
 
 日期与交叉引用（来自原管理端配套立法，2026-09-13 / 2026-09-14）：`/admin/agents` 治理 ≠ 员工 `/agents` 专家中心；员工专家中心禁止连接器状态 chrome。员工 `/kb`（查找 / 预览 / 收藏 / 用于当前任务）≠ 管理端知识治理（停用 / 发布 / 版本 / 范围），见 ADR-021。十六项一等能力、技能入口密度=UX、数字团队预留未实现、KOL=首个试点，见 ADR-023 / `CONSTITUTION.md` §4.1–4.2。来源：产品发现两端导航/页面重叠（员工侧栏深链 `/admin/connectors`、管理端顶栏跳员工 `/agents`、远端 pill 克隆、Starry 绑定双挂、遗留连接器清单），固化为后续信息架构取舍的默认立场。
 
@@ -174,9 +174,9 @@ region_scope: [region:eu, region:us, region:ca_au]
 | `CONSTITUTION.md` | 风险压缩闭环、表面职责、一等能力清单与 Agent/任务解耦、使用 ≠ 治理（ADR-015 / ADR-023） | 治理域展开为配套套件，不是第二套员工工作台 |
 | `ia-information-architecture.md` | 一页一问、导航密度、使用 ≠ 治理原则（IA 入口） | 枢纽字段、Admin 页、遗留收敛仍在本文件 |
 | `specs/UX-EMPLOYEE.md` | 从宪法派生的瘦 UX 契约；硬不变量 ID 才进门禁 | 不发明 Admin UX ID；员工端继续禁 MCP / Codex / Thread / Skill / 原始堆栈 |
-| 视觉与交互、设备适配 | [`DESIGN.md`](DESIGN.md)（实施细则；风格基准 `data-dense-dashboard`） | IA 是治理表/授权矩阵，不是 Home/Agents 工作台 |
+| `design.md` → `MASTER.md` | token、视觉、交互、响应式与无障碍（入口不写 hex） | 管理端用同一 token；IA 是治理表/授权矩阵，不是 Home/Agents 工作台 |
 
-评审管理端 PR 时先过 `CONSTITUTION.md` 的风险压缩闭环与本文件硬边界，再按 [`DESIGN.md`](DESIGN.md) 检查视觉与适配。
+评审管理端 PR 时先过 `CONSTITUTION.md` 的风险压缩闭环与本文件硬边界，再按 MASTER 与 `pages/admin.md` 评审视觉交互。
 
 宪法中的治理域只回答“谁 / 权限 / 审计”。本文件把治理域写成可落地的配套套件：连接器枢纽、Agent 治理、授权与审计切片。`/agents` 继续是员工端 P0 专家中心（找谁协作 / 召唤岗位专家），不是管理端。`/admin/agents` 只做发布 / 授权 / 考试闸门，不得与员工专家中心混读。
 

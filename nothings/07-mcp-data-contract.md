@@ -1,24 +1,8 @@
 # MCP、真实 API 与数据契约
 
-> 技术入口：`docs/TECHNOLOGY.md`（组件与调用、前后端实现）。本文件是物理契约与工具风险细则。Starry 等物理限制留在这里，不升格为产品法；冲突时服从技术宪法。
+> 技术入口：`docs/technical-constitution.md`（**class J**）。本文件是物理契约与工具风险细则。Starry 等物理限制留在这里，不升格为产品法；冲突时服从技术宪法。
 
-## MCP 服务器（物理接入事实）
-
-| 服务 | 用途 | 环境变量 | 鉴权头 |
-|---|---|---|---|
-| Starry KOL / email-agent | 红人库、品牌邮箱、邮件会话、合作阶段（62 个 `@Tool`） | `STARRY_KOL_MCP_URL` / `_API_KEY` / `_BEARER` | `X-MCP-API-KEY` + `Authorization: Bearer`（网关要**两个头**） |
-| MediaCrawler | 采集（YouTube / Instagram / Facebook） | `MEDIACRAWLER_MCP_URL` / `_TOKEN` | `Authorization: Bearer <token>` |
-| KOL Claw | 评分、建联话术、每日任务、预算 | `KOLCLAW_MCP_URL` / `_TOKEN` | 见 `.env.example` |
-
-地址与密钥只以 `.env.example` 的变量名为准；不在此写死 URL、IP 或隧道地址。
-
-### MediaCrawler 工具与平台码
-
-工具：`start_crawl`（`search` 必填 `keywords` / `detail` 用 `specified_ids` / `creator` 用 `creator_ids`）、`get_crawl_status`、`get_crawl_logs`、`stop_crawl`、`get_creators`（入参只接受 `platform` / `offset` / `limit`，发 `page` / `page_size` 会被忽略并返回全量）、`list_result_files`、`upload_creators`（按 `task_id` 重试入库）、`clear_history`（必须 `confirm=true`）。
-
-`start_crawl` 只接受海外平台码 `youtube` / `instagram` / `facebook`；`xhs` / `dy` / `ks` / `bili` / `wb` / `tieba` / `zhihu` 为历史遗留码，仅供旧计划与既有快照。自动化采集测试必须只用海外码，不得把历史码当作被测场景。
-
-物理事实来源是 `domain-objects.md`（字典与枚举）和 `codex/` 协议 schema。它们描述工具、参数、响应、错误、鉴权、限流、异步生命周期和版本，不描述员工体验或业务编排。
+物理事实来源是 `starry-kol-mcp-server.md`、`median_mcp_server.md`、`domain-objects.md`（字典与枚举）和 `codex/` 协议 schema。它们描述工具、参数、响应、错误、鉴权、限流、异步生命周期和版本，不描述员工体验或业务编排。
 
 Starry KOL MCP 和 `data/kol/邮箱-负责人绑定清单.md` 提供 KOL 域事实；安培时代组织注册表提供部门负责人和公司级范围政策。MCP/Skill 不得重新解释部门负责人范围，统一消费 Host 注入的 scope。
 

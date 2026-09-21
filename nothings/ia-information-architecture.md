@@ -8,7 +8,7 @@
 >
 > 等待诚实、禁止伪造完成、L1–L3 确认与回执属于 UX 原则，见宪法 §3 / §5 与 [`specs/UX-EMPLOYEE.md`](../specs/UX-EMPLOYEE.md)。本文件不重写 L3 长文。
 >
-> 视觉与交互的数值见 [`DESIGN.md`](DESIGN.md)（实施细则，风格基准 `data-dense-dashboard`；原 `design.md` / `MASTER.md` 等 11 份已于 2026-09-21 废止，归档在 `nothings/law-ui-ux/`）。本文件不写 token、阶段图或权限模型。不 LIVE。
+> 视觉入口是 [`design.md`](design.md)（class I）。本文件不写 token、阶段图或权限模型。不 LIVE。
 
 ## 1. 一页一问
 
@@ -105,8 +105,8 @@ KOL 是**首个业务试点**，不是平台壳（宪法 §4.2）。下列对象
 | 主题 | 权威 |
 |---|---|
 | 等待诚实、禁止伪造完成、发送 ≠ 推进阶段、L3 确认 / 回执 / 拒绝原因 | 宪法 §3 / §5；[`UX-EMPLOYEE`](../specs/UX-EMPLOYEE.md)（`SEND_NE_STAGE`、`L3_CONFIRM`） |
-| 颜色、字号、圆角、组件、设备适配 | [`DESIGN.md`](DESIGN.md)（实施细则；唯一 token 数值来源） |
-| 单页布局与状态 | 见 `DESIGN.md` §6 设备适配；单页级差异由该页实现自行决定，不另立法 |
+| 颜色、字号、圆角、组件 | [`design.md`](design.md) → [`design-system/kol-workbench/MASTER.md`](design-system/kol-workbench/MASTER.md) |
+| 单页布局与状态 | `design-system/kol-workbench/pages/<page>.md` |
 | 连接器枢纽字段、Admin 配套套件、遗留清单 | [`org-permissions.md`](org-permissions.md) |
 | 阶段图、权限、租户、真实数据 | FS、Policy、数据契约 |
 

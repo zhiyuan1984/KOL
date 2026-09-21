@@ -148,6 +148,16 @@ KOL 索引包含稳定 ID、平台、方向、画像、来源和更新时间；�
 
 下表覆盖仓库当前 41 个 Skill ID。它定义目标入口，不表示旧 Skill 已完成路径迁移；同一能力从 AI 提问框进入时仍遵守 PROD-AGENT-01。
 
+**已登记的规则空白（2026-09-21）：** `backend/skills/` 现有 **47** 个技能，本表覆盖 41 个，下列 6 个尚未登记入口口径，**待 KOL 业务专家补齐**：
+
+| 未登记 | 现状 |
+|---|---|
+| `discovery_plan`、`discovery_brief` | 发现阶段的 spec / 简报产出，未定义快捷面与 Agent 面 |
+| `kol_analyze` | 红人分析简报，未定义快捷面与 Agent 面 |
+| `today_plan`、`today_analyze`、`todo_plan` | 今日任务与待办规划，与 `creator_daily_tasks` 的边界未定义 |
+
+在补齐前，员工端「技能目录」对这几项的详情会明确显示「待业务专家补齐」，不给出推测口径（`docs/DESIGN.md` §5；CONST-10 不得伪造）。
+
 | 当前 Skill | 记忆快捷入口 | 需要 Agent 或受控动作的部分 |
 |---|---|---|
 | creator_library_all、creator_library_query、creator_filter_options、creator_profile | 授权档案、画像、筛选与已有摘要 | 新画像分析、补查新事实走 Agent 或已配置同步 |
@@ -162,7 +172,7 @@ KOL 索引包含稳定 ID、平台、方向、画像、来源和更新时间；�
 
 ## 旧 spec 条款映射
 
-保留原追踪 ID，后续对齐其正文与测试；没有现行文件的 FS-KOL-006、FS-KOL-010 不恢复为新规则。完整旧映射见 [traceability.json](../../specs/traceability.json)。
+保留原追踪 ID，后续对齐其正文与测试；没有现行文件的 FS-KOL-006、FS-KOL-010 不恢复为新规则。完整旧映射见 [traceability.json](../specs/traceability.json)。
 
 | 旧规格 | 原规则 ID | 新条款与取舍 |
 |---|---|---|
@@ -173,8 +183,8 @@ KOL 索引包含稳定 ID、平台、方向、画像、来源和更新时间；�
 | FS-KOL-005 | BR-STAGE-002、BR-STAGE-003、BR-TRACE-002 | BIZ-08、12、13；证据优先，推断不作为正式状态 |
 | FS-KOL-007 | BR-JOB-001、BR-IDEMP-002、BR-IMPORT-001 | BIZ-10、TECH-BE-04；异步、去重、导入独立确认 |
 | FS-KOL-008 | BR-SCOPE-001、BR-SCOPE-002 | BIZ-03 至 BIZ-07、TECH-BE-01；权限覆盖快速读、后台、导出和分享 |
-| FS-KOL-009 | BR-UX-001、BR-UX-002、BR-AUDIT-002 | PROD-AGENT-09、UX-05、TECH-BE-08；真实状态，只有模型任务需要 thread/turn 追踪 |
-| UX-EMPLOYEE | SEND_NE_STAGE、L3_CONFIRM | BIZ-11、12、14、UX-06；保留独立动作和明确确认，取消固定内容布局的上位约束 |
+| FS-KOL-009 | BR-UX-001、BR-UX-002、BR-AUDIT-002 | PROD-AGENT-09、TECH-BE-08；真实状态，只有模型任务需要 thread/turn 追踪。~~UX-05~~ 已于 2026-09-21 废止，其内容由 PROD-AGENT-09 承接 |
+| UX-EMPLOYEE | SEND_NE_STAGE、L3_CONFIRM | BIZ-11、12、14；保留独立动作和明确确认。~~UX-06~~ 已于 2026-09-21 废止，其内容由 BIZ-11/12/14 承接；固定内容布局的上位约束一并取消 |
 
 ## 必须补入配置的业务口径
 
@@ -187,4 +197,4 @@ KOL 索引包含稳定 ID、平台、方向、画像、来源和更新时间；�
 | BIZ-07 | 公海可见字段、可领取人群、分配方式与历史资料移交范围 |
 | BIZ-14、15、17 | 现行费用制度来源、具体审批链、场景合规要求及报表公式；缺少哪项只阻止对应结论或动作 |
 
-沿用来源：[组织权限](../org-permissions.md)、[业务事实源评估](../18-mcp-master-data-assessment.md)、[领域对象](../domain-objects.md)、[阶段图](../business-rules/stage-transitions.md)、[阶段配置](../../config/stage-transitions.json)、[TB 绑定](../../config/tb-binding.yaml)、[技能](../../backend/skills/)、[Policy](../../policies/)、[Workflow](../../workflows/)。旧文档提到的 `data/kol` 原目录本次工作区不存在；[测试夹具](../../backend/tests/fixtures/real-data/)中的 SOP 可用于规则追溯与测试，不自动成为生产事实源。
+沿用来源：[组织权限](./org-permissions.md)、[业务事实源评估](./18-mcp-master-data-assessment.md)、[领域对象](./domain-objects.md)、[阶段图](./business-rules/stage-transitions.md)、[阶段配置](../config/stage-transitions.json)、[TB 绑定](../config/tb-binding.yaml)、[技能](../backend/skills/)、[Policy](../policies/)、[Workflow](../workflows/)。旧文档提到的 `data/kol` 原目录本次工作区不存在；[测试夹具](../backend/tests/fixtures/real-data/)中的 SOP 可用于规则追溯与测试，不自动成为生产事实源。

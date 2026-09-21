@@ -1,95 +1,272 @@
-# UI 设计系统入口
+# 界面设计细则（视觉 token 与设备适配）
 
-> **文档类 I（视觉入口）。用户锁定路径：`docs/design.md`。**
+> **层级**：CONST-09 规定的「**实施细则**」，不得覆盖宪法与三部基本法（`CONSTITUTION.md` / `PRODUCT.md` / `BUSINESS.md` / `TECHNOLOGY.md`）。
 >
-> 本文件是 UI 设计与前端实现的**唯一视觉入口**。它不保存色值。
+> **定位**：本仓库**唯一**的视觉 token 与适配数值来源。落地实现是 `frontend/src/styles.css`；两者不一致时，先核对本文件再决定改哪边。
 >
-> **Token 源**仍是 [`design-system/kol-workbench/MASTER.md`](design-system/kol-workbench/MASTER.md)（KOL 试点皮肤目录名，不是产品身份）。单页布局与状态在 [`design-system/kol-workbench/pages/`](design-system/kol-workbench/pages/)。
+> **风格基准**：`data-dense-dashboard`（密集数据工作台）。
 >
-> **默认观感**是 OpenAI-quiet（安静白底、低饱和、发丝级阴影、排版克制）。mood/spec 来源是 [`references/openai-style.md`](references/openai-style.md)。**token 数值仍只住 MASTER**。MASTER 与 OpenAI 在安静白底 / 发丝边 / 胶囊 / 排版 / 阴影上冲突时，**OpenAI 胜**（ADR-031）；胜出后必须和解 MASTER。~~填充主按钮：OpenAI 黑色 / Obsidian 实底。~~ **修订（ADR-031 / 2026-09-16）：** 填充主 CTA 法律目标是产品粉红实底 + 白字（token 名 `--primary` / `--primary-fg`；hex 只住 MASTER），不是 Obsidian 黑。`styles.css` 的旧黑 / 旧蓝是实现滞后，不是胜出法。这不是 Linear-first 品牌。员工表面是助理优先（ADR-032）：Home 跟进面可以是会话脊柱 + 对象卡，不是 ERP 列表。
->
-> **禁止**在本文件写入或复制十六进制色值、业务规则、阶段图、权限模型。冲突时：安全 / 权限 / 数据 → FS / Policy；页面职责 / IA / L1–L3 / SEND≠STAGE → [`CONSTITUTION.md`](CONSTITUTION.md) §4 与 [`ia-information-architecture.md`](ia-information-architecture.md)（高于审美工具）；mood 冲突 → OpenAI 胜再和解 MASTER；主填充 → 产品粉红（MASTER）。
->
-> 历史「每次先读一份 `design.md` 并内嵌色值」的提示词已废止（见 [`references/legacy-design-summary-prompt.md`](references/legacy-design-summary-prompt.md)）。锁定的是**本路径作为入口**，不是把 MASTER 再抄一遍。
+> **与旧法的关系**：原 `design.md`、`design-system/kol-workbench/MASTER.md`、`pages/*.md`、`references/openai-style.md` 等 11 份已于 2026-09-21 废止，归档在 `nothings/law-ui-ux/`。**本文件是替代，不是复活旧法**；原条号 `UX-01~UX-12` 不再赋予新含义。
 
-## 1. 怎么用
+---
 
-```text
-CONSTITUTION.md §4（表面职责；L1–L3 / SEND≠STAGE 高于审美）
-→ ia-information-architecture.md（若问题是导航 / 一页一问 / 使用≠治理）
-→ UX-EMPLOYEE 硬不变量（SEND_NE_STAGE、L3_CONFIRM）
-→ ui-ux-pro-max（外观 UIUX 必经分析 / 对照；OpenAI 对齐）
-→ docs/design.md          ← 你在这里（入口，不读、不写色值）
-→ design-system/kol-workbench/MASTER.md（token 源；与 OpenAI 冲突须和解）
-→ design-system/kol-workbench/pages/<当前页面>.md
-→ references/openai-style.md（OpenAI mood/spec；quiet/white/hairline/capsule 冲突时胜出；黑钮不是产品 CTA 法）
+## 0. 风格基准
+
+`data-dense-dashboard` 的库定义：
+
+| 项 | 值 |
+|---|---|
+| 关键词 | 多图表/控件、数据表、KPI 卡、**最小内边距**、网格布局、空间高效、最大信息可见度 |
+| Best For | 运营看板、企业报表、BI、财务分析 |
+| 效果 | 悬停提示、行悬停高亮、筛选平滑过渡、数据加载态 |
+| 无障碍要求 | `contrast-text-4.5`、`keyboard`、`visible-focus`、`reduced-motion` |
+| 库建议变量 | `--grid-gap: 8px`、`--card-pad: 12px`、`--row-h: 36px`、`--sidebar-w: 240px`、`--header-h: 56px` |
+
+**本产品的取舍**（库建议 → 本项目）：
+
+- `--sidebar-w`：库建议 240，本项目**取 260**（已锁定的紧凑壳）。
+- `--row-h`：默认 36（库值）；紧凑档收到 32。
+- 整体气质：**安静白底、发丝分隔、克制排版、胶囊控件**——即"研究笔记本"而不是"营销落地页"。
+- **不采用**落地页结构（Hero / 功能卡墙 / 底部 CTA）：本项目是登录后的工作台，服务回头用户，不是说服访客。
+
+---
+
+## 1. 颜色
+
+### 浅色
+
+| Token | 值 | 用途 | 实测对比度 |
+|---|---|---|---|
+| `--bg` | `#FFFFFF` | 画布 | — |
+| `--surface` | `#F7F7F8` | 侧栏、工具栏、输入底 | — |
+| `--surface-hover` | `#E8E8EA` | 悬停 / 选中底 | 1.22:1（**须加非颜色信号，见规则 4**） |
+| `--surface-sunken` | `#F1F1F1` | 表头、代码块、chip 静止底 | — |
+| `--text` | `#0D0D0D` | 正文、标题 | 19.44:1 ✓ |
+| `--text-secondary` | `#5D5D5D` | 二级文字 | 6.58:1 ✓ |
+| `--text-muted` | `#6B6B6B` | 弱化、元信息 | 5.33:1 ✓ |
+| `--text-disabled` | `#8F8F8F` | 禁用态 | 3.23:1 |
+| `--border` | `#E6E6E6` | **仅分隔线 / 装饰** | 1.25:1（豁免） |
+| `--control-border` | `#8A8A8A` | **可操作控件边框** | 3.45:1 ✓ |
+| `--control-border-hover` | `#5D5D5D` | 控件悬停边框 | 6.58:1 ✓ |
+| `--focus-ring` | `#0D0D0D` | 焦点环 2px + offset 2px | — |
+| `--primary` | `#C73B7A` | **唯一实底** | shape 4.84:1 ✓ |
+| `--primary-fg` | `#FFFFFF` | 实底上的字 | 4.84:1 ✓ |
+| `--primary-hover` | `#A82F66` | 实底悬停 | 6.43:1 ✓ |
+| `--primary-text` | `#A82F66` | **主色当文字 / 图标时用这个** | 5.75:1 ✓ |
+| `--primary-tint` | `#FBEFF5` | **仅选中 / 悬停，不得当静止底** | — |
+| `--danger` / `--danger-fg` | `#B42318` / `#FFFFFF` | 危险 | 6.57:1 ✓ |
+| `--success` | `#2F7D73` | 成功 | 4.88:1 ✓ |
+| `--warning` | `#B45309` | 警告 | 5.02:1 ✓ |
+
+### 深色
+
+| Token | 值 | 实测 |
+|---|---|---|
+| `--bg` / `--surface` / `--surface-sunken` | `#171717` / `#212121` / `#101010` | — |
+| `--surface-hover` | `#2E2E2E` | — |
+| `--text` / `--text-secondary` / `--text-muted` | `#ECECEC` / `#B4B4B4` / `#9A9A9A` | 15.18 / 8.65 / 6.37 ✓ |
+| `--text-disabled` | `#6E6E6E` | 3.52:1 |
+| `--border` / `--control-border` | `#2E2E2E` / `#6E6E6E` | 3.52:1 ✓ |
+| `--focus-ring` | `#FFFFFF` | — |
+| **`--primary` / `--primary-fg`** | **`#C73B7A` / `#FFFFFF`（与浅色同值）** | 3.70 vs 画布 ✓ / 4.84 标签 ✓ |
+
+`--primary` **两种主题同值**——已在四个面上验证成立（浅画布 4.84、浅悬浮 4.52、暗画布 3.70、暗悬浮 3.32）。
+
+---
+
+## 2. 字体与字号
+
+字体栈：`Inter, "PingFang SC", "Noto Sans SC", system-ui, sans-serif`。
+
+| Token | size / line-height | weight | 用途 |
+|---|---|---|---|
+| `--fs-11` | 11 / 16 | 500 | 角标、计数。**不得用于可点标签** |
+| `--fs-12` | 12 / 18 | 400 | 元信息、辅助说明 |
+| `--fs-13` | **13 / 20** | 400–500 | **主力**：标签、chip、表格、表单 |
+| `--fs-14` | 14 / 20 | 400 | 控件文字 |
+| `--fs-15` | 15 / 24 | 400 | 正文界面（已锁定的壳） |
+| `--fs-16` | 16 / 24 | 500 | 节标题 |
+| `--fs-20` | 20 / 28 | 500 | 块标题 |
+| `--fs-24` | 24 / 32 | 500 | 页标题 |
+
+权重只许 **400 / 500 / 600**，禁 700 以上。
+
+**硬规则**：控件必须显式写 `line-height`（`--lh-control: 20px` / `--lh-control-sm: 16px`）。不写就会继承根的 24px 行盒，出现"小字被胖药丸包住"。
+
+---
+
+## 3. 控件尺寸与命中区
+
+| Token | 值 | 说明 |
+|---|---|---|
+| `--hit-min` | **24px** | **WCAG 2.2 AA 2.5.8 下限**，不能再小 |
+| `--control-h-sm` | 24px | 小按钮 |
+| `--control-h` | 28px | 默认按钮 / 输入 |
+| `--control-h-lg` | 32px | 主操作 |
+| `--chip-h` | 26px | 分类 chip |
+| `--icon-btn` | 28px | 图标按钮 |
+| `--touch-gap` | 8px | 相邻触摸目标最小间距 |
+
+**命中区与视觉尺寸分离**：视觉 28px 的图标按钮，命中区用 `::after` 扩到 `--hit-min`；`@media (pointer: coarse)` 下 `--hit-min` 提到 **44px**。
+
+> 44pt / 48dp 是 iOS / Android 的规范，**不是 web 的**。web 以 WCAG 2.2 AA 2.5.8（24×24 CSS px）为准；触摸设备上按 44 做是工程上的稳妥选择，不是合规要求。
+
+---
+
+## 4. 圆角 / 间距 / 阴影 / 布局常数
+
+**圆角**：`--radius-sm 6px`（卡片、图片）· `--radius-md 10px`（输入、面板内块）· `--radius-lg 12px`（对话框、抽屉）· `--radius-pill 9999px`（主按钮、chip、tag、搜索框）。
+**例外**：Composer 保持已锁定的 22px。
+
+**间距**（4 的倍数）：`--space-1..8 = 2 / 4 / 6 / 8 / 12 / 16 / 24 / 32`。
+
+**阴影**：内容面**零阴影**，靠 `--border` + 空白分界。只有浮层一种：
+`--shadow-popover: 0 4px 12px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.06)`（深色 `0 4px 12px rgba(0,0,0,.4)`）。
+
+**布局常数**：`--sidebar-w 260px` · `--sidebar-collapsed 56px` · `--header-h 56px` · `--content-max 1200px`。
+
+---
+
+## 5. 使用规则（违反即视为不合规）
+
+1. **同一视口 0–1 个实底主 CTA。** 实底 = 用 `--primary` 填满。其余动作降为描边或幽灵。
+2. **`--primary-tint` 只能用于选中 / 悬停**，不得当静止底、整列背景或图标砖底。
+3. **主色当文字 / 图标时用 `--primary-text`（`#A82F66`），不用 `--primary`**——`#C73B7A` 在浅粉底上只有 4.33:1，不达 AA。
+4. **状态不能只靠颜色。** `--surface-hover` 与画布只有 1.22:1；选中行必须另加 2px 左侧强调条或勾选标记。
+5. **每个控件显式设 `line-height`。**
+6. **可操作控件边框必须用 `--control-border`（≥3:1）**，不得用 `--border`（1.25:1，只配做分隔线）。
+
+   **裁定（UI/UX 专家，2026-09-21）：** 本条的「可操作控件」指**表单控件与按钮**——WCAG 1.4.11 意义上「需要视觉识别其边界与状态的用户界面组件」。**卡片 / 列表行 / 面板等容器**的静止态边框属**分隔线**，可用 `--border`；但容器的**可操作状态（`hover` / `focus-within` / `selected`）必须**用 `--control-border` 或 `--text` 表达，且容器内必须有至少一个真实控件（按钮或链接）承担可交互身份与焦点环。
+   理由：把每张卡片都做成 3.45:1 描边会让密集网格整体变重，与 §0 的「最小内边距、最大信息可见度」冲突；容器内的真实控件已提供等效的可辨边界。
+   **实现落点**：`.skill-card`（静止 `--border`；`:hover` / `:focus-within` / `.is-selected` 提到 `--control-border` / `--text`），内部 `.skill-card-name` 与两个动作按钮用 `--control-border`。
+7. **字号下限 11px 且不得用于可点击标签**；控件文字走 13 / 14。
+8. **按钮内不加装饰图标**；图标只用于图标按钮与导航。
+
+---
+
+## 6. 设备适配
+
+### 6.1 三轴分离（核心原则）
+
+布局适配由**三个正交的轴**决定，**绝不允许合并成一个"设备名"断点**：
+
+| 轴 | 媒体特性 | 决定什么 |
+|---|---|---|
+| **宽度** | `width` | 侧栏形态、内容列数、表格形态 |
+| **高度** | `height` | 密度档（矮窗收紧节奏） |
+| **输入模态** | `pointer` / `hover` | 命中区下限、hover 是否有意义 |
+
+**为什么不能按设备名分支**：触摸笔记本（1366×768 + 触摸屏）应该拿**桌面布局 + 触摸命中区**；带键盘的 iPad 应该拿**平板布局 + 指针命中区**。UA 嗅探在这两种情况都会判错。**禁止用 UA 嗅探做布局分支。**
+
+### 6.2 行为断点
+
+| 档 | 触发 | 侧栏 | 内容列 | 密度 | `--hit-min` | 表格 |
+|---|---|---|---|---|---|---|
+| **S 单栏** | `width < 600px` | 全屏抽屉 | 1 | 宽松 | **44** | 卡片化 |
+| **M 折叠** | `600–899px` | 56px 图标栏 | 1–2 | 中 | **44** | 横向滚动 |
+| **L 紧凑** | `900–1279px` | 可折叠 56↔260 | 2 | **紧凑** | 40 | 横滚 + sticky 首列 |
+| **XL 默认** | `1280–1599px` | 260 | 3 | **紧凑** | 32 | 全列 |
+| **2XL 舒适** | `≥1600px` | 260 | 3–4 | 默认 | 28 | 全列 |
+
+`--hit-min` 是默认值，被输入模态覆盖：
+
+```css
+@media (pointer: coarse) {
+  :root { --hit-min: 44px; --touch-gap: 8px; }
+}
 ```
 
-强制视觉链（headline）：**CONSTITUTION → ui-ux-pro-max → design.md → MASTER**。
+矮窗单独触发密度收紧（与宽度无关）：
 
-1. 先用本文件确认：**改视觉读哪份、禁止写什么**。默认观感走 OpenAI-quiet。`ui-ux-pro-max` 是外观 UIUX 的必经分析步，不是「仅针对未解决问题」的末端对照。
-2. 需要主色 / 辅色 / 危险 / 成功、边框、圆角、字号阶梯时，打开 MASTER 对应节，**按 token 名引用**，不要把 hex 从 MASTER 或 `openai-style.md` 抄回本文件或新页面。MASTER 若与 OpenAI 冲突，先和解 MASTER，再引用。
-3. 做某一个页面时，再读 `pages/<page>.md`。它覆盖该页布局、状态矩阵和响应式差异，不覆盖 MASTER token，也不覆盖宪法 / IA。
-4. `frontend/src/styles.css` 是 token 的实现事实；改数值必须同时改 CSS 与 MASTER，不在本文件改。阴影 / `--font-*` 和解到 OpenAI-quiet；`--primary` 和解到产品粉红（ADR-031 修订）。本 PR 不改 CSS。
+```css
+@media (max-height: 900px) {
+  :root { --row-h: 32px; --section-gap: 16px; --space-7: 16px; }
+}
+```
 
-`docs/20-visual-design-system.md` 只是迁移索引，不是实施入口。
+### 6.3 密度两档的**可测**数值差异
 
-## 2. 语义色、边框、圆角、字号（只引用 MASTER）
+| 项 | 紧凑（L / XL） | 默认（2XL） | 宽松（S / M，触摸） |
+|---|---|---|---|
+| `--row-h` 行高 | 32 | 36 | 44 |
+| `--control-h` 控件高 | 28 | 28 | 32 |
+| `--card-pad` 卡片内边距 | 10 | 12 | 14 |
+| `--grid-gap` 网格间距 | 8 | 12 | 12 |
+| `--section-gap` 区块间距 | 16 | 24 | 24 |
+| `--page-pad-x` 页面留白 | 24 | 32 | 16 |
 
-下列角色**必须**使用 MASTER 已命名的语义 token。本表不写 hex。浅色 / 深色成对数值以 MASTER §2 为准。
+### 6.4 绝不随断点变的不变量
 
-| 角色 | 引用 | MASTER |
-|---|---|---|
-| 主色 primary | `--primary`、`--primary-fg`、`--focus-ring` | §2 核心语义 |
-| 辅色 secondary | MASTER **没有**独立的 `--secondary`。辅层级用 `--text-muted`、`--bg-elevated`、`--border`；不要新发明一条辅色 hex | §2 |
-| 危险 danger | `--danger`；控件错误边框 `--control-border-invalid` | §2 |
-| 成功 success | `--success` | §2 |
-| 警告 warning | `--warning` | §2 |
-| 背景 / 文字 | `--bg`、`--bg-elevated`、`--text`、`--text-muted` | §2 |
-| 边框 | 低强调分隔 `--border`；强分隔 `--border-strong`；可操作控件 `--control-border` / `--control-border-hover` / `--control-border-invalid` | §2 Token 分类 |
-| 圆角 | 小控件 `--radius-sm`；面板 `--radius-md`。Composer 容器与 Chip 半径只在 MASTER §2 Composer 行 | §2–§3 |
-| 字号阶梯 | `--font-xs`、`--font-sm`、`--font-body`、`--font-section`、`--font-title`、`--font-page-title`；行高 `--leading-body`、`--leading-tight` | §2 字体系统、§3 |
-| 间距 | `--space-1` … `--space-5`（4 / 8 / 12 / 16 / 24） | §3 |
-| 阴影 | 仅抬升 / 浮层 `--shadow-quiet` | §3 |
+- **颜色 token**（浅 / 深两套，与宽度无关）
+- **字号阶梯** `--fs-*` 全部不变
+- **圆角**
+- **层级与信息顺序**
+- **无障碍要求**：对比度、焦点可见、状态不只靠颜色
 
-Composer token（`--composer-*`）只服务任务输入容器，不扩散到普通按钮、卡片或页面背景。迁移别名（`--star`、`--canvas`、`--line`、`--muted`、`--red`、`--ok`、`--orange` 等）禁止出现在新代码。
+理由：**同一产品在不同设备上必须是同一产品。** 允许变的只有：间距、行高、侧栏形态、列数、命中区。
 
-禁止用 `transform: scale()` 或 `zoom` 假装密度。正文基线与控件下限见 MASTER §3 / ADR-020。
+### 6.5 禁止
 
-## 3. `pages/*.md` 怎么用
+- 禁止 `transform: scale()` / `zoom` 假装密度。
+- 禁止 UA 嗅探做布局分支。
+- 禁止在断点里改字号或颜色。
+- 禁止整页横向滚动（只有表格、代码块、长 token 可局部横滚）。
+- 禁止内容宽度撑满视口（必须受 `--content-max` 约束）。
 
-`design-system/kol-workbench/pages/` 是**单页覆盖规则**，不是第二套设计系统。
+### 6.6 数据表的窄屏规则
 
-| 文件 | 何时读 |
+1. **列少**：直接展示。
+2. **列多**：`overflow-x: auto` + `sticky` 表头 + `sticky` **首列（身份列）**。
+3. **极窄（S）**：降为卡片列表——每行一张卡，字段纵向排列。
+4. 禁止把列压到不可读；挤压不是适配。
+
+### 6.7 固定栏与焦点
+
+侧栏 / 顶栏 / Composer 固定时，用 `scroll-padding-top` / `scroll-padding-bottom` 让键盘焦点不被遮挡（WCAG 2.2 AA 2.4.11）。这与"页面只保留一个主滚动容器"并列执行。
+
+### 6.8 文本与长 token
+
+- 中文长标题必须能正常折行；**不得用 `white-space: nowrap` 硬撑**。
+- URL、稳定 ID、邮箱等长 token 允许 `word-break: break-all` 或横向滚动，并保留可访问的完整值路径。
+- chip / tag 集合应换行或使用可操作的 `+n` 展开；**不得把标签截断到只剩两三个字**。
+- 数字列右对齐并使用等宽数字（`font-variant-numeric: tabular-nums`）。
+
+---
+
+## 7. 验收矩阵
+
+### 7.1 必测视口
+
+| 视口 | 覆盖的档 |
 |---|---|
-| [`pages/home.md`](design-system/kol-workbench/pages/home.md) | Home 布局、模式 Tab、发现 / 跟进（助理脊柱 + 对象卡） |
-| [`pages/chat.md`](design-system/kol-workbench/pages/chat.md) | 会话时间线、Composer、结果卡 |
-| [`pages/pipeline.md`](design-system/kol-workbench/pages/pipeline.md) | KOL 试点 Pipeline 页密度与阶段列（页不是必挂侧栏） |
-| [`pages/admin.md`](design-system/kol-workbench/pages/admin.md) | 治理表 / 授权矩阵的视觉结构 |
-| [`pages/approvals.md`](design-system/kol-workbench/pages/approvals.md) | 员工审批队列的确认与回执 chrome |
+| `320×568` | S（含 200% 缩放的等效宽度） |
+| `375×812` | S |
+| `414×896` | S |
+| `768×1024` | M |
+| `1024×768` | L |
+| **`1280×800`** | L + **矮窗**（同时触发宽度与高度收紧） |
+| `1366×768` | XL + 矮窗 |
+| `1920×1080` | 2XL |
 
-用法：
+### 7.2 每档必测状态
 
-- 先完成宪法 / IA / UX 硬不变量 → `ui-ux-pro-max` → 本文件 → MASTER，再打开当前页的 `pages/*.md`。
-- `pages/*.md` 可以规定该页的区块顺序、状态矩阵、窄屏折行。它**不能**改 token 数值，也不能改一页一问或使用 ≠ 治理。
-- 没有对应 `pages/*.md` 的一等能力面（如 `/kb`、`/connectors`、`/exam`、`/cron`）：沿用 MASTER + 宪法 / IA 的「只答一问」，不要为了视觉另立法。
-- 现有页面截图不是设计基准（MASTER 开篇）。重做页面时用 token 与页面规范，不反向把现状写入 MASTER。
+空 · 加载 · 错误 · 无权限 · 部分成功 · **长中文标题** · **长 token（URL / 稳定 ID）** · 表格满列 · 数字千分位。
 
-## 4. 本文件禁止写入
+### 7.3 每档必测交互与偏好
 
-| 禁止 | 应去的位置 |
+键盘 Tab 顺序与视觉顺序一致 · 焦点可见且不被固定栏遮挡 · `prefers-reduced-motion` · `prefers-contrast: more` · **200% 缩放**（WCAG 1.4.4 / 1.4.10） · `pointer: coarse` 模拟（验证 `--hit-min` 提升到 44） · 深色主题。
+
+---
+
+## 8. 与 `styles.css` 的已知差异（迁移清单）
+
+本文件生效后，`frontend/src/styles.css` 的以下实现值与本细则不一致，属**待迁移**，不是新法：
+
+| 现状 | 本细则 |
 |---|---|
-| 任何 hex / rgb 色值，或「本页主色改成 #…」 | MASTER §2；改数值同步 `styles.css` |
-| 业务规则、阶段机、15 段图、`stage_code` 迁移 | FS、Policy、`05` / 阶段契约（不在视觉文档） |
-| 权限、租户、PEP、谁能看见哪条数据 | FS、C [`org-permissions.md`](org-permissions.md) |
-| 发送 ≠ 推进阶段、L3 确认文案、拒绝原因 | 宪法 §3 / §5、`UX-EMPLOYEE` |
-| 导航该挂谁、Pipeline 是否侧栏、使用 ≠ 治理 | [`ia-information-architecture.md`](ia-information-architecture.md)、宪法 §4 |
-| 连接器枢纽字段、Admin 遗留收敛 | C [`org-permissions.md`](org-permissions.md) |
-| 把 `ui-ux-pro-max` 输出写成可覆盖 FS / Policy / 宪法硬不变量的法 | 它是视觉链必经分析；OpenAI 对齐且不违反宪法的建议可以驱动 MASTER 更新；仍不得发明 Glassmorphism / 随机品牌字体 / 橙强调 |
-| 把 `openai-style.md` 的 hex 抄进本文件 | token 数值只改 MASTER。mood 冲突时 OpenAI 胜；主填充按产品粉红和解 MASTER（不是 ~~黑 / Obsidian 实底~~），不要把冲突 hex 留在 MASTER |
-
-页面和组件不得自行定义与 MASTER 冲突的颜色、字号、圆角或间距（宪法 §3）。
-
-## 5. 交付时仍按 MASTER 检查
-
-键盘、焦点、对比度、触控目标、减少动态效果、视口（360 / 768 / 1024 / 1366 / ≥1440）以 MASTER §6–§9 为准。本入口不重复那份清单。
+| `--primary: #DB1860`（hsl 338, 80%, 48%） | `#C73B7A`（hsl 333, 56%, 51%） |
+| `--radius-cards: 14px` | `--radius-sm: 6px` |
+| `--border: #eee` 被用在控件边框上 | 控件用 `--control-border: #8A8A8A` |
+| `--ds-font-tag: 11px` 被用在按钮标签上 | 按钮最低 13px |
+| 控件未显式设 `line-height`，继承 24px 行盒 | `--lh-control: 20px` |
+| 无 `@media (pointer: coarse)` 分支 | 见 §6.2 |

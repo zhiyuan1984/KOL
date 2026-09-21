@@ -2,13 +2,10 @@
 
 本文件是决策索引，不替代规范正文。涉及规范冲突、不可逆副作用、组织范围、物理接口漂移或架构取舍时，先在这里登记，再更新 canonical 文档和追踪矩阵。
 
-> **链接说明（2026-09-21）：** 本文件是历史记录，只回答「为什么」。本日之前的记录中出现的 `docs/design.md`、`docs/design-system/kol-workbench/MASTER.md`、`docs/references/openai-style.md`、`docs/LAW-MAP.md`、`docs/README.md`、`docs/CONTEXT-MANIFEST.md` 及 `04` / `19` / `21` 等路径可能已废止或归档（UI/UX 设计法相关 11 份在 `nothings/law-ui-ux/`，其余旧规范在 `nothings/`）。**历史记录正文不追改**，以免篡改立法过程（CONST-09）；需要现行条款时按 `AGENTS.md` 的加载表读当前文件。
-
 ## 近期记录
 
 | 日期 | 记录 | 说明 |
 |---|---|---|
-| 2026-09-21 | **视觉参照重建。** 原 `design.md` + `MASTER.md` + `pages/*` + `references/openai-style.md` 等 11 份废止（归档 `nothings/law-ui-ux/`）后，仓库视觉数值一度无据。新建 `docs/DESIGN.md` 为**实施细则**（依 CONST-09「设计 token 属实施细则」，不占基本法位阶），风格基准 `data-dense-dashboard`，含颜色 / 字号 / 控件尺寸 / 密度两档 / 三轴设备适配（宽度 × 高度 × 输入模态）/ 验收矩阵。 | 用户采纳。文档 only。不改 CSS；`styles.css` 迁移清单见 `DESIGN.md` §8。不 LIVE。 |
 | 2026-09-16 | ADR-032：员工表面**唯一**交互范式是助理优先（用户说意图 → 助理组织对象 → 优先卡 / 折叠分组 → 下一步）。不是「第二套会话」，也不是「列表为主 + AI 叠加」。修订 ADR-030「Home ≠ Chat」读法。 | 用户锁定 2026-09-16。文档 only。不 FE / 不 LIVE。 |
 | 2026-09-16 | ADR-031 修订：填充主 CTA 法律目标从 Obsidian 黑改为产品粉红实底 + 白字（hex 只住 MASTER `--primary` / `--primary-fg`）。OpenAI-quiet 仍胜于安静白底 / 发丝边 / 胶囊 / 排版；**主填充不再跟 OpenAI 黑钮**。 | 用户锁定：黑钮变成粉红。文档 only。CSS 同步另开 FE PR。不 LIVE。 |
 | 2026-09-16 | ADR-030 修订：跟进面仍是对象管理（禁责任桶主 IA、禁 15 段板、SEND≠STAGE / L3 仍硬）。对象管理可表现为助理结果（会话脊柱 + 对象卡）；情境分区（优先跟进 / 等待 / 拒绝）只许出现在一次回答内。 | 用户锁定。见 ADR-030 / ADR-032。文档 only。不 FE / 不 LIVE。 |
@@ -566,7 +563,7 @@ LAW-MAP 层 C 被写成 `01` + `08`（+ `21`）组合，层 D 被写成 `02` + �
 
 ### 决定
 
-1. **默认观感 = OpenAI-quiet。** mood 规范来源是 `docs/references/openai-style.md`（该文件已于 2026-09-21 废止，归档在 `nothings/law-ui-ux/`）。class I 入口仍是 `docs/design.md` → MASTER（token 源；两者同日废止）。这不是 Linear-first 品牌。**修订（ADR-031）：** 强制视觉链改为 CONSTITUTION → ui-ux-pro-max → design.md → MASTER；`openai-style.md` 与 MASTER 冲突时胜出。
+1. **默认观感 = OpenAI-quiet。** mood 规范来源是 [`docs/references/openai-style.md`](references/openai-style.md)。class I 入口仍是 `docs/design.md` → MASTER（token 源）。这不是 Linear-first 品牌。**修订（ADR-031）：** 强制视觉链改为 CONSTITUTION → ui-ux-pro-max → design.md → MASTER；`openai-style.md` 与 MASTER 冲突时胜出。
 2. **Token 数值仍只住 MASTER。** 禁止把 `openai-style.md` 的 hex 抄进 `design.md`。`design.md` 仍禁止写入 hex。**修订（ADR-031）：** `openai-style.md` **可以**在审美冲突时覆盖 MASTER 的 hex / CTA / 阴影 / 字体阶梯目标；胜出后必须和解 MASTER，不得把冲突 hex 留在 MASTER。
 3. **主按钮色锁定。** 填充主按钮继续映射 `--primary` / `--primary-fg`。OpenAI 黑色实底按钮**不采纳**。**修订（ADR-031）：本条废止。** ~~用户锁定改为 OpenAI 胜，含 CTA：黑色 / Obsidian 实底为填充主按钮法律目标。~~ **再修订（ADR-031 / 2026-09-16）：** 填充主 CTA 法律目标改为产品粉红实底 + 白字（hex 只住 MASTER `--primary` / `--primary-fg`）。OpenAI 黑钮是 mood 对照，不是现行产品 CTA 法。
 4. **修订 ADR-020 冲突。** Linear 密度只可在与 OpenAI-quiet 兼容时作为间距手法（紧间距、低装饰、不靠缩小正文）。默认 mood / chrome 以 OpenAI-quiet 为准。

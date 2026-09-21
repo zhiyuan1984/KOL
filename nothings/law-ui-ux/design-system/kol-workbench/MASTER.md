@@ -1,6 +1,6 @@
 > **I-layer path:** this file remains `docs/design-system/kol-workbench/MASTER.md` (KOL workbench path name; token/source slot). Do not rename or move it.
 >
-> **Content:** 下方仍保留 OpenAI-quiet mood 正文（与 `docs/references/openai-style.md` 同源）。**产品 token 以本文件顶部「Product tokens」为准。** LAW-MAP / `design.md` 仍把本路径当 I 层 token 源。`design.md` 禁止抄 hex。
+> **Content:** 下方仍保留 OpenAI-quiet mood 正文（与 `docs/references/openai-style.md` 同源）。**产品 token 以本文件顶部「Product tokens」为准。** 仓库入口 `AGENTS.md` 与 `docs/design.md` 把本路径当视觉 token 源。`design.md` 禁止抄 hex。
 >
 > **ADR-031 / 2026-09-16：** mood（安静白底 / 发丝边 / 胶囊 / 排版）跟 OpenAI。~~浅色填充主 CTA = Obsidian `#000000`~~ **废止。** 填充主 CTA = 产品粉红 `--primary`。
 >

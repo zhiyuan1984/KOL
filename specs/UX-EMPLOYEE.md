@@ -12,7 +12,8 @@
 2. ADR-023 / ADR-015 / ADR-030 / ADR-032（若仍在 `DECISIONS.md`）
 3. `docs/ia-information-architecture.md`（IA：一页一问 / 导航密度 / 使用 ≠ 治理原则）
 4. `docs/org-permissions.md`（管理端配套套件细则）
-5. `docs/design.md`（视觉入口）→ `docs/design-system/kol-workbench/MASTER.md`（token only）
+
+视觉与交互数值见 `docs/DESIGN.md`（实施细则，风格基准 `data-dense-dashboard`）；原 `design.md` / `MASTER.md` 等 11 份已于 2026-09-21 废止，归档在 `nothings/law-ui-ux/`。
 
 ## L1–L3（摘录宪法，不改写）
 

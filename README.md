@@ -2,7 +2,7 @@
 
 TypeScript 前后端一体工作台：会话里干活，页面只放资产。Starry / Claw / 企微默认 mock。**Worker 默认走真实 `codex app-server`**，不会用模板假信。编排就是 **Dify Chatflow → Codex Skill / Thread / Turn / Item / MCP**，没有第二套运行时。
 
-研发规范以 `docs/README.md` 与 `docs/LAW-MAP.md`（A–K）为入口，不要按 `00`–`21` 编号当主线。第一次打开仓库请先读 **`docs/90-codebase-handbook.md`**（地图、任务怎么走完、改哪一类文件）。旧中文规范只用于迁移核对；HTML 原型的 Toast / keyword `replyFor` **不是**规则。
+研发规范入口：**`AGENTS.md`**（加载协议）与 **`docs/CONSTITUTION.md`**（宪法）。三部基本法按领域加载：`docs/PRODUCT.md`（平台、Agent 与记忆）、`docs/BUSINESS.md`（KOL 业务）、`docs/TECHNOLOGY.md`（技术与交付）。视觉 token 与设备适配读 **`docs/DESIGN.md`**（实施细则，风格基准 `data-dense-dashboard`）；原 `design.md`、`MASTER.md`、单页规范、`openai-style.md` 等 11 份已于 2026-09-21 废止并归档到 `nothings/law-ui-ux/`。旧规范全文归档在 `nothings/`，只用于迁移核对，不是现行法；HTML 原型的 Toast / keyword `replyFor` **不是**规则。
 
 界面是浅灰白工作台（侧栏 `#f6f7f8`、主画布白、近黑字）。Star Blue `#0D3D82` 只做 1–2px 点缀（焦点环、激活刻度、链接），Blazing Orange `#EA5504` 只用于「发送」和 Logo 弧。对话结果用 Markdown 展示。发送 ≠ 推进阶段。
 
