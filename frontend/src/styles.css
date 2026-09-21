@@ -12204,6 +12204,19 @@ button.today-brief-primary-btn:disabled {
   font-size: var(--ds-font-sm);
   white-space: nowrap;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.home-quick-task-icon {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .home-quick-tasks button:hover {
   color: var(--text);
@@ -12300,8 +12313,14 @@ button.today-brief-primary-btn:disabled {
     padding-right: 0;
     gap: 6px;
   }
-  .home-pane[data-home-active-mode="today"] .home-quick-tasks button {
+.home-pane[data-home-active-mode="today"] .home-quick-tasks button {
     min-height: 30px;
     padding-inline: 8px;
   }
+}
+
+/* A shortcut changes context, not the composer geometry. Keep the interaction
+   surface stable; real textarea content may still grow naturally. */
+.home-pane.is-composer-focused .home-composer-dock .composer.composer--workspace {
+  min-height: var(--composer-idle-min, 76px);
 }

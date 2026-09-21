@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   api,
@@ -86,6 +86,7 @@ import {
   type KolSurface,
   type PoolKol,
 } from "../home/kolContract";
+
 import { claimPoolKol, enqueueKolAnalyze, loadHomeFollowing, loadHomePool, releaseFollowedKol } from "../home/kolSurfaceApi";
 import {
   applyLayoutWhy,
@@ -267,6 +268,17 @@ function CardFields({
 }
 
 const HOME_TODAY_TITLE = "今天有什么工作要处理？";
+
+function homeModeIcon(mode: HomeMode): ReactNode {
+  const paths: Record<HomeMode, ReactNode> = {
+    today: <><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M8 3v4M16 3v4M4 10h16M8 14h3" /></>,
+    todo: <><rect x="4" y="4" width="16" height="16" rx="2" /><path d="m8 9 2 2 4-4M8 15h8" /></>,
+    discovery: <><circle cx="10.5" cy="10.5" r="6" /><path d="m15 15 5 5" /></>,
+    pool: <><circle cx="9" cy="9" r="3" /><circle cx="16.5" cy="10.5" r="2.5" /><path d="M3.5 19c.6-3 2.5-4.5 5.5-4.5S14 16 14.5 19M14 15c2.7-.6 5.1.8 6 3" /></>,
+    lifecycle: <><path d="M12 20s-7-4.2-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.8-7 10-7 10Z" /><path d="M12 9v5M9.5 11.5h5" /></>,
+  };
+  return <svg className="home-quick-task-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">{paths[mode]}</svg>;
+}
 
 export default function Home() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -1964,6 +1976,7 @@ export default function Home() {
           data-home-entry="switch-tab"
           onClick={() => setMode(homeMode)}
         >
+          {homeModeIcon(homeMode)}
           {homeMode === "lifecycle" ? "我的红人" : HOME_MODE_LABELS[homeMode]}
           {homeMode === "today" ? <span className="home-mode-count" aria-hidden>{todayCount}</span> : null}
           {homeMode === "todo" ? <span className="home-mode-count" aria-hidden>{openCount}</span> : null}
@@ -1975,6 +1988,7 @@ export default function Home() {
         data-home-quick-task="first-outreach"
         onClick={openFirstOutreach}
       >
+        <svg className="home-quick-task-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6h16v12H4z" /><path d="m4 7 8 6 8-6" /></svg>
         首次建联
       </button>
     </nav>

@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import type { Task } from "../api";
 import BoardRow from "./BoardRow";
 import { dueDayDiff, taskPriorityRank } from "./homeModel";
-import { TODAY_PLAN_START_EVENT, TODO_PLAN_START_EVENT, type TodayPlanPhase } from "./todayPlan";
+import { TODO_PLAN_START_EVENT, type TodayPlanPhase } from "./todayPlan";
 import "./today-plan-board.css";
 
 type BoardFilter = "all" | "iu" | "in" | "ui" | "nn";
@@ -17,6 +17,19 @@ const FILTERS: Array<{ value: BoardFilter; label: string }> = [
 ];
 
 const COLLAPSED_ROWS = 5;
+
+function FilterIcon({ value }: { value: BoardFilter }) {
+  const path = value === "all"
+    ? <path d="M4 7h16M7 12h10M10 17h4" />
+    : value === "iu"
+      ? <path d="m12 4 8 15H4L12 4Zm0 5v4M12 16h.01" />
+      : value === "in"
+        ? <path d="m12 4 2.4 4.8 5.3.8-3.8 3.7.9 5.2-4.8-2.5-4.8 2.5.9-5.2-3.8-3.7 5.3-.8L12 4Z" />
+        : value === "ui"
+          ? <><circle cx="12" cy="12" r="8" /><path d="M12 7v5l3 2" /></>
+          : <circle cx="12" cy="12" r="6" />;
+  return <svg className="today-board-filter-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">{path}</svg>;
+}
 
 const SCOPE_EMPTY_COPY: Record<TaskBoardScope, { title: string; hint: string }> = {
   today: {
@@ -147,19 +160,20 @@ export default function TaskBoard({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
-          {showPlanButton ? (
+          {showPlanButton && scope !== "today" ? (
             <button
               type="button"
               className={"today-board-plan-btn is-" + planButton.state}
               data-plan-state={planButton.state}
-              data-home-entry={scope === "today" ? "plan-today" : "plan-todo"}
+              data-home-entry="plan-todo"
               disabled={planButton.busy}
               aria-busy={planButton.busy ? true : undefined}
               onClick={() => window.dispatchEvent(new Event(
-                scope === "today" ? TODAY_PLAN_START_EVENT : TODO_PLAN_START_EVENT,
+                TODO_PLAN_START_EVENT,
               ))}
             >
               {planButton.busy ? <span className="today-board-plan-spin" aria-hidden /> : null}
+              {!planButton.busy ? <svg className="today-board-plan-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d={planButton.state === "again" ? "M15 6a6 6 0 1 0 1 6" : "m8 5 6 5-6 5Z"} /><path d={planButton.state === "again" ? "M15 3v3h-3" : undefined} /></svg> : null}
               {planButton.label}
             </button>
           ) : null}
@@ -178,7 +192,8 @@ export default function TaskBoard({
             data-board-filter={value}
             onClick={() => setFilter(value)}
           >
-            {label} {counts[value]}
+            <FilterIcon value={value} />
+            <span>{label} {counts[value]}</span>
           </button>
         ))}
       </div>
