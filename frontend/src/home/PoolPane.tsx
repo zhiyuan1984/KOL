@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { PoolKol } from "./kolContract";
 import { KOL_SELECT_MAX } from "./kolContract";
 import { HOME_HANDOFF_TO_AGENT } from "./entryRegistry";
@@ -130,12 +131,15 @@ export default function PoolPane({
   query,
   down,
   claimBusyId,
+  libraryCount,
+  syncBusy,
   onQuery,
   onHover,
   onToggleSelect,
   onToggleSelectAll,
   onAnalyzeSelected,
   onClaim,
+  onSyncLibrary,
 }: {
   cards: PoolKol[];
   selectedIds: string[];
@@ -143,15 +147,20 @@ export default function PoolPane({
   query: string;
   down?: SurfaceDownView | null;
   claimBusyId?: string | null;
+  libraryCount?: number | null;
+  syncBusy?: boolean;
   onQuery: (value: string) => void;
   onHover: (id: string | null) => void;
   onToggleSelect: (id: string, on: boolean) => void;
   onToggleSelectAll: (on: boolean) => void;
   onAnalyzeSelected: () => void;
   onClaim: (card: PoolKol) => void;
+  onSyncLibrary?: () => void;
 }) {
   const selecting = selectedIds.length > 0;
   const queryDown = Boolean(down);
+  const [syncRequested, setSyncRequested] = useState(false);
+  const libraryUnsynced = !queryDown && !cards.length && !Number(libraryCount || 0);
   const visible = cards.filter((card) => {
     const needle = query.trim().toLowerCase();
     if (!needle) return true;
@@ -225,37 +234,68 @@ export default function PoolPane({
             data-pool-empty={queryDown ? "down" : cards.length ? "filtered" : "none"}
             data-empty-kind={queryDown ? "service-down" : cards.length ? "filter-empty" : "no-data"}
           >
-            <strong>{queryDown ? "公海暂时不可用" : cards.length ? "没有匹配的公海对象" : "公海还没有可领取的红人"}</strong>
+            <strong>
+              {queryDown
+                ? "公海暂时不可用"
+                : cards.length
+                  ? "没有匹配的公海对象"
+                  : libraryUnsynced
+                    ? syncRequested ? "已请求同步红人库" : "红人库还没有同步"
+                    : "公海没有未首次建联的红人"}
+            </strong>
             <p>
               {queryDown
                 ? "记忆查询失败，没有写入会话。可重试或交给 Agent 分析。"
-                : "公海只展示公开资料，不是跟进 Tab 的筛选。领取是建联，不等于发信或改阶段。"}
+                : cards.length
+                  ? "公海只展示公开资料，不是跟进 Tab 的筛选。领取是建联，不等于发信或改阶段。"
+                  : libraryUnsynced
+                    ? syncRequested
+                      ? "同步在后台进行；完成后重新打开公海即可看到未首次建联的可领取对象。"
+                      : "公海 = 远程红人库中还没有首次建联的红人。同步红人库后，这里才会出现可领取对象。"
+                    : "公海 = 远程红人库中还没有首次建联的红人。库里现有的红人都已建联或已被领取，暂时没有可领取对象。"}
             </p>
-            {down ? (
-              <>
-                <p className="muted" data-pool-down-reason title={down.detail || undefined}>{down.message}</p>
-                <div className="task-empty-actions">
-                  <button
-                    type="button"
-                    className="btn ghost sm"
-                    data-pool-retry
-                    disabled={down.retrying}
-                    onClick={down.onRetry}
-                  >
-                    重试
-                  </button>
-                  <button
-                    type="button"
-                    className="btn work sm"
-                    data-pool-handoff-agent
-                    data-home-entry="composer-analyze"
-                    onClick={down.onHandoff}
-                  >
-                    {HOME_HANDOFF_TO_AGENT}
-                  </button>
-                </div>
-              </>
-            ) : null}
+            {queryDown ? (
+              down ? (
+                <>
+                  <p className="muted" data-pool-down-reason title={down.detail || undefined}>{down.message}</p>
+                  <div className="task-empty-actions">
+                    <button
+                      type="button"
+                      className="btn ghost sm"
+                      data-pool-retry
+                      disabled={down.retrying}
+                      onClick={down.onRetry}
+                    >
+                      重试
+                    </button>
+                    <button
+                      type="button"
+                      className="btn work sm"
+                      data-pool-handoff-agent
+                      data-home-entry="composer-analyze"
+                      onClick={down.onHandoff}
+                    >
+                      {HOME_HANDOFF_TO_AGENT}
+                    </button>
+                  </div>
+                </>
+              ) : null
+            ) : cards.length ? null : (
+              <div className="task-empty-actions">
+                <button
+                  type="button"
+                  className="btn work sm"
+                  data-pool-sync-library
+                  disabled={!onSyncLibrary || syncBusy}
+                  onClick={() => {
+                    setSyncRequested(true);
+                    onSyncLibrary?.();
+                  }}
+                >
+                  {syncBusy ? "正在同步红人库…" : syncRequested ? "重新同步红人库" : "立即同步红人库"}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

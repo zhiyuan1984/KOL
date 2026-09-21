@@ -6,7 +6,7 @@ import {
   type FollowedKolCardModel,
 } from "../followedKolCard";
 import type { StarryBinding } from "../api";
-import FollowedBrief from "./FollowedBrief";
+import FollowedBrief, { type FollowedSituation } from "./FollowedBrief";
 import { KOL_SELECT_MAX } from "./kolContract";
 import { HOME_HANDOFF_TO_AGENT } from "./entryRegistry";
 import type { SurfaceDownView } from "./surfaceError";
@@ -56,6 +56,7 @@ export default function FollowedPane({
   allCards,
   kolQuery,
   stageFilter,
+  situation,
   selectedKolIds,
   hoveredKolId,
   focusedKolId,
@@ -66,6 +67,7 @@ export default function FollowedPane({
   down,
   onQuery,
   onStageFilter,
+  onSituation,
   onHover,
   onFocus,
   onToggleSelect,
@@ -84,6 +86,7 @@ export default function FollowedPane({
   allCards: FollowedKolCardModel[];
   kolQuery: string;
   stageFilter: string;
+  situation: FollowedSituation | "";
   selectedKolIds: string[];
   hoveredKolId: string | null;
   focusedKolId: string | null;
@@ -94,6 +97,7 @@ export default function FollowedPane({
   down?: SurfaceDownView | null;
   onQuery: (value: string) => void;
   onStageFilter: (value: string) => void;
+  onSituation: (value: FollowedSituation | "") => void;
   onHover: (id: string | null) => void;
   onFocus: (id: string | null) => void;
   onToggleSelect: (id: string, on: boolean) => void;
@@ -125,63 +129,74 @@ export default function FollowedPane({
   return (
     <section className="home-mode-pane recommend-work followed-kol-pane" data-home-pane="lifecycle" data-lifecycle-overview>
       <div className="followed-kol-column" data-followed-kol-column data-followed-decision-max="full">
-        <FollowedBrief cards={visibleKols} onPrimary={onOpenDetail} />
+        <FollowedBrief
+          cards={allCards}
+          situation={situation}
+          onSituation={onSituation}
+          onPrimary={onOpenDetail}
+        />
         <div className="followed-object-toolbar" data-followed-object-toolbar data-home-entry="list-followed">
-          <label className="followed-object-search">
-            <span className="sr-only">搜索跟进对象</span>
-            <input
-              type="search"
-              data-followed-object-search
-              value={kolQuery}
-              placeholder="搜索跟进对象"
-              onChange={(event) => onQuery(event.target.value)}
-            />
-          </label>
-          <p className="followed-object-count" data-followed-selected-count>
-            {selecting ? `已选 ${selectedKolIds.length} / ${KOL_SELECT_MAX}` : `${visibleKols.length} 人`}
-          </p>
-          <label className="followed-advanced-filter" data-followed-advanced>
-            <span>阶段（高级）</span>
-            <select
-              data-kol-stage-filter
-              aria-label="按阶段筛选（高级）"
-              value={stageFilter}
-              onChange={(event) => onStageFilter(event.target.value)}
+          <div className="followed-object-look" data-followed-object-look>
+            <label className="followed-object-search">
+              <span className="sr-only">搜索跟进对象</span>
+              <input
+                type="search"
+                data-followed-object-search
+                value={kolQuery}
+                placeholder="搜索跟进对象"
+                onChange={(event) => onQuery(event.target.value)}
+              />
+            </label>
+            <label className="followed-advanced-filter" data-followed-advanced>
+              <span className="followed-advanced-label">阶段筛选</span>
+              <select
+                data-kol-stage-filter
+                aria-label="按阶段筛选"
+                value={stageFilter}
+                onChange={(event) => onStageFilter(event.target.value)}
+              >
+                {stageOptions.map((option) => (
+                  <option key={option.code || "all"} value={option.code}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            <p className="followed-object-count" data-followed-selected-count>
+              {selecting ? `已选 ${selectedKolIds.length} / ${KOL_SELECT_MAX}` : `在跟 ${visibleKols.length} 位`}
+            </p>
+          </div>
+          <div className="followed-object-batch" data-followed-object-batch>
+            <label className="followed-select-all">
+              <input
+                type="checkbox"
+                data-followed-select-all
+                checked={visibleKols.length > 0 && selectedKolIds.length === visibleKols.length}
+                disabled={!visibleKols.length}
+                onChange={(event) => onToggleSelectAll(event.target.checked)}
+              />
+              <span>全选本页</span>
+            </label>
+            <button
+              type="button"
+              className="btn ghost sm"
+              data-analyze-selected
+              data-home-entry="kol-analyze-enqueue"
+              disabled={!selecting}
+              title={selecting ? undefined : "先勾选要分析的对象"}
+              onClick={onAnalyzeSelected}
             >
-              {stageOptions.map((option) => (
-                <option key={option.code || "all"} value={option.code}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-          <label className="followed-select-all">
-            <input
-              type="checkbox"
-              data-followed-select-all
-              checked={visibleKols.length > 0 && selectedKolIds.length === visibleKols.length}
-              disabled={!visibleKols.length}
-              onChange={(event) => onToggleSelectAll(event.target.checked)}
-            />
-            <span className="sr-only">全选跟进对象</span>
-          </label>
-          <button
-            type="button"
-            className="btn ghost sm"
-            data-analyze-selected
-            data-home-entry="kol-analyze-enqueue"
-            disabled={!selecting}
-            onClick={onAnalyzeSelected}
-          >
-            分析已选
-          </button>
-          <button
-            type="button"
-            className={selecting && bulkLabel ? "btn work sm" : "btn ghost sm"}
-            data-followed-batch-confirm
-            disabled={!selecting}
-            onClick={onBatchConfirm}
-          >
-            {bulkLabel}
-          </button>
+              分析已选
+            </button>
+            <button
+              type="button"
+              className={selecting && bulkLabel ? "btn work sm" : "btn ghost sm"}
+              data-followed-batch-confirm
+              disabled={!selecting}
+              title={selecting ? undefined : "先勾选要进入阶段的对象"}
+              onClick={onBatchConfirm}
+            >
+              {bulkLabel}
+            </button>
+          </div>
         </div>
 
         {visibleKols.length ? (

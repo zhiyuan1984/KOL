@@ -437,7 +437,10 @@
   --composer-max-height: 540px;
   /* 编辑器上限 440px + 盒子其余部分 82px（22/4/44/12）= 522px，仍小于 --composer-max-height，
      所以文字顶到上限时只在编辑区内部滚动，工具栏不会被顶出盒子。 */
-  --composer-default-min: 240px;
+  /* 矮窗口让步：240px 是长屏地板（视口高度 ≥800px 时不变）。以下按 30dvh 收缩，
+     到 150px 触底 —— 固定 240px 会把下面的对象清单挤到只剩半张卡，而提问框是页脚
+     控件，不该比它服务的清单更占地方。 */
+  --composer-default-min: clamp(150px, 30dvh, 240px);
   --composer-toolbar-h: 44px;
 }
 

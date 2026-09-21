@@ -34,6 +34,7 @@ import DiscoverySearchCard from "../home/DiscoverySearchCard";
 import TodayPane from "../home/TodayPane";
 import TodoPane from "../home/TodoPane";
 import FollowedPane from "../home/FollowedPane";
+import { matchesFollowedSituation, type FollowedSituation } from "../home/FollowedBrief";
 import PoolPane from "../home/PoolPane";
 import ClaimFollowConfirm from "../home/ClaimFollowConfirm";
 import ReleaseFollowConfirm from "../home/ReleaseFollowConfirm";
@@ -275,6 +276,8 @@ export default function Home() {
   const [todoFilter, setTodoFilter] = useState<TodoListFilter>("all");
   const [kolQuery, setKolQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("");
+  // 简报里的情境分区（一次回答内收窄），不是耐久 Tab；空串=不分区。
+  const [situationFilter, setSituationFilter] = useState<FollowedSituation | "">("");
   const [selectedKolIds, setSelectedKolIds] = useState<string[]>([]);
   const [hoveredKolId, setHoveredKolId] = useState<string | null>(null);
   const [focusedKolId, setFocusedKolId] = useState<string | null>(null);
@@ -293,6 +296,7 @@ export default function Home() {
   const [releaseBusy, setReleaseBusy] = useState(false);
   const [releaseError, setReleaseError] = useState<string | null>(null);
   const [boardWorkbench, setBoardWorkbench] = useState<HomeWorkbench | null>(null);
+  const [libraryCount, setLibraryCount] = useState<number | null>(null);
   const [followScope, setFollowScope] = useState<StarryBinding | null>(null);
   const [sort, setSort] = useState("priority");
   const initialFill = peekComposerFill();
@@ -621,6 +625,7 @@ export default function Home() {
   const applyBoard = (board: Awaited<ReturnType<typeof api.homeBoard>>, surface: HomeSurface) => {
     if (Array.isArray(board.kols)) boardKolsRef.current = board.kols;
     setBoardWorkbench(board.workbench || null);
+    setLibraryCount(Number(board.library?.count || 0));
     setFollowScope(board.follow_scope || null);
     setSurfaceError(surface, "");
   };
@@ -1813,10 +1818,12 @@ export default function Home() {
 
   const visibleKols = useMemo(() => {
     const filtered = kolCards.filter((card) => (
-      matchesKolSearch(card, kolQuery) && matchesStageFilter(card, stageFilter)
+      matchesKolSearch(card, kolQuery)
+      && matchesStageFilter(card, stageFilter)
+      && matchesFollowedSituation(card, situationFilter)
     ));
     return sortFollowedKolCards(filtered, "need");
-  }, [kolCards, kolQuery, stageFilter]);
+  }, [kolCards, kolQuery, stageFilter, situationFilter]);
 
   const selectedKolCards = useMemo(
     () => visibleKols.filter((card) => selectedKolIds.includes(card.id)),
@@ -1967,11 +1974,18 @@ export default function Home() {
                 data-home-mode={homeMode}
                 data-home-entry="switch-tab"
                 data-today-count={homeMode === "today" ? todayCount : undefined}
+                /* 计数是标签的补充，不是标签的一部分：读屏念「今日任务，2 项」，
+                   而不是把数字粘成「今日任务2」一个词（2026-09-22 评审）。 */
+                aria-label={homeMode === "today"
+                  ? `${HOME_MODE_LABELS[homeMode]}，${todayCount} 项`
+                  : homeMode === "todo"
+                    ? `${HOME_MODE_LABELS[homeMode]}，${openCount} 项`
+                    : undefined}
                 onClick={() => setMode(homeMode)}
               >
                 {HOME_MODE_LABELS[homeMode]}
-                {homeMode === "today" ? <span className="home-mode-count">{todayCount}</span> : null}
-                {homeMode === "todo" ? <span className="home-mode-count">{openCount}</span> : null}
+                {homeMode === "today" ? <span className="home-mode-count" aria-hidden>{todayCount}</span> : null}
+                {homeMode === "todo" ? <span className="home-mode-count" aria-hidden>{openCount}</span> : null}
               </button>
             ))}
             <button type="button" className="home-templates-link" data-open-work-panel onClick={() => openPanel("templates")}>
@@ -2038,6 +2052,7 @@ export default function Home() {
               allCards={kolCards}
               kolQuery={kolQuery}
               stageFilter={stageFilter}
+              situation={situationFilter}
               selectedKolIds={selectedKolIds}
               hoveredKolId={hoveredKolId}
               focusedKolId={focusedKolId}
@@ -2048,6 +2063,7 @@ export default function Home() {
               down={followingDown}
               onQuery={setKolQuery}
               onStageFilter={setStageFilter}
+              onSituation={setSituationFilter}
               onHover={setHoveredKolId}
               onFocus={setFocusedKolId}
               onToggleSelect={toggleSelectedKol}
@@ -2081,11 +2097,14 @@ export default function Home() {
               hoveredId={hoveredKolId}
               query={poolQuery}
               down={poolDown}
+              libraryCount={libraryCount}
+              syncBusy={retryingSurface === "pool"}
               claimBusyId={claimBusy && claimTarget ? claimTarget.kol_uid : null}
               onQuery={setPoolQuery}
               onHover={setHoveredKolId}
               onToggleSelect={toggleSelectedPool}
               onToggleSelectAll={toggleSelectAllPool}
+              onSyncLibrary={() => void retrySurface("pool")}
               onAnalyzeSelected={() => {
                 const selected = poolCards.filter((card) => selectedKolIds.includes(card.kol_uid));
                 prefillAnalyze("pool", selected, selected.map((card) => card.kol_uid));

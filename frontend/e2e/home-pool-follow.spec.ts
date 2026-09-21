@@ -21,6 +21,17 @@ const POOL_ITEM = {
   idle: true,
   public_stage: "公海",
   pool_status: "open",
+  has_conversation: false,
+};
+
+/** 已有邮件会话 = 已建联，按新口径不属于公海，前端必须过滤掉。 */
+const POOL_CONTACTED_ITEM = {
+  ...POOL_ITEM,
+  id: "kpi_contacted",
+  kol_uid: "uid_contacted",
+  handle: "已建联红人",
+  display_name: "已建联红人",
+  last_conversation_id: "conv_contacted",
 };
 
 const FOLLOW_REFUSED = {
@@ -73,8 +84,8 @@ async function stubKol172(page: Page) {
         creates_session: false,
         calls_model: false,
         index: "公海",
-        items: [POOL_ITEM],
-        kols: [POOL_ITEM],
+        items: [POOL_ITEM, POOL_CONTACTED_ITEM],
+        kols: [POOL_ITEM, POOL_CONTACTED_ITEM],
       },
     });
   });
@@ -185,6 +196,8 @@ test("pool is a separate entry and cards have no mail digest", async ({ page }) 
   await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
   await expect(page.locator("[data-pool-toolbar][data-home-entry='list-pool']")).toBeVisible();
   await expect(page.locator("[data-pool-card]").first()).toBeVisible();
+  await expect(page.locator("[data-pool-card]")).toHaveCount(1);
+  await expect(page.locator("[data-pool-kol='uid_contacted']")).toHaveCount(0);
   await expect(page.locator("[data-pool-card] [data-mail-summary]")).toHaveCount(0);
   await expect(page.locator("[data-pool-card]")).not.toContainText("未读");
   await expect(page.locator("[data-pool-card]")).not.toContainText("14 日计时");

@@ -23,8 +23,13 @@ export const POOL_BANNED_FIELDS = [
   "notes",
   "email",
   "contact_email",
+  "contact_email_masked",
   "phone",
   "wechat",
+  "owner_name",
+  "owner_user_id",
+  "owner_mailbox",
+  "last_conversation_id",
   "release_due_at",
   "days_since_interaction",
   "clock_14d",
@@ -45,6 +50,9 @@ export const FOLLOW_BANNED_DISCOVERY_FIELDS = [
 
 export type KolSurface = "pool" | "following";
 
+/** 公海入选原因：无主（无人负责）优先于从未首次建联。与后端 `publicSeaReason` 对齐。 */
+export type PublicSeaReason = "unowned" | "never_contacted";
+
 export type PoolKol = {
   kol_uid: string;
   identity: {
@@ -63,6 +71,10 @@ export type PoolKol = {
   ingested_at?: string | null;
   idle?: { days?: number | null; idle?: boolean; label: string };
   public_stage?: { code?: string; label: string };
+  /** 无主 = 远程两侧归属皆空。无主的公海对象排前面，是当前最该被领取的一批。 */
+  unowned?: boolean;
+  has_conversation?: boolean;
+  sea_reason?: PublicSeaReason | null;
 };
 
 export type FollowCorrespondence = {
@@ -291,9 +303,28 @@ export function sortByFollowedBriefPriority<T extends { brief_priority: FollowBr
   return [...rows].sort((a, b) => rank[a.brief_priority] - rank[b.brief_priority]);
 }
 
+/** 已建联 = 该红人已有任何邮件会话。 */
+export function hasConversation(row: Record<string, unknown>): boolean {
+  return Boolean(text(row.last_conversation_id || row.lastConversationId)) || flag(row.has_conversation);
+}
+
+/** 无归属 = 远程两侧归属都空。无主也算公海对象，即使已经有过往来。 */
+export function isUnownedRow(row: Record<string, unknown>): boolean {
+  if (flag(row.unowned)) return true;
+  return !text(row.owner_user_id || row.ownerUserId) && !text(row.owner_mailbox || row.ownerMailbox);
+}
+
+export function publicSeaReasonOf(row: Record<string, unknown>): PublicSeaReason | null {
+  if (isUnownedRow(row) || text(row.sea_reason) === "unowned") return "unowned";
+  if (hasConversation(row)) return null;
+  return "never_contacted";
+}
+
 export function isOpenPoolRow(row: Record<string, unknown>): boolean {
   const status = text(row.pool_status || row.status);
-  return !status || status === "open" || status === "discovered" || status === "pool" || status === "public";
+  const openByStatus = !status || status === "open" || status === "discovered" || status === "pool" || status === "public";
+  if (!openByStatus) return false;
+  return publicSeaReasonOf(row) !== null;
 }
 
 export function isActiveFollowRow(row: Record<string, unknown>): boolean {
@@ -315,7 +346,11 @@ export function toPoolKol(row: Record<string, unknown>): PoolKol | null {
     ? (idleIsFlag || row.days_in_stage == null ? null : Number(row.days_in_stage))
     : Number(row.idle_days);
   const idleOn = idleIsFlag ? flag(idleRaw) : idleDays != null && Number.isFinite(idleDays) && idleDays > 0;
-  const publicStage = text(row.public_stage_label || row.public_stage || row.stage_label) || "公海";
+  const reason = publicSeaReasonOf(row);
+  const reasonLabel = reason === "unowned"
+    ? (hasConversation(row) ? "无主·已有往来" : "无主·未首次建联")
+    : "未首次建联";
+  const publicStage = text(row.public_stage_label || row.stage_label) || reasonLabel;
   return {
     kol_uid: kolUid || handle,
     identity: {
@@ -341,6 +376,9 @@ export function toPoolKol(row: Record<string, unknown>): PoolKol | null {
       code: text(row.public_stage_code || row.stage_code) || "PUBLIC_POOL",
       label: publicStage,
     },
+    unowned: isUnownedRow(row),
+    has_conversation: hasConversation(row),
+    sea_reason: reason,
   };
 }
 
@@ -448,7 +486,7 @@ export function selectAllMax8(ids: string[], on: boolean, max = KOL_SELECT_MAX):
 export function analyzePrefillPrompt(cards: Array<{ identity: { display: string } }>, surface: KolSurface): string {
   const names = cards.map((card) => card.identity.display).filter(Boolean);
   const who = names.length ? names.join("、") : "已选红人";
-  const scope = surface === "pool" ? "公海公开资料" : "跟进对象事实";
+  const scope = surface === "pool" ? "公海对象（远程红人库中尚未首次建联的公开资料）" : "跟进对象事实";
   return `${ANALYZE_PREFILL_PREFIX}：${who}\n请根据${scope}分析下一步，不要发信、不要改阶段。`;
 }
 

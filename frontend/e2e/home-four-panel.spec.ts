@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { stubFollowingFromServerBoard, stubHomeBoardAndFollowing } from "./kol-surface-stub";
+import { stubFollowingFromServerBoard, stubHomeBoardAndFollowing, stubHomeFollowing } from "./kol-surface-stub";
 
 async function openMode(page: Page, mode: "today" | "todo" | "discovery" | "pool" | "lifecycle") {
   await page.locator(`[data-home-mode="${mode}"]`).click();
@@ -605,4 +605,77 @@ test("home composer copy is 让 Agent 分析/安排 and not 添加待办", async
   await expect(input).toHaveAttribute("placeholder", "有问题，尽管问");
   await expect(page.locator("[data-home]")).not.toContainText("添加待办");
   await expect(page.locator(".home-composer-dock[data-home-entry='composer-analyze']")).toBeVisible();
+});
+
+// 2026-09-22 评审修复：跟进面的收窄改由简报计数承担（一次回答内的情境分区），
+// 15 正式阶段降为次级筛选 —— docs/ia-information-architecture.md §1。
+const SITUATION_ACTIVE = {
+  id: "kpi_active",
+  kol_uid: "uid_active",
+  handle: "Vanlife 跟进中",
+  display_name: "@Vanlife 跟进中",
+  platform: "youtube",
+  follow_id: "kfi_active",
+  employee_id: "u_sriphy",
+  employee_name: "Sriphy",
+  status: "active",
+  public_stage: "跟进中",
+  stage_label: "跟进中",
+  last_effective_mail_at: null,
+  days_since_interaction: null,
+  release_due_at: null,
+  countdown: false,
+  cron_eligible: false,
+  last_interaction_at: null,
+};
+
+const SITUATION_REFUSED = {
+  ...SITUATION_ACTIVE,
+  id: "kpi_refused",
+  kol_uid: "uid_refused",
+  handle: "小美妆日记",
+  display_name: "小美妆日记",
+  follow_id: "kfi_refused",
+  public_stage: "已拒绝",
+  stage_label: "已拒绝",
+};
+
+test("followed brief counts narrow the list as a situational filter", async ({ page }) => {
+  await stubHomeFollowing(page, [SITUATION_ACTIVE, SITUATION_REFUSED]);
+  await page.goto("/?tab=lifecycle");
+  await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
+  await expect(page.locator("[data-followed-kol]")).toHaveCount(2);
+
+  // 非零档才是可点的情境分区；零档保持纯文本，不给点不动的假按钮。
+  await expect(page.locator('button[data-followed-situation="refused"]')).toHaveText("1 位已拒绝");
+  await expect(page.locator('span[data-followed-situation="near_14d"]')).toHaveText("0 位临近 14 天未联系");
+  await expect(page.locator('span[data-followed-situation="interested"]')).toHaveText("0 位有意向");
+
+  await page.locator('button[data-followed-situation="refused"]').click();
+  await expect(page.locator("[data-followed-kol]")).toHaveCount(1);
+  await expect(page.locator('button[data-followed-situation="refused"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("[data-followed-selected-count]")).toHaveText("在跟 1 位");
+
+  await page.locator("[data-followed-situation-clear]").click();
+  await expect(page.locator("[data-followed-kol]")).toHaveCount(2);
+  await expect(page.locator('button[data-followed-situation="refused"]')).toHaveAttribute("aria-pressed", "false");
+});
+
+test("followed toolbar separates 找谁 from 对选中做什么 and keeps stages secondary", async ({ page }) => {
+  await stubHomeFollowing(page, [SITUATION_ACTIVE, SITUATION_REFUSED]);
+  await page.goto("/?tab=lifecycle");
+  await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
+
+  const toolbar = page.locator("[data-followed-object-toolbar]");
+  await expect(toolbar.locator("[data-followed-object-look]")).toContainText("在跟 2 位");
+  await expect(toolbar.locator("[data-followed-object-batch]")).toContainText("全选本页");
+
+  // 计数不再与筛选控件的标签连读成「1 人 阶段（高级）」。
+  await expect(toolbar.locator("[data-followed-advanced]")).toContainText("阶段筛选");
+
+  // 15 正式阶段仍可用，但只作次级筛选：全部阶段 + 15 + 异常。
+  const stageOptions = page.locator("[data-kol-stage-filter] option");
+  await expect(stageOptions).toHaveCount(17);
+  await expect(stageOptions.first()).toHaveText("全部阶段");
+  await expect(stageOptions.last()).toHaveText("异常");
 });

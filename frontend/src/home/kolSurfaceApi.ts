@@ -2,6 +2,7 @@ import { api, type Task } from "../api";
 import {
   ANALYZE_QUEUED_COPY,
   KOL_ANALYZE_TASK_TYPE,
+  hasConversation,
   isActiveFollowRow,
   isKolAnalyzeInFlight,
   isOpenPoolRow,
@@ -59,6 +60,7 @@ function isMissingEndpoint(error: unknown): boolean {
 }
 
 function poolRow(row: Record<string, unknown>, followed: Set<string>): boolean {
+  if (hasConversation(row)) return false;
   if (!isOpenPoolRow(row)) return false;
   const uid = String(row.kol_uid || row.creator_id || row.id || "").trim();
   const handle = String(row.handle || row.name || "").replace(/^@/, "").trim();

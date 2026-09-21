@@ -47,7 +47,8 @@
   --radius-md: var(--ds-radius-section);
   --control-bg: #efeff2;
   --control-pill-height: 36px;
-  /* docs/ui-ux-rules.md §3：控件尺寸、行高与命中区下限（纯新增数值，不改动上方既有 token）。
+  /* 控件尺寸、行高与命中区下限（纯新增数值，不改动上方既有 token）。口径见
+     docs/DESIGN.md 员工端实施细则 §控件尺寸。 */
      注意 §8 的迁移清单（--primary 数值、--radius-cards 等）不在此处，需单独一轮。 */
   --hit-min: 24px;
   --control-h-sm: 24px;
@@ -57,14 +58,14 @@
   --badge-h: 20px;
   --lh-control: 20px;
   --lh-control-sm: 16px;
-  /* docs/ui-ux-rules.md §4 / §5（2026-09-21 补）：按用途命名的圆角、表面三档。
-     组件规范来源 = shadcn/ui（docs/ui-ux-rules.md §5.1）：--radius-card 取 shadcn 的
-     `--radius: 0.5rem`（rounded-lg），--radius-control 取 `calc(0.5rem - 2px)`（rounded-md）。 */
+  /* 按用途命名的圆角、表面三档。组件规范来源 = shadcn/ui：--radius-card 取
+     `--radius: 0.5rem`（rounded-lg），--radius-control 取 `calc(0.5rem - 2px)`（rounded-md）。
+     数值口径见 docs/DESIGN.md 员工端实施细则 §控件尺寸（唯一数值来源）。 */
   --radius-control: 6px;
   --radius-card: 8px;
   --surface-hover: color-mix(in srgb, var(--text) 10%, var(--bg));
-  /* 焦点环：shadcn 的 focus-visible 契约（§1 / §5 规则 19）。
-     环色沿用既有的 --focus-ring（单一来源，见 :root 顶部），此处只补环宽与偏移两个**数值** token —— 数值不违反规则 18。 */
+  /* 焦点环：shadcn 的 focus-visible 契约。环色沿用既有的 --focus-ring（单一来源），
+     此处只补环宽与偏移两个 token。 */
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;
   --space-1: 4px;
@@ -2317,6 +2318,43 @@ summary:focus-visible,
   max-width: 100%;
   min-width: 0;
 }
+/* 两段式：左边「找谁」（搜索 + 阶段筛选），右边「对选中的做什么」。
+   2026-09-22 评审前这里是一条平铺的 flex，计数的「1 人」与筛选控件的
+   「阶段（高级）」只隔 8px，被读成「1 人 阶段（高级）」一个短语。 */
+.followed-object-look {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-2);
+  /* flex-basis auto 会让本组按 max-content（搜索框的内在宽度）定宽，
+     于是「阶段筛选」被挤到第二行、整条工具栏长到 80px。改成吃满剩余空间。 */
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.followed-object-batch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  min-width: 0;
+}
+.followed-advanced-label {
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+  white-space: nowrap;
+}
+.followed-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.followed-select-all input:disabled { cursor: default; }
+.followed-select-all:has(input:disabled) { cursor: default; }
 .followed-object-search {
   display: block;
   flex: 0 1 22rem;
@@ -2853,8 +2891,11 @@ summary:focus-visible,
   min-width: 0;
   overflow-x: hidden;
   margin-inline: auto;
+  /* 清单末尾与提问框页脚之间留一口气：滚动到底时最后一张卡不贴住发丝线。 */
+  padding-bottom: var(--space-3);
 }
 .followed-kol-column .home-pane-sticky,
+.followed-kol-column .followed-brief,
 .followed-kol-column .followed-kol-list,
 .followed-kol-column .task-empty {
   width: 100%;
@@ -3260,6 +3301,45 @@ summary:focus-visible,
   margin: 0 0 8px;
   color: var(--muted, var(--ds-text-dim));
   font-size: var(--font-sm, 13px);
+}
+/* 简报计数：非零的那一档才是可点的情境分区（一次回答内收窄），
+   零档保持纯文本 —— 不给点不动的假按钮。选中态同时改字重与下划线，
+   不只靠颜色（根 AGENTS.md §4）。 */
+.followed-brief-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.followed-brief-sep {
+  color: color-mix(in srgb, var(--muted, var(--ds-text-dim)) 55%, transparent);
+}
+.followed-brief-stat-action {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+.followed-brief-stat-action:hover { color: var(--primary); }
+.followed-brief-stat-action:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
+}
+.followed-brief-stat-action[aria-pressed="true"] {
+  color: var(--text);
+  font-weight: 600;
+  text-decoration-color: currentColor;
+}
+.followed-brief-stat-action.is-clear {
+  margin-left: 4px;
+  text-decoration: none;
 }
 .followed-brief-primary {
   display: flex;
@@ -8777,6 +8857,8 @@ body {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--text) 28%, transparent) transparent;
   overscroll-behavior: contain;
+  /* 键盘/程序滚动停在卡片之间，不把对象卡切在页脚发丝线上。 */
+  scroll-padding-block-end: var(--space-3);
 }
 
 .home-composer-dock {
@@ -8822,6 +8904,12 @@ body {
   .home-pane[data-home-active-mode="today"]:has(.today-task-rail:not(.is-collapsed)) .home-composer-dock {
     width: 54%;
     padding-right: 20px;
+  }
+}
+
+@media (min-width: 981px) and (max-width: 1280px) {
+  .home-pane[data-home-active-mode="today"] .home-composer-dock {
+    padding-left: var(--page-gutter);
   }
 }
 
@@ -9060,6 +9148,16 @@ body {
   width: 100%;
   max-width: none;
   padding-inline: 12px;
+}
+
+/* 矮窗口（≈780px 高度以下）纵向预算：提问框按 32dvh 让步之后，再收紧跟进面的
+   留白，让「我跟进的红人」至少完整显示一张对象卡——而不是像 2026-09-22 评审那样，
+   239px 的卡只在页脚发丝线上露出半行名字。 */
+@media (max-height: 780px) {
+  .home-pane .home-stage { padding-top: 8px; }
+  .followed-brief { margin-bottom: 4px; }
+  .followed-brief-stats { margin-bottom: 4px; }
+  .followed-kol-column .followed-object-toolbar { margin-bottom: 4px; }
 }
 .home-pane.is-composer-dock .home-composer-dock .composer-chips,
 .home-pane.is-composer-dock .home-composer-dock .composer-template-preview,
@@ -9852,7 +9950,7 @@ button.today-brief-primary-btn:disabled {
 .home-mode-count {
   color: var(--primary);
   font-weight: 500;
-  margin-left: 2px;
+  margin-left: 4px;
 }
 
 /* 优化结论 card (restyle of .today-brief in today mode) */
@@ -10122,7 +10220,7 @@ button.today-brief-primary-btn:disabled {
 }
 
 /* shadcn `TabsList`：由浅面容器承担「成组控件」的可见边界，触发器在里面不再各自描边。
-   对照 ui-ux-rules.md §5 规则 6 —— 单体控件用 --control-border 描边，成组控件用容器填色。
+   对照单/成组控件的描边约定 —— 单体控件用 --control-border 描边，成组控件用容器填色。
    操作类与阶段类各一个容器；阶段容器内用 › 表达漏斗递进（此前阶段关系看不出来）。 */
 .skill-tabs-list {
   display: flex;
@@ -10333,7 +10431,7 @@ button.today-brief-primary-btn:disabled {
   color: var(--text-muted);
 }
 
-/* 注意事项：左侧 2px 强调条（形状信号），不靠颜色单独表达（ui-ux-rules.md §5 规则 4）。
+/* 注意事项：左侧 2px 强调条（形状信号），不靠颜色单独表达（docs/DESIGN.md §不变量 4）。
    静止面用极浅面 --ds-surface(1.06:1)，不用 --bg-elevated(1.13:1，超规则 9 判据)。 */
 .skill-detail-warn {
   margin: 0;
@@ -10723,7 +10821,7 @@ button.today-brief-primary-btn:disabled {
   flex-shrink: 0;
 }
 
-/* 页面级状态块：错误可重试、加载暴露 busy（ui-ux-rules.md §6；PROD-AGENT-09）。 */
+/* 页面级状态块：错误可重试、加载暴露 busy（docs/DESIGN.md §三轴适配；PROD-AGENT-09）。 */
 .skill-state {
   display: flex;
   align-items: center;
@@ -10795,7 +10893,7 @@ button.today-brief-primary-btn:disabled {
 .skill-preview-avatar {
   width: 24px;
   height: 24px;
-  /* 圆形头像：§4 的圆角阶梯不适用于正圆，见 ui-ux-rules.md §4 的例外说明。 */
+  /* 圆形头像：圆角阶梯不适用于正圆，理由见 docs/DESIGN.md §控件尺寸。 */
   border-radius: 50%;
   background: var(--ds-surface);
   color: var(--text-muted);
@@ -10807,7 +10905,7 @@ button.today-brief-primary-btn:disabled {
   flex-shrink: 0;
 }
 
-/* 用户头像不再用写死的浅蓝：静止面不填彩色（ui-ux-rules.md §5 规则 2）。 */
+/* 用户头像不再用写死的浅蓝：静止面不填彩色。 */
 .skill-preview-msg.is-user .skill-preview-avatar {
   background: var(--ds-surface);
   color: var(--text-muted);
@@ -10861,7 +10959,7 @@ button.today-brief-primary-btn:disabled {
   text-align: right;
 }
 
-/* ── Responsive：按 docs/ui-ux-rules.md §6 的三轴管（宽度 / 高度 / 输入模态）── */
+/* ── Responsive：按 docs/DESIGN.md §三轴适配 管（宽度 / 高度 / 输入模态）── */
 
 /* 宽度轴：列数收敛 */
 @media (max-width: 1300px) {
@@ -10883,7 +10981,7 @@ button.today-brief-primary-btn:disabled {
   }
 }
 
-/* 窄屏（<900）：详情列改为覆盖层，不把交互内容藏掉（ui-ux-rules.md §6.5）。 */
+/* 窄屏（<900）：详情列改为覆盖层，不把交互内容藏掉（docs/DESIGN.md §三轴适配 · 宽度轴）。 */
 @media (max-width: 900px) {
   .skill-detail-pane {
     display: none;
@@ -12022,3 +12120,46 @@ button.today-brief-primary-btn:disabled {
 .mail-page .mail-more-toggle { font-size: 12px; }
 .mail-page .mail-chip { font-size: 11px; padding: 1px 6px; }
 .mail-page .mail-count-pill { font-size: 11px; }
+
+/* Final Today workspace geometry. Keep these after legacy composer rules so
+   the compact empty state remains compact in every desktop bundle order. */
+@media (min-width: 981px) {
+  .home-pane[data-home-active-mode="today"] {
+    position: relative;
+  }
+  .home-pane[data-home-active-mode="today"] .home-stage {
+    height: 100%;
+    flex: 1 1 auto;
+    padding-bottom: 0;
+  }
+  .home-pane[data-home-active-mode="today"] .home-composer-dock {
+    position: absolute;
+    z-index: 4;
+    left: 0;
+    bottom: 0;
+    width: calc(100% - clamp(500px, 42%, 680px));
+    max-width: none;
+    margin: 0;
+    padding: 10px 28px 14px var(--page-gutter);
+    border-top: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg) 94%, transparent);
+    backdrop-filter: blur(8px);
+  }
+  .home-pane[data-home-active-mode="today"] .home-composer-dock .composer.composer--workspace {
+    min-height: 76px;
+    max-height: 420px;
+    padding: 12px 16px 8px;
+  }
+  .home-pane[data-home-active-mode="today"] .home-composer-dock .composer.composer--workspace textarea {
+    min-height: 28px;
+  }
+  .home-pane[data-home-active-mode="today"] .today-workspace-center {
+    padding-bottom: 150px;
+  }
+  .home-pane[data-home-active-mode="today"] .today-task-rail {
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-gutter: stable;
+  }
+}

@@ -77,10 +77,22 @@ describe("kol workbench contract (#172)", () => {
     expect(card?.idle?.idle).toBe(true);
     expect(card?.idle?.label).toBe("闲置");
     expect(poolHasBannedField(card!)).toBeNull();
-    expect(JSON.stringify(card)).not.toMatch(/unread|mail_threads|notes|release_due|email|quote|contract|wechat/);
+    expect(JSON.stringify(card)).not.toMatch(
+      /unread|mail_threads|notes|release_due|email|quote|contract|wechat|owner_name|owner_mailbox|owner_user_id|last_conversation_id/,
+    );
+    expect(poolHasBannedField({ ...pool({ kol_uid: "uid_dirty" }), owner_mailbox: "ops@example.com" } as unknown as PoolKol)).toBe("owner_mailbox");
+    expect(poolHasBannedField({ ...pool({ kol_uid: "uid_dirty" }), last_conversation_id: "conv_9" } as unknown as PoolKol)).toBe("last_conversation_id");
     expect(toPoolKol({ kol_uid: "uid_claimed", handle: "已领", pool_status: "claimed" })).toBeNull();
     expect(isOpenPoolRow({ pool_status: "claimed" })).toBe(false);
     expect(isOpenPoolRow({ pool_status: "open" })).toBe(true);
+
+    // 公海只收从未首次建联的行：有任何会话即不是公海。
+    expect(isOpenPoolRow({ pool_status: "open", last_conversation_id: "conv_1" })).toBe(false);
+    expect(isOpenPoolRow({ pool_status: "open", lastConversationId: "conv_1" })).toBe(false);
+    expect(isOpenPoolRow({ pool_status: "open", has_conversation: true })).toBe(false);
+    expect(isOpenPoolRow({ pool_status: "open", has_conversation: false })).toBe(true);
+    expect(toPoolKol({ kol_uid: "uid_talked", handle: "已建联", pool_status: "open", last_conversation_id: "conv_1" })).toBeNull();
+    expect(toPoolKol({ kol_uid: "uid_plain", handle: "新红人", pool_status: "open" })?.public_stage?.label).toBe("未首次建联");
   });
 
   it("maps GET /api/home/following B.active clock and hides C/discovery fields", () => {
@@ -141,6 +153,8 @@ describe("kol workbench contract (#172)", () => {
     const prompt = analyzePrefillPrompt([pool({ kol_uid: "cr_outdoor" })], "pool");
     expect(isAnalyzePrefill(prompt)).toBe(true);
     expect(prompt).toContain("@户外充电君");
+    expect(prompt).toContain("未首次建联");
+    expect(analyzePrefillPrompt([pool({ kol_uid: "cr_outdoor" })], "following")).not.toContain("公海");
     expect(ANALYZE_QUEUED_COPY).toBe("已入队，等待 Codex");
     expect(ANALYZE_QUEUED_COPY).not.toContain("正在思考");
   });

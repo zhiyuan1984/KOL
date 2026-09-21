@@ -744,7 +744,8 @@ export function SkillCatalog() {
   }, [filteredSkills]);
 
   // 「使用」＝ 只把技能挂到工作台 Composer 上：用户还能补完 Prompt 再自己发送。
-  // 不提供「直接开新会话」——部分技能需要先填参数（ui-ux-rules.md §5 规则 16）。
+  // 不提供「直接开新会话」——部分技能需要先填参数，且外发属 L3，不能由「使用技能」一步完成
+  // （docs/DESIGN.md 员工端实施细则 §不变量 2）。
   const useSkill = (skill: SkillRow) => {
     recordUsage(skill.id);
     setUsage(loadUsage());
