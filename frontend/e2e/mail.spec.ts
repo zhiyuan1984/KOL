@@ -386,3 +386,27 @@ test("the mailbox switcher shows only the current mailbox until opened", async (
   await expect(page.locator("[data-mail-box-option]")).toHaveCount(2);
   await expect(page.locator('[data-mail-box-option="eu@litime.com"]')).toContainText("欧洲邮箱");
 });
+
+test("four-column workbench geometry and selected state", async ({ page }) => {
+  await mockFormalMail(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/mail?c=3901");
+  await expect(page.locator('[data-mail-thread-row="3901"]')).toBeVisible();
+  await page.locator('[data-mail-thread-row="3901"]').click();
+  await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(2);
+
+  const list = await page.locator("[data-mail-list]").boundingBox();
+  const content = await page.locator("[data-mail-content]").boundingBox();
+  const side = await page.locator("[data-mail-side]").boundingBox();
+  expect(list?.width).toBeGreaterThanOrEqual(320);
+  expect(list?.width).toBeLessThanOrEqual(345);
+  expect(content?.width).toBeGreaterThanOrEqual(500);
+  expect(side?.width).toBeGreaterThanOrEqual(340);
+
+  const selected = page.locator("[data-mail-timeline-item][data-mail-selected='true']");
+  await expect(selected).toHaveCount(1);
+  const bg = await selected.evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(bg).toBe("rgb(255, 240, 246)");
+  const border = await selected.evaluate((el) => getComputedStyle(el).borderLeftWidth);
+  expect(border).toBe("3px");
+});

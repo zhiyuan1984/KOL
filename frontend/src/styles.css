@@ -10866,3 +10866,163 @@ button.today-brief-primary-btn:disabled {
   .discovery-lead-detail-item:nth-child(-n + 4) { display: none; }
   .discovery-lead-detail { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ── Four-column mail negotiation workbench ─────────────────────────────
+   Surfaces stay flat (no nested cards); the list keeps a fixed column so
+   the content and assistant columns hold their reading width at 1440. */
+.mail-page { background: #F7F7F8; }
+
+/* 1440 viewport minus the 220px global nav leaves ~1160px of frame, so the
+   list/assistant columns land at 320/340 and the reading column keeps ~500. */
+.mail-split {
+  grid-template-columns: 320px minmax(0, 1fr) 340px;
+  gap: 0;
+  border: 1px solid #ECECF0;
+  border-radius: 8px;
+  background: #FFFFFF;
+  overflow: hidden;
+  align-items: stretch;
+}
+.mail-list { border-right: 1px solid #ECECF0; }
+.mail-side {
+  border-left: 1px solid #ECECF0;
+  padding: 12px;
+  background: #FFFFFF;
+}
+
+/* Conversation rows and the in-conversation timeline share one selection look. */
+.mail-row.is-selected,
+.mail-timeline-item.is-selected {
+  background: #FFF0F6;
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+.mail-row.is-selected:hover,
+.mail-timeline-item.is-selected:hover { background: #FFF0F6; }
+
+.mail-thread-block { border-bottom: 1px solid #ECECF0; }
+.mail-timeline { padding: 2px 0 6px; background: #FCFCFD; }
+.mail-timeline-item {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px 8px 22px;
+  border: 0;
+  border-left: 3px solid transparent;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+}
+.mail-timeline-item:hover { background: #F5F5F7; }
+.mail-timeline-item .mail-timeline-subject {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Selected mail (third column). */
+.mail-content {
+  display: grid;
+  gap: var(--space-3);
+  padding: 16px 18px;
+  border-left: 1px solid #ECECF0;
+  background: #FFFFFF;
+}
+.mail-content-subject { margin: 0; font-size: 18px; line-height: 1.35; }
+.mail-content-meta { display: flex; align-items: center; gap: 10px; }
+.mail-content-who { display: grid; gap: 1px; min-width: 0; }
+.mail-content-body {
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.mail-content-body p { margin: 0; }
+
+/* Mailbox switcher. */
+.mail-switcher {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.mail-switcher-current {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+  max-width: 520px;
+  padding: 8px 12px;
+  border: 1px solid #ECECF0;
+  border-radius: 8px;
+  background: #FFFFFF;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.mail-switcher-name { font-weight: 600; white-space: nowrap; }
+.mail-switcher-addr {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mail-switcher-caret { margin-left: auto; color: var(--text-muted); }
+.mail-switcher-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 360px;
+  max-width: 90vw;
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid #ECECF0;
+  border-radius: 8px;
+  background: #FFFFFF;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.12);
+}
+.mail-switcher-title { margin: 4px 6px 6px; font-size: 12px; }
+.mail-switcher-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+.mail-switcher-option:hover { background: #F5F5F7; }
+.mail-switcher-option.is-active { background: #FFF0F6; }
+.mail-switcher-option-main { display: grid; gap: 1px; min-width: 0; flex: 1 1 auto; }
+.mail-switcher-foot {
+  display: flex;
+  gap: 8px;
+  padding-top: 6px;
+  margin-top: 4px;
+  border-top: 1px solid #ECECF0;
+}
+
+@media (max-width: 1439px) {
+  .mail-split { grid-template-columns: 300px minmax(0, 1fr) 320px; }
+}
+
+/* The workbench wants a fixed 330/540/350 frame: lift the shared 1360px page
+   cap and trim the gutter for this page only (same move as skill-catalog).
+   The shared rule is  with a
+   higher specificity, so this override has to out-weigh it explicitly. */
+.main > .list-page.mail-page.mail-page.mail-page {
+  width: 100% !important;
+  max-width: none !important;
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+}
