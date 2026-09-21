@@ -586,7 +586,7 @@ function SkillDetail({
         {!io && (
           <p className="skill-detail-note">
             这项技能的输入与产出示例尚未补录。上面的口径来自 BUSINESS.md
-            的覆盖表，可以直接用；要看实际结果，先跑一次「新建会话」。
+            的覆盖表，可以直接用；要看实际结果，用下面的「插入当前会话」把它挂到输入区跑一次。
           </p>
         )}
 
@@ -717,7 +717,7 @@ export function SkillCatalog() {
   }, [filteredSkills]);
 
   // 「使用」＝ 只把技能挂到工作台 Composer 上：用户还能补完 Prompt 再自己发送。
-  // 想直接跑一条新会话，用旁边的「新建会话」。
+  // 不提供「直接开新会话」——部分技能需要先填参数（DESIGN.md §5 规则 16）。
   const useSkill = (skill: SkillRow) => {
     recordUsage(skill.id);
     setUsage(loadUsage());
