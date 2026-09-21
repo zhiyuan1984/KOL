@@ -349,3 +349,18 @@ test("selecting another mail switches only the content and translation columns",
   await expect(page.locator("[data-mail-content]")).toHaveCount(1);
   await expect(page.locator("[data-mail-summary-body]")).toHaveText(summaryBefore);
 });
+
+test("the assistant column titles the summary as conversation-level", async ({ page }) => {
+  await mockFormalMail(page);
+  await page.goto("/mail?c=3901");
+  await expect(page.locator('[data-mail-thread-row="3901"]')).toBeVisible();
+  await page.locator('[data-mail-thread-row="3901"]').click();
+
+  await expect(page.locator("[data-mail-summary-card]")).toContainText("会话摘要");
+  await expect(page.locator("[data-mail-summary-card]")).not.toContainText("中文摘要");
+  const summaryBefore = await page.locator("[data-mail-summary-body]").innerText();
+
+  await page.locator("[data-mail-timeline-item]").nth(1).click();
+  await expect(page.locator("[data-mail-summary-card]")).toContainText("会话摘要");
+  await expect(page.locator("[data-mail-summary-body]")).toHaveText(summaryBefore);
+});

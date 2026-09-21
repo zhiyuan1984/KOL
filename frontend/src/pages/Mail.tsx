@@ -4,6 +4,8 @@ import Markdown from "../components/Markdown";
 import { api } from "../api";
 import { hydratePollDelayMs, loadMailThread, loadMailWorkspace, normalizeBox, syncMailboxMail } from "../mail/client";
 import { ConversationItem } from "../mail/components/ConversationItem";
+import { ConversationSummary } from "../mail/components/ConversationSummary";
+import { TranslationPanel } from "../mail/components/TranslationPanel";
 import { MailContent } from "../mail/components/MailContent";
 import { MailTimelineItem } from "../mail/components/MailTimelineItem";
 import { avatarTone, formatMailTime, initialsOf } from "../mail/format";
@@ -95,95 +97,6 @@ function useDismissable(open: boolean, close: () => void, ref: { current: HTMLEl
       document.removeEventListener("keydown", onKey);
     };
   }, [open, close, ref]);
-}
-
-function MailDigestStrip({ thread }: { thread: MailThread }) {
-  const view = mailDigestView(thread.digest);
-  if (view.kind === "empty") return null;
-  return (
-    <article
-      className={`mail-digest is-${view.kind}`}
-      data-mail-digest
-      data-digest-kind={view.kind}
-      data-summary-source={thread.digest.source || undefined}
-    >
-      <strong data-digest-label>{view.label}</strong>
-      {thread.digest.mail_count ? <small data-digest-count>{thread.digest.mail_count} 封往来</small> : null}
-      {view.disclaimer ? <p className="muted" data-digest-disclaimer>{view.disclaimer}</p> : null}
-      {view.lede ? <p className="muted" data-digest-lede>{view.lede}</p> : null}
-      {view.kind === "model" && view.text ? (
-        <div className="mail-digest-body" data-digest-body>
-          <Markdown>{view.text}</Markdown>
-        </div>
-      ) : null}
-      {view.kind === "rule" && view.text ? (
-        <details className="mail-digest-excerpt" data-digest-excerpt>
-          <summary>查看摘录</summary>
-          <div className="mail-digest-body" data-digest-body>
-            <Markdown>{view.text}</Markdown>
-          </div>
-        </details>
-      ) : null}
-    </article>
-  );
-}
-
-function MailSummaryCard({ thread }: { thread: MailThread | null }) {
-  const text = String(thread?.digest?.text || "").trim();
-  return (
-    <section className="mail-side-card" data-mail-summary-card>
-      <header className="mail-side-card-head">
-        <strong>✦ 中文摘要</strong>
-        <span className="mail-side-tag">AI 生成</span>
-      </header>
-      {text ? (
-        <div className="mail-side-body" data-mail-summary-body>
-          <Markdown>{text}</Markdown>
-        </div>
-      ) : (
-        <p className="muted" data-mail-summary-pending>摘要生成中…点「收取」后可再试。</p>
-      )}
-    </section>
-  );
-}
-
-function MailTranslationCard({ message }: { message: MailMessage | null }) {
-  const [copied, setCopied] = useState(false);
-  const translation = String(message?.translation_zh || "").trim();
-  const paragraphs = useMemo(
-    () => translation.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean),
-    [translation],
-  );
-  const copy = () => {
-    if (!translation) return;
-    void navigator.clipboard?.writeText(translation).then(() => {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
-    }).catch(() => undefined);
-  };
-  return (
-    <section className="mail-side-card mail-translation" data-mail-translation>
-      <header className="mail-side-card-head">
-        <strong>译 中文翻译</strong>
-        <button
-          type="button"
-          className="mail-copy-btn"
-          data-mail-copy-translation
-          disabled={!translation}
-          onClick={copy}
-        >
-          {copied ? "已复制" : "复制翻译"}
-        </button>
-      </header>
-      {paragraphs.length ? (
-        <div className="mail-side-body" data-mail-translation-body>
-          {paragraphs.map((p, i) => <p key={i}>{p}</p>)}
-        </div>
-      ) : (
-        <p className="muted" data-mail-translation-pending>翻译生成中…</p>
-      )}
-    </section>
-  );
 }
 
 export default function Mail() {
@@ -654,7 +567,6 @@ export default function Mail() {
                   ))}
                 </div>
                 <div className={mobilePanel === "original" ? "" : "mail-hide-narrow"}>
-                  <MailDigestStrip thread={thread} />
                   {currentMessage ? (
                     <MailContent
                       message={currentMessage}
@@ -723,10 +635,10 @@ export default function Mail() {
                   </div>
                 </div>
                 {mobilePanel === "summary" ? (
-                  <div className="mail-mobile-panel"><MailSummaryCard thread={thread} /></div>
+                  <div className="mail-mobile-panel"><ConversationSummary thread={thread} /></div>
                 ) : null}
                 {mobilePanel === "translation" ? (
-                  <div className="mail-mobile-panel"><MailTranslationCard message={currentMessage} /></div>
+                  <div className="mail-mobile-panel"><TranslationPanel message={currentMessage} /></div>
                 ) : null}
               </>
             ) : (
@@ -735,8 +647,8 @@ export default function Mail() {
           </section>
 
           <aside className="mail-side" data-mail-side>
-            <MailSummaryCard thread={thread} />
-            <MailTranslationCard message={currentMessage} />
+            <ConversationSummary thread={thread} />
+            <TranslationPanel message={currentMessage} />
           </aside>
         </div>
       ) : null}
