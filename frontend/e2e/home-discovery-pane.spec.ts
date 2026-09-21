@@ -127,9 +127,8 @@ test("condition chips rewrite the ask-box body and no card button remains", asyn
   await expect(page.locator("[data-discovery-summary]")).toHaveCount(0);
   await expect(page.locator("[data-discovery-reset]")).toHaveCount(0);
   await expect(page.locator("[data-discovery-submit]")).toHaveCount(0);
-  // 框线稿 §15：卡片底部不留说明文案；「不会发信」这句只留在提问框正文里。
+  // 框线稿 §15：卡片底部不留说明文案（「不会发信」这句已从模板正文删除）。
   await expect(card.locator("[data-discovery-no-side-effect]")).toHaveCount(0);
-  await expect(page.locator('[data-home] [data-composer-input]')).toHaveValue(/不会发信/);
 });
 
 test("+ menu still opens the Composer discovery template", async ({ page }) => {
@@ -146,9 +145,8 @@ test("+ menu still opens the Composer discovery template", async ({ page }) => {
   await menu.getByRole("menuitem", { name: "发现红人模板" }).click();
   const input = page.locator("[data-home] [data-composer-input]");
   await expect(input).toHaveValue(/【发现任务】/);
-  await expect(input).toHaveValue(/不会发信/);
-  await expect(input).toHaveValue(/不会改阶段/);
-  await expect(input).toHaveValue(/不会编造邮箱/);
+  // 「已用芯片覆盖」提示已删除：正文由 applyChipOverride 直接改写，不再出现说明行。
+  await expect(page.locator("[data-home] [data-discovery-override-hint]")).toHaveCount(0);
   // 发现任务的标签不再展示：正文首行已经是【发现任务】，芯片只是重复标签还白占一行。
   // 退出口改为工具栏里的「清除发现条件」，所以这里改为断言那个按钮。
   await expect(page.locator("[data-home] [data-discovery-lock-chip]")).toHaveCount(0);
@@ -182,6 +180,108 @@ test("ask-box send follows the platform and keyword guard", async ({ page }) => 
   await instagram.click();
   await expect(instagram).toHaveAttribute("aria-pressed", "false");
   await expect(send).toBeDisabled();
+});
+
+// 下面三条只关心提交路径，不关心已有 run：列表恒为空。
+async function stubNoRuns(page: Page) {
+  await page.route("**/api/home/discovery/runs**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/candidates")) {
+      void route.fulfill({ json: { run_id: "drun_e2e", candidates: [] } });
+      return;
+    }
+    if (/\/runs\/[^/]+$/.test(path)) {
+      void route.fulfill({ json: { run: null } });
+      return;
+    }
+    void route.fulfill({ json: { runs: [] } });
+  });
+  await page.route("**/api/tasks/**/events", (route) => route.fulfill({ json: { events: [] } }));
+}
+
+const RUN_ACCEPTED = {
+  run_id: "drun_e2e",
+  id: "drun_e2e",
+  work_item_id: "tsk_disc_e2e",
+  session_id: "ses_disc_e2e",
+  brief_version: 1,
+};
+
+test("send on the discovery path shows ▪ and clears the box before the request resolves", async ({ page }) => {
+  const gate: { release?: () => void } = {};
+  const held = new Promise<void>((resolve) => { gate.release = resolve; });
+  await stubNoRuns(page);
+  await page.route("**/api/home/discovery/run", async (route) => {
+    await held;
+    await route.fulfill({ json: RUN_ACCEPTED });
+  });
+
+  await openDiscovery(page);
+  const input = page.locator("[data-home] [data-composer-input]");
+  await expect(input).toHaveValue(/【发现任务】/);
+  await page.locator("[data-home] [data-ai-prompt-submit]").click();
+
+  // 提交中发送键是 ▪（纯客户端状态），且正文立刻清空，都不等接口返回。
+  const stop = page.locator("[data-home] [data-send-state='stop']");
+  await expect(stop).toHaveAttribute("aria-label", "停止生成");
+  await expect(input).toHaveValue("");
+
+  gate.release?.();
+  await expect(stop).toHaveCount(0);
+});
+
+test("a 502 on submit offers 重试, and retrying resubmits", async ({ page }) => {
+  let attempts = 0;
+  await stubNoRuns(page);
+  await page.route("**/api/home/discovery/run", async (route) => {
+    attempts += 1;
+    if (attempts === 1) {
+      await route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({}) });
+      return;
+    }
+    await route.fulfill({ json: RUN_ACCEPTED });
+  });
+
+  await openDiscovery(page);
+  await page.locator("[data-home] [data-ai-prompt-submit]").click();
+  await expect(page.locator("[data-home] .composer-err").first()).toContainText("502");
+  const retry = page.locator("[data-home] [data-home-discovery-submit-error] button");
+  await expect(retry).toBeVisible();
+  await retry.click();
+  await expect.poll(() => attempts).toBe(2);
+  // 重试成功后错误文案与重试入口一起收起。
+  await expect(page.locator("[data-home] [data-home-discovery-submit-error]")).toHaveCount(0);
+  await expect(page.locator("[data-home] .composer-err")).toHaveCount(0);
+});
+
+test("▪ during a discovery submit aborts the client side and posts no cancel", async ({ page }) => {
+  const gate: { release?: () => void } = {};
+  const held = new Promise<void>((resolve) => { gate.release = resolve; });
+  const taskEventGets: string[] = [];
+  const cancelPosts: string[] = [];
+  page.on("request", (item) => {
+    const path = new URL(item.url()).pathname;
+    if (path === "/api/tasks/tsk_disc_e2e/events") taskEventGets.push(path);
+    if (item.method() === "POST" && path !== "/api/home/discovery/run") cancelPosts.push(path);
+  });
+  await stubNoRuns(page);
+  await page.route("**/api/home/discovery/run", async (route) => {
+    await held;
+    await route.fulfill({ json: RUN_ACCEPTED });
+  });
+
+  await openDiscovery(page);
+  await page.locator("[data-home] [data-ai-prompt-submit]").click();
+  const stop = page.locator("[data-home] [data-send-state='stop']");
+  await expect(stop).toBeVisible();
+  await stop.click();
+  await expect(page.locator("[data-home] [data-home-stopping]")).toBeVisible();
+
+  gate.release?.();
+  // ▪ 只中止客户端后续动作：run 不写进面板（不订阅过程事件），也不调任何停止接口。
+  await expect(stop).toHaveCount(0);
+  expect(taskEventGets).toEqual([]);
+  expect(cancelPosts).toEqual([]);
 });
 
 test("submit posts /api/home/discovery/run, shows process copy, and ingests to pool", async ({ page }) => {

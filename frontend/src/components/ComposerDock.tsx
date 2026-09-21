@@ -27,7 +27,6 @@ import {
 import { connectorUseAccess, connectorUseLabel, connectorUseStatus, preferCanonicalConnectors } from "../connectorUse";
 import {
   canSubmitDiscovery,
-  DISCOVERY_CHIP_OVERRIDE_HINT,
   DISCOVERY_DIRECTION_PACKS,
   DISCOVERY_INTENT,
   DISCOVERY_LOCK_LABEL,
@@ -123,7 +122,6 @@ export default function ComposerDock({
   hint,
   discoveryBrief = null,
   discoveryCatalog = null,
-  discoveryOverride = false,
   showDiscoveryEditor = true,
   onDiscoveryBriefChange,
   onOpenDiscoveryTemplate,
@@ -159,7 +157,6 @@ export default function ComposerDock({
   hint?: string;
   discoveryBrief?: DiscoveryBrief | null;
   discoveryCatalog?: Pick<DiscoveryTemplate, "platforms" | "regions" | "directions"> | null;
-  discoveryOverride?: boolean;
   /** AI发现 tab 的页面上已有条件卡时，隐藏提问框里那套重复芯片；提交判定仍用 discoveryBrief。 */
   showDiscoveryEditor?: boolean;
   onDiscoveryBriefChange?: (brief: DiscoveryBrief) => void;
@@ -870,11 +867,6 @@ export default function ComposerDock({
           ))}
         </div>
       )}
-      {discoveryOverride && discoveryLocked ? (
-        <p className="composer-override-hint" data-discovery-override-hint role="status">
-          {DISCOVERY_CHIP_OVERRIDE_HINT}
-        </p>
-      ) : null}
       {discoveryBrief && showDiscoveryEditor ? (
         <DiscoveryConditionEditor
           brief={discoveryBrief}

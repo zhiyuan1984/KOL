@@ -7,9 +7,6 @@
 export const DISCOVERY_INTENT = "creator_discovery";
 export const DISCOVERY_LOCK_LABEL = "发现任务";
 export const DISCOVERY_BODY_PREFIX = "【发现任务】";
-export const DISCOVERY_NO_SIDE_EFFECT =
-  "只检索红人线索。不会发信、不会改阶段、不会编造邮箱。";
-export const DISCOVERY_CHIP_OVERRIDE_HINT = "已用芯片覆盖";
 export const DISCOVERY_BRIEF_VERSION = "discovery-brief.v1";
 export const MAX_DISCOVERY_DIRECTIONS = 8;
 
@@ -178,8 +175,6 @@ export function renderDiscoveryBody(
     `粉丝：${brief.min_followers}–${brief.max_followers}`,
     `近10条均播 ≥ ${brief.min_avg_plays_10}`,
     `期望人数：${brief.expect_count}`,
-    "",
-    DISCOVERY_NO_SIDE_EFFECT,
   ].join("\n");
 }
 
@@ -337,11 +332,11 @@ export function applyChipOverride(body: string, brief: DiscoveryBrief): string {
   const incoming = String(body || "").split(/\r?\n/);
   const keyed = new Map<string, string>();
   for (const line of renderedLines) {
-    const key = line.match(/^(【发现任务】|平台|地区|方向|关键词|粉丝|近10条均播|期望人数|只检索)/)?.[1];
+    const key = line.match(/^(【发现任务】|平台|地区|方向|关键词|粉丝|近10条均播|期望人数)/)?.[1];
     if (key) keyed.set(key, line);
   }
   const next = incoming.map((line) => {
-    const key = line.match(/^(【发现任务】|平台|地区|方向|关键词|粉丝|近10条均播|期望人数|只检索)/)?.[1];
+    const key = line.match(/^(【发现任务】|平台|地区|方向|关键词|粉丝|近10条均播|期望人数)/)?.[1];
     if (key && keyed.has(key)) {
       const replacement = keyed.get(key)!;
       keyed.delete(key);

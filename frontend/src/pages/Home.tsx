@@ -49,7 +49,6 @@ import {
   mergeDiscoveryBrief,
   parseDiscoveryBody,
   renderDiscoveryBody,
-  sameClassConflict,
   type DiscoveryBrief,
   type DiscoveryTemplate,
 } from "../home/discoveryTemplate";
@@ -347,7 +346,6 @@ export default function Home() {
 
   const clearDiscoveryLock = () => {
     setDiscoveryBrief(null);
-    setDiscoveryOverride(false);
     if (lockedIntent === DISCOVERY_INTENT) {
       setLockedIntent(null);
       setLockedLabel(null);
@@ -376,7 +374,6 @@ export default function Home() {
       setLockedLabel(DISCOVERY_LOCK_LABEL);
       setEntryIntent("discover");
       applyLockedKnowledge(null);
-      setDiscoveryOverride(false);
       setComposerFocused(true);
       setDraftFocus((value) => value + 1);
       stashComposerDraft({
@@ -400,7 +397,6 @@ export default function Home() {
       setLockedLabel(DISCOVERY_LOCK_LABEL);
       setEntryIntent("discover");
       applyLockedKnowledge(null);
-      setDiscoveryOverride(false);
       setComposerFocused(true);
       setDraftFocus((value) => value + 1);
       stashComposerDraft({
@@ -451,13 +447,9 @@ export default function Home() {
   };
 
   const onDiscoveryBriefChange = (next: DiscoveryBrief) => {
-    const previous = discoveryBrief;
     setDiscoveryBrief(next);
     // 条件卡与提问框的条件编辑共用同一真值：芯片改了条件，正文（可编辑）同步改写。
     setDiscoveryFormBrief(next);
-    if (previous && sameClassConflict(parseDiscoveryBody(text), next)) {
-      setDiscoveryOverride(true);
-    }
     setText(applyChipOverride(text.startsWith(DISCOVERY_BODY_PREFIX) ? text : `${DISCOVERY_BODY_PREFIX}\n${text}`, next));
     setLockedIntent(DISCOVERY_INTENT);
     setLockedLabel(DISCOVERY_LOCK_LABEL);
@@ -473,34 +465,38 @@ export default function Home() {
     setDiscoveryBrief(merged);
     // 正文是条件卡的另一半：改正文，卡片跟着走。
     setDiscoveryFormBrief(merged);
-    if (discoveryOverride && !sameClassConflict(parsed, merged)) {
-      setDiscoveryOverride(false);
-    }
   };
 
   const submitDiscovery = async (brief: DiscoveryBrief, body: string, version: string) => {
+    setDiscoverySubmitFailed(false);
     if (!canSubmitDiscovery(brief)) {
       setErr("请选择平台并填写关键词后再发送。");
       return;
     }
     setBusy(true);
+    setIntakeRunning(true);
+    intakeCancelled.current = false;
     setErr("");
     setFeedback(null);
     setLastDiscoverySubmit({ brief, body, version });
+    // 发送即清空：重试从 lastDiscoverySubmit 重发，草稿不必留在输入框里。
+    // Composer 的草稿可能与本流程无关（用户先写了别的再切到 AI发现卡片提交），
+    // 只有确实是发现模板正文时才清空，避免连带丢掉无关输入。
+    if (text.startsWith(DISCOVERY_BODY_PREFIX)) setText("");
     try {
       const result = await runHomeDiscovery({
         brief,
         body,
       });
+      // ▪ 只中止客户端后续动作：不调用后端取消，也不改任何服务端状态。
+      if (intakeCancelled.current) return;
       setDiscoveryTaskId(result.work_item_id || null);
       setDiscoveryRunId(result.run_id || null);
       refreshWorkbenchSessions();
-      // Composer 的草稿可能与本流程无关（用户先写了别的再切到 AI发现卡片提交），
-      // 只有确实是发现模板正文时才清空，避免连带丢掉无关输入。
-      if (text.startsWith(DISCOVERY_BODY_PREFIX)) setText("");
       clearDiscoveryLock();
       if (mode !== "discovery") setMode("discovery");
     } catch (error) {
+      setDiscoverySubmitFailed(true);
       if (isMissingEndpoint(error)) {
         setErr("发现提交接口尚未提供。不会发信、不会改阶段，也没有编造结果。");
       } else {
@@ -508,6 +504,7 @@ export default function Home() {
       }
     } finally {
       setBusy(false);
+      setIntakeRunning(false);
     }
   };
 
@@ -559,7 +556,6 @@ export default function Home() {
   const fallbackDiscoveryFormBrief = useMemo(() => defaultDiscoveryBrief(), []);
   const [discoveryCatalog, setDiscoveryCatalog] = useState<Pick<DiscoveryTemplate, "platforms" | "regions" | "directions"> | null>(null);
   const [discoveryVersion, setDiscoveryVersion] = useState<string>("discovery-brief.v1");
-  const [discoveryOverride, setDiscoveryOverride] = useState(false);
   const [discoveryTaskId, setDiscoveryTaskId] = useState<string | null>(null);
   const [discoveryRunId, setDiscoveryRunId] = useState<string | null>(null);
   const [entryIntent, setEntryIntent] = useState<ComposerEntryIntent>(
@@ -571,6 +567,8 @@ export default function Home() {
     body: string;
     version: string;
   } | null>(null);
+  /** 发现提交失败后可重试：正文已在发送时清空，不能只留一条错误文案。 */
+  const [discoverySubmitFailed, setDiscoverySubmitFailed] = useState(false);
   const [todayBrief, setTodayBrief] = useState<TodayBrief | null>(null);
   const [editTaskTarget, setEditTaskTarget] = useState<Task | null>(null);
   const [todayMemoryTasks, setTodayMemoryTasks] = useState<Task[] | null>(null);
@@ -1386,6 +1384,8 @@ export default function Home() {
         return;
       }
       setBusy(true);
+      setIntakeRunning(true);
+      intakeCancelled.current = false;
       setErr("");
       setFeedback(null);
       setEnqueueNotice("");
@@ -1395,6 +1395,8 @@ export default function Home() {
           title: "分析已选",
           prompt,
         });
+        // ▪ 只中止客户端后续动作：不调用后端取消，也不改任何服务端状态。
+        if (intakeCancelled.current) return;
         if (queued.creates_session) throw new Error("分析入队不应创建会话");
         setComposerChips([]);
         setAnalyzePeople([]);
@@ -1407,6 +1409,7 @@ export default function Home() {
         setErr(error instanceof Error && error.message ? error.message : "无法入队分析");
       } finally {
         setBusy(false);
+        setIntakeRunning(false);
       }
       return;
     }
@@ -2062,6 +2065,18 @@ export default function Home() {
 
           {enqueueNotice ? <p className="muted" role="status" data-analyze-enqueue>{enqueueNotice}</p> : null}
           {err && <p className="error composer-err" role="alert" data-home-session-error={err.includes("未能打开会话") ? "true" : undefined}>{err}</p>}
+          {discoverySubmitFailed && !busy ? (
+            <div className="composer-err" data-home-discovery-submit-error>
+              <button
+                type="button"
+                className="btn ghost sm"
+                data-home-entry="retry-discovery-run"
+                onClick={() => void retryDiscoveryRun()}
+              >
+                重试
+              </button>
+            </div>
+          ) : null}
           {queuedNotice ? (
             <section className="creation-feedback" data-kind="queued" data-analyze-queued role="status">
               <strong>已入队</strong>
@@ -2193,7 +2208,6 @@ export default function Home() {
           selectFirstPlaceholder={draftFocus > 0}
           discoveryBrief={discoveryBrief}
           discoveryCatalog={discoveryCatalog}
-          discoveryOverride={discoveryOverride}
           showDiscoveryEditor={false}
           onDiscoveryBriefChange={onDiscoveryBriefChange}
           onOpenDiscoveryTemplate={() => void openDiscoveryTemplate()}

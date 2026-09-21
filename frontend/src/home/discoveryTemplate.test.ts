@@ -4,7 +4,6 @@ import {
   canSubmitDiscovery,
   defaultDiscoveryBrief,
   DISCOVERY_BODY_PREFIX,
-  DISCOVERY_NO_SIDE_EFFECT,
   fallbackDiscoveryTemplate,
   isDomesticPlatform,
   parseDiscoveryBody,
@@ -16,13 +15,9 @@ import { discoveryEventCopy, presentDiscoveryEvents } from "./discoveryEvents";
 import { asHomeCandidate, asHomeRun, ingestFailureKind, runCountsLabel, runFailed, runFailureReason, displayMetric, displayText } from "./discoveryHome";
 
 describe("discovery template fallback", () => {
-  it("starts with 【发现任务】 and forbids mail/stage/fake email", () => {
+  it("starts with 【发现任务】 and lists the confirmed conditions", () => {
     const template = fallbackDiscoveryTemplate();
     expect(template.body.startsWith(DISCOVERY_BODY_PREFIX)).toBe(true);
-    expect(template.body).toContain(DISCOVERY_NO_SIDE_EFFECT);
-    expect(template.body).toContain("不会发信");
-    expect(template.body).toContain("不会改阶段");
-    expect(template.body).toContain("不会编造邮箱");
     expect(template.platforms.map((row) => row.code)).toEqual(["youtube", "instagram", "facebook"]);
     expect(template.regions.map((row) => row.code)).toEqual(["na", "eu", "sea", "jpkr", "mena", "latam", "global_en"]);
     expect(template.directions).toHaveLength(8);
