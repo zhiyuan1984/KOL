@@ -39,6 +39,8 @@ async function composerChrome(page: Page, root: string) {
     return {
       width: el.getBoundingClientRect().width,
       minHeight: cs.minHeight,
+      maxHeight: cs.maxHeight,
+      inputMaxHeight: inputCs?.maxHeight || "",
       radius: cs.borderTopLeftRadius,
       borderTopWidth: cs.borderTopWidth,
       borderColor: cs.borderTopColor,
@@ -115,18 +117,26 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   expect(Math.abs(layout!.gapLeft - layout!.gapRight)).toBeLessThanOrEqual(2);
 
   const chrome = await composerChrome(page, "[data-home]");
-  // §10b is one state: the ask box is already the rounded 200px surface when the
+  // §10b is one state: the ask box is already the rounded 240px surface when the
   // page loads. The old "square borderless footer until you click" flip is gone
   // — that jump is exactly what the user rejected.
-  expect(parseFloat(chrome.minHeight)).toBeGreaterThanOrEqual(200);
-  expect(parseFloat(chrome.minHeight)).toBeLessThanOrEqual(210);
+  expect(parseFloat(chrome.minHeight)).toBeGreaterThanOrEqual(240);
+  expect(parseFloat(chrome.minHeight)).toBeLessThanOrEqual(250);
+  // Editor cap + the box's own chrome (padding + toolbar) stays inside the box
+  // cap, so long text scrolls inside the editor and the toolbar never leaves the
+  // floor it is pinned to.
+  expect(parseFloat(chrome.maxHeight)).toBeGreaterThanOrEqual(540);
+  expect(parseFloat(chrome.maxHeight)).toBeLessThanOrEqual(550);
+  expect(parseFloat(chrome.inputMaxHeight)).toBeGreaterThanOrEqual(440);
+  expect(parseFloat(chrome.inputMaxHeight)).toBeLessThanOrEqual(450);
   expect(parseFloat(chrome.radius)).toBeGreaterThanOrEqual(26);
   expect(parseFloat(chrome.radius)).toBeLessThanOrEqual(30);
   expect(parseFloat(chrome.borderTopWidth)).toBe(1);
   near(rgb(chrome.borderColor) as number[], [229, 229, 229], 16);
   near(rgb(chrome.background) as number[], [255, 255, 255]);
   near(rgb(chrome.placeholderColor) as number[], [138, 138, 138], 16);
-  expect(chrome.placeholderSize).toBe("16px");
+  expect(chrome.placeholderSize).toBe("14px");
+  expect(chrome.placeholderLine).toBe("20px");
   expect(parseFloat(chrome.plusWidth)).toBe(32);
   expect(parseFloat(chrome.plusHeight)).toBe(32);
   expect(chrome.plusBg).toMatch(/rgba\(\s*0,\s*0,\s*0,\s*0\s*\)|transparent/);

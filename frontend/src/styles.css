@@ -16,7 +16,7 @@
   --color-warning-vivid: #F59E0B;
   --color-warning-tint: #FEF3C7;
   --color-text-dim: #6B7280;
-  --color-page-bg: #F8FAFC;
+  --color-page-bg: #FFFFFF;
   --font-openai-sans: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", "WenQuanYi Micro Hei", "Droid Sans Fallback", sans-serif;
 
   --bg: var(--color-paper);
@@ -259,7 +259,7 @@ summary:focus-visible,
   height: 100%;
   min-height: 100%;
   overflow: hidden;
-  background: var(--bg-elevated);
+  background: var(--color-page-bg);
 }
 .workbench.admin-surface {
   grid-template-columns: minmax(0, 1fr);
@@ -272,7 +272,7 @@ summary:focus-visible,
 .sidebar {
   width: var(--left-width);
   min-width: var(--left-width);
-  background: var(--bg-elevated);
+  background: var(--color-page-bg);
   border-right: 1px solid var(--border);
   /* No right padding: .sidebar-scroll must reach the 260 rail edge (~255 thumb). */
   padding: 12px 0 12px 16px;

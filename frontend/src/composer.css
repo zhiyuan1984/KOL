@@ -65,21 +65,32 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, .08);
 }
 
+/* .composer.composer--workspace / .home-composer-dock … are listed explicitly:
+   styles.css declares `.composer.composer--workspace textarea` (0,2,1) and
+   `.session-composer.prompt-input .composer.composer--workspace textarea`
+   (0,4,1) with `font-size: var(--font-body)`, so the workspace composer needs
+   these to actually render at --composer-font-size. */
 .composer textarea,
 .composer textarea::placeholder,
+.composer.composer--workspace textarea,
+.composer.composer--workspace textarea::placeholder,
 .home-composer-dock .composer textarea,
 .home-composer-dock .composer textarea::placeholder,
+.home-composer-dock .composer.composer--workspace textarea,
+.home-composer-dock .composer.composer--workspace textarea::placeholder,
 .session-composer.prompt-input .composer textarea,
-.session-composer.prompt-input .composer textarea::placeholder {
-  font-size: 16px;
+.session-composer.prompt-input .composer textarea::placeholder,
+.session-composer.prompt-input .composer.composer--workspace textarea,
+.session-composer.prompt-input .composer.composer--workspace textarea::placeholder {
+  font-size: var(--composer-font-size, 14px);
   font-weight: 400;
-  line-height: var(--composer-line-height, 26px);
+  line-height: var(--composer-line-height, 20px);
 }
 
 .composer textarea {
   width: 100%;
   min-height: 24px;
-  max-height: var(--composer-text-max, 336px);
+  max-height: var(--composer-text-max, 440px);
   overflow-y: auto;
   overflow-x: hidden;
   resize: none;
@@ -240,7 +251,7 @@
   border: 0;
   background: var(--composer-chip-bg);
   color: #0d0d0d;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 20px;
 }
 
@@ -405,8 +416,8 @@
   width: 100%;
   max-width: var(--composer-maxw, 768px);
   margin-inline: auto;
-  min-height: var(--composer-default-min, 200px);
-  max-height: var(--composer-max-height, 420px);
+  min-height: var(--composer-default-min, 240px);
+  max-height: var(--composer-max-height, 540px);
   padding: 22px 24px 12px;
   border: 1px solid var(--composer-border);
   border-radius: 28px;
@@ -414,22 +425,31 @@
 }
 
 
-/* §10b Composer shell — 单态。盒子 768 宽居中、200px 起、工具栏沉底；
+/* §10b Composer shell — 单态。盒子 768 宽居中、240px 起、工具栏沉底；
    文字超过 --composer-text-max 只在编辑器内部滚动，工具栏永不移动。 */
 .composer,
 .composer.composer--workspace,
 .home-composer-dock .composer,
 .session-composer.prompt-input .composer.composer--workspace {
-  --composer-line-height: 26px;
-  --composer-text-max: 336px;
-  --composer-max-height: 420px;
+  --composer-font-size: 14px;
+  --composer-line-height: 20px;
+  --composer-text-max: 440px;
+  --composer-max-height: 540px;
+  /* 编辑器上限 440px + 盒子其余部分 82px（22/4/44/12）= 522px，仍小于 --composer-max-height，
+     所以文字顶到上限时只在编辑区内部滚动，工具栏不会被顶出盒子。 */
+  --composer-default-min: 240px;
   --composer-toolbar-h: 44px;
 }
 
-/* 编辑器自身的地板高度：盒子已固定 200px 起，这里只保证写字时编辑区不塌。 */
+/* 编辑器自身的地板高度，以及让盒子真的能长高。
+   styles.css 的 `.composer textarea { flex: 1 }` 把 flex-basis 设成 0%，于是
+   ComposerDock 写进来的行内 height（min(scrollHeight, --composer-text-max)）被
+   废掉，盒子只剩 min-height 撑着 —— 文字一多就被切、只能内部滚动。这里以更高
+   优先级拿回 auto basis，盒子才能真正长到 --composer-max-height。 */
 .composer.composer--workspace textarea,
 .home-composer-dock .composer.composer--workspace textarea,
 .session-composer.prompt-input .composer.composer--workspace textarea {
+  flex: 0 0 auto;
   min-height: 60px;
 }
 
@@ -477,7 +497,7 @@
   background: transparent;
   border: 0;
   color: #6b6b6b;
-  font-size: 13px;
+  font-size: 12px;
   min-height: 24px;
 }
 
@@ -528,7 +548,7 @@
   background: transparent;
   color: #6b6b6b;
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 20px;
   cursor: pointer;
 }
@@ -664,7 +684,7 @@
   border-radius: 0;
   color: #6b6b6b;
   font: inherit;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 20px;
   cursor: pointer;
 }

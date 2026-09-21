@@ -233,13 +233,13 @@ test("desktop employee shell computed 260 rail and Codex Regular type", async ({
   expect(beforeLifecycle.username.fontSize).toBe(13);
   expect(beforeLifecycle.username.fontWeight).toBe(400);
   const composer = await typeOf(page, "[data-home] [data-composer-input]");
-  expect(composer.fontSize).toBe(16);
+  expect(composer.fontSize).toBe(14);
   expect(composer.fontWeight).toBeLessThanOrEqual(400);
-  // §10b is one state: the ask box loads as the rounded 200px column centred in
+  // §10b is one state: the ask box loads as the rounded 240px column centred in
   // the dock. The old "square borderless footer until you click" flip is gone.
   const idleBox = await composerBox(page, "[data-home]");
-  expect(idleBox.minHeight).toBeGreaterThanOrEqual(200);
-  expect(idleBox.minHeight).toBeLessThanOrEqual(210);
+  expect(idleBox.minHeight).toBeGreaterThanOrEqual(240);
+  expect(idleBox.minHeight).toBeLessThanOrEqual(250);
   expect(idleBox.radius).toBeGreaterThanOrEqual(26);
   expect(idleBox.radius).toBeLessThanOrEqual(30);
   expect(idleBox.borderTopWidth).toBe(1);

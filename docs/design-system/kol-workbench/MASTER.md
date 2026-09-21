@@ -38,13 +38,16 @@ Composer 是产品的基础输入件：Home 与 `/s/:id` 共用同一个 `Compos
 | 项目 | 变量 | 值 |
 |---|---|---|
 | 盒子宽 | `--composer-maxw` | 768px，居中（`margin-inline: auto`） |
-| 盒子高 | `--composer-default-min` / `--composer-max-height` | 200px 起 / 420px 止 |
+| 盒子高 | `--composer-default-min` / `--composer-max-height` | 240px 起 / 540px 止 |
 | 圆角 / 描边 | `--composer-radius` / `--composer-border` | 28px / `#e5e5e5` |
 | 内边距 | — | `22px 24px 12px` |
-| 编辑区上限 / 地板 | `--composer-text-max` / — | 336px（超出只让编辑区内部滚动）/ 60px |
-| 行高 / 工具栏高 | `--composer-line-height` / `--composer-toolbar-h` | 26px / 44px |
+| 编辑区上限 / 地板 | `--composer-text-max` / — | 440px（超出只让编辑区内部滚动）/ 60px |
+| 字号 / 行高 | `--composer-font-size` / `--composer-line-height` | 14px / 20px |
+| 工具栏高 | `--composer-toolbar-h` | 44px |
 
 工具栏是盒子的地板：`margin-top: auto`，文字增长只吃编辑区，按钮永不被推走。宽度必须收在 768 并居中——满宽（约 959px）会把工具栏左右两簇拉到 800px 开外，2026-09-21 已按此意见收窄。`is-composer-focused` 仍会切换（用于淡化 Home 其他面板），但**不得再改变盒子的任何度量**；`frontend/e2e/composer-prompt-input.spec.ts` 与 `shell-metrics.spec.ts` 都在断言聚焦前后盒子不变。
+
+**外壳表面为白**（2026-09-21）：`.workbench`、`.sidebar`、`.home-pane` 三处统一读 `--color-page-bg`，浅色下为 `#FFFFFF`，侧栏只靠 `border-right` 发丝线与内容分界。注意**不要**改用 `--bg-elevated` / `--color-ash`（它们同时承担 hover 与选中的填充，改白会让悬停态消失），也**不要**用 `--color-paper`（它没有暗色覆写，会在暗色主题下漏白）。
 
 **豁免记录（与上方 Product tokens 的冲突是既成事实，此处记账）**
 
