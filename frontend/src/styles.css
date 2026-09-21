@@ -12250,11 +12250,11 @@ button.today-brief-primary-btn:disabled {
     overflow: hidden;
   }
   .home-pane[data-home-active-mode="today"] .today-center-hero {
-    padding-right: 28px;
+    padding-right: 16px;
   }
   .home-pane[data-home-active-mode="today"] .today-workspace-center-scroll {
     min-height: 0;
-    padding: 4px 28px 16px 0;
+    padding: 4px 16px 16px 0;
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-gutter: stable;
@@ -12265,7 +12265,8 @@ button.today-brief-primary-btn:disabled {
     width: 100%;
     max-width: none;
     margin: 0;
-    padding: 8px 28px 14px 0;
+    box-sizing: border-box;
+    padding: 8px 16px 14px 0;
     border-top: 1px solid var(--border);
     background: var(--bg);
     backdrop-filter: none;
@@ -12307,6 +12308,7 @@ button.today-brief-primary-btn:disabled {
   .home-pane[data-home-active-mode="today"] .today-workspace-center > .home-composer-dock .composer.composer--workspace {
     width: 100%;
     max-width: none;
+    box-sizing: border-box;
   }
   .home-pane[data-home-active-mode="today"] .home-quick-tasks {
     width: 100%;

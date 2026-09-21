@@ -314,14 +314,15 @@ export default function Home() {
   const initialFill = peekComposerFill();
   // AI发现 tab：条件卡与提问框正文在首帧就位，不等 GET /api/home/discovery/template。
   const discoveryEntryTab = parseHomeMode(new URLSearchParams(window.location.search).get("tab")) === "discovery";
+  const todayEntryDefault = !initialFill && !discoveryEntryTab && parseHomeMode(new URLSearchParams(window.location.search).get("tab")) === "today";
   const [text, setText] = useState(
-    initialFill ? composerFillText(initialFill) : discoveryEntryTab ? renderDiscoveryBody(defaultDiscoveryBrief()) : "",
+    initialFill ? composerFillText(initialFill) : discoveryEntryTab ? renderDiscoveryBody(defaultDiscoveryBrief()) : todayEntryDefault ? starterPrompt({ id: "creator_daily_tasks", title: "今日任务" }) : "",
   );
   const [lockedIntent, setLockedIntent] = useState<string | null>(
-    initialFill?.skill_id || (discoveryEntryTab ? DISCOVERY_INTENT : null),
+    initialFill?.skill_id || (discoveryEntryTab ? DISCOVERY_INTENT : todayEntryDefault ? "creator_daily_tasks" : null),
   );
   const [lockedLabel, setLockedLabel] = useState<string | null>(
-    initialFill?.title || (discoveryEntryTab ? DISCOVERY_LOCK_LABEL : null),
+    initialFill?.title || (discoveryEntryTab ? DISCOVERY_LOCK_LABEL : todayEntryDefault ? "今日任务" : null),
   );
   const [lockedKnowledgeId, setLockedKnowledgeId] = useState<string | null>(initialFill?.id || null);
   const [lockedTemplate, setLockedTemplate] = useState<LockedMailTemplate | null>(
@@ -1404,6 +1405,10 @@ export default function Home() {
     const skillFromScope = p.scope?.skills?.[0];
     if (!prompt && !p.attachments?.length && !skillFromScope) return;
     const intent = lockedIntent || skillFromScope || p.intent;
+    if (intent === "creator_daily_tasks") {
+      window.dispatchEvent(new Event(TODAY_PLAN_START_EVENT));
+      return;
+    }
     if (isAnalyzeEnqueuePrefill(prompt, intent)) {
       const people = analyzePeople.length ? analyzePeople : [];
       if (!people.length) {
@@ -1965,6 +1970,14 @@ export default function Home() {
     setDraftFocus((value) => value + 1);
   };
 
+  const activateTodaySkill = () => {
+    setMode("today");
+    setLockedIntent("creator_daily_tasks");
+    setLockedLabel("今日任务");
+    setText(starterPrompt({ id: "creator_daily_tasks", title: "今日任务" }));
+    setComposerFocused(false);
+  };
+
   const quickTaskBar = (
     <nav className="home-quick-tasks" aria-label="快捷任务" data-home-quick-tasks>
       {HOME_MODES.map((homeMode) => (
@@ -1974,7 +1987,7 @@ export default function Home() {
           aria-pressed={mode === homeMode}
           data-home-mode={homeMode}
           data-home-entry="switch-tab"
-          onClick={() => setMode(homeMode)}
+          onClick={() => homeMode === "today" ? activateTodaySkill() : setMode(homeMode)}
         >
           {homeModeIcon(homeMode)}
           {homeMode === "lifecycle" ? "我的红人" : HOME_MODE_LABELS[homeMode]}
