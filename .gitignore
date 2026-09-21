@@ -26,3 +26,18 @@ email-mcp.json
 mcp_starry_kol.json
 starry-kol-mcp.json
 mcp.json
+
+# ── 开发产物与本地环境（2026-09-21 补齐）──────────────────────────
+# 这些不是产品资产，进仓库只增加噪声与体积。此前无规则，
+# 它们一直出现在未跟踪清单里（artifacts/ 118 个、缓存 30 个、截图 5 张、探针脚本 8 个）。
+artifacts/
+.local-backups/
+frontend/.vite-cache/
+backend/.vite-cache/
+data-e2e-check/
+frontend/*.png
+frontend/debug-*.cjs
+frontend/verify-*.cjs
+# 根目录两个 0 字节误建文件（2026-09-13 由误写的重定向产生）
+/104857600
+/git
