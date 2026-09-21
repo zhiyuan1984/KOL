@@ -1,4 +1,4 @@
-/** Admin-only helpers for docs/21 governance IA. Do not use on employee surfaces. */
+/** Admin-only helpers for docs/org-permissions.md governance IA. Do not use on employee surfaces. */
 
 export type AdminRow = Record<string, unknown>;
 

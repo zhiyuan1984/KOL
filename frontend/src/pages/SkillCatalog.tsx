@@ -109,36 +109,41 @@ const SKILL_ICONS: Record<string, string> = {
 // 默认图标
 const DEFAULT_ICON = "M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z";
 
-// 技能来源映射
+// 技能来源映射 —— 面向市场推广 / KOL 运营同事的业务语言，不用引擎名或内部系统名。
+// 依据：`specs/UX-EMPLOYEE.md` 员工禁词（员工表面不摊 MCP / Codex / Thread / 引擎名）；
+//       同仓库 `DISCOVERY_BANNED_JARGON` 亦把引擎名列为需清洗的词。
 const SKILL_SOURCE: Record<string, string> = {
-  creator_discovery: "MediaCrawler",
-  creator_library_query: "Starry KOL",
-  creator_library_all: "Starry KOL",
-  creator_profile: "Starry KOL",
-  creator_contact_decrypt: "Starry KOL",
-  creator_risk_conversations: "Starry KOL",
-  creator_lifecycle_kanban: "Starry KOL",
-  creator_status_update: "Starry KOL",
-  creator_owner_update: "Starry KOL",
-  creator_filter_options: "Starry KOL",
-  creator_daily_tasks: "KOL Agent",
-  creator_scoring: "KOL Agent",
-  creator_outreach: "KOL Agent",
-  kol_analyze: "KOL Agent",
-  today_plan: "KOL Agent",
-  today_analyze: "KOL Agent",
-  reply_analysis: "KOL Agent",
-  confirm_stage: "内核部门",
-  stage_sop: "内核部门",
-  discovery_plan: "内核部门",
-  discovery_brief: "内核部门",
-  risk_scan: "内核部门",
-  business_approval: "内核部门",
-  email_compose: "Starry KOL",
-  email_conversation_list: "Starry KOL",
-  email_conversation_read: "Starry KOL",
-  email_mailbox_list: "Starry KOL",
-  deal_memory: "Starry KOL",
+  creator_discovery: "平台采集",
+  creator_library_query: "达人库",
+  creator_library_all: "达人库",
+  creator_profile: "达人库",
+  creator_contact_decrypt: "达人库",
+  creator_risk_conversations: "达人库",
+  creator_lifecycle_kanban: "达人库",
+  creator_status_update: "达人库",
+  creator_owner_update: "达人库",
+  creator_filter_options: "达人库",
+  creator_daily_tasks: "AI 助理",
+  creator_scoring: "AI 助理",
+  creator_outreach: "AI 助理",
+  kol_analyze: "AI 助理",
+  today_plan: "AI 助理",
+  today_analyze: "AI 助理",
+  reply_analysis: "AI 助理",
+  confirm_stage: "平台内置",
+  stage_sop: "平台内置",
+  discovery_plan: "平台内置",
+  discovery_brief: "平台内置",
+  risk_scan: "平台内置",
+  business_approval: "平台内置",
+  email_compose: "达人库",
+  email_conversation_list: "达人库",
+  email_conversation_read: "达人库",
+  email_mailbox_list: "达人库",
+  email_app_conversation_list: "达人库",
+  creator_library_sync: "达人库",
+  creator_budget_report: "达人库",
+  deal_memory: "达人库",
 };
 
 // 分组图标（SVG paths）
@@ -164,6 +169,90 @@ const SCENE_TAGS: Record<string, string[]> = {
 };
 
 type PreviewMessage = { role: "ai" | "user"; lines: string[]; time?: string };
+
+/**
+ * 每项技能的「可以直接查到」/「需要走确认或 AI 助理」两段口径。
+ * 来源：`docs/BUSINESS.md`「快捷查询与思考覆盖表」——权威，覆盖仓库当前 41 个 Skill ID。
+ * 技能详情列按这张表逐项设计，**不按技能名猜，也不编**（AGENTS.md）。
+ */
+const SKILL_ENTRY: Record<string, { quick: string; agent: string }> = (() => {
+  const rows: [string[], string, string][] = [
+    [
+      ["creator_library_all", "creator_library_query", "creator_filter_options", "creator_profile"],
+      "授权档案、画像、筛选与已有摘要",
+      "新画像分析、补查新事实走 AI 助理或已配置同步",
+    ],
+    [
+      ["creator_daily_tasks", "creator_lifecycle_kanban", "creator_risk_conversations", "risk_scan"],
+      "我的任务、阶段索引、已识别风险",
+      "新风险分析与跟进建议走 AI 助理；确定的定时规则走后台",
+    ],
+    [
+      ["email_app_conversation_list", "email_conversation_list", "email_conversation_read", "email_mailbox_list"],
+      "已同步邮件列表、往来摘要与已授权邮箱索引",
+      "新回复理解走 AI 助理；读取敏感正文仍执行权限规则",
+    ],
+    [
+      ["creator_budget_report", "creator_scoring"],
+      "已有预算报告与评分",
+      "新评分、预测、策略与报表解读走 AI 助理",
+    ],
+    [
+      ["deal_memory"],
+      "明确内容的记忆记录、修改、查询",
+      "修改远端正式档案备注是业务写入，不能与本地记忆混为一谈",
+    ],
+    [
+      ["creator_discovery", "creator_library_sync"],
+      "已有发现批次与同步结果",
+      "新发现分析、异步采集；正式导入独立确认",
+    ],
+    [
+      ["creator_outreach", "email_compose", "reply_analysis"],
+      "已保存的草稿、回复分析摘要",
+      "建联方案、写信、改信、理解回复走 AI 助理；发送独立确认",
+    ],
+    [
+      [
+        "creator_contact_decrypt",
+        "creator_owner_update",
+        "creator_status_update",
+        "confirm_stage",
+        "business_approval",
+      ],
+      "已授权结果、归属、备注、阶段和审批状态",
+      "解密、改归属、改档案、改阶段、提交审批均为受控动作；备注不等于正式阶段",
+    ],
+  ];
+  const out: Record<string, { quick: string; agent: string }> = {};
+  for (const [ids, quick, agent] of rows) for (const id of ids) out[id] = { quick, agent };
+
+  // SOP 一组（stage_sop + 15 个阶段 SOP）共用同一口径。
+  const sopIds = [
+    "stage_sop",
+    "sop_initial_contact",
+    "sop_interested",
+    "sop_evaluating",
+    "sop_quote_pending",
+    "sop_negotiating",
+    "sop_plan_pending",
+    "sop_contracting",
+    "sop_sample_pending",
+    "sop_shipped",
+    "sop_testing",
+    "sop_content_planning",
+    "sop_content_review",
+    "sop_publish_pending",
+    "sop_published",
+    "sop_settling",
+  ];
+  const sopEntry = {
+    quick: "已发布 SOP 的索引、适用说明",
+    agent: "结合当前达人选择做法、分析缺口及生成行动方案走 AI 助理",
+  };
+  for (const id of sopIds) out[id] = sopEntry;
+  return out;
+})();
 
 // 输入/输出描述
 const IO_MAP: Record<string, { inputs: string[]; outputs: string[]; example: string[]; thread?: PreviewMessage[] }> = {
@@ -235,9 +324,23 @@ function GroupIcon({ id }: { id: string }) {
   );
 }
 
+/** 来源徽章：只用业务语言。未登记的技能一律落到中性词——兜底**不得**回落到引擎名或内部系统名。 */
 function skillSource(id: string): string {
-  return SKILL_SOURCE[id] || "Starry KOL";
+  return SKILL_SOURCE[id] || "平台内置";
 }
+
+/**
+ * 工具风险档只区分「只读」与「需确认」两档。
+ * 细分 L2（草稿）/ L3（敏感写入）须按 `docs/07-mcp-data-contract.md` 的工具风险目录逐条登记后再拆，
+ * **不得按技能名猜**（AGENTS.md「凭文件名猜法律层级」禁令）。
+ */
+const RISK_LABEL: Record<"read" | "write", string> = { read: "只读", write: "需确认" };
+
+/**
+ * 异步作业：同一时间只跑一个，必须有进度 / 取消 / 重试。
+ * 依据 `docs/07-mcp-data-contract.md`「MediaCrawler 是异步作业…不得把它伪装成同步 Skill」。
+ */
+const ASYNC_SKILL_IDS = new Set(["creator_discovery"]);
 
 function SkillCard({
   skill,
@@ -254,6 +357,8 @@ function SkillCard({
   isFrequent: boolean;
   selected: boolean;
 }) {
+  const tier = isWriteSkill(skill) ? "write" : "read";
+  const isAsync = ASYNC_SKILL_IDS.has(skill.id);
   return (
     <div
       className={"skill-card" + (selected ? " is-selected" : "")}
@@ -266,17 +371,28 @@ function SkillCard({
           <SkillIcon id={skill.id} />
         </div>
         <div className="skill-card-title">
-          <span className="skill-card-name">{skill.title}</span>
+          {/* 标题是卡片的键盘可达入口；同时暴露选中态（选中只靠颜色不合规）。 */}
+          <button
+            type="button"
+            className="skill-card-name"
+            aria-pressed={selected}
+            onClick={() => onSelect(skill)}
+          >
+            {skill.title}
+          </button>
           <span className="skill-card-source">{skillSource(skill.id)}</span>
         </div>
       </div>
       <p className="skill-card-desc">{skill.summary || skill.title}</p>
+      <div className="skill-card-marks">
+        <span className={"skill-mark is-" + tier}>{RISK_LABEL[tier]}</span>
+        {isAsync && <span className="skill-mark is-async">异步 · 有进度</span>}
+      </div>
       <div className="skill-card-actions" onClick={(e) => e.stopPropagation()}>
-        <button type="button" className="skill-btn skill-btn-primary" onClick={() => onUse(skill)}>
-          <span className="skill-btn-icon">+</span>
+        <button type="button" className="skill-btn skill-btn-outline" onClick={() => onUse(skill)}>
           挂到输入框
         </button>
-        <button type="button" className="skill-btn skill-btn-secondary" onClick={() => onNewSession(skill)}>
+        <button type="button" className="skill-btn skill-btn-ghost" onClick={() => onNewSession(skill)}>
           新建会话
         </button>
       </div>
@@ -284,92 +400,187 @@ function SkillCard({
   );
 }
 
-function PreviewPanel({ skill }: { skill: SkillRow | null }) {
+function SkillDetail({
+  skill,
+  onInsert,
+  onNewSession,
+  wide,
+  onToggleWide,
+  onClose,
+}: {
+  skill: SkillRow | null;
+  onInsert: (skill: SkillRow) => void;
+  onNewSession: (skill: SkillRow) => void;
+  wide: boolean;
+  onToggleWide: () => void;
+  onClose: () => void;
+}) {
   if (!skill) {
     return (
-      <div className="skill-preview-empty">
-        <p>点击左侧技能卡片查看详情</p>
+      <div className="skill-detail-empty">
+        <p>在左侧选择一项技能，这里会展开它的用法、需要你提供的信息和产出。</p>
       </div>
     );
   }
 
-  const scenes = SCENE_TAGS[skill.id] || [skill.funnel || "通用"];
-  const io = IO_MAP[skill.id] || {
-    inputs: ["相关参数"],
-    outputs: ["分析结果"],
-    example: [skill.summary || skill.title],
-  };
+  const scenes = SCENE_TAGS[skill.id];
+  const io = IO_MAP[skill.id];
+  const entry = SKILL_ENTRY[skill.id];
+  const tier = isWriteSkill(skill) ? "write" : "read";
+  const isAsync = ASYNC_SKILL_IDS.has(skill.id);
+  const outputs = io?.outputs || (skill.output ? [skill.output] : null);
 
   return (
-    <div className="skill-preview">
-      <div className="skill-preview-header">
-        <h3>预览</h3>
-        <button type="button" className="skill-preview-expand" aria-label="展开">
-          ⤢
+    <div className="skill-detail" data-skill-detail>
+      <div className="skill-detail-header">
+        <h3>技能详情</h3>
+        <button
+          type="button"
+          className="skill-detail-toggle"
+          aria-expanded={wide}
+          onClick={onToggleWide}
+        >
+          {wide ? "收窄" : "展开"}
+        </button>
+        <button
+          type="button"
+          className="skill-detail-close"
+          aria-label="关闭技能详情"
+          onClick={onClose}
+        >
+          ✕
         </button>
       </div>
-      <div className="skill-preview-body">
-        <div className="skill-preview-title">
-          <h2>{skill.title}</h2>
+
+      <div className="skill-detail-body">
+        <div className="skill-detail-head">
+          <div className="skill-card-icon">
+            <SkillIcon id={skill.id} />
+          </div>
+          <div>
+            <h2>{skill.title}</h2>
+            <p className="skill-detail-sub">{skill.summary || skill.title}</p>
+          </div>
+        </div>
+
+        <div className="skill-detail-marks">
           <span className="skill-preview-tag">{skillKind(skill)}</span>
           <span className="skill-preview-agent">{skillSource(skill.id)}</span>
+          <span className={"skill-mark is-" + tier}>{RISK_LABEL[tier]}</span>
+          {isAsync && <span className="skill-mark is-async">异步 · 可取消</span>}
         </div>
-        <p className="skill-preview-desc">{skill.summary || skill.title}</p>
 
-        <div className="skill-preview-section">
-          <h4>适用场景</h4>
-          <div className="skill-preview-tags">
-            {scenes.map((s) => (
-              <span key={s} className="skill-preview-tag-item">{s}</span>
-            ))}
+        {entry ? (
+          <>
+            <div className="skill-detail-section">
+              <h4>可以直接查到</h4>
+              <p className="skill-detail-note">{entry.quick}</p>
+            </div>
+            <div className="skill-detail-section">
+              <h4>需要走确认或 AI 助理</h4>
+              <p className="skill-detail-note">{entry.agent}</p>
+            </div>
+          </>
+        ) : (
+          <p className="skill-detail-warn">
+            这项技能还没登记进 BUSINESS.md 的覆盖表，入口口径待业务专家补齐。
+            补齐前请照它的说明与产出判断用法，不要假定它可以被直接执行。
+          </p>
+        )}
+
+        {scenes && (
+          <div className="skill-detail-section">
+            <h4>适用场景</h4>
+            <div className="skill-detail-tags">
+              {scenes.map((s) => (
+                <span key={s} className="skill-preview-tag-item">{s}</span>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        <div className="skill-preview-section">
-          <h4>输入内容</h4>
-          <p className="skill-preview-hint">提供以下信息，生成更个性化的话术：</p>
-          <div className="skill-preview-tags">
-            {io.inputs.map((s) => (
-              <span key={s} className="skill-preview-tag-item">{s}</span>
-            ))}
+        {io && (
+          <div className="skill-detail-section">
+            <h4>需要你提供</h4>
+            <div className="skill-detail-tags">
+              {io.inputs.map((s) => (
+                <span key={s} className="skill-preview-tag-item">{s}</span>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        <div className="skill-preview-section">
-          <h4>输出结果</h4>
-          <div className="skill-preview-tags">
-            {io.outputs.map((s) => (
-              <span key={s} className="skill-preview-tag-item">{s}</span>
-            ))}
+        {outputs && (
+          <div className="skill-detail-section">
+            <h4>产出</h4>
+            <div className="skill-detail-tags">
+              {outputs.map((s) => (
+                <span key={s} className="skill-preview-tag-item">{s}</span>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        <div className="skill-preview-section">
-          <h4>内容示例</h4>
-          <div className="skill-preview-thread">
-            {(io.thread || [{ role: "ai" as const, lines: io.example }]).map((msg, i) => (
-              <div key={i} className={"skill-preview-msg is-" + msg.role}>
-                <span className="skill-preview-avatar" aria-hidden>
-                  {msg.role === "ai" ? "AI" : <UserGlyph />}
-                </span>
-                <div className="skill-preview-bubble">
-                  {msg.lines.map((line, j) => (
-                    <p key={j}>{line}</p>
-                  ))}
-                  {msg.time && <span className="skill-preview-time">{msg.time}</span>}
+        {io && (
+          <div className="skill-detail-section">
+            <h4>内容示例</h4>
+            <div className="skill-preview-thread">
+              {(io.thread || [{ role: "ai" as const, lines: io.example }]).map((msg, i) => (
+                <div key={i} className={"skill-preview-msg is-" + msg.role}>
+                  <span className="skill-preview-avatar" aria-hidden>
+                    {msg.role === "ai" ? "AI" : <UserGlyph />}
+                  </span>
+                  <div className="skill-preview-bubble">
+                    {msg.lines.map((line, j) => (
+                      <p key={j}>{line}</p>
+                    ))}
+                    {msg.time && <span className="skill-preview-time">{msg.time}</span>}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
+        )}
+
+        {!io && (
+          <p className="skill-detail-note">
+            这项技能的输入与产出示例尚未补录。上面的口径来自 BUSINESS.md
+            的覆盖表，可以直接用；要看实际结果，先跑一次「新建会话」。
+          </p>
+        )}
+
+        {skill.keeps_stage && (
+          <p className="skill-detail-warn">
+            这项技能不会推进正式阶段。要改阶段请用「正式阶段变更」，另走一次确认。
+          </p>
+        )}
+        {isAsync && (
+          <p className="skill-detail-warn">
+            这是异步作业，同一时间只跑一个。有进度、取消和重试入口，不会伪装成即时完成。
+          </p>
+        )}
+        {tier === "write" && (
+          <p className="skill-detail-warn">
+            这是受控动作：执行前会揭示对象和范围、要求确认，并留下回执。
+          </p>
+        )}
       </div>
-      <div className="skill-preview-footer">
-        <button type="button" className="skill-btn skill-btn-primary skill-btn-large">
-          <span className="skill-btn-icon">+</span>
+
+      <div className="skill-detail-footer">
+        {/* 本视口唯一的实底主 CTA（DESIGN.md §5 规则 1）。 */}
+        <button
+          type="button"
+          className="skill-btn skill-btn-primary skill-btn-large"
+          onClick={() => onInsert(skill)}
+        >
           插入当前会话
         </button>
-        <button type="button" className="skill-btn skill-btn-secondary skill-btn-large">
-          查看详情
+        <button
+          type="button"
+          className="skill-btn skill-btn-outline skill-btn-large"
+          onClick={() => onNewSession(skill)}
+        >
+          新建会话
         </button>
       </div>
     </div>
@@ -377,16 +588,31 @@ function PreviewPanel({ skill }: { skill: SkillRow | null }) {
 }
 
 export function SkillCatalog() {
+  const location = useLocation();
+  const nav = useNavigate();
   const [skills, setSkills] = useState<SkillRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [q, setQ] = useState("");
-  const [tab, setTab] = useState("all");
+  // tab 与 URL 同步：`/skills?tab=frequent` 这类深链（「查看全部」链接）必须真正生效。
+  const [tab, setTab] = useState(() => new URLSearchParams(location.search).get("tab") || "all");
   const [selectedSkill, setSelectedSkill] = useState<SkillRow | null>(null);
   const [usage, setUsage] = useState<Record<string, number>>(() => loadUsage());
   const [recent, setRecent] = useState<string[]>(() => loadRecent());
-  const nav = useNavigate();
-  const location = useLocation();
+  const [reloadKey, setReloadKey] = useState(0);
+  // 详情列：`detailWide` 控制宽度档；`detailOpen` 只在窄屏的覆盖态下起作用（≥900px 常驻）。
+  const [detailWide, setDetailWide] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+
+  // 选中技能＝同时展开详情；窄屏下这一步才会把覆盖层打开。
+  const selectSkill = (s: SkillRow) => {
+    setSelectedSkill(s);
+    setDetailOpen(true);
+  };
+
+  useEffect(() => {
+    setTab(new URLSearchParams(location.search).get("tab") || "all");
+  }, [location.search]);
 
   useEffect(() => {
     setLoading(true);
@@ -398,7 +624,7 @@ export function SkillCatalog() {
       })
       .catch((e) => setErr(e instanceof Error ? e.message : "无法加载技能目录"))
       .finally(() => setLoading(false));
-  }, []);
+  }, [reloadKey]);
 
   // 默认预览：优先选中达人建联话术，其次常用技能第一个
   useEffect(() => {
@@ -506,18 +732,20 @@ export function SkillCatalog() {
           <input
             className="skill-search"
             placeholder="搜索技能 / SOP / 场景"
+            aria-label="搜索技能 / SOP / 场景"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
         </label>
       </header>
 
-      <div className="skill-tabs">
+      <div className="skill-tabs" role="group" aria-label="技能筛选">
         {TABS.map((t) => (
           <button
             key={t.id}
             type="button"
             className={`skill-tab${tab === t.id ? " on" : ""}`}
+            aria-pressed={tab === t.id}
             onClick={() => setTab(t.id)}
           >
             {t.label}
@@ -525,8 +753,23 @@ export function SkillCatalog() {
         ))}
       </div>
 
-      {err && <p className="error" role="alert">{err}</p>}
-      {loading && !err && <p className="muted">正在加载技能…</p>}
+      {err && (
+        <div className="skill-state" role="alert">
+          <p className="error">{err}</p>
+          <button
+            type="button"
+            className="skill-btn skill-btn-outline"
+            onClick={() => setReloadKey((n) => n + 1)}
+          >
+            重试
+          </button>
+        </div>
+      )}
+      {loading && !err && (
+        <div className="skill-state" aria-busy="true">
+          <p className="muted">正在加载技能…</p>
+        </div>
+      )}
 
       <div className="skill-catalog-main">
         <div className="skill-catalog-content">
@@ -543,7 +786,7 @@ export function SkillCatalog() {
                   <SkillCard
                     key={s.id}
                     skill={s}
-                    onSelect={(skill) => setSelectedSkill(skill)}
+                    onSelect={selectSkill}
                     onUse={(skill) => void useSkill(skill)}
                     onNewSession={(skill) => void newSession(skill)}
                     isFrequent={true}
@@ -572,7 +815,7 @@ export function SkillCatalog() {
                     <SkillCard
                       key={s.id}
                       skill={s}
-                      onSelect={(skill) => setSelectedSkill(skill)}
+                      onSelect={selectSkill}
                       onUse={(skill) => void useSkill(skill)}
                       onNewSession={(skill) => void newSession(skill)}
                       isFrequent={(usage[s.id] || 0) > 0}
@@ -585,12 +828,43 @@ export function SkillCatalog() {
           })}
 
           {!loading && filteredSkills.length === 0 && (
-            <p className="muted">没有匹配的技能</p>
+            <div className="skill-state">
+              <p className="muted">没有匹配的技能</p>
+              <button
+                type="button"
+                className="skill-btn skill-btn-outline"
+                onClick={() => {
+                  setQ("");
+                  setTab("all");
+                  nav("/skills");
+                }}
+              >
+                清除筛选
+              </button>
+            </div>
           )}
         </div>
 
-        <aside className="skill-catalog-preview">
-          <PreviewPanel skill={selectedSkill} />
+        <button
+          type="button"
+          className={"skill-detail-scrim" + (detailOpen ? " is-open" : "")}
+          aria-label="关闭技能详情"
+          onClick={() => setDetailOpen(false)}
+        />
+        <aside
+          className={
+            "skill-detail-pane" + (detailWide ? " is-wide" : "") + (detailOpen ? " is-open" : "")
+          }
+          aria-label="技能详情"
+        >
+          <SkillDetail
+            skill={selectedSkill}
+            onInsert={(s) => void useSkill(s)}
+            onNewSession={(s) => void newSession(s)}
+            wide={detailWide}
+            onToggleWide={() => setDetailWide((v) => !v)}
+            onClose={() => setDetailOpen(false)}
+          />
         </aside>
       </div>
     </div>

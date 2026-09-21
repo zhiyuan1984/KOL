@@ -1,7 +1,6 @@
 /**
  * 工作台各面（board / 跟进 / 公海）读取失败的对外文案。
- * 底层 HTTP 原文只留在 `detail`，供 title / data-* 排查，不作为界面正文
- * （design-system/kol-workbench/pages/home.md §状态与响应式：不得只显示底层 HTTP 文案）。
+ * 底层 HTTP 原文只留在 `detail`，供 title / data-* 排查，不作为界面正文（不得只显示底层 HTTP 文案）。
  */
 export type SurfaceErrorView = {
   message: string;

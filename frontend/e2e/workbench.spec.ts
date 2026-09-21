@@ -119,23 +119,13 @@ async function expectTodayNavOrder(page: Page) {
   expect(todayOrder).toEqual(TODAY_NAV_ORDER);
 }
 
-async function expectHomeChromeRow(page: Page) {
-  const chrome = page.locator("[data-home-chrome]");
-  await expect(chrome).toBeVisible();
-  await expect(chrome.locator("[data-home-account]")).toHaveCount(0);
-  await expect(chrome.locator("[data-home-chrome-brand], [data-brand-lockup='home']")).toHaveCount(0);
-  await expect(chrome.locator("[data-home-chrome-action]")).toHaveCount(4);
-  const actionBoxes = await chrome.locator("[data-home-chrome-action]").evaluateAll((els) => (
-    els.map((el) => {
-      const rect = el.getBoundingClientRect();
-      return { top: rect.top, bottom: rect.bottom };
-    })
-  ));
-  expect(actionBoxes.length).toBe(4);
-  const first = actionBoxes[0];
-  for (const box of actionBoxes) {
-    expect(Math.abs(box.top - first.top)).toBeLessThan(8);
-  }
+async function expectNoHomeChrome(page: Page) {
+  const hero = page.locator(".home-hero");
+  await expect(hero).toBeVisible();
+  await expect(page.locator("[data-home-chrome]")).toHaveCount(0);
+  await expect(page.locator("[data-home-chrome-action]")).toHaveCount(0);
+  await expect(page.locator("[data-home-account]")).toHaveCount(0);
+  await expect(page.locator("[data-home-chrome-brand], [data-brand-lockup='home']")).toHaveCount(0);
 }
 
 async function expectEmployeeShell(page: Page) {
@@ -144,7 +134,7 @@ async function expectEmployeeShell(page: Page) {
   await expect(sidebar.locator(".brand-name")).toHaveText("灵工 工作");
   await expect(sidebar).not.toContainText("Powering Outdoor Adventures");
   await expect(sidebar).not.toContainText("服务几代人的户外生活");
-  await expect(page.locator("[data-home-chrome] [data-brand-lockup]")).toHaveCount(0);
+  await expect(page.locator(".home-hero [data-brand-lockup]")).toHaveCount(0);
   const brandBox = await sidebar.locator("[data-sidebar-brand]").boundingBox();
   const accountBox = await sidebar.locator("[data-account-pedestal]").boundingBox();
   const sidebarRect = await sidebar.evaluate((el) => el.getBoundingClientRect().width);
@@ -597,9 +587,9 @@ test("composer plus menu exposes projects, recent files, and published skills", 
   expect(bodies).toEqual([]);
 });
 
-test("employee shell keeps compact sidebar brand and icon-only top chrome", async ({ page }) => {
+test("employee shell keeps compact sidebar brand and has no home top chrome", async ({ page }) => {
   await page.goto("/");
-  await expectHomeChromeRow(page);
+  await expectNoHomeChrome(page);
   await expectEmployeeShell(page);
   const title = await page.locator("[data-home] h1").evaluate((el) => {
     const cs = getComputedStyle(el);
@@ -617,7 +607,7 @@ test("employee shell keeps compact sidebar brand and icon-only top chrome", asyn
   expect(conclusion.size).toBeGreaterThanOrEqual(18);
   expect(conclusion.size).toBeLessThanOrEqual(20);
   expect(conclusion.weight).toBeLessThanOrEqual(600);
-  await expect(page.locator("[data-home-chrome] [data-brand-lockup]")).toHaveCount(0);
+  await expect(page.locator(".home-hero [data-brand-lockup]")).toHaveCount(0);
   await expect(page.locator(".composer")).toBeVisible();
   const composer = await page.locator("[data-home] [data-composer] .composer").evaluate((el) => {
     const cs = getComputedStyle(el);
@@ -631,7 +621,7 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await page.goto("/");
   await expect(page.locator("aside .brand-name")).toHaveText("灵工 工作");
   await expect(page.locator("[data-home] h1")).toHaveText("今天有什么工作要处理？");
-  await expectHomeChromeRow(page);
+  await expectNoHomeChrome(page);
   await expectEmployeeShell(page);
   await openHomeTemplates(page);
   const taskButtons = page.locator("[data-home] .rec");
@@ -3142,7 +3132,7 @@ test("employee partners path is an honest stub, not a Home or skill board", asyn
   }
 });
 
-test("docs/21 employee sidebar has no admin connectors deep-link", async ({ page }) => {
+test("docs/org-permissions.md employee sidebar has no admin connectors deep-link", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
   await expect(page.locator('nav[aria-label="技能"]')).toHaveCount(0);
@@ -3159,7 +3149,7 @@ test("docs/21 employee sidebar has no admin connectors deep-link", async ({ page
   await expect(page.locator(".sidebar")).not.toContainText("专家团");
 });
 
-test("docs/21 admin agents governance is reachable from admin chrome", async ({ page }) => {
+test("docs/org-permissions.md admin agents governance is reachable from admin chrome", async ({ page }) => {
   await page.goto("/admin");
   await expect(page.locator(".admin-header a[href='/agents']")).toHaveCount(0);
   await page.locator("[data-admin-nav='agents']").click();
@@ -3403,7 +3393,7 @@ test("admin L3 confirm covers retention policy writes", async ({ page }) => {
   await expect(roleDialog).toHaveCount(0);
 });
 
-test("docs/21 admin connectors hub renders", async ({ page }) => {
+test("docs/org-permissions.md admin connectors hub renders", async ({ page }) => {
   await page.goto("/connectors");
   await expect(page.locator("[data-connector-use]")).toBeVisible();
   await expect(page.locator("[data-connector-use-row]").first()).toBeVisible();
@@ -3767,7 +3757,7 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await expect(page.locator("[data-insight-card]")).toHaveCount(0);
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("今天推荐");
   await openHomeLifecycle(page);
-  await expectHomeChromeRow(page);
+  await expectNoHomeChrome(page);
   await expect(page.locator("[data-home]")).toHaveAttribute("data-followed-chrome", "compact");
   await expect(page.locator("[data-today-summary]")).toBeHidden();
   await expectFollowedKolHeadingRemoved(page);

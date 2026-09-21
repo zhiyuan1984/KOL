@@ -1,7 +1,7 @@
 /**
  * Home 入口登记 — 与 backend/src/host/entry-registry.ts 同构（PR #172）。
- * CONST-07 / PROD-AGENT-01 / UX-03 / TECH-ARCH-02 / TECH-FE-01
- * design §4：切 Tab 不得创建 session；retry-discovery-run = command。
+ * CONST-07 / PROD-AGENT-01 / TECH-ARCH-02 / TECH-FE-01
+ * PROD-AGENT-01：切 Tab 不得创建 session；retry-discovery-run = command。
  *
  * think   = Codex 思考流程（允许 thread/turn/model）
  * memory  = 快捷查询，零 thread / 零 turn / 零 model
