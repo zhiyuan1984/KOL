@@ -40,15 +40,6 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     route: "GET 前端路由",
   },
   {
-    id: "pull-board",
-    kind: "memory",
-    action: "拉取 / 刷新 Home board",
-    creates_session: false,
-    creates_turn: false,
-    calls_model: false,
-    route: "GET /api/home/board",
-  },
-  {
     id: "list-todos",
     kind: "memory",
     action: "未了结工作列表",
@@ -92,15 +83,6 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     creates_turn: false,
     calls_model: false,
     route: "FE Composer prefill · GET /api/home/discovery/template",
-  },
-  {
-    id: "pick-recommended-skill",
-    kind: "memory",
-    action: "推荐技能入口 / 只挂 Skill 芯片，不发送",
-    creates_session: false,
-    creates_turn: false,
-    calls_model: false,
-    route: "FE Composer prefill · GET /api/skills",
   },
   {
     id: "get-today-brief",

@@ -453,33 +453,6 @@
   min-height: 60px;
 }
 
-.home-composer-pill {
-  height: 36px;
-  padding: 0 16px;
-  border: 1px solid #e5e5e5;
-  border-radius: 999px;
-  background: #fff;
-  color: #0d0d0d;
-  font: inherit;
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.home-composer-pill:hover {
-  background: #f7f7f7;
-}
-
-/* 推荐技能快捷入口（Home 顶部）。外壳沿用同一套 pill：点击只把 Skill 挂到
-   Composer 上，不是直接开跑，所以它读起来像「建议」而不是「执行」。 */
-.home-recommended-skills {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 18px;
-}
-
-.home-chrome-actions .composer-tier-topbar,
 .composer-tier-topbar {
   display: inline-flex;
   align-items: center;
@@ -487,12 +460,7 @@
   margin-left: 8px;
 }
 
-.home-chrome-tier select {
-  max-width: 88px;
-}
-
 .composer-tier-topbar select,
-.home-chrome .tier-control select,
 .session-head-row .tier-control select {
   background: transparent;
   border: 0;

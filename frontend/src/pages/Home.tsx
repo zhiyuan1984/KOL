@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   api,
   type FromTextResult,
@@ -15,9 +15,7 @@ import {
 } from "../api";
 import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
 import { storePending } from "../components/ChatBlocks";
-import { applyComposerDraft, stashComposerDraft } from "../composer/draft";
-import { isWriteSkill, labelOfSkill, type CatalogSkill } from "../composer/catalog";
-import { RECOMMENDED_SKILL_IDS } from "../composer/recommended";
+import { stashComposerDraft } from "../composer/draft";
 import type { ComposerEntryIntent, ComposerObjectRef } from "../composer/types";
 import Markdown from "../components/Markdown";
 import { starterPrompt } from "../taskStarters";
@@ -69,7 +67,8 @@ import {
   todayTaskSourceLabel,
   type HomeMode,
 } from "../home/modes";
-import { HOME_COMPOSER_COPY, HOME_HANDOFF_TO_AGENT } from "../home/entryRegistry";
+import { HOME_COMPOSER_COPY } from "../home/entryRegistry";
+import { surfaceDownView, type HomeSurface } from "../home/surfaceError";
 import {
   clearComposerDraft,
   isAnalyzeEnqueuePrefill,
@@ -262,21 +261,6 @@ function CardFields({
         </div>
       ) : statusFields}
     </dl>
-  );
-}
-
-function ChromeIco({ path }: { path: string }) {
-  return (
-    <svg className="home-chrome-ico" viewBox="0 0 24 24" aria-hidden>
-      <path
-        d={path}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
   );
 }
 
@@ -542,7 +526,9 @@ export default function Home() {
   const [draftFocus, setDraftFocus] = useState(initialFill ? 1 : 0);
   const [blockSubmit, setBlockSubmit] = useState(false);
   const [err, setErr] = useState("");
-  const [boardError, setBoardError] = useState("");
+  const [followingError, setFollowingError] = useState("");
+  const [poolError, setPoolError] = useState("");
+  const [retryingSurface, setRetryingSurface] = useState<HomeSurface | null>(null);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<FromTextResult | null>(null);
   const lastComposer = useRef<ComposerSubmit | null>(null);
@@ -619,11 +605,16 @@ export default function Home() {
   const boardKolsRef = useRef<Array<Record<string, unknown>>>([]);
   const discoveryCatalogRef = useRef(false);
 
-  const applyBoard = (board: Awaited<ReturnType<typeof api.homeBoard>>) => {
+  const setSurfaceError = (surface: HomeSurface, message: string) => {
+    if (surface === "following") setFollowingError(message);
+    else setPoolError(message);
+  };
+
+  const applyBoard = (board: Awaited<ReturnType<typeof api.homeBoard>>, surface: HomeSurface) => {
     if (Array.isArray(board.kols)) boardKolsRef.current = board.kols;
     setBoardWorkbench(board.workbench || null);
     setFollowScope(board.follow_scope || null);
-    setBoardError("");
+    setSurfaceError(surface, "");
   };
 
   const applyTaskCatalog = (catalog: Task[]) => {
@@ -646,12 +637,12 @@ export default function Home() {
 
   const fetchHomeTasks = () => api.tasks().then(unwrapTaskList).then(applyTaskCatalog);
 
-  const loadBoard = (force = false) => {
+  const loadBoard = (surface: HomeSurface, force = false) => {
     if (!force && boardRequestedRef.current) return Promise.resolve();
     boardRequestedRef.current = true;
-    return api.homeBoard({ refresh: force }).then(applyBoard).catch((error) => {
+    return api.homeBoard({ refresh: force }).then((board) => applyBoard(board, surface)).catch((error) => {
       if (!force) boardRequestedRef.current = false;
-      setBoardError(error instanceof Error ? error.message : "工作台读取失败");
+      setSurfaceError(surface, error instanceof Error ? error.message : "工作台读取失败");
     });
   };
 
@@ -662,9 +653,10 @@ export default function Home() {
     });
     if (loaded.follow_scope) setFollowScope(loaded.follow_scope);
     if (loaded.down) {
-      setBoardError(loaded.error || "跟进列表读取失败");
+      setFollowingError(loaded.error || "跟进列表读取失败");
       return;
     }
+    setFollowingError("");
     setFollowedKols(loaded.items.map(followKolToRecord) as FollowedKol[]);
   };
 
@@ -673,11 +665,31 @@ export default function Home() {
       kols: boardKolsRef.current,
     });
     if (loaded.down) {
-      setBoardError(loaded.error || "公海读取失败");
+      setPoolError(loaded.error || "公海读取失败");
       setPoolCards([]);
       return;
     }
+    setPoolError("");
     setPoolCards(loaded.items);
+  };
+
+  /** 重试只重发这一面的读取，不切 Tab、不写会话。 */
+  const retrySurface = async (surface: HomeSurface) => {
+    setRetryingSurface(surface);
+    try {
+      await loadBoard(surface, true);
+      await (surface === "following" ? loadFollowingSurface() : loadPoolSurface());
+    } finally {
+      setRetryingSurface(null);
+    }
+  };
+
+  /** 交给 Agent：把这一面的失败事实写进 Composer，由用户决定是否发问。 */
+  const handoffSurface = (label: string, raw: string) => {
+    const reason = raw ? `原始错误：${raw}。` : "";
+    setText(`${HOME_COMPOSER_COPY}：${label}读取失败。${reason}请确认工作台服务是否可用。`);
+    setComposerFocused(true);
+    setDraftFocus((value) => value + 1);
   };
 
   useEffect(() => {
@@ -701,31 +713,11 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 推荐技能：「技能目录 → 推荐」Tab 与 Home 的快捷入口共读同一份 id 清单，
-  // 所以这里只做一次取数，不另立一套推荐规则。
-  const [recommendedSkills, setRecommendedSkills] = useState<CatalogSkill[]>([]);
-
   // Home 的「生成中」只覆盖识别 + 发起这几秒；真正的长时间生成在 /s/:id，
   // 停止键由会话页的 Composer 负责。这里能停的是「还没开跑就打住」。
   const [intakeRunning, setIntakeRunning] = useState(false);
   const [stopping, setStopping] = useState(false);
   const intakeCancelled = useRef(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    void api.skills().then((rows) => {
-      if (cancelled) return;
-      const byId = new Map((rows as CatalogSkill[]).map((row) => [row.id, row]));
-      setRecommendedSkills(
-        RECOMMENDED_SKILL_IDS
-          .map((id) => byId.get(id))
-          .filter((row): row is CatalogSkill => Boolean(row)),
-      );
-    }).catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     const stashed = peekComposerFill();
@@ -1220,14 +1212,6 @@ export default function Home() {
 
   const refreshTasks = () => fetchHomeTasks().catch(() => undefined);
 
-  const refreshBoard = (force = false) => Promise.all([
-    loadBoard(force),
-    refreshTasks(),
-  ]).then(() => {
-    if (mode === "lifecycle") return loadFollowingSurface();
-    if (mode === "pool") return loadPoolSurface();
-  });
-
   useEffect(() => {
     const onVisible = () => {
       if (document.visibilityState === "visible") void refreshTasks();
@@ -1243,19 +1227,22 @@ export default function Home() {
     setAnalyzeSurface(null);
     setAnalyzeUids([]);
     setQueuedNotice("");
+    // 失败态属于它发生的那一面：切 Tab 就收起来，不让它跟着用户跑到别的模式。
+    setFollowingError("");
+    setPoolError("");
     setText((current) => (isAnalyzePrefill(current) ? "" : current));
   }, [mode]);
 
   useEffect(() => {
     if (mode !== "lifecycle") return;
-    void loadBoard().then(() => void loadFollowingSurface());
+    void loadBoard("following").then(() => void loadFollowingSurface());
     // First entry to「我跟进的红人」loads following (B.active); tab switch does not create sessions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
   useEffect(() => {
     if (mode !== "pool") return;
-    void loadBoard().then(() => void loadPoolSurface());
+    void loadBoard("pool").then(() => void loadPoolSurface());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
@@ -1826,6 +1813,22 @@ export default function Home() {
           ? "mailbox"
           : "none";
 
+  const followingDown = followingError && !followedKols.length
+    ? surfaceDownView(followingError, "跟进列表读取失败", {
+      retrying: retryingSurface === "following",
+      onRetry: () => void retrySurface("following"),
+      onHandoff: () => handoffSurface("跟进列表", followingError),
+    })
+    : null;
+
+  const poolDown = poolError && !poolCards.length
+    ? surfaceDownView(poolError, "公海读取失败", {
+      retrying: retryingSurface === "pool",
+      onRetry: () => void retrySurface("pool"),
+      onHandoff: () => handoffSurface("公海", poolError),
+    })
+    : null;
+
   const followEmptyTitle = followEmptyKind === "unbound"
     ? "尚未绑定跟进邮箱"
     : followEmptyKind === "expired"
@@ -1892,17 +1895,6 @@ export default function Home() {
     setPanelOpen(true);
   };
 
-  // 推荐技能快捷入口：只把 Skill 挂到 Composer 上，不代用户发送。
-  const pickRecommendedSkill = (skill: CatalogSkill) => {
-    applyComposerDraft({
-      text,
-      intent: entryIntent,
-      chips: [{ kind: "skill", id: skill.id, label: labelOfSkill(skill), write: isWriteSkill(skill) }],
-    });
-    setComposerFocused(true);
-    setDraftFocus((value) => value + 1);
-  };
-
   return (
     <div
       className={
@@ -1924,58 +1916,6 @@ export default function Home() {
         }}
       >
         <div className="home-hero">
-          <div className="home-chrome" data-home-chrome>
-            {/* AI发现 页按框线稿只留导航入口：重复标题与右上工具组都不渲染。 */}
-            {mode === "discovery" ? null : (
-            <div className="home-chrome-actions" data-home-chrome-actions>
-                <button
-                  type="button"
-                  className="home-chrome-icon"
-                  data-home-chrome-action="search"
-                  aria-label="搜索任务"
-                  title="搜索任务"
-                  onClick={() => {
-                    const input = document.querySelector<HTMLTextAreaElement>("[data-home] [data-composer-input]");
-                    input?.focus();
-                    input?.scrollIntoView({ block: "nearest" });
-                  }}
-                >
-                  <ChromeIco path="M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z M16 16l5 5" />
-                </button>
-                <button
-                  type="button"
-                  className="home-chrome-icon"
-                  data-home-chrome-action="refresh"
-                  data-home-entry="pull-board"
-                  aria-label="刷新工作台"
-                  title="刷新工作台"
-                  onClick={() => void refreshBoard(true)}
-                >
-                  <ChromeIco path="M4 12a8 8 0 0 1 13.7-5.6L20 8 M20 12a8 8 0 0 1-13.7 5.6L4 16 M20 4v4h-4 M4 20v-4h4" />
-                </button>
-                <a
-                  className="home-chrome-icon"
-                  data-home-chrome-action="external"
-                  href="/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-label="新窗口打开工作台"
-                  title="新窗口打开工作台"
-                >
-                  <ChromeIco path="M10 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4 M14 4h6v6 M10 14L20 4" />
-                </a>
-                <Link
-                  className="home-chrome-icon"
-                  data-home-chrome-action="settings"
-                  to="/settings"
-                  aria-label="个人设置"
-                  title="个人设置"
-                >
-                  <ChromeIco path="M12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7z M19.4 13a7.8 7.8 0 0 0 .1-2l2-1.2-2-3.4-2.2.6a8 8 0 0 0-1.7-1L15 4h-4l-.6 2a8 8 0 0 0-1.7 1l-2.2-.6-2 3.4 2 1.2a7.8 7.8 0 0 0 0 2l-2 1.2 2 3.4 2.2-.6a8 8 0 0 0 1.7 1l.6 2h4l.6-2a8 8 0 0 0 1.7-1l2.2.6 2-3.4z" />
-                </Link>
-            </div>
-            )}
-          </div>
           {mode === "today" ? <h1 data-home-title="today">{HOME_TODAY_TITLE}</h1> : null}
           <p className="home-stats" data-today-summary data-home-stats>
             {statsText}
@@ -2003,23 +1943,6 @@ export default function Home() {
               任务模板
             </button>
           </div>
-
-          {recommendedSkills.length ? (
-            <div className="home-recommended-skills" data-home-recommended-skills>
-              {recommendedSkills.map((skill) => (
-                <button
-                  key={skill.id}
-                  type="button"
-                  className="home-composer-pill"
-                  data-home-entry="pick-recommended-skill"
-                  data-recommended-skill={skill.id}
-                  onClick={() => pickRecommendedSkill(skill)}
-                >
-                  {labelOfSkill(skill)}
-                </button>
-              ))}
-            </div>
-          ) : null}
         </div>
 
         <div className="home-board">
@@ -2085,7 +2008,7 @@ export default function Home() {
               confirmStageFeedback={confirmStageFeedback}
               followScope={followScope}
               followEmptyKind={followEmptyKind}
-              queryDown={Boolean(boardError) && !followedKols.length}
+              down={followingDown}
               onQuery={setKolQuery}
               onStageFilter={setStageFilter}
               onHover={setHoveredKolId}
@@ -2120,7 +2043,7 @@ export default function Home() {
               selectedIds={selectedKolIds}
               hoveredId={hoveredKolId}
               query={poolQuery}
-              queryDown={Boolean(boardError) && !poolCards.length}
+              down={poolDown}
               claimBusyId={claimBusy && claimTarget ? claimTarget.kol_uid : null}
               onQuery={setPoolQuery}
               onHover={setHoveredKolId}
@@ -2135,26 +2058,6 @@ export default function Home() {
                 setClaimTarget(card);
               }}
             />
-          ) : null}
-
-          {boardError ? (
-            <section className="task-empty" data-home-query-error data-empty-kind="service-down" role="alert">
-              <strong>工作台读取失败</strong>
-              <p>{boardError}</p>
-              <button
-                type="button"
-                className="btn work sm"
-                data-home-handoff-agent
-                data-home-entry="composer-analyze"
-                onClick={() => {
-                  setText(`${HOME_COMPOSER_COPY}：${boardError}`);
-                  setComposerFocused(true);
-                  setDraftFocus((value) => value + 1);
-                }}
-              >
-                {HOME_HANDOFF_TO_AGENT}
-              </button>
-            </section>
           ) : null}
 
           {enqueueNotice ? <p className="muted" role="status" data-analyze-enqueue>{enqueueNotice}</p> : null}
