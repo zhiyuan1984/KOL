@@ -1,3 +1,4 @@
+import { useState } from "react";
 import Markdown from "../../components/Markdown";
 import { mailDigestView } from "../digestView";
 import type { MailThread } from "../types";
@@ -37,6 +38,8 @@ function DigestStrip({ thread }: { thread: MailThread }) {
 
 export function ConversationSummary({ thread }: { thread: MailThread | null }) {
   const text = String(thread?.digest?.text || "").trim();
+  const [expanded, setExpanded] = useState(false);
+  const long = text.length > 200;
   return (
     <section className="mail-side-card" data-mail-summary-card>
       <header className="mail-side-card-head">
@@ -44,12 +47,26 @@ export function ConversationSummary({ thread }: { thread: MailThread | null }) {
         <span className="mail-side-tag">AI 生成</span>
       </header>
       {text ? (
-        <div className="mail-side-body" data-mail-summary-body>
+        <div
+          className={"mail-side-body" + (long && !expanded ? " is-clamped" : "")}
+          data-mail-summary-body
+          data-mail-summary-clamped={long && !expanded ? "true" : "false"}
+        >
           <Markdown>{text}</Markdown>
         </div>
       ) : (
         <p className="muted" data-mail-summary-pending>摘要生成中…点「收取」后可再试。</p>
       )}
+      {long ? (
+        <button
+          type="button"
+          className="mail-more-toggle"
+          data-mail-summary-toggle
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? "收起" : "展开全文"}
+        </button>
+      ) : null}
       {thread ? <DigestStrip thread={thread} /> : null}
     </section>
   );

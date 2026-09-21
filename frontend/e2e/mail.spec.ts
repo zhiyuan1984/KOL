@@ -439,3 +439,28 @@ test("mail negotiation workbench: mailbox to conversation to mail, summary stays
   // 4) the conversation summary follows the conversation, not the mail
   await expect(page.locator("[data-mail-summary-body]")).toHaveText(summaryBefore);
 });
+
+test("a long conversation summary is clamped with an expand toggle", async ({ page }) => {
+  const longDigest = "去信寒暄跟进，尚未落到报价、档期或明确兴趣。".repeat(12);
+  const longThread = {
+    ...FORMAL_THREAD,
+    digest_text: longDigest,
+    conversation: { ...FORMAL_CONVERSATION, digest_text: longDigest },
+  };
+  await page.route("**/api/mail/box", (route) => route.fulfill({ json: FORMAL_BOX }));
+  await page.route("**/api/mail/conversations**", (route) => route.fulfill({ json: { conversations: [longThread.conversation] } }));
+  await page.route("**/api/mail/conversations/*", (route) => route.fulfill({ json: longThread }));
+  await page.route("**/api/home/board**", (route) => route.fulfill({ json: BOARD }));
+  await page.goto("/mail?c=3901");
+
+  const body = page.locator("[data-mail-summary-body]");
+  await expect(body).toBeVisible();
+  const toggle = page.locator("[data-mail-summary-toggle]");
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toHaveText("展开全文");
+  expect(await body.evaluate((el) => el.clientHeight < el.scrollHeight)).toBe(true);
+
+  await toggle.click();
+  await expect(toggle).toHaveText("收起");
+  expect(await body.evaluate((el) => el.clientHeight >= el.scrollHeight - 1)).toBe(true);
+});

@@ -11096,3 +11096,54 @@ button.today-brief-primary-btn:disabled {
 .mail-page .mail-title-row h1 { font-size: 20px; font-weight: 600; }
 .mail-page .mail-hero-sub { font-size: 12.5px; }
 .mail-page .mail-hero > .muted { font-size: 12px; }
+
+/* ── Polish pass: row density, pane hierarchy, clamped digests ───────────── */
+/* List rows read as table rows, not cards. */
+.mail-page .mail-row {
+  padding: 9px 14px;
+  gap: 2px 10px;
+  border: 0;
+  border-bottom: 1px solid #ECECF0;
+  border-radius: 0;
+  background: transparent;
+}
+.mail-page .mail-row:last-child { border-bottom: 0; }
+.mail-page .mail-row:hover { background: #F7F8FA; }
+.mail-page .mail-row.is-selected { border-bottom-color: #ECECF0; }
+.mail-page .mail-row-avatar { width: 34px; height: 34px; font-size: 12px; line-height: 34px; }
+.mail-page .mail-row { grid-template-columns: 34px minmax(0, 1fr) auto; }
+
+/* Conversation header sits above a hairline; actions stick to the bottom. */
+.mail-page .mail-thread-head {
+  padding: 0 0 12px;
+  margin: 0 0 12px;
+  border-bottom: 1px solid #ECECF0;
+}
+.mail-page .mail-thread-actions {
+  position: sticky;
+  bottom: 0;
+  margin-top: 4px;
+  padding: 10px 0 0;
+  border-top: 1px solid #ECECF0;
+  background: #FFFFFF;
+}
+
+/* Long digests clamp to six lines with an explicit expand toggle. */
+.mail-page .mail-side-body { line-height: 1.55; }
+.mail-page .mail-side-body.is-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.mail-page .mail-more-toggle {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--primary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.mail-page .mail-more-toggle:hover { text-decoration: underline; }
