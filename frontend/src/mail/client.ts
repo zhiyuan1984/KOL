@@ -164,22 +164,50 @@ export function normalizeThread(raw: Record<string, unknown>, mailbox = ""): Mai
   };
 }
 
+/** Optional display label only: an unanswered binding lookup must not pin the page. */
+const OWNER_LOOKUP_TIMEOUT_MS = 2_000;
+
 async function decorateOwner(box: MailBox): Promise<MailBox> {
   if (box.owner_name || !box.mailbox) return box;
-  const binding = await api.starryBinding().catch(() => null as StarryBinding | null);
+  const binding = await Promise.race([
+    api.starryBinding().catch(() => null as StarryBinding | null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), OWNER_LOOKUP_TIMEOUT_MS)),
+  ]);
   const owner = text(binding?.owner_name);
   return owner ? { ...box, owner_name: owner } : box;
 }
 
 /**
  * Display/analyze only. Never mix board threads into an `/api/mail` list.
- * The conversations endpoint already LEFT JOINs collaborations and returns
- * kol_uid / handle, so this is a no-op kept for the call-site shape. It must
- * not fetch /api/home/board: that payload is multi-megabyte and waiting on it
- * pinned the mail page at the skeleton state.
+ * Best-effort with a hard timeout: /api/home/board can be multi-megabyte and
+ * must never hold the mail list hostage — it only fills kol_uid/handle so the
+ * 分析 action can name the people.
  */
+const BOARD_LOOKUP_TIMEOUT_MS = 1_500;
+
 async function decorateAnalyzePeople(conversations: MailConversation[]): Promise<MailConversation[]> {
-  return conversations;
+  const need = conversations.some((row) => row.collaboration_id && !row.kol_uid && !row.handle);
+  if (!need) return conversations;
+  const board = await Promise.race([
+    api.homeBoard().catch(() => null as BoardMailFallback | null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), BOARD_LOOKUP_TIMEOUT_MS)),
+  ]);
+  if (!board) return conversations;
+  const byId = new Map<string, { kol_uid?: string; handle?: string }>();
+  for (const kol of board?.kols || []) {
+    const id = text(kol.id);
+    if (!id) continue;
+    const handle = text(kol.handle || kol.kol_name).replace(/^@/, "");
+    byId.set(id, {
+      kol_uid: text(kol.kol_uid) || handle || undefined,
+      handle: handle || undefined,
+    });
+  }
+  return conversations.map((row) => {
+    if (!row.collaboration_id || row.kol_uid || row.handle) return row;
+    const extra = byId.get(row.collaboration_id);
+    return extra ? { ...row, ...extra } : row;
+  });
 }
 
 async function loadFallbackWorkspace(): Promise<MailWorkspace> {

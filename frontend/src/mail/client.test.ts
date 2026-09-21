@@ -171,8 +171,37 @@ describe("thread hydrate polling", () => {
   });
 });
 
+describe("mail workspace load must not hang on an unanswered binding lookup", () => {
+  it("returns the box even when starryBinding never resolves", async () => {
+    vi.resetModules();
+    vi.doMock("../api", () => ({
+      api: {
+        mailBox: vi.fn(async () => ({
+          mailbox: "larry.zhao@amperetime.com",
+          bound: true,
+          unread: 1,
+          synced_at: "2026-09-20T03:00:00.000Z",
+          error: null,
+        })),
+        mailConversations: vi.fn(async () => ({ conversations: [] })),
+        // The binding endpoint paints an optional owner label; an unanswered
+        // request must not pin the whole page at the loading skeleton.
+        starryBinding: vi.fn(() => new Promise(() => { /* never resolves */ })),
+        homeBoard: vi.fn(() => new Promise(() => { /* never resolves */ })),
+      },
+    }));
+    const { loadMailWorkspace } = await import("./client");
+    const workspace = await Promise.race([
+      loadMailWorkspace(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
+    ]);
+    expect(workspace).not.toBeNull();
+    expect(workspace?.box.bound).toBe(true);
+  }, 10000);
+});
+
 describe("mail workspace load must not block on the heavy board call", () => {
-  it("returns the list from local memory even when homeBoard never resolves", async () => {
+  it("returns the list even when homeBoard never resolves (bounded decoration)", async () => {
     vi.resetModules();
     vi.doMock("../api", () => ({
       api: {
@@ -203,10 +232,18 @@ describe("mail workspace load must not block on the heavy board call", () => {
       },
     }));
     const { loadMailWorkspace } = await import("./client");
-    const workspace = await loadMailWorkspace();
-    expect(workspace.box.bound).toBe(true);
-    expect(workspace.box.mailbox).toBe("larry.zhao@amperetime.com");
-    expect(workspace.conversations).toHaveLength(1);
-    expect(workspace.conversations[0].conversation_id).toBe("267");
+    const started = Date.now();
+    const workspace = await Promise.race([
+      loadMailWorkspace(),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
+    ]);
+    // The analyst decoration is best-effort: it may fetch the board, but it
+    // must resolve well inside the timeout instead of hanging the list.
+    expect(workspace).not.toBeNull();
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(workspace?.box.bound).toBe(true);
+    expect(workspace?.box.mailbox).toBe("larry.zhao@amperetime.com");
+    expect(workspace?.conversations).toHaveLength(1);
+    expect(workspace?.conversations[0].conversation_id).toBe("267");
   });
 });
