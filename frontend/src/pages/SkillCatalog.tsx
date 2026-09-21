@@ -341,7 +341,7 @@ const RISK_LABEL: Record<"read" | "write", string> = { read: "只读", write: "�
  */
 const ASYNC_SKILL_IDS = new Set(["creator_discovery"]);
 
-/** 「挂到输入框」的语义图标：箭头进入输入区。用 SVG，不用 emoji 或文字符号当图标。 */
+/** 「填入输入框」的语义图标：箭头进入输入区。用 SVG，不用 emoji 或文字符号当图标。 */
 function AddToComposerIcon() {
   return (
     <svg viewBox="0 0 24 24" className="skill-link-svg" aria-hidden>
@@ -410,11 +410,16 @@ function SkillCard({
       )}
       {/* 卡片只保留一个动作，走链接式（语义图标 + 常驻下划线），不再占用一整行按钮位。
           「新建会话」已移除——部分技能需要先填参数，直接开会话是错误承诺。
-          注：「挂到输入框」的命名待产品经理给出正式名。 */}
+          动作名定为「填入输入框」：它只把技能填进输入框，补完参数后由员工自己发送，不含执行。 */}
       <div className="skill-card-actions" onClick={(e) => e.stopPropagation()}>
-        <button type="button" className="skill-link" onClick={() => onUse(skill)}>
+        <button
+          type="button"
+          className="skill-link"
+          title="把这项技能填进输入框，补完参数后由你发送"
+          onClick={() => onUse(skill)}
+        >
           <AddToComposerIcon />
-          挂到输入框
+          填入输入框
         </button>
       </div>
     </div>
@@ -436,6 +441,21 @@ function ExpandIcon({ wide }: { wide: boolean }) {
         strokeWidth="1.7"
         strokeLinecap="round"
         strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/** 关闭图标。不用 `✕` 文字符号——§5 规则 8 要求图标必须是 SVG，且必须落在尺寸阶梯里。 */
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="skill-detail-close-svg" aria-hidden>
+      <path
+        d="M6.5 6.5l11 11M17.5 6.5l-11 11"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
       />
     </svg>
   );
@@ -489,7 +509,7 @@ function SkillDetail({
           aria-label="关闭技能详情"
           onClick={onClose}
         >
-          ✕
+          <CloseIcon />
         </button>
       </div>
 
@@ -608,13 +628,15 @@ function SkillDetail({
       </div>
 
       <div className="skill-detail-footer">
-        {/* 本视口唯一的实底主 CTA（§5 规则 1）。「新建会话」已移除（§5 规则 16）。 */}
+        {/* 本视口唯一的实底主 CTA（§5 规则 1）。动作名与卡片统一为「填入输入框」。
+            「新建会话」已移除（§5 规则 16）。 */}
         <button
           type="button"
           className="skill-btn skill-btn-primary skill-btn-large"
+          title="把这项技能填进输入框，补完参数后由你发送"
           onClick={() => onInsert(skill)}
         >
-          插入当前会话
+          填入输入框
         </button>
       </div>
     </div>

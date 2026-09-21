@@ -290,4 +290,40 @@ test.describe("观感与密度修复", () => {
     const deco = await page.locator(".skill-group-more").first().evaluate((el) => getComputedStyle(el).textDecorationLine);
     expect(deco).toContain("underline");
   });
+
+  test("§5 规则 17：图标只有两档尺寸，无第三档", async ({ page }) => {
+    const m = await page.evaluate(() => {
+      const cs = getComputedStyle(document.documentElement);
+      const allowed = [cs.getPropertyValue("--icon-sm").trim(), cs.getPropertyValue("--icon-md").trim()].map((v) =>
+        Math.round(Number.parseFloat(v)),
+      );
+      const svgs = [...document.querySelectorAll<SVGSVGElement>("[data-skill-catalog] svg")];
+      // 忽略 display:none 的图标（桌面端隐藏的关闭按钮），其 rect 宽度是 0，不是一种"尺寸"。
+      const got = [
+        ...new Set(
+          svgs.map((s) => Math.round(s.getBoundingClientRect().width)).filter((w) => w > 0),
+        ),
+      ].sort((a, b) => a - b);
+      return { allowed, got, n: svgs.length };
+    });
+    expect(m.n, "页面里应当有图标").toBeGreaterThan(0);
+    expect(m.got.length, `SVG 宽度出现 ${JSON.stringify(m.got)} 种，只许两档`).toBeLessThanOrEqual(2);
+    for (const w of m.got) expect(m.allowed, `${w}px 不在图标阶梯内`).toContain(w);
+  });
+
+  test("§5 规则 18：本页计算色值 ≤ 20 种（反灰/粉扩散）", async ({ page }) => {
+    const r = await page.evaluate(() => {
+      const set = new Set<string>();
+      const skip = new Set(["rgba(0, 0, 0, 0)", "transparent"]);
+      for (const el of document.querySelectorAll<HTMLElement>("[data-skill-catalog] *")) {
+        const cs = getComputedStyle(el);
+        for (const p of ["color", "backgroundColor", "borderTopColor", "borderLeftColor"] as const) {
+          const v = cs[p];
+          if (!skip.has(v)) set.add(v);
+        }
+      }
+      return { count: set.size, values: [...set].sort() };
+    });
+    expect(r.count, `本页出现 ${r.count} 种色值：\n${r.values.join("\n")}`).toBeLessThanOrEqual(20);
+  });
 });

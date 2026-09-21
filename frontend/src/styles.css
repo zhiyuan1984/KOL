@@ -10839,6 +10839,37 @@ button.today-brief-primary-btn:disabled {
   }
 }
 
+/* ── 图标尺寸阶梯（§5 规则 17）────────────────────────────────
+   本页原先混用 14 / 16 / 17px 三种裸像素值，且无 token、无验收。
+   现在只有两档 + 一个图标按钮边长；下面用页面级覆盖收口，
+   不改各规则里的裸值，以免连带影响别的页面（全文件还有 3 处同类裸值属于邮件页等）。 */
+:root {
+  --icon-sm: 14px; /* 控件内图标：按钮、行内动作、输入框、头像 */
+  --icon-md: 18px; /* 标识砖内图标：卡片 / 分组 */
+  --icon-btn: 24px; /* 图标按钮的方形边长（= --control-h-sm） */
+}
+
+.skill-catalog-page .skill-search-wrap svg,
+.skill-catalog-page .skill-link-svg,
+.skill-catalog-page .skill-detail-toggle-svg,
+.skill-catalog-page .skill-detail-close-svg,
+.skill-catalog-page .skill-preview-avatar svg {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+}
+
+.skill-catalog-page .skill-card-svg,
+.skill-catalog-page .skill-group-svg {
+  width: var(--icon-md);
+  height: var(--icon-md);
+}
+
+.skill-detail-toggle,
+.skill-detail-close {
+  width: var(--icon-btn);
+  height: var(--icon-btn);
+}
+
 /* ── T6：Result toolbar + Creator lead row（框线稿 §页面结构 3/4、§组件、§Auto Layout） ── */
 .discovery-run-bar {
   display: flex;
