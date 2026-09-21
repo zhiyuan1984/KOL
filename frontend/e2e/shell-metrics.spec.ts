@@ -92,6 +92,7 @@ async function collectShellMetrics(page: Page) {
 }
 
 type ComposerBox = {
+  width: number;
   minHeight: number;
   radius: number;
   borderTopWidth: number;
@@ -102,6 +103,7 @@ async function composerBox(page: Page, root: string): Promise<ComposerBox> {
   return page.locator(`${root} [data-composer] .composer`).evaluate((el) => {
     const cs = getComputedStyle(el);
     return {
+      width: el.getBoundingClientRect().width,
       minHeight: Number.parseFloat(cs.minHeight),
       radius: Number.parseFloat(cs.borderTopLeftRadius),
       borderTopWidth: Number.parseFloat(cs.borderTopWidth),
@@ -233,37 +235,60 @@ test("desktop employee shell computed 260 rail and Codex Regular type", async ({
   const composer = await typeOf(page, "[data-home] [data-composer-input]");
   expect(composer.fontSize).toBe(16);
   expect(composer.fontWeight).toBeLessThanOrEqual(400);
-  // Idle Home is the workspace footer (composer.css §11): square and borderless,
-  // its only edge the dock's top hairline — the box itself draws nothing.
+  // §10b is one state: the ask box loads as the rounded 200px column centred in
+  // the dock. The old "square borderless footer until you click" flip is gone.
   const idleBox = await composerBox(page, "[data-home]");
-  expect(idleBox.radius).toBeLessThanOrEqual(1);
-  expect(idleBox.borderTopWidth).toBe(0);
-  const composerRadius = idleBox.radius;
-
-  // §10b writing state: focusing the box promotes the footer bar to the page's
-  // focal surface — preview height, rounded corners and a real 1px border.
-  await page.locator("[data-home] [data-composer-input]").click();
-  await expect(page.locator("[data-home]")).toHaveClass(/is-composer-focused/);
-  await settleComposer(page, "[data-home]");
-  const writingBox = await composerBox(page, "[data-home]");
-  expect(writingBox.minHeight).toBeGreaterThanOrEqual(200);
-  expect(writingBox.radius).toBeGreaterThanOrEqual(26);
-  expect(writingBox.radius).toBeLessThanOrEqual(30);
-  expect(writingBox.borderTopWidth).toBeGreaterThan(0);
-  const composerBorderChannels = writingBox.borderColor.match(/\d+/g)?.map(Number) ?? [];
+  expect(idleBox.minHeight).toBeGreaterThanOrEqual(200);
+  expect(idleBox.minHeight).toBeLessThanOrEqual(210);
+  expect(idleBox.radius).toBeGreaterThanOrEqual(26);
+  expect(idleBox.radius).toBeLessThanOrEqual(30);
+  expect(idleBox.borderTopWidth).toBe(1);
+  const composerBorderChannels = idleBox.borderColor.match(/\d+/g)?.map(Number) ?? [];
   expect(composerBorderChannels.length).toBeGreaterThanOrEqual(3);
   for (const channel of composerBorderChannels.slice(0, 3)) {
     expect(Math.abs(channel - 229)).toBeLessThanOrEqual(16);
   }
+  const composerRadius = idleBox.radius;
+  // The 768px cap is the contract; the full-bleed bar the user rejected was wider.
+  expect(idleBox.width).toBeLessThanOrEqual(768);
+  expect(idleBox.width).toBeGreaterThanOrEqual(766);
 
-  // Focus is what flips the state, so leaving the box puts the footer bar back
-  // and the viewport work below (plus its screenshots) runs against the idle dock.
+  const centring = await page.evaluate(() => {
+    const dockEl = document.querySelector("[data-home] .home-composer-dock");
+    const composerEl = document.querySelector("[data-home] [data-composer] .composer");
+    if (!(dockEl instanceof HTMLElement) || !(composerEl instanceof HTMLElement)) return null;
+    const dockCs = getComputedStyle(dockEl);
+    const dockRect = dockEl.getBoundingClientRect();
+    const composerRect = composerEl.getBoundingClientRect();
+    return {
+      gapLeft: composerRect.left - (dockRect.left + parseFloat(dockCs.borderLeftWidth) + parseFloat(dockCs.paddingLeft)),
+      gapRight: dockRect.right - parseFloat(dockCs.borderRightWidth) - parseFloat(dockCs.paddingRight) - composerRect.right,
+    };
+  });
+  expect(centring).toBeTruthy();
+  // Equal gaps inside the dock's content box — centred, not pinned to an edge.
+  expect(Math.abs(centring!.gapLeft - centring!.gapRight)).toBeLessThanOrEqual(2);
+
+  // Focus still toggles is-composer-focused (it dims neighbouring panels), but it
+  // must no longer move the box. Comparing the focused read against the idle one
+  // is the regression test for the jump the user reported.
+  await page.locator("[data-home] [data-composer-input]").click();
+  await expect(page.locator("[data-home]")).toHaveClass(/is-composer-focused/);
+  await settleComposer(page, "[data-home]");
+  const focusedBox = await composerBox(page, "[data-home]");
+  expect(focusedBox.minHeight).toBe(idleBox.minHeight);
+  expect(focusedBox.radius).toBe(idleBox.radius);
+  expect(focusedBox.borderTopWidth).toBe(idleBox.borderTopWidth);
+  expect(Math.abs(focusedBox.width - idleBox.width)).toBeLessThanOrEqual(1);
+
   await page.locator("[data-home] [data-composer-input]").blur();
   await expect(page.locator("[data-home]")).not.toHaveClass(/is-composer-focused/);
   await settleComposer(page, "[data-home]");
-  const restoredBox = await composerBox(page, "[data-home]");
-  expect(restoredBox.radius).toBeLessThanOrEqual(1);
-  expect(restoredBox.borderTopWidth).toBe(0);
+  const blurredBox = await composerBox(page, "[data-home]");
+  expect(blurredBox.minHeight).toBe(idleBox.minHeight);
+  expect(blurredBox.radius).toBe(idleBox.radius);
+  expect(blurredBox.borderTopWidth).toBe(idleBox.borderTopWidth);
+  expect(Math.abs(blurredBox.width - idleBox.width)).toBeLessThanOrEqual(1);
 
   await page.locator(".collapse-toggle").click();
   await expect(page.locator(".workbench")).toHaveClass(/sidebar-collapsed/);

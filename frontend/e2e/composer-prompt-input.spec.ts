@@ -90,27 +90,40 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
     if (!(pane instanceof HTMLElement) || !(dockEl instanceof HTMLElement) || !(composer instanceof HTMLElement)) {
       return null;
     }
+    const dockCs = getComputedStyle(dockEl);
+    const dockRect = dockEl.getBoundingClientRect();
+    const composerRect = composer.getBoundingClientRect();
+    const contentLeft = dockRect.left + parseFloat(dockCs.borderLeftWidth) + parseFloat(dockCs.paddingLeft);
+    const contentRight = dockRect.right - parseFloat(dockCs.borderRightWidth) - parseFloat(dockCs.paddingRight);
     return {
       pane: pane.getBoundingClientRect().width,
-      dock: dockEl.getBoundingClientRect().width,
-      composer: composer.getBoundingClientRect().width,
+      dock: dockRect.width,
+      composer: composerRect.width,
+      gapLeft: composerRect.left - contentLeft,
+      gapRight: contentRight - composerRect.right,
       overflowX: getComputedStyle(pane).overflowX,
     };
   });
   expect(layout).toBeTruthy();
-  // The 768px cap belongs to the centered / compact composer modes. On Home the
-  // ask box is the workspace footer bar (composer.css §11), so it spans the
-  // content width; the footer contract is "composer never exceeds its dock".
+  // §10b: the ask box is a 768px centred column. The full-bleed footer bar that
+  // spanned the whole content width was rejected, so the cap is the contract.
+  expect(layout!.composer).toBeLessThanOrEqual(768);
+  expect(layout!.composer).toBeGreaterThanOrEqual(766);
   expect(layout!.composer).toBeLessThanOrEqual(layout!.dock);
   expect(layout!.overflowX).not.toBe("scroll");
+  // ...and it is centred in the dock's content box, not pinned to one edge.
+  expect(Math.abs(layout!.gapLeft - layout!.gapRight)).toBeLessThanOrEqual(2);
 
   const chrome = await composerChrome(page, "[data-home]");
-  expect(parseFloat(chrome.minHeight)).toBeGreaterThanOrEqual(52);
-  expect(parseFloat(chrome.minHeight)).toBeLessThanOrEqual(64);
-  // Idle Home is the workspace footer (§11): square and borderless, its only
-  // edge being the dock's top hairline — the box itself draws nothing.
-  expect(parseFloat(chrome.radius)).toBeLessThanOrEqual(1);
-  expect(parseFloat(chrome.borderTopWidth)).toBe(0);
+  // §10b is one state: the ask box is already the rounded 200px surface when the
+  // page loads. The old "square borderless footer until you click" flip is gone
+  // — that jump is exactly what the user rejected.
+  expect(parseFloat(chrome.minHeight)).toBeGreaterThanOrEqual(200);
+  expect(parseFloat(chrome.minHeight)).toBeLessThanOrEqual(210);
+  expect(parseFloat(chrome.radius)).toBeGreaterThanOrEqual(26);
+  expect(parseFloat(chrome.radius)).toBeLessThanOrEqual(30);
+  expect(parseFloat(chrome.borderTopWidth)).toBe(1);
+  near(rgb(chrome.borderColor) as number[], [229, 229, 229], 16);
   near(rgb(chrome.background) as number[], [255, 255, 255]);
   near(rgb(chrome.placeholderColor) as number[], [138, 138, 138], 16);
   expect(chrome.placeholderSize).toBe("16px");
@@ -119,28 +132,32 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   expect(chrome.plusBg).toMatch(/rgba\(\s*0,\s*0,\s*0,\s*0\s*\)|transparent/);
   near(rgb(chrome.sendColor) as number[], [180, 180, 180], 24);
 
-  // §10b writing state: focusing the box promotes the footer bar to the page's
-  // focal surface — preview height, rounded corners and a real 1px border.
-  // Measuring again after focus is what shows the two states differ rather than
-  // sharing one set of tokens.
+  // The 分析跟进 / 开始发现 / 安排今天 row was removed from the ask box. Only the
+  // plural wrapper is asserted away: the singular .home-composer-pill still
+  // backs the 推荐技能 row at the top of Home and must stay.
+  await expect(page.locator("[data-home-composer-pills]")).toHaveCount(0);
+  await expect(page.locator("[data-home] .home-composer-dock .home-composer-pill")).toHaveCount(0);
+
+  // Focus still toggles is-composer-focused (it dims neighbouring panels), but it
+  // must no longer move the box. Comparing the focused read against the idle one
+  // is the regression test for the jump the user reported.
   await page.locator("[data-home] [data-composer-input]").click();
   await expect(page.locator("[data-home]")).toHaveClass(/is-composer-focused/);
   await settleComposer(page, "[data-home]");
-  const writing = await composerChrome(page, "[data-home]");
-  expect(parseFloat(writing.minHeight)).toBeGreaterThanOrEqual(200);
-  expect(parseFloat(writing.radius)).toBeGreaterThanOrEqual(26);
-  expect(parseFloat(writing.radius)).toBeLessThanOrEqual(30);
-  expect(parseFloat(writing.borderTopWidth)).toBeGreaterThan(0);
-  near(rgb(writing.borderColor) as number[], [229, 229, 229], 16);
+  const focusedChrome = await composerChrome(page, "[data-home]");
+  expect(parseFloat(focusedChrome.minHeight)).toBe(parseFloat(chrome.minHeight));
+  expect(parseFloat(focusedChrome.radius)).toBe(parseFloat(chrome.radius));
+  expect(parseFloat(focusedChrome.borderTopWidth)).toBe(parseFloat(chrome.borderTopWidth));
+  expect(Math.abs(focusedChrome.width - chrome.width)).toBeLessThanOrEqual(1);
 
-  // Focus is what flips the state, so leaving the box puts the footer bar back
-  // and the rest of this flow runs against the idle dock it was written for.
   await page.locator("[data-home] [data-composer-input]").blur();
   await expect(page.locator("[data-home]")).not.toHaveClass(/is-composer-focused/);
   await settleComposer(page, "[data-home]");
-  const restored = await composerChrome(page, "[data-home]");
-  expect(parseFloat(restored.radius)).toBeLessThanOrEqual(1);
-  expect(parseFloat(restored.borderTopWidth)).toBe(0);
+  const blurredChrome = await composerChrome(page, "[data-home]");
+  expect(parseFloat(blurredChrome.minHeight)).toBe(parseFloat(chrome.minHeight));
+  expect(parseFloat(blurredChrome.radius)).toBe(parseFloat(chrome.radius));
+  expect(parseFloat(blurredChrome.borderTopWidth)).toBe(parseFloat(chrome.borderTopWidth));
+  expect(Math.abs(blurredChrome.width - chrome.width)).toBeLessThanOrEqual(1);
 
   await page.locator("[data-home] [data-attach]").click();
   const menu = page.getByRole("menu", { name: "添加内容" });

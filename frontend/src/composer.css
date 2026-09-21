@@ -386,7 +386,7 @@
 .home-pane.is-composer-dock .home-composer-dock {
   flex: 0 0 auto;
   justify-content: flex-end;
-  width: min(100%, var(--content-max));
+  width: 100%;
   max-width: none;
   padding-top: 14px;
   border-top: 1px solid var(--border);
@@ -397,24 +397,25 @@
   width: 100%;
   max-width: none;
 }
-/* §11: the ask box is the workspace footer bar — square, borderless, its only
-   edge is the dock's top hairline. */
-.home-pane.is-composer-dock .home-composer-dock .composer.composer--workspace {
-  border: 0;
-  border-radius: 0;
-  box-shadow: none;
-}
-.home-pane.is-composer-dock .home-composer-dock .composer.composer--workspace:focus-within,
-.home-pane.is-composer-dock .home-composer-dock .composer.composer--workspace.is-focused {
-  box-shadow: none;
+/* 2026-09-21 产品确认：提问区默认就是圆角盒（单态）。原来那条「方角、无边框、
+   只靠 dock 顶部发丝线定形」的页脚覆盖已删除，不再有「点一下才变成盒子」跳变。 */
+.home-pane.is-composer-dock .home-composer-dock .composer.composer--workspace,
+.home-composer-dock .composer.composer--workspace,
+.session-composer.prompt-input .composer.composer--workspace {
+  width: 100%;
+  max-width: var(--composer-maxw, 768px);
+  margin-inline: auto;
+  min-height: var(--composer-default-min, 200px);
+  max-height: var(--composer-max-height, 420px);
+  padding: 22px 24px 12px;
+  border: 1px solid var(--composer-border);
+  border-radius: 28px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .08);
 }
 
-/* §10b Composer growth. Idle, the ask box is the workspace footer: 56px, square,
-   borderless, its only edge the dock's top hairline (§11). The moment the user
-   writes in it the same box becomes the page's focal surface — so the roomy
-   metrics, the border and the preview height belong to the writing states only,
-   never to the idle footer. Text past --composer-text-max stays inside the
-   editor: the textarea scrolls and the toolbar never moves. */
+
+/* §10b Composer shell — 单态。盒子 768 宽居中、200px 起、工具栏沉底；
+   文字超过 --composer-text-max 只在编辑器内部滚动，工具栏永不移动。 */
 .composer,
 .composer.composer--workspace,
 .home-composer-dock .composer,
@@ -422,51 +423,14 @@
   --composer-line-height: 26px;
   --composer-text-max: 336px;
   --composer-max-height: 420px;
-  --composer-toolbar-h: 36px;
-}
-
-.composer.composer--workspace.is-focused,
-.home-pane.is-composer-focused .composer.composer--workspace,
-/* The session composer carries its own idle metrics in styles.css at higher
-   specificity, so the writing state has to match that specificity to win —
-   otherwise Chat keeps the 220px cap and only Home grows. */
-.session-composer.prompt-input .composer.composer--workspace.is-focused,
-.session-composer.prompt-input .composer.composer--workspace:focus-within {
   --composer-toolbar-h: 44px;
-  min-height: var(--composer-focus-min, 200px);
-  max-height: var(--composer-max-height, 420px);
-  padding: 22px 24px 12px;
 }
 
-.home-pane.is-composer-reading:not(.is-composer-focused) .composer.composer--workspace {
-  min-height: var(--composer-reading-min, 120px);
-}
-
-.composer.composer--workspace.is-focused textarea,
-.home-pane.is-composer-focused .composer.composer--workspace textarea,
-.session-composer.prompt-input .composer.composer--workspace.is-focused textarea {
+/* 编辑器自身的地板高度：盒子已固定 200px 起，这里只保证写字时编辑区不塌。 */
+.composer.composer--workspace textarea,
+.home-composer-dock .composer.composer--workspace textarea,
+.session-composer.prompt-input .composer.composer--workspace textarea {
   min-height: 60px;
-}
-
-/* Writing states get the box back: the footer bar becomes a rounded surface. */
-.home-pane.is-composer-dock.is-composer-focused .home-composer-dock .composer.composer--workspace {
-  border: 1px solid var(--composer-border);
-  border-radius: 28px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, .08);
-}
-.home-pane.is-composer-dock.is-composer-focused .home-composer-dock .composer.composer--workspace:focus-within {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, .08);
-}
-
-.home-composer-pills {
-  display: flex;
-  flex-wrap: nowrap;
-  justify-content: flex-start;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-  width: 100%;
-  overflow: hidden;
 }
 
 .home-composer-pill {

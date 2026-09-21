@@ -2296,53 +2296,6 @@ export default function Home() {
           objectRefs={objectRefs}
           onObjectRefsChange={setObjectRefs}
         />
-        <div className="home-composer-pills" data-home-composer-pills>
-          <button
-            type="button"
-            className="home-composer-pill"
-            data-home-pill="analyze"
-            onClick={() => {
-              setMode("lifecycle");
-              setEntryIntent("analyze_followed");
-              setText("分析跟进中的红人");
-              setLockedIntent(null);
-              setLockedLabel("分析跟进");
-              setComposerFocused(true);
-              setDraftFocus((value) => value + 1);
-              stashComposerDraft({
-                text: "分析跟进中的红人",
-                intent: "analyze_followed",
-                client_entry: "enqueue-analyze",
-              });
-            }}
-          >
-            分析跟进
-          </button>
-          <button
-            type="button"
-            className="home-composer-pill"
-            data-home-pill="discover"
-            onClick={() => void openDiscoveryTemplate()}
-          >
-            开始发现
-          </button>
-          <button
-            type="button"
-            className="home-composer-pill"
-            data-home-pill="plan-today"
-            onClick={() => {
-              setMode("today");
-              setEntryIntent("free");
-              setText("安排今天");
-              setLockedIntent(null);
-              setLockedLabel("安排今天");
-              setComposerFocused(true);
-              setDraftFocus((value) => value + 1);
-            }}
-          >
-            安排今天
-          </button>
-        </div>
       </div>
 
       {panelOpen && (

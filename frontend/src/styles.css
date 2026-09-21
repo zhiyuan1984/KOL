@@ -3417,8 +3417,8 @@ summary:focus-visible,
   padding: 10px 16px 8px;
   gap: 6px;
 }
-.home-pane.is-composer-reading .composer--workspace { min-height: var(--composer-reading-min, 120px); }
-.home-pane.is-composer-focused .composer--workspace { min-height: var(--composer-focus-min, 200px); }
+.home-pane.is-composer-reading .composer--workspace { min-height: var(--composer-default-min, 200px); }
+.home-pane.is-composer-focused .composer--workspace { min-height: var(--composer-default-min, 200px); }
 .composer--workspace textarea {
   min-height: 40px;
   max-height: var(--composer-text-max, 336px);
@@ -3952,8 +3952,8 @@ summary:focus-visible,
   line-height: var(--composer-line-height, 26px);
   text-align: left;
 }
-.home-pane.is-composer-reading .composer.composer--workspace { min-height: var(--composer-reading-min, 120px); }
-.home-pane.is-composer-focused .composer.composer--workspace { min-height: var(--composer-focus-min, 200px); }
+.home-pane.is-composer-reading .composer.composer--workspace { min-height: var(--composer-default-min, 200px); }
+.home-pane.is-composer-focused .composer.composer--workspace { min-height: var(--composer-default-min, 200px); }
 .home-pane.is-composer-reading:not(.is-composer-focused) .composer.composer--workspace textarea { min-height: 40px; }
 
 /* Home + session Composer share a rounded-rect, not a full pill. */

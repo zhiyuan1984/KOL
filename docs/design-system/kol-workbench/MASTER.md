@@ -33,18 +33,18 @@
 
 Composer 是产品的基础输入件：Home 与 `/s/:id` 共用同一个 `ComposerDock`（`variant="workspace"`）。样式由 `frontend/src/composer.css` 独占——它在 `main.tsx` 里**晚于** `styles.css` 导入，并自称 "last-wins tokens"；`styles.css` 里针对 Composer 的度量一律读 `composer.css` 定义的变量，两处不再各写一份数值。
 
-**高度与生长规则**（三行壳：Chip 行 / 文本行 / 工具栏）
+**尺寸与生长规则**（三行壳：Chip 行 / 文本行 / 工具栏）。**单态**：2026-09-21 产品确认，提问区默认就是下面这个圆角盒，不再有「起始是方角页脚、点一下才变成盒子」的两态跳变（原先那条 §11 方角/无边框覆盖已删除）。
 
-| 状态 | 变量 | 值 |
+| 项目 | 变量 | 值 |
 |---|---|---|
-| 停靠空闲 | `--composer-idle-min` | 56px（方角、无边框，仅靠 dock 顶发丝线分界） |
-| 阅读中 | `--composer-reading-min` | 120px |
-| 写入中（聚焦） | `--composer-focus-min` | 200px，并取回圆角与边框 |
-| 编辑区上限 | `--composer-text-max` | 336px（超出只让编辑区内部滚动） |
-| 盒子上限 | `--composer-max-height` | 420px |
-| 行高 / 工具栏高 | `--composer-line-height` / `--composer-toolbar-h` | 26px / 36px（写入态 44px） |
+| 盒子宽 | `--composer-maxw` | 768px，居中（`margin-inline: auto`） |
+| 盒子高 | `--composer-default-min` / `--composer-max-height` | 200px 起 / 420px 止 |
+| 圆角 / 描边 | `--composer-radius` / `--composer-border` | 28px / `#e5e5e5` |
+| 内边距 | — | `22px 24px 12px` |
+| 编辑区上限 / 地板 | `--composer-text-max` / — | 336px（超出只让编辑区内部滚动）/ 60px |
+| 行高 / 工具栏高 | `--composer-line-height` / `--composer-toolbar-h` | 26px / 44px |
 
-工具栏是盒子的地板：`margin-top: auto`，文字增长只吃编辑区，按钮永不被推走。**空闲态必须保持 52–64px**——`frontend/e2e/composer-prompt-input.spec.ts` 断言了这一点，抬高空闲高度会红。
+工具栏是盒子的地板：`margin-top: auto`，文字增长只吃编辑区，按钮永不被推走。宽度必须收在 768 并居中——满宽（约 959px）会把工具栏左右两簇拉到 800px 开外，2026-09-21 已按此意见收窄。`is-composer-focused` 仍会切换（用于淡化 Home 其他面板），但**不得再改变盒子的任何度量**；`frontend/e2e/composer-prompt-input.spec.ts` 与 `shell-metrics.spec.ts` 都在断言聚焦前后盒子不变。
 
 **豁免记录（与上方 Product tokens 的冲突是既成事实，此处记账）**
 
