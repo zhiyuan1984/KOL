@@ -218,7 +218,8 @@ async function loadFallbackWorkspace(): Promise<MailWorkspace> {
   return workspaceFromFallback(binding, board);
 }
 
-export async function loadMailWorkspace(boxParam?: string): Promise<MailWorkspace> {
+/** Local memory only: no optional decoration, so the list can paint at once. */
+export async function loadMailWorkspaceFast(boxParam?: string): Promise<MailWorkspace> {
   let boxRaw: Record<string, unknown>;
   let listRaw: Record<string, unknown> | Array<Record<string, unknown>>;
   try {
@@ -230,13 +231,13 @@ export async function loadMailWorkspace(boxParam?: string): Promise<MailWorkspac
     if (!isMissingEndpoint(error)) throw error;
     return loadFallbackWorkspace();
   }
-  const box = await decorateOwner(normalizeBox(boxRaw) || {
+  const box = normalizeBox(boxRaw) || {
     mailbox: "",
     bound: false,
     unread: 0,
     synced_at: null,
     error: null,
-  });
+  };
   const rows = Array.isArray(listRaw)
     ? listRaw
     : Array.isArray(listRaw.conversations)
@@ -245,14 +246,26 @@ export async function loadMailWorkspace(boxParam?: string): Promise<MailWorkspac
   return {
     source: "api",
     box,
-    conversations: await decorateAnalyzePeople(
-      rows
-        .map((row) => normalizeConversation(row, box.mailbox))
-        .filter((row): row is MailConversation => Boolean(row)),
-    ),
+    conversations: rows
+      .map((row) => normalizeConversation(row, box.mailbox))
+      .filter((row): row is MailConversation => Boolean(row)),
   };
 }
 
+/** Optional labels (owner name, kol handle): bounded, never blocks first paint. */
+export async function decorateWorkspace(workspace: MailWorkspace): Promise<MailWorkspace> {
+  if (workspace.source !== "api") return workspace;
+  const [box, conversations] = await Promise.all([
+    decorateOwner(workspace.box),
+    decorateAnalyzePeople(workspace.conversations),
+  ]);
+  return { ...workspace, box, conversations };
+}
+
+/** Convenience: fast load plus the bounded decoration (callers that do not paint twice). */
+export async function loadMailWorkspace(boxParam?: string): Promise<MailWorkspace> {
+  return decorateWorkspace(await loadMailWorkspaceFast(boxParam));
+}
 export async function loadMailThread(
   id: string,
   fallback?: MailConversation,

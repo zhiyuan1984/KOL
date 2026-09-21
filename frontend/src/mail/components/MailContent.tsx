@@ -17,9 +17,15 @@ export function MailContent({
 }) {
   const inbound = message.direction !== "outbound";
   const body = String(message.body_text || "").trim();
-  const senderName = inbound ? peerName || mailbox || "对方" : ownerName || mailbox || "我方";
+  // Mail-level sender wins: the conversation-level peer_name can hold our own
+  // owner name on threads we started, which reads as a mismatch.
+  const senderName = message.from_name
+    || (inbound ? peerName : ownerName)
+    || mailbox
+    || "对方";
   const senderEmail = message.from_addr || (inbound ? peerEmail : mailbox);
   const toAddr = message.to_addr || (inbound ? mailbox : peerEmail);
+  const showEmail = Boolean(senderEmail) && senderEmail !== senderName;
   return (
     <article
       className={"mail-content" + (inbound ? " is-in" : " is-out")}
@@ -27,16 +33,13 @@ export function MailContent({
       data-mail-content-id={message.id}
       data-mail-direction={inbound ? "inbound" : "outbound"}
     >
-      <h2 className="mail-content-subject" data-mail-content-subject>
-        {message.subject || "(无主题)"}
-      </h2>
       <header className="mail-content-meta">
         <span className={`mail-row-avatar mail-avatar-t${avatarTone(senderName)}`} aria-hidden="true">
           {initialsOf(senderName)}
         </span>
         <div className="mail-content-who">
           <strong>{senderName}</strong>
-          {senderEmail ? <span className="muted">{`<${senderEmail}>`}</span> : null}
+          {showEmail ? <span className="muted">{`<${senderEmail}>`}</span> : null}
           <span className="muted">发送给: {toAddr || "—"}</span>
         </div>
         <time className="muted" data-mail-time dateTime={message.occurred_at || undefined}>

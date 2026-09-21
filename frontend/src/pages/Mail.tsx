@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import Markdown from "../components/Markdown";
 import { api } from "../api";
-import { hydratePollDelayMs, loadMailThread, loadMailWorkspace, normalizeBox, syncMailboxMail } from "../mail/client";
+import { decorateWorkspace, hydratePollDelayMs, loadMailThread, loadMailWorkspaceFast, normalizeBox, syncMailboxMail } from "../mail/client";
 import { ConversationItem } from "../mail/components/ConversationItem";
 import { MailboxSwitcher } from "../mail/components/MailboxSwitcher";
 import { ConversationSummary } from "../mail/components/ConversationSummary";
@@ -153,10 +153,18 @@ export default function Mail() {
     setLoadState("loading");
     setError("");
     if (!opts?.keepNotice) setNotice("");
-    void loadMailWorkspace(boxParam || undefined)
+    void loadMailWorkspaceFast(boxParam || undefined)
       .then((next) => {
         setWorkspace(next);
         setLoadState("ok");
+        return next;
+      })
+      .then((next) => {
+        // Optional labels (owner name, kol handle) land behind the first paint,
+        // so a slow /me/starry-binding or board can never hold the list.
+        void decorateWorkspace(next)
+          .then((decorated) => setWorkspace((prev) => (prev === next ? decorated : prev)))
+          .catch(() => undefined);
         return next;
       })
       .catch((e) => {
@@ -409,9 +417,25 @@ export default function Mail() {
       ) : null}
 
       {loadState === "loading" ? (
-        <div className="mail-split" data-mail-state="loading" aria-busy="true">
-          <div className="mail-skeleton" />
-          <div className="mail-skeleton" />
+        <div className="mail-split mail-pane-skeleton" data-mail-state="loading" aria-busy="true">
+          <div className="mail-list">
+            <div className="mps-search" />
+            {Array.from({ length: 9 }).map((_, i) => (
+              <div key={i} className="mps-row" />
+            ))}
+          </div>
+          <div className="mail-content">
+            <div className="mps-line is-meta" />
+            <div className="mps-line is-subject" />
+            <div className="mps-line" style={{ width: "92%" }} />
+            <div className="mps-line" style={{ width: "86%" }} />
+            <div className="mps-line" style={{ width: "64%" }} />
+          </div>
+          <div className="mail-side">
+            <div className="mps-line is-block" />
+            <div className="mps-line" style={{ width: "78%" }} />
+            <div className="mps-line" style={{ width: "88%" }} />
+          </div>
         </div>
       ) : null}
 
@@ -516,9 +540,11 @@ export default function Mail() {
                         {starred ? "★" : "☆"}
                       </button>
                     </h2>
-                    <p className="muted">
+                    <p className="muted" data-mail-thread-sub>
                       {peerOf(thread.thread)}
-                      {thread.thread.peer_email ? ` · ${thread.thread.peer_email}` : ""}
+                      {thread.thread.peer_email && thread.thread.peer_email !== peerOf(thread.thread)
+                        ? ` · ${thread.thread.peer_email}`
+                        : ""}
                     </p>
                   </div>
                 </div>

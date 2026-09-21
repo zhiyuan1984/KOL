@@ -171,6 +171,25 @@ describe("thread hydrate polling", () => {
   });
 });
 
+describe("mail workspace first paint", () => {
+  it("loadMailWorkspaceFast paints local memory without waiting for decorations", async () => {
+    vi.resetModules();
+    vi.doMock("../api", () => ({
+      api: {
+        mailBox: vi.fn(async () => ({ mailbox: "larry.zhao@amperetime.com", bound: true, unread: 0, synced_at: "2026-09-20T03:00:00.000Z", error: null })),
+        mailConversations: vi.fn(async () => ({ conversations: [] })),
+        starryBinding: vi.fn(() => new Promise(() => { /* never resolves */ })),
+        homeBoard: vi.fn(() => new Promise(() => { /* never resolves */ })),
+      },
+    }));
+    const { loadMailWorkspaceFast } = await import("./client");
+    const started = Date.now();
+    const workspace = await loadMailWorkspaceFast();
+    expect(Date.now() - started).toBeLessThan(200);
+    expect(workspace.box.bound).toBe(true);
+  });
+});
+
 describe("mail workspace load must not hang on an unanswered binding lookup", () => {
   it("returns the box even when starryBinding never resolves", async () => {
     vi.resetModules();
