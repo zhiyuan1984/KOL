@@ -410,3 +410,32 @@ test("four-column workbench geometry and selected state", async ({ page }) => {
   const border = await selected.evaluate((el) => getComputedStyle(el).borderLeftWidth);
   expect(border).toBe("3px");
 });
+
+test("mail negotiation workbench: mailbox to conversation to mail, summary stays", async ({ page }) => {
+  await page.route("**/api/mail/box**", (route) => route.fulfill({ json: TWO_BOXES }));
+  await page.route("**/api/mail/conversations**", (route) => route.fulfill({ json: { conversations: [FORMAL_CONVERSATION] } }));
+  await page.route("**/api/mail/conversations/*", (route) => route.fulfill({ json: FORMAL_THREAD }));
+  await page.route("**/api/home/board**", (route) => route.fulfill({ json: BOARD }));
+  await page.goto("/mail");
+
+  // 1) switch mailbox
+  await page.locator("[data-mail-box-current]").click();
+  await page.locator('[data-mail-box-option="larry.zhao@amperetime.com"]').click();
+  await expect(page).toHaveURL(/box=larry\.zhao%40amperetime\.com/);
+
+  // 2) open the conversation and its in-conversation timeline
+  await page.locator('[data-mail-thread-row="3901"]').click();
+  await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(2);
+
+  // 3) pick the second mail: content + translation follow the message id
+  const summaryBefore = await page.locator("[data-mail-summary-body]").innerText();
+  const firstContentId = await page.locator("[data-mail-content]").getAttribute("data-mail-content-id");
+  await page.locator("[data-mail-timeline-item]").nth(1).click();
+  await expect(page).toHaveURL(/m=/);
+  await expect(page.locator("[data-mail-content]")).toHaveCount(1);
+  await expect(page.locator("[data-mail-content]")).not.toHaveAttribute("data-mail-content-id", firstContentId || "");
+  await expect(page.locator("[data-mail-translation]")).toHaveAttribute("data-mail-translation-for", /m1/);
+
+  // 4) the conversation summary follows the conversation, not the mail
+  await expect(page.locator("[data-mail-summary-body]")).toHaveText(summaryBefore);
+});
