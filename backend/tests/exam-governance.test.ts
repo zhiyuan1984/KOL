@@ -72,7 +72,7 @@ afterEach(() => {
   process.env.CODEX_MODE = "stub";
 });
 
-describe("exam governance law-v2", () => {
+describe("exam governance (PROD-PLAT-07 / CONST-02)", () => {
   it("rejects assigning a draft paper", async () => {
     const employee = await createEmployee();
     const exam = await call("POST", "/api/admin/exams", { title: "Draft only" });

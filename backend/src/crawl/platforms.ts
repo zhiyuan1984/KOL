@@ -1,8 +1,8 @@
 /**
  * Crawl platform codes accepted by Host start-crawl / ingestion.
  *
- * Overseas codes match `docs/median_mcp_server.md` (`start_crawl`:
- * YouTube, Instagram, Facebook). Domestic codes stay for legacy plans
+ * Overseas codes match `docs/07-mcp-data-contract.md` (MediaCrawler
+ * `start_crawl`: YouTube, Instagram, Facebook). Domestic codes stay for legacy plans
  * and existing snapshots. Automated crawl tests must use overseas codes
  * only and must not treat dy/xhs/ks/bili/wb/tieba/zhihu as the scenario
  * under test.

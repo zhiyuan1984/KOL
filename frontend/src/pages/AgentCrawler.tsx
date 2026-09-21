@@ -48,7 +48,7 @@ export function crawlerJobTone(status: string): CrawlerJobTone | null {
   return null;
 }
 
-/** UX-05: crawler progress must never say「正在思考」. */
+/** PROD-AGENT-09: crawler progress must never say「正在思考」. */
 export function crawlerJobStatusCopy(status: string): string {
   const tone = crawlerJobTone(status);
   if (tone === "running") return "采集中";
