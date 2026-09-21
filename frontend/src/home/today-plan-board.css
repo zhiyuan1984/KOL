@@ -38,13 +38,13 @@
 }
 .today-board-title {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--ds-font-section);
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--ds-text-strong);
 }
 .today-board-count {
-  font-size: 13px;
-  color: #6B7280;
+  font-size: var(--ds-font-sm);
+  color: var(--ds-text-dim);
 }
 .today-board-tools {
   margin-left: auto;
@@ -55,30 +55,30 @@
 }
 .today-board-search {
   border: 1px solid transparent;
-  background: #f5f5f6;
-  border-radius: 10px;
+  background: var(--ds-surface);
+  border-radius: var(--ds-radius-input);
   height: 34px;
   padding: 0 12px;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--ds-font-sm);
   color: var(--text);
   min-width: 200px;
   outline: none;
 }
 .today-board-search:focus {
-  border-color: #DB1860;
-  background: #fff;
+  border-color: var(--color-primary);
+  background: var(--bg);
 }
 .today-board-search::placeholder {
-  color: #9ca3af;
+  color: var(--ds-text-muted);
 }
 .today-board-plan-btn {
   border: 0;
-  border-radius: 10px;
-  background: #DB1860;
-  color: #fff;
+  border-radius: var(--ds-radius-input);
+  background: var(--color-primary);
+  color: var(--primary-fg);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--ds-font-sm);
   font-weight: 500;
   height: 34px;
   padding: 0 16px;
@@ -89,7 +89,7 @@
   gap: 6px;
 }
 .today-board-plan-btn:hover {
-  background: #b81451;
+  background: var(--color-primary-hover);
 }
 /* Click feedback must not wait for the first poll to come back. */
 .today-board-plan-btn.is-starting,
@@ -99,12 +99,12 @@
   cursor: progress;
 }
 .today-board-plan-btn.is-again {
-  background: #fff;
-  color: #DB1860;
-  border: 1px solid #DB1860;
+  background: var(--bg);
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
 }
 .today-board-plan-btn.is-again:hover {
-  background: #FDF0F5;
+  background: var(--color-pink-tint-soft);
 }
 .today-board-plan-spin {
   width: 12px;
@@ -128,80 +128,80 @@
   margin: 14px 0 12px;
 }
 .today-board-pill {
-  border: 1px solid #e7e7ea;
-  background: #fff;
-  color: #4b5563;
+  border: 1px solid var(--ds-border);
+  background: var(--bg);
+  color: var(--ds-text-dim);
   font: inherit;
-  font-size: 13px;
-  border-radius: 999px;
+  font-size: var(--ds-font-sm);
+  border-radius: var(--ds-radius-tag);
   padding: 5px 14px;
   cursor: pointer;
   min-height: 30px;
 }
 .today-board-pill:hover {
-  border-color: #DB1860;
-  color: #DB1860;
+  border-color: var(--color-primary);
+  color: var(--color-primary);
 }
 .today-board-pill[aria-pressed="true"] {
-  background: #DB1860;
-  border-color: #DB1860;
-  color: #fff;
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--primary-fg);
 }
 
 .today-board-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: var(--ds-font-body);
 }
 .today-board-table th {
   text-align: left;
-  font-size: 12px;
+  font-size: var(--ds-font-helper);
   font-weight: 400;
-  color: #9ca3af;
+  color: var(--ds-text-muted);
   padding: 8px 10px;
-  border-bottom: 1px solid #f2f2f4;
+  border-bottom: 1px solid var(--ds-border);
   white-space: nowrap;
 }
 .today-board-table td {
   padding: 10px;
-  border-bottom: 1px solid #f7f7f9;
+  border-bottom: 1px solid var(--ds-border);
   vertical-align: middle;
 }
 .today-board-row:hover td {
-  background: #fafafb;
+  background: var(--ds-surface);
 }
 .today-board-group-row td {
   padding: 10px 10px 4px;
   border-bottom: 0;
-  font-size: 13px;
+  font-size: var(--ds-font-sm);
   font-weight: 600;
-  color: #6B7280;
-  background: #fff;
+  color: var(--ds-text-dim);
+  background: var(--bg);
 }
 .today-board-cell-index {
   width: 32px;
-  color: #9ca3af;
+  color: var(--ds-text-muted);
   font-variant-numeric: tabular-nums;
 }
 .today-board-priority {
   display: inline-block;
-  border-radius: 999px;
+  border-radius: var(--ds-radius-tag);
   padding: 2px 10px;
-  font-size: 12px;
+  font-size: var(--ds-font-helper);
   font-weight: 500;
   white-space: nowrap;
 }
 .today-board-priority.is-high {
-  color: #DB1860;
-  background: #FCE4EC;
+  color: var(--color-primary);
+  background: var(--color-pink-tint);
 }
 .today-board-priority.is-mid {
-  color: #F59E0B;
-  background: #FEF3C7;
+  color: var(--color-warning-vivid);
+  background: var(--color-warning-tint);
 }
 .today-board-priority.is-low {
-  color: #6B7280;
-  background: #f3f4f6;
+  color: var(--ds-text-dim);
+  background: var(--ds-surface);
 }
 .today-board-cell-title {
   min-width: 0;
@@ -220,7 +220,7 @@
 }
 .today-board-icon {
   flex: 0 0 auto;
-  font-size: 15px;
+  font-size: var(--ds-font-ui);
   line-height: 1;
 }
 .today-board-title {
@@ -229,7 +229,7 @@
   padding: 0;
   font: inherit;
   font-weight: 500;
-  color: #1a1a1a;
+  color: var(--ds-text-strong);
   cursor: pointer;
   text-align: left;
   max-width: 100%;
@@ -240,7 +240,7 @@
   vertical-align: middle;
 }
 .today-board-title:hover {
-  color: #DB1860;
+  color: var(--color-primary);
 }
 .today-board-meta {
   display: flex;
@@ -250,8 +250,8 @@
 }
 .today-board-why {
   margin: 0;
-  font-size: 12px;
-  color: #6B7280;
+  font-size: var(--ds-font-helper);
+  color: var(--ds-text-dim);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -266,40 +266,40 @@
   align-items: center;
   gap: 2px;
   padding: 0 7px;
-  border: 1px solid #e7e7ea;
-  border-radius: 999px;
-  font-size: 11px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-tag);
+  font-size: var(--ds-font-tag);
   line-height: 17px;
-  color: #6B7280;
-  background: #fff;
+  color: var(--ds-text-dim);
+  background: var(--bg);
 }
 .today-board-chip.is-accent {
-  color: #DB1860;
-  border-color: #f9b5c7;
-  background: #fff0f4;
+  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 8%, #fff);
 }
 .today-board-status {
   margin-left: 8px;
-  font-size: 12px;
-  color: #9ca3af;
+  font-size: var(--ds-font-helper);
+  color: var(--ds-text-muted);
 }
 .today-board-cell-actions {
   white-space: nowrap;
 }
 .today-board-open {
-  border: 1px solid #e7e7ea;
-  background: #fff;
-  color: #374151;
+  border: 1px solid var(--ds-border);
+  background: var(--bg);
+  color: var(--ds-text-dim);
   font: inherit;
-  font-size: 13px;
-  border-radius: 999px;
+  font-size: var(--ds-font-sm);
+  border-radius: var(--ds-radius-tag);
   padding: 4px 14px;
   cursor: pointer;
   min-height: 30px;
 }
 .today-board-open:hover:not(:disabled) {
-  border-color: #DB1860;
-  color: #DB1860;
+  border-color: var(--color-primary);
+  color: var(--color-primary);
 }
 .today-board-open:disabled {
   opacity: 0.55;
@@ -307,19 +307,19 @@
 }
 .today-board-edit {
   margin-left: 8px;
-  border: 1px solid #e7e7ea;
-  background: #fff;
-  color: #9ca3af;
+  border: 1px solid var(--ds-border);
+  background: var(--bg);
+  color: var(--ds-text-muted);
   font: inherit;
-  font-size: 13px;
-  border-radius: 999px;
+  font-size: var(--ds-font-sm);
+  border-radius: var(--ds-radius-tag);
   padding: 4px 14px;
   cursor: pointer;
   min-height: 30px;
 }
 .today-board-edit:hover:not(:disabled) {
-  border-color: #c9cdd4;
-  color: #4b5563;
+  border-color: var(--ds-border);
+  color: var(--ds-text-dim);
 }
 .today-board-edit:disabled {
   opacity: 0.55;
@@ -334,18 +334,18 @@
   margin-top: 8px;
   border: 0;
   background: none;
-  color: #6B7280;
+  color: var(--ds-text-dim);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--ds-font-sm);
   cursor: pointer;
   padding: 8px 0 4px;
 }
 .today-board-expand:hover {
-  color: #DB1860;
+  color: var(--color-primary);
 }
 .today-board-expand-chevron {
   display: inline-block;
-  font-size: 12px;
+  font-size: var(--ds-font-helper);
   transition: transform 0.15s ease;
 }
 .today-board-expand-chevron.is-up {
