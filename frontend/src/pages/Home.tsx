@@ -369,6 +369,10 @@ export default function Home() {
       setLockedLabel(null);
     }
     if (entryIntent === "discover") setEntryIntent("free");
+    // 「清除发现条件」得真的把条件清掉：条件就是正文本身，留着的话下次发送仍会命中
+    // startsWith(DISCOVERY_BODY_PREFIX) 再走一遍发现，按钮名就成了假的。判据与提交
+    // 成功后的清空一致，避免连带丢掉无关输入。
+    if (text.startsWith(DISCOVERY_BODY_PREFIX)) setText("");
   };
 
   const openDiscoveryTemplate = async () => {

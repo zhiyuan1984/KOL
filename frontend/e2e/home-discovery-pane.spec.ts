@@ -149,7 +149,10 @@ test("+ menu still opens the Composer discovery template", async ({ page }) => {
   await expect(input).toHaveValue(/不会发信/);
   await expect(input).toHaveValue(/不会改阶段/);
   await expect(input).toHaveValue(/不会编造邮箱/);
-  await expect(page.locator("[data-home] [data-discovery-lock-chip]")).toContainText("发现任务");
+  // 发现任务的标签不再展示：正文首行已经是【发现任务】，芯片只是重复标签还白占一行。
+  // 退出口改为工具栏里的「清除发现条件」，所以这里改为断言那个按钮。
+  await expect(page.locator("[data-home] [data-discovery-lock-chip]")).toHaveCount(0);
+  await expect(page.locator("[data-home] [data-composer-discovery-clear]")).toBeVisible();
   expect(posts.filter((path) => path === "/api/sessions" || path.endsWith("/from-text"))).toEqual([]);
 });
 

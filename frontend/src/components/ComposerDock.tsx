@@ -421,13 +421,8 @@ export default function ComposerDock({
 
   const railChips = useMemo(() => {
     const chips: ComposerChip[] = [];
-    if (entryIntent === "discover" || lockedIntent === DISCOVERY_INTENT || discoveryBrief) {
-      chips.push({
-        kind: "discovery",
-        id: DISCOVERY_INTENT,
-        label: lockedLabel || DISCOVERY_LOCK_LABEL,
-      });
-    }
+    // 发现任务不再出芯片：正文首行已经是【发现任务】，芯片只是重复一遍标签，还白占
+    // 一行高度。解除锁定的入口移到工具栏的「清除发现条件」。
     const seenSkills = new Set<string>();
     for (const chip of skillChips) {
       if (seenSkills.has(chip.id)) continue;
@@ -1161,6 +1156,17 @@ export default function ComposerDock({
                   onClose={() => setSkillMenuOpen(false)}
                 />
               </div>
+            ) : null}
+            {discoveryLocked && onClearDiscoveryLock ? (
+              <button
+                type="button"
+                className="composer-discovery-clear"
+                data-composer-discovery-clear
+                title="清除发现条件，退回普通提问"
+                onClick={() => onClearDiscoveryLock()}
+              >
+                清除发现条件
+              </button>
             ) : null}
           </div>
           <div className="composer-toolbar-end">

@@ -693,3 +693,25 @@
   outline: 1px solid #0d0d0d;
   outline-offset: 2px;
 }
+
+/* 发现任务锁定时的退出口。原先靠 ChipRail 里那张「发现任务」芯片的 ×，但芯片与
+   正文首行【发现任务】重复、还白占一行高度，所以挪进工具栏：不占额外高度。 */
+.composer-discovery-clear {
+  height: 28px;
+  margin-left: 2px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #6b6b6b;
+  font: inherit;
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.composer-discovery-clear:hover {
+  background: #f4f4f4;
+  color: #0d0d0d;
+}
