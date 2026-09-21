@@ -11026,3 +11026,73 @@ button.today-brief-primary-btn:disabled {
   padding-left: 8px !important;
   padding-right: 8px !important;
 }
+
+/* ── P1: workbench polish — flat white panes, restrained type, tight rhythm ──
+   Reference scale: pane titles 13/600, list rows 13, meta 12, body 13.5/1.65. */
+.mail-page { --mail-pane-radius: 8px; }
+.mail-page .mail-split { background: #FFFFFF; }
+
+/* Skeleton mirrors the real three-pane frame instead of two giant bars. */
+.mail-pane-skeleton .mps-search,
+.mail-pane-skeleton .mps-row,
+.mail-pane-skeleton .mps-line {
+  background: #EFF1F4;
+  border-radius: 6px;
+  animation: mps-pulse 1.6s ease-in-out infinite;
+}
+.mail-pane-skeleton .mps-search { height: 32px; margin: 12px 14px 10px; }
+.mail-pane-skeleton .mps-row { height: 42px; margin: 0 14px 8px; }
+.mail-pane-skeleton .mail-list { border-right: 1px solid #ECECF0; }
+.mail-pane-skeleton .mail-content { border-left: 1px solid #ECECF0; }
+.mail-pane-skeleton .mps-line { height: 10px; margin-bottom: 10px; }
+.mail-pane-skeleton .mps-line.is-meta { height: 12px; width: 46%; }
+.mail-pane-skeleton .mps-line.is-subject { height: 16px; width: 68%; margin-bottom: 16px; }
+.mail-pane-skeleton .mps-line.is-block { height: 54px; margin-bottom: 14px; }
+.mail-pane-skeleton .mail-side { background: #FFFFFF; }
+@keyframes mps-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+/* One flat white surface per pane: no card-in-card borders or shadows. */
+.mail-page .mail-side { background: #FFFFFF; padding: 14px 16px; }
+.mail-page .mail-side-card {
+  padding: 0 0 14px;
+  border: 0;
+  border-bottom: 1px solid #ECECF0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  gap: 8px;
+}
+.mail-page .mail-side-card:last-child { border-bottom: 0; padding-bottom: 0; }
+.mail-page .mail-side-card-head strong { font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
+.mail-page .mail-side-tag { font-size: 11px; }
+.mail-page .mail-side-body { font-size: 13px; line-height: 1.65; color: var(--color-ink); }
+.mail-page .mail-content-summary { font-size: 12.5px; }
+
+/* The assistant column scrolls on its own so long digests are never clipped. */
+.mail-page .mail-side {
+  max-height: calc(100vh - 210px);
+  overflow-y: auto;
+  align-content: start;
+}
+
+/* Restrained list type. */
+.mail-page .mail-row-head strong { font-size: 13px; font-weight: 600; }
+.mail-page .mail-row-subject { font-size: 13px; }
+.mail-page .mail-row-preview { font-size: 12px; color: var(--color-graphite); }
+.mail-page .mail-row-head time { font-size: 11.5px; }
+.mail-page .mail-timeline-item .mail-timeline-subject { font-size: 12.5px; }
+.mail-page .mail-timeline-item time { font-size: 11.5px; }
+
+/* Content pane. */
+.mail-page .mail-thread-head h2 { font-size: 15px; font-weight: 600; }
+.mail-page .mail-thread-head p { font-size: 12px; }
+.mail-page .mail-content { padding: 16px 18px; align-content: start; }
+.mail-page .mail-content-who strong { font-size: 13px; }
+.mail-page .mail-content-who .muted { font-size: 12px; }
+.mail-page .mail-content-meta time { font-size: 12px; }
+.mail-page .mail-content-body { font-size: 13.5px; line-height: 1.7; }
+
+/* Page header. */
+.mail-page .mail-title-row h1 { font-size: 20px; font-weight: 600; }
+.mail-page .mail-hero-sub { font-size: 12.5px; }
+.mail-page .mail-hero > .muted { font-size: 12px; }
