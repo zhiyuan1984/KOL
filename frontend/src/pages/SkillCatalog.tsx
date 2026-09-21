@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { isWriteSkill } from "../composer/catalog";
@@ -17,17 +17,21 @@ const GROUPS: { id: string; label: string; hint: string; funnel: string[] }[] = 
   { id: "exception", label: "异常旁路", hint: "风险扫描与异常处理", funnel: ["exception"] },
 ];
 
-const TABS = [
-  { id: "all", label: "全部" },
-  { id: "frequent", label: "常用" },
-  { id: "recent", label: "最近使用" },
-  { id: "recommend", label: "推荐" },
-  { id: "reach", label: "建联" },
-  { id: "intent", label: "意向" },
-  { id: "biz", label: "报价" },
-  { id: "sample", label: "寄样" },
-  { id: "settle", label: "成交" },
-  { id: "content", label: "数据分析" },
+// 筛选条分两类（shadcn TabsList ×2）：
+//   mode  = 取数口径（全部 / 常用 / 最近 / 推荐），彼此并列；
+//   stage = 业务阶段漏斗（建联 → 意向 → 报价 → 寄样 → 成交 → 内容），有先后递进关系，
+//           渲染时用 › 分隔，把这层递进显式表达出来（此前只是一排等权胶囊）。
+const TABS: { id: string; label: string; kind: "mode" | "stage" }[] = [
+  { id: "all", label: "全部", kind: "mode" },
+  { id: "frequent", label: "常用", kind: "mode" },
+  { id: "recent", label: "最近使用", kind: "mode" },
+  { id: "recommend", label: "推荐", kind: "mode" },
+  { id: "reach", label: "建联", kind: "stage" },
+  { id: "intent", label: "意向", kind: "stage" },
+  { id: "biz", label: "报价", kind: "stage" },
+  { id: "sample", label: "寄样", kind: "stage" },
+  { id: "settle", label: "成交", kind: "stage" },
+  { id: "content", label: "数据分析", kind: "stage" },
 ];
 
 const USAGE_KEY = "skill:usage";
@@ -739,7 +743,7 @@ export function SkillCatalog() {
   }, [filteredSkills]);
 
   // 「使用」＝ 只把技能挂到工作台 Composer 上：用户还能补完 Prompt 再自己发送。
-  // 不提供「直接开新会话」——部分技能需要先填参数（DESIGN.md §5 规则 16）。
+  // 不提供「直接开新会话」——部分技能需要先填参数（ui-ux-rules.md §5 规则 16）。
   const useSkill = (skill: SkillRow) => {
     recordUsage(skill.id);
     setUsage(loadUsage());
@@ -779,17 +783,26 @@ export function SkillCatalog() {
         </label>
       </header>
 
+      {/* shadcn `TabsList` ×2：口径 / 阶段各一个容器，容器承担成组控件的可见边界。 */}
       <div className="skill-tabs" role="group" aria-label="技能筛选">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            className={`skill-tab${tab === t.id ? " on" : ""}`}
-            aria-pressed={tab === t.id}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-          </button>
+        {(["mode", "stage"] as const).map((kind) => (
+          <div key={kind} className="skill-tabs-list">
+            {TABS.filter((t) => t.kind === kind).map((t, i) => (
+              <Fragment key={t.id}>
+                {kind === "stage" && i > 0 && (
+                  <span className="skill-tab-sep" aria-hidden>›</span>
+                )}
+                <button
+                  type="button"
+                  className={`skill-tab${tab === t.id ? " on" : ""}`}
+                  aria-pressed={tab === t.id}
+                  onClick={() => setTab(t.id)}
+                >
+                  {t.label}
+                </button>
+              </Fragment>
+            ))}
+          </div>
         ))}
       </div>
 

@@ -33,6 +33,10 @@
   --primary: #DB1860;
   --primary-fg: #FFFFFF;
   --primary-hover: #B81451;
+  /* 主色当文字 / 图标时必须用它（§5 规则 3）：#DB1860 在白底只有 4.87:1、在 --ds-surface 上 4.58:1，
+     都低于正文的 4.5 余量要求；本值 = color-mix(--primary 84%, #000)，实测 #B81451 白底 6.45:1 / --ds-surface 6.06:1。
+     派生而非硬写色值 —— --primary 迁移时它自动跟随（§5 规则 12）。 */
+  --primary-text: color-mix(in srgb, var(--primary) 84%, #000000);
   --danger: #c43c3c;
   --success: #2f7d73;
   --warning: #ea5504;
@@ -41,22 +45,26 @@
   --radius-md: var(--ds-radius-section);
   --control-bg: #efeff2;
   --control-pill-height: 36px;
-  /* docs/DESIGN.md §3：控件尺寸、行高与命中区下限（纯新增数值，不改动上方既有 token）。
+  /* docs/ui-ux-rules.md §3：控件尺寸、行高与命中区下限（纯新增数值，不改动上方既有 token）。
      注意 §8 的迁移清单（--primary 数值、--radius-cards 等）不在此处，需单独一轮。 */
   --hit-min: 24px;
   --control-h-sm: 24px;
   --control-h: 28px;
   --control-h-lg: 32px;
   --chip-h: 26px;
+  --badge-h: 20px;
   --lh-control: 20px;
   --lh-control-sm: 16px;
-  /* docs/DESIGN.md §4 / §5（2026-09-21 补）：按用途命名的圆角、表面三档、派生 tint。
-     全部走 color-mix 派生 → 浅/深色自动适配，且 --primary 将来迁移时 tint 不会二次漂移（§5 规则 12）。 */
+  /* docs/ui-ux-rules.md §4 / §5（2026-09-21 补）：按用途命名的圆角、表面三档。
+     组件规范来源 = shadcn/ui（docs/ui-ux-rules.md §5.1）：--radius-card 取 shadcn 的
+     `--radius: 0.5rem`（rounded-lg），--radius-control 取 `calc(0.5rem - 2px)`（rounded-md）。 */
   --radius-control: 6px;
-  --radius-card: 6px;
+  --radius-card: 8px;
   --surface-hover: color-mix(in srgb, var(--text) 10%, var(--bg));
-  --primary-tint: color-mix(in srgb, var(--primary) 8%, var(--bg));
-  --primary-tint-strong: color-mix(in srgb, var(--primary) 16%, var(--bg));
+  /* 焦点环：shadcn 的 focus-visible 契约（§1 / §5 规则 19）。
+     环色沿用既有的 --focus-ring（单一来源，见 :root 顶部），此处只补环宽与偏移两个**数值** token —— 数值不违反规则 18。 */
+  --focus-ring-width: 2px;
+  --focus-ring-offset: 2px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -10014,6 +10022,9 @@ button.today-brief-primary-btn:disabled {
   font-size: var(--ds-font-sm);
 }
 
+/* shadcn/ui `Input`：圆角 --radius-control、透明底、边框 --control-border、
+   焦点时边框转 --text 并加 focus-visible 环。先前用胶囊 + --ds-surface 填色，
+   既偏离 shadcn 的 Input 形态，也被判过「太灰了」。 */
 .skill-search-wrap {
   display: flex;
   align-items: center;
@@ -10022,14 +10033,17 @@ button.today-brief-primary-btn:disabled {
   height: var(--control-h-lg);
   min-width: 240px;
   border: 1px solid var(--control-border);
-  border-radius: var(--radius-pill);
-  /* 极浅的填充，只用来与白画布区分；先前用 --bg-elevated(#f1f1f1) 被判「太灰了」。
-     --ds-surface 是设计系统里既有的浅面，且自带暗色覆写。 */
-  background: var(--ds-surface);
+  border-radius: var(--radius-control);
+  background: transparent;
 }
 
 .skill-search-wrap:focus-within {
   border-color: var(--text);
+}
+
+.skill-search-wrap:has(.skill-search:focus-visible) {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
 }
 
 .skill-search-wrap svg {
@@ -10053,6 +10067,7 @@ button.today-brief-primary-btn:disabled {
 .skill-tabs {
   display: flex;
   flex-wrap: nowrap;
+  align-items: center;
   gap: var(--space-2);
   padding: 10px 16px;
   border-bottom: 1px solid var(--border);
@@ -10065,15 +10080,32 @@ button.today-brief-primary-btn:disabled {
   display: none;
 }
 
-/* 分类 chip：静止态不填色（不占「实底」名额），可操作边界用 ≥3:1 的 --control-border；
-   形状走胶囊（§4：chip 属「可点独立单元」）。 */
+/* shadcn `TabsList`：由浅面容器承担「成组控件」的可见边界，触发器在里面不再各自描边。
+   对照 ui-ux-rules.md §5 规则 6 —— 单体控件用 --control-border 描边，成组控件用容器填色。
+   操作类与阶段类各一个容器；阶段容器内用 › 表达漏斗递进（此前阶段关系看不出来）。 */
+.skill-tabs-list {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-card);
+  /* 极浅面只能用 --ds-surface(#f7f8f8，对白画布 1.06:1)。
+     此前用 --bg-elevated(#f1f1f1，1.13:1) 超过 §5 规则 9 的 ≤1.1:1 判据，
+     也正是用户判「太灰了」的那个灰。 */
+  background: var(--ds-surface);
+  flex-shrink: 0;
+}
+
+/* shadcn `TabsTrigger`：静止透明，选中换回 --bg + 静音阴影 + 字重提升。
+   选中态同时有填色、阴影、字重三重信号，且由 aria-pressed 暴露程序化状态（§5 规则 4）。 */
 .skill-tab {
   display: inline-flex;
   align-items: center;
   height: var(--chip-h);
   padding: 0 var(--space-3);
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-pill);
+  border: 0;
+  border-radius: var(--radius-control);
   background: transparent;
   font: inherit;
   font-size: var(--ds-font-sm);
@@ -10082,21 +10114,26 @@ button.today-brief-primary-btn:disabled {
   cursor: pointer;
   white-space: nowrap;
   min-width: 0;
-  transition: background var(--duration-control), color var(--duration-control), border-color var(--duration-control);
+  transition: background var(--duration-control), color var(--duration-control);
 }
 
 .skill-tab:hover {
-  background: var(--bg-elevated);
   color: var(--text);
 }
 
-/* 选中态不靠颜色单独表达：描边加深 + 字重提升同时变化（DESIGN.md §5 规则 4）。
-   同时由 aria-pressed 暴露程序化状态。 */
 .skill-tab.on {
-  background: var(--bg-elevated);
-  border-color: var(--text);
+  background: var(--bg);
   color: var(--text);
   font-weight: 500;
+  box-shadow: var(--shadow-quiet);
+}
+
+/* 阶段递进分隔符：纯装饰，不参与 tab 顺序与键盘焦点。 */
+.skill-tab-sep {
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: 1;
+  user-select: none;
 }
 
 .skill-catalog-main {
@@ -10251,7 +10288,7 @@ button.today-brief-primary-btn:disabled {
   color: var(--text-muted);
 }
 
-/* 注意事项：左侧 2px 强调条（形状信号），不靠颜色单独表达（DESIGN.md §5 规则 4）。 */
+/* 注意事项：左侧 2px 强调条（形状信号），不靠颜色单独表达（ui-ux-rules.md §5 规则 4）。 */
 .skill-detail-warn {
   margin: 0;
   padding: var(--space-2) var(--space-3);
@@ -10339,11 +10376,14 @@ button.today-brief-primary-btn:disabled {
   margin-left: var(--space-2);
 }
 
-/* 查看全部：默认即带下划线——否则看不出可点（截图标注「没引导，比如下划线」）。 */
+/* 查看全部：默认即带下划线——否则看不出可点（截图标注「没引导，比如下划线」）。
+   字号走 --ds-font-sm(13px)：它是**可点标签**，受 §5 规则 7 的 13px 下限约束，
+   此前用 12px（--ds-font-helper）属于下限内的违规。 */
 .skill-group-more {
   margin-left: auto;
   color: var(--text-muted);
-  font-size: var(--ds-font-helper);
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control-sm);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -10387,11 +10427,14 @@ button.today-brief-primary-btn:disabled {
   background: var(--surface-hover);
 }
 
-/* 选中态：3px 左强调条（形状）+ tint 底（§5 规则 2 允许选中态用 tint）+ 深描边 —— 三重信号（§5 规则 4）。 */
+/* 选中态：悬停/选中面 --surface-hover（1.22:1，§5 规则 4 要求另加非颜色信号）
+   + 深描边 --text + 3px 左强调条作形状信号。
+   此前整块填 --primary-tint 浅粉 + 主色强调条，是页面上最大的一块粉色。
+   不用 --bg-elevated(#f1f1f1)：它 1.13:1 超过规则 9 的 ≤1.1:1 判据。 */
 .skill-card.is-selected {
   border-color: var(--text);
-  background: var(--primary-tint);
-  box-shadow: inset 3px 0 0 0 var(--primary);
+  background: var(--surface-hover);
+  box-shadow: inset 3px 0 0 0 var(--text);
 }
 
 .skill-card-head {
@@ -10402,15 +10445,16 @@ button.today-brief-primary-btn:disabled {
   padding-right: var(--space-3); /* 给右上角 ★ 让位，不再压到标题基线 */
 }
 
-/* 图标砖：用 --primary 派生的浅色调恢复可辨识度（§5 规则 12）。
-   图标用 --text 而不是主色——小尺寸上主色当图标色达不到对比（规则 3）。 */
+/* 图标砖：极浅面 --ds-surface（1.06:1，§5 规则 9）+ 6px 圆角。
+   此前填 --primary-tint-strong（浅粉底），整页 13 块粉底是「粉色命中太多」的主因之一。
+   图标用 --text 而不是主色——小尺寸上主色当图标色不达对比（规则 3）。 */
 .skill-card-icon {
   width: 28px;
   height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--primary-tint-strong);
+  background: var(--ds-surface);
   border-radius: var(--radius-control);
   color: var(--text);
   flex-shrink: 0;
@@ -10470,14 +10514,17 @@ button.today-brief-primary-btn:disabled {
   gap: var(--space-1);
 }
 
+/* shadcn `Badge`（outline 变体）：20px 高、px-2、--radius-control、12px/500。
+   此前高度跟着 --lh-control-sm(16px)，比 shadcn 的 Badge 瘦一圈，同排时与 13px 正文不齐。 */
 .skill-mark {
   display: inline-flex;
   align-items: center;
-  height: var(--lh-control-sm);
-  padding: 0 var(--space-1);
+  height: var(--badge-h);
+  padding: 0 var(--space-2);
   border: 1px solid var(--control-border);
   border-radius: var(--radius-control);
   font-size: var(--ds-font-helper);
+  font-weight: 500;
   line-height: var(--lh-control-sm);
   color: var(--text-muted);
   white-space: nowrap;
@@ -10601,9 +10648,10 @@ button.today-brief-primary-btn:disabled {
   cursor: pointer;
 }
 
-/* 悬停用主色：这是「要执行」的动作，色 + 已存在的下划线并行（§5 规则 13）。 */
+/* 悬停用主色文字档 --primary-text 而不是 --primary：主色本身在白底只有 4.87:1，
+   当文字用不达余量（§5 规则 3）。下划线常驻，颜色只是加强信号，不是唯一信号。 */
 .skill-link:hover {
-  color: var(--primary);
+  color: var(--primary-text);
 }
 
 .skill-link-svg {
@@ -10612,7 +10660,7 @@ button.today-brief-primary-btn:disabled {
   flex-shrink: 0;
 }
 
-/* 页面级状态块：错误可重试、加载暴露 busy（DESIGN.md §6；PROD-AGENT-09）。 */
+/* 页面级状态块：错误可重试、加载暴露 busy（ui-ux-rules.md §6；PROD-AGENT-09）。 */
 .skill-state {
   display: flex;
   align-items: center;
@@ -10629,30 +10677,39 @@ button.today-brief-primary-btn:disabled {
 
 /* 详情列「内容」样式。容器骨架是上方的 `.skill-detail-*`；
    这里沿用 `.skill-preview-*` 旧名，避免无谓改名。 */
-.skill-preview-tag {
+/* 详情列的标记：统一按 shadcn `Badge` 的三个变体给几何（secondary / secondary / outline）。
+   此前三者 padding 用 1px 裸值、圆角各走 --radius-sm，和卡片上的 .skill-mark 不成一体。 */
+.skill-preview-tag,
+.skill-preview-agent,
+.skill-preview-tag-item {
+  display: inline-flex;
+  align-items: center;
+  height: var(--badge-h);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-control);
   font-size: var(--ds-font-helper);
+  font-weight: 500;
+  line-height: var(--lh-control-sm);
+  white-space: nowrap;
+}
+
+/* Badge secondary：浅面 + 前景色文字 */
+.skill-preview-tag {
   color: var(--text);
   background: var(--bg-elevated);
-  padding: 1px var(--space-1);
-  border-radius: var(--radius-sm);
 }
 
+/* Badge secondary（弱化）：来源信息不进视线中心 */
 .skill-preview-agent {
-  font-size: var(--ds-font-helper);
   color: var(--text-muted);
   background: var(--bg-elevated);
-  padding: 1px var(--space-1);
-  border-radius: var(--radius-sm);
 }
 
-/* 场景 / 输入输出 tag：文字 + 描边，不用主色文字、不用浅粉底（DESIGN.md §5 规则 2 / 3）。 */
+/* Badge outline：场景 / 输入 / 产出标签，文字 + 描边 */
 .skill-preview-tag-item {
-  font-size: var(--ds-font-helper);
   color: var(--text-muted);
   background: transparent;
   border: 1px solid var(--control-border);
-  padding: 1px var(--space-2);
-  border-radius: var(--radius-sm);
 }
 
 .skill-preview-thread {
@@ -10685,7 +10742,7 @@ button.today-brief-primary-btn:disabled {
   flex-shrink: 0;
 }
 
-/* 用户头像不再用写死的浅蓝：静止面不填彩色（DESIGN.md §5 规则 2）。 */
+/* 用户头像不再用写死的浅蓝：静止面不填彩色（ui-ux-rules.md §5 规则 2）。 */
 .skill-preview-msg.is-user .skill-preview-avatar {
   background: var(--bg-elevated);
   color: var(--text-muted);
@@ -10736,7 +10793,7 @@ button.today-brief-primary-btn:disabled {
   text-align: right;
 }
 
-/* ── Responsive：按 docs/DESIGN.md §6 的三轴管（宽度 / 高度 / 输入模态）── */
+/* ── Responsive：按 docs/ui-ux-rules.md §6 的三轴管（宽度 / 高度 / 输入模态）── */
 
 /* 宽度轴：列数收敛 */
 @media (max-width: 1300px) {
@@ -10758,7 +10815,7 @@ button.today-brief-primary-btn:disabled {
   }
 }
 
-/* 窄屏（<900）：详情列改为覆盖层，不把交互内容藏掉（DESIGN.md §6.5）。 */
+/* 窄屏（<900）：详情列改为覆盖层，不把交互内容藏掉（ui-ux-rules.md §6.5）。 */
 @media (max-width: 900px) {
   .skill-detail-pane {
     display: none;
@@ -10868,6 +10925,22 @@ button.today-brief-primary-btn:disabled {
 .skill-detail-close {
   width: var(--icon-btn);
   height: var(--icon-btn);
+}
+
+/* ── 焦点态（§5 规则 19）──────────────────────────────────────
+   shadcn 的 focus-visible 契约：键盘聚焦给 2px 可见环，鼠标点击不出现。
+   环色取 --text（对应 shadcn 把 `--ring` 取成 foreground），不引入新色（规则 18）。
+   此前全页只有 `.skill-search-wrap:focus-within` 一处焦点反馈，键盘用户看不出自己在哪。 */
+.skill-catalog-page .skill-tab:focus-visible,
+.skill-catalog-page .skill-card-name:focus-visible,
+.skill-catalog-page .skill-btn:focus-visible,
+.skill-catalog-page .skill-link:focus-visible,
+.skill-catalog-page .skill-group-more:focus-visible,
+.skill-catalog-page .skill-detail-toggle:focus-visible,
+.skill-catalog-page .skill-detail-close:focus-visible,
+.skill-catalog-page .skill-search:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
 }
 
 /* ── T6：Result toolbar + Creator lead row（框线稿 §页面结构 3/4、§组件、§Auto Layout） ── */

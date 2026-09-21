@@ -1,8 +1,8 @@
 import { devices, expect, test, type Page } from "@playwright/test";
 
 /**
- * 技能目录页对 `docs/DESIGN.md` 的验收（实施细则；CONST-09 层级）。
- * 覆盖 §5 的 8 条使用规则与 §6.2 的输入模态轴。数值来源见 DESIGN.md §1–§3。
+ * 技能目录页对 `docs/ui-ux-rules.md` 的验收（实施细则；CONST-09 层级）。
+ * 覆盖 §5 的 8 条使用规则与 §6.2 的输入模态轴。数值来源见 ui-ux-rules.md §1–§3。
  */
 
 /** 把 CSS 变量的计算值解析成 rgb()，避免在断言里写死 hex。 */
@@ -79,19 +79,57 @@ test.describe("技能目录页（/skills）", () => {
     expect(lh, `控件行高应为 20px 一档，实测 ${lh}px`).toBeLessThanOrEqual(20);
   });
 
-  test("§5 规则 6：可操作控件边框用 --control-border（≥3:1）", async ({ page }) => {
-    const controlBorder = await resolveToken(page, "--control-border");
-    const border = await page.locator(".skill-tab:not(.on)").first().evaluate((el) => getComputedStyle(el).borderTopColor);
-    expect(border).toBe(controlBorder);
+  test("§5 规则 6：成组控件由 TabsList 容器承担边界；单体控件用 --control-border", async ({ page }) => {
+    // 成组控件（§5.1：shadcn TabsList）：边界由容器填色承担，且填色必须是 1.06:1 的极浅面（规则 9）。
+    const listBg = await page.locator(".skill-tabs-list").first().evaluate((el) => getComputedStyle(el).backgroundColor);
+    const lightSurface = await resolveToken(page, "--ds-surface");
+    expect(listBg, "TabsList 容器必须用极浅面 --ds-surface 给出可见的面差").toBe(lightSurface);
+    // 触发器自身不得再描边——否则容器与触发器两侧同时画边，变成双框。
+    const triggerBorder = await page
+      .locator(".skill-tab:not(.on)")
+      .first()
+      .evaluate((el) => Number.parseFloat(getComputedStyle(el).borderTopWidth));
+    expect(triggerBorder, "成组内的触发项不应自带描边").toBe(0);
+    // 不成组的单体控件仍必须用 ≥3:1 的 --control-border 描边（主 CTA 用主色，见规则 1）。
+    const allowed = [await resolveToken(page, "--control-border"), await resolveToken(page, "--primary")];
+    const borders = await page.locator(".skill-btn").evaluateAll((els) =>
+      els.map((el) => ({ w: getComputedStyle(el).borderTopWidth, c: getComputedStyle(el).borderTopColor })),
+    );
+    expect(borders.length, "页面上应有带框按钮").toBeGreaterThan(0);
+    for (const b of borders) {
+      expect(Number.parseFloat(b.w), "带框按钮必须有可见边框").toBeGreaterThanOrEqual(1);
+      expect(allowed, `带框按钮边框色 ${b.c} 不在允许的 token 内`).toContain(b.c);
+    }
   });
 
-  test("§5 规则 7 / 8：动作标签 ≥13px；带框按钮内不加装饰图标", async ({ page }) => {
+  test("§5 规则 7 / 8：可点标签一律 ≥13px；带框按钮内不加装饰图标", async ({ page }) => {
     const size = await page.locator(".skill-catalog-page .skill-card-actions .skill-link").first().evaluate((el) =>
       Number.parseFloat(getComputedStyle(el).fontSize),
     );
     expect(size, `动作标签不得低于 13px，实测 ${size}px`).toBeGreaterThanOrEqual(13);
+    // 规则 7 的前半句同样有约束力：「查看全部」也是**可点标签**，12px 属违规。
+    const more = await page.locator(".skill-group-more").first().evaluate((el) =>
+      Number.parseFloat(getComputedStyle(el).fontSize),
+    );
+    expect(more, `「查看全部」是可点标签，不得低于 13px，实测 ${more}px`).toBeGreaterThanOrEqual(13);
     // 规则 8：带框按钮内不放装饰图标（图标只允许出现在链接式动作与图标按钮上）。
     expect(await page.locator(".skill-btn svg, .skill-btn .skill-btn-icon").count()).toBe(0);
+  });
+
+  test("§5 规则 3：主色不得当文字色（全页扫描，含悬停态用 --primary-text）", async ({ page }) => {
+    const primary = await resolveToken(page, "--primary");
+    const hits = await page.evaluate((rgb) => {
+      const out: string[] = [];
+      for (const el of document.querySelectorAll<HTMLElement>("[data-skill-catalog] *")) {
+        if (getComputedStyle(el).color === rgb) out.push(el.className || el.tagName);
+      }
+      return out;
+    }, primary);
+    expect(hits, `主色 #DB1860 在白底只有 4.87:1，当文字用一律改用 --primary-text。命中：${JSON.stringify(hits)}`).toEqual([]);
+    // 主色文字档必须已登记，且与 --primary 不同值。
+    const primaryText = await resolveToken(page, "--primary-text");
+    expect(primaryText, "--primary-text 必须已定义").not.toBe("");
+    expect(primaryText, "--primary-text 必须比 --primary 更深").not.toBe(primary);
   });
 
   test("工具风险档与异步契约在卡片上可见", async ({ page }) => {
@@ -185,7 +223,7 @@ test.describe("技能详情列（第三栏）", () => {
     await expect.poll(async () => (await pane.boundingBox())!.width).toBeGreaterThan(before);
   });
 
-  test("详情列内最多 1 个实底 CTA（DESIGN.md §5 规则 1）", async ({ page }) => {
+  test("详情列内最多 1 个实底 CTA（ui-ux-rules.md §5 规则 1）", async ({ page }) => {
     const primary = await resolveToken(page, "--primary");
     const filled = await page.evaluate((rgb) => {
       const all = [...document.querySelectorAll<HTMLElement>("[data-skill-detail] *")];
