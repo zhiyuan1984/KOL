@@ -96,11 +96,20 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
   {
     id: "plan-today",
     kind: "think",
-    action: "规划今天",
+    action: "启动今日任务（页面加载不触发，只由该按钮触发）",
     creates_session: true,
     creates_turn: true,
     calls_model: true,
     route: "POST /api/home/today-brief/plan",
+  },
+  {
+    id: "plan-todo",
+    kind: "think",
+    action: "启动待办任务（页面加载不触发，只由该按钮触发）",
+    creates_session: true,
+    creates_turn: true,
+    calls_model: true,
+    route: "POST /api/home/todo-brief/plan",
   },
   {
     id: "enqueue-today-analyze",

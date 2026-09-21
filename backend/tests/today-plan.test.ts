@@ -312,6 +312,10 @@ describe("today_plan harness", () => {
     expect(getBrief).toMatchObject({ kind: "memory", creates_session: false, calls_model: false });
     const plan = HOME_ENTRY_REGISTRY.find((row) => row.id === "plan-today");
     expect(plan).toMatchObject({ kind: "think", creates_session: true, route: "POST /api/home/today-brief/plan" });
+    const planTodo = HOME_ENTRY_REGISTRY.find((row) => row.id === "plan-todo");
+    expect(planTodo).toMatchObject({ kind: "think", creates_session: true, route: "POST /api/home/todo-brief/plan" });
+    const frontendPlanTodo = FRONTEND_HOME_ENTRY_REGISTRY.find((row) => row.id === "plan-todo");
+    expect(frontendPlanTodo).toMatchObject({ kind: "think", creates_session: true, route: "POST /api/home/todo-brief/plan" });
     const retries = HOME_ENTRY_REGISTRY.filter((row) => row.id === "retry-discovery-run");
     expect(retries).toHaveLength(1);
     expect(retries[0]?.kind).toBe("command");

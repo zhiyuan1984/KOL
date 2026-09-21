@@ -392,7 +392,15 @@ export default function ComposerDock({
         if (expert) setExpertId(expert.id);
       }
       if (draft.attachments?.length) setAttachments(draft.attachments);
-      requestAnimationFrame(() => inputRef.current?.focus());
+      // A draft that carries [待补参数] is a form, not a finished sentence: put the
+      // caret on the first gap so「补完参数后由你发送」is one keystroke away.
+      const gap = draft.text ? draft.text.match(/\[[^\]]+\]/) : null;
+      requestAnimationFrame(() => {
+        const node = inputRef.current;
+        if (!node) return;
+        node.focus();
+        if (gap?.index != null) node.setSelectionRange(gap.index, gap.index + gap[0].length);
+      });
     };
     const stashed = peekComposerDraft();
     if (stashed) {

@@ -151,6 +151,44 @@ test("todo pane lists open memory items including unpromoted source=ai", async (
   expect(sessionPosts).toEqual([]);
 });
 
+test("todo entry lists memory without planning; 启动待办任务 starts the run", async ({ page }) => {
+  const todos = [{
+    id: "tsk_open",
+    title: "无截止日期事项",
+    source: "manual",
+    status: "pending",
+  }];
+  const planPosts: string[] = [];
+  // A todo plan counts as running only after /todo-brief/plan was posted; reading
+  // the brief on entry must not look like a run that is already in flight.
+  let planning = false;
+  await page.route("**/api/home/todo-tasks**", (route) => route.fulfill({ json: { items: [] } }));
+  await page.route("**/api/home/todo-brief**", async (route) => {
+    const url = new URL(route.request().url());
+    if (route.request().method() === "POST" && url.pathname.endsWith("/plan")) {
+      planPosts.push(url.pathname);
+      planning = true;
+      await route.fulfill({ json: { planning: true, attached: false, work_item_id: "tsk_todo_plan", task_type: "todo_plan" } });
+      return;
+    }
+    await route.fulfill({ json: { planning, brief: null, events: [], creates_session: false, calls_model: false } });
+  });
+  await page.route("**/api/tasks**", (route) => route.fulfill({ json: { view: "open", tasks: todos } }));
+
+  await page.goto("/?tab=todo");
+  await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
+  await expect(page.locator("[data-todo-list]")).toBeVisible();
+  const startPlan = page.locator('[data-home-entry="plan-todo"]');
+  await expect(startPlan).toHaveText("启动待办任务");
+  await expect(startPlan).toBeEnabled();
+  await page.waitForTimeout(1500);
+  expect(planPosts).toEqual([]);
+
+  await startPlan.click();
+  await expect.poll(() => planPosts.length, { timeout: 30000 }).toBe(1);
+  await expect(page.locator("[data-todo-list]")).toBeVisible();
+});
+
 test("tab=todo is a memory route and does not POST sessions", async ({ page }) => {
   const sessionPosts: string[] = [];
   page.on("request", (item) => {

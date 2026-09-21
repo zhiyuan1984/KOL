@@ -21,6 +21,7 @@ export default defineConfig({
       "../frontend/src/composer/catalog.test.ts",
       "../frontend/src/composer/draft.test.ts",
       "../frontend/src/composer/recents.test.ts",
+      "../frontend/src/composer/skillFill.test.ts",
       "../frontend/src/home/discoveryBriefForm.test.ts",
       "../frontend/src/home/discoveryLeadFields.test.ts",
       "../frontend/src/home/discoveryLeadRow.test.ts",

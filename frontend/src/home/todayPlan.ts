@@ -15,7 +15,14 @@ import { applyLayoutWhy, isPlanningTask } from "./homeModel";
 
 export { applyLayoutWhy };
 
+/** Display refresh: re-read memory only. Never starts a thinking run. */
 export const TODAY_PLAN_REFRESH_EVENT = "lingong:today-plan-refresh";
+/**
+ * Explicit start entries. Entering a page must not POST /…/plan on its own:
+ * the think run starts only because the employee pressed 启动 today / todo.
+ */
+export const TODAY_PLAN_START_EVENT = "lingong:today-plan-start";
+export const TODO_PLAN_START_EVENT = "lingong:todo-plan-start";
 
 /** Plan scope mirrors the backend: today = 今日规划 chain, todo = 待办规划 chain. */
 export type PlanScope = "today" | "todo";
@@ -114,6 +121,12 @@ export type TodayPlanRefreshOptions = {
   signal?: AbortSignal;
   sleep?: (ms: number) => Promise<void>;
   scope?: PlanScope;
+  /**
+   * `false` = memory pass only: read the list / brief / display rows and stop at
+   * `idle` without POSTing /…/plan. Page entry uses this so entering a tab never
+   * starts a model run; the start entries pass `true`.
+   */
+  startPlan?: boolean;
 };
 
 export function todayPlanStatusCopy(phase: TodayPlanPhase, scope: PlanScope = "today"): string {
@@ -186,8 +199,10 @@ async function loadDisplayTasks(client: TodayPlanClient): Promise<DisplayTaskRow
 }
 
 /**
- * Always: memory GETs → think POST (or attach) → poll.
+ * Default: memory GETs → think POST (or attach) → poll.
  * Never skip POST just because a brief already exists.
+ * With `startPlan: false` it stops after the memory GETs and reports `idle`:
+ * that is the page-entry pass, and it is what keeps tabs from starting a run.
  */
 export async function runTodayPlanRefresh(
   client: TodayPlanClient,
@@ -198,8 +213,12 @@ export async function runTodayPlanRefresh(
   const sleep = options.sleep || wait;
   const signal = options.signal;
   const scope = options.scope ?? "today";
+  const startPlan = options.startPlan !== false;
+  // A memory-only pass must not announce 正在启动: nothing is starting, and the
+  // list still paints as each read lands.
+  const memoryPhase: TodayPlanPhase = startPlan ? "loading-memory" : "idle";
 
-  onStep({ phase: "loading-memory" });
+  if (startPlan) onStep({ phase: memoryPhase });
 
   let tasks: Task[] | undefined;
   let displayTasks: DisplayTaskRow[] | undefined;
@@ -218,7 +237,7 @@ export async function runTodayPlanRefresh(
   const tasksPromise = client.listOpenTasks().then((rows) => {
     tasks = memoryTasksOf(rows);
     if (!aborted(signal)) {
-      const step: TodayPlanStep = { phase: "loading-memory", tasks, displayTasks };
+      const step: TodayPlanStep = { phase: memoryPhase, tasks, displayTasks };
       if (memory) {
         step.brief = brief;
         step.planning = Boolean(memory.planning);
@@ -238,7 +257,7 @@ export async function runTodayPlanRefresh(
     absorbPrevious(row);
     if (!aborted(signal)) {
       onStep({
-        phase: "loading-memory",
+        phase: memoryPhase,
         tasks,
         displayTasks,
         brief,
@@ -254,7 +273,7 @@ export async function runTodayPlanRefresh(
     if (rows) displayTasks = rows;
     if (!aborted(signal) && rows) {
       onStep({
-        phase: "loading-memory",
+        phase: memoryPhase,
         tasks,
         displayTasks,
         brief,
@@ -269,6 +288,23 @@ export async function runTodayPlanRefresh(
 
   await Promise.allSettled([tasksPromise, briefPromise, displayPromise]);
   if (aborted(signal)) return { phase: "idle", tasks, displayTasks, brief, events, previousBrief, previousEvents };
+
+  // A run already in flight is joined, never re-posted: letting the memory-only
+  // pass report `idle` here would hide a live plan behind「启动」. A last run that
+  // failed stays visible as failed rather than reading as "never planned".
+  if (!startPlan && !memory?.planning) {
+    const settled: TodayPlanStep = {
+      phase: memory && todayPlanFailedFromBrief(memory, scope) ? "failed" : "idle",
+      tasks,
+      displayTasks,
+      brief,
+      events,
+      previousBrief,
+      previousEvents,
+    };
+    onStep(settled);
+    return settled;
+  }
 
   onStep({
     phase: "planning",

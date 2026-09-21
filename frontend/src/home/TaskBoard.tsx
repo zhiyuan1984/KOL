@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import type { Task } from "../api";
 import BoardRow from "./BoardRow";
 import { dueDayDiff, taskPriorityRank } from "./homeModel";
-import { TODAY_PLAN_REFRESH_EVENT, type TodayPlanPhase } from "./todayPlan";
+import { TODAY_PLAN_START_EVENT, TODO_PLAN_START_EVENT, type TodayPlanPhase } from "./todayPlan";
 import "./today-plan-board.css";
 
 type BoardFilter = "all" | "iu" | "in" | "ui" | "nn";
@@ -57,12 +57,17 @@ function matchesQuery(task: Task, query: string): boolean {
     .includes(needle);
 }
 
-/** The plan button must answer the click immediately, before any poll returns. */
-export function planButtonState(phase: TodayPlanPhase): { label: string; busy: boolean; state: string } {
+/**
+ * Planning runs only when this button is pressed, so the idle label names the
+ * action instead of describing an automatic one. The button must answer the
+ * click immediately, before any poll returns.
+ */
+export function planButtonState(phase: TodayPlanPhase, scope: TaskBoardScope = "today"): { label: string; busy: boolean; state: string } {
+  const again = scope === "today" ? "重新生成今日计划" : "重新生成待办计划";
   if (phase === "loading-memory") return { label: "正在启动…", busy: true, state: "starting" };
   if (phase === "planning") return { label: "正在规划…", busy: true, state: "planning" };
-  if (phase === "refreshed" || phase === "failed") return { label: "重新生成今日计划", busy: false, state: "again" };
-  return { label: "自动启今日任务计划", busy: false, state: "idle" };
+  if (phase === "refreshed" || phase === "failed") return { label: again, busy: false, state: "again" };
+  return { label: scope === "today" ? "启动今日任务" : "启动待办任务", busy: false, state: "idle" };
 }
 
 export default function TaskBoard({
@@ -73,7 +78,7 @@ export default function TaskBoard({
   loading,
   onAct,
   onEdit,
-  showPlanButton = scope === "today",
+  showPlanButton = true,
   planPhase = "idle",
   stream,
 }: {
@@ -112,7 +117,7 @@ export default function TaskBoard({
 
   const emptyCopy = SCOPE_EMPTY_COPY[scope];
   const filterLabel = scope === "todo" ? "筛选待办任务" : "筛选今日任务";
-  const planButton = planButtonState(planPhase);
+  const planButton = planButtonState(planPhase, scope);
 
   return (
     <section
@@ -147,9 +152,12 @@ export default function TaskBoard({
               type="button"
               className={"today-board-plan-btn is-" + planButton.state}
               data-plan-state={planButton.state}
+              data-home-entry={scope === "today" ? "plan-today" : "plan-todo"}
               disabled={planButton.busy}
               aria-busy={planButton.busy ? true : undefined}
-              onClick={() => window.dispatchEvent(new Event(TODAY_PLAN_REFRESH_EVENT))}
+              onClick={() => window.dispatchEvent(new Event(
+                scope === "today" ? TODAY_PLAN_START_EVENT : TODO_PLAN_START_EVENT,
+              ))}
             >
               {planButton.busy ? <span className="today-board-plan-spin" aria-hidden /> : null}
               {planButton.label}

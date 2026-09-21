@@ -52,7 +52,7 @@ function deferred<T>() {
 }
 
 describe("today plan wiring", () => {
-  it("Home always runs memory GETs then think POST on Today entry", () => {
+  it("Home entry reads memory only; 启动 buttons own the think POST", () => {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const home = fs.readFileSync(path.resolve(here, "../pages/Home.tsx"), "utf8");
     const pane = fs.readFileSync(path.resolve(here, "./TodayPane.tsx"), "utf8");
@@ -63,6 +63,12 @@ describe("today plan wiring", () => {
     expect(home).toContain("fetchTodayTasks");
     expect(home).toContain("projectDisplayTasks");
     expect(home).toContain("runTodayPlanRefresh");
+    // The POST is gated on the explicit start entries, never on the page mount.
+    expect(home).toContain("startPlan: todayStartRef.current");
+    expect(home).toContain("startPlan: todoStartRef.current");
+    expect(home).toContain("TODAY_PLAN_START_EVENT");
+    expect(home).toContain("TODO_PLAN_START_EVENT");
+    expect(home).not.toMatch(/startPlan:\s*true/);
     expect(home).not.toContain("!current.brief");
     expect(progress).toContain("data-today-plan-phase={phase}");
     expect(progress).toContain("data-today-plan-events=");
@@ -77,7 +83,7 @@ describe("today plan wiring", () => {
     const homeModel = fs.readFileSync(path.resolve(here, "./homeModel.ts"), "utf8");
     expect(home).toContain("homeMemoryTasks");
     expect(home).toContain("todoMemoryTasks");
-    expect(home).toMatch(/\[todayEntryTick\]/);
+    expect(home).toMatch(/\[todayPlanTick\]/);
     expect(home).not.toMatch(/if \(mode !== "today"\)/);
     expect(home).not.toMatch(/if \(mode !== "todo"\) return;/);
     expect(home).not.toMatch(/mode === "todo"[\s\S]{0,240}todayBrief\(\)/);
@@ -138,6 +144,54 @@ describe("today plan three-phase copy", () => {
 });
 
 describe("runTodayPlanRefresh", () => {
+  it("startPlan:false reads memory and stops at idle without POSTing", async () => {
+    const open = [task({ id: "tsk_due", title: "写报价确认邮件" })];
+    const startPlan = vi.fn(async () => ({ planning: true, attached: false }));
+    const client: TodayPlanClient = {
+      listOpenTasks: async () => open,
+      getBrief: async () => ({ planning: false, brief: brief(), events: [], creates_session: false, calls_model: false }),
+      startPlan,
+    };
+    const steps: TodayPlanStep[] = [];
+    const final = await runTodayPlanRefresh(client, (step) => steps.push(step), {
+      pollMs: 0,
+      sleep: async () => undefined,
+      startPlan: false,
+    });
+    expect(startPlan).not.toHaveBeenCalled();
+    expect(final.phase).toBe("idle");
+    expect(final.tasks?.map((row) => row.id)).toEqual(["tsk_due"]);
+    expect(final.brief?.lead).toBe("今天先核对其风险项");
+    expect(steps.every((step) => step.phase === "idle")).toBe(true);
+    expect(steps.some((step) => step.phase === "planning")).toBe(false);
+    // Nothing started, so the pane must not claim it did.
+    expect(steps.some((step) => step.phase === "loading-memory")).toBe(false);
+  });
+
+  it("startPlan:false still joins a plan that is already running", async () => {
+    const startPlan = vi.fn(async () => ({ planning: true, attached: false }));
+    let briefCalls = 0;
+    const client: TodayPlanClient = {
+      listOpenTasks: async () => [task({ id: "tsk_due", title: "写报价" })],
+      getBrief: async () => {
+        briefCalls += 1;
+        if (briefCalls === 1) return { planning: true, brief: brief({ lead: "进行中" }), work_item_id: "tsk_plan" };
+        return { planning: false, brief: brief({ lead: "刷新后" }), events: [{ type: "run.completed" }] };
+      },
+      startPlan,
+    };
+    const steps: TodayPlanStep[] = [];
+    const final = await runTodayPlanRefresh(client, (step) => steps.push(step), {
+      pollMs: 0,
+      sleep: async () => undefined,
+      startPlan: false,
+    });
+    expect(startPlan).not.toHaveBeenCalled();
+    expect(steps.some((step) => step.phase === "planning" && step.attached)).toBe(true);
+    expect(final.phase).toBe("refreshed");
+    expect(final.brief?.lead).toBe("刷新后");
+  });
+
   it("shows the task list in loading-memory before POST and keeps it while planning", async () => {
     const open = [task({ id: "tsk_due", title: "写报价确认邮件" })];
     const listHold = deferred<Task[]>();

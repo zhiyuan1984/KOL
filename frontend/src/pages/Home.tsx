@@ -111,6 +111,8 @@ import EditTaskDialog from "../home/EditTaskDialog";
 import {
   TODAY_PLAN_REFRESHED_MS,
   TODAY_PLAN_REFRESH_EVENT,
+  TODAY_PLAN_START_EVENT,
+  TODO_PLAN_START_EVENT,
   TODAY_PLAN_CACHE_KEY,
   TODO_PLAN_CACHE_KEY,
   memoryTasksOf,
@@ -574,16 +576,24 @@ export default function Home() {
   const [todayMemoryTasks, setTodayMemoryTasks] = useState<Task[] | null>(null);
   const [todoMemoryTasks, setTodoMemoryTasks] = useState<Task[] | null>(null);
   const [todayPlanEvents, setTodayPlanEvents] = useState<TaskEvent[]>([]);
-  const [todayPlanPhase, setTodayPlanPhase] = useState<TodayPlanPhase>("loading-memory");
+  const [todayPlanPhase, setTodayPlanPhase] = useState<TodayPlanPhase>("idle");
   const [todayPrevBrief, setTodayPrevBrief] = useState<TodayBrief | null>(null);
   const [todayPrevEvents, setTodayPrevEvents] = useState<TaskEvent[]>([]);
-  const [todayEntryTick, setTodayEntryTick] = useState(0);
+  /**
+   * The tick asks the pipeline to run; the ref says whether that run may POST the
+   * thinking request. Entering the page only ticks (memory read), 启动今日任务 /
+   * 启动待办任务 raise the ref — and nothing else does. The ref is cleared when the
+   * run settles, so a later refresh is a memory read again.
+   */
+  const [todayPlanTick, setTodayPlanTick] = useState(0);
+  const todayStartRef = useRef(false);
   const [todoBrief, setTodoBrief] = useState<TodayBrief | null>(null);
   const [todoPlanEvents, setTodoPlanEvents] = useState<TaskEvent[]>([]);
-  const [todoPlanPhase, setTodoPlanPhase] = useState<TodayPlanPhase>("loading-memory");
+  const [todoPlanPhase, setTodoPlanPhase] = useState<TodayPlanPhase>("idle");
   const [todoPrevBrief, setTodoPrevBrief] = useState<TodayBrief | null>(null);
   const [todoPrevEvents, setTodoPrevEvents] = useState<TaskEvent[]>([]);
-  const [todoEntryTick, setTodoEntryTick] = useState(0);
+  const [todoPlanTick, setTodoPlanTick] = useState(0);
+  const todoStartRef = useRef(false);
   const nav = useNavigate();
   const mode = parseHomeMode(params.get("tab"));
 
@@ -1607,12 +1617,29 @@ export default function Home() {
   }, [hasActiveRuns]);
 
   useEffect(() => {
-    const onRefresh = () => {
-      setTodayEntryTick((value) => value + 1);
-      setTodoEntryTick((value) => value + 1);
+    // A refresh re-reads memory; a start posts the run. Neither tab switch nor
+    // page entry dispatches a start, so no thinking run begins unbidden. While a
+    // start run is in flight the ref is up, and a refresh must not cut it short.
+    const refresh = () => {
+      if (!todayStartRef.current) setTodayPlanTick((tick) => tick + 1);
+      if (!todoStartRef.current) setTodoPlanTick((tick) => tick + 1);
     };
-    window.addEventListener(TODAY_PLAN_REFRESH_EVENT, onRefresh);
-    return () => window.removeEventListener(TODAY_PLAN_REFRESH_EVENT, onRefresh);
+    const startToday = () => {
+      todayStartRef.current = true;
+      setTodayPlanTick((tick) => tick + 1);
+    };
+    const startTodo = () => {
+      todoStartRef.current = true;
+      setTodoPlanTick((tick) => tick + 1);
+    };
+    window.addEventListener(TODAY_PLAN_REFRESH_EVENT, refresh);
+    window.addEventListener(TODAY_PLAN_START_EVENT, startToday);
+    window.addEventListener(TODO_PLAN_START_EVENT, startTodo);
+    return () => {
+      window.removeEventListener(TODAY_PLAN_REFRESH_EVENT, refresh);
+      window.removeEventListener(TODAY_PLAN_START_EVENT, startToday);
+      window.removeEventListener(TODO_PLAN_START_EVENT, startTodo);
+    };
   }, []);
 
   useEffect(() => {
@@ -1630,9 +1657,9 @@ export default function Home() {
     }
     // Home enter: one view=open memory fetch feeds Today + Todo. Do not restart
     // or board-fetch when switching tabs. Planning write-back is layout_why only.
+    // Entering only reads memory; the run itself waits for 启动今日任务.
     const controller = new AbortController();
     let dismissTimer = 0;
-    setTodayPlanPhase("loading-memory");
     void runTodayPlanRefresh(
       {
         listOpenTasks: () => api.tasks({ view: "open" }).then(unwrapTaskList),
@@ -1642,7 +1669,7 @@ export default function Home() {
       },
       (step) => {
         if (controller.signal.aborted) return;
-        if (step.phase !== "idle") setTodayPlanPhase(step.phase);
+        setTodayPlanPhase(step.phase);
         if (step.tasks) {
           const base = memoryTasksOf(step.tasks).filter((row) => !isPlanningTask(row));
           setTodayMemoryTasks(
@@ -1662,9 +1689,10 @@ export default function Home() {
           setTodayPlanEvents(step.events);
         }
       },
-      { signal: controller.signal },
+      { signal: controller.signal, scope: "today", startPlan: todayStartRef.current },
     ).then((final) => {
       if (controller.signal.aborted) return;
+      todayStartRef.current = false;
       if (final.phase === "refreshed") {
         dismissTimer = window.setTimeout(() => {
           if (!controller.signal.aborted) {
@@ -1673,13 +1701,15 @@ export default function Home() {
         }, TODAY_PLAN_REFRESHED_MS);
       }
     }).catch(() => {
-      if (!controller.signal.aborted) setTodayPlanPhase("failed");
+      if (controller.signal.aborted) return;
+      todayStartRef.current = false;
+      setTodayPlanPhase("failed");
     });
     return () => {
       controller.abort();
       if (dismissTimer) window.clearTimeout(dismissTimer);
     };
-  }, [todayEntryTick]);
+  }, [todayPlanTick]);
 
   useEffect(() => {
     if (todayPlanPhase !== "refreshed" || !todayMemoryTasks) return;
@@ -1707,7 +1737,6 @@ export default function Home() {
     }
     const controller = new AbortController();
     let dismissTimer = 0;
-    setTodoPlanPhase("loading-memory");
     void runTodayPlanRefresh(
       {
         listOpenTasks: () => api.tasks({ view: "open" }).then(unwrapTaskList),
@@ -1717,7 +1746,7 @@ export default function Home() {
       },
       (step) => {
         if (controller.signal.aborted) return;
-        if (step.phase !== "idle") setTodoPlanPhase(step.phase);
+        setTodoPlanPhase(step.phase);
         if (step.tasks) {
           const base = memoryTasksOf(step.tasks).filter((row) => !isPlanningTask(row));
           setTodoMemoryTasks(
@@ -1737,9 +1766,10 @@ export default function Home() {
           setTodoPlanEvents(step.events);
         }
       },
-      { signal: controller.signal, scope: "todo" },
+      { signal: controller.signal, scope: "todo", startPlan: todoStartRef.current },
     ).then((final) => {
       if (controller.signal.aborted) return;
+      todoStartRef.current = false;
       if (final.phase === "refreshed") {
         dismissTimer = window.setTimeout(() => {
           if (!controller.signal.aborted) {
@@ -1748,13 +1778,15 @@ export default function Home() {
         }, TODAY_PLAN_REFRESHED_MS);
       }
     }).catch(() => {
-      if (!controller.signal.aborted) setTodoPlanPhase("failed");
+      if (controller.signal.aborted) return;
+      todoStartRef.current = false;
+      setTodoPlanPhase("failed");
     });
     return () => {
       controller.abort();
       if (dismissTimer) window.clearTimeout(dismissTimer);
     };
-  }, [todoEntryTick]);
+  }, [todoPlanTick]);
 
   useEffect(() => {
     if (todoPlanPhase !== "refreshed" || !todoMemoryTasks) return;
@@ -1960,6 +1992,7 @@ export default function Home() {
               events={todayPlanEvents}
               previousBrief={todayPrevBrief}
               previousEvents={todayPrevEvents}
+              memoryPending={todayMemoryTasks === null}
             />
           ) : null}
 
@@ -1978,6 +2011,7 @@ export default function Home() {
               events={todoPlanEvents}
               previousBrief={todoPrevBrief}
               previousEvents={todoPrevEvents}
+              memoryPending={todoMemoryTasks === null}
             />
           ) : null}
 

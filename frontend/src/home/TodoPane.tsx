@@ -20,6 +20,7 @@ export default function TodoPane({
   previousBrief,
   previousEvents,
   todoLayout,
+  memoryPending = false,
 }: {
   tasks: Task[];
   filter?: TodoListFilter;
@@ -34,6 +35,8 @@ export default function TodoPane({
   previousBrief?: TodayBrief | null;
   previousEvents?: TaskEvent[] | null;
   todoLayout?: TodoLayoutItem[] | null;
+  /** Entering the pane reads memory without planning, so the empty state must not lie. */
+  memoryPending?: boolean;
 }) {
   // Rows are fixed frontend projections of base work items — todo layout (if any)
   // only stamps Codex's why and ordering on top.
@@ -49,7 +52,7 @@ export default function TodoPane({
     ),
     [tasks, todoLayout],
   );
-  const loading = phase === "loading-memory" && !rows.length;
+  const loading = memoryPending || (phase === "loading-memory" && !rows.length);
   return (
     <section className="home-mode-pane today-work-inline" data-today-work data-home-pane="todo" data-todo-source="work_items">
       {dedupeNotice ? (
@@ -63,7 +66,6 @@ export default function TodoPane({
         loading={loading}
         onAct={onAct}
         onEdit={onEdit}
-        showPlanButton={false}
         planPhase={phase}
         stream={<>
           <TodayPlanProgress

@@ -26,7 +26,7 @@ async function mockTodayBrief(page: import("@playwright/test").Page, body: Recor
   });
 }
 
-test("entering today shows the memory list during planning and does not replace the page", async ({ page }) => {
+test("entering today lists memory without planning; 启动今日任务 starts the run", async ({ page }) => {
   const todos = [
     {
       id: "tsk_due",
@@ -37,7 +37,9 @@ test("entering today shows the memory list during planning and does not replace 
       description: "金额待确认",
     },
   ];
-  let briefGets = 0;
+  // 一次规划只在被 POST 之后才算「进行中」：进入页面的 memory 读取不会把 planning 置真，
+  // 否则第二次读到的 planning 会让人以为已有计划在跑，于是附着而不是启动。
+  let planning = false;
   const posts: string[] = [];
   // 同 mockTodayBrief：今日面板的行来自服务端展示记忆，不 stub 会落到真实 demo 数据。
   await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
@@ -47,23 +49,13 @@ test("entering today shows the memory list during planning and does not replace 
     const url = new URL(route.request().url());
     if (method === "POST" && url.pathname.endsWith("/plan")) {
       posts.push(url.pathname);
+      planning = true;
       await route.fulfill({ json: { planning: true, attached: false, work_item_id: "tsk_plan", creates_session: true } });
       return;
     }
-    if (method === "GET") {
-      briefGets += 1;
-      await route.fulfill({
-        json: {
-          planning: briefGets > 1,
-          brief: null,
-          events: [],
-          creates_session: false,
-          calls_model: false,
-        },
-      });
-      return;
-    }
-    await route.fulfill({ json: { planning: true } });
+    await route.fulfill({
+      json: { planning, brief: null, events: [], creates_session: false, calls_model: false },
+    });
   });
   await page.route("**/api/tasks**", async (route) => {
     if (route.request().method() === "GET") {
@@ -77,10 +69,19 @@ test("entering today shows the memory list during planning and does not replace 
   await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
   await expect(page.locator("[data-today-list]")).toBeVisible();
   await expect(page.locator('[data-today-todo="tsk_due"]')).toBeVisible();
+  // 进入今日只读记忆：没有 POST，计划按钮停在可点的「启动今日任务」。
+  const startPlan = page.locator('[data-home-entry="plan-today"]');
+  await expect(startPlan).toHaveText("启动今日任务");
+  await expect(startPlan).toBeEnabled();
+  await expect(page.locator('[data-home-pane="today"]')).not.toHaveText(/^正在为你规划今天$/);
+  await page.waitForTimeout(1500);
+  expect(posts).toEqual([]);
+
+  // 手动启动才发 plan POST，规划过程随后才出现，任务列表始终不被替换。
+  await startPlan.click();
+  await expect.poll(() => posts.length, { timeout: 30000 }).toBe(1);
   await expect(page.locator("[data-today-plan-phase]")).toBeVisible();
   await expect(page.locator("[data-today-plan-phase]")).toHaveText(/正在读取当前任务|Lucas正在高效为你规划今天的任务|已按本轮规划刷新/);
-  await expect(page.locator('[data-home-pane="today"]')).not.toHaveText(/^正在为你规划今天$/);
-  await expect.poll(() => posts.some((path) => path.endsWith("/plan"))).toBeTruthy();
   await expect(page.locator('[data-today-todo="tsk_due"]')).toBeVisible();
 });
 
