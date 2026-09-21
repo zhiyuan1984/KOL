@@ -23,6 +23,7 @@
 | [business-rules/stage-transitions.md](business-rules/stage-transitions.md) | 合作阶段和合法转移 | BUSINESS | KOL 业务专家 |
 | [07-mcp-data-contract.md](07-mcp-data-contract.md) | 工具风险、物理接口和真实调用 | TECHNOLOGY | 架构师、后端专家 |
 | [18-mcp-master-data-assessment.md](18-mcp-master-data-assessment.md) | 有日期的事实源评估 | BUSINESS | KOL 业务专家 |
+| [VERIFICATION.md](VERIFICATION.md) | 与历史规范的对比证据、限制和生效门禁 | 全域 | 项目经理、测试经理 |
 
 ## 使用规则
 

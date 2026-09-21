@@ -22,6 +22,7 @@
 | 工具风险、MCP 与真实调用 | [07-mcp-data-contract.md](07-mcp-data-contract.md) |
 | 导航、一页一问、使用与治理 | [ia-information-architecture.md](ia-information-architecture.md) |
 | 主数据证据状态 | [18-mcp-master-data-assessment.md](18-mcp-master-data-assessment.md) |
+| 规范替换、迁移或质量证明 | [VERIFICATION.md](VERIFICATION.md) |
 
 目录说明、层级和责任角色见 [README.md](README.md)。不要为了普通任务一次性读取全部文件。
 
@@ -79,4 +80,3 @@
 - 外部写入只使用明确授权的对象和范围；只读或记忆功能不需要通过发信证明可用。
 - 文档变更至少检查内部链接、条款引用、层级声明和失效历史引用。
 - 发布验证区分模拟测试、真实 Codex harness 测试与授权外部集成验证；一种通过不代表其余通过。
-
