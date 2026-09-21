@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Task, TaskEvent, TodayBrief } from "../api";
 import PlanSummary from "./PlanSummary";
 import TaskBoard from "./TaskBoard";
@@ -31,6 +31,8 @@ export default function TodayPane({
   previousBrief,
   previousEvents,
   memoryPending = false,
+  centerHeader,
+  centerFooter,
 }: {
   todayTodos: Task[];
   busy: boolean;
@@ -43,6 +45,8 @@ export default function TodayPane({
   previousEvents?: TaskEvent[] | null;
   /** Entering the pane reads memory without planning, so the empty state must not lie. */
   memoryPending?: boolean;
+  centerHeader?: ReactNode;
+  centerFooter?: ReactNode;
 }) {
   const [taskRailCollapsed, setTaskRailCollapsed] = useState(() =>
     localStorage.getItem("ui:home-today-task-rail-collapsed") === "true"
@@ -76,26 +80,30 @@ export default function TodayPane({
       data-home-pane="today"
       data-today-workspace
     >
-      <div ref={streamRef} className="today-plan-anchor today-workspace-center" data-today-ai-workspace>
-        <header className="today-workspace-center-head">
-          <span>AI 规划与执行</span>
-          <small>过程与结论</small>
-        </header>
-        <TodayPlanProgress
-          phase={phase}
-          events={events}
-          candidates={candidateCount(brief)}
-          previousBrief={previousBrief}
-          previousEvents={previousEvents}
-          scope="today"
-        />
-        <PlanSummary brief={brief} />
-        {phase === "idle" && !brief && !(events || []).length ? (
-          <div className="today-workspace-empty" data-today-ai-empty>
-            <strong>从今天的工作开始</strong>
-            <p>启动今日任务后，这里会展示 Codex 的真实规划过程与结果摘要。</p>
-          </div>
-        ) : null}
+      <div className="today-workspace-center" data-today-ai-workspace>
+        {centerHeader}
+        <div ref={streamRef} className="today-plan-anchor today-workspace-center-scroll">
+          <header className="today-workspace-center-head">
+            <span>AI 规划与执行</span>
+            <small>过程与结论</small>
+          </header>
+          <TodayPlanProgress
+            phase={phase}
+            events={events}
+            candidates={candidateCount(brief)}
+            previousBrief={previousBrief}
+            previousEvents={previousEvents}
+            scope="today"
+          />
+          <PlanSummary brief={brief} />
+          {phase === "idle" && !brief && !(events || []).length ? (
+            <div className="today-workspace-empty" data-today-ai-empty>
+              <strong>从今天的工作开始</strong>
+              <p>启动今日任务后，这里会展示 Codex 的真实规划过程与结果摘要。</p>
+            </div>
+          ) : null}
+        </div>
+        {centerFooter}
       </div>
 
       <aside

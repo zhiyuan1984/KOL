@@ -18,12 +18,14 @@ test("home four-panel tab order and pane visibility", async ({ page }) => {
   expect(await page.locator("[data-home-mode]").evaluateAll((els) => (
     els.map((el) => el.getAttribute("data-home-mode"))
   ))).toEqual(["today", "todo", "discovery", "pool", "lifecycle"]);
-  await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("[data-home-quick-tasks]")).toBeVisible();
+  await expect(page.locator("[data-home-quick-task='first-outreach']")).toHaveText("首次建联");
   await expect(page.locator('[data-home-mode="today"]')).toContainText("今日任务");
   await expect(page.locator('[data-home-mode="todo"]')).toContainText("我的待办");
   await expect(page.locator('[data-home-mode="discovery"]')).toContainText("AI发现");
   await expect(page.locator('[data-home-mode="pool"]')).toContainText("公海");
-  await expect(page.locator('[data-home-mode="lifecycle"]')).toContainText("我跟进的红人");
+  await expect(page.locator('[data-home-mode="lifecycle"]')).toContainText("我的红人");
 
   await expect(page.locator("[data-home] h1")).toHaveText("今天有什么工作要处理？");
   await expect(page.locator('[data-home-pane="today"]')).toBeVisible();

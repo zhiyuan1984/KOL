@@ -1937,6 +1937,94 @@ export default function Home() {
     setPanelOpen(true);
   };
 
+  const openFirstOutreach = () => {
+    const definition = definitions.find((item) => item.id === "creator_outreach" || item.skill_id === "creator_outreach");
+    if (definition) {
+      onTemplate(definition);
+      return;
+    }
+    setErr("");
+    setFeedback(null);
+    setText("达人建联话术 [达人昵称或主页]");
+    setLockedIntent("creator_outreach");
+    setLockedLabel("首次建联");
+    applyLockedKnowledge(null);
+    setComposerFocused(true);
+    setDraftFocus((value) => value + 1);
+  };
+
+  const quickTaskBar = (
+    <nav className="home-quick-tasks" aria-label="快捷任务" data-home-quick-tasks>
+      {HOME_MODES.map((homeMode) => (
+        <button
+          key={homeMode}
+          type="button"
+          aria-pressed={mode === homeMode}
+          data-home-mode={homeMode}
+          data-home-entry="switch-tab"
+          onClick={() => setMode(homeMode)}
+        >
+          {homeMode === "lifecycle" ? "我的红人" : HOME_MODE_LABELS[homeMode]}
+          {homeMode === "today" ? <span className="home-mode-count" aria-hidden>{todayCount}</span> : null}
+          {homeMode === "todo" ? <span className="home-mode-count" aria-hidden>{openCount}</span> : null}
+        </button>
+      ))}
+      <button
+        type="button"
+        aria-pressed={lockedIntent === "creator_outreach"}
+        data-home-quick-task="first-outreach"
+        onClick={openFirstOutreach}
+      >
+        首次建联
+      </button>
+    </nav>
+  );
+
+  const renderComposerDock = () => (
+    <div
+      className="home-composer-dock home-composer-dock--dock"
+      data-home-entry={
+        analyzeSurface || isAnalyzePrefill(text)
+          ? "kol-analyze-enqueue"
+          : (discoveryBrief || lockedIntent === DISCOVERY_INTENT ? "new-discovery" : "composer-analyze")
+      }
+      data-composer-rhythm="dock"
+    >
+      {quickTaskBar}
+      {stopping ? <p className="composer-override-hint" role="status" data-home-stopping>正在停止…</p> : null}
+      <ComposerDock
+        variant="workspace"
+        placement="dock"
+        value={text}
+        onChange={onComposerText}
+        onSubmit={onComposer}
+        disabled={busy || blockSubmit}
+        running={intakeRunning}
+        onStop={stopIntake}
+        onFocusChange={setComposerFocused}
+        lockedIntent={lockedIntent}
+        lockedLabel={lockedLabel}
+        lockedKnowledgeId={lockedKnowledgeId}
+        lockedTemplate={lockedTemplate}
+        stageCode={followedKols.find((kol) => kol.handle && text.includes(`@${kol.handle}`))?.stage_code}
+        onKnowledgeChange={applyLockedKnowledge}
+        autoFocus={draftFocus > 0}
+        autoFocusToken={draftFocus}
+        selectFirstPlaceholder={draftFocus > 0}
+        discoveryBrief={discoveryBrief}
+        discoveryCatalog={discoveryCatalog}
+        showDiscoveryEditor={false}
+        onDiscoveryBriefChange={onDiscoveryBriefChange}
+        onOpenDiscoveryTemplate={() => void openDiscoveryTemplate()}
+        onClearDiscoveryLock={clearDiscoveryLock}
+        contextChips={composerChips}
+        entryIntent={entryIntent}
+        objectRefs={objectRefs}
+        onObjectRefsChange={setObjectRefs}
+      />
+    </div>
+  );
+
   return (
     <div
       className={
@@ -1957,42 +2045,12 @@ export default function Home() {
           setStageScrolled((current) => (current ? top > 8 : top > 40));
         }}
       >
-        <div className="home-hero">
-          {mode === "today" ? <h1 data-home-title="today">{HOME_TODAY_TITLE}</h1> : null}
+        {mode !== "today" ? <div className="home-hero">
           <p className="home-stats" data-today-summary data-home-stats>
             {statsText}
             {awaitingApprovalCount ? ` · ${awaitingApprovalCount}等审批` : ""}
           </p>
-
-          <div className="home-mode-tabs" role="tablist" aria-label="首页模式" data-home-modes>
-            {HOME_MODES.map((homeMode) => (
-              <button
-                key={homeMode}
-                type="button"
-                role="tab"
-                aria-selected={mode === homeMode}
-                data-home-mode={homeMode}
-                data-home-entry="switch-tab"
-                data-today-count={homeMode === "today" ? todayCount : undefined}
-                /* 计数是标签的补充，不是标签的一部分：读屏念「今日任务，2 项」，
-                   而不是把数字粘成「今日任务2」一个词（2026-09-22 评审）。 */
-                aria-label={homeMode === "today"
-                  ? `${HOME_MODE_LABELS[homeMode]}，${todayCount} 项`
-                  : homeMode === "todo"
-                    ? `${HOME_MODE_LABELS[homeMode]}，${openCount} 项`
-                    : undefined}
-                onClick={() => setMode(homeMode)}
-              >
-                {HOME_MODE_LABELS[homeMode]}
-                {homeMode === "today" ? <span className="home-mode-count" aria-hidden>{todayCount}</span> : null}
-                {homeMode === "todo" ? <span className="home-mode-count" aria-hidden>{openCount}</span> : null}
-              </button>
-            ))}
-            <button type="button" className="home-templates-link" data-open-work-panel onClick={() => openPanel("templates")}>
-              任务模板
-            </button>
-          </div>
-        </div>
+        </div> : null}
 
         <div className="home-board">
           {mode === "today" ? (
@@ -2007,6 +2065,16 @@ export default function Home() {
               previousBrief={todayPrevBrief}
               previousEvents={todayPrevEvents}
               memoryPending={todayMemoryTasks === null}
+              centerHeader={(
+                <div className="home-hero today-center-hero">
+                  <h1 data-home-title="today">{HOME_TODAY_TITLE}</h1>
+                  <p className="home-stats" data-today-summary data-home-stats>
+                    {statsText}
+                    {awaitingApprovalCount ? ` · ${awaitingApprovalCount}等审批` : ""}
+                  </p>
+                </div>
+              )}
+              centerFooter={renderComposerDock()}
             />
           ) : null}
 
@@ -2226,51 +2294,7 @@ export default function Home() {
         </div>
       </div>
 
-      <div
-        className="home-composer-dock home-composer-dock--dock"
-        data-home-entry={
-          analyzeSurface || isAnalyzePrefill(text)
-            ? "kol-analyze-enqueue"
-            : (discoveryBrief || lockedIntent === DISCOVERY_INTENT ? "new-discovery" : "composer-analyze")
-        }
-        data-composer-rhythm="dock"
-      >
-        {stopping ? (
-          <p className="composer-override-hint" role="status" data-home-stopping>
-            正在停止…
-          </p>
-        ) : null}
-        <ComposerDock
-          variant="workspace"
-          placement="dock"
-          value={text}
-          onChange={onComposerText}
-          onSubmit={onComposer}
-          disabled={busy || blockSubmit}
-          running={intakeRunning}
-          onStop={stopIntake}
-          onFocusChange={setComposerFocused}
-          lockedIntent={lockedIntent}
-          lockedLabel={lockedLabel}
-          lockedKnowledgeId={lockedKnowledgeId}
-          lockedTemplate={lockedTemplate}
-          stageCode={followedKols.find((kol) => kol.handle && text.includes(`@${kol.handle}`))?.stage_code}
-          onKnowledgeChange={applyLockedKnowledge}
-          autoFocus={draftFocus > 0}
-          autoFocusToken={draftFocus}
-          selectFirstPlaceholder={draftFocus > 0}
-          discoveryBrief={discoveryBrief}
-          discoveryCatalog={discoveryCatalog}
-          showDiscoveryEditor={false}
-          onDiscoveryBriefChange={onDiscoveryBriefChange}
-          onOpenDiscoveryTemplate={() => void openDiscoveryTemplate()}
-          onClearDiscoveryLock={clearDiscoveryLock}
-          contextChips={composerChips}
-          entryIntent={entryIntent}
-          objectRefs={objectRefs}
-          onObjectRefsChange={setObjectRefs}
-        />
-      </div>
+      {mode !== "today" ? renderComposerDock() : null}
 
       {panelOpen && (
         <div className="work-panel-layer" data-work-panel>
