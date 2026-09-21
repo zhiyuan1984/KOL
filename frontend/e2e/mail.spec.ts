@@ -149,6 +149,9 @@ const FORMAL_CONVERSATION = {
   last_receipt: "",
   digest_source: "codex_memory",
   digest_text: "对方已确认档期",
+  // The real GET /api/mail/conversations LEFT JOINs collaborations and returns these.
+  kol_uid: "KOL_X",
+  handle: "小美妆日记",
 };
 
 const FORMAL_THREAD = {
@@ -158,21 +161,42 @@ const FORMAL_THREAD = {
   creates_turn: false,
   calls_model: false,
   conversation: FORMAL_CONVERSATION,
-  messages: [{
-    id: "m1",
-    conversation_id: "3901",
-    provider_message_id: "mid-1",
-    direction: "inbound",
-    occurred_at: "2026-09-12T10:00:00.000Z",
-    from_addr: "amy@example.com",
-    subject: "Re: LiTime collab",
-    snippet: "想和贵品牌合作",
-    body_text: "Hello\n想和贵品牌litime合作",
-    letter_summary: "想和贵品牌合作",
-    summary_source: "body_analysis",
-    receipt_status: "",
-    effective: true,
-  }],
+  messages: [
+    {
+      id: "m2",
+      conversation_id: "3901",
+      provider_message_id: "mid-2",
+      direction: "inbound",
+      occurred_at: "2026-09-12T10:00:00.000Z",
+      from_addr: "amy@example.com",
+      to_addr: "larry.zhao@amperetime.com",
+      subject: "Re: LiTime collab",
+      snippet: "想和贵品牌合作",
+      body_text: "Hello\n想和贵品牌litime合作",
+      letter_summary: "想和贵品牌合作",
+      summary_source: "body_analysis",
+      translation_zh: "你好，想和贵品牌 LiTime 合作。",
+      receipt_status: "",
+      effective: true,
+    },
+    {
+      id: "m1",
+      conversation_id: "3901",
+      provider_message_id: "mid-1",
+      direction: "outbound",
+      occurred_at: "2026-09-10T09:00:00.000Z",
+      from_addr: "larry.zhao@amperetime.com",
+      to_addr: "amy@example.com",
+      subject: "LiTime collab",
+      snippet: "Thanks for reaching out",
+      body_text: "Thanks for reaching out.",
+      letter_summary: "",
+      summary_source: "",
+      translation_zh: "感谢联系。",
+      receipt_status: "",
+      effective: true,
+    },
+  ],
   digest_text: "对方已确认档期",
   digest_source: "codex_memory",
 };
@@ -237,7 +261,7 @@ test("POST /api/mail/sync uses SyncReceipt and does not create sessions", async 
   });
   await page.goto("/mail");
   await page.locator("[data-mail-sync]").click();
-  await expect(page.locator("[data-mail-notice]")).toContainText("已收取 3 封会话");
+  await expect(page.locator("[data-mail-notice]")).toContainText("已在后台开始收取");
   expect(sessionPosts).toEqual([]);
 });
 
@@ -297,4 +321,14 @@ test("followed 查看互动 opens /mail and never /s/:id first", async ({ page }
   await expect(page).toHaveURL(/c=3901/);
   await expect(page).not.toHaveURL(/\/s\//);
   await expect(page.locator("[data-mail-page]")).toBeVisible();
+});
+
+test("expanding a conversation reveals its mail timeline in the list column", async ({ page }) => {
+  await mockFormalMail(page);
+  await page.goto("/mail?c=3901");
+  await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(0);
+
+  await page.locator('[data-mail-thread-row="3901"]').click();
+  await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(2);
+  await expect(page.locator("[data-mail-timeline-item]").first()).toHaveAttribute("data-mail-selected", "true");
 });

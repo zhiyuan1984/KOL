@@ -3,6 +3,10 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import Markdown from "../components/Markdown";
 import { api } from "../api";
 import { hydratePollDelayMs, loadMailThread, loadMailWorkspace, normalizeBox, syncMailboxMail } from "../mail/client";
+import { ConversationItem } from "../mail/components/ConversationItem";
+import { MailTimelineItem } from "../mail/components/MailTimelineItem";
+import { avatarTone, formatMailTime, initialsOf } from "../mail/format";
+import { selectedMessageOf, timelineOf } from "../mail/selection";
 import { mailAnalyzeDraft, mailReplyDraft, stashComposerDraft } from "../mail/composerDraft";
 import { mailDigestView } from "../mail/digestView";
 import { occurredAtMs } from "../mail-time";
@@ -19,32 +23,8 @@ import {
 } from "../mail/types";
 import { isMissingEndpoint } from "../home/discoveryHome";
 
-function formatMailTime(value?: string | null): string {
-  const ms = occurredAtMs(value);
-  if (!ms) return "";
-  const date = new Date(ms);
-  const diff = Date.now() - ms;
-  if (diff < 45_000) return "刚刚";
-  if (diff < 3_600_000) return `${Math.max(1, Math.round(diff / 60_000))} 分钟前`;
-  if (diff < 86_400_000) return `${Math.max(1, Math.round(diff / 3_600_000))} 小时前`;
-  if (diff < 2 * 86_400_000) return "昨天";
-  return date.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-
 function peerOf(row: MailConversation): string {
   return row.peer_name || row.peer_email || "未知对方";
-}
-
-function initialsOf(name: string): string {
-  const trimmed = String(name || "").trim();
-  return trimmed ? trimmed.slice(0, 1).toUpperCase() : "?";
-}
-
-function avatarTone(seed: string): number {
-  const text = String(seed || "");
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
-  return hash % 6;
 }
 
 function analyzePeopleOf(row: MailConversation): string[] {
@@ -305,11 +285,11 @@ export default function Mail() {
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState<MailTab>("inbox");
   const [unboundOnly, setUnboundOnly] = useState(false);
-  const [currentMessageId, setCurrentMessageId] = useState("");
   const [starOverrides, setStarOverrides] = useState<Record<string, boolean>>({});
   const [mobilePanel, setMobilePanel] = useState<"original" | "summary" | "translation">("original");
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement | null>(null);
+  const [expandedId, setExpandedId] = useState("");
   const syncPollRef = useRef<number | null>(null);
   const baseSyncedAtRef = useRef<string>("");
 
@@ -349,14 +329,6 @@ export default function Mail() {
         setLoadState("ok");
         return next;
       })
-      .then((next) => {
-        // Local memory paints first; then refresh behind a background sync.
-        if (!opts?.skipAutoSync && next?.source === "api" && next.box.bound && next.box.mailbox) {
-          baseSyncedAtRef.current = next.box.synced_at || "";
-          setSyncing(true);
-          startSilentSync();
-        }
-      })
       .catch((e) => {
         const status = (e as { status?: number }).status;
         if (status === 401) setError("请先登录后再查看通讯。");
@@ -364,7 +336,6 @@ export default function Mail() {
         setLoadState("error");
       });
   };
-
   useEffect(() => {
     load();
     return stopSyncPoll;
@@ -381,7 +352,6 @@ export default function Mail() {
     const key = selected.id || selected.conversation_id;
     const source = workspace?.source || "api";
     setThreadError("");
-    setCurrentMessageId("");
     const fetchThread = (attempt: number) => {
       void loadMailThread(key, selected, source)
         .then((next) => {
@@ -427,12 +397,20 @@ export default function Mail() {
   };
 
   const openRow = (row: MailConversation) => {
-    const next = new URLSearchParams();
-    const box = row.mailbox || workspace?.box.mailbox || "";
-    if (box) next.set("box", box);
+    // Only the conversation changes here: writing ?box= would re-trigger the
+    // mailbox-level reload (and flash the list) on every row click.
+    const next = new URLSearchParams(params);
     next.set("c", row.conversation_id);
     setParams(next, { replace: true });
     markRead(row);
+  };
+
+  /** Selecting a mail inside the open conversation: only ?m= changes. */
+  const selectMessage = (message: MailMessage) => {
+    const next = new URLSearchParams(params);
+    next.set("c", message.conversation_id);
+    next.set("m", message.id);
+    setParams(next, { replace: true });
   };
 
   const openBox = (binding: MailBoxBinding) => {
@@ -549,11 +527,7 @@ export default function Mail() {
   const bound = Boolean(box?.bound && box.mailbox);
   const bindings = box?.bindings || [];
   const activeBox = boxParam || box?.mailbox || "";
-
-  const currentMessage = useMemo(() => {
-    if (!thread || !thread.messages.length) return null;
-    return thread.messages.find((m) => m.id === currentMessageId) || thread.messages[thread.messages.length - 1];
-  }, [thread, currentMessageId]);
+  const currentMessage = useMemo(() => selectedMessageOf(thread?.messages || [], params.get("m") || ""), [thread, params]);
 
   const starred = starredOf(thread?.thread || selected);
 
@@ -695,39 +669,34 @@ export default function Mail() {
               </p>
             ) : visibleConversations.map((row) => {
               const active = selected?.conversation_id === row.conversation_id;
+              const expanded = expandedId === row.conversation_id;
               return (
-                <button
-                  key={row.id + row.conversation_id}
-                  type="button"
-                  className={"mail-row" + (active ? " is-selected" : "") + (row.unread_count > 0 ? " is-unread" : "")}
-                  data-mail-thread-row={row.conversation_id}
-                  data-mail-match-state={row.match_state}
-                  data-mail-unread={row.unread_count}
-                  aria-current={active ? "true" : undefined}
-                  onClick={() => openRow(row)}
-                >
-                  <span className={`mail-row-avatar mail-avatar-t${avatarTone(peerOf(row))}`} aria-hidden="true">
-                    {initialsOf(peerOf(row))}
-                  </span>
-                  <span className="mail-row-main">
-                    <span className="mail-row-head">
-                      <strong>{peerOf(row)}</strong>
-                      <time className="muted">{formatMailTime(row.last_at)}</time>
-                    </span>
-                    <span className="mail-row-subject">{row.subject}</span>
-                    <span className="mail-row-preview">{row.last_preview || "暂无预览"}</span>
-                    {row.match_state === "unbound" ? (
-                      <span className="mail-row-meta">
-                        <span className="mail-chip" data-mail-unbound-chip>未建档</span>
-                      </span>
-                    ) : null}
-                  </span>
-                  {row.unread_count > 0 ? (
-                    <span className="mail-count-pill is-solid" aria-label={`未读 ${row.unread_count}`}>
-                      {row.unread_count}
-                    </span>
+                <div key={row.id + row.conversation_id} className="mail-thread-block">
+                  <ConversationItem
+                    row={row}
+                    expanded={expanded}
+                    selected={active}
+                    onToggle={() => {
+                      if (expanded) setExpandedId("");
+                      else {
+                        setExpandedId(row.conversation_id);
+                        openRow(row);
+                      }
+                    }}
+                  />
+                  {expanded ? (
+                    <div className="mail-timeline" data-mail-timeline>
+                      {timelineOf(thread?.messages || []).map((message) => (
+                        <MailTimelineItem
+                          key={message.id}
+                          message={message}
+                          selected={currentMessage?.id === message.id}
+                          onSelect={() => selectMessage(message)}
+                        />
+                      ))}
+                    </div>
                   ) : null}
-                </button>
+                </div>
               );
             })}
           </aside>
@@ -778,7 +747,7 @@ export default function Mail() {
                             key={message.id}
                             message={message}
                             current={currentMessage?.id === message.id}
-                            onSelect={() => setCurrentMessageId(message.id)}
+                            onSelect={() => selectMessage(message)}
                             peerName={peerOf(thread.thread)}
                             peerEmail={thread.thread.peer_email}
                             ownerName={workspace?.box.owner_name || ""}
