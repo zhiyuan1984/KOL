@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { Hono } from "hono";
+import { compress } from "hono/compress";
 import { cors } from "hono/cors";
 import { authMiddleware, authRouter, ensureDemoAdmin } from "./auth.js";
 import { clawRouter, starryRouter } from "./adapters/httpMount.js";
@@ -43,6 +44,9 @@ export function createApp(): Hono {
     ? (origin: string) => configuredOrigin && origin === configuredOrigin ? configuredOrigin : null
     : configuredOrigin || "*";
   app.use("*", cors({ origin: corsOrigin, credentials: Boolean(configuredOrigin) }));
+  // The mailbox list is ~200KB of CJK text and the server uplink is slow;
+  // gzip cuts it by roughly 5-8x. SSE keeps its own encoding.
+  app.use("/api/*", compress());
   app.use("/api/*", authMiddleware);
 
   app.onError((err, c) => {

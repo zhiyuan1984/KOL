@@ -198,6 +198,15 @@ describe("mailbox memory P0", () => {
     expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM collaborations").get() as { n: number }).n)).toBe(collabsBefore);
   });
 
+  it("gzip-compresses the mailbox conversation list for slow links", async () => {
+    bindLarry();
+    const response = await app.request("/api/mail/conversations", {
+      headers: { "Accept-Encoding": "gzip" },
+    });
+    expect(response.status).toBe(200);
+    expect(String(response.headers.get("content-encoding") || "")).toContain("gzip");
+  });
+
   it("mutexes sync per user+mailbox and writes cursor fields on the binding", async () => {
     bindLarry();
     listDelayMs = 40;
