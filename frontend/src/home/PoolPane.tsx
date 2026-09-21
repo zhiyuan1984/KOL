@@ -1,5 +1,7 @@
 import type { PoolKol } from "./kolContract";
 import { KOL_SELECT_MAX } from "./kolContract";
+import { HOME_HANDOFF_TO_AGENT } from "./entryRegistry";
+import type { SurfaceDownView } from "./surfaceError";
 
 function formatIngested(value?: string | null): string {
   if (!value) return "入库时间未知";
@@ -126,7 +128,7 @@ export default function PoolPane({
   selectedIds,
   hoveredId,
   query,
-  queryDown,
+  down,
   claimBusyId,
   onQuery,
   onHover,
@@ -139,7 +141,7 @@ export default function PoolPane({
   selectedIds: string[];
   hoveredId: string | null;
   query: string;
-  queryDown?: boolean;
+  down?: SurfaceDownView | null;
   claimBusyId?: string | null;
   onQuery: (value: string) => void;
   onHover: (id: string | null) => void;
@@ -149,6 +151,7 @@ export default function PoolPane({
   onClaim: (card: PoolKol) => void;
 }) {
   const selecting = selectedIds.length > 0;
+  const queryDown = Boolean(down);
   const visible = cards.filter((card) => {
     const needle = query.trim().toLowerCase();
     if (!needle) return true;
@@ -228,6 +231,31 @@ export default function PoolPane({
                 ? "记忆查询失败，没有写入会话。可重试或交给 Agent 分析。"
                 : "公海只展示公开资料，不是跟进 Tab 的筛选。领取是建联，不等于发信或改阶段。"}
             </p>
+            {down ? (
+              <>
+                <p className="muted" data-pool-down-reason title={down.detail || undefined}>{down.message}</p>
+                <div className="task-empty-actions">
+                  <button
+                    type="button"
+                    className="btn ghost sm"
+                    data-pool-retry
+                    disabled={down.retrying}
+                    onClick={down.onRetry}
+                  >
+                    重试
+                  </button>
+                  <button
+                    type="button"
+                    className="btn work sm"
+                    data-pool-handoff-agent
+                    data-home-entry="composer-analyze"
+                    onClick={down.onHandoff}
+                  >
+                    {HOME_HANDOFF_TO_AGENT}
+                  </button>
+                </div>
+              </>
+            ) : null}
           </div>
         )}
       </div>

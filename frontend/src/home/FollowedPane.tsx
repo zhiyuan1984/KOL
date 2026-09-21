@@ -8,6 +8,8 @@ import {
 import type { StarryBinding } from "../api";
 import FollowedBrief from "./FollowedBrief";
 import { KOL_SELECT_MAX } from "./kolContract";
+import { HOME_HANDOFF_TO_AGENT } from "./entryRegistry";
+import type { SurfaceDownView } from "./surfaceError";
 
 const FOLLOWED_STAGE_LABELS: Record<string, string> = {
   INITIAL_CONTACT: "初步接触",
@@ -61,7 +63,7 @@ export default function FollowedPane({
   confirmStageFeedback,
   followScope,
   followEmptyKind,
-  queryDown,
+  down,
   onQuery,
   onStageFilter,
   onHover,
@@ -89,7 +91,7 @@ export default function FollowedPane({
   confirmStageFeedback: { id: string; text: string; tone: "info" | "error" } | null;
   followScope: StarryBinding | null;
   followEmptyKind: string;
-  queryDown?: boolean;
+  down?: SurfaceDownView | null;
   onQuery: (value: string) => void;
   onStageFilter: (value: string) => void;
   onHover: (id: string | null) => void;
@@ -109,6 +111,7 @@ export default function FollowedPane({
   const selecting = selectedKolIds.length > 0;
   const selectedCards = visibleKols.filter((card) => selectedKolIds.includes(card.id));
   const bulkLabel = followedBulkCtaLabel(selectedCards);
+  const queryDown = Boolean(down);
   const empty = followEmptyCopy(queryDown ? "down" : followEmptyKind, followScope);
   const stageOptions = [
     { code: "", label: "全部阶段" },
@@ -218,6 +221,31 @@ export default function FollowedPane({
           >
             <strong>{empty.title}</strong>
             <p>{empty.body}</p>
+            {down ? (
+              <>
+                <p className="muted" data-follow-down-reason title={down.detail || undefined}>{down.message}</p>
+                <div className="task-empty-actions">
+                  <button
+                    type="button"
+                    className="btn ghost sm"
+                    data-follow-retry
+                    disabled={down.retrying}
+                    onClick={down.onRetry}
+                  >
+                    重试
+                  </button>
+                  <button
+                    type="button"
+                    className="btn work sm"
+                    data-follow-handoff-agent
+                    data-home-entry="composer-analyze"
+                    onClick={down.onHandoff}
+                  >
+                    {HOME_HANDOFF_TO_AGENT}
+                  </button>
+                </div>
+              </>
+            ) : null}
             {followScope?.required && (!followScope.bound || followScope.status === "expired") ? (
               <button type="button" className="btn work" onClick={onBind}>
                 {followScope.status === "expired" ? "重新连接" : "去绑定"}

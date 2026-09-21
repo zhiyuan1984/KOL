@@ -681,50 +681,6 @@ summary:focus-visible,
   flex-direction: column;
   align-items: stretch;
 }
-.home-chrome {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  width: 100%;
-  min-width: 0;
-  margin: 0 0 var(--space-2);
-  padding-bottom: var(--space-2);
-  border-bottom: 1px solid var(--border);
-}
-.home-chrome-actions {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 2px;
-  flex: 0 0 auto;
-}
-.home-chrome-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-muted);
-  text-decoration: none;
-  cursor: pointer;
-}
-.home-chrome-icon:hover {
-  color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 8%, var(--bg));
-}
-.home-chrome-ico {
-  width: 16px;
-  height: 16px;
-  display: block;
-}
 .brand-lockup {
   display: flex;
   flex-direction: row;
@@ -777,7 +733,6 @@ summary:focus-visible,
   white-space: normal;
   overflow-wrap: anywhere;
 }
-.home-chrome-brand { display: none; }
 .brand-lockup--sidebar {
   justify-content: flex-start;
   margin: 0;
@@ -3320,11 +3275,6 @@ summary:focus-visible,
     flex: 0 0 auto;
   }
 }
-@media (max-width: 720px) {
-  .home-chrome {
-    gap: var(--space-2);
-  }
-}
 .recommend-list {
   list-style: none;
   margin: 0;
@@ -3655,6 +3605,7 @@ summary:focus-visible,
 }
 .task-empty strong { color: var(--text); }
 .task-empty p { margin: 6px 0 14px; font-size: var(--font-ui); }
+.task-empty-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 .creation-feedback {
   width: 100%;
   box-sizing: border-box;
