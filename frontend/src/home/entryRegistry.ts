@@ -94,6 +94,15 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     route: "FE Composer prefill · GET /api/home/discovery/template",
   },
   {
+    id: "pick-recommended-skill",
+    kind: "memory",
+    action: "推荐技能入口 / 只挂 Skill 芯片，不发送",
+    creates_session: false,
+    creates_turn: false,
+    calls_model: false,
+    route: "FE Composer prefill · GET /api/skills",
+  },
+  {
     id: "get-today-brief",
     kind: "memory",
     action: "读取今日规划产物",

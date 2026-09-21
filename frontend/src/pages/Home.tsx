@@ -15,8 +15,9 @@ import {
 } from "../api";
 import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
 import { storePending } from "../components/ChatBlocks";
-import ModelTierControl from "../composer/ModelTierControl";
-import { stashComposerDraft } from "../composer/draft";
+import { applyComposerDraft, stashComposerDraft } from "../composer/draft";
+import { isWriteSkill, labelOfSkill, type CatalogSkill } from "../composer/catalog";
+import { RECOMMENDED_SKILL_IDS } from "../composer/recommended";
 import type { ComposerEntryIntent, ComposerObjectRef } from "../composer/types";
 import Markdown from "../components/Markdown";
 import { starterPrompt } from "../taskStarters";
@@ -694,6 +695,32 @@ export default function Home() {
     };
     // Initial requests load independently so the input and task shell render immediately.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 推荐技能：「技能目录 → 推荐」Tab 与 Home 的快捷入口共读同一份 id 清单，
+  // 所以这里只做一次取数，不另立一套推荐规则。
+  const [recommendedSkills, setRecommendedSkills] = useState<CatalogSkill[]>([]);
+
+  // Home 的「生成中」只覆盖识别 + 发起这几秒；真正的长时间生成在 /s/:id，
+  // 停止键由会话页的 Composer 负责。这里能停的是「还没开跑就打住」。
+  const [intakeRunning, setIntakeRunning] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const intakeCancelled = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api.skills().then((rows) => {
+      if (cancelled) return;
+      const byId = new Map((rows as CatalogSkill[]).map((row) => [row.id, row]));
+      setRecommendedSkills(
+        RECOMMENDED_SKILL_IDS
+          .map((id) => byId.get(id))
+          .filter((row): row is CatalogSkill => Boolean(row)),
+      );
+    }).catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -1403,6 +1430,8 @@ export default function Home() {
     const knowledgeId = lockedKnowledgeId || p.knowledge_id;
     lastComposer.current = { ...p, text: prompt, knowledge_id: knowledgeId };
     setBusy(true);
+    setIntakeRunning(true);
+    intakeCancelled.current = false;
     setErr("");
     setFeedback(null);
     setQueuedNotice("");
@@ -1418,6 +1447,7 @@ export default function Home() {
         setQueuedNotice(queued.queued_copy || ANALYZE_QUEUED_COPY);
         setAnalyzeSurface(null);
         setBusy(false);
+        setIntakeRunning(false);
         return;
       }
       // Exception care is a deliberate mail action. Keep it on the session
@@ -1462,6 +1492,11 @@ export default function Home() {
         object_refs: p.object_refs,
         client_entry: p.client_entry,
       });
+      if (intakeCancelled.current) {
+        setBusy(false);
+        setIntakeRunning(false);
+        return;
+      }
       const resolution = recognized.resolution || {};
       const missing = resolution.missing_fields || [];
       const boundHandle = Boolean(
@@ -1486,16 +1521,27 @@ export default function Home() {
           })) || [],
         });
         setBusy(false);
+        setIntakeRunning(false);
         return;
       }
       const created = recognized.task;
       prependTask(created);
       clearLockedMail();
-      openRun(await api.runTask(created.id));
+      const run = await api.runTask(created.id);
+      setIntakeRunning(false);
+      if (intakeCancelled.current) return;
+      openRun(run);
     } catch (error) {
       setErr(error instanceof Error ? error.message : String(error));
       setBusy(false);
+      setIntakeRunning(false);
     }
+  };
+
+  const stopIntake = () => {
+    intakeCancelled.current = true;
+    setStopping(true);
+    window.setTimeout(() => setStopping(false), 1000);
   };
 
   const visibleTasks = useMemo(
@@ -1842,6 +1888,17 @@ export default function Home() {
     setPanelOpen(true);
   };
 
+  // 推荐技能快捷入口：只把 Skill 挂到 Composer 上，不代用户发送。
+  const pickRecommendedSkill = (skill: CatalogSkill) => {
+    applyComposerDraft({
+      text,
+      intent: entryIntent,
+      chips: [{ kind: "skill", id: skill.id, label: labelOfSkill(skill), write: isWriteSkill(skill) }],
+    });
+    setComposerFocused(true);
+    setDraftFocus((value) => value + 1);
+  };
+
   return (
     <div
       className={
@@ -1912,7 +1969,6 @@ export default function Home() {
                 >
                   <ChromeIco path="M12 8.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7z M19.4 13a7.8 7.8 0 0 0 .1-2l2-1.2-2-3.4-2.2.6a8 8 0 0 0-1.7-1L15 4h-4l-.6 2a8 8 0 0 0-1.7 1l-2.2-.6-2 3.4 2 1.2a7.8 7.8 0 0 0 0 2l-2 1.2 2 3.4 2.2-.6a8 8 0 0 0 1.7 1l.6 2h4l.6-2a8 8 0 0 0 1.7-1l2.2.6 2-3.4z" />
                 </Link>
-                <ModelTierControl className="home-chrome-tier" />
             </div>
             )}
           </div>
@@ -1943,6 +1999,23 @@ export default function Home() {
               任务模板
             </button>
           </div>
+
+          {recommendedSkills.length ? (
+            <div className="home-recommended-skills" data-home-recommended-skills>
+              {recommendedSkills.map((skill) => (
+                <button
+                  key={skill.id}
+                  type="button"
+                  className="home-composer-pill"
+                  data-home-entry="pick-recommended-skill"
+                  data-recommended-skill={skill.id}
+                  onClick={() => pickRecommendedSkill(skill)}
+                >
+                  {labelOfSkill(skill)}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <div className="home-board">
@@ -2187,6 +2260,11 @@ export default function Home() {
         }
         data-composer-rhythm="dock"
       >
+        {stopping ? (
+          <p className="composer-override-hint" role="status" data-home-stopping>
+            正在停止…
+          </p>
+        ) : null}
         <ComposerDock
           variant="workspace"
           placement="dock"
@@ -2194,6 +2272,8 @@ export default function Home() {
           onChange={onComposerText}
           onSubmit={onComposer}
           disabled={busy || blockSubmit}
+          running={intakeRunning}
+          onStop={stopIntake}
           onFocusChange={setComposerFocused}
           lockedIntent={lockedIntent}
           lockedLabel={lockedLabel}

@@ -91,6 +91,35 @@ async function collectShellMetrics(page: Page) {
   };
 }
 
+type ComposerBox = {
+  minHeight: number;
+  radius: number;
+  borderTopWidth: number;
+  borderColor: string;
+};
+
+async function composerBox(page: Page, root: string): Promise<ComposerBox> {
+  return page.locator(`${root} [data-composer] .composer`).evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return {
+      minHeight: Number.parseFloat(cs.minHeight),
+      radius: Number.parseFloat(cs.borderTopLeftRadius),
+      borderTopWidth: Number.parseFloat(cs.borderTopWidth),
+      borderColor: cs.borderTopColor,
+    };
+  });
+}
+
+// The shell fades its border colour over .18s, so a reading taken the instant
+// focus lands catches the fade mid-flight. Wait for the frame to commit and for
+// the element's own transitions to finish before measuring a writing state.
+async function settleComposer(page: Page, root: string) {
+  await page.locator(`${root} [data-composer] .composer`).evaluate(async (el) => {
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await Promise.all(el.getAnimations().map((anim) => anim.finished.catch(() => undefined)));
+  });
+}
+
 test("desktop employee shell computed 260 rail and Codex Regular type", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/");
@@ -204,12 +233,37 @@ test("desktop employee shell computed 260 rail and Codex Regular type", async ({
   const composer = await typeOf(page, "[data-home] [data-composer-input]");
   expect(composer.fontSize).toBe(16);
   expect(composer.fontWeight).toBeLessThanOrEqual(400);
-  const composerRadius = await page.locator("[data-home] [data-composer] .composer").evaluate((el) => {
-    const cs = getComputedStyle(el);
-    return Number.parseFloat(cs.borderTopLeftRadius);
-  });
-  expect(composerRadius).toBeGreaterThanOrEqual(26);
-  expect(composerRadius).toBeLessThanOrEqual(30);
+  // Idle Home is the workspace footer (composer.css §11): square and borderless,
+  // its only edge the dock's top hairline — the box itself draws nothing.
+  const idleBox = await composerBox(page, "[data-home]");
+  expect(idleBox.radius).toBeLessThanOrEqual(1);
+  expect(idleBox.borderTopWidth).toBe(0);
+  const composerRadius = idleBox.radius;
+
+  // §10b writing state: focusing the box promotes the footer bar to the page's
+  // focal surface — preview height, rounded corners and a real 1px border.
+  await page.locator("[data-home] [data-composer-input]").click();
+  await expect(page.locator("[data-home]")).toHaveClass(/is-composer-focused/);
+  await settleComposer(page, "[data-home]");
+  const writingBox = await composerBox(page, "[data-home]");
+  expect(writingBox.minHeight).toBeGreaterThanOrEqual(200);
+  expect(writingBox.radius).toBeGreaterThanOrEqual(26);
+  expect(writingBox.radius).toBeLessThanOrEqual(30);
+  expect(writingBox.borderTopWidth).toBeGreaterThan(0);
+  const composerBorderChannels = writingBox.borderColor.match(/\d+/g)?.map(Number) ?? [];
+  expect(composerBorderChannels.length).toBeGreaterThanOrEqual(3);
+  for (const channel of composerBorderChannels.slice(0, 3)) {
+    expect(Math.abs(channel - 229)).toBeLessThanOrEqual(16);
+  }
+
+  // Focus is what flips the state, so leaving the box puts the footer bar back
+  // and the viewport work below (plus its screenshots) runs against the idle dock.
+  await page.locator("[data-home] [data-composer-input]").blur();
+  await expect(page.locator("[data-home]")).not.toHaveClass(/is-composer-focused/);
+  await settleComposer(page, "[data-home]");
+  const restoredBox = await composerBox(page, "[data-home]");
+  expect(restoredBox.radius).toBeLessThanOrEqual(1);
+  expect(restoredBox.borderTopWidth).toBe(0);
 
   await page.locator(".collapse-toggle").click();
   await expect(page.locator(".workbench")).toHaveClass(/sidebar-collapsed/);

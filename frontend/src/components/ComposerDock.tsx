@@ -3,7 +3,10 @@ import type { KnowledgeRow } from "../api";
 import ChipRail from "../composer/ChipRail";
 import { expertChipLabel, isWriteSkill, labelOfSkill, type CatalogSkill } from "../composer/catalog";
 import { peekComposerDraft, takeComposerDraftStash } from "../composer/draft";
+import ModelTierControl from "../composer/ModelTierControl";
 import PlusMenu, { type PlusSubpanel } from "../composer/PlusMenu";
+import SkillMenu from "../composer/SkillMenu";
+import { pushRecentSkill } from "../composer/recents";
 import {
   clientEntryFor,
   COMPOSER_DRAFT_EVENT,
@@ -177,10 +180,12 @@ export default function ComposerDock({
   const [query, setQuery] = useState("");
   const [atStart, setAtStart] = useState(0);
   const [triggerMark, setTriggerMark] = useState<"/" | "@">("/");
+  const [pickerIndex, setPickerIndex] = useState(-1);
   const [attachments, setAttachments] = useState<AttachmentRef[]>([]);
   const [uploading, setUploading] = useState(false);
   const [attachErr, setAttachErr] = useState("");
   const [plusOpen, setPlusOpen] = useState(false);
+  const [skillMenuOpen, setSkillMenuOpen] = useState(false);
   const [activeSubmenu, setActiveSubmenu] = useState<PlusSubpanel>(null);
   const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
   const [skillChips, setSkillChips] = useState<ComposerChip[]>([]);
@@ -196,6 +201,8 @@ export default function ComposerDock({
   const fileRef = useRef<HTMLInputElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const skillMenuRef = useRef<HTMLDivElement>(null);
+  const pickerRef = useRef<HTMLDivElement>(null);
   const onKnowledgeChangeRef = useRef(onKnowledgeChange);
   const lockSourceRef = useRef<"auto" | "explicit" | null>(lockedKnowledgeId ? "explicit" : null);
   onKnowledgeChangeRef.current = onKnowledgeChange;
@@ -314,17 +321,20 @@ export default function ComposerDock({
   }, []);
 
   useEffect(() => {
-    if (!plusOpen) return;
+    if (!plusOpen && !skillMenuOpen) return;
     const close = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (plusOpen && !menuRef.current?.contains(target)) {
         setPlusOpen(false);
         setActiveSubmenu(null);
       }
+      if (skillMenuOpen && !skillMenuRef.current?.contains(target)) setSkillMenuOpen(false);
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setPlusOpen(false);
         setActiveSubmenu(null);
+        setSkillMenuOpen(false);
       }
     };
     document.addEventListener("pointerdown", close);
@@ -333,14 +343,17 @@ export default function ComposerDock({
       document.removeEventListener("pointerdown", close);
       document.removeEventListener("keydown", escape);
     };
-  }, [plusOpen]);
+  }, [plusOpen, skillMenuOpen]);
 
   useEffect(() => {
     const textarea = inputRef.current;
     if (!textarea) return;
     textarea.style.height = "auto";
     const min = variant === "workspace" ? 24 : 20;
-    textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, min), 220)}px`;
+    // The ceiling lives in CSS (--composer-text-max) so the box and the editor
+    // can never disagree about where growth stops.
+    const cap = Number.parseFloat(getComputedStyle(textarea).maxHeight);
+    textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, min), Number.isFinite(cap) ? cap : 336)}px`;
   }, [value, variant]);
 
   useEffect(() => {
@@ -511,6 +524,22 @@ export default function ComposerDock({
     const q = query.trim().toLowerCase();
     return !q || `${connector.id} ${connector.label}`.toLowerCase().includes(q);
   }) : [];
+  const pickerRows = useMemo(
+    () => [
+      ...filteredTemplates.map((row) => ({ kind: "template" as const, row })),
+      ...filteredConnectors.map((connector) => ({ kind: "connector" as const, connector })),
+      ...filtered.map((skill) => ({ kind: "skill" as const, skill })),
+    ],
+    [filtered, filteredConnectors, filteredTemplates],
+  );
+  const activePicker = pickerIndex >= 0 && pickerIndex < pickerRows.length ? pickerIndex : -1;
+  const connectorBase = filteredTemplates.length;
+  const skillBase = connectorBase + filteredConnectors.length;
+
+  useEffect(() => {
+    if (!picker || activePicker < 0) return;
+    pickerRef.current?.querySelector<HTMLElement>(".skill-option.is-active")?.scrollIntoView({ block: "nearest" });
+  }, [picker, activePicker]);
 
   const refreshAt = (next: string, caret?: number) => {
     const el = inputRef.current;
@@ -518,6 +547,7 @@ export default function ComposerDock({
     const hit = triggerQuery(next, pos);
     if (!hit) {
       setPicker(false);
+      setPickerIndex(-1);
       setQuery("");
       return;
     }
@@ -537,10 +567,12 @@ export default function ComposerDock({
     );
     if (q && !hits.length && !templateHits.length && !connectorHits) {
       setPicker(false);
+      setPickerIndex(-1);
       setQuery(q);
       return;
     }
     setAtStart(hit.start);
+    if (q !== query) setPickerIndex(-1);
     setQuery(q);
     setPicker(true);
   };
@@ -561,6 +593,7 @@ export default function ComposerDock({
   };
 
   const addSkillChip = (s: SkillOption, rest = value) => {
+    pushRecentSkill(s.id);
     setSkillChips((current) => {
       if (current.some((chip) => chip.id === s.id)) return current;
       if (current.length >= COMPOSER_MAX_SKILL_CHIPS) return current;
@@ -568,6 +601,7 @@ export default function ComposerDock({
     });
     onPickSkill?.(s, { mention: labelOf(s), rest });
     closePlus();
+    setSkillMenuOpen(false);
     setPicker(false);
     setQuery("");
     focusEditor();
@@ -784,14 +818,23 @@ export default function ComposerDock({
         </div>
       )}
       {picker && (
-        <div className="skill-picker" data-skill-picker role="listbox" aria-label="技能">
+        <div
+          className="skill-picker"
+          ref={pickerRef}
+          data-skill-picker
+          role="listbox"
+          aria-label="技能"
+          aria-activedescendant={activePicker >= 0 ? `skill-picker-option-${activePicker}` : undefined}
+        >
           {skills.length === 0 && templates.length === 0 && <p className="muted skill-picker-empty">加载技能…</p>}
           {skills.length + templates.length > 0 && filtered.length === 0 && filteredTemplates.length === 0 && filteredConnectors.length === 0 && <p className="muted skill-picker-empty">没有匹配项</p>}
-          {filteredTemplates.map((row) => (
+          {filteredTemplates.map((row, i) => (
             <button
               key={`kb-${row.id}`}
               type="button"
-              className="skill-option"
+              id={`skill-picker-option-${i}`}
+              className={"skill-option" + (i === activePicker ? " is-active" : "")}
+              aria-selected={i === activePicker}
               data-knowledge-option={row.id}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => pickTemplate(row)}
@@ -800,17 +843,28 @@ export default function ComposerDock({
               <span className="skill-option-id">已启用模板 · {skillLabel(row.skill_id)}</span>
             </button>
           ))}
-          {filteredConnectors.map((connector) => (
-            <button key={`connector-${connector.id}`} type="button" className="skill-option" data-connector-option={connector.id} onMouseDown={(e) => e.preventDefault()} onClick={() => pickConnector(connector)}>
+          {filteredConnectors.map((connector, i) => (
+            <button
+              key={`connector-${connector.id}`}
+              type="button"
+              id={`skill-picker-option-${connectorBase + i}`}
+              className={"skill-option" + (connectorBase + i === activePicker ? " is-active" : "")}
+              aria-selected={connectorBase + i === activePicker}
+              data-connector-option={connector.id}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => pickConnector(connector)}
+            >
               <span className="skill-option-label">@{connector.label}</span>
               <span className="skill-option-id">连接器</span>
             </button>
           ))}
-          {filtered.map((s) => (
+          {filtered.map((s, i) => (
             <button
               key={s.id}
               type="button"
-              className="skill-option"
+              id={`skill-picker-option-${skillBase + i}`}
+              className={"skill-option" + (skillBase + i === activePicker ? " is-active" : "")}
+              aria-selected={skillBase + i === activePicker}
               data-skill-option={s.id}
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => pickSkill(s)}
@@ -951,11 +1005,29 @@ export default function ComposerDock({
               removeChip(railChips[railChips.length - 1]);
               return;
             }
-            if (e.key === "Enter" && picker && (filtered.length || filteredTemplates.length || filteredConnectors.length)) {
+            if (
+              picker
+              && (e.key === "ArrowDown" || e.key === "ArrowUp")
+              && pickerRows.length
+              // 输入法用上下键选候选词，组合期间不抢键
+              && !composing
+              && !e.nativeEvent.isComposing
+            ) {
               e.preventDefault();
-              if (triggerMark === "@" && filteredConnectors.length) pickConnector(filteredConnectors[0]);
-              else if (filteredTemplates.length) pickTemplate(filteredTemplates[0]);
-              else if (filtered.length) pickSkill(filtered[0]);
+              const step = e.key === "ArrowDown" ? 1 : -1;
+              setPickerIndex((current) => {
+                const total = pickerRows.length;
+                const base = current < 0 || current >= total ? (step > 0 ? -1 : 0) : current;
+                return (base + step + total) % total;
+              });
+              return;
+            }
+            if (e.key === "Enter" && picker && pickerRows.length) {
+              e.preventDefault();
+              const picked = pickerRows[activePicker >= 0 ? activePicker : 0];
+              if (picked.kind === "connector") pickConnector(picked.connector);
+              else if (picked.kind === "template") pickTemplate(picked.row);
+              else pickSkill(picked.skill);
               return;
             }
             if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && !composing && !picker) {
@@ -994,6 +1066,7 @@ export default function ComposerDock({
               aria-expanded={plusOpen}
               onClick={() => {
                 setPlusOpen((v) => !v);
+                setSkillMenuOpen(false);
                 setActiveSubmenu(null);
               }}
             >
@@ -1046,7 +1119,52 @@ export default function ComposerDock({
               expertId={expertId}
             />
           </div>
+          <div className="composer-skill-wrap" ref={skillMenuRef}>
+            <button
+              type="button"
+              className={"composer-skill-trigger" + (skillMenuOpen ? " is-selected" : "")}
+              data-composer-skill-trigger
+              data-composer-skill-trigger-open={skillMenuOpen ? "true" : "false"}
+              aria-haspopup="menu"
+              aria-expanded={skillMenuOpen}
+              disabled={busy || running}
+              onClick={() => {
+                setSkillMenuOpen((v) => !v);
+                setPlusOpen(false);
+                setActiveSubmenu(null);
+              }}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden>
+                <path
+                  d="M5 5h5v5H5zm9 0h5v5h-5zM5 14h5v5H5zm9 0h5v5h-5z"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <span>技能</span>
+              <span className="composer-skill-caret" aria-hidden>⌄</span>
+            </button>
+            {skillMenuOpen ? (
+              <div
+                className="menu-popover composer-add-menu compose-skill-menu"
+                role="menu"
+                aria-label="技能"
+                data-composer-skill-menu
+              >
+                <SkillMenu
+                  skills={skills}
+                  selectedSkillIds={skillChips.map((chip) => chip.id)}
+                  onPick={(skill) => addSkillChip(skill)}
+                  onClose={() => setSkillMenuOpen(false)}
+                />
+              </div>
+            ) : null}
+          </div>
           <div className="composer-toolbar-end">
+            <ModelTierControl className="composer-toolbar-tier" compact />
             {running ? (
               <button
                 className="btn send send-arrow is-stop"

@@ -19,6 +19,7 @@ export default defineConfig({
       "../frontend/src/layout/sidebarNav.test.ts",
       "../frontend/src/composer/catalog.test.ts",
       "../frontend/src/composer/draft.test.ts",
+      "../frontend/src/composer/recents.test.ts",
       "../frontend/src/home/discoveryBriefForm.test.ts",
       "../frontend/src/home/discoveryLeadFields.test.ts",
     ],

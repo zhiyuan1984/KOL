@@ -73,13 +73,13 @@
 .session-composer.prompt-input .composer textarea::placeholder {
   font-size: 16px;
   font-weight: 400;
-  line-height: 24px;
+  line-height: var(--composer-line-height, 26px);
 }
 
 .composer textarea {
   width: 100%;
   min-height: 24px;
-  max-height: 220px;
+  max-height: var(--composer-text-max, 336px);
   overflow-y: auto;
   overflow-x: hidden;
   resize: none;
@@ -100,7 +100,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-height: 32px;
+  min-height: var(--composer-toolbar-h, 36px);
+  /* The toolbar is the box's floor: when a writing state adds preview height,
+     the slack goes to the editor above, never below the buttons. */
+  margin-top: auto;
   width: 100%;
 }
 
@@ -406,6 +409,55 @@
   box-shadow: none;
 }
 
+/* §10b Composer growth. Idle, the ask box is the workspace footer: 56px, square,
+   borderless, its only edge the dock's top hairline (§11). The moment the user
+   writes in it the same box becomes the page's focal surface — so the roomy
+   metrics, the border and the preview height belong to the writing states only,
+   never to the idle footer. Text past --composer-text-max stays inside the
+   editor: the textarea scrolls and the toolbar never moves. */
+.composer,
+.composer.composer--workspace,
+.home-composer-dock .composer,
+.session-composer.prompt-input .composer.composer--workspace {
+  --composer-line-height: 26px;
+  --composer-text-max: 336px;
+  --composer-max-height: 420px;
+  --composer-toolbar-h: 36px;
+}
+
+.composer.composer--workspace.is-focused,
+.home-pane.is-composer-focused .composer.composer--workspace,
+/* The session composer carries its own idle metrics in styles.css at higher
+   specificity, so the writing state has to match that specificity to win —
+   otherwise Chat keeps the 220px cap and only Home grows. */
+.session-composer.prompt-input .composer.composer--workspace.is-focused,
+.session-composer.prompt-input .composer.composer--workspace:focus-within {
+  --composer-toolbar-h: 44px;
+  min-height: var(--composer-focus-min, 200px);
+  max-height: var(--composer-max-height, 420px);
+  padding: 22px 24px 12px;
+}
+
+.home-pane.is-composer-reading:not(.is-composer-focused) .composer.composer--workspace {
+  min-height: var(--composer-reading-min, 120px);
+}
+
+.composer.composer--workspace.is-focused textarea,
+.home-pane.is-composer-focused .composer.composer--workspace textarea,
+.session-composer.prompt-input .composer.composer--workspace.is-focused textarea {
+  min-height: 60px;
+}
+
+/* Writing states get the box back: the footer bar becomes a rounded surface. */
+.home-pane.is-composer-dock.is-composer-focused .home-composer-dock .composer.composer--workspace {
+  border: 1px solid var(--composer-border);
+  border-radius: 28px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .08);
+}
+.home-pane.is-composer-dock.is-composer-focused .home-composer-dock .composer.composer--workspace:focus-within {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .08);
+}
+
 .home-composer-pills {
   display: flex;
   flex-wrap: nowrap;
@@ -418,19 +470,29 @@
 }
 
 .home-composer-pill {
-  height: 32px;
-  padding: 0 14px;
+  height: 36px;
+  padding: 0 16px;
   border: 1px solid #e5e5e5;
   border-radius: 999px;
   background: #fff;
   color: #0d0d0d;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
 }
 
 .home-composer-pill:hover {
-  background: #f4f4f4;
+  background: #f7f7f7;
+}
+
+/* 推荐技能快捷入口（Home 顶部）。外壳沿用同一套 pill：点击只把 Skill 挂到
+   Composer 上，不是直接开跑，所以它读起来像「建议」而不是「执行」。 */
+.home-recommended-skills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
 }
 
 .home-chrome-actions .composer-tier-topbar,
@@ -472,4 +534,178 @@
   .composer-add-menu {
     width: min(300px, calc(100vw - 24px));
   }
+}
+
+/* ---------------------------------------------------------------
+   composer skill popover (技能)
+   One keyboard-navigable surface shared by the toolbar trigger and
+   the plus-menu subpanel. Quiet surfaces: no fills, hairlines only.
+   --------------------------------------------------------------- */
+
+.composer-skill-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.composer:not(.composer--workspace) .composer-skill-wrap {
+  order: 1;
+}
+
+.composer-skill-trigger {
+  height: 32px;
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #6b6b6b;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.composer-skill-trigger svg {
+  flex: 0 0 16px;
+}
+
+.composer-skill-trigger:hover,
+.composer-skill-trigger.is-selected,
+.composer-skill-trigger[aria-expanded="true"] {
+  background: #f4f4f4;
+  color: #0d0d0d;
+}
+
+.composer-skill-caret {
+  font-size: 11px;
+  color: #8a8a8a;
+}
+
+.composer-skill-trigger:hover .composer-skill-caret,
+.composer-skill-trigger.is-selected .composer-skill-caret,
+.composer-skill-trigger[aria-expanded="true"] .composer-skill-caret {
+  color: #0d0d0d;
+}
+
+.composer-skill-trigger:disabled {
+  opacity: .4;
+  pointer-events: none;
+}
+
+.composer-skill-menu {
+  width: 300px;
+  max-width: min(300px, calc(100vw - 24px));
+  padding: 8px;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
+  overflow: visible;
+  left: 0;
+  bottom: 40px;
+}
+
+.composer-skill-menu .composer-skill-search {
+  display: block;
+}
+
+.composer-skill-list {
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.composer-skill-groups button {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.composer-skill-groups button strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.composer-skill-groups button small[data-skill-confirm] {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: #8a8a8a;
+}
+
+.composer-skill-groups button.is-active,
+.composer-skill-groups button.is-active:hover {
+  background: #f4f4f4;
+  color: #0d0d0d;
+}
+
+.skill-option.is-active {
+  background: #f3f4f6;
+}
+
+.menu-popover a.composer-skill-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 36px;
+  margin-top: 4px;
+  padding: 8px 10px 4px;
+  border: 0;
+  border-top: 1px solid #e5e5e5;
+  border-radius: 0;
+  color: #6b6b6b;
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.menu-popover a.composer-skill-footer:hover {
+  background: transparent;
+  color: #0d0d0d;
+}
+
+/* ---------------------------------------------------------------------------
+   Model tier in the composer toolbar
+   The control lives inside .composer-toolbar-end, left of the send button, so
+   model + send read as one cluster instead of a page-chrome control. The
+   `.composer-tier-topbar` rules above are tuned for the chrome slot: they carry
+   a margin-left and a label gap that would offset the first child here. The
+   parent's own 8px gap (.composer-toolbar-end) owns the space to send, so those
+   are reset. Selectors are qualified with `.composer` to tie the specificity of
+   the styles.css `.tier-control` rules and win on load order.
+   --------------------------------------------------------------------------- */
+.composer .composer-toolbar-tier {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  width: auto;
+  height: 32px;
+  margin-left: 0;
+  background: transparent;
+  border: 0;
+  color: #6b6b6b;
+  font-size: 13px;
+}
+
+.composer .composer-toolbar-tier select {
+  width: auto;
+  max-width: none;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 2px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: #6b6b6b;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.composer .composer-toolbar-tier select:focus-visible {
+  outline: 1px solid #0d0d0d;
+  outline-offset: 2px;
 }

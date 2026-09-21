@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { AttachmentRef } from "../api";
-import { DIGITAL_EMPLOYEES, groupSkills, isWriteSkill, labelOfSkill, matchesSkillQuery, type CatalogSkill } from "./catalog";
+import { DIGITAL_EMPLOYEES, type CatalogSkill } from "./catalog";
+import SkillMenu from "./SkillMenu";
 import { DEFAULT_EXPERT_ID, type ConnectorDto, type KnowledgeLib } from "./types";
 
 export type PlusSubpanel = "recent" | "kb" | "skills" | "connectors" | "experts" | "projects" | null;
@@ -52,15 +53,11 @@ export default function PlusMenu({
   expertId: string;
 }) {
   const navigate = useNavigate();
-  const [skillQuery, setSkillQuery] = useState("");
   const [toast, setToast] = useState("");
   const singleLayer = useSingleLayer();
 
   useEffect(() => {
-    if (!open) {
-      setSkillQuery("");
-      setToast("");
-    }
+    if (!open) setToast("");
   }, [open]);
 
   if (!open) return null;
@@ -158,21 +155,12 @@ export default function PlusMenu({
 
       {showPanel && submenu === "skills" ? (
         <Subpanel label="技能" singleLayer={singleLayer} onBack={() => onSubmenu(null)} search>
-          <label className="composer-skill-search">
-            <span className="sr-only">搜索技能</span>
-            <input
-              type="search"
-              value={skillQuery}
-              placeholder="搜索技能"
-              data-composer-skill-search
-              onChange={(event) => setSkillQuery(event.target.value)}
-            />
-          </label>
-          <SkillGroups
+          <SkillMenu
             skills={skills}
-            query={skillQuery}
-            selectedIds={selectedSkillIds}
+            selectedSkillIds={selectedSkillIds}
             onPick={onPickSkill}
+            onClose={onClose}
+            autoFocus
           />
         </Subpanel>
       ) : null}
@@ -242,55 +230,6 @@ export default function PlusMenu({
           {!projects.length && <p className="menu-empty">暂无可用项目</p>}
         </Subpanel>
       ) : null}
-    </div>
-  );
-}
-
-function SkillGroups({
-  skills,
-  query,
-  selectedIds,
-  onPick,
-}: {
-  skills: CatalogSkill[];
-  query: string;
-  selectedIds: string[];
-  onPick: (skill: CatalogSkill) => void;
-}) {
-  const groups = useMemo(
-    () => groupSkills(skills.filter((skill) => matchesSkillQuery(skill, query))),
-    [query, skills],
-  );
-  if (!skills.length) return <p className="menu-empty">暂无已发布技能</p>;
-  if (!groups.length) return <p className="menu-empty">没有匹配项</p>;
-  return (
-    <div className="composer-skill-groups" data-composer-skill-groups>
-      {groups.map((group) => (
-        <section key={group.id} className="composer-skill-group" data-skill-group={group.id}>
-          <h3>{group.label}</h3>
-          {group.items.map((skill) => {
-            const write = isWriteSkill(skill);
-            const selected = selectedIds.includes(skill.id);
-            return (
-              <button
-                type="button"
-                role="menuitem"
-                key={skill.id}
-                data-skill-option={skill.id}
-                data-write-skill={write ? "true" : undefined}
-                disabled={selected}
-                onClick={() => onPick(skill)}
-              >
-                <MenuIcon kind="skills" />
-                <span>
-                  <strong>{labelOfSkill(skill)}</strong>
-                  {write ? <small data-skill-confirm>需确认</small> : null}
-                </span>
-              </button>
-            );
-          })}
-        </section>
-      ))}
     </div>
   );
 }

@@ -3411,20 +3411,20 @@ summary:focus-visible,
 .composer--workspace {
   flex-direction: column;
   align-items: stretch;
-  min-height: 80px;
-  max-height: 300px;
+  min-height: var(--composer-idle-min, 56px);
+  max-height: var(--composer-max-height, 420px);
   border-radius: var(--composer-radius, 22px);
   padding: 10px 16px 8px;
   gap: 6px;
 }
-.home-pane.is-composer-reading .composer--workspace { min-height: 80px; }
-.home-pane.is-composer-focused .composer--workspace { min-height: 96px; }
+.home-pane.is-composer-reading .composer--workspace { min-height: var(--composer-reading-min, 120px); }
+.home-pane.is-composer-focused .composer--workspace { min-height: var(--composer-focus-min, 200px); }
 .composer--workspace textarea {
   min-height: 40px;
-  max-height: 220px;
+  max-height: var(--composer-text-max, 336px);
   overflow-y: auto;
   font-size: var(--font-body);
-  line-height: 24px;
+  line-height: var(--composer-line-height, 26px);
 }
 .home-pane.is-composer-reading:not(.is-composer-focused) .composer--workspace textarea { min-height: 40px; }
 .composer-toolbar {
@@ -3937,8 +3937,8 @@ summary:focus-visible,
 .composer.composer--workspace {
   flex-direction: column;
   align-items: stretch;
-  min-height: 80px;
-  max-height: 300px;
+  min-height: var(--composer-idle-min, 56px);
+  max-height: var(--composer-max-height, 420px);
   border-radius: var(--composer-radius);
   padding: 10px 16px 8px;
   gap: 6px;
@@ -3946,14 +3946,14 @@ summary:focus-visible,
 .composer.composer--workspace textarea {
   width: 100%;
   min-height: 40px;
-  max-height: 220px;
+  max-height: var(--composer-text-max, 336px);
   overflow-y: auto;
   font-size: var(--font-body);
-  line-height: 24px;
+  line-height: var(--composer-line-height, 26px);
   text-align: left;
 }
-.home-pane.is-composer-reading .composer.composer--workspace { min-height: 80px; }
-.home-pane.is-composer-focused .composer.composer--workspace { min-height: 96px; }
+.home-pane.is-composer-reading .composer.composer--workspace { min-height: var(--composer-reading-min, 120px); }
+.home-pane.is-composer-focused .composer.composer--workspace { min-height: var(--composer-focus-min, 200px); }
 .home-pane.is-composer-reading:not(.is-composer-focused) .composer.composer--workspace textarea { min-height: 40px; }
 
 /* Home + session Composer share a rounded-rect, not a full pill. */
@@ -3962,30 +3962,6 @@ summary:focus-visible,
 .home-composer-dock .composer {
   --composer-radius: 22px;
 }
-.home-composer-dock .composer.composer--workspace {
-  flex-direction: row;
-  align-items: center;
-  min-height: 72px;
-  max-height: 220px;
-  border-radius: 22px;
-  padding: 10px 12px 10px 14px;
-  gap: 8px;
-  box-shadow: var(--shadow-sm);
-}
-.home-pane.is-composer-reading .home-composer-dock .composer.composer--workspace { min-height: 80px; }
-.home-pane.is-composer-focused .home-composer-dock .composer.composer--workspace { min-height: 88px; }
-.home-composer-dock .composer-toolbar {
-  display: contents;
-}
-.home-composer-dock .composer.composer--workspace textarea {
-  order: 2;
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 40px;
-  max-height: 72px;
-}
-.home-composer-dock .composer-add-wrap { order: 1; }
-.home-composer-dock .composer-toolbar-end { order: 3; margin-left: 0; }
 .home-composer-dock .composer-toolbar-divider { display: none; }
 .home-composer-dock .composer-plus {
   background: transparent;
@@ -4060,7 +4036,7 @@ summary:focus-visible,
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
-.composer textarea { resize: none; font-size: var(--font-body); line-height: 24px; max-height: 180px; }
+.composer textarea { resize: none; font-size: var(--font-body); line-height: var(--composer-line-height, 26px); max-height: var(--composer-text-max, 336px); }
 .composer textarea::placeholder { color: var(--composer-placeholder, #8a8a8a); font-size: var(--font-body); line-height: 24px; }
 .composer-tools {
   display: flex;
@@ -7085,7 +7061,7 @@ body {
   width: min(100%, var(--content-max));
   margin-inline: auto;
   min-height: 88px;
-  max-height: 220px;
+  max-height: var(--composer-max-height, 420px);
   border-radius: 22px;
   padding: 12px 16px 10px;
   box-shadow: var(--shadow-quiet);
@@ -7812,7 +7788,7 @@ body {
 }
 .session-composer.prompt-input .composer.composer--workspace {
   min-height: 100px;
-  max-height: 220px;
+  max-height: var(--composer-max-height, 420px);
   padding: 10px 16px 8px;
   border-radius: var(--composer-radius);
   box-shadow: none;

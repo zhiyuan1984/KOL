@@ -14,7 +14,6 @@ import {
 } from "../api";
 import { ChatThread, clearComposerDraft, clearPending, employeeProcessLabel, resultCardsFromMessages, takeComposerDraft, takePending, useSessionMessages, type ComposerDraft } from "../components/ChatBlocks";
 import ComposerDock, { type ComposerSubmit, type ComposerSuggestion, type SkillOption } from "../components/ComposerDock";
-import ModelTierControl from "../composer/ModelTierControl";
 import { peekComposerDraft, takeComposerDraftStash } from "../composer/draft";
 import type { ComposerEntryIntent } from "../composer/types";
 import Markdown from "../components/Markdown";
@@ -925,7 +924,6 @@ export default function Chat() {
         <header className="task-detail-header conversation-context" {...(task ? { "data-task-detail": true } : { "data-session-back": true })}>
           <div className="session-head-row">
             <Link to="/" className="task-back">← 返回任务列表</Link>
-            <ModelTierControl className="session-tier" compact />
             <RunHud status={status} phase={phase} taskTitle={task?.title || runTask?.title} remoteLabel={remoteLabel} />
           </div>
           {boundExpert ? (

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
+import { isWriteSkill } from "../composer/catalog";
+import { applyComposerDraft } from "../composer/draft";
+import { RECOMMENDED_SKILL_IDS as RECOMMENDED_IDS } from "../composer/recommended";
 import { storePending } from "../components/ChatBlocks";
 import { rememberJourney } from "../journey";
 import { skillKind, type SkillRow } from "./SkillHub";
@@ -66,9 +69,6 @@ function recordUsage(skillId: string) {
   recent.unshift(skillId);
   saveRecent(recent.slice(0, 20));
 }
-
-// 推荐技能（静态规则）
-const RECOMMENDED_IDS = ["creator_discovery", "creator_library_query", "creator_scoring", "creator_daily_tasks"];
 
 // 默认预览技能
 const DEFAULT_SKILL_ID = "creator_outreach";
@@ -274,7 +274,7 @@ function SkillCard({
       <div className="skill-card-actions" onClick={(e) => e.stopPropagation()}>
         <button type="button" className="skill-btn skill-btn-primary" onClick={() => onUse(skill)}>
           <span className="skill-btn-icon">+</span>
-          插入当前会话
+          挂到输入框
         </button>
         <button type="button" className="skill-btn skill-btn-secondary" onClick={() => onNewSession(skill)}>
           新建会话
@@ -456,32 +456,23 @@ export function SkillCatalog() {
     return groups;
   }, [filteredSkills]);
 
-  const useSkill = async (skill: SkillRow) => {
+  // 「使用」＝ 只把技能挂到工作台 Composer 上：用户还能补完 Prompt 再自己发送。
+  // 想直接跑一条新会话，用旁边的「新建会话」。
+  const useSkill = (skill: SkillRow) => {
     recordUsage(skill.id);
     setUsage(loadUsage());
     setRecent(loadRecent());
-
-    const sessionMatch = location.pathname.match(/^\/s\/([^/]+)/);
-    if (sessionMatch) {
-      const sessionId = sessionMatch[1];
-      try {
-        await api.postMessage(sessionId, { text: `@${skill.label || skill.title}`, intent: skill.id });
-        window.location.reload();
-      } catch (e) {
-        setErr(String(e));
-      }
-      return;
-    }
-
-    try {
-      const prompt = `@${skill.label || skill.title}`;
-      const ses = await api.createSession(prompt.slice(0, 24));
-      storePending(ses.id, { text: prompt, intent: skill.id });
-      rememberJourney({ kind: "skill", skillId: skill.id, skillLabel: skill.label || skill.title });
-      nav(`/s/${ses.id}`);
-    } catch (e) {
-      setErr(String(e));
-    }
+    rememberJourney({ kind: "skill", skillId: skill.id, skillLabel: skill.label || skill.title });
+    applyComposerDraft({
+      text: "",
+      chips: [{
+        kind: "skill",
+        id: skill.id,
+        label: skill.label || skill.title,
+        write: isWriteSkill(skill),
+      }],
+    });
+    nav("/");
   };
 
   const newSession = async (skill: SkillRow) => {

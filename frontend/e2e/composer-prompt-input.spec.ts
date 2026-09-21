@@ -40,6 +40,7 @@ async function composerChrome(page: Page, root: string) {
       width: el.getBoundingClientRect().width,
       minHeight: cs.minHeight,
       radius: cs.borderTopLeftRadius,
+      borderTopWidth: cs.borderTopWidth,
       borderColor: cs.borderTopColor,
       background: cs.backgroundColor,
       placeholderColor: placeholderCs?.color || "",
@@ -53,6 +54,16 @@ async function composerChrome(page: Page, root: string) {
       dividerColor: dividerCs?.backgroundColor || "",
       sendColor: sendCs?.color || "",
     };
+  });
+}
+
+// The shell fades its border colour over .18s, so a reading taken the instant
+// focus lands catches that fade mid-flight. Wait for the frame to commit and for
+// the element's own transitions to finish before measuring a writing state.
+async function settleComposer(page: Page, root: string) {
+  await page.locator(`${root} [data-composer] .composer`).evaluate(async (el) => {
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await Promise.all(el.getAnimations().map((anim) => anim.finished.catch(() => undefined)));
   });
 }
 
@@ -87,16 +98,19 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
     };
   });
   expect(layout).toBeTruthy();
-  expect(layout!.composer).toBeLessThanOrEqual(768);
+  // The 768px cap belongs to the centered / compact composer modes. On Home the
+  // ask box is the workspace footer bar (composer.css §11), so it spans the
+  // content width; the footer contract is "composer never exceeds its dock".
   expect(layout!.composer).toBeLessThanOrEqual(layout!.dock);
   expect(layout!.overflowX).not.toBe("scroll");
 
   const chrome = await composerChrome(page, "[data-home]");
   expect(parseFloat(chrome.minHeight)).toBeGreaterThanOrEqual(52);
   expect(parseFloat(chrome.minHeight)).toBeLessThanOrEqual(64);
-  expect(parseFloat(chrome.radius)).toBeGreaterThanOrEqual(26);
-  expect(parseFloat(chrome.radius)).toBeLessThanOrEqual(30);
-  near(rgb(chrome.borderColor) as number[], [229, 229, 229], 16);
+  // Idle Home is the workspace footer (§11): square and borderless, its only
+  // edge being the dock's top hairline — the box itself draws nothing.
+  expect(parseFloat(chrome.radius)).toBeLessThanOrEqual(1);
+  expect(parseFloat(chrome.borderTopWidth)).toBe(0);
   near(rgb(chrome.background) as number[], [255, 255, 255]);
   near(rgb(chrome.placeholderColor) as number[], [138, 138, 138], 16);
   expect(chrome.placeholderSize).toBe("16px");
@@ -105,6 +119,29 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   expect(chrome.plusBg).toMatch(/rgba\(\s*0,\s*0,\s*0,\s*0\s*\)|transparent/);
   near(rgb(chrome.sendColor) as number[], [180, 180, 180], 24);
 
+  // §10b writing state: focusing the box promotes the footer bar to the page's
+  // focal surface — preview height, rounded corners and a real 1px border.
+  // Measuring again after focus is what shows the two states differ rather than
+  // sharing one set of tokens.
+  await page.locator("[data-home] [data-composer-input]").click();
+  await expect(page.locator("[data-home]")).toHaveClass(/is-composer-focused/);
+  await settleComposer(page, "[data-home]");
+  const writing = await composerChrome(page, "[data-home]");
+  expect(parseFloat(writing.minHeight)).toBeGreaterThanOrEqual(200);
+  expect(parseFloat(writing.radius)).toBeGreaterThanOrEqual(26);
+  expect(parseFloat(writing.radius)).toBeLessThanOrEqual(30);
+  expect(parseFloat(writing.borderTopWidth)).toBeGreaterThan(0);
+  near(rgb(writing.borderColor) as number[], [229, 229, 229], 16);
+
+  // Focus is what flips the state, so leaving the box puts the footer bar back
+  // and the rest of this flow runs against the idle dock it was written for.
+  await page.locator("[data-home] [data-composer-input]").blur();
+  await expect(page.locator("[data-home]")).not.toHaveClass(/is-composer-focused/);
+  await settleComposer(page, "[data-home]");
+  const restored = await composerChrome(page, "[data-home]");
+  expect(parseFloat(restored.radius)).toBeLessThanOrEqual(1);
+  expect(parseFloat(restored.borderTopWidth)).toBe(0);
+
   await page.locator("[data-home] [data-attach]").click();
   const menu = page.getByRole("menu", { name: "添加内容" });
   await expect(menu).toBeVisible();
@@ -112,8 +149,9 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   await expect(menu.getByRole("menuitem", { name: "上传图片" })).toBeVisible();
   await expect(menu.getByRole("menuitem", { name: "技能" })).toBeVisible();
   await expect(page.locator("[data-home] [data-composer-tool]")).toHaveCount(0);
-  await expect(page.locator("[data-home] .tier-control").first()).toBeVisible();
-  await expect(page.locator("[data-home] .composer .tier-control")).toHaveCount(0);
+  // The model tier moved into the composer toolbar, next to send.
+  await expect(page.locator("[data-home] .composer .tier-control")).toHaveCount(1);
+  await expect(page.locator("[data-home] .home-chrome-actions .tier-control")).toHaveCount(0);
   await menu.getByRole("menuitem", { name: "技能" }).click();
   await expect(page.locator("[data-composer-skill-search]")).toBeVisible();
   await page.keyboard.press("Escape");

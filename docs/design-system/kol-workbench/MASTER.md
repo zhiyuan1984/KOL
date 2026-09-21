@@ -23,11 +23,32 @@
 | `--font-page-title` | `16–18px / 500` | 页结论 / Home 主标题。禁止 600/700 |
 | `--font-meta` | `13px / 20px / 400` `#6b6b6b` | 元信息 |
 | `--left-width` | `260px` | ChatGPT 桌面侧栏固定 260（`--sidebar-width` / `w-[260px]`）。折叠=56。手机不强制 260 |
-| `--composer-radius` | `22px` | 圆角矩形，不是胶囊 9999 |
+| `--composer-radius` | `22px` | 文档值。**运行值以 `frontend/src/composer.css` 为准（现为 28px）**，见下方「Composer shell」一节 |
 
 `--focus-ring` 可用 `--primary` 的低透明描边，或保持发丝近黑；不要另发明第二品牌色。
 
 **本轮壳/字号冲突（记录，不改硬不变量）：** 用户锁定紧凑壳（15px / `#1a1a1a` / 侧栏 Logo / Composer 圆角矩形）。ADR-020 16px 底、ADR-031 Inter + OpenAI 17px/Obsidian 正文、MASTER 胶囊输入让位给该 brief。SEND≠STAGE / L3 / 同一视口 0–1 实底主 CTA / 禁止引擎行话不变。`--primary` 仍是产品粉红。
+
+# Composer shell（活值 + 记录在案的豁免）
+
+Composer 是产品的基础输入件：Home 与 `/s/:id` 共用同一个 `ComposerDock`（`variant="workspace"`）。样式由 `frontend/src/composer.css` 独占——它在 `main.tsx` 里**晚于** `styles.css` 导入，并自称 "last-wins tokens"；`styles.css` 里针对 Composer 的度量一律读 `composer.css` 定义的变量，两处不再各写一份数值。
+
+**高度与生长规则**（三行壳：Chip 行 / 文本行 / 工具栏）
+
+| 状态 | 变量 | 值 |
+|---|---|---|
+| 停靠空闲 | `--composer-idle-min` | 56px（方角、无边框，仅靠 dock 顶发丝线分界） |
+| 阅读中 | `--composer-reading-min` | 120px |
+| 写入中（聚焦） | `--composer-focus-min` | 200px，并取回圆角与边框 |
+| 编辑区上限 | `--composer-text-max` | 336px（超出只让编辑区内部滚动） |
+| 盒子上限 | `--composer-max-height` | 420px |
+| 行高 / 工具栏高 | `--composer-line-height` / `--composer-toolbar-h` | 26px / 36px（写入态 44px） |
+
+工具栏是盒子的地板：`margin-top: auto`，文字增长只吃编辑区，按钮永不被推走。**空闲态必须保持 52–64px**——`frontend/e2e/composer-prompt-input.spec.ts` 断言了这一点，抬高空闲高度会红。
+
+**豁免记录（与上方 Product tokens 的冲突是既成事实，此处记账）**
+
+`composer.css` 的 `--composer-border: #e5e5e5`、`--composer-radius: 28px`、`--composer-send-ready: #0d0d0d` 与 Product tokens 的「发丝边 `#0000001f`」「`--composer-radius: 22px`」「唯一实底是 `--primary` 粉红」不一致。判定：**Composer 沿用近黑发送钮与 `#e5e5e5` 描边，作为本组件记录在案的例外**——发送钮是局部交互而非页面主 CTA，"同一视口 0–1 个实底主 CTA" 因此仍然成立。改样式的人请勿把它当 bug 改回粉红；若要收回该豁免，须同时改 `composer.css` 与 `composer-prompt-input.spec.ts`（后者断言半径 26–30px、发送钮可用态为近黑或品牌粉）。
 
 # OpenAI — Style Reference（mood；主填充以 Product tokens 为准）
 
