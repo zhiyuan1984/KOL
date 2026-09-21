@@ -17,13 +17,15 @@ export function MailContent({
 }) {
   const inbound = message.direction !== "outbound";
   const body = String(message.body_text || "").trim();
-  // Mail-level sender wins: the conversation-level peer_name can hold our own
-  // owner name on threads we started, which reads as a mismatch.
+  const senderEmail = message.from_addr || (inbound ? peerEmail : mailbox);
+  // Sender name must agree with the sender address: the conversation-level
+  // peer_name can hold an address (or our own owner name) and reads as a
+  // mismatch next to message-level from_addr.
   const senderName = message.from_name
+    || (senderEmail.includes("@") ? senderEmail.split("@")[0] : senderEmail)
     || (inbound ? peerName : ownerName)
     || mailbox
     || "对方";
-  const senderEmail = message.from_addr || (inbound ? peerEmail : mailbox);
   const toAddr = message.to_addr || (inbound ? mailbox : peerEmail);
   const showEmail = Boolean(senderEmail) && senderEmail !== senderName;
   return (
