@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { isWriteSkill } from "../composer/catalog";
 import { applyComposerDraft } from "../composer/draft";
+import { skillFillText } from "../composer/skillFill";
 import { RECOMMENDED_SKILL_IDS as RECOMMENDED_IDS } from "../composer/recommended";
 import { rememberJourney } from "../journey";
 import { skillKind, type SkillRow } from "./SkillHub";
@@ -750,7 +751,7 @@ export function SkillCatalog() {
     setRecent(loadRecent());
     rememberJourney({ kind: "skill", skillId: skill.id, skillLabel: skill.label || skill.title });
     applyComposerDraft({
-      text: "",
+      text: skillFillText(skill),
       chips: [{
         kind: "skill",
         id: skill.id,
