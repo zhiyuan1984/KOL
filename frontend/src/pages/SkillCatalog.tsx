@@ -359,6 +359,10 @@ function SkillCard({
 }) {
   const tier = isWriteSkill(skill) ? "write" : "read";
   const isAsync = ASYNC_SKILL_IDS.has(skill.id);
+  // 规则 10「只标例外」：只读是默认态，不标注；只有 L3 与异步才打标记。
+  const marks: { cls: string; text: string }[] = [];
+  if (tier === "write") marks.push({ cls: "is-write", text: RISK_LABEL.write });
+  if (isAsync) marks.push({ cls: "is-async", text: "异步 · 可取消" });
   return (
     <div
       className={"skill-card" + (selected ? " is-selected" : "")}
@@ -380,19 +384,25 @@ function SkillCard({
           >
             {skill.title}
           </button>
-          <span className="skill-card-source">{skillSource(skill.id)}</span>
         </div>
       </div>
       <p className="skill-card-desc">{skill.summary || skill.title}</p>
-      <div className="skill-card-marks">
-        <span className={"skill-mark is-" + tier}>{RISK_LABEL[tier]}</span>
-        {isAsync && <span className="skill-mark is-async">异步 · 有进度</span>}
-      </div>
+      {marks.length > 0 && (
+        <div className="skill-card-marks">
+          {marks.map((m) => (
+            <span key={m.cls} className={"skill-mark " + m.cls}>{m.text}</span>
+          ))}
+        </div>
+      )}
       <div className="skill-card-actions" onClick={(e) => e.stopPropagation()}>
         <button type="button" className="skill-btn skill-btn-outline" onClick={() => onUse(skill)}>
           挂到输入框
         </button>
-        <button type="button" className="skill-btn skill-btn-ghost" onClick={() => onNewSession(skill)}>
+        <button
+          type="button"
+          className="skill-btn skill-btn-outline is-quiet"
+          onClick={() => onNewSession(skill)}
+        >
           新建会话
         </button>
       </div>
@@ -577,7 +587,7 @@ function SkillDetail({
         </button>
         <button
           type="button"
-          className="skill-btn skill-btn-outline skill-btn-large"
+          className="skill-btn skill-btn-outline is-quiet skill-btn-large"
           onClick={() => onNewSession(skill)}
         >
           新建会话

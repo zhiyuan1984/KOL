@@ -216,3 +216,64 @@ test("窄屏（<900）：详情列改为覆盖层，可关闭，不把交互内�
   await expect(pane).toBeHidden();
   await context.close();
 });
+
+test("窄屏覆盖态下「展开」也必须有效（此前点了没反应）", async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 860, height: 900 } });
+  const page = await context.newPage();
+  await page.goto("/skills");
+  await page.waitForSelector(".skill-card");
+  await page.locator(".skill-card .skill-card-name").first().click();
+  const pane = page.locator(".skill-detail-pane");
+  await expect(pane).toBeVisible();
+  const before = (await pane.boundingBox())!.width;
+  await page.locator(".skill-detail-toggle").click();
+  await expect(page.locator(".skill-detail-toggle")).toHaveAttribute("aria-expanded", "true");
+  await expect.poll(async () => (await pane.boundingBox())!.width).toBeGreaterThan(before);
+  await context.close();
+});
+
+test.describe("观感与密度修复", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/skills");
+    await page.waitForSelector(".skill-card");
+  });
+
+  test("卡片不得横向溢出（此前 grid-4 卡溢出 18px）", async ({ page }) => {
+    const overflow = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>(".skill-card")]
+        .map((c) => ({ id: c.getAttribute("data-skill-id"), over: c.scrollWidth - c.clientWidth }))
+        .filter((r) => r.over > 1),
+    );
+    expect(overflow, `溢出卡片：${JSON.stringify(overflow)}`).toEqual([]);
+  });
+
+  test("新建会话必须有可见边框（§5 规则 15）", async ({ page }) => {
+    const bordered = await page.evaluate(() => {
+      const btns = [...document.querySelectorAll<HTMLElement>(".skill-card-actions .skill-btn")];
+      return btns.map((b) => {
+        const cs = getComputedStyle(b);
+        return { w: cs.borderTopWidth, c: cs.borderTopColor, transparent: cs.borderTopColor.includes("0, 0, 0, 0") };
+      });
+    });
+    for (const b of bordered) {
+      expect(Number.parseFloat(b.w)).toBeGreaterThanOrEqual(1);
+      expect(b.transparent, "按钮边框被设成 transparent").toBe(false);
+    }
+  });
+
+  test("只标例外：卡片上不出现「只读」标记", async ({ page }) => {
+    // 注意：不能用 filter({hasText:"只读"})——技能描述文案里就含「只读」二字
+    // （例：kol_analyze 的说明是「只读分析公海或跟进红人…」）。要断言的是标记元素。
+    const readMarks = await page.locator(".skill-card .skill-mark.is-read").count();
+    expect(readMarks, "只读是默认态，不应在卡片上标注（§5 规则 10）").toBe(0);
+  });
+
+  test("来源徽章不再上卡片（§5 规则 11）", async ({ page }) => {
+    expect(await page.locator(".skill-card-source").count()).toBe(0);
+  });
+
+  test("「查看全部」默认带下划线，可被识别为可点", async ({ page }) => {
+    const deco = await page.locator(".skill-group-more").first().evaluate((el) => getComputedStyle(el).textDecorationLine);
+    expect(deco).toContain("underline");
+  });
+});
