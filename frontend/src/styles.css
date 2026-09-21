@@ -48,8 +48,8 @@
   --control-bg: #efeff2;
   --control-pill-height: 36px;
   /* 控件尺寸、行高与命中区下限（纯新增数值，不改动上方既有 token）。口径见
-     docs/DESIGN.md 员工端实施细则 §控件尺寸。 */
-     注意 §8 的迁移清单（--primary 数值、--radius-cards 等）不在此处，需单独一轮。 */
+     docs/DESIGN.md 员工端实施细则 §控件尺寸。注意 §8 的迁移清单
+     （--primary 数值、--radius-cards 等）不在此处，需单独一轮。 */
   --hit-min: 24px;
   --control-h-sm: 24px;
   --control-h: 28px;
