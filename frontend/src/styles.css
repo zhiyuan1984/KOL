@@ -10023,8 +10023,9 @@ button.today-brief-primary-btn:disabled {
   min-width: 240px;
   border: 1px solid var(--control-border);
   border-radius: var(--radius-pill);
-  /* 输入控件用填充底，与描边款 chip 区分开（此前两者同形，搜索框不再像输入框） */
-  background: var(--bg-elevated);
+  /* 极浅的填充，只用来与白画布区分；先前用 --bg-elevated(#f1f1f1) 被判「太灰了」。
+     --ds-surface 是设计系统里既有的浅面，且自带暗色覆写。 */
+  background: var(--ds-surface);
 }
 
 .skill-search-wrap:focus-within {
@@ -10152,19 +10153,27 @@ button.today-brief-primary-btn:disabled {
   color: var(--text-muted);
 }
 
-/* 展开 / 关闭：24px 高的紧凑控件走 6px（§5 规则 14），不用胶囊。 */
+/* 展开 / 关闭：24px 方形图标按钮，走 6px 圆角（§5 规则 14）。
+   图标按钮必须带 aria-label —— 语义不能只靠图形象征。 */
 .skill-detail-toggle,
 .skill-detail-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-h-sm);
   height: var(--control-h-sm);
-  padding: 0 var(--space-2);
+  padding: 0;
   border: 1px solid var(--control-border);
   border-radius: var(--radius-control);
   background: transparent;
   font: inherit;
-  font-size: var(--ds-font-helper);
-  line-height: var(--lh-control-sm);
   color: var(--text-muted);
   cursor: pointer;
+}
+
+.skill-detail-toggle-svg {
+  width: 14px;
+  height: 14px;
 }
 
 .skill-detail-toggle:hover,
@@ -10563,44 +10572,44 @@ button.today-brief-primary-btn:disabled {
   border-color: var(--text-muted);
 }
 
-/* 仍有框、降一档：并列的第二动作（新建会话）。层级靠字重与字色，不靠去掉边框。 */
-.skill-btn-outline.is-quiet {
-  color: var(--text-muted);
-  font-weight: 400;
-}
-
-.skill-btn-outline.is-quiet:hover {
-  color: var(--text);
-}
-
-/* 幽灵款：只留给真正最低强调的第三顺位操作（§5 规则 15）。 */
-.skill-btn-ghost {
-  background: transparent;
-  color: var(--text-muted);
-  border-color: transparent;
-}
-
-.skill-btn-ghost:hover {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-
-.skill-btn-secondary {
-  background: transparent;
-  color: var(--text-muted);
-  border-color: var(--control-border);
-}
-
-.skill-btn-secondary:hover {
-  color: var(--text);
-  border-color: var(--text-muted);
-}
+/* 注：`.is-quiet` / `.skill-btn-ghost` / `.skill-btn-secondary` 已随「新建会话」一并移除
+   （§5 规则 16）。需要时按 §5 规则 15 重建，不要就地复活旧 class。 */
 
 .skill-btn-large {
   height: var(--control-h-lg);
   padding: 0 var(--space-4);
   font-size: var(--ds-font-sm);
   border-radius: var(--radius-pill);
+}
+
+/* 链接式动作：无框 + 语义图标 + **常驻**下划线，占用远小于带框按钮（§5 规则 15 修正后允许）。
+   下划线是常驻的非颜色可点信号，不只在 hover 出现。 */
+.skill-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--control-h-sm);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control-sm);
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* 悬停用主色：这是「要执行」的动作，色 + 已存在的下划线并行（§5 规则 13）。 */
+.skill-link:hover {
+  color: var(--primary);
+}
+
+.skill-link-svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
 }
 
 /* 页面级状态块：错误可重试、加载暴露 busy（DESIGN.md §6；PROD-AGENT-09）。 */

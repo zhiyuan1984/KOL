@@ -4,7 +4,6 @@ import { api } from "../api";
 import { isWriteSkill } from "../composer/catalog";
 import { applyComposerDraft } from "../composer/draft";
 import { RECOMMENDED_SKILL_IDS as RECOMMENDED_IDS } from "../composer/recommended";
-import { storePending } from "../components/ChatBlocks";
 import { rememberJourney } from "../journey";
 import { skillKind, type SkillRow } from "./SkillHub";
 
@@ -342,18 +341,33 @@ const RISK_LABEL: Record<"read" | "write", string> = { read: "只读", write: "�
  */
 const ASYNC_SKILL_IDS = new Set(["creator_discovery"]);
 
+/** 「挂到输入框」的语义图标：箭头进入输入区。用 SVG，不用 emoji 或文字符号当图标。 */
+function AddToComposerIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="skill-link-svg" aria-hidden>
+      <path
+        d="M12 4v9m0 0-3.5-3.5M12 13l3.5-3.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M5 18.5h14" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function SkillCard({
   skill,
   onSelect,
   onUse,
-  onNewSession,
   isFrequent,
   selected,
 }: {
   skill: SkillRow;
   onSelect: (skill: SkillRow) => void;
   onUse: (skill: SkillRow) => void;
-  onNewSession: (skill: SkillRow) => void;
   isFrequent: boolean;
   selected: boolean;
 }) {
@@ -394,33 +408,48 @@ function SkillCard({
           ))}
         </div>
       )}
+      {/* 卡片只保留一个动作，走链接式（语义图标 + 常驻下划线），不再占用一整行按钮位。
+          「新建会话」已移除——部分技能需要先填参数，直接开会话是错误承诺。
+          注：「挂到输入框」的命名待产品经理给出正式名。 */}
       <div className="skill-card-actions" onClick={(e) => e.stopPropagation()}>
-        <button type="button" className="skill-btn skill-btn-outline" onClick={() => onUse(skill)}>
+        <button type="button" className="skill-link" onClick={() => onUse(skill)}>
+          <AddToComposerIcon />
           挂到输入框
-        </button>
-        <button
-          type="button"
-          className="skill-btn skill-btn-outline is-quiet"
-          onClick={() => onNewSession(skill)}
-        >
-          新建会话
         </button>
       </div>
     </div>
   );
 }
 
+/** 展开 / 收窄的语义图标：向外箭头＝展开，向内箭头＝收窄。 */
+function ExpandIcon({ wide }: { wide: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" className="skill-detail-toggle-svg" aria-hidden>
+      <path
+        d={
+          wide
+            ? "M20 10h-6V4M4 14h6v6M14 10 20 4M10 14 4 20"
+            : "M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"
+        }
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function SkillDetail({
   skill,
   onInsert,
-  onNewSession,
   wide,
   onToggleWide,
   onClose,
 }: {
   skill: SkillRow | null;
   onInsert: (skill: SkillRow) => void;
-  onNewSession: (skill: SkillRow) => void;
   wide: boolean;
   onToggleWide: () => void;
   onClose: () => void;
@@ -448,9 +477,11 @@ function SkillDetail({
           type="button"
           className="skill-detail-toggle"
           aria-expanded={wide}
+          aria-label={wide ? "收窄技能详情" : "展开技能详情"}
+          title={wide ? "收窄" : "展开"}
           onClick={onToggleWide}
         >
-          {wide ? "收窄" : "展开"}
+          <ExpandIcon wide={wide} />
         </button>
         <button
           type="button"
@@ -577,20 +608,13 @@ function SkillDetail({
       </div>
 
       <div className="skill-detail-footer">
-        {/* 本视口唯一的实底主 CTA（DESIGN.md §5 规则 1）。 */}
+        {/* 本视口唯一的实底主 CTA（§5 规则 1）。「新建会话」已移除（§5 规则 16）。 */}
         <button
           type="button"
           className="skill-btn skill-btn-primary skill-btn-large"
           onClick={() => onInsert(skill)}
         >
           插入当前会话
-        </button>
-        <button
-          type="button"
-          className="skill-btn skill-btn-outline is-quiet skill-btn-large"
-          onClick={() => onNewSession(skill)}
-        >
-          新建会话
         </button>
       </div>
     </div>
@@ -711,22 +735,6 @@ export function SkillCatalog() {
     nav("/");
   };
 
-  const newSession = async (skill: SkillRow) => {
-    recordUsage(skill.id);
-    setUsage(loadUsage());
-    setRecent(loadRecent());
-
-    try {
-      const prompt = `@${skill.label || skill.title}`;
-      const ses = await api.createSession(prompt.slice(0, 24));
-      storePending(ses.id, { text: prompt, intent: skill.id });
-      rememberJourney({ kind: "skill", skillId: skill.id, skillLabel: skill.label || skill.title });
-      nav(`/s/${ses.id}`);
-    } catch (e) {
-      setErr(String(e));
-    }
-  };
-
   return (
     <div className="skill-catalog-page" data-skill-catalog>
       <header className="skill-catalog-header">
@@ -798,7 +806,6 @@ export function SkillCatalog() {
                     skill={s}
                     onSelect={selectSkill}
                     onUse={(skill) => void useSkill(skill)}
-                    onNewSession={(skill) => void newSession(skill)}
                     isFrequent={true}
                     selected={selectedSkill?.id === s.id}
                   />
@@ -827,8 +834,7 @@ export function SkillCatalog() {
                       skill={s}
                       onSelect={selectSkill}
                       onUse={(skill) => void useSkill(skill)}
-                      onNewSession={(skill) => void newSession(skill)}
-                      isFrequent={(usage[s.id] || 0) > 0}
+                        isFrequent={(usage[s.id] || 0) > 0}
                       selected={selectedSkill?.id === s.id}
                     />
                   ))}
@@ -870,7 +876,6 @@ export function SkillCatalog() {
           <SkillDetail
             skill={selectedSkill}
             onInsert={(s) => void useSkill(s)}
-            onNewSession={(s) => void newSession(s)}
             wide={detailWide}
             onToggleWide={() => setDetailWide((v) => !v)}
             onClose={() => setDetailOpen(false)}

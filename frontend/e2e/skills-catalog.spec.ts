@@ -85,11 +85,12 @@ test.describe("技能目录页（/skills）", () => {
     expect(border).toBe(controlBorder);
   });
 
-  test("§5 规则 7 / 8：按钮标签 ≥13px 且按钮内不加装饰图标", async ({ page }) => {
-    const size = await page.locator(".skill-catalog-page .skill-card-actions .skill-btn").first().evaluate((el) =>
+  test("§5 规则 7 / 8：动作标签 ≥13px；带框按钮内不加装饰图标", async ({ page }) => {
+    const size = await page.locator(".skill-catalog-page .skill-card-actions .skill-link").first().evaluate((el) =>
       Number.parseFloat(getComputedStyle(el).fontSize),
     );
-    expect(size, `按钮标签不得低于 13px，实测 ${size}px`).toBeGreaterThanOrEqual(13);
+    expect(size, `动作标签不得低于 13px，实测 ${size}px`).toBeGreaterThanOrEqual(13);
+    // 规则 8：带框按钮内不放装饰图标（图标只允许出现在链接式动作与图标按钮上）。
     expect(await page.locator(".skill-btn svg, .skill-btn .skill-btn-icon").count()).toBe(0);
   });
 
@@ -247,18 +248,31 @@ test.describe("观感与密度修复", () => {
     expect(overflow, `溢出卡片：${JSON.stringify(overflow)}`).toEqual([]);
   });
 
-  test("新建会话必须有可见边框（§5 规则 15）", async ({ page }) => {
-    const bordered = await page.evaluate(() => {
-      const btns = [...document.querySelectorAll<HTMLElement>(".skill-card-actions .skill-btn")];
-      return btns.map((b) => {
-        const cs = getComputedStyle(b);
-        return { w: cs.borderTopWidth, c: cs.borderTopColor, transparent: cs.borderTopColor.includes("0, 0, 0, 0") };
-      });
+  test("卡片只有 1 个动作且为链接式（无框 + 语义图标 + 常驻下划线）", async ({ page }) => {
+    const acts = page.locator(".skill-card-actions");
+    await expect(acts.first()).toBeVisible();
+    const counts = await acts.evaluateAll((els) => els.map((e) => e.children.length));
+    expect(counts.every((c) => c === 1), `每张卡只允许 1 个动作，实测：${JSON.stringify(counts)}`).toBe(true);
+
+    const cs = await page.locator(".skill-card-actions .skill-link").first().evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { border: s.borderTopWidth, deco: s.textDecorationLine, hasIcon: !!el.querySelector("svg") };
     });
-    for (const b of bordered) {
-      expect(Number.parseFloat(b.w)).toBeGreaterThanOrEqual(1);
-      expect(b.transparent, "按钮边框被设成 transparent").toBe(false);
-    }
+    expect(Number.parseFloat(cs.border), "链接式动作应当无框").toBe(0);
+    expect(cs.deco, "下划线必须常驻，不只在 hover（§5 规则 15）").toContain("underline");
+    expect(cs.hasIcon, "链接式动作必须带语义图标（§5 规则 8）").toBe(true);
+  });
+
+  test("卡片与详情栏都不再放「新建会话」（§5 规则 16）", async ({ page }) => {
+    await expect(page.locator(".skill-card-actions").filter({ hasText: "新建会话" })).toHaveCount(0);
+    await expect(page.locator(".skill-detail-footer").filter({ hasText: "新建会话" })).toHaveCount(0);
+  });
+
+  test("「展开」是图标按钮且带 aria-label（§5 规则 8）", async ({ page }) => {
+    const t = page.locator(".skill-detail-toggle");
+    await expect(t).toHaveAttribute("aria-label", /展开|收窄/);
+    expect(await t.evaluate((el) => !!el.querySelector("svg")), "必须是 SVG 图标").toBe(true);
+    expect(await t.evaluate((el) => (el.textContent || "").trim()), "不应再有文字").toBe("");
   });
 
   test("只标例外：卡片上不出现「只读」标记", async ({ page }) => {
