@@ -118,7 +118,9 @@ export default function TodayPane({
           aria-label={taskRailCollapsed ? "展开今日任务表" : "收起今日任务表"}
           onClick={toggleTaskRail}
         >
-          <span aria-hidden>{taskRailCollapsed ? "‹" : "›"}</span>
+          <svg className="today-task-rail-toggle-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+            <path d={taskRailCollapsed ? "m7 4 6 6-6 6" : "m13 4-6 6 6 6"} />
+          </svg>
           {taskRailCollapsed ? <strong>今日任务</strong> : null}
           {taskRailCollapsed ? <em>{rows.length}</em> : null}
         </button>
@@ -130,7 +132,7 @@ export default function TodayPane({
           loading={loading}
           onAct={onAct}
           onEdit={onEdit}
-          planPhase={phase}
+          planPhase={phase === "idle" && (Boolean(brief) || Boolean((events || []).length)) ? "refreshed" : phase}
         />
       </aside>
     </section>

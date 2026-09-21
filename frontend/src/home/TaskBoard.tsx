@@ -10,10 +10,10 @@ type TaskBoardScope = "today" | "todo";
 
 const FILTERS: Array<{ value: BoardFilter; label: string }> = [
   { value: "all", label: "全部" },
-  { value: "iu", label: "重要且紧急" },
-  { value: "in", label: "重要不紧急" },
-  { value: "ui", label: "紧急不重要" },
-  { value: "nn", label: "不紧急不重要" },
+  { value: "iu", label: "重要紧急" },
+  { value: "in", label: "重要" },
+  { value: "ui", label: "紧急" },
+  { value: "nn", label: "一般" },
 ];
 
 const COLLAPSED_ROWS = 5;
@@ -184,6 +184,7 @@ export default function TaskBoard({
       </div>
 
       {filtered.length ? (
+        <div className="today-board-table-scroll" tabIndex={0} aria-label="任务表，可横向滚动">
         <table className="today-board-table">
           <thead>
             <tr>
@@ -206,6 +207,7 @@ export default function TaskBoard({
             ))}
           </tbody>
         </table>
+        </div>
       ) : (
         <div className="task-empty" data-today-list-empty={loading ? "loading" : "none"}>
           <strong>{loading ? "正在读取当前任务" : rows.length ? "没有符合筛选条件的任务" : emptyCopy.title}</strong>

@@ -9,33 +9,21 @@ import {
   taskPriorityRank,
 } from "./homeModel";
 
-const PRIORITY_FALLBACK_ICON = ["🚨", "⭐", "⚡"] as const;
-
-const TASK_TYPE_ICON: Record<string, string> = {
-  email_compose: "✉️",
-  reply_analysis: "💬",
-  creator_profile: "👤",
-  confirm_stage: "📍",
-  risk_scan: "⚠️",
-  deal_memory: "📝",
-  creator_budget_report: "📊",
-  creator_discovery: "🔎",
-  discovery_plan: "🔎",
-  creator_daily_tasks: "📋",
-  kol_analyze: "🔎",
-  creator_outreach: "🤝",
-  business_approval: "💰",
-  creator_library_all: "📚",
-  creator_library_query: "📚",
-};
-
-export function displayRowIcon(task: Task): string {
-  const icon = String(task.display_icon || "").trim();
-  if (icon) return icon;
-  const typeIcon = TASK_TYPE_ICON[String(task.task_type || task.skill || "")];
-  if (typeIcon) return typeIcon;
-  const rank = taskPriorityRank(task);
-  return rank <= 2 ? PRIORITY_FALLBACK_ICON[rank] : "○";
+function BoardTaskIcon({ task }: { task: Task }) {
+  const type = String(task.task_type || task.skill || "");
+  const risk = type === "risk_scan" || taskPriorityRank(task) <= 1;
+  const search = /discovery|analyze|library_query/.test(type);
+  return (
+    <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+      {risk ? (
+        <><path d="M12 3 3.5 19h17L12 3Z" /><path d="M12 9v4.5M12 17h.01" /></>
+      ) : search ? (
+        <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m15.5 15.5 4 4" /></>
+      ) : (
+        <><rect x="5" y="3.5" width="14" height="17" rx="2" /><path d="M8.5 8h7M8.5 12h7M8.5 16h4" /></>
+      )}
+    </svg>
+  );
 }
 
 export function priorityTone(task: Task): { label: string; tone: "high" | "mid" | "low" } {
@@ -68,7 +56,6 @@ export default function BoardRow({
   const statusLabel = displayStatusLabel(task);
   const statusAccent = status?.code === "overdue" || status?.code === "due_soon";
   const why = String(task.layout_why || task.display_why || "").trim();
-  const icon = displayRowIcon(task);
   const verb = String(task.display_verb || task.next_action_code || "open");
   const actionLabel = taskActionLabel(task);
   const risk = String(task.risk_level || "").trim();
@@ -89,7 +76,7 @@ export default function BoardRow({
       <td className="today-board-cell-title">
         <div className="today-board-title-wrap">
           <div className="today-board-title-row">
-            {icon ? <span className="today-board-icon" aria-hidden="true">{icon}</span> : null}
+            <span className="today-board-icon"><BoardTaskIcon task={task} /></span>
             <button
               type="button"
               className="today-board-title"
@@ -127,6 +114,9 @@ export default function BoardRow({
           disabled={busy}
           onClick={() => onAct(task)}
         >
+          <svg className="today-board-action-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+            <path d="M7 5h8v8M15 5l-9 9" />
+          </svg>
           {actionLabel}
         </button>
         {editable ? (

@@ -12255,3 +12255,39 @@ button.today-brief-primary-btn:disabled {
     padding-bottom: 6px;
   }
 }
+
+/* Today density pass: compact the center heading and make the quick-task dock
+   and composer read as one full-width interaction surface. */
+@media (min-width: 981px) {
+  .home-pane[data-home-active-mode="today"] .today-center-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: var(--space-2) var(--space-4);
+    padding-top: 4px;
+    padding-bottom: 10px;
+  }
+  .home-pane[data-home-active-mode="today"] .today-center-hero h1,
+  .home-pane[data-home-active-mode="today"] .today-center-hero .home-stats {
+    margin: 0;
+  }
+  .home-pane[data-home-active-mode="today"] .today-workspace-center-head {
+    min-height: 30px;
+    padding-bottom: 8px;
+  }
+  .home-pane[data-home-active-mode="today"] .today-workspace-center > .home-composer-dock,
+  .home-pane[data-home-active-mode="today"] .today-workspace-center > .home-composer-dock > .composer-dock,
+  .home-pane[data-home-active-mode="today"] .today-workspace-center > .home-composer-dock .composer.composer--workspace {
+    width: 100%;
+    max-width: none;
+  }
+  .home-pane[data-home-active-mode="today"] .home-quick-tasks {
+    width: 100%;
+    padding-right: 0;
+    gap: 6px;
+  }
+  .home-pane[data-home-active-mode="today"] .home-quick-tasks button {
+    min-height: 30px;
+    padding-inline: 8px;
+  }
+}

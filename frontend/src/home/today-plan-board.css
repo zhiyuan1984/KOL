@@ -10,7 +10,7 @@
   padding: 0;
   min-width: 0;
   max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: visible;
 }
 .today-board-stream {
   margin: 14px 0 0;
@@ -19,10 +19,10 @@
   min-width: 0;
 }
 .today-board-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, auto) auto minmax(180px, 1fr);
   align-items: center;
   gap: 10px;
-  flex-wrap: wrap;
   min-width: 0;
 }
 .today-board-head-icon {
@@ -48,10 +48,12 @@
 }
 .today-board-tools {
   margin-left: auto;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
 }
 .today-board-search {
   border: 1px solid transparent;
@@ -62,7 +64,8 @@
   font: inherit;
   font-size: var(--ds-font-sm);
   color: var(--text);
-  min-width: 200px;
+  width: 100%;
+  min-width: 0;
   outline: none;
 }
 .today-board-search:focus {
@@ -85,6 +88,7 @@
   cursor: pointer;
   white-space: nowrap;
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 6px;
 }
@@ -123,7 +127,9 @@
 
 .today-board-filters {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
   gap: 8px;
   margin: 14px 0 12px;
 }
@@ -137,6 +143,8 @@
   padding: 5px 14px;
   cursor: pointer;
   min-height: 30px;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 .today-board-pill:hover {
   border-color: var(--color-primary);
@@ -152,6 +160,17 @@
   width: 100%;
   border-collapse: collapse;
   font-size: var(--ds-font-body);
+  min-width: 560px;
+}
+.today-board-table-scroll {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.today-board-table-scroll:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 .today-board-table th {
   text-align: left;
@@ -220,8 +239,27 @@
 }
 .today-board-icon {
   flex: 0 0 auto;
-  font-size: var(--ds-font-ui);
-  line-height: 1;
+  width: 18px;
+  height: 18px;
+  color: var(--ds-text-dim);
+}
+.today-board-icon svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.today-board-action-icon {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .today-board-title {
   border: 0;
@@ -284,6 +322,7 @@
   color: var(--ds-text-muted);
 }
 .today-board-cell-actions {
+  width: 1%;
   white-space: nowrap;
 }
 .today-board-open {
@@ -296,6 +335,10 @@
   padding: 4px 14px;
   cursor: pointer;
   min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 .today-board-open:hover:not(:disabled) {
   border-color: var(--color-primary);
@@ -358,7 +401,7 @@
 /* Today is a three-column workspace at the app level: global navigation,
    Codex planning/execution, and the existing actionable task table. */
 .today-workspace {
-  --today-task-rail-width: clamp(500px, 42%, 680px);
+  --today-task-rail-width: clamp(600px, 56%, 820px);
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--today-task-rail-width);
   align-items: stretch;
@@ -421,7 +464,7 @@
   position: absolute;
   z-index: 2;
   top: 2px;
-  left: -16px;
+  left: 8px;
   width: 32px;
   height: 32px;
   display: inline-flex;
@@ -437,6 +480,24 @@
 .today-task-rail-toggle:hover {
   color: var(--color-primary);
   border-color: var(--color-primary);
+}
+.today-task-rail-toggle:focus-visible,
+.today-board-open:focus-visible,
+.today-board-edit:focus-visible,
+.today-board-pill:focus-visible,
+.today-board-plan-button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.today-task-rail-toggle-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .today-task-rail.is-collapsed {
   display: flex;
@@ -472,7 +533,7 @@
   text-align: center;
 }
 .today-task-rail .today-board-head {
-  padding-left: 4px;
+  padding-left: 44px;
 }
 .today-task-rail .today-board-tools {
   width: 100%;
@@ -491,8 +552,8 @@
 
 @media (max-width: 1280px) {
   .today-workspace {
-    --today-task-rail-width: minmax(440px, 46%);
-    grid-template-columns: minmax(0, 1fr) minmax(440px, 46%);
+    --today-task-rail-width: minmax(500px, 54%);
+    grid-template-columns: minmax(360px, 46%) minmax(500px, 54%);
   }
   .today-workspace-center {
     padding-right: 20px;
