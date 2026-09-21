@@ -10762,7 +10762,9 @@ button.today-brief-primary-btn:disabled {
 
 /* ── 全局视觉 token（Design System v1） ──────────────────────────────────
    一套尺度给全站用：间距走 8px 网格，圆角按层级分档，颜色/字号只从这里取。
-   页面不要各自写死 px，直接引用 --ds-*；新页面必须先落 token 再落样式。 */
+   页面不要各自写死 px，直接引用 --ds-*；新页面必须先落 token 再落样式。
+   密度分两档：默认（宽屏）与紧凑（窄屏或矮窗，见文末 media），紧凑档只收紧间距与控件高度，
+   不动颜色和字号层级——同一套结构，两种呼吸感。 */
 :root {
   /* 间距：8px 网格 */
   --ds-space-1: 4px;
@@ -10836,11 +10838,39 @@ button.today-brief-primary-btn:disabled {
   --page-gutter: clamp(var(--ds-space-5), 2.4vw, var(--ds-page-pad-x));
 }
 
-/* Tablet 1024：并排的两项收成一列，Label 列收窄；候选行只留一级字段
+/* ── 紧凑密度档：窄屏（<1440）或矮窗（<=900）──────────────────────────
+   1280×800 这类笔记本上，宽屏那套节奏（chip 40 / 行距 20 / 分区距 32）会让检索区
+   比可见区域还高，整页要滚动才能看完，读起来就「散」。这里只收紧间距与控件高度：
+   颜色、字号层级、圆角一律不动，所以两个档位看起来仍是同一个产品。 */
+@media (max-width: 1439px), (max-height: 900px) {
+  :root {
+    --ds-space-4: 12px;
+    --ds-space-5: 10px;
+    --ds-space-6: 16px;
+    --ds-space-8: 20px;
+    --ds-page-pad-x: 32px;
+    --ds-section-gap: 16px;
+    --ds-row-gap: 8px;
+    --ds-label-w: 96px;
+    --ds-control-h: 40px;
+    --ds-chip-h: 32px;
+    --ds-font-block-title: 18px;
+    --ds-line-block-title: 26px;
+    --ds-font-section: 16px;
+    --ds-line-section: 24px;
+  }
+  /* 数值框跟着列宽走，窄屏下不再留一截空档。 */
+  .ai-discovery-card .ai-discovery-input.is-number {
+    flex: 1 1 0;
+    width: auto;
+    max-width: 200px;
+  }
+}
+
+/* Tablet 1024：并排的两项收成一列；候选行只留一级字段
    （隐藏二级指标：播放中位数/稳定度/采集时间/在库状态）。 */
 @media (max-width: 1024px) {
   .ai-discovery-rows.is-pair { grid-template-columns: minmax(0, 1fr); }
-  .ai-discovery-row { grid-template-columns: 96px minmax(0, 1fr); column-gap: var(--ds-space-3); }
   .discovery-lead { min-height: 64px; }
   .discovery-lead-detail-item:nth-child(-n + 4) { display: none; }
   .discovery-lead-detail { grid-template-columns: minmax(0, 1fr); }
