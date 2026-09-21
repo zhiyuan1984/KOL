@@ -113,7 +113,10 @@ export default function FollowedKolWorkCard({
       data-action-owner={card.owner}
       data-cta-emphasis={emphasized ? "strong" : "quiet"}
       data-selected={selected ? "true" : undefined}
-      onMouseEnter={(event) => {
+      onMouseMove={(event) => {
+        // 只有指针真的在卡片上移动才算悬停。用 mousemove 而不是 mouseenter：
+        // 滚动会让指针底下换一张卡并补发 mouseenter（Chromium 不补 mousemove），
+        // 那种「悬停」会顺手 blur 掉键盘焦点、把实底 CTA 从正在操作的对象上挪走。
         const active = document.activeElement;
         if (active instanceof HTMLElement && !event.currentTarget.contains(active)) {
           active.blur();

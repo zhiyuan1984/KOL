@@ -26,7 +26,11 @@ test("跟进面读失败只在它自己的位置上说一次，并带重试与�
 
   let followingHits = 0;
   let down = true;
-  await page.route("**/api/home/board", (route) => (down ? route.fulfill(GATEWAY_HTML) : route.continue()));
+  // 重试路径也要自成一体：不打真后端，board 用桩返回，断网/DB 锁不会污染断言。
+  // 重试会带 ?refresh=1，所以模式必须匹配 query。
+  await page.route("**/api/home/board*", (route) => (
+    down ? route.fulfill(GATEWAY_HTML) : route.fulfill({ json: { kols: [], follow_scope: null, workbench: {} } })
+  ));
   await page.route("**/api/home/following", (route) => {
     followingHits += 1;
     if (down) return route.fulfill(GATEWAY_HTML);
@@ -66,8 +70,8 @@ test("跟进面读失败只在它自己的位置上说一次，并带重试与�
 });
 
 test("公海面读失败同样只在自己的位置上说一次", async ({ page }) => {
-  await page.route("**/api/home/board", (route) => route.fulfill(GATEWAY_HTML));
-  await page.route("**/api/home/pool", (route) => route.fulfill(GATEWAY_HTML));
+  await page.route("**/api/home/board*", (route) => route.fulfill(GATEWAY_HTML));
+  await page.route("**/api/home/pool*", (route) => route.fulfill(GATEWAY_HTML));
 
   await page.goto("/?tab=pool");
   const empty = page.locator("[data-pool-empty='down']");
