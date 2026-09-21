@@ -1,0 +1,60 @@
+import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import DiscoveryLeadRow from "./DiscoveryLeadRow";
+import type { HomeDiscoveryCandidate } from "./discoveryHome";
+
+const candidate: HomeDiscoveryCandidate = {
+  id: "c1",
+  nickname: "CleanGlow",
+  platform: "youtube",
+  platformCreatorId: "yt-1",
+  handle: null,
+  followers: 153000,
+  avg_plays_10: 8000,
+  recentViews: [8000, 9000, 7000],
+  viewMean: 8597,
+  viewMedian: 8100,
+  stability: 0.9,
+  viewFollowerRatio: 10.96,
+  confidence: 1,
+  sampleSize: 10,
+  score: 88,
+  matchReason: "名称含 camping",
+  fit: "户外露营",
+  source_url: null,
+  profileUrl: null,
+  avatarUrl: null,
+  matchedKeywords: ["camping"],
+  collectedAt: "2026-09-20T03:43:01.069Z",
+  email: "clean.glow@mailcreators.example",
+  libraryStatus: "pool",
+  why: "名称含 camping",
+  band: "high",
+  in_library: true,
+  status: "suggested",
+};
+
+function render(overrides: Partial<HomeDiscoveryCandidate> = {}): string {
+  return renderToStaticMarkup(createElement(DiscoveryLeadRow, {
+    candidate: { ...candidate, ...overrides },
+    selected: false,
+    expanded: false,
+    onToggleSelect: () => undefined,
+    onToggleExpand: () => undefined,
+    onIgnore: () => undefined,
+  }));
+}
+
+describe("discovery lead row", () => {
+  it("shows the contact email behind the data-lead-email hook", () => {
+    const html = render();
+    expect(html).toContain("data-lead-email");
+    expect(html).toContain("clean.glow@mailcreators.example");
+  });
+
+  it("renders no email line when the candidate has no contact email", () => {
+    expect(render({ email: null })).not.toContain("data-lead-email");
+    expect(render({ email: "" })).not.toContain("data-lead-email");
+  });
+});

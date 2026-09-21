@@ -54,11 +54,11 @@ function mockMcp() {
 function assertGetCreatorsMcpContract(args: Json, platform: string): void {
   expect(args).toEqual(expect.objectContaining({
     platform,
-    page: 1,
-    page_size: expect.any(Number),
+    offset: 0,
+    limit: expect.any(Number),
   }));
-  expect(args).not.toHaveProperty("offset");
-  expect(args).not.toHaveProperty("limit");
+  expect(args).not.toHaveProperty("page");
+  expect(args).not.toHaveProperty("page_size");
   expect(args.task_id).toBeUndefined();
 }
 
@@ -328,7 +328,7 @@ describe("follow and dismiss", () => {
         if (name === "get_crawl_logs") return { logs: [] };
         if (name === "get_creators") {
           creatorCallArgs.push(args);
-          const extra = Object.keys(args).filter((key) => !["platform", "page", "page_size"].includes(key));
+          const extra = Object.keys(args).filter((key) => !["platform", "offset", "limit"].includes(key));
           if (extra.length) throw new Error(`pydantic: unexpected fields ${extra.join(",")}`);
           return { creators, has_more: false, total: creators.length };
         }

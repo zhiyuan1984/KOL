@@ -149,6 +149,20 @@ export function sourceState(candidate: HomeDiscoveryCandidate | null | undefined
 
 export const SOURCE_MISSING_LABEL = "来源链接缺失";
 
+/**
+ * 联系邮箱：只认真实地址。缺失、空白或不是地址一律 null —— 卡片不渲染这一行，
+ * 也不用「无」占位（没有邮箱的候选本来就不该出现在列表里）。
+ */
+export function contactEmail(candidate: HomeDiscoveryCandidate | null | undefined): string | null {
+  const raw = String(candidate?.email ?? "").trim();
+  return /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(raw) ? raw : null;
+}
+
+export function contactEmailHref(candidate: HomeDiscoveryCandidate | null | undefined): string | null {
+  const email = contactEmail(candidate);
+  return email ? `mailto:${email}` : null;
+}
+
 /** 在库状态三态文案。`pool` 已包含「在库但不在公海」——这是有意的折叠。 */
 const LIBRARY_LABELS: Record<string, string> = {
   not_in_library: "未入库",

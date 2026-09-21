@@ -1,7 +1,7 @@
 /**
  * Host Gateway: POST /api/home/discovery/ingest
- * L3 confirm → starrykol.importKolProfilesFromCrawler → A.pool_status=open.
- * Does not write B.active, Collaboration-as-follow, mail, or stage.
+ * L3 confirm → addKolProfile（建档拿 kolUid）→ importKolProfilesFromCrawler（补平台字段）
+ * → A.pool_status=open。Does not write B.active, Collaboration-as-follow, mail, or stage.
  */
 import { importCreatorOrgApprovalRequired } from "../approval/import-creator.js";
 import { authDisabled, isAdmin, scopedUser } from "../auth.js";
@@ -9,16 +9,22 @@ import { DEMO_USER } from "../config.js";
 import { audit, getConn, nowIso } from "../db.js";
 import {
   buildCrawlerImportFile,
+  candidateContactEmail,
   candidateHasContactEmail,
   crawlerFileContainsContactEmail,
+  IMPORT_CREATOR_POLICY,
   mapCandidateToCrawlerRow,
   profileUrlOf,
   requireStableExternalId,
+  withKolUid,
 } from "../discovery-import.js";
 import {
+  addKolProfileConfirmed,
+  findExistingKolUid,
   importKolProfilesFromCrawlerConfirmed,
 } from "../gateway/import-creator.js";
 import { nid } from "../ids.js";
+import { resolveStarryOwnerForMailbox } from "../starrykol/service.js";
 import type { Json, Row } from "../types.js";
 import { recordDiscoveryFact } from "./discovery-facts.js";
 import { HttpFail } from "./errors.js";
@@ -29,6 +35,7 @@ import {
   trimPrivate,
   upsertPublicProfile,
 } from "./kol-memory.js";
+import { starryBindingRow } from "./starry-bind.js";
 
 export const DISCOVERY_INGEST_ENTRY = {
   entry: "command",
@@ -254,6 +261,20 @@ function writeOpenPool(input: {
   return profile;
 }
 
+/**
+ * 负责人身份：工作台绑定的 Starry 邮箱 → 按 mailbox_id / mailbox_email 去邮箱清单取
+ * ownerOpenId。取不到就交给调用方诚实失败 —— Starry 只给 ownerUserName 会报
+ * 「负责人无可用邮箱」，编一个 id 只会写出错误负责人。
+ */
+async function ownerFieldsForIngest(): Promise<Json> {
+  const binding = starryBindingRow(actorId());
+  return resolveStarryOwnerForMailbox({
+    mailboxId: binding?.mailbox_id,
+    mailboxEmail: binding?.mailbox_email,
+    ownerName: binding?.owner_name,
+  });
+}
+
 async function ingestOne(input: {
   candidate: Row;
   source_batch: string;
@@ -283,8 +304,67 @@ async function ingestOne(input: {
     };
   }
 
+  // 没有真实联系邮箱就没有第一步可做：不编造、不拿负责人邮箱顶，诚实失败。
+  const contactEmail = candidateContactEmail(input.candidate);
+  if (!contactEmail) {
+    throw new HttpFail(409, {
+      code: "import_creator_no_contact_email",
+      message: "该线索没有联系邮箱，未入库。",
+    });
+  }
+
+  // 先找回已建档的 uid：上一次 add 成功但 import 失败会留下孤儿，重试再 add 会撞
+  // 「联系邮箱已被其他红人占用」。找回用的正是要写进 Starry 的那两列（频道链接/平台账号）。
+  const crawlerRow = mapCandidateToCrawlerRow(input.candidate);
+  const found = await findExistingKolUid({
+    keyword: crawlerRow.account,
+    account: crawlerRow.account,
+    platform: external.platform,
+    profileUrl: crawlerRow.profile_url,
+  }, { actor: actorId() });
+
+  let kolUid = "";
+  if (found) {
+    kolUid = found.kol_uid;
+    audit(actorId(), "host.add_kol_profile", {
+      policy: IMPORT_CREATOR_POLICY,
+      tool: "addKolProfile",
+      skipped: true,
+      reused_existing: true,
+      via: found.via,
+      kol_uid: kolUid,
+      source_batch: input.source_batch,
+      creator_external_id: external.external_id,
+      candidate_id: String(input.candidate.id),
+      sent: false,
+      stage_changed: false,
+    });
+  } else {
+    const owner = await ownerFieldsForIngest();
+    if (!/^\d+$/.test(String(owner.ownerOpenId || "").trim())) {
+      throw new HttpFail(409, {
+        code: "import_creator_no_owner_open_id",
+        message: "未取得 Starry 负责人 openId，未入库。",
+        owner_mailbox: String(owner.ownerMailbox || owner.mailboxEmail || ""),
+      });
+    }
+    const created = await addKolProfileConfirmed({
+      kolName: String(
+        input.candidate.nickname || input.candidate.handle || external.platform_creator_id,
+      ).trim(),
+      contactEmail,
+      dataSource: "CRAWLER",
+      owner,
+      sourceBatch: input.source_batch,
+      creatorExternalId: external.external_id,
+      candidateId: String(input.candidate.id),
+      actor: actorId(),
+    });
+    kolUid = String(created.kol_uid || "");
+  }
+
   const file = buildCrawlerImportFile(
-    [mapCandidateToCrawlerRow(input.candidate)],
+    [withKolUid(crawlerRow, kolUid)],
     `discovery-ingest-${String(input.candidate.id).slice(0, 24)}.csv`,
   );
   if (crawlerFileContainsContactEmail(file) || /@/.test(file.csv) && /contactEmail|联系邮箱/i.test(file.csv)) {
@@ -297,10 +377,12 @@ async function ingestOne(input: {
     candidateId: String(input.candidate.id),
     actor: actorId(),
     lookupKeyword: String(input.candidate.handle || input.candidate.nickname || external.platform_creator_id),
+    knownKolUid: kolUid,
   });
-  const kolUid = String(imported.kol_uid || "");
+  const importedUid = String(imported.kol_uid || "");
+  const finalUid = importedUid || kolUid;
   const profile = writeOpenPool({
-    kol_uid: kolUid,
+    kol_uid: finalUid,
     candidate: input.candidate,
     source_batch: input.source_batch,
     platform: external.platform,
@@ -311,7 +393,7 @@ async function ingestOne(input: {
     source_batch: input.source_batch,
     platform: external.platform,
     platform_creator_id: external.platform_creator_id,
-    kol_uid: kolUid,
+    kol_uid: finalUid,
     candidate_id: String(input.candidate.id),
     run_id: input.run_id,
   });
@@ -321,7 +403,7 @@ async function ingestOne(input: {
     object_id: input.run_id,
     payload: {
       candidate_id: input.candidate.id,
-      kol_uid: kolUid,
+      kol_uid: finalUid,
       source_batch: input.source_batch,
       platform: external.platform,
       platform_creator_id: external.platform_creator_id,
@@ -337,10 +419,10 @@ async function ingestOne(input: {
     platform_creator_id: external.platform_creator_id,
     status: "imported",
     already_imported: false,
-    kol_uid: kolUid,
+    kol_uid: finalUid,
     looked_up_after_timeout: Boolean(imported.looked_up_after_timeout),
     retried: false,
-    has_contact_email: candidateHasContactEmail(input.candidate),
+    has_contact_email: true,
     profile,
   };
 }

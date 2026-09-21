@@ -3,6 +3,8 @@ import { asHomeCandidate, asHomeRun, type HomeDiscoveryRun } from "./discoveryHo
 import {
   collectedAtMinute,
   confidenceLabel,
+  contactEmail,
+  contactEmailHref,
   discoveryRunStatusLabel,
   discoveryRunStatusOk,
   discoveryRunStatusRows,
@@ -114,6 +116,7 @@ describe("creator lead row fields", () => {
     avatarUrl: null,
     matchedKeywords: ["camping"],
     collectedAt: "2026-09-20T03:43:01.069Z",
+    email: "clean.glow@mailcreators.example",
     libraryStatus: "pool" as const,
     why: "名称含 camping",
     band: "high",
@@ -147,6 +150,17 @@ describe("creator lead row fields", () => {
     expect(confidenceLabel({ ...base, confidence: 0.6 })).toBe("中");
     expect(confidenceLabel({ ...base, confidence: 0 })).toBe("低");
     expect(confidenceLabel({ ...base, confidence: null })).toBe("无");
+  });
+
+  it("shows the contact email only when it is a real address, never a stand-in", () => {
+    expect(contactEmail(base)).toBe("clean.glow@mailcreators.example");
+    expect(contactEmailHref(base)).toBe("mailto:clean.glow@mailcreators.example");
+    // 缺失或不是地址 → null（卡片这一行不渲染），不用「无」占位。
+    expect(contactEmail({ ...base, email: null })).toBe(null);
+    expect(contactEmail({ ...base, email: "" })).toBe(null);
+    expect(contactEmail({ ...base, email: "暂无" })).toBe(null);
+    expect(contactEmailHref({ ...base, email: null })).toBe(null);
+    expect(contactEmail(null)).toBe(null);
   });
 
   it("never invents a match reason or a source link", () => {

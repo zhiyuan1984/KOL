@@ -604,7 +604,7 @@ function syncRunFromCrawl(run: Row): void {
 
 function upsertCandidatesFromJob(run: Row, job: Row): number {
   const snapshots = getConn().prepare(
-    `SELECT s.*, c.id AS claw_creator_id, c.handle AS claw_handle, c.name AS claw_name
+    `SELECT s.*, c.id AS claw_creator_id, c.handle AS claw_handle, c.name AS claw_name, c.payload AS claw_payload
        FROM creator_snapshots s
        JOIN claw_creators c ON c.id = s.creator_id
       WHERE s.crawl_job_id=?
@@ -622,6 +622,12 @@ function upsertCandidatesFromJob(run: Row, job: Row): number {
       if (seen.has(key)) continue;
       seen.add(key);
       const nickname = String(snap.nickname || snap.claw_name || snap.claw_handle || "").trim();
+      const clawPayload = parseJson(snap.claw_payload);
+      const clawProfileUrl = String(clawPayload.profile_url || "").trim();
+      const clawEmail = String(clawPayload.email || "").trim();
+      const clawEmails = Array.isArray(clawPayload.emails)
+        ? (clawPayload.emails as unknown[]).map((item) => String(item || "").trim()).filter(Boolean)
+        : [];
       const existing = db.prepare(
         "SELECT * FROM creator_candidates WHERE request_id=? AND platform=? AND platform_creator_id=?",
       ).get(run.request_id, platform, platformCreatorId) as Row | undefined;
@@ -638,6 +644,12 @@ function upsertCandidatesFromJob(run: Row, job: Row): number {
         crawl_job_id: job.id,
         source: "ai",
         contact_needed: true,
+        // MediaCrawler 的「频道链接」在 claw_creators.payload；候选 payload 是封闭的，
+        // 不在这里抄一份，入库时就发不出频道链接。
+        ...(clawProfileUrl ? { profile_url: clawProfileUrl } : {}),
+        // 联系邮箱同理：不抄进候选 payload，入库的 addKolProfile 就没有真实 contactEmail。
+        ...(clawEmail ? { email: clawEmail } : {}),
+        ...(clawEmails.length ? { emails: clawEmails } : {}),
       };
       const signals = {
         score: Number(snap.score || 0),

@@ -40,7 +40,7 @@ async function startMockMcp(): Promise<void> {
     const tool = (name: string, handler: (args: Json) => Json) => server.registerTool(
       name,
       { inputSchema: { task_id: z.string().optional(), platform: z.string().optional(),
-        mode: z.string().optional(), page: z.number().optional(), page_size: z.number().optional(),
+        mode: z.string().optional(), offset: z.number().optional(), limit: z.number().optional(),
         keywords: z.union([z.string(), z.array(z.string())]).optional(), confirm: z.boolean().optional() } },
       async (args) => {
         calls.push(name);
@@ -341,11 +341,11 @@ describe("crawl lifecycle", () => {
     expect(calls).toContain("get_creators");
     expect(creatorCallArgs[0]).toEqual(expect.objectContaining({
       platform: "youtube",
-      page: 1,
-      page_size: expect.any(Number),
+      offset: 0,
+      limit: expect.any(Number),
     }));
-    expect(creatorCallArgs[0]).not.toHaveProperty("offset");
-    expect(creatorCallArgs[0]).not.toHaveProperty("limit");
+    expect(creatorCallArgs[0]).not.toHaveProperty("page");
+    expect(creatorCallArgs[0]).not.toHaveProperty("page_size");
     expect(creatorCallArgs[0].task_id).toBeUndefined();
   });
 
@@ -408,24 +408,18 @@ describe("crawl lifecycle", () => {
     ]));
     expect(creatorCallArgs[0]).toEqual(expect.objectContaining({
       platform: "youtube",
-      page: 1,
-      page_size: expect.any(Number),
+      offset: 0,
+      limit: expect.any(Number),
     }));
-    expect(creatorCallArgs[0]).not.toHaveProperty("offset");
-    expect(creatorCallArgs[0]).not.toHaveProperty("limit");
+    expect(creatorCallArgs[0]).not.toHaveProperty("page");
+    expect(creatorCallArgs[0]).not.toHaveProperty("page_size");
     expect(creatorCallArgs[0].task_id).toBeUndefined();
     expect(JSON.stringify(events)).not.toContain("Bearer hidden");
   });
 
-  it("pages get_creators with platform/page/page_size; pydantic extras would fail REAL", async () => {
-    process.env.MEDIACRAWLER_CREATOR_PAGE_SIZE = "2";
-    const pages: Json[] = [];
-    const catalog = [
-      { platform: "youtube", platform_creator_id: "yt-a", nickname: "Alpha", followers: 100, recent_views: [10] },
-      { platform: "youtube", platform_creator_id: "yt-b", nickname: "Beta", followers: 200, recent_views: [20] },
-      { platform: "youtube", platform_creator_id: "yt-c", nickname: "Gamma", followers: 300, recent_views: [30] },
-    ];
-    setCrawlMcpClientFactory(() => ({
+  /** 远端 `get_creators` 的分页契约：{task_id, platform, offset, limit}。 */
+  function remotePagingStub(catalog: Json[], pages: Json[]) {
+    return () => ({
       async callTool(name: string, args: Json = {}) {
         calls.push(name);
         if (name === "start_crawl") return { task_id: "remote-1", status: "running" };
@@ -433,25 +427,28 @@ describe("crawl lifecycle", () => {
         if (name === "get_crawl_logs") return { logs: [] };
         if (name === "get_creators") {
           pages.push(args);
-          const extra = Object.keys(args).filter((key) => !["platform", "page", "page_size"].includes(key));
+          const extra = Object.keys(args).filter((key) => !["platform", "offset", "limit"].includes(key));
           if (extra.length) {
             throw new Error(`validation error: extra fields not permitted: ${extra.join(",")}`);
           }
-          const page = Number(args.page);
-          const pageSize = Number(args.page_size);
-          expect(Number.isInteger(page) && page >= 1).toBe(true);
-          const start = (page - 1) * pageSize;
-          const slice = catalog.slice(start, start + pageSize);
+          const offset = Number(args.offset);
+          const limit = Number(args.limit);
+          expect(Number.isInteger(offset) && offset >= 0).toBe(true);
+          expect(Number.isInteger(limit) && limit >= 1).toBe(true);
+          const slice = catalog.slice(offset, offset + limit);
           return {
             creators: slice,
-            has_more: start + slice.length < catalog.length,
+            has_more: offset + slice.length < catalog.length,
             total: catalog.length,
           };
         }
         return {};
       },
       async close() {},
-    }));
+    });
+  }
+
+  async function runCreatorCrawl(): Promise<Json> {
     const { createApp } = await import("../src/app.js");
     const app = createApp();
     const created = await app.request("/api/tasks", {
@@ -466,14 +463,52 @@ describe("crawl lifecycle", () => {
       body: JSON.stringify({ platform: "youtube", mode: "search", keywords: ["户外"] }),
     });
     const job = await started.json() as Json;
-    const completed = await monitorCrawlJob(String(job.id));
+    return monitorCrawlJob(String(job.id));
+  }
+
+  it("pages get_creators with platform/offset/limit; page/page_size would be ignored REAL", async () => {
+    process.env.MEDIACRAWLER_CREATOR_PAGE_SIZE = "2";
+    const pages: Json[] = [];
+    const catalog = [
+      { platform: "youtube", platform_creator_id: "yt-a", nickname: "Alpha", followers: 100, recent_views: [10] },
+      { platform: "youtube", platform_creator_id: "yt-b", nickname: "Beta", followers: 200, recent_views: [20] },
+      { platform: "youtube", platform_creator_id: "yt-c", nickname: "Gamma", followers: 300, recent_views: [30] },
+    ];
+    setCrawlMcpClientFactory(remotePagingStub(catalog, pages));
+    const completed = await runCreatorCrawl();
     expect(completed.status).toBe("result_ready");
     expect(pages).toEqual([
-      { platform: "youtube", page: 1, page_size: 2 },
-      { platform: "youtube", page: 2, page_size: 2 },
+      { platform: "youtube", offset: 0, limit: 2 },
+      { platform: "youtube", offset: 2, limit: 2 },
     ]);
     const candidates = ((completed.result as Json).candidates as Json[]);
     expect(candidates.map((row) => row.platform_creator_id).sort()).toEqual(["yt-a", "yt-b", "yt-c"]);
+  });
+
+  it("accumulates offset per batch and never re-inserts the previous batch", async () => {
+    process.env.MEDIACRAWLER_CREATOR_PAGE_SIZE = "2";
+    const pages: Json[] = [];
+    const catalog = ["a", "b", "c", "d", "e"].map((suffix, index) => ({
+      platform: "youtube",
+      platform_creator_id: `yt-page-${suffix}`,
+      nickname: `Page${suffix.toUpperCase()}`,
+      followers: 100 * (index + 1),
+      recent_views: [10 * (index + 1)],
+    }));
+    setCrawlMcpClientFactory(remotePagingStub(catalog, pages));
+    const completed = await runCreatorCrawl();
+    expect(completed.status).toBe("result_ready");
+    expect(pages.map((args) => args.offset)).toEqual([0, 2, 4]);
+    expect(pages.every((args) => args.limit === 2)).toBe(true);
+    expect(pages.every((args) => !("page" in args) && !("page_size" in args))).toBe(true);
+    const stored = getConn().prepare(
+      "SELECT platform_creator_id FROM claw_creators WHERE platform='youtube' ORDER BY platform_creator_id",
+    ).all() as Array<{ platform_creator_id: string }>;
+    // 第二页 offset 累加对了，就不会把第一页那批再插一次。
+    expect(stored.map((row) => row.platform_creator_id)).toEqual([
+      "yt-page-a", "yt-page-b", "yt-page-c", "yt-page-d", "yt-page-e",
+    ]);
+    expect(((completed.result as Json).candidates as Json[])).toHaveLength(5);
   });
 
   it("calls remote stop_crawl and releases the active lock", async () => {

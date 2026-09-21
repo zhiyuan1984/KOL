@@ -70,7 +70,7 @@ function uidFromCsv(args: Json): string {
   const csv = Buffer.from(String(args.fileBase64 || ""), "base64").toString("utf8");
   const line = csv.split(/\r?\n/).map((row) => row.replace(/^\uFEFF/, "")).find((row, index) => index > 0 && row.trim());
   const cells = line ? line.split(",").map((cell) => cell.replace(/^"|"$/g, "").trim()) : [];
-  const account = cells[2] || cells[1] || "DISC";
+  const account = cells[3] || cells[1] || "DISC";
   return `KOL${account.replace(/[^A-Za-z0-9]/g, "").toUpperCase().slice(0, 12) || "DISC"}`;
 }
 

@@ -222,6 +222,8 @@ function mockCall(name: string, args: Json): Json {
     brandCode: "LT",
     brandName: "LT品牌",
     ownerUserName: "测试负责人",
+    ownerOpenId: "9",
+    ownerUserId: "9",
   };
   const larryMailbox = {
     id: 6,
@@ -229,6 +231,8 @@ function mockCall(name: string, args: Json): Json {
     brandCode: "RO",
     brandName: "RO品牌",
     ownerUserName: "赵良玉",
+    ownerOpenId: "273",
+    ownerUserId: "273",
   };
   if (name === "pageMailboxes") {
     return { pageNo: 1, pageSize: 20, total: 2, list: [mailbox, larryMailbox], statistics: { mailboxCount: 2 } };
@@ -1164,14 +1168,49 @@ function ownerFromBinding(fromAddr: string): Json {
     if (!row) return {};
     if (normalizeEmail(String(row.mailbox_email || "")) !== normalizeEmail(fromAddr)) return {};
     const ownerUserName = firstString(row.owner_name);
+    // 绑定表没有 openId 列，但只要有就带出来：只给 ownerUserName 时 addKolProfile
+    // 会报「负责人无可用邮箱」，不能在这里静默丢掉。
+    const ownerOpenId = firstString(row.ownerOpenId, row.owner_open_id, row.ownerUserId, row.owner_user_id);
     return {
       mailboxEmail: fromAddr,
       ownerMailbox: fromAddr,
       ...(ownerUserName ? { ownerUserName, ownerName: ownerUserName } : {}),
+      ...(ownerOpenId ? { ownerOpenId, ownerUserId: ownerOpenId } : {}),
     };
   } catch {
     return {};
   }
+}
+
+/**
+ * `addKolProfile` 只认数字 `ownerOpenId`（只给 ownerUserName 会报「负责人无可用邮箱」）。
+ * 绑定表 `user_starry_bindings` 里没有这个字段，所以按 `mailbox_id` / `mailbox_email`
+ * 去 Starry 邮箱清单里取；取不到就把已知信息带回去交给调用方诚实失败，绝不猜一个 id。
+ */
+export async function resolveStarryOwnerForMailbox(input: {
+  mailboxId?: unknown;
+  mailboxEmail?: unknown;
+  ownerName?: unknown;
+}): Promise<Json> {
+  const mailboxEmail = firstEmail(input.mailboxEmail);
+  const mailboxId = number(input.mailboxId);
+  const ownerName = String(input.ownerName || "").trim();
+  const fallback: Json = {
+    ...(mailboxEmail ? { mailboxEmail, ownerMailbox: mailboxEmail } : {}),
+    ...(ownerName ? { ownerUserName: ownerName, ownerName } : {}),
+  };
+  if (!mailboxId && !mailboxEmail) return fallback;
+  let listed: Json[] = [];
+  try {
+    listed = rows(await call("pageMailboxes", { pageNo: 1, pageSize: 50 }));
+  } catch {
+    return fallback;
+  }
+  const match = listed.find((row) => (
+    (mailboxId && number(row.id ?? row.mailboxId) === mailboxId)
+    || (mailboxEmail && sameMailbox(row, mailboxEmail))
+  ));
+  return match ? { ...fallback, ...ownerFromMailboxRow(match) } : fallback;
 }
 
 function profileAddBody(recipientEmail: string, name?: string, owner: Json = {}): Json {

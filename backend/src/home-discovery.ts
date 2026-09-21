@@ -8,7 +8,7 @@
  */
 import { authDisabled, isAdmin, scopedUser } from "./auth.js";
 import { DEMO_USER } from "./config.js";
-import { avgViews10, recentViewsOf } from "./discovery-import.js";
+import { avgViews10, candidateContactEmail, recentViewsOf } from "./discovery-import.js";
 import { emptyDiscoveryHint } from "./discovery-keywords.js";
 import {
   DISCOVERY_BRIEF_SCHEMA,
@@ -454,6 +454,7 @@ function publicCandidate(row: Row, ranking?: Json | null): Json {
     collected_at: nullableString(payload.collected_at),
     profile_url: nullableString(payload.profile_url),
     avatar_url: nullableString(payload.avatar_url),
+    email: candidateContactEmail(row) || null,
     matched_keywords: asStringList(payload.matched_keywords),
     status: row.status,
     payload,
@@ -813,6 +814,12 @@ function crawlerFieldsOf(clawPayload: Json, snapshot: Row): Json {
   if (profileUrl) fields.profile_url = profileUrl;
   const avatarUrl = nullableString(clawPayload.avatar_url);
   if (avatarUrl) fields.avatar_url = avatarUrl;
+  // MediaCrawler 现在只回**有邮箱**的创作者，`email` 是字符串、`emails` 是数组。
+  // 候选 payload 是封闭的，不在这里抄一份，入库就拿不到真实联系邮箱。
+  const email = nullableString(clawPayload.email);
+  if (email) fields.email = email;
+  const emails = asStringList(clawPayload.emails);
+  if (emails.length) fields.emails = emails;
   const keywords = asStringList(clawPayload.matched_keywords);
   if (keywords.length) fields.matched_keywords = keywords;
   // 本次快照优先：`claw_creators` 是每个 creator 一行、会被更晚的 ingest 覆盖，
@@ -1026,12 +1033,16 @@ export function listHomeDiscoveryCandidates(id: string): Json {
       ORDER BY CASE WHEN order_index IS NULL THEN 1 ELSE 0 END, order_index ASC, score DESC, created_at DESC`,
   ).all(run.id) as Row[];
   const ranking = briefRanking(String(run.work_item_id || ""));
+  // 没有联系邮箱的线索入不了库（addKolProfile 必须有真实 contactEmail），
+  // 所以不进列表投影；候选行本身保留在库里，不删数据、不改状态。
   return {
     entry: "memory",
     creates_session: false,
     calls_model: false,
     run_id: run.id,
-    candidates: rows.map((row) => publicCandidate(row, ranking.get(String(row.id)) || null)),
+    candidates: rows
+      .map((row) => publicCandidate(row, ranking.get(String(row.id)) || null))
+      .filter((row) => Boolean(row.email)),
   };
 }
 

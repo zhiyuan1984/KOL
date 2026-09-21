@@ -2,6 +2,7 @@ import { displayMetric, type HomeDiscoveryCandidate } from "./discoveryHome";
 import {
   collectedAtMinute,
   confidenceLabel,
+  contactEmail,
   libraryLabel,
   matchReasonText,
   MISSING_TEXT,
@@ -41,6 +42,7 @@ export default function DiscoveryLeadRow({
   const source = sourceState(candidate);
   const plays = playsValue(candidate);
   const note = sampleNote(candidate);
+  const email = contactEmail(candidate);
   const score = candidate.score;
   return (
     <article
@@ -85,6 +87,11 @@ export default function DiscoveryLeadRow({
             + ` · 近10均播 ${displayMetric(plays)}${note ? ` · ${note}` : ""}`
             + ` · 播放/粉丝比 ${viewFollowerPercent(candidate)}`}
         </p>
+        {email ? (
+          <p className="discovery-lead-meta" data-lead-email>
+            {`联系邮箱 ${email}`}
+          </p>
+        ) : null}
         <p className="discovery-lead-reason" data-discovery-candidate-reason>
           {`匹配：${matchReasonText(candidate)}`}
         </p>

@@ -376,13 +376,14 @@ async function fetchCreators(job: Row): Promise<Json[]> {
   const maxPages = Math.max(1, Math.min(20, Number(process.env.MEDIACRAWLER_MAX_CREATOR_PAGES || 10)));
   const pageSize = Math.max(1, Math.min(200, Number(process.env.MEDIACRAWLER_CREATOR_PAGE_SIZE || 100)));
   const creators: Json[] = [];
-  // MediaCrawler MCP get_creators is 1-based page + page_size (pydantic). Extra fields such as
-  // task_id / offset / limit are rejected and leave the crawl job stuck in analyzing.
-  for (let page = 1; page <= maxPages; page += 1) {
+  // MediaCrawler MCP `get_creators` 的 schema 是 {task_id, platform, offset, limit}。
+  // 发 page / page_size 会被**忽略**并返回全量（实测 page_size=5 仍回 42 条），
+  // 所以分页必须自己用 offset 累加。
+  for (let page = 0; page < maxPages; page += 1) {
     const result = await remoteCall("get_creators", {
       platform: job.platform,
-      page,
-      page_size: pageSize,
+      offset: page * pageSize,
+      limit: pageSize,
     }, String(job.id));
     const data = json(result.data);
     const batch = (result.creators || result.items || data.creators || data.items || data) as unknown;

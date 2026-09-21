@@ -54,6 +54,8 @@ export type HomeDiscoveryCandidate = {
   source_url: string | null;
   profileUrl: string | null;
   avatarUrl: string | null;
+  /** 候选的**真实**联系邮箱；没有就是 null（卡片这一行不渲染，也不拿负责人邮箱顶）。 */
+  email: string | null;
   matchedKeywords: string[];
   collectedAt: string | null;
   libraryStatus: HomeDiscoveryLibraryStatus;
@@ -306,6 +308,7 @@ export function asHomeCandidate(row: unknown): HomeDiscoveryCandidate | null {
     source_url: profileUrl || null,
     profileUrl: profileUrl || null,
     avatarUrl: avatarUrl || null,
+    email: asString(item.email ?? item.contact_email) || null,
     matchedKeywords: Array.isArray(item.matched_keywords)
       ? (item.matched_keywords as unknown[]).map((word) => String(word || "").trim()).filter(Boolean)
       : [],

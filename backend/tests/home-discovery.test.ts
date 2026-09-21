@@ -138,6 +138,7 @@ beforeEach(async () => {
     nickname: "CleanGlow",
     followers: 18000,
     recent_views: [8000, 9000, 7000, 8500, 9200, 8100, 8800, 7600, 8300, 8700],
+    email: "clean.glow@mailcreators.example",
   }];
   resetConn();
   seedAll();
@@ -306,11 +307,12 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     expect(run.candidate_count).toBeGreaterThan(0);
     expect(creatorCallArgs[0]).toEqual(expect.objectContaining({
       platform: "youtube",
-      page: 1,
-      page_size: expect.any(Number),
+      offset: 0,
+      limit: expect.any(Number),
     }));
+    expect(creatorCallArgs[0]).not.toHaveProperty("page");
+    expect(creatorCallArgs[0]).not.toHaveProperty("page_size");
     expect(creatorCallArgs[0]).not.toHaveProperty("task_id");
-    expect(creatorCallArgs[0]).not.toHaveProperty("offset");
     expect(calls).not.toContain("upload_creators");
     const after = starryWrites();
     expect(after.sends).toBe(before.sends);
@@ -414,6 +416,7 @@ describe("POST /api/home/discovery/run lifecycle", () => {
       nickname: "TwelveViews",
       followers: 18000,
       recent_views: [8000, 9000, 7000, 8500, 9200, 8100, 8800, 7600, 8300, 8700, 8900, 9100],
+      email: "twelve.views@mailcreators.example",
     }];
     const run = await completeRun();
     expect(run.status).toBe("completed");
@@ -450,6 +453,7 @@ describe("POST /api/home/discovery/run lifecycle", () => {
       profile_url: "https://youtube.com/@linkedglow",
       avatar_url: "https://yt3.ggpht.com/linkedglow.jpg",
       matched_keywords: ["clean beauty", "skincare routine"],
+      email: "linked.glow@mailcreators.example",
     }];
     const run = await completeRun();
     const candidates = await request("GET", `/api/home/discovery/runs/${run.id}/candidates`);
@@ -458,6 +462,41 @@ describe("POST /api/home/discovery/run lifecycle", () => {
       avatar_url: "https://yt3.ggpht.com/linkedglow.jpg",
       matched_keywords: ["clean beauty", "skincare routine"],
     });
+  });
+
+  it("carries the crawler email onto the candidate payload and row", async () => {
+    creators = [{
+      platform: "youtube",
+      platform_creator_id: "yt-beauty-9",
+      nickname: "MailGlow",
+      followers: 19000,
+      recent_views: [7000, 7100, 7200, 7300, 7400, 7500, 7600, 7700, 7800, 7900],
+      email: "Business@MailGlow.example",
+      emails: ["Business@MailGlow.example", "second@mailglow.example"],
+    }];
+    const run = await completeRun();
+    const candidates = await request("GET", `/api/home/discovery/runs/${run.id}/candidates`);
+    const row = (candidates.body.candidates as Json[])[0];
+    expect(row.email).toBe("Business@MailGlow.example");
+    expect((row.payload as Json).email).toBe("Business@MailGlow.example");
+    expect((row.payload as Json).emails).toEqual(["Business@MailGlow.example", "second@mailglow.example"]);
+  });
+
+  it("reports email null when the crawler sent none", async () => {
+    creators = [{
+      platform: "youtube",
+      platform_creator_id: "yt-beauty-8",
+      nickname: "NoMailGlow",
+      followers: 19000,
+      recent_views: [7000, 7100, 7200, 7300, 7400, 7500, 7600, 7700, 7800, 7900],
+    }];
+    const run = await completeRun();
+    const stored = getConn().prepare(
+      "SELECT COUNT(*) AS n FROM creator_candidates WHERE run_id=?",
+    ).get(run.id) as { n: number };
+    expect(stored.n).toBe(1);
+    const candidates = await request("GET", `/api/home/discovery/runs/${run.id}/candidates`);
+    expect(candidates.body.candidates).toEqual([]);
   });
 
   it("writes an honest empty result when crawl returns no creators", async () => {

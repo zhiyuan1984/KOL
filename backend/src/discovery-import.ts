@@ -18,7 +18,17 @@ const PLATFORM_DICT: Record<string, string> = {
   facebook: "FACEBOOK",
 };
 
-export const CRAWLER_CSV_HEADERS = ["主平台", "红人名称", "账号", "粉丝数(万)", "近10均播", "主页链接"] as const;
+/**
+ * Starry `importKolProfilesFromCrawler` 的必要表头。少一个就整单被拒：
+ * `crawler/import CSV 缺少必要表头: 频道链接, 名称, 平台, 平台账号`。
+ */
+export const CRAWLER_CSV_HEADERS = ["频道链接", "名称", "平台", "平台账号"] as const;
+
+/**
+ * 两段式入库（先 addKolProfile 建档拿 kolUid，再 import 补平台字段）才写这一列。
+ * 只有 uid 的行必须命中已存在的 Starry 档案，否则整行 SKIPPED_NO_KOL_UID。
+ */
+export const CRAWLER_CSV_UID_HEADER = "红人统一ID";
 
 export type FollowThresholds = {
   min_followers?: number;
@@ -29,12 +39,12 @@ export type FollowThresholds = {
 };
 
 export type CrawlerImportRow = {
-  platform_dict: string;
-  kol_name: string;
-  account: string;
-  followers_wan: string;
-  avg_views_10: string;
   profile_url: string;
+  kol_name: string;
+  platform_dict: string;
+  account: string;
+  /** 已存在的 Starry 红人统一ID；缺失时该行不写「红人统一ID」列。 */
+  kol_uid?: string;
 };
 
 export type CrawlerImportFile = {
@@ -187,25 +197,43 @@ export function mapCandidateToCrawlerRow(candidate: Row): CrawlerImportRow {
   );
   const name = firstString(candidate.nickname, candidate.handle, payload.nickname, payload.kolName, account);
   return {
-    platform_dict: platformDictCode(candidate.platform || payload.platform),
+    profile_url: profileUrlOf(candidate) || youtubeChannelUrlOf(candidate),
     kol_name: name,
+    platform_dict: platformDictCode(candidate.platform || payload.platform),
     account,
-    followers_wan: followersToWan(candidate.followers ?? payload.followers),
-    avg_views_10: formatAvgViews(avgViews10(candidate)),
-    profile_url: profileUrlOf(candidate),
   };
 }
 
+/**
+ * 频道链接兜底：YouTube 的 `platform_creator_id` 就是频道 ID，官方频道地址唯一。
+ * 其它平台没有确定的 ID→URL 映射，不猜、不编造。
+ */
+export function youtubeChannelUrlOf(source: Row | Json): string {
+  const payload = asObject(source.payload);
+  const platform = firstString(source.platform, payload.platform).toLowerCase();
+  const id = firstString(
+    source.platform_creator_id,
+    payload.platform_creator_id,
+    payload.platformCreatorId,
+  );
+  return platform === "youtube" && /^UC[\w-]{20,}$/.test(id)
+    ? `https://www.youtube.com/channel/${id}`
+    : "";
+}
+
 export function buildCrawlerImportFile(rows: CrawlerImportRow[], fileName = "discovery-follow.csv"): CrawlerImportFile {
+  // 「红人统一ID」列只在有 uid 的行存在时出现：Starry 要求四个必要表头必须齐，
+  // 四列契约保持不变，多一列 uid 不改变「先建档、再补平台字段」的顺序。
+  const withUid = rows.some((row) => String(row.kol_uid || "").trim());
+  const headers = withUid ? [CRAWLER_CSV_UID_HEADER, ...CRAWLER_CSV_HEADERS] : [...CRAWLER_CSV_HEADERS];
   const lines = [
-    CRAWLER_CSV_HEADERS.join(","),
+    headers.join(","),
     ...rows.map((row) => [
-      csvCell(row.platform_dict),
-      csvCell(row.kol_name),
-      csvCell(row.account),
-      csvCell(row.followers_wan),
-      csvCell(row.avg_views_10),
+      ...(withUid ? [csvCell(String(row.kol_uid || "").trim())] : []),
       csvCell(row.profile_url),
+      csvCell(row.kol_name),
+      csvCell(row.platform_dict),
+      csvCell(row.account),
     ].join(",")),
   ];
   const csv = `\uFEFF${lines.join("\n")}\n`;
@@ -215,6 +243,12 @@ export function buildCrawlerImportFile(rows: CrawlerImportRow[], fileName = "dis
     csv,
     rows,
   };
+}
+
+/** 把 addKolProfile 回传的 uid 挂到 crawler 行上，走「红人统一ID」列更新已建档的档案。 */
+export function withKolUid(row: CrawlerImportRow, kolUid: unknown): CrawlerImportRow {
+  const uid = String(kolUid || "").trim();
+  return uid ? { ...row, kol_uid: uid } : row;
 }
 
 export function crawlerFileContainsContactEmail(file: CrawlerImportFile): boolean {
@@ -274,9 +308,18 @@ export function candidateRegionOf(source: Row | Json): string {
 
 /** Honest detect only. Never invents a contact email for import. */
 export function candidateHasContactEmail(source: Row | Json): boolean {
+  return Boolean(candidateContactEmail(source));
+}
+
+/**
+ * 候选身上的**真实**联系邮箱，没有就返回空串。`candidateHasContactEmail` 与
+ * `addKolProfile.contactEmail` 都读这一处，保证「有邮箱」的判断和写进 Starry 的值
+ * 是同一个，不会出现「判定有邮箱、入库却拿不出值」。
+ */
+export function candidateContactEmail(source: Row | Json): string {
   const payload = asObject(source.payload);
   const signals = asObject(source.signals);
-  const email = firstString(
+  const raw = firstString(
     source.contact_email,
     source.email,
     payload.contact_email,
@@ -285,8 +328,11 @@ export function candidateHasContactEmail(source: Row | Json): boolean {
     signals.contact_email,
     signals.contactEmail,
     signals.email,
+    Array.isArray(payload.emails) ? payload.emails : [],
+    Array.isArray(signals.emails) ? signals.emails : [],
   );
-  return /@/.test(email);
+  const match = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/.exec(raw);
+  return match ? match[0] : "";
 }
 
 export function planRegionOf(request: Row | null | undefined): string {

@@ -13,6 +13,8 @@ import { monitorCrawlJob } from "../src/crawl/service.js";
 import {
   avgViews10,
   buildCrawlerImportFile,
+  candidateContactEmail,
+  candidateHasContactEmail,
   crawlerFileContainsContactEmail,
   CRAWLER_CSV_HEADERS,
   followersToWan,
@@ -22,6 +24,7 @@ import {
   parseImportedKolUid,
   platformDictCode,
   sourceBatchFor,
+  withKolUid,
 } from "../src/discovery-import.js";
 import { getConn, listAudit, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
@@ -155,12 +158,10 @@ describe("candidate to crawler row mapper", () => {
       signals: JSON.stringify({ recent_views: [1000, 2000, 1500] }),
     } as Row);
     expect(row).toEqual({
-      platform_dict: "YOUTUBE",
-      kol_name: "OutdoorPower",
-      account: "OutdoorPower",
-      followers_wan: "1.2",
-      avg_views_10: "1500",
       profile_url: "https://youtube.com/@outdoorpower",
+      kol_name: "OutdoorPower",
+      platform_dict: "YOUTUBE",
+      account: "OutdoorPower",
     });
     const file = buildCrawlerImportFile([row], "discovery-follow-p0.csv");
     expect(file.fileName).toBe("discovery-follow-p0.csv");
@@ -173,6 +174,94 @@ describe("candidate to crawler row mapper", () => {
     expect(isRealKolUid("disc_youtube_x")).toBe(false);
     expect(sourceBatchFor({ request_id: "dreq_1", platform: "youtube", platform_creator_id: "yt-1" } as Row))
       .toBe("disc:dreq_1:youtube:yt-1");
+  });
+
+  it("emits the Starry crawler header contract 频道链接,名称,平台,平台账号", () => {
+    const row = mapCandidateToCrawlerRow({
+      id: "cand_1",
+      platform: "youtube",
+      platform_creator_id: "yt-outdoor-1",
+      handle: "OutdoorPower",
+      nickname: "OutdoorPower",
+      followers: 12000,
+      payload: JSON.stringify({
+        recent_views: [1000, 2000, 1500],
+        profile_url: "https://youtube.com/@outdoorpower",
+      }),
+      signals: JSON.stringify({ recent_views: [1000, 2000, 1500] }),
+    } as Row);
+    const file = buildCrawlerImportFile([row], "discovery-follow-p0.csv");
+    const lines = file.csv.replace(/^\uFEFF/, "").trim().split("\n");
+    expect(lines[0]).toBe("频道链接,名称,平台,平台账号");
+    expect(lines[1]).toBe("https://youtube.com/@outdoorpower,OutdoorPower,YOUTUBE,OutdoorPower");
+  });
+
+  it("falls back to the canonical YouTube channel URL when the crawler sent no profile_url", () => {
+    const row = mapCandidateToCrawlerRow({
+      id: "cand_2",
+      platform: "youtube",
+      platform_creator_id: "UC4VoaWbC9pYxGCawDknpSXQ",
+      handle: "RYUCAMP",
+      nickname: "RYUCAMP",
+      followers: 1380000,
+      payload: JSON.stringify({ recent_views: [7527668] }),
+      signals: JSON.stringify({ recent_views: [7527668] }),
+    } as Row);
+    expect(row.profile_url).toBe("https://www.youtube.com/channel/UC4VoaWbC9pYxGCawDknpSXQ");
+  });
+
+  it("writes the addKolProfile uid into the 红人统一ID column for the two-stage import", () => {
+    const row = mapCandidateToCrawlerRow({
+      id: "cand_2",
+      platform: "youtube",
+      platform_creator_id: "yt-outdoor-1",
+      handle: "OutdoorPower",
+      nickname: "OutdoorPower",
+      payload: JSON.stringify({ profile_url: "https://youtube.com/@outdoorpower" }),
+      signals: JSON.stringify({}),
+    } as Row);
+    const withUid = withKolUid(row, "KOLA2D09C8DA5DC4701954C");
+    expect(withUid).toEqual({ ...row, kol_uid: "KOLA2D09C8DA5DC4701954C" });
+    expect(withKolUid(row, "")).toEqual(row);
+    const lines = buildCrawlerImportFile([withUid], "discovery-ingest.csv")
+      .csv.replace(/^\uFEFF/, "")
+      .trim()
+      .split("\n");
+    expect(lines[0]).toBe("红人统一ID,频道链接,名称,平台,平台账号");
+    expect(lines[1]).toBe(
+      "KOLA2D09C8DA5DC4701954C,https://youtube.com/@outdoorpower,OutdoorPower,YOUTUBE,OutdoorPower",
+    );
+    // 没有 uid 的行仍是 Starry 要求的四列表头契约。
+    expect(buildCrawlerImportFile([row], "x.csv").csv.replace(/^\uFEFF/, "").trim().split("\n")[0])
+      .toBe("频道链接,名称,平台,平台账号");
+  });
+
+  it("reads the real contact email off the candidate and never invents one", () => {
+    expect(candidateContactEmail({
+      payload: JSON.stringify({ email: "Business@CarolynsRVLife.com" }),
+    } as Row)).toBe("Business@CarolynsRVLife.com");
+    expect(candidateContactEmail({
+      payload: JSON.stringify({ emails: ["a@mailglow.com", "b@mailglow.com"] }),
+    } as Row)).toBe("a@mailglow.com");
+    expect(candidateContactEmail({ payload: JSON.stringify({ nickname: "no mail" }) } as Row)).toBe("");
+    expect(candidateContactEmail({ payload: JSON.stringify({}) } as Row)).toBe("");
+    expect(candidateHasContactEmail({
+      payload: JSON.stringify({ email: "business@carolynsrvlife.com" }),
+    } as Row)).toBe(true);
+    expect(candidateHasContactEmail({ payload: JSON.stringify({ nickname: "no mail" }) } as Row)).toBe(false);
+  });
+
+  it("never invents a channel URL for a non-YouTube or non-channel id", () => {
+    const instagram = mapCandidateToCrawlerRow({
+      id: "cand_3",
+      platform: "instagram",
+      platform_creator_id: "1234567",
+      handle: "creator",
+      nickname: "creator",
+      payload: JSON.stringify({}),
+      signals: JSON.stringify({}),
+    } as Row);
+    expect(instagram.profile_url).toBe("");
   });
 });
 
@@ -194,10 +283,10 @@ describe("ADR-022 P0 follow import", () => {
           expect(args.fileName).toMatch(/\.csv$/);
           expect(String(args.fileBase64 || "")).toBeTruthy();
           const csv = Buffer.from(String(args.fileBase64), "base64").toString("utf8");
+          expect(csv).toContain("频道链接,名称,平台,平台账号");
+          expect(csv).toContain("https://youtube.com/@outdoorpower");
           expect(csv).toContain("YOUTUBE");
           expect(csv).toContain("OutdoorPower");
-          expect(csv).toContain("1.2");
-          expect(csv).toContain("1500");
           expect(csv).not.toMatch(/contactEmail|联系邮箱/i);
           return { data: { kolUid: "KOLOUTDOORPOWER", imported: 1 } };
         }
