@@ -109,28 +109,73 @@ test.describe("技能目录页（/skills）", () => {
     expect(hits, "浅主色底只允许用于选中 / 悬停，不得当静止面").toBe(0);
   });
 
-  test("§5 规则 3：主色不得当文字 / 图标色（预览栏、图标砖）", async ({ page }) => {
+  test("§5 规则 3：主色当文字时必须达 4.5:1（本页 palette 单色，主色即 ink）", async ({ page }) => {
+    // 文档 colors.primary(#111111) 与 colors.ink 同值：主色**就是**正文色，
+    // 因此判据不能是"主色不得当文字"，而是"主色当文字时对比度必须够"——
+    // 这正是规则 3 的初衷（上一版品牌色太浅，才是问题）。
     const primary = await resolvePageToken(page, "--primary");
-    const hits = await page.evaluate((rgb) => {
-      const targets = [...document.querySelectorAll<HTMLElement>(
-        ".skill-catalog-preview :is(h2, h3, h4, p, span), .skill-card-icon",
-      )];
-      return targets.filter((el) => getComputedStyle(el).color === rgb).length;
+    const bad = await page.evaluate((rgb) => {
+      const lum = (c: string) => {
+        const m = c.match(/[\d.]+/g);
+        if (!m) return null as number | null;
+        const [r, g, b] = m.slice(0, 3).map(Number);
+        const f = (v: number) => {
+          const s = v / 255;
+          return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+        };
+        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+      };
+      const bgOf = (el: Element) => {
+        let n: Element | null = el;
+        while (n) {
+          const b = getComputedStyle(n).backgroundColor;
+          if (b && b !== "rgba(0, 0, 0, 0)" && b !== "transparent") return b;
+          n = n.parentElement;
+        }
+        return "rgb(255, 255, 255)";
+      };
+      const out: string[] = [];
+      for (const el of document.querySelectorAll<HTMLElement>("[data-skill-catalog] *")) {
+        const cs = getComputedStyle(el);
+        if (cs.color !== rgb) continue;
+        if (cs.display === "none" || el.getBoundingClientRect().width === 0) continue;
+        const l1 = lum(cs.color);
+        const l2 = lum(bgOf(el));
+        if (l1 === null || l2 === null) continue;
+        const cr = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+        const fs = Number.parseFloat(cs.fontSize);
+        if (cr < (fs >= 18 ? 3 : 4.5)) {
+          out.push(`${(el.className || el.tagName).toString().slice(0, 34)} ${fs}px cr=${cr.toFixed(2)}`);
+        }
+      }
+      return [...new Set(out)];
     }, primary);
-    expect(hits, "主色当文字 / 图标须用 --primary-text，本轮用中性色兜底").toBe(0);
+    expect(bad, `主色当文字但对比度不足：${JSON.stringify(bad)}`).toEqual([]);
   });
 
-  test("§5 规则 4：选中态有程序化状态且不只靠颜色", async ({ page }) => {
+  test("§5 规则 4：选中态有程序化状态且不只有颜色信号", async ({ page }) => {
     const onTab = page.locator(".skill-tab.on");
     await expect(onTab).toHaveAttribute("aria-pressed", "true");
-    const weights = await page.evaluate(() => {
+    // 文档 category-tab 两态字重相同（都是 500），非颜色信号来自 elevation：
+    // 选中段带轻投影（pill-in-pill）。故判据是「字重不同**或**投影不同」，两者都是非颜色信号。
+    const diff = await page.evaluate(() => {
       const on = document.querySelector(".skill-tab.on");
       const off = [...document.querySelectorAll(".skill-tab")].find((el) => !el.classList.contains("on"));
       if (!on || !off) return null;
-      return [getComputedStyle(on).fontWeight, getComputedStyle(off).fontWeight];
+      const a = getComputedStyle(on);
+      const b = getComputedStyle(off);
+      return {
+        weightDiffers: a.fontWeight !== b.fontWeight,
+        shadowDiffers: a.boxShadow !== b.boxShadow,
+        onShadow: a.boxShadow,
+        offShadow: b.boxShadow,
+      };
     });
-    expect(weights, "至少要有两个 tab 才能比较权重").not.toBeNull();
-    expect(weights![0], "选中态须有非颜色信号（字重）").not.toBe(weights![1]);
+    expect(diff, "至少要有两个 tab 才能比较状态").not.toBeNull();
+    expect(
+      diff!.weightDiffers || diff!.shadowDiffers,
+      `选中态必须有非颜色信号（字重或投影）：on=${diff!.onShadow} off=${diff!.offShadow}`,
+    ).toBe(true);
   });
 
   test("§5 规则 5：控件自设 line-height，不继承根的 24px 行盒", async ({ page }) => {
@@ -140,21 +185,28 @@ test.describe("技能目录页（/skills）", () => {
     expect(lh, `控件行高应为 20px 一档，实测 ${lh}px`).toBeLessThanOrEqual(20);
   });
 
-  test("DESIGN.md badge-pill：筛选 chip 自带底、选中用 ink 反相；带框按钮用 --control-border", async ({ page }) => {
-    // 文档没有 tabs 组件，本页筛选取 badge-pill 的形态：底色来自 colors.surface-strong，
-    // 因此边界由 chip 自己承担（不再需要外层容器画一个面）。
-    const strong = await resolvePageToken(page, "--ds-surface");
-    const chip = await page.locator(".skill-tab:not(.on)").first();
-    expect(await chip.evaluate((el) => getComputedStyle(el).backgroundColor), "chip 必须有可见底").toBe(strong);
-    const listBg = await page.locator(".skill-tabs-list").first().evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(listBg, "外层容器不应再重复画一个面").toBe("rgba(0, 0, 0, 0)");
-
-    // 选中态：文档 pricing-tier-featured 的做法——用 ink 反相表示"被选中"，不引入彩色标识。
-    const ink = await resolvePageToken(page, "--text");
+  test("DESIGN.md nav-pill-group + category-tab：胶囊容器套选中白胶囊；带框按钮用 --control-border", async ({ page }) => {
+    // 文档 component.nav-pill-group：外层是 surface-soft 的胶囊，内部 padding 6px；
+    // 选中段是「白底 + ink 文字 + 轻投影」的 pill-in-pill 签名交互。
+    const soft = await resolvePageToken(page, "--cal-surface-soft");
     const canvas = await resolvePageToken(page, "--bg");
+    const ink = await resolvePageToken(page, "--text");
+    const listBg = await page.locator(".skill-tabs-list").first().evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(listBg, "外层胶囊底应为 colors.surface-soft").toBe(soft);
+    expect(
+      await page.locator(".skill-tabs-list").first().evaluate((el) => getComputedStyle(el).paddingLeft),
+      "nav-pill-group 内边距 6px",
+    ).toBe("6px");
+    expect(
+      await page.locator(".skill-tab:not(.on)").first().evaluate((el) => getComputedStyle(el).backgroundColor),
+      "非选中段为透明底（category-tab 规定）",
+    ).toBe("rgba(0, 0, 0, 0)");
+
+    // 选中段：白底 + ink 文字 + 文档 elevation 的轻投影
     const on = page.locator(".skill-tab.on").first();
-    expect(await on.evaluate((el) => getComputedStyle(el).backgroundColor), "选中 chip 应反相为 ink").toBe(ink);
-    expect(await on.evaluate((el) => getComputedStyle(el).color), "反相后文字用画布色").toBe(canvas);
+    expect(await on.evaluate((el) => getComputedStyle(el).backgroundColor), "选中段应为白底").toBe(canvas);
+    expect(await on.evaluate((el) => getComputedStyle(el).color), "选中段文字为 ink").toBe(ink);
+    expect(await on.evaluate((el) => getComputedStyle(el).boxShadow), "选中段应带文档的轻投影").not.toBe("none");
 
     // 单体带框按钮仍必须用 ≥3:1 的 --control-border 描边（实底 CTA 用主色）。
     const allowed = [await resolvePageToken(page, "--control-border"), await resolvePageToken(page, "--primary")];
@@ -182,20 +234,32 @@ test.describe("技能目录页（/skills）", () => {
     expect(await page.locator(".skill-btn svg, .skill-btn .skill-btn-icon").count()).toBe(0);
   });
 
-  test("§5 规则 3：主色不得当文字色（全页扫描，含悬停态用 --primary-text）", async ({ page }) => {
-    const primary = await resolveToken(page, "--primary");
-    const hits = await page.evaluate((rgb) => {
-      const out: string[] = [];
-      for (const el of document.querySelectorAll<HTMLElement>("[data-skill-catalog] *")) {
-        if (getComputedStyle(el).color === rgb) out.push(el.className || el.tagName);
-      }
-      return out;
-    }, primary);
-    expect(hits, `主色 #DB1860 在白底只有 4.87:1，当文字用一律改用 --primary-text。命中：${JSON.stringify(hits)}`).toEqual([]);
-    // 主色文字档必须已登记，且与 --primary 不同值。
-    const primaryText = await resolveToken(page, "--primary-text");
-    expect(primaryText, "--primary-text 必须已定义").not.toBe("");
-    expect(primaryText, "--primary-text 必须比 --primary 更深").not.toBe(primary);
+  test("DESIGN.md colors：本页文字色只用 ink / body / muted 三档语义色", async ({ page }) => {
+    // 本页 palette 是单色（colors.primary 与 colors.ink 同值 #111111），
+    // 所以判据不是"主色不得当文字"，而是"文字色必须来自文档的文字档"。
+    const allowed = [
+      await resolvePageToken(page, "--text"), // colors.ink
+      await resolvePageToken(page, "--text-muted"), // colors.body
+      await resolvePageToken(page, "--cal-muted"), // colors.muted
+      await resolvePageToken(page, "--primary-fg"), // colors.on-primary（实底 CTA 上）
+    ];
+    const hits = await page.evaluate(
+      ([list]) => {
+        const allow = new Set(list as string[]);
+        const skip = new Set(["rgba(0, 0, 0, 0)", "transparent"]);
+        const out: string[] = [];
+        for (const el of document.querySelectorAll<HTMLElement>("[data-skill-catalog] *")) {
+          const cs = getComputedStyle(el);
+          if (cs.display === "none" || el.getBoundingClientRect().width === 0) continue;
+          const hasText = [...el.childNodes].some((n) => n.nodeType === 3 && (n.textContent ?? "").trim());
+          if (!hasText || skip.has(cs.color)) continue;
+          if (!allow.has(cs.color)) out.push(`${(el.className || el.tagName).toString().slice(0, 34)} ${cs.color}`);
+        }
+        return [...new Set(out)];
+      },
+      [[...allowed]],
+    );
+    expect(hits, `文字色不在文档的文字档内：\n${hits.join("\n")}`).toEqual([]);
   });
 
   test("工具风险档与异步契约在卡片上可见", async ({ page }) => {
@@ -463,10 +527,17 @@ test.describe("观感与密度修复", () => {
           for (const p of ["borderTopLeftRadius", "borderTopRightRadius"] as const) {
             if (!ladder.has(cs[p])) badRadius.push(`${el.className || el.tagName} ${p}=${cs[p]}`);
           }
-          // elevation：文档「no drop shadows」。覆盖层（窄屏详情列）是唯一的例外。
+          // 文档 elevation：投影只许用文档给出的两个黑底低透明度值
+          // （0 1px 2px rgba(0,0,0,0.05) / 0 4px 12px rgba(0,0,0,0.08)）。
+          // 比较按"透明度白名单"做，不按字符串顺序——浏览器会把 0 归一成 0px 并重排。
+          const allowedAlpha = ["0.05", "0.08"];
           const isOverlay = el.classList.contains("skill-detail-pane") && el.classList.contains("is-open");
-          if (!isOverlay && cs.boxShadow && cs.boxShadow !== "none" && !cs.boxShadow.includes("inset")) {
-            shadows.push(`${el.className || el.tagName} ${cs.boxShadow}`);
+          const sh = cs.boxShadow;
+          if (!isOverlay && sh && sh !== "none" && !sh.includes("inset")) {
+            const alphas = [...sh.matchAll(/rgba?\(([^)]+)\)/g)].map((m) => m[1].split(",").pop()!.trim());
+            if (alphas.length === 0 || !alphas.every((a) => allowedAlpha.includes(a))) {
+              shadows.push(`${(el.className || el.tagName).toString().slice(0, 34)} ${sh}`);
+            }
           }
         }
         return {
@@ -478,10 +549,10 @@ test.describe("观感与密度修复", () => {
       },
       [elevated, canvas],
     );
-    // 文档 Do：「Use the cream colors.canvas page floor — never pure white.」
-    expect(r.canvasRgb, `本页画布必须是文档的 cream（#f7f7f4），实测 ${r.canvasRgb}`).toBe("rgb(247, 247, 244)");
+    // 文档 colors.canvas 是纯白；卡片用 surface-card 灰面，白卡配发丝线。
+    expect(r.canvasRgb, `本页画布必须等于 colors.canvas(#ffffff)，实测 ${r.canvasRgb}`).toBe("rgb(255, 255, 255)");
     expect(r.badSurface, `出现 --bg-elevated 静止面：${JSON.stringify(r.badSurface)}`).toEqual([]);
-    expect(r.shadows, `文档禁止投影（除窄屏覆盖层）：${JSON.stringify(r.shadows)}`).toEqual([]);
+    expect(r.shadows, `投影必须只来自文档 elevation 的两条 subtle drop shadow：${JSON.stringify(r.shadows)}`).toEqual([]);
     expect(r.badRadius, `圆角不在文档阶梯(0/4/6/8/12/16/9999)内：${JSON.stringify(r.badRadius)}`).toEqual([]);
   });
 
@@ -492,25 +563,24 @@ test.describe("观感与密度修复", () => {
     for (const t of [
       "--bg", // colors.canvas
       "--bg-elevated", // 页面未用；留作"若被引用必须来自 token"的哨兵
-      "--ds-surface", // colors.surface-strong
+      "--ds-surface", // colors.surface-card
       "--text", // colors.ink
       "--text-muted", // colors.body
       "--border", // colors.hairline
       "--control-border", // colors.hairline-strong
-      "--primary", // colors.primary-active
+      "--primary", // colors.primary
       "--primary-hover",
       "--primary-fg", // colors.on-primary
-      "--focus-ring", // colors.primary
+      "--focus-ring", // colors.ink
       "--success",
       "--danger",
       "--warning",
-      "--cr-canvas-soft", // colors.canvas-soft
-      "--cr-muted", // colors.muted
+      "--cal-surface-soft", // colors.surface-soft
+      "--cal-muted", // colors.muted
     ]) {
       allowed.add(await resolvePageToken(page, t));
     }
-    allowed.add("rgb(0, 0, 0)"); // 焦点环令牌在壳层的解析值
-    allowed.add("rgb(255, 255, 255)"); // colors.surface-card / on-primary
+    allowed.add("rgb(255, 255, 255)"); // colors.canvas / on-primary
 
     const r = await page.evaluate(
       ([list]) => {
@@ -625,7 +695,7 @@ test.describe("§3 命中区 / §6.2 断点 / §7.3 偏好（验收矩阵）", (
     expect(r.tints, "该偏好下仍不得出现浅主色静止底").toBe(0);
     // 该偏好下页面不应被改变：画布仍是 DESIGN.md 的 cream。
     // （色值集合本身由上面「白名单反漂移」那条断言负责，这里不重复设 N 的上限。）
-    expect(r.canvas, "prefers-contrast: more 不应改变页面画布").toBe("rgb(247, 247, 244)");
+    expect(r.canvas, "prefers-contrast: more 不应改变页面画布").toBe("rgb(255, 255, 255)");
     await ctx.close();
   });
 });
@@ -640,10 +710,11 @@ test.describe("「填入输入框」把技能填进输入框", () => {
     await expect(card).toBeVisible();
     await card.locator(".skill-link").click();
 
-    // 落到「新工作任务」，输入框里是技能起始行，芯片同时保留技能名。
+    // 落到「新工作任务」：输入框里是技能起始行 + 这项技能自己的说明（技能详情），
+    // 芯片同时保留技能名。
     await expect(page).toHaveURL(/\/(?:\?|$)/);
     await expect(page.locator("[data-home] [data-composer-input]"))
-      .toHaveValue(/^达人建联话术 \[[^\]]+\]/);
+      .toHaveValue(/^达人建联话术 \[[^\]]+\]\n基于达人数据生成私信和加微信话术$/);
     await expect(page.locator('[data-skill-chip="creator_outreach"]')).toBeVisible();
   });
 
