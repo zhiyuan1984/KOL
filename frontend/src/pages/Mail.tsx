@@ -4,6 +4,7 @@ import Markdown from "../components/Markdown";
 import { api } from "../api";
 import { hydratePollDelayMs, loadMailThread, loadMailWorkspace, normalizeBox, syncMailboxMail } from "../mail/client";
 import { ConversationItem } from "../mail/components/ConversationItem";
+import { MailboxSwitcher } from "../mail/components/MailboxSwitcher";
 import { ConversationSummary } from "../mail/components/ConversationSummary";
 import { TranslationPanel } from "../mail/components/TranslationPanel";
 import { MailContent } from "../mail/components/MailContent";
@@ -391,46 +392,14 @@ export default function Mail() {
       </header>
 
       {loadState === "ok" && bound ? (
-        <div className="mail-boxbar" data-mail-boxbar>
-          <div className="mail-box-cards">
-            {bindings.map((binding) => {
-              const active = binding.mailbox === activeBox;
-              const failed = Boolean(binding.error);
-              return (
-                <button
-                  key={binding.mailbox}
-                  type="button"
-                  className={"mail-box-card" + (active ? " is-active" : "") + (failed ? " is-error" : "")}
-                  data-mail-boxchip={binding.mailbox}
-                  aria-pressed={active}
-                  title={failed ? String(binding.error) : binding.mailbox}
-                  onClick={() => openBox(binding)}
-                >
-                  <span className={"mail-box-dot" + (failed ? " is-error" : " is-ok")} aria-hidden="true" />
-                  <span className="mail-box-label">{binding.mailbox}</span>
-                  {binding.unread > 0 ? <span className="mail-count-pill">{binding.unread}</span> : null}
-                  {binding.owner_name ? <span className="mail-box-addr muted">{binding.owner_name}</span> : null}
-                </button>
-              );
-            })}
-          </div>
-          <div className="mail-boxbar-actions">
-            <button
-              type="button"
-              className="btn work"
-              data-mail-sync
-              data-mail-entry="sync-mailbox-mail"
-              disabled={syncing}
-              onClick={() => void sync()}
-            >
-              {syncing ? "正在收取…" : "收取"}
-            </button>
-            <Link className="btn ghost" to="/settings?tab=starry" data-mail-addbox>+ 添加邮箱</Link>
-            <Link className="btn ghost" to="/settings?tab=starry" data-mail-boxsettings>邮箱设置</Link>
-          </div>
-        </div>
+        <MailboxSwitcher
+          current={activeBox}
+          bindings={bindings}
+          syncing={syncing}
+          onSelect={openBox}
+          onSync={() => void sync()}
+        />
       ) : null}
-
       {error ? <p className="error" role="alert" data-mail-error>{error}</p> : null}
       {notice ? <p className="muted" role="status" data-mail-notice>{notice}</p> : null}
       {workspace?.source === "fallback" && bound ? (

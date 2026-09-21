@@ -364,3 +364,25 @@ test("the assistant column titles the summary as conversation-level", async ({ p
   await expect(page.locator("[data-mail-summary-card]")).toContainText("会话摘要");
   await expect(page.locator("[data-mail-summary-body]")).toHaveText(summaryBefore);
 });
+
+const TWO_BOXES = {
+  ...FORMAL_BOX,
+  bindings: [
+    { mailbox: "larry.zhao@amperetime.com", label: "美国邮箱", owner_name: "赵良玉", unread: 12, bound: true, synced_at: FORMAL_BOX.synced_at, error: null },
+    { mailbox: "eu@litime.com", label: "欧洲邮箱", owner_name: "李四", unread: 3, bound: true, synced_at: FORMAL_BOX.synced_at, error: null },
+  ],
+};
+
+test("the mailbox switcher shows only the current mailbox until opened", async ({ page }) => {
+  await page.route("**/api/mail/box**", (route) => route.fulfill({ json: TWO_BOXES }));
+  await page.route("**/api/mail/conversations**", (route) => route.fulfill({ json: { conversations: [] } }));
+  await page.route("**/api/home/board**", (route) => route.fulfill({ json: BOARD }));
+  await page.goto("/mail");
+
+  await expect(page.locator("[data-mail-box-current]")).toContainText("larry.zhao@amperetime.com");
+  await expect(page.locator("[data-mail-box-option]")).toHaveCount(0);
+
+  await page.locator("[data-mail-box-current]").click();
+  await expect(page.locator("[data-mail-box-option]")).toHaveCount(2);
+  await expect(page.locator('[data-mail-box-option="eu@litime.com"]')).toContainText("欧洲邮箱");
+});
