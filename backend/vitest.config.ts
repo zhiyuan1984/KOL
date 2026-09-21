@@ -14,6 +14,7 @@ export default defineConfig({
       "../frontend/src/mail/digestView.test.ts",
       "../frontend/src/mail/fallback.test.ts",
       "../frontend/src/mail/client.test.ts",
+      "../frontend/src/mail/selection.test.ts",
       "../frontend/src/home/kolContract.test.ts",
       "../frontend/src/layout/sidebarNav.test.ts",
       "../frontend/src/composer/catalog.test.ts",
