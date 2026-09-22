@@ -2,11 +2,11 @@ import { useMemo, useState, type ReactNode } from "react";
 import type { Task } from "../api";
 import BoardRow from "./BoardRow";
 import { dueDayDiff, taskPriorityRank } from "./homeModel";
-import { TODO_PLAN_START_EVENT, type TodayPlanPhase } from "./todayPlan";
+import { planStartEvent, SCOPE_CONFIG, type PlanScope, type TodayPlanPhase } from "./todayPlan";
 import "./today-plan-board.css";
 
 type BoardFilter = "all" | "iu" | "in" | "ui" | "nn";
-type TaskBoardScope = "today" | "todo";
+type TaskBoardScope = PlanScope;
 
 const FILTERS: Array<{ value: BoardFilter; label: string }> = [
   { value: "all", label: "全部" },
@@ -76,11 +76,11 @@ function matchesQuery(task: Task, query: string): boolean {
  * click immediately, before any poll returns.
  */
 export function planButtonState(phase: TodayPlanPhase, scope: TaskBoardScope = "today"): { label: string; busy: boolean; state: string } {
-  const again = scope === "today" ? "重新生成今日计划" : "重新生成待办计划";
+  const copy = SCOPE_CONFIG[scope];
   if (phase === "loading-memory") return { label: "正在启动…", busy: true, state: "starting" };
   if (phase === "planning") return { label: "正在规划…", busy: true, state: "planning" };
-  if (phase === "refreshed" || phase === "failed") return { label: again, busy: false, state: "again" };
-  return { label: scope === "today" ? "启动今日任务" : "启动待办任务", busy: false, state: "idle" };
+  if (phase === "refreshed" || phase === "failed") return { label: copy.boardAgainLabel, busy: false, state: "again" };
+  return { label: copy.boardIdleLabel, busy: false, state: "idle" };
 }
 
 export default function TaskBoard({
@@ -165,11 +165,11 @@ export default function TaskBoard({
               type="button"
               className={"today-board-plan-btn is-" + planButton.state}
               data-plan-state={planButton.state}
-              data-home-entry="plan-todo"
+              data-home-entry={`plan-${scope}`}
               disabled={planButton.busy}
               aria-busy={planButton.busy ? true : undefined}
               onClick={() => window.dispatchEvent(new Event(
-                TODO_PLAN_START_EVENT,
+                planStartEvent(scope),
               ))}
             >
               {planButton.busy ? <span className="today-board-plan-spin" aria-hidden /> : null}

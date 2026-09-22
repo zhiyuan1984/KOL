@@ -62,6 +62,9 @@ export interface FrontendScopeConfig {
   scope: PlanScope;
   cacheKey: string;
   startEvent: string;
+  /** TaskBoard plan button labels: idle names the action, again names the re-run. */
+  boardIdleLabel: string;
+  boardAgainLabel: string;
 }
 
 export const SCOPE_CONFIG: Record<PlanScope, FrontendScopeConfig> = {
@@ -69,11 +72,15 @@ export const SCOPE_CONFIG: Record<PlanScope, FrontendScopeConfig> = {
     scope: "today",
     cacheKey: TODAY_PLAN_CACHE_KEY,
     startEvent: TODAY_PLAN_START_EVENT,
+    boardIdleLabel: "启动今日任务",
+    boardAgainLabel: "重新生成今日计划",
   },
   todo: {
     scope: "todo",
     cacheKey: TODO_PLAN_CACHE_KEY,
     startEvent: TODO_PLAN_START_EVENT,
+    boardIdleLabel: "启动待办任务",
+    boardAgainLabel: "重新生成待办计划",
   },
 };
 
