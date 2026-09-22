@@ -90,16 +90,27 @@ export function createApp(): Hono {
 
   const dist = frontendDist();
   if (fs.existsSync(dist)) {
+    // 带扩展名的静态资源不做 SPA 回退：新构建会换掉 assets 里的 hash 文件名，旧标签页请求的是
+    // 已删除的文件；回 index.html（text/html）会让浏览器按 MIME 拒绝执行，动态 import 永远
+    // pending（前端已有 vite:preloadError 自愈，见 frontend/src/main.tsx）。这里给准确的 404。
+    const STATIC_EXT = new Set([
+      ".js", ".mjs", ".css", ".map", ".json", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp",
+      ".ico", ".woff", ".woff2", ".ttf", ".wasm", ".txt",
+    ]);
+    const distRoot = path.resolve(dist);
     app.get("*", async (c) => {
       const url = new URL(c.req.url);
       const full = url.pathname.replace(/^\/+/, "");
       if (full.startsWith("api/") || full.startsWith("mock/")) {
         return c.json({ detail: "not found" }, 404);
       }
-      const file = path.join(dist, full);
-      if (full && fs.existsSync(file) && fs.statSync(file).isFile()) {
-        return serveFile(c, file);
+      const resolved = full ? path.resolve(distRoot, full) : "";
+      const insideDist = resolved.startsWith(distRoot + path.sep);
+      if (full && insideDist && fs.existsSync(resolved) && fs.statSync(resolved).isFile()) {
+        return serveFile(c, resolved);
       }
+      const isAsset = full.startsWith("assets/") || STATIC_EXT.has(path.extname(full).toLowerCase());
+      if (isAsset) return c.json({ detail: "not found" }, 404);
       return serveFile(c, path.join(dist, "index.html"));
     });
   }
