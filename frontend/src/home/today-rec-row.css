@@ -65,7 +65,7 @@
   padding: 0 !important;
   border: 0 !important;
   border-radius: 999px !important;
-  background: var(--primary, #C73B7A) !important;
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg)) !important;
   color: #fff !important;
   display: inline-flex !important;
   align-items: center !important;

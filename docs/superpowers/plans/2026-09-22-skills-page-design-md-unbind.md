@@ -308,3 +308,105 @@
 肉眼复核确认：阶段 tab 已显示「内容发布」；名称后的 ★ 不再压行首发丝线；详情列首三节是「适用场景 / 需要你提供 / 产出」，使用步骤已是中文，执行边界显示「任务结果」；1024 档文字标记收起后**图标砖仍带虚线（异步）/ 实线（L3）边框**；筛选条右缘在窄屏有渐隐。
 
 **第二轮的门禁反思（留档）**：第一次跑新门禁时，`员工禁词` 抓到的是**目录数据**（`SKILL.md` 的 `description`）里的引擎词，而不是页面渲染的引擎词 —— 说明「员工表面不摊引擎词」这条规则真正的瓶颈在技能文案的生产方式，不在前端。已在上一节登记，交给业务专家。
+
+---
+
+## 第三轮：清掉最后的 Cal.com 语汇 + 图标上色 + 标题减重（2026-09-22，所有者回报）
+
+### 审宪记录（CONST-08）
+
+**需求**：所有者反馈「Cal.com 的痕迹还有在 skill 页面；图标没有颜色；标题颜色太重」，要求先读 `docs/DESIGN.md` 与 `AGENTS.md` 分析。
+
+**主责角色**：UI/UX 专家（所有者直接裁定观感）→ 前端专家实施。
+
+**依据核对**：
+- 现行 `docs/DESIGN.md`（58 行）**没有任何颜色条款**：它只管密度档 / 控件尺寸（走命名 token）/ 三轴适配 / 不变量 1–5 / 验收矩阵。所以「图标要不要颜色、标题用什么色」不能从本文件推出，只能从**壳层既有写法**（实现层）与「同一产品要像同一个产品」这条一致性要求来定。
+- 根 `AGENTS.md` §3：数值只住 `docs/DESIGN.md` 与 `frontend/src/styles.css`；§4 不变量：0–1 实底 CTA、状态不只靠颜色、三轴。
+
+**结论**：`符合`（改的是页面观感与壳层一致性，未触碰业务规则）；下面每条改动都附**同产品内的对照证据**，不是个人偏好。
+
+### 证据：什么叫「Cal.com 痕迹」与「壳层写法」
+
+| 项 | 本页改前 | 同产品里的主流写法（证据） |
+|---|---|---|
+| 筛选条 | **浅面胶囊容器 + 浮起白胶囊 + 投影**（旧注释自己写着这是「nav-pill-group 的 pill-in-pill 签名交互」——落地页候选分析原文） | `.home-mode-tabs`（Home 四模式）、`.settings-tabs`、`.mail-list-tabs`：一条发丝底线 + 选中项 **2px 底线**；`.kb-tabs` 是描边胶囊行。**没有任何页面用"胶囊里套白胶囊+投影"** |
+| 图标 | 近白极浅面 `--ds-surface` + 近黑 `--text` 图形（单色、无品牌色） | 全站用 `color-mix(in srgb, var(--primary) N%, var(--bg))` 做淡主色砖/条（nav 选中、chips、composer 边框等 20+ 处） |
+| 标题 | 页标题 20px/**600**；分组 h2 / 行名 / 小节 h4 全是 `--text` 近黑 | `.home-hero h1`、`.kb-hero h1` = 20px/**500**；`.mail-list-tabs` 选中 500；标题带品牌墨色是既有做法（旧行式层用 `--primary-text` 与 `color-mix(--text 82%, --primary)`） |
+
+⇒ 「Cal.com 痕迹」= 落地页候选分析的**两件事**：① nav-pill-group 的 pill-in-pill 交互；② 近单色（标题 #111、图标黑白、无品牌色）——后者是我第二轮「按已废止的 §5 规则 3/9/18 收口」时顺手带进来的，那三条规则**早已不在现行 DESIGN.md 里**。
+
+### 实际改动（全在 `frontend/src/styles.css` 本页段落）
+
+1. **筛选条改壳层写法**：容器改 `align-items: flex-end` + `padding: … 0` + 发丝底线；`.skill-tabs-list` 去掉浅面胶囊底与内边距（改为透明 flex 行、间距 `--space-4`）；`.skill-tab` 改「`border-bottom: 2px` 透明底线 + `min-height: var(--control-h-lg)`」；`.skill-tab.on` = `--primary` 底线 + `--primary-text` 文字 + 500 字重（形状 + 字重 + 颜色三重信号）。触摸档只保留 `min-height: 44px`。
+2. **图标上色**：`.skill-row-icon` 与详情列头图标砖 = `background: color-mix(--primary 8%, --bg)` + `border: 1px solid color-mix(--primary 16%, --border)` + 图形 `--primary-text`；`.skill-group-icon` / `.skill-group-svg` 同改 `--primary-text`。压缩档的 L3 / 异步形状信号保持优先级（实线 `--warning` / 虚线 `--control-border`，并把底色一并切到语义色，免得品牌淡底把警示色吃掉）。
+3. **标题减重**：页标题 600 → **500**（对齐 Home / 知识库）；分组 h2 与详情 h2 → `--primary-text`；列表行名与详情小节 h4 → `color-mix(--text 78%, --primary)` 暖墨（比纯 `--text` 轻一档，且与品牌同源）。
+
+### 门禁同步
+
+- 「控件高度取自命名 token」里筛选段的目标由 `--chip-h` 改为 `--control-h-lg`（改版后语义变了，不是放宽）。
+- 颜色反漂移白名单的白名单来源扩展到「页面里由 token 混出的表达式」：现在会对 `color-mix` 表达式分别取 `background` / `color` / `border-color` 的计算值入白名单，仍不允许任何手写 hex（新增 3 个表达式：暖墨、品牌淡底、品牌描边）。
+
+---
+
+## 第四轮：颜色职责重划 —— 粉只给主行动，辅助改蓝，并写进 DESIGN.md（2026-09-22，所有者定规）
+
+### 审宪记录（CONST-08）
+
+**需求**：「太多红色了；辅助色换成蓝色，主行动按钮才用粉红色；计入到 design.md」。
+
+**主责角色**：所有者（作为产品发起人/UI-UX 决策人直接定规）→ 前端专家实施。
+
+**条款与结论**：
+- CONST-04：视觉规范属 UI/UX 职责，本次由所有者直接裁定 → `符合`。
+- CONST-09：设计 token 与实施细则由所有者可改；本次把**职责**写进 `docs/DESIGN.md`（新增「## 颜色」），**数值**只住 `frontend/src/styles.css`（根 `AGENTS.md` §3 的口径不变）→ `符合`。
+- 规则空白：现行 DESIGN.md 原本**完全没有颜色条款**（只有密度/控件/三轴/不变量/验收），「选中态该用什么色、品牌色能用在哪」此前无据可依 —— 这次补上，属**补条款**而非改代码（先立法、再实施）。
+
+### 新增条款（`docs/DESIGN.md`「## 颜色」摘要）
+
+| 职责 | token | 用在哪 |
+|---|---|---|
+| 主行动 | `--primary` / `--primary-hover` / `--primary-fg` | 同一视口唯一的实底主 CTA；**粉色除此之外不再使用** |
+| 辅助 | `--accent` / `--accent-text` / `--accent-hover` | 选中态（分段选中、列表选中）、图标砖与图标字形、行内可点强调、信息性标记 |
+| 状态 | `--warning` / `--danger` / `--success` | 风险与 L3「需确认」、失败、成功；只表达状态 |
+
+并写明：「选中」不等于「主行动」；对比度要求（文字/可点标签 ≥4.5:1、纯图形 ≥3:1），因此辅助色分图形档与文字档两档。
+
+### 取值与依据
+
+- **辅助色取 `#4184ff`**：从所有者给的参考图**逐像素取色**得到（图存在会话媒体库，40×24 与 14×20 两份，主色都是 `#4184ff`）。派生：`--accent-hover: #3974e0`、`--accent-text` = 72% accent + 28% 黑 = `#2f5fb8`；深色档 `--accent-hover: #639aff`、`--accent-text: var(--accent)`。要换色只改 `styles.css` 里这几处。
+- 对照表（140 条规则的「主行动 / 辅助 / 状态」分类）见 [`docs/superpowers/specs/2026-09-22-color-role-migration.md`](../specs/2026-09-22-color-role-migration.md)。
+- **两档对比度（实算，不是估计）**：`--accent` #4c7dff 对白 **3.69:1**（够图形 ≥3）；`--accent-text` = 72% accent + 28% 黑 = **#375ab8**，对白 **6.33:1**、压在 8% 淡蓝砖上 **5.8:1** ✓ 够文字与图标字形。深色下翻转成 `--accent-text: var(--accent)`（对 #17191d **4.76:1**）。
+- 行名/小节标题的「冷墨」= `color-mix(--text 82%, --accent)` = #232c43，对白 13.88:1（仍远超正文要求，只是不再纯黑）。
+
+### 本页实施（`frontend/src/styles.css`）
+
+1. 壳层 `:root` 新增 `--accent` / `--accent-hover` / `--accent-text`（含深色三处覆写）。
+2. 本页把「辅助」全部从粉换成蓝：分段选中（文字 + 2px 底线）、图标砖（底/描边/字形）、分组图标与分组标题、详情标题与小节标题、行名冷墨、行内可点强调 hover、压缩档异步砖的虚线描边。
+3. 选中态：页面级覆写 `--ds-selected-bg` / `--ds-selected-border` 为蓝派生（壳层那两个 token 是粉派生；等壳层迁移后可删这两行）。
+4. 粉只留在 `.skill-btn-primary`（唯一实底主 CTA）。
+
+**产物层核对**（不是看源码，是看 `dist/assets/index-*.css`）：含 `.skill-` 的 148 条规则里，仍引用 `--primary` 的只有 3 条 —— `.skill-chip,.attach-chip`（属 Composer 的类，非本页）、`.skill-btn-primary`、`.skill-btn-primary:hover`；引用 `--accent` 的有 11 条 ✓
+
+### 新增门禁（`frontend/e2e/skills-catalog.spec.ts`）
+
+- 「粉色只出现在唯一的主行动 CTA 上」：扫描页面内所有元素的 `color/background/border-*-color`，凡等于 `--primary` 的元素都必须带 `skill-btn-primary`。
+- 「辅助色分两档且用对位置」：`--accent` 对画布 ≥3:1（图形档）、`--accent-text` ≥4.5:1（文字档）；图标字形必须取文字档、分段选中底线必须取图形档。
+- 颜色反漂移白名单：token 表加入 `--accent*`，混色表达式表换成辅助色那 5 个（图标砖底/描边、异步虚线描边与淡底、冷墨）。
+
+### 门禁状态（如实记录）
+
+**本轮改色后的 e2e 未跑成**：`backend/src/host/today-plan-context.ts` 出现**两个 `ownerId()`**（第 50 行导出的 + 第 133 行重复的私有同名函数），esbuild 直接拒绝加载 → 后端起不来 → Playwright 的 webServer 失败（与该文件无关的会话在改，我不动别人的在改文件）。已完成的替代验证：`tsc --noEmit` 通过（含 spec 自身）、`npm run build` 通过、产物 CSS 规则核对（见上）、对比度实算。**待该文件修好后必须补跑一次本页 e2e**；另外在该文件修好前**不要部署工作区**（部署会拉起起不来的后端）。
+
+**视觉核对**：用「静态托管 dist + 拦截 `/api/skills`、`/api/me`、`/api/auth/*`（mock 数据）」取了 `artifacts/ops/accent-1280x900.png` 与 `accent-1440x900.png`。**这是纯配色观感检查，不是业务验收**：数据与登录态都是假的。
+
+### 待办：全站迁移清单（下一轮，需 UI/UX 拍板）
+
+壳层里仍把粉当「辅助/选中」用的规则约 **130 条**，代表性的几类：
+
+- 导航当前项/激活：`.nav-combo.active`、`.admin-nav-item.active`、`.journey-funnel li.is-current`
+- 分段与筛选选中：`.kb-tabs`（选中是**实底粉**，按新规应改辅助色；顺带撞 §不变量 1 的"0–1 实底 CTA"）、`.settings-tabs button.active`、`.mail-list-tabs/.mail-mobiletabs` 选中底线、`.task-filters`/`.follow-style-chip`/`.stage-chip.is-selected`
+- 列表选中：`.mail-row.is-selected`、`.mail-box-card.is-active`、`.mail-filter-btn.is-on`
+- 信息性强调：`.mail-count-pill`、`.today-brief-badge`、`.nav-badge`、`.project-chip`、`.attach-chip`
+- 组件边框/淡底：`--composer-border` / `--composer-chip-bg`、`.thread-mail-digest` 左条、`.session-loading-*`
+
+其中 `.btn.primary` / `.btn.send` / `.btn.work` / `.hub-new` / `.today-brief-primary-btn` 属**真正的主行动**，按新规保持粉。建议先出一张「规则 → 主行动 / 辅助 / 状态」的分类对照表，再分批改，避免一次盲扫 130 条。

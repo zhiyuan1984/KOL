@@ -68,7 +68,7 @@ const btn = {
   cursor: "pointer",
 } as const;
 
-const btnPrimary = { ...btn, background: "#e94057", borderColor: "#e94057", color: "#fff" } as const;
+const btnPrimary = { ...btn, background: "var(--primary)", borderColor: "var(--primary)", color: "var(--primary-fg)" } as const;
 
 const input = {
   border: "1px solid #e3e3ec",
@@ -80,7 +80,7 @@ const input = {
 } as const;
 
 function StageDot({ stage }: { stage: string }) {
-  const color = stage === "published" ? "#19b37b" : stage === "disabled" ? "#98a1b3" : stage === "testing" ? "#f59e0b" : "#4c7dff";
+  const color = stage === "published" ? "var(--success)" : stage === "disabled" ? "var(--text-muted)" : stage === "testing" ? "var(--warning)" : "var(--accent)";
   return <span style={{ width: 8, height: 8, borderRadius: 8, background: color, display: "inline-block" }} />;
 }
 
@@ -164,7 +164,7 @@ export default function SkillLifecycle() {
             <button
               key={t}
               onClick={() => setTab(t)}
-              style={{ ...btn, border: "none", padding: "2px 0", color: tab === t ? "#e94057" : "#666", fontWeight: tab === t ? 600 : 400 }}
+              style={{ ...btn, border: "none", padding: "2px 0", color: tab === t ? "var(--accent-text)" : "var(--text-muted)", fontWeight: tab === t ? 600 : 400 }}
             >
               {t === "all" ? "全部" : "我负责的"}
             </button>
@@ -178,8 +178,8 @@ export default function SkillLifecycle() {
               style={{
                 ...btn,
                 textAlign: "left",
-                background: s.id === selected ? "#fdf2f4" : "#fff",
-                borderColor: s.id === selected ? "#f5c2cb" : "transparent",
+                background: s.id === selected ? "color-mix(in srgb, var(--accent) 8%, var(--bg))" : "var(--bg)",
+                borderColor: s.id === selected ? "var(--accent)" : "transparent",
               }}
             >
               <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
@@ -338,7 +338,7 @@ function DetailPanel(props: {
               style={{
                 display: "inline-flex", flexDirection: "column", padding: "6px 10px", borderRadius: 10,
                 background: i === step ? "#fdeef1" : "transparent",
-                outline: i === step ? "2px solid #e94057" : "none",
+                outline: i === step ? "2px solid var(--focus-ring)" : "none",
               }}
             >
               <strong style={{ fontSize: 13, color: i <= step ? "#1c2333" : "#a3a8ba" }}>{i + 1}. {s.label}</strong>

@@ -258,7 +258,8 @@ export default function Knowledge() {
                     : "把适用说明带进当前任务。只作为参考草稿，不会直接发送，也不会改阶段。"
                 }
               >
-                <button className="btn work" type="button" data-fill-composer={k.id} onClick={() => useForTask(k)}>
+                {/* 卡内动作：不是这一屏的主行动，走描边款（抽屉页脚那颗才是该表面的主 CTA）。 */}
+                <button className="btn row-action" type="button" data-fill-composer={k.id} onClick={() => useForTask(k)}>
                   用于当前任务
                 </button>
               </Hinted>

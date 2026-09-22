@@ -84,9 +84,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--primary, #C73B7A);
-  background: var(--primary, #C73B7A);
-  color: var(--primary-fg, #fff);
+  border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+  color: var(--accent-text);
 }
 .today-display-act-label {
   overflow: hidden;
@@ -95,8 +95,8 @@
   max-width: 100%;
 }
 .today-display-go:hover:not(:disabled) {
-  background: var(--primary-hover, #A82F66);
-  border-color: var(--primary-hover, #A82F66);
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg));
+  border-color: var(--accent-hover);
 }
 .today-display-go:disabled,
 .today-display-edit:disabled {

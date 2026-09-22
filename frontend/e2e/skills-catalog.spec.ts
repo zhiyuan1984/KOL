@@ -155,7 +155,8 @@ test.describe("技能目录页（/skills）", () => {
     const h = (sel: string) => page.locator(sel).first().evaluate((el) => el.getBoundingClientRect().height);
     const cssH = (sel: string) =>
       page.locator(sel).first().evaluate((el) => Number.parseFloat(getComputedStyle(el).height));
-    expect(await h(".skill-tab"), "筛选段高度取 --chip-h").toBeCloseTo(chip, 0);
+    // 筛选条改成「发丝底线 + 2px 选中线」后，它的高度走 --control-h-lg（不再是胶囊的 --chip-h）。
+    expect(await h(".skill-tab"), "筛选段高度取 --control-h-lg").toBeCloseTo(lg, 0);
     // 标记在窄的列表列里会被收起（见 styles.css 的 @container 段），所以取**可见**的第一个：
     // 页面上一枚标记都不可见才算违规。
     const badgeH = await page.evaluate(() => {
@@ -312,6 +313,47 @@ test.describe("技能目录页（/skills）", () => {
       expect(w, `图标 ${size} 被拉伸`).toBe(h);
       expect(allowed, `图标 ${size} 不在本页图标阶梯 ${JSON.stringify(allowed)} 内`).toContain(size);
     }
+  });
+
+  test("§颜色：粉色只出现在唯一的主行动 CTA 上", async ({ page }) => {
+    await ready(page);
+    const primary = await pageVar(page, "--primary");
+    const users = await page.evaluate((p) => {
+      const out: string[] = [];
+      for (const el of document.querySelectorAll<HTMLElement>("[data-skill-catalog] *")) {
+        const cs = getComputedStyle(el);
+        if (cs.display === "none" || el.getBoundingClientRect().width === 0) continue;
+        if (
+          cs.backgroundColor === p || cs.color === p ||
+          cs.borderTopColor === p || cs.borderBottomColor === p
+        ) {
+          out.push(String(el.className || el.tagName));
+        }
+      }
+      return [...new Set(out)];
+    }, primary);
+    expect(users.length, "页面上应当有且只有一个实底主 CTA").toBeGreaterThan(0);
+    for (const u of users) {
+      expect(u, `粉色出现在非主行动元素上：${u}`).toContain("skill-btn-primary");
+    }
+  });
+
+  test("§颜色：辅助色分两档——图形 ≥3:1、文字 ≥4.5:1，且用对位置", async ({ page }) => {
+    await ready(page);
+    const canvas = await pageVar(page, "--bg");
+    const accent = await pageVar(page, "--accent");
+    const accentText = await pageVar(page, "--accent-text");
+    expect(await contrastOf(page, accent, canvas), "辅助色作图形需 ≥3:1").toBeGreaterThanOrEqual(3);
+    expect(await contrastOf(page, accentText, canvas), "辅助色作文字/图标字形需 ≥4.5:1").toBeGreaterThanOrEqual(4.5);
+
+    expect(
+      await page.locator(".skill-row-icon").first().evaluate((el) => getComputedStyle(el).color),
+      "图标字形用文字档",
+    ).toBe(accentText);
+    expect(
+      await page.locator(".skill-tab.on").first().evaluate((el) => getComputedStyle(el).borderBottomColor),
+      "分段选中底线用图形档",
+    ).toBe(accent);
   });
 
   test("控件自设 line-height，不继承根的 24px 行盒", async ({ page }) => {
@@ -714,26 +756,43 @@ async function assertPaletteFromTokens(page: Page) {
     "--primary-fg",
     "--primary-hover",
     "--primary-text",
+    "--accent",
+    "--accent-hover",
+    "--accent-text",
     "--warning",
     "--danger",
     "--success",
   ];
   const allowed = new Set<string>(["rgb(255, 255, 255)", "rgba(0, 0, 0, 0)", "transparent"]);
   for (const t of tokens) allowed.add(await pageVar(page, t));
-  // 语义色的浅底是 color-mix 的结果：按浏览器实际算出的值入白名单（不手写 hex）。
+  // 页面里由 token 混出来的颜色（浅底、暖墨、品牌描边）：按浏览器实际算出的值入白名单
+  // —— 仍然不手写 hex，只允许"从 token 派生"这一条路径。
   const mixed = await page.evaluate(() => {
     const host = document.querySelector<HTMLElement>(".skill-catalog-page") ?? document.body;
     const expr = [
       "color-mix(in srgb, var(--warning) 10%, var(--bg))",
+      "color-mix(in srgb, var(--warning) 72%, var(--text))",
+      // 辅助色（蓝）在本页的四种用法：图标砖底/描边、异步砖的虚线描边与淡底、标题冷墨
+      "color-mix(in srgb, var(--accent) 8%, var(--bg))",
+      "color-mix(in srgb, var(--accent) 18%, var(--border))",
+      "color-mix(in srgb, var(--accent) 5%, var(--bg))",
+      "color-mix(in srgb, var(--accent) 45%, var(--border))",
+      "color-mix(in srgb, var(--text) 82%, var(--accent))",
     ];
-    return expr.map((e) => {
-      const p = document.createElement("div");
-      p.style.background = e;
-      host.appendChild(p);
-      const v = getComputedStyle(p).backgroundColor;
-      p.remove();
-      return v;
-    });
+    const out: string[] = [];
+    for (const e of expr) {
+      for (const prop of ["background", "color", "border-color"] as const) {
+        const p = document.createElement("div");
+        p.style.setProperty(prop, e);
+        host.appendChild(p);
+        const cs = getComputedStyle(p);
+        out.push(
+          prop === "background" ? cs.backgroundColor : prop === "color" ? cs.color : cs.borderTopColor,
+        );
+        p.remove();
+      }
+    }
+    return out;
   });
   mixed.forEach((c) => allowed.add(c));
 

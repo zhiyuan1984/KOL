@@ -87,7 +87,7 @@
   color: var(--text-muted);
 }
 .edit-task-required {
-  color: var(--primary, var(--color-primary-hover));
+  color: var(--accent-text);
   font-style: normal;
 }
 .edit-task-field-side {
@@ -131,9 +131,9 @@
   pointer-events: none;
 }
 .edit-task-radio.is-on {
-  border-color: var(--primary, var(--color-primary-hover));
-  background: var(--primary, var(--color-primary-hover));
-  color: var(--primary-fg, var(--bg));
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
+  color: var(--accent-text);
 }
 .edit-task-radio.is-disabled {
   opacity: 0.45;
