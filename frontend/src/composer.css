@@ -304,14 +304,43 @@
   color: #8a8a8a;
 }
 
-/* + 菜单（2026-09-22，图 4 形态）：单列、每行「图标 + 名称 + 一句话说明」，
-   根面板有上限并内部滚动。子面板是 .cascade-scroll 的兄弟节点（绝对定位挂根面板上），
-   所以根面板本身保持 overflow: visible，只有内层滚 ——
-   见 docs/DESIGN.md §不变量 5（浮层不得溢出后被静默裁切）。 */
+/* + 菜单（2026-09-22，图 4 形态 + 搜索）：**一个面板**、只看不钻 ——
+   顶部搜索框打开即聚焦、输入即过滤；下面按 添加/最近的文件/知识库/技能/数字员工/
+   连接器/项目/作业 分组，每组的真实条目直接平铺，行 = 图标 + 名称 + 一句话说明，
+   面板有上限、只有内层 .cascade-scroll 滚动 —— 见 docs/DESIGN.md §不变量 5
+   （浮层不得溢出后被静默裁切）；§颜色：图标字形走 --accent*。 */
 .cascade-scroll {
   min-height: 0;
-  max-height: min(60dvh, 420px);
+  max-height: min(62dvh, 460px);
   overflow-y: auto;
+}
+
+.composer-menu-search {
+  display: block;
+  padding: 2px 4px 8px;
+}
+
+.composer-menu-search input {
+  width: 100%;
+  height: var(--control-h-lg);
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--ds-font-sm);
+}
+
+.composer-menu-search input::placeholder {
+  color: var(--text-muted);
+}
+
+.composer-menu-search input:focus-visible,
+.cascade-menu .composer-menu-section > button:focus-visible,
+.cascade-menu .composer-menu-more:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
 }
 
 .cascade-menu .menu-text {
@@ -334,6 +363,42 @@
   white-space: nowrap;
   color: var(--text-muted);
   font-size: var(--ds-font-helper);
+}
+
+/* 当前项（数字员工）：辅助色底 + ✓，不靠颜色单独表达（§不变量 4、§颜色）。 */
+.cascade-menu .composer-menu-section > button.is-current {
+  background: var(--ds-selected-bg);
+}
+
+.cascade-menu .menu-check {
+  inline-size: 14px;
+  block-size: 14px;
+  flex: 0 0 14px;
+  color: var(--accent-text);
+}
+
+.cascade-menu .composer-menu-section > button:disabled {
+  opacity: .55;
+  cursor: default;
+}
+
+/* 组尾的页面入口（例如「查看全部技能」）：是页面链接，不是子菜单。 */
+.cascade-menu .composer-menu-more {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 40px;
+  padding: 9px 10px;
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
+  font-size: var(--ds-font-sm);
+  text-decoration: none;
+}
+
+.cascade-menu .composer-menu-more:hover {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 .cascade-submenu {

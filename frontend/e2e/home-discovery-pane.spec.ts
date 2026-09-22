@@ -131,7 +131,7 @@ test("condition chips rewrite the ask-box body and no card button remains", asyn
   await expect(card.locator("[data-discovery-no-side-effect]")).toHaveCount(0);
 });
 
-test("+ menu still opens the Composer discovery template", async ({ page }) => {
+test("+ menu no longer offers the discovery template (AI发现 pane owns discovery)", async ({ page }) => {
   const posts: string[] = [];
   page.on("request", (item) => {
     if (item.method() === "POST") posts.push(new URL(item.url()).pathname);
@@ -139,18 +139,14 @@ test("+ menu still opens the Composer discovery template", async ({ page }) => {
   await openDiscovery(page);
   await page.locator("[data-home] [data-attach]").click();
   const menu = page.getByRole("menu", { name: "添加内容" });
-  await expect(menu.getByRole("menuitem", { name: "发现红人模板" })).toBeVisible();
-  // 菜单在被点选后即卸载，这条「菜单不是连接器治理入口」的检查要在关闭前做。
+  await expect(menu).toBeVisible();
+  // 所有者 2026-09-23 定稿：+ 菜单只有 文件/技能/知识库/数字员工/连接器/项目 六组，没有作业组，
+  // 发现任务从「AI发现」面的条件卡开始（见本文件其余用例）。
+  await expect(menu.locator('[data-menu-section="作业"]')).toHaveCount(0);
+  await expect(menu.getByRole("menuitem", { name: "发现红人模板" })).toHaveCount(0);
+  await expect(menu.locator("[data-composer-subpanel]")).toHaveCount(0);
+  // 菜单不是连接器治理入口。
   await expect(menu).not.toContainText("/admin/connectors");
-  await menu.getByRole("menuitem", { name: "发现红人模板" }).click();
-  const input = page.locator("[data-home] [data-composer-input]");
-  await expect(input).toHaveValue(/【发现任务】/);
-  // 「已用芯片覆盖」提示已删除：正文由 applyChipOverride 直接改写，不再出现说明行。
-  await expect(page.locator("[data-home] [data-discovery-override-hint]")).toHaveCount(0);
-  // 发现任务的标签不再展示：正文首行已经是【发现任务】，芯片只是重复标签还白占一行。
-  // 退出口改为工具栏里的「清除发现条件」，所以这里改为断言那个按钮。
-  await expect(page.locator("[data-home] [data-discovery-lock-chip]")).toHaveCount(0);
-  await expect(page.locator("[data-home] [data-composer-discovery-clear]")).toBeVisible();
   expect(posts.filter((path) => path === "/api/sessions" || path.endsWith("/from-text"))).toEqual([]);
 });
 

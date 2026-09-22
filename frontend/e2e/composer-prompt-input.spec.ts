@@ -173,7 +173,7 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   await expect(menu).toBeVisible();
   await expect(menu.getByRole("menuitem", { name: "上传文件" })).toBeVisible();
   await expect(menu.getByRole("menuitem", { name: "上传图片" })).toBeVisible();
-  await expect(menu.getByRole("menuitem", { name: "技能" })).toBeVisible();
+  await expect(menu.locator('[data-menu-section="技能"]')).toBeVisible();
   await expect(page.locator("[data-home] [data-composer-tool]")).toHaveCount(0);
   // The model tier moved into the composer toolbar, next to send.
   await expect(page.locator("[data-home] .composer .tier-control")).toHaveCount(1);
@@ -181,12 +181,18 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   // 档位是 chip + 面板：触发器带当前值，展开后当前档打 ✓（不只靠颜色）。
   await expect(page.locator("[data-home] [data-tier-trigger]")).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator("[data-home] [data-tier-trigger] [data-tier-value]")).toHaveText(/快速|均衡|高质量/);
-  // + 菜单（图 4 形态）：单列、每行带一句说明，且不再有「打开 /kb」这类路由路径文案。
+  // + 菜单（图 4 形态 + 搜索）：一个面板、分组平铺、顶部搜索框；没有子菜单，也没有路由路径文案。
   await expect(menu.getByRole("menuitem", { name: "上传文件" })).toHaveAttribute("title", "把本地文件加进提问");
   await expect(menu.locator(".cascade-scroll")).toHaveCount(1);
-  await expect(menu.locator("a")).toHaveCount(0);
-  await menu.getByRole("menuitem", { name: "技能" }).click();
-  await expect(page.locator("[data-composer-skill-search]")).toBeVisible();
+  await expect(menu.locator("[data-composer-subpanel]")).toHaveCount(0);
+  await expect(menu.locator("[data-composer-menu-search]")).toBeVisible();
+  await expect(menu.locator("[data-composer-menu-all-skills]")).toBeVisible();
+  await expect(menu.locator('a[href="/kb"], a[href="/connectors"]')).toHaveCount(0);
+  // 技能条目就在同一面板里 —— 不需要进二级菜单。
+  await expect(menu.locator('[data-skill-option="email_compose"]')).toBeVisible();
+  await menu.locator("[data-composer-menu-search]").fill("写合作");
+  await expect(menu.locator("[data-composer-menu-row]")).toHaveCount(1);
+  await menu.locator("[data-composer-menu-search]").fill("");
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
 

@@ -4,8 +4,7 @@ import ChipRail from "../composer/ChipRail";
 import { expertChipLabel, isWriteSkill, labelOfSkill, type CatalogSkill } from "../composer/catalog";
 import { peekComposerDraft, takeComposerDraftStash } from "../composer/draft";
 import ModelTierControl from "../composer/ModelTierControl";
-import PlusMenu, { type PlusSubpanel } from "../composer/PlusMenu";
-import SkillMenu from "../composer/SkillMenu";
+import PlusMenu from "../composer/PlusMenu";
 import { pushRecentSkill } from "../composer/recents";
 import {
   clientEntryFor,
@@ -124,8 +123,10 @@ export default function ComposerDock({
   discoveryCatalog = null,
   showDiscoveryEditor = true,
   onDiscoveryBriefChange,
-  onOpenDiscoveryTemplate,
   onClearDiscoveryLock,
+  // 2026-09-23：Discovery 模板入口已从 + 菜单移出（AI发现面自己负责），此 prop 目前无人使用；
+  // 保留签名是为了不动 Home.tsx（另一个会话正在改那份文件），待其提交后与调用点一起删除。
+  onOpenDiscoveryTemplate: _onOpenDiscoveryTemplate,
   contextChips,
   entryIntent = "free",
   objectRefs = [],
@@ -160,8 +161,9 @@ export default function ComposerDock({
   /** AI发现 tab 的页面上已有条件卡时，隐藏提问框里那套重复芯片；提交判定仍用 discoveryBrief。 */
   showDiscoveryEditor?: boolean;
   onDiscoveryBriefChange?: (brief: DiscoveryBrief) => void;
-  onOpenDiscoveryTemplate?: () => void;
   onClearDiscoveryLock?: () => void;
+  /** 已不再使用（见参数处的说明）：保留签名只为不动 Home.tsx 的调用点。 */
+  onOpenDiscoveryTemplate?: () => void;
   contextChips?: { id: string; label: string }[];
   entryIntent?: ComposerEntryIntent;
   objectRefs?: ComposerObjectRef[];
@@ -182,8 +184,6 @@ export default function ComposerDock({
   const [uploading, setUploading] = useState(false);
   const [attachErr, setAttachErr] = useState("");
   const [plusOpen, setPlusOpen] = useState(false);
-  const [skillMenuOpen, setSkillMenuOpen] = useState(false);
-  const [activeSubmenu, setActiveSubmenu] = useState<PlusSubpanel>(null);
   const [selectedProject, setSelectedProject] = useState<ProjectOption | null>(null);
   const [skillChips, setSkillChips] = useState<ComposerChip[]>([]);
   const [kbChips, setKbChips] = useState<ComposerChip[]>([]);
@@ -198,7 +198,6 @@ export default function ComposerDock({
   const fileRef = useRef<HTMLInputElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const skillMenuRef = useRef<HTMLDivElement>(null);
   const pickerRef = useRef<HTMLDivElement>(null);
   const onKnowledgeChangeRef = useRef(onKnowledgeChange);
   const lockSourceRef = useRef<"auto" | "explicit" | null>(lockedKnowledgeId ? "explicit" : null);
@@ -318,21 +317,13 @@ export default function ComposerDock({
   }, []);
 
   useEffect(() => {
-    if (!plusOpen && !skillMenuOpen) return;
+    if (!plusOpen) return;
     const close = (event: PointerEvent) => {
       const target = event.target as Node;
-      if (plusOpen && !menuRef.current?.contains(target)) {
-        setPlusOpen(false);
-        setActiveSubmenu(null);
-      }
-      if (skillMenuOpen && !skillMenuRef.current?.contains(target)) setSkillMenuOpen(false);
+      if (!menuRef.current?.contains(target)) setPlusOpen(false);
     };
     const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setPlusOpen(false);
-        setActiveSubmenu(null);
-        setSkillMenuOpen(false);
-      }
+      if (event.key === "Escape") setPlusOpen(false);
     };
     document.addEventListener("pointerdown", close);
     document.addEventListener("keydown", escape);
@@ -340,7 +331,7 @@ export default function ComposerDock({
       document.removeEventListener("pointerdown", close);
       document.removeEventListener("keydown", escape);
     };
-  }, [plusOpen, skillMenuOpen]);
+  }, [plusOpen]);
 
   useEffect(() => {
     const textarea = inputRef.current;
@@ -574,7 +565,6 @@ export default function ComposerDock({
 
   const closePlus = () => {
     setPlusOpen(false);
-    setActiveSubmenu(null);
   };
 
   const focusEditor = (pos?: number) => {
@@ -596,7 +586,6 @@ export default function ComposerDock({
     });
     onPickSkill?.(s, { mention: labelOf(s), rest });
     closePlus();
-    setSkillMenuOpen(false);
     setPicker(false);
     setQuery("");
     focusEditor();
@@ -1062,11 +1051,7 @@ export default function ComposerDock({
               title="添加资料"
               disabled={busy || running}
               aria-expanded={plusOpen}
-              onClick={() => {
-                setPlusOpen((v) => !v);
-                setSkillMenuOpen(false);
-                setActiveSubmenu(null);
-              }}
+              onClick={() => setPlusOpen((v) => !v)}
             >
               <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden>
                 <path
@@ -1080,12 +1065,9 @@ export default function ComposerDock({
             </button>
             <PlusMenu
               open={plusOpen}
-              submenu={activeSubmenu}
-              onSubmenu={setActiveSubmenu}
               onClose={closePlus}
               onUploadFile={() => fileRef.current?.click()}
               onUploadImage={() => imageRef.current?.click()}
-              onOpenDiscovery={onOpenDiscoveryTemplate}
               onPickSkill={(skill) => addSkillChip(skill)}
               onPickKb={(row) => {
                 setKbChips((current) => (
@@ -1117,50 +1099,7 @@ export default function ComposerDock({
               expertId={expertId}
             />
           </div>
-          <div className="composer-skill-wrap" ref={skillMenuRef}>
-            <button
-              type="button"
-              className={"composer-skill-trigger" + (skillMenuOpen ? " is-selected" : "")}
-              data-composer-skill-trigger
-              data-composer-skill-trigger-open={skillMenuOpen ? "true" : "false"}
-              aria-haspopup="menu"
-              aria-expanded={skillMenuOpen}
-              disabled={busy || running}
-              onClick={() => {
-                setSkillMenuOpen((v) => !v);
-                setPlusOpen(false);
-                setActiveSubmenu(null);
-              }}
-            >
-              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden>
-                <path
-                  d="M5 5h5v5H5zm9 0h5v5h-5zM5 14h5v5H5zm9 0h5v5h-5z"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.7"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <span>技能</span>
-              <span className="composer-skill-caret" aria-hidden>⌄</span>
-            </button>
-            {skillMenuOpen ? (
-              <div
-                className="menu-popover composer-add-menu compose-skill-menu"
-                role="menu"
-                aria-label="技能"
-                data-composer-skill-menu
-              >
-                <SkillMenu
-                  skills={skills}
-                  selectedSkillIds={skillChips.map((chip) => chip.id)}
-                  onPick={(skill) => addSkillChip(skill)}
-                  onClose={() => setSkillMenuOpen(false)}
-                />
-              </div>
-            ) : null}
-            {discoveryLocked && onClearDiscoveryLock ? (
+          {discoveryLocked && onClearDiscoveryLock ? (
               <button
                 type="button"
                 className="composer-discovery-clear"
@@ -1168,10 +1107,9 @@ export default function ComposerDock({
                 title="清除发现条件，退回普通提问"
                 onClick={() => onClearDiscoveryLock()}
               >
-                清除发现条件
-              </button>
-            ) : null}
-          </div>
+              清除发现条件
+            </button>
+          ) : null}
           <div className="composer-toolbar-end">
             {/* 产品要求（2026-09-22）：不再展示「Enter 发送 · Shift+Enter 换行」——
                 键位约定保留，但不占工具栏视野。 */}

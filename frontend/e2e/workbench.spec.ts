@@ -561,13 +561,14 @@ test("composer plus menu exposes projects, recent files, and published skills", 
   await expect(menu).toBeVisible();
   await expect(menu.getByRole("menuitem", { name: "上传文件" })).toBeVisible();
 
-  await menu.getByRole("menuitem", { name: "技能" }).hover();
-  const skills = page.getByRole("menu", { name: "技能" });
-  const skillItem = skills.getByRole("menuitem", { name: /写合作邮件/ });
+  // 一个面板、只看不钻：技能 / 最近的文件 / 项目都在同一层，子菜单与悬停展开都不再存在。
+  await expect(menu.locator("[data-composer-subpanel]")).toHaveCount(0);
+  await expect(menu.locator("[data-composer-menu-search]")).toBeVisible();
+  const skillItem = menu.locator('[data-skill-option="email_compose"]');
   await expect(skillItem).toBeVisible();
   const skillLayout = await skillItem.evaluate((el) => {
     const icon = el.querySelector(".cascade-icon");
-    const label = el.querySelector("strong");
+    const label = el.querySelector("strong, .menu-label");
     if (!icon || !label) return null;
     return {
       iconRight: icon.getBoundingClientRect().right,
@@ -576,15 +577,20 @@ test("composer plus menu exposes projects, recent files, and published skills", 
   });
   expect(skillLayout).toBeTruthy();
   expect(skillLayout!.iconRight).toBeLessThan(skillLayout!.labelLeft);
-  await expect(skills.getByRole("menuitem", { name: "创建技能" })).toHaveCount(0);
-  await expect(skills.getByRole("menuitem", { name: "管理技能" })).toHaveCount(0);
+  await expect(menu.getByRole("menuitem", { name: "创建技能" })).toHaveCount(0);
+  await expect(menu.getByRole("menuitem", { name: "管理技能" })).toHaveCount(0);
   await expect(menu.getByRole("menuitem", { name: "添加连接器" })).toHaveCount(0);
 
-  await menu.getByRole("menuitem", { name: "最近的文件" }).hover();
-  await expect(page.getByRole("menu", { name: "最近的文件" })).toBeVisible();
+  await expect(menu.locator('[data-menu-section="文件"]')).toBeVisible();
+  await expect(menu.locator("[data-composer-menu-file]").first()).toBeVisible();
 
-  await menu.getByRole("menuitem", { name: "添加到项目" }).dispatchEvent("mouseover");
-  await page.getByRole("menu", { name: "添加到项目" }).getByRole("menuitem", { name: /小美妆日记/ }).evaluate((element: HTMLElement) => element.click());
+  // 顶部搜索即过滤：输入技能名后只剩那一条，组标题保留。
+  await menu.locator("[data-composer-menu-search]").fill("写合作");
+  await expect(menu.locator("[data-composer-menu-row]")).toHaveCount(1);
+  await expect(skillItem).toBeVisible();
+  await menu.locator("[data-composer-menu-search]").fill("");
+
+  await menu.locator('[data-project-option="col_xiaomei"]').click();
   await expect(page.locator('[data-project-id="col_xiaomei"]')).toContainText("小美妆日记");
   expect(bodies).toEqual([]);
 });
