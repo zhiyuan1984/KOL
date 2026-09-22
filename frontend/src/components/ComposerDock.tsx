@@ -983,6 +983,7 @@ export default function ComposerDock({
           data-ai-prompt-textarea
           data-composer-hint={hint || undefined}
           aria-busy={busy || undefined}
+          aria-keyshortcuts="Enter Shift+Enter"
           readOnly={Boolean(running)}
           value={value}
           onChange={(e) => {
@@ -1172,10 +1173,9 @@ export default function ComposerDock({
             ) : null}
           </div>
           <div className="composer-toolbar-end">
-            {workspace ? (
-              <span className="composer-kbd-hint" aria-hidden>Enter 发送 · Shift+Enter 换行</span>
-            ) : null}
-            <ModelTierControl className="composer-toolbar-tier" compact />
+            {/* 产品要求（2026-09-22）：不再展示「Enter 发送 · Shift+Enter 换行」——
+                键位约定保留，但不占工具栏视野。 */}
+            <ModelTierControl className="composer-toolbar-tier" />
             {running ? (
               <button
                 className="btn send send-arrow is-stop"

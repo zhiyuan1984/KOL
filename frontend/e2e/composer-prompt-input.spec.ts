@@ -117,11 +117,10 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   expect(Math.abs(layout!.gapLeft - layout!.gapRight)).toBeLessThanOrEqual(2);
 
   const chrome = await composerChrome(page, "[data-home]");
-  // §10b is one state: the ask box is already the rounded 240px surface when the
-  // page loads. The old "square borderless footer until you click" flip is gone
-  // — that jump is exactly what the user rejected.
-  expect(parseFloat(chrome.minHeight)).toBeGreaterThanOrEqual(240);
-  expect(parseFloat(chrome.minHeight)).toBeLessThanOrEqual(250);
+  // 产品要求（2026-09-22）：提问框默认就是「一行输入 + 工具行」= 105px。
+  // 不再是 240px 的 dvh 地板 —— 页脚控件给小字让路，多行时盒子自己长高。
+  expect(parseFloat(chrome.minHeight)).toBeGreaterThanOrEqual(105);
+  expect(parseFloat(chrome.minHeight)).toBeLessThanOrEqual(112);
   // Editor cap + the box's own chrome (padding + toolbar) stays inside the box
   // cap, so long text scrolls inside the editor and the toolbar never leaves the
   // floor it is pinned to.
@@ -179,6 +178,13 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   // The model tier moved into the composer toolbar, next to send.
   await expect(page.locator("[data-home] .composer .tier-control")).toHaveCount(1);
   await expect(page.locator("[data-home] .home-composer-dock .tier-control")).toHaveCount(1);
+  // 档位是 chip + 面板：触发器带当前值，展开后当前档打 ✓（不只靠颜色）。
+  await expect(page.locator("[data-home] [data-tier-trigger]")).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator("[data-home] [data-tier-trigger] [data-tier-value]")).toHaveText(/快速|均衡|高质量/);
+  // + 菜单（图 4 形态）：单列、每行带一句说明，且不再有「打开 /kb」这类路由路径文案。
+  await expect(menu.getByRole("menuitem", { name: "上传文件" })).toHaveAttribute("title", "把本地文件加进提问");
+  await expect(menu.locator(".cascade-scroll")).toHaveCount(1);
+  await expect(menu.locator("a")).toHaveCount(0);
   await menu.getByRole("menuitem", { name: "技能" }).click();
   await expect(page.locator("[data-composer-skill-search]")).toBeVisible();
   await page.keyboard.press("Escape");

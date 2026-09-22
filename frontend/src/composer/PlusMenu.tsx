@@ -75,25 +75,26 @@ export default function PlusMenu({
         </p>
       ) : null}
       {showRoot ? (
-        <>
+        <div className="cascade-scroll">
           <MenuSection label="添加">
-            <MenuButton icon="upload" label="上传文件" onClick={() => { onClose(); onUploadFile(); }} />
-            <MenuButton icon="image" label="上传图片" onClick={() => { onClose(); onUploadImage(); }} />
-            <MenuButton icon="recent" label="最近的文件" arrow onActivate={() => go("recent")} />
-            <MenuButton icon="kb" label="从知识库引用" arrow onActivate={() => go("kb")} />
+            <MenuButton icon="upload" label="上传文件" hint="把本地文件加进提问" onClick={() => { onClose(); onUploadFile(); }} />
+            <MenuButton icon="image" label="上传图片" hint="把本地图片加进提问" onClick={() => { onClose(); onUploadImage(); }} />
+            <MenuButton icon="recent" label="最近的文件" hint="从最近用过的文件里选" arrow onActivate={() => go("recent")} />
+            <MenuButton icon="kb" label="从知识库引用" hint="引用知识库里的文档" arrow onActivate={() => go("kb")} />
           </MenuSection>
           <MenuSection label="能力">
-            <MenuButton icon="skills" label="技能" arrow onActivate={() => go("skills")} />
-            <MenuButton icon="connector" label="连接器" arrow onActivate={() => go("connectors")} />
+            <MenuButton icon="skills" label="技能" hint="给这次提问挂一项技能" arrow onActivate={() => go("skills")} />
+            <MenuButton icon="connector" label="连接器" hint="查看已授权的平台连接" arrow onActivate={() => go("connectors")} />
           </MenuSection>
           <MenuSection label="岗位">
-            <MenuButton icon="expert" label="数字员工" arrow onActivate={() => go("experts")} />
+            <MenuButton icon="expert" label="数字员工" hint="换一位数字员工来回答" arrow onActivate={() => go("experts")} />
           </MenuSection>
           <MenuSection label="作业">
             {onOpenDiscovery ? (
               <MenuButton
                 icon="discover"
                 label="发现红人模板"
+                hint="用模板开一次发现作业"
                 onClick={() => {
                   onClose();
                   onOpenDiscovery();
@@ -104,17 +105,9 @@ export default function PlusMenu({
             )}
           </MenuSection>
           <MenuSection label="更多">
-            <MenuButton icon="project" label="添加到项目" arrow onActivate={() => go("projects")} />
-            <Link className="cascade-link" role="menuitem" to="/kb" onClick={onClose}>
-              <MenuIcon kind="kb" />
-              <span>打开 /kb</span>
-            </Link>
-            <Link className="cascade-link" role="menuitem" to="/connectors" onClick={onClose}>
-              <MenuIcon kind="connector" />
-              <span>打开 /connectors</span>
-            </Link>
+            <MenuButton icon="project" label="添加到项目" hint="把这次提问归档到项目" arrow onActivate={() => go("projects")} />
           </MenuSection>
-        </>
+        </div>
       ) : null}
 
       {showPanel && submenu === "recent" ? (
@@ -297,12 +290,14 @@ function MenuIcon({ kind }: { kind: MenuKind }) {
 function MenuButton({
   icon,
   label,
+  hint,
   arrow,
   onClick,
   onActivate,
 }: {
   icon: MenuKind;
   label: string;
+  hint?: string;
   arrow?: boolean;
   onClick?: () => void;
   onActivate?: () => void;
@@ -311,6 +306,7 @@ function MenuButton({
     <button
       type="button"
       role="menuitem"
+      title={hint}
       onClick={onClick || onActivate}
       onMouseEnter={() => {
         if (!onActivate) return;
@@ -320,7 +316,10 @@ function MenuButton({
       onFocus={onActivate}
     >
       <MenuIcon kind={icon} />
-      <span>{label}</span>
+      <span className="menu-text">
+        <span className="menu-label">{label}</span>
+        {hint ? <span className="menu-hint">{hint}</span> : null}
+      </span>
       {arrow && <span className="menu-arrow" aria-hidden>›</span>}
     </button>
   );

@@ -65,6 +65,10 @@
   --control-h: 28px;
   --control-h-lg: 32px;
   --chip-h: 26px;
+  /* 首页 chip：快捷任务行与任务筛选行同一套规格（产品要求 2026-09-22，100×30 / 间距 5px）。 */
+  --home-chip-w: 100px;
+  --home-chip-h: 30px;
+  --home-chip-gap: 5px;
   --badge-h: 20px;
   --lh-control: 20px;
   --lh-control-sm: 16px;
@@ -3540,15 +3544,6 @@ summary:focus-visible,
   gap: 8px;
   margin-left: auto;
 }
-/* Desktop-only keyboard hint, aligned with the 图1 reference composer. */
-.composer-kbd-hint {
-  color: var(--text-muted);
-  font-size: var(--ds-font-sm);
-  white-space: nowrap;
-}
-@media (hover: none) {
-  .composer-kbd-hint { display: none; }
-}
 .composer-toolbar-divider {
   width: 1px;
   height: 16px;
@@ -4078,26 +4073,12 @@ summary:focus-visible,
   background: var(--bg-elevated);
   color: var(--text);
 }
-.home-composer-dock .tier-control select {
-  background: transparent;
-  color: var(--text-muted);
-}
 .home-composer-dock .tier-control {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
 }
-.tier-control-icon {
-  inline-size: 1rem;
-  block-size: 1rem;
-  fill: currentColor;
-  color: var(--text-muted);
-  flex: 0 0 auto;
-}
-.home-composer-dock:focus-within .tier-control select {
-  color: var(--text);
-}
-.home-composer-dock:focus-within .tier-control-icon {
+.home-composer-dock:focus-within .tier-trigger {
   color: var(--text);
 }
 
@@ -4167,7 +4148,10 @@ summary:focus-visible,
   overflow: visible;
   box-shadow: var(--shadow-quiet);
 }
-.cascade-menu > button {
+/* 根菜单的行：单列、整行可点（图 4 形态）。按钮挂在 .composer-menu-section 下，
+   原来写成 `.cascade-menu > button`（直接子节点）从未命中 —— 行因此退化成 inline 流，
+   两个按钮挤在一行（这正是「两列一组」的成因）。子面板的行由 .cascade-submenu 规则负责。 */
+.cascade-menu .composer-menu-section > button {
   min-height: 42px;
   display: flex;
   align-items: center;
@@ -4175,6 +4159,9 @@ summary:focus-visible,
   padding: 9px 10px;
   border-radius: var(--ds-radius-input);
   font-size: var(--font-sm);
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
 }
 /* Nested skills live in .submenu-scroll; descendant selectors keep flex + gap. */
 .cascade-submenu button,
@@ -4195,8 +4182,9 @@ summary:focus-visible,
   cursor: pointer;
   color: inherit;
 }
-.cascade-menu > button > span:not(.menu-arrow) { flex: 1; }
-.cascade-icon { width: 20px; height: 20px; flex: 0 0 20px; color: var(--muted); }
+.cascade-menu .composer-menu-section > button > span:not(.menu-arrow) { flex: 1; }
+/* 图标字形走辅助色（docs/DESIGN.md §颜色：图标砖与图标字形归 --accent*）。 */
+.cascade-icon { width: 20px; height: 20px; flex: 0 0 20px; color: var(--accent-text); }
 .menu-arrow { margin-left: auto; color: var(--muted); font-size: 22px; line-height: 1; }
 .menu-divider { height: 1px; margin: 6px -8px; background: var(--line); }
 .cascade-submenu {
@@ -4228,20 +4216,6 @@ summary:focus-visible,
 .project-chip > span:nth-child(2) { min-width: 0; display: grid; }
 .project-chip strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-sm); }
 .project-chip small { color: var(--muted); font-size: var(--font-xs); }
-.composer .tier-control select,
-.tier-control select {
-  border: 0;
-  background: transparent;
-  border-radius: 0;
-  padding: 0 2px;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--ds-font-sm);
-  line-height: 20px;
-  font-weight: 400;
-  min-height: 24px;
-  appearance: none;
-}
 .skill-chip--quiet {
   color: var(--text-muted);
   background: #f5f5f5;
@@ -7910,8 +7884,9 @@ body {
   border-radius: var(--composer-radius);
   box-shadow: none;
 }
+/* 会话内回复框与首页提问框同一套外壳：地板同样一行（22px）。 */
 .session-composer.prompt-input .composer.composer--workspace textarea {
-  min-height: 48px;
+  min-height: 22px;
 }
 .session-send-hint {
   margin: 0;
@@ -9218,18 +9193,6 @@ body {
   border-radius: 0;
   padding: 0;
 }
-.tier-control select,
-.composer .tier-control select,
-.home-composer-dock .tier-control select {
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-  padding: 0 2px;
-  min-height: 24px;
-  font-size: var(--ds-font-sm);
-  font-weight: 400;
-  color: var(--ds-text-dim);
-}
 
 /* Last-wins ChatGPT sidebar scrollbar. Must beat earlier dark-thumb / Windows-arrow rules.
    Desktop 260 rail lock above stays intact. Thumb sits at the rail edge (~255), not ~235. */
@@ -10055,16 +10018,6 @@ button.today-brief-primary-btn:disabled {
 :root[data-theme="dark"] .today-board-search {
   background: var(--bg-elevated);
   color: var(--text);
-}
-:root[data-theme="dark"] .today-board-pill {
-  background: var(--bg);
-  border-color: var(--border);
-  color: var(--text-muted);
-}
-:root[data-theme="dark"] .today-board-pill[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--accent) 10%, var(--bg));
-  border-color: var(--accent);
-  color: #fff;
 }
 :root[data-theme="dark"] .today-board-table th {
   border-bottom-color: var(--border);
@@ -11162,6 +11115,17 @@ button.today-brief-primary-btn:disabled {
   .skill-group-more {
     min-height: 44px;
   }
+  /* 提问框的 + 菜单行与档位触发器：桌面 40/32px，触摸提到 44px（docs/DESIGN.md §控件尺寸）。 */
+  .composer-menu-section > button,
+  .tier-trigger,
+  .tier-panel .tier-panel-more a {
+    min-height: 44px;
+  }
+  /* 首页 chip（快捷任务 / 任务筛选）：桌面 30px，触摸提到 44px。 */
+  .home-quick-tasks button,
+  .today-board-pill {
+    min-height: 44px;
+  }
 }
 
 /* 高度轴：矮窗收紧节奏。与宽度无关 —— 1280×800 这类笔记本宽度够但高度不够。 */
@@ -11827,18 +11791,17 @@ button.today-brief-primary-btn:disabled {
    absolute-positioned Today composer above. */
 .home-quick-tasks {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--home-chip-gap);
   min-width: 0;
   padding: 0 2px 8px;
-  overflow-x: auto;
-  overscroll-behavior-inline: contain;
-  scrollbar-width: thin;
 }
 .home-quick-tasks button {
   flex: 0 0 auto;
-  min-height: var(--control-h);
-  padding: 0 12px;
+  min-width: var(--home-chip-w);
+  min-height: var(--home-chip-h);
+  padding: 0 8px;
   border: none;
   border-radius: var(--radius-full);
   background: var(--chrome);
@@ -11849,7 +11812,8 @@ button.today-brief-primary-btn:disabled {
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  gap: var(--home-chip-gap);
 }
 .home-quick-task-icon {
   width: 15px;
@@ -11922,19 +11886,6 @@ button.today-brief-primary-btn:disabled {
   .home-pane[data-home-active-mode="today"] .today-center-hero .home-stats {
     margin: 0;
   }
-  .home-pane[data-home-active-mode="today"] .today-workspace-center-head {
-    min-height: 30px;
-    padding-bottom: 8px;
-  }
-  .home-pane[data-home-active-mode="today"] .home-quick-tasks {
-    width: 100%;
-    padding-right: 0;
-    gap: 6px;
-  }
-.home-pane[data-home-active-mode="today"] .home-quick-tasks button {
-    min-height: 30px;
-    padding-inline: 8px;
-  }
 }
 
 /* A shortcut changes context, not the composer geometry. Keep the interaction
@@ -11943,33 +11894,17 @@ button.today-brief-primary-btn:disabled {
   min-height: var(--composer-idle-min, 96px);
 }
 
-/* The intake composer reserves only two text lines plus its action row. */
+/* 提问框只占「一行输入 + 工具行」＝ 105px（产品要求 2026-09-22）：编辑器地板 22px，
+   多行时由行内 height 撑开、盒子长到 --composer-max-height。 */
 .home-pane.is-composer-dock .home-composer-dock .composer.composer--workspace {
   min-height: var(--composer-idle-min, 96px);
 }
 .home-pane.is-composer-dock .home-composer-dock .composer.composer--workspace textarea {
-  min-height: 48px;
+  min-height: 22px;
 }
 
-/* Every quick task stays visible. The row wraps when the center column is
-   narrow instead of hiding entries behind an independent horizontal scroller. */
-@media (min-width: 981px) {
-  .home-pane[data-home-active-mode="today"] .home-quick-tasks {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
-    gap: 6px;
-    width: 100%;
-    min-width: 0;
-    padding: 0 0 8px;
-    overflow: visible;
-  }
-  .home-pane[data-home-active-mode="today"] .home-quick-tasks button {
-    width: 100%;
-    min-width: 0;
-    justify-content: center;
-    padding-inline: 7px;
-  }
-}
+/* 快捷任务 chip 固定 100px 宽后不再等宽拉伸：中心列变窄时靠 .home-quick-tasks 的
+   flex-wrap 换行，保证每个入口都还在。 */
 
 /* The Today center owns one width axis: hero, process stream, quick tasks and
    the composer box are sibling rows of the same content grid (auto / 1fr / auto).

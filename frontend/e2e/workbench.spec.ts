@@ -2681,7 +2681,15 @@ test("composer sends the selected model tier", async ({ page }) => {
     }
   });
   await page.goto("/");
-  await page.getByLabel("模型档位").selectOption("quality");
+  // 档位控件是 chip + 面板（图 1 形态）：先展开，再选当前项（打 ✓ 的那一行）。
+  await page.locator("[data-home] [data-tier-trigger]").click();
+  const tierPanel = page.locator("[data-tier-panel]");
+  await expect(tierPanel).toBeVisible();
+  await expect(tierPanel.locator('[data-tier-option="balanced"]')).toHaveAttribute("aria-checked", "true");
+  await expect(tierPanel.locator('[data-tier-option="balanced"] .tier-row-check')).toHaveCount(1);
+  await expect(tierPanel.locator('[data-tier-option="fast"] .tier-row-check')).toHaveCount(0);
+  await tierPanel.locator('[data-tier-option="quality"]').click();
+  await expect(page.locator("[data-home] [data-tier-trigger] [data-tier-value]")).toHaveText("高质量");
   await page.locator("[data-home] [data-composer-input]").fill("给@小美妆日记 写阶段跟进邮件");
   await page.locator("[data-home] [data-send]").click();
   await page.waitForURL(/\/s\//);

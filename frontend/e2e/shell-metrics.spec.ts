@@ -235,11 +235,10 @@ test("desktop employee shell computed 260 rail and Codex Regular type", async ({
   const composer = await typeOf(page, "[data-home] [data-composer-input]");
   expect(composer.fontSize).toBe(14);
   expect(composer.fontWeight).toBeLessThanOrEqual(400);
-  // §10b is one state: the ask box loads as the rounded 240px column centred in
-  // the dock. The old "square borderless footer until you click" flip is gone.
+  // 产品要求（2026-09-22）：提问框以「一行输入 + 工具行」= 105px 起（不再是 240px 地板）。
   const idleBox = await composerBox(page, "[data-home]");
-  expect(idleBox.minHeight).toBeGreaterThanOrEqual(240);
-  expect(idleBox.minHeight).toBeLessThanOrEqual(250);
+  expect(idleBox.minHeight).toBeGreaterThanOrEqual(105);
+  expect(idleBox.minHeight).toBeLessThanOrEqual(112);
   expect(idleBox.radius).toBeGreaterThanOrEqual(26);
   expect(idleBox.radius).toBeLessThanOrEqual(30);
   expect(idleBox.borderTopWidth).toBe(1);

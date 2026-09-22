@@ -283,8 +283,7 @@
   bottom: 40px;
 }
 
-.cascade-menu > button,
-.cascade-menu .cascade-link,
+.cascade-menu .composer-menu-section > button,
 .cascade-submenu button,
 .submenu-scroll > button {
   min-height: 40px;
@@ -305,13 +304,36 @@
   color: #8a8a8a;
 }
 
-.cascade-link {
+/* + 菜单（2026-09-22，图 4 形态）：单列、每行「图标 + 名称 + 一句话说明」，
+   根面板有上限并内部滚动。子面板是 .cascade-scroll 的兄弟节点（绝对定位挂根面板上），
+   所以根面板本身保持 overflow: visible，只有内层滚 ——
+   见 docs/DESIGN.md §不变量 5（浮层不得溢出后被静默裁切）。 */
+.cascade-scroll {
+  min-height: 0;
+  max-height: min(60dvh, 420px);
+  overflow-y: auto;
+}
+
+.cascade-menu .menu-text {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 10px;
-  color: inherit;
-  text-decoration: none;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cascade-menu .menu-label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.cascade-menu .menu-hint {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
 }
 
 .cascade-submenu {
@@ -390,8 +412,8 @@
 }
 
 /* The ask box is the workspace footer, never a floating layer: a flex sibling
-   below the single scroll container, full content width, opaque, separated by a
-   hairline so the eye reads "footer" rather than "box on top of the list".
+   below the single scroll container, full content width, opaque.
+   2026-09-22 产品要求：去掉顶部分割线，页脚不再靠横线定形。
    Selectors are anchored on the pane class so they win regardless of bundle
    order against the composer's own max-width rules. */
 .home-pane.is-composer-dock .home-composer-dock {
@@ -400,7 +422,6 @@
   width: 100%;
   max-width: none;
   padding-top: 14px;
-  border-top: 1px solid var(--border);
   background: var(--bg);
 }
 .home-pane.is-composer-dock .home-composer-dock > .composer-dock,
@@ -418,7 +439,7 @@
   margin-inline: auto;
   min-height: var(--composer-default-min, 240px);
   max-height: var(--composer-max-height, 540px);
-  padding: 22px 24px 12px;
+  padding: 21px 24px 10px;
   border: 1px solid var(--composer-border);
   border-radius: 28px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, .08);
@@ -440,7 +461,11 @@
   /* 矮窗口让步：240px 是长屏地板（视口高度 ≥800px 时不变）。以下按 30dvh 收缩，
      到 150px 触底 —— 固定 240px 会把下面的对象清单挤到只剩半张卡，而提问框是页脚
      控件，不该比它服务的清单更占地方。 */
-  --composer-default-min: clamp(150px, 30dvh, 240px);
+  /* 产品要求（2026-09-22）：提问框默认就是 105px ——「一行输入 + 工具行」，
+     不再用 30dvh 把自己撑到 240px。矮窗不需要再收缩（105 已经很小），
+     文字变多时仍按 --composer-text-max 在编辑器内部滚动、盒子长到 --composer-max-height。
+     105 = 上内边距 21 + 编辑器 22 + gap 6 + 工具行 44 + 下内边距 12。 */
+  --composer-default-min: 105px;
   --composer-toolbar-h: 44px;
 }
 
@@ -453,7 +478,8 @@
 .home-composer-dock .composer.composer--workspace textarea,
 .session-composer.prompt-input .composer.composer--workspace textarea {
   flex: 0 0 auto;
-  min-height: 60px;
+  /* 一行（line-height 20）＋1px 余量；多行时由行内 height 撑开。 */
+  min-height: 22px;
 }
 
 .composer-tier-topbar {
@@ -461,15 +487,6 @@
   align-items: center;
   gap: 4px;
   margin-left: 8px;
-}
-
-.composer-tier-topbar select,
-.session-head-row .tier-control select {
-  background: transparent;
-  border: 0;
-  color: #6b6b6b;
-  font-size: 12px;
-  min-height: 24px;
 }
 
 .session-head-row .composer-tier-topbar {
@@ -622,47 +639,161 @@
 
 /* ---------------------------------------------------------------------------
    Model tier in the composer toolbar
-   The control lives inside .composer-toolbar-end, left of the send button, so
-   model + send read as one cluster instead of a page-chrome control. The
-   `.composer-tier-topbar` rules above are tuned for the chrome slot: they carry
-   a margin-left and a label gap that would offset the first child here. The
-   parent's own 8px gap (.composer-toolbar-end) owns the space to send, so those
-   are reset. Selectors are qualified with `.composer` to tie the specificity of
-   the styles.css `.tier-control` rules and win on load order.
+   档位控件（2026-09-22，图 1 形态）：触发器是工具栏 chip「档位 · 均衡 ⌄」，
+   展开一个面板：三档各一行「名称 + 一句话说明」、当前档打 ✓、底部「更多设置…」
+   链到个人设置的持久化入口。原先的原生 <select> 已删除 —— 它的外观、键盘行为与
+   选项信息都由系统决定，且没有任何代价信息。
+   规则只用命名 token：--control-h-lg / --radius-control / --radius-card /
+   --focus-ring* / --ds-selected-bg / --ds-selected-border / --accent-text。
+   触发器位于 .composer-toolbar-end（发送键左侧），所以面板向上展开。
    --------------------------------------------------------------------------- */
 .composer .composer-toolbar-tier {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  width: auto;
+  margin-left: 0;
+}
+
+.tier-trigger {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  flex: 0 0 auto;
-  width: auto;
-  height: 32px;
-  margin-left: 0;
-  background: transparent;
+  height: var(--control-h-lg);
+  padding: 0 6px;
   border: 0;
-  color: #6b6b6b;
-  font-size: 13px;
-}
-
-.composer .composer-toolbar-tier select {
-  width: auto;
-  max-width: none;
-  height: 32px;
-  min-height: 32px;
-  padding: 0 2px;
+  border-radius: var(--radius-control);
   background: transparent;
-  border: 0;
-  border-radius: 0;
-  color: #6b6b6b;
+  color: var(--text-muted);
   font: inherit;
-  font-size: 12px;
-  line-height: 20px;
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control);
   cursor: pointer;
 }
 
-.composer .composer-toolbar-tier select:focus-visible {
-  outline: 1px solid #0d0d0d;
-  outline-offset: 2px;
+.tier-trigger:hover,
+.tier-trigger[aria-expanded="true"] {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.tier-trigger:focus-visible,
+.tier-panel .tier-row:focus-visible,
+.tier-panel .tier-panel-more a:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.tier-trigger-value {
+  white-space: nowrap;
+}
+
+.tier-trigger-caret {
+  inline-size: 12px;
+  block-size: 12px;
+  flex: 0 0 12px;
+  opacity: .65;
+}
+
+.menu-popover.tier-panel {
+  right: 0;
+  left: auto;
+  bottom: calc(100% + 8px);
+  width: 240px;
+  max-height: min(60dvh, 320px);
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: var(--radius-card);
+  display: grid;
+  gap: 2px;
+}
+
+.tier-panel-title {
+  margin: 4px 8px 2px;
+  color: var(--text-muted);
+  font-size: var(--ds-font-tag);
+  line-height: var(--ds-line-tag);
+  font-weight: 600;
+  letter-spacing: .04em;
+}
+
+.tier-panel .tier-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: var(--control-h-lg);
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tier-panel .tier-row:hover {
+  background: var(--surface-hover);
+}
+
+/* 选中：辅助色底 + 描边 + 右侧 ✓ + aria-checked —— 不靠颜色单独表达（§不变量 4）。 */
+.tier-panel .tier-row.is-current {
+  background: var(--ds-selected-bg);
+  box-shadow: inset 0 0 0 1px var(--ds-selected-border);
+}
+
+.tier-panel .tier-row-text {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.tier-panel .tier-row-text strong {
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+  font-weight: 500;
+}
+
+.tier-panel .tier-row.is-current .tier-row-text strong {
+  color: var(--accent-text);
+}
+
+.tier-panel .tier-row-text small {
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+
+.tier-panel .tier-row-check {
+  inline-size: 14px;
+  block-size: 14px;
+  flex: 0 0 14px;
+  color: var(--accent-text);
+}
+
+.tier-panel .tier-panel-more {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.tier-panel .tier-panel-more a {
+  display: flex;
+  align-items: center;
+  min-height: var(--control-h-lg);
+  padding: 6px 8px;
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
+  font-size: var(--ds-font-sm);
+  text-decoration: none;
+}
+
+.tier-panel .tier-panel-more a:hover {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 /* 发现任务锁定时的退出口。原先靠 ChipRail 里那张「发现任务」芯片的 ×，但芯片与

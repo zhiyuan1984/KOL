@@ -159,6 +159,7 @@ export default function AccountSettings() {
           </div>
           <label className="check"><input name="notifications" type="checkbox" defaultChecked={Boolean(preferences.notifications)} /> 接收任务与审批通知</label>
           <label className="check"><input name="analytics_cookies" type="checkbox" defaultChecked={Boolean(preferences.analytics_cookies)} /> 允许匿名产品分析 Cookie</label>
+          <p className="muted" data-settings-keyshortcuts>提问框快捷键：Enter 发送，Shift+Enter 换行。</p>
           <button className="btn work">保存偏好</button>
         </form>
       )}

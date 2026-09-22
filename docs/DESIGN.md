@@ -12,7 +12,7 @@ description: 员工端视觉与设备适配实施细则。风格基准为 data-d
 > 验收矩阵。
 >
 > 实现落点：`frontend/src/styles.css` 的 `:root`（间距 / 字号 / 圆角 / 控件高度 / 层级）、
-> `frontend/src/composer.css`（提问框外壳几何）、**组件级样式表**（`frontend/src/home/today-plan-board.css`、
+> `frontend/src/composer.css`（提问框外壳几何，以及提问框内的两处浮层：+ 菜单行与档位面板）、**组件级样式表**（`frontend/src/home/today-plan-board.css`、
 > `today-display-row.css`、`today-rec-row.css`、`edit-task-dialog.css`）与**组件内联样式**
 > （例如 `frontend/src/pages/SkillLifecycle.tsx`）。落到哪一份都按本文件取值；不一致时先核对本文件
 > （根 `AGENTS.md` §3）。落点清单不全会一处改、一处漏 —— 2026-09-22 的颜色职责迁移首轮就漏了上面这四份，
@@ -44,7 +44,8 @@ description: 员工端视觉与设备适配实施细则。风格基准为 data-d
 ## 控件尺寸
 
 - 控件高度、圆角、命中区走实现里的命名 token：`--control-h*`、`--radius-control`、
-  `--radius-card`、`--chip-h`、`--badge-h`。**不在法条与页面里写具体数值**（根 `AGENTS.md` §3）。
+  `--radius-card`、`--chip-h`、`--home-chip-w` / `--home-chip-h` / `--home-chip-gap`、
+  `--badge-h`。**不在法条与页面里写具体数值**（根 `AGENTS.md` §3）。
 - 触摸输入下命中区 ≥44px；视觉图标小于命中区时用内边距撑开，不改布局边界。
 - 焦点态统一用 `--focus-ring` + `--focus-ring-width/offset`；`focus-visible` 才出现。
 
