@@ -63,23 +63,23 @@ export default function BoardRow({
   const editable = Boolean(onEdit) && !isDisplayOnlyTask(task);
   return (
     <tr
-      className="today-board-row"
+      className="task-board-row"
       data-today-todo={task.id}
       data-open-item={task.id}
       data-today-display="host"
       data-today-verb={verb}
     >
-      <td className="today-board-cell-index">{index + 1}</td>
+      <td className="task-board-cell-index">{index + 1}</td>
       <td>
-        <span className={`today-board-priority is-${priority.tone}`}>{priority.label}</span>
+        <span className={`board-priority is-${priority.tone}`}>{priority.label}</span>
       </td>
-      <td className="today-board-cell-title">
-        <div className="today-board-title-wrap">
-          <div className="today-board-title-row">
-            <span className="today-board-icon"><BoardTaskIcon task={task} /></span>
+      <td className="task-board-cell-title">
+        <div className="task-board-title-wrap">
+          <div className="task-board-title-row">
+            <span className="task-board-icon"><BoardTaskIcon task={task} /></span>
             <button
               type="button"
-              className="today-board-title"
+              className="task-board-title"
               disabled={busy}
               onClick={() => onAct(task)}
               title={task.title}
@@ -88,33 +88,33 @@ export default function BoardRow({
             </button>
           </div>
           {(why || statusLabel || riskLabel) ? (
-            <div className="today-board-meta">
-              {why ? <p className="today-board-why">{why}</p> : null}
-              <span className="today-board-chips">
+            <div className="task-board-meta">
+              {why ? <p className="task-board-why">{why}</p> : null}
+              <span className="task-board-chips">
                 {statusLabel ? (
-                  <span className={"today-board-chip" + (statusAccent ? " is-accent" : "")} data-board-status={status?.code}>
+                  <span className={"task-board-chip" + (statusAccent ? " is-accent" : "")} data-board-status={status?.code}>
                     {statusLabel}
                   </span>
                 ) : null}
                 {riskLabel ? (
-                  <span className="today-board-chip" data-risk-level={task.risk_level}>风险{riskLabel}</span>
+                  <span className="task-board-chip" data-risk-level={task.risk_level}>风险{riskLabel}</span>
                 ) : null}
               </span>
             </div>
           ) : null}
         </div>
       </td>
-      <td className="today-board-cell-actions">
+      <td className="task-board-cell-actions">
         <button
           type="button"
-          className="today-board-open"
+          className="task-board-open"
           data-today-todo-act
           data-today-act={verb}
           data-home-entry="acknowledge-task"
           disabled={busy}
           onClick={() => onAct(task)}
         >
-          <svg className="today-board-action-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+          <svg className="task-board-action-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
             <path d="M7 5h8v8M15 5l-9 9" />
           </svg>
           {actionLabel}
@@ -122,7 +122,7 @@ export default function BoardRow({
         {editable ? (
           <button
             type="button"
-            className="today-board-edit"
+            className="task-board-edit"
             data-today-todo-edit
             data-home-entry="edit-task"
             disabled={busy}

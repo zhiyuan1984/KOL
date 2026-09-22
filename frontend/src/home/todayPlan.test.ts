@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Task, TodayBrief, TodayBriefResponse, TodayPlanResult } from "../api";
 import {
   PLAN_CACHE_TTL_MS,
+  PLAN_SCOPES,
   TODAY_PLAN_CACHE_KEY,
   TODAY_PLAN_PHASE_COPY,
   TODO_PLAN_CACHE_KEY,
@@ -58,7 +59,7 @@ describe("today plan wiring", () => {
   it("Home entry reads memory only; 启动 buttons own the think POST", () => {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const home = fs.readFileSync(path.resolve(here, "../pages/Home.tsx"), "utf8");
-    const pane = fs.readFileSync(path.resolve(here, "./TodayPane.tsx"), "utf8");
+    const workspace = fs.readFileSync(path.resolve(here, "./ScopeWorkspace.tsx"), "utf8");
     const progress = fs.readFileSync(path.resolve(here, "./TodayPlanProgress.tsx"), "utf8");
     const hook = fs.readFileSync(path.resolve(here, "./usePlanScope.ts"), "utf8");
     expect(home).toContain('api.tasks({ view: "open" })');
@@ -77,17 +78,23 @@ describe("today plan wiring", () => {
     expect(home).not.toContain("!current.brief");
     expect(progress).toContain("data-today-plan-phase={phase}");
     expect(progress).toContain("data-today-plan-events=");
-    expect(pane).toContain("<TodayPlanProgress");
-    expect(pane).not.toContain("planning && !sections.length");
+    expect(workspace).toContain("<TodayPlanProgress");
+    expect(workspace).not.toContain("planning && !sections.length");
   });
 
-  it("switch to todo reuses open-task memory and does not trigger board", () => {
+  it("one workspace renders both tabs; switching reuses open-task memory", () => {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const home = fs.readFileSync(path.resolve(here, "../pages/Home.tsx"), "utf8");
-    const todo = fs.readFileSync(path.resolve(here, "./TodoPane.tsx"), "utf8");
+    const workspace = fs.readFileSync(path.resolve(here, "./ScopeWorkspace.tsx"), "utf8");
+    const slices = fs.readFileSync(path.resolve(here, "./scopeRows.ts"), "utf8");
     const homeModel = fs.readFileSync(path.resolve(here, "./homeModel.ts"), "utf8");
     expect(home).toContain("homeMemoryTasks");
     expect(home).toContain('usePlanScope("todo"');
+    // 今日任务 / 我的待办 render the one workspace component, scope-parameterized.
+    expect(home.match(/<ScopeWorkspace/g)?.length).toBe(1);
+    expect(home).toContain("paneScope");
+    expect(home).not.toContain("TodoPane");
+    expect(home).not.toContain("TodayPane");
     const hook = fs.readFileSync(path.resolve(here, "./usePlanScope.ts"), "utf8");
     expect(hook).toMatch(/\[tick, scope\]/);
     expect(home).not.toMatch(/if \(mode !== "today"\)/);
@@ -96,30 +103,32 @@ describe("today plan wiring", () => {
     expect(home).not.toMatch(/mode === "todo"[\s\S]{0,240}homeBoard/);
     expect(home).not.toMatch(/runTodayPlanRefresh[\s\S]{0,800}homeBoard/);
     expect(home).not.toMatch(/setTodayBrief\(step\.brief[\s\S]{0,200}homeBoard/);
-    expect(todo).toContain("<TodayPlanProgress");
-    expect(todo).toContain("<TaskBoard");
-    expect(todo).toContain("!isTodayScheduled(task)");
-    expect(todo).not.toContain("fetchTodayTasks");
-    expect(todo).not.toContain("projectDisplayTasks");
+    expect(workspace).toContain("<TodayPlanProgress");
+    expect(workspace).toContain("<TaskBoard");
+    expect(workspace).not.toContain("fetchTodayTasks");
+    expect(workspace).not.toContain("projectDisplayTasks");
+    expect(workspace).not.toContain("homeBoard");
+    expect(workspace).not.toContain("todayBrief()");
+    // The slice each tab answers for is the only row-level difference left.
+    expect(slices).toContain("isTodayScheduled(task)");
+    expect(slices).toContain("!isTodayScheduled(task)");
     expect(homeModel).toContain("todoLayout?.length ? applyTodoLayout(members, todoLayout) : sortOpenWorkItems(members)");
-    expect(todo).not.toContain("homeBoard");
-    expect(todo).not.toContain("todayBrief()");
   });
 
-  it("when tasks exist TodoPane shows rows immediately without layout", () => {
+  it("when tasks exist the todo slice shows rows immediately without layout", () => {
     const rows = todoPaneRows([
       task({ id: "tsk_due", title: "写报价", status: "waiting", due_at: new Date().toISOString() }),
       task({ id: "tsk_later", title: "画像补全", status: "queued" }),
     ], "all");
     expect(rows.map((row) => row.id)).toEqual(["tsk_due", "tsk_later"]);
     const here = path.dirname(fileURLToPath(import.meta.url));
-    const todo = fs.readFileSync(path.resolve(here, "./TodoPane.tsx"), "utf8");
-    expect(todo).toContain("<TaskBoard");
-    expect(todo).not.toContain("fetchTodayTasks");
-    expect(todo).not.toContain("projectDisplayTasks");
-    expect(todo).not.toMatch(/if \(!todoLayout\)/);
-    expect(todo).not.toMatch(/if \(phase === "planning"\)[\s\S]{0,80}return/);
-    expect(todo).not.toContain("today_brief");
+    const slices = fs.readFileSync(path.resolve(here, "./scopeRows.ts"), "utf8");
+    expect(slices).toContain("todoPaneRows");
+    expect(slices).not.toContain("fetchTodayTasks");
+    expect(slices).not.toContain("projectDisplayTasks");
+    expect(slices).not.toMatch(/if \(!todoLayout\)/);
+    expect(slices).not.toMatch(/if \(phase === "planning"\)[\s\S]{0,80}return/);
+    expect(slices).not.toContain("today_brief");
   });
 });
 
@@ -618,6 +627,30 @@ describe("todo scope wiring", () => {
     expect(SCOPE_CONFIG.today.boardIdleLabel).toBe("启动今日任务");
     expect(SCOPE_CONFIG.todo.boardIdleLabel).toBe("启动待办任务");
     expect(SCOPE_CONFIG.todo.boardAgainLabel).toBe("重新生成待办计划");
+  });
+
+  it("keeps every pane string in SCOPE_CONFIG so the two tabs cannot drift", () => {
+    const panel = ["heroTitle", "boardTitle", "railLabel", "railToggleLabel", "railStorageKey", "planSummaryLabel"] as const;
+    for (const scope of PLAN_SCOPES) {
+      for (const key of panel) expect(String(SCOPE_CONFIG[scope][key]).trim()).toBeTruthy();
+      expect(SCOPE_CONFIG[scope].emptyCopy.title).toBeTruthy();
+      expect(SCOPE_CONFIG[scope].emptyCopy.hint).toBeTruthy();
+      expect(SCOPE_CONFIG[scope].streamEmpty.title).toBeTruthy();
+      expect(SCOPE_CONFIG[scope].streamEmpty.body).toBeTruthy();
+    }
+    expect(SCOPE_CONFIG.today.heroTitle).toBe("今天有什么工作要处理？");
+    expect(SCOPE_CONFIG.todo.heroTitle).toBe("我的待办");
+    expect(SCOPE_CONFIG.today.boardTitle).toBe("今日工作计划");
+    expect(SCOPE_CONFIG.todo.boardTitle).toBe("我的待办");
+    expect(SCOPE_CONFIG.today.railLabel).toBe("今日任务表");
+    expect(SCOPE_CONFIG.todo.railLabel).toBe("待办任务表");
+    expect(SCOPE_CONFIG.today.planSummaryLabel).toBe("今日计划摘要");
+    expect(SCOPE_CONFIG.todo.planSummaryLabel).toBe("待办计划摘要");
+    // The rail keeps remembering its own scope, and today keeps its old key.
+    expect(SCOPE_CONFIG.today.railStorageKey).toBe("ui:home-today-task-rail-collapsed");
+    expect(SCOPE_CONFIG.todo.railStorageKey).toBe("ui:home-todo-task-rail-collapsed");
+    expect(new Set(PLAN_SCOPES.map((scope) => SCOPE_CONFIG[scope].railStorageKey)).size).toBe(2);
+    expect(Object.keys(SCOPE_CONFIG.today).sort()).toEqual(Object.keys(SCOPE_CONFIG.todo).sort());
   });
 
   it("todayPlanFailedFromBrief reads the todo failure copy for the todo scope", () => {

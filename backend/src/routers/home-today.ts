@@ -45,7 +45,8 @@ for (const scope of PLAN_SCOPES) {
     const started = startTodayPlan(ownerId(), scope);
     return c.json({
       ...started,
-      ...(scope === "todo" ? { task_type: "todo_plan" } : {}),
+      // Both scopes answer the same shape; the pane renders one component.
+      task_type: cfg.taskType,
       entry: "think",
       kind: "think",
       creates_session: true,

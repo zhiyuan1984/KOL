@@ -202,7 +202,7 @@ test("tab=todo is a memory route and does not POST sessions", async ({ page }) =
   });
   await page.goto("/?tab=todo");
   await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
-  await expect(page.locator(".today-board-filters")).toBeVisible();
+  await expect(page.locator(".task-board-filters")).toBeVisible();
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("已入队");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("今天推荐");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("待处理");

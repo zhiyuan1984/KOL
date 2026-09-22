@@ -57,14 +57,33 @@ export const TODO_PLAN_CACHE_KEY = "lingong:todo-plan-cache";
 /** Cache planning results for 5 minutes to avoid re-running Codex on every Home remount. */
 export const PLAN_CACHE_TTL_MS = 5 * 60 * 1_000;
 
-/** Per-scope frontend config: cache key + explicit start event. */
+/**
+ * Per-scope frontend config: cache key + explicit start event + pane copy.
+ * Both tabs render one ScopeWorkspace, so every string that may differ lives here.
+ */
 export interface FrontendScopeConfig {
   scope: PlanScope;
   cacheKey: string;
   startEvent: string;
-  /** TaskBoard plan button labels: idle names the action, again names the re-run. */
+  /** Board plan button labels: idle names the action, again names the re-run. */
   boardIdleLabel: string;
   boardAgainLabel: string;
+  /** Workspace center header. */
+  heroTitle: string;
+  /** Right-rail board title. */
+  boardTitle: string;
+  /** Right-rail aria label for the region. */
+  railLabel: string;
+  /** Vertical label shown while the rail is collapsed. */
+  railToggleLabel: string;
+  /** Collapsed state is remembered per scope. */
+  railStorageKey: string;
+  /** Board empty state (no rows at all). */
+  emptyCopy: { title: string; hint: string };
+  /** Plan-summary label above the brief lead. */
+  planSummaryLabel: string;
+  /** Center-column empty state (idle, nothing planned yet). */
+  streamEmpty: { title: string; body: string };
 }
 
 export const SCOPE_CONFIG: Record<PlanScope, FrontendScopeConfig> = {
@@ -74,6 +93,20 @@ export const SCOPE_CONFIG: Record<PlanScope, FrontendScopeConfig> = {
     startEvent: TODAY_PLAN_START_EVENT,
     boardIdleLabel: "启动今日任务",
     boardAgainLabel: "重新生成今日计划",
+    heroTitle: "今天有什么工作要处理？",
+    boardTitle: "今日工作计划",
+    railLabel: "今日任务表",
+    railToggleLabel: "今日任务",
+    railStorageKey: "ui:home-today-task-rail-collapsed",
+    emptyCopy: {
+      title: "今天没有需要处理的任务",
+      hint: "逾期、今天开始或到期、进行中和高优先的任务会出现在这里。",
+    },
+    planSummaryLabel: "今日计划摘要",
+    streamEmpty: {
+      title: "从今天的工作开始",
+      body: "启动今日任务后，这里会展示 Codex 的真实规划过程与结果摘要。",
+    },
   },
   todo: {
     scope: "todo",
@@ -81,6 +114,20 @@ export const SCOPE_CONFIG: Record<PlanScope, FrontendScopeConfig> = {
     startEvent: TODO_PLAN_START_EVENT,
     boardIdleLabel: "启动待办任务",
     boardAgainLabel: "重新生成待办计划",
+    heroTitle: "我的待办",
+    boardTitle: "我的待办",
+    railLabel: "待办任务表",
+    railToggleLabel: "我的待办",
+    railStorageKey: "ui:home-todo-task-rail-collapsed",
+    emptyCopy: {
+      title: "没有待办任务",
+      hint: "今日范围之外的未了结任务会出现在这里。",
+    },
+    planSummaryLabel: "待办计划摘要",
+    streamEmpty: {
+      title: "从待办开始",
+      body: "启动待办任务后，这里会展示 Codex 的真实规划过程与结果摘要。",
+    },
   },
 };
 

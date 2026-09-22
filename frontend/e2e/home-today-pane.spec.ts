@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { paneBodyText } from "./kol-surface-stub";
 
 test.beforeEach(async ({ request }) => {
   await request.post("/api/demo/reset", { data: { workbench: true } });
@@ -67,13 +68,13 @@ test("entering today lists memory without planning; 启动今日任务 starts th
 
   await page.goto("/");
   await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
-  await expect(page.locator("[data-today-workspace] [data-today-ai-workspace]")).toBeVisible();
-  await expect(page.locator("[data-today-workspace] [data-today-task-rail]")).toBeVisible();
+  await expect(page.locator("[data-scope-workspace] [data-scope-ai-workspace]")).toBeVisible();
+  await expect(page.locator("[data-scope-workspace] [data-scope-task-rail]")).toBeVisible();
   await expect(page.locator("[data-today-list]")).toBeVisible();
   await expect(page.locator('[data-today-todo="tsk_due"]')).toBeVisible();
 
-  const taskRail = page.locator("[data-today-task-rail]");
-  const taskRailToggle = taskRail.locator(".today-task-rail-toggle");
+  const taskRail = page.locator("[data-scope-task-rail]");
+  const taskRailToggle = taskRail.locator(".scope-task-rail-toggle");
   await taskRailToggle.click();
   await expect(taskRail).toHaveClass(/is-collapsed/);
   await expect(taskRailToggle).toHaveAttribute("aria-expanded", "false");
@@ -108,9 +109,10 @@ test("sidebar 新工作任务 lands on today list without tab hop or recommend/q
   await expect(page.locator("[data-today-list]")).toBeVisible();
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("已入队");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("今天推荐");
-  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("加入待办");
-  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("正式待办");
-  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("待办");
+  // tab 行与提问框是工作台 chrome（会带「我的待办」字样），内容断言只看页签正文。
+  await expect.poll(() => paneBodyText(page, "today")).not.toContain("加入待办");
+  await expect.poll(() => paneBodyText(page, "today")).not.toContain("正式待办");
+  await expect.poll(() => paneBodyText(page, "today")).not.toContain("待办");
   await expect(page.locator("[data-recommended-tasks], [data-today-suggestions], [data-insight-list]")).toHaveCount(0);
   await expect(page.locator("[data-today-brief], [data-today-primary]")).toHaveCount(0);
 });
@@ -234,7 +236,7 @@ test("today pane shows today-scheduled work items including unpromoted source=ai
   // 今日行集合：高优先 ∪ 今天起始/到期 ∪ 逾期 ∪ 进行中 ∪ 审批 ∪ 高风险 —— 共 7 行。
   // 任务板默认只渲染前 5 行（COLLAPSED_ROWS），所以先断言集合大小，再展开看具体行。
   await expect(page.locator("[data-today-list]")).toHaveAttribute("data-list-total", "7");
-  await page.locator(".today-board-expand").click();
+  await page.locator(".task-board-expand").click();
   await expect(page.locator("[data-today-todo]")).toHaveCount(7);
   // 状态文案是展示状态（后端 display_status_label 优先，缺省按日期/状态推导）：
   // 失败 / 延期 / 临期 / 进行中 —— 不再是旧分桶词（高风险/已逾期/今天到期）。
@@ -251,9 +253,9 @@ test("today pane shows today-scheduled work items including unpromoted source=ai
   await expect(page.locator('[data-today-todo="tsk_approval"] [data-today-todo-act]')).toHaveText("去审批");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("已入队");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("今天推荐");
-  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("加入待办");
-  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("正式待办");
-  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("待办");
+  await expect.poll(() => paneBodyText(page, "today")).not.toContain("加入待办");
+  await expect.poll(() => paneBodyText(page, "today")).not.toContain("正式待办");
+  await expect.poll(() => paneBodyText(page, "today")).not.toContain("待办");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("现在做这一件");
   await expect(page.locator("[data-recommended-task], [data-insight-card]")).toHaveCount(0);
 
@@ -263,7 +265,7 @@ test("today pane shows today-scheduled work items including unpromoted source=ai
 
   await page.goto("/");
   await expect(page.locator("[data-today-list]")).toBeVisible();
-  await page.locator(".today-board-expand").click();
+  await page.locator(".task-board-expand").click();
   await page.locator('[data-today-todo="tsk_approval"] [data-today-todo-act]').click();
   await expect.poll(() => writes).toEqual(["/api/tasks/tsk_high/acknowledge", "/api/tasks/tsk_approval/acknowledge"]);
   await expect(page).toHaveURL(/\/approvals\/apr_quote/);

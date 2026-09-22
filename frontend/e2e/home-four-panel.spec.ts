@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { stubFollowingFromServerBoard, stubHomeBoardAndFollowing, stubHomeFollowing } from "./kol-surface-stub";
+import { paneBodyText, stubFollowingFromServerBoard, stubHomeBoardAndFollowing, stubHomeFollowing } from "./kol-surface-stub";
 
 async function openMode(page: Page, mode: "today" | "todo" | "discovery" | "pool" | "lifecycle") {
   await page.locator(`[data-home-mode="${mode}"]`).click();
@@ -32,20 +32,24 @@ test("home four-panel tab order and pane visibility", async ({ page }) => {
   await expect(page.locator("[data-today-list]")).toBeVisible();
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("今天推荐");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("已入队");
-  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("加入待办");
-  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("正式待办");
-  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("待办");
-  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("AI发现");
+  // tab 行与提问框是工作台 chrome（两页签都有），内容断言只看页签正文。
+  await expect.poll(() => paneBodyText(page, "today")).not.toContain("加入待办");
+  await expect.poll(() => paneBodyText(page, "today")).not.toContain("正式待办");
+  await expect.poll(() => paneBodyText(page, "today")).not.toContain("待办");
+  await expect.poll(() => paneBodyText(page, "today")).not.toContain("AI发现");
   await expect(page.locator("[data-today-suggestions], [data-recommended-task], [data-insight-list]")).toHaveCount(0);
   await expect(page.locator('[data-home-pane="todo"]')).toHaveCount(0);
   await expect(page.locator('[data-home-pane="discovery"]')).toHaveCount(0);
   await expect(page.locator('[data-home-pane="pool"]')).toHaveCount(0);
   await expect(page.locator('[data-home-pane="lifecycle"]')).toHaveCount(0);
 
+  // 我的待办 is the same workspace with its own header; only scope data differs.
   await openMode(page, "todo");
-  await expect(page.locator("[data-home] h1")).toHaveCount(0);
+  await expect(page.locator("[data-home] h1")).toHaveText("我的待办");
   await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
-  await expect(page.locator(".today-board-filters")).toBeVisible();
+  await expect(page.locator('[data-home-pane="todo"] [data-scope-ai-workspace]')).toBeVisible();
+  await expect(page.locator('[data-home-pane="todo"] [data-scope-task-rail]')).toBeVisible();
+  await expect(page.locator(".task-board-filters")).toBeVisible();
   await expect(page.locator("[data-todo-list]")).toBeVisible();
   await expect(page.locator("[data-today-suggestions]")).toHaveCount(0);
   await expect(page.locator("[data-discovery-panel]")).toHaveCount(0);
@@ -112,8 +116,8 @@ async function stubHomeTodos(page: Page, todos: Array<Record<string, unknown>>) 
 
 async function todoRowLayout(card: ReturnType<Page["locator"]>) {
   return card.evaluate((el) => {
-    const title = el.querySelector(".today-board-title") as HTMLElement | null;
-    const status = el.querySelector(".today-board-chip[data-board-status]") as HTMLElement | null;
+    const title = el.querySelector(".task-board-title") as HTMLElement | null;
+    const status = el.querySelector(".task-board-chip[data-board-status]") as HTMLElement | null;
     const act = el.querySelector("[data-today-todo-act]") as HTMLElement | null;
     const pane = el.closest("[data-todo-list]") as HTMLElement | null;
     if (!title || !status || !act) {
@@ -136,7 +140,7 @@ async function todoRowLayout(card: ReturnType<Page["locator"]>) {
   });
 }
 
-test("home todo action rows use full-width workbench layout", async ({ page }) => {
+test("home todo rows live in the task rail without横向滚动", async ({ page }) => {
   const due = new Date();
   due.setHours(18, 0, 0, 0);
   const todos = [
@@ -173,11 +177,14 @@ test("home todo action rows use full-width workbench layout", async ({ page }) =
   await expect(follow.locator("[data-board-status]")).toHaveText("未开始");
   await expect(follow.locator("[data-today-todo-act]")).toHaveText("打开");
 
+  // 待办任务表现在住在与今日任务同一个工作台右栏里：仍是「标题在左、动作在右」的行，
+  // 只是列宽由右栏决定 —— 断言改为右栏内不横向滚动、动作仍在标题右侧。
   const wide = await todoRowLayout(follow);
   expect(wide.paneMaxWidth).toMatch(/^(none|100%)$/);
   expect(wide.actLeft).toBeGreaterThan(wide.titleRight - 8);
   expect(Math.abs(wide.actTop - wide.titleTop)).toBeLessThan(48);
   expect(wide.statusLeft).toBeLessThan(wide.titleRight);
+  expect(await page.locator("[data-scope-task-rail]").evaluate((rail) => rail.clientWidth)).toBeGreaterThan(480);
   await expectNoPageHorizontalScroll(page);
 
   await page.setViewportSize({ width: 720, height: 900 });
@@ -546,9 +553,9 @@ test("today pane has no recommend convert and no 待办 copy", async ({ page }) 
   await expect(page.locator("[data-recommended-task], [data-suggestion-to-todo], [data-today-suggestions]")).toHaveCount(0);
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("今天推荐");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("已入队");
-  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("加入待办");
-  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("正式待办");
-  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("待办");
+  await expect.poll(() => paneBodyText(page, "today")).not.toContain("加入待办");
+  await expect.poll(() => paneBodyText(page, "today")).not.toContain("正式待办");
+  await expect.poll(() => paneBodyText(page, "today")).not.toContain("待办");
   await openMode(page, "todo");
   await expect(page.locator("[data-today-todo]").first()).toBeVisible({ timeout: 15000 });
 });

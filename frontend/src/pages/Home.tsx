@@ -29,8 +29,8 @@ import { rememberJourney } from "../journey";
 import { missingFieldsMessage, fieldLabel } from "../labels";
 import DiscoveryPanel from "../home/DiscoveryPanel";
 import DiscoverySearchCard from "../home/DiscoverySearchCard";
-import TodayPane from "../home/TodayPane";
-import TodoPane from "../home/TodoPane";
+import { scopeRows } from "../home/scopeRows";
+import ScopeWorkspace from "../home/ScopeWorkspace";
 import FollowedPane from "../home/FollowedPane";
 import { matchesFollowedSituation, type FollowedSituation } from "../home/FollowedBrief";
 import PoolPane from "../home/PoolPane";
@@ -87,7 +87,6 @@ import {
 
 import { claimPoolKol, enqueueKolAnalyze, loadHomeFollowing, loadHomePool, releaseFollowedKol } from "../home/kolSurfaceApi";
 import {
-  applyLayoutWhy,
   canOpenExistingTaskFlow,
   definitionList,
   deriveWorkbench,
@@ -96,22 +95,21 @@ import {
   isOpenTask,
   isPlanningTask,
   isTodoTask,
-  matchesTodoFilter,
   openBucket,
   sortOpenWorkItems,
-  sortTodayTodos,
   sortedTasks,
   taskValue,
   whyLine,
   withHomeCommandTemplates,
-  type TodoListFilter,
 } from "../home/homeModel";
 import { isTodayScheduled } from "../home/schedule";
 import EditTaskDialog from "../home/EditTaskDialog";
 import {
+  SCOPE_CONFIG,
   TODAY_PLAN_REFRESH_EVENT,
   TODAY_PLAN_START_EVENT,
   TODO_PLAN_START_EVENT,
+  type PlanScope,
 } from "../home/todayPlan";
 import { usePlanScope } from "../home/usePlanScope";
 import { fetchTodayTasks, fetchTodoTasks } from "../home/todayTasksApi";
@@ -257,8 +255,6 @@ function CardFields({
   );
 }
 
-const HOME_TODAY_TITLE = "今天有什么工作要处理？";
-
 function homeModeIcon(mode: HomeMode): ReactNode {
   const paths: Record<HomeMode, ReactNode> = {
     today: <><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M8 3v4M16 3v4M4 10h16M8 14h3" /></>,
@@ -275,7 +271,6 @@ export default function Home() {
   const [definitions, setDefinitions] = useState<TaskDefinition[]>([]);
   const [tab, setTab] = useState<HomeTab>("today");
   const [filter, setFilter] = useState<TaskFilter>("all");
-  const [todoFilter, setTodoFilter] = useState<TodoListFilter>("all");
   const [kolQuery, setKolQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("");
   // 简报里的情境分区（一次回答内收窄），不是耐久 Tab；空串=不分区。
@@ -1598,12 +1593,13 @@ export default function Home() {
     [homeMemoryTasks],
   );
 
-  const todayTodos = useMemo(
-    () => applyLayoutWhy(
-      sortTodayTodos(homeMemoryTasks.filter((task) => !isPlanningTask(task) && isTodayScheduled(task))),
-      todayPlan.brief?.todo_layout,
-    ),
-    [homeMemoryTasks, todayPlan.brief],
+  // 今日任务 / 我的待办 render one workspace over one row projection; only the
+  // slice each pane answers for differs, and that lives in scopeRows.
+  const paneScope: PlanScope | null = mode === "today" || mode === "todo" ? mode : null;
+  const activePlan = mode === "todo" ? todoPlan : todayPlan;
+  const paneRows = useMemo(
+    () => (paneScope ? scopeRows(paneScope, homeMemoryTasks, activePlan.brief?.todo_layout) : []),
+    [paneScope, homeMemoryTasks, activePlan.brief],
   );
 
   const tabTodayCount = useMemo(
@@ -1616,10 +1612,6 @@ export default function Home() {
     [todoBadgeTasks],
   );
 
-  const visibleTodoItems = useMemo(
-    () => todoItems.filter((task) => matchesTodoFilter(task, todoFilter)),
-    [todoFilter, todoItems],
-  );
 
   const insightItems = useMemo(
     () => sortedTasks(taskCatalog.filter(isInsightTask), "priority"),
@@ -1896,6 +1888,7 @@ export default function Home() {
       }
       data-home
       data-home-active-mode={mode}
+      data-home-workspace={paneScope ?? undefined}
       data-followed-chrome={mode === "lifecycle" || mode === "pool" ? "compact" : undefined}
       data-home-task-poll={hasActiveRuns ? "active" : "idle"}
     >
@@ -1906,7 +1899,7 @@ export default function Home() {
           setStageScrolled((current) => (current ? top > 8 : top > 40));
         }}
       >
-        {mode !== "today" ? <div className="home-hero">
+        {mode !== "today" && mode !== "todo" ? <div className="home-hero">
           <p className="home-stats" data-today-summary data-home-stats>
             {statsText}
             {awaitingApprovalCount ? ` · ${awaitingApprovalCount}等审批` : ""}
@@ -1914,21 +1907,23 @@ export default function Home() {
         </div> : null}
 
         <div className="home-board">
-          {mode === "today" ? (
-            <TodayPane
-              todayTodos={todayTodos}
+          {paneScope ? (
+            <ScopeWorkspace
+              scope={paneScope}
+              rows={paneRows}
               busy={busy}
               onAct={(task) => void actOnMemoryTask(task)}
               onEdit={setEditTaskTarget}
-              brief={todayPlan.brief}
-              phase={todayPlan.phase}
-              events={todayPlan.events}
-              previousBrief={todayPlan.prevBrief}
-              previousEvents={todayPlan.prevEvents}
-              memoryPending={todayPlan.memoryTasks === null}
+              notice={paneScope === "todo" ? dedupeNotice : ""}
+              brief={activePlan.brief}
+              phase={activePlan.phase}
+              events={activePlan.events}
+              previousBrief={activePlan.prevBrief}
+              previousEvents={activePlan.prevEvents}
+              memoryPending={activePlan.memoryTasks === null}
               centerHeader={(
                 <div className="home-hero today-center-hero">
-                  <h1 data-home-title="today">{HOME_TODAY_TITLE}</h1>
+                  <h1 data-home-title={paneScope}>{SCOPE_CONFIG[paneScope].heroTitle}</h1>
                   <p className="home-stats" data-today-summary data-home-stats>
                     {statsText}
                     {awaitingApprovalCount ? ` · ${awaitingApprovalCount}等审批` : ""}
@@ -1936,25 +1931,6 @@ export default function Home() {
                 </div>
               )}
               centerFooter={renderComposerDock()}
-            />
-          ) : null}
-
-          {mode === "todo" ? (
-            <TodoPane
-              tasks={visibleTodoItems}
-              filter={todoFilter}
-              onFilter={setTodoFilter}
-              dedupeNotice={dedupeNotice}
-              busy={busy}
-              onAct={(task) => void actOnMemoryTask(task)}
-              onEdit={setEditTaskTarget}
-              brief={todoPlan.brief}
-              todoLayout={todoPlan.brief?.todo_layout}
-              phase={todoPlan.phase}
-              events={todoPlan.events}
-              previousBrief={todoPlan.prevBrief}
-              previousEvents={todoPlan.prevEvents}
-              memoryPending={todoPlan.memoryTasks === null}
             />
           ) : null}
 
@@ -2155,7 +2131,7 @@ export default function Home() {
         </div>
       </div>
 
-      {mode !== "today" ? renderComposerDock() : null}
+      {mode !== "today" && mode !== "todo" ? renderComposerDock() : null}
 
       {panelOpen && (
         <div className="work-panel-layer" data-work-panel>

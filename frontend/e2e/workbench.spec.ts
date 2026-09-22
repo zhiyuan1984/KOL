@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import path from "node:path";
-import { stubFollowingFromServerBoard, stubHomeBoardAndFollowing } from "./kol-surface-stub";
+import { paneBodyText, stubFollowingFromServerBoard, stubHomeBoardAndFollowing } from "./kol-surface-stub";
 
 async function saveScreenshot(page: Page, name: string): Promise<void> {
   const dir = process.env.PLAYWRIGHT_OUTPUT_DIR || "test-results";
@@ -672,8 +672,9 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expect(page.locator("[data-recommended-tasks]")).toHaveCount(0);
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("今天推荐");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("已入队");
-  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("AI发现");
-  await expect(page.locator("[data-today-work]")).toHaveCount(0);
+  // tab 行与提问框是工作台 chrome（会带「AI发现 / 我的待办」字样），内容断言只看页签正文。
+  await expect.poll(() => paneBodyText(page, "today")).not.toContain("AI发现");
+  await expect(page.locator("[data-home-pane=\"todo\"]")).toHaveCount(0);
   await expect(page.locator("[data-today-summary]")).toContainText("项待处理");
   await expect(page.locator("[data-today-summary]")).toContainText("逾期");
   await expect(page.locator("[data-today-summary]")).not.toContainText("归因复盘");
@@ -684,15 +685,15 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expect(page.locator("[data-journey-guide]")).toHaveCount(0);
   await page.locator("[data-work-panel] .work-panel-backdrop").click();
   await openHomeTodo(page);
-  await expect(page.locator("[data-today-work]")).toBeVisible();
-  await expect(page.locator("[data-today-work] [data-recommended-tasks]")).toHaveCount(0);
+  await expect(page.locator("[data-home-pane=\"todo\"]")).toBeVisible();
+  await expect(page.locator("[data-home-pane=\"todo\"] [data-recommended-tasks]")).toHaveCount(0);
   // 待办筛选已改为共享任务板的优先级筛选，原 later 过滤按钮移除。
-  await expect(page.locator("[data-todo-list] .today-board-filters")).toBeVisible();
+  await expect(page.locator("[data-todo-list] .task-board-filters")).toBeVisible();
   // 「等待中」分桶容器移除；改为断言待办面板不出现该文案。
   await expect(page.locator("[data-todo-list]")).not.toContainText("等待中");
-  await expect(page.locator("[data-today-work]")).not.toContainText("已入队");
-  await expect(page.locator("[data-today-work]")).not.toContainText("今天推荐");
-  await expect(page.locator("[data-today-work]")).not.toContainText("待处理");
+  await expect(page.locator("[data-home-pane=\"todo\"]")).not.toContainText("已入队");
+  await expect(page.locator("[data-home-pane=\"todo\"]")).not.toContainText("今天推荐");
+  await expect(page.locator("[data-home-pane=\"todo\"]")).not.toContainText("待处理");
   // 共享任务板现在渲染 h2「我的待办」标题，原「无我的待办标题」断言随之删除。
   await openHomeLifecycle(page);
   await expect(page.locator("[data-home]")).toHaveAttribute("data-followed-chrome", "compact");
@@ -1637,9 +1638,9 @@ test("home open work items list every state and never show 已入队", async ({ 
   await expect(page.locator("[data-today-summary]")).not.toContainText("结果待确认");
   await expect(page.locator("[data-today-summary]")).toContainText("等审批");
   await expect(page.locator("[data-today-summary]")).not.toContainText("等待中");
-  await expect(page.locator("[data-today-work]")).not.toContainText("等待中");
-  await expect(page.locator("[data-today-work]")).not.toContainText("已入队");
-  await expect(page.locator("[data-today-work]")).not.toContainText("待处理");
+  await expect(page.locator("[data-home-pane=\"todo\"]")).not.toContainText("等待中");
+  await expect(page.locator("[data-home-pane=\"todo\"]")).not.toContainText("已入队");
+  await expect(page.locator("[data-home-pane=\"todo\"]")).not.toContainText("待处理");
 });
 
 test("home todo lists all later items without folding or 已入队 copy", async ({ page }) => {
@@ -1663,7 +1664,7 @@ test("home todo lists all later items without folding or 已入队 copy", async 
   await page.goto("/");
   await openHomeTodo(page);
   // 行数超过共享任务板折叠阈值 5 时先折叠；展开后再断言全部 9 行（保持行数精确）。
-  const expand = page.locator(".today-board-expand");
+  const expand = page.locator(".task-board-expand");
   await expect(expand).toHaveText(/查看全部 9 项任务/);
   await expand.click();
   await expect(page.locator("[data-today-todo]")).toHaveCount(9);
@@ -1673,7 +1674,7 @@ test("home todo lists all later items without folding or 已入队 copy", async 
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("已入队");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("待处理");
   await expect(page.locator("[data-fold-more]")).toHaveCount(0);
-  await expect(page.locator("[data-today-work] [data-recommended-tasks]")).toHaveCount(0);
+  await expect(page.locator("[data-home-pane=\"todo\"] [data-recommended-tasks]")).toHaveCount(0);
 });
 
 test("home polls GET /api/tasks while a run is executing", async ({ page }) => {
@@ -1770,11 +1771,11 @@ test("home today pane lists today items and 我的待办 still opens the KOL ses
   await expect(page.locator("[data-recommended-tasks]")).toHaveCount(0);
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("今天推荐");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("已入队");
-  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("加入待办");
-  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("正式待办");
-  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("待办");
-  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("AI发现");
-  await expect(page.locator("[data-today-work]")).toHaveCount(0);
+  await expect.poll(() => paneBodyText(page, "today")).not.toContain("加入待办");
+  await expect.poll(() => paneBodyText(page, "today")).not.toContain("正式待办");
+  await expect.poll(() => paneBodyText(page, "today")).not.toContain("待办");
+  await expect.poll(() => paneBodyText(page, "today")).not.toContain("AI发现");
+  await expect(page.locator("[data-home-pane=\"todo\"]")).toHaveCount(0);
   await expect(page.locator("[data-today-todo]").filter({ hasText: "旅行电源菌" })).toBeVisible();
   await expect(page.locator("[data-today-todo]").filter({ hasText: "数码老张" })).toBeVisible();
   await expect(page.locator("[data-insight-card], [data-recommended-task]")).toHaveCount(0);
@@ -1793,8 +1794,8 @@ test("home today pane lists today items and 我的待办 still opens the KOL ses
   // 原 waiting 分桶容器为 0 的断言：「等待中」不再是行状态标签，改为文案断言。
   await expect(page.locator("[data-todo-list]")).not.toContainText("等待中");
   // 原 later 分桶（2 行）与「后续」文案断言：分桶容器移除，且原 later 行已归今日面板。
-  await expect(page.locator("[data-today-work] .todo-card")).toHaveCount(0);
-  await expect(page.locator("[data-today-work] .recommended-task")).toHaveCount(0);
+  await expect(page.locator("[data-home-pane=\"todo\"] .todo-card")).toHaveCount(0);
+  await expect(page.locator("[data-home-pane=\"todo\"] .recommended-task")).toHaveCount(0);
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("已入队");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("今天推荐");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("待处理");
@@ -3748,8 +3749,8 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   // 高优先/进行中的行按今日/待办拆分归今日面板；待办面板为空（原 2 行 data-todo-card 集合已迁移）。
   // 今日面板行来自 GET /api/home/today-tasks 的服务端展示记忆，本测试的 board/tasks stub 覆盖不到，
   // 故 manual-1/ai-1 在今日面板的行断言无法在本测试内表达，随分桶列表移除。
-  await expect(page.locator("[data-today-work] [data-today-todo]")).toHaveCount(0);
-  await expect(page.locator("[data-today-work] [data-recommended-tasks]")).toHaveCount(0);
+  await expect(page.locator("[data-home-pane=\"todo\"] [data-today-todo]")).toHaveCount(0);
+  await expect(page.locator("[data-home-pane=\"todo\"] [data-recommended-tasks]")).toHaveCount(0);
   await openHomeAi(page);
   await expect(page.locator("[data-today-list]")).toBeVisible();
   await expect(page.locator("[data-insight-card]")).toHaveCount(0);

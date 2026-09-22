@@ -154,7 +154,7 @@ describe("today_plan harness", () => {
       const recognizeSpy = vi.spyOn(recognize, "recognizeTaskIntent");
       const res = await request("POST", planPath);
       expect([200, 202]).toContain(res.status);
-      expect(res.body.task_type ?? taskType).toBeDefined();
+      expect(res.body.task_type).toBe(taskType);
       expect(res.body.work_item_id).toBeTruthy();
       expect(res.body.session_id).toBeTruthy();
       expect(res.body.run_id).toBeTruthy();
@@ -201,6 +201,31 @@ describe("today_plan harness", () => {
       expect(second.body.work_item_id).toBe(first.body.work_item_id);
       expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM work_items WHERE task_type=?").get(taskType) as { n: number }).n)).toBe(1);
     });
+  });
+
+  /**
+   * 今日任务 / 我的待办 render one workspace, so the two scopes must answer the
+   * same shape; only the request path, the memory kind and the slice differ.
+   */
+  it("both plan scopes answer the same brief / tasks / plan shape", async () => {
+    const snapshot = async (scope: "today" | "todo") => ({
+      brief: (await request("GET", `/api/home/${scope}-brief`)).body,
+      tasks: (await request("GET", `/api/home/${scope}-tasks`)).body,
+      plan: (await request("POST", `/api/home/${scope}-brief/plan`)).body,
+    });
+    const today = await snapshot("today");
+    const todo = await snapshot("todo");
+
+    expect(Object.keys(todo.brief).sort()).toEqual(Object.keys(today.brief).sort());
+    expect(Object.keys(todo.tasks).sort()).toEqual(Object.keys(today.tasks).sort());
+    expect(Object.keys(todo.plan).sort()).toEqual(Object.keys(today.plan).sort());
+
+    expect(today.brief.memory_kind).toBe("task_cover");
+    expect(todo.brief.memory_kind).toBe("todo_cover");
+    expect(today.tasks.memory_kind).toBe("task_result");
+    expect(todo.tasks.memory_kind).toBe("todo_result");
+    expect(today.plan.task_type).toBe("today_plan");
+    expect(todo.plan.task_type).toBe("todo_plan");
   });
 
   it("rejects missing sections or batch follow and keeps the old brief", () => {

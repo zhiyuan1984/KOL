@@ -11,6 +11,7 @@ export default defineConfig({
       "../frontend/src/home/homeModel.test.ts",
       "../frontend/src/home/surfaceError.test.ts",
       "../frontend/src/home/todayPlan.test.ts",
+      "../frontend/src/home/scopeParity.test.ts",
       "../frontend/src/home/discoveryTemplate.test.ts",
       "../frontend/src/mail/digestView.test.ts",
       "../frontend/src/mail/fallback.test.ts",

@@ -55,3 +55,16 @@ export async function stubFollowingFromServerBoard(page: Page, request: APIReque
     await stubHomeFollowing(page, []);
   }
 }
+
+/**
+ * 页签内容文本 = 页签去掉 tab 行与提问框。这两处是工作台 chrome，会带上「我的待办 /
+ * AI发现」这类导航字样，不能算作该页签自己的内容（今日任务 / 我的待办 现在共用同一个
+ * 工作台，chrome 对两边一样）。
+ */
+export async function paneBodyText(page: Page, scope: "today" | "todo"): Promise<string> {
+  return page.locator(`[data-home-pane="${scope}"]`).evaluate((pane) => {
+    const clone = pane.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll("[data-home-quick-tasks], .home-composer-dock").forEach((node) => node.remove());
+    return clone.innerText;
+  });
+}

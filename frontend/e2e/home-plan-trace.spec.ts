@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { paneBodyText } from "./kol-surface-stub";
 
 /**
  * The 思考过程 stream must render the real harness trace, not a canned list:
@@ -93,8 +94,8 @@ test("thinking stream renders the harness trace with per-row state, not a canned
   await expect(think).toContainText("先核对逾期项");
 
   // The button answers the click immediately.
-  await expect(page.locator(".today-board-plan-btn")).toHaveAttribute("data-plan-state", "planning");
-  await expect(page.locator(".today-board-plan-btn")).toBeDisabled();
+  await expect(page.locator(".task-board-plan-btn")).toHaveAttribute("data-plan-state", "planning");
+  await expect(page.locator(".task-board-plan-btn")).toBeDisabled();
 });
 
 test("the ask box is a footer and the workspace has exactly one scroll container", async ({ page }) => {
@@ -136,23 +137,33 @@ test("the ask box is a footer and the workspace has exactly one scroll container
       }
       const dock = document.querySelector(".home-composer-dock") as HTMLElement | null;
       const stage = document.querySelector(".home-stage") as HTMLElement | null;
+      const centerScroll = document.querySelector(".scope-workspace-center-scroll") as HTMLElement | null;
       return {
         found,
         docScrolls: document.documentElement.scrollHeight > window.innerHeight + 1,
         dockTop: dock ? Math.round(dock.getBoundingClientRect().top) : null,
         dockBottom: dock ? Math.round(dock.getBoundingClientRect().bottom) : null,
         stageBottom: stage ? Math.round(stage.getBoundingClientRect().bottom) : null,
+        centerScrollBottom: centerScroll ? Math.round(centerScroll.getBoundingClientRect().bottom) : null,
         innerHeight: window.innerHeight,
       };
     });
 
     expect(probe.docScrolls, `${viewport.width}x${viewport.height} 不该有整页滚动`).toBe(false);
     // Exactly one scroll container, and it is the workspace stage.
-    expect(probe.found.length, `${viewport.width}x${viewport.height} 滚动容器：${probe.found.join(" | ")}`).toBe(1);
-    expect(probe.found[0]).toContain("home-stage");
-    // The composer is a footer beside the scroll area, not a layer over it, and it
-    // is fully on screen (it used to hang below the fold).
-    expect(probe.dockTop!, "输入框不能压在滚动区上").toBeGreaterThanOrEqual(probe.stageBottom!);
+    // 工作台自 2026-09-22 起是「stage 不滚动、中列与右栏各自滚动」的固定视口布局：
+    // 这两条断言原先假设 stage 是唯一滚动容器（该假设已被今天的布局取代，改动前
+    // 即为红）。不变量保留：整页不滚、没有第三个滚动容器、提问框完整在视口内。
+    for (const name of probe.found) {
+      expect(name, `${viewport.width}x${viewport.height} 只允许中列/右栏滚动：${name}`)
+        .toMatch(/scope-workspace-center-scroll|scope-task-rail/);
+    }
+    expect(probe.found.length, `${viewport.width}x${viewport.height} 滚动容器：${probe.found.join(" | ")}`)
+      .toBeLessThanOrEqual(2);
+    // The composer is a footer of the center column, not a layer over the scroll
+    // area (which the workspace layout now keeps inside that column), and it is
+    // fully on screen — it used to hang below the fold.
+    expect(probe.dockTop!, "输入框不能压在滚动区上").toBeGreaterThanOrEqual(probe.centerScrollBottom!);
     expect(probe.dockBottom!, "输入框必须完整在视口内").toBeLessThanOrEqual(probe.innerHeight + 1);
   }
 });
@@ -308,9 +319,9 @@ test("the previous version folds to one row and the row keeps no duplicate prior
   const row = page.locator('[data-today-todo="tsk_1"]');
   await expect(row.locator("[data-priority-label]")).toHaveCount(0);
   await expect(row.locator("[data-board-status]")).toHaveCount(1);
-  await expect(row.locator(".today-board-source-note")).toHaveCount(0);
-  await expect(page.locator(".today-board-table thead")).not.toContainText("来源");
-  await expect(page.locator(".today-board-check, .today-board-cell-check")).toHaveCount(0);
-  // 今日 pane 不再出现「待办」字样（这是本条断言真正的意图）。
-  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("待办");
+  await expect(row.locator(".task-board-source-note")).toHaveCount(0);
+  await expect(page.locator(".task-board-table thead")).not.toContainText("来源");
+  await expect(page.locator(".task-board-check, .task-board-cell-check")).toHaveCount(0);
+  // 今日 pane 正文不再出现「待办」字样（tab 行与提问框属工作台 chrome，会带「我的待办」）。
+  await expect.poll(() => paneBodyText(page, "today")).not.toContain("待办");
 });

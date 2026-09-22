@@ -11,10 +11,11 @@ function statOf(brief: TodayBrief | null | undefined, key: string): number {
 }
 
 /**
- * 今日计划摘要 — a light summary, not a card. The actionable line lives on the
- * task row (`data-today-todo-act`), so this never renders a business button.
+ * 计划摘要（今日/待办共用）— a light summary, not a card. The actionable line
+ * lives on the task row (`data-today-todo-act`), so this never renders a
+ * business button. The label is scope copy so the todo pane never says 今日.
  */
-export default function PlanSummary({ brief }: { brief?: TodayBrief | null }) {
+export default function PlanSummary({ brief, label = "今日计划摘要" }: { brief?: TodayBrief | null; label?: string }) {
   const sections = (Array.isArray(brief?.sections) ? brief.sections : []).filter((section) => !isPolicySection(section));
   const lead = String(brief?.lead || "").trim();
   const note = String(sections[0]?.body || "").trim();
@@ -28,7 +29,7 @@ export default function PlanSummary({ brief }: { brief?: TodayBrief | null }) {
 
   return (
     <section className="today-plan-summary" data-today-brief>
-      <span className="today-plan-summary-label">今日计划摘要</span>
+      <span className="today-plan-summary-label">{label}</span>
       {lead ? <p className="today-plan-summary-lead" data-today-lead>{lead}</p> : null}
       {note ? <p className="today-plan-summary-note" data-today-sections>{note}</p> : null}
       {stats ? <p className="today-plan-summary-stats">{stats}</p> : null}
