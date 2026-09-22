@@ -11,6 +11,7 @@ permissions: ["starrykol:read"]
 actions: ["analyze"]
 aliases: ["全量达人库","全部红人画像"]
 in_market: true
+employee_visible: false
 ---
 # 达人库全量
 

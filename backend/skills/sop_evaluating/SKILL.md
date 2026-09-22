@@ -11,6 +11,7 @@ permissions: ["starrykol:read"]
 actions: ["present_sop"]
 aliases: ["合作评估SOP", "SOP合作评估"]
 in_market: true
+employee_visible: false
 ---
 # SOP · 合作评估
 

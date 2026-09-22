@@ -38,6 +38,8 @@ export type CatalogSkill = {
   aliases?: string[];
   in_market?: boolean;
   granted?: boolean;
+  /** false = 内部技能（只被 pipeline / 定时任务 / 旅程调用），不进员工可选清单。 */
+  employee_visible?: boolean;
 };
 
 export function labelOfSkill(skill: CatalogSkill): string {

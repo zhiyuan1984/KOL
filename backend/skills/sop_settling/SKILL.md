@@ -11,6 +11,7 @@ permissions: ["starrykol:read"]
 actions: ["present_sop"]
 aliases: ["结算中 / 已付款SOP", "SOP结算中 / 已付款"]
 in_market: true
+employee_visible: false
 ---
 # SOP · 结算中 / 已付款
 

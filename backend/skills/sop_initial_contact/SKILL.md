@@ -11,6 +11,7 @@ permissions: ["starrykol:read"]
 actions: ["present_sop"]
 aliases: ["初步接触SOP", "SOP初步接触"]
 in_market: true
+employee_visible: false
 ---
 # SOP · 初步接触
 

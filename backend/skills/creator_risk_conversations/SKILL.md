@@ -11,6 +11,7 @@ permissions: ["starrykol:read"]
 actions: ["analyze"]
 aliases: ["风险会话","红人风险会话"]
 in_market: true
+employee_visible: false
 ---
 # 达人风险会话
 

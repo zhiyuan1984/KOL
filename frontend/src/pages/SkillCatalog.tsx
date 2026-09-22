@@ -629,6 +629,8 @@ function SkillDetail({
           <span className="skill-preview-agent">{skillSource(skill.id)}</span>
           <span className={"skill-mark is-" + tier}>{RISK_LABEL[tier]}</span>
           {isAsync && <span className="skill-mark is-async">异步 · 可取消</span>}
+          {/* 内部技能：由 pipeline / 定时任务 / 旅程调用，不在提问框的可选清单里出现。 */}
+          {skill.employee_visible === false && <span className="skill-mark" data-skill-internal>内部</span>}
         </div>
 
         {/* 段落次序按员工的决策顺序排：先「什么时候用 / 我要准备什么 / 能拿到什么」，

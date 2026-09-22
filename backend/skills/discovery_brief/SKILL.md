@@ -12,6 +12,7 @@ permissions: []
 actions: []
 aliases: ["发现简报","discovery brief"]
 in_market: false
+employee_visible: false
 ---
 # 发现简报 discovery_brief · Lead
 

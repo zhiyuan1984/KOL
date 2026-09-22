@@ -11,6 +11,7 @@ permissions: ["starrykol:read"]
 actions: ["analyze"]
 aliases: ["读取邮件会话","查看邮件会话"]
 in_market: true
+employee_visible: false
 ---
 # 邮件会话详情
 

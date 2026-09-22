@@ -11,6 +11,7 @@ permissions: ["starrykol:read"]
 actions: ["present_sop"]
 aliases: ["已签收-测试中SOP", "SOP已签收-测试中"]
 in_market: true
+employee_visible: false
 ---
 # SOP · 已签收-测试中
 

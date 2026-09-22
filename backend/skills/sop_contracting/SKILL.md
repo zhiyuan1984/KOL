@@ -11,6 +11,7 @@ permissions: ["starrykol:read"]
 actions: ["present_sop"]
 aliases: ["合同签署SOP", "SOP合同签署"]
 in_market: true
+employee_visible: false
 ---
 # SOP · 合同签署
 

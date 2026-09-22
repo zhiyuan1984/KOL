@@ -11,6 +11,7 @@ permissions: []
 actions: ["analyze"]
 aliases: ["今日分析","分析今天","today analyze"]
 in_market: false
+employee_visible: false
 side_effects: none
 creates_session: true
 auto_ok: false

@@ -12,6 +12,7 @@ permissions: []
 actions: []
 aliases: ["发现计划","discovery plan"]
 in_market: false
+employee_visible: false
 ---
 # 发现计划 discovery_plan · Lead
 

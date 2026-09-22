@@ -56,6 +56,8 @@ export type SkillRow = {
   label?: string;
   in_market: boolean;
   granted?: boolean;
+  /** false = 内部技能（pipeline / 定时任务 / 旅程调用），不在提问框可选清单里。 */
+  employee_visible?: boolean;
   funnel?: string;
   summary?: string;
   output?: string;

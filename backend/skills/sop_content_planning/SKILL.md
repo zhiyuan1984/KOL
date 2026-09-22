@@ -11,6 +11,7 @@ permissions: ["starrykol:read"]
 actions: ["present_sop"]
 aliases: ["内容策划SOP", "SOP内容策划"]
 in_market: true
+employee_visible: false
 ---
 # SOP · 内容策划
 

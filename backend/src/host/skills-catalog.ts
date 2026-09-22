@@ -74,6 +74,7 @@ export type SkillEntry = {
   funnel: FunnelId;
   summary: string;
   source: "bundled" | "published";
+  employee_visible: boolean;
 };
 
 export const SOP_POLICY = {
@@ -109,6 +110,7 @@ export function skillCatalog(root?: string): SkillEntry[] {
     // 员工面优先用 employee_summary（业务专家填的业务语言）；缺省回落到引擎描述。
     summary: definition.employee_summary || definition.description,
     source: definition.source,
+    employee_visible: definition.employee_visible,
   }));
   catalogCache = { definitions, entries };
   return entries;

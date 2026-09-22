@@ -1265,6 +1265,10 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "collaborations", "sku", "TEXT");
   add(db, "collaborations", "qty", "TEXT");
   add(db, "collaborations", "locked", "INTEGER NOT NULL DEFAULT 0");
+  // 提问框「项目」组的显示口径：库同步会把整个红人库灌进 collaborations（232 条里 200 条是同步来的），
+  // 所以列表默认只给「本机有往来证据」的 —— 有外发邮件 / 有正式阶段写入 / 有任务 / 有草稿，
+  // 或者被显式放进项目（这一列）。整库仍在，靠 ?include=all 或搜索取用。
+  add(db, "collaborations", "list_in_projects", "INTEGER NOT NULL DEFAULT 0");
   add(db, "collaborations", "owner_name", "TEXT");
   add(db, "collaborations", "avg_views_10", "TEXT");
   add(db, "collaborations", "engagement_rate", "TEXT");

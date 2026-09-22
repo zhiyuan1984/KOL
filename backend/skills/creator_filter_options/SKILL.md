@@ -11,6 +11,7 @@ permissions: ["starrykol:read"]
 actions: ["analyze"]
 aliases: ["达人筛选项","合作阶段选项","风险标签选项"]
 in_market: true
+employee_visible: false
 ---
 # 达人筛选字典
 

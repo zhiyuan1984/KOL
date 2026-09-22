@@ -11,6 +11,7 @@ permissions: ["starrykol:read"]
 actions: ["present_sop"]
 aliases: ["商务谈判SOP", "SOP商务谈判"]
 in_market: true
+employee_visible: false
 ---
 # SOP · 商务谈判
 

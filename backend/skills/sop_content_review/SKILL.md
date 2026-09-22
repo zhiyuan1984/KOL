@@ -11,6 +11,7 @@ permissions: ["starrykol:read"]
 actions: ["present_sop"]
 aliases: ["内容审核SOP", "SOP内容审核"]
 in_market: true
+employee_visible: false
 ---
 # SOP · 内容审核
 

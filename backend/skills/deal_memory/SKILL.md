@@ -1,6 +1,6 @@
 ---
 id: deal_memory
-title: Deal Memory
+title: 谈判纪要
 description: 整理谈判事实、约束和待确认事项
 category: 谈判
 profile: negotiation

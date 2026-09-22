@@ -140,6 +140,7 @@ function skillMeta(name: string, lookup?: SkillLookup): Json {
     funnel_hint: stage?.hint || "",
     summary: (overlay?.summary || cat?.summary || cat?.label || name).trim(),
     source: definition?.source || cat?.source || "bundled",
+    employee_visible: definition?.employee_visible ?? true,
     keeps_stage: true,
     sop_editable: false,
     sop_owner: SOP_POLICY.owner,
@@ -347,10 +348,22 @@ misc.post("/logout", (c) => c.json(logout()));
 misc.get("/profiles", (c) => c.json(publicProfiles()));
 
 misc.get("/projects", (c) => {
+  // 默认只列「跟我有关的」：显式放入项目（list_in_projects）、有往来邮件（任一方向）、
+  // 有正式阶段写入、有任务或有草稿。Starry 全量库同步会灌进来几百条画像，
+  // 列表里给它们留位置等于没列表（同步只灌画像，不造邮件——所以这条口径不会被同步打回）。
+  // 需要整库时传 ?include=all（或在菜单里搜索）。
+  const includeAll = String(c.req.query("include") || "") === "all";
   const rows = getConn().prepare(
-    `SELECT id,handle,display_name,brand,platform,stage_code
-       FROM collaborations ORDER BY display_name`,
-  ).all() as Row[];
+    `SELECT c.id, c.handle, c.display_name, c.brand, c.platform, c.stage_code
+       FROM collaborations c
+      WHERE ? = 1
+         OR IFNULL(c.list_in_projects, 0) = 1
+         OR EXISTS (SELECT 1 FROM stage_transitions t WHERE t.collaboration_id = c.id)
+         OR EXISTS (SELECT 1 FROM work_items w WHERE w.collaboration_id = c.id)
+         OR EXISTS (SELECT 1 FROM drafts d WHERE d.collaboration_id = c.id)
+         OR EXISTS (SELECT 1 FROM kol_mail_items m WHERE m.collaboration_id = c.id)
+      ORDER BY c.display_name`,
+  ).all(includeAll ? 1 : 0) as Row[];
   return c.json(rows.map((row) => ({
     id: row.id,
     label: row.display_name || row.handle,

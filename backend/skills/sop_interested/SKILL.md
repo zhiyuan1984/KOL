@@ -11,6 +11,7 @@ permissions: ["starrykol:read"]
 actions: ["present_sop"]
 aliases: ["已回复-有兴趣SOP", "SOP已回复-有兴趣"]
 in_market: true
+employee_visible: false
 ---
 # SOP · 已回复-有兴趣
 

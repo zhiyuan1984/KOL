@@ -1,7 +1,7 @@
 ---
 id: today_plan
 title: 今日规划
-description: 根据 Host 打包的历史记忆与来源增量，产出封面 today_brief 和展示任务行 display_tasks，不写正式待办或状态
+description: 按「今日任务」面（Host 打包的历史记忆与来源增量）产出封面 today_brief 和任务行 display_tasks，不写正式待办或状态
 category: 线索
 profile: commander
 output: today_brief
@@ -11,6 +11,7 @@ permissions: []
 actions: ["analyze"]
 aliases: ["今日规划","规划今天","today plan"]
 in_market: false
+employee_visible: false
 side_effects: none
 creates_session: true
 auto_ok: false

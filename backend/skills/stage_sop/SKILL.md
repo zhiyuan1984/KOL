@@ -1,7 +1,7 @@
 ---
 id: stage_sop
-title: 八个阶段 SOP
-description: 输出合作八个阶段轨道，以及当前正式阶段的输入、证据、完成条件和下一步。只展示资料，不发信，不修改阶段。
+title: 阶段 SOP
+description: 输出合作阶段的完整轨道，以及当前正式阶段的输入、证据、完成条件和下一步。只展示资料，不发信，不修改阶段。
 category: 线索
 profile: lead
 output: task_result

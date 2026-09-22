@@ -11,6 +11,7 @@ permissions: ["starrykol:read"]
 actions: ["analyze"]
 aliases: ["邮箱列表","品牌邮箱","查询邮箱","查发件箱和授权","查发件箱","查询发件箱","发件箱授权"]
 in_market: true
+employee_visible: false
 ---
 # 品牌邮箱列表
 

@@ -11,6 +11,7 @@ permissions: ["starrykol:read"]
 actions: ["present_sop"]
 aliases: ["待寄样SOP", "SOP待寄样"]
 in_market: true
+employee_visible: false
 ---
 # SOP · 待寄样
 

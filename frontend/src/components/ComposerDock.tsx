@@ -217,6 +217,8 @@ export default function ComposerDock({
       for (const s of [...(Array.isArray(mine) ? mine : []), ...(Array.isArray(market) ? market : [])]) {
         if (!s?.id) continue;
         if (s.granted === false) continue;
+        // 内部技能（employee_visible=false）只在 pipeline / 定时任务 / 旅程里跑，不在员工可选清单里出现。
+        if (s.employee_visible === false) continue;
         const prev = map.get(s.id);
         const label = s.label || s.title || prev?.label || prev?.title || s.id;
         map.set(s.id, {

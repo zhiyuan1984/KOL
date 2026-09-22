@@ -11,6 +11,7 @@ permissions: ["starrykol:read"]
 actions: ["present_sop"]
 aliases: ["报价待确认SOP", "SOP报价待确认"]
 in_market: true
+employee_visible: false
 ---
 # SOP · 报价待确认
 
