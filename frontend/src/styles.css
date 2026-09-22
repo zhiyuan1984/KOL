@@ -8939,42 +8939,13 @@ body {
   margin-inline: auto;
 }
 
-/* In Today mode the existing task table owns the right rail. Keep the ask box
-   on the Codex center column instead of letting it run underneath that table. */
+/* In Today mode the task table owns the right rail; the Codex center column
+   spans the full pane width. The center grid owns the one width axis — dock
+   geometry lives in the final axis block, never in calc() here. */
 @media (min-width: 981px) {
-  .home-pane[data-home-active-mode="today"]:has(.today-task-rail:not(.is-collapsed)) .home-stage {
+  .home-pane[data-home-active-mode="today"] .home-stage {
     width: 100%;
     max-width: none;
-  }
-  .home-pane[data-home-active-mode="today"]:has(.today-task-rail:not(.is-collapsed)) .home-composer-dock {
-    width: calc(100% - clamp(500px, 42%, 680px));
-    max-width: none;
-    margin-left: 0;
-    margin-right: auto;
-    padding-right: 28px;
-  }
-  .home-pane[data-home-active-mode="today"]:has(.today-task-rail.is-collapsed) .home-stage {
-    width: 100%;
-    max-width: none;
-  }
-  .home-pane[data-home-active-mode="today"]:has(.today-task-rail.is-collapsed) .home-composer-dock {
-    width: calc(100% - 56px);
-    max-width: none;
-    margin-left: 0;
-    margin-right: 56px;
-  }
-}
-
-@media (min-width: 981px) and (max-width: 1280px) {
-  .home-pane[data-home-active-mode="today"]:has(.today-task-rail:not(.is-collapsed)) .home-composer-dock {
-    width: 54%;
-    padding-right: 20px;
-  }
-}
-
-@media (min-width: 981px) and (max-width: 1280px) {
-  .home-pane[data-home-active-mode="today"] .home-composer-dock {
-    padding-left: var(--page-gutter);
   }
 }
 
@@ -12330,19 +12301,6 @@ button.today-brief-primary-btn:disabled {
     flex: 1 1 auto;
     padding-bottom: 0;
   }
-  .home-pane[data-home-active-mode="today"] .home-composer-dock {
-    position: absolute;
-    z-index: 4;
-    left: 0;
-    bottom: 0;
-    width: calc(100% - clamp(500px, 42%, 680px));
-    max-width: none;
-    margin: 0;
-    padding: 10px 28px 14px var(--page-gutter);
-    border-top: 1px solid var(--border);
-    background: color-mix(in srgb, var(--bg) 94%, transparent);
-    backdrop-filter: blur(8px);
-  }
   .home-pane[data-home-active-mode="today"] .home-composer-dock .composer.composer--workspace {
     min-height: 76px;
     max-height: 420px;
@@ -12350,9 +12308,6 @@ button.today-brief-primary-btn:disabled {
   }
   .home-pane[data-home-active-mode="today"] .home-composer-dock .composer.composer--workspace textarea {
     min-height: 28px;
-  }
-  .home-pane[data-home-active-mode="today"] .today-workspace-center {
-    padding-bottom: 150px;
   }
   .home-pane[data-home-active-mode="today"] .today-task-rail {
     height: 100%;
@@ -12426,13 +12381,6 @@ button.today-brief-primary-btn:disabled {
     min-height: 0;
     overflow: hidden;
   }
-  .home-pane[data-home-active-mode="today"] .today-workspace-center {
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr) auto;
-    min-height: 0;
-    padding: 0;
-    overflow: hidden;
-  }
   .home-pane[data-home-active-mode="today"] .today-center-hero {
     padding-right: 16px;
   }
@@ -12442,18 +12390,6 @@ button.today-brief-primary-btn:disabled {
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-gutter: stable;
-  }
-  .home-pane[data-home-active-mode="today"] .today-workspace-center > .home-composer-dock {
-    position: static;
-    z-index: auto;
-    width: 100%;
-    max-width: none;
-    margin: 0;
-    box-sizing: border-box;
-    padding: 8px 16px 14px 0;
-    border-top: 1px solid var(--border);
-    background: var(--bg);
-    backdrop-filter: none;
   }
   .home-pane[data-home-active-mode="today"] .today-task-rail {
     height: auto;
@@ -12486,29 +12422,6 @@ button.today-brief-primary-btn:disabled {
   .home-pane[data-home-active-mode="today"] .today-workspace-center-head {
     min-height: 30px;
     padding-bottom: 8px;
-  }
-  .home-pane[data-home-active-mode="today"] .today-workspace-center > .home-composer-dock,
-  .home-pane[data-home-active-mode="today"] .today-workspace-center > .home-composer-dock > .composer-dock,
-  .home-pane[data-home-active-mode="today"] .today-workspace-center > .home-composer-dock .composer.composer--workspace {
-    width: 100%;
-    max-width: none;
-    box-sizing: border-box;
-  }
-  /* One width contract for the Today center: the legacy :has() rules above
-     must not leave the footer at a stale calc() width after the rail changes. */
-  .home-pane[data-home-active-mode="today"] .today-workspace-center > .home-composer-dock {
-    width: 100% !important;
-    max-width: none !important;
-    margin: 0 !important;
-    /* Align the composer outer edge with the center header/divider axis.
-       Inner composer padding remains responsible for readable text inset. */
-    padding: 8px 16px 14px 0 !important;
-  }
-  .home-pane[data-home-active-mode="today"] .today-workspace-center > .home-composer-dock > .composer-dock,
-  .home-pane[data-home-active-mode="today"] .today-workspace-center > .home-composer-dock > .composer-dock > .composer.composer--workspace {
-    width: 100% !important;
-    max-width: none !important;
-    margin: 0 !important;
   }
   .home-pane[data-home-active-mode="today"] .home-quick-tasks {
     width: 100%;
@@ -12545,14 +12458,13 @@ button.today-brief-primary-btn:disabled {
     justify-content: center;
     padding-inline: 7px;
   }
-  .home-pane[data-home-active-mode="today"] .today-workspace-center-content > .home-composer-dock {
-    padding-left: 0 !important;
-  }
 }
 
-/* The Today center owns one width axis. Header, process stream, shortcuts and
-   composer are siblings of the same content grid; the rail never changes one
-   of them independently. */
+/* The Today center owns one width axis: hero, process stream, quick tasks and
+   the composer box are sibling rows of the same content grid (auto / 1fr / auto).
+   All four start at the grid's left edge and span it — the stage supplies the
+   single page gutter, so the dock must never add a second one. The rail only
+   resizes the grid's second column; it never touches any row individually. */
 @media (min-width: 981px) {
   .home-pane[data-home-active-mode="today"] .today-workspace-center {
     display: block;
@@ -12576,7 +12488,7 @@ button.today-brief-primary-btn:disabled {
     max-width: none !important;
     min-width: 0;
     margin: 0 !important;
-    padding: 8px 16px 14px var(--page-gutter) !important;
+    padding: 8px 16px 14px 0 !important;
     box-sizing: border-box;
   }
   .home-pane[data-home-active-mode="today"] .today-workspace-center-content > .home-composer-dock > .composer-dock,
@@ -12586,6 +12498,18 @@ button.today-brief-primary-btn:disabled {
     min-width: 0;
     margin: 0 !important;
     box-sizing: border-box;
+  }
+}
+
+/* Same axis invariant when Today stacks below 981px: the rail disappears but
+   hero / quick tasks / composer still share one left edge; the stage gutter is
+   the only inset, so the dock must not add a second one. */
+@media (max-width: 980px) {
+  .home-pane[data-home-active-mode="today"] .today-workspace-center-content > .home-composer-dock {
+    padding-inline: 0;
+  }
+  .home-pane[data-home-active-mode="today"] .today-workspace-center-content .home-quick-tasks {
+    padding-left: 0;
   }
 }
 
