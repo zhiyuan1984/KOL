@@ -24,6 +24,9 @@ export type TaskDefinition = {
   id: string;
   title: string;
   description: string;
+  /** 面向员工的说明（可选）：员工面文案不得出现引擎词（specs/UX-EMPLOYEE.md §员工禁词）。
+      缺省时员工面沿用 description —— 那也是 id 外泄的来源，见 CONST-10 的实施诚实。 */
+  employee_summary?: string;
   category: string;
   profile: TaskProfileId;
   output: TaskOutput;
@@ -153,6 +156,13 @@ function parseDefinition(file: string, folder: string, source: TaskSource): Task
   if (!TASK_OUTPUTS.includes(values.output as TaskOutput)) {
     throw new Error(`manifest has unknown output ${String(values.output)}: ${file}`);
   }
+  let employeeSummary: string | undefined;
+  if (values.employee_summary !== undefined) {
+    if (typeof values.employee_summary !== "string" || !values.employee_summary.trim()) {
+      throw new Error(`manifest employee_summary must be a non-empty string: ${file}`);
+    }
+    employeeSummary = values.employee_summary.trim();
+  }
   let sideEffects: TaskSideEffects = "none";
   if (values.side_effects !== undefined) {
     if (!TASK_SIDE_EFFECTS.includes(values.side_effects as TaskSideEffects)) {
@@ -181,6 +191,7 @@ function parseDefinition(file: string, folder: string, source: TaskSource): Task
     id,
     title: String(values.title),
     description: String(values.description),
+    ...(employeeSummary ? { employee_summary: employeeSummary } : {}),
     category: String(values.category),
     profile: values.profile as TaskProfileId,
     output: values.output as TaskOutput,

@@ -94,8 +94,8 @@ function marketFlags(): Map<string, boolean> {
 
 let catalogCache: { definitions: ReturnType<typeof taskDefinitions>; entries: SkillEntry[] } | null = null;
 
-export function skillCatalog(): SkillEntry[] {
-  const definitions = taskDefinitions();
+export function skillCatalog(root?: string): SkillEntry[] {
+  const definitions = taskDefinitions(root);
   if (catalogCache?.definitions === definitions) return catalogCache.entries;
   const flags = marketFlags();
   const entries = definitions.map((definition) => ({
@@ -106,7 +106,8 @@ export function skillCatalog(): SkillEntry[] {
     category: definition.category,
     profile: definition.profile,
     funnel: skillFunnelId(definition.id, definition.category, definition.funnel),
-    summary: definition.description,
+    // 员工面优先用 employee_summary（业务专家填的业务语言）；缺省回落到引擎描述。
+    summary: definition.employee_summary || definition.description,
     source: definition.source,
   }));
   catalogCache = { definitions, entries };

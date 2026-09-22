@@ -11,8 +11,12 @@ description: 员工端视觉与设备适配实施细则。风格基准为 data-d
 > **唯一**的视觉 token 与设备适配数值来源，含颜色、字号阶梯、控件尺寸、密度档、三轴适配与
 > 验收矩阵。
 >
-> 实现落点：`frontend/src/styles.css` 的 `:root`（间距 / 字号 / 圆角 / 控件高度 / 层级）与
-> `frontend/src/composer.css`（提问框外壳几何）。两者不一致时先核对本文件（根 `AGENTS.md` §3）。
+> 实现落点：`frontend/src/styles.css` 的 `:root`（间距 / 字号 / 圆角 / 控件高度 / 层级）、
+> `frontend/src/composer.css`（提问框外壳几何）、**组件级样式表**（`frontend/src/home/today-plan-board.css`、
+> `today-display-row.css`、`today-rec-row.css`、`edit-task-dialog.css`）与**组件内联样式**
+> （例如 `frontend/src/pages/SkillLifecycle.tsx`）。落到哪一份都按本文件取值；不一致时先核对本文件
+> （根 `AGENTS.md` §3）。落点清单不全会一处改、一处漏 —— 2026-09-22 的颜色职责迁移首轮就漏了上面这四份，
+> 别再从「只有两份」的假设出发。
 
 ## 密度档
 
