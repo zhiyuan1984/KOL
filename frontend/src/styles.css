@@ -12310,6 +12310,20 @@ button.today-brief-primary-btn:disabled {
     max-width: none;
     box-sizing: border-box;
   }
+  /* One width contract for the Today center: the legacy :has() rules above
+     must not leave the footer at a stale calc() width after the rail changes. */
+  .home-pane[data-home-active-mode="today"] .today-workspace-center > .home-composer-dock {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 8px 16px 14px var(--page-gutter) !important;
+  }
+  .home-pane[data-home-active-mode="today"] .today-workspace-center > .home-composer-dock > .composer-dock,
+  .home-pane[data-home-active-mode="today"] .today-workspace-center > .home-composer-dock > .composer-dock > .composer.composer--workspace {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+  }
   .home-pane[data-home-active-mode="today"] .home-quick-tasks {
     width: 100%;
     padding-right: 0;
