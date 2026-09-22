@@ -691,6 +691,20 @@ export type EmailCard = {
 
 const parse = async (r: Response): Promise<unknown> => readJson(r);
 
+/** Scope-parameterized today/todo brief & plan. Shared by both panes. */
+export type HomePlanScope = "today" | "todo";
+
+export function scopeBrief(scope: HomePlanScope): Promise<TodayBriefResponse> {
+  return request<TodayBriefResponse>(`/api/home/${scope}-brief`);
+}
+
+export function planScope(scope: HomePlanScope): Promise<TodayPlanResult> {
+  return request<TodayPlanResult>(`/api/home/${scope}-brief/plan`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
 export const api = {
   authStatus: () => request<AuthStatus>("/api/auth/status"),
   setup: (body: { name: string; email: string; password: string }) =>
@@ -907,20 +921,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ confirm: true, confirmed: true, reason: "manual_release", ...(body || {}) }),
     }),
-  todayBrief: () =>
-    request<TodayBriefResponse>("/api/home/today-brief"),
-  planToday: () =>
-    request<TodayPlanResult>("/api/home/today-brief/plan", {
-      method: "POST",
-      body: JSON.stringify({}),
-    }),
-  todoBrief: () =>
-    request<TodayBriefResponse>("/api/home/todo-brief"),
-  planTodo: () =>
-    request<TodayPlanResult>("/api/home/todo-brief/plan", {
-      method: "POST",
-      body: JSON.stringify({}),
-    }),
+  todayBrief: () => scopeBrief("today"),
+  planToday: () => planScope("today"),
+  todoBrief: () => scopeBrief("todo"),
+  planTodo: () => planScope("todo"),
   enqueueTodayAnalyze: (body: Record<string, unknown> = {}) =>
     request<TodayPlanResult>("/api/home/today-brief/enqueue", {
       method: "POST",
