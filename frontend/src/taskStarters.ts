@@ -24,6 +24,7 @@ const STARTERS: Record<string, string> = {
   creator_lifecycle_kanban: "合作生命周期看板",
   creator_risk_conversations: "达人风险会话",
   creator_daily_tasks: "今日 KOL 任务",
+  todo_plan: "整理我的待办任务，结合优先级、期限、当前状态和最新增量，生成待办摘要、排序原因和下一步行动。",
   creator_budget_report: "KOL 预算报告",
   business_approval: "Expense approval [requester] [amount] [currency]",
   deal_memory: "Deal Memory [红人或合作]",
