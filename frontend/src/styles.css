@@ -11944,3 +11944,50 @@ button.today-brief-primary-btn:disabled {
 @media (prefers-reduced-motion: reduce) {
   .nav-loading { animation: none; }
 }
+
+/* 加载态兜底：8 秒还没落地就换成可点的「刷新」（旧标签页 + 新构建时的恢复入口）。
+   文本入口不占实底 CTA（docs/DESIGN.md §不变量 1）。 */
+.nav-refresh,
+.link-reload {
+  margin-left: auto;
+  padding: 0 6px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--ds-font-tag);
+  line-height: var(--lh-control-sm);
+  cursor: pointer;
+}
+.nav-refresh:hover,
+.link-reload:hover { color: var(--text); border-color: var(--control-border-hover); }
+.nav-refresh:focus-visible,
+.link-reload:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.route-loading {
+  padding: 24px;
+}
+
+/* 懒加载路由/CSS 拿不到时的恢复入口：有原因、有动作，不留白屏也不留无限转圈。 */
+.route-error {
+  max-width: var(--content-max);
+  margin: var(--space-5) auto;
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--bg-elevated);
+}
+.route-error h2 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--ds-font-section);
+  font-weight: 500;
+}
+.route-error p {
+  margin: 0 0 var(--space-4);
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control);
+}

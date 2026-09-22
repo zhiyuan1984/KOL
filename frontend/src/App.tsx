@@ -1,4 +1,5 @@
 import { lazy, Suspense } from "react";
+import RouteErrorBoundary from "./components/RouteErrorBoundary";
 import { Navigate, Route, Routes } from "react-router-dom";
 import Workbench from "./layout/Workbench";
 // Home and Mail are the two landings: keep them in the entry chunk so a page
@@ -33,10 +34,11 @@ function RouteFallback() {
 
 export default function App() {
   return (
-    <Suspense fallback={<RouteFallback />}>
-      <Routes>
-        <Route path="/share/:token" element={<SharedSession />} />
-        <Route path="*" element={<AuthGate><ViewModeProvider><Suspense fallback={<RouteFallback />}><Routes>
+    <RouteErrorBoundary label="app">
+      <Suspense fallback={<RouteFallback />}>
+        <Routes>
+          <Route path="/share/:token" element={<SharedSession />} />
+          <Route path="*" element={<AuthGate><ViewModeProvider><Suspense fallback={<RouteFallback />}><Routes>
           <Route element={<Workbench />}>
             <Route path="/" element={<Home />} />
             <Route path="/work" element={<Navigate to="/" replace />} />
@@ -61,7 +63,8 @@ export default function App() {
             <Route path="/admin/*" element={<AdminConsole />} />
           </Route>
         </Routes></Suspense></ViewModeProvider></AuthGate>} />
-      </Routes>
-    </Suspense>
+        </Routes>
+      </Suspense>
+    </RouteErrorBoundary>
   );
 }

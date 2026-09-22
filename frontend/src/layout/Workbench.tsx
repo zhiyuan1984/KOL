@@ -3,6 +3,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { api, type Account, type SessionRow } from "../api";
 import { useAccount } from "../components/AuthGate";
 import BrandLockup from "../components/BrandLockup";
+import RouteErrorBoundary, { RouteLoadingFallback } from "../components/RouteErrorBoundary";
 import UserMenu from "../components/UserMenu";
 import { ANALYZE_WORK_EVENT, loadKolAnalyzeInFlight, type AnalyzeWorkItem } from "../home/kolSurfaceApi";
 import { isKolAnalyzeInFlight, runningBadgeCount, runningBadgeHref } from "../home/kolContract";
@@ -36,11 +37,22 @@ export default function Workbench() {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("ui:left-collapsed") === "true");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [pendingNav, setPendingNav] = useState<string | null>(null);
+  const [navStuck, setNavStuck] = useState(false);
   const loc = useLocation();
 
   useEffect(() => {
     setPendingNav(null);
   }, [loc.pathname]);
+
+  // 侧栏加载态不许无限转：8 秒还没落地就换成「刷新」入口（部署换过资源名时旧标签页会卡在这）。
+  useEffect(() => {
+    if (!pendingNav) {
+      setNavStuck(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setNavStuck(true), 8000);
+    return () => window.clearTimeout(timer);
+  }, [pendingNav]);
 
   useEffect(() => {
     void api.version().then((row) => setAppVersion(String(row?.version || ""))).catch(() => undefined);
@@ -236,7 +248,11 @@ export default function Workbench() {
           >
             <Ico path="M8 8h4v4H8z M12 12h4v4h-4z M7 16l-2 2 M17 8l2-2" />
             <span className="sidebar-label">技能目录</span>
-            {pendingNav === "skills" && !skillsActive && <span className="nav-loading" aria-label="正在打开技能目录" />}
+            {pendingNav === "skills" && !skillsActive && (
+              navStuck
+                ? <button type="button" className="nav-refresh" data-nav-stuck onClick={(event) => { event.preventDefault(); location.reload(); }}>刷新</button>
+                : <span className="nav-loading" aria-label="正在打开技能目录" />
+            )}
           </NavLink>
         </nav>
 
@@ -291,9 +307,11 @@ export default function Workbench() {
         </div>
       </aside>
       <main className="main">
-        <Suspense fallback={<p className="muted" style={{ padding: 24 }} data-route-loading>加载中…</p>}>
-          <Outlet />
-        </Suspense>
+        <RouteErrorBoundary key={loc.pathname} label="workbench">
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <Outlet />
+          </Suspense>
+        </RouteErrorBoundary>
       </main>
     </div>
   );
