@@ -49,6 +49,28 @@
   --accent-text: color-mix(in srgb, var(--accent) 72%, #000000);
   --accent-fg: var(--bg);
 
+  /* 类别色（图标砖按类别分色）：第 4 职责，职责与约束见 docs/DESIGN.md §颜色。
+     只用于「按类别分组的目录面」的图标砖淡底 / 描边与砖内字形；不承担交互（--accent）
+     与状态（--warning / --danger / --success）。每类四件套：基色（图形档）、字形档、
+     砖底、描边。色相刻意与 --accent（亮蓝）拉开：靛蓝 / 紫 / 青 / 中性石墨。
+     实测（node 计算）：字形档对砖底 6.96–7.83:1（浅）/ 6.18–7.64:1（深）；基色对画布 ≥4.67:1。 */
+  --cat-library: #4f5bd5;
+  --cat-assistant: #8f4fd5;
+  --cat-crawl: #0f7f96;
+  --cat-builtin: var(--text-muted);
+  --cat-library-text: color-mix(in srgb, var(--cat-library) 72%, #000000);
+  --cat-assistant-text: color-mix(in srgb, var(--cat-assistant) 72%, #000000);
+  --cat-crawl-text: color-mix(in srgb, var(--cat-crawl) 72%, #000000);
+  --cat-builtin-text: color-mix(in srgb, var(--cat-builtin) 72%, #000000);
+  --cat-library-tile: color-mix(in srgb, var(--cat-library) 8%, var(--bg));
+  --cat-assistant-tile: color-mix(in srgb, var(--cat-assistant) 8%, var(--bg));
+  --cat-crawl-tile: color-mix(in srgb, var(--cat-crawl) 8%, var(--bg));
+  --cat-builtin-tile: color-mix(in srgb, var(--cat-builtin) 8%, var(--bg));
+  --cat-library-line: color-mix(in srgb, var(--cat-library) 18%, var(--border));
+  --cat-assistant-line: color-mix(in srgb, var(--cat-assistant) 18%, var(--border));
+  --cat-crawl-line: color-mix(in srgb, var(--cat-crawl) 18%, var(--border));
+  --cat-builtin-line: color-mix(in srgb, var(--cat-builtin) 18%, var(--border));
+
   --danger: #c43c3c;
   --success: #2f7d73;
   --warning: #ea5504;
@@ -209,6 +231,15 @@
   --accent-hover: #639aff;
   --accent-text: var(--accent);
   --accent-fg: var(--bg);
+  /* 类别色在深色下同样翻转：基色提亮、字形档直接用基色；砖底 / 描边随 --bg / --border
+     自动跟随，--cat-builtin 随 --text-muted 变亮。实测字形档对砖底 6.18–7.64:1。 */
+  --cat-library: #909bff;
+  --cat-assistant: #c39bff;
+  --cat-crawl: #56c6dd;
+  --cat-library-text: var(--cat-library);
+  --cat-assistant-text: var(--cat-assistant);
+  --cat-crawl-text: var(--cat-crawl);
+  --cat-builtin-text: var(--cat-builtin);
   --chrome-2: #23262c;
   --sidebar-thumb: #5a616b;
 }
@@ -234,6 +265,14 @@
     --accent-hover: #639aff;
     --accent-text: var(--accent);
     --accent-fg: var(--bg);
+    /* 同 :root[data-theme="dark"]：类别色基色提亮、字形档用基色。 */
+    --cat-library: #909bff;
+    --cat-assistant: #c39bff;
+    --cat-crawl: #56c6dd;
+    --cat-library-text: var(--cat-library);
+    --cat-assistant-text: var(--cat-assistant);
+    --cat-crawl-text: var(--cat-crawl);
+    --cat-builtin-text: var(--cat-builtin);
     --chrome-2: #23262c;
     --sidebar-thumb: #5a616b;
   }
@@ -10210,6 +10249,14 @@ button.today-brief-primary-btn:disabled {
   flex-shrink: 0;
 }
 
+/* 口径组（全部 / 常用 / 最近使用 / 推荐）与阶段组（建联 → 内容发布）是两类控件：
+   容器承担成组控件的可见边界（shadcn TabsList ×2 的写法），竖线随筛选条整高。 */
+.skill-tabs-list[data-kind="stage"] {
+  align-self: stretch;
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--border);
+}
+
 /* 选中态三重信号：2px 底线（形状）+ 字重 500 + 品牌色文字；
    aria-pressed 暴露程序化状态（§不变量 4：状态不能只靠颜色表达）。 */
 .skill-tab {
@@ -10242,10 +10289,13 @@ button.today-brief-primary-btn:disabled {
   font-weight: 500;
 }
 
-/* 阶段递进分隔符：纯装饰，不参与 tab 顺序与键盘焦点。 */
+/* 阶段递进分隔符：纯装饰，不参与 tab 顺序与键盘焦点。
+   垂直居中于词（父容器 flex-end 会把 line-height:1 的小盒贴到 tab 下内边距上，看起来像上标）；
+   字号与 tab 同档，不再比词小一号。 */
 .skill-tab-sep {
+  align-self: center;
   color: var(--text-muted);
-  font-size: var(--ds-font-helper);
+  font-size: var(--ds-font-sm);
   line-height: 1;
   user-select: none;
 }
@@ -10324,8 +10374,10 @@ button.today-brief-primary-btn:disabled {
   color: var(--accent-text);
 }
 
+/* 「常用 / 推荐」星标是信息性标记，走辅助色；--warning 只留给状态（L3「需确认」）。
+   依据 docs/DESIGN.md §颜色：语义色只表达状态，不得代替辅助色。 */
 .skill-group-icon-star {
-  color: var(--warning);
+  color: var(--accent-text);
   font-size: var(--ds-font-helper);
 }
 
@@ -10335,13 +10387,16 @@ button.today-brief-primary-btn:disabled {
   color: var(--accent-text);
 }
 
+/* 组名与 tab、行标题同档（13px / 500），不再比内容大一号还加粗：层级由分组间距、
+   图标与提示语承担（2026-09-23 UI/UX 裁定）。墨色走 --text：辅助色不用于分区标题
+   （§颜色 职责表里辅助色只有选中态 / 图标砖与字形 / 行内可点强调 / 信息性标记），
+   蓝色标题还会被读成可点链接。 */
 .skill-group-header h2 {
   margin: 0;
   white-space: nowrap;
-  font-size: var(--ds-font-section);
-  font-weight: 600;
-  /* 辅助墨色而不是纯黑：标题不再压过内容，也不与主行动抢粉。 */
-  color: var(--accent-text);
+  font-size: var(--ds-font-sm);
+  font-weight: 500;
+  color: var(--text);
 }
 
 .skill-group-hint {
@@ -10412,18 +10467,50 @@ button.today-brief-primary-btn:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* 图标砖走辅助色（蓝）：与 Home、知识库、连接器等页的淡色砖同一套配方，
-     只是按 §颜色 换成辅助色，不再和主行动抢粉。 */
-  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  /* 图标砖走「类别」色（docs/DESIGN.md §颜色 第 4 职责）：淡底 / 描边 / 砖内字形三件套由
+     data-tone 决定；没有 data-tone 时回落辅助色配方（与 Home、知识库的淡色砖同一配方）。 */
+  border: 1px solid var(--tile-line, color-mix(in srgb, var(--accent) 18%, var(--border)));
+  background: var(--tile-bg, color-mix(in srgb, var(--accent) 8%, var(--bg)));
   border-radius: var(--radius-control);
-  color: var(--accent-text);
+  color: var(--tile-ink, var(--accent-text));
   flex-shrink: 0;
+}
+
+.skill-row-icon[data-tone="library"] {
+  --tile-ink: var(--cat-library-text);
+  --tile-bg: var(--cat-library-tile);
+  --tile-line: var(--cat-library-line);
+}
+
+.skill-row-icon[data-tone="assistant"] {
+  --tile-ink: var(--cat-assistant-text);
+  --tile-bg: var(--cat-assistant-tile);
+  --tile-line: var(--cat-assistant-line);
+}
+
+.skill-row-icon[data-tone="crawl"] {
+  --tile-ink: var(--cat-crawl-text);
+  --tile-bg: var(--cat-crawl-tile);
+  --tile-line: var(--cat-crawl-line);
+}
+
+.skill-row-icon[data-tone="builtin"] {
+  --tile-ink: var(--cat-builtin-text);
+  --tile-bg: var(--cat-builtin-tile);
+  --tile-line: var(--cat-builtin-line);
 }
 
 .skill-row-svg {
   width: var(--icon-md);
   height: var(--icon-md);
+}
+
+/* 异步作业：虚线描边＝形状信号（与 L3 的实线不同形状），线色取砖内字形档保证可见。
+   文字标签已按 2026-09-23 UI/UX 裁定移除，这是列表行上唯一的异步行级信号；
+   完整异步口径（进度 / 取消 / 重试）仍在详情列与执行面。 */
+.skill-row.is-async .skill-row-icon {
+  border-style: dashed;
+  border-color: currentColor;
 }
 
 /* 名称是行选择的键盘可达入口，用 aria-pressed 暴露选中态；允许省略号。 */
@@ -10440,9 +10527,10 @@ button.today-brief-primary-btn:disabled {
   background: none;
   padding: 0;
   font: inherit;
-  font-size: var(--ds-font-body);
+  /* 与 tab、组名同档（13px / 500）：行标题不再比 tab 大一档、重一档（2026-09-23 UI/UX 裁定）。 */
+  font-size: var(--ds-font-sm);
   line-height: var(--lh-control);
-  font-weight: 600;
+  font-weight: 500;
   /* 行高只有 20px，命中区靠 min-height 补到 --hit-min。 */
   min-height: var(--hit-min);
   color: var(--row-title-ink);
@@ -10482,11 +10570,11 @@ button.today-brief-primary-btn:disabled {
   white-space: nowrap;
 }
 
-/* 常用：属「例外」信号，用语义色 + 星标形状并行；跟在名称后面，
-   不再压在行的左上角（那里同时是分组发丝线所在，视觉上像渲染瑕疵）。 */
+/* 常用：属「例外」信号，用形状（★）+ 辅助色并行；跟在名称后面，不再压在行的左上角。
+   星标是信息性标记而不是状态，走辅助色（§颜色：语义色只表达状态，不得代替辅助色）。 */
 .skill-row-star {
   flex: 0 0 auto;
-  color: var(--warning);
+  color: var(--accent-text);
   font-size: var(--ds-font-tag);
   line-height: 1;
 }
@@ -10581,7 +10669,8 @@ button.today-brief-primary-btn:disabled {
   padding: 0 var(--space-4);
 }
 
-/* 链接式动作：无框 + 语义图标 + 常驻下划线（下划线是常驻的非颜色可点信号）。 */
+/* 链接式动作：无框 + 常驻下划线（下划线是常驻的非颜色可点信号）。
+   不再带图标：2026-09-23 起行内动作只用文字（旧图标被读成「下载」）。 */
 .skill-link {
   display: inline-flex;
   align-items: center;
@@ -10604,12 +10693,6 @@ button.today-brief-primary-btn:disabled {
 .skill-link:hover {
   background: var(--surface-hover);
   color: var(--accent-text);
-}
-
-.skill-link-svg {
-  width: var(--icon-sm);
-  height: var(--icon-sm);
-  flex-shrink: 0;
 }
 
 /* ── 第三栏：技能详情 ────────────────────────────────────────────────
@@ -11030,13 +11113,9 @@ button.today-brief-primary-btn:disabled {
   .skill-row-actions {
     grid-column: 4;
   }
-  /* 标记列收起后，L3 / 异步仍要看得见（§不变量 2 的 L1/L2/L3 分档可见）：
-     信号挪到图标砖上——实线＝执行前确认，虚线＝异步作业；形状不同，不只靠颜色。 */
-  .skill-row.is-async .skill-row-icon {
-    border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--border));
-    background: color-mix(in srgb, var(--accent) 5%, var(--bg));
-    color: var(--accent-text);
-  }
+  /* 标记列收起后 L3 仍要看得见（§不变量 2 的 L1/L2/L3 分档可见）：实线＝执行前确认，
+     暖色底＝受控动作；与异步的虚线不同形状，不只靠颜色。
+     （异步的虚线砖已是全宽度信号，见基础规则 .skill-row.is-async .skill-row-icon。） */
   .skill-row.is-write .skill-row-icon {
     border: 1px solid var(--warning);
     background: color-mix(in srgb, var(--warning) 10%, var(--bg));

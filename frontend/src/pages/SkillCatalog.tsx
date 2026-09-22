@@ -150,6 +150,22 @@ const SKILL_SOURCE: Record<string, string> = {
   deal_memory: "达人库",
 };
 
+/**
+ * 图标砖的类别色：按技能来源（SKILL_SOURCE）分四类，未知一律回落「平台内置」（中性石墨）。
+ * 依据 `docs/DESIGN.md` §颜色 的「类别」职责：只用于图标砖淡底 / 描边与砖内字形，
+ * 不承担交互（选中 / 可点仍是辅助色）与状态（风险档仍走状态色 + 形状信号）。
+ */
+const SOURCE_TONE: Record<string, string> = {
+  "达人库": "library",
+  "AI 助理": "assistant",
+  "平台采集": "crawl",
+  "平台内置": "builtin",
+};
+
+function skillTone(id: string): string {
+  return SOURCE_TONE[skillSource(id)] || "builtin";
+}
+
 // 分组图标（SVG paths）
 const GROUP_ICONS: Record<string, string> = {
   reach: "M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z",
@@ -420,23 +436,6 @@ function toolLabel(ref: string, kind?: string): string {
  */
 const ASYNC_SKILL_IDS = new Set(["creator_discovery"]);
 
-/** 「填入输入框」的语义图标：箭头进入输入区。用 SVG，不用 emoji 或文字符号当图标。 */
-function AddToComposerIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="skill-link-svg" aria-hidden>
-      <path
-        d="M12 4v9m0 0-3.5-3.5M12 13l3.5-3.5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path d="M5 18.5h14" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 /** 搜索框的清除图标：一个「×」。图标按钮必须带 aria-label（语义不能只靠图形象征）。 */
 function ClearIcon() {
   return (
@@ -461,10 +460,11 @@ function SkillCard({
 }) {
   const tier = isWriteSkill(skill) ? "write" : "read";
   const isAsync = ASYNC_SKILL_IDS.has(skill.id);
-  // 规则 10「只标例外」：只读是默认态，不标注；只有 L3 与异步才打标记。
+  // 规则 10「只标例外」：只读是默认态，不标注。文字标记只留 L3「需确认」；异步不再挂文字标签
+  // （2026-09-23 UI/UX 裁定），改由图标砖虚线边框承担形状信号 —— 本页动作是「填入输入框」，
+  // 不执行作业，执行面契约未变（docs/07-mcp-data-contract.md）。
   const marks: { cls: string; text: string }[] = [];
   if (tier === "write") marks.push({ cls: "is-write", text: RISK_LABEL.write });
-  if (isAsync) marks.push({ cls: "is-async", text: "异步 · 可取消" });
   return (
     <div
       className={
@@ -476,7 +476,8 @@ function SkillCard({
       data-skill-id={skill.id}
       onClick={() => onSelect(skill)}
     >
-      <div className="skill-row-icon">
+      {/* 图标砖的类别色走 data-tone（docs/DESIGN.md §颜色 · 类别职责）。 */}
+      <div className="skill-row-icon" data-tone={skillTone(skill.id)}>
         <SkillIcon id={skill.id} />
       </div>
       {/* 名称是行的键盘可达入口，同时暴露选中态（选中只靠颜色不合规，docs/DESIGN.md §不变量 4）。
@@ -503,7 +504,9 @@ function SkillCard({
           动作名定为「填入输入框」：它只把技能填进输入框，补完参数后由员工自己发送，不含执行。 */}
       <div className="skill-row-actions" onClick={(e) => e.stopPropagation()}>
         {/* 行内动作退出 Tab 顺序：键盘路径＝行名 → 详情列 CTA。否则 51 行 × 2 个焦点会把详情列
-            推到 120 次 Tab 之外（docs/DESIGN.md §三轴适配 · 输入模态轴）。鼠标 / 触摸不受影响。 */}
+            推到 120 次 Tab 之外（docs/DESIGN.md §三轴适配 · 输入模态轴）。鼠标 / 触摸不受影响。
+            不带图标：旧图（向下箭头 + 底线）是通用「下载」图形，被读成下载（2026-09-23 UI/UX 裁定）；
+            可点信号由常驻下划线承担，不再用图标。 */}
         <button
           type="button"
           className="skill-link"
@@ -511,7 +514,6 @@ function SkillCard({
           title="把这项技能填进输入框，补完参数后由你发送"
           onClick={() => onUse(skill)}
         >
-          <AddToComposerIcon />
           填入输入框
         </button>
       </div>
@@ -539,7 +541,7 @@ function ExpandIcon({ wide }: { wide: boolean }) {
   );
 }
 
-/** 关闭图标。不用 `✕` 文字符号——§5 规则 8 要求图标必须是 SVG，且必须落在尺寸阶梯里。 */
+/** 关闭图标：用 SVG，并落在本页图标阶梯（--icon-sm / --icon-md）里。 */
 function CloseIcon() {
   return (
     <svg viewBox="0 0 24 24" className="skill-detail-close-svg" aria-hidden>
@@ -615,7 +617,7 @@ function SkillDetail({
 
       <div className="skill-detail-body">
         <div className="skill-detail-head">
-          <div className="skill-row-icon">
+          <div className="skill-row-icon" data-tone={skillTone(skill.id)}>
             <SkillIcon id={skill.id} />
           </div>
           <div>
@@ -977,7 +979,7 @@ export function SkillCatalog() {
       {/* shadcn `TabsList` ×2：口径 / 阶段各一个容器，容器承担成组控件的可见边界。 */}
       <div className="skill-tabs" role="group" aria-label="技能筛选">
         {(["mode", "stage"] as const).map((kind) => (
-          <div key={kind} className="skill-tabs-list">
+          <div key={kind} className="skill-tabs-list" data-kind={kind}>
             {TABS.filter((t) => t.kind === kind).map((t, i) => (
               <Fragment key={t.id}>
                 {kind === "stage" && i > 0 && (
@@ -1023,7 +1025,7 @@ export function SkillCatalog() {
           {tab === "all" && !q && (
             <section className="skill-group skill-group-frequent">
               <div className="skill-group-header">
-                <span className="skill-group-icon skill-group-icon-star">★</span>
+                <span className="skill-group-icon skill-group-icon-star" aria-hidden>★</span>
                 <h2>{hasUsage ? "常用技能" : "推荐技能"}</h2>
                 <span className="skill-group-hint">
                   {hasUsage ? "你经常使用的技能，点击即可快速调用" : "按你所在阶段挑的几项，先试这些"}

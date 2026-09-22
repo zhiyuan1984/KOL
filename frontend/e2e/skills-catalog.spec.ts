@@ -5,10 +5,17 @@ import { devices, expect, test, type Page } from "@playwright/test";
  *
  * 依据是该文件的「员工端实施细则」（实施细则，非基本法）：
  *   密度档 data-dense-dashboard（列表行本身就是内容，不做卡片墙）
+ *   §颜色（四种职责：主行动 / 辅助 / 类别 / 状态；类别色两档对比度）
  *   §控件尺寸（命名 token / 命中区 / 焦点态）
  *   §三轴适配（宽度 / 高度 / 输入模态分别处理）
  *   §不变量 1（同一视口 0–1 个实底主 CTA）、3（等待有恢复入口）、4（状态不靠颜色单独表达）
  *   §验收矩阵
+ *
+ * 2026-09-23 两处按 UI/UX 裁定重定依据（记录在案，不是为通过而放宽）：
+ *   1. 行内异步标签「异步 · 可取消」移除，改由图标砖虚线边框承担形状信号。
+ *      依据：docs/07-mcp-data-contract.md 只要求「不得伪装成同步」且必须有进度 / 取消 / 重试；
+ *      本页动作是「填入输入框」，不执行任何作业，执行面契约未变，详情列仍完整交代异步口径。
+ *   2. 行内动作「填入输入框」不再带图标：旧图（向下箭头 + 底线）就是通用下载图形，被读成「下载」。
  */
 
 /** 解析根作用域上的 token 值。 */
@@ -53,10 +60,13 @@ async function pageVarPx(page: Page, token: string): Promise<number> {
 async function contrastOf(page: Page, a: string, b: string): Promise<number> {
   return page.evaluate(
     ([x, y]) => {
+      // Chromium 对 color-mix 的结果给的是 `color(srgb r g b)`（0–1），hex / rgb() 给的是 0–255。
+      // 两种都要认，否则 color-mix 派生 token 会被读成 ≈0 的暗色，对比度恒等于 1。
       const lum = (c: string) => {
         const m = c.match(/[\d.]+/g);
         if (!m) return null as number | null;
-        const [r, g, b] = m.slice(0, 3).map(Number);
+        const scale = /^color\(/i.test(c.trim()) ? 255 : 1;
+        const [r, g, b] = m.slice(0, 3).map((v) => Number(v) * scale);
         const f = (v: number) => {
           const s = v / 255;
           return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
@@ -347,13 +357,81 @@ test.describe("技能目录页（/skills）", () => {
     expect(await contrastOf(page, accentText, canvas), "辅助色作文字/图标字形需 ≥4.5:1").toBeGreaterThanOrEqual(4.5);
 
     expect(
-      await page.locator(".skill-row-icon").first().evaluate((el) => getComputedStyle(el).color),
-      "图标字形用文字档",
-    ).toBe(accentText);
-    expect(
       await page.locator(".skill-tab.on").first().evaluate((el) => getComputedStyle(el).borderBottomColor),
       "分段选中底线用图形档",
     ).toBe(accent);
+  });
+
+  test("§颜色：类别色两档（图形 ≥3:1、砖内字形 ≥4.5:1），并按 data-tone 落在图标砖上", async ({ page }) => {
+    await ready(page);
+    const canvas = await pageVar(page, "--bg");
+    const tones = ["library", "assistant", "crawl", "builtin"] as const;
+    type Tone = (typeof tones)[number];
+    const tokens = {} as Record<Tone, { base: string; text: string; tile: string; line: string }>;
+    for (const tone of tones) {
+      tokens[tone] = {
+        base: await pageVar(page, `--cat-${tone}`),
+        text: await pageVar(page, `--cat-${tone}-text`),
+        tile: await pageVar(page, `--cat-${tone}-tile`),
+        line: await pageVar(page, `--cat-${tone}-line`),
+      };
+      expect(
+        await contrastOf(page, tokens[tone].text, tokens[tone].tile),
+        `类别 ${tone} 的字形档对砖底需 ≥4.5:1`,
+      ).toBeGreaterThanOrEqual(4.5);
+      expect(
+        await contrastOf(page, tokens[tone].base, canvas),
+        `类别 ${tone} 的图形档对画布需 ≥3:1`,
+      ).toBeGreaterThanOrEqual(3);
+    }
+
+    const rendered = await page.locator(".skill-row-icon[data-tone]").evaluateAll((els) =>
+      els.map((el) => {
+        const cs = getComputedStyle(el);
+        const row = el.closest(".skill-row");
+        return {
+          tone: el.getAttribute("data-tone") || "",
+          row: row ? row.className : "",
+          color: cs.color,
+          bg: cs.backgroundColor,
+          border: cs.borderTopColor,
+          borderStyle: cs.borderTopStyle,
+        };
+      }),
+    );
+    expect(rendered.length, "列表里应当有带类别的图标砖").toBeGreaterThan(0);
+    for (const r of rendered) {
+      const tone = r.tone as Tone;
+      expect(tones as readonly string[], `未知类别 ${r.tone}`).toContain(r.tone);
+      expect(r.color, `图标砖字形必须取 --cat-${tone}-text`).toBe(tokens[tone].text);
+      expect(r.bg, `图标砖底必须取 --cat-${tone}-tile`).toBe(tokens[tone].tile);
+      if (r.row.includes("is-async")) {
+        // 异步作业：虚线描边是形状信号，线色取砖内字形档（保证可见，不伪装成同步）。
+        expect(r.borderStyle, "异步作业的图标砖必须是虚线").toBe("dashed");
+        expect(r.border).toBe(tokens[tone].text);
+      } else if (!r.row.includes("is-write")) {
+        expect(r.border, `图标砖描边必须取 --cat-${tone}-line`).toBe(tokens[tone].line);
+      }
+    }
+  });
+
+  test("§颜色：类别色在深色下仍满足两档（字形 ≥4.5:1、图形 ≥3:1）", async ({ page }) => {
+    await ready(page);
+    await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
+    const canvas = await pageVar(page, "--bg");
+    for (const tone of ["library", "assistant", "crawl", "builtin"]) {
+      const text = await pageVar(page, `--cat-${tone}-text`);
+      const tile = await pageVar(page, `--cat-${tone}-tile`);
+      const base = await pageVar(page, `--cat-${tone}`);
+      expect(
+        await contrastOf(page, text, tile),
+        `深色下类别 ${tone} 的字形档对砖底需 ≥4.5:1`,
+      ).toBeGreaterThanOrEqual(4.5);
+      expect(
+        await contrastOf(page, base, canvas),
+        `深色下类别 ${tone} 的图形档对画布需 ≥3:1`,
+      ).toBeGreaterThanOrEqual(3);
+    }
   });
 
   test("控件自设 line-height，不继承根的 24px 行盒", async ({ page }) => {
@@ -384,8 +462,21 @@ test.describe("技能目录页（/skills）", () => {
     await assertPaletteFromTokens(page);
   });
 
-  test("工具风险档与异步契约在列表上可见", async ({ page }) => {
-    expect(await page.locator(".skill-row .skill-mark").count()).toBeGreaterThan(0);
+  test("工具风险档与异步契约：受控技能有文字标记、异步技能有图标砖形状信号", async ({ page }) => {
+    await ready(page);
+    // L3「需确认」：只标例外 —— 列表行上只出现受控技能的标记（只读不打标）。
+    expect(
+      await page.locator(".skill-row .skill-mark.is-write").count(),
+      "列表里应当有受控技能的「需确认」标记",
+    ).toBeGreaterThan(0);
+    // 异步作业：2026-09-23 起不再挂文字标签，改由图标砖虚线边框承担形状信号（不伪装成同步）；
+    // 完整异步口径仍在详情列（见「风险档与异步契约进入详情」）。
+    const asyncTile = page.locator(".skill-row.is-async .skill-row-icon").first();
+    await expect(asyncTile).toBeVisible();
+    expect(
+      await asyncTile.evaluate((el) => getComputedStyle(el).borderTopStyle),
+      "异步作业的图标砖必须是虚线（与 L3 的实线不同形状）",
+    ).toBe("dashed");
   });
 
   test("只标例外：列表行上不出现「只读」标记", async ({ page }) => {
@@ -393,7 +484,7 @@ test.describe("技能目录页（/skills）", () => {
     expect(await page.locator(".skill-row .skill-mark.is-read").count()).toBe(0);
   });
 
-  test("每行只有一个动作，且为链接式（无框 + 常驻下划线 + 语义图标）", async ({ page }) => {
+  test("每行只有一个动作，且为链接式（无框 + 常驻下划线，不带图标）", async ({ page }) => {
     const acts = page.locator(".skill-row-actions");
     await expect(acts.first()).toBeVisible();
     const counts = await acts.evaluateAll((els) => els.map((e) => e.children.length));
@@ -404,7 +495,8 @@ test.describe("技能目录页（/skills）", () => {
     });
     expect(Number.parseFloat(cs.border), "链接式动作应当无框").toBe(0);
     expect(cs.deco, "下划线必须常驻，不只在 hover").toContain("underline");
-    expect(cs.hasIcon, "链接式动作必须带语义图标").toBe(true);
+    // 2026-09-23：旧图标（向下箭头 + 底线）是通用「下载」图形，被读成下载，按 UI/UX 裁定移除。
+    expect(cs.hasIcon, "行内动作不再带图标（避免被读成下载）").toBe(false);
   });
 
   test("本页不再出现「新建会话」（需先补参数，直接开会话是错误承诺）", async ({ page }) => {
@@ -672,7 +764,7 @@ test.describe("第二轮 UX 改进（常用/推荐口径 · 键盘路径 · 清�
     await expect(page.locator(".skill-tabs-fade")).toHaveCount(1);
   });
 
-  test("§不变量 2 的压缩档兜底：列表列 <460px 时 L3 / 异步仍有形状信号", async ({ browser }) => {
+  test("§不变量 2 的压缩档兜底：列表列 <460px 收起文字标记后 L3 仍有形状信号（异步虚线为全宽信号）", async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 1024, height: 630 } });
     const page = await context.newPage();
     await ready(page);
@@ -687,7 +779,7 @@ test.describe("第二轮 UX 改进（常用/推荐口径 · 键盘路径 · 清�
         .some((e) => e.getBoundingClientRect().height > 0);
       return { write: tile(".skill-row.is-write .skill-row-icon"), async: tile(".skill-row.is-async .skill-row-icon"), marksVisible };
     });
-    expect(r.marksVisible, "该宽度下文字标记应当已收起，这条测试才有意义").toBe(false);
+    expect(r.marksVisible, "该宽度下文字标记（L3「需确认」）应当已收起，这条测试才有意义").toBe(false);
     expect(r.write, "受控（L3）技能必须有图标砖边框信号").not.toBeNull();
     expect(r.write!.w, "L3 边框应为实线").toBeGreaterThanOrEqual(1);
     expect(r.write!.style).toBe("solid");
@@ -762,21 +854,36 @@ async function assertPaletteFromTokens(page: Page) {
     "--warning",
     "--danger",
     "--success",
+    "--cat-library",
+    "--cat-library-text",
+    "--cat-library-tile",
+    "--cat-library-line",
+    "--cat-assistant",
+    "--cat-assistant-text",
+    "--cat-assistant-tile",
+    "--cat-assistant-line",
+    "--cat-crawl",
+    "--cat-crawl-text",
+    "--cat-crawl-tile",
+    "--cat-crawl-line",
+    "--cat-builtin",
+    "--cat-builtin-text",
+    "--cat-builtin-tile",
+    "--cat-builtin-line",
   ];
   const allowed = new Set<string>(["rgb(255, 255, 255)", "rgba(0, 0, 0, 0)", "transparent"]);
   for (const t of tokens) allowed.add(await pageVar(page, t));
-  // 页面里由 token 混出来的颜色（浅底、暖墨、品牌描边）：按浏览器实际算出的值入白名单
+  // 页面里由 token 混出来的颜色（浅底、暖墨、冷墨）：按浏览器实际算出的值入白名单
   // —— 仍然不手写 hex，只允许"从 token 派生"这一条路径。
   const mixed = await page.evaluate(() => {
     const host = document.querySelector<HTMLElement>(".skill-catalog-page") ?? document.body;
     const expr = [
       "color-mix(in srgb, var(--warning) 10%, var(--bg))",
       "color-mix(in srgb, var(--warning) 72%, var(--text))",
-      // 辅助色（蓝）在本页的四种用法：图标砖底/描边、异步砖的虚线描边与淡底、标题冷墨
+      // 辅助色（蓝）在本页的用法：无 data-tone 时的图标砖回落配方 + 行标题冷墨。
+      // 类别色不在此列 —— 它们走 --cat-* 命名 token，砖底/描边/字形都由 token 直接给出。
       "color-mix(in srgb, var(--accent) 8%, var(--bg))",
       "color-mix(in srgb, var(--accent) 18%, var(--border))",
-      "color-mix(in srgb, var(--accent) 5%, var(--bg))",
-      "color-mix(in srgb, var(--accent) 45%, var(--border))",
       "color-mix(in srgb, var(--text) 82%, var(--accent))",
     ];
     const out: string[] = [];
