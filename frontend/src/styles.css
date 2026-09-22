@@ -12340,3 +12340,42 @@ button.today-brief-primary-btn:disabled {
 .home-pane.is-composer-focused .home-composer-dock .composer.composer--workspace {
   min-height: var(--composer-idle-min, 76px);
 }
+
+/* The Today center owns one width axis. Header, process stream, shortcuts and
+   composer are siblings of the same content grid; the rail never changes one
+   of them independently. */
+@media (min-width: 981px) {
+  .home-pane[data-home-active-mode="today"] .today-workspace-center {
+    display: block;
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+  .home-pane[data-home-active-mode="today"] .today-workspace-center-content {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .home-pane[data-home-active-mode="today"] .today-workspace-center-content > .home-composer-dock {
+    position: static;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0;
+    margin: 0 !important;
+    padding: 8px 16px 14px var(--page-gutter) !important;
+    box-sizing: border-box;
+  }
+  .home-pane[data-home-active-mode="today"] .today-workspace-center-content > .home-composer-dock > .composer-dock,
+  .home-pane[data-home-active-mode="today"] .today-workspace-center-content > .home-composer-dock .composer.composer--workspace {
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0;
+    margin: 0 !important;
+    box-sizing: border-box;
+  }
+}

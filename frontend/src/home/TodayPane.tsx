@@ -81,30 +81,32 @@ export default function TodayPane({
       data-today-workspace
     >
       <div className="today-workspace-center" data-today-ai-workspace>
-        {centerHeader}
-        <div ref={streamRef} className="today-plan-anchor today-workspace-center-scroll">
-          <header className="today-workspace-center-head">
-            <span>AI 规划与执行</span>
-            <small>过程与结论</small>
-          </header>
-          <TodayPlanProgress
-            phase={phase}
-            events={events}
-            candidates={candidateCount(brief)}
-            plannedTasks={rows.length}
-            previousBrief={previousBrief}
-            previousEvents={previousEvents}
-            scope="today"
-          />
-          <PlanSummary brief={brief} />
-          {phase === "idle" && !brief && !(events || []).length ? (
-            <div className="today-workspace-empty" data-today-ai-empty>
-              <strong>从今天的工作开始</strong>
-              <p>启动今日任务后，这里会展示 Codex 的真实规划过程与结果摘要。</p>
-            </div>
-          ) : null}
+        <div className="today-workspace-center-content">
+          {centerHeader}
+          <div ref={streamRef} className="today-plan-anchor today-workspace-center-scroll">
+            <header className="today-workspace-center-head">
+              <span>AI 规划与执行</span>
+              <small>过程与结论</small>
+            </header>
+            <TodayPlanProgress
+              phase={phase}
+              events={events}
+              candidates={candidateCount(brief)}
+              plannedTasks={rows.length}
+              previousBrief={previousBrief}
+              previousEvents={previousEvents}
+              scope="today"
+            />
+            <PlanSummary brief={brief} />
+            {phase === "idle" && !brief && !(events || []).length ? (
+              <div className="today-workspace-empty" data-today-ai-empty>
+                <strong>从今天的工作开始</strong>
+                <p>启动今日任务后，这里会展示 Codex 的真实规划过程与结果摘要。</p>
+              </div>
+            ) : null}
+          </div>
+          {centerFooter}
         </div>
-        {centerFooter}
       </div>
 
       <aside
