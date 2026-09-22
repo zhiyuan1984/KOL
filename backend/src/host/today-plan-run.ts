@@ -1,4 +1,3 @@
-import { DEMO_USER } from "../config.js";
 import { audit, getConn, nowIso, tx } from "../db.js";
 import { nid } from "../ids.js";
 import { requireTaskDefinition } from "../tasks/registry.js";
@@ -11,13 +10,13 @@ import {
   type WorkerProgress,
   type WorkerTraceItem,
 } from "../worker/progress.js";
-import { authDisabled, isAdmin, scopedUser } from "../auth.js";
 import { appendTaskEvent, upsertTaskEvent } from "../routers/tasks.js";
 import { runWorker } from "../worker/runner.js";
 import { HttpFail } from "./errors.js";
 import { runningTodayPlan, writeTodayBriefArtifact, markTodayPlanCompleted, markTodayPlanFailed } from "./today-brief.js";
 import {
   briefPointerTable,
+  ownerId,
   packTodayPlanContext,
   planTaskType,
   planningHarnessMount,
@@ -25,13 +24,6 @@ import {
   type PlanScope,
   type TodayPlanPack,
 } from "./today-plan-context.js";
-
-function ownerId(): string {
-  const user = scopedUser();
-  if (user) return user.id;
-  if (authDisabled() || isAdmin()) return DEMO_USER.id;
-  return DEMO_USER.id;
-}
 
 function parseJson(value: unknown): Json {
   try {

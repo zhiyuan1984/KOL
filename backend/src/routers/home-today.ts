@@ -1,7 +1,4 @@
 import { Hono } from "hono";
-import { DEMO_USER } from "../config.js";
-import { authDisabled, isAdmin, scopedUser } from "../auth.js";
-import { HttpFail } from "../host/errors.js";
 import {
   TASK_COVER_MEMORY,
   TASK_MEMORY,
@@ -9,18 +6,12 @@ import {
   TODO_TASK_COVER_MEMORY,
   TODO_TASK_RESULT_MEMORY,
 } from "../host/memory-kinds.js";
+import { ownerId } from "../host/today-plan-context.js";
 import { loadTodayTaskResults } from "../host/today-tasks.js";
 import { startTodayAnalyze, startTodayPlan, todayBriefSnapshot } from "../host/today-plan-run.js";
 import type { Json } from "../types.js";
 
 export const homeToday = new Hono();
-
-function ownerId(): string {
-  const user = scopedUser();
-  if (user) return user.id;
-  if (authDisabled() || isAdmin()) return DEMO_USER.id;
-  throw new HttpFail(401, "authentication required");
-}
 
 /** Cover memory GET. Zero model. Not the display task list. */
 homeToday.get("/home/today-brief", (c) => {

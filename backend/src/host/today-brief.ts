@@ -3,6 +3,7 @@ import { nid } from "../ids.js";
 import type { Json } from "../types.js";
 import { persistTodayDisplayFromBrief } from "./persist-today-display.js";
 import { briefPointerTable, loadLatestTodayBrief, planTaskType, type PlanScope } from "./today-plan-context.js";
+import { PLANNING_TASK_TYPES } from "./planning-types.js";
 
 export { briefPointerTable, planTaskType };
 export type { PlanScope };
@@ -260,7 +261,6 @@ export function markTodayPlanCompleted(workItemId: string, runId: string | null)
  */
 export const PLAN_WATCHDOG_MS = 15 * 60 * 1_000;
 
-const PLANNING_TASK_TYPES = ["today_plan", "todo_plan", "today_analyze"] as const;
 const PLANNING_OPEN_STATUSES = ["pending", "queued", "running", "in_progress", "starting"] as const;
 
 function placeholders(count: number): string {

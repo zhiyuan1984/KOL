@@ -7,7 +7,7 @@
  * GET /requests/:id/results is panel-ready.
  * POST /candidates/:id/follow is the only path that creates Collaboration.
  */
-import { api } from "../api";
+import { api } from "../api.js";
 
 export type DiscoveryPlatform = "youtube" | "instagram" | "facebook";
 export type DiscoveryMode = "search" | "detail" | "creator";
@@ -234,7 +234,7 @@ export {
   type DiscoveryErrorKind,
   type DiscoveryErrorView,
   type DiscoveryRecoverAction,
-} from "./discovery-error";
+} from "./discovery-error.js";
 
 const PLATFORM_LABEL: Record<DiscoveryPlatform, string> = {
   youtube: "YouTube",
@@ -686,10 +686,8 @@ export function discoveryRunStatusLabel(status?: string | null, fallback?: strin
 }
 
 export function discoveryWaitTimeoutMs(): number {
-  if (typeof window !== "undefined") {
-    const override = Number((window as Window & { __discoveryWaitTimeoutMs?: number }).__discoveryWaitTimeoutMs);
-    if (Number.isFinite(override) && override > 0) return override;
-  }
+  const override = Number((globalThis as unknown as { __discoveryWaitTimeoutMs?: number }).__discoveryWaitTimeoutMs);
+  if (Number.isFinite(override) && override > 0) return override;
   return DISCOVERY_WAIT_TIMEOUT_MS;
 }
 
@@ -704,12 +702,12 @@ function sleep(ms: number, signal?: AbortSignal): Promise<"ok" | "cancelled"> {
       resolve("cancelled");
       return;
     }
-    const timer = window.setTimeout(() => {
+    const timer = globalThis.setTimeout(() => {
       signal?.removeEventListener("abort", onAbort);
       resolve("ok");
     }, ms);
     const onAbort = () => {
-      window.clearTimeout(timer);
+      globalThis.clearTimeout(timer);
       resolve("cancelled");
     };
     signal?.addEventListener("abort", onAbort, { once: true });
@@ -740,9 +738,17 @@ export async function waitForDiscoveryResults(
   return { reason: "ready", results: latest };
 }
 
+type GlobalStorage = { getItem(key: string): string | null; setItem(key: string, value: string): void };
+
+function globalStorage(): GlobalStorage | undefined {
+  return (globalThis as unknown as { localStorage?: GlobalStorage }).localStorage;
+}
+
 export function readDiscoveryFavorites(): Record<string, boolean> {
   try {
-    const raw = window.localStorage.getItem(DISCOVERY_FAVORITES_KEY);
+    const storage = globalStorage();
+    if (!storage) return {};
+    const raw = storage.getItem(DISCOVERY_FAVORITES_KEY);
     const parsed = raw ? JSON.parse(raw) as unknown : [];
     if (Array.isArray(parsed)) {
       return Object.fromEntries(parsed.filter((id) => typeof id === "string" && id).map((id) => [id, true]));
@@ -760,8 +766,10 @@ export function readDiscoveryFavorites(): Record<string, boolean> {
 
 export function writeDiscoveryFavorites(map: Record<string, boolean>): void {
   try {
+    const storage = globalStorage();
+    if (!storage) return;
     const ids = Object.entries(map).filter(([, on]) => on).map(([id]) => id);
-    window.localStorage.setItem(DISCOVERY_FAVORITES_KEY, JSON.stringify(ids));
+    storage.setItem(DISCOVERY_FAVORITES_KEY, JSON.stringify(ids));
   } catch {
     /* ignore quota / private mode */
   }

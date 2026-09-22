@@ -9,6 +9,7 @@ import { restoreOfficialCollaborationStages } from "../starrykol/library-sync.js
 import { stageMailAction } from "./compose-loop.js";
 import { threadsByCollaborationIds } from "../starrykol/mail-sync.js";
 import { readFollowStyleTags } from "../follow-style-tags.js";
+import { PLANNING_TASK_TYPES, PLANNING_TASK_TYPES_SET } from "./planning-types.js";
 
 const NICHE_LABEL: Record<string, string> = {
   beauty: "美妆",
@@ -195,7 +196,6 @@ export function cardFields(kol: {
 }
 
 const CLOSED_STATUSES = new Set(["completed", "done", "cancelled"]);
-export const PLANNING_TASK_TYPES = new Set(["today_plan", "today_analyze", "todo_plan"]);
 
 export function isPlanningWorkItem(task: {
   task_type?: unknown;
@@ -203,8 +203,10 @@ export function isPlanningWorkItem(task: {
   source?: unknown;
 }): boolean {
   const type = String(task.task_type || task.skill || "");
-  return PLANNING_TASK_TYPES.has(type) || String(task.source || "") === "planning";
+  return PLANNING_TASK_TYPES_SET.has(type) || String(task.source || "") === "planning";
 }
+
+const PLANNING_TYPES_SQL = PLANNING_TASK_TYPES.map((t) => `'${t}'`).join(",");
 const DOMAIN_LABEL: Record<string, string> = {
   Lead: "线索",
   Opportunity: "商机",
@@ -303,7 +305,7 @@ export const OPEN_WORK_ITEM_SQL = `
   status NOT IN ('completed','done','cancelled')
   AND dismissed_at IS NULL
   AND COALESCE(source, 'manual') != 'planning'
-  AND task_type NOT IN ('today_plan','today_analyze','todo_plan')
+  AND task_type NOT IN (${PLANNING_TYPES_SQL})
 `;
 
 export function isTodoWorkItem(task: {
@@ -326,7 +328,7 @@ export const TODO_WORK_ITEM_SQL = `
   status NOT IN ('completed','done','cancelled')
   AND dismissed_at IS NULL
   AND COALESCE(source, 'manual') != 'planning'
-  AND task_type NOT IN ('today_plan','today_analyze')
+  AND task_type NOT IN (${PLANNING_TYPES_SQL})
   AND (COALESCE(source, 'manual') NOT IN ('ai', 'discovery') OR promoted_at IS NOT NULL)
 `;
 

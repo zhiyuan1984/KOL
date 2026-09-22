@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isDiscoveryTerminal, isDiscoveryTerminalStatus } from "../../frontend/src/home/discovery.ts";
+import { isDiscoveryTerminal, isDiscoveryTerminalStatus } from "../../frontend/src/home/discovery.js";
 
 describe("isDiscoveryTerminal", () => {
   it("does not treat queued/running or candidate rows as complete", () => {

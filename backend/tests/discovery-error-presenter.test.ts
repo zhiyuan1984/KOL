@@ -10,7 +10,7 @@ import {
   DiscoveryWaitCancelledError,
   DiscoveryWaitTimeoutError,
   presentDiscoveryError,
-} from "../../frontend/src/home/discovery-error.ts";
+} from "../../frontend/src/home/discovery-error.js";
 
 describe("presentDiscoveryError", () => {
   it("uses the fallback when errorText is JSON, and hides empty-code blobs from detail", () => {

@@ -7,7 +7,7 @@ import { DEMO_USER } from "../src/config.js";
 import { getConn, nowIso, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { HOME_ENTRY_REGISTRY } from "../src/host/entry-registry.js";
-import { HOME_ENTRY_REGISTRY as FRONTEND_HOME_ENTRY_REGISTRY } from "../../frontend/src/home/entryRegistry.ts";
+import { HOME_ENTRY_REGISTRY as FRONTEND_HOME_ENTRY_REGISTRY } from "../../frontend/src/home/entryRegistry.js";
 import { collectSourceCatalog, packTodayPlanContext, planningHarnessMount } from "../src/host/today-plan-context.js";
 import { validateTodayBrief, writeTodayBriefArtifact, runningTodayPlan, failStuckPlans } from "../src/host/today-brief.js";
 import { TODAY_PLAN_EMPLOYEE_EVENTS, todayBriefSnapshot } from "../src/host/today-plan-run.js";
@@ -116,8 +116,8 @@ afterEach(() => {
 });
 
 describe("today_plan harness", () => {
-  it("registers today_plan / today_analyze as read-only callable skills", () => {
-    for (const id of ["today_plan", "today_analyze"] as const) {
+  it("registers today_plan / todo_plan / today_analyze as read-only callable skills", () => {
+    for (const id of ["today_plan", "todo_plan", "today_analyze"] as const) {
       const definition = taskDefinition(id);
       expect(definition?.id).toBe(id);
       expect(definition?.side_effects).toBe("none");
@@ -126,6 +126,30 @@ describe("today_plan harness", () => {
       expect(definition?.required_inputs).toEqual([]);
     }
     expect(taskDefinition("today_plan")?.output).toBe("today_brief");
+    expect(taskDefinition("todo_plan")?.output).toBe("today_brief");
+  });
+
+  it("GET todo brief is memory-only and POST locks todo_plan without recognition", async () => {
+    const run = vi.spyOn(runner, "runWorker");
+    const recognizeSpy = vi.spyOn(recognize, "recognizeTaskIntent");
+    const memory = await request("GET", "/api/home/todo-brief");
+    expect(memory.status).toBe(200);
+    expect(memory.body.planning).toBe(false);
+    expect(memory.body.creates_session).toBe(false);
+    expect(memory.body.calls_model).toBe(false);
+    expect(run).not.toHaveBeenCalled();
+
+    const started = await request("POST", "/api/home/todo-brief/plan");
+    expect([200, 202]).toContain(started.status);
+    expect(started.body.task_type).toBe("todo_plan");
+    expect(started.body.work_item_id).toBeTruthy();
+    expect(started.body.session_id).toBeTruthy();
+    const item = getConn().prepare("SELECT task_type, source, session_id FROM work_items WHERE id=?")
+      .get(started.body.work_item_id) as { task_type: string; source: string; session_id: string };
+    expect(item.task_type).toBe("todo_plan");
+    expect(item.source).toBe("planning");
+    expect(item.session_id).toBe(started.body.session_id);
+    expect(recognizeSpy).not.toHaveBeenCalled();
   });
 
   it("GET brief creates no session and does not call run", async () => {
@@ -206,6 +230,7 @@ describe("today_plan harness", () => {
     expect(first.ok).toBe(true);
     const missing = validateTodayBrief({ primary: { verb: "open" } });
     expect(missing.ok).toBe(false);
+    if (missing.ok) throw new Error("expected missing to be invalid");
     expect(String(missing.reason)).toMatch(/sections/);
     const keptMissing = writeTodayBriefArtifact({
       owner: owner(),
@@ -218,6 +243,7 @@ describe("today_plan harness", () => {
       primary: { verb: "follow", label: "加入跟进", object_id: "discovery:b1", object_type: "batch", person_id: null },
     }));
     expect(follow.ok).toBe(false);
+    if (follow.ok) throw new Error("expected follow to be invalid");
     expect(String(follow.reason)).toMatch(/follow/);
     const keptFollow = writeTodayBriefArtifact({
       owner: owner(),

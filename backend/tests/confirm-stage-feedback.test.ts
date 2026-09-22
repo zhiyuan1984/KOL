@@ -7,7 +7,7 @@ import {
   alreadyThereCopy,
   confirmStageOutcomeCopy,
   waitingApprovalCopy,
-} from "../../frontend/src/confirmStageFeedback.ts";
+} from "../../frontend/src/confirmStageFeedback.js";
 
 describe("confirm-stage operator copy", () => {
   it("turns known mcp_sync skip reasons into Chinese", () => {

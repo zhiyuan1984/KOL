@@ -4,17 +4,31 @@ import { taskDefinition } from "../tasks/registry.js";
 import type { Json, Row } from "../types.js";
 import { authDisabled, isAdmin, scopedUser } from "../auth.js";
 import { followReleaseTimer, isClosedWorkItem, isOpenWorkItem, isPlanningWorkItem, isTodayWorkItem } from "./home-board.js";
+import {
+  briefPointerTable,
+  planTaskType,
+  PLANNING_TASK_TYPES,
+  type PlanScope,
+  type ScopeConfig,
+} from "./planning-types.js";
 import { threadsByCollaborationIds } from "../starrykol/mail-sync.js";
 
-/** Plan scope: today = 今日规划, todo = 待办规划. Same pipeline, different input catalog. */
-export type PlanScope = "today" | "todo";
+export {
+  briefPointerTable,
+  PLANNING_TASK_TYPES,
+  PLANNING_TASK_TYPES_SET,
+  PLAN_SCOPES,
+  planTaskType,
+  SCOPE_TABLE,
+  type PlanScope,
+  type ScopeConfig,
+} from "./planning-types.js";
 
-export function planTaskType(scope: PlanScope): "today_plan" | "todo_plan" {
-  return scope === "todo" ? "todo_plan" : "today_plan";
-}
-
-export function briefPointerTable(scope: PlanScope): "employee_today_briefs" | "employee_todo_briefs" {
-  return scope === "todo" ? "employee_todo_briefs" : "employee_today_briefs";
+export function ownerId(): string {
+  const user = scopedUser();
+  if (user) return user.id;
+  if (authDisabled() || isAdmin()) return DEMO_USER.id;
+  return DEMO_USER.id;
 }
 
 export const PLANNING_FORBIDDEN_TOOL = /follow|send|confirm[_-]?stage/i;
@@ -93,13 +107,6 @@ export function planningHarnessMount(skill = "today_plan"): {
   };
 }
 
-function ownerId(): string {
-  const user = scopedUser();
-  if (user) return user.id;
-  if (authDisabled() || isAdmin()) return DEMO_USER.id;
-  return DEMO_USER.id;
-}
-
 function parseJson(value: unknown): Record<string, unknown> {
   try {
     const parsed = JSON.parse(String(value || "{}"));
@@ -176,14 +183,15 @@ function collectFormalTasks(owner: string): SourceItem[] {
 }
 
 function collectFailedRuns(owner: string): SourceItem[] {
+  const planningPlaceholders = PLANNING_TASK_TYPES.map(() => "?").join(",");
   const rows = getConn().prepare(
     `SELECT r.*, w.title AS work_title, w.collaboration_id, w.task_type
        FROM task_runs r
        JOIN work_items w ON w.id = r.work_item_id
       WHERE w.owner_user_id=? AND r.status='failed'
-        AND w.task_type NOT IN ('today_plan','today_analyze','todo_plan')
+        AND w.task_type NOT IN (${planningPlaceholders})
       ORDER BY r.created_at DESC`,
-  ).all(owner) as Row[];
+  ).all(owner, ...PLANNING_TASK_TYPES) as Row[];
   return rows.map((row) => ({
     id: `run:${row.id}`,
     kind: "failed_run" as const,

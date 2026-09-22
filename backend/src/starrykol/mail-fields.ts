@@ -323,7 +323,7 @@ export function collaborationMatchMailboxes(
     String(col.mailboxEmail || ""),
     String(col.mailbox || ""),
     ...extras,
-  ].filter(Boolean);
+  ].filter((x): x is string => Boolean(x));
 }
 
 export function matchCollaboration(
