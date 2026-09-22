@@ -662,7 +662,8 @@ summary:focus-visible,
   min-height: 0;
   min-width: 0;
   width: 100%;
-  padding: 14px 16px 14px;
+  /* 页面自管左右留白（--page-gutter）与发丝分隔带，壳层不再加第二层内边距。 */
+  padding: 0;
   overflow: hidden;
 }
 .main > .admin-shell {
@@ -6661,12 +6662,6 @@ summary:focus-visible,
 @media (max-width: 720px) {
   .skill-funnel-grid { grid-template-columns: 1fr; }
 }
-.skill-card h3 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
 .skill-summary { margin: 0 0 8px; min-height: 36px; }
 .skill-card-actions {
   display: flex;
@@ -6674,7 +6669,6 @@ summary:focus-visible,
   gap: 8px;
   margin-top: 10px;
 }
-.skill-card .skill-card-actions .btn { margin-top: 0; }
 .sop-editor { display: grid; gap: 10px; }
 .sop-field {
   display: grid;
@@ -10114,7 +10108,17 @@ button.today-brief-primary-btn:disabled {
 }
 
 /* === Skill Catalog Page === */
+/* 技能目录页（/skills）。依据 docs/DESIGN.md 的「员工端实施细则」（实施细则，非基本法）：
+   密度档 data-dense-dashboard（列表行本身就是内容，不做卡片墙）、§控件尺寸、§三轴适配、
+   §不变量 1/3/4、§验收矩阵。
+   规则：尺寸 / 圆角 / 命中区只走命名 token（--control-h* / --radius-control / --radius-card /
+   --chip-h / --badge-h / --hit-min）；内容列上限走 --content-max，页面留白走 --page-gutter；
+   同一视口 0–1 个实底主 CTA；状态不靠颜色单独表达；焦点环由壳层 :focus-visible 统一提供。 */
 .skill-catalog-page {
+  /* 图标阶梯：本页只有两档（控件内图标 / 图标砖内图标），不出现第三种尺寸。 */
+  --icon-sm: 14px;
+  --icon-md: 18px;
+
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -10122,31 +10126,36 @@ button.today-brief-primary-btn:disabled {
   background: var(--bg);
 }
 
+/* ── 页头与筛选条：整幅发丝分隔带，左右留白与内容列同轴 ─────────────── */
 .skill-catalog-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: 12px 16px 10px;
+  padding: var(--space-3) var(--page-gutter) var(--space-2);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
+/* 页标题走壳层页标题档（--ds-font-block-title）：本页是登录后的工作台，
+   不用营销落地页的 display 尺寸与负字距。 */
 .skill-catalog-header h1 {
   margin: 0;
-  font-size: var(--ds-font-section);
+  font-size: var(--ds-font-block-title);
+  line-height: var(--ds-line-block-title);
   font-weight: 600;
+  letter-spacing: 0;
 }
 
 .skill-catalog-subtitle {
   margin: 2px 0 0;
   color: var(--text-muted);
   font-size: var(--ds-font-sm);
+  line-height: var(--lh-control-sm);
 }
 
-/* shadcn/ui `Input`：圆角 --radius-control、透明底、边框 --control-border、
-   焦点时边框转 --text 并加 focus-visible 环。先前用胶囊 + --ds-surface 填色，
-   既偏离 shadcn 的 Input 形态，也被判过「太灰了」。 */
+/* 搜索框：单体控件自带 ≥3:1 的 --control-border 描边（成组控件才用容器填色），
+   聚焦时边框转 --text。 */
 .skill-search-wrap {
   display: flex;
   align-items: center;
@@ -10163,16 +10172,32 @@ button.today-brief-primary-btn:disabled {
   border-color: var(--text);
 }
 
-.skill-search-wrap:has(.skill-search:focus-visible) {
-  outline: var(--focus-ring-width) solid var(--focus-ring);
-  outline-offset: var(--focus-ring-offset);
-}
-
 .skill-search-wrap svg {
-  width: 16px;
-  height: 16px;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
   color: var(--text-muted);
   flex-shrink: 0;
+}
+
+/* 搜索框的清除入口：只在有输入时出现，方形命中区走 --control-h-sm。 */
+.skill-search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.skill-search-clear:hover {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 
 .skill-search {
@@ -10182,18 +10207,19 @@ button.today-brief-primary-btn:disabled {
   font: inherit;
   font-size: var(--ds-font-sm);
   line-height: var(--lh-control);
-  /* 命中区下限（§3 --hit-min 24px）：此前输入框自身只有 22px 高，是页面上最矮的可操作元素。 */
+  /* 命中区下限：输入框自身不得低于 --hit-min。 */
   min-height: var(--hit-min);
   width: 100%;
   color: var(--text);
 }
 
+/* ── 筛选条：成组控件由容器承担可见边界，触发器不再各自描边 ─────────── */
 .skill-tabs {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
   gap: var(--space-2);
-  padding: 10px 16px;
+  padding: var(--space-2) var(--page-gutter);
   border-bottom: 1px solid var(--border);
   overflow-x: auto;
   scrollbar-width: none;
@@ -10204,9 +10230,6 @@ button.today-brief-primary-btn:disabled {
   display: none;
 }
 
-/* shadcn `TabsList`：由浅面容器承担「成组控件」的可见边界，触发器在里面不再各自描边。
-   对照单/成组控件的描边约定 —— 单体控件用 --control-border 描边，成组控件用容器填色。
-   操作类与阶段类各一个容器；阶段容器内用 › 表达漏斗递进（此前阶段关系看不出来）。 */
 .skill-tabs-list {
   display: flex;
   flex-wrap: nowrap;
@@ -10214,15 +10237,13 @@ button.today-brief-primary-btn:disabled {
   gap: 2px;
   padding: 2px;
   border-radius: var(--radius-card);
-  /* 极浅面只能用 --ds-surface(#f7f8f8，对白画布 1.06:1)。
-     此前用 --bg-elevated(#f1f1f1，1.13:1) 超过 §5 规则 9 的 ≤1.1:1 判据，
-     也正是用户判「太灰了」的那个灰。 */
+  /* 极浅面只到 --ds-surface；更深的灰会读成「第二层容器」。 */
   background: var(--ds-surface);
   flex-shrink: 0;
 }
 
-/* shadcn `TabsTrigger`：静止透明，选中换回 --bg + 静音阴影 + 字重提升。
-   选中态同时有填色、阴影、字重三重信号，且由 aria-pressed 暴露程序化状态（§5 规则 4）。 */
+/* 选中态三重信号：底色换回画布 + 静音投影 + 字重提升；aria-pressed 暴露程序化状态
+   （§不变量 4：状态不能只靠颜色表达）。 */
 .skill-tab {
   display: inline-flex;
   align-items: center;
@@ -10260,6 +10281,35 @@ button.today-brief-primary-btn:disabled {
   user-select: none;
 }
 
+/* 窄屏下筛选条会横向滚动：右缘渐隐是「还有内容」的可视信号。
+   sticky 让它贴在滚动容器右缘；宽屏放得下时它只盖在背景上，不产生视觉噪声。 */
+.skill-tabs-fade {
+  position: sticky;
+  right: 0;
+  flex: 0 0 auto;
+  align-self: stretch;
+  width: var(--space-5);
+  margin-left: calc(-1 * var(--space-5));
+  pointer-events: none;
+  background: linear-gradient(to right, transparent, var(--bg) 72%);
+}
+
+/* ── 页面状态：加载暴露 busy、失败给恢复入口（§不变量 3） ───────────── */
+.skill-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--page-gutter);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.skill-state .error,
+.skill-state .muted {
+  margin: 0;
+}
+
+/* ── 主区：内容列 + 详情列 ─────────────────────────────────────────── */
 .skill-catalog-main {
   display: flex;
   flex: 1;
@@ -10269,16 +10319,326 @@ button.today-brief-primary-btn:disabled {
 .skill-catalog-content {
   flex: 1;
   overflow-y: auto;
-  padding: 12px;
+  padding: var(--space-4) var(--page-gutter) var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--ds-section-gap);
 }
 
-/* ── 第三栏：技能详情 ──────────────────────────────────────────────
+/* 内容列上限走 --content-max（§三轴适配 · 宽度轴），与壳层其它页面同轴。 */
+.skill-catalog-content > * {
+  width: 100%;
+  max-width: var(--content-max);
+  margin-inline: auto;
+}
+
+/* ── 分组 ─────────────────────────────────────────────────────────── */
+.skill-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.skill-group-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.skill-group-icon {
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.skill-group-icon-star {
+  color: var(--warning);
+  font-size: var(--ds-font-helper);
+}
+
+.skill-group-svg {
+  width: var(--icon-md);
+  height: var(--icon-md);
+  color: var(--text-muted);
+}
+
+.skill-group-header h2 {
+  margin: 0;
+  white-space: nowrap;
+  font-size: var(--ds-font-section);
+  font-weight: 600;
+}
+
+.skill-group-hint {
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  margin-left: var(--space-2);
+}
+
+/* 「查看全部」是可点标签：13px + 常驻下划线 + 自撑命中区。 */
+.skill-group-more {
+  margin-left: auto;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--hit-min);
+  color: var(--text-muted);
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control-sm);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.skill-group-more:hover {
+  color: var(--text);
+}
+
+/* ── 列表：行本身就是内容 ─────────────────────────────────────────────
+   组容器只画上下两条发丝线，行与行之间一条发丝线；不套卡片、不给每行底色与圆角。
+   列：图标砖 / 名称 / 摘要 / 标记 / 动作。 */
+.skill-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-block: 1px solid var(--border);
+}
+
+.skill-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--control-h-lg) minmax(80px, 0.8fr) minmax(0, 1.8fr) auto auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background-color var(--duration-control);
+}
+
+.skill-row:last-child {
+  border-bottom: 0;
+}
+
+.skill-row:hover,
+.skill-row:focus-within {
+  background: var(--surface-hover);
+}
+
+/* 选中：--ds-selected-bg 底 + 左侧 3px 形状信号（非颜色信号，§不变量 4）。 */
+.skill-row.is-selected {
+  background: var(--ds-selected-bg);
+  box-shadow: inset 3px 0 0 var(--ds-selected-border);
+}
+
+.skill-row-icon {
+  grid-column: 1;
+  width: var(--control-h-lg);
+  height: var(--control-h-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ds-surface);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.skill-row-svg {
+  width: var(--icon-md);
+  height: var(--icon-md);
+}
+
+/* 名称是行选择的键盘可达入口，用 aria-pressed 暴露选中态；允许省略号。 */
+.skill-row-name {
+  grid-column: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow: hidden;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--ds-font-body);
+  line-height: var(--lh-control);
+  font-weight: 600;
+  /* 行高只有 20px，命中区靠 min-height 补到 --hit-min。 */
+  min-height: var(--hit-min);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+/* 名称文字承担省略号：★ 不参与收缩，长名字不会把星挤出可视区。 */
+.skill-row-name-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.skill-row-name:hover {
+  text-decoration: underline;
+}
+
+.skill-row-desc {
+  grid-column: 3;
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-muted);
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control-sm);
+}
+
+.skill-row-marks {
+  grid-column: 4;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--space-1);
+  white-space: nowrap;
+}
+
+/* 常用：属「例外」信号，用语义色 + 星标形状并行；跟在名称后面，
+   不再压在行的左上角（那里同时是分组发丝线所在，视觉上像渲染瑕疵）。 */
+.skill-row-star {
+  flex: 0 0 auto;
+  color: var(--warning);
+  font-size: var(--ds-font-tag);
+  line-height: 1;
+}
+
+.skill-row-actions {
+  grid-column: 5;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* ── 标记（badge）：只标例外（L2 草稿 / L3 需确认 / 异步契约） ───────── */
+.skill-mark {
+  display: inline-flex;
+  align-items: center;
+  height: var(--badge-h);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  font-size: var(--ds-font-helper);
+  font-weight: 500;
+  line-height: var(--lh-control-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* L3「需确认」：语义色 + 文字并行，不是仅颜色。 */
+.skill-mark.is-write {
+  border-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, var(--bg));
+  color: var(--text);
+}
+
+/* 异步作业：虚线边框是形状信号（与文字「异步 · 可取消」并行）。 */
+.skill-mark.is-async {
+  border-style: dashed;
+}
+
+/* ── 动作 ─────────────────────────────────────────────────────────── */
+.skill-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  height: var(--control-h);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-control);
+  border: 1px solid var(--control-border);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--duration-control), color var(--duration-control),
+    border-color var(--duration-control);
+}
+
+.skill-btn:hover {
+  background: var(--surface-hover);
+}
+
+/* 本页唯一的实底主 CTA（§不变量 1）：其余动作一律降到描边或链接式。 */
+.skill-btn-primary {
+  background: var(--primary);
+  color: var(--primary-fg);
+  border-color: var(--primary);
+  font-weight: 500;
+}
+
+.skill-btn-primary:hover {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+.skill-btn-outline {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--control-border);
+  font-weight: 500;
+}
+
+.skill-btn-outline:hover {
+  background: var(--surface-hover);
+  border-color: var(--text-muted);
+}
+
+.skill-btn-large {
+  height: var(--control-h-lg);
+  padding: 0 var(--space-4);
+}
+
+/* 链接式动作：无框 + 语义图标 + 常驻下划线（下划线是常驻的非颜色可点信号）。 */
+.skill-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--control-h-sm);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  font: inherit;
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control-sm);
+  color: var(--text-muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* 主色当文字用 --primary-text：--primary 本身在白底只有 4.87:1，当文字不达余量。 */
+.skill-link:hover {
+  background: var(--surface-hover);
+  color: var(--primary-text);
+}
+
+.skill-link-svg {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  flex-shrink: 0;
+}
+
+/* ── 第三栏：技能详情 ────────────────────────────────────────────────
    内容按技能逐项设计（口径来自 docs/BUSINESS.md 的覆盖表）。
-   `.skill-preview-*` 是详情列内的内容样式（沿用旧名，见下方），
-   `.skill-detail-*` 是详情列自身的骨架。 */
+   `.skill-preview-*` 是详情列内的内容样式（沿用旧名），`.skill-detail-*` 是详情列骨架。 */
 .skill-detail-pane {
   width: clamp(300px, 26vw, 400px);
   border-left: 1px solid var(--border);
@@ -10314,9 +10674,7 @@ button.today-brief-primary-btn:disabled {
   color: var(--text-muted);
 }
 
-/* 展开 / 关闭：24px 方形图标按钮，走 6px 圆角（§5 规则 14）。
-   图标按钮必须带 aria-label —— 语义不能只靠图形象征。
-   自设 line-height：否则继承根的 24px 行盒（§5 规则 5，本页实测违规过）。 */
+/* 展开 / 关闭：方形图标按钮走 --control-h-sm + --radius-control；必须带 aria-label。 */
 .skill-detail-toggle,
 .skill-detail-close {
   display: inline-flex;
@@ -10335,16 +10693,16 @@ button.today-brief-primary-btn:disabled {
   cursor: pointer;
 }
 
-.skill-detail-toggle-svg {
-  width: 14px;
-  height: 14px;
-}
-
-/* 悬停面用 --surface-hover，不用 --bg-elevated（§5 规则 9：三级表面各有其 token）。 */
 .skill-detail-toggle:hover,
 .skill-detail-close:hover {
   background: var(--surface-hover);
   color: var(--text);
+}
+
+.skill-detail-toggle-svg,
+.skill-detail-close-svg {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
 }
 
 /* 关闭按钮只在窄屏覆盖态出现（≥900px 时详情列常驻）。 */
@@ -10367,10 +10725,17 @@ button.today-brief-primary-btn:disabled {
   gap: var(--space-3);
 }
 
+/* 详情列头的图标砖比列表行小一档：与下方标记行的缩进对齐。 */
+.skill-detail-head .skill-row-icon {
+  width: 28px;
+  height: 28px;
+}
+
 .skill-detail-head h2 {
   margin: 0;
-  font-size: var(--ds-font-section); /* 16px：详情主标题（此前 15px 与小节几乎同重） */
+  font-size: var(--ds-font-section);
   font-weight: 600;
+  color: var(--text);
 }
 
 .skill-detail-sub {
@@ -10380,19 +10745,12 @@ button.today-brief-primary-btn:disabled {
   color: var(--text-muted);
 }
 
-/* 标记行缩进到与标题左对齐 —— 此前从栏的 padding 起排，与标题错位（标注「没对齐」）。
-   缩进量 = 图标砖 28px + head 的 gap。 */
+/* 标记行缩进到与标题左对齐：缩进量 = 图标砖 28px + head 的 gap。 */
 .skill-detail-marks {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-1);
   margin-left: calc(28px + var(--space-3));
-}
-
-.skill-detail-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
 }
 
 .skill-detail-section {
@@ -10403,49 +10761,16 @@ button.today-brief-primary-btn:disabled {
 
 .skill-detail-section h4 {
   margin: 0;
-  font-size: var(--ds-font-sm); /* 13px / 600：与正文 12px muted 明确分开 */
+  font-size: var(--ds-font-sm);
   font-weight: 600;
   color: var(--text);
   letter-spacing: 0.01em;
 }
-.skill-detail-steps {
-  margin: 0;
-  padding-left: 22px;
-  color: var(--ink);
-}
-.skill-detail-steps li {
-  padding: 3px 0;
-}
-.skill-execution-details {
-  margin-top: 14px;
-  border-top: 1px solid var(--hairline);
-  padding-top: 12px;
-}
-.skill-execution-details summary {
-  cursor: pointer;
-  color: var(--ink);
-  font-weight: 600;
-}
-.skill-execution-tools {
-  display: grid;
-  gap: 6px;
-}
-.skill-execution-tool {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
-  gap: 8px;
-  align-items: center;
-  padding: 7px 8px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-control);
-  font-size: var(--font-xs);
-}
-.skill-execution-tool code {
-  overflow-wrap: anywhere;
-  color: var(--muted);
-}
-.skill-execution-tool strong {
-  color: var(--danger, #a33);
+
+.skill-detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
 }
 
 .skill-detail-note {
@@ -10455,8 +10780,7 @@ button.today-brief-primary-btn:disabled {
   color: var(--text-muted);
 }
 
-/* 注意事项：左侧 2px 强调条（形状信号），不靠颜色单独表达（docs/DESIGN.md §不变量 4）。
-   静止面用极浅面 --ds-surface(1.06:1)，不用 --bg-elevated(1.13:1，超规则 9 判据)。 */
+/* 注意事项：左侧 2px 强调条（形状信号）+ 极浅面，不靠颜色单独表达（§不变量 4）。 */
 .skill-detail-warn {
   margin: 0;
   padding: var(--space-2) var(--space-3);
@@ -10496,374 +10820,54 @@ button.today-brief-primary-btn:disabled {
   font-size: var(--ds-font-sm);
 }
 
-/* 窄屏遮罩：只在覆盖态出现 */
-/* 窄屏遮罩：只在覆盖态出现。显式声明透明底 ——
-   否则这个 <button> 会带上 UA 默认的 buttonface 灰(#F0F0F0)，
-   在「本页不重复色值」的统计里凭空多出一种灰。 */
-.skill-detail-scrim {
-  display: none;
-  background: transparent;
-}
-
-.skill-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.skill-group-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.skill-group-icon {
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-}
-
-.skill-group-icon-star {
-  color: var(--text-muted);
-  font-size: var(--ds-font-helper);
-}
-
-.skill-group-svg {
-  width: 17px;
-  height: 17px;
-}
-
-.skill-group-header h2 {
+/* 执行契约：分区线 + 工具行边框都走发丝线（装饰），文字走文字档。 */
+.skill-detail-steps {
   margin: 0;
-  font-size: var(--ds-font-body);
-  font-weight: 600;
-}
-
-.skill-group-hint {
-  color: var(--text-muted);
-  font-size: var(--ds-font-helper);
-  margin-left: var(--space-2);
-}
-
-/* 查看全部：默认即带下划线——否则看不出可点（截图标注「没引导，比如下划线」）。
-   字号走 --ds-font-sm(13px)：它是**可点标签**，受 §5 规则 7 的 13px 下限约束，
-   此前用 12px（--ds-font-helper）属于下限内的违规。 */
-.skill-group-more {
-  margin-left: auto;
-  /* 可点标签必须自撑命中区（§3 --hit-min 24px）：此前作为 inline 链接只有 16px 高。
-     .skill-group-header 由 22px 的图标砖撑起，24px 只让这一行长高 2px。 */
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--hit-min);
-  color: var(--text-muted);
-  font-size: var(--ds-font-sm);
-  line-height: var(--lh-control-sm);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.skill-group-more:hover {
+  padding-left: 22px;
   color: var(--text);
 }
 
-.skill-grid {
+.skill-detail-steps li {
+  padding: 3px 0;
+}
+
+.skill-execution-details {
+  margin-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+}
+
+.skill-execution-details summary {
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.skill-execution-tools {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 6px;
 }
 
-.skill-grid-3 {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.skill-grid-4 {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.skill-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
+.skill-execution-tool {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-2);
-  padding: var(--space-3);
-  min-width: 0; /* 允许在 grid 轨道内收缩——此前「标题 + 来源徽章」同排会把卡片撑到横向溢出（§5 规则 11） */
+  align-items: center;
+  padding: var(--space-2);
   border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  background: var(--bg);
-  transition: border-color var(--duration-control), background var(--duration-control),
-    box-shadow var(--duration-control);
-  cursor: pointer;
-}
-
-.skill-card:hover,
-.skill-card:focus-within {
-  border-color: var(--control-border);
-  background: var(--surface-hover);
-}
-
-/* 选中态：悬停/选中面 --surface-hover（1.22:1，§5 规则 4 要求另加非颜色信号）
-   + 深描边 --text + 3px 左强调条作形状信号。
-   此前整块填 --primary-tint 浅粉 + 主色强调条，是页面上最大的一块粉色。
-   不用 --bg-elevated(#f1f1f1)：它 1.13:1 超过规则 9 的 ≤1.1:1 判据。 */
-.skill-card.is-selected {
-  border-color: var(--text);
-  background: var(--surface-hover);
-  box-shadow: inset 3px 0 0 0 var(--text);
-}
-
-.skill-card-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-  padding-right: var(--space-3); /* 给右上角 ★ 让位，不再压到标题基线 */
-}
-
-/* 图标砖：极浅面 --ds-surface（1.06:1，§5 规则 9）+ 6px 圆角。
-   此前填 --primary-tint-strong（浅粉底），整页 13 块粉底是「粉色命中太多」的主因之一。
-   图标用 --text 而不是主色——小尺寸上主色当图标色不达对比（规则 3）。 */
-.skill-card-icon {
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--ds-surface);
   border-radius: var(--radius-control);
-  color: var(--text);
-  flex-shrink: 0;
+  font-size: var(--font-xs);
 }
 
-.skill-card-svg {
-  width: 17px;
-  height: 17px;
-}
-
-.skill-card-star {
-  position: absolute;
-  top: 6px;
-  right: 7px;
-  color: var(--warning); /* 常用属于「例外」信号，用语义色而非灰（§5 规则 13） */
-  font-size: var(--ds-font-helper);
-  line-height: 1;
-}
-
-.skill-card-title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--ds-font-sm);
-  font-weight: 600;
-  min-width: 0;
-  flex: 1;
-}
-
-/* 标题做成按钮：卡片选择的键盘可达入口，并用 aria-pressed 暴露选中态。
-   允许省略号 —— 不得像之前那样 nowrap + 不可缩把卡片撑到横向溢出（§5 规则 11）。 */
-.skill-card-name {
+.skill-execution-tool-name {
   min-width: 0;
   overflow: hidden;
-  white-space: nowrap;
   text-overflow: ellipsis;
-  border: 0;
-  background: none;
-  padding: 0;
-  font: inherit;
-  /* 自设 line-height（§5 规则 5）：此前继承根的 24px 行盒，实测 52 处违规。 */
-  font-size: var(--ds-font-sm);
-  line-height: var(--lh-control-sm);
-  /* 但行高压到 16px 后命中区也跟着掉到 16px（§3 要求 ≥24px）。
-     用独立命中区补齐：卡片头由 28px 图标砖撑起，min-height 24 不改变卡片高度。 */
-  min-height: var(--hit-min);
-  display: inline-flex;
-  align-items: center;
-  color: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-
-.skill-card-name:hover {
-  text-decoration: underline;
-}
-
-/* §5 规则 11：来源等元信息归详情列，卡片不再渲染来源徽章。
-   （`.skill-preview-tag` / `.skill-preview-agent` 仍用于详情栏。） */
-
-/* 风险档 / 异步契约标记：只标例外（§5 规则 10）；颜色 + 文字并行（规则 13）。 */
-.skill-card-marks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-}
-
-/* shadcn `Badge`（outline 变体）：20px 高、px-2、--radius-control、12px/500。
-   此前高度跟着 --lh-control-sm(16px)，比 shadcn 的 Badge 瘦一圈，同排时与 13px 正文不齐。 */
-.skill-mark {
-  display: inline-flex;
-  align-items: center;
-  height: var(--badge-h);
-  padding: 0 var(--space-2);
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-control);
-  font-size: var(--ds-font-helper);
-  font-weight: 500;
-  line-height: var(--lh-control-sm);
-  color: var(--text-muted);
   white-space: nowrap;
-}
-
-/* L3「需确认」：用语义色 --warning（颜色 + 文字并行，不是仅颜色）。 */
-.skill-mark.is-write {
-  border-color: var(--warning);
-  background: color-mix(in srgb, var(--warning) 10%, var(--bg));
   color: var(--text);
 }
 
-.skill-mark.is-async {
-  border-style: dashed;
-}
-
-.skill-card-desc {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: var(--ds-font-helper);
-  line-height: var(--lh-control-sm);
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.skill-catalog-page .skill-card-actions {
-  display: flex;
-  flex-wrap: wrap; /* 窄列时换行，而不是压缩到看不见或横向溢出（§6.5） */
-  gap: var(--space-1);
-  margin-top: auto;
-}
-
-/* 卡片动作按钮：13px + 显式行高（§5 规则 5 / 7）；紧凑档用 --radius-control（规则 14）。 */
-.skill-catalog-page .skill-card-actions .skill-btn {
-  height: var(--control-h-sm);
-  padding: 0 var(--space-2);
-  font-size: var(--ds-font-sm);
-  gap: var(--space-1);
-  flex: 0 0 auto;
-}
-
-.skill-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-1);
-  height: var(--control-h);
-  padding: 0 var(--space-3);
-  border-radius: var(--radius-control); /* 紧凑档 6px——24px 高的胶囊两端半圆会吃掉字（§5 规则 14） */
-  font: inherit;
-  font-size: var(--ds-font-sm);
-  line-height: var(--lh-control);
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background var(--duration-control), color var(--duration-control),
-    border-color var(--duration-control);
-  border: 1px solid var(--control-border);
-  background: transparent;
-  color: var(--text);
-}
-
-.skill-btn:hover {
-  background: var(--surface-hover);
-}
-
-/* 唯一实底 + 主 CTA 走胶囊（§4 / §5 规则 1）。 */
-.skill-btn-primary {
-  background: var(--primary);
-  color: var(--primary-fg);
-  border-color: var(--primary);
-  font-weight: 500;
-  border-radius: var(--radius-pill);
-}
-
-.skill-btn-primary:hover {
-  background: var(--primary-hover);
-  border-color: var(--primary-hover);
-}
-
-/* 描边款：并列动作的默认款，必须有可见边框（§5 规则 15）。 */
-.skill-btn-outline {
-  background: transparent;
-  color: var(--text);
-  border-color: var(--control-border);
-  font-weight: 500;
-}
-
-.skill-btn-outline:hover {
-  background: var(--surface-hover);
-  border-color: var(--text-muted);
-}
-
-/* 注：`.is-quiet` / `.skill-btn-ghost` / `.skill-btn-secondary` 已随「新建会话」一并移除
-   （§5 规则 16）。需要时按 §5 规则 15 重建，不要就地复活旧 class。 */
-
-.skill-btn-large {
-  height: var(--control-h-lg);
-  padding: 0 var(--space-4);
-  font-size: var(--ds-font-sm);
-  border-radius: var(--radius-pill);
-}
-
-/* 链接式动作：无框 + 语义图标 + **常驻**下划线，占用远小于带框按钮（§5 规则 15 修正后允许）。
-   下划线是常驻的非颜色可点信号，不只在 hover 出现。 */
-.skill-link {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  height: var(--control-h-sm);
-  padding: 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: var(--ds-font-sm);
-  line-height: var(--lh-control-sm);
-  color: var(--text);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-}
-
-/* 悬停用主色文字档 --primary-text 而不是 --primary：主色本身在白底只有 4.87:1，
-   当文字用不达余量（§5 规则 3）。下划线常驻，颜色只是加强信号，不是唯一信号。 */
-.skill-link:hover {
-  color: var(--primary-text);
-}
-
-.skill-link-svg {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-}
-
-/* 页面级状态块：错误可重试、加载暴露 busy（docs/DESIGN.md §三轴适配；PROD-AGENT-09）。 */
-.skill-state {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.skill-state .error,
-.skill-state .muted {
-  margin: 0;
-}
-
-/* 详情列「内容」样式。容器骨架是上方的 `.skill-detail-*`；
-   这里沿用 `.skill-preview-*` 旧名，避免无谓改名。 */
-/* 详情列的标记：统一按 shadcn `Badge` 的三个变体给几何（secondary / secondary / outline）。
-   此前三者 padding 用 1px 裸值、圆角各走 --radius-sm，和卡片上的 .skill-mark 不成一体。 */
+/* 详情列的标记：统一按 badge 的三个变体给几何（secondary / secondary / outline）。 */
 .skill-preview-tag,
 .skill-preview-agent,
 .skill-preview-tag-item {
@@ -10878,8 +10882,7 @@ button.today-brief-primary-btn:disabled {
   white-space: nowrap;
 }
 
-/* Badge secondary：极浅面 + 前景色文字。用 --ds-surface(1.06:1)，
-   不用 --bg-elevated(#F1F1F1, 1.13:1)——规则 9 判据是与白画布 ≤1.1:1。 */
+/* Badge secondary：极浅面 + 前景色文字。 */
 .skill-preview-tag {
   color: var(--text);
   background: var(--ds-surface);
@@ -10901,7 +10904,7 @@ button.today-brief-primary-btn:disabled {
 .skill-preview-thread {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .skill-preview-msg {
@@ -10917,7 +10920,7 @@ button.today-brief-primary-btn:disabled {
 .skill-preview-avatar {
   width: 24px;
   height: 24px;
-  /* 圆形头像：圆角阶梯不适用于正圆，理由见 docs/DESIGN.md §控件尺寸。 */
+  /* 圆形头像：圆角阶梯不适用于正圆。 */
   border-radius: 50%;
   background: var(--ds-surface);
   color: var(--text-muted);
@@ -10929,25 +10932,20 @@ button.today-brief-primary-btn:disabled {
   flex-shrink: 0;
 }
 
-/* 用户头像不再用写死的浅蓝：静止面不填彩色。 */
+/* 用户头像不填彩色：静止面只用极浅面。 */
 .skill-preview-msg.is-user .skill-preview-avatar {
   background: var(--ds-surface);
   color: var(--text-muted);
 }
 
 .skill-preview-avatar svg {
-  width: 14px;
-  height: 14px;
-}
-
-:root[data-theme="dark"] .skill-preview-msg.is-user .skill-preview-avatar {
-  background: var(--ds-surface);
-  color: var(--text-muted);
+  width: var(--icon-sm);
+  height: var(--icon-sm);
 }
 
 .skill-preview-bubble {
   background: var(--bg);
-  padding: 8px 10px;
+  padding: var(--space-2) var(--space-3);
   font-size: var(--ds-font-helper);
   line-height: 1.65;
   color: var(--text);
@@ -10956,9 +10954,7 @@ button.today-brief-primary-btn:disabled {
   min-width: 0;
 }
 
-/* 气泡的"尖角"用阶梯内最小的 --radius-control(6px)，其余三角用 --radius-card(8px)。
-   此前写 4px 与 var(--ds-radius-section)=14px：两个值都不在 §4 的圆角阶梯里。
-   注意不要用 --radius-lg：该 token 在本仓库**尚未定义**（另见 §8），用了等于 0 圆角。 */
+/* 气泡的「尖角」用阶梯内最小的 --radius-control，其余三角用 --radius-card。 */
 .skill-preview-msg.is-ai .skill-preview-bubble {
   border-radius: var(--radius-control) var(--radius-card) var(--radius-card) var(--radius-card);
 }
@@ -10983,44 +10979,29 @@ button.today-brief-primary-btn:disabled {
   text-align: right;
 }
 
-/* ── Responsive：按 docs/DESIGN.md §三轴适配 管（宽度 / 高度 / 输入模态）── */
-
-/* 宽度轴：列数收敛 */
-@media (max-width: 1300px) {
-  .skill-grid-4 .skill-card-source {
-    display: none;
-  }
+/* 窄屏遮罩：只在覆盖态出现。显式声明透明底，避免 <button> 带 UA 默认灰。 */
+.skill-detail-scrim {
+  display: none;
+  background: transparent;
 }
 
-@media (max-width: 1180px) {
-  .skill-grid.skill-grid-4 {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
+/* ── 三轴适配（宽度 / 高度 / 输入模态分别处理） ─────────────────────── */
 
-@media (max-width: 1000px) {
-  .skill-grid,
-  .skill-grid.skill-grid-4 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-/* 窄屏（<900）：详情列改为覆盖层，不把交互内容藏掉（docs/DESIGN.md §三轴适配 · 宽度轴）。 */
+/* 宽度轴 ≤900：详情列改覆盖层，不把交互内容藏掉；浮层边界靠遮罩 + 发丝线表达。 */
 @media (max-width: 900px) {
   .skill-detail-pane {
     display: none;
   }
-  /* 覆盖态宽度必须同时容纳 is-wide —— 否则「展开」在这个区间点了没反应：
-     原写法里 `.is-open` 的同权重 width 排在文件更后面，压掉了 `.is-wide`（实测 420 → 420 无变化）。 */
+  /* 覆盖态宽度必须同时容纳 is-wide，否则「展开」在这个区间点了没反应。 */
   .skill-detail-pane.is-open {
     display: block;
     position: fixed;
     inset: 0 0 0 auto;
     width: min(100%, 480px);
-    z-index: 40;
-    box-shadow: var(--shadow-popover);
+    z-index: var(--layer-popover);
+    border-left: 1px solid var(--border);
   }
-  /* 覆盖态下「展开」= 占满全宽（窄屏里"加宽 220px"没有意义）。 */
+  /* 覆盖态下「展开」= 占满全宽。 */
   .skill-detail-pane.is-open.is-wide {
     width: 100%;
   }
@@ -11032,7 +11013,7 @@ button.today-brief-primary-btn:disabled {
     display: block;
     position: fixed;
     inset: 0;
-    z-index: 39;
+    z-index: calc(var(--layer-popover) - 1);
     border: 0;
     padding: 0;
     background: rgba(0, 0, 0, 0.32);
@@ -11047,488 +11028,100 @@ button.today-brief-primary-btn:disabled {
   }
   .skill-search-wrap {
     width: 100%;
-  }
-  /* S 档单栏（§6.2）。必须带上 .skill-grid-4：`.skill-grid.skill-grid-4` 的权重高于
-     `.skill-grid`，否则「常用技能」那一行在窄屏仍是 2 列（实测 375/414/720/768 都是 2 列）。 */
-  .skill-grid,
-  .skill-grid.skill-grid-4,
-  .skill-grid.skill-grid-3 {
-    grid-template-columns: 1fr;
+    min-width: 0;
   }
 }
 
-/* 宽度轴 S 档（<600）：单列 + 收紧留白 */
-@media (max-width: 600px) {
+/* 宽度轴：行内列宽按**列表列的实际宽度**收敛（容器查询），不按视口。
+   详情列与列表并排，视口宽 ≠ 列表宽：1024 视口下列表列只剩约 400px，
+   按视口判断会把「标记」与行内动作一起挤出可视区（实测 1024×589 被裁掉）。
+   docs/DESIGN.md §不变量 5：绝不允许溢出被 overflow:hidden 静默裁切。 */
+.skill-list {
+  container-type: inline-size;
+}
+
+@container (max-width: 459px) {
+  /* 先收标记列：风险档与异步契约在详情列里仍有完整交代。
+     阈值按列表列实测取：1280 视口下列表列约 626px（标记要留住），
+     1024 视口下只剩约 408px（再放标记就会把行内动作挤出可视区）。 */
+  .skill-row {
+    grid-template-columns: var(--control-h-lg) minmax(96px, 0.9fr) minmax(120px, 1.4fr) auto;
+  }
+  .skill-row-marks {
+    display: none;
+  }
+  .skill-row-actions {
+    grid-column: 4;
+  }
+  /* 标记列收起后，L3 / 异步仍要看得见（§不变量 2 的 L1/L2/L3 分档可见）：
+     信号挪到图标砖上——实线＝执行前确认，虚线＝异步作业；形状不同，不只靠颜色。 */
+  .skill-row.is-async .skill-row-icon {
+    border: 1px dashed var(--control-border);
+  }
+  .skill-row.is-write .skill-row-icon {
+    border: 1px solid var(--warning);
+  }
+}
+
+@container (max-width: 399px) {
+  /* 再窄就折成两行：名称 + 动作在第一行，摘要占满第二行。 */
+  .skill-row {
+    grid-template-columns: var(--control-h-lg) minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    gap: var(--space-1) var(--space-2);
+    padding-block: var(--space-2);
+  }
+  .skill-row-name {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .skill-row-desc {
+    grid-column: 2 / 4;
+    grid-row: 2;
+  }
+  .skill-row-actions {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+
+/* 页级留白：窄屏收紧（与列表列宽无关，走视口宽度）。 */
+@media (max-width: 640px) {
   .skill-catalog-content {
-    padding: var(--space-2);
-    gap: var(--space-3);
+    padding-inline: var(--space-3);
   }
-  .skill-catalog-page .skill-card-actions .skill-btn {
-    height: var(--control-h);
+  /* 分组提示只是辅助说明，窄屏让位给标题与「查看全部」。 */
+  .skill-group-hint {
+    display: none;
   }
 }
 
-/* 输入模态轴：触摸设备把命中区提到 44px。与宽度无关——触摸笔记本走桌面布局 + 触摸命中区。 */
+/* 输入模态轴：触摸设备命中区提到 44px。与宽度无关 —— 触摸笔记本走桌面布局 + 触摸命中区。 */
 @media (pointer: coarse) {
-  .skill-tab,
-  .skill-catalog-page .skill-card-actions .skill-btn {
-    min-height: 44px;
-  }
   .skill-tab {
+    min-height: 44px;
     height: auto;
     padding: 0 var(--space-4);
   }
+  .skill-row-name,
+  .skill-link,
+  .skill-group-more {
+    min-height: 44px;
+  }
 }
 
-/* 高度轴：矮窗收紧节奏。与宽度无关——1280×800 这类笔记本宽度够但高度不够。 */
+/* 高度轴：矮窗收紧节奏。与宽度无关 —— 1280×800 这类笔记本宽度够但高度不够。 */
 @media (max-height: 900px) {
   .skill-catalog-content {
-    gap: var(--space-3);
-  }
-  .skill-card {
-    padding: var(--space-2);
+    gap: var(--space-4);
+    padding-block: var(--space-3) var(--space-4);
   }
 }
 
-/* ── 按 docs/DESIGN.md（Cal.com 设计分析）落地本页 ──────────────────────
-   文档逐项对应：colors.* / typography.* / rounded.* / layout.spacing.* /
-   elevation（Flat → Soft hairline → Card surface → Subtle drop shadow）/
-   components.feature-icon-card · button-primary · button-secondary ·
-   button-icon-circular · text-link · text-input · text-input-focused ·
-   badge-pill · avatar-circle · nav-pill-group + category-tab /
-   responsive.breakpoints。
-
-   **组件映射（文档 → 本页）**
-     nav-pill-group + category-tab  → 筛选条（胶囊容器 + 选中白底胶囊 + 轻投影，即文档的
-                                      "pill-in-pill" 签名交互）
-     feature-icon-card              → 技能卡（白底 + 发丝线 + 12px 圆角 + 24px 内边距）
-     badge-pill                     → 风险 / 异步 / 来源 / 场景标记
-     avatar-circle                  → 内容示例头像（36px 正圆，surface-card 填充）
-     button-primary                 → 详情栏实底 CTA
-     button-secondary               → 次要按钮（重试 / 清除筛选）
-     button-icon-circular           → 展开 / 关闭（36×36 正圆）
-     text-link                      → 卡片动作「填入输入框」（文档：行内链接保持单色）
-     text-input / -focused          → 搜索框（40px、8px 圆角、聚焦转 ink 边框）
-
-   **无障碍覆盖（只有一处，其余照抄）**
-   1. 可操作控件边框：文档 `colors.hairline`(#e5e7eb) 对白只有 **1.24:1**，低于
-      WCAG 1.4.11 的 3:1；改用文档内的 `colors.muted`(#6b7280, **4.83:1 ✓**)。
-      装饰性发丝线（卡片轮廓、分隔线）仍用文档的 `colors.hairline`。
-   2. `colors.muted-soft`(#898989) 只有 **3.5:1**，文档把它定位为三级文字，本页不用它。
-   3. 文档 `caption` 是 13px/500，正好满足"可点标签 ≥13px"，无需像上一份文档那样改档。
-
-   **未采纳（营销站结构，或与工作台/无障碍冲突）**
-   - `hero-band` / `hero-app-mockup-card` / `cta-band-light` / `pricing-tier-*` /
-     `testimonial-card` / `footer`：文档是营销站分析，本页是登录后工作台，无落地页结构。
-     连带影响：文档「深色面只许出现在 footer 与 featured 定价卡」意味着**选中卡片不得
-     反相成深色**，故选中态改用 `surface-card` 灰面 + ink 发丝线（同文档的词汇）。
-   - `spacing.section` 96px：那是营销页的 band 节奏；本页取卡片 24px 内边距 + 网格 24px
-     间距（文档 `feature-icon-card` 与「Gutters: spacing.lg (24px)」原值）。
-   - 「Don't add hover state styling」针对营销站：本页卡片可点，保留最小 hover
-     （发丝线加深到 muted），属可操作性与无障碍所需。
-   - 深色主题：文档未定义，本页回落壳层 token，不替文档推测。 */
-:root:not([data-theme="dark"]) .skill-catalog-page {
-  /* colors —— Brand & Accent */
-  --cal-primary: #111111;
-  --cal-primary-active: #242424;
-  --cal-on-primary: #ffffff;
-  --cal-brand-accent: #3b82f6; /* 文档：近单色品牌，蓝色极少出现；本页只留给行内链接语义 */
-  /* colors —— Surface */
-  --cal-canvas: #ffffff;
-  --cal-surface-soft: #f8f9fa;
-  --cal-surface-card: #f5f5f5;
-  --cal-surface-strong: #e5e7eb;
-  /* colors —— Hairlines */
-  --cal-hairline: #e5e7eb;
-  --cal-hairline-soft: #f3f4f6;
-  /* colors —— Text */
-  --cal-ink: #111111;
-  --cal-body: #374151;
-  --cal-muted: #6b7280;
-  /* colors —— Semantic（文档：用于状态与徽标，作文字时须与文字并行） */
-  --cal-success: #10b981;
-  --cal-warning: #f59e0b;
-  --cal-error: #ef4444;
-  /* rounded.*（文档的圆角阶梯） */
-  --cal-radius-xs: 4px;
-  --cal-radius-sm: 6px;
-  --cal-radius-md: 8px;
-  --cal-radius-lg: 12px;
-  --cal-radius-xl: 16px;
-  --cal-radius-pill: 9999px;
-  /* elevation.subtle-drop-shadow（文档给出的那两条） */
-  --cal-shadow-subtle: 0 1px 2px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(0, 0, 0, 0.08);
-
-  /* 把文档 token 接到本页消费的语义 token 上 */
-  color: var(--cal-ink); /* 页根设基础文字色，避免继承壳层的颜色 */
-  --bg: var(--cal-canvas);
-  --text: var(--cal-ink);
-  --text-muted: var(--cal-body);
-  --border: var(--cal-hairline);
-  --control-border: var(--cal-muted); /* 无障碍覆盖 1 */
-  --ds-surface: var(--cal-surface-card);
-  --surface-hover: var(--cal-surface-soft);
-  --primary: var(--cal-primary);
-  --primary-fg: var(--cal-on-primary);
-  --primary-hover: var(--cal-primary-active);
-  --primary-text: var(--cal-ink);
-  --focus-ring: var(--cal-ink);
-  --success: var(--cal-success);
-  --warning: var(--cal-warning);
-  --danger: var(--cal-error);
-}
-
-/* 深色：文档没有深色 palette，本页回落到壳层的深色 token（不推测）。 */
-:root[data-theme="dark"] .skill-catalog-page {
-  --bg: #17191d;
-  --text: #f1f3f5;
-  --text-muted: #a2a8b2;
-  --border: #30343b;
-  --control-border: #77808c;
-  --ds-surface: #1f2124;
-  --surface-hover: #23262c;
-  --primary: #E0508C;
-  --primary-fg: var(--bg);
-  --primary-hover: #C73B7A;
-  --primary-text: var(--primary);
-}
-
-/* ── typography（文档 typography.*：display 一律 600 + 负字距，body 用 Inter 400） */
-.skill-catalog-page .skill-catalog-header h1 {
-  font-size: 28px; /* typography.display-sm */
-  font-weight: 600; /* 文档：display 全部 600，never 700，never 500 */
-  letter-spacing: -0.5px; /* Cal Sans 的字距签名，替代字体（Inter 600）也保留 */
-  line-height: 1.2;
-  color: var(--cal-ink);
-}
-.skill-catalog-page .skill-catalog-subtitle {
-  font-size: 14px; /* typography.body-sm */
-  line-height: 1.5;
-  color: var(--cal-body);
-}
-.skill-catalog-page .skill-group-header h2 {
-  font-size: 22px; /* typography.title-lg */
-  font-weight: 600;
-  letter-spacing: -0.3px;
-  line-height: 1.3;
-  color: var(--cal-ink);
-}
-.skill-catalog-page .skill-card-name {
-  font-size: 16px; /* typography.title-sm */
-  font-weight: 600;
-  line-height: 1.4;
-  color: var(--cal-ink);
-  min-height: var(--hit-min);
-}
-.skill-catalog-page .skill-card-desc {
-  font-size: 14px; /* typography.body-sm */
-  line-height: 1.5;
-  color: var(--cal-body);
-}
-.skill-catalog-page .skill-detail-head h2 {
-  font-size: 18px; /* typography.title-md */
-  font-weight: 600;
-  line-height: 1.4;
-  color: var(--cal-ink);
-}
-.skill-catalog-page .skill-detail-section h4 {
-  font-size: 16px; /* typography.title-sm */
-  font-weight: 600;
-  line-height: 1.4;
-  color: var(--cal-ink);
-}
-.skill-catalog-page .skill-detail-note,
-.skill-catalog-page .skill-detail-sub {
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--cal-body);
-}
-.skill-catalog-page .skill-detail-header h3,
-.skill-catalog-page .skill-group-hint {
-  font-size: 13px; /* typography.caption */
-  font-weight: 500;
-  line-height: 1.4;
-  color: var(--cal-muted); /* #6b7280 对白 4.83:1 ✓，13px 可用 */
-}
-
-/* ── nav-pill-group + category-tab（文档签名交互：胶囊容器里套一个选中白胶囊） */
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-tabs {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--cal-hairline);
-}
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-tabs-list {
-  padding: 6px; /* nav-pill-group：internal padding 6px */
-  border-radius: var(--cal-radius-pill);
-  background: var(--cal-surface-soft);
-  gap: 2px;
-}
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-tab {
-  padding: 8px 14px; /* category-tab：8px × 14px */
-  border: 0;
-  border-radius: var(--cal-radius-md);
-  background: transparent; /* 非选中：透明底 + muted 文字 */
-  color: var(--cal-muted);
-  font-size: 13px; /* typography.caption */
-  font-weight: 500;
-  line-height: 1.4;
-}
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-tab.on {
-  background: var(--cal-canvas); /* 选中：白底 + ink 文字 + 轻投影（pill-in-pill） */
-  color: var(--cal-ink);
-  box-shadow: var(--cal-shadow-subtle);
-}
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-tab-sep {
-  color: var(--cal-muted);
-}
-
-/* ── feature-icon-card → 技能卡 */
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-card {
-  padding: 24px; /* feature-icon-card：spacing.lg */
-  border: 1px solid var(--cal-hairline);
-  border-radius: var(--cal-radius-lg); /* rounded.lg：content cards */
-  background: var(--cal-canvas); /* 白卡 = "看真实产品"（文档 Do 的区分） */
-}
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-card:hover,
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-card:focus-within {
-  border-color: var(--cal-muted);
-}
-/* 选中：灰面（surface-card = 抽象强调）+ ink 发丝线 + 3px ink 强调条（形状信号）。
-   文档规定深色面只许出现在 footer 与 featured 定价卡，故这里不反相成深色。 */
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-card.is-selected {
-  border-color: var(--cal-ink);
-  background: var(--cal-surface-card);
-  box-shadow: inset 3px 0 0 0 var(--cal-ink);
-}
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-card-icon {
-  width: 36px;
-  height: 36px;
-  background: var(--cal-surface-card); /* 文档：badge pill / default avatar 的填充面 */
-  border: 0;
-  border-radius: var(--cal-radius-sm); /* rounded.sm：small inline */
-  color: var(--cal-ink);
-}
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-card-star {
-  color: var(--cal-muted);
-}
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-grid {
-  gap: 24px; /* 文档 Gutters：spacing.lg between cards in 3-up grids */
-}
-
-/* ── badge-pill → 风险 / 异步 / 来源 / 场景标记 */
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-mark,
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-preview-tag,
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-preview-agent {
-  height: 24px;
-  padding: 0 12px; /* badge-pill：4px × 12px */
-  border: 0;
-  border-radius: var(--cal-radius-pill);
-  background: var(--cal-surface-card);
-  color: var(--cal-ink);
-  font-size: 13px; /* typography.caption */
-  font-weight: 500;
-  line-height: 1.4;
-}
-/* 需确认：文档有 colors.warning，用边框 + 文字并行表达（不新造颜色、不只靠颜色） */
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-mark.is-write {
-  background: var(--cal-canvas);
-  border: 1px solid var(--cal-warning);
-  color: var(--cal-ink);
-}
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-mark.is-async {
-  border: 1px dashed var(--cal-muted);
-}
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-preview-tag-item {
-  height: 24px;
-  padding: 0 12px;
-  border: 1px solid var(--cal-hairline);
-  border-radius: var(--cal-radius-pill);
-  background: transparent;
-  color: var(--cal-body);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-/* ── avatar-circle：36px 正圆，surface-card 填充 */
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-preview-avatar {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--cal-radius-pill);
-  background: var(--cal-surface-card);
-  color: var(--cal-muted);
-  font-size: 13px;
-  font-weight: 500;
-}
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-preview-msg.is-user .skill-preview-avatar {
-  background: var(--cal-surface-card);
-  color: var(--cal-muted);
-}
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-preview-bubble {
-  border: 1px solid var(--cal-hairline);
-  border-radius: var(--cal-radius-lg);
-  background: var(--cal-canvas);
-  box-shadow: none; /* 文档 elevation：Card surface 不配投影 */
-}
-
-/* ── button-primary / button-secondary / button-icon-circular / text-link */
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-btn-primary {
-  height: 40px; /* button-primary：height 40px */
-  padding: 0 20px; /* padding 12px × 20px */
-  border-radius: var(--cal-radius-md); /* 文档：CTA 统一 8px */
-  font-size: 14px; /* typography.button */
-  font-weight: 600;
-  line-height: 1;
-}
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-btn-outline {
-  height: 40px;
-  padding: 0 20px;
-  background: var(--cal-canvas);
-  color: var(--cal-ink);
-  border: 1px solid var(--cal-muted); /* 无障碍覆盖 1：文档 hairline 只有 1.24:1 */
-  border-radius: var(--cal-radius-md);
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1;
-}
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-detail-toggle,
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-detail-close {
-  width: 36px; /* button-icon-circular：36 × 36 正圆 */
-  height: 36px;
-  border-radius: var(--cal-radius-pill);
-  background: var(--cal-canvas);
-  border: 1px solid var(--cal-muted);
-  color: var(--cal-ink);
-  line-height: 1;
-}
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-link {
-  color: var(--cal-ink); /* text-link：行内链接保持单色 */
-  font-size: 14px;
-  font-weight: 500;
-}
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-group-more {
-  color: var(--cal-body);
-  font-size: 14px;
-  font-weight: 500;
-}
-
-/* ── text-input / text-input-focused */
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-search-wrap {
-  height: 40px; /* text-input：height 40px */
-  padding: 0 14px; /* padding 10px × 14px */
-  border: 1px solid var(--cal-muted); /* 无障碍覆盖 1 */
-  border-radius: var(--cal-radius-md);
-  background: var(--cal-canvas);
-}
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-search-wrap:focus-within {
-  border-color: var(--cal-ink); /* text-input-focused：边框转 ink */
-}
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-search {
-  font-size: 16px; /* typography.body-md */
-  line-height: 1.5;
-  color: var(--cal-ink);
-}
-
-/* ── 详情列：白底 + 发丝线分界 */
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-detail-pane {
-  background: var(--cal-canvas);
-  border-left: 1px solid var(--cal-hairline);
-}
-:root:not([data-theme="dark"]) .skill-catalog-page .skill-detail-warn {
-  border: 1px solid var(--cal-hairline);
-  border-left: 3px solid var(--cal-ink);
-  border-radius: var(--cal-radius-md);
-  background: var(--cal-surface-card);
-  color: var(--cal-ink);
-}
-
-/* ── 布局：内容上限 1200px（文档 layout.grid & container） */
-.skill-catalog-page .skill-catalog-content {
-  max-width: 1200px;
-  margin-inline: auto;
-  width: 100%;
-  gap: 24px;
-}
-
-/* ── 断点折叠（文档 responsive.breakpoints：<768 / 768-1024 / 1024-1440 / >1440）
-   文档 feature grid 为 3-up → 2-up → 1-up，故本页一律不超过 3 列。 */
-@media (min-width: 1024px) {
-  .skill-catalog-page .skill-grid,
-  .skill-catalog-page .skill-grid.skill-grid-4,
-  .skill-catalog-page .skill-grid.skill-grid-3 {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+@media (prefers-reduced-motion: reduce) {
+  .skill-row {
+    transition: none;
   }
-}
-@media (min-width: 768px) and (max-width: 1023px) {
-  .skill-catalog-page .skill-grid,
-  .skill-catalog-page .skill-grid.skill-grid-4,
-  .skill-catalog-page .skill-grid.skill-grid-3 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-@media (max-width: 767px) {
-  .skill-catalog-page .skill-grid,
-  .skill-catalog-page .skill-grid.skill-grid-4,
-  .skill-catalog-page .skill-grid.skill-grid-3 {
-    grid-template-columns: 1fr;
-  }
-}
-/* 窄屏覆盖态：文档不禁止投影（elevation 有 subtle drop shadow 一档），沿用浮层阴影。 */
-.skill-catalog-page .skill-detail-pane.is-open {
-  box-shadow: var(--shadow-popover);
-}
-
-/* 触摸档命中区必须在色板覆盖之后重新声明：上面的 .skill-catalog-page .skill-tab（0,2,0）
-   会盖掉原先 @media (pointer: coarse) 里的 .skill-tab（0,1,0），44px 触摸下限会被吃掉。 */
-@media (pointer: coarse) {
-  .skill-catalog-page .skill-tab {
-    min-height: 44px;
-    padding: 0 var(--space-4);
-  }
-}
-/* ── 图标尺寸阶梯（§5 规则 17）────────────────────────────────
-   本页原先混用 14 / 16 / 17px 三种裸像素值，且无 token、无验收。
-   现在只有两档 + 一个图标按钮边长；下面用页面级覆盖收口，
-   不改各规则里的裸值，以免连带影响别的页面（全文件还有 3 处同类裸值属于邮件页等）。 */
-:root {
-  --icon-sm: 14px; /* 控件内图标：按钮、行内动作、输入框、头像 */
-  --icon-md: 18px; /* 标识砖内图标：卡片 / 分组 */
-  --icon-btn: 24px; /* 图标按钮的方形边长（= --control-h-sm） */
-}
-
-.skill-catalog-page .skill-search-wrap svg,
-.skill-catalog-page .skill-link-svg,
-.skill-catalog-page .skill-detail-toggle-svg,
-.skill-catalog-page .skill-detail-close-svg,
-.skill-catalog-page .skill-preview-avatar svg {
-  width: var(--icon-sm);
-  height: var(--icon-sm);
-}
-
-.skill-catalog-page .skill-card-svg,
-.skill-catalog-page .skill-group-svg {
-  width: var(--icon-md);
-  height: var(--icon-md);
-}
-
-.skill-detail-toggle,
-.skill-detail-close {
-  width: var(--icon-btn);
-  height: var(--icon-btn);
-}
-
-/* ── 焦点态（§5 规则 19）──────────────────────────────────────
-   shadcn 的 focus-visible 契约：键盘聚焦给 2px 可见环，鼠标点击不出现。
-   环色取 --text（对应 shadcn 把 `--ring` 取成 foreground），不引入新色（规则 18）。
-   此前全页只有 `.skill-search-wrap:focus-within` 一处焦点反馈，键盘用户看不出自己在哪。 */
-.skill-catalog-page .skill-tab:focus-visible,
-.skill-catalog-page .skill-card-name:focus-visible,
-.skill-catalog-page .skill-btn:focus-visible,
-.skill-catalog-page .skill-link:focus-visible,
-.skill-catalog-page .skill-group-more:focus-visible,
-.skill-catalog-page .skill-detail-toggle:focus-visible,
-.skill-catalog-page .skill-detail-close:focus-visible,
-.skill-catalog-page .skill-search:focus-visible {
-  outline: var(--focus-ring-width) solid var(--focus-ring);
-  outline-offset: var(--focus-ring-offset);
 }
 
 /* ── T6：Result toolbar + Creator lead row（框线稿 §页面结构 3/4、§组件、§Auto Layout） ── */
@@ -12376,140 +11969,6 @@ button.today-brief-primary-btn:disabled {
   }
 }
 
-/* Skills workbench list. Kept last so legacy catalog-card rules cannot override it. */
-.skill-catalog-page .skill-grid,
-.skill-catalog-page .skill-grid.skill-grid-3,
-.skill-catalog-page .skill-grid.skill-grid-4 {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  border-block: 1px solid color-mix(in srgb, var(--primary) 14%, var(--hairline));
-  background: color-mix(in srgb, var(--primary) 1.5%, var(--bg));
-}
-.skill-catalog-page .skill-card {
-  position: relative;
-  display: grid;
-  grid-template-columns: 36px minmax(140px, 0.8fr) minmax(240px, 1.8fr) auto auto;
-  align-items: center;
-  gap: 12px;
-  min-height: 58px;
-  padding: 8px 10px;
-  margin: 0;
-  border: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--primary) 9%, var(--hairline));
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  transition: background-color 120ms ease;
-}
-.skill-catalog-page .skill-card:last-child { border-bottom: 0; }
-.skill-catalog-page .skill-card:hover,
-.skill-catalog-page .skill-card:focus-within {
-  background: color-mix(in srgb, var(--primary) 4%, var(--bg));
-}
-.skill-catalog-page .skill-card.is-selected {
-  background: color-mix(in srgb, var(--primary) 8%, var(--bg));
-  box-shadow: inset 3px 0 0 var(--primary);
-}
-.skill-catalog-page .skill-card-head { display: contents; }
-.skill-catalog-page .skill-card-icon {
-  grid-column: 1;
-  width: 32px;
-  height: 32px;
-  border: 1px solid color-mix(in srgb, var(--primary) 12%, var(--hairline));
-  border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--primary) 7%, var(--bg));
-  color: var(--primary-text);
-}
-.skill-catalog-page .skill-card-svg { color: var(--primary-text); fill: currentColor; }
-.skill-catalog-page .skill-card-title { grid-column: 2; min-width: 0; }
-.skill-catalog-page .skill-card-name {
-  display: block;
-  width: 100%;
-  overflow: hidden;
-  color: color-mix(in srgb, var(--text) 82%, var(--primary));
-  font-size: var(--ds-font-section);
-  font-weight: 620;
-  line-height: var(--lh-control-sm);
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.skill-catalog-page .skill-card-desc {
-  grid-column: 3;
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: var(--ds-font-helper);
-  line-height: var(--lh-control-sm);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.skill-catalog-page .skill-card-marks {
-  grid-column: 4;
-  display: flex;
-  flex-wrap: nowrap;
-  margin: 0;
-  white-space: nowrap;
-}
-.skill-catalog-page .skill-mark {
-  border-color: color-mix(in srgb, var(--primary) 20%, var(--hairline));
-  background: color-mix(in srgb, var(--primary) 6%, var(--bg));
-  color: var(--primary-text);
-}
-.skill-catalog-page .skill-mark.is-write {
-  border-color: color-mix(in srgb, var(--warning) 32%, var(--hairline));
-  background: color-mix(in srgb, var(--warning) 9%, var(--bg));
-  color: color-mix(in srgb, var(--warning) 72%, var(--text));
-}
-.skill-catalog-page .skill-mark.is-async {
-  border-color: color-mix(in srgb, var(--info, var(--primary)) 28%, var(--hairline));
-  background: color-mix(in srgb, var(--info, var(--primary)) 8%, var(--bg));
-}
-.skill-catalog-page .skill-card-actions {
-  grid-column: 5;
-  margin: 0;
-  white-space: nowrap;
-}
-.skill-catalog-page .skill-link {
-  min-height: var(--control-h-sm);
-  padding-inline: 8px;
-  border-radius: var(--radius-control);
-  color: var(--primary-text);
-  text-decoration: none;
-}
-.skill-catalog-page .skill-link:hover,
-.skill-catalog-page .skill-link:focus-visible {
-  background: color-mix(in srgb, var(--primary) 8%, var(--bg));
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-.skill-catalog-page .skill-card-star {
-  position: absolute;
-  inset: 5px auto auto 4px;
-  color: var(--primary);
-  font-size: 9px;
-}
-.skill-catalog-page .skill-group-header h2,
-.skill-catalog-page .skill-group-icon,
-.skill-catalog-page .skill-group-icon-star {
-  color: var(--primary-text);
-}
-.skill-catalog-page .skill-group-icon {
-  border-color: color-mix(in srgb, var(--primary) 16%, var(--hairline));
-  background: color-mix(in srgb, var(--primary) 7%, var(--bg));
-}
-.skill-catalog-page .skill-group-hint { color: var(--text-muted); }
-.skill-catalog-page .skill-group-more {
-  color: var(--primary-text);
-  text-decoration-color: color-mix(in srgb, var(--primary) 45%, transparent);
-}
-.skill-catalog-page .skill-tab.on {
-  border-color: color-mix(in srgb, var(--primary) 20%, var(--hairline));
-  background: color-mix(in srgb, var(--primary) 9%, var(--bg));
-  color: var(--primary-text);
-}
 .nav-loading {
   width: 12px;
   height: 12px;
@@ -12521,24 +11980,5 @@ button.today-brief-primary-btn:disabled {
 }
 @keyframes nav-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) {
-  .skill-catalog-page .skill-card { transition: none; }
   .nav-loading { animation: none; }
-}
-@media (max-width: 980px) {
-  .skill-catalog-page .skill-card {
-    grid-template-columns: 32px minmax(120px, .8fr) minmax(180px, 1.5fr) auto;
-  }
-  .skill-catalog-page .skill-card-marks { display: none; }
-  .skill-catalog-page .skill-card-actions { grid-column: 4; }
-}
-@media (max-width: 640px) {
-  .skill-catalog-page .skill-card {
-    grid-template-columns: 32px minmax(0, 1fr) auto;
-    grid-template-rows: auto auto;
-    gap: 4px 10px;
-    padding-block: 9px;
-  }
-  .skill-catalog-page .skill-card-title { grid-column: 2; grid-row: 1; }
-  .skill-catalog-page .skill-card-desc { grid-column: 2 / 4; grid-row: 2; }
-  .skill-catalog-page .skill-card-actions { grid-column: 3; grid-row: 1; }
 }

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { isWriteSkill } from "../composer/catalog";
@@ -32,7 +32,7 @@ const TABS: { id: string; label: string; kind: "mode" | "stage" }[] = [
   { id: "biz", label: "报价", kind: "stage" },
   { id: "sample", label: "寄样", kind: "stage" },
   { id: "settle", label: "成交", kind: "stage" },
-  { id: "content", label: "数据分析", kind: "stage" },
+  { id: "content", label: "内容发布", kind: "stage" },
 ];
 
 const USAGE_KEY = "skill:usage";
@@ -302,7 +302,7 @@ const IO_MAP: Record<string, { inputs: string[]; outputs: string[]; example: str
 function SkillIcon({ id }: { id: string }) {
   const d = SKILL_ICONS[id] || DEFAULT_ICON;
   return (
-    <svg viewBox="0 0 24 24" className="skill-card-svg" aria-hidden>
+    <svg viewBox="0 0 24 24" className="skill-row-svg" aria-hidden>
       <path d={d} fill="currentColor" />
     </svg>
   );
@@ -340,6 +340,80 @@ function skillSource(id: string): string {
  */
 const RISK_LABEL: Record<"read" | "write", string> = { read: "只读", write: "需确认" };
 
+/* 员工向词表：员工表面不摊引擎词（specs/UX-EMPLOYEE.md §员工禁词：MCP / Codex / Thread /
+   英文 Skill 时序 / 原始堆栈）。下面四张表把接口返回的 id 翻成业务语言；查不到时回落到
+   业务兜底，**绝不回落成原始 id**。 */
+const ACTION_LABEL: Record<string, string> = {
+  analyze: "读取授权范围内的信息并分析",
+  present_sop: "展示这项技能的标准流程",
+  update: "更新你指定的字段",
+  sync: "同步最新数据",
+  propose_stage: "生成阶段变更建议（需你确认）",
+  create_draft: "生成草稿（需你确认）",
+  create_approval: "发起审批（需你确认）",
+  claim_follow: "认领跟进",
+  compose_draft: "生成回复草稿",
+  confirm_send: "发送前确认",
+  confirm_stage: "阶段写入前确认",
+  open_thread: "打开对应会话",
+  release_follow: "释放跟进",
+  handoff: "交接给同事",
+  retry_sync: "失败后重试同步",
+  none: "无额外步骤",
+};
+
+const OUTPUT_LABEL: Record<string, string> = {
+  task_result: "任务结果",
+  today_brief: "今日任务简报",
+  propose_stage: "阶段变更建议",
+  kol_analyze_brief: "达人分析简报",
+  crawl_plan: "采集计划",
+};
+
+const TOOL_LABEL: Record<string, string> = {
+  "starry.get_collaboration": "合作记录查询",
+  "starry.list_collaborations": "合作记录列表",
+  "starry.deal_memory": "成交记忆",
+  "starrykol.getKolProfileDetail": "达人详情",
+  "starrykol.pageKolProfiles": "达人库分页查询",
+  "starrykol.listAllKolProfiles": "达人库全量列表",
+  "starrykol.getKolProfileSidebarMetrics": "达人库侧栏指标",
+  "starrykol.addKolProfile": "新增达人",
+  "starrykol.updateKolProfile": "更新达人资料",
+  "starrykol.listKolPlatformData": "平台数据查询",
+  "starrykol.decryptKolContact": "解密达人联系方式（受控）",
+  "starrykol.pageRiskConversations": "风险对话列表",
+  "starrykol.summarizeRiskConversations": "风险对话摘要",
+  "starrykol.listRiskTagOptions": "风险标签字典",
+  "starrykol.getStageRiskMatrix": "阶段风险矩阵",
+  "starrykol.pageEmailConversations": "邮件会话列表",
+  "starrykol.pageAppEmailConversations": "应用邮件会话",
+  "starrykol.getEmailConversation": "邮件会话详情",
+  "starrykol.getEmailConversationSubjectGroups": "邮件主题分组",
+  "starrykol.translateEmailToChinese": "邮件翻译",
+  "starrykol.previewEmailDraft": "邮件草稿预览",
+  "starrykol.pageMailboxes": "邮箱列表",
+  "starrykol.listNylasAccounts": "邮箱账号列表",
+  "starrykol.pageLifecycleKanban": "生命周期看板",
+  "starrykol.listCooperationStageOptions": "合作阶段字典",
+  "starrykol.listDictionaryOptions": "业务字典查询",
+  "kolclaw.list_creators": "达人任务列表",
+  "kolclaw.get_daily_tasks": "每日任务",
+  "kolclaw.get_budget_report": "预算报表",
+};
+
+const PERMISSION_LABEL: Record<string, string> = {
+  "starrykol:read": "达人库读取",
+  "starrykol:write": "达人库写入",
+  "kolclaw:read": "业绩与任务读取",
+  "claw:write": "业绩与任务写入",
+};
+
+/** 工具行名称：业务名优先，其次动作词表，最后只留连接器 / 平台动作 —— 不摊原始 ref。 */
+function toolLabel(ref: string, kind?: string): string {
+  return TOOL_LABEL[ref] || ACTION_LABEL[ref] || (kind === "mcp" ? "平台连接器" : "平台动作");
+}
+
 /**
  * 异步作业：同一时间只跑一个，必须有进度 / 取消 / 重试。
  * 依据 `docs/07-mcp-data-contract.md`「MediaCrawler 是异步作业…不得把它伪装成同步 Skill」。
@@ -359,6 +433,15 @@ function AddToComposerIcon() {
         strokeLinejoin="round"
       />
       <path d="M5 18.5h14" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** 搜索框的清除图标：一个「×」。图标按钮必须带 aria-label（语义不能只靠图形象征）。 */
+function ClearIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="skill-search-clear-svg" aria-hidden>
+      <path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   );
 }
@@ -384,42 +467,47 @@ function SkillCard({
   if (isAsync) marks.push({ cls: "is-async", text: "异步 · 可取消" });
   return (
     <div
-      className={"skill-card" + (selected ? " is-selected" : "")}
+      className={
+        "skill-row"
+        + (selected ? " is-selected" : "")
+        + (tier === "write" ? " is-write" : "")
+        + (isAsync ? " is-async" : "")
+      }
       data-skill-id={skill.id}
       onClick={() => onSelect(skill)}
     >
-      {isFrequent && <span className="skill-card-star" aria-hidden>★</span>}
-      <div className="skill-card-head">
-        <div className="skill-card-icon">
-          <SkillIcon id={skill.id} />
-        </div>
-        <div className="skill-card-title">
-          {/* 标题是卡片的键盘可达入口；同时暴露选中态（选中只靠颜色不合规）。 */}
-          <button
-            type="button"
-            className="skill-card-name"
-            aria-pressed={selected}
-            onClick={() => onSelect(skill)}
-          >
-            {skill.title}
-          </button>
-        </div>
+      <div className="skill-row-icon">
+        <SkillIcon id={skill.id} />
       </div>
-      <p className="skill-card-desc">{skill.summary || skill.title}</p>
+      {/* 名称是行的键盘可达入口，同时暴露选中态（选中只靠颜色不合规，docs/DESIGN.md §不变量 4）。
+          ★ 只在非「常用」分组出现——那一组整块都是常用，逐行再标一次等于把例外信号用成装饰。 */}
+      <button
+        type="button"
+        className="skill-row-name"
+        aria-pressed={selected}
+        onClick={() => onSelect(skill)}
+      >
+        <span className="skill-row-name-text">{skill.title}</span>
+        {isFrequent && <span className="skill-row-star" aria-hidden>★</span>}
+      </button>
+      <p className="skill-row-desc">{skill.summary || skill.title}</p>
       {marks.length > 0 && (
-        <div className="skill-card-marks">
+        <div className="skill-row-marks">
           {marks.map((m) => (
             <span key={m.cls} className={"skill-mark " + m.cls}>{m.text}</span>
           ))}
         </div>
       )}
-      {/* 卡片只保留一个动作，走链接式（语义图标 + 常驻下划线），不再占用一整行按钮位。
+      {/* 每行只保留一个动作，走链接式（语义图标 + 常驻下划线），不再占用整行按钮位。
           「新建会话」已移除——部分技能需要先填参数，直接开会话是错误承诺。
           动作名定为「填入输入框」：它只把技能填进输入框，补完参数后由员工自己发送，不含执行。 */}
-      <div className="skill-card-actions" onClick={(e) => e.stopPropagation()}>
+      <div className="skill-row-actions" onClick={(e) => e.stopPropagation()}>
+        {/* 行内动作退出 Tab 顺序：键盘路径＝行名 → 详情列 CTA。否则 51 行 × 2 个焦点会把详情列
+            推到 120 次 Tab 之外（docs/DESIGN.md §三轴适配 · 输入模态轴）。鼠标 / 触摸不受影响。 */}
         <button
           type="button"
           className="skill-link"
+          tabIndex={-1}
           title="把这项技能填进输入框，补完参数后由你发送"
           onClick={() => onUse(skill)}
         >
@@ -494,6 +582,11 @@ function SkillDetail({
   const isAsync = ASYNC_SKILL_IDS.has(skill.id);
   const outputs = io?.outputs || (skill.output ? [skill.output] : null);
   const learning = skill.learning;
+  // 步骤：已知动作 id → 业务语言；已经是中文的原样保留；纯 ASCII 的未知 id **不渲染**
+  // （员工表面不摊英文 Skill 时序，specs/UX-EMPLOYEE.md §员工禁词）。
+  const steps = (learning?.steps || [])
+    .map((step) => ACTION_LABEL[step] ?? (/^[\x20-\x7E]+$/.test(step) ? "" : step))
+    .filter(Boolean);
   const execution = skill.execution;
 
   return (
@@ -522,7 +615,7 @@ function SkillDetail({
 
       <div className="skill-detail-body">
         <div className="skill-detail-head">
-          <div className="skill-card-icon">
+          <div className="skill-row-icon">
             <SkillIcon id={skill.id} />
           </div>
           <div>
@@ -538,24 +631,8 @@ function SkillDetail({
           {isAsync && <span className="skill-mark is-async">异步 · 可取消</span>}
         </div>
 
-        {entry ? (
-          <>
-            <div className="skill-detail-section">
-              <h4>可以直接查到</h4>
-              <p className="skill-detail-note">{entry.quick}</p>
-            </div>
-            <div className="skill-detail-section">
-              <h4>需要走确认或 AI 助理</h4>
-              <p className="skill-detail-note">{entry.agent}</p>
-            </div>
-          </>
-        ) : (
-          <p className="skill-detail-warn">
-            这项技能还没登记进 BUSINESS.md 的覆盖表，入口口径待业务专家补齐。
-            补齐前请照它的说明与产出判断用法，不要假定它可以被直接执行。
-          </p>
-        )}
-
+        {/* 段落次序按员工的决策顺序排：先「什么时候用 / 我要准备什么 / 能拿到什么」，
+            再是能力边界与治理口径（可以直接查到 / 需要走确认 → 执行边界 → 调用关系）。 */}
         {scenes && (
           <div className="skill-detail-section">
             <h4>适用场景</h4>
@@ -565,65 +642,6 @@ function SkillDetail({
               ))}
             </div>
           </div>
-        )}
-
-        {learning && (
-          <>
-            <div className="skill-detail-section">
-              <h4>使用步骤</h4>
-              <ol className="skill-detail-steps">
-                {(learning.steps || []).map((step, index) => <li key={`${step}-${index}`}>{step}</li>)}
-              </ol>
-            </div>
-            <div className="skill-detail-section">
-              <h4>执行边界</h4>
-              <p className="skill-detail-note">
-                结果：{learning.result || "任务结果"}。{learning.confirmation || "按当前权限执行"}
-              </p>
-            </div>
-          </>
-        )}
-
-        {execution && (
-          <details className="skill-execution-details">
-            <summary>查看调用关系与安全边界</summary>
-            <div className="skill-detail-section">
-              <h4>调用工具</h4>
-              {execution.tools?.length ? (
-                <div className="skill-execution-tools">
-                  {execution.tools.map((tool, index) => (
-                    <div className="skill-execution-tool" key={`${tool.ref}-${index}`}>
-                      <code>{tool.ref}</code>
-                      <span>{tool.kind === "mcp" ? "MCP" : "平台动作"}</span>
-                      <span>{tool.risk || "L1"}</span>
-                      {tool.confirmation === "required" && <strong>执行前确认</strong>}
-                    </div>
-                  ))}
-                </div>
-              ) : <p className="skill-detail-note">本 Skill 当前不直接调用外部工具。</p>}
-            </div>
-            {execution.permissions?.length ? (
-              <div className="skill-detail-section">
-                <h4>所需权限</h4>
-                <div className="skill-detail-tags">
-                  {execution.permissions.map((permission) => <span key={permission} className="skill-preview-tag-item">{permission}</span>)}
-                </div>
-              </div>
-            ) : null}
-            {execution.async?.enabled && (
-              <div className="skill-detail-section">
-                <h4>异步执行</h4>
-                <p className="skill-detail-note">
-                  {execution.async.status || "需要查看进度"}；
-                  {execution.async.cancelable ? "支持取消" : "不支持取消"}；
-                  {execution.async.retryable ? "支持重试" : "不支持重试"}。
-                </p>
-              </div>
-            )}
-            <p className="skill-detail-note">
-              {execution.receipt_required ? "受控动作会留下执行回执。" : "当前没有登记需要回执的正式写入动作。"}
-            </p>
-          </details>
         )}
 
         {io && (
@@ -646,6 +664,94 @@ function SkillDetail({
               ))}
             </div>
           </div>
+        )}
+
+        {entry ? (
+          <>
+            <div className="skill-detail-section">
+              <h4>可以直接查到</h4>
+              <p className="skill-detail-note">{entry.quick}</p>
+            </div>
+            <div className="skill-detail-section">
+              <h4>需要走确认或 AI 助理</h4>
+              <p className="skill-detail-note">{entry.agent}</p>
+            </div>
+          </>
+        ) : (
+          <p className="skill-detail-warn">
+            这项技能还没登记进 BUSINESS.md 的覆盖表，入口口径待业务专家补齐。
+            补齐前请照它的说明与产出判断用法，不要假定它可以被直接执行。
+          </p>
+        )}
+
+        {learning && (
+          <>
+            <div className="skill-detail-section">
+              <h4>使用步骤</h4>
+              {steps.length ? (
+                <ol className="skill-detail-steps">
+                  {steps.map((step, index) => <li key={`${step}-${index}`}>{step}</li>)}
+                </ol>
+              ) : (
+                <p className="skill-detail-note">
+                  这项技能的步骤说明还没翻成业务语言；先按上面的场景与产出判断用法。
+                </p>
+              )}
+            </div>
+            <div className="skill-detail-section">
+              <h4>执行边界</h4>
+              <p className="skill-detail-note">
+                结果：{OUTPUT_LABEL[learning.result || ""] || "任务结果"}。{learning.confirmation || "按当前权限执行"}
+              </p>
+            </div>
+          </>
+        )}
+
+        {execution && (
+          <details className="skill-execution-details">
+            <summary>查看调用关系与安全边界</summary>
+            <div className="skill-detail-section">
+              <h4>调用工具</h4>
+              {execution.tools?.length ? (
+                <div className="skill-execution-tools">
+                  {execution.tools.map((tool, index) => (
+                    <div className="skill-execution-tool" key={`${tool.ref}-${index}`}>
+                      <span className="skill-execution-tool-name">{toolLabel(tool.ref || "", tool.kind)}</span>
+                      <span className={"skill-mark" + (tool.risk === "L3" ? " is-write" : "")}>
+                        {tool.risk === "L3" ? "L3 · 执行前确认" : "L1 · 只读"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : <p className="skill-detail-note">本 Skill 当前不直接调用外部工具。</p>}
+            </div>
+            {execution.permissions?.length ? (
+              <div className="skill-detail-section">
+                <h4>所需权限</h4>
+                <div className="skill-detail-tags">
+                  {execution.permissions.map((permission) => (
+                    <span key={permission} className="skill-preview-tag-item">
+                      {PERMISSION_LABEL[permission]
+                        || (permission.endsWith(":write") ? "业务数据写入" : "业务数据读取")}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {execution.async?.enabled && (
+              <div className="skill-detail-section">
+                <h4>异步执行</h4>
+                <p className="skill-detail-note">
+                  {execution.async.status || "需要查看进度"}；
+                  {execution.async.cancelable ? "支持取消" : "不支持取消"}；
+                  {execution.async.retryable ? "支持重试" : "不支持重试"}。
+                </p>
+              </div>
+            )}
+            <p className="skill-detail-note">
+              {execution.receipt_required ? "受控动作会留下执行回执。" : "当前没有登记需要回执的正式写入动作。"}
+            </p>
+          </details>
         )}
 
         {io && (
@@ -672,7 +778,7 @@ function SkillDetail({
         {!io && (
           <p className="skill-detail-note">
             这项技能的输入与产出示例尚未补录。上面的口径来自 BUSINESS.md
-            的覆盖表，可以直接用；要看实际结果，用下面的「插入当前会话」把它挂到输入区跑一次。
+            的覆盖表，可以直接用；要看实际结果，用下面的「填入输入框」把它挂到输入区跑一次。
           </p>
         )}
 
@@ -694,8 +800,8 @@ function SkillDetail({
       </div>
 
       <div className="skill-detail-footer">
-        {/* 本视口唯一的实底主 CTA（§5 规则 1）。动作名与卡片统一为「填入输入框」。
-            「新建会话」已移除（§5 规则 16）。 */}
+        {/* 本视口唯一的实底主 CTA（docs/DESIGN.md §不变量 1）。动作名与列表行统一为「填入输入框」；
+            「新建会话」已按 §不变量 2（先补参数再外发）移除。 */}
         <button
           type="button"
           className="skill-btn skill-btn-primary skill-btn-large"
@@ -725,6 +831,7 @@ export function SkillCatalog() {
   // 详情列：`detailWide` 控制宽度档；`detailOpen` 只在窄屏的覆盖态下起作用（≥900px 常驻）。
   const [detailWide, setDetailWide] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement | null>(null);
 
   // 选中技能＝同时展开详情；窄屏下这一步才会把覆盖层打开。
   const selectSkill = (s: SkillRow) => {
@@ -796,6 +903,10 @@ export function SkillCatalog() {
     return [...used, ...recommended.filter((s) => !seen.has(s.id))].slice(0, 4);
   }, [skills, usage]);
 
+  // 有使用记录才叫「常用技能」；没有记录时那几行是推荐补的，标题与星标都得照实说
+  // （不得把推荐说成"你经常使用"：根 AGENTS.md §4）。
+  const hasUsage = useMemo(() => skills.some((s) => (usage[s.id] || 0) > 0), [skills, usage]);
+
   const groupedSkills = useMemo(() => {
     const groups: Record<string, SkillRow[]> = {};
     for (const group of GROUPS) {
@@ -837,12 +948,27 @@ export function SkillCatalog() {
             <path d="M16 16.4 20 20.4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
           </svg>
           <input
+            ref={searchRef}
             className="skill-search"
             placeholder="搜索技能 / SOP / 场景"
             aria-label="搜索技能 / SOP / 场景"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
+          {q && (
+            <button
+              type="button"
+              className="skill-search-clear"
+              aria-label="清除搜索"
+              title="清除"
+              onClick={() => {
+                setQ("");
+                searchRef.current?.focus();
+              }}
+            >
+              <ClearIcon />
+            </button>
+          )}
         </label>
       </header>
 
@@ -867,6 +993,9 @@ export function SkillCatalog() {
             ))}
           </div>
         ))}
+        {/* 窄屏下这排 pill 会横向滚动：右缘渐隐是「还有内容」的可视信号（sticky 在滚动容器内）。
+            宽屏放得下时它只盖在背景上，不产生视觉噪声。 */}
+        <span className="skill-tabs-fade" aria-hidden />
       </div>
 
       {err && (
@@ -893,18 +1022,25 @@ export function SkillCatalog() {
             <section className="skill-group skill-group-frequent">
               <div className="skill-group-header">
                 <span className="skill-group-icon skill-group-icon-star">★</span>
-                <h2>常用技能</h2>
-                <span className="skill-group-hint">你经常使用的技能，点击即可快速调用</span>
-                <Link to="/skills?tab=frequent" className="skill-group-more">查看全部</Link>
+                <h2>{hasUsage ? "常用技能" : "推荐技能"}</h2>
+                <span className="skill-group-hint">
+                  {hasUsage ? "你经常使用的技能，点击即可快速调用" : "按你所在阶段挑的几项，先试这些"}
+                </span>
+                <Link
+                  to={hasUsage ? "/skills?tab=frequent" : "/skills?tab=recommend"}
+                  className="skill-group-more"
+                >
+                  查看全部
+                </Link>
               </div>
-              <div className="skill-grid skill-grid-4">
+              <div className="skill-list">
                 {frequentSkills.map((s) => (
                   <SkillCard
                     key={s.id}
                     skill={s}
                     onSelect={selectSkill}
                     onUse={(skill) => void useSkill(skill)}
-                    isFrequent={true}
+                    isFrequent={false}
                     selected={selectedSkill?.id === s.id}
                   />
                 ))}
@@ -925,7 +1061,7 @@ export function SkillCatalog() {
                   <span className="skill-group-hint">{group.hint}</span>
                   <Link to={`/skills?tab=${group.id}`} className="skill-group-more">查看全部</Link>
                 </div>
-                <div className="skill-grid skill-grid-3">
+                <div className="skill-list">
                   {groupSkills.map((s) => (
                     <SkillCard
                       key={s.id}
