@@ -457,9 +457,15 @@ export default function Home() {
   const seedDiscoveryEntry = () => {
     const brief = discoveryFormBrief || discoveryBrief || defaultDiscoveryBrief();
     setDiscoveryFormBrief((current) => current ?? brief);
-    if (text.trim() && !text.startsWith(DISCOVERY_BODY_PREFIX)) return;
+    // 模板起始文本不算用户输入：切到 AI发现 时允许被发现正文替换，
+    // 只有员工真正打过的字才受保护。
+    const isStarterText = (value: string) => (
+      value === starterPrompt({ id: "creator_daily_tasks", title: "今日任务" })
+      || value === starterPrompt({ id: "todo_plan", title: "我的待办" })
+    );
+    if (text.trim() && !text.startsWith(DISCOVERY_BODY_PREFIX) && !isStarterText(text)) return;
     setDiscoveryBrief((current) => current ?? brief);
-    setText((current) => (current.trim() && !current.startsWith(DISCOVERY_BODY_PREFIX)
+    setText((current) => (current.trim() && !current.startsWith(DISCOVERY_BODY_PREFIX) && !isStarterText(current)
       ? current
       : renderDiscoveryBody(brief)));
     setLockedIntent(DISCOVERY_INTENT);
@@ -1807,7 +1813,8 @@ export default function Home() {
         <button
           key={homeMode}
           type="button"
-          aria-pressed={mode === homeMode}
+          role="tab"
+          aria-selected={mode === homeMode}
           data-home-mode={homeMode}
           data-home-entry="switch-tab"
           onClick={() => {
@@ -1818,8 +1825,8 @@ export default function Home() {
         >
           {homeModeIcon(homeMode)}
           {homeMode === "lifecycle" ? "我的红人" : HOME_MODE_LABELS[homeMode]}
-          {homeMode === "today" ? <span className="home-mode-count" aria-hidden>{todayCount}</span> : null}
-          {homeMode === "todo" ? <span className="home-mode-count" aria-hidden>{openCount}</span> : null}
+          {homeMode === "today" && todayCount > 0 ? <span className="home-mode-count" aria-hidden>{todayCount}</span> : null}
+          {homeMode === "todo" && openCount > 0 ? <span className="home-mode-count" aria-hidden>{openCount}</span> : null}
         </button>
       ))}
       <button

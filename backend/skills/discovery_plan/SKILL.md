@@ -1,7 +1,7 @@
 ---
 id: discovery_plan
 title: 发现计划
-description: 当模板无法解析时，把发现目标写成可确认的 spec 草稿。不采集、不入库。
+description: 描述你想找的红人方向，我整理成一份可确认的发现计划。只写计划草稿：不采集、不入库。
 category: 线索
 profile: lead
 output: task_result

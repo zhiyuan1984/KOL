@@ -151,7 +151,7 @@ test("todo pane lists open memory items including unpromoted source=ai", async (
   expect(sessionPosts).toEqual([]);
 });
 
-test("todo entry lists memory without planning; 启动待办任务 starts the run", async ({ page }) => {
+test("todo entry locks todo_plan without planning; composer submit starts the run", async ({ page }) => {
   const todos = [{
     id: "tsk_open",
     title: "无截止日期事项",
@@ -181,10 +181,12 @@ test("todo entry lists memory without planning; 启动待办任务 starts the ru
   const startPlan = page.locator('[data-home-entry="plan-todo"]');
   await expect(startPlan).toHaveText("启动待办任务");
   await expect(startPlan).toBeEnabled();
+  await expect(page.locator('[data-skill-chip="todo_plan"]')).toHaveCount(0);
+  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/整理我的待办任务/);
   await page.waitForTimeout(1500);
   expect(planPosts).toEqual([]);
 
-  await startPlan.click();
+  await page.locator("[data-home] [data-ai-prompt-submit]").click();
   await expect.poll(() => planPosts.length, { timeout: 30000 }).toBe(1);
   await expect(page.locator("[data-todo-list]")).toBeVisible();
 });

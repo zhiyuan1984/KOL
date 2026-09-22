@@ -18,7 +18,7 @@ test("home four-panel tab order and pane visibility", async ({ page }) => {
   expect(await page.locator("[data-home-mode]").evaluateAll((els) => (
     els.map((el) => el.getAttribute("data-home-mode"))
   ))).toEqual(["today", "todo", "discovery", "pool", "lifecycle"]);
-  await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-home-quick-tasks]")).toBeVisible();
   await expect(page.locator("[data-home-quick-task='first-outreach']")).toHaveText("首次建联");
   await expect(page.locator('[data-home-mode="today"]')).toContainText("今日任务");

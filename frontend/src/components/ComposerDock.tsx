@@ -434,14 +434,6 @@ export default function ComposerDock({
       seenSkills.add(chip.id);
       chips.push(chip);
     }
-    if (lockedSkill && !seenSkills.has(lockedSkill.id)) {
-      chips.push({
-        kind: "skill",
-        id: lockedSkill.id,
-        label: lockedLabel || labelOf(lockedSkill),
-        write: isWriteSkill(lockedSkill),
-      });
-    }
     if (lockedKnowledgeId) {
       const title = lockedTemplate?.title || templates.find((row) => row.id === lockedKnowledgeId)?.title || "资料";
       chips.push({
@@ -480,6 +472,9 @@ export default function ComposerDock({
       });
     }
     for (const chip of contextChips || []) {
+      // Mode/intent labels belong in the composer shell, not the chip rail:
+      // the rail carries only context the user explicitly added (图1 reference).
+      if (chip.id === DISCOVERY_INTENT) continue;
       if (chips.some((item) => item.id === chip.id && item.kind === "object")) continue;
       chips.push({
         kind: "object",
@@ -749,12 +744,19 @@ export default function ComposerDock({
 
   const submit = () => {
     if (running || sendDisabled) return;
+    const railSkillIds = railChips.filter((chip) => chip.kind === "skill").map((chip) => chip.id);
+    const railSkillLabels = railChips.filter((chip) => chip.kind === "skill").map((chip) => chip.label);
+    // The locked intent no longer renders as a chip, but it still travels with
+    // the submission as a skill.
+    const lockedForSubmit = lockedSkill && !railSkillIds.includes(lockedSkill.id)
+      ? { id: lockedSkill.id, label: lockedLabel || labelOf(lockedSkill) }
+      : null;
     const text = value.trim()
       || attachments.map((a) => a.name).join("、")
-      || railChips.filter((chip) => chip.kind === "skill").map((chip) => chip.label).join("、")
+      || [...railSkillLabels, ...(lockedForSubmit ? [lockedForSubmit.label] : [])].join("、")
       || "";
     const scope: ComposerScope = {
-      skills: railChips.filter((chip) => chip.kind === "skill").map((chip) => chip.id),
+      skills: [...railSkillIds, ...(lockedForSubmit ? [lockedForSubmit.id] : [])],
       knowledge_bases: railChips.filter((chip) => chip.kind === "kb").map((chip) => chip.id),
       expert_id: expertId,
       connectors: connectorChips
@@ -1170,6 +1172,9 @@ export default function ComposerDock({
             ) : null}
           </div>
           <div className="composer-toolbar-end">
+            {workspace ? (
+              <span className="composer-kbd-hint" aria-hidden>Enter 发送 · Shift+Enter 换行</span>
+            ) : null}
             <ModelTierControl className="composer-toolbar-tier" compact />
             {running ? (
               <button

@@ -3540,6 +3540,15 @@ summary:focus-visible,
   gap: 8px;
   margin-left: auto;
 }
+/* Desktop-only keyboard hint, aligned with the 图1 reference composer. */
+.composer-kbd-hint {
+  color: var(--text-muted);
+  font-size: var(--ds-font-sm);
+  white-space: nowrap;
+}
+@media (hover: none) {
+  .composer-kbd-hint { display: none; }
+}
 .composer-toolbar-divider {
   width: 1px;
   height: 16px;
@@ -4047,6 +4056,9 @@ summary:focus-visible,
 }
 .home-pane.is-composer-reading .composer.composer--workspace { min-height: var(--composer-default-min, 200px); }
 .home-pane.is-composer-focused .composer.composer--workspace { min-height: var(--composer-default-min, 200px); }
+/* Reading state (not focused) keeps the composer compact so the pane content it
+   serves is not pushed off-screen (DESIGN.md §不变量 5). */
+.home-pane.is-composer-reading:not(.is-composer-focused) .composer.composer--workspace { min-height: var(--composer-reading-min, 128px); }
 .home-pane.is-composer-reading:not(.is-composer-focused) .composer.composer--workspace textarea { min-height: 40px; }
 
 /* Home + session Composer share a rounded-rect, not a full pill. */
@@ -11826,11 +11838,11 @@ button.today-brief-primary-btn:disabled {
 .home-quick-tasks button {
   flex: 0 0 auto;
   min-height: var(--control-h);
-  padding: 0 10px;
-  border: 1px solid var(--border);
+  padding: 0 12px;
+  border: none;
   border-radius: var(--radius-full);
-  background: var(--bg);
-  color: var(--text-muted);
+  background: var(--chrome);
+  color: var(--text);
   font: inherit;
   font-size: var(--ds-font-sm);
   white-space: nowrap;
@@ -11850,12 +11862,11 @@ button.today-brief-primary-btn:disabled {
   stroke-linejoin: round;
 }
 .home-quick-tasks button:hover {
-  color: var(--text);
-  border-color: var(--control-border-hover);
+  background: var(--chrome-2);
 }
 .home-quick-tasks button[aria-pressed="true"] {
+  background: var(--chrome-2);
   color: var(--text);
-  border-color: var(--text);
   font-weight: 600;
 }
 

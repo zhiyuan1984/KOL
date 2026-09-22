@@ -425,10 +425,11 @@ test("home task template 写合作邮件 prefills home composer then follows the
   await openHomeTemplates(page);
   await homeRecByTitle(page, "写合作邮件").click();
   await expectHomeComposerDraft(page, "写合作邮件 发件箱 [发件邮箱] 发给 [收件邮箱] 主题：[主题]");
-  await expect(page.locator('[data-home] [data-skill-chip="email_compose"]')).toBeVisible();
+  // 锁定意图不再渲染成芯片（chip 只承载显式添加的上下文）。
+  await expect(page.locator('[data-home] [data-skill-chip="email_compose"]')).toHaveCount(0);
   expect(createdPosts).toEqual([]);
   await page.locator("[data-home] [data-composer-input]").fill("给合作达人写一封自我介绍");
-  await expect(page.locator('[data-home] [data-skill-chip="email_compose"]')).toBeVisible();
+  await expect(page.locator('[data-home] [data-skill-chip="email_compose"]')).toHaveCount(0);
   await submitHomeComposerStay(page);
   await expectHomeClarification(page, "发件邮箱", "收件邮箱", "邮件主题");
   expect(createdPosts).toContain("/api/tasks/from-text");
