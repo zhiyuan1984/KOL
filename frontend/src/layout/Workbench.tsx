@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { api, type Account, type SessionRow } from "../api";
 import { useAccount } from "../components/AuthGate";
 import BrandLockup from "../components/BrandLockup";
@@ -89,7 +89,7 @@ export default function Workbench() {
       window.removeEventListener("lingong:sessions-refresh", refreshSessions);
       window.clearInterval(timer);
     };
-  }, [loc.pathname]);
+  }, []);
 
   useEffect(() => {
     api.me().then(setMe).catch(() => setMe(null));
@@ -105,7 +105,7 @@ export default function Workbench() {
     api.mailBox()
       .then((row) => setMailUnread(Number(row.unread || 0) || 0))
       .catch(() => setMailUnread(0));
-  }, [loc.pathname]);
+  }, []);
 
   useEffect(() => {
     api.preferences().then((preferences) => {
@@ -291,7 +291,9 @@ export default function Workbench() {
         </div>
       </aside>
       <main className="main">
-        <Outlet />
+        <Suspense fallback={<p className="muted" style={{ padding: 24 }} data-route-loading>加载中…</p>}>
+          <Outlet />
+        </Suspense>
       </main>
     </div>
   );

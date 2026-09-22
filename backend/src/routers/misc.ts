@@ -81,11 +81,19 @@ type SkillLookup = {
   overlays: Map<string, { summary: string; updated_at: string }>;
 };
 
+const SKILL_LOOKUP_TTL_MS = 60_000;
+let skillDefinitionCache: { expiresAt: number; defs: SkillLookup["defs"]; cats: SkillLookup["cats"] } | null = null;
+
 function skillLookup(): SkillLookup {
+  const now = Date.now();
+  if (skillDefinitionCache && skillDefinitionCache.expiresAt > now) {
+    return { ...skillDefinitionCache, overlays: overlaySummaries() };
+  }
   const defs = new Map<string, ReturnType<typeof taskDefinition>>();
   for (const definition of taskDefinitions()) defs.set(definition.id, definition);
   const cats = new Map<string, ReturnType<typeof skillCatalog>[number]>();
   for (const entry of skillCatalog()) cats.set(entry.id, entry);
+  skillDefinitionCache = { expiresAt: now + SKILL_LOOKUP_TTL_MS, defs, cats };
   return { defs, cats, overlays: overlaySummaries() };
 }
 

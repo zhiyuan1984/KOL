@@ -109,13 +109,21 @@ function writeVersion(db: ReturnType<typeof getConn>, row: Row, note: string, ac
 }
 
 export function publicKnowledge(row: Row, userId = knowledgeActorId()): Json {
-  const cited = Boolean(
-    getConn().prepare("SELECT 1 FROM knowledge_citations WHERE user_id=? AND knowledge_id=?").get(userId, row.id),
-  );
-  const dep = getConn()
-    .prepare("SELECT reason, reason_note, deprecated_at FROM knowledge_deprecations WHERE user_id=? AND knowledge_id=?")
-    .get(userId, row.id) as { reason: string; reason_note: string; deprecated_at: string } | undefined;
-  const citeCount = (getConn().prepare("SELECT COUNT(*) AS c FROM knowledge_citations WHERE knowledge_id=?").get(row.id) as { c: number }).c;
+  const cited = row.viewer_cited == null
+    ? Boolean(getConn().prepare("SELECT 1 FROM knowledge_citations WHERE user_id=? AND knowledge_id=?").get(userId, row.id))
+    : Boolean(row.viewer_cited);
+  const dep = row.viewer_deprecate_reason == null
+    ? getConn()
+      .prepare("SELECT reason, reason_note, deprecated_at FROM knowledge_deprecations WHERE user_id=? AND knowledge_id=?")
+      .get(userId, row.id) as { reason: string; reason_note: string; deprecated_at: string } | undefined
+    : {
+        reason: String(row.viewer_deprecate_reason || ""),
+        reason_note: String(row.viewer_deprecate_note || ""),
+        deprecated_at: String(row.viewer_deprecated_at || ""),
+      };
+  const citeCount = row.cite_count == null
+    ? (getConn().prepare("SELECT COUNT(*) AS c FROM knowledge_citations WHERE knowledge_id=?").get(row.id) as { c: number }).c
+    : Number(row.cite_count);
   return {
     id: row.id,
     title: row.title,
@@ -151,7 +159,36 @@ export function publicKnowledge(row: Row, userId = knowledgeActorId()): Json {
 
 function listed(sql: string, args: unknown[]): Json[] {
   const userId = knowledgeActorId();
-  return (getConn().prepare(sql).all(...args) as Row[]).map((row) => publicKnowledge(row, userId));
+  const rows = getConn().prepare(sql).all(...args) as Row[];
+  if (!rows.length) return [];
+  const ids = rows.map((row) => String(row.id));
+  const placeholders = ids.map(() => "?").join(",");
+  const cited = new Set(
+    (getConn().prepare(
+      `SELECT knowledge_id FROM knowledge_citations WHERE user_id=? AND knowledge_id IN (${placeholders})`,
+    ).all(userId, ...ids) as Row[]).map((row) => String(row.knowledge_id)),
+  );
+  const deprecated = new Map(
+    (getConn().prepare(
+      `SELECT knowledge_id,reason,reason_note,deprecated_at FROM knowledge_deprecations WHERE user_id=? AND knowledge_id IN (${placeholders})`,
+    ).all(userId, ...ids) as Row[]).map((row) => [String(row.knowledge_id), row]),
+  );
+  const counts = new Map(
+    (getConn().prepare(
+      `SELECT knowledge_id,COUNT(*) AS cite_count FROM knowledge_citations WHERE knowledge_id IN (${placeholders}) GROUP BY knowledge_id`,
+    ).all(...ids) as Row[]).map((row) => [String(row.knowledge_id), Number(row.cite_count || 0)]),
+  );
+  return rows.map((row) => {
+    const dep = deprecated.get(String(row.id));
+    return publicKnowledge({
+      ...row,
+      viewer_cited: cited.has(String(row.id)) ? 1 : 0,
+      viewer_deprecate_reason: dep ? String(dep.reason || "") : "",
+      viewer_deprecate_note: dep ? String(dep.reason_note || "") : "",
+      viewer_deprecated_at: dep ? String(dep.deprecated_at || "") : "",
+      cite_count: counts.get(String(row.id)) || 0,
+    }, userId);
+  });
 }
 
 export function listPublishedForOps(): Json[] {
