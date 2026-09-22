@@ -83,30 +83,39 @@ export const SOP_POLICY = {
   edit_path: "/admin",
 } as const;
 
-function marketFlag(id: string): boolean | null {
+function marketFlags(): Map<string, boolean> {
   try {
-    const row = getConn()
-      .prepare("SELECT in_market FROM skill_flags WHERE id = ?")
-      .get(id) as { in_market: number } | undefined;
-    if (!row) return null;
-    return Number(row.in_market) === 1;
+    const rows = getConn().prepare("SELECT id, in_market FROM skill_flags").all() as { id: string; in_market: number }[];
+    return new Map(rows.map((row) => [String(row.id), Number(row.in_market) === 1]));
   } catch {
-    return null;
+    return new Map();
   }
 }
 
+let catalogCache: { definitions: ReturnType<typeof taskDefinitions>; entries: SkillEntry[] } | null = null;
+
 export function skillCatalog(): SkillEntry[] {
-  return taskDefinitions().map((definition) => ({
+  const definitions = taskDefinitions();
+  if (catalogCache?.definitions === definitions) return catalogCache.entries;
+  const flags = marketFlags();
+  const entries = definitions.map((definition) => ({
     id: definition.id,
     label: definition.title,
     aliases: [...definition.aliases],
-    in_market: marketFlag(definition.id) ?? definition.in_market,
+    in_market: flags.get(definition.id) ?? definition.in_market,
     category: definition.category,
     profile: definition.profile,
     funnel: skillFunnelId(definition.id, definition.category, definition.funnel),
     summary: definition.description,
     source: definition.source,
   }));
+  catalogCache = { definitions, entries };
+  return entries;
+}
+
+/** Invalidate after publishing, deleting, or changing market visibility. */
+export function clearSkillCatalogCache(): void {
+  catalogCache = null;
 }
 
 /** Live catalog. Array methods always read the current bundled + published skills. */

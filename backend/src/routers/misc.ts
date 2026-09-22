@@ -163,9 +163,11 @@ misc.get("/version", (c) => {
 });
 
 misc.get("/skills", (c) => {
+  c.header("Cache-Control", "private, max-age=60, stale-while-revalidate=300");
   return c.json(listedSkills(false).map((s) => ({ ...s, granted: true })));
 });
 misc.get("/skills/market", (c) => {
+  c.header("Cache-Control", "private, max-age=60, stale-while-revalidate=300");
   const vis = visibleForRequest();
   return c.json(listedSkills(true).map((s) => ({
     ...s,

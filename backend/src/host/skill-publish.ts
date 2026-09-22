@@ -21,7 +21,7 @@ import {
 import { HttpFail } from "./errors.js";
 import { setSkillGrants } from "./grants.js";
 import { currentUser } from "./persona.js";
-import { skillFunnelId, type FunnelId, type SkillEntry } from "./skills-catalog.js";
+import { clearSkillCatalogCache, skillFunnelId, type FunnelId, type SkillEntry } from "./skills-catalog.js";
 import {
   catalogSkill,
   getSkillSop,
@@ -232,6 +232,7 @@ export function createPublishedSkill(input: CreateSkillInput): SkillEntry {
 export function setSkillInMarket(id: string, inMarket: boolean): SkillEntry {
   if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
   setMarketFlag(id, inMarket);
+  clearSkillCatalogCache();
   activateSkillForHarness(id);
   audit(currentUser().handle, "skill.market", { skill: id, in_market: inMarket });
   return catalogSkill(id)!;
@@ -270,6 +271,7 @@ export function updatePublishedSkill(id: string, input: UpdateSkillInput): Skill
     getConn().prepare("DELETE FROM skill_sops WHERE id = ?").run(id);
   }
   setMarketFlag(spec.id, spec.in_market);
+  clearSkillCatalogCache();
   const runtimePath = activateSkillForHarness(spec.id);
   audit(currentUser().handle, "skill.update", {
     skill: spec.id,
@@ -294,6 +296,7 @@ export function deletePublishedSkill(id: string): { ok: true; id: string } {
   fs.rmSync(path.join(runtimeSkillsRoot(), id), { recursive: true, force: true });
   fs.rmSync(path.join(dataDir(), "skill-versions", id), { recursive: true, force: true });
   clearTaskRegistryCache();
+  clearSkillCatalogCache();
   audit(currentUser().handle, "skill.delete", { skill: id });
   return { ok: true, id };
 }
