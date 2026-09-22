@@ -31,6 +31,10 @@ export const SCOPE_TABLE: Record<PlanScope, ScopeConfig> = {
 export const PLANNING_TASK_TYPES = ["today_plan", "todo_plan", "today_analyze"] as const;
 export const PLANNING_TASK_TYPES_SET = new Set<string>(PLANNING_TASK_TYPES);
 
+/** Task types excluded from the SQL equivalent of isTodoWorkItem. Kept separate
+ * because todo_plan items are already filtered by source != 'planning'. */
+export const TODO_EXCLUDED_TASK_TYPES = ["today_plan", "today_analyze"] as const;
+
 export function planTaskType(scope: PlanScope): "today_plan" | "todo_plan" {
   return SCOPE_TABLE[scope].taskType;
 }

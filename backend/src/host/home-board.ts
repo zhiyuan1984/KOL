@@ -9,7 +9,7 @@ import { restoreOfficialCollaborationStages } from "../starrykol/library-sync.js
 import { stageMailAction } from "./compose-loop.js";
 import { threadsByCollaborationIds } from "../starrykol/mail-sync.js";
 import { readFollowStyleTags } from "../follow-style-tags.js";
-import { PLANNING_TASK_TYPES, PLANNING_TASK_TYPES_SET } from "./planning-types.js";
+import { PLANNING_TASK_TYPES, PLANNING_TASK_TYPES_SET, TODO_EXCLUDED_TASK_TYPES } from "./planning-types.js";
 
 const NICHE_LABEL: Record<string, string> = {
   beauty: "美妆",
@@ -207,6 +207,7 @@ export function isPlanningWorkItem(task: {
 }
 
 const PLANNING_TYPES_SQL = PLANNING_TASK_TYPES.map((t) => `'${t}'`).join(",");
+const TODO_TYPES_SQL = TODO_EXCLUDED_TASK_TYPES.map((t) => `'${t}'`).join(",");
 const DOMAIN_LABEL: Record<string, string> = {
   Lead: "线索",
   Opportunity: "商机",
@@ -328,7 +329,7 @@ export const TODO_WORK_ITEM_SQL = `
   status NOT IN ('completed','done','cancelled')
   AND dismissed_at IS NULL
   AND COALESCE(source, 'manual') != 'planning'
-  AND task_type NOT IN (${PLANNING_TYPES_SQL})
+  AND task_type NOT IN (${TODO_TYPES_SQL})
   AND (COALESCE(source, 'manual') NOT IN ('ai', 'discovery') OR promoted_at IS NOT NULL)
 `;
 

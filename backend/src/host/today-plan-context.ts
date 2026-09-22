@@ -4,6 +4,7 @@ import { taskDefinition } from "../tasks/registry.js";
 import type { Json, Row } from "../types.js";
 import { authDisabled, isAdmin, scopedUser } from "../auth.js";
 import { followReleaseTimer, isClosedWorkItem, isOpenWorkItem, isPlanningWorkItem, isTodayWorkItem } from "./home-board.js";
+import { HttpFail } from "./errors.js";
 import {
   briefPointerTable,
   planTaskType,
@@ -26,9 +27,9 @@ export {
 
 export function ownerId(): string {
   const user = scopedUser();
-  if (user) return user.id;
+  if (user?.id) return user.id;
   if (authDisabled() || isAdmin()) return DEMO_USER.id;
-  return DEMO_USER.id;
+  throw new HttpFail(401, "Unauthorized");
 }
 
 export const PLANNING_FORBIDDEN_TOOL = /follow|send|confirm[_-]?stage/i;
