@@ -35,7 +35,12 @@ export default function Workbench() {
   const [appVersion, setAppVersion] = useState("");
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem("ui:left-collapsed") === "true");
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [pendingNav, setPendingNav] = useState<string | null>(null);
   const loc = useLocation();
+
+  useEffect(() => {
+    setPendingNav(null);
+  }, [loc.pathname]);
 
   useEffect(() => {
     void api.version().then((row) => setAppVersion(String(row?.version || ""))).catch(() => undefined);
@@ -225,10 +230,13 @@ export default function Workbench() {
             className={() => "nav-link" + (skillsActive ? " active" : "")}
             data-nav="skills"
             title="技能目录"
-            onClick={() => setMobileOpen(false)}
+            onClick={() => { setPendingNav("skills"); setMobileOpen(false); }}
+            onMouseEnter={() => { void import("../pages/SkillCatalog"); }}
+            onFocus={() => { void import("../pages/SkillCatalog"); }}
           >
             <Ico path="M8 8h4v4H8z M12 12h4v4h-4z M7 16l-2 2 M17 8l2-2" />
             <span className="sidebar-label">技能目录</span>
+            {pendingNav === "skills" && !skillsActive && <span className="nav-loading" aria-label="正在打开技能目录" />}
           </NavLink>
         </nav>
 

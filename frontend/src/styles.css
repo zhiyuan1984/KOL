@@ -174,57 +174,6 @@
   font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
 }
 
-/* Final overrides for the skills workbench list, kept after legacy catalog rules. */
-.skill-catalog-page .skill-grid,
-.skill-catalog-page .skill-grid.skill-grid-3,
-.skill-catalog-page .skill-grid.skill-grid-4 { display: block; }
-.skill-catalog-page .skill-card {
-  display: grid;
-  grid-template-columns: 40px minmax(150px, 1.1fr) minmax(220px, 2fr) auto;
-  align-items: center;
-  gap: 14px;
-  min-height: 64px;
-  padding: 10px 12px;
-  margin: 0;
-  border: 0;
-  border-bottom: 1px solid var(--hairline);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.skill-catalog-page .skill-card:first-child { border-top: 1px solid var(--hairline); }
-.skill-catalog-page .skill-card:hover,
-.skill-catalog-page .skill-card:focus-within,
-.skill-catalog-page .skill-card.is-selected {
-  border-color: var(--hairline);
-  background: var(--surface-card, rgba(0, 0, 0, .025));
-  box-shadow: inset 3px 0 0 var(--ink);
-}
-.skill-catalog-page .skill-card-head { display: contents; }
-.skill-catalog-page .skill-card-icon { width: 36px; height: 36px; }
-.skill-catalog-page .skill-card-title { min-width: 0; }
-.skill-catalog-page .skill-card-name {
-  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: var(--font-ui-lg, 16px);
-}
-.skill-catalog-page .skill-card-desc {
-  min-width: 0; margin: 0; overflow: hidden; color: var(--muted);
-  text-overflow: ellipsis; white-space: nowrap;
-}
-.skill-catalog-page .skill-card-actions { grid-column: 4; grid-row: 1 / span 2; white-space: nowrap; }
-.skill-catalog-page .skill-card-star { position: static; grid-column: 1; grid-row: 1; }
-.nav-loading {
-  width: 12px; height: 12px; margin-left: auto; border: 2px solid currentColor;
-  border-right-color: transparent; border-radius: 50%; animation: nav-spin .7s linear infinite;
-}
-@keyframes nav-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .nav-loading { animation: none; } }
-@media (max-width: 760px) {
-  .skill-catalog-page .skill-card { grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; }
-  .skill-catalog-page .skill-card-desc { grid-column: 2 / 4; grid-row: 2; }
-  .skill-catalog-page .skill-card-actions { grid-column: 3; grid-row: 1; }
-}
-
 :root[data-theme="dark"] {
   --bg: #17191d;
   --bg-elevated: #101216;
@@ -7913,14 +7862,14 @@ body {
   background: var(--bg);
 }
 .session-composer.prompt-input .composer.composer--workspace {
-  min-height: 100px;
+  min-height: 96px;
   max-height: var(--composer-max-height, 420px);
   padding: 10px 16px 8px;
   border-radius: var(--composer-radius);
   box-shadow: none;
 }
 .session-composer.prompt-input .composer.composer--workspace textarea {
-  min-height: 40px;
+  min-height: 48px;
 }
 .session-send-hint {
   margin: 0;
@@ -10499,100 +10448,6 @@ button.today-brief-primary-btn:disabled {
   color: var(--danger, #a33);
 }
 
-/* Skill catalog: employee workbench list, not a card wall. */
-.skill-catalog-page .skill-grid,
-.skill-catalog-page .skill-grid.skill-grid-3,
-.skill-catalog-page .skill-grid.skill-grid-4 {
-  display: block;
-}
-.skill-catalog-page .skill-card {
-  display: grid;
-  grid-template-columns: 40px minmax(150px, 1.1fr) minmax(220px, 2fr) auto;
-  align-items: center;
-  gap: 14px;
-  min-height: 64px;
-  padding: 10px 12px;
-  margin: 0;
-  border: 0;
-  border-bottom: 1px solid var(--hairline);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.skill-catalog-page .skill-card:first-child {
-  border-top: 1px solid var(--hairline);
-}
-.skill-catalog-page .skill-card:hover,
-.skill-catalog-page .skill-card:focus-within,
-.skill-catalog-page .skill-card.is-selected {
-  border-color: var(--hairline);
-  background: var(--surface-card, rgba(0, 0, 0, .025));
-  box-shadow: inset 3px 0 0 var(--ink);
-}
-.skill-catalog-page .skill-card-head {
-  display: contents;
-}
-.skill-catalog-page .skill-card-icon {
-  width: 36px;
-  height: 36px;
-}
-.skill-catalog-page .skill-card-title {
-  min-width: 0;
-}
-.skill-catalog-page .skill-card-name {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--font-ui-lg, 16px);
-}
-.skill-catalog-page .skill-card-desc {
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  color: var(--muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.skill-catalog-page .skill-card-marks {
-  grid-column: 3;
-  margin: -3px 0 0;
-}
-.skill-catalog-page .skill-card-actions {
-  grid-column: 4;
-  grid-row: 1 / span 2;
-  white-space: nowrap;
-}
-.skill-catalog-page .skill-card-star {
-  position: static;
-  grid-column: 1;
-  grid-row: 1;
-  align-self: start;
-  margin: -2px 0 0 -4px;
-  z-index: 1;
-}
-.skill-catalog-page .skill-card-star + .skill-card-head .skill-card-icon {
-  /* keep the star as a small semantic marker without changing row geometry */
-}
-@media (max-width: 760px) {
-  .skill-catalog-page .skill-card {
-    grid-template-columns: 36px minmax(0, 1fr) auto;
-    gap: 10px;
-  }
-  .skill-catalog-page .skill-card-desc {
-    grid-column: 2 / 4;
-    grid-row: 2;
-  }
-  .skill-catalog-page .skill-card-marks {
-    grid-column: 2;
-    grid-row: 3;
-  }
-  .skill-catalog-page .skill-card-actions {
-    grid-column: 3;
-    grid-row: 1;
-  }
-}
-
 .skill-detail-note {
   margin: 0;
   font-size: var(--ds-font-helper);
@@ -12437,7 +12292,15 @@ button.today-brief-primary-btn:disabled {
 /* A shortcut changes context, not the composer geometry. Keep the interaction
    surface stable; real textarea content may still grow naturally. */
 .home-pane.is-composer-focused .home-composer-dock .composer.composer--workspace {
-  min-height: var(--composer-idle-min, 76px);
+  min-height: var(--composer-idle-min, 96px);
+}
+
+/* The intake composer reserves only two text lines plus its action row. */
+.home-pane.is-composer-dock .home-composer-dock .composer.composer--workspace {
+  min-height: var(--composer-idle-min, 96px);
+}
+.home-pane.is-composer-dock .home-composer-dock .composer.composer--workspace textarea {
+  min-height: 48px;
 }
 
 /* Every quick task stays visible. The row wraps when the center column is
@@ -12513,35 +12376,169 @@ button.today-brief-primary-btn:disabled {
   }
 }
 
-/* Skills list overrides legacy card rules. */
+/* Skills workbench list. Kept last so legacy catalog-card rules cannot override it. */
 .skill-catalog-page .skill-grid,
 .skill-catalog-page .skill-grid.skill-grid-3,
-.skill-catalog-page .skill-grid.skill-grid-4 { display: block; }
-.skill-catalog-page .skill-card {
-  display: grid; grid-template-columns: 40px minmax(150px, 1.1fr) minmax(220px, 2fr) auto;
-  align-items: center; gap: 14px; min-height: 64px; padding: 10px 12px; margin: 0;
-  border: 0; border-bottom: 1px solid var(--hairline); border-radius: 0;
-  background: transparent; box-shadow: none;
+.skill-catalog-page .skill-grid.skill-grid-4 {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-block: 1px solid color-mix(in srgb, var(--primary) 14%, var(--hairline));
+  background: color-mix(in srgb, var(--primary) 1.5%, var(--bg));
 }
-.skill-catalog-page .skill-card:first-child { border-top: 1px solid var(--hairline); }
+.skill-catalog-page .skill-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 36px minmax(140px, 0.8fr) minmax(240px, 1.8fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 8px 10px;
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--primary) 9%, var(--hairline));
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transition: background-color 120ms ease;
+}
+.skill-catalog-page .skill-card:last-child { border-bottom: 0; }
 .skill-catalog-page .skill-card:hover,
-.skill-catalog-page .skill-card:focus-within,
+.skill-catalog-page .skill-card:focus-within {
+  background: color-mix(in srgb, var(--primary) 4%, var(--bg));
+}
 .skill-catalog-page .skill-card.is-selected {
-  border-color: var(--hairline); background: var(--surface-card, rgba(0,0,0,.025));
-  box-shadow: inset 3px 0 0 var(--ink);
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg));
+  box-shadow: inset 3px 0 0 var(--primary);
 }
 .skill-catalog-page .skill-card-head { display: contents; }
-.skill-catalog-page .skill-card-icon { width: 36px; height: 36px; }
-.skill-catalog-page .skill-card-title { min-width: 0; }
-.skill-catalog-page .skill-card-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-ui-lg,16px); }
-.skill-catalog-page .skill-card-desc { min-width: 0; margin: 0; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
-.skill-catalog-page .skill-card-actions { grid-column: 4; grid-row: 1 / span 2; white-space: nowrap; }
-.skill-catalog-page .skill-card-star { position: static; grid-column: 1; grid-row: 1; }
-.nav-loading { width: 12px; height: 12px; margin-left: auto; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: nav-spin .7s linear infinite; }
+.skill-catalog-page .skill-card-icon {
+  grid-column: 1;
+  width: 32px;
+  height: 32px;
+  border: 1px solid color-mix(in srgb, var(--primary) 12%, var(--hairline));
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--primary) 7%, var(--bg));
+  color: var(--primary-text);
+}
+.skill-catalog-page .skill-card-svg { color: var(--primary-text); fill: currentColor; }
+.skill-catalog-page .skill-card-title { grid-column: 2; min-width: 0; }
+.skill-catalog-page .skill-card-name {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--text) 82%, var(--primary));
+  font-size: var(--ds-font-section);
+  font-weight: 620;
+  line-height: var(--lh-control-sm);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-catalog-page .skill-card-desc {
+  grid-column: 3;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--lh-control-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-catalog-page .skill-card-marks {
+  grid-column: 4;
+  display: flex;
+  flex-wrap: nowrap;
+  margin: 0;
+  white-space: nowrap;
+}
+.skill-catalog-page .skill-mark {
+  border-color: color-mix(in srgb, var(--primary) 20%, var(--hairline));
+  background: color-mix(in srgb, var(--primary) 6%, var(--bg));
+  color: var(--primary-text);
+}
+.skill-catalog-page .skill-mark.is-write {
+  border-color: color-mix(in srgb, var(--warning) 32%, var(--hairline));
+  background: color-mix(in srgb, var(--warning) 9%, var(--bg));
+  color: color-mix(in srgb, var(--warning) 72%, var(--text));
+}
+.skill-catalog-page .skill-mark.is-async {
+  border-color: color-mix(in srgb, var(--info, var(--primary)) 28%, var(--hairline));
+  background: color-mix(in srgb, var(--info, var(--primary)) 8%, var(--bg));
+}
+.skill-catalog-page .skill-card-actions {
+  grid-column: 5;
+  margin: 0;
+  white-space: nowrap;
+}
+.skill-catalog-page .skill-link {
+  min-height: var(--control-h-sm);
+  padding-inline: 8px;
+  border-radius: var(--radius-control);
+  color: var(--primary-text);
+  text-decoration: none;
+}
+.skill-catalog-page .skill-link:hover,
+.skill-catalog-page .skill-link:focus-visible {
+  background: color-mix(in srgb, var(--primary) 8%, var(--bg));
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.skill-catalog-page .skill-card-star {
+  position: absolute;
+  inset: 5px auto auto 4px;
+  color: var(--primary);
+  font-size: 9px;
+}
+.skill-catalog-page .skill-group-header h2,
+.skill-catalog-page .skill-group-icon,
+.skill-catalog-page .skill-group-icon-star {
+  color: var(--primary-text);
+}
+.skill-catalog-page .skill-group-icon {
+  border-color: color-mix(in srgb, var(--primary) 16%, var(--hairline));
+  background: color-mix(in srgb, var(--primary) 7%, var(--bg));
+}
+.skill-catalog-page .skill-group-hint { color: var(--text-muted); }
+.skill-catalog-page .skill-group-more {
+  color: var(--primary-text);
+  text-decoration-color: color-mix(in srgb, var(--primary) 45%, transparent);
+}
+.skill-catalog-page .skill-tab.on {
+  border-color: color-mix(in srgb, var(--primary) 20%, var(--hairline));
+  background: color-mix(in srgb, var(--primary) 9%, var(--bg));
+  color: var(--primary-text);
+}
+.nav-loading {
+  width: 12px;
+  height: 12px;
+  margin-left: auto;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: nav-spin .7s linear infinite;
+}
 @keyframes nav-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .nav-loading { animation: none; } }
-@media (max-width: 760px) {
-  .skill-catalog-page .skill-card { grid-template-columns: 36px minmax(0,1fr) auto; gap: 10px; }
+@media (prefers-reduced-motion: reduce) {
+  .skill-catalog-page .skill-card { transition: none; }
+  .nav-loading { animation: none; }
+}
+@media (max-width: 980px) {
+  .skill-catalog-page .skill-card {
+    grid-template-columns: 32px minmax(120px, .8fr) minmax(180px, 1.5fr) auto;
+  }
+  .skill-catalog-page .skill-card-marks { display: none; }
+  .skill-catalog-page .skill-card-actions { grid-column: 4; }
+}
+@media (max-width: 640px) {
+  .skill-catalog-page .skill-card {
+    grid-template-columns: 32px minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    gap: 4px 10px;
+    padding-block: 9px;
+  }
+  .skill-catalog-page .skill-card-title { grid-column: 2; grid-row: 1; }
   .skill-catalog-page .skill-card-desc { grid-column: 2 / 4; grid-row: 2; }
   .skill-catalog-page .skill-card-actions { grid-column: 3; grid-row: 1; }
 }
