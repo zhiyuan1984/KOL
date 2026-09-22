@@ -10527,11 +10527,10 @@ button.today-brief-primary-btn:disabled {
   background: none;
   padding: 0;
   font: inherit;
-  /* 与 tab 同档、与描述同号（13px / 400）：标题既不比描述大一号，也不加粗；
-     名 / 描述的区别只靠墨色（冷墨 vs --text-muted）（2026-09-23 UI/UX 裁定）。 */
+  /* 与 tab、组名同档（13px / 500）：行标题不再比 tab 大一档、重一档（2026-09-23 UI/UX 裁定）。 */
   font-size: var(--ds-font-sm);
   line-height: var(--lh-control);
-  font-weight: 400;
+  font-weight: 500;
   /* 行高只有 20px，命中区靠 min-height 补到 --hit-min。 */
   min-height: var(--hit-min);
   color: var(--row-title-ink);
