@@ -27,6 +27,8 @@ export const TODO_PLAN_START_EVENT = "lingong:todo-plan-start";
 /** Plan scope mirrors the backend: today = 今日规划 chain, todo = 待办规划 chain. */
 export type PlanScope = "today" | "todo";
 
+export const PLAN_SCOPES: readonly PlanScope[] = ["today", "todo"];
+
 const PLAN_PHASE_COPY: Record<PlanScope, { "loading-memory": string; planning: string; refreshed: string; failed: string }> = {
   today: {
     "loading-memory": "正在读取当前任务",
@@ -54,6 +56,34 @@ export const TODAY_PLAN_CACHE_KEY = "lingong:today-plan-cache";
 export const TODO_PLAN_CACHE_KEY = "lingong:todo-plan-cache";
 /** Cache planning results for 5 minutes to avoid re-running Codex on every Home remount. */
 export const PLAN_CACHE_TTL_MS = 5 * 60 * 1_000;
+
+/** Per-scope frontend config: cache key + explicit start event. */
+export interface FrontendScopeConfig {
+  scope: PlanScope;
+  cacheKey: string;
+  startEvent: string;
+}
+
+export const SCOPE_CONFIG: Record<PlanScope, FrontendScopeConfig> = {
+  today: {
+    scope: "today",
+    cacheKey: TODAY_PLAN_CACHE_KEY,
+    startEvent: TODAY_PLAN_START_EVENT,
+  },
+  todo: {
+    scope: "todo",
+    cacheKey: TODO_PLAN_CACHE_KEY,
+    startEvent: TODO_PLAN_START_EVENT,
+  },
+};
+
+export function planCacheKey(scope: PlanScope): string {
+  return SCOPE_CONFIG[scope].cacheKey;
+}
+
+export function planStartEvent(scope: PlanScope): string {
+  return SCOPE_CONFIG[scope].startEvent;
+}
 
 export type PlanCache = {
   timestamp: number;
@@ -93,9 +123,12 @@ export function clearPlanCache(key: string): void {
 
 /** Cached plans carry task rows, so they must not survive a logout. */
 export function clearPlanCaches(): void {
-  clearPlanCache(TODAY_PLAN_CACHE_KEY);
-  clearPlanCache(TODO_PLAN_CACHE_KEY);
+  for (const scope of PLAN_SCOPES) {
+    clearPlanCache(planCacheKey(scope));
+  }
 }
+
+export { PLANNING_TASK_TYPES, PLANNING_TASK_TYPES_SET } from "./planningTypes.js";
 
 export type TodayPlanClient = {
   listOpenTasks: () => Promise<Task[]>;

@@ -1,5 +1,6 @@
 import type { HomeWorkbench, RecommendedTask, Task, TaskDefinition, TodayBriefPrimary, TodoLayoutItem } from "../api";
 import { waitDisplayOf, waitStatusLabel, failureHint } from "../waitStatus";
+import { PLANNING_TASK_TYPES_SET } from "./planningTypes";
 
 export const openStatuses = new Set(["pending", "waiting", "running", "queued", "in_progress", "failed"]);
 export const closedStatuses = new Set(["completed", "done", "cancelled"]);
@@ -182,7 +183,7 @@ export function isClosedTask(task: Task) {
 
 export function isPlanningTask(task: Task) {
   const type = String(task.task_type || task.skill || "");
-  return type === "today_plan" || type === "today_analyze" || type === "todo_plan" || task.source === "planning";
+  return PLANNING_TASK_TYPES_SET.has(type) || task.source === "planning";
 }
 
 export function isInsightTask(task: Task) {
