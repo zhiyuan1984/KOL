@@ -10477,6 +10477,100 @@ button.today-brief-primary-btn:disabled {
   color: var(--danger, #a33);
 }
 
+/* Skill catalog: employee workbench list, not a card wall. */
+.skill-catalog-page .skill-grid,
+.skill-catalog-page .skill-grid.skill-grid-3,
+.skill-catalog-page .skill-grid.skill-grid-4 {
+  display: block;
+}
+.skill-catalog-page .skill-card {
+  display: grid;
+  grid-template-columns: 40px minmax(150px, 1.1fr) minmax(220px, 2fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 64px;
+  padding: 10px 12px;
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid var(--hairline);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.skill-catalog-page .skill-card:first-child {
+  border-top: 1px solid var(--hairline);
+}
+.skill-catalog-page .skill-card:hover,
+.skill-catalog-page .skill-card:focus-within,
+.skill-catalog-page .skill-card.is-selected {
+  border-color: var(--hairline);
+  background: var(--surface-card, rgba(0, 0, 0, .025));
+  box-shadow: inset 3px 0 0 var(--ink);
+}
+.skill-catalog-page .skill-card-head {
+  display: contents;
+}
+.skill-catalog-page .skill-card-icon {
+  width: 36px;
+  height: 36px;
+}
+.skill-catalog-page .skill-card-title {
+  min-width: 0;
+}
+.skill-catalog-page .skill-card-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-ui-lg, 16px);
+}
+.skill-catalog-page .skill-card-desc {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skill-catalog-page .skill-card-marks {
+  grid-column: 3;
+  margin: -3px 0 0;
+}
+.skill-catalog-page .skill-card-actions {
+  grid-column: 4;
+  grid-row: 1 / span 2;
+  white-space: nowrap;
+}
+.skill-catalog-page .skill-card-star {
+  position: static;
+  grid-column: 1;
+  grid-row: 1;
+  align-self: start;
+  margin: -2px 0 0 -4px;
+  z-index: 1;
+}
+.skill-catalog-page .skill-card-star + .skill-card-head .skill-card-icon {
+  /* keep the star as a small semantic marker without changing row geometry */
+}
+@media (max-width: 760px) {
+  .skill-catalog-page .skill-card {
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+  .skill-catalog-page .skill-card-desc {
+    grid-column: 2 / 4;
+    grid-row: 2;
+  }
+  .skill-catalog-page .skill-card-marks {
+    grid-column: 2;
+    grid-row: 3;
+  }
+  .skill-catalog-page .skill-card-actions {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+
 .skill-detail-note {
   margin: 0;
   font-size: var(--ds-font-helper);
@@ -12355,7 +12449,9 @@ button.today-brief-primary-btn:disabled {
     width: 100% !important;
     max-width: none !important;
     margin: 0 !important;
-    padding: 8px 16px 14px var(--page-gutter) !important;
+    /* Align the composer outer edge with the center header/divider axis.
+       Inner composer padding remains responsible for readable text inset. */
+    padding: 8px 16px 14px 0 !important;
   }
   .home-pane[data-home-active-mode="today"] .today-workspace-center > .home-composer-dock > .composer-dock,
   .home-pane[data-home-active-mode="today"] .today-workspace-center > .home-composer-dock > .composer-dock > .composer.composer--workspace {
