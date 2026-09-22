@@ -2381,29 +2381,11 @@ test("发货通知 without tracking shows supplement in workbench", async ({ pag
   expect(((await after.json()) as unknown[]).length).toBe(n0);
 });
 
-test("session chips name this stage's letter and only prefill", async ({ page, request }) => {
+test("session default task chips stay hidden until a task ends", async ({ page, request }) => {
   const quote = await request.post("/api/collaborations/col_laozhang/session").then((r) => r.json());
   await page.goto(`/s/${quote.id}`);
-  const quoteChips = page.locator("[data-composer-suggestions] button");
-  await expect(quoteChips.first()).toHaveText("写报价邮件", { timeout: 15000 });
+  await expect(page.locator("[data-composer-suggestions]")).toHaveCount(0);
   await expect(page.locator("[data-composer-input]")).toHaveAttribute("placeholder", /写报价邮件 @数码老张 金额 \[USD\]/);
-  await quoteChips.first().click();
-  await expect(page.locator("[data-composer-input]")).toHaveValue("写报价邮件 @数码老张");
-  await expect(page).toHaveURL(new RegExp(`/s/${quote.id}`));
-  await expect(page.locator('[data-workbench] [data-kind="email-card"]')).toHaveCount(0);
-
-  const first = await request.post("/api/collaborations/col_xiaomei/session").then((r) => r.json());
-  await page.goto(`/s/${first.id}`);
-  await expect(page.locator("[data-composer-suggestions] button").first()).toHaveText("写合作邮件");
-  await page.locator("[data-composer-suggestions] button").first().click();
-  await expect(page.locator("[data-composer-input]")).toHaveValue("写合作邮件 @小美妆日记");
-
-  const brief = await request.post("/api/collaborations/col_mum/session").then((r) => r.json());
-  await page.goto(`/s/${brief.id}`);
-  await expect(page.locator("[data-composer-suggestions] button").first()).toHaveText("发brief");
-  await page.locator("[data-composer-suggestions] button").first().click();
-  await expect(page.locator("[data-composer-input]")).toHaveValue("发brief @母婴小课");
-  await expect(page.locator('[data-skill-chip="email_compose"]')).toBeVisible();
 });
 
 test("核对地址 shows sample facts and draft on one result page", async ({ page, request }) => {

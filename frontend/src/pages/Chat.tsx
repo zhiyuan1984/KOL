@@ -751,6 +751,12 @@ export default function Chat() {
     };
     return [gapAction, ...base.filter((row) => String(row.prompt || "") !== String(gapAction.prompt || ""))].slice(0, 3);
   })();
+  const terminalTaskStatuses = ["completed", "failed", "cancelled", "stopped"];
+  const terminalMessageKinds = ["task_result_card", "email_card", "confirm_stage_card", "inbound_card", "supplement_card", "kol_mail_card"];
+  const taskFinished = status !== "running" && (
+    Boolean(task && terminalTaskStatuses.includes(String(task.status || "").toLowerCase()))
+    || messages.some((message) => terminalMessageKinds.includes(message.kind))
+  );
   const openedAsKol = Boolean((location.state as { kolSession?: boolean } | null)?.kolSession);
   const rememberedKol = Boolean(id && sessionStorage.getItem(`kol-session:${id}`));
   const kolSession = Boolean(collaborationId || journey?.collaboration_id || openedAsKol || rememberedKol);
@@ -1134,7 +1140,7 @@ export default function Chat() {
             }}
             autoFocus={focusDraft}
             selectFirstPlaceholder={focusDraft}
-            suggestions={recommendedActions}
+            suggestions={taskFinished ? recommendedActions : []}
             onPickSuggestion={pickSuggestion}
             onPickSkill={pickSkill}
             hint={composerHint || undefined}

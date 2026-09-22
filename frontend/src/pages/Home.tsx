@@ -1405,6 +1405,10 @@ export default function Home() {
     const skillFromScope = p.scope?.skills?.[0];
     if (!prompt && !p.attachments?.length && !skillFromScope) return;
     const intent = lockedIntent || skillFromScope || p.intent;
+    // Submission transfers the draft into task intake. Clear the editor at the
+    // click boundary so the running task gets the vertical space, regardless
+    // of which intake route handles it next.
+    setText("");
     if (intent === "creator_daily_tasks") {
       window.dispatchEvent(new Event(TODAY_PLAN_START_EVENT));
       return;
