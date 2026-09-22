@@ -332,6 +332,24 @@ function collectFollowTimersAndAnomalies(): { timers: SourceItem[]; anomalies: S
   return { timers, anomalies };
 }
 
+function filterTodoCatalog(catalog: SourceItem[]): SourceItem[] {
+  const formalIds = catalog
+    .filter((item) => item.kind === "formal_task" && item.work_item_id)
+    .map((item) => String(item.work_item_id));
+  if (!formalIds.length) return catalog.filter((item) => item.kind !== "formal_task");
+  const placeholders = formalIds.map(() => "?").join(",");
+  const rows = getConn().prepare(
+    `SELECT * FROM work_items WHERE id IN (${placeholders})`,
+  ).all(...formalIds) as Row[];
+  const todayIds = new Set(rows.filter((row) => isTodayWorkItem(row)).map((row) => String(row.id)));
+  return catalog.filter((item) => item.kind !== "formal_task" || !todayIds.has(String(item.work_item_id)));
+}
+
+const CATALOG_FILTERS: Record<PlanScope, (catalog: SourceItem[]) => SourceItem[]> = {
+  today: (catalog) => catalog,
+  todo: filterTodoCatalog,
+};
+
 export function collectSourceCatalog(owner = ownerId(), scope: PlanScope = "today"): SourceItem[] {
   const formal = collectFormalTasks(owner);
   const discovery = collectDiscoveryAnomalies(owner);
@@ -346,18 +364,7 @@ export function collectSourceCatalog(owner = ownerId(), scope: PlanScope = "toda
     seen.add(item.id);
     out.push(item);
   }
-  if (scope === "today") return out;
-  // Todo scope: formal tasks that belong to the today pane are out of scope here.
-  const formalIds = out
-    .filter((item) => item.kind === "formal_task" && item.work_item_id)
-    .map((item) => String(item.work_item_id));
-  if (!formalIds.length) return out.filter((item) => item.kind !== "formal_task");
-  const placeholders = formalIds.map(() => "?").join(",");
-  const rows = getConn().prepare(
-    `SELECT * FROM work_items WHERE id IN (${placeholders})`,
-  ).all(...formalIds) as Row[];
-  const todayIds = new Set(rows.filter((row) => isTodayWorkItem(row)).map((row) => String(row.id)));
-  return out.filter((item) => item.kind !== "formal_task" || !todayIds.has(String(item.work_item_id)));
+  return CATALOG_FILTERS[scope](out);
 }
 
 export function diffCatalog(current: SourceItem[], previous: SourceCursor | null): {
