@@ -10437,6 +10437,14 @@ button.today-brief-primary-btn:disabled {
   color: var(--text);
   letter-spacing: 0.01em;
 }
+.skill-detail-steps {
+  margin: 0;
+  padding-left: 22px;
+  color: var(--ink);
+}
+.skill-detail-steps li {
+  padding: 3px 0;
+}
 
 .skill-detail-note {
   margin: 0;
@@ -12339,6 +12347,29 @@ button.today-brief-primary-btn:disabled {
    surface stable; real textarea content may still grow naturally. */
 .home-pane.is-composer-focused .home-composer-dock .composer.composer--workspace {
   min-height: var(--composer-idle-min, 76px);
+}
+
+/* Every quick task stays visible. The row wraps when the center column is
+   narrow instead of hiding entries behind an independent horizontal scroller. */
+@media (min-width: 981px) {
+  .home-pane[data-home-active-mode="today"] .home-quick-tasks {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+    gap: 6px;
+    width: 100%;
+    min-width: 0;
+    padding: 0 0 8px;
+    overflow: visible;
+  }
+  .home-pane[data-home-active-mode="today"] .home-quick-tasks button {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+    padding-inline: 7px;
+  }
+  .home-pane[data-home-active-mode="today"] .today-workspace-center-content > .home-composer-dock {
+    padding-left: 0 !important;
+  }
 }
 
 /* The Today center owns one width axis. Header, process stream, shortcuts and
