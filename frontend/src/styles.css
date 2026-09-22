@@ -10445,6 +10445,37 @@ button.today-brief-primary-btn:disabled {
 .skill-detail-steps li {
   padding: 3px 0;
 }
+.skill-execution-details {
+  margin-top: 14px;
+  border-top: 1px solid var(--hairline);
+  padding-top: 12px;
+}
+.skill-execution-details summary {
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 600;
+}
+.skill-execution-tools {
+  display: grid;
+  gap: 6px;
+}
+.skill-execution-tool {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  font-size: var(--font-xs);
+}
+.skill-execution-tool code {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+.skill-execution-tool strong {
+  color: var(--danger, #a33);
+}
 
 .skill-detail-note {
   margin: 0;

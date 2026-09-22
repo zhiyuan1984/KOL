@@ -493,6 +493,8 @@ function SkillDetail({
   const tier = isWriteSkill(skill) ? "write" : "read";
   const isAsync = ASYNC_SKILL_IDS.has(skill.id);
   const outputs = io?.outputs || (skill.output ? [skill.output] : null);
+  const learning = skill.learning;
+  const execution = skill.execution;
 
   return (
     <div className="skill-detail" data-skill-detail>
@@ -563,6 +565,65 @@ function SkillDetail({
               ))}
             </div>
           </div>
+        )}
+
+        {learning && (
+          <>
+            <div className="skill-detail-section">
+              <h4>使用步骤</h4>
+              <ol className="skill-detail-steps">
+                {(learning.steps || []).map((step, index) => <li key={`${step}-${index}`}>{step}</li>)}
+              </ol>
+            </div>
+            <div className="skill-detail-section">
+              <h4>执行边界</h4>
+              <p className="skill-detail-note">
+                结果：{learning.result || "任务结果"}。{learning.confirmation || "按当前权限执行"}
+              </p>
+            </div>
+          </>
+        )}
+
+        {execution && (
+          <details className="skill-execution-details">
+            <summary>查看调用关系与安全边界</summary>
+            <div className="skill-detail-section">
+              <h4>调用工具</h4>
+              {execution.tools?.length ? (
+                <div className="skill-execution-tools">
+                  {execution.tools.map((tool, index) => (
+                    <div className="skill-execution-tool" key={`${tool.ref}-${index}`}>
+                      <code>{tool.ref}</code>
+                      <span>{tool.kind === "mcp" ? "MCP" : "平台动作"}</span>
+                      <span>{tool.risk || "L1"}</span>
+                      {tool.confirmation === "required" && <strong>执行前确认</strong>}
+                    </div>
+                  ))}
+                </div>
+              ) : <p className="skill-detail-note">本 Skill 当前不直接调用外部工具。</p>}
+            </div>
+            {execution.permissions?.length ? (
+              <div className="skill-detail-section">
+                <h4>所需权限</h4>
+                <div className="skill-detail-tags">
+                  {execution.permissions.map((permission) => <span key={permission} className="skill-preview-tag-item">{permission}</span>)}
+                </div>
+              </div>
+            ) : null}
+            {execution.async?.enabled && (
+              <div className="skill-detail-section">
+                <h4>异步执行</h4>
+                <p className="skill-detail-note">
+                  {execution.async.status || "需要查看进度"}；
+                  {execution.async.cancelable ? "支持取消" : "不支持取消"}；
+                  {execution.async.retryable ? "支持重试" : "不支持重试"}。
+                </p>
+              </div>
+            )}
+            <p className="skill-detail-note">
+              {execution.receipt_required ? "受控动作会留下执行回执。" : "当前没有登记需要回执的正式写入动作。"}
+            </p>
+          </details>
         )}
 
         {io && (

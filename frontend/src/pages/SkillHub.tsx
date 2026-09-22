@@ -61,6 +61,20 @@ export type SkillRow = {
   output?: string;
   keeps_stage?: boolean;
   source?: "bundled" | "published";
+  learning?: {
+    when_to_use?: string;
+    inputs?: string[];
+    steps?: string[];
+    result?: string;
+    side_effects?: string;
+    confirmation?: string;
+  };
+  execution?: {
+    tools?: Array<{ kind?: string; ref?: string; risk?: string; confirmation?: string }>;
+    permissions?: string[];
+    async?: { enabled?: boolean; status?: string; cancelable?: boolean; retryable?: boolean };
+    receipt_required?: boolean;
+  };
 };
 
 type HubMode = "catalog" | "mine";

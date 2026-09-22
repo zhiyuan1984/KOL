@@ -97,6 +97,26 @@ function skillMeta(name: string, lookup?: SkillLookup): Json {
   const title = definition?.title || cat?.label || name;
   const funnel = cat?.funnel || "reach";
   const stage = FUNNEL_STAGES.find((f) => f.id === funnel);
+  const requiredInputs = definition?.required_inputs || [];
+  const actions = definition?.actions || [];
+  const sideEffects = definition?.side_effects || "none";
+  const needsConfirmation = sideEffects !== "none" || actions.some((action) => /send|write|update|delete|decrypt|import|stage|sync/i.test(action));
+  const mcpTools = definition?.mcp || [];
+  const isAsync = name === "creator_discovery" || mcpTools.some((tool) => /start_crawl|crawl_status|crawl_logs|stop_crawl/i.test(tool));
+  const executionTools = [
+    ...mcpTools.map((ref) => ({
+      kind: "mcp",
+      ref,
+      risk: /send|decrypt|delete|upload|import|changeLifecycleStage/i.test(ref) ? "L3" : "L1",
+      confirmation: /send|decrypt|delete|upload|import|changeLifecycleStage/i.test(ref) ? "required" : "none",
+    })),
+    ...actions.map((ref) => ({
+      kind: "internal_action",
+      ref,
+      risk: needsConfirmation ? "L3" : "L1",
+      confirmation: needsConfirmation ? "required" : "none",
+    })),
+  ];
   return {
     id: name,
     title,
@@ -117,6 +137,25 @@ function skillMeta(name: string, lookup?: SkillLookup): Json {
     sop_owner: SOP_POLICY.owner,
     edited: Boolean(overlay),
     updated_at: overlay?.updated_at || null,
+    learning: {
+      when_to_use: definition?.description || cat?.summary || title,
+      inputs: requiredInputs,
+      steps: actions.length ? actions : ["理解你的目标", "读取授权范围内的信息", "生成结果并展示依据"],
+      result: definition?.output || "task_result",
+      side_effects: sideEffects,
+      confirmation: needsConfirmation ? "执行前确认并留下回执" : "无需额外确认",
+    },
+    execution: {
+      tools: executionTools,
+      permissions: definition?.permissions || [],
+      async: isAsync ? {
+        enabled: true,
+        status: "需要查看进度",
+        cancelable: true,
+        retryable: true,
+      } : { enabled: false },
+      receipt_required: needsConfirmation,
+    },
   };
 }
 
