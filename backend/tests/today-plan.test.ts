@@ -10,7 +10,7 @@ import { HOME_ENTRY_REGISTRY } from "../src/host/entry-registry.js";
 import { HOME_ENTRY_REGISTRY as FRONTEND_HOME_ENTRY_REGISTRY } from "../../frontend/src/home/entryRegistry.js";
 import { collectSourceCatalog, packTodayPlanContext, planningHarnessMount } from "../src/host/today-plan-context.js";
 import { validateTodayBrief, writeTodayBriefArtifact, runningTodayPlan, failStuckPlans } from "../src/host/today-brief.js";
-import { TODAY_PLAN_EMPLOYEE_EVENTS, todayBriefSnapshot } from "../src/host/today-plan-run.js";
+import { PLAN_EMPLOYEE_EVENTS, todayBriefSnapshot } from "../src/host/today-plan-run.js";
 import type { WorkerResult } from "../src/types.js";
 import { taskDefinition } from "../src/tasks/registry.js";
 import * as recognize from "../src/tasks/recognize.js";
@@ -41,6 +41,7 @@ function insertWorkItem(row: {
   status?: string;
   source?: string;
   session_id?: string | null;
+  priority?: string;
 }) {
   const now = nowIso();
   getConn().prepare(
@@ -50,7 +51,7 @@ function insertWorkItem(row: {
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     row.id, owner(), row.task_type || "email_compose", row.title, row.source || "manual",
-    row.status || "pending", "normal", row.task_type || "email_compose", "lead",
+    row.status || "pending", row.priority || "normal", row.task_type || "email_compose", "lead",
     null, null, row.session_id || null, null, "{}", "{}", 1, now, now,
   );
 }
@@ -129,94 +130,77 @@ describe("today_plan harness", () => {
     expect(taskDefinition("todo_plan")?.output).toBe("today_brief");
   });
 
-  it("GET todo brief is memory-only and POST locks todo_plan without recognition", async () => {
-    const run = vi.spyOn(runner, "runWorker");
-    const recognizeSpy = vi.spyOn(recognize, "recognizeTaskIntent");
-    const memory = await request("GET", "/api/home/todo-brief");
-    expect(memory.status).toBe(200);
-    expect(memory.body.planning).toBe(false);
-    expect(memory.body.creates_session).toBe(false);
-    expect(memory.body.calls_model).toBe(false);
-    expect(run).not.toHaveBeenCalled();
+  describe.each(["today", "todo"] as const)("plan routes (%s)", (scope) => {
+    const taskType = scope === "today" ? "today_plan" : "todo_plan";
+    const briefPath = `/api/home/${scope}-brief`;
+    const planPath = `/api/home/${scope}-brief/plan`;
 
-    const started = await request("POST", "/api/home/todo-brief/plan");
-    expect([200, 202]).toContain(started.status);
-    expect(started.body.task_type).toBe("todo_plan");
-    expect(started.body.work_item_id).toBeTruthy();
-    expect(started.body.session_id).toBeTruthy();
-    const item = getConn().prepare("SELECT task_type, source, session_id FROM work_items WHERE id=?")
-      .get(started.body.work_item_id) as { task_type: string; source: string; session_id: string };
-    expect(item.task_type).toBe("todo_plan");
-    expect(item.source).toBe("planning");
-    expect(item.session_id).toBe(started.body.session_id);
-    expect(recognizeSpy).not.toHaveBeenCalled();
-  });
-
-  it("GET brief creates no session and does not call run", async () => {
-    const run = vi.spyOn(runner, "runWorker");
-    const beforeSessions = Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n);
-    const beforeItems = Number((getConn().prepare("SELECT COUNT(*) AS n FROM work_items WHERE task_type='today_plan'").get() as { n: number }).n);
-    const res = await request("GET", "/api/home/today-brief");
-    expect(res.status).toBe(200);
-    expect(res.body.planning).toBe(false);
-    expect(res.body.brief).toBeNull();
-    expect(res.body.creates_session).toBe(false);
-    expect(res.body.calls_model).toBe(false);
-    expect(run).not.toHaveBeenCalled();
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n)).toBe(beforeSessions);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM work_items WHERE task_type='today_plan'").get() as { n: number }).n)).toBe(beforeItems);
-  });
-
-  it("POST plan creates today_plan work_item+session and skips from-text recognition", async () => {
-    const recognizeSpy = vi.spyOn(recognize, "recognizeTaskIntent");
-    const res = await request("POST", "/api/home/today-brief/plan");
-    expect([200, 202]).toContain(res.status);
-    expect(res.body.task_type ?? "today_plan").toBeDefined();
-    expect(res.body.work_item_id).toBeTruthy();
-    expect(res.body.session_id).toBeTruthy();
-    expect(res.body.run_id).toBeTruthy();
-    const item = getConn().prepare("SELECT * FROM work_items WHERE id=?").get(res.body.work_item_id) as {
-      task_type: string;
-      source: string;
-      session_id: string;
-    };
-    expect(item.task_type).toBe("today_plan");
-    expect(item.source).toBe("planning");
-    expect(item.session_id).toBe(res.body.session_id);
-    const session = getConn().prepare("SELECT * FROM sessions WHERE id=?").get(res.body.session_id) as {
-      expert_id: string;
-      kind: string;
-    };
-    expect(session.expert_id).toBe("expert:kol");
-    expect(session.kind).toBe("today_plan");
-    expect(recognizeSpy).not.toHaveBeenCalled();
-    const fromText = await request("POST", "/api/tasks/from-text", { text: "规划今天" });
-    expect(fromText.status === 201 || fromText.body.needs_clarification).toBeTruthy();
-  });
-
-  it("second POST plan while today_plan is running returns the same session", async () => {
-    const now = nowIso();
-    getConn().prepare(
-      "INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id) VALUES (?,?,?,?,?,?,?,?)",
-    ).run("ses_running_plan", "今日规划", now, now, "today_plan", 0, owner(), "expert:kol");
-    insertWorkItem({
-      id: "tsk_running_plan",
-      title: "今日规划",
-      task_type: "today_plan",
-      status: "running",
-      source: "planning",
-      session_id: "ses_running_plan",
+    it("GET brief creates no session and does not call run", async () => {
+      const run = vi.spyOn(runner, "runWorker");
+      const beforeSessions = Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n);
+      const beforeItems = Number((getConn().prepare("SELECT COUNT(*) AS n FROM work_items WHERE task_type=?").get(taskType) as { n: number }).n);
+      const res = await request("GET", briefPath);
+      expect(res.status).toBe(200);
+      expect(res.body.planning).toBe(false);
+      expect(res.body.brief).toBeNull();
+      expect(res.body.creates_session).toBe(false);
+      expect(res.body.calls_model).toBe(false);
+      expect(run).not.toHaveBeenCalled();
+      expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n)).toBe(beforeSessions);
+      expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM work_items WHERE task_type=?").get(taskType) as { n: number }).n)).toBe(beforeItems);
     });
-    getConn().prepare(
-      "INSERT INTO task_runs (id,work_item_id,session_id,status,input,entities,created_at,started_at) VALUES (?,?,?,?,?,?,?,?)",
-    ).run("run_running_plan", "tsk_running_plan", "ses_running_plan", "running", "{}", "{}", now, now);
-    const first = await request("POST", "/api/home/today-brief/plan");
-    const second = await request("POST", "/api/home/today-brief/plan");
-    expect(first.body.session_id).toBe("ses_running_plan");
-    expect(second.body.session_id).toBe("ses_running_plan");
-    expect(first.body.work_item_id).toBe("tsk_running_plan");
-    expect(second.body.work_item_id).toBe(first.body.work_item_id);
-    expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM work_items WHERE task_type='today_plan'").get() as { n: number }).n)).toBe(1);
+
+    it("POST plan creates work_item+session and skips from-text recognition", async () => {
+      const recognizeSpy = vi.spyOn(recognize, "recognizeTaskIntent");
+      const res = await request("POST", planPath);
+      expect([200, 202]).toContain(res.status);
+      expect(res.body.task_type ?? taskType).toBeDefined();
+      expect(res.body.work_item_id).toBeTruthy();
+      expect(res.body.session_id).toBeTruthy();
+      expect(res.body.run_id).toBeTruthy();
+      const item = getConn().prepare("SELECT * FROM work_items WHERE id=?").get(res.body.work_item_id) as {
+        task_type: string;
+        source: string;
+        session_id: string;
+      };
+      expect(item.task_type).toBe(taskType);
+      expect(item.source).toBe("planning");
+      expect(item.session_id).toBe(res.body.session_id);
+      const session = getConn().prepare("SELECT * FROM sessions WHERE id=?").get(res.body.session_id) as {
+        expert_id: string;
+        kind: string;
+      };
+      expect(session.expert_id).toBe("expert:kol");
+      expect(session.kind).toBe(taskType);
+      expect(recognizeSpy).not.toHaveBeenCalled();
+      const fromText = await request("POST", "/api/tasks/from-text", { text: "规划今天" });
+      expect(fromText.status === 201 || fromText.body.needs_clarification).toBeTruthy();
+    });
+
+    it("second POST plan while the plan is running returns the same session", async () => {
+      const now = nowIso();
+      getConn().prepare(
+        "INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id) VALUES (?,?,?,?,?,?,?,?)",
+      ).run("ses_running_plan", "规划", now, now, taskType, 0, owner(), "expert:kol");
+      insertWorkItem({
+        id: "tsk_running_plan",
+        title: "规划",
+        task_type: taskType,
+        status: "running",
+        source: "planning",
+        session_id: "ses_running_plan",
+      });
+      getConn().prepare(
+        "INSERT INTO task_runs (id,work_item_id,session_id,status,input,entities,created_at,started_at) VALUES (?,?,?,?,?,?,?,?)",
+      ).run("run_running_plan", "tsk_running_plan", "ses_running_plan", "running", "{}", "{}", now, now);
+      const first = await request("POST", planPath);
+      const second = await request("POST", planPath);
+      expect(first.body.session_id).toBe("ses_running_plan");
+      expect(second.body.session_id).toBe("ses_running_plan");
+      expect(first.body.work_item_id).toBe("tsk_running_plan");
+      expect(second.body.work_item_id).toBe(first.body.work_item_id);
+      expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM work_items WHERE task_type=?").get(taskType) as { n: number }).n)).toBe(1);
+    });
   });
 
   it("rejects missing sections or batch follow and keeps the old brief", () => {
@@ -407,62 +391,69 @@ describe("today_plan harness", () => {
     expect(Number((getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n)).toBe(beforeSessions + 1);
   });
 
-  it("emits employee-facing mid events while planning and on complete", async () => {
-    insertWorkItem({ id: "tsk_open_quote", title: "未了结报价" });
-    let release!: (value: WorkerResult) => void;
-    const held = new Promise<WorkerResult>((resolve) => {
-      release = resolve;
-    });
-    vi.spyOn(runner, "runWorker").mockReturnValue(held);
-    const plan = await request("POST", "/api/home/today-brief/plan");
-    expect([200, 202]).toContain(plan.status);
-    const mid = await request("GET", "/api/home/today-brief");
-    expect(mid.body.planning).toBe(true);
-    const midLabels = ((mid.body.events as Json[]) || []).map((event) => String(event.title || event.label || ""));
-    expect(midLabels).toEqual(expect.arrayContaining([
-      TODAY_PLAN_EMPLOYEE_EVENTS.memoryRead,
-      TODAY_PLAN_EMPLOYEE_EVENTS.deltaPacked,
-      TODAY_PLAN_EMPLOYEE_EVENTS.codexSubmitted,
-    ]));
-    expect(midLabels).not.toContain(TODAY_PLAN_EMPLOYEE_EVENTS.completed);
-    const memoryEvent = ((mid.body.events as Json[]) || []).find((event) => (
-      String(event.title || event.label) === TODAY_PLAN_EMPLOYEE_EVENTS.memoryRead
-    ));
-    expect(String(memoryEvent?.summary || "")).toMatch(/未了结 \d+ 项/);
-    const unfinishedIds = collectSourceCatalog(owner())
-      .filter((item) => item.kind === "formal_task" && item.work_item_id)
-      .map((item) => String(item.work_item_id));
-    release({
-      worker_id: "stub",
-      status: "completed",
-      skill: "today_plan",
-      contract_log: [],
-      items: [validBrief({
-        type: "today_brief",
-        todo_layout: unfinishedIds.map((id, index) => ({ work_item_id: id, rank: index + 1, why: "未了结" })),
-      })],
-    });
-    await vi.waitFor(async () => {
-      const done = await request("GET", "/api/home/today-brief");
-      expect(done.body.planning).toBe(false);
-      const labels = ((done.body.events as Json[]) || []).map((event) => String(event.title || event.label || ""));
-      expect(labels).toEqual(expect.arrayContaining([
-        TODAY_PLAN_EMPLOYEE_EVENTS.memoryRead,
-        TODAY_PLAN_EMPLOYEE_EVENTS.deltaPacked,
-        TODAY_PLAN_EMPLOYEE_EVENTS.codexSubmitted,
-        TODAY_PLAN_EMPLOYEE_EVENTS.writingBrief,
-        TODAY_PLAN_EMPLOYEE_EVENTS.completed,
-      ]));
-    });
-  });
+  describe.each(["today", "todo"] as const)("mid events and open-todo listing (%s)", (scope) => {
+    const taskType = scope === "today" ? "today_plan" : "todo_plan";
+    const briefPath = `/api/home/${scope}-brief`;
+    const planPath = `/api/home/${scope}-brief/plan`;
+    const events = PLAN_EMPLOYEE_EVENTS[scope];
 
-  it("does not list planning work items as open todos", async () => {
-    insertWorkItem({ id: "tsk_open_quote", title: "未了结报价" });
-    const plan = await request("POST", "/api/home/today-brief/plan");
-    const listed = await request("GET", "/api/tasks?view=open");
-    const ids = ((listed.body.tasks as Json[]) || []).map((row) => String(row.id));
-    expect(ids).toContain("tsk_open_quote");
-    expect(ids).not.toContain(String(plan.body.work_item_id));
+    it("emits employee-facing mid events while planning and on complete", async () => {
+      insertWorkItem({ id: "tsk_open_quote", title: "未了结报价" });
+      let release!: (value: WorkerResult) => void;
+      const held = new Promise<WorkerResult>((resolve) => {
+        release = resolve;
+      });
+      vi.spyOn(runner, "runWorker").mockReturnValue(held);
+      const plan = await request("POST", planPath);
+      expect([200, 202]).toContain(plan.status);
+      const mid = await request("GET", briefPath);
+      expect(mid.body.planning).toBe(true);
+      const midLabels = ((mid.body.events as Json[]) || []).map((event) => String(event.title || event.label || ""));
+      expect(midLabels).toEqual(expect.arrayContaining([
+        events.memoryRead,
+        events.deltaPacked,
+        events.codexSubmitted,
+      ]));
+      expect(midLabels).not.toContain(events.completed);
+      const memoryEvent = ((mid.body.events as Json[]) || []).find((event) => (
+        String(event.title || event.label) === events.memoryRead
+      ));
+      expect(String(memoryEvent?.summary || "")).toMatch(/未了结 \d+ 项/);
+      const unfinishedIds = collectSourceCatalog(owner(), scope)
+        .filter((item) => item.kind === "formal_task" && item.work_item_id)
+        .map((item) => String(item.work_item_id));
+      release({
+        worker_id: "stub",
+        status: "completed",
+        skill: taskType,
+        contract_log: [],
+        items: [validBrief({
+          type: "today_brief",
+          todo_layout: unfinishedIds.map((id, index) => ({ work_item_id: id, rank: index + 1, why: "未了结" })),
+        })],
+      });
+      await vi.waitFor(async () => {
+        const done = await request("GET", briefPath);
+        expect(done.body.planning).toBe(false);
+        const labels = ((done.body.events as Json[]) || []).map((event) => String(event.title || event.label || ""));
+        expect(labels).toEqual(expect.arrayContaining([
+          events.memoryRead,
+          events.deltaPacked,
+          events.codexSubmitted,
+          events.writingBrief,
+          events.completed,
+        ]));
+      });
+    });
+
+    it("does not list planning work items as open todos", async () => {
+      insertWorkItem({ id: "tsk_open_quote", title: "未了结报价" });
+      const plan = await request("POST", planPath);
+      const listed = await request("GET", "/api/tasks?view=open");
+      const ids = ((listed.body.tasks as Json[]) || []).map((row) => String(row.id));
+      expect(ids).toContain("tsk_open_quote");
+      expect(ids).not.toContain(String(plan.body.work_item_id));
+    });
   });
 });
 
@@ -536,24 +527,27 @@ describe("stale planning watchdog", () => {
 });
 
 describe("previous plan snapshot", () => {
-  it("reports the version before the current one, never the current run twice", () => {
-    insertWorkItem({ id: "tsk_prev", title: "上一版规划", task_type: "today_plan", status: "completed" });
+  it.each(["today", "todo"] as const)("reports the version before the current one for %s, never the current run twice", (scope) => {
+    const taskType = scope === "today" ? "today_plan" : "todo_plan";
+    insertWorkItem({ id: "tsk_prev", title: "上一版规划", task_type: taskType, status: "completed" });
     expect(writeTodayBriefArtifact({
       owner: owner(),
       workItemId: "tsk_prev",
       runId: null,
       brief: validBrief({ lead: "上一版先把报价邮件发出去" }),
+      scope,
     }).ok).toBe(true);
 
-    insertWorkItem({ id: "tsk_now", title: "本轮规划", task_type: "today_plan", status: "completed" });
+    insertWorkItem({ id: "tsk_now", title: "本轮规划", task_type: taskType, status: "completed" });
     expect(writeTodayBriefArtifact({
       owner: owner(),
       workItemId: "tsk_now",
       runId: null,
       brief: validBrief({ lead: "本轮先恢复采集" }),
+      scope,
     }).ok).toBe(true);
 
-    const snapshot = todayBriefSnapshot(owner(), "today");
+    const snapshot = todayBriefSnapshot(owner(), scope);
     expect((snapshot.brief as Json)?.lead).toBe("本轮先恢复采集");
     expect((snapshot.previous_brief as Json)?.lead).toBe("上一版先把报价邮件发出去");
     expect(snapshot.previous_work_item_id).toBe("tsk_prev");
@@ -565,9 +559,27 @@ describe("previous plan snapshot", () => {
       workItemId: "tsk_now",
       runId: null,
       brief: validBrief({ lead: "本轮改稿" }),
+      scope,
     }).ok).toBe(true);
-    const again = todayBriefSnapshot(owner(), "today");
+    const again = todayBriefSnapshot(owner(), scope);
     expect((again.previous_brief as Json)?.lead).toBe("上一版先把报价邮件发出去");
     expect(again.previous_work_item_id).toBe("tsk_prev");
+  });
+});
+
+describe("scope catalog split", () => {
+  it("todo catalog excludes today-scheduled formal tasks but keeps plain todos", () => {
+    // task_type outside the correspondence/follow collectors so the rows
+    // appear only as formal_task entries.
+    insertWorkItem({ id: "tsk_today_imp", title: "今日重要报价", task_type: "manual_work", priority: "important" });
+    insertWorkItem({ id: "tsk_todo_plain", title: "普通待办", task_type: "manual_work" });
+    const todayCatalog = collectSourceCatalog(owner(), "today");
+    const todoCatalog = collectSourceCatalog(owner(), "todo");
+    const formalIds = (catalog: ReturnType<typeof collectSourceCatalog>) =>
+      catalog.filter((item) => item.kind === "formal_task").map((item) => String(item.work_item_id));
+    expect(formalIds(todayCatalog)).toContain("tsk_today_imp");
+    expect(formalIds(todayCatalog)).toContain("tsk_todo_plain");
+    expect(formalIds(todoCatalog)).not.toContain("tsk_today_imp");
+    expect(formalIds(todoCatalog)).toContain("tsk_todo_plain");
   });
 });
