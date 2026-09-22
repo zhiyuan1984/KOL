@@ -11,9 +11,12 @@ import {
   clearPlanCache,
   clearPlanCaches,
   memoryTasksOf,
+  planCacheKey,
+  planStartEvent,
   restorePlanCache,
   runTodayPlanRefresh,
   savePlanCache,
+  SCOPE_CONFIG,
   todayPlanEventLabels,
   todayPlanFailedFromBrief,
   todayPlanStatusCopy,
@@ -603,5 +606,55 @@ describe("plan cache", () => {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const gate = fs.readFileSync(path.resolve(here, "../components/AuthGate.tsx"), "utf8");
     expect(gate.match(/clearPlanCaches\(\)/g)?.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("todo scope wiring", () => {
+  it("routes cache keys, start events and board labels through SCOPE_CONFIG", () => {
+    expect(planCacheKey("today")).toBe("lingong:today-plan-cache");
+    expect(planCacheKey("todo")).toBe("lingong:todo-plan-cache");
+    expect(planStartEvent("today")).toBe("lingong:today-plan-start");
+    expect(planStartEvent("todo")).toBe("lingong:todo-plan-start");
+    expect(SCOPE_CONFIG.today.boardIdleLabel).toBe("启动今日任务");
+    expect(SCOPE_CONFIG.todo.boardIdleLabel).toBe("启动待办任务");
+    expect(SCOPE_CONFIG.todo.boardAgainLabel).toBe("重新生成待办计划");
+  });
+
+  it("todayPlanFailedFromBrief reads the todo failure copy for the todo scope", () => {
+    expect(todayPlanFailedFromBrief({ events: [{ type: "run.progress", title: "待办规划未通过" }] }, "todo")).toBe(true);
+    expect(todayPlanFailedFromBrief({ events: [{ type: "run.progress", title: "待办规划未通过" }] }, "today")).toBe(false);
+    expect(todayPlanFailedFromBrief({ events: [{ type: "run.progress", title: "今日规划失败" }] }, "todo")).toBe(false);
+    expect(todayPlanFailedFromBrief({ events: [{ type: "run.progress", title: "今日规划失败" }] }, "today")).toBe(true);
+  });
+
+  it("runTodayPlanRefresh completes a todo-scope run through the shared chain", async () => {
+    const open = [task({ id: "tsk_todo", title: "补寄样品" })];
+    let briefCalls = 0;
+    const client: TodayPlanClient = {
+      listOpenTasks: async () => open,
+      getBrief: async () => {
+        briefCalls += 1;
+        if (briefCalls === 1) return { planning: false, brief: null, events: [], creates_session: false, calls_model: false };
+        return {
+          planning: false,
+          brief: brief({ lead: "先补寄样品再跟进报价" }),
+          events: [
+            { type: "run.progress", title: "已读取待办任务记忆" },
+            { type: "run.completed", label: "待办规划已完成" },
+          ],
+        };
+      },
+      startPlan: vi.fn(async () => ({ planning: true, attached: false, work_item_id: "tsk_todo_plan" })),
+    };
+    const steps: TodayPlanStep[] = [];
+    const final = await runTodayPlanRefresh(client, (step) => steps.push(step), {
+      pollMs: 0,
+      sleep: async () => undefined,
+      scope: "todo",
+    });
+    expect(final.phase).toBe("refreshed");
+    expect(final.tasks?.map((row) => row.id)).toEqual(["tsk_todo"]);
+    expect(todayPlanEventLabels(final.events)).toEqual(["已读取待办任务记忆", "待办规划已完成"]);
+    expect(steps.map((step) => step.phase)).toEqual(expect.arrayContaining(["loading-memory", "planning", "refreshed"]));
   });
 });
