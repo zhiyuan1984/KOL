@@ -57,15 +57,17 @@ describe("today plan wiring", () => {
     const home = fs.readFileSync(path.resolve(here, "../pages/Home.tsx"), "utf8");
     const pane = fs.readFileSync(path.resolve(here, "./TodayPane.tsx"), "utf8");
     const progress = fs.readFileSync(path.resolve(here, "./TodayPlanProgress.tsx"), "utf8");
+    const hook = fs.readFileSync(path.resolve(here, "./usePlanScope.ts"), "utf8");
     expect(home).toContain('api.tasks({ view: "open" })');
     expect(home).toContain("api.todayBrief()");
     expect(home).toContain("api.planToday()");
     expect(home).toContain("fetchTodayTasks");
-    expect(home).toContain("projectDisplayTasks");
-    expect(home).toContain("runTodayPlanRefresh");
+    expect(home).toContain("usePlanScope");
+    expect(hook).toContain("projectDisplayTasks");
+    expect(hook).toContain("runTodayPlanRefresh");
     // The POST is gated on the explicit start entries, never on the page mount.
-    expect(home).toContain("startPlan: todayStartRef.current");
-    expect(home).toContain("startPlan: todoStartRef.current");
+    expect(hook).toContain("startPlan: startRef.current");
+    expect(hook).not.toContain("startPlan: true");
     expect(home).toContain("TODAY_PLAN_START_EVENT");
     expect(home).toContain("TODO_PLAN_START_EVENT");
     expect(home).not.toMatch(/startPlan:\s*true/);
@@ -82,8 +84,9 @@ describe("today plan wiring", () => {
     const todo = fs.readFileSync(path.resolve(here, "./TodoPane.tsx"), "utf8");
     const homeModel = fs.readFileSync(path.resolve(here, "./homeModel.ts"), "utf8");
     expect(home).toContain("homeMemoryTasks");
-    expect(home).toContain("todoMemoryTasks");
-    expect(home).toMatch(/\[todayPlanTick\]/);
+    expect(home).toContain('usePlanScope("todo"');
+    const hook = fs.readFileSync(path.resolve(here, "./usePlanScope.ts"), "utf8");
+    expect(hook).toMatch(/\[tick, scope\]/);
     expect(home).not.toMatch(/if \(mode !== "today"\)/);
     expect(home).not.toMatch(/if \(mode !== "todo"\) return;/);
     expect(home).not.toMatch(/mode === "todo"[\s\S]{0,240}todayBrief\(\)/);
@@ -541,16 +544,14 @@ describe("plan cache", () => {
   it("Home restores cache before planning and writes it back on refresh", () => {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const home = fs.readFileSync(path.resolve(here, "../pages/Home.tsx"), "utf8");
-    expect(home).toContain("restorePlanCache(TODAY_PLAN_CACHE_KEY)");
-    expect(home).toContain("restorePlanCache(TODO_PLAN_CACHE_KEY)");
-    expect(home).toContain("savePlanCache(TODAY_PLAN_CACHE_KEY");
-    expect(home).toContain("savePlanCache(TODO_PLAN_CACHE_KEY");
-    const todayRestore = home.indexOf("restorePlanCache(TODAY_PLAN_CACHE_KEY)");
-    const todoRestore = home.indexOf("restorePlanCache(TODO_PLAN_CACHE_KEY)");
-    expect(todayRestore).toBeGreaterThan(-1);
-    expect(todoRestore).toBeGreaterThan(-1);
-    expect(todayRestore).toBeLessThan(home.indexOf("api.planToday()"));
-    expect(todoRestore).toBeLessThan(home.indexOf("api.planTodo()"));
+    const hook = fs.readFileSync(path.resolve(here, "./usePlanScope.ts"), "utf8");
+    expect(home).toContain("usePlanScope");
+    expect(hook).toContain("restorePlanCache(planCacheKey(scope))");
+    expect(hook).toContain("savePlanCache(planCacheKey(scope)");
+    const restoreIdx = hook.indexOf("restorePlanCache(planCacheKey(scope))");
+    expect(restoreIdx).toBeGreaterThan(-1);
+    expect(restoreIdx).toBeLessThan(hook.indexOf("runTodayPlanRefresh("));
+    expect(hook.indexOf("savePlanCache(planCacheKey(scope)")).toBeGreaterThan(restoreIdx);
   });
 
   it("keeps the sidebar 新工作任务 link free of refresh dispatch", () => {

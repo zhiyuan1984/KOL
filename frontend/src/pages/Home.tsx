@@ -9,9 +9,7 @@ import {
   type StarryBinding,
   type Task,
   type TaskDefinition,
-  type TaskEvent,
   type TaskRunResult,
-  type TodayBrief,
 } from "../api";
 import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
 import { storePending } from "../components/ChatBlocks";
@@ -111,19 +109,11 @@ import {
 import { isTodayScheduled } from "../home/schedule";
 import EditTaskDialog from "../home/EditTaskDialog";
 import {
-  TODAY_PLAN_REFRESHED_MS,
   TODAY_PLAN_REFRESH_EVENT,
   TODAY_PLAN_START_EVENT,
   TODO_PLAN_START_EVENT,
-  TODAY_PLAN_CACHE_KEY,
-  TODO_PLAN_CACHE_KEY,
-  memoryTasksOf,
-  restorePlanCache,
-  runTodayPlanRefresh,
-  savePlanCache,
-  type TodayPlanPhase,
 } from "../home/todayPlan";
-import { projectDisplayTasks } from "../home/displayTasks";
+import { usePlanScope } from "../home/usePlanScope";
 import { fetchTodayTasks, fetchTodoTasks } from "../home/todayTasksApi";
 import { findDuplicateTodo, recommendationIdentity } from "../home/todoDedupe";
 import {
@@ -312,17 +302,29 @@ export default function Home() {
   const [followScope, setFollowScope] = useState<StarryBinding | null>(null);
   const [sort, setSort] = useState("priority");
   const initialFill = peekComposerFill();
+  const initialHomeMode = parseHomeMode(new URLSearchParams(window.location.search).get("tab"));
   // AI发现 tab：条件卡与提问框正文在首帧就位，不等 GET /api/home/discovery/template。
-  const discoveryEntryTab = parseHomeMode(new URLSearchParams(window.location.search).get("tab")) === "discovery";
-  const todayEntryDefault = !initialFill && !discoveryEntryTab && parseHomeMode(new URLSearchParams(window.location.search).get("tab")) === "today";
+  const discoveryEntryTab = initialHomeMode === "discovery";
+  const todayEntryDefault = !initialFill && !discoveryEntryTab && initialHomeMode === "today";
+  const todoEntryDefault = !initialFill && !discoveryEntryTab && initialHomeMode === "todo";
   const [text, setText] = useState(
-    initialFill ? composerFillText(initialFill) : discoveryEntryTab ? renderDiscoveryBody(defaultDiscoveryBrief()) : todayEntryDefault ? starterPrompt({ id: "creator_daily_tasks", title: "今日任务" }) : "",
+    initialFill
+      ? composerFillText(initialFill)
+      : discoveryEntryTab
+        ? renderDiscoveryBody(defaultDiscoveryBrief())
+        : todayEntryDefault
+          ? starterPrompt({ id: "creator_daily_tasks", title: "今日任务" })
+          : todoEntryDefault
+            ? starterPrompt({ id: "todo_plan", title: "我的待办" })
+            : "",
   );
   const [lockedIntent, setLockedIntent] = useState<string | null>(
-    initialFill?.skill_id || (discoveryEntryTab ? DISCOVERY_INTENT : todayEntryDefault ? "creator_daily_tasks" : null),
+    initialFill?.skill_id
+      || (discoveryEntryTab ? DISCOVERY_INTENT : todayEntryDefault ? "creator_daily_tasks" : todoEntryDefault ? "todo_plan" : null),
   );
   const [lockedLabel, setLockedLabel] = useState<string | null>(
-    initialFill?.title || (discoveryEntryTab ? DISCOVERY_LOCK_LABEL : todayEntryDefault ? "今日任务" : null),
+    initialFill?.title
+      || (discoveryEntryTab ? DISCOVERY_LOCK_LABEL : todayEntryDefault ? "今日任务" : todoEntryDefault ? "我的待办" : null),
   );
   const [lockedKnowledgeId, setLockedKnowledgeId] = useState<string | null>(initialFill?.id || null);
   const [lockedTemplate, setLockedTemplate] = useState<LockedMailTemplate | null>(
@@ -552,8 +554,6 @@ export default function Home() {
   const [taskCatalog, setTaskCatalog] = useState<Task[]>([]);
   const boardRequestedRef = useRef(false);
   const missingAlertRef = useRef<HTMLElement | null>(null);
-  const todayPlanFirstRun = useRef(true);
-  const todoPlanFirstRun = useRef(true);
   const [recognizeStartedAt, setRecognizeStartedAt] = useState<number | null>(null);
   const [recognizeNow, setRecognizeNow] = useState(() => Date.now());
   const [confirmStageBusyId, setConfirmStageBusyId] = useState<string | null>(null);
@@ -588,29 +588,19 @@ export default function Home() {
   } | null>(null);
   /** 发现提交失败后可重试：正文已在发送时清空，不能只留一条错误文案。 */
   const [discoverySubmitFailed, setDiscoverySubmitFailed] = useState(false);
-  const [todayBrief, setTodayBrief] = useState<TodayBrief | null>(null);
   const [editTaskTarget, setEditTaskTarget] = useState<Task | null>(null);
-  const [todayMemoryTasks, setTodayMemoryTasks] = useState<Task[] | null>(null);
-  const [todoMemoryTasks, setTodoMemoryTasks] = useState<Task[] | null>(null);
-  const [todayPlanEvents, setTodayPlanEvents] = useState<TaskEvent[]>([]);
-  const [todayPlanPhase, setTodayPlanPhase] = useState<TodayPlanPhase>("idle");
-  const [todayPrevBrief, setTodayPrevBrief] = useState<TodayBrief | null>(null);
-  const [todayPrevEvents, setTodayPrevEvents] = useState<TaskEvent[]>([]);
-  /**
-   * The tick asks the pipeline to run; the ref says whether that run may POST the
-   * thinking request. Entering the page only ticks (memory read), 启动今日任务 /
-   * 启动待办任务 raise the ref — and nothing else does. The ref is cleared when the
-   * run settles, so a later refresh is a memory read again.
-   */
-  const [todayPlanTick, setTodayPlanTick] = useState(0);
-  const todayStartRef = useRef(false);
-  const [todoBrief, setTodoBrief] = useState<TodayBrief | null>(null);
-  const [todoPlanEvents, setTodoPlanEvents] = useState<TaskEvent[]>([]);
-  const [todoPlanPhase, setTodoPlanPhase] = useState<TodayPlanPhase>("idle");
-  const [todoPrevBrief, setTodoPrevBrief] = useState<TodayBrief | null>(null);
-  const [todoPrevEvents, setTodoPrevEvents] = useState<TaskEvent[]>([]);
-  const [todoPlanTick, setTodoPlanTick] = useState(0);
-  const todoStartRef = useRef(false);
+  const todayPlan = usePlanScope("today", {
+    listOpenTasks: () => api.tasks({ view: "open" }).then(unwrapTaskList),
+    getBrief: () => api.todayBrief(),
+    startPlan: () => api.planToday(),
+    getDisplayTasks: () => fetchTodayTasks(),
+  });
+  const todoPlan = usePlanScope("todo", {
+    listOpenTasks: () => api.tasks({ view: "open" }).then(unwrapTaskList),
+    getBrief: () => api.todoBrief(),
+    startPlan: () => api.planTodo(),
+    getDisplayTasks: () => fetchTodoTasks(),
+  });
   const nav = useNavigate();
   const mode = parseHomeMode(params.get("tab"));
 
@@ -1413,6 +1403,10 @@ export default function Home() {
       window.dispatchEvent(new Event(TODAY_PLAN_START_EVENT));
       return;
     }
+    if (intent === "todo_plan") {
+      window.dispatchEvent(new Event(TODO_PLAN_START_EVENT));
+      return;
+    }
     if (isAnalyzeEnqueuePrefill(prompt, intent)) {
       const people = analyzePeople.length ? analyzePeople : [];
       if (!people.length) {
@@ -1584,14 +1578,14 @@ export default function Home() {
     [boardWorkbench, followedKols, mode, taskCatalog],
   );
 
-  const homeMemoryTasks = (mode === "today" ? todayMemoryTasks : mode === "todo" ? todoMemoryTasks : null) ?? taskCatalog;
+  const homeMemoryTasks = (mode === "today" ? todayPlan.memoryTasks : mode === "todo" ? todoPlan.memoryTasks : null) ?? taskCatalog;
 
   // The tab badges describe their own pane, so they read the matching memory
   // scope instead of `homeMemoryTasks`, which follows the active tab. Reading
   // the pane-scoped list keeps 今日任务 / 我的待办 numbers stable when the user
   // switches to AI发现 and `homeMemoryTasks` falls back to the raw catalog.
-  const todayBadgeTasks = todayMemoryTasks ?? taskCatalog;
-  const todoBadgeTasks = todoMemoryTasks ?? taskCatalog;
+  const todayBadgeTasks = todayPlan.memoryTasks ?? taskCatalog;
+  const todoBadgeTasks = todoPlan.memoryTasks ?? taskCatalog;
 
   const todoItems = useMemo(
     () => sortOpenWorkItems(homeMemoryTasks.filter(isOpenTask)),
@@ -1601,9 +1595,9 @@ export default function Home() {
   const todayTodos = useMemo(
     () => applyLayoutWhy(
       sortTodayTodos(homeMemoryTasks.filter((task) => !isPlanningTask(task) && isTodayScheduled(task))),
-      todayBrief?.todo_layout,
+      todayPlan.brief?.todo_layout,
     ),
-    [homeMemoryTasks, todayBrief],
+    [homeMemoryTasks, todayPlan.brief],
   );
 
   const tabTodayCount = useMemo(
@@ -1641,189 +1635,6 @@ export default function Home() {
     const timer = window.setInterval(tick, HOME_TASK_POLL_MS);
     return () => window.clearInterval(timer);
   }, [hasActiveRuns]);
-
-  useEffect(() => {
-    // A refresh re-reads memory; a start posts the run. Neither tab switch nor
-    // page entry dispatches a start, so no thinking run begins unbidden. While a
-    // start run is in flight the ref is up, and a refresh must not cut it short.
-    const refresh = () => {
-      if (!todayStartRef.current) setTodayPlanTick((tick) => tick + 1);
-      if (!todoStartRef.current) setTodoPlanTick((tick) => tick + 1);
-    };
-    const startToday = () => {
-      todayStartRef.current = true;
-      setTodayPlanTick((tick) => tick + 1);
-    };
-    const startTodo = () => {
-      todoStartRef.current = true;
-      setTodoPlanTick((tick) => tick + 1);
-    };
-    window.addEventListener(TODAY_PLAN_REFRESH_EVENT, refresh);
-    window.addEventListener(TODAY_PLAN_START_EVENT, startToday);
-    window.addEventListener(TODO_PLAN_START_EVENT, startTodo);
-    return () => {
-      window.removeEventListener(TODAY_PLAN_REFRESH_EVENT, refresh);
-      window.removeEventListener(TODAY_PLAN_START_EVENT, startToday);
-      window.removeEventListener(TODO_PLAN_START_EVENT, startTodo);
-    };
-  }, []);
-
-  useEffect(() => {
-    // On first mount, restore fresh cached planning instead of re-running Codex.
-    if (todayPlanFirstRun.current) {
-      todayPlanFirstRun.current = false;
-      const cache = restorePlanCache(TODAY_PLAN_CACHE_KEY);
-      if (cache) {
-        setTodayMemoryTasks(cache.memoryTasks);
-        setTodayBrief(cache.brief);
-        setTodayPlanEvents(cache.events);
-        setTodayPlanPhase(cache.phase);
-        return;
-      }
-    }
-    // Home enter: one view=open memory fetch feeds Today + Todo. Do not restart
-    // or board-fetch when switching tabs. Planning write-back is layout_why only.
-    // Entering only reads memory; the run itself waits for 启动今日任务.
-    const controller = new AbortController();
-    let dismissTimer = 0;
-    void runTodayPlanRefresh(
-      {
-        listOpenTasks: () => api.tasks({ view: "open" }).then(unwrapTaskList),
-        getBrief: () => api.todayBrief(),
-        startPlan: () => api.planToday(),
-        getDisplayTasks: () => fetchTodayTasks(),
-      },
-      (step) => {
-        if (controller.signal.aborted) return;
-        setTodayPlanPhase(step.phase);
-        if (step.tasks) {
-          const base = memoryTasksOf(step.tasks).filter((row) => !isPlanningTask(row));
-          setTodayMemoryTasks(
-            step.displayTasks?.length ? projectDisplayTasks(step.displayTasks, base) : base,
-          );
-        }
-        if (Object.prototype.hasOwnProperty.call(step, "brief")) {
-          setTodayBrief(step.brief ?? null);
-        }
-        if (Object.prototype.hasOwnProperty.call(step, "previousBrief")) {
-          setTodayPrevBrief(step.previousBrief ?? null);
-        }
-        if (Array.isArray(step.previousEvents)) {
-          setTodayPrevEvents(step.previousEvents);
-        }
-        if (Array.isArray(step.events)) {
-          setTodayPlanEvents(step.events);
-        }
-      },
-      { signal: controller.signal, scope: "today", startPlan: todayStartRef.current },
-    ).then((final) => {
-      if (controller.signal.aborted) return;
-      todayStartRef.current = false;
-      if (final.phase === "refreshed") {
-        dismissTimer = window.setTimeout(() => {
-          if (!controller.signal.aborted) {
-            setTodayPlanPhase((current) => (current === "refreshed" ? "idle" : current));
-          }
-        }, TODAY_PLAN_REFRESHED_MS);
-      }
-    }).catch(() => {
-      if (controller.signal.aborted) return;
-      todayStartRef.current = false;
-      setTodayPlanPhase("failed");
-    });
-    return () => {
-      controller.abort();
-      if (dismissTimer) window.clearTimeout(dismissTimer);
-    };
-  }, [todayPlanTick]);
-
-  useEffect(() => {
-    if (todayPlanPhase !== "refreshed" || !todayMemoryTasks) return;
-    savePlanCache(TODAY_PLAN_CACHE_KEY, {
-      timestamp: Date.now(),
-      memoryTasks: todayMemoryTasks,
-      brief: todayBrief,
-      events: todayPlanEvents,
-      phase: todayPlanPhase,
-    });
-  }, [todayPlanPhase, todayMemoryTasks, todayBrief, todayPlanEvents]);
-
-  // Todo-scope planning chain: same pipeline as today, separate brief/events.
-  useEffect(() => {
-    if (todoPlanFirstRun.current) {
-      todoPlanFirstRun.current = false;
-      const cache = restorePlanCache(TODO_PLAN_CACHE_KEY);
-      if (cache) {
-        setTodoMemoryTasks(cache.memoryTasks);
-        setTodoBrief(cache.brief);
-        setTodoPlanEvents(cache.events);
-        setTodoPlanPhase(cache.phase);
-        return;
-      }
-    }
-    const controller = new AbortController();
-    let dismissTimer = 0;
-    void runTodayPlanRefresh(
-      {
-        listOpenTasks: () => api.tasks({ view: "open" }).then(unwrapTaskList),
-        getBrief: () => api.todoBrief(),
-        startPlan: () => api.planTodo(),
-        getDisplayTasks: () => fetchTodoTasks(),
-      },
-      (step) => {
-        if (controller.signal.aborted) return;
-        setTodoPlanPhase(step.phase);
-        if (step.tasks) {
-          const base = memoryTasksOf(step.tasks).filter((row) => !isPlanningTask(row));
-          setTodoMemoryTasks(
-            step.displayTasks?.length ? projectDisplayTasks(step.displayTasks, base) : base,
-          );
-        }
-        if (Object.prototype.hasOwnProperty.call(step, "brief")) {
-          setTodoBrief(step.brief ?? null);
-        }
-        if (Object.prototype.hasOwnProperty.call(step, "previousBrief")) {
-          setTodoPrevBrief(step.previousBrief ?? null);
-        }
-        if (Array.isArray(step.previousEvents)) {
-          setTodoPrevEvents(step.previousEvents);
-        }
-        if (Array.isArray(step.events)) {
-          setTodoPlanEvents(step.events);
-        }
-      },
-      { signal: controller.signal, scope: "todo", startPlan: todoStartRef.current },
-    ).then((final) => {
-      if (controller.signal.aborted) return;
-      todoStartRef.current = false;
-      if (final.phase === "refreshed") {
-        dismissTimer = window.setTimeout(() => {
-          if (!controller.signal.aborted) {
-            setTodoPlanPhase((current) => (current === "refreshed" ? "idle" : current));
-          }
-        }, TODAY_PLAN_REFRESHED_MS);
-      }
-    }).catch(() => {
-      if (controller.signal.aborted) return;
-      todoStartRef.current = false;
-      setTodoPlanPhase("failed");
-    });
-    return () => {
-      controller.abort();
-      if (dismissTimer) window.clearTimeout(dismissTimer);
-    };
-  }, [todoPlanTick]);
-
-  useEffect(() => {
-    if (todoPlanPhase !== "refreshed" || !todoMemoryTasks) return;
-    savePlanCache(TODO_PLAN_CACHE_KEY, {
-      timestamp: Date.now(),
-      memoryTasks: todoMemoryTasks,
-      brief: todoBrief,
-      events: todoPlanEvents,
-      phase: todoPlanPhase,
-    });
-  }, [todoPlanPhase, todoMemoryTasks, todoBrief, todoPlanEvents]);
 
   const recommendedItems = useMemo(
     () => withRecommendedDisplay(workbench.recommendations || [], definitions),
@@ -1982,6 +1793,14 @@ export default function Home() {
     setComposerFocused(false);
   };
 
+  const activateTodoSkill = () => {
+    setMode("todo");
+    setLockedIntent("todo_plan");
+    setLockedLabel("我的待办");
+    setText(starterPrompt({ id: "todo_plan", title: "我的待办" }));
+    setComposerFocused(false);
+  };
+
   const quickTaskBar = (
     <nav className="home-quick-tasks" aria-label="快捷任务" data-home-quick-tasks>
       {HOME_MODES.map((homeMode) => (
@@ -1991,7 +1810,11 @@ export default function Home() {
           aria-pressed={mode === homeMode}
           data-home-mode={homeMode}
           data-home-entry="switch-tab"
-          onClick={() => homeMode === "today" ? activateTodaySkill() : setMode(homeMode)}
+          onClick={() => {
+            if (homeMode === "today") activateTodaySkill();
+            else if (homeMode === "todo") activateTodoSkill();
+            else setMode(homeMode);
+          }}
         >
           {homeModeIcon(homeMode)}
           {homeMode === "lifecycle" ? "我的红人" : HOME_MODE_LABELS[homeMode]}
@@ -2090,12 +1913,12 @@ export default function Home() {
               busy={busy}
               onAct={(task) => void actOnMemoryTask(task)}
               onEdit={setEditTaskTarget}
-              brief={todayBrief}
-              phase={todayPlanPhase}
-              events={todayPlanEvents}
-              previousBrief={todayPrevBrief}
-              previousEvents={todayPrevEvents}
-              memoryPending={todayMemoryTasks === null}
+              brief={todayPlan.brief}
+              phase={todayPlan.phase}
+              events={todayPlan.events}
+              previousBrief={todayPlan.prevBrief}
+              previousEvents={todayPlan.prevEvents}
+              memoryPending={todayPlan.memoryTasks === null}
               centerHeader={(
                 <div className="home-hero today-center-hero">
                   <h1 data-home-title="today">{HOME_TODAY_TITLE}</h1>
@@ -2118,13 +1941,13 @@ export default function Home() {
               busy={busy}
               onAct={(task) => void actOnMemoryTask(task)}
               onEdit={setEditTaskTarget}
-              brief={todoBrief}
-              todoLayout={todoBrief?.todo_layout}
-              phase={todoPlanPhase}
-              events={todoPlanEvents}
-              previousBrief={todoPrevBrief}
-              previousEvents={todoPrevEvents}
-              memoryPending={todoMemoryTasks === null}
+              brief={todoPlan.brief}
+              todoLayout={todoPlan.brief?.todo_layout}
+              phase={todoPlan.phase}
+              events={todoPlan.events}
+              previousBrief={todoPlan.prevBrief}
+              previousEvents={todoPlan.prevEvents}
+              memoryPending={todoPlan.memoryTasks === null}
             />
           ) : null}
 
