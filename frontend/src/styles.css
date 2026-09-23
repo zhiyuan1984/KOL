@@ -87,14 +87,14 @@
   --control-h: 28px;
   --control-h-lg: 32px;
   --chip-h: 26px;
-  /* 首页 chip：快捷任务行与任务筛选行同一套规格（产品要求 2026-09-22，100×30 / 间距 5px）。 */
-  --home-chip-w: 100px;
-  --home-chip-h: 30px;
-  --home-chip-gap: 5px;
+  /* 首页工作台控件收敛为紧凑规格；触摸模态由下方规则单独扩至 44px 命中区。 */
+  --home-chip-w: 88px;
+  --home-chip-h: 28px;
+  --home-chip-gap: 4px;
   /* Home Agent 工作台列宽：唯一数值来源见 docs/DESIGN.md §Home Agent 工作台几何。 */
-  --workspace-result-rail-min: 320px;
-  --workspace-result-rail-ideal: 40%;
-  --workspace-result-rail-max: 680px;
+  --workspace-result-rail-min: 360px;
+  --workspace-result-rail-ideal: 54%;
+  --workspace-result-rail-max: 820px;
   --workspace-result-rail-collapsed: 56px;
   --badge-h: 20px;
   --lh-control: 20px;
@@ -11511,12 +11511,12 @@ button.today-brief-primary-btn:disabled {
   --ds-section-gap: var(--ds-space-8);
   --ds-row-gap: var(--ds-space-5);
 
-  /* 圆角：层级从大到小，越大越「容器」，越小越「控件」，状态 Tag 才用满圆角 */
+  /* 圆角层级：容器略大、输入与普通状态标签统一紧凑；身份头像可单独使用满圆角。 */
   --ds-radius-page: 20px;
-  --ds-radius-section: 14px;
-  --ds-radius-input: 10px;
-  --ds-radius-chip: 10px;
-  --ds-radius-tag: 999px;
+  --ds-radius-section: 8px;
+  --ds-radius-input: 6px;
+  --ds-radius-chip: 6px;
+  --ds-radius-tag: 6px;
 
   /* 控件尺寸 */
   --ds-control-h: 44px;
@@ -12034,16 +12034,16 @@ button.today-brief-primary-btn:disabled {
   padding: 0 2px 8px;
 }
 .home-quick-tasks button {
-  flex: 0 0 auto;
-  min-width: var(--home-chip-w);
-  min-height: var(--home-chip-h);
-  padding: 0 8px;
+  flex: 0 0 var(--home-chip-w);
+  width: var(--home-chip-w);
+  height: var(--home-chip-h);
+  padding: 0 4px;
   border: none;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-control);
   background: var(--chrome);
   color: var(--text);
   font: inherit;
-  font-size: var(--ds-font-sm);
+  font-size: var(--ds-font-helper);
   white-space: nowrap;
   cursor: pointer;
   display: inline-flex;

@@ -53,10 +53,10 @@
   border: 1px solid transparent;
   background: var(--ds-surface);
   border-radius: var(--ds-radius-input);
-  height: 34px;
-  padding: 0 12px;
+  height: 32px;
+  padding: 0 8px;
   font: inherit;
-  font-size: var(--ds-font-sm);
+  font-size: var(--ds-font-helper);
   color: var(--text);
   width: 100%;
   min-width: 0;
@@ -77,10 +77,10 @@
   background: var(--bg);
   color: var(--accent-text);
   font: inherit;
-  font-size: var(--ds-font-sm);
+  font-size: var(--ds-font-helper);
   font-weight: 500;
-  height: 34px;
-  padding: 0 16px;
+  height: 32px;
+  padding: 0 10px;
   cursor: pointer;
   white-space: nowrap;
   display: inline-flex;
@@ -128,19 +128,19 @@
   gap: var(--home-chip-gap);
   margin: 14px 0 12px;
 }
-/* 筛选行与快捷任务 chip 同款（浅灰底、无边框、全圆角），选中态用底色 + 字重双信号。 */
+/* 同组筛选项等宽等高、图标与文本居中；触摸模态只扩 hit area。 */
 .task-board-pill {
   border: 0;
   background: var(--chrome);
   color: var(--text);
   font: inherit;
-  font-size: var(--ds-font-sm);
-  border-radius: var(--radius-full);
+  font-size: var(--ds-font-helper);
+  border-radius: var(--radius-control);
   padding: 0 4px;
   cursor: pointer;
-  min-width: var(--home-chip-w);
-  min-height: var(--home-chip-h);
-  flex: 0 0 auto;
+  width: var(--home-chip-w);
+  height: var(--home-chip-h);
+  flex: 0 0 var(--home-chip-w);
   white-space: nowrap;
   display: inline-flex;
   align-items: center;
@@ -169,7 +169,7 @@
 .task-board-table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: auto;
+  table-layout: fixed;
   font-size: var(--ds-font-body);
   min-width: 0;
 }
@@ -179,9 +179,9 @@
   overflow: visible;
 }
 .task-board-table th:nth-child(2),
-.task-board-table td:nth-child(2) { width: 78px; }
+.task-board-table td:nth-child(2) { width: 64px; }
 .task-board-table th:nth-child(4),
-.task-board-table td:nth-child(4) { width: 96px; }
+.task-board-table td:nth-child(4) { width: 124px; }
 .task-board-table-scroll:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
@@ -191,12 +191,12 @@
   font-size: var(--ds-font-helper);
   font-weight: 400;
   color: var(--ds-text-muted);
-  padding: 8px 10px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--ds-border);
   white-space: nowrap;
 }
 .task-board-table td {
-  padding: 10px;
+  padding: 7px 8px;
   border-bottom: 1px solid var(--ds-border);
   vertical-align: middle;
 }
@@ -340,7 +340,7 @@
   color: var(--ds-text-muted);
 }
 .task-board-cell-actions {
-  width: 96px;
+  width: 124px;
   white-space: normal;
 }
 .task-board-open {
@@ -348,15 +348,16 @@
   background: var(--bg);
   color: var(--ds-text-dim);
   font: inherit;
-  font-size: var(--ds-font-sm);
-  border-radius: var(--ds-radius-tag);
-  padding: 4px 6px;
+  font-size: var(--ds-font-helper);
+  border-radius: var(--radius-control);
+  padding: 3px 6px;
   cursor: pointer;
   min-height: 30px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
+  white-space: nowrap;
 }
 .task-board-open:hover:not(:disabled) {
   border-color: var(--accent);
@@ -372,9 +373,9 @@
   background: var(--bg);
   color: var(--ds-text-muted);
   font: inherit;
-  font-size: var(--ds-font-sm);
-  border-radius: var(--ds-radius-tag);
-  padding: 4px 14px;
+  font-size: var(--ds-font-helper);
+  border-radius: var(--radius-control);
+  padding: 3px 10px;
   cursor: pointer;
   min-height: 30px;
 }
@@ -458,7 +459,7 @@
 .scope-task-rail {
   position: relative;
   min-width: 0;
-  padding: 4px 0 24px 28px;
+  padding: 4px 0 24px 16px;
   border-left: 1px solid var(--ds-border);
   background: var(--bg);
 }
@@ -554,14 +555,14 @@
    action — the start action is new in the rail (both scopes have it), so the
    tools get their own full-width row instead of squeezing one column. */
 .scope-task-rail .task-board-head {
-  padding-left: 44px;
+  padding-left: 40px;
   grid-template-columns: auto minmax(0, 1fr) auto;
 }
 .scope-task-rail .task-board-tools {
   grid-column: 1 / -1;
   width: 100%;
   margin: 8px 0 0;
-  grid-template-columns: minmax(180px, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   justify-content: start;
 }
 .scope-task-rail .task-board-search {
@@ -572,13 +573,13 @@
 
 @media (max-width: 1280px) {
   .scope-workspace {
-    --scope-task-rail-width: clamp(320px, 34%, 420px);
+    --scope-task-rail-width: clamp(360px, 54%, 820px);
   }
   .scope-workspace-center {
     padding-right: 20px;
   }
   .scope-task-rail {
-    padding-left: 20px;
+    padding-left: 14px;
   }
   .scope-task-rail .task-board-cell-index,
   .scope-task-rail .task-board-table th:first-child,

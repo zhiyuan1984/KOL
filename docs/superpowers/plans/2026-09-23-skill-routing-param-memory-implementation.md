@@ -209,7 +209,7 @@
 
 ## 11. 阶段 7：界面密度与越界治理
 
-**目标：**按已裁定 `docs/DESIGN.md` 执法，修截图中的问题，不新增 token 数值。
+**目标：**按用户最新裁定更新 `docs/DESIGN.md` 与实现：右栏结果优先且可宽于中栏，控件本体紧凑、小圆角；控件尺寸通过命名 token 管理。
 
 **主要文件：**
 
@@ -227,11 +227,11 @@
 1. 修复 hero 空态、对象交互标题、发现条件卡副标题，统一到 DESIGN 规定字号角色；全部引用 `--ds-font-*` 和现有 spacing token。
 2. `today-display-row.css` 去掉硬编码字号；结果行 grid 使用 `min-width:0`，长 token/URL 用断词规则，次要字段展开显示。
 3. 两套 think/progress 面板沿用渐进折叠与诚实截断；使用 `pre-wrap`/`overflow-wrap`，不移除内容、不静默裁切；全文 trace 保持权限保护。
-4. 去除整栏横向滚动和 `overflow-x:hidden` 掩盖；修复列最小宽度、操作栏换行、行详情展开。
+4. 去除整栏横向滚动和 `overflow-x:hidden` 掩盖；右栏扩宽、修复列最小宽度与操作栏换行，必要字段仍可进详情。
 5. Composer 按矮视口让出高度；中栏 timeline 和右栏 body 独立滚动，避免外层第三条业务滚动轴。
 6. 核对对象卡和参数卡的实际行数/内容密度；禁止 hero 卡墙和无效留白，保留触摸命中区与焦点可见性。
 
-**验收门：**使用 DESIGN 宽度/高度/输入模态矩阵截图；无横向溢出/静默裁切；1 个完整交互块或结果行可见；状态不只靠颜色；中栏主轴宽于右栏。
+**验收门：**使用 DESIGN 宽度/高度/输入模态矩阵截图；无横向溢出/静默裁切；1 个完整交互块或结果行可见；状态不只靠颜色；右栏宽度满足结果可读性，不再强制中栏宽于右栏。
 
 ## 12. 阶段 8：贯通验证、灰度与交付
 
@@ -291,5 +291,5 @@
 | 4 | `workspace/SkillParamCard.tsx`、`DiscoverySearchCard.tsx`、`DiscoveryWorkspace.tsx`、`Home.tsx` | 前端专家 | partial | schema 控件映射覆盖 single/multiple/text/number/date/object；发现表单从技能目录 input_schema 取字段，选项仍来自授权模板端点；一般员工可见的已登记 schema 技能在五模式中栏呈现参数卡；Host 缺参/非法字段回填字段错误；自然语言候选确认后会锁定技能并展示参数卡；仅填参数时允许提交，任务描述使用技能标题；ready 只读展示已由通用 renderer 支持；保留发现选择器，并防护动态 option source 的原型键/非数组值 | 当前仅发现有员工可见 schema，且走专用异步 workspace；其他普通技能的实际端到端覆盖、needs_input DTO/versioned ready snapshot 和浏览器验收未完成 |
 | 5 | `WorkspaceShell.tsx`、`workspace/ResultRail.tsx`、`ResultRendererRegistry.tsx`、`NextActionBar.tsx`、`host/registered-actions.ts`、五模式 workspace adapters、`home-board.ts`、`routers/tasks.ts` | 平台产品经理 / 前端专家 / 后端专家 | partial | 五模式由同一 ResultRail 包装；新增 HostRegisteredActionView DTO 和 L3 快照生成/新鲜度校验器；前端改用相同 snake_case DTO；采纳时 Host 重读当前用户服务端建议投影并以服务端字段为准；发现右栏读取并展示分页的此前结果记忆，空态明确提示暂无已保存结果 | DTO 尚未由五模式动作查询端点实际下发，Host 快照比较器未接入各业务执行路由；记忆/历史/动作 slot 未在所有模式完整填充；无浏览器密度截图证据 |
 | 6 | `host/skill-result-memory.ts`、`host/employee-memory.ts`、`host/api.ts`、`home-discovery.ts`、`routers/misc.ts`、`api.ts`、发现运行 DTO、`tasks/registry.ts`、`host/skill-publish.ts` | 智能体产品经理 / 后端专家 / 前端专家 | partial | 新增技能必须声明并通过 registry 校验的 result_schema；Host 通用 on_complete/owner 写入器只处理成功 run，要求 `{items:[]}` 契约通过、结果大小受限、凭证型键/Authorization 值拒写；写入幂等且新结果使旧结果 stale；专用 discovery 仍走其既有 writer；失败/取消不写；发现历史按 grant + owner 隔离 | 来源删除/对象撤权失效未接事实源；仅支持 owner scope；技能版本诚实记录为 unversioned；未运行契约/类型/运行验证 |
-| 7 | `styles.css`、`today-plan-board.css`、`today-plan-progress.css`、`SkillParamCard.tsx`、`ScopeWorkspace.tsx`、`DESIGN.md` | UI/UX 专家 / 前端专家 | partial / screenshot fail | 代码静态调整：触摸折叠控件 44px、窄视口结果栏 token 320px、任务表允许收缩换行；用户确认截图视口按 1280×800 验收。本截图样本（指针）可见右侧任务列表底部横向滚动条；右侧栏占宽大于中栏；右栏主动作按钮被挤窄换行且最右侧工具控件贴边/截断；中栏标题至计划内容留白过多。上述可见问题违反双栏宽度、无横滚及密度要求 | 此截图为 1280×800 单一样本，但不等于 DESIGN 矩阵指定档位（1280×900、1280×785/700）；其余宽高组合、Tab 焦点、短视口 footer、触摸命中区无证据；图中构建标记 `9d1c1ef`，需确认与后来本地未部署 CSS 调整一致性 |
+| 7 | `styles.css`、`today-plan-board.css`、`today-plan-progress.css`、`SkillParamCard.tsx`、`ScopeWorkspace.tsx`、`DESIGN.md` | UI/UX 专家 / 前端专家 | in progress | 用户基于 `v 8e5c807` 新截图确认：结果右栏应更宽且优先；当前仍有底部横向滚动条、动作文字多行挤压、工具贴边。按本轮裁定取消“中栏必须比右栏宽”，结果栏目标比例调整为 54%（1280px 档），同时统一筛选项宽高/对齐并缩小工作台搜索、计划、行内按钮的高度、内距、字号与圆角；保持触摸模态最小 44px 命中区 | 修改已落地；本轮截图是静态输入，无浏览器矩阵复核；需部署后对照 1280×800 截图；DESIGN 矩阵其余宽高、键盘焦点、触摸路径未验收 |
 | 8 | 本轮仅静态审阅：ResultRail/Host DTO 字段对齐、密度 token 与换行边界、`git -c core.whitespace=cr-at-eol diff --check` | 测试经理 / UI/UX 专家 | partial | diff whitespace check 无错误；静态确认 HostRegisteredActionView 与前端 snake_case 字段对齐；未运行代码测试、构建、E2E、浏览器矩阵或发布门禁 | 仍需契约/类型运行验证；截图、焦点、滚动边界、短视口与触摸矩阵无证据 |
