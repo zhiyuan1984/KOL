@@ -14,7 +14,7 @@
 }
 .today-plan-head {
   display: grid;
-  gap: 4px;
+  row-gap: 0;
   min-width: 0;
 }
 .today-plan-head-main,
@@ -33,7 +33,7 @@
 }
 .today-plan-head-meta {
   flex-wrap: nowrap;
-  margin-left: 24px;
+  margin-left: 0;
 }
 .today-plan-lucas {
   flex: 0 0 16px;
@@ -148,6 +148,8 @@
 }
 .today-plan-head-meta .today-plan-toggle {
   margin-left: 0;
+  min-height: var(--hit-min);
+  padding-block: 0;
 }
 .today-plan-toggle:hover {
   color: var(--plan-accent);
