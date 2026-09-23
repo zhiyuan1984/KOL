@@ -5,6 +5,7 @@ description: 按「今日任务」面（Host 打包的历史记忆与来源增�
 category: 线索
 profile: commander
 output: today_brief
+funnel: reach
 mcp: []
 required_inputs: []
 permissions: []
@@ -12,6 +13,7 @@ actions: ["analyze"]
 aliases: ["今日规划","规划今天","today plan"]
 in_market: false
 employee_visible: false
+employee_summary: 按「今日任务」面把历史记忆与新增事项整理成今日简报与任务行；不写正式待办或状态
 side_effects: none
 creates_session: true
 auto_ok: false
@@ -86,5 +88,3 @@ Host 只补机械字段（`stats` / `source_cursor` / `increment_summary`）。�
 ## 是否改阶段
 
 不改官方阶段。
-funnel: reach
-employee_summary: 按「今日任务」面把历史记忆与新增事项整理成今日简报与任务行；不写正式待办或状态
