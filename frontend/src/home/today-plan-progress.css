@@ -20,8 +20,9 @@
 .today-plan-head-main,
 .today-plan-head-meta {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
+  line-height: var(--ds-line-ui);
   min-width: 0;
 }
 .today-plan-head-main {
