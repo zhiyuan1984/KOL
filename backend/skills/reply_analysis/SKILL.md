@@ -5,12 +5,16 @@ description: 按 Starry 十五阶段核对来信事实，给出指针与下一�
 category: 商机
 profile: opportunity
 output: task_result
+funnel: intent
 mcp: ["starrykol.pageEmailConversations", "starrykol.getEmailConversation", "starrykol.getEmailConversationSubjectGroups", "starrykol.translateEmailToChinese", "starrykol.listCooperationStageOptions", "starrykol.getStageRiskMatrix", "starrykol.getKolProfileDetail", "starrykol.pageLifecycleKanban", "starrykol.pageRiskConversations"]
 required_inputs: []
 permissions: ["starrykol:read"]
 actions: ["analyze"]
 aliases: ["分析回复","看邮件阶段"]
 in_market: true
+employee_quick: 已保存的草稿、回复分析摘要
+employee_agent: 建联方案、写信、改信、理解回复走 AI 助理；发送独立确认
+employee_summary: 按阶段核对来信事实，给出阶段指针与下一步；不改阶段、不发信
 ---
 # 回复分析 reply_analysis · KOL Agent SOP
 

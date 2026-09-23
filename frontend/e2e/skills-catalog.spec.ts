@@ -18,9 +18,12 @@ import { devices, expect, test, type Page } from "@playwright/test";
  *   2. 行内动作「填入输入框」整条删除（连同它的链接式样式与 tabIndex=-1）：51 行 × 每行一个
  *      同样的动作既是噪声，也把唯一的主 CTA 稀释成 51 个。填技能只剩右栏详情列的实底主 CTA，
  *      中栏的行只负责「选中 / 预览」。
- *   3. 页面改成三栏（左筛选 / 中搜索+列表 / 右详情），页头收成单行（标题 + 计数），
- *      搜索行移进中栏顶部并 sticky；详情列的「技能详情」标题条与摘要句删除（均与中栏重复），
- *      未登记 IO 的技能不再渲染「产出」（旧实现直出 skill.output，会把引擎词漏到员工面）。
+ *   3. 页面改成四栏（栏 2 技能目录 / 栏 3 搜索+列表 / 栏 4 详情），横跨三栏的页头行删除 ——
+ *      「技能目录 + 计数」下沉成栏 2 的栏头并吸顶；搜索行留栏 3 顶部并 sticky（铺满栏宽）；
+ *      栏 4 改三段式（头固定 / 正文独立滚 / footer 固定），正文滚动时主 CTA 不被顶走。
+ *   4. 栏 3/栏 4 的内容全部指回技能文件：入口口径 = `employee_quick` / `employee_agent`，
+ *      说明书 = `## 员工口径`（服务端过白名单后给 `employee_doc`），示例 = `employee_example`。
+ *      页面里手抄的三张表（场景标签 / 输入输出 / 覆盖表口径）整组删除 —— 文件是唯一真相。
  */
 
 /** 解析根作用域上的 token 值。 */
@@ -230,17 +233,26 @@ test.describe("技能目录页（/skills）", () => {
     expect(got.c, `焦点环颜色应为 --focus-ring`).toBe(color);
   });
 
-  test("§三轴适配 · 宽度轴：内容列不超过 --content-max", async ({ page }) => {
+  test("§三轴适配 · 宽度轴：内容列不超过 --content-max（sticky 搜索行除外）", async ({ page }) => {
     const max = await page.evaluate(() =>
       Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--content-max")),
     );
-    const widths = await page.locator(".skill-catalog-content > *").evaluateAll((els) =>
+    // 搜索行是唯一的例外：它按设计铺满整栏（底色与底缘发丝线要横贯，见 styles.css 的
+    // `.skill-catalog-content > .skill-search-row`），但它**内部**的搜索框仍住在内容列上限里。
+    const widths = await page.locator(".skill-catalog-content > :not(.skill-search-row)").evaluateAll((els) =>
       els.map((el) => el.getBoundingClientRect().width),
     );
     expect(widths.length, "内容列里应当有分组").toBeGreaterThan(0);
     for (const w of widths) {
       expect(w, `内容列 ${Math.round(w)}px 超过 --content-max(${max}px)`).toBeLessThanOrEqual(max + 1);
     }
+    const search = await page.locator(".skill-search-row").evaluate((el) => ({
+      row: el.getBoundingClientRect().width,
+      column: (el.parentElement as HTMLElement).clientWidth,
+      box: (el.querySelector(".skill-search-wrap") as HTMLElement).getBoundingClientRect().width,
+    }));
+    expect(search.row, "搜索行铺满栏宽（底色与底缘线横贯整栏）").toBeCloseTo(search.column, 0);
+    expect(search.box, "搜索框自身仍在内容列内").toBeLessThanOrEqual(search.column + 1);
   });
 
   test("§三轴适配 · 宽度轴：S 档无横向滚动、行不溢出", async ({ browser }) => {
@@ -493,8 +505,9 @@ test.describe("技能目录页（/skills）", () => {
   test("列表行不再有动作：填技能只剩右栏详情列的实底主 CTA", async ({ page }) => {
     // 2026-09-23 UI/UX 裁定：行内「填入输入框」整条删除 —— 51 行 × 每行一个同样的动作
     // 既是噪声，也把唯一的主 CTA 稀释成 51 个；行只负责选中 / 预览，填技能走右栏。
-    expect(await page.locator(".skill-row-actions").count(), "列表行不该再有动作容器").toBe(0);
-    expect(await page.locator(".skill-row .skill-link").count(), "列表行不该再有链接式动作").toBe(0);
+    // 行里可点的只剩「行名」这一个入口（它本身就是行的选择入口）。
+    const clickable = await page.locator(".skill-row").first().locator(":is(a[href], button)").count();
+    expect(clickable, "列表行里除行名外不该再有可点元素").toBe(1);
     const cta = page.locator(".skill-detail-footer .skill-btn-primary");
     await expect(cta, "填技能的动作必须还在，且在右栏详情列").toBeVisible();
     await expect(cta).toHaveText("填入输入框");
@@ -517,10 +530,10 @@ test.describe("技能目录页（/skills）", () => {
       expect(text, `员工表面出现禁词「${banned}」`).not.toContain(banned);
     }
 
-    // 本页自己渲染的这几个小节（使用步骤 / 执行边界 / 调用工具 / 所需权限）由页面做词表翻译：
-    // 它们**一个字英文都不该有**——有就说明引擎 id 又漏出来了。
+    // 本页自己渲染的这几个小节（使用步骤 / 执行边界 / 调用工具 / 所需权限 / 异步执行 / 回执）
+    // 由页面做词表翻译：它们**一个字英文都不该有**——有就说明引擎 id 又漏出来了。
     const latin = await page.evaluate(() => {
-      const wanted = new Set(["使用步骤", "执行边界", "调用工具", "所需权限"]);
+      const wanted = new Set(["使用步骤", "执行边界", "调用工具", "所需权限", "异步执行", "回执"]);
       const out: string[] = [];
       for (const sec of document.querySelectorAll<HTMLElement>("[data-skill-detail] .skill-detail-section")) {
         const h = sec.querySelector("h4")?.textContent?.trim() || "";
@@ -568,8 +581,8 @@ test.describe("技能目录页（/skills）", () => {
   });
 });
 
-test.describe("三栏版式（左筛选 / 中搜索+列表 / 右详情）", () => {
-  test("几何：1280×900 下左栏 190px，中栏与右栏依次排列且不重叠", async ({ browser }) => {
+test.describe("四栏版式（栏 2 技能目录 / 栏 3 搜索+列表 / 栏 4 详情）", () => {
+  test("几何：1280×900 下各栏左缘递增、栏 2 定宽 190px、三栏顶部对齐同一 y", async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     const page = await context.newPage();
     await ready(page);
@@ -580,52 +593,125 @@ test.describe("三栏版式（左筛选 / 中搜索+列表 / 右详情）", () =
         tabs: box(".skill-tabs"),
         content: box(".skill-catalog-content"),
         pane: box(".skill-detail-pane"),
+        tabsBorderRight: Number.parseFloat(getComputedStyle(el(".skill-tabs")).borderRightWidth),
+        contentLeftBorder: getComputedStyle(el(".skill-detail-pane")).borderLeftWidth,
         direction: getComputedStyle(el(".skill-tabs")).flexDirection,
         tabsListDirection: getComputedStyle(el(".skill-tabs-list")).flexDirection,
+        titleText: (el(".skill-catalog-title h1").textContent || "").trim(),
+        titleInTabs: Boolean(el(".skill-tabs .skill-catalog-title")),
+        titleTop: box(".skill-catalog-title").top,
+        titleLeft: box(".skill-catalog-title").left,
+        tabsListLeft: box(".skill-tabs-list").left,
+        titleTextLeft: box(".skill-catalog-title h1").left,
+        tabLabelLeft: (() => {
+          const tab = el(".skill-tab");
+          const cs = getComputedStyle(tab);
+          return tab.getBoundingClientRect().left
+            + Number.parseFloat(cs.borderLeftWidth)
+            + Number.parseFloat(cs.paddingLeft);
+        })(),
+        titleSiblings: [...el(".skill-tabs").children].map((c) => String((c as HTMLElement).className)),
       };
     });
-    expect(geo.direction, "≥1280 筛选条要变成左栏（纵向）").toBe("column");
+    expect(geo.direction, "≥1280 栏 2 要变成纵向目录栏").toBe("column");
     expect(geo.tabsListDirection, "组内也纵向排").toBe("column");
-    expect(geo.tabs.width, "左栏定宽 190px").toBeGreaterThanOrEqual(188);
-    expect(geo.tabs.width, "左栏定宽 190px").toBeLessThanOrEqual(192);
-    expect(geo.tabs.right, "左栏右缘不得压到中栏").toBeLessThanOrEqual(geo.content.left + 1);
-    expect(geo.content.left, "中栏左缘 ≤ 右栏左缘").toBeLessThanOrEqual(geo.pane.left + 1);
-    expect(geo.content.right, "中栏右缘 ≤ 右栏左缘（并排，不重叠）").toBeLessThanOrEqual(geo.pane.left + 1);
+    expect(geo.tabs.width, "栏 2 定宽 190px").toBeGreaterThanOrEqual(188);
+    expect(geo.tabs.width, "栏 2 定宽 190px").toBeLessThanOrEqual(192);
+    // 栏 2/3 与栏 3/4 各一条发丝线，栏与栏之间不留间隙（错开的正是那 1px 边框）。
+    expect(geo.tabs.right, "栏 2 右缘不得压到栏 3").toBeLessThanOrEqual(geo.content.left + 1);
+    expect(geo.content.left, "栏 3 左缘 ≤ 栏 4 左缘").toBeLessThanOrEqual(geo.pane.left + 1);
+    expect(geo.content.right, "栏 3 右缘 ≤ 栏 4 左缘（并排，不重叠）").toBeLessThanOrEqual(geo.pane.left + 1);
+    expect(geo.tabsBorderRight, "栏 2/3 之间是 1px 发丝线").toBeGreaterThanOrEqual(1);
+    expect(Number.parseFloat(geo.contentLeftBorder), "栏 3/4 之间是 1px 发丝线").toBeGreaterThanOrEqual(1);
+    // 四栏顶部对齐同一 y：栏 2/3/4 同处一行，没有把某一栏推下去的独立页头。
+    expect(geo.tabs.top, "栏 2 与栏 3 顶部对齐").toBeCloseTo(geo.content.top, 0);
+    expect(geo.content.top, "栏 3 与栏 4 顶部对齐").toBeCloseTo(geo.pane.top, 0);
+    // 栏 2 顶部是「技能目录 + 计数」，下面是口径组 + 阶段组（+ 横向档的右缘渐隐）。
+    expect(geo.titleInTabs, "「技能目录」必须住在栏 2 里").toBe(true);
+    expect(geo.titleText).toBe("技能目录");
+    expect(geo.titleSiblings[0], "栏 2 的第一个块是栏头").toContain("skill-catalog-title");
+    expect(
+      geo.titleSiblings.filter((c) => c.includes("skill-tabs-list")).length,
+      "栏头下面才是口径组与阶段组",
+    ).toBe(2);
+    expect(geo.titleTop, "栏头在栏 2 顶部").toBeLessThan(geo.tabs.top + 48);
+    // 栏头的词与口径组第一项的词左对齐（栏头不在控件组左边线上另起一列）。
+    expect(geo.titleLeft, "栏头与控件组同一条左缘").toBeCloseTo(geo.tabsListLeft, 0);
+    expect(geo.titleTextLeft, "「技能目录」与第一个 tab 的词左对齐").toBeCloseTo(geo.tabLabelLeft, 0);
     await context.close();
   });
 
-  test("顶部压缩：页头单行 ≤48px，搜索行移到中栏顶部（1280×900）", async ({ browser }) => {
+  test("四栏各自独立滚动：滚栏 3 不动栏 4；栏 4 正文滚而头/底不动", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+    const page = await context.newPage();
+    await ready(page);
+    // 选一项内容够长的技能（9 条使用步骤 + 执行边界 + 提示行），正文段才有东西可滚。
+    await page.locator('.skill-row[data-skill-id="kol_analyze"] .skill-row-name').first().click();
+    const snapshot = () => page.evaluate(() => {
+      const el = (sel: string) => document.querySelector<HTMLElement>(sel)!;
+      return {
+        list: el(".skill-catalog-content").scrollTop,
+        pane: el(".skill-detail-pane").scrollTop,
+        body: el(".skill-detail-body").scrollTop,
+        overflow: el(".skill-detail-body").scrollHeight - el(".skill-detail-body").clientHeight,
+        headTop: el(".skill-detail-head").getBoundingClientRect().top,
+        footBottom: el(".skill-detail-footer").getBoundingClientRect().bottom,
+        bodyHeight: el(".skill-detail-body").getBoundingClientRect().height,
+      };
+    });
+    const before = await snapshot();
+    expect(before.overflow, "栏 4 的正文必须真的超出高度，这条断言才有意义").toBeGreaterThan(0);
+    // 滚栏 3：只有列表动。
+    await page.locator(".skill-catalog-content").evaluate((el) => { el.scrollTop = 600; });
+    const afterList = await snapshot();
+    expect(afterList.list, "栏 3 必须真的滚动了，这条断言才有意义").toBeGreaterThan(0);
+    expect(afterList.body, "滚栏 3 不得带动栏 4 的正文").toBe(0);
+    expect(afterList.pane, "栏 4 自身不是滚动容器（滚动只发生在正文段）").toBe(0);
+    expect(afterList.headTop, "栏 4 的头部不随栏 3 滚动").toBeCloseTo(before.headTop, 0);
+    expect(afterList.footBottom, "栏 4 的底部不随栏 3 滚动").toBeCloseTo(before.footBottom, 0);
+    // 滚栏 4 的正文：正文自己滚，头与底原地不动。
+    await page.locator(".skill-detail-body").evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    const afterBody = await snapshot();
+    expect(afterBody.body, "栏 4 的正文必须能滚").toBeGreaterThan(0);
+    expect(afterBody.list, "滚栏 4 不得带动栏 3 的列表").toBe(afterList.list);
+    expect(afterBody.headTop, "正文滚动时头部位置不变").toBeCloseTo(before.headTop, 0);
+    expect(afterBody.footBottom, "正文滚动时底部位置不变").toBeCloseTo(before.footBottom, 0);
+    expect(afterBody.bodyHeight, "正文段高度不因滚动变化").toBeCloseTo(before.bodyHeight, 0);
+    await context.close();
+  });
+
+  test("不再有独立页头行：「技能目录 + N 项」住在栏 2 里（1280×900）", async ({ browser }) => {
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     const page = await context.newPage();
     await ready(page);
+    // 2026-09-23 结构改造：横跨 2/3/4 栏的页头行删除，标题与计数下沉成栏 2 的栏头。
+    expect(await page.locator(".skill-catalog-header").count(), "独立页头行应当整条移除").toBe(0);
     const m = await page.evaluate(() => {
       const el = (sel: string) => document.querySelector<HTMLElement>(sel)!;
       const box = (sel: string) => el(sel).getBoundingClientRect();
-      const header = box(".skill-catalog-header");
-      const row = box(".skill-row");
       return {
-        headerH: header.height,
-        headerBottom: header.bottom,
-        rowTop: row.top,
+        countText: (el(".skill-catalog-count").textContent || "").trim(),
+        titleInTabs: Boolean(el(".skill-tabs .skill-catalog-title")),
+        rowTop: box(".skill-row").top,
         pageTop: box("[data-skill-catalog]").top,
         searchTop: box(".skill-search-row").top,
-        searchInContent: !!el(".skill-catalog-content .skill-search-row"),
-        headerSiblings: [...el(".skill-catalog-header").children].map((c) => c.tagName),
+        searchInContent: Boolean(el(".skill-catalog-content .skill-search-row")),
+        searchPad: getComputedStyle(el(".skill-search-row")).paddingLeft,
+        contentPad: getComputedStyle(el(".skill-catalog-content")).paddingLeft,
       };
     });
-    // 页头只剩一行（标题 + 计数）：45px = 28 行盒 + 上下 8 + 1px 发丝线。
-    expect(m.headerH, "页头必须是单行，不再有副标题第二行").toBeLessThanOrEqual(48);
-    expect(m.headerSiblings, "页头里不该再有搜索框").toEqual(["H1", "SPAN"]);
-    expect(m.searchInContent, "搜索框必须住在中栏顶部，而不是页头").toBe(true);
-    expect(m.searchTop, "搜索行不得盖到页头下沿之上").toBeGreaterThanOrEqual(m.headerBottom - 1);
-    // 页头下沿到首行：搜索行 40 + 与首组间距 8 + 分组头 24 + 分组间距 8 + 列表上边线 1 ≈ 93。
-    expect(m.rowTop - m.headerBottom, "页头到首行之间不许再塞东西").toBeLessThanOrEqual(110);
-    // 首行的整页位置 = 页头 45 + 上述 93 ≈ 138（再往下就是分组头，不是可压缩的顶部空间）。
-    expect(m.rowTop - m.pageTop, "顶部区块合计不得把首行推到 150px 以下").toBeLessThanOrEqual(150);
+    expect(m.countText, "计数仍是栏头的一部分").toMatch(/^\d+ 项$/);
+    expect(m.titleInTabs, "「技能目录 + 计数」必须住在栏 2 里").toBe(true);
+    expect(m.searchInContent, "搜索框必须住在栏 3 顶部，而不是页头").toBe(true);
+    // 搜索行铺满栏宽：它用负外边距抵消内容列的左右留白，所以底色与底缘线横贯整栏。
+    expect(m.searchPad, "搜索行自带内容列的左右留白").toBe(m.contentPad);
+    expect(m.searchTop, "搜索行仍钉在栏 3 顶部（sticky top: 0）").toBeLessThan(m.rowTop);
+    // 顶部空间只剩栏头 + 搜索行 + 首组头：页顶到首行的距离必须压在 150px 内。
+    expect(m.rowTop - m.pageTop, "不再有独立的页头行把首行推下去").toBeLessThanOrEqual(150);
     await context.close();
   });
 
-  test("不重复、不露样板：没有「技能详情」头部，未登记 IO 的技能不渲染「产出」", async ({ page }) => {
+  test("不重复、不露样板：没有「技能详情」头部，未登记产出的技能不渲染「产出」", async ({ page }) => {
     await ready(page);
     const catalog = page.locator("[data-skill-catalog]");
     // 详情列头部整条删除：「技能详情」是自明的容器名，摘要句与中栏选中行逐字重复。
@@ -634,7 +720,8 @@ test.describe("三栏版式（左筛选 / 中搜索+列表 / 右详情）", () =
     const text = await catalog.evaluate((el) => el.textContent || "");
     expect(text, "「技能详情」只该留在区域的 aria-label 里，不该是可见文字").not.toContain("技能详情");
 
-    // 未登记 IO 的技能：不渲染「产出」小节（旧实现直出 skill.output），整页也不出现引擎产出词。
+    // 产出词表没登记的技能（后端给的是引擎兜底值 task_result）：整节不渲染，
+    // 整页也不出现引擎产出词。
     await page.locator('.skill-row[data-skill-id="creator_library_query"] .skill-row-name').first().click();
     const detail = page.locator("[data-skill-detail]");
     await expect(detail).toBeVisible();
@@ -644,7 +731,7 @@ test.describe("三栏版式（左筛选 / 中搜索+列表 / 右详情）", () =
   });
 });
 
-test.describe("技能详情列（第三栏）", () => {
+test.describe("技能详情列（第四栏）", () => {
   test.beforeEach(async ({ page }) => {
     await ready(page);
   });
@@ -659,8 +746,8 @@ test.describe("技能详情列（第三栏）", () => {
       await page.locator(`.skill-row[data-skill-id="${id}"] .skill-row-name`).first().click();
       const detail = page.locator("[data-skill-detail]");
       await expect(detail, `${id} 的详情未展开`).toBeVisible();
-      // 口径来源：docs/BUSINESS.md「快捷查询与思考覆盖表」。
-      // 未登记的技能必须走「待补齐」分支——不得编造口径（CONST-10）。
+      // 口径来源：SKILL.md 自己的 `employee_quick` / `employee_agent`（登记在 docs/BUSINESS.md
+      // 的「快捷查询与思考覆盖表」）。没登记的技能必须走「待补齐」分支——不得编造口径（CONST-10）。
       const covered = await detail.getByText("可以直接查到").count();
       if (covered > 0) {
         await expect(detail.getByText("需要走确认或 AI 助理")).toBeVisible();
@@ -670,6 +757,65 @@ test.describe("技能详情列（第三栏）", () => {
       await expect(detail.getByText("相关参数")).toHaveCount(0);
       await expect(detail.getByText("分析结果")).toHaveCount(0);
     }
+  });
+
+  test("数据来源：栏 4 的两段口径逐字等于 /api/skills 里对应的字段值", async ({ page }) => {
+    // 页面里不再有手抄的入口口径表：两段文字必须**逐字**来自技能文件（经接口带出）。
+    type SkillJson = { id: string; employee_quick?: string | null; employee_agent?: string | null };
+    const rows = (await (await page.request.get("/api/skills")).json()) as SkillJson[];
+    const probes = ["creator_library_all", "creator_outreach", "sop_settling"];
+    const sectionValue = (label: string) =>
+      page.locator("[data-skill-detail]")
+        .locator(".skill-detail-section", { hasText: label })
+        .locator(".skill-detail-value")
+        .first();
+    for (const id of probes) {
+      const row = rows.find((r) => r.id === id);
+      expect(row, `${id} 应当出现在 /api/skills 里`).toBeTruthy();
+      expect(row!.employee_quick, `${id} 在接口里应当有 employee_quick`).toBeTruthy();
+      await page.locator(`.skill-row[data-skill-id="${id}"] .skill-row-name`).first().click();
+      const detail = page.locator("[data-skill-detail]");
+      await expect(detail.locator("h4", { hasText: "可以直接查到" }), `${id} 的「可以直接查到」未渲染`).toBeVisible();
+      expect((await sectionValue("可以直接查到").textContent())?.trim(), `${id} 的「可以直接查到」与接口不一致`).toBe(row!.employee_quick);
+      expect((await sectionValue("需要走确认或 AI 助理").textContent())?.trim(), `${id} 的「需要走确认或 AI 助理」与接口不一致`).toBe(row!.employee_agent);
+    }
+  });
+
+  test("未登记入口口径的 6 个技能：照实说明待专家补齐，不给推测口径", async ({ page }) => {
+    // 名单照 docs/BUSINESS.md「快捷查询与思考覆盖表」的登记原文。
+    const unregistered = ["discovery_plan", "discovery_brief", "kol_analyze", "today_plan", "today_analyze", "todo_plan"];
+    for (const id of unregistered) {
+      const row = page.locator(`.skill-row[data-skill-id="${id}"]`);
+      await expect(row.first(), `${id} 应当还在技能目录里`).toBeVisible();
+      await row.first().locator(".skill-row-name").click();
+      const detail = page.locator("[data-skill-detail]");
+      await expect(detail.locator("h4", { hasText: "可以直接查到" }), `${id} 不该有推测口径`).toHaveCount(0);
+      await expect(detail.getByText("待业务专家补齐"), `${id} 必须照实说明待补齐`).toBeVisible();
+    }
+  });
+
+  test("说明书：接口给了正文才渲染，为空则整节隐藏（不做 loading 假动作）", async ({ page }) => {
+    // 当前仓库的技能文件都还没写 `## 员工口径` 这一节，接口返回空串 → 该节整节不渲染。
+    await expect(
+      page.locator("[data-skill-detail] h4", { hasText: "说明书" }),
+      "没有正文就不该有「说明书」小节（空壳不算说明书）",
+    ).toHaveCount(0);
+
+    // 接口真给了正文时：Markdown 子集（段落 / `-` 列表 / `###` 小标题）按三种块渲染。
+    const doc = "说明正文一段。\n\n- 第一条\n- 第二条\n\n### 范围\n\n只看你被授权的范围。";
+    await page.route("**/api/skills/creator_outreach", (route) =>
+      route.fulfill({
+        json: { id: "creator_outreach", employee_quick: "口径", employee_agent: "边界", employee_doc: doc },
+      }),
+    );
+    // 先切到别的技能再切回来：说明书是按选中技能拉的，同一次选中不会重复拉。
+    await page.locator('.skill-row[data-skill-id="creator_discovery"] .skill-row-name').first().click();
+    await page.locator('.skill-row[data-skill-id="creator_outreach"] .skill-row-name').first().click();
+    const section = page.locator("[data-skill-detail] .skill-detail-section", { hasText: "说明书" });
+    await expect(section.getByText("说明正文一段。")).toBeVisible();
+    await expect(section.locator(".skill-doc-list li")).toHaveCount(2);
+    await expect(section.locator(".skill-doc-heading")).toHaveText("范围");
+    await expect(section.getByText("只看你被授权的范围。")).toBeVisible();
   });
 
   test("风险档与异步契约进入详情", async ({ page }) => {
@@ -804,8 +950,6 @@ test.describe("第二轮 UX 改进（常用/推荐口径 · 键盘路径 · 清�
 
   test("键盘路径：Tab 从行名直接到下一行行名（序列里没有行内动作），右栏 CTA 仍在 Tab 顺序内", async ({ page }) => {
     await ready(page);
-    // 行内动作已删除：整页不该再有任何行内可点动作。
-    expect(await page.locator(".skill-row-actions, .skill-row .skill-link").count()).toBe(0);
     let seen = "";
     for (let i = 0; i < 40; i++) {
       await page.keyboard.press("Tab");
@@ -815,10 +959,9 @@ test.describe("第二轮 UX 改进（常用/推荐口径 · 键盘路径 · 清�
     expect(seen, "Tab 必须能到达列表行的选择入口").toContain("skill-row-name");
     const firstId = await page.evaluate(() =>
       (document.activeElement as HTMLElement | null)?.closest(".skill-row")?.getAttribute("data-skill-id") || "");
-    // 行里没有第二个焦点：下一个 Tab 直接落到**下一行**的行名。
+    // 行里没有第二个焦点：下一个 Tab 直接落到**下一行**的行名（行内已无任何动作）。
     await page.keyboard.press("Tab");
     const next = await page.evaluate(() => (document.activeElement as HTMLElement | null)?.className || "");
-    expect(next, `行内动作不该进入 Tab 顺序（下一个焦点是 ${next}）`).not.toContain("skill-link");
     expect(next, `下一个焦点应是下一行的行名，实测 ${next}`).toContain("skill-row-name");
     const nextId = await page.evaluate(() =>
       (document.activeElement as HTMLElement | null)?.closest(".skill-row")?.getAttribute("data-skill-id") || "");
@@ -846,16 +989,76 @@ test.describe("第二轮 UX 改进（常用/推荐口径 · 键盘路径 · 清�
     await expect(clear).toHaveCount(0);
   });
 
-  test("详情列按员工决策顺序排：先场景 / 要你提供什么 / 产出，再能力边界", async ({ page }) => {
+  test("详情列小节按新顺序排：入口口径 → 需要你提供 → 产出 → 使用步骤 → 执行边界 → 说明书 → 示例", async ({ page }) => {
     await ready(page);
-    const headings = await page.locator(".skill-detail-body .skill-detail-section h4").evaluateAll((els) =>
-      els.map((e) => e.textContent?.trim() || ""),
+    // confirm_stage 是四个小节都齐的一项（口径两段 / 产出 / 使用步骤 / 执行边界），
+    // 用它把顺序钉死；只取正文段的**直接**子节 ——「查看调用关系与安全边界」折叠里的
+    // 执行细项固定排在正文末尾、主 CTA 之前，不属于这一序列（docs/DESIGN.md §不变量 1）。
+    await page.locator('.skill-row[data-skill-id="confirm_stage"] .skill-row-name').first().click();
+    const headings = await page.locator("[data-skill-detail] .skill-detail-body > .skill-detail-section h4").evaluateAll(
+      (els) => els.map((e) => e.textContent?.trim() || ""),
     );
+    // 有则渲染、无则隐藏：实测必须是登记顺序的子序列，且不出现未登记的小节。
+    const ORDER = [
+      "可以直接查到",
+      "需要走确认或 AI 助理",
+      "需要你提供",
+      "产出",
+      "使用步骤",
+      "执行边界",
+      "说明书",
+      "示例",
+    ];
     expect(headings.length, "详情列应当有若干小节").toBeGreaterThan(3);
-    const idx = (label: string) => headings.indexOf(label);
-    expect(idx("适用场景"), `首节应是「适用场景」，实测顺序 ${headings.join(" / ")}`).toBe(0);
-    expect(idx("需要你提供"), "「需要你提供」要排在能力边界之前").toBeLessThan(idx("可以直接查到"));
-    expect(idx("产出"), "「产出」要排在能力边界之前").toBeLessThan(idx("可以直接查到"));
+    expect(headings.filter((h) => !ORDER.includes(h)), `出现未登记的小节：${headings.join(" / ")}`).toEqual([]);
+    expect(headings, `小节顺序不得漂移：${headings.join(" / ")}`).toEqual(ORDER.filter((h) => headings.includes(h)));
+    expect(headings).toEqual(["可以直接查到", "需要走确认或 AI 助理", "产出", "使用步骤", "执行边界"]);
+  });
+
+  test("栏 4 排版：类型只留四档，且全页不出现 600 档字重", async ({ page }) => {
+    await ready(page);
+    const read = (sel: string) => page.locator(sel).first().evaluate((el) => {
+      const s = getComputedStyle(el);
+      return { size: s.fontSize, weight: s.fontWeight };
+    });
+    expect(await read(".skill-detail-head h2"), "对象名 15px / 500").toMatchObject({ size: "15px", weight: "500" });
+    expect(await read(".skill-detail-body .skill-detail-section h4"), "小节标题 12px / 500").toMatchObject({ size: "12px", weight: "500" });
+    expect(await read(".skill-detail-body .skill-detail-value"), "正文 13px / 400").toMatchObject({ size: "13px", weight: "400" });
+    expect(await read(".skill-detail-marks .skill-detail-chip"), "chips 12px / 400").toMatchObject({ size: "12px", weight: "400" });
+    // 本页除标题外没有加粗档：层级由间距 / 墨色 / 图标承担，不靠字重堆。
+    const heavy = await page.evaluate(() => {
+      const out: string[] = [];
+      for (const el of document.querySelectorAll<HTMLElement>("[data-skill-catalog] *")) {
+        const s = getComputedStyle(el);
+        if (s.display === "none" || el.getBoundingClientRect().width === 0) continue;
+        if (Number(s.fontWeight) >= 600) out.push(`${el.className || el.tagName} ${s.fontWeight}`);
+      }
+      return [...new Set(out)];
+    });
+    expect(heavy, `本页不该出现 600 档字重：${heavy.join(" / ")}`).toEqual([]);
+  });
+
+  test("栏 4 排版：长说明是一行 muted 提示（带小图标），不再是大块浅底 callout", async ({ page }) => {
+    await ready(page);
+    const hint = page.locator("[data-skill-detail] .skill-detail-hint").first();
+    await expect(hint, "「示例 / 说明书未补录」这类长说明必须还在，只是收成一行").toBeVisible();
+    const s = await hint.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return {
+        color: cs.color,
+        size: cs.fontSize,
+        bg: cs.backgroundColor,
+        border: Number.parseFloat(cs.borderLeftWidth),
+        icon: Boolean(el.querySelector("svg")),
+        height: el.getBoundingClientRect().height,
+      };
+    });
+    expect(s.color, "提示走 muted").toBe(await pageVar(page, "--text-muted"));
+    expect(s.size).toBe("12px");
+    expect(s.bg, "不再铺浅底").toBe("rgba(0, 0, 0, 0)");
+    expect(s.border, "不再有左侧强调条").toBe(0);
+    expect(s.icon, "前缀一个小图标").toBe(true);
+    expect(s.height, `一行提示不该占两行以上（实测 ${s.height}px）`).toBeLessThanOrEqual(36);
   });
 
   test("筛选条有右缘渐隐提示（窄屏横向滚动时）", async ({ page }) => {

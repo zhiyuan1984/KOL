@@ -5,12 +5,15 @@ description: 输出合作阶段的完整轨道，以及当前正式阶段的输�
 category: 线索
 profile: lead
 output: task_result
+funnel: intent
 mcp: ["starry.get_collaboration"]
 required_inputs: []
 permissions: ["starrykol:read"]
 actions: ["present_sop"]
 aliases: ["阶段SOP", "八个阶段", "本阶段SOP", "阶段资料", "阶段资料包", "异常SOP", "异常流程", "八阶段异常"]
 in_market: true
+employee_quick: 已发布 SOP 的索引、适用说明
+employee_agent: 结合当前 KOL 选择做法、分析缺口及生成行动方案走 AI 助理
 ---
 # 八个阶段 SOP
 

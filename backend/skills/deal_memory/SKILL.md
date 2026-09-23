@@ -5,12 +5,15 @@ description: 整理谈判事实、约束和待确认事项
 category: 谈判
 profile: negotiation
 output: task_result
+funnel: biz
 mcp: ["starry.deal_memory", "starry.get_collaboration", "starrykol.updateKolProfile"]
 required_inputs: []
 permissions: ["starrykol:read"]
 actions: ["analyze"]
 aliases: ["交易记忆","谈判纪要"]
 in_market: true
+employee_quick: 明确内容的记忆记录、修改、查询
+employee_agent: 修改远端正式档案备注是业务写入，不能与本地记忆混为一谈
 ---
 # Deal Memory deal_memory · Negotiation
 

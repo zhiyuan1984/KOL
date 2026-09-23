@@ -5,12 +5,15 @@ description: 查看红人详情、平台数据和绑定的负责人
 category: 线索
 profile: lead
 output: task_result
+funnel: reach
 mcp: ["starrykol.pageKolProfiles", "starrykol.getKolProfileDetail", "starrykol.listKolPlatformData", "starrykol.pageEmailConversations"]
 required_inputs: []
 permissions: ["starrykol:read"]
 actions: ["analyze"]
 aliases: ["创作者画像","红人详情","查看红人负责人"]
 in_market: true
+employee_quick: 授权档案、画像、筛选与已有摘要
+employee_agent: 新画像分析、补查新事实走 AI 助理或已配置同步
 ---
 # 达人画像 creator_profile · Lead
 

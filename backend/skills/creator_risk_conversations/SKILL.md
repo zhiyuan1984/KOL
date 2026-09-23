@@ -5,6 +5,7 @@ description: 查询并汇总与达人相关的风险会话
 category: 异常
 profile: commander
 output: task_result
+funnel: exception
 mcp: ["starrykol.pageRiskConversations", "starrykol.summarizeRiskConversations"]
 required_inputs: []
 permissions: ["starrykol:read"]
@@ -12,6 +13,8 @@ actions: ["analyze"]
 aliases: ["风险会话","红人风险会话"]
 in_market: true
 employee_visible: false
+employee_quick: 我的任务、阶段索引、已识别风险
+employee_agent: 新风险分析与跟进建议走 AI 助理；确定的定时规则走后台
 ---
 # 达人风险会话
 

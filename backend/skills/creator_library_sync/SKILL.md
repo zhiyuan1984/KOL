@@ -5,12 +5,15 @@ description: 将候选达人幂等同步到红人库
 category: 线索
 profile: lead
 output: task_result
+funnel: reach
 mcp: ["starrykol.pageKolProfiles", "starrykol.addKolProfile"]
 required_inputs: []
 permissions: ["starrykol:write"]
 actions: ["sync"]
 aliases: ["添加达人","同步达人"]
 in_market: true
+employee_quick: 已有发现批次与同步结果
+employee_agent: 新发现分析、异步采集；正式导入独立确认
 ---
 # 达人同步入库
 

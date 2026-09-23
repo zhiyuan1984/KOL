@@ -5,12 +5,15 @@ description: 根据影响力与合作适配度生成评分
 category: 线索
 profile: lead
 output: task_result
+funnel: reach
 mcp: ["kolclaw.analyze_creator", "kolclaw.analyze_creators"]
 required_inputs: []
 permissions: ["kolclaw:read"]
 actions: ["analyze"]
 aliases: ["创作者评分"]
 in_market: true
+employee_quick: 已有预算报告与评分
+employee_agent: 新评分、预测、策略与报表解读走 AI 助理
 ---
 # 达人评分 creator_scoring · Lead
 

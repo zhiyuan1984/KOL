@@ -5,11 +5,15 @@ description: 按 Starry 阶段定义提出指针变更，等人在会话里确�
 category: 商机
 profile: opportunity
 output: propose_stage
+funnel: intent
 mcp: ["starry.get_collaboration"]
 required_inputs: ["collaboration_id"]
 actions: ["propose_stage"]
 aliases: ["记状态","推进阶段","确认阶段"]
 in_market: true
+employee_quick: 已授权结果、归属、备注、阶段和审批状态
+employee_agent: 解密、改归属、改档案、改阶段、提交审批均为受控动作；备注不等于正式阶段
+employee_summary: 按阶段规则提出阶段变更，等你确认后再写入
 permissions: ["starrykol:read"]
 ---
 # 阶段变更建议 confirm_stage · Opportunity

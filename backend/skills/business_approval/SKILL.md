@@ -5,12 +5,15 @@ description: 写明申请人、金额和币种，按公布汇率和费用档算�
 category: 商务
 profile: commander
 output: task_result
+funnel: biz
 mcp: []
 required_inputs: []
 permissions: []
 actions: ["create_approval"]
 aliases: ["申请费用","费用审批","审批路径","查看审批","催办审批","工作审批","推广预算","营销费用","费用申请","广告费","expense approval","expense request","budget approval","budget request","apply for expense","apply for budget","Genehmigung","Freigabe","経費申請","예산 신청"]
 in_market: true
+employee_quick: 已授权结果、归属、备注、阶段和审批状态
+employee_agent: 解密、改归属、改档案、改阶段、提交审批均为受控动作；备注不等于正式阶段
 ---
 # Business Approval Agent / 业务审批智能体
 

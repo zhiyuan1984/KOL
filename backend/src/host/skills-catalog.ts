@@ -1,6 +1,7 @@
+import fs from "node:fs";
 import { getConn } from "../db.js";
 import { sopFunnelId, SOP_PACKS } from "../sops.js";
-import { taskDefinitions } from "../tasks/registry.js";
+import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
 
 export type FunnelId = "reach" | "intent" | "biz" | "sample" | "content" | "settle" | "exception";
 
@@ -75,6 +76,10 @@ export type SkillEntry = {
   summary: string;
   source: "bundled" | "published";
   employee_visible: boolean;
+  /** 员工面两段口径与示例：逐字来自 SKILL.md，未登记的技能不带这几个键。 */
+  employee_quick?: string;
+  employee_agent?: string;
+  employee_example?: string[];
 };
 
 export const SOP_POLICY = {
@@ -111,6 +116,9 @@ export function skillCatalog(root?: string): SkillEntry[] {
     summary: definition.employee_summary || definition.description,
     source: definition.source,
     employee_visible: definition.employee_visible,
+    employee_quick: definition.employee_quick,
+    employee_agent: definition.employee_agent,
+    employee_example: definition.employee_example ? [...definition.employee_example] : undefined,
   }));
   catalogCache = { definitions, entries };
   return entries;
@@ -119,6 +127,61 @@ export function skillCatalog(root?: string): SkillEntry[] {
 /** Invalidate after publishing, deleting, or changing market visibility. */
 export function clearSkillCatalogCache(): void {
   catalogCache = null;
+}
+
+/* ── 说明书：`## 员工口径` 小节的正文 ────────────────────────────────────
+   员工面要的「说明书」只能来自技能文件自己写的员工口径，不把 SKILL.md 原文整段发给前端
+   （原文里混着引擎实现细节，CONST-10：不拿实现说明冒充员工说明）。
+   抽取范围是 Markdown 子集：段落 / `-` 列表项 / `###` 小标题。
+   服务端过白名单，整段丢弃含引擎系统词、JSON 片段或英文 snake_case id 的段落 ——
+   宁可少一段，也不能把引擎词漏到员工面。没有这一节就返回空字符串。 */
+
+const EMPLOYEE_DOC_ENGINE_WORDS = /MCP|Codex|Thread|MediaCrawler|Starry|Nylas|Host|kolclaw|starrykol|task_result/i;
+const EMPLOYEE_DOC_SNAKE_CASE = /[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+/;
+
+function blockedEmployeeDocBlock(block: string): boolean {
+  return /[{}]/.test(block) || EMPLOYEE_DOC_ENGINE_WORDS.test(block) || EMPLOYEE_DOC_SNAKE_CASE.test(block);
+}
+
+/** 段落＝空行分隔的块；列表块按行（一项一段）过滤，坏的那一项不连坐整张列表。 */
+export function employeeDocFromText(text: string): string {
+  const lines = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").split("\n");
+  const start = lines.findIndex((line) => line.trim() === "## 员工口径");
+  if (start < 0) return "";
+  const body: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^#{1,2}\s/.test(line)) break;
+    body.push(line);
+  }
+  const kept: string[] = [];
+  let block: string[] = [];
+  const flush = () => {
+    if (!block.length) return;
+    const isList = block.every((line) => line.trimStart().startsWith("- "));
+    const parts = isList ? block.map((line) => [line]) : [block];
+    for (const part of parts) {
+      const para = part.join("\n").trim();
+      if (para && !blockedEmployeeDocBlock(para)) kept.push(para);
+    }
+    block = [];
+  };
+  for (const line of body) {
+    if (line.trim()) block.push(line);
+    else flush();
+  }
+  flush();
+  return kept.join("\n\n");
+}
+
+/** `GET /skills/:id` 的员工说明书正文；技能不存在或没写这一节时是空字符串。 */
+export function skillEmployeeDoc(id: string): string {
+  const definition = taskDefinition(id);
+  if (!definition) return "";
+  try {
+    return employeeDocFromText(fs.readFileSync(definition.path, "utf8"));
+  } catch {
+    return "";
+  }
 }
 
 /** Live catalog. Array methods always read the current bundled + published skills. */

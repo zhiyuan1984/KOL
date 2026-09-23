@@ -5,12 +5,15 @@ description: 按合作生命周期查看达人合作进展
 category: 线索
 profile: lead
 output: task_result
+funnel: intent
 mcp: ["starrykol.pageLifecycleKanban"]
 required_inputs: []
 permissions: ["starrykol:read"]
 actions: ["analyze"]
 aliases: ["生命周期看板","合作看板"]
 in_market: true
+employee_quick: 我的任务、阶段索引、已识别风险
+employee_agent: 新风险分析与跟进建议走 AI 助理；确定的定时规则走后台
 ---
 # 合作生命周期看板
 

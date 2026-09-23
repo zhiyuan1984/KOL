@@ -5,12 +5,15 @@ description: 基于达人数据生成私信和加微信话术
 category: 线索
 profile: lead
 output: task_result
+funnel: reach
 mcp: ["kolclaw.generate_outreach_script", "kolclaw.list_creators"]
 required_inputs: []
 permissions: ["kolclaw:read"]
 actions: ["analyze"]
 aliases: ["生成建联话术","达人话术"]
 in_market: true
+employee_quick: 已保存的草稿、回复分析摘要
+employee_agent: 建联方案、写信、改信、理解回复走 AI 助理；发送独立确认
 ---
 # 达人建联话术
 

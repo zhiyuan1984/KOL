@@ -5,12 +5,15 @@ description: 更新红人画像上的备注、确认或跟进字段，不写官�
 category: 线索
 profile: lead
 output: task_result
+funnel: reach
 mcp: ["starrykol.getKolProfileDetail", "starrykol.updateKolProfile"]
 required_inputs: []
 permissions: ["starrykol:write"]
 actions: ["update"]
 aliases: ["更新达人状态","记录达人跟进"]
 in_market: true
+employee_quick: 已授权结果、归属、备注、阶段和审批状态
+employee_agent: 解密、改归属、改档案、改阶段、提交审批均为受控动作；备注不等于正式阶段
 ---
 # 达人状态更新
 

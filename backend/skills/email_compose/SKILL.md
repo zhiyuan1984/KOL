@@ -5,12 +5,15 @@ description: 按发件邮箱、收件邮箱和主题生成草稿预览，确认�
 category: 线索
 profile: lead
 output: task_result
+funnel: biz
 mcp: ["starry.get_collaboration", "starrykol.pageMailboxes", "starrykol.previewEmailDraft"]
 required_inputs: ["mailboxEmail", "to", "subject"]
 permissions: ["starrykol:write"]
 actions: ["create_draft"]
 aliases: ["写邮件","邮件草稿","发送测试邮件","写报价信","写报价","写报价邮件","写一份报价邮件","写一封报价邮件","写跟进","写跟进邮件","写跟进信","写阶段跟进","写阶段跟进邮件","阶段跟进邮件","要媒体包","写谈判邮件","请确认方案","合同沟通","核对地址","寄样地址核对","催大纲","发货通知","发brief","发内容brief","初稿反馈","确认排期","确认发布排期","请开发票","核对链接","核对公开链接","首封建联","加一封","再写一封","再发一封"]
 in_market: true
+employee_quick: 已保存的草稿、回复分析摘要
+employee_agent: 建联方案、写信、改信、理解回复走 AI 助理；发送独立确认
 ---
 # 写合作邮件
 

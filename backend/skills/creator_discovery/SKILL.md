@@ -5,12 +5,15 @@ description: 搜索并筛选新的候选达人
 category: 线索
 profile: lead
 output: crawl_plan
+funnel: reach
 mcp: []
 required_inputs: []
 permissions: ["claw:write"]
 actions: []
 aliases: ["发现达人","候选达人"]
 in_market: true
+employee_quick: 已有发现批次与同步结果
+employee_agent: 新发现分析、异步采集；正式导入独立确认
 ---
 # 达人发现 creator_discovery · Lead
 

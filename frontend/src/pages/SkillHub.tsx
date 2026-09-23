@@ -62,6 +62,11 @@ export type SkillRow = {
   summary?: string;
   output?: string;
   keeps_stage?: boolean;
+  /** 员工面两段入口口径：逐字来自 SKILL.md（`employee_quick` / `employee_agent`）。
+      未登记入口口径的技能这几个字段缺失，员工面照实说明待专家补齐。 */
+  employee_quick?: string | null;
+  employee_agent?: string | null;
+  employee_example?: string[] | null;
   source?: "bundled" | "published";
   learning?: {
     when_to_use?: string;

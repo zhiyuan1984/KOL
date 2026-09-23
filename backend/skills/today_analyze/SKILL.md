@@ -5,6 +5,7 @@ description: 分析已选对象并建议下一步，不自动写状态；对人�
 category: 线索
 profile: commander
 output: task_result
+funnel: reach
 mcp: []
 required_inputs: []
 permissions: []
@@ -12,6 +13,7 @@ actions: ["analyze"]
 aliases: ["今日分析","分析今天","today analyze"]
 in_market: false
 employee_visible: false
+employee_summary: 分析已选对象并建议下一步，不自动写状态；需要做法时可附阶段 SOP
 side_effects: none
 creates_session: true
 auto_ok: false

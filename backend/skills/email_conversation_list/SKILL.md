@@ -5,12 +5,15 @@ description: 按关键词或状态分页查询邮件会话
 category: 线索
 profile: lead
 output: task_result
+funnel: biz
 mcp: ["starrykol.pageEmailConversations"]
 required_inputs: []
 permissions: ["starrykol:read"]
 actions: ["analyze"]
 aliases: ["邮件会话","查询邮件会话","查收件会话","查收件箱","收件会话"]
 in_market: true
+employee_quick: 已同步邮件列表、往来摘要与已授权邮箱索引
+employee_agent: 新回复理解走 AI 助理；读取敏感正文仍执行权限规则
 ---
 # 邮件会话列表
 

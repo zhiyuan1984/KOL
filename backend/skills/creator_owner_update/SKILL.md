@@ -5,12 +5,15 @@ description: 更新红人画像上的负责人绑定，不是邮箱账号负责�
 category: 线索
 profile: lead
 output: task_result
+funnel: reach
 mcp: ["starrykol.getKolProfileDetail", "starrykol.updateKolProfile"]
 required_inputs: []
 permissions: ["starrykol:write"]
 actions: ["update"]
 aliases: ["更新达人负责人","分配红人负责人","改红人负责人"]
 in_market: true
+employee_quick: 已授权结果、归属、备注、阶段和审批状态
+employee_agent: 解密、改归属、改档案、改阶段、提交审批均为受控动作；备注不等于正式阶段
 ---
 # 更新红人负责人
 

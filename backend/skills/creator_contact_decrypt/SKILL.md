@@ -5,12 +5,16 @@ description: 按达人 UID 解密联系方式，属于敏感操作
 category: 线索
 profile: lead
 output: task_result
+funnel: reach
 mcp: ["starrykol.decryptKolContact"]
 required_inputs: []
 permissions: ["starrykol:write"]
 actions: ["analyze"]
 aliases: ["解密联系方式","解密红人联系方式"]
 in_market: true
+employee_quick: 已授权结果、归属、备注、阶段和审批状态
+employee_agent: 解密、改归属、改档案、改阶段、提交审批均为受控动作；备注不等于正式阶段
+employee_summary: 按达人账号解密联系方式，属于敏感操作
 ---
 # 解密达人联系方式
 

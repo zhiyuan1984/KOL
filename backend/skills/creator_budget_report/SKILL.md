@@ -5,12 +5,15 @@ description: 查询当前或指定投放项目的达人预算报告
 category: 增长
 profile: settlement-growth
 output: task_result
+funnel: settle
 mcp: ["kolclaw.get_budget_report"]
 required_inputs: []
 permissions: ["kolclaw:read"]
 actions: ["analyze"]
 aliases: ["达人预算","KOL预算"]
 in_market: true
+employee_quick: 已有预算报告与评分
+employee_agent: 新评分、预测、策略与报表解读走 AI 助理
 ---
 # KOL 预算报告
 

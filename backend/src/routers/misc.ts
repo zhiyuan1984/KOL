@@ -13,7 +13,7 @@ import { currentUser, setPersona } from "../host/persona.js";
 import { personaAccess } from "../host/persona-key.js";
 import { login, logout, requirePm, isProductManager } from "../host/auth.js";
 import { directory, grantsForSkill, setSkillGrants, visibleSkillIds } from "../host/grants.js";
-import { FUNNEL_STAGES, SOP_POLICY, skillCatalog } from "../host/skills-catalog.js";
+import { FUNNEL_STAGES, SOP_POLICY, skillCatalog, skillEmployeeDoc } from "../host/skills-catalog.js";
 import {
   getSkillSop,
   overlaySummaries,
@@ -141,6 +141,11 @@ function skillMeta(name: string, lookup?: SkillLookup): Json {
     summary: (overlay?.summary || cat?.summary || cat?.label || name).trim(),
     source: definition?.source || cat?.source || "bundled",
     employee_visible: definition?.employee_visible ?? true,
+    // 员工面两段入口口径与示例逐字来自 SKILL.md；没登记的技能不带这几个键，
+    // 前端据「缺失」照实说明待专家补齐，不编口径（docs/BUSINESS.md 覆盖表）。
+    employee_quick: definition?.employee_quick ?? null,
+    employee_agent: definition?.employee_agent ?? null,
+    employee_example: definition?.employee_example ?? null,
     keeps_stage: true,
     sop_editable: false,
     sop_owner: SOP_POLICY.owner,
@@ -225,7 +230,9 @@ misc.get("/skills/market", (c) => {
 misc.get("/skills/:id", (c) => {
   const id = c.req.param("id");
   const sop = getSkillSop(id);
-  return c.json({ ...skillMeta(id), ...sop });
+  // `employee_doc`：该技能 `## 员工口径` 小节的正文（已过白名单）。没有这一节就是空串，
+  // 前端据此整节不渲染 —— 不把 SKILL.md 原文发出去，也不拿空壳冒充说明书。
+  return c.json({ ...skillMeta(id), ...sop, employee_doc: skillEmployeeDoc(id) });
 });
 misc.put("/skills/:id/sop", async (c) => {
   requirePm();

@@ -5,6 +5,7 @@ description: 按会话 ID 读取邮件会话正文和消息
 category: 线索
 profile: lead
 output: task_result
+funnel: biz
 mcp: ["starrykol.getEmailConversation"]
 required_inputs: []
 permissions: ["starrykol:read"]
@@ -12,6 +13,9 @@ actions: ["analyze"]
 aliases: ["读取邮件会话","查看邮件会话"]
 in_market: true
 employee_visible: false
+employee_quick: 已同步邮件列表、往来摘要与已授权邮箱索引
+employee_agent: 新回复理解走 AI 助理；读取敏感正文仍执行权限规则
+employee_summary: 按会话读取邮件正文与往来消息
 ---
 # 邮件会话详情
 

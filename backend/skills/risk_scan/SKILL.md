@@ -5,12 +5,15 @@ description: 扫描红人风险会话，并列出失联、延期合作
 category: 异常
 profile: commander
 output: task_result
+funnel: exception
 mcp: ["starrykol.pageRiskConversations", "starrykol.summarizeRiskConversations", "starry.list_collaborations"]
 required_inputs: []
 permissions: ["starrykol:read"]
 actions: ["analyze"]
 aliases: ["风险扫描","超时扫描","失联扫描","扫描在途风险","T8"]
 in_market: true
+employee_quick: 我的任务、阶段索引、已识别风险
+employee_agent: 新风险分析与跟进建议走 AI 助理；确定的定时规则走后台
 ---
 # 风险扫描 risk_scan（T8）
 

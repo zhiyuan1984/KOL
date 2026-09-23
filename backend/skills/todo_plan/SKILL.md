@@ -86,3 +86,5 @@ Host 只补机械字段（`stats` / `source_cursor` / `increment_summary`）。�
 ## 是否改阶段
 
 不改官方阶段。
+funnel: reach
+employee_summary: 按「我的待办」面把待办记忆与新增事项整理成简报与任务行；不写正式待办或状态

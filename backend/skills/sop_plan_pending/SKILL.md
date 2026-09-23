@@ -5,6 +5,7 @@ description: 方案待确认 的版本化 SOP。只准备资料和下一步，�
 category: 商务
 profile: negotiation
 output: task_result
+funnel: biz
 mcp: ["starry.get_collaboration"]
 required_inputs: []
 permissions: ["starrykol:read"]
@@ -12,6 +13,8 @@ actions: ["present_sop"]
 aliases: ["方案待确认SOP", "SOP方案待确认"]
 in_market: true
 employee_visible: false
+employee_quick: 已发布 SOP 的索引、适用说明
+employee_agent: 结合当前 KOL 选择做法、分析缺口及生成行动方案走 AI 助理
 ---
 # SOP · 方案待确认
 

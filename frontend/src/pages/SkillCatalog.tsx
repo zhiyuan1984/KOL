@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { isWriteSkill } from "../composer/catalog";
@@ -178,161 +178,11 @@ const GROUP_ICONS: Record<string, string> = {
   exception: "M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z",
 };
 
-// 场景标签映射
-const SCENE_TAGS: Record<string, string[]> = {
-  creator_discovery: ["建联阶段", "私信触达"],
-  creator_profile: ["建联阶段", "达人分析"],
-  creator_scoring: ["意向评估", "评分排序"],
-  creator_outreach: ["建联阶段", "私信触达", "加微信话术"],
-  email_compose: ["报价", "邮件沟通"],
-  today_plan: ["日常运营", "任务规划"],
-  reply_analysis: ["意向评估", "邮件分析"],
-  deal_memory: ["成交", "商务谈判"],
-};
-
-type PreviewMessage = { role: "ai" | "user"; lines: string[]; time?: string };
-
-/**
- * 每项技能的「可以直接查到」/「需要走确认或 AI 助理」两段口径。
- * 来源：`docs/BUSINESS.md`「快捷查询与思考覆盖表」——权威，覆盖仓库当前 41 个 Skill ID。
- * 技能详情列按这张表逐项设计，**不按技能名猜，也不编**（AGENTS.md）。
- */
-const SKILL_ENTRY: Record<string, { quick: string; agent: string }> = (() => {
-  const rows: [string[], string, string][] = [
-    [
-      ["creator_library_all", "creator_library_query", "creator_filter_options", "creator_profile"],
-      "授权档案、画像、筛选与已有摘要",
-      "新画像分析、补查新事实走 AI 助理或已配置同步",
-    ],
-    [
-      ["creator_daily_tasks", "creator_lifecycle_kanban", "creator_risk_conversations", "risk_scan"],
-      "我的任务、阶段索引、已识别风险",
-      "新风险分析与跟进建议走 AI 助理；确定的定时规则走后台",
-    ],
-    [
-      ["email_app_conversation_list", "email_conversation_list", "email_conversation_read", "email_mailbox_list"],
-      "已同步邮件列表、往来摘要与已授权邮箱索引",
-      "新回复理解走 AI 助理；读取敏感正文仍执行权限规则",
-    ],
-    [
-      ["creator_budget_report", "creator_scoring"],
-      "已有预算报告与评分",
-      "新评分、预测、策略与报表解读走 AI 助理",
-    ],
-    [
-      ["deal_memory"],
-      "明确内容的记忆记录、修改、查询",
-      "修改远端正式档案备注是业务写入，不能与本地记忆混为一谈",
-    ],
-    [
-      ["creator_discovery", "creator_library_sync"],
-      "已有发现批次与同步结果",
-      "新发现分析、异步采集；正式导入独立确认",
-    ],
-    [
-      ["creator_outreach", "email_compose", "reply_analysis"],
-      "已保存的草稿、回复分析摘要",
-      "建联方案、写信、改信、理解回复走 AI 助理；发送独立确认",
-    ],
-    [
-      [
-        "creator_contact_decrypt",
-        "creator_owner_update",
-        "creator_status_update",
-        "confirm_stage",
-        "business_approval",
-      ],
-      "已授权结果、归属、备注、阶段和审批状态",
-      "解密、改归属、改档案、改阶段、提交审批均为受控动作；备注不等于正式阶段",
-    ],
-  ];
-  const out: Record<string, { quick: string; agent: string }> = {};
-  for (const [ids, quick, agent] of rows) for (const id of ids) out[id] = { quick, agent };
-
-  // SOP 一组（stage_sop + 15 个阶段 SOP）共用同一口径。
-  const sopIds = [
-    "stage_sop",
-    "sop_initial_contact",
-    "sop_interested",
-    "sop_evaluating",
-    "sop_quote_pending",
-    "sop_negotiating",
-    "sop_plan_pending",
-    "sop_contracting",
-    "sop_sample_pending",
-    "sop_shipped",
-    "sop_testing",
-    "sop_content_planning",
-    "sop_content_review",
-    "sop_publish_pending",
-    "sop_published",
-    "sop_settling",
-  ];
-  const sopEntry = {
-    quick: "已发布 SOP 的索引、适用说明",
-    agent: "结合当前达人选择做法、分析缺口及生成行动方案走 AI 助理",
-  };
-  for (const id of sopIds) out[id] = sopEntry;
-  return out;
-})();
-
-// 输入/输出描述
-const IO_MAP: Record<string, { inputs: string[]; outputs: string[]; example: string[]; thread?: PreviewMessage[] }> = {
-  creator_outreach: {
-    inputs: ["达人名称", "平台（如小红书/抖音）", "粉丝量", "合作目标（如寄样、推广、长期合作）"],
-    outputs: ["首轮私信话术", "跟进话术", "微信添加文案"],
-    example: [
-      "Hi@夏天的旅行日记 👋",
-      "我是 LiTime 的产品运营，关注到你分享的户外生活内容，非常喜欢！我们正在做一款适合户外场景的便携装备，想和你合作体验。不知道你是否有兴趣？期待你的回复~",
-    ],
-    thread: [
-      {
-        role: "ai",
-        time: "10:24",
-        lines: [
-          "Hi@夏天的旅行日记 👋",
-          "我是 LiTime 的产品运营，关注到你分享的户外生活内容，非常喜欢！我们正在做一款适合户外场景的便携装备，想和你合作体验。不知道你是否有兴趣？期待你的回复~",
-        ],
-      },
-      { role: "user", time: "10:28", lines: ["你好！可以先发下产品资料看看~"] },
-    ],
-  },
-  creator_discovery: {
-    inputs: ["关键词", "平台", "粉丝量范围"],
-    outputs: ["候选达人列表", "达人基础信息"],
-    example: ["关键词：户外露营", "平台：小红书", "粉丝量：1万-10万"],
-    thread: [{ role: "ai", time: "10:24", lines: ["关键词：户外露营", "平台：小红书", "粉丝量：1万-10万"] }],
-  },
-  creator_profile: {
-    inputs: ["达人UID或昵称"],
-    outputs: ["达人详情", "平台数据", "负责人信息"],
-    example: ["达人：夏天的旅行日记", "UID：xxx"],
-    thread: [{ role: "ai", time: "10:24", lines: ["达人：夏天的旅行日记", "UID：xxx"] }],
-  },
-  creator_scoring: {
-    inputs: ["达人UID列表"],
-    outputs: ["影响力评分", "合作适配度评分"],
-    example: ["待评分达人列表"],
-    thread: [{ role: "ai", time: "10:24", lines: ["待评分达人列表"] }],
-  },
-};
-
 function SkillIcon({ id }: { id: string }) {
   const d = SKILL_ICONS[id] || DEFAULT_ICON;
   return (
     <svg viewBox="0 0 24 24" className="skill-row-svg" aria-hidden>
       <path d={d} fill="currentColor" />
-    </svg>
-  );
-}
-
-function UserGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden>
-      <path
-        d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"
-        fill="currentColor"
-      />
     </svg>
   );
 }
@@ -449,6 +299,15 @@ const PERMISSION_LABEL: Record<string, string> = {
   "claw:write": "业绩与任务写入",
 };
 
+/**
+ * 员工面上的原始文本：已知动作 id 走词表翻成业务语言；已经是中文的说明原样保留；
+ * 纯 ASCII 的未知 id 一律**不渲染**（员工表面不摊英文 Skill 时序与字段名，
+ * specs/UX-EMPLOYEE.md §员工禁词）。步骤与「需要你提供」共用同一条规则。
+ */
+function employeeText(value: string): string {
+  return ACTION_LABEL[value] ?? (/^[\x20-\x7E]+$/.test(value) ? "" : value);
+}
+
 /** 工具行名称：业务名优先，其次动作词表，最后只留连接器 / 平台动作 —— 不摊原始 ref。 */
 function toolLabel(ref: string, kind?: string): string {
   return TOOL_LABEL[ref] || ACTION_LABEL[ref] || (kind === "mcp" ? "平台连接器" : "平台动作");
@@ -563,6 +422,87 @@ function CloseIcon() {
   );
 }
 
+/**
+ * 未登记入口口径的技能（`backend/skills/` 里没有 `employee_quick` / `employee_agent` 的那 6 个）：
+ * 措辞照 `docs/BUSINESS.md`「快捷查询与思考覆盖表」的登记原文 —— 待业务专家补齐，不给推测口径。
+ */
+const ENTRY_PENDING = "这项技能的业务入口口径待业务专家补齐，不给出推测口径";
+
+/**
+ * 说明书：选中时按 id 拉一次 `GET /skills/:id` 的 `employee_doc`（后端从该技能 SKILL.md 的
+ * `## 员工口径` 小节抽正文并过白名单）。拿不到就保持空串，调用处据空串整节不渲染。
+ * 状态带上 id，切技能时绝不会把上一项的说明书挂到这一项下面。
+ */
+function useEmployeeDoc(id: string): string {
+  const [doc, setDoc] = useState<{ id: string; text: string }>({ id: "", text: "" });
+  useEffect(() => {
+    if (!id) return;
+    let alive = true;
+    api.skill(id)
+      .then((data: unknown) => {
+        const value = (data as { employee_doc?: unknown } | null)?.employee_doc;
+        if (alive) setDoc({ id, text: typeof value === "string" ? value : "" });
+      })
+      .catch(() => {
+        if (alive) setDoc({ id, text: "" });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+  return doc.id === id ? doc.text : "";
+}
+
+/**
+ * 说明书正文：只认服务端约定好的 Markdown 子集（`###` 小标题 / `-` 列表 / 段落）。
+ * 一行一段 —— 服务端的白名单就是按段抽的，这里不合并、不再做二次猜测，也不解析 HTML。
+ */
+function EmployeeDoc({ text }: { text: string }) {
+  const blocks: { kind: "heading" | "list" | "paragraph"; lines: string[] }[] = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    const last = blocks[blocks.length - 1];
+    if (line.startsWith("### ")) blocks.push({ kind: "heading", lines: [line.slice(4).trim()] });
+    else if (line.startsWith("- ")) {
+      if (last?.kind === "list") last.lines.push(line.slice(2).trim());
+      else blocks.push({ kind: "list", lines: [line.slice(2).trim()] });
+    } else blocks.push({ kind: "paragraph", lines: [line] });
+  }
+  return (
+    <>
+      {blocks.map((block, index) => {
+        if (block.kind === "heading") {
+          return <p className="skill-doc-heading" key={index}>{block.lines[0]}</p>;
+        }
+        if (block.kind === "list") {
+          return (
+            <ul className="skill-doc-list" key={index}>
+              {block.lines.map((item, i) => <li key={i}>{item}</li>)}
+            </ul>
+          );
+        }
+        return <p className="skill-doc-para" key={index}>{block.lines[0]}</p>;
+      })}
+    </>
+  );
+}
+
+/** 一行提示：前缀一个小图标（走本页图标阶梯的 --icon-sm），替代原先的大块浅底 callout。 */
+function DetailHint({ children }: { children: ReactNode }) {
+  return (
+    <p className="skill-detail-hint">
+      <svg viewBox="0 0 24 24" className="skill-detail-hint-svg" aria-hidden>
+        <path
+          d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm-1-5h2v2h-2v-2zm0-7h2v5h-2V8z"
+          fill="currentColor"
+        />
+      </svg>
+      <span>{children}</span>
+    </p>
+  );
+}
+
 function SkillDetail({
   skill,
   onInsert,
@@ -576,6 +516,10 @@ function SkillDetail({
   onToggleWide: () => void;
   onClose: () => void;
 }) {
+  // 说明书：选中时按 id 拉一次；拉不到、或后端在技能文件里找不到 `## 员工口径` 小节的正文，
+  // 都得到空串 —— 那一节整节不渲染，不做 loading 假动作、也不拿空壳冒充说明书。
+  const doc = useEmployeeDoc(skill?.id || "");
+
   if (!skill) {
     return (
       <div className="skill-detail-empty">
@@ -584,33 +528,39 @@ function SkillDetail({
     );
   }
 
-  const scenes = SCENE_TAGS[skill.id];
-  const io = IO_MAP[skill.id];
-  const entry = SKILL_ENTRY[skill.id];
   const tier = isWriteSkill(skill) ? "write" : "read";
   const isAsync = ASYNC_SKILL_IDS.has(skill.id);
   const learning = skill.learning;
-  // 步骤：已知动作 id → 业务语言；已经是中文的原样保留；纯 ASCII 的未知 id **不渲染**
-  // （员工表面不摊英文 Skill 时序，specs/UX-EMPLOYEE.md §员工禁词）。
+  const execution = skill.execution;
+  // 入口口径与示例：逐字来自该技能自己的 SKILL.md（`employee_quick` / `employee_agent` /
+  // `employee_example`），页面不再手抄一份 —— 文件是员工面的唯一真相。
+  const quick = skill.employee_quick || "";
+  const agent = skill.employee_agent || "";
+  const inputs = (learning?.inputs || []).map(employeeText).filter(Boolean);
+  const examples = skill.employee_example || [];
+  // 产出：只印词表里的业务语言。查不到（含引擎兜底值 `task_result`）就不渲染这一节 ——
+  // 旧实现直出 `skill.output`，会把引擎词印到员工面上。
+  const outputLabel = skill.output ? OUTPUT_LABEL[skill.output] : undefined;
+  // 步骤与输入项走同一条规则：已知动作 id → 业务语言；已经是中文的原样保留；纯 ASCII 的未知 id
+  // **不渲染**（员工表面不摊英文 Skill 时序与字段名，specs/UX-EMPLOYEE.md §员工禁词）。
   const rawSteps = learning?.steps || [];
-  const steps = rawSteps
-    .map((step) => ACTION_LABEL[step] ?? (/^[\x20-\x7E]+$/.test(step) ? "" : step))
-    .filter(Boolean);
+  const steps = rawSteps.map(employeeText).filter(Boolean);
   // 空样板（后端兜底 / 只剩引擎通用动作翻出来的话）不含这项技能自己的信息 → 不渲染「使用步骤」。
   const showSteps = Boolean(learning)
     && steps.length > 0
     && !isFallbackSteps(rawSteps)
     && !steps.every((step) => GENERIC_STEP_LABELS.has(step));
-  // 「结果：…」只在 learning.result 有业务映射时才说（`task_result` 不在词表里 → 这半句不发）。
+  // 「结果」只在 learning.result 有业务映射时才说（`task_result` 不在词表里 → 这半句不发）。
   const resultLabel = learning?.result ? OUTPUT_LABEL[learning.result] : undefined;
-  const execution = skill.execution;
+  // 示例与说明书都没补录 → 一行说明，不把空壳说成完整（CONST-10 实施诚实）。
+  const missingSample = examples.length === 0 && !doc;
 
   return (
     <div className="skill-detail" data-skill-detail>
-      <div className="skill-detail-body">
-        {/* 头部一行：图标砖 + 技能名 + 展开 / 关闭。原先「技能详情」标题条与摘要句都删掉
-            —— 一个是自明的容器名，一个是中栏选中行的逐字重复（2026-09-23 UI/UX 裁定）。 */}
-        <div className="skill-detail-head">
+      {/* 三段式：头（图标 + 名 + 展开/关闭 + 标签行，固定）/ 正文（自己滚）/ 底（唯一实底 CTA，
+          固定），段与段之间各一条发丝线。正文滚动时头与底不动。 */}
+      <div className="skill-detail-head">
+        <div className="skill-detail-title">
           <div className="skill-row-icon" data-tone={skillTone(skill.id)}>
             <SkillIcon id={skill.id} />
           </div>
@@ -636,185 +586,171 @@ function SkillDetail({
         </div>
 
         <div className="skill-detail-marks">
-          <span className="skill-preview-tag">{skillKind(skill)}</span>
-          <span className="skill-preview-agent">{skillSource(skill.id)}</span>
+          <span className="skill-detail-chip is-kind">{skillKind(skill)}</span>
+          <span className="skill-detail-chip is-source">{skillSource(skill.id)}</span>
           <span className={"skill-mark is-" + tier}>{RISK_LABEL[tier]}</span>
           {isAsync && <span className="skill-mark is-async">异步 · 可取消</span>}
           {/* 内部技能：由 pipeline / 定时任务 / 旅程调用，不在提问框的可选清单里出现。 */}
           {skill.employee_visible === false && <span className="skill-mark" data-skill-internal>内部</span>}
         </div>
+      </div>
 
-        {/* 段落次序按员工的决策顺序排：先「什么时候用 / 我要准备什么 / 能拿到什么」，
-            再是能力边界与治理口径（可以直接查到 / 需要走确认 → 执行边界 → 调用关系）。 */}
-        {scenes && (
+      <div className="skill-detail-body">
+
+        {/* 段落次序按员工的决策顺序排：先回答「我自己能查到什么 / 哪些要找人」，
+            再是「我要准备什么 / 能拿到什么 / 怎么用」，最后是能力边界与调用关系。 */}
+        {quick && (
           <div className="skill-detail-section">
-            <h4>适用场景</h4>
-            <div className="skill-detail-tags">
-              {scenes.map((s) => (
-                <span key={s} className="skill-preview-tag-item">{s}</span>
-              ))}
-            </div>
+            <h4>可以直接查到</h4>
+            <p className="skill-detail-value">{quick}</p>
           </div>
         )}
 
-        {io && (
+        {agent && (
+          <div className="skill-detail-section">
+            <h4>需要走确认或 AI 助理</h4>
+            <p className="skill-detail-value">{agent}</p>
+          </div>
+        )}
+
+        {/* 未登记入口口径的技能（docs/BUSINESS.md 覆盖表没列）不给推测口径，
+            照实说明待业务专家补齐 —— 页面不替它编一句。 */}
+        {!quick && !agent && <p className="skill-detail-hint">{ENTRY_PENDING}</p>}
+
+        {inputs.length > 0 && (
           <div className="skill-detail-section">
             <h4>需要你提供</h4>
             <div className="skill-detail-tags">
-              {io.inputs.map((s) => (
-                <span key={s} className="skill-preview-tag-item">{s}</span>
+              {inputs.map((s) => (
+                <span key={s} className="skill-detail-chip">{s}</span>
               ))}
             </div>
           </div>
         )}
 
-        {/* 产出：只渲染 IO_MAP 里登记过的业务语言。未登记的技能这一节整个不渲染 ——
-            旧实现兜底直出 `skill.output`（后端给的是引擎词 `task_result`），把它印到员工面上。 */}
-        {io && (
+        {outputLabel && (
           <div className="skill-detail-section">
             <h4>产出</h4>
             <div className="skill-detail-tags">
-              {io.outputs.map((s) => (
-                <span key={s} className="skill-preview-tag-item">{s}</span>
-              ))}
+              <span className="skill-detail-chip">{outputLabel}</span>
             </div>
           </div>
         )}
 
-        {entry ? (
-          <>
-            <div className="skill-detail-section">
-              <h4>可以直接查到</h4>
-              <p className="skill-detail-note">{entry.quick}</p>
-            </div>
-            <div className="skill-detail-section">
-              <h4>需要走确认或 AI 助理</h4>
-              <p className="skill-detail-note">{entry.agent}</p>
-            </div>
-          </>
-        ) : (
-          <p className="skill-detail-warn">
-            这项技能还没登记进 BUSINESS.md 的覆盖表，入口口径待业务专家补齐。
-            补齐前请照它的说明与产出判断用法，不要假定它可以被直接执行。
-          </p>
+        {showSteps && (
+          <div className="skill-detail-section">
+            <h4>使用步骤</h4>
+            <ol className="skill-detail-steps">
+              {steps.map((step, index) => <li key={`${step}-${index}`}>{step}</li>)}
+            </ol>
+          </div>
         )}
 
         {learning && (
-          <>
-            {showSteps && (
-              <div className="skill-detail-section">
-                <h4>使用步骤</h4>
-                {steps.length ? (
-                  <ol className="skill-detail-steps">
-                    {steps.map((step, index) => <li key={`${step}-${index}`}>{step}</li>)}
-                  </ol>
-                ) : (
-                  <p className="skill-detail-note">
-                    这项技能的步骤说明还没翻成业务语言；先按上面的场景与产出判断用法。
-                  </p>
-                )}
-              </div>
-            )}
-            <div className="skill-detail-section">
-              <h4>执行边界</h4>
-              <p className="skill-detail-note">
-                {/* 有业务映射才报结果名；没有映射时说「结果：任务结果」＝没说（员工禁词）。 */}
-                {resultLabel ? `结果：${resultLabel}。` : ""}
-                {learning.confirmation || "按当前权限执行"}
+          <div className="skill-detail-section">
+            <h4>执行边界</h4>
+            {/* 标签 + 值同行：label 走 12px muted，value 走 13px 墨色，不再一 label 一 value 竖排两行。 */}
+            {resultLabel && (
+              <p className="skill-detail-field">
+                <span className="skill-detail-field-label">结果</span>
+                <span className="skill-detail-value">{resultLabel}</span>
               </p>
-            </div>
-          </>
+            )}
+            <p className="skill-detail-field">
+              <span className="skill-detail-field-label">确认</span>
+              <span className="skill-detail-value">{learning.confirmation || "按当前权限执行"}</span>
+            </p>
+          </div>
+        )}
+
+        {/* 说明书：正文来自该技能 SKILL.md 的 `## 员工口径` 小节（服务端已按白名单整段滤掉
+            含引擎系统词 / JSON 片段 / 英文 snake_case id 的段落）。为空则整节不渲染。 */}
+        {doc && (
+          <div className="skill-detail-section">
+            <h4>说明书</h4>
+            <EmployeeDoc text={doc} />
+          </div>
+        )}
+
+        {examples.length > 0 && (
+          <div className="skill-detail-section">
+            <h4>示例</h4>
+            <ul className="skill-detail-examples">
+              {examples.map((line, index) => <li key={`${line}-${index}`}>{line}</li>)}
+            </ul>
+          </div>
         )}
 
         {execution && (
           <details className="skill-execution-details">
             <summary>查看调用关系与安全边界</summary>
+            {/* 调用工具 / 所需权限条目化：一行一个（名称 + 风险档 chip），不再堆成长段。 */}
             <div className="skill-detail-section">
               <h4>调用工具</h4>
               {execution.tools?.length ? (
-                <div className="skill-execution-tools">
+                <div className="skill-execution-list">
                   {execution.tools.map((tool, index) => (
-                    <div className="skill-execution-tool" key={`${tool.ref}-${index}`}>
-                      <span className="skill-execution-tool-name">{toolLabel(tool.ref || "", tool.kind)}</span>
+                    <div className="skill-execution-row" key={`${tool.ref}-${index}`}>
+                      <span className="skill-execution-row-name">{toolLabel(tool.ref || "", tool.kind)}</span>
                       <span className={"skill-mark" + (tool.risk === "L3" ? " is-write" : "")}>
                         {tool.risk === "L3" ? "L3 · 执行前确认" : "L1 · 只读"}
                       </span>
                     </div>
                   ))}
                 </div>
-              ) : <p className="skill-detail-note">本 Skill 当前不直接调用外部工具。</p>}
+              ) : <p className="skill-detail-value">这项技能当前不直接调用外部工具。</p>}
             </div>
             {execution.permissions?.length ? (
               <div className="skill-detail-section">
                 <h4>所需权限</h4>
-                <div className="skill-detail-tags">
-                  {execution.permissions.map((permission) => (
-                    <span key={permission} className="skill-preview-tag-item">
-                      {PERMISSION_LABEL[permission]
-                        || (permission.endsWith(":write") ? "业务数据写入" : "业务数据读取")}
-                    </span>
-                  ))}
+                <div className="skill-execution-list">
+                  {execution.permissions.map((permission) => {
+                    const write = permission.endsWith(":write");
+                    return (
+                      <div className="skill-execution-row" key={permission}>
+                        <span className="skill-execution-row-name">
+                          {PERMISSION_LABEL[permission] || (write ? "业务数据写入" : "业务数据读取")}
+                        </span>
+                        <span className={"skill-mark" + (write ? " is-write" : "")}>
+                          {write ? "L3 · 执行前确认" : "L1 · 只读"}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             ) : null}
             {execution.async?.enabled && (
               <div className="skill-detail-section">
                 <h4>异步执行</h4>
-                <p className="skill-detail-note">
+                <p className="skill-detail-value">
                   {execution.async.status || "需要查看进度"}；
                   {execution.async.cancelable ? "支持取消" : "不支持取消"}；
                   {execution.async.retryable ? "支持重试" : "不支持重试"}。
                 </p>
               </div>
             )}
-            <p className="skill-detail-note">
-              {execution.receipt_required ? "受控动作会留下执行回执。" : "当前没有登记需要回执的正式写入动作。"}
-            </p>
+            <div className="skill-detail-section">
+              <h4>回执</h4>
+              <p className="skill-detail-value">
+                {execution.receipt_required ? "受控动作会留下执行回执。" : "当前没有登记需要回执的正式写入动作。"}
+              </p>
+            </div>
           </details>
         )}
 
-        {io && (
-          <div className="skill-detail-section">
-            <h4>内容示例</h4>
-            <div className="skill-preview-thread">
-              {(io.thread || [{ role: "ai" as const, lines: io.example }]).map((msg, i) => (
-                <div key={i} className={"skill-preview-msg is-" + msg.role}>
-                  <span className="skill-preview-avatar" aria-hidden>
-                    {msg.role === "ai" ? "AI" : <UserGlyph />}
-                  </span>
-                  <div className="skill-preview-bubble">
-                    {msg.lines.map((line, j) => (
-                      <p key={j}>{line}</p>
-                    ))}
-                    {msg.time && <span className="skill-preview-time">{msg.time}</span>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+        {/* 长说明收成一行 muted 提示（前缀一个小图标），不再用大块浅底 callout 占版面。 */}
+        {missingSample && (
+          <DetailHint>示例与说明书还没补录，口径来自技能登记本身。</DetailHint>
         )}
-
-        {!io && (
-          <p className="skill-detail-note">
-            这项技能的输入与产出示例尚未补录。上面的口径来自 BUSINESS.md
-            的覆盖表，可以直接用；要看实际结果，用下面的「填入输入框」把它挂到输入区跑一次。
-          </p>
-        )}
-
         {skill.keeps_stage && (
-          <p className="skill-detail-warn">
-            这项技能不会推进正式阶段。要改阶段请用「正式阶段变更」，另走一次确认。
-          </p>
+          <DetailHint>不推进正式阶段，改阶段请另走「正式阶段变更」。</DetailHint>
         )}
         {isAsync && (
-          <p className="skill-detail-warn">
-            这是异步作业，同一时间只跑一个。有进度、取消和重试入口，不会伪装成即时完成。
-          </p>
+          <DetailHint>异步作业，同一时间只跑一个；有进度、取消与重试入口。</DetailHint>
         )}
         {tier === "write" && (
-          <p className="skill-detail-warn">
-            这是受控动作：执行前会揭示对象和范围、要求确认，并留下回执。
-          </p>
+          <DetailHint>受控动作：执行前揭示对象与范围、要求确认，并留下回执。</DetailHint>
         )}
       </div>
 
@@ -956,13 +892,6 @@ export function SkillCatalog() {
 
   return (
     <div className="skill-catalog-page" data-skill-catalog>
-      {/* 页头单行：这是哪个页面 + 现在有多少项。副标题与搜索框都已下沉
-          （副标题与筛选条、列表提示重复；搜索框跟着列表走，见中栏的 .skill-search-row）。 */}
-      <header className="skill-catalog-header">
-        <h1>技能目录</h1>
-        {!loading && <span className="skill-catalog-count">{filteredSkills.length} 项</span>}
-      </header>
-
       {err && (
         <div className="skill-state" role="alert">
           <p className="error">{err}</p>
@@ -982,9 +911,16 @@ export function SkillCatalog() {
       )}
 
       <div className="skill-catalog-main">
-        {/* shadcn `TabsList` ×2：口径 / 阶段各一个容器，容器承担成组控件的可见边界。
-            ≥1280 时整条筛选条是左栏（纵向，两个容器上下分区）；更窄时横跨顶部一排（可横向滚动）。 */}
+        {/* 栏 2：技能目录。顶部是「技能目录 + N 项」（吸顶），下面是两个成组控件容器
+            （shadcn `TabsList` ×2：口径 / 阶段，容器承担成组控件的可见边界）。
+            ≥1280 时这一栏是左栏（纵向）；1024–1279 折成栏 3 顶部的横向筛选条。 */}
         <div className="skill-tabs" role="group" aria-label="技能筛选">
+          {/* 页头整条删除（2026-09-23）：标题 + 计数只是这一栏的栏头，横跨三栏的一行
+              既占高度、又与筛选条隔开了它描述的列表。计数跟着筛选与搜索实时变。 */}
+          <div className="skill-catalog-title">
+            <h1>技能目录</h1>
+            {!loading && <span className="skill-catalog-count">{filteredSkills.length} 项</span>}
+          </div>
           {(["mode", "stage"] as const).map((kind) => (
             <div key={kind} className="skill-tabs-list" data-kind={kind}>
               {TABS.filter((t) => t.kind === kind).map((t, i) => (

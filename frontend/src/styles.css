@@ -10137,49 +10137,67 @@ button.today-brief-primary-btn:disabled {
   background: var(--bg);
 }
 
-/* ── 页头：单行（标题 + 计数），筛选与搜索都下沉到主区 ──────────────────
-   2026-09-23 UI/UX 裁定：页头只回答「这是什么页 + 现在有多少项」。副标题与筛选条、列表
-   说的是同一件事，删；搜索框跟着列表走，移进中栏顶部并 sticky。 */
-.skill-catalog-header {
+/* ── 栏头：技能目录 + 计数（住在栏 2 里，不再是横跨 2/3/4 栏的页头行） ─────────
+   2026-09-23 UI/UX 裁定：栏头只回答「这一栏是什么 + 现在有多少项」。横跨三栏的独立页头行
+   既占高度，又把筛选条与它描述的列表隔开；计数跟着筛选与搜索实时变。
+   ≥1280 的纵向左栏里它吸顶（见 media 段），口径组与阶段组从它下面滑过。 */
+.skill-catalog-title {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--space-2);
-  /* 单行：28px 标题行盒 + 上下各 8px 内边距 + 1px 发丝线 = 45px。 */
-  padding: var(--space-2) var(--page-gutter);
-  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  /* 横向档：筛选条是 flex-end 对齐的一排 tab，栏头按行高居中，不与 tab 抢基线。 */
+  align-self: center;
+  padding-right: var(--space-4);
 }
 
-/* 页标题走壳层页标题档（--ds-font-block-title）：本页是登录后的工作台，
+/* 栏标题走壳层页标题档（--ds-font-block-title）：本页是登录后的工作台，
    不用营销落地页的 display 尺寸与负字距。 */
-.skill-catalog-header h1 {
+.skill-catalog-title h1 {
   margin: 0;
   font-size: var(--ds-font-block-title);
   line-height: var(--ds-line-block-title);
   /* 与 Home / 知识库的页标题同档：500，不是 600（此前整页标题偏重）。 */
   font-weight: 500;
   letter-spacing: 0;
+  white-space: nowrap;
 }
 
-/* 计数（「51 项」）：跟随筛选与搜索实时变化，是页头唯一的信息增量。 */
+/* 计数（「51 项」）：跟随筛选与搜索实时变化，是栏头唯一的信息增量。 */
 .skill-catalog-count {
   color: var(--text-muted);
   font-size: var(--ds-font-helper);
   line-height: var(--lh-control-sm);
+  white-space: nowrap;
 }
 
-/* 搜索行：中栏顶部，sticky 贴在列表列的滚动口上（「搜索 → 结果」是一组，
-   搜索框跟着列表走，不再占页头高度）。 */
-.skill-search-row {
+/* 搜索行：栏 3 顶部，sticky 贴在列表列的滚动口上（「搜索 → 结果」是一组）。
+   选择器带父级：它是 `> *` 那条「宽度上限 --content-max + 居中」的例外，必须比它更具体。 */
+.skill-catalog-content > .skill-search-row {
   position: sticky;
   top: 0;
   z-index: 2;
   /* 必须自带上色：列表行从它下面滚过时不能透视。 */
   background: var(--bg);
+  /* 铺满栏宽：用负外边距抵消内容列的左右留白，并且不吃 --content-max 宽度上限 ——
+     底色与底缘发丝线因此横贯整栏，组头只能从它**下面**滑过，不会在它上方露出半截字。 */
+  margin-inline: calc(-1 * var(--skill-content-pad));
+  padding-inline: var(--skill-content-pad);
+  /* `> *` 那条给的是 width:100%（= 内容盒宽），配负外边距只会往左溢；这里必须 auto，
+     让宽度 = 内容盒 + 两侧留白 = 整栏的 padding box。 */
+  width: auto;
+  max-width: none;
   padding-block: 0 var(--space-2);
+  border-bottom: 1px solid var(--border);
   /* 与下方分组的视觉间距定为 --space-2（比容器 gap 小一档，搜索框才贴得住第一组），
      多出来的部分用负外边距扣掉；扣多少跟着容器 gap 变，所以两者共用一个变量。 */
   margin-bottom: calc(var(--space-2) - var(--skill-content-gap));
+}
+
+/* 底色铺满整栏，不等于输入框要拉到 2560 屏那么宽：它仍住在内容列上限里。 */
+.skill-search-row .skill-search-wrap {
+  max-width: var(--content-max);
+  margin-inline: auto;
 }
 
 /* 搜索框：单体控件自带 ≥3:1 的 --control-border 描边（成组控件才用容器填色），
@@ -10369,7 +10387,10 @@ button.today-brief-primary-btn:disabled {
   grid-area: content;
   min-width: 0;
   overflow-y: auto;
-  padding: var(--space-4) var(--page-gutter) var(--space-5);
+  /* 列内左右留白：搜索行要按它做全栏铺满（见 .skill-search-row），两者共用一个变量，
+     换断点时（≤640 收窄）才不会各自漂移。 */
+  --skill-content-pad: var(--page-gutter);
+  padding: var(--space-4) var(--skill-content-pad) var(--space-5);
   display: flex;
   flex-direction: column;
   /* 列间距：搜索行要在它的基础上再扣掉多余部分（见 .skill-search-row），
@@ -10695,9 +10716,10 @@ button.today-brief-primary-btn:disabled {
   padding: 0 var(--space-4);
 }
 
-/* ── 第三栏：技能详情 ────────────────────────────────────────────────
-   内容按技能逐项设计（口径来自 docs/BUSINESS.md 的覆盖表）。
-   `.skill-preview-*` 是详情列内的内容样式（沿用旧名），`.skill-detail-*` 是详情列骨架。 */
+/* ── 第四栏：技能详情 ────────────────────────────────────────────────
+   内容按技能逐项设计，每一项都指回该技能自己的 SKILL.md（口径 = `employee_quick` /
+   `employee_agent`，说明书 = `## 员工口径`，示例 = `employee_example`）—— 页面不再手抄一份。
+   骨架三段式：`.skill-detail-head` / `.skill-detail-body` / `.skill-detail-footer`。 */
 .skill-detail-pane {
   grid-area: pane;
   width: clamp(320px, 26vw, 400px);
@@ -10760,18 +10782,20 @@ button.today-brief-primary-btn:disabled {
   display: none;
 }
 
-.skill-detail-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--space-4);
+/* 详情列三段式：头（身份 + 标签，固定）/ 正文（自己滚）/ 底（唯一实底 CTA，固定），
+   段与段之间各一条发丝线。正文滚动时头与底不动 —— 长说明不再把工具名与主 CTA 顶出视口。 */
+.skill-detail-head {
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-5); /* 段间距拉开，层级才立得住 */
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  border-bottom: 1px solid var(--border);
 }
 
-/* 详情列头部：图标砖 + 技能名 + 两个图标按钮同一行。
-   不再有「技能详情」标题条与摘要句 —— 两者都是中栏选中行的逐字重复（2026-09-23 UI/UX 裁定）。 */
-.skill-detail-head {
+/* 头部一行：图标砖 + 技能名 + 两个图标按钮。不再有「技能详情」标题条与摘要句
+   —— 两者都是中栏选中行的逐字重复（2026-09-23 UI/UX 裁定）。 */
+.skill-detail-title {
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -10805,6 +10829,17 @@ button.today-brief-primary-btn:disabled {
   margin-left: calc(var(--control-h) + var(--space-3));
 }
 
+/* 正文段间距 20px（比 --space-5 紧一档），小节内 8px：一屏里能多看两节。
+   正文基准 13px / 400 墨色（`.skill-detail-value`），chips 12px / 400。 */
+.skill-detail-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
 .skill-detail-section {
   display: flex;
   flex-direction: column;
@@ -10821,27 +10856,120 @@ button.today-brief-primary-btn:disabled {
   letter-spacing: 0.01em;
 }
 
-.skill-detail-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
+/* 正文：13px / 400 墨色。 */
+.skill-detail-value {
+  margin: 0;
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control);
+  font-weight: 400;
+  color: var(--text);
 }
 
-.skill-detail-note {
+/* 标签 + 值同行（label 12px muted、value 13px ink）：不再一 label 一 value 竖排两行。
+   label 列给固定下限，同一节里的值左缘对齐。 */
+.skill-detail-field {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.skill-detail-field-label {
+  flex: 0 0 auto;
+  min-width: 3em;
+  font-size: var(--ds-font-helper);
+  line-height: var(--lh-control-sm);
+  color: var(--text-muted);
+}
+
+/* 一行提示：前缀一个小图标（--icon-sm），替代原先的大块浅底 callout。 */
+.skill-detail-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
   margin: 0;
   font-size: var(--ds-font-helper);
   line-height: var(--lh-control-sm);
   color: var(--text-muted);
 }
 
-/* 注意事项：左侧 2px 强调条（形状信号）+ 极浅面，不靠颜色单独表达（§不变量 4）。 */
-.skill-detail-warn {
-  margin: 0;
-  padding: var(--space-2) var(--space-3);
-  border-left: 2px solid var(--control-border);
-  background: var(--ds-surface);
+.skill-detail-hint-svg {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  flex-shrink: 0;
+  /* 与首行文字视觉居中：图标 14px + 行盒 16px。 */
+  margin-top: 1px;
+  color: var(--text-muted);
+}
+
+/* chips：12px / 400、描边而非实底（标签是信息，不是控件）。 */
+.skill-detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.skill-detail-chip {
+  display: inline-flex;
+  align-items: center;
+  height: var(--badge-h);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
   font-size: var(--ds-font-helper);
+  font-weight: 400;
   line-height: var(--lh-control-sm);
+  white-space: nowrap;
+  color: var(--text-muted);
+  background: transparent;
+}
+
+/* 技能类别 / 来源两枚：来源与类别是身份信息，走极浅面把自己与「标签」区分开。 */
+.skill-detail-chip.is-kind,
+.skill-detail-chip.is-source {
+  border-color: transparent;
+  background: var(--ds-surface);
+  color: var(--text);
+}
+
+.skill-detail-chip.is-source {
+  color: var(--text-muted);
+}
+
+/* 示例：逐条成行。 */
+.skill-detail-examples {
+  margin: 0;
+  padding-left: 22px;
+  color: var(--text);
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control);
+}
+
+.skill-detail-examples li {
+  padding: 3px 0;
+}
+
+/* 说明书（来自技能文件的 `## 员工口径`）：段落 / `-` 列表 / `###` 小标题，都用正文档。 */
+.skill-doc-heading {
+  margin: 0;
+  font-size: var(--ds-font-helper);
+  font-weight: 500;
+  line-height: var(--lh-control-sm);
+  color: var(--text-muted);
+}
+
+.skill-doc-para {
+  margin: 0;
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control);
+  color: var(--text);
+}
+
+.skill-doc-list {
+  margin: 0;
+  padding-left: 22px;
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control);
   color: var(--text);
 }
 
@@ -10899,12 +11027,13 @@ button.today-brief-primary-btn:disabled {
   line-height: var(--lh-control);
 }
 
-.skill-execution-tools {
+.skill-execution-list {
   display: grid;
   gap: 6px;
 }
 
-.skill-execution-tool {
+/* 调用工具 / 所需权限条目：一行一个（名称 + 风险档 chip），一行一条发丝线。 */
+.skill-execution-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-2);
@@ -10912,128 +11041,15 @@ button.today-brief-primary-btn:disabled {
   padding: var(--space-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-control);
-  font-size: var(--font-xs);
+  font-size: var(--ds-font-sm);
 }
 
-.skill-execution-tool-name {
+.skill-execution-row-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text);
-}
-
-/* 详情列的标记：统一按 badge 的三个变体给几何（secondary / secondary / outline）。 */
-.skill-preview-tag,
-.skill-preview-agent,
-.skill-preview-tag-item {
-  display: inline-flex;
-  align-items: center;
-  height: var(--badge-h);
-  padding: 0 var(--space-2);
-  border-radius: var(--radius-control);
-  font-size: var(--ds-font-helper);
-  font-weight: 500;
-  line-height: var(--lh-control-sm);
-  white-space: nowrap;
-}
-
-/* Badge secondary：极浅面 + 前景色文字。 */
-.skill-preview-tag {
-  color: var(--text);
-  background: var(--ds-surface);
-}
-
-/* Badge secondary（弱化）：来源信息不进视线中心 */
-.skill-preview-agent {
-  color: var(--text-muted);
-  background: var(--ds-surface);
-}
-
-/* Badge outline：场景 / 输入 / 产出标签，文字 + 描边 */
-.skill-preview-tag-item {
-  color: var(--text-muted);
-  background: transparent;
-  border: 1px solid var(--control-border);
-}
-
-.skill-preview-thread {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.skill-preview-msg {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-}
-
-.skill-preview-msg.is-user {
-  flex-direction: row-reverse;
-}
-
-.skill-preview-avatar {
-  width: 24px;
-  height: 24px;
-  /* 圆形头像：圆角阶梯不适用于正圆。 */
-  border-radius: 50%;
-  background: var(--ds-surface);
-  color: var(--text-muted);
-  font-size: var(--ds-font-helper);
-  font-weight: 500;
-  line-height: var(--lh-control-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-/* 用户头像不填彩色：静止面只用极浅面。 */
-.skill-preview-msg.is-user .skill-preview-avatar {
-  background: var(--ds-surface);
-  color: var(--text-muted);
-}
-
-.skill-preview-avatar svg {
-  width: var(--icon-sm);
-  height: var(--icon-sm);
-}
-
-.skill-preview-bubble {
-  background: var(--bg);
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--ds-font-helper);
-  line-height: 1.65;
-  color: var(--text);
-  box-shadow: var(--shadow-quiet);
-  flex: 1;
-  min-width: 0;
-}
-
-/* 气泡的「尖角」用阶梯内最小的 --radius-control，其余三角用 --radius-card。 */
-.skill-preview-msg.is-ai .skill-preview-bubble {
-  border-radius: var(--radius-control) var(--radius-card) var(--radius-card) var(--radius-card);
-}
-
-.skill-preview-msg.is-user .skill-preview-bubble {
-  border-radius: var(--radius-card) var(--radius-control) var(--radius-card) var(--radius-card);
-}
-
-.skill-preview-bubble p {
-  margin: 0 0 5px;
-}
-
-.skill-preview-bubble p:last-child {
-  margin-bottom: 0;
-}
-
-.skill-preview-time {
-  display: block;
-  margin-top: var(--space-1);
-  font-size: var(--ds-font-helper);
-  color: var(--text-muted);
-  text-align: right;
 }
 
 /* 窄屏遮罩：只在覆盖态出现。显式声明透明底，避免 <button> 带 UA 默认灰。 */
@@ -11044,10 +11060,11 @@ button.today-brief-primary-btn:disabled {
 
 /* ── 三轴适配（宽度 / 高度 / 输入模态分别处理） ─────────────────────── */
 
-/* 宽度轴 ≥1280：三栏（左筛选栏 190px / 中列表 / 右详情列）。
+/* 宽度轴 ≥1280：四栏（左栏 190px / 栏 3 列表 / 栏 4 详情）。
    1024 这类宽度上，顶部筛选条 + 并排详情列会把列表列挤到约 400px（得靠容器查询收标记列）；
    1280 起把筛选条整条搬到左栏 —— 腾出的横向空间还给列表，扫描列数也从「一排等权胶囊」
-   变成有分区（口径 / 阶段）的纵向清单。 */
+   变成有分区（口径 / 阶段）的纵向清单。栏 2/3、栏 3/4 之间各一条发丝线，不用间隙，
+   三栏顶部对齐同一 y（同一 grid 行）。 */
 @media (min-width: 1280px) {
   .skill-catalog-main {
     grid-template-columns: 190px minmax(0, 1fr) auto;
@@ -11059,10 +11076,24 @@ button.today-brief-primary-btn:disabled {
     flex-direction: column;
     align-items: stretch;
     gap: var(--space-1);
-    padding: var(--space-3);
+    /* 上内边距搬到吸顶的栏头里：它吸住时上下留白才不会跳。 */
+    padding: 0 var(--space-3) var(--space-3);
     border-bottom: 0;
     border-right: 1px solid var(--border);
     overflow-y: auto;
+  }
+  /* 栏 2 顶部标题吸顶：口径组与阶段组从它下面滑过，栏头始终说明「这一栏是什么 / 多少项」。
+     底色必须自带，否则滑过去的 tab 会从字缝里透出来。 */
+  .skill-catalog-title {
+    position: sticky;
+    top: 0;
+    left: auto;
+    z-index: 1;
+    align-self: stretch;
+    /* 左内边距对齐 tab 的词：tab 是 2px 选中线 + 8px 内边距，栏头跟着走才不会看着歪。 */
+    padding: var(--space-3) 0 var(--space-2) calc(var(--space-2) + 2px);
+    margin-right: 0;
+    background: var(--bg);
   }
   .skill-tabs-list {
     flex-direction: column;
@@ -11199,10 +11230,11 @@ button.today-brief-primary-btn:disabled {
   }
 }
 
-/* 页级留白：窄屏收紧（与列表列宽无关，走视口宽度）。 */
+/* 页级留白：窄屏收紧（与列表列宽无关，走视口宽度）。改的是内容列的留白变量，
+   搜索行的全栏铺满（负外边距）跟着一起收，不会多出一截。 */
 @media (max-width: 640px) {
   .skill-catalog-content {
-    padding-inline: var(--space-3);
+    --skill-content-pad: var(--space-3);
   }
   /* 分组提示只是辅助说明，窄屏让位给标题与「查看全部」。 */
   .skill-group-hint {

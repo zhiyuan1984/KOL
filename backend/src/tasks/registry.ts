@@ -27,6 +27,13 @@ export type TaskDefinition = {
   /** 面向员工的说明（可选）：员工面文案不得出现引擎词（specs/UX-EMPLOYEE.md §员工禁词）。
       缺省时员工面沿用 description —— 那也是 id 外泄的来源，见 CONST-10 的实施诚实。 */
   employee_summary?: string;
+  /** 员工面「可以直接查到」（可选）：逐字取自 docs/BUSINESS.md 的「快捷查询与思考覆盖表」。
+      没登记入口口径的技能不带这两个字段 —— 员工面照实说明待专家补齐，不给推测口径（CONST-10）。 */
+  employee_quick?: string;
+  /** 员工面「需要走确认或 AI 助理」（可选）：同表右列，与 employee_quick 成对登记。 */
+  employee_agent?: string;
+  /** 员工面示例（可选）：逐条成行。缺省时员工面不渲染示例小节。 */
+  employee_example?: string[];
   /** 是否在员工面（提问框「技能」组、技能目录选用入口）列出。
       内部技能——只有 pipeline / 定时任务 / 旅程会调用的那些——标 false：
       能力与条款不动，只是不在员工可选清单里冒充一个动作。见 docs/BUSINESS.md 覆盖表。 */
@@ -167,6 +174,27 @@ function parseDefinition(file: string, folder: string, source: TaskSource): Task
     }
     employeeSummary = values.employee_summary.trim();
   }
+  let employeeQuick: string | undefined;
+  if (values.employee_quick !== undefined) {
+    if (typeof values.employee_quick !== "string" || !values.employee_quick.trim()) {
+      throw new Error(`manifest employee_quick must be a non-empty string: ${file}`);
+    }
+    employeeQuick = values.employee_quick.trim();
+  }
+  let employeeAgent: string | undefined;
+  if (values.employee_agent !== undefined) {
+    if (typeof values.employee_agent !== "string" || !values.employee_agent.trim()) {
+      throw new Error(`manifest employee_agent must be a non-empty string: ${file}`);
+    }
+    employeeAgent = values.employee_agent.trim();
+  }
+  let employeeExample: string[] | undefined;
+  if (values.employee_example !== undefined) {
+    employeeExample = stringArray(values.employee_example, "employee_example", file);
+    if (employeeExample.length === 0) {
+      throw new Error(`manifest employee_example must be a non-empty array: ${file}`);
+    }
+  }
   if (values.employee_visible !== undefined && typeof values.employee_visible !== "boolean") {
     throw new Error(`manifest employee_visible must be a boolean: ${file}`);
   }
@@ -199,6 +227,11 @@ function parseDefinition(file: string, folder: string, source: TaskSource): Task
     title: String(values.title),
     description: String(values.description),
     ...(employeeSummary ? { employee_summary: employeeSummary } : {}),
+    ...(employeeQuick ? { employee_quick: employeeQuick } : {}),
+    ...(employeeAgent ? { employee_agent: employeeAgent } : {}),
+    ...(employeeExample
+      ? { employee_example: Object.freeze([...employeeExample]) as unknown as string[] }
+      : {}),
     employee_visible: values.employee_visible === undefined ? true : values.employee_visible === true,
     category: String(values.category),
     profile: values.profile as TaskProfileId,

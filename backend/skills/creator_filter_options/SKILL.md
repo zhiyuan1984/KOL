@@ -5,6 +5,7 @@ description: 查询合作阶段、风险标签和达人相关字典选项
 category: 线索
 profile: lead
 output: task_result
+funnel: reach
 mcp: ["starrykol.listDictionaryOptions", "starrykol.listCooperationStageOptions", "starrykol.listRiskTagOptions"]
 required_inputs: []
 permissions: ["starrykol:read"]
@@ -12,6 +13,8 @@ actions: ["analyze"]
 aliases: ["达人筛选项","合作阶段选项","风险标签选项"]
 in_market: true
 employee_visible: false
+employee_quick: 授权档案、画像、筛选与已有摘要
+employee_agent: 新画像分析、补查新事实走 AI 助理或已配置同步
 ---
 # 达人筛选字典
 

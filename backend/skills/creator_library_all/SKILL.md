@@ -5,6 +5,7 @@ description: 按当前账号可见范围列出全部红人画像
 category: 线索
 profile: lead
 output: task_result
+funnel: reach
 mcp: ["starrykol.listAllKolProfiles"]
 required_inputs: []
 permissions: ["starrykol:read"]
@@ -12,6 +13,8 @@ actions: ["analyze"]
 aliases: ["全量达人库","全部红人画像"]
 in_market: true
 employee_visible: false
+employee_quick: 授权档案、画像、筛选与已有摘要
+employee_agent: 新画像分析、补查新事实走 AI 助理或已配置同步
 ---
 # 达人库全量
 
