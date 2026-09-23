@@ -120,3 +120,7 @@ Home(mode = discovery)  ← data-home-workspace="discovery"（与 today/todo 同
 | `home-chat-send-ne-stage.spec.ts:89` | 邮件卡不可见 | 基线绿、本树单独复跑亦绿 | 并发负载下的 flake（`retries: 1` 吸收） |
 
 结论：本次改动域 0 红；其余红项在 HEAD 上同样为红，与本次无关。
+
+`workbench.spec.ts`（72 条）单独跑一遍（`--retries=0 --workers=2 --workers=1` 两种、独立数据目录）：**66 passed / 53 failed**。其中**与本次改动域相关的 5 条全绿**（`home today pane lists today items`、`sidebar 今日组 keeps discovery/pool/followed off the rail`、`/?tab=pool highlights in-page 公海 only`、`in-page AI发现 tab opens discovery pane without a sidebar item`、`creator discovery shows auto-started crawl progress in the middle and can stop`）；对失败集抽样 8 条（跨 home 提问框 / 关注列表 / 模型档位 / 导航 / 任务模板 / 达人检索 / cron）在**同一 HEAD 基线**上逐条复跑，**8/8 同样失败**，故这批红项判定为 HEAD 既有，不是本次引入。全量 e2e 因此不构成本次的通过证据；可用证据是上表的目标域用例。
+
+复制本文件时的运行条件（供复现）：`--retries=0`、独立 `LINGONG_DATA`、不与其他重负载并发；三段命令见 `frontend/package.json` 的 `test:e2e` 与本节各表。
