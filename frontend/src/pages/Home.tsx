@@ -1376,12 +1376,8 @@ export default function Home() {
 
   const homeMemoryTasks = (mode === "today" ? todayPlan.memoryTasks : mode === "todo" ? todoPlan.memoryTasks : null) ?? taskCatalog;
 
-  // The tab badges describe their own pane, so they read the matching memory
-  // scope instead of `homeMemoryTasks`, which follows the active tab. Reading
-  // the pane-scoped list keeps 今日任务 / 我的待办 numbers stable when the user
-  // switches to AI发现 and `homeMemoryTasks` falls back to the raw catalog.
-  const todayBadgeTasks = todayPlan.memoryTasks ?? taskCatalog;
-  const todoBadgeTasks = todoPlan.memoryTasks ?? taskCatalog;
+  // Scope-level stats stay tied to the matching plan memory when switching tabs.
+  const todoScopeTasks = todoPlan.memoryTasks ?? taskCatalog;
 
   const todoItems = useMemo(
     () => sortOpenWorkItems(homeMemoryTasks.filter(isOpenTask)),
@@ -1430,14 +1426,9 @@ export default function Home() {
     [paneScope, homeMemoryTasks, activePlan.brief],
   );
 
-  const tabTodayCount = useMemo(
-    () => todayBadgeTasks.filter((task) => !isPlanningTask(task) && isTodayScheduled(task)).length,
-    [todayBadgeTasks],
-  );
-
   const tabOpenTodoItems = useMemo(
-    () => todoBadgeTasks.filter(isOpenTask),
-    [todoBadgeTasks],
+    () => todoScopeTasks.filter(isOpenTask),
+    [todoScopeTasks],
   );
 
 
@@ -1524,14 +1515,12 @@ export default function Home() {
     ai: tasks.filter((task) => task.source === "ai").length,
   };
 
-  const openCount = tabOpenTodoItems.length;
   const overdueCount = tabOpenTodoItems.filter((task) => openBucket(task) === "overdue").length;
   const dueTodayCount = tabOpenTodoItems.filter((task) => openBucket(task) === "due_today").length;
   const awaitingApprovalCount = tabOpenTodoItems.filter((task) => isAwaitingApproval(task)).length;
   const todayOverdueCount = paneRows.filter((task) => openBucket(task) === "overdue").length;
   const todayDueCount = paneRows.filter((task) => openBucket(task) === "due_today").length;
   const todayApprovalCount = paneRows.filter((task) => isAwaitingApproval(task)).length;
-  const todayCount = tabTodayCount;
   const recognizeSeconds = recognizeElapsedSeconds(recognizeStartedAt, recognizeNow);
   const recognizeOverdue = recognizeTimedOut(recognizeStartedAt, recognizeNow);
 
@@ -1631,8 +1620,6 @@ export default function Home() {
           <span className="home-mode-label">
             {homeMode === "lifecycle" ? "我的红人" : HOME_MODE_LABELS[homeMode]}
           </span>
-          {homeMode === "today" && todayCount > 0 ? <span className="home-mode-count" aria-hidden>{todayCount}</span> : null}
-          {homeMode === "todo" && openCount > 0 ? <span className="home-mode-count" aria-hidden>{openCount}</span> : null}
         </button>
       ))}
     </div>

@@ -12032,19 +12032,21 @@ button.today-brief-primary-btn:disabled {
    independently. These rules intentionally supersede the transitional
    absolute-positioned Today composer above. */
 .home-quick-tasks {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  width: 100%;
+  display: flex;
+  flex-wrap: nowrap;
+  width: max-content;
+  max-width: 100%;
   align-items: center;
   gap: var(--home-mode-tab-gap);
   min-width: 0;
   padding: 0 2px 8px;
 }
 .home-quick-tasks button {
-  width: 100%;
+  flex: 0 0 auto;
+  width: auto;
   height: var(--home-chip-h);
   min-width: 0;
-  padding: 0 2px;
+  padding: 0 var(--space-3);
   border: none;
   border-radius: var(--radius-control);
   background: var(--chrome);
@@ -12062,18 +12064,6 @@ button.today-brief-primary-btn:disabled {
   display: block;
   min-width: 0;
   white-space: nowrap;
-}
-@container home-workspace-center (max-width: 560px) {
-  .home-quick-tasks { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-@container home-workspace-center (max-width: 380px) {
-  .home-quick-tasks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 560px) {
-  .home-quick-tasks { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-@media (max-width: 380px) {
-  .home-quick-tasks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .home-quick-tasks button:hover {
   background: var(--chrome-2);
