@@ -1,18 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import Markdown from "../components/Markdown";
 import { api } from "../api";
-import { decorateWorkspace, hydratePollDelayMs, loadMailThread, loadMailWorkspaceFast, normalizeBox, syncMailboxMail } from "../mail/client";
+import { decorateWorkspace, hydratePollDelayMs, loadMailPersonDigest, loadMailThread, loadMailWorkspaceFast, normalizeBox, syncMailboxMail } from "../mail/client";
+import { CorrespondentRow } from "../mail/components/CorrespondentRow";
 import { ConversationItem } from "../mail/components/ConversationItem";
+import { MailAssist } from "../mail/components/MailAssist";
 import { MailboxSwitcher } from "../mail/components/MailboxSwitcher";
-import { ConversationSummary } from "../mail/components/ConversationSummary";
-import { TranslationPanel } from "../mail/components/TranslationPanel";
 import { MailContent } from "../mail/components/MailContent";
 import { MailTimelineItem } from "../mail/components/MailTimelineItem";
-import { avatarTone, formatMailTime, initialsOf } from "../mail/format";
+import { groupByPeer, firstConversationOf } from "../mail/groups";
+import { formatMailTime } from "../mail/format";
 import { selectedMessageOf, timelineOf } from "../mail/selection";
 import { mailAnalyzeDraft, mailReplyDraft, stashComposerDraft } from "../mail/composerDraft";
-import { mailDigestView } from "../mail/digestView";
 import { occurredAtMs } from "../mail-time";
 import {
   MAIL_ANALYZE_UNBOUND_COPY,
@@ -22,6 +21,7 @@ import {
   type MailBoxBinding,
   type MailConversation,
   type MailMessage,
+  type MailPersonDigest,
   type MailThread,
   type MailWorkspace,
 } from "../mail/types";
@@ -104,9 +104,11 @@ export default function Mail() {
   const [params, setParams] = useSearchParams();
   const nav = useNavigate();
   const focusId = params.get("c") || "";
+  const peerParam = params.get("p") || "";
   const boxParam = params.get("box") || "";
   const [workspace, setWorkspace] = useState<MailWorkspace | null>(null);
   const [thread, setThread] = useState<MailThread | null>(null);
+  const [personDigest, setPersonDigest] = useState<MailPersonDigest | null>(null);
   const [loadState, setLoadState] = useState<"loading" | "ok" | "error">("loading");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -119,6 +121,7 @@ export default function Mail() {
   const [mobilePanel, setMobilePanel] = useState<"original" | "summary" | "translation">("original");
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement | null>(null);
+  const [expandedPeer, setExpandedPeer] = useState("");
   const [expandedId, setExpandedId] = useState("");
   const syncPollRef = useRef<number | null>(null);
   const baseSyncedAtRef = useRef<string>("");
@@ -144,10 +147,35 @@ export default function Mail() {
     return rows;
   }, [conversations, tab, unboundOnly, query]);
 
+  const groups = useMemo(() => groupByPeer(visibleConversations), [visibleConversations]);
+
+  useEffect(() => {
+    if (!expandedPeer && groups.length) setExpandedPeer(groups[0].peer_email);
+  }, [groups, expandedPeer]);
+
+  const selectedGroup = useMemo(() => {
+    if (peerParam) return groups.find((g) => g.peer_email === peerParam.toLowerCase()) || null;
+    if (focusId) {
+      const conv = conversations.find((row) => row.conversation_id === focusId || row.id === focusId);
+      if (conv) return groups.find((g) => g.peer_email === conv.peer_email.toLowerCase()) || null;
+    }
+    return groups[0] || null;
+  }, [groups, peerParam, focusId, conversations]);
+
   const selected = useMemo(() => {
-    if (!focusId) return conversations[0] || null;
-    return conversations.find((row) => row.conversation_id === focusId || row.id === focusId) || conversations[0] || null;
-  }, [conversations, focusId]);
+    if (focusId) {
+      const conv = conversations.find((row) => row.conversation_id === focusId || row.id === focusId);
+      if (conv) return conv;
+    }
+    if (selectedGroup) return firstConversationOf(selectedGroup);
+    return conversations[0] || null;
+  }, [conversations, focusId, selectedGroup]);
+
+  const assistMode = useMemo<"person" | "conversation" | "message">(() => {
+    if (params.get("m")) return "message";
+    if (focusId) return "conversation";
+    return "person";
+  }, [params, focusId]);
 
   const load = (opts?: { keepNotice?: boolean; skipAutoSync?: boolean }) => {
     setLoadState("loading");
@@ -219,6 +247,26 @@ export default function Mail() {
     };
   }, [selected?.id, selected?.conversation_id, workspace?.source]);
 
+  useEffect(() => {
+    const mailbox = workspace?.box.mailbox || boxParam;
+    const peer = selectedGroup?.peer_email;
+    if (!mailbox || !peer) {
+      setPersonDigest(null);
+      return;
+    }
+    let cancelled = false;
+    void loadMailPersonDigest(mailbox, peer)
+      .then((digest) => {
+        if (!cancelled) setPersonDigest(digest);
+      })
+      .catch(() => {
+        if (!cancelled) setPersonDigest(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedGroup?.peer_email, workspace?.box.mailbox, boxParam]);
+
   useDismissable(moreOpen, () => setMoreOpen(false), moreRef);
 
   const markRead = (row: MailConversation) => {
@@ -234,12 +282,25 @@ export default function Mail() {
       : prev);
   };
 
+  const openPeer = (peerEmail: string) => {
+    const next = new URLSearchParams(params);
+    next.set("p", peerEmail);
+    next.delete("c");
+    next.delete("m");
+    setParams(next, { replace: true });
+    setExpandedPeer(peerEmail);
+  };
+
   const openRow = (row: MailConversation) => {
     // Only the conversation changes here: writing ?box= would re-trigger the
     // mailbox-level reload (and flash the list) on every row click.
     const next = new URLSearchParams(params);
+    next.set("p", row.peer_email.toLowerCase());
     next.set("c", row.conversation_id);
+    next.delete("m");
     setParams(next, { replace: true });
+    setExpandedPeer(row.peer_email.toLowerCase());
+    setExpandedId(row.conversation_id);
     markRead(row);
   };
 
@@ -399,15 +460,6 @@ export default function Mail() {
         ) : null}
       </header>
 
-      {loadState === "ok" && bound ? (
-        <MailboxSwitcher
-          current={activeBox}
-          bindings={bindings}
-          syncing={syncing}
-          onSelect={openBox}
-          onSync={() => void sync()}
-        />
-      ) : null}
       {error ? <p className="error" role="alert" data-mail-error>{error}</p> : null}
       {notice ? <p className="muted" role="status" data-mail-notice>{notice}</p> : null}
       {workspace?.source === "fallback" && bound ? (
@@ -443,6 +495,13 @@ export default function Mail() {
         <div className="mail-split" data-mail-state="ok">
           <aside className="mail-list" data-mail-list data-mail-entry="list-mailbox-mail">
             <div className="mail-list-tools">
+              <MailboxSwitcher
+                current={activeBox}
+                bindings={bindings}
+                syncing={syncing}
+                onSelect={openBox}
+                onSync={() => void sync()}
+              />
               <div className="mail-search-row">
                 <label className="mail-search-wrap">
                   <MailIco d={ICO_SEARCH} />
@@ -483,41 +542,64 @@ export default function Mail() {
                 ))}
               </div>
             </div>
-            {visibleConversations.length === 0 ? (
+            {groups.length === 0 ? (
               <p className="muted" data-mail-empty-list>
                 {conversations.length === 0 && tab === "inbox" && !query
                   ? "这只邮箱还没有缓存的往来。点「收取」同步。"
                   : "没有匹配的会话。"}
               </p>
-            ) : visibleConversations.map((row) => {
-              const active = selected?.conversation_id === row.conversation_id;
-              const expanded = expandedId === row.conversation_id;
+            ) : groups.map((group) => {
+              const peerExpanded = expandedPeer === group.peer_email;
+              const peerSelected = selectedGroup?.peer_email === group.peer_email;
               return (
-                <div key={row.id + row.conversation_id} className="mail-thread-block">
-                  <ConversationItem
-                    row={row}
-                    expanded={expanded}
-                    selected={active}
+                <div key={group.peer_email} className="mail-thread-block">
+                  <CorrespondentRow
+                    group={group}
+                    expanded={peerExpanded}
+                    selected={peerSelected}
+                    tab={tab}
                     onToggle={() => {
-                      if (expanded) setExpandedId("");
-                      else {
-                        setExpandedId(row.conversation_id);
-                        openRow(row);
-                      }
+                      if (peerExpanded) setExpandedPeer("");
+                      else openPeer(group.peer_email);
                     }}
                   />
-                  {expanded ? (
-                    <div className="mail-timeline" data-mail-timeline>
-                      {timelineOf(thread?.messages || []).map((message) => (
-                        <MailTimelineItem
-                          key={message.id}
-                          message={message}
-                          selected={currentMessage?.id === message.id}
-                          onSelect={() => selectMessage(message)}
-                        />
-                      ))}
+                  {peerExpanded ? (
+                    <div className="mail-conversation-list">
+                      {group.conversations.map((row) => {
+                        const active = selected?.conversation_id === row.conversation_id;
+                        const expanded = expandedId === row.conversation_id && active;
+                        return (
+                          <div key={row.id + row.conversation_id} className="mail-thread-block">
+                            <ConversationItem
+                              row={row}
+                              expanded={expanded}
+                              selected={active}
+                              onToggle={() => {
+                                if (expanded) setExpandedId("");
+                                else {
+                                  setExpandedId(row.conversation_id);
+                                  openRow(row);
+                                }
+                              }}
+                            />
+                            {expanded ? (
+                              <div className="mail-timeline" data-mail-timeline>
+                                {timelineOf(thread?.messages || []).map((message) => (
+                                  <MailTimelineItem
+                                    key={message.id}
+                                    message={message}
+                                    selected={currentMessage?.id === message.id}
+                                    onSelect={() => selectMessage(message)}
+                                  />
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
                     </div>
-                  ) : null}                </div>
+                  ) : null}
+                </div>
               );
             })}
           </aside>
@@ -629,11 +711,10 @@ export default function Mail() {
                     </div>
                   </div>
                 </div>
-                {mobilePanel === "summary" ? (
-                  <div className="mail-mobile-panel"><ConversationSummary thread={thread} /></div>
-                ) : null}
-                {mobilePanel === "translation" ? (
-                  <div className="mail-mobile-panel"><TranslationPanel message={currentMessage} /></div>
+                {mobilePanel === "summary" || mobilePanel === "translation" ? (
+                  <div className="mail-mobile-panel">
+                    <MailAssist mode={assistMode} thread={thread} person={personDigest} message={currentMessage} />
+                  </div>
                 ) : null}
               </>
             ) : (
@@ -641,10 +722,7 @@ export default function Mail() {
             )}
           </section>
 
-          <aside className="mail-side" data-mail-side>
-            <ConversationSummary thread={thread} />
-            <TranslationPanel message={currentMessage} />
-          </aside>
+          <MailAssist mode={assistMode} thread={thread} person={personDigest} message={currentMessage} />
         </div>
       ) : null}
 

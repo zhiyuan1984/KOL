@@ -24,6 +24,7 @@ export type ConversationRow = {
   last_direction: string;
   last_preview: string;
   unread_count: number;
+  message_count: number;
   starred: boolean;
   last_receipt: string;
   digest_source: string;
@@ -50,6 +51,11 @@ export type MessageRow = {
   translation_source: string;
   receipt_status: string;
   effective: boolean;
+  memory_fingerprint?: string;
+  memory_source?: string;
+  memory_generated_at?: string | null;
+  memory_error?: string;
+  memory_attempts?: number;
 };
 
 export type SyncReceipt = {
@@ -108,6 +114,7 @@ export function conversationRowOf(row: Row | Json): ConversationRow {
     last_direction: String(row.last_direction || ""),
     last_preview: String(row.last_preview || ""),
     unread_count: Number(row.unread_count || 0),
+    message_count: Number(row.message_count || 0),
     starred: Boolean(Number(row.starred || 0)),
     last_receipt: String(row.last_receipt || ""),
     digest_source: String(row.digest_source || ""),
@@ -137,6 +144,11 @@ export function messageRowOf(row: Row | Json): MessageRow {
     translation_source: String(row.translation_source || ""),
     receipt_status: String(row.receipt_status || ""),
     effective: Boolean(Number(row.effective || 0)),
+    memory_fingerprint: String(row.memory_fingerprint || ""),
+    memory_source: String(row.memory_source || ""),
+    memory_generated_at: row.memory_generated_at ? String(row.memory_generated_at) : null,
+    memory_error: String(row.memory_error || ""),
+    memory_attempts: Number(row.memory_attempts || 0),
   };
 }
 
@@ -240,13 +252,15 @@ export function listMailboxConversations(mailbox?: string): ConversationRow[] {
   const box = mailbox === undefined ? currentMailbox() : mailbox;
   const rows = box
     ? getConn().prepare(
-      `SELECT t.*, c.kol_uid, c.handle
+      `SELECT t.*, c.kol_uid, c.handle,
+              (SELECT COUNT(*) FROM kol_mail_items i WHERE i.thread_id=t.id) AS message_count
          FROM kol_mail_threads t
          LEFT JOIN collaborations c ON c.id=t.collaboration_id
         WHERE t.mailbox=? ORDER BY t.last_at DESC, t.updated_at DESC`,
     ).all(box) as Row[]
     : getConn().prepare(
-      `SELECT t.*, c.kol_uid, c.handle
+      `SELECT t.*, c.kol_uid, c.handle,
+              (SELECT COUNT(*) FROM kol_mail_items i WHERE i.thread_id=t.id) AS message_count
          FROM kol_mail_threads t
          LEFT JOIN collaborations c ON c.id=t.collaboration_id
         ORDER BY t.last_at DESC, t.updated_at DESC`,
@@ -382,6 +396,54 @@ export function persistThreadDigest(threadId: string, digest: {
     Number(digest.mail_count || 0),
     threadId,
   );
+}
+
+export function persistItemMemory(itemId: string, memory: {
+  summary?: string;
+  summary_zh?: string;
+  summary_source?: string;
+  translation_zh?: string;
+  translation_source?: string;
+  fingerprint?: string;
+  source?: string;
+  generated_at?: string;
+  error?: string;
+  attempts?: number;
+}): void {
+  if (!itemId) return;
+  const fields: string[] = [];
+  const values: unknown[] = [];
+  if (memory.summary !== undefined) { fields.push("summary=?"); values.push(memory.summary); }
+  if (memory.summary_zh !== undefined) { fields.push("summary_zh=?"); values.push(memory.summary_zh); }
+  if (memory.summary_source !== undefined) { fields.push("summary_source=?"); values.push(memory.summary_source); }
+  if (memory.translation_zh !== undefined) { fields.push("translation_zh=?"); values.push(memory.translation_zh); }
+  if (memory.translation_source !== undefined) { fields.push("translation_source=?"); values.push(memory.translation_source); }
+  if (memory.fingerprint !== undefined) { fields.push("memory_fingerprint=?"); values.push(memory.fingerprint); }
+  if (memory.source !== undefined) { fields.push("memory_source=?"); values.push(memory.source); }
+  if (memory.generated_at !== undefined) { fields.push("memory_generated_at=?"); values.push(memory.generated_at); }
+  if (memory.error !== undefined) { fields.push("memory_error=?"); values.push(memory.error); }
+  if (memory.attempts !== undefined) { fields.push("memory_attempts=?"); values.push(memory.attempts); }
+  if (!fields.length) return;
+  getConn().prepare(`UPDATE kol_mail_items SET ${fields.join(", ")} WHERE id=?`).run(...values, itemId);
+}
+
+export function markItemMemoryPending(itemId: string): void {
+  if (!itemId) return;
+  getConn().prepare(
+    `UPDATE kol_mail_items
+     SET memory_source='pending', memory_generated_at=NULL, memory_error=''
+     WHERE id=? AND IFNULL(memory_source,'') != 'pending'`,
+  ).run(itemId);
+}
+
+export function markThreadTranslationsPending(threadId: string): void {
+  if (!threadId) return;
+  getConn().prepare(
+    `UPDATE kol_mail_items
+     SET translation_source='pending', memory_source='pending', memory_generated_at=NULL, memory_error=''
+     WHERE thread_id=? AND translation_zh IS NULL AND IFNULL(body_text,'') != ''
+       AND IFNULL(translation_source,'') = ''`,
+  ).run(threadId);
 }
 
 export function projectUnboundInbound(input: {

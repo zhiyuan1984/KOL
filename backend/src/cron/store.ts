@@ -57,6 +57,16 @@ export const SYSTEM_JOBS: Array<{
     scope: { applies: "employee_authorized", label: "适用于我的授权范围" },
     condition: { enabled: false, reason: "not_enabled_no_live_crawler" },
   },
+  {
+    id: "cjob_mail_memory_increment",
+    job_key: "mail-memory-increment",
+    title: "邮件记忆增量",
+    handler_key: "mail-memory-increment",
+    cron_expr: "*/10 * * * *",
+    status: "published",
+    scope: { applies: "employee_authorized", label: "适用于我的授权范围" },
+    condition: { memory_kinds: ["translation", "summary", "digest", "person_digest"] },
+  },
 ];
 
 const DEFAULT_RETRY = { max_attempts: 1, backoff_sec: 0 };

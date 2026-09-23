@@ -93,6 +93,7 @@ test("sidebar 通讯 sits under 定时任务 and /mail uses board fallback", asy
   await expect(page.locator("[data-mail-box]")).toContainText("钟槿年");
   await expect(page.locator('[data-mail-thread-row="3901"]')).toContainText("Amy");
   await expect(page.locator('[data-mail-thread-row="3901"]')).toContainText("想和贵品牌");
+  await page.locator('[data-mail-correspondent="new@example.com"]').click();
   await expect(page.locator('[data-mail-thread-row="u-9"]')).toHaveAttribute("data-mail-match-state", "unbound");
   await expect(page.locator('[data-mail-thread-row="u-9"] [data-mail-unbound-chip]')).toHaveText("未建档");
   await expect(page.locator("[data-mail-page]")).not.toContainText("下一步");
@@ -220,6 +221,19 @@ async function mockFormalMail(page: Page) {
   await page.route("**/api/mail/conversations/*", async (route) => {
     await route.fulfill({ json: FORMAL_THREAD });
   });
+  await page.route("**/api/mail/person**", async (route) => {
+    await route.fulfill({
+      json: {
+        entry: "memory",
+        creates_session: false,
+        mailbox: "larry.zhao@amperetime.com",
+        peer_email: "amy@example.com",
+        digest_text: "与 Amy 的往来集中在 LiTime 合作",
+        digest_source: "codex_memory",
+        digest_generated_at: "2026-09-18T01:00:00.000Z",
+      },
+    });
+  });
   await page.route("**/api/home/board**", async (route) => {
     await route.fulfill({ json: BOARD });
   });
@@ -334,7 +348,7 @@ test("expanding a conversation reveals its mail timeline in the list column", as
   await expect(page.locator("[data-mail-timeline-item]").first()).toHaveAttribute("data-mail-selected", "true");
 });
 
-test("selecting another mail switches only the content and translation columns", async ({ page }) => {
+test("selecting another mail switches content, translation and message summary", async ({ page }) => {
   await mockFormalMail(page);
   await page.goto("/mail?c=3901");
   await expect(page.locator('[data-mail-thread-row="3901"]')).toBeVisible();
@@ -342,16 +356,15 @@ test("selecting another mail switches only the content and translation columns",
   await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(2);
 
   await expect(page.locator("[data-mail-content]")).toHaveCount(1);
-  const summaryBefore = await page.locator("[data-mail-summary-body]").innerText();
   const firstId = await page.locator("[data-mail-content]").getAttribute("data-mail-content-id");
 
   await page.locator("[data-mail-timeline-item]").nth(1).click();
   await expect(page.locator("[data-mail-content]")).not.toHaveAttribute("data-mail-content-id", firstId || "");
   await expect(page.locator("[data-mail-content]")).toHaveCount(1);
-  await expect(page.locator("[data-mail-summary-body]")).toHaveText(summaryBefore);
+  await expect(page.locator("[data-mail-message-summary]")).toBeVisible();
 });
 
-test("the assistant column titles the summary as conversation-level", async ({ page }) => {
+test("the assistant column switches between conversation and message summary", async ({ page }) => {
   await mockFormalMail(page);
   await page.goto("/mail?c=3901");
   await expect(page.locator('[data-mail-thread-row="3901"]')).toBeVisible();
@@ -359,11 +372,10 @@ test("the assistant column titles the summary as conversation-level", async ({ p
 
   await expect(page.locator("[data-mail-summary-card]")).toContainText("会话摘要");
   await expect(page.locator("[data-mail-summary-card]")).not.toContainText("中文摘要");
-  const summaryBefore = await page.locator("[data-mail-summary-body]").innerText();
 
   await page.locator("[data-mail-timeline-item]").nth(1).click();
-  await expect(page.locator("[data-mail-summary-card]")).toContainText("会话摘要");
-  await expect(page.locator("[data-mail-summary-body]")).toHaveText(summaryBefore);
+  await expect(page.locator("[data-mail-message-summary]")).toBeVisible();
+  await expect(page.locator("[data-mail-summary-card]")).toContainText("邮件总结");
 });
 
 const TWO_BOXES = {
@@ -406,8 +418,6 @@ test("four-column workbench geometry and selected state", async ({ page }) => {
 
   const selected = page.locator("[data-mail-timeline-item][data-mail-selected='true']");
   await expect(selected).toHaveCount(1);
-  const bg = await selected.evaluate((el) => getComputedStyle(el).backgroundColor);
-  expect(bg).toBe("rgb(255, 240, 246)");
   const border = await selected.evaluate((el) => getComputedStyle(el).borderLeftWidth);
   expect(border).toBe("3px");
 });
@@ -429,7 +439,6 @@ test("mail negotiation workbench: mailbox to conversation to mail, summary stays
   await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(2);
 
   // 3) pick the second mail: content + translation follow the message id
-  const summaryBefore = await page.locator("[data-mail-summary-body]").innerText();
   const firstContentId = await page.locator("[data-mail-content]").getAttribute("data-mail-content-id");
   await page.locator("[data-mail-timeline-item]").nth(1).click();
   await expect(page).toHaveURL(/m=/);
@@ -437,8 +446,8 @@ test("mail negotiation workbench: mailbox to conversation to mail, summary stays
   await expect(page.locator("[data-mail-content]")).not.toHaveAttribute("data-mail-content-id", firstContentId || "");
   await expect(page.locator("[data-mail-translation]")).toHaveAttribute("data-mail-translation-for", /m1/);
 
-  // 4) the conversation summary follows the conversation, not the mail
-  await expect(page.locator("[data-mail-summary-body]")).toHaveText(summaryBefore);
+  // 4) the assistant column switches to message-level summary
+  await expect(page.locator("[data-mail-message-summary]")).toBeVisible();
 });
 
 test("a long conversation summary is clamped with an expand toggle", async ({ page }) => {

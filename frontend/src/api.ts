@@ -1508,6 +1508,8 @@ export const api = {
     }>(box ? `/api/mail/conversations?box=${encodeURIComponent(box)}` : "/api/mail/conversations"),
   mailConversation: (id: string) =>
     request<Record<string, unknown>>(`/api/mail/conversations/${encodeURIComponent(id)}`),
+  mailPerson: (box: string, p: string) =>
+    request<Record<string, unknown>>(`/api/mail/person?box=${encodeURIComponent(box)}&p=${encodeURIComponent(p)}`),
   syncMailboxMail: (body: Record<string, unknown> = {}) =>
     request<{
       entry?: string;

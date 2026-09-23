@@ -14,11 +14,12 @@ import {
   releaseFollowOwnershipIfEligible,
 } from "../gateway/ownership-release.js";
 import { brandScope, collaborationInScope } from "../host/inbound-scope.js";
+import { runMailMemoryIncrement } from "../host/mail-memory-job.js";
 import { label } from "../stages.js";
 import type { Json, Row } from "../types.js";
 import type { AppUser } from "../auth.js";
 
-export type CronHandlerKey = "overdue-scan" | "daily-task-snapshot" | "ownership-release" | "discovery-search";
+export type CronHandlerKey = "overdue-scan" | "daily-task-snapshot" | "ownership-release" | "discovery-search" | "mail-memory-increment";
 
 export type CronHandlerResult = {
   status: "succeeded" | "skipped" | "failed" | "needs_takeover";
@@ -36,7 +37,7 @@ export type CronHandlerContext = {
   nowMs?: number;
 };
 
-export type CronHandler = (ctx: CronHandlerContext) => CronHandlerResult;
+export type CronHandler = (ctx: CronHandlerContext) => CronHandlerResult | Promise<CronHandlerResult>;
 
 const TASK_BUCKETS: Record<string, string[]> = {
   greet: ["INITIAL_CONTACT"],
@@ -231,11 +232,30 @@ function discoverySearch(): CronHandlerResult {
   };
 }
 
+async function mailMemoryIncrement(): Promise<CronHandlerResult> {
+  const stats = await runMailMemoryIncrement();
+  return {
+    status: stats.scanned > 0 ? "succeeded" : "skipped",
+    receipt: {
+      handler_key: "mail-memory-increment",
+      side_effect: "memory_write_only",
+      created_session: false,
+      scanned: stats.scanned,
+      translated: stats.translated,
+      summarized: stats.summarized,
+      digested: stats.digested,
+      persons: stats.persons,
+      errors: stats.errors,
+    },
+  };
+}
+
 export const CRON_HANDLERS: Record<CronHandlerKey, CronHandler> = {
   "overdue-scan": overdueScan,
   "daily-task-snapshot": dailyTaskSnapshot,
   "ownership-release": ownershipRelease,
   "discovery-search": discoverySearch,
+  "mail-memory-increment": mailMemoryIncrement,
 };
 
 export function cronHandler(key: string): CronHandler | undefined {
@@ -276,6 +296,14 @@ export function handlerContract(key: string): Json {
       execute_as: "system",
       side_effect: "none",
       enabled: false,
+      creates_session: false,
+    },
+    "mail-memory-increment": {
+      title: "邮件记忆增量",
+      execute_as: "system",
+      side_effect: "memory_write_only",
+      skill: "mail_summary",
+      connector: "codex app-server / luna",
       creates_session: false,
     },
   };

@@ -95,7 +95,7 @@ function enqueueDueJobs(db: SqliteConn, now: Date): string[] {
   return claimed;
 }
 
-export function executeCronRun(runId: string, viewer?: AppUser, nowMs = Date.now()): Row {
+export async function executeCronRun(runId: string, viewer?: AppUser, nowMs = Date.now()): Promise<Row> {
   const db = getConn();
   const run = runById(runId, db);
   if (!run) throw new HttpFail(404, "cron run not found");
@@ -120,7 +120,7 @@ export function executeCronRun(runId: string, viewer?: AppUser, nowMs = Date.now
     return runById(runId, db) as Row;
   }
   try {
-    const result = handler({
+    const result = await handler({
       job,
       run,
       actor: String(job.execute_as || "system"),
@@ -196,22 +196,22 @@ export function enqueueManualRun(jobId: string, scheduledFor?: string): { run_id
 }
 
 /** Claim due published jobs and leftover queued runs, then execute. Not an HTTP timer. */
-export function tickCronDue(now = new Date(), viewer?: AppUser): { claimed: string[]; stale: boolean } {
+export async function tickCronDue(now = new Date(), viewer?: AppUser): Promise<{ claimed: string[]; stale: boolean }> {
   ensureSystemCronJobs(getConn(), now);
   const claimed = txImmediate((db) => {
     markStaleRunning(db, now);
     return enqueueDueJobs(db, now);
   });
   for (const runId of claimed) {
-    executeCronRun(runId, viewer, now.getTime());
+    await executeCronRun(runId, viewer, now.getTime());
   }
   return { claimed, stale: false };
 }
 
-export function runCronJobNow(jobId: string, viewer?: AppUser, scheduledFor?: string): { run_id: string } {
+export async function runCronJobNow(jobId: string, viewer?: AppUser, scheduledFor?: string): Promise<{ run_id: string }> {
   const enqueued = enqueueManualRun(jobId, scheduledFor);
   if (!enqueued.duplicate) {
-    executeCronRun(enqueued.run_id, viewer);
+    await executeCronRun(enqueued.run_id, viewer);
   }
   return { run_id: enqueued.run_id };
 }

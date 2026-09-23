@@ -110,6 +110,7 @@ describe("cron jobs P0/P1", () => {
     expect(keys.map((row) => row.job_key)).toEqual([
       "daily-task-snapshot",
       "discovery-search",
+      "mail-memory-increment",
       "overdue-scan",
       "ownership-release",
     ]);
@@ -175,12 +176,12 @@ describe("cron jobs P0/P1", () => {
     expect(n).toBe(1);
   });
 
-  it("tickCronDue claims a due published job via BEGIN IMMEDIATE and does not create a session", () => {
+  it("tickCronDue claims a due published job via BEGIN IMMEDIATE and does not create a session", async () => {
     insertCollab({ id: "col_over", handle: "duekol", overdue: 1 });
     const job = jobByKey("overdue-scan");
     getConn().prepare("UPDATE cron_jobs SET next_run_at=? WHERE id=?").run("2020-01-01T00:00:00.000Z", job?.id);
     const before = (getConn().prepare("SELECT COUNT(*) AS n FROM sessions").get() as { n: number }).n;
-    const tick = tickCronDue(new Date("2026-09-16T01:00:00.000Z"));
+    const tick = await tickCronDue(new Date("2026-09-16T01:00:00.000Z"));
     expect(tick.claimed.length).toBeGreaterThan(0);
     const run = getConn().prepare("SELECT * FROM cron_runs WHERE id=?").get(tick.claimed[0]) as {
       status: string;
@@ -296,6 +297,7 @@ describe("cron jobs P0/P1", () => {
     expect(Object.keys(CRON_HANDLERS).sort()).toEqual([
       "daily-task-snapshot",
       "discovery-search",
+      "mail-memory-increment",
       "overdue-scan",
       "ownership-release",
     ]);

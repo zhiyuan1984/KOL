@@ -134,6 +134,7 @@ export type ThreadDigest = {
   source: string;
   mail_count: number;
   fingerprint: string;
+  generated_at?: string;
   error?: string;
   attempted?: string[];
   failed_at?: string;
@@ -597,7 +598,7 @@ type RemoteDigestResult = {
   attempted: string[];
 };
 
-async function summarizeWithCodexAppServer(rows: Json[]): Promise<string[] | null> {
+export async function summarizeWithCodexAppServer(rows: Json[]): Promise<string[] | null> {
   let cwd = "";
   let rpc: CodexAppServer | null = null;
   try {

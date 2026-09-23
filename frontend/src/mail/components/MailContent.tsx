@@ -1,4 +1,5 @@
 import { avatarTone, formatMailTime, initialsOf } from "../format";
+import { decodeHtmlEntities } from "../text";
 import type { MailMessage } from "../types";
 
 /** Third column: only the currently selected mail, inbound and outbound styled apart. */
@@ -16,7 +17,7 @@ export function MailContent({
   mailbox: string;
 }) {
   const inbound = message.direction !== "outbound";
-  const body = String(message.body_text || "").trim();
+  const body = decodeHtmlEntities(String(message.body_text || "")).trim();
   const senderEmail = message.from_addr || (inbound ? peerEmail : mailbox);
   // Sender name must agree with the sender address: the conversation-level
   // peer_name can hold an address (or our own owner name) and reads as a
@@ -48,7 +49,6 @@ export function MailContent({
           {formatMailTime(message.occurred_at)}
         </time>
       </header>
-      {message.letter_summary ? <p className="mail-content-summary">{message.letter_summary}</p> : null}
       {body ? (
         <div className="mail-content-body" data-mail-body>
           <p>{body}</p>

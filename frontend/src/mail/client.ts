@@ -9,6 +9,7 @@ import type {
   MailDigestSource,
   MailDirection,
   MailMessage,
+  MailPersonDigest,
   MailSyncReceipt,
   MailThread,
   MailWorkspace,
@@ -102,6 +103,7 @@ export function normalizeConversation(raw: Record<string, unknown>, mailbox = ""
     last_direction: directionOf(raw.last_direction),
     last_preview: preview || summarizeMailSnippet(text(raw.last_snippet)),
     unread_count: Number(raw.unread_count || 0),
+    message_count: raw.message_count != null ? Number(raw.message_count) : undefined,
     starred: raw.starred == null ? undefined : Boolean(raw.starred),
     last_receipt: text(raw.last_receipt) || undefined,
     digest_source: digestSourceOf(raw.digest_source),
@@ -130,6 +132,24 @@ function normalizeMessage(raw: Record<string, unknown>, conversationId: string):
     effective: raw.effective == null ? undefined : Boolean(raw.effective),
     translation_zh: text(raw.translation_zh || raw.translation) || undefined,
     translation_source: text(raw.translation_source) || undefined,
+    memory_fingerprint: text(raw.memory_fingerprint) || undefined,
+    memory_source: text(raw.memory_source) || undefined,
+    memory_generated_at: raw.memory_generated_at ? String(raw.memory_generated_at) : null,
+    memory_error: text(raw.memory_error) || undefined,
+    memory_attempts: raw.memory_attempts != null ? Number(raw.memory_attempts) : undefined,
+  };
+}
+
+export function normalizePersonDigest(raw: Record<string, unknown>): MailPersonDigest | null {
+  const mailbox = text(raw.mailbox);
+  const peer = text(raw.peer_email);
+  if (!mailbox || !peer) return null;
+  return {
+    mailbox,
+    peer_email: peer,
+    digest_text: text(raw.digest_text),
+    digest_source: digestSourceOf(raw.digest_source),
+    digest_generated_at: raw.digest_generated_at ? String(raw.digest_generated_at) : null,
   };
 }
 
@@ -292,6 +312,11 @@ export async function loadMailThread(
   }
   if ((missing || source === "fallback") && fallback) return threadFromFallback(fallback);
   return null;
+}
+
+export async function loadMailPersonDigest(box: string, peerEmail: string): Promise<MailPersonDigest | null> {
+  const raw = await api.mailPerson(box, peerEmail);
+  return normalizePersonDigest(raw);
 }
 
 export async function syncMailboxMail(box?: string): Promise<MailSyncReceipt> {

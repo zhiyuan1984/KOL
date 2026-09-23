@@ -1459,6 +1459,11 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "kol_mail_items", "effective", "INTEGER");
   add(db, "kol_mail_items", "translation_zh", "TEXT");
   add(db, "kol_mail_items", "translation_source", "TEXT");
+  add(db, "kol_mail_items", "memory_fingerprint", "TEXT");
+  add(db, "kol_mail_items", "memory_source", "TEXT");
+  add(db, "kol_mail_items", "memory_generated_at", "TEXT");
+  add(db, "kol_mail_items", "memory_error", "TEXT");
+  add(db, "kol_mail_items", "memory_attempts", "INTEGER");
   if (columnNotNull(db, "kol_mail_items", "collaboration_id") || /collaboration_id TEXT NOT NULL/i.test(tableSql(db, "kol_mail_items"))) {
     rebuildKolMailItems(db);
   }

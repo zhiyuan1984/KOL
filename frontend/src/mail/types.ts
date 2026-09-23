@@ -47,6 +47,7 @@ export type MailConversation = {
   last_direction: MailDirection | "";
   last_preview: string;
   unread_count: number;
+  message_count?: number;
   starred?: boolean;
   last_receipt?: string;
   digest_source: MailDigestSource | "";
@@ -74,14 +75,28 @@ export type MailMessage = {
   effective?: boolean;
   translation_zh?: string;
   translation_source?: string;
+  memory_fingerprint?: string;
+  memory_source?: string;
+  memory_generated_at?: string | null;
+  memory_error?: string;
+  memory_attempts?: number;
 };
 
 export type MailDigest = {
   text: string;
   source: MailDigestSource | "";
   mail_count?: number;
+  generated_at?: string | null;
   error?: string;
   failed_at?: string;
+};
+
+export type MailPersonDigest = {
+  mailbox: string;
+  peer_email: string;
+  digest_text: string;
+  digest_source: MailDigestSource | "";
+  digest_generated_at?: string | null;
 };
 
 export type MailThread = {

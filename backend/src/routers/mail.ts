@@ -3,7 +3,7 @@
  * GET = memory (zero session / turn / model). POST sync = command.
  */
 import { Hono } from "hono";
-import { audit } from "../db.js";
+
 import { HttpFail } from "../host/errors.js";
 import { normalizeEmail } from "../host/identity.js";
 import {
@@ -14,10 +14,12 @@ import {
   mailboxBindings,
   mailboxBoxStatus,
   markConversationMailRead,
+  markThreadTranslationsPending,
   messageRowOf,
   setConversationStarred,
 } from "../host/mail-memory.js";
-import { ensureThreadItemTranslations, hydrateMailThread, lastSyncReceipt, markThreadTranslationsPending, startFollowedMailSync } from "../starrykol/mail-sync.js";
+import { readPersonDigest } from "../host/mail-memory-job.js";
+import { lastSyncReceipt, startFollowedMailSync } from "../starrykol/mail-sync.js";
 
 export const mail = new Hono();
 
@@ -67,62 +69,35 @@ mail.get("/mail/conversations", (c) => {
   });
 });
 
-/** Bodies and translations come from remote mailbox memory: answer from local rows, fill in behind. */
-function hydrationPending(stored: Array<{ body_text?: unknown; translation_zh?: unknown }>): boolean {
-  // No stored items at all means a thread shell from the background sync: that still
-  // needs the remote read, so an empty list counts as pending.
-  const hasBody = stored.some((item) => String(item.body_text || "").trim());
-  const missingTranslation = stored.some(
-    (item) => String(item.body_text || "").trim() && !String(item.translation_zh || "").trim(),
-  );
-  return !hasBody || missingTranslation;
-}
-
-const hydratingThreads = new Set<string>();
-
-function scheduleThreadHydration(threadId: string): void {
-  if (!threadId || hydratingThreads.has(threadId)) return;
-  hydratingThreads.add(threadId);
-  void (async () => {
-    try {
-      const thread = findMailThread(threadId);
-      if (!thread) return;
-      const row = conversationRowOf(thread);
-      const stored = itemsForConversation(row.conversation_id, row.mailbox);
-      if (!stored.some((item) => String(item.body_text || "").trim())) await hydrateMailThread(thread);
-      await ensureThreadItemTranslations(threadId);
-    } catch (error) {
-      // Remote memory is optional on this read path: the cached answer already went out.
-      audit("host", "mail.thread_hydrate_failed", {
-        thread_id: threadId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      hydratingThreads.delete(threadId);
-    }
-  })();
-}
-
 mail.get("/mail/conversations/:id", (c) => {
   c.header("Cache-Control", "no-store");
   const thread = findMailThread(c.req.param("id"));
   if (!thread) throw new HttpFail(404, "conversation not found");
   const conversation = conversationRowOf(thread);
-  let stored = itemsForConversation(conversation.conversation_id, conversation.mailbox);
-  const hydrating = hydrationPending(stored);
-  if (hydrating) {
-    // Local-only flag so the row reads 翻译生成中… while the remote fill runs behind.
-    markThreadTranslationsPending(String(thread.id));
-    stored = itemsForConversation(conversation.conversation_id, conversation.mailbox);
-    scheduleThreadHydration(String(thread.id));
-  }
+  markThreadTranslationsPending(String(thread.id));
+  const stored = itemsForConversation(conversation.conversation_id, conversation.mailbox);
   return c.json({
     ...MEMORY,
     conversation,
     messages: stored.map(messageRowOf),
-    hydrating,
     digest_text: conversation.digest_text || String(thread.digest_text || ""),
     digest_source: conversation.digest_source || String(thread.digest_source || ""),
+  });
+});
+
+mail.get("/mail/person", (c) => {
+  c.header("Cache-Control", "no-store");
+  const mailbox = requestedMailbox(c.req.query("box") || "");
+  const peer = normalizeEmail(String(c.req.query("p") || ""));
+  if (!mailbox || !peer) throw new HttpFail(400, "box and p are required");
+  const digest = readPersonDigest(mailbox, peer);
+  return c.json({
+    ...MEMORY,
+    mailbox,
+    peer_email: peer,
+    digest_text: digest?.text || "",
+    digest_source: digest?.source || "",
+    digest_generated_at: digest && "generated_at" in digest ? digest.generated_at : null,
   });
 });
 

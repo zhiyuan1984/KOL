@@ -15,6 +15,7 @@ import {
 } from "../host/mail-memory.js";
 import { letterSummaryRecord, remoteMailAnalysisEnabled, threadDigestOf, type ThreadDigest } from "../host/mail-summary.js";
 import { translateMailBodyZh } from "./translate-zh.js";
+import { markPendingMailMemory, triggerMailMemoryIncrement } from "../host/mail-memory-job.js";
 import { boundMailboxEmail, currentFollowScope, matchesFollowedMailbox, safeEmployeeId } from "../host/starry-bind.js";
 import { inboundIdentity, mailAlreadySeen } from "../host/inbound-identity.js";
 import { starryKolMcpConfigured } from "../config.js";
@@ -865,6 +866,8 @@ export async function syncFollowedKolMail(mailboxOverride = ""): Promise<Followe
       tool: "pageEmailConversations",
     });
     audit("host", "starrykol.followed_mail_sync", result);
+    markPendingMailMemory(mailbox);
+    triggerMailMemoryIncrement(mailbox);
     scheduleBackgroundSync(remainingCandidates, mailbox, collabs, startPageNo, userId, syncedAt, firstPageTotal, firstPageSize);
     return result;
   } catch (error) {

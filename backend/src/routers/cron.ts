@@ -175,14 +175,14 @@ cron.patch("/cron/jobs/:id", async (c) => {
   return c.json({ job: publicJob(jobById(String(job.id))!) });
 });
 
-cron.post("/cron/jobs/:id/run", (c) => {
+cron.post("/cron/jobs/:id/run", async (c) => {
   ensureSystemCronJobs();
   const job = jobById(c.req.param("id"));
   if (!job) throw new HttpFail(404, "cron job not found");
   assertCanSeeJob(job);
   assertJobRunnable(job);
   assertHandlerGates(String(job.handler_key));
-  const result = runCronJobNow(String(job.id), scopedUser());
+  const result = await runCronJobNow(String(job.id), scopedUser());
   return c.json({ run_id: result.run_id });
 });
 
@@ -204,9 +204,9 @@ cron.get("/cron/runs/:runId", (c) => {
   return c.json({ run: publicRun(run), job: publicJob(job) });
 });
 
-cron.post("/cron/internal/tick", (c) => {
+cron.post("/cron/internal/tick", async (c) => {
   authorizeTick(c);
-  const result = tickCronDue(new Date());
+  const result = await tickCronDue(new Date());
   return c.json({ ok: true, claimed: result.claimed.length, run_ids: result.claimed });
 });
 
@@ -226,13 +226,13 @@ cron.get("/cron/risks", (c) => {
   });
 });
 
-cron.post("/cron/risk-scan", (c) => {
+cron.post("/cron/risk-scan", async (c) => {
   ensureSystemCronJobs();
   const job = jobById("overdue-scan");
   if (!job) throw new HttpFail(404, "cron job not found");
   assertCanSeeJob(job);
   assertJobRunnable(job);
   assertHandlerGates("overdue-scan");
-  const result = runCronJobNow(String(job.id), scopedUser());
+  const result = await runCronJobNow(String(job.id), scopedUser());
   return c.json({ run_id: result.run_id });
 });
