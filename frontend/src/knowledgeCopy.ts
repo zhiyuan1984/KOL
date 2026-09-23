@@ -61,7 +61,7 @@ const SKILL_LABEL: Record<string, string> = {
   creator_contact_decrypt: "解密达人联系方式",
   creator_lifecycle_kanban: "合作生命周期看板",
   creator_risk_conversations: "达人风险会话",
-  creator_daily_tasks: "今日 KOL 任务",
+  creator_daily_tasks: "今日任务",
   creator_budget_report: "KOL 预算报告",
   email_conversation_list: "邮件会话列表",
   email_conversation_read: "邮件会话详情",

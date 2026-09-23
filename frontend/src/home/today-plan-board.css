@@ -556,12 +556,13 @@
    tools get their own full-width row instead of squeezing one column. */
 .scope-task-rail .task-board-head {
   padding-left: 40px;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
 }
 .scope-task-rail .task-board-tools {
   grid-column: 1 / -1;
   width: 100%;
-  margin: 8px 0 0;
+  margin: 0;
   grid-template-columns: minmax(0, 1fr) auto;
   justify-content: start;
 }

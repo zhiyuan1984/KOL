@@ -34,7 +34,7 @@ const CATALOG_TITLE: Record<string, string> = {
   risk_scan: "超时/风险扫描",
   deal_memory: "Deal Memory",
   creator_discovery: "发现达人",
-  creator_daily_tasks: "今日 KOL 任务",
+  creator_daily_tasks: "今日任务",
 };
 
 const CATALOG_REASON: Record<string, string> = {

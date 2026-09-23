@@ -265,19 +265,19 @@
 
 /* 上一版计划 — folded to one row so versions never stack. */
 .today-plan-previous {
-  margin: 0 0 var(--space-3, 12px);
+  margin: 0 0 4px;
 }
 .today-plan-previous-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
-  min-height: 36px;
+  min-height: 20px;
   padding: 0;
   border: 0;
   background: none;
   font: inherit;
-  font-size: var(--ds-font-sm);
+  font-size: var(--ds-font-helper);
   color: var(--text-muted);
   cursor: pointer;
   text-align: left;
@@ -286,7 +286,7 @@
   color: var(--text);
 }
 .today-plan-previous-label {
-  font-weight: 600;
+  font-weight: 400;
 }
 .today-plan-previous-head time,
 .today-plan-previous-head span {
@@ -304,6 +304,24 @@
   font-size: var(--ds-font-sm);
   line-height: 1.55;
   color: var(--text-muted);
+}
+.today-plan-previous-steps li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+.today-plan-previous-steps li > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.today-plan-previous-steps time {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--ds-text-muted);
+  font-size: var(--ds-font-helper);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 .today-plan-previous-steps {
   margin: 0;

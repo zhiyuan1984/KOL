@@ -130,14 +130,7 @@ export default function TaskBoard({
       aria-label={cfg.railToggleLabel}
     >
       <header className="task-board-head">
-        <span className="task-board-head-icon" aria-hidden>
-          <svg viewBox="0 0 24 24">
-            <rect x="3" y="3" width="18" height="18" rx="5" fill="#1a1a1a" />
-            <path d="M8 12.2l2.6 2.6L16.4 9" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </span>
-        <h2 className="task-board-title">{title}</h2>
-        <span className="task-board-count">· {rows.length} 项任务</span>
+        <h2 className="sr-only">{title}</h2>
         <div className="task-board-tools">
           <input
             type="search"

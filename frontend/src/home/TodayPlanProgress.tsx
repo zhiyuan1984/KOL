@@ -34,7 +34,7 @@ function formatClock(date: Date): string {
 }
 
 function eventTime(event?: TaskEvent): string {
-  const raw = String(event?.created_at || "").trim();
+  const raw = String(event?.created_at || event?.time || event?.timestamp || event?.updated_at || "").trim();
   if (!raw) return "";
   const date = new Date(raw);
   if (Number.isNaN(date.getTime())) return "";
@@ -219,7 +219,15 @@ export default function TodayPlanProgress({
   const status = lucasPlanCopy(displayPhase, scope, candidates, plannedTasks, failedStep?.detail);
 
   // The previous version stays reachable but never competes with the current one.
-  const previousSteps = useMemo(() => todayPlanEventLabels(previousEvents), [previousEvents]);
+  const previousSteps = useMemo(() => {
+    const seen = new Set<string>();
+    return (previousEvents || []).flatMap((event) => {
+      const label = String(event.title || event.label || event.summary || "").trim();
+      if (!label || seen.has(label)) return [];
+      seen.add(label);
+      return [{ label, time: eventTime(event) }];
+    });
+  }, [previousEvents]);
   const previousStamp = (() => {
     const last = (previousEvents || [])[previousEvents ? previousEvents.length - 1 : 0];
     return last ? eventTime(last) : "";
@@ -261,7 +269,12 @@ export default function TodayPlanProgress({
               {previousBrief?.lead ? <p className="today-plan-previous-lead">{previousBrief.lead}</p> : null}
               {previousSteps.length ? (
                 <ol className="today-plan-previous-steps">
-                  {previousSteps.map((label, index) => <li key={`${label}-${index}`}>{label}</li>)}
+                {previousSteps.map((step, index) => (
+                  <li key={`${step.label}-${index}`}>
+                    <span>{step.label}</span>
+                    {step.time ? <time>{step.time}</time> : null}
+                  </li>
+                ))}
                 </ol>
               ) : null}
             </div>
