@@ -243,7 +243,7 @@
 .task-board-title-wrap {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
 }
 .task-board-title-row {
@@ -286,8 +286,10 @@
   cursor: pointer;
   text-align: left;
   max-width: 100%;
-  overflow-wrap: anywhere;
-  white-space: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+  white-space: nowrap;
   display: block;
   min-width: 0;
   vertical-align: middle;
@@ -297,10 +299,11 @@
 }
 .task-board-meta {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 6px;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
   min-width: 0;
+  overflow: hidden;
 }
 .task-board-why {
   margin: 0;
@@ -308,14 +311,15 @@
   flex: 1 1 auto;
   font-size: var(--ds-font-helper);
   color: var(--ds-text-dim);
-  overflow-wrap: anywhere;
-  white-space: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .task-board-chips {
   display: inline-flex;
   flex: 0 0 auto;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-wrap: nowrap;
+  gap: 4px;
 }
 .task-board-chip {
   display: inline-flex;
@@ -348,7 +352,9 @@
 .task-board-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 4px;
+  grid-template-rows: repeat(2, var(--workspace-task-action-h));
+  align-content: center;
+  gap: 2px;
   width: 100%;
   min-width: 0;
 }
