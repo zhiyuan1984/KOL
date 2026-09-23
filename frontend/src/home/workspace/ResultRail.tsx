@@ -20,7 +20,7 @@ export default function ResultRail({
 }) {
   return <div className="result-rail" data-result-rail={pane}
     data-result-status={view?.status} data-result-type={view?.resultType}>
-    {view?.sourceLabel || view?.updatedAt || view?.freshness ? (
+    {view?.sourceLabel || view?.updatedAt || (view?.freshness && view.freshness !== "current" && view.freshness !== "unknown") ? (
       <div className="result-rail-context" data-result-context>
         {view?.sourceLabel ? <span>{view.sourceLabel}</span> : null}
         {view?.sourceVersion ? <span>{view.sourceVersion}</span> : null}

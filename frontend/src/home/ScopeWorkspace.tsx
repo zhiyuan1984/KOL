@@ -92,7 +92,6 @@ export default function ScopeWorkspace({
         resultType: scope === "today" ? "today_tasks" : "todo_tasks",
         status: phase === "failed" ? "failed" : phase === "planning" || phase === "loading-memory"
           ? "running" : hasStream ? "completed" : stamped.length ? "ready" : "idle",
-        sourceLabel: brief ? "Host 校验后的计划结果" : "已保存任务清单",
         updatedAt: undefined,
         freshness: brief ? "current" : "unknown",
         recommendations,

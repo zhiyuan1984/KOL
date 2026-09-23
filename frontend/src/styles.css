@@ -12111,21 +12111,27 @@ button.today-brief-primary-btn:disabled {
   }
 }
 
-/* Today density pass: compact the center heading and make the quick-task dock
-   and composer read as one full-width interaction surface. */
-@media (min-width: 1101px) {
-  .home-pane[data-home-workspace] .today-center-hero {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: baseline;
-    gap: var(--space-2) var(--space-4);
-    padding-top: 4px;
-    padding-bottom: 10px;
-  }
-  .home-pane[data-home-workspace] .today-center-hero h1,
-  .home-pane[data-home-workspace] .today-center-hero .home-stats {
-    margin: 0;
-  }
+/* Keep the scope title and due summary on one compact header row at every
+   workspace width. The summary may wrap within its own cell when necessary. */
+.home-pane[data-home-workspace] .today-center-hero {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+  padding-top: 4px;
+  padding-bottom: 8px;
+}
+.home-pane[data-home-workspace] .today-center-hero h1,
+.home-pane[data-home-workspace] .today-center-hero .home-stats {
+  margin: 0;
+}
+.home-pane[data-home-workspace] .today-center-hero h1 {
+  white-space: nowrap;
+}
+.home-pane[data-home-workspace] .today-center-hero .home-stats {
+  justify-self: end;
+  text-align: right;
+  overflow-wrap: normal;
 }
 
 /* A shortcut changes context, not the composer geometry. Keep the interaction
@@ -12189,11 +12195,12 @@ button.today-brief-primary-btn:disabled {
 
 @container home-workspace-center (max-width: 560px) {
   .home-pane[data-home-workspace] .today-center-hero {
-    grid-template-columns: minmax(0, 1fr);
-    align-items: start;
+    grid-template-columns: max-content minmax(0, 1fr);
+    align-items: baseline;
   }
   .home-pane[data-home-workspace] .today-center-hero .home-stats {
-    justify-self: start;
+    justify-self: end;
+    font-size: var(--ds-font-helper);
   }
 }
 
