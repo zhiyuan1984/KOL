@@ -418,6 +418,7 @@ export type FromTextResult = {
     confidence?: number;
     needs_clarification?: boolean;
     clarification_kind?: ClarificationKind;
+    task_type?: string;
     missing_fields?: string[];
     invalid_fields?: Record<string, string>;
     entities?: Record<string, unknown>;

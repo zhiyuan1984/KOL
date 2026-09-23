@@ -8,6 +8,7 @@ export type SkillParamField = {
   required?: boolean;
   options_source?: string;
   options?: Array<string | { code: string; label: string }>;
+  prefill?: string;
   reason?: string;
   min?: number;
   max?: number;

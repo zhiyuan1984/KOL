@@ -100,7 +100,7 @@ export default function DiscoveryWorkspace({
         {memoryBusy ? "读取中…" : "更多历史结果"}
       </button> : null}
     </section>
-  ) : undefined;
+  );
   return (
     <WorkspaceShell
       pane="discovery"
@@ -120,7 +120,7 @@ export default function DiscoveryWorkspace({
         freshness: disc.run?.memory_validity === "stale"
           ? "stale"
           : ["completed", "succeeded"].includes(String(disc.run?.status || ""))
-            ? (disc.runHistory[0]?.id === disc.run.id ? "current" : "historical")
+            ? (disc.run && disc.runHistory[0]?.id === disc.run.id ? "current" : "historical")
             : "unknown",
         memory: memoryView,
       }}
