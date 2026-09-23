@@ -9,6 +9,12 @@ type SkillRow = {
   category?: string;
   profile?: string;
   source?: string;
+  required_inputs?: string[];
+  input_schema?: Array<Record<string, unknown>> | null;
+  result_type?: string | null;
+  next_actions?: Array<Record<string, unknown>>;
+  memory_policy?: Record<string, unknown> | null;
+  supports?: Record<string, boolean> | null;
   updated_at?: string | null;
   grants?: Grant[];
   lifecycle?: {
@@ -239,6 +245,16 @@ function DetailPanel(props: {
   const [metrics, setMetrics] = useState<{ calls: number; success_rate: number | null; avg_duration_ms: number | null; alerts: number; trend: { day: string; n: number }[] } | null>(null);
   const [newTest, setNewTest] = useState("");
   const [tagInput, setTagInput] = useState("");
+  const [contractText, setContractText] = useState(() => JSON.stringify({
+    required_inputs: skill.required_inputs || skill.input_schema?.filter((field) => field.required === true).map((field) => field.key) || [],
+    input_schema: skill.input_schema || [],
+    result_type: skill.result_type || "",
+    next_actions: skill.next_actions || [],
+    ...(skill.memory_policy ? { memory_policy: skill.memory_policy } : {}),
+    supports: skill.supports || { cancel: false, retry: false, resume: false },
+  }, null, 2));
+  const [contractError, setContractError] = useState("");
+  const [contractBusy, setContractBusy] = useState(false);
   const step = lc ? STEP_INDEX[lc.stage] ?? 0 : 0;
   const maxTrend = Math.max(1, ...(metrics?.trend.map((t) => t.n) || [1]));
 
@@ -262,6 +278,35 @@ function DetailPanel(props: {
     if (description === null) return;
     await api.publishSkillVersion(skill.id, description || undefined);
     await Promise.all([reloadAll(), onChanged()]);
+  }
+
+  async function saveContract() {
+    let value: Record<string, unknown>;
+    try {
+      value = JSON.parse(contractText) as Record<string, unknown>;
+      if (!value || Array.isArray(value) || typeof value !== "object") throw new Error("根节点必须是 JSON 对象");
+    } catch (error) {
+      setContractError(error instanceof Error ? error.message : "JSON 格式错误");
+      return;
+    }
+    setContractBusy(true);
+    setContractError("");
+    try {
+      await api.patchAdminSkill(skill.id, {
+        required_inputs: Array.isArray(value.required_inputs) ? value.required_inputs.map(String) : (skill.required_inputs || []),
+        input_schema: Array.isArray(value.input_schema) ? value.input_schema : [],
+        result_type: String(value.result_type || ""),
+        next_actions: Array.isArray(value.next_actions) ? value.next_actions : [],
+        ...(value.memory_policy && typeof value.memory_policy === "object" ? { memory_policy: value.memory_policy as Record<string, unknown> } : {}),
+        supports: value.supports && typeof value.supports === "object" ? value.supports as Record<string, boolean> : { cancel: false, retry: false, resume: false },
+      });
+      await onChanged();
+      setContractError("已保存并立即更新当前技能包；版本快照需另行发布。");
+    } catch (error) {
+      setContractError(String(error instanceof Error ? error.message : error));
+    } finally {
+      setContractBusy(false);
+    }
   }
 
   async function rollback(version: number) {
@@ -390,6 +435,30 @@ function DetailPanel(props: {
           </button>
         </div>
       </div>
+
+      {/* 参数与运行契约 */}
+      <section style={card} aria-labelledby="skill-contract-heading">
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", marginBottom: 6 }}>
+          <strong id="skill-contract-heading">参数与运行契约</strong>
+          <span style={{ fontSize: 12, color: "#6b7280" }}>输入字段、结果类型、登记动作、记忆策略与异步能力</span>
+        </div>
+        <textarea
+          aria-label="技能参数与运行契约 JSON"
+          value={contractText}
+          onChange={(event) => setContractText(event.target.value)}
+          rows={12}
+          spellCheck={false}
+          style={{ ...input, fontSize: "var(--ds-font-sm)", resize: "vertical", fontFamily: "ui-monospace, Consolas, monospace", lineHeight: 1.45 }}
+        />
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+          <button type="button" style={btnPrimary} disabled={contractBusy} onClick={() => void saveContract()}>
+            {contractBusy ? "保存中…" : "保存契约"}
+          </button>
+          <span role="status" style={{ fontSize: "var(--ds-font-helper)", color: contractError.startsWith("已保存") ? "var(--success)" : "var(--text-muted)", overflowWrap: "anywhere" }}>
+            {contractError || "保存会立即更新当前技能包；发布新版本会另存快照。选项来源由服务端登记白名单校验。"}
+          </span>
+        </div>
+      </section>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
         {/* 测试验证 */}

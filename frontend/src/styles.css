@@ -1884,7 +1884,6 @@ summary:focus-visible,
   display: grid;
   gap: 0;
   min-width: 0;
-  overflow-x: hidden;
 }
 .discovery-confirm-layer {
   position: fixed;
@@ -1939,24 +1938,25 @@ summary:focus-visible,
 }
 /* 选择器带上 `.ai-discovery-card` 是为了压过全局桌面密度规则
    `.home-pane h2 { font-size: var(--ds-font-ui); font-weight: 500 }`（同权重、在它之后）。 */
-/* 标题与说明同排一行：说明紧跟在标题后面，标题只占 block-title 那一档，不再撑一整行。 */
+/* 标题与说明同排一行：块标题走 ui 档（DESIGN §字号阶梯用途，≥20px/600 的 hero 卡头废止），
+   说明降 helper 档，只作补充语义。 */
 .ai-discovery-card .ai-discovery-head {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--ds-space-3);
+  gap: var(--ds-space-2) var(--ds-space-3);
 }
 .ai-discovery-card .ai-discovery-head h2 {
   margin: 0;
-  font-size: var(--ds-font-block-title);
-  line-height: var(--ds-line-block-title);
-  font-weight: var(--ds-weight-block-title);
+  font-size: var(--ds-font-ui);
+  line-height: var(--ds-line-ui);
+  font-weight: 600;
   color: var(--text);
 }
 .ai-discovery-card .ai-discovery-head p {
   margin: 0;
-  font-size: var(--ds-font-body);
-  line-height: var(--ds-line-body);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
   color: var(--ds-text-dim);
 }
 /* 分区 = 一级信息；只有分区之间有线，分区内部靠间距（视觉规范 §10）。 */
@@ -3752,17 +3752,20 @@ summary:focus-visible,
 .task-meta, .task-tail { color: var(--muted); font-size: var(--font-meta); }
 .task-risk { color: var(--red); font-size: var(--font-meta); }
 .task-tail { display: grid; justify-items: end; gap: 3px; white-space: nowrap; }
+/* 紧凑空态（DESIGN §内容密度）：左对齐、内容字号、小内边距、动作内联；
+   hero 式居中大标题空态废止。文案仍须诚实区分尚无结果/服务不可用/筛选无结果。 */
 .task-empty {
-  text-align: center;
+  text-align: left;
   color: var(--muted);
   border: 1px dashed var(--line);
   border-radius: var(--ds-radius-section);
-  padding: 32px 20px;
-  margin-top: 18px;
+  padding: var(--space-3) var(--space-4);
+  margin-top: var(--space-2);
+  font-size: var(--ds-font-sm);
 }
-.task-empty strong { color: var(--text); }
-.task-empty p { margin: 6px 0 14px; font-size: var(--font-ui); }
-.task-empty-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.task-empty strong { color: var(--text); font-size: var(--ds-font-body); font-weight: var(--ds-weight-label); }
+.task-empty p { margin: var(--space-1) 0 0; font-size: var(--ds-font-sm); }
+.task-empty-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-start; margin-top: var(--space-2); }
 .creation-feedback {
   width: 100%;
   box-sizing: border-box;
@@ -11427,6 +11430,12 @@ button.today-brief-primary-btn:disabled {
 
 .discovery-lead-select { flex: 0 0 auto; display: inline-flex; align-items: center; }
 .discovery-lead-nickname { font-size: var(--ds-font-body); }
+/* 移除整栏 overflow-x:hidden 兜底后的行级收束：长 URL / 无空格长串在行内换行，不撑破窄栏。 */
+.discovery-lead-nickname,
+.discovery-lead-meta,
+.discovery-lead-reason,
+.discovery-lead-tag,
+.discovery-lead-detail-item dd { overflow-wrap: anywhere; }
 
 /* ── 全局视觉 token（Design System v1） ──────────────────────────────────
    一套尺度给全站用：间距走 8px 网格，圆角按层级分档，颜色/字号只从这里取。

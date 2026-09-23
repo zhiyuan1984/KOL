@@ -1632,14 +1632,58 @@ export default function Home() {
               </button>
             ))}
             {candidates.map((candidate, index) => {
-              const label = candidate.title || (typeof candidate.label === "string" ? candidate.label : "") || `候选 ${index + 1}`;
               const fieldId = String(candidate.id || "");
+              const label = fieldId === DISCOVERY_INTENT
+                ? "在 AI发现 中继续"
+                : candidate.title || (typeof candidate.label === "string" ? candidate.label : "") || `候选 ${index + 1}`;
               return (
                 <button
                   key={fieldId || label}
                   type="button"
                   className="clarification-chip"
                   onClick={() => {
+                    if (fieldId === DISCOVERY_INTENT) {
+                      void (async () => {
+                        const template = await loadDiscoveryTemplate().catch(() => fallbackDiscoveryTemplate());
+                        const entities = feedback.resolution?.entities || {};
+                        const numericEntity = (key: string) => {
+                          const value = entities[key];
+                          if (value === undefined || value === null || value === "") return undefined;
+                          const number = Number(value);
+                          return Number.isFinite(number) ? number : undefined;
+                        };
+                        const platforms = Array.isArray(entities.platforms)
+                          ? entities.platforms.map(String)
+                          : entities.platform ? [String(entities.platform)] : [];
+                        const brief = mergeDiscoveryBrief(template.defaults, {
+                          platforms: platforms as DiscoveryBrief["platforms"],
+                          region: entities.region ? String(entities.region) as DiscoveryBrief["region"] : undefined,
+                          directions: Array.isArray(entities.directions)
+                            ? entities.directions.map(String) as DiscoveryBrief["directions"]
+                            : undefined,
+                          keywords: Array.isArray(entities.keywords)
+                            ? entities.keywords.map(String)
+                            : entities.keywords ? [String(entities.keywords)] : undefined,
+                          min_followers: numericEntity("min_followers"),
+                          max_followers: numericEntity("max_followers"),
+                          min_avg_plays_10: numericEntity("min_avg_plays_10"),
+                          expect_count: numericEntity("expect_count"),
+                        });
+                        setDiscoveryCatalog({ platforms: template.platforms, regions: template.regions, directions: template.directions });
+                        setDiscoveryVersion(template.version);
+                        setDiscoveryBrief(brief);
+                        setDiscoveryFormBrief(brief);
+                        setText(renderDiscoveryBody(brief, template));
+                        setLockedIntent(DISCOVERY_INTENT);
+                        setLockedLabel(DISCOVERY_LOCK_LABEL);
+                        setEntryIntent("discover");
+                        setFeedback(null);
+                        setMode("discovery");
+                        setComposerFocused(true);
+                        setDraftFocus((value) => value + 1);
+                      })();
+                      return;
+                    }
                     if (feedbackKind === "missing_fields") {
                       const bound = followScope?.mailbox_email || "";
                       if (fieldId === "mailboxEmail" && bound && !text.includes(bound)) {

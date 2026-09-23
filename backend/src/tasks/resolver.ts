@@ -214,7 +214,11 @@ function missing(
       && namedMailCommand(text)
       && (field === "mailboxEmail" || field === "to" || field === "subject")
     ) return false;
-    const value = supplied[field] ?? entities[field];
+    const declared = definition.input_schema?.find((item) => item.key === field);
+    const prefillKey = declared?.prefill?.startsWith("entities.")
+      ? declared.prefill.slice("entities.".length)
+      : "";
+    const value = supplied[field] ?? entities[field] ?? (prefillKey ? entities[prefillKey] : undefined);
     return value == null || value === "" || (Array.isArray(value) && value.length === 0);
   });
 }

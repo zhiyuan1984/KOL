@@ -12,7 +12,7 @@
   width: 22px;
   margin-bottom: 2px;
   text-align: center;
-  font-size: 15px;
+  font-size: var(--ds-font-ui);
   line-height: 1;
   color: var(--text-muted, #6b6b6b);
 }
@@ -27,9 +27,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 15px;
+  font-size: var(--ds-font-body);
   font-weight: 600;
-  line-height: 1.35;
+  line-height: var(--ds-line-body);
   color: var(--text, #111);
 }
 .today-display-why {
@@ -37,8 +37,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12.5px;
-  line-height: 1.4;
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
   color: var(--text-muted, #6b6b6b);
 }
 .today-display-meta {
@@ -52,9 +52,9 @@
   gap: 2px;
   padding: 0 7px;
   border: 1px solid var(--border, #eee);
-  border-radius: 999px;
-  font-size: 11px;
-  line-height: 17px;
+  border-radius: var(--ds-radius-tag, 999px);
+  font-size: var(--ds-font-tag);
+  line-height: var(--ds-line-tag);
   color: var(--text-muted, #6b6b6b);
   background: var(--bg, #fff);
 }
@@ -72,11 +72,11 @@
 .today-display-go,
 .today-display-edit {
   box-sizing: border-box;
-  height: 32px;
-  min-height: 32px;
+  height: var(--control-h-lg);
+  min-height: var(--control-h-lg);
   padding: 0 10px;
   border-radius: var(--radius-sm, 6px);
-  font-size: 13px;
+  font-size: var(--ds-font-sm);
   cursor: pointer;
 }
 .today-display-go {
@@ -121,13 +121,13 @@
 .today-display-group-title {
   margin: 0;
   padding: 12px 20px 4px 6px;
-  font-size: 13px;
+  font-size: var(--ds-font-sm);
   font-weight: 600;
   color: var(--text-muted, #6b6b6b);
 }
 .today-brief-note {
   margin: 8px 0 0;
-  font-size: 13px;
+  font-size: var(--ds-font-sm);
   line-height: 1.5;
   color: var(--text-muted, #6b6b6b);
 }

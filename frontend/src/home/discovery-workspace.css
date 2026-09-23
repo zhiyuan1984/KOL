@@ -148,9 +148,40 @@
   column-gap: 0;
 }
 
-/* 右栏结果区：状态卡 / 摘要 / 工具栏 / 明细的分段间距由各组件自带，
-   这里只保证它在窄栏里不横向溢出。 */
+/* 右栏结果区：状态卡 / 摘要 / 工具栏 / 明细的分段间距由各组件自带。
+   横向收束靠行级 min-width:0 + 文本 overflow-wrap（DESIGN §内容密度），
+   不再用整栏 overflow-x:hidden 静默裁切兜底。 */
 .discovery-panel {
   min-width: 0;
-  overflow-x: hidden;
+}
+.discovery-result-context {
+  margin: 0 0 var(--space-1);
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+}
+.discovery-history {
+  margin: 0 0 var(--space-2);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--space-2);
+  font-size: var(--ds-font-sm);
+}
+.discovery-history summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.discovery-history summary span {
+  margin-left: var(--space-1);
+  font-weight: 400;
+}
+.discovery-history-picker {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.discovery-history-picker select {
+  min-width: 0;
+  max-width: 100%;
 }

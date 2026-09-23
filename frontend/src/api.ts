@@ -1238,6 +1238,12 @@ export const api = {
     aliases?: string;
     profile?: string;
     funnel?: string;
+    required_inputs?: string[];
+    input_schema?: unknown[];
+    result_type?: string;
+    next_actions?: unknown[];
+    memory_policy?: Record<string, unknown>;
+    supports?: Record<string, boolean>;
   }) =>
     request<Record<string, unknown>>(`/api/admin/skills/${encodeURIComponent(id)}`, {
       method: "PATCH",

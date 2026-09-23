@@ -73,7 +73,10 @@ function catalogLines(): string {
   return taskDefinitions()
     .map((definition) => {
       const aliases = definition.aliases.length ? ` aliases=${definition.aliases.join("/")}` : "";
-      return `- ${definition.id}: ${definition.title} — ${definition.description}${aliases}`;
+      const inputs = definition.input_schema?.length
+        ? ` inputs=${definition.input_schema.map((field) => `${field.key}:${field.kind}${field.required ? "!" : ""}`).join(",")}`
+        : "";
+      return `- ${definition.id}: ${definition.title} — ${definition.description}${aliases}${inputs}`;
     })
     .join("\n");
 }
@@ -221,6 +224,13 @@ const INTENT_ENTITY_PROPERTIES: Record<string, Record<string, unknown>> = {
   handle: { type: ["string", "null"] },
   platform: { type: ["string", "null"] },
   keywords: { type: ["array", "null"], items: { type: "string" } },
+  platforms: { type: ["array", "null"], items: { type: "string", enum: ["youtube", "instagram", "facebook"] } },
+  region: { type: ["string", "null"] },
+  directions: { type: ["array", "null"], items: { type: "string" } },
+  min_followers: { type: ["number", "null"] },
+  max_followers: { type: ["number", "null"] },
+  min_avg_plays_10: { type: ["number", "null"] },
+  expect_count: { type: ["number", "null"] },
   collaboration_id: { type: ["string", "null"] },
   confirm_send: { type: ["boolean", "null"] },
   keyword: { type: ["string", "null"] },

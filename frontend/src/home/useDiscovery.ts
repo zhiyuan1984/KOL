@@ -55,6 +55,8 @@ export default function useDiscovery({
   const [emptyMessage, setEmptyMessage] = useState("还没有搜索过红人线索。");
   const [candidates, setCandidates] = useState<HomeDiscoveryCandidate[]>([]);
   const [activeRun, setActiveRun] = useState<HomeDiscoveryRun | null>(null);
+  const [runHistory, setRunHistory] = useState<HomeDiscoveryRun[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [ignoredIds, setIgnoredIds] = useState<string[]>([]);
   /** 「查看详情」展开的行；只影响本地展示，不发请求。 */
@@ -104,13 +106,16 @@ export default function useDiscovery({
     setFailure(null);
     const listed = await loadDiscoveryRuns();
     if (listed.down) {
+      setRunHistory([]);
       setEmptyKind("down");
       setEmptyMessage("发现服务不可用。已有输入会保留，可稍后重试。");
       setCandidates([]);
       setActiveRun(null);
+      setEvents([]);
       return;
     }
     const rows = listed.data;
+    setRunHistory(rows);
     const chosen = rows.find((row) => row.id === preferRunId)
       || rows.find((row) => row.work_item_id && row.work_item_id === activeTaskId)
       || rows[0]
@@ -118,9 +123,19 @@ export default function useDiscovery({
     if (!chosen) {
       setActiveRun(null);
       setCandidates([]);
+      setEvents([]);
       setEmptyKind("idle");
       setEmptyMessage("还没有搜索过红人线索。");
       return;
+    }
+    if (activeRun?.id !== chosen.id) {
+      setSelectedIds([]);
+      setIgnoredIds([]);
+      setExpandedIds([]);
+      setApprovalState(null);
+      setPendingConfirm(false);
+      setIngestError(null);
+      setIngestOpen(false);
     }
     const detail = await loadDiscoveryRun(chosen.id);
     if (detail.down) {
@@ -128,10 +143,13 @@ export default function useDiscovery({
       setEmptyMessage("发现服务不可用。已有输入会保留，可稍后重试。");
       setCandidates([]);
       setActiveRun(chosen);
+      setEvents([]);
       return;
     }
     const current = detail.data || chosen;
     setActiveRun(current);
+    const selectedEvents = current.work_item_id ? await loadTaskEvents(current.work_item_id).catch(() => []) : [];
+    setEvents(selectedEvents);
     const reason = runFailureReason(current);
     const next = await loadDiscoveryCandidates(chosen.id);
     if (next.down) {
@@ -181,6 +199,18 @@ export default function useDiscovery({
     }
   };
 
+  const selectHistoryRun = async (id: string) => {
+    if (!id || id === activeRun?.id || historyLoading) return;
+    setHistoryLoading(true);
+    try {
+      await loadExisting(id);
+    } catch (error) {
+      setFailure(presentDiscoveryError(error, DISCOVERY_FAILED_FALLBACK));
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   /** Employee-facing collector state — where a「采集服务未配置」run reason becomes actionable. */
   const checkCollector = async () => {
     try {
@@ -215,7 +245,10 @@ export default function useDiscovery({
   }, [activeRunId]);
 
   useEffect(() => {
-    if (!activeTaskId) return;
+    if (!activeTaskId || (activeRun?.work_item_id && activeRun.work_item_id !== activeTaskId)) {
+      setPolling(false);
+      return;
+    }
     let cancelled = false;
     setPolling(true);
     setFailure(null);
@@ -266,7 +299,7 @@ export default function useDiscovery({
       window.clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTaskId]);
+  }, [activeTaskId, activeRun?.id]);
 
   const toggleSelected = (id: string, on: boolean) => {
     setSelectedIds((current) => {
@@ -415,6 +448,9 @@ export default function useDiscovery({
     showCard,
     inFlight,
     run: activeRun,
+    runHistory,
+    historyLoading,
+    selectRun: selectHistoryRun,
     runId,
     candidates,
     visible,

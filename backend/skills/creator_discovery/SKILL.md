@@ -10,10 +10,13 @@ mcp: []
 required_inputs: []
 permissions: ["claw:write"]
 actions: []
-aliases: ["发现达人","候选达人"]
+aliases: ["发现达人","候选达人","红人线索"]
 in_market: true
 employee_quick: 已有发现批次与同步结果
 employee_agent: 新发现分析、异步采集；正式导入独立确认
+input_schema: [{"key":"platforms","label":"平台","kind":"multiple","required":false,"options_source":"api:/home/discovery/template#platforms","prefill":"entities.platform"},{"key":"region","label":"地区","kind":"single","required":false,"options_source":"api:/home/discovery/template#regions"},{"key":"directions","label":"方向","kind":"multiple","required":false,"options_source":"api:/home/discovery/template#directions"},{"key":"keywords","label":"关键词","kind":"text","required":false,"prefill":"entities.keywords"},{"key":"min_followers","label":"粉丝数下限","kind":"number","required":false},{"key":"max_followers","label":"粉丝数上限","kind":"number","required":false},{"key":"min_avg_plays_10","label":"近10条均播","kind":"number","required":false},{"key":"expect_count","label":"期望人数","kind":"number","required":false}]
+result_type: discovery_candidates
+supports: {"cancel":true,"retry":true,"resume":false}
 ---
 # 达人发现 creator_discovery · Lead
 

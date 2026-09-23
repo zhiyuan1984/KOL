@@ -622,16 +622,18 @@
   display: grid;
   gap: var(--ds-space-3);
   max-width: 680px;
-  padding: var(--ds-space-5) 0;
+  padding: var(--ds-space-4) 0;
 }
 .object-interaction h1,
 .object-interaction p,
 .object-interaction-guide p {
   margin: 0;
 }
+/* 上下文标题用 section 档（DESIGN §字号阶梯用途）：工作台表面禁用 hero 标题档。 */
 .object-interaction h1 {
-  font-size: var(--ds-font-title);
-  line-height: var(--ds-line-title);
+  font-size: var(--ds-font-section);
+  line-height: var(--ds-line-section);
+  font-weight: var(--ds-weight-section);
 }
 .object-interaction > p,
 .object-interaction-guide p {

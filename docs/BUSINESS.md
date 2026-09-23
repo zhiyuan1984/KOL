@@ -159,6 +159,8 @@ KOL 索引包含稳定 ID、平台、方向、画像、来源和更新时间；�
 
 在补齐前，员工端「技能目录」对这几项的详情会明确显示「待业务专家补齐」，不给出推测口径（[ui-ux-rules.md](ui-ux-rules.md) §5；CONST-10 不得伪造）。
 
+**alias 登记裁定项（2026-09-23 增补，见 `superpowers/specs/2026-09-23-skill-routing-param-memory-design.md` §4.1）：** 业务词语作为技能 alias 登记属于本表口径的一部分。「红人线索」登记为 `creator_discovery` 的 alias（属其「新发现分析、异步采集」的 Agent 面口径范围）。「AI发现」是 Home 模式名，是否同时登记为发现技能 alias **待 KOL 业务专家裁定**：模式切换属页面导航，词语唤起属技能路由；命中时在当前中栏运行并附非阻塞导航提示，不自动切页签。裁定前不登记。
+
 | 当前 Skill | 记忆快捷入口 | 需要 Agent 或受控动作的部分 |
 |---|---|---|
 | creator_library_all、creator_library_query、creator_filter_options、creator_profile | 授权档案、画像、筛选与已有摘要 | 新画像分析、补查新事实走 Agent 或已配置同步 |

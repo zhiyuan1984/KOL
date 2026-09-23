@@ -707,6 +707,23 @@ tasks.post("/tasks/from-text", async (c) => {
       task_type: resolution.task_type,
     });
   }
+  // Discovery is a dedicated async workspace, not a generic work-item run.
+  // Return a user-selectable handoff so the user can review/fill the registered
+  // discovery brief before the existing crawl command starts.
+  if (resolution.task_type === "creator_discovery") {
+    const definition = taskDefinition("creator_discovery");
+    return c.json({
+      resolution,
+      task: null,
+      tasks: [],
+      resolved_tasks: [],
+      needs_clarification: true,
+      clarification_kind: "direction",
+      clarification: "已识别为红人发现。打开 AI发现后检查并补齐条件，再提交异步采集。",
+      candidates: [{ id: "creator_discovery", task_type: "creator_discovery", title: definition?.title || "红人发现" }],
+      handoff: { kind: "workspace", pane: "discovery", task_type: "creator_discovery" },
+    });
+  }
   const created = createWorkItem({
     ...body,
     text,

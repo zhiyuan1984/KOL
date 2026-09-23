@@ -14,9 +14,14 @@ import {
   TASK_PROFILES,
   clearTaskRegistryCache,
   taskDefinition,
+  validateDeclaredTaskContract,
   type TaskFunnel,
+  type TaskInputField,
+  type TaskMemoryPolicy,
+  type TaskNextAction,
   type TaskOutput,
   type TaskProfileId,
+  type TaskSupports,
 } from "../tasks/registry.js";
 import { HttpFail } from "./errors.js";
 import { setSkillGrants } from "./grants.js";
@@ -45,6 +50,11 @@ export type CreateSkillInput = {
   funnel?: string;
   mcp?: string[] | string;
   required_inputs?: string[] | string;
+  input_schema?: TaskInputField[] | string;
+  result_type?: string;
+  next_actions?: TaskNextAction[] | string;
+  memory_policy?: TaskMemoryPolicy | string;
+  supports?: TaskSupports | string;
   permissions?: string[] | string;
   actions?: string[] | string;
   aliases?: string[] | string;
@@ -64,6 +74,11 @@ const PACK_FIELDS = [
   "funnel",
   "mcp",
   "required_inputs",
+  "input_schema",
+  "result_type",
+  "next_actions",
+  "memory_policy",
+  "supports",
   "permissions",
   "actions",
   "aliases",
@@ -80,6 +95,16 @@ function asList(value: string[] | string | undefined): string[] {
     .split(/[,，]/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function asJsonValue<T>(value: T | string | undefined, field: string): T | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    throw new HttpFail(400, `${field} must be valid JSON`);
+  }
 }
 
 function yamlScalar(value: string): string {
@@ -105,6 +130,11 @@ export function formatSkillMarkdown(input: {
   permissions: string[];
   actions: string[];
   aliases: string[];
+  input_schema?: TaskInputField[];
+  result_type?: string;
+  next_actions?: TaskNextAction[];
+  memory_policy?: TaskMemoryPolicy;
+  supports?: TaskSupports;
   in_market: boolean;
   body: string;
 }): string {
@@ -121,6 +151,11 @@ export function formatSkillMarkdown(input: {
     `permissions: ${JSON.stringify(input.permissions)}`,
     `actions: ${JSON.stringify(input.actions)}`,
     `aliases: ${JSON.stringify(input.aliases)}`,
+    ...(input.input_schema ? [`input_schema: ${JSON.stringify(input.input_schema)}`] : []),
+    ...(input.result_type ? [`result_type: ${input.result_type}`] : []),
+    ...(input.next_actions ? [`next_actions: ${JSON.stringify(input.next_actions)}`] : []),
+    ...(input.memory_policy ? [`memory_policy: ${JSON.stringify(input.memory_policy)}`] : []),
+    ...(input.supports ? [`supports: ${JSON.stringify(input.supports)}`] : []),
     `in_market: ${input.in_market ? "true" : "false"}`,
   ];
   if (input.funnel) lines.push(`funnel: ${input.funnel}`);
@@ -141,6 +176,11 @@ function normalizeCreate(input: CreateSkillInput): {
   permissions: string[];
   actions: string[];
   aliases: string[];
+  input_schema?: TaskInputField[];
+  result_type?: string;
+  next_actions?: TaskNextAction[];
+  memory_policy?: TaskMemoryPolicy;
+  supports?: TaskSupports;
   in_market: boolean;
   body: string;
 } {
@@ -166,6 +206,25 @@ function normalizeCreate(input: CreateSkillInput): {
   const body = String(input.body || "").trim();
   if (!body) throw new HttpFail(400, "skill body required");
   if (body.length > MAX_BODY) throw new HttpFail(400, "skill body too long");
+  const inputSchema = asJsonValue<TaskInputField[]>(input.input_schema, "input_schema");
+  const nextActions = asJsonValue<TaskNextAction[]>(input.next_actions, "next_actions");
+  const memoryPolicy = asJsonValue<TaskMemoryPolicy>(input.memory_policy, "memory_policy");
+  const supports = asJsonValue<TaskSupports>(input.supports, "supports");
+  const resultType = input.result_type === undefined ? undefined : String(input.result_type).trim();
+  const actions = asList(input.actions).length ? asList(input.actions) : ["analyze"];
+  try {
+    validateDeclaredTaskContract({
+      required_inputs: asList(input.required_inputs),
+      ...(inputSchema ? { input_schema: inputSchema } : {}),
+      ...(resultType ? { result_type: resultType } : {}),
+      ...(nextActions ? { next_actions: nextActions } : {}),
+      ...(memoryPolicy ? { memory_policy: memoryPolicy } : {}),
+      ...(supports ? { supports } : {}),
+      actions,
+    });
+  } catch (error) {
+    throw new HttpFail(400, error instanceof Error ? error.message : "invalid skill contract");
+  }
   return {
     id,
     title,
@@ -177,8 +236,13 @@ function normalizeCreate(input: CreateSkillInput): {
     mcp,
     required_inputs: asList(input.required_inputs),
     permissions: asList(input.permissions),
-    actions: asList(input.actions).length ? asList(input.actions) : ["analyze"],
+    actions,
     aliases: asList(input.aliases),
+    input_schema: inputSchema,
+    result_type: resultType,
+    next_actions: nextActions,
+    memory_policy: memoryPolicy,
+    supports,
     in_market: input.in_market !== false,
     body,
   };
@@ -261,6 +325,11 @@ export function updatePublishedSkill(id: string, input: UpdateSkillInput): Skill
     permissions: input.permissions ?? def?.permissions,
     actions: input.actions ?? def?.actions,
     aliases: input.aliases ?? current.aliases,
+    input_schema: input.input_schema ?? def?.input_schema,
+    result_type: input.result_type ?? def?.result_type,
+    next_actions: input.next_actions ?? def?.next_actions,
+    memory_policy: input.memory_policy ?? def?.memory_policy,
+    supports: input.supports ?? def?.supports,
     in_market: typeof input.in_market === "boolean" ? input.in_market : current.in_market,
     body: input.body ?? sop.body,
   });

@@ -56,6 +56,30 @@ description: 员工端视觉与设备适配实施细则。风格基准为 data-d
 - 触摸输入下命中区 ≥44px；视觉图标小于命中区时用内边距撑开，不改布局边界。
 - 焦点态统一用 `--focus-ring` + `--focus-ring-width/offset`；`focus-visible` 才出现。
 
+## 字号阶梯用途（工作台表面）
+
+档位数值只住 `frontend/src/styles.css` 的 `--ds-font-*` token；组件 CSS 不得硬编码 px 字号。
+哪个角色用哪一档由本表决定（2026-09-23 增补，UI/UX 专家裁定；执法清单见
+`superpowers/specs/2026-09-23-skill-routing-param-memory-design.md` §11）：
+
+| 角色 | 用哪一档 | 禁止 |
+|---|---|---|
+| 页面 / 上下文标题（中栏 header、对象交互区 h1） | `--ds-font-section` | `--ds-font-title`、`--text-display` 进工作台表面 |
+| 块标题（条件卡头、过程流标题、右栏分段头） | `--ds-font-ui` / `--ds-font-body`，字重 ≤600 | ≥20px/600 的 hero 卡头 + 营销副标题双行叙事 |
+| 内容（列表行、正文、结果字段） | `--ds-font-body` / `--ds-font-sm` | 硬编码 px 字号 |
+| 元信息（时间、来源、计数、提示） | `--ds-font-helper` / `--ds-font-tag` | 最小档用于可点标签（可点标签字号下限见界面细则） |
+
+## 内容密度（空态 · 过程流 · 结果行）
+
+- **空态紧凑**：左对齐、内容字号、`--space-3` 级内边距、动作内联；禁止居中大标题 + 大内边距的
+  hero 空态。空态文案必须诚实区分「尚无结果 / 服务不可用 / 筛选无结果」，保留 role 语义与双入口
+  （填参数跑一次 / 交给 Agent）。
+- **过程流与推理块不越界**：推理摘要（run.think）按渐进折叠呈现——只展开最新一段，被折叠的段数与
+  截断必须诚实标记；文本用 pre-wrap + overflow-wrap 防越界；需要全文阅读时走内部滚动或管理员
+  Trace，不得被 `overflow: hidden` 静默裁切（不变量 5）。
+- **右栏列表行即内容**：行 grid `min-width: 0`、工具栏可换行、次要字段进行内展开层或详情抽屉；
+  禁止整栏 `overflow-x: hidden` 兜底与整栏横向滚动。
+
 ## 三轴适配
 
 宽度、高度、输入模态**分别**处理。禁止 UA 嗅探，禁止把三轴合成设备名（如「手机」「平板」）。

@@ -16,6 +16,9 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
   const {
     run,
     runId,
+    runHistory,
+    historyLoading,
+    selectRun,
     visible,
     selected,
     selectedIds,
@@ -120,9 +123,26 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
 
       {run ? (
         <header className="discovery-result-head">
+          <p className="discovery-result-context">{runHistory[0]?.id === run.id ? "当前最新结果" : "历史运行结果"}</p>
           <h2 data-discovery-headline>{runHeadline(run)}</h2>
           <p data-discovery-counts>{runCountsLabel(run, visible.length)}</p>
         </header>
+      ) : null}
+
+      {runHistory.length > 1 ? (
+        <details className="discovery-history">
+          <summary>历史发现 <span>{runHistory.length - 1}</span></summary>
+          <label className="discovery-history-picker">
+            <span>查看其他运行</span>
+            <select value={run?.id || ""} disabled={historyLoading} aria-busy={historyLoading} onChange={(event) => void selectRun(event.target.value)}>
+              {runHistory.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {`${item.headline || "发现运行"} · ${item.created_at || item.started_at || item.id}`}
+                </option>
+              ))}
+            </select>
+          </label>
+        </details>
       ) : null}
 
       {showResults ? (
@@ -183,6 +203,12 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
         <div className="task-empty" data-discovery-empty={emptyKind}>
           <strong>{emptyKind === "down" ? "服务不可用" : "筛选无结果"}</strong>
           <p>{emptyMessage}</p>
+        </div>
+      ) : null}
+      {!run && !inFlight && !failure && emptyKind === "idle" ? (
+        <div className="task-empty" data-discovery-empty="no-history">
+          <strong>暂无发现结果</strong>
+          <p>完成中栏的筛选条件并提交后，结果会显示在这里。历史运行会保留在此处供切换查看。</p>
         </div>
       ) : null}
 

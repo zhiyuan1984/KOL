@@ -20,6 +20,35 @@ export const TASK_FUNNELS = ["reach", "intent", "biz", "sample", "content", "set
 export type TaskFunnel = (typeof TASK_FUNNELS)[number];
 export type TaskSource = "bundled" | "published";
 
+export const TASK_INPUT_KINDS = ["single", "multiple", "text", "number", "date", "object"] as const;
+const REGISTERED_INPUT_OPTION_SOURCES = new Set([
+  "api:/home/discovery/template#platforms",
+  "api:/home/discovery/template#regions",
+  "api:/home/discovery/template#directions",
+]);
+export type TaskInputKind = (typeof TASK_INPUT_KINDS)[number];
+export type TaskInputField = {
+  key: string;
+  label: string;
+  kind: TaskInputKind;
+  required: boolean;
+  options_source?: string;
+  options?: Array<string | { code: string; label: string }>;
+  reason?: string;
+  prefill?: string;
+  default?: unknown;
+  min?: number;
+  max?: number;
+};
+export type TaskNextAction = { action_id: string; when: "has_results" | "has_selection" | "always"; note?: string };
+export type TaskMemoryPolicy = {
+  kind: string;
+  scope: "owner" | "company" | "object";
+  auto_persist: "on_complete" | "on_adopt" | "never";
+  stale_refs?: string[];
+};
+export type TaskSupports = { cancel: boolean; retry: boolean; resume: boolean };
+
 export type TaskDefinition = {
   id: string;
   title: string;
@@ -43,6 +72,11 @@ export type TaskDefinition = {
   output: TaskOutput;
   mcp: string[];
   required_inputs: string[];
+  input_schema?: TaskInputField[];
+  result_type?: string;
+  next_actions?: TaskNextAction[];
+  memory_policy?: TaskMemoryPolicy;
+  supports?: TaskSupports;
   permissions: string[];
   actions: string[];
   aliases: string[];
@@ -117,6 +151,15 @@ function parseValue(raw: string): unknown {
       throw new Error(`invalid manifest array ${value}: ${error instanceof Error ? error.message : error}`);
     }
   }
+  if (value.startsWith("{") && value.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(value);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+      return parsed;
+    } catch (error) {
+      throw new Error(`invalid manifest object ${value}: ${error instanceof Error ? error.message : error}`);
+    }
+  }
   if (value === "true") return true;
   if (value === "false") return false;
   return value.replace(/^(['"])(.*)\1$/, "$2");
@@ -145,6 +188,131 @@ function stringArray(value: unknown, field: string, file: string): string[] {
     throw new Error(`manifest ${field} must be a string array: ${file}`);
   }
   return value.map(String);
+}
+
+function parseDeclaredContract(values: Record<string, unknown>, file: string): Pick<
+  TaskDefinition,
+  "input_schema" | "result_type" | "next_actions" | "memory_policy" | "supports"
+> {
+  let inputSchema: TaskInputField[] | undefined;
+  if (values.input_schema !== undefined) {
+    if (!Array.isArray(values.input_schema)) throw new Error(`manifest input_schema must be an array: ${file}`);
+    const seen = new Set<string>();
+    inputSchema = values.input_schema.map((raw, index) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        throw new Error(`manifest input_schema[${index}] must be an object: ${file}`);
+      }
+      const row = raw as Record<string, unknown>;
+      const key = String(row.key || "").trim();
+      const label = String(row.label || "").trim();
+      if (!/^[a-z][a-z0-9_]*$/.test(key) || !label) {
+        throw new Error(`manifest input_schema[${index}] requires a valid key and label: ${file}`);
+      }
+      if (seen.has(key)) throw new Error(`manifest input_schema has duplicate key ${key}: ${file}`);
+      seen.add(key);
+      if (!TASK_INPUT_KINDS.includes(row.kind as TaskInputKind)) {
+        throw new Error(`manifest input_schema.${key}.kind is invalid: ${file}`);
+      }
+      if (typeof row.required !== "boolean") throw new Error(`manifest input_schema.${key}.required must be boolean: ${file}`);
+      if (row.options_source !== undefined && (typeof row.options_source !== "string" || !row.options_source.trim())) {
+        throw new Error(`manifest input_schema.${key}.options_source must be a non-empty string: ${file}`);
+      }
+      if (typeof row.options_source === "string" && !REGISTERED_INPUT_OPTION_SOURCES.has(row.options_source)) {
+        throw new Error(`manifest input_schema.${key}.options_source is not a registered dictionary: ${file}`);
+      }
+      if (row.options !== undefined && (!Array.isArray(row.options) || row.options.some((option) => {
+        if (typeof option === "string") return !option.trim();
+        if (!option || typeof option !== "object" || Array.isArray(option)) return true;
+        const item = option as Record<string, unknown>;
+        return typeof item.code !== "string" || !item.code.trim() || typeof item.label !== "string" || !item.label.trim();
+      }))) throw new Error(`manifest input_schema.${key}.options must contain codes and labels: ${file}`);
+      for (const field of ["min", "max"] as const) {
+        if (row[field] !== undefined && (typeof row[field] !== "number" || !Number.isFinite(row[field]))) {
+          throw new Error(`manifest input_schema.${key}.${field} must be a finite number: ${file}`);
+        }
+      }
+      return Object.freeze({
+        key,
+        label,
+        kind: row.kind as TaskInputKind,
+        required: row.required as boolean,
+        ...(row.options_source ? { options_source: String(row.options_source) } : {}),
+        ...(row.options ? { options: row.options as TaskInputField["options"] } : {}),
+        ...(row.reason ? { reason: String(row.reason) } : {}),
+        ...(row.prefill ? { prefill: String(row.prefill) } : {}),
+        ...(row.default !== undefined ? { default: row.default } : {}),
+        ...(row.min !== undefined ? { min: Number(row.min) } : {}),
+        ...(row.max !== undefined ? { max: Number(row.max) } : {}),
+      });
+    });
+    const declaredRequired = [...seen].filter((key) => inputSchema!.find((field) => field.key === key)?.required).sort();
+    const requiredInputs = stringArray(values.required_inputs, "required_inputs", file).sort();
+    if (declaredRequired.join("\0") !== requiredInputs.join("\0")) {
+      throw new Error(`manifest required_inputs must match input_schema required keys: ${file}`);
+    }
+  }
+
+  let resultType: string | undefined;
+  if (values.result_type !== undefined) {
+    resultType = String(values.result_type).trim();
+    if (!/^[a-z][a-z0-9_]*$/.test(resultType)) throw new Error(`manifest result_type is invalid: ${file}`);
+  }
+
+  let nextActions: TaskNextAction[] | undefined;
+  if (values.next_actions !== undefined) {
+    if (!Array.isArray(values.next_actions)) throw new Error(`manifest next_actions must be an array: ${file}`);
+    const registeredActions = Array.isArray(values.actions) ? new Set(values.actions.map(String)) : null;
+    nextActions = values.next_actions.map((raw, index) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`manifest next_actions[${index}] must be an object: ${file}`);
+      const row = raw as Record<string, unknown>;
+      if (typeof row.action_id !== "string" || !row.action_id.trim()) throw new Error(`manifest next_actions[${index}].action_id is required: ${file}`);
+      if (registeredActions && !registeredActions.has(row.action_id)) throw new Error(`manifest next_actions[${index}].action_id is not registered in actions: ${file}`);
+      if (!( ["has_results", "has_selection", "always"] as unknown[]).includes(row.when)) throw new Error(`manifest next_actions[${index}].when is invalid: ${file}`);
+      return Object.freeze({ action_id: row.action_id, when: row.when as TaskNextAction["when"], ...(row.note ? { note: String(row.note) } : {}) });
+    });
+  }
+
+  let memoryPolicy: TaskMemoryPolicy | undefined;
+  if (values.memory_policy !== undefined) {
+    if (!values.memory_policy || typeof values.memory_policy !== "object" || Array.isArray(values.memory_policy)) {
+      throw new Error(`manifest memory_policy must be an object: ${file}`);
+    }
+    const row = values.memory_policy as Record<string, unknown>;
+    if (typeof row.kind !== "string" || !row.kind.trim()) throw new Error(`manifest memory_policy.kind is required: ${file}`);
+    if (!( ["owner", "company", "object"] as unknown[]).includes(row.scope)) throw new Error(`manifest memory_policy.scope is invalid: ${file}`);
+    if (!( ["on_complete", "on_adopt", "never"] as unknown[]).includes(row.auto_persist)) throw new Error(`manifest memory_policy.auto_persist is invalid: ${file}`);
+    memoryPolicy = Object.freeze({
+      kind: row.kind,
+      scope: row.scope as TaskMemoryPolicy["scope"],
+      auto_persist: row.auto_persist as TaskMemoryPolicy["auto_persist"],
+      ...(row.stale_refs === undefined ? {} : { stale_refs: stringArray(row.stale_refs, "memory_policy.stale_refs", file) }),
+    });
+  }
+
+  let supports: TaskSupports | undefined;
+  if (values.supports !== undefined) {
+    if (!values.supports || typeof values.supports !== "object" || Array.isArray(values.supports)) throw new Error(`manifest supports must be an object: ${file}`);
+    const row = values.supports as Record<string, unknown>;
+    for (const field of ["cancel", "retry", "resume"] as const) {
+      if (typeof row[field] !== "boolean") throw new Error(`manifest supports.${field} must be boolean: ${file}`);
+    }
+    supports = Object.freeze({ cancel: row.cancel as boolean, retry: row.retry as boolean, resume: row.resume as boolean });
+  }
+
+  return {
+    ...(inputSchema ? { input_schema: Object.freeze(inputSchema) as unknown as TaskInputField[] } : {}),
+    ...(resultType ? { result_type: resultType } : {}),
+    ...(nextActions ? { next_actions: Object.freeze(nextActions) as unknown as TaskNextAction[] } : {}),
+    ...(memoryPolicy ? { memory_policy: memoryPolicy } : {}),
+    ...(supports ? { supports } : {}),
+  };
+}
+
+export function validateDeclaredTaskContract(values: Record<string, unknown>): Pick<
+  TaskDefinition,
+  "input_schema" | "result_type" | "next_actions" | "memory_policy" | "supports"
+> {
+  return parseDeclaredContract(values, "<skill contract>");
 }
 
 function parseDefinition(file: string, folder: string, source: TaskSource): TaskDefinition {
@@ -222,6 +390,7 @@ function parseDefinition(file: string, folder: string, source: TaskSource): Task
   for (const tool of mcp) {
     if (!ALLOWED_TASK_MCP.has(tool)) throw new Error(`manifest exposes unapproved MCP tool ${tool}: ${file}`);
   }
+  const declaredContract = parseDeclaredContract(values, file);
   return Object.freeze({
     id,
     title: String(values.title),
@@ -238,6 +407,7 @@ function parseDefinition(file: string, folder: string, source: TaskSource): Task
     output: values.output as TaskOutput,
     mcp: Object.freeze([...new Set(mcp)]) as unknown as string[],
     required_inputs: Object.freeze(stringArray(values.required_inputs, "required_inputs", file)) as unknown as string[],
+    ...declaredContract,
     permissions: Object.freeze(stringArray(values.permissions, "permissions", file)) as unknown as string[],
     actions: Object.freeze(stringArray(values.actions, "actions", file)) as unknown as string[],
     aliases: Object.freeze(
