@@ -77,7 +77,10 @@ export function lucasPlanCopy(
       : `Lucas 正在规划${target}`;
   }
   if (phase === "failed") {
-    return failureReason ? `Lucas 规划失败：${failureReason}` : "Lucas 规划失败，上一版计划仍然可用";
+    const timeout = /超时|timed?\s*out/i.test(String(failureReason || ""));
+    return timeout
+      ? "本轮规划超时，现有任务清单仍可用"
+      : "本轮规划未完成，现有任务清单仍可用";
   }
   return plannedTasks != null && plannedTasks > 0
     ? `Lucas 已完成规划，共生成 ${plannedTasks} 项任务`
@@ -168,7 +171,11 @@ export default function TodayPlanProgress({
     };
     for (const event of events || []) {
       const type = eventTypeOf(event);
-      const detail = String(event.summary || "").replace(/\*\*/g, "").trim();
+      const detail = String(event.summary || "")
+        .replace(/未合成邮件/g, "未生成结果")
+        .replace(/未起箱/g, "未启动 Codex")
+        .replace(/\*\*/g, "")
+        .trim();
       const title = String(event.title || event.label || "").trim();
       const kind = stepKindOf(type);
       // A reasoning row streams its text, so it keeps a stable title: the text
@@ -222,7 +229,7 @@ export default function TodayPlanProgress({
 
   if (!status && !steps.length && !hasPrevious) return null;
 
-  const title = failed ? "规划未通过" : live ? "规划中" : "规划完成";
+  const title = failed ? "规划失败" : live ? "规划中" : "规划完成";
   return (
     <section
       className={"today-plan" + (live ? " is-live" : "")}

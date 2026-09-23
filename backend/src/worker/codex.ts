@@ -26,7 +26,7 @@ export function findCodex(): string {
       if (fs.statSync(override).isFile()) return override;
     } catch {
       throw new CodexUnavailable(
-        `CODEX_BIN=${override} 不可执行。未起箱、未合成邮件。`,
+        `CODEX_BIN=${override} 不可执行，无法启动 Codex。未生成结果。`,
         "安装 Codex CLI：npm i -g @openai/codex，然后 `codex login` 或设置 OPENAI_API_KEY。",
       );
     }
@@ -46,7 +46,7 @@ export function findCodex(): string {
   }
   throw new CodexUnavailable(
     "本机 PATH 上没有 `codex`。默认 Worker 必须走真实 app-server，不会用模板假信。",
-    "先安装：npm i -g @openai/codex 或按官方文档安装，再执行 `codex login`（或设置 OPENAI_API_KEY），然后重试「写跟进信」。",
+    "先安装：npm i -g @openai/codex 或按官方文档安装，再执行 `codex login`（或设置 OPENAI_API_KEY），然后重新运行任务。",
   );
 }
 
@@ -103,7 +103,7 @@ export class CodexAppServer {
       this.stderr = (this.stderr + chunk).slice(-8000);
     });
     if (this.proc.exitCode != null) {
-      throw new CodexUnavailable("codex app-server 立刻退出。未合成邮件。", "检查 `codex --version` 与 `codex login`。");
+      throw new CodexUnavailable("codex app-server 立刻退出。未生成结果。", "检查 `codex --version` 与 `codex login`。");
     }
   }
 
@@ -233,12 +233,12 @@ export class CodexAppServer {
     this.write({ method, id: rid, params });
     const waitMs = this.remainingMs(timeout);
     if (waitMs <= 50) {
-      throw new CodexUnavailable(`等待 Codex \`${method}\` 超时。未合成邮件。`, "检查网络与 Codex 登录后重试。");
+      throw new CodexUnavailable(`等待 Codex \`${method}\` 超时。未生成结果。`, "检查网络与 Codex 登录后重试。");
     }
     const msg = await new Promise<Json>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(rid);
-        reject(new CodexUnavailable(`等待 Codex \`${method}\` 超时。未合成邮件。`, "检查网络与 Codex 登录后重试。"));
+        reject(new CodexUnavailable(`等待 Codex \`${method}\` 超时。未生成结果。`, "检查网络与 Codex 登录后重试。"));
       }, waitMs);
       this.pending.set(rid, {
         resolve: (v) => {
@@ -255,7 +255,7 @@ export class CodexAppServer {
           this.pending.delete(rid);
           clearTimeout(timer);
           reject(
-            new CodexUnavailable("codex app-server 在等待响应时退出。未合成邮件。", "确认已 `codex login` 或设置 OPENAI_API_KEY。"),
+            new CodexUnavailable("codex app-server 在等待响应时退出。未生成结果。", "确认已 `codex login` 或设置 OPENAI_API_KEY。"),
           );
         }
       });
@@ -281,7 +281,7 @@ export class CodexAppServer {
     const deadline = Date.now() + Math.max(0, this.remainingMs(timeout));
     while (Date.now() < deadline) {
       if (this.dead) {
-        throw new CodexUnavailable("Codex 任务已停止，未合成邮件。", "检查登录状态后重试。");
+        throw new CodexUnavailable("Codex 任务已停止，未生成结果。", "检查登录状态后重试。");
       }
       for (const n of this.notifications) {
         if (n.method === "turn/completed") {
@@ -291,11 +291,11 @@ export class CodexAppServer {
         }
       }
       if (this.proc.exitCode != null) {
-        throw new CodexUnavailable("app-server 在 turn 完成前退出。未合成邮件。", "重试或检查 `codex login`。");
+        throw new CodexUnavailable("app-server 在 turn 完成前退出。未生成结果。", "重试或检查 `codex login`。");
       }
       await new Promise((r) => setTimeout(r, 50));
     }
-    throw new CodexUnavailable("等待 turn/completed 超时。未合成邮件。", "重试一次；模型较慢时可加大 CODEX_TURN_TIMEOUT。");
+    throw new CodexUnavailable("等待 turn/completed 超时。未生成结果。", "重试一次；模型较慢时可加大 CODEX_TURN_TIMEOUT。");
   }
 
   private collectTurnItems(params: Json): void {
@@ -393,7 +393,7 @@ export class CodexAppServer {
     if (this.dead) return;
     this.dead = true;
     const stopped = new CodexUnavailable(
-      "Codex 任务已停止，未合成邮件。",
+      "Codex 任务已停止，未生成结果。",
       "检查登录状态后重试。",
     );
     for (const pending of this.pending.values()) pending.reject(stopped);

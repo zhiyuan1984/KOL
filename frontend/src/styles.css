@@ -91,6 +91,7 @@
   --home-chip-w: 88px;
   --home-chip-h: 28px;
   --home-chip-gap: 4px;
+  --home-mode-tab-gap: 2px;
   --workspace-task-priority-col: 64px;
   --workspace-task-actions-col: 124px;
   /* Home Agent 工作台列宽：唯一数值来源见 docs/DESIGN.md §Home Agent 工作台几何。 */
@@ -1053,6 +1054,8 @@ summary:focus-visible,
   font-size: var(--font-xs);
   font-weight: 400;
   color: var(--text-muted);
+  flex: 0 0 auto;
+  margin-left: var(--home-mode-tab-gap);
 }
 .home-mode-dot {
   display: inline-block;
@@ -10035,8 +10038,9 @@ button.today-brief-primary-btn:disabled {
 }
 .home-mode-count {
   color: var(--accent-text);
+  font-size: var(--ds-font-tag);
   font-weight: 500;
-  margin-left: 4px;
+  margin-left: 0;
 }
 
 /* 优化结论 card (restyle of .today-brief in today mode) */
@@ -12028,18 +12032,19 @@ button.today-brief-primary-btn:disabled {
    independently. These rules intentionally supersede the transitional
    absolute-positioned Today composer above. */
 .home-quick-tasks {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  width: 100%;
   align-items: center;
-  gap: var(--home-chip-gap);
+  gap: var(--home-mode-tab-gap);
   min-width: 0;
   padding: 0 2px 8px;
 }
 .home-quick-tasks button {
-  flex: 0 0 var(--home-chip-w);
-  width: var(--home-chip-w);
+  width: 100%;
   height: var(--home-chip-h);
-  padding: 0 4px;
+  min-width: 0;
+  padding: 0 2px;
   border: none;
   border-radius: var(--radius-control);
   background: var(--chrome);
@@ -12051,17 +12056,24 @@ button.today-brief-primary-btn:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--home-chip-gap);
+  gap: var(--home-mode-tab-gap);
 }
-.home-quick-task-icon {
-  width: 15px;
-  height: 15px;
-  flex: 0 0 auto;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.home-mode-label {
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+}
+@container home-workspace-center (max-width: 560px) {
+  .home-quick-tasks { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@container home-workspace-center (max-width: 380px) {
+  .home-quick-tasks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .home-quick-tasks { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 380px) {
+  .home-quick-tasks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .home-quick-tasks button:hover {
   background: var(--chrome-2);
@@ -12141,8 +12153,7 @@ button.today-brief-primary-btn:disabled {
   min-height: 22px;
 }
 
-/* 快捷任务 chip 固定 100px 宽后不再等宽拉伸：中心列变窄时靠 .home-quick-tasks 的
-   flex-wrap 换行，保证每个入口都还在。 */
+/* 五个模式入口与提问框共用底部 dock；中栏变窄时改列数，不挤压工作区列宽。 */
 
 /* The Today center owns one width axis: hero, process stream, quick tasks and
    the composer box are sibling rows of the same content grid (auto / 1fr / auto).
@@ -12158,6 +12169,7 @@ button.today-brief-primary-btn:disabled {
     overflow: hidden;
   }
   .home-pane[data-home-workspace] .scope-workspace-center-content {
+    container: home-workspace-center / inline-size;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr) auto;
     width: 100%;
@@ -12182,6 +12194,16 @@ button.today-brief-primary-btn:disabled {
     min-width: 0;
     margin: 0 !important;
     box-sizing: border-box;
+  }
+}
+
+@container home-workspace-center (max-width: 560px) {
+  .home-pane[data-home-workspace] .today-center-hero {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+  .home-pane[data-home-workspace] .today-center-hero .home-stats {
+    justify-self: start;
   }
 }
 

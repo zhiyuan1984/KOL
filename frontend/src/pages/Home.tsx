@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   api,
@@ -255,17 +255,6 @@ function CardFields({
       ) : statusFields}
     </dl>
   );
-}
-
-function homeModeIcon(mode: HomeMode): ReactNode {
-  const paths: Record<HomeMode, ReactNode> = {
-    today: <><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M8 3v4M16 3v4M4 10h16M8 14h3" /></>,
-    todo: <><rect x="4" y="4" width="16" height="16" rx="2" /><path d="m8 9 2 2 4-4M8 15h8" /></>,
-    discovery: <><circle cx="10.5" cy="10.5" r="6" /><path d="m15 15 5 5" /></>,
-    pool: <><circle cx="9" cy="9" r="3" /><circle cx="16.5" cy="10.5" r="2.5" /><path d="M3.5 19c.6-3 2.5-4.5 5.5-4.5S14 16 14.5 19M14 15c2.7-.6 5.1.8 6 3" /></>,
-    lifecycle: <><path d="M12 20s-7-4.2-7-10a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 5.8-7 10-7 10Z" /><path d="M12 9v5M9.5 11.5h5" /></>,
-  };
-  return <svg className="home-quick-task-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">{paths[mode]}</svg>;
 }
 
 export default function Home() {
@@ -1539,13 +1528,17 @@ export default function Home() {
   const overdueCount = tabOpenTodoItems.filter((task) => openBucket(task) === "overdue").length;
   const dueTodayCount = tabOpenTodoItems.filter((task) => openBucket(task) === "due_today").length;
   const awaitingApprovalCount = tabOpenTodoItems.filter((task) => isAwaitingApproval(task)).length;
+  const todayOverdueCount = paneRows.filter((task) => openBucket(task) === "overdue").length;
+  const todayDueCount = paneRows.filter((task) => openBucket(task) === "due_today").length;
+  const todayApprovalCount = paneRows.filter((task) => isAwaitingApproval(task)).length;
   const todayCount = tabTodayCount;
   const recognizeSeconds = recognizeElapsedSeconds(recognizeStartedAt, recognizeNow);
   const recognizeOverdue = recognizeTimedOut(recognizeStartedAt, recognizeNow);
 
   const statsText = mode === "todo"
-    ? `${openCount}项未了结 · ${overdueCount}已逾期 · ${dueTodayCount}今天到期`
-    : `${openCount}项待处理 · ${overdueCount}逾期 · ${dueTodayCount}今天到期`;
+    ? `${overdueCount} 已逾期 · ${dueTodayCount} 今天到期`
+    : `${todayOverdueCount} 逾期 · ${todayDueCount} 今天到期`;
+  const scopeApprovalCount = mode === "today" ? todayApprovalCount : awaitingApprovalCount;
 
   const groups = definitions.reduce<Map<string, TaskDefinition[]>>((catalog, definition) => {
     const category = definition.category || definition.profile || "常用任务";
@@ -1635,8 +1628,9 @@ export default function Home() {
             else setMode(homeMode);
           }}
         >
-          {homeModeIcon(homeMode)}
-          {homeMode === "lifecycle" ? "我的红人" : HOME_MODE_LABELS[homeMode]}
+          <span className="home-mode-label">
+            {homeMode === "lifecycle" ? "我的红人" : HOME_MODE_LABELS[homeMode]}
+          </span>
           {homeMode === "today" && todayCount > 0 ? <span className="home-mode-count" aria-hidden>{todayCount}</span> : null}
           {homeMode === "todo" && openCount > 0 ? <span className="home-mode-count" aria-hidden>{openCount}</span> : null}
         </button>
@@ -1811,6 +1805,7 @@ export default function Home() {
       }
       data-composer-rhythm="dock"
     >
+      {quickTaskBar}
       {stopping ? <p className="composer-override-hint" role="status" data-home-stopping>正在停止…</p> : null}
       <ComposerDock
         variant="workspace"
@@ -1894,16 +1889,13 @@ export default function Home() {
                 if (selected) void convertSuggestion(selected);
               }}
               centerHeader={(
-                <>
-                  {quickTaskBar}
-                  <div className="home-hero today-center-hero">
-                    <h1 data-home-title={paneScope}>{SCOPE_CONFIG[paneScope].heroTitle}</h1>
-                    <p className="home-stats" data-today-summary data-home-stats>
-                      {statsText}
-                      {awaitingApprovalCount ? ` · ${awaitingApprovalCount}等审批` : ""}
-                    </p>
-                  </div>
-                </>
+                <div className="home-hero today-center-hero">
+                  <h1 data-home-title={paneScope}>{SCOPE_CONFIG[paneScope].heroTitle}</h1>
+                  <p className="home-stats" data-today-summary data-home-stats>
+                    {statsText}
+                    {scopeApprovalCount ? ` · ${scopeApprovalCount} 等审批` : ""}
+                  </p>
+                </div>
               )}
               centerSupplement={interactionFeedback}
               centerFooter={renderComposerDock()}
@@ -1923,7 +1915,6 @@ export default function Home() {
               activeRunId={discoveryRunId}
               lastSubmit={lastDiscoverySubmit}
               onRetrySubmit={() => void retryDiscoveryRun()}
-              centerHeader={quickTaskBar}
               centerSupplement={interactionFeedback}
               centerFooter={renderComposerDock()}
             />
@@ -1939,7 +1930,6 @@ export default function Home() {
               railLabel="我的红人结果"
               railToggleLabel="我的红人"
               railStorageKey="ui:home-followed-rail-collapsed"
-              centerHeader={quickTaskBar}
               interaction={interactionFeedback}
               centerFooter={renderComposerDock()}
               rail={(
@@ -1992,7 +1982,6 @@ export default function Home() {
               railLabel="公海结果"
               railToggleLabel="公海"
               railStorageKey="ui:home-pool-rail-collapsed"
-              centerHeader={quickTaskBar}
               interaction={interactionFeedback}
               centerFooter={renderComposerDock()}
               rail={(
