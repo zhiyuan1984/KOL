@@ -12123,6 +12123,7 @@ button.today-brief-primary-btn:disabled {
   gap: var(--space-2) var(--space-3);
   padding-top: 4px;
   padding-bottom: 8px;
+  padding-right: var(--space-4);
 }
 .home-pane[data-home-workspace] .today-center-hero h1,
 .home-pane[data-home-workspace] .today-center-hero .home-stats {
@@ -12132,8 +12133,8 @@ button.today-brief-primary-btn:disabled {
   white-space: nowrap;
 }
 .home-pane[data-home-workspace] .today-center-hero .home-stats {
-  justify-self: end;
-  text-align: right;
+  justify-self: start;
+  text-align: left;
   overflow-wrap: normal;
 }
 
@@ -12202,7 +12203,7 @@ button.today-brief-primary-btn:disabled {
     align-items: baseline;
   }
   .home-pane[data-home-workspace] .today-center-hero .home-stats {
-    justify-self: end;
+    justify-self: start;
     font-size: var(--ds-font-helper);
   }
 }

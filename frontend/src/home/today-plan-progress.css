@@ -144,7 +144,7 @@
   border-radius: var(--ds-radius-input);
 }
 .today-plan-head-meta .today-plan-finished {
-  margin-left: auto;
+  margin-left: 0;
 }
 .today-plan-head-meta .today-plan-toggle {
   margin-left: 0;
