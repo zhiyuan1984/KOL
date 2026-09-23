@@ -94,6 +94,7 @@
   --home-mode-tab-gap: 2px;
   --workspace-task-priority-col: 64px;
   --workspace-task-actions-col: 124px;
+  --workspace-task-action-h: 20px;
   /* Home Agent 工作台列宽：唯一数值来源见 docs/DESIGN.md §Home Agent 工作台几何。 */
   --workspace-result-rail-min: 360px;
   --workspace-result-rail-ideal: 54%;
@@ -11355,9 +11356,11 @@ button.today-brief-primary-btn:disabled {
   .tier-panel .tier-panel-more a {
     min-height: 44px;
   }
-  /* 首页 chip（快捷任务 / 任务筛选）：桌面 30px，触摸提到 44px。 */
+  /* 首页快捷入口、任务筛选与任务操作：触摸模态只扩命中区至 44px。 */
   .home-quick-tasks button,
-  .task-board-pill {
+  .task-board-pill,
+  .task-board-open,
+  .task-board-edit {
     min-height: 44px;
   }
 }

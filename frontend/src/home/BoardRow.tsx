@@ -105,32 +105,34 @@ export default function BoardRow({
         </div>
       </td>
       <td className="task-board-cell-actions">
-        <button
-          type="button"
-          className="task-board-open"
-          data-today-todo-act
-          data-today-act={verb}
-          data-home-entry="acknowledge-task"
-          disabled={busy}
-          onClick={() => onAct(task)}
-        >
-          <svg className="task-board-action-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-            <path d="M7 5h8v8M15 5l-9 9" />
-          </svg>
-          {actionLabel}
-        </button>
-        {editable ? (
+        <div className="task-board-actions">
           <button
             type="button"
-            className="task-board-edit"
-            data-today-todo-edit
-            data-home-entry="edit-task"
+            className="task-board-open"
+            data-today-todo-act
+            data-today-act={verb}
+            data-home-entry="acknowledge-task"
             disabled={busy}
-            onClick={() => onEdit?.(task)}
+            onClick={() => onAct(task)}
           >
-            编辑
+            <svg className="task-board-action-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+              <path d="M7 5h8v8M15 5l-9 9" />
+            </svg>
+            {actionLabel}
           </button>
-        ) : null}
+          {editable ? (
+            <button
+              type="button"
+              className="task-board-edit"
+              data-today-todo-edit
+              data-home-entry="edit-task"
+              disabled={busy}
+              onClick={() => onEdit?.(task)}
+            >
+              编辑
+            </button>
+          ) : null}
+        </div>
       </td>
     </tr>
   );

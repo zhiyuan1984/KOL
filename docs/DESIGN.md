@@ -64,6 +64,7 @@ description: 员工端视觉与设备适配实施细则。风格基准为 data-d
 | `--home-chip-w` / `--home-chip-h` / `--home-chip-gap` | `88px` / `28px` / `4px` | 快捷任务与任务筛选；触摸模态只把高度命中区扩至 `44px` |
 | `--home-mode-tab-gap` | `2px` | 五个工作模式入口的间距；按可用宽度分列换行，同行等宽、等高，不设置中栏最小宽度 |
 | `--workspace-task-priority-col` / `--workspace-task-actions-col` | `64px` / `124px` | 任务结果表优先级列 / 操作列 |
+| `--workspace-task-action-h` | `20px` | 任务行操作按钮与状态标签同高；触摸模态操作按钮命中区扩至 `44px` |
 | `--radius-control` / `--radius-card` | `6px` / `8px` | 输入与普通控件 / 内容容器 |
 | `--ds-radius-section` / `--ds-radius-input` / `--ds-radius-chip` / `--ds-radius-tag` | `8px` / `6px` / `6px` / `6px` | 工作台分区、输入、chip 与普通状态标签 |
 

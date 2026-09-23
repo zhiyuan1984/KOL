@@ -281,29 +281,35 @@ export default function TodayPlanProgress({
           ) : null}
         </div>
       ) : null}
-      <header className="today-plan-head">
-        <LucasAvatar phase={displayPhase} />
-        <strong className="today-plan-title">{title}</strong>
-        {status ? <span className="today-plan-lead" data-today-plan-lead>{status}</span> : null}
-        {!live && candidates != null && candidates > 0 ? (
-          <span className="today-plan-meta">· 分析 {candidates} 项候选任务</span>
-        ) : null}
-        {elapsed != null ? (
-          <span className="today-plan-elapsed" data-today-plan-elapsed={elapsed} aria-label={`已用时 ${formatTodayPlanElapsed(elapsed)}`}>
-            {formatTodayPlanElapsed(elapsed)}
-          </span>
-        ) : null}
-        {!live && finishedAt ? <time className="today-plan-finished">{finishedAt}</time> : null}
-        {steps.length ? (
-          <button
-            type="button"
-            className="today-plan-toggle"
-            aria-expanded={open}
-            onClick={() => setOpen((value) => !value)}
-          >
-            {open ? "收起过程" : "查看过程"}
-            <span aria-hidden className={"today-plan-chevron" + (open ? "" : " is-down")}>⌄</span>
-          </button>
+      <header className={"today-plan-head" + (live ? " is-live" : " is-settled")}>
+        <div className="today-plan-head-main">
+          <LucasAvatar phase={displayPhase} />
+          <strong className="today-plan-title">{title}</strong>
+          {status ? <span className="today-plan-lead" data-today-plan-lead>{status}</span> : null}
+          {elapsed != null ? (
+            <span className="today-plan-elapsed" data-today-plan-elapsed={elapsed} aria-label={`已用时 ${formatTodayPlanElapsed(elapsed)}`}>
+              {formatTodayPlanElapsed(elapsed)}
+            </span>
+          ) : null}
+        </div>
+        {!live && (candidates != null && candidates > 0 || finishedAt || steps.length) ? (
+          <div className="today-plan-head-meta">
+            {candidates != null && candidates > 0 ? (
+              <span className="today-plan-meta">· 分析 {candidates} 项候选任务</span>
+            ) : null}
+            {finishedAt ? <time className="today-plan-finished">{finishedAt}</time> : null}
+            {steps.length ? (
+              <button
+                type="button"
+                className="today-plan-toggle"
+                aria-expanded={open}
+                onClick={() => setOpen((value) => !value)}
+              >
+                {open ? "收起过程" : "查看过程"}
+                <span aria-hidden className={"today-plan-chevron" + (open ? "" : " is-down")}>⌄</span>
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </header>
 
