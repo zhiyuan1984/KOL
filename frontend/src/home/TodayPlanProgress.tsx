@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { TaskEvent, TodayBrief } from "../api";
+import { thinkTail } from "./streamText";
 import {
   formatTodayPlanElapsed,
   todayPlanEventLabels,
@@ -38,15 +39,6 @@ function eventTime(event?: TaskEvent): string {
   const date = new Date(raw);
   if (Number.isNaN(date.getTime())) return "";
   return formatClock(date);
-}
-
-/** The stream shows the newest lines and never grows its own scrollbar. */
-export const THINK_TAIL_LINES = 6;
-
-export function thinkTail(text: string): { body: string; truncated: boolean } {
-  const lines = String(text || "").split("\n").filter((line, index, all) => line.trim() || index === 0);
-  if (lines.length <= THINK_TAIL_LINES) return { body: lines.join("\n").trim(), truncated: false };
-  return { body: lines.slice(-THINK_TAIL_LINES).join("\n").trim(), truncated: true };
 }
 
 type StepState = "running" | "done" | "failed";

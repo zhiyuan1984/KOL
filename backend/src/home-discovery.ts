@@ -38,9 +38,11 @@ import {
 } from "./gateway/discovery-harness.js";
 import { HttpFail } from "./host/errors.js";
 import { normalizeBrandCode } from "./host/pep.js";
+import { createRunTraceSink } from "./host/run-trace.js";
 import { nid } from "./ids.js";
 import { appendTaskEvent } from "./routers/tasks.js";
 import type { Json, Row, WorkerResult } from "./types.js";
+import type { WorkerProgress } from "./worker/progress.js";
 import { runWorker } from "./worker/runner.js";
 
 export { discoveryTemplate };
@@ -67,11 +69,15 @@ type DiscoverySpec = {
   target_count_clamped?: boolean;
 };
 
-type BriefRunner = (input: {
+type BriefRunnerInput = {
   sessionId: string;
   prompt: string;
   extra: Json;
-}) => Promise<WorkerResult | Json>;
+  /** Harness progress → task_events rows; the Codex 推理 stream lives here. */
+  onStream?: (progress: WorkerProgress) => void;
+};
+
+type BriefRunner = (input: BriefRunnerInput) => Promise<WorkerResult | Json>;
 
 let briefRunner: BriefRunner | null = null;
 let planRunner: BriefRunner | null = null;
@@ -924,6 +930,9 @@ async function rankHomeDiscoveryRun(run: Row, counts: { raw: number; written: nu
     memory_stitch: false,
     allowed_skills: ["discovery_brief"],
   };
+  // task_events.run_id is an FK to task_runs, and a discovery run has no
+  // task_runs row: its trace rows carry run_id NULL like the rest of its events.
+  const trace = createRunTraceSink({ workItemId: String(run.work_item_id || ""), runId: null });
   try {
     const result = await runInDiscoveryHarness(
       {
@@ -936,19 +945,26 @@ async function rankHomeDiscoveryRun(run: Row, counts: { raw: number; written: nu
         sessionId,
         prompt: "根据 Host 已过滤的候选人写 discovery_brief/v1。不要编造粉丝、播放或邮箱。",
         extra,
+        onStream: trace.onStream,
       }),
     );
+    // 先收尾推理行，再落简报终态事件：工作项的最后一条事件仍是终态，
+    // 与今日规划一致（home-board 用 MAX(sequence) 当「最新状态」）。
+    trace.finish(false);
     const items = (result as WorkerResult).items || (result as Json).items || result;
-    applyDiscoveryBriefResult(String(run.id), { items: Array.isArray(items) ? items : [items] });
+    const applied = applyDiscoveryBriefResult(String(run.id), { items: Array.isArray(items) ? items : [items] });
+    // 简报没通过校验就是这轮没有产出，推理行不能显示成功。
+    if (String(applied.status) === "rank_failed") trace.finish(true);
   } catch (error) {
+    trace.finish(true);
     const message = error instanceof Error ? error.message : String(error);
     updateRunStatus(String(run.id), "rank_failed", { error: message, completed: true });
     event(String(run.work_item_id || ""), "failed", "rank_failed", "发现简报失败，已保留原始候选人。");
   }
 }
 
-async function defaultBriefRunner(input: { sessionId: string; prompt: string; extra: Json }): Promise<WorkerResult | Json> {
-  return runWorker(input.sessionId, "discovery_brief", input.prompt, input.extra);
+async function defaultBriefRunner(input: BriefRunnerInput): Promise<WorkerResult | Json> {
+  return runWorker(input.sessionId, "discovery_brief", input.prompt, input.extra, undefined, input.onStream);
 }
 
 async function defaultPlanRunner(input: { sessionId: string; prompt: string; extra: Json }): Promise<WorkerResult | Json> {

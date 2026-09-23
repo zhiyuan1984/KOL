@@ -1,16 +1,33 @@
 import type { TaskEvent } from "../api";
+import { thinkTail } from "./streamText";
+
+export type DiscoveryProcessKind =
+  | "queued"
+  | "search"
+  | "collecting"
+  | "received"
+  | "deduped"
+  | "analyzing"
+  | "collect_done"
+  | "scoring"
+  | "briefing"
+  | "step"
+  | "ranked"
+  | "stopped"
+  | "failed";
 
 export type DiscoveryProcessStep = {
   id: string;
-  kind:
-    | "queued"
-    | "search"
-    | "received"
-    | "deduped"
-    | "scoring"
-    | "ranked"
-    | "failed";
+  kind: DiscoveryProcessKind;
   label: string;
+};
+
+/** 最新一段 Codex 推理；更早的段只折算成计数（面板不自带滚动条）。 */
+export type DiscoveryThink = {
+  body: string;
+  truncated: boolean;
+  state: "running" | "done" | "failed";
+  folded: number;
 };
 
 const FAILED_TYPES = /fail|error|cancel/;
@@ -28,6 +45,14 @@ function eventBlob(event: TaskEvent): string {
   ].map((item) => String(item || "")).join(" ").toLowerCase();
 }
 
+function eventTypeOf(event: TaskEvent): string {
+  return String(event.type || event.event_type || "").toLowerCase();
+}
+
+/**
+ * 计数优先读事件自带的字段（e2e 与历史事件用它），真实事件由 Host 写进
+ * label / safe_summary 的「N 条」文案里——两条路都要能读到，缺了就写占位。
+ */
 function eventCount(event: TaskEvent): number | null {
   const keys = ["count", "n", "received", "raw_count", "deduped", "shortlist_count", "candidate_count"];
   for (const key of keys) {
@@ -40,7 +65,16 @@ function eventCount(event: TaskEvent): number | null {
   return null;
 }
 
+/**
+ * Host 的真实事件 → 一行过程。映射要与后端写的类型对得上
+ * （`crawl.*` 来自采集服务、`discovery.*` / `crawl_*` 来自 home-discovery、
+ * `run.think` / `run.step` 来自简报 worker），否则过程流会装作跑得比实际快：
+ * 「已排出候选」只在 artifact_ready 之后出现。
+ */
 export function discoveryEventCopy(event: TaskEvent): DiscoveryProcessStep | null {
+  const type = eventTypeOf(event);
+  // 推理单独走 think 块，不占步骤位。
+  if (type === "run.think" || type === "run.stream") return null;
   const blob = eventBlob(event);
   const count = eventCount(event);
   const id = String(event.id || event.type || event.status || event.label || Math.random());
@@ -52,7 +86,24 @@ export function discoveryEventCopy(event: TaskEvent): DiscoveryProcessStep | nul
       label: reason ? `失败原因：${reason}` : "失败原因：检索没有完成",
     };
   }
-  if (/rank|shortlist|排出候选|已排出/.test(blob)) {
+  if (/stopped|已停止|已取消/.test(blob)) {
+    return { id, kind: "stopped", label: "采集已停止" };
+  }
+  // 采集服务的操作行（「去重并写入达人库…」）——先认出来，别被下面的去重口径吃掉。
+  if (/crawl[._]operation/.test(blob)) {
+    return { id, kind: "collecting", label: "正在采集" };
+  }
+  if (/result_ready|采集完成/.test(blob)) {
+    return { id, kind: "collect_done", label: "采集完成" };
+  }
+  if (/analyz|整理候选/.test(blob)) {
+    return { id, kind: "analyzing", label: "整理候选" };
+  }
+  // 简报阶段：开始与结束是两件事，不能提前报「已排出候选」。
+  if (/ranking_started|plan_started|生成发现简报/.test(blob)) {
+    return { id, kind: "briefing", label: "正在生成发现简报" };
+  }
+  if (/artifact_ready|shortlist|已排出候选|\branked\b/.test(blob)) {
     return { id, kind: "ranked", label: "已排出候选" };
   }
   if (/scor|打分/.test(blob)) {
@@ -65,6 +116,12 @@ export function discoveryEventCopy(event: TaskEvent): DiscoveryProcessStep | nul
       label: count != null ? `采集结束去重后 ${count} 条` : "采集结束去重后 M 条",
     };
   }
+  if (/queue|排队/.test(blob)) {
+    return { id, kind: "queued", label: "排队" };
+  }
+  if (/crawl|采集/.test(blob)) {
+    return { id, kind: "collecting", label: "正在采集" };
+  }
   if (/receiv|已收到|raw_count|got_\d|collected/.test(blob)) {
     return {
       id,
@@ -75,8 +132,9 @@ export function discoveryEventCopy(event: TaskEvent): DiscoveryProcessStep | nul
   if (/search|keyword|开始搜索/.test(blob)) {
     return { id, kind: "search", label: "开始搜索关键词" };
   }
-  if (/queue|排队/.test(blob)) {
-    return { id, kind: "queued", label: "排队" };
+  if (type === "run.step") {
+    const label = String(event.label || event.title || "").trim();
+    return { id, kind: "step", label: label || "处理中" };
   }
   return null;
 }
@@ -93,4 +151,32 @@ export function presentDiscoveryEvents(events: TaskEvent[]): DiscoveryProcessSte
     steps.push(step);
   }
   return steps;
+}
+
+function thinkStateOf(event: TaskEvent): DiscoveryThink["state"] {
+  const status = String(event.status || "").toLowerCase();
+  if (/fail|error/.test(status)) return "failed";
+  if (/running|streaming|started|pending/.test(status)) return "running";
+  return "done";
+}
+
+/** 简报 worker 的推理流（`run.think`）→ 中栏的「Codex 推理」块。 */
+export function presentDiscoveryThink(events: TaskEvent[]): DiscoveryThink | null {
+  const rows: Array<{ body: string; state: DiscoveryThink["state"] }> = [];
+  for (const event of events) {
+    const type = eventTypeOf(event);
+    if (type !== "run.think" && type !== "run.stream") continue;
+    const body = String(event.summary || event.safe_summary || "").trim();
+    if (!body) continue;
+    rows.push({ body, state: thinkStateOf(event) });
+  }
+  if (!rows.length) return null;
+  const last = rows[rows.length - 1];
+  const tail = thinkTail(last.body);
+  return {
+    body: tail.body,
+    truncated: tail.truncated,
+    state: last.state,
+    folded: rows.length - 1,
+  };
 }

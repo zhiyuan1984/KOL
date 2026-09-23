@@ -98,4 +98,34 @@ describe("pane parity", () => {
     expect(home).not.toContain("TodoPane");
     expect(home).not.toContain("TodayPane");
   });
+
+  it("keeps one workspace shell for all three panes", () => {
+    const shell = read("./WorkspaceShell.tsx");
+    const scope = read("./ScopeWorkspace.tsx");
+    const discovery = read("./DiscoveryWorkspace.tsx");
+    const boardCss = read("./today-plan-board.css");
+    const home = read("../pages/Home.tsx");
+
+    // 两栏几何只在 WorkspaceShell 里写一次，今日/待办与 AI发现 都组合它。
+    expect(shell).toContain('data-scope-ai-workspace');
+    expect(shell).toContain("data-scope-task-rail");
+    expect(shell).toContain("scope-workspace-center-scroll");
+    expect(scope).toContain("<WorkspaceShell");
+    expect(discovery).toContain("<WorkspaceShell");
+    // 内容组件不许再写骨架：出现这些选择器就意味着出现了第二套几何。
+    for (const file of [scope, discovery]) {
+      expect(file).not.toContain("data-scope-ai-workspace");
+      expect(file).not.toContain("data-scope-task-rail");
+      expect(file).not.toContain("scope-task-rail-toggle");
+      expect(file).not.toContain("scope-workspace-center-content");
+    }
+    // 折叠隐藏的是槽内容：外壳不认识任何具体业务组件。
+    expect(shell).not.toContain("task-board");
+    expect(boardCss).toContain(".scope-task-rail.is-collapsed .scope-task-rail-body");
+    expect(boardCss).not.toContain(".scope-task-rail.is-collapsed > .task-board");
+    // AI发现 是第三个 pane，不是第二套骨架。
+    expect(home).toContain("<DiscoveryWorkspace");
+    expect(home).toContain("data-home-workspace={workspacePane");
+    expect(home).not.toContain('<section className="home-mode-pane discovery-pane"');
+  });
 });

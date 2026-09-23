@@ -13,7 +13,8 @@ description: 员工端视觉与设备适配实施细则。风格基准为 data-d
 >
 > 实现落点：`frontend/src/styles.css` 的 `:root`（间距 / 字号 / 圆角 / 控件高度 / 层级）、
 > `frontend/src/composer.css`（提问框外壳几何，以及提问框内的两处浮层：+ 菜单行与档位面板）、**组件级样式表**（`frontend/src/home/today-plan-board.css`、
-> `today-display-row.css`、`today-rec-row.css`、`edit-task-dialog.css`）与**组件内联样式**
+> `today-plan-progress.css`、`discovery-workspace.css`、`today-display-row.css`、`today-rec-row.css`、
+> `edit-task-dialog.css`）与**组件内联样式**
 > （例如 `frontend/src/pages/SkillLifecycle.tsx`）。落到哪一份都按本文件取值；不一致时先核对本文件
 > （根 `AGENTS.md` §3）。落点清单不全会一处改、一处漏 —— 2026-09-22 的颜色职责迁移首轮就漏了上面这四份，
 > 别再从「只有两份」的假设出发。

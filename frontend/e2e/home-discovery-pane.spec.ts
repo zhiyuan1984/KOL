@@ -4,10 +4,12 @@ const LIVE_SIDE_EFFECT = /\/(send|confirm-stage|start-crawl|crawl-job|actions\/s
 const BANNED_FOLLOW = /加入跟进|\+\s*跟进|按所选加入跟进/;
 const BANNED_BATCH_PATH = /\/api\/home\/discovery\/batches/;
 
-async function openDiscovery(page: Page) {
+async function openDiscovery(page: Page, { expectCard = true } = {}) {
   await page.goto("/?tab=discovery");
-  // 进入即有条件卡（没有 run 时结果区为空、面板本身零高，所以不能拿面板当可见性锚点）。
-  await expect(page.locator("[data-discovery-search-card]")).toBeVisible();
+  // 中栏/右栏由工作台骨架撑起（结果容器在右栏，零高时不能当可见性锚点）。
+  await expect(page.locator('[data-home-pane="discovery"] [data-scope-ai-workspace]')).toBeVisible();
+  // 没有 run 时中栏就是条件卡；已有 run 时中栏是过程流（卡片按需召回）。
+  if (expectCard) await expect(page.locator("[data-discovery-search-card]")).toBeVisible();
 }
 
 function stubRun() {
@@ -429,6 +431,54 @@ test("submit posts /api/home/discovery/run, shows process copy, and ingests to p
   await expect(page.locator("[data-nav='running'] .nav-badge")).toHaveText("1");
 });
 
+test("submit hides the condition card; 改条件再搜 brings it back to the center", async ({ page }) => {
+  let ran = false;
+  await page.route("**/api/home/discovery/runs**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/candidates")) {
+      void route.fulfill({ json: { run_id: "drun_e2e", candidates: [] } });
+      return;
+    }
+    if (/\/runs\/[^/]+$/.test(path)) {
+      void route.fulfill({ json: { run: ran ? stubRun() : null } });
+      return;
+    }
+    void route.fulfill({ json: { runs: ran ? [stubRun()] : [] } });
+  });
+  await page.route("**/api/home/discovery/run", async (route) => {
+    ran = true;
+    await route.fulfill({
+      json: { run_id: "drun_e2e", id: "drun_e2e", work_item_id: "tsk_disc_e2e", brief_version: 1 },
+    });
+  });
+  await page.route("**/api/tasks/tsk_disc_e2e/events", (route) => route.fulfill({
+    json: {
+      events: [
+        { type: "queued" },
+        { type: "crawl.started" },
+        { type: "run.think", status: "running", summary: "先按匹配度给候选排序" },
+      ],
+    },
+  }));
+
+  await openDiscovery(page);
+  await expect(page.locator("[data-discovery-edit-conditions]")).toHaveCount(0);
+  await page.locator("[data-home] [data-ai-prompt-submit]").click();
+
+  // 提交后卡片收起：中栏换成过程流（含简报 worker 的 Codex 推理），右栏是结果容器。
+  await expect(page.locator("[data-discovery-search-card]")).toHaveCount(0);
+  await expect(page.locator("[data-scope-ai-workspace] [data-discovery-process]")).toContainText("正在采集");
+  await expect(page.locator("[data-scope-ai-workspace] [data-discovery-think]")).toContainText("Codex 推理");
+  await expect(page.locator("[data-scope-task-rail] [data-discovery-panel]")).toHaveCount(1);
+  await expect(page.locator("[data-scope-ai-workspace] [data-discovery-panel]")).toHaveCount(0);
+
+  // 恢复入口在过程流头部：改条件再搜把卡片调回中栏，不会自动重跑。
+  const edit = page.locator("[data-discovery-edit-conditions]");
+  await expect(edit).toBeVisible();
+  await edit.click();
+  await expect(page.locator("[data-scope-ai-workspace] [data-discovery-search-card]")).toHaveCount(1);
+});
+
 async function mockExistingRun(page: Page) {
   await page.route("**/api/home/discovery/runs**", (route) => {
     const path = new URL(route.request().url()).pathname;
@@ -456,7 +506,7 @@ test("ingest 404 stays an empty-state and does not claim", async ({ page }) => {
     contentType: "application/json",
     body: JSON.stringify({ detail: "not found" }),
   }));
-  await openDiscovery(page);
+  await openDiscovery(page, { expectCard: false });
   await page.locator("[data-discovery-select-all]").check();
   await page.locator("[data-discovery-ingest]").click();
   await page.locator("[data-discovery-ingest-yes]").click();
@@ -488,7 +538,7 @@ test("ingest 422 keeps L3 open; 409 voids the old confirm", async ({ page }) => 
       }),
     });
   });
-  await openDiscovery(page);
+  await openDiscovery(page, { expectCard: false });
   await page.locator("[data-discovery-select-all]").check();
   await page.locator("[data-discovery-ingest]").click();
   await page.locator("[data-discovery-ingest-yes]").click();
@@ -530,7 +580,7 @@ test("L3 cancel after 422 posts cancel:true and does not claim", async ({ page }
       body: JSON.stringify({ status: "needs_confirmation", confirmed: false, claimed: false }),
     });
   });
-  await openDiscovery(page);
+  await openDiscovery(page, { expectCard: false });
   await page.locator("[data-discovery-select-all]").check();
   await page.locator("[data-discovery-ingest]").click();
   await page.locator("[data-discovery-ingest-no]").click();

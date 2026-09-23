@@ -1,0 +1,156 @@
+/* AI发现 · 工作台两栏的内容层。几何归 WorkspaceShell（.scope-workspace*），
+   这里只管内容排布，两栏都不另开滚动容器。
+
+   中栏过程流的形态与今日任务的 Codex stream 刻意保持一致（✓/✗ + 当前步转圈 +
+   只展开最新一段推理），token 照抄一份，避免两套过程流长得不一样。 */
+.discovery-stream-panel {
+  --plan-accent: #8B5CF6;
+  --plan-accent-soft: #E9D5FF;
+  --plan-think-bg: #FAF8FF;
+  display: block;
+  min-width: 0;
+  padding: 0 0 var(--space-4, 16px);
+  color: var(--text);
+  font-size: var(--ds-font-body);
+}
+.discovery-stream-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 28px;
+}
+.discovery-stream-title {
+  margin: 0;
+  font-size: var(--ds-font-section);
+  line-height: var(--ds-line-section);
+  font-weight: var(--ds-weight-section);
+  color: var(--text);
+}
+.discovery-stream-head .btn {
+  margin-left: auto;
+}
+.discovery-stream {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+}
+.discovery-stream-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.discovery-stream-mark {
+  flex: 0 0 auto;
+  width: 14px;
+  font-size: var(--ds-font-helper);
+  line-height: 1;
+  text-align: center;
+  color: var(--color-success-vivid);
+}
+.discovery-stream-step.is-running .discovery-stream-mark {
+  color: var(--plan-accent);
+}
+.discovery-stream-step.is-failed .discovery-stream-mark {
+  color: var(--danger);
+}
+.discovery-stream-spinner {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.6px solid currentColor;
+  border-top-color: transparent;
+  animation: discovery-stream-spin 0.8s linear infinite;
+}
+@keyframes discovery-stream-spin {
+  to { transform: rotate(360deg); }
+}
+.discovery-stream-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--ds-font-sm);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.discovery-stream-step.is-running .discovery-stream-label {
+  color: var(--plan-accent);
+  font-weight: 500;
+}
+.discovery-stream-step.is-failed .discovery-stream-label {
+  color: var(--danger);
+}
+/* 只展开最新一段推理：面板不自带滚动条，长文本在 JS 里已截尾。 */
+.discovery-think {
+  margin: 8px 0 0 22px;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--plan-accent);
+  background: linear-gradient(90deg, var(--plan-think-bg) 0%, transparent 60%);
+}
+.discovery-think.is-streaming {
+  animation: discovery-stream-breathe 2.4s ease-in-out infinite;
+}
+@keyframes discovery-stream-breathe {
+  0%, 100% { border-left-color: var(--plan-accent-soft); }
+  50% { border-left-color: var(--plan-accent); }
+}
+.discovery-think-label {
+  display: block;
+  font-size: var(--ds-font-helper);
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+.discovery-think-body {
+  margin: 0;
+  font-size: var(--ds-font-sm);
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.discovery-think.is-streaming .discovery-think-body::after {
+  content: "▍";
+  margin-left: 2px;
+  color: var(--plan-accent);
+  animation: discovery-stream-caret 1.1s steps(2, start) infinite;
+}
+@keyframes discovery-stream-caret {
+  50% { opacity: 0; }
+}
+.discovery-stream-panel .task-empty {
+  margin-top: var(--space-2);
+}
+.discovery-stream-empty {
+  margin: 6px 0 0;
+  font-size: var(--ds-font-sm);
+  color: var(--text-muted);
+}
+@media (prefers-reduced-motion: reduce) {
+  .discovery-stream-spinner,
+  .discovery-think.is-streaming,
+  .discovery-think.is-streaming .discovery-think-body::after {
+    animation: none;
+  }
+}
+
+/* 条件卡落在中栏（≈470–520px），不是整页宽：成对的两项改纵排、标签列收窄，
+   关键词与数值行照旧换行。卡片的 data-* 契约与整页形态完全一致。 */
+.scope-workspace-center .ai-discovery-card {
+  --ds-label-w: 76px;
+}
+.scope-workspace-center .ai-discovery-rows.is-pair {
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: 0;
+}
+
+/* 右栏结果区：状态卡 / 摘要 / 工具栏 / 明细的分段间距由各组件自带，
+   这里只保证它在窄栏里不横向溢出。 */
+.discovery-panel {
+  min-width: 0;
+  overflow-x: hidden;
+}

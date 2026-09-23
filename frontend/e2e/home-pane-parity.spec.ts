@@ -50,6 +50,22 @@ async function filledPrimaryCount(page: Page, root: string): Promise<number> {
   ), rgb);
 }
 
+/** 固定视口工作台的几何：stage 不滚，中列与右栏各自滚，提问框贴视口底。 */
+async function workspaceGeometry(page: Page, pane: string) {
+  return page.evaluate((paneName) => {
+    const root = document.querySelector(`[data-home-pane="${paneName}"]`) as HTMLElement;
+    const overflowOf = (el: Element | null) => (el ? getComputedStyle(el as HTMLElement).overflowY : null);
+    const dock = root.querySelector(".home-composer-dock") as HTMLElement | null;
+    return {
+      stage: overflowOf(document.querySelector(".home-stage")),
+      center: overflowOf(root.querySelector("[data-scope-ai-workspace] .scope-workspace-center-scroll")),
+      rail: overflowOf(root.querySelector("[data-scope-task-rail]")),
+      dockBottom: dock ? Math.round(dock.getBoundingClientRect().bottom) : null,
+      pageScrolls: document.documentElement.scrollHeight > window.innerHeight + 1,
+    };
+  }, pane);
+}
+
 test("today and todo render the same workspace skeleton", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
@@ -111,18 +127,7 @@ test("both panes share one scroll architecture and keep the ask box a footer", a
   const measure = async (scope: "today" | "todo") => {
     await page.goto(scope === "todo" ? "/?tab=todo" : "/");
     await expect(page.locator(`[data-home-pane="${scope}"] [data-scope-task-rail]`)).toBeVisible({ timeout: 30000 });
-    return page.evaluate((pane) => {
-      const root = document.querySelector(`[data-home-pane="${pane}"]`) as HTMLElement;
-      const overflowOf = (el: Element | null) => (el ? getComputedStyle(el as HTMLElement).overflowY : null);
-      const dock = root.querySelector(".home-composer-dock") as HTMLElement | null;
-      return {
-        stage: overflowOf(document.querySelector(".home-stage")),
-        center: overflowOf(root.querySelector("[data-scope-ai-workspace] .scope-workspace-center-scroll")),
-        rail: overflowOf(root.querySelector("[data-scope-task-rail]")),
-        dockBottom: dock ? Math.round(dock.getBoundingClientRect().bottom) : null,
-        pageScrolls: document.documentElement.scrollHeight > window.innerHeight + 1,
-      };
-    }, scope);
+    return workspaceGeometry(page, scope);
   };
 
   const today = await measure("today");
@@ -134,4 +139,27 @@ test("both panes share one scroll architecture and keep the ask box a footer", a
   expect(today.rail).toBe("auto");
   expect(today.pageScrolls).toBe(false);
   expect(today.dockBottom).toBe(900);
+});
+
+test("AI发现 runs on the same shell and keeps the ask box a footer", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  // 没有任何 run：中栏是条件卡，右栏是空结果容器（不再有第二套单列布局）。
+  await page.route("**/api/home/discovery/runs**", (route) => route.fulfill({ json: { runs: [] } }));
+  await page.goto("/?tab=discovery");
+  await expect(page.locator('[data-home-pane="discovery"] [data-scope-ai-workspace]')).toBeVisible({ timeout: 30000 });
+  await expect(page.locator("[data-discovery-search-card]")).toBeVisible();
+
+  const geometry = await workspaceGeometry(page, "discovery");
+  expect(geometry.stage).toBe("hidden");
+  expect(geometry.center).toBe("auto");
+  expect(geometry.rail).toBe("auto");
+  expect(geometry.pageScrolls).toBe(false);
+  expect(geometry.dockBottom).toBe(900);
+
+  // 骨架项与今日/待办同一套：可折叠右栏、快捷任务、提问框都在，结果容器落在右栏。
+  await expect(page.locator('[data-home-pane="discovery"] .scope-task-rail-toggle')).toBeVisible();
+  await expect(page.locator('[data-home-pane="discovery"] [data-home-quick-tasks]')).toBeVisible();
+  await expect(page.locator('[data-home-pane="discovery"] [data-scope-task-rail] [data-discovery-panel]')).toHaveCount(1);
+  await expect(page.locator('[data-home-pane="discovery"] [data-scope-ai-workspace] [data-discovery-panel]')).toHaveCount(0);
+  expect(await filledPrimaryCount(page, '[data-home-pane="discovery"]')).toBeLessThanOrEqual(1);
 });

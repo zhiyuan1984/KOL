@@ -26,6 +26,8 @@ export default defineConfig({
       "../frontend/src/home/discoveryBriefForm.test.ts",
       "../frontend/src/home/discoveryLeadFields.test.ts",
       "../frontend/src/home/discoveryLeadRow.test.ts",
+      "../frontend/src/home/discoveryPhase.test.ts",
+      "../frontend/src/home/discoveryEvents.test.ts",
     ],
     setupFiles: ["./tests/setup.ts"],
     fileParallelism: false,

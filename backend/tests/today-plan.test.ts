@@ -15,7 +15,7 @@ import type { WorkerResult } from "../src/types.js";
 import { taskDefinition } from "../src/tasks/registry.js";
 import * as recognize from "../src/tasks/recognize.js";
 import * as runner from "../src/worker/runner.js";
-import type { Json } from "../src/types.js";
+import type { Json, Row } from "../src/types.js";
 
 let tmp: string;
 let app: Hono;
@@ -606,5 +606,52 @@ describe("scope catalog split", () => {
     expect(formalIds(todayCatalog)).toContain("tsk_todo_plain");
     expect(formalIds(todoCatalog)).not.toContain("tsk_today_imp");
     expect(formalIds(todoCatalog)).toContain("tsk_todo_plain");
+  });
+});
+
+/**
+ * The trace rows are written by the shared host/run-trace sink; the plan run
+ * must still persist its reasoning as 「Codex 推理」 under the harness item key.
+ */
+describe("plan trace rows", () => {
+  it("persists harness reasoning and steps as run.think / run.step rows", async () => {
+    insertWorkItem({ id: "tsk_trace", title: "未了结报价" });
+    vi.spyOn(runner, "runWorker").mockImplementation(async (_sessionId, _task, _prompt, _extra, _signal, onProgress) => {
+      onProgress?.({
+        phase: "preparing",
+        trace: { id: "host:preparing", label: "准备任务", status: "running", kind: "host" },
+      });
+      onProgress?.({
+        phase: "generating",
+        trace: { id: "reasoning:r1", label: "先看未了结的报价", status: "running", kind: "reasoning" },
+      });
+      return { worker_id: "stub", status: "completed", skill: "today_plan", contract_log: [], items: [] };
+    });
+    const plan = await request("POST", "/api/home/today-brief/plan");
+    expect([200, 202]).toContain(plan.status);
+    const workItemId = String(plan.body.work_item_id);
+    const rowFor = (eventType: string) =>
+      getConn().prepare(
+        "SELECT * FROM task_events WHERE work_item_id=? AND event_type=?",
+      ).get(workItemId, eventType) as Row | undefined;
+    await vi.waitFor(() => expect(rowFor("run.think")).toBeTruthy());
+    const thinking = rowFor("run.think") as Row;
+    expect(thinking).toMatchObject({
+      item_key: "reasoning:r1",
+      label: "Codex 推理",
+      safe_summary: "先看未了结的报价",
+      status: "failed",
+    });
+    const stepRow = getConn().prepare(
+      "SELECT * FROM task_events WHERE work_item_id=? AND item_key='host:preparing'",
+    ).get(workItemId) as Row;
+    // 简报校验失败发生在 worker 返回之后：已经收尾的 host 步骤保持 done，
+    // 只有收尾时仍在跑的推理行被标失败（与抽取前 finishTrace 的行为一致）。
+    expect(stepRow).toMatchObject({
+      event_type: "run.step",
+      label: "准备任务",
+      safe_summary: null,
+      status: "done",
+    });
   });
 });

@@ -1328,13 +1328,6 @@ summary:focus-visible,
 .discovery-toast a {
   color: var(--accent-text);
 }
-.discovery-pane {
-  max-width: 100%;
-  overflow-x: hidden;
-}
-.discovery-pane > .home-lane-label {
-  margin: 0 0 var(--space-1);
-}
 .discovery-form {
   display: grid;
   gap: var(--space-2);
@@ -1647,12 +1640,14 @@ summary:focus-visible,
   color: var(--text-muted);
   font-size: var(--font-ui);
 }
-.discovery-pane .task-empty {
+.discovery-panel .task-empty,
+.discovery-stream-panel .task-empty {
   padding: var(--space-3) var(--space-4);
   margin-top: var(--space-2);
   border-radius: var(--radius-md);
 }
-.discovery-pane .task-empty p {
+.discovery-panel .task-empty p,
+.discovery-stream-panel .task-empty p {
   margin: var(--space-1) 0 0;
 }
 .discovery-candidate-actions {
@@ -10089,6 +10084,14 @@ button.today-brief-primary-btn:disabled {
   --plan-think-bg: color-mix(in srgb, #9333EA 16%, transparent);
 }
 :root[data-theme="dark"] .today-plan-think {
+  border-left-color: #7C3AED;
+}
+:root[data-theme="dark"] .discovery-stream-panel {
+  --plan-accent: #A78BFA;
+  --plan-accent-soft: #4C1D95;
+  --plan-think-bg: color-mix(in srgb, #9333EA 16%, transparent);
+}
+:root[data-theme="dark"] .discovery-think {
   border-left-color: #7C3AED;
 }
 :root[data-theme="dark"] .today-plan-think-label,

@@ -27,10 +27,10 @@ import {
 } from "../knowledgeCopy";
 import { rememberJourney } from "../journey";
 import { missingFieldsMessage, fieldLabel } from "../labels";
-import DiscoveryPanel from "../home/DiscoveryPanel";
-import DiscoverySearchCard from "../home/DiscoverySearchCard";
+import DiscoveryWorkspace from "../home/DiscoveryWorkspace";
 import { scopeRows } from "../home/scopeRows";
 import ScopeWorkspace from "../home/ScopeWorkspace";
+import type { WorkspacePane } from "../home/WorkspaceShell";
 import FollowedPane from "../home/FollowedPane";
 import { matchesFollowedSituation, type FollowedSituation } from "../home/FollowedBrief";
 import PoolPane from "../home/PoolPane";
@@ -1596,6 +1596,8 @@ export default function Home() {
   // 今日任务 / 我的待办 render one workspace over one row projection; only the
   // slice each pane answers for differs, and that lives in scopeRows.
   const paneScope: PlanScope | null = mode === "today" || mode === "todo" ? mode : null;
+  // AI发现 走进同一套两栏骨架（WorkspaceShell），所以固定视口的工作台几何对它同样生效。
+  const workspacePane: WorkspacePane | null = paneScope ?? (mode === "discovery" ? "discovery" : null);
   const activePlan = mode === "todo" ? todoPlan : todayPlan;
   const paneRows = useMemo(
     () => (paneScope ? scopeRows(paneScope, homeMemoryTasks, activePlan.brief?.todo_layout) : []),
@@ -1888,7 +1890,7 @@ export default function Home() {
       }
       data-home
       data-home-active-mode={mode}
-      data-home-workspace={paneScope ?? undefined}
+      data-home-workspace={workspacePane ?? undefined}
       data-followed-chrome={mode === "lifecycle" || mode === "pool" ? "compact" : undefined}
       data-home-task-poll={hasActiveRuns ? "active" : "idle"}
     >
@@ -1899,7 +1901,7 @@ export default function Home() {
           setStageScrolled((current) => (current ? top > 8 : top > 40));
         }}
       >
-        {mode !== "today" && mode !== "todo" ? <div className="home-hero">
+        {!workspacePane ? <div className="home-hero">
           <p className="home-stats" data-today-summary data-home-stats>
             {statsText}
             {awaitingApprovalCount ? ` · ${awaitingApprovalCount}等审批` : ""}
@@ -1935,20 +1937,16 @@ export default function Home() {
           ) : null}
 
           {mode === "discovery" ? (
-            <section className="home-mode-pane discovery-pane" data-home-pane="discovery">
-              <DiscoverySearchCard
-                brief={discoveryFormBrief ?? fallbackDiscoveryFormBrief}
-                catalog={discoveryCatalog}
-                onChange={onDiscoveryBriefChange}
-              />
-              <DiscoveryPanel
-                templateOpen={Boolean(discoveryBrief) || text.startsWith(DISCOVERY_BODY_PREFIX)}
-                activeTaskId={discoveryTaskId}
-                activeRunId={discoveryRunId}
-                onOpenTemplate={() => void openDiscoveryTemplate()}
-                onRetryRun={() => void retryDiscoveryRun()}
-              />
-            </section>
+            <DiscoveryWorkspace
+              brief={discoveryFormBrief ?? fallbackDiscoveryFormBrief}
+              catalog={discoveryCatalog}
+              onBriefChange={onDiscoveryBriefChange}
+              activeTaskId={discoveryTaskId}
+              activeRunId={discoveryRunId}
+              lastSubmit={lastDiscoverySubmit}
+              onRetrySubmit={() => void retryDiscoveryRun()}
+              centerFooter={renderComposerDock()}
+            />
           ) : null}
 
           {mode === "lifecycle" ? (
@@ -2131,7 +2129,7 @@ export default function Home() {
         </div>
       </div>
 
-      {mode !== "today" && mode !== "todo" ? renderComposerDock() : null}
+      {!workspacePane ? renderComposerDock() : null}
 
       {panelOpen && (
         <div className="work-panel-layer" data-work-panel>
