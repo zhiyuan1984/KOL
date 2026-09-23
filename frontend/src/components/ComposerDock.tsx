@@ -26,6 +26,7 @@ import {
 import { connectorUseAccess, connectorUseLabel, connectorUseStatus, preferCanonicalConnectors } from "../connectorUse";
 import {
   canSubmitDiscovery,
+  DISCOVERY_BODY_PREFIX,
   DISCOVERY_DIRECTION_PACKS,
   DISCOVERY_INTENT,
   DISCOVERY_LOCK_LABEL,
@@ -33,6 +34,8 @@ import {
   keywordsForDirections,
   MAX_DISCOVERY_DIRECTIONS,
   OVERSEAS_DISCOVERY_PLATFORMS,
+  platformLabel,
+  regionLabel,
   toggleDirection,
   type DiscoveryBrief,
   type DiscoveryDirectionCode,
@@ -193,6 +196,7 @@ export default function ComposerDock({
   const [modelTier, setModelTier] = useState(readModelTier);
   const [focused, setFocused] = useState(false);
   const [composing, setComposing] = useState(false);
+  const [discoveryTextExpanded, setDiscoveryTextExpanded] = useState(false);
   const { debug } = useViewMode();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -344,7 +348,7 @@ export default function ComposerDock({
     // can never disagree about where growth stops.
     const cap = Number.parseFloat(getComputedStyle(textarea).maxHeight);
     textarea.style.height = `${Math.min(Math.max(textarea.scrollHeight, min), Number.isFinite(cap) ? cap : 336)}px`;
-  }, [value, variant]);
+  }, [value, variant, discoveryTextExpanded]);
 
   useEffect(() => {
     const sync = () => setModelTier(readModelTier());
@@ -718,6 +722,7 @@ export default function ComposerDock({
   const previewExcerpt = templateBodyExcerpt(previewBody);
   const bodyInComposer = composerHoldsTemplateBody(value, previewBody);
   const discoveryLocked = entryIntent === "discover" || lockedIntent === DISCOVERY_INTENT || Boolean(discoveryBrief);
+  const compactDiscoveryPreview = Boolean(discoveryBrief && !showDiscoveryEditor && value.startsWith(DISCOVERY_BODY_PREFIX) && !autoFocus && !discoveryTextExpanded);
   const discoveryReady = Boolean(discoveryBrief && canSubmitDiscovery(discoveryBrief));
   const discoveryBlocked = Boolean(discoveryBrief && !canSubmitDiscovery(discoveryBrief));
   const canSend = Boolean(
@@ -968,6 +973,17 @@ export default function ComposerDock({
           multiple
           onChange={(e) => attachFiles(e.target.files)}
         />
+        {compactDiscoveryPreview && discoveryBrief ? <div className="composer-discovery-preview" data-discovery-request-preview>
+          <div className="composer-discovery-preview-copy">
+            <strong>发现任务</strong>
+            <span>{discoveryBrief.platforms.map((code) => platformLabel(code, discoveryCatalog?.platforms || OVERSEAS_DISCOVERY_PLATFORMS)).join(" / ") || "未选平台"} · {regionLabel(discoveryBrief.region, discoveryCatalog?.regions || DISCOVERY_REGION_OPTIONS)}</span>
+            <small>关键词：{discoveryBrief.keywords.join(", ") || "未填写"} · 粉丝 {discoveryBrief.min_followers}–{discoveryBrief.max_followers} · 均播 ≥{discoveryBrief.min_avg_plays_10} · 人数 {discoveryBrief.expect_count}</small>
+          </div>
+          <button type="button" className="composer-discovery-edit" data-discovery-request-edit onClick={() => {
+            setDiscoveryTextExpanded(true);
+            requestAnimationFrame(() => inputRef.current?.focus());
+          }}>编辑完整请求</button>
+        </div> : null}
         <textarea
           ref={inputRef}
           data-composer-input
@@ -976,6 +992,7 @@ export default function ComposerDock({
           aria-busy={busy || undefined}
           aria-keyshortcuts="Enter Shift+Enter"
           readOnly={Boolean(running)}
+          hidden={compactDiscoveryPreview}
           value={value}
           onChange={(e) => {
             onChange(e.target.value);

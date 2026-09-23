@@ -130,8 +130,8 @@
 }
 /* 同组筛选项等宽等高、图标与文本居中；触摸模态只扩 hit area。 */
 .task-board-pill {
-  border: 0;
-  background: var(--chrome);
+  border: 1px solid var(--ds-border);
+  background: var(--bg);
   color: var(--text);
   font: inherit;
   font-size: var(--ds-font-helper);
@@ -158,11 +158,13 @@
   stroke-linejoin: round;
 }
 .task-board-pill:hover {
-  background: var(--chrome-2);
+  border-color: var(--accent);
+  color: var(--accent-text);
 }
 .task-board-pill[aria-pressed="true"] {
-  background: var(--chrome-2);
-  color: var(--text);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  color: var(--accent-text);
   font-weight: 600;
 }
 
@@ -216,7 +218,7 @@
   color: var(--ds-text-muted);
   font-variant-numeric: tabular-nums;
 }
-.task-board-priority {
+.board-priority {
   display: inline-block;
   border-radius: var(--ds-radius-tag);
   padding: 2px 10px;
@@ -224,16 +226,16 @@
   font-weight: 500;
   white-space: nowrap;
 }
-.task-board-priority.is-high {
+.board-priority.is-high {
   color: var(--text);
   background: color-mix(in srgb, var(--warning) 14%, var(--bg));
   border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border));
 }
-.task-board-priority.is-mid {
+.board-priority.is-mid {
   color: var(--color-warning-vivid);
   background: var(--color-warning-tint);
 }
-.task-board-priority.is-low {
+.board-priority.is-low {
   color: var(--ds-text-dim);
   background: var(--ds-surface);
 }
@@ -455,6 +457,9 @@
 .scope-workspace.is-task-rail-collapsed {
   grid-template-columns: minmax(0, 1fr) var(--workspace-result-rail-collapsed);
 }
+.scope-workspace.is-result-idle:not(.is-task-rail-collapsed) {
+  --scope-task-rail-width: var(--workspace-result-rail-min);
+}
 .scope-workspace-center {
   min-width: 0;
   padding: 4px 28px 24px 0;
@@ -479,8 +484,12 @@
 }
 .scope-task-rail {
   position: relative;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-content: start;
+  column-gap: 8px;
   min-width: 0;
-  padding: 4px 0 24px 16px;
+  padding: 4px 0 24px 8px;
   border-left: 1px solid var(--ds-border);
   background: var(--bg);
 }
@@ -494,14 +503,17 @@
 .scope-task-rail-body > .home-mode-pane {
   overflow: visible;
 }
+.scope-task-rail-body {
+  grid-column: 2;
+  grid-row: 1;
+}
 .scope-task-rail .task-board {
   margin: 0;
 }
 .scope-task-rail-toggle {
-  position: absolute;
-  z-index: 2;
-  top: 2px;
-  left: 8px;
+  position: relative;
+  grid-column: 1;
+  grid-row: 1;
   width: 44px;
   height: 44px;
   display: inline-flex;
@@ -576,7 +588,7 @@
    action — the start action is new in the rail (both scopes have it), so the
    tools get their own full-width row instead of squeezing one column. */
 .scope-task-rail .task-board-head {
-  padding-left: 40px;
+  padding-left: 0;
   grid-template-columns: minmax(0, 1fr);
   gap: 0;
 }
@@ -592,6 +604,9 @@
   max-width: none;
   min-width: 0;
 }
+.scope-task-rail .today-plan-summary {
+  margin-top: 14px;
+}
 
 @media (max-width: 1280px) {
   .scope-workspace {
@@ -601,7 +616,7 @@
     padding-right: 20px;
   }
   .scope-task-rail {
-    padding-left: 14px;
+    padding-left: 8px;
   }
   .scope-task-rail .task-board-cell-index,
   .scope-task-rail .task-board-table th:first-child,
@@ -620,6 +635,7 @@
     padding-right: 0;
   }
   .scope-task-rail {
+    display: block;
     margin-top: 20px;
     padding: 20px 0 0;
     border-top: 1px solid var(--ds-border);
@@ -628,6 +644,9 @@
   .scope-task-rail.is-collapsed {
     min-height: 44px;
     padding: 6px 0;
+  }
+  .scope-task-rail-body {
+    display: block;
   }
   .scope-task-rail-toggle,
   .scope-task-rail.is-collapsed .scope-task-rail-toggle {

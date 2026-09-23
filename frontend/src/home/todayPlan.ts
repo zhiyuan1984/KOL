@@ -92,7 +92,7 @@ export const SCOPE_CONFIG: Record<PlanScope, FrontendScopeConfig> = {
     cacheKey: TODAY_PLAN_CACHE_KEY,
     startEvent: TODAY_PLAN_START_EVENT,
     boardIdleLabel: "启动今日任务",
-    boardAgainLabel: "重新生成今日计划",
+    boardAgainLabel: "生成今日计划",
     heroTitle: "今天有什么工作要处理？",
     boardTitle: "今日工作计划",
     railLabel: "今日任务表",

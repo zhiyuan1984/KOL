@@ -12076,6 +12076,16 @@ button.today-brief-primary-btn:disabled {
   color: var(--text);
   font-weight: 600;
 }
+.home-quick-tasks button[aria-selected="true"] {
+  background: color-mix(in srgb, var(--primary) 10%, var(--chrome));
+  color: var(--primary-text);
+  font-weight: 600;
+  border-color: transparent;
+  box-shadow: none;
+}
+.home-quick-tasks button[aria-selected="true"]:hover {
+  background: color-mix(in srgb, var(--primary) 14%, var(--chrome));
+}
 
 @media (min-width: 1101px) {
   .home-pane[data-home-workspace] .home-stage {
@@ -12124,6 +12134,9 @@ button.today-brief-primary-btn:disabled {
   padding-top: 4px;
   padding-bottom: 8px;
   padding-right: var(--space-4);
+}
+.home-pane[data-home-workspace] .scope-workspace-center-content {
+  container: home-workspace-center / inline-size;
 }
 .home-pane[data-home-workspace] .today-center-hero h1,
 .home-pane[data-home-workspace] .today-center-hero .home-stats {

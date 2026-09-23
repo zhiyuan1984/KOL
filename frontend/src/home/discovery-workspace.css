@@ -148,11 +148,41 @@
   column-gap: 0;
 }
 
+/* The discovery brief keeps choices full width; the four numeric inputs form
+   two rows when the actual center column has room. */
+.discovery-brief-form .ai-discovery-rows {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--ds-space-4);
+}
+.discovery-brief-form .ai-discovery-label,
+.discovery-brief-form .ai-discovery-card .discovery-chip {
+  font-size: var(--ds-font-sm);
+}
+.discovery-brief-form .ai-discovery-row[data-skill-param="platforms"],
+.discovery-brief-form .ai-discovery-row[data-skill-param="region"],
+.discovery-brief-form .ai-discovery-row[data-skill-param="directions"],
+.discovery-brief-form .ai-discovery-row[data-skill-param="keywords"] {
+  grid-column: 1 / -1;
+}
+@container home-workspace-center (max-width: 560px) {
+  .discovery-brief-form .ai-discovery-rows {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* 右栏结果区：状态卡 / 摘要 / 工具栏 / 明细的分段间距由各组件自带。
    横向收束靠行级 min-width:0 + 文本 overflow-wrap（DESIGN §内容密度），
    不再用整栏 overflow-x:hidden 静默裁切兜底。 */
 .discovery-panel {
   min-width: 0;
+}
+.scope-workspace[data-scope-workspace="discovery"].is-result-idle .scope-task-rail-body {
+  padding-top: calc(var(--space-5) + var(--space-5));
+}
+@media (max-width: 1100px) {
+  .scope-workspace[data-scope-workspace="discovery"].is-result-idle .scope-task-rail-body {
+    padding-top: 0;
+  }
 }
 .discovery-result-context {
   margin: 0 0 var(--space-1);

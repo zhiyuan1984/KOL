@@ -108,6 +108,7 @@ export default function DiscoveryWorkspace({
       railToggleLabel="红人线索"
       railStorageKey="ui:home-discovery-rail-collapsed"
       railBadge={disc.visible.length}
+      resultIdle={!disc.run && !disc.inFlight && !disc.failure}
       resultView={{
         skillId: "creator_discovery",
         resultType: "discovery_candidates",
@@ -122,7 +123,7 @@ export default function DiscoveryWorkspace({
           : ["completed", "succeeded"].includes(String(disc.run?.status || ""))
             ? (disc.run && disc.runHistory[0]?.id === disc.run.id ? "current" : "historical")
             : "unknown",
-        memory: memoryView,
+        memory: priorMemories.length || memoryBusy || memoryError ? memoryView : undefined,
       }}
       centerHeader={centerHeader}
       centerScroll={(

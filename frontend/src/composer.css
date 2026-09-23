@@ -547,6 +547,48 @@
   min-height: 22px;
 }
 
+.composer-discovery-preview {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  min-width: 0;
+}
+.composer-discovery-preview-copy {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-1) var(--space-2);
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-body);
+}
+.composer-discovery-preview-copy strong {
+  font-weight: 600;
+}
+.composer-discovery-preview-copy span,
+.composer-discovery-preview-copy small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.composer-discovery-preview-copy small {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+}
+.composer-discovery-edit {
+  border: 0;
+  background: transparent;
+  color: var(--accent-text);
+  font: inherit;
+  font-size: var(--ds-font-helper);
+  cursor: pointer;
+}
+.composer-discovery-edit:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
 .composer-tier-topbar {
   display: inline-flex;
   align-items: center;

@@ -38,7 +38,7 @@ export default function DiscoverySearchCard({ brief, catalog, onChange, schema }
     if (key === "directions") next.keywords = keywordsForDirections(value as string[], options.directions);
     onChange(next);
   };
-  return <SkillParamCard fields={schema?.length ? schema : FALLBACK_FIELDS}
+  return <div className="discovery-brief-form"><SkillParamCard fields={schema?.length ? schema : FALLBACK_FIELDS}
     values={brief as unknown as Record<string, unknown>} optionSets={options}
-    tokenFields={TOKEN_FIELDS} title="红人检索" onFieldChange={update} />;
+    tokenFields={TOKEN_FIELDS} hideTitle onFieldChange={update} /></div>;
 }

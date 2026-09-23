@@ -93,24 +93,26 @@ test("condition card renders in-page and pre-fills the editable ask box", async 
   });
   await openDiscovery(page);
   const card = page.locator("[data-discovery-search-card]");
-  await expect(card).toContainText("红人检索");
-  await expect(card.locator('[data-discovery-filter="platform"] [data-discovery-chip="youtube"]')).toBeVisible();
-  await expect(card.locator('[data-discovery-filter="platform"] [data-discovery-chip="tiktok"]')).toHaveCount(0);
-  await expect(card.locator('[data-discovery-filter="platform"] [data-discovery-chip="douyin"]')).toHaveCount(0);
-  await expect(card.locator('[data-discovery-filter="region"] [data-discovery-chip="na"]')).toHaveText("北美");
-  await expect(card.locator('[data-discovery-filter="region"] [data-discovery-chip="jpkr"]')).toHaveText("日韩");
+  await expect(card).not.toContainText("红人检索");
+  await expect(card.locator('[data-skill-param="platforms"] [data-discovery-chip="youtube"]')).toBeVisible();
+  await expect(card.locator('[data-skill-param="platforms"] [data-discovery-chip="tiktok"]')).toHaveCount(0);
+  await expect(card.locator('[data-skill-param="platforms"] [data-discovery-chip="douyin"]')).toHaveCount(0);
+  await expect(card.locator('[data-skill-param="region"] [data-discovery-chip="na"]')).toHaveText("北美");
+  await expect(card.locator('[data-skill-param="region"] [data-discovery-chip="jpkr"]')).toHaveText("日韩");
   // R2：平台默认 YouTube，地区默认全球英文，方向默认不选。
-  await expect(card.locator('[data-discovery-filter="platform"] [data-discovery-chip="youtube"]'))
+  await expect(card.locator('[data-skill-param="platforms"] [data-discovery-chip="youtube"]'))
     .toHaveAttribute("aria-pressed", "true");
-  await expect(card.locator('[data-discovery-filter="region"] [data-discovery-chip="global_en"]'))
+  await expect(card.locator('[data-skill-param="region"] [data-discovery-chip="global_en"]'))
     .toHaveAttribute("aria-pressed", "true");
-  await expect(card.locator('[data-discovery-filter="directions"] [data-discovery-chip][aria-pressed="true"]')).toHaveCount(0);
+  await expect(card.locator('[data-skill-param="directions"] [data-discovery-chip][aria-pressed="true"]')).toHaveCount(0);
   await expect(card.locator("[data-discovery-keywords]")).toHaveValue("camping, portable power station");
   // R3：条件摘要改为提问框里可编辑的【发现任务】正文，卡片上不再有摘要卡。
   const input = page.locator("[data-home] [data-composer-input]");
   await expect(input).toHaveValue(/【发现任务】/);
   await expect(input).toHaveValue(/平台：YouTube/);
   await expect(input).toHaveValue(/地区：全球英文/);
+  await expect(page.locator("[data-discovery-request-preview]")).toBeVisible();
+  await page.locator("[data-discovery-request-edit]").click();
   await expect(input).toBeEditable();
   await expect(page.locator("[data-discovery-summary]")).toHaveCount(0);
   // 正文可编辑：改关键词，卡片跟着走（逗号/空格都被解析成词）。
@@ -123,7 +125,7 @@ test("condition chips rewrite the ask-box body and no card button remains", asyn
   await openDiscovery(page);
   const card = page.locator("[data-discovery-search-card]");
   const input = page.locator("[data-home] [data-composer-input]");
-  await card.locator('[data-discovery-filter="directions"] [data-discovery-chip="camping"]').click();
+  await card.locator('[data-skill-param="directions"] [data-discovery-chip="camping"]').click();
   await expect(input).toHaveValue(/户外露营/);
   await expect(card.locator("[data-discovery-keywords]")).toHaveValue(/camping/);
   await expect(page.locator("[data-discovery-summary]")).toHaveCount(0);
@@ -131,6 +133,30 @@ test("condition chips rewrite the ask-box body and no card button remains", asyn
   await expect(page.locator("[data-discovery-submit]")).toHaveCount(0);
   // 框线稿 §15：卡片底部不留说明文案（「不会发信」这句已从模板正文删除）。
   await expect(card.locator("[data-discovery-no-side-effect]")).toHaveCount(0);
+});
+
+test("idle discovery uses the center width and keeps the full brief above the dock", async ({ page }) => {
+  await stubNoRuns(page);
+  await openDiscovery(page);
+  const workspace = page.locator('[data-home-pane="discovery"]');
+  await expect(workspace).toHaveClass(/is-result-idle/);
+  const rail = workspace.locator('[data-scope-task-rail]');
+  const center = workspace.locator('[data-scope-ai-workspace]');
+  expect(Math.round((await rail.boundingBox())!.width)).toBe(360);
+  expect(await center.evaluate((element) => element.clientWidth)).toBeGreaterThan(360);
+  const card = workspace.locator('[data-discovery-search-card]');
+  const followerMin = card.locator('[data-skill-param="min_followers"]');
+  const followerMax = card.locator('[data-skill-param="max_followers"]');
+  expect(Math.abs((await followerMin.boundingBox())!.y - (await followerMax.boundingBox())!.y)).toBeLessThan(2);
+  const finalField = card.locator('[data-skill-param="expect_count"]');
+  await finalField.scrollIntoViewIfNeeded();
+  const finalBox = await finalField.boundingBox();
+  const dockBox = await workspace.locator('.home-composer-dock').boundingBox();
+  expect(finalBox && dockBox && finalBox.y + finalBox.height <= dockBox.y).toBeTruthy();
+  for (const width of [1024, 720, 480]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
+  }
 });
 
 test("+ menu no longer offers the discovery template (AI发现 pane owns discovery)", async ({ page }) => {
@@ -156,7 +182,7 @@ test("ask-box send follows the platform and keyword guard", async ({ page }) => 
   await openDiscovery(page);
   const card = page.locator("[data-discovery-search-card]");
   const send = page.locator("[data-home] [data-ai-prompt-submit]");
-  const instagram = card.locator('[data-discovery-filter="platform"] [data-discovery-chip="instagram"]');
+  const instagram = card.locator('[data-skill-param="platforms"] [data-discovery-chip="instagram"]');
   const keywords = card.locator("[data-discovery-keywords]");
 
   // R2/R5：平台默认 YouTube + 默认关键词，所以提问框的发送按钮默认可用。

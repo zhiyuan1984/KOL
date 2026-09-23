@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { Task } from "../api";
 import BoardRow from "./BoardRow";
-import { dueDayDiff, taskPriorityRank } from "./homeModel";
+import { taskPriorityRank } from "./homeModel";
 import { planStartEvent, SCOPE_CONFIG, type PlanScope, type TodayPlanPhase } from "./todayPlan";
 import "./today-plan-board.css";
 
@@ -31,23 +31,13 @@ function FilterIcon({ value }: { value: BoardFilter }) {
   return <svg className="task-board-filter-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">{path}</svg>;
 }
 
-function isImportant(task: Task): boolean {
-  return taskPriorityRank(task) <= 2;
-}
-
-function isUrgent(task: Task): boolean {
-  const diff = dueDayDiff(task.due_at);
-  return diff != null && diff <= 0;
-}
-
 function matchesBoardFilter(task: Task, filter: BoardFilter): boolean {
   if (filter === "all") return true;
-  const important = isImportant(task);
-  const urgent = isUrgent(task);
-  if (filter === "iu") return important && urgent;
-  if (filter === "in") return important && !urgent;
-  if (filter === "ui") return !important && urgent;
-  return !important && !urgent;
+  const rank = taskPriorityRank(task);
+  if (filter === "iu") return rank === 0;
+  if (filter === "in") return rank === 1;
+  if (filter === "ui") return rank === 2;
+  return rank >= 3;
 }
 
 function matchesQuery(task: Task, query: string): boolean {
@@ -82,6 +72,7 @@ export default function TaskBoard({
   onEdit,
   showPlanButton = true,
   planPhase = "idle",
+  summary,
 }: {
   title: string;
   scope: TaskBoardScope;
@@ -92,6 +83,7 @@ export default function TaskBoard({
   onEdit?: (task: Task) => void;
   showPlanButton?: boolean;
   planPhase?: TodayPlanPhase;
+  summary?: ReactNode;
 }) {
   const [filter, setFilter] = useState<BoardFilter>("all");
   const [query, setQuery] = useState("");
@@ -135,8 +127,8 @@ export default function TaskBoard({
           <input
             type="search"
             className="task-board-search"
-            placeholder="搜索任务、红人或内容..."
-            aria-label="搜索任务、红人或内容"
+            placeholder="搜索任务、红人或说明…"
+            aria-label="搜索任务、红人或说明"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
@@ -175,6 +167,8 @@ export default function TaskBoard({
           </button>
         ))}
       </div>
+
+      {summary}
 
       {filtered.length ? (
         <div className="task-board-table-scroll" tabIndex={0} aria-label="任务表">

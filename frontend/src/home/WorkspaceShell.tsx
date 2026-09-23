@@ -16,6 +16,7 @@ export default function WorkspaceShell({
   railToggleLabel,
   railStorageKey,
   railBadge,
+  resultIdle = false,
   resultView,
   scrollAnchorEvent,
   centerHeader,
@@ -31,6 +32,8 @@ export default function WorkspaceShell({
   railStorageKey: string;
   /** 折叠后挂在按钮上的计数（今日/待办 = 任务数，发现 = 候选数）。 */
   railBadge?: number;
+  /** No result or history yet: keep the rail visible at its documented minimum width. */
+  resultIdle?: boolean;
   /** Optional normalized metadata/history/action slots; domain children remain mode-specific. */
   resultView?: ResultRailViewModel;
   /** 可选：该事件触发时把中栏滚动锚点带回顶部（今日/待办的计划刷新）。 */
@@ -61,7 +64,7 @@ export default function WorkspaceShell({
   };
   return (
     <section
-      className={"home-mode-pane scope-workspace" + (railCollapsed ? " is-task-rail-collapsed" : "")}
+      className={"home-mode-pane scope-workspace" + (railCollapsed ? " is-task-rail-collapsed" : "") + (resultIdle ? " is-result-idle" : "")}
       data-home-pane={pane}
       data-scope-workspace={pane}
     >

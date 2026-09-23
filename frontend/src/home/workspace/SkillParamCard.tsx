@@ -38,6 +38,7 @@ export default function SkillParamCard({
   mode = "edit",
   errors = {},
   title,
+  hideTitle = false,
   onFieldChange,
 }: {
   fields: SkillParamField[];
@@ -47,6 +48,7 @@ export default function SkillParamCard({
   mode?: "edit" | "needs_input" | "ready";
   errors?: Record<string, string>;
   title?: string;
+  hideTitle?: boolean;
   onFieldChange?: (key: string, value: unknown) => void;
 }) {
   const [drafts, setDrafts] = useState<Record<string, string>>(() => Object.fromEntries(
@@ -142,7 +144,7 @@ export default function SkillParamCard({
   };
 
   return <section className="ai-discovery-card" data-discovery-search-card data-skill-param-card data-param-mode={mode}>
-    <header className="ai-discovery-head"><h2>{title || (mode === "ready" ? "已确认参数" : mode === "needs_input" ? "补充必要信息" : "任务参数")}</h2></header>
+    {!hideTitle ? <header className="ai-discovery-head"><h2>{title || (mode === "ready" ? "已确认参数" : mode === "needs_input" ? "补充必要信息" : "任务参数")}</h2></header> : null}
     <div className="ai-discovery-rows">
       {fields.map((field) => <div className="ai-discovery-row" key={field.key} data-skill-param={field.key}>
         <span className="ai-discovery-label">{field.label}{field.required ? " *" : ""}</span>

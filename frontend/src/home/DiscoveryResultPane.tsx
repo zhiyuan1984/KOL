@@ -208,7 +208,7 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
       {!run && !inFlight && !failure && emptyKind === "idle" ? (
         <div className="task-empty" data-discovery-empty="no-history">
           <strong>暂无发现结果</strong>
-          <p>完成中栏的筛选条件并提交后，结果会显示在这里。历史运行会保留在此处供切换查看。</p>
+          <p>填写条件并提交后，结果会显示在这里。</p>
         </div>
       ) : null}
 

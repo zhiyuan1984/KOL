@@ -117,7 +117,6 @@ export default function ScopeWorkspace({
             previousEvents={previousEvents}
             scope={scope}
           />
-          <PlanSummary brief={brief} label={cfg.planSummaryLabel} />
           {centerSupplement}
           {phase === "idle" && !hasStream ? (
             <div className="scope-workspace-empty" data-scope-ai-empty>
@@ -138,6 +137,7 @@ export default function ScopeWorkspace({
           onAct={onAct}
           onEdit={onEdit}
           planPhase={phase === "idle" && hasStream ? "refreshed" : phase}
+          summary={<PlanSummary brief={brief} label={cfg.planSummaryLabel} />}
         />
       )}
     />

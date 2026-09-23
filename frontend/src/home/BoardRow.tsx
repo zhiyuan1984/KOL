@@ -60,7 +60,7 @@ export default function BoardRow({
   const actionLabel = taskActionLabel(task);
   const risk = String(task.risk_level || "").trim();
   const riskLabel = risk !== "none" ? riskLevelLabel(task) : "";
-  const editable = Boolean(onEdit) && !isDisplayOnlyTask(task);
+  const editable = Boolean(onEdit) && verb !== "edit" && !isDisplayOnlyTask(task);
   return (
     <tr
       className="task-board-row"
