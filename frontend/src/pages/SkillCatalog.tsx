@@ -9,12 +9,14 @@ import { rememberJourney } from "../journey";
 import { skillKind, type SkillRow } from "./SkillHub";
 
 // 分组配置
+// hint 只写组名说不出来的增量信息：`评估达人质量与合作可能性` 这类与组名同义的提示删掉
+// （2026-09-23 UI/UX 裁定：列表上方两行字说同一件事＝噪声），渲染处按 hint 是否为空输出。
 const GROUPS: { id: string; label: string; hint: string; funnel: string[] }[] = [
   { id: "reach", label: "建联阶段", hint: "寻找目标达人，建立初步联系", funnel: ["reach"] },
-  { id: "intent", label: "意向评估", hint: "评估达人质量与合作可能性", funnel: ["intent"] },
-  { id: "biz", label: "报价与寄样", hint: "推进合作，处理报价与寄样流程", funnel: ["biz", "sample"] },
+  { id: "intent", label: "意向评估", hint: "", funnel: ["intent"] },
+  { id: "biz", label: "报价与寄样", hint: "", funnel: ["biz", "sample"] },
   { id: "settle", label: "成交与沉淀", hint: "完善合作并沉淀数据资产", funnel: ["settle"] },
-  { id: "content", label: "内容发布", hint: "内容发布与效果追踪", funnel: ["content"] },
+  { id: "content", label: "内容发布", hint: "", funnel: ["content"] },
   { id: "exception", label: "异常旁路", hint: "风险扫描与异常处理", funnel: ["exception"] },
 ];
 
@@ -378,13 +380,35 @@ const ACTION_LABEL: Record<string, string> = {
   none: "无额外步骤",
 };
 
+/* 产出词表：只登记有业务含义的产出名，查不到即「没有业务映射」。
+   `task_result` 是引擎的默认兜底值（后端 `output` 字段没写时给的就是它），把「任务结果」
+   印在员工面上等于没说，所以**不入表** —— 调用处据「查不到」不再输出「结果：…」。
+   （员工禁词：引擎词连同它的修饰译名都不该出现在员工面，specs/UX-EMPLOYEE.md。） */
 const OUTPUT_LABEL: Record<string, string> = {
-  task_result: "任务结果",
   today_brief: "今日任务简报",
   propose_stage: "阶段变更建议",
   kol_analyze_brief: "达人分析简报",
   crawl_plan: "采集计划",
 };
+
+/**
+ * 「使用步骤」的空样板有两种，都不渲染（2026-09-23 UI/UX 裁定）：
+ *  1) 技能没登记 `actions` 时，后端 `backend/src/routers/misc.ts` 给的是同一段兜底话；
+ *  2) 登记了 `actions` 但全是引擎通用动作（`analyze` / `present_sop` 之类），翻成业务语言后
+ *     仍然只有一句放之四海皆准的话。
+ */
+const FALLBACK_STEPS = ["理解你的目标", "读取授权范围内的信息", "生成结果并展示依据"];
+
+const GENERIC_STEP_LABELS = new Set([
+  "读取授权范围内的信息并分析",
+  "展示这项技能的标准流程",
+  "无额外步骤",
+]);
+
+function isFallbackSteps(steps: string[]): boolean {
+  return steps.length === FALLBACK_STEPS.length
+    && steps.every((step, index) => step === FALLBACK_STEPS[index]);
+}
 
 const TOOL_LABEL: Record<string, string> = {
   "starry.get_collaboration": "合作记录查询",
@@ -448,13 +472,11 @@ function ClearIcon() {
 function SkillCard({
   skill,
   onSelect,
-  onUse,
   isFrequent,
   selected,
 }: {
   skill: SkillRow;
   onSelect: (skill: SkillRow) => void;
-  onUse: (skill: SkillRow) => void;
   isFrequent: boolean;
   selected: boolean;
 }) {
@@ -499,24 +521,9 @@ function SkillCard({
           ))}
         </div>
       )}
-      {/* 每行只保留一个动作，走链接式（语义图标 + 常驻下划线），不再占用整行按钮位。
-          「新建会话」已移除——部分技能需要先填参数，直接开会话是错误承诺。
-          动作名定为「填入输入框」：它只把技能填进输入框，补完参数后由员工自己发送，不含执行。 */}
-      <div className="skill-row-actions" onClick={(e) => e.stopPropagation()}>
-        {/* 行内动作退出 Tab 顺序：键盘路径＝行名 → 详情列 CTA。否则 51 行 × 2 个焦点会把详情列
-            推到 120 次 Tab 之外（docs/DESIGN.md §三轴适配 · 输入模态轴）。鼠标 / 触摸不受影响。
-            不带图标：旧图（向下箭头 + 底线）是通用「下载」图形，被读成下载（2026-09-23 UI/UX 裁定）；
-            可点信号由常驻下划线承担，不再用图标。 */}
-        <button
-          type="button"
-          className="skill-link"
-          tabIndex={-1}
-          title="把这项技能填进输入框，补完参数后由你发送"
-          onClick={() => onUse(skill)}
-        >
-          填入输入框
-        </button>
-      </div>
+      {/* 行内不再有动作（2026-09-23 UI/UX 裁定）：51 行 × 每行一个「填入输入框」既是噪声，
+          也把唯一的主 CTA 稀释成 51 个。行只负责「选中 / 预览」，填技能只剩右栏详情列的实底主 CTA；
+          键盘路径因此是 行名 → 下一行行名（不用跨过每行的第二个焦点）。 */}
     </div>
   );
 }
@@ -582,48 +589,50 @@ function SkillDetail({
   const entry = SKILL_ENTRY[skill.id];
   const tier = isWriteSkill(skill) ? "write" : "read";
   const isAsync = ASYNC_SKILL_IDS.has(skill.id);
-  const outputs = io?.outputs || (skill.output ? [skill.output] : null);
   const learning = skill.learning;
   // 步骤：已知动作 id → 业务语言；已经是中文的原样保留；纯 ASCII 的未知 id **不渲染**
   // （员工表面不摊英文 Skill 时序，specs/UX-EMPLOYEE.md §员工禁词）。
-  const steps = (learning?.steps || [])
+  const rawSteps = learning?.steps || [];
+  const steps = rawSteps
     .map((step) => ACTION_LABEL[step] ?? (/^[\x20-\x7E]+$/.test(step) ? "" : step))
     .filter(Boolean);
+  // 空样板（后端兜底 / 只剩引擎通用动作翻出来的话）不含这项技能自己的信息 → 不渲染「使用步骤」。
+  const showSteps = Boolean(learning)
+    && steps.length > 0
+    && !isFallbackSteps(rawSteps)
+    && !steps.every((step) => GENERIC_STEP_LABELS.has(step));
+  // 「结果：…」只在 learning.result 有业务映射时才说（`task_result` 不在词表里 → 这半句不发）。
+  const resultLabel = learning?.result ? OUTPUT_LABEL[learning.result] : undefined;
   const execution = skill.execution;
 
   return (
     <div className="skill-detail" data-skill-detail>
-      <div className="skill-detail-header">
-        <h3>技能详情</h3>
-        <button
-          type="button"
-          className="skill-detail-toggle"
-          aria-expanded={wide}
-          aria-label={wide ? "收窄技能详情" : "展开技能详情"}
-          title={wide ? "收窄" : "展开"}
-          onClick={onToggleWide}
-        >
-          <ExpandIcon wide={wide} />
-        </button>
-        <button
-          type="button"
-          className="skill-detail-close"
-          aria-label="关闭技能详情"
-          onClick={onClose}
-        >
-          <CloseIcon />
-        </button>
-      </div>
-
       <div className="skill-detail-body">
+        {/* 头部一行：图标砖 + 技能名 + 展开 / 关闭。原先「技能详情」标题条与摘要句都删掉
+            —— 一个是自明的容器名，一个是中栏选中行的逐字重复（2026-09-23 UI/UX 裁定）。 */}
         <div className="skill-detail-head">
           <div className="skill-row-icon" data-tone={skillTone(skill.id)}>
             <SkillIcon id={skill.id} />
           </div>
-          <div>
-            <h2>{skill.title}</h2>
-            <p className="skill-detail-sub">{skill.summary || skill.title}</p>
-          </div>
+          <h2>{skill.title}</h2>
+          <button
+            type="button"
+            className="skill-detail-toggle"
+            aria-expanded={wide}
+            aria-label={wide ? "收窄技能详情" : "展开技能详情"}
+            title={wide ? "收窄" : "展开"}
+            onClick={onToggleWide}
+          >
+            <ExpandIcon wide={wide} />
+          </button>
+          <button
+            type="button"
+            className="skill-detail-close"
+            aria-label="关闭技能详情"
+            onClick={onClose}
+          >
+            <CloseIcon />
+          </button>
         </div>
 
         <div className="skill-detail-marks">
@@ -659,11 +668,13 @@ function SkillDetail({
           </div>
         )}
 
-        {outputs && (
+        {/* 产出：只渲染 IO_MAP 里登记过的业务语言。未登记的技能这一节整个不渲染 ——
+            旧实现兜底直出 `skill.output`（后端给的是引擎词 `task_result`），把它印到员工面上。 */}
+        {io && (
           <div className="skill-detail-section">
             <h4>产出</h4>
             <div className="skill-detail-tags">
-              {outputs.map((s) => (
+              {io.outputs.map((s) => (
                 <span key={s} className="skill-preview-tag-item">{s}</span>
               ))}
             </div>
@@ -690,22 +701,26 @@ function SkillDetail({
 
         {learning && (
           <>
-            <div className="skill-detail-section">
-              <h4>使用步骤</h4>
-              {steps.length ? (
-                <ol className="skill-detail-steps">
-                  {steps.map((step, index) => <li key={`${step}-${index}`}>{step}</li>)}
-                </ol>
-              ) : (
-                <p className="skill-detail-note">
-                  这项技能的步骤说明还没翻成业务语言；先按上面的场景与产出判断用法。
-                </p>
-              )}
-            </div>
+            {showSteps && (
+              <div className="skill-detail-section">
+                <h4>使用步骤</h4>
+                {steps.length ? (
+                  <ol className="skill-detail-steps">
+                    {steps.map((step, index) => <li key={`${step}-${index}`}>{step}</li>)}
+                  </ol>
+                ) : (
+                  <p className="skill-detail-note">
+                    这项技能的步骤说明还没翻成业务语言；先按上面的场景与产出判断用法。
+                  </p>
+                )}
+              </div>
+            )}
             <div className="skill-detail-section">
               <h4>执行边界</h4>
               <p className="skill-detail-note">
-                结果：{OUTPUT_LABEL[learning.result || ""] || "任务结果"}。{learning.confirmation || "按当前权限执行"}
+                {/* 有业务映射才报结果名；没有映射时说「结果：任务结果」＝没说（员工禁词）。 */}
+                {resultLabel ? `结果：${resultLabel}。` : ""}
+                {learning.confirmation || "按当前权限执行"}
               </p>
             </div>
           </>
@@ -941,66 +956,12 @@ export function SkillCatalog() {
 
   return (
     <div className="skill-catalog-page" data-skill-catalog>
+      {/* 页头单行：这是哪个页面 + 现在有多少项。副标题与搜索框都已下沉
+          （副标题与筛选条、列表提示重复；搜索框跟着列表走，见中栏的 .skill-search-row）。 */}
       <header className="skill-catalog-header">
-        <div>
-          <h1>技能目录</h1>
-          <p className="skill-catalog-subtitle">按业务阶段查找并调用技能，可直接插入当前会话。</p>
-        </div>
-        <label className="skill-search-wrap">
-          <svg viewBox="0 0 24 24" aria-hidden>
-            <circle cx="11" cy="11" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.7" />
-            <path d="M16 16.4 20 20.4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-          </svg>
-          <input
-            ref={searchRef}
-            className="skill-search"
-            placeholder="搜索技能 / SOP / 场景"
-            aria-label="搜索技能 / SOP / 场景"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-          {q && (
-            <button
-              type="button"
-              className="skill-search-clear"
-              aria-label="清除搜索"
-              title="清除"
-              onClick={() => {
-                setQ("");
-                searchRef.current?.focus();
-              }}
-            >
-              <ClearIcon />
-            </button>
-          )}
-        </label>
+        <h1>技能目录</h1>
+        {!loading && <span className="skill-catalog-count">{filteredSkills.length} 项</span>}
       </header>
-
-      {/* shadcn `TabsList` ×2：口径 / 阶段各一个容器，容器承担成组控件的可见边界。 */}
-      <div className="skill-tabs" role="group" aria-label="技能筛选">
-        {(["mode", "stage"] as const).map((kind) => (
-          <div key={kind} className="skill-tabs-list" data-kind={kind}>
-            {TABS.filter((t) => t.kind === kind).map((t, i) => (
-              <Fragment key={t.id}>
-                {kind === "stage" && i > 0 && (
-                  <span className="skill-tab-sep" aria-hidden>›</span>
-                )}
-                <button
-                  type="button"
-                  className={`skill-tab${tab === t.id ? " on" : ""}`}
-                  aria-pressed={tab === t.id}
-                  onClick={() => setTab(t.id)}
-                >
-                  {t.label}
-                </button>
-              </Fragment>
-            ))}
-          </div>
-        ))}
-        {/* 窄屏下这排 pill 会横向滚动：右缘渐隐是「还有内容」的可视信号（sticky 在滚动容器内）。
-            宽屏放得下时它只盖在背景上，不产生视觉噪声。 */}
-        <span className="skill-tabs-fade" aria-hidden />
-      </div>
 
       {err && (
         <div className="skill-state" role="alert">
@@ -1021,7 +982,66 @@ export function SkillCatalog() {
       )}
 
       <div className="skill-catalog-main">
+        {/* shadcn `TabsList` ×2：口径 / 阶段各一个容器，容器承担成组控件的可见边界。
+            ≥1280 时整条筛选条是左栏（纵向，两个容器上下分区）；更窄时横跨顶部一排（可横向滚动）。 */}
+        <div className="skill-tabs" role="group" aria-label="技能筛选">
+          {(["mode", "stage"] as const).map((kind) => (
+            <div key={kind} className="skill-tabs-list" data-kind={kind}>
+              {TABS.filter((t) => t.kind === kind).map((t, i) => (
+                <Fragment key={t.id}>
+                  {kind === "stage" && i > 0 && (
+                    <span className="skill-tab-sep" aria-hidden>›</span>
+                  )}
+                  <button
+                    type="button"
+                    className={`skill-tab${tab === t.id ? " on" : ""}`}
+                    aria-pressed={tab === t.id}
+                    onClick={() => setTab(t.id)}
+                  >
+                    {t.label}
+                  </button>
+                </Fragment>
+              ))}
+            </div>
+          ))}
+          {/* 窄屏下这排 tab 会横向滚动：右缘渐隐是「还有内容」的可视信号（sticky 在滚动容器内）。
+              ≥1280 的纵向左栏不需要它（放得下就没有溢出可言）。 */}
+          <span className="skill-tabs-fade" aria-hidden />
+        </div>
+
         <div className="skill-catalog-content">
+          {/* 搜索行 sticky 在列表列的滚动口上：搜的是下面这份列表，两者不该被筛选栏隔开。 */}
+          <div className="skill-search-row">
+            <label className="skill-search-wrap">
+              <svg viewBox="0 0 24 24" aria-hidden>
+                <circle cx="11" cy="11" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.7" />
+                <path d="M16 16.4 20 20.4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+              </svg>
+              <input
+                ref={searchRef}
+                className="skill-search"
+                placeholder="搜索技能 / SOP / 场景"
+                aria-label="搜索技能 / SOP / 场景"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+              {q && (
+                <button
+                  type="button"
+                  className="skill-search-clear"
+                  aria-label="清除搜索"
+                  title="清除"
+                  onClick={() => {
+                    setQ("");
+                    searchRef.current?.focus();
+                  }}
+                >
+                  <ClearIcon />
+                </button>
+              )}
+            </label>
+          </div>
+
           {tab === "all" && !q && (
             <section className="skill-group skill-group-frequent">
               <div className="skill-group-header">
@@ -1043,7 +1063,6 @@ export function SkillCatalog() {
                     key={s.id}
                     skill={s}
                     onSelect={selectSkill}
-                    onUse={(skill) => void useSkill(skill)}
                     isFrequent={false}
                     selected={selectedSkill?.id === s.id}
                   />
@@ -1062,7 +1081,8 @@ export function SkillCatalog() {
                     <GroupIcon id={group.id} />
                   </span>
                   <h2>{group.label}</h2>
-                  <span className="skill-group-hint">{group.hint}</span>
+                  {/* hint 只在与组名有增量信息时才输出（同义的提示是噪声）。 */}
+                  {group.hint && <span className="skill-group-hint">{group.hint}</span>}
                   <Link to={`/skills?tab=${group.id}`} className="skill-group-more">查看全部</Link>
                 </div>
                 <div className="skill-list">
@@ -1071,8 +1091,7 @@ export function SkillCatalog() {
                       key={s.id}
                       skill={s}
                       onSelect={selectSkill}
-                      onUse={(skill) => void useSkill(skill)}
-                        isFrequent={(usage[s.id] || 0) > 0}
+                      isFrequent={(usage[s.id] || 0) > 0}
                       selected={selectedSkill?.id === s.id}
                     />
                   ))}

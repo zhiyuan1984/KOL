@@ -11,11 +11,16 @@ import { devices, expect, test, type Page } from "@playwright/test";
  *   §不变量 1（同一视口 0–1 个实底主 CTA）、3（等待有恢复入口）、4（状态不靠颜色单独表达）
  *   §验收矩阵
  *
- * 2026-09-23 两处按 UI/UX 裁定重定依据（记录在案，不是为通过而放宽）：
+ * 2026-09-23 按 UI/UX 裁定重定依据（记录在案，不是为通过而放宽）：
  *   1. 行内异步标签「异步 · 可取消」移除，改由图标砖虚线边框承担形状信号。
  *      依据：docs/07-mcp-data-contract.md 只要求「不得伪装成同步」且必须有进度 / 取消 / 重试；
  *      本页动作是「填入输入框」，不执行任何作业，执行面契约未变，详情列仍完整交代异步口径。
- *   2. 行内动作「填入输入框」不再带图标：旧图（向下箭头 + 底线）就是通用下载图形，被读成「下载」。
+ *   2. 行内动作「填入输入框」整条删除（连同它的链接式样式与 tabIndex=-1）：51 行 × 每行一个
+ *      同样的动作既是噪声，也把唯一的主 CTA 稀释成 51 个。填技能只剩右栏详情列的实底主 CTA，
+ *      中栏的行只负责「选中 / 预览」。
+ *   3. 页面改成三栏（左筛选 / 中搜索+列表 / 右详情），页头收成单行（标题 + 计数），
+ *      搜索行移进中栏顶部并 sticky；详情列的「技能详情」标题条与摘要句删除（均与中栏重复），
+ *      未登记 IO 的技能不再渲染「产出」（旧实现直出 skill.output，会把引擎词漏到员工面）。
  */
 
 /** 解析根作用域上的 token 值。 */
@@ -259,7 +264,8 @@ test.describe("技能目录页（/skills）", () => {
     await ready(page);
     const coarse = await page.evaluate(() => matchMedia("(pointer: coarse)").matches);
     expect(coarse, "该环境未上报 coarse 指针，断言无意义").toBe(true);
-    for (const sel of [".skill-tab", ".skill-row-name", ".skill-link"]) {
+    // 行内「填入输入框」链接已随 2026-09-23 裁定删除，触摸档要验的可点元素只剩这两类。
+    for (const sel of [".skill-tab", ".skill-row-name"]) {
       const box = await page.locator(sel).first().boundingBox();
       expect(box!.height, `触摸档 ${sel} 命中区应 ≥44px，实测 ${box!.height}px`).toBeGreaterThanOrEqual(44);
     }
@@ -484,24 +490,18 @@ test.describe("技能目录页（/skills）", () => {
     expect(await page.locator(".skill-row .skill-mark.is-read").count()).toBe(0);
   });
 
-  test("每行只有一个动作，且为链接式（无框 + 常驻下划线，不带图标）", async ({ page }) => {
-    const acts = page.locator(".skill-row-actions");
-    await expect(acts.first()).toBeVisible();
-    const counts = await acts.evaluateAll((els) => els.map((e) => e.children.length));
-    expect(counts.every((c) => c === 1), `每行只允许 1 个动作，实测：${JSON.stringify(counts)}`).toBe(true);
-    const cs = await page.locator(".skill-row-actions .skill-link").first().evaluate((el) => {
-      const s = getComputedStyle(el);
-      return { border: s.borderTopWidth, deco: s.textDecorationLine, hasIcon: !!el.querySelector("svg") };
-    });
-    expect(Number.parseFloat(cs.border), "链接式动作应当无框").toBe(0);
-    expect(cs.deco, "下划线必须常驻，不只在 hover").toContain("underline");
-    // 2026-09-23：旧图标（向下箭头 + 底线）是通用「下载」图形，被读成下载，按 UI/UX 裁定移除。
-    expect(cs.hasIcon, "行内动作不再带图标（避免被读成下载）").toBe(false);
+  test("列表行不再有动作：填技能只剩右栏详情列的实底主 CTA", async ({ page }) => {
+    // 2026-09-23 UI/UX 裁定：行内「填入输入框」整条删除 —— 51 行 × 每行一个同样的动作
+    // 既是噪声，也把唯一的主 CTA 稀释成 51 个；行只负责选中 / 预览，填技能走右栏。
+    expect(await page.locator(".skill-row-actions").count(), "列表行不该再有动作容器").toBe(0);
+    expect(await page.locator(".skill-row .skill-link").count(), "列表行不该再有链接式动作").toBe(0);
+    const cta = page.locator(".skill-detail-footer .skill-btn-primary");
+    await expect(cta, "填技能的动作必须还在，且在右栏详情列").toBeVisible();
+    await expect(cta).toHaveText("填入输入框");
   });
 
   test("本页不再出现「新建会话」（需先补参数，直接开会话是错误承诺）", async ({ page }) => {
-    await expect(page.locator(".skill-row-actions").filter({ hasText: "新建会话" })).toHaveCount(0);
-    await expect(page.locator(".skill-detail-footer").filter({ hasText: "新建会话" })).toHaveCount(0);
+    await expect(page.locator("[data-skill-catalog]")).not.toContainText("新建会话");
   });
 
   test("员工禁词：引擎名、MCP、英文 Skill 时序与原始 id 都不得出现在员工表面", async ({ page }) => {
@@ -565,6 +565,82 @@ test.describe("技能目录页（/skills）", () => {
     );
     expect(canvas, "该偏好下页面画布应仍取自 --bg").toBe(bg);
     await ctx.close();
+  });
+});
+
+test.describe("三栏版式（左筛选 / 中搜索+列表 / 右详情）", () => {
+  test("几何：1280×900 下左栏 190px，中栏与右栏依次排列且不重叠", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const page = await context.newPage();
+    await ready(page);
+    const geo = await page.evaluate(() => {
+      const el = (sel: string) => document.querySelector<HTMLElement>(sel)!;
+      const box = (sel: string) => el(sel).getBoundingClientRect();
+      return {
+        tabs: box(".skill-tabs"),
+        content: box(".skill-catalog-content"),
+        pane: box(".skill-detail-pane"),
+        direction: getComputedStyle(el(".skill-tabs")).flexDirection,
+        tabsListDirection: getComputedStyle(el(".skill-tabs-list")).flexDirection,
+      };
+    });
+    expect(geo.direction, "≥1280 筛选条要变成左栏（纵向）").toBe("column");
+    expect(geo.tabsListDirection, "组内也纵向排").toBe("column");
+    expect(geo.tabs.width, "左栏定宽 190px").toBeGreaterThanOrEqual(188);
+    expect(geo.tabs.width, "左栏定宽 190px").toBeLessThanOrEqual(192);
+    expect(geo.tabs.right, "左栏右缘不得压到中栏").toBeLessThanOrEqual(geo.content.left + 1);
+    expect(geo.content.left, "中栏左缘 ≤ 右栏左缘").toBeLessThanOrEqual(geo.pane.left + 1);
+    expect(geo.content.right, "中栏右缘 ≤ 右栏左缘（并排，不重叠）").toBeLessThanOrEqual(geo.pane.left + 1);
+    await context.close();
+  });
+
+  test("顶部压缩：页头单行 ≤48px，搜索行移到中栏顶部（1280×900）", async ({ browser }) => {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const page = await context.newPage();
+    await ready(page);
+    const m = await page.evaluate(() => {
+      const el = (sel: string) => document.querySelector<HTMLElement>(sel)!;
+      const box = (sel: string) => el(sel).getBoundingClientRect();
+      const header = box(".skill-catalog-header");
+      const row = box(".skill-row");
+      return {
+        headerH: header.height,
+        headerBottom: header.bottom,
+        rowTop: row.top,
+        pageTop: box("[data-skill-catalog]").top,
+        searchTop: box(".skill-search-row").top,
+        searchInContent: !!el(".skill-catalog-content .skill-search-row"),
+        headerSiblings: [...el(".skill-catalog-header").children].map((c) => c.tagName),
+      };
+    });
+    // 页头只剩一行（标题 + 计数）：45px = 28 行盒 + 上下 8 + 1px 发丝线。
+    expect(m.headerH, "页头必须是单行，不再有副标题第二行").toBeLessThanOrEqual(48);
+    expect(m.headerSiblings, "页头里不该再有搜索框").toEqual(["H1", "SPAN"]);
+    expect(m.searchInContent, "搜索框必须住在中栏顶部，而不是页头").toBe(true);
+    expect(m.searchTop, "搜索行不得盖到页头下沿之上").toBeGreaterThanOrEqual(m.headerBottom - 1);
+    // 页头下沿到首行：搜索行 40 + 与首组间距 8 + 分组头 24 + 分组间距 8 + 列表上边线 1 ≈ 93。
+    expect(m.rowTop - m.headerBottom, "页头到首行之间不许再塞东西").toBeLessThanOrEqual(110);
+    // 首行的整页位置 = 页头 45 + 上述 93 ≈ 138（再往下就是分组头，不是可压缩的顶部空间）。
+    expect(m.rowTop - m.pageTop, "顶部区块合计不得把首行推到 150px 以下").toBeLessThanOrEqual(150);
+    await context.close();
+  });
+
+  test("不重复、不露样板：没有「技能详情」头部，未登记 IO 的技能不渲染「产出」", async ({ page }) => {
+    await ready(page);
+    const catalog = page.locator("[data-skill-catalog]");
+    // 详情列头部整条删除：「技能详情」是自明的容器名，摘要句与中栏选中行逐字重复。
+    expect(await page.locator(".skill-detail-header").count(), "「技能详情」标题条应当整条移除").toBe(0);
+    expect(await page.locator(".skill-detail-head p").count(), "头部不该再有摘要句").toBe(0);
+    const text = await catalog.evaluate((el) => el.textContent || "");
+    expect(text, "「技能详情」只该留在区域的 aria-label 里，不该是可见文字").not.toContain("技能详情");
+
+    // 未登记 IO 的技能：不渲染「产出」小节（旧实现直出 skill.output），整页也不出现引擎产出词。
+    await page.locator('.skill-row[data-skill-id="creator_library_query"] .skill-row-name').first().click();
+    const detail = page.locator("[data-skill-detail]");
+    await expect(detail).toBeVisible();
+    await expect(detail.locator(".skill-detail-section h4", { hasText: "产出" })).toHaveCount(0);
+    const all = await catalog.evaluate((el) => el.textContent || "");
+    expect(all, "引擎产出词 task_result 不得出现在员工面上").not.toContain("task_result");
   });
 });
 
@@ -676,22 +752,30 @@ test("§验收矩阵：矮视口下至少一条完整列表行可见", async ({ 
 
 test("§验收矩阵：1024×630 下列表不被并排的详情列挤到横向裁切", async ({ browser }) => {
   // §不变量 5：绝不允许溢出被 overflow 静默裁切。
-  // 详情列与列表并排，列表列在这个宽度只剩约 400px；列宽必须按列表列的实际宽度收敛，
-  // 否则行内动作会被挤出可视区（只有横向滚动才能看到）。
+  // 详情列与列表并排，列表列在这个宽度只剩约 400px；列宽必须按列表列的实际宽度收敛。
+  // 行内动作已删除，所以这里不再盯「动作是否被挤出」，改成按内容盒断言：
+  // 列表列自己没有横向滚动，且每条行自己也没有溢出。
   const context = await browser.newContext({ viewport: { width: 1024, height: 630 } });
   const page = await context.newPage();
   await ready(page);
   const r = await page.evaluate(() => {
     const content = document.querySelector<HTMLElement>(".skill-catalog-content")!;
     const box = content.getBoundingClientRect();
-    const cut = [...document.querySelectorAll<HTMLElement>(".skill-row-actions .skill-link")].filter((el) => {
-      const b = el.getBoundingClientRect();
-      return b.width === 0 || b.right > box.right + 1 || b.left < box.left - 1;
-    }).length;
-    return { cut, overflow: content.scrollWidth - content.clientWidth };
+    const pane = document.querySelector<HTMLElement>(".skill-detail-pane")!;
+    const rows = [...document.querySelectorAll<HTMLElement>(".skill-row")]
+      .filter((el) => el.scrollWidth - el.clientWidth > 1)
+      .map((el) => el.getAttribute("data-skill-id") || "");
+    return {
+      overflow: content.scrollWidth - content.clientWidth,
+      rows,
+      // 详情列必须与列表并排（不是被折到下面），否则「并排挤压」这条前提就不成立。
+      paneLeft: pane.getBoundingClientRect().left,
+      contentRight: box.right,
+    };
   });
   expect(r.overflow, "列表内容不得出现横向滚动").toBeLessThanOrEqual(1);
-  expect(r.cut, "行内动作被挤出可视区").toBe(0);
+  expect(r.rows, `行自身溢出：${JSON.stringify(r.rows)}`).toEqual([]);
+  expect(r.paneLeft, "详情列应当与列表并排在同一行").toBeGreaterThanOrEqual(r.contentRight - 1);
   await context.close();
 });
 
@@ -718,9 +802,10 @@ test.describe("第二轮 UX 改进（常用/推荐口径 · 键盘路径 · 清�
     expect(await frequent.locator(".skill-group-more").getAttribute("href")).toBe("/skills?tab=frequent");
   });
 
-  test("行内动作不在 Tab 顺序里，键盘路径是行名 → 详情列 CTA", async ({ page }) => {
+  test("键盘路径：Tab 从行名直接到下一行行名（序列里没有行内动作），右栏 CTA 仍在 Tab 顺序内", async ({ page }) => {
     await ready(page);
-    await expect(page.locator(".skill-row-actions .skill-link").first()).toHaveAttribute("tabindex", "-1");
+    // 行内动作已删除：整页不该再有任何行内可点动作。
+    expect(await page.locator(".skill-row-actions, .skill-row .skill-link").count()).toBe(0);
     let seen = "";
     for (let i = 0; i < 40; i++) {
       await page.keyboard.press("Tab");
@@ -728,11 +813,25 @@ test.describe("第二轮 UX 改进（常用/推荐口径 · 键盘路径 · 清�
       if (seen.includes("skill-row-name")) break;
     }
     expect(seen, "Tab 必须能到达列表行的选择入口").toContain("skill-row-name");
-    // 行内动作不再吃掉焦点：下一个 Tab 直接跳到下一行的行名，而不是行内「填入输入框」链接。
+    const firstId = await page.evaluate(() =>
+      (document.activeElement as HTMLElement | null)?.closest(".skill-row")?.getAttribute("data-skill-id") || "");
+    // 行里没有第二个焦点：下一个 Tab 直接落到**下一行**的行名。
     await page.keyboard.press("Tab");
     const next = await page.evaluate(() => (document.activeElement as HTMLElement | null)?.className || "");
     expect(next, `行内动作不该进入 Tab 顺序（下一个焦点是 ${next}）`).not.toContain("skill-link");
     expect(next, `下一个焦点应是下一行的行名，实测 ${next}`).toContain("skill-row-name");
+    const nextId = await page.evaluate(() =>
+      (document.activeElement as HTMLElement | null)?.closest(".skill-row")?.getAttribute("data-skill-id") || "");
+    expect(nextId, "下一个焦点必须换了一行").not.toBe(firstId);
+    // 右栏主 CTA 也在焦点序列里：从最后一行继续 Tab（数量有限，不是 51 个行内动作那么远）。
+    await page.locator(".skill-row").last().locator(".skill-row-name").focus();
+    let reached = false;
+    for (let i = 0; i < 8; i++) {
+      await page.keyboard.press("Tab");
+      const cls = await page.evaluate(() => (document.activeElement as HTMLElement | null)?.className || "");
+      if (cls.includes("skill-btn-primary")) { reached = true; break; }
+    }
+    expect(reached, "右栏详情列的实底主 CTA 必须能在焦点序列里到达").toBe(true);
   });
 
   test("搜索框有清除入口：点一下清空并把焦点还给输入框", async ({ page }) => {
@@ -789,13 +888,15 @@ test.describe("第二轮 UX 改进（常用/推荐口径 · 键盘路径 · 清�
   });
 });
 
-test.describe("「填入输入框」把技能填进输入框", () => {
+test.describe("「填入输入框」把技能填进输入框（右栏唯一入口）", () => {
   test("填入的是技能正文（起始行 + 待补参数），不是只挂一个技能名", async ({ page }) => {
     await ready(page);
 
+    // 行内动作已删除：先点中栏那一行（行名＝行的选择入口），再点右栏详情列的实底主 CTA。
     const row = page.locator('.skill-row[data-skill-id="creator_outreach"]').first();
     await expect(row).toBeVisible();
-    await row.locator(".skill-link").click();
+    await row.locator(".skill-row-name").click();
+    await page.locator(".skill-detail-footer .skill-btn-primary").click();
 
     // 落到「新工作任务」：输入框里是技能起始行 + 这项技能自己的说明（技能详情），
     // 芯片同时保留技能名。
@@ -814,8 +915,8 @@ test.describe("「填入输入框」把技能填进输入框", () => {
     });
 
     await ready(page);
-    await page.locator('.skill-row[data-skill-id="creator_outreach"]').first()
-      .locator(".skill-link").click();
+    await page.locator('.skill-row[data-skill-id="creator_outreach"] .skill-row-name').first().click();
+    await page.locator(".skill-detail-footer .skill-btn-primary").click();
     await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/\S/);
 
     // 落回 Home 的提问框仍在用户手里：技能只填进输入框，不产生任何规划 POST。
