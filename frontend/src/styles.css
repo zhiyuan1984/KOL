@@ -91,6 +91,8 @@
   --home-chip-w: 88px;
   --home-chip-h: 28px;
   --home-chip-gap: 4px;
+  --workspace-task-priority-col: 64px;
+  --workspace-task-actions-col: 124px;
   /* Home Agent 工作台列宽：唯一数值来源见 docs/DESIGN.md §Home Agent 工作台几何。 */
   --workspace-result-rail-min: 360px;
   --workspace-result-rail-ideal: 54%;

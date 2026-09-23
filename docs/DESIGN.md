@@ -58,6 +58,14 @@ description: 员工端视觉与设备适配实施细则。风格基准为 data-d
 - 触摸输入下命中区 ≥44px；视觉图标小于命中区时用内边距撑开，不改布局边界。
 - 焦点态统一用 `--focus-ring` + `--focus-ring-width/offset`；`focus-visible` 才出现。
 
+| token | 值 | 工作台用途 |
+|---|---:|---|
+| `--control-h-lg` | `32px` | 搜索框与同排计划按钮 |
+| `--home-chip-w` / `--home-chip-h` / `--home-chip-gap` | `88px` / `28px` / `4px` | 快捷任务与任务筛选；触摸模态只把高度命中区扩至 `44px` |
+| `--workspace-task-priority-col` / `--workspace-task-actions-col` | `64px` / `124px` | 任务结果表优先级列 / 操作列 |
+| `--radius-control` / `--radius-card` | `6px` / `8px` | 输入与普通控件 / 内容容器 |
+| `--ds-radius-section` / `--ds-radius-input` / `--ds-radius-chip` / `--ds-radius-tag` | `8px` / `6px` / `6px` / `6px` | 工作台分区、输入、chip 与普通状态标签 |
+
 ## 字号阶梯用途（工作台表面）
 
 档位数值只住 `frontend/src/styles.css` 的 `--ds-font-*` token；组件 CSS 不得硬编码 px 字号。
