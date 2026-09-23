@@ -169,14 +169,14 @@
 .task-board-table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
   font-size: var(--ds-font-body);
-  min-width: 560px;
+  min-width: 0;
 }
 .task-board-table-scroll {
   width: 100%;
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: thin;
+  overflow-x: hidden;
 }
 .task-board-table-scroll:focus-visible {
   outline: 2px solid var(--focus-ring);
@@ -208,7 +208,7 @@
   background: var(--bg);
 }
 .task-board-cell-index {
-  width: 32px;
+  display: none;
   color: var(--ds-text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -336,8 +336,8 @@
   color: var(--ds-text-muted);
 }
 .task-board-cell-actions {
-  width: 1%;
-  white-space: nowrap;
+  width: 128px;
+  white-space: normal;
 }
 .task-board-open {
   border: 1px solid var(--ds-border);
@@ -363,7 +363,7 @@
   cursor: not-allowed;
 }
 .task-board-edit {
-  margin-left: 8px;
+  margin: 4px 0 0;
   border: 1px solid var(--ds-border);
   background: var(--bg);
   color: var(--ds-text-muted);
@@ -415,7 +415,11 @@
 /* The workspace shell: center column (Codex stream + ask box) | task rail.
    今日任务 and 我的待办 share it, so nothing here may name one scope. */
 .scope-workspace {
-  --scope-task-rail-width: clamp(600px, 56%, 820px);
+  --scope-task-rail-width: clamp(
+    var(--workspace-result-rail-min),
+    var(--workspace-result-rail-ideal),
+    var(--workspace-result-rail-max)
+  );
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--scope-task-rail-width);
   align-items: stretch;
@@ -423,7 +427,7 @@
   overflow: visible;
 }
 .scope-workspace.is-task-rail-collapsed {
-  grid-template-columns: minmax(0, 1fr) 56px;
+  grid-template-columns: minmax(0, 1fr) var(--workspace-result-rail-collapsed);
 }
 .scope-workspace-center {
   min-width: 0;
@@ -453,6 +457,16 @@
   padding: 4px 0 24px 28px;
   border-left: 1px solid var(--ds-border);
   background: var(--bg);
+}
+.scope-task-rail-body,
+.scope-task-rail-body > .home-mode-pane,
+.scope-task-rail-body .followed-kol-column {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+.scope-task-rail-body > .home-mode-pane {
+  overflow: visible;
 }
 .scope-task-rail .task-board {
   margin: 0;
@@ -553,10 +567,6 @@
 }
 
 @media (max-width: 1280px) {
-  .scope-workspace {
-    --scope-task-rail-width: minmax(500px, 54%);
-    grid-template-columns: minmax(360px, 46%) minmax(500px, 54%);
-  }
   .scope-workspace-center {
     padding-right: 20px;
   }
@@ -570,7 +580,7 @@
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 1100px) {
   .scope-workspace,
   .scope-workspace.is-task-rail-collapsed {
     display: block;
@@ -606,4 +616,44 @@
     writing-mode: horizontal-tb;
     letter-spacing: 0;
   }
+}
+
+.object-interaction {
+  display: grid;
+  gap: var(--ds-space-3);
+  max-width: 680px;
+  padding: var(--ds-space-5) 0;
+}
+.object-interaction h1,
+.object-interaction p,
+.object-interaction-guide p {
+  margin: 0;
+}
+.object-interaction h1 {
+  font-size: var(--ds-font-title);
+  line-height: var(--ds-line-title);
+}
+.object-interaction > p,
+.object-interaction-guide p {
+  color: var(--ds-text-dim);
+  line-height: var(--ds-line-ui);
+}
+.object-interaction-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  color: var(--ds-text-dim);
+  font-size: var(--ds-font-sm);
+}
+.object-interaction-status span {
+  color: var(--accent-text);
+}
+.object-interaction-guide {
+  display: grid;
+  gap: var(--ds-space-1);
+  padding-top: var(--ds-space-4);
+  border-top: 1px solid var(--ds-border);
+}
+.workspace-interaction-feedback:empty {
+  display: none;
 }

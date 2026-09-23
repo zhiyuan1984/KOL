@@ -148,13 +148,14 @@ KOL 索引包含稳定 ID、平台、方向、画像、来源和更新时间；�
 
 下表覆盖仓库当前 41 个 Skill ID。它定义目标入口，不表示旧 Skill 已完成路径迁移；同一能力从 AI 提问框进入时仍遵守 PROD-AGENT-01。
 
-**已登记的规则空白（2026-09-21）：** `backend/skills/` 现有 **47** 个技能，本表覆盖 41 个，下列 6 个尚未登记入口口径，**待 KOL 业务专家补齐**：
+**已登记的规则空白（2026-09-21；2026-09-23 增补）：** `backend/skills/` 现有 **49** 个技能，本表覆盖 41 个，下列 8 个尚未登记入口口径，**待 KOL 业务专家补齐**：
 
 | 未登记 | 现状 |
 |---|---|
 | `discovery_plan`、`discovery_brief` | 发现阶段的 spec / 简报产出，未定义快捷面与 Agent 面 |
 | `kol_analyze` | 红人分析简报，未定义快捷面与 Agent 面 |
 | `today_plan`、`today_analyze`、`todo_plan` | 今日任务与待办规划，与 `creator_daily_tasks` 的边界未定义 |
+| `mail_summary`、`mail_translate` | 后台记忆作业：按增量补齐邮件总结与中文译稿，只写本地记忆；未定义员工口径，员工面不呈现这两个动作 |
 
 在补齐前，员工端「技能目录」对这几项的详情会明确显示「待业务专家补齐」，不给出推测口径（[ui-ux-rules.md](ui-ux-rules.md) §5；CONST-10 不得伪造）。
 

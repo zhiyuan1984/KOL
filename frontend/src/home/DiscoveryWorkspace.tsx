@@ -21,6 +21,8 @@ export default function DiscoveryWorkspace({
   activeRunId = null,
   lastSubmit = null,
   onRetrySubmit,
+  centerHeader,
+  centerSupplement,
   centerFooter,
 }: {
   brief: DiscoveryBrief;
@@ -31,6 +33,8 @@ export default function DiscoveryWorkspace({
   /** 提交身份：每次提交都换一个对象，用来把条件卡收起来。 */
   lastSubmit?: unknown;
   onRetrySubmit?: () => void;
+  centerHeader?: ReactNode;
+  centerSupplement?: ReactNode;
   centerFooter?: ReactNode;
 }) {
   const disc = useDiscovery({ activeTaskId, activeRunId, lastSubmit, onRetrySubmit });
@@ -41,6 +45,7 @@ export default function DiscoveryWorkspace({
       railToggleLabel="红人线索"
       railStorageKey="ui:home-discovery-rail-collapsed"
       railBadge={disc.visible.length}
+      centerHeader={centerHeader}
       centerScroll={(
         <>
           {disc.cardVisible ? (
@@ -57,6 +62,7 @@ export default function DiscoveryWorkspace({
               onEditConditions={disc.showCard}
             />
           ) : null}
+          {centerSupplement}
         </>
       )}
       centerFooter={centerFooter}

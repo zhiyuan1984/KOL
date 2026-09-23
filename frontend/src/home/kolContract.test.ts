@@ -182,7 +182,9 @@ describe("kol workbench contract (#172)", () => {
     expect(homeEntryById("list-pool")).toMatchObject({ kind: "memory", creates_session: false, route: "GET /api/home/pool" });
     expect(homeEntryById("list-followed")).toMatchObject({ kind: "memory", creates_session: false, route: "GET /api/home/following" });
     expect(homeEntryById("kol-analyze-enqueue")).toMatchObject({
-      kind: "think",
+      // d68a056 有意把该入口定为 command：它只写一条 queued work_item，
+      // 不建会话、不调模型（见后端同构注册表与 /home/kol-analyze/enqueue 响应）。
+      kind: "command",
       creates_session: false,
       calls_model: false,
       route: "POST /api/home/kol-analyze/enqueue",

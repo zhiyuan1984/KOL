@@ -2,7 +2,7 @@
 version: alpha
 name: employee-design-spec
 style-baseline: data-dense-dashboard
-description: 员工端视觉与设备适配实施细则。风格基准为 data-dense-dashboard（密集数据工作台），只约束员工端全部工作台表面（Home 四模式、Pipeline、Admin、一等能力面）。
+description: 员工端视觉与设备适配实施细则。风格基准为 data-dense-dashboard（密集数据工作台），只约束员工端全部工作台表面（Home 五模式、Pipeline、Admin、一等能力面）。
 ---
 
 # 员工端实施细则（密度 · 控件 · 三轴适配 · 不变量 · 验收矩阵）
@@ -23,7 +23,7 @@ description: 员工端视觉与设备适配实施细则。风格基准为 data-d
 
 | 档 | 用于 | 节奏 |
 |---|---|---|
-| `data-dense-dashboard` | 员工端全部工作台表面：Home 四模式、Pipeline、Admin、一等能力面 | 紧凑。一屏之内回答本面唯一的那个问题；列表行本身就是内容，不做卡片墙 |
+| `data-dense-dashboard` | 员工端全部工作台表面：Home 五模式、Pipeline、Admin、一等能力面 | 紧凑。一屏之内回答本面唯一的那个问题；列表行本身就是内容，不做卡片墙 |
 
 ## 颜色
 
@@ -65,6 +65,22 @@ description: 员工端视觉与设备适配实施细则。风格基准为 data-d
 | 宽度 | `min-width` 断点收缩；桌面导航轨道锁 260px；内容列上限走 `--content-max` |
 | 高度 | **页脚控件必须给内容让路**：视口高度不足时，提问框这类固定地板高度按 `dvh` 收缩，不得把主要内容挤到只剩半张卡 |
 | 输入模态 | 键盘 / 指针 / 触摸分别可用：可见焦点环、≥44px 命中区、关键动作不依赖 hover 才出现 |
+
+### Home Agent 工作台几何
+
+Home 五模式共用一套「中栏人机协作 + 右栏结果与下一步」几何。中栏是默认视觉主轴，右栏不得占据工作区多数。
+
+| token / 断点 | 数值 | 用途 |
+|---|---:|---|
+| `--workspace-result-rail-min` | `380px` | 双栏成立时右栏最小宽度 |
+| `--workspace-result-rail-ideal` | `40%` | 宽视口的右栏目标宽度 |
+| `--workspace-result-rail-max` | `680px` | 防止结果栏压过中栏 |
+| `--workspace-result-rail-collapsed` | `56px` | 右栏折叠轨道 |
+| 工作台堆叠断点 | `1100px` | 该宽度及以下改为中栏在上、结果栏在下；不使用 UA 嗅探 |
+
+- 双栏时中栏必须保持比右栏更宽；列表字段放不下时收进展开层或详情，不允许依赖整栏横向滚动。
+- `≤ 860px` 时继续服从员工端抽屉导航和触摸命中区规则；结果栏作为下层结果区呈现。
+- 中栏时间线与右栏结果体各自滚动；页面外层不得再形成第三条业务滚动轴。
 
 ## 不变量
 

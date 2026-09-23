@@ -184,7 +184,7 @@ export default function TaskBoard({
       </div>
 
       {filtered.length ? (
-        <div className="task-board-table-scroll" tabIndex={0} aria-label="任务表，可横向滚动">
+        <div className="task-board-table-scroll" tabIndex={0} aria-label="任务表">
         <table className="task-board-table">
           <thead>
             <tr>

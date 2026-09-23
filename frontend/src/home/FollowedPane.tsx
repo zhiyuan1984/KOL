@@ -127,7 +127,10 @@ export default function FollowedPane({
   ];
 
   return (
-    <section className="home-mode-pane recommend-work followed-kol-pane" data-home-pane="lifecycle" data-lifecycle-overview>
+    <section
+      className="recommend-work followed-kol-pane is-result-rail"
+      data-lifecycle-overview
+    >
       <div className="followed-kol-column" data-followed-kol-column data-followed-decision-max="full">
         <FollowedBrief
           cards={allCards}

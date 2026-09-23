@@ -99,10 +99,11 @@ describe("pane parity", () => {
     expect(home).not.toContain("TodayPane");
   });
 
-  it("keeps one workspace shell for all three panes", () => {
+  it("keeps one workspace shell for all five panes", () => {
     const shell = read("./WorkspaceShell.tsx");
     const scope = read("./ScopeWorkspace.tsx");
     const discovery = read("./DiscoveryWorkspace.tsx");
+    const objects = read("./ObjectWorkspace.tsx");
     const boardCss = read("./today-plan-board.css");
     const home = read("../pages/Home.tsx");
 
@@ -112,8 +113,9 @@ describe("pane parity", () => {
     expect(shell).toContain("scope-workspace-center-scroll");
     expect(scope).toContain("<WorkspaceShell");
     expect(discovery).toContain("<WorkspaceShell");
+    expect(objects).toContain("<WorkspaceShell");
     // 内容组件不许再写骨架：出现这些选择器就意味着出现了第二套几何。
-    for (const file of [scope, discovery]) {
+    for (const file of [scope, discovery, objects]) {
       expect(file).not.toContain("data-scope-ai-workspace");
       expect(file).not.toContain("data-scope-task-rail");
       expect(file).not.toContain("scope-task-rail-toggle");
@@ -123,9 +125,44 @@ describe("pane parity", () => {
     expect(shell).not.toContain("task-board");
     expect(boardCss).toContain(".scope-task-rail.is-collapsed .scope-task-rail-body");
     expect(boardCss).not.toContain(".scope-task-rail.is-collapsed > .task-board");
-    // AI发现 是第三个 pane，不是第二套骨架。
+    // AI发现与两个对象面都组合唯一骨架。
     expect(home).toContain("<DiscoveryWorkspace");
+    expect(home.match(/<ObjectWorkspace/g)?.length).toBe(2);
+    expect(shell).toContain('"pool" | "lifecycle"');
     expect(home).toContain("data-home-workspace={workspacePane");
     expect(home).not.toContain('<section className="home-mode-pane discovery-pane"');
+    expect(home).not.toContain('data-home-quick-task="first-outreach"');
+  });
+
+  it("keeps workspace rail geometry on DESIGN tokens", () => {
+    const css = read("../styles.css");
+    const boardCss = read("./today-plan-board.css");
+    for (const token of [
+      "--workspace-result-rail-min",
+      "--workspace-result-rail-ideal",
+      "--workspace-result-rail-max",
+      "--workspace-result-rail-collapsed",
+    ]) {
+      expect(css).toContain(`${token}:`);
+    }
+    expect(boardCss).toContain("var(--workspace-result-rail-min)");
+    expect(boardCss).not.toMatch(/clamp\(\s*600px/);
+    expect(boardCss).toContain("max-width: 1100px");
+  });
+
+  it("object panes no longer declare a second pane skeleton", () => {
+    const pool = read("./PoolPane.tsx");
+    const followed = read("./FollowedPane.tsx");
+    // embedded prop removed: panes always render as result-rail content.
+    expect(pool).not.toContain("embedded");
+    expect(followed).not.toContain("embedded");
+    // No self-declared page pane: the shell owns data-home-pane.
+    expect(pool).not.toContain("data-home-pane");
+    expect(followed).not.toContain("data-home-pane");
+    expect(pool).not.toContain("home-mode-pane");
+    expect(followed).not.toContain("home-mode-pane");
+    // Fixed result-rail class is always present.
+    expect(pool).toContain("is-result-rail");
+    expect(followed).toContain("is-result-rail");
   });
 });

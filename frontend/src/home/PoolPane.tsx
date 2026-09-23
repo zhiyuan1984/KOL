@@ -175,7 +175,10 @@ export default function PoolPane({
   });
 
   return (
-    <section className="home-mode-pane recommend-work followed-kol-pane" data-home-pane="pool" data-pool-overview>
+    <section
+      className="recommend-work followed-kol-pane is-result-rail"
+      data-pool-overview
+    >
       <div className="followed-kol-column" data-pool-column>
         <div className="followed-object-toolbar" data-pool-toolbar data-home-entry="list-pool">
           <label className="followed-object-search">

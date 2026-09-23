@@ -12,7 +12,7 @@ test.beforeEach(async ({ page, request }) => {
   await stubFollowingFromServerBoard(page, request);
 });
 
-test("home four-panel tab order and pane visibility", async ({ page }) => {
+test("home five-mode tab order and pane visibility", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("[data-home-mode]")).toHaveCount(5);
   expect(await page.locator("[data-home-mode]").evaluateAll((els) => (
@@ -20,7 +20,7 @@ test("home four-panel tab order and pane visibility", async ({ page }) => {
   ))).toEqual(["today", "todo", "discovery", "pool", "lifecycle"]);
   await expect(page.locator('[data-home-mode="today"]')).toHaveAttribute("aria-selected", "true");
   await expect(page.locator("[data-home-quick-tasks]")).toBeVisible();
-  await expect(page.locator("[data-home-quick-task='first-outreach']")).toHaveText("首次建联");
+  await expect(page.locator("[data-home-quick-task='first-outreach']")).toHaveCount(0);
   await expect(page.locator('[data-home-mode="today"]')).toContainText("今日任务");
   await expect(page.locator('[data-home-mode="todo"]')).toContainText("我的待办");
   await expect(page.locator('[data-home-mode="discovery"]')).toContainText("AI发现");
@@ -64,13 +64,17 @@ test("home four-panel tab order and pane visibility", async ({ page }) => {
   await expect(page.locator("[data-discovery-live]")).toHaveAttribute("data-discovery-live", "false");
 
   await openMode(page, "pool");
-  await expect(page.locator("[data-home] h1")).toHaveCount(0);
+  await expect(page.locator('[data-home-pane="pool"] h1')).toHaveText("公海");
+  await expect(page.locator('[data-home-pane="pool"] [data-scope-ai-workspace]')).toBeVisible();
+  await expect(page.locator('[data-home-pane="pool"] [data-scope-task-rail] [data-pool-overview]')).toHaveCount(1);
   await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
   await expect(page.locator("[data-discovery-panel]")).toHaveCount(0);
   await expect(page.locator('[data-home-pane="lifecycle"]')).toHaveCount(0);
 
   await openMode(page, "lifecycle");
-  await expect(page.locator("[data-home] h1")).toHaveCount(0);
+  await expect(page.locator('[data-home-pane="lifecycle"] h1')).toHaveText("我的红人");
+  await expect(page.locator('[data-home-pane="lifecycle"] [data-scope-ai-workspace]')).toBeVisible();
+  await expect(page.locator('[data-home-pane="lifecycle"] [data-scope-task-rail] [data-lifecycle-overview]')).toHaveCount(1);
   await expect(page.locator("[data-home]")).toHaveAttribute("data-followed-chrome", "compact");
   await expect(page.locator("[data-today-summary]")).toBeHidden();
   await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
@@ -184,7 +188,13 @@ test("home todo rows live in the task rail without横向滚动", async ({ page }
   expect(wide.actLeft).toBeGreaterThan(wide.titleRight - 8);
   expect(Math.abs(wide.actTop - wide.titleTop)).toBeLessThan(48);
   expect(wide.statusLeft).toBeLessThan(wide.titleRight);
-  expect(await page.locator("[data-scope-task-rail]").evaluate((rail) => rail.clientWidth)).toBeGreaterThan(480);
+  // 工作台列宽契约（DESIGN「Home Agent 工作台几何」）：右栏 clamp(380, 40%, 680)，
+  // 双栏时中栏必须比右栏更宽；行在右栏内不横向滚动。
+  const railWidth = await page.locator("[data-scope-task-rail]").evaluate((rail) => rail.clientWidth);
+  const centerWidth = await page.locator("[data-scope-ai-workspace]").evaluate((el) => el.clientWidth);
+  expect(railWidth).toBeGreaterThanOrEqual(360);
+  expect(railWidth).toBeLessThanOrEqual(690);
+  expect(centerWidth).toBeGreaterThan(railWidth);
   await expectNoPageHorizontalScroll(page);
 
   await page.setViewportSize({ width: 720, height: 900 });
@@ -271,7 +281,9 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
   expect(wide.factAiSideBySide).toBe(false);
   expect(wide.gutter).toBe(0);
   expect(wide.primaryInAi).toBe(true);
-  expect(wide.cardWidth).toBeGreaterThan(700);
+  // 卡片住在右栏（DESIGN「Home Agent 工作台几何」：右栏 clamp(380, 40%, 680)），
+  // 列宽由右栏决定；旧的全宽 >700 断言随 2026-09-23 工作台迁移作废。
+  expect(wide.cardWidth).toBeGreaterThan(300);
   expect(wide.cardWidth).toBeLessThanOrEqual(wide.columnWidth);
 
   const type = await card.evaluate((el) => {

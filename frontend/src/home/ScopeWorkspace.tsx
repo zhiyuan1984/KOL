@@ -44,6 +44,7 @@ export default function ScopeWorkspace({
   previousEvents,
   memoryPending = false,
   centerHeader,
+  centerSupplement,
   centerFooter,
 }: {
   scope: PlanScope;
@@ -61,6 +62,8 @@ export default function ScopeWorkspace({
   /** Entering the pane reads memory without planning, so the empty state must not lie. */
   memoryPending?: boolean;
   centerHeader?: ReactNode;
+  /** Composer 产生的澄清、排队、失败或恢复信息，属于中栏交互时间线。 */
+  centerSupplement?: ReactNode;
   centerFooter?: ReactNode;
 }) {
   const cfg = SCOPE_CONFIG[scope];
@@ -101,6 +104,7 @@ export default function ScopeWorkspace({
             scope={scope}
           />
           <PlanSummary brief={brief} label={cfg.planSummaryLabel} />
+          {centerSupplement}
           {phase === "idle" && !hasStream ? (
             <div className="scope-workspace-empty" data-scope-ai-empty>
               <strong>{cfg.streamEmpty.title}</strong>

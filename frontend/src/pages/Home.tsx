@@ -28,6 +28,7 @@ import {
 import { rememberJourney } from "../journey";
 import { missingFieldsMessage, fieldLabel } from "../labels";
 import DiscoveryWorkspace from "../home/DiscoveryWorkspace";
+import ObjectWorkspace from "../home/ObjectWorkspace";
 import { scopeRows } from "../home/scopeRows";
 import ScopeWorkspace from "../home/ScopeWorkspace";
 import type { WorkspacePane } from "../home/WorkspaceShell";
@@ -37,6 +38,8 @@ import PoolPane from "../home/PoolPane";
 import ClaimFollowConfirm from "../home/ClaimFollowConfirm";
 import ReleaseFollowConfirm from "../home/ReleaseFollowConfirm";
 import { FollowedBatchConfirm } from "../home/FollowedBatchConfirm";
+import { usePoolWorkspace } from "../home/usePoolWorkspace";
+import { useFollowedWorkspace, type FollowedKol } from "../home/useFollowedWorkspace";
 import {
   applyChipOverride,
   canSubmitDiscovery,
@@ -82,10 +85,9 @@ import {
   selectAllMax8,
   toggleSelectMax8,
   type KolSurface,
-  type PoolKol,
 } from "../home/kolContract";
 
-import { claimPoolKol, enqueueKolAnalyze, loadHomeFollowing, loadHomePool, releaseFollowedKol } from "../home/kolSurfaceApi";
+import { enqueueKolAnalyze, loadHomeFollowing, releaseFollowedKol } from "../home/kolSurfaceApi";
 import {
   canOpenExistingTaskFlow,
   definitionList,
@@ -142,7 +144,6 @@ import {
 
 type HomeTab = "today" | "templates";
 type TaskFilter = "all" | "open" | "high" | "ai";
-type FollowedKol = FollowedKolRecord;
 
 const openStatuses = new Set(["pending", "waiting", "running", "queued", "in_progress", "failed"]);
 
@@ -271,27 +272,11 @@ export default function Home() {
   const [definitions, setDefinitions] = useState<TaskDefinition[]>([]);
   const [tab, setTab] = useState<HomeTab>("today");
   const [filter, setFilter] = useState<TaskFilter>("all");
-  const [kolQuery, setKolQuery] = useState("");
-  const [stageFilter, setStageFilter] = useState("");
-  // 简报里的情境分区（一次回答内收窄），不是耐久 Tab；空串=不分区。
-  const [situationFilter, setSituationFilter] = useState<FollowedSituation | "">("");
   const [selectedKolIds, setSelectedKolIds] = useState<string[]>([]);
-  const [hoveredKolId, setHoveredKolId] = useState<string | null>(null);
-  const [focusedKolId, setFocusedKolId] = useState<string | null>(null);
-  const [pendingBatchCards, setPendingBatchCards] = useState<FollowedKolCardModel[] | null>(null);
   const [dedupeNotice, setDedupeNotice] = useState("");
-  const [followedKols, setFollowedKols] = useState<FollowedKol[]>([]);
-  const [poolCards, setPoolCards] = useState<PoolKol[]>([]);
-  const [poolQuery, setPoolQuery] = useState("");
   const [analyzeSurface, setAnalyzeSurface] = useState<KolSurface | null>(null);
   const [analyzeUids, setAnalyzeUids] = useState<string[]>([]);
   const [queuedNotice, setQueuedNotice] = useState("");
-  const [claimTarget, setClaimTarget] = useState<PoolKol | null>(null);
-  const [claimBusy, setClaimBusy] = useState(false);
-  const [claimError, setClaimError] = useState<string | null>(null);
-  const [releaseTarget, setReleaseTarget] = useState<FollowedKol | null>(null);
-  const [releaseBusy, setReleaseBusy] = useState(false);
-  const [releaseError, setReleaseError] = useState<string | null>(null);
   const [boardWorkbench, setBoardWorkbench] = useState<HomeWorkbench | null>(null);
   const [libraryCount, setLibraryCount] = useState<number | null>(null);
   const [followScope, setFollowScope] = useState<StarryBinding | null>(null);
@@ -545,8 +530,6 @@ export default function Home() {
   const [draftFocus, setDraftFocus] = useState(initialFill ? 1 : 0);
   const [blockSubmit, setBlockSubmit] = useState(false);
   const [err, setErr] = useState("");
-  const [followingError, setFollowingError] = useState("");
-  const [poolError, setPoolError] = useState("");
   const [retryingSurface, setRetryingSurface] = useState<HomeSurface | null>(null);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<FromTextResult | null>(null);
@@ -557,12 +540,6 @@ export default function Home() {
   const missingAlertRef = useRef<HTMLElement | null>(null);
   const [recognizeStartedAt, setRecognizeStartedAt] = useState<number | null>(null);
   const [recognizeNow, setRecognizeNow] = useState(() => Date.now());
-  const [confirmStageBusyId, setConfirmStageBusyId] = useState<string | null>(null);
-  const [confirmStageFeedback, setConfirmStageFeedback] = useState<{
-    id: string;
-    text: string;
-    tone: "info" | "error";
-  } | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [composerFocused, setComposerFocused] = useState(Boolean(initialFill));
   const [stageScrolled, setStageScrolled] = useState(false);
@@ -612,18 +589,35 @@ export default function Home() {
     else nextParams.set("tab", query);
     setParams(nextParams, { replace: true });
     setSelectedKolIds([]);
-    setHoveredKolId(null);
-    setFocusedKolId(null);
+    followedUiRef.current.setHoveredId(null);
+    followedUiRef.current.setFocusedId(null);
     setAnalyzeSurface(null);
     setAnalyzeUids([]);
   };
 
+  const onFillComposer = (text: string, intent?: string, label?: string) => {
+    setText(text);
+    if (intent) setLockedIntent(intent);    if (label) setLockedLabel(label);
+    setComposerFocused(true);
+    setDraftFocus((value) => value + 1);
+  };
+
   const boardKolsRef = useRef<Array<Record<string, unknown>>>([]);
   const discoveryCatalogRef = useRef(false);
+  const poolSetErrorRef = useRef<(message: string) => void>(() => {});
+  const followedSetErrorRef = useRef<(message: string) => void>(() => {});
+  const openTaskRef = useRef<(task: Task) => Promise<void>>(async () => {});
+  const onReleasedRef = useRef<(kolId: string) => Promise<void>>(async () => {});
+  const todoItemsRef = useRef<Task[]>([]);
+  const followedWorkspaceRef = useRef<{ loadSurface: () => Promise<void>; ensureLoaded: () => Promise<void>; rows: FollowedKol[] }>({ loadSurface: async () => {}, ensureLoaded: async () => {}, rows: [] });
+  const followedUiRef = useRef<{ setHoveredId: (id: string | null) => void; setFocusedId: (id: string | null) => void }>({
+    setHoveredId: () => {},
+    setFocusedId: () => {},
+  });
 
   const setSurfaceError = (surface: HomeSurface, message: string) => {
-    if (surface === "following") setFollowingError(message);
-    else setPoolError(message);
+    if (surface === "following") followedSetErrorRef.current(message);
+    else poolSetErrorRef.current(message);
   };
 
   const applyBoard = (board: Awaited<ReturnType<typeof api.homeBoard>>, surface: HomeSurface) => {
@@ -663,39 +657,22 @@ export default function Home() {
     });
   };
 
-  const loadFollowingSurface = async () => {
-    const loaded = await loadHomeFollowing({
-      kols: boardKolsRef.current,
-      follow_scope: followScope || undefined,
-    });
-    if (loaded.follow_scope) setFollowScope(loaded.follow_scope);
-    if (loaded.down) {
-      setFollowingError(loaded.error || "跟进列表读取失败");
-      return;
-    }
-    setFollowingError("");
-    setFollowedKols(loaded.items.map(followKolToRecord) as FollowedKol[]);
-  };
-
-  const loadPoolSurface = async () => {
-    const loaded = await loadHomePool({
-      kols: boardKolsRef.current,
-    });
-    if (loaded.down) {
-      setPoolError(loaded.error || "公海读取失败");
-      setPoolCards([]);
-      return;
-    }
-    setPoolError("");
-    setPoolCards(loaded.items);
-  };
+  const poolWorkspace = usePoolWorkspace({
+    loadBoard,
+    boardKols: () => boardKolsRef.current,
+    onClaimed: async (kolUid) => {
+      setSelectedKolIds((current) => current.filter((id) => id !== kolUid));
+      await followedWorkspaceRef.current.loadSurface();
+    },
+  });
+  poolSetErrorRef.current = poolWorkspace.setError;
 
   /** 重试只重发这一面的读取，不切 Tab、不写会话。 */
   const retrySurface = async (surface: HomeSurface) => {
     setRetryingSurface(surface);
     try {
       await loadBoard(surface, true);
-      await (surface === "following" ? loadFollowingSurface() : loadPoolSurface());
+      await (surface === "following" ? followedWorkspaceRef.current.loadSurface() : poolWorkspace.loadSurface());
     } finally {
       setRetryingSurface(null);
     }
@@ -893,169 +870,12 @@ export default function Home() {
     rememberJourney({ kind: "skill", skillId: intent || undefined, skillLabel: rec.title, handle: rec.handle });
   };
 
-  const openKol = (kol: FollowedKol, focusThread?: string) => {
-    rememberJourney({
-      kind: "kol",
-      handle: kol.handle,
-      stageCode: kol.stage_code,
-      skillId: kol.unbound ? "creator_profile" : undefined,
-      skillLabel: kol.unbound ? "达人画像" : undefined,
-    });
-    if (kol.unbound) {
-      setText(`达人画像 ${kol.handle}`);
-      setLockedIntent("creator_profile");
-      setLockedLabel("达人画像");
-      setComposerFocused(true);
-      setDraftFocus((value) => value + 1);
-      return;
-    }
-    void api.openKolSession(kol.id).then((session) => {
-      if (!session?.id) throw new Error("未能打开会话，请稍后重试。");
-      sessionStorage.setItem(`kol-session:${session.id}`, "1");
-      nav(`/s/${session.id}`, { state: { kolSession: true, focusThread: focusThread || undefined } });
-    }).catch((error) => {
-      setErr(error instanceof Error && error.message ? error.message : "未能打开会话，请稍后重试。");
-    });
-  };
-
-  const startCompose = (kol: FollowedKol) => {
-    // 发信只续期 14 日钟，不等于建联 / claim / 改阶段。
-    setText(`写合作邮件 @${kol.handle}`);
-    setLockedIntent("email_compose");
-    setLockedLabel("写合作邮件");
-    setComposerFocused(true);
-    setDraftFocus((value) => value + 1);
-    rememberJourney({ kind: "kol", handle: kol.handle, stageCode: kol.stage_code, skillId: "email_compose", skillLabel: "写合作邮件" });
-  };
-
-  const openConfirmStage = (kol: FollowedKol, card: FollowedKolCardModel) => {
-    if (!card.recommended_action.can_write_stage || !card.recommended_action.target_stage_code) {
-      setConfirmStageFeedback({
-        id: card.id,
-        text: HOME_CONFIRM_STAGE_BLOCKED_COPY,
-        tone: "error",
-      });
-      return;
-    }
-    if (card.task && canOpenExistingTaskFlow(card.task)) {
-      setConfirmStageBusyId(card.id);
-      setConfirmStageFeedback({
-        id: card.id,
-        text: HOME_OPENED_EXISTING_SESSION_COPY,
-        tone: "info",
-      });
-      rememberJourney({
-        kind: "task",
-        skillId: String(card.task.skill_id || card.task.skill || card.task.task_type || ""),
-        skillLabel: card.task.title,
-        handle: card.task.kol_name || kol.handle,
-      });
-      const goExisting = (sessionId: string, kolSession: boolean) => {
-        sessionStorage.setItem(`task:${sessionId}`, card.task!.id);
-        if (kolSession) sessionStorage.setItem(`kol-session:${sessionId}`, "1");
-        nav(`/s/${sessionId}`, {
-          state: {
-            kolSession,
-            confirmStageOpenedExisting: true,
-            confirmStageNotice: HOME_OPENED_EXISTING_SESSION_LANDED_COPY,
-          },
-        });
-      };
-      void (async () => {
-        try {
-          await new Promise((resolve) => window.setTimeout(resolve, 400));
-          if (card.task!.session_id) {
-            goExisting(card.task!.session_id, Boolean(card.task!.collaboration_id || card.task!.project_id));
-            return;
-          }
-          const collabId = String(card.task!.collaboration_id || card.task!.project_id || "");
-          if (collabId) {
-            const session = await api.openKolSession(collabId);
-            goExisting(session.id, true);
-            return;
-          }
-          await openTask(card.task!);
-        } catch (error) {
-          setConfirmStageFeedback({
-            id: card.id,
-            text: error instanceof Error ? error.message : "未能打开已有会话",
-            tone: "error",
-          });
-        } finally {
-          setConfirmStageBusyId(null);
-        }
-      })();
-      return;
-    }
-    rememberJourney({
-      kind: "kol",
-      handle: kol.handle,
-      stageCode: kol.stage_code,
-      skillId: "confirm_stage",
-      skillLabel: "提出阶段变更",
-    });
-    setConfirmStageBusyId(card.id);
-    setConfirmStageFeedback({
-      id: card.id,
-      text: "正在打开会话，尚未改正式阶段。",
-      tone: "info",
-    });
-    void api.openKolSession(kol.id).then((session) => {
-      if (!session?.id) throw new Error("未能打开会话，请稍后重试。");
-      storePending(session.id, {
-        text: `提出阶段变更 @${kol.handle} 到 ${card.recommended_action.target_stage_label}`,
-        collaboration_id: kol.id,
-        intent: "confirm_stage",
-        entities: {
-          handle: kol.handle,
-          stage_code: card.recommended_action.target_stage_code,
-        },
-      });
-      sessionStorage.setItem(`kol-session:${session.id}`, "1");
-      nav(`/s/${session.id}`, { state: { kolSession: true } });
-    }).catch((error) => {
-      setConfirmStageBusyId(null);
-      const text = error instanceof Error && error.message ? error.message : "未能打开会话，请稍后重试。";
-      setConfirmStageFeedback({
-        id: card.id,
-        text,
-        tone: "error",
-      });
-      setErr(text);
-    });
-  };
-
-  const runKolCardAction = (kol: FollowedKol, card: FollowedKolCardModel) => {
-    const kind = card.recommended_action.kind;
-    if (kind === "profile") {
-      openKol(kol);
-      return;
-    }
-    if (kind === "confirm-stage") {
-      openConfirmStage(kol, card);
-      return;
-    }
-    if ((kind === "confirm-send" || kind === "approval") && card.task && canOpenExistingTaskFlow(card.task)) {
-      void openTask(card.task);
-      return;
-    }
-    if (kind === "compose") {
-      if (card.task && canOpenExistingTaskFlow(card.task)) {
-        void openTask(card.task);
-        return;
-      }
-      startCompose(kol);
-      return;
-    }
-    openKol(kol, card.focus_thread);
-  };
-
   const toggleSelectedKol = (id: string, on: boolean) => {
     setSelectedKolIds((current) => toggleSelectMax8(current, id, on));
   };
 
   const toggleSelectAllKols = (on: boolean) => {
-    setSelectedKolIds(selectAllMax8(visibleKols.map((card) => card.id), on));
+    setSelectedKolIds(selectAllMax8(followedWorkspace.visibleCards.map((card) => card.id), on));
   };
 
   const toggleSelectedPool = (id: string, on: boolean) => {
@@ -1063,15 +883,7 @@ export default function Home() {
   };
 
   const toggleSelectAllPool = (on: boolean) => {
-    const visible = poolCards.filter((card) => {
-      const needle = poolQuery.trim().toLowerCase();
-      if (!needle) return true;
-      return [card.identity.display, card.identity.platform, card.direction, card.region, card.style]
-        .join(" ")
-        .toLowerCase()
-        .includes(needle);
-    });
-    setSelectedKolIds(selectAllMax8(visible.map((card) => card.kol_uid), on));
+    setSelectedKolIds(selectAllMax8(poolWorkspace.visibleCards.map((card) => card.kol_uid), on));
   };
 
   const prefillAnalyze = (surface: KolSurface, cards: Array<{ identity: { display: string } }>, uids: string[]) => {
@@ -1081,58 +893,6 @@ export default function Home() {
     setComposerFocused(true);
     setDraftFocus((value) => value + 1);
     setQueuedNotice("");
-  };
-
-  const runSelectedStageEnter = () => {
-    const targets = selectedStageEnterCards;
-    if (!targets.length) return;
-    if (targets.length === 1) {
-      openConfirmStage(targets[0].source, targets[0]);
-      return;
-    }
-    setPendingBatchCards(targets);
-  };
-
-  const confirmSelectedStageEnter = () => {
-    const first = pendingBatchCards?.[0];
-    setPendingBatchCards(null);
-    if (first) openConfirmStage(first.source, first);
-  };
-
-  const confirmClaim = async () => {
-    if (!claimTarget) return;
-    setClaimBusy(true);
-    setClaimError(null);
-    try {
-      await claimPoolKol(claimTarget.kol_uid);
-      setClaimTarget(null);
-      setPoolCards((current) => current.filter((card) => card.kol_uid !== claimTarget.kol_uid));
-      setSelectedKolIds((current) => current.filter((id) => id !== claimTarget.kol_uid));
-      await loadFollowingSurface();
-    } catch (error) {
-      setClaimError(error instanceof Error ? error.message : "领取失败");
-    } finally {
-      setClaimBusy(false);
-    }
-  };
-
-  const confirmRelease = async () => {
-    const target = releaseTarget;
-    const followId = String(target?.follow_id || "").trim();
-    if (!target || !followId) return;
-    setReleaseBusy(true);
-    setReleaseError(null);
-    try {
-      await releaseFollowedKol(followId);
-      setFollowedKols((current) => current.filter((row) => row.follow_id !== followId && row.id !== target.id));
-      setSelectedKolIds((current) => current.filter((id) => id !== target.id));
-      setReleaseTarget(null);
-      await loadPoolSurface();
-    } catch (error) {
-      setReleaseError(error instanceof Error ? error.message : "释放失败");
-    } finally {
-      setReleaseBusy(false);
-    }
   };
 
   const mergeCatalogTask = (updated: Task) => {
@@ -1226,6 +986,7 @@ export default function Home() {
       setBusy(false);
     }
   };
+  openTaskRef.current = openTask;
 
   const refreshTasks = () => fetchHomeTasks().catch(() => undefined);
 
@@ -1239,27 +1000,27 @@ export default function Home() {
 
   useEffect(() => {
     setSelectedKolIds([]);
-    setHoveredKolId(null);
-    setFocusedKolId(null);
+    followedUiRef.current.setHoveredId(null);
+    followedUiRef.current.setFocusedId(null);
     setAnalyzeSurface(null);
     setAnalyzeUids([]);
     setQueuedNotice("");
     // 失败态属于它发生的那一面：切 Tab 就收起来，不让它跟着用户跑到别的模式。
-    setFollowingError("");
-    setPoolError("");
+    followedWorkspace.setError("");
+    poolWorkspace.setError("");
     setText((current) => (isAnalyzePrefill(current) ? "" : current));
   }, [mode]);
 
   useEffect(() => {
     if (mode !== "lifecycle") return;
-    void loadBoard("following").then(() => void loadFollowingSurface());
+    void followedWorkspaceRef.current.ensureLoaded();
     // First entry to「我跟进的红人」loads following (B.active); tab switch does not create sessions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
   useEffect(() => {
     if (mode !== "pool") return;
-    void loadBoard("pool").then(() => void loadPoolSurface());
+    void poolWorkspace.ensureLoaded();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
@@ -1483,8 +1244,8 @@ export default function Home() {
       if (/^延期关怀(?:\s|$|\[)/.test(prompt)) {
         // Bind the generic exception template to the visible exception row so
         // the Host can load its real mailbox, recipient and stage context.
-        const exceptionKol = followedKols.find((kol) => kol.exception && !kol.unbound)
-          || followedKols.find((kol) => /异常|争议/.test(`${kol.stage_label} ${kol.notes || ""}`) && !kol.unbound);
+        const exceptionKol = followedWorkspace.rows.find((kol) => kol.exception && !kol.unbound)
+          || followedWorkspace.rows.find((kol) => /异常|争议/.test(`${kol.stage_label} ${kol.notes || ""}`) && !kol.unbound);
         const collaborationId = p.collaboration_id || exceptionKol?.id;
         const ses = await api.createSession(prompt.slice(0, 40), collaborationId);
         storePending(ses.id, {
@@ -1574,10 +1335,6 @@ export default function Home() {
     [filter, sort, tasks],
   );
 
-  const workbench = useMemo(
-    () => boardWorkbench || deriveWorkbench(taskCatalog, mode === "lifecycle" ? followedKols : []),
-    [boardWorkbench, followedKols, mode, taskCatalog],
-  );
 
   const homeMemoryTasks = (mode === "today" ? todayPlan.memoryTasks : mode === "todo" ? todoPlan.memoryTasks : null) ?? taskCatalog;
 
@@ -1592,12 +1349,43 @@ export default function Home() {
     () => sortOpenWorkItems(homeMemoryTasks.filter(isOpenTask)),
     [homeMemoryTasks],
   );
+  todoItemsRef.current = todoItems;
 
   // 今日任务 / 我的待办 render one workspace over one row projection; only the
+  const followedWorkspace = useFollowedWorkspace({
+    loadBoard,
+    boardKols: () => boardKolsRef.current,
+    followScope,
+    setFollowScope,
+    selectedIds: selectedKolIds,
+    todoItems: todoItemsRef.current,
+    openTask: (task) => openTaskRef.current(task),
+    onFillComposer,
+    navigate: nav,
+    onError: setErr,
+    onReleased: (kolId) => onReleasedRef.current(kolId),
+  });
+  followedSetErrorRef.current = followedWorkspace.setError;
+  followedUiRef.current = {
+    setHoveredId: followedWorkspace.setHoveredId,
+    setFocusedId: followedWorkspace.setFocusedId,
+  };
+  onReleasedRef.current = async (kolId) => {
+    setSelectedKolIds((current) => current.filter((id) => id !== kolId));
+    await poolWorkspace.loadSurface();
+  };
+
+  followedWorkspaceRef.current = followedWorkspace;
+
+  const workbench = useMemo(
+    () => boardWorkbench || deriveWorkbench(taskCatalog, mode === "lifecycle" ? followedWorkspace.rows : []),
+    [boardWorkbench, followedWorkspace.rows, mode, taskCatalog],
+  );
+
   // slice each pane answers for differs, and that lives in scopeRows.
   const paneScope: PlanScope | null = mode === "today" || mode === "todo" ? mode : null;
-  // AI发现 走进同一套两栏骨架（WorkspaceShell），所以固定视口的工作台几何对它同样生效。
-  const workspacePane: WorkspacePane | null = paneScope ?? (mode === "discovery" ? "discovery" : null);
+  // Home 五模式统一走 WorkspaceShell；共享几何与恢复语义，不共享业务对象模型。
+  const workspacePane: WorkspacePane = mode;
   const activePlan = mode === "todo" ? todoPlan : todayPlan;
   const paneRows = useMemo(
     () => (paneScope ? scopeRows(paneScope, homeMemoryTasks, activePlan.brief?.todo_layout) : []),
@@ -1641,65 +1429,33 @@ export default function Home() {
     [definitions, workbench.recommendations],
   );
 
-  const kolCards = useMemo(
-    () => mode === "lifecycle"
-      ? followedKols.map((kol) => projectFollowedKolCard(kol, todoItems))
-      : [],
-    [followedKols, mode, todoItems],
-  );
-
-  const visibleKols = useMemo(() => {
-    const filtered = kolCards.filter((card) => (
-      matchesKolSearch(card, kolQuery)
-      && matchesStageFilter(card, stageFilter)
-      && matchesFollowedSituation(card, situationFilter)
-    ));
-    return sortFollowedKolCards(filtered, "need");
-  }, [kolCards, kolQuery, stageFilter, situationFilter]);
-
-  const selectedKolCards = useMemo(
-    () => visibleKols.filter((card) => selectedKolIds.includes(card.id)),
-    [visibleKols, selectedKolIds],
-  );
-  const selectedStageEnterCards = useMemo(
-    () => followedStageEnterCards(selectedKolCards),
-    [selectedKolCards],
-  );
 
   useEffect(() => {
     if (mode !== "lifecycle") return;
-    const ids = new Set(visibleKols.map((card) => card.id));
+    const ids = new Set(followedWorkspace.visibleCards.map((card) => card.id));
     setSelectedKolIds((current) => {
       const next = current.filter((id) => ids.has(id));
       return next.length === current.length ? current : next;
     });
-    if (hoveredKolId && !ids.has(hoveredKolId)) setHoveredKolId(null);
-    if (focusedKolId && !ids.has(focusedKolId)) setFocusedKolId(null);
-  }, [visibleKols, hoveredKolId, focusedKolId, mode]);
+    if (followedWorkspace.hoveredId && !ids.has(followedWorkspace.hoveredId)) followedWorkspace.setHoveredId(null);
+    if (followedWorkspace.focusedId && !ids.has(followedWorkspace.focusedId)) followedWorkspace.setFocusedId(null);
+  }, [followedWorkspace.visibleCards, followedWorkspace.hoveredId, followedWorkspace.focusedId, mode]);
 
-  const followEmptyKind = followScope?.required && !followScope.bound
-    ? "unbound"
-    : followScope?.status === "expired"
-      ? "expired"
-      : followedKols.length
-        ? "filtered"
-        : followScope?.bound
-          ? "mailbox"
-          : "none";
+  const followEmptyKind = followedWorkspace.followEmptyKind;
 
-  const followingDown = followingError && !followedKols.length
-    ? surfaceDownView(followingError, "跟进列表读取失败", {
+  const followingDown = followedWorkspace.error && !followedWorkspace.rows.length
+    ? surfaceDownView(followedWorkspace.error, "跟进列表读取失败", {
       retrying: retryingSurface === "following",
       onRetry: () => void retrySurface("following"),
-      onHandoff: () => handoffSurface("跟进列表", followingError),
+      onHandoff: () => handoffSurface("跟进列表", followedWorkspace.error),
     })
     : null;
 
-  const poolDown = poolError && !poolCards.length
-    ? surfaceDownView(poolError, "公海读取失败", {
+  const poolDown = poolWorkspace.error && !poolWorkspace.cards.length
+    ? surfaceDownView(poolWorkspace.error, "公海读取失败", {
       retrying: retryingSurface === "pool",
       onRetry: () => void retrySurface("pool"),
-      onHandoff: () => handoffSurface("公海", poolError),
+      onHandoff: () => handoffSurface("公海", poolWorkspace.error),
     })
     : null;
 
@@ -1769,22 +1525,6 @@ export default function Home() {
     setPanelOpen(true);
   };
 
-  const openFirstOutreach = () => {
-    const definition = definitions.find((item) => item.id === "creator_outreach" || item.skill_id === "creator_outreach");
-    if (definition) {
-      onTemplate(definition);
-      return;
-    }
-    setErr("");
-    setFeedback(null);
-    setText("达人建联话术 [达人昵称或主页]");
-    setLockedIntent("creator_outreach");
-    setLockedLabel("首次建联");
-    applyLockedKnowledge(null);
-    setComposerFocused(true);
-    setDraftFocus((value) => value + 1);
-  };
-
   const activateTodaySkill = () => {
     setMode("today");
     setLockedIntent("creator_daily_tasks");
@@ -1802,7 +1542,7 @@ export default function Home() {
   };
 
   const quickTaskBar = (
-    <nav className="home-quick-tasks" aria-label="快捷任务" data-home-quick-tasks>
+    <div className="home-quick-tasks" role="tablist" aria-label="Home 工作模式" data-home-quick-tasks data-home-modes>
       {HOME_MODES.map((homeMode) => (
         <button
           key={homeMode}
@@ -1823,16 +1563,119 @@ export default function Home() {
           {homeMode === "todo" && openCount > 0 ? <span className="home-mode-count" aria-hidden>{openCount}</span> : null}
         </button>
       ))}
-      <button
-        type="button"
-        aria-pressed={lockedIntent === "creator_outreach"}
-        data-home-quick-task="first-outreach"
-        onClick={openFirstOutreach}
-      >
-        <svg className="home-quick-task-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 6h16v12H4z" /><path d="m4 7 8 6 8-6" /></svg>
-        首次建联
-      </button>
-    </nav>
+    </div>
+  );
+
+  const interactionFeedback = (
+    <div className="workspace-interaction-feedback" data-workspace-interaction-feedback>
+      {enqueueNotice ? <p className="muted" role="status" data-analyze-enqueue>{enqueueNotice}</p> : null}
+      {err && <p className="error composer-err" role="alert" data-home-session-error={err.includes("未能打开会话") ? "true" : undefined}>{err}</p>}
+      {discoverySubmitFailed && !busy ? (
+        <div className="composer-err" data-home-discovery-submit-error>
+          <button
+            type="button"
+            className="btn ghost sm"
+            data-home-entry="retry-discovery-run"
+            onClick={() => void retryDiscoveryRun()}
+          >
+            重试
+          </button>
+        </div>
+      ) : null}
+      {queuedNotice ? (
+        <section className="creation-feedback" data-kind="queued" data-analyze-queued role="status">
+          <strong>已入队</strong>
+          <p>{queuedNotice}</p>
+        </section>
+      ) : null}
+      {busy && !feedback && !err && !queuedNotice ? (
+        <section className="creation-feedback" data-kind="recognizing" data-creation-feedback data-wait-status="识别中" role="status" aria-busy="true">
+          <strong>识别中</strong>
+          <p>
+            正在识别任务方向和已填写的字段，不会改你已经写出的发件、收件和主题。
+            {recognizeSeconds ? ` 已等待 ${recognizeSeconds} 秒。` : ""}
+          </p>
+          {recognizeOverdue ? (
+            <p data-recognize-timeout>识别时间较长，可再试一次或补充字段后发送。</p>
+          ) : null}
+        </section>
+      ) : null}
+      {feedback ? (
+        <section
+          ref={missingAlertRef}
+          className="creation-feedback"
+          data-kind={feedbackKind}
+          data-creation-feedback
+          role={feedbackKind === "missing_fields" ? "alert" : "status"}
+          tabIndex={feedbackKind === "missing_fields" ? -1 : undefined}
+          aria-live={feedbackKind === "missing_fields" ? "assertive" : "polite"}
+        >
+          <strong>
+            {feedbackKind === "missing_fields"
+              ? (feedback.resolution?.missing_fields?.length
+                ? `还缺${feedback.resolution.missing_fields.map((field) => fieldLabel(field)).join("、")}`
+                : "还缺必要字段")
+              : feedbackKind === "direction"
+                ? "需要确认任务方向"
+                : `已识别 ${feedbackTasks.length || 1} 个任务`}
+          </strong>
+          <p>{feedback.clarification || feedback.message || (feedbackKind === "direction" ? "请选择最符合你意图的任务，不会自动执行。" : "任务已创建，可分别查看。")}</p>
+          {understood.length ? (
+            <ul className="creation-feedback-fields">
+              {understood.map((line) => <li key={line}>{line}</li>)}
+            </ul>
+          ) : null}
+          <div className="feedback-links">
+            {feedbackKind !== "missing_fields" && feedbackTasks.map((task) => (
+              <button key={task.id} type="button" className="clarification-chip" onClick={() => void createAndRun(task)}>
+                {task.title}
+              </button>
+            ))}
+            {candidates.map((candidate, index) => {
+              const label = candidate.title || (typeof candidate.label === "string" ? candidate.label : "") || `候选 ${index + 1}`;
+              const fieldId = String(candidate.id || "");
+              return (
+                <button
+                  key={fieldId || label}
+                  type="button"
+                  className="clarification-chip"
+                  onClick={() => {
+                    if (feedbackKind === "missing_fields") {
+                      const bound = followScope?.mailbox_email || "";
+                      if (fieldId === "mailboxEmail" && bound && !text.includes(bound)) {
+                        setText(`${text.trim()} 发件: ${bound}`.trim());
+                      }
+                      setComposerFocused(true);
+                      setDraftFocus((value) => value + 1);
+                      return;
+                    }
+                    const skillId = fieldId || label;
+                    setLockedIntent(skillId);
+                    setLockedLabel(label);
+                    const next = lastComposer.current || { text };
+                    void onComposer({ ...next, text: next.text || text, intent: skillId });
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+            {feedback.resolution?.source === "none" || feedback.message?.includes("识别服务未就绪") ? (
+              <button
+                type="button"
+                className="clarification-chip"
+                onClick={() => {
+                  const next = lastComposer.current || { text };
+                  void onComposer(next);
+                }}
+              >
+                再试一次
+              </button>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+    </div>
   );
 
   const renderComposerDock = () => (
@@ -1845,7 +1688,6 @@ export default function Home() {
       }
       data-composer-rhythm="dock"
     >
-      {quickTaskBar}
       {stopping ? <p className="composer-override-hint" role="status" data-home-stopping>正在停止…</p> : null}
       <ComposerDock
         variant="workspace"
@@ -1861,7 +1703,7 @@ export default function Home() {
         lockedLabel={lockedLabel}
         lockedKnowledgeId={lockedKnowledgeId}
         lockedTemplate={lockedTemplate}
-        stageCode={followedKols.find((kol) => kol.handle && text.includes(`@${kol.handle}`))?.stage_code}
+        stageCode={followedWorkspace.rows.find((kol) => kol.handle && text.includes(`@${kol.handle}`))?.stage_code}
         onKnowledgeChange={applyLockedKnowledge}
         autoFocus={draftFocus > 0}
         autoFocusToken={draftFocus}
@@ -1901,13 +1743,6 @@ export default function Home() {
           setStageScrolled((current) => (current ? top > 8 : top > 40));
         }}
       >
-        {!workspacePane ? <div className="home-hero">
-          <p className="home-stats" data-today-summary data-home-stats>
-            {statsText}
-            {awaitingApprovalCount ? ` · ${awaitingApprovalCount}等审批` : ""}
-          </p>
-        </div> : null}
-
         <div className="home-board">
           {paneScope ? (
             <ScopeWorkspace
@@ -1924,14 +1759,18 @@ export default function Home() {
               previousEvents={activePlan.prevEvents}
               memoryPending={activePlan.memoryTasks === null}
               centerHeader={(
-                <div className="home-hero today-center-hero">
-                  <h1 data-home-title={paneScope}>{SCOPE_CONFIG[paneScope].heroTitle}</h1>
-                  <p className="home-stats" data-today-summary data-home-stats>
-                    {statsText}
-                    {awaitingApprovalCount ? ` · ${awaitingApprovalCount}等审批` : ""}
-                  </p>
-                </div>
+                <>
+                  {quickTaskBar}
+                  <div className="home-hero today-center-hero">
+                    <h1 data-home-title={paneScope}>{SCOPE_CONFIG[paneScope].heroTitle}</h1>
+                    <p className="home-stats" data-today-summary data-home-stats>
+                      {statsText}
+                      {awaitingApprovalCount ? ` · ${awaitingApprovalCount}等审批` : ""}
+                    </p>
+                  </div>
+                </>
               )}
+              centerSupplement={interactionFeedback}
               centerFooter={renderComposerDock()}
             />
           ) : null}
@@ -1945,191 +1784,105 @@ export default function Home() {
               activeRunId={discoveryRunId}
               lastSubmit={lastDiscoverySubmit}
               onRetrySubmit={() => void retryDiscoveryRun()}
+              centerHeader={quickTaskBar}
+              centerSupplement={interactionFeedback}
               centerFooter={renderComposerDock()}
             />
           ) : null}
 
           {mode === "lifecycle" ? (
-            <FollowedPane
-              visibleKols={visibleKols}
-              allCards={kolCards}
-              kolQuery={kolQuery}
-              stageFilter={stageFilter}
-              situation={situationFilter}
-              selectedKolIds={selectedKolIds}
-              hoveredKolId={hoveredKolId}
-              focusedKolId={focusedKolId}
-              confirmStageBusyId={confirmStageBusyId}
-              confirmStageFeedback={confirmStageFeedback}
-              followScope={followScope}
-              followEmptyKind={followEmptyKind}
-              down={followingDown}
-              onQuery={setKolQuery}
-              onStageFilter={setStageFilter}
-              onSituation={setSituationFilter}
-              onHover={setHoveredKolId}
-              onFocus={setFocusedKolId}
-              onToggleSelect={toggleSelectedKol}
-              onToggleSelectAll={toggleSelectAllKols}
-              onOpenDetail={(card) => openKol(card.source)}
-              onPrimary={(card) => runKolCardAction(card.source, card)}
-              onOpenMail={(card) => {
-                const conversationId = card.latest_fact.thread_id || card.focus_thread;
-                nav(mailHref(followScope?.mailbox_email || "", conversationId));
-              }}
-              onCompose={(card) => runKolCardAction(card.source, card)}
-              onConfirmStage={(card) => openConfirmStage(card.source, card)}
-              onBatchConfirm={runSelectedStageEnter}
-              onAnalyzeSelected={() => prefillAnalyze(
-                "following",
-                selectedKolCards,
-                selectedKolCards.map((card) => String(card.source.kol_uid || card.id)),
+            <ObjectWorkspace
+              pane="lifecycle"
+              title="我的红人"
+              description="围绕已跟进对象提问、分析风险或判断下一步；对象事实与受控动作保留在右栏。"
+              selectedCount={selectedKolIds.length}
+              resultCount={followedWorkspace.visibleCards.length}
+              railLabel="我的红人结果"
+              railToggleLabel="我的红人"
+              railStorageKey="ui:home-followed-rail-collapsed"
+              centerHeader={quickTaskBar}
+              interaction={interactionFeedback}
+              centerFooter={renderComposerDock()}
+              rail={(
+                <FollowedPane
+                  visibleKols={followedWorkspace.visibleCards}
+                  allCards={followedWorkspace.cards}
+                  kolQuery={followedWorkspace.query}
+                  stageFilter={followedWorkspace.stageFilter}
+                  situation={followedWorkspace.situation}
+                  selectedKolIds={selectedKolIds}
+                  hoveredKolId={followedWorkspace.hoveredId}
+                  focusedKolId={followedWorkspace.focusedId}
+                  confirmStageBusyId={followedWorkspace.confirmStageBusyId}
+                  confirmStageFeedback={followedWorkspace.confirmStageFeedback}
+                  followScope={followScope}
+                  followEmptyKind={followEmptyKind}
+                  down={followingDown}
+                  onQuery={followedWorkspace.setQuery}
+                  onStageFilter={followedWorkspace.setStageFilter}
+                  onSituation={followedWorkspace.setSituation}
+                  onHover={followedWorkspace.setHoveredId}
+                  onFocus={followedWorkspace.setFocusedId}
+                  onToggleSelect={toggleSelectedKol}
+                  onToggleSelectAll={toggleSelectAllKols}
+                  onOpenDetail={followedWorkspace.openDetails}
+                  onPrimary={followedWorkspace.runCardAction}
+                  onOpenMail={followedWorkspace.openMail}
+                  onCompose={followedWorkspace.compose}
+                  onConfirmStage={followedWorkspace.confirmStage}
+                  onBatchConfirm={followedWorkspace.runBatch}
+                  onAnalyzeSelected={() => prefillAnalyze(
+                    "following",
+                    followedWorkspace.selectedCards,
+                    followedWorkspace.selectedCards.map((card) => String(card.source.kol_uid || card.id)),
+                  )}
+                  onRelease={(card) => followedWorkspace.requestRelease(card.source)}
+                  onBind={() => nav("/settings?tab=starry")}
+                />
               )}
-              onRelease={(card) => {
-                setReleaseError(null);
-                setReleaseTarget(card.source);
-              }}
-              onBind={() => nav("/settings?tab=starry")}
             />
           ) : null}
 
           {mode === "pool" ? (
-            <PoolPane
-              cards={poolCards}
-              selectedIds={selectedKolIds}
-              hoveredId={hoveredKolId}
-              query={poolQuery}
-              down={poolDown}
-              libraryCount={libraryCount}
-              syncBusy={retryingSurface === "pool"}
-              claimBusyId={claimBusy && claimTarget ? claimTarget.kol_uid : null}
-              onQuery={setPoolQuery}
-              onHover={setHoveredKolId}
-              onToggleSelect={toggleSelectedPool}
-              onToggleSelectAll={toggleSelectAllPool}
-              onSyncLibrary={() => void retrySurface("pool")}
-              onAnalyzeSelected={() => {
-                const selected = poolCards.filter((card) => selectedKolIds.includes(card.kol_uid));
-                prefillAnalyze("pool", selected, selected.map((card) => card.kol_uid));
-              }}
-              onClaim={(card) => {
-                setClaimError(null);
-                setClaimTarget(card);
-              }}
+            <ObjectWorkspace
+              pane="pool"
+              title="公海"
+              description="从当前可见的公开对象中选择分析范围；领取跟进仍是右栏里的独立确认动作。"
+              selectedCount={selectedKolIds.length}
+              resultCount={poolWorkspace.cards.length}
+              railLabel="公海结果"
+              railToggleLabel="公海"
+              railStorageKey="ui:home-pool-rail-collapsed"
+              centerHeader={quickTaskBar}
+              interaction={interactionFeedback}
+              centerFooter={renderComposerDock()}
+              rail={(
+                <PoolPane
+                  cards={poolWorkspace.cards}
+                  selectedIds={selectedKolIds}
+                  hoveredId={followedWorkspace.hoveredId}
+                  query={poolWorkspace.query}
+                  down={poolDown}
+                  libraryCount={libraryCount}
+                  syncBusy={retryingSurface === "pool"}
+                  claimBusyId={poolWorkspace.claimBusy && poolWorkspace.claimTarget ? poolWorkspace.claimTarget.kol_uid : null}
+                  onQuery={poolWorkspace.setQuery}
+                  onHover={followedWorkspace.setHoveredId}
+                  onToggleSelect={toggleSelectedPool}
+                  onToggleSelectAll={toggleSelectAllPool}
+                  onSyncLibrary={() => void retrySurface("pool")}
+                  onAnalyzeSelected={() => {
+                    const selected = poolWorkspace.cards.filter((card) => selectedKolIds.includes(card.kol_uid));
+                    prefillAnalyze("pool", selected, selected.map((card) => card.kol_uid));
+                  }}
+                  onClaim={poolWorkspace.requestClaim}
+                />
+              )}
             />
           ) : null}
 
-          {enqueueNotice ? <p className="muted" role="status" data-analyze-enqueue>{enqueueNotice}</p> : null}
-          {err && <p className="error composer-err" role="alert" data-home-session-error={err.includes("未能打开会话") ? "true" : undefined}>{err}</p>}
-          {discoverySubmitFailed && !busy ? (
-            <div className="composer-err" data-home-discovery-submit-error>
-              <button
-                type="button"
-                className="btn ghost sm"
-                data-home-entry="retry-discovery-run"
-                onClick={() => void retryDiscoveryRun()}
-              >
-                重试
-              </button>
-            </div>
-          ) : null}
-          {queuedNotice ? (
-            <section className="creation-feedback" data-kind="queued" data-analyze-queued role="status">
-              <strong>已入队</strong>
-              <p>{queuedNotice}</p>
-            </section>
-          ) : null}
-          {busy && !feedback && !err && !queuedNotice ? (
-            <section className="creation-feedback" data-kind="recognizing" data-creation-feedback data-wait-status="识别中" role="status" aria-busy="true">
-              <strong>识别中</strong>
-              <p>
-                正在识别任务方向和已填写的字段，不会改你已经写出的发件、收件和主题。
-                {recognizeSeconds ? ` 已等待 ${recognizeSeconds} 秒。` : ""}
-              </p>
-              {recognizeOverdue ? (
-                <p data-recognize-timeout>识别时间较长，可再试一次或补充字段后发送。</p>
-              ) : null}
-            </section>
-          ) : null}
-          {feedback && (
-            <section
-              ref={missingAlertRef}
-              className="creation-feedback"
-              data-kind={feedbackKind}
-              data-creation-feedback
-              role={feedbackKind === "missing_fields" ? "alert" : "status"}
-              tabIndex={feedbackKind === "missing_fields" ? -1 : undefined}
-              aria-live={feedbackKind === "missing_fields" ? "assertive" : "polite"}
-            >
-              <strong>
-                {feedbackKind === "missing_fields"
-                  ? (feedback.resolution?.missing_fields?.length
-                    ? `还缺${feedback.resolution.missing_fields.map((field) => fieldLabel(field)).join("、")}`
-                    : "还缺必要字段")
-                  : feedbackKind === "direction"
-                    ? "需要确认任务方向"
-                    : `已识别 ${feedbackTasks.length || 1} 个任务`}
-              </strong>
-              <p>{feedback.clarification || feedback.message || (feedbackKind === "direction" ? "请选择最符合你意图的任务，不会自动执行。" : "任务已创建，可分别查看。")}</p>
-              {understood.length ? (
-                <ul className="creation-feedback-fields">
-                  {understood.map((line) => <li key={line}>{line}</li>)}
-                </ul>
-              ) : null}
-              <div className="feedback-links">
-                {feedbackKind !== "missing_fields" && feedbackTasks.map((task) => (
-                  <button key={task.id} type="button" className="clarification-chip" onClick={() => void createAndRun(task)}>
-                    {task.title}
-                  </button>
-                ))}
-                {candidates.map((candidate, index) => {
-                  const label = candidate.title || (typeof candidate.label === "string" ? candidate.label : "") || `候选 ${index + 1}`;
-                  const fieldId = String(candidate.id || "");
-                  return (
-                    <button
-                      key={fieldId || label}
-                      type="button"
-                      className="clarification-chip"
-                      onClick={() => {
-                        if (feedbackKind === "missing_fields") {
-                          const bound = followScope?.mailbox_email || "";
-                          if (fieldId === "mailboxEmail" && bound && !text.includes(bound)) {
-                            setText(`${text.trim()} 发件: ${bound}`.trim());
-                          }
-                          setComposerFocused(true);
-                          setDraftFocus((value) => value + 1);
-                          return;
-                        }
-                        const skillId = fieldId || label;
-                        setLockedIntent(skillId);
-                        setLockedLabel(label);
-                        const next = lastComposer.current || { text };
-                        void onComposer({ ...next, text: next.text || text, intent: skillId });
-                      }}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-                {feedback.resolution?.source === "none" || feedback.message?.includes("识别服务未就绪") ? (
-                  <button
-                    type="button"
-                    className="clarification-chip"
-                    onClick={() => {
-                      const next = lastComposer.current || { text };
-                      void onComposer(next);
-                    }}
-                  >
-                    再试一次
-                  </button>
-                ) : null}
-              </div>
-            </section>
-          )}
         </div>
       </div>
-
-      {!workspacePane ? renderComposerDock() : null}
 
       {panelOpen && (
         <div className="work-panel-layer" data-work-panel>
@@ -2205,11 +1958,11 @@ export default function Home() {
       )}
 
       <FollowedBatchConfirm
-        open={Boolean(pendingBatchCards?.length)}
-        cards={pendingBatchCards || []}
-        busy={Boolean(pendingBatchCards?.[0] && confirmStageBusyId === pendingBatchCards[0].id)}
-        onConfirm={confirmSelectedStageEnter}
-        onCancel={() => setPendingBatchCards(null)}
+        open={Boolean(followedWorkspace.batchPending?.length)}
+        cards={followedWorkspace.batchPending || []}
+        busy={Boolean(followedWorkspace.batchPending?.[0] && followedWorkspace.confirmStageBusyId === followedWorkspace.batchPending[0].id)}
+        onConfirm={followedWorkspace.confirmBatch}
+        onCancel={followedWorkspace.cancelBatch}
       />
       <EditTaskDialog
         task={editTaskTarget}
@@ -2217,29 +1970,19 @@ export default function Home() {
         onSaved={handleTaskEdited}
       />
       <ClaimFollowConfirm
-        card={claimTarget}
-        busy={claimBusy}
-        error={claimError}
-        onConfirm={() => void confirmClaim()}
-        onCancel={() => {
-          if (!claimBusy) {
-            setClaimTarget(null);
-            setClaimError(null);
-          }
-        }}
+        card={poolWorkspace.claimTarget}
+        busy={poolWorkspace.claimBusy}
+        error={poolWorkspace.claimError}
+        onConfirm={() => void poolWorkspace.confirmClaim()}
+        onCancel={poolWorkspace.cancelClaim}
       />
       <ReleaseFollowConfirm
-        handle={releaseTarget?.handle}
-        open={Boolean(releaseTarget)}
-        busy={releaseBusy}
-        error={releaseError}
-        onConfirm={() => void confirmRelease()}
-        onCancel={() => {
-          if (!releaseBusy) {
-            setReleaseTarget(null);
-            setReleaseError(null);
-          }
-        }}
+        handle={followedWorkspace.releaseTarget?.handle}
+        open={Boolean(followedWorkspace.releaseTarget)}
+        busy={followedWorkspace.releaseBusy}
+        error={followedWorkspace.releaseError}
+        onConfirm={() => void followedWorkspace.confirmRelease()}
+        onCancel={followedWorkspace.cancelRelease}
       />
     </div>
   );

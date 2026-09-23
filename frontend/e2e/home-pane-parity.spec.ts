@@ -163,3 +163,87 @@ test("AI发现 runs on the same shell and keeps the ask box a footer", async ({ 
   await expect(page.locator('[data-home-pane="discovery"] [data-scope-ai-workspace] [data-discovery-panel]')).toHaveCount(0);
   expect(await filledPrimaryCount(page, '[data-home-pane="discovery"]')).toBeLessThanOrEqual(1);
 });
+
+test("all five modes run on the same interaction and result shell", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  for (const mode of ["today", "todo", "discovery", "pool", "lifecycle"] as const) {
+    await page.goto(mode === "today" ? "/" : `/?tab=${mode}`);
+    await expectWorkspaceChrome(page, mode);
+    const geometry = await workspaceGeometry(page, mode);
+    expect(geometry.stage).toBe("hidden");
+    expect(geometry.center).toBe("auto");
+    expect(geometry.rail).toBe("auto");
+    expect(geometry.pageScrolls).toBe(false);
+    expect(geometry.dockBottom).toBe(900);
+  }
+  // 对象面的结果内容必须落在右栏之内，而不是第二套页面。
+  await page.goto("/?tab=pool");
+  await expect(page.locator('[data-home-pane="pool"] [data-object-interaction]')).toBeVisible();
+  await expect(page.locator('[data-home-pane="pool"] [data-scope-task-rail] [data-pool-overview]')).toHaveCount(1);
+  await page.goto("/?tab=lifecycle");
+  await expect(page.locator('[data-home-pane="lifecycle"] [data-object-interaction]')).toBeVisible();
+  await expect(page.locator('[data-home-pane="lifecycle"] [data-scope-task-rail] [data-lifecycle-overview]')).toHaveCount(1);
+});
+
+test("rail collapse is remembered per mode and never bleeds across modes", async ({ page }) => {
+  await page.goto("/?tab=pool");
+  await expect(page.locator('[data-home-pane="pool"] [data-scope-task-rail]')).toBeVisible({ timeout: 30000 });
+  await page.locator('[data-home-pane="pool"] .scope-task-rail-toggle').click();
+  await expect(page.locator('[data-home-pane="pool"] [data-scope-task-rail]')).toHaveClass(/is-collapsed/);
+  await page.reload();
+  await expect(page.locator('[data-home-pane="pool"] [data-scope-task-rail]')).toHaveClass(/is-collapsed/);
+  await page.goto("/?tab=lifecycle");
+  await expect(page.locator('[data-home-pane="lifecycle"] [data-scope-task-rail]')).toBeVisible({ timeout: 30000 });
+  await expect(page.locator('[data-home-pane="lifecycle"] [data-scope-task-rail]')).not.toHaveClass(/is-collapsed/);
+  await page.goto("/?tab=pool");
+  await expect(page.locator('[data-home-pane="pool"] [data-scope-task-rail]')).toBeVisible({ timeout: 30000 });
+  await page.locator('[data-home-pane="pool"] .scope-task-rail-toggle').click();
+  await expect(page.locator('[data-home-pane="pool"] [data-scope-task-rail]')).not.toHaveClass(/is-collapsed/);
+});
+
+test("workspace stacks at 1000px and keeps the dock on short viewports", async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 900 });
+  await page.goto("/?tab=pool");
+  await expect(page.locator('[data-home-pane="pool"] [data-scope-task-rail]')).toBeVisible({ timeout: 30000 });
+  const display = await page.locator('[data-home-pane="pool"].scope-workspace').evaluate((el) => getComputedStyle(el).display);
+  expect(display).toBe("block");
+  expect(await horizontalOverflow(page, "html")).toBeLessThanOrEqual(1);
+  await expect(page.locator('[data-home-pane="pool"] .scope-task-rail-toggle')).toBeVisible();
+
+  await page.setViewportSize({ width: 1440, height: 520 });
+  await page.goto("/?tab=lifecycle");
+  await expect(page.locator('[data-home-pane="lifecycle"] [data-scope-task-rail]')).toBeVisible({ timeout: 30000 });
+  const geometry = await workspaceGeometry(page, "lifecycle");
+  expect(geometry.pageScrolls).toBe(false);
+  expect(geometry.dockBottom).toBe(520);
+});
+
+test("rail toggle is keyboard operable", async ({ page }) => {
+  await page.goto("/?tab=pool");
+  const toggle = page.locator('[data-home-pane="pool"] .scope-task-rail-toggle');
+  await expect(toggle).toBeVisible({ timeout: 30000 });
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await page.keyboard.press("Enter");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+});
+
+/** 横向溢出量：scrollWidth 超出 clientWidth 的像素数（1px 容差）。 */
+async function horizontalOverflow(page: Page, selector: string): Promise<number> {
+  return page.locator(selector).first().evaluate((el) => el.scrollWidth - el.clientWidth);
+}
+
+/** 五模式共用的 Chrome 断言：同壳、导航不在 Composer、右栏无横向溢出、CTA ≤ 1。 */
+async function expectWorkspaceChrome(page: Page, mode: string) {
+  const root = page.locator(`[data-home-pane="${mode}"]`);
+  await expect(root.locator("[data-scope-ai-workspace]")).toBeVisible({ timeout: 30000 });
+  await expect(root.locator("[data-scope-task-rail]")).toBeVisible();
+  await expect(root.locator("[data-home-quick-tasks]")).toBeVisible();
+  await expect(root.locator(".home-composer-dock")).toBeVisible();
+  // 模式导航属于页面导航，不寄生在提问框里；「首次建联」不是第六模式。
+  await expect(page.locator(`[data-home-pane="${mode}"] .home-composer-dock [data-home-quick-tasks]`)).toHaveCount(0);
+  await expect(root.locator('[data-home-quick-task="first-outreach"]')).toHaveCount(0);
+  expect(await horizontalOverflow(page, `[data-home-pane="${mode}"] [data-scope-task-rail]`)).toBeLessThanOrEqual(1);
+  expect(await filledPrimaryCount(page, `[data-home-pane="${mode}"]`)).toBeLessThanOrEqual(1);
+}

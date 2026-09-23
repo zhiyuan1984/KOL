@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-/** 走同一套两栏工作台骨架的页面：今日任务 / 我的待办 / AI发现。 */
-export type WorkspacePane = "today" | "todo" | "discovery";
+/** 走同一套两栏工作台骨架的 Home 一级模式。 */
+export type WorkspacePane = "today" | "todo" | "discovery" | "pool" | "lifecycle";
 
 /**
  * Home 两栏工作台的唯一几何来源（固定视口：stage 不滚、中栏与右栏各自滚、
  * 页脚控件钉在中栏底）。内容只通过插槽进来，外壳不认识任何具体业务：
- * 今日/待办塞规划流与任务板，AI发现塞条件卡、过程流与结果区。
+ * 每个模式只把交互内容和结果内容塞进插槽；外壳不认识任务、候选或红人。
  */
 export default function WorkspaceShell({
   pane,

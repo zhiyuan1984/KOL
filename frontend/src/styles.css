@@ -91,6 +91,11 @@
   --home-chip-w: 100px;
   --home-chip-h: 30px;
   --home-chip-gap: 5px;
+  /* Home Agent 工作台列宽：唯一数值来源见 docs/DESIGN.md §Home Agent 工作台几何。 */
+  --workspace-result-rail-min: 380px;
+  --workspace-result-rail-ideal: 40%;
+  --workspace-result-rail-max: 680px;
+  --workspace-result-rail-collapsed: 56px;
   --badge-h: 20px;
   --lh-control: 20px;
   --lh-control-sm: 16px;
@@ -8914,7 +8919,7 @@ body {
 /* In Today mode the task table owns the right rail; the Codex center column
    spans the full pane width. The center grid owns the one width axis — dock
    geometry lives in the final axis block, never in calc() here. */
-@media (min-width: 981px) {
+@media (min-width: 1101px) {
   .home-pane[data-home-workspace] .home-stage {
     width: 100%;
     max-width: none;
@@ -9233,7 +9238,10 @@ body {
   max-width: none;
   gap: var(--space-3);
   min-width: 0;
-  overflow-x: hidden;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   align-content: start;
 }
 .mail-hero {
@@ -9273,11 +9281,12 @@ body {
 }
 .mail-split {
   display: grid;
-  grid-template-columns: minmax(0, 300px) minmax(0, 1fr) 340px;
+  grid-template-columns: 320px minmax(0, 1fr) 340px;
   gap: var(--space-3);
   min-width: 0;
   min-height: 0;
-  align-items: start;
+  flex: 1 1 auto;
+  align-items: stretch;
 }
 .mail-boxbar {
   display: flex;
@@ -9357,7 +9366,9 @@ body {
 .mail-thread,
 .mail-side {
   min-width: 0;
+  height: 100%;
   overflow-x: hidden;
+  overflow-y: auto;
 }
 .mail-list-tools {
   display: grid;
@@ -9574,6 +9585,31 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+.mail-row-counts {
+  display: block;
+  margin: 2px 0 0;
+  font-size: var(--font-xs);
+  color: var(--muted);
+}
+.mail-row-addresses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 2px;
+  font-size: var(--font-xs);
+  color: var(--muted);
+  min-width: 0;
+}
+.mail-row-addr {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+.mail-conversation-list {
+  padding-left: 12px;
+  border-left: 2px solid var(--border);
+  margin-left: 6px;
 }
 .mail-chip {
   font-size: var(--font-tag);
@@ -11898,7 +11934,7 @@ button.today-brief-primary-btn:disabled {
 
 /* Final Today workspace geometry. Keep these after legacy composer rules so
    the compact empty state remains compact in every desktop bundle order. */
-@media (min-width: 981px) {
+@media (min-width: 1101px) {
   .home-pane[data-home-workspace] {
     position: relative;
   }
@@ -11972,7 +12008,7 @@ button.today-brief-primary-btn:disabled {
   font-weight: 600;
 }
 
-@media (min-width: 981px) {
+@media (min-width: 1101px) {
   .home-pane[data-home-workspace] .home-stage {
     overflow: hidden;
   }
@@ -12003,7 +12039,7 @@ button.today-brief-primary-btn:disabled {
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 1100px) {
   .home-quick-tasks {
     padding-bottom: 6px;
   }
@@ -12011,7 +12047,7 @@ button.today-brief-primary-btn:disabled {
 
 /* Today density pass: compact the center heading and make the quick-task dock
    and composer read as one full-width interaction surface. */
-@media (min-width: 981px) {
+@media (min-width: 1101px) {
   .home-pane[data-home-workspace] .today-center-hero {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -12049,7 +12085,7 @@ button.today-brief-primary-btn:disabled {
    All four start at the grid's left edge and span it — the stage supplies the
    single page gutter, so the dock must never add a second one. The rail only
    resizes the grid's second column; it never touches any row individually. */
-@media (min-width: 981px) {
+@media (min-width: 1101px) {
   .home-pane[data-home-workspace] .scope-workspace-center {
     display: block;
     min-width: 0;
@@ -12085,10 +12121,10 @@ button.today-brief-primary-btn:disabled {
   }
 }
 
-/* Same axis invariant when Today stacks below 981px: the rail disappears but
+/* Same axis invariant when the workspace stacks at or below 1100px: the rail follows the center but
    hero / quick tasks / composer still share one left edge; the stage gutter is
    the only inset, so the dock must not add a second one. */
-@media (max-width: 980px) {
+@media (max-width: 1100px) {
   .home-pane[data-home-workspace] .scope-workspace-center-content > .home-composer-dock {
     padding-inline: 0;
   }

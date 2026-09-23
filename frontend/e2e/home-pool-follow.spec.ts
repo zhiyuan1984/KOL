@@ -126,8 +126,8 @@ async function stubKol172(page: Page) {
     await route.fulfill({
       status: 201,
       json: {
-        entry: "think",
-        kind: "think",
+        entry: "command",
+        kind: "command",
         creates_session: false,
         calls_model: false,
         task_type: "kol_analyze",
