@@ -326,6 +326,33 @@ export type RecommendedTask = {
   candidate?: boolean;
 };
 
+export type SkillResultMemory = {
+  id: string;
+  skill_id: string;
+  skill_version: string;
+  run_id: string;
+  validity: "current" | "stale";
+  summary: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SkillResultMemoryPage = { items: SkillResultMemory[]; next_cursor: string | null };
+
+export type AdoptRecommendationInput = {
+  recommendation_id?: string;
+  id?: string;
+  work_item_id?: string;
+  title: string;
+  status?: "candidate";
+  reason?: string;
+  prompt?: string;
+  intent?: string;
+  task_type?: string;
+  handle?: string;
+  collaboration_id?: string | null;
+};
+
 export type HomeWorkbench = {
   summary?: {
     open?: number;
@@ -392,6 +419,7 @@ export type FromTextResult = {
     needs_clarification?: boolean;
     clarification_kind?: ClarificationKind;
     missing_fields?: string[];
+    invalid_fields?: Record<string, string>;
     entities?: Record<string, unknown>;
     source?: string;
     error?: string;
@@ -848,7 +876,7 @@ export const api = {
         body: JSON.stringify({}),
       },
     ),
-  adoptRecommendation: (body: Record<string, unknown>) =>
+  adoptRecommendation: (body: AdoptRecommendationInput) =>
     request<Task & { reused?: boolean; created?: boolean }>("/api/tasks/adopt-recommendation", {
       method: "POST",
       body: JSON.stringify(body),
@@ -1241,6 +1269,7 @@ export const api = {
     required_inputs?: string[];
     input_schema?: unknown[];
     result_type?: string;
+    result_schema?: Record<string, unknown>;
     next_actions?: unknown[];
     memory_policy?: Record<string, unknown>;
     supports?: Record<string, boolean>;
@@ -1480,6 +1509,10 @@ export const api = {
     }),
   homeDiscoveryTemplate: () =>
     request<Record<string, unknown> | null>("/api/home/discovery/template", { optional: true }),
+  skillResultMemories: (skillId: string, cursor?: string) => {
+    const query = new URLSearchParams({ limit: "10", ...(cursor ? { cursor } : {}) });
+    return request<SkillResultMemoryPage>(`/api/skills/${encodeURIComponent(skillId)}/memories?${query.toString()}`);
+  },
   homeDiscoveryRuns: () =>
     request<Record<string, unknown> | Array<Record<string, unknown>>>("/api/home/discovery/runs"),
   homeDiscoveryRun: (runId: string) =>

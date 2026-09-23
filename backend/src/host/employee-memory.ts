@@ -10,7 +10,8 @@ export type EmployeeMemoryKind =
   | "summary_raw"
   | "summary_display"
   | "todo_raw"
-  | "todo_display";
+  | "todo_display"
+  | "skill_result";
 
 export function memoryKindOf(family: MemoryFamily, layer: MemoryLayer): EmployeeMemoryKind {
   return `${family}_${layer}` as EmployeeMemoryKind;

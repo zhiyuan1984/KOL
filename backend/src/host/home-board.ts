@@ -756,7 +756,7 @@ function taskMatchesKol(task: Json, kol: { id: string; handle: string }): boolea
   return title.includes(`@${kol.handle}`) || title.includes(kol.handle);
 }
 
-export function buildHomeBoard(): Json {
+export function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}): Json {
   const conn = getConn();
   const owner = ownerId();
   const followScope = currentFollowScope();
@@ -777,7 +777,7 @@ export function buildHomeBoard(): Json {
     if (!key) continue;
     collaborationCounts.set(key, (collaborationCounts.get(key) || 0) + 1);
   }
-  restoreOfficialCollaborationStages([...allCollabs, ...collabs]);
+  if (options.restoreOfficialStages !== false) restoreOfficialCollaborationStages([...allCollabs, ...collabs]);
   const creators = conn.prepare("SELECT * FROM claw_creators ORDER BY name").all() as Row[];
   const creatorByHandle = new Map(creators.map((row) => [String(row.handle || row.name || ""), row]));
 

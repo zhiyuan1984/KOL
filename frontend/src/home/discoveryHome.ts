@@ -20,6 +20,7 @@ export type HomeDiscoveryRun = {
   raw_count: number | null;
   shortlist_count: number | null;
   status: string;
+  memory_validity?: "current" | "stale" | null;
   work_item_id?: string;
   session_id?: string;
   brief_version: number;
@@ -224,6 +225,7 @@ export function asHomeRun(row: unknown): HomeDiscoveryRun | null {
     created_at: asString(item.created_at) || undefined,
     started_at: asString(item.started_at) || undefined,
     completed_at: asString(item.completed_at) || undefined,
+    memory_validity: item.memory_validity === "current" || item.memory_validity === "stale" ? item.memory_validity : null,
     error: asString(item.error || item.error_message || item.failure_reason) || null,
   };
 }

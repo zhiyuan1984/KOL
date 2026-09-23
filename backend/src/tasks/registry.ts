@@ -26,6 +26,10 @@ const REGISTERED_INPUT_OPTION_SOURCES = new Set([
   "api:/home/discovery/template#regions",
   "api:/home/discovery/template#directions",
 ]);
+/** Only result types with a Host-owned validator may opt into automatic memory writes. */
+const REGISTERED_SKILL_RESULT_MEMORY_WRITERS = new Set([
+  "creator_discovery|discovery_candidates|skill_result|owner|on_complete",
+]);
 export type TaskInputKind = (typeof TASK_INPUT_KINDS)[number];
 export type TaskInputField = {
   key: string;
@@ -39,6 +43,20 @@ export type TaskInputField = {
   default?: unknown;
   min?: number;
   max?: number;
+};
+export type TaskResultSchema = {
+  type: "object" | "array" | "string" | "number" | "integer" | "boolean" | "null";
+  properties?: Record<string, TaskResultSchema>;
+  required?: string[];
+  additionalProperties?: false;
+  items?: TaskResultSchema;
+  enum?: Array<string | number | boolean | null>;
+  minItems?: number;
+  maxItems?: number;
+  minLength?: number;
+  maxLength?: number;
+  minimum?: number;
+  maximum?: number;
 };
 export type TaskNextAction = { action_id: string; when: "has_results" | "has_selection" | "always"; note?: string };
 export type TaskMemoryPolicy = {
@@ -74,6 +92,8 @@ export type TaskDefinition = {
   required_inputs: string[];
   input_schema?: TaskInputField[];
   result_type?: string;
+  /** Strict schema for the persisted result envelope: { items: WorkerResult.items }. */
+  result_schema?: TaskResultSchema;
   next_actions?: TaskNextAction[];
   memory_policy?: TaskMemoryPolicy;
   supports?: TaskSupports;
@@ -190,9 +210,107 @@ function stringArray(value: unknown, field: string, file: string): string[] {
   return value.map(String);
 }
 
+const RESULT_SCHEMA_TYPES = new Set(["object", "array", "string", "number", "integer", "boolean", "null"]);
+
+function parseResultSchema(raw: unknown, file: string, path = "result_schema", depth = 0): TaskResultSchema {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || depth > 12) {
+    throw new Error(`manifest ${path} must be a bounded schema object: ${file}`);
+  }
+  const row = raw as Record<string, unknown>;
+  const type = String(row.type || "");
+  if (!RESULT_SCHEMA_TYPES.has(type)) throw new Error(`manifest ${path}.type is invalid: ${file}`);
+  const permitted = new Set(["type", "properties", "required", "additionalProperties", "items", "enum", "minItems", "maxItems", "minLength", "maxLength", "minimum", "maximum"]);
+  if (Object.keys(row).some((key) => !permitted.has(key))) throw new Error(`manifest ${path} contains an unsupported keyword: ${file}`);
+  const parsed: TaskResultSchema = { type: type as TaskResultSchema["type"] };
+  if (row.enum !== undefined) {
+    if (!Array.isArray(row.enum) || !row.enum.length || row.enum.length > 100
+      || row.enum.some((value) => value !== null && !["string", "number", "boolean"].includes(typeof value))) {
+      throw new Error(`manifest ${path}.enum is invalid: ${file}`);
+    }
+    parsed.enum = row.enum as TaskResultSchema["enum"];
+  }
+  if (type === "object") {
+    if (!row.properties || typeof row.properties !== "object" || Array.isArray(row.properties)) {
+      throw new Error(`manifest ${path}.properties is required: ${file}`);
+    }
+    const properties = row.properties as Record<string, unknown>;
+    if (Object.keys(properties).length > 64 || row.additionalProperties !== false) {
+      throw new Error(`manifest ${path} requires at most 64 properties and additionalProperties=false: ${file}`);
+    }
+    const required = row.required === undefined ? [] : stringArray(row.required, `${path}.required`, file);
+    if (required.some((key) => !(key in properties)) || new Set(required).size !== required.length) {
+      throw new Error(`manifest ${path}.required must reference unique declared properties: ${file}`);
+    }
+    parsed.properties = Object.fromEntries(Object.entries(properties).map(([key, value]) => [
+      key, parseResultSchema(value, file, `${path}.properties.${key}`, depth + 1),
+    ]));
+    parsed.required = required;
+    parsed.additionalProperties = false;
+  } else if (type === "array") {
+    if (row.items === undefined) throw new Error(`manifest ${path}.items is required: ${file}`);
+    parsed.items = parseResultSchema(row.items, file, `${path}.items`, depth + 1);
+    if (row.maxItems === undefined || typeof row.maxItems !== "number" || row.maxItems > 200) {
+      throw new Error(`manifest ${path}.maxItems must be declared and no greater than 200: ${file}`);
+    }
+  } else if (type === "string" && (row.maxLength === undefined || typeof row.maxLength !== "number" || row.maxLength > 8000)) {
+    throw new Error(`manifest ${path}.maxLength must be declared and no greater than 8000: ${file}`);
+  }
+  for (const key of ["minItems", "maxItems", "minLength", "maxLength", "minimum", "maximum"] as const) {
+    if (row[key] === undefined) continue;
+    if (typeof row[key] !== "number" || !Number.isFinite(row[key]) || row[key] < 0) {
+      throw new Error(`manifest ${path}.${key} must be a non-negative finite number: ${file}`);
+    }
+    (parsed as Record<string, unknown>)[key] = row[key];
+  }
+  if (parsed.minItems !== undefined && parsed.maxItems !== undefined && parsed.minItems > parsed.maxItems) throw new Error(`manifest ${path} minItems exceeds maxItems: ${file}`);
+  if (parsed.minLength !== undefined && parsed.maxLength !== undefined && parsed.minLength > parsed.maxLength) throw new Error(`manifest ${path} minLength exceeds maxLength: ${file}`);
+  if (parsed.minimum !== undefined && parsed.maximum !== undefined && parsed.minimum > parsed.maximum) throw new Error(`manifest ${path} minimum exceeds maximum: ${file}`);
+  return Object.freeze(parsed);
+}
+
+/** Validates a worker result against the strict published skill schema. */
+export function validateTaskResultSchema(schema: TaskResultSchema, value: unknown): string[] {
+  const issues: string[] = [];
+  const visit = (rule: TaskResultSchema, candidate: unknown, path: string): void => {
+    if (issues.length >= 32) return;
+    const validType = rule.type === "null" ? candidate === null
+      : rule.type === "array" ? Array.isArray(candidate)
+        : rule.type === "object" ? Boolean(candidate && typeof candidate === "object" && !Array.isArray(candidate))
+          : rule.type === "integer" ? typeof candidate === "number" && Number.isInteger(candidate)
+          : rule.type === "number" ? typeof candidate === "number" && Number.isFinite(candidate)
+            : typeof candidate === rule.type;
+    if (!validType) { issues.push(`${path} must be ${rule.type}`); return; }
+    if (rule.enum && !rule.enum.some((allowed) => Object.is(allowed, candidate))) issues.push(`${path} is not an allowed value`);
+    if (rule.type === "object") {
+      const object = candidate as Record<string, unknown>;
+      for (const key of rule.required || []) if (!(key in object)) issues.push(`${path}.${key} is required`);
+      for (const key of Object.keys(object)) {
+        const child = rule.properties?.[key];
+        if (!child) issues.push(`${path}.${key} is not declared`);
+        else visit(child, object[key], `${path}.${key}`);
+      }
+    } else if (rule.type === "array") {
+      const array = candidate as unknown[];
+      if (rule.minItems !== undefined && array.length < rule.minItems) issues.push(`${path} has too few items`);
+      if (rule.maxItems !== undefined && array.length > rule.maxItems) issues.push(`${path} has too many items`);
+      if (rule.items) array.slice(0, rule.maxItems ?? 500).forEach((item, index) => visit(rule.items!, item, `${path}[${index}]`));
+    } else if (rule.type === "string") {
+      const string = candidate as string;
+      if (rule.minLength !== undefined && string.length < rule.minLength) issues.push(`${path} is too short`);
+      if (rule.maxLength !== undefined && string.length > rule.maxLength) issues.push(`${path} is too long`);
+    } else if (rule.type === "number" || rule.type === "integer") {
+      const number = candidate as number;
+      if (rule.minimum !== undefined && number < rule.minimum) issues.push(`${path} is below minimum`);
+      if (rule.maximum !== undefined && number > rule.maximum) issues.push(`${path} is above maximum`);
+    }
+  };
+  visit(schema, value, "$result");
+  return issues;
+}
+
 function parseDeclaredContract(values: Record<string, unknown>, file: string): Pick<
   TaskDefinition,
-  "input_schema" | "result_type" | "next_actions" | "memory_policy" | "supports"
+  "input_schema" | "result_type" | "result_schema" | "next_actions" | "memory_policy" | "supports"
 > {
   let inputSchema: TaskInputField[] | undefined;
   if (values.input_schema !== undefined) {
@@ -226,6 +344,9 @@ function parseDeclaredContract(values: Record<string, unknown>, file: string): P
         const item = option as Record<string, unknown>;
         return typeof item.code !== "string" || !item.code.trim() || typeof item.label !== "string" || !item.label.trim();
       }))) throw new Error(`manifest input_schema.${key}.options must contain codes and labels: ${file}`);
+      if ((row.kind === "single" || row.kind === "multiple") && row.options === undefined && row.options_source === undefined) {
+        throw new Error(`manifest input_schema.${key} requires options or a registered options_source: ${file}`);
+      }
       for (const field of ["min", "max"] as const) {
         if (row[field] !== undefined && (typeof row[field] !== "number" || !Number.isFinite(row[field]))) {
           throw new Error(`manifest input_schema.${key}.${field} must be a finite number: ${file}`);
@@ -257,6 +378,7 @@ function parseDeclaredContract(values: Record<string, unknown>, file: string): P
     resultType = String(values.result_type).trim();
     if (!/^[a-z][a-z0-9_]*$/.test(resultType)) throw new Error(`manifest result_type is invalid: ${file}`);
   }
+  const resultSchema = values.result_schema === undefined ? undefined : parseResultSchema(values.result_schema, file);
 
   let nextActions: TaskNextAction[] | undefined;
   if (values.next_actions !== undefined) {
@@ -287,6 +409,22 @@ function parseDeclaredContract(values: Record<string, unknown>, file: string): P
       auto_persist: row.auto_persist as TaskMemoryPolicy["auto_persist"],
       ...(row.stale_refs === undefined ? {} : { stale_refs: stringArray(row.stale_refs, "memory_policy.stale_refs", file) }),
     });
+    if (memoryPolicy.auto_persist !== "never") {
+      const writerKey = [values.id, resultType, memoryPolicy.kind, memoryPolicy.scope, memoryPolicy.auto_persist].join("|");
+      const genericWriterReady = values.id !== "creator_discovery"
+        && resultType && resultSchema
+        && memoryPolicy.kind === "skill_result"
+        && memoryPolicy.scope === "owner"
+        && memoryPolicy.auto_persist === "on_complete";
+      if (!REGISTERED_SKILL_RESULT_MEMORY_WRITERS.has(writerKey) && !genericWriterReady) {
+        throw new Error(`manifest memory_policy has no Host-validated result writer for this skill/result/scope/policy: ${file}`);
+      }
+      if (genericWriterReady && (resultSchema?.type !== "object"
+        || !resultSchema.required?.includes("items")
+        || resultSchema.properties?.items?.type !== "array")) {
+        throw new Error(`manifest result_schema must strictly validate the required {items: []} result envelope: ${file}`);
+      }
+    }
   }
 
   let supports: TaskSupports | undefined;
@@ -302,6 +440,7 @@ function parseDeclaredContract(values: Record<string, unknown>, file: string): P
   return {
     ...(inputSchema ? { input_schema: Object.freeze(inputSchema) as unknown as TaskInputField[] } : {}),
     ...(resultType ? { result_type: resultType } : {}),
+    ...(resultSchema ? { result_schema: resultSchema } : {}),
     ...(nextActions ? { next_actions: Object.freeze(nextActions) as unknown as TaskNextAction[] } : {}),
     ...(memoryPolicy ? { memory_policy: memoryPolicy } : {}),
     ...(supports ? { supports } : {}),
@@ -310,7 +449,7 @@ function parseDeclaredContract(values: Record<string, unknown>, file: string): P
 
 export function validateDeclaredTaskContract(values: Record<string, unknown>): Pick<
   TaskDefinition,
-  "input_schema" | "result_type" | "next_actions" | "memory_policy" | "supports"
+  "input_schema" | "result_type" | "result_schema" | "next_actions" | "memory_policy" | "supports"
 > {
   return parseDeclaredContract(values, "<skill contract>");
 }

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import ResultRail from "./workspace/ResultRail";
+import type { ResultRailViewModel } from "./workspace/result-contract";
 
 /** 走同一套两栏工作台骨架的 Home 一级模式。 */
 export type WorkspacePane = "today" | "todo" | "discovery" | "pool" | "lifecycle";
@@ -14,6 +16,7 @@ export default function WorkspaceShell({
   railToggleLabel,
   railStorageKey,
   railBadge,
+  resultView,
   scrollAnchorEvent,
   centerHeader,
   centerScroll,
@@ -28,6 +31,8 @@ export default function WorkspaceShell({
   railStorageKey: string;
   /** 折叠后挂在按钮上的计数（今日/待办 = 任务数，发现 = 候选数）。 */
   railBadge?: number;
+  /** Optional normalized metadata/history/action slots; domain children remain mode-specific. */
+  resultView?: ResultRailViewModel;
   /** 可选：该事件触发时把中栏滚动锚点带回顶部（今日/待办的计划刷新）。 */
   scrollAnchorEvent?: string;
   centerHeader?: ReactNode;
@@ -89,7 +94,7 @@ export default function WorkspaceShell({
           {railCollapsed && railBadge != null ? <em>{railBadge}</em> : null}
         </button>
         <div className="scope-task-rail-body" data-scope-rail-body>
-          {rail}
+          <ResultRail pane={pane} view={resultView}>{rail}</ResultRail>
         </div>
       </aside>
     </section>

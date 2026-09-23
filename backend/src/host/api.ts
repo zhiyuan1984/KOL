@@ -107,7 +107,8 @@ import {
   illegalKolAnalyzeVerbs,
   KOL_ANALYZE_TASK_TYPE,
 } from "./kol-memory.js";
-import { taskDefinition } from "../tasks/registry.js";
+import { taskDefinition, validateTaskResultSchema } from "../tasks/registry.js";
+import { isSafeSkillResultForMemory, persistValidatedSkillResult } from "./skill-result-memory.js";
 import { recognizeTaskIntent } from "../tasks/recognize.js";
 import { insertSessionMessage, isSessionNotFound } from "./session-messages.js";
 import { publishSession, subscribeSession } from "./session-events.js";
@@ -339,6 +340,61 @@ function finishBoundTask(bound: BoundTask | null, sid: string, result?: Json, er
     work_item_id: bound.workItemId,
     run_id: bound.runId,
   });
+  const definition = taskDefinition(bound.taskType);
+  const memoryPolicy = definition?.memory_policy;
+  if (
+    runStatus === "completed"
+    && bound.taskType !== "creator_discovery"
+    && definition?.result_schema
+    && memoryPolicy?.kind === "skill_result"
+    && memoryPolicy.scope === "owner"
+    && memoryPolicy.auto_persist === "on_complete"
+  ) {
+    const workerItems = Array.isArray(result?.items)
+      ? result.items as Json[]
+      : result?.worker && typeof result.worker === "object" && Array.isArray((result.worker as Json).items)
+        ? (result.worker as Json).items as Json[] : [];
+    const summary = { items: workerItems } as Json;
+    const issues = Buffer.byteLength(JSON.stringify(summary), "utf8") > 256_000
+      ? ["$result exceeds the memory size limit"]
+      : validateTaskResultSchema(definition.result_schema, summary);
+    if (!issues.length && !isSafeSkillResultForMemory(summary)) issues.push("$result contains credential-like material");
+    const owner = getConn().prepare("SELECT owner_user_id FROM work_items WHERE id=?").get(bound.workItemId) as
+      | { owner_user_id?: string }
+      | undefined;
+    if (issues.length || !owner?.owner_user_id || !workerItems.length) {
+      audit(scopedUser()?.id || "host", "skill_result_memory.skipped", {
+        work_item_id: bound.workItemId,
+        run_id: bound.runId,
+        skill_id: bound.taskType,
+        reason: issues.length ? (issues.some((issue) => issue.includes("credential-like")) ? "unsafe_result" : "result_schema_invalid")
+          : !workerItems.length ? "empty_result" : "owner_missing",
+        issue_count: issues.length,
+      });
+      appendTaskEvent(bound.workItemId, bound.runId, "memory.write_skipped", "结果记忆未保存", "completed",
+        issues.length ? "结果不符合技能声明的保存结构。" : "缺少可保存的结果或任务归属。");
+    } else {
+      try {
+        persistValidatedSkillResult({
+          owner: owner.owner_user_id,
+          skillId: bound.taskType,
+          runId: bound.runId,
+          sourceVersion: "unversioned",
+          staleRefs: memoryPolicy.stale_refs,
+          summary,
+        });
+      } catch {
+        audit(scopedUser()?.id || "host", "skill_result_memory.failed", {
+          work_item_id: bound.workItemId,
+          run_id: bound.runId,
+          skill_id: bound.taskType,
+          reason: "memory_write_failed",
+        });
+        appendTaskEvent(bound.workItemId, bound.runId, "memory.write_failed", "结果记忆写入失败", "completed",
+          "本次运行结果已保留；记忆索引未更新，可稍后重试。");
+      }
+    }
+  }
   if (
     !failed &&
     bound.taskType === "creator_discovery" &&

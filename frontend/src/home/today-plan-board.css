@@ -169,15 +169,19 @@
 .task-board-table {
   width: 100%;
   border-collapse: collapse;
-  table-layout: fixed;
+  table-layout: auto;
   font-size: var(--ds-font-body);
   min-width: 0;
 }
 .task-board-table-scroll {
   width: 100%;
   min-width: 0;
-  overflow-x: hidden;
+  overflow: visible;
 }
+.task-board-table th:nth-child(2),
+.task-board-table td:nth-child(2) { width: 78px; }
+.task-board-table th:nth-child(4),
+.task-board-table td:nth-child(4) { width: 96px; }
 .task-board-table-scroll:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
@@ -282,10 +286,10 @@
   cursor: pointer;
   text-align: left;
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  display: inline-block;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  display: block;
+  min-width: 0;
   vertical-align: middle;
 }
 .task-board-title:hover {
@@ -293,7 +297,8 @@
 }
 .task-board-meta {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 6px;
   min-width: 0;
 }
@@ -303,9 +308,8 @@
   flex: 1 1 auto;
   font-size: var(--ds-font-helper);
   color: var(--ds-text-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 .task-board-chips {
   display: inline-flex;
@@ -336,7 +340,7 @@
   color: var(--ds-text-muted);
 }
 .task-board-cell-actions {
-  width: 128px;
+  width: 96px;
   white-space: normal;
 }
 .task-board-open {
@@ -346,7 +350,7 @@
   font: inherit;
   font-size: var(--ds-font-sm);
   border-radius: var(--ds-radius-tag);
-  padding: 4px 14px;
+  padding: 4px 6px;
   cursor: pointer;
   min-height: 30px;
   display: inline-flex;
@@ -476,8 +480,8 @@
   z-index: 2;
   top: 2px;
   left: 8px;
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -567,6 +571,9 @@
 }
 
 @media (max-width: 1280px) {
+  .scope-workspace {
+    --scope-task-rail-width: clamp(320px, 34%, 420px);
+  }
   .scope-workspace-center {
     padding-right: 20px;
   }
@@ -603,8 +610,8 @@
   .scope-task-rail.is-collapsed .scope-task-rail-toggle {
     position: static;
     width: auto;
-    min-height: 36px;
-    height: 36px;
+    min-height: 44px;
+    height: 44px;
     margin-left: auto;
     padding: 0 12px;
     flex-direction: row;
@@ -642,6 +649,7 @@
 }
 .object-interaction-status {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--ds-space-2);
   color: var(--ds-text-dim);

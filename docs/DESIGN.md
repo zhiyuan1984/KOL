@@ -96,7 +96,7 @@ Home 五模式共用一套「中栏人机协作 + 右栏结果与下一步」几
 
 | token / 断点 | 数值 | 用途 |
 |---|---:|---|
-| `--workspace-result-rail-min` | `380px` | 双栏成立时右栏最小宽度 |
+| `--workspace-result-rail-min` | `320px` | 双栏成立时右栏最小宽度；1260px 及以下采用窄栏比例，保证中栏仍占多数 |
 | `--workspace-result-rail-ideal` | `40%` | 宽视口的右栏目标宽度 |
 | `--workspace-result-rail-max` | `680px` | 防止结果栏压过中栏 |
 | `--workspace-result-rail-collapsed` | `56px` | 右栏折叠轨道 |

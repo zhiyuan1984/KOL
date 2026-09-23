@@ -8,13 +8,14 @@ import type { Json, Row } from "../types.js";
 import { recognizeTaskIntent } from "../tasks/recognize.js";
 import { resolveTaskIntent } from "../tasks/resolver.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
-import { historySummary, decorateTaskFromCollab, isOpenWorkItem, OPEN_WORK_ITEM_SQL, displayStatusOf, normalizePriority, TASK_RISK_LEVELS, todayDateStr } from "../host/home-board.js";
+import { buildHomeBoard, historySummary, decorateTaskFromCollab, isInsightWorkItem, isOpenWorkItem, OPEN_WORK_ITEM_SQL, displayStatusOf, normalizePriority, TASK_RISK_LEVELS, todayDateStr } from "../host/home-board.js";
 import { formatMissingFields, missingFieldsMessage } from "../labels.js";
 import { agentSubmissionAllowed, kolAgentManifest } from "../contract-scope.js";
 import { FROM_TEXT_FORBIDDEN_TASK_TYPES } from "../gateway/discovery-harness.js";
 import { applyKolAnalyzeAction, KOL_ANALYZE_TASK_TYPE } from "../host/kol-memory.js";
 import { extractTaskFieldUpdates, type TaskFieldUpdates } from "../tasks/openai-intent.js";
 import { parseTaskFieldUpdatesFallback } from "../tasks/task-field-updates.js";
+import { parseTaskRecommendationCandidate } from "../host/task-recommendations.js";
 
 export const tasks = new Hono();
 
@@ -56,6 +57,13 @@ function taskInput(body: Json): Json {
     ...(body.knowledge_id ? { knowledge_id: body.knowledge_id } : {}),
     ...((body.prompt || body.text) ? { prompt: String(body.prompt || body.text) } : {}),
   };
+}
+
+function resolutionIssueFields(resolution: ReturnType<typeof resolveTaskIntent>): string[] {
+  return [...new Set([
+    ...resolution.missing_fields,
+    ...Object.keys(resolution.invalid_fields || {}),
+  ])];
 }
 
 function publicWorkItem(row: Row, collab?: Row | null): Json {
@@ -360,6 +368,13 @@ function createWorkItem(body: Json, source: string): Json {
     entities: body.entities as Record<string, unknown> | undefined,
     input,
   });
+  if (definition.input_schema?.length && resolution.needs_clarification) {
+    throw new HttpFail(422, {
+      code: "task_input_invalid",
+      message: missingFieldsMessage(resolutionIssueFields(resolution), "请补齐或修正任务参数后再创建。"),
+      resolution,
+    });
+  }
   const status = resolution.needs_clarification ? "needs_clarification" : String(body.status || "pending");
   if (!STATUSES.has(status)) throw new HttpFail(400, "invalid status");
   const rawPriority = body.priority == null || body.priority === "" ? "normal" : String(body.priority);
@@ -575,20 +590,40 @@ function findDuplicateTodoRow(owner: string, suggestion: {
 }
 
 tasks.post("/tasks/adopt-recommendation", async (c) => {
-  const body = await c.req.json() as Json;
+  const raw = await c.req.json() as Json;
+  const requested = parseTaskRecommendationCandidate(raw);
   const owner = ownerId();
-  const workItemId = String(body.work_item_id || "").trim();
-  const recId = String(body.recommendation_id || body.id || "").trim();
+  const board = buildHomeBoard({ restoreOfficialStages: false }) as Record<string, unknown>;
+  const workbench = board.workbench && typeof board.workbench === "object" ? board.workbench as Record<string, unknown> : {};
+  const recommendations = Array.isArray(workbench.recommendations) ? workbench.recommendations as Record<string, unknown>[] : [];
+  const requestedId = requested.recommendation_id || (requested.work_item_id ? `rec-ai-${requested.work_item_id}` : "");
+  const current = recommendations.find((item) => item.id === requestedId && item.candidate === true);
+  if (!current) throw new HttpFail(409, "recommendation is no longer available; refresh the task list");
+  // Candidate content is a server projection. Ignore client edits to title, intent,
+  // entities, and prompt so a proposal cannot be turned into a different task.
+  const candidate = parseTaskRecommendationCandidate({
+    ...current,
+    recommendation_id: String(current.id),
+    status: "candidate",
+  });
+  const workItemId = candidate.work_item_id || "";
+  const recId = candidate.recommendation_id || "";
   const fromInsight = recId.startsWith("rec-ai-") ? recId.slice("rec-ai-".length) : "";
   const existingId = workItemId || fromInsight;
   if (existingId) {
     try {
       const item = ownedWorkItem(existingId);
+      if (item.promoted_at) {
+        return c.json({ ...publicWorkItem(item), candidate: false, reused: true, created: false });
+      }
+      if (!isInsightWorkItem(item)) {
+        throw new HttpFail(409, "only an active recommendation candidate can be adopted");
+      }
       if (["completed", "cancelled"].includes(String(item.status))) {
         throw new HttpFail(409, `task cannot adopt from ${item.status}`);
       }
       const now = nowIso();
-      const nextTitle = String(body.title || "").trim().slice(0, 200);
+      const nextTitle = candidate.title;
       tx((db) => {
         db.prepare(
           "UPDATE work_items SET promoted_at=COALESCE(promoted_at,?),dismissed_at=NULL,title=CASE WHEN ?!='' THEN ? ELSE title END,updated_at=?,data_version=data_version+1 WHERE id=?",
@@ -605,28 +640,26 @@ tasks.post("/tasks/adopt-recommendation", async (c) => {
   }
   const identity = {
     id: recId,
-    title: String(body.title || ""),
-    handle: String(body.handle || ""),
-    intent: String(body.intent || body.task_type || ""),
-    collaboration_id: body.collaboration_id ? String(body.collaboration_id) : null,
+    title: candidate.title,
+    handle: candidate.handle || "",
+    intent: candidate.intent || "",
+    collaboration_id: candidate.collaboration_id || null,
   };
   const duplicate = findDuplicateTodoRow(owner, identity);
   if (duplicate) {
     return c.json({ ...publicWorkItem(duplicate), candidate: false, reused: true, created: false });
   }
-  const intent = String(body.intent || body.task_type || "creator_daily_tasks");
+  const intent = candidate.intent || "creator_daily_tasks";
   const created = createWorkItem({
-    ...body,
+    prompt: candidate.prompt || candidate.title,
     task_type: intent,
-    title: body.title,
-    description: body.reason || body.description,
-    prompt: body.prompt || body.title,
+    title: candidate.title,
+    description: candidate.reason,
     source: "manual",
     intent,
-    collaboration_id: body.collaboration_id,
+    collaboration_id: candidate.collaboration_id,
     entities: {
-      ...((body.entities && typeof body.entities === "object") ? body.entities as Json : {}),
-      handle: body.handle,
+      handle: candidate.handle,
       recommendation_id: recId || undefined,
     },
   }, "manual");
@@ -724,6 +757,22 @@ tasks.post("/tasks/from-text", async (c) => {
       handoff: { kind: "workspace", pane: "discovery", task_type: "creator_discovery" },
     });
   }
+  const declaredDefinition = taskDefinition(String(resolution.task_type || ""));
+  if (declaredDefinition?.input_schema?.length && resolution.needs_clarification) {
+    const issueFields = [...new Set([
+      ...resolution.missing_fields,
+      ...Object.keys(resolution.invalid_fields || {}),
+    ])];
+    return c.json({
+      resolution,
+      task: null,
+      tasks: [],
+      resolved_tasks: [],
+      needs_clarification: true,
+      clarification_kind: "missing_fields",
+      clarification: missingFieldsMessage(issueFields, "请在参数卡中补齐或修正后再提交。"),
+    });
+  }
   const created = createWorkItem({
     ...body,
     text,
@@ -790,18 +839,21 @@ tasks.post("/tasks/:id/run", async (c) => {
   requireSkill(definition.id);
   const body = await c.req.json().catch(() => ({})) as Json;
   const storedInput = parseJson(item.input) as Json;
+  const runInput = { ...storedInput, ...((body.input as Json) || {}) };
   const runText = String(body.text || storedInput.prompt || item.title);
   const resolution = resolveTaskIntent({
     text: runText,
     task_type: definition.id,
     entities: { ...(parseJson(item.entities) as Json), ...((body.entities as Json) || {}) },
-    input: { ...storedInput, ...((body.input as Json) || {}) },
+    input: runInput,
   });
-  if (resolution.missing_fields.length) {
+  if (resolution.needs_clarification) {
     getConn().prepare("UPDATE work_items SET status='needs_clarification',updated_at=? WHERE id=?")
       .run(nowIso(), item.id);
     appendTaskEvent(String(item.id), null, "task.clarification", "还需要补充信息", "needs_clarification",
-      `缺少：${formatMissingFields(resolution.missing_fields)}`);
+      resolution.missing_fields.length
+        ? `缺少：${formatMissingFields(resolution.missing_fields)}`
+        : missingFieldsMessage(resolutionIssueFields(resolution), "参数值无效"));
     return c.json({ needs_clarification: true, resolution }, 422);
   }
   const now = nowIso();
@@ -817,14 +869,14 @@ tasks.post("/tasks/:id/run", async (c) => {
       `INSERT INTO task_runs
        (id,work_item_id,session_id,status,input,entities,created_at)
        VALUES (?,?,?,?,?,?,?)`,
-    ).run(runId, item.id, sid, "pending", item.input, JSON.stringify(resolution.entities), now);
-    db.prepare("UPDATE work_items SET session_id=?,status='pending',updated_at=?,data_version=data_version+1 WHERE id=?")
-      .run(sid, now, item.id);
+    ).run(runId, item.id, sid, "pending", JSON.stringify(runInput), JSON.stringify(resolution.entities), now);
+    db.prepare("UPDATE work_items SET session_id=?,input=?,status='pending',updated_at=?,data_version=data_version+1 WHERE id=?")
+      .run(sid, JSON.stringify(runInput), now, item.id);
   });
   appendTaskEvent(String(item.id), runId, "run.pending", "任务已加入队列", "pending", "等待会话开始执行");
   audit(ownerId(), "task.run.created", { work_item_id: item.id, run_id: runId, session_id: sid });
   const pendingMessage = {
-    ...(storedInput || {}),
+    ...runInput,
     act: "ask",
     text: runText,
     intent: definition.id,

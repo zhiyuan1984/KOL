@@ -12,6 +12,7 @@ type SkillRow = {
   required_inputs?: string[];
   input_schema?: Array<Record<string, unknown>> | null;
   result_type?: string | null;
+  result_schema?: Record<string, unknown> | null;
   next_actions?: Array<Record<string, unknown>>;
   memory_policy?: Record<string, unknown> | null;
   supports?: Record<string, boolean> | null;
@@ -249,6 +250,7 @@ function DetailPanel(props: {
     required_inputs: skill.required_inputs || skill.input_schema?.filter((field) => field.required === true).map((field) => field.key) || [],
     input_schema: skill.input_schema || [],
     result_type: skill.result_type || "",
+    ...(skill.result_schema ? { result_schema: skill.result_schema } : {}),
     next_actions: skill.next_actions || [],
     ...(skill.memory_policy ? { memory_policy: skill.memory_policy } : {}),
     supports: skill.supports || { cancel: false, retry: false, resume: false },
@@ -296,6 +298,7 @@ function DetailPanel(props: {
         required_inputs: Array.isArray(value.required_inputs) ? value.required_inputs.map(String) : (skill.required_inputs || []),
         input_schema: Array.isArray(value.input_schema) ? value.input_schema : [],
         result_type: String(value.result_type || ""),
+        ...(value.result_schema && typeof value.result_schema === "object" ? { result_schema: value.result_schema as Record<string, unknown> } : {}),
         next_actions: Array.isArray(value.next_actions) ? value.next_actions : [],
         ...(value.memory_policy && typeof value.memory_policy === "object" ? { memory_policy: value.memory_policy as Record<string, unknown> } : {}),
         supports: value.supports && typeof value.supports === "object" ? value.supports as Record<string, boolean> : { cancel: false, retry: false, resume: false },

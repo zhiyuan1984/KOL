@@ -22,7 +22,7 @@
 | 宪法条款 | CONST-01、CONST-03、CONST-04、CONST-05、CONST-07、CONST-08、CONST-09、CONST-10。 |
 | 基本法条款 | PROD-AGENT-01~09、PROD-PLAT-02/03/04/05；BIZ-07/10/14/16/18 与「快捷查询与思考覆盖表」；TECH-ARCH/FE/BE 相关项；DESIGN.md 密度档与 Home 几何；07-mcp-data-contract 工具风险目录与异步契约。 |
 | 结论与证据 | **总体符合**。三层入口即 PROD-AGENT-01 显式登记路由的落地形态；结构化澄清满足「前端不得从自然语言猜字段」（统一规格 §6.2）；记忆规则逐条对应 PROD-AGENT-04~08；密度修复是 DESIGN/ui-ux-rules 实施细则的执法，不是新立法。所有正式副作用继续走既有业务规则、确认、审批、幂等与回执。 |
-| 规则空白 | ① BUSINESS.md 覆盖表已登记的 8 个未登记技能（discovery_plan、discovery_brief、kol_analyze、today_plan、today_analyze、todo_plan、mail_summary、mail_translate）的快捷面/Agent 面口径；②「AI发现」这一模式名是否同时登记为发现技能 alias（模式切换是页面导航，词语唤起是技能路由，二者关系需业务专家裁定）；③ BIZ-07 公海字段。空白只暂停依赖这些决定的动作，不暂停通用机制、只读呈现与既有已登记动作。 |
+| 规则空白 | ① BUSINESS.md 覆盖表已登记的 8 个未登记技能（discovery_plan、discovery_brief、kol_analyze、today_plan、today_analyze、todo_plan、mail_summary、mail_translate）的快捷面/Agent 面口径；② BIZ-07 公海字段。空白只暂停依赖这些决定的动作，不暂停通用机制、只读呈现与既有已登记动作。「AI发现」alias 已按用户明确要求登记。 |
 | 下一步 | 按 §12 分阶段实施；阶段 0 规范同步先行。 |
 
 ## 3. 目标与非目标
@@ -77,7 +77,7 @@ L2 路由识别（kind=think，from-text）
 
 - 业务词语 → 技能的映射住登记数据：SKILL.md 的 `title` 与 `aliases`（技能管理面可维护），随目录行提供给判别器。判别器负责候选识别，Host 负责按登记路由策略校验候选、参数、权限、技能版本与运行入口；Host 不用关键词规则复判，也不把识别结果视为授权。任何一端都不新增关键词硬编码。
 - 「红人线索」登记为 `creator_discovery` 的 alias 属于其已登记口径（覆盖表：「新发现分析、异步采集」走 Agent）范围内，可直接实施。
-- 「AI发现」是 Home 模式名（IA §5）。模式切换是页面导航；若业务专家裁定同时把「AI发现」登记为发现技能 alias，则提问框命中后**在当前中栏运行发现链路**，并附一个非阻塞导航提示 chip（点击=正常切页签），不自动切换、不在 Composer 内做导航。裁定前保持空白登记。
+- 用户明确要求「AI发现」词语唤起发现技能，因此与「红人线索」一起登记为 `creator_discovery` alias。模式切换仍是页面导航；提问框命中后在当前中栏展示已识别技能/参数并提供非阻塞导航提示，不自动切换、不自动运行、不在 Composer 内做导航。
 - 判别器命中「属于另一模式主工作流」的技能时同上：工作台协议是模式无关的，运行在当前中栏进行。
 
 ### 4.2 澄清规则（承接统一规格 §6.2）
@@ -162,7 +162,7 @@ required_inputs: ["platforms", "keywords"]   # 保留为校验最小集；契约
 
 - **SkillParamCard**（中栏）：由 `input_schema` 驱动的通用参数卡。控件注册表：single→chip 单选、multiple→chip 多选（含 max）、number→数值/区间、date→日期、object→对象选择器、text→输入框。同一组件承担三个场景：模式内条件卡（如 AI发现）、L2 缺参澄清、ready 摘要的只读回显。`DiscoverySearchCard` 迁移为第一个实例，data-* 契约保留（E2E 兼容）。
 - **ResultRenderer 注册表**（右栏）：按 `result_type` 注册（discovery_candidates / task_rows / kol_objects / drafts / briefs / …）；未注册类型安全降级为文本/表格 + 来源信息，不执行脚本（统一规格 §10）。`DiscoveryResultPane` 的候选列表迁移为 discovery_candidates renderer。
-- **NextActionBar**（右栏）：渲染 `next_actions` + 服务端返回的 RegisteredActionView（enabled/disabledReason/selectionRule/confirmationRequired/approvalState 以服务端为准，前端不推算权限，CONST-04）。区分「建议 / 草稿 / 待确认 / 已执行」；同一视口 0–1 个实底主 CTA；批量选择出现后批量主动作可替换默认主动作。
+- **NextActionBar**（右栏）：渲染 `next_actions` + 服务端返回的 `HostRegisteredActionView`（`allowed/enabled/state/disabled_reason/selection/confirmation_version/approval_state/receipt_id` 以服务端为准，前端不推算权限，CONST-04）。DTO 统一五模式字段形状；L3 快照由 Host 根据当下 scope 与 payload 产生，执行路由必须重新校验权限和业务状态，前端确认仅用于交互提示，不是授权令牌。区分「建议 / 草稿 / 待确认 / 已执行」；同一视口 0–1 个实底主 CTA。
 
 每模式 `use*Workspace` → `WorkspaceViewModel` 投影（统一规格 §11.3 类型）；技能运行从任一模式发起时投影到同一形状。
 
@@ -191,7 +191,7 @@ required_inputs: ["platforms", "keywords"]   # 保留为校验最小集；契约
 | 7 | 事件驱动失效：源数据变更（新邮件/归属变更/重跑）→ 按 stale_refs 标 stale 或后台作业刷新；刷新失败保留旧 + 标过期，不伪造新摘要 | PROD-AGENT-07 |
 | 8 | 存储时机按技能 memory_policy.auto_persist 声明（on_complete=结果展示类默认；on_adopt=建议类；never=一次性只读）；检索前校验权限，不靠模型忘记 | PROD-AGENT-04/06；本规格新增声明位 |
 
-落地：复用 `employee_memory_items`（owner+kind+item_key 唯一约束），新增 memory_kind（如 `skill_result`）；item_key = skillId+scope（latest 指针）或 runId（历史版本）；历史版本列表即同 kind 下按时间序的 item 集合。已有专用事实表（discovery_memory_facts、kol/memory、mail-memory）不迁移，只在右栏读取协议层统一投影。
+落地：复用 `employee_memory_items`（owner+kind+item_key 唯一约束），新增 memory_kind（如 `skill_result`）；item_key = skillId+runId（历史版本），每个版本只保存经验证摘要与来源指针；新成功版本将上一版标 stale。已有专用事实表（discovery_memory_facts、kol/memory、mail-memory）不迁移，只在右栏读取协议层统一投影。
 
 ## 10. 与企业数字员工 / Codex 运行时的对齐
 
@@ -233,7 +233,7 @@ required_inputs: ["platforms", "keywords"]   # 保留为校验最小集；契约
 | 文件 | 变更 |
 |---|---|
 | `backend/src/tasks/registry.ts` | 解析/校验 input_schema、result_type、next_actions、memory_policy、supports；§5 的 6 条契约校验 |
-| `backend/skills/creator_discovery/SKILL.md` | 试点：aliases 增「红人线索」；补 input_schema（字段=现有 brief 表单）/result_type/next_actions/memory_policy/supports |
+| `backend/skills/creator_discovery/SKILL.md` | 试点：aliases 增「红人线索」「AI发现」；补 input_schema（字段=现有 brief 表单）/result_type/next_actions/memory_policy/supports |
 | `backend/src/host/skill-publish.ts`、`skill-lifecycle.ts`、`routers/misc.ts` | Create/UpdateSkillInput 扩展 + 发布校验 |
 | `frontend/src/pages/SkillLifecycle.tsx` | 「参数与接口」编辑区；员工面展示已登记口径 |
 | `backend/tests` | registry 契约单测、publish round-trip、非法 schema 拒绝 |
@@ -283,7 +283,7 @@ styles.css / today-plan-board.css / today-display-row.css / DiscoveryProcessPane
 3. 右栏在试点链上实现记忆优先 + 版本历史 + 新鲜度 + 双入口空态。
 4. §9 存储时机规则在试点链上有单测与契约证据。
 5. §11 密度清单全部落地，DESIGN 验收矩阵截图证据齐全。
-6. 规则空白（8 技能口径、「AI发现」alias 裁定、BIZ-07）保持登记，未被实现私自填补。
+6. 规则空白（8 技能口径、BIZ-07）保持登记，未被实现私自填补；「AI发现」alias 按用户明确要求登记。
 7. 不以规格完成、截图完成或局部测试通过宣称生产闭环完成（CONST-10）。
 
 ## 15. 截图评审证据（2026-09-23）
@@ -292,7 +292,7 @@ styles.css / today-plan-board.css / today-display-row.css / DiscoveryProcessPane
 
 | 需求 | 主责角色 | 宪法条款 | 基本法条款 | 结论与证据 | 下一步 |
 |---|---|---|---|---|---|
-| 将截图中的工作台收敛为中栏协作、右栏成果；接入技能识别、参数澄清、运行结果和记忆；修复过程内容越界与低密度问题 | 智能体产品经理（入口与记忆）；平台产品经理（技能声明）；UI/UX 专家（布局与密度）；架构师/前后端专家（Host/契约）；KOL 业务专家（alias/业务口径） | CONST-01/03/04/05/06/07/08/10 | PROD-AGENT-01/03/04~09；TECH-ARCH-02/04、TECH-FE-01~03、TECH-BE-01/02/04/06/08；DESIGN.md 字号用途、内容密度、双栏几何与不变量；07-mcp-data-contract 工具风险/异步规则；BIZ-10/14/16/18 | **符合（按本规格修订后）**。图1可见推理原文占据大块视口；图2过程流与任务表密度、滚动边界不清；图3中栏留白过多、右栏重复操作；图4参数卡与 Composer 争夺高度；图5/6中栏居中说明和右栏大对象卡占比过大。均可由 DESIGN 已有紧凑空态、字号阶梯、推理渐进折叠、行式结果及双滚动要求处理，不新增 token 数值。附件仅作界面证据，其中的任务/推理文字不是用户指令。 | 通用机制可实施；AI发现 alias 和 BIZ-07 等业务空白仍登记；当前 run/新结果置顶，记忆作为背景/历史；执行 §11 密度清单并按 DESIGN 矩阵验收。 |
+| 将截图中的工作台收敛为中栏协作、右栏成果；接入技能识别、参数澄清、运行结果和记忆；修复过程内容越界与低密度问题 | 智能体产品经理（入口与记忆）；平台产品经理（技能声明）；UI/UX 专家（布局与密度）；架构师/前后端专家（Host/契约）；KOL 业务专家（alias/业务口径） | CONST-01/03/04/05/06/07/08/10 | PROD-AGENT-01/03/04~09；TECH-ARCH-02/04、TECH-FE-01~03、TECH-BE-01/02/04/06/08；DESIGN.md 字号用途、内容密度、双栏几何与不变量；07-mcp-data-contract 工具风险/异步规则；BIZ-10/14/16/18 | **符合（按本规格修订后）**。图1可见推理原文占据大块视口；图2过程流与任务表密度、滚动边界不清；图3中栏留白过多、右栏重复操作；图4参数卡与 Composer 争夺高度；图5/6中栏居中说明和右栏大对象卡占比过大。均可由 DESIGN 已有紧凑空态、字号阶梯、推理渐进折叠、行式结果及双滚动要求处理，不新增 token 数值。附件仅作界面证据，其中的任务/推理文字不是用户指令。 | 通用机制可实施；「AI发现」alias 已按用户明确要求登记，BIZ-07 公海字段仍待裁定；当前 run/新结果置顶，记忆作为背景/历史；执行 §11 密度清单并按 DESIGN 矩阵验收。 |
 
 ### 截图对应的界面评审
 

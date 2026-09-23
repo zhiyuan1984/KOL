@@ -21,6 +21,7 @@ import {
   type TaskNextAction,
   type TaskOutput,
   type TaskProfileId,
+  type TaskResultSchema,
   type TaskSupports,
 } from "../tasks/registry.js";
 import { HttpFail } from "./errors.js";
@@ -52,6 +53,7 @@ export type CreateSkillInput = {
   required_inputs?: string[] | string;
   input_schema?: TaskInputField[] | string;
   result_type?: string;
+  result_schema?: TaskResultSchema | string;
   next_actions?: TaskNextAction[] | string;
   memory_policy?: TaskMemoryPolicy | string;
   supports?: TaskSupports | string;
@@ -76,6 +78,7 @@ const PACK_FIELDS = [
   "required_inputs",
   "input_schema",
   "result_type",
+  "result_schema",
   "next_actions",
   "memory_policy",
   "supports",
@@ -132,6 +135,7 @@ export function formatSkillMarkdown(input: {
   aliases: string[];
   input_schema?: TaskInputField[];
   result_type?: string;
+  result_schema?: TaskResultSchema;
   next_actions?: TaskNextAction[];
   memory_policy?: TaskMemoryPolicy;
   supports?: TaskSupports;
@@ -153,6 +157,7 @@ export function formatSkillMarkdown(input: {
     `aliases: ${JSON.stringify(input.aliases)}`,
     ...(input.input_schema ? [`input_schema: ${JSON.stringify(input.input_schema)}`] : []),
     ...(input.result_type ? [`result_type: ${input.result_type}`] : []),
+    ...(input.result_schema ? [`result_schema: ${JSON.stringify(input.result_schema)}`] : []),
     ...(input.next_actions ? [`next_actions: ${JSON.stringify(input.next_actions)}`] : []),
     ...(input.memory_policy ? [`memory_policy: ${JSON.stringify(input.memory_policy)}`] : []),
     ...(input.supports ? [`supports: ${JSON.stringify(input.supports)}`] : []),
@@ -178,6 +183,7 @@ function normalizeCreate(input: CreateSkillInput): {
   aliases: string[];
   input_schema?: TaskInputField[];
   result_type?: string;
+  result_schema?: TaskResultSchema;
   next_actions?: TaskNextAction[];
   memory_policy?: TaskMemoryPolicy;
   supports?: TaskSupports;
@@ -211,12 +217,15 @@ function normalizeCreate(input: CreateSkillInput): {
   const memoryPolicy = asJsonValue<TaskMemoryPolicy>(input.memory_policy, "memory_policy");
   const supports = asJsonValue<TaskSupports>(input.supports, "supports");
   const resultType = input.result_type === undefined ? undefined : String(input.result_type).trim();
+  const resultSchema = asJsonValue<TaskResultSchema>(input.result_schema, "result_schema");
   const actions = asList(input.actions).length ? asList(input.actions) : ["analyze"];
   try {
     validateDeclaredTaskContract({
+      id,
       required_inputs: asList(input.required_inputs),
       ...(inputSchema ? { input_schema: inputSchema } : {}),
       ...(resultType ? { result_type: resultType } : {}),
+      ...(resultSchema ? { result_schema: resultSchema } : {}),
       ...(nextActions ? { next_actions: nextActions } : {}),
       ...(memoryPolicy ? { memory_policy: memoryPolicy } : {}),
       ...(supports ? { supports } : {}),
@@ -240,6 +249,7 @@ function normalizeCreate(input: CreateSkillInput): {
     aliases: asList(input.aliases),
     input_schema: inputSchema,
     result_type: resultType,
+    result_schema: resultSchema,
     next_actions: nextActions,
     memory_policy: memoryPolicy,
     supports,
@@ -327,6 +337,7 @@ export function updatePublishedSkill(id: string, input: UpdateSkillInput): Skill
     aliases: input.aliases ?? current.aliases,
     input_schema: input.input_schema ?? def?.input_schema,
     result_type: input.result_type ?? def?.result_type,
+    result_schema: input.result_schema ?? def?.result_schema,
     next_actions: input.next_actions ?? def?.next_actions,
     memory_policy: input.memory_policy ?? def?.memory_policy,
     supports: input.supports ?? def?.supports,

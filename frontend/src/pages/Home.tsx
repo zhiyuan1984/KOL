@@ -38,6 +38,7 @@ import PoolPane from "../home/PoolPane";
 import ClaimFollowConfirm from "../home/ClaimFollowConfirm";
 import ReleaseFollowConfirm from "../home/ReleaseFollowConfirm";
 import { FollowedBatchConfirm } from "../home/FollowedBatchConfirm";
+import SkillParamCard, { type SkillParamField } from "../home/workspace/SkillParamCard";
 import { usePoolWorkspace } from "../home/usePoolWorkspace";
 import { useFollowedWorkspace, type FollowedKol } from "../home/useFollowedWorkspace";
 import {
@@ -533,6 +534,9 @@ export default function Home() {
   const [retryingSurface, setRetryingSurface] = useState<HomeSurface | null>(null);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<FromTextResult | null>(null);
+  const [skillParamValues, setSkillParamValues] = useState<Record<string, unknown>>({});
+  const [skillParamErrors, setSkillParamErrors] = useState<Record<string, string>>({});
+  const paramSkillId = useRef<string | null>(null);
   const lastComposer = useRef<ComposerSubmit | null>(null);
   const taskCatalogRef = useRef<Task[]>([]);
   const [taskCatalog, setTaskCatalog] = useState<Task[]>([]);
@@ -706,6 +710,22 @@ export default function Home() {
     // Initial requests load independently so the input and task shell render immediately.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!lockedIntent) {
+      paramSkillId.current = null;
+      setSkillParamValues({});
+      setSkillParamErrors({});
+      return;
+    }
+    const definition = definitions.find((item) => item.id === lockedIntent);
+    if (!definition || paramSkillId.current === lockedIntent) return;
+    paramSkillId.current = lockedIntent;
+    const fields = Array.isArray(definition.input_schema) ? definition.input_schema as SkillParamField[] : [];
+    setSkillParamValues(Object.fromEntries(fields.flatMap((field) => field.default !== undefined && field.default !== null
+      ? [[field.key, field.default]] : [])));
+    setSkillParamErrors({});
+  }, [definitions, lockedIntent]);
 
   // Home 的「生成中」只覆盖识别 + 发起这几秒；真正的长时间生成在 /s/:id，
   // 停止键由会话页的 Composer 负责。这里能停的是「还没开跑就打住」。
@@ -1117,23 +1137,8 @@ export default function Home() {
       mergeAdopted({ ...taskValue(adopted), title: item.title, candidate: false });
       await refreshTasks();
       setMode("todo");
-    } catch {
-      const local: Task = {
-        id: `todo-local-${item.id}`,
-        title: item.title,
-        source: "manual",
-        status: "pending",
-        skill_id: item.intent,
-        skill: item.intent,
-        kol_name: item.handle,
-        description: item.reason,
-        collaboration_id: item.collaboration_id || undefined,
-        promoted_at: new Date().toISOString(),
-        candidate: false,
-        entities: { recommendation_id: item.id, handle: item.handle },
-      };
-      mergeAdopted(local);
-      setMode("todo");
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : "未能采纳建议，正式待办未创建");
     } finally {
       setBusy(false);
     }
@@ -1155,8 +1160,19 @@ export default function Home() {
   const onComposer = async (p: ComposerSubmit) => {
     const prompt = p.text.trim();
     const skillFromScope = p.scope?.skills?.[0];
-    if (!prompt && !p.attachments?.length && !skillFromScope) return;
     const intent = lockedIntent || skillFromScope || p.intent;
+    const selectedDefinition = intent ? definitions.find((definition) => definition.id === intent) : undefined;
+    const submittedSchemaFields = Array.isArray(selectedDefinition?.input_schema)
+      ? selectedDefinition.input_schema as SkillParamField[] : [];
+    if (!prompt && !p.attachments?.length && !skillFromScope && !submittedSchemaFields.length) return;
+    const intakeText = prompt || selectedDefinition?.title || "";
+    const submittedSkillValues = genericParamDefinition?.id === intent
+      ? skillParamValues
+      : Object.fromEntries(submittedSchemaFields.flatMap((field) => field.default === undefined ? [] : [[field.key, field.default]]));
+    if (selectedDefinition?.input_schema && Array.isArray(selectedDefinition.input_schema)) {
+      setLockedIntent(selectedDefinition.id);
+      setLockedLabel(selectedDefinition.title);
+    }
     // Submission transfers the draft into task intake. Clear the editor at the
     // click boundary so the running task gets the vertical space, regardless
     // of which intake route handles it next.
@@ -1214,7 +1230,7 @@ export default function Home() {
       return;
     }
     const knowledgeId = lockedKnowledgeId || p.knowledge_id;
-    lastComposer.current = { ...p, text: prompt, knowledge_id: knowledgeId };
+    lastComposer.current = { ...p, text: intakeText, knowledge_id: knowledgeId };
     setBusy(true);
     setIntakeRunning(true);
     intakeCancelled.current = false;
@@ -1265,12 +1281,16 @@ export default function Home() {
       // ambiguous request remains on the home page with an actionable card;
       // only a resolved task opens a session and starts the run.
       const recognized = await api.createTaskFromText({
-        text: prompt,
+        text: intakeText,
         task_type: intent || undefined,
         intent: intent || undefined,
         source: "text",
         attachments: p.attachments,
         model_tier: p.model_tier,
+        input: Object.fromEntries(submittedSchemaFields.flatMap((field) => {
+          const value = submittedSkillValues[field.key];
+          return value === undefined || value === null || value === "" ? [] : [[field.key, value]];
+        })),
         collaboration_id: p.collaboration_id,
         knowledge_id: knowledgeId,
         entities: p.entities,
@@ -1285,6 +1305,23 @@ export default function Home() {
       }
       const resolution = recognized.resolution || {};
       const missing = resolution.missing_fields || [];
+      if (selectedDefinition?.input_schema && Array.isArray(selectedDefinition.input_schema)) {
+        const resolvedEntities = resolution.entities || {};
+        setSkillParamValues((current) => {
+          const next = { ...current };
+          for (const field of selectedDefinition.input_schema as SkillParamField[]) {
+            if (next[field.key] !== undefined && next[field.key] !== null && next[field.key] !== "") continue;
+            const prefillKey = field.prefill?.startsWith("entities.") ? field.prefill.slice("entities.".length) : field.key;
+            const value = resolvedEntities[prefillKey];
+            if (value !== undefined && value !== null && value !== "") next[field.key] = value;
+          }
+          return next;
+        });
+      }
+      setSkillParamErrors({
+        ...(resolution.invalid_fields || {}),
+        ...Object.fromEntries(missing.map((key) => [key, "必填项"])),
+      });
       const boundHandle = Boolean(
         p.collaboration_id
         || resolution.entities?.handle
@@ -1293,7 +1330,19 @@ export default function Home() {
       // First-touch / unlabeled compose stays on home. A bound @红人 already
       // has From/To in Host, so open the session instead of blocking on the
       // intake card.
-      if (!recognized.task || recognized.clarification_kind === "direction" || (recognized.needs_clarification && !boundHandle)) {
+      if (!recognized.task || recognized.clarification_kind === "direction"
+        || Object.keys(resolution.invalid_fields || {}).length > 0
+        || (recognized.needs_clarification && !boundHandle)) {
+        const clarificationDefinition = resolution.task_type
+          ? definitions.find((definition) => definition.id === resolution.task_type
+            && Array.isArray(definition.input_schema)
+            && definition.granted !== false
+            && definition.employee_visible !== false)
+          : undefined;
+        if (clarificationDefinition) {
+          setLockedIntent(clarificationDefinition.id);
+          setLockedLabel(clarificationDefinition.title);
+        }
         setFeedback({
           ...recognized,
           needs_clarification: true,
@@ -1541,6 +1590,35 @@ export default function Home() {
     setComposerFocused(false);
   };
 
+  const genericParamDefinition = lockedIntent
+    ? definitions.find((definition) => definition.id === lockedIntent
+      && definition.granted !== false
+      && definition.employee_visible !== false
+      && ![DISCOVERY_INTENT, "today_plan", "todo_plan", "creator_daily_tasks"].includes(definition.id))
+    : undefined;
+  const genericParamFields = Array.isArray(genericParamDefinition?.input_schema)
+    ? genericParamDefinition.input_schema as SkillParamField[] : [];
+  const genericParamErrors = {
+    ...skillParamErrors,
+    ...(feedback?.resolution?.invalid_fields || {}),
+    ...Object.fromEntries((feedback?.resolution?.missing_fields || []).map((key) => [key, "必填项"])),
+  };
+  const genericParamCard = genericParamDefinition && genericParamFields.length ? (
+    <SkillParamCard
+      key={genericParamDefinition.id}
+      fields={genericParamFields}
+      values={skillParamValues}
+      errors={genericParamErrors}
+      title={genericParamDefinition.title}
+      mode={feedback?.needs_clarification ? "needs_input" : "edit"}
+      onFieldChange={(key, value) => {
+        setSkillParamValues((current) => ({ ...current, [key]: value }));
+        setSkillParamErrors((current) => { const next = { ...current }; delete next[key]; return next; });
+        setFeedback(null);
+      }}
+    />
+  ) : null;
+
   const quickTaskBar = (
     <div className="home-quick-tasks" role="tablist" aria-label="Home 工作模式" data-home-quick-tasks data-home-modes>
       {HOME_MODES.map((homeMode) => (
@@ -1568,6 +1646,7 @@ export default function Home() {
 
   const interactionFeedback = (
     <div className="workspace-interaction-feedback" data-workspace-interaction-feedback>
+      {genericParamCard}
       {enqueueNotice ? <p className="muted" role="status" data-analyze-enqueue>{enqueueNotice}</p> : null}
       {err && <p className="error composer-err" role="alert" data-home-session-error={err.includes("未能打开会话") ? "true" : undefined}>{err}</p>}
       {discoverySubmitFailed && !busy ? (
@@ -1802,6 +1881,18 @@ export default function Home() {
               previousBrief={activePlan.prevBrief}
               previousEvents={activePlan.prevEvents}
               memoryPending={activePlan.memoryTasks === null}
+              recommendations={(workbench.recommendations || []).filter((item) => item.candidate !== false).slice(0, 3).map((item) => ({
+                id: item.id,
+                title: item.title,
+                reason: item.reason,
+                intent: item.intent,
+                handle: item.handle,
+                status: "candidate" as const,
+              }))}
+              onAdoptRecommendation={(recommendation) => {
+                const selected = workbench.recommendations?.find((item) => item.id === recommendation.id);
+                if (selected) void convertSuggestion(selected);
+              }}
               centerHeader={(
                 <>
                   {quickTaskBar}
@@ -1823,6 +1914,10 @@ export default function Home() {
             <DiscoveryWorkspace
               brief={discoveryFormBrief ?? fallbackDiscoveryFormBrief}
               catalog={discoveryCatalog}
+              schema={(() => {
+                const declared = definitions.find((definition) => definition.id === "creator_discovery")?.input_schema;
+                return Array.isArray(declared) ? declared as import("../home/workspace/SkillParamCard").SkillParamField[] : undefined;
+              })()}
               onBriefChange={onDiscoveryBriefChange}
               activeTaskId={discoveryTaskId}
               activeRunId={discoveryRunId}

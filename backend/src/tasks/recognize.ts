@@ -109,7 +109,7 @@ function mergeEntities(
 
 function kindOf(resolution: TaskResolution, fallback: ClarificationKind): ClarificationKind {
   if (!resolution.task_type) return "direction";
-  if (resolution.missing_fields.length) return "missing_fields";
+  if (resolution.missing_fields.length || Object.keys(resolution.invalid_fields || {}).length) return "missing_fields";
   return fallback === "direction" ? "none" : fallback;
 }
 

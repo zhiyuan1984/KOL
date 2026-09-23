@@ -1,7 +1,7 @@
 # 技能路由、参数、记忆与密度收敛实施计划
 
 > 日期：2026-09-23  
-> 状态：待实施计划；不代表代码已经完成。  
+> 状态：实施中；阶段 0–3 为既有 partial/complete，阶段 4–7 本轮推进为 partial，阶段 8 未运行（按当前开发要求不跑测试/构建/E2E）。
 > 依据：[设计规格](../specs/2026-09-23-skill-routing-param-memory-design.md)、[统一工作台规格](../specs/2026-09-23-unified-agent-workspace.md)。  
 > 本计划范围：把技能显式锁定/自然语言路由、schema 参数澄清、技能管理配置、统一结果区、终态记忆与截图所示密度问题，按可回滚阶段接入现有 Host 和 Workspace。
 
@@ -11,7 +11,7 @@
 |---|---|---|---|---|---|
 | 由技能声明驱动明确唤起、自由文本识别、参数澄清、结果展示与记忆，并收敛截图中的界面密度/溢出 | 智能体产品经理（入口/记忆）；平台产品经理（技能资产）；UI/UX 专家（布局/密度）；架构师、前后端专家（契约/Host）；KOL 业务专家（业务 alias/动作口径） | CONST-01/03/04/05/06/07/08/10 | PROD-AGENT-01~09、PROD-PLAT-02~05；TECH-ARCH-02/04、TECH-FE-01~03、TECH-BE-01~09、TECH-TEST-01~03；BIZ-07/10/14/16/18；DESIGN 密度、双栏、三轴、不变量；07-mcp-data-contract 风险与异步约束 | **符合，按规格与本计划实施。** 显式技能锁定由 Host 接受已登记 task_type/entry_id；自由文本候选由判别器产生、Host 校验；结果/记忆均按授权和来源呈现；L3 与异步流程不改写。 | 先完成阶段 0 设计冻结和基线盘点；规则空白只阻塞对应 alias/业务动作，不阻塞通用机制。 |
 
-规则空白继续登记，不在实现中代填：`AI发现` 是否为 `creator_discovery` alias、BIZ-07 公海字段/领取范围、BUSINESS 覆盖表未登记技能的员工入口口径。若用户指定的 alias/动作依赖上述业务裁定，阶段工作停在候选识别或只读层，不能自动执行。
+规则空白继续登记，不在实现中代填：BIZ-07 公海字段/领取范围、BUSINESS 覆盖表未登记技能的员工入口口径。用户已明确要求将「AI发现」作为 `creator_discovery` alias；命中只形成候选/参数回填，不自动切换页面或执行。
 
 ## 2. 现状与实现边界
 
@@ -84,7 +84,7 @@
 2. 增加注册期验证：`required_inputs` 与 required schema key 集合一致；参数 key 唯一；kind 与 default/max/options 类型合法；动态 options source 在登记端点表中；next action 引用已登记 action id 与允许谓词；MCP、permissions、forbidden_tools 仍服从现有白名单。
 3. 旧技能无新字段时保留旧表现和明确的“未配置”状态，不给其推导伪 schema。解析错误须指出技能 ID/字段路径并阻止无效版本发布。
 4. 扩展创建/更新/发布 DTO 和 YAML 序列化，保留编辑草稿与发布版本分离；读取端返回版本号与声明字段，避免编辑草稿改变运行中的技能。
-5. 仅为 `creator_discovery` 加入第一版 schema；复用当前模板字典与已有稳定 code，不登记 `AI发现` alias，不改采集和入库 endpoint。
+5. 仅为 `creator_discovery` 加入第一版 schema；复用当前模板字典与已有稳定 code，登记「红人线索」「AI发现」alias，不改采集和入库 endpoint。
 6. 增加安全回归：文案员工禁词过滤；action 不可信；员工 DTO 不包含凭据；技能版本固定到运行上下文。
 
 **验收门：**有效/无效 manifest 契约覆盖；旧技能兼容；保存草稿不生效、发布新版本才生效；schema 缺失/错误明确失败；无权限或接口集合扩张。
@@ -284,12 +284,12 @@
 
 | 阶段 | 实际文件 | 负责人角色 | 状态 | 验证证据 | 已知缺口/回滚点 |
 |---|---|---|---|---|---|
-| 0 | 本轮已核对规范、现有端点、工作树与记忆来源 | 平台产品经理 / 架构师 | complete | `AGENTS.md`、`docs/AGENTS.md`、CONSTITUTION、PRODUCT、DESIGN、07-mcp 与代码路径已核对；发现技能保存会立即激活，历史 runs 属发现事实源 | 记忆终态写入尚未接入，不得以 UI 代替 |
-| 1 | `registry.ts`、`skill-publish.ts`、creator_discovery manifest、目录 DTO | 平台产品经理 / 后端专家 | partial | schema 类型、必填一致性、选项源白名单、结果/动作/记忆/运行能力声明及管理 DTO 已加入；旧 manifest 可省略新字段 | 生命周期没有独立草稿保存；保存当前包立即生效，发布版本另存快照；发布隔离验收未满足 |
+| 0 | 本轮已核对规范、现有端点、工作树与记忆来源 | 平台产品经理 / 架构师 | complete | `AGENTS.md`、`docs/AGENTS.md`、CONSTITUTION、PRODUCT、DESIGN、07-mcp 与代码路径已核对；发现技能保存会立即激活，历史 runs 属发现事实源 | 终态记忆目前仅接入已验证的 discovery brief；通用 Host result terminal path 仍未接入 |
+| 1 | `registry.ts`、`skill-publish.ts`、creator_discovery manifest、目录 DTO | 平台产品经理 / 后端专家 | partial | schema 类型、必填一致性、选项源白名单、结果/动作/记忆/运行能力声明及管理 DTO 已加入；旧 manifest 可省略新字段；仅已登记 Host 校验写入器可声明自动结果记忆，发布校验拒绝其余组合 | 生命周期没有独立草稿保存；保存当前包立即生效，发布版本另存快照；发布隔离验收未满足；需在新结果适配器落地后逐个登记能力 |
 | 2 | `SkillLifecycle.tsx`、`api.ts` | 平台产品经理 / 前端专家 | partial | 增加契约 JSON 编辑与服务端校验错误回显；明确即时生效语义 | 尚未提供逐字段 renderer、授权字典选择器、发布前摘要；JSON 编辑器为首版管理控件 |
-| 3 | `openai-intent.ts`、`resolver.ts`、`tasks.ts`、`Home.tsx` | 智能体产品经理 / 后端专家 / 前端专家 | partial | 增加已登记 alias/schema 目录；红人线索候选交给 AI发现表单，用户明确选择后仅预填，不自动运行；AI发现 alias 未擅自添加 | 尚未实现全技能锁定入口协议、置信澄清与通用结构化补参 |
-| 4 | 既有发现参数卡与模板 endpoint | 前端专家 | not_started | 保留当前发现表单与真实异步 endpoint | 未抽取通用参数 renderer；schema 与控件尚非同一运行时事实源 |
-| 5 | `DiscoveryResultPane.tsx`、`useDiscovery.ts`、`discovery-workspace.css` | 平台产品经理 / 前端专家 | partial | 最新运行标为当前结果；已授权发现 runs 作为折叠历史列表，可切换读取；无历史时给出紧凑空态 | 尚无跨技能 ResultRail、下一步动作服务端 DTO、记忆与历史统一来源/新鲜度协议 |
-| 6 | 既有发现专用事实源 / employee memory | 智能体产品经理 / 后端专家 | not_started | 未复制现有 discovery runs 到 employee memory，保留其业务历史来源 | 仍需设计并实现按技能策略、Host 终态校验的记忆索引/幂等写入、撤权过滤与失效 |
-| 7 | 截图对应的现有 dirty CSS 与 DESIGN | UI/UX 专家 / 前端专家 | partial | 现有工作树已有 DESIGN 对齐的字号、空态、长文本和 overflow 改动；保留并逐项检查其差异 | 未核对浏览器尺寸/矮视口截图；此次不重写已有用户改动 |
-| 8 | 未运行构建、测试或 E2E | 测试经理 | not_started | 本轮依开发指令不运行测试或验证命令 | 需后续用户授权/安排验证阶段后完成全量门禁 |
+| 3 | `openai-intent.ts`、`resolver.ts`、`tasks.ts`、`Home.tsx`、`BUSINESS.md`、`creator_discovery/SKILL.md` | 智能体产品经理 / 后端专家 / 前端专家 / KOL 业务专家（用户明确裁定 alias） | partial | alias/schema 目录已用于发现候选；用户指定的「AI发现」与「红人线索」均已登记；命中仍需用户选择，不自动运行；Host resolver 校验已声明字段类型、数字范围、日期格式和静态选项 code；from-text 对 schema 缺失/非法字段只回澄清 DTO，不创建不完整 work item；直接创建 API 对 schema 错误返回 422；采纳接口拒绝非 candidate 状态并校验标题/身份 | 尚未实现全技能锁定入口协议、统一置信澄清/参数补齐和 inputVersion 快照；动态 options source 尚未在通用 resolver 接入 |
+| 4 | `workspace/SkillParamCard.tsx`、`DiscoverySearchCard.tsx`、`DiscoveryWorkspace.tsx`、`Home.tsx` | 前端专家 | partial | schema 控件映射覆盖 single/multiple/text/number/date/object；发现表单从技能目录 input_schema 取字段，选项仍来自授权模板端点；一般员工可见的已登记 schema 技能在五模式中栏呈现参数卡；Host 缺参/非法字段回填字段错误；自然语言候选确认后会锁定技能并展示参数卡；仅填参数时允许提交，任务描述使用技能标题；ready 只读展示已由通用 renderer 支持；保留发现选择器，并防护动态 option source 的原型键/非数组值 | 当前仅发现有员工可见 schema，且走专用异步 workspace；其他普通技能的实际端到端覆盖、needs_input DTO/versioned ready snapshot 和浏览器验收未完成 |
+| 5 | `WorkspaceShell.tsx`、`workspace/ResultRail.tsx`、`ResultRendererRegistry.tsx`、`NextActionBar.tsx`、`host/registered-actions.ts`、五模式 workspace adapters、`home-board.ts`、`routers/tasks.ts` | 平台产品经理 / 前端专家 / 后端专家 | partial | 五模式由同一 ResultRail 包装；新增 HostRegisteredActionView DTO 和 L3 快照生成/新鲜度校验器；前端改用相同 snake_case DTO；采纳时 Host 重读当前用户服务端建议投影并以服务端字段为准；发现右栏读取并展示分页的此前结果记忆，空态明确提示暂无已保存结果 | DTO 尚未由五模式动作查询端点实际下发，Host 快照比较器未接入各业务执行路由；记忆/历史/动作 slot 未在所有模式完整填充；无浏览器密度截图证据 |
+| 6 | `host/skill-result-memory.ts`、`host/employee-memory.ts`、`host/api.ts`、`home-discovery.ts`、`routers/misc.ts`、`api.ts`、发现运行 DTO、`tasks/registry.ts`、`host/skill-publish.ts` | 智能体产品经理 / 后端专家 / 前端专家 | partial | 新增技能必须声明并通过 registry 校验的 result_schema；Host 通用 on_complete/owner 写入器只处理成功 run，要求 `{items:[]}` 契约通过、结果大小受限、凭证型键/Authorization 值拒写；写入幂等且新结果使旧结果 stale；专用 discovery 仍走其既有 writer；失败/取消不写；发现历史按 grant + owner 隔离 | 来源删除/对象撤权失效未接事实源；仅支持 owner scope；技能版本诚实记录为 unversioned；未运行契约/类型/运行验证 |
+| 7 | `styles.css`、`today-plan-board.css`、`today-plan-progress.css`、`SkillParamCard.tsx`、`ScopeWorkspace.tsx`、`DESIGN.md` | UI/UX 专家 / 前端专家 | partial / screenshot fail | 代码静态调整：触摸折叠控件 44px、窄视口结果栏 token 320px、任务表允许收缩换行；用户确认截图视口按 1280×800 验收。本截图样本（指针）可见右侧任务列表底部横向滚动条；右侧栏占宽大于中栏；右栏主动作按钮被挤窄换行且最右侧工具控件贴边/截断；中栏标题至计划内容留白过多。上述可见问题违反双栏宽度、无横滚及密度要求 | 此截图为 1280×800 单一样本，但不等于 DESIGN 矩阵指定档位（1280×900、1280×785/700）；其余宽高组合、Tab 焦点、短视口 footer、触摸命中区无证据；图中构建标记 `9d1c1ef`，需确认与后来本地未部署 CSS 调整一致性 |
+| 8 | 本轮仅静态审阅：ResultRail/Host DTO 字段对齐、密度 token 与换行边界、`git -c core.whitespace=cr-at-eol diff --check` | 测试经理 / UI/UX 专家 | partial | diff whitespace check 无错误；静态确认 HostRegisteredActionView 与前端 snake_case 字段对齐；未运行代码测试、构建、E2E、浏览器矩阵或发布门禁 | 仍需契约/类型运行验证；截图、焦点、滚动边界、短视口与触摸矩阵无证据 |

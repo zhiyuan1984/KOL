@@ -13,10 +13,49 @@ export type TaskResolution = {
   confidence: number;
   entities: Record<string, unknown>;
   missing_fields: string[];
+  invalid_fields?: Record<string, string>;
   alternatives: { task_type: string; title: string; confidence: number }[];
   needs_clarification: boolean;
   clarification_kind: ClarificationKind;
 };
+
+function invalidTaskInputs(
+  definition: TaskDefinition,
+  entities: Record<string, unknown>,
+  supplied: Record<string, unknown>,
+): Record<string, string> {
+  const invalid: Record<string, string> = {};
+  for (const field of definition.input_schema || []) {
+    const prefillKey = field.prefill?.startsWith("entities.") ? field.prefill.slice("entities.".length) : "";
+    const value = supplied[field.key] ?? entities[field.key] ?? (prefillKey ? entities[prefillKey] : undefined);
+    if (value == null || value === "" || (Array.isArray(value) && value.length === 0)) continue;
+    const options = field.options?.map((option) => typeof option === "string" ? option : option.code) || [];
+    const optionError = (codes: unknown[]) => options.length > 0 && codes.some((code) => !options.includes(String(code)));
+    if (field.kind === "single") {
+      if (typeof value !== "string") invalid[field.key] = "请选择一个有效选项";
+      else if (optionError([value])) invalid[field.key] = "所选值不在可用选项中";
+    } else if (field.kind === "multiple") {
+      if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) invalid[field.key] = "请选择有效选项";
+      else if (field.max != null && value.length > field.max) invalid[field.key] = `最多选择 ${field.max} 项`;
+      else if (optionError(value)) invalid[field.key] = "包含不可用选项";
+    } else if (field.kind === "text") {
+      if (typeof value !== "string" && !(Array.isArray(value) && value.every((item) => typeof item === "string"))) {
+        invalid[field.key] = "请输入文本";
+      }
+    } else if (field.kind === "number") {
+      if (typeof value !== "number" || !Number.isFinite(value)) invalid[field.key] = "请输入有效数字";
+      else if (field.min != null && value < field.min) invalid[field.key] = `不能小于 ${field.min}`;
+      else if (field.max != null && value > field.max) invalid[field.key] = `不能大于 ${field.max}`;
+    } else if (field.kind === "date") {
+      if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) {
+        invalid[field.key] = "请输入有效日期";
+      }
+    } else if (field.kind === "object") {
+      if (!value || typeof value !== "object" || Array.isArray(value)) invalid[field.key] = "请输入有效对象";
+    }
+  }
+  return invalid;
+}
 
 const ENTITY_PATTERNS: Record<string, RegExp> = {
   tracking: /(?:运单号|运单|tracking)\s*[:：]?\s*([A-Z0-9]{6,})/i,
@@ -291,14 +330,16 @@ function lockedResolution(
     };
   }
   const missingFields = missing(definition, entities, supplied, text);
+  const invalidFields = invalidTaskInputs(definition, entities, supplied);
   return {
     task_type: definition.id,
     confidence: 1,
     entities,
     missing_fields: missingFields,
+    ...(Object.keys(invalidFields).length ? { invalid_fields: invalidFields } : {}),
     alternatives: [],
-    needs_clarification: missingFields.length > 0,
-    clarification_kind: missingFields.length ? "missing_fields" : "none",
+    needs_clarification: missingFields.length > 0 || Object.keys(invalidFields).length > 0,
+    clarification_kind: missingFields.length || Object.keys(invalidFields).length ? "missing_fields" : "none",
   };
 }
 

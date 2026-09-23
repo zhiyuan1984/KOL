@@ -92,7 +92,7 @@
   --home-chip-h: 30px;
   --home-chip-gap: 5px;
   /* Home Agent 工作台列宽：唯一数值来源见 docs/DESIGN.md §Home Agent 工作台几何。 */
-  --workspace-result-rail-min: 380px;
+  --workspace-result-rail-min: 320px;
   --workspace-result-rail-ideal: 40%;
   --workspace-result-rail-max: 680px;
   --workspace-result-rail-collapsed: 56px;
@@ -1989,6 +1989,53 @@ summary:focus-visible,
   font-weight: var(--ds-weight-label);
   color: var(--ds-text-dim);
 }
+.ai-discovery-param-value { display: grid; gap: var(--ds-space-2); min-width: 0; }
+.ai-discovery-param-value > .ai-discovery-input { min-width: 0; width: 100%; }
+.skill-param-readonly { min-width: 0; overflow-wrap: anywhere; color: var(--ds-text-strong); font-size: var(--ds-font-body); }
+.skill-param-reason { color: var(--ds-text-muted); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); }
+.skill-param-error { color: var(--danger); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); }
+.ai-discovery-param-value [aria-invalid="true"] { border-color: var(--danger); }
+.result-rail { min-width: 0; overflow-wrap: anywhere; }
+.result-rail-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-1) var(--ds-space-3);
+  margin: 0 0 var(--ds-space-2);
+  color: var(--ds-text-muted);
+  font-size: var(--ds-font-helper);
+}
+.result-rail-memory,
+.result-rail-history,
+.result-rail-suggestions,
+.result-rail-actions { min-width: 0; margin-block: var(--ds-space-2); }
+.next-action-bar { display: grid; gap: var(--ds-space-2); min-width: 0; }
+.next-action-recommendation,
+.next-action-registered {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2) var(--ds-space-3);
+  min-width: 0;
+  padding-block: var(--ds-space-2);
+  border-bottom: 1px solid var(--ds-border);
+  font-size: var(--ds-font-sm);
+}
+.next-action-recommendation > div { flex: 1 1 12rem; min-width: 0; }
+.next-action-recommendation p,
+.next-action-registered span { margin: var(--ds-space-1) 0 0; color: var(--ds-text-muted); font-size: var(--ds-font-helper); }
+.result-fallback-list,
+.result-fallback-fields { margin: 0; padding-left: var(--ds-space-4); overflow-wrap: anywhere; }
+.result-fallback-fields > div { display: grid; grid-template-columns: minmax(5rem, 0.35fr) minmax(0, 1fr); gap: var(--ds-space-2); }
+.result-fallback-fields dt { color: var(--ds-text-muted); }
+.result-fallback-fields dd { margin: 0; min-width: 0; }
+.discovery-memory-list { display: grid; gap: var(--ds-space-2); min-width: 0; margin-block: var(--ds-space-3); }
+.discovery-memory-list h3 { margin: 0; color: var(--ds-text-muted); font-size: var(--ds-font-sm); font-weight: 600; }
+.discovery-memory-list article { display: grid; gap: var(--ds-space-1); min-width: 0; padding-block: var(--ds-space-2); border-bottom: 1px solid var(--ds-border); }
+.discovery-memory-list article strong { font-size: var(--ds-font-sm); font-weight: 500; overflow-wrap: anywhere; }
+.discovery-memory-list article span,
+.discovery-memory-list article small,
+.discovery-memory-list > p { margin: 0; color: var(--ds-text-muted); font-size: var(--ds-font-helper); overflow-wrap: anywhere; }
 .ai-discovery-chips { display: flex; flex-wrap: wrap; gap: var(--ds-chip-gap); align-items: center; }
 .ai-discovery-inline { display: flex; align-items: center; gap: var(--ds-space-3); min-width: 0; }
 .ai-discovery-dash, .ai-discovery-op { color: var(--ds-text-dim); }
@@ -2047,6 +2094,12 @@ summary:focus-visible,
 .ai-discovery-card .ai-discovery-input.is-number {
   flex: 0 0 var(--ds-control-w);
   width: var(--ds-control-w);
+}
+.ai-discovery-card textarea.ai-discovery-input {
+  height: auto;
+  min-height: calc(var(--ds-control-h) * 3);
+  padding-block: var(--ds-space-2);
+  resize: vertical;
 }
 /* 候选行里的平台/在库是「状态 Tag」：满圆角，与 Filter chip 区分开（§3 圆角层级）。 */
 .discovery-lead .discovery-chip-soft { border-radius: var(--ds-radius-tag); background: var(--ds-surface); }

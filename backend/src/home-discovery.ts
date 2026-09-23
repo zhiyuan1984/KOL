@@ -38,12 +38,14 @@ import {
 } from "./gateway/discovery-harness.js";
 import { HttpFail } from "./host/errors.js";
 import { normalizeBrandCode } from "./host/pep.js";
+import { persistValidatedSkillResult, skillResultMemoryStatus } from "./host/skill-result-memory.js";
 import { createRunTraceSink } from "./host/run-trace.js";
 import { nid } from "./ids.js";
 import { appendTaskEvent } from "./routers/tasks.js";
 import type { Json, Row, WorkerResult } from "./types.js";
 import type { WorkerProgress } from "./worker/progress.js";
 import { runWorker } from "./worker/runner.js";
+import { taskDefinition } from "./tasks/registry.js";
 
 export { discoveryTemplate };
 
@@ -521,6 +523,7 @@ function publicRun(row: Row): Json {
     work_item_id: row.work_item_id || null,
     platform: row.platform,
     status,
+    memory_validity: skillResultMemoryStatus(String(row.owner_user_id || ""), "creator_discovery", String(row.id || "")),
     spec,
     search_keywords: searchKeywords,
     candidate_count: candidateCount,
@@ -867,6 +870,25 @@ export function applyDiscoveryBriefResult(runId: string, value: unknown): Json {
   }
   applyRanking(run, validated.brief);
   writeBriefArtifact(run, validated.brief, "completed");
+  const parameters = parseJson(run.parameters) as Record<string, unknown>;
+  const contract = parameters.skill_contract && typeof parameters.skill_contract === "object"
+    ? parameters.skill_contract as Record<string, unknown> : {};
+  const policy = contract.memory_policy && typeof contract.memory_policy === "object"
+    ? contract.memory_policy as Record<string, unknown> : {};
+  if (contract.skill_id === "creator_discovery" && policy.kind === "skill_result"
+    && policy.auto_persist === "on_complete" && policy.scope === "owner") {
+    persistValidatedSkillResult({
+      owner: String(run.owner_user_id || ""),
+      skillId: "creator_discovery",
+      runId,
+      sourceVersion: String(contract.skill_version || "unversioned"),
+      staleRefs: Array.isArray(policy.stale_refs) ? policy.stale_refs.map(String) : [],
+      summary: {
+        headline: validated.brief.headline,
+        counts: validated.brief.counts as unknown as Json,
+      },
+    });
+  }
   event(String(run.work_item_id || ""), "artifact_ready", "completed", validated.brief.headline);
   return publicRun(homeRunRow(runId));
 }
@@ -1128,6 +1150,13 @@ export async function startHomeDiscoveryRun(body: Json): Promise<Json> {
     return { ...publicRun(existing), duplicate: true, reused: true };
   }
   const spec = validateSpec(body);
+  const skill = taskDefinition("creator_discovery");
+  const lockedSkillContract = skill ? {
+    skill_id: skill.id,
+    skill_version: "unversioned",
+    memory_policy: skill.memory_policy || null,
+    result_type: skill.result_type || null,
+  } : null;
   const platform = spec.platforms[0];
   const title = `AI发现 · ${platform} · ${spec.keywords.join(" ") || spec.mode}`.slice(0, 200);
   const sessionId = createSession(owner, title);
@@ -1180,6 +1209,7 @@ export async function startHomeDiscoveryRun(body: Json): Promise<Json> {
         keywords: spec.keywords,
         directions: spec.directions,
         region: spec.region,
+        ...(lockedSkillContract ? { skill_contract: lockedSkillContract } : {}),
         ...spec.thresholds,
       }),
       `home:${requestId}:${platform}:${nid("idem")}`,

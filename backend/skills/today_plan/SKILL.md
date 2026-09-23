@@ -24,8 +24,26 @@ Host 已锁定本 Skill。CONTEXT.md 里的 **HOST PACK（history / delta / now_
 
 不要读取 runner 的「最近 20 条 memory_entries」，也不要调用写工具。本轮是只读规划会话。禁止 follow / send / confirm-stage。禁止创建正式待办。Artifacts 不是正式状态。
 
+## 何时使用
+
+- 员工在「今日任务」快捷入口提交时，由 Host 直接锁定 `today_plan`；不得再走自然语言意图识别。
+- 页面首次进入只读取正式任务记忆和上次展示结果，不自动启动模型。
+- `creator_daily_tasks` 是员工端入口标签和旧的远程任务查询能力，不是本规划会话实际执行的 task type；实际运行、审计和 artifact 均记为 `today_plan`。
+
+## Host 执行契约
+
+1. 前端读取 `/api/tasks?view=open`、`/api/home/today-brief` 和 `/api/home/today-tasks`，先展示已有记忆。
+2. 员工明确提交后，前端调用 `POST /api/home/today-brief/plan`。已有同一员工的运行中规划时附着原运行，不重复启动。
+3. Host 从正式任务、上一份 brief、失败运行和发现批次打包 `history / delta / now_counts`，再挂载本 Skill 提交 Codex app-server。
+4. 模型只生成下述 `today_brief`；Host 校验结构、允许动词及 `work_item_id` 全量覆盖。
+5. 校验通过后，Host 分别保存封面 artifact 和任务展示记忆；失败时保留上一版可用展示，并写入真实失败事件。
+6. 前端轮询 brief 状态，完成后重新读取展示任务；任务表始终以正式任务为底，不把 artifact 当正式状态。
+
+本 Skill 不直接使用 MCP 或知识库。所需事实由 Host 按员工权限从本地正式记忆和已同步来源组包；模型不得自行扩大读取范围。
+
 ## 输入
 
+- 员工必填参数：无。提交动作本身代表“按当前员工范围重新规划今天”。
 - `history`：未了结正式任务、昨日未完成项、上一份 today_brief。
 - `delta`：相对上一份 `source_cursor` 的 added / removed / unchanged。首次 `cursor_from=null`，`added` 为当前目录。
 - `now_counts`：当前未了结、发现批次异常、失败 run 等计数。

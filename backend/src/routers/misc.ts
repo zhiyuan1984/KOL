@@ -2,10 +2,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
 import { Hono } from "hono";
-import { authDisabled, isAdmin, requireAdmin, scopedUser } from "../auth.js";
+import { authDisabled, isAdmin, requireAdmin, requireSkill, scopedUser } from "../auth.js";
 import { examDemoStatus, examTodoCount } from "../exam.js";
 import { starry } from "../adapters/clients.js";
-import { BRAND_MAILBOXES, clawMode, kolClawConfigured, starryKolMcpBearer, starryKolMcpConfigured } from "../config.js";
+import { BRAND_MAILBOXES, DEMO_USER, clawMode, kolClawConfigured, starryKolMcpBearer, starryKolMcpConfigured } from "../config.js";
 import { getConn, listAudit, nowIso } from "../db.js";
 import { uploadsDir } from "../host/attachments.js";
 import { HttpFail } from "../host/errors.js";
@@ -50,6 +50,7 @@ import { STAGES, label } from "../stages.js";
 import type { Json, Row } from "../types.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
 import { buildHomeBoard } from "../host/home-board.js";
+import { listSkillResultMemories } from "../host/skill-result-memory.js";
 import { HOME_ENTRY_REGISTRY, publicEntryRegistry } from "../host/entry-registry.js";
 import {
   clearStarryBinding,
@@ -138,6 +139,7 @@ function skillMeta(name: string, lookup?: SkillLookup): Json {
     required_inputs: requiredInputs,
     input_schema: definition?.input_schema || null,
     result_type: definition?.result_type || null,
+    result_schema: definition?.result_schema || null,
     next_actions: definition?.next_actions || [],
     memory_policy: definition?.memory_policy || null,
     supports: definition?.supports || null,
@@ -239,6 +241,28 @@ misc.get("/skills/:id", (c) => {
   // `employee_doc`：该技能 `## 员工口径` 小节的正文（已过白名单）。没有这一节就是空串，
   // 前端据此整节不渲染 —— 不把 SKILL.md 原文发出去，也不拿空壳冒充说明书。
   return c.json({ ...skillMeta(id), ...sop, employee_doc: skillEmployeeDoc(id) });
+});
+misc.get("/skills/:id/memories", (c) => {
+  const skillId = c.req.param("id");
+  const definition = taskDefinition(skillId);
+  if (!definition) throw new HttpFail(404, "skill not found");
+  requireSkill(skillId);
+  c.header("Cache-Control", "private, no-store");
+  if (definition.memory_policy?.kind !== "skill_result"
+    || definition.memory_policy.scope !== "owner"
+    || definition.memory_policy.auto_persist === "never") {
+    return c.json({ items: [], next_cursor: null });
+  }
+  const owner = scopedUser()?.id || (authDisabled() ? DEMO_USER.id : "");
+  if (!owner) throw new HttpFail(401, "authentication required");
+  const limit = Number(c.req.query("limit") || 20);
+  if (!Number.isFinite(limit) || limit < 1) throw new HttpFail(400, "invalid limit");
+  return c.json(listSkillResultMemories({
+    owner,
+    skillId,
+    limit,
+    cursor: c.req.query("cursor"),
+  }));
 });
 misc.put("/skills/:id/sop", async (c) => {
   requirePm();

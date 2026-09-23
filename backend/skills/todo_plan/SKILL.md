@@ -24,8 +24,30 @@ Host 已锁定本 Skill。CONTEXT.md 里的 **HOST PACK（history / delta / now_
 
 不要读取 runner 的「最近 20 条 memory_entries」，也不要调用写工具。本轮是只读规划会话。禁止 follow / send / confirm-stage。禁止创建正式待办。Artifacts 不是正式状态。
 
+## 何时使用
+
+- 员工选择「我的待办」并提交待办规划时，由 Host 直接锁定 `todo_plan`；不得走自然语言意图识别。
+- 页面首次进入只读取待办记忆和上次展示结果，不自动启动模型。
+- 本 Skill 只整理、解释和排序已有正式任务，不负责把 AI 建议提升为正式待办。
+
+## Host 执行契约
+
+1. 前端读取 `/api/tasks?view=open`、`/api/home/todo-brief` 和 `/api/home/todo-tasks`，先展示已有记忆。
+2. 员工明确提交后，前端调用 `POST /api/home/todo-brief/plan`。已有同一员工的运行中待办规划时附着原运行。
+3. Host 复用今日规划管线，但使用 `todo` scope、`todo_plan` task type、独立 brief 指针和独立展示记忆。
+4. Host 打包 `history / delta / now_counts`，挂载本 Skill提交 Codex app-server；模型只生成下述 `today_brief`。
+5. Host 校验结构、允许动词及 `work_item_id` 全量覆盖。通过后保存待办封面与展示任务；失败时保留上一版可用展示。
+6. 前端轮询完成后重新读取待办展示任务。任务的创建、编辑、确认完成和转办仍走正式任务接口，不由本 Skill代写。
+
+本 Skill 不直接使用 MCP 或知识库。所需事实由 Host 按员工权限组包。
+
+### 当前范围与待裁决边界
+
+现行实现把符合“今日”投影的正式任务排除在待办列表之外，避免同一行同时出现在两块任务表。这是当前产品投影，不新增业务事实。`today_plan`、`todo_plan` 与 `creator_daily_tasks` 的最终业务边界仍须由 KOL 业务专家补齐；在补齐前不得据此自动创建任务、改变截止时间、确认完成或修改优先级。
+
 ## 输入
 
+- 员工必填参数：无。提交动作代表“按当前员工范围重新整理未进入今日投影的开放任务”。
 - `history`：待办范围内的未了结正式任务、上一份 todo 规划 brief。
 - `delta`：相对上一份 `source_cursor` 的 added / removed / unchanged。首次 `cursor_from=null`，`added` 为当前目录。
 - `now_counts`：当前未了结、发现批次异常、失败 run 等计数。
