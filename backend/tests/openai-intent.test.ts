@@ -240,8 +240,13 @@ describe("gpt-5.6 Luna intent verdict", () => {
   it("sends medium-confidence Jev to Luna for a second judgment", async () => {
     const previousMode = process.env.INTENT_LLM_MODE;
     const previousRouterKey = process.env.OPENROUTER_API_KEY;
+    const previousOpenAiKey = process.env.OPENAI_API_KEY;
     process.env.INTENT_LLM_MODE = "real";
     process.env.OPENROUTER_API_KEY = "sk-or-test";
+    // The mocked Luna transport still follows the same key-presence gate as
+    // production. Set a disposable value so this test is independent of
+    // developer/CI credential environments.
+    process.env.OPENAI_API_KEY = "sk-test-intent";
     let lunaCalled = false;
     setJevIntentFetch(async () => jevResponse("email_compose", 0.7));
     setIntentLlmFetch(async () => {
@@ -265,6 +270,8 @@ describe("gpt-5.6 Luna intent verdict", () => {
       else process.env.INTENT_LLM_MODE = previousMode;
       if (previousRouterKey === undefined) delete process.env.OPENROUTER_API_KEY;
       else process.env.OPENROUTER_API_KEY = previousRouterKey;
+      if (previousOpenAiKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previousOpenAiKey;
     }
   });
 
