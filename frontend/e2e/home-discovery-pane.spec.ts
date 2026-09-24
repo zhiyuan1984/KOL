@@ -109,6 +109,16 @@ test("condition card renders in-page and pre-fills the editable ask box", async 
   await expect(card.locator("[data-discovery-clear-keywords]")).toBeVisible();
   await expect(card.locator('[data-skill-param="platforms"] [data-discovery-chip="youtube"]'))
     .toHaveCSS("border-top-color", "rgb(65, 132, 255)");
+  await expect(card.locator('[data-skill-param="platforms"] [data-discovery-chip="instagram"]'))
+    .toHaveCSS("color", "rgb(107, 107, 107)");
+  await expect(card.locator('[data-skill-param="platforms"] [data-discovery-chip="youtube"]'))
+    .toHaveCSS("font-weight", "400");
+  await expect(card.locator('[data-skill-param="min_followers"] input'))
+    .toHaveAttribute("data-discovery-pristine", "true");
+  await expect(card.locator('[data-skill-param-group="followers_range"] .ai-discovery-label'))
+    .toContainText("粉丝数");
+  await expect(card.locator('[data-skill-param-group="followers_range"] .ai-discovery-label'))
+    .not.toContainText("粉丝数范围");
   // R3：条件摘要改为提问框里可编辑的【发现任务】正文，卡片上不再有摘要卡。
   const input = page.locator("[data-home] [data-composer-input]");
   await expect(input).toHaveValue(/【发现任务】/);
@@ -134,6 +144,22 @@ test("keyword clear synchronizes the discovery brief", async ({ page }) => {
   await expect(card.locator("[data-discovery-keywords]")).toHaveValue("");
   await expect(input).toHaveValue(/关键词：（未填）/);
   await expect(send).toBeDisabled();
+});
+
+test("modified query values use regular dark text", async ({ page }) => {
+  await openDiscovery(page);
+  const card = page.locator("[data-discovery-search-card]");
+  const camping = card.locator('[data-skill-param="directions"] [data-discovery-chip="camping"]');
+  const followers = card.locator('[data-skill-param="min_followers"] input');
+
+  await camping.click();
+  await expect(camping).toHaveCSS("color", "rgb(26, 26, 26)");
+  await expect(camping).toHaveCSS("font-weight", "400");
+
+  await followers.fill("25000");
+  await expect(followers).toHaveAttribute("data-discovery-pristine", "false");
+  await expect(followers).toHaveCSS("color", "rgb(26, 26, 26)");
+  await expect(followers).toHaveCSS("font-weight", "400");
 });
 
 test("the ask arrow and latest-control share size, with a pink ready arrow", async ({ page }) => {

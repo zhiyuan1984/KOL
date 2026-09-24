@@ -50,12 +50,23 @@ function displayValue(field: SkillParamField, value: unknown, options: Discovery
   return values.filter(Boolean).map((code) => options.find((option) => option.code === code)?.label || code).join("、") || "未填写";
 }
 
+function valuesMatch(left: unknown, right: unknown): boolean {
+  if (Array.isArray(left) || Array.isArray(right)) {
+    const normalizedLeft = Array.isArray(left) ? left.map(String) : [];
+    const normalizedRight = Array.isArray(right) ? right.map(String) : [];
+    return normalizedLeft.length === normalizedRight.length
+      && normalizedLeft.every((value, index) => value === normalizedRight[index]);
+  }
+  return String(left ?? "") === String(right ?? "");
+}
+
 /** Schema-driven control renderer shared by mode conditions, clarification and read-only summaries. */
 export default function SkillParamCard({
   fields,
   values,
   optionSets = {},
   tokenFields = EMPTY_TOKEN_FIELDS,
+  pristineValues,
   mode = "edit",
   errors = {},
   title,
@@ -67,6 +78,8 @@ export default function SkillParamCard({
   values: SkillParamValues;
   optionSets?: ParamOptions;
   tokenFields?: string[];
+  /** Defaults stay visually quiet until the employee changes a discovery parameter. */
+  pristineValues?: SkillParamValues;
   mode?: "edit" | "needs_input" | "ready";
   errors?: Record<string, string>;
   title?: string;
@@ -102,6 +115,8 @@ export default function SkillParamCard({
     const value = values[field.key];
     const options = optionsFor(field);
     const invalid = Boolean(errors[field.key]);
+    const isPristine = compactDiscoveryLayout && Boolean(pristineValues)
+      && valuesMatch(value, pristineValues?.[field.key]);
     if (mode === "ready") return <output className="skill-param-readonly">{displayValue(field, value, options)}</output>;
     if (field.kind === "single" || field.kind === "multiple") {
       if (!options.length) return <span className="skill-param-error" role="status">{field.options_source ? "选项暂不可用，请稍后重试。" : "该字段尚未配置可用选项。"}</span>;
@@ -143,6 +158,7 @@ export default function SkillParamCard({
       return <div className={"ai-discovery-text-control" + (field.key === "keywords" ? " is-keyword-control" : "")}
         data-discovery-keywords-control={field.key === "keywords" ? true : undefined}>
         <input className="ai-discovery-input" aria-label={field.label} aria-invalid={invalid}
+        data-discovery-pristine={isPristine ? "true" : "false"}
         data-discovery-keywords={field.key === "keywords" ? true : undefined} value={draft}
         onChange={(event) => {
           const next = event.target.value;
@@ -167,6 +183,7 @@ export default function SkillParamCard({
         : numberText;
       return <input className="ai-discovery-input is-number" type={compactDiscoveryLayout ? "text" : "number"} inputMode="numeric"
       aria-label={field.label} aria-invalid={invalid}
+      data-discovery-pristine={isPristine ? "true" : "false"}
       {...(field.key === "min_followers" ? { "data-discovery-min-followers": true }
         : field.key === "max_followers" ? { "data-discovery-max-followers": true }
         : field.key === "min_avg_plays_10" ? { "data-discovery-min-plays": true }
@@ -206,7 +223,7 @@ export default function SkillParamCard({
     <div className="ai-discovery-rows">
       {fields.filter((field) => !hasCompactThresholds || !renderedCompactKeys.has(field.key)).map(renderRow)}
       {hasCompactThresholds && minFollowers && maxFollowers ? <div className="ai-discovery-row is-follower-range" data-skill-param-group="followers_range" role="group" aria-label="粉丝数范围">
-        <span className="ai-discovery-label">{compactDiscoveryLayout ? <DiscoveryParamIcon fieldKey="min_followers" /> : null}<span>粉丝数范围</span></span>
+        <span className="ai-discovery-label">{compactDiscoveryLayout ? <DiscoveryParamIcon fieldKey="min_followers" /> : null}<span>粉丝数</span></span>
         <div className="ai-discovery-param-value ai-discovery-range-control" role="group" aria-label="粉丝数范围">
           <div className="ai-discovery-inline-field" data-skill-param="min_followers">
             <span className="sr-only">{minFollowers.label}</span>{renderField(minFollowers)}

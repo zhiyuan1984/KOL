@@ -1,5 +1,6 @@
 import type { DiscoveryBrief, DiscoveryTemplate } from "./discoveryTemplate";
 import {
+  defaultDiscoveryBrief,
   DISCOVERY_DIRECTION_PACKS,
   DISCOVERY_REGION_OPTIONS,
   keywordsForDirections,
@@ -10,6 +11,7 @@ import SkillParamCard, { type SkillParamField } from "./workspace/SkillParamCard
 
 type Catalog = Pick<DiscoveryTemplate, "platforms" | "regions" | "directions"> | null | undefined;
 const TOKEN_FIELDS = ["keywords"];
+const PRISTINE_DISCOVERY_VALUES = defaultDiscoveryBrief();
 
 const FALLBACK_FIELDS: SkillParamField[] = [
   { key: "platforms", label: "平台", kind: "multiple", max: 1, options_source: "api:/home/discovery/template#platforms" },
@@ -40,5 +42,6 @@ export default function DiscoverySearchCard({ brief, catalog, onChange, schema }
   };
   return <div className="discovery-brief-form"><SkillParamCard fields={schema?.length ? schema : FALLBACK_FIELDS}
     values={brief as unknown as Record<string, unknown>} optionSets={options}
-    tokenFields={TOKEN_FIELDS} hideTitle compactDiscoveryLayout onFieldChange={update} /></div>;
+    tokenFields={TOKEN_FIELDS} pristineValues={PRISTINE_DISCOVERY_VALUES}
+    hideTitle compactDiscoveryLayout onFieldChange={update} /></div>;
 }
