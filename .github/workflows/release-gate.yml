@@ -3,8 +3,20 @@ name: lingong-release-gate
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - "v*"
+
+# A newer main commit supersedes an older in-flight release, but tags retain
+# their own validation run. This prevents two deploy jobs from restarting the
+# same service concurrently.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   release-gate:
@@ -60,3 +72,58 @@ jobs:
           E2E_SKIP_BUILD: "1"
           PW_HEADLESS: "1"
         run: npm run test:e2e
+
+  deploy-production:
+    name: Deploy production
+    needs: release-gate
+    # Tags are validated but never deployed automatically. A workflow dispatch
+    # on main is allowed for recovery after a transient infrastructure failure.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      DEPLOY_HOST: 47.88.94.205
+      DEPLOY_USER: ecs-user
+    steps:
+      - id: deploy-key
+        name: Configure deployment SSH key
+        env:
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.KOL_PROD_SSH_PRIVATE_KEY }}
+        run: |
+          if [ -z "$DEPLOY_SSH_PRIVATE_KEY" ]; then
+            echo "::warning::Deployment skipped: repository secret KOL_PROD_SSH_PRIVATE_KEY is not configured."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - name: Pull the verified main revision and restart Lingong
+        if: steps.deploy-key.outputs.configured == 'true'
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+            'cd ~/kol && git fetch github main && git reset --hard github/main && sudo -n systemctl restart lingong'
+
+      - name: Verify deployed revision
+        if: steps.deploy-key.outputs.configured == 'true'
+        env:
+          EXPECTED_VERSION: ${{ github.sha }}
+        run: |
+          expected="${EXPECTED_VERSION:0:7}"
+          for attempt in $(seq 1 36); do
+            response="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 10 "http://${DEPLOY_HOST}/api/version" || true)"
+            actual="$(printf '%s' "$response" | jq -r '.version // empty' 2>/dev/null || true)"
+            if [ "$actual" = "$expected" ]; then
+              echo "Deployed revision verified: $actual"
+              exit 0
+            fi
+            echo "Attempt ${attempt}/36: waiting for ${expected}; observed ${actual:-unavailable}."
+            sleep 5
+          done
+          echo "::error::Production did not report the expected revision ${expected}."
+          exit 1
