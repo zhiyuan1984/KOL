@@ -268,6 +268,29 @@ test("selection prefills composer and enqueue is not from-text", async ({ page }
   await expect(page.locator("[data-home] [data-composer-input]")).not.toHaveValue(/分析已选/);
 });
 
+test("pool bulk analysis is limited to the current filtered result", async ({ page }) => {
+  await page.goto("/?tab=pool");
+  await expect(page.locator("[data-pool-card]")).toHaveCount(2);
+
+  // Keep an existing selection, then move to a different visible result set.
+  await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-select]").check();
+  await page.locator("[data-pool-filter]").selectOption("overdue");
+  await expect(page.locator("[data-pool-card]")).toHaveCount(1);
+  await expect(page.locator("[data-pool-kol='uid_unowned']")).toBeVisible();
+  await page.locator("[data-pool-select-all]").check();
+  await expect(page.locator("[data-pool-selected-count]")).toHaveText("当前已选 1 / 8");
+
+  // The hidden selection remains available when the filter is removed, but it
+  // cannot slip into a batch operation launched from the current result set.
+  await page.locator("[data-analyze-selected]").click();
+  const input = page.locator("[data-home] [data-composer-input]");
+  await expect(input).toHaveValue(/无主红人/);
+  await expect(input).not.toHaveValue(/户外充电君/);
+
+  await page.locator("[data-pool-select-all]").uncheck();
+  await expect(page.locator("[data-analyze-selected]")).toBeDisabled();
+});
+
 test("follow cards stay object cards and brief prefers 拒信", async ({ page }) => {
   await page.goto("/");
   await openFollow(page);
@@ -296,13 +319,16 @@ test("claim is L3 and posts confirm to /api/kols/:kolUid/claim", async ({ page }
   const compactRow = page.locator("[data-pool-kol='uid_outdoor']");
   await expect(compactRow).toBeVisible();
   const height = await compactRow.evaluate((node) => node.getBoundingClientRect().height);
+  // The four structured public-information lines remain compact enough to
+  // avoid reintroducing the oversized legacy object-card layout.
   expect(height).toBeGreaterThanOrEqual(112);
   expect(height).toBeLessThanOrEqual(126);
   await expect(compactRow.locator("[data-public-stage]")).toHaveCount(1);
   await expect(compactRow.locator("[data-public-stage]")).toHaveText("未首次建联");
   await expect(compactRow.locator("[data-kol-avatar='source']")).toHaveCount(1);
   await expect(compactRow).not.toContainText("公开资料");
-  await expect(compactRow).not.toContainText("公海原因");
+  await expect(compactRow.locator("[data-pool-reason]")).toContainText("公海原因");
+  await expect(compactRow.locator("[data-pool-reason]")).toContainText("未首次建联");
   await expect(compactRow).not.toContainText("领取后进入我的跟进");
   // 明确领取未建联的有主行：无主行排在前面，不能靠「第一张卡」取对象。
   await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").click();

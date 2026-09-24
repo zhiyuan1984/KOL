@@ -82,6 +82,7 @@ import {
   analyzePrefillPrompt,
   followKolToRecord,
   isAnalyzePrefill,
+  KOL_SELECT_MAX,
   selectAllMax8,
   toggleSelectMax8,
   type KolSurface,
@@ -897,8 +898,17 @@ export default function Home() {
     setSelectedKolIds((current) => toggleSelectMax8(current, id, on));
   };
 
-  const toggleSelectAllPool = (on: boolean) => {
-    setSelectedKolIds(selectAllMax8(poolWorkspace.visibleCards.map((card) => card.kol_uid), on));
+  const toggleSelectAllPool = (visibleIds: string[], on: boolean) => {
+    setSelectedKolIds((current) => {
+      if (!on) return current.filter((id) => !visibleIds.includes(id));
+      const next = [...current];
+      for (const id of visibleIds) {
+        if (next.includes(id)) continue;
+        if (next.length >= KOL_SELECT_MAX) break;
+        next.push(id);
+      }
+      return next;
+    });
   };
 
   const prefillAnalyze = (surface: KolSurface, cards: Array<{ identity: { display: string } }>, uids: string[]) => {
@@ -2009,8 +2019,8 @@ export default function Home() {
                   onToggleSelect={toggleSelectedPool}
                   onToggleSelectAll={toggleSelectAllPool}
                   onSyncLibrary={() => void retrySurface("pool")}
-                  onAnalyzeSelected={() => {
-                    const selected = poolWorkspace.cards.filter((card) => selectedKolIds.includes(card.kol_uid));
+                  onAnalyzeSelected={(selectedIds) => {
+                    const selected = poolWorkspace.cards.filter((card) => selectedIds.includes(card.kol_uid));
                     prefillAnalyze("pool", selected, selected.map((card) => card.kol_uid));
                   }}
                   onClaim={poolWorkspace.requestClaim}
