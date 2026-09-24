@@ -40,5 +40,5 @@ export default function DiscoverySearchCard({ brief, catalog, onChange, schema }
   };
   return <div className="discovery-brief-form"><SkillParamCard fields={schema?.length ? schema : FALLBACK_FIELDS}
     values={brief as unknown as Record<string, unknown>} optionSets={options}
-    tokenFields={TOKEN_FIELDS} hideTitle onFieldChange={update} /></div>;
+    tokenFields={TOKEN_FIELDS} hideTitle compactDiscoveryLayout onFieldChange={update} /></div>;
 }

@@ -165,6 +165,40 @@ test("idle discovery keeps the task-rail width and full brief above the dock", a
   }
 });
 
+test("compact discovery thresholds stay visible above the dock", async ({ page }) => {
+  // Reference view from the design review: all core conditions, including
+  // expected count, must fit before the fixed composer at 916px wide.
+  await page.setViewportSize({ width: 916, height: 916 });
+  await stubNoRuns(page);
+  await openDiscovery(page);
+
+  const workspace = page.locator('[data-home-pane="discovery"]');
+  const card = workspace.locator('[data-discovery-search-card]');
+  const followerRange = card.locator('[data-skill-param-group="followers_range"]');
+  const metricPair = card.locator('[data-skill-param-group="discovery_metrics"]');
+  const followerMin = card.locator('[data-skill-param="min_followers"]');
+  const followerMax = card.locator('[data-skill-param="max_followers"]');
+  const avgPlays = card.locator('[data-skill-param="min_avg_plays_10"]');
+  const expectedCount = card.locator('[data-skill-param="expect_count"]');
+
+  await expect(followerRange).toHaveAccessibleName("粉丝数范围");
+  await expect(metricPair).toBeVisible();
+  await expect(followerMin.locator("input")).toHaveValue("10,000");
+  await expect(followerMax.locator("input")).toHaveValue("2,000,000");
+  await expect(avgPlays.locator("input")).toHaveValue("5,000");
+  await expect(expectedCount.locator("input")).toHaveValue("30");
+
+  const minBox = await followerMin.boundingBox();
+  const maxBox = await followerMax.boundingBox();
+  const playsBox = await avgPlays.boundingBox();
+  const countBox = await expectedCount.boundingBox();
+  const dockBox = await workspace.locator('.home-composer-dock').boundingBox();
+  expect(minBox && maxBox && Math.abs(minBox.y - maxBox.y) < 2).toBeTruthy();
+  expect(playsBox && countBox && Math.abs(playsBox.y - countBox.y) < 2).toBeTruthy();
+  expect(countBox && dockBox && countBox.y + countBox.height <= dockBox.y).toBeTruthy();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
+});
+
 test("+ menu no longer offers the discovery template (AI发现 pane owns discovery)", async ({ page }) => {
   const posts: string[] = [];
   page.on("request", (item) => {
