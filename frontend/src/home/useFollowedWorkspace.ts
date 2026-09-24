@@ -32,6 +32,8 @@ export function useFollowedWorkspace(options: {
   boardKols: () => Array<Record<string, unknown>>;
   /** 当前绑定的 Starry 邮箱范围。 */
   followScope: StarryBinding | null;
+  /** board 刚返回时的最新邮箱范围；避免首次进页仍捕获到上一帧的空 state。 */
+  latestFollowScope: { current: StarryBinding | null };
   /** board 返回新范围时更新。 */
   setFollowScope: (scope: StarryBinding | null) => void;
   /** 跨模式选择状态（留在 Home）。 */
@@ -53,6 +55,7 @@ export function useFollowedWorkspace(options: {
     loadBoard,
     boardKols,
     followScope,
+    latestFollowScope,
     setFollowScope,
     selectedIds,
     todoItems,
@@ -115,11 +118,15 @@ export function useFollowedWorkspace(options: {
   }, [followScope, rows.length, cards.length]);
 
   const loadSurface = useCallback(async () => {
+    const activeScope = followScope || latestFollowScope.current;
     const loaded = await loadHomeFollowing({
       kols: boardKols(),
-      follow_scope: followScope || undefined,
+      follow_scope: activeScope || undefined,
     });
-    if (loaded.follow_scope) setFollowScope(loaded.follow_scope);
+    if (loaded.follow_scope) {
+      latestFollowScope.current = loaded.follow_scope;
+      setFollowScope(loaded.follow_scope);
+    }
     if (loaded.down) {
       setError(loaded.error || "跟进列表读取失败");
       setRows([]);
@@ -127,7 +134,7 @@ export function useFollowedWorkspace(options: {
     }
     setError("");
     setRows(loaded.items.map(followKolToRecord) as FollowedKol[]);
-  }, [boardKols, followScope, setFollowScope]);
+  }, [boardKols, followScope, latestFollowScope, setFollowScope]);
 
   const ensureLoaded = useCallback(async () => {
     await loadBoard("following");

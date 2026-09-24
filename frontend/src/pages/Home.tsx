@@ -270,6 +270,7 @@ export default function Home() {
   const [boardWorkbench, setBoardWorkbench] = useState<HomeWorkbench | null>(null);
   const [libraryCount, setLibraryCount] = useState<number | null>(null);
   const [followScope, setFollowScope] = useState<StarryBinding | null>(null);
+  const followScopeRef = useRef<StarryBinding | null>(null);
   const [sort, setSort] = useState("priority");
   const initialFill = peekComposerFill();
   const initialHomeMode = parseHomeMode(new URLSearchParams(window.location.search).get("tab"));
@@ -617,7 +618,9 @@ export default function Home() {
     if (Array.isArray(board.kols)) boardKolsRef.current = board.kols;
     setBoardWorkbench(board.workbench || null);
     setLibraryCount(Number(board.library?.count || 0));
-    setFollowScope(board.follow_scope || null);
+    const scope = board.follow_scope || null;
+    followScopeRef.current = scope;
+    setFollowScope(scope);
     setSurfaceError(surface, "");
   };
 
@@ -1402,6 +1405,7 @@ export default function Home() {
     loadBoard,
     boardKols: () => boardKolsRef.current,
     followScope,
+    latestFollowScope: followScopeRef,
     setFollowScope,
     selectedIds: selectedKolIds,
     todoItems: todoItemsRef.current,
