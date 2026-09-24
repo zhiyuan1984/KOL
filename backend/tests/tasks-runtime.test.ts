@@ -122,6 +122,16 @@ describe("task intent resolution", () => {
     });
   });
 
+  it("accepts a scalar platform entity when it pre-fills a one-item multiple-select field", () => {
+    const result = resolveTaskIntent({
+      task_type: "creator_discovery",
+      text: "搜索 YouTube 露营达人",
+      entities: { platform: "youtube", keywords: ["露营"] },
+    });
+    expect(result.invalid_fields).toBeUndefined();
+    expect(result.needs_clarification).toBe(false);
+  });
+
   it("splits quoted Chinese keyword lists for crawl plans", () => {
     expect(stubResolveTaskIntent({ text: "搜索 Instagram“户外电源、房车露营”达人。" })).toMatchObject({
       task_type: "creator_discovery",

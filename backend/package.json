@@ -20,6 +20,7 @@
   "dependencies": {
     "@hono/node-server": "^1.14.1",
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "@typesafe-ai/sdk": "0.6.0",
     "better-sqlite3": "^11.8.1",
     "hono": "^4.7.5",
     "tsx": "^4.19.3"

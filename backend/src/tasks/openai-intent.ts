@@ -1,12 +1,13 @@
 /**
- * Task intent via a real remote judge. Prefer GPT-5.6 Luna (Responses API)
- * when OPENAI_API_KEY / CODEX_API_KEY is present; otherwise Codex app-server
- * with the same model. Host still validates catalog ids and emails.
+ * Task intent via a bounded Jev Choice on OpenRouter, then GPT-5.6 Luna
+ * (Responses API) or Codex app-server when Jev is unavailable or uncertain.
+ * Host still validates catalog ids and emails.
  * Stub is tests only. gpt-4o Chat Completions is not required.
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { codexMode, taskRecognizeTimeout } from "../config.js";
 import { envApiKey, inspectLocalCodexAuth } from "../worker/auth.js";
 import { CodexAppServer } from "../worker/codex.js";
@@ -40,9 +41,20 @@ export class IntentLlmUnavailable extends Error {
 
 type FetchLike = typeof fetch;
 let fetchOverride: FetchLike | null = null;
+let jevFetchOverride: FetchLike | null = null;
+
+const JEV_OPENROUTER_BASE_URL = "https://openrouter.ai/api";
+const JEV_CLARIFICATION_CHOICE = "clarification";
+const DEFAULT_JEV_INTENT_MIN_CONFIDENCE = 0.8;
+const DEFAULT_JEV_INTENT_LOW_CONFIDENCE = 0.6;
 
 export function setIntentLlmFetch(factory?: FetchLike): void {
   fetchOverride = factory || null;
+}
+
+/** Test-only transport override for the OpenRouter System One request. */
+export function setJevIntentFetch(factory?: FetchLike): void {
+  jevFetchOverride = factory || null;
 }
 
 export function intentLlmFetch(): FetchLike {
@@ -51,6 +63,40 @@ export function intentLlmFetch(): FetchLike {
 
 export function intentLlmFetchOverridden(): boolean {
   return Boolean(fetchOverride);
+}
+
+export function jevIntentApiKey(): string {
+  return String(process.env.OPENROUTER_API_KEY || "").trim();
+}
+
+/** Enabled whenever a key exists outside tests; test transports must opt in explicitly. */
+export function jevIntentEnabled(): boolean {
+  const setting = String(process.env.JEV_INTENT_ENABLED || "").trim().toLowerCase();
+  if (["0", "false", "off", "no"].includes(setting)) return false;
+  if (!jevIntentApiKey()) return false;
+  return process.env.NODE_ENV !== "test"
+    || Boolean(jevFetchOverride)
+    || String(process.env.JEV_INTENT_TEST_LIVE || "").trim() === "1";
+}
+
+export function jevIntentModel(): string {
+  return String(process.env.JEV_MODEL || "jev-1.13").trim() || "jev-1.13";
+}
+
+function confidenceSetting(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value >= 0 && value <= 1 ? value : fallback;
+}
+
+export function jevIntentMinConfidence(): number {
+  return confidenceSetting("JEV_INTENT_MIN_CONFIDENCE", DEFAULT_JEV_INTENT_MIN_CONFIDENCE);
+}
+
+export function jevIntentLowConfidence(): number {
+  return Math.min(
+    confidenceSetting("JEV_INTENT_LOW_CONFIDENCE", DEFAULT_JEV_INTENT_LOW_CONFIDENCE),
+    jevIntentMinConfidence(),
+  );
 }
 
 export function intentLlmMode(): "stub" | "real" {
@@ -98,6 +144,90 @@ export function intentSystemPrompt(): string {
     "Catalog:",
     catalogLines(),
   ].join("\n");
+}
+
+function jevIntentCriteria(): Record<string, string> {
+  const criteria = Object.fromEntries(taskDefinitions().map((definition) => {
+    const aliases = definition.aliases.length ? `；常见说法：${definition.aliases.join("、")}` : "";
+    const inputs = definition.input_schema?.length
+      ? `；可能需要的输入：${definition.input_schema.map((field) => field.label).join("、")}`
+      : "";
+    return [definition.id, `${definition.title}：${definition.description}${aliases}${inputs}`];
+  }));
+  criteria[JEV_CLARIFICATION_CHOICE] = "用户请求与任何现有任务目录都不能可靠匹配，或提供的信息不足以判断其方向。";
+  return criteria;
+}
+
+function jevIntentTimeoutMs(timeoutSec: number): number {
+  const configured = Number(process.env.JEV_INTENT_TIMEOUT_MS || "8000");
+  const requested = Number.isFinite(configured) && configured > 0 ? configured : 8000;
+  return Math.max(1, Math.min(10000, Math.floor(timeoutSec * 1000), Math.floor(requested)));
+}
+
+/**
+ * Runs one bounded task-type Choice through OpenRouter's TypeSafe-compatible
+ * System One endpoint. It deliberately does not extract entities: deterministic
+ * host code continues to own slot extraction and all safety validation.
+ */
+export async function classifyIntentWithJev(text: string, timeoutSec = taskRecognizeTimeout()): Promise<IntentVerdict> {
+  const apiKey = jevIntentApiKey();
+  if (!apiKey) {
+    throw new IntentLlmUnavailable("Jev 分类服务未配置 OpenRouter 密钥。", "设置 OPENROUTER_API_KEY 后重试。");
+  }
+  const client = new TypeSafeClient({
+    apiKey,
+    baseURL: JEV_OPENROUTER_BASE_URL,
+    defaultModel: jevIntentModel(),
+    timeout: jevIntentTimeoutMs(timeoutSec),
+    retry: { maxRetries: 0 },
+    logLevel: "off",
+    ...(jevFetchOverride ? { fetch: jevFetchOverride } : {}),
+  });
+  try {
+    const response = await client.systemOne({
+      model: jevIntentModel(),
+      state: { user_text: text },
+      questions: {
+        task_type: {
+          type: "choice",
+          instructions: "根据 `user_text`，选择唯一最匹配的现有 KOL 工作台任务。只根据用户明确表达的目标判断；若没有可靠匹配，选择 clarification。",
+          criteria: jevIntentCriteria(),
+        },
+      },
+    });
+    const answer = response.answers.task_type;
+    const taskType = answer.choice === JEV_CLARIFICATION_CHOICE || !taskDefinitions().some((definition) => definition.id === answer.choice)
+      ? null
+      : answer.choice;
+    return {
+      task_type: taskType,
+      confidence: Number.isFinite(answer.confidence) ? answer.confidence : 0,
+      entities: {},
+      missing_fields: [],
+      clarification_kind: taskType ? "none" : "direction",
+      alternatives: [],
+      reason_zh: taskType ? "Jev 分类" : "Jev 建议澄清",
+    };
+  } catch (error) {
+    throw new IntentLlmUnavailable(
+      "Jev 分类服务未就绪。",
+      error instanceof Error && /401|403/i.test(error.message)
+        ? "检查 OPENROUTER_API_KEY 后重试。"
+        : "稍后重试；系统会自动回退到现有识别服务。",
+    );
+  }
+}
+
+function clarificationFromJev(verdict: IntentVerdict): IntentVerdict {
+  return {
+    ...verdict,
+    task_type: null,
+    entities: {},
+    missing_fields: [],
+    clarification_kind: "direction",
+    alternatives: [],
+    reason_zh: "Jev 置信度不足，请澄清方向",
+  };
 }
 
 function asStringArray(value: unknown): string[] {
@@ -408,19 +538,39 @@ export async function classifyTaskIntent(text: string): Promise<IntentVerdict> {
   if (intentLlmMode() === "stub") return stubClassifyIntent(text);
   const deadline = Date.now() + taskRecognizeTimeout() * 1000;
   const remaining = () => Math.max(0, (deadline - Date.now()) / 1000);
+  let mediumConfidenceJev: IntentVerdict | null = null;
+  if (jevIntentEnabled()) {
+    try {
+      const jev = await classifyIntentWithJev(text, remaining());
+      if (jev.confidence >= jevIntentMinConfidence()) return jev;
+      if (jev.confidence < jevIntentLowConfidence()) return clarificationFromJev(jev);
+      mediumConfidenceJev = jev;
+    } catch {
+      // A bounded classifier must never block the established Luna/Codex path.
+    }
+  }
   if (intentLlmApiKey()) {
     try {
       return await classifyIntentWithLuna(text, remaining());
     } catch (lunaError) {
-      if (remaining() < 2) throw lunaError;
+      if (remaining() < 2) {
+        if (mediumConfidenceJev) return clarificationFromJev(mediumConfidenceJev);
+        throw lunaError;
+      }
       try {
         return await classifyWithCodexAppServer(text, remaining());
       } catch {
+        if (mediumConfidenceJev) return clarificationFromJev(mediumConfidenceJev);
         throw lunaError;
       }
     }
   }
-  return classifyWithCodexAppServer(text, remaining());
+  try {
+    return await classifyWithCodexAppServer(text, remaining());
+  } catch (error) {
+    if (mediumConfidenceJev) return clarificationFromJev(mediumConfidenceJev);
+    throw error;
+  }
 }
 
 export type TaskFieldUpdates = {

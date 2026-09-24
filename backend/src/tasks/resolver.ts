@@ -27,7 +27,13 @@ function invalidTaskInputs(
   const invalid: Record<string, string> = {};
   for (const field of definition.input_schema || []) {
     const prefillKey = field.prefill?.startsWith("entities.") ? field.prefill.slice("entities.".length) : "";
-    const value = supplied[field.key] ?? entities[field.key] ?? (prefillKey ? entities[prefillKey] : undefined);
+    const rawValue = supplied[field.key] ?? entities[field.key] ?? (prefillKey ? entities[prefillKey] : undefined);
+    // A scalar entity such as `platform: "youtube"` legitimately pre-fills a
+    // one-item multiple-select field named `platforms`. Keep the stored entity
+    // scalar while validating it in the form's declared shape.
+    const value = field.kind === "multiple" && typeof rawValue === "string" && prefillKey
+      ? [rawValue]
+      : rawValue;
     if (value == null || value === "" || (Array.isArray(value) && value.length === 0)) continue;
     const options = field.options?.map((option) => typeof option === "string" ? option : option.code) || [];
     const optionError = (codes: unknown[]) => options.length > 0 && codes.some((code) => !options.includes(String(code)));
