@@ -13,6 +13,12 @@ import {
 export type HomeDiscoveryEmptyKind = "idle" | "filtered" | "down";
 
 export type HomeDiscoveryLibraryStatus = "not_in_library" | "pool" | "followed";
+export type HomeDiscoveryIngestReadiness =
+  | "ready"
+  | "needs_review"
+  | "needs_contact"
+  | "already_in_library"
+  | "already_followed";
 
 export type HomeDiscoveryRun = {
   id: string;
@@ -57,6 +63,9 @@ export type HomeDiscoveryCandidate = {
   avatarUrl: string | null;
   /** 候选的**真实**联系邮箱；没有就是 null（卡片这一行不渲染，也不拿负责人邮箱顶）。 */
   email: string | null;
+  /** Host 的只读入库准备度；L3 Gateway 仍会在写入前二次复核。 */
+  ingestReadiness: HomeDiscoveryIngestReadiness;
+  ingestBlockReason: string | null;
   matchedKeywords: string[];
   collectedAt: string | null;
   libraryStatus: HomeDiscoveryLibraryStatus;
@@ -270,6 +279,20 @@ function libraryStatusOf(item: Record<string, unknown>): HomeDiscoveryLibrarySta
   return "not_in_library";
 }
 
+function ingestReadinessOf(item: Record<string, unknown>): HomeDiscoveryIngestReadiness {
+  const raw = asString(item.ingest_readiness).toLowerCase();
+  if (raw === "ready" || raw === "needs_review" || raw === "needs_contact"
+    || raw === "already_in_library" || raw === "already_followed") {
+    return raw;
+  }
+  // Backward-compatible payloads were already filtered by the Host to candidates
+  // with a contact email, so retain their historical selectable behaviour. New
+  // payloads always carry the explicit readiness from the Host projection.
+  if (item.already_followed) return "already_followed";
+  if (item.already_in_pool || item.already_in_library || item.in_library) return "already_in_library";
+  return "ready";
+}
+
 function numberList(value: unknown): number[] {
   return Array.isArray(value)
     ? value.map((item) => Number(item)).filter((item) => Number.isFinite(item))
@@ -311,6 +334,8 @@ export function asHomeCandidate(row: unknown): HomeDiscoveryCandidate | null {
     profileUrl: profileUrl || null,
     avatarUrl: avatarUrl || null,
     email: asString(item.email ?? item.contact_email) || null,
+    ingestReadiness: ingestReadinessOf(item),
+    ingestBlockReason: asString(item.ingest_block_reason) || null,
     matchedKeywords: Array.isArray(item.matched_keywords)
       ? (item.matched_keywords as unknown[]).map((word) => String(word || "").trim()).filter(Boolean)
       : [],

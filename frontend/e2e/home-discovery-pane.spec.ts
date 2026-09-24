@@ -372,9 +372,8 @@ test("submit posts /api/home/discovery/run, shows process copy, and ingests to p
         run_id: "drun_e2e",
         items: [
           { candidate_id: "cand_solar", status: "imported" },
-          { candidate_id: "cand_zero", status: "already_imported" },
         ],
-        counts: { selected: 2, imported: 1, already_imported: 1, failed: 0 },
+        counts: { selected: 1, imported: 1, already_imported: 0, failed: 0 },
         claimed: false,
       },
     });
@@ -443,13 +442,19 @@ test("submit posts /api/home/discovery/run, shows process copy, and ingests to p
   await expect(page.locator("[data-coach-next], [data-next-step-card]")).toHaveCount(0);
   await expect(page.locator("[data-discovery-ai-summary]")).toContainText("已完成");
   await expect(page.locator("[data-discovery-next-plan]")).toContainText("核对线索后选择入库对象");
-  await expect(page.locator("[data-discovery-ingest]")).toHaveCount(0);
+  await expect(page.locator("[data-discovery-conversion-overview]")).toContainText("转化概览");
+  await expect(page.locator('[data-discovery-conversion-count="ready"]')).toContainText("可入库");
+  await expect(page.locator("[data-discovery-ingest]")).toBeDisabled();
+  await page.locator('[data-discovery-result-filter="existing"]').click();
+  await expect(page.locator('[data-discovery-candidate="NoStats"]')).toBeVisible();
+  await expect(page.locator('[data-discovery-select="cand_zero"]')).toBeDisabled();
+  await page.locator('[data-discovery-result-filter="all"]').click();
 
   await page.locator('[data-discovery-select="cand_solar"]').check();
   await expect(page.locator("[data-discovery-select-all]")).toBeVisible();
   await page.locator("[data-discovery-select-all]").check();
   const ingest = page.locator("[data-discovery-ingest]");
-  await expect(ingest).toHaveText("入库公海（2）");
+  await expect(ingest).toHaveText("入库公海（1）");
   await expect(page.locator("[data-discovery-panel] .btn.work")).toHaveCount(1);
   await ingest.click();
   const confirm = page.locator("[data-discovery-ingest-confirm]");
@@ -463,7 +468,7 @@ test("submit posts /api/home/discovery/run, shows process copy, and ingests to p
   await expect(page.locator('[data-home-mode="lifecycle"]')).toHaveAttribute("aria-selected", "false");
   expect(ingestBodies).toEqual([{
     run_id: "drun_e2e",
-    candidate_ids: ["cand_solar", "cand_zero"],
+    candidate_ids: ["cand_solar"],
     expected_brief_version: 1,
     confirmed: true,
   }]);

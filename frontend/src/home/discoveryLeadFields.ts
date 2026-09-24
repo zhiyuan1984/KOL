@@ -1,4 +1,9 @@
-import { displayMetric, type HomeDiscoveryCandidate, type HomeDiscoveryRun } from "./discoveryHome";
+import {
+  displayMetric,
+  type HomeDiscoveryCandidate,
+  type HomeDiscoveryIngestReadiness,
+  type HomeDiscoveryRun,
+} from "./discoveryHome";
 
 export const MISSING_TEXT = "无";
 
@@ -151,7 +156,7 @@ export const SOURCE_MISSING_LABEL = "来源链接缺失";
 
 /**
  * 联系邮箱：只认真实地址。缺失、空白或不是地址一律 null —— 卡片不渲染这一行，
- * 也不用「无」占位（没有邮箱的候选本来就不该出现在列表里）。
+ * 也不用「无」占位；结果页将明确标记为“缺联系邮箱”，而不是隐藏线索。
  */
 export function contactEmail(candidate: HomeDiscoveryCandidate | null | undefined): string | null {
   const raw = String(candidate?.email ?? "").trim();
@@ -161,6 +166,39 @@ export function contactEmail(candidate: HomeDiscoveryCandidate | null | undefine
 export function contactEmailHref(candidate: HomeDiscoveryCandidate | null | undefined): string | null {
   const email = contactEmail(candidate);
   return email ? `mailto:${email}` : null;
+}
+
+/** Contact facts are useful for readiness but the result rail should not expose a full address by default. */
+export function maskedContactEmail(candidate: HomeDiscoveryCandidate | null | undefined): string | null {
+  const email = contactEmail(candidate);
+  if (!email) return null;
+  const [local, domain] = email.split("@");
+  if (!local || !domain) return null;
+  return `${local.slice(0, Math.min(2, local.length))}***@${domain}`;
+}
+
+export const INGEST_READINESS_LABELS: Record<HomeDiscoveryIngestReadiness, string> = {
+  ready: "可入库",
+  needs_review: "待人工复核",
+  needs_contact: "缺联系邮箱",
+  already_in_library: "已在 Starry",
+  already_followed: "已有跟进",
+};
+
+/** Only this read-only projection is selectable; the L3 Gateway repeats all write checks. */
+export function isIngestSelectable(candidate: HomeDiscoveryCandidate | null | undefined): boolean {
+  const readiness = candidate?.ingestReadiness;
+  return readiness === "ready" || readiness === "needs_review";
+}
+
+export function ingestReadinessLabel(candidate: HomeDiscoveryCandidate | null | undefined): string {
+  const readiness = candidate?.ingestReadiness;
+  return readiness ? INGEST_READINESS_LABELS[readiness] : MISSING_TEXT;
+}
+
+export function ingestReadinessReason(candidate: HomeDiscoveryCandidate | null | undefined): string | null {
+  const reason = String(candidate?.ingestBlockReason || "").trim();
+  return reason || null;
 }
 
 /** 在库状态三态文案。`pool` 已包含「在库但不在公海」——这是有意的折叠。 */

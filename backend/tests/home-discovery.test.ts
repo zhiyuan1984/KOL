@@ -395,6 +395,8 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     expect(pooledRow.library_status).toBe("pool");
     // 旧口径的 in_library 只认「公海/在库」，不认 followed。
     expect(pooledRow.in_library).toBe(true);
+    expect(pooledRow.ingest_readiness).toBe("already_in_library");
+    expect(pooledRow.ingest_block_reason).toContain("不重复导入");
 
     seedFollowedCreator("yt-beauty-1");
     const followed = await completeRun({
@@ -407,6 +409,7 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     const followedRow = (followedRows.body.candidates as Json[])[0];
     expect(followedRow.library_status).toBe("followed");
     expect(followedRow.already_followed).toBe(true);
+    expect(followedRow.ingest_readiness).toBe("already_followed");
   });
 
   it("projects the score details and the brief ranking onto the candidate row", async () => {
@@ -482,7 +485,7 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     expect((row.payload as Json).emails).toEqual(["Business@MailGlow.example", "second@mailglow.example"]);
   });
 
-  it("reports email null when the crawler sent none", async () => {
+  it("keeps a no-email lead visible with an honest import blocker", async () => {
     creators = [{
       platform: "youtube",
       platform_creator_id: "yt-beauty-8",
@@ -496,7 +499,13 @@ describe("POST /api/home/discovery/run lifecycle", () => {
     ).get(run.id) as { n: number };
     expect(stored.n).toBe(1);
     const candidates = await request("GET", `/api/home/discovery/runs/${run.id}/candidates`);
-    expect(candidates.body.candidates).toEqual([]);
+    expect(candidates.body.candidates).toHaveLength(1);
+    expect((candidates.body.candidates as Json[])[0]).toMatchObject({
+      nickname: "NoMailGlow",
+      email: null,
+      ingest_readiness: "needs_contact",
+      ingest_block_reason: "缺少经采集验证的联系邮箱，不能入库。",
+    });
   });
 
   it("writes an honest empty result when crawl returns no creators", async () => {

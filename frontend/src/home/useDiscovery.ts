@@ -24,12 +24,15 @@ import {
   type HomeDiscoveryCandidate,
   type HomeDiscoveryConnection,
   type HomeDiscoveryEmptyKind,
+  type HomeDiscoveryIngestResult,
   type HomeDiscoveryRun,
 } from "./discoveryHome";
+import { isIngestSelectable } from "./discoveryLeadFields";
 
 const DISCOVERY_FAILED_FALLBACK = "检索没有完成。可稍后重试。";
 
 export type DiscoveryIngestState = "brief_mismatch" | "cancelled" | "pending" | null;
+export type DiscoveryResultFilter = "all" | "ready" | "review" | "blocked" | "existing";
 
 /**
  * AI发现的全部状态与副作用。视图被拆成中栏（条件卡 / 过程流）与右栏（结果区）
@@ -59,6 +62,7 @@ export default function useDiscovery({
   const [historyLoading, setHistoryLoading] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [ignoredIds, setIgnoredIds] = useState<string[]>([]);
+  const [resultFilter, setResultFilter] = useState<DiscoveryResultFilter>("all");
   /** 「查看详情」展开的行；只影响本地展示，不发请求。 */
   const [expandedIds, setExpandedIds] = useState<string[]>([]);
   const [events, setEvents] = useState<TaskEvent[]>([]);
@@ -73,17 +77,28 @@ export default function useDiscovery({
   const [approvalState, setApprovalState] = useState<DiscoveryIngestState>(null);
   const [ingestMissing, setIngestMissing] = useState(false);
   const [pendingConfirm, setPendingConfirm] = useState(false);
+  const [ingestReceipt, setIngestReceipt] = useState<HomeDiscoveryIngestResult | null>(null);
   /** 「改条件再搜」把条件卡调回来；提交成功后再收起。 */
   const [cardPinned, setCardPinned] = useState(false);
 
-  const visible = useMemo(
+  const available = useMemo(
     () => candidates.filter((row) => !ignoredIds.includes(row.id) && row.status !== "dismissed"),
     [candidates, ignoredIds],
   );
+  const visible = useMemo(() => available.filter((row) => {
+    if (resultFilter === "ready") return row.ingestReadiness === "ready";
+    if (resultFilter === "review") return row.ingestReadiness === "needs_review";
+    if (resultFilter === "blocked") return row.ingestReadiness === "needs_contact";
+    if (resultFilter === "existing") {
+      return row.ingestReadiness === "already_in_library" || row.ingestReadiness === "already_followed";
+    }
+    return true;
+  }), [available, resultFilter]);
   const selected = useMemo(
-    () => visible.filter((row) => selectedIds.includes(row.id)),
-    [visible, selectedIds],
+    () => available.filter((row) => selectedIds.includes(row.id)),
+    [available, selectedIds],
   );
+  const selectableVisible = useMemo(() => visible.filter(isIngestSelectable), [visible]);
   const steps = useMemo(() => presentDiscoveryEvents(events), [events]);
   const think = useMemo(() => presentDiscoveryThink(events), [events]);
   const runId = activeRun?.id || activeRunId || "";
@@ -131,11 +146,13 @@ export default function useDiscovery({
     if (activeRun?.id !== chosen.id) {
       setSelectedIds([]);
       setIgnoredIds([]);
+      setResultFilter("all");
       setExpandedIds([]);
       setApprovalState(null);
       setPendingConfirm(false);
       setIngestError(null);
       setIngestOpen(false);
+      setIngestReceipt(null);
     }
     const detail = await loadDiscoveryRun(chosen.id);
     if (detail.down) {
@@ -309,7 +326,10 @@ export default function useDiscovery({
   };
 
   const selectAll = (on: boolean) => {
-    setSelectedIds(on ? visible.map((row) => row.id) : []);
+    const ids = new Set(selectableVisible.map((row) => row.id));
+    setSelectedIds((current) => on
+      ? [...new Set([...current, ...ids])]
+      : current.filter((id) => !ids.has(id)));
   };
 
   const toggleExpanded = (id: string) => {
@@ -352,9 +372,18 @@ export default function useDiscovery({
       }
       const ingestedIds = new Set(result.ingested.map((row) => row.id));
       setCandidates((current) => current.map((row) => (
-        ingestedIds.has(row.id) ? { ...row, in_library: true } : row
+        ingestedIds.has(row.id)
+          ? {
+              ...row,
+              in_library: true,
+              libraryStatus: "pool",
+              ingestReadiness: "already_in_library",
+              ingestBlockReason: "该红人已写入 Starry 公海，不重复导入。",
+            }
+          : row
       )));
       setSelectedIds((current) => current.filter((id) => !ingestedIds.has(id)));
+      setIngestReceipt(result);
       if (result.failed.length) {
         setIngestError(
           `已入库 ${result.ingested.length} 人，未入库 ${result.failed.length} 人。未成功的条目不会标成已在库。`,
@@ -453,8 +482,12 @@ export default function useDiscovery({
     selectRun: selectHistoryRun,
     runId,
     candidates,
+    available,
     visible,
+    resultFilter,
+    setResultFilter,
     selected,
+    selectableVisible,
     selectedIds,
     selectedPlatforms,
     steps,
@@ -478,6 +511,7 @@ export default function useDiscovery({
     approvalState,
     ingestMissing,
     toast,
+    ingestReceipt,
     openIngest,
     confirmIngest,
     cancelIngest,

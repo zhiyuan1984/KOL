@@ -11,11 +11,14 @@ import {
   elapsedLabel,
   libraryLabel,
   matchReasonText,
+  maskedContactEmail,
   minuteStamp,
   playsValue,
   sampleNote,
   scoreParts,
   sourceState,
+  ingestReadinessLabel,
+  isIngestSelectable,
   viewFollowerPercent,
 } from "./discoveryLeadFields";
 
@@ -117,6 +120,8 @@ describe("creator lead row fields", () => {
     matchedKeywords: ["camping"],
     collectedAt: "2026-09-20T03:43:01.069Z",
     email: "clean.glow@mailcreators.example",
+    ingestReadiness: "ready" as const,
+    ingestBlockReason: null,
     libraryStatus: "pool" as const,
     why: "名称含 camping",
     band: "high",
@@ -161,6 +166,17 @@ describe("creator lead row fields", () => {
     expect(contactEmail({ ...base, email: "暂无" })).toBe(null);
     expect(contactEmailHref({ ...base, email: null })).toBe(null);
     expect(contactEmail(null)).toBe(null);
+    expect(maskedContactEmail(base)).toBe("cl***@mailcreators.example");
+    expect(maskedContactEmail({ ...base, email: null })).toBe(null);
+  });
+
+  it("only makes ready or reviewed leads selectable for L3 confirmation", () => {
+    expect(isIngestSelectable(base)).toBe(true);
+    expect(isIngestSelectable({ ...base, ingestReadiness: "needs_review" })).toBe(true);
+    expect(isIngestSelectable({ ...base, ingestReadiness: "needs_contact" })).toBe(false);
+    expect(isIngestSelectable({ ...base, ingestReadiness: "already_in_library" })).toBe(false);
+    expect(isIngestSelectable({ ...base, ingestReadiness: "already_followed" })).toBe(false);
+    expect(ingestReadinessLabel({ ...base, ingestReadiness: "needs_review" })).toBe("待人工复核");
   });
 
   it("never invents a match reason or a source link", () => {
@@ -201,5 +217,16 @@ describe("host payload mapping", () => {
     expect(row?.profileUrl).toBe("https://youtube.com/@x");
     expect(sourceState(row)).toEqual({ href: "https://youtube.com/@x" });
     expect(libraryLabel(row)).toBe("已在库（含公海）");
+  });
+
+  it("keeps the Host readiness and blocker instead of deriving a contact fact", () => {
+    const row = asHomeCandidate({
+      id: "c4",
+      ingest_readiness: "needs_contact",
+      ingest_block_reason: "缺少经采集验证的联系邮箱，不能入库。",
+    });
+    expect(row?.ingestReadiness).toBe("needs_contact");
+    expect(row?.ingestBlockReason).toBe("缺少经采集验证的联系邮箱，不能入库。");
+    expect(isIngestSelectable(row)).toBe(false);
   });
 });

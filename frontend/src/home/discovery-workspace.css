@@ -315,3 +315,116 @@
   min-width: 0;
   max-width: 100%;
 }
+
+/* 结果区是转化决策面而非爬虫字段墙：用紧凑计数、状态筛选和单一 L3 CTA
+   显示当前该复核、该补资料或可进入确认的候选，几何仍由 WorkspaceShell 管理。 */
+.discovery-conversion-overview {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: 0 0 var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+.discovery-conversion-overview h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--ds-font-body);
+  line-height: var(--ds-line-body);
+  font-weight: 600;
+}
+.discovery-conversion-overview p,
+.discovery-ingest-receipt p,
+.discovery-ingest-receipt ul {
+  margin: var(--space-1) 0 0;
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+.discovery-conversion-overview dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+}
+.discovery-conversion-overview dl > div {
+  min-width: 0;
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--border);
+}
+.discovery-conversion-overview dt {
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+.discovery-conversion-overview dd {
+  margin: var(--space-1) 0 0;
+  color: var(--text);
+  font-size: var(--ds-font-body);
+  line-height: var(--ds-line-body);
+  font-weight: 600;
+}
+.discovery-conversion-overview [data-discovery-conversion-count="ready"] { border-left-color: var(--color-success-vivid); }
+.discovery-conversion-overview [data-discovery-conversion-count="review"] { border-left-color: var(--color-warning-vivid); }
+.discovery-conversion-overview [data-discovery-conversion-count="blocked"] { border-left-color: var(--danger); }
+.discovery-conversion-overview [data-discovery-conversion-count="existing"] { border-left-color: var(--accent); }
+.discovery-result-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-2);
+}
+.discovery-filter-chip {
+  min-height: var(--chip-h);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+  padding: 0 var(--space-2);
+  cursor: pointer;
+}
+.discovery-filter-chip[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--bg-elevated);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.discovery-filter-chip:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+.discovery-run-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.discovery-run-bar .btn { margin-left: auto; }
+.discovery-filter-empty { margin-top: var(--space-2); }
+.discovery-ingest-receipt {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) 0 0 var(--space-3);
+  border-top: 1px solid var(--border);
+  border-left: 2px solid var(--color-success-vivid);
+}
+.discovery-ingest-receipt strong {
+  color: var(--text);
+  font-size: var(--ds-font-body);
+  line-height: var(--ds-line-body);
+}
+.discovery-lead-tag.is-readiness.is-ready { color: var(--color-success-vivid); }
+.discovery-lead-tag.is-readiness.is-needs_review { color: var(--color-warning-vivid); }
+.discovery-lead-tag.is-readiness.is-needs_contact,
+.discovery-lead-tag.is-readiness.is-already_in_library,
+.discovery-lead-tag.is-readiness.is-already_followed { color: var(--text-muted); }
+.discovery-lead-select input:disabled { cursor: not-allowed; opacity: 0.55; }
+@media (max-width: 480px) {
+  .discovery-conversion-overview dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .discovery-run-bar .btn { margin-left: 0; }
+}

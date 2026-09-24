@@ -18,8 +18,12 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
     runHistory,
     historyLoading,
     selectRun,
+    available,
     visible,
+    resultFilter,
+    setResultFilter,
     selected,
+    selectableVisible,
     selectedIds,
     selectedPlatforms,
     inFlight,
@@ -43,13 +47,23 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
     approvalState,
     ingestMissing,
     toast,
+    ingestReceipt,
     openIngest,
     confirmIngest,
     cancelIngest,
     showCard,
   } = state;
-  const showResults = visible.length > 0;
+  const showResults = available.length > 0;
   const selecting = selected.length > 0;
+  const readyCount = available.filter((candidate) => candidate.ingestReadiness === "ready").length;
+  const reviewCount = available.filter((candidate) => candidate.ingestReadiness === "needs_review").length;
+  const existingCount = available.filter((candidate) => (
+    candidate.ingestReadiness === "already_in_library" || candidate.ingestReadiness === "already_followed"
+  )).length;
+  const blockedCount = available.filter((candidate) => candidate.ingestReadiness === "needs_contact").length;
+  const reviewSelected = selected.filter((candidate) => candidate.ingestReadiness === "needs_review").length;
+  const allSelectableShown = selectableVisible.length > 0
+    && selectableVisible.every((candidate) => selectedIds.includes(candidate.id));
 
   return (
     <div
@@ -67,6 +81,21 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
         emptyKind={emptyKind}
         emptyMessage={emptyMessage}
       />
+
+      {available.length ? (
+        <section className="discovery-conversion-overview" data-discovery-conversion-overview aria-label="线索转化概览">
+          <div>
+            <h3>转化概览</h3>
+            <p>以下为采集与评分的只读预检；正式写入仍需在 L3 确认后由 Starry 网关复核。</p>
+          </div>
+          <dl>
+            <div data-discovery-conversion-count="ready"><dt>可入库</dt><dd>{readyCount}</dd></div>
+            <div data-discovery-conversion-count="review"><dt>待复核</dt><dd>{reviewCount}</dd></div>
+            <div data-discovery-conversion-count="blocked"><dt>待补资料</dt><dd>{blockedCount}</dd></div>
+            <div data-discovery-conversion-count="existing"><dt>已在 Starry</dt><dd>{existingCount}</dd></div>
+          </dl>
+        </section>
+      ) : null}
 
       {failure ? (
         <section className="task-empty discovery-error" data-discovery-error role="alert">
@@ -150,49 +179,91 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
           <header className="discovery-result-detail-head">
             <div>
               <h3>结果明细</h3>
-              <p className="discovery-run-count" data-discovery-candidate-count>{`候选 ${visible.length} 位 · 按推荐分与匹配度排序`}</p>
+              <p className="discovery-run-count" data-discovery-candidate-count>
+                {`显示 ${visible.length}/${available.length} 位 · 按推荐分与匹配度排序`}
+              </p>
             </div>
-            {!selecting ? <p className="discovery-selection-hint">勾选线索后可进入入库确认</p> : null}
+            {!selecting ? <p className="discovery-selection-hint">优先复核证据，再选择可入库线索</p> : null}
           </header>
 
-          {selecting ? (
-            <div className="discovery-run-bar is-selecting" data-discovery-run-bar>
-              <span className="discovery-run-count" data-discovery-selected-count>{`已选 ${selected.length} 人`}</span>
-              <label className="discovery-candidate-select">
-                <input
-                  type="checkbox"
-                  data-discovery-select-all
-                  checked={visible.length > 0 && selected.length === visible.length}
-                  onChange={(event) => selectAll(event.target.checked)}
-                />
-                <span>全选结果</span>
-              </label>
+          <div className={"discovery-result-filters" + (resultFilter !== "all" ? " is-filtered" : "")} data-discovery-result-filters>
+            {[
+              ["all", `全部 ${available.length}`],
+              ["ready", `可入库 ${readyCount}`],
+              ["review", `待复核 ${reviewCount}`],
+              ["blocked", `待补资料 ${blockedCount}`],
+              ["existing", `已在 Starry ${existingCount}`],
+            ].map(([key, label]) => (
               <button
+                key={key}
                 type="button"
-                className="btn work sm"
-                data-discovery-ingest
-                data-home-entry="discovery-ingest"
-                onClick={openIngest}
+                className="discovery-filter-chip"
+                aria-pressed={resultFilter === key}
+                data-discovery-result-filter={key}
+                onClick={() => setResultFilter(key as typeof resultFilter)}
               >
-                {`入库公海（${selected.length}）`}
+                {label}
               </button>
-            </div>
-          ) : null}
-
-          <ol className="discovery-candidate-list" data-discovery-candidates>
-            {visible.map((candidate) => (
-              <li key={candidate.id}>
-                <DiscoveryLeadRow
-                  candidate={candidate}
-                  selected={selectedIds.includes(candidate.id)}
-                  expanded={expandedIds.includes(candidate.id)}
-                  onToggleSelect={(on) => toggleSelected(candidate.id, on)}
-                  onToggleExpand={() => toggleExpanded(candidate.id)}
-                  onIgnore={() => ignoreCandidate(candidate.id)}
-                />
-              </li>
             ))}
-          </ol>
+          </div>
+
+          <div className={"discovery-run-bar" + (selecting ? " is-selecting" : "")} data-discovery-run-bar>
+            <span className="discovery-run-count" data-discovery-selected-count>{`已选 ${selected.length} 人`}</span>
+            <label className="discovery-candidate-select">
+              <input
+                type="checkbox"
+                data-discovery-select-all
+                checked={allSelectableShown}
+                disabled={!selectableVisible.length}
+                onChange={(event) => selectAll(event.target.checked)}
+              />
+              <span>全选当前结果</span>
+            </label>
+            <button
+              type="button"
+              className="btn work sm"
+              data-discovery-ingest
+              data-home-entry="discovery-ingest"
+              disabled={!selecting}
+              onClick={openIngest}
+            >
+              {`入库公海（${selected.length}）`}
+            </button>
+          </div>
+
+          {visible.length ? (
+            <ol className="discovery-candidate-list" data-discovery-candidates>
+              {visible.map((candidate) => (
+                <li key={candidate.id}>
+                  <DiscoveryLeadRow
+                    candidate={candidate}
+                    selected={selectedIds.includes(candidate.id)}
+                    expanded={expandedIds.includes(candidate.id)}
+                    onToggleSelect={(on) => toggleSelected(candidate.id, on)}
+                    onToggleExpand={() => toggleExpanded(candidate.id)}
+                    onIgnore={() => ignoreCandidate(candidate.id)}
+                  />
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <div className="task-empty discovery-filter-empty" data-discovery-filter-empty={resultFilter}>
+              <strong>当前筛选没有线索</strong>
+              <p>可切换到“全部”查看本次采集到的其他候选与其转化状态。</p>
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {ingestReceipt ? (
+        <section className="discovery-ingest-receipt" data-discovery-ingest-receipt role="status">
+          <strong>Starry 入库回执</strong>
+          <p>{`本次已写入 ${ingestReceipt.ingested.length} 位${ingestReceipt.failed.length ? `，${ingestReceipt.failed.length} 位未写入` : ""}。`}</p>
+          {ingestReceipt.failed.length ? (
+            <ul>
+              {ingestReceipt.failed.map((item) => <li key={item.id}>{item.message || item.handle || item.id}</li>)}
+            </ul>
+          ) : null}
         </section>
       ) : null}
 
@@ -235,6 +306,7 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
           {`将把 ${selected.length} 条线索写入 Starry 并进入公海。`}
           {` 平台：${selectedPlatforms.length ? selectedPlatforms.map((code) => platformLabel(code)).join("、") : "无"}。`}
           {` 来源运行：${run?.id || runId || "无"}。`}
+          {reviewSelected ? ` 其中 ${reviewSelected} 条仍需人工复核其评分与来源证据。` : ""}
           不会建联，不会发信，也不会改阶段或认领跟进。
         </p>
       </DiscoveryIngestConfirm>

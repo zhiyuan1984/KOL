@@ -28,6 +28,8 @@ const candidate: HomeDiscoveryCandidate = {
   matchedKeywords: ["camping"],
   collectedAt: "2026-09-20T03:43:01.069Z",
   email: "clean.glow@mailcreators.example",
+  ingestReadiness: "ready",
+  ingestBlockReason: null,
   libraryStatus: "pool",
   why: "名称含 camping",
   band: "high",
@@ -47,14 +49,26 @@ function render(overrides: Partial<HomeDiscoveryCandidate> = {}): string {
 }
 
 describe("discovery lead row", () => {
-  it("shows the contact email behind the data-lead-email hook", () => {
+  it("shows a masked contact email behind the data-lead-email hook", () => {
     const html = render();
     expect(html).toContain("data-lead-email");
-    expect(html).toContain("clean.glow@mailcreators.example");
+    expect(html).toContain("cl***@mailcreators.example");
+    expect(html).not.toContain("clean.glow@mailcreators.example");
   });
 
   it("renders no email line when the candidate has no contact email", () => {
     expect(render({ email: null })).not.toContain("data-lead-email");
     expect(render({ email: "" })).not.toContain("data-lead-email");
+  });
+
+  it("marks missing-contact candidates as non-selectable with the Host reason", () => {
+    const html = render({
+      ingestReadiness: "needs_contact",
+      ingestBlockReason: "缺少经采集验证的联系邮箱，不能入库。",
+    });
+    expect(html).toContain('data-lead-readiness="needs_contact"');
+    expect(html).toContain("缺联系邮箱");
+    expect(html).toContain("disabled");
+    expect(html).toContain("缺少经采集验证的联系邮箱，不能入库。");
   });
 });

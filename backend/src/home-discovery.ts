@@ -428,6 +428,30 @@ function publicCandidate(row: Row, ranking?: Json | null): Json {
   const scoreDetails = objectOf(payload.score_details);
   const why = asStringList(ranking?.why);
   const matchReason = why.length ? why.join(" · ") : null;
+  const contactEmail = candidateContactEmail(row) || null;
+  // This is an explainable pre-flight projection only. The L3 gateway repeats
+  // every authority, version, de-duplication and source-batch check before it
+  // ever writes Starry. Do not turn this view hint into an approval decision.
+  const ingestReadiness = alreadyFollowed
+    ? "already_followed"
+    : alreadyInPool || alreadyInLibrary
+      ? "already_in_library"
+      : !contactEmail
+        ? "needs_contact"
+        : metricsMissing || !ranking
+          ? "needs_review"
+          : "ready";
+  const ingestBlockReason = ingestReadiness === "already_followed"
+    ? "该红人已有跟进关系，不重复导入或领取。"
+    : ingestReadiness === "already_in_library"
+      ? "该红人已在 Starry 库中，不重复导入。"
+      : ingestReadiness === "needs_contact"
+        ? "缺少经采集验证的联系邮箱，不能入库。"
+        : ingestReadiness === "needs_review"
+          ? metricsMissing
+            ? "采集指标不完整，请复核数据后再决定是否入库。"
+            : "尚无完整的 AI 推荐证据，请人工复核后再选择入库。"
+          : null;
   return {
     id: row.id,
     request_id: row.request_id,
@@ -462,7 +486,9 @@ function publicCandidate(row: Row, ranking?: Json | null): Json {
     collected_at: nullableString(payload.collected_at),
     profile_url: nullableString(payload.profile_url),
     avatar_url: nullableString(payload.avatar_url),
-    email: candidateContactEmail(row) || null,
+    email: contactEmail,
+    ingest_readiness: ingestReadiness,
+    ingest_block_reason: ingestBlockReason,
     matched_keywords: asStringList(payload.matched_keywords),
     status: row.status,
     payload,
@@ -1071,16 +1097,15 @@ export function listHomeDiscoveryCandidates(id: string): Json {
       ORDER BY CASE WHEN order_index IS NULL THEN 1 ELSE 0 END, order_index ASC, score DESC, created_at DESC`,
   ).all(run.id) as Row[];
   const ranking = briefRanking(String(run.work_item_id || ""));
-  // 没有联系邮箱的线索入不了库（addKolProfile 必须有真实 contactEmail），
-  // 所以不进列表投影；候选行本身保留在库里，不删数据、不改状态。
+  // 缺邮箱的线索仍须可见：员工需要知道其数据价值和具体阻塞原因；
+  // 但 `ingest_readiness=needs_contact` 会让结果页禁止把它带入 L3。
+  // Gateway 也会在真正写入前再次拒绝，绝不编造联系方式。
   return {
     entry: "memory",
     creates_session: false,
     calls_model: false,
     run_id: run.id,
-    candidates: rows
-      .map((row) => publicCandidate(row, ranking.get(String(row.id)) || null))
-      .filter((row) => Boolean(row.email)),
+    candidates: rows.map((row) => publicCandidate(row, ranking.get(String(row.id)) || null)),
   };
 }
 

@@ -2,9 +2,12 @@ import { displayMetric, type HomeDiscoveryCandidate } from "./discoveryHome";
 import {
   collectedAtMinute,
   confidenceLabel,
-  contactEmail,
+  ingestReadinessLabel,
+  ingestReadinessReason,
+  isIngestSelectable,
   libraryLabel,
   matchReasonText,
+  maskedContactEmail,
   MISSING_TEXT,
   playsValue,
   sampleNote,
@@ -42,8 +45,11 @@ export default function DiscoveryLeadRow({
   const source = sourceState(candidate);
   const plays = playsValue(candidate);
   const note = sampleNote(candidate);
-  const email = contactEmail(candidate);
+  const email = maskedContactEmail(candidate);
   const score = candidate.score;
+  const selectable = isIngestSelectable(candidate);
+  const readiness = ingestReadinessLabel(candidate);
+  const readinessReason = ingestReadinessReason(candidate);
   return (
     <article
       className={"discovery-lead" + (expanded ? " is-expanded" : "")}
@@ -52,6 +58,7 @@ export default function DiscoveryLeadRow({
       data-discovery-origin="discovery"
       data-lead-confidence={confidenceLabel(candidate)}
       data-lead-library={candidate.libraryStatus}
+      data-lead-readiness={candidate.ingestReadiness}
       data-lead-expanded={expanded ? "true" : undefined}
     >
       <label className="discovery-lead-select">
@@ -59,9 +66,13 @@ export default function DiscoveryLeadRow({
           type="checkbox"
           data-discovery-select={candidate.id}
           checked={selected}
+          disabled={!selectable}
+          title={readinessReason || undefined}
           onChange={(event) => onToggleSelect(event.target.checked)}
         />
-        <span className="sr-only">选择 {candidate.handle || candidate.nickname || "线索"}</span>
+        <span className="sr-only">
+          {selectable ? "选择" : `不可入库：${readiness}`} {candidate.handle || candidate.nickname || "线索"}
+        </span>
       </label>
 
       <span className="discovery-lead-avatar" aria-hidden>{initialOf(candidate)}</span>
@@ -80,6 +91,9 @@ export default function DiscoveryLeadRow({
           </span>
           <span className="discovery-lead-tag" data-lead-confidence-chip>
             {`置信度 ${confidenceLabel(candidate)}`}
+          </span>
+          <span className={`discovery-lead-tag is-readiness is-${candidate.ingestReadiness}`} data-lead-readiness>
+            {readiness}
           </span>
         </p>
         <p className="discovery-lead-meta" data-discovery-candidate-meta>
@@ -161,6 +175,10 @@ export default function DiscoveryLeadRow({
             <dt>在库状态</dt>
             <dd data-lead-library-label>{libraryLabel(candidate)}</dd>
           </div>
+          <div className="discovery-lead-detail-item">
+            <dt>转化准备度</dt>
+            <dd>{readiness}</dd>
+          </div>
           <div className="discovery-lead-detail-item is-wide">
             <dt>推荐分构成</dt>
             <dd>{scoreParts(candidate)}</dd>
@@ -169,6 +187,12 @@ export default function DiscoveryLeadRow({
             <dt>匹配词</dt>
             <dd>{candidate.matchedKeywords.length ? candidate.matchedKeywords.join("、") : MISSING_TEXT}</dd>
           </div>
+          {readinessReason ? (
+            <div className="discovery-lead-detail-item is-wide" data-lead-readiness-reason>
+              <dt>需要处理</dt>
+              <dd>{readinessReason}</dd>
+            </div>
+          ) : null}
         </dl>
       ) : null}
     </article>
