@@ -59,6 +59,8 @@ export type PoolKol = {
     display: string;
     platform: string;
     profile_url?: string;
+    /** 采集/主数据已有的公开头像地址；缺失时前端使用本地降级头像。 */
+    avatar_url?: string;
   };
   metrics: {
     followers?: string;
@@ -325,6 +327,18 @@ export function publicSeaReasonOf(row: Record<string, unknown>): PublicSeaReason
   return "never_contacted";
 }
 
+/**
+ * 公海列表只展示员工可执行的两类状态，不把「无主」等内部入选原因重复渲染成状态。
+ * 已有有效往来而回到公海的对象，列表只给出 14 天无回复的当前状态；具体往来仍留在详情页。
+ */
+function poolStatusLabel(row: Record<string, unknown>): "未首次建联" | "14天无回复" {
+  const source = text(row.public_stage_label || row.public_stage || row.stage_label);
+  if (/14\s*(天|日).*(无回复|未回复|无互动)|(?:无回复|未回复)/.test(source) || hasConversation(row)) {
+    return "14天无回复";
+  }
+  return "未首次建联";
+}
+
 export function isOpenPoolRow(row: Record<string, unknown>): boolean {
   const status = text(row.pool_status || row.status);
   const openByStatus = !status || status === "open" || status === "discovered" || status === "pool" || status === "public";
@@ -352,16 +366,14 @@ export function toPoolKol(row: Record<string, unknown>): PoolKol | null {
     : Number(row.idle_days);
   const idleOn = idleIsFlag ? flag(idleRaw) : idleDays != null && Number.isFinite(idleDays) && idleDays > 0;
   const reason = publicSeaReasonOf(row);
-  const reasonLabel = reason === "unowned"
-    ? (hasConversation(row) ? "无主·已有往来" : "无主·未首次建联")
-    : "未首次建联";
-  const publicStage = text(row.public_stage_label || row.stage_label) || reasonLabel;
+  const publicStatus = poolStatusLabel(row);
   return {
     kol_uid: kolUid || handle,
     identity: {
       display: handle ? `@${handle}` : text(row.display_name || row.name) || "未指定红人",
       platform: text(row.platform),
       profile_url: profileUrlOf(row),
+      avatar_url: text(row.avatar_url || row.avatar || row.profile_image || row.profileImage) || undefined,
     },
     metrics: {
       followers: formatMetric(row.followers ?? (row.metrics && (row.metrics as Record<string, unknown>).followers)),
@@ -379,7 +391,7 @@ export function toPoolKol(row: Record<string, unknown>): PoolKol | null {
     },
     public_stage: {
       code: text(row.public_stage_code || row.stage_code) || "PUBLIC_POOL",
-      label: publicStage,
+      label: publicStatus,
     },
     unowned: isUnownedRow(row),
     has_conversation: hasConversation(row),

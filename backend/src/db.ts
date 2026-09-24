@@ -1762,6 +1762,7 @@ function migrateSchema(db: SqliteConn): void {
             display_name TEXT,
             platform TEXT,
             homepage_url TEXT,
+            avatar_url TEXT,
             followers TEXT,
             avg_plays TEXT,
             engagement TEXT,
@@ -1864,6 +1865,7 @@ function migrateSchema(db: SqliteConn): void {
   `);
   add(db, "kol_profile_index", "source_batch", "TEXT");
   add(db, "kol_profile_index", "platform_creator_id", "TEXT");
+  add(db, "kol_profile_index", "avatar_url", "TEXT");
   add(db, "discovery_runs", "brief_version", "INTEGER NOT NULL DEFAULT 1");
   add(db, "discovery_requests", "brief_version", "INTEGER NOT NULL DEFAULT 1");
 }

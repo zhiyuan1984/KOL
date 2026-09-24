@@ -65,6 +65,7 @@ describe("kol workbench contract (#172)", () => {
       idle: 1,
       public_stage: "公海",
       pool_status: "open",
+      avatar_url: "https://images.example/outdoor.jpg",
       email: "secret@example.com",
       quote: "1200",
       contract: "ct_1",
@@ -73,6 +74,7 @@ describe("kol workbench contract (#172)", () => {
     expect(card?.kol_uid).toBe("uid_outdoor");
     expect(card?.identity.display).toBe("@户外充电君");
     expect(card?.identity.profile_url).toContain("youtube");
+    expect(card?.identity.avatar_url).toBe("https://images.example/outdoor.jpg");
     expect(card?.metrics.followers).toBe("12万");
     expect(card?.idle?.idle).toBe(true);
     expect(card?.idle?.label).toBe("闲置");
@@ -94,7 +96,7 @@ describe("kol workbench contract (#172)", () => {
     expect(toPoolKol({ kol_uid: "uid_talked", handle: "已建联", pool_status: "open", last_conversation_id: "conv_1" })).toBeNull();
     expect(toPoolKol({ kol_uid: "uid_plain", handle: "新红人", pool_status: "open" })?.public_stage?.label).toBe("未首次建联");
 
-    // 无主也算公海：三个归属信号都空时，即使已有往来也入选，并标明原因。
+    // 无主也算公海：三个归属信号都空时，即使已有往来也入选；列表只显示当前可行动状态。
     const unownedContacted = {
       kol_uid: "uid_unowned",
       handle: "无主",
@@ -107,7 +109,7 @@ describe("kol workbench contract (#172)", () => {
     expect(isOpenPoolRow(unownedContacted)).toBe(true);
     const unownedCard = toPoolKol(unownedContacted);
     expect(unownedCard).toMatchObject({ unowned: true, has_conversation: true, sea_reason: "unowned" });
-    expect(unownedCard?.public_stage?.label).toBe("无主·已有往来");
+    expect(unownedCard?.public_stage?.label).toBe("14天无回复");
     // 缺归属字段不能推定无主，否则所有行都会涌进公海。
     expect(isOpenPoolRow({ kol_uid: "uid_bare", pool_status: "open", last_conversation_id: "conv_b" })).toBe(false);
     // 有主 + 已建联 → 仍不进公海。

@@ -12434,8 +12434,9 @@ button.today-brief-primary-btn:disabled {
 .pool-row-select { padding-top: 20px; }
 .pool-row-avatar {
   display: flex; align-items: center; justify-content: center; width: 56px; height: 56px;
-  border-radius: 50%; background: #f3f4f6; color: var(--pool-secondary); font-size: 16px; font-weight: 600;
+  overflow: hidden; border-radius: 6px; background: #f3f4f6; color: var(--pool-secondary); font-size: 16px; font-weight: 600;
 }
+.pool-row-avatar[data-kol-avatar="source"] { display: block; object-fit: cover; }
 .pool-row-content { min-width: 0; display: grid; gap: 4px; }
 .pool-row-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .pool-row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; line-height: 20px; font-weight: 600; }
@@ -12464,6 +12465,9 @@ button.today-brief-primary-btn:disabled {
 .pool-claim-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 0; font-size: 12px; color: var(--pool-secondary); }
 .pool-claim-confirm button { height: 28px; padding: 0 8px; border: 1px solid var(--pool-border); border-radius: 6px; background: #fff; color: var(--pool-action); cursor: pointer; font-size: 12px; }
 .pool-claim-confirm [data-claim-follow-error] { width: 100%; margin: 0; color: #d74646; }
+.pool-claim-undo { display: flex; align-items: center; gap: 4px; min-height: 22px; margin: -2px 0 6px; color: var(--pool-secondary); font-size: 12px; }
+.pool-claim-undo button { border: 0; padding: 0; background: transparent; color: var(--pool-action); font: inherit; cursor: pointer; }
+.pool-claim-undo-error { margin-left: 4px; color: #d74646; }
 .pool-compact-pane :is(input, select, button, a):focus-visible { outline: 2px solid var(--pool-action); outline-offset: 2px; }
 @media (max-width: 620px) {
   .pool-kol-row { grid-template-columns: 16px 56px minmax(0, 1fr); }

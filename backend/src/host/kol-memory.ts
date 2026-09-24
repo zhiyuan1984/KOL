@@ -100,6 +100,7 @@ export function publicProfileFields(row: Row | Json): Json {
     display_name: row.display_name || row.handle || "",
     platform: row.platform || "",
     homepage_url: row.homepage_url || "",
+    avatar_url: row.avatar_url || "",
     followers: row.followers || "",
     avg_plays: row.avg_plays || "",
     engagement: row.engagement || "",
@@ -201,6 +202,7 @@ export function upsertPublicProfile(input: {
   display_name?: string;
   platform?: string;
   homepage_url?: string;
+  avatar_url?: string;
   followers?: string;
   avg_plays?: string;
   engagement?: string;
@@ -224,15 +226,16 @@ export function upsertPublicProfile(input: {
   const id = String(existing?.id || nid("kpi"));
   db.prepare(
     `INSERT INTO kol_profile_index
-     (id,company_id,kol_uid,handle,display_name,platform,homepage_url,followers,avg_plays,
+     (id,company_id,kol_uid,handle,display_name,platform,homepage_url,avatar_url,followers,avg_plays,
       engagement,direction,region,style,ingest_source,ingested_at,public_stage,pool_status,
       idle,source_version,source_batch,platform_creator_id,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(company_id, kol_uid) DO UPDATE SET
        handle=COALESCE(NULLIF(excluded.handle,''), kol_profile_index.handle),
        display_name=COALESCE(NULLIF(excluded.display_name,''), kol_profile_index.display_name),
        platform=COALESCE(NULLIF(excluded.platform,''), kol_profile_index.platform),
        homepage_url=COALESCE(NULLIF(excluded.homepage_url,''), kol_profile_index.homepage_url),
+       avatar_url=COALESCE(NULLIF(excluded.avatar_url,''), kol_profile_index.avatar_url),
        followers=COALESCE(NULLIF(excluded.followers,''), kol_profile_index.followers),
        avg_plays=COALESCE(NULLIF(excluded.avg_plays,''), kol_profile_index.avg_plays),
        engagement=COALESCE(NULLIF(excluded.engagement,''), kol_profile_index.engagement),
@@ -252,6 +255,7 @@ export function upsertPublicProfile(input: {
     text(input.display_name) || text(input.handle),
     text(input.platform),
     text(input.homepage_url),
+    text(input.avatar_url),
     text(input.followers),
     text(input.avg_plays),
     text(input.engagement),
@@ -278,6 +282,7 @@ export function ingestFormalProfile(input: {
   display_name?: string;
   platform?: string;
   homepage_url?: string;
+  avatar_url?: string;
   followers?: string;
   avg_plays?: string;
   engagement?: string;

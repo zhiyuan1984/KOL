@@ -233,16 +233,18 @@ function writeOpenPool(input: {
   platform: string;
   platform_creator_id: string;
 }): Row {
+  const payload = parseJson(input.candidate.payload);
   const profile = ingestFormalProfile({
     kol_uid: input.kol_uid,
     handle: String(input.candidate.handle || input.candidate.nickname || input.platform_creator_id),
     display_name: String(input.candidate.nickname || input.candidate.handle || input.platform_creator_id),
     platform: input.platform,
     homepage_url: profileUrlOf(input.candidate),
+    avatar_url: String(payload.avatar_url || payload.avatar || payload.profile_image || ""),
     followers: String(input.candidate.followers || ""),
     avg_plays: String(input.candidate.avg_views_10 || ""),
-    direction: String(parseJson(input.candidate.payload).direction || ""),
-    region: String(parseJson(input.candidate.payload).region || parseJson(input.candidate.signals).region || ""),
+    direction: String(payload.direction || ""),
+    region: String(payload.region || parseJson(input.candidate.signals).region || ""),
     ingest_source: "crawler",
     source_batch: input.source_batch,
     platform_creator_id: input.platform_creator_id,

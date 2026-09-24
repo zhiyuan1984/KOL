@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HomeSurface } from "./surfaceError";
-import { claimPoolKol, loadHomePool } from "./kolSurfaceApi";
+import { claimPoolKol, loadHomePool, releaseFollowedKol } from "./kolSurfaceApi";
 import type { PoolKol } from "./kolContract";
 
 export function usePoolWorkspace(options: {
@@ -10,8 +10,10 @@ export function usePoolWorkspace(options: {
   boardKols: () => Array<Record<string, unknown>>;
   /** 领取成功后：清理选择并刷新「我的红人」面。 */
   onClaimed: (kolUid: string) => Promise<void>;
+  /** 撤销领取后：清理选择并刷新「我的红人」面。 */
+  onClaimUndone: (kolUid: string) => Promise<void>;
 }) {
-  const { loadBoard, boardKols, onClaimed } = options;
+  const { loadBoard, boardKols, onClaimed, onClaimUndone } = options;
 
   const [cards, setCards] = useState<PoolKol[]>([]);
   const [query, setQuery] = useState("");
@@ -20,6 +22,16 @@ export function usePoolWorkspace(options: {
   const [claimBusy, setClaimBusy] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
   const [claimedId, setClaimedId] = useState<string | null>(null);
+  const [undoClaim, setUndoClaim] = useState<{ card: PoolKol; followId: string } | null>(null);
+  const [undoBusy, setUndoBusy] = useState(false);
+  const [undoError, setUndoError] = useState<string | null>(null);
+  const removalTimerRef = useRef<number | null>(null);
+  const undoTimerRef = useRef<number | null>(null);
+
+  useEffect(() => () => {
+    if (removalTimerRef.current !== null) window.clearTimeout(removalTimerRef.current);
+    if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current);
+  }, []);
 
   const visibleCards = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -65,7 +77,8 @@ export function usePoolWorkspace(options: {
 
   const confirmClaim = useCallback(async () => {
     if (!claimTarget) return;
-    const kolUid = claimTarget.kol_uid;
+    const claimedCard = claimTarget;
+    const kolUid = claimedCard.kol_uid;
     setClaimBusy(true);
     setClaimError(null);
     try {
@@ -73,10 +86,21 @@ export function usePoolWorkspace(options: {
       if (!receipt.ok) throw new Error("领取未成功，请重试");
       setClaimTarget(null);
       setClaimedId(kolUid);
-      window.setTimeout(() => {
+      if (removalTimerRef.current !== null) window.clearTimeout(removalTimerRef.current);
+      removalTimerRef.current = window.setTimeout(() => {
         setCards((current) => current.filter((card) => card.kol_uid !== kolUid));
         setClaimedId(null);
+        removalTimerRef.current = null;
       }, 650);
+      if (receipt.follow_id) {
+        setUndoError(null);
+        setUndoClaim({ card: claimedCard, followId: receipt.follow_id });
+        if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current);
+        undoTimerRef.current = window.setTimeout(() => {
+          setUndoClaim(null);
+          undoTimerRef.current = null;
+        }, 4_000);
+      }
       await onClaimed(kolUid);
     } catch (err) {
       setClaimError(err instanceof Error ? err.message : "领取失败");
@@ -84,6 +108,29 @@ export function usePoolWorkspace(options: {
       setClaimBusy(false);
     }
   }, [claimTarget, onClaimed]);
+
+  const undoLatestClaim = useCallback(async () => {
+    if (!undoClaim || undoBusy) return;
+    setUndoBusy(true);
+    setUndoError(null);
+    try {
+      await releaseFollowedKol(undoClaim.followId, "claim_undo");
+      if (removalTimerRef.current !== null) window.clearTimeout(removalTimerRef.current);
+      removalTimerRef.current = null;
+      if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+      setCards((current) => current.some((card) => card.kol_uid === undoClaim.card.kol_uid)
+        ? current
+        : [undoClaim.card, ...current]);
+      setClaimedId(null);
+      setUndoClaim(null);
+      await onClaimUndone(undoClaim.card.kol_uid);
+    } catch (err) {
+      setUndoError(err instanceof Error ? err.message : "撤销领取失败");
+    } finally {
+      setUndoBusy(false);
+    }
+  }, [onClaimUndone, undoBusy, undoClaim]);
 
   return {
     cards,
@@ -98,8 +145,12 @@ export function usePoolWorkspace(options: {
     claimBusy,
     claimError,
     claimedId,
+    undoAvailable: Boolean(undoClaim),
+    undoBusy,
+    undoError,
     requestClaim,
     confirmClaim,
     cancelClaim,
+    undoLatestClaim,
   };
 }

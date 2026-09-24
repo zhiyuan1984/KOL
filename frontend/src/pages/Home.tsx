@@ -659,6 +659,10 @@ export default function Home() {
       setSelectedKolIds((current) => current.filter((id) => id !== kolUid));
       await followedWorkspaceRef.current.loadSurface();
     },
+    onClaimUndone: async (kolUid) => {
+      setSelectedKolIds((current) => current.filter((id) => id !== kolUid));
+      await followedWorkspaceRef.current.loadSurface();
+    },
   });
   poolSetErrorRef.current = poolWorkspace.setError;
 
@@ -1998,6 +2002,9 @@ export default function Home() {
                   claimTarget={poolWorkspace.claimTarget}
                   claimError={poolWorkspace.claimError}
                   claimedId={poolWorkspace.claimedId}
+                  undoAvailable={poolWorkspace.undoAvailable}
+                  undoBusy={poolWorkspace.undoBusy}
+                  undoError={poolWorkspace.undoError}
                   onQuery={poolWorkspace.setQuery}
                   onToggleSelect={toggleSelectedPool}
                   onToggleSelectAll={toggleSelectAllPool}
@@ -2009,6 +2016,7 @@ export default function Home() {
                   onClaim={poolWorkspace.requestClaim}
                   onConfirmClaim={() => void poolWorkspace.confirmClaim()}
                   onCancelClaim={poolWorkspace.cancelClaim}
+                  onUndoClaim={() => void poolWorkspace.undoLatestClaim()}
                 />
               )}
             />

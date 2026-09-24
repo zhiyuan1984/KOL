@@ -34,6 +34,7 @@ function upsertAFromProfile(profile: Json, sourceVersion?: string): void {
     display_name: firstString(profile.kolName, profile.nickname, profile.displayName, profile.name),
     platform: firstString(profile.platform, profile.primaryPlatform),
     homepage_url: homepageOf(profile),
+    avatar_url: firstString(profile.avatarUrl, profile.avatar_url, profile.avatar, profile.profileImage, profile.profile_image),
     followers: firstString(profile.followers, profile.followerCount, profile.followerCountTenThousands),
     avg_plays: firstString(profile.avgVideoViews10, profile.avg_views_10, profile.avgPlays),
     engagement: firstString(profile.avgVideoEngagementRate10, profile.engagementRate, profile.engagement_rate),

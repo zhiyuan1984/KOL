@@ -42,6 +42,7 @@ function seedProfile(kolUid: string, extra: Record<string, string> = {}) {
     display_name: extra.display_name || kolUid,
     platform: extra.platform || "YouTube",
     homepage_url: extra.homepage_url || `https://youtube.com/@${kolUid}`,
+    avatar_url: extra.avatar_url || "",
     followers: extra.followers || "12万",
     avg_plays: extra.avg_plays || "8000",
     engagement: extra.engagement || "0.04",
@@ -230,7 +231,7 @@ describe("kol follow/pool memory P0", () => {
   });
 
   it("GET pool is memory, public fields only, hides private", async () => {
-    seedProfile("KOL_SEA");
+    seedProfile("KOL_SEA", { avatar_url: "https://yt3.ggpht.com/kol-sea.jpg" });
     const res = await request("GET", "/api/home/pool");
     expect(res.status).toBe(200);
     expect(res.body.entry).toBe("memory");
@@ -239,6 +240,7 @@ describe("kol follow/pool memory P0", () => {
     expect(sea).toMatchObject({
       kol_uid: "KOL_SEA",
       homepage_url: "https://youtube.com/@KOL_SEA",
+      avatar_url: "https://yt3.ggpht.com/kol-sea.jpg",
       followers: "12万",
       pool_status: "open",
     });

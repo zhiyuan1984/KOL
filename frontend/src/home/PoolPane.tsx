@@ -19,6 +19,16 @@ function metricNumber(value?: string) {
   return number * (raw.includes("万") ? 10_000 : /k$/i.test(raw) ? 1_000 : 1);
 }
 
+function PoolAvatar({ card }: { card: PoolKol }) {
+  const [failed, setFailed] = useState(false);
+  const name = card.identity.display.replace(/^@/, "");
+  if (card.identity.avatar_url && !failed) {
+    return <img className="pool-row-avatar" data-kol-avatar="source" src={card.identity.avatar_url}
+      alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />;
+  }
+  return <span className="pool-row-avatar" data-kol-avatar="fallback" aria-hidden>{name.slice(0, 1) || "红"}</span>;
+}
+
 function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, onSelect, onClaim, onConfirm, onCancel }: {
   card: PoolKol; selected: boolean; claimBusy: boolean; claimTarget: boolean; claimError?: string | null;
   claimed: boolean; onSelect: (on: boolean) => void; onClaim: () => void; onConfirm: () => void; onCancel: () => void;
@@ -35,7 +45,7 @@ function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, 
     data-selected={selected || undefined} data-claimed={claimed || undefined}>
     <label className="pool-row-select"><input type="checkbox" data-pool-select={card.kol_uid} checked={selected}
       onChange={(e) => onSelect(e.target.checked)} /><span className="sr-only">选择 {card.identity.display}</span></label>
-    <span className="pool-row-avatar" data-kol-avatar aria-hidden>{card.identity.display.replace(/^@/, "").slice(0, 1) || "红"}</span>
+    <PoolAvatar card={card} />
     <div className="pool-row-content">
       <div className="pool-row-heading"><strong className="pool-row-name" data-kol-identity data-kol-name>{card.identity.display}</strong>
         <span className="pool-row-status" data-public-stage data-stage-code={card.public_stage?.code || undefined}
@@ -66,14 +76,15 @@ function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, 
 }
 
 export default function PoolPane({ cards, selectedIds, query, down, claimBusyId, claimTarget, claimError, claimedId,
-  libraryCount, syncBusy, onQuery, onToggleSelect, onToggleSelectAll, onAnalyzeSelected, onClaim,
-  onConfirmClaim, onCancelClaim, onSyncLibrary }: {
+  libraryCount, syncBusy, undoAvailable, undoBusy, undoError, onQuery, onToggleSelect, onToggleSelectAll, onAnalyzeSelected, onClaim,
+  onConfirmClaim, onCancelClaim, onUndoClaim, onSyncLibrary }: {
   cards: PoolKol[]; selectedIds: string[]; query: string; down?: SurfaceDownView | null;
   claimBusyId?: string | null; claimTarget?: PoolKol | null; claimError?: string | null; claimedId?: string | null;
-  libraryCount?: number | null; syncBusy?: boolean; onQuery: (value: string) => void;
+  libraryCount?: number | null; syncBusy?: boolean; undoAvailable?: boolean; undoBusy?: boolean; undoError?: string | null;
+  onQuery: (value: string) => void;
   onToggleSelect: (id: string, on: boolean) => void; onToggleSelectAll: (on: boolean) => void;
   onAnalyzeSelected: () => void; onClaim: (card: PoolKol) => void; onConfirmClaim: () => void;
-  onCancelClaim: () => void; onSyncLibrary?: () => void;
+  onCancelClaim: () => void; onUndoClaim?: () => void; onSyncLibrary?: () => void;
 }) {
   const [filter, setFilter] = useState("all");
   const [sort, setSort] = useState("default");
@@ -107,6 +118,12 @@ export default function PoolPane({ cards, selectedIds, query, down, claimBusyId,
       <button type="button" className="pool-analyze-button" data-analyze-selected data-home-entry="kol-analyze-enqueue"
         disabled={!selectedIds.length} onClick={onAnalyzeSelected}>分析已选</button>
     </div>
+    {undoAvailable && <div className="pool-claim-undo" role="status" data-pool-claim-undo>
+      <span>已领取</span><span aria-hidden>·</span>
+      <button type="button" data-pool-claim-undo-button data-home-entry="release-follow" disabled={undoBusy}
+        onClick={onUndoClaim}>{undoBusy ? "正在撤销…" : "撤销"}</button>
+      {undoError && <span className="pool-claim-undo-error" role="alert">{undoError}</span>}
+    </div>}
     {visible.length ? <div className="pool-compact-list" data-pool-list data-pool-origin="public">
       {visible.map((card) => <PoolRow key={card.kol_uid} card={card} selected={selectedIds.includes(card.kol_uid)}
         claimBusy={claimBusyId === card.kol_uid} claimTarget={claimTarget?.kol_uid === card.kol_uid}

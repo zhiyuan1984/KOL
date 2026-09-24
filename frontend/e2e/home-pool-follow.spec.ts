@@ -10,6 +10,7 @@ const POOL_ITEM = {
   display_name: "户外充电君",
   platform: "youtube",
   homepage_url: "https://www.youtube.com/@outdoor",
+  avatar_url: "https://yt3.ggpht.com/outdoor-avatar.jpg",
   followers: "120000",
   avg_plays: "30000",
   engagement: "0.042",
@@ -91,6 +92,12 @@ const FOLLOW_NEAR = {
 };
 
 async function stubKol172(page: Page) {
+  await page.route("https://yt3.ggpht.com/**", async (route) => {
+    await route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56"><rect width="56" height="56" fill="#dbeafe"/></svg>',
+    });
+  });
   await page.route("**/api/home/pool", async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
     await route.fulfill({
@@ -292,7 +299,10 @@ test("claim is L3 and posts confirm to /api/kols/:kolUid/claim", async ({ page }
   expect(height).toBeGreaterThanOrEqual(112);
   expect(height).toBeLessThanOrEqual(126);
   await expect(compactRow.locator("[data-public-stage]")).toHaveCount(1);
+  await expect(compactRow.locator("[data-public-stage]")).toHaveText("未首次建联");
+  await expect(compactRow.locator("[data-kol-avatar='source']")).toHaveCount(1);
   await expect(compactRow).not.toContainText("公开资料");
+  await expect(compactRow).not.toContainText("公海原因");
   await expect(compactRow).not.toContainText("领取后进入我的跟进");
   // 明确领取未建联的有主行：无主行排在前面，不能靠「第一张卡」取对象。
   await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").click();
@@ -302,9 +312,28 @@ test("claim is L3 and posts confirm to /api/kols/:kolUid/claim", async ({ page }
   await page.locator("[data-claim-follow-yes]").click();
   await expect.poll(() => claims.length).toBe(1);
   await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]")).toHaveText("已领取 ✓");
+  await expect(page.locator("[data-pool-claim-undo]")).toContainText("已领取");
   await expect(page.locator("[data-pool-kol='uid_outdoor']")).toHaveCount(0);
   expect(claims[0].path).toBe("/api/kols/uid_outdoor/claim");
   expect(claims[0].body.confirm === true || claims[0].body.confirmed === true).toBe(true);
+});
+
+test("claim undo restores the compact row through the existing release command", async ({ page }) => {
+  const releases: string[] = [];
+  page.on("request", (item) => {
+    if (item.method() === "POST" && /\/api\/follows\/.+\/release$/.test(new URL(item.url()).pathname)) {
+      releases.push(new URL(item.url()).pathname);
+    }
+  });
+  await page.goto("/?tab=pool");
+  await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").click();
+  await page.locator("[data-claim-follow-yes]").click();
+  await expect(page.locator("[data-pool-claim-undo]")).toBeVisible();
+  await page.locator("[data-pool-claim-undo-button]").click();
+  await expect.poll(() => releases.length).toBe(1);
+  await expect(page.locator("[data-pool-claim-undo]")).toHaveCount(0);
+  await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]")).toHaveText("领取跟进");
+  expect(releases[0]).toBe("/api/follows/kfi_claimed/release");
 });
 
 test("release is L3 and does not change stage", async ({ page }) => {
