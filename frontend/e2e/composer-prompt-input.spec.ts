@@ -199,14 +199,21 @@ test("home composer matches PromptInput tokens, opens plus menu, and sends", asy
   await page.locator("[data-home] [data-composer-input]").fill("给@小美妆日记 写阶段跟进邮件");
   const ready = await page.locator("[data-home] [data-send]").evaluate((el) => {
     const cs = getComputedStyle(el);
-    return { color: cs.color, background: cs.backgroundColor, disabled: (el as HTMLButtonElement).disabled };
+    const probe = document.createElement("i");
+    probe.style.background = "var(--primary)";
+    document.body.appendChild(probe);
+    const primary = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return {
+      color: cs.color,
+      background: cs.backgroundColor,
+      primary,
+      disabled: (el as HTMLButtonElement).disabled,
+    };
   });
   expect(ready.disabled).toBe(false);
   near(rgb(ready.color) as number[], [255, 255, 255]);
-  const readyBg = rgb(ready.background) as number[];
-  const blackish = Math.abs(readyBg[0] - 13) <= 16 && Math.abs(readyBg[1] - 13) <= 16 && Math.abs(readyBg[2] - 13) <= 16;
-  const brand = Math.abs(readyBg[0] - 199) <= 16 && Math.abs(readyBg[1] - 59) <= 16 && Math.abs(readyBg[2] - 122) <= 16;
-  expect(blackish || brand).toBeTruthy();
+  expect(rgb(ready.background)).toEqual(rgb(ready.primary));
   await page.locator("[data-home] [data-send]").click();
   await page.waitForURL(/\/s\//);
   await expect(page.locator('[data-kind="me"]')).toContainText("给@小美妆日记 写阶段跟进邮件", { timeout: 15000 });

@@ -212,8 +212,16 @@
 .btn.send.send-arrow:not(:disabled):not(.is-stop),
 .home-composer-dock .btn.send.send-arrow:not(:disabled):not(.is-stop),
 .composer .btn.send.send-arrow:not(:disabled):not(.is-stop) {
-  background: var(--composer-send-ready, #0d0d0d);
-  color: #ffffff;
+  /* 唯一的 AI 提问提交动作使用主行动粉色；闲置态仍为中性灰。 */
+  background: var(--primary);
+  color: var(--primary-fg);
+}
+
+.btn.send.send-arrow.is-ready:hover,
+.btn.send.send-arrow:not(:disabled):not(.is-stop):hover,
+.home-composer-dock .btn.send.send-arrow:not(:disabled):not(.is-stop):hover,
+.composer .btn.send.send-arrow:not(:disabled):not(.is-stop):hover {
+  background: var(--primary-hover);
 }
 
 .btn.send.send-arrow.is-stop,

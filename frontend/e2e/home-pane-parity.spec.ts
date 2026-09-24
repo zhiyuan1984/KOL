@@ -248,7 +248,9 @@ test("return-to-bottom uses the compact latest icon control", async ({ page }) =
   });
 
   const jump = page.locator("[data-scope-scroll-jump]");
+  const send = page.locator('[data-home-pane="discovery"] [data-ai-prompt-submit]');
   await expect(jump).toBeVisible();
+  await expect(send).toBeVisible();
   await expect(jump).toHaveAttribute("aria-label", "查看最新");
   await expect(jump).toHaveAttribute("data-tooltip", "查看最新");
   await expect(jump.locator("svg")).toHaveCount(1);
@@ -256,7 +258,11 @@ test("return-to-bottom uses the compact latest icon control", async ({ page }) =
     width: getComputedStyle(element).width,
     height: getComputedStyle(element).height,
     tooltip: getComputedStyle(element, "::after").content,
-  }))).toEqual({ width: "48px", height: "48px", tooltip: '"查看最新"' });
+  }))).toEqual({ width: "32px", height: "32px", tooltip: '"查看最新"' });
+  expect(await send.evaluate((element) => ({
+    width: getComputedStyle(element).width,
+    height: getComputedStyle(element).height,
+  }))).toEqual({ width: "32px", height: "32px" });
 
   await jump.hover();
   await expect.poll(() => jump.evaluate((element) => getComputedStyle(element, "::after").opacity)).toBe("1");
@@ -264,6 +270,29 @@ test("return-to-bottom uses the compact latest icon control", async ({ page }) =
   await expect.poll(() => scroll.evaluate((element) => (
     element.scrollHeight - element.scrollTop - element.clientHeight <= 24
   ))).toBe(true);
+});
+
+test("ready AI prompt submit uses the primary pink action color", async ({ page }) => {
+  await page.goto("/?tab=today");
+  const input = page.locator('[data-home-pane="today"] [data-composer-input]');
+  const send = page.locator('[data-home-pane="today"] [data-ai-prompt-submit]');
+  await expect(input).toBeVisible({ timeout: 30000 });
+  await input.fill("验证粉色发送按钮");
+  await expect(send).toHaveAttribute("data-send-state", "ready");
+  const colors = await send.evaluate((element) => {
+    const probe = document.createElement("i");
+    probe.style.background = "var(--primary)";
+    document.body.appendChild(probe);
+    const primary = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return {
+      background: getComputedStyle(element).backgroundColor,
+      foreground: getComputedStyle(element).color,
+      primary,
+    };
+  });
+  expect(colors.background).toBe(colors.primary);
+  expect(colors.foreground).not.toBe(colors.background);
 });
 
 /** 横向溢出量：scrollWidth 超出 clientWidth 的像素数（1px 容差）。 */
