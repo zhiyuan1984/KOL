@@ -272,9 +272,20 @@ test("compact discovery thresholds stay visible above the dock", async ({ page }
   const maxBox = await followerMax.boundingBox();
   const playsBox = await avgPlays.boundingBox();
   const countBox = await expectedCount.boundingBox();
+  const keywordBox = await card.locator("[data-discovery-keywords]").boundingBox();
+  const minInputBox = await followerMin.locator("input").boundingBox();
+  const playsInputBox = await avgPlays.locator("input").boundingBox();
   const dockBox = await workspace.locator('.home-composer-dock').boundingBox();
   expect(minBox && maxBox && Math.abs(minBox.y - maxBox.y) < 2).toBeTruthy();
   expect(playsBox && countBox && Math.abs(playsBox.y - countBox.y) < 2).toBeTruthy();
+  // All primary controls share the same left baseline; compact numeric fields
+  // no longer stretch to the width of the keyword field.
+  expect(keywordBox && minInputBox && Math.abs(keywordBox.x - minInputBox.x) < 2).toBeTruthy();
+  expect(keywordBox && playsInputBox && Math.abs(keywordBox.x - playsInputBox.x) < 2).toBeTruthy();
+  expect(keywordBox && minInputBox && minInputBox.width < keywordBox.width).toBeTruthy();
+  for (const field of ["platforms", "region", "directions", "keywords"]) {
+    await expect(card.locator(`[data-skill-param="${field}"]`)).toHaveCSS("border-bottom-width", "1px");
+  }
   expect(countBox && dockBox && countBox.y + countBox.height <= dockBox.y).toBeTruthy();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
 });

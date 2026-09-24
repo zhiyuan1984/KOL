@@ -173,12 +173,12 @@
   保留原字段的 data-skill-param / API key，布局变化不改变提交语义。
 */
 .discovery-brief-form {
-  --ds-label-w: 72px;
-  --ds-row-gap: 8px;
-  --ds-control-h: 32px;
-  --ds-chip-h: 28px;
-  --ds-chip-gap: 8px;
-  --ds-space-5: 12px;
+  --ds-label-w: 96px;
+  --ds-row-gap: 6px;
+  --ds-control-h: var(--control-h);
+  --ds-chip-h: var(--chip-h);
+  --ds-chip-gap: var(--space-1);
+  --ds-space-5: var(--space-3);
   padding-bottom: calc(var(--space-4, 16px) + env(safe-area-inset-bottom, 0px));
 }
 .discovery-brief-form .ai-discovery-card {
@@ -196,8 +196,8 @@
 }
 .discovery-brief-form .ai-discovery-label,
 .discovery-brief-form .ai-discovery-card .discovery-chip {
-  font-size: var(--ds-font-sm);
-  line-height: var(--ds-line-sm);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
 }
 .discovery-brief-form .ai-discovery-label {
   color: var(--text-muted);
@@ -210,8 +210,8 @@
 }
 .discovery-brief-form .discovery-param-icon {
   flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   color: var(--accent-text);
 }
 .discovery-brief-form .ai-discovery-chips {
@@ -220,7 +220,7 @@
 .discovery-brief-form .ai-discovery-card .discovery-chip {
   height: var(--ds-chip-h);
   min-height: var(--ds-chip-h);
-  padding-inline: 12px;
+  padding-inline: 8px;
   border-color: var(--control-border);
   border-radius: var(--radius-control);
   background: var(--bg);
@@ -242,9 +242,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 12px;
-  height: 12px;
-  margin-right: 4px;
+  width: 10px;
+  height: 10px;
+  margin-right: 2px;
   color: currentColor;
   font-size: var(--ds-font-tag);
   font-weight: 700;
@@ -261,7 +261,7 @@
   border-color: var(--control-border);
   border-radius: var(--radius-control);
   background: var(--bg);
-  font-size: var(--ds-font-body);
+  font-size: var(--ds-font-sm);
   line-height: var(--lh-control, 20px);
 }
 .discovery-brief-form .ai-discovery-card .ai-discovery-input:hover {
@@ -284,8 +284,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   transform: translateY(-50%);
   border: 0;
@@ -294,7 +294,7 @@
   color: var(--text-muted);
   cursor: pointer;
   font: inherit;
-  font-size: var(--ds-font-section);
+  font-size: var(--ds-font-sm);
   line-height: 1;
 }
 .discovery-brief-form .discovery-keyword-clear:hover {
@@ -316,6 +316,13 @@
 .discovery-brief-form .ai-discovery-row[data-skill-param="keywords"] {
   grid-column: 1 / -1;
 }
+.discovery-brief-form .ai-discovery-row[data-skill-param="platforms"],
+.discovery-brief-form .ai-discovery-row[data-skill-param="region"],
+.discovery-brief-form .ai-discovery-row[data-skill-param="directions"],
+.discovery-brief-form .ai-discovery-row[data-skill-param="keywords"] {
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
 
 /* 同行范围：两格等宽，短横只作数值区间提示，不参与读屏。 */
 .discovery-brief-form .ai-discovery-row.is-follower-range {
@@ -323,9 +330,10 @@
 }
 .discovery-brief-form .ai-discovery-range-control {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(96px, 132px) 12px minmax(96px, 132px);
+  justify-content: start;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 .discovery-brief-form .ai-discovery-range-separator {
   color: var(--text-muted);
@@ -339,15 +347,20 @@
 /* 两个短阈值在同一行；更长、通常需要千位分隔的均播获得更多弹性宽度。 */
 .discovery-brief-form .ai-discovery-row.is-metric-pair {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.9fr);
+  grid-template-columns: 228px 144px;
+  justify-content: start;
   align-items: center;
-  column-gap: 12px;
+  column-gap: 10px;
 }
 .discovery-brief-form .is-metric-pair .ai-discovery-inline-field {
   display: grid;
-  grid-template-columns: auto minmax(64px, 1fr);
+  grid-template-columns: var(--ds-label-w) 120px;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
+}
+.discovery-brief-form .is-metric-pair .ai-discovery-inline-field + .ai-discovery-inline-field {
+  grid-template-columns: auto 68px;
+  gap: 6px;
 }
 .discovery-brief-form .is-metric-pair .ai-discovery-label {
   white-space: nowrap;
@@ -367,12 +380,22 @@
   }
 }
 @container home-workspace-center (max-width: 380px) {
+  .discovery-brief-form {
+    --ds-label-w: 84px;
+  }
+  .discovery-brief-form .ai-discovery-range-control {
+    grid-template-columns: minmax(0, 1fr) 12px minmax(0, 1fr);
+  }
   .discovery-brief-form .ai-discovery-row.is-metric-pair {
     grid-template-columns: minmax(0, 1fr);
-    row-gap: 8px;
+    row-gap: 6px;
   }
   .discovery-brief-form .is-metric-pair .ai-discovery-inline-field {
-    grid-template-columns: var(--ds-label-w) minmax(0, 1fr);
+    grid-template-columns: var(--ds-label-w) minmax(0, 120px);
+    gap: 12px;
+  }
+  .discovery-brief-form .is-metric-pair .ai-discovery-inline-field + .ai-discovery-inline-field {
+    grid-template-columns: var(--ds-label-w) minmax(0, 72px);
     gap: 12px;
   }
 }
