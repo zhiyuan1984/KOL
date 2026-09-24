@@ -12393,3 +12393,80 @@ button.today-brief-primary-btn:disabled {
   font-size: var(--ds-font-sm);
   line-height: var(--lh-control);
 }
+/* 公海线索挑选：列表行和状态只使用本面的紧凑规格。 */
+.pool-compact-pane {
+  --pool-text: #171717;
+  --pool-secondary: #666;
+  --pool-tertiary: #8a8a8a;
+  --pool-border: #ececec;
+  --pool-action: #2563eb;
+  width: 100%;
+  color: var(--pool-text);
+  font-size: 13px;
+}
+.pool-compact-header { display: flex; align-items: center; gap: 12px; margin: 0 0 8px; }
+.pool-compact-header h2 { margin: 0; font-size: 15px; line-height: 22px; font-weight: 600; }
+.pool-compact-header h2 span { color: var(--pool-secondary); font-weight: 500; }
+.pool-compact-header [data-pool-selected-count] { color: var(--pool-secondary); font-size: 12px; }
+.pool-compact-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.pool-compact-toolbar input[type="search"],
+.pool-compact-toolbar select,
+.pool-analyze-button {
+  height: 32px; border: 1px solid var(--pool-border); border-radius: 6px; background: #fff;
+  color: var(--pool-text); font: inherit; font-size: 12px; padding: 0 10px;
+}
+.pool-search { flex: 1 1 180px; min-width: 120px; }
+.pool-search input { width: 100%; }
+.pool-control select { min-width: 72px; cursor: pointer; }
+.pool-analyze-button { white-space: nowrap; cursor: pointer; color: var(--pool-action); }
+.pool-analyze-button:disabled { color: var(--pool-tertiary); cursor: default; }
+.pool-select-all { display: inline-flex; align-items: center; }
+.pool-compact-pane input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--pool-action); }
+.pool-compact-list { display: block; width: 100%; border-top: 1px solid var(--pool-border); }
+.pool-kol-row {
+  display: grid; grid-template-columns: 16px 56px minmax(0, 1fr) auto;
+  gap: 12px; align-items: start; min-height: 118px; padding: 12px 16px;
+  border-bottom: 1px solid var(--pool-border); background: #fff;
+  transition: opacity 180ms ease, background 140ms ease; box-sizing: border-box;
+}
+.pool-kol-row:hover, .pool-kol-row[data-selected="true"] { background: #fafafa; }
+.pool-kol-row[data-claimed="true"] { opacity: .45; }
+.pool-row-select { padding-top: 20px; }
+.pool-row-avatar {
+  display: flex; align-items: center; justify-content: center; width: 56px; height: 56px;
+  border-radius: 50%; background: #f3f4f6; color: var(--pool-secondary); font-size: 16px; font-weight: 600;
+}
+.pool-row-content { min-width: 0; display: grid; gap: 4px; }
+.pool-row-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.pool-row-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; line-height: 20px; font-weight: 600; }
+.pool-row-status {
+  display: inline-flex; align-items: center; height: 22px; padding: 0 7px; border-radius: 4px;
+  background: #f3f4f6; color: #666; font-size: 12px; line-height: 18px; white-space: nowrap;
+}
+.pool-row-status[data-overdue="true"] { background: #fff1f1; color: #d74646; }
+.pool-row-meta, .pool-row-metrics, .pool-row-intro { font-size: 12px; line-height: 18px; }
+.pool-row-meta { display: flex; flex-wrap: wrap; gap: 0 8px; color: var(--pool-tertiary); }
+.pool-row-meta span + span::before { content: "·"; margin-right: 8px; }
+.pool-row-metrics { color: var(--pool-secondary); }
+.pool-row-intro { margin: 0; color: var(--pool-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pool-row-actions { display: flex; align-items: flex-start; gap: 4px; padding-top: 13px; }
+.pool-claim-button {
+  height: 30px; padding: 0 11px; border: 1px solid var(--pool-action); border-radius: 6px;
+  background: #fff; color: var(--pool-action); font: inherit; font-size: 12px; font-weight: 500;
+  white-space: nowrap; cursor: pointer;
+}
+.pool-claim-button:hover { background: #eff6ff; }
+.pool-claim-button:disabled { opacity: .7; cursor: default; }
+.pool-more-wrap { position: relative; }
+.pool-more-button { width: 30px; height: 30px; border: 0; background: none; color: var(--pool-secondary); font-size: 16px; cursor: pointer; }
+.pool-more-menu { position: absolute; right: 0; top: 32px; z-index: 2; min-width: 130px; padding: 8px; border: 1px solid var(--pool-border); border-radius: 6px; background: #fff; box-shadow: 0 4px 12px #0001; font-size: 12px; }
+.pool-more-menu a { color: var(--pool-action); text-decoration: none; }
+.pool-claim-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 0; font-size: 12px; color: var(--pool-secondary); }
+.pool-claim-confirm button { height: 28px; padding: 0 8px; border: 1px solid var(--pool-border); border-radius: 6px; background: #fff; color: var(--pool-action); cursor: pointer; font-size: 12px; }
+.pool-claim-confirm [data-claim-follow-error] { width: 100%; margin: 0; color: #d74646; }
+.pool-compact-pane :is(input, select, button, a):focus-visible { outline: 2px solid var(--pool-action); outline-offset: 2px; }
+@media (max-width: 620px) {
+  .pool-kol-row { grid-template-columns: 16px 56px minmax(0, 1fr); }
+  .pool-row-actions { grid-column: 3; padding-top: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .pool-kol-row { transition: none; } }

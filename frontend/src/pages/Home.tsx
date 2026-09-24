@@ -35,7 +35,6 @@ import type { WorkspacePane } from "../home/WorkspaceShell";
 import FollowedPane from "../home/FollowedPane";
 import { matchesFollowedSituation, type FollowedSituation } from "../home/FollowedBrief";
 import PoolPane from "../home/PoolPane";
-import ClaimFollowConfirm from "../home/ClaimFollowConfirm";
 import ReleaseFollowConfirm from "../home/ReleaseFollowConfirm";
 import { FollowedBatchConfirm } from "../home/FollowedBatchConfirm";
 import SkillParamCard, { type SkillParamField } from "../home/workspace/SkillParamCard";
@@ -1189,7 +1188,7 @@ export default function Home() {
       window.dispatchEvent(new Event(TODO_PLAN_START_EVENT));
       return;
     }
-    if (isAnalyzeEnqueuePrefill(prompt, intent)) {
+    if (isAnalyzeEnqueuePrefill(prompt, intent) && !analyzeSurface && !analyzeUids.length) {
       const people = analyzePeople.length ? analyzePeople : [];
       if (!people.length) {
         setErr("请指定要分析的红人");
@@ -1991,14 +1990,15 @@ export default function Home() {
                 <PoolPane
                   cards={poolWorkspace.cards}
                   selectedIds={selectedKolIds}
-                  hoveredId={followedWorkspace.hoveredId}
                   query={poolWorkspace.query}
                   down={poolDown}
                   libraryCount={libraryCount}
                   syncBusy={retryingSurface === "pool"}
                   claimBusyId={poolWorkspace.claimBusy && poolWorkspace.claimTarget ? poolWorkspace.claimTarget.kol_uid : null}
+                  claimTarget={poolWorkspace.claimTarget}
+                  claimError={poolWorkspace.claimError}
+                  claimedId={poolWorkspace.claimedId}
                   onQuery={poolWorkspace.setQuery}
-                  onHover={followedWorkspace.setHoveredId}
                   onToggleSelect={toggleSelectedPool}
                   onToggleSelectAll={toggleSelectAllPool}
                   onSyncLibrary={() => void retrySurface("pool")}
@@ -2007,6 +2007,8 @@ export default function Home() {
                     prefillAnalyze("pool", selected, selected.map((card) => card.kol_uid));
                   }}
                   onClaim={poolWorkspace.requestClaim}
+                  onConfirmClaim={() => void poolWorkspace.confirmClaim()}
+                  onCancelClaim={poolWorkspace.cancelClaim}
                 />
               )}
             />
@@ -2099,13 +2101,6 @@ export default function Home() {
         task={editTaskTarget}
         onClose={() => setEditTaskTarget(null)}
         onSaved={handleTaskEdited}
-      />
-      <ClaimFollowConfirm
-        card={poolWorkspace.claimTarget}
-        busy={poolWorkspace.claimBusy}
-        error={poolWorkspace.claimError}
-        onConfirm={() => void poolWorkspace.confirmClaim()}
-        onCancel={poolWorkspace.cancelClaim}
       />
       <ReleaseFollowConfirm
         handle={followedWorkspace.releaseTarget?.handle}

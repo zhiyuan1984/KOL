@@ -3,305 +3,127 @@ import type { PoolKol } from "./kolContract";
 import { KOL_SELECT_MAX } from "./kolContract";
 import { HOME_HANDOFF_TO_AGENT } from "./entryRegistry";
 import type { SurfaceDownView } from "./surfaceError";
+import ClaimFollowConfirm from "./ClaimFollowConfirm";
 
-function formatIngested(value?: string | null): string {
-  if (!value) return "入库时间未知";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "入库时间未知";
-  return `入库 ${date.toLocaleDateString("zh-CN", { year: "numeric", month: "numeric", day: "numeric" })}`;
+function ingested(value?: string | null) {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime())
+    ? `入库 ${date.toLocaleDateString("zh-CN", { year: "numeric", month: "numeric", day: "numeric" })}`
+    : "入库时间未知";
 }
 
-function PoolKolCard({
-  card,
-  selected,
-  hovered,
-  claimBusy,
-  onHover,
-  onToggleSelect,
-  onClaim,
-}: {
-  card: PoolKol;
-  selected: boolean;
-  hovered: boolean;
-  claimBusy?: boolean;
-  onHover: (on: boolean) => void;
-  onToggleSelect: (on: boolean) => void;
-  onClaim: () => void;
+function metricNumber(value?: string) {
+  const raw = (value || "").trim();
+  const number = Number.parseFloat(raw.replace(/,/g, ""));
+  if (!Number.isFinite(number)) return 0;
+  return number * (raw.includes("万") ? 10_000 : /k$/i.test(raw) ? 1_000 : 1);
+}
+
+function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, onSelect, onClaim, onConfirm, onCancel }: {
+  card: PoolKol; selected: boolean; claimBusy: boolean; claimTarget: boolean; claimError?: string | null;
+  claimed: boolean; onSelect: (on: boolean) => void; onClaim: () => void; onConfirm: () => void; onCancel: () => void;
 }) {
-  const initial = card.identity.display.replace(/^@/, "").slice(0, 1) || "红";
-  const chips = [
-    card.identity.platform ? { id: "platform", label: card.identity.platform } : null,
-    card.direction ? { id: "direction", label: card.direction } : null,
-    card.region ? { id: "region", label: card.region } : null,
-    card.style ? { id: "style", label: card.style } : null,
-    card.idle?.label ? { id: "idle", label: card.idle.label } : null,
-  ].filter(Boolean) as { id: string; label: string }[];
+  const [more, setMore] = useState(false);
+  const intro = [card.direction, card.region, card.style].filter(Boolean).join(" · ");
   const metrics = [
-    card.metrics.followers ? `粉丝 ${card.metrics.followers}` : "",
-    card.metrics.avg_plays ? `均播 ${card.metrics.avg_plays}` : "",
-    card.metrics.engagement ? `互动 ${card.metrics.engagement}` : "",
-  ].filter(Boolean);
-
-  return (
-    <article
-      className={"followed-kol-card pool-kol-card" + (hovered ? " is-hovered" : "")}
-      data-pool-kol={card.kol_uid}
-      data-kol-work-card
-      data-pool-card
-      data-selected={selected ? "true" : undefined}
-      onMouseEnter={() => onHover(true)}
-      onMouseLeave={() => onHover(false)}
-    >
-      <div className="kol-band kol-band-identity" data-kol-band="identity">
-        <label className="followed-kol-select" onClick={(event) => event.stopPropagation()}>
-          <input
-            type="checkbox"
-            data-pool-select={card.kol_uid}
-            checked={selected}
-            onChange={(event) => onToggleSelect(event.target.checked)}
-          />
-          <span className="sr-only">选择 {card.identity.display}</span>
-        </label>
-        <span className="kol-avatar" data-kol-avatar aria-hidden>{initial}</span>
-        <div className="kol-identity-main">
-          <div className="kol-identity-line">
-            <strong className="kol-name" data-kol-identity data-kol-name>{card.identity.display}</strong>
-            <span className="kol-stage-badge" data-public-stage data-stage-code={card.public_stage?.code || undefined}>
-              <span className="kol-stage" data-stage-label>{card.public_stage?.label || "公海"}</span>
-            </span>
-          </div>
-          {chips.length ? (
-            <span className="kol-chip-row" data-kol-scope>
-              {chips.map((chip) => (
-                <span key={chip.id + chip.label} className="kol-chip" data-kol-chip={chip.id} title={chip.label}>
-                  {chip.label}
-                </span>
-              ))}
-            </span>
-          ) : null}
-        </div>
+    card.metrics.followers && `粉丝 ${card.metrics.followers}`,
+    card.metrics.avg_plays && `均播 ${card.metrics.avg_plays}`,
+    card.metrics.engagement && `互动 ${card.metrics.engagement}`,
+  ].filter(Boolean).join(" · ");
+  const stage = card.public_stage?.label || "未首次建联";
+  return <article className="pool-kol-row" data-pool-kol={card.kol_uid} data-pool-card data-kol-work-card
+    data-selected={selected || undefined} data-claimed={claimed || undefined}>
+    <label className="pool-row-select"><input type="checkbox" data-pool-select={card.kol_uid} checked={selected}
+      onChange={(e) => onSelect(e.target.checked)} /><span className="sr-only">选择 {card.identity.display}</span></label>
+    <span className="pool-row-avatar" data-kol-avatar aria-hidden>{card.identity.display.replace(/^@/, "").slice(0, 1) || "红"}</span>
+    <div className="pool-row-content">
+      <div className="pool-row-heading"><strong className="pool-row-name" data-kol-identity data-kol-name>{card.identity.display}</strong>
+        <span className="pool-row-status" data-public-stage data-stage-code={card.public_stage?.code || undefined}
+          data-overdue={stage.includes("14") && stage.includes("回复") || undefined} data-stage-label>{stage}</span></div>
+      <div className="pool-row-meta" data-kol-scope>
+        {card.identity.platform && <span data-kol-chip="platform">{card.identity.platform}</span>}
+        <span>在库</span>
+        {card.idle?.label && card.idle.label !== "在库" && <span data-kol-chip="idle">{card.idle.label}</span>}
+        <span data-pool-ingested>{ingested(card.ingested_at)}</span>
       </div>
-
-      <div className="kol-split" data-kol-split>
-        <div className="kol-band kol-band-fact" data-kol-band="fact">
-          <div className="kol-state-block" data-pool-public-fields>
-            <p className="kol-split-kicker"><span className="kol-split-icon" aria-hidden>◎</span>公开资料</p>
-            <p className="kol-mail-digest" data-pool-metrics>
-              {metrics.join(" · ") || "暂无公开数据"}
-            </p>
-            <p className="kol-mail-meta" data-pool-ingested>{formatIngested(card.ingested_at)}</p>
-            {card.identity.profile_url ? (
-              <p className="kol-mail-meta">
-                <a href={card.identity.profile_url} target="_blank" rel="noopener noreferrer" data-pool-profile-link>
-                  平台主页
-                </a>
-              </p>
-            ) : null}
-          </div>
-        </div>
-        <div className="kol-band kol-band-recommend" data-kol-band="action">
-          <div className="kol-state-block">
-            <p className="kol-split-kicker"><span className="kol-split-icon" aria-hidden>✦</span>建联</p>
-            <p className="kol-suggestion">领取后进入我的跟进，不等于发信或改阶段。</p>
-          </div>
-          <div className="kol-band kol-band-actions" data-kol-band="cta">
-            <div className="kol-cta-primary">
-              <button
-                type="button"
-                className="btn ghost sm kol-cta-btn kol-cta-work"
-                data-pool-claim
-                data-home-entry="claim-kol"
-                disabled={claimBusy}
-                onClick={onClaim}
-              >
-                {claimBusy ? "正在领取…" : "领取跟进"}
-              </button>
-            </div>
-          </div>
-        </div>
+      <div className="pool-row-metrics" data-pool-metrics>{metrics || "暂无公开数据"}</div>
+      <p className="pool-row-intro" data-pool-public-fields title={intro || undefined}>{intro || "暂无简介"}</p>
+      {claimTarget && <ClaimFollowConfirm card={card} busy={claimBusy} error={claimError}
+        onConfirm={onConfirm} onCancel={onCancel} />}
+    </div>
+    <div className="pool-row-actions">
+      <button type="button" className="pool-claim-button" data-pool-claim data-home-entry="claim-kol"
+        disabled={claimBusy || claimed} onClick={onClaim}>{claimed ? "已领取 ✓" : claimBusy ? "正在领取…" : "领取跟进"}</button>
+      <div className="pool-more-wrap">
+        <button type="button" className="pool-more-button" data-pool-more aria-label={`更多操作：${card.identity.display}`}
+          aria-expanded={more} onClick={() => setMore(!more)}>⋯</button>
+        {more && <div className="pool-more-menu">{card.identity.profile_url
+          ? <a href={card.identity.profile_url} target="_blank" rel="noopener noreferrer" data-pool-profile-link>打开平台主页 ↗</a>
+          : <span>暂无平台主页</span>}</div>}
       </div>
-    </article>
-  );
+    </div>
+  </article>;
 }
 
-export default function PoolPane({
-  cards,
-  selectedIds,
-  hoveredId,
-  query,
-  down,
-  claimBusyId,
-  libraryCount,
-  syncBusy,
-  onQuery,
-  onHover,
-  onToggleSelect,
-  onToggleSelectAll,
-  onAnalyzeSelected,
-  onClaim,
-  onSyncLibrary,
-}: {
-  cards: PoolKol[];
-  selectedIds: string[];
-  hoveredId: string | null;
-  query: string;
-  down?: SurfaceDownView | null;
-  claimBusyId?: string | null;
-  libraryCount?: number | null;
-  syncBusy?: boolean;
-  onQuery: (value: string) => void;
-  onHover: (id: string | null) => void;
-  onToggleSelect: (id: string, on: boolean) => void;
-  onToggleSelectAll: (on: boolean) => void;
-  onAnalyzeSelected: () => void;
-  onClaim: (card: PoolKol) => void;
-  onSyncLibrary?: () => void;
+export default function PoolPane({ cards, selectedIds, query, down, claimBusyId, claimTarget, claimError, claimedId,
+  libraryCount, syncBusy, onQuery, onToggleSelect, onToggleSelectAll, onAnalyzeSelected, onClaim,
+  onConfirmClaim, onCancelClaim, onSyncLibrary }: {
+  cards: PoolKol[]; selectedIds: string[]; query: string; down?: SurfaceDownView | null;
+  claimBusyId?: string | null; claimTarget?: PoolKol | null; claimError?: string | null; claimedId?: string | null;
+  libraryCount?: number | null; syncBusy?: boolean; onQuery: (value: string) => void;
+  onToggleSelect: (id: string, on: boolean) => void; onToggleSelectAll: (on: boolean) => void;
+  onAnalyzeSelected: () => void; onClaim: (card: PoolKol) => void; onConfirmClaim: () => void;
+  onCancelClaim: () => void; onSyncLibrary?: () => void;
 }) {
-  const selecting = selectedIds.length > 0;
-  const queryDown = Boolean(down);
+  const [filter, setFilter] = useState("all");
+  const [sort, setSort] = useState("default");
   const [syncRequested, setSyncRequested] = useState(false);
+  const queryDown = Boolean(down);
   const libraryUnsynced = !queryDown && !cards.length && !Number(libraryCount || 0);
+  const needle = query.trim().toLowerCase();
   const visible = cards.filter((card) => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return true;
-    return [
-      card.identity.display,
-      card.identity.platform,
-      card.direction,
-      card.region,
-      card.style,
-      card.public_stage?.label,
-    ].join(" ").toLowerCase().includes(needle);
+    const stage = card.public_stage?.label || "";
+    const overdue = stage.includes("14") && stage.includes("回复");
+    return (filter === "all" || (filter === "overdue" ? overdue : stage.includes("未首次建联")))
+      && (!needle || [card.identity.display, card.identity.platform, card.direction, card.region, card.style, stage]
+        .join(" ").toLowerCase().includes(needle));
   });
-
-  return (
-    <section
-      className="recommend-work followed-kol-pane is-result-rail"
-      data-pool-overview
-    >
-      <div className="followed-kol-column" data-pool-column>
-        <div className="followed-object-toolbar" data-pool-toolbar data-home-entry="list-pool">
-          <label className="followed-object-search">
-            <span className="sr-only">搜索公海对象</span>
-            <input
-              type="search"
-              data-pool-search
-              value={query}
-              placeholder="搜索公海对象"
-              onChange={(event) => onQuery(event.target.value)}
-            />
-          </label>
-          <p className="followed-object-count" data-pool-selected-count>
-            {selecting ? `已选 ${selectedIds.length} / ${KOL_SELECT_MAX}` : `${visible.length} 人`}
-          </p>
-          <label className="followed-select-all">
-            <input
-              type="checkbox"
-              data-pool-select-all
-              checked={visible.length > 0 && visible.every((card) => selectedIds.includes(card.kol_uid))}
-              disabled={!visible.length}
-              onChange={(event) => onToggleSelectAll(event.target.checked)}
-            />
-            <span className="sr-only">全选公海对象</span>
-          </label>
-          <button
-            type="button"
-            className={selecting ? "btn work sm" : "btn ghost sm"}
-            data-analyze-selected
-            data-home-entry="kol-analyze-enqueue"
-            disabled={!selecting}
-            onClick={onAnalyzeSelected}
-          >
-            分析已选
-          </button>
-        </div>
-
-        {visible.length ? (
-          <div className="followed-kol-list" data-pool-list data-pool-origin="public">
-            {visible.map((card) => (
-              <PoolKolCard
-                key={card.kol_uid}
-                card={card}
-                selected={selectedIds.includes(card.kol_uid)}
-                hovered={hoveredId === card.kol_uid}
-                claimBusy={claimBusyId === card.kol_uid}
-                onHover={(on) => onHover(on ? card.kol_uid : null)}
-                onToggleSelect={(on) => onToggleSelect(card.kol_uid, on)}
-                onClaim={() => onClaim(card)}
-              />
-            ))}
-          </div>
-        ) : (
-          <div
-            className="task-empty"
-            data-pool-empty={queryDown ? "down" : cards.length ? "filtered" : "none"}
-            data-empty-kind={queryDown ? "service-down" : cards.length ? "filter-empty" : "no-data"}
-          >
-            <strong>
-              {queryDown
-                ? "公海暂时不可用"
-                : cards.length
-                  ? "没有匹配的公海对象"
-                  : libraryUnsynced
-                    ? syncRequested ? "已请求同步红人库" : "红人库还没有同步"
-                    : "公海没有未首次建联的红人"}
-            </strong>
-            <p>
-              {queryDown
-                ? "记忆查询失败，没有写入会话。可重试或交给 Agent 分析。"
-                : cards.length
-                  ? "公海只展示公开资料，不是跟进 Tab 的筛选。领取是建联，不等于发信或改阶段。"
-                  : libraryUnsynced
-                    ? syncRequested
-                      ? "同步在后台进行；完成后重新打开公海即可看到未首次建联的可领取对象。"
-                      : "公海 = 远程红人库中还没有首次建联的红人。同步红人库后，这里才会出现可领取对象。"
-                    : "公海 = 远程红人库中还没有首次建联的红人。库里现有的红人都已建联或已被领取，暂时没有可领取对象。"}
-            </p>
-            {queryDown ? (
-              down ? (
-                <>
-                  <p className="muted" data-pool-down-reason title={down.detail || undefined}>{down.message}</p>
-                  <div className="task-empty-actions">
-                    <button
-                      type="button"
-                      className="btn ghost sm"
-                      data-pool-retry
-                      disabled={down.retrying}
-                      onClick={down.onRetry}
-                    >
-                      重试
-                    </button>
-                    <button
-                      type="button"
-                      className="btn work sm"
-                      data-pool-handoff-agent
-                      data-home-entry="composer-analyze"
-                      onClick={down.onHandoff}
-                    >
-                      {HOME_HANDOFF_TO_AGENT}
-                    </button>
-                  </div>
-                </>
-              ) : null
-            ) : cards.length ? null : (
-              <div className="task-empty-actions">
-                <button
-                  type="button"
-                  className="btn work sm"
-                  data-pool-sync-library
-                  disabled={!onSyncLibrary || syncBusy}
-                  onClick={() => {
-                    setSyncRequested(true);
-                    onSyncLibrary?.();
-                  }}
-                >
-                  {syncBusy ? "正在同步红人库…" : syncRequested ? "重新同步红人库" : "立即同步红人库"}
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </section>
-  );
+  if (sort === "newest") visible.sort((a, b) => (Date.parse(b.ingested_at || "") || 0) - (Date.parse(a.ingested_at || "") || 0));
+  if (sort === "followers") visible.sort((a, b) => metricNumber(b.metrics.followers) - metricNumber(a.metrics.followers));
+  return <section className="pool-compact-pane is-result-rail" data-pool-overview>
+    <div className="pool-compact-header"><h2>公海对象 <span data-pool-total>[{cards.length}]</span></h2>
+      {selectedIds.length > 0 && <span data-pool-selected-count>已选 {selectedIds.length} / {KOL_SELECT_MAX}</span>}</div>
+    <div className="pool-compact-toolbar" data-pool-toolbar data-home-entry="list-pool">
+      <label className="pool-search"><span className="sr-only">搜索公海对象</span>
+        <input type="search" data-pool-search value={query} placeholder="搜索公海对象" onChange={(e) => onQuery(e.target.value)} /></label>
+      <label className="pool-control"><span className="sr-only">筛选状态</span><select data-pool-filter value={filter} onChange={(e) => setFilter(e.target.value)}>
+        <option value="all">筛选</option><option value="new">未首次建联</option><option value="overdue">14天无回复</option></select></label>
+      <label className="pool-control"><span className="sr-only">排序</span><select data-pool-sort value={sort} onChange={(e) => setSort(e.target.value)}>
+        <option value="default">排序</option><option value="newest">最近入库</option><option value="followers">粉丝数</option></select></label>
+      <label className="pool-select-all"><input type="checkbox" data-pool-select-all
+        checked={visible.length > 0 && visible.every((card) => selectedIds.includes(card.kol_uid))}
+        disabled={!visible.length} onChange={(e) => onToggleSelectAll(e.target.checked)} />
+        <span className="sr-only">全选公海对象</span></label>
+      <button type="button" className="pool-analyze-button" data-analyze-selected data-home-entry="kol-analyze-enqueue"
+        disabled={!selectedIds.length} onClick={onAnalyzeSelected}>分析已选</button>
+    </div>
+    {visible.length ? <div className="pool-compact-list" data-pool-list data-pool-origin="public">
+      {visible.map((card) => <PoolRow key={card.kol_uid} card={card} selected={selectedIds.includes(card.kol_uid)}
+        claimBusy={claimBusyId === card.kol_uid} claimTarget={claimTarget?.kol_uid === card.kol_uid}
+        claimError={claimError} claimed={claimedId === card.kol_uid}
+        onSelect={(on) => onToggleSelect(card.kol_uid, on)} onClaim={() => onClaim(card)}
+        onConfirm={onConfirmClaim} onCancel={onCancelClaim} />)}
+    </div> : <div className="task-empty" data-pool-empty={queryDown ? "down" : cards.length ? "filtered" : "none"}
+      data-empty-kind={queryDown ? "service-down" : cards.length ? "filter-empty" : "no-data"}>
+      <strong>{queryDown ? "公海暂时不可用" : cards.length ? "没有匹配的公海对象" : libraryUnsynced
+        ? syncRequested ? "已请求同步红人库" : "红人库还没有同步" : "公海暂无可领取对象"}</strong>
+      {queryDown && down ? <><p className="muted" data-pool-down-reason title={down.detail || undefined}>{down.message}</p>
+        <div className="task-empty-actions"><button type="button" className="btn ghost sm" data-pool-retry disabled={down.retrying}
+          onClick={down.onRetry}>重试</button><button type="button" className="btn work sm" data-pool-handoff-agent
+          data-home-entry="composer-analyze" onClick={down.onHandoff}>{HOME_HANDOFF_TO_AGENT}</button></div></>
+        : !cards.length && !queryDown ? <div className="task-empty-actions"><button type="button" className="btn work sm"
+          data-pool-sync-library disabled={!onSyncLibrary || syncBusy} onClick={() => { setSyncRequested(true); onSyncLibrary?.(); }}>
+          {syncBusy ? "正在同步红人库…" : syncRequested ? "重新同步红人库" : "立即同步红人库"}</button></div> : null}
+    </div>}
+  </section>;
 }

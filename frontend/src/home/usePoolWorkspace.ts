@@ -19,6 +19,7 @@ export function usePoolWorkspace(options: {
   const [claimTarget, setClaimTarget] = useState<PoolKol | null>(null);
   const [claimBusy, setClaimBusy] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
+  const [claimedId, setClaimedId] = useState<string | null>(null);
 
   const visibleCards = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -36,15 +37,19 @@ export function usePoolWorkspace(options: {
     if (loaded.down) {
       setError(loaded.error || "公海读取失败");
       setCards([]);
-      return;
+      return loaded.source;
     }
     setError("");
     setCards(loaded.items);
+    return loaded.source;
   }, [boardKols]);
 
   const ensureLoaded = useCallback(async () => {
-    await loadBoard("pool");
-    await loadSurface();
+    // The pool endpoint is independent of the board. Show its rows while the board refresh runs.
+    const board = loadBoard("pool");
+    const source = await loadSurface();
+    await board;
+    if (source === "board-adapter") await loadSurface();
   }, [loadBoard, loadSurface]);
 
   const requestClaim = useCallback((card: PoolKol) => {
@@ -64,9 +69,14 @@ export function usePoolWorkspace(options: {
     setClaimBusy(true);
     setClaimError(null);
     try {
-      await claimPoolKol(kolUid);
+      const receipt = await claimPoolKol(kolUid);
+      if (!receipt.ok) throw new Error("领取未成功，请重试");
       setClaimTarget(null);
-      setCards((current) => current.filter((card) => card.kol_uid !== kolUid));
+      setClaimedId(kolUid);
+      window.setTimeout(() => {
+        setCards((current) => current.filter((card) => card.kol_uid !== kolUid));
+        setClaimedId(null);
+      }, 650);
       await onClaimed(kolUid);
     } catch (err) {
       setClaimError(err instanceof Error ? err.message : "领取失败");
@@ -87,6 +97,7 @@ export function usePoolWorkspace(options: {
     claimTarget,
     claimBusy,
     claimError,
+    claimedId,
     requestClaim,
     confirmClaim,
     cancelClaim,

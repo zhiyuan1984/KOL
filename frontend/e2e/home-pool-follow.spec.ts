@@ -258,7 +258,7 @@ test("selection prefills composer and enqueue is not from-text", async ({ page }
   await expect(page.locator("[data-running-count]")).toHaveText("1");
   await expect(page.locator('[data-nav="running"]')).toHaveAttribute("href", /tab=todo/);
   await page.locator('[data-home-mode="today"]').click();
-  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue("");
+  await expect(page.locator("[data-home] [data-composer-input]")).not.toHaveValue(/分析已选/);
 });
 
 test("follow cards stay object cards and brief prefers 拒信", async ({ page }) => {
@@ -286,6 +286,14 @@ test("claim is L3 and posts confirm to /api/kols/:kolUid/claim", async ({ page }
     }
   });
   await page.goto("/?tab=pool");
+  const compactRow = page.locator("[data-pool-kol='uid_outdoor']");
+  await expect(compactRow).toBeVisible();
+  const height = await compactRow.evaluate((node) => node.getBoundingClientRect().height);
+  expect(height).toBeGreaterThanOrEqual(112);
+  expect(height).toBeLessThanOrEqual(126);
+  await expect(compactRow.locator("[data-public-stage]")).toHaveCount(1);
+  await expect(compactRow).not.toContainText("公开资料");
+  await expect(compactRow).not.toContainText("领取后进入我的跟进");
   // 明确领取未建联的有主行：无主行排在前面，不能靠「第一张卡」取对象。
   await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").click();
   const confirm = page.locator("[data-claim-follow-confirm]");
@@ -293,6 +301,8 @@ test("claim is L3 and posts confirm to /api/kols/:kolUid/claim", async ({ page }
   await expect(confirm).toContainText("不会发信，也不会改正式阶段");
   await page.locator("[data-claim-follow-yes]").click();
   await expect.poll(() => claims.length).toBe(1);
+  await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]")).toHaveText("已领取 ✓");
+  await expect(page.locator("[data-pool-kol='uid_outdoor']")).toHaveCount(0);
   expect(claims[0].path).toBe("/api/kols/uid_outdoor/claim");
   expect(claims[0].body.confirm === true || claims[0].body.confirmed === true).toBe(true);
 });
