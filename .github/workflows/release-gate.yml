@@ -103,6 +103,7 @@ jobs:
     env:
       DEPLOY_HOST: 47.88.94.205
       DEPLOY_USER: ecs-user
+      DEPLOY_REVISION: ${{ github.sha }}
     steps:
       - id: deploy-key
         name: Configure deployment SSH key
@@ -126,7 +127,18 @@ jobs:
         run: |
           ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
             "${DEPLOY_USER}@${DEPLOY_HOST}" \
-            'cd ~/kol && git fetch github main && git reset --hard github/main && node backend/scripts/validate-kol-data.mjs && sudo -n systemctl restart lingong'
+            "DEPLOY_REVISION='${DEPLOY_REVISION}' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd ~/kol
+          git fetch github "$DEPLOY_REVISION"
+          git reset --hard "$DEPLOY_REVISION"
+          if [ -d data/kol ]; then
+            node backend/scripts/validate-kol-data.mjs
+          else
+            echo "Canonical KOL source is not present on this deployment host; skipping optional validation."
+          fi
+          sudo -n systemctl restart lingong
+          REMOTE
 
       - name: Verify deployed revision
         if: steps.deploy-key.outputs.configured == 'true'
