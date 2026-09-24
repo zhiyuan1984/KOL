@@ -19,6 +19,27 @@ export type SkillParamValues = Record<string, unknown>;
 type ParamOptions = Record<string, DiscoveryOption[]>;
 const EMPTY_TOKEN_FIELDS: string[] = [];
 
+function DiscoveryParamIcon({ fieldKey }: { fieldKey: string }) {
+  const common = {
+    className: "discovery-param-icon",
+    "aria-hidden": true,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.8,
+    strokeLinecap: "round" as const,
+    strokeLinejoin: "round" as const,
+  };
+  if (fieldKey === "platforms") return <svg {...common}><path d="m12 2 9 5-9 5-9-5 9-5Z" /><path d="m3 12 9 5 9-5" /><path d="m3 17 9 5 9-5" /></svg>;
+  if (fieldKey === "region") return <svg {...common}><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z" /><circle cx="12" cy="10" r="2.5" /></svg>;
+  if (fieldKey === "directions") return <svg {...common}><rect x="4" y="4" width="6" height="6" rx="1" /><rect x="14" y="4" width="6" height="6" rx="1" /><rect x="4" y="14" width="6" height="6" rx="1" /><rect x="14" y="14" width="6" height="6" rx="1" /></svg>;
+  if (fieldKey === "keywords") return <svg {...common}><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4 4" /></svg>;
+  if (fieldKey === "min_followers" || fieldKey === "max_followers") return <svg {...common}><circle cx="9" cy="8" r="3" /><path d="M3.5 20c.8-3 3.2-5 5.5-5s4.7 2 5.5 5" /><path d="M17 7h4M19 5v4" /></svg>;
+  if (fieldKey === "min_avg_plays_10") return <svg {...common}><path d="M4 19V13M10 19V5M16 19V10M22 19V2" /></svg>;
+  if (fieldKey === "expect_count") return <svg {...common}><circle cx="9" cy="8" r="3" /><path d="M3.5 20c.8-3 3.2-5 5.5-5s4.7 2 5.5 5" /><path d="M16.5 11.5c1.9 0 3.5 1.6 3.5 3.5v.5M16 20h5" /></svg>;
+  return null;
+}
+
 function sourceKey(field: SkillParamField): string {
   return field.options_source?.split("#").pop() || "";
 }
@@ -94,7 +115,7 @@ export default function SkillParamCard({
             aria-pressed={pressed} disabled={maxed && !pressed}
             onClick={() => onFieldChange?.(field.key, field.kind === "multiple"
               ? (pressed ? selected.filter((item) => item !== option.code) : [...selected, option.code])
-              : (pressed ? "" : option.code))}>{option.label}</button>;
+              : (pressed ? "" : option.code))}>{compactDiscoveryLayout && pressed ? <span className="discovery-chip-check" aria-hidden="true">✓</span> : null}{option.label}</button>;
         })}
       </div>;
     }
@@ -115,7 +136,13 @@ export default function SkillParamCard({
     if (field.kind === "text") {
       const tokenized = tokenFields.includes(field.key);
       const draft = tokenized ? drafts[field.key] || "" : String(value || "");
-      return <input className="ai-discovery-input" aria-label={field.label} aria-invalid={invalid}
+      const clear = () => {
+        if (tokenized) setDrafts((current) => ({ ...current, [field.key]: "" }));
+        onFieldChange?.(field.key, tokenized ? [] : "");
+      };
+      return <div className={"ai-discovery-text-control" + (field.key === "keywords" ? " is-keyword-control" : "")}
+        data-discovery-keywords-control={field.key === "keywords" ? true : undefined}>
+        <input className="ai-discovery-input" aria-label={field.label} aria-invalid={invalid}
         data-discovery-keywords={field.key === "keywords" ? true : undefined} value={draft}
         onChange={(event) => {
           const next = event.target.value;
@@ -128,7 +155,10 @@ export default function SkillParamCard({
           const words = (drafts[field.key] || "").split(/[,，、]/).map((item) => item.trim()).filter(Boolean);
           onFieldChange?.(field.key, words);
           setDrafts((current) => ({ ...current, [field.key]: words.join(", ") }));
-        } : undefined} />;
+        } : undefined} />
+        {field.key === "keywords" && draft ? <button type="button" className="discovery-keyword-clear" data-discovery-clear-keywords
+          aria-label="清除关键词" onClick={clear}>×</button> : null}
+      </div>;
     }
     if (field.kind === "number") {
       const numberText = String(value ?? "");
@@ -156,7 +186,7 @@ export default function SkillParamCard({
   const fieldsByKey = new Map(fields.map((field) => [field.key, field]));
   const renderedCompactKeys = new Set(["min_followers", "max_followers", "min_avg_plays_10", "expect_count"]);
   const renderRow = (field: SkillParamField) => <div className="ai-discovery-row" key={field.key} data-skill-param={field.key}>
-    <span className="ai-discovery-label">{field.label}{field.required ? " *" : ""}</span>
+    <span className="ai-discovery-label">{compactDiscoveryLayout ? <DiscoveryParamIcon fieldKey={field.key} /> : null}<span>{field.label}{field.required ? " *" : ""}</span></span>
     <div className="ai-discovery-param-value">
       {renderField(field)}
       {mode !== "ready" && field.reason ? <span className="skill-param-reason">{field.reason}</span> : null}
@@ -176,7 +206,7 @@ export default function SkillParamCard({
     <div className="ai-discovery-rows">
       {fields.filter((field) => !hasCompactThresholds || !renderedCompactKeys.has(field.key)).map(renderRow)}
       {hasCompactThresholds && minFollowers && maxFollowers ? <div className="ai-discovery-row is-follower-range" data-skill-param-group="followers_range" role="group" aria-label="粉丝数范围">
-        <span className="ai-discovery-label">粉丝数范围</span>
+        <span className="ai-discovery-label">{compactDiscoveryLayout ? <DiscoveryParamIcon fieldKey="min_followers" /> : null}<span>粉丝数范围</span></span>
         <div className="ai-discovery-param-value ai-discovery-range-control" role="group" aria-label="粉丝数范围">
           <div className="ai-discovery-inline-field" data-skill-param="min_followers">
             <span className="sr-only">{minFollowers.label}</span>{renderField(minFollowers)}
@@ -189,10 +219,10 @@ export default function SkillParamCard({
       </div> : null}
       {hasCompactThresholds && minPlays && expectCount ? <div className="ai-discovery-row is-metric-pair" data-skill-param-group="discovery_metrics">
         <div className="ai-discovery-inline-field" data-skill-param="min_avg_plays_10">
-          <span className="ai-discovery-label">{minPlays.label}</span>{renderField(minPlays)}
+          <span className="ai-discovery-label">{compactDiscoveryLayout ? <DiscoveryParamIcon fieldKey={minPlays.key} /> : null}<span>{minPlays.label}</span></span>{renderField(minPlays)}
         </div>
         <div className="ai-discovery-inline-field" data-skill-param="expect_count">
-          <span className="ai-discovery-label">{expectCount.label}</span>{renderField(expectCount)}
+          <span className="ai-discovery-label">{compactDiscoveryLayout ? <DiscoveryParamIcon fieldKey={expectCount.key} /> : null}<span>{expectCount.label}</span></span>{renderField(expectCount)}
         </div>
       </div> : null}
     </div>

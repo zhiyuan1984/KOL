@@ -203,6 +203,17 @@
   color: var(--text-muted);
   font-weight: 500;
 }
+.discovery-brief-form .ai-discovery-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.discovery-brief-form .discovery-param-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  color: var(--accent-text);
+}
 .discovery-brief-form .ai-discovery-chips {
   gap: var(--ds-chip-gap);
 }
@@ -221,10 +232,22 @@
   background: var(--surface-hover);
 }
 .discovery-brief-form .ai-discovery-card .discovery-chip[aria-pressed="true"] {
-  border-color: var(--text);
-  background: var(--surface-hover);
-  color: var(--text);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+  color: var(--accent-text);
   font-weight: 600;
+}
+.discovery-brief-form .discovery-chip-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  margin-right: 4px;
+  color: currentColor;
+  font-size: var(--ds-font-tag);
+  font-weight: 700;
 }
 .discovery-brief-form .ai-discovery-card .discovery-chip:focus-visible,
 .discovery-brief-form .ai-discovery-card .ai-discovery-input:focus-visible {
@@ -243,6 +266,44 @@
 }
 .discovery-brief-form .ai-discovery-card .ai-discovery-input:hover {
   border-color: var(--control-border-hover);
+}
+.discovery-brief-form .ai-discovery-text-control {
+  position: relative;
+  min-width: 0;
+}
+.discovery-brief-form .ai-discovery-text-control .ai-discovery-input {
+  width: 100%;
+}
+.discovery-brief-form .ai-discovery-text-control.is-keyword-control .ai-discovery-input {
+  padding-right: 34px;
+}
+.discovery-brief-form .discovery-keyword-clear {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ds-font-section);
+  line-height: 1;
+}
+.discovery-brief-form .discovery-keyword-clear:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+.discovery-brief-form .discovery-keyword-clear:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
 }
 .discovery-brief-form .ai-discovery-card .ai-discovery-input.is-number {
   width: 100%;

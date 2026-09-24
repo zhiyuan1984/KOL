@@ -106,6 +106,9 @@ test("condition card renders in-page and pre-fills the editable ask box", async 
     .toHaveAttribute("aria-pressed", "true");
   await expect(card.locator('[data-skill-param="directions"] [data-discovery-chip][aria-pressed="true"]')).toHaveCount(0);
   await expect(card.locator("[data-discovery-keywords]")).toHaveValue("camping, portable power station");
+  await expect(card.locator("[data-discovery-clear-keywords]")).toBeVisible();
+  await expect(card.locator('[data-skill-param="platforms"] [data-discovery-chip="youtube"]'))
+    .toHaveCSS("border-top-color", "rgb(65, 132, 255)");
   // R3：条件摘要改为提问框里可编辑的【发现任务】正文，卡片上不再有摘要卡。
   const input = page.locator("[data-home] [data-composer-input]");
   await expect(input).toHaveValue(/【发现任务】/);
@@ -119,6 +122,18 @@ test("condition card renders in-page and pre-fills the editable ask box", async 
   await input.fill("【发现任务】\n平台：YouTube\n地区：全球英文\n方向：（未选）\n关键词：beauty review\n粉丝：10000–2000000\n近10条均播 ≥ 5000\n期望人数：30");
   await expect(card.locator("[data-discovery-keywords]")).toHaveValue("beauty, review");
   expect(posts.filter((path) => path === "/api/sessions" || path.endsWith("/from-text"))).toEqual([]);
+});
+
+test("keyword clear synchronizes the discovery brief", async ({ page }) => {
+  await openDiscovery(page);
+  const card = page.locator("[data-discovery-search-card]");
+  const input = page.locator("[data-home] [data-composer-input]");
+  const send = page.locator("[data-home] [data-ai-prompt-submit]");
+
+  await card.locator("[data-discovery-clear-keywords]").click();
+  await expect(card.locator("[data-discovery-keywords]")).toHaveValue("");
+  await expect(input).toHaveValue(/关键词：（未填）/);
+  await expect(send).toBeDisabled();
 });
 
 test("the ask arrow and latest-control share size, with a pink ready arrow", async ({ page }) => {
