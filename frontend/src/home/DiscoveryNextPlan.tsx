@@ -21,7 +21,6 @@ function buildPlan(input: {
   inFlight: boolean;
   failure: FailureView;
   emptyKind: HomeDiscoveryEmptyKind;
-  runHistoryCount: number;
   onEditConditions: () => void;
   onRetry: () => void;
   onCheckConnection: () => void;
@@ -30,8 +29,8 @@ function buildPlan(input: {
   if (input.failure) {
     const items: PlanItem[] = [{
       id: "retry",
-      title: "重新运行发现任务",
-      detail: "本次运行未完成；重试会沿用当前发现条件。",
+      title: "恢复本次发现运行",
+      detail: "从上方状态区重试会沿用当前发现条件；技术原因可按需展开查看。",
       actionLabel: "重试",
       action: input.onRetry,
     }];
@@ -72,19 +71,11 @@ function buildPlan(input: {
     }];
   }
   if (input.visibleCount > 0) {
-    const items: PlanItem[] = [{
+    return [{
       id: "select",
       title: "核对线索后选择入库对象",
       detail: "优先查看推荐分、置信度、匹配理由与来源链接，再勾选需要保留的线索。",
     }];
-    if (input.runHistoryCount > 1) {
-      items.push({
-        id: "history",
-        title: "复核历史发现结果",
-        detail: `当前保留 ${input.runHistoryCount - 1} 次历史运行，可比较不同条件下的候选。`,
-      });
-    }
-    return items;
   }
   if (input.run && input.emptyKind === "filtered") {
     return [{
@@ -115,7 +106,6 @@ export default function DiscoveryNextPlan({
   inFlight,
   failure,
   emptyKind,
-  runHistoryCount,
   onEditConditions,
   onRetry,
   onCheckConnection,
@@ -127,7 +117,6 @@ export default function DiscoveryNextPlan({
   inFlight: boolean;
   failure: FailureView;
   emptyKind: HomeDiscoveryEmptyKind;
-  runHistoryCount: number;
   onEditConditions: () => void;
   onRetry: () => void;
   onCheckConnection: () => void;
@@ -140,7 +129,6 @@ export default function DiscoveryNextPlan({
     inFlight,
     failure,
     emptyKind,
-    runHistoryCount,
     onEditConditions,
     onRetry,
     onCheckConnection,

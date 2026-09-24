@@ -621,13 +621,30 @@ function updateRunStatus(runId: string, status: string, extra: { error?: string 
     now,
     runId,
   );
-  const run = getConn().prepare("SELECT request_id FROM discovery_runs WHERE id=?").get(runId) as
-    | { request_id: string }
+  const run = getConn().prepare("SELECT request_id, work_item_id FROM discovery_runs WHERE id=?").get(runId) as
+    | { request_id: string; work_item_id?: string | null }
     | undefined;
   if (run) {
     getConn().prepare(
       "UPDATE discovery_requests SET status=?, error=?, updated_at=?, data_version=data_version+1 WHERE id=?",
     ).run(status, extra.error ?? null, now, run.request_id);
+    const taskStatus = status === "completed" ? "completed"
+      : status === "cancelled" ? "cancelled"
+        : status === "crawl_failed" || status === "rank_failed" ? "failed"
+          : status === "queued" ? "waiting"
+            : "running";
+    if (run.work_item_id) {
+      getConn().prepare(
+        `UPDATE work_items
+            SET status=?, completed_at=?, updated_at=?, data_version=data_version+1
+          WHERE id=?`,
+      ).run(
+        taskStatus,
+        ["completed", "cancelled", "failed"].includes(taskStatus) ? now : null,
+        now,
+        run.work_item_id,
+      );
+    }
   }
 }
 
@@ -668,6 +685,9 @@ async function startHomeCrawl(run: Row): Promise<void> {
               updated_at=?, data_version=data_version+1
         WHERE id=?`,
     ).run(job.id, job.remote_task_id || null, nowIso(), nowIso(), run.id);
+    getConn().prepare(
+      "UPDATE work_items SET status='running', completed_at=NULL, updated_at=?, data_version=data_version+1 WHERE id=?",
+    ).run(nowIso(), run.work_item_id);
     event(String(run.work_item_id || ""), "crawl_started", "crawling", "发现采集已开始");
   } catch (error) {
     if (error instanceof HttpFail && String((error.detail as Json | undefined)?.code || "") === "crawl_active") {

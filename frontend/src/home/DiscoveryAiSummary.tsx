@@ -7,8 +7,13 @@ import {
 import { discoveryRunStatusLabel } from "./discoveryLeadFields";
 
 type FailureView = {
+  kind?: string;
   title: string;
   message: string;
+  detail?: string | null;
+  retryLabel?: string;
+  retryDisabled?: boolean;
+  checkConnection?: boolean;
 } | null;
 
 function primaryFinding(input: {
@@ -19,7 +24,9 @@ function primaryFinding(input: {
   emptyKind: HomeDiscoveryEmptyKind;
   emptyMessage: string;
 }): string {
-  if (input.failure) return input.failure.message;
+  if (input.failure) {
+    return input.failure.kind === "generic" ? "检索没有完成，可稍后重试。" : input.failure.message;
+  }
   if (input.inFlight) return "AI 正在按已确认的条件检索、去重并排序；完成后结果会自动出现。";
   if (input.visibleCount > 0) return `已得到 ${input.visibleCount} 条可复核线索，可查看匹配依据后再选择入库。`;
   if (input.run && input.emptyKind === "filtered") return input.emptyMessage;
@@ -39,6 +46,10 @@ export default function DiscoveryAiSummary({
   failure,
   emptyKind,
   emptyMessage,
+  retryBusy = false,
+  onRetry,
+  onCheckConnection,
+  connection,
 }: {
   run: HomeDiscoveryRun | null;
   visibleCount: number;
@@ -46,6 +57,10 @@ export default function DiscoveryAiSummary({
   failure: FailureView;
   emptyKind: HomeDiscoveryEmptyKind;
   emptyMessage: string;
+  retryBusy?: boolean;
+  onRetry?: () => void;
+  onCheckConnection?: () => void;
+  connection?: { status: string; label: string; message: string } | null;
 }) {
   const status = failure
     ? "需要处理"
@@ -76,6 +91,43 @@ export default function DiscoveryAiSummary({
         {run?.memory_validity === "stale" ? <span data-discovery-memory-validity="stale">来源已变化</span> : null}
       </div>
       <p data-discovery-primary-finding>{primaryFinding({ run, visibleCount, inFlight, failure, emptyKind, emptyMessage })}</p>
+      {failure ? (
+        <div className="discovery-ai-summary-actions" data-discovery-failure-actions>
+          {onRetry ? (
+            <button
+              type="button"
+              className="btn ghost sm"
+              data-discovery-retry
+              data-home-entry="retry-discovery-run"
+              disabled={retryBusy || failure.retryDisabled}
+              onClick={onRetry}
+            >
+              {retryBusy ? "重试中…" : failure.retryLabel || "重试"}
+            </button>
+          ) : null}
+          <details className="discovery-error-details" data-discovery-error-details>
+            <summary aria-label="展开技术错误详情" data-discovery-error-details-toggle>
+              <span className="sr-only">展开技术错误详情</span>
+              <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m5 7 5 5 5-5" /></svg>
+            </summary>
+            <div className="discovery-error-details-body">
+              <p data-discovery-error-detail>
+                {`生成服务结束状态：${run?.status === "rank_failed" ? "failed" : run?.status || "failed"}；${failure.detail || "未返回更多技术错误详情。"}`}
+              </p>
+              {failure.checkConnection && onCheckConnection ? (
+                <button type="button" className="btn ghost sm" data-discovery-check-connection onClick={onCheckConnection}>
+                  检查采集服务
+                </button>
+              ) : null}
+              {connection ? (
+                <p data-discovery-connection={connection.status}>
+                  {`采集服务：${connection.label}${connection.message && connection.message !== connection.label ? ` · ${connection.message}` : ""}`}
+                </p>
+              ) : null}
+            </div>
+          </details>
+        </div>
+      ) : null}
     </section>
   );
 }

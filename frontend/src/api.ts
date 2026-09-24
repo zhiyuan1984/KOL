@@ -246,6 +246,8 @@ export type Task = {
   next_action_code?: string | null;
   progress?: number;
   session_id?: string;
+  /** A discovery work item opens its linked run result rather than a chat session. */
+  discovery_run_id?: string | null;
   /** PROD-AGENT-08: unadopted recs/insights. Formal WorkItems are candidate:false. */
   candidate?: boolean;
   suggested_actions?: Array<string | { label?: string; title?: string; prompt?: string }>;

@@ -90,7 +90,7 @@ export default function ScopeWorkspace({
       railBadge={stamped.length}
       streamStick={phase === "loading-memory" || phase === "planning"}
       resultView={{
-        resultType: scope === "today" ? "today_tasks" : "todo_tasks",
+        resultType: cfg.resultType,
         status: phase === "failed" ? "failed" : phase === "planning" || phase === "loading-memory"
           ? "running" : hasStream ? "completed" : stamped.length ? "ready" : "idle",
         updatedAt: undefined,

@@ -181,8 +181,8 @@ export const INGEST_READINESS_LABELS: Record<HomeDiscoveryIngestReadiness, strin
   ready: "可入库",
   needs_review: "待人工复核",
   needs_contact: "缺联系邮箱",
-  already_in_library: "已在 Starry",
-  already_followed: "已有跟进",
+  already_in_library: "已在库",
+  already_followed: "已在库",
 };
 
 /** Only this read-only projection is selectable; the L3 Gateway repeats all write checks. */

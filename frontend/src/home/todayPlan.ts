@@ -74,6 +74,8 @@ export interface FrontendScopeConfig {
   boardTitle: string;
   /** Right-rail aria label for the region. */
   railLabel: string;
+  /** Safe renderer contract for this plan scope's right rail. */
+  resultType: "today_tasks" | "todo_tasks";
   /** Vertical label shown while the rail is collapsed. */
   railToggleLabel: string;
   /** Rail search placeholder + aria name. The board only searches its own rows. */
@@ -98,6 +100,7 @@ export const SCOPE_CONFIG: Record<PlanScope, FrontendScopeConfig> = {
     heroTitle: "今天有什么工作要处理？",
     boardTitle: "今日工作计划",
     railLabel: "今日任务表",
+    resultType: "today_tasks",
     railToggleLabel: "今日任务",
     boardSearchLabel: "搜索任务",
     railStorageKey: "ui:home-today-task-rail-collapsed",
@@ -120,6 +123,7 @@ export const SCOPE_CONFIG: Record<PlanScope, FrontendScopeConfig> = {
     heroTitle: "我的待办",
     boardTitle: "我的待办",
     railLabel: "待办任务表",
+    resultType: "todo_tasks",
     railToggleLabel: "我的待办",
     boardSearchLabel: "搜索任务",
     railStorageKey: "ui:home-todo-task-rail-collapsed",

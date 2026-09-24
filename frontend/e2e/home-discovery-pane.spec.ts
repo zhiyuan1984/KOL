@@ -201,6 +201,69 @@ test("a terminal discovery error stops the process trail before later success ev
   await expect(process).not.toContainText("已排出候选");
 });
 
+test("a failed run keeps one business status block and folds the engine detail", async ({ page }) => {
+  const failedRun = {
+    id: "drun_capacity_failed",
+    run_id: "drun_capacity_failed",
+    status: "rank_failed",
+    raw_count: 32,
+    candidate_count: 17,
+    error: "Selected model is at capacity. Please try a different model.",
+    work_item_id: "tsk_capacity_failed",
+    brief_version: 1,
+  };
+  await page.route("**/api/home/discovery/runs**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/candidates")) {
+      await route.fulfill({ json: { run_id: "drun_capacity_failed", candidates: [] } });
+      return;
+    }
+    if (path.endsWith("/drun_capacity_failed")) {
+      await route.fulfill({ json: { run: failedRun } });
+      return;
+    }
+    await route.fulfill({ json: { runs: [failedRun] } });
+  });
+  await page.route("**/api/tasks/tsk_capacity_failed/events", (route) => route.fulfill({ json: { events: [] } }));
+
+  await openDiscovery(page, { expectCard: false });
+  const summary = page.locator("[data-discovery-ai-summary]");
+  await expect(summary).toContainText("需要处理");
+  await expect(summary).toContainText("检索没有完成");
+  await expect(summary).toContainText("原始 32 · 入围 17");
+  await expect(summary).toContainText("检索没有完成，可稍后重试。");
+  await expect(summary.locator("[data-discovery-retry]")).toHaveText("重试");
+  await expect(summary.locator("[data-discovery-error-detail]")).toBeHidden();
+  await expect(page.locator("[data-discovery-error]")).toHaveCount(0);
+  await expect(page.getByText(/历史发现/)).toHaveCount(0);
+
+  await summary.locator("[data-discovery-error-details-toggle]").click();
+  await expect(summary.locator("[data-discovery-error-detail]"))
+    .toContainText("生成服务结束状态：failed；Selected model is at capacity.");
+});
+
+test("a discovery task record opens its linked run instead of a chat session", async ({ page }) => {
+  const run = stubRun();
+  await mockExistingRun(page);
+  await page.route(/\/api\/tasks(?:\?.*)?$/, (route) => route.fulfill({
+    json: [{
+      id: "tsk_disc_e2e",
+      title: "AI发现 · youtube · camping",
+      task_type: "discovery_crawl",
+      status: "completed",
+      priority: "normal",
+      discovery_run_id: "drun_e2e",
+    }],
+  }));
+
+  await page.goto("/?tab=todo");
+  await expect(page.locator("[data-todo-list]")).toBeVisible();
+  await page.locator('[data-today-todo="tsk_disc_e2e"] [data-today-todo-act]').click();
+  await expect(page).toHaveURL(/\?tab=discovery/);
+  await expect(page.locator("[data-discovery-headline]")).toContainText(run.headline);
+  await expect(page.locator("[data-discovery-panel]")).not.toContainText("历史发现");
+});
+
 test("condition chips rewrite the ask-box body and no card button remains", async ({ page }) => {
   await openDiscovery(page);
   const card = page.locator("[data-discovery-search-card]");

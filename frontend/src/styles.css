@@ -2045,13 +2045,6 @@ summary:focus-visible,
 .result-fallback-fields > div { display: grid; grid-template-columns: minmax(5rem, 0.35fr) minmax(0, 1fr); gap: var(--ds-space-2); }
 .result-fallback-fields dt { color: var(--ds-text-muted); }
 .result-fallback-fields dd { margin: 0; min-width: 0; }
-.discovery-memory-list { display: grid; gap: var(--ds-space-2); min-width: 0; margin-block: var(--ds-space-3); }
-.discovery-memory-list h3 { margin: 0; color: var(--ds-text-muted); font-size: var(--ds-font-sm); font-weight: 600; }
-.discovery-memory-list article { display: grid; gap: var(--ds-space-1); min-width: 0; padding-block: var(--ds-space-2); border-bottom: 1px solid var(--ds-border); }
-.discovery-memory-list article strong { font-size: var(--ds-font-sm); font-weight: 500; overflow-wrap: anywhere; }
-.discovery-memory-list article span,
-.discovery-memory-list article small,
-.discovery-memory-list > p { margin: 0; color: var(--ds-text-muted); font-size: var(--ds-font-helper); overflow-wrap: anywhere; }
 .ai-discovery-chips { display: flex; flex-wrap: wrap; gap: var(--ds-chip-gap); align-items: center; }
 .ai-discovery-inline { display: flex; align-items: center; gap: var(--ds-space-3); min-width: 0; }
 .ai-discovery-dash, .ai-discovery-op { color: var(--ds-text-dim); }
@@ -11431,6 +11424,8 @@ button.today-brief-primary-btn:disabled {
   color: var(--accent-text);
   font-size: var(--ds-font-section);
   font-weight: 600;
+  object-fit: cover;
+  overflow: hidden;
 }
 .discovery-lead-main { flex: 1 1 320px; min-width: 0; }
 .discovery-lead-identity {

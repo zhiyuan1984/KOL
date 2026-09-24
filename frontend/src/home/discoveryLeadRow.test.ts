@@ -61,6 +61,21 @@ describe("discovery lead row", () => {
     expect(render({ email: "" })).not.toContain("data-lead-email");
   });
 
+  it("uses the collected avatar when available and a cartoon fallback otherwise", () => {
+    const fallback = render();
+    expect(fallback).toContain('data-discovery-avatar="cartoon"');
+    expect(fallback).toContain("默认头像");
+    expect(render({ avatarUrl: "https://images.example/clean-glow.jpg" }))
+      .toContain('data-discovery-avatar="source"');
+  });
+
+  it("renders the source URL as a link whenever the candidate has one", () => {
+    const html = render({ profileUrl: "https://youtube.com/@CleanGlow" });
+    expect(html).toContain('data-discovery-source="c1"');
+    expect(html).toContain('href="https://youtube.com/@CleanGlow"');
+    expect(html).toContain("看来源");
+  });
+
   it("marks missing-contact candidates as non-selectable with the Host reason", () => {
     const html = render({
       ingestReadiness: "needs_contact",

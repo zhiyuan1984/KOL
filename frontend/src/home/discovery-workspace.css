@@ -434,6 +434,22 @@
 .discovery-ai-summary.is-ready .discovery-ai-summary-kicker { color: var(--color-success-vivid); }
 .discovery-ai-summary.is-running .discovery-ai-summary-kicker { color: var(--accent-text); }
 .discovery-ai-summary.is-warning .discovery-ai-summary-kicker { color: var(--color-warning-vivid); }
+.discovery-ai-summary.is-warning {
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--color-warning-vivid) 24%, var(--border));
+  border-radius: var(--radius-card);
+  background: color-mix(in srgb, var(--color-warning-vivid) 5%, var(--bg));
+}
+.discovery-ai-summary.is-warning .discovery-ai-summary-head,
+.discovery-ai-summary.is-warning .discovery-ai-summary-meta,
+.discovery-ai-summary.is-warning > p { grid-column: 1; }
+.discovery-ai-summary.is-warning .discovery-ai-summary-actions {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  align-self: center;
+}
 .discovery-ai-summary h2,
 .discovery-result-detail-head h3,
 .discovery-next-plan h3 {
@@ -452,6 +468,71 @@
 .discovery-ai-summary-meta [data-discovery-memory-validity] {
   padding-left: var(--space-2);
   border-left: 1px solid var(--border);
+}
+.discovery-ai-summary-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+.discovery-error-details {
+  position: relative;
+}
+.discovery-error-details > summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
+  cursor: pointer;
+  list-style: none;
+}
+.discovery-error-details > summary::-webkit-details-marker { display: none; }
+.discovery-error-details > summary:hover { background: var(--surface-hover); color: var(--text); }
+.discovery-error-details > summary:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+.discovery-error-details > summary svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  transition: transform 160ms ease;
+}
+.discovery-error-details[open] > summary svg { transform: rotate(180deg); }
+.discovery-error-details-body {
+  display: grid;
+  gap: var(--space-2);
+  min-width: min(360px, calc(100vw - 48px));
+  max-width: 480px;
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-float, 0 8px 24px rgba(0, 0, 0, 0.08));
+}
+.discovery-error-details-body p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+  overflow-wrap: anywhere;
+}
+.discovery-lead-avatar.is-cartoon {
+  color: var(--accent-text);
+}
+.discovery-lead-avatar.is-cartoon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 .discovery-result-detail {
   min-width: 0;
@@ -506,6 +587,12 @@
   line-height: var(--ds-line-helper);
 }
 @media (max-width: 480px) {
+  .discovery-ai-summary.is-warning { grid-template-columns: minmax(0, 1fr); }
+  .discovery-ai-summary.is-warning .discovery-ai-summary-actions {
+    grid-column: 1;
+    grid-row: auto;
+    justify-content: flex-start;
+  }
   .discovery-result-detail-head,
   .discovery-next-plan li {
     grid-template-columns: minmax(0, 1fr);
@@ -519,33 +606,6 @@
   color: var(--text-muted);
   font-size: var(--ds-font-helper);
 }
-.discovery-history {
-  margin: 0 0 var(--space-2);
-  border-bottom: 1px solid var(--border);
-  padding-bottom: var(--space-2);
-  font-size: var(--ds-font-sm);
-}
-.discovery-history summary {
-  cursor: pointer;
-  color: var(--text-muted);
-  font-weight: 600;
-}
-.discovery-history summary span {
-  margin-left: var(--space-1);
-  font-weight: 400;
-}
-.discovery-history-picker {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-}
-.discovery-history-picker select {
-  min-width: 0;
-  max-width: 100%;
-}
-
 /* 结果区是转化决策面而非爬虫字段墙：用紧凑计数、状态筛选和单一 L3 CTA
    显示当前该复核、该补资料或可进入确认的候选，几何仍由 WorkspaceShell 管理。 */
 .discovery-conversion-overview {

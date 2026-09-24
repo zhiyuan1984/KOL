@@ -15,9 +15,6 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
   const {
     run,
     runId,
-    runHistory,
-    historyLoading,
-    selectRun,
     available,
     visible,
     resultFilter,
@@ -80,6 +77,10 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
         failure={failure}
         emptyKind={emptyKind}
         emptyMessage={emptyMessage}
+        retryBusy={retryBusy}
+        onRetry={() => void retryRun()}
+        onCheckConnection={() => void checkCollector()}
+        connection={connection}
       />
 
       {available.length ? (
@@ -92,45 +93,8 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
             <div data-discovery-conversion-count="ready"><dt>可入库</dt><dd>{readyCount}</dd></div>
             <div data-discovery-conversion-count="review"><dt>待复核</dt><dd>{reviewCount}</dd></div>
             <div data-discovery-conversion-count="blocked"><dt>待补资料</dt><dd>{blockedCount}</dd></div>
-            <div data-discovery-conversion-count="existing"><dt>已在 Starry</dt><dd>{existingCount}</dd></div>
+            <div data-discovery-conversion-count="existing"><dt>已在库</dt><dd>{existingCount}</dd></div>
           </dl>
-        </section>
-      ) : null}
-
-      {failure ? (
-        <section className="task-empty discovery-error" data-discovery-error role="alert">
-          <strong>{failure.title}</strong>
-          <p data-discovery-error-message>{failure.message}</p>
-          {failure.detail ? <p data-discovery-error-detail>{failure.detail}</p> : null}
-          {runId ? (
-            <div className="discovery-error-actions">
-              <button
-                type="button"
-                className="btn ghost sm"
-                data-discovery-retry
-                data-home-entry="retry-discovery-run"
-                disabled={retryBusy || (!runId && failure.retryDisabled)}
-                onClick={() => void retryRun()}
-              >
-                {failure.retryLabel}
-              </button>
-              {failure.checkConnection ? (
-                <button
-                  type="button"
-                  className="btn ghost sm"
-                  data-discovery-check-connection
-                  onClick={() => void checkCollector()}
-                >
-                  检查采集服务
-                </button>
-              ) : null}
-            </div>
-          ) : null}
-          {connection ? (
-            <p data-discovery-connection={connection.status}>
-              {`采集服务：${connection.label}${connection.message && connection.message !== connection.label ? ` · ${connection.message}` : ""}`}
-            </p>
-          ) : null}
         </section>
       ) : null}
 
@@ -158,22 +122,6 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
         </div>
       ) : null}
 
-      {runHistory.length > 1 ? (
-        <details className="discovery-history">
-          <summary>历史发现 <span>{runHistory.length - 1}</span></summary>
-          <label className="discovery-history-picker">
-            <span>查看其他运行</span>
-            <select value={run?.id || ""} disabled={historyLoading} aria-busy={historyLoading} onChange={(event) => void selectRun(event.target.value)}>
-              {runHistory.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {`${item.headline || "发现运行"} · ${item.created_at || item.started_at || item.id}`}
-                </option>
-              ))}
-            </select>
-          </label>
-        </details>
-      ) : null}
-
       {showResults ? (
         <section className="discovery-result-detail" aria-label="结果明细">
           <header className="discovery-result-detail-head">
@@ -192,7 +140,7 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
               ["ready", `可入库 ${readyCount}`],
               ["review", `待复核 ${reviewCount}`],
               ["blocked", `待补资料 ${blockedCount}`],
-              ["existing", `已在 Starry ${existingCount}`],
+              ["existing", `已在库 ${existingCount}`],
             ].map(([key, label]) => (
               <button
                 key={key}
@@ -287,7 +235,6 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
         inFlight={inFlight}
         failure={failure}
         emptyKind={emptyKind}
-        runHistoryCount={runHistory.length}
         onEditConditions={showCard}
         onRetry={() => void retryRun()}
         onCheckConnection={() => void checkCollector()}

@@ -18,9 +18,15 @@ import {
 } from "./discoveryLeadFields";
 import { platformLabel } from "./discoveryTemplate";
 
-function initialOf(candidate: HomeDiscoveryCandidate): string {
-  const source = String(candidate.nickname || candidate.platformCreatorId || "").trim();
-  return source ? source.slice(0, 1).toUpperCase() : "?";
+function CartoonAvatar() {
+  return (
+    <svg viewBox="0 0 36 36" aria-hidden="true" focusable="false">
+      <circle cx="18" cy="18" r="18" fill="currentColor" opacity="0.12" />
+      <path d="M9.5 30c1.2-5.2 4.3-7.8 8.5-7.8s7.3 2.6 8.5 7.8" fill="currentColor" opacity="0.72" />
+      <circle cx="18" cy="14.2" r="6.2" fill="currentColor" opacity="0.9" />
+      <path d="M12.3 13.8c.7-4.2 3.1-6.3 5.7-6.3 3 0 5.1 2.2 5.7 6.3-2.1-1.6-3.9-2.2-5.7-2.2s-3.6.6-5.7 2.2Z" fill="var(--bg)" opacity="0.72" />
+    </svg>
+  );
 }
 
 /**
@@ -75,7 +81,22 @@ export default function DiscoveryLeadRow({
         </span>
       </label>
 
-      <span className="discovery-lead-avatar" aria-hidden>{initialOf(candidate)}</span>
+      {candidate.avatarUrl ? (
+        <img
+          className="discovery-lead-avatar"
+          data-discovery-avatar="source"
+          src={candidate.avatarUrl}
+          alt={`${candidate.nickname || candidate.handle || "红人"}头像`}
+        />
+      ) : (
+        <span
+          className="discovery-lead-avatar is-cartoon"
+          data-discovery-avatar="cartoon"
+          aria-label={`${candidate.nickname || candidate.handle || "红人"}默认头像`}
+        >
+          <CartoonAvatar />
+        </span>
+      )}
 
       <div className="discovery-lead-main">
         <p className="discovery-lead-identity" data-discovery-candidate-identity>

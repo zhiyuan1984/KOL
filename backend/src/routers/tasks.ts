@@ -76,6 +76,11 @@ function publicWorkItem(row: Row, collab?: Row | null): Json {
       | undefined;
     project = hit?.display_name || null;
   }
+  const discoveryRun = String(row.task_type) === "discovery_crawl"
+    ? getConn().prepare(
+      "SELECT id FROM discovery_runs WHERE work_item_id=? AND kind='home' ORDER BY created_at DESC LIMIT 1",
+    ).get(row.id) as { id?: string } | undefined
+    : undefined;
   return {
     ...row,
     description: definition?.description || "",
@@ -90,6 +95,7 @@ function publicWorkItem(row: Row, collab?: Row | null): Json {
     ...displayStatusOf(row),
     input: parseJson(row.input),
     entities: parseJson(row.entities),
+    ...(discoveryRun?.id ? { discovery_run_id: discoveryRun.id } : {}),
   };
 }
 

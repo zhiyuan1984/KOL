@@ -59,7 +59,7 @@ const CONNECTION_SIGNAL =
   /streamable|econnrefused|enotfound|econnreset|etimedout|eai_again|failed to fetch|fetch failed|network ?error|connection refused|connection reset|err_connection|err_name_not_resolved|err_internet_disconnected|socket hang up|error posting to endpoint|posting to endpoint|远程采集服务未配置|采集服务未配置|发现服务暂未就绪|discovery_not_ready/i;
 
 const ENGINE_DUMP =
-  /streamable|http error|status code|econn|enotfound|stack trace|posix|errno|posting to endpoint/i;
+  /streamable|http error|status code|econn|enotfound|stack trace|posix|errno|posting to endpoint|selected model is at capacity|model.*capacity/i;
 
 function errorText(raw: unknown): string {
   if (raw instanceof Error) return raw.message.trim();

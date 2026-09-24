@@ -921,7 +921,18 @@ export default function Home() {
     window.dispatchEvent(new Event(TODAY_PLAN_REFRESH_EVENT));
   };
 
+  /** Discovery history belongs to the task system; opening one task restores only that run's result page. */
+  const openDiscoveryTaskResult = (task: Task): boolean => {
+    const runId = String(task.discovery_run_id || "").trim();
+    if (String(task.task_type || "") !== "discovery_crawl" || !runId) return false;
+    setDiscoveryTaskId(task.id);
+    setDiscoveryRunId(runId);
+    setMode("discovery");
+    return true;
+  };
+
   const actOnMemoryTask = async (task: Task) => {
+    if (openDiscoveryTaskResult(task)) return;
     if (String(task.display_verb || "") === "edit") {
       setEditTaskTarget(task);
       return;
@@ -963,6 +974,7 @@ export default function Home() {
   };
 
   const openTask = async (task: Task) => {
+    if (openDiscoveryTaskResult(task)) return;
     rememberJourney({
       kind: "task",
       skillId: String(task.skill_id || task.skill || task.task_type || ""),

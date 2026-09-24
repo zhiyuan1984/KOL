@@ -49,6 +49,15 @@ describe("pane parity", () => {
     expect(todo).not.toContain("closed");
   });
 
+  it("keeps terminal discovery runs in task history without reopening ordinary completed tasks", () => {
+    const rows = [
+      task({ id: "closed_discovery", title: "AI发现 · YouTube · camping", task_type: "discovery_crawl", status: "completed", discovery_run_id: "drun_1" }),
+      task({ id: "closed_normal", title: "普通已完成任务", status: "completed" }),
+    ];
+    const todo = scopeRows("todo", rows).map((row) => row.id);
+    expect(todo).toEqual(["closed_discovery"]);
+  });
+
   it("stamps the plan why on both slices without reordering today", () => {
     const rows = [
       task({ id: "due_today", title: "今天到期", due_at: day(0) }),
