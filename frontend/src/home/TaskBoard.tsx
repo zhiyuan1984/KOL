@@ -18,19 +18,6 @@ const FILTERS: Array<{ value: BoardFilter; label: string }> = [
 
 const COLLAPSED_ROWS = 5;
 
-function FilterIcon({ value }: { value: BoardFilter }) {
-  const path = value === "all"
-    ? <path d="M4 7h16M7 12h10M10 17h4" />
-    : value === "iu"
-      ? <path d="m12 4 8 15H4L12 4Zm0 5v4M12 16h.01" />
-      : value === "in"
-        ? <path d="m12 4 2.4 4.8 5.3.8-3.8 3.7.9 5.2-4.8-2.5-4.8 2.5.9-5.2-3.8-3.7 5.3-.8L12 4Z" />
-        : value === "ui"
-          ? <><circle cx="12" cy="12" r="8" /><path d="M12 7v5l3 2" /></>
-          : <circle cx="12" cy="12" r="6" />;
-  return <svg className="task-board-filter-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">{path}</svg>;
-}
-
 function matchesBoardFilter(task: Task, filter: BoardFilter): boolean {
   if (filter === "all") return true;
   const rank = taskPriorityRank(task);
@@ -127,8 +114,8 @@ export default function TaskBoard({
           <input
             type="search"
             className="task-board-search"
-            placeholder="搜索任务、红人或说明…"
-            aria-label="搜索任务、红人或说明"
+            placeholder={cfg.boardSearchLabel}
+            aria-label={cfg.boardSearchLabel}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
@@ -162,7 +149,6 @@ export default function TaskBoard({
             data-board-filter={value}
             onClick={() => setFilter(value)}
           >
-            <FilterIcon value={value} />
             <span>{label} {counts[value]}</span>
           </button>
         ))}

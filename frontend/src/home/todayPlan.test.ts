@@ -630,7 +630,7 @@ describe("todo scope wiring", () => {
   });
 
   it("keeps every pane string in SCOPE_CONFIG so the two tabs cannot drift", () => {
-    const panel = ["heroTitle", "boardTitle", "railLabel", "railToggleLabel", "railStorageKey", "planSummaryLabel"] as const;
+    const panel = ["heroTitle", "boardTitle", "railLabel", "railToggleLabel", "boardSearchLabel", "railStorageKey", "planSummaryLabel"] as const;
     for (const scope of PLAN_SCOPES) {
       for (const key of panel) expect(String(SCOPE_CONFIG[scope][key]).trim()).toBeTruthy();
       expect(SCOPE_CONFIG[scope].emptyCopy.title).toBeTruthy();
@@ -646,6 +646,9 @@ describe("todo scope wiring", () => {
     expect(SCOPE_CONFIG.todo.railLabel).toBe("待办任务表");
     expect(SCOPE_CONFIG.today.planSummaryLabel).toBe("今日计划摘要");
     expect(SCOPE_CONFIG.todo.planSummaryLabel).toBe("待办计划摘要");
+    // 右栏搜索只搜自己面板里的任务行，文案不带「红人/说明」。
+    expect(SCOPE_CONFIG.today.boardSearchLabel).toBe("搜索任务");
+    expect(SCOPE_CONFIG.todo.boardSearchLabel).toBe("搜索任务");
     // The rail keeps remembering its own scope, and today keeps its old key.
     expect(SCOPE_CONFIG.today.railStorageKey).toBe("ui:home-today-task-rail-collapsed");
     expect(SCOPE_CONFIG.todo.railStorageKey).toBe("ui:home-todo-task-rail-collapsed");

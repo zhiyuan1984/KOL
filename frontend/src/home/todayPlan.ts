@@ -76,6 +76,8 @@ export interface FrontendScopeConfig {
   railLabel: string;
   /** Vertical label shown while the rail is collapsed. */
   railToggleLabel: string;
+  /** Rail search placeholder + aria name. The board only searches its own rows. */
+  boardSearchLabel: string;
   /** Collapsed state is remembered per scope. */
   railStorageKey: string;
   /** Board empty state (no rows at all). */
@@ -97,6 +99,7 @@ export const SCOPE_CONFIG: Record<PlanScope, FrontendScopeConfig> = {
     boardTitle: "今日工作计划",
     railLabel: "今日任务表",
     railToggleLabel: "今日任务",
+    boardSearchLabel: "搜索任务",
     railStorageKey: "ui:home-today-task-rail-collapsed",
     emptyCopy: {
       title: "今天没有需要处理的任务",
@@ -118,6 +121,7 @@ export const SCOPE_CONFIG: Record<PlanScope, FrontendScopeConfig> = {
     boardTitle: "我的待办",
     railLabel: "待办任务表",
     railToggleLabel: "我的待办",
+    boardSearchLabel: "搜索任务",
     railStorageKey: "ui:home-todo-task-rail-collapsed",
     emptyCopy: {
       title: "没有待办任务",

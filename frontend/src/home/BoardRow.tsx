@@ -115,9 +115,6 @@ export default function BoardRow({
             disabled={busy}
             onClick={() => onAct(task)}
           >
-            <svg className="task-board-action-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-              <path d="M7 5h8v8M15 5l-9 9" />
-            </svg>
             {actionLabel}
           </button>
           {editable ? (

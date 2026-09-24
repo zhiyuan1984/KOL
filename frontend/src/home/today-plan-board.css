@@ -128,34 +128,24 @@
   gap: var(--home-chip-gap);
   margin: 14px 0 12px;
 }
-/* 同组筛选项等宽等高、图标与文本居中；触摸模态只扩 hit area。 */
+/* 筛选项只出文字（§5.1「不给筛选触发项加图标」）：宽度随内容，5 项在右栏最小
+   宽度里也排得下一行，不再换行。触摸模态由 styles.css 的 (pointer: coarse) 扩命中区。 */
 .task-board-pill {
   border: 1px solid var(--ds-border);
   background: var(--bg);
   color: var(--text);
   font: inherit;
-  font-size: var(--ds-font-helper);
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control-sm);
   border-radius: var(--radius-control);
-  padding: 0 4px;
+  padding: 0 10px;
   cursor: pointer;
-  width: var(--home-chip-w);
-  height: var(--home-chip-h);
-  flex: 0 0 var(--home-chip-w);
+  height: var(--chip-h);
+  flex: 0 0 auto;
   white-space: nowrap;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--home-chip-gap);
-}
-.task-board-filter-icon {
-  width: 15px;
-  height: 15px;
-  flex: 0 0 auto;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 .task-board-pill:hover {
   border-color: var(--accent);
@@ -269,21 +259,13 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.task-board-action-icon {
-  width: 15px;
-  height: 15px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
 .task-board-title {
   border: 0;
   background: none;
   padding: 0;
   font: inherit;
   font-weight: 500;
+  line-height: var(--lh-control);
   color: var(--ds-text-strong);
   cursor: pointer;
   text-align: left;
@@ -305,6 +287,7 @@
   align-items: center;
   gap: 4px;
   min-width: 0;
+  min-height: var(--lh-control);
   overflow: hidden;
 }
 .task-board-why {
@@ -312,6 +295,7 @@
   min-width: 0;
   flex: 1 1 auto;
   font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
   color: var(--ds-text-dim);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -351,32 +335,33 @@
   width: var(--workspace-task-actions-col);
   white-space: normal;
 }
+/* 两个动作同排：命中区取 --hit-min，标签 13px（规则 7）。竖排会把每行撑到 65px，
+   同排后行高只由标题格决定（56px）。 */
 .task-board-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: repeat(2, var(--workspace-task-action-h));
-  align-content: center;
-  gap: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
   width: 100%;
   min-width: 0;
 }
 .task-board-open {
   box-sizing: border-box;
-  width: 100%;
-  height: var(--workspace-task-action-h);
-  min-height: var(--workspace-task-action-h);
+  flex: 1 1 auto;
+  height: var(--hit-min);
+  min-height: var(--hit-min);
   border: 1px solid var(--ds-border);
   background: var(--bg);
   color: var(--ds-text-dim);
   font: inherit;
-  font-size: var(--ds-font-helper);
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control-sm);
   border-radius: var(--radius-control);
-  padding: 0 6px;
+  padding: 0 8px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
   white-space: nowrap;
 }
 .task-board-open:hover:not(:disabled) {
@@ -389,17 +374,18 @@
 }
 .task-board-edit {
   box-sizing: border-box;
-  width: 100%;
-  height: var(--workspace-task-action-h);
-  min-height: var(--workspace-task-action-h);
+  flex: 0 0 auto;
+  height: var(--hit-min);
+  min-height: var(--hit-min);
   margin: 0;
   border: 1px solid var(--ds-border);
   background: var(--bg);
   color: var(--ds-text-muted);
   font: inherit;
-  font-size: var(--ds-font-helper);
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control-sm);
   border-radius: var(--radius-control);
-  padding: 0 6px;
+  padding: 0 8px;
   cursor: pointer;
 }
 .task-board-edit:hover:not(:disabled) {
@@ -484,10 +470,7 @@
 }
 .scope-task-rail {
   position: relative;
-  display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
-  align-content: start;
-  column-gap: 8px;
+  display: block;
   min-width: 0;
   padding: 4px 0 24px 8px;
   border-left: 1px solid var(--ds-border);
@@ -503,35 +486,30 @@
 .scope-task-rail-body > .home-mode-pane {
   overflow: visible;
 }
-.scope-task-rail-body {
-  grid-column: 2;
-  grid-row: 1;
-}
 .scope-task-rail .task-board {
   margin: 0;
 }
+/* 收起按钮是 24px 图标按钮（--icon-btn、规则 17），贴在右栏右上角、与搜索/CTA
+   同一行右端：不再独占 44px 列，正文拿回整栏宽度。 */
 .scope-task-rail-toggle {
-  position: relative;
-  grid-column: 1;
-  grid-row: 1;
-  width: 44px;
-  height: 44px;
+  position: absolute;
+  top: 8px;
+  right: 0;
+  z-index: 1;
+  width: var(--icon-btn);
+  height: var(--icon-btn);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--ds-border);
-  border-radius: var(--radius-full);
-  background: var(--bg);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
   color: var(--ds-text-dim);
   font: inherit;
   cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 .scope-task-rail-toggle:hover {
   color: var(--accent-text);
-  border-color: var(--accent);
 }
 .scope-task-rail-toggle:focus-visible,
 .task-board-open:focus-visible,
@@ -541,9 +519,10 @@
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
+/* 图标只有两档（规则 17）：控件内用 --icon-sm，标识砖才用 --icon-md。 */
 .scope-task-rail-toggle-icon {
-  width: 18px;
-  height: 18px;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
   flex: 0 0 auto;
   fill: none;
   stroke: currentColor;
@@ -585,10 +564,11 @@
   text-align: center;
 }
 /* The rail head holds the title row and, under it, search + the scope's start
-   action — the start action is new in the rail (both scopes have it), so the
-   tools get their own full-width row instead of squeezing one column. */
+   action; its right end also carries the 24px rail toggle, so the head keeps a
+   gutter for it while the table below still uses the full rail width. */
 .scope-task-rail .task-board-head {
   padding-left: 0;
+  padding-right: calc(var(--icon-btn) + var(--space-2));
   grid-template-columns: minmax(0, 1fr);
   gap: 0;
 }
@@ -648,7 +628,11 @@
   .scope-task-rail-body {
     display: block;
   }
-  .scope-task-rail-toggle,
+  /* 折叠态在窄屏是一行 44px 横排标签；展开态仍是右上的 24px 图标按钮，
+     只是右栏在这里变成整块，栏首留白 20px，按钮要跟着下移。 */
+  .scope-task-rail-toggle {
+    top: 24px;
+  }
   .scope-task-rail.is-collapsed .scope-task-rail-toggle {
     position: static;
     width: auto;

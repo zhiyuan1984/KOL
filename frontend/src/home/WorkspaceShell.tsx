@@ -91,7 +91,8 @@ export default function WorkspaceShell({
           onClick={toggleRail}
         >
           <svg className="scope-task-rail-toggle-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-            <path d={railCollapsed ? "m7 4 6 6-6 6" : "m13 4-6 6 6 6"} />
+            {/* 右栏贴右边：收起向右、展开向左。 */}
+            <path d={railCollapsed ? "m13 4-6 6 6 6" : "m7 4 6 6-6 6"} />
           </svg>
           {railCollapsed ? <strong>{railToggleLabel}</strong> : null}
           {railCollapsed && railBadge != null ? <em>{railBadge}</em> : null}

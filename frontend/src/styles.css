@@ -87,13 +87,21 @@
   --control-h: 28px;
   --control-h-lg: 32px;
   --chip-h: 26px;
+  /* 图标只有两档（docs/ui-ux-rules.md 规则 17）：控件内 14、标识砖内 18。
+     技能目录页此前把这两档定义在页面级，工作台右栏等其它表面取不到值，
+     故在此登记为全局 token；页面级重复定义同样合法。 */
+  --icon-sm: 14px;
+  --icon-md: 18px;
+  --icon-btn: 24px;
   /* 首页工作台控件收敛为紧凑规格；触摸模态由下方规则单独扩至 44px 命中区。 */
   --home-chip-w: 88px;
   --home-chip-h: 28px;
   --home-chip-gap: 4px;
   --home-mode-tab-gap: 2px;
-  --workspace-task-priority-col: 64px;
-  --workspace-task-actions-col: 124px;
+  /* 优先级列要放得下「重要紧急」（12px×4 + padding 20 + 边框 2 = 70），
+     动作列放单行两个按钮（最长「查看邮件任务」+「编辑」≈ 144）。 */
+  --workspace-task-priority-col: 72px;
+  --workspace-task-actions-col: 156px;
   --workspace-task-action-h: 20px;
   /* Home Agent 工作台列宽：唯一数值来源见 docs/DESIGN.md §Home Agent 工作台几何。 */
   --workspace-result-rail-min: 360px;
