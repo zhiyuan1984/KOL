@@ -303,22 +303,26 @@ describe("home workbench", () => {
   });
 
   it("adopt-recommendation is idempotent and writes a formal WorkItem", async () => {
+    const boardBefore = buildHomeBoard() as Json;
+    const recommendations = (boardBefore.workbench as Json).recommendations as Json[];
+    const recommendation = recommendations.find((row) => String(row.id).startsWith("rec-ai-"));
+    expect(recommendation).toBeTruthy();
+    const payload = {
+      recommendation_id: String(recommendation?.id),
+      title: String(recommendation?.title),
+      handle: String(recommendation?.handle || ""),
+      intent: String(recommendation?.intent || ""),
+      reason: String(recommendation?.reason || ""),
+    };
     const first = await request("POST", "/api/tasks/adopt-recommendation", {
-      recommendation_id: "rec-e2e-quote",
-      title: "给 @户外电源达人 写报价",
-      handle: "户外电源达人",
-      intent: "email_compose",
-      reason: "今天推荐",
+      ...payload,
     });
     expect([200, 201]).toContain(first.status);
     expect(first.body.candidate).toBe(false);
     expect(first.body.promoted_at).toBeTruthy();
     const id = String(first.body.id);
     const second = await request("POST", "/api/tasks/adopt-recommendation", {
-      recommendation_id: "rec-e2e-quote",
-      title: "给 @户外电源达人 写报价",
-      handle: "户外电源达人",
-      intent: "email_compose",
+      ...payload,
     });
     expect(second.status).toBe(200);
     expect(String(second.body.id)).toBe(id);

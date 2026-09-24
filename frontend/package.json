@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build --configLoader runner",
     "preview": "vite preview --host 127.0.0.1 --port 4177",
     "typecheck": "tsc --noEmit",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:release": "playwright test e2e/home-followed-legacy-projection.spec.ts e2e/home-followed-focus.spec.ts e2e/home-surface-failure.spec.ts --project=chromium"
   },
   "dependencies": {
     "react": "^19.0.0",

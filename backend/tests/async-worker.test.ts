@@ -208,34 +208,23 @@ describe("real Codex HTTP flow", () => {
     process.env.FAKE_CODEX_DELAY = "50";
     const { createApp } = await import("../src/app.js");
     const app = createApp();
-    const created = await app.request("/api/tasks/from-text", {
+    const created = await app.request("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "搜索 YouTube 露营达人" }),
+      body: JSON.stringify({ title: "strict discovery plan" }),
     });
-    expect(created.status).toBe(201);
-    const payload = (await created.json()) as {
-      task?: { id: string; task_type?: string };
-      needs_clarification?: boolean;
-    };
-    expect(payload.task?.task_type).toBe("creator_discovery");
-    expect(payload.needs_clarification).toBe(false);
-    const queued = await app.request(`/api/tasks/${payload.task!.id}/run`, {
+    expect(created.status).toBe(200);
+    const { id } = (await created.json()) as { id: string };
+    const started = await app.request(`/api/sessions/${id}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: "{}",
-    });
-    const run = (await queued.json()) as { session_id: string; pending_message: Record<string, unknown> };
-    const started = await app.request(`/api/sessions/${run.session_id}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(run.pending_message),
+      body: JSON.stringify({ text: "搜索 YouTube 露营达人", intent: "creator_discovery", act: "ask" }),
     });
     expect(started.status).toBe(202);
     let session: { agent_status?: string; messages?: { kind?: string; payload?: Record<string, unknown> }[] } = {};
     for (let i = 0; i < 40; i += 1) {
       await new Promise((resolve) => setTimeout(resolve, 50));
-      session = (await (await app.request(`/api/sessions/${run.session_id}`)).json()) as typeof session;
+      session = (await (await app.request(`/api/sessions/${id}`)).json()) as typeof session;
       if (session.agent_status !== "running") break;
     }
     const plan = session.messages?.find((message) => message.kind === "crawl_plan");
@@ -337,29 +326,10 @@ describe("real Codex HTTP flow", () => {
 
   it("does not throw when a bound crawl follow-up lands after the task is torn down", async () => {
     const { appendTaskEvent } = await import("../src/routers/tasks.js");
-    const { createApp } = await import("../src/app.js");
-    const app = createApp();
-    const created = await app.request("/api/tasks/from-text", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "搜索 YouTube 露营达人" }),
-    });
-    const payload = (await created.json()) as { task?: { id: string } };
-    const queued = await app.request(`/api/tasks/${payload.task!.id}/run`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    });
-    const run = (await queued.json()) as { session_id: string; pending_message: Record<string, unknown> };
-    await app.request(`/api/sessions/${run.session_id}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(run.pending_message),
-    });
-    const workItemId = String(payload.task!.id);
-    const runId = String(run.pending_message.run_id || "");
-    // Same isolation as afterEach: a later test opens a new SQLite file, so
-    // leftover crawl follow-up must not insert against missing parents.
+    const workItemId = "tsk_torn_down";
+    const runId = "run_torn_down";
+    // Same isolation as afterEach: a later test opens a new SQLite file, so a
+    // delayed crawl follow-up must not insert against missing parents.
     process.env.LINGONG_DB = path.join(tmp, "torn-down.db");
     resetConn();
     seedAll();

@@ -367,50 +367,34 @@ describe("task CRUD and run flow", () => {
     expect(run.body.needs_clarification).toBe(true);
   });
 
-  it("turns a creator-search phrase into a crawl plan without calling remote start", async () => {
+  it("routes a creator-search phrase into the discovery workspace without calling remote start", async () => {
     const created = await request("POST", "/api/tasks/from-text", { text: "搜索 YouTube 露营达人" });
-    expect(created.status).toBe(201);
-    const task = created.body.task as Json;
-    expect(task.task_type).toBe("creator_discovery");
-    const queued = await request("POST", `/api/tasks/${task.id}/run`, {});
-    const executed = await request(
-      "POST",
-      `/api/sessions/${queued.body.session_id}/messages`,
-      queued.body.pending_message,
-    );
-    expect(executed.status).toBe(200);
-    const plan = (executed.body.messages as Json[]).find((message) => message.kind === "crawl_plan");
-    expect((plan?.payload as Json).crawl_plan).toMatchObject({
-      platform: "youtube",
-      mode: "search",
-      keywords: ["露营"],
-      requires_confirmation: false,
+    expect(created.status).toBe(200);
+    expect(created.body).toMatchObject({
+      task: null,
+      needs_clarification: true,
+      clarification_kind: "direction",
+      handoff: { kind: "workspace", pane: "discovery", task_type: "creator_discovery" },
+      resolution: { entities: { platform: "youtube", keywords: ["露营"] } },
     });
     expect(getConn().prepare("SELECT COUNT(*) AS n FROM crawl_jobs").get()).toMatchObject({ n: 0 });
   });
 
-  it("keeps YouTube discovery as a first-class crawl platform instead of falling back to xhs", async () => {
+  it("keeps YouTube discovery as a first-class workspace platform instead of falling back to xhs", async () => {
     const created = await request("POST", "/api/tasks/from-text", { text: "搜索 YouTube 户外电源达人" });
-    const task = created.body.task as Json;
-    const queued = await request("POST", `/api/tasks/${task.id}/run`, {});
-    const executed = await request(
-      "POST",
-      `/api/sessions/${queued.body.session_id}/messages`,
-      queued.body.pending_message,
-    );
-    const plan = (executed.body.messages as Json[]).find((message) => message.kind === "crawl_plan");
-    expect((plan?.payload as Json).crawl_plan).toMatchObject({
-      platform: "youtube",
-      mode: "search",
-      keywords: ["户外电源"],
+    expect(created.status).toBe(200);
+    expect(created.body).toMatchObject({
+      task: null,
+      handoff: { kind: "workspace", pane: "discovery", task_type: "creator_discovery" },
+      resolution: { entities: { platform: "youtube", keywords: ["户外电源"] } },
     });
     expect(getConn().prepare("SELECT COUNT(*) AS n FROM crawl_jobs").get()).toMatchObject({ n: 0 });
   });
 
   it("skips task events when the work item or run is already gone", async () => {
-    const created = await request("POST", "/api/tasks/from-text", { text: "搜索 YouTube 露营达人" });
+    const created = await request("POST", "/api/tasks", { task_type: "risk_scan", title: "扫描风险" });
     expect(created.status).toBe(201);
-    const task = created.body.task as Json;
+    const task = created.body as Json;
     const queued = await request("POST", `/api/tasks/${task.id}/run`, {});
     const runId = String(queued.body.run_id || "");
     expect(appendTaskEvent(String(task.id), runId, "run.progress", "准备任务", "running")).toMatchObject({
@@ -425,20 +409,13 @@ describe("task CRUD and run flow", () => {
     expect(appendTaskEvent("wi_missing", null, "task.created", "gone", "pending")).toBeNull();
   });
 
-  it("turns an Instagram search phrase into a crawl plan", async () => {
+  it("routes an Instagram search phrase into the discovery workspace", async () => {
     const created = await request("POST", "/api/tasks/from-text", { text: "搜索 Instagram camping 达人" });
-    expect(created.status).toBe(201);
-    const queued = await request("POST", `/api/tasks/${(created.body.task as Json).id}/run`, {});
-    const executed = await request(
-      "POST",
-      `/api/sessions/${queued.body.session_id}/messages`,
-      queued.body.pending_message,
-    );
-    const plan = (executed.body.messages as Json[]).find((message) => message.kind === "crawl_plan");
-    expect((plan?.payload as Json).crawl_plan).toMatchObject({
-      platform: "instagram",
-      mode: "search",
-      keywords: ["camping"],
+    expect(created.status).toBe(200);
+    expect(created.body).toMatchObject({
+      task: null,
+      handoff: { kind: "workspace", pane: "discovery", task_type: "creator_discovery" },
+      resolution: { entities: { platform: "instagram", keywords: ["camping"] } },
     });
   });
 });

@@ -45,7 +45,7 @@ function boot(mode: string, extraEnv: Record<string, string> = {}): CodexAppServ
 
 describe("CodexAppServer.requireAuth", () => {
   it("waits for late ChatGPT account/updated instead of failing immediately", async () => {
-    const server = boot("late-chatgpt");
+    const server = boot("late-chatgpt", { OPENAI_API_KEY: "", CODEX_API_KEY: "" });
     await server.handshake();
     const acct = await server.requireAuth();
     expect((acct.account as { type?: string } | null)?.type).toBe("chatgpt");
@@ -60,7 +60,7 @@ describe("CodexAppServer.requireAuth", () => {
   });
 
   it("fails fast when auth.json exists but app-server still reports no account", async () => {
-    const server = boot("empty");
+    const server = boot("empty", { OPENAI_API_KEY: "", CODEX_API_KEY: "" });
     fs.writeFileSync(
       path.join(process.env.CODEX_HOME || "", "auth.json"),
       JSON.stringify({ tokens: { access_token: "tok", account_id: "a1" } }),

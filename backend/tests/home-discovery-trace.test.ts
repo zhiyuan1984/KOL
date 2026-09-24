@@ -239,7 +239,7 @@ describe("home discovery Codex reasoning stream", () => {
     expect(String(thinking.safe_summary)).toBe(long.slice(-1000));
   });
 
-  it("marks the reasoning row failed when the brief run fails", async () => {
+  it("marks unfinished trace rows interrupted when the brief run fails", async () => {
     setDiscoveryBriefRunner(async (input) => {
       input.onStream?.(step("host:preparing", "准备任务"));
       input.onStream?.(reasoning("先按均播粗筛", "running"));
@@ -249,12 +249,12 @@ describe("home discovery Codex reasoning stream", () => {
     expect(run.status).toBe("rank_failed");
     const rows = traceRows(workItemIdOf(run));
     const thinking = rows.find((row) => row.event_type === "run.think") as Row;
-    expect(thinking).toMatchObject({ label: "Codex 推理", safe_summary: "先按均播粗筛", status: "failed" });
+    expect(thinking).toMatchObject({ label: "Codex 推理", safe_summary: "先按均播粗筛", status: "interrupted" });
     const stepRow = rows.find((row) => row.item_key === "host:preparing") as Row;
-    expect(stepRow.status).toBe("failed");
+    expect(stepRow.status).toBe("interrupted");
   });
 
-  it("marks the running row failed and keeps the failure event last when the brief fails validation", async () => {
+  it("marks the running row interrupted and keeps the failure event last when the brief fails validation", async () => {
     setDiscoveryBriefRunner(async (input) => {
       input.onStream?.(reasoning("先按均播粗筛", "running"));
       return { items: [{ type: "task_result", title: "半段结果", summary: "没有 ranking", sections: [], metrics: [], recommended_actions: [] }] };
@@ -263,7 +263,7 @@ describe("home discovery Codex reasoning stream", () => {
     expect(run.status).toBe("rank_failed");
     const workItemId = workItemIdOf(run);
     const thinking = traceRows(workItemId).find((row) => row.event_type === "run.think") as Row;
-    expect(thinking).toMatchObject({ label: "Codex 推理", safe_summary: "先按均播粗筛", status: "failed" });
+    expect(thinking).toMatchObject({ label: "Codex 推理", safe_summary: "先按均播粗筛", status: "interrupted" });
     // 失败终态事件在推理行之后：工作项的「最新状态」不会被推理行顶掉。
     const last = getConn().prepare(
       "SELECT event_type FROM task_events WHERE work_item_id=? ORDER BY sequence DESC LIMIT 1",

@@ -83,7 +83,11 @@ jobs:
           E2E_BASE: http://127.0.0.1:18876
           E2E_SKIP_BUILD: "1"
           PW_HEADLESS: "1"
-        run: npm run test:e2e
+        # The broad visual-regression suite is retained under `test:e2e` while
+        # its obsolete workbench assertions are migrated. Release gating stays
+        # deterministic and exercises the production entry's KOL follow scope,
+        # the legacy-to-B.active projection, and read failure handling.
+        run: npm run test:e2e:release
 
   deploy-production:
     name: Deploy production

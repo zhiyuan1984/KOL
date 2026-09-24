@@ -85,6 +85,10 @@ type SkillLookup = {
 const SKILL_LOOKUP_TTL_MS = 60_000;
 let skillDefinitionCache: { expiresAt: number; defs: SkillLookup["defs"]; cats: SkillLookup["cats"] } | null = null;
 
+function clearSkillLookupCache(): void {
+  skillDefinitionCache = null;
+}
+
 function skillLookup(): SkillLookup {
   const now = Date.now();
   if (skillDefinitionCache && skillDefinitionCache.expiresAt > now) {
@@ -111,14 +115,17 @@ function skillMeta(name: string, lookup?: SkillLookup): Json {
   const sideEffects = definition?.side_effects || "none";
   const needsConfirmation = sideEffects !== "none" || actions.some((action) => /send|write|update|delete|decrypt|import|stage|sync/i.test(action));
   const mcpTools = definition?.mcp || [];
+  const mcpNeedsConfirmation = mcpTools.some((tool) => /send|decrypt|delete|upload|import|changeLifecycleStage/i.test(tool));
   const isAsync = name === "creator_discovery" || mcpTools.some((tool) => /start_crawl|crawl_status|crawl_logs|stop_crawl/i.test(tool));
   const executionTools = [
-    ...mcpTools.map((ref) => ({
+    // Employee surfaces describe the approved connector category, never the
+    // raw MCP method name or server wiring from a SKILL.md manifest.
+    ...(mcpTools.length ? [{
       kind: "mcp",
-      ref,
-      risk: /send|decrypt|delete|upload|import|changeLifecycleStage/i.test(ref) ? "L3" : "L1",
-      confirmation: /send|decrypt|delete|upload|import|changeLifecycleStage/i.test(ref) ? "required" : "none",
-    })),
+      ref: "authorized_connector",
+      risk: mcpNeedsConfirmation ? "L3" : "L1",
+      confirmation: mcpNeedsConfirmation ? "required" : "none",
+    }] : []),
     ...actions.map((ref) => ({
       kind: "internal_action",
       ref,
@@ -291,6 +298,7 @@ misc.post("/admin/skills", async (c) => {
   requirePm();
   const body = (await c.req.json()) as Record<string, unknown>;
   const created = createPublishedSkill(body);
+  clearSkillLookupCache();
   return c.json({ ...skillMeta(created.id), grants: grantsForSkill(created.id) }, 201);
 });
 misc.patch("/admin/skills/:id", async (c) => {
@@ -298,11 +306,14 @@ misc.patch("/admin/skills/:id", async (c) => {
   const id = c.req.param("id");
   const body = (await c.req.json()) as Record<string, unknown>;
   const updated = updatePublishedSkill(id, body);
+  clearSkillLookupCache();
   return c.json({ ...skillMeta(updated.id), grants: grantsForSkill(id) });
 });
 misc.delete("/admin/skills/:id", (c) => {
   requirePm();
-  return c.json(deletePublishedSkill(c.req.param("id")));
+  const deleted = deletePublishedSkill(c.req.param("id"));
+  clearSkillLookupCache();
+  return c.json(deleted);
 });
 misc.put("/admin/skills/:id/grants", async (c) => {
   requirePm();

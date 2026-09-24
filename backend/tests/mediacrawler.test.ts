@@ -281,34 +281,22 @@ describe("crawl lifecycle", () => {
     expect((getConn().prepare("SELECT COUNT(*) AS count FROM crawl_jobs").get() as { count: number }).count).toBe(0);
   });
 
-  it("automatically starts a confirmed creator-discovery plan", async () => {
-    process.env.MEDIACRAWLER_AUTO_START = "1";
+  it("routes creator-discovery text to the dedicated discovery workspace", async () => {
     const { createApp } = await import("../src/app.js");
     const app = createApp();
-    const created = await app.request("/api/tasks/from-text", {
+    const response = await app.request("/api/tasks/from-text", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: "搜索 YouTube 户外电源达人" }),
     });
-    const task = await created.json() as { task: Json };
-    const queued = await app.request(`/api/tasks/${task.task.id}/run`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      task: null,
+      needs_clarification: true,
+      clarification_kind: "direction",
+      handoff: { kind: "workspace", pane: "discovery", task_type: "creator_discovery" },
     });
-    const run = await queued.json() as { session_id: string; pending_message: Json };
-    await app.request(`/api/sessions/${run.session_id}/messages`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(run.pending_message),
-    });
-    let job: Row | undefined;
-    for (let i = 0; i < 30; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-      job = getConn().prepare("SELECT * FROM crawl_jobs WHERE work_item_id=?").get(task.task.id) as Row | undefined;
-      if (job?.remote_task_id) break;
-    }
-    expect(job).toMatchObject({ status: "crawling", remote_task_id: "remote-1" });
-    expect(calls).toContain("start_crawl");
-    await stopCrawl(String(job!.id));
+    expect(calls).not.toContain("start_crawl");
   });
 
   it("pulls creators when only the remote auto-upload step failed", async () => {
