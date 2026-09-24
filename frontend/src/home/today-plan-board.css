@@ -443,9 +443,6 @@
 .scope-workspace.is-task-rail-collapsed {
   grid-template-columns: minmax(0, 1fr) var(--workspace-result-rail-collapsed);
 }
-.scope-workspace.is-result-idle:not(.is-task-rail-collapsed) {
-  --scope-task-rail-width: var(--workspace-result-rail-min);
-}
 .scope-workspace-center {
   min-width: 0;
   padding: 4px 28px 24px 0;

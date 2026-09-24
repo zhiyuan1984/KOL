@@ -1,16 +1,15 @@
 import { Link } from "react-router-dom";
+import DiscoveryAiSummary from "./DiscoveryAiSummary";
 import { DiscoveryIngestConfirm } from "./DiscoveryIngestConfirm";
 import DiscoveryLeadRow from "./DiscoveryLeadRow";
-import DiscoveryRunStatusCard from "./DiscoveryRunStatusCard";
+import DiscoveryNextPlan from "./DiscoveryNextPlan";
 import { platformLabel } from "./discoveryTemplate";
-import { runCountsLabel, runHeadline } from "./discoveryHome";
 import type { DiscoveryState } from "./useDiscovery";
 
 /**
- * 右栏 = Codex 结果区：运行状态（成功页 / 失败页）、结果摘要、线索明细，
- * 以及入库公海的 L3 确认与各种终态提示。状态由 useDiscovery 提供，这里不发请求。
- * 跑批中也要有状态（真实等待必须有原因与状态，DESIGN §不变量 3），所以状态卡
- * 跟着 run 走，而不是跟着结果条数走。
+ * Right rail: a compact decision sequence — AI summary, result details, then
+ * the next plan. It consumes useDiscovery state only; reads, polling, writes,
+ * and L3 confirmation all remain in the hook and existing confirmation flow.
  */
 export default function DiscoveryResultPane({ state }: { state: DiscoveryState }) {
   const {
@@ -47,8 +46,10 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
     openIngest,
     confirmIngest,
     cancelIngest,
+    showCard,
   } = state;
   const showResults = visible.length > 0;
+  const selecting = selected.length > 0;
 
   return (
     <div
@@ -58,6 +59,15 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
       data-discovery-stage={stage}
       data-discovery-running={inFlight ? "true" : undefined}
     >
+      <DiscoveryAiSummary
+        run={run}
+        visibleCount={visible.length}
+        inFlight={inFlight}
+        failure={failure}
+        emptyKind={emptyKind}
+        emptyMessage={emptyMessage}
+      />
+
       {failure ? (
         <section className="task-empty discovery-error" data-discovery-error role="alert">
           <strong>{failure.title}</strong>
@@ -119,16 +129,6 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
         </div>
       ) : null}
 
-      {run ? <DiscoveryRunStatusCard run={run} shortlistFallback={visible.length} /> : null}
-
-      {run ? (
-        <header className="discovery-result-head">
-          <p className="discovery-result-context">{runHistory[0]?.id === run.id ? "当前最新结果" : "历史运行结果"}</p>
-          <h2 data-discovery-headline>{runHeadline(run)}</h2>
-          <p data-discovery-counts>{runCountsLabel(run, visible.length)}</p>
-        </header>
-      ) : null}
-
       {runHistory.length > 1 ? (
         <details className="discovery-history">
           <summary>历史发现 <span>{runHistory.length - 1}</span></summary>
@@ -146,35 +146,39 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
       ) : null}
 
       {showResults ? (
-        <>
-          <div
-            className={"discovery-run-bar" + (selected.length ? " is-selecting" : "")}
-            data-discovery-run-bar
-          >
-            <span className="discovery-run-count" data-discovery-candidate-count>
-              {`候选 ${visible.length} 位`}
-            </span>
-            <span className="discovery-run-sort" data-discovery-sort-note>按推荐分与匹配度排序</span>
-            <label className="discovery-candidate-select">
-              <input
-                type="checkbox"
-                data-discovery-select-all
-                checked={visible.length > 0 && selected.length === visible.length}
-                onChange={(event) => selectAll(event.target.checked)}
-              />
-              <span>{`已选 ${selected.length} 人`}</span>
-            </label>
-            <button
-              type="button"
-              className="btn work sm"
-              data-discovery-ingest
-              data-home-entry="discovery-ingest"
-              disabled={!selected.length}
-              onClick={openIngest}
-            >
-              {selected.length ? `入库公海（${selected.length}）` : "入库公海"}
-            </button>
-          </div>
+        <section className="discovery-result-detail" aria-label="结果明细">
+          <header className="discovery-result-detail-head">
+            <div>
+              <h3>结果明细</h3>
+              <p className="discovery-run-count" data-discovery-candidate-count>{`候选 ${visible.length} 位 · 按推荐分与匹配度排序`}</p>
+            </div>
+            {!selecting ? <p className="discovery-selection-hint">勾选线索后可进入入库确认</p> : null}
+          </header>
+
+          {selecting ? (
+            <div className="discovery-run-bar is-selecting" data-discovery-run-bar>
+              <span className="discovery-run-count" data-discovery-selected-count>{`已选 ${selected.length} 人`}</span>
+              <label className="discovery-candidate-select">
+                <input
+                  type="checkbox"
+                  data-discovery-select-all
+                  checked={visible.length > 0 && selected.length === visible.length}
+                  onChange={(event) => selectAll(event.target.checked)}
+                />
+                <span>全选结果</span>
+              </label>
+              <button
+                type="button"
+                className="btn work sm"
+                data-discovery-ingest
+                data-home-entry="discovery-ingest"
+                onClick={openIngest}
+              >
+                {`入库公海（${selected.length}）`}
+              </button>
+            </div>
+          ) : null}
+
           <ol className="discovery-candidate-list" data-discovery-candidates>
             {visible.map((candidate) => (
               <li key={candidate.id}>
@@ -189,7 +193,7 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
               </li>
             ))}
           </ol>
-        </>
+        </section>
       ) : null}
 
       {toast ? (
@@ -198,19 +202,26 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
         </p>
       ) : null}
 
-      {/* 空态：服务不可用 / 筛选无结果。idle 不占位（没有 run 时结果区为空）。 */}
       {!inFlight && !showResults && !failure && emptyKind !== "idle" ? (
         <div className="task-empty" data-discovery-empty={emptyKind}>
           <strong>{emptyKind === "down" ? "服务不可用" : "筛选无结果"}</strong>
           <p>{emptyMessage}</p>
         </div>
       ) : null}
-      {!run && !inFlight && !failure && emptyKind === "idle" ? (
-        <div className="task-empty" data-discovery-empty="no-history">
-          <strong>暂无发现结果</strong>
-          <p>填写条件并提交后，结果会显示在这里。</p>
-        </div>
-      ) : null}
+
+      <DiscoveryNextPlan
+        run={run}
+        visibleCount={visible.length}
+        selectedCount={selected.length}
+        inFlight={inFlight}
+        failure={failure}
+        emptyKind={emptyKind}
+        runHistoryCount={runHistory.length}
+        onEditConditions={showCard}
+        onRetry={() => void retryRun()}
+        onCheckConnection={() => void checkCollector()}
+        onOpenIngest={openIngest}
+      />
 
       <DiscoveryIngestConfirm
         open={ingestOpen}

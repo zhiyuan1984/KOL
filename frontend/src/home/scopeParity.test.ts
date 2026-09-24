@@ -137,6 +137,7 @@ describe("pane parity", () => {
   it("keeps workspace rail geometry on DESIGN tokens", () => {
     const css = read("../styles.css");
     const boardCss = read("./today-plan-board.css");
+    const discoveryCss = read("./discovery-workspace.css");
     for (const token of [
       "--workspace-result-rail-min",
       "--workspace-result-rail-ideal",
@@ -148,6 +149,10 @@ describe("pane parity", () => {
     expect(boardCss).toContain("var(--workspace-result-rail-min)");
     expect(boardCss).not.toMatch(/clamp\(\s*600px/);
     expect(boardCss).toContain("max-width: 1100px");
+    // Empty discovery results are content state only. They must not shrink the
+    // expanded rail below the same width used by today and todo.
+    expect(boardCss).not.toContain(".scope-workspace.is-result-idle:not(.is-task-rail-collapsed)");
+    expect(discoveryCss).not.toContain("padding-top: calc(var(--space-5) + var(--space-5))");
   });
 
   it("object panes no longer declare a second pane skeleton", () => {

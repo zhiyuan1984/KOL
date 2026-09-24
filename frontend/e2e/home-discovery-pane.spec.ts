@@ -135,15 +135,17 @@ test("condition chips rewrite the ask-box body and no card button remains", asyn
   await expect(card.locator("[data-discovery-no-side-effect]")).toHaveCount(0);
 });
 
-test("idle discovery uses the center width and keeps the full brief above the dock", async ({ page }) => {
+test("idle discovery keeps the task-rail width and full brief above the dock", async ({ page }) => {
+  await page.setViewportSize({ width: 1966, height: 900 });
   await stubNoRuns(page);
   await openDiscovery(page);
   const workspace = page.locator('[data-home-pane="discovery"]');
   await expect(workspace).toHaveClass(/is-result-idle/);
   const rail = workspace.locator('[data-scope-task-rail]');
   const center = workspace.locator('[data-scope-ai-workspace]');
-  expect(Math.round((await rail.boundingBox())!.width)).toBe(360);
-  expect(await center.evaluate((element) => element.clientWidth)).toBeGreaterThan(360);
+  expect(Math.round((await rail.boundingBox())!.width)).toBe(820);
+  const discoveryRailWidth = Math.round((await rail.boundingBox())!.width);
+  expect(await center.evaluate((element) => element.clientWidth)).toBeGreaterThan(820);
   const card = workspace.locator('[data-discovery-search-card]');
   const followerMin = card.locator('[data-skill-param="min_followers"]');
   const followerMax = card.locator('[data-skill-param="max_followers"]');
@@ -153,6 +155,10 @@ test("idle discovery uses the center width and keeps the full brief above the do
   const finalBox = await finalField.boundingBox();
   const dockBox = await workspace.locator('.home-composer-dock').boundingBox();
   expect(finalBox && dockBox && finalBox.y + finalBox.height <= dockBox.y).toBeTruthy();
+  await page.locator('[data-home-mode="today"]').click();
+  const todayRail = page.locator('[data-home-pane="today"] [data-scope-task-rail]');
+  await expect(todayRail).toBeVisible();
+  expect(Math.round((await todayRail.boundingBox())!.width)).toBe(discoveryRailWidth);
   for (const width of [1024, 720, 480]) {
     await page.setViewportSize({ width, height: 900 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBeTruthy();
@@ -182,6 +188,7 @@ test("ask-box send follows the platform and keyword guard", async ({ page }) => 
   await openDiscovery(page);
   const card = page.locator("[data-discovery-search-card]");
   const send = page.locator("[data-home] [data-ai-prompt-submit]");
+  const youtube = card.locator('[data-skill-param="platforms"] [data-discovery-chip="youtube"]');
   const instagram = card.locator('[data-skill-param="platforms"] [data-discovery-chip="instagram"]');
   const keywords = card.locator("[data-discovery-keywords]");
 
@@ -197,7 +204,11 @@ test("ask-box send follows the platform and keyword guard", async ({ page }) => 
   await keywords.blur();
   await expect(send).toBeEnabled();
 
-  // 二次点击同一平台即取消选择（单选，决策 D2），条件不完整时按钮回到禁用。
+  // 平台单选：先取消默认 YouTube，再选择 Instagram；再次点击 Instagram
+  // 取消选择，条件不完整时发送按钮回到禁用。
+  await youtube.click();
+  await expect(youtube).toHaveAttribute("aria-pressed", "false");
+  await expect(send).toBeDisabled();
   await instagram.click();
   await expect(instagram).toHaveAttribute("aria-pressed", "true");
   await expect(send).toBeEnabled();
@@ -430,7 +441,12 @@ test("submit posts /api/home/discovery/run, shows process copy, and ingests to p
   await expect(page.locator("[data-discovery-panel]")).not.toContainText(BANNED_FOLLOW);
   await expect(page.locator("[data-discovery-panel]")).not.toContainText("发送邮件");
   await expect(page.locator("[data-coach-next], [data-next-step-card]")).toHaveCount(0);
+  await expect(page.locator("[data-discovery-ai-summary]")).toContainText("已完成");
+  await expect(page.locator("[data-discovery-next-plan]")).toContainText("核对线索后选择入库对象");
+  await expect(page.locator("[data-discovery-ingest]")).toHaveCount(0);
 
+  await page.locator('[data-discovery-select="cand_solar"]').check();
+  await expect(page.locator("[data-discovery-select-all]")).toBeVisible();
   await page.locator("[data-discovery-select-all]").check();
   const ingest = page.locator("[data-discovery-ingest]");
   await expect(ingest).toHaveText("入库公海（2）");
@@ -533,6 +549,7 @@ test("ingest 404 stays an empty-state and does not claim", async ({ page }) => {
     body: JSON.stringify({ detail: "not found" }),
   }));
   await openDiscovery(page, { expectCard: false });
+  await page.locator('[data-discovery-select="cand_solar"]').check();
   await page.locator("[data-discovery-select-all]").check();
   await page.locator("[data-discovery-ingest]").click();
   await page.locator("[data-discovery-ingest-yes]").click();
@@ -565,6 +582,7 @@ test("ingest 422 keeps L3 open; 409 voids the old confirm", async ({ page }) => 
     });
   });
   await openDiscovery(page, { expectCard: false });
+  await page.locator('[data-discovery-select="cand_solar"]').check();
   await page.locator("[data-discovery-select-all]").check();
   await page.locator("[data-discovery-ingest]").click();
   await page.locator("[data-discovery-ingest-yes]").click();
@@ -607,6 +625,7 @@ test("L3 cancel after 422 posts cancel:true and does not claim", async ({ page }
     });
   });
   await openDiscovery(page, { expectCard: false });
+  await page.locator('[data-discovery-select="cand_solar"]').check();
   await page.locator("[data-discovery-select-all]").check();
   await page.locator("[data-discovery-ingest]").click();
   await page.locator("[data-discovery-ingest-no]").click();
