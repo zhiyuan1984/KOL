@@ -193,6 +193,9 @@
 .today-plan-step.is-failed .today-plan-step-mark {
   color: var(--danger);
 }
+.today-plan-step.is-interrupted .today-plan-step-mark {
+  color: var(--text-muted);
+}
 .today-plan-step-spinner {
   display: inline-block;
   width: 9px;
@@ -215,6 +218,9 @@
 }
 .today-plan-step.is-failed .today-plan-step-label {
   color: var(--danger);
+}
+.today-plan-step.is-interrupted .today-plan-step-label {
+  color: var(--text-muted);
 }
 .today-plan-step-op {
   flex: 1 1 10rem;
@@ -281,6 +287,9 @@
    background here leaked through the dark theme. */
 .today-plan-think.is-streaming {
   animation: today-plan-breathe 2.4s ease-in-out infinite;
+}
+.today-plan-think.is-interrupted {
+  border-left-color: var(--text-muted);
 }
 @keyframes today-plan-breathe {
   0%, 100% { border-left-color: var(--plan-accent-soft); }

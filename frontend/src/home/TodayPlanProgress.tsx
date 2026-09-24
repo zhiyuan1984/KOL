@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { TaskEvent, TodayBrief } from "../api";
 import { thinkTail } from "./streamText";
 import {
+  effectivePlanPhase,
   formatTodayPlanElapsed,
   todayPlanEventLabels,
   type PlanScope,
@@ -41,7 +42,7 @@ function eventTime(event?: TaskEvent): string {
   return formatClock(date);
 }
 
-type StepState = "running" | "done" | "failed";
+type StepState = "running" | "done" | "failed" | "interrupted";
 type StepKind = "step" | "think" | "tool";
 
 type PlanStep = {
@@ -112,13 +113,22 @@ function stepKindOf(type: string): StepKind {
  * done even though the run itself is still going. Everything else carries its
  * own status; a leftover `running` after the run settled can only be stale.
  */
-function stepStateOf(event: TaskEvent, live: boolean): StepState {
+function stepStateOf(event: TaskEvent, live: boolean, terminalFailure: boolean): StepState {
   const type = eventTypeOf(event);
   const status = String(event.status || "").toLowerCase();
-  if (type === "run.failed" || type === "failed" || status === "failed") return "failed";
+  if (type === "run.failed" || type === "failed") return "failed";
+  if (status === "failed") return terminalFailure ? "interrupted" : "failed";
+  if (status === "interrupted") return "interrupted";
   if (type === "run.progress" || type === "run.completed") return "done";
-  if (status === "running") return live ? "running" : "done";
+  if (status === "running") return terminalFailure ? "interrupted" : live ? "running" : "done";
   return "done";
+}
+
+function employeeFailureReason(detail: string): string {
+  if (/等待\s*turn\/completed\s*超时/i.test(detail)) {
+    return "模型响应超时，本轮未生成新的规划。可重新生成计划。";
+  }
+  return detail;
 }
 
 /**
@@ -144,11 +154,19 @@ export default function TodayPlanProgress({
   previousEvents?: TaskEvent[] | null;
   scope?: PlanScope;
 }) {
-  const live = phase === "loading-memory" || phase === "planning";
-  const failed = phase === "failed";
+  // The event trace is durable while `phase` is client-side and may lag one poll.
+  // A persisted terminal event therefore wins: never keep the timer or streaming
+  // copy alive after the worker has already failed.
+  const resolvedPhase = effectivePlanPhase(phase, events, scope);
+  const live = resolvedPhase === "loading-memory" || resolvedPhase === "planning";
+  const failed = resolvedPhase === "failed";
   const elapsed = usePlanningElapsed(live);
   const labels = todayPlanEventLabels(events);
   const [previousOpen, setPreviousOpen] = useState(false);
+  const hasTerminalFailure = (events || []).some((event) => {
+    const type = eventTypeOf(event);
+    return type === "run.failed" || type === "failed";
+  });
 
   // Every step gets a clock time: the backend created_at when present,
   // otherwise a local stamp from the first time this client saw the step.
@@ -188,7 +206,7 @@ export default function TodayPlanProgress({
         kind,
         label,
         time: stampFor(key, event),
-        state: stepStateOf(event, live),
+        state: stepStateOf(event, live, hasTerminalFailure),
         detail,
       };
       const prev = byKey.get(key);
@@ -200,22 +218,28 @@ export default function TodayPlanProgress({
       byKey.set(key, { ...prev, ...next, time: prev.time || next.time });
     }
     return order.map((key) => byKey.get(key)!);
-  }, [events, live]);
+  }, [events, live, hasTerminalFailure]);
 
-  // Steps stay out of the way once the run settles; a new run opens them again.
+  // Successful runs fold away, but an error remains visible with its actionable
+  // reason rather than forcing the employee to open a second control to learn
+  // what happened.
   const [open, setOpen] = useState(live);
   useEffect(() => {
-    setOpen(live);
-  }, [live]);
+    setOpen(live || failed);
+  }, [live, failed]);
 
   const stepRows = steps.filter((step) => step.kind !== "think");
   const thinkRows = steps.filter((step) => step.kind === "think");
   const activeThink = thinkRows.length ? thinkRows[thinkRows.length - 1] : undefined;
   const think = activeThink ? thinkTail(activeThink.detail) : { body: "", truncated: false };
+  const hasInterruptedThink = activeThink?.state === "interrupted" || activeThink?.state === "failed";
+  const thinkBody = hasInterruptedThink && (!think.body || /^正在分析[.…]*$/.test(think.body))
+    ? "推理因本轮执行失败而中断。"
+    : think.body;
   const foldedThink = Math.max(0, thinkRows.length - 1);
   const finishedAt = steps.length ? steps[steps.length - 1].time : "";
   const failedStep = [...steps].reverse().find((step) => step.state === "failed");
-  const displayPhase: TodayPlanPhase = phase === "idle" && steps.length ? "refreshed" : phase;
+  const displayPhase: TodayPlanPhase = resolvedPhase === "idle" && steps.length ? "refreshed" : resolvedPhase;
   const status = lucasPlanCopy(displayPhase, scope, candidates, plannedTasks, failedStep?.detail);
 
   // The previous version stays reachable but never competes with the current one.
@@ -241,7 +265,7 @@ export default function TodayPlanProgress({
   return (
     <section
       className={"today-plan" + (live ? " is-live" : "")}
-      data-today-plan-phase={phase}
+      data-today-plan-phase={resolvedPhase}
       data-today-plan-events={labels.length}
       data-today-planning={live ? true : undefined}
       data-today-plan-open={open ? "true" : "false"}
@@ -327,6 +351,8 @@ export default function TodayPlanProgress({
                   <span className="today-plan-step-mark" aria-hidden>
                     {step.state === "failed"
                       ? "✗"
+                      : step.state === "interrupted"
+                        ? "—"
                       : step.state === "running"
                         ? <span className="today-plan-step-spinner" />
                         : "✓"}
@@ -336,7 +362,7 @@ export default function TodayPlanProgress({
                     <span className="today-plan-step-op" title={step.detail}>{step.detail}</span>
                   ) : null}
                   {step.state === "failed" && step.detail ? (
-                    <span className="today-plan-step-reason" title={step.detail}>{step.detail}</span>
+                    <span className="today-plan-step-reason" title={step.detail}>{employeeFailureReason(step.detail)}</span>
                   ) : null}
                   <time className="today-plan-step-time">{step.time}</time>
                 </li>
@@ -345,14 +371,14 @@ export default function TodayPlanProgress({
           ) : null}
 
           {activeThink ? (
-            <div className={"today-plan-think" + (activeThink.state === "running" ? " is-streaming" : "")} data-today-plan-think>
+            <div className={"today-plan-think" + (activeThink.state === "running" ? " is-streaming" : "") + (activeThink.state === "interrupted" || activeThink.state === "failed" ? " is-interrupted" : "")} data-today-plan-think>
               <span className="today-plan-think-label">
                 Codex 推理
                 {foldedThink ? ` · 已折叠 ${foldedThink} 段更早的推理` : ""}
               </span>
-              {think.body ? (
+              {thinkBody ? (
                 <p className="today-plan-think-body">
-                  {think.truncated ? "…" : ""}{think.body}
+                  {think.truncated ? "…" : ""}{thinkBody}
                 </p>
               ) : (
                 <p className="today-plan-think-body is-empty">正在分析…</p>

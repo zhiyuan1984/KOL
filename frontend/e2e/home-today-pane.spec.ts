@@ -98,6 +98,53 @@ test("entering today lists memory without planning; 启动今日任务 starts th
   await expect(page.locator('[data-today-todo="tsk_due"]')).toBeVisible();
 });
 
+test("a terminal event immediately settles the planning header and leaves one actionable failure", async ({ page }) => {
+  let started = false;
+  const todos = [{ id: "tsk_due", title: "写报价确认邮件", source: "manual", status: "waiting", due_at: dayIso(0) }];
+  await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
+  await page.route("**/api/home/todo-tasks**", (route) => route.fulfill({ json: { items: [] } }));
+  await page.route("**/api/tasks**", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({ json: { view: "open", tasks: todos } });
+      return;
+    }
+    await route.continue();
+  });
+  await page.route("**/api/home/today-brief**", async (route) => {
+    if (route.request().method() === "POST") {
+      started = true;
+      await route.fulfill({ json: { planning: true, attached: false, work_item_id: "tsk_plan" } });
+      return;
+    }
+    await route.fulfill({
+      json: started
+        ? {
+            planning: true,
+            brief: null,
+            events: [
+              { type: "run.progress", status: "running", label: "已提交 Codex 规划" },
+              { type: "run.step", status: "failed", label: "整理结果" },
+              { type: "run.think", status: "running", label: "Codex 推理", summary: "正在分析…" },
+              { type: "run.failed", status: "failed", label: "今日规划失败", summary: "等待 turn/completed 超时。未生成结果。" },
+            ],
+          }
+        : { planning: false, brief: null, events: [], creates_session: false, calls_model: false },
+    });
+  });
+
+  await page.goto("/");
+  await page.locator('[data-home-entry="plan-today"]').click();
+  const progress = page.locator("[data-today-plan-phase]");
+  await expect(progress).toHaveAttribute("data-today-plan-phase", "failed");
+  await expect(progress.locator(".today-plan-title")).toHaveText("规划失败");
+  await expect(progress.locator("[data-today-plan-elapsed]")).toHaveCount(0);
+  await expect(progress.locator('[data-today-plan-state="interrupted"]')).toHaveCount(1);
+  await expect(progress.locator('[data-today-plan-state="failed"]')).toHaveCount(1);
+  await expect(progress).toContainText("模型响应超时，本轮未生成新的规划。可重新生成计划。");
+  await expect(progress).toContainText("推理因本轮执行失败而中断。");
+  await expect(progress).not.toContainText("正在分析…");
+});
+
 test("sidebar 新工作任务 lands on today list without tab hop or recommend/queued copy", async ({ page }) => {
   await mockTodayBrief(page);
   await page.goto("/?tab=lifecycle");

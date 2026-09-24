@@ -73,6 +73,28 @@ describe("discovery process stream", () => {
     expect(presentDiscoveryEvents([event({ type: "run.think", summary: "先看样本" })])).toEqual([]);
   });
 
+  it("does not paint asynchronous events after a failure as successful work", () => {
+    const events = [
+      event({ type: "queued" }),
+      event({ type: "crawl.started" }),
+      event({ type: "crawl.error", message: "读取远程采集日志未完成" }),
+      event({ type: "crawl.result_ready" }),
+      event({ type: "run.step", label: "整理结果" }),
+      event({ type: "artifact_ready" }),
+    ];
+
+    expect(labels(events)).toEqual([
+      "排队",
+      "正在采集",
+      "失败原因：读取远程采集日志未完成",
+    ]);
+    expect(presentDiscoveryThink([
+      event({ type: "run.think", status: "running", summary: "先核对候选" }),
+      event({ type: "crawl.error", message: "读取远程采集日志未完成" }),
+      event({ type: "run.think", status: "running", summary: "不应展示" }),
+    ])?.body).toBe("先核对候选");
+  });
+
   it("folds the repeated steps the backend writes per tick", () => {
     const events = [
       event({ type: "crawl.progress" }),
@@ -95,6 +117,15 @@ describe("discovery Codex think block", () => {
       state: "running",
       folded: 1,
     });
+  });
+
+  it("uses persisted event timestamps for process and reasoning rows", () => {
+    const createdAt = "2026-09-24T06:32:07.000Z";
+    const [step] = presentDiscoveryEvents([event({ type: "queued", created_at: createdAt })]);
+    const think = presentDiscoveryThink([event({ type: "run.think", summary: "检查候选", created_at: createdAt })]);
+
+    expect(step.time).toMatch(/^\d{2}:\d{2}:\d{2}$/);
+    expect(think?.time).toBe(step.time);
   });
 
   it("tails long reasoning like today's plan stream does", () => {

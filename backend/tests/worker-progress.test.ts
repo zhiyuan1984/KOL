@@ -85,7 +85,7 @@ describe("Codex harness process traces", () => {
     expect(JSON.stringify(leaked)).not.toContain("raw hidden");
   });
 
-  it("keeps reasoning summary rows when a later host step fails", () => {
+  it("keeps completed trace rows and marks unfinished work as interrupted", () => {
     const failed = finishProcessItems(
       [
         { id: "host:preparing", label: "准备任务", status: "done", kind: "host" },
@@ -102,7 +102,7 @@ describe("Codex harness process traces", () => {
     });
     expect(failed.find((item) => item.id === "host:validating")).toMatchObject({
       label: "校验输出",
-      status: "failed",
+      status: "interrupted",
     });
     expect(reasoningSummariesOf(failed)).toEqual(["Narrow the crawl to YouTube camping creators."]);
   });
@@ -132,13 +132,13 @@ describe("Codex harness process traces", () => {
     expect(finishProcessItems(items, false).every((item) => item.status === "done")).toBe(true);
   });
 
-  it("marks the last live step failed without inventing skipped unread steps", () => {
+  it("marks the last live step interrupted without inventing skipped unread steps", () => {
     const failed = finishProcessItems(
       [{ id: "host:preparing", label: "准备任务", status: "running", kind: "host" }],
       true,
     );
     expect(failed).toEqual([
-      { id: "host:preparing", label: "准备任务", status: "failed", kind: "host", streaming: false },
+      { id: "host:preparing", label: "准备任务", status: "interrupted", kind: "host", streaming: false },
     ]);
     expect(failed.map((item) => item.label)).not.toContain("校验安全边界与格式");
   });

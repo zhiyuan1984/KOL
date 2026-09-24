@@ -11,6 +11,7 @@ import {
   TODO_PLAN_CACHE_KEY,
   clearPlanCache,
   clearPlanCaches,
+  effectivePlanPhase,
   memoryTasksOf,
   planCacheKey,
   planStartEvent,
@@ -76,7 +77,7 @@ describe("today plan wiring", () => {
     expect(home).toContain("TODO_PLAN_START_EVENT");
     expect(home).not.toMatch(/startPlan:\s*true/);
     expect(home).not.toContain("!current.brief");
-    expect(progress).toContain("data-today-plan-phase={phase}");
+    expect(progress).toContain("data-today-plan-phase={resolvedPhase}");
     expect(progress).toContain("data-today-plan-events=");
     expect(workspace).toContain("<TodayPlanProgress");
     expect(workspace).not.toContain("planning && !sections.length");
@@ -485,6 +486,29 @@ describe("runTodayPlanRefresh", () => {
     expect(final.phase).toBe("failed");
     expect(final.tasks?.map((row) => row.id)).toEqual(["tsk_due"]);
     expect(final.brief?.lead).toBe("旧");
+  });
+
+  it("settles immediately when failure events arrive before a stale planning flag clears", async () => {
+    const open = [task({ id: "tsk_due", title: "写报价" })];
+    let briefCalls = 0;
+    const client: TodayPlanClient = {
+      listOpenTasks: async () => open,
+      getBrief: async () => {
+        briefCalls += 1;
+        if (briefCalls === 1) return { planning: false, brief: brief({ lead: "旧规划" }), events: [] };
+        return {
+          planning: true,
+          brief: brief({ lead: "旧规划" }),
+          events: [{ type: "run.failed", status: "failed", label: "今日规划失败" }],
+        };
+      },
+      startPlan: async () => ({ planning: true, attached: false }),
+    };
+
+    const final = await runTodayPlanRefresh(client, () => undefined, { pollMs: 0, sleep: async () => undefined });
+    expect(final.phase).toBe("failed");
+    expect(briefCalls).toBe(2);
+    expect(effectivePlanPhase("planning", final.events)).toBe("failed");
   });
 });
 

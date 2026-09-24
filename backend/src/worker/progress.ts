@@ -23,7 +23,7 @@ export const REASONING_STREAM_LIMIT = 4000;
 export type WorkerTraceItem = {
   id: string;
   label: string;
-  status: "running" | "done" | "failed";
+  status: "running" | "done" | "failed" | "interrupted";
   kind?: WorkerTraceKind;
   streaming?: boolean;
 };
@@ -344,7 +344,7 @@ export function applyProgress(items: WorkerTraceItem[], progress: WorkerProgress
 export function finishProcessItems(items: WorkerTraceItem[], failed: boolean): WorkerTraceItem[] {
   if (!items.length) {
     return failed
-      ? [{ id: "host:preparing", label: "准备任务", status: "failed", kind: "host" }]
+      ? [{ id: "host:preparing", label: "准备任务", status: "interrupted", kind: "host" }]
       : [{ id: "host:validating", label: "校验输出", status: "done", kind: "result" }];
   }
   let marked = false;
@@ -352,11 +352,11 @@ export function finishProcessItems(items: WorkerTraceItem[], failed: boolean): W
     if (!failed) return { ...item, status: "done", streaming: false };
     if (item.status === "running") {
       marked = true;
-      return { ...item, status: "failed", streaming: false };
+      return { ...item, status: "interrupted", streaming: false };
     }
     if (!marked && index === items.length - 1) {
       marked = true;
-      return { ...item, status: "failed", streaming: false };
+      return { ...item, status: "interrupted", streaming: false };
     }
     return { ...item, streaming: false };
   });

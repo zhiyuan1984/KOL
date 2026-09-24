@@ -258,10 +258,9 @@ const PLAN_FAILED_LABEL: Record<PlanScope, RegExp> = {
   todo: /待办规划失败|待办规划未通过/,
 };
 
-export function todayPlanFailedFromBrief(row: TodayBriefResponse, scope: PlanScope = "today"): boolean {
-  if (row.planning) return false;
-  const events = Array.isArray(row.events) ? row.events : [];
-  return events.some((event) => {
+/** A persisted terminal failure wins over a stale in-flight flag from a prior poll. */
+export function planFailureFromEvents(events: TaskEvent[] | null | undefined, scope: PlanScope = "today"): boolean {
+  return (events || []).some((event) => {
     const type = String(event.type || event.event_type || "").toLowerCase();
     if (type === "run.failed" || type === "failed") return true;
     const status = String(event.status || "").toLowerCase();
@@ -269,6 +268,19 @@ export function todayPlanFailedFromBrief(row: TodayBriefResponse, scope: PlanSco
     const label = String(event.label || event.title || event.summary || "");
     return PLAN_FAILED_LABEL[scope].test(label);
   });
+}
+
+export function todayPlanFailedFromBrief(row: TodayBriefResponse, scope: PlanScope = "today"): boolean {
+  return planFailureFromEvents(row.events, scope);
+}
+
+/** Keeps the header, timer and trace in one terminal state when events arrive first. */
+export function effectivePlanPhase(
+  phase: TodayPlanPhase,
+  events: TaskEvent[] | null | undefined,
+  scope: PlanScope = "today",
+): TodayPlanPhase {
+  return planFailureFromEvents(events, scope) ? "failed" : phase;
 }
 
 function wait(ms: number): Promise<void> {
@@ -432,6 +444,13 @@ export async function runTodayPlanRefresh(
       const nextEvents = eventsOf(row);
       if (nextEvents) events = nextEvents;
       absorbPrevious(row);
+      // The events table is written atomically with the worker's terminal
+      // result. It may beat the separate `planning` field by one poll.
+      if (planFailureFromEvents(events, scope)) {
+        const failed: TodayPlanStep = { phase: "failed", tasks, displayTasks, brief, events, previousBrief, previousEvents };
+        onStep(failed);
+        return failed;
+      }
       if (row.planning) {
         onStep({
           phase: "planning",

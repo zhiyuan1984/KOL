@@ -102,7 +102,10 @@ export default function useDiscovery({
   const steps = useMemo(() => presentDiscoveryEvents(events), [events]);
   const think = useMemo(() => presentDiscoveryThink(events), [events]);
   const runId = activeRun?.id || activeRunId || "";
-  const inFlight = polling || runInFlight(activeRun);
+  // Failure is terminal even when a stale run detail still says `running`.
+  // The process stream must not keep its active treatment after its own event
+  // feed has already reported an error.
+  const inFlight = !failure && (polling || runInFlight(activeRun));
   const stage = discoveryStage({
     polling,
     runInFlight: runInFlight(activeRun),

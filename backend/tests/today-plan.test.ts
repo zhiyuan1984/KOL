@@ -590,6 +590,35 @@ describe("previous plan snapshot", () => {
     expect((again.previous_brief as Json)?.lead).toBe("上一版先把报价邮件发出去");
     expect(again.previous_work_item_id).toBe("tsk_prev");
   });
+
+  it("binds folded history to the latest failed trace instead of mixing it with an older brief", () => {
+    insertWorkItem({ id: "tsk_prev_ok", title: "较早规划", task_type: "today_plan", status: "completed" });
+    expect(writeTodayBriefArtifact({
+      owner: owner(),
+      workItemId: "tsk_prev_ok",
+      runId: null,
+      brief: validBrief({ lead: "较早规划" }),
+    }).ok).toBe(true);
+
+    insertWorkItem({ id: "tsk_last_ok", title: "最近成功规划", task_type: "today_plan", status: "completed" });
+    expect(writeTodayBriefArtifact({
+      owner: owner(),
+      workItemId: "tsk_last_ok",
+      runId: null,
+      brief: validBrief({ lead: "最近成功规划" }),
+    }).ok).toBe(true);
+
+    insertWorkItem({ id: "tsk_failed_now", title: "本轮失败规划", task_type: "today_plan", status: "failed" });
+    getConn().prepare("UPDATE work_items SET created_at='2099-01-01T00:00:00.000Z' WHERE id='tsk_failed_now'").run();
+
+    const snapshot = todayBriefSnapshot(owner(), "today");
+    // The result pane keeps its last valid brief, while the folded row must be
+    // calculated from the newest (failed) trace rather than from that brief.
+    expect(snapshot.work_item_id).toBe("tsk_last_ok");
+    expect((snapshot.brief as Json)?.lead).toBe("最近成功规划");
+    expect((snapshot.previous_brief as Json)?.lead).toBe("最近成功规划");
+    expect(snapshot.previous_work_item_id).toBe("tsk_last_ok");
+  });
 });
 
 describe("scope catalog split", () => {
@@ -640,7 +669,7 @@ describe("plan trace rows", () => {
       item_key: "reasoning:r1",
       label: "Codex 推理",
       safe_summary: "先看未了结的报价",
-      status: "failed",
+      status: "interrupted",
     });
     const stepRow = getConn().prepare(
       "SELECT * FROM task_events WHERE work_item_id=? AND item_key='host:preparing'",

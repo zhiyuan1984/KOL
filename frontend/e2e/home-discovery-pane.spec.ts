@@ -121,6 +121,71 @@ test("condition card renders in-page and pre-fills the editable ask box", async 
   expect(posts.filter((path) => path === "/api/sessions" || path.endsWith("/from-text"))).toEqual([]);
 });
 
+test("the ask arrow and latest-control share size, with a pink ready arrow", async ({ page }) => {
+  await openDiscovery(page);
+  const send = page.locator("[data-home] [data-ai-prompt-submit]");
+  await expect(send).toBeEnabled();
+  const sendBox = await send.boundingBox();
+  expect(sendBox).not.toBeNull();
+  expect(sendBox?.width).toBe(32);
+  expect(sendBox?.height).toBe(32);
+  await expect(send).toHaveCSS("color", "rgb(219, 24, 96)");
+  await expect(send.locator('[data-send-arrow="ready"]')).toHaveCSS("color", "rgb(219, 24, 96)");
+
+  const jumpBox = await page.evaluate(() => {
+    const probe = document.createElement("button");
+    probe.className = "scope-scroll-jump";
+    document.body.append(probe);
+    const style = getComputedStyle(probe);
+    const box = { width: style.width, height: style.height };
+    probe.remove();
+    return box;
+  });
+  expect(jumpBox).toEqual({ width: "32px", height: "32px" });
+});
+
+test("a terminal discovery error stops the process trail before later success events", async ({ page }) => {
+  const failedRun = {
+    id: "drun_failed",
+    run_id: "drun_failed",
+    status: "failed",
+    error: "读取远程采集日志未完成",
+    work_item_id: "tsk_disc_failed",
+    brief_version: 1,
+  };
+  await page.route("**/api/home/discovery/runs**", async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith("/candidates")) {
+      await route.fulfill({ json: { run_id: "drun_failed", candidates: [] } });
+      return;
+    }
+    if (path.endsWith("/drun_failed")) {
+      await route.fulfill({ json: { run: failedRun } });
+      return;
+    }
+    await route.fulfill({ json: { runs: [failedRun] } });
+  });
+  await page.route("**/api/tasks/tsk_disc_failed/events", (route) => route.fulfill({
+    json: {
+      events: [
+        { type: "queued" },
+        { type: "crawl.started" },
+        { type: "crawl.error", message: "读取远程采集日志未完成" },
+        { type: "crawl.result_ready" },
+        { type: "run.step", label: "整理候选" },
+        { type: "artifact_ready" },
+      ],
+    },
+  }));
+
+  await openDiscovery(page, { expectCard: false });
+  const process = page.locator("[data-discovery-process]");
+  await expect(process).toContainText("失败原因：读取远程采集日志未完成");
+  await expect(process).not.toContainText("采集完成");
+  await expect(process).not.toContainText("整理候选");
+  await expect(process).not.toContainText("已排出候选");
+});
+
 test("condition chips rewrite the ask-box body and no card button remains", async ({ page }) => {
   await openDiscovery(page);
   const card = page.locator("[data-discovery-search-card]");
@@ -501,9 +566,9 @@ test("submit hides the condition card; 改条件再搜 brings it back to the cen
   await page.route("**/api/tasks/tsk_disc_e2e/events", (route) => route.fulfill({
     json: {
       events: [
-        { type: "queued" },
-        { type: "crawl.started" },
-        { type: "run.think", status: "running", summary: "先按匹配度给候选排序" },
+        { type: "queued", created_at: "2026-09-24T06:32:05.000Z" },
+        { type: "crawl.started", created_at: "2026-09-24T06:32:06.000Z" },
+        { type: "run.think", status: "running", summary: "先按匹配度给候选排序", created_at: "2026-09-24T06:32:07.000Z" },
       ],
     },
   }));
@@ -516,6 +581,8 @@ test("submit hides the condition card; 改条件再搜 brings it back to the cen
   await expect(page.locator("[data-discovery-search-card]")).toHaveCount(0);
   await expect(page.locator("[data-scope-ai-workspace] [data-discovery-process]")).toContainText("正在采集");
   await expect(page.locator("[data-scope-ai-workspace] [data-discovery-think]")).toContainText("Codex 推理");
+  await expect(page.locator("[data-scope-ai-workspace] [data-discovery-step-time]").first()).toHaveText(/^\d{2}:\d{2}:\d{2}$/);
+  await expect(page.locator("[data-scope-ai-workspace] [data-discovery-think-time]")).toHaveText(/^\d{2}:\d{2}:\d{2}$/);
   await expect(page.locator("[data-scope-task-rail] [data-discovery-panel]")).toHaveCount(1);
   await expect(page.locator("[data-scope-ai-workspace] [data-discovery-panel]")).toHaveCount(0);
 

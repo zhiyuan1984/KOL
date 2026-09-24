@@ -103,6 +103,8 @@
   --workspace-task-priority-col: 72px;
   --workspace-task-actions-col: 156px;
   --workspace-task-action-h: 20px;
+  /* 中栏「查看最新」与提问框发送箭头共享同一视觉尺寸。 */
+  --workspace-arrow-button-size: 32px;
   /* Home Agent 工作台列宽：唯一数值来源见 docs/DESIGN.md §Home Agent 工作台几何。 */
   --workspace-result-rail-min: 360px;
   --workspace-result-rail-ideal: 54%;
@@ -12118,8 +12120,10 @@ button.today-brief-primary-btn:disabled {
   display: inline-grid;
   /* 与 Home AI 提问框的发送箭头同一紧凑圆形控件尺寸；不要把“查看最新”
      做成更大的悬浮主动作。触摸命中区由输入模态规则单独放大。 */
-  width: var(--control-h-lg);
-  height: var(--control-h-lg);
+  width: var(--workspace-arrow-button-size);
+  height: var(--workspace-arrow-button-size);
+  min-width: var(--workspace-arrow-button-size);
+  min-height: var(--workspace-arrow-button-size);
   place-items: center;
   padding: 0;
   border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
@@ -12152,8 +12156,8 @@ button.today-brief-primary-btn:disabled {
   white-space: nowrap;
 }
 .scope-scroll-jump svg {
-  width: var(--icon-md);
-  height: var(--icon-md);
+  width: 16px;
+  height: 16px;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;

@@ -62,6 +62,7 @@ export default function DiscoveryProcessPanel({
                   {state === "failed" ? "✗" : state === "running" ? <span className="discovery-stream-spinner" /> : "✓"}
                 </span>
                 <span className="discovery-stream-label">{step.label}</span>
+                {step.time ? <time className="discovery-stream-time" data-discovery-step-time>{step.time}</time> : null}
               </li>
             );
           })}
@@ -75,8 +76,11 @@ export default function DiscoveryProcessPanel({
           data-discovery-think-state={think.state}
         >
           <span className="discovery-think-label">
-            Codex 推理
-            {think.folded > 0 ? ` · 已折叠 ${think.folded} 段更早的推理` : ""}
+            <span>
+              Codex 推理
+              {think.folded > 0 ? ` · 已折叠 ${think.folded} 段更早的推理` : ""}
+            </span>
+            {think.time ? <time className="discovery-think-time" data-discovery-think-time>{think.time}</time> : null}
           </span>
           <p className="discovery-think-body">
             {think.truncated ? "…" : ""}{think.body}

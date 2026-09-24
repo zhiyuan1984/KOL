@@ -22,7 +22,7 @@
   --composer-chip-bg: #f4f4f4;
   --composer-chip-radius: 999px;
   --composer-side-btn-bg: transparent;
-  --composer-side-btn-size: 32px;
+  --composer-side-btn-size: var(--workspace-arrow-button-size);
 }
 
 .composer,
@@ -212,16 +212,13 @@
 .btn.send.send-arrow:not(:disabled):not(.is-stop),
 .home-composer-dock .btn.send.send-arrow:not(:disabled):not(.is-stop),
 .composer .btn.send.send-arrow:not(:disabled):not(.is-stop) {
-  /* 唯一的 AI 提问提交动作使用主行动粉色；闲置态仍为中性灰。 */
-  background: var(--primary);
-  color: var(--primary-fg);
+  background: var(--composer-send-ready, #0d0d0d);
+  color: var(--primary);
 }
 
-.btn.send.send-arrow.is-ready:hover,
-.btn.send.send-arrow:not(:disabled):not(.is-stop):hover,
-.home-composer-dock .btn.send.send-arrow:not(:disabled):not(.is-stop):hover,
-.composer .btn.send.send-arrow:not(:disabled):not(.is-stop):hover {
-  background: var(--primary-hover);
+/* Keep the glyph pink even if a legacy filled-button rule changes its parent. */
+.btn.send.send-arrow:not(:disabled):not(.is-stop) [data-send-arrow="ready"] {
+  color: var(--primary);
 }
 
 .btn.send.send-arrow.is-stop,

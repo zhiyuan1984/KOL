@@ -388,7 +388,10 @@ export function todayBriefSnapshot(owner = ownerId(), scope: PlanScope = "today"
   ).get(owner, planTaskType(scope)) as { id: string } | undefined;
   const traceItem = running?.work_item_id || newestRun?.id || latest?.work_item_id || null;
   const briefItem = running?.work_item_id || latest?.work_item_id || null;
-  const previous = previousPlan(owner, scope, briefItem || traceItem);
+  // The folded history is relative to the trace currently on screen. When the
+  // newest run failed it has no brief pointer, so using `briefItem` here would
+  // pair an older brief with this failed run's timestamp and task count.
+  const previous = previousPlan(owner, scope, traceItem);
   return {
     planning: Boolean(running),
     brief,

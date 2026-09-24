@@ -20,6 +20,8 @@ export type DiscoveryProcessStep = {
   id: string;
   kind: DiscoveryProcessKind;
   label: string;
+  /** Backend event time, absent when the event does not carry a usable timestamp. */
+  time?: string;
 };
 
 /** 最新一段 Codex 推理；更早的段只折算成计数（面板不自带滚动条）。 */
@@ -28,6 +30,8 @@ export type DiscoveryThink = {
   truncated: boolean;
   state: "running" | "done" | "failed";
   folded: number;
+  /** Latest reasoning event time, shown only when persisted by the backend. */
+  time?: string;
 };
 
 const FAILED_TYPES = /fail|error|cancel/;
@@ -47,6 +51,19 @@ function eventBlob(event: TaskEvent): string {
 
 function eventTypeOf(event: TaskEvent): string {
   return String(event.type || event.event_type || "").toLowerCase();
+}
+
+function formatClock(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+/** Use the event's persisted time only; never substitute local receipt time. */
+function eventTime(event: TaskEvent): string {
+  const raw = String(event.created_at || event.time || event.timestamp || event.updated_at || "").trim();
+  if (!raw) return "";
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? "" : formatClock(date);
 }
 
 /**
@@ -148,7 +165,10 @@ export function presentDiscoveryEvents(events: TaskEvent[]): DiscoveryProcessSte
     const key = `${step.kind}:${step.label}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    steps.push(step);
+    steps.push({ ...step, ...(eventTime(event) ? { time: eventTime(event) } : {}) });
+    // A collector/brief failure is terminal for this run. Later asynchronous
+    // trace writes must not be painted as successful follow-up milestones.
+    if (step.kind === "failed" || step.kind === "stopped") break;
   }
   return steps;
 }
@@ -162,13 +182,15 @@ function thinkStateOf(event: TaskEvent): DiscoveryThink["state"] {
 
 /** 简报 worker 的推理流（`run.think`）→ 中栏的「Codex 推理」块。 */
 export function presentDiscoveryThink(events: TaskEvent[]): DiscoveryThink | null {
-  const rows: Array<{ body: string; state: DiscoveryThink["state"] }> = [];
+  const rows: Array<{ body: string; state: DiscoveryThink["state"]; time: string }> = [];
   for (const event of events) {
+    const step = discoveryEventCopy(event);
+    if (step?.kind === "failed" || step?.kind === "stopped") break;
     const type = eventTypeOf(event);
     if (type !== "run.think" && type !== "run.stream") continue;
     const body = String(event.summary || event.safe_summary || "").trim();
     if (!body) continue;
-    rows.push({ body, state: thinkStateOf(event) });
+    rows.push({ body, state: thinkStateOf(event), time: eventTime(event) });
   }
   if (!rows.length) return null;
   const last = rows[rows.length - 1];
@@ -178,5 +200,6 @@ export function presentDiscoveryThink(events: TaskEvent[]): DiscoveryThink | nul
     truncated: tail.truncated,
     state: last.state,
     folded: rows.length - 1,
+    ...(last.time ? { time: last.time } : {}),
   };
 }
