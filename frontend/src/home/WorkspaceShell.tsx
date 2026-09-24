@@ -139,8 +139,18 @@ export default function WorkspaceShell({
               {centerScroll}
             </div>
             {scrollJump ? (
-              <button type="button" className="btn ghost sm scope-scroll-jump" onClick={jumpToBottom}>
-                回到底部
+              <button
+                type="button"
+                className="scope-scroll-jump"
+                data-scope-scroll-jump
+                data-tooltip="查看最新"
+                aria-label="查看最新"
+                onClick={jumpToBottom}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M12 4v15" />
+                  <path d="m5.5 12.5 6.5 6.5 6.5-6.5" />
+                </svg>
               </button>
             ) : null}
           </div>

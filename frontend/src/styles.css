@@ -12115,8 +12115,64 @@ button.today-brief-primary-btn:disabled {
   right: 24px; /* 避开右侧 scrollbar-gutter 与内容 16px 右内边距 */
   bottom: 12px;
   z-index: 6;
+  display: inline-grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-radius: 999px;
+  background: var(--canvas);
+  box-shadow: 0 2px 8px rgb(15 23 42 / 8%);
+  color: var(--text);
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
-
+.scope-scroll-jump::after {
+  position: absolute;
+  right: 50%;
+  bottom: calc(100% + 8px);
+  z-index: 1;
+  width: max-content;
+  max-width: 180px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: #191919;
+  color: #fff;
+  content: attr(data-tooltip);
+  font-size: var(--font-sm);
+  font-weight: 600;
+  line-height: 1.2;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(50%, 4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+  white-space: nowrap;
+}
+.scope-scroll-jump svg {
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.75;
+}
+.scope-scroll-jump:hover {
+  border-color: color-mix(in srgb, var(--text) 20%, var(--line));
+  background: var(--chrome-2);
+  box-shadow: 0 4px 12px rgb(15 23 42 / 14%);
+  transform: translateY(-1px);
+}
+.scope-scroll-jump:hover::after,
+.scope-scroll-jump:focus-visible::after {
+  opacity: 1;
+  transform: translate(50%, 0);
+}
+.scope-scroll-jump:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
 @media (min-width: 1101px) {
   .home-pane[data-home-workspace] .home-stage {
     overflow: hidden;

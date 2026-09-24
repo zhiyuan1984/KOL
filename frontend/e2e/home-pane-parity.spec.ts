@@ -229,6 +229,43 @@ test("rail toggle is keyboard operable", async ({ page }) => {
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
 });
 
+test("return-to-bottom uses the compact latest icon control", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/?tab=discovery");
+  const scroll = page.locator('[data-home-pane="discovery"] .scope-workspace-center-scroll');
+  await expect(scroll).toBeVisible({ timeout: 30000 });
+
+  // The real button is conditional on an overflowed center stream. Add a
+  // passive test-only tail instead of changing production task data.
+  await scroll.evaluate((element) => {
+    const tail = document.createElement("div");
+    tail.dataset.testScrollTail = "true";
+    tail.style.height = "1600px";
+    tail.setAttribute("aria-hidden", "true");
+    element.appendChild(tail);
+    element.scrollTop = 0;
+    element.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+
+  const jump = page.locator("[data-scope-scroll-jump]");
+  await expect(jump).toBeVisible();
+  await expect(jump).toHaveAttribute("aria-label", "查看最新");
+  await expect(jump).toHaveAttribute("data-tooltip", "查看最新");
+  await expect(jump.locator("svg")).toHaveCount(1);
+  expect(await jump.evaluate((element) => ({
+    width: getComputedStyle(element).width,
+    height: getComputedStyle(element).height,
+    tooltip: getComputedStyle(element, "::after").content,
+  }))).toEqual({ width: "48px", height: "48px", tooltip: '"查看最新"' });
+
+  await jump.hover();
+  await expect.poll(() => jump.evaluate((element) => getComputedStyle(element, "::after").opacity)).toBe("1");
+  await jump.click();
+  await expect.poll(() => scroll.evaluate((element) => (
+    element.scrollHeight - element.scrollTop - element.clientHeight <= 24
+  ))).toBe(true);
+});
+
 /** 横向溢出量：scrollWidth 超出 clientWidth 的像素数（1px 容差）。 */
 async function horizontalOverflow(page: Page, selector: string): Promise<number> {
   return page.locator(selector).first().evaluate((el) => el.scrollWidth - el.clientWidth);
