@@ -12094,6 +12094,28 @@ button.today-brief-primary-btn:disabled {
 .home-quick-tasks button[aria-selected="true"]:hover {
   background: color-mix(in srgb, var(--primary) 14%, var(--chrome));
 }
+/* 芯片行与中栏内容同一条左缘轴：composer.css 给 .home-composer-dock 设了
+   align-items:center，这里在工作台上下文改回左对齐（标题/步骤/推理块全部贴左，
+   芯片不再悬在列中间），首尾 2px 内边距一并归零。 */
+.home-pane[data-home-workspace] .scope-workspace-center-content > .home-composer-dock {
+  align-items: flex-start;
+}
+.home-pane[data-home-workspace] .home-composer-dock .home-quick-tasks {
+  padding-left: 0;
+  padding-right: 0;
+}
+/* 中栏滚动区外包一层定位锚点：「回到底部」按钮钉在滚动视口的右下角，
+   不随内容滚动。滚动容器本身仍是 .scope-workspace-center-scroll。 */
+.home-pane[data-home-workspace] .scope-workspace-center-scroll-wrap {
+  position: relative;
+  min-width: 0;
+}
+.scope-scroll-jump {
+  position: absolute;
+  right: 24px; /* 避开右侧 scrollbar-gutter 与内容 16px 右内边距 */
+  bottom: 12px;
+  z-index: 6;
+}
 
 @media (min-width: 1101px) {
   .home-pane[data-home-workspace] .home-stage {
@@ -12111,6 +12133,17 @@ button.today-brief-primary-btn:disabled {
   }
   .home-pane[data-home-workspace] .today-center-hero {
     padding-right: 16px;
+  }
+  .home-pane[data-home-workspace] .scope-workspace-center-scroll-wrap {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    /* 显式落第 2 行：发现/公海/我的红人没有 header 元素时，自动排布会把
+       dock 挤进中间的 1fr 行（0 高），提问框随 flex-end 溢出到流上方悬浮。 */
+    grid-row: 2;
+  }
+  .home-pane[data-home-workspace] .scope-workspace-center-scroll-wrap > .scope-workspace-center-scroll {
+    flex: 1 1 auto;
   }
   .home-pane[data-home-workspace] .scope-workspace-center-scroll {
     min-height: 0;
@@ -12207,6 +12240,8 @@ button.today-brief-primary-btn:disabled {
     margin: 0 !important;
     padding: 8px 16px 14px 0 !important;
     box-sizing: border-box;
+    /* 显式落第 3 行（auto）：没有 header 的模式里也不许它掉进 1fr 行。 */
+    grid-row: 3;
   }
   .home-pane[data-home-workspace] .scope-workspace-center-content > .home-composer-dock > .composer-dock,
   .home-pane[data-home-workspace] .scope-workspace-center-content > .home-composer-dock .composer.composer--workspace {

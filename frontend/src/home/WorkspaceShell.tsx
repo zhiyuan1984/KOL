@@ -17,6 +17,7 @@ export default function WorkspaceShell({
   railStorageKey,
   railBadge,
   resultIdle = false,
+  streamStick = false,
   resultView,
   scrollAnchorEvent,
   centerHeader,
@@ -34,6 +35,8 @@ export default function WorkspaceShell({
   railBadge?: number;
   /** No result or history yet: keep the rail visible at its documented minimum width. */
   resultIdle?: boolean;
+  /** 中栏正在流式产出（发现运行中 / 计划生成中）：新内容贴底跟随。 */
+  streamStick?: boolean;
   /** Optional normalized metadata/history/action slots; domain children remain mode-specific. */
   resultView?: ResultRailViewModel;
   /** 可选：该事件触发时把中栏滚动锚点带回顶部（今日/待办的计划刷新）。 */
@@ -47,6 +50,9 @@ export default function WorkspaceShell({
     localStorage.getItem(railStorageKey) === "true"
   );
   const anchorRef = useRef<HTMLDivElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const stickBottom = useRef(true);
+  const [scrollJump, setScrollJump] = useState(false);
   useEffect(() => {
     if (!scrollAnchorEvent) return;
     const onRefresh = () => {
@@ -55,6 +61,56 @@ export default function WorkspaceShell({
     window.addEventListener(scrollAnchorEvent, onRefresh);
     return () => window.removeEventListener(scrollAnchorEvent, onRefresh);
   }, [scrollAnchorEvent]);
+  // 每次进入一个模式都从流顶部开始；贴底状态从此刻重新计算。
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = 0;
+    stickBottom.current = true;
+    setScrollJump(false);
+  }, [pane]);
+  // 只跟随「正在流式产出」的内容：打开历史任务从顶部看，不抢着跳到底。
+  // 开始产出时把视口贴到尾部，之后由 MutationObserver 逐段跟随。
+  const streamStickRef = useRef(streamStick);
+  useEffect(() => {
+    streamStickRef.current = streamStick;
+    if (streamStick) {
+      stickBottom.current = true;
+      setScrollJump(false);
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    }
+  }, [streamStick]);
+  // 贴底自动滚动：流式进行中且用户在底部时，流里追加新内容（步骤/推理）就跟着滑到底；
+  // 用户上翻读历史时不抢滚动，只亮「回到底部」。effect 挂在首屏 commit 之后，
+  // 所以打开页面时已有的历史内容不算“新内容”，不会一进来就跳到流底。
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const overflows = () => el.scrollHeight > el.clientHeight + 24;
+    const observer = new MutationObserver(() => {
+      if (streamStickRef.current && stickBottom.current) {
+        el.scrollTop = el.scrollHeight;
+      } else {
+        setScrollJump(overflows());
+      }
+    });
+    observer.observe(el, { subtree: true, childList: true, characterData: true });
+    return () => observer.disconnect();
+  }, []);
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 24;
+    stickBottom.current = atBottom;
+    setScrollJump(!atBottom && el.scrollHeight > el.clientHeight + 24);
+  };
+  const jumpToBottom = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollTo({ top: el.scrollHeight, behavior: reduce ? "auto" : "smooth" });
+    stickBottom.current = true;
+  };
   const toggleRail = () => {
     setRailCollapsed((current) => {
       const next = !current;
@@ -71,8 +127,22 @@ export default function WorkspaceShell({
       <div className="scope-workspace-center" data-scope-ai-workspace>
         <div className="scope-workspace-center-content">
           {centerHeader}
-          <div ref={anchorRef} className="scope-plan-anchor scope-workspace-center-scroll">
-            {centerScroll}
+          <div className="scope-workspace-center-scroll-wrap">
+            <div
+              ref={(node) => {
+                anchorRef.current = node;
+                scrollRef.current = node;
+              }}
+              className="scope-plan-anchor scope-workspace-center-scroll"
+              onScroll={onScroll}
+            >
+              {centerScroll}
+            </div>
+            {scrollJump ? (
+              <button type="button" className="btn ghost sm scope-scroll-jump" onClick={jumpToBottom}>
+                回到底部
+              </button>
+            ) : null}
           </div>
           {centerFooter}
         </div>

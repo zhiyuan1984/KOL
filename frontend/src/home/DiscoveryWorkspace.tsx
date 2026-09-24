@@ -109,6 +109,7 @@ export default function DiscoveryWorkspace({
       railStorageKey="ui:home-discovery-rail-collapsed"
       railBadge={disc.visible.length}
       resultIdle={!disc.run && !disc.inFlight && !disc.failure}
+      streamStick={disc.inFlight}
       resultView={{
         skillId: "creator_discovery",
         resultType: "discovery_candidates",

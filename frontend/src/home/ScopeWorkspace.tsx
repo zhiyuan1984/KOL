@@ -88,6 +88,7 @@ export default function ScopeWorkspace({
       railToggleLabel={cfg.railToggleLabel}
       railStorageKey={cfg.railStorageKey}
       railBadge={stamped.length}
+      streamStick={phase === "loading-memory" || phase === "planning"}
       resultView={{
         resultType: scope === "today" ? "today_tasks" : "todo_tasks",
         status: phase === "failed" ? "failed" : phase === "planning" || phase === "loading-memory"
