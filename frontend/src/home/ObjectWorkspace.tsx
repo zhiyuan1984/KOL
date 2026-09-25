@@ -5,7 +5,7 @@ type ObjectWorkspacePane = Extract<WorkspacePane, "pool" | "lifecycle">;
 
 /**
  * 公海 / 我的红人共享的对象工作台组合层。
- * 公海以对象列表为主工作面；我的红人保持中栏对话、右栏受控动作的工作台结构。
+ * 两个对象面始终保持「中栏人机交互 + 右栏受控对象动作」的工作台结构。
  */
 export default function ObjectWorkspace({
   pane,
@@ -35,7 +35,6 @@ export default function ObjectWorkspace({
   rail: ReactNode;
 }) {
   const hasSelection = selectedCount > 0;
-  const focusResults = pane === "pool";
   const interactionView = (
     <>
       <section className="object-interaction" data-object-interaction={pane}>
@@ -64,20 +63,16 @@ export default function ObjectWorkspace({
       railToggleLabel={railToggleLabel}
       railStorageKey={railStorageKey}
       railBadge={resultCount}
-      focusResults={focusResults}
       resultView={{
         resultType: pane === "pool" ? "kol_pool_objects" : "followed_kol_objects",
         status: resultCount > 0 ? "ready" : "idle",
-        sourceLabel: pane === "pool" ? "公海对象" : "我的跟进对象",
+        sourceLabel: pane === "pool" ? undefined : "我的跟进对象",
         freshness: "unknown",
       }}
       centerHeader={centerHeader}
-      centerScroll={focusResults ? <div className="object-result-focus" data-object-result-focus={pane}>
-        {interaction ? <div className="object-result-focus-feedback">{interaction}</div> : null}
-        {rail}
-      </div> : interactionView}
+      centerScroll={interactionView}
       centerFooter={centerFooter}
-      rail={focusResults ? null : rail}
+      rail={rail}
     />
   );
 }

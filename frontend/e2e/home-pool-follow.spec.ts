@@ -219,7 +219,8 @@ test("pool is a separate entry and cards have no mail digest", async ({ page }) 
   await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
   await expect(page.locator("[data-pool-toolbar][data-home-entry='list-pool']")).toBeVisible();
   await expect(page.locator("[data-pool-focus-list]")).toBeVisible();
-  await expect(page.locator('[data-home-pane="pool"] [data-scope-task-rail]')).toHaveCount(0);
+  await expect(page.locator('[data-home-pane="pool"] [data-scope-ai-workspace]')).toBeVisible();
+  await expect(page.locator('[data-home-pane="pool"] [data-scope-task-rail]')).toBeVisible();
   await expect(page.locator("[data-pool-card]").first()).toBeVisible();
   await expect(page.locator("[data-pool-card]")).toHaveCount(2);
   await expect(page.locator("[data-pool-kol='uid_contacted']")).toHaveCount(0);
@@ -253,19 +254,28 @@ test("public pool keeps the most complete public row when legacy identities over
   await expect(page.locator("[data-pool-card]")).toContainText("40万");
 });
 
-test("public pool uses a primary desktop list instead of a narrow result rail", async ({ page }) => {
+test("public pool restores the central interaction and uses a structured right result rail", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/?tab=pool");
   const workspace = page.locator('[data-home-pane="pool"]');
+  const center = workspace.locator("[data-scope-ai-workspace]");
+  const rail = workspace.locator("[data-scope-task-rail]");
   const list = workspace.locator("[data-pool-focus-list]");
   const row = workspace.locator("[data-pool-card]").first();
+  await expect(center).toBeVisible();
+  await expect(center).toContainText("等待选择对象");
+  await expect(center.locator("[data-composer-input]")).toBeVisible();
+  await expect(rail).toBeVisible();
   await expect(list).toBeVisible();
   await expect(row).toBeVisible();
-  expect(await workspace.locator("[data-scope-task-rail]").count()).toBe(0);
-  expect((await list.boundingBox())?.width).toBeGreaterThan(900);
-  expect((await row.boundingBox())?.width).toBeGreaterThan(880);
+  const centerBox = await center.boundingBox();
+  const railBox = await rail.boundingBox();
+  expect(railBox?.x).toBeGreaterThanOrEqual((centerBox?.x || 0) + (centerBox?.width || 0));
+  expect((await list.boundingBox())?.width).toBeGreaterThanOrEqual(360);
+  expect((await list.boundingBox())?.width).toBeLessThanOrEqual(820);
+  expect((await row.boundingBox())?.width).toBeLessThanOrEqual((railBox?.width || Number.POSITIVE_INFINITY) + 1);
   await expect(workspace.locator("[data-pool-overview]")).not.toContainText("公开对象池");
-  expect(await workspace.locator("[data-pool-reason]").count()).toBe(0);
+  await expect(workspace.locator("[data-pool-reason]").first()).toContainText("公海原因");
   expect((await workspace.locator("[data-pool-search]").boundingBox())?.height).toBe(32);
   expect((await workspace.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").boundingBox())?.height).toBe(32);
 });
@@ -416,8 +426,8 @@ test("claim is L3 and posts confirm to /api/kols/:kolUid/claim", async ({ page }
   await expect(compactRow.locator("[data-kol-avatar='source']")).toHaveCount(1);
   expect((await compactRow.locator("[data-kol-avatar='source']").boundingBox())?.width).toBe(56);
   await expect(compactRow).not.toContainText("公开资料");
-  await expect(compactRow.locator("[data-pool-reason]")).toHaveCount(0);
-  await expect(compactRow).not.toContainText("公海原因");
+  await expect(compactRow.locator("[data-pool-reason]")).toContainText("公海原因");
+  await expect(compactRow.locator("[data-pool-reason]")).toContainText("未首次建联");
   await expect(compactRow).not.toContainText("领取后进入我的跟进");
   // 明确领取未建联的有主行：无主行排在前面，不能靠「第一张卡」取对象。
   await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").click();

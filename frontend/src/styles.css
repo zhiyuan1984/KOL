@@ -107,8 +107,8 @@
   --workspace-arrow-button-size: 32px;
   /* Home Agent 工作台列宽：唯一数值来源见 docs/DESIGN.md §Home Agent 工作台几何。 */
   --workspace-result-rail-min: 360px;
-  --workspace-result-rail-ideal: 54%;
-  --workspace-result-rail-max: 820px;
+  --workspace-result-rail-ideal: 40%;
+  --workspace-result-rail-max: 680px;
   --workspace-result-rail-collapsed: 56px;
   --badge-h: 20px;
   --lh-control: 20px;
@@ -13479,4 +13479,163 @@ button.today-brief-primary-btn:disabled {
 .pool-row-name {
   flex: 0 1 auto;
   max-width: min(70%, 32rem);
+}
+
+/* 公海恢复为对象工作台右栏：中栏永远留给人机协作与提问框。 */
+.scope-task-rail [data-result-rail="pool"] {
+  height: 100%;
+}
+.scope-task-rail .pool-compact-pane {
+  min-width: 0;
+  padding: 0 0 var(--ds-space-4);
+}
+.scope-task-rail .pool-compact-header {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  margin-bottom: var(--ds-space-3);
+  padding-right: calc(var(--icon-btn) + var(--ds-space-2));
+}
+.scope-task-rail .pool-header-title {
+  width: 100%;
+  min-width: 0;
+  justify-content: space-between;
+}
+.scope-task-rail .pool-compact-header h2 {
+  font-size: var(--ds-font-section);
+  line-height: var(--ds-line-section);
+}
+.scope-task-rail .pool-compact-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  width: 100%;
+  gap: var(--ds-space-2);
+}
+.scope-task-rail .pool-search {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+.scope-task-rail .pool-control,
+.scope-task-rail .pool-control select,
+.scope-task-rail .pool-analyze-button {
+  min-width: 0;
+}
+.scope-task-rail .pool-select-all {
+  grid-column: 1 / 2;
+  justify-self: start;
+}
+.scope-task-rail .pool-analyze-button {
+  grid-column: 2 / -1;
+  justify-self: end;
+}
+.scope-task-rail .pool-compact-list {
+  border-top-color: var(--ds-border);
+}
+.scope-task-rail .pool-kol-row {
+  grid-template-columns: 16px 56px minmax(0, 1fr) auto;
+  gap: var(--ds-space-2);
+  min-height: 112px;
+  padding: var(--ds-space-2) 0;
+}
+.scope-task-rail .pool-row-select {
+  padding-top: 16px;
+}
+.scope-task-rail .pool-row-avatar {
+  width: 56px;
+  height: 56px;
+  font-size: var(--ds-font-section);
+  line-height: var(--ds-line-section);
+}
+.scope-task-rail .pool-row-name {
+  max-width: calc(100% - 4px);
+  font-size: var(--ds-font-body);
+  line-height: var(--ds-line-body);
+}
+.scope-task-rail .pool-row-status {
+  height: var(--badge-h);
+  padding-inline: 6px;
+  font-size: var(--ds-font-helper);
+}
+.scope-task-rail .pool-row-meta,
+.scope-task-rail .pool-row-facts,
+.scope-task-rail .pool-row-intro {
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+.scope-task-rail .pool-row-facts {
+  grid-column: auto;
+  flex-wrap: nowrap;
+  gap: 0 var(--ds-space-2);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.scope-task-rail .pool-row-metrics {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.scope-task-rail .pool-row-intro {
+  grid-column: auto;
+}
+.scope-task-rail .pool-row-actions {
+  display: grid;
+  grid-column: 4;
+  grid-row: 1 / span 3;
+  grid-template-columns: minmax(0, auto) var(--icon-btn);
+  grid-template-rows: var(--control-h-lg) auto;
+  align-content: start;
+  align-items: start;
+  gap: var(--ds-space-1) var(--ds-space-1);
+  min-width: 132px;
+  padding-top: 0;
+}
+.scope-task-rail .pool-claim-button {
+  grid-column: 1;
+  min-width: 96px;
+  padding-inline: var(--ds-space-2);
+}
+.scope-task-rail .pool-more-wrap {
+  grid-column: 2;
+}
+.scope-task-rail .pool-more-button {
+  width: var(--icon-btn);
+  height: var(--icon-btn);
+}
+.scope-task-rail .pool-row-reason {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  margin-top: var(--ds-space-1);
+  padding: 0 0 0 var(--ds-space-2);
+  border-left: 1px solid var(--ds-border);
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+.scope-task-rail .pool-row-reason strong {
+  color: var(--text);
+  font-size: var(--ds-font-helper);
+  font-weight: 500;
+}
+@media (max-width: 1100px) {
+  .scope-task-rail .pool-kol-row {
+    grid-template-columns: 16px 44px minmax(0, 1fr) auto;
+    gap: 6px;
+  }
+  .scope-task-rail .pool-row-avatar {
+    width: 44px;
+    height: 44px;
+  }
+  .scope-task-rail .pool-row-actions {
+    min-width: 118px;
+  }
+  .scope-task-rail .pool-claim-button {
+    min-width: 86px;
+    padding-inline: 6px;
+  }
+}
+@media (max-width: 1100px) {
+  .scope-task-rail .pool-compact-header {
+    padding-right: calc(var(--icon-btn) + var(--ds-space-2));
+  }
 }

@@ -600,7 +600,12 @@
 
 @media (max-width: 1280px) {
   .scope-workspace {
-    --scope-task-rail-width: clamp(360px, 54%, 820px);
+    /* 常规工作台保持中栏优先。公海的较宽行式结果栏在下方按 pane 单独覆写。 */
+    --scope-task-rail-width: clamp(
+      var(--workspace-result-rail-min),
+      45%,
+      var(--workspace-result-rail-max)
+    );
   }
   .scope-workspace-center {
     padding-right: 20px;
@@ -612,6 +617,17 @@
   .scope-task-rail .task-board-table th:first-child,
   .scope-task-rail .task-board-table td:first-child {
     display: none;
+  }
+}
+
+/* 公海的公开对象行同时承载身份、状态、指标、领取和原因；该信息量不能压进
+   通用任务栏的 360px 最小宽度。中栏仍留作完整的人机协作与输入区域。 */
+.scope-workspace[data-scope-workspace="pool"] {
+  --scope-task-rail-width: clamp(560px, 52%, var(--workspace-result-rail-max));
+}
+@media (max-width: 1280px) {
+  .scope-workspace[data-scope-workspace="pool"] {
+    --scope-task-rail-width: clamp(560px, 62%, var(--workspace-result-rail-max));
   }
 }
 

@@ -1997,7 +1997,7 @@ export default function Home() {
               resultCount={poolWorkspace.cards.length}
               railLabel="公海结果"
               railToggleLabel="公海"
-              railStorageKey="ui:home-pool-rail-collapsed"
+              railStorageKey="ui:home-pool-rail-collapsed-v2"
               interaction={interactionFeedback}
               centerFooter={renderComposerDock()}
               rail={(

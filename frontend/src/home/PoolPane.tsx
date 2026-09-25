@@ -111,6 +111,7 @@ function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, 
     <div className="pool-row-actions">
       <button type="button" className="pool-claim-button" data-pool-claim data-home-entry="claim-kol"
         disabled={claimBusy || claimed} onClick={onClaim}>{claimed ? "已领取 ✓" : claimBusy ? "正在领取…" : "领取跟进"}</button>
+      <div className="pool-row-reason" data-pool-reason><span>公海原因</span><strong>{stage}</strong></div>
       <div className="pool-more-wrap">
         <button type="button" className="pool-more-button" data-pool-more aria-label={`更多操作：${card.identity.display}`}
           aria-expanded={more} aria-haspopup="menu" onClick={() => setMore(!more)}><MoreIcon /></button>
