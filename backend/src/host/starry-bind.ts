@@ -178,7 +178,7 @@ export function saveStarryBinding(userId: string, input: {
   audit(userId, "starry.bind", {
     mailbox_email: mailbox,
     owner_name: String(input.owner_name || ""),
-    admin: userId === DEMO_ADMIN.handle || userId === "usr_sriphy",
+    admin: userId === DEMO_ADMIN.handle,
   });
   return publicStarryBinding(starryBindingRow(userId, mailbox));
 }

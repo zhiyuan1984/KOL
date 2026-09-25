@@ -68,11 +68,12 @@ export default function AdminConsole() {
   const [assignments, setAssignments] = useState<AdminRow[]>([]);
   const [auditRows, setAuditRows] = useState<AdminRow[]>([]);
   const [policy, setPolicy] = useState<AdminRow>({});
-  const [hiddenConnectors, setHiddenConnectors] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
   const load = useCallback(() => {
+    setLoading(true);
     void Promise.all([
       api.adminUsers().then(setUsers),
       api.adminConnectors().then(setConnectors),
@@ -80,11 +81,8 @@ export default function AdminConsole() {
       api.adminAssignments().then(setAssignments),
       api.adminDataPolicy().then(setPolicy),
       api.adminAudit().then(setAuditRows),
-      api.admin().then((pack) => {
-        const hidden = (pack as { hidden_connectors?: string[] }).hidden_connectors;
-        setHiddenConnectors(Array.isArray(hidden) ? hidden : []);
-      }).catch(() => setHiddenConnectors([])),
-    ]).catch((e) => setError(e instanceof Error ? e.message : "无法加载管理数据"));
+    ]).catch((e) => setError(e instanceof Error ? e.message : "无法加载管理数据"))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(load, [load]);
@@ -99,20 +97,6 @@ export default function AdminConsole() {
       setError(e instanceof Error ? e.message : "保存失败");
     }
   };
-  const createConnector = async (input: { id: string; label: string; credential_ref?: string }): Promise<boolean> => {
-    setError("");
-    try {
-      await api.adminSave("/api/admin/connectors", input, "POST");
-      setConnectors(await api.adminConnectors());
-      setNotice("连接器已创建；请在详情完成接入配置。");
-      load();
-      return true;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "连接器未创建");
-      return false;
-    }
-  };
-
   if (!account?.available_modes?.includes("admin")) return <Navigate to="/" replace />;
   if (section === "starry") return <Navigate to="/settings?tab=starry" replace />;
 
@@ -169,7 +153,7 @@ export default function AdminConsole() {
             <Link className="btn work admin-return nowrap" to="/">← 返回员工工作台</Link>
           </div>
         </header>
-        <AdminHealth connectors={connectors} />
+        <AdminHealth connectors={connectors} loading={loading} />
         {notice && <p className="admin-receipt status-ok" data-admin-receipt role="status">{notice}</p>}
         {error && <p className="error" role="alert">{error}</p>}
 
@@ -180,7 +164,7 @@ export default function AdminConsole() {
         {tab === "connectors" && (
           detailId
             ? <AdminConnectorDetail connectorId={detailId} connectors={connectors} users={users} auditRows={auditRows} onSave={save} />
-            : <AdminConnectorsHub connectors={connectors} users={users} hiddenConnectors={hiddenConnectors} onSave={save} onCreate={createConnector} />
+            : <AdminConnectorsHub connectors={connectors} users={users} onSave={save} />
         )}
         {tab === "skills" && <SkillLifecycle />}
         {tab === "approvals" && (
@@ -195,23 +179,24 @@ export default function AdminConsole() {
   );
 }
 
-function AdminHealth({ connectors }: { connectors: AdminRow[] }) {
+function AdminHealth({ connectors, loading }: { connectors: AdminRow[]; loading: boolean }) {
+  if (loading) return <div className="admin-health" data-admin-health role="status">正在读取受管连接器目录与治理状态…</div>;
   const rows = connectors.map(publicConnectorView).filter((row) => row.id);
-  const counts = { total: rows.length, enabled: 0, registered: 0, unattached: 0, errors: 0 };
+  const counts = { total: rows.length, enabled: 0, registered: 0, pending: 0, errors: 0 };
   for (const row of rows) {
     const status = governanceStatus(row);
     if (row.enabled) counts.enabled += 1;
     if (row.credentialRegistered) counts.registered += 1;
-    if (status.key === "unattached") counts.unattached += 1;
+    if (status.key === "draft" || status.key === "pending" || status.key === "verified") counts.pending += 1;
     if (status.key === "error") counts.errors += 1;
   }
 
   return (
     <div className="admin-health" data-admin-health aria-label="连接器治理状态">
-      <span>已挂接 <b>{counts.total}</b></span>
+      <span>受管连接器 <b>{counts.total}</b></span>
       <span>已启用 <b>{counts.enabled}</b></span>
       <span>凭据已登记 <b>{counts.registered}</b></span>
-      <span>未挂接 <b>{counts.unattached}</b></span>
+      <span>待处理 <b>{counts.pending}</b></span>
       {counts.errors > 0 && <span data-health="error">异常 <b>{counts.errors}</b></span>}
     </div>
   );

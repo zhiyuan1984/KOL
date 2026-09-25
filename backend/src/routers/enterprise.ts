@@ -17,6 +17,7 @@ import { SKILL_CATALOG } from "../host/skills-catalog.js";
 import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
 import { boxDir } from "../config.js";
+import { managedConnectorIds, requireManagedConnector } from "../connectors/catalog.js";
 
 export const enterprise = new Hono();
 
@@ -198,40 +199,35 @@ enterprise.put("/admin/users/:uid/skills", async (c) => {
 
 enterprise.get("/admin/connectors", (c) => {
   requireAdmin();
-  return c.json(getConn().prepare("SELECT * FROM connectors ORDER BY id").all().map(connectorPublic));
+  return c.json(getConn().prepare(
+    "SELECT * FROM connectors WHERE id IN ('claw','starrykol') ORDER BY CASE id WHEN 'claw' THEN 1 ELSE 2 END",
+  ).all().map(connectorPublic));
 });
 
 enterprise.get("/connectors", (c) => {
   const user = scopedUser();
   if (authDisabled() || (user && isAdmin(user))) {
     return c.json((getConn().prepare(
-      "SELECT id,label FROM connectors WHERE enabled=1 ORDER BY id",
+      "SELECT id,label FROM connectors WHERE enabled=1 AND id IN ('claw','starrykol') ORDER BY id",
     ).all()).map((row) => connectorEmployee({ ...(row as Row), access: "write" })));
   }
   if (!user) throw new HttpFail(401, "authentication required");
   return c.json((getConn().prepare(
     `SELECT c.id,c.label,g.access FROM connectors c
       JOIN user_connector_grants g ON g.connector_id=c.id
-     WHERE g.user_id=? AND c.enabled=1 ORDER BY c.id`,
+     WHERE g.user_id=? AND c.enabled=1 AND c.id IN ('claw','starrykol') ORDER BY c.id`,
   ).all(user.id)).map(connectorEmployee));
 });
 
 enterprise.post("/admin/connectors", async (c) => {
-  const admin = requireAdmin();
-  const body = (await c.req.json()) as Json;
-  const id = String(body.id || "").trim();
-  if (!/^[a-z0-9_-]+$/.test(id)) throw new HttpFail(400, "invalid connector id");
-  getConn().prepare(
-    "INSERT INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES (?,?,?,?,?,?)",
-  ).run(id, String(body.label || id), body.enabled === false ? 0 : 1, String(body.status || "configured"),
-    body.credential_ref || null, nowIso());
-  audit(admin.id, "admin.connector.create", { connector_id: id });
-  return c.json(connectorPublic(getConn().prepare("SELECT * FROM connectors WHERE id=?").get(id)), 201);
+  requireAdmin();
+  throw new HttpFail(405, { code: "managed_connector_catalog_fixed", connectors: managedConnectorIds() });
 });
 
 enterprise.patch("/admin/connectors/:id", async (c) => {
   const admin = requireAdmin();
   const id = c.req.param("id");
+  requireManagedConnector(id);
   const body = (await c.req.json()) as Json;
   if ("credential" in body || "secret" in body || "password" in body) throw new HttpFail(400, "only credential_ref may be stored");
   const sets: string[] = [];
@@ -239,7 +235,16 @@ enterprise.patch("/admin/connectors/:id", async (c) => {
   for (const field of ["label", "status", "credential_ref"] as const) {
     if (body[field] !== undefined) { sets.push(`${field}=?`); values.push(body[field]); }
   }
-  if (body.enabled !== undefined) { sets.push("enabled=?"); values.push(body.enabled ? 1 : 0); }
+  if (body.enabled !== undefined) {
+    if (body.enabled) {
+      const current = getConn().prepare("SELECT status FROM connectors WHERE id=?").get(id) as Row | undefined;
+      if (!current) throw new HttpFail(404, "connector not found");
+      if (String(current.status) !== "verified") {
+        throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
+      }
+    }
+    sets.push("enabled=?"); values.push(body.enabled ? 1 : 0);
+  }
   if (!sets.length) throw new HttpFail(400, "no changes");
   sets.push("updated_at=?"); values.push(nowIso(), id);
   const result = getConn().prepare(`UPDATE connectors SET ${sets.join(",")} WHERE id=?`).run(...values);
@@ -249,37 +254,32 @@ enterprise.patch("/admin/connectors/:id", async (c) => {
 });
 
 enterprise.delete("/admin/connectors/:id", (c) => {
-  const admin = requireAdmin();
-  const id = c.req.param("id");
-  const result = tx((db) => {
-    db.prepare("DELETE FROM user_connector_grants WHERE connector_id=?").run(id);
-    return db.prepare("DELETE FROM connectors WHERE id=?").run(id);
-  });
-  if (!result.changes) throw new HttpFail(404, "connector not found");
-  audit(admin.id, "admin.connector.delete", { connector_id: id });
-  return c.json({ ok: true });
+  requireAdmin();
+  requireManagedConnector(c.req.param("id"));
+  throw new HttpFail(405, { code: "managed_connector_cannot_delete" });
 });
 
 enterprise.put("/admin/users/:uid/connectors/:id", async (c) => {
   const admin = requireAdmin();
   const body = (await c.req.json().catch(() => ({}))) as Json;
   const access = String(body.access || "read");
-  if (!["read", "write", "admin"].includes(access)) throw new HttpFail(400, "invalid access");
+  if (!["read", "write"].includes(access)) throw new HttpFail(400, "invalid access");
   userById(c.req.param("uid"));
-  if (!getConn().prepare("SELECT 1 FROM connectors WHERE id=?").get(c.req.param("id"))) throw new HttpFail(404, "connector not found");
+  const connectorId = requireManagedConnector(c.req.param("id"));
   getConn().prepare(
     `INSERT INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES (?,?,?,?)
      ON CONFLICT(user_id,connector_id) DO UPDATE SET access=excluded.access`,
-  ).run(c.req.param("uid"), c.req.param("id"), access, nowIso());
-  audit(admin.id, "admin.connector.grant", { user_id: c.req.param("uid"), connector_id: c.req.param("id"), access });
+  ).run(c.req.param("uid"), connectorId, access, nowIso());
+  audit(admin.id, "admin.connector.grant", { user_id: c.req.param("uid"), connector_id: connectorId, access });
   return c.json({ ok: true, access });
 });
 
 enterprise.delete("/admin/users/:uid/connectors/:id", (c) => {
   const admin = requireAdmin();
+  const connectorId = requireManagedConnector(c.req.param("id"));
   getConn().prepare("DELETE FROM user_connector_grants WHERE user_id=? AND connector_id=?")
-    .run(c.req.param("uid"), c.req.param("id"));
-  audit(admin.id, "admin.connector.revoke", { user_id: c.req.param("uid"), connector_id: c.req.param("id") });
+    .run(c.req.param("uid"), connectorId);
+  audit(admin.id, "admin.connector.revoke", { user_id: c.req.param("uid"), connector_id: connectorId });
   return c.json({ ok: true });
 });
 
@@ -293,10 +293,8 @@ enterprise.put("/admin/users/:uid/connectors", async (c) => {
     db.prepare("DELETE FROM user_connector_grants WHERE user_id=?").run(uid);
     for (const value of values) {
       const [connectorId, requestedAccess] = value.split(":");
-      const access = ["read", "write", "admin"].includes(requestedAccess) ? requestedAccess : "read";
-      if (!db.prepare("SELECT 1 FROM connectors WHERE id=?").get(connectorId)) {
-        throw new HttpFail(400, `unknown connector: ${connectorId}`);
-      }
+      const access = ["read", "write"].includes(requestedAccess) ? requestedAccess : "read";
+      requireManagedConnector(connectorId);
       db.prepare("INSERT INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES (?,?,?,?)")
         .run(uid, connectorId, access, nowIso());
     }

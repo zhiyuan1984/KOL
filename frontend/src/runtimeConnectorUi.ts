@@ -177,7 +177,15 @@ export function versionConflictMessage(error: unknown): string | null {
 }
 
 export function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
+  const message = error instanceof Error && error.message ? error.message.trim() : "";
+  if (!message) return fallback;
+  if (/the user aborted a request|aborterror|request aborted/i.test(message)) {
+    return "请求已取消或网络连接中断。请确认服务可访问后重试。";
+  }
+  if (/failed to fetch|networkerror|econnrefused|timed out/i.test(message)) {
+    return "无法连接到已保存的服务。请检查端点与网络后重试。";
+  }
+  return message;
 }
 
 export function policyKey(connectorId: string, toolName: string): string {

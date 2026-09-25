@@ -113,7 +113,7 @@ export function seedDirectory(): void {
     "KOL 建联小队",
   );
   db.prepare("INSERT OR REPLACE INTO directory_users (id, handle, name, role) VALUES (?,?,?,?)").run(
-    "usr_sriphy",
+    "sriphy",
     "sriphy",
     "鄢棽",
     "product_manager",

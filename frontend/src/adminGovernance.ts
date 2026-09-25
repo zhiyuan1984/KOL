@@ -9,29 +9,25 @@ export type PublicConnector = {
   status: string;
   credentialRegistered: boolean;
   updatedAt: string;
+  lastVerifiedAt: string;
   lastError: string;
 };
 
-export type GovernanceStatus = "unattached" | "configured" | "disabled" | "error";
+export type GovernanceStatus = "draft" | "pending" | "verified" | "enabled" | "disabled" | "error";
 
 export const GOVERNANCE_STATUS_LABEL: Record<GovernanceStatus, string> = {
-  unattached: "未挂接",
-  configured: "已配置",
+  draft: "待配置",
+  pending: "待验证",
+  verified: "已验证待启用",
+  enabled: "已启用",
   disabled: "已停用",
-  error: "异常",
+  error: "验证失败",
 };
 
-/** Frontend copy only — connectors table has no purpose column. */
+/** Fixed product catalog; never infer purpose from a legacy connector alias. */
 export const CONNECTOR_PURPOSE: Record<string, string> = {
-  enterprise_mail: "品牌邮箱发信与往来跟进",
-  wecom: "费用审批卡片",
-  starry: "组织红人库与品牌邮箱策略",
-  starrykol: "组织红人库、负责人与邮件往来",
-  emailmcp: "历史邮箱连接（已停用别名）",
-  claw: "达人评分、建联话术与预算（历史短名）",
-  kolclaw: "达人评分、建联话术与每日任务",
-  crawl: "达人采集任务",
-  mediacrawl: "达人采集任务",
+  claw: "创作者采集、检索与画像数据",
+  starrykol: "红人库、负责人与合作往来事实",
 };
 
 export function sanitizeAdminText(value: unknown): string {
@@ -56,28 +52,23 @@ export function publicConnectorView(row: AdminRow): PublicConnector {
     status: String(row.status || ""),
     credentialRegistered,
     updatedAt: row.updated_at ? String(row.updated_at) : "",
+    lastVerifiedAt: row.last_verified_at ? String(row.last_verified_at) : "",
     lastError: sanitizeAdminText(row.last_error || row.lastError || row.error || ""),
   };
 }
 
 export function governanceStatus(connector: PublicConnector): { key: GovernanceStatus; label: string } {
   const raw = connector.status.toLowerCase();
-  if (raw === "error" || raw === "failed" || raw === "异常") {
+  if (raw === "error" || raw === "failed" || raw === "verification_failed" || raw === "异常") {
     return { key: "error", label: GOVERNANCE_STATUS_LABEL.error };
   }
-  if (!connector.enabled) {
-    return { key: "disabled", label: GOVERNANCE_STATUS_LABEL.disabled };
+  if (connector.enabled) return { key: "enabled", label: GOVERNANCE_STATUS_LABEL.enabled };
+  if (raw === "verified") return { key: "verified", label: GOVERNANCE_STATUS_LABEL.verified };
+  if (raw === "pending_verification" || raw === "configured" || raw === "ready") {
+    return { key: "pending", label: GOVERNANCE_STATUS_LABEL.pending };
   }
-  if (
-    connector.credentialRegistered
-    || raw === "configured"
-    || raw === "mocked"
-    || raw === "ready"
-    || raw === "enabled"
-  ) {
-    return { key: "configured", label: GOVERNANCE_STATUS_LABEL.configured };
-  }
-  return { key: "unattached", label: GOVERNANCE_STATUS_LABEL.unattached };
+  if (raw === "disabled") return { key: "disabled", label: GOVERNANCE_STATUS_LABEL.disabled };
+  return { key: "draft", label: GOVERNANCE_STATUS_LABEL.draft };
 }
 
 export function connectorPurpose(id: string): string {

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { authDisabled, requireAdmin } from "../auth.js";
-import { audit } from "../db.js";
+import { audit, getConn, nowIso } from "../db.js";
 import { HttpFail } from "../host/errors.js";
 import {
   getAgentSkills,
@@ -17,6 +17,7 @@ import {
   validateConnectorConfig,
 } from "../runtime/store.js";
 import { previewOpenApi } from "../runtime/openapi.js";
+import { requireManagedConnector } from "../connectors/catalog.js";
 
 export const skillRuntimeRouter = new Hono();
 
@@ -64,6 +65,12 @@ function expectedVersion(body: Record<string, unknown>): number {
 function enabled(body: Record<string, unknown>): boolean {
   if (typeof body.enabled !== "boolean") throw new HttpFail(400, "enabled must be boolean");
   return body.enabled;
+}
+
+function requireManagedRuntimeConnector(connectorId: string): void {
+  // Isolated runtime tests deliberately construct a generic connector fixture;
+  // product routes outside that harness are limited to the fixed catalog.
+  if (process.env.NODE_ENV !== "test") requireManagedConnector(connectorId);
 }
 
 skillRuntimeRouter.get("/admin/runtime/agents/:agentId/skills", (c) => {
@@ -125,6 +132,7 @@ skillRuntimeRouter.put("/admin/runtime/skills/:skillId/tools/:connectorId/:toolN
 
 skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/config", (c) => {
   runtimeAdmin();
+  requireManagedRuntimeConnector(c.req.param("connectorId"));
   const result = getConnectorConfig(c.req.param("connectorId"));
   if (!result) throw new HttpFail(404, "runtime connector config not found");
   return c.json(result);
@@ -132,6 +140,7 @@ skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/config", (c) => {
 
 skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/config", async (c) => {
   const admin = runtimeAdmin();
+  requireManagedRuntimeConnector(c.req.param("connectorId"));
   const body = await bodyObject(c);
   onlyFields(body, [
     "protocol",
@@ -151,7 +160,15 @@ skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/config", async (c
   const version = expectedVersion(body);
   const { expected_version: _expectedVersion, ...configBody } = body;
   const config = validateConnectorConfig(configBody);
+  if (process.env.NODE_ENV !== "test" && config.protocol === "http") {
+    throw new HttpFail(400, { code: "managed_connector_requires_mcp" });
+  }
   const row = setConnectorConfig(c.req.param("connectorId"), config, version);
+  if (process.env.NODE_ENV !== "test") {
+    getConn().prepare(
+      "UPDATE connectors SET enabled=0,status='pending_verification',last_error=NULL,updated_at=? WHERE id=?",
+    ).run(nowIso(), row.connector_id);
+  }
   audit(admin.id, "runtime.config.updated", {
     action: "upserted",
     connector_id: row.connector_id,
@@ -163,6 +180,10 @@ skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/config", async (c
 
 skillRuntimeRouter.post("/admin/runtime/connectors/:connectorId/import-openapi", async (c) => {
   runtimeAdmin();
+  requireManagedRuntimeConnector(c.req.param("connectorId"));
+  if (process.env.NODE_ENV !== "test") {
+    throw new HttpFail(405, { code: "managed_connector_requires_mcp" });
+  }
   const body = await bodyObject(c);
   onlyFields(body, ["document"]);
   if (!("document" in body)) throw new HttpFail(400, "document is required");
@@ -172,11 +193,13 @@ skillRuntimeRouter.post("/admin/runtime/connectors/:connectorId/import-openapi",
 
 skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/policies", (c) => {
   runtimeAdmin();
+  requireManagedRuntimeConnector(c.req.param("connectorId"));
   return c.json(getConnectorPolicies(c.req.param("connectorId")));
 });
 
 skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/tools/:toolName", (c) => {
   runtimeAdmin();
+  requireManagedRuntimeConnector(c.req.param("connectorId"));
   const policy = getToolPolicy(c.req.param("connectorId"), c.req.param("toolName"));
   if (!policy) throw new HttpFail(404, "tool policy not found");
   return c.json(policy);
@@ -184,6 +207,7 @@ skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/tools/:toolName",
 
 skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/tools/:toolName", async (c) => {
   const admin = runtimeAdmin();
+  requireManagedRuntimeConnector(c.req.param("connectorId"));
   const body = await bodyObject(c);
   onlyFields(body, ["enabled", "risk", "access", "schema_hash", "expected_version"]);
   const version = expectedVersion(body);

@@ -88,17 +88,10 @@ type HubMode = "catalog" | "mine";
 
 const CONNECTORS = [
   {
-    id: "enterprise_mail",
-    title: "企业邮箱",
+    id: "claw",
+    title: "MediaCrawler MCP",
     kind: "连接器",
-    summary: "用品牌邮箱发建联、跟进和报价信。",
-    to: "/connectors",
-  },
-  {
-    id: "wecom",
-    title: "企业微信",
-    kind: "连接器",
-    summary: "费用审批走企微卡。",
+    summary: "创作者采集、检索与画像数据（管理端治理，调试可见）。",
     to: "/connectors",
   },
   {
@@ -108,22 +101,13 @@ const CONNECTORS = [
     summary: "红人库、负责人、品牌邮箱和邮件会话（管理端治理，调试可见）。",
     to: "/connectors",
   },
-  {
-    id: "kolclaw",
-    title: "KOL Claw",
-    kind: "连接器",
-    summary: "达人评分、建联话术、每日任务和预算。",
-    to: "/connectors",
-  },
 ];
 
 const MARK: Record<string, string> = {
   creator_profile: "M12 11.5a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z M6.2 19c1.1-2.8 3.2-4.2 5.8-4.2s4.7 1.4 5.8 4.2",
   risk_scan: "M12 4l8 14H4z M12 10v4 M12 16.5h.01",
-  enterprise_mail: "M4 7h16v10H4z M4 8l8 6 8-6",
-  wecom: "M8 16.5c-3.2 0-5.5-2.2-5.5-5S4.8 6.5 8 6.5c2.6 0 4.6 1.4 5.2 3.4 3 .2 5.3 2.2 5.3 4.7 0 2.5-2.4 4.4-5.4 4.4-.7 0-1.4-.1-2-.3L8.4 20l.4-2.2C8.3 17.6 8.1 17 8 16.5z",
+  claw: "M5 8h6l2 3h6v7H5z M8 8V6.5a2.5 2.5 0 1 1 5 0V8",
   starrykol: "M12 3.5l2.1 4.3 4.7.7-3.4 3.3.8 4.7L12 14.3 7.8 16.5l.8-4.7L5.2 8.5l4.7-.7z",
-  kolclaw: "M5 8h6l2 3h6v7H5z M8 8V6.5a2.5 2.5 0 0 1 5 0V8",
 };
 
 function Glyph({ d }: { d: string }) {

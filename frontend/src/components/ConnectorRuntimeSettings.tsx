@@ -31,7 +31,9 @@ type ConfigForm = {
 const EMPTY_CONFIG: RuntimeConnectorConfig = { protocol: "mcp", timeout_ms: 30_000 };
 
 function formFromConfig(config: RuntimeConnectorConfig): ConfigForm {
-  const protocol = config.protocol === "http" ? "http" : "mcp";
+  // The product catalog only admits MCP servers. Older HTTP payloads are not
+  // presented as an editable path in the managed connector flow.
+  const protocol: RuntimeProtocol = "mcp";
   return {
     protocol,
     endpointMode: config.url_env ? "url_env" : "url",
@@ -74,8 +76,14 @@ function buildConfig(form: ConfigForm): RuntimeConnectorConfig {
   if (form.bearerSecretRef.trim()) config.bearer_secret_ref = form.bearerSecretRef.trim();
   if (form.credentialProvider.trim()) config.credential_provider = form.credentialProvider.trim();
   if (form.credentialAccountId.trim()) config.credential_account_id = form.credentialAccountId.trim();
-  if (form.protocol === "http") config.http_tools = parseHttpTools(form.httpTools);
   return config;
+}
+
+function friendlyProbeFailure(code: string): string {
+  if (code === "AbortError" || code === "request_aborted") return "测试已取消或连接中断；请确认服务可访问后重试。";
+  if (code === "runtime_connector_disabled") return "连接器已停用，无法测试。请在详情完成验证后再启用。";
+  if (code === "runtime_connector_not_configured") return "尚未保存接入配置。请先完成连接草稿。";
+  return code ? `测试未通过；请检查已保存配置后重试（错误码：${code}）。` : "测试未通过；请检查已保存配置后重试。";
 }
 
 function schemaText(schema: Record<string, unknown>) {
@@ -339,7 +347,7 @@ export function ConnectorRuntimeSettings({ connectorId }: { connectorId: string 
     } catch (cause) {
       const payload = (cause as { payload?: { error_code?: unknown; code?: unknown; message?: unknown } } | undefined)?.payload;
       const code = typeof payload?.error_code === "string" ? payload.error_code : typeof payload?.code === "string" ? payload.code : "";
-      setProbeError(`${code ? `${code}：` : ""}${errorMessage(cause, "连接器探针失败")}`);
+      setProbeError(friendlyProbeFailure(code));
       await loadActivity();
     } finally {
       setProbing(false);
@@ -365,12 +373,7 @@ export function ConnectorRuntimeSettings({ connectorId }: { connectorId: string 
         <fieldset disabled={loading}>
           <legend>连接实例草稿</legend>
           <div className="runtime-form-grid">
-            <label className="field">协议
-              <select value={form.protocol} onChange={(event) => setField("protocol", event.target.value as RuntimeProtocol)}>
-                <option value="mcp">MCP（Streamable HTTP）</option>
-                <option value="http">HTTP JSON API</option>
-              </select>
-            </label>
+            <div className="field"><span>协议</span><strong>MCP（Streamable HTTP）</strong><small className="muted">此受管目录不支持 HTTP / OpenAPI 接入。</small></div>
             <label className="field">超时（毫秒）
               <input type="number" min="1" max="120000" value={form.timeoutMs} onChange={(event) => setField("timeoutMs", event.target.value)} />
             </label>
@@ -387,7 +390,9 @@ export function ConnectorRuntimeSettings({ connectorId }: { connectorId: string 
               <label className="field">URL 环境变量<input value={form.urlEnv} onChange={(event) => setField("urlEnv", event.target.value)} placeholder="CONNECTOR_URL" autoCapitalize="characters" /></label>
             )}
           </fieldset>
-          <div className="runtime-form-grid">
+          <details className="runtime-advanced">
+            <summary>高级技术配置（环境变量与凭据映射）</summary>
+            <div className="runtime-form-grid">
             <label className="field">请求头环境变量映射（JSON，可选）
               <textarea rows={4} value={form.headersEnv} onChange={(event) => setField("headersEnv", event.target.value)} placeholder={'{"X-API-Key":"CONNECTOR_API_KEY"}'} spellCheck={false} />
             </label>
@@ -407,7 +412,8 @@ export function ConnectorRuntimeSettings({ connectorId }: { connectorId: string 
               <input value={form.credentialAccountId} onChange={(event) => setField("credentialAccountId", event.target.value)} placeholder="cred_…；必须精确指定，不能默认挑选账号" autoComplete="off" />
             </label>
             <label className="check runtime-check-field"><input type="checkbox" checked={form.allowUnauthenticated} onChange={(event) => setField("allowUnauthenticated", event.target.checked)} /> 该端点明确允许无鉴权</label>
-          </div>
+            </div>
+          </details>
           <p className="muted runtime-form-hint">凭据写入服务若已部署，应仅返回引用 ID 和元数据；本页没有写入原始秘密的输入框。无认证引用且未显式允许无鉴权时，服务端必须拒绝保存。</p>
           {form.protocol === "http" && (
             <label className="field runtime-editor-field">HTTP 工具定义（JSON）
@@ -493,7 +499,7 @@ export function ConnectorRuntimeSettings({ connectorId }: { connectorId: string 
           <div>
             <strong>最近治理事件</strong>
             <ul className="runtime-history-list">
-              {activity.events.slice(0, 8).map((event) => <li key={event.id}><span>{event.event_type}</span><small>{event.ts} · {event.actor}{Object.keys(event.payload).length ? ` · ${JSON.stringify(event.payload)}` : ""}</small></li>)}
+              {activity.events.slice(0, 8).map((event) => <li key={event.id}><span>{event.event_type}</span><small>{event.ts} · {event.actor === "usr_sriphy" ? "sriphy" : event.actor || "系统"}</small></li>)}
             </ul>
           </div>
         </div>}

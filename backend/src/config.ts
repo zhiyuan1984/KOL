@@ -467,7 +467,7 @@ export type Persona = {
 
 export const PERSONAS: Record<string, Persona> = {
   sriphy: {
-    id: "usr_sriphy",
+    id: "sriphy",
     name: "鄢棽",
     handle: "sriphy",
     site: "深圳站",
@@ -477,7 +477,7 @@ export const PERSONAS: Record<string, Persona> = {
     exam_module: "数据安全与最小权限",
   },
   exam_blocked: {
-    id: "usr_sriphy",
+    id: "sriphy",
     name: "鄢棽",
     handle: "sriphy",
     site: "深圳站",
@@ -487,7 +487,7 @@ export const PERSONAS: Record<string, Persona> = {
     exam_module: "数据安全与最小权限",
   },
   permission_blocked: {
-    id: "usr_sriphy",
+    id: "sriphy",
     name: "鄢棽",
     handle: "sriphy",
     site: "深圳站",

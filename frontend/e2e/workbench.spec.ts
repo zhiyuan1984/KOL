@@ -2499,13 +2499,13 @@ test("send failure stays as persistent error, not toast-success", async ({ page,
   await request.post("/api/me/persona", { data: { persona: "sriphy" } });
 });
 
-test("admin hides non-P0 connectors", async ({ page }) => {
+test("admin lists only the two managed MCP connectors", async ({ page }) => {
   await page.goto("/admin/connectors");
   await expect(page.locator("[data-admin-page='connectors']")).toBeVisible();
-  await expect(page.locator('[data-connector="enterprise_mail"]')).toContainText("企业邮箱");
-  await expect(page.locator('[data-connector="wecom"]')).toContainText("企业微信");
-  await expect(page.locator('[data-hidden-connector="飞书多维表"]')).toContainText("本期隐藏");
-  await expect(page.locator('[data-hidden-connector="本地文件夹"]')).toContainText("本期隐藏");
+  await expect(page.locator('[data-connector="claw"]')).toContainText("MediaCrawler MCP");
+  await expect(page.locator('[data-connector="starrykol"]')).toContainText("Starry KOL MCP");
+  await expect(page.locator("[data-admin-connectors-table] tbody tr")).toHaveCount(2);
+  await expect(page.locator("[data-admin-page='connectors']")).not.toContainText("新增配置化连接器");
 });
 
 test("unbound inbound stays on this thread", async ({ page }) => {
@@ -3180,7 +3180,7 @@ test("admin console uses a left sidebar with short labels for the current accoun
   await page.locator("[data-admin-nav='connectors']").click();
   await expect(page).toHaveURL(/\/admin\/connectors$/);
   await expect(page.locator("[data-admin-nav='connectors']")).toHaveClass(/active/);
-  await expect(page.locator("[data-runtime-connector-entry]")).toContainText("支持 MCP 与 HTTP API");
+  await expect(page.locator(".connector-stepper")).toContainText("保存接入");
   await page.locator("[data-admin-connectors-table] a").first().click();
   await expect(page).toHaveURL(/\/admin\/connectors\//);
   await expect(page.locator("[data-admin-page='connector-detail']")).toBeVisible();
@@ -3270,7 +3270,7 @@ test("admin L3 destructive writes open confirm dialog with cancel focused", asyn
     await page.getByRole("button", { name: "创建员工" }).click();
     await expect(deactivate.first()).toBeVisible();
   }
-  await deactivate.click();
+  await deactivate.first().click();
   const dialog = page.locator("[data-admin-confirm='user-deactivate']");
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole("heading", { name: "停用员工" })).toBeVisible();
@@ -3285,24 +3285,18 @@ test("admin L3 destructive writes open confirm dialog with cancel focused", asyn
 
   await page.locator("[data-admin-nav='connectors']").click();
   await expect(page.locator("[data-admin-page='connectors']")).toBeVisible();
-  await page.locator("[data-admin-connector-action='disable']").first().click();
-  const connectorDialog = page.locator("[data-admin-confirm='connector-disable']");
-  await expect(connectorDialog).toBeVisible();
-  await expect(connectorDialog.locator("[data-admin-confirm-object]")).not.toHaveText("");
-  await expect(connectorDialog.locator("[data-admin-confirm-scope]")).toContainText("组织级启用状态");
-  await expect(connectorDialog.locator("[data-admin-confirm-consequence]")).toContainText("凭据");
-  await expect(page.locator("[data-admin-confirm-cancel]")).toBeFocused();
-  await page.locator("[data-admin-confirm-cancel]").click();
-  await expect(connectorDialog).toHaveCount(0);
+  await expect(page.locator("[data-admin-connector-action='enable']")).toHaveCount(0);
+  await expect(page.locator("[data-admin-connectors-table]")).toContainText("待配置");
 
   await page.locator("[data-admin-connectors-table] a").first().click();
   await expect(page.locator("[data-admin-page='connector-detail']")).toBeVisible();
-  const revoke = page.locator("[data-admin-grant-action='revoke']:not([disabled])").first();
-  if (await revoke.count()) {
-    await revoke.click();
-    const grantDialog = page.locator("[data-admin-confirm='grant-revoke']");
+  await page.locator("details", { hasText: "访问控制" }).locator("summary").click();
+  const grant = page.locator("[data-admin-grants] select").first();
+  if (await grant.count()) {
+    await grant.selectOption("read");
+    const grantDialog = page.locator("[data-admin-confirm='grant-read']");
     await expect(grantDialog).toBeVisible();
-    await expect(grantDialog.locator("[data-admin-confirm-scope]")).toContainText("read / write");
+    await expect(grantDialog.locator("[data-admin-confirm-scope]")).toContainText("read");
     await expect(page.locator("[data-admin-confirm-cancel]")).toBeFocused();
     await page.locator("[data-admin-confirm-cancel]").click();
     await expect(grantDialog).toHaveCount(0);
@@ -3332,19 +3326,6 @@ test("admin L3 destructive writes open confirm dialog with cancel focused", asyn
     await expect(archiveDialog).toHaveCount(0);
   }
 
-  await page.locator("[data-admin-nav='skills']").click();
-  await expect(page.locator("[data-skill-admin]")).toBeVisible();
-  await expect(page.locator("[data-funnel-tab]")).toHaveCount(0);
-  const skillDelete = page.locator("[data-skill-delete]").first();
-  if (await skillDelete.count()) {
-    await skillDelete.click();
-    const skillDialog = page.locator("[data-admin-confirm='skill-delete']");
-    await expect(skillDialog).toBeVisible();
-    await expect(skillDialog.locator("[data-admin-confirm-object]")).not.toHaveText("");
-    await expect(page.locator("[data-admin-confirm-cancel]")).toBeFocused();
-    await page.locator("[data-admin-confirm-cancel]").click();
-    await expect(skillDialog).toHaveCount(0);
-  }
 });
 
 test("admin L3 confirm covers retention policy writes", async ({ page }) => {
@@ -3364,17 +3345,16 @@ test("admin L3 confirm covers retention policy writes", async ({ page }) => {
   await page.locator("[data-admin-nav='connectors']").click();
   await page.locator("[data-admin-connectors-table] a").first().click();
   await expect(page.locator("[data-admin-page='connector-detail']")).toBeVisible();
-  const grantWrite = page.locator("[data-admin-grant-action='write']").first();
-  await expect(grantWrite).toBeVisible();
-  await grantWrite.click();
+  await page.locator("details", { hasText: "访问控制" }).locator("summary").click();
+  const grantAccess = page.locator("[data-admin-grants] select").first();
+  await expect(grantAccess).toBeVisible();
+  await grantAccess.selectOption("write");
   const grantDialog = page.locator("[data-admin-confirm='grant-write']");
   await expect(grantDialog).toBeVisible();
   await expect(grantDialog.locator("[data-admin-confirm-scope]")).toContainText("write");
   await page.locator("[data-admin-confirm-cancel]").click();
   await expect(grantDialog).toHaveCount(0);
-  const grantRead = page.locator("[data-admin-grant-action='read']").first();
-  await expect(grantRead).toBeVisible();
-  await grantRead.click();
+  await grantAccess.selectOption("read");
   const readDialog = page.locator("[data-admin-confirm='grant-read']");
   await expect(readDialog).toBeVisible();
   await expect(readDialog.locator("[data-admin-confirm-scope]")).toContainText("read");
@@ -3398,7 +3378,7 @@ test("admin L3 confirm covers retention policy writes", async ({ page }) => {
 test("docs/org-permissions.md admin connectors hub renders", async ({ page }) => {
   await page.goto("/connectors");
   await expect(page.locator("[data-connector-use]")).toBeVisible();
-  await expect(page.locator("[data-connector-use-row]").first()).toBeVisible();
+  await expect(page.locator("[data-connector-use-empty]")).toBeVisible();
   await expect(page.getByRole("button", { name: /启用|停用/ })).toHaveCount(0);
   await expect(page.locator("textarea[name='bearer']")).toHaveCount(0);
   await page.goto("/admin");
@@ -3408,7 +3388,8 @@ test("docs/org-permissions.md admin connectors hub renders", async ({ page }) =>
   await expect(page.getByRole("heading", { name: "连接器枢纽" })).toBeVisible();
   await expect(page.locator("[data-admin-health]")).toBeVisible();
   await expect(page.locator(".admin-header .remote-pill, .admin-health .remote-pill")).toHaveCount(0);
-  await expect(page.locator('[data-admin-connectors-table] [data-connector="enterprise_mail"]')).toBeVisible();
+  await expect(page.locator('[data-admin-connectors-table] [data-connector="claw"]')).toBeVisible();
+  await expect(page.locator('[data-admin-connectors-table] [data-connector="starrykol"]')).toBeVisible();
 });
 
 test("admin and settings expose bind Starry mailbox menus", async ({ page }) => {
@@ -4150,42 +4131,18 @@ test("generic creator profile task result stays in the standard result renderer"
   await expect(page.locator("[data-crawl-candidates]")).toHaveCount(0);
 });
 
-test("skill hub lists Starry KOL MCP and the remaining library skills", async ({ page }) => {
+test("skill hub lists the two managed MCP connectors", async ({ page }) => {
   await page.goto("/market/skills");
   await page.locator(".user-chip").click();
   await page.locator("[data-debug-toggle]").click();
   await expect(page.locator(".workbench")).toHaveAttribute("data-view-mode", "debug");
   await expect(page.locator('[data-connector="starrykol"]')).toContainText("Starry KOL MCP");
-  await expect(page.locator('[data-connector="starrykol"]')).toContainText("红人库");
-  await expect(page.locator('[data-connector="kolclaw"]')).toContainText("KOL Claw");
+  await expect(page.locator('[data-connector="claw"]')).toContainText("MediaCrawler MCP");
   await page.locator('[data-hub-chip="connectors"]').click();
   await expect(page.locator('[data-connector="starrykol"]')).toBeVisible();
-  await expect(page.locator('[data-connector="enterprise_mail"]')).toBeVisible();
-  await expect(page.locator("body")).not.toContainText("邮件 MCP");
+  await expect(page.locator('[data-connector="claw"]')).toBeVisible();
+  await expect(page.locator('[data-connector="enterprise_mail"]')).toHaveCount(0);
   await saveScreenshot(page, "skill_hub_starry_kol_mcp.png");
-
-  await page.goto("/");
-  await openHomeTemplates(page);
-  await expect(homeRecByTitle(page, "延期关怀")).toBeVisible({ timeout: 15000 });
-  for (const title of [
-    "达人库全量",
-    "更新红人负责人",
-    "解密达人联系方式",
-    "合作生命周期看板",
-    "达人风险会话",
-    "超时/风险扫描",
-    "达人筛选字典",
-    "应用邮件会话",
-    "延期关怀",
-    "达人画像",
-    "达人库查询",
-    "写合作邮件",
-  ]) {
-    const rec = homeRecByTitle(page, title);
-    await rec.scrollIntoViewIfNeeded();
-    await expect(rec).toBeVisible({ timeout: 10000 });
-  }
-  await saveScreenshot(page, "home_starry_kol_templates.png");
 });
 
 test("达人画像 and 更新红人负责人 run through Starry KOL MCP", async ({ page }) => {

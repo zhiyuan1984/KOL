@@ -1256,7 +1256,102 @@ function rebuildUserStarryBindings(db: SqliteConn): void {
   db.exec("ALTER TABLE user_starry_bindings_p0 RENAME TO user_starry_bindings");
 }
 
+/**
+ * The product account is `sriphy`; `usr_sriphy` was an internal fixture id that
+ * accidentally leaked into persisted ownership and audit fields.  Migrate it
+ * before normal seeds run so current users, grants, and trace rows agree on one
+ * visible, canonical account identifier.
+ */
+function migrateSriphyIdentity(db: SqliteConn): void {
+  const legacy = "usr_sriphy";
+  const canonical = "sriphy";
+  const legacyUser = db.prepare("SELECT 1 FROM users WHERE id=?").get(legacy);
+  db.prepare("UPDATE audit_events SET actor=CASE WHEN actor=? THEN ? ELSE actor END, payload=REPLACE(payload,?,?) WHERE actor=? OR payload LIKE ?")
+    .run(legacy, canonical, legacy, canonical, legacy, `%${legacy}%`);
+  if (!legacyUser) return;
+
+  const references: Array<[string, string]> = [
+    ["auth_sessions", "user_id"], ["user_skill_grants", "user_id"], ["user_connector_grants", "user_id"],
+    ["approval_role_bindings", "user_id"], ["exam_assignments", "user_id"], ["exam_attempts", "user_id"],
+    ["user_preferences", "user_id"], ["user_starry_bindings", "user_id"], ["knowledge_citations", "user_id"],
+    ["knowledge_deprecations", "user_id"], ["sessions", "owner_user_id"], ["work_items", "owner_user_id"],
+    ["memory_entries", "owner_user_id"], ["user_uploads", "owner_user_id"], ["crawl_jobs", "owner_user_id"],
+    ["discovery_requests", "owner_user_id"], ["discovery_runs", "owner_user_id"], ["creator_candidates", "owner_user_id"],
+    ["employee_memory_items", "owner_user_id"], ["runtime_credentials", "created_by"],
+  ];
+  db.pragma("foreign_keys = OFF");
+  try {
+    for (const [table, column] of references) {
+      if (cols(db, table).has(column)) {
+        // A partially-migrated database can contain both identities. Preserve
+        // the canonical record and discard only an exact unique-key conflict.
+        db.prepare(`UPDATE OR IGNORE ${table} SET ${column}=? WHERE ${column}=?`).run(canonical, legacy);
+        db.prepare(`DELETE FROM ${table} WHERE ${column}=?`).run(legacy);
+      }
+    }
+    if (cols(db, "directory_users").has("id")) {
+      db.prepare("UPDATE OR IGNORE directory_users SET id=? WHERE id=?").run(canonical, legacy);
+      db.prepare("DELETE FROM directory_users WHERE id=?").run(legacy);
+    }
+    const canonicalUser = db.prepare("SELECT 1 FROM users WHERE id=?").get(canonical);
+    if (canonicalUser) db.prepare("DELETE FROM users WHERE id=?").run(legacy);
+    else db.prepare("UPDATE users SET id=? WHERE id=?").run(canonical, legacy);
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+}
+
+/** Keep only the two product-approved MCP records and migrate legacy grants. */
+function enforceManagedConnectorCatalog(db: SqliteConn): void {
+  const now = nowIso();
+  const approved = [
+    ["claw", "MediaCrawler MCP"],
+    ["starrykol", "Starry KOL MCP"],
+  ] as const;
+  for (const [id, label] of approved) {
+    db.prepare(
+      "INSERT OR IGNORE INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES (?,?,0,'draft',NULL,?)",
+    ).run(id, label, now);
+    db.prepare("UPDATE connectors SET label=?, updated_at=? WHERE id=?").run(label, now, id);
+  }
+  if (!db.prepare("SELECT 1 FROM app_state WHERE key='managed_connector_catalog_v1'").get()) {
+    db.prepare("UPDATE connectors SET enabled=0, status='draft', last_verified_at=NULL, last_error=NULL, updated_at=? WHERE id IN ('claw','starrykol')").run(now);
+    db.prepare("INSERT INTO app_state (key,value) VALUES ('managed_connector_catalog_v1','done')").run();
+  }
+  db.prepare(
+    `INSERT OR IGNORE INTO user_connector_grants (user_id,connector_id,access,created_at)
+     SELECT user_id,'claw',CASE access WHEN 'admin' THEN 'write' WHEN 'write' THEN 'write' ELSE 'read' END,?
+       FROM user_connector_grants WHERE connector_id IN ('claw','kolclaw')`,
+  ).run(now);
+  db.prepare(
+    `INSERT OR IGNORE INTO user_connector_grants (user_id,connector_id,access,created_at)
+     SELECT user_id,'starrykol',CASE access WHEN 'admin' THEN 'write' WHEN 'write' THEN 'write' ELSE 'read' END,?
+       FROM user_connector_grants WHERE connector_id IN ('starrykol','starry','emailmcp','enterprise_mail')`,
+  ).run(now);
+  db.prepare(
+    `UPDATE user_connector_grants SET access='write'
+      WHERE connector_id='claw' AND user_id IN (
+        SELECT user_id FROM user_connector_grants WHERE connector_id IN ('claw','kolclaw') AND access IN ('write','admin')
+      )`,
+  ).run();
+  db.prepare(
+    `UPDATE user_connector_grants SET access='write'
+      WHERE connector_id='starrykol' AND user_id IN (
+        SELECT user_id FROM user_connector_grants WHERE connector_id IN ('starrykol','starry','emailmcp','enterprise_mail') AND access IN ('write','admin')
+      )`,
+  ).run();
+  db.prepare("DELETE FROM connectors WHERE id NOT IN ('claw','starrykol')").run();
+  db.prepare(
+    `DELETE FROM audit_events
+      WHERE event_type LIKE 'runtime.%' AND json_valid(payload)
+        AND json_extract(payload,'$.connector_id') IS NOT NULL
+        AND json_extract(payload,'$.connector_id') NOT IN ('claw','starrykol')`,
+  ).run();
+}
+
 function migrateSchema(db: SqliteConn): void {
+  add(db, "connectors", "last_verified_at", "TEXT");
+  add(db, "connectors", "last_error", "TEXT");
   add(db, "collaborations", "stage_version", "INTEGER NOT NULL DEFAULT 0");
   add(db, "collaborations", "recipient_name", "TEXT");
   add(db, "collaborations", "phone", "TEXT");
@@ -1653,36 +1748,8 @@ function migrateSchema(db: SqliteConn): void {
   }
   db.prepare("INSERT OR IGNORE INTO app_state (key, value) VALUES ('persona', 'sriphy')").run();
   const now = nowIso();
-  for (const connector of [
-    ["enterprise_mail", "企业邮箱"],
-    ["wecom", "企业微信"],
-    ["starry", "Starry"],
-    ["claw", "Claw"],
-    ["kolclaw", "KOL Claw"],
-    ["starrykol", "Starry KOL MCP"],
-  ]) {
-    db.prepare(
-      "INSERT OR IGNORE INTO connectors (id, label, enabled, status, credential_ref, updated_at) VALUES (?,?,1,'configured',NULL,?)",
-    ).run(connector[0], connector[1], now);
-  }
-  db.prepare("UPDATE connectors SET label='Starry KOL MCP', enabled=1, status='configured' WHERE id='starrykol'").run();
-  db.prepare("UPDATE connectors SET enabled=0, label='Starry KOL MCP (legacy)' WHERE id='emailmcp'").run();
-  db.prepare(
-    `INSERT OR IGNORE INTO user_connector_grants (user_id,connector_id,access,created_at)
-     SELECT user_id,'kolclaw',
-            CASE access WHEN 'admin' THEN 'admin' WHEN 'write' THEN 'write' ELSE 'read' END,
-            ?
-       FROM user_connector_grants
-      WHERE connector_id='claw'`,
-  ).run(now);
-  db.prepare(
-    `INSERT OR IGNORE INTO user_connector_grants (user_id,connector_id,access,created_at)
-     SELECT user_id,'starrykol',
-            CASE access WHEN 'admin' THEN 'admin' WHEN 'write' THEN 'write' ELSE 'read' END,
-            ?
-       FROM user_connector_grants
-      WHERE connector_id IN ('emailmcp','enterprise_mail')`,
-  ).run(now);
+  migrateSriphyIdentity(db);
+  enforceManagedConnectorCatalog(db);
   db.prepare(
     "INSERT OR IGNORE INTO retention_policy (id, session_days, audit_days, updated_at) VALUES (1,365,730,?)",
   ).run(now);
@@ -1905,7 +1972,7 @@ export function nowIso(): string {
 export function audit(actor: string, eventType: string, payload: Json): void {
   getConn()
     .prepare("INSERT INTO audit_events (ts, actor, event_type, payload) VALUES (?,?,?,?)")
-    .run(nowIso(), actor, eventType, JSON.stringify(payload));
+    .run(nowIso(), actor === "usr_sriphy" ? "sriphy" : actor, eventType, JSON.stringify(payload));
 }
 
 export function listAudit(eventType?: string | null): Row[] {

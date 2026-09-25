@@ -1,5 +1,5 @@
 import { FormEvent, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import {
   accessFor,
   auditTouchesConnector,
@@ -19,54 +19,77 @@ import { ConnectorRuntimeSettings } from "../components/ConnectorRuntimeSettings
 import { ConnectorCredentialVault } from "../components/ConnectorCredentialVault";
 
 type SaveFn = (path: string, body: AdminRow, message: string, method?: string) => Promise<void>;
-type CreateConnectorFn = (input: { id: string; label: string; credential_ref?: string }) => Promise<boolean>;
+
+const MANAGED_ORDER = ["claw", "starrykol"];
+
+function displayActor(value: unknown): string {
+  const actor = String(value || "").trim();
+  if (!actor || actor === "system") return "系统";
+  return actor === "usr_sriphy" ? "sriphy" : actor;
+}
+
+function verificationCopy(connector: PublicConnector): string {
+  const status = governanceStatus(connector).key;
+  if (status === "enabled") return "已启用；保留最近验证记录，异常时请重新测试。";
+  if (status === "verified") return "测试已通过。确认访问控制后即可启用。";
+  if (status === "error") return "最近一次验证未通过。请检查已保存配置后重新测试。";
+  if (status === "pending") return "配置已保存，下一步请测试连接。";
+  return "尚未保存接入配置。先完成连接草稿。";
+}
 
 export function AdminConnectorsHub({
   connectors,
   users,
-  hiddenConnectors,
   onSave,
-  onCreate,
 }: {
   connectors: AdminRow[];
   users: AdminRow[];
-  hiddenConnectors: string[];
   onSave: SaveFn;
-  onCreate: CreateConnectorFn;
 }) {
-  const rows = useMemo(() => connectors.map(publicConnectorView).filter((row) => row.id), [connectors]);
+  const rows = useMemo(() => connectors
+    .map(publicConnectorView)
+    .filter((row) => MANAGED_ORDER.includes(row.id))
+    .sort((a, b) => MANAGED_ORDER.indexOf(a.id) - MANAGED_ORDER.indexOf(b.id)), [connectors]);
   const { ask, dialog } = useAdminConfirm();
-  const navigate = useNavigate();
 
   return (
     <section className="admin-govern" data-admin-page="connectors">
       {dialog}
-      <div className="panel">
+      <div className="panel connector-hub-intro">
         <div className="admin-section-head">
           <div>
             <h2>连接器枢纽</h2>
-            <p className="muted">组织现在挂了哪些连接器、是否启用、凭据是否已登记。秘密原值永不回显。</p>
+            <p className="muted">仅管理两条已批准的 MCP。秘密原值不会在此显示；状态以最近一次已保存配置的验证结果为准。</p>
           </div>
         </div>
-        <div className="admin-note runtime-hub-note" data-runtime-connector-entry>
-          <strong>配置化接入已启用</strong>
-          <span>支持 MCP 与 HTTP API。创建或打开连接器详情后，可配置端点、凭据引用、工具审批、探针与 Skill 挂载。</span>
+        <ol className="connector-stepper" aria-label="连接器启用流程">
+          <li>保存接入</li><li>测试连接</li><li>审阅工具</li><li>设置访问</li><li>启用</li>
+        </ol>
+      </div>
+
+      {!rows.length ? (
+        <div className="panel connector-loading" role="status" data-admin-connectors-loading>
+          正在读取受管连接器目录与最近验证状态…
         </div>
-        {rows.length === 0 ? (
-          <p className="muted" data-admin-empty="connectors">尚未挂接</p>
-        ) : (
+      ) : (
+        <div className="panel">
+          <div className="admin-section-head">
+            <div>
+              <h2>受管目录</h2>
+              <p className="muted">状态、最近验证与授权人数支持快速排查；错误详情只在各连接器的技术记录中按需查看。</p>
+            </div>
+          </div>
           <div className="admin-table-wrap">
-            <table className="admin-table" data-admin-connectors-table>
+            <table className="admin-table connector-catalog-table" data-admin-connectors-table>
               <thead>
                 <tr>
-                  <th>名称</th>
-                  <th>业务用途</th>
-                  <th>状态</th>
-                  <th>凭据</th>
+                  <th>连接器</th>
+                  <th>接入状态</th>
+                  <th>最近验证</th>
+                  <th>工具治理</th>
                   <th>授权人数</th>
-                  <th>最近错误</th>
-                  <th>启用</th>
-                  <th />
+                  <th>最近变更</th>
+                  <th scope="col">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -76,39 +99,9 @@ export function AdminConnectorsHub({
               </tbody>
             </table>
           </div>
-        )}
-        <p className="muted admin-note">进程级 URL / API Key 仍在 Host 环境变量，不在本页粘贴。用户 JWT 不要填进凭据位置。</p>
-        {hiddenConnectors.length > 0 && (
-          <div className="admin-todo" data-admin-hidden-connectors>
-            <strong>本期不挂接</strong>
-            {hiddenConnectors.map((name) => (
-              <p key={name} className="muted" data-hidden-connector={name}>{name} · 本期隐藏</p>
-            ))}
-          </div>
-        )}
-      </div>
-      <form
-        className="panel settings-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const d = new FormData(e.currentTarget);
-          const id = String(d.get("id") || "").trim();
-          const label = String(d.get("label") || "").trim();
-          const credentialRef = String(d.get("credential_ref") || "").trim();
-          void onCreate({ id, label, ...(credentialRef ? { credential_ref: credentialRef } : {}) }).then((created) => {
-            if (!created) return;
-            e.currentTarget.reset();
-            navigate(`/admin/connectors/${encodeURIComponent(id)}`);
-          });
-        }}
-      >
-        <h2>新增配置化连接器</h2>
-        <p className="muted">创建后会自动进入详情，继续配置 MCP 或 HTTP API、探针、工具审批与 Skill 挂载。</p>
-        <label className="field">显示名<input name="label" required /></label>
-        <label className="field">短名称<input name="id" pattern="[a-z0-9_-]+" required placeholder="仅英文小写，创建后员工看不到" /></label>
-        <label className="field">凭据位置<input name="credential_ref" placeholder="选填，位置不是原值，提交后不回显" autoComplete="off" /></label>
-        <button className="btn work">创建并进入配置</button>
-      </form>
+          <p className="muted admin-note">环境变量、Secret 引用和工具审批均在详情内受控维护；不接受在浏览器粘贴 API Key、JWT 或 Bearer。</p>
+        </div>
+      )}
     </section>
   );
 }
@@ -125,39 +118,27 @@ function ConnectorHubRow({
   ask: AskAdminConfirm;
 }) {
   const status = governanceStatus(connector);
-  const purpose = connectorPurpose(connector.id);
   const grants = grantCountFor(connector.id, users);
+  const enable = () => void onSave(`/api/admin/connectors/${connector.id}`, { enabled: true }, "连接器已启用", "PATCH");
   return (
     <tr data-connector={connector.id} data-governance-status={status.key}>
-      <td><strong>{connector.label}</strong></td>
-      <td>{purpose || <span className="muted">未登记用途（connectors 表无 purpose 字段）</span>}</td>
-      <td><span className={"admin-status is-" + status.key}>{status.label}</span></td>
-      <td>{connector.credentialRegistered ? "已登记" : "未登记"}</td>
+      <td><strong>{connector.label}</strong><p className="muted">{connectorPurpose(connector.id)}</p></td>
+      <td><span className={`admin-status is-${status.key}`}>{status.label}</span><p className="muted">{verificationCopy(connector)}</p></td>
+      <td>{connector.lastVerifiedAt || "尚未验证"}</td>
+      <td>{status.key === "pending" || status.key === "draft" ? "待审阅" : "在详情中管理"}</td>
       <td>{grants}</td>
-      <td>
-        {connector.lastError
-          ? connector.lastError
-          : <span className="muted" data-todo="connector-last-error">— · TODO：后端尚未提供 last_error</span>}
+      <td>{connector.updatedAt || "—"}</td>
+      <td className="admin-inline-actions">
+        {connector.enabled ? (
+          <button type="button" className="btn sm danger" data-admin-connector-action="disable" onClick={() => ask(
+            connectorDisableConfirm(connector.label, connector.id),
+            () => onSave(`/api/admin/connectors/${connector.id}`, { enabled: false }, "连接器已停用", "PATCH"),
+          )}>停用</button>
+        ) : status.key === "verified" ? (
+          <button type="button" className="btn sm work" data-admin-connector-action="enable" onClick={enable}>启用</button>
+        ) : null}
+        <Link className="btn ghost sm" to={`/admin/connectors/${encodeURIComponent(connector.id)}`}>查看并配置</Link>
       </td>
-      <td>
-        <button
-          type="button"
-          className={connector.enabled ? "btn sm danger" : "btn sm"}
-          data-admin-connector-action={connector.enabled ? "disable" : "enable"}
-          onClick={() => {
-            if (!connector.enabled) {
-              void onSave(`/api/admin/connectors/${connector.id}`, { enabled: true }, "连接器已启用", "PATCH");
-              return;
-            }
-            ask(connectorDisableConfirm(connector.label, connector.id), () =>
-              onSave(`/api/admin/connectors/${connector.id}`, { enabled: false }, "连接器已停用", "PATCH"),
-            );
-          }}
-        >
-          {connector.enabled ? "停用" : "启用"}
-        </button>
-      </td>
-      <td><Link className="btn ghost sm" to={`/admin/connectors/${encodeURIComponent(connector.id)}`}>详情</Link></td>
     </tr>
   );
 }
@@ -181,27 +162,17 @@ export function AdminConnectorDetail({
   const { ask, dialog } = useAdminConfirm();
 
   if (!connector) {
-    return (
-      <section className="admin-govern" data-admin-page="connector-detail">
-        <p className="muted">未找到连接器「{connectorId}」。</p>
-        <Link to="/admin/connectors">返回枢纽</Link>
-      </section>
-    );
+    return <section className="admin-govern" data-admin-page="connector-detail"><p className="muted">未找到这条受管连接器。</p><Link to="/admin/connectors">返回连接器枢纽</Link></section>;
   }
 
   const status = governanceStatus(connector);
-  const purpose = connectorPurpose(connector.id);
   const recent = auditRows.filter((row) => auditTouchesConnector(row, connector.id)).slice(-12).reverse();
-  const starry = isStarryConnector(connector.id);
-
-  const submitRef = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  const submitRef = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     const next = refDraft.trim();
     if (!next) return;
     ask(credentialRefConfirm(connector.label, connector.id), () =>
-      onSave(`/api/admin/connectors/${connector.id}`, { credential_ref: next }, "凭据引用已更新", "PATCH").then(() => {
-        setRefDraft("");
-      }),
+      onSave(`/api/admin/connectors/${connector.id}`, { credential_ref: next }, "凭据引用已更新", "PATCH").then(() => setRefDraft("")),
     );
   };
 
@@ -209,91 +180,63 @@ export function AdminConnectorDetail({
     <section className="admin-govern" data-admin-page="connector-detail" data-connector-id={connector.id}>
       {dialog}
       <p className="admin-crumb"><Link to="/admin/connectors">连接器枢纽</Link> / {connector.label}</p>
-      <div className="panel">
+      <div className="panel connector-detail-summary">
         <div className="admin-section-head">
-          <div>
-            <h2>{connector.label}</h2>
-            <p className="muted">{purpose || "业务用途未登记（无 purpose 字段）"}</p>
-          </div>
-          <span className={"admin-status is-" + status.key}>{status.label}</span>
+          <div><h2>{connector.label}</h2><p className="muted">{connectorPurpose(connector.id)}</p></div>
+          <span className={`admin-status is-${status.key}`}>{status.label}</span>
         </div>
         <dl className="admin-kv">
-          <div><dt>短名称</dt><dd>{connector.id}</dd></div>
+          <div><dt>当前下一步</dt><dd>{verificationCopy(connector)}</dd></div>
+          <div><dt>最近验证</dt><dd>{connector.lastVerifiedAt || "尚未验证"}</dd></div>
           <div><dt>凭据引用</dt><dd>{connector.credentialRegistered ? "已登记（原值不回显）" : "尚未登记"}</dd></div>
-          <div><dt>最近更新</dt><dd>{connector.updatedAt || "—"}</dd></div>
         </dl>
         <div className="admin-actions">
-          <button
-            type="button"
-            className={connector.enabled ? "btn danger" : "btn work"}
-            data-admin-connector-action={connector.enabled ? "disable" : "enable"}
-            onClick={() => {
-              if (!connector.enabled) {
-                void onSave(`/api/admin/connectors/${connector.id}`, { enabled: true }, "连接器已启用", "PATCH");
-                return;
-              }
-              ask(connectorDisableConfirm(connector.label, connector.id), () =>
-                onSave(`/api/admin/connectors/${connector.id}`, { enabled: false }, "连接器已停用", "PATCH"),
-              );
-            }}
-          >
-            {connector.enabled ? "停用" : "启用"}
-          </button>
+          {connector.enabled && <button type="button" className="btn danger" data-admin-connector-action="disable" onClick={() => ask(
+            connectorDisableConfirm(connector.label, connector.id),
+            () => onSave(`/api/admin/connectors/${connector.id}`, { enabled: false }, "连接器已停用", "PATCH"),
+          )}>停用</button>}
+          {!connector.enabled && status.key === "verified" && <button type="button" className="btn work" data-admin-connector-action="enable" onClick={() => void onSave(`/api/admin/connectors/${connector.id}`, { enabled: true }, "连接器已启用", "PATCH")}>启用连接器</button>}
         </div>
-        <p className="muted admin-note">启用不等于远端已通，也不绕过 Gateway。</p>
       </div>
 
-      <form className="panel settings-form" onSubmit={submitRef}>
-        <h2>凭据引用</h2>
-        <p className="muted">只写新的位置标识。JWT、API Key、Bearer 不得填在这里；提交后输入框清空，本页永不回显原值。</p>
-        <label className="field">
-          新引用
-          <input
-            value={refDraft}
-            onChange={(e) => setRefDraft(e.target.value)}
-            autoComplete="off"
-            placeholder="credential 位置，不是秘密原值"
-          />
-        </label>
-        <button className="btn work" data-admin-credential-ref disabled={!refDraft.trim()}>更新引用</button>
-      </form>
+      <details className="panel connector-disclosure" open>
+        <summary><strong>1. 接入、测试与工具治理</strong><span>保存配置后测试；工具默认不获批。</span></summary>
+        <div id="connector-connection" className="connector-disclosure-body"><ConnectorRuntimeSettings connectorId={connector.id} /></div>
+      </details>
 
-      <div className="panel runtime-settings-panel">
-        <ConnectorRuntimeSettings connectorId={connector.id} />
-      </div>
-
-      <div className="panel runtime-settings-panel">
-        <ConnectorCredentialVault />
-      </div>
-
-      <ConnectorGrantTable connectorId={connector.id} connectorLabel={connector.label} users={users} onSave={onSave} ask={ask} />
-
-      {starry && (
-        <div className="panel" data-admin-starry-policy>
-          <h2>组织 Starry 策略</h2>
-          <p className="muted">跟进邮箱在个人设置按人绑定；本页只定组织策略。</p>
-          <div className="admin-todo" data-todo="org-starry-policy">
-            TODO：组织是否允许绑定、谁可绑、跟进范围是否受本组织约束 — 后端尚无独立策略字段，本页不编造 PATCH。
-          </div>
-          <div className="admin-todo" data-todo="starry-bound-roster">
-            TODO：管理员查看「谁已绑定哪只邮箱」需要 GET 组织绑定名单；现有 API 只有 <code>/api/me/starry-binding</code>（当前账号）。本页不代替个人绑定。
-          </div>
-          <Link className="btn ghost sm" to="/settings?tab=starry">去个人设置绑定自己的发件箱</Link>
+      <details className="panel connector-disclosure">
+        <summary><strong>安全与凭据</strong><span>仅维护引用和保险库元数据，秘密不会回显。</span></summary>
+        <div className="connector-disclosure-body">
+          <form className="settings-form connector-reference-form" onSubmit={submitRef}>
+            <h3>当前连接器的凭据引用</h3>
+            <p className="muted">填写引用位置而非 Token。更新后需重新测试，才能再次启用。</p>
+            <label className="field">新引用<input value={refDraft} onChange={(event) => setRefDraft(event.target.value)} autoComplete="off" placeholder="credential 位置，不是秘密原值" /></label>
+            <button className="btn work" data-admin-credential-ref disabled={!refDraft.trim()}>更新引用</button>
+          </form>
+          <ConnectorCredentialVault />
         </div>
-      )}
+      </details>
 
-      <div className="panel">
-        <h2>本条最近治理变更</h2>
-        {recent.length === 0 && <p className="muted">暂无本连接器的启用、引用或授权记录。</p>}
-        {recent.map((row) => (
-          <article className="admin-row" key={String(row.id)}>
-            <div>
-              <strong>{auditEventLabel(String(row.event_type))}</strong>
-              <p className="muted">{String(row.ts || "")} · {String(row.actor || "")}</p>
-            </div>
-          </article>
-        ))}
-      </div>
+      <details className="panel connector-disclosure">
+        <summary><strong>访问控制</strong><span>{grantCountFor(connector.id, users)} 名员工已获授权。</span></summary>
+        <div className="connector-disclosure-body"><ConnectorGrantTable connectorId={connector.id} connectorLabel={connector.label} users={users} onSave={onSave} ask={ask} /></div>
+      </details>
+
+      {isStarryConnector(connector.id) && <div className="panel connector-context-note" data-admin-starry-policy>
+        <h2>个人邮箱绑定边界</h2>
+        <p className="muted">组织管理员只管理本连接器的接入、工具和人员访问；每位员工的跟进邮箱在个人设置中自行绑定，管理员不会在此查看或编辑个人密钥。</p>
+        <Link className="btn ghost sm" to="/settings?tab=starry">查看个人绑定入口</Link>
+      </div>}
+
+      <details className="panel connector-disclosure">
+        <summary><strong>历史与审计</strong><span>显示这条连接器最近的治理变更。</span></summary>
+        <div className="connector-disclosure-body">
+          {!recent.length && <p className="muted">暂无本连接器的启用、验证、引用或授权记录。</p>}
+          {recent.map((row) => <article className="admin-row" key={String(row.id)}>
+            <div><strong>{auditEventLabel(String(row.event_type))}</strong><p className="muted">{String(row.ts || "")} · {displayActor(row.actor)}</p></div>
+          </article>)}
+        </div>
+      </details>
     </section>
   );
 }
@@ -314,60 +257,23 @@ function ConnectorGrantTable({
   const setAccess = (user: AdminRow, access: "read" | "write" | "") => {
     const userId = String(user.id || "");
     if (!access) {
-      ask(grantRevokeConfirm(rowTitle(user), connectorLabel), () =>
-        onSave(`/api/admin/users/${userId}/connectors/${connectorId}`, {}, "连接器授权已收回", "DELETE"),
-      );
+      ask(grantRevokeConfirm(rowTitle(user), connectorLabel), () => onSave(`/api/admin/users/${userId}/connectors/${connectorId}`, {}, "连接器授权已收回", "DELETE"));
       return;
     }
-    if (access === "write") {
-      ask(grantWriteConfirm(rowTitle(user), connectorLabel), () =>
-        onSave(`/api/admin/users/${userId}/connectors/${connectorId}`, { access }, "连接器授权已保存"),
-      );
-      return;
-    }
-    ask(grantReadConfirm(rowTitle(user), connectorLabel), () =>
-      onSave(`/api/admin/users/${userId}/connectors/${connectorId}`, { access }, "连接器授权已保存"),
-    );
+    const confirm = access === "write" ? grantWriteConfirm(rowTitle(user), connectorLabel) : grantReadConfirm(rowTitle(user), connectorLabel);
+    ask(confirm, () => onSave(`/api/admin/users/${userId}/connectors/${connectorId}`, { access }, "连接器授权已保存"));
   };
-
-  return (
-    <div className="panel">
-      <h2>员工 read / write</h2>
-      <p className="muted">write 不等于发送、阶段或解密旁路。授权按人落在已有 <code>/api/admin/users/:uid/connectors/:id</code>。</p>
-      <div className="admin-table-wrap">
-        <table className="admin-table" data-admin-grants={connectorId}>
-          <thead>
-            <tr>
-              <th>员工</th>
-              <th>read</th>
-              <th>write</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {users.map((user) => {
-              const access = accessFor(user, connectorId);
-              const uid = String(user.id || "");
-              return (
-                <tr key={uid} data-grant-user={uid}>
-                  <td>
-                    <strong>{rowTitle(user)}</strong>
-                    <p className="muted">{String(user.email || user.username || "")}</p>
-                  </td>
-                  <td>{access === "read" || access === "write" || access === "admin" ? "已授" : "—"}</td>
-                  <td>{access === "write" || access === "admin" ? "已授" : "—"}</td>
-                  <td className="admin-inline-actions">
-                    <button type="button" className="btn sm" data-admin-grant-action="read" onClick={() => setAccess(user, "read")}>授予 read</button>
-                    <button type="button" className="btn sm" data-admin-grant-action="write" onClick={() => setAccess(user, "write")}>授予 write</button>
-                    <button type="button" className="btn sm danger" data-admin-grant-action="revoke" disabled={!access} onClick={() => setAccess(user, "")}>收回</button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {!users.length && <p className="muted">暂无员工。</p>}
-    </div>
-  );
+  return <section className="connector-grants">
+    <h3>员工访问级别</h3>
+    <p className="muted">选择“无访问 / 只读 / 可写”。可写不等于发信、改阶段或绕过 Gateway。</p>
+    <div className="admin-table-wrap"><table className="admin-table" data-admin-grants={connectorId}><thead><tr><th>员工</th><th>有效权限</th><th scope="col">访问级别</th></tr></thead><tbody>
+      {users.map((user) => {
+        const access = accessFor(user, connectorId);
+        const value = access === "write" || access === "admin" ? "write" : access === "read" ? "read" : "";
+        const uid = String(user.id || "");
+        return <tr key={uid} data-grant-user={uid}><td><strong>{rowTitle(user)}</strong><p className="muted">{String(user.email || user.username || "")}</p></td><td>{value === "write" ? "可写（含只读）" : value === "read" ? "只读" : "无访问"}</td><td><label className="sr-only" htmlFor={`grant-${connectorId}-${uid}`}>{rowTitle(user)} 的访问级别</label><select id={`grant-${connectorId}-${uid}`} value={value} onChange={(event) => setAccess(user, event.target.value as "read" | "write" | "")}><option value="">无访问</option><option value="read">只读</option><option value="write">可写</option></select></td></tr>;
+      })}
+    </tbody></table></div>
+    {!users.length && <p className="muted">暂无员工。</p>}
+  </section>;
 }

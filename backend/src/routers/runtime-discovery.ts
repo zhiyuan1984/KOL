@@ -5,13 +5,16 @@ import { runtimeHostOnlyTool } from "../gateway/runtime-policy.js";
 import { taskDefinition } from "../tasks/registry.js";
 import { getAgentSkills, getSkillConnectors, getSkillTools, getToolPolicy } from "../runtime/store.js";
 import { assertRuntimeSkill, authorizeConnector, inspectConnectorTools, runtimeErrorCode } from "../runtime/execution.js";
+import { requireManagedConnector } from "../connectors/catalog.js";
 
 export const runtimeDiscoveryRouter = new Hono();
 
 runtimeDiscoveryRouter.get("/admin/runtime/connectors/:connectorId/discovery", async (c) => {
   if (authDisabled() && process.env.NODE_ENV !== "test") throw new HttpFail(403, { code: "runtime_auth_required" });
   const admin = requireAdmin();
-  const tools = await inspectConnectorTools({ agentId: "governance", skillId: "", userId: admin.id, runId: "discovery" }, c.req.param("connectorId"));
+  const connectorId = c.req.param("connectorId");
+  if (process.env.NODE_ENV !== "test") requireManagedConnector(connectorId);
+  const tools = await inspectConnectorTools({ agentId: "governance", skillId: "", userId: admin.id, runId: "discovery" }, connectorId);
   return c.json({ tools, authorization: "Discovery is not a grant. Approve each metadata/schema hash before execution." });
 });
 

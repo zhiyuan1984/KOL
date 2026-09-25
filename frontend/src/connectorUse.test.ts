@@ -21,7 +21,7 @@ describe("connector use-surface status", () => {
       key: "available",
       label: "可用",
     });
-    expect(connectorUseStatus("enterprise_mail", { bound: false, status: "expired" })).toEqual({
+    expect(connectorUseStatus("claw", { bound: false, status: "expired" })).toEqual({
       key: "available",
       label: "可用",
     });
@@ -34,9 +34,9 @@ describe("connector use-surface status", () => {
     expect(isBindableConnector("starrykol")).toBe(true);
     expect(connectorBindHref("starrykol")).toBe("/settings?tab=starry&from=connectors&connector=starrykol");
     expect(preferCanonicalConnectors([
-      { id: "starry" },
+      { id: "claw" },
       { id: "starrykol" },
       { id: "enterprise_mail" },
-    ]).map((row) => row.id)).toEqual(["starrykol", "enterprise_mail"]);
+    ]).map((row) => row.id)).toEqual(["claw", "starrykol"]);
   });
 });

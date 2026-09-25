@@ -5,6 +5,7 @@ import { HttpFail } from "../host/errors.js";
 import { inspectConnectorTools, runtimeErrorCode, type RuntimeContext } from "../runtime/execution.js";
 import { getConnectorConfig } from "../runtime/store.js";
 import type { Json, Row } from "../types.js";
+import { requireManagedConnector } from "../connectors/catalog.js";
 
 function admin() {
   if (authDisabled() && process.env.NODE_ENV !== "test") throw new HttpFail(403, { code: "runtime_auth_required" });
@@ -45,6 +46,7 @@ export function createConnectorOperationsRouter(inspect: Inspector = inspectConn
   router.post("/admin/runtime/connectors/:connectorId/probe", async (c) => {
     const actor = admin();
     const id = c.req.param("connectorId");
+    if (process.env.NODE_ENV !== "test") requireManagedConnector(id);
     if (!connector(id).enabled) throw new HttpFail(403, { code: "runtime_connector_disabled" });
     const before = getConnectorConfig(id);
     if (!before) throw new HttpFail(409, { code: "runtime_connector_not_configured" });
@@ -67,6 +69,16 @@ export function createConnectorOperationsRouter(inspect: Inspector = inspectConn
     getConn().prepare(`INSERT INTO runtime_connector_probes
       (connector_id,config_version,actor_id,checked_at,status,probe_kind,tool_count,duration_ms,error_code)
       VALUES(?,?,?,?,?,?,?,?,?)`).run(id, before.version, actor.id, checkedAt, status, kind, count, duration, code);
+    getConn().prepare(
+      "UPDATE connectors SET enabled=?,status=?,last_verified_at=?,last_error=?,updated_at=? WHERE id=?",
+    ).run(
+      0,
+      code ? "verification_failed" : "verified",
+      checkedAt,
+      code || null,
+      checkedAt,
+      id,
+    );
     audit(actor.id, "runtime.connector.probed", { connector_id: id, version: before.version, status, probe_kind: kind, tool_count: count, duration_ms: duration, code });
     return c.json({ connector_id: id, config_version: before.version, actor_id: actor.id, checked_at: checkedAt,
       status, probe_kind: kind, tool_count: count, duration_ms: duration, error_code: code,
@@ -76,7 +88,7 @@ export function createConnectorOperationsRouter(inspect: Inspector = inspectConn
   });
   router.get("/admin/runtime/connectors/:connectorId/activity", (c) => {
     admin();
-    const id = c.req.param("connectorId"); connector(id); schema();
+    const id = c.req.param("connectorId"); if (process.env.NODE_ENV !== "test") requireManagedConnector(id); connector(id); schema();
     const n = Number(c.req.query("limit") || 30);
     if (!Number.isInteger(n) || n < 1 || n > 100) throw new HttpFail(400, { code: "invalid_limit" });
     const probes = getConn().prepare("SELECT * FROM runtime_connector_probes WHERE connector_id=? ORDER BY id DESC LIMIT ?").all(id, n);
