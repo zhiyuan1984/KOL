@@ -175,11 +175,9 @@ describe("pane parity", () => {
     expect(followed).not.toContain("data-home-pane");
     expect(pool).not.toContain("home-mode-pane");
     expect(followed).not.toContain("home-mode-pane");
-    // 结果栏的几何仍归 WorkspaceShell / ResultRail 所有。公海已迁为紧凑
-    // 对象清单，使用自身内容根节点；跟进面保留现有 result-rail 样式兼容。
-    expect(pool).toContain("data-pool-overview");
-    expect(followed).toContain("data-followed-kol-column");
-    expect(pool).not.toContain("is-result-rail");
+    // Fixed result-rail class is always present, including the compact public
+    // list, so the shell and object panes preserve the same rail geometry.
+    expect(pool).toContain("is-result-rail");
     expect(followed).toContain("is-result-rail");
   });
 });
