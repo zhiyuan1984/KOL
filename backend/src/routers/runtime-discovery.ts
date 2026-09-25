@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import { scopedUser, requireAdmin, authDisabled } from "../auth.js";
 import { HttpFail } from "../host/errors.js";
+import { runtimeHostOnlyTool } from "../gateway/runtime-policy.js";
 import { taskDefinition } from "../tasks/registry.js";
-import { getAgentSkills, getSkillConnectors } from "../runtime/store.js";
+import { getAgentSkills, getSkillConnectors, getSkillTools, getToolPolicy } from "../runtime/store.js";
 import { assertRuntimeSkill, authorizeConnector, inspectConnectorTools, runtimeErrorCode } from "../runtime/execution.js";
-import "../runtime/providers.js";
 
 export const runtimeDiscoveryRouter = new Hono();
 
@@ -27,13 +27,22 @@ runtimeDiscoveryRouter.get("/agents/:agentId/capabilities", (c) => {
     const skill = taskDefinition(skillId)!;
     const resources = getSkillConnectors(skillId).map((binding) => {
       try {
-        authorizeConnector(context, String(binding.connector_id));
-        return { available: true };
-      } catch (error) { return { available: false, reason: runtimeErrorCode(error) }; }
+        if (!binding.enabled) return { available: false, tool_count: 0, reason: "runtime_connector_unbound" };
+        let toolCount = 0;
+        for (const mount of getSkillTools(skillId, String(binding.connector_id))) {
+          if (!mount.enabled) continue;
+          const policy = getToolPolicy(String(binding.connector_id), String(mount.tool_name));
+          if (!policy?.enabled || runtimeHostOnlyTool(String(mount.tool_name)) || !["L1", "L2"].includes(String(policy.risk))) continue;
+          try { authorizeConnector(context, String(binding.connector_id), policy.access as "read" | "write"); toolCount += 1; }
+          catch { /* a single tool grant does not make the resource usable */ }
+        }
+        return toolCount ? { available: true, tool_count: toolCount } : { available: false, tool_count: 0, reason: "runtime_no_authorized_tools" };
+      } catch (error) { return { available: false, tool_count: 0, reason: runtimeErrorCode(error) }; }
     });
     return [{ skill_id: skillId, title: skill.title, description: skill.employee_summary || skill.description,
       binding_version: row.version, configured_resources: resources.filter((resource) => resource.available).length,
       unavailable_resources: resources.filter((resource) => !resource.available).length,
+      authorized_tool_count: resources.reduce((total, resource) => total + (resource.tool_count || 0), 0),
       availability: resources.some((resource) => !resource.available) ? "resources_unavailable" : "configured",
       // Configuration is not a live tool/network probe.
       live_verified: false }];

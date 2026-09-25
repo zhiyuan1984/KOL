@@ -24,7 +24,9 @@
     "better-sqlite3": "^11.8.1",
     "hono": "^4.7.5",
     "smol-toml": "1.9.0",
-    "tsx": "^4.19.3"
+    "tsx": "^4.19.3",
+    "undici": "^7.30.0",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",

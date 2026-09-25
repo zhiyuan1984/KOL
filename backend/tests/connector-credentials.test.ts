@@ -1,0 +1,21 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { Hono } from "hono";
+import { getConn, resetConn } from "../src/db.js";
+import { HttpFail } from "../src/host/errors.js";
+import { connectorCredentialsRouter } from "../src/routers/connector-credentials.js";
+import { createCredential, credentialMasterKeyEnvironment, resolveAccountHeaders, resolveSecretReference } from "../src/runtime/credentials.js";
+import { setConnectorConfig } from "../src/runtime/store.js";
+let tmp = ""; let app: Hono;
+function testApp() { const a = new Hono(); a.onError((e,c) => e instanceof HttpFail ? c.json({detail:e.detail}, e.status as 400|401|403|404|409|503) : c.json({detail:"unexpected"},500)); a.route("/api", connectorCredentialsRouter); return a; }
+async function req(method: string, url: string, body?: unknown) { const r = await app.request(url, {method,headers:{"content-type":"application/json"},...(body===undefined?{}:{body:JSON.stringify(body)})}); return {status:r.status, body:await r.json()}; }
+beforeEach(async () => { tmp=fs.mkdtempSync(path.join(os.tmpdir(),"connector-creds-")); Object.assign(process.env,{LINGONG_DB:path.join(tmp,"db.sqlite"),LINGONG_DATA:tmp,AUTH_MODE:"disabled",NODE_ENV:"test",[credentialMasterKeyEnvironment]:Buffer.alloc(32,7).toString("base64")}); resetConn(); app=testApp(); getConn().prepare("INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at) VALUES('user-a','user-a','User A','x','[\"employee\"]','[]','',1,'now','now')").run(); getConn().prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('credential_fixture','fixture',1,'configured','now')").run(); });
+afterEach(()=>{ resetConn(); fs.rmSync(tmp,{recursive:true,force:true}); for (const k of ["LINGONG_DB","LINGONG_DATA","AUTH_MODE","NODE_ENV",credentialMasterKeyEnvironment]) delete process.env[k]; });
+describe("credential vault",()=>{
+ it("writes once, returns metadata only, and resolves exact user accounts without a default fallback",async()=>{ const secret="never-return-this-token"; const created=await req("POST","/api/admin/runtime/credentials",{type:"organization_secret",label:"API key",secret}); expect(created.status).toBe(201); expect(JSON.stringify(created.body)).not.toContain(secret); expect(resolveSecretReference(created.body.id as string)).toBe(secret); const account=createCredential({type:"user_account",owner_user_id:"user-a",label:"User account",secret:"Bearer user-token"},"admin"); expect(resolveAccountHeaders(account.id,"user-a")).toEqual({Authorization:"Bearer user-token"}); expect(()=>resolveAccountHeaders(account.id,"admin")).toThrow(); const list=await req("GET","/api/admin/runtime/credentials"); expect(JSON.stringify(list.body)).not.toContain(secret); });
+ it("fails closed without a master key and prevents referenced credential deletion",async()=>{ delete process.env[credentialMasterKeyEnvironment]; const unavailable=await req("POST","/api/admin/runtime/credentials",{type:"organization_secret",secret:"x"}); expect(unavailable.status).toBe(503); process.env[credentialMasterKeyEnvironment]=Buffer.alloc(32,8).toString("base64"); const created=await req("POST","/api/admin/runtime/credentials",{type:"organization_secret",secret:"x"}); setConnectorConfig("credential_fixture",{url:"https://fixture.example/mcp",bearer_secret_ref:created.body.id as string},0); const removal=await req("DELETE",`/api/admin/runtime/credentials/${created.body.id}`,{expected_version:created.body.version}); expect(removal.status).toBe(409); });
+ it("requires an explicit account ID and forbids competing Authorization sources",()=>{ expect(()=>setConnectorConfig("credential_fixture",{url:"https://fixture.example/mcp",credential_provider:"user-account"},0)).toThrow(); expect(()=>setConnectorConfig("credential_fixture",{url:"https://fixture.example/mcp",credential_provider:"user-account",credential_account_id:"cred_12345678",bearer_env:"SHOULD_NOT_COMBINE"},0)).toThrow(); });
+ it("requires enabled authentication outside a test fixture",async()=>{ process.env.NODE_ENV="production"; expect((await req("GET","/api/admin/runtime/credentials")).status).toBe(403); });
+});

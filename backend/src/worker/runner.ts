@@ -9,7 +9,6 @@ import path from "node:path";
 import { SkillExecution, assertRuntimeSkill } from "../runtime/execution.js";
 import { startRuntimeProxy, type RuntimeProxy } from "../runtime/proxy.js";
 import { getConnectorConfig } from "../runtime/store.js";
-import "../runtime/providers.js";
 import { BRAND_MAILBOXES, boxDir, codexMode, codexTurnTimeout } from "../config.js";
 import { audit, getConn, tx } from "../db.js";
 import { nid } from "../ids.js";

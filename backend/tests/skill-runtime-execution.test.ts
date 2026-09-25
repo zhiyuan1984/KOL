@@ -7,7 +7,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ListToolsRequestSchema, CallToolRequestSchema, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import { getConn, resetConn } from "../src/db.js";
-import { setAgentSkill, setSkillConnector, setConnectorConfig, setToolPolicy, getAgentSkills, getSkillConnectors, getToolPolicy } from "../src/runtime/store.js";
+import { setAgentSkill, setSkillConnector, setSkillTool, setConnectorConfig, setToolPolicy, getAgentSkills, getSkillConnectors, getToolPolicy } from "../src/runtime/store.js";
 import { SkillExecution, toolSchemaHash, type RuntimeContext, type RuntimeRemote } from "../src/runtime/execution.js";
 import { startRuntimeProxy, type RuntimeProxy } from "../src/runtime/proxy.js";
 import { RemoteMcpClient, type RemoteMcpOptions } from "../src/mcp/remote.js";
@@ -55,7 +55,10 @@ function connector(id: string, descriptors = [tool()], url = `http://${id}.examp
   setSkillConnector(context.skillId, id, true, 0);
   setConnectorConfig(id, { url, allow_unauthenticated: true }, 0);
   getConn().prepare("INSERT INTO user_connector_grants(user_id,connector_id,access,created_at) VALUES(?,?,?,?)").run(context.userId, id, "read", "now");
-  for (const descriptor of descriptors) approve(id, descriptor);
+  for (const descriptor of descriptors) {
+    approve(id, descriptor);
+    setSkillTool(context.skillId, id, String(descriptor.name), true, 0);
+  }
 }
 function approve(id: string, descriptor: Json, risk: "L1" | "L2" | "L3" = "L1", access: "read" | "write" = "read"): void {
   const current = getToolPolicy(id, String(descriptor.name));
@@ -136,7 +139,7 @@ describe("governed Skill Runtime", () => {
     expect(fixture.calls[0].name).toBe("find_public_profile_v2");
   });
 
-  it("D: new remote tools need only a reviewed metadata policy, not a code whitelist", async () => {
+  it("D: new remote tools require both a reviewed policy and an explicit Skill mount, not a code whitelist", async () => {
     connector("catalog_a");
     const descriptors = [tool()];
     const fixture = fake({ "http://catalog_a.example.test/mcp": descriptors });
@@ -145,6 +148,8 @@ describe("governed Skill Runtime", () => {
     const added = tool("brand_new_capability_2026"); descriptors.push(added);
     expect((await runtime.discover()).tools).toHaveLength(1);
     approve("catalog_a", added);
+    expect((await runtime.discover()).tools).toHaveLength(1);
+    setSkillTool(context.skillId, "catalog_a", String(added.name), true, 0);
     const refreshed = await runtime.discover();
     expect(refreshed.tools).toHaveLength(2);
     await runtime.invoke(String(refreshed.tools.find((entry) => entry.remoteName === added.name)!.exposed.name), { query: "x" });

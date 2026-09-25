@@ -1,3 +1,13 @@
+import type {
+  OpenApiPreview,
+  RuntimeConnectorConfig,
+  RuntimeCredentialMetadata,
+  RuntimeSkillConnector,
+  RuntimeSkillTool,
+  RuntimeToolDefinition,
+  RuntimeToolPolicy,
+} from "./runtimeConnectorUi.js";
+
 export type SessionRow = {
   id: string;
   title: string;
@@ -1531,6 +1541,102 @@ export const api = {
   adminUsers: () => request<Record<string, unknown>[]>("/api/admin/users"),
   connectors: () => request<Record<string, unknown>[]>("/api/connectors"),
   adminConnectors: () => request<Record<string, unknown>[]>("/api/admin/connectors"),
+  runtimeConnectorConfig: (connectorId: string) =>
+    request<{ config: RuntimeConnectorConfig; version: number }>(
+      `/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/config`,
+    ),
+  saveRuntimeConnectorConfig: (connectorId: string, body: RuntimeConnectorConfig & { expected_version: number }) =>
+    request<{ config: RuntimeConnectorConfig; version: number }>(
+      `/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/config`,
+      { method: "PUT", body: JSON.stringify(body) },
+    ),
+  runtimeCredentials: () => request<RuntimeCredentialMetadata[]>("/api/admin/runtime/credentials"),
+  createRuntimeCredential: (body: {
+    id?: string;
+    type: RuntimeCredentialMetadata["type"];
+    owner_user_id?: string;
+    label?: string;
+    purpose?: string;
+    status?: RuntimeCredentialMetadata["status"];
+    secret: string;
+  }) => request<RuntimeCredentialMetadata>("/api/admin/runtime/credentials", { method: "POST", body: JSON.stringify(body) }),
+  updateRuntimeCredential: (id: string, body: {
+    label?: string; purpose?: string; status?: RuntimeCredentialMetadata["status"]; expected_version: number;
+  }) => request<RuntimeCredentialMetadata>(`/api/admin/runtime/credentials/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }),
+  deleteRuntimeCredential: (id: string, expected_version: number) =>
+    request<{ ok: boolean }>(`/api/admin/runtime/credentials/${encodeURIComponent(id)}`, { method: "DELETE", body: JSON.stringify({ expected_version }) }),
+  runtimeConnectorDiscovery: (connectorId: string) =>
+    request<{ tools: RuntimeToolDefinition[]; authorization: string }>(
+      `/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/discovery`,
+    ),
+  runtimeConnectorPolicies: (connectorId: string) =>
+    request<RuntimeToolPolicy[]>(`/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/policies`),
+  probeRuntimeConnector: (connectorId: string) =>
+    request<{
+      connector_id: string;
+      config_version: number;
+      actor_id: string;
+      checked_at: string;
+      status: "succeeded" | "failed" | string;
+      probe_kind: "mcp_tools_list" | "http_definition";
+      tool_count: number;
+      duration_ms: number;
+      error_code: string | null;
+      live_verified: boolean;
+      notice: string;
+    }>(`/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/probe`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  runtimeConnectorActivity: (connectorId: string, limit = 30) =>
+    request<{
+      probes: Array<{
+        id: number;
+        connector_id: string;
+        config_version: number;
+        actor_id: string;
+        checked_at: string;
+        status: string;
+        probe_kind: "mcp_tools_list" | "http_definition";
+        tool_count: number;
+        duration_ms: number;
+        error_code?: string | null;
+      }>;
+      events: Array<{ id: number; ts: string; actor: string; event_type: string; payload: Record<string, unknown> }>;
+    }>(`/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/activity?limit=${limit}`),
+  saveRuntimeConnectorPolicy: (
+    connectorId: string,
+    toolName: string,
+    body: Pick<RuntimeToolPolicy, "enabled" | "risk" | "access" | "schema_hash"> & { expected_version: number },
+  ) =>
+    request<RuntimeToolPolicy>(
+      `/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/tools/${encodeURIComponent(toolName)}`,
+      { method: "PUT", body: JSON.stringify(body) },
+    ),
+  previewRuntimeOpenApi: (connectorId: string, document: object | string) =>
+    request<OpenApiPreview>(`/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/import-openapi`, {
+      method: "POST",
+      body: JSON.stringify({ document }),
+    }),
+  runtimeSkillConnectors: (skillId: string) =>
+    request<RuntimeSkillConnector[]>(`/api/admin/runtime/skills/${encodeURIComponent(skillId)}/connectors`),
+  saveRuntimeSkillConnector: (skillId: string, connectorId: string, body: { enabled: boolean; expected_version: number }) =>
+    request<RuntimeSkillConnector>(
+      `/api/admin/runtime/skills/${encodeURIComponent(skillId)}/connectors/${encodeURIComponent(connectorId)}`,
+      { method: "PUT", body: JSON.stringify(body) },
+    ),
+  runtimeSkillTools: (skillId: string) =>
+    request<RuntimeSkillTool[]>(`/api/admin/runtime/skills/${encodeURIComponent(skillId)}/tools`),
+  saveRuntimeSkillTool: (
+    skillId: string,
+    connectorId: string,
+    toolName: string,
+    body: { enabled: boolean; expected_version: number },
+  ) =>
+    request<RuntimeSkillTool>(
+      `/api/admin/runtime/skills/${encodeURIComponent(skillId)}/tools/${encodeURIComponent(connectorId)}/${encodeURIComponent(toolName)}`,
+      { method: "PUT", body: JSON.stringify(body) },
+    ),
   adminExams: () => request<Record<string, unknown>[]>("/api/admin/exams"),
   adminExamItems: (id: string) =>
     request<Record<string, unknown>[]>(`/api/admin/exams/${encodeURIComponent(id)}/items`),

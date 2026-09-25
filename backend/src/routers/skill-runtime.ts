@@ -5,14 +5,18 @@ import { HttpFail } from "../host/errors.js";
 import {
   getAgentSkills,
   getConnectorConfig,
+  getConnectorPolicies,
   getSkillConnectors,
+  getSkillTools,
   getToolPolicy,
   setAgentSkill,
   setConnectorConfig,
   setSkillConnector,
+  setSkillTool,
   setToolPolicy,
   validateConnectorConfig,
 } from "../runtime/store.js";
+import { previewOpenApi } from "../runtime/openapi.js";
 
 export const skillRuntimeRouter = new Hono();
 
@@ -100,6 +104,25 @@ skillRuntimeRouter.put("/admin/runtime/skills/:skillId/connectors/:connectorId",
   return c.json(row);
 });
 
+skillRuntimeRouter.get("/admin/runtime/skills/:skillId/tools", (c) => {
+  runtimeAdmin();
+  return c.json(getSkillTools(c.req.param("skillId")));
+});
+
+skillRuntimeRouter.put("/admin/runtime/skills/:skillId/tools/:connectorId/:toolName", async (c) => {
+  const admin = runtimeAdmin();
+  const body = await bodyObject(c);
+  onlyFields(body, ["enabled", "expected_version"]);
+  const row = setSkillTool(
+    c.req.param("skillId"), c.req.param("connectorId"), c.req.param("toolName"), enabled(body), expectedVersion(body),
+  );
+  audit(admin.id, "runtime.tool_binding.updated", {
+    action: row.enabled ? "enabled" : "disabled", skill_id: row.skill_id,
+    connector_id: row.connector_id, tool_name: row.tool_name, version: row.version,
+  });
+  return c.json(row);
+});
+
 skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/config", (c) => {
   runtimeAdmin();
   const result = getConnectorConfig(c.req.param("connectorId"));
@@ -111,13 +134,18 @@ skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/config", async (c
   const admin = runtimeAdmin();
   const body = await bodyObject(c);
   onlyFields(body, [
+    "protocol",
     "url",
     "url_env",
     "headers_env",
     "bearer_env",
     "credential_provider",
+    "credential_account_id",
     "allow_unauthenticated",
     "timeout_ms",
+    "headers_secret_refs",
+    "bearer_secret_ref",
+    "http_tools",
     "expected_version",
   ]);
   const version = expectedVersion(body);
@@ -131,6 +159,20 @@ skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/config", async (c
   });
   // Return only the validated, reference-only DTO; never expose config_json.
   return c.json({ config, version: row.version });
+});
+
+skillRuntimeRouter.post("/admin/runtime/connectors/:connectorId/import-openapi", async (c) => {
+  runtimeAdmin();
+  const body = await bodyObject(c);
+  onlyFields(body, ["document"]);
+  if (!("document" in body)) throw new HttpFail(400, "document is required");
+  // Preview only: it never saves connector config, grants a tool or invokes an endpoint.
+  return c.json(previewOpenApi(body.document));
+});
+
+skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/policies", (c) => {
+  runtimeAdmin();
+  return c.json(getConnectorPolicies(c.req.param("connectorId")));
 });
 
 skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/tools/:toolName", (c) => {

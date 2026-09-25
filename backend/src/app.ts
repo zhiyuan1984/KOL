@@ -17,6 +17,8 @@ import { examRouter } from "./exam.js";
 import { enterprise } from "./routers/enterprise.js";
 import { skillRuntimeRouter } from "./routers/skill-runtime.js";
 import { runtimeDiscoveryRouter } from "./routers/runtime-discovery.js";
+import { connectorOperationsRouter } from "./routers/connector-operations.js";
+import { connectorCredentialsRouter } from "./routers/connector-credentials.js";
 import { tasks } from "./routers/tasks.js";
 import { crawlRouter } from "./routers/crawl.js";
 import { knowledge } from "./routers/knowledge.js";
@@ -75,6 +77,8 @@ export function createApp(): Hono {
   app.route("/api", enterprise);
   app.route("/api", skillRuntimeRouter);
   app.route("/api", runtimeDiscoveryRouter);
+  app.route("/api", connectorOperationsRouter);
+  app.route("/api", connectorCredentialsRouter);
   app.route("/api", host);
   app.route("/api", pipeline);
   app.route("/api", approvals);

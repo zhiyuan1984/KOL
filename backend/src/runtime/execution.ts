@@ -7,15 +7,12 @@ import { HttpFail } from "../host/errors.js";
 import { RemoteMcpClient, type RemoteMcpOptions } from "../mcp/remote.js";
 import { requireTaskDefinition } from "../tasks/registry.js";
 import type { Json, Row } from "../types.js";
-import { ensureRuntimeSchema, getAgentSkills, getSkillConnectors, getConnectorConfig, getToolPolicy, type ConnectorConfig } from "./store.js";
+import { resolveAccountHeaders, resolveSecretReference } from "./credentials.js";
+import { assertResolvedConnectorEndpointSafe, assertSafeConnectorEndpoint, fetchWithConnectorEgressPolicy, HttpConnectorClient } from "./http.js";
+import { ensureRuntimeSchema, getAgentSkills, getSkillConnectors, getSkillTool, getConnectorConfig, getToolPolicy, type ConnectorConfig } from "./store.js";
 
 export type RuntimeContext = { agentId: string; skillId: string; userId: string; runId: string; sessionId?: string };
 export type RuntimeRemote = Pick<RemoteMcpClient, "listTools" | "callToolRaw" | "close">;
-export type CredentialProvider = (context: RuntimeContext) => Record<string, string>;
-const credentialProviders = new Map<string, CredentialProvider>();
-export function registerRuntimeCredentialProvider(name: string, provider: CredentialProvider): void {
-  credentialProviders.set(name, provider);
-}
 
 function reject(code: string, status = 403): never { throw new HttpFail(status, { code }); }
 export function runtimeErrorCode(error: unknown): string {
@@ -85,9 +82,9 @@ export function authorizeConnector(context: RuntimeContext, connectorId: string,
   if (!configuration) reject("runtime_connector_not_configured", 409);
   return { ...skill, resourceBinding: binding, connector, configuration };
 }
-function authorizationStamp(auth: ReturnType<typeof authorizeConnector>, policy?: Row): string {
+function authorizationStamp(auth: ReturnType<typeof authorizeConnector>, policy?: Row, toolBinding?: Row): string {
   return runtimeHash({ agent_binding: auth.binding.version, resource_binding: auth.resourceBinding.version,
-    config: auth.configuration.version, connector: auth.connector, skill: auth.skillVersion, policy });
+    config: auth.configuration.version, connector: auth.connector, skill: auth.skillVersion, policy, tool_binding: toolBinding });
 }
 function envValue(name: string): string {
   const value = process.env[name]?.trim();
@@ -97,22 +94,51 @@ function envValue(name: string): string {
 export function connectorOptions(context: RuntimeContext, config: ConnectorConfig): RemoteMcpOptions {
   const url = config.url || (config.url_env ? envValue(config.url_env) : "");
   let parsed: URL;
-  try { parsed = new URL(url); } catch { return reject("runtime_endpoint_invalid", 409); }
-  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password || parsed.search || parsed.hash) {
-    reject("runtime_endpoint_invalid", 409);
+  try { parsed = assertSafeConnectorEndpoint(url); } catch (error) {
+    if (error instanceof HttpFail) throw error;
+    return reject("runtime_endpoint_invalid", 409);
   }
   const headers: Record<string, string> = {};
   for (const [header, env] of Object.entries(config.headers_env || {})) headers[header] = envValue(env);
   if (config.bearer_env) headers.Authorization = `Bearer ${envValue(config.bearer_env)}`;
+  for (const [header, credentialId] of Object.entries(config.headers_secret_refs || {})) {
+    headers[header] = resolveSecretReference(credentialId, context.userId);
+  }
+  if (config.bearer_secret_ref) headers.Authorization = `Bearer ${resolveSecretReference(config.bearer_secret_ref, context.userId)}`;
   if (config.credential_provider) {
-    const provider = credentialProviders.get(config.credential_provider);
-    if (!provider) reject("runtime_credential_provider_unavailable", 503);
-    Object.assign(headers, provider(context));
+    if (config.credential_provider === "user-account") {
+      if (!config.credential_account_id) reject("runtime_credential_account_required", 409);
+      Object.assign(headers, resolveAccountHeaders(config.credential_account_id, context.userId));
+    } else reject("runtime_credential_provider_unavailable", 503);
   }
   return { url, token: "", headers, allowUnauthenticated: config.allow_unauthenticated === true,
     timeoutMs: config.timeout_ms ?? 30_000,
-    // A redirect must never forward credentials to another endpoint.
-    fetch: (input, init) => fetch(input, { ...init, redirect: "error" }) };
+    // The transport may reconnect. Guard every actual request, reject origin
+    // drift/redirects, and resolve DNS again immediately before dispatch.
+    fetch: async (input, init) => {
+      const destination = new URL(input instanceof Request ? input.url : String(input));
+      if (destination.origin !== parsed.origin) reject("runtime_endpoint_invalid", 409);
+      await assertResolvedConnectorEndpointSafe(parsed);
+      return fetchWithConnectorEgressPolicy(input, { ...init, redirect: "error" });
+    } };
+}
+
+/** Create the protocol-specific remote using only a validated, reference-only configuration. */
+export function createConfiguredClient(
+  context: RuntimeContext,
+  config: ConnectorConfig,
+  mcpFactory: (options: RemoteMcpOptions) => RuntimeRemote = (options) => new RemoteMcpClient(options),
+): RuntimeRemote {
+  const options = connectorOptions(context, config);
+  if ((config.protocol || "mcp") === "http") return new HttpConnectorClient(httpOptions(options), config);
+  return mcpFactory(options);
+}
+
+function httpOptions(options: RemoteMcpOptions) {
+  return {
+    url: String(options.url || ""), headers: { ...(options.headers || {}) }, timeoutMs: Number(options.timeoutMs || 30_000),
+    ...(options.fetch ? { fetch: options.fetch } : {}),
+  };
 }
 function validTool(tool: Json): boolean {
   if (typeof tool.name !== "string" || !tool.name || tool.name.length > 256) return false;
@@ -133,7 +159,7 @@ function isPolicyAllowed(policy: Row | undefined, tool: Json): boolean {
     && ["read", "write"].includes(String(policy.access)) && policy.schema_hash === toolSchemaHash(tool));
 }
 
-export type DiscoveredTool = { connectorId: string; remoteName: string; exposed: Json; schemaHash: string; stamp: string };
+export type DiscoveredTool = { connectorId: string; remoteName: string; exposed: Json; schemaHash: string; stamp: string; toolBindingVersion: number };
 export type RuntimeCatalog = { tools: DiscoveredTool[]; unavailable: Array<{ connector_id: string; code: string }> };
 
 /** A run-scoped capability set; no model calls and no provider-specific business routing. */
@@ -150,9 +176,9 @@ export class SkillExecution {
     for (const client of this.clients) void client.close().catch(() => undefined);
     this.clients.clear();
   }
-  private client(options: RemoteMcpOptions): RuntimeRemote {
+  private client(context: RuntimeContext, config: ConnectorConfig): RuntimeRemote {
     this.active();
-    const client = this.clientFactory(options);
+    const client = createConfiguredClient(context, config, this.clientFactory);
     this.clients.add(client);
     return client;
   }
@@ -170,7 +196,7 @@ export class SkillExecution {
         const before = authorizeConnector(this.context, connectorId);
         const beforeStamp = authorizationStamp(before);
         const options = connectorOptions(this.context, before.configuration.config);
-        client = this.client(options);
+        client = this.client(this.context, before.configuration.config);
         const remoteTools = await client.listTools();
         assertNoCredentialEcho(remoteTools, options.headers);
         this.active();
@@ -185,13 +211,15 @@ export class SkillExecution {
         for (const remote of remoteTools) {
           const name = String(remote.name);
           const policy = getToolPolicy(connectorId, name);
-          if (!isPolicyAllowed(policy, remote)) continue;
+          const toolBinding = getSkillTool(this.context.skillId, connectorId, name);
+          if (!toolBinding?.enabled || !isPolicyAllowed(policy, remote)) continue;
           let current: ReturnType<typeof authorizeConnector>;
           try { current = authorizeConnector(this.context, connectorId, policy!.access as "read" | "write"); }
           catch { continue; }
           const alias = `rt_${runtimeHash([connectorId, name]).slice(0, 40)}`;
           const exposed: Json = { ...remote, name: alias };
-          tools.push({ connectorId, remoteName: name, exposed, schemaHash: toolSchemaHash(remote), stamp: authorizationStamp(current, policy) });
+          tools.push({ connectorId, remoteName: name, exposed, schemaHash: toolSchemaHash(remote),
+            stamp: authorizationStamp(current, policy, toolBinding), toolBindingVersion: Number(toolBinding.version) });
           authorized += 1;
         }
         if (!authorized) unavailable.push({ connector_id: connectorId, code: "runtime_no_authorized_tools" });
@@ -221,12 +249,15 @@ export class SkillExecution {
         this.active();
         const policy = getToolPolicy(handle.connectorId, handle.remoteName);
         if (!policy?.enabled) reject("runtime_tool_not_granted");
+        const toolBinding = getSkillTool(this.context.skillId, handle.connectorId, handle.remoteName);
+        if (!toolBinding?.enabled) reject("runtime_tool_unbound");
         if (runtimeHostOnlyTool(handle.remoteName) || !["L1", "L2"].includes(String(policy.risk))) reject("runtime_gateway_required");
         const current = authorizeConnector(this.context, handle.connectorId, policy.access as "read" | "write");
-        if (handle.schemaHash !== policy.schema_hash || handle.stamp !== authorizationStamp(current, policy)) {
+        if (handle.toolBindingVersion !== Number(toolBinding.version) || handle.schemaHash !== policy.schema_hash
+          || handle.stamp !== authorizationStamp(current, policy, toolBinding)) {
           reject("runtime_binding_changed", 409);
         }
-        return { ...current, policy };
+        return { ...current, policy, toolBinding };
       };
       let authorized = check();
       const options = connectorOptions(this.context, authorized.configuration.config);
@@ -240,11 +271,17 @@ export class SkillExecution {
         return current;
       };
       const transportFetch = options.fetch!;
-      client = this.client({ ...options, fetch: (input, init) => {
-        // Guard the actual network submission, including SDK initialize/reconnect awaits.
+      const config = authorized.configuration.config;
+      // Guard the actual HTTP dispatch for both drivers; the MCP SDK may
+      // initialize/reconnect between discovery and tools/call.
+      const guardedOptions: RemoteMcpOptions = { ...options, fetch: (input, init) => {
         guardedCheck();
         return transportFetch(input, init);
-      } });
+      } };
+      client = (config.protocol || "mcp") === "http"
+        ? new HttpConnectorClient(httpOptions(guardedOptions), config)
+        : this.clientFactory(guardedOptions);
+      this.clients.add(client);
       // Re-discover before submission: remote schema/removal changes cannot reuse old grants.
       const currentTools = await client.listTools();
       const matching = currentTools.filter((tool) => tool.name === handle.remoteName);
@@ -291,7 +328,7 @@ export async function inspectConnectorTools(context: RuntimeContext, connectorId
   if (!connector?.enabled) reject("runtime_connector_disabled");
   if (!configuration) reject("runtime_connector_not_configured", 409);
   const options = connectorOptions(context, configuration.config);
-  const client = new RemoteMcpClient(options);
+  const client = createConfiguredClient(context, configuration.config);
   try {
     const tools = await client.listTools();
     assertNoCredentialEcho(tools, options.headers);

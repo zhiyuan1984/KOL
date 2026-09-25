@@ -15,6 +15,8 @@ import {
 import { auditEventLabel } from "../labels";
 import { connectorDisableConfirm, credentialRefConfirm, grantReadConfirm, grantRevokeConfirm, grantWriteConfirm } from "../adminConfirm";
 import { useAdminConfirm, type AskAdminConfirm } from "../components/ConfirmDialog";
+import { ConnectorRuntimeSettings } from "../components/ConnectorRuntimeSettings";
+import { ConnectorCredentialVault } from "../components/ConnectorCredentialVault";
 
 type SaveFn = (path: string, body: AdminRow, message: string, method?: string) => Promise<void>;
 
@@ -244,6 +246,14 @@ export function AdminConnectorDetail({
         </label>
         <button className="btn work" data-admin-credential-ref disabled={!refDraft.trim()}>更新引用</button>
       </form>
+
+      <div className="panel runtime-settings-panel">
+        <ConnectorRuntimeSettings connectorId={connector.id} />
+      </div>
+
+      <div className="panel runtime-settings-panel">
+        <ConnectorCredentialVault />
+      </div>
 
       <ConnectorGrantTable connectorId={connector.id} connectorLabel={connector.label} users={users} onSave={onSave} ask={ask} />
 

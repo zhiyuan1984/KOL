@@ -218,8 +218,16 @@ describe("skill runtime governance", () => {
     expect(result.body.capabilities).toEqual([expect.objectContaining({ skill_id: "creator_profile", unavailable_resources: 1, live_verified: false })]);
     getConn().prepare("INSERT INTO user_connector_grants(user_id,connector_id,access,created_at) VALUES(?,?,?,?)")
       .run("usr_runtime_employee", "runtime_mcp", "read", "now");
+    const policy = await request("PUT", "/api/admin/runtime/connectors/runtime_mcp/tools/lookup", {
+      enabled: true, risk: "L1", access: "read", schema_hash: hash, expected_version: 0,
+    });
+    expect(policy.status).toBe(200);
+    const mount = await request("PUT", "/api/admin/runtime/skills/creator_profile/tools/runtime_mcp/lookup", {
+      enabled: true, expected_version: 0,
+    });
+    expect(mount.status).toBe(200);
     result = await request("GET", "/api/agents/agent:creator/capabilities", undefined, employeeCookie);
-    expect(result.body.capabilities).toEqual([expect.objectContaining({ configured_resources: 1, unavailable_resources: 0, live_verified: false })]);
+    expect(result.body.capabilities).toEqual([expect.objectContaining({ configured_resources: 1, unavailable_resources: 0, authorized_tool_count: 1, live_verified: false })]);
     expect(JSON.stringify(result.body)).not.toMatch(/TEST_MCP_API_KEY|mcp.example.test|credential|headers_env/);
     await request("PUT", "/api/admin/runtime/agents/agent:creator/skills/creator_profile", { enabled: false, expected_version: 1 });
     expect((await request("GET", "/api/agents/agent:creator/capabilities", undefined, employeeCookie)).body.capabilities).toEqual([]);

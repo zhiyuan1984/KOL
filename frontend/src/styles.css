@@ -13946,3 +13946,66 @@ button.today-brief-primary-btn:disabled {
     min-width: 86px;
   }
 }
+
+/* Configurable connector runtime extension: mirrors the existing admin density and tokens. */
+.runtime-settings { display: grid; gap: var(--space-4); min-width: 0; }
+.runtime-settings-panel { max-width: 1040px; }
+.runtime-section-heading { display: flex; gap: var(--space-3); justify-content: space-between; align-items: flex-start; }
+.runtime-section-heading h2, .runtime-section-heading h3 { margin: 0; font-size: var(--font-section); }
+.runtime-section-heading p { margin: var(--space-1) 0 0; }
+.runtime-config-form, .runtime-import-block, .runtime-tool-governance, .runtime-activity { border-top: 1px solid var(--line); padding-top: var(--space-4); }
+.runtime-config-form fieldset { min-width: 0; border: 0; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.runtime-config-form legend { color: var(--text); font-weight: 600; padding: 0; }
+.runtime-nested-fieldset { border: 1px solid var(--line) !important; border-radius: var(--radius-sm); padding: var(--space-3) !important; }
+.runtime-nested-fieldset legend { padding: 0 var(--space-1); font-size: var(--font-sm); }
+.runtime-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.runtime-radio-row, .runtime-save-row, .admin-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
+.runtime-check-field { align-self: end; min-height: 40px; color: var(--text); }
+.runtime-editor-field textarea, .runtime-config-form textarea { min-height: 84px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--font-sm); line-height: 1.45; resize: vertical; }
+.runtime-form-hint, .runtime-l3-notice, .runtime-discovery-note { margin: 0; font-size: var(--font-sm); line-height: var(--leading-body); }
+.runtime-l3-notice { color: var(--danger); }
+.runtime-notice { margin: 0; padding: var(--space-2) var(--space-3); border: 1px solid color-mix(in srgb, var(--success) 32%, var(--line)); border-radius: var(--radius-sm); background: var(--bg-elevated); color: var(--text); }
+.runtime-state { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg-elevated); }
+.runtime-state strong { color: var(--text); }
+.runtime-state span { color: var(--text-muted); font-size: var(--font-sm); }
+.runtime-state-error { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+.runtime-tools-list, .skill-binding-list { display: grid; gap: var(--space-2); }
+.runtime-tool-row, .skill-binding-connector { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--space-3); display: grid; gap: var(--space-3); background: var(--bg); }
+.runtime-tool-row { grid-template-columns: minmax(0, 1fr) minmax(180px, 250px); }
+.runtime-tool-main { min-width: 0; }
+.runtime-tool-main p { margin: var(--space-1) 0 0; font-size: var(--font-sm); overflow-wrap: anywhere; }
+.runtime-tool-name { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.runtime-risk { font-size: var(--font-xs); }
+.runtime-tool-controls { display: grid; align-content: start; gap: var(--space-2); }
+.runtime-compact-field { font-size: var(--font-xs); }
+.runtime-compact-field select { min-height: 34px; }
+.runtime-schema { margin-top: var(--space-2); }
+.runtime-schema summary { cursor: pointer; color: var(--text-muted); font-size: var(--font-sm); }
+.runtime-schema pre { max-height: 220px; overflow: auto; margin: var(--space-2) 0 0; padding: var(--space-2); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg-elevated); font-size: var(--font-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
+.runtime-hash { display: block; margin-top: var(--space-2); color: var(--text-muted); font-size: var(--font-xs); overflow-wrap: anywhere; }
+.runtime-preview, .runtime-probe-result { display: grid; gap: var(--space-2); margin-top: var(--space-3); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg-elevated); }
+.runtime-preview ul, .runtime-warning-list ul { margin: 0; padding-left: 1.25rem; display: grid; gap: var(--space-1); }
+.runtime-warning-list { color: var(--text-muted); font-size: var(--font-sm); }
+.runtime-history-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin-top: var(--space-3); }
+.runtime-history-list { list-style: none; margin: var(--space-2) 0 0; padding: 0; display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); }
+.runtime-history-list li { display: grid; gap: 2px; padding: var(--space-2); background: var(--bg); overflow-wrap: anywhere; }
+.runtime-history-list small { color: var(--text-muted); font-size: var(--font-xs); }
+.skill-binding-connector-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); }
+.skill-binding-connector-head p { margin: var(--space-1) 0 0; font-size: var(--font-sm); }
+.skill-binding-toggle { color: var(--text); white-space: nowrap; }
+.skill-tool-list { display: grid; gap: 1px; border: 1px solid var(--line); background: var(--line); }
+.skill-tool-choice { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); padding: var(--space-2); background: var(--bg); cursor: pointer; }
+.skill-tool-choice-copy { display: grid; gap: 2px; min-width: 0; }
+.skill-tool-choice-copy small { color: var(--text-muted); font-size: var(--font-xs); overflow-wrap: anywhere; }
+.runtime-inline-error { margin: 0; }
+@media (max-width: 760px) {
+  .runtime-form-grid, .runtime-history-grid, .runtime-tool-row { grid-template-columns: 1fr; }
+  .runtime-section-heading, .skill-binding-connector-head { align-items: flex-start; flex-direction: column; }
+  .skill-tool-choice { grid-template-columns: auto minmax(0, 1fr); }
+  .skill-tool-choice > .muted { grid-column: 2; }
+}
+.runtime-vault { display: grid; gap: var(--space-3); }
+.runtime-vault-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); align-items: end; }
+.runtime-vault-form .btn { justify-self: start; }
+.runtime-vault-secret { grid-column: span 2; }
+@media (max-width: 760px) { .runtime-vault-form { grid-template-columns: 1fr; } .runtime-vault-secret { grid-column: auto; } }

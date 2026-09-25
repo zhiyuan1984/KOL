@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
+import { SkillConnectorBindings } from "../components/SkillConnectorBindings";
 
 type SkillRow = {
   id: string;
@@ -462,6 +463,10 @@ function DetailPanel(props: {
           </span>
         </div>
       </section>
+
+      <div style={card}>
+        <SkillConnectorBindings skillId={skill.id} />
+      </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
         {/* 测试验证 */}

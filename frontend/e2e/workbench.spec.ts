@@ -3184,6 +3184,8 @@ test("admin console uses a left sidebar with short labels for the current accoun
   await expect(page).toHaveURL(/\/admin\/connectors\//);
   await expect(page.locator("[data-admin-page='connector-detail']")).toBeVisible();
   await expect(page.locator("[data-admin-nav='connectors']")).toHaveClass(/active/);
+  await expect(page.locator("[data-runtime-settings]")).toBeVisible();
+  await expect(page.locator("[data-runtime-credential-vault]")).toBeVisible();
 
   await page.locator("[data-admin-nav='approvals']").click();
   await expect(page).toHaveURL(/\/admin\/approvals$/);

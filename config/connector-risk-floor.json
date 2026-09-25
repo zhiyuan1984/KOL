@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "description": "Published lower-bound submission policy. Runtime admin configuration may tighten, never lower, these gates. Editing this asset requires policy review and release.",
+  "controlled_tools": [
+    "sendEmailNow", "changeLifecycleStage", "decryptKolContact",
+    "importKolProfilesFromCrawler", "importKolProfilesV2", "upload_creators", "updateKolProfile", "addKolProfile",
+    "clear_history", "deleteKol", "deleteKolProfile", "send_mail", "wecom_send",
+    "confirm_stage", "starry_stage", "ingest", "start_crawl", "stop_crawl", "follow"
+  ]
+}
