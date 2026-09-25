@@ -41,7 +41,7 @@ Jev 不能领取对象、发送邮件、修改阶段或替代人工判断。本�
 | 命令 | 入口 | 会话 / 模型 | 数据与副作用边界 |
 |---|---|---:|---|
 | 补头像 | `POST /api/home/pool/avatar-enrich` | 否 / 否 | 公开主页元数据，最多 12 条。 |
-| Jev 评分 | `POST /api/home/pool/jev-assess` | 否 / 是 | 仅公开索引字段，最多 12 条，结果是建议。 |
+| Jev 评分 | `POST /api/home/pool/jev-assess` | 否 / 是 | 模型型 think 入口但不创建用户会话；仅公开索引字段，最多 12 条，结果是建议。 |
 | 清理预览 | `GET /api/home/pool/cleanup-preview` | 否 / 否 | 只读，显示被保护的 active follows。 |
 | 确认清理 | `POST /api/home/pool/cleanup-missing-homepage` | 否 / 否 | 明确确认 + 预览数量锁 + 公海未领取范围。 |
 

@@ -86,7 +86,7 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
   },
   {
     id: "assess-pool-jev",
-    kind: "command",
+    kind: "think",
     action: "Jev 评估公海对象",
     creates_session: false,
     creates_turn: false,
