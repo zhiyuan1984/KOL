@@ -32,7 +32,7 @@ import { runStub } from "./stub.js";
 import { authDisabled, scopedUser } from "../auth.js";
 import { requireTaskDefinition, type TaskDefinition } from "../tasks/registry.js";
 import { planningHarnessMount } from "../host/today-plan-context.js";
-import { kolAgentScopeContext } from "../contract-scope.js";
+import { runtimeAgentScopeContext } from "../contract-scope.js";
 import { pickComposeTemplate, composeRouteFacts } from "../host/compose-loop.js";
 import { boundMailboxEmail } from "../host/starry-bind.js";
 import {
@@ -458,13 +458,21 @@ function overdueSnapshot(): Row[] {
     .all() as Row[];
 }
 
-function writeBox(wid: string, definition: TaskDefinition, prompt: string, extra: Json, col: Row | null): string {
+function writeBox(
+  wid: string,
+  definition: TaskDefinition,
+  prompt: string,
+  extra: Json,
+  col: Row | null,
+  agentScope: ReturnType<typeof runtimeAgentScopeContext>,
+): string {
   const skill = definition.id;
   fs.mkdirSync(boxDir(), { recursive: true });
   const box = path.join(boxDir(), wid);
   fs.mkdirSync(box, { recursive: true });
   writeSkillIntoBox(box, skill);
   const planning = extra.mode === "today_plan" || extra.mode === "today_analyze" || extra.mode === "todo_plan" || extra.skip_user_memory === true;
+  const platformPlanning = planning && agentScope.kind === "platform" && agentScope.execution_scope === "user-owned-workspace";
   const planningMount = planning ? planningHarnessMount(skill) : null;
   const profile = profileFor(skill, col?.stage_code as string | undefined);
   const route = composeRouteFacts({ col, extra, boundMailbox: boundMailboxEmail() });
@@ -505,8 +513,10 @@ function writeBox(wid: string, definition: TaskDefinition, prompt: string, extra
           note: "Host 锁定发件箱（登录用户绑定的 Starry 邮箱或合作记录 mailbox_from）和收件箱（当前合作 KOL）。你写 subject 与英文 body。不要把 create_draft JSON 塞进 section.body。",
         }
       : null,
-    mailboxes: BRAND_MAILBOXES,
-    scope: kolAgentScopeContext(),
+    // Platform planning never needs KOL mailbox configuration. Keep the
+    // workspace-only context auditable instead of merely relying on Skill prose.
+    mailboxes: platformPlanning ? [] : BRAND_MAILBOXES,
+    scope: agentScope,
     overdue: skill === "risk_scan" ? overdueSnapshot() : null,
   };
   let memory = "";
@@ -643,13 +653,14 @@ export async function runCodex(
   const skill = definition.id;
   emitPhase(onProgress, "preparing");
   const wid = nid("wrk");
-  const runtimeContext = { agentId: kolAgentScopeContext().agent_id, skillId: skill,
+  const agentScope = runtimeAgentScopeContext(definition.runtime_agent_id);
+  const runtimeContext = { agentId: agentScope.agent_id, skillId: skill,
     userId: scopedUser()?.id || "", runId: wid, sessionId };
   const runtimeAuthorization = assertRuntimeSkill(runtimeContext);
   const execution = new SkillExecution(runtimeContext);
   const col = collab(extra);
   const profile = profileFor(skill, col?.stage_code as string | undefined);
-  const box = writeBox(wid, definition, prompt, extra, col);
+  const box = writeBox(wid, definition, prompt, extra, col, agentScope);
   const skillPath = writeRuntimeSkill(skill);
   const skillsRoot = runtimeSkillsRoot();
   const log: Json[] = [];

@@ -1,5 +1,7 @@
 ---
 id: todo_plan
+runtime_agent_id: agent:workspace-planner
+runtime_access: authenticated
 title: 待办规划
 description: 按「我的待办」面（Host 打包的待办记忆与来源增量）产出封面 today_brief 和任务行 display_tasks，不写正式待办或状态
 category: 线索

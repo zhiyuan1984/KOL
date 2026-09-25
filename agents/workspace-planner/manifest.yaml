@@ -1,0 +1,27 @@
+{
+  "id": "agent:workspace-planner",
+  "version": "1.0.0",
+  "status": "production",
+  "kind": "platform",
+  "execution_scope": "user-owned-workspace",
+  "owner_ref": "system:platform",
+  "organization_scope": [],
+  "brand_scope": [],
+  "region_scope": [],
+  "skills": ["today_plan", "todo_plan", "today_analyze"],
+  "connectors": [],
+  "permissions": [
+    "work_items:read:owned",
+    "task_artifacts:read:owned",
+    "task_events:read:owned",
+    "memory_entries:read:owned",
+    "sessions:read:owned"
+  ],
+  "external_writes": "denied",
+  "publish_gate": {
+    "state": "published",
+    "employee_submission": true,
+    "required_for_submission": "published-or-production",
+    "release_evidence": ["today-plan-contract", "runtime-binding", "deterministic-tests"]
+  }
+}

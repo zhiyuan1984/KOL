@@ -66,9 +66,14 @@ export type TaskMemoryPolicy = {
   stale_refs?: string[];
 };
 export type TaskSupports = { cancel: boolean; retry: boolean; resume: boolean };
+export type TaskRuntimeAccess = "granted" | "authenticated";
 
 export type TaskDefinition = {
   id: string;
+  /** Stable Runtime identity. Bundled business Skills retain agent:kol unless declared otherwise. */
+  runtime_agent_id: string;
+  /** Platform-only read Skills may be available to every active authenticated employee. */
+  runtime_access: TaskRuntimeAccess;
   title: string;
   description: string;
   /** 面向员工的说明（可选）：员工面文案不得出现引擎词（specs/UX-EMPLOYEE.md §员工禁词）。
@@ -468,6 +473,14 @@ function parseDefinition(file: string, folder: string, source: TaskSource): Task
   if (!/^[a-z][a-z0-9_]*$/.test(id) || id !== folder) {
     throw new Error(`manifest id must match its skill directory: ${file}`);
   }
+  const runtimeAgentId = values.runtime_agent_id === undefined ? "agent:kol" : String(values.runtime_agent_id).trim();
+  if (!/^agent:[a-z][a-z0-9-]*$/.test(runtimeAgentId)) {
+    throw new Error(`manifest runtime_agent_id is invalid: ${file}`);
+  }
+  const runtimeAccess = values.runtime_access === undefined ? "granted" : values.runtime_access;
+  if (runtimeAccess !== "granted" && runtimeAccess !== "authenticated") {
+    throw new Error(`manifest runtime_access is invalid: ${file}`);
+  }
   if (!TASK_PROFILES.includes(values.profile as TaskProfileId)) {
     throw new Error(`manifest has unknown profile ${String(values.profile)}: ${file}`);
   }
@@ -530,8 +543,13 @@ function parseDefinition(file: string, folder: string, source: TaskSource): Task
     if (!ALLOWED_TASK_MCP.has(tool)) throw new Error(`manifest exposes unapproved MCP tool ${tool}: ${file}`);
   }
   const declaredContract = parseDeclaredContract(values, file);
+  if (runtimeAccess === "authenticated" && (sideEffects !== "none" || mcp.length > 0 || stringArray(values.permissions, "permissions", file).length > 0)) {
+    throw new Error(`authenticated runtime access is reserved for read-only Skills without external permissions: ${file}`);
+  }
   return Object.freeze({
     id,
+    runtime_agent_id: runtimeAgentId,
+    runtime_access: runtimeAccess as TaskRuntimeAccess,
     title: String(values.title),
     description: String(values.description),
     ...(employeeSummary ? { employee_summary: employeeSummary } : {}),

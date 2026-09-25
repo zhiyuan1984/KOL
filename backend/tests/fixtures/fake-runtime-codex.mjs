@@ -30,6 +30,25 @@ input.on("line", async (line) => {
   try {
     await client.connect(new StreamableHTTPClientTransport(new URL(proxy.url), { requestInit: { headers: proxy.http_headers } }));
     const { tools } = await client.listTools();
+    const skill = params.input?.find((entry) => entry?.type === "skill")?.name;
+    if (["today_plan", "todo_plan", "today_analyze"].includes(skill)) {
+      if (tools.length !== 0) throw new Error("platform planner must not receive connector tools");
+      const item = {
+        type: "today_brief",
+        lead: "优先处理已有的未完成工作。",
+        stats: { unfinished: 0, discovery_anomalies: 0, failed_runs: 0 },
+        primary: { verb: "open", label: "查看任务", object_id: null, object_type: "task", person_id: null },
+        sections: [{ title: "当前工作", body: "当前没有需要外部连接器的数据读取。", items: [] }],
+        display_tasks: [],
+        analysis_hints: [],
+        reasoning: ["只读取 Host 提供的工作区快照", "未调用外部连接器", "按当前任务状态给出建议"],
+        source_cursor: { cursor_from: null, cursor_to: "fixture", added: [], removed: [], unchanged: [] },
+        increment_summary: "隔离运行夹具。",
+      };
+      send({ method: "item/completed", params: { item: { type: "agentMessage", text: JSON.stringify(item) } } });
+      send({ method: "turn/completed", params: { turn: { id: "governed-turn", status: "completed" } } });
+      return;
+    }
     if (tools.length !== 1) throw new Error("expected one governed tool");
     const result = await client.callTool({ name: tools[0].name, arguments: { query: "camping" } });
     if (result.isError) throw new Error("tool refused the fixture call");

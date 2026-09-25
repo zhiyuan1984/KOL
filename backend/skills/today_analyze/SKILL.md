@@ -1,5 +1,7 @@
 ---
 id: today_analyze
+runtime_agent_id: agent:workspace-planner
+runtime_access: authenticated
 title: 今日对象分析
 description: 分析已选对象并建议下一步，不自动写状态；对人可附 stage_sop
 category: 线索

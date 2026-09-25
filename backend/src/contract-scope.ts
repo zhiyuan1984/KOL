@@ -19,60 +19,103 @@ type ScopeRegistry = {
 };
 type BrandRegistry = { brands?: { id: string; code?: string; status?: string }[]; regions?: string[] };
 type AgentManifest = {
-  id: string; version?: string; status: string; owner_ref: string;
-  organization_scope: string[]; brand_scope: string[]; region_scope: string[];
+  id: string;
+  version?: string;
+  status: string;
+  owner_ref: string;
+  organization_scope: string[];
+  brand_scope: string[];
+  region_scope: string[];
+  kind?: "platform" | "business";
+  execution_scope?: string;
+};
+
+type RuntimeAgentScope = {
+  agent_id: string;
+  agent_version: string | null;
+  status: string;
+  kind: "platform" | "business";
+  execution_scope: string;
+  company_ids: string[];
+  organization_scope: string[];
+  brand_scope: string[];
+  region_scope: string[];
+  owner_ref: string;
+  owner_principal_ref: string | null;
+  department_head_scope_policy: ScopeRegistry["department_head_scope_policy"] | null;
 };
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 function readJsonYaml<T>(relative: string): T {
   return JSON.parse(fs.readFileSync(path.join(repoRoot, relative), "utf8")) as T;
 }
+function manifestPath(agentId: string): string {
+  if (!/^agent:[a-z][a-z0-9-]*$/.test(agentId)) throw new Error(`invalid runtime agent id: ${agentId}`);
+  return `agents/${agentId.slice("agent:".length)}/manifest.yaml`;
+}
+function agentManifest(agentId: string): AgentManifest {
+  const manifest = readJsonYaml<AgentManifest>(manifestPath(agentId));
+  if (manifest.id !== agentId) throw new Error(`runtime agent manifest id mismatch: ${agentId}`);
+  return manifest;
+}
 
-let cached: ReturnType<typeof buildScope> | null = null;
-function buildScope() {
+const cached = new Map<string, RuntimeAgentScope>();
+function buildScope(agentId: string): RuntimeAgentScope {
   const org = readJsonYaml<ScopeRegistry>("config/org-registry.yaml");
   const brands = readJsonYaml<BrandRegistry>("config/brand-registry.yaml");
-  const agent = readJsonYaml<AgentManifest>("agents/kol/manifest.yaml");
+  const agent = agentManifest(agentId);
   const owner = (org.responsibilities || []).find((item) => item.id === agent.owner_ref);
-  if (!owner) throw new Error(`unregistered KOL agent owner: ${agent.owner_ref}`);
+  if (!owner && !agent.owner_ref.startsWith("system:")) {
+    throw new Error(`unregistered agent owner: ${agent.owner_ref}`);
+  }
   for (const id of agent.organization_scope) {
-    if (!(org.organization_units || []).some((item) => item.id === id)) throw new Error(`unregistered KOL organization: ${id}`);
+    if (!(org.organization_units || []).some((item) => item.id === id)) throw new Error(`unregistered agent organization: ${id}`);
   }
   for (const id of agent.brand_scope) {
-    if (!(brands.brands || []).some((item) => item.id === id)) throw new Error(`unregistered KOL brand: ${id}`);
+    if (!(brands.brands || []).some((item) => item.id === id)) throw new Error(`unregistered agent brand: ${id}`);
   }
   for (const id of agent.region_scope) {
-    if (!(brands.regions || []).includes(id)) throw new Error(`unregistered KOL region: ${id}`);
+    if (!(brands.regions || []).includes(id)) throw new Error(`unregistered agent region: ${id}`);
   }
   return {
     agent_id: agent.id,
     agent_version: agent.version || null,
     status: agent.status,
+    kind: agent.kind || "business",
+    execution_scope: agent.execution_scope || "organization",
     company_ids: (org.companies || []).map((item) => item.id),
     organization_scope: [...agent.organization_scope],
     brand_scope: [...agent.brand_scope],
     region_scope: [...agent.region_scope],
     owner_ref: agent.owner_ref,
-    owner_principal_ref: owner.principal_ref || null,
+    owner_principal_ref: owner?.principal_ref || null,
     department_head_scope_policy: org.department_head_scope_policy || null,
   };
 }
 
 /** Scope sent to every Codex CONTEXT; Host remains the authority for decisions. */
-export function kolAgentScopeContext(): ReturnType<typeof buildScope> {
-  if (!cached) cached = buildScope();
-  return cached;
+export function runtimeAgentScopeContext(agentId: string): RuntimeAgentScope {
+  const known = cached.get(agentId);
+  if (known) return known;
+  const scope = buildScope(agentId);
+  cached.set(agentId, scope);
+  return scope;
 }
 
-export function clearContractScopeCache(): void { cached = null; }
+/** Backward-compatible KOL business-agent scope helper. */
+export function kolAgentScopeContext(): RuntimeAgentScope {
+  return runtimeAgentScopeContext("agent:kol");
+}
 
-/** Employee-facing Agent views are configuration published with the Agent manifest. */
+export function clearContractScopeCache(): void { cached.clear(); }
+
+/** Employee-facing Agent views are configuration published with the KOL Agent manifest. */
 export function kolAgentManifest(): Record<string, unknown> {
-  return readJsonYaml<Record<string, unknown>>("agents/kol/manifest.yaml");
+  return readJsonYaml<Record<string, unknown>>(manifestPath("agent:kol"));
 }
 
 export function agentPublishState(): { status: string; employee_submission: boolean; state: string } {
-  const agent = readJsonYaml<AgentManifest & { publish_gate?: { state?: string; employee_submission?: boolean } }>("agents/kol/manifest.yaml");
+  const agent = readJsonYaml<AgentManifest & { publish_gate?: { state?: string; employee_submission?: boolean } }>(manifestPath("agent:kol"));
   return {
     status: agent.status,
     employee_submission: agent.publish_gate?.employee_submission === true,
@@ -82,7 +125,7 @@ export function agentPublishState(): { status: string; employee_submission: bool
 
 let submissionOverride: boolean | null = null;
 
-/** Tests only. Temporarily stub the publish gate without rewriting the manifest. */
+/** Tests only. Temporarily stub the KOL Agent publish gate without rewriting the manifest. */
 export function setAgentSubmissionOverride(value?: boolean | null): void {
   submissionOverride = value === undefined ? null : value;
 }

@@ -59,7 +59,7 @@ export function assertRuntimeSkill(context: RuntimeContext): { user: Row; bindin
   const lifecycle = getConn().prepare("SELECT stage FROM skill_lifecycle WHERE skill_id=?").get(context.skillId) as Row | undefined;
   if (lifecycle && lifecycle.stage !== "published") reject("runtime_skill_not_published");
   if (!lifecycle && definition.source === "published") reject("runtime_skill_not_published");
-  if (!parseRoles(user.roles).includes("admin") && !getConn().prepare(
+  if (definition.runtime_access === "granted" && !parseRoles(user.roles).includes("admin") && !getConn().prepare(
     "SELECT 1 FROM user_skill_grants WHERE user_id=? AND skill_id=?",
   ).get(context.userId, context.skillId)) reject("runtime_skill_not_granted");
   const sop = getConn().prepare("SELECT summary,body,updated_at FROM skill_sops WHERE id=?").get(context.skillId);

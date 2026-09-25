@@ -1,6 +1,6 @@
 import { asRow, asRows, getConn, nowIso, txImmediate } from "../db.js";
 import { HttpFail } from "../host/errors.js";
-import { taskDefinition } from "../tasks/registry.js";
+import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
 import type { Row } from "../types.js";
 
 export type HttpTool = {
@@ -52,6 +52,52 @@ const OUTPUT_PATH = /^\$(?:\.[A-Za-z_][A-Za-z0-9_]*|\[0\]|\[[1-9][0-9]*\])*$/;
 const RESERVED_HEADERS = new Set([
   "content-length", "host", "connection", "transfer-encoding", "upgrade", "keep-alive", "proxy-connection",
 ]);
+const PLATFORM_PLANNER_AGENT = "agent:workspace-planner";
+const PLATFORM_PLANNER_SKILLS = ["today_plan", "todo_plan", "today_analyze"] as const;
+
+/**
+ * One deliberate production migration for the platform-owned, read-only work
+ * planner. It never changes an existing admin decision: an already present
+ * Agent→Skill row, including a disabled row, wins over this bootstrap.
+ */
+function bootstrapWorkspacePlanner(db: ReturnType<typeof getConn>): void {
+  const migration = "runtime.workspace-planner.v1";
+  if (db.prepare("SELECT 1 FROM runtime_bootstrap_migrations WHERE id=?").get(migration)) return;
+  const definitions = new Map(taskDefinitions().map((definition) => [definition.id, definition]));
+  for (const skillId of PLATFORM_PLANNER_SKILLS) {
+    const definition = definitions.get(skillId);
+    if (!definition || definition.runtime_agent_id !== PLATFORM_PLANNER_AGENT || definition.runtime_access !== "authenticated") {
+      throw new Error(`invalid workspace planner declaration: ${skillId}`);
+    }
+  }
+  const now = nowIso();
+  txImmediate((tx) => {
+    for (const skillId of PLATFORM_PLANNER_SKILLS) {
+      tx.prepare(
+        `INSERT INTO runtime_agent_skills (agent_id,skill_id,enabled,version,updated_at)
+         SELECT ?,?,?,?,? WHERE NOT EXISTS (
+           SELECT 1 FROM runtime_agent_skills WHERE agent_id=? AND skill_id=?
+         )`,
+      ).run(PLATFORM_PLANNER_AGENT, skillId, 1, 1, now, PLATFORM_PLANNER_AGENT, skillId);
+      // These bundled platform skills are shipped as a reviewed release. Do not
+      // revive a deliberately disabled / testing lifecycle state on a later boot.
+      tx.prepare(
+        `INSERT INTO skill_lifecycle (skill_id,stage,updated_at)
+         SELECT ?,?,? WHERE NOT EXISTS (SELECT 1 FROM skill_lifecycle WHERE skill_id=?)`,
+      ).run(skillId, "published", now, skillId);
+      tx.prepare(
+        "UPDATE skill_lifecycle SET stage='published',updated_at=? WHERE skill_id=? AND stage='draft'",
+      ).run(now, skillId);
+    }
+    tx.prepare("INSERT INTO runtime_bootstrap_migrations (id,applied_at) VALUES (?,?)").run(migration, now);
+    tx.prepare("INSERT INTO audit_events (ts,actor,event_type,payload) VALUES (?,?,?,?)").run(
+      now,
+      "system:runtime-bootstrap",
+      "runtime.workspace_planner.migrated",
+      JSON.stringify({ agent_id: PLATFORM_PLANNER_AGENT, skills: PLATFORM_PLANNER_SKILLS, migration }),
+    );
+  });
+}
 
 /**
  * Lazily creates only runtime-governance tables. A WeakSet deliberately keys
@@ -115,8 +161,14 @@ export function ensureRuntimeSchema(): void {
       PRIMARY KEY (connector_id, tool_name),
       FOREIGN KEY (connector_id) REFERENCES connectors(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS runtime_bootstrap_migrations (
+      id TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    );
   `);
 
+  bootstrapWorkspacePlanner(db);
   initializedConnections.add(db);
 }
 

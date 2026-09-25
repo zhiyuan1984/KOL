@@ -363,4 +363,43 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
     await first.close();
     await expect(fetch(url, { method: "POST", headers: first.spec.http_headers as Record<string, string> })).rejects.toThrow();
   });
+
+  it("runs today_plan as the platform workspace planner with no KOL or connector dependency", async () => {
+    const saved = { CODEX_BIN: process.env.CODEX_BIN, CODEX_HOME: process.env.CODEX_HOME, CODEX_MODE: process.env.CODEX_MODE };
+    Object.assign(process.env, {
+      CODEX_BIN: path.resolve("tests/fixtures/fake-runtime-codex.mjs"),
+      CODEX_HOME: path.join(tmp, "planner-codex-home"),
+      CODEX_MODE: "real",
+    });
+    fs.chmodSync(process.env.CODEX_BIN!, 0o755);
+    fs.mkdirSync(process.env.CODEX_HOME!);
+    getConn().prepare(
+      "INSERT INTO sessions(id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id) VALUES(?,?,?,?,?,?,?,?)",
+    ).run("planner-session", "今日规划", "now", "now", "today_plan", 0, context.userId, "platform:workspace-planner");
+    try {
+      expect(getAgentSkills("agent:workspace-planner").filter((row) => row.enabled).map((row) => row.skill_id))
+        .toEqual(expect.arrayContaining(["today_plan", "todo_plan", "today_analyze"]));
+      expect(getAgentSkills(kolAgentScopeContext().agent_id).some((row) => row.skill_id === "today_plan")).toBe(false);
+      expect(getSkillConnectors("today_plan")).toEqual([]);
+      const user = mapUser(getConn().prepare("SELECT * FROM users WHERE id=?").get(context.userId) as Json);
+      const result = await withScopedUser(user, () => runCodex(
+        "planner-session",
+        "today_plan",
+        "规划今天的工作。只输出 today_brief JSON。",
+        { mode: "today_plan", skip_user_memory: true, today_plan_context: { history: {}, delta: {}, now_counts: {} } },
+      ));
+      expect(result.status).toBe("done");
+      expect(result.items).toEqual(expect.arrayContaining([expect.objectContaining({ type: "today_brief" })]));
+      const binding = result.contract_log.find((entry) => entry.method === "runtime/binding");
+      expect(binding?.params).toMatchObject({ agent_id: "agent:workspace-planner" });
+      const boxContext = fs.readFileSync(path.join(String(result.box_path), "CONTEXT.md"), "utf8");
+      expect(boxContext).toContain('"agent_id": "agent:workspace-planner"');
+      expect(boxContext).toContain('"kind": "platform"');
+      expect(boxContext).toContain('"mailboxes": []');
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
+    }
+  });
 });

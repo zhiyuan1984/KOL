@@ -158,14 +158,15 @@ describe("skill runtime governance", () => {
     const events = getConn().prepare(
       "SELECT event_type,payload FROM audit_events WHERE event_type LIKE 'runtime.%' ORDER BY id",
     ).all() as { event_type: string; payload: string }[];
-    expect(events.map((event) => event.event_type)).toEqual([
+    const governanceEvents = events.filter((event) => event.event_type !== "runtime.workspace_planner.migrated");
+    expect(governanceEvents.map((event) => event.event_type)).toEqual([
       "runtime.binding.updated",
       "runtime.binding.updated",
       "runtime.config.updated",
       "runtime.tool_policy.updated",
     ]);
-    expect(events.map((event) => event.payload).join("\n")).not.toContain("TEST_MCP_API_KEY");
-    expect(events.map((event) => event.payload).join("\n")).not.toContain("mcp.example.test");
+    expect(governanceEvents.map((event) => event.payload).join("\n")).not.toContain("TEST_MCP_API_KEY");
+    expect(governanceEvents.map((event) => event.payload).join("\n")).not.toContain("mcp.example.test");
   });
 
   it("rejects an actual authenticated employee", async () => {

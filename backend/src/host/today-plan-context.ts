@@ -34,6 +34,8 @@ export function ownerId(): string {
 
 export const PLANNING_FORBIDDEN_TOOL = /follow|send|confirm[_-]?stage/i;
 export const PLANNING_MAX_ADDED = 40;
+export const WORKSPACE_PLANNER_AGENT = "agent:workspace-planner";
+export const WORKSPACE_PLANNER_SESSION_ID = "platform:workspace-planner";
 
 export type SourceKind =
   | "formal_task"
@@ -106,6 +108,19 @@ export function planningHarnessMount(skill = "today_plan"): {
     skills: [skill],
     forbidden: ["follow", "send", "confirm-stage"],
   };
+}
+
+/** Planning is a platform-owned, user-scoped read operation. */
+export function planningRuntimeIdentity(skill: "today_plan" | "todo_plan" | "today_analyze") {
+  const definition = taskDefinition(skill);
+  if (!definition
+    || definition.runtime_agent_id !== WORKSPACE_PLANNER_AGENT
+    || definition.runtime_access !== "authenticated"
+    || definition.side_effects !== "none"
+    || definition.mcp.length > 0) {
+    throw new HttpFail(500, `invalid platform planning declaration: ${skill}`);
+  }
+  return { agent_id: definition.runtime_agent_id, session_identity: WORKSPACE_PLANNER_SESSION_ID };
 }
 
 function parseJson(value: unknown): Record<string, unknown> {
@@ -464,9 +479,11 @@ export function packTodayPlanContext(owner = ownerId(), scope: PlanScope = "toda
 export function planningRunInput(pack: TodayPlanPack, extra: Json = {}, scope: PlanScope = "today"): Json {
   const taskType = planTaskType(scope);
   const mount = planningHarnessMount(taskType);
+  const identity = planningRuntimeIdentity(taskType);
   return {
     mode: taskType,
-    expert_id: "expert:kol",
+    agent_id: identity.agent_id,
+    expert_id: identity.session_identity,
     skip_user_memory: true,
     [`${taskType}_context`]: pack,
     history: pack.history,

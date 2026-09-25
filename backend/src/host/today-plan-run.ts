@@ -13,6 +13,7 @@ import {
   packTodayPlanContext,
   planTaskType,
   planningHarnessMount,
+  planningRuntimeIdentity,
   planningRunInput,
   type PlanScope,
   type TodayPlanPack,
@@ -286,7 +287,8 @@ export function startTodayPlan(owner = ownerId(), scope: PlanScope = "today"): {
   const title = scope === "todo" ? "待办规划" : "今日规划";
   const pack = packTodayPlanContext(owner, scope);
   const payload = planningRunInput(pack, {}, scope);
-  const sessionId = createPlanningSession(title, owner, "expert:kol", taskType);
+  const identity = planningRuntimeIdentity(taskType);
+  const sessionId = createPlanningSession(title, owner, identity.session_identity, taskType);
   const workItemId = createPlanningWorkItem({
     owner,
     taskType,
@@ -334,15 +336,17 @@ export function startTodayAnalyze(body: Json, owner = ownerId()): {
 } {
   const definition = requireTaskDefinition("today_analyze");
   if (!definition) throw new HttpFail(400, { code: "unknown_task_type", task_type: "today_analyze" });
+  const identity = planningRuntimeIdentity("today_analyze");
   const objects = Array.isArray(body.objects) ? body.objects : Array.isArray(body.object_ids) ? body.object_ids : [];
   const payload: Json = {
     mode: "today_analyze",
-    expert_id: "expert:kol",
+    agent_id: identity.agent_id,
+    expert_id: identity.session_identity,
     skip_user_memory: true,
     objects,
     planning_harness: planningHarnessMount("today_analyze"),
   };
-  const sessionId = createPlanningSession("今日对象分析", owner, "expert:kol");
+  const sessionId = createPlanningSession("今日对象分析", owner, identity.session_identity, "today_analyze");
   const workItemId = createPlanningWorkItem({
     owner,
     taskType: "today_analyze",

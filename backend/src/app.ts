@@ -19,6 +19,7 @@ import { skillRuntimeRouter } from "./routers/skill-runtime.js";
 import { runtimeDiscoveryRouter } from "./routers/runtime-discovery.js";
 import { connectorOperationsRouter } from "./routers/connector-operations.js";
 import { connectorCredentialsRouter } from "./routers/connector-credentials.js";
+import { ensureRuntimeSchema } from "./runtime/store.js";
 import { tasks } from "./routers/tasks.js";
 import { crawlRouter } from "./routers/crawl.js";
 import { knowledge } from "./routers/knowledge.js";
@@ -37,6 +38,7 @@ import { seedIfEmpty } from "./seed.js";
 export function createApp(): Hono {
   getConn();
   seedIfEmpty();
+  ensureRuntimeSchema();
   ensureDemoAdmin();
   restoreActiveCrawlJobs();
   restoreActiveDiscoveryRuns();

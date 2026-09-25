@@ -15,6 +15,8 @@ import type { WorkerResult } from "../src/types.js";
 import { taskDefinition } from "../src/tasks/registry.js";
 import * as recognize from "../src/tasks/recognize.js";
 import * as runner from "../src/worker/runner.js";
+import { assertRuntimeSkill } from "../src/runtime/execution.js";
+import { getAgentSkills } from "../src/runtime/store.js";
 import type { Json, Row } from "../src/types.js";
 
 let tmp: string;
@@ -117,6 +119,34 @@ afterEach(() => {
 });
 
 describe("today_plan harness", () => {
+  it("migrates platform planning skills to workspace-planner without KOL connector bindings", () => {
+    for (const id of ["today_plan", "todo_plan", "today_analyze"] as const) {
+      expect(taskDefinition(id)).toMatchObject({
+        runtime_agent_id: "agent:workspace-planner",
+        runtime_access: "authenticated",
+        side_effects: "none",
+        mcp: [],
+      });
+      const lifecycle = getConn().prepare("SELECT stage FROM skill_lifecycle WHERE skill_id=?").get(id) as { stage: string };
+      expect(lifecycle.stage).toBe("published");
+    }
+    const mounted = getAgentSkills("agent:workspace-planner");
+    expect(mounted.filter((row) => row.enabled).map((row) => row.skill_id)).toEqual([
+      "today_analyze", "today_plan", "todo_plan",
+    ]);
+    expect(getAgentSkills("agent:kol").some((row) => row.skill_id === "today_plan")).toBe(false);
+    const plannerUser = "user_workspace_planner";
+    getConn().prepare(`INSERT INTO users(id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?)`).run(
+      plannerUser, "workspace-planner", "工作规划员工", "not-for-login", JSON.stringify(["employee"]), "[]", "", 1, "now", "now",
+    );
+    expect(() => assertRuntimeSkill({
+      agentId: "agent:workspace-planner", skillId: "today_plan", userId: plannerUser, runId: "planning-preflight",
+    })).not.toThrow();
+    const audit = getConn().prepare("SELECT payload FROM audit_events WHERE event_type='runtime.workspace_planner.migrated'").get() as { payload: string };
+    expect(JSON.parse(audit.payload)).toMatchObject({ agent_id: "agent:workspace-planner" });
+  });
+
   it("registers today_plan / todo_plan / today_analyze as read-only callable skills", () => {
     for (const id of ["today_plan", "todo_plan", "today_analyze"] as const) {
       const definition = taskDefinition(id);
@@ -170,7 +200,7 @@ describe("today_plan harness", () => {
         expert_id: string;
         kind: string;
       };
-      expect(session.expert_id).toBe("expert:kol");
+      expect(session.expert_id).toBe("platform:workspace-planner");
       expect(session.kind).toBe(taskType);
       expect(recognizeSpy).not.toHaveBeenCalled();
       const fromText = await request("POST", "/api/tasks/from-text", { text: "规划今天" });
@@ -181,7 +211,7 @@ describe("today_plan harness", () => {
       const now = nowIso();
       getConn().prepare(
         "INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id) VALUES (?,?,?,?,?,?,?,?)",
-      ).run("ses_running_plan", "规划", now, now, taskType, 0, owner(), "expert:kol");
+      ).run("ses_running_plan", "规划", now, now, taskType, 0, owner(), "platform:workspace-planner");
       insertWorkItem({
         id: "tsk_running_plan",
         title: "规划",
@@ -319,7 +349,8 @@ describe("today_plan harness", () => {
     const item = getConn().prepare("SELECT input FROM work_items WHERE id=?").get(res.body.work_item_id) as { input: string };
     const input = JSON.parse(item.input) as Json;
     expect(input.mode).toBe("today_plan");
-    expect(input.expert_id).toBe("expert:kol");
+    expect(input.expert_id).toBe("platform:workspace-planner");
+    expect(input.agent_id).toBe("agent:workspace-planner");
     expect(input.skip_user_memory).toBe(true);
     const harness = input.planning_harness as { tools?: unknown[]; skills?: unknown[] };
     expect(JSON.stringify(harness.tools || [])).not.toMatch(/follow|send|confirm-stage|confirm_stage/i);
@@ -487,7 +518,7 @@ describe("stale planning watchdog", () => {
     const now = nowIso();
     getConn().prepare(
       "INSERT INTO sessions (id,title,created_at,updated_at,kind,disabled,owner_user_id,expert_id) VALUES (?,?,?,?,?,?,?,?)",
-    ).run(`ses_${id}`, "规划", now, now, taskType, 0, owner(), "expert:kol");
+    ).run(`ses_${id}`, "规划", now, now, taskType, 0, owner(), "platform:workspace-planner");
     insertWorkItem({
       id: `tsk_${id}`,
       title: "规划",

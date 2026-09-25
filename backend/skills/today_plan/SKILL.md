@@ -1,5 +1,7 @@
 ---
 id: today_plan
+runtime_agent_id: agent:workspace-planner
+runtime_access: authenticated
 title: 今日规划
 description: 按「今日任务」面（Host 打包的历史记忆与来源增量）产出封面 today_brief 和任务行 display_tasks，不写正式待办或状态
 category: 线索
