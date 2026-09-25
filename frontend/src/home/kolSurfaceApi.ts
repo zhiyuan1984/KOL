@@ -141,6 +141,14 @@ export async function loadHomePool(board?: { kols?: Array<Record<string, unknown
   return { items: unownedFirst(items), source: "board-adapter", creates_session: false };
 }
 
+/** Explicit command: refresh the local public-profile index, then return its public rows. */
+export async function syncHomePoolIndex(): Promise<{ items: PoolKol[]; count: number }> {
+  const payload = await api.syncHomePool();
+  if (payload.ok === false) throw new Error(payload.message || "红人库同步失败，请稍后重试");
+  const items = asRows(payload).filter(isOpenPoolRow).map(toPoolKol).filter((row): row is PoolKol => Boolean(row));
+  return { items: unownedFirst(items), count: Number(payload.count || items.length) };
+}
+
 export async function loadHomeFollowing(board?: { kols?: Array<Record<string, unknown>>; follow_scope?: import("../api").StarryBinding }): Promise<FollowingLoad> {
   try {
     const payload = await api.homeFollowing();

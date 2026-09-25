@@ -234,6 +234,41 @@ test("pool is a separate entry and cards have no mail digest", async ({ page }) 
   expect(sessionPosts).toEqual([]);
 });
 
+test("empty pool sync sends an explicit command and renders the refreshed public index", async ({ page }) => {
+  const syncPosts: string[] = [];
+  await page.route("**/api/home/board*", (route) => route.fulfill({
+    json: { kols: [], tasks: [], library: { count: 0 }, mail: {}, entries: [] },
+  }));
+  await page.route("**/api/home/pool", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await route.fulfill({ json: { entry: "memory", kind: "memory", items: [], kols: [] } });
+  });
+  await page.route("**/api/home/pool/sync", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    syncPosts.push(new URL(route.request().url()).pathname);
+    await route.fulfill({
+      json: {
+        entry: "command",
+        kind: "command",
+        creates_session: false,
+        creates_turn: false,
+        calls_model: false,
+        ok: true,
+        count: 1,
+        items: [POOL_ITEM],
+        kols: [POOL_ITEM],
+      },
+    });
+  });
+
+  await page.goto("/?tab=pool");
+  await expect(page.locator("[data-pool-empty='none']")).toBeVisible();
+  await page.locator("[data-pool-sync-library]").click();
+  await expect.poll(() => syncPosts).toEqual(["/api/home/pool/sync"]);
+  await expect(page.locator("[data-pool-kol='uid_outdoor']")).toBeVisible();
+  await expect(page.locator("[data-pool-sync-library]")).toHaveCount(0);
+});
+
 test("selection prefills composer and enqueue is not from-text", async ({ page }) => {
   const posts: string[] = [];
   const livePosts: string[] = [];

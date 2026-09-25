@@ -908,6 +908,20 @@ export const api = {
       items?: Array<Record<string, unknown>>;
       kols?: Array<Record<string, unknown>>;
     }>("/api/home/pool"),
+  syncHomePool: () =>
+    request<{
+      entry?: string;
+      kind?: string;
+      creates_session?: boolean;
+      creates_turn?: boolean;
+      calls_model?: boolean;
+      ok?: boolean;
+      count?: number;
+      tool?: string;
+      message?: string;
+      items?: Array<Record<string, unknown>>;
+      kols?: Array<Record<string, unknown>>;
+    }>("/api/home/pool/sync", { method: "POST", body: JSON.stringify({}) }),
   enqueueKolAnalyze: (body: { kol_uids?: string[]; kolUids?: string[]; people?: string[]; handles?: string[]; title?: string; prompt?: string }) =>
     request<{
       entry?: string;

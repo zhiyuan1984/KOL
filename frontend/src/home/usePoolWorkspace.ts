@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HomeSurface } from "./surfaceError";
-import { claimPoolKol, loadHomePool, releaseFollowedKol } from "./kolSurfaceApi";
+import { claimPoolKol, loadHomePool, releaseFollowedKol, syncHomePoolIndex } from "./kolSurfaceApi";
 import type { PoolKol } from "./kolContract";
 
 export function usePoolWorkspace(options: {
@@ -25,6 +25,8 @@ export function usePoolWorkspace(options: {
   const [undoClaim, setUndoClaim] = useState<{ card: PoolKol; followId: string } | null>(null);
   const [undoBusy, setUndoBusy] = useState(false);
   const [undoError, setUndoError] = useState<string | null>(null);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const removalTimerRef = useRef<number | null>(null);
   const undoTimerRef = useRef<number | null>(null);
 
@@ -63,6 +65,21 @@ export function usePoolWorkspace(options: {
     await board;
     if (source === "board-adapter") await loadSurface();
   }, [loadBoard, loadSurface]);
+
+  const syncLibrary = useCallback(async () => {
+    if (syncBusy) return;
+    setSyncBusy(true);
+    setSyncError(null);
+    try {
+      const refreshed = await syncHomePoolIndex();
+      setCards(refreshed.items);
+      setError("");
+    } catch (err) {
+      setSyncError(err instanceof Error ? err.message : "红人库同步失败，请稍后重试");
+    } finally {
+      setSyncBusy(false);
+    }
+  }, [syncBusy]);
 
   const requestClaim = useCallback((card: PoolKol) => {
     setClaimError(null);
@@ -141,6 +158,9 @@ export function usePoolWorkspace(options: {
     setError,
     loadSurface,
     ensureLoaded,
+    syncLibrary,
+    syncBusy,
+    syncError,
     claimTarget,
     claimBusy,
     claimError,

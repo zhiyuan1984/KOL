@@ -22,6 +22,7 @@ import {
   parseAnalyzePeople,
   releaseFollow,
 } from "../host/kol-memory.js";
+import { syncKolProfileIndex } from "../host/kol-memory-sync.js";
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import { taskDefinition } from "../tasks/registry.js";
@@ -48,6 +49,29 @@ kolMemory.get("/home/pool", (c) => {
     items,
     kols: items,
   });
+});
+
+/**
+ * Explicit local-index refresh for the public pool. GET /home/pool remains a
+ * zero-write memory read; this command is the only employee-initiated path
+ * that asks the allow-listed Starry profile reader to refresh the local index.
+ */
+kolMemory.post("/home/pool/sync", async (c) => {
+  const result = await syncKolProfileIndex();
+  const items = result.ok ? listOpenPool() : [];
+  return c.json({
+    entry: "command",
+    kind: "command",
+    creates_session: false,
+    creates_turn: false,
+    calls_model: false,
+    ...result,
+    message: result.ok
+      ? `已同步 ${result.count} 个红人档案`
+      : (result.error || "红人库同步失败，请稍后重试"),
+    items,
+    kols: items,
+  }, result.ok ? 200 : 502);
 });
 
 kolMemory.get("/home/following", (c) => {

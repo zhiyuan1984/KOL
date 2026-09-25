@@ -76,6 +76,15 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     route: "GET /api/home/pool",
   },
   {
+    id: "sync-pool-library",
+    kind: "command",
+    action: "同步公海红人索引",
+    creates_session: false,
+    creates_turn: false,
+    calls_model: false,
+    route: "POST /api/home/pool/sync",
+  },
+  {
     id: "existing-discovery",
     kind: "memory",
     action: "已有发现运行 / 结果",

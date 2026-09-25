@@ -125,11 +125,11 @@ function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, 
 }
 
 export default function PoolPane({ cards, selectedIds, query, down, claimBusyId, claimTarget, claimError, claimedId,
-  libraryCount, syncBusy, undoAvailable, undoBusy, undoError, onQuery, onToggleSelect, onToggleSelectAll, onAnalyzeSelected, onClaim,
+  libraryCount, syncBusy, syncError, undoAvailable, undoBusy, undoError, onQuery, onToggleSelect, onToggleSelectAll, onAnalyzeSelected, onClaim,
   onConfirmClaim, onCancelClaim, onUndoClaim, onSyncLibrary }: {
   cards: PoolKol[]; selectedIds: string[]; query: string; down?: SurfaceDownView | null;
   claimBusyId?: string | null; claimTarget?: PoolKol | null; claimError?: string | null; claimedId?: string | null;
-  libraryCount?: number | null; syncBusy?: boolean; undoAvailable?: boolean; undoBusy?: boolean; undoError?: string | null;
+  libraryCount?: number | null; syncBusy?: boolean; syncError?: string | null; undoAvailable?: boolean; undoBusy?: boolean; undoError?: string | null;
   onQuery: (value: string) => void;
   onToggleSelect: (id: string, on: boolean) => void; onToggleSelectAll: (ids: string[], on: boolean) => void;
   onAnalyzeSelected: (ids: string[]) => void; onClaim: (card: PoolKol) => void; onConfirmClaim: () => void;
@@ -201,8 +201,10 @@ export default function PoolPane({ cards, selectedIds, query, down, claimBusyId,
           onClick={down.onRetry}>重试</button><button type="button" className="btn work sm" data-pool-handoff-agent
           data-home-entry="composer-analyze" onClick={down.onHandoff}>{HOME_HANDOFF_TO_AGENT}</button></div></>
         : !cards.length && !queryDown ? <div className="task-empty-actions"><button type="button" className="btn work sm"
-          data-pool-sync-library disabled={!onSyncLibrary || syncBusy} onClick={() => { setSyncRequested(true); onSyncLibrary?.(); }}>
-          {syncBusy ? "正在同步红人库…" : syncRequested ? "重新同步红人库" : "立即同步红人库"}</button></div> : null}
+          data-pool-sync-library data-home-entry="sync-pool-library" disabled={!onSyncLibrary || syncBusy}
+          onClick={() => { setSyncRequested(true); onSyncLibrary?.(); }}>
+          {syncBusy ? "正在同步红人库…" : syncRequested ? "重新同步红人库" : "立即同步红人库"}</button>
+          {syncError && <p className="pool-sync-error" role="alert">{syncError}</p>}</div> : null}
     </div>}
   </section>;
 }

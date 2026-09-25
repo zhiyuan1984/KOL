@@ -2007,7 +2007,8 @@ export default function Home() {
                   query={poolWorkspace.query}
                   down={poolDown}
                   libraryCount={libraryCount}
-                  syncBusy={retryingSurface === "pool"}
+                  syncBusy={poolWorkspace.syncBusy}
+                  syncError={poolWorkspace.syncError}
                   claimBusyId={poolWorkspace.claimBusy && poolWorkspace.claimTarget ? poolWorkspace.claimTarget.kol_uid : null}
                   claimTarget={poolWorkspace.claimTarget}
                   claimError={poolWorkspace.claimError}
@@ -2018,7 +2019,7 @@ export default function Home() {
                   onQuery={poolWorkspace.setQuery}
                   onToggleSelect={toggleSelectedPool}
                   onToggleSelectAll={toggleSelectAllPool}
-                  onSyncLibrary={() => void retrySurface("pool")}
+                  onSyncLibrary={() => void poolWorkspace.syncLibrary()}
                   onAnalyzeSelected={(selectedIds) => {
                     const selected = poolWorkspace.cards.filter((card) => selectedIds.includes(card.kol_uid));
                     prefillAnalyze("pool", selected, selected.map((card) => card.kol_uid));

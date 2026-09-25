@@ -12843,6 +12843,13 @@ button.today-brief-primary-btn:disabled {
   margin-left: var(--space-1);
   color: var(--danger);
 }
+.pool-sync-error {
+  width: 100%;
+  margin: var(--space-1) 0 0;
+  color: var(--danger);
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+}
 .pool-compact-pane :is(input, select, button, a):focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring);
   outline-offset: var(--focus-ring-offset);

@@ -18,6 +18,7 @@ import { runStub } from "../src/worker/stub.js";
 import { HttpFail } from "../src/host/errors.js";
 import { evaluateOwnershipRelease, releaseFollowOwnershipIfEligible } from "../src/gateway/ownership-release.js";
 import { callMemoryStarryTool } from "../src/host/starry-connectors.js";
+import { setStarryKolClientFactory } from "../src/starrykol/service.js";
 import * as recognize from "../src/tasks/recognize.js";
 import { taskDefinition, taskDefinitions } from "../src/tasks/registry.js";
 import type { Json } from "../src/types.js";
@@ -66,6 +67,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  setStarryKolClientFactory();
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
   vi.restoreAllMocks();
@@ -246,6 +248,57 @@ describe("kol follow/pool memory P0", () => {
     });
     expect(sea).not.toHaveProperty("email");
     expect(sea).not.toHaveProperty("notes");
+  });
+
+  it("explicit pool sync projects allow-listed Starry profiles into the public index", async () => {
+    const calls: string[] = [];
+    setStarryKolClientFactory(() => ({
+      async callTool(name: string) {
+        calls.push(name);
+        if (name === "pageKolProfiles") {
+          return {
+            list: [{
+              kolUid: "KOL_SYNCED",
+              kolName: "同步后的红人",
+              platform: "YouTube",
+              followers: 240000,
+              avgVideoViews10: 50000,
+              engagementRate: "4.8%",
+              countryName: "US",
+              nicheTagsText: "Outdoor",
+            }],
+            total: 1,
+          };
+        }
+        if (name === "getKolProfileDetail") {
+          return { kolUid: "KOL_SYNCED", homepageUrl: "https://youtube.com/@synced" };
+        }
+        throw new Error(`unexpected tool ${name}`);
+      },
+      async close() { /* noop */ },
+    }));
+
+    const response = await request("POST", "/api/home/pool/sync", {});
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      entry: "command",
+      kind: "command",
+      creates_session: false,
+      creates_turn: false,
+      calls_model: false,
+      ok: true,
+      count: 1,
+      tool: "pageKolProfiles",
+    });
+    const profile = (response.body.items as Json[]).find((row) => row.kol_uid === "KOL_SYNCED");
+    expect(profile).toMatchObject({
+      kol_uid: "KOL_SYNCED",
+      display_name: "同步后的红人",
+      homepage_url: "https://youtube.com/@synced",
+      pool_status: "open",
+    });
+    expect(profile).not.toHaveProperty("email");
+    expect(calls).toEqual(["pageKolProfiles", "getKolProfileDetail"]);
   });
 
   it("claim is L3, does not start the 14-day clock, dual-writes owner_name", async () => {
