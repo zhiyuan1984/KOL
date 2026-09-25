@@ -3,6 +3,36 @@ import type { HomeSurface } from "./surfaceError";
 import { claimPoolKol, loadHomePool, releaseFollowedKol, syncHomePoolIndex } from "./kolSurfaceApi";
 import type { PoolKol } from "./kolContract";
 
+function canonicalProfileKey(card: PoolKol): string {
+  const url = (card.identity.profile_url || "").trim().toLowerCase().replace(/\/+$/, "");
+  if (url) return `url:${url}`;
+  return `identity:${card.identity.platform.trim().toLowerCase()}:${card.identity.display.trim().toLowerCase()}`;
+}
+
+function publicProfileCompleteness(card: PoolKol): number {
+  return [
+    card.identity.avatar_url,
+    card.identity.profile_url,
+    card.metrics.followers,
+    card.metrics.avg_plays,
+    card.metrics.engagement,
+    card.direction,
+    card.region,
+    card.style,
+  ].filter(Boolean).length;
+}
+
+/** The index is UID-authoritative, but legacy and remote UIDs can point to one public profile. */
+function dedupePoolCards(cards: PoolKol[]): PoolKol[] {
+  const byProfile = new Map<string, PoolKol>();
+  for (const card of cards) {
+    const key = canonicalProfileKey(card);
+    const existing = byProfile.get(key);
+    if (!existing || publicProfileCompleteness(card) > publicProfileCompleteness(existing)) byProfile.set(key, card);
+  }
+  return [...byProfile.values()];
+}
+
 export function usePoolWorkspace(options: {
   /** 共享 board 管线：带首入缓存与 force 刷新，错误按 surface 路由。 */
   loadBoard: (surface: HomeSurface, force?: boolean) => Promise<void>;
@@ -54,7 +84,7 @@ export function usePoolWorkspace(options: {
       return loaded.source;
     }
     setError("");
-    setCards(loaded.items);
+    setCards(dedupePoolCards(loaded.items));
     return loaded.source;
   }, [boardKols]);
 
@@ -72,7 +102,7 @@ export function usePoolWorkspace(options: {
     setSyncError(null);
     try {
       const refreshed = await syncHomePoolIndex();
-      setCards(refreshed.items);
+      setCards(dedupePoolCards(refreshed.items));
       setError("");
     } catch (err) {
       setSyncError(err instanceof Error ? err.message : "红人库同步失败，请稍后重试");
@@ -136,9 +166,9 @@ export function usePoolWorkspace(options: {
       removalTimerRef.current = null;
       if (undoTimerRef.current !== null) window.clearTimeout(undoTimerRef.current);
       undoTimerRef.current = null;
-      setCards((current) => current.some((card) => card.kol_uid === undoClaim.card.kol_uid)
+      setCards((current) => dedupePoolCards(current.some((card) => card.kol_uid === undoClaim.card.kol_uid)
         ? current
-        : [undoClaim.card, ...current]);
+        : [undoClaim.card, ...current]));
       setClaimedId(null);
       setUndoClaim(null);
       await onClaimUndone(undoClaim.card.kol_uid);

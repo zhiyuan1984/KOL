@@ -218,6 +218,8 @@ test("pool is a separate entry and cards have no mail digest", async ({ page }) 
   await expect(page).toHaveURL(/[?&]tab=pool/);
   await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
   await expect(page.locator("[data-pool-toolbar][data-home-entry='list-pool']")).toBeVisible();
+  await expect(page.locator("[data-pool-focus-list]")).toBeVisible();
+  await expect(page.locator('[data-home-pane="pool"] [data-scope-task-rail]')).toHaveCount(0);
   await expect(page.locator("[data-pool-card]").first()).toBeVisible();
   await expect(page.locator("[data-pool-card]")).toHaveCount(2);
   await expect(page.locator("[data-pool-kol='uid_contacted']")).toHaveCount(0);
@@ -232,6 +234,36 @@ test("pool is a separate entry and cards have no mail digest", async ({ page }) 
   await expect(poolPane).not.toContainText("私有");
   await expect(page.locator("[data-kol-tab]")).toHaveCount(0);
   expect(sessionPosts).toEqual([]);
+});
+
+test("public pool keeps the most complete public row when legacy identities overlap", async ({ page }) => {
+  await page.route("**/api/home/pool", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await route.fulfill({
+      json: {
+        entry: "memory", kind: "memory", items: [
+          { ...POOL_ITEM, id: "legacy_1", kol_uid: "uid_legacy", homepage_url: "https://youtube.com/@same", followers: "" },
+          { ...POOL_ITEM, id: "live_1", kol_uid: "uid_live", homepage_url: "https://youtube.com/@same", followers: "400000", direction: "Vanlife" },
+        ],
+      },
+    });
+  });
+  await page.goto("/?tab=pool");
+  await expect(page.locator("[data-pool-card]")).toHaveCount(1);
+  await expect(page.locator("[data-pool-card]")).toContainText("40万");
+});
+
+test("public pool uses a primary desktop list instead of a narrow result rail", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/?tab=pool");
+  const workspace = page.locator('[data-home-pane="pool"]');
+  const list = workspace.locator("[data-pool-focus-list]");
+  const row = workspace.locator("[data-pool-card]").first();
+  await expect(list).toBeVisible();
+  await expect(row).toBeVisible();
+  expect(await workspace.locator("[data-scope-task-rail]").count()).toBe(0);
+  expect((await list.boundingBox())?.width).toBeGreaterThan(900);
+  expect((await row.boundingBox())?.width).toBeGreaterThan(880);
 });
 
 test("empty pool sync sends an explicit command and renders the refreshed public index", async ({ page }) => {

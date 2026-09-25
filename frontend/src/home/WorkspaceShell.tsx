@@ -17,6 +17,7 @@ export default function WorkspaceShell({
   railStorageKey,
   railBadge,
   resultIdle = false,
+  focusResults = false,
   streamStick = false,
   resultView,
   scrollAnchorEvent,
@@ -35,6 +36,8 @@ export default function WorkspaceShell({
   railBadge?: number;
   /** No result or history yet: keep the rail visible at its documented minimum width. */
   resultIdle?: boolean;
+  /** Results are the primary working surface; render them in the full center column. */
+  focusResults?: boolean;
   /** 中栏正在流式产出（发现运行中 / 计划生成中）：新内容贴底跟随。 */
   streamStick?: boolean;
   /** Optional normalized metadata/history/action slots; domain children remain mode-specific. */
@@ -120,7 +123,7 @@ export default function WorkspaceShell({
   };
   return (
     <section
-      className={"home-mode-pane scope-workspace" + (railCollapsed ? " is-task-rail-collapsed" : "") + (resultIdle ? " is-result-idle" : "")}
+      className={"home-mode-pane scope-workspace" + (railCollapsed ? " is-task-rail-collapsed" : "") + (resultIdle ? " is-result-idle" : "") + (focusResults ? " is-result-focus" : "")}
       data-home-pane={pane}
       data-scope-workspace={pane}
     >
@@ -158,7 +161,7 @@ export default function WorkspaceShell({
         </div>
       </div>
 
-      <aside
+      {!focusResults ? <aside
         className={"scope-task-rail" + (railCollapsed ? " is-collapsed" : "")}
         data-scope-task-rail
         aria-label={railLabel}
@@ -180,7 +183,7 @@ export default function WorkspaceShell({
         <div className="scope-task-rail-body" data-scope-rail-body>
           <ResultRail pane={pane} view={resultView}>{rail}</ResultRail>
         </div>
-      </aside>
+      </aside> : null}
     </section>
   );
 }

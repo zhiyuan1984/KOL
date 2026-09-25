@@ -443,6 +443,19 @@
 .scope-workspace.is-task-rail-collapsed {
   grid-template-columns: minmax(0, 1fr) var(--workspace-result-rail-collapsed);
 }
+.scope-workspace.is-result-focus {
+  grid-template-columns: minmax(0, 1fr);
+}
+.scope-workspace.is-result-focus .scope-workspace-center {
+  padding-right: 0;
+}
+.scope-workspace.is-result-focus .scope-workspace-center-scroll {
+  padding-right: 0;
+}
+.object-result-focus {
+  width: 100%;
+  min-width: 0;
+}
 .scope-workspace-center {
   min-width: 0;
   padding: 4px 28px 24px 0;

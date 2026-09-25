@@ -81,9 +81,10 @@ function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, 
   ].filter((metric): metric is PoolMetric => metric !== null);
   const stage = card.public_stage?.label || "未首次建联";
   const overdue = stage.includes("14") && stage.includes("回复");
+  const quality = metrics.length ? "ready" : "partial";
 
   return <article className="pool-kol-row" data-pool-kol={card.kol_uid} data-pool-card data-kol-work-card
-    data-selected={selected || undefined} data-claimed={claimed || undefined}>
+    data-selected={selected || undefined} data-claimed={claimed || undefined} data-pool-quality={quality}>
     <label className="pool-row-select"><input type="checkbox" data-pool-select={card.kol_uid} checked={selected}
       onChange={(e) => onSelect(e.target.checked)} /><span className="sr-only">选择 {card.identity.display}</span></label>
     <PoolAvatar card={card} />
@@ -101,10 +102,10 @@ function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, 
       <div className="pool-row-facts">
         <span className="pool-row-metrics" data-pool-metrics>{metrics.length
           ? metrics.map((metric) => <span key={metric.key} data-pool-metric={metric.key}><FactIcon type={metric.key} />{metric.label} <b>{metric.value}</b></span>)
-          : <span>暂无公开数据</span>}</span>
+          : <span className="pool-row-missing-data">公开指标待补充</span>}</span>
         <span className="pool-row-ingested" data-pool-ingested><FactIcon type="ingested" />{ingested(card.ingested_at)}</span>
       </div>
-      <p className="pool-row-intro" data-pool-public-fields title={intro || undefined}>{intro || "暂无简介"}</p>
+      {intro && <p className="pool-row-intro" data-pool-public-fields title={intro}>{intro}</p>}
       {claimTarget && <ClaimFollowConfirm card={card} busy={claimBusy} error={claimError}
         onConfirm={onConfirm} onCancel={onCancel} />}
     </div>
@@ -165,8 +166,10 @@ export default function PoolPane({ cards, selectedIds, query, down, claimBusyId,
   const allVisibleSelected = visible.length > 0 && selectedVisibleIds.length === visible.length;
 
   return <section className="pool-compact-pane is-result-rail" data-pool-overview>
-    <div className="pool-compact-header"><h2>公海对象 <span className="pool-total" data-pool-total>{cards.length}</span></h2>
-      {selectedVisibleIds.length > 0 && <span data-pool-selected-count>当前已选 {selectedVisibleIds.length} / {KOL_SELECT_MAX}</span>}</div>
+    <div className="pool-compact-header"><div><p className="pool-eyebrow">公开对象池</p><h2>公海对象 <span className="pool-total" data-pool-total>{cards.length}</span></h2></div>
+      <p className="pool-summary" data-pool-summary>{selectedVisibleIds.length > 0
+        ? <span data-pool-selected-count>当前已选 {selectedVisibleIds.length} / {KOL_SELECT_MAX}</span>
+        : "选择对象后可批量分析；领取需单独确认"}</p></div>
     <div className="pool-compact-toolbar" data-pool-toolbar data-home-entry="list-pool">
       <label className="pool-search"><SearchIcon /><span className="sr-only">搜索公海对象</span>
         <input type="search" data-pool-search value={query} placeholder="搜索公海对象" onChange={(e) => onQuery(e.target.value)} /></label>
@@ -186,7 +189,7 @@ export default function PoolPane({ cards, selectedIds, query, down, claimBusyId,
         onClick={onUndoClaim}>{undoBusy ? "正在撤销…" : "撤销"}</button>
       {undoError && <span className="pool-claim-undo-error" role="alert">{undoError}</span>}
     </div>}
-    {visible.length ? <div className="pool-compact-list" data-pool-list data-pool-origin="public">
+    {visible.length ? <div className="pool-compact-list" data-pool-list data-pool-focus-list data-pool-origin="public">
       {visible.map((card) => <PoolRow key={card.kol_uid} card={card} selected={selectedIds.includes(card.kol_uid)}
         claimBusy={claimBusyId === card.kol_uid} claimTarget={claimTarget?.kol_uid === card.kol_uid}
         claimError={claimError} claimed={claimedId === card.kol_uid}
