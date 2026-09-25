@@ -141,12 +141,27 @@ export async function loadHomePool(board?: { kols?: Array<Record<string, unknown
   return { items: unownedFirst(items), source: "board-adapter", creates_session: false };
 }
 
-/** Explicit command: refresh the local public-profile index, then return its public rows. */
+const POOL_SYNC_POLL_MS = 1_000;
+const POOL_SYNC_WAIT_ATTEMPTS = 45;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+/** Explicit command: start a local-index refresh, then wait only on its local receipt. */
 export async function syncHomePoolIndex(): Promise<{ items: PoolKol[]; count: number }> {
-  const payload = await api.syncHomePool();
-  if (payload.ok === false) throw new Error(payload.message || "红人库同步失败，请稍后重试");
-  const items = asRows(payload).filter(isOpenPoolRow).map(toPoolKol).filter((row): row is PoolKol => Boolean(row));
-  return { items: unownedFirst(items), count: Number(payload.count || items.length) };
+  await api.syncHomePool();
+  for (let attempt = 0; attempt < POOL_SYNC_WAIT_ATTEMPTS; attempt += 1) {
+    await wait(POOL_SYNC_POLL_MS);
+    const payload = await api.homePoolSyncStatus();
+    if (payload.status === "failed" || payload.ok === false) {
+      throw new Error(payload.message || "红人库同步失败，请稍后重试");
+    }
+    if (payload.status !== "succeeded" || payload.ok !== true) continue;
+    const items = asRows(payload).filter(isOpenPoolRow).map(toPoolKol).filter((row): row is PoolKol => Boolean(row));
+    return { items: unownedFirst(items), count: Number(payload.count || items.length) };
+  }
+  throw new Error("同步仍在后台进行，请稍后重新打开公海查看更新。");
 }
 
 export async function loadHomeFollowing(board?: { kols?: Array<Record<string, unknown>>; follow_scope?: import("../api").StarryBinding }): Promise<FollowingLoad> {

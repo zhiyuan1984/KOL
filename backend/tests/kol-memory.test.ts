@@ -278,18 +278,21 @@ describe("kol follow/pool memory P0", () => {
       async close() { /* noop */ },
     }));
 
-    const response = await request("POST", "/api/home/pool/sync", {});
-    expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({
+    const accepted = await request("POST", "/api/home/pool/sync", {});
+    expect(accepted.status).toBe(202);
+    expect(accepted.body).toMatchObject({
       entry: "command",
       kind: "command",
       creates_session: false,
       creates_turn: false,
       calls_model: false,
-      ok: true,
-      count: 1,
-      tool: "pageKolProfiles",
+      accepted: true,
+      status: "running",
     });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const response = await request("GET", "/api/home/pool/sync");
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ ok: true, status: "succeeded", count: 1, tool: "pageKolProfiles" });
     const profile = (response.body.items as Json[]).find((row) => row.kol_uid === "KOL_SYNCED");
     expect(profile).toMatchObject({
       kol_uid: "KOL_SYNCED",

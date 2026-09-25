@@ -30,6 +30,70 @@ import type { Json } from "../types.js";
 
 export const kolMemory = new Hono();
 
+type PoolSyncReceipt = {
+  status: "idle" | "running" | "succeeded" | "failed";
+  started_at: string | null;
+  completed_at: string | null;
+  ok?: boolean;
+  count?: number;
+  tool?: string;
+  message?: string;
+};
+
+let poolSyncReceipt: PoolSyncReceipt = {
+  status: "idle",
+  started_at: null,
+  completed_at: null,
+};
+let poolSyncFlight: Promise<void> | null = null;
+
+function poolSyncResponse() {
+  const items = poolSyncReceipt.status === "succeeded" ? listOpenPool() : [];
+  return {
+    entry: "command" as const,
+    kind: "command" as const,
+    creates_session: false,
+    creates_turn: false,
+    calls_model: false,
+    ...poolSyncReceipt,
+    items,
+    kols: items,
+  };
+}
+
+function startPoolSync(): boolean {
+  if (poolSyncFlight) return false;
+  const startedAt = nowIso();
+  poolSyncReceipt = { status: "running", started_at: startedAt, completed_at: null };
+  poolSyncFlight = syncKolProfileIndex()
+    .then((result) => {
+      poolSyncReceipt = {
+        status: result.ok ? "succeeded" : "failed",
+        started_at: startedAt,
+        completed_at: nowIso(),
+        ok: result.ok,
+        count: result.count,
+        tool: result.tool,
+        message: result.ok
+          ? `已同步 ${result.count} 个红人档案`
+          : (result.error || "红人库同步失败，请稍后重试"),
+      };
+    })
+    .catch((error) => {
+      poolSyncReceipt = {
+        status: "failed",
+        started_at: startedAt,
+        completed_at: nowIso(),
+        ok: false,
+        message: error instanceof Error ? error.message : "红人库同步失败，请稍后重试",
+      };
+    })
+    .finally(() => {
+      poolSyncFlight = null;
+    });
+  return true;
+}
+
 kolMemory.post("/home/discovery/ingest", async (c) => {
   const body = await c.req.json().catch(() => ({})) as Json;
   const result = await ingestDiscoveryBatch(body);
@@ -53,25 +117,19 @@ kolMemory.get("/home/pool", (c) => {
 
 /**
  * Explicit local-index refresh for the public pool. GET /home/pool remains a
- * zero-write memory read; this command is the only employee-initiated path
- * that asks the allow-listed Starry profile reader to refresh the local index.
+ * zero-write memory read; the command starts the allow-listed Starry reader in
+ * the background so an upstream MCP timeout cannot break the employee request.
  */
-kolMemory.post("/home/pool/sync", async (c) => {
-  const result = await syncKolProfileIndex();
-  const items = result.ok ? listOpenPool() : [];
-  return c.json({
-    entry: "command",
-    kind: "command",
-    creates_session: false,
-    creates_turn: false,
-    calls_model: false,
-    ...result,
-    message: result.ok
-      ? `已同步 ${result.count} 个红人档案`
-      : (result.error || "红人库同步失败，请稍后重试"),
-    items,
-    kols: items,
-  }, result.ok ? 200 : 502);
+kolMemory.post("/home/pool/sync", (c) => {
+  const started = startPoolSync();
+  c.header("Cache-Control", "no-store");
+  return c.json({ ...poolSyncResponse(), accepted: true, started }, 202);
+});
+
+/** Read-only receipt for the explicit pool-index synchronization command. */
+kolMemory.get("/home/pool/sync", (c) => {
+  c.header("Cache-Control", "no-store");
+  return c.json(poolSyncResponse());
 });
 
 kolMemory.get("/home/following", (c) => {

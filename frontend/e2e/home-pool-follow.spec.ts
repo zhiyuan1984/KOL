@@ -244,19 +244,33 @@ test("empty pool sync sends an explicit command and renders the refreshed public
     await route.fulfill({ json: { entry: "memory", kind: "memory", items: [], kols: [] } });
   });
   await page.route("**/api/home/pool/sync", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        json: {
+          entry: "command",
+          kind: "command",
+          status: "succeeded",
+          ok: true,
+          count: 1,
+          items: [POOL_ITEM],
+          kols: [POOL_ITEM],
+        },
+      });
+      return;
+    }
     if (route.request().method() !== "POST") return route.fallback();
     syncPosts.push(new URL(route.request().url()).pathname);
     await route.fulfill({
+      status: 202,
       json: {
         entry: "command",
         kind: "command",
         creates_session: false,
         creates_turn: false,
         calls_model: false,
-        ok: true,
-        count: 1,
-        items: [POOL_ITEM],
-        kols: [POOL_ITEM],
+        accepted: true,
+        started: true,
+        status: "running",
       },
     });
   });

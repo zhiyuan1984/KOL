@@ -922,6 +922,18 @@ export const api = {
       items?: Array<Record<string, unknown>>;
       kols?: Array<Record<string, unknown>>;
     }>("/api/home/pool/sync", { method: "POST", body: JSON.stringify({}) }),
+  homePoolSyncStatus: () =>
+    request<{
+      entry?: string;
+      kind?: string;
+      status?: "idle" | "running" | "succeeded" | "failed";
+      ok?: boolean;
+      count?: number;
+      tool?: string;
+      message?: string;
+      items?: Array<Record<string, unknown>>;
+      kols?: Array<Record<string, unknown>>;
+    }>("/api/home/pool/sync"),
   enqueueKolAnalyze: (body: { kol_uids?: string[]; kolUids?: string[]; people?: string[]; handles?: string[]; title?: string; prompt?: string }) =>
     request<{
       entry?: string;
