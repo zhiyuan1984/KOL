@@ -73,7 +73,7 @@ function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, 
   claimed: boolean; onSelect: (on: boolean) => void; onClaim: () => void; onConfirm: () => void; onCancel: () => void;
 }) {
   const [more, setMore] = useState(false);
-  const intro = [card.direction, card.region, card.style].filter(Boolean).join(" · ");
+  const intro = [card.direction, card.style].filter(Boolean).join(" · ") || card.region;
   const metrics: PoolMetric[] = [
     card.metrics.followers ? { key: "followers", label: "粉丝", value: card.metrics.followers } : null,
     card.metrics.avg_plays ? { key: "avg-plays", label: "均播", value: card.metrics.avg_plays } : null,
@@ -97,7 +97,6 @@ function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, 
         <span>在库</span>
         {card.identity.profile_url && <a className="pool-profile-link" href={card.identity.profile_url} target="_blank" rel="noopener noreferrer"
           aria-label={`打开 ${card.identity.display} 的平台主页`}><ExternalLinkIcon /></a>}
-        {card.idle?.label && card.idle.label !== "在库" && <span data-kol-chip="idle">{card.idle.label}</span>}
       </div>
       <div className="pool-row-facts">
         <span className="pool-row-metrics" data-pool-metrics>{metrics.length
@@ -112,7 +111,6 @@ function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, 
     <div className="pool-row-actions">
       <button type="button" className="pool-claim-button" data-pool-claim data-home-entry="claim-kol"
         disabled={claimBusy || claimed} onClick={onClaim}>{claimed ? "已领取 ✓" : claimBusy ? "正在领取…" : "领取跟进"}</button>
-      <div className="pool-row-reason" data-pool-reason><span>公海原因</span><strong>{stage}</strong></div>
       <div className="pool-more-wrap">
         <button type="button" className="pool-more-button" data-pool-more aria-label={`更多操作：${card.identity.display}`}
           aria-expanded={more} aria-haspopup="menu" onClick={() => setMore(!more)}><MoreIcon /></button>
@@ -151,7 +149,6 @@ export default function PoolPane({ cards, selectedIds, query, down, claimBusyId,
       card.direction,
       card.region,
       card.style,
-      card.idle?.label,
       stage,
       card.metrics.followers,
       card.metrics.avg_plays,
@@ -165,23 +162,23 @@ export default function PoolPane({ cards, selectedIds, query, down, claimBusyId,
   const selectedVisibleIds = visible.map((card) => card.kol_uid).filter((id) => selectedIds.includes(id));
   const allVisibleSelected = visible.length > 0 && selectedVisibleIds.length === visible.length;
 
-  return <section className="pool-compact-pane is-result-rail" data-pool-overview>
-    <div className="pool-compact-header"><div><p className="pool-eyebrow">公开对象池</p><h2>公海对象 <span className="pool-total" data-pool-total>{cards.length}</span></h2></div>
-      <p className="pool-summary" data-pool-summary>{selectedVisibleIds.length > 0
-        ? <span data-pool-selected-count>当前已选 {selectedVisibleIds.length} / {KOL_SELECT_MAX}</span>
-        : "选择对象后可批量分析；领取需单独确认"}</p></div>
-    <div className="pool-compact-toolbar" data-pool-toolbar data-home-entry="list-pool">
-      <label className="pool-search"><SearchIcon /><span className="sr-only">搜索公海对象</span>
-        <input type="search" data-pool-search value={query} placeholder="搜索公海对象" onChange={(e) => onQuery(e.target.value)} /></label>
-      <label className="pool-control"><span className="sr-only">筛选状态</span><select data-pool-filter value={filter} onChange={(e) => setFilter(e.target.value)}>
-        <option value="all">筛选</option><option value="new">未首次建联</option><option value="overdue">14天无回复</option></select></label>
-      <label className="pool-control"><span className="sr-only">排序</span><select data-pool-sort value={sort} onChange={(e) => setSort(e.target.value)}>
-        <option value="default">排序</option><option value="newest">最近入库</option><option value="followers">粉丝数</option></select></label>
-      <label className="pool-select-all" title="全选当前筛选结果"><input type="checkbox" data-pool-select-all
-        checked={allVisibleSelected} disabled={!visible.length} onChange={(e) => onToggleSelectAll(visible.map((card) => card.kol_uid), e.target.checked)} />
-        <span>全选当前</span></label>
-      <button type="button" className="pool-analyze-button" data-analyze-selected data-home-entry="kol-analyze-enqueue"
-        disabled={!selectedVisibleIds.length} onClick={() => onAnalyzeSelected(selectedVisibleIds)}>分析已选</button>
+  return <section className="pool-compact-pane" data-pool-overview>
+    <div className="pool-compact-header">
+      <div className="pool-header-title"><h2>公海对象 <span className="pool-total" data-pool-total>{cards.length}</span></h2>
+        {selectedVisibleIds.length > 0 && <span className="pool-selected-summary" data-pool-selected-count>当前已选 {selectedVisibleIds.length} / {KOL_SELECT_MAX}</span>}</div>
+      <div className="pool-compact-toolbar" data-pool-toolbar data-home-entry="list-pool">
+        <label className="pool-search"><SearchIcon /><span className="sr-only">搜索公海对象</span>
+          <input type="search" data-pool-search value={query} placeholder="搜索公海对象" onChange={(e) => onQuery(e.target.value)} /></label>
+        <label className="pool-control"><span className="sr-only">筛选状态</span><select data-pool-filter value={filter} onChange={(e) => setFilter(e.target.value)}>
+          <option value="all">筛选</option><option value="new">未首次建联</option><option value="overdue">14天无回复</option></select></label>
+        <label className="pool-control"><span className="sr-only">排序</span><select data-pool-sort value={sort} onChange={(e) => setSort(e.target.value)}>
+          <option value="default">排序</option><option value="newest">最近入库</option><option value="followers">粉丝数</option></select></label>
+        <label className="pool-select-all" title="全选当前筛选结果"><input type="checkbox" data-pool-select-all
+          checked={allVisibleSelected} disabled={!visible.length} onChange={(e) => onToggleSelectAll(visible.map((card) => card.kol_uid), e.target.checked)} />
+          <span>全选当前</span></label>
+        <button type="button" className="pool-analyze-button" data-analyze-selected data-home-entry="kol-analyze-enqueue"
+          disabled={!selectedVisibleIds.length} onClick={() => onAnalyzeSelected(selectedVisibleIds)}>分析已选</button>
+      </div>
     </div>
     {undoAvailable && <div className="pool-claim-undo" role="status" data-pool-claim-undo>
       <span>已领取</span><span aria-hidden>·</span>

@@ -13024,3 +13024,244 @@ button.today-brief-primary-btn:disabled {
     grid-row: auto;
   }
 }
+
+/* Reference-driven public-pool density pass: a scan-first lead queue, not a set of profile cards. */
+.pool-compact-pane {
+  --pool-status-new-bg: #f3f4f6;
+  --pool-status-new-text: #666;
+  --pool-status-overdue-bg: #fff1f1;
+  --pool-status-overdue-text: #d74646;
+}
+.scope-workspace.is-result-focus .pool-compact-pane {
+  padding: var(--ds-space-4) var(--ds-space-5);
+}
+.pool-compact-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.pool-header-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: max-content;
+}
+.pool-compact-header h2 {
+  font-size: 18px;
+  line-height: 24px;
+}
+.pool-selected-summary {
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+  font-variant-numeric: tabular-nums;
+}
+.pool-compact-toolbar {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.pool-search {
+  width: clamp(176px, 20vw, 224px);
+}
+.pool-compact-toolbar input[type="search"],
+.pool-compact-toolbar select,
+.pool-analyze-button {
+  height: 32px;
+  min-height: 32px;
+  font-size: var(--ds-font-sm);
+}
+.pool-control select {
+  min-width: 76px;
+  padding-inline: 9px 26px;
+}
+.pool-select-all {
+  min-height: 32px;
+  font-size: var(--ds-font-helper);
+}
+.pool-analyze-button {
+  padding-inline: 10px;
+  font-size: var(--ds-font-helper);
+}
+.pool-compact-list {
+  border-top: 1px solid var(--border-subtle, var(--ds-border));
+}
+.pool-kol-row {
+  grid-template-columns: 16px 56px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  min-height: 112px;
+  padding: 12px 16px;
+  border-bottom-color: var(--border-subtle, var(--ds-border));
+}
+.pool-row-select {
+  align-self: start;
+  padding-top: 20px;
+}
+.pool-row-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  font-size: 18px;
+  line-height: 24px;
+}
+.pool-row-content {
+  gap: 1px;
+  padding-top: 0;
+}
+.pool-row-heading {
+  gap: 8px;
+  min-height: 22px;
+}
+.pool-row-name {
+  font-size: 15px;
+  line-height: 20px;
+}
+.pool-row-status {
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: var(--pool-status-new-bg);
+  color: var(--pool-status-new-text);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+}
+.pool-row-status[data-overdue="true"] {
+  background: var(--pool-status-overdue-bg);
+  color: var(--pool-status-overdue-text);
+  font-weight: 600;
+}
+.pool-row-meta,
+.pool-row-facts,
+.pool-row-intro {
+  font-size: 12px;
+  line-height: 18px;
+}
+.pool-row-meta,
+.pool-row-facts,
+.pool-row-metrics {
+  gap: 0 8px;
+}
+.pool-row-meta {
+  color: var(--text-secondary, var(--text-muted));
+}
+.pool-row-facts {
+  display: flex;
+  align-items: center;
+  align-self: auto;
+  justify-content: flex-start;
+  padding: 0;
+  border: 0;
+  color: var(--text-secondary, var(--text-muted));
+  white-space: nowrap;
+}
+.pool-row-metrics {
+  flex-wrap: nowrap;
+  overflow: visible;
+}
+.pool-row-metrics span,
+.pool-row-ingested {
+  gap: 3px;
+}
+.pool-row-intro {
+  color: var(--text-secondary, var(--text-muted));
+}
+.pool-row-actions {
+  display: flex;
+  grid-row: auto;
+  grid-column: auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding-top: 0;
+}
+.pool-claim-button {
+  height: 32px;
+  min-height: 32px;
+  padding: 0 11px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.pool-more-button {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+}
+@media (max-width: 1100px) {
+  .pool-compact-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .pool-compact-toolbar {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .pool-search {
+    flex: 1 1 180px;
+    width: auto;
+  }
+}
+@media (max-width: 720px) {
+  .pool-compact-toolbar {
+    flex-wrap: wrap;
+  }
+  .pool-search {
+    flex-basis: 100%;
+  }
+  .pool-kol-row {
+    grid-template-columns: 16px 48px minmax(0, 1fr);
+    gap: 10px;
+    min-height: 0;
+    padding: 12px;
+  }
+  .pool-row-avatar {
+    width: 48px;
+    height: 48px;
+  }
+  .pool-row-select {
+    padding-top: 16px;
+  }
+  .pool-row-facts {
+    flex-wrap: wrap;
+    white-space: normal;
+  }
+  .pool-row-metrics {
+    flex-wrap: wrap;
+  }
+  .pool-row-actions {
+    grid-column: 3;
+    justify-content: flex-start;
+  }
+}
+@media (max-width: 420px) {
+  .scope-workspace.is-result-focus .pool-compact-pane {
+    padding: var(--ds-space-3);
+  }
+  .pool-header-title {
+    min-width: 0;
+  }
+  .pool-compact-toolbar > :not(.pool-search) {
+    flex: 1 1 auto;
+  }
+  .pool-control select,
+  .pool-analyze-button {
+    width: 100%;
+  }
+}
+
+/* The status is the single public-sea reason, so it must scan with—not away from—the identity. */
+.pool-row-name {
+  flex: 0 1 auto;
+  max-width: min(70%, 32rem);
+}

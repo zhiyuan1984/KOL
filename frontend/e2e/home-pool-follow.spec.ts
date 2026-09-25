@@ -264,6 +264,10 @@ test("public pool uses a primary desktop list instead of a narrow result rail", 
   expect(await workspace.locator("[data-scope-task-rail]").count()).toBe(0);
   expect((await list.boundingBox())?.width).toBeGreaterThan(900);
   expect((await row.boundingBox())?.width).toBeGreaterThan(880);
+  await expect(workspace.locator("[data-pool-overview]")).not.toContainText("公开对象池");
+  expect(await workspace.locator("[data-pool-reason]").count()).toBe(0);
+  expect((await workspace.locator("[data-pool-search]").boundingBox())?.height).toBe(32);
+  expect((await workspace.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").boundingBox())?.height).toBe(32);
 });
 
 test("empty pool sync sends an explicit command and renders the refreshed public index", async ({ page }) => {
@@ -406,10 +410,14 @@ test("claim is L3 and posts confirm to /api/kols/:kolUid/claim", async ({ page }
   expect(height).toBeLessThanOrEqual(126);
   await expect(compactRow.locator("[data-public-stage]")).toHaveCount(1);
   await expect(compactRow.locator("[data-public-stage]")).toHaveText("未首次建联");
+  const nameBox = await compactRow.locator("[data-kol-name]").boundingBox();
+  const stageBox = await compactRow.locator("[data-public-stage]").boundingBox();
+  expect((stageBox?.x || 0) - ((nameBox?.x || 0) + (nameBox?.width || 0))).toBeLessThanOrEqual(12);
   await expect(compactRow.locator("[data-kol-avatar='source']")).toHaveCount(1);
+  expect((await compactRow.locator("[data-kol-avatar='source']").boundingBox())?.width).toBe(56);
   await expect(compactRow).not.toContainText("公开资料");
-  await expect(compactRow.locator("[data-pool-reason]")).toContainText("公海原因");
-  await expect(compactRow.locator("[data-pool-reason]")).toContainText("未首次建联");
+  await expect(compactRow.locator("[data-pool-reason]")).toHaveCount(0);
+  await expect(compactRow).not.toContainText("公海原因");
   await expect(compactRow).not.toContainText("领取后进入我的跟进");
   // 明确领取未建联的有主行：无主行排在前面，不能靠「第一张卡」取对象。
   await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").click();
