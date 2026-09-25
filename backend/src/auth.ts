@@ -453,9 +453,9 @@ export function requireConnector(connectorId: string, access: "read" | "write" |
   if (authDisabled()) return;
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
-  if (isAdmin(user)) return;
   const connector = getConn().prepare("SELECT enabled FROM connectors WHERE id=?").get(connectorId) as Row | undefined;
   if (!connector || !connector.enabled) throw new HttpFail(403, { code: "connector_disabled", connector_id: connectorId });
+  if (isAdmin(user)) return;
   const grant = getConn().prepare("SELECT access FROM user_connector_grants WHERE user_id=? AND connector_id=?")
     .get(user.id, connectorId) as { access: string } | undefined;
   const levels = { read: 1, write: 2, admin: 3 };
@@ -469,11 +469,13 @@ export function requireStageWrite(): void {
   if (authDisabled()) return;
   const user = scopedUser();
   if (!user) throw new HttpFail(401, "authentication required");
-  if (isAdmin(user)) return;
+  const actual = getConn().prepare("SELECT enabled FROM connectors WHERE id='starrykol'").get() as Row | undefined;
+  if (!actual?.enabled) throw new HttpFail(403, { code: "connector_disabled", connector_id: "starrykol" });
   const levels = { read: 1, write: 2, admin: 3 };
   const granted = (id: string) => {
     const connector = getConn().prepare("SELECT enabled FROM connectors WHERE id=?").get(id) as Row | undefined;
     if (!connector || !connector.enabled) return false;
+    if (isAdmin(user)) return true;
     const grant = getConn().prepare("SELECT access FROM user_connector_grants WHERE user_id=? AND connector_id=?")
       .get(user.id, id) as { access: string } | undefined;
     return Boolean(grant && levels[grant.access as keyof typeof levels] >= levels.write);

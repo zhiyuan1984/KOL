@@ -80,7 +80,7 @@ describe("Starry KOL L1 reads under approvalPolicy never", () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  it("classifies 达人库查询 and 风险扫描 as Host-backed reads", () => {
+  it("classifies 达人库查询 and 风险扫描 as L1 reads (not implicit execution grants)", () => {
     expect(STARRY_KOL_READ_TASKS).toEqual(expect.arrayContaining([
       "creator_library_query",
       "risk_scan",
@@ -109,7 +109,8 @@ describe("Starry KOL L1 reads under approvalPolicy never", () => {
     }])).toBe(true);
   });
 
-  it("Host-reads pageKolProfiles when Codex produced no starry payload", async () => {
+  it("stub fixture can synthesize pageKolProfiles output", async () => {
+    process.env.CODEX_MODE = "stub";
     const log: Json[] = [];
     const seen: Array<{ name: string; status: string }> = [];
     const items = await completeTurnItems(
@@ -136,12 +137,13 @@ describe("Starry KOL L1 reads under approvalPolicy never", () => {
     ]);
     expect(log).toContainEqual(expect.objectContaining({
       method: "mcp/starrykol",
-      params: expect.objectContaining({ task: "creator_library_query", source: "host_read" }),
+      params: expect.objectContaining({ task: "creator_library_query", source: "stub" }),
     }));
     expect(seen.some((row) => row.name === "starrykol.pageKolProfiles" && row.status === "done")).toBe(true);
   });
 
-  it("replaces an approval-never Codex card with Host pageKolProfiles data", async () => {
+  it("stub fixture can replace a blocked card with fixture data", async () => {
+    process.env.CODEX_MODE = "stub";
     const items = await completeTurnItems(
       "creator_library_query",
       { raw: "查询达人库" },
@@ -160,7 +162,8 @@ describe("Starry KOL L1 reads under approvalPolicy never", () => {
     expect(calls.map((row) => row.name)).toContain("pageKolProfiles");
   });
 
-  it("Host-reads pageRiskConversations and summarizeRiskConversations for 风险扫描", async () => {
+  it("stub fixture uses pageRiskConversations and summarizeRiskConversations", async () => {
+    process.env.CODEX_MODE = "stub";
     const items = await completeTurnItems("risk_scan", { raw: "超时/风险扫描" }, [], []);
     expect(calls.map((row) => row.name)).toEqual(["pageRiskConversations", "summarizeRiskConversations"]);
     expect(calls.map((row) => row.name).some((name) => WRITE_TOOLS.includes(name))).toBe(false);
@@ -177,6 +180,10 @@ describe("Starry KOL L1 reads under approvalPolicy never", () => {
     expect(overdue.some((row) => row.handle === "小美妆日记")).toBe(true);
   });
 
+  it.each(["creator_library_query", "risk_scan"])("real %s never bypasses the authorized runtime with Host fallback", async (skill) => {
+    await expect(completeTurnItems(skill, { raw: "读取数据" }, [], [])).rejects.toBeInstanceOf(CodexUnavailable);
+    expect(calls).toEqual([]);
+  });
   it("keeps write skills Codex-strict in real mode", async () => {
     await expect(completeTurnItems("email_compose", { raw: "写合作邮件" }, [], [])).rejects.toBeInstanceOf(CodexUnavailable);
     await expect(completeTurnItems("creator_contact_decrypt", { raw: "解密达人联系方式", entities: { kolUid: "KOLTEST001" } }, [], []))

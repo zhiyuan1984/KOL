@@ -6,6 +6,7 @@ import type { Hono } from "hono";
 import { setAgentSubmissionOverride } from "../src/contract-scope.js";
 import { resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
+import { authenticatedTestApp, seedRuntimeTestActor } from "./fixtures/runtime-auth.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 
 type Json = Record<string, unknown>;
@@ -18,7 +19,7 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "real";
-  process.env.AUTH_MODE = "disabled";
+  process.env.AUTH_MODE = "enabled";
   process.env.PATH = path.join(tmp, "emptybin");
   fs.mkdirSync(path.join(tmp, "emptybin"));
   delete process.env.CODEX_BIN;
@@ -26,7 +27,7 @@ beforeEach(async () => {
   resetConn();
   seedAll();
   const { createApp } = await import("../src/app.js");
-  app = createApp();
+  app = authenticatedTestApp(createApp(), seedRuntimeTestActor(["creator_discovery"]));
   seedWorkbenchFixtures();
 });
 

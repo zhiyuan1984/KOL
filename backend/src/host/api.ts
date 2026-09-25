@@ -112,7 +112,8 @@ import { isSafeSkillResultForMemory, persistValidatedSkillResult } from "./skill
 import { recognizeTaskIntent } from "../tasks/recognize.js";
 import { insertSessionMessage, isSessionNotFound } from "./session-messages.js";
 import { publishSession, subscribeSession } from "./session-events.js";
-import { agentSubmissionAllowed } from "../contract-scope.js";
+import { agentSubmissionAllowed, kolAgentScopeContext } from "../contract-scope.js";
+import { assertRuntimeSkill } from "../runtime/execution.js";
 import { extractTaskEntities, mergeExtractedOntoIntent } from "../tasks/resolver.js";
 import { fieldLabel } from "../labels.js";
 import { assertCollaborationInScope, inboundVisibleSql, scopedCollaborationSearch } from "./inbound-scope.js";
@@ -159,6 +160,11 @@ const progressBySession = new Map<string, (progress: WorkerProgress) => void>();
 function requireTaskAccess(skill: string): void {
   const definition = taskDefinition(skill);
   if (!definition) throw new HttpFail(400, { code: "unknown_task_type", task_type: skill });
+  if (codexMode() !== "stub") {
+    assertRuntimeSkill({ agentId: kolAgentScopeContext().agent_id, skillId: skill,
+      userId: scopedUser()?.id || "", runId: "submission" });
+    return;
+  }
   requireSkill(skill);
   for (const server of new Set(definition.mcp.map((tool) => tool.split(".", 1)[0]))) {
     if (server === "starry" || server === "claw" || server === "kolclaw" || server === "starrykol" || server === "emailmcp") requireConnector(server === "emailmcp" ? "starrykol" : server, "read");
@@ -3696,4 +3702,3 @@ host.get("/inbound/:iid/search", (c) => {
   const kols = scopedCollaborationSearch(q);
   return c.json({ inbound_id: c.req.param("iid"), kols, resumed_other_thread: false });
 });
-
