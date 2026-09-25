@@ -3180,6 +3180,7 @@ test("admin console uses a left sidebar with short labels for the current accoun
   await page.locator("[data-admin-nav='connectors']").click();
   await expect(page).toHaveURL(/\/admin\/connectors$/);
   await expect(page.locator("[data-admin-nav='connectors']")).toHaveClass(/active/);
+  await expect(page.locator("[data-runtime-connector-entry]")).toContainText("支持 MCP 与 HTTP API");
   await page.locator("[data-admin-connectors-table] a").first().click();
   await expect(page).toHaveURL(/\/admin\/connectors\//);
   await expect(page.locator("[data-admin-page='connector-detail']")).toBeVisible();

@@ -99,6 +99,19 @@ export default function AdminConsole() {
       setError(e instanceof Error ? e.message : "保存失败");
     }
   };
+  const createConnector = async (input: { id: string; label: string; credential_ref?: string }): Promise<boolean> => {
+    setError("");
+    try {
+      await api.adminSave("/api/admin/connectors", input, "POST");
+      setConnectors(await api.adminConnectors());
+      setNotice("连接器已创建；请在详情完成接入配置。");
+      load();
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "连接器未创建");
+      return false;
+    }
+  };
 
   if (!account?.available_modes?.includes("admin")) return <Navigate to="/" replace />;
   if (section === "starry") return <Navigate to="/settings?tab=starry" replace />;
@@ -167,7 +180,7 @@ export default function AdminConsole() {
         {tab === "connectors" && (
           detailId
             ? <AdminConnectorDetail connectorId={detailId} connectors={connectors} users={users} auditRows={auditRows} onSave={save} />
-            : <AdminConnectorsHub connectors={connectors} users={users} hiddenConnectors={hiddenConnectors} onSave={save} />
+            : <AdminConnectorsHub connectors={connectors} users={users} hiddenConnectors={hiddenConnectors} onSave={save} onCreate={createConnector} />
         )}
         {tab === "skills" && <SkillLifecycle />}
         {tab === "approvals" && (

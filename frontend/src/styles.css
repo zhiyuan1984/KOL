@@ -14009,3 +14009,12 @@ button.today-brief-primary-btn:disabled {
 .runtime-vault-form .btn { justify-self: start; }
 .runtime-vault-secret { grid-column: span 2; }
 @media (max-width: 760px) { .runtime-vault-form { grid-template-columns: 1fr; } .runtime-vault-secret { grid-column: auto; } }
+
+.runtime-hub-note {
+  display: grid;
+  gap: var(--space-1);
+  margin-block: var(--space-3);
+  border-inline-start: 3px solid var(--accent);
+  padding-inline-start: var(--space-3);
+}
+.runtime-hub-note strong { color: var(--accent-text); }

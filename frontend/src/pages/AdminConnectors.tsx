@@ -1,5 +1,5 @@
 import { FormEvent, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   accessFor,
   auditTouchesConnector,
@@ -19,20 +19,24 @@ import { ConnectorRuntimeSettings } from "../components/ConnectorRuntimeSettings
 import { ConnectorCredentialVault } from "../components/ConnectorCredentialVault";
 
 type SaveFn = (path: string, body: AdminRow, message: string, method?: string) => Promise<void>;
+type CreateConnectorFn = (input: { id: string; label: string; credential_ref?: string }) => Promise<boolean>;
 
 export function AdminConnectorsHub({
   connectors,
   users,
   hiddenConnectors,
   onSave,
+  onCreate,
 }: {
   connectors: AdminRow[];
   users: AdminRow[];
   hiddenConnectors: string[];
   onSave: SaveFn;
+  onCreate: CreateConnectorFn;
 }) {
   const rows = useMemo(() => connectors.map(publicConnectorView).filter((row) => row.id), [connectors]);
   const { ask, dialog } = useAdminConfirm();
+  const navigate = useNavigate();
 
   return (
     <section className="admin-govern" data-admin-page="connectors">
@@ -43,6 +47,10 @@ export function AdminConnectorsHub({
             <h2>连接器枢纽</h2>
             <p className="muted">组织现在挂了哪些连接器、是否启用、凭据是否已登记。秘密原值永不回显。</p>
           </div>
+        </div>
+        <div className="admin-note runtime-hub-note" data-runtime-connector-entry>
+          <strong>配置化接入已启用</strong>
+          <span>支持 MCP 与 HTTP API。创建或打开连接器详情后，可配置端点、凭据引用、工具审批、探针与 Skill 挂载。</span>
         </div>
         {rows.length === 0 ? (
           <p className="muted" data-admin-empty="connectors">尚未挂接</p>
@@ -84,19 +92,22 @@ export function AdminConnectorsHub({
         onSubmit={(e) => {
           e.preventDefault();
           const d = new FormData(e.currentTarget);
-          void onSave("/api/admin/connectors", {
-            id: d.get("id"),
-            label: d.get("label"),
-            credential_ref: d.get("credential_ref"),
-          }, "连接器已创建", "POST");
-          e.currentTarget.reset();
+          const id = String(d.get("id") || "").trim();
+          const label = String(d.get("label") || "").trim();
+          const credentialRef = String(d.get("credential_ref") || "").trim();
+          void onCreate({ id, label, ...(credentialRef ? { credential_ref: credentialRef } : {}) }).then((created) => {
+            if (!created) return;
+            e.currentTarget.reset();
+            navigate(`/admin/connectors/${encodeURIComponent(id)}`);
+          });
         }}
       >
-        <h2>新增连接器</h2>
+        <h2>新增配置化连接器</h2>
+        <p className="muted">创建后会自动进入详情，继续配置 MCP 或 HTTP API、探针、工具审批与 Skill 挂载。</p>
         <label className="field">显示名<input name="label" required /></label>
         <label className="field">短名称<input name="id" pattern="[a-z0-9_-]+" required placeholder="仅英文小写，创建后员工看不到" /></label>
         <label className="field">凭据位置<input name="credential_ref" placeholder="选填，位置不是原值，提交后不回显" autoComplete="off" /></label>
-        <button className="btn work">创建</button>
+        <button className="btn work">创建并进入配置</button>
       </form>
     </section>
   );
