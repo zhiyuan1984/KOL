@@ -30,6 +30,7 @@ export function ConfirmDialog({
   consequence,
   approvalState,
   ruleVersion,
+  mailBody,
   confirmLabel,
   cancelLabel = ADMIN_CANCEL_LABEL,
   cancelHint,
@@ -117,6 +118,12 @@ export function ConfirmDialog({
             </div>
           ) : null}
         </dl>
+        {mailBody !== undefined ? (
+          <section data-mail-confirm-snapshot>
+            <h3>本次发送正文</h3>
+            <pre className="mail-body-text" data-mail-confirm-body style={{ maxHeight: "min(34vh, 24rem)", overflowY: "auto" }}>{mailBody}</pre>
+          </section>
+        ) : null}
         {requireReason ? (
           <label className="admin-confirm-reason field">
             {reasonLabel}
@@ -192,6 +199,7 @@ export function useAdminConfirm(): { ask: AskAdminConfirm; dialog: ReactNode; op
       consequence={pending?.consequence || ""}
       approvalState={pending?.approvalState}
       ruleVersion={pending?.ruleVersion}
+      mailBody={pending?.mailBody}
       confirmLabel={pending?.confirmLabel || "确认"}
       cancelLabel={pending?.cancelLabel}
       cancelHint={pending?.cancelHint}

@@ -228,6 +228,9 @@ const APPROVAL_STATUS: Record<string, string> = {
 };
 
 const DRAFT_STATUS: Record<string, string> = {
+  sending: "发送中",
+  send_unknown: "发送结果待核实",
+  send_failed: "发送失败",
   draft: "草稿",
   sent: "已发送",
   queued: "排队中",

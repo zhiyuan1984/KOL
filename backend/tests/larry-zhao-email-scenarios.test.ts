@@ -1,3 +1,4 @@
+import { withMailSendAuthority } from "../src/gateway/mail-authority.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -216,14 +217,14 @@ describe("MCP compose with From locked to larry.zhao", () => {
     expect(preview.data).toMatchObject({ sent: false, conversationId: 101 });
 
     calls.length = 0;
-    const sent = await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-02")?.entities || {});
+    const sent = await withMailSendAuthority("adapter-LZ-OUT-MCP-02", "confirmed-LZ-OUT-MCP-02", () => executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-02")?.entities || {}));
     expect(calls.map((item) => item.name)).toEqual(["sendEmailNow"]);
     expect(sent.data).toMatchObject({ sent: true, conversationId: 101 });
     expect(JSON.stringify(calls)).not.toContain("henry.wei@amperetime.com");
   });
 
   it("keeps multi-to connectivity mail on larry.zhao", async () => {
-    const sent = await executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-04")?.entities || {});
+    const sent = await withMailSendAuthority("adapter-LZ-OUT-MCP-04", "confirmed-LZ-OUT-MCP-04", () => executeEmailMcpTask("email_compose", fixture.outbound_mcp.find((row) => row.id === "LZ-OUT-MCP-04")?.entities || {}));
     expect(JSON.parse(String(calls.find((row) => row.name === "createEmailConversation")?.args.requestJson))).toMatchObject({
       mailboxEmail: LARRY_ZHAO_MAILBOX,
       recipientEmail: "qiyou1984@gmail.com",

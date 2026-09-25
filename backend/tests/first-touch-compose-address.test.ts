@@ -1,3 +1,4 @@
+import { withMailSendAuthority } from "../src/gateway/mail-authority.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -1317,7 +1318,7 @@ describe("compose never asks first-touch for a conversation id", () => {
     expect(card?.recommended_actions).toEqual(["再写一封", "查看邮件会话"]);
   });
 
-  it("sends the last preview when the operator only replies 确认发送", async () => {
+  it("sends the last preview only inside the confirmed gateway authority", async () => {
     const preview = await executeEmailMcpTask("email_compose", {
       ...extractTaskEntities(OPERATOR),
       prompt: OPERATOR,
@@ -1332,10 +1333,10 @@ describe("compose never asks first-touch for a conversation id", () => {
     });
     expect(String(followup.body || "")).toContain("Preview");
     calls.length = 0;
-    const sent = await executeEmailMcpTask("email_compose", {
+    const sent = await withMailSendAuthority("adapter-first-touch", "adapter-confirmed-first-touch", () => executeEmailMcpTask("email_compose", {
       ...extractTaskEntities("确认发送"),
       ...followup,
-    });
+    }));
     expect(calls.map((row) => row.name)).toEqual(["sendEmailNow"]);
     expect(JSON.parse(String(calls[0].args.requestJson))).toMatchObject({
       recipientEmail: QQ,
