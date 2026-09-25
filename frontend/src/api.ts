@@ -93,6 +93,7 @@ export type CronJob = {
   last_terminal_status?: string | null;
   system?: boolean;
   legal_fields_readonly?: boolean;
+  schedule?: Record<string, unknown>;
 };
 
 export type CronRun = {
@@ -1377,6 +1378,8 @@ export const api = {
   },
   cron: () => request<Record<string, unknown>>("/api/cron/risks"),
   cronJobs: () => request<{ jobs: CronJob[]; alerts?: CronAlerts }>("/api/cron/jobs"),
+  createCronJob: (body: Record<string, unknown>) =>
+    request<CronJob>("/api/cron/jobs", { method: "POST", body: JSON.stringify(body) }),
   cronJob: (id: string) =>
     request<{ job: CronJob; runs: CronRun[] }>(`/api/cron/jobs/${encodeURIComponent(id)}`),
   patchCronJob: (id: string, body: Record<string, unknown>) =>
@@ -1385,7 +1388,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   runCronJob: (id: string) =>
-    request<{ run_id: string; session_id?: string }>(`/api/cron/jobs/${encodeURIComponent(id)}/run`, {
+    request<{ run_id: string; session_id?: string; run?: CronRun; job?: CronJob }>(`/api/cron/jobs/${encodeURIComponent(id)}/run`, {
       method: "POST",
       body: JSON.stringify({}),
     }),

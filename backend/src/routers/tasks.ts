@@ -764,6 +764,9 @@ tasks.post("/tasks/from-text", async (c) => {
     });
   }
   const declaredDefinition = taskDefinition(String(resolution.task_type || ""));
+  if (body.source === "schedule" && declaredDefinition?.side_effects === "write") {
+    throw new HttpFail(409, { code: "schedule_requires_presence", message: "此技能不可无人在场自动执行" });
+  }
   if (declaredDefinition?.input_schema?.length && resolution.needs_clarification) {
     const issueFields = [...new Set([
       ...resolution.missing_fields,
