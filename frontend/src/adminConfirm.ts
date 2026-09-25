@@ -12,6 +12,7 @@ export type AdminConfirmCopy = {
   change?: string;
   approvalState?: string;
   ruleVersion?: string;
+  mailBody?: string;
   confirmLabel: string;
   cancelLabel?: string;
   cancelHint?: string;
@@ -368,7 +369,7 @@ export function approvalInitiateConfirm(input: {
   };
 }
 
-export function draftSendConfirm(input: { from?: string; to?: string; subject?: string }): AdminConfirmCopy {
+export function draftSendConfirm(input: { from?: string; to?: string; cc?: string; subject?: string; body?: string }): AdminConfirmCopy {
   const from = String(input.from || "").trim() || "未指定发件邮箱";
   const to = String(input.to || "").trim() || "未指定收件邮箱";
   const subject = String(input.subject || "").trim() || "无主题";
@@ -376,8 +377,9 @@ export function draftSendConfirm(input: { from?: string; to?: string; subject?: 
     kind: "draft-send",
     title: "确认发送原文",
     object: `${from} → ${to} · ${subject}`,
-    scope: "外发 SMTP · 英文原文（内部中文不发送）",
-    consequence: "确认后将真正发出这封信。发送不等于推进阶段，正式 stage_code 保持不变。失败会留在本卡，不会假装已发送。",
+    scope: `外发 SMTP · 英文原文（内部中文不发送）${input.cc ? ` · 抄送：${input.cc}` : " · 无抄送"}`,
+    mailBody: input.body,
+    consequence: "确认后将真正发出以下版本的邮件。发送不会推进正式阶段；若回执不确定，将停止重复发送并提示核对。",
     confirmLabel: "确认发送",
     confirmTone: "work",
   };

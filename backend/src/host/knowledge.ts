@@ -140,6 +140,7 @@ export function publicKnowledge(row: Row, userId = knowledgeActorId()): Json {
     stage_codes: parseJsonArray(row.stage_codes),
     status: row.status || "draft",
     current_version: Number(row.current_version || 1),
+    published_version: row.published_version == null ? null : Number(row.published_version),
     created_by: row.created_by || "",
     approved_by: row.approved_by || "",
     approved_at: row.approved_at || "",
@@ -219,11 +220,17 @@ export function composerItems(userId = knowledgeActorId(), brands = actorBrands(
        ORDER BY k.title`,
     )
     .all(userId, userId) as Row[];
-  return rows.filter((row) => brandMatched(row, brands)).map((row) => ({
-    ...publicKnowledge(row, userId),
-    intent: row.skill_id,
-    starter: composerStarter(row),
-  }));
+  return rows.flatMap((row) => {
+    try {
+      assertMailTemplateSnapshotApplicable({ knowledgeId: String(row.id), version: Number(row.published_version || 0), userId, brands });
+      const snapshot = publishedSnapshot(row);
+      const published = { ...row, ...snapshot, id: row.id, current_version: snapshot.version };
+      return [{ ...publicKnowledge(published, userId), intent: snapshot.skill_id, starter: composerStarter(snapshot) }];
+    } catch (error) {
+      if (error instanceof HttpFail) return [];
+      throw error;
+    }
+  });
 }
 
 export function composerStarter(row: Row): string {
@@ -349,6 +356,7 @@ export function createKnowledge(input: UpsertInput, actor = knowledgeActorId()):
     stage_codes: placeholdersJson(input.stage_codes),
     status: normalizeStatus(input.status, "draft"),
     current_version: 1,
+    published_version: normalizeStatus(input.status, "draft") === "published" ? 1 : null,
     created_by: actor,
     approved_by: "",
     approved_at: "",
@@ -362,11 +370,11 @@ export function createKnowledge(input: UpsertInput, actor = knowledgeActorId()):
   tx((db) => {
     db.prepare(
       `INSERT INTO knowledge
-       (id,title,body,tags,in_market,kind,skill_id,brand,lang,subject,body_en,placeholders,stage_codes,status,current_version,created_by,approved_by,approved_at,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       (id,title,body,tags,in_market,kind,skill_id,brand,lang,subject,body_en,placeholders,stage_codes,status,current_version,published_version,created_by,approved_by,approved_at,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     ).run(
       row.id, row.title, row.body, row.tags, row.in_market, row.kind, row.skill_id, row.brand, row.lang,
-      row.subject, row.body_en, row.placeholders, row.stage_codes, row.status, row.current_version,
+      row.subject, row.body_en, row.placeholders, row.stage_codes, row.status, row.current_version, row.published_version,
       row.created_by, row.approved_by, row.approved_at, row.created_at, row.updated_at,
     );
     writeVersion(db, row, "create", actor);
@@ -375,7 +383,7 @@ export function createKnowledge(input: UpsertInput, actor = knowledgeActorId()):
   return publicKnowledge(knowledgeRow(id), actor);
 }
 
-export function editKnowledge(id: string, input: UpsertInput, actor = knowledgeActorId()): Json {
+export function editKnowledge(id: string, input: Partial<UpsertInput>, actor = knowledgeActorId()): Json {
   requireAdmin();
   const prev = knowledgeRow(id);
   const now = nowIso();
@@ -418,8 +426,8 @@ export function approveKnowledge(id: string, actor = knowledgeActorId()): Json {
   const version = Number(row.current_version || 1);
   tx((db) => {
     db.prepare(
-      "UPDATE knowledge SET status='published',approved_by=?,approved_at=?,updated_at=? WHERE id=?",
-    ).run(actor, now, now, id);
+      "UPDATE knowledge SET status='published',published_version=?,approved_by=?,approved_at=?,updated_at=? WHERE id=?",
+    ).run(version, actor, now, now, id);
     const published = { ...row, status: "published", approved_by: actor, approved_at: now, current_version: version };
     writeVersion(db, published, "approve", actor);
   });
@@ -809,11 +817,101 @@ export type UsableTemplate = {
   template_id: string;
 };
 
+function publishedSnapshot(row: Row, version?: number | null): Row {
+  const requested = version == null ? Number(row.published_version || 0) : Number(version);
+  if (!Number.isInteger(requested) || requested < 1) {
+    throw new HttpFail(403, { code: "knowledge_publish_pending", message: "知识没有可用的已发布版本" });
+  }
+  const snapshot = getConn().prepare(
+    `SELECT * FROM knowledge_versions
+      WHERE knowledge_id=? AND version=?
+        AND status='published'
+        AND (note='approve' OR note='create' OR note LIKE 'seed %')`,
+  ).get(row.id, requested) as Row | undefined;
+  if (!snapshot) {
+    throw new HttpFail(403, { code: "knowledge_publish_pending", message: "知识没有可用的已发布版本" });
+  }
+  return snapshot;
+}
+
+function templateFromSnapshot(row: Row, snapshot: Row): UsableTemplate {
+  const skill = String(snapshot.skill_id || "");
+  const stageCodes = parseJsonArray(snapshot.stage_codes);
+  const templateId = skill === "email_compose" || !skill
+    ? pickComposeTemplate("email_compose", stageCodes[0] || null, String(snapshot.title || "")).id
+    : `${skill}.v1`;
+  return {
+    id: String(row.id),
+    version: Number(snapshot.version),
+    kind: String(snapshot.kind || "policy"),
+    skill_id: skill,
+    brand: String(snapshot.brand || "*"),
+    subject: String(snapshot.subject || ""),
+    body_en: String(snapshot.body_en || ""),
+    body: String(snapshot.body || ""),
+    placeholders: parseJsonArray(snapshot.placeholders),
+    stage_codes: stageCodes,
+    title: String(snapshot.title || ""),
+    template_id: templateId,
+  };
+}
+
+export function assertMailTemplateSnapshotApplicable(opts: {
+  knowledgeId: string;
+  version: number;
+  skillId?: string | null;
+  stageCode?: string | null;
+  brand?: string | null;
+  userId?: string;
+  brands?: string[];
+}): UsableTemplate {
+  const userId = opts.userId || knowledgeActorId();
+  const brands = opts.brands || actorBrands();
+  const row = getConn().prepare("SELECT * FROM knowledge WHERE id=?").get(opts.knowledgeId) as Row | undefined;
+  if (!row) throw new HttpFail(404, { code: "knowledge_missing", message: "知识不存在" });
+  if (String(row.status) !== "published") {
+    throw new HttpFail(403, { code: "knowledge_unapproved", message: "未审批或已归档知识不能进入会话或发送" });
+  }
+  if (Number(row.in_market) !== 1) {
+    throw new HttpFail(403, { code: "knowledge_disabled", message: "已停用知识不能进入会话或发送" });
+  }
+  const cited = getConn().prepare(
+    "SELECT 1 FROM knowledge_citations WHERE user_id=? AND knowledge_id=?",
+  ).get(userId, opts.knowledgeId);
+  if (!cited) throw new HttpFail(403, { code: "knowledge_uncited", message: "未启用知识不能进入会话或发送" });
+  const dep = getConn().prepare(
+    "SELECT 1 FROM knowledge_deprecations WHERE user_id=? AND knowledge_id=?",
+  ).get(userId, opts.knowledgeId);
+  if (dep) throw new HttpFail(403, { code: "knowledge_deprecated", message: "已隐藏知识不能进入会话或发送" });
+  const template = templateFromSnapshot(row, publishedSnapshot(row, opts.version));
+  if (template.kind !== "mail_template") {
+    throw new HttpFail(403, { code: "knowledge_kind", message: "知识不是邮件模板" });
+  }
+  if (opts.skillId && template.skill_id !== String(opts.skillId)) {
+    throw new HttpFail(403, { code: "knowledge_skill", message: "知识模板不适用于当前技能" });
+  }
+  if (!brandMatched({ brand: template.brand }, brands)) {
+    throw new HttpFail(403, { code: "knowledge_brand", message: "知识品牌与当前账号不匹配" });
+  }
+  const brand = String(opts.brand || "").trim();
+  if (brand && template.brand !== "*" && template.brand !== brand) {
+    throw new HttpFail(403, { code: "knowledge_brand", message: "知识模板不适用于当前对象品牌" });
+  }
+  const stage = String(opts.stageCode || "").trim();
+  if (stage && template.stage_codes.length && !template.stage_codes.includes(stage)) {
+    throw new HttpFail(403, { code: "knowledge_stage", message: "知识模板不适用于当前正式阶段" });
+  }
+  return template;
+}
+
 export function assertUsableKnowledge(knowledgeId: string, userId = knowledgeActorId(), brands = actorBrands()): UsableTemplate {
   const row = getConn().prepare("SELECT * FROM knowledge WHERE id=?").get(knowledgeId) as Row | undefined;
   if (!row) throw new HttpFail(404, { code: "knowledge_missing", message: "知识不存在" });
   if (String(row.status) !== "published") {
     throw new HttpFail(403, { code: "knowledge_unapproved", message: "未审批知识不能进入会话或 Worker" });
+  }
+  if (Number(row.in_market) !== 1) {
+    throw new HttpFail(403, { code: "knowledge_disabled", message: "已停用知识不能进入会话或 Worker" });
   }
   const cited = getConn().prepare(
     "SELECT 1 FROM knowledge_citations WHERE user_id=? AND knowledge_id=?",
@@ -826,25 +924,7 @@ export function assertUsableKnowledge(knowledgeId: string, userId = knowledgeAct
   if (!brandMatched(row, brands)) {
     throw new HttpFail(403, { code: "knowledge_brand", message: "知识品牌与当前账号不匹配" });
   }
-  const skill = String(row.skill_id || "");
-  const stageCodes = parseJsonArray(row.stage_codes);
-  const templateId = skill === "email_compose" || !skill
-    ? pickComposeTemplate("email_compose", stageCodes[0] || null, String(row.title || "")).id
-    : `${skill}.v1`;
-  return {
-    id: String(row.id),
-    version: Number(row.current_version || 1),
-    kind: String(row.kind || "policy"),
-    skill_id: skill,
-    brand: String(row.brand || "*"),
-    subject: String(row.subject || ""),
-    body_en: String(row.body_en || ""),
-    body: String(row.body || ""),
-    placeholders: parseJsonArray(row.placeholders),
-    stage_codes: stageCodes,
-    title: String(row.title || ""),
-    template_id: templateId,
-  };
+  return templateFromSnapshot(row, publishedSnapshot(row));
 }
 
 export function mailTemplatePayload(template: UsableTemplate): Json {
@@ -885,6 +965,60 @@ export function resolveMailTemplate(opts: {
     : rows;
   const pick = staged[0];
   return pick ? assertUsableKnowledge(String(pick.id), userId, brands) : null;
+}
+
+export function resolveApplicableMailTemplates(opts: {
+  knowledgeId?: string | null;
+  stageCode?: string | null;
+  brand?: string | null;
+  skillId?: string | null;
+  userId?: string;
+  brands?: string[];
+}): UsableTemplate[] {
+  const userId = opts.userId || knowledgeActorId();
+  const brands = opts.brands || actorBrands();
+  const skill = String(opts.skillId || "email_compose");
+  if (skill !== "email_compose") return [];
+  const stage = String(opts.stageCode || "").trim();
+  const brand = String(opts.brand || "").trim();
+  const requested = String(opts.knowledgeId || "").trim();
+  const rows = requested
+    ? [getConn().prepare("SELECT * FROM knowledge WHERE id=?").get(requested) as Row | undefined].filter(Boolean) as Row[]
+    : getConn().prepare(
+      `SELECT k.* FROM knowledge k
+        JOIN knowledge_citations c ON c.knowledge_id=k.id AND c.user_id=?
+       WHERE k.status='published' AND k.kind='mail_template'
+         AND NOT EXISTS (
+           SELECT 1 FROM knowledge_deprecations d
+            WHERE d.knowledge_id=k.id AND d.user_id=?
+         )`,
+    ).all(userId, userId) as Row[];
+  const templates: UsableTemplate[] = [];
+  for (const row of rows) {
+    try {
+      const template = assertMailTemplateSnapshotApplicable({
+        knowledgeId: String(row.id),
+        version: Number(row.published_version || 0),
+        skillId: skill,
+        stageCode: stage || null,
+        brand: brand || null,
+        userId,
+        brands,
+      });
+      templates.push(template);
+    } catch (error) {
+      if (requested) throw error;
+    }
+  }
+  return templates.sort((left, right) => {
+    const rank = (template: UsableTemplate) => [
+      template.brand === brand ? 0 : 1,
+      template.stage_codes.includes(stage) ? 0 : 1,
+    ];
+    const [leftBrand, leftStage] = rank(left);
+    const [rightBrand, rightStage] = rank(right);
+    return leftBrand - rightBrand || leftStage - rightStage || left.id.localeCompare(right.id);
+  });
 }
 
 export function leftoverPlaceholders(text: string): string[] {
@@ -1073,8 +1207,8 @@ export function seedKnowledge(conn = getConn()): void {
 
   const upsert = conn.prepare(
     `INSERT OR REPLACE INTO knowledge
-     (id,title,body,tags,in_market,kind,skill_id,brand,lang,subject,body_en,placeholders,stage_codes,status,current_version,created_by,approved_by,approved_at,created_at,updated_at)
-     VALUES (?,?,?,?,1,?,?,?, 'en', ?,?,?,?,'published',1,?,?,?,?,?)`,
+     (id,title,body,tags,in_market,kind,skill_id,brand,lang,subject,body_en,placeholders,stage_codes,status,current_version,published_version,created_by,approved_by,approved_at,created_at,updated_at)
+     VALUES (?,?,?,?,1,?,?,?, 'en', ?,?,?,?,'published',1,1,?,?,?,?,?)`,
   );
   const hasVersion = conn.prepare("SELECT 1 FROM knowledge_versions WHERE knowledge_id=? AND version=1");
   const insVer = conn.prepare(

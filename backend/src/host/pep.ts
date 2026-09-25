@@ -128,7 +128,7 @@ function ccOk(cc: string): boolean {
     .some((p) => p.includes("@"));
 }
 
-export function enforceSend(draft: Row, user?: Persona | null, ccOverride?: string | null): Json {
+export function enforceSend(draft: Row, user?: Persona | null, ccOverride?: string | null, options: { readOnly?: boolean } = {}): Json {
   const u = user || currentUser();
   if (!u.exam_passed) {
     throw new PepFail("blocked_exam", 403, "学习考试未通过：数据安全与最小权限。未发送。", "打开「学习考试」通过后再试");
@@ -155,7 +155,7 @@ export function enforceSend(draft: Row, user?: Persona | null, ccOverride?: stri
       | undefined;
     const bound = String(row?.email || "").trim();
     if (row && !bound) {
-      getConn().prepare("UPDATE collaborations SET email=? WHERE id=?").run(toAddr, draft.collaboration_id);
+      if (!options.readOnly) getConn().prepare("UPDATE collaborations SET email=? WHERE id=?").run(toAddr, draft.collaboration_id);
     } else if (row && bound.toLowerCase() !== toAddr.toLowerCase()) {
       throw new PepFail("blocked_permission", 403, "To 必须是已绑定合作邮箱。未发送。", "回到该合作重开草稿");
     }

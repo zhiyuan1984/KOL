@@ -55,6 +55,9 @@ function taskInput(body: Json): Json {
     ...(body.model_tier ? { model_tier: body.model_tier } : {}),
     ...(body.collaboration_id ? { collaboration_id: body.collaboration_id } : {}),
     ...(body.knowledge_id ? { knowledge_id: body.knowledge_id } : {}),
+    ...(body.compose_input && typeof body.compose_input === "object" && !Array.isArray(body.compose_input)
+      ? { compose_input: body.compose_input }
+      : {}),
     ...((body.prompt || body.text) ? { prompt: String(body.prompt || body.text) } : {}),
   };
 }
@@ -848,7 +851,13 @@ tasks.post("/tasks/:id/run", async (c) => {
   requireSkill(definition.id);
   const body = await c.req.json().catch(() => ({})) as Json;
   const storedInput = parseJson(item.input) as Json;
-  const runInput = { ...storedInput, ...((body.input as Json) || {}) };
+  const runInput = {
+    ...storedInput,
+    ...((body.input as Json) || {}),
+    ...(body.compose_input && typeof body.compose_input === "object" && !Array.isArray(body.compose_input)
+      ? { compose_input: body.compose_input }
+      : {}),
+  };
   const runText = String(body.text || storedInput.prompt || item.title);
   const resolution = resolveTaskIntent({
     text: runText,

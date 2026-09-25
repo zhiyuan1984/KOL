@@ -117,6 +117,7 @@ import {
 import { usePlanScope } from "../home/usePlanScope";
 import { fetchTodayTasks, fetchTodoTasks } from "../home/todayTasksApi";
 import { findDuplicateTodo, recommendationIdentity } from "../home/todoDedupe";
+import { useMailComposeFlow } from "../hooks/useMailComposeFlow";
 import {
   HOME_CONFIRM_STAGE_BLOCKED_COPY,
   HOME_OPENED_EXISTING_SESSION_COPY,
@@ -304,6 +305,21 @@ export default function Home() {
   const [composerChips, setComposerChips] = useState<ComposerDraftChip[]>([]);
   const [analyzePeople, setAnalyzePeople] = useState<string[]>([]);
   const [enqueueNotice, setEnqueueNotice] = useState("");
+  const mailCompose = useMailComposeFlow({
+    onApplyBody: setText,
+    onPrepared: (response) => {
+      if (!response.template) return;
+      setLockedIntent("email_compose");
+      setLockedLabel("写合作邮件");
+      setLockedKnowledgeId(response.template.knowledge_id);
+      setLockedTemplate({
+        id: response.template.knowledge_id,
+        title: response.template.title,
+        subject: response.editor?.subject || "",
+        body_en: response.editor?.body || "",
+      });
+    },
+  });
   const applyLockedKnowledge = (
     row: (Pick<KnowledgeRow, "id" | "title"> & {
       skill_id?: string;
@@ -321,8 +337,7 @@ export default function Home() {
     setLockedKnowledgeId(row.id);
     setLockedTemplate(lockedTemplateFromRow(row));
     const skill = row.skill_id || row.intent || null;
-    const keepWriteMail = lockedLabel === "写合作邮件" || text.includes("写合作邮件");
-    if (keepWriteMail && (skill === "email_compose" || !skill)) {
+    if (lockedIntent === "email_compose" && (skill === "email_compose" || !skill)) {
       setLockedIntent("email_compose");
       setLockedLabel("写合作邮件");
       return;
@@ -334,6 +349,7 @@ export default function Home() {
     setLockedIntent(null);
     setLockedLabel(null);
     applyLockedKnowledge(null);
+    mailCompose.clear();
   };
 
   const clearDiscoveryLock = () => {
@@ -463,6 +479,24 @@ export default function Home() {
     setDiscoveryBrief(merged);
     // 正文是条件卡的另一半：改正文，卡片跟着走。
     setDiscoveryFormBrief(merged);
+  };
+
+  const onPickComposerSkill = (skill: import("../components/ComposerDock").SkillOption, ctx: { mention: string; rest: string; collaborationId?: string }) => {
+    setLockedIntent(skill.id);
+    setLockedLabel(skill.title || skill.label || skill.id);
+    if (skill.id !== "email_compose") {
+      mailCompose.clear();
+      return;
+    }
+    const collaboration = objectRefs.find((ref) => ref.kind === "collaboration");
+    const kol = objectRefs.find((ref) => ref.kind === "kol");
+    void mailCompose.prepare({
+      body: ctx.rest,
+      collaboration_id: ctx.collaborationId || collaboration?.id,
+      handle: kol?.id,
+      knowledge_id: lockedKnowledgeId || undefined,
+      object_refs: objectRefs,
+    });
   };
 
   const submitDiscovery = async (brief: DiscoveryBrief, body: string, version: string) => {
@@ -1177,7 +1211,9 @@ export default function Home() {
   const onComposer = async (p: ComposerSubmit) => {
     const prompt = p.text.trim();
     const skillFromScope = p.scope?.skills?.[0];
-    const intent = lockedIntent || skillFromScope || p.intent;
+    const intent = p.intent === "email_compose" || mailCompose.active
+      ? "email_compose"
+      : (lockedIntent || skillFromScope || p.intent);
     const selectedDefinition = intent ? definitions.find((definition) => definition.id === intent) : undefined;
     const submittedSchemaFields = Array.isArray(selectedDefinition?.input_schema)
       ? selectedDefinition.input_schema as SkillParamField[] : [];
@@ -1190,10 +1226,10 @@ export default function Home() {
       setLockedIntent(selectedDefinition.id);
       setLockedLabel(selectedDefinition.title);
     }
-    // Submission transfers the draft into task intake. Clear the editor at the
-    // click boundary so the running task gets the vertical space, regardless
-    // of which intake route handles it next.
-    setText("");
+    // A mail draft is authored content. Keep it in place until task intake and
+    // run both accept it, so a validation or transport failure can never lose
+    // the user's body or subject.
+    if (intent !== "email_compose") setText("");
     if (intent === "creator_daily_tasks") {
       window.dispatchEvent(new Event(TODAY_PLAN_START_EVENT));
       return;
@@ -1246,7 +1282,7 @@ export default function Home() {
       await submitDiscovery(brief, prompt, discoveryVersion);
       return;
     }
-    const knowledgeId = lockedKnowledgeId || p.knowledge_id;
+    const knowledgeId = p.knowledge_id || lockedKnowledgeId || undefined;
     lastComposer.current = { ...p, text: intakeText, knowledge_id: knowledgeId };
     setBusy(true);
     setIntakeRunning(true);
@@ -1256,6 +1292,7 @@ export default function Home() {
     setQueuedNotice("");
     rememberJourney({ kind: "compose", skillId: intent || undefined, skillLabel: lockedLabel || undefined });
     try {
+      if (intent === "email_compose") mailCompose.markSubmitting();
       const analyzeUidsNow = analyzeUids.length ? analyzeUids : selectedKolIds;
       if ((analyzeSurface || isAnalyzePrefill(prompt)) && analyzeUidsNow.length) {
         const queued = await enqueueKolAnalyze({
@@ -1314,6 +1351,7 @@ export default function Home() {
         scope: p.scope,
         object_refs: p.object_refs,
         client_entry: p.client_entry,
+        compose_input: p.compose_input,
       });
       if (intakeCancelled.current) {
         setBusy(false);
@@ -1372,18 +1410,34 @@ export default function Home() {
             title: candidate.title || candidate.task_type || "候选任务",
           })) || [],
         });
+        if (intent === "email_compose") {
+          mailCompose.markFailed(recognized.clarification || recognized.message || "邮件草稿尚缺少必要上下文，已保留编辑内容。");
+        }
         setBusy(false);
         setIntakeRunning(false);
         return;
       }
       const created = recognized.task;
       prependTask(created);
-      clearLockedMail();
-      const run = await api.runTask(created.id);
+      const run = await api.runTask(created.id, {
+        intent,
+        knowledge_id: knowledgeId,
+        scope: p.scope,
+        object_refs: p.object_refs,
+        compose_input: p.compose_input,
+      });
       setIntakeRunning(false);
       if (intakeCancelled.current) return;
+      if (intent === "email_compose") setText("");
+      clearLockedMail();
       openRun(run);
     } catch (error) {
+      if (intent === "email_compose") {
+        setText(intakeText);
+        setLockedIntent("email_compose");
+        setLockedLabel("写合作邮件");
+        mailCompose.markFailed(error instanceof Error ? error.message : "提交失败，已保留邮件草稿。");
+      }
       setErr(error instanceof Error ? error.message : String(error));
       setBusy(false);
       setIntakeRunning(false);
@@ -1852,6 +1906,12 @@ export default function Home() {
         entryIntent={entryIntent}
         objectRefs={objectRefs}
         onObjectRefsChange={setObjectRefs}
+        onPickSkill={onPickComposerSkill}
+        mailCompose={mailCompose}
+        onMailBodyEdit={mailCompose.markEdited}
+        onSkillRemoved={(skillId) => {
+          if (skillId === "email_compose") clearLockedMail();
+        }}
       />
     </div>
   );
@@ -2009,6 +2069,10 @@ export default function Home() {
                   libraryCount={libraryCount}
                   syncBusy={poolWorkspace.syncBusy}
                   syncError={poolWorkspace.syncError}
+                  maintenanceBusy={poolWorkspace.maintenanceBusy}
+                  maintenanceNotice={poolWorkspace.maintenanceNotice}
+                  maintenanceError={poolWorkspace.maintenanceError}
+                  cleanupPreview={poolWorkspace.cleanupPreview}
                   claimBusyId={poolWorkspace.claimBusy && poolWorkspace.claimTarget ? poolWorkspace.claimTarget.kol_uid : null}
                   claimTarget={poolWorkspace.claimTarget}
                   claimError={poolWorkspace.claimError}
@@ -2020,6 +2084,11 @@ export default function Home() {
                   onToggleSelect={toggleSelectedPool}
                   onToggleSelectAll={toggleSelectAllPool}
                   onSyncLibrary={() => void poolWorkspace.syncLibrary()}
+                  onEnrichAvatars={() => void poolWorkspace.enrichAvatars()}
+                  onAssessWithJev={() => void poolWorkspace.assessWithJev()}
+                  onRequestCleanupPreview={() => void poolWorkspace.requestCleanupPreview()}
+                  onConfirmCleanup={() => void poolWorkspace.confirmCleanup()}
+                  onCancelCleanup={poolWorkspace.cancelCleanup}
                   onAnalyzeSelected={(selectedIds) => {
                     const selected = poolWorkspace.cards.filter((card) => selectedIds.includes(card.kol_uid));
                     prefillAnalyze("pool", selected, selected.map((card) => card.kol_uid));

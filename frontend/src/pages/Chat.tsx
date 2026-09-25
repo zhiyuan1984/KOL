@@ -15,7 +15,7 @@ import {
 import { ChatThread, clearComposerDraft, clearPending, employeeProcessLabel, resultCardsFromMessages, takeComposerDraft, takePending, useSessionMessages, type ComposerDraft } from "../components/ChatBlocks";
 import ComposerDock, { type ComposerSubmit, type ComposerSuggestion, type SkillOption } from "../components/ComposerDock";
 import { peekComposerDraft, takeComposerDraftStash } from "../composer/draft";
-import type { ComposerEntryIntent } from "../composer/types";
+import type { ComposerEntryIntent, ComposerObjectRef } from "../composer/types";
 import Markdown from "../components/Markdown";
 import AgentTaskList, { readTaskListWidth } from "../components/AgentTaskList";
 import SideWorkbench from "../components/SideWorkbench";
@@ -31,6 +31,7 @@ import { friendlyError, missingFieldsMessage } from "../labels";
 import { readBoundExpert } from "../experts";
 import { todayTaskOriginLabel } from "../home/modes";
 import type { SessionMailRow } from "../components/AgentTaskList";
+import { useMailComposeFlow } from "../hooks/useMailComposeFlow";
 
 type RecommendedAction = {
   label?: string;
@@ -466,7 +467,6 @@ export default function Chat() {
   const [blockSubmit, setBlockSubmit] = useState(false);
   const [submitErr, setSubmitErr] = useState("");
   const [pending, setPending] = useState(false);
-  const [previewing, setPreviewing] = useState(false);
   const [task, setTask] = useState<Task | null>(null);
   const [taskEvents, setTaskEvents] = useState<TaskEvent[]>([]);
   const [completion, setCompletion] = useState("");
@@ -484,6 +484,15 @@ export default function Chat() {
   const confirmStageNotice = String(
     (location.state as { confirmStageNotice?: string } | null)?.confirmStageNotice || "",
   );
+  const mailCompose = useMailComposeFlow({
+    onApplyBody: setText,
+    onPrepared: (response) => {
+      if (!response.template) return;
+      setLockedIntent("email_compose");
+      setLockedLabel("写合作邮件");
+      setLockedKnowledgeId(response.template.knowledge_id);
+    },
+  });
 
   useEffect(() => {
     if (!id) return;
@@ -638,8 +647,10 @@ export default function Chat() {
     if (!t && !p.attachments?.length) return;
     const title = lockedLabel;
     const existingTask = task;
-    const savedIntent = p.intent || lockedIntent;
+    const intent = p.intent === "email_compose" || mailCompose.active ? "email_compose" : (p.intent || lockedIntent);
+    const savedIntent = intent;
     const savedLabel = lockedLabel;
+    const savedKnowledgeId = p.knowledge_id || lockedKnowledgeId;
     setText("");
     setLockedIntent(null);
     setLockedLabel(null);
@@ -653,11 +664,12 @@ export default function Chat() {
     setFocusedMail(null);
     rememberJourney({ kind: "send", skillId: String(existingTask?.skill_id || existingTask?.skill || ""), skillLabel: title || existingTask?.title });
     try {
+      if (intent === "email_compose") mailCompose.markSubmitting();
       const pendingAsk: PendingAsk = {
         text: t,
-        intent: p.intent || lockedIntent || undefined,
+        intent: intent || undefined,
         collaboration_id: p.collaboration_id || (journey?.collaboration_id ? String(journey.collaboration_id) : undefined),
-        knowledge_id: p.knowledge_id,
+        knowledge_id: savedKnowledgeId || undefined,
         attachments: p.attachments,
         model_tier: p.model_tier,
         scope: p.scope,
@@ -665,17 +677,23 @@ export default function Chat() {
         client_entry: p.client_entry,
         entities: {
           ...(p.entities || {}),
-          ...((p.intent || lockedIntent) === "email_compose" && looksLikeEmailDraft(t) ? { body: t } : {}),
+          ...(intent === "email_compose" && looksLikeEmailDraft(t) ? { body: t } : {}),
         },
+        compose_input: p.compose_input,
       };
       const r = await postOnce(id, pendingAsk);
       if (stopRequestedRef.current) return;
       setMessages(r.messages || []);
       setAgentStatus(String(r.agent_status || (r.accepted ? "running" : "listening")));
+      if (intent === "email_compose") mailCompose.clear();
     } catch (error) {
       setText(t);
       setLockedIntent(savedIntent);
       setLockedLabel(savedLabel);
+      setLockedKnowledgeId(savedKnowledgeId || null);
+      if (intent === "email_compose") {
+        mailCompose.markFailed(error instanceof Error ? error.message : "提交失败，已保留邮件草稿。");
+      }
       setSubmitErr(error instanceof Error ? error.message : "还不能开始这项工作");
     } finally {
       setPending(false);
@@ -777,6 +795,14 @@ export default function Chat() {
       }
       : null);
   const mailAnalysisPending = Boolean(journey?.mail_analysis_pending);
+  const mailObjectRefs: ComposerObjectRef[] = [
+    ...(collaborationId || journey?.collaboration_id ? [{
+      kind: "collaboration",
+      id: String(collaborationId || journey?.collaboration_id),
+      label: String(journey?.handle || collaborationId || journey?.collaboration_id),
+    }] : []),
+    ...(journey?.handle ? [{ kind: "kol", id: String(journey.handle), label: `@${String(journey.handle)}` }] : []),
+  ];
   const pickSuggestion = (action: ComposerSuggestion | RecommendedAction) => {
     const prompt = String(action.prompt || action.label || "").trim();
     if (!prompt || pending) return;
@@ -785,21 +811,21 @@ export default function Chat() {
     setLockedLabel(action.intent ? (action.label || null) : null);
     setFocusDraft(true);
   };
-  const pickSkill = (skill: SkillOption, ctx: { mention: string; rest: string }) => {
+  const pickSkill = (skill: SkillOption, ctx: { mention: string; rest: string; collaborationId?: string }) => {
     setLockedIntent(skill.id);
     setLockedLabel(skill.title || skill.label || skill.id);
-    if (skill.id !== "email_compose" || !id || !kolSession) return;
-    const leftover = [ctx.mention, ctx.rest].filter(Boolean).join(" ").trim();
-    setPreviewing(true);
-    setText("正在生成邮件草稿…");
-    void api.composePreview(id, {
-      text: leftover,
-      collaboration_id: collaborationId || (journey?.collaboration_id ? String(journey.collaboration_id) : undefined),
+    if (skill.id !== "email_compose" || !id) {
+      mailCompose.clear();
+      return;
+    }
+    void mailCompose.prepare({
+      body: ctx.rest,
+      session_id: id,
+      collaboration_id: ctx.collaborationId || collaborationId || (journey?.collaboration_id ? String(journey.collaboration_id) : undefined),
       handle: journey?.handle ? String(journey.handle) : undefined,
-    }).then((preview) => {
-      if (preview.body) setText(preview.body);
-      else setText(leftover);
-    }).catch(() => setText(leftover)).finally(() => setPreviewing(false));
+      knowledge_id: lockedKnowledgeId || undefined,
+      object_refs: mailObjectRefs,
+    });
   };
   const selectMail = (mail: SessionMailRow) => {
     const full = (sessionMails || []).find((row) => (
@@ -1018,7 +1044,7 @@ export default function Chat() {
             </>
           )}
         </header>
-        <div className="session-stream conversation" ref={streamRef} data-session-stream-pane data-ai-conversation role="log">
+        <div className="session-stream conversation" ref={streamRef} data-session-stream-pane data-ai-conversation data-has-interaction={messages.some((message) => message.kind === "me") ? "true" : undefined} role="log">
         {boundExpert?.intro ? (
           <article className="expert-intro message is-assistant" data-expert-intro data-kind="expert-intro">
             <p>{boundExpert.intro}</p>
@@ -1123,7 +1149,7 @@ export default function Chat() {
             value={text}
             onChange={setText}
             onSubmit={send}
-            disabled={blockSubmit || previewing}
+            disabled={blockSubmit}
             running={status === "running"}
             queue={runQueue}
             onStop={() => void stopRun()}
@@ -1145,6 +1171,12 @@ export default function Chat() {
             onPickSkill={pickSkill}
             hint={composerHint || undefined}
             entryIntent={entryIntent}
+            objectRefs={mailObjectRefs}
+            mailCompose={mailCompose}
+            onMailBodyEdit={mailCompose.markEdited}
+            onSkillRemoved={(skillId) => {
+              if (skillId === "email_compose") mailCompose.clear();
+            }}
           />
         </footer>
       </section>

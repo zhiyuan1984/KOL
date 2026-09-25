@@ -433,6 +433,58 @@ export type FromTextResult = {
 
 export type AttachmentRef = { id?: string; name: string; path: string; size?: number; type?: string };
 
+/** User-edited L2 draft preserved through task/message intake; never send authorization. */
+export type ComposeInput = {
+  mode: "edited_draft";
+  knowledge_version: number;
+  context_version?: string;
+  subject: string;
+  body: string;
+  variables?: Record<string, unknown>;
+  source_draft_id?: string | null;
+};
+
+export type EmailComposePrepareRequest = {
+  skill_id: "email_compose";
+  session_id?: string;
+  collaboration_id?: string;
+  handle?: string;
+  knowledge_id?: string;
+  scene_hint?: string;
+  variables?: Record<string, unknown>;
+  object_refs?: Array<{ kind: string; id: string; label?: string }>;
+};
+
+export type EmailComposePrepareResponse = {
+  status: "ready" | "needs_context" | "needs_template" | "needs_fields" | "blocked";
+  skill_id: "email_compose";
+  message?: string;
+  context: { collaboration_id?: string; stage_code?: string; stage_source?: string; scene?: string; brand?: string };
+  template?: { knowledge_id: string; published_version: number; template_id?: string; title: string; source: "knowledge" };
+  editor?: { from: string; to: string[]; subject: string; body: string };
+  missing_fields: string[];
+  candidates: Array<{ knowledge_id: string; title: string; published_version: number }>;
+  context_version?: string;
+};
+
+export type DraftSendSnapshot = { from: string; to: string; cc: string; subject: string; body: string };
+export type DraftActionView = {
+  action_id: string;
+  label: string;
+  risk_level: "L1" | "L2" | "L3";
+  state: "ready" | "blocked" | "awaiting_selection" | "awaiting_approval" | "completed";
+  allowed: boolean;
+  enabled: boolean;
+  confirmation_version: string | null;
+  disabled_reason?: string;
+  selection_required: boolean;
+  selection_ready: boolean;
+  confirmation_required: boolean;
+  approval_state: "not_required" | "required" | "pending" | "approved" | "rejected";
+  receipt_id: string | null;
+};
+export type DraftActionsResponse = { draft_id: string; action: DraftActionView; snapshot: DraftSendSnapshot; request_id?: string };
+
 export type PendingAsk = {
   text: string;
   model_tier?: string;
@@ -447,6 +499,7 @@ export type PendingAsk = {
   scope?: Record<string, unknown>;
   object_refs?: Array<{ kind: string; id: string; label?: string }>;
   client_entry?: string;
+  compose_input?: ComposeInput;
 };
 
 export type KnowledgeRow = {
@@ -684,6 +737,8 @@ export type PostMessageResult = {
 };
 
 export type EmailCard = {
+  knowledge_id?: string;
+  knowledge_version?: number;
   draft_id: string;
   collaboration_id?: string;
   expected_version?: number;
@@ -935,6 +990,70 @@ export const api = {
       items?: Array<Record<string, unknown>>;
       kols?: Array<Record<string, unknown>>;
     }>("/api/home/pool/sync"),
+  enrichPoolAvatars: () =>
+    request<{
+      entry?: string;
+      kind?: string;
+      creates_session?: boolean;
+      creates_turn?: boolean;
+      calls_model?: boolean;
+      accepted?: boolean;
+      started?: boolean;
+      status?: "idle" | "running" | "succeeded" | "failed";
+      ok?: boolean;
+      message?: string;
+      items?: Array<Record<string, unknown>>;
+      kols?: Array<Record<string, unknown>>;
+    }>("/api/home/pool/avatar-enrich", { method: "POST", body: JSON.stringify({}) }),
+  poolAvatarEnrichmentStatus: () =>
+    request<{
+      status?: "idle" | "running" | "succeeded" | "failed";
+      ok?: boolean;
+      message?: string;
+      items?: Array<Record<string, unknown>>;
+      kols?: Array<Record<string, unknown>>;
+    }>("/api/home/pool/avatar-enrich"),
+  assessPoolWithJev: () =>
+    request<{
+      entry?: string;
+      kind?: string;
+      creates_session?: boolean;
+      creates_turn?: boolean;
+      calls_model?: boolean;
+      accepted?: boolean;
+      started?: boolean;
+      status?: "idle" | "running" | "succeeded" | "failed";
+      ok?: boolean;
+      message?: string;
+      items?: Array<Record<string, unknown>>;
+      kols?: Array<Record<string, unknown>>;
+    }>("/api/home/pool/jev-assess", { method: "POST", body: JSON.stringify({}) }),
+  poolJevAssessmentStatus: () =>
+    request<{
+      status?: "idle" | "running" | "succeeded" | "failed";
+      ok?: boolean;
+      message?: string;
+      items?: Array<Record<string, unknown>>;
+      kols?: Array<Record<string, unknown>>;
+    }>("/api/home/pool/jev-assess"),
+  poolCleanupPreview: () =>
+    request<{
+      scope?: string;
+      candidate_count?: number;
+      protected_active_follows?: number;
+    }>("/api/home/pool/cleanup-preview"),
+  cleanupPoolMissingHomepage: (expectedCount: number) =>
+    request<{
+      ok?: boolean;
+      deleted?: number;
+      candidate_count?: number;
+      protected_active_follows?: number;
+      items?: Array<Record<string, unknown>>;
+      kols?: Array<Record<string, unknown>>;
+    }>("/api/home/pool/cleanup-missing-homepage", {
+      method: "POST",
+      body: JSON.stringify({ expected_count: expectedCount, confirm: true }),
+    }),
   enqueueKolAnalyze: (body: { kol_uids?: string[]; kolUids?: string[]; people?: string[]; handles?: string[]; title?: string; prompt?: string }) =>
     request<{
       entry?: string;
@@ -1060,9 +1179,15 @@ export const api = {
     rate_unit?: string | null;
     source?: string;
   }>(`/api/sessions/${sid}/compose-preview`, {
-    method: "POST",
-    body: JSON.stringify(body),
-  }),
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  prepareEmailCompose: (body: EmailComposePrepareRequest, signal?: AbortSignal) =>
+    request<EmailComposePrepareResponse>("/api/email-compose/prepare", {
+      method: "POST",
+      body: JSON.stringify(body),
+      signal,
+    }),
   postMessage: async (
     sid: string,
     pending: (PendingAsk & { model_tier?: string }) | string,
@@ -1087,6 +1212,7 @@ export const api = {
         scope: p.scope,
         object_refs: p.object_refs,
         client_entry: p.client_entry,
+        compose_input: p.compose_input,
       }),
     });
     const b = (await parse(r)) as {
@@ -1114,7 +1240,9 @@ export const api = {
       `/api/sessions/${sid}/queue/${encodeURIComponent(qid)}`,
       { method: "DELETE" },
     ),
-  sendDraft: async (id: string, extra?: { cc?: string; from_addr?: string; to_addr?: string }) => {
+  draftActions: (id: string) =>
+    request<DraftActionsResponse>(`/api/drafts/${encodeURIComponent(id)}/actions`),
+  sendDraft: async (id: string, extra?: { confirmation_version?: string; request_id?: string }) => {
     const r = await fetch(`/api/drafts/${id}/send`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1124,7 +1252,8 @@ export const api = {
     if (!r.ok) {
       const d = b.detail || b;
       const err = new Error((d as { message?: string }).message || JSON.stringify(d));
-      (err as Error & { payload: unknown }).payload = d;
+      (err as Error & { payload: unknown; status?: number }).payload = d;
+      (err as Error & { payload: unknown; status?: number }).status = r.status;
       throw err;
     }
     return b;

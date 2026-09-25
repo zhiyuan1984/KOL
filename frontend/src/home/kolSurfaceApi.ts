@@ -164,6 +164,57 @@ export async function syncHomePoolIndex(): Promise<{ items: PoolKol[]; count: nu
   throw new Error("同步仍在后台进行，请稍后重新打开公海查看更新。");
 }
 
+type PoolCommandReceipt = {
+  status?: "idle" | "running" | "succeeded" | "failed";
+  ok?: boolean;
+  message?: string;
+  items?: Array<Record<string, unknown>>;
+  kols?: Array<Record<string, unknown>>;
+};
+
+async function waitPoolMaintenance(
+  start: () => Promise<PoolCommandReceipt>,
+  status: () => Promise<PoolCommandReceipt>,
+  pendingCopy: string,
+): Promise<{ items: PoolKol[]; message: string }> {
+  await start();
+  for (let attempt = 0; attempt < POOL_SYNC_WAIT_ATTEMPTS; attempt += 1) {
+    await wait(POOL_SYNC_POLL_MS);
+    const payload = await status();
+    if (payload.status === "failed" || payload.ok === false) {
+      throw new Error(payload.message || "公海维护命令失败，请稍后重试");
+    }
+    if (payload.status !== "succeeded" || payload.ok !== true) continue;
+    const items = asRows(payload).filter(isOpenPoolRow).map(toPoolKol).filter((row): row is PoolKol => Boolean(row));
+    return { items: unownedFirst(items), message: payload.message || "已完成" };
+  }
+  throw new Error(`${pendingCopy}仍在后台进行，请稍后重新打开公海查看更新。`);
+}
+
+/** Explicit public homepage metadata crawl; no stored cookies or account session are used. */
+export function enrichPoolAvatars(): Promise<{ items: PoolKol[]; message: string }> {
+  return waitPoolMaintenance(() => api.enrichPoolAvatars(), () => api.poolAvatarEnrichmentStatus(), "头像补全");
+}
+
+/** Explicit bounded Jev assessment; returned values remain advisory public-index metadata. */
+export function assessPoolWithJev(): Promise<{ items: PoolKol[]; message: string }> {
+  return waitPoolMaintenance(() => api.assessPoolWithJev(), () => api.poolJevAssessmentStatus(), "Jev 评分");
+}
+
+export async function previewPoolCleanup(): Promise<{ candidateCount: number; protectedActiveFollows: number }> {
+  const payload = await api.poolCleanupPreview();
+  return {
+    candidateCount: Math.max(0, Number(payload.candidate_count || 0)),
+    protectedActiveFollows: Math.max(0, Number(payload.protected_active_follows || 0)),
+  };
+}
+
+export async function cleanupPoolMissingHomepage(expectedCount: number): Promise<{ items: PoolKol[]; deleted: number }> {
+  const payload = await api.cleanupPoolMissingHomepage(expectedCount);
+  const items = asRows(payload).filter(isOpenPoolRow).map(toPoolKol).filter((row): row is PoolKol => Boolean(row));
+  return { items: unownedFirst(items), deleted: Math.max(0, Number(payload.deleted || 0)) };
+}
+
 export async function loadHomeFollowing(board?: { kols?: Array<Record<string, unknown>>; follow_scope?: import("../api").StarryBinding }): Promise<FollowingLoad> {
   try {
     const payload = await api.homeFollowing();

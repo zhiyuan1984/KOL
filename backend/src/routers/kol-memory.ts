@@ -14,14 +14,18 @@ import {
   claimFollow,
   countKolAnalyzeInFlight,
   currentMemoryEmployee,
+  deleteProfilesWithoutHomepage,
   KOL_ANALYZE_MAX_IN_FLIGHT,
   KOL_ANALYZE_MAX_PEOPLE,
   KOL_ANALYZE_TASK_TYPE,
   listEmployeeFollowing,
   listOpenPool,
   parseAnalyzePeople,
+  previewProfilesWithoutHomepage,
   releaseFollow,
 } from "../host/kol-memory.js";
+import { enrichMissingPublicAvatars } from "../host/kol-avatar-enrichment.js";
+import { assessPublicKolsWithJev } from "../host/kol-jev-assessment.js";
 import { syncKolProfileIndex } from "../host/kol-memory-sync.js";
 import { HttpFail } from "../host/errors.js";
 import { currentFollowScope } from "../host/starry-bind.js";
@@ -47,6 +51,20 @@ let poolSyncReceipt: PoolSyncReceipt = {
   completed_at: null,
 };
 let poolSyncFlight: Promise<void> | null = null;
+
+type PoolMaintenanceReceipt = {
+  status: "idle" | "running" | "succeeded" | "failed";
+  started_at: string | null;
+  completed_at: string | null;
+  ok?: boolean;
+  result?: Json;
+  message?: string;
+};
+
+let avatarEnrichmentReceipt: PoolMaintenanceReceipt = { status: "idle", started_at: null, completed_at: null };
+let avatarEnrichmentFlight: Promise<void> | null = null;
+let jevAssessmentReceipt: PoolMaintenanceReceipt = { status: "idle", started_at: null, completed_at: null };
+let jevAssessmentFlight: Promise<void> | null = null;
 
 function poolSyncResponse() {
   const items = poolSyncReceipt.status === "succeeded" ? listOpenPool() : [];
@@ -95,6 +113,76 @@ function startPoolSync(): boolean {
   return true;
 }
 
+function maintenanceResponse(receipt: PoolMaintenanceReceipt, callsModel: boolean) {
+  const items = receipt.status === "succeeded" ? listOpenPool() : [];
+  return {
+    entry: "command" as const,
+    kind: "command" as const,
+    creates_session: false,
+    creates_turn: false,
+    calls_model: callsModel,
+    ...receipt,
+    items,
+    kols: items,
+  };
+}
+
+function startAvatarEnrichment(): boolean {
+  if (avatarEnrichmentFlight) return false;
+  const startedAt = nowIso();
+  avatarEnrichmentReceipt = { status: "running", started_at: startedAt, completed_at: null };
+  avatarEnrichmentFlight = enrichMissingPublicAvatars()
+    .then((result) => {
+      avatarEnrichmentReceipt = {
+        status: "succeeded",
+        started_at: startedAt,
+        completed_at: nowIso(),
+        ok: result.ok,
+        result,
+        message: `已检查 ${result.checked} 条公开主页，补全 ${result.updated} 个头像。`,
+      };
+    })
+    .catch((error) => {
+      avatarEnrichmentReceipt = {
+        status: "failed",
+        started_at: startedAt,
+        completed_at: nowIso(),
+        ok: false,
+        message: error instanceof Error ? error.message : "公开头像补全失败，请稍后重试。",
+      };
+    })
+    .finally(() => { avatarEnrichmentFlight = null; });
+  return true;
+}
+
+function startJevAssessment(): boolean {
+  if (jevAssessmentFlight) return false;
+  const startedAt = nowIso();
+  jevAssessmentReceipt = { status: "running", started_at: startedAt, completed_at: null };
+  jevAssessmentFlight = assessPublicKolsWithJev()
+    .then((result) => {
+      jevAssessmentReceipt = {
+        status: "succeeded",
+        started_at: startedAt,
+        completed_at: nowIso(),
+        ok: result.ok,
+        result,
+        message: `已评估 ${result.assessed} 条：高潜 ${result.high_potential}，高风险 ${result.high_risk}。`,
+      };
+    })
+    .catch((error) => {
+      jevAssessmentReceipt = {
+        status: "failed",
+        started_at: startedAt,
+        completed_at: nowIso(),
+        ok: false,
+        message: error instanceof Error ? error.message : "Jev 评分失败，请稍后重试。",
+      };
+    })
+    .finally(() => { jevAssessmentFlight = null; });
+  return true;
+}
+
 kolMemory.post("/home/discovery/ingest", async (c) => {
   const body = await c.req.json().catch(() => ({})) as Json;
   const result = await ingestDiscoveryBatch(body);
@@ -131,6 +219,62 @@ kolMemory.post("/home/pool/sync", (c) => {
 kolMemory.get("/home/pool/sync", (c) => {
   c.header("Cache-Control", "no-store");
   return c.json(poolSyncResponse());
+});
+
+/** Manually fetches only public homepage metadata for rows missing an avatar. */
+kolMemory.post("/home/pool/avatar-enrich", (c) => {
+  const started = startAvatarEnrichment();
+  c.header("Cache-Control", "no-store");
+  return c.json({ ...maintenanceResponse(avatarEnrichmentReceipt, false), accepted: true, started }, 202);
+});
+
+kolMemory.get("/home/pool/avatar-enrich", (c) => {
+  c.header("Cache-Control", "no-store");
+  return c.json(maintenanceResponse(avatarEnrichmentReceipt, false));
+});
+
+/** Manually invokes Jev on bounded public index fields; it cannot claim or delete a KOL. */
+kolMemory.post("/home/pool/jev-assess", (c) => {
+  const started = startJevAssessment();
+  c.header("Cache-Control", "no-store");
+  return c.json({ ...maintenanceResponse(jevAssessmentReceipt, true), accepted: true, started }, 202);
+});
+
+kolMemory.get("/home/pool/jev-assess", (c) => {
+  c.header("Cache-Control", "no-store");
+  return c.json(maintenanceResponse(jevAssessmentReceipt, true));
+});
+
+/** Preview is read-only; the returned count is required for the deletion confirmation. */
+kolMemory.get("/home/pool/cleanup-preview", (c) => {
+  c.header("Cache-Control", "no-store");
+  return c.json({
+    entry: "memory",
+    kind: "memory",
+    creates_session: false,
+    calls_model: false,
+    ...previewProfilesWithoutHomepage(),
+  });
+});
+
+/** L3-style destructive command: confirmation and a fresh preview count are both mandatory. */
+kolMemory.post("/home/pool/cleanup-missing-homepage", async (c) => {
+  const body = await c.req.json().catch(() => ({})) as Json;
+  const employee = currentMemoryEmployee();
+  const result = deleteProfilesWithoutHomepage({
+    expectedCount: Number(body.expected_count),
+    confirm: body.confirm === true || body.confirmed === true,
+    actor: employee.id,
+  });
+  return c.json({
+    entry: "command",
+    kind: "command",
+    creates_session: false,
+    creates_turn: false,
+    calls_model: false,
+    ...result,
+    items: listOpenPool(),
+  });
 });
 
 kolMemory.get("/home/following", (c) => {

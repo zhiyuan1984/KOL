@@ -434,6 +434,7 @@ function initSchema(db: SqliteConn): void {
             stage_codes TEXT,
             status TEXT NOT NULL DEFAULT 'draft',
             current_version INTEGER NOT NULL DEFAULT 1,
+            published_version INTEGER,
             created_by TEXT,
             approved_by TEXT,
             approved_at TEXT,
@@ -1507,6 +1508,9 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "knowledge", "stage_codes", "TEXT");
   add(db, "knowledge", "status", "TEXT NOT NULL DEFAULT 'draft'");
   add(db, "knowledge", "current_version", "INTEGER NOT NULL DEFAULT 1");
+  // A row may remain published while an editor increments current_version.
+  // Consumers therefore follow this explicit approved snapshot pointer only.
+  add(db, "knowledge", "published_version", "INTEGER");
   add(db, "knowledge", "created_by", "TEXT");
   add(db, "knowledge", "approved_by", "TEXT");
   add(db, "knowledge", "approved_at", "TEXT");
@@ -1617,6 +1621,20 @@ function migrateSchema(db: SqliteConn): void {
             reject_reason TEXT
         );
   `);
+  db.prepare(
+    `UPDATE knowledge
+        SET published_version=(
+          SELECT v.version
+            FROM knowledge_versions v
+           WHERE v.knowledge_id=knowledge.id
+             AND v.status='published'
+             AND (v.note='approve' OR v.note='create' OR v.note LIKE 'seed %')
+           ORDER BY v.version DESC
+           LIMIT 1
+        )
+      WHERE (published_version IS NULL OR published_version<1)
+        AND status='published'`,
+  ).run();
   const aliases: Record<string, string> = {
     INTEREST_CONFIRMED: "INTERESTED",
     COOPERATION_EVALUATION: "EVALUATING",
@@ -1866,6 +1884,16 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "kol_profile_index", "source_batch", "TEXT");
   add(db, "kol_profile_index", "platform_creator_id", "TEXT");
   add(db, "kol_profile_index", "avatar_url", "TEXT");
+  add(db, "kol_profile_index", "avatar_checked_at", "TEXT");
+  add(db, "kol_profile_index", "avatar_error", "TEXT");
+  add(db, "kol_profile_index", "potential_score", "INTEGER");
+  add(db, "kol_profile_index", "potential_confidence", "REAL");
+  add(db, "kol_profile_index", "risk_score", "INTEGER");
+  add(db, "kol_profile_index", "risk_confidence", "REAL");
+  add(db, "kol_profile_index", "assessment_model", "TEXT");
+  add(db, "kol_profile_index", "assessment_version", "TEXT");
+  add(db, "kol_profile_index", "assessed_at", "TEXT");
+  add(db, "kol_profile_index", "assessment_error", "TEXT");
   add(db, "discovery_runs", "brief_version", "INTEGER NOT NULL DEFAULT 1");
   add(db, "discovery_requests", "brief_version", "INTEGER NOT NULL DEFAULT 1");
 }

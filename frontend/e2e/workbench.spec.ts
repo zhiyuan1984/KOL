@@ -4475,7 +4475,9 @@ test("cron 跑一次风险扫描 keeps the run receipt on the cron page", async 
   await expect(page).toHaveURL(/\/cron$/);
   await row.getByRole("button", { name: "查看执行" }).click();
   await expect(page.locator("[data-cron-receipt-panel]")).toBeVisible();
-  await expect(page.locator("[data-cron-receipt-panel]")).toContainText("失联与延期扫描");
+  await expect(page.locator('[data-cron-detail="overdue-scan"] h2')).toHaveText("失联与延期扫描");
+  await expect(page.locator("[data-cron-receipt-panel]")).toContainText("已完成");
+  await expect(page.locator("[data-cron-receipt-panel] pre")).toContainText("已停留");
 });
 
 test("approvals page can preview and initiate an expense approval", async ({ page }) => {
