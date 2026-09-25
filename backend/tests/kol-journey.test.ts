@@ -1,3 +1,4 @@
+import { confirmAndSendDraft } from "./helpers/confirmed-mail.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -294,7 +295,7 @@ describe("KOL persistent session and fact-advance", () => {
       official_stage: "SHIPPED",
       collaboration_id: "col_ship",
     });
-    const sent = await request("POST", `/api/drafts/${draft.id}/send`, {});
+    const sent = await confirmAndSendDraft(request, `/api/drafts/${draft.id}/send`, {});
     expect([200, 400, 403]).toContain(sent.status);
     const sj = await sent.json();
     const detail = (sj.detail && typeof sj.detail === "object" ? sj.detail : sj) as Json;
@@ -337,7 +338,7 @@ describe("KOL persistent session and fact-advance", () => {
     expect(card?.session_id).toBe(opened.id);
   });
 
-  it("keeps outbound and inbound cards, and does not use the LT placeholder as 收件", async () => {
+  it("keeps inbound and draft cards, requires right-rail confirmation, and never invents 收件", async () => {
     insertCollab("col_qiyou", "灵工连通测试-qiyou1984", "INITIAL_CONTACT", {
       email: "qiyou1984@gmail.com",
       kol_uid: "KOLQIYOU1984",
@@ -520,22 +521,10 @@ describe("KOL persistent session and fact-advance", () => {
       collaboration_id: "col_qiyou",
     });
     expect(sent.status, await sent.text()).toBe(200);
+    expect(await sent.json()).toMatchObject({ needs_confirmation: true, sent: false });
     const afterSend = await messages(sid);
-    const sentResult = [...afterSend].reverse().find((m) => m.kind === "task_result_card")!;
-    expect(sentResult.payload).toMatchObject({ title: "邮件已发送" });
-    expect(JSON.stringify((sentResult.payload as Json).sections)).not.toMatch(/还需要补充|这项信息|SYNC_SENT|摘要数据/);
-    const outboundReply = afterSend
-      .filter((m) => m.kind === "kol_mail_card")
-      .map((m) => m.payload as Json)
-      .find((payload) => payload.direction === "outbound" && payload.subject === "Re: KOL合作");
-    expect(outboundReply).toMatchObject({
-      from: "larry.zhao@amperetime.com",
-      to: "qiyou1984@gmail.com",
-      mailbox: "larry.zhao@amperetime.com",
-      conversation_id: "320",
-    });
-    expect(String(outboundReply?.occurred_at || "")).not.toBe("");
-    expect(String(outboundReply?.body)).toMatch(/preview only/);
+    expect(JSON.stringify(afterSend)).toContain("请在右栏草稿");
+    expect(getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get()).toMatchObject({ n: 0 });
     expect(stageOf("col_qiyou")).toBe("INITIAL_CONTACT");
   });
 

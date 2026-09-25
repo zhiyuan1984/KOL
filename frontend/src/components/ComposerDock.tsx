@@ -1,5 +1,6 @@
+import { fieldLabel } from "../labels";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { KnowledgeRow } from "../api";
+import type { ComposeInput, KnowledgeRow } from "../api";
 import ChipRail from "../composer/ChipRail";
 import { expertChipLabel, isWriteSkill, labelOfSkill, type CatalogSkill } from "../composer/catalog";
 import { peekComposerDraft, takeComposerDraftStash } from "../composer/draft";
@@ -70,6 +71,29 @@ export type ComposerSubmit = {
   scope?: ComposerScope;
   object_refs?: ComposerObjectRef[];
   client_entry?: ComposerClientEntry;
+  compose_input?: ComposeInput;
+};
+
+export type MailComposerMeta = {
+  active: boolean;
+  phase: "idle" | "preparing" | "editing" | "submitting" | "result_ready" | "failed";
+  from?: string;
+  to?: string[];
+  subject: string;
+  templateTitle?: string;
+  templateSource?: string;
+  knowledgeId?: string;
+  collaborationId?: string;
+  knowledgeVersion?: number;
+  candidates: Array<{ knowledge_id: string; title: string; published_version: number }>;
+  missingFields: string[];
+  message?: string;
+  preparedPendingApply: boolean;
+  onSubjectChange: (subject: string) => void;
+  onApplyPrepared: () => void;
+  onSelectCandidate: (knowledgeId: string) => void;
+  onContextChange: (collaborationId: string | undefined, body: string) => void;
+  composeInput: (body: string) => ComposeInput | undefined;
 };
 
 export type ComposerSuggestion = {
@@ -134,6 +158,9 @@ export default function ComposerDock({
   entryIntent = "free",
   objectRefs = [],
   onObjectRefsChange,
+  mailCompose,
+  onMailBodyEdit,
+  onSkillRemoved,
   initialDraft,
   submitLabel = "发送",
 }: {
@@ -155,7 +182,7 @@ export default function ComposerDock({
   autoFocusToken?: number;
   suggestions?: ComposerSuggestion[];
   onPickSuggestion?: (item: ComposerSuggestion) => void;
-  onPickSkill?: (skill: SkillOption, ctx: { mention: string; rest: string }) => void;
+  onPickSkill?: (skill: SkillOption, ctx: { mention: string; rest: string; collaborationId?: string }) => void;
   running?: boolean;
   queue?: { id: string; text?: string; intent?: string }[];
   onStop?: () => void;
@@ -173,6 +200,9 @@ export default function ComposerDock({
   entryIntent?: ComposerEntryIntent;
   objectRefs?: ComposerObjectRef[];
   onObjectRefsChange?: (refs: ComposerObjectRef[]) => void;
+  mailCompose?: MailComposerMeta | null;
+  onMailBodyEdit?: () => void;
+  onSkillRemoved?: (skillId: string) => void;
   initialDraft?: ComposerDraftStash;
   submitLabel?: string;
 }) {
@@ -598,7 +628,7 @@ export default function ComposerDock({
       if (current.length >= COMPOSER_MAX_SKILL_CHIPS) return current;
       return [...current, { kind: "skill", id: s.id, label: labelOf(s), write: isWriteSkill(s) }];
     });
-    onPickSkill?.(s, { mention: labelOf(s), rest });
+    onPickSkill?.(s, { mention: labelOf(s), rest, collaborationId: selectedProject?.id });
     closePlus();
     setPicker(false);
     setQuery("");
@@ -682,6 +712,7 @@ export default function ComposerDock({
   const removeChip = (chip: ComposerChip) => {
     if (chip.kind === "skill") {
       setSkillChips((current) => current.filter((item) => item.id !== chip.id));
+      onSkillRemoved?.(chip.id);
       return;
     }
     if (chip.kind === "kb") {
@@ -706,6 +737,7 @@ export default function ComposerDock({
     }
     if (chip.kind === "project") {
       setSelectedProject(null);
+      mailCompose?.onContextChange(undefined, value);
       return;
     }
     if (chip.kind === "object") {
@@ -741,7 +773,10 @@ export default function ComposerDock({
     || lockedSkill
   );
   const busy = disabled || uploading;
-  const sendDisabled = !running && (busy || !canSend || discoveryBlocked);
+  const mailBlocked = Boolean(mailCompose?.active && (
+    mailCompose.phase === "preparing" || !mailCompose.knowledgeId || !mailCompose.subject.trim()
+  ));
+  const sendDisabled = !running && (busy || !canSend || discoveryBlocked || mailBlocked);
   const workspace = variant === "workspace";
   const placeholder = hint && !value.trim() ? hint : COMPOSER_PLACEHOLDER;
   const sendState = running ? "stop" : canSend && !sendDisabled ? "ready" : "idle";
@@ -774,14 +809,15 @@ export default function ComposerDock({
     };
     onSubmit({
       text,
-      intent,
-      collaboration_id: selectedProject?.id,
-      knowledge_id: lockedKnowledgeId || kbChips[0]?.id || undefined,
+      intent: mailCompose?.active ? "email_compose" : intent,
+      collaboration_id: mailCompose?.collaborationId || selectedProject?.id,
+      knowledge_id: mailCompose?.knowledgeId || lockedKnowledgeId || kbChips[0]?.id || undefined,
       model_tier: modelTier,
       attachments: attachments.length ? attachments : undefined,
       scope,
       object_refs: objectRefs,
       client_entry: clientEntryFor(entryIntent),
+      compose_input: mailCompose?.composeInput(value),
     });
     setAttachments([]);
     setSelectedProject(null);
@@ -914,6 +950,38 @@ export default function ComposerDock({
           ) : null}
         </aside>
       ) : null}
+      {mailCompose?.active ? (
+        <aside className="composer-template-preview" data-mail-compose-status={mailCompose.phase} aria-live="polite">
+          <div className="composer-template-preview-head">
+            <strong data-mail-template-source>{mailCompose.templateTitle || "邮件模板"}</strong>
+            {mailCompose.templateSource ? <span>来源：知识库</span> : null}
+            {mailCompose.knowledgeVersion ? <span data-mail-template-version>发布版 v{mailCompose.knowledgeVersion}</span> : null}
+          </div>
+          {(mailCompose.from || mailCompose.to?.length) ? (
+            <p className="composer-template-preview-excerpt" data-mail-compose-addresses>
+              {mailCompose.from ? `发件：${mailCompose.from}` : ""}{mailCompose.from && mailCompose.to?.length ? " · " : ""}{mailCompose.to?.length ? `收件：${mailCompose.to.join("、")}` : ""}
+            </p>
+          ) : null}
+          {mailCompose.message ? <p className="composer-template-preview-excerpt" data-mail-compose-message>{mailCompose.message}</p> : null}
+          {mailCompose.missingFields.length ? <p className="composer-template-preview-excerpt" data-mail-compose-missing>待补：{mailCompose.missingFields.map((key) => ({ collaboration_id: "合作对象", stage_code: "正式阶段", brand: "品牌", from: "发件邮箱", to: "收件邮箱" }[key] || fieldLabel(key))).join("、")}</p> : null}
+          {mailCompose.candidates.length ? (
+            <div className="composer-mail-candidates" data-mail-compose-candidates>
+              {mailCompose.candidates.map((candidate) => (
+                <button
+                  key={candidate.knowledge_id}
+                  type="button"
+                  className="btn ghost sm"
+                  data-mail-compose-candidate={candidate.knowledge_id}
+                  onClick={() => mailCompose.onSelectCandidate(candidate.knowledge_id)}
+                >
+                  采用 {candidate.title} · v{candidate.published_version}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {mailCompose.preparedPendingApply ? <button type="button" className="btn ghost sm" data-mail-apply-prepared onClick={mailCompose.onApplyPrepared}>采用已准备模板</button> : null}
+        </aside>
+      ) : null}
       {queue && queue.length > 0 ? (
         <div className="composer-queue" data-run-queue>
           {queue.map((item) => (
@@ -964,6 +1032,12 @@ export default function ComposerDock({
         }}
       >
         <ChipRail chips={railChips} onRemove={removeChip} />
+        {mailCompose?.active ? (
+          <label className="composer-mail-subject" data-mail-compose-subject>
+            <span>主题</span>
+            <input value={mailCompose.subject} onChange={(e) => mailCompose.onSubjectChange(e.target.value)} placeholder="邮件主题" />
+          </label>
+        ) : null}
         <input
           ref={fileRef}
           type="file"
@@ -1003,6 +1077,10 @@ export default function ComposerDock({
           hidden={compactDiscoveryPreview}
           value={value}
           onChange={(e) => {
+            // The picker click starts prepare asynchronously. Do not rely on
+            // the next render's active flag here: a keystroke immediately
+            // after selecting mail must still invalidate that response.
+            onMailBodyEdit?.();
             onChange(e.target.value);
             refreshAt(e.target.value, e.target.selectionStart ?? e.target.value.length);
           }}
@@ -1113,6 +1191,7 @@ export default function ComposerDock({
               }}
               onPickProject={(project) => {
                 setSelectedProject(project);
+                mailCompose?.onContextChange(project.id, value);
                 closePlus();
                 focusEditor();
               }}

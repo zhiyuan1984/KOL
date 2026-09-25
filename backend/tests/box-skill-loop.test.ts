@@ -1,3 +1,4 @@
+import { getConn } from "../src/db.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -60,7 +61,7 @@ describe("box loop: 起箱 → 识别 → skill → 追问/工具", () => {
     expect(JSON.stringify(rows)).not.toMatch(/是否合作邮箱|查收件箱/);
   });
 
-  it("replies 确认发送 in the same box and submits the last first-touch draft", async () => {
+  it("routes chat 确认发送 to the right-rail snapshot instead of sending", async () => {
     const created = await request("POST", "/api/sessions", { title: "连通测试发送" });
     const previewed = await request("POST", `/api/sessions/${created.body.id}/messages`, {
       text: FIRST_TOUCH,
@@ -79,9 +80,10 @@ describe("box loop: 起箱 → 识别 → skill → 追问/工具", () => {
     const rows = (sent.body.messages as Array<{ kind: string; payload?: Json }>) || [];
     const card = [...rows].reverse().find((row) => row.kind === "task_result_card");
     expect(card?.payload).toMatchObject({ skill: "email_compose" });
-    expect(String(card?.payload?.summary || "")).toContain("已提交发送");
-    expect(JSON.stringify(card?.payload?.starrykol_data || {})).toMatch(/"sent":true/);
-    expect(card?.payload?.recommended_actions).toEqual(expect.arrayContaining(["再写一封"]));
+    expect(sent.body).toMatchObject({ needs_confirmation: true, sent: false });
+    expect(JSON.stringify(rows)).toContain("请在右栏草稿");
+    expect(JSON.stringify(card?.payload?.starrykol_data || {})).not.toMatch(/"sent":true/);
+    expect(getConn().prepare("SELECT COUNT(*) AS n FROM starry_sends").get()).toMatchObject({ n: 0 });
     const another = await request("POST", `/api/sessions/${created.body.id}/messages`, {
       text: "加一封",
       act: "ask",

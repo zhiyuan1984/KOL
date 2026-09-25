@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { audit, getConn } from "../db.js";
 import { HttpFail } from "../host/errors.js";
+import { assertMailSendAuthority } from "../gateway/mail-authority.js";
 import { RemoteMcpClient } from "../mcp/remote.js";
 import { scopedUser } from "../auth.js";
 import { normalizeEmail } from "../host/identity.js";
@@ -655,6 +656,7 @@ export async function writeRemoteOfficialStageWalk(input: RemoteStageWriteInput 
 }
 
 async function call(name: string, args: Json = {}): Promise<Json> {
+  if (name === "sendEmailNow") assertMailSendAuthority();
   if (!clientFactory && codexMode() === "stub") return mockCall(name, args);
   if (!clientFactory && !starryKolMcpConfigured()) {
     throw new HttpFail(503, {
@@ -2559,6 +2561,7 @@ export async function executeStarryKolTask(
     const conversationId = number(entities.conversationId || entities.conversation_id);
     const subject = String(entities.subject || "").trim();
     const confirmSend = Boolean(entities.confirm_send || entities.confirmSend);
+    if (confirmSend) assertMailSendAuthority();
     const missingCompose = [
       !mailboxEmail && !conversationId ? "mailboxEmail" : "",
       !to.length && !conversationId ? "to" : "",

@@ -19,8 +19,7 @@ import { useViewMode } from "../viewMode";
 import { occurredAtMs } from "../mail-time";
 import { officialStageReached } from "../journey";
 import { MESSAGE_RISK_LABEL, messageRisk, type MessageRisk } from "../agentUx";
-import { draftSendConfirm } from "../adminConfirm";
-import { useAdminConfirm } from "./ConfirmDialog";
+import { useConfirmedDraftSend } from "../hooks/useConfirmedDraftSend";
 import { applyComposerDraft } from "../composer/draft";
 
 type ThreadRole = "user" | "assistant" | "system";
@@ -314,7 +313,7 @@ export function DraftArtifact({
   const [body, setBody] = useState(card.body || "");
   const [err, setErr] = useState(card.send_error || "");
   const [busy, setBusy] = useState<string | null>(null);
-  const { ask, dialog } = useAdminConfirm();
+  const confirmedSend = useConfirmedDraftSend(onRefresh);
   const sent = card.status === "sent" || !!card.send_disabled;
   const resolvedFrom = pickFromAddr(fromAddr, opts);
   const fromOptionsKey = opts.map((row) => row.email).join("|");
@@ -375,27 +374,10 @@ export function DraftArtifact({
     }
   };
 
-  const send = async () => {
-    if (card.send_disabled) return;
-    setBusy("send");
-    setErr("");
-    try {
-      if (dirty) await persist();
-      await api.sendDraft(card.draft_id, { cc, from_addr: resolvedFrom, to_addr: toAddr });
-      onRefresh();
-    } catch (e) {
-      setErr(messageOf(e));
-      onRefresh();
-    } finally {
-      setBusy(null);
-    }
-  };
-
   const requestSend = () => {
-    if (card.send_disabled || busy) return;
-    ask(draftSendConfirm({ from: resolvedFrom, to: toAddr, subject }), async () => {
-      await send();
-    });
+    if (card.send_disabled || busy || confirmedSend.busy) return;
+    // Normalized From is saved before showing the exact server-owned snapshot.
+    void confirmedSend.requestSend(card.draft_id, async () => { await persist(); });
   };
 
   return (
@@ -423,7 +405,7 @@ export function DraftArtifact({
           <label className="draft-field">
             <span>发件人</span>
             {opts.length > 1 ? (
-              <select value={resolvedFrom} onChange={(e) => setFromAddr(e.target.value)} data-from-select>
+              <select disabled={!!busy || confirmedSend.busy} value={resolvedFrom} onChange={(e) => setFromAddr(e.target.value)} data-from-select>
                 {opts.map((o) => (
                   <option key={o.email} value={o.email}>
                     {o.brand} · {o.email}
@@ -439,16 +421,17 @@ export function DraftArtifact({
           </label>
           <label className="draft-field">
             <span>收件人</span>
-            <input value={toAddr} onChange={(e) => setToAddr(e.target.value)} placeholder="收件邮箱" data-draft-to />
+            <input disabled={!!busy || confirmedSend.busy} value={toAddr} onChange={(e) => setToAddr(e.target.value)} placeholder="收件邮箱" data-draft-to />
           </label>
           <label className="draft-field">
             <span>抄送</span>
-            <input value={cc} onChange={(e) => setCc(e.target.value)} placeholder="上级 / 同站点 / 相关同事" />
+            <input disabled={!!busy || confirmedSend.busy} value={cc} onChange={(e) => setCc(e.target.value)} placeholder="上级 / 同站点 / 相关同事" />
           </label>
           <label className="draft-field">
             <span>主题</span>
             <input
               value={subject}
+              disabled={!!busy || confirmedSend.busy}
               onChange={(e) => setSubject(e.target.value)}
               placeholder="邮件主题"
               data-draft-subject
@@ -458,6 +441,7 @@ export function DraftArtifact({
             <span>正文</span>
             <textarea
               value={body}
+              disabled={!!busy || confirmedSend.busy}
               onChange={(e) => setBody(e.target.value)}
               placeholder="英文原文"
               rows={12}
@@ -472,28 +456,29 @@ export function DraftArtifact({
           <div className="zh-body">{zh}</div>
         </div>
       )}
+      {card.knowledge_id ? <p className="muted" data-draft-template-source title={card.knowledge_id}>模板来源：知识库 · 第 {card.knowledge_version} 版</p> : null}
       <div className="action-row">
         {!sent && (
-          <button className="btn ghost" data-draft-save onClick={() => void save()} disabled={!!busy || !dirty}>
+          <button className="btn ghost" data-draft-save onClick={() => void save()} disabled={!!busy || confirmedSend.busy || !dirty}>
             保存草稿
           </button>
         )}
-        <button className="btn ghost" data-email-action="translate" onClick={() => void translate()} disabled={!!busy}>
+        <button className="btn ghost" data-email-action="translate" onClick={() => void translate()} disabled={!!busy || confirmedSend.busy}>
           一键翻译中文（内部）
         </button>
-        <button className="btn work" data-email-action="send" onClick={requestSend} disabled={!!busy || !!card.send_disabled || !resolvedFrom.trim() || !toAddr.trim()}>
-          校验并发送原文
+        <button className="btn work" data-email-action="send" onClick={requestSend} disabled={!!busy || confirmedSend.busy || !!card.send_disabled || !resolvedFrom.trim() || !toAddr.trim()}>
+          确认发送
         </button>
       </div>
       {card.send_disabled && <p className="muted">发送已禁用</p>}
       {!resolvedFrom.trim() && !card.send_disabled && <p className="muted">请先选择发件邮箱。没有明确绑定时不会自动选择邮箱。</p>}
       {!toAddr.trim() && !card.send_disabled && <p className="muted">请先填写收件邮箱。不能解密或编造联系方式。</p>}
-      {err && (
+      {(err || confirmedSend.error) && (
         <div className="error" data-persistent-error>
-          {err}
+          {err || confirmedSend.error}
         </div>
       )}
-      {dialog}
+      {confirmedSend.dialog}
     </article>
   );
 }
@@ -928,28 +913,11 @@ export function ResultDraftPreview({ card, onRefresh }: { card: Record<string, u
   const actions = (Array.isArray(card.actions) ? card.actions : Array.isArray(card.recommended_actions) ? card.recommended_actions : [])
     .map((item) => typeof item === "string" ? item : String((item as { label?: string }).label || (item as { title?: string }).title || ""))
     .filter(Boolean);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState("");
-  const { ask, dialog } = useAdminConfirm();
-  const confirmSend = async () => {
-    if (!draftId) return;
-    setBusy(true);
-    setErr("");
-    try {
-      await api.sendDraft(draftId);
-      onRefresh?.();
-    } catch (error) {
-      setErr(friendlyError(error, "确认发送未完成，请稍后重试"));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const requestSend = () => {
-    if (!draftId || busy) return;
-    ask(draftSendConfirm({ from, to, subject }), async () => {
-      await confirmSend();
-    });
-  };
+  const confirmedSend = useConfirmedDraftSend(onRefresh);
+  const busy = confirmedSend.busy;
+  const err = confirmedSend.error;
+  const locked = Boolean(card.send_disabled || nested.send_disabled || ["sent", "sending", "send_unknown"].includes(String(card.status || nested.status || "")));
+  const requestSend = () => { if (!locked) void confirmedSend.requestSend(draftId); };
   if (!from && !to && !subject && !body && !draftId && !actions.some((item) => /确认发送/.test(item))) return null;
   return (
     <div className="result-draft-preview" data-result-draft>
@@ -957,7 +925,7 @@ export function ResultDraftPreview({ card, onRefresh }: { card: Record<string, u
       {to ? <p data-result-to>收件 {to}</p> : null}
       {subject ? <p data-draft-subject>主题 {subject}</p> : null}
       {body ? <pre className="mail-body-text" data-result-body>{body}</pre> : null}
-      {draftId || actions.some((item) => /确认发送/.test(item)) ? (
+      {!locked && (draftId || actions.some((item) => /确认发送/.test(item))) ? (
         <div className="action-row">
           <button
             type="button"
@@ -971,7 +939,7 @@ export function ResultDraftPreview({ card, onRefresh }: { card: Record<string, u
         </div>
       ) : null}
       {err ? <p className="error" data-persistent-error>{err}</p> : null}
-      {dialog}
+      {confirmedSend.dialog}
     </div>
   );
 }
