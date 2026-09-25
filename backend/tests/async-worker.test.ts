@@ -6,9 +6,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { setAgentSubmissionOverride } from "../src/contract-scope.js";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
+import { authenticatedTestApp, seedRuntimeTestActor } from "./fixtures/runtime-auth.js";
 
 const fake = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures/fake-codex.mjs");
 let tmp = "";
+let runtimeCookie = "";
 const savedCrawlEnv = {
   url: process.env.MEDIACRAWLER_MCP_URL,
   token: process.env.MEDIACRAWLER_MCP_TOKEN,
@@ -21,7 +23,7 @@ beforeEach(() => {
   process.env.LINGONG_DB = path.join(tmp, "t.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "real";
-  process.env.AUTH_MODE = "disabled";
+  process.env.AUTH_MODE = "enabled";
   process.env.CODEX_BIN = fake;
   process.env.FAKE_CODEX_MODE = "crawl-plan-success";
   process.env.FAKE_CODEX_DELAY = "150";
@@ -37,6 +39,7 @@ beforeEach(() => {
   setAgentSubmissionOverride();
   resetConn();
   seedAll();
+  runtimeCookie = seedRuntimeTestActor(["creator_discovery"]);
   getConn().prepare(
     `INSERT OR REPLACE INTO claw_creators
      (id, handle, name, platform, followers, score, status, outreach_script, payload)
@@ -75,7 +78,7 @@ afterEach(async () => {
 describe("real Codex HTTP flow", () => {
   it("acknowledges creator discovery immediately and publishes the background outcome", async () => {
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = authenticatedTestApp(createApp(), runtimeCookie);
     const created = await app.request("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -159,14 +162,14 @@ describe("real Codex HTTP flow", () => {
     const discoveryWorker = workers.find((worker) => worker.skill === "creator_discovery");
     expect(
       discoveryWorker?.contract_log?.find((entry) => entry.method === "mcp_servers")?.params?.names,
-    ).toEqual([]);
+    ).toEqual(["skill_runtime"]);
   });
 
   it("streams reasoning/process and persists a generic right-side task result", async () => {
     process.env.FAKE_CODEX_MODE = "crawl-plan-success";
     process.env.FAKE_CODEX_DELAY = "120";
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = authenticatedTestApp(createApp(), runtimeCookie);
     const created = await app.request("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -203,11 +206,11 @@ describe("real Codex HTTP flow", () => {
     expect(operations?.payload?.items).toEqual([]);
   });
 
-  it("produces a strict crawl plan without mounting remote MCP in the planning turn", async () => {
+  it("produces a strict crawl plan without mounting a direct supplier MCP in the planning turn", async () => {
     process.env.FAKE_CODEX_MODE = "crawl-plan-success";
     process.env.FAKE_CODEX_DELAY = "50";
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = authenticatedTestApp(createApp(), runtimeCookie);
     const created = await app.request("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -241,7 +244,7 @@ describe("real Codex HTTP flow", () => {
       contract_log?: { method?: string; params?: { names?: string[] } }[];
     }[];
     const worker = workers.find((item) => item.skill === "creator_discovery");
-    expect(worker?.contract_log?.find((entry) => entry.method === "mcp_servers")?.params?.names).toEqual([]);
+    expect(worker?.contract_log?.find((entry) => entry.method === "mcp_servers")?.params?.names).toEqual(["skill_runtime"]);
   });
 
   it("POST /stop aborts an in-flight Codex turn and returns listening", async () => {
@@ -249,7 +252,7 @@ describe("real Codex HTTP flow", () => {
     process.env.FAKE_CODEX_DELAY = "2000";
     process.env.HOST_WORKER_TIMEOUT = "8";
     const { createApp } = await import("../src/app.js");
-    const app = createApp();
+    const app = authenticatedTestApp(createApp(), runtimeCookie);
     const created = await app.request("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -303,7 +306,7 @@ describe("real Codex HTTP flow", () => {
     setAgentSubmissionOverride(false);
     try {
       const { createApp } = await import("../src/app.js");
-      const app = createApp();
+      const app = authenticatedTestApp(createApp(), runtimeCookie);
       const created = await app.request("/api/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

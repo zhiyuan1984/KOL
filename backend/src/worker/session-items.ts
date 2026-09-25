@@ -605,6 +605,9 @@ export async function completeTurnItems(
   };
   if (extra.compose_preview_only && skill === "email_compose") {
     const generated = existing.find((item) => item.type === "create_draft" && String(item.body || "").trim());
+    if (!generated && codexMode() !== "stub") {
+      throw new CodexUnavailable("本轮没有生成邮件草稿，Host 未代填。", "请使用当前授权能力重新运行。");
+    }
     const facts = factsFromEntities(raw, {
       ...entities,
       mail_digest: extra.mail_digest || entities.mail_digest,
@@ -637,7 +640,7 @@ export async function completeTurnItems(
     if (skill !== "email_compose" && hasReadSkillOutput(existing) && !existingBlockedByApproval(existing)) {
       return surfaceReadSkillItems(skill, existing);
     }
-    if (codexMode() !== "stub" && !hostReadFallback) {
+    if (codexMode() !== "stub") {
       throw new CodexUnavailable(
         skill === "email_compose"
           ? "生成已结束，但没有产出可映射的邮件草稿。Host 没有代填。"

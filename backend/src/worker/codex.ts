@@ -6,12 +6,14 @@
  */
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { CodexUnavailable } from "./errors.js";
 import type { Json } from "../types.js";
 import {
   codexChildEnv,
   inspectLocalCodexAuth,
+  isolatedCodexModelConfig,
   redactSecrets,
   resolveAuthState,
 } from "./auth.js";
@@ -68,8 +70,9 @@ export class CodexAppServer {
   authVia: "account" | "api_key_login" | "no_openai_required" | null = null;
   stderr = "";
   private dead = false;
+  private isolatedHome?: string;
 
-  constructor(timeout = 180) {
+  constructor(timeout = 180, privateEnv?: readonly string[]) {
     this.timeout = timeout;
     // One budget for handshake + auth + turn/start + waitTurn. Per-RPC
     // timeouts used to stack (account/read 20s × N + turn 120s) and left
@@ -83,9 +86,40 @@ export class CodexAppServer {
       ? process.execPath
       : this.bin;
     const args = command === process.execPath ? [this.bin, "app-server"] : ["app-server"];
+    const env = codexChildEnv();
+    if (privateEnv) {
+      for (const name of privateEnv) delete env[name];
+      // Inherited home MCP definitions must not bypass the run's authorization proxy.
+      const local = inspectLocalCodexAuth();
+      this.isolatedHome = fs.mkdtempSync(path.join(os.tmpdir(), "skill-runtime-codex-"));
+      fs.chmodSync(this.isolatedHome, 0o700);
+      if (local.hasAuthFile) fs.copyFileSync(local.authPath, path.join(this.isolatedHome, "auth.json"));
+      if (local.hasAuthFile) fs.chmodSync(path.join(this.isolatedHome, "auth.json"), 0o600);
+      const configFile = path.join(local.home, "config.toml");
+      try {
+        if (fs.existsSync(configFile)) {
+          if (fs.statSync(configFile).size > 1_000_000) throw new Error("config too large");
+          fs.writeFileSync(path.join(this.isolatedHome, "config.toml"),
+            isolatedCodexModelConfig(fs.readFileSync(configFile, "utf8")), { mode: 0o600 });
+        }
+      } catch {
+        fs.rmSync(this.isolatedHome, { recursive: true, force: true });
+        throw new CodexUnavailable("无法读取安全的模型配置。", "请检查 Codex 模型配置格式；运行时不会回退到旧 MCP 配置。");
+      }
+      env.CODEX_HOME = this.isolatedHome;
+    }
     this.proc = spawn(command, args, {
       stdio: ["pipe", "pipe", "pipe"],
-      env: codexChildEnv(),
+      env,
+    });
+    this.proc.once("exit", () => {
+      if (this.isolatedHome) fs.rmSync(this.isolatedHome, { recursive: true, force: true });
+    });
+    this.proc.once("error", () => {
+      this.dead = true;
+      if (this.isolatedHome) fs.rmSync(this.isolatedHome, { recursive: true, force: true });
+      for (const pending of this.pending.values()) pending.reject(new CodexUnavailable("无法启动 Codex 进程。", "请检查可执行文件及权限。"));
+      this.pending.clear();
     });
     this.proc.stdout.setEncoding("utf8");
     this.proc.stderr.setEncoding("utf8");
@@ -212,7 +246,11 @@ export class CodexAppServer {
   }
 
   private answerServerRequest(msg: Json): void {
-    this.write({ id: msg.id, result: { decision: "accept" } });
+    if (/approval/i.test(String(msg.method || ""))) {
+      this.write({ id: msg.id, result: { decision: "decline" } });
+    } else {
+      this.write({ id: msg.id, error: { code: -32601, message: "Unsupported server request; authorization is not implicit" } });
+    }
   }
 
   private write(obj: Json): void {

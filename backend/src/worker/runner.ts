@@ -1,12 +1,15 @@
 /**
  * Codex Worker = 一次 Chatflow Run。
  * Handshake: initialize → initialized → skills/extraRoots/set → skills/config/write →
- * thread/start|resume → turn/start {type:skill} → wait turn/completed → kill.
+ * thread/start (fresh capability set) → turn/start {type:skill} → wait turn/completed → kill.
  * 工具走 MCP（thread/start.config.mcp_servers），不在 Skill 里写裸 HTTP。
  */
 import fs from "node:fs";
 import path from "node:path";
-import { mcpServerSpecs, writeBoxCodexConfig } from "../../mcp/codex-config.js";
+import { SkillExecution, assertRuntimeSkill } from "../runtime/execution.js";
+import { startRuntimeProxy, type RuntimeProxy } from "../runtime/proxy.js";
+import { getConnectorConfig } from "../runtime/store.js";
+import "../runtime/providers.js";
 import { BRAND_MAILBOXES, boxDir, codexMode, codexTurnTimeout } from "../config.js";
 import { audit, getConn, tx } from "../db.js";
 import { nid } from "../ids.js";
@@ -15,7 +18,6 @@ import { groupedStageTracks } from "../stages.js";
 import type { Json, Row, WorkerResult } from "../types.js";
 import { writeAttachmentContext } from "../host/attachments.js";
 import { restoreOfficialCollaborationStage } from "../starrykol/library-sync.js";
-import { isStarryKolReadTask } from "../starrykol/service.js";
 import { isMissingInputDraft } from "../host/draft-quality.js";
 import { workerSafeExtra } from "../host/knowledge.js";
 import { runtimeSkillsRoot, writeRuntimeSkill, writeSkillIntoBox } from "../host/skill-sop.js";
@@ -439,13 +441,6 @@ function collab(extra: Json): Row | null {
   return col;
 }
 
-function sessionThread(sessionId: string): string | null {
-  const row = getConn().prepare("SELECT thread_ref FROM sessions WHERE id = ?").get(sessionId) as
-    | { thread_ref?: string }
-    | undefined;
-  return row?.thread_ref || null;
-}
-
 function setThread(sessionId: string, threadId: string): void {
   tx((c) => {
     c.prepare("UPDATE sessions SET thread_ref = ? WHERE id = ?").run(threadId, sessionId);
@@ -472,7 +467,6 @@ function writeBox(wid: string, definition: TaskDefinition, prompt: string, extra
   writeSkillIntoBox(box, skill);
   const planning = extra.mode === "today_plan" || extra.mode === "today_analyze" || extra.mode === "todo_plan" || extra.skip_user_memory === true;
   const planningMount = planning ? planningHarnessMount(skill) : null;
-  const mcpAllow = planningMount ? planningMount.tools : definition.mcp;
   const profile = profileFor(skill, col?.stage_code as string | undefined);
   const route = composeRouteFacts({ col, extra, boundMailbox: boundMailboxEmail() });
   const ctx = {
@@ -480,7 +474,7 @@ function writeBox(wid: string, definition: TaskDefinition, prompt: string, extra
     task_definition: {
       id: definition.id,
       output: definition.output,
-      mcp: mcpAllow,
+      execution_resources: "Current bindings and discovered schemas from the authorized Skill Runtime only",
       required_inputs: definition.required_inputs,
     },
     planning_harness: planningMount,
@@ -542,7 +536,7 @@ function writeBox(wid: string, definition: TaskDefinition, prompt: string, extra
     : "";
   fs.writeFileSync(
     path.join(box, "CONTEXT.md"),
-    "# CONTEXT\n\nHost 已选 Skill（Dify Chatflow）并核验 PEP。只产出 Item JSON。读数用 MCP starry.* / starrykol.* / claw.* / kolclaw.*，禁止裸 HTTP。禁止发信、禁止改正式阶段、禁止 WMS/企微。\n\n```json\n" +
+    "# CONTEXT\n\nHost 已选 Skill 并核验绑定。只产出 Item JSON。根据本轮授权 MCP 目录的描述和 schema 选择工具，不依赖历史服务名或工具名；缺少能力时如实说明。禁止裸 HTTP 和绕过 Gateway 的正式副作用。\n\n```json\n" +
       JSON.stringify(ctx, null, 2) +
       "\n```\n" +
       hostPack +
@@ -559,7 +553,7 @@ function writeBox(wid: string, definition: TaskDefinition, prompt: string, extra
       "能力域不是独立运行时；所有 Profile 共用同一 Codex app-server harness。",
       "Host 已选好本轮 Profile 与 Skill。你只跑这一份 SKILL.md。",
       profile.guardrail,
-      "读数用 MCP 工具：starry.* / starrykol.* / claw.* / kolclaw.*。禁止裸 HTTP、禁止自己拼 SMTP/WeCom。",
+      "只使用本轮 Skill Runtime 发现且授权的工具，按描述与 schema 选择；旧 SOP 中的实现名称仅是历史参考，不构成工具授权。禁止裸 HTTP 或读取凭据自行调用。",
       "只写 Item JSON（节点输出）：task_result / create_draft / propose_stage / list_overdue / create_approval / text。",
       ...(skill === "email_compose"
         ? [
@@ -586,8 +580,7 @@ function writeBox(wid: string, definition: TaskDefinition, prompt: string, extra
     ].join("\n") + "\n",
     "utf8",
   );
-  const hasEmbeddedCreator = skill === "kol" && extra.creator && typeof extra.creator === "object";
-  if (!hasEmbeddedCreator) writeBoxCodexConfig(box, mcpAllow);
+  // Credentials and direct remote MCP configurations never enter the worker box.
   return box;
 }
 
@@ -651,6 +644,10 @@ export async function runCodex(
   const skill = definition.id;
   emitPhase(onProgress, "preparing");
   const wid = nid("wrk");
+  const runtimeContext = { agentId: kolAgentScopeContext().agent_id, skillId: skill,
+    userId: scopedUser()?.id || "", runId: wid, sessionId };
+  const runtimeAuthorization = assertRuntimeSkill(runtimeContext);
+  const execution = new SkillExecution(runtimeContext);
   const col = collab(extra);
   const profile = profileFor(skill, col?.stage_code as string | undefined);
   const box = writeBox(wid, definition, prompt, extra, col);
@@ -659,9 +656,25 @@ export async function runCodex(
   const log: Json[] = [];
   const harness = emptyHarnessMemory();
   let rpc: CodexAppServer | null = null;
-  const stop = () => rpc?.close();
+  let proxy: RuntimeProxy | null = null;
+  const stop = () => { execution.close(); rpc?.close(); };
+  signal?.addEventListener("abort", stop, { once: true });
   try {
-    rpc = new CodexAppServer(codexTurnTimeout());
+    if (signal?.aborted) { stop(); throw Object.assign(new Error("已停止生成"), { name: "WorkerStopped" }); }
+    const catalog = await execution.discover();
+    fs.appendFileSync(path.join(box, "CONTEXT.md"), `\n## Execution resource availability\n\n${JSON.stringify({
+      authorized_tool_count: catalog.tools.length, unavailable: catalog.unavailable,
+      note: "Do not invent missing data. Only currently listed tools are executable.",
+    })}\n`);
+    proxy = await startRuntimeProxy(execution);
+    const privateEnv = (getConn().prepare("SELECT connector_id FROM runtime_connector_config").all() as Row[]).flatMap((binding) => {
+      const config = getConnectorConfig(String(binding.connector_id))?.config;
+      return config ? [...Object.values(config.headers_env || {}), ...(config.bearer_env ? [config.bearer_env] : [])] : [];
+    });
+    rpc = new CodexAppServer(codexTurnTimeout(), privateEnv);
+    log.push({ method: "runtime/binding", params: { agent_id: runtimeContext.agentId,
+      binding_version: runtimeAuthorization.binding.version, skill_version: runtimeAuthorization.skillVersion,
+      tool_count: catalog.tools.length, unavailable: catalog.unavailable } });
     rpc.onNotification = (method, params) => {
       const delta = agentMessageDelta(method, params);
       if (delta) {
@@ -671,7 +684,6 @@ export async function runCodex(
       const harnessProgress = progressFromHarness(method, params, harness);
       if (harnessProgress) onProgress?.(harnessProgress);
     };
-    signal?.addEventListener("abort", stop, { once: true });
     if (signal?.aborted) stop();
     log.push({ method: "initialize", params: { clientInfo: { name: "lingong_kol" } } });
     log.push({ method: "profile/select", params: { id: profile.id, name: profile.name, harness: profile.harness } });
@@ -689,16 +701,11 @@ export async function runCodex(
       log.push({ method: "skills/config/write", params: { path: skillPath } });
     }
     emitPhase(onProgress, "skill_ready");
-    const threadRef = sessionThread(sessionId);
     const cwd = path.resolve(box);
-    const hasEmbeddedCreator = skill === "kol" && extra.creator && typeof extra.creator === "object";
-    const planning = extra.mode === "today_plan" || extra.mode === "today_analyze" || extra.mode === "todo_plan" || extra.skip_user_memory === true;
-    const mcpServers = hasEmbeddedCreator
-      ? {}
-      : mcpServerSpecs(planning ? planningHarnessMount(skill).tools : definition.mcp);
+    const mcpServers = { skill_runtime: proxy.spec };
     const threadParams: Json = {
       cwd,
-      // Remote Starry KOL reads may still elicit; Host recovers L1 reads in completeTurnItems.
+      // No direct supplier connections or Host read fallbacks.
       approvalPolicy: "never",
       sandbox: "workspace-write",
       config: {
@@ -707,20 +714,9 @@ export async function runCodex(
       },
     };
     log.push({ method: "mcp_servers", params: { names: Object.keys(mcpServers) } });
-    let started: Json;
-    if (threadRef) {
-      try {
-        started = await rpc.request("thread/resume", { threadId: threadRef });
-        log.push({ method: "thread/resume", params: { threadId: threadRef } });
-      } catch (e) {
-        if (!(e instanceof CodexUnavailable)) throw e;
-        started = await rpc.request("thread/start", threadParams);
-        log.push({ method: "thread/start", params: { cwd, mcp: Object.keys(mcpServers) } });
-      }
-    } else {
-      started = await rpc.request("thread/start", threadParams);
-      log.push({ method: "thread/start", params: { cwd, mcp: Object.keys(mcpServers) } });
-    }
+    // Old threads may persist MCP endpoints/credentials. Always start with this run's capability set.
+    const started = await rpc.request("thread/start", threadParams);
+    log.push({ method: "thread/start", params: { cwd, mcp: Object.keys(mcpServers), fresh_runtime: true } });
     const thread = (started.thread as Json) || started || {};
     const threadId = thread.id as string | undefined;
     if (!threadId) {
@@ -788,16 +784,12 @@ export async function runCodex(
         completedTurn.error ||
         "turn did not complete",
       );
-      if (!isStarryKolReadTask(skill)) {
-        throw new CodexUnavailable(
-          `生成服务结束状态：${completedStatus}；${detail}`,
-          "请检查模型服务与网络后重试。",
-        );
-      }
-      log.push({
-        method: "turn/host_read_fallback",
-        params: { status: completedStatus, skill, reason: detail.slice(0, 300) },
-      });
+      throw new CodexUnavailable(`生成服务结束状态：${completedStatus}；${detail}`, "请检查模型服务与网络后重试。");
+    }
+    const currentAuthorization = assertRuntimeSkill(runtimeContext);
+    if (currentAuthorization.binding.version !== runtimeAuthorization.binding.version
+      || currentAuthorization.skillVersion !== runtimeAuthorization.skillVersion) {
+      throw new CodexUnavailable("执行期间能力绑定或技能版本已变化，结果未发布。", "请基于当前配置重新运行。");
     }
     emitPhase(onProgress, "validating");
     let items = [...parseAgentTexts(rpc.agentTexts), ...parseBoxFiles(box)];
@@ -880,5 +872,7 @@ export async function runCodex(
   } finally {
     signal?.removeEventListener("abort", stop);
     rpc?.close();
+    execution.close();
+    await proxy?.close();
   }
 }

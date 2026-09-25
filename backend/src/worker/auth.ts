@@ -7,6 +7,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { parse, stringify } from "smol-toml";
 import type { Json } from "../types.js";
 
 export type AuthAction =
@@ -130,6 +131,24 @@ export function codexChildEnv(src: NodeJS.ProcessEnv = process.env): NodeJS.Proc
     env[k] = v;
   }
   return env;
+}
+
+/** Model/auth settings survive run isolation; tools, hooks, plugins and trust do not. */
+export function isolatedCodexModelConfig(source: string): string {
+  const parsed = parse(source);
+  const allowed = ["model", "model_provider", "model_providers", "model_reasoning_effort", "model_verbosity",
+    "service_tier", "cli_auth_credentials_store", "forced_login_method", "forced_chatgpt_workspace_id"];
+  const safe: Record<string, unknown> = {};
+  for (const key of allowed) if (parsed[key] !== undefined) safe[key] = parsed[key];
+  const profile = typeof parsed.profile === "string" ? parsed.profile : "";
+  const profiles = parsed.profiles;
+  if (profile && profiles && typeof profiles === "object" && !Array.isArray(profiles)) {
+    const active = (profiles as Record<string, unknown>)[profile];
+    if (active && typeof active === "object" && !Array.isArray(active)) {
+      for (const key of allowed) if ((active as Json)[key] !== undefined) safe[key] = (active as Json)[key];
+    }
+  }
+  return stringify(safe);
 }
 
 export function redactSecrets(text: string): string {
