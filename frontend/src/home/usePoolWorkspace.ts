@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HomeSurface } from "./surfaceError";
-import { claimPoolKol, loadHomePool, releaseFollowedKol, syncHomePoolIndex } from "./kolSurfaceApi";
+import {
+  assessPoolWithJev,
+  claimPoolKol,
+  cleanupPoolMissingHomepage,
+  enrichPoolAvatars,
+  loadHomePool,
+  previewPoolCleanup,
+  releaseFollowedKol,
+  syncHomePoolIndex,
+} from "./kolSurfaceApi";
 import type { PoolKol } from "./kolContract";
 
 function canonicalProfileKey(card: PoolKol): string {
@@ -57,6 +66,10 @@ export function usePoolWorkspace(options: {
   const [undoError, setUndoError] = useState<string | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [maintenanceBusy, setMaintenanceBusy] = useState<"avatars" | "jev" | "cleanup" | null>(null);
+  const [maintenanceNotice, setMaintenanceNotice] = useState<string | null>(null);
+  const [maintenanceError, setMaintenanceError] = useState<string | null>(null);
+  const [cleanupPreview, setCleanupPreview] = useState<{ candidateCount: number; protectedActiveFollows: number } | null>(null);
   const removalTimerRef = useRef<number | null>(null);
   const undoTimerRef = useRef<number | null>(null);
 
@@ -110,6 +123,79 @@ export function usePoolWorkspace(options: {
       setSyncBusy(false);
     }
   }, [syncBusy]);
+
+  const enrichAvatars = useCallback(async () => {
+    if (maintenanceBusy) return;
+    setMaintenanceBusy("avatars");
+    setMaintenanceError(null);
+    setMaintenanceNotice(null);
+    try {
+      const result = await enrichPoolAvatars();
+      setCards(dedupePoolCards(result.items));
+      setMaintenanceNotice(result.message);
+    } catch (err) {
+      setMaintenanceError(err instanceof Error ? err.message : "公开头像补全失败，请稍后重试");
+    } finally {
+      setMaintenanceBusy(null);
+    }
+  }, [maintenanceBusy]);
+
+  const assessWithJev = useCallback(async () => {
+    if (maintenanceBusy) return;
+    setMaintenanceBusy("jev");
+    setMaintenanceError(null);
+    setMaintenanceNotice(null);
+    try {
+      const result = await assessPoolWithJev();
+      setCards(dedupePoolCards(result.items));
+      setMaintenanceNotice(result.message);
+    } catch (err) {
+      setMaintenanceError(err instanceof Error ? err.message : "Jev 评分失败，请稍后重试");
+    } finally {
+      setMaintenanceBusy(null);
+    }
+  }, [maintenanceBusy]);
+
+  const requestCleanupPreview = useCallback(async () => {
+    if (maintenanceBusy) return;
+    setMaintenanceBusy("cleanup");
+    setMaintenanceError(null);
+    setMaintenanceNotice(null);
+    try {
+      const preview = await previewPoolCleanup();
+      setCleanupPreview(preview);
+      setMaintenanceNotice(preview.candidateCount
+        ? `检测到 ${preview.candidateCount} 条无主页公海档案，待确认删除。`
+        : "没有可清理的无主页公海档案。");
+    } catch (err) {
+      setMaintenanceError(err instanceof Error ? err.message : "无主页档案预览失败");
+    } finally {
+      setMaintenanceBusy(null);
+    }
+  }, [maintenanceBusy]);
+
+  const confirmCleanup = useCallback(async () => {
+    if (!cleanupPreview || maintenanceBusy) return;
+    setMaintenanceBusy("cleanup");
+    setMaintenanceError(null);
+    try {
+      const result = await cleanupPoolMissingHomepage(cleanupPreview.candidateCount);
+      setCards(dedupePoolCards(result.items));
+      setCleanupPreview(null);
+      setMaintenanceNotice(`已删除 ${result.deleted} 条无主页公海档案。`);
+    } catch (err) {
+      setMaintenanceError(err instanceof Error ? err.message : "无主页档案清理失败，请重新预览");
+      setCleanupPreview(null);
+    } finally {
+      setMaintenanceBusy(null);
+    }
+  }, [cleanupPreview, maintenanceBusy]);
+
+  const cancelCleanup = useCallback(() => {
+    if (maintenanceBusy) return;
+    setCleanupPreview(null);
+    setMaintenanceNotice(null);
+  }, [maintenanceBusy]);
 
   const requestClaim = useCallback((card: PoolKol) => {
     setClaimError(null);
@@ -191,6 +277,15 @@ export function usePoolWorkspace(options: {
     syncLibrary,
     syncBusy,
     syncError,
+    maintenanceBusy,
+    maintenanceNotice,
+    maintenanceError,
+    cleanupPreview,
+    enrichAvatars,
+    assessWithJev,
+    requestCleanupPreview,
+    confirmCleanup,
+    cancelCleanup,
     claimTarget,
     claimBusy,
     claimError,

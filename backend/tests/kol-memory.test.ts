@@ -9,12 +9,16 @@ import { DEMO_USER } from "../src/config.js";
 import {
   applyKolAnalyzeAction,
   claimFollow,
+  deleteProfilesWithoutHomepage,
   followClock,
   ingestFormalProfile,
   isEffectiveCorrespondence,
+  previewProfilesWithoutHomepage,
   recordEffectiveCorrespondence,
   recordFollowedMailMemory,
 } from "../src/host/kol-memory.js";
+import { enrichMissingPublicAvatars, setAvatarCrawlerFetch } from "../src/host/kol-avatar-enrichment.js";
+import { assessPublicKolsWithJev, setKolJevFetch } from "../src/host/kol-jev-assessment.js";
 import { runStub } from "../src/worker/stub.js";
 import { HttpFail } from "../src/host/errors.js";
 import { evaluateOwnershipRelease, releaseFollowOwnershipIfEligible } from "../src/gateway/ownership-release.js";
@@ -69,6 +73,8 @@ beforeEach(async () => {
 
 afterEach(() => {
   setStarryKolClientFactory();
+  setAvatarCrawlerFetch();
+  setKolJevFetch();
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
   vi.restoreAllMocks();
@@ -303,6 +309,85 @@ describe("kol follow/pool memory P0", () => {
     });
     expect(profile).not.toHaveProperty("email");
     expect(calls).toEqual(["pageKolProfiles", "getKolProfileDetail"]);
+  });
+
+  it("enriches a missing avatar from public homepage metadata without reading private profile fields", async () => {
+    seedProfile("KOL_AVATAR", {
+      homepage_url: "https://example.com/creator",
+      avatar_url: "",
+    });
+    let requested = "";
+    setAvatarCrawlerFetch(async (input) => {
+      requested = String(input);
+      return new Response('<html><head><meta property="og:image" content="/avatar.jpg"></head></html>', {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    });
+    const result = await enrichMissingPublicAvatars({ limit: 1 });
+    expect(result).toMatchObject({ checked: 1, updated: 1, failed: 0 });
+    expect(requested).toBe("https://example.com/creator");
+    const row = getConn().prepare("SELECT avatar_url, avatar_checked_at, avatar_error FROM kol_profile_index WHERE kol_uid=?").get("KOL_AVATAR") as {
+      avatar_url: string; avatar_checked_at: string; avatar_error: string;
+    };
+    expect(row.avatar_url).toBe("https://example.com/avatar.jpg");
+    expect(row.avatar_checked_at).toBeTruthy();
+    expect(row.avatar_error).toBe("");
+  });
+
+  it("keeps active follows out of local missing-homepage cleanup and locks the preview count", () => {
+    seedProfile("KOL_DELETE");
+    seedProfile("KOL_KEEP");
+    getConn().prepare("UPDATE kol_profile_index SET homepage_url='' WHERE kol_uid IN (?,?)").run("KOL_DELETE", "KOL_KEEP");
+    claimFollow({
+      kolUid: "KOL_KEEP",
+      scopeBrand: "LT",
+      confirm: true,
+      actor: { id: DEMO_USER.id, name: DEMO_USER.name, brands: ["LT"] },
+    });
+    expect(previewProfilesWithoutHomepage()).toMatchObject({
+      scope: "public_pool_only",
+      candidate_count: 1,
+      protected_active_follows: 1,
+    });
+    expect(() => deleteProfilesWithoutHomepage({ expectedCount: 1, confirm: false })).toThrow(/确认/);
+    expect(() => deleteProfilesWithoutHomepage({ expectedCount: 2, confirm: true })).toThrow(/数量已变化/);
+    expect(deleteProfilesWithoutHomepage({ expectedCount: 1, confirm: true })).toMatchObject({ ok: true, deleted: 1 });
+    expect(getConn().prepare("SELECT kol_uid FROM kol_profile_index WHERE kol_uid=?").get("KOL_DELETE")).toBeUndefined();
+    expect(getConn().prepare("SELECT kol_uid FROM kol_profile_index WHERE kol_uid=?").get("KOL_KEEP")).toBeTruthy();
+  });
+
+  it("records bounded Jev potential and risk scores as advisory public index metadata", async () => {
+    seedProfile("KOL_JEV", { homepage_url: "https://example.com/jev", followers: "240000", avg_plays: "50000" });
+    const priorKey = process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY = "sk-or-test";
+    let state = "";
+    setKolJevFetch(async (_input, init) => {
+      const body = typeof init?.body === "string" ? JSON.parse(init.body) as { state?: { public_profile?: string } } : {};
+      state = String(body.state?.public_profile || "");
+      return new Response(JSON.stringify({
+        model: "typesafe/jev-1.13",
+        answers: {
+          potential: { type: "choice", choice: "high_potential", confidence: 0.91 },
+          risk: { type: "choice", choice: "high_risk", confidence: 0.83 },
+        },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    try {
+      const result = await assessPublicKolsWithJev({ limit: 1 });
+      expect(result).toMatchObject({ assessed: 1, high_potential: 1, high_risk: 1, failed: 0 });
+      expect(state).toContain("KOL_JEV");
+      expect(state).not.toMatch(/email|quote|contract|notes/i);
+      const row = getConn().prepare(
+        "SELECT potential_score, potential_confidence, risk_score, risk_confidence, assessment_model FROM kol_profile_index WHERE kol_uid=?",
+      ).get("KOL_JEV") as { potential_score: number; potential_confidence: number; risk_score: number; risk_confidence: number; assessment_model: string };
+      expect(row).toMatchObject({ potential_score: 85, risk_score: 85, assessment_model: "jev-1.13" });
+      expect(row.potential_confidence).toBeCloseTo(0.91);
+      expect(row.risk_confidence).toBeCloseTo(0.83);
+    } finally {
+      if (priorKey === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = priorKey;
+    }
   });
 
   it("claim is L3, does not start the 14-day clock, dual-writes owner_name", async () => {

@@ -116,6 +116,13 @@ export function publicProfileFields(row: Row | Json): Json {
     pool_status: row.pool_status || "open",
     source_batch: row.source_batch || "",
     platform_creator_id: row.platform_creator_id || "",
+    potential_score: row.potential_score ?? null,
+    potential_confidence: row.potential_confidence ?? null,
+    risk_score: row.risk_score ?? null,
+    risk_confidence: row.risk_confidence ?? null,
+    assessment_model: row.assessment_model || "",
+    assessment_version: row.assessment_version || "",
+    assessed_at: row.assessed_at || null,
   };
 }
 
@@ -329,6 +336,97 @@ export function listOpenPool(companyId = memoryCompanyId(), db: SqliteConn = get
       ORDER BY ingested_at DESC, display_name`,
   ).all(companyId) as Row[];
   return rows.map((row) => trimPrivate(publicProfileFields(row)));
+}
+
+/** Counts only unclaimed public-pool rows. Active follows are not cleanup candidates. */
+export function previewProfilesWithoutHomepage(companyId = memoryCompanyId(), db: SqliteConn = getConn()): Json {
+  const candidate = db.prepare(
+    `SELECT COUNT(*) AS count
+       FROM kol_profile_index p
+      WHERE p.company_id=?
+        AND p.pool_status='open'
+        AND trim(COALESCE(p.homepage_url,''))=''
+        AND NOT EXISTS (
+          SELECT 1 FROM kol_follow_index f
+           WHERE f.company_id=p.company_id AND f.kol_uid=p.kol_uid AND f.status='active'
+        )`,
+  ).get(companyId) as { count?: number } | undefined;
+  const protectedRows = db.prepare(
+    `SELECT COUNT(*) AS count
+       FROM kol_profile_index p
+      WHERE p.company_id=?
+        AND trim(COALESCE(p.homepage_url,''))=''
+        AND EXISTS (
+          SELECT 1 FROM kol_follow_index f
+           WHERE f.company_id=p.company_id AND f.kol_uid=p.kol_uid AND f.status='active'
+        )`,
+  ).get(companyId) as { count?: number } | undefined;
+  return {
+    scope: "public_pool_only",
+    candidate_count: Number(candidate?.count || 0),
+    protected_active_follows: Number(protectedRows?.count || 0),
+  };
+}
+
+/**
+ * Irreversibly removes only unclaimed public-pool profiles with no homepage.
+ * The caller must re-submit the preview count so a stale preview cannot delete
+ * a different set of records.
+ */
+export function deleteProfilesWithoutHomepage(input: {
+  expectedCount: number;
+  confirm: boolean;
+  companyId?: string;
+  actor?: string;
+}): Json {
+  if (!input.confirm) {
+    throw new HttpFail(422, { code: "cleanup_confirmation_required", message: "清理无主页档案需要明确确认。" });
+  }
+  const expected = Number(input.expectedCount);
+  if (!Number.isInteger(expected) || expected < 0) {
+    throw new HttpFail(400, { code: "cleanup_expected_count_required", message: "需要有效的 expected_count。" });
+  }
+  const companyId = input.companyId || memoryCompanyId();
+  const deleted = txImmediate((db) => {
+    const current = db.prepare(
+      `SELECT COUNT(*) AS count
+         FROM kol_profile_index p
+        WHERE p.company_id=?
+          AND p.pool_status='open'
+          AND trim(COALESCE(p.homepage_url,''))=''
+          AND NOT EXISTS (
+            SELECT 1 FROM kol_follow_index f
+             WHERE f.company_id=p.company_id AND f.kol_uid=p.kol_uid AND f.status='active'
+          )`,
+    ).get(companyId) as { count?: number } | undefined;
+    const actual = Number(current?.count || 0);
+    if (actual !== expected) {
+      throw new HttpFail(409, {
+        code: "cleanup_preview_changed",
+        message: "无主页档案数量已变化，请重新预览后确认。",
+        expected_count: expected,
+        actual_count: actual,
+      });
+    }
+    return Number(db.prepare(
+      `DELETE FROM kol_profile_index
+        WHERE company_id=?
+          AND pool_status='open'
+          AND trim(COALESCE(homepage_url,''))=''
+          AND NOT EXISTS (
+            SELECT 1 FROM kol_follow_index f
+             WHERE f.company_id=kol_profile_index.company_id
+               AND f.kol_uid=kol_profile_index.kol_uid
+               AND f.status='active'
+          )`,
+    ).run(companyId).changes || 0);
+  });
+  audit(input.actor || "system", "kol.memory.cleanup_missing_homepage", {
+    scope: "public_pool_only",
+    expected_count: expected,
+    deleted,
+  });
+  return { ok: true, scope: "public_pool_only", deleted, ...previewProfilesWithoutHomepage(companyId) };
 }
 
 function followedThreadMemory(follow: Row, db: SqliteConn): Json[] {

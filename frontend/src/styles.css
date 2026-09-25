@@ -13705,7 +13705,212 @@ button.today-brief-primary-btn:disabled {
   }
 }
 @media (max-width: 1100px) {
-  .scope-task-rail .pool-compact-header {
-    padding-right: calc(var(--icon-btn) + var(--ds-space-2));
+.scope-task-rail .pool-compact-header {
+  padding-right: calc(var(--icon-btn) + var(--ds-space-2));
+}
+}
+
+/* 公海右栏是高密度线索表。状态标签已完整表达入海状态，不重复再写「公海原因」。
+   L3 保留确认语义，但视觉尺寸回到工作台的 24 / 28px 控件阶梯。 */
+.scope-task-rail .pool-kol-row {
+  grid-template-columns: 16px 40px minmax(0, 1fr) auto;
+  gap: var(--ds-space-2);
+  min-height: 96px;
+  padding: var(--ds-space-2) 0;
+}
+.scope-task-rail .pool-row-select {
+  padding-top: 12px;
+}
+.scope-task-rail .pool-row-avatar {
+  width: 40px;
+  height: 40px;
+  font-size: var(--ds-font-body);
+  line-height: var(--ds-line-body);
+}
+.scope-task-rail .pool-row-actions {
+  display: block;
+  grid-column: 4;
+  grid-row: 1;
+  min-width: 80px;
+  padding: 0;
+}
+.scope-task-rail .pool-claim-button {
+  min-width: 80px;
+  min-height: var(--control-h);
+  height: var(--control-h);
+  padding-inline: var(--ds-space-2);
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control);
+}
+.scope-task-rail .pool-profile-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--accent-text);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.scope-task-rail .pool-claim-confirm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: var(--ds-space-1);
+  margin-top: var(--ds-space-1);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+.scope-task-rail .pool-claim-confirm [data-claim-object] {
+  grid-column: 1 / -1;
+}
+.scope-task-rail .pool-claim-confirm button {
+  min-height: var(--control-h-sm);
+  height: var(--control-h-sm);
+  padding-inline: var(--ds-space-2);
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control-sm);
+}
+.scope-task-rail .pool-claim-confirm [data-claim-follow-yes] {
+  grid-column: 2;
+}
+.scope-task-rail .pool-claim-confirm [data-claim-follow-no] {
+  grid-column: 3;
+}
+
+/* 公海桌面行保持原有动作与头像尺度；资料维护另占一行，避免挤压领取动作。 */
+.scope-task-rail .pool-kol-row {
+  grid-template-columns: 16px 56px minmax(0, 1fr) auto;
+  gap: var(--ds-space-2);
+  min-height: 112px;
+  padding: var(--ds-space-2) 0;
+}
+.scope-task-rail .pool-row-select {
+  padding-top: 16px;
+}
+.scope-task-rail .pool-row-avatar {
+  width: 56px;
+  height: 56px;
+  font-size: var(--ds-font-section);
+  line-height: var(--ds-line-section);
+}
+.scope-task-rail .pool-row-actions {
+  display: grid;
+  grid-column: 4;
+  grid-row: 1 / span 3;
+  grid-template-columns: minmax(0, auto);
+  grid-template-rows: var(--control-h-lg);
+  align-content: start;
+  align-items: start;
+  min-width: 96px;
+  padding-top: 0;
+}
+.scope-task-rail .pool-claim-button {
+  min-width: 96px;
+  min-height: var(--control-h-lg);
+  height: var(--control-h-lg);
+  padding-inline: var(--ds-space-2);
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control);
+}
+.scope-task-rail .pool-claim-confirm button {
+  min-height: var(--control-h);
+  height: var(--control-h);
+  padding-inline: var(--ds-space-2);
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control);
+}
+.pool-jev-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--badge-h);
+  padding-inline: 6px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  font-size: var(--ds-font-helper);
+  font-weight: 500;
+  line-height: var(--ds-line-helper);
+  white-space: nowrap;
+}
+.pool-jev-badge.is-potential {
+  color: var(--success);
+}
+.pool-jev-badge.is-risk {
+  color: var(--danger);
+}
+.pool-maintenance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-1) var(--ds-space-2);
+  margin: 0 0 var(--ds-space-2);
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+.pool-maintenance > button,
+.pool-cleanup-confirm button {
+  min-height: var(--control-h-sm);
+  height: var(--control-h-sm);
+  padding: 0 var(--ds-space-2);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control-sm);
+  cursor: pointer;
+}
+.pool-maintenance > button:hover:not(:disabled),
+.pool-cleanup-confirm button:hover:not(:disabled) {
+  border-color: var(--control-border-hover);
+  background: var(--ds-surface);
+}
+.pool-maintenance > button:disabled,
+.pool-cleanup-confirm button:disabled {
+  opacity: .6;
+  cursor: default;
+}
+.pool-maintenance-notice {
+  color: var(--text-muted);
+}
+.pool-maintenance-error {
+  color: var(--danger);
+}
+.pool-cleanup-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-1) var(--ds-space-2);
+  margin: 0 0 var(--ds-space-2);
+  padding: var(--ds-space-2);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-card);
+  background: var(--ds-surface);
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+.pool-cleanup-confirm b {
+  color: var(--text);
+  font-weight: 600;
+}
+.pool-cleanup-confirm [data-pool-cleanup-confirm-button] {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+@media (max-width: 1100px) {
+  .scope-task-rail .pool-kol-row {
+    grid-template-columns: 16px 48px minmax(0, 1fr) auto;
+    gap: 6px;
+  }
+  .scope-task-rail .pool-row-avatar {
+    width: 48px;
+    height: 48px;
+  }
+  .scope-task-rail .pool-row-actions,
+  .scope-task-rail .pool-claim-button {
+    min-width: 86px;
   }
 }

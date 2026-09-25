@@ -14,12 +14,6 @@ function SearchIcon() {
   </svg>;
 }
 
-function MoreIcon() {
-  return <svg className="pool-inline-icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor">
-    <circle cx="3" cy="8" r="1.15" /><circle cx="8" cy="8" r="1.15" /><circle cx="13" cy="8" r="1.15" />
-  </svg>;
-}
-
 function ExternalLinkIcon() {
   return <svg className="pool-inline-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none">
     <path d="M9 2.5h4.5V7M13.25 2.75 7 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -58,6 +52,10 @@ function metricNumber(value?: string) {
   return number * (raw.includes("万") ? 10_000 : /k$/i.test(raw) ? 1_000 : 1);
 }
 
+function highScore(score?: number | null, confidence?: number | null): boolean {
+  return Number(score || 0) >= 80 && Number(confidence || 0) >= 0.7;
+}
+
 function PoolAvatar({ card }: { card: PoolKol }) {
   const [failed, setFailed] = useState(false);
   const name = card.identity.display.replace(/^@/, "");
@@ -72,7 +70,6 @@ function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, 
   card: PoolKol; selected: boolean; claimBusy: boolean; claimTarget: boolean; claimError?: string | null;
   claimed: boolean; onSelect: (on: boolean) => void; onClaim: () => void; onConfirm: () => void; onCancel: () => void;
 }) {
-  const [more, setMore] = useState(false);
   const intro = [card.direction, card.style].filter(Boolean).join(" · ") || card.region;
   const metrics: PoolMetric[] = [
     card.metrics.followers ? { key: "followers", label: "粉丝", value: card.metrics.followers } : null,
@@ -82,6 +79,8 @@ function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, 
   const stage = card.public_stage?.label || "未首次建联";
   const overdue = stage.includes("14") && stage.includes("回复");
   const quality = metrics.length ? "ready" : "partial";
+  const highPotential = highScore(card.assessment?.potential_score, card.assessment?.potential_confidence);
+  const highRisk = highScore(card.assessment?.risk_score, card.assessment?.risk_confidence);
 
   return <article className="pool-kol-row" data-pool-kol={card.kol_uid} data-pool-card data-kol-work-card
     data-selected={selected || undefined} data-claimed={claimed || undefined} data-pool-quality={quality}>
@@ -91,12 +90,17 @@ function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, 
     <div className="pool-row-content">
       <div className="pool-row-heading"><strong className="pool-row-name" data-kol-identity data-kol-name>{card.identity.display}</strong>
         <span className="pool-row-status" data-public-stage data-stage-code={card.public_stage?.code || undefined}
-          data-overdue={overdue || undefined} data-stage-label>{stage}</span></div>
+          data-overdue={overdue || undefined} data-stage-label>{stage}</span>
+        {highPotential && <span className="pool-jev-badge is-potential" data-jev-potential
+          title={`Jev 公开资料评估 · 置信度 ${Math.round(Number(card.assessment?.potential_confidence || 0) * 100)}%`}>高潜 {card.assessment?.potential_score}</span>}
+        {highRisk && <span className="pool-jev-badge is-risk" data-jev-risk
+          title={`Jev 公开资料评估 · 置信度 ${Math.round(Number(card.assessment?.risk_confidence || 0) * 100)}%`}>高风险 {card.assessment?.risk_score}</span>}</div>
       <div className="pool-row-meta" data-kol-scope>
         {card.identity.platform && <span data-kol-chip="platform">{card.identity.platform}</span>}
         <span>在库</span>
         {card.identity.profile_url && <a className="pool-profile-link" href={card.identity.profile_url} target="_blank" rel="noopener noreferrer"
-          aria-label={`打开 ${card.identity.display} 的平台主页`}><ExternalLinkIcon /></a>}
+          aria-label={`打开 ${card.identity.display} 的平台主页`} title={`打开 ${card.identity.display} 的平台主页`}>
+          主页 <ExternalLinkIcon /></a>}
       </div>
       <div className="pool-row-facts">
         <span className="pool-row-metrics" data-pool-metrics>{metrics.length
@@ -111,29 +115,27 @@ function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, 
     <div className="pool-row-actions">
       <button type="button" className="pool-claim-button" data-pool-claim data-home-entry="claim-kol"
         disabled={claimBusy || claimed} onClick={onClaim}>{claimed ? "已领取 ✓" : claimBusy ? "正在领取…" : "领取跟进"}</button>
-      <div className="pool-row-reason" data-pool-reason><span>公海原因</span><strong>{stage}</strong></div>
-      <div className="pool-more-wrap">
-        <button type="button" className="pool-more-button" data-pool-more aria-label={`更多操作：${card.identity.display}`}
-          aria-expanded={more} aria-haspopup="menu" onClick={() => setMore(!more)}><MoreIcon /></button>
-        {more && <div className="pool-more-menu" role="menu">{card.identity.profile_url
-          ? <a href={card.identity.profile_url} target="_blank" rel="noopener noreferrer" data-pool-profile-link role="menuitem">
-            打开平台主页 <ExternalLinkIcon /></a>
-          : <span>暂无平台主页</span>}</div>}
-      </div>
     </div>
   </article>;
 }
 
 export default function PoolPane({ cards, selectedIds, query, down, claimBusyId, claimTarget, claimError, claimedId,
-  libraryCount, syncBusy, syncError, undoAvailable, undoBusy, undoError, onQuery, onToggleSelect, onToggleSelectAll, onAnalyzeSelected, onClaim,
-  onConfirmClaim, onCancelClaim, onUndoClaim, onSyncLibrary }: {
+  libraryCount, syncBusy, syncError, maintenanceBusy, maintenanceNotice, maintenanceError, cleanupPreview,
+  undoAvailable, undoBusy, undoError, onQuery, onToggleSelect, onToggleSelectAll, onAnalyzeSelected, onClaim,
+  onConfirmClaim, onCancelClaim, onUndoClaim, onSyncLibrary, onEnrichAvatars, onAssessWithJev, onRequestCleanupPreview,
+  onConfirmCleanup, onCancelCleanup }: {
   cards: PoolKol[]; selectedIds: string[]; query: string; down?: SurfaceDownView | null;
   claimBusyId?: string | null; claimTarget?: PoolKol | null; claimError?: string | null; claimedId?: string | null;
-  libraryCount?: number | null; syncBusy?: boolean; syncError?: string | null; undoAvailable?: boolean; undoBusy?: boolean; undoError?: string | null;
+  libraryCount?: number | null; syncBusy?: boolean; syncError?: string | null;
+  maintenanceBusy?: "avatars" | "jev" | "cleanup" | null; maintenanceNotice?: string | null; maintenanceError?: string | null;
+  cleanupPreview?: { candidateCount: number; protectedActiveFollows: number } | null;
+  undoAvailable?: boolean; undoBusy?: boolean; undoError?: string | null;
   onQuery: (value: string) => void;
   onToggleSelect: (id: string, on: boolean) => void; onToggleSelectAll: (ids: string[], on: boolean) => void;
   onAnalyzeSelected: (ids: string[]) => void; onClaim: (card: PoolKol) => void; onConfirmClaim: () => void;
   onCancelClaim: () => void; onUndoClaim?: () => void; onSyncLibrary?: () => void;
+  onEnrichAvatars?: () => void; onAssessWithJev?: () => void; onRequestCleanupPreview?: () => void;
+  onConfirmCleanup?: () => void; onCancelCleanup?: () => void;
 }) {
   const [filter, setFilter] = useState("all");
   const [sort, setSort] = useState("default");
@@ -155,11 +157,16 @@ export default function PoolPane({ cards, selectedIds, query, down, claimBusyId,
       card.metrics.avg_plays,
       card.metrics.engagement,
     ].join(" ").toLowerCase();
-    return (filter === "all" || (filter === "overdue" ? overdue : stage.includes("未首次建联")))
+    const matchesFilter = filter === "all"
+      || (filter === "overdue" ? overdue : filter === "new" ? stage.includes("未首次建联")
+        : filter === "high-potential" ? highScore(card.assessment?.potential_score, card.assessment?.potential_confidence)
+          : highScore(card.assessment?.risk_score, card.assessment?.risk_confidence));
+    return matchesFilter
       && (!needle || searchable.includes(needle));
   });
   if (sort === "newest") visible.sort((a, b) => (Date.parse(b.ingested_at || "") || 0) - (Date.parse(a.ingested_at || "") || 0));
   if (sort === "followers") visible.sort((a, b) => metricNumber(b.metrics.followers) - metricNumber(a.metrics.followers));
+  if (sort === "potential") visible.sort((a, b) => Number(b.assessment?.potential_score || 0) - Number(a.assessment?.potential_score || 0));
   const selectedVisibleIds = visible.map((card) => card.kol_uid).filter((id) => selectedIds.includes(id));
   const allVisibleSelected = visible.length > 0 && selectedVisibleIds.length === visible.length;
 
@@ -171,9 +178,9 @@ export default function PoolPane({ cards, selectedIds, query, down, claimBusyId,
         <label className="pool-search"><SearchIcon /><span className="sr-only">搜索公海对象</span>
           <input type="search" data-pool-search value={query} placeholder="搜索公海对象" onChange={(e) => onQuery(e.target.value)} /></label>
         <label className="pool-control"><span className="sr-only">筛选状态</span><select data-pool-filter value={filter} onChange={(e) => setFilter(e.target.value)}>
-          <option value="all">筛选</option><option value="new">未首次建联</option><option value="overdue">14天无回复</option></select></label>
+          <option value="all">筛选</option><option value="new">未首次建联</option><option value="overdue">14天无回复</option><option value="high-potential">高潜</option><option value="high-risk">高风险</option></select></label>
         <label className="pool-control"><span className="sr-only">排序</span><select data-pool-sort value={sort} onChange={(e) => setSort(e.target.value)}>
-          <option value="default">排序</option><option value="newest">最近入库</option><option value="followers">粉丝数</option></select></label>
+          <option value="default">排序</option><option value="newest">最近入库</option><option value="followers">粉丝数</option><option value="potential">潜力</option></select></label>
         <label className="pool-select-all" title="全选当前筛选结果"><input type="checkbox" data-pool-select-all
           checked={allVisibleSelected} disabled={!visible.length} onChange={(e) => onToggleSelectAll(visible.map((card) => card.kol_uid), e.target.checked)} />
           <span>全选当前</span></label>
@@ -181,6 +188,24 @@ export default function PoolPane({ cards, selectedIds, query, down, claimBusyId,
           disabled={!selectedVisibleIds.length} onClick={() => onAnalyzeSelected(selectedVisibleIds)}>分析已选</button>
       </div>
     </div>
+    <div className="pool-maintenance" data-pool-maintenance>
+      <span>资料维护</span>
+      <button type="button" data-pool-avatar-enrich data-home-entry="enrich-pool-avatars" disabled={Boolean(maintenanceBusy)}
+        onClick={onEnrichAvatars}>{maintenanceBusy === "avatars" ? "补全中…" : "补头像"}</button>
+      <button type="button" data-pool-jev-assess data-home-entry="assess-pool-jev" disabled={Boolean(maintenanceBusy)}
+        onClick={onAssessWithJev}>{maintenanceBusy === "jev" ? "评分中…" : "Jev 评分"}</button>
+      <button type="button" data-pool-cleanup-preview disabled={Boolean(maintenanceBusy)}
+        onClick={onRequestCleanupPreview}>{maintenanceBusy === "cleanup" ? "读取中…" : "清理无主页"}</button>
+      {maintenanceNotice && <span className="pool-maintenance-notice" role="status">{maintenanceNotice}</span>}
+      {maintenanceError && <span className="pool-maintenance-error" role="alert">{maintenanceError}</span>}
+    </div>
+    {cleanupPreview && <div className="pool-cleanup-confirm" data-pool-cleanup-confirm>
+      <span>将删除 <b>{cleanupPreview.candidateCount}</b> 条无主页公海档案；{cleanupPreview.protectedActiveFollows
+        ? `${cleanupPreview.protectedActiveFollows} 条已跟进档案会保留。` : "已跟进档案会保留。"}</span>
+      <button type="button" data-pool-cleanup-confirm-button data-home-entry="cleanup-pool-missing-homepage"
+        disabled={Boolean(maintenanceBusy)} onClick={onConfirmCleanup}>确认删除</button>
+      <button type="button" data-pool-cleanup-cancel disabled={Boolean(maintenanceBusy)} onClick={onCancelCleanup}>取消</button>
+    </div>}
     {undoAvailable && <div className="pool-claim-undo" role="status" data-pool-claim-undo>
       <span>已领取</span><span aria-hidden>·</span>
       <button type="button" data-pool-claim-undo-button data-home-entry="release-follow" disabled={undoBusy}
