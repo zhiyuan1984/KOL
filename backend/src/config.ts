@@ -438,10 +438,20 @@ export function codexTurnTimeout(): number {
   return hostWorkerTimeout();
 }
 
+/** Deployment-owned From allowlist; never inferred from an LLM or a browser request. */
+function configuredBrandMailbox(brand: string, fallback: string): string {
+  const value = String(process.env[`BRAND_MAILBOX_${brand}`] || "").trim().toLowerCase();
+  if (!value) return fallback;
+  if (!/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(value)) {
+    throw new Error(`BRAND_MAILBOX_${brand} must contain one valid, verified sender email`);
+  }
+  return value;
+}
+
 export const BRAND_MAILBOXES: Record<string, string> = {
-  LT: "kol.lt@litime.example",
-  RO: "kol.ro@renogy.example",
-  PQ: "kol.pq@powerqueen.example",
+  LT: configuredBrandMailbox("LT", "kol.lt@litime.example"),
+  RO: configuredBrandMailbox("RO", "kol.ro@renogy.example"),
+  PQ: configuredBrandMailbox("PQ", "kol.pq@powerqueen.example"),
 };
 
 export type Persona = {

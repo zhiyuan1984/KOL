@@ -1,3 +1,4 @@
+import { confirmAndSendDraft } from "./helpers/confirmed-mail.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -135,7 +136,7 @@ describe("host contracts", () => {
   it("send does not call stage", async () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
     const draft = draftOn(sid);
-    const sent = await request("POST", `/api/drafts/${draft.id}/send`, {});
+    const sent = await confirmAndSendDraft(request, `/api/drafts/${draft.id}/send`, {});
     expect(sent.status, await sent.text()).toBe(200);
     const sj = await sent.json();
     expect(sj.stage_changed).toBe(false);
@@ -541,7 +542,7 @@ describe("host contracts", () => {
     const [sid] = await ask("记状态 @小美妆日记", "confirm_stage", "col_xiaomei");
     const did = draftOn(sid).id;
     await request("POST", "/api/me/persona", { persona: "exam_blocked" });
-    const r = await request("POST", `/api/drafts/${did}/send`, {});
+    const r = await confirmAndSendDraft(request, `/api/drafts/${did}/send`, {});
     expect(r.status).toBe(403);
     const d1 = (await r.json()).detail as Json;
     expect(d1.status).toBe("blocked_exam");
@@ -550,13 +551,13 @@ describe("host contracts", () => {
     expect((ses.messages as Json[]).some((m) => m.kind === "error_card")).toBe(true);
 
     await request("POST", "/api/me/persona", { persona: "permission_blocked" });
-    const r2 = await request("POST", `/api/drafts/${did}/send`, {});
+    const r2 = await confirmAndSendDraft(request, `/api/drafts/${did}/send`, {});
     expect(r2.status).toBe(403);
     expect(((await r2.json()).detail as Json).status).toBe("blocked_permission");
 
     await request("POST", "/api/me/persona", { persona: "sriphy" });
     await request("PATCH", `/api/drafts/${did}`, { template_id: "wrong.template" });
-    const r3 = await request("POST", `/api/drafts/${did}/send`, {});
+    const r3 = await confirmAndSendDraft(request, `/api/drafts/${did}/send`, {});
     expect(r3.status).toBe(400);
     expect(((await r3.json()).detail as Json).status).toBe("blocked_template");
   });
@@ -619,7 +620,7 @@ describe("host contracts", () => {
     const zh = String((await translated.json()).zh);
     expect(zh).toMatch(/[\u4e00-\u9fff]/);
     expect(zh).not.toContain("We would love to collaborate");
-    const sent = await request("POST", `/api/drafts/${draft.id}/send`, {
+    const sent = await confirmAndSendDraft(request, `/api/drafts/${draft.id}/send`, {
       from_addr: "larry.zhao@amperetime.com",
       to_addr: "xiaomei.beauty@example.com",
     });

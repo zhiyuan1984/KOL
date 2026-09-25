@@ -1,3 +1,4 @@
+import { confirmAndSendDraft } from "./helpers/confirmed-mail.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -192,7 +193,7 @@ describe("KOL stage-mail communication", () => {
     expect(stored?.template_id).toBe("stage_mail.followup");
     expect(stored?.official_stage).toBe("INITIAL_CONTACT");
     expect(String(follow.draft?.payload.body || "")).not.toMatch(/Thanks for the interest/i);
-    const sent = await request("POST", `/api/drafts/${draftId}/send`, {});
+    const sent = await confirmAndSendDraft(request, `/api/drafts/${draftId}/send`, { from_addr: "kol.lt@litime.example" });
     expect(sent.status, sent.text).toBe(200);
     const pipe = await request("GET", "/api/pipeline");
     const xiaomei = Object.values(pipe.body.groups as Record<string, { handle: string; stage_code: string }[]>)
@@ -486,7 +487,7 @@ describe("KOL stage-mail communication", () => {
       .find((row) => row.kind === "email_card")?.payload;
     expect(draft?.draft_id).toBeTruthy();
     const before = mailHistoryRows("col_laozhang").length;
-    const sent = await request("POST", `/api/drafts/${draft?.draft_id}/send`, {});
+    const sent = await confirmAndSendDraft(request, `/api/drafts/${draft?.draft_id}/send`, {});
     expect([200, 400, 403]).toContain(sent.status);
     if (sent.status === 200) {
       const after = mailHistoryRows("col_laozhang");
@@ -600,7 +601,7 @@ describe("KOL stage-mail communication", () => {
     const draft = (composed.body.messages as { kind: string; payload: Json }[])
       .find((row) => row.kind === "email_card")?.payload;
     if (draft?.draft_id) {
-      const sent = await request("POST", `/api/drafts/${draft.draft_id}/send`, {});
+      const sent = await confirmAndSendDraft(request, `/api/drafts/${draft.draft_id}/send`, {});
       expect([200, 400, 403]).toContain(sent.status);
       expect(calls.filter((name) => name === "pageEmailConversations")).toHaveLength(0);
     }

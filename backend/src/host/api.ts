@@ -4,6 +4,7 @@
  * 确定性分支（阶段门、报价矩阵、From、考试、Cc、fingerprint）在 Host + PEP。
  * 发信 / 企微 / confirm-stage 只调 Gateway，不自己打带 secret 的 HTTP。
  */
+import { createHash } from "node:crypto";
 import { Hono } from "hono";
 import { requireConnector, requireSkill, requireStageWrite, scopedUser, authDisabled, isAdmin } from "../auth.js";
 import { translateDraftInternal, stubInternalZh } from "../starrykol/translate-zh.js";
@@ -18,6 +19,7 @@ import {
 } from "../config.js";
 import { audit, getConn, isSqliteClosedError, isSqliteForeignKeyError, nowIso, tx } from "../db.js";
 import { sendDraft } from "../gateway/send.js";
+import { mailSendAction, claimMailSend, assertDraftEditable, validateMailSend, markMailSendUnknown } from "./mail-send-confirmation.js";
 import { confirmStarryStage } from "../gateway/starry.js";
 import { createWorkApproval, listApprovals } from "../gateway/wecom.js";
 import { nid } from "../ids.js";
@@ -64,6 +66,7 @@ import {
   rememberOutboundAndRefreshDigest,
   requestedMailKind,
   stageMailAction,
+  stageMailSpec,
   type ComposeFacts,
 } from "./compose-loop.js";
 import { looksLikeEmailDraft } from "./quote-amount.js";
@@ -144,11 +147,13 @@ import {
   writeFollowStyleTags,
 } from "../follow-style-tags.js";
 import {
+  assertMailTemplateSnapshotApplicable,
   assertUsableKnowledge,
   compileMailDraft,
   leftoverPlaceholders,
   mailTemplatePayload,
   recordFailedSession,
+  resolveApplicableMailTemplates,
   resolveMailTemplate,
   workerSafeExtra,
   type UsableTemplate,
@@ -181,6 +186,318 @@ function requireTaskAccess(skill: string): void {
 function sessionRow(sid: string): Row {
   return { ...assertSessionAccess(sid) };
 }
+
+type ComposePrepare = {
+  status: "ready" | "needs_context" | "needs_template" | "needs_fields" | "blocked";
+  skill_id: "email_compose";
+  message?: string;
+  context: Json;
+  template?: Json;
+  editor?: Json;
+  missing_fields: string[];
+  candidates: Json[];
+  context_version?: string;
+};
+
+function composeContextVersion(input: Json): string {
+  return createHash("sha256").update(JSON.stringify(input)).digest("hex").slice(0, 24);
+}
+
+function stringValues(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Json)
+      .filter(([, item]) => ["string", "number", "boolean"].includes(typeof item))
+      .map(([key, item]) => [key, String(item)]),
+  );
+}
+
+function placeholderField(token: string): string | null {
+  if (/发件/.test(token)) return "from";
+  if (/收件/.test(token)) return "to";
+  if (/主题/.test(token)) return "subject";
+  return null;
+}
+
+function templateCandidate(template: UsableTemplate): Json {
+  return {
+    knowledge_id: template.id,
+    title: template.title,
+    published_version: template.version,
+  };
+}
+
+function prepareReply(partial: Omit<ComposePrepare, "skill_id">): ComposePrepare {
+  return { skill_id: "email_compose", ...partial };
+}
+
+function collaborationRefs(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const ref = value as Json;
+    const kind = String(ref.kind || ref.type || "").toLowerCase();
+    if (!["collaboration", "collab", "kol", "creator", "object"].includes(kind)) return [];
+    const id = String(ref.id || ref.collaboration_id || "").trim();
+    return id ? [id] : [];
+  });
+}
+
+function preparedCollaboration(body: Json, session: Row | null): { row: Row | null; ambiguous: boolean; conflict: boolean } {
+  const requested = String(body.collaboration_id || "").trim();
+  const sessionId = String(session?.collaboration_id || "").trim();
+  if (sessionId && requested && sessionId !== requested) return { row: null, ambiguous: false, conflict: true };
+  const ids = [...new Set([sessionId, requested, ...collaborationRefs(body.object_refs)].filter(Boolean))];
+  const rows = new Map<string, Row>();
+  for (const id of ids) {
+    const direct = collabById(id);
+    if (direct) rows.set(String(direct.id), direct);
+    else {
+      for (const candidate of scopedCollaborationSearch(id)) {
+        if (String(candidate.handle || "") === id || String(candidate.id || "") === id) {
+          const full = collabById(String(candidate.id));
+          if (full) rows.set(String(full.id), full);
+        }
+      }
+    }
+  }
+  if (!rows.size) {
+    const handle = String(body.handle || "").trim();
+    if (handle) {
+      const found = scopedCollaborationSearch(handle)
+        .filter((candidate) => String(candidate.handle || "") === handle || String(candidate.id || "") === handle);
+      for (const candidate of found) {
+        const full = collabById(String(candidate.id));
+        if (full) rows.set(String(full.id), full);
+      }
+    }
+  }
+  if (rows.size !== 1) return { row: null, ambiguous: rows.size > 1, conflict: false };
+  const row = [...rows.values()][0];
+  assertCollaborationInScope(String(row.id));
+  return { row, ambiguous: false, conflict: false };
+}
+
+function preparedSender(row: Row): string {
+  const from = boundMailboxEmail() || String(row.mailbox_from || "").trim();
+  const resolved = resolveAuthorizedFrom(from, currentUser(), String(row.brand || ""));
+  const brandAllowed = resolved.allowed.filter((item) => item.brand === String(row.brand || ""));
+  if (resolved.matched) return resolved.email;
+  if (brandAllowed.length === 1) return brandAllowed[0].email;
+  return "";
+}
+
+function mailComposeContextVersion(row: Row, template: UsableTemplate): string {
+  return composeContextVersion({
+    collaboration_id: row.id, stage: String(row.stage_code || ""), stage_version: row.stage_version || 0,
+    brand: String(row.brand || ""), from: preparedSender(row), to: firstEmail(row.email),
+    knowledge_id: template.id, published_version: template.version,
+  });
+}
+
+function preparedTemplateChoice(templates: UsableTemplate[], stage: string, brand: string): UsableTemplate[] {
+  if (!templates.length) return [];
+  const score = (template: UsableTemplate) =>
+    (template.brand === brand ? 0 : 2) + (template.stage_codes.includes(stage) ? 0 : 1);
+  const best = Math.min(...templates.map(score));
+  return templates.filter((template) => score(template) === best);
+}
+
+type ComposeInput = {
+  mode: "edited_draft";
+  knowledge_version: number;
+  context_version?: string;
+  subject: string;
+  body: string;
+  variables?: Record<string, unknown>;
+  source_draft_id?: string | null;
+};
+
+function readComposeInput(value: unknown): ComposeInput | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const input = value as Json;
+  if (String(input.mode || "") !== "edited_draft") {
+    throw new HttpFail(400, { code: "compose_input_invalid", message: "compose_input.mode 必须是 edited_draft" });
+  }
+  const knowledgeVersion = Number(input.knowledge_version);
+  const subject = String(input.subject || "");
+  const body = String(input.body || "");
+  if (!Number.isInteger(knowledgeVersion) || knowledgeVersion < 1 || !subject.trim() || !body.trim()) {
+    throw new HttpFail(422, { code: "compose_input_invalid", message: "compose_input 需要已发布版本、主题和正文" });
+  }
+  return {
+    mode: "edited_draft",
+    knowledge_version: knowledgeVersion,
+    ...(input.context_version ? { context_version: String(input.context_version) } : {}),
+    subject,
+    body,
+    ...(input.variables && typeof input.variables === "object" && !Array.isArray(input.variables)
+      ? { variables: input.variables as Record<string, unknown> }
+      : {}),
+    source_draft_id: input.source_draft_id == null ? null : String(input.source_draft_id),
+  };
+}
+
+function validateComposeInput(intent: Intent, col: Row | null): ComposeInput | null {
+  const composeInput = readComposeInput(intent.extras?.compose_input);
+  if (!composeInput) return null;
+  const knowledgeId = String(intent.extras?.knowledge_id || "").trim();
+  if (String(intent.skill || intent.type || "") !== "email_compose" || !knowledgeId || !col) {
+    throw new HttpFail(422, { code: "compose_input_context", message: "编辑后的邮件需要已选择的邮件模板和单个合作对象" });
+  }
+  const template = assertMailTemplateSnapshotApplicable({
+    knowledgeId,
+    version: composeInput.knowledge_version,
+    skillId: "email_compose",
+    stageCode: String(col.stage_code || ""),
+    brand: String(col.brand || ""),
+  });
+  assertCollaborationInScope(String(col.id));
+  if (composeInput.context_version && composeInput.context_version !== mailComposeContextVersion(col, template)) {
+    throw new HttpFail(409, { code: "compose_context_stale", message: "合作阶段、收发件信息或模板版本已变化，请保留草稿并重新核对上下文。" });
+  }
+  if (!preparedSender(col) || !firstEmail(col.email)) {
+    throw new HttpFail(422, { code: "compose_addresses_required", message: "请补充授权发件邮箱和当前合作的收件邮箱。" });
+  }
+  if (leftoverPlaceholders(`${composeInput.subject}\n${composeInput.body}`).length) {
+    throw new HttpFail(422, { code: "compose_fields_required", message: "请补齐草稿中的模板变量后再提交。" });
+  }
+  if (composeInput.source_draft_id) {
+    const source = getDraft(composeInput.source_draft_id);
+    assertDraftEditable(source);
+    if (String(source.collaboration_id || "") !== String(col.id)) {
+      throw new HttpFail(409, { code: "compose_source_conflict", message: "原草稿属于其他合作对象。" });
+    }
+  }
+  intent.extras = {
+    ...intent.extras,
+    compose_input: composeInput,
+    knowledge_id: template.id,
+    knowledge_version: template.version,
+    mail_template: mailTemplatePayload(template),
+  };
+  return composeInput;
+}
+
+function authoredComposeItem(item: Json, composeInput: ComposeInput | null): Json {
+  if (!composeInput) return item;
+  return {
+    ...item,
+    subject: composeInput.subject,
+    body: composeInput.body,
+    body_en: composeInput.body,
+    context_version: composeInput.context_version || null,
+    source_draft_id: composeInput.source_draft_id || null,
+  };
+}
+
+host.post("/email-compose/prepare", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Json;
+  if (String(body.skill_id || "") !== "email_compose") {
+    throw new HttpFail(400, { code: "invalid_skill", message: "skill_id 必须是 email_compose" });
+  }
+  requireTaskAccess("email_compose");
+  const sessionId = String(body.session_id || "").trim();
+  const session = sessionId ? sessionRow(sessionId) : null;
+  const selected = preparedCollaboration(body, session);
+  if (selected.conflict) {
+    throw new HttpFail(409, { code: "collaboration_conflict", message: "会话已绑定其他合作对象，不能由请求覆盖" });
+  }
+  if (!selected.row) {
+    const sceneHint = String(body.scene_hint || "").trim();
+    return c.json(prepareReply({
+      status: "needs_context",
+      message: selected.ambiguous
+        ? "请选择单个红人或合作对象。"
+        : sceneHint === "first_touch"
+          ? "首封场景尚未建立正式合作阶段；请选择单个红人并补充授权发件信息。"
+          : "请选择红人或补充收件信息。",
+      context: sceneHint === "first_touch" ? { scene: "first_touch", stage_source: "scene_hint" } : {},
+      missing_fields: ["collaboration_id"],
+      candidates: [],
+    }));
+  }
+  const row = selected.row;
+  const stage = String(row.stage_code || "").trim();
+  const brand = String(row.brand || "").trim();
+  if (!stage || !brand || !BY_CODE[stage]) {
+    return c.json(prepareReply({
+      status: "needs_context",
+      message: "当前合作缺少可核验的正式阶段或品牌。",
+      context: { collaboration_id: row.id },
+      missing_fields: [!stage ? "stage_code" : "brand"],
+      candidates: [],
+    }));
+  }
+  const context: Json = {
+    collaboration_id: row.id,
+    stage_code: stage,
+    stage_source: "collaboration",
+    scene: stageMailSpec(stage).kind,
+    brand,
+  };
+  const templates = resolveApplicableMailTemplates({
+    knowledgeId: String(body.knowledge_id || "").trim() || null,
+    skillId: "email_compose",
+    stageCode: stage,
+    brand,
+  });
+  if (!templates.length) {
+    return c.json(prepareReply({
+      status: "needs_template",
+      message: "暂无已启用的适用模板。",
+      context,
+      missing_fields: [],
+      candidates: [],
+      context_version: composeContextVersion({ collaboration_id: row.id, stage, brand }),
+    }));
+  }
+  const choices = preparedTemplateChoice(templates, stage, brand);
+  if (choices.length !== 1) {
+    return c.json(prepareReply({
+      status: "needs_template",
+      message: "有多个同等适用的模板，请选择其一。",
+      context,
+      missing_fields: [],
+      candidates: choices.map(templateCandidate),
+      context_version: composeContextVersion({ collaboration_id: row.id, stage, brand, candidates: choices.map((item) => [item.id, item.version]) }),
+    }));
+  }
+  const template = choices[0];
+  const from = preparedSender(row);
+  const to = firstEmail(row.email);
+  const values = {
+    ...stringValues(body.variables),
+    handle: String(row.handle || row.display_name || ""),
+    mailboxEmail: from,
+    to,
+  };
+  const compiled = compileMailDraft(template, values);
+  const missing = new Set<string>([...compiled.missing, ...(!from ? ["from"] : []), ...(!to ? ["to"] : [])]);
+  for (const token of template.placeholders) {
+    const field = placeholderField(token);
+    if (field === "from" && !from) missing.add(token);
+    if (field === "to" && !to) missing.add(token);
+  }
+  const missingFields = [...missing];
+  const contextVersion = mailComposeContextVersion(row, template);
+  return c.json(prepareReply({
+    status: missingFields.length ? "needs_fields" : "ready",
+    ...(missingFields.length ? { message: "请补齐模板中的必填字段。" } : {}),
+    context,
+    template: {
+      knowledge_id: template.id,
+      published_version: template.version,
+      template_id: template.template_id,
+      title: template.title,
+      source: "knowledge",
+    },
+    editor: { from, to: to ? [to] : [], subject: compiled.subject, body: compiled.body },
+    missing_fields: missingFields,
+    candidates: [],
+    context_version: contextVersion,
+  }));
+});
 
 function collabDisplay(id: unknown): string {
   const cid = String(id || "");
@@ -758,8 +1075,10 @@ function ok(sid: string, me: Json, intent: Intent, extra: Json = {}): Json {
 
 function patchDraftFromSnapshot(did: string, snapshot: ResultSnapshot): Row {
   const d = getDraft(did);
+  assertDraftEditable(d);
   const extra = {
     ...(typeof d.extra === "object" && d.extra ? d.extra as Json : {}),
+    confirmation_revision: Number((d.extra as Json)?.confirmation_revision || 0) + 1,
     amount_usd: snapshot.amount_usd ?? d.amount_usd,
     currency: snapshot.currency || d.currency,
     tracking: snapshot.tracking || null,
@@ -1028,6 +1347,8 @@ export function persistDraft(sid: string, item: Json): Row {
     footer: item.footer,
     knowledge_id: item.knowledge_id || null,
     knowledge_version: item.knowledge_version ?? null,
+    context_version: item.context_version || null,
+    source_draft_id: item.source_draft_id ?? null,
     ...(resolved.email && resolved.email !== requestedFrom ? { send_from: resolved.email } : {}),
   };
   const row: Row = {
@@ -1147,8 +1468,10 @@ export function emailCardPayload(d: Row): Json {
     tracks: official ? groupedStageTracks(official) : [],
     status: st,
     send_error: d.send_error,
+    knowledge_id: extra.knowledge_id || null,
+    knowledge_version: extra.knowledge_version || null,
     buttons,
-    send_disabled: st === "waiting_approval" || st === "sent",
+    send_disabled: ["waiting_approval", "sent", "sending", "send_unknown"].includes(st),
     footer: extra.footer || (d.skill === "ship_notice" ? "已发货" : null),
     skill: d.skill,
   };
@@ -1383,11 +1706,21 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
   let draftRow: Row | null = null;
   let approval: Row | null = null;
   let crawlPlan: Json | null = null;
+  const composeInput = readComposeInput(intent.extras?.compose_input);
   const skipKolAnalyzeApply = wr.skill === KOL_ANALYZE_TASK_TYPE || intent.type === KOL_ANALYZE_TASK_TYPE;
   for (const item of wr.items) {
     if (item.type === "create_draft") {
       if (skipKolAnalyzeApply) continue;
       const col = resolveCollab(intent);
+      Object.assign(item, authoredComposeItem(item, composeInput));
+      if (composeInput && col) {
+        if (draftRow) continue;
+        Object.assign(item, {
+          skill: "email_compose", from: preparedSender(col), to: firstEmail(col.email),
+          collaboration_id: col.id, official_stage: col.stage_code,
+          knowledge_id: intent.extras?.knowledge_id, knowledge_version: composeInput.knowledge_version,
+        });
+      }
       item.to = assertDraftTo(sid, me, intent, col, item, intent.raw);
       if (col && !item.collaboration_id) item.collaboration_id = col.id;
       if (intent.extras?.knowledge_id && !item.knowledge_id) {
@@ -1489,6 +1822,10 @@ async function mapWorker(sid: string, me: Json, intent: Intent, wr: WorkerResult
         }))
         : null;
       if (composePayload) {
+        if (composeInput) Object.assign(composePayload, {
+          subject: composeInput.subject, body: composeInput.body, bodyText: composeInput.body,
+          sent: false, status: "draft", knowledge_id: intent.extras?.knowledge_id, knowledge_version: composeInput.knowledge_version,
+        });
         const rebuilt = emailMcpResultCard("email_compose", composePayload);
         card = {
           ...card,
@@ -1872,6 +2209,7 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
         : {}),
     },
   };
+  const composeInput = readComposeInput(intent.extras?.compose_input);
   const mailTemplate = resolveComposeMailTemplate(intent, col);
   if (mailTemplate) {
     extra.mail_template = mailTemplatePayload(mailTemplate);
@@ -1895,6 +2233,28 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
   try {
     const wr = await execWorker(sid, intent.skill || intent.type || "creator_discovery", text, workerSafeExtra(extra));
     const mapped = await mapWorker(sid, me, intent, wr);
+    if (!mapped.draft && composeInput && mailTemplate) {
+      const route = composeRouteFacts({ col, extra, boundMailbox: boundMailboxEmail() });
+      const item: Json = {
+        type: "create_draft",
+        skill: "email_compose",
+        template_id: mailTemplate.template_id,
+        from: col ? preparedSender(col) : route.from,
+        to: col ? firstEmail(col.email) : route.to,
+        context_version: composeInput.context_version || null,
+        source_draft_id: composeInput.source_draft_id || null,
+        subject: composeInput.subject,
+        body: composeInput.body,
+        collaboration_id: col?.id || null,
+        official_stage: col?.stage_code || null,
+        knowledge_id: mailTemplate.id,
+        knowledge_version: mailTemplate.version,
+      };
+      const draft = persistDraft(sid, item);
+      addMsg(sid, "assistant", "email_card", emailCardPayload(draft));
+      syncDraftArtifacts(String(draft.id));
+      return { ...ok(sid, me, intent, { worker: mapped.worker, draft, items: mapped.items }), worker: mapped.worker };
+    }
     if (!mapped.draft && mailTemplate && !hasComposeDraftOutput(wr.items)) {
       const compiled = compileMailDraft(mailTemplate, knowledgeFillValues(intent, col));
       const leftover = compiled.missing.filter((token) => !COMPOSE_SLOT_PLACEHOLDERS.has(token));
@@ -1964,6 +2324,13 @@ function unfilledComposeSlots(template: UsableTemplate, values: Record<string, s
 
 function resolveComposeMailTemplate(intent: Intent, col: Row | null): UsableTemplate | null {
   const skill = String(intent.skill || intent.type || "");
+  const authored = readComposeInput(intent.extras?.compose_input);
+  if (authored) {
+    return assertMailTemplateSnapshotApplicable({
+      knowledgeId: String(intent.extras?.knowledge_id || ""), version: authored.knowledge_version,
+      skillId: "email_compose", stageCode: String(col?.stage_code || ""), brand: String(col?.brand || ""),
+    });
+  }
   const entities = intent.extras?.entities && typeof intent.extras.entities === "object"
     ? intent.extras.entities as Json
     : {};
@@ -3035,6 +3402,13 @@ host.post("/sessions/:sid/messages", async (c) => {
   const lockedIntent = boundTask?.taskType
     || (body.intent && taskDefinition(String(body.intent)) ? String(body.intent) : undefined);
   const me = addMsg(sid, "me", "me", { text, grey: true, attachments });
+  if (!boundTask && !body.compose_input && /^(?:确认发送(?:原文|邮件)?|发送这封(?:邮件)?|confirm\s+send)[。.!！\s]*$/i.test(text)) {
+    addMsg(sid, "assistant", "assistant", {
+      text: "请在右栏草稿点击「确认发送」，核对收件人、发件人、抄送、主题及完整正文后确认。聊天中的这句话不会发送邮件。",
+      needs_confirmation: true, sent: false,
+    });
+    return c.json({ messages: messages(sid), agent_status: "listening", needs_confirmation: true, sent: false, worker: null, draft: null });
+  }
   if (!boundTask && isFollowStyleTagCommand(text)) {
     return c.json(await handleFollowStyleTagMessage(sid, me, session, text, body));
   }
@@ -3073,6 +3447,7 @@ host.post("/sessions/:sid/messages", async (c) => {
     ...(attachments.length ? { attachments } : {}),
     ...(body.creator_id ? { creator_id: body.creator_id } : {}),
     ...(body.knowledge_id ? { knowledge_id: String(body.knowledge_id) } : {}),
+    ...(body.compose_input ? { compose_input: readComposeInput(body.compose_input) } : {}),
     model_tier: String(body.model_tier || "balanced"),
     entities: {
       ...(intent.extras?.entities && typeof intent.extras.entities === "object" ? intent.extras.entities as Json : {}),
@@ -3106,6 +3481,7 @@ host.post("/sessions/:sid/messages", async (c) => {
     intent.collaboration_id = String(col.id);
     if (!intent.handle) intent.handle = String(col.handle || "");
   }
+  validateComposeInput(intent, col);
   if (col && isMailDraftIntent(intent) && !isEmailMcpTask(intent.type) && !intent.extras?.result_revise && !resolveMailTo(col, intent, {}, text)) {
     throwMailToSupplement(sid, me, intent, col);
   }
@@ -3217,142 +3593,72 @@ host.delete("/sessions/:sid/queue/:qid", (c) => {
   return c.json({ ok: true, run_queue: publicQueue(sid) });
 });
 
+host.get("/drafts/:did/actions", (c) => {
+  return c.json(mailSendAction(getDraft(c.req.param("did"))));
+});
+
 host.post("/drafts/:did/send", async (c) => {
   const did = c.req.param("did");
-  let d = getDraft(did);
-  setDraftStatus(did, "validating");
-  const body = (await c.req.json().catch(() => ({}))) as { cc?: string; from_addr?: string; to_addr?: string };
-  if (body.cc != null || body.from_addr != null || body.to_addr != null) {
-    const fields: string[] = [];
-    const vals: unknown[] = [];
-    if (body.cc != null) {
-      fields.push("cc = ?");
-      vals.push(body.cc);
-    }
-    if (body.from_addr != null) {
-      const extra = typeof d.extra === "object" && d.extra ? (d.extra as Json) : {};
-      const resolved = resolveAuthorizedFrom(String(body.from_addr), currentUser(), String(extra.brand || ""));
-      if (!resolved.brand) throw new HttpFail(400, "From 必须是品牌邮箱");
-      fields.push("from_addr = ?");
-      vals.push(resolved.email);
-    }
-    if (body.to_addr != null) {
-      fields.push("to_addr = ?");
-      vals.push(String(body.to_addr).trim());
-    }
-    if (fields.length) {
-      tx((db) => {
-        db.prepare(`UPDATE drafts SET ${fields.join(", ")} WHERE id = ?`).run(...vals, did);
-      });
-      d = getDraft(did);
-      const fp = currentFingerprint(d);
-      tx((db) => {
-        db.prepare("UPDATE drafts SET fingerprint = ? WHERE id = ?").run(fp, did);
-      });
-      d = getDraft(did);
-    }
+  const d = getDraft(did);
+  const body = (await c.req.json().catch(() => ({}))) as Json;
+  if (["cc", "from_addr", "to_addr", "subject", "body", "body_en", "template_id"].some((key) => body[key] !== undefined)) {
+    throw new HttpFail(409, { code: "mail_edits_require_reconfirmation", message: "请先保存修改，再核对当前草稿并确认发送。" });
   }
-  const extra = typeof d.extra === "object" && d.extra ? (d.extra as Json) : {};
-  d = applyAuthorizedFrom(did, String(d.from_addr), String(extra.brand || ""));
   try {
-    requireConnector("enterprise_mail", "write");
-    enforceSend(d, currentUser(), body.cc);
-  } catch (e) {
-    if (e instanceof PepFail) {
-      setDraftStatus(did, e.status, e.message);
-      d = getDraft(did);
-      const msg = addMsg(String(d.session_id), "assistant", "error_card", { ...e.asDict(), draft_id: did, persistent: true });
-      audit("host", "host.send.fail", {
-        draft_id: did,
-        status: e.status,
-        called_stage: false,
-        knowledge_id: (typeof d.extra === "object" && d.extra ? (d.extra as Json).knowledge_id : null) || null,
-        knowledge_version: (typeof d.extra === "object" && d.extra ? (d.extra as Json).knowledge_version : null) || null,
-      });
-      if (String(d.skill) === "quote_confirm") {
-        recordFailedSession({
-          reason: "quote_pep_fail",
-          status: e.status,
-          draft_id: did,
-          skill: "quote_confirm",
-        }, String(d.session_id), String(d.body_en || ""));
+    validateMailSend(d);
+  } catch (error) {
+    if (error instanceof PepFail) {
+      // Preserve the existing persistent, actionable policy feedback, but do not send.
+      if (!d.sent_at && !["sent", "sending", "send_unknown"].includes(String(d.status))) {
+        setDraftStatus(did, error.status, error.message);
       }
+      const msg = addMsg(String(d.session_id), "assistant", "error_card", { ...error.asDict(), draft_id: did, persistent: true });
+      audit("host", "host.send.fail", { draft_id: did, status: error.status, called_stage: false });
+      recordFailedSession({ reason: error.status, code: error.status, draft_id: did, message: error.message }, String(d.session_id));
       syncEmailCard(did);
-      throw new HttpFail(e.http, {
-        ok: false,
-        status: e.status,
-        message: e.message,
-        next_action: e.next_action,
-        stage_changed: false,
-        toast_success: false,
-        draft: emailCardPayload(d),
-        message_id: msg.id,
-      });
+      throw new HttpFail(error.http, { ...error.asDict(), toast_success: false, draft: emailCardPayload(getDraft(did)), message_id: msg.id });
     }
-    throw e;
+    throw error;
   }
-  setDraftStatus(did, "sending");
+  const input = { confirmation_version: String(body.confirmation_version || ""), request_id: String(body.request_id || "") };
+  const claimed = claimMailSend(did, input);
+  if (claimed.replay) {
+    return c.json({ ok: true, status: "sent", replayed: true, result: claimed.replay, stage_changed: false, keep_stage: true });
+  }
+  syncEmailCard(did);
+  let result: Json;
   try {
-    const result = await sendDraft(did, "operator");
-    setDraftStatus(did, "sent");
-    syncEmailCard(did);
-    const sentExtra = typeof d.extra === "object" && d.extra ? (d.extra as Json) : {};
-    audit("host", "host.send", {
-      draft_id: did,
-      called_stage: false,
-      knowledge_id: sentExtra.knowledge_id || null,
-      knowledge_version: sentExtra.knowledge_version || null,
-    });
-    let col: Row | null = null;
-    if (d.collaboration_id) {
-      const r = getConn().prepare("SELECT * FROM collaborations WHERE id = ?").get(d.collaboration_id) as Row | undefined;
-      col = r ? { ...r } : null;
+    result = await sendDraft(did, "operator", input.request_id);
+  } catch {
+    // A successful provider receipt must not be turned into a false failure by ancillary work.
+    if (getDraft(did).status === "sent") {
+      const replay = claimMailSend(did, input).replay;
+      return c.json({ ok: true, status: "sent", replayed: true, result: replay, stage_changed: false, keep_stage: true });
     }
-    const stageNow = col?.stage_code as string | undefined;
-    const msg = addMsg(String(d.session_id), "assistant", "assistant", {
-      text: `已发送原文。正式阶段仍是 ${stageNow ? label(stageNow) : "不变"}（发送 ≠ 改阶段）。`,
-      sent: true,
-      status: "sent",
-    });
-    if (col) {
-      void rememberOutboundAndRefreshDigest({
-        collaborationId: String(col.id),
-        sessionId: String(d.session_id),
-        subject: String(d.subject || ""),
-        body: String(d.body_en || ""),
-        from: String(d.from_addr || ""),
-        to: String(d.to_addr || ""),
-        conversationId: String(col.conversation_id || ""),
-        providerMessageId: String(d.id || ""),
-      });
-    }
-    return c.json({
-      ok: true,
-      status: "sent",
-      result,
-      official_stage: stageNow,
-      stage_changed: false,
-      toast_success: false,
-      message: msg,
-      keep_stage: true,
-    });
-  } catch (ex) {
-    setDraftStatus(did, "send_failed", String(ex));
+    markMailSendUnknown(did, input.request_id);
     const msg = addMsg(String(d.session_id), "assistant", "error_card", {
-      status: "send_failed",
-      message: `发送失败：${ex}`,
-      next_action: "检查网关后重试。阶段未改。",
-      persistent: true,
+      status: "send_unknown", message: "邮件发送回执暂未确认；请核对邮件服务结果，勿重复发送。",
+      next_action: "核对邮件回执后再处理。正式阶段未改。", persistent: true,
     });
     syncEmailCard(did);
-    return c.json({
-      ok: false,
-      status: "send_failed",
-      stage_changed: false,
-      toast_success: false,
-      message: msg,
-    });
+    return c.json({ ok: false, status: "send_unknown", stage_changed: false, toast_success: false, message: msg }, 502);
   }
+  syncEmailCard(did);
+  const sentExtra = typeof d.extra === "object" && d.extra ? d.extra as Json : {};
+  audit("host", "host.send", { draft_id: did, request_id: input.request_id, called_stage: false, knowledge_id: sentExtra.knowledge_id || null, knowledge_version: sentExtra.knowledge_version || null });
+  const col = d.collaboration_id ? getConn().prepare("SELECT * FROM collaborations WHERE id=?").get(d.collaboration_id) as Row | undefined : undefined;
+  const stageNow = col?.stage_code as string | undefined;
+  const msg = addMsg(String(d.session_id), "assistant", "assistant", {
+    text: `已发送原文。正式阶段仍是 ${stageNow ? label(stageNow) : "不变"}（发送 ≠ 改阶段）。`,
+    sent: true, status: "sent", draft_id: did, request_id: input.request_id,
+  });
+  if (col) {
+    void rememberOutboundAndRefreshDigest({
+      collaborationId: String(col.id), sessionId: String(d.session_id), subject: String(d.subject || ""), body: String(d.body_en || ""),
+      from: String(d.from_addr || ""), to: String(d.to_addr || ""), conversationId: String(col.conversation_id || ""), providerMessageId: String(d.id),
+    }).catch(() => audit("host", "host.send.digest_pending", { draft_id: did }));
+  }
+  return c.json({ ok: true, status: "sent", result, official_stage: stageNow, stage_changed: false, toast_success: false, message: msg, keep_stage: true });
 });
 
 host.post("/drafts/:did/translate", async (c) => {
@@ -3394,6 +3700,7 @@ host.get("/drafts/:did/export", (c) => {
 host.patch("/drafts/:did", async (c) => {
   const did = c.req.param("did");
   const existing = getDraft(did);
+  assertDraftEditable(existing);
   const body = (await c.req.json()) as Json;
   const fields: string[] = [];
   const vals: unknown[] = [];
@@ -3430,7 +3737,11 @@ host.patch("/drafts/:did", async (c) => {
   }
   if (!fields.length) return c.json(getDraft(did));
   tx((db) => {
-    db.prepare(`UPDATE drafts SET ${fields.join(", ")} WHERE id = ?`).run(...vals, did);
+    const current = getDraft(did);
+    assertDraftEditable(current);
+    const extra = typeof current.extra === "object" && current.extra ? current.extra as Json : {};
+    const revisedExtra = { ...extra, confirmation_revision: Number(extra.confirmation_revision || 0) + 1 };
+    db.prepare(`UPDATE drafts SET ${fields.join(", ")}, extra = ? WHERE id = ?`).run(...vals, JSON.stringify(revisedExtra), did);
   });
   let d = getDraft(did);
   const fp = currentFingerprint(d);
