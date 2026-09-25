@@ -335,6 +335,22 @@ describe("kol follow/pool memory P0", () => {
     expect(row.avatar_error).toBe("");
   });
 
+  it("accepts a bounded multi-megabyte public channel page when its avatar metadata appears late", async () => {
+    seedProfile("KOL_AVATAR_LATE", {
+      homepage_url: "https://example.com/late-channel",
+      avatar_url: "",
+    });
+    setAvatarCrawlerFetch(async () => new Response('<meta property="og:image" content="https://example.com/late-avatar.jpg">', {
+      status: 200,
+      headers: { "content-type": "text/html", "content-length": "2500000" },
+    }));
+    const result = await enrichMissingPublicAvatars({ limit: 1 });
+    expect(result).toMatchObject({ checked: 1, updated: 1, failed: 0 });
+    expect(getConn().prepare("SELECT avatar_url FROM kol_profile_index WHERE kol_uid=?").get("KOL_AVATAR_LATE")).toMatchObject({
+      avatar_url: "https://example.com/late-avatar.jpg",
+    });
+  });
+
   it("keeps active follows out of local missing-homepage cleanup and locks the preview count", () => {
     seedProfile("KOL_DELETE");
     seedProfile("KOL_KEEP");

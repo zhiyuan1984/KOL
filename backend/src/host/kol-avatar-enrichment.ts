@@ -109,8 +109,11 @@ async function fetchPublicHtml(start: string): Promise<{ html: string; pageUrl: 
     const contentType = response.headers.get("content-type") || "";
     const contentLength = Number(response.headers.get("content-length") || 0);
     if (!/text\/html|application\/xhtml\+xml/i.test(contentType)) throw new Error("主页不是 HTML 页面");
-    if (Number.isFinite(contentLength) && contentLength > 1_000_000) throw new Error("主页内容超过抓取上限");
-    return { html: (await response.text()).slice(0, 300_000), pageUrl: current.toString() };
+    // Public YouTube channel pages place their server-rendered og:image after
+    // the initial feature/config payload (commonly ~0.8 MB). Three MB keeps a
+    // hard per-page bound while allowing that public metadata to be reached.
+    if (Number.isFinite(contentLength) && contentLength > 3_000_000) throw new Error("主页内容超过抓取上限");
+    return { html: (await response.text()).slice(0, 3_000_000), pageUrl: current.toString() };
   }
   throw new Error("主页重定向未完成");
 }
