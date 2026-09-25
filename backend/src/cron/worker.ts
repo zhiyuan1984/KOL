@@ -3,7 +3,7 @@ import { HttpFail } from "../host/errors.js";
 import type { Row } from "../types.js";
 import type { AppUser } from "../auth.js";
 import { cronHandler } from "./handlers.js";
-import { nextRunAt } from "./schedule.js";
+import { nextScheduledAt, type ScheduleWindow } from "./schedule.js";
 import {
   ensureSystemCronJobs,
   jobById,
@@ -12,6 +12,11 @@ import {
 } from "./store.js";
 
 const TERMINAL = new Set(["succeeded", "failed", "skipped", "needs_takeover"]);
+
+function nextFor(job: Row, from: Date): string | null {
+  const condition = JSON.parse(String(job.condition_json || "{}")) as { schedule?: ScheduleWindow };
+  return nextScheduledAt(String(job.cron_expr), String(job.timezone || "Asia/Shanghai"), condition.schedule || {}, from)?.toISOString() || null;
+}
 
 function isUniqueError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error || "");
@@ -72,7 +77,7 @@ function enqueueDueJobs(db: SqliteConn, now: Date): string[] {
       ).run(runId, job.id, "schedule", "queued", scheduledFor, null, null, null, null, null, null, null, created);
     } catch (error) {
       if (isUniqueError(error)) {
-        const next = nextRunAt(String(job.cron_expr), String(job.timezone || "Asia/Shanghai"), new Date(scheduledFor)).toISOString();
+        const next = nextFor(job, new Date(scheduledFor));
         db.prepare("UPDATE cron_jobs SET next_run_at=?, updated_at=? WHERE id=?").run(next, created, job.id);
         continue;
       }
@@ -81,7 +86,7 @@ function enqueueDueJobs(db: SqliteConn, now: Date): string[] {
     const flip = db.prepare(
       "UPDATE cron_runs SET status='running', started_at=? WHERE id=? AND status='queued'",
     ).run(created, runId);
-    const next = nextRunAt(String(job.cron_expr), String(job.timezone || "Asia/Shanghai"), new Date(scheduledFor)).toISOString();
+    const next = nextFor(job, new Date(scheduledFor));
     db.prepare("UPDATE cron_jobs SET next_run_at=?, updated_at=? WHERE id=?").run(next, created, job.id);
     if (flip.changes) claimed.push(runId);
   }
@@ -101,7 +106,7 @@ export async function executeCronRun(runId: string, viewer?: AppUser, nowMs = Da
   if (!run) throw new HttpFail(404, "cron run not found");
   const job = jobById(String(run.job_id), db);
   if (!job) throw new HttpFail(404, "cron job not found");
-  if (run.session_id) {
+  if (run.session_id && String(job.handler_key) !== "ai-task") {
     db.prepare("UPDATE cron_runs SET session_id=NULL WHERE id=?").run(runId);
   }
   const handler = cronHandler(String(job.handler_key));
@@ -130,7 +135,7 @@ export async function executeCronRun(runId: string, viewer?: AppUser, nowMs = Da
     const status = TERMINAL.has(result.status) ? result.status : "failed";
     db.prepare(
       `UPDATE cron_runs
-          SET status=?, finished_at=?, error_code=?, error_summary=?, receipt_json=?, artifact_refs=?, session_id=NULL
+          SET status=?, finished_at=?, error_code=?, error_summary=?, receipt_json=?, artifact_refs=?, session_id=?
         WHERE id=?`,
     ).run(
       status,
@@ -139,6 +144,7 @@ export async function executeCronRun(runId: string, viewer?: AppUser, nowMs = Da
       result.error_summary || null,
       JSON.stringify(result.receipt || {}),
       result.artifact_refs ? JSON.stringify(result.artifact_refs) : null,
+      result.session_id || null,
       runId,
     );
     db.prepare(
@@ -149,7 +155,7 @@ export async function executeCronRun(runId: string, viewer?: AppUser, nowMs = Da
       job_key: job.job_key,
       run_id: runId,
       status,
-      created_session: false,
+      created_session: Boolean(result.session_id),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error || "handler failed");

@@ -84,6 +84,7 @@ function parseJson(raw: unknown, fallback: Json = {}): Json {
 
 export function ensureSystemCronJobs(db: SqliteConn = getConn(), from = new Date()): void {
   const now = nowIso();
+  const existing = new Set((db.prepare("SELECT id FROM cron_jobs WHERE owner_account_id IS NULL").all() as Array<{ id: string }>).map((row) => row.id));
   const insert = db.prepare(
     `INSERT OR IGNORE INTO cron_jobs
      (id,job_key,title,owner_account_id,execute_as,capability_expert_id,handler_key,
@@ -92,6 +93,7 @@ export function ensureSystemCronJobs(db: SqliteConn = getConn(), from = new Date
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   );
   for (const job of SYSTEM_JOBS) {
+    if (existing.has(job.id)) continue;
     const next = job.status === "published" ? nextRunAt(job.cron_expr, "Asia/Shanghai", from).toISOString() : null;
     insert.run(
       job.id,
@@ -127,7 +129,35 @@ export function jobByKey(jobKey: string, db: SqliteConn = getConn()): Row | unde
 }
 
 export function listJobs(db: SqliteConn = getConn()): Row[] {
-  return db.prepare("SELECT * FROM cron_jobs ORDER BY title").all() as Row[];
+  // The index view never reads prompt, workspace, connectors or run history.
+  return db.prepare(`SELECT id,job_key,title,owner_account_id,execute_as,capability_expert_id,
+    handler_key,cron_expr,timezone,status,next_run_at,last_run_at,last_terminal_status,
+    json_extract(condition_json,'$.schedule.kind') AS schedule_kind,
+    json_extract(condition_json,'$.schedule.interval_minutes') AS interval_minutes,
+    json_extract(condition_json,'$.schedule.once_at') AS once_at
+    FROM cron_jobs ORDER BY title`).all() as Row[];
+}
+
+function frequencyOf(job: Row, schedule?: Json): string {
+  const kind = String(schedule?.kind || job.schedule_kind || "");
+  if (kind === "once") return `单次 · ${String(schedule?.once_at || job.once_at || "")}`;
+  if (kind === "interval") return `每隔 ${String(schedule?.interval_minutes || job.interval_minutes || "?")} 分钟`;
+  return humanFrequency(String(job.cron_expr), String(job.timezone || "Asia/Shanghai"));
+}
+
+export function publicJobSummary(job: Row): Json {
+  const schedule = job.condition_json ? parseJson(job.condition_json).schedule as Json | undefined : undefined;
+  return {
+    id: job.id, job_key: job.job_key, title: job.title,
+    handler_key: job.handler_key, status: job.status,
+    enabled: String(job.status) !== "disabled",
+    system: isSystemJob(job), legal_fields_readonly: isSystemJob(job),
+    execute_identity: isSystemJob(job) ? "系统（平台已发布）" : "我",
+    frequency: frequencyOf(job, schedule),
+    timezone: job.timezone, next_run_at: job.next_run_at || null,
+    last_run_at: job.last_run_at || null,
+    last_terminal_status: job.last_terminal_status || null,
+  };
 }
 
 export function listRuns(jobId: string, limit = 50, db: SqliteConn = getConn()): Row[] {
@@ -173,7 +203,7 @@ export function publicJob(job: Row): Json {
     condition,
     cron_expr: job.cron_expr,
     timezone: job.timezone,
-    frequency: humanFrequency(String(job.cron_expr), String(job.timezone || "Asia/Shanghai")),
+    frequency: frequencyOf(job, condition.schedule as Json | undefined),
     status: job.status,
     enabled,
     retry_policy: retry,

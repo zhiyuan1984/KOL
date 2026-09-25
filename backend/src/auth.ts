@@ -83,6 +83,11 @@ export function scopedUser(): AppUser | undefined {
   return requestUser.getStore();
 }
 
+/** Run an already authorized background job under its current, active owner. */
+export function withScopedUser<T>(user: AppUser, action: () => T): T {
+  return requestUser.run(user, action);
+}
+
 export function isAdmin(user = scopedUser()): boolean {
   return Boolean(user?.roles.includes("admin"));
 }

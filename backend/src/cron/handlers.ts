@@ -18,8 +18,9 @@ import { runMailMemoryIncrement } from "../host/mail-memory-job.js";
 import { label } from "../stages.js";
 import type { Json, Row } from "../types.js";
 import type { AppUser } from "../auth.js";
+import { runAiTask } from "./ai-task.js";
 
-export type CronHandlerKey = "overdue-scan" | "daily-task-snapshot" | "ownership-release" | "discovery-search" | "mail-memory-increment";
+export type CronHandlerKey = "overdue-scan" | "daily-task-snapshot" | "ownership-release" | "discovery-search" | "mail-memory-increment" | "ai-task";
 
 export type CronHandlerResult = {
   status: "succeeded" | "skipped" | "failed" | "needs_takeover";
@@ -27,6 +28,7 @@ export type CronHandlerResult = {
   error_summary?: string;
   receipt: Json;
   artifact_refs?: Json;
+  session_id?: string;
 };
 
 export type CronHandlerContext = {
@@ -256,6 +258,7 @@ export const CRON_HANDLERS: Record<CronHandlerKey, CronHandler> = {
   "ownership-release": ownershipRelease,
   "discovery-search": discoverySearch,
   "mail-memory-increment": mailMemoryIncrement,
+  "ai-task": runAiTask,
 };
 
 export function cronHandler(key: string): CronHandler | undefined {
@@ -268,6 +271,7 @@ export function isCronHandlerKey(key: string): key is CronHandlerKey {
 
 export function handlerContract(key: string): Json {
   const contracts: Record<string, Json> = {
+    "ai-task": { title: "AI 定时任务", execute_as: "owner", side_effect: "task_intake", creates_session: true },
     "overdue-scan": {
       title: "失联与延期扫描",
       execute_as: "system",

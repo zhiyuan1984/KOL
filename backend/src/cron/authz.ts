@@ -29,6 +29,7 @@ export function assertCanSeeJob(job: Row, user = scopedUser()): void {
 export function assertCanMutateJob(job: Row, user = scopedUser()): AppUser | undefined {
   if (authDisabled()) return user;
   if (!user) throw new HttpFail(401, "authentication required");
+  if (isSystemJob(job) && !isAdmin(user)) throw new HttpFail(403, "system job requires admin");
   if (isAdmin(user) || canSeeJob(job, user)) return user;
   throw new HttpFail(404, "cron job not found");
 }

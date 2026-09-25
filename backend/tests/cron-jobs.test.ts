@@ -7,7 +7,7 @@ import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { ensureSystemCronJobs, jobByKey } from "../src/cron/store.js";
 import { enqueueManualRun, tickCronDue } from "../src/cron/worker.js";
-import { nextRunAt } from "../src/cron/schedule.js";
+import { nextRunAt, nextScheduledAt } from "../src/cron/schedule.js";
 import { CRON_HANDLERS } from "../src/cron/handlers.js";
 import { releaseFollowOwnershipIfEligible } from "../src/gateway/ownership-release.js";
 
@@ -295,6 +295,7 @@ describe("cron jobs P0/P1", () => {
 
   it("handler registry is an explicit map and does not import write side-effects", () => {
     expect(Object.keys(CRON_HANDLERS).sort()).toEqual([
+      "ai-task",
       "daily-task-snapshot",
       "discovery-search",
       "mail-memory-increment",
@@ -304,5 +305,59 @@ describe("cron jobs P0/P1", () => {
     const source = fs.readFileSync(path.join(process.cwd(), "src/cron/handlers.ts"), "utf8");
     expect(source).not.toMatch(/sendDraft|confirmStarryStage|createWorkApproval|followCandidate|contact_decrypt/);
     expect(source).not.toMatch(/INSERT INTO sessions/);
+  });
+
+  it("lists summaries without the prompt or history, and keeps detail available on demand", async () => {
+    const created = await request("POST", "/api/cron/jobs", {
+      title: "定时风险简报", handler_key: "ai-task", cron_expr: "0 9 * * *",
+      condition: { schedule: { kind: "recurring" }, composer: { text: "扫描在途风险", scope: { skills: ["risk_scan"] } } },
+    });
+    expect(created.status, created.text).toBe(201);
+    const job = created.body as Json;
+    const listed = await request("GET", "/api/cron/jobs");
+    const summary = (listed.body.jobs as Json[]).find((row) => row.id === job.id);
+    expect(summary).toBeTruthy();
+    expect(summary?.condition).toBeUndefined();
+    expect(summary?.scope).toBeUndefined();
+    expect(summary?.next_run_at).toBeTruthy();
+    const detail = await request("GET", `/api/cron/jobs/${job.id}`);
+    expect(((detail.body.job as Json).condition as Json).composer).toEqual({ text: "扫描在途风险", scope: { skills: ["risk_scan"] } });
+    expect((detail.body.job as Json).system).toBe(false);
+    const edited = await request("PATCH", `/api/cron/jobs/${job.id}`, {
+      title: "更新后的简报", condition: { schedule: { kind: "interval", interval_minutes: 60 },
+        composer: { text: "扫描风险并总结", scope: { skills: ["risk_scan"] } } },
+    });
+    expect(edited.status, edited.text).toBe(200);
+    expect((edited.body.job as Json).frequency).toBe("每隔 60 分钟");
+    const relisted = await request("GET", "/api/cron/jobs");
+    expect((relisted.body.jobs as Json[]).find((row) => row.id === job.id)?.frequency).toBe("每隔 60 分钟");
+  });
+
+  it("computes single and interval executions within the effective window", () => {
+    const from = new Date("2026-09-25T00:00:00.000Z");
+    expect(nextScheduledAt("0 9 * * *", "Asia/Shanghai", { kind: "once", once_at: "2026-09-25T01:00:00.000Z" }, from)?.toISOString())
+      .toBe("2026-09-25T01:00:00.000Z");
+    expect(nextScheduledAt("0 9 * * *", "Asia/Shanghai", { kind: "once", once_at: "2026-09-25T01:00:00.000Z" }, new Date("2026-09-25T01:00:00.000Z")))
+      .toBeNull();
+    expect(nextScheduledAt("0 9 * * *", "Asia/Shanghai", {
+      kind: "interval", interval_minutes: 30, start_at: "2026-09-25T00:10:00.000Z", end_at: "2026-09-25T01:00:00.000Z",
+    }, from)?.toISOString()).toBe("2026-09-25T00:10:00.000Z");
+    expect(nextScheduledAt("0 9 * * *", "Asia/Shanghai", {
+      kind: "interval", interval_minutes: 30, start_at: "2026-09-25T00:10:00.000Z", end_at: "2026-09-25T01:00:00.000Z",
+    }, new Date("2026-09-25T00:40:00.000Z"))).toBeNull();
+  });
+
+  it("submits an AI schedule through the Today task and session execution chain", async () => {
+    const created = await request("POST", "/api/cron/jobs", {
+      title: "风险简报", handler_key: "ai-task", cron_expr: "0 9 * * *",
+      condition: { schedule: { kind: "recurring" }, composer: { text: "扫描在途风险", scope: { skills: ["risk_scan"] } } },
+    });
+    expect(created.status, created.text).toBe(201);
+    const run = await request("POST", `/api/cron/jobs/${created.body.id}/run`);
+    expect(run.status, run.text).toBe(200);
+    expect(run.body.session_id).toBeTruthy();
+    const recorded = await request("GET", `/api/cron/runs/${run.body.run_id}`);
+    expect((recorded.body.run as Json).session_id).toBe(run.body.session_id);
+    expect((getConn().prepare("SELECT COUNT(*) AS n FROM task_runs WHERE session_id=?").get(run.body.session_id) as { n: number }).n).toBe(1);
   });
 });

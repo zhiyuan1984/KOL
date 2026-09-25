@@ -96,6 +96,40 @@ export function nextRunAt(expr: string, timeZone: string, from = new Date()): Da
   throw new Error("could not compute next_run_at");
 }
 
+export type ScheduleWindow = {
+  kind?: "recurring" | "interval" | "once";
+  start_at?: string;
+  end_at?: string;
+  once_at?: string;
+  interval_minutes?: number;
+};
+
+/** The saved window is applied both when publishing and when the worker advances. */
+export function nextScheduledAt(expr: string, zone: string, schedule: ScheduleWindow, from = new Date()): Date | null {
+  const start = schedule.start_at ? new Date(schedule.start_at) : null;
+  const end = schedule.end_at ? new Date(schedule.end_at) : null;
+  if (start && Number.isNaN(start.getTime()) || end && Number.isNaN(end.getTime())) throw new Error("invalid schedule window");
+  if (start && end && end <= start) throw new Error("schedule end must follow start");
+  const floor = start && start > from ? new Date(start.getTime() - 60_000) : from;
+  let next: Date;
+  if (schedule.kind === "once") {
+    next = new Date(String(schedule.once_at || ""));
+    if (Number.isNaN(next.getTime())) throw new Error("invalid once_at");
+    if (next <= from) return null;
+  } else if (schedule.kind === "interval") {
+    const minutes = Number(schedule.interval_minutes);
+    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 525600) throw new Error("invalid interval_minutes");
+    const anchor = start || new Date(0);
+    const span = minutes * 60_000;
+    const steps = Math.max(0, Math.floor((from.getTime() - anchor.getTime()) / span) + 1);
+    next = new Date(anchor.getTime() + steps * span);
+  } else {
+    next = nextRunAt(expr, zone, floor);
+  }
+  if (start && next < start) next = start;
+  return end && next > end ? null : next;
+}
+
 export function humanFrequency(expr: string, timeZone: string): string {
   try {
     const parts = String(expr || "").trim().split(/\s+/);

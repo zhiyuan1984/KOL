@@ -1,9 +1,10 @@
 import { timingSafeEqual } from "node:crypto";
 import { Hono } from "hono";
 import { authDisabled, isAdmin, requireAdmin, scopedUser } from "../auth.js";
+import { DEMO_USER } from "../config.js";
 import { assertHandlerGates, assertCanMutateJob, assertCanSeeJob, assertJobRunnable, canSeeJob } from "../cron/authz.js";
 import { handlerContract, isCronHandlerKey } from "../cron/handlers.js";
-import { nextRunAt } from "../cron/schedule.js";
+import { nextScheduledAt, type ScheduleWindow } from "../cron/schedule.js";
 import {
   DEFAULT_EXPERT,
   ensureSystemCronJobs,
@@ -13,6 +14,7 @@ import {
   listRuns,
   newJobId,
   publicJob,
+  publicJobSummary,
   publicRun,
   runById,
 } from "../cron/store.js";
@@ -21,11 +23,36 @@ import { getConn, nowIso } from "../db.js";
 import { HttpFail } from "../host/errors.js";
 import { label } from "../stages.js";
 import type { Json } from "../types.js";
+import { taskDefinition } from "../tasks/registry.js";
 
 export const cron = new Hono();
 
 function parseBody(raw: unknown): Json {
   return raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Json : {};
+}
+
+function validateCondition(handlerKey: string, value: unknown): Json {
+  const condition = value && typeof value === "object" && !Array.isArray(value) ? value as Json : {};
+  if (handlerKey !== "ai-task") return condition;
+  const composer = condition.composer && typeof condition.composer === "object" ? condition.composer as Json : {};
+  if (!String(composer.text || "").trim()) throw new HttpFail(400, "请填写任务内容");
+  const scope = composer.scope && typeof composer.scope === "object" ? composer.scope as Json : {};
+  const skill = String(composer.intent || (Array.isArray(scope.skills) ? scope.skills[0] || "" : ""));
+  const definition = skill ? taskDefinition(skill) : undefined;
+  if (definition && definition.side_effects === "write") {
+    throw new HttpFail(400, "此技能不可无人在场自动执行");
+  }
+  const schedule = condition.schedule && typeof condition.schedule === "object" ? condition.schedule as ScheduleWindow : {};
+  if (!["recurring", "interval", "once"].includes(String(schedule.kind))) throw new HttpFail(400, "请选择周期、间隔或单次");
+  return { ...condition, composer, schedule };
+}
+
+function nextFor(expr: string, zone: string, condition: Json): string | null {
+  try {
+    return nextScheduledAt(expr, zone, (condition.schedule || {}) as ScheduleWindow)?.toISOString() || null;
+  } catch {
+    throw new HttpFail(400, { code: "invalid_schedule", message: "执行时间或生效区间无效" });
+  }
 }
 
 function secretOk(provided: string | undefined, expected: string): boolean {
@@ -50,7 +77,7 @@ function authorizeTick(c: { req: { header: (name: string) => string | undefined 
 
 function visibleJobs() {
   ensureSystemCronJobs();
-  return listJobs().filter((job) => canSeeJob(job)).map(publicJob);
+  return listJobs().filter((job) => canSeeJob(job)).map(publicJobSummary);
 }
 
 function attention(jobs: Json[]): { failed: number; needs_takeover: number } {
@@ -75,15 +102,12 @@ cron.post("/cron/jobs", async (c) => {
   assertHandlerGates(handlerKey);
   const cronExpr = String(body.cron_expr || "0 8 * * *");
   const timezone = String(body.timezone || "Asia/Shanghai");
-  let next: string;
-  try {
-    next = nextRunAt(cronExpr, timezone).toISOString();
-  } catch {
-    throw new HttpFail(400, { code: "invalid_cron_expr", message: "cron_expr 无效" });
-  }
+  const condition = validateCondition(handlerKey, body.condition);
+  const next = nextFor(cronExpr, timezone, condition);
+  if (handlerKey === "ai-task" && !next) throw new HttpFail(400, "生效区间内没有未来执行时间");
   const now = nowIso();
   const id = newJobId();
-  const owner = user?.id || null;
+  const owner = user?.id || (authDisabled() ? DEMO_USER.id : null);
   getConn().prepare(
     `INSERT INTO cron_jobs
      (id,job_key,title,owner_account_id,execute_as,capability_expert_id,handler_key,
@@ -99,7 +123,7 @@ cron.post("/cron/jobs", async (c) => {
     String(body.capability_expert_id || DEFAULT_EXPERT),
     handlerKey,
     JSON.stringify(body.scope && typeof body.scope === "object" ? body.scope : { applies: "self" }),
-    JSON.stringify(body.condition && typeof body.condition === "object" ? body.condition : {}),
+    JSON.stringify(condition),
     cronExpr,
     timezone,
     String(body.status || "published"),
@@ -143,6 +167,7 @@ cron.patch("/cron/jobs/:id", async (c) => {
   let cronExpr = String(job.cron_expr);
   let timezone = String(job.timezone || "Asia/Shanghai");
   let scopeJson = String(job.scope_json);
+  let conditionJson = String(job.condition_json);
   let bump = false;
   if (body.cron_expr != null) {
     cronExpr = String(body.cron_expr);
@@ -156,22 +181,30 @@ cron.patch("/cron/jobs/:id", async (c) => {
     scopeJson = JSON.stringify(body.scope);
     bump = true;
   }
+  if (body.condition != null) {
+    if (system) throw new HttpFail(403, { code: "legal_field_readonly", message: "系统作业条件只读" });
+    conditionJson = JSON.stringify(validateCondition(String(job.handler_key), body.condition));
+    bump = true;
+  }
   let nextRun = job.next_run_at ? String(job.next_run_at) : null;
   if (bump || (nextStatus === "published" && String(job.status) !== "published")) {
     try {
-      nextRun = nextRunAt(cronExpr, timezone).toISOString();
+      nextRun = nextFor(cronExpr, timezone, JSON.parse(conditionJson) as Json);
     } catch {
       throw new HttpFail(400, { code: "invalid_cron_expr", message: "cron_expr 无效" });
     }
   }
-  if (nextStatus === "paused" || nextStatus === "disabled") nextRun = job.next_run_at ? String(job.next_run_at) : nextRun;
+  if (String(job.handler_key) === "ai-task" && nextStatus === "published" && !nextRun) {
+    throw new HttpFail(400, "生效区间内没有未来执行时间");
+  }
+  if (nextStatus === "paused" || nextStatus === "disabled") nextRun = null;
   const publishedRev = Number(job.published_rev || 1) + (bump ? 1 : 0);
   const title = system ? String(job.title) : String(body.title || job.title);
   getConn().prepare(
     `UPDATE cron_jobs
-        SET title=?, scope_json=?, cron_expr=?, timezone=?, status=?, published_rev=?, next_run_at=?, updated_at=?
+        SET title=?, scope_json=?, condition_json=?, cron_expr=?, timezone=?, status=?, published_rev=?, next_run_at=?, updated_at=?
       WHERE id=?`,
-  ).run(title, scopeJson, cronExpr, timezone, nextStatus, publishedRev, nextRun, nowIso(), job.id);
+  ).run(title, scopeJson, conditionJson, cronExpr, timezone, nextStatus, publishedRev, nextRun, nowIso(), job.id);
   return c.json({ job: publicJob(jobById(String(job.id))!) });
 });
 
@@ -183,7 +216,10 @@ cron.post("/cron/jobs/:id/run", async (c) => {
   assertJobRunnable(job);
   assertHandlerGates(String(job.handler_key));
   const result = await runCronJobNow(String(job.id), scopedUser());
-  return c.json({ run_id: result.run_id });
+  if (String(job.handler_key) !== "ai-task") return c.json({ run_id: result.run_id });
+  const run = runById(result.run_id);
+  return c.json({ run_id: result.run_id, session_id: run?.session_id || undefined, run: run ? publicRun(run) : undefined,
+    job: publicJobSummary(jobById(String(job.id))!) });
 });
 
 cron.get("/cron/jobs/:id/runs", (c) => {

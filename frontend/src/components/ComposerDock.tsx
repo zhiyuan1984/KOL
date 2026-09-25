@@ -134,6 +134,8 @@ export default function ComposerDock({
   entryIntent = "free",
   objectRefs = [],
   onObjectRefsChange,
+  initialDraft,
+  submitLabel = "发送",
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -171,6 +173,8 @@ export default function ComposerDock({
   entryIntent?: ComposerEntryIntent;
   objectRefs?: ComposerObjectRef[];
   onObjectRefsChange?: (refs: ComposerObjectRef[]) => void;
+  initialDraft?: ComposerDraftStash;
+  submitLabel?: string;
 }) {
   const [skills, setSkills] = useState<SkillOption[]>([]);
   const [templates, setTemplates] = useState<KnowledgeRow[]>([]);
@@ -389,6 +393,9 @@ export default function ComposerDock({
         if (expert) setExpertId(expert.id);
       }
       if (draft.attachments?.length) setAttachments(draft.attachments);
+      const project = draft.chips?.find((chip) => chip.kind === "project");
+      if (project?.kind === "project") setSelectedProject({ id: project.id, label: project.label });
+      if (draft.model_tier === "fast" || draft.model_tier === "balanced" || draft.model_tier === "quality") setModelTier(draft.model_tier);
       // A draft that carries [待补参数] is a form, not a finished sentence: put the
       // caret on the first gap so「补完参数后由你发送」is one keystroke away.
       const gap = draft.text ? draft.text.match(/\[[^\]]+\]/) : null;
@@ -399,8 +406,9 @@ export default function ComposerDock({
         if (gap?.index != null) node.setSelectionRange(gap.index, gap.index + gap[0].length);
       });
     };
-    const stashed = peekComposerDraft();
-    if (stashed) {
+    const stashed = initialDraft ? null : peekComposerDraft();
+    if (initialDraft) apply(initialDraft);
+    else if (stashed) {
       apply(takeComposerDraftStash() || stashed);
     }
     const onDraft = (event: Event) => {
@@ -1157,8 +1165,10 @@ export default function ComposerDock({
                 data-ai-prompt-submit
                 data-send-state={sendState}
                 disabled={sendDisabled}
-                aria-label="发送"
+                aria-label={submitLabel}
+                title={submitLabel}
               >
+                {submitLabel !== "发送" && <span className="composer-submit-label">保存</span>}
                 <SendArrowIcon ready={sendState === "ready"} />
               </button>
             )}
