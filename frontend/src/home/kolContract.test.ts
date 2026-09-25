@@ -66,6 +66,11 @@ describe("kol workbench contract (#172)", () => {
       public_stage: "公海",
       pool_status: "open",
       avatar_url: "https://images.example/outdoor.jpg",
+      potential_score: 85,
+      potential_confidence: 0.91,
+      risk_score: 20,
+      risk_confidence: 0.88,
+      assessment_model: "jev-1.13",
       email: "secret@example.com",
       quote: "1200",
       contract: "ct_1",
@@ -75,6 +80,7 @@ describe("kol workbench contract (#172)", () => {
     expect(card?.identity.display).toBe("@户外充电君");
     expect(card?.identity.profile_url).toContain("youtube");
     expect(card?.identity.avatar_url).toBe("https://images.example/outdoor.jpg");
+    expect(card?.assessment).toMatchObject({ potential_score: 85, potential_confidence: 0.91, risk_score: 20, model: "jev-1.13" });
     expect(card?.metrics.followers).toBe("12万");
     expect(card?.idle?.idle).toBe(true);
     expect(card?.idle?.label).toBe("闲置");

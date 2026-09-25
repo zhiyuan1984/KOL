@@ -53,6 +53,15 @@ export type KolSurface = "pool" | "following";
 /** 公海入选原因：无主（无人负责）优先于从未首次建联。与后端 `publicSeaReason` 对齐。 */
 export type PublicSeaReason = "unowned" | "never_contacted";
 
+export type PoolJevAssessment = {
+  potential_score?: number | null;
+  potential_confidence?: number | null;
+  risk_score?: number | null;
+  risk_confidence?: number | null;
+  model?: string;
+  assessed_at?: string | null;
+};
+
 export type PoolKol = {
   kol_uid: string;
   identity: {
@@ -77,6 +86,8 @@ export type PoolKol = {
   unowned?: boolean;
   has_conversation?: boolean;
   sea_reason?: PublicSeaReason | null;
+  /** Bounded server-side Jev assessment of public index fields; advisory only. */
+  assessment?: PoolJevAssessment;
 };
 
 export type FollowCorrespondence = {
@@ -405,6 +416,14 @@ export function toPoolKol(row: Record<string, unknown>): PoolKol | null {
     unowned: isUnownedRow(row),
     has_conversation: hasConversation(row),
     sea_reason: reason,
+    assessment: {
+      potential_score: row.potential_score == null || row.potential_score === "" ? null : Number(row.potential_score),
+      potential_confidence: row.potential_confidence == null || row.potential_confidence === "" ? null : Number(row.potential_confidence),
+      risk_score: row.risk_score == null || row.risk_score === "" ? null : Number(row.risk_score),
+      risk_confidence: row.risk_confidence == null || row.risk_confidence === "" ? null : Number(row.risk_confidence),
+      model: text(row.assessment_model) || undefined,
+      assessed_at: text(row.assessed_at) || null,
+    },
   };
 }
 

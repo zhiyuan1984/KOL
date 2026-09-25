@@ -9349,11 +9349,71 @@ body {
 }
 
 .cron-page {
-  max-width: 52rem;
-  gap: var(--space-4);
+  max-width: var(--content-max);
+  gap: var(--space-3);
   min-width: 0;
-  overflow-x: hidden;
 }
+.cron-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-height: 56px;
+}
+.cron-toolbar h1 { margin: 0 auto 0 0; font-size: var(--ds-font-section); }
+.cron-toolbar input, .cron-toolbar select,
+.cron-editor input, .cron-editor select {
+  min-height: var(--control-h-lg);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.cron-toolbar input { width: min(12rem, 100%); }
+.cron-catalog { gap: 0; border-top: 1px solid var(--border); }
+.cron-row {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) auto minmax(10rem, auto) auto;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 72px;
+  padding: var(--space-2) var(--space-1);
+  border-bottom: 1px solid var(--border);
+  min-width: 0;
+}
+.cron-row-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cron-row-main strong, .cron-row-main .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cron-row-main strong { font-size: var(--ds-font-body); }
+.cron-row-main .muted, .cron-next small { font-size: var(--ds-font-helper); }
+.cron-next { display: grid; gap: 2px; font-size: var(--ds-font-sm); }
+.cron-next small { color: var(--text-muted); }
+.cron-row-actions { display: flex; gap: var(--space-1); }
+.cron-row-actions .btn { white-space: nowrap; }
+.cron-row-feedback { grid-column: 1 / -1; margin: 0; font-size: var(--ds-font-sm); }
+.cron-skeleton { height: 72px; border-radius: 0; border-bottom: 1px solid var(--border); }
+.cron-editor { display: grid; gap: var(--space-3); min-width: 0; }
+.cron-editor > label, .cron-schedule label { display: grid; gap: var(--space-1); font-size: var(--ds-font-sm); }
+.cron-editor > label input { max-width: 30rem; }
+.cron-schedule { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-2); }
+.cron-editor h3 { margin: 0; font-size: var(--ds-font-ui); }
+.link-button { padding: 0; border: 0; background: none; color: var(--accent-text); text-decoration: underline; cursor: pointer; font: inherit; }
+.cron-editor .composer .send:has(.composer-submit-label) { width: auto; padding-inline: var(--space-2); gap: var(--space-1); }
+.composer-submit-label { font-size: var(--ds-font-sm); }
+.cron-row :is(button, a, input, select):focus-visible,
+.cron-toolbar :is(button, a, input, select):focus-visible,
+.cron-editor :is(button, a, input, select):focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring); outline-offset: var(--focus-ring-offset); }
 .cron-hero { display: grid; gap: var(--space-2); }
 .cron-hero h1 {
   margin: 0;
@@ -9440,6 +9500,16 @@ body {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;
   }
+}
+@media (max-width: 1000px) {
+  .cron-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .cron-next { grid-column: 1; }
+  .cron-row-actions { grid-column: 2; grid-row: 1 / span 2; flex-wrap: wrap; justify-content: end; }
+}
+@media (max-width: 680px) {
+  .cron-toolbar h1 { flex-basis: 100%; }
+  .cron-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .cron-row-actions { grid-column: 1 / -1; grid-row: auto; justify-content: start; }
 }
 
 /* Last-wins composer: rounded rect 22px, content-axis width, text model name, 15px placeholder. */
@@ -13667,7 +13737,212 @@ button.today-brief-primary-btn:disabled {
   }
 }
 @media (max-width: 1100px) {
-  .scope-task-rail .pool-compact-header {
-    padding-right: calc(var(--icon-btn) + var(--ds-space-2));
+.scope-task-rail .pool-compact-header {
+  padding-right: calc(var(--icon-btn) + var(--ds-space-2));
+}
+}
+
+/* 公海右栏是高密度线索表。状态标签已完整表达入海状态，不重复再写「公海原因」。
+   L3 保留确认语义，但视觉尺寸回到工作台的 24 / 28px 控件阶梯。 */
+.scope-task-rail .pool-kol-row {
+  grid-template-columns: 16px 40px minmax(0, 1fr) auto;
+  gap: var(--ds-space-2);
+  min-height: 96px;
+  padding: var(--ds-space-2) 0;
+}
+.scope-task-rail .pool-row-select {
+  padding-top: 12px;
+}
+.scope-task-rail .pool-row-avatar {
+  width: 40px;
+  height: 40px;
+  font-size: var(--ds-font-body);
+  line-height: var(--ds-line-body);
+}
+.scope-task-rail .pool-row-actions {
+  display: block;
+  grid-column: 4;
+  grid-row: 1;
+  min-width: 80px;
+  padding: 0;
+}
+.scope-task-rail .pool-claim-button {
+  min-width: 80px;
+  min-height: var(--control-h);
+  height: var(--control-h);
+  padding-inline: var(--ds-space-2);
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control);
+}
+.scope-task-rail .pool-profile-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--accent-text);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.scope-task-rail .pool-claim-confirm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: var(--ds-space-1);
+  margin-top: var(--ds-space-1);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+.scope-task-rail .pool-claim-confirm [data-claim-object] {
+  grid-column: 1 / -1;
+}
+.scope-task-rail .pool-claim-confirm button {
+  min-height: var(--control-h-sm);
+  height: var(--control-h-sm);
+  padding-inline: var(--ds-space-2);
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control-sm);
+}
+.scope-task-rail .pool-claim-confirm [data-claim-follow-yes] {
+  grid-column: 2;
+}
+.scope-task-rail .pool-claim-confirm [data-claim-follow-no] {
+  grid-column: 3;
+}
+
+/* 公海桌面行保持原有动作与头像尺度；资料维护另占一行，避免挤压领取动作。 */
+.scope-task-rail .pool-kol-row {
+  grid-template-columns: 16px 56px minmax(0, 1fr) auto;
+  gap: var(--ds-space-2);
+  min-height: 112px;
+  padding: var(--ds-space-2) 0;
+}
+.scope-task-rail .pool-row-select {
+  padding-top: 16px;
+}
+.scope-task-rail .pool-row-avatar {
+  width: 56px;
+  height: 56px;
+  font-size: var(--ds-font-section);
+  line-height: var(--ds-line-section);
+}
+.scope-task-rail .pool-row-actions {
+  display: grid;
+  grid-column: 4;
+  grid-row: 1 / span 3;
+  grid-template-columns: minmax(0, auto);
+  grid-template-rows: var(--control-h-lg);
+  align-content: start;
+  align-items: start;
+  min-width: 96px;
+  padding-top: 0;
+}
+.scope-task-rail .pool-claim-button {
+  min-width: 96px;
+  min-height: var(--control-h-lg);
+  height: var(--control-h-lg);
+  padding-inline: var(--ds-space-2);
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control);
+}
+.scope-task-rail .pool-claim-confirm button {
+  min-height: var(--control-h);
+  height: var(--control-h);
+  padding-inline: var(--ds-space-2);
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control);
+}
+.pool-jev-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--badge-h);
+  padding-inline: 6px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  font-size: var(--ds-font-helper);
+  font-weight: 500;
+  line-height: var(--ds-line-helper);
+  white-space: nowrap;
+}
+.pool-jev-badge.is-potential {
+  color: var(--success);
+}
+.pool-jev-badge.is-risk {
+  color: var(--danger);
+}
+.pool-maintenance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-1) var(--ds-space-2);
+  margin: 0 0 var(--ds-space-2);
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+.pool-maintenance > button,
+.pool-cleanup-confirm button {
+  min-height: var(--control-h-sm);
+  height: var(--control-h-sm);
+  padding: 0 var(--ds-space-2);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control-sm);
+  cursor: pointer;
+}
+.pool-maintenance > button:hover:not(:disabled),
+.pool-cleanup-confirm button:hover:not(:disabled) {
+  border-color: var(--control-border-hover);
+  background: var(--ds-surface);
+}
+.pool-maintenance > button:disabled,
+.pool-cleanup-confirm button:disabled {
+  opacity: .6;
+  cursor: default;
+}
+.pool-maintenance-notice {
+  color: var(--text-muted);
+}
+.pool-maintenance-error {
+  color: var(--danger);
+}
+.pool-cleanup-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-1) var(--ds-space-2);
+  margin: 0 0 var(--ds-space-2);
+  padding: var(--ds-space-2);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-card);
+  background: var(--ds-surface);
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+.pool-cleanup-confirm b {
+  color: var(--text);
+  font-weight: 600;
+}
+.pool-cleanup-confirm [data-pool-cleanup-confirm-button] {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+@media (max-width: 1100px) {
+  .scope-task-rail .pool-kol-row {
+    grid-template-columns: 16px 48px minmax(0, 1fr) auto;
+    gap: 6px;
+  }
+  .scope-task-rail .pool-row-avatar {
+    width: 48px;
+    height: 48px;
+  }
+  .scope-task-rail .pool-row-actions,
+  .scope-task-rail .pool-claim-button {
+    min-width: 86px;
   }
 }

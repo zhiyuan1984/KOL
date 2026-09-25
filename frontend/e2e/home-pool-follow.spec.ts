@@ -275,7 +275,8 @@ test("public pool restores the central interaction and uses a structured right r
   expect((await list.boundingBox())?.width).toBeLessThanOrEqual(820);
   expect((await row.boundingBox())?.width).toBeLessThanOrEqual((railBox?.width || Number.POSITIVE_INFINITY) + 1);
   await expect(workspace.locator("[data-pool-overview]")).not.toContainText("公开对象池");
-  await expect(workspace.locator("[data-pool-reason]").first()).toContainText("公海原因");
+  await expect(workspace.locator("[data-pool-reason]")).toHaveCount(0);
+  await expect(row.locator(".pool-profile-link")).toHaveText("主页");
   expect((await workspace.locator("[data-pool-search]").boundingBox())?.height).toBe(32);
   expect((await workspace.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").boundingBox())?.height).toBe(32);
 });
@@ -327,6 +328,51 @@ test("empty pool sync sends an explicit command and renders the refreshed public
   await expect.poll(() => syncPosts).toEqual(["/api/home/pool/sync"]);
   await expect(page.locator("[data-pool-kol='uid_outdoor']")).toBeVisible();
   await expect(page.locator("[data-pool-sync-library]")).toHaveCount(0);
+});
+
+test("pool maintenance enriches public avatars, renders Jev signals, and requires deletion confirmation", async ({ page }) => {
+  const posts: Array<{ path: string; body?: Record<string, unknown> }> = [];
+  const enriched = { ...POOL_ITEM, avatar_url: "https://yt3.ggpht.com/enriched-avatar.jpg" };
+  const assessed = { ...enriched, potential_score: 85, potential_confidence: 0.91, risk_score: 85, risk_confidence: 0.83, assessment_model: "jev-1.13" };
+  await page.route("**/api/home/pool/avatar-enrich", async (route) => {
+    if (route.request().method() === "POST") {
+      posts.push({ path: new URL(route.request().url()).pathname });
+      await route.fulfill({ status: 202, json: { status: "running", accepted: true } });
+      return;
+    }
+    await route.fulfill({ json: { status: "succeeded", ok: true, message: "已检查 1 条公开主页，补全 1 个头像。", items: [assessed] } });
+  });
+  await page.route("**/api/home/pool/jev-assess", async (route) => {
+    if (route.request().method() === "POST") {
+      posts.push({ path: new URL(route.request().url()).pathname });
+      await route.fulfill({ status: 202, json: { status: "running", accepted: true } });
+      return;
+    }
+    await route.fulfill({ json: { status: "succeeded", ok: true, message: "已评估 1 条：高潜 1，高风险 1。", items: [assessed] } });
+  });
+  await page.route("**/api/home/pool/cleanup-preview", async (route) => {
+    await route.fulfill({ json: { scope: "public_pool_only", candidate_count: 2, protected_active_follows: 1 } });
+  });
+  await page.route("**/api/home/pool/cleanup-missing-homepage", async (route) => {
+    posts.push({ path: new URL(route.request().url()).pathname, body: route.request().postDataJSON() as Record<string, unknown> });
+    await route.fulfill({ json: { ok: true, deleted: 2, items: [assessed] } });
+  });
+
+  await page.goto("/?tab=pool");
+  await page.locator("[data-pool-avatar-enrich]").click();
+  await expect.poll(() => posts.map((item) => item.path)).toContain("/api/home/pool/avatar-enrich");
+  await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-kol-avatar='source']")).toHaveCount(1);
+  await page.locator("[data-pool-jev-assess]").click();
+  await expect.poll(() => posts.map((item) => item.path)).toContain("/api/home/pool/jev-assess");
+  await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-jev-potential]")).toHaveText("高潜 85");
+  await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-jev-risk]")).toHaveText("高风险 85");
+  await page.locator("[data-pool-filter]").selectOption("high-potential");
+  await expect(page.locator("[data-pool-card]")).toHaveCount(1);
+  await page.locator("[data-pool-cleanup-preview]").click();
+  await expect(page.locator("[data-pool-cleanup-confirm]")).toContainText("将删除 2 条无主页公海档案");
+  await page.locator("[data-pool-cleanup-confirm-button]").click();
+  await expect.poll(() => posts.find((item) => item.path === "/api/home/pool/cleanup-missing-homepage")?.body).toMatchObject({ expected_count: 2, confirm: true });
+  await expect(page.locator("[data-pool-maintenance]")).toContainText("已删除 2 条无主页公海档案");
 });
 
 test("selection prefills composer and enqueue is not from-text", async ({ page }) => {
@@ -414,10 +460,9 @@ test("claim is L3 and posts confirm to /api/kols/:kolUid/claim", async ({ page }
   const compactRow = page.locator("[data-pool-kol='uid_outdoor']");
   await expect(compactRow).toBeVisible();
   const height = await compactRow.evaluate((node) => node.getBoundingClientRect().height);
-  // The four structured public-information lines remain compact enough to
-  // avoid reintroducing the oversized legacy object-card layout.
-  expect(height).toBeGreaterThanOrEqual(112);
-  expect(height).toBeLessThanOrEqual(126);
+  // Public identity, state, evidence and context stay in a compact scan row.
+  expect(height).toBeGreaterThanOrEqual(96);
+  expect(height).toBeLessThanOrEqual(112);
   await expect(compactRow.locator("[data-public-stage]")).toHaveCount(1);
   await expect(compactRow.locator("[data-public-stage]")).toHaveText("未首次建联");
   const nameBox = await compactRow.locator("[data-kol-name]").boundingBox();
@@ -426,14 +471,15 @@ test("claim is L3 and posts confirm to /api/kols/:kolUid/claim", async ({ page }
   await expect(compactRow.locator("[data-kol-avatar='source']")).toHaveCount(1);
   expect((await compactRow.locator("[data-kol-avatar='source']").boundingBox())?.width).toBe(56);
   await expect(compactRow).not.toContainText("公开资料");
-  await expect(compactRow.locator("[data-pool-reason]")).toContainText("公海原因");
-  await expect(compactRow.locator("[data-pool-reason]")).toContainText("未首次建联");
+  await expect(compactRow.locator("[data-pool-reason]")).toHaveCount(0);
+  await expect(compactRow.locator(".pool-profile-link")).toHaveText("主页");
   await expect(compactRow).not.toContainText("领取后进入我的跟进");
   // 明确领取未建联的有主行：无主行排在前面，不能靠「第一张卡」取对象。
   await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").click();
   const confirm = page.locator("[data-claim-follow-confirm]");
   await expect(confirm).toBeVisible();
-  await expect(confirm).toContainText("不会发信，也不会改正式阶段");
+  await expect(confirm).toContainText("不发信，不改阶段");
+  await expect(confirm.locator("[data-claim-follow-yes]")).toHaveText("确认");
   await page.locator("[data-claim-follow-yes]").click();
   await expect.poll(() => claims.length).toBe(1);
   await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]")).toHaveText("已领取 ✓");

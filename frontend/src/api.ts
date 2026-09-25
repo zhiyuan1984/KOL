@@ -93,6 +93,7 @@ export type CronJob = {
   last_terminal_status?: string | null;
   system?: boolean;
   legal_fields_readonly?: boolean;
+  schedule?: Record<string, unknown>;
 };
 
 export type CronRun = {
@@ -989,6 +990,70 @@ export const api = {
       items?: Array<Record<string, unknown>>;
       kols?: Array<Record<string, unknown>>;
     }>("/api/home/pool/sync"),
+  enrichPoolAvatars: () =>
+    request<{
+      entry?: string;
+      kind?: string;
+      creates_session?: boolean;
+      creates_turn?: boolean;
+      calls_model?: boolean;
+      accepted?: boolean;
+      started?: boolean;
+      status?: "idle" | "running" | "succeeded" | "failed";
+      ok?: boolean;
+      message?: string;
+      items?: Array<Record<string, unknown>>;
+      kols?: Array<Record<string, unknown>>;
+    }>("/api/home/pool/avatar-enrich", { method: "POST", body: JSON.stringify({}) }),
+  poolAvatarEnrichmentStatus: () =>
+    request<{
+      status?: "idle" | "running" | "succeeded" | "failed";
+      ok?: boolean;
+      message?: string;
+      items?: Array<Record<string, unknown>>;
+      kols?: Array<Record<string, unknown>>;
+    }>("/api/home/pool/avatar-enrich"),
+  assessPoolWithJev: () =>
+    request<{
+      entry?: string;
+      kind?: string;
+      creates_session?: boolean;
+      creates_turn?: boolean;
+      calls_model?: boolean;
+      accepted?: boolean;
+      started?: boolean;
+      status?: "idle" | "running" | "succeeded" | "failed";
+      ok?: boolean;
+      message?: string;
+      items?: Array<Record<string, unknown>>;
+      kols?: Array<Record<string, unknown>>;
+    }>("/api/home/pool/jev-assess", { method: "POST", body: JSON.stringify({}) }),
+  poolJevAssessmentStatus: () =>
+    request<{
+      status?: "idle" | "running" | "succeeded" | "failed";
+      ok?: boolean;
+      message?: string;
+      items?: Array<Record<string, unknown>>;
+      kols?: Array<Record<string, unknown>>;
+    }>("/api/home/pool/jev-assess"),
+  poolCleanupPreview: () =>
+    request<{
+      scope?: string;
+      candidate_count?: number;
+      protected_active_follows?: number;
+    }>("/api/home/pool/cleanup-preview"),
+  cleanupPoolMissingHomepage: (expectedCount: number) =>
+    request<{
+      ok?: boolean;
+      deleted?: number;
+      candidate_count?: number;
+      protected_active_follows?: number;
+      items?: Array<Record<string, unknown>>;
+      kols?: Array<Record<string, unknown>>;
+    }>("/api/home/pool/cleanup-missing-homepage", {
+      method: "POST",
+      body: JSON.stringify({ expected_count: expectedCount, confirm: true }),
+    }),
   enqueueKolAnalyze: (body: { kol_uids?: string[]; kolUids?: string[]; people?: string[]; handles?: string[]; title?: string; prompt?: string }) =>
     request<{
       entry?: string;
@@ -1442,6 +1507,8 @@ export const api = {
   },
   cron: () => request<Record<string, unknown>>("/api/cron/risks"),
   cronJobs: () => request<{ jobs: CronJob[]; alerts?: CronAlerts }>("/api/cron/jobs"),
+  createCronJob: (body: Record<string, unknown>) =>
+    request<CronJob>("/api/cron/jobs", { method: "POST", body: JSON.stringify(body) }),
   cronJob: (id: string) =>
     request<{ job: CronJob; runs: CronRun[] }>(`/api/cron/jobs/${encodeURIComponent(id)}`),
   patchCronJob: (id: string, body: Record<string, unknown>) =>
@@ -1450,7 +1517,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   runCronJob: (id: string) =>
-    request<{ run_id: string; session_id?: string }>(`/api/cron/jobs/${encodeURIComponent(id)}/run`, {
+    request<{ run_id: string; session_id?: string; run?: CronRun; job?: CronJob }>(`/api/cron/jobs/${encodeURIComponent(id)}/run`, {
       method: "POST",
       body: JSON.stringify({}),
     }),

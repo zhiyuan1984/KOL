@@ -2069,6 +2069,10 @@ export default function Home() {
                   libraryCount={libraryCount}
                   syncBusy={poolWorkspace.syncBusy}
                   syncError={poolWorkspace.syncError}
+                  maintenanceBusy={poolWorkspace.maintenanceBusy}
+                  maintenanceNotice={poolWorkspace.maintenanceNotice}
+                  maintenanceError={poolWorkspace.maintenanceError}
+                  cleanupPreview={poolWorkspace.cleanupPreview}
                   claimBusyId={poolWorkspace.claimBusy && poolWorkspace.claimTarget ? poolWorkspace.claimTarget.kol_uid : null}
                   claimTarget={poolWorkspace.claimTarget}
                   claimError={poolWorkspace.claimError}
@@ -2080,6 +2084,11 @@ export default function Home() {
                   onToggleSelect={toggleSelectedPool}
                   onToggleSelectAll={toggleSelectAllPool}
                   onSyncLibrary={() => void poolWorkspace.syncLibrary()}
+                  onEnrichAvatars={() => void poolWorkspace.enrichAvatars()}
+                  onAssessWithJev={() => void poolWorkspace.assessWithJev()}
+                  onRequestCleanupPreview={() => void poolWorkspace.requestCleanupPreview()}
+                  onConfirmCleanup={() => void poolWorkspace.confirmCleanup()}
+                  onCancelCleanup={poolWorkspace.cancelCleanup}
                   onAnalyzeSelected={(selectedIds) => {
                     const selected = poolWorkspace.cards.filter((card) => selectedIds.includes(card.kol_uid));
                     prefillAnalyze("pool", selected, selected.map((card) => card.kol_uid));

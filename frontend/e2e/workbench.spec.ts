@@ -4464,20 +4464,20 @@ test("达人库查询 starter placeholder still lists profiles", async ({ page }
   await expect(card).not.toContainText("未找到匹配的达人画像");
 });
 
-test("cron 跑一次风险扫描 opens the same Host MCP result", async ({ page }) => {
+test("cron 跑一次风险扫描 keeps the run receipt on the cron page", async ({ page }) => {
   await page.goto("/cron");
   await expect(page.getByRole("heading", { name: "定时任务" })).toBeVisible();
   await expect(page.locator("[data-cron-page]")).not.toContainText("T8");
-  await expect(page.locator("[data-cron-job] h3")).toHaveText("失联与延期扫描");
-  await page.getByRole("button", { name: "跑一次风险扫描" }).click();
-  await page.waitForURL(/\/s\//);
-  const card = page.locator('[data-workbench] [data-kind="task-result-card"]');
-  await expect(card).toBeVisible({ timeout: 20000 });
-  await expect(card).toContainText("超时/风险扫描");
-  await expect(card).toContainText("T8 失联与延期");
-  await expect(page.locator('[data-kind="operation-trace"]').last()).toContainText("查询风险会话");
-  await expect(page.locator('[data-kind="email-card"]')).toHaveCount(0);
-  await saveScreenshot(page, "cron_risk_scan_starry_kol_mcp.png");
+  const row = page.locator('[data-cron-job="overdue-scan"]');
+  await expect(row).toContainText("失联与延期扫描");
+  await row.locator("[data-cron-run-now]").click();
+  await expect(row).toContainText("查看执行");
+  await expect(page).toHaveURL(/\/cron$/);
+  await row.getByRole("button", { name: "查看执行" }).click();
+  await expect(page.locator("[data-cron-receipt-panel]")).toBeVisible();
+  await expect(page.locator('[data-cron-detail="overdue-scan"] h2')).toHaveText("失联与延期扫描");
+  await expect(page.locator("[data-cron-receipt-panel]")).toContainText("已完成");
+  await expect(page.locator("[data-cron-receipt-panel] pre")).toContainText("已停留");
 });
 
 test("approvals page can preview and initiate an expense approval", async ({ page }) => {

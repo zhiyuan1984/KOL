@@ -45,6 +45,7 @@ export default function App() {
             <Route path="/s/:id" element={<Chat />} />
             <Route path="/pipeline" element={<Pipeline />} />
             <Route path="/cron" element={<Cron />} />
+            <Route path="/cron/:jobId" element={<Cron />} />
             <Route path="/mail" element={<Mail />} />
             <Route path="/skills" element={<SkillCatalog />} />
             <Route path="/agents/:id" element={<Agents />} />
