@@ -162,7 +162,7 @@ export default function PoolPane({ cards, selectedIds, query, down, claimBusyId,
   const selectedVisibleIds = visible.map((card) => card.kol_uid).filter((id) => selectedIds.includes(id));
   const allVisibleSelected = visible.length > 0 && selectedVisibleIds.length === visible.length;
 
-  return <section className="pool-compact-pane" data-pool-overview>
+  return <section className="pool-compact-pane is-result-rail" data-pool-overview>
     <div className="pool-compact-header">
       <div className="pool-header-title"><h2>公海对象 <span className="pool-total" data-pool-total>{cards.length}</span></h2>
         {selectedVisibleIds.length > 0 && <span className="pool-selected-summary" data-pool-selected-count>当前已选 {selectedVisibleIds.length} / {KOL_SELECT_MAX}</span>}</div>
