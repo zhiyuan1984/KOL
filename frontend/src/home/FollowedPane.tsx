@@ -125,6 +125,12 @@ export default function FollowedPane({
     })),
     { code: "exception", label: "异常" },
   ];
+  const journeyStages = ["建联评估", "合作确认", "寄样测试", "内容交付", "结算完成", "长期合作"];
+  const quickStages = [
+    { code: "INITIAL_CONTACT", label: "初步接触" },
+    { code: "INTERESTED", label: "已回复 · 有兴趣" },
+    { code: "EVALUATING", label: "合作评估" },
+  ];
 
   return (
     <section
@@ -132,6 +138,36 @@ export default function FollowedPane({
       data-lifecycle-overview
     >
       <div className="followed-kol-column" data-followed-kol-column data-followed-decision-max="full">
+        <nav className="followed-journey" aria-label="合作生命周期阶段" data-followed-journey>
+          {journeyStages.map((label, index) => (
+            <span key={label} className={index === 0 ? "is-active" : ""} aria-current={index === 0 ? "step" : undefined}>
+              {label}
+            </span>
+          ))}
+        </nav>
+        <div className="followed-stage-quick-filter" role="tablist" aria-label="跟进阶段筛选" data-followed-stage-quick-filter>
+          {quickStages.map((stage) => (
+            <button
+              key={stage.code}
+              type="button"
+              role="tab"
+              aria-selected={stageFilter === stage.code}
+              className={stageFilter === stage.code ? "is-active" : ""}
+              onClick={() => onStageFilter(stageFilter === stage.code ? "" : stage.code)}
+            >
+              {stage.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!stageFilter}
+            className={!stageFilter ? "is-active" : ""}
+            onClick={() => onStageFilter("")}
+          >
+            全部
+          </button>
+        </div>
         <FollowedBrief
           cards={allCards}
           situation={situation}
@@ -151,8 +187,9 @@ export default function FollowedPane({
               />
             </label>
             <label className="followed-advanced-filter" data-followed-advanced>
-              <span className="followed-advanced-label">阶段筛选</span>
+              <span className="sr-only">阶段筛选</span>
               <select
+                className="followed-stage-select-compat"
                 data-kol-stage-filter
                 aria-label="按阶段筛选"
                 value={stageFilter}

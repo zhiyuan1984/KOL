@@ -14,8 +14,10 @@ import { authDisabled, scopedUser } from "../auth.js";
 import { DEMO_USER } from "../config.js";
 import { audit, getConn, nowIso, txImmediate, type SqliteConn } from "../db.js";
 import { nid } from "../ids.js";
+import { codeFromLabel, label as stageLabel } from "../stages.js";
 import type { Json, Row } from "../types.js";
 import { HttpFail } from "./errors.js";
+import { mailPreview } from "./mail-preview.js";
 import { currentUser } from "./persona.js";
 
 export const DEFAULT_COMPANY_ID = "company:amperetime";
@@ -329,19 +331,105 @@ export function listOpenPool(companyId = memoryCompanyId(), db: SqliteConn = get
   return rows.map((row) => trimPrivate(publicProfileFields(row)));
 }
 
+function followedThreadMemory(follow: Row, db: SqliteConn): Json[] {
+  const summaries = db.prepare(
+    `SELECT conversation_id, subject, last_at, effective, key_agreements, open_questions, next_step, mail_refs, updated_at
+       FROM kol_thread_summary
+      WHERE follow_id=?
+      ORDER BY CASE WHEN last_at IS NULL OR last_at='' THEN 1 ELSE 0 END, last_at DESC, updated_at DESC`,
+  ).all(follow.id) as Row[];
+  const threadRows = follow.collaboration_id
+    ? db.prepare(
+      `SELECT conversation_id, subject, last_direction, last_snippet, last_preview, last_at, unread_count
+         FROM kol_mail_threads
+        WHERE collaboration_id=?
+        ORDER BY CASE WHEN last_at IS NULL OR last_at='' THEN 1 ELSE 0 END, last_at DESC, updated_at DESC`,
+    ).all(follow.collaboration_id) as Row[]
+    : [];
+  const byConversation = new Map<string, Json>();
+  for (const row of summaries) {
+    const conversationId = text(row.conversation_id);
+    if (!conversationId) continue;
+    const summary = mailPreview(text(row.key_agreements) || text(row.next_step) || text(row.open_questions) || text(row.subject));
+    byConversation.set(conversationId, {
+      conversation_id: conversationId,
+      subject: text(row.subject),
+      last_direction: "",
+      last_snippet: summary,
+      last_at: text(row.last_at) || null,
+      unread_count: 0,
+      effective: Number(row.effective || 0),
+    });
+  }
+  for (const row of threadRows) {
+    const conversationId = text(row.conversation_id);
+    if (!conversationId) continue;
+    const existing = byConversation.get(conversationId) || {};
+    byConversation.set(conversationId, {
+      ...existing,
+      conversation_id: conversationId,
+      subject: text(row.subject) || text(existing.subject),
+      last_direction: text(row.last_direction),
+      last_snippet: mailPreview(text(row.last_preview) || text(row.last_snippet)) || text(existing.last_snippet),
+      last_at: text(row.last_at) || existing.last_at || null,
+      unread_count: Number(row.unread_count || 0),
+    });
+  }
+  return [...byConversation.values()].sort((left, right) => {
+    const leftAt = Date.parse(String(left.last_at || "")) || 0;
+    const rightAt = Date.parse(String(right.last_at || "")) || 0;
+    return rightAt - leftAt;
+  });
+}
+
+function followStage(row: Row): { code: string; label: string; days: number | null } {
+  const raw = text(row.collaboration_stage_code) || text(row.public_stage);
+  const code = codeFromLabel(raw) || "";
+  const days = row.days_in_stage == null || row.days_in_stage === "" ? null : Number(row.days_in_stage);
+  return {
+    code,
+    label: code ? stageLabel(code) : raw || "跟进中",
+    days: Number.isFinite(days) ? days : null,
+  };
+}
+
+function refusalIn(value: string): boolean {
+  return /拒绝|拒信|REJECTED|not interested|no longer/i.test(value);
+}
+
+/**
+ * The following endpoint is the employee's local, read-only history projection.
+ * It combines B ownership, the C thread summary index, and locally synchronized
+ * mail threads; it never calls Starry, creates a session, or invokes a model.
+ */
 export function listEmployeeFollowing(employeeId: string, companyId = memoryCompanyId(), db: SqliteConn = getConn()): Json[] {
   const rows = db.prepare(
     `SELECT f.*, p.handle, p.display_name, p.platform, p.homepage_url, p.followers,
             p.avg_plays, p.engagement, p.direction, p.region, p.style,
-            p.ingest_source, p.ingested_at, p.public_stage, p.idle, p.pool_status
+            p.ingest_source, p.ingested_at, p.public_stage, p.idle, p.pool_status,
+            c.stage_code AS collaboration_stage_code, c.days_in_stage AS days_in_stage
        FROM kol_follow_index f
        LEFT JOIN kol_profile_index p
          ON p.company_id=f.company_id AND p.kol_uid=f.kol_uid
+       LEFT JOIN collaborations c
+         ON c.id=f.collaboration_id
       WHERE f.company_id=? AND f.employee_id=? AND f.status='active'
       ORDER BY f.claimed_at DESC`,
   ).all(companyId, employeeId) as Row[];
   return rows.map((row) => {
     const clock = followClock(row.last_effective_mail_at ? String(row.last_effective_mail_at) : null);
+    const stage = followStage(row);
+    const mailThreads = followedThreadMemory(row, db);
+    const latest = mailThreads[0] as Row | undefined;
+    const summary = text(latest?.last_snippet) || (clock.countdown ? "已有有效往来" : "尚未有效往来");
+    const refused = refusalIn(`${stage.code} ${stage.label} ${summary}`);
+    const interested = /INTERESTED|有兴趣|有意向/i.test(`${stage.code} ${stage.label}`);
+    const near = clock.days_since_interaction != null && clock.days_since_interaction >= 11;
+    const riskChips: Json[] = [
+      ...(refused ? [{ id: "refused", label: "拒信" }] : []),
+      ...(near ? [{ id: "near-14d", label: "临近14日" }] : []),
+      ...(interested ? [{ id: "interested", label: "有兴趣" }] : []),
+    ];
     return trimPrivate({
       ...publicProfileFields(row),
       follow_id: row.id,
@@ -353,6 +441,30 @@ export function listEmployeeFollowing(employeeId: string, companyId = memoryComp
       collaboration_id: row.collaboration_id || null,
       ...clock,
       last_interaction_at: clock.last_effective_mail_at,
+      identity: {
+        display: text(row.handle) ? `@${text(row.handle)}` : text(row.display_name) || "未指定红人",
+        platform: text(row.platform),
+      },
+      stage: { code: stage.code, label: stage.label },
+      dwell: { days: stage.days },
+      latest_correspondence: {
+        valid: Boolean(latest) || clock.countdown,
+        summary,
+        at: text(latest?.last_at) || clock.last_effective_mail_at || null,
+        thread_id: text(latest?.conversation_id),
+        refused,
+      },
+      clock_14d: {
+        ...clock,
+        days_remaining: clock.days_since_interaction == null ? null : Math.max(0, FOLLOW_IDLE_DAYS - clock.days_since_interaction),
+        release_scheduler: false,
+        label: clock.countdown ? "14 日计时（只读）" : "尚未有效往来",
+        near,
+      },
+      risk: { chips: riskChips, refused, exception: false, high_risk: refused },
+      brief_priority: refused ? "refused" : near ? "near_14d" : interested ? "interested" : "other",
+      mail_threads: mailThreads,
+      unread_count: mailThreads.reduce((total, thread) => total + Number(thread.unread_count || 0), 0),
     });
   });
 }
@@ -595,6 +707,80 @@ export function recordEffectiveCorrespondence(input: {
       WHERE id=? AND status='active'`,
   ).run(clock.last_effective_mail_at, clock.release_due_at, nowIso(), follow.id);
   return { renewed: true, effective: true, reason: "human", follow_id: String(follow.id) };
+}
+
+/**
+ * Incrementally persist one already-observed interaction into C. This is used by
+ * the gateway send receipt and mailbox synchronizer, so the next GET
+ * /api/home/following reads the updated local memory immediately. It is an
+ * idempotent upsert keyed by (follow_id, conversation_id), never a remote call.
+ */
+export function recordFollowedMailMemory(input: {
+  kolUid?: string;
+  followId?: string;
+  companyId?: string;
+  scopeBrand?: string;
+  collaborationId?: string;
+  conversationId?: string;
+  subject?: string;
+  summary?: string;
+  body?: string;
+  participants?: string;
+  direction?: "inbound" | "outbound";
+  occurredAt?: string;
+  gatewaySuccess?: boolean;
+  kind?: string;
+  sourceVersion?: string;
+}): { recorded: boolean; effective: boolean; follow_id?: string; conversation_id?: string } {
+  const db = getConn();
+  const companyId = text(input.companyId) || memoryCompanyId();
+  let follow: Row | undefined;
+  if (input.followId) follow = followById(input.followId, db);
+  if (!follow && input.kolUid) {
+    const brand = text(input.scopeBrand);
+    follow = brand
+      ? activeFollow({ company_id: companyId, kol_uid: text(input.kolUid), scope_brand: brand }, db)
+      : db.prepare(
+        `SELECT * FROM kol_follow_index WHERE company_id=? AND kol_uid=? AND status='active' ORDER BY claimed_at DESC LIMIT 1`,
+      ).get(companyId, text(input.kolUid)) as Row | undefined;
+  }
+  if (!follow && input.collaborationId) {
+    follow = db.prepare(
+      "SELECT * FROM kol_follow_index WHERE collaboration_id=? AND status='active' LIMIT 1",
+    ).get(input.collaborationId) as Row | undefined;
+  }
+  if (!follow) return { recorded: false, effective: false };
+
+  const occurredAt = text(input.occurredAt) || nowIso();
+  const conversationId = text(input.conversationId) || `local:${text(input.direction) || "mail"}:${occurredAt}`;
+  const summary = mailPreview(text(input.summary) || text(input.body) || text(input.subject));
+  const effective = isEffectiveCorrespondence({
+    gatewaySuccess: input.gatewaySuccess !== false,
+    direction: input.direction || "inbound",
+    kind: input.kind,
+    subject: input.subject,
+    body: input.body,
+  });
+  upsertThreadSummary({
+    follow_id: String(follow.id),
+    company_id: String(follow.company_id),
+    kol_uid: String(follow.kol_uid),
+    conversation_id: conversationId,
+    subject: text(input.subject),
+    participants: text(input.participants),
+    last_at: occurredAt,
+    effective: effective ? 1 : 0,
+    key_agreements: summary,
+    next_step: "",
+    mail_refs: conversationId,
+    source_version: text(input.sourceVersion) || "local.increment",
+  }, db);
+  return {
+    recorded: true,
+    effective,
+    follow_id: String(follow.id),
+    conversation_id: conversationId,
+  };
 }
 
 export function upsertThreadSummary(input: {

@@ -13,6 +13,7 @@ import {
   ingestFormalProfile,
   isEffectiveCorrespondence,
   recordEffectiveCorrespondence,
+  recordFollowedMailMemory,
 } from "../src/host/kol-memory.js";
 import { runStub } from "../src/worker/stub.js";
 import { HttpFail } from "../src/host/errors.js";
@@ -370,6 +371,74 @@ describe("kol follow/pool memory P0", () => {
     expect(before.renewed).toBe(false);
     expect(before.reason).toBe("no_active_follow");
     expect((getConn().prepare("SELECT COUNT(*) AS n FROM kol_follow_index WHERE kol_uid='KOL_MAIL' AND status='active'").get() as { n: number }).n).toBe(0);
+  });
+
+  it("following projects local history and refreshes it incrementally without a session", async () => {
+    seedProfile("KOL_HISTORY", { handle: "HistoryCreator", public_stage: "INITIAL_CONTACT" });
+    const claimed = claimFollow({
+      kolUid: "KOL_HISTORY",
+      scopeBrand: "LT",
+      confirm: true,
+      actor: { id: DEMO_USER.id, name: DEMO_USER.name, brands: ["LT"] },
+    });
+    const followId = String((claimed.follow as Json).follow_id);
+    const occurredAt = "2026-09-24T08:00:00.000Z";
+
+    const first = recordFollowedMailMemory({
+      followId,
+      kolUid: "KOL_HISTORY",
+      conversationId: "conv-history",
+      subject: "Re: LiTime partnership",
+      summary: "I am interested in the collaboration. Please share the next steps.",
+      direction: "inbound",
+      occurredAt,
+      gatewaySuccess: true,
+      sourceVersion: "test:one",
+    });
+    expect(first).toMatchObject({ recorded: true, effective: true, follow_id: followId });
+    expect((getConn().prepare("SELECT COUNT(*) AS n FROM kol_thread_summary WHERE follow_id=?").get(followId) as { n: number }).n).toBe(1);
+
+    const firstRead = await request("GET", "/api/home/following");
+    expect(firstRead.status).toBe(200);
+    expect(firstRead.body.creates_session).toBe(false);
+    const firstRow = (firstRead.body.kols as Json[]).find((row) => row.kol_uid === "KOL_HISTORY") as Json;
+    expect(firstRow).toMatchObject({
+      follow_id: followId,
+      latest_correspondence: { thread_id: "conv-history", valid: true },
+      clock_14d: { countdown: false },
+    });
+    expect(((firstRow.mail_threads as Json[]) || [])[0]).toMatchObject({
+      conversation_id: "conv-history",
+      last_snippet: expect.stringContaining("interested"),
+    });
+
+    recordEffectiveCorrespondence({
+      followId,
+      kolUid: "KOL_HISTORY",
+      direction: "inbound",
+      occurredAt,
+      gatewaySuccess: true,
+      subject: "Re: LiTime partnership",
+    });
+    recordFollowedMailMemory({
+      followId,
+      kolUid: "KOL_HISTORY",
+      conversationId: "conv-history",
+      subject: "Re: LiTime partnership",
+      summary: "I can send my rate card this week.",
+      direction: "inbound",
+      occurredAt: "2026-09-25T08:00:00.000Z",
+      gatewaySuccess: true,
+      sourceVersion: "test:two",
+    });
+
+    const incrementalRead = await request("GET", "/api/home/following");
+    const incrementalRow = (incrementalRead.body.kols as Json[]).find((row) => row.kol_uid === "KOL_HISTORY") as Json;
+    expect(incrementalRow).toMatchObject({
+      clock_14d: { countdown: true, last_effective_mail_at: occurredAt },
+      latest_correspondence: { summary: expect.stringContaining("rate card") },
+    });
+    expect(JSON.stringify(incrementalRow)).not.toMatch(/email|quote|contract|notes/);
   });
 
   it("registers kol_analyze skill with verb whitelist and forbids decrypt connector", async () => {

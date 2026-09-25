@@ -4,6 +4,7 @@
  * pageEmailConversations only for B.active → C with effective=0/1
  */
 import { audit, nowIso } from "../db.js";
+import { mailPreview } from "./mail-preview.js";
 import { conversationIdOf, conversationSubject, firstString, listOf, messageOccurredAt } from "../starrykol/mail-fields.js";
 import type { Json } from "../types.js";
 import {
@@ -11,6 +12,7 @@ import {
   isEffectiveCorrespondence,
   listActiveFollows,
   memoryCompanyId,
+  recordEffectiveCorrespondence,
   upsertPublicProfile,
   upsertThreadSummary,
   type EffectiveKind,
@@ -119,18 +121,33 @@ export async function syncActiveFollowThreads(): Promise<{ ok: boolean; follows:
       for (const conv of conversations) {
         const conversationId = conversationIdOf(conv);
         const { effective } = conversationEffective(conv);
+        const subject = conversationSubject(conv);
+        const occurredAt = messageOccurredAt(conv) || firstString(conv.lastMessageAt, conv.updatedAt);
+        const direction = firstString(conv.direction, conv.lastDirection);
         upsertThreadSummary({
           follow_id: String(follow.id),
           company_id: String(follow.company_id),
           kol_uid: String(follow.kol_uid),
           conversation_id: conversationId,
-          subject: conversationSubject(conv),
+          subject,
           participants: firstString(conv.recipientEmail, conv.mailboxEmail),
-          last_at: messageOccurredAt(conv) || firstString(conv.lastMessageAt, conv.updatedAt),
+          last_at: occurredAt,
           effective,
+          key_agreements: mailPreview(firstString(conv.snippet, conv.lastSnippet, conv.body)),
           mail_refs: conversationId,
           source_version: nowIso(),
         });
+        if (effective) {
+          recordEffectiveCorrespondence({
+            followId: String(follow.id),
+            kolUid: String(follow.kol_uid),
+            direction: /in/i.test(direction) ? "inbound" : "outbound",
+            occurredAt,
+            gatewaySuccess: true,
+            subject,
+            body: firstString(conv.snippet, conv.lastSnippet, conv.body),
+          });
+        }
         threads += 1;
       }
     }

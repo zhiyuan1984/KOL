@@ -24,6 +24,7 @@ import {
 } from "../host/kol-memory.js";
 import { syncKolProfileIndex } from "../host/kol-memory-sync.js";
 import { HttpFail } from "../host/errors.js";
+import { currentFollowScope } from "../host/starry-bind.js";
 import { nid } from "../ids.js";
 import { taskDefinition } from "../tasks/registry.js";
 import type { Json } from "../types.js";
@@ -136,6 +137,7 @@ kolMemory.get("/home/following", (c) => {
   c.header("Cache-Control", "no-store");
   const employee = currentMemoryEmployee();
   const kols = listEmployeeFollowing(employee.id);
+  const followScope = currentFollowScope();
   return c.json({
     entry: "memory",
     kind: "memory",
@@ -143,6 +145,7 @@ kolMemory.get("/home/following", (c) => {
     calls_model: false,
     index: "我的跟进",
     employee_id: employee.id,
+    follow_scope: followScope,
     kols,
     authority: "kol_follow_index",
   });

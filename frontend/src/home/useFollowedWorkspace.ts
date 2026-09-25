@@ -137,8 +137,11 @@ export function useFollowedWorkspace(options: {
   }, [boardKols, followScope, latestFollowScope, setFollowScope]);
 
   const ensureLoaded = useCallback(async () => {
-    await loadBoard("following");
+    // B/C is the authoritative local memory projection. Read it first so the
+    // result rail has data as soon as the user enters "我的红人"; the board is
+    // only a compatibility/scope enrichment and must not delay that first view.
     await loadSurface();
+    void loadBoard("following").then(() => loadSurface()).catch(() => undefined);
   }, [loadBoard, loadSurface]);
 
   const openDetails = useCallback(

@@ -125,6 +125,15 @@ export type FollowKol = {
   overdue?: boolean;
   mailbox_from?: string;
   owner_name?: string;
+  unread_count?: number;
+  mail_threads?: Array<{
+    conversation_id: string;
+    subject?: string;
+    last_direction?: string;
+    last_snippet?: string;
+    last_at?: string | null;
+    unread_count?: number;
+  }>;
 };
 
 export type KolAnalyzeEnqueueBody = {
@@ -426,6 +435,8 @@ export function toFollowKol(row: Record<string, unknown>): FollowKol | null {
       overdue: flag(row.overdue) || undefined,
       mailbox_from: text(row.mailbox_from) || undefined,
       owner_name: text(row.owner_name) || undefined,
+      unread_count: Number(row.unread_count || 0),
+      mail_threads: Array.isArray(row.mail_threads) ? row.mail_threads as FollowKol["mail_threads"] : undefined,
     };
   }
   const clock = clockFromRow(row);
@@ -469,6 +480,8 @@ export function toFollowKol(row: Record<string, unknown>): FollowKol | null {
     overdue: flag(row.overdue) || undefined,
     mailbox_from: text(row.mailbox_from) || undefined,
     owner_name: text(row.owner_name) || undefined,
+    unread_count: Number(row.unread_count || 0),
+    mail_threads: Array.isArray(row.mail_threads) ? row.mail_threads as FollowKol["mail_threads"] : undefined,
   };
 }
 
@@ -562,6 +575,7 @@ export function followKolToRecord(item: FollowKol): {
   release_due_at: string | null;
   countdown: boolean;
   release_scheduler: false;
+  unread_count?: number;
   mail_threads: Array<{
     conversation_id: string;
     last_snippet: string;
@@ -592,12 +606,22 @@ export function followKolToRecord(item: FollowKol): {
     release_due_at: item.clock_14d.countdown ? (item.clock_14d.release_due_at || null) : null,
     countdown: Boolean(item.clock_14d.countdown),
     release_scheduler: false,
-    mail_threads: item.latest_correspondence.valid && item.latest_correspondence.thread_id
-      ? [{
-          conversation_id: item.latest_correspondence.thread_id,
-          last_snippet: item.latest_correspondence.summary,
-          last_at: item.latest_correspondence.at || null,
-        }]
-      : [],
+    unread_count: Number(item.unread_count || 0),
+    mail_threads: item.mail_threads?.length
+      ? item.mail_threads.map((thread) => ({
+          conversation_id: thread.conversation_id,
+          subject: thread.subject,
+          last_direction: thread.last_direction,
+          last_snippet: thread.last_snippet || "",
+          last_at: thread.last_at || null,
+          unread_count: Number(thread.unread_count || 0),
+        }))
+      : item.latest_correspondence.valid && item.latest_correspondence.thread_id
+        ? [{
+            conversation_id: item.latest_correspondence.thread_id,
+            last_snippet: item.latest_correspondence.summary,
+            last_at: item.latest_correspondence.at || null,
+          }]
+        : [],
   };
 }

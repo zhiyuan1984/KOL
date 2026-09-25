@@ -16,6 +16,7 @@ import {
 import { letterSummaryRecord, remoteMailAnalysisEnabled, threadDigestOf, type ThreadDigest } from "../host/mail-summary.js";
 import { translateMailBodyZh } from "./translate-zh.js";
 import { markPendingMailMemory, triggerMailMemoryIncrement } from "../host/mail-memory-job.js";
+import { recordEffectiveCorrespondence, recordFollowedMailMemory } from "../host/kol-memory.js";
 import { boundMailboxEmail, currentFollowScope, matchesFollowedMailbox, safeEmployeeId } from "../host/starry-bind.js";
 import { inboundIdentity, mailAlreadySeen } from "../host/inbound-identity.js";
 import { starryKolMcpConfigured } from "../config.js";
@@ -480,6 +481,33 @@ export async function hydrateMailThread(thread: Row): Promise<number> {
     nowIso(),
     thread.id,
   );
+  if (col) {
+    const direction = inboundOf(latest, col, mailbox) ? "inbound" : "outbound";
+    const occurredAt = String(detail.occurredAt || thread.last_at || nowIso());
+    const body = messageBody(latest) || snippet;
+    recordFollowedMailMemory({
+      kolUid: String(col.kol_uid || ""),
+      collaborationId: String(col.id),
+      conversationId,
+      subject,
+      summary: mailPreview(snippet),
+      body,
+      direction,
+      occurredAt,
+      gatewaySuccess: true,
+      sourceVersion: `starry.mail:${conversationId}`,
+    });
+    recordEffectiveCorrespondence({
+      kolUid: String(col.kol_uid || ""),
+      collaborationId: String(col.id),
+      scopeBrand: String(col.brand || ""),
+      direction,
+      occurredAt,
+      gatewaySuccess: true,
+      subject,
+      body,
+    });
+  }
   refreshThreadDigest(String(thread.id), conversationId, mailbox);
   await ensureThreadItemTranslations(String(thread.id));
   return inserted;
@@ -817,6 +845,38 @@ export async function syncFollowedKolMail(mailboxOverride = ""): Promise<Followe
         if (rememberItem(thread.id, col ? String(col.id) : null, conversationId, conv, subject, col, threadMailbox)) {
           inbound += 1;
         }
+      }
+      // The page list is a remote source only; the following UI reads local B/C
+      // memory. Write the newest observed fact as part of this same incremental
+      // sync so reopening "我的红人" immediately projects the latest interaction.
+      if (col) {
+        const newest = messages[messages.length - 1] || conv;
+        const direction = inboundOf(newest, col, mailbox) ? "inbound" : "outbound";
+        const occurredAt = messageOccurredAt(newest) || remoteConversationTime(conv) || lastAt || nowIso();
+        const body = messageBody(newest) || snippet;
+        recordFollowedMailMemory({
+          kolUid: String(col.kol_uid || ""),
+          collaborationId: String(col.id),
+          conversationId,
+          subject,
+          summary: preview || snippet,
+          body,
+          participants: [inboundFrom.email, threadMailbox].filter(Boolean).join(","),
+          direction,
+          occurredAt,
+          gatewaySuccess: true,
+          sourceVersion: `starry.mail:${conversationId}`,
+        });
+        recordEffectiveCorrespondence({
+          kolUid: String(col.kol_uid || ""),
+          collaborationId: String(col.id),
+          scopeBrand: String(col.brand || ""),
+          direction,
+          occurredAt,
+          gatewaySuccess: true,
+          subject,
+          body,
+        });
       }
       refreshThreadDigest(thread.id, conversationId, threadMailbox);
       if (matchState === "unbound" && inboundMessages.length) {

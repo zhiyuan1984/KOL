@@ -68,7 +68,7 @@ export async function sendDraft(draftId: string, via = "operator"): Promise<Json
     extra = {};
   }
   if (col?.kol_uid) {
-    const { recordEffectiveCorrespondence } = await import("../host/kol-memory.js");
+    const { recordEffectiveCorrespondence, recordFollowedMailMemory } = await import("../host/kol-memory.js");
     recordEffectiveCorrespondence({
       kolUid: String(col.kol_uid),
       collaborationId: String(col.id || ""),
@@ -79,6 +79,19 @@ export async function sendDraft(draftId: string, via = "operator"): Promise<Json
       kind: "human",
       subject: String(d.subject || ""),
       body: String(d.body_en || ""),
+    });
+    recordFollowedMailMemory({
+      kolUid: String(col.kol_uid),
+      collaborationId: String(col.id || ""),
+      scopeBrand: String(col.brand || ""),
+      conversationId,
+      subject: String(d.subject || ""),
+      summary: String(d.body_en || ""),
+      body: String(d.body_en || ""),
+      direction: "outbound",
+      occurredAt: nowIso(),
+      gatewaySuccess: true,
+      sourceVersion: `gateway.send:${draftId}`,
     });
   }
   audit("gateway", "gateway.send", {
