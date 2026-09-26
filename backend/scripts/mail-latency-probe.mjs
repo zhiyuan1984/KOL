@@ -29,28 +29,41 @@ function percentile(sorted, p) {
   return sorted[Math.max(0, index)];
 }
 
+/** Response bodies are small JSON documents; one decimal is enough to see volume. */
+function formatBytes(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n}B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)}K`;
+  return `${(n / (1024 * 1024)).toFixed(1)}M`;
+}
+
 async function probeOne(path) {
   const started = performance.now();
   let status = "error";
+  let bytes = 0;
   try {
     const res = await fetch(`${BASE}${path}`, { headers: { accept: "application/json" } });
-    await res.arrayBuffer();
+    const body = await res.arrayBuffer();
+    bytes = body.byteLength;
     status = String(res.status);
   } catch (error) {
     status = `error:${error instanceof Error ? error.message : String(error)}`;
   }
-  return { ms: performance.now() - started, status };
+  return { ms: performance.now() - started, status, bytes };
 }
 
 async function probe(path) {
   const samples = [];
+  const sizes = [];
   const statuses = new Map();
   for (let i = 0; i < COUNT; i += 1) {
-    const { ms, status } = await probeOne(path);
+    const { ms, status, bytes } = await probeOne(path);
     samples.push(ms);
+    sizes.push(bytes);
     statuses.set(status, (statuses.get(status) || 0) + 1);
   }
   const sorted = [...samples].sort((a, b) => a - b);
+  const sortedSizes = [...sizes].sort((a, b) => a - b);
   const p50 = percentile(sorted, 50);
   const p95 = percentile(sorted, 95);
   // 401/404 are responses; a connection that never reached the server is not.
@@ -61,6 +74,10 @@ async function probe(path) {
     p50_ms: Math.round(p50),
     p95_ms: Math.round(p95),
     max_ms: Math.round(sorted[sorted.length - 1] || 0),
+    // Transfer volume sits next to latency: a fast-but-fat endpoint still costs.
+    bytes_min: sortedSizes[0] || 0,
+    bytes_avg: Math.round(sizes.reduce((sum, value) => sum + value, 0) / (sizes.length || 1)),
+    bytes_max: sortedSizes[sortedSizes.length - 1] || 0,
     statuses: Object.fromEntries([...statuses.entries()].sort()),
     ok: responded && p95 < THRESHOLD_MS,
     responded,
@@ -74,8 +91,9 @@ console.log(`mail-latency-probe → ${BASE} (n=${COUNT} per endpoint, pass = P95
 for (const row of results) {
   const statuses = Object.entries(row.statuses).map(([code, hits]) => `${code}×${hits}`).join(" ");
   const verdict = row.ok ? "PASS" : row.responded ? "FAIL" : "FAIL (no response)";
+  const bytes = `bytes min ${formatBytes(row.bytes_min)} / avg ${formatBytes(row.bytes_avg)} / max ${formatBytes(row.bytes_max)}`;
   console.log(
-    `${verdict.padEnd(17)} ${row.path.padEnd(26)} P50 ${String(row.p50_ms).padStart(5)}ms  P95 ${String(row.p95_ms).padStart(5)}ms  max ${String(row.max_ms).padStart(5)}ms  [${statuses}]`,
+    `${verdict.padEnd(17)} ${row.path.padEnd(26)} P50 ${String(row.p50_ms).padStart(5)}ms  P95 ${String(row.p95_ms).padStart(5)}ms  max ${String(row.max_ms).padStart(5)}ms  [${statuses}]  ${bytes}`,
   );
 }
 const failed = results.filter((row) => !row.ok);

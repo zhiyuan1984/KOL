@@ -340,6 +340,12 @@ test("回复 prefills the on-page composer; 快速分析 enqueues on click witho
   await expect(page.locator("textarea")).toHaveValue(/回复：Re: LiTime collab/);
   expect(fromText).toEqual([]);
 
+  // 共享 stash 已在本页消费后清掉：接着去首页，Home 的提问框不会被这封回复预填。
+  await page.goto("/");
+  await expect(page.locator("[data-composer-input]")).not.toHaveValue(/回复：Re: LiTime collab/);
+  await page.goBack();
+  await expect(page.locator("[data-mail-reply]")).toBeVisible();
+
   // 快速分析 is the action itself: the click enqueues, with no send and no session.
   const enqueue = page.waitForRequest((request) => request.url().includes("/api/home/kol-analyze/enqueue"));
   await page.locator("[data-mail-analyze]").click();
@@ -533,6 +539,25 @@ test("the mailbox switcher shows only the current mailbox until opened", async (
   await expect(page.locator('[data-mail-box-option="eu@litime.com"]')).toContainText("欧洲邮箱");
 });
 
+test("当前邮箱没有绑定行时，切换器仍然报出这个邮箱", async ({ page }) => {
+  // 绑定行还没落库（follow scope 先命名了邮箱）时，收起态必须以 current 为准，
+  // 不能退回 bindings[0] 的地址，更不能只剩「选择邮箱」。
+  await page.route("**/api/mail/box**", (route) => route.fulfill({
+    json: {
+      ...FORMAL_BOX,
+      mailbox: "larry.zhao@amperetime.com",
+      bindings: [{ mailbox: "eu@litime.com", label: "欧洲邮箱", unread: 3, bound: true, synced_at: FORMAL_BOX.synced_at, error: null }],
+    },
+  }));
+  await page.route("**/api/mail/conversations**", (route) => route.fulfill({ json: { conversations: [] } }));
+  await page.route("**/api/home/board**", (route) => route.fulfill({ json: BOARD }));
+  await page.goto("/mail");
+
+  await expect(page.locator("[data-mail-box-current]")).toContainText("larry.zhao@amperetime.com");
+  await expect(page.locator("[data-mail-box-current]")).not.toContainText("选择邮箱");
+  await expect(page.locator("[data-mail-box-current]")).not.toContainText("eu@litime.com");
+});
+
 test("three-column workbench geometry and selected state", async ({ page }) => {
   await mockFormalMail(page);
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -563,7 +588,7 @@ test("≤1100px 单栏用页级面板切换，选邮件自动进详情", async (
   const switcher = page.locator("[data-mail-panes]");
   await expect(switcher).toBeVisible();
   await expect(switcher.locator("[data-mail-pane]")).toHaveCount(3);
-  await expect(page.locator("[data-mail-pane='list']")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("[data-mail-pane='list']")).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("[data-mail-list]")).toBeVisible();
   await expect(page.locator("[data-mail-interact]")).toBeHidden();
   await expect(page.locator("[data-mail-side]")).toBeHidden();
@@ -571,12 +596,12 @@ test("≤1100px 单栏用页级面板切换，选邮件自动进详情", async (
   await page.locator("[data-mail-pane='interact']").click();
   await expect(page.locator("[data-mail-interact]")).toBeVisible();
   await expect(page.locator("[data-mail-list]")).toBeHidden();
-  await expect(page.locator("[data-mail-pane='interact']")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("[data-mail-pane='interact']")).toHaveAttribute("aria-pressed", "true");
 
   // 选一封邮件 → 自动切到详情：正文与折叠面板都够得着（三栏时不应重复渲染）。
   await page.locator("[data-mail-pane='list']").click();
   await page.locator("[data-mail-timeline-item]").nth(1).click();
-  await expect(page.locator("[data-mail-pane='detail']")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("[data-mail-pane='detail']")).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("[data-mail-list]")).toBeHidden();
   await expect(page.locator("[data-mail-side]")).toBeVisible();
   await expect(page.locator("[data-mail-content]")).toBeVisible();
@@ -699,6 +724,10 @@ test("保留的 data-mail-* 契约全部渲染", async ({ page }) => {
   for (const selector of required) {
     await expect(page.locator(selector).first(), selector).toBeAttached();
   }
+  // 星标是独立按钮：命中区不小于 24×24（WCAG 2.2 SC 2.5.8）。
+  const star = await page.locator("[data-mail-star]").boundingBox();
+  expect(star?.width).toBeGreaterThanOrEqual(24);
+  expect(star?.height).toBeGreaterThanOrEqual(24);
   await page.locator("[data-mail-box-current]").click();
   await expect(page.locator("[data-mail-box-option]")).toHaveCount(1);
 });

@@ -3,7 +3,8 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api";
 import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
 import { storePending } from "../components/ChatBlocks";
-import { applyComposerDraft } from "../composer/draft";
+import { applyComposerDraft, takeComposerDraftStash } from "../composer/draft";
+import type { ComposerDraftStash } from "../composer/types";
 import { isMissingEndpoint } from "../home/discoveryHome";
 import { decorateWorkspace, hydratePollDelayMs, loadMailPersonDigest, loadMailThread, loadMailWorkspaceFast, normalizeBox, syncMailboxMail } from "../mail/client";
 import { CorrespondentRow } from "../mail/components/CorrespondentRow";
@@ -308,10 +309,12 @@ export default function Mail() {
   const neededIds = useMemo(() => {
     const ids: string[] = [];
     if (expandedId) ids.push(expandedId);
+    // The detail column only reads a conversation once a mail is focused; a plain
+    // /mail open must not pull bodies/translations nobody is looking at yet.
     const focused = selectedConversation?.conversation_id || "";
-    if (focused && focused !== expandedId) ids.push(focused);
+    if (messageId && focused && focused !== expandedId) ids.push(focused);
     return ids;
-  }, [expandedId, selectedConversation]);
+  }, [expandedId, selectedConversation, messageId]);
 
   useEffect(() => {
     if (!workspace) return;
@@ -479,15 +482,16 @@ export default function Mail() {
     }
   };
 
-  const setFold = (key: MailFoldKey, open: boolean) => {
-    writeMailFold(key, open);
+  const setFold = (key: MailFoldKey, open: boolean, persist = true) => {
+    if (persist) writeMailFold(key, open);
     setFolds((prev) => (prev[key] === open ? prev : { ...prev, [key]: open }));
   };
 
   const toggleFold = (key: MailFoldKey) => setFold(key, !folds[key]);
 
+  /** 窄屏的折叠切换（data-mail-mobiletabs）只影响本次阅读，不写 localStorage。 */
   const openSingleFold = (key: MailFoldKey) => {
-    for (const other of MAIL_FOLD_KEYS) setFold(other, other === key);
+    for (const other of MAIL_FOLD_KEYS) setFold(other, other === key, false);
   };
 
   /** L2 click: expand or collapse only — the detail column does not move. */
@@ -518,18 +522,28 @@ export default function Mail() {
   const draftChips = (row: MailConversation) =>
     replyDraftOf(row).chips.map((chip) => ({ kind: "object" as const, id: chip.id, label: chip.label, objectKind: chip.id }));
 
+  /**
+   * The on-page dock consumes a draft from the `composer:apply-draft` event
+   * synchronously; dropping the shared sessionStorage stash right after keeps a
+   * later navigation from prefilling another page's composer with it.
+   */
+  const applyLocalDraft = (draft: ComposerDraftStash) => {
+    applyComposerDraft(draft);
+    takeComposerDraftStash();
+  };
+
   /** 回复 / 生成回复 prefill the on-page composer; they never navigate away. */
   const reply = () => {
     if (!selectedConversation) return;
     const draft = replyDraftOf(selectedConversation);
-    applyComposerDraft({ text: draft.text, intent: "mail_reply", chips: draftChips(selectedConversation) });
+    applyLocalDraft({ text: draft.text, intent: "mail_reply", chips: draftChips(selectedConversation) });
     setNotice("");
   };
 
   const generateReply = () => {
     if (!selectedConversation) return;
     const subject = selectedConversation.subject || "(无主题)";
-    applyComposerDraft({
+    applyLocalDraft({
       text: `请根据与 ${peerOf(selectedConversation)} 的往来，为「${subject}」生成一封回复草稿。`,
       intent: "mail_reply",
       chips: draftChips(selectedConversation),
@@ -634,7 +648,7 @@ export default function Mail() {
   };
 
   const pickLetter = (letter: MailComposeLetter) => {
-    applyComposerDraft({
+    applyLocalDraft({
       text: letter.prompt,
       intent: "email_compose",
       chips: [{ kind: "skill", id: "email_compose", label: letter.chip }],
@@ -746,14 +760,13 @@ export default function Mail() {
       ) : null}
 
       {loadState === "ok" && bound ? (
-        <div className="mail-panes" role="tablist" aria-label="邮件面板" data-mail-panes>
+        <div className="mail-panes" role="group" aria-label="邮件面板" data-mail-panes>
           {PANE_TABS.map((item) => (
             <button
               key={item.key}
               type="button"
-              role="tab"
               data-mail-pane={item.key}
-              aria-selected={pane === item.key}
+              aria-pressed={pane === item.key}
               onClick={() => setPane(item.key)}
             >
               {item.label}
@@ -977,8 +990,11 @@ export default function Mail() {
                   <div className="mail-side-body" data-mail-translation-body>
                     <PlainText text={translation} />
                   </div>
-                ) : (
+                ) : currentMessage ? (
                   <p className="muted mail-side-hint" data-mail-translation-pending>暂无中文译稿。</p>
+                ) : (
+                  // 没有选中邮件时不上报「没有译稿」——那是还没读，不是没有。
+                  <p className="muted mail-side-hint" data-mail-translation-pending>打开一封邮件后显示译稿。</p>
                 )}
               </div>
             </MailFold>
@@ -994,7 +1010,7 @@ export default function Mail() {
                 />
               ) : (
                 <p className="muted" data-mail-thread-empty>
-                  {detailError || "选择左侧会话查看邮件。打开不会创建会话。"}
+                  {detailError || "选择左侧邮件查看原文。打开不会创建会话。"}
                 </p>
               )}
               {selectedConversation ? (

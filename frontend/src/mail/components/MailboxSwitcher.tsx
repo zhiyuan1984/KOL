@@ -23,7 +23,11 @@ export function MailboxSwitcher({
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
   useDismissable(open, () => setOpen(false), ref);
-  const active = bindings.find((row) => row.mailbox === current) || bindings[0];
+  const matched = bindings.find((row) => row.mailbox === current);
+  const active = matched || bindings[0];
+  // A bound mailbox can arrive without binding rows yet (follow scope names it
+  // first): name the mailbox we actually show instead of a bare placeholder.
+  const address = matched?.mailbox || current || active?.mailbox || "选择邮箱";
   return (
     <div className="mail-switcher" ref={ref} data-mail-boxbar>
       <button
@@ -31,11 +35,11 @@ export function MailboxSwitcher({
         className="mail-switcher-current"
         data-mail-box-current
         aria-expanded={open}
-        aria-label={`当前邮箱 ${active?.mailbox || "未绑定"}`}
+        aria-label={`当前邮箱 ${address}`}
         onClick={() => setOpen((v) => !v)}
       >
         <span className={"mail-box-dot" + (active?.error ? " is-error" : " is-ok")} aria-hidden="true" />
-        <span className="mail-switcher-addr">{active?.mailbox || "选择邮箱"}</span>
+        <span className="mail-switcher-addr">{address}</span>
         <span className="mail-switcher-caret" aria-hidden="true">▾</span>
       </button>
 

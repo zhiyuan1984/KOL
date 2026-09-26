@@ -12050,7 +12050,17 @@ button.today-brief-primary-btn:disabled {
 .mail-page .mail-ico { width: 14px; height: 14px; }
 .mail-page .mail-thread-actions .mail-ico { width: 14px; height: 14px; }
 
-.mail-page .mail-star { font-size: var(--ds-font-section); color: var(--ds-text-muted); }
+.mail-page .mail-star {
+  /* WCAG 2.2 SC 2.5.8：星标是独立按钮，命中区不小于 24×24。 */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  font-size: var(--ds-font-section);
+  color: var(--ds-text-muted);
+}
 .mail-page .mail-count-pill { padding: 1px 6px; font-size: var(--ds-font-helper); }
 .mail-page .mail-chip { padding: 1px 6px; font-size: var(--ds-font-helper); }
 .mail-page .mail-row-avatar {
