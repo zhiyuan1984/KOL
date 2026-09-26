@@ -158,12 +158,18 @@ describe("polling result cache", () => {
 
 describe("GET /api/home/board list caps", () => {
   it("caps kol sub-lists and workbench rows while keeping the counts exact", () => {
+    // The board only projects collaborations bound to a remote KOL identity, so
+    // without this the per-kol assertions below would be vacuous.
+    getConn().prepare(
+      "UPDATE collaborations SET kol_uid='ku_' || id WHERE id IN ('col_xiaomei','col_laozhang','col_mum','col_trip')",
+    ).run();
     const board = buildHomeBoard() as Json;
     const kols = board.kols as Json[];
     const workbench = board.workbench as Json;
     const summary = workbench.summary as Json;
     const open = workbench.open as Json[];
     const todo = workbench.todo as Json[];
+    expect(kols.length).toBeGreaterThanOrEqual(4);
     expect(open.length).toBeLessThanOrEqual(MAX_WORKBENCH_TASKS);
     expect(todo.length).toBeLessThanOrEqual(MAX_WORKBENCH_TASKS);
     expect((board.tasks as Json[]).length).toBeLessThanOrEqual(MAX_BOARD_TASKS);
@@ -178,9 +184,49 @@ describe("GET /api/home/board list caps", () => {
         expect(dropped in kol).toBe(false);
       }
       // Fields frontend consumers read are kept.
-      for (const kept of ["handle", "kol_uid", "kol_name", "current_stage", "suggested_stage", "unread_count", "profile_tags", "follow_style_tags", "recent_followup", "task_history", "collab_summary", "stage_label", "days_in_stage"]) {
+      for (const kept of ["handle", "kol_uid", "kol_name", "current_stage", "suggested_stage", "unread_count", "profile_tags", "follow_style_tags", "recent_followup", "task_history", "collab_summary", "stage_label", "days_in_stage", "last_conversation_id"]) {
         expect(kept in kol).toBe(true);
       }
+    }
+  });
+
+  it("keeps the unread-inbound signal from the whole thread list even though the board caps it", () => {
+    const conn = getConn();
+    conn.prepare("UPDATE collaborations SET kol_uid='ku_xiaomei' WHERE id='col_xiaomei'").run();
+    const collab = conn.prepare("SELECT id FROM collaborations WHERE id='col_xiaomei'").get() as { id: string };
+    const insert = conn.prepare(
+      `INSERT INTO kol_mail_threads
+         (id,collaboration_id,conversation_id,subject,mailbox,last_direction,last_snippet,unread_count,last_at,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    );
+    // Newest first by last_at: the only unread inbound thread is the fourth, so
+    // it falls outside the serialized cap and must still raise the recommendation.
+    const base = Date.parse("2026-03-01T00:00:00.000Z");
+    for (let i = 0; i < 4; i += 1) {
+      const at = new Date(base - i * 3600_000).toISOString();
+      const unread = i === 3;
+      insert.run(
+        `thr_cap_${i}`, collab.id, `conv_cap_${i}`, `主题 ${i}`, "brand@example.com",
+        unread ? "inbound" : "outbound", `片段 ${i}`, unread ? 2 : 0, at, at, at,
+      );
+    }
+    const board = buildHomeBoard() as Json;
+    const kol = (board.kols as Json[]).find((row) => row.id === collab.id) as Json;
+    expect(((kol.mail_threads as Json[]) || []).length).toBe(MAX_KOL_MAIL_THREADS);
+    const recommendations = (board.workbench as Json).recommendations as Json[];
+    expect(recommendations.map((row) => String(row.id))).toContain(`rec-mail-${collab.id}`);
+    expect(Number(kol.unread_count)).toBe(2);
+  });
+
+  it("threads one definitions index through every recommendation call site", () => {
+    // recPrompt/recTitle/insightIntent default to taskDefinitionIndex(), which
+    // re-stats every skill directory: a call site that omits the argument
+    // silently reintroduces the per-row scan this task removed.
+    const source = fs.readFileSync(path.join(import.meta.dirname, "../src/host/home-board.ts"), "utf8");
+    const callSites = source.split("\n").filter((line) => /(recPrompt|recTitle|insightIntent)\(/.test(line) && !line.includes("function "));
+    expect(callSites.length).toBeGreaterThan(8);
+    for (const line of callSites) {
+      expect(line.trim(), line.trim()).toContain("definitions");
     }
   });
 

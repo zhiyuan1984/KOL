@@ -31,11 +31,15 @@ export const MAX_WORKBENCH_TASKS = 50;
 /** Board task rows, newest first (work_items are read ORDER BY updated_at DESC). */
 export const MAX_BOARD_TASKS = 50;
 
-/** Collaboration columns no frontend file reads (grepped frontend/src + frontend/e2e). */
+/**
+ * Collaboration columns no frontend file *reads* (grepped frontend/src and
+ * frontend/e2e). A field stays when any module dereferences it — e.g.
+ * `last_conversation_id` drives `hasConversation()` in
+ * frontend/src/home/kolContract.ts, which the board pool adapter applies.
+ */
 const KOL_FIELDS_DROPPED = [
   "lifecycle_id",
   "last_lifecycle_id",
-  "last_conversation_id",
   "last_skip_kind",
   "last_skip_reason",
   "last_skipped_stages",
@@ -58,6 +62,10 @@ function publicKol(kol: Json): Json {
 
 function capped<T>(list: T[], max: number): T[] {
   return list.length > max ? list.slice(0, max) : list;
+}
+
+function mailThreadsOf(kol: Json): Json[] {
+  return Array.isArray(kol.mail_threads) ? kol.mail_threads as Json[] : [];
 }
 
 const NICHE_LABEL: Record<string, string> = {
@@ -547,8 +555,9 @@ function highValueInsight(task: Json): boolean {
 }
 
 function inboundUnread(kol: Json): Json | undefined {
-  const threads = Array.isArray(kol.mail_threads) ? kol.mail_threads as Json[] : [];
-  return threads.find((thread) => String(thread.last_direction || "") === "inbound" && Number(thread.unread_count || 0) > 0);
+  return mailThreadsOf(kol).find((thread) => (
+    String(thread.last_direction || "") === "inbound" && Number(thread.unread_count || 0) > 0
+  ));
 }
 
 function decorateRecommended(row: Json, index: number): Json {
@@ -672,7 +681,7 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[], definitions =
       source: "stage",
       source_label: "按阶段",
       intent,
-      prompt: recPrompt(intent, handle, String(kol.stage_code || "")),
+      prompt: recPrompt(intent, handle, String(kol.stage_code || ""), definitions),
       handle,
       collaboration_id: kol.id,
     }, handle);
@@ -951,7 +960,10 @@ export function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}
     const allThreads = mailByCollab.get(String(row.id)) || [];
     const unreadCount = allThreads.reduce((sum, thread) => sum + Number(thread.unread_count || 0), 0);
     const lastInteraction = allThreads.find((thread) => thread.last_at)?.last_at || null;
-    const mailThreads = capped(allThreads, MAX_KOL_MAIL_THREADS).map((thread) => ({
+    // The full list stays on the in-memory kol because buildRecommendedTasks
+    // reads it (`inboundUnread`) to decide the 有未读来信 recommendation; only
+    // the serialized projection is capped, further down.
+    const mailThreads = allThreads.map((thread) => ({
       conversation_id: String(thread.conversation_id || ""),
       subject: String(thread.subject || "(无主题)"),
       unread_count: Number(thread.unread_count || 0),
@@ -1019,13 +1031,20 @@ export function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}
     };
   });
 
+  // Recommendations read the whole per-kol thread list above; the emitted board
+  // caps it only now, so no board logic ever sees the truncated array.
+  const workbench = buildWorkbench(decoratedTasks, kols, definitions);
+  for (const kol of kols) {
+    kol.mail_threads = capped(mailThreadsOf(kol), MAX_KOL_MAIL_THREADS);
+  }
+
   return {
     entry: "memory",
     creates_session: false,
     kols,
     tasks: capped(decoratedTasks, MAX_BOARD_TASKS),
     tabs,
-    workbench: buildWorkbench(decoratedTasks, kols, definitions),
+    workbench,
     stages: MAIN_STAGES.map((stage) => ({ code: stage.code, label: stage.label })),
     side_stages: SIDE_STAGES.map((stage) => ({ code: stage.code, label: stage.label })),
     creators_loaded: kols.length,
