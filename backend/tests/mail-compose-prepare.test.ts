@@ -12,6 +12,7 @@ import {
   cite,
   createKnowledge,
   editKnowledge,
+  knowledgeRow,
 } from "../src/host/knowledge.js";
 import { seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
@@ -42,6 +43,12 @@ function removeSeededMailTemplates(): void {
   }
 }
 
+// approveKnowledge 现在强制带 expected_version（kb 的乐观并发契约），
+// 直接调用的测试助手按当前版本号审核即可。
+function approveCurrentVersion(id: string): void {
+  approveKnowledge(id, Number(knowledgeRow(id).current_version || 1));
+}
+
 function addPublishedTemplate(input: {
   id: string;
   title?: string;
@@ -64,7 +71,7 @@ function addPublishedTemplate(input: {
     stage_codes: input.stages || ["INITIAL_CONTACT"],
     status: "draft",
   });
-  approveKnowledge(input.id);
+  approveCurrentVersion(input.id);
   cite(input.id);
 }
 
@@ -408,7 +415,7 @@ describe("mail compose edge invariants", () => {
     addPublishedTemplate({ id: "mail_pinned" });
     const prepared = await prepare();
     editKnowledge("mail_pinned", { body_en: "The newly published version must not silently replace this draft." });
-    approveKnowledge("mail_pinned");
+    approveCurrentVersion("mail_pinned");
     const response = await submitEditedDraft({ knowledgeId: "mail_pinned", knowledgeVersion: 1, contextVersion: String(prepared.body.context_version) });
     expect(response.status, response.text).toBe(200);
     expect((response.body.draft as Json).extra).toMatchObject({ knowledge_version: 1 });
