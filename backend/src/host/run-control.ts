@@ -16,11 +16,23 @@ const stopped = new Set<string>();
 const aborts = new Map<string, AbortController>();
 const queues = new Map<string, QueuedAsk[]>();
 
+/**
+ * Bumped by every run/queue mutation. `agent_status` is derived from these
+ * in-memory sets, so callers that cache a projection must include this in their
+ * invalidation key — the database fingerprint cannot see it.
+ */
+let revision = 0;
+
+export function runControlRevision(): number {
+  return revision;
+}
+
 onConnReset(() => {
   running.clear();
   stopped.clear();
   aborts.clear();
   queues.clear();
+  revision += 1;
 });
 
 export function isWriteSkill(skill: string | null | undefined): boolean {
@@ -33,17 +45,20 @@ export function isSessionRunning(sid: string): boolean {
 
 export function beginSessionAsk(sid: string): void {
   stopped.delete(sid);
+  revision += 1;
 }
 
 export function markSessionRunning(sid: string): boolean {
   if (stopped.has(sid)) return false;
   running.add(sid);
+  revision += 1;
   return true;
 }
 
 export function clearSessionRunning(sid: string): void {
   running.delete(sid);
   aborts.delete(sid);
+  revision += 1;
 }
 
 export function wasSessionStopped(sid: string): boolean {
@@ -64,6 +79,7 @@ export function abortSessionRun(sid: string): boolean {
   const active = Boolean(controller) || running.has(sid);
   stopped.add(sid);
   controller?.abort();
+  revision += 1;
   return active;
 }
 
@@ -84,6 +100,7 @@ export function enqueueAsk(sid: string, item: Omit<QueuedAsk, "id">): QueuedAsk 
   const list = queues.get(sid) || [];
   list.push(row);
   queues.set(sid, list);
+  revision += 1;
   return row;
 }
 
@@ -94,6 +111,7 @@ export function removeQueued(sid: string, id: string): boolean {
   if (next.length === list.length) return false;
   if (next.length) queues.set(sid, next);
   else queues.delete(sid);
+  revision += 1;
   return true;
 }
 
@@ -103,6 +121,7 @@ export function shiftQueue(sid: string): QueuedAsk | null {
   const next = list.shift() || null;
   if (list.length) queues.set(sid, list);
   else queues.delete(sid);
+  revision += 1;
   return next;
 }
 
@@ -111,4 +130,5 @@ export function resetRunControl(): void {
   stopped.clear();
   aborts.clear();
   queues.clear();
+  revision += 1;
 }

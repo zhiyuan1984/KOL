@@ -1896,6 +1896,27 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "kol_profile_index", "platform_creator_id", "TEXT");
   add(db, "discovery_runs", "brief_version", "INTEGER NOT NULL DEFAULT 1");
   add(db, "discovery_requests", "brief_version", "INTEGER NOT NULL DEFAULT 1");
+  // Polling-endpoint indexes (GET /api/sessions, GET /api/tasks, /api/home/board).
+  // Last in migrateSchema: sessions.owner_user_id/archived_at/deleted_at and the
+  // other columns the index expressions use are added above, so this must not run
+  // before them on a fresh database. Archival copy:
+  // backend/migrations/014_task_event_indexes.sql. task_events needs nothing new —
+  // task_events_work_item(work_item_id, sequence) already covers both the
+  // per-item tail read and the MAX(sequence) last-event join.
+  db.exec(`
+        CREATE INDEX IF NOT EXISTS sessions_owner_updated
+            ON sessions(owner_user_id, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS sessions_updated
+            ON sessions(updated_at DESC);
+        CREATE INDEX IF NOT EXISTS sessions_collaboration_updated
+            ON sessions(collaboration_id, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS workers_session_created
+            ON workers(session_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS drafts_session_id
+            ON drafts(session_id, id DESC);
+        CREATE INDEX IF NOT EXISTS work_items_owner_updated
+            ON work_items(owner_user_id, updated_at DESC);
+  `);
 }
 
 export function nowIso(): string {
