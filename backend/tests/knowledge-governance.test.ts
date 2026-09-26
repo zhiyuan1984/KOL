@@ -509,11 +509,15 @@ describe("knowledge governance", () => {
     const picked = resolveMailTemplate({ skillId: "email_compose", stageCode: "INITIAL_CONTACT" });
     expect(picked?.id).toBe("kb_mail_followup");
     await request("POST", "/api/knowledge/kb_mail_followup/deprecate", { reason: "内容过时" });
-    await request("POST", "/api/admin/knowledge/kb_mail_followup/feedback-handle", {
-      user_id: "usr_sriphy",
+    // 反馈归属人取真实记录：usr_sriphy 已在 2d2a1bb 退役，写死字面量会静默 404。
+    const [feedback] = (await rows("/api/admin/knowledge/feedback"))
+      .filter((row) => row.knowledge_id === "kb_mail_followup");
+    const handled = await request("POST", "/api/admin/knowledge/kb_mail_followup/feedback-handle", {
+      user_id: String(feedback?.user_id || ""),
       action: "ignore",
       note: "保持现状",
     });
+    expect(handled.status).toBe(200);
 
     const events = await auditTypes();
     expect(events).toContain("knowledge.resolve");
