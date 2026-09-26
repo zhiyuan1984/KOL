@@ -1550,6 +1550,13 @@ export const api = {
       `/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/config`,
       { method: "PUT", body: JSON.stringify(body) },
     ),
+  onboardStarryConnector: (body: { url: string; secret: string; timeout_ms?: number; expected_version: number }) =>
+    request<{
+      config: { url: string; timeout_ms: number; version: number };
+      credential_saved: boolean;
+      checked_at: string;
+      tools: RuntimeToolDefinition[];
+    }>("/api/admin/runtime/connectors/starrykol/onboard", { method: "POST", body: JSON.stringify(body) }),
   runtimeCredentials: () => request<RuntimeCredentialMetadata[]>("/api/admin/runtime/credentials"),
   createRuntimeCredential: (body: {
     id?: string;
@@ -1612,6 +1619,36 @@ export const api = {
     request<RuntimeToolPolicy>(
       `/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/tools/${encodeURIComponent(toolName)}`,
       { method: "PUT", body: JSON.stringify(body) },
+    ),
+  runtimeOrganizationScope: (connectorId: string) =>
+    request<{
+      connector_id: string;
+      synced_at: string | null;
+      source: string | null;
+      nodes: Array<{ id: string; parent_id: string | null; name: string; level: 1 | 2 | 3; external_id: string; local_user_id: string | null; status: "matched" | "unmatched" }>;
+    }>(`/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/organization-scope`),
+  addRuntimeOrganizationScopeNode: (connectorId: string, body: { name: string; level: 1 | 2 | 3; parent_id?: string }) =>
+    request<{
+      connector_id: string;
+      synced_at: string | null;
+      source: string | null;
+      nodes: Array<{ id: string; parent_id: string | null; name: string; level: 1 | 2 | 3; external_id: string; local_user_id: string | null; status: "matched" | "unmatched" }>;
+    }>(`/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/organization-scope/nodes`, { method: "POST", body: JSON.stringify(body) }),
+  syncRuntimeOrganizationScope: (connectorId: string) =>
+    request<{
+      connector_id: string;
+      synced_at: string | null;
+      source: string | null;
+      nodes: Array<{ id: string; parent_id: string | null; name: string; level: 1 | 2 | 3; external_id: string; local_user_id: string | null; status: "matched" | "unmatched" }>;
+    }>(`/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/organization-scope/sync`, { method: "POST", body: JSON.stringify({}) }),
+  runtimeToolScope: (connectorId: string, toolName: string) =>
+    request<{ connector_id: string; tool_name: string; node_ids: string[] }>(
+      `/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/tools/${encodeURIComponent(toolName)}/scope`,
+    ),
+  saveRuntimeToolScope: (connectorId: string, toolName: string, nodeIds: string[]) =>
+    request<{ connector_id: string; tool_name: string; node_ids: string[] }>(
+      `/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/tools/${encodeURIComponent(toolName)}/scope`,
+      { method: "PUT", body: JSON.stringify({ node_ids: nodeIds }) },
     ),
   previewRuntimeOpenApi: (connectorId: string, document: object | string) =>
     request<OpenApiPreview>(`/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/import-openapi`, {

@@ -5,6 +5,7 @@ export type AdminRow = Record<string, unknown>;
 export type PublicConnector = {
   id: string;
   label: string;
+  purpose: string;
   enabled: boolean;
   status: string;
   credentialRegistered: boolean;
@@ -48,6 +49,7 @@ export function publicConnectorView(row: AdminRow): PublicConnector {
   return {
     id: String(row.id || ""),
     label: String(row.label || row.name || row.id || "未命名"),
+    purpose: String(row.purpose || "").trim(),
     enabled: row.enabled !== false && row.enabled !== 0,
     status: String(row.status || ""),
     credentialRegistered,
@@ -71,8 +73,8 @@ export function governanceStatus(connector: PublicConnector): { key: GovernanceS
   return { key: "draft", label: GOVERNANCE_STATUS_LABEL.draft };
 }
 
-export function connectorPurpose(id: string): string {
-  return CONNECTOR_PURPOSE[id] || "";
+export function connectorPurpose(id: string, persistedPurpose = ""): string {
+  return persistedPurpose || CONNECTOR_PURPOSE[id] || "未填写业务用途";
 }
 
 export function isStarryConnector(id: string): boolean {

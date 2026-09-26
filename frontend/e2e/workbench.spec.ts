@@ -2499,13 +2499,13 @@ test("send failure stays as persistent error, not toast-success", async ({ page,
   await request.post("/api/me/persona", { data: { persona: "sriphy" } });
 });
 
-test("admin lists only the two managed MCP connectors", async ({ page }) => {
+test("admin lists the current MCP directory and supports future additions", async ({ page }) => {
   await page.goto("/admin/connectors");
   await expect(page.locator("[data-admin-page='connectors']")).toBeVisible();
   await expect(page.locator('[data-connector="claw"]')).toContainText("MediaCrawler MCP");
   await expect(page.locator('[data-connector="starrykol"]')).toContainText("Starry KOL MCP");
-  await expect(page.locator("[data-admin-connectors-table] tbody tr")).toHaveCount(2);
-  await expect(page.locator("[data-admin-page='connectors']")).not.toContainText("新增配置化连接器");
+  await expect(page.locator("[data-admin-connectors-table] [data-connector]")).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "从目录新增 MCP" })).toBeVisible();
 });
 
 test("unbound inbound stays on this thread", async ({ page }) => {
@@ -3385,7 +3385,7 @@ test("docs/org-permissions.md admin connectors hub renders", async ({ page }) =>
   await page.locator('[data-admin-nav="connectors"]').click();
   await expect(page).toHaveURL(/\/admin\/connectors$/);
   await expect(page.locator("[data-admin-page='connectors']")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "连接器枢纽" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "连接器目录" })).toBeVisible();
   await expect(page.locator("[data-admin-health]")).toBeVisible();
   await expect(page.locator(".admin-header .remote-pill, .admin-health .remote-pill")).toHaveCount(0);
   await expect(page.locator('[data-admin-connectors-table] [data-connector="claw"]')).toBeVisible();

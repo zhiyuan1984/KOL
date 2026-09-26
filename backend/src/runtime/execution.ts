@@ -9,6 +9,7 @@ import { requireTaskDefinition } from "../tasks/registry.js";
 import type { Json, Row } from "../types.js";
 import { resolveAccountHeaders, resolveSecretReference } from "./credentials.js";
 import { assertResolvedConnectorEndpointSafe, assertSafeConnectorEndpoint, fetchWithConnectorEgressPolicy, HttpConnectorClient } from "./http.js";
+import { connectorHasOrganizationScopes, userHasToolScope } from "./organization.js";
 import { ensureRuntimeSchema, getAgentSkills, getSkillConnectors, getSkillTool, getConnectorConfig, getToolPolicy, type ConnectorConfig } from "./store.js";
 
 export type RuntimeContext = { agentId: string; skillId: string; userId: string; runId: string; sessionId?: string };
@@ -65,7 +66,13 @@ export function assertRuntimeSkill(context: RuntimeContext): { user: Row; bindin
   const sop = getConn().prepare("SELECT summary,body,updated_at FROM skill_sops WHERE id=?").get(context.skillId);
   return { user, binding, skillVersion: runtimeHash({ definition, body: fs.readFileSync(definition.path, "utf8"), sop }) };
 }
-export function authorizeConnector(context: RuntimeContext, connectorId: string, access: "read" | "write" = "read") {
+export function authorizeConnector(
+  context: RuntimeContext,
+  connectorId: string,
+  access: "read" | "write" = "read",
+  toolName?: string,
+  permitScopeResolution = false,
+) {
   const skill = assertRuntimeSkill(context);
   const binding = getSkillConnectors(context.skillId).find((row) => row.connector_id === connectorId);
   if (!binding?.enabled) reject("runtime_connector_unbound");
@@ -73,10 +80,14 @@ export function authorizeConnector(context: RuntimeContext, connectorId: string,
   if (!connector?.enabled) reject("runtime_connector_disabled");
   // Admin can manage assets, but never skips binding / enabled / risk checks.
   if (!parseRoles(skill.user.roles).includes("admin")) {
+    const scopeConfigured = connectorHasOrganizationScopes(connectorId);
+    const scoped = scopeConfigured && toolName ? userHasToolScope(connectorId, toolName, context.userId) : false;
     const grant = getConn().prepare("SELECT access FROM user_connector_grants WHERE user_id=? AND connector_id=?")
       .get(context.userId, connectorId) as Row | undefined;
     const levels: Record<string, number> = { read: 1, write: 2, admin: 3 };
-    if (!grant || (levels[String(grant.access)] || 0) < levels[access]) reject("runtime_connector_not_granted");
+    if (!scoped && !permitScopeResolution && (!grant || (levels[String(grant.access)] || 0) < levels[access])) {
+      reject("runtime_connector_not_granted");
+    }
   }
   const configuration = getConnectorConfig(connectorId);
   if (!configuration) reject("runtime_connector_not_configured", 409);
@@ -193,14 +204,14 @@ export class SkillExecution {
       if (!binding.enabled) { unavailable.push({ connector_id: connectorId, code: "runtime_connector_unbound" }); continue; }
       let client: RuntimeRemote | undefined;
       try {
-        const before = authorizeConnector(this.context, connectorId);
+        const before = authorizeConnector(this.context, connectorId, "read", undefined, true);
         const beforeStamp = authorizationStamp(before);
         const options = connectorOptions(this.context, before.configuration.config);
         client = this.client(this.context, before.configuration.config);
         const remoteTools = await client.listTools();
         assertNoCredentialEcho(remoteTools, options.headers);
         this.active();
-        const after = authorizeConnector(this.context, connectorId);
+        const after = authorizeConnector(this.context, connectorId, "read", undefined, true);
         if (beforeStamp !== authorizationStamp(after)) reject("runtime_binding_changed", 409);
         const seen = new Set<string>();
         for (const remote of remoteTools) {
@@ -213,8 +224,9 @@ export class SkillExecution {
           const policy = getToolPolicy(connectorId, name);
           const toolBinding = getSkillTool(this.context.skillId, connectorId, name);
           if (!toolBinding?.enabled || !isPolicyAllowed(policy, remote)) continue;
+          if (connectorHasOrganizationScopes(connectorId) && !userHasToolScope(connectorId, name, this.context.userId)) continue;
           let current: ReturnType<typeof authorizeConnector>;
-          try { current = authorizeConnector(this.context, connectorId, policy!.access as "read" | "write"); }
+          try { current = authorizeConnector(this.context, connectorId, policy!.access as "read" | "write", name); }
           catch { continue; }
           const alias = `rt_${runtimeHash([connectorId, name]).slice(0, 40)}`;
           const exposed: Json = { ...remote, name: alias };
@@ -252,7 +264,10 @@ export class SkillExecution {
         const toolBinding = getSkillTool(this.context.skillId, handle.connectorId, handle.remoteName);
         if (!toolBinding?.enabled) reject("runtime_tool_unbound");
         if (runtimeHostOnlyTool(handle.remoteName) || !["L1", "L2"].includes(String(policy.risk))) reject("runtime_gateway_required");
-        const current = authorizeConnector(this.context, handle.connectorId, policy.access as "read" | "write");
+        if (connectorHasOrganizationScopes(handle.connectorId) && !userHasToolScope(handle.connectorId, handle.remoteName, this.context.userId)) {
+          reject("runtime_tool_scope_denied");
+        }
+        const current = authorizeConnector(this.context, handle.connectorId, policy.access as "read" | "write", handle.remoteName);
         if (handle.toolBindingVersion !== Number(toolBinding.version) || handle.schemaHash !== policy.schema_hash
           || handle.stamp !== authorizationStamp(current, policy, toolBinding)) {
           reject("runtime_binding_changed", 409);
@@ -324,8 +339,8 @@ export class SkillExecution {
 /** Governance discovery only. It does not imply a grant or expose a tool to a worker. */
 export async function inspectConnectorTools(context: RuntimeContext, connectorId: string): Promise<Json[]> {
   const configuration = getConnectorConfig(connectorId);
-  const connector = getConn().prepare("SELECT enabled FROM connectors WHERE id=?").get(connectorId) as Row | undefined;
-  if (!connector?.enabled) reject("runtime_connector_disabled");
+  const connector = getConn().prepare("SELECT id FROM connectors WHERE id=?").get(connectorId) as Row | undefined;
+  if (!connector) reject("runtime_connector_not_found", 404);
   if (!configuration) reject("runtime_connector_not_configured", 409);
   const options = connectorOptions(context, configuration.config);
   const client = createConfiguredClient(context, configuration.config);

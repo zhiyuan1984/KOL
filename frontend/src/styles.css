@@ -14077,3 +14077,15 @@ button.today-brief-primary-btn:disabled {
   padding-inline-start: var(--space-3);
 }
 .runtime-hub-note strong { color: var(--accent-text); }
+
+/* Direct department → position authorization */
+.starry-simple-tools { display: grid; gap: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.starry-simple-tools article { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3); border-bottom: 1px solid var(--border); }
+.starry-simple-tools article:last-child { border-bottom: 0; }.starry-simple-tools article.selected { background: color-mix(in srgb, var(--accent) 4%, var(--bg)); }
+.starry-simple-tools strong, .starry-simple-tools code { display: block; }.starry-simple-tools strong { font-size: var(--font-ui); }.starry-simple-tools code { margin-top: 2px; color: var(--text-muted); font-size: var(--font-xs); }.starry-simple-tools p { margin: 4px 0 0; color: var(--text-muted); font-size: var(--font-meta); }
+.starry-simple-tools article > div:last-child { display: flex; align-items: center; flex: 0 0 auto; gap: var(--space-2); }
+.starry-scope-editor { display: grid; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-elevated); }
+.starry-scope-editor h3 { margin: 0; font-size: var(--font-section); }.starry-scope-editor > div > p { margin: var(--space-1) 0 0; }
+.starry-node-form { display: grid; grid-template-columns: 132px minmax(180px, 1fr) minmax(180px, 1fr) auto; gap: var(--space-3); align-items: end; }
+.starry-node-form .btn { margin-bottom: 0; }.starry-scope-save { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border); }
+@media (max-width: 720px) { .starry-simple-tools article { align-items: flex-start; flex-direction: column; }.starry-node-form { grid-template-columns: 1fr; }.starry-scope-save { align-items: stretch; flex-direction: column; } }

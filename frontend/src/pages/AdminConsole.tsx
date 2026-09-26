@@ -247,7 +247,7 @@ function EmployeesPanel({ users, onSave }: { users: AdminRow[]; onSave: SaveFn }
           const d = new FormData(e.currentTarget);
           void onSave("/api/admin/users", {
             username: d.get("email"), name: d.get("name"), password: d.get("password"),
-            site: d.get("site"), roles: ["employee"], brands: ["LT"],
+            site: d.get("site"), position: d.get("position"), roles: ["employee"], brands: ["LT"],
           }, "员工已创建", "POST");
         }}
       >
@@ -256,6 +256,7 @@ function EmployeesPanel({ users, onSave }: { users: AdminRow[]; onSave: SaveFn }
         <label className="field">邮箱/账号<input name="email" required /></label>
         <label className="field">临时密码<input name="password" type="password" minLength={10} required /></label>
         <label className="field">站点<input name="site" /></label>
+        <label className="field">岗位<input name="position" placeholder="例如：KOL 经理" /></label>
         <button className="btn work">创建员工</button>
       </form>
     </section>

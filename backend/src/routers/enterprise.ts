@@ -17,7 +17,8 @@ import { SKILL_CATALOG } from "../host/skills-catalog.js";
 import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
 import { boxDir } from "../config.js";
-import { managedConnectorIds, requireManagedConnector } from "../connectors/catalog.js";
+import { isBuiltinConnectorId, requireManagedConnector } from "../connectors/catalog.js";
+import { connectorHasScopedTools } from "../runtime/organization.js";
 
 export const enterprise = new Hono();
 
@@ -109,10 +110,10 @@ enterprise.post("/admin/users", async (c) => {
   const id = nid("usr");
   const now = nowIso();
   getConn().prepare(
-    `INSERT INTO users (id,username,name,password_hash,roles,brands,site,manager_user_id,active,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO users (id,username,name,password_hash,roles,brands,site,position,manager_user_id,active,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(id, username, String(body.name || username), await hashPassword(String(body.password || "")),
-    JSON.stringify(roles(body.roles || ["employee"])), JSON.stringify(body.brands || []), String(body.site || ""),
+    JSON.stringify(roles(body.roles || ["employee"])), JSON.stringify(body.brands || []), String(body.site || ""), String(body.position || ""),
     body.manager_user_id || null, body.active === false ? 0 : 1, now, now);
   audit(admin.id, "admin.user.create", { user_id: id });
   return c.json(safeUser(userById(id)), 201);
@@ -130,7 +131,7 @@ enterprise.patch("/admin/users/:uid", async (c) => {
   const body = (await c.req.json()) as Json;
   const sets: string[] = [];
   const values: unknown[] = [];
-  for (const field of ["name", "site", "manager_user_id"] as const) {
+  for (const field of ["name", "site", "position", "manager_user_id"] as const) {
     if (body[field] !== undefined) { sets.push(`${field}=?`); values.push(body[field] || null); }
   }
   if (body.roles !== undefined) { sets.push("roles=?"); values.push(JSON.stringify(roles(body.roles))); }
@@ -200,7 +201,8 @@ enterprise.put("/admin/users/:uid/skills", async (c) => {
 enterprise.get("/admin/connectors", (c) => {
   requireAdmin();
   return c.json(getConn().prepare(
-    "SELECT * FROM connectors WHERE id IN ('claw','starrykol') ORDER BY CASE id WHEN 'claw' THEN 1 ELSE 2 END",
+    `SELECT * FROM connectors
+      ORDER BY CASE id WHEN 'claw' THEN 0 WHEN 'starrykol' THEN 1 ELSE 2 END, label COLLATE NOCASE, id`,
   ).all().map(connectorPublic));
 });
 
@@ -208,20 +210,36 @@ enterprise.get("/connectors", (c) => {
   const user = scopedUser();
   if (authDisabled() || (user && isAdmin(user))) {
     return c.json((getConn().prepare(
-      "SELECT id,label FROM connectors WHERE enabled=1 AND id IN ('claw','starrykol') ORDER BY id",
+      "SELECT id,label FROM connectors WHERE enabled=1 ORDER BY label COLLATE NOCASE, id",
     ).all()).map((row) => connectorEmployee({ ...(row as Row), access: "write" })));
   }
   if (!user) throw new HttpFail(401, "authentication required");
   return c.json((getConn().prepare(
     `SELECT c.id,c.label,g.access FROM connectors c
       JOIN user_connector_grants g ON g.connector_id=c.id
-     WHERE g.user_id=? AND c.enabled=1 AND c.id IN ('claw','starrykol') ORDER BY c.id`,
+     WHERE g.user_id=? AND c.enabled=1 ORDER BY c.label COLLATE NOCASE, c.id`,
   ).all(user.id)).map(connectorEmployee));
 });
 
 enterprise.post("/admin/connectors", async (c) => {
-  requireAdmin();
-  throw new HttpFail(405, { code: "managed_connector_catalog_fixed", connectors: managedConnectorIds() });
+  const admin = requireAdmin();
+  const body = (await c.req.json()) as Json;
+  const id = requireManagedConnector(String(body.id || "").trim());
+  if (isBuiltinConnectorId(id)) throw new HttpFail(409, { code: "managed_connector_already_in_catalog", connector_id: id });
+  const label = String(body.label || "").trim();
+  const purpose = String(body.purpose || "").trim();
+  if (!label || label.length > 120 || !purpose || purpose.length > 280) {
+    throw new HttpFail(400, { code: "managed_connector_label_and_purpose_required" });
+  }
+  const now = nowIso();
+  try {
+    getConn().prepare(`INSERT INTO connectors(id,label,purpose,enabled,status,credential_ref,updated_at)
+      VALUES (?,?,?,0,'draft',NULL,?)`).run(id, label, purpose, now);
+  } catch {
+    throw new HttpFail(409, { code: "managed_connector_already_exists", connector_id: id });
+  }
+  audit(admin.id, "admin.connector.create", { connector_id: id, label, purpose });
+  return c.json(connectorPublic(getConn().prepare("SELECT * FROM connectors WHERE id=?").get(id)), 201);
 });
 
 enterprise.patch("/admin/connectors/:id", async (c) => {
@@ -232,7 +250,7 @@ enterprise.patch("/admin/connectors/:id", async (c) => {
   if ("credential" in body || "secret" in body || "password" in body) throw new HttpFail(400, "only credential_ref may be stored");
   const sets: string[] = [];
   const values: unknown[] = [];
-  for (const field of ["label", "status", "credential_ref"] as const) {
+  for (const field of ["label", "purpose", "status", "credential_ref"] as const) {
     if (body[field] !== undefined) { sets.push(`${field}=?`); values.push(body[field]); }
   }
   if (body.enabled !== undefined) {
@@ -241,6 +259,9 @@ enterprise.patch("/admin/connectors/:id", async (c) => {
       if (!current) throw new HttpFail(404, "connector not found");
       if (String(current.status) !== "verified") {
         throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
+      }
+      if (!connectorHasScopedTools(id)) {
+        throw new HttpFail(409, { code: "connector_tool_scope_required", connector_id: id });
       }
     }
     sets.push("enabled=?"); values.push(body.enabled ? 1 : 0);
@@ -254,9 +275,13 @@ enterprise.patch("/admin/connectors/:id", async (c) => {
 });
 
 enterprise.delete("/admin/connectors/:id", (c) => {
-  requireAdmin();
-  requireManagedConnector(c.req.param("id"));
-  throw new HttpFail(405, { code: "managed_connector_cannot_delete" });
+  const admin = requireAdmin();
+  const connectorId = requireManagedConnector(c.req.param("id"));
+  if (isBuiltinConnectorId(connectorId)) throw new HttpFail(405, { code: "builtin_managed_connector_cannot_delete" });
+  const result = getConn().prepare("DELETE FROM connectors WHERE id=?").run(connectorId);
+  if (!result.changes) throw new HttpFail(404, "connector not found");
+  audit(admin.id, "admin.connector.delete", { connector_id: connectorId });
+  return c.json({ ok: true });
 });
 
 enterprise.put("/admin/users/:uid/connectors/:id", async (c) => {

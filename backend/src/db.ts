@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import { boxDir, dataDir, dbPath } from "./config.js";
+import { BUILTIN_CONNECTORS } from "./connectors/catalog.js";
 import type { Json, Row } from "./types.js";
 
 const require = createRequire(import.meta.url);
@@ -543,6 +544,7 @@ function initSchema(db: SqliteConn): void {
             roles TEXT NOT NULL DEFAULT '["employee"]',
             brands TEXT NOT NULL DEFAULT '[]',
             site TEXT,
+            position TEXT,
             manager_user_id TEXT,
             active INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL,
@@ -569,6 +571,7 @@ function initSchema(db: SqliteConn): void {
         CREATE TABLE IF NOT EXISTS connectors (
             id TEXT PRIMARY KEY,
             label TEXT NOT NULL,
+            purpose TEXT NOT NULL DEFAULT '',
             enabled INTEGER NOT NULL DEFAULT 1,
             status TEXT NOT NULL DEFAULT 'configured',
             credential_ref TEXT,
@@ -1301,18 +1304,16 @@ function migrateSriphyIdentity(db: SqliteConn): void {
   }
 }
 
-/** Keep only the two product-approved MCP records and migrate legacy grants. */
+/** Seed built-in MCPs and make the old one-time legacy cleanup safe for an extensible catalog. */
 function enforceManagedConnectorCatalog(db: SqliteConn): void {
   const now = nowIso();
-  const approved = [
-    ["claw", "MediaCrawler MCP"],
-    ["starrykol", "Starry KOL MCP"],
-  ] as const;
-  for (const [id, label] of approved) {
+  const approved = Object.entries(BUILTIN_CONNECTORS) as Array<[string, { label: string; purpose: string }]>;
+  for (const [id, connector] of approved) {
     db.prepare(
       "INSERT OR IGNORE INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES (?,?,0,'draft',NULL,?)",
-    ).run(id, label, now);
-    db.prepare("UPDATE connectors SET label=?, updated_at=? WHERE id=?").run(label, now, id);
+    ).run(id, connector.label, now);
+    db.prepare("UPDATE connectors SET label=?, purpose=?, updated_at=? WHERE id=?")
+      .run(connector.label, connector.purpose, now, id);
   }
   if (!db.prepare("SELECT 1 FROM app_state WHERE key='managed_connector_catalog_v1'").get()) {
     db.prepare("UPDATE connectors SET enabled=0, status='draft', last_verified_at=NULL, last_error=NULL, updated_at=? WHERE id IN ('claw','starrykol')").run(now);
@@ -1340,16 +1341,13 @@ function enforceManagedConnectorCatalog(db: SqliteConn): void {
         SELECT user_id FROM user_connector_grants WHERE connector_id IN ('starrykol','starry','emailmcp','enterprise_mail') AND access IN ('write','admin')
       )`,
   ).run();
-  db.prepare("DELETE FROM connectors WHERE id NOT IN ('claw','starrykol')").run();
-  db.prepare(
-    `DELETE FROM audit_events
-      WHERE event_type LIKE 'runtime.%' AND json_valid(payload)
-        AND json_extract(payload,'$.connector_id') IS NOT NULL
-        AND json_extract(payload,'$.connector_id') NOT IN ('claw','starrykol')`,
-  ).run();
+  // Retired aliases never become user-addable names. All other IDs are valid
+  // administrator-added MCPs and their historical audit events are retained.
+  db.prepare("DELETE FROM connectors WHERE id IN ('enterprise_mail','emailmcp','kolclaw','starry','wecom')").run();
 }
 
 function migrateSchema(db: SqliteConn): void {
+  add(db, "connectors", "purpose", "TEXT NOT NULL DEFAULT ''");
   add(db, "connectors", "last_verified_at", "TEXT");
   add(db, "connectors", "last_error", "TEXT");
   add(db, "collaborations", "stage_version", "INTEGER NOT NULL DEFAULT 0");
@@ -1613,6 +1611,7 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "knowledge", "updated_at", "TEXT");
   add(db, "users", "email", "TEXT");
   add(db, "users", "phone", "TEXT");
+  add(db, "users", "position", "TEXT");
   add(db, "collaborations", "owner_mailbox", "TEXT");
   db.exec(`
         CREATE TABLE IF NOT EXISTS user_starry_bindings (

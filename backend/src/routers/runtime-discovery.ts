@@ -6,6 +6,7 @@ import { taskDefinition } from "../tasks/registry.js";
 import { getAgentSkills, getSkillConnectors, getSkillTools, getToolPolicy } from "../runtime/store.js";
 import { assertRuntimeSkill, authorizeConnector, inspectConnectorTools, runtimeErrorCode } from "../runtime/execution.js";
 import { requireManagedConnector } from "../connectors/catalog.js";
+import { connectorHasOrganizationScopes, userHasToolScope } from "../runtime/organization.js";
 
 export const runtimeDiscoveryRouter = new Hono();
 
@@ -36,7 +37,9 @@ runtimeDiscoveryRouter.get("/agents/:agentId/capabilities", (c) => {
           if (!mount.enabled) continue;
           const policy = getToolPolicy(String(binding.connector_id), String(mount.tool_name));
           if (!policy?.enabled || runtimeHostOnlyTool(String(mount.tool_name)) || !["L1", "L2"].includes(String(policy.risk))) continue;
-          try { authorizeConnector(context, String(binding.connector_id), policy.access as "read" | "write"); toolCount += 1; }
+          if (connectorHasOrganizationScopes(String(binding.connector_id))
+            && !userHasToolScope(String(binding.connector_id), String(mount.tool_name), user.id)) continue;
+          try { authorizeConnector(context, String(binding.connector_id), policy.access as "read" | "write", String(mount.tool_name)); toolCount += 1; }
           catch { /* a single tool grant does not make the resource usable */ }
         }
         return toolCount ? { available: true, tool_count: toolCount } : { available: false, tool_count: 0, reason: "runtime_no_authorized_tools" };

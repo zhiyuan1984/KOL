@@ -12,7 +12,7 @@ function admin() {
   return requireAdmin();
 }
 function connector(id: string): Row {
-  const row = getConn().prepare("SELECT id,enabled FROM connectors WHERE id=?").get(id) as Row | undefined;
+  const row = getConn().prepare("SELECT id,enabled,status FROM connectors WHERE id=?").get(id) as Row | undefined;
   if (!row) throw new HttpFail(404, { code: "connector_not_found" });
   return row;
 }
@@ -47,7 +47,12 @@ export function createConnectorOperationsRouter(inspect: Inspector = inspectConn
     const actor = admin();
     const id = c.req.param("connectorId");
     if (process.env.NODE_ENV !== "test") requireManagedConnector(id);
-    if (!connector(id).enabled) throw new HttpFail(403, { code: "runtime_connector_disabled" });
+    const current = connector(id);
+    // Draft/pending connectors need a safe list-tools test before they are
+    // enabled; an explicitly disabled operating connector remains blocked.
+    if (!current.enabled && !["draft", "pending_verification", "verification_failed"].includes(String(current.status))) {
+      throw new HttpFail(403, { code: "runtime_connector_disabled" });
+    }
     const before = getConnectorConfig(id);
     if (!before) throw new HttpFail(409, { code: "runtime_connector_not_configured" });
     schema();
@@ -60,7 +65,7 @@ export function createConnectorOperationsRouter(inspect: Inspector = inspectConn
     try {
       const tools = await inspect({ agentId: "governance", skillId: "", userId: actor.id, runId: `probe:${id}` }, id);
       count = tools.length;
-      if (!connector(id).enabled || getConnectorConfig(id)?.version !== before.version) {
+      if (getConnectorConfig(id)?.version !== before.version) {
         throw new HttpFail(409, { code: "runtime_binding_changed" });
       }
     } catch (error) { code = runtimeErrorCode(error); }
