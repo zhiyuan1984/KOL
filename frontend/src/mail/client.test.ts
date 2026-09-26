@@ -219,9 +219,10 @@ describe("mail workspace load must not hang on an unanswered binding lookup", ()
   }, 10000);
 });
 
-describe("mail workspace load must not block on the heavy board call", () => {
-  it("returns the list even when homeBoard never resolves (bounded decoration)", async () => {
+describe("mail workspace load never pulls the heavy board payload", () => {
+  it("returns the list (and keeps kol_uid/handle from it) without calling homeBoard", async () => {
     vi.resetModules();
+    const homeBoard = vi.fn(() => new Promise(() => { /* multi-megabyte endpoint: must never be requested */ }));
     vi.doMock("../api", () => ({
       api: {
         mailBox: vi.fn(async () => ({
@@ -233,20 +234,34 @@ describe("mail workspace load must not block on the heavy board call", () => {
           error: null,
         })),
         mailConversations: vi.fn(async () => ({
-          conversations: [{
-            id: "thr_1",
-            conversation_id: "267",
-            collaboration_id: "col_KOL1",
-            mailbox: "larry.zhao@amperetime.com",
-            match_state: "matched",
-            subject: "Exciting Collaboration Opportunity",
-            unread_count: 0,
-            last_at: "2026-09-19T13:43:14.492Z",
-          }],
+          conversations: [
+            {
+              id: "thr_1",
+              conversation_id: "267",
+              collaboration_id: "col_KOL1",
+              kol_uid: "KOL51DA646D8D8A4544BB93",
+              handle: "小美妆日记",
+              mailbox: "larry.zhao@amperetime.com",
+              match_state: "matched",
+              subject: "Exciting Collaboration Opportunity",
+              unread_count: 0,
+              last_at: "2026-09-19T13:43:14.492Z",
+            },
+            {
+              // Matched, but the list itself has no kol_uid/handle for this one:
+              // that used to be the only reason to fetch the board.
+              id: "thr_2",
+              conversation_id: "268",
+              collaboration_id: "col_KOL2",
+              mailbox: "larry.zhao@amperetime.com",
+              match_state: "matched",
+              subject: "Second thread",
+              unread_count: 1,
+              last_at: "2026-09-18T13:43:14.492Z",
+            },
+          ],
         })),
-        // The board endpoint ships a multi-megabyte payload; a page load must
-        // never wait on it (it hung the mail page at the skeleton state).
-        homeBoard: vi.fn(() => new Promise(() => { /* never resolves */ })),
+        homeBoard,
         starryBinding: vi.fn(async () => null),
       },
     }));
@@ -256,13 +271,19 @@ describe("mail workspace load must not block on the heavy board call", () => {
       loadMailWorkspace(),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000)),
     ]);
-    // The analyst decoration is best-effort: it may fetch the board, but it
-    // must resolve well inside the timeout instead of hanging the list.
     expect(workspace).not.toBeNull();
     expect(Date.now() - started).toBeLessThan(5000);
     expect(workspace?.box.bound).toBe(true);
     expect(workspace?.box.mailbox).toBe("larry.zhao@amperetime.com");
-    expect(workspace?.conversations).toHaveLength(1);
-    expect(workspace?.conversations[0].conversation_id).toBe("267");
-  });
+    expect(workspace?.conversations).toHaveLength(2);
+    expect(workspace?.conversations[0]).toMatchObject({
+      conversation_id: "267",
+      kol_uid: "KOL51DA646D8D8A4544BB93",
+      handle: "小美妆日记",
+    });
+    expect(workspace?.conversations[1]?.conversation_id).toBe("268");
+    // /api/mail/conversations already carries kol_uid/handle, so the list must not
+    // hold first paint hostage to a 2MB board request.
+    expect(homeBoard).not.toHaveBeenCalled();
+  }, 10000);
 });

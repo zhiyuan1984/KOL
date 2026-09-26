@@ -8,7 +8,19 @@ export const MODEL_TIER_EVENT = "composer:model-tier";
 export const COMPOSER_DRAFT_EVENT = "composer:apply-draft";
 export const COMPOSER_DRAFT_STASH = "composer_draft_stash";
 
-export type ComposerEntryIntent = "free" | "discover" | "analyze_followed" | "mail_reply" | "mail_analyze";
+/**
+ * Composer entry intents. The mail page's own entries (`kol-analyze-enqueue`,
+ * `email_compose`) are real intents the Host understands, so they live in the
+ * union instead of being cast past it.
+ */
+export type ComposerEntryIntent =
+  | "free"
+  | "discover"
+  | "analyze_followed"
+  | "mail_reply"
+  | "mail_analyze"
+  | "email_compose"
+  | "kol-analyze-enqueue";
 export type ComposerClientEntry = "compose-send" | "start-crawl" | "enqueue-analyze";
 export type ModelTier = "fast" | "balanced" | "quality";
 

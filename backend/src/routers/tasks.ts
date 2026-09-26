@@ -8,7 +8,8 @@ import type { Json, Row } from "../types.js";
 import { recognizeTaskIntent } from "../tasks/recognize.js";
 import { resolveTaskIntent } from "../tasks/resolver.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
-import { buildHomeBoard, historySummary, decorateTaskFromCollab, isInsightWorkItem, isOpenWorkItem, OPEN_WORK_ITEM_SQL, displayStatusOf, normalizePriority, TASK_RISK_LEVELS, todayDateStr } from "../host/home-board.js";
+import { buildHomeBoard, historySummary, decorateTaskFromCollab, isInsightWorkItem, isOpenWorkItem, OPEN_WORK_ITEM_SQL, displayStatusOf, normalizePriority, TASK_RISK_LEVELS, taskDefinitionIndex, todayDateStr, type TaskDefinitionIndex } from "../host/home-board.js";
+import { cachedPoll, pollEpoch } from "../host/response-cache.js";
 import { formatMissingFields, missingFieldsMessage } from "../labels.js";
 import { agentSubmissionAllowed, kolAgentManifest } from "../contract-scope.js";
 import { FROM_TEXT_FORBIDDEN_TASK_TYPES } from "../gateway/discovery-harness.js";
@@ -69,8 +70,8 @@ function resolutionIssueFields(resolution: ReturnType<typeof resolveTaskIntent>)
   ])];
 }
 
-function publicWorkItem(row: Row, collab?: Row | null): Json {
-  const definition = taskDefinition(String(row.task_type));
+function publicWorkItem(row: Row, collab?: Row | null, definitions?: TaskDefinitionIndex): Json {
+  const definition = definitions ? definitions.get(String(row.task_type)) : taskDefinition(String(row.task_type));
   let project: string | null = collab?.display_name ? String(collab.display_name) : null;
   if (!project && row.project_id && !collab) {
     // Single-item paths only. List endpoints must pass the batched collab.
@@ -118,17 +119,24 @@ function lastEventsByWorkItem(ids: string[]): Map<string, Row> {
   return map;
 }
 
-function eventsByWorkItem(ids: string[]): Map<string, Row[]> {
+/**
+ * Tail of each work item's event log, newest `max` per item, back in
+ * ascending sequence order. The list endpoints only ever read the last event
+ * (`history_summary`, `failedTaskReason`, `lastSafeSummary`), so reading every
+ * event of every work item — 190k rows on the production box — is pure CPU and
+ * memory: it is what turned `GET /api/tasks` into a 130MB response.
+ */
+export const MAX_LIST_HISTORY_EVENTS = 5;
+
+function eventsByWorkItem(ids: string[], max = MAX_LIST_HISTORY_EVENTS): Map<string, Row[]> {
   const map = new Map<string, Row[]>();
   if (!ids.length) return map;
-  const placeholders = ids.map(() => "?").join(",");
-  const rows = getConn().prepare(
-    `SELECT * FROM task_events WHERE work_item_id IN (${placeholders}) ORDER BY work_item_id, sequence`,
-  ).all(...ids) as Row[];
-  for (const event of rows) {
-    const list = map.get(String(event.work_item_id)) || [];
-    list.push(event);
-    map.set(String(event.work_item_id), list);
+  const stmt = getConn().prepare(
+    "SELECT * FROM task_events WHERE work_item_id=? ORDER BY sequence DESC LIMIT ?",
+  );
+  for (const id of ids) {
+    const rows = (stmt.all(id, max) as Row[]).reverse();
+    if (rows.length) map.set(id, rows);
   }
   return map;
 }
@@ -451,14 +459,32 @@ tasks.get("/agent-manifest", (c) => {
   });
 });
 
+/**
+ * Cheap "did anything the list reads change" fingerprint. MAX(rowid) is O(1)
+ * on the implicit rowid index; MAX(updated_at) rides the new
+ * work_items(owner_user_id, updated_at) index. Any write that moves it drops
+ * the cached projection immediately instead of waiting out the TTL.
+ */
+function tasksEpoch(): string {
+  const row = getConn().prepare(
+    `SELECT (SELECT MAX(rowid) FROM task_events) AS events,
+            (SELECT MAX(updated_at) FROM work_items) AS work_items,
+            (SELECT COUNT(*) FROM work_items) AS work_item_count,
+            (SELECT COUNT(*) FROM collaborations) AS collaborations`,
+  ).get() as { events: number | null; work_items: string | null; work_item_count: number; collaborations: number };
+  return pollEpoch([row.events, row.work_items, row.work_item_count, row.collaborations]);
+}
+
 tasks.get("/tasks", (c) => {
   const view = String(c.req.query("view") || "");
   const openView = view === "open" || view === "todo";
   const clauses: string[] = [];
   const values: unknown[] = [];
-  if (!isAdmin() || c.req.query("scope") !== "all") {
+  const scoped = !isAdmin() || c.req.query("scope") !== "all";
+  const owner = scoped ? ownerId() : "all";
+  if (scoped) {
     clauses.push("owner_user_id=?");
-    values.push(ownerId());
+    values.push(owner);
   }
   for (const key of ["status", "priority", "source", "profile"] as const) {
     const value = c.req.query(key);
@@ -478,39 +504,46 @@ tasks.get("/tasks", (c) => {
   if (!order[sort]) throw new HttpFail(400, "invalid sort");
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
   const limit = openView ? parseLimit(c.req.query("limit")) : 0;
-  const total = openView
-    ? Number((getConn().prepare(`SELECT COUNT(*) AS c FROM work_items ${where}`).get(...values) as { c: number }).c || 0)
-    : 0;
-  const rows = getConn().prepare(
-    openView
-      ? `SELECT * FROM work_items ${where} ORDER BY ${order[sort]} LIMIT ?`
-      : `SELECT * FROM work_items ${where} ORDER BY ${order[sort]}`,
-  ).all(...(openView ? [...values, limit] : values)) as Row[];
-  const ids = rows.map((row) => String(row.id));
-  const lastByTask = openView ? lastEventsByWorkItem(ids) : new Map<string, Row>();
-  const eventsByTask = openView ? new Map<string, Row[]>() : eventsByWorkItem(ids);
-  const collabIds = [...new Set(rows.map((row) => String(row.collaboration_id || row.project_id || "")).filter(Boolean))];
-  const collabById = collabsByIds(collabIds);
-  const tasks = rows.map((row) => {
-    const collab = collabById.get(String(row.collaboration_id || row.project_id || ""));
-    const events = openView
-      ? (lastByTask.get(String(row.id)) ? [eventView(lastByTask.get(String(row.id))!)] : [])
-      : (eventsByTask.get(String(row.id)) || []).map(eventView);
-    return decorateTaskFromCollab({
-      ...publicWorkItem(row, collab),
-      ...(openView ? {} : { history: events }),
-      history_summary: historySummary(events),
-    }, collab);
+  // This endpoint is polled every few seconds by every open tab, so an
+  // unchanged data window is served from the 4s in-process cache.
+  const cacheKey = `tasks:${owner}:${view}:${sort}:${limit}:${c.req.query("status") || ""}:${c.req.query("priority") || ""}:${c.req.query("source") || ""}:${c.req.query("profile") || ""}`;
+  const payload = cachedPoll(cacheKey, tasksEpoch(), () => {
+    const definitions = taskDefinitionIndex();
+    const total = openView
+      ? Number((getConn().prepare(`SELECT COUNT(*) AS c FROM work_items ${where}`).get(...values) as { c: number }).c || 0)
+      : 0;
+    const rows = getConn().prepare(
+      openView
+        ? `SELECT * FROM work_items ${where} ORDER BY ${order[sort]} LIMIT ?`
+        : `SELECT * FROM work_items ${where} ORDER BY ${order[sort]}`,
+    ).all(...(openView ? [...values, limit] : values)) as Row[];
+    const ids = rows.map((row) => String(row.id));
+    const lastByTask = openView ? lastEventsByWorkItem(ids) : new Map<string, Row>();
+    const eventsByTask = openView ? new Map<string, Row[]>() : eventsByWorkItem(ids);
+    const collabIds = [...new Set(rows.map((row) => String(row.collaboration_id || row.project_id || "")).filter(Boolean))];
+    const collabById = collabsByIds(collabIds);
+    const list = rows.map((row) => {
+      const collab = collabById.get(String(row.collaboration_id || row.project_id || ""));
+      const events = openView
+        ? (lastByTask.get(String(row.id)) ? [eventView(lastByTask.get(String(row.id))!)] : [])
+        : (eventsByTask.get(String(row.id)) || []).map(eventView);
+      return decorateTaskFromCollab({
+        ...publicWorkItem(row, collab, definitions),
+        ...(openView ? {} : { history: events }),
+        history_summary: historySummary(events),
+      }, collab);
+    });
+    if (!openView) return list;
+    return {
+      view: view === "todo" ? "todo" : "open",
+      tasks: list.filter((task) => isOpenWorkItem(task)),
+      total,
+      limit,
+      creates_session: false,
+      entry: "memory",
+    };
   });
-  if (!openView) return c.json(tasks);
-  return c.json({
-    view: view === "todo" ? "todo" : "open",
-    tasks: tasks.filter((task) => isOpenWorkItem(task)),
-    total,
-    limit,
-    creates_session: false,
-    entry: "memory",
-  });
+  return c.json(payload);
 });
 
 tasks.post("/tasks", async (c) => {

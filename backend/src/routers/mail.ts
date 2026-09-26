@@ -19,6 +19,7 @@ import {
   setConversationStarred,
 } from "../host/mail-memory.js";
 import { readPersonDigest } from "../host/mail-memory-job.js";
+import { composeCatalog } from "../skills/email-compose-contract.js";
 import { lastSyncReceipt, startFollowedMailSync } from "../starrykol/mail-sync.js";
 
 export const mail = new Hono();
@@ -83,6 +84,13 @@ mail.get("/mail/conversations/:id", (c) => {
     digest_text: conversation.digest_text || String(thread.digest_text || ""),
     digest_source: conversation.digest_source || String(thread.digest_source || ""),
   });
+});
+
+/** Read-only catalog of the stage letters the compose skill publishes. */
+mail.get("/mail/compose-catalog", (c) => {
+  c.header("Cache-Control", "no-store");
+  const { letters } = composeCatalog();
+  return c.json({ ...MEMORY, letters });
 });
 
 mail.get("/mail/person", (c) => {

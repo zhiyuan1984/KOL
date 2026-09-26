@@ -93,6 +93,36 @@ export function stageMailSpecByKind(kind: StageMailKind, stage = ""): StageMailS
   return Object.values(contract.letters).find((row) => row.kind === kind) || contract.fallback;
 }
 
+export type ComposeCatalogLetter = {
+  stage: string;
+  chip: string;
+  prompt: string;
+  template_id: string;
+  kind: StageMailKind;
+};
+
+export type ComposeCatalog = {
+  letters: ComposeCatalogLetter[];
+};
+
+/**
+ * Read-only projection of the contract for the mailbox page: the operator sees
+ * exactly the published chips/prompts, in contract key order. The host never
+ * re-labels a letter here.
+ */
+export function composeCatalog(): ComposeCatalog {
+  const contract = emailComposeContract();
+  return {
+    letters: Object.entries(contract.letters).map(([stage, spec]) => ({
+      stage,
+      chip: spec.chip,
+      prompt: spec.prompt,
+      template_id: spec.templateId,
+      kind: spec.kind,
+    })),
+  };
+}
+
 /** Published operator commands from SKILL.md — not inferred from the official stage. */
 export function requestedMailKind(raw = ""): StageMailKind | null {
   const text = String(raw || "");

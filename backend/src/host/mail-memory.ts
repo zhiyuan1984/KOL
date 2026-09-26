@@ -51,6 +51,7 @@ export type MessageRow = {
   translation_source: string;
   receipt_status: string;
   effective: boolean;
+  unread: boolean;
   memory_fingerprint?: string;
   memory_source?: string;
   memory_generated_at?: string | null;
@@ -144,6 +145,7 @@ export function messageRowOf(row: Row | Json): MessageRow {
     translation_source: String(row.translation_source || ""),
     receipt_status: String(row.receipt_status || ""),
     effective: Boolean(Number(row.effective || 0)),
+    unread: Boolean(Number(row.unread || 0)),
     memory_fingerprint: String(row.memory_fingerprint || ""),
     memory_source: String(row.memory_source || ""),
     memory_generated_at: row.memory_generated_at ? String(row.memory_generated_at) : null,
@@ -248,21 +250,33 @@ export function setConversationStarred(threadId: string, starred: boolean): void
     .run(starred ? 1 : 0, nowIso(), threadId);
 }
 
+/**
+ * List projection of kol_mail_threads for the mailbox page. Columns are explicit
+ * (and digest_text is left out on purpose): the list payload is the page's first
+ * paint, so it carries only ConversationRow's fields. Message counts come from one
+ * grouped join instead of a correlated COUNT subquery per thread.
+ */
+const LIST_COLUMNS = `t.id, t.mailbox, t.conversation_id, t.collaboration_id, t.match_state, t.subject,
+       t.peer_email, t.peer_name, t.last_from, t.last_from_name, t.last_at, t.last_direction, t.last_preview,
+       t.unread_count, t.starred, t.last_receipt, t.digest_source,
+       c.kol_uid, c.handle, IFNULL(mc.message_count, 0) AS message_count`;
+
+const LIST_JOINS = `FROM kol_mail_threads t
+         LEFT JOIN collaborations c ON c.id=t.collaboration_id
+         LEFT JOIN (SELECT thread_id, COUNT(*) AS message_count FROM kol_mail_items GROUP BY thread_id) mc
+                ON mc.thread_id = t.id`;
+
 export function listMailboxConversations(mailbox?: string): ConversationRow[] {
   const box = mailbox === undefined ? currentMailbox() : mailbox;
   const rows = box
     ? getConn().prepare(
-      `SELECT t.*, c.kol_uid, c.handle,
-              (SELECT COUNT(*) FROM kol_mail_items i WHERE i.thread_id=t.id) AS message_count
-         FROM kol_mail_threads t
-         LEFT JOIN collaborations c ON c.id=t.collaboration_id
+      `SELECT ${LIST_COLUMNS}
+         ${LIST_JOINS}
         WHERE t.mailbox=? ORDER BY t.last_at DESC, t.updated_at DESC`,
     ).all(box) as Row[]
     : getConn().prepare(
-      `SELECT t.*, c.kol_uid, c.handle,
-              (SELECT COUNT(*) FROM kol_mail_items i WHERE i.thread_id=t.id) AS message_count
-         FROM kol_mail_threads t
-         LEFT JOIN collaborations c ON c.id=t.collaboration_id
+      `SELECT ${LIST_COLUMNS}
+         ${LIST_JOINS}
         ORDER BY t.last_at DESC, t.updated_at DESC`,
     ).all() as Row[];
   return rows.map(conversationRowOf);

@@ -73,6 +73,8 @@ export type MailMessage = {
   summary_source: MailDigestSource | "body_digest" | "";
   receipt_status?: string;
   effective?: boolean;
+  /** Message-level read flag from `kol_mail_items.unread`; absent on legacy rows. */
+  unread?: boolean;
   translation_zh?: string;
   translation_source?: string;
   memory_fingerprint?: string;
@@ -118,6 +120,19 @@ export type MailSyncReceipt = {
   synced_at?: string;
   cursor_at?: string;
   error?: string;
+};
+
+/**
+ * GET /api/mail/compose-catalog letters[] — one row per published stage letter of
+ * the email_compose contract. Copy (chip/prompt) and order come from the contract;
+ * the page must not re-invent a label.
+ */
+export type MailComposeLetter = {
+  stage: string;
+  chip: string;
+  prompt: string;
+  template_id: string;
+  kind: string;
 };
 
 export type MailWorkspace = {

@@ -196,7 +196,7 @@ export default function ComposerDock({
   onClearDiscoveryLock?: () => void;
   /** 已不再使用（见参数处的说明）：保留签名只为不动 Home.tsx 的调用点。 */
   onOpenDiscoveryTemplate?: () => void;
-  contextChips?: { id: string; label: string }[];
+  contextChips?: { id: string; label: string; objectKind?: string }[];
   entryIntent?: ComposerEntryIntent;
   objectRefs?: ComposerObjectRef[];
   onObjectRefsChange?: (refs: ComposerObjectRef[]) => void;
@@ -515,7 +515,7 @@ export default function ComposerDock({
         kind: "object",
         id: chip.id,
         label: chip.label,
-        objectKind: "context",
+        objectKind: chip.objectKind || "context",
       });
     }
     return chips;

@@ -24,3 +24,12 @@ export function avatarTone(seed: string): number {
   for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
   return hash % 6;
 }
+
+/** Absolute `9/16 15:06` stamp for the left-column mail rows. */
+export function formatMailStamp(value?: string | null): string {
+  const ms = occurredAtMs(value);
+  if (!ms) return "";
+  const date = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getMonth() + 1}/${date.getDate()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}

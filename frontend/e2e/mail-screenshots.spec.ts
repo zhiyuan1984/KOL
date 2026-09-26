@@ -62,6 +62,7 @@ const FORMAL_THREAD = {
       body_text: "Hi Larry,\n\n我们很想和 LiTime 合作，请发报价单。\n\nBest,\nAmy",
       letter_summary: "对方明确表达合作意愿，请求报价单。",
       summary_source: "codex_memory",
+      unread: true,
       translation_zh: "你好 Larry，\n\n我们很想和 LiTime 合作，请发报价单。\n\n此致，\nAmy",
       translation_source: "codex_memory",
       receipt_status: "",
@@ -82,6 +83,7 @@ const FORMAL_THREAD = {
       body_text: "Hi Amy,\n\nThanks for reaching out. We'd love to collaborate.\n\nBest,\nLarry",
       letter_summary: "去信致谢并表达合作意愿。",
       summary_source: "codex_memory",
+      unread: false,
       translation_zh: "你好 Amy，\n\n感谢联系。我们很希望能合作。\n\n此致，\nLarry",
       translation_source: "codex_memory",
       receipt_status: "",
@@ -106,11 +108,12 @@ const PERSON_DIGEST = {
 
 async function mockMail(page: import("@playwright/test").Page) {
   await page.route("**/api/mail/box**", (route) => route.fulfill({ json: FORMAL_BOX }));
-  await page.route("**/api/mail/conversations", (route) => {
-    if (/\/conversations\/[^/?]+/.test(route.request().url())) return route.fallback();
-    route.fulfill({ json: { entry: "memory", creates_session: false, mailbox: "larry.zhao@amperetime.com", conversations: [FORMAL_CONVERSATION] } });
+  await page.route("**/api/mail/conversations**", (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (/^\/api\/mail\/conversations\/[^/]+$/.test(path)) return route.fallback();
+    return route.fulfill({ json: { entry: "memory", creates_session: false, mailbox: "larry.zhao@amperetime.com", conversations: [FORMAL_CONVERSATION] } });
   });
-  await page.route("**/api/mail/conversations/*", (route) => route.fulfill({ json: FORMAL_THREAD }));
+  await page.route("**/api/mail/conversations/**", (route) => route.fulfill({ json: FORMAL_THREAD }));
   await page.route("**/api/mail/person**", (route) => route.fulfill({ json: PERSON_DIGEST }));
   await page.route("**/api/home/board**", (route) => route.fulfill({ json: { kols: [], follow_scope: { bound: true, mailbox_email: "larry.zhao@amperetime.com", owner_name: "赵良玉", status: "connected" } } }));
 }
@@ -120,7 +123,6 @@ test("screenshot 1440x900 conversation view", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/mail?c=3901");
   await expect(page.locator("[data-mail-thread-row='3901']")).toBeVisible();
-  await page.locator("[data-mail-thread-row='3901']").click();
   await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(2);
   await page.screenshot({ path: "test-results/mail-1440x900-conversation.png", fullPage: false });
 });
@@ -130,7 +132,6 @@ test("screenshot 1440x900 message view", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/mail?c=3901&m=m2");
   await expect(page.locator("[data-mail-thread-row='3901']")).toBeVisible();
-  await page.locator("[data-mail-thread-row='3901']").click();
   await expect(page.locator("[data-mail-content]")).toBeVisible();
   await page.screenshot({ path: "test-results/mail-1440x900-message.png", fullPage: false });
 });
@@ -140,7 +141,6 @@ test("screenshot 1280x800 conversation view", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/mail?c=3901");
   await expect(page.locator("[data-mail-thread-row='3901']")).toBeVisible();
-  await page.locator("[data-mail-thread-row='3901']").click();
   await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(2);
   await page.screenshot({ path: "test-results/mail-1280x800-conversation.png", fullPage: false });
 });

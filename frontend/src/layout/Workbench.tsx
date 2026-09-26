@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Account, type SessionRow } from "../api";
 import { useAccount } from "../components/AuthGate";
 import BrandLockup from "../components/BrandLockup";
@@ -39,6 +39,8 @@ export default function Workbench() {
   const [pendingNav, setPendingNav] = useState<string | null>(null);
   const [navStuck, setNavStuck] = useState(false);
   const loc = useLocation();
+  // 壳层轮询闸门：上一次读取未返回前不再发下一次（多标签页各自全速轮询曾把单线程后端压到 5–6s 停顿）。
+  const pollInFlight = useRef(false);
 
   useEffect(() => {
     setPendingNav(null);
@@ -59,7 +61,7 @@ export default function Workbench() {
   }, []);
 
   useEffect(() => {
-    const refreshSessions = () => api.sessions().then((rows) => {
+    const applySessions = (rows: SessionRow[]) => {
       setSessions((current) => {
         const queued = current.filter((row) => row.agent_status === "queued");
         const merged = rows.map((row) => {
@@ -70,15 +72,25 @@ export default function Workbench() {
         const missing = queued.filter((row) => !merged.some((item) => item.id === row.id));
         return [...missing, ...merged];
       });
-    }).catch(() => undefined);
-    const refreshAnalyze = () => loadKolAnalyzeInFlight().then((rows) => {
+    };
+    const applyAnalyze = (rows: AnalyzeWorkItem[]) => {
       setAnalyzeItems((current) => {
         const local = current.filter((item) => isKolAnalyzeInFlight(item.status) && !rows.some((row) => row.id === item.id));
         return [...local, ...rows];
       });
-    }).catch(() => undefined);
-    void refreshSessions();
-    void refreshAnalyze();
+    };
+    // 两次读取合并成一次 Promise.all：共用同一个闸门，也共用同一次后端时隙。
+    const refresh = () => {
+      if (pollInFlight.current) return;
+      pollInFlight.current = true;
+      void Promise.all([
+        api.sessions().then(applySessions).catch(() => undefined),
+        loadKolAnalyzeInFlight().then(applyAnalyze).catch(() => undefined),
+      ]).finally(() => {
+        pollInFlight.current = false;
+      });
+    };
+    void refresh();
     const onAnalyze = (event: Event) => {
       const item = (event as CustomEvent<AnalyzeWorkItem>).detail;
       if (!item?.id) return;
@@ -89,17 +101,15 @@ export default function Workbench() {
       ));
     };
     window.addEventListener(ANALYZE_WORK_EVENT, onAnalyze);
-    window.addEventListener("lingong:sessions-refresh", refreshSessions);
+    window.addEventListener("lingong:sessions-refresh", refresh);
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") {
-        void refreshSessions();
-        void refreshAnalyze();
-      }
-    }, 8000);
+      if (document.visibilityState === "visible") refresh();
+    }, 15000);
     return () => {
       window.removeEventListener(ANALYZE_WORK_EVENT, onAnalyze);
-      window.removeEventListener("lingong:sessions-refresh", refreshSessions);
+      window.removeEventListener("lingong:sessions-refresh", refresh);
       window.clearInterval(timer);
+      pollInFlight.current = false;
     };
   }, []);
 

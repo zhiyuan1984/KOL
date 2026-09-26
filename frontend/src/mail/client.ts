@@ -130,6 +130,7 @@ function normalizeMessage(raw: Record<string, unknown>, conversationId: string):
     summary_source: digestSourceOf(raw.summary_source) || (raw.summary_source === "body_digest" ? "body_digest" : ""),
     receipt_status: text(raw.receipt_status) || undefined,
     effective: raw.effective == null ? undefined : Boolean(raw.effective),
+    unread: raw.unread == null ? undefined : Boolean(raw.unread),
     translation_zh: text(raw.translation_zh || raw.translation) || undefined,
     translation_source: text(raw.translation_source) || undefined,
     memory_fingerprint: text(raw.memory_fingerprint) || undefined,
@@ -197,39 +198,7 @@ async function decorateOwner(box: MailBox): Promise<MailBox> {
   return owner ? { ...box, owner_name: owner } : box;
 }
 
-/**
- * Display/analyze only. Never mix board threads into an `/api/mail` list.
- * Best-effort with a hard timeout: /api/home/board can be multi-megabyte and
- * must never hold the mail list hostage — it only fills kol_uid/handle so the
- * 分析 action can name the people.
- */
-const BOARD_LOOKUP_TIMEOUT_MS = 1_500;
-
-async function decorateAnalyzePeople(conversations: MailConversation[]): Promise<MailConversation[]> {
-  const need = conversations.some((row) => row.collaboration_id && !row.kol_uid && !row.handle);
-  if (!need) return conversations;
-  const board = await Promise.race([
-    api.homeBoard().catch(() => null as BoardMailFallback | null),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), BOARD_LOOKUP_TIMEOUT_MS)),
-  ]);
-  if (!board) return conversations;
-  const byId = new Map<string, { kol_uid?: string; handle?: string }>();
-  for (const kol of board?.kols || []) {
-    const id = text(kol.id);
-    if (!id) continue;
-    const handle = text(kol.handle || kol.kol_name).replace(/^@/, "");
-    byId.set(id, {
-      kol_uid: text(kol.kol_uid) || handle || undefined,
-      handle: handle || undefined,
-    });
-  }
-  return conversations.map((row) => {
-    if (!row.collaboration_id || row.kol_uid || row.handle) return row;
-    const extra = byId.get(row.collaboration_id);
-    return extra ? { ...row, ...extra } : row;
-  });
-}
-
+/** Legacy servers without `/api/mail` — the board is the only place left to read mail from. */
 async function loadFallbackWorkspace(): Promise<MailWorkspace> {
   const [binding, board] = await Promise.all([
     api.starryBinding().catch(() => null as StarryBinding | null),
@@ -272,14 +241,15 @@ export async function loadMailWorkspaceFast(boxParam?: string): Promise<MailWork
   };
 }
 
-/** Optional labels (owner name, kol handle): bounded, never blocks first paint. */
+/**
+ * Optional owner label only. The conversation rows already carry kol_uid/handle
+ * from `/api/mail/conversations`, so no board request is needed (and the board
+ * must never be fetched to fill the list).
+ */
 export async function decorateWorkspace(workspace: MailWorkspace): Promise<MailWorkspace> {
   if (workspace.source !== "api") return workspace;
-  const [box, conversations] = await Promise.all([
-    decorateOwner(workspace.box),
-    decorateAnalyzePeople(workspace.conversations),
-  ]);
-  return { ...workspace, box, conversations };
+  const box = await decorateOwner(workspace.box);
+  return { ...workspace, box };
 }
 
 /** Convenience: fast load plus the bounded decoration (callers that do not paint twice). */

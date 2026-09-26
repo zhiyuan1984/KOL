@@ -82,6 +82,7 @@ import {
   markSessionRunning,
   publicQueue,
   removeQueued,
+  runControlRevision,
   shiftQueue,
   wasSessionStopped,
   type QueuedAsk,
@@ -121,6 +122,7 @@ import { extractTaskEntities, mergeExtractedOntoIntent } from "../tasks/resolver
 import { fieldLabel } from "../labels.js";
 import { assertCollaborationInScope, inboundVisibleSql, scopedCollaborationSearch } from "./inbound-scope.js";
 import { parseExpectedVersion } from "./version.js";
+import { cachedPoll, pollEpoch } from "./response-cache.js";
 import { CRAWL_PLATFORMS, CRAWL_PLATFORM_SET } from "../crawl/platforms.js";
 import { startCrawl } from "../crawl/service.js";
 import { isKolClawTask } from "../kolclaw/service.js";
@@ -833,24 +835,78 @@ async function autoStartBoundCrawl(bound: BoundTask, sid: string, plan: Json): P
 }
 
 function sessionStatus(sid: string): SessionStatus {
-  if (wasSessionStopped(sid)) {
-    const approval = getConn().prepare("SELECT status FROM workers WHERE session_id = ? ORDER BY created_at DESC LIMIT 1").get(sid) as
-      | { status: string }
-      | undefined;
-    if (approval?.status === "waiting_approval") return "waiting_approval";
-    return "listening";
+  return sessionStatusMap([sid]).get(sid) || "listening";
+}
+
+/**
+ * Batched `sessionStatus` for the session list: two indexed queries for the
+ * whole page instead of two per session. The per-session branch order is
+ * preserved exactly.
+ */
+function sessionStatusMap(sids: string[]): Map<string, SessionStatus> {
+  const out = new Map<string, SessionStatus>();
+  if (!sids.length) return out;
+  const placeholders = sids.map(() => "?").join(",");
+  const workerStatus = new Map<string, string>();
+  for (const row of getConn().prepare(
+    `SELECT session_id, status FROM workers
+     WHERE session_id IN (${placeholders})
+       AND created_at = (SELECT MAX(w2.created_at) FROM workers w2 WHERE w2.session_id = workers.session_id)`,
+  ).all(...sids) as Row[]) {
+    const key = String(row.session_id);
+    if (!workerStatus.has(key)) workerStatus.set(key, String(row.status));
   }
-  if (isSessionRunning(sid)) return "running";
-  const w = getConn().prepare("SELECT status FROM workers WHERE session_id = ? ORDER BY created_at DESC LIMIT 1").get(sid) as
-    | { status: string }
-    | undefined;
-  if (w?.status === "waiting_approval") return "waiting_approval";
-  if (w?.status === "running") return "running";
-  const d = getConn()
-    .prepare("SELECT status FROM drafts WHERE session_id = ? ORDER BY id DESC LIMIT 1")
-    .get(sid) as { status: string } | undefined;
-  if (d?.status === "waiting_approval") return "waiting_approval";
-  return "listening";
+  const draftStatus = new Map<string, string>();
+  for (const row of getConn().prepare(
+    `SELECT session_id, status FROM drafts
+     WHERE session_id IN (${placeholders})
+       AND id = (SELECT MAX(d2.id) FROM drafts d2 WHERE d2.session_id = drafts.session_id)`,
+  ).all(...sids) as Row[]) {
+    const key = String(row.session_id);
+    if (!draftStatus.has(key)) draftStatus.set(key, String(row.status));
+  }
+  for (const sid of sids) {
+    if (wasSessionStopped(sid)) {
+      out.set(sid, workerStatus.get(sid) === "waiting_approval" ? "waiting_approval" : "listening");
+      continue;
+    }
+    if (isSessionRunning(sid)) {
+      out.set(sid, "running");
+      continue;
+    }
+    const w = workerStatus.get(sid);
+    if (w === "waiting_approval" || w === "running") {
+      out.set(sid, w);
+      continue;
+    }
+    out.set(sid, draftStatus.get(sid) === "waiting_approval" ? "waiting_approval" : "listening");
+  }
+  return out;
+}
+
+/**
+ * Invalidation key for the cached session list: SQL rows plus the in-memory
+ * run-control revision that `agent_status` is derived from.
+ */
+function sessionsEpoch(): string {
+  const row = getConn().prepare(
+    `SELECT (SELECT COUNT(*) FROM sessions) AS session_count,
+            (SELECT MAX(updated_at) FROM sessions) AS updated_at,
+            (SELECT COALESCE(MAX(archived_at), '') FROM sessions) AS archived_at,
+            (SELECT COUNT(*) FROM sessions WHERE deleted_at IS NOT NULL) AS deleted,
+            (SELECT MAX(rowid) FROM workers) AS workers,
+            (SELECT MAX(rowid) FROM drafts) AS drafts`,
+  ).get() as {
+    session_count: number;
+    updated_at: string | null;
+    archived_at: string;
+    deleted: number;
+    workers: number | null;
+    drafts: number | null;
+  };
+  return pollEpoch([
+    row.session_count, row.updated_at, row.archived_at, row.deleted, row.workers, row.drafts, runControlRevision(),
+  ]);
 }
 
 function runInBackground(sid: string, me: Json, intent: Intent, col: Row | null, text: string): void {
@@ -3169,29 +3225,33 @@ host.get("/sessions", (c) => {
   const user = scopedUser();
   const all = c.req.query("scope") === "all" && user && isAdmin(user);
   const includeArchived = c.req.query("include_archived") === "1";
-  const archivedClause = includeArchived ? "" : " AND archived_at IS NULL";
-  const rows = (!authDisabled() && user && !all
-    ? getConn().prepare(
-        `SELECT * FROM sessions WHERE owner_user_id=? AND deleted_at IS NULL${archivedClause} ORDER BY updated_at DESC`,
-      ).all(user.id)
-    : getConn().prepare(
-        `SELECT * FROM sessions WHERE deleted_at IS NULL${archivedClause} ORDER BY updated_at DESC`,
-      ).all()) as Row[];
-  const out: Json[] = [];
-  for (const r of rows) {
-    const d = { ...r };
-    const title = String(d.title || "");
-    if (
-      (PLATFORM_EXAMPLE_TITLES as readonly string[]).includes(title) ||
-      d.disabled ||
-      d.kind === "platform_example"
-    ) {
-      continue;
-    }
-    d.agent_status = sessionStatus(String(d.id));
-    out.push(d);
-  }
-  return c.json(out);
+  // Every open tab polls this endpoint; a 4s cache of the same data window
+  // replaces ~800 rows-worth of per-session queries with one projection.
+  const cacheKey = `sessions:${all ? "all" : user?.id || "anon"}:${includeArchived ? 1 : 0}`;
+  const payload = cachedPoll(cacheKey, sessionsEpoch(), () => {
+    const archivedClause = includeArchived ? "" : " AND archived_at IS NULL";
+    const rows = (!authDisabled() && user && !all
+      ? getConn().prepare(
+          `SELECT * FROM sessions WHERE owner_user_id=? AND deleted_at IS NULL${archivedClause} ORDER BY updated_at DESC`,
+        ).all(user.id)
+      : getConn().prepare(
+          `SELECT * FROM sessions WHERE deleted_at IS NULL${archivedClause} ORDER BY updated_at DESC`,
+        ).all()) as Row[];
+    const visible = rows.filter((r) => {
+      const title = String(r.title || "");
+      return !(
+        (PLATFORM_EXAMPLE_TITLES as readonly string[]).includes(title) ||
+        r.disabled ||
+        r.kind === "platform_example"
+      );
+    });
+    const statusBySession = sessionStatusMap(visible.map((r) => String(r.id)));
+    return visible.map((r) => ({
+      ...r,
+      agent_status: statusBySession.get(String(r.id)) || sessionStatus(String(r.id)),
+    }));
+  });
+  return c.json(payload);
 });
 
 host.get("/sessions/:sid", async (c) => {

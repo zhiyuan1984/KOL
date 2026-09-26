@@ -7,6 +7,7 @@ import type {
   RuntimeToolDefinition,
   RuntimeToolPolicy,
 } from "./runtimeConnectorUi.js";
+import type { MailComposeLetter } from "./mail/types.js";
 
 export type SessionRow = {
   id: string;
@@ -1539,6 +1540,7 @@ export const api = {
   exam: () => fetch("/api/exam").then((r) => r.json()),
   admin: () => fetch("/api/admin").then((r) => r.json()),
   adminUsers: () => request<Record<string, unknown>[]>("/api/admin/users"),
+  adminOrganizationUnits: () => request<Array<{ id: string; label: string; type: string; parent: string; level: number }>>("/api/admin/organization-units"),
   connectors: () => request<Record<string, unknown>[]>("/api/connectors"),
   adminConnectors: () => request<Record<string, unknown>[]>("/api/admin/connectors"),
   runtimeConnectorConfig: (connectorId: string) =>
@@ -1837,6 +1839,15 @@ export const api = {
     }>(box ? `/api/mail/conversations?box=${encodeURIComponent(box)}` : "/api/mail/conversations"),
   mailConversation: (id: string) =>
     request<Record<string, unknown>>(`/api/mail/conversations/${encodeURIComponent(id)}`),
+  /** Read-only stage letter catalog (email_compose contract). Never creates a session. */
+  mailComposeCatalog: () =>
+    request<{
+      entry?: string;
+      creates_session?: boolean;
+      creates_turn?: boolean;
+      calls_model?: boolean;
+      letters?: MailComposeLetter[];
+    }>("/api/mail/compose-catalog"),
   mailPerson: (box: string, p: string) =>
     request<Record<string, unknown>>(`/api/mail/person?box=${encodeURIComponent(box)}&p=${encodeURIComponent(p)}`),
   syncMailboxMail: (body: Record<string, unknown> = {}) =>

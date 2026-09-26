@@ -1,7 +1,7 @@
 import { DEMO_USER } from "../config.js";
 import { getConn } from "../db.js";
 import { BY_CODE, MAIN_STAGES, PIPELINE_COLUMNS, SIDE_STAGES, coarse, label, nextCode, normalizeStage } from "../stages.js";
-import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
+import { taskDefinitions, type TaskDefinition } from "../tasks/registry.js";
 import type { Json, Row } from "../types.js";
 import { authDisabled, isAdmin, scopedUser } from "../auth.js";
 import { currentFollowScope, matchesFollowedMailbox } from "./starry-bind.js";
@@ -10,6 +10,63 @@ import { stageMailAction } from "./compose-loop.js";
 import { threadsByCollaborationIds } from "../starrykol/mail-sync.js";
 import { readFollowStyleTags } from "../follow-style-tags.js";
 import { PLANNING_TASK_TYPES, PLANNING_TASK_TYPES_SET, TODO_EXCLUDED_TASK_TYPES } from "./planning-types.js";
+
+/**
+ * `taskDefinitions()` re-stats every skill directory on each call — that scan is
+ * what keeps publishing live. A board or task list projects hundreds of rows, so
+ * it must scan once per request and then look ids up in this Map: calling
+ * `taskDefinition()` per row repeats the same directory scan per row and
+ * dominates the response time.
+ */
+export type TaskDefinitionIndex = Map<string, TaskDefinition>;
+
+export function taskDefinitionIndex(): TaskDefinitionIndex {
+  return new Map(taskDefinitions().map((definition) => [definition.id, definition]));
+}
+
+/** Board list caps: the projection is an overview, not the full archive. */
+export const MAX_KOL_TASKS = 3;
+export const MAX_KOL_MAIL_THREADS = 3;
+export const MAX_WORKBENCH_TASKS = 50;
+/** Board task rows, newest first (work_items are read ORDER BY updated_at DESC). */
+export const MAX_BOARD_TASKS = 50;
+
+/**
+ * Collaboration columns no frontend file *reads* (grepped frontend/src and
+ * frontend/e2e). A field stays when any module dereferences it — e.g.
+ * `last_conversation_id` drives `hasConversation()` in
+ * frontend/src/home/kolContract.ts, which the board pool adapter applies.
+ */
+const KOL_FIELDS_DROPPED = [
+  "lifecycle_id",
+  "last_lifecycle_id",
+  "last_skip_kind",
+  "last_skip_reason",
+  "last_skipped_stages",
+  "recipient_name",
+  "address_line",
+  "country",
+  "postal",
+  "risk_tag",
+  "kol_id",
+  "list_in_projects",
+  "sku",
+  "qty",
+] as const;
+
+function publicKol(kol: Json): Json {
+  const out: Json = { ...kol };
+  for (const field of KOL_FIELDS_DROPPED) delete out[field];
+  return out;
+}
+
+function capped<T>(list: T[], max: number): T[] {
+  return list.length > max ? list.slice(0, max) : list;
+}
+
+function mailThreadsOf(kol: Json): Json[] {
+  return Array.isArray(kol.mail_threads) ? kol.mail_threads as Json[] : [];
+}
 
 const NICHE_LABEL: Record<string, string> = {
   beauty: "美妆",
@@ -441,8 +498,8 @@ export function displayStatusOf(task: {
 
 export const MAX_RECOMMENDED_TASKS = 8;
 
-function recPrompt(intent: string, handle: string, stage = ""): string {
-  const definition = taskDefinition(intent);
+function recPrompt(intent: string, handle: string, stage = "", definitions = taskDefinitionIndex()): string {
+  const definition = definitions.get(intent);
   if (intent === "email_compose") {
     return handle
       ? stageMailAction(handle, stage).prompt
@@ -452,19 +509,19 @@ function recPrompt(intent: string, handle: string, stage = ""): string {
   return handle ? `${title} @${handle}` : title;
 }
 
-function recTitle(intent: string, handle: string, days?: number, stage = ""): string {
+function recTitle(intent: string, handle: string, days?: number, stage = "", definitions = taskDefinitionIndex()): string {
   const who = handle ? `@${handle}` : "这位红人";
   const stay = Number(days) > 0 ? `停留 ${days} 天的 ` : "";
   if (intent === "email_compose") return `给${stay}${who} ${stageMailAction(handle, stage).label}`;
-  const definition = taskDefinition(intent);
+  const definition = definitions.get(intent);
   const verb = definition?.title || intent;
   if (!handle) return verb;
   return `给 ${who} ${verb}`;
 }
 
-function insightIntent(task: Json, kol?: Json): string | null {
+function insightIntent(task: Json, kol?: Json, definitions = taskDefinitionIndex()): string | null {
   const type = String(task.skill || task.skill_id || task.task_type || "");
-  if (taskDefinition(type)) return type;
+  if (definitions.has(type)) return type;
   if (kol?.unbound) return "creator_profile";
   if (kol?.exception) return "risk_scan";
   if (kol || String(task.kol_name || "").trim()) return "email_compose";
@@ -498,8 +555,9 @@ function highValueInsight(task: Json): boolean {
 }
 
 function inboundUnread(kol: Json): Json | undefined {
-  const threads = Array.isArray(kol.mail_threads) ? kol.mail_threads as Json[] : [];
-  return threads.find((thread) => String(thread.last_direction || "") === "inbound" && Number(thread.unread_count || 0) > 0);
+  return mailThreadsOf(kol).find((thread) => (
+    String(thread.last_direction || "") === "inbound" && Number(thread.unread_count || 0) > 0
+  ));
 }
 
 function decorateRecommended(row: Json, index: number): Json {
@@ -517,7 +575,7 @@ function decorateRecommended(row: Json, index: number): Json {
   };
 }
 
-export function buildRecommendedTasks(tasks: Json[], kols: Json[]): Json[] {
+export function buildRecommendedTasks(tasks: Json[], kols: Json[], definitions = taskDefinitionIndex()): Json[] {
   const insights = tasks.filter((task) => (
     isInsightWorkItem(task)
     || (String(task.source || "") === "ai" && Boolean(task.promoted_at) && !isClosedWorkItem(task) && !task.dismissed_at)
@@ -532,57 +590,68 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[]): Json[] {
     picked.push({ ...row, act: "ask" });
   };
 
+  const handleOf = (kol: Json) => bareHandle(kol.handle || kol.kol_name);
+
   for (const kol of kols) {
-    const handle = bareHandle(kol.handle || kol.kol_name);
+    if (picked.length >= MAX_RECOMMENDED_TASKS) break;
+    const handle = handleOf(kol);
     const unread = inboundUnread(kol);
     if (!unread || !handle) continue;
     const snippet = String(unread.last_snippet || "").replace(/\s+/g, " ").trim();
     take({
       id: `rec-mail-${kol.id}`,
-      title: recTitle("reply_analysis", handle),
+      title: recTitle("reply_analysis", handle, undefined, "", definitions),
       reason: snippet ? `${snippet.slice(0, 48)}${snippet.length > 48 ? "…" : ""} · 待判断` : "有未读来信，先做回复分析",
       source: "ai",
       source_label: "今天推荐",
       intent: "reply_analysis",
-      prompt: recPrompt("reply_analysis", handle),
+      prompt: recPrompt("reply_analysis", handle, "", definitions),
       handle,
       collaboration_id: kol.id,
     }, handle);
   }
 
+  const kolByHandle = new Map<string, Json>();
+  for (const kol of kols) {
+    const handle = handleOf(kol);
+    if (handle && !kolByHandle.has(handle)) kolByHandle.set(handle, kol);
+  }
+
   for (const task of insights) {
+    if (picked.length >= MAX_RECOMMENDED_TASKS) break;
     const handle = bareHandle(task.kol_name || (task.entities as { handle?: unknown } | undefined)?.handle);
-    const kol = kols.find((row) => bareHandle(row.handle || row.kol_name) === handle);
-    const intent = insightIntent(task, kol);
+    const kol = kolByHandle.get(handle);
+    const intent = insightIntent(task, kol, definitions);
     if (!intent) continue;
     const days = Number(kol?.days_in_stage || 0);
     const reason = String(task.risk || task.history_summary || task.description || task.context || "").trim()
       || (days ? `停留 ${days} 天，建议跟进` : "系统注意到信号，确认后才进待办");
     take({
       id: `rec-ai-${task.id}`,
-      title: recTitle(intent, handle, days, String(kol?.stage_code || "")),
+      title: recTitle(intent, handle, days, String(kol?.stage_code || ""), definitions),
       reason,
       source: "ai",
       source_label: "今天推荐",
       intent,
-      prompt: recPrompt(intent, handle, String(kol?.stage_code || "")),
+      prompt: recPrompt(intent, handle, String(kol?.stage_code || ""), definitions),
       handle,
       collaboration_id: task.collaboration_id || kol?.id || null,
     }, handle);
   }
 
   for (const kol of kols) {
-    const handle = bareHandle(kol.handle || kol.kol_name);
+    if (picked.length >= MAX_RECOMMENDED_TASKS) break;
+    const handle = handleOf(kol);
     if (!handle) continue;
     if (kol.unbound) {
       take({
         id: `rec-stage-${kol.id}`,
-        title: recTitle("creator_profile", handle),
+        title: recTitle("creator_profile", handle, undefined, "", definitions),
         reason: "尚未进入生命周期",
         source: "stage",
         source_label: "按阶段",
         intent: "creator_profile",
-        prompt: recPrompt("creator_profile", handle),
+        prompt: recPrompt("creator_profile", handle, "", definitions),
         handle,
         collaboration_id: null,
       }, handle);
@@ -592,12 +661,12 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[]): Json[] {
       const notes = String(kol.notes || "").trim();
       take({
         id: `rec-stage-${kol.id}`,
-        title: recTitle("risk_scan", handle),
+        title: recTitle("risk_scan", handle, undefined, "", definitions),
         reason: [notes, "需人选回到主流程"].filter(Boolean).join(" · "),
         source: "stage",
         source_label: "按阶段",
         intent: "risk_scan",
-        prompt: recPrompt("risk_scan", handle),
+        prompt: recPrompt("risk_scan", handle, "", definitions),
         handle,
         collaboration_id: kol.id,
       }, handle);
@@ -607,12 +676,12 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[]): Json[] {
     const intent = "email_compose";
     take({
       id: `rec-stage-${kol.id}`,
-      title: recTitle(intent, handle, Number(kol.days_in_stage || 0), String(kol.stage_code || "")),
+      title: recTitle(intent, handle, Number(kol.days_in_stage || 0), String(kol.stage_code || ""), definitions),
       reason: `停留 ${kol.days_in_stage} 天 · 所处 ${String(kol.stage_label || "").trim() || "当前阶段"}`,
       source: "stage",
       source_label: "按阶段",
       intent,
-      prompt: recPrompt(intent, handle, String(kol.stage_code || "")),
+      prompt: recPrompt(intent, handle, String(kol.stage_code || ""), definitions),
       handle,
       collaboration_id: kol.id,
     }, handle);
@@ -620,26 +689,27 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[]): Json[] {
 
   const rest = [...kols].sort((a, b) => Number(b.days_in_stage || 0) - Number(a.days_in_stage || 0));
   for (const kol of rest) {
-    const handle = bareHandle(kol.handle || kol.kol_name);
+    if (picked.length >= MAX_RECOMMENDED_TASKS) break;
+    const handle = handleOf(kol);
     if (!handle || kol.unbound || kol.exception) continue;
     const intent = "email_compose";
     const days = Number(kol.days_in_stage || 0);
     take({
       id: `rec-stage-${kol.id}`,
-      title: recTitle(intent, handle, days || undefined, String(kol.stage_code || "")),
+      title: recTitle(intent, handle, days || undefined, String(kol.stage_code || ""), definitions),
       reason: days
         ? `停留 ${days} 天 · 所处 ${String(kol.stage_label || "").trim() || "当前阶段"}`
         : `${String(kol.stage_label || "当前阶段")}，可以继续跟进`,
       source: "stage",
       source_label: "按阶段",
       intent,
-      prompt: recPrompt(intent, handle, String(kol.stage_code || "")),
+      prompt: recPrompt(intent, handle, String(kol.stage_code || ""), definitions),
       handle,
       collaboration_id: kol.id,
     }, handle);
   }
 
-  for (const definition of taskDefinitions()) {
+  for (const definition of definitions.values()) {
     if (picked.length >= MAX_RECOMMENDED_TASKS) break;
     if (!definition.in_market || definition.id.startsWith("sop_")) continue;
     const id = `rec-catalog-${definition.id}`;
@@ -652,7 +722,7 @@ export function buildRecommendedTasks(tasks: Json[], kols: Json[]): Json[] {
       source: "catalog",
       source_label: "任务模板",
       intent: definition.id,
-      prompt: recPrompt(definition.id, ""),
+      prompt: recPrompt(definition.id, "", "", definitions),
       handle: "",
       collaboration_id: null,
       act: "ask",
@@ -700,7 +770,7 @@ export function followReleaseTimer(lastInteractionAt?: string | null): {
   };
 }
 
-export function buildWorkbench(tasks: Json[], kols: Json[]): Json {
+export function buildWorkbench(tasks: Json[], kols: Json[], definitions = taskDefinitionIndex()): Json {
   const open = tasks.filter((task) => isOpenWorkItem(task)).map((task) => ({ ...task } as Json));
   const todo = tasks.filter((task) => isTodoWorkItem(task)).map((task) => ({ ...task, candidate: false } as Json));
   const insights = tasks.filter((task) => isInsightWorkItem(task)).map((task) => ({ ...task, candidate: true } as Json));
@@ -727,11 +797,12 @@ export function buildWorkbench(tasks: Json[], kols: Json[]): Json {
       waiting: waiting.length,
       insights: insights.length,
     },
-    open: open.map(slimWorkbenchTask),
-    todo: todo.map(slimWorkbenchTask),
-    today: today.map(slimWorkbenchTask),
-    insights: insights.map(slimWorkbenchTask),
-    recommendations: buildRecommendedTasks(tasks, kols),
+    // Counts above stay exact; the row lists are capped like every other board list.
+    open: capped(open, MAX_WORKBENCH_TASKS).map(slimWorkbenchTask),
+    todo: capped(todo, MAX_WORKBENCH_TASKS).map(slimWorkbenchTask),
+    today: capped(today, MAX_WORKBENCH_TASKS).map(slimWorkbenchTask),
+    insights: capped(insights, MAX_WORKBENCH_TASKS).map(slimWorkbenchTask),
+    recommendations: buildRecommendedTasks(tasks, kols, definitions),
     lifecycle: {
       stages,
       domains,
@@ -760,6 +831,7 @@ export function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}
   const conn = getConn();
   const owner = ownerId();
   const followScope = currentFollowScope();
+  const definitions = taskDefinitionIndex();
   const collabs = (conn.prepare(
     "SELECT * FROM collaborations WHERE kol_uid IS NOT NULL AND trim(kol_uid) != '' ORDER BY display_name",
   ).all() as Row[]).filter((row) => {
@@ -800,7 +872,7 @@ export function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}
   }
 
   const tasks: Json[] = taskRows.map((row) => {
-    const definition = taskDefinition(String(row.task_type));
+    const definition = definitions.get(String(row.task_type));
     const last = lastEventByTask.get(String(row.id));
     const events = last ? [{
       id: last.id,
@@ -885,7 +957,13 @@ export function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}
     const recent = related.length
       ? related.slice(0, 3).map((task) => `${task.title} · ${task.history_summary}`).join("；")
       : "暂无任务历史";
-    const mailThreads = (mailByCollab.get(String(row.id)) || []).map((thread) => ({
+    const allThreads = mailByCollab.get(String(row.id)) || [];
+    const unreadCount = allThreads.reduce((sum, thread) => sum + Number(thread.unread_count || 0), 0);
+    const lastInteraction = allThreads.find((thread) => thread.last_at)?.last_at || null;
+    // The full list stays on the in-memory kol because buildRecommendedTasks
+    // reads it (`inboundUnread`) to decide the 有未读来信 recommendation; only
+    // the serialized projection is capped, further down.
+    const mailThreads = allThreads.map((thread) => ({
       conversation_id: String(thread.conversation_id || ""),
       subject: String(thread.subject || "(无主题)"),
       unread_count: Number(thread.unread_count || 0),
@@ -895,10 +973,7 @@ export function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}
       last_at: thread.last_at ? String(thread.last_at) : null,
       last_direction: String(thread.last_direction || ""),
     }));
-    const unreadCount = mailThreads.reduce((sum, thread) => sum + Number(thread.unread_count || 0), 0);
-    const lastInteraction = mailThreads.find((thread) => thread.last_at)?.last_at
-      || (mailThreads[0] ? mailThreads[0].last_at : null);
-    kols.push({
+    kols.push(publicKol({
       ...kol,
       session_id: sessionByCollab.get(String(row.id)) || null,
       unread_count: unreadCount,
@@ -906,7 +981,7 @@ export function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}
       ...followReleaseTimer(lastInteraction ? String(lastInteraction) : null),
       profile_tags: profileTags(kol),
       follow_style_tags: readFollowStyleTags(row),
-      tasks: related.map((task) => ({
+      tasks: capped(related, MAX_KOL_TASKS).map((task) => ({
         id: task.id,
         title: task.title,
         status: task.status,
@@ -914,7 +989,7 @@ export function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}
       })),
       task_history: recent,
       ...cardFields(kol, recent),
-    });
+    }));
   }
 
   const tabCodes = ["all", ...MAIN_STAGES.map((stage) => stage.code), "exception"];
@@ -956,17 +1031,24 @@ export function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}
     };
   });
 
+  // Recommendations read the whole per-kol thread list above; the emitted board
+  // caps it only now, so no board logic ever sees the truncated array.
+  const workbench = buildWorkbench(decoratedTasks, kols, definitions);
+  for (const kol of kols) {
+    kol.mail_threads = capped(mailThreadsOf(kol), MAX_KOL_MAIL_THREADS);
+  }
+
   return {
     entry: "memory",
     creates_session: false,
     kols,
-    tasks: decoratedTasks,
+    tasks: capped(decoratedTasks, MAX_BOARD_TASKS),
     tabs,
-    workbench: buildWorkbench(decoratedTasks, kols),
+    workbench,
     stages: MAIN_STAGES.map((stage) => ({ code: stage.code, label: stage.label })),
     side_stages: SIDE_STAGES.map((stage) => ({ code: stage.code, label: stage.label })),
     creators_loaded: kols.length,
-    tasks_loaded: decoratedTasks.length,
+    tasks_loaded: Math.min(decoratedTasks.length, MAX_BOARD_TASKS),
     follow_scope: followScope,
   };
 }

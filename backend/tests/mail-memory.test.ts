@@ -338,9 +338,17 @@ describe("mailbox memory P0", () => {
     expect(firstMessage?.translation_zh).toBeNull();
     expect(firstMessage?.translation_source).toBe("pending");
 
+    // Per-mail read flag: the mail page labels every row 已读/未读 from this field.
+    const openedMessages = opened.body.messages as Json[];
+    expect(openedMessages.every((row) => typeof row.unread === "boolean")).toBe(true);
+    expect(openedMessages.some((row) => row.unread === true)).toBe(true);
+    expect(openedMessages.find((row) => row.direction === "outbound")?.unread).toBe(false);
+
     const read = await request("POST", `/api/mail/conversations/${thread?.id}/read`);
     expect(read.status).toBe(200);
     expect((read.body.conversation as Json).unread_count).toBe(0);
+    const afterRead = await request("GET", `/api/mail/conversations/${thread?.id}`);
+    expect((afterRead.body.messages as Json[]).every((row) => row.unread === false)).toBe(true);
     const remaining = getConn().prepare(
       "SELECT COUNT(*) AS n FROM kol_mail_items WHERE thread_id=? AND unread=1",
     ).get(String(thread?.id)) as { n: number };
@@ -377,7 +385,7 @@ describe("mailbox memory P0", () => {
     expect(fallback.body.mailbox).toBe("larry.zhao@amperetime.com");
   });
 
-  it("registers the three mailbox-memory entries without changing confirm-send", () => {
+  it("registers the four mailbox-memory entries without changing confirm-send", () => {
     const byId = Object.fromEntries(HOME_ENTRY_REGISTRY.map((row) => [row.id, row]));
     expect(byId["list-mailbox-mail"]).toMatchObject({
       kind: "memory",
@@ -391,6 +399,14 @@ describe("mailbox memory P0", () => {
       calls_model: false,
       route: expect.stringContaining("/api/mail/conversations/:id"),
     });
+    expect(byId["mail-compose-catalog"]).toMatchObject({
+      kind: "memory",
+      action: "通讯邮件任务目录",
+      creates_session: false,
+      creates_turn: false,
+      calls_model: false,
+      route: "GET /api/mail/compose-catalog",
+    });
     expect(byId["sync-mailbox-mail"]).toMatchObject({
       kind: "command",
       creates_session: false,
@@ -402,5 +418,89 @@ describe("mailbox memory P0", () => {
       action: "确认发送",
       route: "既有 L3 发信确认（本页不新开发送闸门）",
     });
+  });
+
+  it("indexes kol_mail_items by thread and counts mail without a per-thread subquery", async () => {
+    bindLarry();
+    const now = "2026-09-20T03:00:00.000Z";
+    const index = getConn()
+      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='kol_mail_items_thread'")
+      .get() as { name?: string } | undefined;
+    expect(index?.name).toBe("kol_mail_items_thread");
+
+    getConn().prepare(
+      `INSERT INTO kol_mail_threads
+         (id, conversation_id, subject, mailbox, unread_count, last_at, created_at, updated_at, digest_text, digest_source)
+       VALUES ('thr_two', '9101', 'Two mails', ?, 0, ?, ?, ?, '两封往来摘要', 'body_analysis'),
+              ('thr_one', '9102', 'One mail', ?, 0, ?, ?, ?, '', '')`,
+    ).run(
+      "larry.zhao@amperetime.com", now, now, now,
+      "larry.zhao@amperetime.com", now, now, now,
+    );
+    const item = getConn().prepare(
+      `INSERT INTO kol_mail_items
+         (id, thread_id, conversation_id, provider_message_id, direction, subject, snippet, unread, occurred_at, created_at)
+       VALUES (?, ?, ?, ?, 'inbound', 'Hello', 'Hello', 0, ?, ?)`,
+    );
+    item.run("mit_a1", "thr_two", "9101", "mid-9101-1", now, now);
+    item.run("mit_a2", "thr_two", "9101", "mid-9101-2", now, now);
+    item.run("mit_b1", "thr_one", "9102", "mid-9102-1", now, now);
+
+    const listed = await request("GET", "/api/mail/conversations");
+    const two = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "9101");
+    const one = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "9102");
+    expect(two?.message_count).toBe(2);
+    expect(one?.message_count).toBe(1);
+    // Fat digest text stays on the conversation detail, not in the list payload.
+    expect(two).not.toHaveProperty("digest_text");
+    expect(listed.body.conversations as Json[]).not.toContainEqual(expect.objectContaining({ digest_text: expect.anything() }));
+
+    const opened = await request("GET", `/api/mail/conversations/${two?.id}`);
+    expect(opened.status).toBe(200);
+    expect(opened.body.digest_text).toBe("两封往来摘要");
+  });
+
+  it("returns kol_uid/handle on the conversation list so the page needs no board fetch", async () => {
+    bindLarry();
+    await ensureFollowedMailSync(true);
+    const listed = await request("GET", "/api/mail/conversations");
+    const thread = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "3901");
+    expect(thread).toMatchObject({
+      collaboration_id: "col_xiaomei",
+      kol_uid: "KOL51DA646D8D8A4544BB93",
+      handle: "小美妆日记",
+    });
+  });
+
+  it("serves the compose catalog from the email_compose contract with no session and no model", async () => {
+    const { emailComposeContract } = await import("../src/skills/email-compose-contract.js");
+    const sessionsBefore = sessionCount();
+    const response = await app.request("/api/mail/compose-catalog");
+    expect(response.status).toBe(200);
+    expect(String(response.headers.get("cache-control") || "")).toBe("no-store");
+    const body = await response.json() as Json;
+    expect(body).toMatchObject({
+      entry: "memory",
+      kind: "memory",
+      creates_session: false,
+      creates_turn: false,
+      calls_model: false,
+    });
+    const letters = body.letters as Json[];
+    expect(letters).toHaveLength(15);
+    // Order and copy come from the skill contract — the host never re-invents labels.
+    expect(letters.map((row) => row.stage)).toEqual(Object.keys(emailComposeContract().letters));
+    expect(letters[0]).toEqual({
+      stage: "INITIAL_CONTACT",
+      chip: "写合作邮件",
+      prompt: "写合作邮件",
+      template_id: "kol.first_touch",
+      kind: "first_touch",
+    });
+    for (const letter of letters) {
+      expect(Object.keys(letter).sort()).toEqual(["chip", "kind", "prompt", "stage", "template_id"]);
+    }
+    expect(calls).toEqual([]);
+    expect(sessionCount()).toBe(sessionsBefore);
   });
 });
