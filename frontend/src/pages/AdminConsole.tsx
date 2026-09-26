@@ -3,7 +3,7 @@ import { Link, Navigate, NavLink, useLocation } from "react-router-dom";
 import { api } from "../api";
 import { useAccount } from "../components/AuthGate";
 import BrandLockup from "../components/BrandLockup";
-import UserMenu from "../components/UserMenu";
+import AccountBar from "../components/AccountBar";
 import { Admin as LegacyAdmin } from "./SimplePages";
 import AdminKnowledge from "./AdminKnowledge";
 import AdminExams from "./AdminExams";
@@ -133,7 +133,7 @@ export default function AdminConsole() {
           })}
         </nav>
         <div className="admin-nav-foot">
-          <UserMenu account={account} />
+          <AccountBar account={account} />
         </div>
       </aside>
       <div className="admin-body">

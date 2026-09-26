@@ -4,7 +4,7 @@ import { api, type Account, type SessionRow } from "../api";
 import { useAccount } from "../components/AuthGate";
 import BrandLockup from "../components/BrandLockup";
 import RouteErrorBoundary, { RouteLoadingFallback } from "../components/RouteErrorBoundary";
-import UserMenu from "../components/UserMenu";
+import AccountBar from "../components/AccountBar";
 import { ANALYZE_WORK_EVENT, loadKolAnalyzeInFlight, type AnalyzeWorkItem } from "../home/kolSurfaceApi";
 import { isKolAnalyzeInFlight, runningBadgeCount, runningBadgeHref } from "../home/kolContract";
 import { useViewMode } from "../viewMode";
@@ -313,7 +313,7 @@ export default function Workbench() {
           {appVersion ? (
             <div className="sidebar-version" data-app-version={appVersion}>v {appVersion}</div>
           ) : null}
-          <UserMenu account={me} />
+          <AccountBar account={me} />
         </div>
       </aside>
       <main className="main">

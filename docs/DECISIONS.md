@@ -32,3 +32,14 @@
 - **理由**：三层入口是 PROD-AGENT-01「入口决定路径、路由显式登记」的直接落地；澄清前置到 Host 层（结构化控件、不烧 Codex turn）与数字员工/Codex 运行时分工一致——Host 管路由、pack 装配、闸门与持久化，Codex 只在 box 内跑一份 SKILL.md 输出 schema 化 Item；参数声明住 manifest 避免注册表双真相源。
 - **影响**：新增 `docs/superpowers/specs/2026-09-23-skill-routing-param-memory-design.md`；修订 `DESIGN.md`（字号用途与密度节）与 `BUSINESS.md`（alias 登记裁定）；registry/skill-publish/判别器/resolver 契约扩展；SkillParamCard/ResultRail/NextActionBar 通用渲染器；creator_discovery 试点迁移。
 - **限制**：8 个未登记技能的快捷面/Agent 面口径、BIZ-07 公海字段仍是规则空白，待 KOL 业务专家裁定；「AI发现」alias 按用户明确要求登记。机制先行，不编其它业务口径。判别器不可用时保持诚实降级，不加本地关键词兜底。
+
+## ADR-2026-09-26：账户块取代账户菜单（分段切换 + 个人设置 + 退出，去掉弹窗）
+
+- **状态**：已接受
+- **决定者**：用户（产品发起人）；UI/UX 专家负责组件呈现与无障碍，平台产品经理负责员工端/管理端通用入口。
+- **背景**：员工端与管理端账户区是一个按钮加弹窗菜单（员工工作台 / 管理控制台 / 调试视图 / 个人设置 / 退出登录）。切工作面、进设置、退出都要先开弹窗；当前工作面不可见，窄栏还要另算弹窗定位。
+- **决定**：账户区改为常驻「账户块」——身份行（头像首字 + 姓名 + 角色）加控制行：员工端⇄管理端分段切换（`Link` + `aria-current="page"` 表达当前工作面）、个人设置、退出登录；无 admin 模式时不渲染分段。调试视图（`data-debug-toggle`）迁到「个人设置 → 偏好 → 管理员工具」，状态源仍是 `localStorage: ui:debug-view`。管理端页头「← 返回员工工作台」保留。
+- **理由**：三件事都是后果明确的常用动作，常驻控件比弹窗少一次点击，且状态可见（形状 + 辅助色 + `aria-current` 三重信号）；调试视图是个人偏好而非高频动作，住 Settings 与「一页一问」一致，也让账户块与用户给定稿的三控件形态一致。
+- **影响**：新增 `docs/superpowers/specs/2026-09-26-account-bar-design.md`；`UserMenu.tsx` 由 `AccountBar.tsx` 取代；修订 `docs/ia-information-architecture.md`（导航密度入口形态）；`frontend/src/styles.css` 增账户块、折叠轨道、管理顶栏、抽屉高度与触摸命中区规则；`frontend/e2e/workbench.spec.ts` 改用 `[data-account-*]` / `[data-surface-switch]` 选择器与 `enableDebugView` 帮手。含管理端措辞的 `DESIGN.md` 版本需同步把「账户菜单」改为「账户块」（本分支 DESIGN.md 尚无该节，留待合入时同步）。
+- **审宪记录**：需求「用户页面和管理页面用新的账户区：第一个图标切换用户端/管理端，第二个个人设置，第三个退出；图标要更好；弹窗不再需要」→ 主责 UI/UX 专家、平台产品经理 → CONST-04（通用界面与组件呈现职责）、CONST-07（界面由产品与 UI/UX 规范约束）、CONST-08、CONST-10 → 细则：`ia-information-architecture.md` §3「使用 ≠ 治理」、§4 导航密度；`DESIGN.md` §控件尺寸 / §颜色（选中态走 `--accent*`）/ §不变量 1、4、5 / §验收矩阵；`TECHNOLOGY.md` TECH-FE（前端不重写权限、审批与阶段判定）→ **符合**：管理端入口仍只在账户块，admin 判据仍是 `available_modes` / `roles`（`isAdminAccount`）；选中态用辅助色 + 形状 + `aria-current`，不占主 CTA（`--primary` 未使用）；退出登录是会话动作，不新增 L3 确认闸门，也不与发送、删除、解密合并；页脚控件在矮视口与移动抽屉里都给内容让路 → 下一步按 DESIGN 验收矩阵截图核对员工端/管理端、展开/折叠、桌面/触摸，并跑 E2E。
+- **限制**：管理员调试视图不再就地开关，需进个人设置（用一次跳转换三控件账户块，是否保留第四图标可由用户再裁决）；管理端页头返回入口与分段切换的重复关系留给下一轮 IA 复核。
