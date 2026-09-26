@@ -494,8 +494,7 @@ summary:focus-visible,
 .workbench.sidebar-collapsed:not(.admin-surface) .nav-combo .nav-dot,
 .workbench.sidebar-collapsed:not(.admin-surface) .brand-name,
 .workbench.sidebar-collapsed:not(.admin-surface) .sidebar-lucas,
-.workbench.sidebar-collapsed:not(.admin-surface) .account-copy,
-.workbench.sidebar-collapsed:not(.admin-surface) .account-more { display: none; }
+.workbench.sidebar-collapsed:not(.admin-surface) .account-copy { display: none; }
 .workbench.sidebar-collapsed:not(.admin-surface) .rail-logo { display: inline; }
 .workbench.sidebar-collapsed:not(.admin-surface) .sidebar-head { justify-content: center; padding-inline: 0; }
 .workbench.sidebar-collapsed:not(.admin-surface) .sidebar-brand { align-items: center; }
@@ -503,17 +502,39 @@ summary:focus-visible,
 .workbench.sidebar-collapsed:not(.admin-surface) .collapse-toggle { margin: 0; }
 .workbench.sidebar-collapsed:not(.admin-surface) .nav-link,
 .workbench.sidebar-collapsed:not(.admin-surface) .nav-combo { justify-content: center; padding-inline: 8px; }
-.workbench.sidebar-collapsed:not(.admin-surface) .user-chip,
-.workbench.sidebar-collapsed:not(.admin-surface) .account-pedestal {
-  display: flex;
-  width: 40px;
-  height: 40px;
-  margin: 0 auto;
-  padding: 0;
+/* 账户块在 56px 轨道里竖排：头像 / 竖向分段 / 设置 / 退出，三件事都还在，不靠弹窗。 */
+.workbench.sidebar-collapsed:not(.admin-surface) .account-bar {
   align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-full);
+  gap: var(--space-1);
+  padding-inline: 0;
 }
+.workbench.sidebar-collapsed:not(.admin-surface) .account-identity {
+  justify-content: center;
+  padding: 0;
+}
+.workbench.sidebar-collapsed:not(.admin-surface) .account-avatar {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  margin: 0 auto;
+}
+.workbench.sidebar-collapsed:not(.admin-surface) .account-actions {
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.workbench.sidebar-collapsed:not(.admin-surface) .surface-switch {
+  flex-direction: column;
+  height: auto;
+  margin-right: 0;
+}
+.workbench.sidebar-collapsed:not(.admin-surface) .surface-switch-seg {
+  width: var(--control-h);
+  height: var(--control-h);
+}
+.workbench.sidebar-collapsed:not(.admin-surface) .account-actions-split { display: none; }
+/* 56px 轨道放不下版本号整串：整行隐藏，不让 .sidebar 静默裁切（DESIGN §不变量 5）。 */
+.workbench.sidebar-collapsed:not(.admin-surface) .sidebar-version { display: none; }
 .sidebar-search-btn {
   width: 36px;
   height: 36px;
@@ -662,31 +683,31 @@ summary:focus-visible,
   gap: 0;
   flex: 0 0 auto;
 }
-.user-chip,
-.account-pedestal {
-  width: 100%;
-  min-height: 48px;
-  border: 0;
-  background: none;
-  padding: 8px 4px;
-  text-align: left;
-  cursor: pointer;
-  font-family: inherit;
+/* 账户块：身份行 + 控制行（员工端⇄管理端分段切换 / 个人设置 / 退出登录）。
+   三件事都是常驻控件，不用弹窗；员工端侧栏脚与管理端导航脚共用同一个组件。 */
+.account-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  padding-top: var(--space-1);
+}
+.account-identity {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
   color: var(--text);
 }
 .account-avatar {
-  width: 26px;
-  height: 26px;
-  flex: 0 0 26px;
+  width: var(--control-h);
+  height: var(--control-h);
+  flex: 0 0 var(--control-h);
   border-radius: var(--radius-full);
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
-  font-size: var(--font-xs);
-  font-weight: 500;
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg));
+  color: var(--accent-text);
+  font-size: var(--ds-font-sm);
+  font-weight: 600;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -709,14 +730,69 @@ summary:focus-visible,
 }
 .account-name { color: var(--text); }
 .account-role { color: var(--text-muted); }
-.account-more {
-  flex: 0 0 auto;
-  color: var(--text-muted);
-  font-size: var(--ds-font-body);
-  line-height: 1;
+.account-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  min-width: 0;
 }
-.user-menu-wrap { position: relative; }
-.user-popover { bottom: 52px; left: 0; right: 0; }
+.surface-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: var(--control-h-lg);
+  padding: 2px;
+  margin-right: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--bg);
+  flex: 0 0 auto;
+}
+.surface-switch-seg {
+  width: 34px;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-full);
+  color: var(--text-muted);
+  text-decoration: none;
+}
+.surface-switch-seg .nav-ico,
+.account-icon-btn .nav-ico { color: inherit; }
+.surface-switch-seg:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text);
+}
+.surface-switch-seg[aria-current="page"],
+.surface-switch-seg[aria-current="page"]:hover {
+  background: var(--accent-text);
+  color: var(--accent-fg);
+}
+.account-actions-split {
+  width: 1px;
+  height: 16px;
+  flex: 0 0 1px;
+  margin: 0 2px;
+  background: var(--border);
+}
+.account-icon-btn {
+  width: var(--control-h-lg);
+  height: var(--control-h-lg);
+  flex: 0 0 var(--control-h-lg);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.account-icon-btn:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  color: var(--text);
+}
 
 .main {
   min-width: 0;
@@ -6757,6 +6833,44 @@ summary:focus-visible,
 }
 .kb-hero h1, .kb-hero h2 { margin: 0 0 var(--space-2); font-size: var(--font-page-title); letter-spacing: -0.02em; font-weight: 500; line-height: var(--leading-tight); }
 .kb-lead { margin: var(--space-2) 0 var(--space-3); color: var(--muted); font-size: var(--font-body); line-height: var(--leading-body); max-width: 46em; }
+.kb-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2) var(--space-3);
+}
+.kb-search { flex: 1 1 18rem; min-width: 0; }
+.kb-search-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: var(--control-pill-height);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-ui);
+}
+.kb-filters { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-3); }
+.kb-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+  font-size: var(--font-ui);
+}
+.kb-filter select {
+  min-height: var(--control-pill-height);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-ui);
+}
 .kb-org-link { margin: 0 0 16px; font-size: var(--font-sm); }
 .kb-org-link a { color: var(--muted); }
 .kb-org-link a:hover { color: var(--kb-accent); }
@@ -6786,6 +6900,18 @@ summary:focus-visible,
   gap: 12px;
 }
 .kb-card-title-row h3 { margin: 0; font-size: var(--font-section); line-height: var(--leading-tight); }
+.kb-card { padding: var(--space-3) var(--space-4); }
+.kb-card-tags { display: flex; flex-wrap: wrap; gap: var(--space-1); justify-content: flex-end; }
+.kb-kind { color: var(--muted); }
+.kb-card-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+}
+.kb-scope { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); }
+.kb-scope-chip { color: var(--text); }
+.kb-card .kb-actions { margin-top: var(--space-1); }
 .kb-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .kb-card-head h3 { margin: 0 0 8px; font-size: var(--font-section); }
 .kb-card-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
@@ -6960,6 +7086,23 @@ summary:focus-visible,
 .kb-preview-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
 .kb-preview-subject { margin: 0 0 10px; font-size: var(--font-sm); }
 .kb-preview-subject span { color: var(--muted); margin-right: 8px; font-size: var(--font-xs); }
+.kb-provenance {
+  display: grid;
+  gap: var(--space-1);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--line);
+}
+.kb-provenance-title { margin: 0; color: var(--muted); font-size: var(--font-sm); }
+.kb-provenance-grid {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  font-size: var(--font-ui);
+}
+.kb-provenance-grid > div { display: contents; }
+.kb-provenance-grid dt { color: var(--muted); font-size: var(--font-sm); }
+.kb-provenance-grid dd { margin: 0; color: var(--text); }
 .kb-preview-body {
   white-space: pre-wrap;
   font-size: var(--font-body);
@@ -8792,7 +8935,7 @@ body {
   }
   .mobile-top a { color: var(--accent-text); min-height: 36px; display: inline-flex; align-items: center; }
   .workbench { grid-template-columns: 1fr; }
-  .sidebar { display: none; position: fixed; z-index: 100; top: 45px; bottom: 0; left: 0; width: min(300px, 88vw); min-width: 0; max-width: none; box-shadow: var(--shadow-quiet); border-right: 1px solid var(--border); }
+  .sidebar { display: none; position: fixed; z-index: 100; top: 45px; bottom: 0; left: 0; height: auto; width: min(300px, 88vw); min-width: 0; max-width: none; box-shadow: var(--shadow-quiet); border-right: 1px solid var(--border); }
   .sidebar.mobile-open { display: flex; }
   .home-hero h1 { font-size: var(--font-title); margin: var(--space-2) 0 var(--space-3); }
   .home-stage { padding: 20px 16px 12px; }
@@ -8850,10 +8993,14 @@ body {
     padding: 0;
     border: 0;
   }
-  .admin-nav .user-popover {
-    bottom: auto;
-    top: calc(100% + 4px);
+  /* 顶栏行宽够，用单行形态；260px 侧栏放不下，那里保持两行。 */
+  .admin-nav-foot .account-bar {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+    padding-top: 0;
   }
+  .admin-nav-foot .account-role { display: none; }
   .admin-body { padding: var(--space-3) var(--space-3) var(--space-5); }
   .session-shell,
   .session-shell.has-tasklist,
@@ -10402,12 +10549,6 @@ button.today-brief-primary-btn:disabled {
   color: var(--text-muted);
   line-height: 1.3;
 }
-.sidebar .account-avatar {
-  background: color-mix(in srgb, var(--accent) 14%, var(--bg));
-  color: var(--accent-text);
-  border-color: transparent;
-  font-weight: 600;
-}
 .sidebar-foot {
   border-top-color: var(--border);
 }
@@ -11770,6 +11911,15 @@ button.today-brief-primary-btn:disabled {
   .task-board-pill,
   .task-board-open,
   .task-board-edit {
+    min-height: 44px;
+  }
+  /* 账户块分段与图标按钮：触摸模态命中区 44px（docs/DESIGN.md §控件尺寸）。 */
+  .surface-switch {
+    height: auto;
+  }
+  .surface-switch-seg,
+  .account-icon-btn {
+    min-width: 44px;
     min-height: 44px;
   }
 }
@@ -13681,6 +13831,7 @@ button.today-brief-primary-btn:disabled {
   }
 }
 @media (max-width: 720px) {
+  .admin-nav-foot .account-copy { display: none; }
   .pool-compact-toolbar {
     flex-wrap: wrap;
   }

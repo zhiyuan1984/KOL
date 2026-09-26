@@ -7,6 +7,15 @@ async function saveScreenshot(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: path.join(dir, name), fullPage: true });
 }
 
+/** 调试视图住在「个人设置 → 偏好 → 管理员工具」；打开后回到原页面。 */
+async function enableDebugView(page: Page): Promise<void> {
+  const back = page.url();
+  await page.goto("/settings?tab=preferences");
+  await page.locator("[data-debug-toggle]").check();
+  await page.goto(back);
+}
+
+
 async function confirmApprovalDecision(
   card: Locator,
   decision: "approve" | "reject",
@@ -418,10 +427,10 @@ test("home task template 写合作邮件 prefills home composer then follows the
     }
   });
   await page.goto("/");
-  await expect(page.locator(".user-chip")).toContainText("鄢棽");
-  await expect(page.locator(".user-chip")).toContainText("管理员");
-  await expect(page.locator(".user-chip")).not.toContainText("sriphy");
-  await expect(page.locator(".user-chip")).not.toContainText("考试已通过");
+  await expect(page.locator(".sidebar [data-account-pedestal]")).toContainText("鄢棽");
+  await expect(page.locator(".sidebar [data-account-role]")).toContainText("管理员");
+  await expect(page.locator(".sidebar [data-account-pedestal]")).not.toContainText("sriphy");
+  await expect(page.locator(".sidebar [data-account-pedestal]")).not.toContainText("考试已通过");
   await openHomeTemplates(page);
   await homeRecByTitle(page, "写合作邮件").click();
   await expectHomeComposerDraft(page, "写合作邮件 发件箱 [发件邮箱] 发给 [收件邮箱] 主题：[主题]");
@@ -2662,7 +2671,9 @@ test("sidebar collapse persists without removing navigation", async ({ page }) =
   await page.goto("/");
   await page.getByRole("button", { name: "收起侧栏" }).click();
   await expect(page.locator(".workbench")).toHaveClass(/sidebar-collapsed/);
-  await expect(page.locator(".sidebar .user-chip")).toBeVisible();
+  await expect(page.locator(".sidebar [data-account-pedestal]")).toBeVisible();
+  await expect(page.locator(".sidebar [data-surface-switch-group]")).toBeVisible();
+  await expect(page.locator(".sidebar [data-account-logout]")).toBeVisible();
   await expect(page.locator('a[href="/skills"]')).toHaveCount(1);
   await page.reload();
   await expect(page.locator(".workbench")).toHaveClass(/sidebar-collapsed/);
@@ -2775,12 +2786,16 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator(".workbench")).toHaveAttribute("data-view-mode", "business");
   await expect(page.locator('.sidebar a[href="/admin/connectors"]')).toHaveCount(0);
   await expect(page.locator('[data-nav="connectors"]')).toHaveAttribute("href", "/connectors");
-  await page.locator(".user-chip").click();
-  const employeeMenu = page.locator(".sidebar .user-popover");
-  await expect(employeeMenu.getByRole("link", { name: "管理控制台" })).toHaveCount(0);
-  await expect(employeeMenu.getByRole("link", { name: "连接器" })).toHaveCount(0);
-  await expect(employeeMenu.getByRole("link", { name: /Starry|连接 Starry 邮箱/ })).toHaveCount(0);
-  await expect(employeeMenu.locator("[data-starry-menu], [data-connector-use-menu]")).toHaveCount(0);
+  const employeeAccount = page.locator(".sidebar [data-account-bar]");
+  await expect(employeeAccount.locator("[data-account-role]")).not.toContainText("管理员");
+  await expect(employeeAccount.locator('[data-surface-switch="admin"]')).toHaveCount(0);
+  await expect(employeeAccount.locator("[data-account-settings]")).toBeVisible();
+  await expect(employeeAccount.locator("[data-account-logout]")).toBeVisible();
+  await expect(employeeAccount.locator("[data-starry-menu], [data-connector-use-menu]")).toHaveCount(0);
+  await expect(page.locator(".user-popover")).toHaveCount(0);
+  await expect(page.locator("[data-debug-toggle]")).toHaveCount(0);
+  await page.goto("/settings?tab=preferences");
+  await expect(page.locator("[data-admin-tools]")).toHaveCount(0);
   await expect(page.locator("[data-debug-toggle]")).toHaveCount(0);
   await page.goto("/market/skills");
   await expect(page.locator("[data-hub-new]")).toHaveCount(0);
@@ -2966,9 +2981,8 @@ test("admin debug toggle reveals connector tiles on the skill hub", async ({ pag
   await page.goto("/market/skills");
   await expect(page.locator(".workbench")).toHaveAttribute("data-view-mode", "business");
   await expect(page.locator('[data-connector="starrykol"]')).toHaveCount(0);
-  await page.locator(".user-chip").click();
   await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
-  await page.locator("[data-debug-toggle]").click();
+  await enableDebugView(page);
   await expect(page.locator(".workbench")).toHaveAttribute("data-view-mode", "debug");
   await expect(page.locator('[data-connector="starrykol"]')).toBeVisible();
   await expect(page.locator('[data-nav="skills"]')).toBeVisible();
@@ -2979,35 +2993,26 @@ test("admin debug toggle reveals connector tiles on the skill hub", async ({ pag
   await expect(page.locator('nav[aria-label="资产"] [data-nav="skills"]')).toHaveCount(0);
 });
 
-test("user menu switches employee, admin, and settings workspaces", async ({ page }) => {
+test("account bar switches employee, admin, and settings workspaces", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".sidebar .user-chip").click();
-  const userMenu = page.locator(".sidebar .user-popover");
-  await expect(userMenu.getByRole("link", { name: "员工工作台" })).toBeVisible();
-  await expect(userMenu.getByRole("link", { name: "管理控制台" })).toBeVisible();
-  await expect(userMenu.getByRole("link", { name: "个人设置" })).toBeVisible();
-  await expect(userMenu.getByRole("button", { name: "打开调试视图" })).toBeVisible();
-  await expect(userMenu.getByRole("button", { name: "退出登录" })).toBeVisible();
-  await expect(userMenu.getByRole("link", { name: "连接器" })).toHaveCount(0);
-  await expect(userMenu.getByRole("link", { name: /Starry|连接 Starry 邮箱/ })).toHaveCount(0);
-  await expect(userMenu.locator("[data-starry-menu], [data-connector-use-menu]")).toHaveCount(0);
-  await userMenu.getByRole("link", { name: "管理控制台" }).click();
+  const employeeBar = page.locator(".sidebar [data-account-bar]");
+  await expect(employeeBar.locator('[data-surface-switch="employee"]')).toHaveAttribute("aria-current", "page");
+  await expect(employeeBar.locator('[data-surface-switch="admin"]')).not.toHaveAttribute("aria-current", "page");
+  await expect(employeeBar.locator("[data-account-settings]")).toHaveAttribute("href", "/settings");
+  await expect(employeeBar.locator("[data-account-logout]")).toBeVisible();
+  await expect(employeeBar.locator("[data-starry-menu], [data-connector-use-menu]")).toHaveCount(0);
+  await expect(page.locator(".user-popover")).toHaveCount(0);
+  await employeeBar.locator('[data-surface-switch="admin"]').click();
+  await expect(page).toHaveURL(/\/admin$/);
   await expect(page.locator("[data-admin-ia='governance']")).toBeVisible();
   await expect(page.locator("[data-admin-account]")).toContainText("当前账户");
   await expect(page.locator("[data-admin-context]")).toHaveText("管理");
-  await expect(page.locator(".admin-nav .user-chip")).toBeVisible();
-  await expect(page.locator(".admin-nav .user-chip")).toContainText("管理员");
-  await page.locator(".admin-nav .user-chip").click();
-  const adminMenu = page.locator(".admin-nav .user-popover");
-  await expect(adminMenu.getByRole("link", { name: "员工工作台" })).toBeVisible();
-  await expect(adminMenu.getByRole("link", { name: "管理控制台" })).toBeVisible();
-  await expect(adminMenu.getByRole("link", { name: "个人设置" })).toBeVisible();
-  await expect(adminMenu.getByRole("link", { name: "连接器" })).toHaveCount(0);
-  await expect(adminMenu.locator("[data-starry-menu], [data-connector-use-menu]")).toHaveCount(0);
-  await adminMenu.getByRole("link", { name: "员工工作台" }).click();
+  const adminBar = page.locator(".admin-nav [data-account-bar]");
+  await expect(adminBar).toContainText("管理员");
+  await expect(adminBar.locator('[data-surface-switch="admin"]')).toHaveAttribute("aria-current", "page");
+  await adminBar.locator('[data-surface-switch="employee"]').click();
   await expect(page.locator("[data-home]")).toBeVisible();
-  await page.locator(".sidebar .user-chip").click();
-  await page.locator(".sidebar .user-popover").getByRole("link", { name: "个人设置" }).click();
+  await page.locator(".sidebar [data-account-settings]").click();
   await expect(page).toHaveURL(/\/settings/);
 });
 
@@ -3119,16 +3124,14 @@ test("employee partners path is an honest stub, not a Home or skill board", asyn
   await expect(page.locator("[data-skill-hub]")).toHaveCount(0);
   await expect(page.locator("[data-hub-chrome], [data-hub-mode], [data-partner]")).toHaveCount(0);
   await expect(page.locator('a[href="/pipeline"]')).toHaveCount(0);
-  await expect(page.locator('a[href="/admin"], a[href="/admin/connectors"]')).toHaveCount(0);
+  // 账户块的「管理端」分段（[data-surface-switch=admin]）是合法入口（ia §4）；这里只查工作区内容不再深链治理页。
+  await expect(page.locator('main a[href="/admin"], main a[href="/admin/connectors"]')).toHaveCount(0);
   await expect(page.locator('[data-nav="skills"].active')).toHaveCount(0);
   await expect.poll(() => pipelineHits).toEqual([]);
   await expect.poll(() => boardHits).toEqual([]);
-  await page.locator(".user-chip").click();
-  if (await page.locator("[data-debug-toggle]").count()) {
-    await page.locator("[data-debug-toggle]").click();
-    await expect(page.locator('[data-nav="skills"]')).toBeVisible();
-    await expect(page.locator('[data-nav="skills"]')).not.toHaveClass(/active/);
-  }
+  await enableDebugView(page);
+  await expect(page.locator('[data-nav="skills"]')).toBeVisible();
+  await expect(page.locator('[data-nav="skills"]')).not.toHaveClass(/active/);
 });
 
 test("docs/org-permissions.md employee sidebar has no admin connectors deep-link", async ({ page }) => {
@@ -3173,8 +3176,8 @@ test("admin console uses a left sidebar with short labels for the current accoun
   await expect(page.locator("[data-admin-account]")).toContainText("当前账户");
   await expect(page.locator("[data-admin-context]")).toHaveText("管理");
   await expect(page.locator("[data-admin-role]")).toBeVisible();
-  await expect(page.locator(".admin-nav .user-chip")).toBeVisible();
-  await expect(page.locator(".admin-nav .user-chip")).toContainText("管理员");
+  await expect(page.locator(".admin-nav [data-account-pedestal]")).toBeVisible();
+  await expect(page.locator(".admin-nav [data-account-role]")).toContainText("管理员");
   await expect(page.getByRole("link", { name: "返回员工工作台" })).toBeVisible();
 
   await page.locator("[data-admin-nav='connectors']").click();
@@ -3305,7 +3308,10 @@ test("admin L3 destructive writes open confirm dialog with cancel focused", asyn
   await page.locator("[data-admin-nav='knowledge']").click();
   await expect(page.locator("[data-admin-knowledge]")).toBeVisible();
   await expect(page.locator(".kb-step-n, .kb-hero-admin")).toHaveCount(0);
+  await expect(page.locator("[data-admin-kb-view='todo']")).toBeVisible();
   await expect(page.locator("[data-admin-knowledge-review]")).toBeVisible();
+  await page.locator("[data-admin-kb-tab='assets']").click();
+  await expect(page.locator("[data-admin-kb-view='assets']")).toBeVisible();
   await expect(page.locator("[data-admin-knowledge-assets]")).toBeVisible();
   const hardDelete = page.locator("[data-kb-hard-delete]").first();
   if (await hardDelete.count()) {
@@ -3394,11 +3400,10 @@ test("docs/org-permissions.md admin connectors hub renders", async ({ page }) =>
 
 test("admin and settings expose bind Starry mailbox menus", async ({ page }) => {
   await page.goto("/");
-  await page.locator(".sidebar .user-chip").click();
-  const userMenu = page.locator(".sidebar .user-popover");
-  await expect(userMenu.locator("[data-starry-menu], [data-connector-use-menu]")).toHaveCount(0);
-  await expect(userMenu.getByRole("link", { name: /Starry|连接 Starry 邮箱/ })).toHaveCount(0);
-  await userMenu.getByRole("link", { name: "个人设置" }).click();
+  const accountBar = page.locator(".sidebar [data-account-bar]");
+  await expect(accountBar.locator("[data-starry-menu], [data-connector-use-menu]")).toHaveCount(0);
+  await expect(accountBar.getByRole("link", { name: /Starry|连接 Starry 邮箱/ })).toHaveCount(0);
+  await accountBar.locator("[data-account-settings]").click();
   await expect(page).toHaveURL(/\/settings/);
   await page.getByRole("tab", { name: "连接 Starry" }).click();
   await expect(page).toHaveURL(/\/settings\?tab=starry/);
@@ -3414,8 +3419,7 @@ test("admin and settings expose bind Starry mailbox menus", async ({ page }) => 
   await page.goto("/admin");
   await expect(page.locator('[data-admin-nav="starry"], [data-admin-tab="starry"]')).toHaveCount(0);
   await expect(page.locator("[data-starry-bind]")).toHaveCount(0);
-  await page.locator(".admin-nav .user-chip").click();
-  await expect(page.locator(".admin-nav .user-popover [data-starry-menu], .admin-nav .user-popover [data-connector-use-menu]")).toHaveCount(0);
+  await expect(page.locator(".admin-nav [data-account-bar] [data-starry-menu], .admin-nav [data-account-bar] [data-connector-use-menu]")).toHaveCount(0);
   await page.goto("/admin/starry");
   await expect(page).toHaveURL(/\/settings\?tab=starry/);
   await expect(page.locator("[data-starry-bind]")).toBeVisible();
@@ -4133,8 +4137,7 @@ test("generic creator profile task result stays in the standard result renderer"
 
 test("skill hub lists the two managed MCP connectors", async ({ page }) => {
   await page.goto("/market/skills");
-  await page.locator(".user-chip").click();
-  await page.locator("[data-debug-toggle]").click();
+  await enableDebugView(page);
   await expect(page.locator(".workbench")).toHaveAttribute("data-view-mode", "debug");
   await expect(page.locator('[data-connector="starrykol"]')).toContainText("Starry KOL MCP");
   await expect(page.locator('[data-connector="claw"]')).toContainText("MediaCrawler MCP");

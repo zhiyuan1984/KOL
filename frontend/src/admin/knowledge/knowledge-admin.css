@@ -1,0 +1,294 @@
+/* 知识治理管理端（六子视图）。
+   只用 frontend/src/styles.css 的既有 token：不写 hex、不写 px 字面量。
+   类前缀 .kbadmin-，避免与员工端 .kb-* 规则互相影响。 */
+
+.kbadmin-tabs {
+  margin-top: 0;
+}
+
+/* 行内动作：链接式，不抢该视口唯一的实底主 CTA。 */
+.kbadmin-action-link {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: var(--font-ui);
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: var(--focus-ring-offset);
+  cursor: pointer;
+  min-height: var(--hit-min);
+  display: inline-flex;
+  align-items: center;
+}
+
+.kbadmin-action-link:hover {
+  text-decoration-thickness: var(--focus-ring-width);
+}
+
+.kbadmin-action-link:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.kbadmin-action-link:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.kbadmin-action-danger {
+  color: var(--danger);
+}
+
+.kbadmin-title-link {
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: var(--focus-ring-offset);
+}
+
+.kbadmin-title-link:hover {
+  text-decoration-color: var(--accent);
+}
+
+.kbadmin-title-link:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.kbadmin-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.kbadmin-primary-slot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.kbadmin-secondary-actions {
+  margin-top: var(--space-3);
+}
+
+.kbadmin-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2) var(--space-3);
+  margin: var(--space-3) 0;
+}
+
+.kbadmin-filter-count {
+  margin: 0;
+}
+
+.kbadmin-form {
+  margin: var(--space-3) 0;
+}
+
+.kbadmin-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--ds-control-w)), 1fr));
+  gap: var(--space-2) var(--space-3);
+}
+
+.kbadmin-upload {
+  cursor: pointer;
+}
+
+.kbadmin-refs summary {
+  cursor: pointer;
+  min-height: var(--hit-min);
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent-text);
+}
+
+.kbadmin-refs ul,
+.kbadmin-ref-list {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
+}
+
+.kbadmin-refs li,
+.kbadmin-ref-list li {
+  margin: var(--space-1) 0;
+}
+
+.kbadmin-body {
+  margin: var(--space-2) 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--canvas);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-sm);
+  line-height: var(--leading-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 45vh;
+  overflow: auto;
+}
+
+.kbadmin-version {
+  align-items: flex-start;
+}
+
+.kbadmin-version-body {
+  flex-basis: 100%;
+  margin-top: var(--space-2);
+}
+
+.kbadmin-compare {
+  margin-top: var(--space-4);
+}
+
+.kbadmin-compare > .admin-section-head {
+  align-items: center;
+}
+
+.kbadmin-diff-block {
+  margin-top: var(--space-3);
+}
+
+.kbadmin-diff-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+  font-size: var(--font-meta);
+  color: var(--muted);
+}
+
+.kbadmin-diff-state {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+}
+
+.kbadmin-diff-state.is-changed {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.kbadmin-diff-lines {
+  margin: 0;
+  padding: var(--space-2);
+  list-style: none;
+  background: var(--canvas);
+  border-radius: var(--radius-sm);
+  font-family: var(--mono);
+  font-size: var(--font-sm);
+  overflow-x: auto;
+}
+
+.kbadmin-diff-line {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.kbadmin-diff-prefix {
+  flex: 0 0 auto;
+  font-weight: 700;
+}
+
+.kbadmin-diff-line.is-add {
+  background: color-mix(in srgb, var(--success) 10%, var(--bg));
+  box-shadow: inset var(--focus-ring-width) 0 0 var(--success);
+  font-weight: 600;
+}
+
+.kbadmin-diff-line.is-del {
+  background: color-mix(in srgb, var(--danger) 10%, var(--bg));
+  box-shadow: inset var(--focus-ring-width) 0 0 var(--danger);
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.kbadmin-diff-line.is-same {
+  color: var(--text);
+}
+
+.kbadmin-diff-note {
+  margin-top: var(--space-2);
+}
+
+.kbadmin-diff-table th[scope="row"] {
+  font-weight: 600;
+}
+
+.kbadmin-two-col {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 24ch), 1fr));
+  gap: var(--space-3);
+}
+
+.kbadmin-col {
+  background: var(--canvas);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+}
+
+.kbadmin-col h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-meta);
+  color: var(--muted);
+}
+
+.kbadmin-col p {
+  margin: var(--space-1) 0;
+}
+
+.kbadmin-skip-reason {
+  display: inline-block;
+  margin-left: var(--space-2);
+  padding: 0 var(--space-2);
+  border-radius: var(--ds-radius-tag);
+  background: color-mix(in srgb, var(--warning) 12%, var(--bg));
+  color: var(--text);
+  font-size: var(--font-xs);
+}
+
+.kbadmin-reason-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: var(--space-2) 0;
+}
+
+.kbadmin-reason {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.kbadmin-pick {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--hit-min);
+  cursor: pointer;
+}
+
+.kbadmin-handled {
+  color: var(--text);
+  font-size: var(--font-sm);
+}
+
+.kbadmin-actionbar {
+  position: sticky;
+  bottom: 0;
+}
+
+.admin-kb .admin-table tr.is-selected > td {
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  box-shadow: inset var(--focus-ring-width) 0 0 var(--accent);
+}

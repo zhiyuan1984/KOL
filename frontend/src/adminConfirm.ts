@@ -50,7 +50,9 @@ export type AdminConfirmKind =
   | "draft-send"
   | "memory-delete"
   | "session-delete"
-  | "starry-unbind";
+  | "starry-unbind"
+  | "knowledge-rollback"
+  | "knowledge-binding-delete";
 
 /** Admin-opened confirms: Cancel abandons the write. It is not Host-proposal 拒绝. */
 export const ADMIN_CANCEL_LABEL = "取消，不执行";
@@ -396,5 +398,29 @@ export function starryUnbindConfirm(mailbox = "", owner = ""): AdminConfirmCopy 
     requireReason: true,
     reasonLabel: "拒绝原因",
     reasonPlaceholder: "关闭或取消解除前，说明为什么不继续",
+  };
+}
+
+export function knowledgeRollbackConfirm(title: string, fromVersion: number, toVersion: number): AdminConfirmCopy {
+  const from = fromVersion > 0 ? `第 ${fromVersion} 版` : "当前版本";
+  const to = toVersion > 0 ? `第 ${toVersion} 版` : "历史版本";
+  return {
+    kind: "knowledge-rollback",
+    title: "回滚知识版本",
+    object: named(title, `${from} → ${to}`),
+    scope: "知识版本回滚",
+    consequence: "以历史版本生成新草稿，需重新审批后才对员工生效；历史版本保留。",
+    confirmLabel: "确认生成新草稿",
+  };
+}
+
+export function knowledgeBindingDeleteConfirm(skillLabel: string, selectorSummary: string): AdminConfirmCopy {
+  return {
+    kind: "knowledge-binding-delete",
+    title: "删除知识绑定",
+    object: named(skillLabel, selectorSummary),
+    scope: "技能与知识的绑定关系",
+    consequence: "删除后该技能不再解析到这些知识。",
+    confirmLabel: "确认删除",
   };
 }

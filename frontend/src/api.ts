@@ -742,6 +742,9 @@ export type EmailCard = {
   knowledge_id?: string;
   knowledge_version?: number;
   draft_id: string;
+  knowledge_id?: string | null;
+  knowledge_version?: number | null;
+  knowledge_title?: string | null;
   collaboration_id?: string;
   expected_version?: number;
   from: string;
@@ -1453,7 +1456,15 @@ export const api = {
   },
   profiles: () => fetch("/api/profiles").then((r) => r.json()),
   skillMarket: () => request<Array<Record<string, unknown>>>("/api/skills/market"),
-  knowledge: () => request<KnowledgeRow[]>("/api/knowledge"),
+  knowledge: (opts: { q?: string; kind?: string; stage?: string; brand?: string } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.q) params.set("q", opts.q);
+    if (opts.kind) params.set("kind", opts.kind);
+    if (opts.stage) params.set("stage", opts.stage);
+    if (opts.brand) params.set("brand", opts.brand);
+    const qs = params.toString();
+    return request<KnowledgeRow[]>(qs ? `/api/knowledge?${qs}` : "/api/knowledge");
+  },
   kbMarket: () => request<KnowledgeRow[]>("/api/knowledge/market"),
   knowledgeItem: (id: string) => request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}`),
   citeKnowledge: (id: string) =>
@@ -1479,8 +1490,8 @@ export const api = {
     request<KnowledgeRow>("/api/admin/knowledge", { method: "POST", body: JSON.stringify(body) }),
   editKnowledge: (id: string, body: Record<string, unknown>) =>
     request<KnowledgeRow>(`/api/admin/knowledge/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(body) }),
-  approveKnowledge: (id: string) =>
-    request<KnowledgeRow>(`/api/admin/knowledge/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify({}) }),
+  approveKnowledge: (id: string, expectedVersion: number) =>
+    request<KnowledgeRow>(`/api/admin/knowledge/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify({ expected_version: expectedVersion }) }),
   archiveKnowledge: (id: string) =>
     request<KnowledgeRow>(`/api/admin/knowledge/${encodeURIComponent(id)}/archive`, { method: "POST", body: JSON.stringify({}) }),
   deleteKnowledge: (id: string) =>
@@ -1507,6 +1518,51 @@ export const api = {
     fd.append("file", file);
     return request<Record<string, unknown>>("/api/admin/knowledge/upload", { method: "POST", body: fd });
   },
+  adminKnowledgeAssets: () =>
+    request<Array<KnowledgeRow & { ref_skills?: string[]; effective_at?: string; expires_at?: string }>>(
+      "/api/admin/knowledge/assets",
+    ),
+  adminKnowledgeVersion: (id: string, version: number) =>
+    request<Record<string, unknown>>(
+      `/api/admin/knowledge/${encodeURIComponent(id)}/versions/${encodeURIComponent(String(version))}`,
+    ),
+  adminKnowledgeRollback: (id: string, version: number) =>
+    request<KnowledgeRow>(`/api/admin/knowledge/${encodeURIComponent(id)}/rollback`, {
+      method: "POST",
+      body: JSON.stringify({ version }),
+    }),
+  adminKnowledgeGrants: (id: string) =>
+    request<{ org: string[]; team: string[]; user: string[] }>(`/api/admin/knowledge/${encodeURIComponent(id)}/grants`),
+  adminKnowledgeSetGrants: (id: string, body: { org: string[]; team: string[]; user: string[] }) =>
+    request<{ org: string[]; team: string[]; user: string[] }>(`/api/admin/knowledge/${encodeURIComponent(id)}/grants`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  adminKnowledgeBindings: () => request<Record<string, unknown>[]>("/api/admin/knowledge/bindings"),
+  adminKnowledgeBindingSave: (body: Record<string, unknown>) => {
+    const id = String(body.id || "");
+    return request<Record<string, unknown>>(
+      id ? `/api/admin/knowledge/bindings/${encodeURIComponent(id)}` : "/api/admin/knowledge/bindings",
+      { method: id ? "PATCH" : "POST", body: JSON.stringify(body) },
+    );
+  },
+  adminKnowledgeBindingDelete: (id: string) =>
+    request<Record<string, unknown>>(`/api/admin/knowledge/bindings/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  adminKnowledgeResolvePreview: (body: { skill_id: string; user_id?: string; stage_code?: string; brand?: string }) =>
+    request<{
+      resolved: Array<Record<string, unknown>>;
+      skipped: Array<Record<string, unknown>>;
+      bindings: Array<Record<string, unknown>>;
+    }>("/api/admin/knowledge/resolve-preview", { method: "POST", body: JSON.stringify(body) }),
+  adminKnowledgeFeedback: () => request<Array<Record<string, unknown>>>("/api/admin/knowledge/feedback"),
+  adminKnowledgeFeedbackHandle: (
+    id: string,
+    body: { user_id: string; action: "to_revision" | "archive" | "ignore"; note?: string },
+  ) =>
+    request<Record<string, unknown>>(`/api/admin/knowledge/${encodeURIComponent(id)}/feedback-handle`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   cron: () => request<Record<string, unknown>>("/api/cron/risks"),
   cronJobs: () => request<{ jobs: CronJob[]; alerts?: CronAlerts }>("/api/cron/jobs"),
   createCronJob: (body: Record<string, unknown>) =>

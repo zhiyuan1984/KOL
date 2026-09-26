@@ -1494,7 +1494,15 @@ export function emailCardPayload(d: Row): Json {
   if (String(d.skill) === "email_compose") {
     buttons.push("确认推进阶段");
   }
+  const knowledgeId = String(extra.knowledge_id || "").trim();
+  const knowledgeVersion = Number(extra.knowledge_version);
+  const knowledgeTitle = knowledgeId
+    ? (getConn().prepare("SELECT title FROM knowledge WHERE id=?").get(knowledgeId) as { title?: string } | undefined)?.title
+    : null;
   return {
+    knowledge_id: knowledgeId || null,
+    knowledge_version: knowledgeId && Number.isFinite(knowledgeVersion) ? knowledgeVersion : null,
+    knowledge_title: knowledgeTitle ? String(knowledgeTitle) : null,
     draft_id: d.id,
     collaboration_id: d.collaboration_id,
     expected_version: colVer,

@@ -21,7 +21,7 @@ export function directory(): Directory {
   };
 }
 
-function memberScopeIds(handle: string): { orgs: string[]; teams: string[] } {
+export function memberScopeIds(handle: string): { orgs: string[]; teams: string[] } {
   const rows = getConn()
     .prepare("SELECT scope, scope_id FROM memberships WHERE user_handle = ?")
     .all(handle) as { scope: string; scope_id: string }[];

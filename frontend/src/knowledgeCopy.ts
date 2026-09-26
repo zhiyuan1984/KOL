@@ -426,3 +426,197 @@ export function rememberKbRecent(id: string): { id: string; at: number }[] {
   }
   return next;
 }
+
+/* ---- 管理端知识治理（六子视图）文案 ---- */
+
+export type KbAdminView = "todo" | "assets" | "detail" | "ingest" | "bindings" | "feedback";
+
+export type KbAdminNavItem = {
+  view: Exclude<KbAdminView, "detail">;
+  path: string;
+  label: string;
+  question: string;
+};
+
+export const KB_ADMIN_DEFAULT_PATH = "/admin/knowledge";
+export const KB_ADMIN_ASSETS_PATH = "/admin/knowledge/assets";
+
+/** 子导航顺序 = 路由顺序；深链直接可达，不靠前端状态。 */
+export const KB_ADMIN_NAV: KbAdminNavItem[] = [
+  { view: "todo", path: KB_ADMIN_DEFAULT_PATH, label: "待办", question: "有什么在等我决定？" },
+  { view: "assets", path: KB_ADMIN_ASSETS_PATH, label: "资产", question: "有哪些资产、什么状态、被谁用？" },
+  { view: "ingest", path: "/admin/knowledge/ingest", label: "入库", question: "素材入库与提取成败？" },
+  { view: "bindings", path: "/admin/knowledge/bindings", label: "引用", question: "哪些技能会拿到哪些知识、为什么？" },
+  { view: "feedback", path: "/admin/knowledge/feedback", label: "反馈", question: "员工反馈了什么、怎么处置？" },
+];
+
+export const KB_ADMIN_VIEW_TITLE: Record<KbAdminView, string> = {
+  todo: "知识待办",
+  assets: "知识资产",
+  detail: "资产详情",
+  ingest: "资料入库",
+  bindings: "知识引用",
+  feedback: "反馈处置",
+};
+
+export const KB_ADMIN_VIEW_LEAD: Record<KbAdminView, string> = {
+  todo: "待审、草稿、隔离提案与到期提醒汇总在这里；每行只把你带到详情。",
+  assets: "全部知识资产与治理状态。行点开是详情；新建只写草稿，发布仍要审批。",
+  detail: "这份资产的治理状态与影响面；主行动按当前状态唯一渲染。",
+  ingest: "上传只进原文库；抽取只生成待审草稿，不会自动发布。",
+  bindings: "绑定决定哪个技能在运行时取哪类知识。保存不等于已注入，下次运行才按新配置解析。",
+  feedback: "员工隐藏知识的原因与处置；处置写审计与回执，不自动改主文档。",
+};
+
+/** 解析跳过原因（8 个枚举全覆盖）。 */
+export const KB_SKIP_REASON_LABEL: Record<string, string> = {
+  missing: "找不到这条知识",
+  not_published: "未发布",
+  scope_mismatch: "范围不匹配",
+  not_cited: "使用者未启用",
+  deprecated_by_user: "使用者已隐藏",
+  expired: "已过期",
+  shadowed_by_higher_priority: "被同类型更高优先级遮蔽",
+  binding_disabled: "绑定已停用",
+};
+
+export function kbSkipReasonLabel(reason?: string): string {
+  const code = String(reason || "").trim();
+  if (!code) return "未给出原因";
+  return KB_SKIP_REASON_LABEL[code] || code;
+}
+
+export const KB_ADMIN_ACTION = {
+  viewDetail: "查看",
+  edit: "编辑",
+  approve: "审批发布",
+  saveVersion: "保存为新版本",
+  createDraft: "新建知识",
+  saveDraft: "保存草稿",
+  upload: "上传资料",
+  extract: "抽取成待审页",
+  retry: "重试",
+  newBinding: "新增绑定",
+  saveBinding: "保存绑定",
+  preview: "试算",
+  toRevision: "转修订",
+  archive: "归档",
+  ignore: "忽略",
+  approveProposal: "批准",
+  rejectProposal: "否决",
+  rollback: "回滚",
+  compare: "对比所选两版",
+  clearCompare: "清除对比",
+  expandVersion: "展开全文",
+  collapseVersion: "收起全文",
+} as const;
+
+export const KB_ADMIN_EMPTY = {
+  review: "没有待审批的知识。",
+  drafts: "没有还没发布的草稿。",
+  proposals: "暂无隔离提案。",
+  expiry: "30 天内没有到期的知识。",
+  assets: "还没有知识资产。可以新建一份草稿，或先去「入库」上传素材。",
+  assetsFiltered: "没有符合当前筛选的资产。",
+  detailMissing: "找不到这份知识，可能已被删除。",
+  versions: "还没有版本记录。",
+  refs: "暂时没有技能绑定会解析到这份知识。",
+  grants: "没有授权行：已发布即对全部账号可见。",
+  ingestRaw: "暂无原文。失败会话（催大纲缺创作者、报价被拦）会自动出现在这里。",
+  ingestJobs: "还没有提取作业。",
+  bindings: "还没有绑定：技能会按现行「本人已启用 + 阶段优先」回退挑选。",
+  bindingsFiltered: "没有符合当前筛选的绑定。",
+  previewResolved: "这次试算没有命中任何知识。",
+  previewSkipped: "这次试算没有跳过项。",
+  feedback: "还没有员工反馈。",
+  feedbackAggregate: "暂无可聚合的反馈原因。",
+};
+
+export function kbFeedbackActionLabel(action?: string): string {
+  const map: Record<string, string> = { to_revision: "已转修订", archive: "已归档", ignore: "已忽略" };
+  const code = String(action || "").trim();
+  return map[code] || code || "—";
+}
+
+export function kbFeedbackReasonLabel(reason?: string): string {
+  return hideReasonLabel(reason) || reason || "";
+}
+
+/** 到期提醒只做提示，不自动动作。 */
+export function kbExpiryLabel(expiresAt?: string): string {
+  const raw = String(expiresAt || "").trim();
+  if (!raw) return "";
+  const at = new Date(raw).getTime();
+  if (Number.isNaN(at)) return `到期时间：${raw}`;
+  const days = Math.ceil((at - Date.now()) / 86_400_000);
+  if (days < 0) return `已过期 ${Math.abs(days)} 天`;
+  if (days === 0) return "今天到期";
+  return `${days} 天后到期`;
+}
+
+/* ---- 员工端 /kb：服务端搜索、适用筛选与来源溯源（阶段 3）---- */
+
+export const KB_SEARCH_LABEL = "搜索资料";
+export const KB_SEARCH_PLACEHOLDER = "搜标题、主题或正文关键词";
+export const KB_SEARCH_CLEAR = "清空搜索";
+export const KB_FILTER_ALL = "全部";
+export const KB_FILTER_LABEL: Record<"stage" | "brand", string> = {
+  stage: "适用阶段",
+  brand: "适用品牌",
+};
+export const KB_LOADING = "正在加载资料…";
+export const KB_EMPTY_SEARCH = "没有匹配的资料。换个关键词，或清空搜索看全部。";
+export const KB_EMPTY_FILTER = "没有符合当前适用筛选的资料。放宽阶段或品牌再看。";
+export const KB_PROVENANCE_TITLE = "来源与版本";
+export const KB_PROVENANCE_LABEL = {
+  author: "发布人",
+  version: "版本",
+  updated: "更新时间",
+  scope: "适用",
+} as const;
+
+/** 行内适用 chips：有阶段/品牌就显示代码，没有就诚实写「全阶段 / 通用」。 */
+export function kbScopeTags(row: Pick<KnowledgeRow, "stage_codes" | "brand">): string[] {
+  const stages = (row.stage_codes || []).map((code) => String(code || "").trim()).filter(Boolean);
+  const brand = String(row.brand || "").trim();
+  return [
+    stages.length ? `阶段：${stages.join(" / ")}` : "全阶段",
+    brand && brand !== "*" ? `品牌：${brand}` : "通用",
+  ];
+}
+
+/** 与后端 knowledgeListFilters 同口径：无阶段/无品牌行视为通用，不被筛选排除。 */
+export function kbMatchesFilter(
+  row: Pick<KnowledgeRow, "stage_codes" | "brand">,
+  stage: string,
+  brand: string,
+): boolean {
+  if (stage) {
+    const codes = row.stage_codes || [];
+    if (codes.length && !codes.includes(stage)) return false;
+  }
+  if (brand) {
+    const code = String(row.brand || "*");
+    if (code !== "*" && code !== brand) return false;
+  }
+  return true;
+}
+
+export function kbRowVersionLine(
+  row: Pick<KnowledgeRow, "current_version" | "updated_at" | "approved_at" | "created_at">,
+): string {
+  const bits: string[] = [];
+  if (row.current_version) bits.push(`第 ${row.current_version} 版`);
+  const when = formatKbTime(row.updated_at || row.approved_at || row.created_at);
+  if (when) bits.push(`更新于 ${when}`);
+  return bits.join(" · ");
+}
+
+export function kbAuthorLabel(createdBy?: string): string {
+  const name = String(createdBy || "").trim();
+  return !name || name === "system" ? "组织发布" : name;
+}
+
+export function kbVersionTag(version?: number): string {
+  return version ? `v${version}` : "版本未知";
+}

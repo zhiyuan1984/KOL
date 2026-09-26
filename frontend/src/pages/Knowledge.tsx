@@ -3,18 +3,33 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, type KnowledgeRow } from "../api";
 import {
   HIDE_REASONS,
+  KB_EMPTY_FILTER,
+  KB_EMPTY_SEARCH,
+  KB_FILTER_ALL,
+  KB_FILTER_LABEL,
   KB_LEAD,
+  KB_LOADING,
+  KB_PROVENANCE_LABEL,
+  KB_PROVENANCE_TITLE,
+  KB_SEARCH_CLEAR,
+  KB_SEARCH_LABEL,
+  KB_SEARCH_PLACEHOLDER,
   KB_TAB_LABEL,
+  formatKbTime,
   hideReasonLabel,
+  kbAuthorLabel,
   kbIsMail,
   kbKicker,
+  kbMatchesFilter,
   kbMatchesTab,
-  kbProvenanceLine,
-  kbScopeLine,
+  kbRowVersionLine,
+  kbScopeTags,
   kbStatusLabel,
   kbSummary,
   kbVariableLine,
+  kbVersionTag,
   kbVisibleTabs,
+  kindLabel,
   readKbFavorites,
   readKbRecent,
   rememberKbRecent,
@@ -22,6 +37,8 @@ import {
   toggleKbFavorite,
   type KbBrowseTab,
 } from "../knowledgeCopy";
+
+const SEARCH_DEBOUNCE_MS = 300;
 
 function Hinted({
   id,
@@ -71,6 +88,17 @@ function Hinted({
   );
 }
 
+/** 适用 chips：有则显示阶段/品牌，无则「全阶段 / 通用」，行内与抽屉共用。 */
+function ScopeChips({ row }: { row: KnowledgeRow }) {
+  return (
+    <span className="kb-scope" data-kb-scope>
+      {kbScopeTags(row).map((tag) => (
+        <span className="chip kb-scope-chip" key={tag}>{tag}</span>
+      ))}
+    </span>
+  );
+}
+
 function parseBrowseTab(raw: string | null): KbBrowseTab {
   if (raw === "mail" || raw === "brand" || raw === "sop" || raw === "quote" || raw === "recent") return raw;
   return "all";
@@ -108,9 +136,28 @@ function ContentDrawer({
       </header>
       <div className="kb-drawer-body">
         <p className="kb-result">打开全文，不会把资料发出去。</p>
-        {kbScopeLine(row) ? <p className="kb-card-scope">{kbScopeLine(row)}</p> : null}
+        <section className="kb-provenance" data-kb-provenance aria-label={KB_PROVENANCE_TITLE}>
+          <p className="kb-provenance-title">{KB_PROVENANCE_TITLE}</p>
+          <dl className="kb-provenance-grid">
+            <div>
+              <dt>{KB_PROVENANCE_LABEL.author}</dt>
+              <dd>{kbAuthorLabel(row.created_by)}</dd>
+            </div>
+            <div>
+              <dt>{KB_PROVENANCE_LABEL.version}</dt>
+              <dd>{kbVersionTag(row.current_version)}</dd>
+            </div>
+            <div>
+              <dt>{KB_PROVENANCE_LABEL.updated}</dt>
+              <dd>{formatKbTime(row.updated_at || row.approved_at || row.created_at) || "暂无时间"}</dd>
+            </div>
+            <div>
+              <dt>{KB_PROVENANCE_LABEL.scope}</dt>
+              <dd><ScopeChips row={row} /></dd>
+            </div>
+          </dl>
+        </section>
         {vars ? <p className="kb-card-vars">{vars}</p> : null}
-        <p className="kb-card-source">{kbProvenanceLine(row)}</p>
         {row.subject && (
           <p className="kb-preview-subject"><span>主题</span> {row.subject}</p>
         )}
@@ -133,19 +180,32 @@ export default function Knowledge() {
   const [tipId, setTipId] = useState("");
   const [favorites, setFavorites] = useState<string[]>(() => readKbFavorites());
   const [recent, setRecent] = useState<{ id: string; at: number }[]>(() => readKbRecent());
+  const [query, setQuery] = useState("");
+  const [keyword, setKeyword] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [stageFilter, setStageFilter] = useState("");
+  const [brandFilter, setBrandFilter] = useState("");
   const [params, setParams] = useSearchParams();
   const nav = useNavigate();
   const closeTip = useCallback(() => setTipId(""), []);
   const tab = parseBrowseTab(params.get("cat"));
   const recentIds = useMemo(() => recent.map((item) => item.id), [recent]);
 
-  const load = () => {
-    api.knowledge()
+  const reload = useCallback(() => {
+    api.knowledge({ q: keyword })
       .then(setRows)
-      .catch((e) => setErr(e instanceof Error ? e.message : "无法加载知识库"));
-  };
+      .catch((e) => setErr(e instanceof Error ? e.message : "无法加载知识库"))
+      .finally(() => setLoaded(true));
+  }, [keyword]);
 
-  useEffect(load, []);
+  useEffect(reload, [reload]);
+
+  useEffect(() => {
+    const next = query.trim();
+    if (next === keyword) return;
+    const timer = setTimeout(() => setKeyword(next), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [keyword, query]);
 
   useEffect(() => {
     if (!preview) return;
@@ -164,6 +224,22 @@ export default function Knowledge() {
     next.delete("cat");
     setParams(next, { replace: true });
   }, [params, setParams, rows.length, tab, tabs]);
+
+  const stageOptions = useMemo(
+    () => [...new Set(rows.flatMap((row) => row.stage_codes || []).filter(Boolean))].sort(),
+    [rows],
+  );
+  const brandOptions = useMemo(
+    () => [...new Set(
+      rows.map((row) => String(row.brand || "").trim()).filter((code) => code && code !== "*"),
+    )].sort(),
+    [rows],
+  );
+
+  useEffect(() => {
+    if (stageFilter && !stageOptions.includes(stageFilter)) setStageFilter("");
+    if (brandFilter && !brandOptions.includes(brandFilter)) setBrandFilter("");
+  }, [brandFilter, brandOptions, stageFilter, stageOptions]);
 
   const setTab = (nextTab: KbBrowseTab) => {
     const next = new URLSearchParams(params);
@@ -193,37 +269,100 @@ export default function Knowledge() {
   };
 
   const visible = useMemo(() => {
-    const filtered = rows.filter((row) => kbMatchesTab(row, tab, recentIds));
+    const filtered = rows.filter(
+      (row) => kbMatchesTab(row, tab, recentIds) && kbMatchesFilter(row, stageFilter, brandFilter),
+    );
     if (tab !== "recent") return filtered;
     const rank = new Map(recentIds.map((id, index) => [id, index]));
     return [...filtered].sort((a, b) => (rank.get(a.id) ?? 99) - (rank.get(b.id) ?? 99));
-  }, [recentIds, rows, tab]);
+  }, [brandFilter, recentIds, rows, stageFilter, tab]);
+
+  const emptyCopy = useMemo(() => {
+    if (keyword) return KB_EMPTY_SEARCH;
+    if (stageFilter || brandFilter) return KB_EMPTY_FILTER;
+    return tab === "recent"
+      ? "还没有最近使用的资料。查看或用于当前任务后会出现在这里。"
+      : "这一类暂时没有资料。";
+  }, [brandFilter, keyword, stageFilter, tab]);
 
   return (
     <div className={"list-page kb-page" + (preview ? " has-drawer" : "")} data-kb-page="mine">
       <header className="kb-hero">
-        <div className="page-kicker">{kbKicker(tab)}</div>
+        {loaded ? <div className="page-kicker">{kbKicker(tab)}</div> : null}
         <h1>知识库</h1>
-        <nav className="kb-tabs" aria-label="资料分类">
-          {tabs.map((item) => (
-            <button
-              key={item}
-              type="button"
-              className={tab === item ? "active" : ""}
-              aria-selected={tab === item}
-              data-kb-tab={item}
-              onClick={() => setTab(item)}
-            >
-              {KB_TAB_LABEL[item]}
-            </button>
-          ))}
-        </nav>
-        <p className="kb-lead">{KB_LEAD}</p>
+        {loaded ? (
+          <>
+            <nav className="kb-tabs" aria-label="资料分类">
+              {tabs.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  className={tab === item ? "active" : ""}
+                  aria-selected={tab === item}
+                  data-kb-tab={item}
+                  onClick={() => setTab(item)}
+                >
+                  {KB_TAB_LABEL[item]}
+                </button>
+              ))}
+            </nav>
+            <p className="kb-lead">{KB_LEAD}</p>
+          </>
+        ) : (
+          <p className="muted" data-kb-loading>{KB_LOADING}</p>
+        )}
       </header>
+      {loaded ? (
+      <div className="kb-toolbar">
+        <label className="kb-search">
+          <span className="sr-only">{KB_SEARCH_LABEL}</span>
+          <input
+            type="search"
+            className="kb-search-input"
+            data-kb-search
+            value={query}
+            placeholder={KB_SEARCH_PLACEHOLDER}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
+        {query ? (
+          <button className="btn row-action" type="button" data-kb-search-clear onClick={() => setQuery("")}>
+            {KB_SEARCH_CLEAR}
+          </button>
+        ) : null}
+        <div className="kb-filters">
+          <label className="kb-filter">
+            <span className="kb-filter-label">{KB_FILTER_LABEL.stage}</span>
+            <select
+              data-kb-filter="stage"
+              value={stageFilter}
+              onChange={(event) => setStageFilter(event.target.value)}
+            >
+              <option value="">{KB_FILTER_ALL}</option>
+              {stageOptions.map((code) => (
+                <option key={code} value={code}>{code}</option>
+              ))}
+            </select>
+          </label>
+          <label className="kb-filter">
+            <span className="kb-filter-label">{KB_FILTER_LABEL.brand}</span>
+            <select
+              data-kb-filter="brand"
+              value={brandFilter}
+              onChange={(event) => setBrandFilter(event.target.value)}
+            >
+              <option value="">{KB_FILTER_ALL}</option>
+              {brandOptions.map((code) => (
+                <option key={code} value={code}>{code}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
+      ) : null}
       {err && <p className="error">{err}</p>}
-      {visible.map((k) => {
+      {loaded && visible.map((k) => {
         const status = kbStatusLabel(k);
-        const vars = kbVariableLine(k);
         const favorited = favorites.includes(k.id);
         return (
           <article
@@ -235,14 +374,18 @@ export default function Knowledge() {
           >
             <div className="kb-card-title-row">
               <h3>{k.title}</h3>
-              <span className={"chip kb-status" + (k.deprecated ? " chip-warn" : "")}>
-                {status}
-              </span>
+              <div className="kb-card-tags">
+                <span className="chip kb-kind">{kindLabel(k.kind)}</span>
+                <span className={"chip kb-status" + (k.deprecated ? " chip-warn" : "")}>
+                  {status}
+                </span>
+              </div>
             </div>
-            {kbScopeLine(k) ? <p className="kb-card-scope">{kbScopeLine(k)}</p> : null}
+            <div className="kb-card-meta-row">
+              <ScopeChips row={k} />
+              <span className="kb-card-source">{kbRowVersionLine(k)}</span>
+            </div>
             <p className="kb-card-summary" data-kb-summary>{kbSummary(k)}</p>
-            {vars ? <p className="kb-card-vars">{vars}</p> : null}
-            <p className="kb-card-source">{kbProvenanceLine(k)}</p>
             {k.deprecated && (
               <p className="kb-card-hidden">已隐藏 · {hideReasonLabel(k.deprecate_reason) || k.deprecate_reason_label}</p>
             )}
@@ -302,7 +445,7 @@ export default function Knowledge() {
               <summary>更多</summary>
               <div className="kb-more-actions">
                 {k.deprecated ? (
-                  <button className="btn" type="button" onClick={() => void api.undeprecateKnowledge(k.id).then(() => { setHideFor(""); load(); })}>
+                  <button className="btn" type="button" onClick={() => void api.undeprecateKnowledge(k.id).then(() => { setHideFor(""); reload(); })}>
                     取消隐藏
                   </button>
                 ) : (
@@ -326,7 +469,7 @@ export default function Knowledge() {
                       className="kb-hide-option"
                       type="button"
                       data-deprecate-reason={reason.code}
-                      onClick={() => void api.deprecateKnowledge(k.id, reason.code).then(() => { setHideFor(""); load(); })}
+                      onClick={() => void api.deprecateKnowledge(k.id, reason.code).then(() => { setHideFor(""); reload(); })}
                     >
                       <strong>{reason.label}</strong>
                       <span>{reason.result}</span>
@@ -338,11 +481,9 @@ export default function Knowledge() {
           </article>
         );
       })}
-      {!rows.length && <p className="muted">暂无已发布资料。</p>}
-      {rows.length > 0 && !visible.length && (
-        <p className="muted" data-kb-empty>
-          {tab === "recent" ? "还没有最近使用的资料。查看或用于当前任务后会出现在这里。" : "这一类暂时没有资料。"}
-        </p>
+      {loaded && !rows.length && !keyword && <p className="muted">暂无已发布资料。</p>}
+      {loaded && (rows.length > 0 || !!keyword) && !visible.length && (
+        <p className="muted" data-kb-empty>{emptyCopy}</p>
       )}
       {preview && (
         <ContentDrawer

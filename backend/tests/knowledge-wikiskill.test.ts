@@ -97,7 +97,7 @@ describe("WikiSkill knowledge", () => {
 
   it("uses a cited published template for the English draft and send keeps stage", async () => {
     await request("POST", "/api/knowledge/kb_mail_followup/cite", {});
-    const [, data] = await ask("给@小美妆日记 写阶段跟进", {
+    const [sid, data] = await ask("给@小美妆日记 写阶段跟进", {
       intent: "email_compose",
       collaboration_id: "col_xiaomei",
       knowledge_id: "kb_mail_followup",
@@ -108,6 +108,15 @@ describe("WikiSkill knowledge", () => {
     expect((draft.extra as Json).knowledge_id).toBe("kb_mail_followup");
     expect((draft.extra as Json).knowledge_version).toBe(1);
     expect(String(draft.body_en)).not.toContain("secret wiki");
+    const cardMsg = getConn()
+      .prepare("SELECT payload FROM messages WHERE session_id=? AND kind='email_card' ORDER BY created_at DESC, id DESC LIMIT 1")
+      .get(sid) as { payload: string } | undefined;
+    expect(cardMsg, "草稿卡消息应写入会话").toBeTruthy();
+    const card = JSON.parse(String(cardMsg?.payload || "{}")) as Json;
+    expect(card.draft_id).toBe(draft.id);
+    expect(card.knowledge_id).toBe("kb_mail_followup");
+    expect(typeof card.knowledge_version).toBe("number");
+    expect(String(card.knowledge_title || "")).not.toBe("");
     const sent = await confirmAndSendDraft(request, `/api/drafts/${draft.id}/send`, {});
     expect(sent.status).toBe(200);
     const sj = await sent.json();
@@ -146,7 +155,7 @@ describe("WikiSkill knowledge", () => {
       status: "draft",
     })).json();
     expect(created.stage_codes).toEqual(["TESTING"]);
-    await request("POST", `/api/admin/knowledge/${created.id}/approve`, {});
+    await request("POST", `/api/admin/knowledge/${created.id}/approve`, { expected_version: created.current_version });
     const published = await (await request("GET", `/api/knowledge/${created.id}`)).json();
     expect(published.status).toBe("published");
     expect(published.stage_codes).toEqual(["TESTING"]);

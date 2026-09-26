@@ -5,6 +5,7 @@ import type { SessionRow } from "../api";
 import { memoryDeleteConfirm, sessionDeleteConfirm } from "../adminConfirm";
 import { useAccount } from "../components/AuthGate";
 import { useAdminConfirm } from "../components/ConfirmDialog";
+import { isAdminAccount, useViewMode } from "../viewMode";
 import StarryBindForm from "../components/StarryBindForm";
 import { dataSummaryLabel, formatDataSummaryValue } from "../labels";
 import {
@@ -45,6 +46,7 @@ export default function AccountSettings() {
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState<SettingsReceipt | null>(() => readSettingsReceipt());
   const { ask, dialog } = useAdminConfirm();
+  const { debug, setDebug } = useViewMode();
 
   const recordReceipt = (next: Omit<SettingsReceipt, "at">) => {
     setReceipt(writeSettingsReceipt(next));
@@ -162,6 +164,22 @@ export default function AccountSettings() {
           <p className="muted" data-settings-keyshortcuts>提问框快捷键：Enter 发送，Shift+Enter 换行。</p>
           <button className="btn work">保存偏好</button>
         </form>
+      )}
+
+      {tab === "preferences" && isAdminAccount(account) && (
+        <section className="panel" data-admin-tools>
+          <h2>管理员工具</h2>
+          <label className="check">
+            <input
+              type="checkbox"
+              data-debug-toggle
+              checked={debug}
+              onChange={(event) => setDebug(event.target.checked)}
+            />
+            调试视图（显示连接器、技能目录等技术呈现）
+          </label>
+          <p className="muted">只改本机浏览器的本人视图，不影响他人和服务端数据。</p>
+        </section>
       )}
 
       {tab === "security" && <PasswordForm onSave={(body) => run(async () => {
