@@ -739,8 +739,6 @@ export type PostMessageResult = {
 };
 
 export type EmailCard = {
-  knowledge_id?: string;
-  knowledge_version?: number;
   draft_id: string;
   knowledge_id?: string | null;
   knowledge_version?: number | null;
