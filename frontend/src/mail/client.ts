@@ -130,6 +130,7 @@ function normalizeMessage(raw: Record<string, unknown>, conversationId: string):
     summary_source: digestSourceOf(raw.summary_source) || (raw.summary_source === "body_digest" ? "body_digest" : ""),
     receipt_status: text(raw.receipt_status) || undefined,
     effective: raw.effective == null ? undefined : Boolean(raw.effective),
+    unread: raw.unread == null ? undefined : Boolean(raw.unread),
     translation_zh: text(raw.translation_zh || raw.translation) || undefined,
     translation_source: text(raw.translation_source) || undefined,
     memory_fingerprint: text(raw.memory_fingerprint) || undefined,

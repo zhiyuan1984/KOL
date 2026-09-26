@@ -51,6 +51,7 @@ export type MessageRow = {
   translation_source: string;
   receipt_status: string;
   effective: boolean;
+  unread: boolean;
   memory_fingerprint?: string;
   memory_source?: string;
   memory_generated_at?: string | null;
@@ -144,6 +145,7 @@ export function messageRowOf(row: Row | Json): MessageRow {
     translation_source: String(row.translation_source || ""),
     receipt_status: String(row.receipt_status || ""),
     effective: Boolean(Number(row.effective || 0)),
+    unread: Boolean(Number(row.unread || 0)),
     memory_fingerprint: String(row.memory_fingerprint || ""),
     memory_source: String(row.memory_source || ""),
     memory_generated_at: row.memory_generated_at ? String(row.memory_generated_at) : null,

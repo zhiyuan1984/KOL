@@ -73,6 +73,8 @@ export type MailMessage = {
   summary_source: MailDigestSource | "body_digest" | "";
   receipt_status?: string;
   effective?: boolean;
+  /** Message-level read flag from `kol_mail_items.unread`; absent on legacy rows. */
+  unread?: boolean;
   translation_zh?: string;
   translation_source?: string;
   memory_fingerprint?: string;

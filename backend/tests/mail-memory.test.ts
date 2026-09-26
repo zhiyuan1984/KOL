@@ -338,9 +338,17 @@ describe("mailbox memory P0", () => {
     expect(firstMessage?.translation_zh).toBeNull();
     expect(firstMessage?.translation_source).toBe("pending");
 
+    // Per-mail read flag: the mail page labels every row 已读/未读 from this field.
+    const openedMessages = opened.body.messages as Json[];
+    expect(openedMessages.every((row) => typeof row.unread === "boolean")).toBe(true);
+    expect(openedMessages.some((row) => row.unread === true)).toBe(true);
+    expect(openedMessages.find((row) => row.direction === "outbound")?.unread).toBe(false);
+
     const read = await request("POST", `/api/mail/conversations/${thread?.id}/read`);
     expect(read.status).toBe(200);
     expect((read.body.conversation as Json).unread_count).toBe(0);
+    const afterRead = await request("GET", `/api/mail/conversations/${thread?.id}`);
+    expect((afterRead.body.messages as Json[]).every((row) => row.unread === false)).toBe(true);
     const remaining = getConn().prepare(
       "SELECT COUNT(*) AS n FROM kol_mail_items WHERE thread_id=? AND unread=1",
     ).get(String(thread?.id)) as { n: number };
