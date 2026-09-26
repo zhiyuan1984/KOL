@@ -11652,7 +11652,7 @@ button.today-brief-primary-btn:disabled {
   overflow: visible;
   align-items: stretch;
 }
-.mail-list { border-right: 1px solid var(--ds-border); }
+/* 列边界只有一条 1px 发丝线：由每栏自己的 border-left 画，避免 2px 双线。 */
 .mail-interact {
   display: flex;
   flex-direction: column;
@@ -11671,15 +11671,50 @@ button.today-brief-primary-btn:disabled {
   overflow-x: hidden;
   overflow-y: auto;
 }
+/* 页级面板切换：桌面三栏同屏，只在单栏档出现。 */
+.mail-panes {
+  display: none;
+  gap: 2px;
+  border-bottom: 1px solid var(--ds-border);
+}
+.mail-panes button {
+  flex: 1 1 0;
+  margin-bottom: -1px;
+  padding: 7px 2px 8px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--ds-text-dim);
+  font: inherit;
+  font-size: var(--ds-font-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mail-panes button[aria-selected="true"] {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+  font-weight: 500;
+}
+
 .mail-interact-dock { margin-top: auto; }
 .mail-interact .composer-dock { padding: 0; background: transparent; }
 
 @media (max-width: 1439px) {
   .mail-split { grid-template-columns: minmax(260px, 300px) minmax(0, 1fr) clamp(320px, 32%, 400px); }
 }
+/* ≤1100px 收成一栏，列边界随之消失；三块面板由 .mail-panes 切换，
+   选邮件自动切到详情，所以正文与 data-mail-mobiletabs 都够得着。 */
 @media (max-width: 1100px) {
   .mail-split { grid-template-columns: minmax(0, 1fr); }
-  .mail-detail { display: none; }
+  .mail-panes { display: flex; }
+  .mail-split .mail-interact,
+  .mail-split .mail-detail { border-left: 0; }
+  .mail-split:not(.mail-pane-skeleton) .mail-list,
+  .mail-split:not(.mail-pane-skeleton) .mail-interact,
+  .mail-split:not(.mail-pane-skeleton) .mail-detail { display: none; }
+  .mail-split[data-mail-pane-active="list"] .mail-list { display: grid; }
+  .mail-split[data-mail-pane-active="interact"] .mail-interact { display: flex; }
+  .mail-split[data-mail-pane-active="detail"] .mail-detail { display: block; }
 }
 
 /* ── 页头一行：标题 + 邮箱切换器 + 收取 + 同步/未读 meta ─────────────────── */

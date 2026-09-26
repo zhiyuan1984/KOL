@@ -39,7 +39,6 @@ export function MailFold({
   open,
   onToggle,
   tag,
-  attrs,
   children,
 }: {
   id: MailFoldKey;
@@ -47,12 +46,11 @@ export function MailFold({
   open: boolean;
   onToggle: () => void;
   tag?: ReactNode;
-  attrs?: Record<string, string | undefined>;
   children: ReactNode;
 }) {
   const bodyId = `mail-fold-body-${id}`;
   return (
-    <section className="mail-fold" data-mail-fold={id} {...attrs}>
+    <section className="mail-fold" data-mail-fold={id}>
       <button
         type="button"
         className="mail-fold-head"

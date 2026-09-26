@@ -4,7 +4,6 @@ import { api } from "../api";
 import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
 import { storePending } from "../components/ChatBlocks";
 import { applyComposerDraft } from "../composer/draft";
-import type { ComposerEntryIntent } from "../composer/types";
 import { isMissingEndpoint } from "../home/discoveryHome";
 import { decorateWorkspace, hydratePollDelayMs, loadMailPersonDigest, loadMailThread, loadMailWorkspaceFast, normalizeBox, syncMailboxMail } from "../mail/client";
 import { CorrespondentRow } from "../mail/components/CorrespondentRow";
@@ -18,7 +17,7 @@ import { PlainText } from "../mail/components/PlainText";
 import { isAnalyzeEnqueuePrefill, mailAnalyzeDraft, mailReplyDraft } from "../mail/composerDraft";
 import { formatMailTime } from "../mail/format";
 import { firstConversationOf, groupByPeer } from "../mail/groups";
-import { selectedMessageOf, timelineOf } from "../mail/selection";
+import { selectedConversationOf, selectedMessageOf, timelineOf } from "../mail/selection";
 import { occurredAtMs } from "../mail-time";
 import {
   MAIL_ANALYZE_PREFILL_PREFIX,
@@ -79,9 +78,15 @@ const FOLD_TABS: { key: MailFoldKey; label: string }[] = [
 
 const TASK_CHIP_LIMIT = 6;
 
-/** Composer entry intents stop at mail_analyze; the analyze lock is this page's own name. */
-const ANALYZE_INTENT = "kol-analyze-enqueue" as ComposerEntryIntent;
-const COMPOSE_STASH_INTENT = "email_compose" as ComposerEntryIntent;
+type MailPane = "list" | "interact" | "detail";
+
+/** ≤1100px 单栏时的页级面板切换（桌面三栏同屏，切换器不显示）。 */
+const PANE_TABS: { key: MailPane; label: string }[] = [
+  { key: "list", label: "邮件列表" },
+  { key: "interact", label: "任务提问" },
+  { key: "detail", label: "邮件详情" },
+];
+
 const ANALYZE_QUEUED_COPY = "已入队，等待分析。没有走 from-text，也没有创建会话。";
 const MAIL_COMPOSE_ACTION_COPY = "通讯邮件任务目录";
 
@@ -160,13 +165,15 @@ export default function Mail() {
   const [letters, setLetters] = useState<MailComposeLetter[]>([]);
   const [lettersMore, setLettersMore] = useState(false);
   const [composerText, setComposerText] = useState("");
-  const [analyzeLocked, setAnalyzeLocked] = useState(false);
+  const [pane, setPane] = useState<MailPane>("list");
   const [busy, setBusy] = useState(false);
   const [folds, setFolds] = useState<Record<MailFoldKey, boolean>>(readMailFolds);
   const syncPollRef = useRef<number | null>(null);
   const baseSyncedAtRef = useRef<string>("");
   const startedRef = useRef<Set<string>>(new Set());
   const timersRef = useRef<Record<string, number>>({});
+  /** 每次清空会话缓存就 +1：在飞的响应回来后若代次不符就丢弃，不污染新邮箱的缓存。 */
+  const cacheGenRef = useRef(0);
   const appliedFocusRef = useRef("");
   const appliedPeerRef = useRef("");
   const intakeCancelled = useRef(false);
@@ -194,22 +201,14 @@ export default function Mail() {
   }, [conversations, tab, unboundOnly, query]);
 
   const groups = useMemo(() => groupByPeer(visibleConversations), [visibleConversations]);
-  const groupsRef = useRef(groups);
-  groupsRef.current = groups;
 
   /** The conversation the detail column reads: ?c=, else the newest of ?p=, else the newest. */
   const selectedConversation = useMemo(() => {
-    if (!conversations.length) return null;
-    if (focusId) {
-      const row = conversations.find((item) => item.conversation_id === focusId || item.id === focusId);
-      if (row) return row;
-    }
-    if (peerParam) {
-      const group = groups.find((item) => item.peer_email === peerParam.toLowerCase());
-      const first = firstConversationOf(group || null);
+    if (peerParam && !focusId) {
+      const first = firstConversationOf(groups.find((item) => item.peer_email === peerParam.toLowerCase()) || null);
       if (first) return first;
     }
-    return conversations[0] || null;
+    return selectedConversationOf(conversations, focusId);
   }, [conversations, groups, focusId, peerParam]);
 
   const detailThread = selectedConversation ? threads[selectedConversation.conversation_id] ?? null : null;
@@ -246,6 +245,7 @@ export default function Mail() {
   };
 
   const dropThreadCache = useCallback(() => {
+    cacheGenRef.current += 1;
     startedRef.current = new Set();
     for (const timer of Object.values(timersRef.current)) window.clearTimeout(timer);
     timersRef.current = {};
@@ -275,9 +275,13 @@ export default function Mail() {
   ) => {
     if (!conversationId || startedRef.current.has(conversationId)) return;
     startedRef.current.add(conversationId);
+    const gen = cacheGenRef.current;
     const fetchThread = (attempt: number) => {
+      if (gen !== cacheGenRef.current) return;
       void loadMailThread(conversationId, row || undefined, source)
         .then((next) => {
+          // A mailbox switch / sync refresh may have dropped this cache generation.
+          if (gen !== cacheGenRef.current) return;
           if (!next) {
             startedRef.current.delete(conversationId);
             setThreads((prev) => ({ ...prev, [conversationId]: null }));
@@ -292,6 +296,7 @@ export default function Mail() {
           if (delay != null) timerAt(conversationId, window.setTimeout(() => fetchThread(attempt + 1), delay));
         })
         .catch((e) => {
+          if (gen !== cacheGenRef.current) return;
           startedRef.current.delete(conversationId);
           setThreads((prev) => ({ ...prev, [conversationId]: null }));
           setThreadErrors((prev) => ({ ...prev, [conversationId]: httpCopy(e, MAIL_THREAD_MISSING_COPY) }));
@@ -329,6 +334,18 @@ export default function Mail() {
     setExpandedPeer(row.peer_email.toLowerCase());
     setExpandedId(row.conversation_id);
   }, [focusId, conversations]);
+
+  // 深链还要「选中最新一封」：会话详情一到就补写 ?m=，让左栏高亮的那一行
+  // 和右栏读的是同一封；用户自己展开节点时不会写 URL。
+  useEffect(() => {
+    if (!focusId || messageId || !selectedConversation) return;
+    const newest = timelineOf(threads[selectedConversation.conversation_id]?.messages || [])[0];
+    if (!newest) return;
+    const next = new URLSearchParams(params);
+    next.set("c", selectedConversation.conversation_id);
+    next.set("m", newest.id);
+    setParams(next, { replace: true });
+  }, [focusId, messageId, selectedConversation, threads, params, setParams]);
 
   useEffect(() => {
     if (!peerParam || focusId || !conversations.length || appliedPeerRef.current === peerParam) return;
@@ -385,6 +402,19 @@ export default function Mail() {
             item.conversation_id === row.conversation_id ? { ...item, unread_count: 0 } : item),
         }
       : prev);
+    // That endpoint marks every mail of the thread read; mirror it in the cached
+    // detail so the left-column rows stop claiming 未读.
+    setThreads((prev) => {
+      const thread = prev[row.conversation_id];
+      if (!thread || !thread.messages.some((message) => message.unread)) return prev;
+      return {
+        ...prev,
+        [row.conversation_id]: {
+          ...thread,
+          messages: thread.messages.map((message) => (message.unread ? { ...message, unread: false } : message)),
+        },
+      };
+    });
   };
 
   const openBox = (binding: MailBoxBinding) => {
@@ -472,6 +502,7 @@ export default function Mail() {
     next.set("m", message.id);
     setParams(next, { replace: true });
     setFold("original", true);
+    setPane("detail");
     markRead(row);
   };
 
@@ -485,14 +516,13 @@ export default function Mail() {
   });
 
   const draftChips = (row: MailConversation) =>
-    replyDraftOf(row).chips.map((chip) => ({ kind: "object" as const, id: chip.id, label: chip.label }));
+    replyDraftOf(row).chips.map((chip) => ({ kind: "object" as const, id: chip.id, label: chip.label, objectKind: chip.id }));
 
   /** 回复 / 生成回复 prefill the on-page composer; they never navigate away. */
   const reply = () => {
     if (!selectedConversation) return;
     const draft = replyDraftOf(selectedConversation);
     applyComposerDraft({ text: draft.text, intent: "mail_reply", chips: draftChips(selectedConversation) });
-    setAnalyzeLocked(false);
     setNotice("");
   };
 
@@ -504,26 +534,38 @@ export default function Mail() {
       intent: "mail_reply",
       chips: draftChips(selectedConversation),
     });
-    setAnalyzeLocked(false);
     setNotice("");
   };
 
-  /** 快速分析 locks the composer to the analyze entry; the send is the real action. */
-  const analyze = () => {
-    if (!selectedConversation) return;
+  /**
+   * 快速分析 is the real action: it enqueues right away — no session, no
+   * navigation, and the unbound conversation only gets the guidance copy.
+   */
+  const analyze = async () => {
+    if (!selectedConversation || busy) return;
     const people = analyzePeopleOf(selectedConversation);
     if (selectedConversation.match_state === "unbound" || !people.length) {
       setNotice(MAIL_ANALYZE_UNBOUND_COPY);
       return;
     }
-    const draft = mailAnalyzeDraft({ people, peer: peerOf(selectedConversation) });
-    applyComposerDraft({
-      text: draft.text,
-      intent: ANALYZE_INTENT,
-      chips: draft.chips.map((chip) => ({ kind: "object" as const, id: chip.id, label: chip.label })),
-    });
-    setAnalyzeLocked(true);
+    intakeCancelled.current = false;
+    setBusy(true);
+    setError("");
     setNotice("");
+    try {
+      const queued = await api.enqueueKolAnalyze({
+        kol_uids: people,
+        title: MAIL_ANALYZE_PREFILL_PREFIX,
+        prompt: mailAnalyzeDraft({ people, peer: peerOf(selectedConversation) }).text,
+      });
+      if (intakeCancelled.current) return;
+      if (queued.creates_session) throw new Error("分析入队不应创建会话");
+      setNotice(ANALYZE_QUEUED_COPY);
+    } catch (e) {
+      if (!intakeCancelled.current) setError(e instanceof Error && e.message ? e.message : "无法入队分析");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const stopIntake = () => {
@@ -539,26 +581,22 @@ export default function Mail() {
     setError("");
     setNotice("");
     try {
-      if (analyzeLocked || isAnalyzeEnqueuePrefill(text, payload.intent)) {
+      if (isAnalyzeEnqueuePrefill(text, payload.intent)) {
         const conversation = selectedConversation;
         const people = conversation ? analyzePeopleOf(conversation) : [];
         if (!conversation || !people.length) {
           setNotice(MAIL_ANALYZE_UNBOUND_COPY);
           return;
         }
-        // The prefilled text is the prompt; an emptied box falls back to the
-        // analyze brief rather than enqueueing a bare label.
-        const prompt = composerText.trim() || mailAnalyzeDraft({ people, peer: peerOf(conversation) }).text;
         const queued = await api.enqueueKolAnalyze({
           kol_uids: people,
           title: MAIL_ANALYZE_PREFILL_PREFIX,
-          prompt,
+          prompt: text,
         });
         if (intakeCancelled.current) return;
         if (queued.creates_session) throw new Error("分析入队不应创建会话");
         setNotice(ANALYZE_QUEUED_COPY);
         setComposerText("");
-        setAnalyzeLocked(false);
         return;
       }
       const recognized = await api.createTaskFromText({
@@ -598,10 +636,9 @@ export default function Mail() {
   const pickLetter = (letter: MailComposeLetter) => {
     applyComposerDraft({
       text: letter.prompt,
-      intent: COMPOSE_STASH_INTENT,
+      intent: "email_compose",
       chips: [{ kind: "skill", id: "email_compose", label: letter.chip }],
     });
-    setAnalyzeLocked(false);
     setNotice("");
   };
 
@@ -624,7 +661,9 @@ export default function Mail() {
     Number(row.message_count || 0) || (threads[row.conversation_id]?.messages.length ?? 0);
 
   const composerChips = useMemo(
-    () => (selectedConversation ? replyDraftOf(selectedConversation).chips.map((chip) => ({ id: chip.id, label: chip.label })) : []),
+    () => (selectedConversation
+      ? replyDraftOf(selectedConversation).chips.map((chip) => ({ id: chip.id, label: chip.label, objectKind: chip.id }))
+      : []),
     [selectedConversation, workspace?.box.mailbox],
   );
 
@@ -707,7 +746,24 @@ export default function Mail() {
       ) : null}
 
       {loadState === "ok" && bound ? (
-        <div className="mail-split" data-mail-state="ok">
+        <div className="mail-panes" role="tablist" aria-label="邮件面板" data-mail-panes>
+          {PANE_TABS.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              role="tab"
+              data-mail-pane={item.key}
+              aria-selected={pane === item.key}
+              onClick={() => setPane(item.key)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {loadState === "ok" && bound ? (
+        <div className="mail-split" data-mail-state="ok" data-mail-pane-active={pane}>
           <aside className="mail-list" data-mail-list data-mail-entry="list-mailbox-mail">
             <div className="mail-list-tools">
               <div className="mail-search-row">
@@ -841,7 +897,7 @@ export default function Mail() {
                 </div>
               </div>
             ) : null}
-            <div className="mail-interact-dock" data-mail-composer-entry={analyzeLocked ? ANALYZE_INTENT : undefined}>
+            <div className="mail-interact-dock">
               <ComposerDock
                 variant="workspace"
                 placement="dock"
@@ -851,10 +907,7 @@ export default function Mail() {
                 disabled={busy}
                 running={busy}
                 onStop={stopIntake}
-                lockedIntent={analyzeLocked ? ANALYZE_INTENT : null}
-                lockedLabel={analyzeLocked ? "快速分析" : null}
                 contextChips={composerChips}
-                entryIntent={analyzeLocked ? "mail_analyze" : "free"}
               />
             </div>
           </section>
@@ -959,7 +1012,7 @@ export default function Mail() {
                     className="btn ghost"
                     data-mail-analyze
                     data-mail-entry="kol-analyze-enqueue"
-                    onClick={analyze}
+                    onClick={() => void analyze()}
                   >
                     <MailIco d={ICO_SPARKLE} />
                     快速分析
