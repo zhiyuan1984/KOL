@@ -105,6 +105,18 @@ docker compose up --build
 同样是 http://127.0.0.1:8765。宿主机上“已经运行的 Codex 进程”不能跨容器复用；
 Compose 会安装 Codex CLI，并挂载 `${HOME}/.codex`、透传 `OPENAI_API_KEY`。
 
+**服务器部署（ECS + systemd）：**
+
+```bash
+# 推完代码后一条命令部署：先构建前端（旧进程继续服务），再重启
+ssh ecs-user@47.88.94.205 "cd ~/kol && ./scripts/deploy.sh --sync"
+```
+
+- `lingong.service`（`ExecStart=scripts/start.sh`、`Restart=always`）托管 Host。**不要**手动跑 `scripts/start.sh`，也**不要** `kill` 8765 上的进程：手动实例与 systemd 互杀，重启还会拖成构建前的 60–90 秒空窗（这正是「页面不能访问了」的根因）。旧脚本 `~/start-lingong.sh` 已停用。
+- `scripts/deploy.sh` 把前端构建挪到重启之前：构建到 `frontend/dist.new` → 原子替换 `frontend/dist` → `sudo systemctl restart lingong`（几秒）→ 轮询 `/api/version` 直到就绪。上一版留在 `frontend/dist.prev`，回滚：`mv frontend/dist.prev frontend/dist && sudo systemctl restart lingong`。
+- 这两个 URL 不是一回事：公网只放行 22/80，入口是 `http://47.88.94.205/`（nginx 80 → 127.0.0.1:8765）；`:8765` 从外网连不上。
+- nginx 在重启的几秒里返回等待页：配置 `ops/nginx/app.conf`，页面 `ops/nginx/booting.html` 安装到 `/var/www/lingong/__booting.html`（`location /` 拦截 502/504，`/api/` 不拦截，前端 fetch 仍拿到真实状态码）。
+
 ## 远程 Claw / MediaCrawler MCP
 
 真实运行默认使用远程 Streamable HTTP MCP；本地 `claw-server.ts` 只在 `CODEX_MODE=stub`、`CLAW_MODE=mock` 或显式测试模式使用。复制 `.env.example` 为 `.env`，配置：

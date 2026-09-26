@@ -1,0 +1,20 @@
+# lingong.service 的镜像：服务器实际文件在 /etc/systemd/system/lingong.service。
+# 安装：sudo cp ops/systemd/lingong.service /etc/systemd/system/ && sudo systemctl daemon-reload
+# 部署不要用 systemctl restart 之外的手段：先在旧进程仍服务时构建前端，见 scripts/deploy.sh。
+[Unit]
+Description=Lingong KOL workbench (backend serves frontend dist on 8765)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ecs-user
+WorkingDirectory=/home/ecs-user/kol
+ExecStart=/home/ecs-user/kol/scripts/start.sh
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

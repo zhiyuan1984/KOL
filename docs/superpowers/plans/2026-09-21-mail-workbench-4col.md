@@ -919,10 +919,10 @@ git commit -m "test(mail): end-to-end coverage for the negotiation workbench flo
 
 ```bash
 git push github HEAD:main
-ssh ecs-user@47.88.94.205 "cd ~/kol && git fetch github && git reset --hard github/main && sudo -n systemctl restart lingong"
+ssh kol "cd ~/kol && ./scripts/deploy.sh --sync"
 ```
 
-说明：服务器由 systemd 托管，**必须**用 `sudo systemctl restart lingong`；不要直接跑 `scripts/start.sh`（会与 systemd 互抢端口）。重启后约 90 秒内服务在构建前端，此期间 nginx 返回 502。
+说明：服务器由 systemd 托管。`scripts/deploy.sh` 会先同步 `github/main`，在旧进程仍对外服务时把前端构建到 `frontend/dist.new` 并原子替换 `frontend/dist`，最后 `sudo systemctl restart lingong`；重启只花几秒，期间 nginx 返回 `ops/nginx/booting.html` 等待页。不要直接跑 `scripts/start.sh`，也不要用 `kill` 释放 8765（会和 systemd 互杀，并把重启拖成 60–90 秒）。
 
 - [ ] **Step 2: 验证接口与页面**
 
