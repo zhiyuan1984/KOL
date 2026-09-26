@@ -13,8 +13,6 @@ export type SessionRow = {
   id: string;
   title: string;
   archived_at?: string | null;
-  expert_id?: string | null;
-  expert_version?: string | null;
   agent_status?: "listening" | "running" | "waiting_approval" | "queued";
 };
 
@@ -262,7 +260,6 @@ export type Task = {
   discovery_run_id?: string | null;
   /** PROD-AGENT-08: unadopted recs/insights. Formal WorkItems are candidate:false. */
   candidate?: boolean;
-  suggested_actions?: Array<string | { label?: string; title?: string; prompt?: string }>;
   [key: string]: unknown;
 };
 
@@ -384,12 +381,6 @@ export type HomeWorkbench = {
     pending_count?: number;
     ready?: boolean;
     candidates?: Array<Record<string, unknown>>;
-  };
-  lifecycle?: {
-    stages?: Array<{ code: string; label: string; count: number }>;
-    domains?: Array<{ id: string; label: string; count: number }>;
-    exception_count?: number;
-    stay_too_long?: Array<Record<string, unknown>>;
   };
 };
 

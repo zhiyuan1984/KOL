@@ -62,11 +62,11 @@ const KOL_FIELDS_DROPPED = [
   // `coarse` has no frontend reader: the lifecycle domain counts it fed were
   // dropped with `workbench.lifecycle`.
   "coarse",
-  // Reachability/ownership columns: the board adapter reads presence only, and
-  // `owner_mailbox` is on the pool banned-field list.
+  // Reachability/ownership columns. `owner_mailbox` stays: `isUnownedRow` in
+  // frontend/src/home/kolContract.ts classifies a row as 无主 only when *every*
+  // owner key present is empty, so dropping it would turn a 有主 KOL into 公海.
   "locked",
   "contact_email_masked",
-  "owner_mailbox",
   "wechat",
   // `duplicate_checked` is already folded into the `已查重` profile tag below.
   "duplicate_checked",
@@ -510,6 +510,7 @@ export function displayStatusOf(task: {
   return { display_status: code, display_status_label: DISPLAY_STATUS_LABELS[code] };
 }
 
+/** Recommended-task rows kept on the board; a presentation budget, not a business rule. */
 export const MAX_RECOMMENDED_TASKS = 8;
 
 function recPrompt(intent: string, handle: string, stage = "", definitions = taskDefinitionIndex()): string {

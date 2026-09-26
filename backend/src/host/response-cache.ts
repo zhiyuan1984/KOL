@@ -25,10 +25,15 @@ import { onConnReset } from "../db.js";
 
 export const POLL_CACHE_TTL_MS = 4000;
 export const POLL_CACHE_MAX_ENTRIES = 64;
-/** Per-value ceiling: bigger projections are served but not kept. */
-export const POLL_CACHE_MAX_VALUE_BYTES = 512 * 1024;
-/** Total retained payload bytes across every entry. */
-export const POLL_CACHE_MAX_TOTAL_BYTES = 4 * 1024 * 1024;
+/**
+ * Per-value ceiling. It has to sit above the deployed `/api/tasks` projection
+ * (~900KB measured on a production-shaped fixture) or the cache would silently
+ * stop covering the endpoint the shell polls every 4s; 3MB keeps that headroom
+ * while still refusing a runaway multi-MB answer.
+ */
+export const POLL_CACHE_MAX_VALUE_BYTES = 3 * 1024 * 1024;
+/** Total retained payload bytes across every entry (LRU-first eviction). */
+export const POLL_CACHE_MAX_TOTAL_BYTES = 8 * 1024 * 1024;
 
 type Entry = { at: number; epoch: string; value: unknown; bytes: number };
 

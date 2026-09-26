@@ -39,7 +39,6 @@ export type FollowedKolRecord = {
   release_scheduler?: false;
   profile_tags?: { id: string; label: string }[];
   follow_style_tags?: { id: string; label: string }[];
-  task_history?: string;
   kol_name?: string;
   collab_summary?: string;
   recent_followup?: string;

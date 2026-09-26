@@ -1495,8 +1495,8 @@ export default function Home() {
   followedWorkspaceRef.current = followedWorkspace;
 
   const workbench = useMemo(
-    () => boardWorkbench || deriveWorkbench(taskCatalog, mode === "lifecycle" ? followedWorkspace.rows : []),
-    [boardWorkbench, followedWorkspace.rows, mode, taskCatalog],
+    () => boardWorkbench || deriveWorkbench(taskCatalog),
+    [boardWorkbench, taskCatalog],
   );
 
   // slice each pane answers for differs, and that lives in scopeRows.

@@ -6,7 +6,7 @@ import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
 import { DEMO_USER } from "../src/config.js";
 import { buildHomeBoard, MAX_BOARD_TASKS, MAX_KOL_MAIL_THREADS, MAX_KOL_TASKS, MAX_WORKBENCH_TASKS, OPEN_WORK_ITEM_SQL } from "../src/host/home-board.js";
-import { POLL_CACHE_MAX_VALUE_BYTES, pollCacheCounters, resetPollCache } from "../src/host/response-cache.js";
+import { POLL_CACHE_MAX_TOTAL_BYTES, POLL_CACHE_MAX_VALUE_BYTES, pollCacheCounters, resetPollCache } from "../src/host/response-cache.js";
 import { resetDemoRuntimeState, seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { resetStarryHomeLibrarySync } from "../src/starrykol/library-sync.js";
@@ -157,18 +157,14 @@ describe("polling result cache", () => {
   });
 
   it("serves a projection over the per-value byte ceiling without retaining it", async () => {
-    // A large owner's session list runs to several hundred KB; the cache must
-    // not pin that (plus the tasks projection) on the single host thread.
+    // A runaway multi-MB projection must be served without pinning it on the
+    // single host thread: one synthetic row is enough to cross the ceiling
+    // without slowing the suite down with tens of thousands of inserts.
     const stamp = "2026-09-01T00:00:00.000Z";
-    const title = `会话标题${"·".repeat(120)}`;
-    const insert = getConn().prepare(
+    const filler = "x".repeat(Math.ceil(POLL_CACHE_MAX_VALUE_BYTES * 1.1));
+    getConn().prepare(
       "INSERT INTO sessions (id,title,created_at,updated_at,kind,owner_user_id) VALUES (?,?,?,?,?,?)",
-    );
-    getConn().transaction(() => {
-      for (let i = 0; i < 2400; i += 1) {
-        insert.run(`ses_oversize_${i}`, `${title}${i}`, stamp, stamp, "work", DEMO_USER.id);
-      }
-    })();
+    ).run("ses_oversize", filler, stamp, stamp, "work", DEMO_USER.id);
 
     const before = pollCacheCounters();
     const first = await request("GET", "/api/sessions");
@@ -188,6 +184,32 @@ describe("polling result cache", () => {
     const final = pollCacheCounters();
     expect(final.misses).toBe(after.misses + 1);
     expect(final.hits).toBe(after.hits);
+  });
+
+  it("retains a production-sized projection and serves the next poll from the cache", async () => {
+    // ~900KB is the measured size of the deployed `/api/tasks` projection; the
+    // shell polls it every 4s per tab, so it must stay inside the budget.
+    const stamp = "2026-09-01T00:00:00.000Z";
+    const filler = "x".repeat(900 * 1024);
+    getConn().prepare(
+      "INSERT INTO sessions (id,title,created_at,updated_at,kind,owner_user_id) VALUES (?,?,?,?,?,?)",
+    ).run("ses_big", filler, stamp, stamp, "work", DEMO_USER.id);
+
+    const before = pollCacheCounters();
+    const first = await request("GET", "/api/sessions");
+    expect(first.status).toBe(200);
+    const bytes = Buffer.byteLength(JSON.stringify(first.body), "utf8");
+    expect(bytes).toBeGreaterThan(512 * 1024);
+    expect(bytes).toBeLessThan(POLL_CACHE_MAX_VALUE_BYTES);
+
+    const after = pollCacheCounters();
+    expect(after.skipped).toBe(before.skipped);
+    expect(after.bytes).toBeGreaterThan(512 * 1024);
+    expect(after.bytes).toBeLessThanOrEqual(POLL_CACHE_MAX_TOTAL_BYTES);
+
+    const second = await request("GET", "/api/sessions");
+    expect(second.body).toEqual(first.body);
+    expect(pollCacheCounters().hits).toBe(after.hits + 1);
   });
 });
 
@@ -265,11 +287,11 @@ describe("GET /api/home/board list caps", () => {
       expect((kol.tasks as Json[]).length).toBeLessThanOrEqual(MAX_KOL_TASKS);
       expect(((kol.mail_threads as Json[]) || []).length).toBeLessThanOrEqual(MAX_KOL_MAIL_THREADS);
       // Fields no frontend file reads are dropped from the projection.
-      for (const dropped of ["sku", "qty", "risk_tag", "kol_id", "recipient_name", "list_in_projects", "address_line", "country", "postal", "coarse", "locked", "contact_email_masked", "owner_mailbox", "wechat", "duplicate_checked", "task_history"]) {
+      for (const dropped of ["sku", "qty", "risk_tag", "kol_id", "recipient_name", "list_in_projects", "address_line", "country", "postal", "coarse", "locked", "contact_email_masked", "wechat", "duplicate_checked", "task_history"]) {
         expect(dropped in kol, `dropped field present: ${dropped}`).toBe(false);
       }
       // Fields frontend consumers read are kept.
-      for (const kept of ["handle", "kol_uid", "kol_name", "current_stage", "suggested_stage", "unread_count", "profile_tags", "follow_style_tags", "recent_followup", "collab_summary", "stage_label", "days_in_stage", "last_conversation_id"]) {
+      for (const kept of ["handle", "kol_uid", "kol_name", "current_stage", "suggested_stage", "unread_count", "profile_tags", "follow_style_tags", "recent_followup", "collab_summary", "stage_label", "days_in_stage", "last_conversation_id", "owner_name", "owner_mailbox"]) {
         expect(kept in kol).toBe(true);
       }
     }
@@ -277,6 +299,19 @@ describe("GET /api/home/board list caps", () => {
     // in frontend/src or frontend/e2e and no consumer in this backend.
     expect("lifecycle" in workbench).toBe(false);
     expect(Object.keys(workbench).sort()).toEqual(["insights", "open", "recommendations", "summary", "today", "todo"]);
+  });
+
+  it("keeps owner_mailbox so 无主 judgment still sees every owner key it had", () => {
+    // frontend/src/home/kolContract.ts#isUnownedRow calls a row 无主 only when
+    // *every* owner key present in it is empty. Dropping `owner_mailbox` would
+    // leave `owner_name: ""` as the only key and send a 有主 KOL to the public sea.
+    getConn().prepare(
+      "UPDATE collaborations SET kol_uid='ku_xiaomei', owner_name='', owner_mailbox='ops@example.com' WHERE id='col_xiaomei'",
+    ).run();
+    const board = buildHomeBoard() as Json;
+    const kol = (board.kols as Json[]).find((row) => row.id === "col_xiaomei") as Json;
+    expect(kol.owner_mailbox).toBe("ops@example.com");
+    expect("owner_name" in kol).toBe(true);
   });
 
   it("keeps the unread-inbound signal from the whole thread list even though the board caps it", () => {

@@ -531,7 +531,7 @@ export function sortTodosByLaw(rows: Task[]): Task[] {
   });
 }
 
-export function deriveWorkbench(tasks: Task[], kols: Array<{ exception?: boolean; unbound?: boolean; days_in_stage?: number }>): HomeWorkbench {
+export function deriveWorkbench(tasks: Task[]): HomeWorkbench {
   const open = sortOpenWorkItems(tasks.filter(isOpenTask));
   const todo = sortedTasks(tasks.filter(isTodoTask), "priority");
   const insights = sortedTasks(tasks.filter(isInsightTask), "priority");
@@ -548,10 +548,6 @@ export function deriveWorkbench(tasks: Task[], kols: Array<{ exception?: boolean
     today: sortTodayTodos(tasks.filter(isTodayActionableTodo)),
     insights,
     recommendations: [],
-    lifecycle: {
-      exception_count: kols.filter((kol) => kol.exception).length,
-      stay_too_long: kols.filter((kol) => !kol.unbound && Number(kol.days_in_stage || 0) >= 7),
-    },
   };
 }
 

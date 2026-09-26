@@ -11,8 +11,8 @@
 //   node scripts/mail-latency-probe.mjs --base http://127.0.0.1:8790 --n 30
 //   node scripts/mail-latency-probe.mjs --endpoints /api/tasks
 //
-// Exit code 1 when any probed endpoint's P95 exceeds the threshold. The byte
-// budget line below is informational only: it never changes the exit code.
+// Exit code 1 when any probed endpoint's P95 exceeds the threshold. The payload
+// budget line is a reference verdict only: it never changes the exit code.
 
 const args = process.argv.slice(2);
 function arg(name, fallback) {
@@ -29,8 +29,12 @@ const DEFAULT_ENDPOINTS = ["/api/version", "/api/mail/box", "/api/mail/conversat
 const EXTRA_ENDPOINTS = String(arg("--endpoints", "")).split(",").map((path) => path.trim()).filter(Boolean);
 const ENDPOINTS = [...DEFAULT_ENDPOINTS, ...EXTRA_ENDPOINTS.filter((path) => !DEFAULT_ENDPOINTS.includes(path))];
 
-/** Average transfer budget per response, bytes. Presentation budget, not a gate. */
-const BYTE_BUDGETS = { "/api/tasks": 512 * 1024 };
+/**
+ * Payload reference budgets, bytes: what the endpoint *should* cost on the wire,
+ * to be compared against — not the in-process cache ceiling
+ * (`POLL_CACHE_MAX_VALUE_BYTES`, 3MB, in src/host/response-cache.ts).
+ */
+const PAYLOAD_BUDGETS = { "/api/tasks": 512 * 1024 };
 
 function percentile(sorted, p) {
   if (!sorted.length) return 0;
@@ -106,13 +110,17 @@ for (const row of results) {
   );
 }
 const failed = results.filter((row) => !row.ok);
-// One line of volume verdicts next to the latency table; informational only.
-const budgetLine = Object.entries(BYTE_BUDGETS).map(([path, cap]) => {
+// One line of volume verdicts next to the latency table; informational only, and
+// deliberately labelled as a wire-payload reference rather than a cache limit.
+const budgetLine = Object.entries(PAYLOAD_BUDGETS).map(([path, cap]) => {
   const row = results.find((item) => item.path === path);
   if (!row) return `${path} not probed (--endpoints ${path})`;
-  return `${path} avg ${formatBytes(row.bytes_avg)} ${row.bytes_avg > cap ? "OVER" : "ok"} (budget ${formatBytes(cap)})`;
+  // A connection that never reached the server has no payload to compare against;
+  // 0B must not read as "under budget" while the latency line says FAIL.
+  if (!row.responded) return `${path} n/a (no response · reference ${formatBytes(cap)})`;
+  return `${path} avg ${formatBytes(row.bytes_avg)} ${row.bytes_avg > cap ? "OVER" : "ok"} (reference ${formatBytes(cap)})`;
 });
-console.log(`byte budget: ${budgetLine.join(" · ")}`);
+console.log(`payload budget (reference): ${budgetLine.join(" · ")}`);
 console.log(failed.length
   ? `${failed.length} endpoint(s) over the P95 budget or unreachable`
   : "all endpoints within budget");
