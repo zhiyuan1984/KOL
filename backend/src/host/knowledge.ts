@@ -15,9 +15,20 @@ import { HttpFail } from "./errors.js";
 import { pickComposeTemplate } from "./compose-loop.js";
 import { currentUser } from "./persona.js";
 import { departmentHeadAccessForUser } from "../contract-scope.js";
+import { directory, memberScopeIds } from "./grants.js";
 
 export const KNOWLEDGE_KINDS = ["mail_template", "policy", "pattern", "glossary"] as const;
 export const KNOWLEDGE_STATUSES = ["draft", "pending_review", "published", "archived"] as const;
+export const KNOWLEDGE_SKIP_REASONS = [
+  "not_published",
+  "scope_mismatch",
+  "not_cited",
+  "deprecated_by_user",
+  "expired",
+  "shadowed_by_higher_priority",
+  "binding_disabled",
+  "missing",
+] as const;
 export const DEPRECATE_REASONS = {
   outdated: "内容过时",
   brand_mismatch: "品牌用不上",
@@ -154,13 +165,16 @@ export function publicKnowledge(row: Row, userId = knowledgeActorId()): Json {
     deprecate_note: dep?.reason_note || "",
     deprecated_at: dep?.deprecated_at || "",
     cite_count: citeCount,
+    effective_at: row.effective_at || "",
+    expires_at: row.expires_at || "",
     starter: composerStarter(row),
   };
 }
 
-function listed(sql: string, args: unknown[]): Json[] {
+function listed(sql: string, args: unknown[], filter?: (row: Row) => boolean): Json[] {
   const userId = knowledgeActorId();
-  const rows = getConn().prepare(sql).all(...args) as Row[];
+  const all = getConn().prepare(sql).all(...args) as Row[];
+  const rows = filter ? all.filter(filter) : all;
   if (!rows.length) return [];
   const ids = rows.map((row) => String(row.id));
   const placeholders = ids.map(() => "?").join(",");
@@ -184,20 +198,28 @@ function listed(sql: string, args: unknown[]): Json[] {
     return publicKnowledge({
       ...row,
       viewer_cited: cited.has(String(row.id)) ? 1 : 0,
-      viewer_deprecate_reason: dep ? String(dep.reason || "") : "",
-      viewer_deprecate_note: dep ? String(dep.reason_note || "") : "",
-      viewer_deprecated_at: dep ? String(dep.deprecated_at || "") : "",
+      // 无隐藏记录时必须留 undefined：publicKnowledge 以 `viewer_deprecate_reason == null`
+      // 判断「是否已批量查询过」；传空串会被当成「有隐藏记录（原因为空）」，每行都显示已隐藏。
+      viewer_deprecate_reason: dep ? String(dep.reason || "") : undefined,
+      viewer_deprecate_note: dep ? String(dep.reason_note || "") : undefined,
+      viewer_deprecated_at: dep ? String(dep.deprecated_at || "") : undefined,
       cite_count: counts.get(String(row.id)) || 0,
     }, userId);
   });
 }
 
-export function listPublishedForOps(): Json[] {
-  return listed("SELECT * FROM knowledge WHERE status='published' ORDER BY kind, title", []);
+export function listPublishedForOps(opts: KnowledgeListOpts = {}): Json[] {
+  const filters = knowledgeListFilters(opts);
+  const rows = listed(filters.sql, filters.args, filters.filter);
+  const offset = Math.max(0, Number(opts.offset || 0) || 0);
+  const limit = Math.max(0, Number(opts.limit == null ? 0 : opts.limit) || 0);
+  if (!limit && !offset) return rows;
+  return limit ? rows.slice(offset, offset + limit) : rows.slice(offset);
 }
 
 export function listMarket(): Json[] {
-  return listed("SELECT * FROM knowledge WHERE status='published' AND in_market=1 ORDER BY kind, title", []);
+  const filters = knowledgeListFilters({ inMarket: true });
+  return listed(filters.sql, filters.args, filters.filter);
 }
 
 export function brandMatched(row: Row, brands = actorBrands()): boolean {
@@ -220,17 +242,20 @@ export function composerItems(userId = knowledgeActorId(), brands = actorBrands(
        ORDER BY k.title`,
     )
     .all(userId, userId) as Row[];
-  return rows.flatMap((row) => {
-    try {
-      assertMailTemplateSnapshotApplicable({ knowledgeId: String(row.id), version: Number(row.published_version || 0), userId, brands });
-      const snapshot = publishedSnapshot(row);
-      const published = { ...row, ...snapshot, id: row.id, current_version: snapshot.version };
-      return [{ ...publicKnowledge(published, userId), intent: snapshot.skill_id, starter: composerStarter(snapshot) }];
-    } catch (error) {
-      if (error instanceof HttpFail) return [];
-      throw error;
-    }
-  });
+  const viewer = viewerHandle(userId);
+  return rows
+    .filter((row) => brandMatched(row, brands) && canSeeKnowledge(row, viewer))
+    .flatMap((row) => {
+      try {
+        assertMailTemplateSnapshotApplicable({ knowledgeId: String(row.id), version: Number(row.published_version || 0), userId, brands });
+        const snapshot = publishedSnapshot(row);
+        const published = { ...row, ...snapshot, id: row.id, current_version: snapshot.version };
+        return [{ ...publicKnowledge(published, userId), intent: snapshot.skill_id, starter: composerStarter(snapshot) }];
+      } catch (error) {
+        if (error instanceof HttpFail) return [];
+        throw error;
+      }
+    });
 }
 
 export function composerStarter(row: Row): string {
@@ -418,10 +443,16 @@ export function editKnowledge(id: string, input: Partial<UpsertInput>, actor = k
   return publicKnowledge(knowledgeRow(id), actor);
 }
 
-export function approveKnowledge(id: string, actor = knowledgeActorId()): Json {
+export function approveKnowledge(id: string, expectedVersion: number | null = null, actor = knowledgeActorId()): Json {
   requireAdmin();
   const row = knowledgeRow(id);
   if (String(row.status) === "archived") throw new HttpFail(400, "已归档知识不能直接发布");
+  if (expectedVersion == null || !Number.isFinite(Number(expectedVersion))) {
+    throw new HttpFail(400, "expected_version required");
+  }
+  if (Number(expectedVersion) !== Number(row.current_version || 1)) {
+    throw new HttpFail(409, { code: "knowledge_version_conflict", message: "内容已变，请刷新后重新审核" });
+  }
   const now = nowIso();
   const version = Number(row.current_version || 1);
   tx((db) => {
@@ -955,8 +986,13 @@ export function resolveMailTemplate(opts: {
   const skill = String(opts.skillId || "email_compose");
   if (skill && skill !== "email_compose") return null;
   const stage = String(opts.stageCode || "").trim();
+  const bound = resolveForSkill("email_compose", { userId, brands, stageCode: stage, record: true });
+  if (bound.resolved.length) return assertUsableKnowledge(bound.resolved[0].id, userId, brands);
   const rows = composerItems(userId, brands);
-  if (!rows.length) return null;
+  if (!rows.length) {
+    audit(userId, "knowledge.resolve", { skill_id: "email_compose", source: "legacy", resolved: [], skipped_count: 0 });
+    return null;
+  }
   const staged = stage
     ? rows.filter((row) => {
       const codes = Array.isArray(row.stage_codes) ? row.stage_codes.map(String) : [];
@@ -964,6 +1000,12 @@ export function resolveMailTemplate(opts: {
     })
     : rows;
   const pick = staged[0];
+  audit(userId, "knowledge.resolve", {
+    skill_id: "email_compose",
+    source: "legacy",
+    resolved: pick ? [{ id: String(pick.id), version: Number(pick.current_version || 1) }] : [],
+    skipped_count: Math.max(0, staged.length - (pick ? 1 : 0)),
+  });
   return pick ? assertUsableKnowledge(String(pick.id), userId, brands) : null;
 }
 
@@ -1079,6 +1121,607 @@ export function workerSafeExtra(extra: Json): Json {
     };
   }
   return copy;
+}
+
+export type KnowledgeListOpts = {
+  q?: string | null;
+  kind?: string | null;
+  stage?: string | null;
+  brand?: string | null;
+  limit?: number | null;
+  offset?: number | null;
+};
+
+function likeEscaped(value: string): string {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+/** id → handle：演示目录优先，真实账号回退 username（mapUser 的 handle 即 username）。 */
+function viewerHandle(userId: string): string {
+  const me = currentUser();
+  if (me.id === userId) return me.handle;
+  const db = getConn();
+  const dir = db.prepare("SELECT handle FROM directory_users WHERE id=?").get(userId) as { handle?: string } | undefined;
+  if (dir?.handle) return String(dir.handle);
+  const user = db.prepare("SELECT username FROM users WHERE id=?").get(userId) as { username?: string } | undefined;
+  return String(user?.username || userId);
+}
+
+/** 列表过滤：范围/授权先于取数；阶段与品牌只收窄，不过滤无授权行的已发布知识。 */
+function knowledgeListFilters(opts: KnowledgeListOpts & { inMarket?: boolean } = {}): {
+  sql: string;
+  args: unknown[];
+  filter: (row: Row) => boolean;
+} {
+  const clauses = ["status='published'"];
+  const args: unknown[] = [];
+  if (opts.inMarket) clauses.push("in_market=1");
+  const q = String(opts.q || "").trim();
+  if (q) {
+    const like = `%${likeEscaped(q)}%`;
+    clauses.push("(title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\' OR subject LIKE ? ESCAPE '\\' OR body_en LIKE ? ESCAPE '\\')");
+    args.push(like, like, like, like, like);
+  }
+  const kind = String(opts.kind || "").trim();
+  if (kind) {
+    clauses.push("kind=?");
+    args.push(kind);
+  }
+  const stage = String(opts.stage || "").trim();
+  const brand = String(opts.brand || "").trim();
+  const handle = currentUser().handle;
+  const filter = (row: Row): boolean => {
+    if (!canSeeKnowledge(row, handle)) return false;
+    if (!brandMatched(row)) return false;
+    if (stage) {
+      const codes = parseJsonArray(row.stage_codes);
+      if (codes.length && !codes.includes(stage)) return false;
+    }
+    if (brand) {
+      const rowBrand = String(row.brand || "*");
+      if (rowBrand !== "*" && rowBrand !== brand) return false;
+    }
+    return true;
+  };
+  return { sql: `SELECT * FROM knowledge WHERE ${clauses.join(" AND ")} ORDER BY kind, title`, args, filter };
+}
+
+export function grantsForKnowledge(id: string): { org: string[]; team: string[]; user: string[] } {
+  requireAdmin();
+  knowledgeRow(id);
+  const rows = getConn()
+    .prepare("SELECT scope, scope_id FROM knowledge_grants WHERE knowledge_id=?")
+    .all(id) as { scope: string; scope_id: string }[];
+  const out = { org: [] as string[], team: [] as string[], user: [] as string[] };
+  for (const row of rows) {
+    if (row.scope === "org") out.org.push(row.scope_id);
+    if (row.scope === "team") out.team.push(row.scope_id);
+    if (row.scope === "user") out.user.push(row.scope_id);
+  }
+  return out;
+}
+
+export function setKnowledgeGrants(
+  id: string,
+  patch: { org?: string[]; team?: string[]; user?: string[] },
+  actor = knowledgeActorId(),
+): { org: string[]; team: string[]; user: string[] } {
+  requireAdmin();
+  knowledgeRow(id);
+  const dir = directory();
+  const orgOk = new Set(dir.orgs.map((row) => row.id));
+  const teamOk = new Set(dir.teams.map((row) => row.id));
+  const userOk = new Set(dir.users.map((row) => row.handle));
+  const next = {
+    org: [...new Set(patch.org || [])],
+    team: [...new Set(patch.team || [])],
+    user: [...new Set(patch.user || [])],
+  };
+  for (const scopeId of next.org) if (!orgOk.has(scopeId)) throw new HttpFail(400, "unknown org");
+  for (const scopeId of next.team) if (!teamOk.has(scopeId)) throw new HttpFail(400, "unknown team");
+  for (const scopeId of next.user) if (!userOk.has(scopeId)) throw new HttpFail(400, "unknown user");
+  const now = nowIso();
+  tx((db) => {
+    db.prepare("DELETE FROM knowledge_grants WHERE knowledge_id=?").run(id);
+    const ins = db.prepare(
+      "INSERT INTO knowledge_grants (id,knowledge_id,scope,scope_id,granted_by,granted_at) VALUES (?,?,?,?,?,?)",
+    );
+    for (const scopeId of next.org) ins.run(nid("kgr"), id, "org", scopeId, actor, now);
+    for (const scopeId of next.team) ins.run(nid("kgr"), id, "team", scopeId, actor, now);
+    for (const scopeId of next.user) ins.run(nid("kgr"), id, "user", scopeId, actor, now);
+  });
+  audit(actor, "knowledge.grant.save", { knowledge_id: id, org: next.org, team: next.team, user: next.user });
+  return grantsForKnowledge(id);
+}
+
+/** 某条知识出现授权行时按对象收窄；无授权行者维持「已发布即可见」。 */
+export function canSeeKnowledge(row: Row, handle?: string): boolean {
+  const id = String(row.id || "");
+  if (!id) return true;
+  const rows = getConn()
+    .prepare("SELECT scope, scope_id FROM knowledge_grants WHERE knowledge_id=?")
+    .all(id) as { scope: string; scope_id: string }[];
+  if (!rows.length) return true;
+  const who = handle || currentUser().handle;
+  const mem = memberScopeIds(who);
+  return rows.some((grant) =>
+    (grant.scope === "org" && mem.orgs.includes(grant.scope_id)) ||
+    (grant.scope === "team" && mem.teams.includes(grant.scope_id)) ||
+    (grant.scope === "user" && grant.scope_id === who)
+  );
+}
+
+export function getKnowledgeVersion(id: string, version: number): Json {
+  requireAdmin();
+  if (!Number.isFinite(Number(version))) throw new HttpFail(404, "version not found");
+  knowledgeRow(id);
+  const row = getConn()
+    .prepare("SELECT * FROM knowledge_versions WHERE knowledge_id=? AND version=?")
+    .get(id, Number(version)) as Row | undefined;
+  if (!row) throw new HttpFail(404, "version not found");
+  return row;
+}
+
+/** 回滚 = 以历史版本内容生成新草稿版本，历史行不动。 */
+export function rollbackKnowledge(id: string, version: number, actor = knowledgeActorId()): Json {
+  requireAdmin();
+  if (!Number.isFinite(Number(version))) throw new HttpFail(404, "version not found");
+  const prev = knowledgeRow(id);
+  const snap = getConn()
+    .prepare("SELECT * FROM knowledge_versions WHERE knowledge_id=? AND version=?")
+    .get(id, Number(version)) as Row | undefined;
+  if (!snap) throw new HttpFail(404, "version not found");
+  const next: Row = {
+    ...prev,
+    title: String(snap.title ?? prev.title),
+    body: String(snap.body ?? prev.body),
+    tags: String(snap.tags ?? prev.tags),
+    kind: String(snap.kind || prev.kind),
+    skill_id: String(snap.skill_id ?? prev.skill_id),
+    brand: String(snap.brand ?? prev.brand) || "*",
+    lang: String(snap.lang || prev.lang),
+    subject: String(snap.subject ?? prev.subject),
+    body_en: String(snap.body_en ?? prev.body_en),
+    placeholders: String(snap.placeholders ?? prev.placeholders),
+    stage_codes: String(snap.stage_codes ?? prev.stage_codes),
+    status: "draft",
+    current_version: Number(prev.current_version || 1) + 1,
+    updated_at: nowIso(),
+  };
+  tx((db) => {
+    db.prepare(
+      `UPDATE knowledge
+          SET title=?,body=?,tags=?,kind=?,skill_id=?,brand=?,lang=?,subject=?,body_en=?,placeholders=?,stage_codes=?,status=?,current_version=?,updated_at=?
+        WHERE id=?`,
+    ).run(
+      next.title, next.body, next.tags, next.kind, next.skill_id, next.brand, next.lang, next.subject,
+      next.body_en, next.placeholders, next.stage_codes, next.status, next.current_version, next.updated_at, id,
+    );
+    writeVersion(db, next, `rollback from v${Number(version)}`, actor);
+  });
+  audit(actor, "knowledge.rollback", { knowledge_id: id, from_version: Number(version), to_version: next.current_version });
+  return publicKnowledge(knowledgeRow(id), actor);
+}
+
+export const BINDING_SELECTOR_KEYS = ["ids", "kinds", "tags", "stage_codes", "brand", "lang"] as const;
+
+export type KnowledgeBindingSelector = {
+  ids?: string[];
+  kinds?: string[];
+  tags?: string[];
+  stage_codes?: string[];
+  brand?: string;
+  lang?: string;
+};
+
+type StoredBinding = { id: string; skill_id: string; selector: KnowledgeBindingSelector };
+
+function stringList(value: unknown): string[] {
+  const list = Array.isArray(value) ? value : value == null || value === "" ? [] : [value];
+  return [...new Set(list.map((item) => String(item).trim()).filter(Boolean))];
+}
+
+function normalizeSelector(value: unknown): KnowledgeBindingSelector {
+  let raw: unknown = value;
+  if (typeof raw === "string") {
+    try {
+      raw = JSON.parse(raw || "{}");
+    } catch {
+      throw new HttpFail(400, "selector 须为 JSON 对象");
+    }
+  }
+  if (raw == null) raw = {};
+  if (typeof raw !== "object" || Array.isArray(raw)) throw new HttpFail(400, "selector 须为 JSON 对象");
+  const input = raw as Json;
+  for (const key of Object.keys(input)) {
+    if (!(BINDING_SELECTOR_KEYS as readonly string[]).includes(key)) {
+      throw new HttpFail(400, `selector 允许键：${BINDING_SELECTOR_KEYS.join(" / ")}`);
+    }
+  }
+  const kinds = stringList(input.kinds);
+  for (const kind of kinds) {
+    if (!(KNOWLEDGE_KINDS as readonly string[]).includes(kind)) {
+      throw new HttpFail(400, "kind 须为 mail_template / policy / pattern / glossary");
+    }
+  }
+  const selector: KnowledgeBindingSelector = {};
+  const ids = stringList(input.ids);
+  if (ids.length) selector.ids = ids;
+  if (kinds.length) selector.kinds = kinds;
+  const tags = stringList(input.tags);
+  if (tags.length) selector.tags = tags;
+  const stageCodes = stringList(input.stage_codes);
+  if (stageCodes.length) selector.stage_codes = stageCodes;
+  const brand = String(input.brand == null ? "" : input.brand).trim();
+  if (brand) selector.brand = brand;
+  const lang = String(input.lang == null ? "" : input.lang).trim();
+  if (lang) selector.lang = lang;
+  return selector;
+}
+
+function parseSelectorStored(value: unknown): KnowledgeBindingSelector {
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value || "{}") : value;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed as KnowledgeBindingSelector;
+  } catch {
+    return {};
+  }
+}
+
+function bindingRows(skillId?: string, enabledOnly = false): Row[] {
+  const clauses: string[] = [];
+  const args: unknown[] = [];
+  if (enabledOnly) clauses.push("enabled=1");
+  if (skillId) {
+    clauses.push("skill_id=?");
+    args.push(skillId);
+  }
+  const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+  return getConn()
+    .prepare(`SELECT * FROM knowledge_bindings${where} ORDER BY created_at, id`)
+    .all(...args) as Row[];
+}
+
+function storedBindings(skillId?: string, enabledOnly = false): StoredBinding[] {
+  return bindingRows(skillId, enabledOnly).map((row) => ({
+    id: String(row.id),
+    skill_id: String(row.skill_id),
+    selector: parseSelectorStored(row.selector),
+  }));
+}
+
+export function listBindings(): Json[] {
+  requireAdmin();
+  return bindingRows().map((row) => ({ ...row, selector: parseSelectorStored(row.selector) }));
+}
+
+export function saveBinding(
+  input: { id?: string; skill_id?: string; selector?: unknown; enabled?: boolean | number; note?: string },
+  actor = knowledgeActorId(),
+): Json {
+  requireAdmin();
+  const id = String(input.id || "").trim();
+  const prev = id
+    ? getConn().prepare("SELECT * FROM knowledge_bindings WHERE id=?").get(id) as Row | undefined
+    : undefined;
+  if (id && !prev) throw new HttpFail(404, "binding not found");
+  const skillId = String(input.skill_id == null ? prev?.skill_id ?? "" : input.skill_id).trim();
+  if (!skillId) throw new HttpFail(400, "skill_id required");
+  const selector = input.selector == null ? parseSelectorStored(prev?.selector) : normalizeSelector(input.selector);
+  const enabled = input.enabled == null ? (Number(prev?.enabled ?? 1) ? 1 : 0) : (input.enabled ? 1 : 0);
+  const note = input.note == null ? String(prev?.note ?? "") : String(input.note);
+  const bindingId = id || nid("kbind");
+  const now = nowIso();
+  tx((db) => {
+    if (prev) {
+      db.prepare("UPDATE knowledge_bindings SET skill_id=?,selector=?,enabled=?,note=?,updated_at=? WHERE id=?")
+        .run(skillId, JSON.stringify(selector), enabled, note, now, bindingId);
+    } else {
+      db.prepare(
+        `INSERT INTO knowledge_bindings (id,skill_id,selector,enabled,note,created_by,created_at,updated_at)
+         VALUES (?,?,?,?,?,?,?,?)`,
+      ).run(bindingId, skillId, JSON.stringify(selector), enabled, note, actor, now, now);
+    }
+  });
+  audit(actor, "knowledge.binding.save", { binding_id: bindingId, skill_id: skillId, enabled });
+  const row = getConn().prepare("SELECT * FROM knowledge_bindings WHERE id=?").get(bindingId) as Row;
+  return { ...row, selector: parseSelectorStored(row.selector) };
+}
+
+export function deleteBinding(id: string, actor = knowledgeActorId()): Json {
+  requireAdmin();
+  const row = getConn().prepare("SELECT * FROM knowledge_bindings WHERE id=?").get(id) as Row | undefined;
+  if (!row) throw new HttpFail(404, "binding not found");
+  tx((db) => {
+    db.prepare("DELETE FROM knowledge_bindings WHERE id=?").run(id);
+  });
+  audit(actor, "knowledge.binding.save", {
+    binding_id: id,
+    skill_id: String(row.skill_id || ""),
+    enabled: Number(row.enabled || 0),
+    deleted: true,
+  });
+  return { ok: true, id };
+}
+
+export function bindingMatchesRow(selector: KnowledgeBindingSelector, row: Row): boolean {
+  const ids = selector.ids || [];
+  if (ids.length && !ids.includes(String(row.id || ""))) return false;
+  const kinds = selector.kinds || [];
+  if (kinds.length && !kinds.includes(String(row.kind || ""))) return false;
+  const tags = selector.tags || [];
+  if (tags.length) {
+    const rowTags = String(row.tags || "").split(",").map((tag) => tag.trim()).filter(Boolean);
+    if (!tags.some((tag) => rowTags.includes(tag))) return false;
+  }
+  const brand = String(selector.brand || "").trim();
+  if (brand) {
+    const rowBrand = String(row.brand || "*");
+    if (rowBrand !== "*" && rowBrand !== brand) return false;
+  }
+  const lang = String(selector.lang || "").trim();
+  if (lang && String(row.lang || "en") !== lang) return false;
+  return true;
+}
+
+export type KnowledgeResolveItem = {
+  id: string;
+  version: number;
+  title: string;
+  kind: string;
+  subject: string;
+  stage_codes: string[];
+  brand: string;
+};
+
+export type KnowledgeResolveSkip = { knowledge_id: string; title?: string; reason: string };
+
+export type KnowledgeResolveResult = {
+  resolved: KnowledgeResolveItem[];
+  skipped: KnowledgeResolveSkip[];
+  bound: boolean;
+};
+
+function stagePriority(row: Row, stage: string): number {
+  const codes = parseJsonArray(row.stage_codes);
+  if (stage && codes.includes(stage)) return 0;
+  if (!codes.length) return 1;
+  return 2;
+}
+
+function brandPriority(row: Row): number {
+  const brand = String(row.brand || "*");
+  return brand && brand !== "*" ? 0 : 1;
+}
+
+/** 运行时解析（员工路径可用，不加 requireAdmin）：显式 ids > 阶段精确 > 品牌精确 > 更新时间。 */
+export function resolveForSkill(
+  skillId: string,
+  opts: { userId?: string; brands?: string[]; stageCode?: string | null; record?: boolean } = {},
+): KnowledgeResolveResult {
+  const skill = String(skillId || "").trim();
+  const bindings = skill ? storedBindings(skill, true) : [];
+  if (!bindings.length) return { resolved: [], skipped: [], bound: false };
+  const userId = opts.userId || knowledgeActorId();
+  const brands = opts.brands || actorBrands();
+  const stage = String(opts.stageCode || "").trim();
+  const handle = viewerHandle(userId);
+  const db = getConn();
+  const published = db.prepare("SELECT * FROM knowledge WHERE status='published'").all() as Row[];
+  const citedIds = new Set(
+    (db.prepare("SELECT knowledge_id FROM knowledge_citations WHERE user_id=?").all(userId) as Row[])
+      .map((row) => String(row.knowledge_id)),
+  );
+  const deprecatedIds = new Set(
+    (db.prepare("SELECT knowledge_id FROM knowledge_deprecations WHERE user_id=?").all(userId) as Row[])
+      .map((row) => String(row.knowledge_id)),
+  );
+  const skipped: KnowledgeResolveSkip[] = [];
+  const skipKeys = new Set<string>();
+  const pushSkip = (entry: KnowledgeResolveSkip): void => {
+    const key = `${entry.knowledge_id}:${entry.reason}`;
+    if (skipKeys.has(key)) return;
+    skipKeys.add(key);
+    skipped.push(entry);
+  };
+  const gateReason = (row: Row): string | null => {
+    if (!brandMatched(row, brands) || !canSeeKnowledge(row, handle)) return "scope_mismatch";
+    if (!citedIds.has(String(row.id))) return "not_cited";
+    if (deprecatedIds.has(String(row.id))) return "deprecated_by_user";
+    return null;
+  };
+  const pinned: string[] = [];
+  const candidates = new Map<string, Row>();
+  const evaluated = new Set<string>();
+  for (const binding of bindings) {
+    for (const id of binding.selector.ids || []) {
+      const row = db.prepare("SELECT * FROM knowledge WHERE id=?").get(id) as Row | undefined;
+      if (!row) {
+        pushSkip({ knowledge_id: id, reason: "missing" });
+        continue;
+      }
+      if (!pinned.includes(id)) pinned.push(id);
+      if (evaluated.has(id)) continue;
+      if (String(row.status) !== "published") {
+        pushSkip({ knowledge_id: id, title: String(row.title || ""), reason: "not_published" });
+        evaluated.add(id);
+        continue;
+      }
+      if (!bindingMatchesRow(binding.selector, row)) continue;
+      const reason = gateReason(row);
+      if (reason) {
+        pushSkip({ knowledge_id: id, title: String(row.title || ""), reason });
+        evaluated.add(id);
+        continue;
+      }
+      candidates.set(id, row);
+      evaluated.add(id);
+    }
+    for (const row of published) {
+      if (!bindingMatchesRow(binding.selector, row)) continue;
+      const id = String(row.id);
+      if (evaluated.has(id)) continue;
+      const reason = gateReason(row);
+      if (reason) {
+        pushSkip({ knowledge_id: id, title: String(row.title || ""), reason });
+        evaluated.add(id);
+        continue;
+      }
+      candidates.set(id, row);
+      evaluated.add(id);
+    }
+  }
+  const ordered = [...candidates.values()].sort((a, b) => {
+    const ai = pinned.indexOf(String(a.id));
+    const bi = pinned.indexOf(String(b.id));
+    const ap = ai < 0 ? Number.MAX_SAFE_INTEGER : ai;
+    const bp = bi < 0 ? Number.MAX_SAFE_INTEGER : bi;
+    if (ap !== bp) return ap - bp;
+    const stageDiff = stagePriority(a, stage) - stagePriority(b, stage);
+    if (stageDiff) return stageDiff;
+    const brandDiff = brandPriority(a) - brandPriority(b);
+    if (brandDiff) return brandDiff;
+    return String(b.updated_at || "").localeCompare(String(a.updated_at || ""));
+  });
+  const resolved: KnowledgeResolveItem[] = [];
+  const seenKinds = new Set<string>();
+  for (const row of ordered) {
+    const kind = String(row.kind || "policy");
+    resolved.push({
+      id: String(row.id),
+      version: Number(row.current_version || 1),
+      title: String(row.title || ""),
+      kind,
+      subject: String(row.subject || ""),
+      stage_codes: parseJsonArray(row.stage_codes),
+      brand: String(row.brand || "*"),
+    });
+    if (seenKinds.has(kind)) {
+      pushSkip({ knowledge_id: String(row.id), title: String(row.title || ""), reason: "shadowed_by_higher_priority" });
+    } else {
+      seenKinds.add(kind);
+    }
+  }
+  if (opts.record) {
+    audit(userId, "knowledge.resolve", {
+      skill_id: skill,
+      source: "binding",
+      resolved: resolved.map((item) => ({ id: item.id, version: item.version })),
+      skipped_count: skipped.length,
+    });
+  }
+  return { resolved, skipped, bound: true };
+}
+
+export function resolvePreview(input: {
+  skill_id?: string;
+  user_id?: string;
+  stage_code?: string;
+  brand?: string;
+}): Json {
+  requireAdmin();
+  const skillId = String(input.skill_id || "").trim();
+  if (!skillId) throw new HttpFail(400, "skill_id required");
+  const userId = String(input.user_id || "").trim() || knowledgeActorId();
+  const brand = String(input.brand || "").trim();
+  const result = resolveForSkill(skillId, {
+    userId,
+    brands: brand ? [brand] : actorBrands(),
+    stageCode: input.stage_code,
+    record: false,
+  });
+  const bindings: Json[] = bindingRows(skillId).map((row) => ({ ...row, selector: parseSelectorStored(row.selector) }));
+  const skipped: KnowledgeResolveSkip[] = [...result.skipped];
+  const seen = new Set(skipped.map((entry) => `${entry.knowledge_id}:${entry.reason}`));
+  const published = getConn().prepare("SELECT * FROM knowledge WHERE status='published'").all() as Row[];
+  for (const binding of bindings) {
+    if (Number(binding.enabled || 0)) continue;
+    const selector = parseSelectorStored(binding.selector);
+    for (const row of published) {
+      if (!bindingMatchesRow(selector, row)) continue;
+      const id = String(row.id);
+      const key = `${id}:binding_disabled`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      skipped.push({ knowledge_id: id, title: String(row.title || ""), reason: "binding_disabled" });
+    }
+  }
+  return { resolved: result.resolved, skipped, bindings };
+}
+
+export function listFeedback(): Json[] {
+  requireAdmin();
+  return getConn()
+    .prepare(
+      `SELECT d.user_id, d.knowledge_id, k.title AS title, d.reason, d.reason_note, d.deprecated_at,
+              d.handled_at, d.handled_by, d.handle_action, d.handle_note
+         FROM knowledge_deprecations d
+         LEFT JOIN knowledge k ON k.id = d.knowledge_id
+        ORDER BY d.deprecated_at DESC`,
+    )
+    .all() as Json[];
+}
+
+export function handleFeedback(
+  knowledgeId: string,
+  userId: string,
+  action: "to_revision" | "archive" | "ignore",
+  note = "",
+  actor = knowledgeActorId(),
+): Json {
+  requireAdmin();
+  if (!["to_revision", "archive", "ignore"].includes(action)) {
+    throw new HttpFail(400, "action 须为 to_revision / archive / ignore");
+  }
+  const db = getConn();
+  const owner = String(userId || "").trim();
+  const dep = db
+    .prepare("SELECT * FROM knowledge_deprecations WHERE user_id=? AND knowledge_id=?")
+    .get(owner, knowledgeId) as Row | undefined;
+  if (!dep) throw new HttpFail(404, "feedback not found");
+  if (dep.handled_at) throw new HttpFail(409, "feedback already handled");
+  const now = nowIso();
+  if (action === "to_revision") {
+    const prev = knowledgeRow(knowledgeId);
+    const next: Row = {
+      ...prev,
+      status: "draft",
+      current_version: Number(prev.current_version || 1) + 1,
+      updated_at: now,
+    };
+    tx((inner) => {
+      inner.prepare("UPDATE knowledge SET status='draft',current_version=?,updated_at=? WHERE id=?")
+        .run(next.current_version, next.updated_at, knowledgeId);
+      writeVersion(inner, next, "feedback to_revision", actor);
+    });
+  } else if (action === "archive") {
+    archiveKnowledge(knowledgeId, actor);
+  }
+  tx((inner) => {
+    inner.prepare(
+      "UPDATE knowledge_deprecations SET handled_at=?,handled_by=?,handle_action=?,handle_note=? WHERE user_id=? AND knowledge_id=?",
+    ).run(now, actor, action, String(note || ""), owner, knowledgeId);
+  });
+  audit(actor, "knowledge.feedback.handle", { knowledge_id: knowledgeId, user_id: owner, action });
+  return db
+    .prepare(
+      `SELECT d.*, k.title AS title FROM knowledge_deprecations d
+        LEFT JOIN knowledge k ON k.id = d.knowledge_id
+        WHERE d.user_id=? AND d.knowledge_id=?`,
+    )
+    .get(owner, knowledgeId) as Json;
+}
+
+export function adminAssets(): Json[] {
+  requireAdmin();
+  const bindings = storedBindings(undefined, true);
+  return adminList().map((row) => ({
+    ...row,
+    ref_skills: [...new Set(
+      bindings.filter((binding) => bindingMatchesRow(binding.selector, row)).map((binding) => binding.skill_id),
+    )],
+  }));
 }
 
 export function seedKnowledge(conn = getConn()): void {
