@@ -31,13 +31,15 @@ export function validateIconFile(file: File): string {
   return "";
 }
 
-export function ModalShell({ kind, title, subtitle, onClose, children, footer }: {
+export function ModalShell({ kind, title, subtitle, onClose, children, footer, wide = false, headerExtra }: {
   kind: string;
   title: string;
   subtitle?: string;
   onClose: () => void;
   children: ReactNode;
   footer?: ReactNode;
+  wide?: boolean;
+  headerExtra?: ReactNode;
 }) {
   const titleId = useId();
   const ref = useRef<HTMLDivElement>(null);
@@ -45,15 +47,18 @@ export function ModalShell({ kind, title, subtitle, onClose, children, footer }:
   return createPortal(
     <div className="connector-panel-layer" data-connector-panel={kind}>
       <div className="connector-panel-backdrop" onClick={onClose} />
-      <div ref={ref} className="connector-panel" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <div ref={ref} className={"connector-panel" + (wide ? " is-wide" : "")} role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="connector-panel-head">
           <div>
             <h2 id={titleId}>{title}</h2>
             {subtitle && <p className="muted">{subtitle}</p>}
           </div>
-          <button type="button" className="icon-btn" aria-label="关闭" data-connector-panel-close onClick={onClose}>
-            <svg viewBox="0 0 16 16" aria-hidden><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
-          </button>
+          <div className="connector-panel-head-actions">
+            {headerExtra}
+            <button type="button" className="icon-btn" aria-label="关闭" data-connector-panel-close onClick={onClose}>
+              <svg viewBox="0 0 16 16" aria-hidden><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+            </button>
+          </div>
         </header>
         <div className="connector-panel-body">{children}</div>
         {footer && <footer className="connector-panel-foot">{footer}</footer>}

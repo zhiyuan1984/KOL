@@ -26,33 +26,45 @@ test.afterEach(async ({ request }) => {
   await cleanup(request);
 });
 
-test("connector hub renders, filters, toggles browse tabs and opens the create menu", async ({ page }) => {
+test("connector hub renders, filters, opens the browse modal and the create menu", async ({ page }) => {
   await page.goto("/admin/connectors");
   await expect(page.locator("[data-admin-page='connectors']")).toBeVisible();
   await expect(page.locator("[data-connector-hub-title]")).toHaveText("已添加的连接器");
+  // 连接器页不再显示账户卡与返回按钮；治理数字移到标题下方。
+  await expect(page.locator(".admin-header")).toHaveCount(0);
+  await expect(page.locator("[data-admin-account]")).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "返回员工工作台" })).toHaveCount(0);
+  await expect(page.locator("[data-admin-health]")).toContainText("受管连接器");
   await expect(page.locator('[data-admin-connectors-table] [data-connector="claw"]')).toBeVisible();
   await expect(page.locator('[data-admin-connectors-table] [data-connector="starrykol"]')).toBeVisible();
 
   await page.locator("[data-connector-search]").fill("Starry");
   await expect(page.locator("[data-admin-connectors-table] [data-connector]")).toHaveCount(1);
-  await expect(page.locator('[data-admin-connectors-table] [data-connector="starrykol"]')).toBeVisible();
   await page.locator("[data-connector-search]").fill("");
   await expect(page.locator('[data-admin-connectors-table] [data-connector="claw"]')).toBeVisible();
+
+  // 「浏览连接器」与「创建」等宽。
+  const browseBox = await page.locator("[data-connector-browse-toggle]").boundingBox();
+  const createBox = await page.locator("[data-connector-create-toggle]").boundingBox();
+  expect(browseBox?.width ?? 0).toBeGreaterThan(0);
+  expect(Math.abs((browseBox?.width ?? 0) - (createBox?.width ?? 0))).toBeLessThanOrEqual(1);
 
   await page.locator("[data-connector-create-toggle]").click();
   await expect(page.locator("[data-connector-create-menu]")).toBeVisible();
   await expect(page.locator("[data-connector-create-item]")).toHaveCount(3);
-  await expect(page.locator("[data-connector-create-item='mcp']")).toBeVisible();
-  await expect(page.locator("[data-connector-create-item='json']")).toBeVisible();
-  await expect(page.locator("[data-connector-create-item='url']")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.locator("[data-connector-create-menu]")).toHaveCount(0);
 
+  // 浏览连接器 → 弹窗（参考版式：搜索 + 分类 Tab + 卡片网格）。
   await page.locator("[data-connector-browse-toggle]").click();
-  await expect(page.locator("[data-connector-hub-title]")).toHaveText("连接器");
-  await expect(page.locator("[data-connector-tab='app']")).toBeVisible();
-  await page.locator("[data-connector-tab='custom_mcp']").click();
-  await expect(page.locator("[data-connector-card-new]")).toBeVisible();
+  await expect(page.locator("[data-connector-panel='browse']")).toBeVisible();
+  await expect(page.locator("[data-connector-browse-modal]")).toBeVisible();
+  await expect(page.locator("[data-connector-browse-modal] [data-connector-tab='app']")).toBeVisible();
+  await page.locator("[data-connector-browse-modal] [data-connector-tab='custom_mcp']").click();
+  await expect(page.locator("[data-connector-browse-modal] [data-connector-card-new]")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("[data-connector-browse-modal]")).toHaveCount(0);
+  await expect(page.locator("[data-connector-browse-toggle]")).toBeFocused();
 });
 
 test("connector detail surfaces the governance cards", async ({ page }) => {

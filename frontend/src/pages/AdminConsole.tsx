@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, Navigate, useLocation } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { api } from "../api";
 import { useAccount } from "../components/AuthGate";
 import { Admin as LegacyAdmin } from "./SimplePages";
@@ -9,19 +9,15 @@ import { AdminAgents } from "./AdminAgents";
 import { ConnectorDetail } from "../admin/connector/ConnectorDetail";
 import { ConnectorHub } from "../admin/connector/ConnectorHub";
 import {
-  governanceStatus,
   isBindAudit,
   isConnectorAudit,
   isGrantAudit,
-  publicConnectorView,
   rowTitle,
   type AdminRow,
 } from "../adminGovernance";
 import {
   APPROVAL_ROLE_OPTIONS,
-  accountDisplayName,
   auditEventLabel,
-  isAdminAccount,
   roleLabel,
   userStatusLabel,
 } from "../labels";
@@ -30,14 +26,6 @@ import { approvalRoleSaveConfirm, retentionPolicyConfirm, userDeactivateConfirm 
 import { useAdminConfirm } from "../components/ConfirmDialog";
 import SkillLifecycle from "./SkillLifecycle";
 import { adminSectionOf, adminTabOf } from "../layout/adminNav";
-
-function accountRoleChip(account: { roles?: string[] | null; role?: string | null; available_modes?: string[] | null } | null) {
-  if (isAdminAccount(account)) return "管理员";
-  if (Array.isArray(account?.roles) && account.roles.length) {
-    return account.roles.map((role) => roleLabel(String(role))).filter(Boolean).join(" / ") || "员工";
-  }
-  return roleLabel(account?.role) || "员工";
-}
 
 /** 分节归一化与侧栏条目同一份（`/admin` → employees，未知段回落 employees），详情 id 仍取自路径。 */
 function parseAdminPath(pathname: string): { section: string; detailId: string } {
@@ -90,30 +78,9 @@ export default function AdminConsole() {
 
   const tab = adminTabOf(location.pathname);
 
-  const accountName = accountDisplayName(account);
-  const accountEmail = String(account?.email || account?.handle || "").trim();
-  const accountRole = accountRoleChip(account);
-
   return (
     <div className="admin-shell" data-admin-ia="governance">
       <div className="admin-body">
-        <header className="admin-header">
-          <div className="admin-account" data-admin-account>
-            <div className="page-kicker">当前账户</div>
-            <div className="admin-title-row">
-              <h1>{accountName}</h1>
-              <span className="chip" data-admin-context>管理</span>
-            </div>
-            <div className="admin-account-meta">
-              {accountEmail && <span className="muted">{accountEmail}</span>}
-              <span className="chip" data-admin-role>{accountRole}</span>
-            </div>
-          </div>
-          <div className="admin-header-actions">
-            <Link className="btn work admin-return nowrap" to="/">← 返回员工工作台</Link>
-          </div>
-        </header>
-        <AdminHealth connectors={connectors} loading={loading} />
         {notice && <p className="admin-receipt status-ok" data-admin-receipt role="status">{notice}</p>}
         {error && <p className="error" role="alert">{error}</p>}
 
@@ -124,7 +91,7 @@ export default function AdminConsole() {
         {tab === "connectors" && (
           detailId
             ? <ConnectorDetail connectorId={detailId} connectors={connectors} users={users} auditRows={auditRows} reload={load} />
-            : <ConnectorHub connectors={connectors} users={users} onSave={save} reload={load} />
+            : <ConnectorHub connectors={connectors} users={users} loading={loading} onSave={save} reload={load} />
         )}
         {tab === "skills" && <SkillLifecycle />}
         {tab === "approvals" && (
@@ -135,29 +102,6 @@ export default function AdminConsole() {
         {tab === "knowledge" && <AdminKnowledge />}
         {tab === "kol" && <LegacyAdmin />}
       </div>
-    </div>
-  );
-}
-
-function AdminHealth({ connectors, loading }: { connectors: AdminRow[]; loading: boolean }) {
-  if (loading) return <div className="admin-health" data-admin-health role="status">正在读取受管连接器目录与治理状态…</div>;
-  const rows = connectors.map(publicConnectorView).filter((row) => row.id);
-  const counts = { total: rows.length, enabled: 0, registered: 0, pending: 0, errors: 0 };
-  for (const row of rows) {
-    const status = governanceStatus(row);
-    if (row.enabled) counts.enabled += 1;
-    if (row.credentialRegistered) counts.registered += 1;
-    if (status.key === "draft" || status.key === "pending" || status.key === "verified") counts.pending += 1;
-    if (status.key === "error") counts.errors += 1;
-  }
-
-  return (
-    <div className="admin-health" data-admin-health aria-label="连接器治理状态">
-      <span>受管连接器 <b>{counts.total}</b></span>
-      <span>已启用 <b>{counts.enabled}</b></span>
-      <span>凭据已登记 <b>{counts.registered}</b></span>
-      <span>待处理 <b>{counts.pending}</b></span>
-      {counts.errors > 0 && <span data-health="error">异常 <b>{counts.errors}</b></span>}
     </div>
   );
 }

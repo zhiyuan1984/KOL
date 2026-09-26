@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboa
 import { Link, useNavigate } from "react-router-dom";
 import { governanceStatus, type AdminRow } from "../../adminGovernance";
 import { ConnectorMark } from "./ConnectorMark";
-import { JsonImportPanel, McpConfigPanel, UrlAddPanel } from "./ConnectorPanels";
+import { JsonImportPanel, McpConfigPanel, ModalShell, UrlAddPanel } from "./ConnectorPanels";
 import { ConnectorToolsDrawer } from "./ConnectorToolsDrawer";
 import {
   connectorCardView,
@@ -28,16 +28,30 @@ const BUILTIN_CATALOG = [
   { id: "starrykol", label: "Starry KOL MCP", purpose: "红人库、负责人、品牌邮箱与合作往来事实" },
 ] as const;
 
-export function ConnectorHub({ connectors, users, onSave, reload }: {
+type HealthCounts = { total: number; enabled: number; registered: number; pending: number; errors: number };
+
+function connectorHealthCounts(cards: ConnectorCardView[]): HealthCounts {
+  const counts: HealthCounts = { total: cards.length, enabled: 0, registered: 0, pending: 0, errors: 0 };
+  for (const card of cards) {
+    const status = governanceStatus(card);
+    if (card.enabled) counts.enabled += 1;
+    if (card.credentialRegistered) counts.registered += 1;
+    if (status.key === "draft" || status.key === "pending" || status.key === "verified") counts.pending += 1;
+    if (status.key === "error") counts.errors += 1;
+  }
+  return counts;
+}
+
+export function ConnectorHub({ connectors, users, loading, onSave, reload }: {
   connectors: AdminRow[];
   users: AdminRow[];
+  loading: boolean;
   onSave: ConnectorSaveFn;
   reload: () => void;
 }) {
   const cards = useMemo(() => connectors.map(connectorCardView), [connectors]);
   const [q, setQ] = useState("");
-  const [browsing, setBrowsing] = useState(false);
-  const [tab, setTab] = useState<"app" | "custom_mcp">("app");
+  const [browseOpen, setBrowseOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [panel, setPanel] = useState<CreatePanelKind | null>(null);
   const [toolsCard, setToolsCard] = useState<ConnectorCardView | null>(null);
@@ -46,11 +60,8 @@ export function ConnectorHub({ connectors, users, onSave, reload }: {
   const [adding, setAdding] = useState("");
 
   const needle = q.trim().toLowerCase();
-  const filtered = cards.filter((card) => !needle || `${card.label} ${card.purpose} ${card.id}`.toLowerCase().includes(needle));
-  const visible = browsing ? filtered.filter((card) => card.kind === tab) : filtered;
-  const missingBuiltins = browsing && tab === "app"
-    ? BUILTIN_CATALOG.filter((entry) => !cards.some((card) => card.id === entry.id))
-    : [];
+  const visible = cards.filter((card) => !needle || `${card.label} ${card.purpose} ${card.id}`.toLowerCase().includes(needle));
+  const counts = useMemo(() => connectorHealthCounts(cards), [cards]);
 
   const finishPanel = (message: string) => {
     setPanel(null);
@@ -59,11 +70,11 @@ export function ConnectorHub({ connectors, users, onSave, reload }: {
     reload();
   };
 
-  const addBuiltin = async (id: string, label: string, purpose: string) => {
-    setAdding(id);
+  const addBuiltin = async (entry: { id: string; label: string; purpose: string }) => {
+    setAdding(entry.id);
     setError("");
     try {
-      await onSave("/api/admin/connectors", { id, label, purpose }, `已将“${label}”加入连接器目录`);
+      await onSave("/api/admin/connectors", { id: entry.id, label: entry.label, purpose: entry.purpose }, `已将“${entry.label}”加入连接器目录`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "加入目录失败");
     } finally {
@@ -72,9 +83,22 @@ export function ConnectorHub({ connectors, users, onSave, reload }: {
   };
 
   return (
-    <section className="connector-hub" data-connector-hub data-connector-mode={browsing ? "browse" : "added"} data-admin-page="connectors">
+    <section className="connector-hub" data-connector-hub data-admin-page="connectors">
       <header className="connector-hub-head">
-        <h2 data-connector-hub-title>{browsing ? "连接器" : "已添加的连接器"}</h2>
+        <h2 data-connector-hub-title>已添加的连接器</h2>
+        <div className="admin-health connector-hub-health" data-admin-health aria-label="连接器治理状态">
+          {loading ? (
+            <span>正在读取受管连接器目录与治理状态…</span>
+          ) : (
+            <>
+              <span>受管连接器 <b>{counts.total}</b></span>
+              <span>已启用 <b>{counts.enabled}</b></span>
+              <span>凭据已登记 <b>{counts.registered}</b></span>
+              <span>待处理 <b>{counts.pending}</b></span>
+              {counts.errors > 0 && <span data-health="error">异常 <b>{counts.errors}</b></span>}
+            </>
+          )}
+        </div>
       </header>
 
       <div className="connector-hub-tools">
@@ -94,14 +118,8 @@ export function ConnectorHub({ connectors, users, onSave, reload }: {
           />
         </label>
         <div className="connector-hub-actions">
-          <button
-            type="button"
-            className="btn"
-            aria-pressed={browsing}
-            data-connector-browse-toggle
-            onClick={() => setBrowsing((value) => !value)}
-          >
-            {browsing ? "返回已添加" : "浏览连接器"}
+          <button type="button" className="btn" data-connector-browse-toggle onClick={() => setBrowseOpen(true)}>
+            浏览连接器
           </button>
           <div className="connector-menu-wrap">
             <button
@@ -127,7 +145,106 @@ export function ConnectorHub({ connectors, users, onSave, reload }: {
         </div>
       </div>
 
-      {browsing && (
+      {notice && <p className="admin-receipt status-ok" role="status" data-connector-notice>{notice}</p>}
+      {error && <p className="error" role="alert">{error}</p>}
+
+      {!visible.length ? (
+        <p className="muted connector-empty" data-connector-empty>
+          {needle ? "没有匹配的连接器。" : "尚未挂接任何连接器。"}
+        </p>
+      ) : (
+        <div className="connector-grid" data-connector-grid data-admin-connectors-table>
+          {visible.map((card) => (
+            <ConnectorCard key={card.id} card={card} onViewTools={() => setToolsCard(card)} />
+          ))}
+        </div>
+      )}
+
+      {panel === "mcp" && <McpConfigPanel onClose={() => setPanel(null)} onDone={finishPanel} />}
+      {panel === "url" && <UrlAddPanel onClose={() => setPanel(null)} onDone={finishPanel} />}
+      {panel === "json" && <JsonImportPanel onClose={() => setPanel(null)} onDone={finishPanel} />}
+      {browseOpen && (
+        <ConnectorBrowseModal
+          cards={cards}
+          adding={adding}
+          onAddBuiltin={(entry) => void addBuiltin(entry)}
+          onCreate={(kind) => {
+            setBrowseOpen(false);
+            setPanel(kind);
+          }}
+          onClose={() => setBrowseOpen(false)}
+        />
+      )}
+      {toolsCard && <ConnectorToolsDrawer card={toolsCard} users={users} onClose={() => setToolsCard(null)} />}
+    </section>
+  );
+}
+
+/** 目录弹窗（参考版式）：搜索 + 分类 Tab + 两列卡片；已加入 ✓，未加入的内置项 ＋。 */
+function ConnectorBrowseModal({ cards, adding, onAddBuiltin, onCreate, onClose }: {
+  cards: ConnectorCardView[];
+  adding: string;
+  onAddBuiltin: (entry: { id: string; label: string; purpose: string }) => void;
+  onCreate: (kind: CreatePanelKind) => void;
+  onClose: () => void;
+}) {
+  const navigate = useNavigate();
+  const [q, setQ] = useState("");
+  const [tab, setTab] = useState<"app" | "custom_mcp">("app");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const needle = q.trim().toLowerCase();
+  const matched = cards.filter((card) => !needle || `${card.label} ${card.purpose} ${card.id}`.toLowerCase().includes(needle));
+  const visible = matched.filter((card) => card.kind === tab);
+  const missingBuiltins = tab === "app"
+    ? BUILTIN_CATALOG.filter((entry) => !cards.some((card) => card.id === entry.id))
+    : [];
+
+  return (
+    <ModalShell
+      kind="browse"
+      wide
+      title="连接器"
+      onClose={onClose}
+      headerExtra={
+        <div className="connector-menu-wrap">
+          <button
+            type="button"
+            className="btn"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            data-connector-browse-create
+            onClick={() => setMenuOpen((value) => !value)}
+          >
+            创建 <span aria-hidden>⌄</span>
+          </button>
+          {menuOpen && (
+            <CreateMenu
+              onPick={(kind) => {
+                setMenuOpen(false);
+                onCreate(kind);
+              }}
+              onClose={() => setMenuOpen(false)}
+            />
+          )}
+        </div>
+      }
+    >
+      <div className="connector-browse" data-connector-browse-modal>
+        <label className="connector-search">
+          <svg viewBox="0 0 24 24" aria-hidden>
+            <circle cx="11" cy="11" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.7" />
+            <path d="M16 16.4 20 20.4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+          </svg>
+          <input
+            type="search"
+            className="connector-search-input"
+            data-connector-browse-search
+            placeholder="搜索连接器"
+            aria-label="搜索连接器"
+            value={q}
+            onChange={(event) => setQ(event.target.value)}
+          />
+        </label>
         <div className="hub-chips connector-hub-tabs" role="tablist" aria-label="连接器分类">
           {([["app", "应用"], ["custom_mcp", "自定义 MCP"]] as const).map(([id, label]) => (
             <button
@@ -143,54 +260,57 @@ export function ConnectorHub({ connectors, users, onSave, reload }: {
             </button>
           ))}
         </div>
-      )}
-
-      {notice && <p className="admin-receipt status-ok" role="status" data-connector-notice>{notice}</p>}
-      {error && <p className="error" role="alert">{error}</p>}
-
-      {!visible.length && !missingBuiltins.length ? (
-        <p className="muted connector-empty" data-connector-empty>
-          {browsing ? "该分类下还没有连接器。用「创建」加入第一个。" : needle ? "没有匹配的连接器。" : "尚未挂接任何连接器。"}
-        </p>
-      ) : (
-        <div className="connector-grid" data-connector-grid data-admin-connectors-table>
-          {visible.map((card) => (
-            <ConnectorCard key={card.id} card={card} onViewTools={() => setToolsCard(card)} />
-          ))}
-          {missingBuiltins.map((entry) => (
-            <CatalogCard
-              key={entry.id}
-              id={entry.id}
-              label={entry.label}
-              purpose={entry.purpose}
-              busy={adding === entry.id}
-              onAdd={() => void addBuiltin(entry.id, entry.label, entry.purpose)}
-            />
-          ))}
-          {browsing && tab === "custom_mcp" && (
-            <button type="button" className="connector-card connector-card-new" data-connector-card-new onClick={() => setPanel("mcp")}>
-              <span className="connector-mark connector-mark-letter" aria-hidden>+</span>
-              <div className="connector-card-body">
-                <div className="connector-card-title"><strong>新建自定义 MCP</strong></div>
-                <p className="connector-card-purpose">配置服务器名称、传输类型、URL 与请求头。</p>
-              </div>
-            </button>
-          )}
-        </div>
-      )}
-
-      {panel === "mcp" && <McpConfigPanel onClose={() => setPanel(null)} onDone={finishPanel} />}
-      {panel === "url" && <UrlAddPanel onClose={() => setPanel(null)} onDone={finishPanel} />}
-      {panel === "json" && <JsonImportPanel onClose={() => setPanel(null)} onDone={finishPanel} />}
-      {toolsCard && <ConnectorToolsDrawer card={toolsCard} users={users} onClose={() => setToolsCard(null)} />}
-    </section>
+        {!visible.length && !missingBuiltins.length ? (
+          <p className="muted">该分类下还没有连接器。用「创建」加入第一个。</p>
+        ) : (
+          <div className="connector-grid" data-connector-browse-grid>
+            {visible.map((card) => (
+              <ConnectorCard
+                key={card.id}
+                card={card}
+                showToolsEntry={false}
+                onOpen={() => {
+                  onClose();
+                  navigate(connectorHref(card.id));
+                }}
+              />
+            ))}
+            {missingBuiltins.map((entry) => (
+              <CatalogCard
+                key={entry.id}
+                id={entry.id}
+                label={entry.label}
+                purpose={entry.purpose}
+                busy={adding === entry.id}
+                onAdd={() => onAddBuiltin(entry)}
+              />
+            ))}
+            {tab === "custom_mcp" && (
+              <button type="button" className="connector-card connector-card-new" data-connector-card-new onClick={() => onCreate("mcp")}>
+                <span className="connector-mark connector-mark-letter" aria-hidden>+</span>
+                <div className="connector-card-body">
+                  <div className="connector-card-title"><strong>新建自定义 MCP</strong></div>
+                  <p className="connector-card-purpose">配置服务器名称、传输类型、URL 与请求头。</p>
+                </div>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </ModalShell>
   );
 }
 
-function ConnectorCard({ card, onViewTools }: { card: ConnectorCardView; onViewTools: () => void }) {
+function ConnectorCard({ card, onOpen, onViewTools, showToolsEntry = true }: {
+  card: ConnectorCardView;
+  onOpen?: () => void;
+  onViewTools?: () => void;
+  showToolsEntry?: boolean;
+}) {
   const status = governanceStatus(card);
   const navigate = useNavigate();
   const href = connectorHref(card.id);
+  const open = onOpen ?? (() => navigate(href));
   return (
     <article
       className="connector-card connector-card-linkable"
@@ -198,12 +318,18 @@ function ConnectorCard({ card, onViewTools }: { card: ConnectorCardView; onViewT
       data-connector={card.id}
       data-connector-kind={card.kind}
       data-governance-status={status.key}
-      onClick={() => navigate(href)}
+      onClick={open}
     >
       <ConnectorMark id={card.id} label={card.label} iconUrl={card.iconUrl} />
       <div className="connector-card-body">
         <div className="connector-card-title">
-          <Link to={href} className="connector-card-link" onClick={(event) => event.stopPropagation()}><strong>{card.label}</strong></Link>
+          <Link
+            to={href}
+            className="connector-card-link"
+            onClick={(event) => { event.preventDefault(); event.stopPropagation(); open(); }}
+          >
+            <strong>{card.label}</strong>
+          </Link>
         </div>
         <p className="connector-card-purpose">{card.purpose || "未填写业务用途"}</p>
         <p className="connector-card-meta">
@@ -216,15 +342,19 @@ function ConnectorCard({ card, onViewTools }: { card: ConnectorCardView; onViewT
               <span>{card.approvedToolCount} 个已审阅接口</span>
             </>
           )}
-          <span className="connector-card-dot" aria-hidden>·</span>
-          <button
-            type="button"
-            className="connector-card-toolslink"
-            data-connector-tools-entry
-            onClick={(event) => { event.stopPropagation(); onViewTools(); }}
-          >
-            查看工具
-          </button>
+          {showToolsEntry && onViewTools && (
+            <>
+              <span className="connector-card-dot" aria-hidden>·</span>
+              <button
+                type="button"
+                className="connector-card-toolslink"
+                data-connector-tools-entry
+                onClick={(event) => { event.stopPropagation(); onViewTools(); }}
+              >
+                查看工具
+              </button>
+            </>
+          )}
         </p>
       </div>
       <div className="connector-card-side">

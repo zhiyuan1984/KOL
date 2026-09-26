@@ -852,6 +852,39 @@
   }
 }
 
+/* Header cleanup + browse modal (2026-09-27) */
+
+.connector-hub-head .connector-hub-health {
+  margin: var(--space-2) 0 0;
+}
+
+.connector-hub-actions .btn {
+  min-width: 104px;
+  justify-content: center;
+  text-align: center;
+}
+
+.connector-panel.is-wide {
+  width: min(960px, calc(100vw - 32px));
+}
+
+.connector-panel-head-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.connector-browse {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.connector-browse .connector-hub-tabs {
+  margin: 0;
+}
+
 /* Fidelity pass (2026-09-27): hub reads as one clean surface and cards are airy,
    matching the reference layout: title / divider / search row / tabs / card grid.
    Card face keeps icon + name + description + ✓; state and the tools entry are

@@ -1132,26 +1132,33 @@ async function expectObjectToolbarAligned(page: Page) {
     };
   });
   expect(metrics).toBeTruthy();
-  expect(metrics!.searchHeight).toBeGreaterThanOrEqual(36);
+  // 搜索框高度走 DESIGN §控件尺寸 的 --control-h-lg（32px），与今日任务右栏的搜索框同档。
+  expect(metrics!.searchHeight).toBeGreaterThanOrEqual(32);
+  expect(metrics!.searchHeight).toBeLessThanOrEqual(36);
   expect(metrics!.searchFont).toBeGreaterThanOrEqual(14);
   expect(Math.abs(metrics!.clientWidth - metrics!.cardWidth)).toBeLessThan(8);
 }
 
-async function expectHomeFollowedRailWide(page: Page, viewportWidth: number) {
+async function expectHomeFollowedRailWide(page: Page) {
   const metrics = await page.evaluate(() => {
     const stage = document.querySelector(".home-stage");
     const column = document.querySelector("[data-followed-kol-column]");
+    const rail = document.querySelector("[data-scope-task-rail]");
     const card = document.querySelector("[data-followed-kol]");
     if (!(stage instanceof HTMLElement) || !(column instanceof HTMLElement)) return null;
     return {
       gutter: Number.parseFloat(getComputedStyle(stage).paddingLeft),
       columnWidth: column.clientWidth,
+      railWidth: rail instanceof HTMLElement ? rail.clientWidth : 0,
       cardWidth: card instanceof HTMLElement ? card.clientWidth : 0,
     };
   });
   expect(metrics).toBeTruthy();
   expect(metrics!.gutter).toBeLessThanOrEqual(16);
-  expect(metrics!.columnWidth).toBeGreaterThan(viewportWidth - 320);
+  // 跟进列吃满右栏（右栏宽度本身由 DESIGN token 决定，见 home-followed-rail-layout.spec.ts）。
+  expect(metrics!.railWidth).toBeGreaterThanOrEqual(360);
+  expect(metrics!.railWidth).toBeLessThanOrEqual(820);
+  expect(Math.abs(metrics!.columnWidth - metrics!.railWidth)).toBeLessThan(24);
   expect(metrics!.cardWidth).toBeGreaterThan(320);
   expect(metrics!.cardWidth).toBeLessThanOrEqual(metrics!.columnWidth);
   if (metrics!.columnWidth > 1000) {
@@ -1340,7 +1347,7 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expect(card.locator(".task-main")).toHaveCount(0);
   await expectFollowedKolHeadingRemoved(page);
   await expectFollowedKolStackedNoOverflow(page, "小美妆日记");
-  await expectHomeFollowedRailWide(page, 1280);
+  await expectHomeFollowedRailWide(page);
   await expectFollowedDecisionDensity(page);
   const toolbarBox = await page.locator("[data-followed-object-toolbar]").boundingBox();
   const cardBox = await card.boundingBox();
@@ -1388,13 +1395,13 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expect(confirmCard).toBeVisible();
   await expectFollowedKolStackedNoOverflow(page, "小美妆日记");
   await expectFollowedKolStackedNoOverflow(page, "测试网红-qq-01");
-  await expectHomeFollowedRailWide(page, 1600);
+  await expectHomeFollowedRailWide(page);
   await expectFollowedDecisionDensity(page);
 
   await page.setViewportSize({ width: 1920, height: 900 });
   await expect(card).toBeVisible();
   await expectFollowedKolStackedNoOverflow(page, "小美妆日记");
-  await expectHomeFollowedRailWide(page, 1920);
+  await expectHomeFollowedRailWide(page);
   await expectFollowedDecisionDensity(page);
 });
 
@@ -1407,7 +1414,7 @@ test("home followed-KOL object toolbar matches card width", async ({ page }) => 
     await expect(page.locator("[data-followed-kol-column]")).toBeVisible();
     await expectFollowedKolListAlignsWithToolbar(page);
     await expectObjectToolbarAligned(page);
-    await expectHomeFollowedRailWide(page, width);
+    await expectHomeFollowedRailWide(page);
     await expectFollowedDecisionDensity(page);
     await expectNoPageHorizontalScroll(page);
     await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
@@ -2721,7 +2728,7 @@ test("composer sends the selected model tier", async ({ page }) => {
 
 test("admin skill page exposes create form after product manager login", async ({ page }) => {
   await page.goto("/admin/skills");
-  await expect(page.locator("[data-admin-account]")).toBeVisible();
+  await expect(page.locator(".sidebar [data-account-name]")).not.toHaveText("");
   await expect(page.locator("[data-admin-nav='skills']")).toHaveClass(/active/);
   const login = page.locator("[data-admin-login]");
   if (await login.count()) {
@@ -3009,8 +3016,7 @@ test("account bar switches employee, admin, and settings workspaces", async ({ p
   await employeeBar.locator('[data-surface-switch="admin"]').click();
   await expect(page).toHaveURL(/\/admin$/);
   await expect(page.locator("[data-admin-ia='governance']")).toBeVisible();
-  await expect(page.locator("[data-admin-account]")).toContainText("当前账户");
-  await expect(page.locator("[data-admin-context]")).toHaveText("管理");
+  await expect(page.locator(".admin-header")).toHaveCount(0);
   const adminBar = page.locator(".sidebar [data-account-bar]");
   await expect(adminBar.locator("[data-account-name]")).not.toHaveText("");
   await expect(adminBar.locator('[data-surface-switch="admin"]')).toHaveAttribute("aria-current", "page");
@@ -3176,12 +3182,10 @@ test("admin console uses a left sidebar with short labels for the current accoun
     "员工", "数据", "数字员工治理", "技能", "知识", "审批", "考试", "连接器枢纽", "配置",
   ]);
   await expect(page.locator("[data-admin-nav='employees']")).toHaveClass(/active/);
-  await expect(page.locator("[data-admin-account]")).toContainText("当前账户");
-  await expect(page.locator("[data-admin-context]")).toHaveText("管理");
-  await expect(page.locator("[data-admin-role]")).toBeVisible();
+  await expect(page.locator(".admin-header")).toHaveCount(0);
   await expect(page.locator(".sidebar [data-account-pedestal]")).toBeVisible();
   await expect(page.locator(".sidebar [data-account-name]")).not.toHaveText("");
-  await expect(page.getByRole("link", { name: "返回员工工作台" })).toBeVisible();
+  await expect(page.locator(".sidebar [data-surface-switch-group]")).toBeVisible();
 
   await page.locator("[data-admin-nav='connectors']").click();
   await expect(page).toHaveURL(/\/admin\/connectors$/);
