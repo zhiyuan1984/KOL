@@ -1790,14 +1790,14 @@ test("home today pane lists today items and 我的待办 still opens the KOL ses
   await expect(page.locator("[data-insight-card], [data-recommended-task]")).toHaveCount(0);
   await openHomeTodo(page);
   await expect(page.locator("[data-recommended-tasks]")).toHaveCount(0);
-  // 今日/待办拆分后，今天到期/高风险/重要的行归今日面板；待办面板只留今日范围之外的行。
+  // 今日/待办拆分后，今天到期和高风险归今日面板；单纯高优先级仍属于待办。
   await expect(page.locator('[data-today-todo="tsk_home_laozhang_quote"]')).toHaveCount(0);
   await expect(page.locator('[data-today-todo="tsk_home_trip_stage"]')).toHaveCount(0);
-  await expect(page.locator('[data-today-todo="tsk_home_xiaomei_lost"]')).toHaveCount(0);
-  await expect(page.locator("[data-today-todo]")).toHaveCount(1);
+  await expect(page.locator('[data-today-todo="tsk_home_xiaomei_lost"]')).toBeVisible();
+  await expect(page.locator("[data-today-todo]")).toHaveCount(2);
   await expect(page.locator('[data-today-todo="tsk_home_outdoor_profile"]')).toBeVisible();
   await expect(page.locator('[data-today-todo="tsk_home_outdoor_profile"] [data-board-status]')).toHaveText("未开始");
-  await expect(page.locator("[data-today-summary]")).toContainText(/\d+项未了结/);
+  await expect(page.locator("[data-today-summary]")).toContainText(/已逾期.*今天到期/);
   await expect(page.locator("[data-today-summary]")).not.toContainText("结果待确认");
   await expect(page.locator("[data-today-summary]")).not.toContainText("等待中");
   // 原 waiting 分桶容器为 0 的断言：「等待中」不再是行状态标签，改为文案断言。
@@ -1807,7 +1807,6 @@ test("home today pane lists today items and 我的待办 still opens the KOL ses
   await expect(page.locator("[data-home-pane=\"todo\"] .recommended-task")).toHaveCount(0);
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("已入队");
   await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("今天推荐");
-  await expect(page.locator('[data-home-pane="todo"]')).not.toContainText("待处理");
   await openHomeAi(page);
   await expect(page.locator("[data-today-list]")).toBeVisible();
   await expect(page.locator("[data-recommended-task], [data-insight-card]")).toHaveCount(0);

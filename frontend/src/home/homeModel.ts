@@ -6,11 +6,11 @@ export const openStatuses = new Set(["pending", "waiting", "running", "queued", 
 export const closedStatuses = new Set(["completed", "done", "cancelled"]);
 export const HOME_FOLD_LIMIT = 6;
 
-export type OpenBucket = "high_risk" | "overdue" | "due_today" | "running" | "approval" | "later";
+export type TodayBucket = "high_risk" | "overdue" | "due_today" | "due_soon" | "start_today";
+export type OpenBucket = TodayBucket | "later";
 export type TodoListFilter = "all" | OpenBucket;
 export type ActionableTodoBucket = "overdue" | "today" | "waiting" | "approval" | "queued" | "running";
 export type TodoBucket = ActionableTodoBucket | "open";
-export type TodayBucket = Exclude<OpenBucket, "later">;
 
 export const HOME_TODO_BUCKETS = [
   ["overdue", "逾期"],
@@ -24,8 +24,8 @@ export const TODAY_BUCKETS = [
   ["high_risk", "高风险"],
   ["overdue", "已逾期"],
   ["due_today", "今天到期"],
-  ["running", "进行中"],
-  ["approval", "审批中"],
+  ["due_soon", "临期到期"],
+  ["start_today", "今天开始"],
 ] as const satisfies ReadonlyArray<readonly [TodayBucket, string]>;
 
 export const OPEN_BUCKETS = [
@@ -38,8 +38,8 @@ export const OPEN_FILTERS = [
   ["high_risk", "高风险"],
   ["overdue", "已逾期"],
   ["due_today", "今天"],
-  ["running", "进行中"],
-  ["approval", "审批中"],
+  ["due_soon", "临期到期"],
+  ["start_today", "今天开始"],
   ["later", "后续"],
 ] as const satisfies ReadonlyArray<readonly [TodoListFilter, string]>;
 
@@ -48,8 +48,8 @@ const TODAY_BUCKET_RANK: Record<TodayBucket, number> = {
   high_risk: 0,
   overdue: 1,
   due_today: 2,
-  running: 3,
-  approval: 4,
+  due_soon: 3,
+  start_today: 4,
 };
 const OPEN_BUCKET_RANK: Record<OpenBucket, number> = {
   ...TODAY_BUCKET_RANK,
@@ -285,8 +285,8 @@ export function todayBucket(task: Task): TodayBucket | null {
   const diff = dueDayDiff(task.due_at);
   if (diff != null && diff < 0) return "overdue";
   if (diff === 0) return "due_today";
-  if (isRunningStatus(task.status)) return "running";
-  if (isApprovalStatus(task.status)) return "approval";
+  if (diff != null && diff <= 2) return "due_soon";
+  if (dueDayDiff(task.start_date || String(task.start_at || "")) === 0) return "start_today";
   return null;
 }
 
@@ -357,7 +357,7 @@ export function todayContentLine(task: Task) {
 }
 
 export function todayPrimaryAction(bucket: TodayBucket) {
-  return bucket === "approval" ? "去审批" : "处理";
+  return "处理";
 }
 
 const BANNED_BRIEF_PRIMARY = /处理|待补阶段/;

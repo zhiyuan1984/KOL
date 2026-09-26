@@ -106,7 +106,7 @@ export const SCOPE_CONFIG: Record<PlanScope, FrontendScopeConfig> = {
     railStorageKey: "ui:home-today-task-rail-collapsed",
     emptyCopy: {
       title: "今天没有需要处理的任务",
-      hint: "逾期、今天开始或到期、进行中和高优先的任务会出现在这里。",
+      hint: "高风险、今天开始、临期到期和逾期的任务会出现在这里。",
     },
     planSummaryLabel: "今日计划摘要",
     streamEmpty: {

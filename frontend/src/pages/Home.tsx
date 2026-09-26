@@ -1000,8 +1000,7 @@ export default function Home() {
       const latest = taskValue(await api.task(written.id).catch(() => written));
       mergeCatalogTask(latest);
       void fetchHomeTasks().catch(() => undefined);
-      const bucket = openBucket(latest) || openBucket(task);
-      if (bucket === "approval") {
+      if (isAwaitingApproval(latest) || isAwaitingApproval(task)) {
         const approvalId = String(latest.approval_id || task.approval_id || "").trim();
         nav(approvalId ? `/approvals/${encodeURIComponent(approvalId)}` : "/approvals");
         return;
@@ -1952,18 +1951,6 @@ export default function Home() {
               previousBrief={activePlan.prevBrief}
               previousEvents={activePlan.prevEvents}
               memoryPending={activePlan.memoryTasks === null}
-              recommendations={(workbench.recommendations || []).filter((item) => item.candidate !== false).slice(0, 3).map((item) => ({
-                id: item.id,
-                title: item.title,
-                reason: item.reason,
-                intent: item.intent,
-                handle: item.handle,
-                status: "candidate" as const,
-              }))}
-              onAdoptRecommendation={(recommendation) => {
-                const selected = workbench.recommendations?.find((item) => item.id === recommendation.id);
-                if (selected) void convertSuggestion(selected);
-              }}
               centerHeader={(
                 <div className="home-hero today-center-hero">
                   <h1 data-home-title={paneScope}>{SCOPE_CONFIG[paneScope].heroTitle}</h1>

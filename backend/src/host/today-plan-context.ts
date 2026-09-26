@@ -347,21 +347,31 @@ function collectFollowTimersAndAnomalies(): { timers: SourceItem[]; anomalies: S
   return { timers, anomalies };
 }
 
-function filterTodoCatalog(catalog: SourceItem[]): SourceItem[] {
+function todayFormalIds(catalog: SourceItem[]): Set<string> {
   const formalIds = catalog
     .filter((item) => item.kind === "formal_task" && item.work_item_id)
     .map((item) => String(item.work_item_id));
-  if (!formalIds.length) return catalog.filter((item) => item.kind !== "formal_task");
+  if (!formalIds.length) return new Set<string>();
   const placeholders = formalIds.map(() => "?").join(",");
   const rows = getConn().prepare(
     `SELECT * FROM work_items WHERE id IN (${placeholders})`,
   ).all(...formalIds) as Row[];
-  const todayIds = new Set(rows.filter((row) => isTodayWorkItem(row)).map((row) => String(row.id)));
+  return new Set(rows.filter((row) => isTodayWorkItem(row)).map((row) => String(row.id)));
+}
+
+/** Formal tasks are partitioned by the same today predicate used by both Home panes. */
+function filterTodayCatalog(catalog: SourceItem[]): SourceItem[] {
+  const todayIds = todayFormalIds(catalog);
+  return catalog.filter((item) => item.kind !== "formal_task" || todayIds.has(String(item.work_item_id)));
+}
+
+function filterTodoCatalog(catalog: SourceItem[]): SourceItem[] {
+  const todayIds = todayFormalIds(catalog);
   return catalog.filter((item) => item.kind !== "formal_task" || !todayIds.has(String(item.work_item_id)));
 }
 
 const CATALOG_FILTERS: Record<PlanScope, (catalog: SourceItem[]) => SourceItem[]> = {
-  today: (catalog) => catalog,
+  today: filterTodayCatalog,
   todo: filterTodoCatalog,
 };
 

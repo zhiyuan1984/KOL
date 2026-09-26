@@ -9,6 +9,7 @@ import { seedAll } from "../src/seed.js";
 import { HOME_ENTRY_REGISTRY } from "../src/host/entry-registry.js";
 import { HOME_ENTRY_REGISTRY as FRONTEND_HOME_ENTRY_REGISTRY } from "../../frontend/src/home/entryRegistry.js";
 import { collectSourceCatalog, packTodayPlanContext, planningHarnessMount } from "../src/host/today-plan-context.js";
+import { todayDateStr } from "../src/host/home-board.js";
 import { validateTodayBrief, writeTodayBriefArtifact, runningTodayPlan, failStuckPlans } from "../src/host/today-brief.js";
 import { PLAN_EMPLOYEE_EVENTS, todayBriefSnapshot } from "../src/host/today-plan-run.js";
 import type { WorkerResult } from "../src/types.js";
@@ -323,6 +324,8 @@ describe("today_plan harness", () => {
 
   it("keeps yesterday unfinished tasks in history when delta is empty", () => {
     insertWorkItem({ id: "tsk_yesterday", title: "昨日未完成报价" });
+    getConn().prepare("UPDATE work_items SET due_at=? WHERE id=?")
+      .run(new Date(Date.now() - 86_400_000).toISOString(), "tsk_yesterday");
     const first = packTodayPlanContext(owner());
     expect(first.history.unfinished_tasks.some((item) => item.work_item_id === "tsk_yesterday")).toBe(true);
     writeTodayBriefArtifact({
@@ -455,6 +458,9 @@ describe("today_plan harness", () => {
 
     it("emits employee-facing mid events while planning and on complete", async () => {
       insertWorkItem({ id: "tsk_open_quote", title: "未了结报价" });
+      if (scope === "today") {
+        getConn().prepare("UPDATE work_items SET due_at=? WHERE id=?").run(todayDateStr(), "tsk_open_quote");
+      }
       let release!: (value: WorkerResult) => void;
       const held = new Promise<WorkerResult>((resolve) => {
         release = resolve;
@@ -653,18 +659,22 @@ describe("previous plan snapshot", () => {
 });
 
 describe("scope catalog split", () => {
-  it("todo catalog excludes today-scheduled formal tasks but keeps plain todos", () => {
+  it("todo catalog excludes only formal tasks in the confirmed today scope", () => {
     // task_type outside the correspondence/follow collectors so the rows
     // appear only as formal_task entries.
-    insertWorkItem({ id: "tsk_today_imp", title: "今日重要报价", task_type: "manual_work", priority: "important" });
+    insertWorkItem({ id: "tsk_today_due", title: "今日到期报价", task_type: "manual_work" });
+    getConn().prepare("UPDATE work_items SET due_at=? WHERE id=?").run(todayDateStr(), "tsk_today_due");
+    insertWorkItem({ id: "tsk_todo_important", title: "重要但未临期", task_type: "manual_work", priority: "important" });
     insertWorkItem({ id: "tsk_todo_plain", title: "普通待办", task_type: "manual_work" });
     const todayCatalog = collectSourceCatalog(owner(), "today");
     const todoCatalog = collectSourceCatalog(owner(), "todo");
     const formalIds = (catalog: ReturnType<typeof collectSourceCatalog>) =>
       catalog.filter((item) => item.kind === "formal_task").map((item) => String(item.work_item_id));
-    expect(formalIds(todayCatalog)).toContain("tsk_today_imp");
-    expect(formalIds(todayCatalog)).toContain("tsk_todo_plain");
-    expect(formalIds(todoCatalog)).not.toContain("tsk_today_imp");
+    expect(formalIds(todayCatalog)).toContain("tsk_today_due");
+    expect(formalIds(todayCatalog)).not.toContain("tsk_todo_important");
+    expect(formalIds(todayCatalog)).not.toContain("tsk_todo_plain");
+    expect(formalIds(todoCatalog)).not.toContain("tsk_today_due");
+    expect(formalIds(todoCatalog)).toContain("tsk_todo_important");
     expect(formalIds(todoCatalog)).toContain("tsk_todo_plain");
   });
 });

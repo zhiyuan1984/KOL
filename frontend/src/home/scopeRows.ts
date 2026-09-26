@@ -6,7 +6,8 @@ import type { PlanScope } from "./todayPlan";
 /**
  * Row projection per pane. 今日任务 and 我的待办 render one workspace over the
  * same open-task memory, so the only difference left is which slice each pane
- * answers for: today = 今日范围 (逾期/今天到期/进行中/高优先), todo = 今日范围之外.
+ * answers for: today = 高风险 / 今天开始 / 临期到期 / 逾期; todo = all other
+ * unfinished items. The split is mutually exclusive and complete.
  *
  * Lives outside homeModel because the date split is `schedule.ts`, which already
  * imports homeModel — keeping the slice here avoids a cycle.

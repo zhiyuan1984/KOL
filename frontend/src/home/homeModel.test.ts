@@ -40,7 +40,7 @@ describe("today pane buckets", () => {
     expect(isTodayActionableTodo(task({ id: "ai-open", title: "ai pending no due", source: "ai", status: "pending" }))).toBe(false);
   });
 
-  it("shows source=ai work items that fit a bucket without promote", () => {
+  it("shows source=ai work items that fit a risk or date bucket without promote", () => {
     const failed = task({
       id: "ai-failed",
       title: "记状态",
@@ -60,7 +60,7 @@ describe("today pane buckets", () => {
     expect(isTodayActionableTodo(overdue)).toBe(true);
     expect(todayBucket(failed)).toBe("high_risk");
     expect(todayBucket(overdue)).toBe("overdue");
-    expect(isTodayActionableTodo(task({ id: "ai-run", title: "扫描", source: "ai", status: "running" }))).toBe(true);
+    expect(isTodayActionableTodo(task({ id: "ai-run", title: "扫描", source: "ai", status: "running" }))).toBe(false);
   });
 
   it("assigns exclusive buckets with high-risk winning overdue", () => {
@@ -80,15 +80,23 @@ describe("today pane buckets", () => {
       title: "写报价",
       due_at: new Date().toISOString(),
     });
+    const dueSoon = task({
+      id: "soon",
+      title: "确认地址",
+      due_at: new Date(Date.now() + 2 * 86_400_000).toISOString(),
+    });
+    const startToday = task({ id: "start", title: "开始整理", start_date: new Date().toISOString() });
     const running = task({ id: "run", title: "扫描", status: "in_progress" });
     const approval = task({ id: "appr", title: "报价审批", status: "waiting_approval" });
     expect(todayBucket(overdueFailed)).toBe("high_risk");
     expect(todayBucket(overdue)).toBe("overdue");
     expect(todayBucket(dueToday)).toBe("due_today");
-    expect(todayBucket(running)).toBe("running");
-    expect(todayBucket(approval)).toBe("approval");
-    expect(sortTodayTodos([approval, running, dueToday, overdueFailed, overdue]).map((row) => row.id))
-      .toEqual(["risk", "over", "today", "run", "appr"]);
+    expect(todayBucket(dueSoon)).toBe("due_soon");
+    expect(todayBucket(startToday)).toBe("start_today");
+    expect(todayBucket(running)).toBeNull();
+    expect(todayBucket(approval)).toBeNull();
+    expect(sortTodayTodos([startToday, dueSoon, dueToday, overdueFailed, overdue]).map((row) => row.id))
+      .toEqual(["risk", "over", "today", "soon", "start"]);
   });
 
   it("open list includes source=ai and puts queued/pending no-due in 后续", () => {
@@ -115,7 +123,6 @@ describe("today pane buckets", () => {
     expect(openBucket(future)).toBe("later");
     expect(openBucketLabel("later")).toBe("后续");
     expect(openPrimaryAction("later")).toBe("打开");
-    expect(openPrimaryAction("approval")).toBe("去审批");
     expect(openPrimaryAction("high_risk")).toBe("处理");
     expect(isOpenTask(task({ id: "done", title: "完", status: "completed" }))).toBe(false);
     expect(sortOpenWorkItems([future, queued, failed]).map((row) => row.id)).toEqual(["ai-failed", "later-due", "q"]);
@@ -210,10 +217,10 @@ describe("today scheduling union", () => {
     return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   };
 
-  it("puts high-priority, start-today, due, running, approval and high-risk tasks in today", () => {
-    expect(isTodayScheduled(task({ id: "p0", title: "重要紧急", priority: "important_urgent" }))).toBe(true);
-    expect(isTodayScheduled(task({ id: "p1", title: "重要", priority: "important" }))).toBe(true);
-    expect(isTodayScheduled(task({ id: "p2", title: "紧急", priority: "urgent", priority_label: "紧急" }))).toBe(true);
+  it("puts high-risk, start-today, due-soon, due-today and overdue tasks in today", () => {
+    expect(isTodayScheduled(task({ id: "p0", title: "重要紧急", priority: "important_urgent" }))).toBe(false);
+    expect(isTodayScheduled(task({ id: "p1", title: "重要", priority: "important" }))).toBe(false);
+    expect(isTodayScheduled(task({ id: "p2", title: "紧急", priority: "urgent", priority_label: "紧急" }))).toBe(false);
     expect(isTodayScheduled(task({ id: "s0", title: "今天开始", start_date: todayStr() }))).toBe(true);
     expect(isTodayScheduled(task({
       id: "o0",
@@ -221,8 +228,9 @@ describe("today scheduling union", () => {
       due_at: new Date(Date.now() - 86_400_000).toISOString(),
     }))).toBe(true);
     expect(isTodayScheduled(task({ id: "d0", title: "今天到期", due_at: new Date().toISOString() }))).toBe(true);
-    expect(isTodayScheduled(task({ id: "r0", title: "进行中", status: "running" }))).toBe(true);
-    expect(isTodayScheduled(task({ id: "a0", title: "等审批", status: "waiting_approval" }))).toBe(true);
+    expect(isTodayScheduled(task({ id: "s1", title: "两天内到期", due_at: new Date(Date.now() + 2 * 86_400_000).toISOString() }))).toBe(true);
+    expect(isTodayScheduled(task({ id: "r0", title: "进行中", status: "running" }))).toBe(false);
+    expect(isTodayScheduled(task({ id: "a0", title: "等审批", status: "waiting_approval" }))).toBe(false);
     expect(isTodayScheduled(task({ id: "h0", title: "高风险", risk_level: "high" }))).toBe(true);
   });
 

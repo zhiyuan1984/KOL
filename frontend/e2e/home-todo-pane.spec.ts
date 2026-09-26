@@ -125,11 +125,13 @@ test("todo pane lists open memory items including unpromoted source=ai", async (
   await expect(page).toHaveURL(/[?&]tab=todo/);
   await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
   await expect(page.locator("[data-todo-list]")).toBeVisible();
-  // 今日相关行（失败/今天到期/进行中/等审批）改造后归今日面板；待办面板只剩 2 行（原 7 行的分桶集合已拆分）。
-  await expect(page.locator("[data-today-todo]")).toHaveCount(2);
+  // 今日相关行只包括失败/高风险和今天到期；进行中与等审批也留在待办面板。
+  await expect(page.locator("[data-today-todo]")).toHaveCount(4);
   // 原 tsk_ai_failed「高风险」桶行现在归今日面板，待办面板不再渲染该行。
   await expect(page.locator('[data-today-todo="tsk_ai_failed"]')).toHaveCount(0);
   // 分桶容器与「后续」文案随分桶分组移除；状态 chip 用 taskDisplayStatus 派生标签。
+  await expect(page.locator('[data-today-todo="tsk_run"]')).toBeVisible();
+  await expect(page.locator('[data-today-todo="tsk_approval"]')).toBeVisible();
   await expect(page.locator('[data-today-todo="tsk_queued"]')).toBeVisible();
   await expect(page.locator('[data-today-todo="tsk_queued"] [data-board-status]')).toHaveText("未开始");
   await expect(page.locator('[data-today-todo="tsk_queued"] [data-today-todo-act]')).toHaveText("打开");
