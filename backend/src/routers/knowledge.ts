@@ -3,6 +3,7 @@ import { requireAdmin } from "../auth.js";
 import { HttpFail } from "../host/errors.js";
 import {
   adminList,
+  adminAssets,
   approveKnowledge,
   archiveKnowledge,
   cite,
@@ -28,6 +29,16 @@ import {
   storeUploadRaw,
   transferBrand,
   uncite,
+  deleteBinding,
+  getKnowledgeVersion,
+  grantsForKnowledge,
+  handleFeedback,
+  listBindings,
+  listFeedback,
+  resolvePreview,
+  rollbackKnowledge,
+  saveBinding,
+  setKnowledgeGrants,
   undeprecate,
 } from "../host/knowledge.js";
 import type { Json } from "../types.js";
@@ -44,7 +55,21 @@ knowledge.get("/knowledge/:id", (c) => {
   }
   return c.json(publicKnowledge(row));
 });
-knowledge.get("/knowledge", (c) => c.json(listPublishedForOps()));
+knowledge.get("/knowledge", (c) => {
+  const num = (value: string | undefined): number | undefined => {
+    if (value == null || value === "") return undefined;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  };
+  return c.json(listPublishedForOps({
+    q: c.req.query("q"),
+    kind: c.req.query("kind"),
+    stage: c.req.query("stage"),
+    brand: c.req.query("brand"),
+    limit: num(c.req.query("limit")),
+    offset: num(c.req.query("offset")),
+  }));
+});
 
 knowledge.post("/knowledge/:id/cite", (c) => c.json(cite(c.req.param("id"))));
 knowledge.delete("/knowledge/:id/cite", (c) => c.json(uncite(c.req.param("id"))));
@@ -64,6 +89,32 @@ knowledge.get("/admin/knowledge/review", (c) => c.json(reviewQueue()));
 knowledge.get("/admin/knowledge/deprecate-stats", (c) => c.json(deprecateStats()));
 knowledge.get("/admin/knowledge/proposals", (c) => c.json(listProposals()));
 knowledge.get("/admin/knowledge", (c) => c.json(adminList()));
+knowledge.get("/admin/knowledge/assets", (c) => c.json(adminAssets()));
+knowledge.get("/admin/knowledge/feedback", (c) => c.json(listFeedback()));
+knowledge.get("/admin/knowledge/bindings", (c) => c.json(listBindings()));
+knowledge.post("/admin/knowledge/bindings", async (c) => c.json(saveBinding((await c.req.json()) as Json)));
+knowledge.patch("/admin/knowledge/bindings/:id", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Json;
+  return c.json(saveBinding({ ...body, id: c.req.param("id") }));
+});
+knowledge.delete("/admin/knowledge/bindings/:id", (c) => c.json(deleteBinding(c.req.param("id"))));
+knowledge.post("/admin/knowledge/resolve-preview", async (c) => c.json(resolvePreview((await c.req.json()) as Json)));
+knowledge.get("/admin/knowledge/:id/versions/:v", (c) => c.json(getKnowledgeVersion(c.req.param("id"), Number(c.req.param("v")))));
+knowledge.get("/admin/knowledge/:id/grants", (c) => c.json(grantsForKnowledge(c.req.param("id"))));
+knowledge.put("/admin/knowledge/:id/grants", async (c) => c.json(setKnowledgeGrants(c.req.param("id"), (await c.req.json()) as Json)));
+knowledge.post("/admin/knowledge/:id/rollback", async (c) => {
+  const body = (await c.req.json()) as { version?: number };
+  return c.json(rollbackKnowledge(c.req.param("id"), Number(body.version)));
+});
+knowledge.post("/admin/knowledge/:id/feedback-handle", async (c) => {
+  const body = (await c.req.json()) as { user_id?: string; action?: string; note?: string };
+  return c.json(handleFeedback(
+    c.req.param("id"),
+    String(body.user_id || ""),
+    String(body.action || "") as "to_revision" | "archive" | "ignore",
+    String(body.note || ""),
+  ));
+});
 
 knowledge.post("/admin/knowledge/upload", async (c) => {
   requireAdmin();
@@ -91,7 +142,11 @@ knowledge.post("/admin/knowledge/:id/transfer", async (c) => {
   const body = (await c.req.json()) as { to_brand?: string };
   return c.json(transferBrand(c.req.param("id"), String(body.to_brand || "")));
 });
-knowledge.post("/admin/knowledge/:id/approve", (c) => c.json(approveKnowledge(c.req.param("id"))));
+knowledge.post("/admin/knowledge/:id/approve", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Json;
+  const expected = body.expected_version == null ? null : Number(body.expected_version);
+  return c.json(approveKnowledge(c.req.param("id"), expected));
+});
 knowledge.post("/admin/knowledge/:id/archive", (c) => c.json(archiveKnowledge(c.req.param("id"))));
 knowledge.post("/admin/knowledge", async (c) => c.json(createKnowledge((await c.req.json()) as { title: string; body: string }), 201));
 knowledge.put("/admin/knowledge/:id", async (c) => c.json(editKnowledge(c.req.param("id"), (await c.req.json()) as { title: string; body: string })));

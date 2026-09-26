@@ -3308,7 +3308,10 @@ test("admin L3 destructive writes open confirm dialog with cancel focused", asyn
   await page.locator("[data-admin-nav='knowledge']").click();
   await expect(page.locator("[data-admin-knowledge]")).toBeVisible();
   await expect(page.locator(".kb-step-n, .kb-hero-admin")).toHaveCount(0);
+  await expect(page.locator("[data-admin-kb-view='todo']")).toBeVisible();
   await expect(page.locator("[data-admin-knowledge-review]")).toBeVisible();
+  await page.locator("[data-admin-kb-tab='assets']").click();
+  await expect(page.locator("[data-admin-kb-view='assets']")).toBeVisible();
   await expect(page.locator("[data-admin-knowledge-assets]")).toBeVisible();
   const hardDelete = page.locator("[data-kb-hard-delete]").first();
   if (await hardDelete.count()) {

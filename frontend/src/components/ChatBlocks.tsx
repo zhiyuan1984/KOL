@@ -242,6 +242,14 @@ export function emailMarkdown(card: EmailCard): string {
   return lines.join("\n");
 }
 
+function knowledgeChipText(card: EmailCard): string {
+  const id = String(card.knowledge_id || "").trim();
+  if (!id) return "";
+  const title = String(card.knowledge_title || "").trim() || `#${id}`;
+  const version = card.knowledge_version == null ? "" : ` v${card.knowledge_version}`;
+  return `模板：${title}${version}`;
+}
+
 function DraftSendMeta({
   card,
   from,
@@ -264,6 +272,7 @@ function DraftSendMeta({
   const statusChips = [draftStatusLabel(card.status)];
   if (card.from_locked) statusChips.push(card.from_lock_text || "已锁定");
   rows.push({ key: "status", label: "状态", value: "", chips: statusChips });
+  const knowledgeChip = knowledgeChipText(card);
   return (
     <dl className="draft-send-meta" data-draft-send-meta>
       {rows.map((row) => (
@@ -276,6 +285,12 @@ function DraftSendMeta({
           </dd>
         </div>
       ))}
+      {knowledgeChip ? (
+        <div data-draft-meta="knowledge">
+          <dt>模板</dt>
+          <dd><span className="chip" data-draft-knowledge>{knowledgeChip}</span></dd>
+        </div>
+      ) : null}
     </dl>
   );
 }
@@ -316,6 +331,7 @@ export function DraftArtifact({
   const [busy, setBusy] = useState<string | null>(null);
   const { ask, dialog } = useAdminConfirm();
   const sent = card.status === "sent" || !!card.send_disabled;
+  const knowledgeChip = knowledgeChipText(card);
   const resolvedFrom = pickFromAddr(fromAddr, opts);
   const fromOptionsKey = opts.map((row) => row.email).join("|");
   const dirty = cc !== (card.cc || "")
@@ -412,6 +428,7 @@ export function DraftArtifact({
           <div className="draft-status-row" data-draft-status>
             <span className="chip">{draftStatusLabel(card.status)}</span>
             {card.from_locked ? <span className="chip">{card.from_lock_text || "已锁定"}</span> : null}
+            {knowledgeChip ? <span className="chip" data-draft-knowledge>{knowledgeChip}</span> : null}
           </div>
           {card.amount_usd != null && (
             <p className="draft-meta" data-draft-amount data-compose-amount>

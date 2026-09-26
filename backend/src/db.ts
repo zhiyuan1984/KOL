@@ -437,6 +437,8 @@ function initSchema(db: SqliteConn): void {
             created_by TEXT,
             approved_by TEXT,
             approved_at TEXT,
+            effective_at TEXT,
+            expires_at TEXT,
             created_at TEXT,
             updated_at TEXT
         );
@@ -471,6 +473,10 @@ function initSchema(db: SqliteConn): void {
             reason TEXT NOT NULL,
             reason_note TEXT,
             deprecated_at TEXT NOT NULL,
+            handled_at TEXT,
+            handled_by TEXT,
+            handle_action TEXT,
+            handle_note TEXT,
             PRIMARY KEY (user_id, knowledge_id)
         );
         CREATE TABLE IF NOT EXISTS knowledge_raw (
@@ -513,6 +519,24 @@ function initSchema(db: SqliteConn): void {
             reject_reason TEXT
         );
 
+        CREATE TABLE IF NOT EXISTS knowledge_grants (
+            id TEXT PRIMARY KEY,
+            knowledge_id TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            scope_id TEXT NOT NULL,
+            granted_by TEXT,
+            granted_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS knowledge_bindings (
+            id TEXT PRIMARY KEY,
+            skill_id TEXT NOT NULL,
+            selector TEXT NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            note TEXT,
+            created_by TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS inbound (
             id TEXT PRIMARY KEY,
             from_addr TEXT,
@@ -1513,6 +1537,12 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "knowledge", "approved_at", "TEXT");
   add(db, "knowledge", "created_at", "TEXT");
   add(db, "knowledge", "updated_at", "TEXT");
+  add(db, "knowledge", "effective_at", "TEXT");
+  add(db, "knowledge", "expires_at", "TEXT");
+  add(db, "knowledge_deprecations", "handled_at", "TEXT");
+  add(db, "knowledge_deprecations", "handled_by", "TEXT");
+  add(db, "knowledge_deprecations", "handle_action", "TEXT");
+  add(db, "knowledge_deprecations", "handle_note", "TEXT");
   add(db, "users", "email", "TEXT");
   add(db, "users", "phone", "TEXT");
   add(db, "collaborations", "owner_mailbox", "TEXT");
@@ -1576,6 +1606,10 @@ function migrateSchema(db: SqliteConn): void {
             reason TEXT NOT NULL,
             reason_note TEXT,
             deprecated_at TEXT NOT NULL,
+            handled_at TEXT,
+            handled_by TEXT,
+            handle_action TEXT,
+            handle_note TEXT,
             PRIMARY KEY (user_id, knowledge_id)
         );
         CREATE TABLE IF NOT EXISTS knowledge_raw (
