@@ -348,15 +348,9 @@ export function isTodayWorkItem(task: {
   if (isPlanningWorkItem(task)) return false;
   if (isClosedWorkItem(task) || task.dismissed_at) return false;
   if (isHighRiskWorkItem(task)) return true;
-  const priority = normalizePriority(task.priority);
-  if (priority === "important_urgent" || priority === "important" || priority === "urgent") return true;
   if (datePartOf(task.start_date) === todayDateStr()) return true;
   const flags = dueFlags(task.due_at);
-  if (flags.overdue || flags.due_today) return true;
-  const status = String(task.status || "").toLowerCase();
-  if (status === "running" || status === "in_progress" || status === "starting") return true;
-  if (status === "waiting_approval" || status === "awaiting_approval") return true;
-  return false;
+  return flags.overdue || flags.due_today || flags.due_soon;
 }
 
 /** Full open memory list — not closed / not dismissed. No promote gate. */
@@ -421,13 +415,15 @@ function slimWorkbenchTask(task: Json): Json {
   return slim;
 }
 
-export function dueFlags(dueAt: unknown): { overdue: boolean; due_today: boolean } {
+export function dueFlags(dueAt: unknown): { overdue: boolean; due_today: boolean; due_soon: boolean } {
   const day = dueDay(dueAt);
-  if (!day) return { overdue: false, due_today: false };
+  if (!day) return { overdue: false, due_today: false, due_soon: false };
   const today = startOfDay();
+  const dayDiff = Math.round((day.getTime() - today.getTime()) / 86_400_000);
   return {
-    overdue: day.getTime() < today.getTime(),
-    due_today: day.getTime() === today.getTime(),
+    overdue: dayDiff < 0,
+    due_today: dayDiff === 0,
+    due_soon: dayDiff > 0 && dayDiff <= 2,
   };
 }
 

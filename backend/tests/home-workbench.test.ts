@@ -212,12 +212,11 @@ describe("home workbench", () => {
     expect(today.map((row) => String(row.id)).sort()).toEqual([
       "tsk_home_laozhang_quote",
       "tsk_home_trip_stage",
-      "tsk_home_xiaomei_lost",
     ]);
     expect(isTodayWorkItem({ source: "manual", status: "queued" })).toBe(false);
     expect(isTodayWorkItem({ source: "manual", status: "pending" })).toBe(false);
-    expect(isTodayWorkItem({ source: "manual", status: "running" })).toBe(true);
-    expect(isTodayWorkItem({ source: "manual", status: "waiting_approval" })).toBe(true);
+    expect(isTodayWorkItem({ source: "manual", status: "running" })).toBe(false);
+    expect(isTodayWorkItem({ source: "manual", status: "waiting_approval" })).toBe(false);
     expect(isTodayWorkItem({ source: "manual", status: "failed", title: "记状态" })).toBe(true);
     expect(isTodayWorkItem({ source: "ai", status: "failed", title: "记状态" })).toBe(true);
     expect(isTodayWorkItem({
@@ -228,10 +227,10 @@ describe("home workbench", () => {
     })).toBe(true);
     expect(isTodayWorkItem({ source: "ai", status: "pending", title: "待补画像" })).toBe(false);
     expect(isTodayWorkItem({ source: "ai", status: "queued", title: "队列画像" })).toBe(false);
-    expect(isTodayWorkItem({ source: "manual", status: "pending", title: "普通任务", priority: "important_urgent" })).toBe(true);
-    expect(isTodayWorkItem({ source: "manual", status: "pending", title: "普通任务", priority: "important" })).toBe(true);
-    expect(isTodayWorkItem({ source: "manual", status: "pending", title: "普通任务", priority: "urgent" })).toBe(true);
-    expect(isTodayWorkItem({ source: "manual", status: "pending", title: "普通任务", priority: "high" })).toBe(true);
+    expect(isTodayWorkItem({ source: "manual", status: "pending", title: "普通任务", priority: "important_urgent" })).toBe(false);
+    expect(isTodayWorkItem({ source: "manual", status: "pending", title: "普通任务", priority: "important" })).toBe(false);
+    expect(isTodayWorkItem({ source: "manual", status: "pending", title: "普通任务", priority: "urgent" })).toBe(false);
+    expect(isTodayWorkItem({ source: "manual", status: "pending", title: "普通任务", priority: "high" })).toBe(false);
     expect(isTodayWorkItem({ source: "manual", status: "pending", title: "普通任务", priority: "normal" })).toBe(false);
     expect(isTodayWorkItem({ source: "manual", status: "pending", title: "普通任务", priority: "low" })).toBe(false);
     expect(isTodayWorkItem({
@@ -248,6 +247,12 @@ describe("home workbench", () => {
       priority: "normal",
       start_date: "2020-01-01",
     })).toBe(false);
+    expect(isTodayWorkItem({
+      source: "manual",
+      status: "pending",
+      title: "两天内到期",
+      due_at: new Date(Date.now() + 2 * 86_400_000).toISOString(),
+    })).toBe(true);
     expect(isTodayWorkItem({ source: "manual", status: "pending", title: "普通任务", risk_level: "high" })).toBe(true);
     expect(isOpenWorkItem({ source: "ai", status: "failed", title: "记状态" })).toBe(true);
     expect(isOpenWorkItem({ source: "ai", status: "pending", title: "待补画像" })).toBe(true);

@@ -35,6 +35,8 @@ describe("pane parity", () => {
     const rows = [
       task({ id: "overdue", title: "已逾期", due_at: day(-3) }),
       task({ id: "due_today", title: "今天到期", due_at: day(0) }),
+      task({ id: "due_soon", title: "临期到期", due_at: day(2) }),
+      task({ id: "start_today", title: "今天开始", start_date: day(0) }),
       task({ id: "running", title: "进行中", status: "running" }),
       task({ id: "later", title: "无日期事项" }),
       task({ id: "closed", title: "已完成", status: "completed", priority: "important_urgent" }),
@@ -43,8 +45,8 @@ describe("pane parity", () => {
     const today = scopeRows("today", rows).map((row) => row.id);
     const todo = scopeRows("todo", rows).map((row) => row.id);
 
-    expect(today).toEqual(["overdue", "due_today", "running"]);
-    expect(todo).toEqual(["later"]);
+    expect(today).toEqual(["overdue", "due_today", "due_soon", "start_today"]);
+    expect(todo).toEqual(["running", "later"]);
     // Complete over the open rows and disjoint: nothing is lost or shown twice.
     expect(new Set([...today, ...todo]).size).toBe(today.length + todo.length);
     expect(today).not.toContain("planning");

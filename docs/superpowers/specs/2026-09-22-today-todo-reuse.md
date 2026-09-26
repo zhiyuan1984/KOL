@@ -97,9 +97,11 @@ export function isTodayScheduled(task: Task): boolean
 ```
 
 今日判定条件：
-- 优先级 `rank <= 2`（重要紧急 / 重要）
-- 今天开始 / 今天到期 / 逾期
-- 运行中 / 审批中 / 高风险
+- 高风险
+- 今天开始
+- 临期到期（未来两日内到期）/ 今天到期 / 逾期
+
+运行中、审批中和高优先级**本身不构成**今日条件；只要仍未完成但不满足上述条件，就属于「我的待办」。
 
 `TodoPane` 使用 `!isTodayScheduled(task)` 过滤，避免 todo 列表重复展示今日任务。
 
@@ -141,7 +143,7 @@ export function briefPointerTable(scope: PlanScope): "employee_today_briefs" | "
 export function collectSourceCatalog(owner: string, scope: PlanScope): Catalog;
 ```
 
-`collectSourceCatalog("todo")` 会过滤掉已被 today scope 收录的正式任务，避免重复。
+`collectSourceCatalog()` 对正式未完成任务使用同一条判定作互斥分流：`today` 只保留今日条件命中的任务，`todo` 只保留其余任务，避免规划上下文或展示重复。
 
 ### 4.4 数据模型分流
 

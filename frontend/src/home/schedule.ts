@@ -2,11 +2,8 @@
 import type { Task } from "../api";
 import {
   dueDayDiff,
-  isApprovalStatus,
   isClosedTask,
   isHighRiskTask,
-  isRunningStatus,
-  taskPriorityRank,
 } from "./homeModel";
 
 function isStartToday(value?: string | null, now = new Date()): boolean {
@@ -15,15 +12,15 @@ function isStartToday(value?: string | null, now = new Date()): boolean {
   return dueDayDiff(raw, now) === 0;
 }
 
-/** Today = high priority (重要紧急/重要/紧急) ∪ start today ∪ overdue/due today ∪ running ∪ approval ∪ high risk. */
+/**
+ * Today = high risk ∪ starts today ∪ due today/within two days ∪ overdue.
+ * Every other unfinished item belongs to My Todo, regardless of priority or
+ * execution state. Keep this rule in sync with backend isTodayWorkItem().
+ */
 export function isTodayScheduled(task: Task): boolean {
   if (isClosedTask(task) || task.dismissed_at) return false;
-  if (taskPriorityRank(task) <= 2) return true;
+  if (isHighRiskTask(task)) return true;
   if (isStartToday(task.start_date || String(task.start_at || ""))) return true;
   const diff = dueDayDiff(task.due_at);
-  if (diff != null && diff <= 0) return true;
-  if (isRunningStatus(task.status)) return true;
-  if (isApprovalStatus(task.status)) return true;
-  if (isHighRiskTask(task)) return true;
-  return false;
+  return diff != null && diff <= 2;
 }

@@ -165,14 +165,15 @@ test("home todo rows live in the task rail without横向滚动", async ({ page }
       source: "manual",
       status: "pending",
       kol_name: "OutdoorGearLab",
-      due_at: new Date(due.getTime() + 86_400_000).toISOString(),
+      due_at: new Date(due.getTime() + 3 * 86_400_000).toISOString(),
     },
   ];
   await stubHomeTodos(page, todos);
   await page.goto("/");
   await openMode(page, "todo");
   await expect(page.locator("[data-todo-list]")).toBeVisible();
-  // 高优先且今天到期的行（quote）改造后归今日面板；今日面板行来自 GET /api/home/today-tasks
+  // 今天到期的行（quote）归今日面板；follow 在三天后到期，仍属于我的待办。
+  // 今日面板行来自 GET /api/home/today-tasks
   // 的服务端展示记忆，本测试的 board/tasks stub 覆盖不到，故原 quote 行状态断言随分桶移除。
   // 待办面板只留今日范围之外的行（follow），桶状态属性与「后续」文案随分桶分组移除。
   const follow = page.locator("[data-today-todo]").filter({ hasText: "跟进 Outdoor Gear Lab 样品签收" });
