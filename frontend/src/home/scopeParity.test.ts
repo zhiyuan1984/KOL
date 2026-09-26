@@ -3,6 +3,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { Task } from "../api";
+import { HOME_ENTRY_REGISTRY as HOME_ENTRY_REGISTRY_BACKEND } from "../../../backend/src/host/entry-registry.js";
+import { HOME_ENTRY_REGISTRY } from "./entryRegistry";
 import { scopeRows } from "./scopeRows";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -164,5 +166,27 @@ describe("pane parity", () => {
     // Fixed result-rail class is always present.
     expect(pool).toContain("is-result-rail");
     expect(followed).toContain("is-result-rail");
+  });
+
+  /**
+   * 前后端登记表同构（CONST-07）：同一个入口 id 在两边的 kind 与四个副作用标志必须逐字相同。
+   * 只做文案或只在一端加条目的改法在这里会红。
+   */
+  it("keeps the mail entries identical in both registries", () => {
+    const ids = ["list-mailbox-mail", "open-mail-thread", "mail-compose-catalog", "sync-mailbox-mail"];
+    for (const id of ids) {
+      const front = HOME_ENTRY_REGISTRY.find((row) => row.id === id);
+      const back = HOME_ENTRY_REGISTRY_BACKEND.find((row) => row.id === id);
+      expect(front).toBeDefined();
+      expect(back).toEqual(front);
+    }
+    expect(HOME_ENTRY_REGISTRY.find((row) => row.id === "mail-compose-catalog")).toMatchObject({
+      kind: "memory",
+      action: "通讯邮件任务目录",
+      creates_session: false,
+      creates_turn: false,
+      calls_model: false,
+      route: "GET /api/mail/compose-catalog",
+    });
   });
 });

@@ -120,6 +120,19 @@ export type MailSyncReceipt = {
   error?: string;
 };
 
+/**
+ * GET /api/mail/compose-catalog letters[] — one row per published stage letter of
+ * the email_compose contract. Copy (chip/prompt) and order come from the contract;
+ * the page must not re-invent a label.
+ */
+export type MailComposeLetter = {
+  stage: string;
+  chip: string;
+  prompt: string;
+  template_id: string;
+  kind: string;
+};
+
 export type MailWorkspace = {
   source: MailDataSource;
   box: MailBox;

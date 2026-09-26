@@ -301,6 +301,15 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     route: "GET /api/mail/conversations/:id",
   },
   {
+    id: "mail-compose-catalog",
+    kind: "memory",
+    action: "通讯邮件任务目录",
+    creates_session: false,
+    creates_turn: false,
+    calls_model: false,
+    route: "GET /api/mail/compose-catalog",
+  },
+  {
     id: "sync-mailbox-mail",
     kind: "command",
     action: "同步通讯邮箱记忆",

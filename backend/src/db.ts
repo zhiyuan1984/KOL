@@ -541,6 +541,8 @@ function initSchema(db: SqliteConn): void {
             password_hash TEXT NOT NULL,
             roles TEXT NOT NULL DEFAULT '["employee"]',
             brands TEXT NOT NULL DEFAULT '[]',
+            organization_units TEXT NOT NULL DEFAULT '[]',
+            position TEXT,
             site TEXT,
             manager_user_id TEXT,
             active INTEGER NOT NULL DEFAULT 1,
@@ -571,7 +573,22 @@ function initSchema(db: SqliteConn): void {
             enabled INTEGER NOT NULL DEFAULT 1,
             status TEXT NOT NULL DEFAULT 'configured',
             credential_ref TEXT,
+            mcp_config TEXT,
+            tools_json TEXT NOT NULL DEFAULT '[]',
+            last_tested_at TEXT,
+            last_error TEXT,
             updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS connector_tool_grants (
+            connector_id TEXT NOT NULL,
+            tool_name TEXT NOT NULL,
+            scope_type TEXT NOT NULL,
+            scope_value TEXT NOT NULL DEFAULT '',
+            created_by TEXT,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY(connector_id, tool_name, scope_type, scope_value),
+            FOREIGN KEY(connector_id) REFERENCES connectors(id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS user_connector_grants (
@@ -1339,6 +1356,22 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "sessions", "deleted_at", "TEXT");
   add(db, "sessions", "expert_id", "TEXT");
   add(db, "sessions", "expert_version", "TEXT");
+  add(db, "users", "organization_units", "TEXT NOT NULL DEFAULT '[]'");
+  add(db, "users", "position", "TEXT");
+  add(db, "connectors", "mcp_config", "TEXT");
+  add(db, "connectors", "tools_json", "TEXT NOT NULL DEFAULT '[]'");
+  add(db, "connectors", "last_tested_at", "TEXT");
+  add(db, "connectors", "last_error", "TEXT");
+  db.exec(`CREATE TABLE IF NOT EXISTS connector_tool_grants (
+    connector_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    scope_type TEXT NOT NULL,
+    scope_value TEXT NOT NULL DEFAULT '',
+    created_by TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(connector_id, tool_name, scope_type, scope_value),
+    FOREIGN KEY(connector_id) REFERENCES connectors(id) ON DELETE CASCADE
+  )`);
   add(db, "inbound", "from_name", "TEXT");
   add(db, "inbound", "summary", "TEXT");
   add(db, "inbound", "deferred", "INTEGER NOT NULL DEFAULT 0");
@@ -1471,6 +1504,7 @@ function migrateSchema(db: SqliteConn): void {
     ON kol_mail_items(provider_message_id) WHERE provider_message_id IS NOT NULL AND provider_message_id != ''`);
   db.exec(`CREATE INDEX IF NOT EXISTS kol_mail_items_collab ON kol_mail_items(collaboration_id)`);
   db.exec(`CREATE INDEX IF NOT EXISTS kol_mail_items_conversation ON kol_mail_items(conversation_id)`);
+  db.exec(`CREATE INDEX IF NOT EXISTS kol_mail_items_thread ON kol_mail_items(thread_id)`);
   add(db, "workers", "profile_id", "TEXT");
   add(db, "work_items", "promoted_at", "TEXT");
   add(db, "work_items", "dismissed_at", "TEXT");
@@ -1512,6 +1546,8 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "knowledge", "approved_at", "TEXT");
   add(db, "knowledge", "created_at", "TEXT");
   add(db, "knowledge", "updated_at", "TEXT");
+  add(db, "knowledge", "effective_at", "TEXT");
+  add(db, "knowledge", "expires_at", "TEXT");
   add(db, "users", "email", "TEXT");
   add(db, "users", "phone", "TEXT");
   add(db, "collaborations", "owner_mailbox", "TEXT");
@@ -1635,36 +1671,30 @@ function migrateSchema(db: SqliteConn): void {
   }
   db.prepare("INSERT OR IGNORE INTO app_state (key, value) VALUES ('persona', 'sriphy')").run();
   const now = nowIso();
-  for (const connector of [
-    ["enterprise_mail", "企业邮箱"],
-    ["wecom", "企业微信"],
-    ["starry", "Starry"],
-    ["claw", "Claw"],
-    ["kolclaw", "KOL Claw"],
-    ["starrykol", "Starry KOL MCP"],
+  // These rows are logical capability gates used by routes and approval policy.
+  // MCP endpoints and credentials live only in connector.mcp_config.
+  for (const [id, label] of [
+    ["enterprise_mail", "企业邮箱能力"],
+    ["wecom", "企业微信能力"],
+    ["starry", "Starry 业务能力"],
+    ["claw", "采集任务能力"],
   ]) {
     db.prepare(
-      "INSERT OR IGNORE INTO connectors (id, label, enabled, status, credential_ref, updated_at) VALUES (?,?,1,'configured',NULL,?)",
-    ).run(connector[0], connector[1], now);
+      "INSERT OR IGNORE INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES (?,?,1,'logical',NULL,?)",
+    ).run(id, label, now);
   }
-  db.prepare("UPDATE connectors SET label='Starry KOL MCP', enabled=1, status='configured' WHERE id='starrykol'").run();
-  db.prepare("UPDATE connectors SET enabled=0, label='Starry KOL MCP (legacy)' WHERE id='emailmcp'").run();
-  db.prepare(
-    `INSERT OR IGNORE INTO user_connector_grants (user_id,connector_id,access,created_at)
-     SELECT user_id,'kolclaw',
-            CASE access WHEN 'admin' THEN 'admin' WHEN 'write' THEN 'write' ELSE 'read' END,
-            ?
-       FROM user_connector_grants
-      WHERE connector_id='claw'`,
-  ).run(now);
-  db.prepare(
-    `INSERT OR IGNORE INTO user_connector_grants (user_id,connector_id,access,created_at)
-     SELECT user_id,'starrykol',
-            CASE access WHEN 'admin' THEN 'admin' WHEN 'write' THEN 'write' ELSE 'read' END,
-            ?
-       FROM user_connector_grants
-      WHERE connector_id IN ('emailmcp','enterprise_mail')`,
-  ).run(now);
+  for (const [id, label] of [
+    ["starrykol", "Starry KOL MCP"],
+    ["kolclaw", "KOL Claw MCP"],
+    ["mediacrawler", "MediaCrawler 异步采集 MCP"],
+  ]) {
+    db.prepare(
+      "INSERT OR IGNORE INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES (?,?,0,'unconfigured',NULL,?)",
+    ).run(id, label, now);
+    db.prepare(
+      "UPDATE connectors SET enabled=0,status='unconfigured',updated_at=? WHERE id=? AND mcp_config IS NULL",
+    ).run(now, id);
+  }
   db.prepare(
     "INSERT OR IGNORE INTO retention_policy (id, session_days, audit_days, updated_at) VALUES (1,365,730,?)",
   ).run(now);
