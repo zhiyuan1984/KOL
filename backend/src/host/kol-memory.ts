@@ -331,11 +331,18 @@ export function followById(followId: string, db: SqliteConn = getConn()): Row | 
 
 export function listOpenPool(companyId = memoryCompanyId(), db: SqliteConn = getConn()): Json[] {
   const rows = db.prepare(
-    `SELECT * FROM kol_profile_index
-      WHERE company_id=? AND pool_status='open'
-      ORDER BY ingested_at DESC, display_name`,
+    `SELECT p.*,
+       (SELECT f.release_reason FROM kol_follow_index f
+         WHERE f.company_id=p.company_id AND f.kol_uid=p.kol_uid AND f.status='released'
+         ORDER BY f.released_at DESC, f.id DESC LIMIT 1) AS latest_release_reason
+      FROM kol_profile_index p
+      WHERE p.company_id=? AND p.pool_status='open'
+      ORDER BY p.ingested_at DESC, p.display_name`,
   ).all(companyId) as Row[];
-  return rows.map((row) => trimPrivate(publicProfileFields(row)));
+  return rows.map((row) => trimPrivate(publicProfileFields({
+    ...row,
+    public_stage: row.latest_release_reason === "ownership-release" ? "14天无回复" : row.public_stage,
+  })));
 }
 
 /** Counts only unclaimed public-pool rows. Active follows are not cleanup candidates. */
