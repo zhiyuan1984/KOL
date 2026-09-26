@@ -125,6 +125,8 @@ function lastEventsByWorkItem(ids: string[]): Map<string, Row> {
  * (`history_summary`, `failedTaskReason`, `lastSafeSummary`), so reading every
  * event of every work item — 190k rows on the production box — is pure CPU and
  * memory: it is what turned `GET /api/tasks` into a 130MB response.
+ * A presentation budget, not a business rule: no stage, send or approval
+ * decision reads the tail — only list summaries do.
  */
 export const MAX_LIST_HISTORY_EVENTS = 5;
 

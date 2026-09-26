@@ -3230,12 +3230,16 @@ host.get("/sessions", (c) => {
   const cacheKey = `sessions:${all ? "all" : user?.id || "anon"}:${includeArchived ? 1 : 0}`;
   const payload = cachedPoll(cacheKey, sessionsEpoch(), () => {
     const archivedClause = includeArchived ? "" : " AND archived_at IS NULL";
+    // Only `id`, `title`, `archived_at` (shell title list + 账号设置归档开关) leave
+    // this endpoint; `disabled`/`kind` are read here and never serialized. Column
+    // order matches the output projection so the two can be read together.
+    const select = "SELECT id, title, archived_at, kind, disabled FROM sessions";
     const rows = (!authDisabled() && user && !all
       ? getConn().prepare(
-          `SELECT * FROM sessions WHERE owner_user_id=? AND deleted_at IS NULL${archivedClause} ORDER BY updated_at DESC`,
+          `${select} WHERE owner_user_id=? AND deleted_at IS NULL${archivedClause} ORDER BY updated_at DESC`,
         ).all(user.id)
       : getConn().prepare(
-          `SELECT * FROM sessions WHERE deleted_at IS NULL${archivedClause} ORDER BY updated_at DESC`,
+          `${select} WHERE deleted_at IS NULL${archivedClause} ORDER BY updated_at DESC`,
         ).all()) as Row[];
     const visible = rows.filter((r) => {
       const title = String(r.title || "");
@@ -3247,7 +3251,9 @@ host.get("/sessions", (c) => {
     });
     const statusBySession = sessionStatusMap(visible.map((r) => String(r.id)));
     return visible.map((r) => ({
-      ...r,
+      id: String(r.id),
+      title: String(r.title || ""),
+      archived_at: r.archived_at || null,
       agent_status: statusBySession.get(String(r.id)) || sessionStatus(String(r.id)),
     }));
   });

@@ -6,7 +6,7 @@ import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
 import { DEMO_USER } from "../src/config.js";
 import { buildHomeBoard, MAX_BOARD_TASKS, MAX_KOL_MAIL_THREADS, MAX_KOL_TASKS, MAX_WORKBENCH_TASKS, OPEN_WORK_ITEM_SQL } from "../src/host/home-board.js";
-import { pollCacheCounters, resetPollCache } from "../src/host/response-cache.js";
+import { POLL_CACHE_MAX_VALUE_BYTES, pollCacheCounters, resetPollCache } from "../src/host/response-cache.js";
 import { resetDemoRuntimeState, seedAll } from "../src/seed.js";
 import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { resetStarryHomeLibrarySync } from "../src/starrykol/library-sync.js";
@@ -155,6 +155,90 @@ describe("polling result cache", () => {
     const renamed = (after.body as unknown as Json[]).find((row) => row.id === sid) as Json;
     expect(String(renamed.title)).toBe("轮询缓存后改名");
   });
+
+  it("serves a projection over the per-value byte ceiling without retaining it", async () => {
+    // A large owner's session list runs to several hundred KB; the cache must
+    // not pin that (plus the tasks projection) on the single host thread.
+    const stamp = "2026-09-01T00:00:00.000Z";
+    const title = `会话标题${"·".repeat(120)}`;
+    const insert = getConn().prepare(
+      "INSERT INTO sessions (id,title,created_at,updated_at,kind,owner_user_id) VALUES (?,?,?,?,?,?)",
+    );
+    getConn().transaction(() => {
+      for (let i = 0; i < 2400; i += 1) {
+        insert.run(`ses_oversize_${i}`, `${title}${i}`, stamp, stamp, "work", DEMO_USER.id);
+      }
+    })();
+
+    const before = pollCacheCounters();
+    const first = await request("GET", "/api/sessions");
+    expect(first.status).toBe(200);
+    const bytes = Buffer.byteLength(JSON.stringify(first.body), "utf8");
+    // The fixture must really be over the ceiling, otherwise this proves nothing.
+    expect(bytes).toBeGreaterThan(POLL_CACHE_MAX_VALUE_BYTES);
+
+    const after = pollCacheCounters();
+    expect(after.skipped).toBe(before.skipped + 1);
+    expect(after.size).toBe(before.size);
+    expect(after.bytes).toBe(before.bytes);
+
+    // Served, not cached: the next read recomputes instead of hitting.
+    const second = await request("GET", "/api/sessions");
+    expect(second.body).toEqual(first.body);
+    const final = pollCacheCounters();
+    expect(final.misses).toBe(after.misses + 1);
+    expect(final.hits).toBe(after.hits);
+  });
+});
+
+describe("GET /api/sessions projection", () => {
+  /**
+   * The shell polls this endpoint from every open tab, so the projection is
+   * only what the shell reads: 会话标题 list (id/title/agent_status) and the
+   * 账号设置 archive toggle (archived_at). Measured after the trim below:
+   * ~19KB for this 200-session fixture; the pre-trim `SELECT *` row shape
+   * (~14 columns) was ~3x that, so 40KB fails the old projection and still
+   * leaves headroom for longer titles.
+   */
+  const SESSIONS_PAYLOAD_CEILING_BYTES = 40 * 1024;
+  const FIELD_KEYS = ["agent_status", "archived_at", "id", "title"];
+  const ARCHIVED_ROWS = 23;
+
+  it("ships no field the shell does not read, under a byte ceiling", async () => {
+    const stamp = "2026-09-01T00:00:00.000Z";
+    const insert = getConn().prepare(
+      "INSERT INTO sessions (id,title,created_at,updated_at,collaboration_id,kind,owner_user_id,archived_at,expert_id,thread_ref) VALUES (?,?,?,?,?,?,?,?,?,?)",
+    );
+    getConn().transaction(() => {
+      for (let i = 0; i < 200; i += 1) {
+        insert.run(
+          `ses_proj_${String(i).padStart(3, "0")}`,
+          `与 达人${i} 的合作会话 · 第 ${i} 轮`,
+          stamp, stamp, `col_proj_${i}`, "work", DEMO_USER.id, i % 9 === 0 ? stamp : null, `expert_${i}`, `thread_${i}`,
+        );
+      }
+    })();
+
+    const listed = await request("GET", "/api/sessions");
+    expect(listed.status).toBe(200);
+    const rows = listed.body as unknown as Json[];
+    // Every 9th seeded session is archived, so the default list is the rest.
+    expect(rows.length).toBe(200 - ARCHIVED_ROWS);
+    // No unexpected keys: every row is exactly the shell's projection.
+    const keys = new Set<string>();
+    for (const row of rows) for (const key of Object.keys(row)) keys.add(key);
+    expect([...keys].sort()).toEqual(FIELD_KEYS);
+    // Archived rows only come back with include_archived=1, and then carry the flag.
+    const archived = await request("GET", "/api/sessions?include_archived=1");
+    const archivedRows = archived.body as unknown as Json[];
+    expect(archivedRows.length).toBe(200);
+    expect((archivedRows.find((row) => row.id === "ses_proj_000") as Json).archived_at).toBe(stamp);
+    expect((archivedRows.find((row) => row.id === "ses_proj_001") as Json).archived_at).toBe(null);
+    expect(Object.keys(archivedRows[0]).sort()).toEqual(FIELD_KEYS);
+
+    const bytes = Buffer.byteLength(JSON.stringify(archivedRows), "utf8");
+    expect(bytes).toBeLessThan(SESSIONS_PAYLOAD_CEILING_BYTES);
+  });
 });
 
 describe("GET /api/home/board list caps", () => {
@@ -181,14 +265,18 @@ describe("GET /api/home/board list caps", () => {
       expect((kol.tasks as Json[]).length).toBeLessThanOrEqual(MAX_KOL_TASKS);
       expect(((kol.mail_threads as Json[]) || []).length).toBeLessThanOrEqual(MAX_KOL_MAIL_THREADS);
       // Fields no frontend file reads are dropped from the projection.
-      for (const dropped of ["sku", "qty", "risk_tag", "kol_id", "recipient_name", "list_in_projects", "address_line", "country", "postal"]) {
-        expect(dropped in kol).toBe(false);
+      for (const dropped of ["sku", "qty", "risk_tag", "kol_id", "recipient_name", "list_in_projects", "address_line", "country", "postal", "coarse", "locked", "contact_email_masked", "owner_mailbox", "wechat", "duplicate_checked", "task_history"]) {
+        expect(dropped in kol, `dropped field present: ${dropped}`).toBe(false);
       }
       // Fields frontend consumers read are kept.
-      for (const kept of ["handle", "kol_uid", "kol_name", "current_stage", "suggested_stage", "unread_count", "profile_tags", "follow_style_tags", "recent_followup", "task_history", "collab_summary", "stage_label", "days_in_stage", "last_conversation_id"]) {
+      for (const kept of ["handle", "kol_uid", "kol_name", "current_stage", "suggested_stage", "unread_count", "profile_tags", "follow_style_tags", "recent_followup", "collab_summary", "stage_label", "days_in_stage", "last_conversation_id"]) {
         expect(kept in kol).toBe(true);
       }
     }
+    // The workbench ships the lists the shell renders; `lifecycle` had no reader
+    // in frontend/src or frontend/e2e and no consumer in this backend.
+    expect("lifecycle" in workbench).toBe(false);
+    expect(Object.keys(workbench).sort()).toEqual(["insights", "open", "recommendations", "summary", "today", "todo"]);
   });
 
   it("keeps the unread-inbound signal from the whole thread list even though the board caps it", () => {

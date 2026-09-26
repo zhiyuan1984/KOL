@@ -89,7 +89,19 @@ const PANE_TABS: { key: MailPane; label: string }[] = [
 ];
 
 const ANALYZE_QUEUED_COPY = "已入队，等待分析。没有走 from-text，也没有创建会话。";
+/**
+ * 停止只中止本页的等待：from-text / run 请求已经发出，服务器仍会做完，
+ * 所以文案必须说明任务可能照样出现，而不是暗示“已取消”。
+ */
+const INTAKE_STOPPED_COPY = "已停止本页等待。请求已经发出，服务器仍会继续处理，任务可能稍后出现在「进行中」。";
 const MAIL_COMPOSE_ACTION_COPY = "通讯邮件任务目录";
+
+/** 停止只停本页等待：from-text 已经落库，文案要指向任务真正出现的位置。 */
+function stoppedIntakeCopy(title?: string): string {
+  return title
+    ? `已停止等待：任务「${title}」已在服务器创建（尚未运行），可在首页「待办」里找到并执行。`
+    : INTAKE_STOPPED_COPY;
+}
 
 const ICO_SEARCH = "M11 4.8a6.2 6.2 0 1 0 0 12.4 6.2 6.2 0 0 0 0-12.4M16.4 16.4 20 20";
 const ICO_FILTER = "M4 5h16l-6.3 7.3v5.2l-3.4-2.1v-3.1Z";
@@ -166,7 +178,10 @@ export default function Mail() {
   const [letters, setLetters] = useState<MailComposeLetter[]>([]);
   const [lettersMore, setLettersMore] = useState(false);
   const [composerText, setComposerText] = useState("");
-  const [pane, setPane] = useState<MailPane>("list");
+  // A deep link that names a mail (?c=&m=) opens on the detail pane: at ≤1100px
+  // the switcher would otherwise stop on 列表 while the left column already
+  // highlights the linked mail. A later manual pane choice is never overridden.
+  const [pane, setPane] = useState<MailPane>(() => (params.get("m") ? "detail" : "list"));
   const [busy, setBusy] = useState(false);
   const [folds, setFolds] = useState<Record<MailFoldKey, boolean>>(readMailFolds);
   const syncPollRef = useRef<number | null>(null);
@@ -585,6 +600,7 @@ export default function Mail() {
   const stopIntake = () => {
     intakeCancelled.current = true;
     setBusy(false);
+    setNotice(INTAKE_STOPPED_COPY);
   };
 
   const submitComposer = async (payload: ComposerSubmit) => {
@@ -607,7 +623,11 @@ export default function Mail() {
           title: MAIL_ANALYZE_PREFILL_PREFIX,
           prompt: text,
         });
-        if (intakeCancelled.current) return;
+        if (intakeCancelled.current) {
+          // 入队已经发生：停止不再撤回它，如实告诉用户去哪儿找。
+          setNotice(ANALYZE_QUEUED_COPY);
+          return;
+        }
         if (queued.creates_session) throw new Error("分析入队不应创建会话");
         setNotice(ANALYZE_QUEUED_COPY);
         setComposerText("");
@@ -626,14 +646,22 @@ export default function Mail() {
         object_refs: payload.object_refs,
         client_entry: payload.client_entry,
       });
-      if (intakeCancelled.current) return;
       const created = recognized.task;
+      if (intakeCancelled.current) {
+        // 停止只停了本页的等待：from-text 已经落库，把结果留在屏幕上。
+        setNotice(stoppedIntakeCopy(created?.title));
+        return;
+      }
       if (!created?.id) {
         setError(String(recognized.clarification || recognized.message || "无法识别这个任务，请补充后重试。"));
         return;
       }
       const run = await api.runTask(created.id);
-      if (intakeCancelled.current) return;
+      if (intakeCancelled.current) {
+        // 任务已经在服务器开始跑：不擅自跳转，但说清它会出现的位置。
+        setNotice(`已停止等待。任务「${created.title}」已在服务器开始运行，可在「进行中」查看。`);
+        return;
+      }
       storePending(run.session_id, {
         text,
         intent: String(payload.intent || created.task_type || ""),

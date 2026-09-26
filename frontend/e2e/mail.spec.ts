@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
+import { stubHomeFollowing } from "./kol-surface-stub";
 
 const BOARD = {
   mail: { unread: 1, conversations: 2 },
@@ -65,6 +66,9 @@ async function mockMailMissing(page: Page) {
   await page.route("**/api/home/board**", async (route) => {
     await route.fulfill({ json: BOARD });
   });
+  // 演示夹具把合作落在 board 上、不进 B.index，跟进面板用同一份数据补上：
+  // 否则「查看互动」只能靠上一次 e2e 留下的 kol_follow_index 记录才通过。
+  await stubHomeFollowing(page, BOARD.kols);
 }
 
 function sessionPostsOf(page: Page): string[] {
@@ -617,6 +621,54 @@ test("≤1100px 单栏用页级面板切换，选邮件自动进详情", async (
   await expect(page.locator("[data-mail-fold-head='summary']")).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator("[data-mail-fold-head='original']")).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator("[data-mail-summary-body]")).toBeVisible();
+
+  // 深链点名了一封邮件（?c=&m=）时，窄屏也要落在详情面板：不能只高亮左栏
+  // 就把正文藏起来，用户还得再手动点一次「邮件详情」。
+  await page.goto("/mail?c=3901&m=m2");
+  await expect(page.locator("[data-mail-pane='detail']")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("[data-mail-side]")).toBeVisible();
+  await expect(page.locator("[data-mail-list]")).toBeHidden();
+  await expect(page.locator("[data-mail-content]")).toBeVisible();
+  await expect(page.locator("[data-mail-content]")).toHaveCount(1);
+  // 仍然可以手动切回列表，说明深链只是初始面板，不是锁死。
+  await page.locator("[data-mail-pane='list']").click();
+  await expect(page.locator("[data-mail-list]")).toBeVisible();
+  await expect(page.locator("[data-mail-side]")).toBeHidden();
+});
+
+test("停止 intake 只停本页等待，并说明任务仍会落在服务器", async ({ page }) => {
+  await mockFormalMail(page);
+  const gate: { release?: () => void } = {};
+  const held = new Promise<void>((resolve) => { gate.release = resolve; });
+  const runPosts: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && /\/api\/tasks\/[^/]+\/run$/.test(new URL(request.url()).pathname)) {
+      runPosts.push(new URL(request.url()).pathname);
+    }
+  });
+  await page.route("**/api/tasks/from-text", async (route) => {
+    await held;
+    await route.fulfill({
+      json: { task: { id: "tsk_stop", title: "写合作邮件", task_type: "email_compose" }, needs_clarification: false },
+    });
+  });
+  await page.goto("/mail?c=3901");
+  await page.locator("textarea").fill("写合作邮件");
+  await page.locator("[data-send]").click();
+  await expect(page.locator("[data-stop-run]")).toBeVisible();
+
+  await page.locator("[data-stop-run]").click();
+  // 停止只撤本页的等待状态，文案不再暗示「已取消」。
+  await expect(page.locator("[data-stop-run]")).toHaveCount(0);
+  await expect(page.locator("[data-mail-notice]")).toContainText("已停止本页等待");
+  await expect(page.locator("[data-mail-notice]")).toContainText("服务器仍会继续处理");
+
+  // 已经发出的响应回来：保留结果、说明去向、不擅自跳转、不补发 run。
+  gate.release?.();
+  await expect(page.locator("[data-mail-notice]")).toContainText("已在服务器创建");
+  await expect(page.locator("[data-mail-notice]")).toContainText("写合作邮件");
+  await expect(page).toHaveURL(/\/mail\?/);
+  expect(runPosts).toEqual([]);
 });
 
 test("mail negotiation workbench: mailbox to conversation to mail, summary stays", async ({ page }) => {

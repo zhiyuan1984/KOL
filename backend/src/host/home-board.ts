@@ -1,6 +1,6 @@
 import { DEMO_USER } from "../config.js";
 import { getConn } from "../db.js";
-import { BY_CODE, MAIN_STAGES, PIPELINE_COLUMNS, SIDE_STAGES, coarse, label, nextCode, normalizeStage } from "../stages.js";
+import { BY_CODE, MAIN_STAGES, SIDE_STAGES, label, nextCode, normalizeStage } from "../stages.js";
 import { taskDefinitions, type TaskDefinition } from "../tasks/registry.js";
 import type { Json, Row } from "../types.js";
 import { authDisabled, isAdmin, scopedUser } from "../auth.js";
@@ -25,8 +25,13 @@ export function taskDefinitionIndex(): TaskDefinitionIndex {
 }
 
 /** Board list caps: the projection is an overview, not the full archive. */
+// Each cap below is a presentation budget for one board render — not a business
+// rule, and never the source of a count, stage or approval decision.
+/** Related tasks kept on one 红人 card in the board payload. */
 export const MAX_KOL_TASKS = 3;
+/** Mail threads kept on one 红人 card in the board payload. */
 export const MAX_KOL_MAIL_THREADS = 3;
+/** Rows kept in each workbench list (open/todo/today/insights). */
 export const MAX_WORKBENCH_TASKS = 50;
 /** Board task rows, newest first (work_items are read ORDER BY updated_at DESC). */
 export const MAX_BOARD_TASKS = 50;
@@ -35,7 +40,9 @@ export const MAX_BOARD_TASKS = 50;
  * Collaboration columns no frontend file *reads* (grepped frontend/src and
  * frontend/e2e). A field stays when any module dereferences it — e.g.
  * `last_conversation_id` drives `hasConversation()` in
- * frontend/src/home/kolContract.ts, which the board pool adapter applies.
+ * frontend/src/home/kolContract.ts, which the board pool adapter applies — and
+ * when `cardFields` folds it into rendered copy, as `group_brand_overlap` does
+ * for the collab_summary of board task rows.
  */
 const KOL_FIELDS_DROPPED = [
   "lifecycle_id",
@@ -52,6 +59,20 @@ const KOL_FIELDS_DROPPED = [
   "list_in_projects",
   "sku",
   "qty",
+  // `coarse` has no frontend reader: the lifecycle domain counts it fed were
+  // dropped with `workbench.lifecycle`.
+  "coarse",
+  // Reachability/ownership columns: the board adapter reads presence only, and
+  // `owner_mailbox` is on the pool banned-field list.
+  "locked",
+  "contact_email_masked",
+  "owner_mailbox",
+  "wechat",
+  // `duplicate_checked` is already folded into the `已查重` profile tag below.
+  "duplicate_checked",
+  // Duplicate of `recent_followup` (same string) with no reader in frontend/src
+  // or frontend/e2e.
+  "task_history",
 ] as const;
 
 function publicKol(kol: Json): Json {
@@ -265,13 +286,6 @@ export function isPlanningWorkItem(task: {
 
 const PLANNING_TYPES_SQL = PLANNING_TASK_TYPES.map((t) => `'${t}'`).join(",");
 const TODO_TYPES_SQL = TODO_EXCLUDED_TASK_TYPES.map((t) => `'${t}'`).join(",");
-const DOMAIN_LABEL: Record<string, string> = {
-  Lead: "线索",
-  Opportunity: "商机",
-  Negotiation: "谈判",
-  Execution: "履约",
-  "Settlement-Growth": "增长",
-};
 
 function startOfDay(value?: Date): Date {
   const day = value ? new Date(value) : new Date();
@@ -778,17 +792,6 @@ export function buildWorkbench(tasks: Json[], kols: Json[], definitions = taskDe
   const waiting = open.filter((task) => ["waiting", "queued"].includes(String(task.status || "")));
   const overdue = open.filter((task) => dueFlags(task.due_at).overdue);
   const dueToday = open.filter((task) => dueFlags(task.due_at).due_today);
-  const stayTooLong = kols.filter((kol) => !kol.unbound && Number(kol.days_in_stage || 0) >= 7);
-  const stages = MAIN_STAGES.map((stage) => ({
-    code: stage.code,
-    label: stage.label,
-    count: kols.filter((kol) => !kol.unbound && String(kol.stage_code) === stage.code).length,
-  }));
-  const domains = PIPELINE_COLUMNS.map((id) => ({
-    id,
-    label: DOMAIN_LABEL[id] || id,
-    count: kols.filter((kol) => !kol.unbound && !kol.exception && String(kol.coarse) === id).length,
-  }));
   return {
     summary: {
       open: open.length,
@@ -803,19 +806,6 @@ export function buildWorkbench(tasks: Json[], kols: Json[], definitions = taskDe
     today: capped(today, MAX_WORKBENCH_TASKS).map(slimWorkbenchTask),
     insights: capped(insights, MAX_WORKBENCH_TASKS).map(slimWorkbenchTask),
     recommendations: buildRecommendedTasks(tasks, kols, definitions),
-    lifecycle: {
-      stages,
-      domains,
-      exception_count: kols.filter((kol) => Boolean(kol.exception)).length,
-      stay_too_long: stayTooLong.map((kol) => ({
-        id: kol.id,
-        handle: kol.handle,
-        stage_code: kol.stage_code,
-        stage_label: kol.stage_label,
-        days_in_stage: kol.days_in_stage,
-        current_stage: kol.current_stage,
-      })),
-    },
   };
 }
 
@@ -905,7 +895,9 @@ export function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}
       promoted_at: row.promoted_at || null,
       dismissed_at: row.dismissed_at || null,
       description: definition?.description || "",
-      suggested_actions: definition?.actions || [],
+      // `suggested_actions` is not read by any frontend module (nor by
+      // /api/tasks/adopt-recommendation); the definition's actions stay on
+      // GET /api/tasks rows only.
       input: parseJson(row.input),
       entities: parseJson(row.entities),
       history_summary: historySummary(events),
@@ -938,7 +930,6 @@ export function buildHomeBoard(options: { restoreOfficialStages?: boolean } = {}
       ...row,
       stage_code: stageCode,
       stage_label: label(String(row.stage_code)),
-      coarse: coarse(String(row.stage_code)),
       exception,
       unbound: false,
       niche: String(payload.niche || row.niche || row.notes || ""),

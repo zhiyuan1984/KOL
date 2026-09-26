@@ -15,17 +15,48 @@ import { onConnReset } from "../db.js";
  *
  * Keep the counters: they are how tests prove reuse without reaching into
  * the store.
+ *
+ * Entries are additionally bounded by bytes: one browser tab's projection can
+ * be several MB on a large owner, and 64 of those would pin the single host
+ * thread's heap. A value above `POLL_CACHE_MAX_VALUE_BYTES` is still served,
+ * it is just never retained; retained bytes are capped by
+ * `POLL_CACHE_MAX_TOTAL_BYTES`, evicting the oldest entries first.
  */
 
 export const POLL_CACHE_TTL_MS = 4000;
 export const POLL_CACHE_MAX_ENTRIES = 64;
+/** Per-value ceiling: bigger projections are served but not kept. */
+export const POLL_CACHE_MAX_VALUE_BYTES = 512 * 1024;
+/** Total retained payload bytes across every entry. */
+export const POLL_CACHE_MAX_TOTAL_BYTES = 4 * 1024 * 1024;
 
-type Entry = { at: number; epoch: string; value: unknown };
+type Entry = { at: number; epoch: string; value: unknown; bytes: number };
 
 const store = new Map<string, Entry>();
 
 let hits = 0;
 let misses = 0;
+let retainedBytes = 0;
+let skippedOversize = 0;
+let evictions = 0;
+
+/** Serialized size of a projection, i.e. what holding it costs the host. */
+function entryBytes(value: unknown): number {
+  try {
+    const json = JSON.stringify(value ?? null);
+    return json ? Buffer.byteLength(json, "utf8") : 0;
+  } catch {
+    // A value that cannot even be stringified must not be retained.
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+function drop(key: string): void {
+  const entry = store.get(key);
+  if (!entry) return;
+  retainedBytes -= entry.bytes;
+  store.delete(key);
+}
 
 onConnReset(() => {
   resetPollCache();
@@ -58,25 +89,28 @@ export function cachedPoll<T>(key: string, epoch: string, produce: () => T): T {
     return found.value as T;
   }
   const value = produce();
-  store.delete(key);
-  store.set(key, { at: now, epoch, value });
-  while (store.size > POLL_CACHE_MAX_ENTRIES) {
+  const bytes = entryBytes(value);
+  drop(key);
+  misses += 1;
+  if (bytes > POLL_CACHE_MAX_VALUE_BYTES) {
+    skippedOversize += 1;
+    return value;
+  }
+  store.set(key, { at: now, epoch, value, bytes });
+  retainedBytes += bytes;
+  while (store.size > POLL_CACHE_MAX_ENTRIES || retainedBytes > POLL_CACHE_MAX_TOTAL_BYTES) {
     const oldest = store.keys().next();
     if (oldest.done) break;
-    store.delete(oldest.value);
+    drop(oldest.value);
+    evictions += 1;
   }
-  misses += 1;
   return value;
 }
 
 /** Drop every entry whose key starts with `prefix` (all of them when omitted). */
 export function invalidatePollCache(prefix?: string): void {
-  if (!prefix) {
-    store.clear();
-    return;
-  }
   for (const key of [...store.keys()]) {
-    if (key.startsWith(prefix)) store.delete(key);
+    if (!prefix || key.startsWith(prefix)) drop(key);
   }
 }
 
@@ -84,8 +118,18 @@ export function resetPollCache(): void {
   store.clear();
   hits = 0;
   misses = 0;
+  retainedBytes = 0;
+  skippedOversize = 0;
+  evictions = 0;
 }
 
-export function pollCacheCounters(): { hits: number; misses: number; size: number } {
-  return { hits, misses, size: store.size };
+export function pollCacheCounters(): {
+  hits: number;
+  misses: number;
+  size: number;
+  bytes: number;
+  skipped: number;
+  evictions: number;
+} {
+  return { hits, misses, size: store.size, bytes: retainedBytes, skipped: skippedOversize, evictions };
 }
