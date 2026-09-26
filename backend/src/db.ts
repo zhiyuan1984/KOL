@@ -1374,6 +1374,7 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "connectors", "purpose", "TEXT NOT NULL DEFAULT ''");
   add(db, "connectors", "last_verified_at", "TEXT");
   add(db, "connectors", "last_error", "TEXT");
+  add(db, "connectors", "icon_ref", "TEXT");
   add(db, "collaborations", "stage_version", "INTEGER NOT NULL DEFAULT 0");
   add(db, "collaborations", "recipient_name", "TEXT");
   add(db, "collaborations", "phone", "TEXT");

@@ -171,7 +171,6 @@
   --chrome-2: #eceef0;
   --sidebar-thumb: #d0d0d0;
   --left-width: 260px;
-  --admin-nav-width: 260px;
   --page-gutter: clamp(16px, 2.2vw, 28px);
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --sans: ui-sans-serif, system-ui, "PingFang SC", "Noto Sans SC", "WenQuanYi Micro Hei", "Droid Sans Fallback", sans-serif;
@@ -373,14 +372,10 @@ summary:focus-visible,
   overflow: hidden;
   background: var(--color-page-bg);
 }
-.workbench.admin-surface {
-  grid-template-columns: minmax(0, 1fr);
-}
-.workbench.admin-surface > .sidebar,
-.workbench.admin-surface > .mobile-top {
-  display: none;
-}
 .workbench.sidebar-collapsed { --left-width: 56px; }
+/* 管理面不再隐藏侧栏：员工端与管理端共用同一侧栏外壳，只换条目集合
+   （docs/superpowers/specs/2026-09-26-admin-sidebar-shell-parity.md）。
+   `admin-surface` 只作为钩子类保留（E2E / 脚本），不再参与布局。 */
 .sidebar {
   width: var(--left-width);
   min-width: var(--left-width);
@@ -485,56 +480,56 @@ summary:focus-visible,
 .rail-logo { display: none; }
 .rail-logo::after { content: "灵"; }
 .collapse-toggle { margin-left: auto; }
-.workbench.sidebar-collapsed:not(.admin-surface) .sidebar { padding-inline: 8px 0; }
-.workbench.sidebar-collapsed:not(.admin-surface) .sidebar-scroll { padding-right: 0; }
-.workbench.sidebar-collapsed:not(.admin-surface) .sidebar-label,
-.workbench.sidebar-collapsed:not(.admin-surface) .nav-label,
-.workbench.sidebar-collapsed:not(.admin-surface) .nav-tag,
-.workbench.sidebar-collapsed:not(.admin-surface) .nav-combo a,
-.workbench.sidebar-collapsed:not(.admin-surface) .nav-combo .nav-dot,
-.workbench.sidebar-collapsed:not(.admin-surface) .brand-name,
-.workbench.sidebar-collapsed:not(.admin-surface) .sidebar-lucas,
-.workbench.sidebar-collapsed:not(.admin-surface) .account-copy { display: none; }
-.workbench.sidebar-collapsed:not(.admin-surface) .rail-logo { display: inline; }
-.workbench.sidebar-collapsed:not(.admin-surface) .sidebar-head { justify-content: center; padding-inline: 0; }
-.workbench.sidebar-collapsed:not(.admin-surface) .sidebar-brand { align-items: center; }
-.workbench.sidebar-collapsed:not(.admin-surface) .sidebar-brand .brand-logo { height: 28px; max-width: 32px; object-fit: contain; }
-.workbench.sidebar-collapsed:not(.admin-surface) .collapse-toggle { margin: 0; }
-.workbench.sidebar-collapsed:not(.admin-surface) .nav-link,
-.workbench.sidebar-collapsed:not(.admin-surface) .nav-combo { justify-content: center; padding-inline: 8px; }
+.workbench.sidebar-collapsed .sidebar { padding-inline: 8px 0; }
+.workbench.sidebar-collapsed .sidebar-scroll { padding-right: 0; }
+.workbench.sidebar-collapsed .sidebar-label,
+.workbench.sidebar-collapsed .nav-label,
+.workbench.sidebar-collapsed .nav-tag,
+.workbench.sidebar-collapsed .nav-combo a,
+.workbench.sidebar-collapsed .nav-combo .nav-dot,
+.workbench.sidebar-collapsed .brand-name,
+.workbench.sidebar-collapsed .sidebar-lucas,
+.workbench.sidebar-collapsed .account-copy { display: none; }
+.workbench.sidebar-collapsed .rail-logo { display: inline; }
+.workbench.sidebar-collapsed .sidebar-head { justify-content: center; padding-inline: 0; }
+.workbench.sidebar-collapsed .sidebar-brand { align-items: center; }
+.workbench.sidebar-collapsed .sidebar-brand .brand-logo { height: 28px; max-width: 32px; object-fit: contain; }
+.workbench.sidebar-collapsed .collapse-toggle { margin: 0; }
+.workbench.sidebar-collapsed .nav-link,
+.workbench.sidebar-collapsed .nav-combo { justify-content: center; padding-inline: 8px; }
 /* 账户块在 56px 轨道里竖排：头像 / 竖向分段 / 设置 / 退出，三件事都还在，不靠弹窗。 */
-.workbench.sidebar-collapsed:not(.admin-surface) .account-bar {
+.workbench.sidebar-collapsed .account-bar {
+  flex-direction: column;
   align-items: center;
   gap: var(--space-1);
   padding-inline: 0;
 }
-.workbench.sidebar-collapsed:not(.admin-surface) .account-identity {
+.workbench.sidebar-collapsed .account-identity {
+  flex: 0 0 auto;
   justify-content: center;
   padding: 0;
 }
-.workbench.sidebar-collapsed:not(.admin-surface) .account-avatar {
+.workbench.sidebar-collapsed .account-avatar {
   width: 32px;
   height: 32px;
   flex: 0 0 32px;
   margin: 0 auto;
 }
-.workbench.sidebar-collapsed:not(.admin-surface) .account-actions {
+.workbench.sidebar-collapsed .account-actions {
   flex-direction: column;
   align-items: center;
   gap: 2px;
 }
-.workbench.sidebar-collapsed:not(.admin-surface) .surface-switch {
+.workbench.sidebar-collapsed .surface-switch {
   flex-direction: column;
   height: auto;
-  margin-right: 0;
 }
-.workbench.sidebar-collapsed:not(.admin-surface) .surface-switch-seg {
+.workbench.sidebar-collapsed .surface-switch-seg {
   width: var(--control-h);
   height: var(--control-h);
 }
-.workbench.sidebar-collapsed:not(.admin-surface) .account-actions-split { display: none; }
 /* 56px 轨道放不下版本号整串：整行隐藏，不让 .sidebar 静默裁切（DESIGN §不变量 5）。 */
-.workbench.sidebar-collapsed:not(.admin-surface) .sidebar-version { display: none; }
+.workbench.sidebar-collapsed .sidebar-version { display: none; }
 .sidebar-search-btn {
   width: 36px;
   height: 36px;
@@ -683,19 +678,20 @@ summary:focus-visible,
   gap: 0;
   flex: 0 0 auto;
 }
-/* 账户块：身份行 + 控制行（员工端⇄管理端分段切换 / 个人设置 / 退出登录）。
-   三件事都是常驻控件，不用弹窗；员工端侧栏脚与管理端导航脚共用同一个组件。 */
+/* 账户块：一行——头像 + 账号名 + 员工端⇄管理端分段切换 + 个人设置 + 退出登录。
+   三件事都是常驻控件，不用弹窗；员工端侧栏脚与管理端导航脚共用同一个组件。
+   角色文案（管理员/员工）按用户要求不再呈现，身份只留账号名。 */
 .account-bar {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
+  align-items: center;
+  gap: var(--space-2);
   min-width: 0;
-  padding-top: var(--space-1);
 }
 .account-identity {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
+  flex: 1 1 auto;
   min-width: 0;
   color: var(--text);
 }
@@ -719,38 +715,34 @@ summary:focus-visible,
   gap: 1px;
   flex: 1 1 auto;
 }
-.account-name,
-.account-role {
+.account-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--ds-font-sm);
-  font-weight: 400;
+  font-weight: 500;
   line-height: 1.3;
+  color: var(--text);
 }
-.account-name { color: var(--text); }
-.account-role { color: var(--text-muted); }
 .account-actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: var(--space-1);
-  min-width: 0;
+  flex: 0 0 auto;
 }
 .surface-switch {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  height: var(--control-h-lg);
+  height: var(--control-h);
   padding: 2px;
-  margin-right: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-full);
   background: var(--bg);
   flex: 0 0 auto;
 }
 .surface-switch-seg {
-  width: 34px;
+  width: 30px;
   height: 100%;
   display: grid;
   place-items: center;
@@ -769,17 +761,10 @@ summary:focus-visible,
   background: var(--accent-text);
   color: var(--accent-fg);
 }
-.account-actions-split {
-  width: 1px;
-  height: 16px;
-  flex: 0 0 1px;
-  margin: 0 2px;
-  background: var(--border);
-}
 .account-icon-btn {
-  width: var(--control-h-lg);
-  height: var(--control-h-lg);
-  flex: 0 0 var(--control-h-lg);
+  width: var(--control-h);
+  height: var(--control-h);
+  flex: 0 0 var(--control-h);
   display: grid;
   place-items: center;
   padding: 0;
@@ -5398,73 +5383,19 @@ summary:focus-visible,
 }
 .team-rail li[data-state="done"] { color: var(--success); border-color: color-mix(in srgb, var(--success) 35%, var(--border)); }
 .admin-remote-legend { margin: 0 0 14px; }
+/* 管理端工作面：只保留内容列。左侧导航搬到共用侧栏（Workbench 的 .sidebar），
+   本容器不再自持导航列 —— docs/superpowers/specs/2026-09-26-admin-sidebar-shell-parity.md。 */
 .admin-shell[data-admin-ia="governance"] {
-  display: grid;
-  grid-template-columns: var(--admin-nav-width) minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   height: 100%;
   max-width: none;
   background: var(--bg);
 }
-.admin-nav {
-  background: var(--color-page-bg);
-  border-right: 1px solid var(--border);
-  padding: var(--space-3) var(--space-2) var(--space-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-.admin-nav-brand {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2);
-  min-width: 0;
-}
-.admin-nav-brand .brand-logo {
-  height: 30px;
-  width: auto;
-  max-width: 148px;
-}
-.admin-nav-product {
-  font-size: var(--ds-font-helper);
-  font-weight: 500;
-  color: var(--text-muted);
-  line-height: var(--ds-line-helper);
-  min-width: 0;
-}
-.admin-nav-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
-}
-.admin-nav-foot {
-  margin-top: auto;
-  padding: var(--space-2) var(--space-2) 0;
-  border-top: 1px solid var(--line);
-  flex: 0 0 auto;
-  position: relative;
-  z-index: 2;
-}
-.admin-nav-item {
-  width: 100%;
-  flex: 0 0 auto;
-  text-align: left;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
 .admin-body {
   min-width: 0;
   min-height: 0;
+  flex: 1 1 auto;
   overflow: auto;
   padding: var(--space-4) var(--page-gutter) var(--space-5);
   background: var(--bg);
@@ -8951,56 +8882,8 @@ body {
   .list-page.kb-page.has-drawer { padding-right: 0; }
   .main { padding: 0; }
   .main > :not(.session-shell):not(.home-pane):not(.admin-shell) { padding: 16px 14px 36px; }
-  .admin-shell[data-admin-ia="governance"] {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 1fr);
-  }
-  .admin-nav {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "brand account" "nav nav";
-    align-items: center;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-    padding: var(--space-2);
-    position: relative;
-    z-index: 20;
-    overflow: visible;
-    gap: var(--space-2);
-  }
-  .admin-nav-brand {
-    grid-area: brand;
-    padding: 0;
-  }
-  .admin-nav-product { display: none; }
-  .admin-nav-list {
-    grid-area: nav;
-    flex-direction: row;
-    flex-wrap: nowrap;
-    min-width: 0;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: 0 0 var(--space-1);
-    scrollbar-width: thin;
-    -webkit-overflow-scrolling: touch;
-  }
-  .admin-nav-item { width: auto; white-space: nowrap; }
-  .admin-nav-item .sidebar-label { white-space: nowrap; }
-  .admin-nav-foot {
-    grid-area: account;
-    width: auto;
-    margin: 0;
-    padding: 0;
-    border: 0;
-  }
-  /* 顶栏行宽够，用单行形态；260px 侧栏放不下，那里保持两行。 */
-  .admin-nav-foot .account-bar {
-    flex-direction: row;
-    align-items: center;
-    gap: var(--space-2);
-    padding-top: 0;
-  }
-  .admin-nav-foot .account-role { display: none; }
+  /* 管理面在窄视口与员工端同规则：导航走 .sidebar 抽屉（由 .mobile-top ☰ 打开），
+     不再把导航压成横向顶条。 */
   .admin-body { padding: var(--space-3) var(--space-3) var(--space-5); }
   .session-shell,
   .session-shell.has-tasklist,
@@ -9503,34 +9386,34 @@ body {
    Descendant (not only >) so the lock still wins if .sidebar is wrapped.
    Mobile drawers above (860 / 720) keep min(300px)/min(320px) and never get 260. */
 @media (min-width: 861px) {
-  .workbench:not(.admin-surface):not(.sidebar-collapsed) {
+  .workbench:not(.sidebar-collapsed) {
     grid-template-columns: 260px minmax(0, 1fr) !important;
   }
-  .workbench:not(.admin-surface):not(.sidebar-collapsed) .sidebar {
+  .workbench:not(.sidebar-collapsed) .sidebar {
     width: 260px !important;
     min-width: 260px !important;
     max-width: 260px !important;
     flex: 0 0 260px !important;
     padding-right: 0;
   }
-  .workbench:not(.admin-surface):not(.sidebar-collapsed) .sidebar-scroll {
+  .workbench:not(.sidebar-collapsed) .sidebar-scroll {
     padding-right: 6px;
     scrollbar-gutter: auto;
     overflow-x: hidden;
     overflow-y: auto;
   }
-  .workbench.sidebar-collapsed:not(.admin-surface) {
+  .workbench.sidebar-collapsed {
     --left-width: 56px;
     grid-template-columns: 56px minmax(0, 1fr);
   }
-  .workbench.sidebar-collapsed:not(.admin-surface) .sidebar {
+  .workbench.sidebar-collapsed .sidebar {
     width: 56px;
     min-width: 56px;
     max-width: 56px;
     overflow-x: hidden;
     padding-right: 0;
   }
-  .workbench.sidebar-collapsed:not(.admin-surface) .sidebar-scroll {
+  .workbench.sidebar-collapsed .sidebar-scroll {
     padding-right: 0;
     scrollbar-gutter: auto;
   }
@@ -9572,7 +9455,6 @@ body {
     font-weight: 500;
   }
   .account-name,
-  .account-role,
   .home-stats,
   [data-kol-scope] {
     font-size: var(--ds-font-sm);
@@ -9580,7 +9462,8 @@ body {
     color: var(--ds-text-dim);
   }
   .account-name {
-    color: #1a1a1a;
+    font-weight: 500;
+    color: var(--text);
   }
 }
 
@@ -10762,8 +10645,7 @@ button.today-brief-primary-btn:disabled {
   color: #1a2b4a;
   line-height: 1.25;
 }
-:root[data-theme="dark"] .sidebar-brand-copy .brand-name,
-:root[data-theme="dark"] .admin-nav-product {
+:root[data-theme="dark"] .sidebar-brand-copy .brand-name {
   color: var(--text);
 }
 
@@ -13831,7 +13713,6 @@ button.today-brief-primary-btn:disabled {
   }
 }
 @media (max-width: 720px) {
-  .admin-nav-foot .account-copy { display: none; }
   .pool-compact-toolbar {
     flex-wrap: wrap;
   }

@@ -1,4 +1,5 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Json } from "../types.js";
 
@@ -9,6 +10,8 @@ export type RemoteMcpOptions = {
   /** Explicitly permit a local or public MCP endpoint with no credential headers. */
   allowUnauthenticated?: boolean;
   timeoutMs?: number;
+  /** Omitted keeps the streamable-http transport used by existing connectors. */
+  transport?: "streamable-http" | "sse";
   fetch?: typeof fetch;
 };
 
@@ -72,7 +75,7 @@ export class RemoteMcpClient {
   readonly url: string;
   readonly timeoutMs: number;
   private readonly client: Client;
-  private readonly transport: StreamableHTTPClientTransport;
+  private readonly transport: StreamableHTTPClientTransport | SSEClientTransport;
   private connecting: Promise<void> | null = null;
   private closed = false;
 
@@ -97,10 +100,20 @@ export class RemoteMcpClient {
     }
     this.timeoutMs = options.timeoutMs ?? Number(process.env.MEDIACRAWLER_MCP_TIMEOUT_MS || 30_000);
     this.client = new Client({ name: "lingong-mcp", version: "0.1.0" });
-    this.transport = new StreamableHTTPClientTransport(new URL(this.url), {
-      requestInit: { headers },
-      ...(options.fetch ? { fetch: options.fetch } : {}),
-    });
+    const endpoint = new URL(this.url);
+    // SSE splits traffic over two legs: a long-lived GET event stream and the POST
+    // channel. Both must traverse the caller's egress-guarded fetch, so it is
+    // registered for the EventSource stream as well as the transport POST path.
+    const guardedFetch = options.fetch;
+    this.transport = options.transport === "sse"
+      ? new SSEClientTransport(endpoint, {
+        requestInit: { headers },
+        ...(guardedFetch ? { fetch: guardedFetch, eventSourceInit: { fetch: guardedFetch } } : {}),
+      })
+      : new StreamableHTTPClientTransport(endpoint, {
+        requestInit: { headers },
+        ...(guardedFetch ? { fetch: guardedFetch } : {}),
+      });
   }
 
   private async connect(): Promise<void> {

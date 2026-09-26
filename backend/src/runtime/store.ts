@@ -22,6 +22,11 @@ export type HttpTool = {
 export type ConnectorConfig = {
   /** Omitted means MCP for compatibility with existing persisted configurations. */
   protocol?: "mcp" | "http";
+  /**
+   * MCP wire transport. Only the MCP protocol has a transport choice; omitted
+   * means streamable-http so existing persisted configurations keep working.
+   */
+  transport?: "streamable-http" | "sse";
   url?: string;
   url_env?: string;
   headers_env?: Record<string, string>;
@@ -319,8 +324,9 @@ function ensureNoHeaderCollisions(...sets: Array<Record<string, string> | undefi
 export function validateConnectorConfig(value: unknown): ConnectorConfig {
   if (!isPlainObject(value)) invalid("connector config must be an object");
   assertKnownKeys(value, [
-    "protocol", "url", "url_env", "headers_env", "bearer_env", "credential_provider", "credential_account_id",
-    "allow_unauthenticated", "timeout_ms", "headers_secret_refs", "bearer_secret_ref", "http_tools",
+    "protocol", "transport", "url", "url_env", "headers_env", "bearer_env", "credential_provider",
+    "credential_account_id", "allow_unauthenticated", "timeout_ms", "headers_secret_refs", "bearer_secret_ref",
+    "http_tools",
   ], "connector config");
 
   const suppliedUrl = value.url !== undefined;
@@ -331,6 +337,11 @@ export function validateConnectorConfig(value: unknown): ConnectorConfig {
   if (value.protocol !== undefined) {
     if (value.protocol !== "mcp" && value.protocol !== "http") invalid("protocol must be mcp or http");
     config.protocol = value.protocol;
+  }
+  if (value.transport !== undefined) {
+    if (value.transport !== "streamable-http" && value.transport !== "sse") invalid("transport must be streamable-http or sse");
+    if ((config.protocol || "mcp") !== "mcp") invalid("transport is supported only for mcp connectors");
+    config.transport = value.transport;
   }
   if (suppliedUrl) {
     if (typeof value.url !== "string" || !value.url || value.url.length > MAX_URL_LENGTH || value.url.trim() !== value.url) invalid("invalid url");

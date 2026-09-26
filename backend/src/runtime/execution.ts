@@ -9,7 +9,7 @@ import { requireTaskDefinition } from "../tasks/registry.js";
 import type { Json, Row } from "../types.js";
 import { resolveAccountHeaders, resolveSecretReference } from "./credentials.js";
 import { assertResolvedConnectorEndpointSafe, assertSafeConnectorEndpoint, fetchWithConnectorEgressPolicy, HttpConnectorClient } from "./http.js";
-import { connectorHasOrganizationScopes, userHasToolScope } from "./organization.js";
+import { connectorHasOrganizationScopes, userConnectorScopeAccess, userHasToolScope } from "./organization.js";
 import { ensureRuntimeSchema, getAgentSkills, getSkillConnectors, getSkillTool, getConnectorConfig, getToolPolicy, type ConnectorConfig } from "./store.js";
 
 export type RuntimeContext = { agentId: string; skillId: string; userId: string; runId: string; sessionId?: string };
@@ -82,8 +82,13 @@ export function authorizeConnector(
   const scoped = scopeConfigured && toolName ? userHasToolScope(connectorId, toolName, context.userId) : false;
   const grant = getConn().prepare("SELECT access FROM user_connector_grants WHERE user_id=? AND connector_id=?")
     .get(context.userId, connectorId) as Row | undefined;
+  // Effective connector access is the union of per-user grants and the
+  // connector-level organization scope; tool-level scope stays an additional
+  // restriction and can never widen this.
+  const scopeAccess = userConnectorScopeAccess(connectorId, context.userId);
   const levels: Record<string, number> = { read: 1, write: 2, admin: 3 };
-  if (!grant || (levels[String(grant.access)] || 0) < levels[access]) {
+  const effective = Math.max(levels[String(grant?.access)] || 0, levels[String(scopeAccess)] || 0);
+  if (effective < levels[access]) {
     reject("runtime_connector_not_granted");
   }
   if (!permitScopeResolution && scopeConfigured && (!toolName || !scoped)) {
@@ -124,6 +129,8 @@ export function connectorOptions(context: RuntimeContext, config: ConnectorConfi
   }
   return { url, token: "", headers, allowUnauthenticated: config.allow_unauthenticated === true,
     timeoutMs: config.timeout_ms ?? 30_000,
+    // An MCP connector keeps its explicitly configured transport; omitted stays streamable-http.
+    ...((config.protocol || "mcp") === "mcp" ? { transport: config.transport } : {}),
     // The transport may reconnect. Guard every actual request, reject origin
     // drift/redirects, and resolve DNS again immediately before dispatch.
     fetch: async (input, init) => {

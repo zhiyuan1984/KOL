@@ -12,12 +12,17 @@ export type RuntimeHttpTool = {
   output_path?: string;
 };
 
+/** MCP transport selection. Omitted means streamable-http (backward compatible). */
+export type RuntimeConnectorTransport = "streamable-http" | "sse";
+
 /**
  * Reference-only connector configuration. Secret values are intentionally not
  * represented here: headers/bearers point only at server-side references.
  */
 export type RuntimeConnectorConfig = {
   protocol?: RuntimeProtocol;
+  /** Only meaningful for MCP; HTTP connectors keep the single JSON driver. */
+  transport?: RuntimeConnectorTransport;
   url?: string;
   url_env?: string;
   headers_env?: Record<string, string>;
@@ -29,6 +34,54 @@ export type RuntimeConnectorConfig = {
   headers_secret_refs?: Record<string, string>;
   bearer_secret_ref?: string;
   http_tools?: RuntimeHttpTool[];
+};
+
+export type RuntimeConnectorScopeMode = "unset" | "all" | "selected";
+export type RuntimeConnectorScopeBinding = { node_id: string; access: "read" | "write" };
+export type RuntimeConnectorScopeSnapshot = {
+  connector_id: string;
+  mode: RuntimeConnectorScopeMode;
+  updated_by: string | null;
+  updated_at: string | null;
+  bindings: RuntimeConnectorScopeBinding[];
+  coverage: { users: number; read: number; write: number };
+};
+
+export type McpImportServerPreview = {
+  id: string;
+  label: string;
+  url: string;
+  transport: RuntimeConnectorTransport;
+  header_count: number;
+  secret_count: number;
+  conflicts: string[];
+  valid: boolean;
+  reason?: string;
+};
+export type McpImportPreview = {
+  dry_run: true;
+  servers: McpImportServerPreview[];
+  valid_count: number;
+  invalid_count: number;
+};
+export type McpImportResult = {
+  dry_run: false;
+  created: Array<{ id: string; label: string }>;
+  skipped: Array<{ name: string; reason: string }>;
+};
+
+export type OrganizationUnit = {
+  id: string;
+  display_name: string;
+  type: string;
+  parent: string | null;
+  level: number;
+  head?: string | null;
+};
+export type OrganizationUnitsResponse = {
+  company: { id: string; display_name: string } | null;
+  units: OrganizationUnit[];
+  people: Array<{ display_name: string; role: string; org_unit: string; user_ref: string | null }>;
 };
 
 export type RuntimeToolDefinition = {

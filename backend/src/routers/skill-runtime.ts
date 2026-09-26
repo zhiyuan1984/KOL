@@ -144,6 +144,7 @@ skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/config", async (c
   const body = await bodyObject(c);
   onlyFields(body, [
     "protocol",
+    "transport",
     "url",
     "url_env",
     "headers_env",

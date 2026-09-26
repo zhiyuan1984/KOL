@@ -7,7 +7,9 @@ import { getToolPolicy } from "../runtime/store.js";
 import {
   addOrganizationScopeNode,
   connectorHasOrganizationScopes,
+  getConnectorScopeSnapshot,
   getOrganizationScopeSnapshot,
+  replaceConnectorScope,
   replaceToolScope,
   toolHasGlobalScope,
   toolScopeNodeIds,
@@ -36,14 +38,36 @@ connectorOrganizationRouter.get("/admin/runtime/connectors/:connectorId/organiza
   return c.json(getOrganizationScopeSnapshot(connectorId));
 });
 
+connectorOrganizationRouter.get("/admin/runtime/connectors/:connectorId/connector-scope", (c) => {
+  runtimeAdmin();
+  const connectorId = requireManagedConnector(c.req.param("connectorId"));
+  return c.json(getConnectorScopeSnapshot(connectorId));
+});
+
+connectorOrganizationRouter.put("/admin/runtime/connectors/:connectorId/connector-scope", async (c) => {
+  const admin = runtimeAdmin();
+  const connectorId = requireManagedConnector(c.req.param("connectorId"));
+  const input = await body(c);
+  if (Object.keys(input).some((key) => !["mode", "bindings"].includes(key))) {
+    throw new HttpFail(400, { code: "runtime_organization_invalid_request" });
+  }
+  const snapshot = replaceConnectorScope(connectorId, input.mode, input.bindings ?? [], admin.id);
+  audit(admin.id, "runtime.connector_scope.updated", {
+    connector_id: connectorId,
+    mode: snapshot.mode,
+    bindings: snapshot.bindings.length,
+  });
+  return c.json(snapshot);
+});
+
 connectorOrganizationRouter.post("/admin/runtime/connectors/:connectorId/organization-scope/nodes", async (c) => {
   const admin = runtimeAdmin();
   const connectorId = requireManagedConnector(c.req.param("connectorId"));
   const input = await body(c);
-  if (Object.keys(input).some((key) => !["name", "level", "parent_id", "user_id"].includes(key))) {
+  if (Object.keys(input).some((key) => !["name", "level", "parent_id", "user_id", "external_id"].includes(key))) {
     throw new HttpFail(400, { code: "runtime_organization_invalid_request" });
   }
-  const snapshot = addOrganizationScopeNode(connectorId, { name: input.name, level: input.level, parent_id: input.parent_id, user_id: input.user_id });
+  const snapshot = addOrganizationScopeNode(connectorId, { name: input.name, level: input.level, parent_id: input.parent_id, user_id: input.user_id, external_id: input.external_id });
   audit(admin.id, "runtime.organization_scope.node_added", { connector_id: connectorId, level: input.level, name: input.name, user_id: input.user_id });
   return c.json(snapshot, 201);
 });

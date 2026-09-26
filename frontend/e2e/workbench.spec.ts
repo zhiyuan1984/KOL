@@ -153,7 +153,7 @@ async function expectEmployeeShell(page: Page) {
   expect(sidebarRect).toBeLessThanOrEqual(261);
   expect(brandBox!.y).toBeLessThan(accountBox!.y);
   await expect(sidebar.locator("[data-account-name]")).not.toHaveText("");
-  await expect(sidebar.locator("[data-account-role]")).not.toHaveText("");
+  await expect(sidebar.locator("[data-account-settings]")).toBeVisible();
 }
 
 async function expectFollowedKolHeadingRemoved(page: Page) {
@@ -428,7 +428,7 @@ test("home task template 写合作邮件 prefills home composer then follows the
   });
   await page.goto("/");
   await expect(page.locator(".sidebar [data-account-pedestal]")).toContainText("鄢棽");
-  await expect(page.locator(".sidebar [data-account-role]")).toContainText("管理员");
+  await expect(page.locator(".sidebar [data-account-pedestal]")).not.toContainText("管理员");
   await expect(page.locator(".sidebar [data-account-pedestal]")).not.toContainText("sriphy");
   await expect(page.locator(".sidebar [data-account-pedestal]")).not.toContainText("考试已通过");
   await openHomeTemplates(page);
@@ -2513,8 +2513,12 @@ test("admin lists the current MCP directory and supports future additions", asyn
   await expect(page.locator("[data-admin-page='connectors']")).toBeVisible();
   await expect(page.locator('[data-connector="claw"]')).toContainText("MediaCrawler MCP");
   await expect(page.locator('[data-connector="starrykol"]')).toContainText("Starry KOL MCP");
-  await expect(page.locator("[data-admin-connectors-table] [data-connector]")).toHaveCount(2);
-  await expect(page.getByRole("button", { name: "从目录新增 MCP" })).toBeVisible();
+  const cards = await page.locator("[data-admin-connectors-table] [data-connector]").count();
+  expect(cards).toBeGreaterThanOrEqual(2);
+  await page.locator("[data-connector-create-toggle]").click();
+  await expect(page.locator("[data-connector-create-menu]")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("[data-connector-create-menu]")).toHaveCount(0);
 });
 
 test("unbound inbound stays on this thread", async ({ page }) => {
@@ -2787,7 +2791,7 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator('.sidebar a[href="/admin/connectors"]')).toHaveCount(0);
   await expect(page.locator('[data-nav="connectors"]')).toHaveAttribute("href", "/connectors");
   const employeeAccount = page.locator(".sidebar [data-account-bar]");
-  await expect(employeeAccount.locator("[data-account-role]")).not.toContainText("管理员");
+  await expect(employeeAccount).not.toContainText("管理员");
   await expect(employeeAccount.locator('[data-surface-switch="admin"]')).toHaveCount(0);
   await expect(employeeAccount.locator("[data-account-settings]")).toBeVisible();
   await expect(employeeAccount.locator("[data-account-logout]")).toBeVisible();
@@ -3007,8 +3011,8 @@ test("account bar switches employee, admin, and settings workspaces", async ({ p
   await expect(page.locator("[data-admin-ia='governance']")).toBeVisible();
   await expect(page.locator("[data-admin-account]")).toContainText("当前账户");
   await expect(page.locator("[data-admin-context]")).toHaveText("管理");
-  const adminBar = page.locator(".admin-nav [data-account-bar]");
-  await expect(adminBar).toContainText("管理员");
+  const adminBar = page.locator(".sidebar [data-account-bar]");
+  await expect(adminBar.locator("[data-account-name]")).not.toHaveText("");
   await expect(adminBar.locator('[data-surface-switch="admin"]')).toHaveAttribute("aria-current", "page");
   await adminBar.locator('[data-surface-switch="employee"]').click();
   await expect(page.locator("[data-home]")).toBeVisible();
@@ -3165,31 +3169,30 @@ test("docs/org-permissions.md admin agents governance is reachable from admin ch
 test("admin console uses a left sidebar with short labels for the current account", async ({ page }) => {
   await page.goto("/admin");
   await expect(page.locator(".workbench")).toHaveClass(/admin-surface/);
-  await expect(page.locator(".workbench > .sidebar")).not.toBeVisible();
   await expect(page.locator(".settings-tabs.admin-tabs")).toHaveCount(0);
   await expect(page.locator("[data-admin-nav]").first()).toBeVisible();
-  const labels = await page.locator("nav[aria-label='管理分类'] [data-admin-nav]").allTextContents();
+  const labels = await page.locator(".sidebar [data-admin-nav]").allTextContents();
   expect(labels.map((label) => label.trim())).toEqual([
-    "员工", "数字员工治理", "连接器枢纽", "技能", "审批", "考试", "数据", "知识", "配置",
+    "员工", "数据", "数字员工治理", "技能", "知识", "审批", "考试", "连接器枢纽", "配置",
   ]);
   await expect(page.locator("[data-admin-nav='employees']")).toHaveClass(/active/);
   await expect(page.locator("[data-admin-account]")).toContainText("当前账户");
   await expect(page.locator("[data-admin-context]")).toHaveText("管理");
   await expect(page.locator("[data-admin-role]")).toBeVisible();
-  await expect(page.locator(".admin-nav [data-account-pedestal]")).toBeVisible();
-  await expect(page.locator(".admin-nav [data-account-role]")).toContainText("管理员");
+  await expect(page.locator(".sidebar [data-account-pedestal]")).toBeVisible();
+  await expect(page.locator(".sidebar [data-account-name]")).not.toHaveText("");
   await expect(page.getByRole("link", { name: "返回员工工作台" })).toBeVisible();
 
   await page.locator("[data-admin-nav='connectors']").click();
   await expect(page).toHaveURL(/\/admin\/connectors$/);
   await expect(page.locator("[data-admin-nav='connectors']")).toHaveClass(/active/);
-  await expect(page.locator(".connector-stepper")).toContainText("保存接入");
+  await expect(page.locator("[data-connector-hub-title]")).toHaveText("已添加的连接器");
   await page.locator("[data-admin-connectors-table] a").first().click();
   await expect(page).toHaveURL(/\/admin\/connectors\//);
   await expect(page.locator("[data-admin-page='connector-detail']")).toBeVisible();
   await expect(page.locator("[data-admin-nav='connectors']")).toHaveClass(/active/);
-  await expect(page.locator("[data-runtime-settings]")).toBeVisible();
-  await expect(page.locator("[data-runtime-credential-vault]")).toBeVisible();
+  await expect(page.locator("[data-connector-config-card]")).toBeVisible();
+  await expect(page.locator("[data-runtime-credential-vault]")).toHaveCount(1);
 
   await page.locator("[data-admin-nav='approvals']").click();
   await expect(page).toHaveURL(/\/admin\/approvals$/);
@@ -3205,6 +3208,56 @@ test("admin console uses a left sidebar with short labels for the current accoun
   await expect(page.locator(".admin-body a[href='/connectors']")).toHaveCount(0);
   await expect(page.locator(".admin-body")).not.toContainText("打开员工使用面");
   await expect(page.getByRole("link", { name: "打开连接器枢纽" })).toBeVisible();
+});
+
+test("admin left menu replicates the employee sidebar shell", async ({ page }) => {
+  await page.goto("/admin");
+  const rail = page.locator(".sidebar");
+  await expect(rail).toBeVisible();
+  // 同一外壳：品牌块 + Lucas + 页脚账户块。
+  await expect(rail.locator(".sidebar-head [data-sidebar-brand]")).toBeVisible();
+  await expect(rail.locator(".sidebar-head .sidebar-lucas img")).toHaveAttribute("src", /Lucas6\.webp$/);
+  await expect(rail.locator(".sidebar-foot [data-account-bar]")).toBeVisible();
+  // 只换菜单文字：管理端 9 条，员工开工条目 0 条。
+  await expect(rail.locator("[data-admin-nav]")).toHaveCount(9);
+  await expect(rail.locator("[data-nav='new-task'], [data-nav='running'], [data-nav='cron'], [data-nav='mail']")).toHaveCount(0);
+  // 同解剖：18px 描边图标 + 标签；分簇靠分隔线，不用可见组标题。
+  await expect(rail.locator("[data-admin-nav] .nav-ico")).toHaveCount(9);
+  await expect(rail.locator("nav.nav-group")).toHaveCount(5);
+  await expect(rail.locator(".nav-group > h2, .nav-group > .nav-group-title")).toHaveCount(0);
+  const clusterBorder = await rail.locator("nav.nav-group").nth(1).evaluate((el) => getComputedStyle(el).borderTopWidth);
+  expect(clusterBorder).toBe("1px");
+  // 桌面轨道锁 260。
+  await expect(page.locator(".workbench")).toHaveAttribute("data-left-width", "260");
+  expect(Math.round((await rail.boundingBox())!.width)).toBe(260);
+  // 折叠 56px 与员工端同规则，刷新后保持。
+  await rail.locator(".collapse-toggle").click();
+  await expect(page.locator(".workbench")).toHaveClass(/sidebar-collapsed/);
+  await expect(page.locator(".workbench")).toHaveAttribute("data-left-width", "56");
+  expect(Math.round((await rail.boundingBox())!.width)).toBe(56);
+  await expect(rail.locator("[data-admin-nav='employees'] .nav-ico")).toBeVisible();
+  await page.reload();
+  await expect(page.locator(".workbench")).toHaveClass(/sidebar-collapsed/);
+  await expect(page.locator(".sidebar [data-admin-nav='employees']")).toHaveClass(/active/);
+  await page.locator(".sidebar .collapse-toggle").click();
+  await expect(page.locator(".workbench")).not.toHaveClass(/sidebar-collapsed/);
+});
+
+test("admin left menu becomes the shared drawer on narrow viewports", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/admin");
+  await expect(page.locator(".mobile-top")).toBeVisible();
+  await expect(page.locator(".mobile-top")).toContainText("管理");
+  await expect(page.locator(".mobile-top a[href='/'], .mobile-top a[href='/agents']")).toHaveCount(0);
+  await expect(page.locator(".sidebar")).not.toBeVisible();
+  await page.locator(".mobile-top button").click();
+  await expect(page.locator(".sidebar.mobile-open")).toBeVisible();
+  await expect(page.locator(".sidebar [data-admin-nav='employees']")).toBeVisible();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+  await page.locator(".sidebar [data-admin-nav='connectors']").click();
+  await expect(page).toHaveURL(/\/admin\/connectors$/);
+  await expect(page.locator(".sidebar")).not.toBeVisible();
 });
 
 test("employee connector use surface is independent of admin hub", async ({ page, request }) => {
@@ -3391,7 +3444,7 @@ test("docs/org-permissions.md admin connectors hub renders", async ({ page }) =>
   await page.locator('[data-admin-nav="connectors"]').click();
   await expect(page).toHaveURL(/\/admin\/connectors$/);
   await expect(page.locator("[data-admin-page='connectors']")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "连接器目录" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "已添加的连接器" })).toBeVisible();
   await expect(page.locator("[data-admin-health]")).toBeVisible();
   await expect(page.locator(".admin-header .remote-pill, .admin-health .remote-pill")).toHaveCount(0);
   await expect(page.locator('[data-admin-connectors-table] [data-connector="claw"]')).toBeVisible();
@@ -3419,7 +3472,7 @@ test("admin and settings expose bind Starry mailbox menus", async ({ page }) => 
   await page.goto("/admin");
   await expect(page.locator('[data-admin-nav="starry"], [data-admin-tab="starry"]')).toHaveCount(0);
   await expect(page.locator("[data-starry-bind]")).toHaveCount(0);
-  await expect(page.locator(".admin-nav [data-account-bar] [data-starry-menu], .admin-nav [data-account-bar] [data-connector-use-menu]")).toHaveCount(0);
+  await expect(page.locator(".sidebar [data-account-bar] [data-starry-menu], .sidebar [data-account-bar] [data-connector-use-menu]")).toHaveCount(0);
   await page.goto("/admin/starry");
   await expect(page).toHaveURL(/\/settings\?tab=starry/);
   await expect(page.locator("[data-starry-bind]")).toBeVisible();

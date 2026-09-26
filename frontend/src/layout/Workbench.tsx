@@ -8,6 +8,7 @@ import AccountBar from "../components/AccountBar";
 import { ANALYZE_WORK_EVENT, loadKolAnalyzeInFlight, type AnalyzeWorkItem } from "../home/kolSurfaceApi";
 import { isKolAnalyzeInFlight, runningBadgeCount, runningBadgeHref } from "../home/kolContract";
 import { useViewMode } from "../viewMode";
+import { ADMIN_NAV_GROUPS, adminTabOf } from "./adminNav";
 
 function Ico({ path }: { path: string }) {
   return (
@@ -163,6 +164,9 @@ export default function Workbench() {
   );
   const onAgents = loc.pathname === "/agents" || loc.pathname.startsWith("/agents/");
   const onAdmin = loc.pathname === "/admin" || loc.pathname.startsWith("/admin/");
+  // 管理面沿用同一侧栏外壳，只换条目集合（除菜单文字外与员工端复刻）。
+  const showAdminNav = onAdmin && adminAvailable;
+  const adminSection = adminTabOf(loc.pathname);
 
   const toggleCollapsed = () => {
     setCollapsed((value) => {
@@ -182,12 +186,18 @@ export default function Workbench() {
     >
       <div className="mobile-top">
         <button className="icon-btn" aria-label="打开导航" aria-expanded={mobileOpen} onClick={() => setMobileOpen((v) => !v)}>☰</button>
-        <NavLink to="/">任务</NavLink>
-        <NavLink to="/agents" className={() => onAgents ? "active" : ""}>数字员工</NavLink>
+        {showAdminNav ? (
+          <strong>管理</strong>
+        ) : (
+          <>
+            <NavLink to="/">任务</NavLink>
+            <NavLink to="/agents" className={() => onAgents ? "active" : ""}>数字员工</NavLink>
+          </>
+        )}
       </div>
       <aside className={"sidebar" + (mobileOpen ? " mobile-open" : "")}>
         <div className="sidebar-head">
-          <NavLink to="/" className="sidebar-brand" data-sidebar-brand end>
+          <NavLink to={showAdminNav ? "/admin" : "/"} className="sidebar-brand" data-sidebar-brand end>
             <BrandLockup variant="sidebar" />
             <picture className="sidebar-lucas" aria-hidden="true">
               <source media="(prefers-reduced-motion: reduce)" srcSet="/avatars/lucas/Lucas6.png" />
@@ -199,6 +209,33 @@ export default function Workbench() {
 
         <div className="sidebar-scroll">
         <div className="sidebar-nav-stack">
+        {showAdminNav ? ADMIN_NAV_GROUPS.map((group) => (
+          <nav className="nav-group" aria-label={group.label} key={group.label}>
+            {group.rows.map((row) => {
+              const active = adminSection === row.id;
+              return (
+                <NavLink
+                  key={row.id}
+                  to={row.href}
+                  end={row.end}
+                  className={"nav-link" + (active ? " active" : "")}
+                  aria-current={active ? "page" : undefined}
+                  data-admin-nav={row.id}
+                  data-admin-tab={row.id}
+                  data-admin-agents-link={row.id === "agents" ? true : undefined}
+                  title={row.label}
+                  onClick={() => setMobileOpen(false)}
+                  onMouseEnter={() => { void import("../pages/AdminConsole"); }}
+                  onFocus={() => { void import("../pages/AdminConsole"); }}
+                >
+                  <Ico path={row.icon} />
+                  <span className="sidebar-label">{row.label}</span>
+                </NavLink>
+              );
+            })}
+          </nav>
+        )) : (
+          <>
         <nav className="nav-group" aria-label="今日">
           <Link
             to="/"
@@ -306,6 +343,8 @@ export default function Workbench() {
             <span className="nav-tag">非本期</span>
           </div>
         </nav>
+          </>
+        )}
         </div>
         </div>
 

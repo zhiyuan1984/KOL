@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, Navigate, NavLink, useLocation } from "react-router-dom";
+import { Link, Navigate, useLocation } from "react-router-dom";
 import { api } from "../api";
 import { useAccount } from "../components/AuthGate";
-import BrandLockup from "../components/BrandLockup";
-import AccountBar from "../components/AccountBar";
 import { Admin as LegacyAdmin } from "./SimplePages";
 import AdminKnowledge from "./AdminKnowledge";
 import AdminExams from "./AdminExams";
 import { AdminAgents } from "./AdminAgents";
-import { AdminConnectorDetail, AdminConnectorsHub } from "./AdminConnectors";
+import { ConnectorDetail } from "../admin/connector/ConnectorDetail";
+import { ConnectorHub } from "../admin/connector/ConnectorHub";
 import {
   governanceStatus,
   isBindAudit,
@@ -30,18 +29,7 @@ import { SKILL_OPTIONS } from "../knowledgeCopy";
 import { approvalRoleSaveConfirm, retentionPolicyConfirm, userDeactivateConfirm } from "../adminConfirm";
 import { useAdminConfirm } from "../components/ConfirmDialog";
 import SkillLifecycle from "./SkillLifecycle";
-
-const TABS: [string, string][] = [
-  ["employees", "员工"],
-  ["agents", "数字员工治理"],
-  ["connectors", "连接器枢纽"],
-  ["skills", "技能"],
-  ["approvals", "审批"],
-  ["exams", "考试"],
-  ["data", "数据"],
-  ["knowledge", "知识"],
-  ["kol", "配置"],
-];
+import { adminSectionOf, adminTabOf } from "../layout/adminNav";
 
 function accountRoleChip(account: { roles?: string[] | null; role?: string | null; available_modes?: string[] | null } | null) {
   if (isAdminAccount(account)) return "管理员";
@@ -51,11 +39,11 @@ function accountRoleChip(account: { roles?: string[] | null; role?: string | nul
   return roleLabel(account?.role) || "员工";
 }
 
+/** 分节归一化与侧栏条目同一份（`/admin` → employees，未知段回落 employees），详情 id 仍取自路径。 */
 function parseAdminPath(pathname: string): { section: string; detailId: string } {
   const rest = pathname.replace(/^\/admin\/?/, "");
-  if (!rest) return { section: "employees", detailId: "" };
-  const [section, ...parts] = rest.split("/").filter(Boolean);
-  return { section: section || "employees", detailId: parts.map(decodeURIComponent).join("/") };
+  const [, ...parts] = rest.split("/").filter(Boolean);
+  return { section: adminSectionOf(pathname), detailId: parts.map(decodeURIComponent).join("/") };
 }
 
 export default function AdminConsole() {
@@ -100,7 +88,7 @@ export default function AdminConsole() {
   if (!account?.available_modes?.includes("admin")) return <Navigate to="/" replace />;
   if (section === "starry") return <Navigate to="/settings?tab=starry" replace />;
 
-  const tab = TABS.some(([id]) => id === section) ? section : "employees";
+  const tab = adminTabOf(location.pathname);
 
   const accountName = accountDisplayName(account);
   const accountEmail = String(account?.email || account?.handle || "").trim();
@@ -108,34 +96,6 @@ export default function AdminConsole() {
 
   return (
     <div className="admin-shell" data-admin-ia="governance">
-      <aside className="admin-nav" data-admin-nav>
-        <div className="admin-nav-brand">
-          <BrandLockup variant="sidebar" />
-          <span className="admin-nav-product">灵工 工作</span>
-        </div>
-        <div className="admin-nav-kicker">管理</div>
-        <nav className="admin-nav-list" aria-label="管理分类">
-          {TABS.map(([id, label]) => {
-            const href = id === "employees" ? "/admin" : `/admin/${id}`;
-            return (
-              <NavLink
-                key={id}
-                to={href}
-                end={id === "employees"}
-                className={"admin-nav-item" + (tab === id ? " active" : "")}
-                data-admin-nav={id}
-                data-admin-tab={id}
-                data-admin-agents-link={id === "agents" ? true : undefined}
-              >
-                {label}
-              </NavLink>
-            );
-          })}
-        </nav>
-        <div className="admin-nav-foot">
-          <AccountBar account={account} />
-        </div>
-      </aside>
       <div className="admin-body">
         <header className="admin-header">
           <div className="admin-account" data-admin-account>
@@ -163,8 +123,8 @@ export default function AdminConsole() {
         )}
         {tab === "connectors" && (
           detailId
-            ? <AdminConnectorDetail connectorId={detailId} connectors={connectors} users={users} auditRows={auditRows} onSave={save} />
-            : <AdminConnectorsHub connectors={connectors} users={users} onSave={save} />
+            ? <ConnectorDetail connectorId={detailId} connectors={connectors} users={users} auditRows={auditRows} reload={load} />
+            : <ConnectorHub connectors={connectors} onSave={save} reload={load} />
         )}
         {tab === "skills" && <SkillLifecycle />}
         {tab === "approvals" && (

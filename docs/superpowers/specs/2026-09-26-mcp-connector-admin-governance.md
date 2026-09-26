@@ -21,6 +21,11 @@
 | Host 边界 | L3 仍由既有 Host Gateway 控制；管理员治理权限不会产生连接器使用授权。 |
 | 通用化 | 移除 Starry 专属接入组件、专属凭据绑定接口、专属目录排序和专属启用分支；保留领域 Host Gateway 与已有业务适配器。 |
 
+## 后续更新（2026-09-26）
+
+管理端连接器界面重做（枢纽/详情卡片化、MCP 接口只读清单、连接器级组织范围、SSE 传输、明文秘密入保险库、JSON 导入）见
+[2026-09-26-connector-admin-console-redesign.md](2026-09-26-connector-admin-console-redesign.md)。其中「自定义 API / HTTP 放开」经用户裁决保持关闭，`managed_connector_requires_mcp` 闸门不变。
+
 ## 已知范围语义
 
 本地用户账户没有部门字段。一级/二级部门授权覆盖其下已配置的岗位和个人节点；个人节点直接绑定一个有效本地账号。岗位按 `users.position` 匹配，因此需要精确限制某部门成员时，应在相应部门下配置个人节点。页面对该限制作出说明。

@@ -27,6 +27,8 @@ const startBackend = () => {
       AUTH_MODE: authMode,
       LINGONG_PORT: port,
       LINGONG_DATA: data,
+      // Deterministic test key so connector credential writes are exercisable in E2E.
+      RUNTIME_CREDENTIAL_MASTER_KEY: process.env.RUNTIME_CREDENTIAL_MASTER_KEY || "0".repeat(64),
     },
     stdio: "inherit",
     windowsHide: true,

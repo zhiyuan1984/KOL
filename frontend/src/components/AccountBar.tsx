@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import type { Account } from "../api";
-import { accountDisplayName, accountInitial, accountRoleLabel } from "../labels";
+import { accountDisplayName, accountInitial } from "../labels";
 import { isAdminAccount } from "../viewMode";
 import { useAccount } from "./AuthGate";
 
@@ -37,7 +37,6 @@ export default function AccountBar({ account: accountProp }: { account?: Account
   const me = accountProp ?? sessionAccount;
   const adminAvailable = isAdminAccount(me);
   const name = accountDisplayName(me);
-  const role = accountRoleLabel(me);
   const onAdmin = loc.pathname === "/admin" || loc.pathname.startsWith("/admin/");
 
   return (
@@ -50,7 +49,6 @@ export default function AccountBar({ account: accountProp }: { account?: Account
         <span className="account-avatar" aria-hidden>{accountInitial(me)}</span>
         <span className="account-copy sidebar-label">
           <span className="account-name" data-account-name>{name}</span>
-          <span className="account-role" data-account-role>{role}</span>
         </span>
       </div>
       <div className="account-actions">
@@ -78,7 +76,6 @@ export default function AccountBar({ account: accountProp }: { account?: Account
             </Link>
           </nav>
         )}
-        {adminAvailable && <span className="account-actions-split" aria-hidden />}
         <Link className="account-icon-btn" to="/settings" data-account-settings aria-label="个人设置" title="个人设置">
           <Ico path={ICON_SETTINGS} />
         </Link>

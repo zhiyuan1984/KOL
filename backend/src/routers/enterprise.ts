@@ -18,7 +18,8 @@ import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
 import { boxDir } from "../config.js";
 import { isBuiltinConnectorId, requireManagedConnector } from "../connectors/catalog.js";
-import { connectorHasScopedTools } from "../runtime/organization.js";
+import { connectorHasAnyScope } from "../runtime/organization.js";
+import { ensureRuntimeSchema } from "../runtime/store.js";
 
 export const enterprise = new Hono();
 
@@ -66,13 +67,42 @@ function userById(id: string): Row {
   return row;
 }
 
+/** Catalog card metadata; an unreadable runtime table degrades to the MCP defaults. */
+function connectorRuntimeFacts(connectorId: string): { protocol: "mcp" | "http"; approved_tool_count: number } {
+  try {
+    ensureRuntimeSchema();
+    const stored = getConn().prepare(
+      "SELECT config_json FROM runtime_connector_config WHERE connector_id=?",
+    ).get(connectorId) as Row | undefined;
+    let protocol: "mcp" | "http" = "mcp";
+    try {
+      const config = stored ? JSON.parse(String(stored.config_json)) as Row | null : null;
+      if (config && typeof config === "object" && config.protocol === "http") protocol = "http";
+    } catch {
+      protocol = "mcp";
+    }
+    const approved = getConn().prepare(
+      "SELECT COUNT(*) AS n FROM runtime_tool_policies WHERE connector_id=? AND enabled=1",
+    ).get(connectorId) as Row | undefined;
+    return { protocol, approved_tool_count: Number(approved?.n || 0) };
+  } catch {
+    return { protocol: "mcp", approved_tool_count: 0 };
+  }
+}
+
 function connectorPublic(row: unknown): Json {
   const value = row as Row;
+  const id = String(value.id || "");
+  const facts = connectorRuntimeFacts(id);
   return {
     ...value,
     enabled: Boolean(value.enabled),
     credential_reference: value.credential_ref || null,
     credential_status: value.credential_ref ? "已配置" : "未配置",
+    kind: isBuiltinConnectorId(id) ? "app" : facts.protocol === "http" ? "custom_api" : "custom_mcp",
+    protocol: facts.protocol,
+    icon_url: value.icon_ref ? `/api/admin/connectors/${encodeURIComponent(id)}/icon` : null,
+    approved_tool_count: facts.approved_tool_count,
   };
 }
 
@@ -259,7 +289,7 @@ enterprise.patch("/admin/connectors/:id", async (c) => {
       if (String(current.status) !== "verified") {
         throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
       }
-      if (!connectorHasScopedTools(id)) {
+      if (!connectorHasAnyScope(id)) {
         throw new HttpFail(409, { code: "connector_tool_scope_required", connector_id: id });
       }
     }

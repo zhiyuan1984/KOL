@@ -32,7 +32,6 @@ const html = `<!doctype html>
             <span class="account-avatar" aria-hidden>鄢</span>
             <span class="account-copy sidebar-label">
               <span class="account-name" data-account-name>鄢棽</span>
-              <span class="account-role" data-account-role>管理员</span>
             </span>
           </div>
           <div class="account-actions">
@@ -40,7 +39,6 @@ const html = `<!doctype html>
               <a class="surface-switch-seg" data-surface-switch="employee" aria-current="page" title="员工端"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden><path d="M12 3a5 5 0 0 1 0 10 5 5 0 0 1 0-10 M20 21a8 8 0 0 0-16 0" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" /></svg></a>
               <a class="surface-switch-seg" data-surface-switch="admin" title="管理端"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden><path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11z" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" /></svg></a>
             </nav>
-            <span class="account-actions-split" aria-hidden></span>
             <a class="account-icon-btn" data-account-settings title="个人设置"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915 M15 12a3 3 0 0 1-6 0 3 3 0 0 1 6 0" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" /></svg></a>
             <button class="account-icon-btn" data-account-logout type="button" title="退出登录"><svg class="nav-ico" viewBox="0 0 24 24" aria-hidden><path d="M16 17l5-5-5-5 M21 12H9 M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" /></svg></button>
           </div>

@@ -86,6 +86,23 @@ export function ensureOrganizationScopeSchema(): void {
       PRIMARY KEY (connector_id,tool_name),
       FOREIGN KEY (connector_id) REFERENCES connectors(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS runtime_connector_scope_policies (
+      connector_id TEXT PRIMARY KEY,
+      mode TEXT NOT NULL CHECK (mode IN ('all','selected')),
+      updated_by TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (connector_id) REFERENCES connectors(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS runtime_connector_scope_bindings (
+      connector_id TEXT NOT NULL,
+      node_id TEXT NOT NULL,
+      access TEXT NOT NULL CHECK (access IN ('read','write')),
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (connector_id,node_id),
+      FOREIGN KEY (connector_id,node_id) REFERENCES runtime_connector_organization_nodes(connector_id,id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS runtime_connector_scope_bindings_idx ON runtime_connector_scope_bindings(connector_id);
   `);
   const nodeColumns = db.prepare("PRAGMA table_info(runtime_connector_organization_nodes)").all() as { name: string }[];
   if (!nodeColumns.some((column) => column.name === "is_person")) {
@@ -130,7 +147,7 @@ export function getOrganizationScopeSnapshot(connectorId: string): OrganizationS
 /** Direct authorization structure: 一级部门 → 二级部门 → 岗位. */
 export function addOrganizationScopeNode(
   connectorId: string,
-  input: { name?: unknown; level: unknown; parent_id?: unknown; user_id?: unknown },
+  input: { name?: unknown; level: unknown; parent_id?: unknown; user_id?: unknown; external_id?: unknown },
 ): OrganizationScopeSnapshot {
   ensureOrganizationScopeSchema();
   connectorExists(connectorId);
@@ -151,11 +168,17 @@ export function addOrganizationScopeNode(
     if (!parent || Number(parent.level) !== level - 1) throw new HttpFail(400, { code: "runtime_organization_invalid_hierarchy" });
   }
   const id = nid("scope");
+  // Registry-backed units keep their canonical id; manual nodes fall back to the local id.
+  const externalId = user
+    ? userId
+    : input.external_id == null || input.external_id === ""
+      ? id
+      : asString(input.external_id, "external_id", 255);
   const now = nowIso();
   txImmediate((db) => {
     db.prepare(`INSERT INTO runtime_connector_organization_nodes
       (connector_id,id,parent_id,name,level,is_person,external_id,local_user_id,synced_at) VALUES (?,?,?,?,?,?,?,?,?)`)
-      .run(connectorId, id, parentId, name, level, userId ? 1 : 0, userId || id, userId, now);
+      .run(connectorId, id, parentId, name, level, userId ? 1 : 0, externalId, userId, now);
     db.prepare(`INSERT INTO runtime_connector_organization_sync(connector_id,source,synced_at) VALUES (?,?,?)
       ON CONFLICT(connector_id) DO UPDATE SET source=excluded.source,synced_at=excluded.synced_at`)
       .run(connectorId, "manual-department-position", now);
@@ -249,6 +272,178 @@ export function connectorHasOrganizationScopes(connectorId: string): boolean {
     OR EXISTS (SELECT 1 FROM runtime_connector_scope_modes WHERE connector_id=?)
     OR EXISTS (SELECT 1 FROM runtime_tool_scope_bindings WHERE connector_id=?)
     OR EXISTS (SELECT 1 FROM runtime_tool_global_scopes WHERE connector_id=?)`).get(connectorId, connectorId, connectorId, connectorId));
+}
+
+/**
+ * Connector-level reach expansion: a matching bound node grants read/write on
+ * top of the per-person grants. It never narrows access, and tool-level scopes
+ * stay an independent additional restriction. No marker is written to
+ * `runtime_connector_scope_modes`, which belongs to tool-level governance.
+ */
+export type ConnectorScopeMode = "unset" | "all" | "selected";
+export type ConnectorScopeBinding = { node_id: string; access: "read" | "write" };
+export type ConnectorScopeSnapshot = {
+  connector_id: string;
+  mode: ConnectorScopeMode;
+  updated_by: string | null;
+  updated_at: string | null;
+  bindings: ConnectorScopeBinding[];
+  coverage: { users: number; read: number; write: number };
+};
+
+const CONNECTOR_SCOPE_TREE = `WITH RECURSIVE tree(node_id, access) AS (
+    SELECT node_id, access FROM runtime_connector_scope_bindings WHERE connector_id=?
+    UNION ALL
+    SELECT node.id, tree.access FROM runtime_connector_organization_nodes node
+    JOIN tree ON node.parent_id=tree.node_id WHERE node.connector_id=?
+  )`;
+
+const CONNECTOR_SCOPE_USER_SQL = `${CONNECTOR_SCOPE_TREE}
+  SELECT MAX(CASE tree.access WHEN 'write' THEN 2 ELSE 1 END) AS level
+  FROM tree
+  JOIN runtime_connector_organization_nodes node ON node.id=tree.node_id AND node.connector_id=?
+  JOIN users user ON user.id=? AND user.active=1
+  WHERE node.local_user_id=user.id OR (node.is_person=0 AND node.level=3 AND node.name=COALESCE(user.position,''))`;
+
+const CONNECTOR_SCOPE_COVERAGE_SQL = `${CONNECTOR_SCOPE_TREE}
+  SELECT user.id AS user_id, MAX(CASE tree.access WHEN 'write' THEN 2 ELSE 1 END) AS level
+  FROM tree
+  JOIN runtime_connector_organization_nodes node ON node.id=tree.node_id AND node.connector_id=?
+  JOIN users user ON user.active=1
+  WHERE node.local_user_id=user.id OR (node.is_person=0 AND node.level=3 AND node.name=COALESCE(user.position,''))
+  GROUP BY user.id`;
+
+/** A stored connector-level policy row (either mode) marks the scope as configured. */
+export function connectorScopeConfigured(connectorId: string): boolean {
+  ensureOrganizationScopeSchema();
+  return Boolean(getConn().prepare("SELECT 1 FROM runtime_connector_scope_policies WHERE connector_id=?").get(connectorId));
+}
+
+/** The enable gate accepts either a connector-level or a tool-level scope. */
+export function connectorHasAnyScope(connectorId: string): boolean {
+  return connectorScopeConfigured(connectorId) || connectorHasScopedTools(connectorId);
+}
+
+function connectorScopeBindings(connectorId: string): ConnectorScopeBinding[] {
+  return asRows(getConn().prepare(
+    "SELECT node_id,access FROM runtime_connector_scope_bindings WHERE connector_id=? ORDER BY node_id",
+  ).all(connectorId)).map((row) => ({
+    node_id: String(row.node_id),
+    access: String(row.access) === "write" ? "write" as const : "read" as const,
+  }));
+}
+
+function connectorScopeCoverage(connectorId: string, mode: ConnectorScopeMode): { users: number; read: number; write: number } {
+  if (mode === "all") {
+    const row = getConn().prepare("SELECT COUNT(*) AS n FROM users WHERE active=1").get() as Row | undefined;
+    const users = Number(row?.n || 0);
+    return { users, read: users, write: 0 };
+  }
+  if (mode !== "selected") return { users: 0, read: 0, write: 0 };
+  const rows = asRows(getConn().prepare(CONNECTOR_SCOPE_COVERAGE_SQL).all(connectorId, connectorId, connectorId));
+  const levelOf = (row: Row): number => Number(row.level || 0);
+  return {
+    users: rows.length,
+    read: rows.filter((row) => levelOf(row) === 1).length,
+    write: rows.filter((row) => levelOf(row) >= 2).length,
+  };
+}
+
+export function getConnectorScopeSnapshot(connectorId: string): ConnectorScopeSnapshot {
+  ensureOrganizationScopeSchema();
+  connectorExists(connectorId);
+  const policy = getConn().prepare(
+    "SELECT mode,updated_by,updated_at FROM runtime_connector_scope_policies WHERE connector_id=?",
+  ).get(connectorId) as Row | undefined;
+  const mode: ConnectorScopeMode = policy?.mode === "all" || policy?.mode === "selected" ? policy.mode : "unset";
+  return {
+    connector_id: connectorId,
+    mode,
+    updated_by: policy?.updated_by ? String(policy.updated_by) : null,
+    updated_at: policy?.updated_at ? String(policy.updated_at) : null,
+    bindings: mode === "unset" ? [] : connectorScopeBindings(connectorId),
+    coverage: connectorScopeCoverage(connectorId, mode),
+  };
+}
+
+function parseConnectorScopeBindings(bindingsInput: unknown): ConnectorScopeBinding[] {
+  if (!Array.isArray(bindingsInput)) throw new HttpFail(400, { code: "runtime_connector_scope_invalid_bindings" });
+  const seen = new Set<string>();
+  const bindings: ConnectorScopeBinding[] = [];
+  for (const entry of bindingsInput) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new HttpFail(400, { code: "runtime_connector_scope_invalid_bindings" });
+    }
+    const value = entry as Record<string, unknown>;
+    const nodeId = asString(value.node_id, "node_id", 160);
+    if (seen.has(nodeId)) continue;
+    const accessInput = value.access === undefined ? "read" : value.access;
+    if (accessInput !== "read" && accessInput !== "write") {
+      throw new HttpFail(400, { code: "runtime_connector_scope_invalid_access" });
+    }
+    seen.add(nodeId);
+    bindings.push({ node_id: nodeId, access: accessInput });
+  }
+  return bindings;
+}
+
+export function replaceConnectorScope(
+  connectorId: string,
+  modeInput: unknown,
+  bindingsInput: unknown,
+  actorId: string,
+): ConnectorScopeSnapshot {
+  ensureOrganizationScopeSchema();
+  connectorExists(connectorId);
+  if (modeInput !== "unset" && modeInput !== "all" && modeInput !== "selected") {
+    throw new HttpFail(400, { code: "runtime_connector_scope_invalid_mode" });
+  }
+  const bindings = parseConnectorScopeBindings(bindingsInput);
+  if (bindings.length) {
+    const available = new Set(asRows(getConn().prepare(
+      "SELECT id FROM runtime_connector_organization_nodes WHERE connector_id=?",
+    ).all(connectorId)).map((row) => String(row.id)));
+    if (bindings.some((binding) => !available.has(binding.node_id))) {
+      throw new HttpFail(400, { code: "runtime_connector_scope_node_unknown" });
+    }
+  }
+  if (modeInput === "selected" && !bindings.length) {
+    throw new HttpFail(400, { code: "runtime_connector_scope_bindings_required" });
+  }
+  const now = nowIso();
+  txImmediate((tx) => {
+    if (modeInput === "unset") {
+      tx.prepare("DELETE FROM runtime_connector_scope_bindings WHERE connector_id=?").run(connectorId);
+      tx.prepare("DELETE FROM runtime_connector_scope_policies WHERE connector_id=?").run(connectorId);
+      return;
+    }
+    tx.prepare(`INSERT INTO runtime_connector_scope_policies(connector_id,mode,updated_by,updated_at) VALUES (?,?,?,?)
+      ON CONFLICT(connector_id) DO UPDATE SET mode=excluded.mode,updated_by=excluded.updated_by,updated_at=excluded.updated_at`)
+      .run(connectorId, modeInput, actorId, now);
+    tx.prepare("DELETE FROM runtime_connector_scope_bindings WHERE connector_id=?").run(connectorId);
+    if (modeInput === "all") return;
+    const insert = tx.prepare(
+      "INSERT INTO runtime_connector_scope_bindings(connector_id,node_id,access,created_by,created_at) VALUES (?,?,?,?,?)",
+    );
+    for (const binding of bindings) insert.run(connectorId, binding.node_id, binding.access, actorId, now);
+  });
+  return getConnectorScopeSnapshot(connectorId);
+}
+
+/** Connector-level reach for one active user; `null` means the scope grants nothing. */
+export function userConnectorScopeAccess(connectorId: string, userId: string): "read" | "write" | null {
+  ensureOrganizationScopeSchema();
+  const db = getConn();
+  const policy = db.prepare("SELECT mode FROM runtime_connector_scope_policies WHERE connector_id=?").get(connectorId) as Row | undefined;
+  if (!policy) return null;
+  if (!db.prepare("SELECT 1 FROM users WHERE id=? AND active=1").get(userId)) return null;
+  if (policy.mode === "all") return "read";
+  if (policy.mode !== "selected") return null;
+  const row = db.prepare(CONNECTOR_SCOPE_USER_SQL).get(connectorId, connectorId, connectorId, userId) as Row | undefined;
+  if (row?.level === null || row?.level === undefined) return null;
+  const level = Number(row.level);
+  if (!Number.isFinite(level) || level < 1) return null;
+  return level >= 2 ? "write" : "read";
 }
 
 export function recordToolInventory(connectorId: string, tools: Json[]): void {

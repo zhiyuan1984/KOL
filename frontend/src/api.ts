@@ -1,6 +1,10 @@
 import type {
+  McpImportPreview,
+  McpImportResult,
   OpenApiPreview,
+  OrganizationUnitsResponse,
   RuntimeConnectorConfig,
+  RuntimeConnectorScopeSnapshot,
   RuntimeCredentialMetadata,
   RuntimeSkillConnector,
   RuntimeSkillTool,
@@ -1585,7 +1589,7 @@ export const api = {
   exam: () => fetch("/api/exam").then((r) => r.json()),
   admin: () => fetch("/api/admin").then((r) => r.json()),
   adminUsers: () => request<Record<string, unknown>[]>("/api/admin/users"),
-  adminOrganizationUnits: () => request<Array<{ id: string; label: string; type: string; parent: string; level: number }>>("/api/admin/organization-units"),
+  adminOrganizationUnits: () => request<OrganizationUnitsResponse>("/api/admin/organization-units"),
   connectors: () => request<Record<string, unknown>[]>("/api/connectors"),
   adminConnectors: () => request<Record<string, unknown>[]>("/api/admin/connectors"),
   runtimeConnectorConfig: (connectorId: string) =>
@@ -1667,7 +1671,7 @@ export const api = {
       source: string | null;
       nodes: Array<{ id: string; parent_id: string | null; name: string; level: 1 | 2 | 3; is_person: boolean; external_id: string; local_user_id: string | null; status: "matched" | "unmatched" }>;
     }>(`/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/organization-scope`),
-  addRuntimeOrganizationScopeNode: (connectorId: string, body: { name?: string; level: 1 | 2 | 3; parent_id?: string; user_id?: string }) =>
+  addRuntimeOrganizationScopeNode: (connectorId: string, body: { name?: string; level: 1 | 2 | 3; parent_id?: string; user_id?: string; external_id?: string }) =>
     request<{
       connector_id: string;
       synced_at: string | null;
@@ -1683,6 +1687,29 @@ export const api = {
       `/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/tools/${encodeURIComponent(toolName)}/scope`,
       { method: "PUT", body: JSON.stringify({ node_ids: nodeIds, all }) },
     ),
+  runtimeConnectorScope: (connectorId: string) =>
+    request<RuntimeConnectorScopeSnapshot>(`/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/connector-scope`),
+  saveRuntimeConnectorScope: (
+    connectorId: string,
+    body: { mode: RuntimeConnectorScopeSnapshot["mode"]; bindings: RuntimeConnectorScopeSnapshot["bindings"] },
+  ) =>
+    request<RuntimeConnectorScopeSnapshot>(`/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/connector-scope`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  uploadConnectorIcon: (connectorId: string, file: File) => {
+    const fd = new FormData();
+    fd.append("icon", file);
+    return request<{ id: string; icon_url: string }>(`/api/admin/connectors/${encodeURIComponent(connectorId)}/icon`, {
+      method: "POST",
+      body: fd,
+    });
+  },
+  importMcpConnectors: (body: { json: string; dry_run?: boolean }) =>
+    request<McpImportPreview | McpImportResult>("/api/admin/connectors/import-mcp", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   previewRuntimeOpenApi: (connectorId: string, document: object | string) =>
     request<OpenApiPreview>(`/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/import-openapi`, {
       method: "POST",

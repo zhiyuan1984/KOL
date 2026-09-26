@@ -1,0 +1,671 @@
+/* Connector admin console (hub + detail + panels). Values come from styles.css tokens only. */
+
+.connector-hub {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.connector-hub-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.connector-hub-head h2 {
+  margin: 2px 0 var(--space-1);
+}
+
+.connector-hub-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.connector-menu-wrap {
+  position: relative;
+}
+
+.connector-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 280px;
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--bg);
+  box-shadow: var(--shadow-quiet);
+  display: flex;
+  flex-direction: column;
+}
+
+.connector-menu-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.connector-menu-item strong {
+  font-weight: 500;
+}
+
+.connector-menu-item small {
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+}
+
+.connector-menu-item:hover,
+.connector-menu-item:focus-visible {
+  background: var(--surface-hover);
+}
+
+.connector-hub-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.connector-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: min(360px, 100%);
+  height: var(--control-h-lg);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--control-bg);
+  color: var(--text-muted);
+}
+
+.connector-search svg {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  flex: 0 0 auto;
+}
+
+.connector-search-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+.connector-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.connector-card {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--bg);
+  min-width: 0;
+}
+
+.connector-card-new {
+  border-style: dashed;
+  cursor: pointer;
+  color: var(--text);
+  text-align: left;
+  background: none;
+}
+
+.connector-card-new:hover,
+.connector-card-new:focus-visible {
+  background: var(--surface-hover);
+}
+
+.connector-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.connector-card-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.connector-card-title strong {
+  font-weight: 500;
+}
+
+.connector-card-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.connector-card-link:hover,
+.connector-card-link:focus-visible {
+  text-decoration: underline;
+}
+
+.connector-card-purpose {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: var(--ds-font-sm);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.connector-card-meta {
+  margin: var(--space-1) 0 0;
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+}
+
+.connector-card-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-end;
+  flex: 0 0 auto;
+}
+
+.connector-kind-tag {
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: 18px;
+}
+
+.connector-mark {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.connector-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.connector-mark-letter {
+  font-size: var(--ds-font-ui);
+  color: var(--text-muted);
+}
+
+.connector-added {
+  display: grid;
+  place-items: center;
+  width: var(--control-h);
+  height: var(--control-h);
+  color: var(--success);
+}
+
+.connector-added svg {
+  width: 16px;
+  height: 16px;
+}
+
+.connector-plus {
+  width: var(--control-h);
+  height: var(--control-h);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: none;
+  color: var(--text);
+  font-size: var(--ds-font-ui);
+  cursor: pointer;
+}
+
+.connector-plus:hover:not(:disabled),
+.connector-plus:focus-visible {
+  background: var(--surface-hover);
+}
+
+.connector-plus:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.connector-empty {
+  padding: var(--space-4) 0;
+}
+
+/* Panels (create flows) */
+
+.connector-panel-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.connector-panel-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.32);
+}
+
+.connector-panel {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(680px, calc(100vw - 32px));
+  max-height: min(88dvh, 900px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--bg);
+  box-shadow: var(--shadow-quiet);
+}
+
+.connector-panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-4) var(--space-2);
+}
+
+.connector-panel-head h2 {
+  margin: 0 0 2px;
+}
+
+.connector-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-4) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.connector-panel-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border);
+}
+
+.connector-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.connector-icon-field {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+
+.connector-icon-preview {
+  flex: 0 0 auto;
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-card);
+  background: var(--bg-elevated);
+  overflow: hidden;
+}
+
+.connector-icon-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.connector-icon-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+.connector-icon-actions p {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--ds-font-helper);
+}
+
+.connector-header-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.connector-header-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.connector-header-row input {
+  height: var(--control-h);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  min-width: 0;
+}
+
+.connector-advanced {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-2) var(--space-3);
+}
+
+.connector-advanced summary {
+  cursor: pointer;
+}
+
+.connector-advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+}
+
+.connector-trust-note {
+  margin: 0;
+  font-size: var(--ds-font-helper);
+}
+
+.connector-json-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--ds-font-sm);
+}
+
+.connector-import-preview ul {
+  margin: var(--space-2) 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.connector-import-preview li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.req {
+  color: var(--danger);
+}
+
+/* Detail */
+
+.connector-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.connector-detail-hero {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.connector-detail-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.connector-detail-title h2 {
+  margin: 0 0 2px;
+}
+
+.connector-detail-title p {
+  margin: 0 0 2px;
+}
+
+.connector-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.connector-detail-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.connector-detail-card > summary {
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.connector-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.connector-card-head h3 {
+  margin: 0 0 2px;
+}
+
+.connector-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.connector-ref-list {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-size: var(--ds-font-sm);
+}
+
+.connector-scope-add {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-3);
+  align-items: end;
+  padding: var(--space-3);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-card);
+}
+
+.connector-scope-tree,
+.connector-scope-tree ul {
+  list-style: none;
+  margin: 0;
+  padding-left: 0;
+}
+
+.connector-scope-tree ul {
+  padding-left: var(--space-4);
+}
+
+.connector-scope-node {
+  padding: 2px 0;
+}
+
+.connector-scope-node label {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.connector-scope-node small {
+  color: var(--text-muted);
+  margin-right: var(--space-1);
+}
+
+.connector-scope-selected {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.connector-scope-selected li {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.connector-grant-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.connector-grant-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.connector-audit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.connector-audit-list {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.connector-audit-list small {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+}
+
+/* Tools (ported governance card) */
+
+.connector-tools-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.connector-tool {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.connector-tool-name {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.connector-tool-detail summary {
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.connector-check-row {
+  align-self: end;
+}
+
+/* Responsive + touch */
+
+@media (max-width: 1100px) {
+  .connector-grid,
+  .connector-form-grid,
+  .connector-audit-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 860px) {
+  .connector-hub-head,
+  .connector-detail-hero {
+    flex-direction: column;
+  }
+
+  .connector-card {
+    flex-wrap: wrap;
+  }
+
+  .connector-panel {
+    width: calc(100vw - 20px);
+    max-height: 92dvh;
+  }
+}
+
+@media (pointer: coarse) {
+  .connector-menu-item,
+  .connector-plus,
+  .connector-added,
+  .connector-search {
+    min-height: 44px;
+  }
+
+  .connector-card-side .btn,
+  .connector-card-actions .btn,
+  .connector-panel-foot .btn {
+    min-height: 44px;
+  }
+}
