@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { governanceStatus, type AdminRow } from "../../adminGovernance";
 import { ConnectorMark } from "./ConnectorMark";
 import { JsonImportPanel, McpConfigPanel, UrlAddPanel } from "./ConnectorPanels";
+import { ConnectorToolsDrawer } from "./ConnectorToolsDrawer";
 import {
   connectorActionLabel,
   connectorCardView,
@@ -29,13 +30,19 @@ const BUILTIN_CATALOG = [
   { id: "starrykol", label: "Starry KOL MCP", purpose: "红人库、负责人、品牌邮箱与合作往来事实" },
 ] as const;
 
-export function ConnectorHub({ connectors, onSave, reload }: { connectors: AdminRow[]; onSave: ConnectorSaveFn; reload: () => void }) {
+export function ConnectorHub({ connectors, users, onSave, reload }: {
+  connectors: AdminRow[];
+  users: AdminRow[];
+  onSave: ConnectorSaveFn;
+  reload: () => void;
+}) {
   const cards = useMemo(() => connectors.map(connectorCardView), [connectors]);
   const [q, setQ] = useState("");
   const [browsing, setBrowsing] = useState(false);
   const [tab, setTab] = useState<"app" | "custom_mcp">("app");
   const [menuOpen, setMenuOpen] = useState(false);
   const [panel, setPanel] = useState<CreatePanelKind | null>(null);
+  const [toolsCard, setToolsCard] = useState<ConnectorCardView | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [adding, setAdding] = useState("");
@@ -155,7 +162,7 @@ export function ConnectorHub({ connectors, onSave, reload }: { connectors: Admin
       ) : (
         <div className="connector-grid" data-connector-grid data-admin-connectors-table>
           {visible.map((card) => (
-            <ConnectorCard key={card.id} card={card} browse={browsing} />
+            <ConnectorCard key={card.id} card={card} browse={browsing} onViewTools={() => setToolsCard(card)} />
           ))}
           {missingBuiltins.map((entry) => (
             <CatalogCard
@@ -182,11 +189,12 @@ export function ConnectorHub({ connectors, onSave, reload }: { connectors: Admin
       {panel === "mcp" && <McpConfigPanel onClose={() => setPanel(null)} onDone={finishPanel} />}
       {panel === "url" && <UrlAddPanel onClose={() => setPanel(null)} onDone={finishPanel} />}
       {panel === "json" && <JsonImportPanel onClose={() => setPanel(null)} onDone={finishPanel} />}
+      {toolsCard && <ConnectorToolsDrawer card={toolsCard} users={users} onClose={() => setToolsCard(null)} />}
     </section>
   );
 }
 
-function ConnectorCard({ card, browse }: { card: ConnectorCardView; browse: boolean }) {
+function ConnectorCard({ card, browse, onViewTools }: { card: ConnectorCardView; browse: boolean; onViewTools: () => void }) {
   const status = governanceStatus(card);
   return (
     <article
@@ -218,6 +226,7 @@ function ConnectorCard({ card, browse }: { card: ConnectorCardView; browse: bool
         ) : (
           <Link className="btn sm" to={connectorHref(card.id)} data-connector-action="open">{connectorActionLabel(card)}</Link>
         )}
+        <button type="button" className="btn ghost sm" data-connector-tools-entry onClick={onViewTools}>查看工具</button>
       </div>
     </article>
   );

@@ -124,7 +124,7 @@ export default function AdminConsole() {
         {tab === "connectors" && (
           detailId
             ? <ConnectorDetail connectorId={detailId} connectors={connectors} users={users} auditRows={auditRows} reload={load} />
-            : <ConnectorHub connectors={connectors} onSave={save} reload={load} />
+            : <ConnectorHub connectors={connectors} users={users} onSave={save} reload={load} />
         )}
         {tab === "skills" && <SkillLifecycle />}
         {tab === "approvals" && (

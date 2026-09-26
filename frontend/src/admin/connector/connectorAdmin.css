@@ -669,3 +669,185 @@
     min-height: 44px;
   }
 }
+
+/* Tools drawer (hub card → 查看工具) */
+
+.connector-drawer-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.connector-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.32);
+}
+
+.connector-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100dvh;
+  width: min(760px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+  box-shadow: var(--shadow-quiet);
+}
+
+.connector-drawer-head {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.connector-drawer-title {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.connector-drawer-title h2 {
+  margin: 0 0 2px;
+}
+
+.connector-drawer-title p {
+  margin: 0;
+}
+
+.connector-drawer-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.connector-drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.connector-drawer-note {
+  margin: 0;
+}
+
+.connector-drawer-scope {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-2) var(--space-3);
+}
+
+.connector-drawer-scope summary {
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+}
+
+.connector-drawer-scope .connector-detail-card {
+  border: 0;
+  background: none;
+  padding: var(--space-3) 0 0;
+}
+
+.connector-drawer-search {
+  min-width: 0;
+}
+
+.connector-drawer-tools {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.connector-drawer-tool {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+.connector-drawer-pick {
+  padding-top: var(--space-3);
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+
+.connector-drawer-tool .connector-tool {
+  flex: 1;
+  min-width: 0;
+}
+
+.connector-drawer-error-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.connector-drawer-foot {
+  border-top: 1px solid var(--border);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  background: var(--bg-elevated);
+}
+
+.connector-drawer-foot-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.connector-drawer-batch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.connector-batch-tree {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-2);
+}
+
+@media (max-width: 1100px) {
+  .connector-drawer {
+    width: calc(100vw - 12px);
+  }
+}
+
+@media (max-width: 860px) {
+  .connector-drawer {
+    width: 100vw;
+  }
+}
+
+@media (pointer: coarse) {
+  .connector-drawer-pick {
+    min-height: 44px;
+  }
+
+  .connector-drawer-foot .btn {
+    min-height: 44px;
+  }
+}

@@ -39,7 +39,8 @@ function schemaText(schema: Record<string, unknown>) {
   return JSON.stringify(schema, null, 2);
 }
 
-function ConnectorToolRow({
+/** Shared tool row: used by the detail tools card and the hub tools drawer. */
+export function ConnectorToolRow({
   connectorId,
   users,
   tool,
@@ -136,7 +137,8 @@ type RuntimeScopeNode = {
 };
 type ScopeMode = "unset" | "none" | "all" | "selected";
 
-function RuntimeToolScopeEditor({ connectorId, tool, users }: { connectorId: string; tool: RuntimeToolDefinition; users: Array<Record<string, unknown>> }) {
+/** Shared tool-level scope editor: used by the detail tools card and the hub tools drawer. */
+export function RuntimeToolScopeEditor({ connectorId, tool, users }: { connectorId: string; tool: RuntimeToolDefinition; users: Array<Record<string, unknown>> }) {
   const [nodes, setNodes] = useState<RuntimeScopeNode[]>([]);
   const [nodeIds, setNodeIds] = useState<string[]>([]);
   const [mode, setMode] = useState<ScopeMode>("unset");

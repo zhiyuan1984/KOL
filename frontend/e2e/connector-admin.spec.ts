@@ -143,3 +143,94 @@ test("config form validates icons and keeps submitted secrets write-only", async
   await expect(page.locator("[data-connector-config-card] input.connector-header-value")).toHaveValue("");
   await expect(page.locator("[data-connector-config-card] input.connector-header-value")).toHaveAttribute("placeholder", /已保存引用/);
 });
+
+test("hub card opens the tools drawer with an honest state and returns focus", async ({ page }) => {
+  await page.goto("/admin/connectors");
+  const entry = page.locator('[data-connector-card][data-connector="claw"]').locator("[data-connector-tools-entry]");
+  await entry.click();
+  await expect(page.locator("[data-connector-tools-drawer]")).toBeVisible();
+  await expect(page.locator("[data-connector-tools-drawer] h2")).toContainText("MediaCrawler MCP · 工具");
+  await expect(page.locator("[data-connector-drawer-counts]")).toBeVisible();
+  await expect(page.locator("[data-connector-drawer-default-scope]")).toBeVisible();
+  // stub 模式命中运行时闸门（403）、auth 模式未配置（409）：都必须给诚实错误态，而不是假清单。
+  await expect(page.locator("[data-connector-drawer-error]")).toBeVisible();
+  await expect(page.locator("[data-connector-drawer-error]")).toContainText("工具目录不可用");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("[data-connector-tools-drawer]")).toHaveCount(0);
+  await expect(entry).toBeFocused();
+});
+
+test("tools drawer lists every tool and grants scope by department or person", async ({ page }) => {
+  const scopeWrites: Array<{ tool: string; body: Record<string, unknown> }> = [];
+  const tool = (name: string, hash: string, description: string) => ({
+    name,
+    description,
+    inputSchema: { type: "object", properties: {} },
+    schema_hash: hash.repeat(64),
+  });
+  await page.route("**/api/admin/runtime/connectors/claw/discovery", (route) => route.fulfill({
+    json: {
+      tools: [
+        tool("list_records", "a", "只读列出记录"),
+        tool("get_record", "b", "只读读取单条记录"),
+        tool("create_record", "c", "写入新记录（未审阅）"),
+      ],
+      authorization: "Discovery is not a grant.",
+    },
+  }));
+  await page.route("**/api/admin/runtime/connectors/claw/policies", (route) => route.fulfill({
+    json: [{ connector_id: "claw", tool_name: "list_records", enabled: true, risk: "L1", access: "read", schema_hash: "a".repeat(64), version: 1 }],
+  }));
+  await page.route("**/api/admin/runtime/connectors/claw/connector-scope", (route) => route.fulfill({
+    json: { connector_id: "claw", mode: "unset", updated_by: null, updated_at: null, bindings: [], coverage: { users: 0, read: 0, write: 0 } },
+  }));
+  await page.route("**/api/admin/runtime/connectors/claw/organization-scope", (route) => route.fulfill({
+    json: {
+      connector_id: "claw",
+      synced_at: null,
+      source: "e2e",
+      nodes: [
+        { id: "n1", parent_id: null, name: "推广部", level: 1, is_person: false, external_id: "org:promotion_department", local_user_id: null, status: "unmatched" },
+        { id: "n2", parent_id: "n1", name: "LT组", level: 2, is_person: false, external_id: "e2e", local_user_id: null, status: "unmatched" },
+        { id: "n3", parent_id: "n2", name: "张三", level: 3, is_person: true, external_id: "u1", local_user_id: "u1", status: "matched" },
+      ],
+    },
+  }));
+  await page.route("**/api/admin/runtime/connectors/claw/tools/*/scope", (route) => {
+    const url = new URL(route.request().url());
+    const name = decodeURIComponent(url.pathname.split("/tools/")[1].split("/")[0]);
+    if (route.request().method() === "PUT") {
+      scopeWrites.push({ tool: name, body: JSON.parse(route.request().postData() || "{}") as Record<string, unknown> });
+    }
+    return route.fulfill({ json: { connector_id: "claw", tool_name: name, node_ids: [], all: false, scope_configured: true } });
+  });
+
+  await page.goto("/admin/connectors");
+  await page.locator('[data-connector-card][data-connector="claw"] [data-connector-tools-entry]').click();
+  await expect(page.locator("[data-connector-drawer-counts]")).toContainText("共 3 个工具（已审阅 1 · 未审阅 2）");
+  await expect(page.locator("[data-connector-drawer-tool]")).toHaveCount(3);
+  await expect(page.locator('[data-connector-drawer-tool="create_record"]')).toContainText("未审阅 · 默认拒绝");
+
+  await page.locator("[data-connector-drawer-search]").fill("create");
+  await expect(page.locator("[data-connector-drawer-tool]")).toHaveCount(1);
+  await page.locator("[data-connector-drawer-search]").fill("");
+
+  await page.locator('[data-connector-drawer-pick="get_record"]').check();
+  await page.locator('[data-connector-drawer-pick="create_record"]').check();
+  await page.locator("[data-connector-batch-open]").click();
+  await page.locator("[data-connector-batch-mode]").selectOption("selected");
+  await page.locator("[data-connector-batch-node='n1']").check();
+  await page.locator("[data-connector-batch-apply]").click();
+  await expect(page.locator("[data-connector-drawer-notice]")).toContainText("已为 2 个工具保存范围授权");
+  expect(scopeWrites.map((write) => write.tool).sort()).toEqual(["create_record", "get_record"]);
+  expect(scopeWrites.find((write) => write.tool === "get_record")?.body).toMatchObject({ node_ids: ["n1"], all: false });
+  await expect(page.locator('[data-connector-drawer-tool="create_record"]')).toContainText("未审阅 · 默认拒绝");
+
+  const rowScope = page.locator('[data-connector-drawer-tool="list_records"] details.runtime-tool-scope');
+  await page.locator('[data-connector-drawer-tool="list_records"] details summary', { hasText: "使用范围" }).click();
+  await rowScope.locator("select").first().selectOption("selected");
+  await rowScope.locator("li.runtime-scope-node", { hasText: "张三" }).last().locator("input").check();
+  await rowScope.locator("button", { hasText: "保存范围授权" }).click();
+  await expect(rowScope.locator(".runtime-notice")).toContainText("工具范围授权已保存");
+  expect(scopeWrites.find((write) => write.tool === "list_records")?.body).toMatchObject({ node_ids: ["n3"], all: false });
+});

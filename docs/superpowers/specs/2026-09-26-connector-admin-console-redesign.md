@@ -58,7 +58,7 @@
 
 ## 前端结构（新增 `frontend/src/admin/connector/`）
 
-- `ConnectorHub.tsx`（两模式 + 搜索 + Tab + 创建菜单）、`ConnectorCreatePanel.tsx`（三个创建面板）、`ConnectorDetail.tsx`（六卡）、`ConnectorScopeCard.tsx`、`ConnectorToolsCard.tsx`、`ConnectorConfigCard.tsx`、`ConnectorIconUpload.tsx`、`connectorAdmin.css`。
+- `ConnectorHub.tsx`（两模式 + 搜索 + Tab + 创建菜单 +「查看工具」入口）、`ConnectorPanels.tsx`（三个创建面板 + 图标上传）、`ConnectorDetail.tsx`（六卡）、`ConnectorConfigCard.tsx`、`ConnectorToolsCard.tsx`（接口卡）、`ConnectorToolsDrawer.tsx`（全量工具 + 按部门/个人授权 + 批量授权）、`ConnectorScopeCard.tsx`、`ConnectorGrantsCard.tsx`、`ConnectorMark.tsx`、`entity.ts`、`connectorAdmin.css`。
 - 复用：`.hub-chip/.btn/.field/.menu-popover` 等既有 token 与范式；模态用 `createPortal` + 焦点锁（`ConfirmDialog` 的 `useFocusLock` 模式），Esc 关闭，焦点归还触发元素。
 - E2E 钩子（data 属性）：`data-connector-hub`、`data-connector-mode`、`data-connector-card`、`data-connector-action`、`data-connector-create-menu`、`data-connector-panel`、`data-connector-tool`、`data-connector-scope-mode`、`data-connector-scope-binding`。
 - 无障碍：Tab 用 `role=tablist/tab`；✓/✗ 状态带文本；焦点可见；触摸命中区 ≥44px；状态不只靠颜色。
@@ -83,3 +83,48 @@
 ## 验证红线
 
 - 新建/导入/保存 ≠ 启用；秘密不回显；L3 不经由本界面放行；同一视口 0–1 实底主 CTA；不新增员工端治理目录；不得以 stub/测试通过冒充生产能力（CONST-10）。
+
+---
+
+## 增补 A（2026-09-26）：卡片「查看工具」入口、全量工具视图与按部门/个人授权
+
+**需求：** MCP 卡片上要有「查看工具」入口；进入后要把该 MCP 服务的**全部工具**展示出来；并可**按部门或个人**授予权限。
+
+### A1. 入口（枢纽卡片）
+
+- 卡片操作区自下而上：状态 chip → 主操作（描边按钮）→ **「查看工具」低强调文字按钮**（`data-connector-tools-entry`）。
+- 不显示工具数（枢纽不做逐卡发现，避免伪造/多余网络调用）；真实数量在抽屉头部给出。
+- 点击 → 打开**右侧抽屉**「工具」（不离开枢纽）；详情页「接口」卡与抽屉**共用同一组件**，不产生两套工具清单。
+
+### A2. 工具视图（全量清单，`ConnectorToolsDrawer`）
+
+- 头部：`<MCP 名称> · 工具`；副行 `共 N 个工具（已审阅 X · 未审阅 Y）`；动作 [重新发现]；搜索框。
+- **全部工具必须可见**：未审阅（默认拒绝）、已审阅未启用、以及历史审批中已不存在的（orphan）都分别标注，不许隐藏（CONST-10）。
+- 行结构：名称 · L1/L2/L3 风险 chip · 审阅状态 · 描述（截断）· 展开 = inputSchema、schema 指纹、审批控件（沿用现状）、**授权控件**（见 A3）。
+- 未配置/未连通：诚实错误态 + 「去配置」链接，不显示假清单。
+- 提示语：**「授权不等于审阅：未审阅工具仍不可调用。」**
+
+### A3. 按部门 / 个人授权（沿用现行权限语义，无新增后端规则）
+
+最终判定（不变）：**连接器级命中 ∩（工具级未配置 ∪ 工具级命中）**，且工具已审阅启用；L3 仍走 Gateway。
+
+| 层级 | 作用 | 授予对象 | 备注 |
+|---|---|---|---|
+| 连接器级（默认） | 谁可以使用这个 MCP（覆盖其全部已审阅工具） | 一级部门 / 二级部门 / 组 / 岗位 / 个人（read/write）；「所有员工」= read | 抽屉顶部「本 MCP 的可用范围」入口，复用现有连接器级范围编辑器与覆盖人数预览 |
+| 工具级（收窄） | 指定哪些部门/个人可以调用**这一个**工具 | 一级部门 / 二级部门 / 组 / 岗位 / 个人 | 模式与现有工具级范围四态一致（未设时可选「沿用连接器授权」，设置过之后为 无人 / 所有员工 / 指定对象）；**只收窄，不放宽** |
+
+- 行内交互：工具行「授权」→ 就地展开组织树（一级部门→二级部门→组/岗位/个人）+ 已选对象 + [保存授权]。
+- **批量授权**：多选工具 → 底部操作条「授权给…」→ 选择部门/个人 + 范围 → 逐工具写入（每个工具一条 `runtime.tool_scope.updated` 审计，不合并副作用）。
+- 所有授权动作沿用现有审计事件；抽屉本身只读不写。
+
+### A4. 数据与接口（全部复用，无后端改动）
+
+`GET …/discovery`（全量工具 + schema 指纹）、`GET/PUT …/connector-scope`（连接器级）、`POST …/organization-scope/nodes`（组织树）、`GET/PUT …/tools/:toolName/scope`（工具级）。可选增强（非本期）：工具级覆盖人数统计。
+
+### A5. 验收
+
+1. 枢纽卡片点「查看工具」→ 抽屉打开并列出**全部**工具（含未审阅），头部计数正确。
+2. 行内/批量授权给部门或个人 → 保存后该工具的范围摘要更新，审计落账。
+3. 抽屉顶部「本 MCP 的可用范围」保存后覆盖人数与详情页一致。
+4. 未审阅工具在授权后仍显示「未审阅 · 默认拒绝」。
+5. 无障碍：抽屉焦点锁/Esc/焦点归还；键盘可完成选择与保存；状态不只靠颜色。
