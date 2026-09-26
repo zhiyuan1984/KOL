@@ -201,14 +201,13 @@ enterprise.put("/admin/users/:uid/skills", async (c) => {
 enterprise.get("/admin/connectors", (c) => {
   requireAdmin();
   return c.json(getConn().prepare(
-    `SELECT * FROM connectors
-      ORDER BY CASE id WHEN 'claw' THEN 0 WHEN 'starrykol' THEN 1 ELSE 2 END, label COLLATE NOCASE, id`,
+    "SELECT * FROM connectors ORDER BY label COLLATE NOCASE, id",
   ).all().map(connectorPublic));
 });
 
 enterprise.get("/connectors", (c) => {
   const user = scopedUser();
-  if (authDisabled() || (user && isAdmin(user))) {
+  if (authDisabled()) {
     return c.json((getConn().prepare(
       "SELECT id,label FROM connectors WHERE enabled=1 ORDER BY label COLLATE NOCASE, id",
     ).all()).map((row) => connectorEmployee({ ...(row as Row), access: "write" })));

@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
+import { ConnectorCredentialVault } from "./ConnectorCredentialVault";
 import {
   errorMessage,
   parseHttpTools,
@@ -96,11 +97,13 @@ function statusCode(error: unknown): number | undefined {
 
 function ToolApprovalRow({
   connectorId,
+  users,
   tool,
   policy,
   onSaved,
 }: {
   connectorId: string;
+  users: Array<Record<string, unknown>>;
   tool: RuntimeToolDefinition;
   policy?: RuntimeToolPolicy;
   onSaved: (row: RuntimeToolPolicy) => void;
@@ -167,11 +170,183 @@ function ToolApprovalRow({
           {busy ? "保存中…" : policy ? "保存审批" : "首次审批"}
         </button>
       </div>
+      {policy && <RuntimeToolScopeEditor connectorId={connectorId} tool={tool} users={users} />}
     </article>
   );
 }
 
-export function ConnectorRuntimeSettings({ connectorId }: { connectorId: string }) {
+type RuntimeScopeNode = {
+  id: string;
+  parent_id: string | null;
+  name: string;
+  level: 1 | 2 | 3;
+  is_person: boolean;
+  local_user_id: string | null;
+  status: "matched" | "unmatched";
+};
+type ScopeMode = "unset" | "none" | "all" | "selected";
+
+function RuntimeToolScopeEditor({ connectorId, tool, users }: { connectorId: string; tool: RuntimeToolDefinition; users: Array<Record<string, unknown>> }) {
+  const [nodes, setNodes] = useState<RuntimeScopeNode[]>([]);
+  const [nodeIds, setNodeIds] = useState<string[]>([]);
+  const [mode, setMode] = useState<ScopeMode>("unset");
+  const [scopeConfigured, setScopeConfigured] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [nodeName, setNodeName] = useState("");
+  const [nodeLevel, setNodeLevel] = useState<1 | 2 | 3>(1);
+  const [nodeKind, setNodeKind] = useState<"position" | "person">("position");
+  const [parentId, setParentId] = useState("");
+  const [userId, setUserId] = useState("");
+  const activeUsers = users.filter((user) => user.active !== false && user.active !== 0);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [organization, scope] = await Promise.all([
+        api.runtimeOrganizationScope(connectorId),
+        api.runtimeToolScope(connectorId, tool.name),
+      ]);
+      setNodes(organization.nodes);
+      setNodeIds(scope.node_ids);
+      setScopeConfigured(scope.scope_configured);
+      setMode(scope.all ? "all" : scope.node_ids.length ? "selected" : scope.scope_configured ? "none" : "unset");
+    } catch (cause) {
+      setError(errorMessage(cause, "无法读取此工具的范围授权"));
+    } finally {
+      setLoading(false);
+    }
+  }, [connectorId, tool.name]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const addNode = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const person = nodeLevel === 3 && nodeKind === "person";
+    if ((!person && !nodeName.trim()) || (nodeLevel > 1 && !parentId) || (person && !userId)) {
+      setError("请填写名称或选择个人，并为二级部门、岗位或个人选择上级。");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await api.addRuntimeOrganizationScopeNode(connectorId, {
+        level: nodeLevel,
+        ...(nodeLevel > 1 ? { parent_id: parentId } : {}),
+        ...(person ? { user_id: userId } : { name: nodeName.trim() }),
+      });
+      setNodes(result.nodes);
+      setScopeConfigured(true);
+      setMode((current) => current === "unset" ? "selected" : current);
+      setNodeName("");
+      setParentId("");
+      setUserId("");
+      setNotice("组织范围节点已添加。");
+    } catch (cause) {
+      setError(errorMessage(cause, "新增范围节点失败"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveScope = async () => {
+    if (mode === "unset") return;
+    if (mode === "selected" && !nodeIds.length) {
+      setError("请选择至少一个部门、岗位或个人，或改为无人可用。");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await api.saveRuntimeToolScope(connectorId, tool.name, mode === "selected" ? nodeIds : [], mode === "all");
+      setNotice(mode === "none" ? "已移除该工具的范围授权。" : "工具范围授权已保存。");
+    } catch (cause) {
+      setError(errorMessage(cause, "工具范围授权未保存"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleNode = (id: string) => setNodeIds((current) => current.includes(id)
+    ? current.filter((value) => value !== id)
+    : [...current, id]);
+  const renderNode = (node: RuntimeScopeNode) => {
+    const label = node.is_person
+      ? node.status === "matched" ? "个人" : "个人（未匹配）"
+      : node.level === 1 ? "一级部门" : node.level === 2 ? "二级部门" : "岗位";
+    return (
+      <li key={node.id} className="runtime-scope-node">
+        <label><input type="checkbox" checked={nodeIds.includes(node.id)} onChange={() => toggleNode(node.id)} />
+          <span><small>{label}</small><strong>{node.name}</strong></span>
+        </label>
+        {nodes.some((child) => child.parent_id === node.id) && <ul>{nodes.filter((child) => child.parent_id === node.id).map(renderNode)}</ul>}
+      </li>
+    );
+  };
+  const topLevel = nodes.filter((node) => !node.parent_id);
+
+  return (
+    <details className="runtime-tool-scope" data-runtime-tool-scope={tool.name}>
+      <summary>使用范围 · {mode === "unset" ? "沿用连接器授权" : mode === "all" ? "所有已授权员工" : mode === "none" ? "无人" : `${nodeIds.length} 个范围节点`}</summary>
+      {loading ? <p className="muted" role="status">正在读取范围节点…</p> : (
+        <div className="runtime-scope-content">
+          <p className="muted">范围在每次调用时按当前身份重新校验；“所有人”仅覆盖已获连接器权限的有效账号，不授予管理员隐式调用权。</p>
+          <label className="field">授权对象
+            <select value={mode} onChange={(event) => setMode(event.target.value as ScopeMode)} disabled={busy}>
+              {!scopeConfigured && <option value="unset">沿用连接器授权（未设工具范围）</option>}
+              <option value="none">无人（移除工具范围授权）</option>
+              <option value="all">所有员工（仍需连接器授权）</option>
+              <option value="selected">指定部门、岗位或个人</option>
+            </select>
+          </label>
+          {mode === "unset" && <p className="muted">尚未启用此连接器的组织范围治理。先配置工具范围后，才会按部门、岗位或个人限制调用。</p>}
+          {mode === "selected" && <>
+            <form className="runtime-scope-add" onSubmit={(event) => void addNode(event)}>
+              <label className="field">新增范围节点
+                <select value={nodeLevel} onChange={(event) => { setNodeLevel(Number(event.target.value) as 1 | 2 | 3); setParentId(""); }} disabled={busy}>
+                  <option value={1}>一级部门</option><option value={2}>二级部门</option><option value={3}>岗位或个人</option>
+                </select>
+              </label>
+              {nodeLevel === 3 && <label className="field">节点类型
+                <select value={nodeKind} onChange={(event) => setNodeKind(event.target.value as "position" | "person")} disabled={busy}>
+                  <option value="position">岗位</option><option value="person">个人账号</option>
+                </select>
+              </label>}
+              {nodeLevel > 1 && <label className="field">上级
+                <select value={parentId} onChange={(event) => setParentId(event.target.value)} disabled={busy}>
+                  <option value="">选择{nodeLevel === 2 ? "一级部门" : "二级部门"}</option>
+                  {nodes.filter((node) => node.level === nodeLevel - 1).map((node) => <option key={node.id} value={node.id}>{node.name}</option>)}
+                </select>
+              </label>}
+              {nodeLevel === 3 && nodeKind === "person" ? <label className="field">个人账号
+                <select value={userId} onChange={(event) => setUserId(event.target.value)} disabled={busy}>
+                  <option value="">选择有效账号</option>
+                  {activeUsers.map((user) => <option key={String(user.id)} value={String(user.id)}>{String(user.name || user.username || user.id)}{user.position ? ` · ${String(user.position)}` : ""}</option>)}
+                </select>
+                {!activeUsers.length && <small className="muted">没有可授权的有效账号。</small>}
+              </label> : <label className="field">名称<input value={nodeName} onChange={(event) => setNodeName(event.target.value)} maxLength={240} disabled={busy} /></label>}
+              <button className="btn ghost sm" disabled={busy}>{busy ? "保存中…" : "添加节点"}</button>
+            </form>
+            {topLevel.length ? <ul className="runtime-scope-tree">{topLevel.map(renderNode)}</ul> : <p className="muted">还没有范围节点；先添加一级部门。</p>}
+            <p className="muted">部门授权覆盖其下已配置的岗位与个人；个人节点只匹配所选账号。岗位按账号岗位名称匹配，本地账号没有部门字段；要精确限制部门成员，请在相应部门下配置个人节点。</p>
+          </>}
+          {error && <p className="error" role="alert">{error}</p>}
+          {notice && <p className="runtime-notice" role="status">{notice}</p>}
+          {mode !== "unset" && <button type="button" className="btn sm" onClick={() => void saveScope()} disabled={busy}>
+            {busy ? "保存中…" : mode === "none" ? "移除范围授权" : "保存范围授权"}
+          </button>}
+        </div>
+      )}
+    </details>
+  );
+}
+
+export function ConnectorRuntimeSettings({ connectorId, users = [] }: { connectorId: string; users?: Array<Record<string, unknown>> }) {
   const [form, setForm] = useState<ConfigForm>(() => formFromConfig(EMPTY_CONFIG));
   const [version, setVersion] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -364,6 +539,11 @@ export function ConnectorRuntimeSettings({ connectorId }: { connectorId: string 
         <button type="button" className="btn sm" onClick={() => void load()} disabled={loading}>刷新</button>
       </div>
 
+      <details className="panel runtime-vault-disclosure">
+        <summary><strong>凭据保险库</strong><span>写入或管理服务端引用；原始秘密保存后不可读取。</span></summary>
+        <ConnectorCredentialVault />
+      </details>
+
       {loading && <p className="muted" role="status" data-runtime-config-loading>正在读取已保存配置与工具策略…</p>}
       {loadingError && <div className="runtime-state runtime-state-error" role="alert"><strong>无法加载运行时配置</strong><span>{loadingError}</span><button type="button" className="btn sm" onClick={() => void load()}>重试</button></div>}
       {!loading && !loadingError && !configExists && <div className="runtime-state" data-runtime-config-empty><strong>尚未保存运行时配置</strong><span>先填写草稿并保存；缺失配置时运行时会拒绝调用，不会回退到未登记环境。</span></div>}
@@ -464,7 +644,7 @@ export function ConnectorRuntimeSettings({ connectorId }: { connectorId: string 
         <div className="runtime-tools-list">
           {tools.map((tool) => {
             const policy = policyByTool.get(policyKey(connectorId, tool.name));
-            return <ToolApprovalRow key={`${tool.name}:${tool.schema_hash}:${policy?.version ?? 0}`} connectorId={connectorId} tool={tool} policy={policy} onSaved={(saved) => {
+            return <ToolApprovalRow key={`${tool.name}:${tool.schema_hash}:${policy?.version ?? 0}`} connectorId={connectorId} users={users} tool={tool} policy={policy} onSaved={(saved) => {
               setPolicies((current) => [...current.filter((item) => policyKey(item.connector_id, item.tool_name) !== policyKey(saved.connector_id, saved.tool_name)), saved]);
               setNotice(`工具“${saved.tool_name}”的审批策略已保存。Skill 仍需单独精确挂载。`);
             }} />;

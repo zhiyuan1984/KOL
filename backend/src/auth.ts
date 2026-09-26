@@ -301,17 +301,20 @@ function userPublic(user: AppUser): Json {
 
 function permissions(user: AppUser): Json {
   const db = getConn();
-  if (isAdmin(user)) return { admin: true, skills: ["*"], connectors: { "*": "admin" }, approval_roles: ["*"] };
-  const skills = (db.prepare("SELECT skill_id FROM user_skill_grants WHERE user_id = ?").all(user.id) as Row[])
-    .map((r) => String(r.skill_id));
+  const admin = isAdmin(user);
+  const skills = admin
+    ? ["*"]
+    : (db.prepare("SELECT skill_id FROM user_skill_grants WHERE user_id = ?").all(user.id) as Row[])
+      .map((r) => String(r.skill_id));
   const connectors = Object.fromEntries(
     (db.prepare("SELECT connector_id, access FROM user_connector_grants WHERE user_id = ?").all(user.id) as Row[])
       .map((r) => [String(r.connector_id), String(r.access)]),
   );
-  const approvalRoles = (
-    db.prepare("SELECT approval_role FROM approval_role_bindings WHERE user_id = ?").all(user.id) as Row[]
-  ).map((r) => String(r.approval_role));
-  return { admin: false, skills, connectors, approval_roles: approvalRoles };
+  const approvalRoles = admin
+    ? ["*"]
+    : (db.prepare("SELECT approval_role FROM approval_role_bindings WHERE user_id = ?").all(user.id) as Row[])
+      .map((r) => String(r.approval_role));
+  return { admin, skills, connectors, approval_roles: approvalRoles };
 }
 
 function createSession(c: Context, userId: string): void {
@@ -455,7 +458,6 @@ export function requireConnector(connectorId: string, access: "read" | "write" |
   if (!user) throw new HttpFail(401, "authentication required");
   const connector = getConn().prepare("SELECT enabled FROM connectors WHERE id=?").get(connectorId) as Row | undefined;
   if (!connector || !connector.enabled) throw new HttpFail(403, { code: "connector_disabled", connector_id: connectorId });
-  if (isAdmin(user)) return;
   const grant = getConn().prepare("SELECT access FROM user_connector_grants WHERE user_id=? AND connector_id=?")
     .get(user.id, connectorId) as { access: string } | undefined;
   const levels = { read: 1, write: 2, admin: 3 };
@@ -475,7 +477,6 @@ export function requireStageWrite(): void {
   const granted = (id: string) => {
     const connector = getConn().prepare("SELECT enabled FROM connectors WHERE id=?").get(id) as Row | undefined;
     if (!connector || !connector.enabled) return false;
-    if (isAdmin(user)) return true;
     const grant = getConn().prepare("SELECT access FROM user_connector_grants WHERE user_id=? AND connector_id=?")
       .get(user.id, id) as { access: string } | undefined;
     return Boolean(grant && levels[grant.access as keyof typeof levels] >= levels.write);

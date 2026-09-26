@@ -14057,9 +14057,27 @@ button.today-brief-primary-btn:disabled {
 .skill-tool-choice-copy { display: grid; gap: 2px; min-width: 0; }
 .skill-tool-choice-copy small { color: var(--text-muted); font-size: var(--font-xs); overflow-wrap: anywhere; }
 .runtime-inline-error { margin: 0; }
+.runtime-tool-scope { grid-column: 1 / -1; min-width: 0; padding-top: var(--space-2); border-top: 1px solid var(--line); }
+.runtime-tool-scope > summary { cursor: pointer; color: var(--text); font-size: var(--font-sm); font-weight: 600; }
+.runtime-scope-content { display: grid; gap: var(--space-2); margin-top: var(--space-2); }
+.runtime-scope-content > p { margin: 0; }
+.runtime-scope-add { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: end; gap: var(--space-2); padding: var(--space-2); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--bg-elevated); }
+.runtime-scope-add .field { min-width: 0; }
+.runtime-scope-tree, .runtime-scope-tree ul { list-style: none; margin: 0; padding: 0; }
+.runtime-scope-tree { display: grid; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.runtime-scope-tree ul { margin-left: var(--space-3); padding-left: var(--space-2); border-left: 1px solid var(--line); }
+.runtime-scope-node label { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2); cursor: pointer; }
+.runtime-scope-node label > span { display: grid; min-width: 0; gap: 2px; }
+.runtime-scope-node label small { color: var(--text-muted); font-size: var(--font-xs); }
+.runtime-scope-node label strong { overflow-wrap: anywhere; }
+.runtime-vault-disclosure { padding: var(--space-3); }
+.runtime-vault-disclosure > summary { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: var(--space-2); cursor: pointer; }
+.runtime-vault-disclosure > summary span { color: var(--text-muted); font-size: var(--font-sm); }
+.runtime-vault-disclosure[open] > .runtime-vault { margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--line); }
 @media (max-width: 760px) {
   .runtime-form-grid, .runtime-history-grid, .runtime-tool-row { grid-template-columns: 1fr; }
   .runtime-section-heading, .skill-binding-connector-head { align-items: flex-start; flex-direction: column; }
+  .runtime-scope-add { grid-template-columns: 1fr; }
   .skill-tool-choice { grid-template-columns: auto minmax(0, 1fr); }
   .skill-tool-choice > .muted { grid-column: 2; }
 }

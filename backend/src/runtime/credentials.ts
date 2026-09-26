@@ -3,7 +3,7 @@ import { asRow, asRows, getConn, nowIso, onConnReset, txImmediate } from "../db.
 import { HttpFail } from "../host/errors.js";
 import { nid } from "../ids.js";
 import type { Row } from "../types.js";
-import { ensureRuntimeSchema, validateConnectorConfig, type ConnectorConfig } from "./store.js";
+import { ensureRuntimeSchema } from "./store.js";
 
 /**
  * Server-side credential vault. Ciphertext is authenticated with an environment
@@ -290,65 +290,6 @@ export function createCredential(input: {
     throw error;
   }
   return getCredentialMetadata(id);
-}
-
-/**
- * The Starry onboarding form has exactly one secret field. This writes the
- * encrypted organization secret and the reference-only MCP configuration in
- * the same SQLite transaction, so no orphaned secret or half-bound connector
- * can be created by a failed request.
- */
-export function bindStarryOrganizationKey(input: {
-  connector_id: unknown;
-  url: unknown;
-  timeout_ms?: unknown;
-  expected_version: unknown;
-  secret: unknown;
-}, actorId: string): { credential: CredentialMetadata; config: ConnectorConfig; version: number } {
-  const connectorId = String(input.connector_id || "");
-  if (connectorId !== "starrykol") fail("runtime_starry_connector_required", 400);
-  const timeout = input.timeout_ms === undefined ? 30_000 : input.timeout_ms;
-  const config = validateConnectorConfig({
-    protocol: "mcp",
-    url: input.url,
-    timeout_ms: timeout,
-    headers_secret_refs: { "X-MCP-API-KEY": "cred_placeholder" },
-  });
-  const expected = expectedVersion(input.expected_version);
-  const clear = secretValue(input.secret);
-  ensureCredentialSchema();
-  const id = nid("cred");
-  const encrypted = encrypt(id, null, clear);
-  const now = nowIso();
-  const finalConfig: ConnectorConfig = {
-    ...config,
-    headers_secret_refs: { "X-MCP-API-KEY": id },
-  };
-  let version = 1;
-  txImmediate((db) => {
-    const connector = db.prepare("SELECT id FROM connectors WHERE id=?").get(connectorId) as Row | undefined;
-    if (!connector) fail("runtime_connector_not_found", 404);
-    const existing = db.prepare("SELECT version FROM runtime_connector_config WHERE connector_id=?").get(connectorId) as Row | undefined;
-    if (existing) {
-      const actual = Number(existing.version);
-      if (actual !== expected) fail("runtime_governance_version_conflict", 409);
-      version = actual + 1;
-    } else if (expected !== 0) {
-      fail("runtime_governance_version_conflict", 409);
-    }
-    db.prepare(`INSERT INTO runtime_credentials
-      (id,type,owner_user_id,label,purpose,status,ciphertext,nonce,auth_tag,key_version,version,created_by,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
-      id, "organization_secret", null, "Starry KOL MCP 组织 API Key", "Starry KOL MCP 连接验证", "active",
-      encrypted.ciphertext, encrypted.nonce, encrypted.authTag, 1, 1, actorId, now, now,
-    );
-    db.prepare(`INSERT INTO runtime_connector_config(connector_id,config_json,version,updated_at) VALUES (?,?,?,?)
-      ON CONFLICT(connector_id) DO UPDATE SET config_json=excluded.config_json,version=excluded.version,updated_at=excluded.updated_at`)
-      .run(connectorId, JSON.stringify(finalConfig), version, now);
-    db.prepare("UPDATE connectors SET enabled=0,status='pending_verification',last_error=NULL,updated_at=? WHERE id=?")
-      .run(now, connectorId);
-  });
-  return { credential: getCredentialMetadata(id), config: finalConfig, version };
 }
 
 /** Metadata-only update. Secret, owner, type, and cryptographic material are immutable here. */

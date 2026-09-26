@@ -1,17 +1,14 @@
 import { Hono } from "hono";
 import { authDisabled, requireAdmin } from "../auth.js";
-import { audit, getConn, nowIso } from "../db.js";
+import { audit } from "../db.js";
 import { HttpFail } from "../host/errors.js";
 import {
-  bindStarryOrganizationKey,
   createCredential,
   deleteCredential,
   getCredentialMetadata,
   listCredentialMetadata,
   updateCredentialMetadata,
 } from "../runtime/credentials.js";
-import { inspectConnectorTools, runtimeErrorCode } from "../runtime/execution.js";
-import { recordToolInventory } from "../runtime/organization.js";
 
 /**
  * Credential governance endpoints. The parent application owns mounting this
@@ -80,45 +77,6 @@ connectorCredentialsRouter.post("/admin/runtime/credentials", async (c) => {
     version: created.version,
   });
   return c.json(created, 201);
-});
-
-/** Product-specific onboarding: a single one-time Starry key field, then a safe list-tools test. */
-connectorCredentialsRouter.post("/admin/runtime/connectors/starrykol/onboard", async (c) => {
-  const admin = credentialAdmin();
-  const body = await bodyObject(c);
-  onlyFields(body, ["url", "timeout_ms", "expected_version", "secret"]);
-  const bound = bindStarryOrganizationKey({
-    connector_id: "starrykol",
-    url: body.url,
-    timeout_ms: body.timeout_ms,
-    expected_version: body.expected_version,
-    secret: body.secret,
-  }, admin.id);
-  const checkedAt = nowIso();
-  try {
-    const tools = await inspectConnectorTools(
-      { agentId: "governance", skillId: "", userId: admin.id, runId: "starry-onboarding" },
-      "starrykol",
-    );
-    recordToolInventory("starrykol", tools);
-    getConn().prepare("UPDATE connectors SET enabled=0,status='verified',last_verified_at=?,last_error=NULL,updated_at=? WHERE id='starrykol'")
-      .run(checkedAt, checkedAt);
-    audit(admin.id, "runtime.starry.onboarded", {
-      connector_id: "starrykol", config_version: bound.version, credential_id: bound.credential.id, tool_count: tools.length,
-    });
-    return c.json({
-      config: { url: bound.config.url || "", timeout_ms: bound.config.timeout_ms || 30_000, version: bound.version },
-      credential_saved: true,
-      checked_at: checkedAt,
-      tools,
-    }, 201);
-  } catch (error) {
-    const code = runtimeErrorCode(error);
-    getConn().prepare("UPDATE connectors SET enabled=0,status='verification_failed',last_verified_at=?,last_error=?,updated_at=? WHERE id='starrykol'")
-      .run(checkedAt, code, checkedAt);
-    audit(admin.id, "runtime.starry.onboarding_failed", { connector_id: "starrykol", config_version: bound.version, code });
-    throw new HttpFail(502, { code, config_saved: true });
-  }
 });
 
 connectorCredentialsRouter.put("/admin/runtime/credentials/:id", async (c) => {

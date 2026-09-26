@@ -78,16 +78,16 @@ export function authorizeConnector(
   if (!binding?.enabled) reject("runtime_connector_unbound");
   const connector = getConn().prepare("SELECT id,enabled,updated_at FROM connectors WHERE id=?").get(connectorId) as Row | undefined;
   if (!connector?.enabled) reject("runtime_connector_disabled");
-  // Admin can manage assets, but never skips binding / enabled / risk checks.
-  if (!parseRoles(skill.user.roles).includes("admin")) {
-    const scopeConfigured = connectorHasOrganizationScopes(connectorId);
-    const scoped = scopeConfigured && toolName ? userHasToolScope(connectorId, toolName, context.userId) : false;
-    const grant = getConn().prepare("SELECT access FROM user_connector_grants WHERE user_id=? AND connector_id=?")
-      .get(context.userId, connectorId) as Row | undefined;
-    const levels: Record<string, number> = { read: 1, write: 2, admin: 3 };
-    if (!scoped && !permitScopeResolution && (!grant || (levels[String(grant.access)] || 0) < levels[access])) {
-      reject("runtime_connector_not_granted");
-    }
+  const scopeConfigured = connectorHasOrganizationScopes(connectorId);
+  const scoped = scopeConfigured && toolName ? userHasToolScope(connectorId, toolName, context.userId) : false;
+  const grant = getConn().prepare("SELECT access FROM user_connector_grants WHERE user_id=? AND connector_id=?")
+    .get(context.userId, connectorId) as Row | undefined;
+  const levels: Record<string, number> = { read: 1, write: 2, admin: 3 };
+  if (!grant || (levels[String(grant.access)] || 0) < levels[access]) {
+    reject("runtime_connector_not_granted");
+  }
+  if (!permitScopeResolution && scopeConfigured && (!toolName || !scoped)) {
+    reject("runtime_tool_scope_not_granted");
   }
   const configuration = getConnectorConfig(connectorId);
   if (!configuration) reject("runtime_connector_not_configured", 409);

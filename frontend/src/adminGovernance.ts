@@ -25,12 +25,6 @@ export const GOVERNANCE_STATUS_LABEL: Record<GovernanceStatus, string> = {
   error: "验证失败",
 };
 
-/** Fixed product catalog; never infer purpose from a legacy connector alias. */
-export const CONNECTOR_PURPOSE: Record<string, string> = {
-  claw: "创作者采集、检索与画像数据",
-  starrykol: "红人库、负责人与合作往来事实",
-};
-
 export function sanitizeAdminText(value: unknown): string {
   const raw = String(value ?? "").trim();
   if (!raw) return "";
@@ -73,12 +67,8 @@ export function governanceStatus(connector: PublicConnector): { key: GovernanceS
   return { key: "draft", label: GOVERNANCE_STATUS_LABEL.draft };
 }
 
-export function connectorPurpose(id: string, persistedPurpose = ""): string {
-  return persistedPurpose || CONNECTOR_PURPOSE[id] || "未填写业务用途";
-}
-
-export function isStarryConnector(id: string): boolean {
-  return /starry/i.test(id);
+export function connectorPurpose(persistedPurpose = ""): string {
+  return persistedPurpose || "未填写业务用途";
 }
 
 export function parseConnectorGrant(value: unknown): { connectorId: string; access: string } | null {

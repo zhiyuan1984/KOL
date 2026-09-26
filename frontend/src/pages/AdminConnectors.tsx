@@ -4,7 +4,6 @@ import { auditTouchesConnector, connectorPurpose, governanceStatus, publicConnec
 import { connectorDisableConfirm } from "../adminConfirm";
 import { useAdminConfirm, type AskAdminConfirm } from "../components/ConfirmDialog";
 import { ConnectorRuntimeSettings } from "../components/ConnectorRuntimeSettings";
-import { StarryConnectorSetup } from "../components/StarryConnectorSetup";
 import { auditEventLabel } from "../labels";
 
 type SaveFn = (path: string, body: AdminRow, message: string, method?: string) => Promise<void>;
@@ -20,7 +19,7 @@ function statusNote(connector: PublicConnector): string {
 
 function actionLabel(connector: PublicConnector): string {
   const status = governanceStatus(connector).key;
-  if (status === "draft") return connector.id === "starrykol" ? "配置 Starry KOL MCP" : "开始接入";
+  if (status === "draft") return "开始接入";
   if (status === "pending" || status === "error") return "继续配置";
   if (status === "verified") return "审阅工具并启用";
   return "查看治理";
@@ -28,7 +27,7 @@ function actionLabel(connector: PublicConnector): string {
 
 export function AdminConnectorsHub({ connectors, onSave }: { connectors: AdminRow[]; users: AdminRow[]; onSave: SaveFn }) {
   const rows = useMemo(() => connectors.map(publicConnectorView)
-    .sort((a, b) => (a.id === "claw" ? -1 : b.id === "claw" ? 1 : a.id === "starrykol" ? -1 : b.id === "starrykol" ? 1 : a.label.localeCompare(b.label))), [connectors]);
+    .sort((a, b) => a.label.localeCompare(b.label, "zh-CN")), [connectors]);
   const [openCreate, setOpenCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState("");
@@ -48,7 +47,7 @@ export function AdminConnectorsHub({ connectors, onSave }: { connectors: AdminRo
       <div><p className="page-kicker">连接器治理</p><h2>连接器目录</h2><p className="muted">当前显示已加入组织目录的 MCP。可继续新增受管 MCP；每一条都必须依次完成连接验证、工具治理和组织范围设置后才可启用。</p></div>
       <button type="button" className="btn" onClick={() => setOpenCreate((value) => !value)}>{openCreate ? "收起新增表单" : "从目录新增 MCP"}</button>
     </div>
-    <div className="connector-directory-notice"><strong>密钥只输入一次</strong><span>在对应连接器的专属接入步骤中保存。页面不会展示环境变量、Header JSON、凭据引用 ID 或秘密原值。</span></div>
+    <div className="connector-directory-notice"><strong>管理员负责治理</strong><span>配置权限不等于工具调用权限；调用仍要求员工当前连接器授权与工具范围。L3 动作继续经过确认与 Host Gateway。</span></div>
     {openCreate && <form className="connector-create-form" onSubmit={(event) => void add(event)}><div><h3>新增受管 MCP</h3><p className="muted">先加入目录，再完成连接、测试、工具与范围治理。短名称创建后不可修改。</p></div><label className="field">显示名称<input name="label" required maxLength={120} placeholder="例如：供应链 MCP" /></label><label className="field">短名称<input name="id" required pattern="[a-z][a-z0-9_-]{2,63}" placeholder="supply_chain" /><small>仅小写字母、数字、连字符或下划线。</small></label><label className="field connector-create-purpose">业务用途<textarea name="purpose" required maxLength={280} placeholder="说明此 MCP 提供的组织业务能力" /></label>{createError && <p className="error">{createError}</p>}<div className="admin-actions"><button className="btn work" disabled={creating}>{creating ? "正在加入…" : "加入目录"}</button></div></form>}
     {!rows.length ? <div className="panel connector-loading" role="status">正在读取连接器目录…</div> : <div className="connector-directory-list" data-admin-connectors-table>{rows.map((connector) => <ConnectorDirectoryRow key={connector.id} connector={connector} />)}</div>}
   </section>;
@@ -57,16 +56,16 @@ export function AdminConnectorsHub({ connectors, onSave }: { connectors: AdminRo
 function ConnectorDirectoryRow({ connector }: { connector: PublicConnector }) {
   const status = governanceStatus(connector);
   return <article className="connector-directory-row" data-connector={connector.id} data-governance-status={status.key}>
-    <div className={`connector-directory-mark ${connector.id === "starrykol" ? "starry" : connector.id === "claw" ? "crawler" : ""}`}>{connector.id === "starrykol" ? "S" : connector.id === "claw" ? "M" : "+"}</div>
-    <div className="connector-directory-title"><strong>{connector.label}</strong><p>{connectorPurpose(connector.id, connector.purpose)}</p></div>
+    <div className="connector-directory-mark">MCP</div>
+    <div className="connector-directory-title"><strong>{connector.label}</strong><p>{connectorPurpose(connector.purpose)}</p></div>
     <div><span className={`admin-status is-${status.key}`}>{status.label}</span><p className="muted">{statusNote(connector)}</p></div>
     <div className="connector-directory-fact"><strong>{connector.lastVerifiedAt ? "已验证" : "尚未测试"}</strong><p>{connector.lastVerifiedAt || "读取工具清单后显示验证记录"}</p></div>
-    <div className="connector-directory-fact"><strong>适用范围</strong><p>在工具治理中按部门与岗位设置</p></div>
-    <Link className={connector.id === "starrykol" && status.key === "draft" ? "btn work" : "btn"} to={`/admin/connectors/${encodeURIComponent(connector.id)}`}>{actionLabel(connector)}</Link>
+    <div className="connector-directory-fact"><strong>适用范围</strong><p>在工具治理中按部门、岗位或个人设置</p></div>
+    <Link className="btn" to={`/admin/connectors/${encodeURIComponent(connector.id)}`}>{actionLabel(connector)}</Link>
   </article>;
 }
 
-export function AdminConnectorDetail({ connectorId, connectors, auditRows, onSave }: { connectorId: string; connectors: AdminRow[]; users: AdminRow[]; auditRows: AdminRow[]; onSave: SaveFn }) {
+export function AdminConnectorDetail({ connectorId, connectors, users, auditRows, onSave }: { connectorId: string; connectors: AdminRow[]; users: AdminRow[]; auditRows: AdminRow[]; onSave: SaveFn }) {
   const raw = connectors.find((row) => String(row.id) === connectorId);
   const connector = raw ? publicConnectorView(raw) : null;
   const { ask, dialog } = useAdminConfirm();
@@ -76,8 +75,8 @@ export function AdminConnectorDetail({ connectorId, connectors, auditRows, onSav
   const enable = () => void onSave(`/api/admin/connectors/${connector.id}`, { enabled: true }, "连接器已启用", "PATCH");
   return <section className="admin-govern connector-detail" data-admin-page="connector-detail" data-connector-id={connector.id}>
     {dialog}<p className="admin-crumb"><Link to="/admin/connectors">连接器目录</Link> / {connector.label}</p>
-    <header className="connector-detail-hero"><div><p className="page-kicker">组织级 MCP</p><h2>{connector.label}</h2><p>{connectorPurpose(connector.id, connector.purpose)}</p></div><div className="connector-detail-actions"><span className={`admin-status is-${status.key}`}>{status.label}</span>{connector.enabled ? <button type="button" className="btn danger" onClick={() => ask(connectorDisableConfirm(connector.label, connector.id), () => onSave(`/api/admin/connectors/${connector.id}`, { enabled: false }, "连接器已停用", "PATCH"))}>停用</button> : connector.id !== "starrykol" && status.key === "verified" ? <button type="button" className="btn work" onClick={enable}>启用连接器</button> : null}</div></header>
-    {connector.id === "starrykol" ? <StarryConnectorSetup onEnable={enable} /> : <section className="panel connector-generic-setup"><h3>受管 MCP 接入</h3><p className="muted">此连接器尚未有专属向导。完成配置、测试、逐工具治理与组织范围设置后才可启用。</p><ConnectorRuntimeSettings connectorId={connector.id} /></section>}
+    <header className="connector-detail-hero"><div><p className="page-kicker">受管 MCP 连接器</p><h2>{connector.label}</h2><p>{connectorPurpose(connector.purpose)}</p></div><div className="connector-detail-actions"><span className={`admin-status is-${status.key}`}>{status.label}</span>{connector.enabled ? <button type="button" className="btn danger" onClick={() => ask(connectorDisableConfirm(connector.label, connector.id), () => onSave(`/api/admin/connectors/${connector.id}`, { enabled: false }, "连接器已停用", "PATCH"))}>停用</button> : status.key === "verified" ? <button type="button" className="btn work" onClick={enable}>启用连接器</button> : null}</div></header>
+    <section className="panel connector-generic-setup"><ConnectorRuntimeSettings connectorId={connector.id} users={users} /></section>
     <details className="panel connector-disclosure"><summary><strong>技术与审计</strong><span>仅在需要排障时查看；不显示秘密或凭据原值。</span></summary><div className="connector-disclosure-body">{!recent.length ? <p className="muted">暂无本连接器的治理记录。</p> : recent.map((row) => <article className="admin-row" key={String(row.id)}><div><strong>{auditEventLabel(String(row.event_type))}</strong><p className="muted">{String(row.ts || "")} · {rowTitle(row.actor ? { name: row.actor } : row)}</p></div></article>)}</div></details>
   </section>;
 }
