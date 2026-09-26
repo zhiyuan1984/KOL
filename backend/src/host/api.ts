@@ -1536,8 +1536,6 @@ export function emailCardPayload(d: Row): Json {
     tracks: official ? groupedStageTracks(official) : [],
     status: st,
     send_error: d.send_error,
-    knowledge_id: extra.knowledge_id || null,
-    knowledge_version: extra.knowledge_version || null,
     buttons,
     send_disabled: ["waiting_approval", "sent", "sending", "send_unknown"].includes(st),
     footer: extra.footer || (d.skill === "ship_notice" ? "已发货" : null),
