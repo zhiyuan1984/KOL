@@ -7,6 +7,7 @@ import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 import { DEMO_USER } from "../src/config.js";
 import {
+  applyFollowRelease,
   applyKolAnalyzeAction,
   claimFollow,
   deleteProfilesWithoutHomepage,
@@ -458,6 +459,28 @@ describe("kol follow/pool memory P0", () => {
     expect(stage.stage_code).toBe("INTERESTED");
     const pool = await request("GET", "/api/home/pool");
     expect((pool.body.items as Json[]).some((row) => row.kol_uid === "KOL_REL")).toBe(true);
+    expect((pool.body.items as Json[]).find((row) => row.kol_uid === "KOL_REL")?.public_stage).toBe("INITIAL_CONTACT");
+  });
+
+  it("automatic 14-day release exposes only the public pool status", async () => {
+    seedProfile("KOL_OVERDUE");
+    const claimed = claimFollow({
+      kolUid: "KOL_OVERDUE",
+      scopeBrand: "LT",
+      confirm: true,
+      actor: { id: DEMO_USER.id, name: DEMO_USER.name, brands: ["LT"] },
+    });
+    const followId = String((claimed.follow as Json).follow_id);
+    const follow = getConn().prepare("SELECT * FROM kol_follow_index WHERE id=?").get(followId) as Record<string, unknown>;
+    applyFollowRelease(getConn(), follow, "cron", "ownership-release");
+
+    const pool = await request("GET", "/api/home/pool");
+    expect(pool.status).toBe(200);
+    const row = (pool.body.items as Json[]).find((item) => item.kol_uid === "KOL_OVERDUE");
+    expect(row?.public_stage).toBe("14天无回复");
+    expect(row).not.toHaveProperty("release_reason");
+    expect(row).not.toHaveProperty("latest_release_reason");
+    expect(row).not.toHaveProperty("last_effective_mail_at");
   });
 
   it("first outbound mail renews clock but does not create a follow", () => {
