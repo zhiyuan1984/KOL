@@ -26,9 +26,10 @@
 
 ### 枢纽 `/admin/connectors`
 
-- 模式 A「已添加的连接器」（默认）：搜索 + [浏览连接器] + [创建 ⌄] + 卡片网格（2 列，≥1100px）。
-- 模式 B「浏览连接器」：搜索 + Tab（应用 / 自定义 MCP）+ [创建 ⌄] + 卡片（右侧 `+` 加入 / `✓` 已加入）。
-- 卡片 = 图标砖 + 名称 + 用途（≤2 行）+ 状态 chip + 最近验证 + 主操作（进详情 / 继续配置）。
+- 版式（2026-09-27 对版）：标题 + 细分隔线 / 搜索（左）+ [浏览连接器] + [创建 ⌄]（右）/ 浏览模式 Tab 单独一行 / 卡片网格（2 列，≥1100px；`--radius-cards` 圆角、48px 图标砖）。
+- 模式 A「已添加的连接器」（默认）：卡片网格。
+- 模式 B「浏览连接器」：Tab（应用 / 自定义 MCP）；未加入目录的内置项右侧 `+`。
+- 卡片 = 图标砖 + 名称 + 用途（≤2 行）+ 小字状态行（状态 · 最近验证 [· 已审阅接口] · 「查看工具」文字入口）+ 右侧 `✓`；点击卡片或标题进详情；不使用 chip / 按钮堆叠。
 - 创建菜单三项：**自定义 MCP**、**通过 JSON 导入 MCP**、**通过 URL 添加 MCP**。
 - 状态模型沿用既有治理状态（未配置 / 待验证 / 验证失败 / 已验证待启用 / 已启用 / 已停用）。
 
@@ -60,7 +61,7 @@
 
 - `ConnectorHub.tsx`（两模式 + 搜索 + Tab + 创建菜单 +「查看工具」入口）、`ConnectorPanels.tsx`（三个创建面板 + 图标上传）、`ConnectorDetail.tsx`（六卡）、`ConnectorConfigCard.tsx`、`ConnectorToolsCard.tsx`（接口卡）、`ConnectorToolsDrawer.tsx`（全量工具 + 按部门/个人授权 + 批量授权）、`ConnectorScopeCard.tsx`、`ConnectorGrantsCard.tsx`、`ConnectorMark.tsx`、`entity.ts`、`connectorAdmin.css`。
 - 复用：`.hub-chip/.btn/.field/.menu-popover` 等既有 token 与范式；模态用 `createPortal` + 焦点锁（`ConfirmDialog` 的 `useFocusLock` 模式），Esc 关闭，焦点归还触发元素。
-- E2E 钩子（data 属性）：`data-connector-hub`、`data-connector-mode`、`data-connector-card`、`data-connector-action`、`data-connector-create-menu`、`data-connector-panel`、`data-connector-tool`、`data-connector-scope-mode`、`data-connector-scope-binding`。
+- E2E 钩子（data 属性）：`data-connector-hub`、`data-connector-mode`、`data-connector-card`、`data-connector-tools-entry`、`data-connector-tools-drawer`、`data-connector-drawer-*`、`data-connector-batch-*`、`data-connector-create-menu`、`data-connector-panel`、`data-connector-tool`、`data-connector-scope-mode`、`data-connector-scope-binding`。
 - 无障碍：Tab 用 `role=tablist/tab`；✓/✗ 状态带文本；焦点可见；触摸命中区 ≥44px；状态不只靠颜色。
 
 ## 合规差异（相对附件，必须显式呈现）
@@ -92,7 +93,7 @@
 
 ### A1. 入口（枢纽卡片）
 
-- 卡片操作区自下而上：状态 chip → 主操作（描边按钮）→ **「查看工具」低强调文字按钮**（`data-connector-tools-entry`）。
+- 入口位置（2026-09-27 对版）：卡片小字状态行里的 **「查看工具」文字入口**（`data-connector-tools-entry`）；卡片正面保持「图标 + 名称 + 用途 + ✓」的参考版式，不再有 chip / 按钮堆叠。
 - 不显示工具数（枢纽不做逐卡发现，避免伪造/多余网络调用）；真实数量在抽屉头部给出。
 - 点击 → 打开**右侧抽屉**「工具」（不离开枢纽）；详情页「接口」卡与抽屉**共用同一组件**，不产生两套工具清单。
 

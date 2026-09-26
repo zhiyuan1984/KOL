@@ -1,15 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { governanceStatus, type AdminRow } from "../../adminGovernance";
 import { ConnectorMark } from "./ConnectorMark";
 import { JsonImportPanel, McpConfigPanel, UrlAddPanel } from "./ConnectorPanels";
 import { ConnectorToolsDrawer } from "./ConnectorToolsDrawer";
 import {
-  connectorActionLabel,
   connectorCardView,
   connectorHref,
   connectorStatusNote,
-  kindLabel,
   type ConnectorCardView,
 } from "./entity";
 import "./connectorAdmin.css";
@@ -76,13 +74,25 @@ export function ConnectorHub({ connectors, users, onSave, reload }: {
   return (
     <section className="connector-hub" data-connector-hub data-connector-mode={browsing ? "browse" : "added"} data-admin-page="connectors">
       <header className="connector-hub-head">
-        <div>
-          <p className="page-kicker">连接器治理</p>
-          <h2 data-connector-hub-title>{browsing ? "连接器" : "已添加的连接器"}</h2>
-          <p className="muted">
-            组织当前挂接的连接能力。配置权限不等于调用权限；接口仍需逐项审阅与范围授权，L3 动作继续经过确认与 Host Gateway。
-          </p>
-        </div>
+        <h2 data-connector-hub-title>{browsing ? "连接器" : "已添加的连接器"}</h2>
+      </header>
+
+      <div className="connector-hub-tools">
+        <label className="connector-search">
+          <svg viewBox="0 0 24 24" aria-hidden>
+            <circle cx="11" cy="11" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.7" />
+            <path d="M16 16.4 20 20.4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+          </svg>
+          <input
+            type="search"
+            className="connector-search-input"
+            data-connector-search
+            placeholder="搜索连接器"
+            aria-label="搜索连接器"
+            value={q}
+            onChange={(event) => setQ(event.target.value)}
+          />
+        </label>
         <div className="connector-hub-actions">
           <button
             type="button"
@@ -115,42 +125,25 @@ export function ConnectorHub({ connectors, users, onSave, reload }: {
             )}
           </div>
         </div>
-      </header>
-
-      <div className="connector-hub-tools">
-        <label className="connector-search">
-          <svg viewBox="0 0 24 24" aria-hidden>
-            <circle cx="11" cy="11" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.7" />
-            <path d="M16 16.4 20 20.4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
-          </svg>
-          <input
-            type="search"
-            className="connector-search-input"
-            data-connector-search
-            placeholder="搜索连接器"
-            aria-label="搜索连接器"
-            value={q}
-            onChange={(event) => setQ(event.target.value)}
-          />
-        </label>
-        {browsing && (
-          <div className="hub-chips" role="tablist" aria-label="连接器分类">
-            {([["app", "应用"], ["custom_mcp", "自定义 MCP"]] as const).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                role="tab"
-                aria-selected={tab === id}
-                className={"hub-chip" + (tab === id ? " on" : "")}
-                data-connector-tab={id}
-                onClick={() => setTab(id)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
+
+      {browsing && (
+        <div className="hub-chips connector-hub-tabs" role="tablist" aria-label="连接器分类">
+          {([["app", "应用"], ["custom_mcp", "自定义 MCP"]] as const).map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              className={"hub-chip" + (tab === id ? " on" : "")}
+              data-connector-tab={id}
+              onClick={() => setTab(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {notice && <p className="admin-receipt status-ok" role="status" data-connector-notice>{notice}</p>}
       {error && <p className="error" role="alert">{error}</p>}
@@ -162,7 +155,7 @@ export function ConnectorHub({ connectors, users, onSave, reload }: {
       ) : (
         <div className="connector-grid" data-connector-grid data-admin-connectors-table>
           {visible.map((card) => (
-            <ConnectorCard key={card.id} card={card} browse={browsing} onViewTools={() => setToolsCard(card)} />
+            <ConnectorCard key={card.id} card={card} onViewTools={() => setToolsCard(card)} />
           ))}
           {missingBuiltins.map((entry) => (
             <CatalogCard
@@ -194,39 +187,51 @@ export function ConnectorHub({ connectors, users, onSave, reload }: {
   );
 }
 
-function ConnectorCard({ card, browse, onViewTools }: { card: ConnectorCardView; browse: boolean; onViewTools: () => void }) {
+function ConnectorCard({ card, onViewTools }: { card: ConnectorCardView; onViewTools: () => void }) {
   const status = governanceStatus(card);
+  const navigate = useNavigate();
+  const href = connectorHref(card.id);
   return (
     <article
-      className="connector-card"
+      className="connector-card connector-card-linkable"
       data-connector-card
       data-connector={card.id}
       data-connector-kind={card.kind}
       data-governance-status={status.key}
+      onClick={() => navigate(href)}
     >
       <ConnectorMark id={card.id} label={card.label} iconUrl={card.iconUrl} />
       <div className="connector-card-body">
         <div className="connector-card-title">
-          <Link to={connectorHref(card.id)} className="connector-card-link"><strong>{card.label}</strong></Link>
-          <span className="connector-kind-tag">{kindLabel(card.kind)}</span>
+          <Link to={href} className="connector-card-link" onClick={(event) => event.stopPropagation()}><strong>{card.label}</strong></Link>
         </div>
         <p className="connector-card-purpose">{card.purpose || "未填写业务用途"}</p>
         <p className="connector-card-meta">
-          {card.lastVerifiedAt ? `最近验证 ${card.lastVerifiedAt}` : "尚未测试"}
-          {card.approvedToolCount > 0 ? ` · ${card.approvedToolCount} 个已审阅接口` : ""}
+          <span className="connector-card-status" title={connectorStatusNote(card)}>{status.label}</span>
+          <span className="connector-card-dot" aria-hidden>·</span>
+          <span>{card.lastVerifiedAt ? `最近验证 ${card.lastVerifiedAt}` : "尚未测试"}</span>
+          {card.approvedToolCount > 0 && (
+            <>
+              <span className="connector-card-dot" aria-hidden>·</span>
+              <span>{card.approvedToolCount} 个已审阅接口</span>
+            </>
+          )}
+          <span className="connector-card-dot" aria-hidden>·</span>
+          <button
+            type="button"
+            className="connector-card-toolslink"
+            data-connector-tools-entry
+            onClick={(event) => { event.stopPropagation(); onViewTools(); }}
+          >
+            查看工具
+          </button>
         </p>
       </div>
       <div className="connector-card-side">
-        <span className={`admin-status is-${status.key}`} title={connectorStatusNote(card)}>{status.label}</span>
-        {browse ? (
-          <span className="connector-added">
-            <svg viewBox="0 0 16 16" aria-hidden><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
-            <span className="sr-only">已加入目录</span>
-          </span>
-        ) : (
-          <Link className="btn sm" to={connectorHref(card.id)} data-connector-action="open">{connectorActionLabel(card)}</Link>
-        )}
-        <button type="button" className="btn ghost sm" data-connector-tools-entry onClick={onViewTools}>查看工具</button>
+        <span className="connector-added">
+          <svg viewBox="0 0 16 16" aria-hidden><path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+          <span className="sr-only">已加入目录</span>
+        </span>
       </div>
     </article>
   );

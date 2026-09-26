@@ -332,7 +332,7 @@ describe("connector scope API and enable gate", () => {
 
     const rows = await (await call("GET", "/api/admin/connectors")).json() as Array<Record<string, unknown>>;
     const byId = Object.fromEntries(rows.map((row) => [row.id, row]));
-    expect(byId.starrykol).toMatchObject({ kind: "app", protocol: "mcp", icon_url: null });
+    expect(byId.starrykol).toMatchObject({ kind: "app", protocol: "mcp", icon_url: "/api/admin/connectors/starrykol/icon" });
     expect(byId.scope_dto_mcp).toMatchObject({
       kind: "custom_mcp",
       protocol: "mcp",

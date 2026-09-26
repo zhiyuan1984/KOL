@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Hono } from "hono";
 import { requireAdmin } from "../auth.js";
 import { dataDir } from "../config.js";
@@ -56,6 +57,21 @@ function storedIconFile(ref: string | null): string | null {
   return file;
 }
 
+const BUNDLED_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "assets", "connector-icons");
+const BUNDLED_ICONS: Record<string, string> = { claw: "claw.png", starrykol: "starrykol.png" };
+
+function bundledIconFile(connectorId: string): string | null {
+  const name = BUNDLED_ICONS[connectorId];
+  if (!name) return null;
+  const file = path.join(BUNDLED_DIR, name);
+  return fs.existsSync(file) ? file : null;
+}
+
+/** True when the connector ships a repository-bundled default icon. */
+export function hasBundledIcon(connectorId: string): boolean {
+  return bundledIconFile(connectorId) !== null;
+}
+
 connectorIconsRouter.post("/admin/connectors/:connectorId/icon", async (c) => {
   const admin = requireAdmin();
   const connectorId = requireManagedConnector(c.req.param("connectorId"));
@@ -86,7 +102,7 @@ connectorIconsRouter.get("/admin/connectors/:connectorId/icon", (c) => {
   requireAdmin();
   const connectorId = requireManagedConnector(c.req.param("connectorId"));
   const row = requireConnectorIconRow(connectorId);
-  const file = storedIconFile(row.icon_ref);
+  const file = storedIconFile(row.icon_ref) ?? bundledIconFile(connectorId);
   if (!file) throw new HttpFail(404, { code: "connector_icon_not_found" });
   c.header("Content-Type", CONTENT_TYPES[path.extname(file).toLowerCase()] || "application/octet-stream");
   c.header("Cache-Control", "private, max-age=86400");

@@ -851,3 +851,126 @@
     min-height: 44px;
   }
 }
+
+/* Fidelity pass (2026-09-27): hub reads as one clean surface and cards are airy,
+   matching the reference layout: title / divider / search row / tabs / card grid.
+   Card face keeps icon + name + description + ✓; state and the tools entry are
+   demoted to a single small meta line. */
+
+.connector-hub {
+  max-width: 1180px;
+  margin-inline: auto;
+  gap: var(--space-5);
+}
+
+.connector-hub-head {
+  display: block;
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.connector-hub-head h2 {
+  margin: 0;
+}
+
+.connector-hub-tools {
+  gap: var(--space-4);
+}
+
+.connector-hub-tools .connector-search {
+  flex: 0 1 520px;
+}
+
+.connector-hub-actions {
+  flex: 0 0 auto;
+}
+
+.connector-grid {
+  gap: var(--space-4);
+}
+
+.connector-card {
+  padding: 18px 20px;
+  gap: var(--space-4);
+  align-items: center;
+  border-radius: var(--radius-cards);
+}
+
+.connector-card-linkable {
+  cursor: pointer;
+}
+
+.connector-card-linkable:hover {
+  border-color: color-mix(in srgb, var(--text) 16%, var(--border));
+}
+
+.connector-card > .connector-mark {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-cards);
+  font-size: var(--ds-font-section);
+}
+
+.connector-card-title strong {
+  font-weight: 600;
+  font-size: var(--ds-font-ui);
+}
+
+.connector-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.connector-card-status {
+  color: var(--text);
+}
+
+.connector-card-toolslink {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.connector-card-toolslink:hover,
+.connector-card-toolslink:focus-visible {
+  color: var(--text);
+}
+
+.connector-card-side {
+  align-items: center;
+  justify-content: center;
+}
+
+.connector-added {
+  width: auto;
+  height: auto;
+  color: var(--text-muted);
+}
+
+.connector-added svg {
+  width: 20px;
+  height: 20px;
+}
+
+.connector-panel {
+  border-radius: var(--radius-cards);
+}
+
+.connector-drawer {
+  border-top-left-radius: var(--radius-cards);
+  border-bottom-left-radius: var(--radius-cards);
+}
+
+.connector-drawer-scope,
+.connector-batch-tree,
+.connector-icon-preview {
+  border-radius: var(--radius-cards);
+}

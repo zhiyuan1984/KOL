@@ -18,6 +18,7 @@ import { nid } from "../ids.js";
 import type { Json, Row } from "../types.js";
 import { boxDir } from "../config.js";
 import { isBuiltinConnectorId, requireManagedConnector } from "../connectors/catalog.js";
+import { hasBundledIcon } from "./connector-icons.js";
 import { connectorHasAnyScope } from "../runtime/organization.js";
 import { ensureRuntimeSchema } from "../runtime/store.js";
 
@@ -101,7 +102,7 @@ function connectorPublic(row: unknown): Json {
     credential_status: value.credential_ref ? "已配置" : "未配置",
     kind: isBuiltinConnectorId(id) ? "app" : facts.protocol === "http" ? "custom_api" : "custom_mcp",
     protocol: facts.protocol,
-    icon_url: value.icon_ref ? `/api/admin/connectors/${encodeURIComponent(id)}/icon` : null,
+    icon_url: value.icon_ref || hasBundledIcon(id) ? `/api/admin/connectors/${encodeURIComponent(id)}/icon` : null,
     approved_tool_count: facts.approved_tool_count,
   };
 }
