@@ -101,6 +101,8 @@ fi
 
 if frontend_stale; then
   echo "构建前端（后端静态托管 frontend/dist）…"
+  echo "注意：前端有改动，本次重启要在启动路径里构建，服务会中断约 60–90 秒（nginx 返回等待页）。" >&2
+  echo "下次部署请用 scripts/deploy.sh：先在旧进程仍对外服务时构建，再重启，中断约 5 秒。" >&2
   (cd "$ROOT/frontend" && npm run build)
 fi
 
