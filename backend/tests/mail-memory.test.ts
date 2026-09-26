@@ -4,6 +4,7 @@ import path from "node:path";
 import type { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
+import { DEMO_USER } from "../src/config.js";
 import { HOME_ENTRY_REGISTRY } from "../src/host/entry-registry.js";
 import { mailPreview } from "../src/host/mail-preview.js";
 import { letterSummaryRecord } from "../src/host/mail-summary.js";
@@ -361,7 +362,7 @@ describe("mailbox memory P0", () => {
   it("serves ?box= per mailbox: bindings stay per-mailbox and unknown boxes fall back to the default", async () => {
     bindLarry();
     await ensureFollowedMailSync(true);
-    saveStarryBinding("usr_sriphy", { mailbox_email: "second.box@amperetime.com", owner_name: "赵良玉" });
+    saveStarryBinding(DEMO_USER.id, { mailbox_email: "second.box@amperetime.com", owner_name: "赵良玉" });
     const now = new Date().toISOString();
     getConn().prepare(
       `INSERT INTO kol_mail_threads (id, conversation_id, subject, mailbox, unread_count, last_at, created_at, updated_at)

@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
+import { DEMO_USER } from "../src/config.js";
 import { buildHomeBoard, MAX_BOARD_TASKS, MAX_KOL_MAIL_THREADS, MAX_KOL_TASKS, MAX_WORKBENCH_TASKS, OPEN_WORK_ITEM_SQL } from "../src/host/home-board.js";
 import { pollCacheCounters, resetPollCache } from "../src/host/response-cache.js";
 import { resetDemoRuntimeState, seedAll } from "../src/seed.js";
@@ -99,7 +100,7 @@ describe("GET /api/tasks list payloads", () => {
     expect(listed.status).toBe(200);
     const expected = Number((
       getConn().prepare(`SELECT COUNT(*) AS c FROM work_items WHERE owner_user_id=? AND ${OPEN_WORK_ITEM_SQL}`)
-        .get("usr_sriphy") as { c: number }
+        .get(DEMO_USER.id) as { c: number }
     ).c);
     expect(listed.body.total).toBe(expected);
     const tasks = listed.body.tasks as Json[];
@@ -242,7 +243,7 @@ describe("GET /api/home/board list caps", () => {
     for (let i = 0; i < MAX_KOL_TASKS + 4; i += 1) {
       const stamp = new Date(Date.now() + i * 1000).toISOString();
       insert.run(
-        `tsk_cap_${i}`, "usr_sriphy", "email_compose", `跟进 ${i} @${collab.handle}`, "manual", "pending", "normal",
+        `tsk_cap_${i}`, DEMO_USER.id, "email_compose", `跟进 ${i} @${collab.handle}`, "manual", "pending", "normal",
         "email_compose", "lead", collab.id, collab.id, "{}", "{}", stamp, stamp, "", "none",
       );
     }
