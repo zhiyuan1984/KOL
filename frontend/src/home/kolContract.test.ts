@@ -10,6 +10,9 @@ import {
   isAnalyzePrefill,
   isOpenPoolRow,
   poolHasBannedField,
+  SELECT_ALL_CAPPED_COPY,
+  selectAllChecked,
+  selectAllLabel,
   selectAllMax8,
   sortByFollowedBriefPriority,
   toFollowKol,
@@ -184,6 +187,20 @@ describe("kol workbench contract (#172)", () => {
     expect(analyzePrefillPrompt([pool({ kol_uid: "cr_outdoor" })], "following")).not.toContain("公海");
     expect(ANALYZE_QUEUED_COPY).toBe("已入队，等待 Codex");
     expect(ANALYZE_QUEUED_COPY).not.toContain("正在思考");
+  });
+
+  it("全选动作在名单超过选择上限时照实说，勾选框按已选满呈现", () => {
+    // 221 人在跟、上限 8：标签不能再写「全选本页」，勾选框也不能永远空着。
+    expect(selectAllLabel(2, "全选本页")).toBe("全选本页");
+    expect(selectAllLabel(8, "全选本页")).toBe("全选本页");
+    expect(selectAllLabel(9, "全选本页")).toBe(SELECT_ALL_CAPPED_COPY);
+    expect(selectAllLabel(221, "全选本页")).toBe("选中前 8 位");
+    expect(selectAllLabel(221, "全选当前")).toBe("选中前 8 位");
+    expect(selectAllChecked(3, 0)).toBe(false);
+    expect(selectAllChecked(3, 3)).toBe(true);
+    expect(selectAllChecked(9, 8)).toBe(true);
+    expect(selectAllChecked(221, 7)).toBe(false);
+    expect(selectAllChecked(0, 0)).toBe(false);
   });
 
   it("entry registry matches #172 ids and session flags", () => {

@@ -66,7 +66,6 @@ export default function ObjectWorkspace({
       resultView={{
         resultType: pane === "pool" ? "kol_pool_objects" : "followed_kol_objects",
         status: resultCount > 0 ? "ready" : "idle",
-        sourceLabel: pane === "pool" ? undefined : "我的跟进对象",
         freshness: "unknown",
       }}
       centerHeader={centerHeader}

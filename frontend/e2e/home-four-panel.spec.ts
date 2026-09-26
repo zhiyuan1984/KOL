@@ -188,13 +188,15 @@ test("home todo rows live in the task rail without横向滚动", async ({ page }
   expect(wide.actLeft).toBeGreaterThan(wide.titleRight - 8);
   expect(Math.abs(wide.actTop - wide.titleTop)).toBeLessThan(48);
   expect(wide.statusLeft).toBeLessThan(wide.titleRight);
-  // 工作台列宽契约（DESIGN「Home Agent 工作台几何」）：右栏 clamp(380, 40%, 680)，
-  // 双栏时中栏必须比右栏更宽；行在右栏内不横向滚动。
-  const railWidth = await page.locator("[data-scope-task-rail]").evaluate((rail) => rail.clientWidth);
-  const centerWidth = await page.locator("[data-scope-ai-workspace]").evaluate((el) => el.clientWidth);
+  // 工作台列宽契约（DESIGN「Home Agent 工作台几何」）：右栏 clamp(360px, 54%, 820px)，
+  // 右栏可以宽于中栏；行在右栏内不横向滚动。用 border-box 宽度之和，clientWidth
+  // 会把右栏 1px 边框和百分比小数舍掉，算式对不上。
+  const railWidth = await page.locator("[data-scope-task-rail]").evaluate((rail) => rail.getBoundingClientRect().width);
+  const centerWidth = await page.locator("[data-scope-ai-workspace]").evaluate((el) => el.getBoundingClientRect().width);
   expect(railWidth).toBeGreaterThanOrEqual(360);
-  expect(railWidth).toBeLessThanOrEqual(690);
-  expect(centerWidth).toBeGreaterThan(railWidth);
+  expect(railWidth).toBeLessThanOrEqual(820);
+  expect(centerWidth).toBeGreaterThan(0);
+  expect(Math.abs(railWidth - Math.min(Math.max(0.54 * (railWidth + centerWidth), 360), 820))).toBeLessThanOrEqual(2);
   await expectNoPageHorizontalScroll(page);
 
   await page.setViewportSize({ width: 720, height: 900 });
@@ -675,7 +677,8 @@ test("followed brief counts narrow the list as a situational filter", async ({ p
   await page.locator('button[data-followed-situation="refused"]').click();
   await expect(page.locator("[data-followed-kol]")).toHaveCount(1);
   await expect(page.locator('button[data-followed-situation="refused"]')).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("[data-followed-selected-count]")).toHaveText("在跟 1 位");
+  // 情境分区只收窄名单；总数仍由简报唯一承载，工具行不重复一次「在跟 N 位」。
+  await expect(page.locator("[data-followed-selected-count]")).toHaveCount(0);
 
   await page.locator("[data-followed-situation-clear]").click();
   await expect(page.locator("[data-followed-kol]")).toHaveCount(2);
@@ -688,10 +691,13 @@ test("followed toolbar separates 找谁 from 对选中做什么 and keeps stages
   await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
 
   const toolbar = page.locator("[data-followed-object-toolbar]");
-  await expect(toolbar.locator("[data-followed-object-look]")).toContainText("在跟 2 位");
+  await expect(toolbar.locator("[data-followed-object-search]")).toBeVisible();
+  await expect(page.locator("[data-followed-brief]")).toContainText("2 位在跟");
   await expect(toolbar.locator("[data-followed-object-batch]")).toContainText("全选本页");
 
-  // 计数不再与筛选控件的标签连读成「1 人 阶段（高级）」。
+  // 计数不再与筛选控件的标签连读成「1 人 阶段（高级）」，也不重复简报里的总数：
+  // 全部在跟数由简报唯一承载，工具行只在选中时报「已选 N / 8」。
+  await expect(toolbar.locator("[data-followed-selected-count]")).toHaveCount(0);
   await expect(toolbar.locator("[data-followed-advanced]")).toContainText("阶段筛选");
 
   // 15 正式阶段仍可用，但只作次级筛选：全部阶段 + 15 + 异常。

@@ -436,21 +436,60 @@ export function deleteProfilesWithoutHomepage(input: {
   return { ok: true, scope: "public_pool_only", deleted, ...previewProfilesWithoutHomepage(companyId) };
 }
 
-function followedThreadMemory(follow: Row, db: SqliteConn): Json[] {
-  const summaries = db.prepare(
-    `SELECT conversation_id, subject, last_at, effective, key_agreements, open_questions, next_step, mail_refs, updated_at
-       FROM kol_thread_summary
-      WHERE follow_id=?
-      ORDER BY CASE WHEN last_at IS NULL OR last_at='' THEN 1 ELSE 0 END, last_at DESC, updated_at DESC`,
-  ).all(follow.id) as Row[];
-  const threadRows = follow.collaboration_id
-    ? db.prepare(
-      `SELECT conversation_id, subject, last_direction, last_snippet, last_preview, last_at, unread_count
-         FROM kol_mail_threads
-        WHERE collaboration_id=?
+/** 一条 IN 查询最多绑多少个 id：远低于 SQLite 的变量上限，只是给超长名单留安全余量。 */
+const THREAD_ID_BATCH = 400;
+
+function idBatches(ids: string[]): string[][] {
+  const batches: string[][] = [];
+  for (let index = 0; index < ids.length; index += THREAD_ID_BATCH) {
+    batches.push(ids.slice(index, index + THREAD_ID_BATCH));
+  }
+  return batches;
+}
+
+/**
+ * 跟进名单的线程记忆按批取回。逐人查（每人 2 条 SQL）在 200+ 人在跟时要跑 400+ 次查询，
+ * 把首屏读取窗口拖长；这里最多查两次再分组。合并口径与逐人版本逐字一致。
+ */
+function followedThreadMemoryByFollow(follows: Row[], db: SqliteConn): Map<string, Json[]> {
+  const summariesByFollow = new Map<string, Row[]>();
+  const threadsByCollaboration = new Map<string, Row[]>();
+  const followIds = [...new Set(follows.map((follow) => text(follow.id)).filter(Boolean))];
+  const collaborationIds = [...new Set(follows.map((follow) => text(follow.collaboration_id)).filter(Boolean))];
+  for (const batch of idBatches(followIds)) {
+    const rows = db.prepare(
+      `SELECT follow_id, conversation_id, subject, last_at, effective, key_agreements, open_questions, next_step, updated_at
+         FROM kol_thread_summary
+        WHERE follow_id IN (${batch.map(() => "?").join(",")})
         ORDER BY CASE WHEN last_at IS NULL OR last_at='' THEN 1 ELSE 0 END, last_at DESC, updated_at DESC`,
-    ).all(follow.collaboration_id) as Row[]
-    : [];
+    ).all(...batch) as Row[];
+    for (const row of rows) {
+      const key = text(row.follow_id);
+      summariesByFollow.set(key, [...(summariesByFollow.get(key) || []), row]);
+    }
+  }
+  for (const batch of idBatches(collaborationIds)) {
+    const rows = db.prepare(
+      `SELECT collaboration_id, conversation_id, subject, last_direction, last_snippet, last_preview, last_at, unread_count
+         FROM kol_mail_threads
+        WHERE collaboration_id IN (${batch.map(() => "?").join(",")})
+        ORDER BY CASE WHEN last_at IS NULL OR last_at='' THEN 1 ELSE 0 END, last_at DESC, updated_at DESC`,
+    ).all(...batch) as Row[];
+    for (const row of rows) {
+      const key = text(row.collaboration_id);
+      threadsByCollaboration.set(key, [...(threadsByCollaboration.get(key) || []), row]);
+    }
+  }
+  return new Map(follows.map((follow) => [
+    text(follow.id),
+    mergeFollowThreadMemory(
+      summariesByFollow.get(text(follow.id)) || [],
+      threadsByCollaboration.get(text(follow.collaboration_id)) || [],
+    ),
+  ]));
+}
+
+function mergeFollowThreadMemory(summaries: Row[], threadRows: Row[]): Json[] {
   const byConversation = new Map<string, Json>();
   for (const row of summaries) {
     const conversationId = text(row.conversation_id);
@@ -521,10 +560,11 @@ export function listEmployeeFollowing(employeeId: string, companyId = memoryComp
       WHERE f.company_id=? AND f.employee_id=? AND f.status='active'
       ORDER BY f.claimed_at DESC`,
   ).all(companyId, employeeId) as Row[];
+  const threadsByFollow = followedThreadMemoryByFollow(rows, db);
   return rows.map((row) => {
     const clock = followClock(row.last_effective_mail_at ? String(row.last_effective_mail_at) : null);
     const stage = followStage(row);
-    const mailThreads = followedThreadMemory(row, db);
+    const mailThreads = threadsByFollow.get(text(row.id)) || [];
     const latest = mailThreads[0] as Row | undefined;
     const summary = text(latest?.last_snippet) || (clock.countdown ? "已有有效往来" : "尚未有效往来");
     const refused = refusalIn(`${stage.code} ${stage.label} ${summary}`);

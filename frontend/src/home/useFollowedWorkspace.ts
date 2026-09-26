@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { api, type StarryBinding, type Task } from "../api";
 import { storePending } from "../components/ChatBlocks";
 import { rememberJourney } from "../journey";
@@ -67,6 +67,11 @@ export function useFollowedWorkspace(options: {
   } = options;
 
   const [rows, setRows] = useState<FollowedKol[]>([]);
+  // 读取状态：`[]` 是「读到空」，不是「还没读到」。没有这两个计数，
+  // 首帧和整个读取窗口都会被渲染成「还没有跟进中的红人」（TECH-FE-01）。
+  const [readsInFlight, setReadsInFlight] = useState(0);
+  const [readsDone, setReadsDone] = useState(0);
+  const readSeq = useRef(0);
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("");
   const [situation, setSituation] = useState<FollowedSituation | "">("");
@@ -109,31 +114,46 @@ export function useFollowedWorkspace(options: {
     [selectedCards],
   );
 
+  // 还没读到任何名单时只允许说「正在读」：一次读取都没发过、或读取在途，都算加载中。
+  const loading = !rows.length && (readsInFlight > 0 || readsDone === 0);
+
   const followEmptyKind = useMemo(() => {
+    if (loading) return "loading";
     if (followScope?.required && !followScope.bound) return "unbound";
     if (followScope?.status === "expired") return "expired";
-    if (rows.length) return cards.length ? "filtered" : "filtered";
+    if (rows.length) return "filtered";
     if (followScope?.bound) return "mailbox";
     return "none";
-  }, [followScope, rows.length, cards.length]);
+  }, [followScope, loading, rows.length]);
 
   const loadSurface = useCallback(async () => {
-    const activeScope = followScope || latestFollowScope.current;
-    const loaded = await loadHomeFollowing({
-      kols: boardKols(),
-      follow_scope: activeScope || undefined,
-    });
-    if (loaded.follow_scope) {
-      latestFollowScope.current = loaded.follow_scope;
-      setFollowScope(loaded.follow_scope);
+    // 进页时会连发两次读取（先本地记忆、拿到 board 后再补一次邮箱范围）。两次都可能
+    // 落在同一屏上，只有最后一次的响应可以改 rows；先到的那份按过期事实丢掉。
+    readSeq.current += 1;
+    const seq = readSeq.current;
+    setReadsInFlight((count) => count + 1);
+    try {
+      const activeScope = followScope || latestFollowScope.current;
+      const loaded = await loadHomeFollowing({
+        kols: boardKols(),
+        follow_scope: activeScope || undefined,
+      });
+      if (seq !== readSeq.current) return;
+      if (loaded.follow_scope) {
+        latestFollowScope.current = loaded.follow_scope;
+        setFollowScope(loaded.follow_scope);
+      }
+      if (loaded.down) {
+        // 读取失败不清空已经写在屏幕上的名单；空名单时才交给 down 视图。
+        setError(loaded.error || "跟进列表读取失败");
+        return;
+      }
+      setError("");
+      setRows(loaded.items.map(followKolToRecord) as FollowedKol[]);
+    } finally {
+      setReadsInFlight((count) => Math.max(0, count - 1));
+      setReadsDone((count) => count + 1);
     }
-    if (loaded.down) {
-      setError(loaded.error || "跟进列表读取失败");
-      setRows([]);
-      return;
-    }
-    setError("");
-    setRows(loaded.items.map(followKolToRecord) as FollowedKol[]);
   }, [boardKols, followScope, latestFollowScope, setFollowScope]);
 
   const ensureLoaded = useCallback(async () => {
@@ -391,6 +411,7 @@ export function useFollowedWorkspace(options: {
     setFocusedId,
     error,
     setError,
+    loading,
     followEmptyKind,
     confirmStageBusyId,
     confirmStageFeedback,

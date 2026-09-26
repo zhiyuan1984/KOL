@@ -12,6 +12,18 @@ export const ANALYZE_PREFILL_PREFIX = "分析已选";
 export const CLOCK_NONE_COPY = "尚未有效往来";
 export const ANALYZE_IN_FLIGHT_STATUSES = ["queued", "running", "pending", "waiting"] as const;
 
+/** 选择有硬上限：名单超过上限时，「全选」只能承诺上限以内。 */
+export const SELECT_ALL_CAPPED_COPY = `选中前 ${KOL_SELECT_MAX} 位`;
+
+export function selectAllLabel(visibleCount: number, allLabel: string): string {
+  return visibleCount > KOL_SELECT_MAX ? SELECT_ALL_CAPPED_COPY : allLabel;
+}
+
+/** 达到上限即按「已选满」呈现：名单 200+、上限 8 时勾选框不能永远空着。 */
+export function selectAllChecked(visibleCount: number, selectedCount: number): boolean {
+  return visibleCount > 0 && selectedCount >= Math.min(visibleCount, KOL_SELECT_MAX);
+}
+
 export const POOL_BANNED_FIELDS = [
   "unread",
   "unread_count",

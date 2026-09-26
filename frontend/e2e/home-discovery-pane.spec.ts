@@ -314,7 +314,12 @@ test("idle discovery keeps the task-rail width and full brief above the dock", a
   const center = workspace.locator('[data-scope-ai-workspace]');
   expect(Math.round((await rail.boundingBox())!.width)).toBe(820);
   const discoveryRailWidth = Math.round((await rail.boundingBox())!.width);
-  expect(await center.evaluate((element) => element.clientWidth)).toBeGreaterThan(820);
+  // 双栏按结果可读性分配：右栏拿到 DESIGN 记录的 820 上限，中栏吃掉剩下的宽度，
+  // 两列合起来正好是工作台宽度（右栏可以宽于中栏）。
+  const centerWidth = await center.evaluate((element) => element.clientWidth);
+  expect(centerWidth).toBeGreaterThan(0);
+  const workspaceWidth = await workspace.evaluate((element) => element.clientWidth);
+  expect(Math.abs(centerWidth + discoveryRailWidth - workspaceWidth)).toBeLessThanOrEqual(4);
   const card = workspace.locator('[data-discovery-search-card]');
   const followerMin = card.locator('[data-skill-param="min_followers"]');
   const followerMax = card.locator('[data-skill-param="max_followers"]');

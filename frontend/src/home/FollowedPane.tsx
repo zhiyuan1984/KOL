@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import FollowedKolWorkCard from "../components/FollowedKolWorkCard";
 import { MAIN_STAGE_TABS } from "../kolStages";
 import {
@@ -7,9 +8,23 @@ import {
 } from "../followedKolCard";
 import type { StarryBinding } from "../api";
 import FollowedBrief, { type FollowedSituation } from "./FollowedBrief";
-import { KOL_SELECT_MAX } from "./kolContract";
+import { KOL_SELECT_MAX, selectAllChecked, selectAllLabel } from "./kolContract";
 import { HOME_HANDOFF_TO_AGENT } from "./entryRegistry";
 import type { SurfaceDownView } from "./surfaceError";
+
+/** 读取久等之后才给恢复入口：等待本身有原因，不靠猜、不伪造进度。 */
+function useSlowWait(active: boolean, ms = 8000): boolean {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!active) {
+      setSlow(false);
+      return;
+    }
+    const timer = window.setTimeout(() => setSlow(true), ms);
+    return () => window.clearTimeout(timer);
+  }, [active, ms]);
+  return slow;
+}
 
 const FOLLOWED_STAGE_LABELS: Record<string, string> = {
   INITIAL_CONTACT: "初步接触",
@@ -30,6 +45,9 @@ const FOLLOWED_STAGE_LABELS: Record<string, string> = {
 };
 
 function followEmptyCopy(kind: string, scope: StarryBinding | null) {
+  if (kind === "loading") {
+    return { title: "正在读取跟进名单…", body: "读完这里会显示你在跟的红人与合作对象；读取完成前不下结论。" };
+  }
   if (kind === "unbound") {
     return { title: "尚未绑定跟进邮箱", body: "绑定 Starry 发件箱后，这里只显示该邮箱负责人跟进的红人。" };
   }
@@ -65,6 +83,7 @@ export default function FollowedPane({
   followScope,
   followEmptyKind,
   down,
+  listError,
   onQuery,
   onStageFilter,
   onSituation,
@@ -80,6 +99,7 @@ export default function FollowedPane({
   onBatchConfirm,
   onAnalyzeSelected,
   onRelease,
+  onReload,
   onBind,
 }: {
   visibleKols: FollowedKolCardModel[];
@@ -95,6 +115,8 @@ export default function FollowedPane({
   followScope: StarryBinding | null;
   followEmptyKind: string;
   down?: SurfaceDownView | null;
+  /** 名单还在屏上、但最近一次读取失败：安静提示，不吞掉已经读到的对象。 */
+  listError?: string;
   onQuery: (value: string) => void;
   onStageFilter: (value: string) => void;
   onSituation: (value: FollowedSituation | "") => void;
@@ -110,12 +132,16 @@ export default function FollowedPane({
   onBatchConfirm: () => void;
   onAnalyzeSelected: () => void;
   onRelease?: (card: FollowedKolCardModel) => void;
+  /** 久等之后的恢复入口：只重发跟进名单读取，不强制重拉 board。 */
+  onReload?: () => void;
   onBind: () => void;
 }) {
   const selecting = selectedKolIds.length > 0;
   const selectedCards = visibleKols.filter((card) => selectedKolIds.includes(card.id));
   const bulkLabel = followedBulkCtaLabel(selectedCards);
   const queryDown = Boolean(down);
+  const loading = !queryDown && followEmptyKind === "loading";
+  const slowLoading = useSlowWait(loading);
   const empty = followEmptyCopy(queryDown ? "down" : followEmptyKind, followScope);
   const stageOptions = [
     { code: "", label: "全部阶段" },
@@ -138,6 +164,74 @@ export default function FollowedPane({
       data-lifecycle-overview
     >
       <div className="followed-kol-column" data-followed-kol-column data-followed-decision-max="full">
+        {/* 顶部工具行：找谁（搜索）＋ 对选中的做什么（全选本页 / 分析已选 / 批量进阶段）。
+            「在跟 N 位」由下方简报唯一承载，这里只报选中数。 */}
+        <div className="followed-object-toolbar" data-followed-object-toolbar data-home-entry="list-followed">
+          <div className="followed-object-look" data-followed-object-look>
+            <label className="followed-object-search">
+              <span className="sr-only">搜索跟进对象</span>
+              <input
+                type="search"
+                data-followed-object-search
+                value={kolQuery}
+                placeholder="搜索跟进对象"
+                onChange={(event) => onQuery(event.target.value)}
+              />
+            </label>
+            <label className="followed-advanced-filter" data-followed-advanced>
+              <span className="sr-only">阶段筛选</span>
+              <select
+                className="followed-stage-select-compat"
+                data-kol-stage-filter
+                aria-label="按阶段筛选"
+                value={stageFilter}
+                onChange={(event) => onStageFilter(event.target.value)}
+              >
+                {stageOptions.map((option) => (
+                  <option key={option.code || "all"} value={option.code}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="followed-object-batch" data-followed-object-batch>
+            {selecting ? (
+              <p className="followed-object-count" data-followed-selected-count>
+                已选 {selectedKolIds.length} / {KOL_SELECT_MAX}
+              </p>
+            ) : null}
+            <label className="followed-select-all">
+              <input
+                type="checkbox"
+                data-followed-select-all
+                checked={selectAllChecked(visibleKols.length, selectedKolIds.length)}
+                disabled={!visibleKols.length}
+                onChange={(event) => onToggleSelectAll(event.target.checked)}
+              />
+              <span>{selectAllLabel(visibleKols.length, "全选本页")}</span>
+            </label>
+            <button
+              type="button"
+              className="btn ghost sm"
+              data-analyze-selected
+              data-home-entry="kol-analyze-enqueue"
+              disabled={!selecting}
+              title={selecting ? undefined : "先勾选要分析的对象"}
+              onClick={onAnalyzeSelected}
+            >
+              分析已选
+            </button>
+            <button
+              type="button"
+              className={selecting && bulkLabel ? "btn work sm" : "btn ghost sm"}
+              data-followed-batch-confirm
+              disabled={!selecting}
+              title={selecting ? undefined : "先勾选要进入阶段的对象"}
+              onClick={onBatchConfirm}
+            >
+              {bulkLabel}
+            </button>
+          </div>
+        </div>
         <nav className="followed-journey" aria-label="合作生命周期阶段" data-followed-journey>
           {journeyStages.map((label, index) => (
             <span key={label} className={index === 0 ? "is-active" : ""} aria-current={index === 0 ? "step" : undefined}>
@@ -174,108 +268,62 @@ export default function FollowedPane({
           onSituation={onSituation}
           onPrimary={onOpenDetail}
         />
-        <div className="followed-object-toolbar" data-followed-object-toolbar data-home-entry="list-followed">
-          <div className="followed-object-look" data-followed-object-look>
-            <label className="followed-object-search">
-              <span className="sr-only">搜索跟进对象</span>
-              <input
-                type="search"
-                data-followed-object-search
-                value={kolQuery}
-                placeholder="搜索跟进对象"
-                onChange={(event) => onQuery(event.target.value)}
-              />
-            </label>
-            <label className="followed-advanced-filter" data-followed-advanced>
-              <span className="sr-only">阶段筛选</span>
-              <select
-                className="followed-stage-select-compat"
-                data-kol-stage-filter
-                aria-label="按阶段筛选"
-                value={stageFilter}
-                onChange={(event) => onStageFilter(event.target.value)}
-              >
-                {stageOptions.map((option) => (
-                  <option key={option.code || "all"} value={option.code}>{option.label}</option>
-                ))}
-              </select>
-            </label>
-            <p className="followed-object-count" data-followed-selected-count>
-              {selecting ? `已选 ${selectedKolIds.length} / ${KOL_SELECT_MAX}` : `在跟 ${visibleKols.length} 位`}
-            </p>
-          </div>
-          <div className="followed-object-batch" data-followed-object-batch>
-            <label className="followed-select-all">
-              <input
-                type="checkbox"
-                data-followed-select-all
-                checked={visibleKols.length > 0 && selectedKolIds.length === visibleKols.length}
-                disabled={!visibleKols.length}
-                onChange={(event) => onToggleSelectAll(event.target.checked)}
-              />
-              <span>全选本页</span>
-            </label>
-            <button
-              type="button"
-              className="btn ghost sm"
-              data-analyze-selected
-              data-home-entry="kol-analyze-enqueue"
-              disabled={!selecting}
-              title={selecting ? undefined : "先勾选要分析的对象"}
-              onClick={onAnalyzeSelected}
-            >
-              分析已选
-            </button>
-            <button
-              type="button"
-              className={selecting && bulkLabel ? "btn work sm" : "btn ghost sm"}
-              data-followed-batch-confirm
-              disabled={!selecting}
-              title={selecting ? undefined : "先勾选要进入阶段的对象"}
-              onClick={onBatchConfirm}
-            >
-              {bulkLabel}
-            </button>
-          </div>
-        </div>
 
         {visibleKols.length ? (
-          <div className="followed-kol-list" data-followed-kol-list data-followed-origin="collaboration">
-            {visibleKols.map((card) => (
-              <FollowedKolWorkCard
-                key={card.id}
-                card={card}
-                selected={selectedKolIds.includes(card.id)}
-                hovered={hoveredKolId === card.id}
-                ctaEmphasis={pickFollowedListCtaEmphasis({
-                  cardId: card.id,
-                  hoveredId: hoveredKolId,
-                  focusedId: focusedKolId,
-                  selectedIds: selectedKolIds,
-                })}
-                actionBusy={confirmStageBusyId === card.id}
-                actionNotice={confirmStageFeedback?.id === card.id ? confirmStageFeedback.text : undefined}
-                actionTone={confirmStageFeedback?.id === card.id ? confirmStageFeedback.tone : "info"}
-                onHoverChange={(on) => onHover(on ? card.id : null)}
-                onFocusChange={(on) => onFocus(on ? card.id : null)}
-                onToggleSelect={(on) => onToggleSelect(card.id, on)}
-                onOpenDetail={() => onOpenDetail(card)}
-                onPrimary={() => onPrimary(card)}
-                onOpenMail={() => onOpenMail(card)}
-                onCompose={() => onCompose(card)}
-                onConfirmStage={() => onConfirmStage(card)}
-                onRelease={card.source.follow_id && onRelease ? () => onRelease(card) : undefined}
-              />
-            ))}
-          </div>
+          <>
+            {listError ? (
+              <p className="muted" data-follow-refresh-error role="status">{listError}</p>
+            ) : null}
+            <div className="followed-kol-list" data-followed-kol-list data-followed-origin="collaboration">
+              {visibleKols.map((card) => (
+                <FollowedKolWorkCard
+                  key={card.id}
+                  card={card}
+                  selected={selectedKolIds.includes(card.id)}
+                  hovered={hoveredKolId === card.id}
+                  ctaEmphasis={pickFollowedListCtaEmphasis({
+                    cardId: card.id,
+                    hoveredId: hoveredKolId,
+                    focusedId: focusedKolId,
+                    selectedIds: selectedKolIds,
+                  })}
+                  actionBusy={confirmStageBusyId === card.id}
+                  actionNotice={confirmStageFeedback?.id === card.id ? confirmStageFeedback.text : undefined}
+                  actionTone={confirmStageFeedback?.id === card.id ? confirmStageFeedback.tone : "info"}
+                  onHoverChange={(on) => onHover(on ? card.id : null)}
+                  onFocusChange={(on) => onFocus(on ? card.id : null)}
+                  onToggleSelect={(on) => onToggleSelect(card.id, on)}
+                  onOpenDetail={() => onOpenDetail(card)}
+                  onPrimary={() => onPrimary(card)}
+                  onOpenMail={() => onOpenMail(card)}
+                  onCompose={() => onCompose(card)}
+                  onConfirmStage={() => onConfirmStage(card)}
+                  onRelease={card.source.follow_id && onRelease ? () => onRelease(card) : undefined}
+                />
+              ))}
+            </div>
+          </>
         ) : (
           <div
             className="task-empty"
             data-follow-empty={queryDown ? "down" : followEmptyKind}
-            data-empty-kind={allCards.length && (kolQuery || stageFilter) ? "filter-empty" : queryDown ? "service-down" : "no-data"}
+            data-empty-kind={loading ? "loading" : allCards.length && (kolQuery || stageFilter) ? "filter-empty" : queryDown ? "service-down" : "no-data"}
+            role={loading ? "status" : undefined}
           >
             <strong>{empty.title}</strong>
             <p>{empty.body}</p>
+            {slowLoading && onReload ? (
+              <div className="task-empty-actions">
+                <button
+                  type="button"
+                  className="btn ghost sm"
+                  data-follow-reload
+                  onClick={onReload}
+                >
+                  重试
+                </button>
+              </div>
+            ) : null}
             {down ? (
               <>
                 <p className="muted" data-follow-down-reason title={down.detail || undefined}>{down.message}</p>

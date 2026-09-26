@@ -58,7 +58,9 @@ test("我的红人 automatically shows Larry's legacy mailbox-scoped follow reco
   await page.locator('[data-home-mode="lifecycle"]').click();
 
   await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
-  await expect(page.locator("[data-followed-selected-count]")).toHaveText("在跟 1 位");
+  // 总数只在简报里；工具行不再重复一次「在跟 N 位」。
+  await expect(page.locator("[data-followed-brief]")).toContainText("1 位在跟");
+  await expect(page.locator("[data-followed-selected-count]")).toHaveCount(0);
   const list = page.locator("[data-followed-kol-list]");
   await expect(list).toBeVisible();
   await expect(list.locator('[data-followed-kol="LarryFollowed"]')).toBeVisible();

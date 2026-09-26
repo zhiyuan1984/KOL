@@ -565,6 +565,48 @@ describe("kol follow/pool memory P0", () => {
     expect(JSON.stringify(incrementalRow)).not.toMatch(/email|quote|contract|notes/);
   });
 
+  it("batches each follow's own thread memory without crossing rows", async () => {
+    // 名单读取改成按批取线程记忆后，最容易犯的错是分组串行：把别人的线程挂到这一行上。
+    const seeded = [
+      { uid: "KOL_BATCH_A", conversation: "conv-batch-a", summary: "我只想聊 A 的方案" },
+      { uid: "KOL_BATCH_B", conversation: "conv-batch-b", summary: "我只想聊 B 的方案" },
+      { uid: "KOL_BATCH_C", conversation: "conv-batch-c", summary: "我只想聊 C 的方案" },
+    ].map((row, index) => {
+      seedProfile(row.uid, { handle: `Batch${row.uid.slice(-1)}`, public_stage: "INITIAL_CONTACT" });
+      const claimed = claimFollow({
+        kolUid: row.uid,
+        scopeBrand: "LT",
+        confirm: true,
+        actor: { id: DEMO_USER.id, name: DEMO_USER.name, brands: ["LT"] },
+      });
+      const followId = String((claimed.follow as Json).follow_id);
+      recordFollowedMailMemory({
+        followId,
+        kolUid: row.uid,
+        conversationId: row.conversation,
+        subject: `Re: ${row.uid}`,
+        summary: row.summary,
+        direction: "inbound",
+        occurredAt: `2026-09-2${index + 2}T08:00:00.000Z`,
+        gatewaySuccess: true,
+        sourceVersion: `test:batch:${index}`,
+      });
+      return { ...row, followId };
+    });
+
+    const read = await request("GET", "/api/home/following");
+    expect(read.status).toBe(200);
+    for (const row of seeded) {
+      const payload = (read.body.kols as Json[]).find((item) => item.kol_uid === row.uid) as Json;
+      expect(payload.follow_id).toBe(row.followId);
+      expect(payload.latest_correspondence).toMatchObject({ thread_id: row.conversation });
+      expect(String((payload.latest_correspondence as Json).summary)).toContain(row.summary.slice(-1));
+      const threads = (payload.mail_threads as Json[]) || [];
+      expect(threads).toHaveLength(1);
+      expect(threads[0]).toMatchObject({ conversation_id: row.conversation, subject: `Re: ${row.uid}` });
+    }
+  });
+
   it("registers kol_analyze skill with verb whitelist and forbids decrypt connector", async () => {
     const def = taskDefinition("kol_analyze");
     expect(def?.output).toBe("kol_analyze_brief");

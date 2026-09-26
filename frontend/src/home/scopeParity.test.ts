@@ -166,6 +166,31 @@ describe("pane parity", () => {
     expect(discoveryCss).not.toContain("padding-top: calc(var(--space-5) + var(--space-5))");
   });
 
+  /**
+   * 法条是唯一数值来源（根 AGENTS.md §3）。2026-09-25 的漂移就是这样漏掉的：
+   * styles.css 被改回 40% / 680px，docs/DESIGN.md 没动，两个宽表断言互相矛盾却都不在门禁里。
+   * 这条守卫把「记录值 == 实现值」钉在门禁内（backend `npm test` 会跑本文件）。
+   */
+  it("keeps the documented result-rail values equal to the implementation", () => {
+    const design = read("../../../docs/DESIGN.md");
+    const css = read("../styles.css");
+    for (const token of [
+      "--workspace-result-rail-min",
+      "--workspace-result-rail-ideal",
+      "--workspace-result-rail-max",
+      "--workspace-result-rail-collapsed",
+    ]) {
+      const documented = design.match(new RegExp("\\| `" + token + "` \\| `([^`]+)` \\|"));
+      expect(documented, `${token} 必须写进 docs/DESIGN.md §Home Agent 工作台几何 的 token 表`).toBeTruthy();
+      const declared = css.match(new RegExp(token + ":\\s*([^;]+);"));
+      expect(declared, `${token} 必须在 frontend/src/styles.css 里声明`).toBeTruthy();
+      expect(declared![1].trim()).toBe(documented![1]);
+    }
+    // 右栏几何只许有一个来源：不许再出现按 pane 覆写的第二套列宽。
+    const boardCss = read("./today-plan-board.css");
+    expect(boardCss).not.toContain('[data-scope-workspace="pool"]');
+  });
+
   it("object panes no longer declare a second pane skeleton", () => {
     const pool = read("./PoolPane.tsx");
     const followed = read("./FollowedPane.tsx");

@@ -1571,25 +1571,8 @@ export default function Home() {
     })
     : null;
 
-  const followEmptyTitle = followEmptyKind === "unbound"
-    ? "尚未绑定跟进邮箱"
-    : followEmptyKind === "expired"
-      ? "Starry 连接已过期"
-      : followEmptyKind === "filtered"
-        ? "没有匹配的跟进对象"
-        : followEmptyKind === "mailbox"
-          ? "该邮箱下暂无跟进红人"
-          : "还没有跟进中的红人";
-
-  const followEmptyBody = followEmptyKind === "unbound"
-    ? "绑定 Starry 发件箱后，这里只显示该邮箱负责人跟进的红人。"
-    : followEmptyKind === "expired"
-      ? "重新连接后即可继续查看你跟进的红人。"
-      : followEmptyKind === "filtered"
-        ? "换个关键词或阶段，再看跟进中的红人和合作对象。"
-        : followEmptyKind === "mailbox"
-          ? `当前绑定 ${followScope?.mailbox_email || "已选邮箱"}${followScope?.owner_name ? ` · ${followScope.owner_name}` : ""}。`
-          : "跟进中的红人和合作对象会出现在这里。可从 AI发现 加入。";
+  // 名单还在屏上、只有最近一次读取失败：不吞掉已读到的对象，也不假装读取成功。
+  const followListError = followingDown ? "" : followedWorkspace.error;
 
   const taskCounts = {
     all: tasks.length,
@@ -2023,6 +2006,8 @@ export default function Home() {
                   followScope={followScope}
                   followEmptyKind={followEmptyKind}
                   down={followingDown}
+                  listError={followListError}
+                  onReload={() => void followedWorkspace.loadSurface()}
                   onQuery={followedWorkspace.setQuery}
                   onStageFilter={followedWorkspace.setStageFilter}
                   onSituation={followedWorkspace.setSituation}

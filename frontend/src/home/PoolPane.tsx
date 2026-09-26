@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { PoolKol } from "./kolContract";
-import { KOL_SELECT_MAX } from "./kolContract";
+import { KOL_SELECT_MAX, selectAllChecked, selectAllLabel } from "./kolContract";
 import { HOME_HANDOFF_TO_AGENT } from "./entryRegistry";
 import type { SurfaceDownView } from "./surfaceError";
 import ClaimFollowConfirm from "./ClaimFollowConfirm";
@@ -168,7 +168,6 @@ export default function PoolPane({ cards, selectedIds, query, down, claimBusyId,
   if (sort === "followers") visible.sort((a, b) => metricNumber(b.metrics.followers) - metricNumber(a.metrics.followers));
   if (sort === "potential") visible.sort((a, b) => Number(b.assessment?.potential_score || 0) - Number(a.assessment?.potential_score || 0));
   const selectedVisibleIds = visible.map((card) => card.kol_uid).filter((id) => selectedIds.includes(id));
-  const allVisibleSelected = visible.length > 0 && selectedVisibleIds.length === visible.length;
 
   return <section className="pool-compact-pane is-result-rail" data-pool-overview>
     <div className="pool-compact-header">
@@ -182,8 +181,8 @@ export default function PoolPane({ cards, selectedIds, query, down, claimBusyId,
         <label className="pool-control"><span className="sr-only">排序</span><select data-pool-sort value={sort} onChange={(e) => setSort(e.target.value)}>
           <option value="default">排序</option><option value="newest">最近入库</option><option value="followers">粉丝数</option><option value="potential">潜力</option></select></label>
         <label className="pool-select-all" title="全选当前筛选结果"><input type="checkbox" data-pool-select-all
-          checked={allVisibleSelected} disabled={!visible.length} onChange={(e) => onToggleSelectAll(visible.map((card) => card.kol_uid), e.target.checked)} />
-          <span>全选当前</span></label>
+          checked={selectAllChecked(visible.length, selectedVisibleIds.length)} disabled={!visible.length} onChange={(e) => onToggleSelectAll(visible.map((card) => card.kol_uid), e.target.checked)} />
+          <span>{selectAllLabel(visible.length, "全选当前")}</span></label>
         <button type="button" className="pool-analyze-button" data-analyze-selected data-home-entry="kol-analyze-enqueue"
           disabled={!selectedVisibleIds.length} onClick={() => onAnalyzeSelected(selectedVisibleIds)}>分析已选</button>
       </div>
