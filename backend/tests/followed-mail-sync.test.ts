@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Hono } from "hono";
+import { DEMO_USER } from "../src/config.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
@@ -29,12 +30,12 @@ function bindLarry(): void {
   getConn().prepare(
     `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?)`,
-  ).run("usr_sriphy", "sriphy", "鄢棽", "x", JSON.stringify(["employee", "admin"]), "[]", "", 1, now, now);
+  ).run(DEMO_USER.id, "sriphy", "鄢棽", "x", JSON.stringify(["employee", "admin"]), "[]", "", 1, now, now);
   getConn().prepare(
     `INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, mailbox_id, owner_name, bearer_token, status, updated_at)
      VALUES (?,?,?,?,?,?,?,?)
      ON CONFLICT(user_id, mailbox_email) DO UPDATE SET mailbox_id=excluded.mailbox_id, owner_name=excluded.owner_name, status=excluded.status, updated_at=excluded.updated_at`,
-  ).run("usr_sriphy", "larry.zhao@amperetime.com", 1, "mbx_larry", "赵良玉", "", "connected", now);
+  ).run(DEMO_USER.id, "larry.zhao@amperetime.com", 1, "mbx_larry", "赵良玉", "", "connected", now);
 }
 
 beforeEach(async () => {

@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
+import { DEMO_USER } from "../src/config.js";
 import { getConn, resetConn } from "../src/db.js";
 import { buildHomeBoard, buildRecommendedTasks, isInsightWorkItem, isOpenWorkItem, isTodayWorkItem, isTodoWorkItem, todayDateStr } from "../src/host/home-board.js";
 import { resetDemoRuntimeState, seedAll } from "../src/seed.js";
@@ -181,7 +182,7 @@ describe("home workbench", () => {
         collaboration_id,session_id,due_at,promoted_at,dismissed_at,input,entities,data_version,created_at,updated_at)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     ).run(
-      "tsk_leak", "usr_sriphy", "email_compose", "leftover", "manual", "waiting", "high", "email_compose",
+      "tsk_leak", DEMO_USER.id, "email_compose", "leftover", "manual", "waiting", "high", "email_compose",
       "lead", null, null, null, null, null, null, "{}", "{}", 1, "2026-09-01T00:00:00+00:00", "2026-09-01T00:00:00+00:00",
     );
     const reset = await request("POST", "/api/demo/reset", { workbench: true });

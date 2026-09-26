@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Hono } from "hono";
+import { DEMO_USER } from "../src/config.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
 import { displayStatusOf, normalizePriority, todayDateStr } from "../src/host/home-board.js";
@@ -266,7 +267,7 @@ describe("today task display rows", () => {
     const openId = String(open.body.id);
     const doneId = String(done.body.id);
     const written = writeTodayTaskResults({
-      owner: "usr_sriphy",
+      owner: DEMO_USER.id,
       workItemId: openId,
       runId: null,
       results: {
@@ -281,10 +282,10 @@ describe("today task display rows", () => {
     if (!written.ok) return;
     getConn().prepare(
       "INSERT INTO employee_today_briefs (owner_user_id, artifact_id, work_item_id, result_artifact_id, updated_at) VALUES (?,?,?,?,?)",
-    ).run("usr_sriphy", written.artifact_id, openId, written.artifact_id, new Date().toISOString());
+    ).run(DEMO_USER.id, written.artifact_id, openId, written.artifact_id, new Date().toISOString());
     const completed = await request("PATCH", `/api/tasks/${doneId}`, { status: "completed" });
     expect(completed.status).toBe(200);
-    const loaded = loadTodayTaskResults("usr_sriphy");
+    const loaded = loadTodayTaskResults(DEMO_USER.id);
     expect((loaded?.items || []).map((item) => item.work_item_id)).toEqual([openId]);
   });
 
@@ -292,7 +293,7 @@ describe("today task display rows", () => {
     const created = await request("POST", "/api/tasks", { task_type: "risk_scan", title: "展示行" });
     const id = String(created.body.id);
     const written = writeTodayTaskResults({
-      owner: "usr_sriphy",
+      owner: DEMO_USER.id,
       workItemId: id,
       runId: null,
       results: {
@@ -303,8 +304,8 @@ describe("today task display rows", () => {
     if (!written.ok) return;
     getConn().prepare(
       "INSERT INTO employee_today_briefs (owner_user_id, artifact_id, work_item_id, result_artifact_id, updated_at) VALUES (?,?,?,?,?)",
-    ).run("usr_sriphy", written.artifact_id, id, written.artifact_id, new Date().toISOString());
-    const loaded = loadTodayTaskResults("usr_sriphy");
+    ).run(DEMO_USER.id, written.artifact_id, id, written.artifact_id, new Date().toISOString());
+    const loaded = loadTodayTaskResults(DEMO_USER.id);
     expect(loaded?.items[0]).toMatchObject({ work_item_id: id, icon: "📋", group: "重要" });
     const listed = await request("GET", "/api/home/today-tasks");
     expect(listed.status).toBe(200);

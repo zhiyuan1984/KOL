@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
+import { DEMO_USER } from "../src/config.js";
 import {
   resetCollectorConnectionCache,
   setCollectorProbeClientFactory,
@@ -242,7 +243,7 @@ describe("discovery run / completeJob surfaces Chinese connection errors", () =>
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     ).run(
       "tsk_active_crawl",
-      "usr_sriphy",
+      DEMO_USER.id,
       "creator_discovery",
       "active crawl blocker",
       "manual",
@@ -262,7 +263,7 @@ describe("discovery run / completeJob surfaces Chinese connection errors", () =>
     ).run(
       "crawl_activeblocker",
       "idem-active-blocker",
-      "usr_sriphy",
+      DEMO_USER.id,
       "tsk_active_crawl",
       "youtube",
       "search",

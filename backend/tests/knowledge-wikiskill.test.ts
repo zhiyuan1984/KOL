@@ -260,7 +260,7 @@ describe("WikiSkill knowledge", () => {
     expect(mine.filter((row) => row.id === "kb_mail_followup")[0].starter).toBe("阶段跟进 [红人或合作]");
     expect(mine.filter((row) => row.id === "kb_mail_kol")[0].starter).toBe("首封建联 [发件邮箱] [收件邮箱] [主题]");
     expect(mine.every((row) => row.status === "published")).toBe(true);
-    expect(DEMO_USER.id).toBe("usr_sriphy");
+    expect(DEMO_USER.id).toBe("sriphy");
   });
 
   it("hides deprecated cited templates from the composer", async () => {
