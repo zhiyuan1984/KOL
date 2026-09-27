@@ -219,6 +219,11 @@
 .today-plan-step.is-failed .today-plan-step-label {
   color: var(--danger);
 }
+/* Wrap so the reason keeps its own full-width line; nowrap squeezes the
+   100% basis into a second column beside the label. */
+.today-plan-step.is-failed {
+  flex-wrap: wrap;
+}
 .today-plan-step.is-interrupted .today-plan-step-label {
   color: var(--text-muted);
 }

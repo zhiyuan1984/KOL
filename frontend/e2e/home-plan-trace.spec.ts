@@ -195,18 +195,28 @@ test("a failed run shows the failed step and its reason instead of a green check
   });
   await page.goto("/");
 
-  // Settled runs collapse to one line; the failure is still in the header, and
-  // the step list is one click away. Wait for the collapse so the click below
-  // can only mean "open".
+  // A settled failed run stays open: the reason must be readable without a
+  // second click. The toggle still folds and reopens the step list.
   await expect(page.locator("[data-today-plan-phase]")).toHaveAttribute("data-today-plan-phase", "failed");
   await expect(page.locator("[data-today-plan-phase]")).toContainText("规划失败");
+  await expect(page.locator("[data-today-plan-phase]")).toHaveAttribute("data-today-plan-open", "true");
+  await page.locator(".today-plan-toggle").click();
   await expect(page.locator("[data-today-plan-phase]")).toHaveAttribute("data-today-plan-open", "false");
   await page.locator(".today-plan-toggle").click();
   await expect(page.locator("[data-today-plan-phase]")).toHaveAttribute("data-today-plan-open", "true");
-  await expect(page.locator('[data-today-plan-event="校验输出"]')).toHaveAttribute("data-today-plan-state", "failed");
+  // 终态失败后，没走完的 host step 以 interrupted 收尾；只有 run.failed 行保持红色 failed。
+  await expect(page.locator('[data-today-plan-event="校验输出"]')).toHaveAttribute("data-today-plan-state", "interrupted");
   await expect(page.locator('[data-today-plan-event="今日规划未通过校验"]')).toHaveAttribute("data-today-plan-state", "failed");
   await expect(page.locator("[data-today-plan-phase]")).toContainText("Codex did not produce display_tasks");
   await expect(page.locator(".today-plan-spinner")).toHaveCount(0);
+
+  // 失败原因是单栏：标签/时间一行，原因另起一行并与标签左对齐（不能挤成右侧第二栏）。
+  const failedRow = page.locator('[data-today-plan-event="今日规划未通过校验"]');
+  const labelBox = (await failedRow.locator(".today-plan-step-label").boundingBox())!;
+  const reasonBox = (await failedRow.locator(".today-plan-step-reason").boundingBox())!;
+  expect(reasonBox.y, "原因必须另起一行，不能与标签并排成第二栏")
+    .toBeGreaterThanOrEqual(labelBox.y + labelBox.height - 1);
+  expect(Math.abs(reasonBox.x - labelBox.x), "原因与标签左对齐").toBeLessThanOrEqual(2);
 });
 
 test("a settled run collapses to one line and expands on demand", async ({ page }) => {
