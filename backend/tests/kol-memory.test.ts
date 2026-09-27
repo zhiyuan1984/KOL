@@ -407,6 +407,38 @@ describe("kol follow/pool memory P0", () => {
     }
   });
 
+  it("scores only the requested kol_uids and still writes the KOL memory columns", async () => {
+    seedProfile("KOL_TARGET");
+    seedProfile("KOL_OTHER");
+    const priorKey = process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY = "sk-or-test";
+    const seen: string[] = [];
+    setKolJevFetch(async (_input, init) => {
+      const body = typeof init?.body === "string" ? JSON.parse(init.body) as { state?: { public_profile?: string } } : {};
+      seen.push(String(body.state?.public_profile || ""));
+      return new Response(JSON.stringify({
+        model: "typesafe/jev-1.13",
+        answers: {
+          potential: { type: "choice", choice: "watch", confidence: 0.9 },
+          risk: { type: "choice", choice: "normal", confidence: 0.9 },
+        },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    try {
+      const result = await assessPublicKolsWithJev({ kol_uids: ["KOL_TARGET", "KOL_TARGET", ""] });
+      expect(result).toMatchObject({ eligible: 1, assessed: 1, failed: 0 });
+      expect(seen).toHaveLength(1);
+      expect(seen[0]).toContain("KOL_TARGET");
+      const scored = getConn().prepare("SELECT assessed_at FROM kol_profile_index WHERE kol_uid=?").get("KOL_TARGET") as { assessed_at: string | null };
+      expect(scored.assessed_at).toBeTruthy();
+      const untouched = getConn().prepare("SELECT assessed_at FROM kol_profile_index WHERE kol_uid=?").get("KOL_OTHER") as { assessed_at: string | null };
+      expect(untouched.assessed_at ?? null).toBeNull();
+    } finally {
+      if (priorKey === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = priorKey;
+    }
+  });
+
   it("claim is L3, does not start the 14-day clock, dual-writes owner_name", async () => {
     seedProfile("KOL_CLAIM");
     getConn().prepare(

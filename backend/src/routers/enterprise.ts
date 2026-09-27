@@ -19,8 +19,7 @@ import type { Json, Row } from "../types.js";
 import { boxDir } from "../config.js";
 import { isBuiltinConnectorId, requireManagedConnector } from "../connectors/catalog.js";
 import { hasBundledIcon } from "./connector-icons.js";
-import { connectorHasAnyScope } from "../runtime/organization.js";
-import { ensureRuntimeSchema } from "../runtime/store.js";
+import { connectorInUseBySkill, ensureRuntimeSchema } from "../runtime/store.js";
 
 export const enterprise = new Hono();
 
@@ -59,8 +58,6 @@ function safeUser(row: Row): Json {
     active: Boolean(row.active),
     skill_grants: (db.prepare("SELECT skill_id FROM user_skill_grants WHERE user_id=?").all(row.id) as Row[])
       .map((grant) => String(grant.skill_id)),
-    connector_grants: (db.prepare("SELECT connector_id,access FROM user_connector_grants WHERE user_id=?").all(row.id) as Row[])
-      .map((grant) => `${grant.connector_id}:${grant.access}`),
     approval_roles: (db.prepare("SELECT approval_role FROM approval_role_bindings WHERE user_id=?").all(row.id) as Row[])
       .map((grant) => String(grant.approval_role)),
     mailbox_count: Number(mailboxCount?.n || 0),
@@ -376,8 +373,8 @@ enterprise.patch("/admin/connectors/:id", async (c) => {
       if (String(current.status) !== "verified") {
         throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
       }
-      if (!connectorHasAnyScope(id)) {
-        throw new HttpFail(409, { code: "connector_tool_scope_required", connector_id: id });
+      if (!connectorInUseBySkill(id)) {
+        throw new HttpFail(409, { code: "connector_skill_binding_required", connector_id: id });
       }
     }
     sets.push("enabled=?"); values.push(body.enabled ? 1 : 0);
@@ -398,50 +395,6 @@ enterprise.delete("/admin/connectors/:id", (c) => {
   if (!result.changes) throw new HttpFail(404, "connector not found");
   audit(admin.id, "admin.connector.delete", { connector_id: connectorId });
   return c.json({ ok: true });
-});
-
-enterprise.put("/admin/users/:uid/connectors/:id", async (c) => {
-  const admin = requireAdmin();
-  const body = (await c.req.json().catch(() => ({}))) as Json;
-  const access = String(body.access || "read");
-  if (!["read", "write"].includes(access)) throw new HttpFail(400, "invalid access");
-  userById(c.req.param("uid"));
-  const connectorId = requireManagedConnector(c.req.param("id"));
-  getConn().prepare(
-    `INSERT INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES (?,?,?,?)
-     ON CONFLICT(user_id,connector_id) DO UPDATE SET access=excluded.access`,
-  ).run(c.req.param("uid"), connectorId, access, nowIso());
-  audit(admin.id, "admin.connector.grant", { user_id: c.req.param("uid"), connector_id: connectorId, access });
-  return c.json({ ok: true, access });
-});
-
-enterprise.delete("/admin/users/:uid/connectors/:id", (c) => {
-  const admin = requireAdmin();
-  const connectorId = requireManagedConnector(c.req.param("id"));
-  getConn().prepare("DELETE FROM user_connector_grants WHERE user_id=? AND connector_id=?")
-    .run(c.req.param("uid"), connectorId);
-  audit(admin.id, "admin.connector.revoke", { user_id: c.req.param("uid"), connector_id: connectorId });
-  return c.json({ ok: true });
-});
-
-enterprise.put("/admin/users/:uid/connectors", async (c) => {
-  const admin = requireAdmin();
-  const uid = c.req.param("uid");
-  userById(uid);
-  const body = (await c.req.json()) as Json;
-  const values = Array.isArray(body.connectors) ? body.connectors.map(String) : [];
-  tx((db) => {
-    db.prepare("DELETE FROM user_connector_grants WHERE user_id=?").run(uid);
-    for (const value of values) {
-      const [connectorId, requestedAccess] = value.split(":");
-      const access = ["read", "write"].includes(requestedAccess) ? requestedAccess : "read";
-      requireManagedConnector(connectorId);
-      db.prepare("INSERT INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES (?,?,?,?)")
-        .run(uid, connectorId, access, nowIso());
-    }
-  });
-  audit(admin.id, "admin.connector_grants.replace", { user_id: uid, connectors: values });
-  return c.json({ ok: true, user_id: uid, connectors: values });
 });
 
 enterprise.put("/admin/users/:uid/approval-roles/:role", (c) => {

@@ -25,7 +25,7 @@ import {
   releaseFollow,
 } from "../host/kol-memory.js";
 import { enrichMissingPublicAvatars } from "../host/kol-avatar-enrichment.js";
-import { assessPublicKolsWithJev } from "../host/kol-jev-assessment.js";
+import { assessPublicKolsWithJev, normalizeJevTargets } from "../host/kol-jev-assessment.js";
 import { syncKolProfileIndex } from "../host/kol-memory-sync.js";
 import { HttpFail } from "../host/errors.js";
 import { currentFollowScope } from "../host/starry-bind.js";
@@ -155,11 +155,11 @@ function startAvatarEnrichment(): boolean {
   return true;
 }
 
-function startJevAssessment(): boolean {
+function startJevAssessment(kolUids: string[] = []): boolean {
   if (jevAssessmentFlight) return false;
   const startedAt = nowIso();
   jevAssessmentReceipt = { status: "running", started_at: startedAt, completed_at: null };
-  jevAssessmentFlight = assessPublicKolsWithJev()
+  jevAssessmentFlight = assessPublicKolsWithJev({ kol_uids: kolUids })
     .then((result) => {
       jevAssessmentReceipt = {
         status: "succeeded",
@@ -234,10 +234,24 @@ kolMemory.get("/home/pool/avatar-enrich", (c) => {
 });
 
 /** Manually invokes Jev on bounded public index fields; it cannot claim or delete a KOL. */
-kolMemory.post("/home/pool/jev-assess", (c) => {
-  const started = startJevAssessment();
+kolMemory.post("/home/pool/jev-assess", async (c) => {
+  const body = await c.req.json().catch(() => ({})) as Json;
+  const raw = Array.isArray(body.kol_uids) ? body.kol_uids : [];
+  const requested = new Set(raw.map((item) => String(item == null ? "" : item).trim()).filter(Boolean));
+  if (raw.length && !requested.size) {
+    throw new HttpFail(400, { code: "kol_uids_invalid", message: "kol_uids 必须是非空的公海对象 uid 数组" });
+  }
+  if (requested.size > KOL_ANALYZE_MAX_PEOPLE) {
+    throw new HttpFail(400, {
+      code: "too_many_targets",
+      message: `单次最多评分 ${KOL_ANALYZE_MAX_PEOPLE} 位`,
+      max: KOL_ANALYZE_MAX_PEOPLE,
+    });
+  }
+  const targets = normalizeJevTargets(raw);
+  const started = startJevAssessment(targets);
   c.header("Cache-Control", "no-store");
-  return c.json({ ...maintenanceResponse(jevAssessmentReceipt, true), accepted: true, started }, 202);
+  return c.json({ ...maintenanceResponse(jevAssessmentReceipt, true), accepted: true, started, targets }, 202);
 });
 
 kolMemory.get("/home/pool/jev-assess", (c) => {

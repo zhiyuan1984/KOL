@@ -84,6 +84,7 @@ export function useFollowedWorkspace(options: {
   const readSeq = useRef(0);
   const reconcileSeq = useRef(0);
   const [completeness, setCompleteness] = useState<FollowListCompleteness>("loading-local");
+  const [refreshNotice, setRefreshNotice] = useState("");
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("");
   const [situation, setSituation] = useState<FollowedSituation | "">("");
@@ -143,7 +144,7 @@ export function useFollowedWorkspace(options: {
     return "none";
   }, [completeness, followScope, loading, rows.length]);
 
-  const readSurface = useCallback(async (): Promise<boolean> => {
+  const readSurface = useCallback(async (): Promise<FollowedKol[] | null> => {
     // 进页会读取本地索引和合并后的兼容投影。两次可能落在同一屏，只有最后一份可以改 rows。
     readSeq.current += 1;
     const seq = readSeq.current;
@@ -154,7 +155,7 @@ export function useFollowedWorkspace(options: {
         kols: boardKols(),
         follow_scope: activeScope || undefined,
       });
-      if (seq !== readSeq.current) return false;
+      if (seq !== readSeq.current) return null;
       if (loaded.follow_scope) {
         latestFollowScope.current = loaded.follow_scope;
         setFollowScope(loaded.follow_scope);
@@ -162,10 +163,11 @@ export function useFollowedWorkspace(options: {
       if (loaded.down) {
         // 读取失败不清空已经写在屏幕上的名单；空名单时才交给 down 视图。
         setError(loaded.error || "跟进列表读取失败");
-        return false;
+        return null;
       }
-      setRows(loaded.items.map(followKolToRecord) as FollowedKol[]);
-      return true;
+      const nextRows = loaded.items.map(followKolToRecord) as FollowedKol[];
+      setRows(nextRows);
+      return nextRows;
     } finally {
       setReadsInFlight((count) => Math.max(0, count - 1));
       setReadsDone((count) => count + 1);
@@ -176,6 +178,7 @@ export function useFollowedWorkspace(options: {
   const loadSurface = useCallback(async () => {
     reconcileSeq.current += 1;
     const seq = reconcileSeq.current;
+    setRefreshNotice("");
     setCompleteness("loading-local");
     const loaded = await readSurface();
     if (seq !== reconcileSeq.current) return;
@@ -190,11 +193,12 @@ export function useFollowedWorkspace(options: {
     reconcileSeq.current += 1;
     const seq = reconcileSeq.current;
     setError("");
+    setRefreshNotice("");
     setCompleteness("loading-local");
     const board = loadBoard("following");
-    const localReady = await readSurface();
+    const localRows = await readSurface();
     if (seq !== reconcileSeq.current) return;
-    if (!localReady) {
+    if (!localRows) {
       setCompleteness("incomplete-error");
       return;
     }
@@ -205,10 +209,13 @@ export function useFollowedWorkspace(options: {
       setCompleteness("incomplete-error");
       return;
     }
-    const mergedReady = await readSurface();
+    const mergedRows = await readSurface();
     if (seq !== reconcileSeq.current) return;
-    if (mergedReady) setError("");
-    setCompleteness(mergedReady ? "complete" : "incomplete-error");
+    if (mergedRows) {
+      setError("");
+      setRefreshNotice(`红人数据已更新，共 ${mergedRows.length} 位。`);
+    }
+    setCompleteness(mergedRows ? "complete" : "incomplete-error");
   }, [loadBoard, readSurface]);
 
   const openDetails = useCallback(
@@ -460,6 +467,7 @@ export function useFollowedWorkspace(options: {
     setError,
     loading,
     completeness,
+    refreshNotice,
     followEmptyKind,
     confirmStageBusyId,
     confirmStageFeedback,

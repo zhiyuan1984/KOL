@@ -1,6 +1,8 @@
 # 宪法：愿景、分工与立法
 
-版本：2.0 · 2026-09-16
+版本：2.1 · 2026-09-27
+
+**修订记录（2026-09-27）：** CONST-02 增加一段：连接器、MCP 工具与 API 属平台内核能力，对外能力面只有技能，人员授权只对技能。依据 [DECISIONS.md](DECISIONS.md) ADR-2026-09-27「对外只暴露技能」；同步修订 `PRODUCT.md` PROD-PLAT-04 / PROD-PLAT-05、`TECHNOLOGY.md` TECH-BE-07、[org-permissions.md](org-permissions.md) 与 [ia-information-architecture.md](ia-information-architecture.md) 中员工连接器使用面与按人授权段落（原位废止并保留记录，CONST-09）。
 
 本目录交付一部宪法、三部基本法，供需求评审和实施对齐使用。规范入口、基本法与实施细则之间只使用相对路径；“条款已写明”不代表“功能已实现”。实施状态按 [TECHNOLOGY.md](TECHNOLOGY.md) 的登记要求另行维护。
 

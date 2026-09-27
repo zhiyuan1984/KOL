@@ -9,6 +9,7 @@ import {
   isActiveFollowRow,
   isAnalyzePrefill,
   isOpenPoolRow,
+  poolAnalysisPrefill,
   poolHasBannedField,
   SELECT_ALL_CAPPED_COPY,
   selectAllChecked,
@@ -263,5 +264,23 @@ describe("kol workbench contract (#172)", () => {
       analyzeItems: [],
       tasks: [{ id: "tsk_creator_library", status: "running", session_id: "ses_creator_library" }],
     })).toBe("/s/ses_creator_library");
+  });
+});
+
+describe("pool question prefill", () => {
+  const cards = [{ identity: { display: "@户外充电君" } }, { identity: { display: "@无主红人" } }];
+
+  it("puts the selected names and the knowledge-base template body in the ask box", () => {
+    const text = poolAnalysisPrefill(cards, "pool", "请基于公开资料分析这些 KOL 的合作潜力。");
+    expect(isAnalyzePrefill(text)).toBe(true);
+    expect(text).toContain("@户外充电君");
+    expect(text).toContain("@无主红人");
+    expect(text).toContain("合作潜力");
+  });
+
+  it("never invents a question when the template is missing", () => {
+    const text = poolAnalysisPrefill(cards, "pool", "   ");
+    expect(text).toBe(analyzePrefillPrompt(cards, "pool"));
+    expect(text).not.toMatch(/合作潜力|合作风险|完整度|评分/);
   });
 });

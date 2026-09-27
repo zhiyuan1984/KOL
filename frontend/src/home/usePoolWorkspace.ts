@@ -136,17 +136,19 @@ export function usePoolWorkspace(options: {
     }
   }, [maintenanceBusy]);
 
-  const assessWithJev = useCallback(async () => {
-    if (maintenanceBusy) return;
+  const assessWithJev = useCallback(async (kolUids?: string[]) => {
+    if (maintenanceBusy) throw new Error("已有评分或维护任务正在进行，请稍后重试");
     setMaintenanceBusy("jev");
     setMaintenanceError(null);
     setMaintenanceNotice(null);
     try {
-      const result = await assessPoolWithJev();
+      const result = await assessPoolWithJev(kolUids);
       setCards(dedupePoolCards(result.items));
       setMaintenanceNotice(result.message);
     } catch (err) {
-      setMaintenanceError(err instanceof Error ? err.message : "Jev 评分失败，请稍后重试");
+      const message = err instanceof Error ? err.message : "Jev 评分失败，请稍后重试";
+      setMaintenanceError(message);
+      throw new Error(message);
     } finally {
       setMaintenanceBusy(null);
     }

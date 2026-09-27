@@ -24,6 +24,7 @@ import {
   listVersions,
   proposeEvolve,
   publicKnowledge,
+  questionTemplates,
   reviewProposal,
   reviewQueue,
   storeUploadRaw,
@@ -47,6 +48,7 @@ export const knowledge = new Hono();
 
 knowledge.get("/knowledge/composer", (c) => c.json(composerItems()));
 knowledge.get("/knowledge/market", (c) => c.json(listMarket()));
+knowledge.get("/knowledge/question-templates", (c) => c.json(questionTemplates()));
 knowledge.get("/knowledge/:id/versions", (c) => c.json(listVersions(c.req.param("id"))));
 knowledge.get("/knowledge/:id", (c) => {
   const row = knowledgeRow(c.req.param("id"));

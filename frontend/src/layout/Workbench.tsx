@@ -326,10 +326,6 @@ export default function Workbench() {
               <span className="nav-badge warn">{Number(me?.exam_todo_count) === 1 ? "待完成" : me?.exam_todo_count}</span>
             )}
           </NavLink>
-          <NavLink to="/connectors" className={({ isActive }) => "nav-link" + (isActive ? " active" : "")} data-nav="connectors" title="连接器" onClick={() => setMobileOpen(false)}>
-            <Ico path="M10 13a5 5 0 0 0 7.1.4l1.5-1.5a5 5 0 1 0-7.1-7.1L10.3 6 M14 11a5 5 0 0 0-7.1-.4L5.4 12.1a5 5 0 1 0 7.1 7.1L13.7 18" />
-            <span className="sidebar-label">连接器</span>
-          </NavLink>
           <div className="nav-link is-disabled" aria-disabled="true" data-nav-disabled="云盘">
             <Ico path="M7 17h10a4 4 0 0 0 .4-8 5 5 0 0 0-9.6-1.2A3.5 3.5 0 0 0 7 17z" />
             <span className="sidebar-label">云盘</span>

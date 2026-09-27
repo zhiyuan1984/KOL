@@ -8,9 +8,7 @@ import { ConnectorCredentialVault } from "../../components/ConnectorCredentialVa
 import { auditEventLabel } from "../../labels";
 import { errorMessage } from "../../runtimeConnectorUi";
 import { ConnectorConfigCard } from "./ConnectorConfigCard";
-import { ConnectorGrantsCard } from "./ConnectorGrantsCard";
 import { ConnectorMark } from "./ConnectorMark";
-import { ConnectorScopeCard } from "./ConnectorScopeCard";
 import { ConnectorToolsCard } from "./ConnectorToolsCard";
 import { connectorCardView, connectorStatusNote, kindLabel } from "./entity";
 import "./connectorAdmin.css";
@@ -35,7 +33,7 @@ function codeOf(cause: unknown): string {
 
 function friendlyEnableFailure(code: string): string {
   if (code === "connector_verification_required") return "先完成一次通过的测试，连接器才会被允许启用。";
-  if (code === "connector_tool_scope_required") return "先在接口或可用范围中设置至少一项范围授权，再启用。";
+  if (code === "connector_skill_binding_required") return "尚无技能绑定其工具，请先在技能页挂载。";
   return "";
 }
 
@@ -47,10 +45,9 @@ function friendlyProbeFailure(code: string): string {
   return code ? `测试未通过；请检查已保存配置后重试（错误码：${code}）。` : "测试未通过；请检查已保存配置后重试。";
 }
 
-export function ConnectorDetail({ connectorId, connectors, users, auditRows, reload }: {
+export function ConnectorDetail({ connectorId, connectors, auditRows, reload }: {
   connectorId: string;
   connectors: AdminRow[];
-  users: AdminRow[];
   auditRows: AdminRow[];
   reload: () => void;
 }) {
@@ -167,9 +164,7 @@ export function ConnectorDetail({ connectorId, connectors, users, auditRows, rel
       {notice && <p className="admin-receipt status-ok" role="status" data-connector-detail-notice>{notice}</p>}
 
       <ConnectorConfigCard card={card} reload={reload} />
-      <ConnectorToolsCard connectorId={card.id} users={users} />
-      <ConnectorScopeCard connectorId={card.id} users={users} />
-      <ConnectorGrantsCard connector={{ id: card.id, label: card.label }} users={users} reload={reload} />
+      <ConnectorToolsCard connectorId={card.id} />
 
       <details className="panel connector-detail-card connector-disclosure">
         <summary><b>凭据引用</b><span className="muted">全局安全资产；秘密只在写入时提交，不能读取、复制或回显。</span></summary>

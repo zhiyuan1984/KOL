@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { governanceStatus, type AdminRow } from "../../adminGovernance";
-import { ConnectorConfigCard } from "./ConnectorConfigCard";
 import { ConnectorMark } from "./ConnectorMark";
-import { ApiConfigPanel, JsonImportPanel, McpConfigPanel, ModalShell, UrlAddPanel } from "./ConnectorPanels";
+import { ApiConfigPanel, JsonImportPanel, ModalShell, UrlAddPanel } from "./ConnectorPanels";
+import { ConnectorSetupWizard, McpConfigPanel } from "./ConnectorSetupWizard";
 import { ConnectorToolsDrawer } from "./ConnectorToolsDrawer";
 import {
   connectorCardView,
@@ -44,9 +44,8 @@ function connectorHealthCounts(cards: ConnectorCardView[]): HealthCounts {
   return counts;
 }
 
-export function ConnectorHub({ connectors, users, loading, onSave, reload }: {
+export function ConnectorHub({ connectors, loading, onSave, reload }: {
   connectors: AdminRow[];
-  users: AdminRow[];
   loading: boolean;
   onSave: ConnectorSaveFn;
   reload: () => void;
@@ -69,6 +68,15 @@ export function ConnectorHub({ connectors, users, loading, onSave, reload }: {
 
   const finishPanel = (message: string, tone: "ok" | "warn" = "ok") => {
     setPanel(null);
+    setError("");
+    setNotice(message);
+    setNoticeTone(tone);
+    reload();
+  };
+
+  /** The setup wizard is used both by the create panel and by the hub's config modal. */
+  const finishConfig = (message: string, tone: "ok" | "warn" = "ok") => {
+    setConfigCard(null);
     setError("");
     setNotice(message);
     setNoticeTone(tone);
@@ -181,7 +189,7 @@ export function ConnectorHub({ connectors, users, loading, onSave, reload }: {
         </div>
       )}
 
-      {panel === "mcp" && <McpConfigPanel onClose={() => setPanel(null)} onDone={finishPanel} />}
+      {panel === "mcp" && <McpConfigPanel onClose={() => setPanel(null)} onDone={finishPanel} reload={reload} />}
       {panel === "api" && <ApiConfigPanel onClose={() => setPanel(null)} onDone={finishPanel} />}
       {panel === "url" && <UrlAddPanel onClose={() => setPanel(null)} onDone={finishPanel} />}
       {panel === "json" && <JsonImportPanel onClose={() => setPanel(null)} onDone={finishPanel} />}
@@ -199,11 +207,12 @@ export function ConnectorHub({ connectors, users, loading, onSave, reload }: {
         />
       )}
       {configCard && (
-        <ModalShell
-          kind="connector-config"
-          form
-          title={configCard.label}
+        <ConnectorSetupWizard
+          mode="configure"
+          card={configCard}
           onClose={() => setConfigCard(null)}
+          onDone={finishConfig}
+          reload={reload}
           headerExtra={
             <Link
               className="connector-panel-detail-link"
@@ -213,11 +222,9 @@ export function ConnectorHub({ connectors, users, loading, onSave, reload }: {
               详情
             </Link>
           }
-        >
-          <ConnectorConfigCard card={configCard} reload={reload} hideHeading />
-        </ModalShell>
+        />
       )}
-      {toolsCard && <ConnectorToolsDrawer card={toolsCard} users={users} onClose={() => setToolsCard(null)} />}
+      {toolsCard && <ConnectorToolsDrawer card={toolsCard} onClose={() => setToolsCard(null)} />}
     </section>
   );
 }

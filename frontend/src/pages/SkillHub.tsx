@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { storePending } from "../components/ChatBlocks";
-import { useViewMode } from "../viewMode";
 
 export const FUNNEL: { id: string; label: string; hint: string }[] = [
   { id: "reach", label: "建联", hint: "建联 / 画像" },
@@ -85,23 +84,6 @@ export type SkillRow = {
 };
 
 type HubMode = "catalog" | "mine";
-
-const CONNECTORS = [
-  {
-    id: "claw",
-    title: "MediaCrawler MCP",
-    kind: "连接器",
-    summary: "创作者采集、检索与画像数据（管理端治理，调试可见）。",
-    to: "/connectors",
-  },
-  {
-    id: "starrykol",
-    title: "Starry KOL MCP",
-    kind: "连接器",
-    summary: "红人库、负责人、品牌邮箱和邮件会话（管理端治理，调试可见）。",
-    to: "/connectors",
-  },
-];
 
 const MARK: Record<string, string> = {
   creator_profile: "M12 11.5a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z M6.2 19c1.1-2.8 3.2-4.2 5.8-4.2s4.7 1.4 5.8 4.2",
@@ -217,13 +199,12 @@ export function SkillHubChrome({
   q: string;
   onQ: (v: string) => void;
 }) {
-  const { debug } = useViewMode();
   return (
     <header className="hub-chrome" data-hub-chrome>
       <nav className="hub-modes" aria-label="技能">
         <PuzzleIco />
         <Link to="/market/skills" className={"hub-mode" + (mode === "catalog" ? " on" : "")} data-hub-mode="catalog">
-          {debug ? "技能 · 连接器" : "技能目录"}
+          技能目录
         </Link>
       </nav>
       <div className="hub-tools">
@@ -256,11 +237,9 @@ async function startAsk(nav: ReturnType<typeof useNavigate>, text: string, inten
 }
 
 export function SkillHub() {
-  const { admin, debug } = useViewMode();
   const nav = useNavigate();
   const [q, setQ] = useState("");
   const [skills, setSkills] = useState<SkillRow[]>([]);
-  const [chip, setChip] = useState("skills");
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(true);
@@ -295,25 +274,12 @@ export function SkillHub() {
   const match = (title: string, summary: string) =>
     !needle || title.toLowerCase().includes(needle) || summary.toLowerCase().includes(needle);
 
-  const catalogChips = debug && admin
-    ? [
-        { id: "skills", label: "技能" },
-        { id: "connectors", label: "连接器" },
-      ]
-    : [];
+  const skillTiles = useMemo(
+    () => skills.filter((s) => s.in_market && match(s.title, s.summary || "")),
+    [skills, needle],
+  );
 
-  const skillTiles = useMemo(() => {
-    if (chip === "connectors") return [];
-    return skills.filter((s) => s.in_market && match(s.title, s.summary || ""));
-  }, [skills, chip, needle]);
-
-  const connectorTiles = useMemo(() => {
-    if (!debug || !admin) return [];
-    if (chip !== "skills" && chip !== "connectors") return [];
-    return CONNECTORS.filter((c) => match(c.title, c.summary));
-  }, [admin, debug, chip, needle]);
-
-  const empty = !loading && !err && skillTiles.length === 0 && connectorTiles.length === 0;
+  const empty = !loading && !err && skillTiles.length === 0;
 
   return (
     <div className="hub-page" data-skill-hub="catalog">
@@ -321,24 +287,7 @@ export function SkillHub() {
       <p className="hub-lead muted">已授权、可用于当前任务的技能。</p>
       {err && <p className="error" role="alert" data-hub-error>{err}</p>}
       {loading && !err && <p className="muted" data-hub-loading>正在加载技能…</p>}
-      {catalogChips.length > 0 && (
-        <div className="hub-chips" role="tablist">
-          {catalogChips.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              role="tab"
-              className={"hub-chip" + (chip === c.id ? " on" : "")}
-              data-hub-chip={c.id}
-              onClick={() => setChip(c.id)}
-            >
-              {c.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {!loading && !err && chip !== "connectors" && !needle && (
+      {!loading && !err && !needle && (
         <section className="hub-featured" data-hub-featured>
           <button type="button" className="hub-banner" data-hub-banner="email_compose" onClick={() => void useSkill({ id: "email_compose", title: "写合作邮件", in_market: true })}>
             <div>
@@ -377,18 +326,6 @@ export function SkillHub() {
               disabled={busy === s.id || s.granted === false}
               badge={s.granted === false ? "未开通" : undefined}
               onPlus={() => void useSkill(s)}
-            />
-          ))}
-          {connectorTiles.map((c) => (
-            <HubTile
-              key={c.id}
-              id={c.id}
-              title={c.title}
-              kind={c.kind}
-              summary={c.summary}
-              dataKey="data-connector"
-              plusLabel={"打开 " + c.title}
-              onPlus={() => nav(c.to)}
             />
           ))}
         </div>

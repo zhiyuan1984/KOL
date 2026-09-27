@@ -4,7 +4,6 @@ import type {
   OpenApiPreview,
   OrganizationUnitsResponse,
   RuntimeConnectorConfig,
-  RuntimeConnectorScopeSnapshot,
   RuntimeCredentialMetadata,
   RuntimeSkillConnector,
   RuntimeSkillTool,
@@ -575,6 +574,17 @@ export type KnowledgeRow = {
   approved_at?: string;
 };
 
+/** 公海工作台四类动作的问题模板（kind='question_template' 的已发布知识）。 */
+export type QuestionTemplateRow = {
+  slot: string;
+  knowledge_id: string;
+  published_version: number;
+  title: string;
+  body: string;
+  placeholders: string[];
+  starter: string;
+};
+
 export type StarryBinding = {
   required?: boolean;
   bound?: boolean;
@@ -1057,7 +1067,7 @@ export const api = {
       items?: Array<Record<string, unknown>>;
       kols?: Array<Record<string, unknown>>;
     }>("/api/home/pool/avatar-enrich"),
-  assessPoolWithJev: () =>
+  assessPoolWithJev: (kolUids?: string[]) =>
     request<{
       entry?: string;
       kind?: string;
@@ -1071,7 +1081,10 @@ export const api = {
       message?: string;
       items?: Array<Record<string, unknown>>;
       kols?: Array<Record<string, unknown>>;
-    }>("/api/home/pool/jev-assess", { method: "POST", body: JSON.stringify({}) }),
+    }>("/api/home/pool/jev-assess", {
+      method: "POST",
+      body: JSON.stringify(kolUids?.length ? { kol_uids: kolUids } : {}),
+    }),
   poolJevAssessmentStatus: () =>
     request<{
       status?: "idle" | "running" | "succeeded" | "failed";
@@ -1505,6 +1518,8 @@ export const api = {
     return request<KnowledgeRow[]>(qs ? `/api/knowledge?${qs}` : "/api/knowledge");
   },
   kbMarket: () => request<KnowledgeRow[]>("/api/knowledge/market"),
+  /** 零会话、零模型：只读已发布的问题模板，供公海四个入口预填提问框。 */
+  questionTemplates: () => request<QuestionTemplateRow[]>("/api/knowledge/question-templates"),
   knowledgeItem: (id: string) => request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}`),
   citeKnowledge: (id: string) =>
     request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}/cite`, { method: "POST", body: JSON.stringify({}) }),
@@ -1631,7 +1646,6 @@ export const api = {
   adminEmployeeTools: (userId: string) =>
     request<{ tools: AdminEmployeeTool[] }>(`/api/admin/users/${encodeURIComponent(userId)}/tools`),
   adminOrganizationUnits: () => request<OrganizationUnitsResponse>("/api/admin/organization-units"),
-  connectors: () => request<Record<string, unknown>[]>("/api/connectors"),
   adminConnectors: () => request<Record<string, unknown>[]>("/api/admin/connectors"),
   runtimeConnectorConfig: (connectorId: string) =>
     request<{ config: RuntimeConnectorConfig; version: number }>(
@@ -1705,39 +1719,6 @@ export const api = {
       `/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/tools/${encodeURIComponent(toolName)}`,
       { method: "PUT", body: JSON.stringify(body) },
     ),
-  runtimeOrganizationScope: (connectorId: string) =>
-    request<{
-      connector_id: string;
-      synced_at: string | null;
-      source: string | null;
-      nodes: Array<{ id: string; parent_id: string | null; name: string; level: 1 | 2 | 3; is_person: boolean; external_id: string; local_user_id: string | null; status: "matched" | "unmatched" }>;
-    }>(`/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/organization-scope`),
-  addRuntimeOrganizationScopeNode: (connectorId: string, body: { name?: string; level: 1 | 2 | 3; parent_id?: string; user_id?: string; external_id?: string }) =>
-    request<{
-      connector_id: string;
-      synced_at: string | null;
-      source: string | null;
-      nodes: Array<{ id: string; parent_id: string | null; name: string; level: 1 | 2 | 3; is_person: boolean; external_id: string; local_user_id: string | null; status: "matched" | "unmatched" }>;
-    }>(`/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/organization-scope/nodes`, { method: "POST", body: JSON.stringify(body) }),
-  runtimeToolScope: (connectorId: string, toolName: string) =>
-    request<{ connector_id: string; tool_name: string; node_ids: string[]; all: boolean; scope_configured: boolean }>(
-      `/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/tools/${encodeURIComponent(toolName)}/scope`,
-    ),
-  saveRuntimeToolScope: (connectorId: string, toolName: string, nodeIds: string[], all = false) =>
-    request<{ connector_id: string; tool_name: string; node_ids: string[]; all: boolean }>(
-      `/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/tools/${encodeURIComponent(toolName)}/scope`,
-      { method: "PUT", body: JSON.stringify({ node_ids: nodeIds, all }) },
-    ),
-  runtimeConnectorScope: (connectorId: string) =>
-    request<RuntimeConnectorScopeSnapshot>(`/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/connector-scope`),
-  saveRuntimeConnectorScope: (
-    connectorId: string,
-    body: { mode: RuntimeConnectorScopeSnapshot["mode"]; bindings: RuntimeConnectorScopeSnapshot["bindings"] },
-  ) =>
-    request<RuntimeConnectorScopeSnapshot>(`/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/connector-scope`, {
-      method: "PUT",
-      body: JSON.stringify(body),
-    }),
   uploadConnectorIcon: (connectorId: string, file: File) => {
     const fd = new FormData();
     fd.append("icon", file);

@@ -1,14 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type AgentManifestView } from "../api";
-import {
-  accessFor,
-  connectorGrantsOf,
-  publicConnectorView,
-  publishStatusLabel,
-  rowTitle,
-  type AdminRow,
-} from "../adminGovernance";
+import { publishStatusLabel, rowTitle, type AdminRow } from "../adminGovernance";
 import { profileNameLabel } from "../labels";
 
 type Profile = {
@@ -19,13 +12,9 @@ type Profile = {
 };
 
 export function AdminAgents({
-  users,
-  connectors,
   exams,
   assignments,
 }: {
-  users: AdminRow[];
-  connectors: AdminRow[];
   exams: AdminRow[];
   assignments: AdminRow[];
 }) {
@@ -51,7 +40,6 @@ export function AdminAgents({
   }, []);
 
   const publish = publishStatusLabel(manifest);
-  const connectorRows = connectors.map(publicConnectorView).filter((row) => row.id);
   const entries = manifest?.entries || [];
 
   return (
@@ -153,47 +141,17 @@ export function AdminAgents({
         <Link className="btn ghost sm" to="/admin/exams">去分配考试</Link>
       </div>
 
-      <div className="panel">
-        <h2>连接器授权矩阵</h2>
+      <div className="panel" data-admin-skill-authorization>
+        <h2>授权模型</h2>
         <p className="muted">
-          现有 API 是员工 × 连接器的 read/write。Agent × 连接器矩阵后端尚未提供。
+          <strong>人员授权只对技能。</strong>连接器不按人授权：先给员工授予技能（<code>user_skill_grants</code>），
+          再由技能声明用哪些工具（技能 × 连接器 / 技能 × 工具绑定）。
           {entries.length ? ` 发布包入口：${entries.map((entry) => entry.title).join("、")}。` : ""}
         </p>
-        <div className="admin-table-wrap admin-matrix">
-          <table className="admin-table" data-admin-grant-matrix>
-            <thead>
-              <tr>
-                <th>员工</th>
-                {connectorRows.map((connector) => (
-                  <th key={connector.id}>{connector.label}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((user) => (
-                <tr key={String(user.id)}>
-                  <td>
-                    <strong>{rowTitle(user)}</strong>
-                    <p className="muted">{connectorGrantsOf(user).length} 项授予</p>
-                  </td>
-                  {connectorRows.map((connector) => {
-                    const access = accessFor(user, connector.id);
-                    return (
-                      <td key={connector.id} data-matrix-cell={`${user.id}:${connector.id}`}>
-                        {access ? access : "—"}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {(!users.length || !connectorRows.length) && <p className="muted">还没有可展示的员工或连接器。</p>}
-        <div className="admin-todo" data-todo="agent-connector-matrix">
-          TODO：没有 Agent × 连接器授权 API。单元格不深链员工 <code>/agents</code> 开工台。
-        </div>
-        <Link className="btn ghost sm" to="/admin/connectors">去连接器枢纽改授权</Link>
+        <p className="muted">
+          已退役：员工 × 连接器 read/write、连接器级组织范围、逐工具范围。这些入口不再提供，历史数据保留可回溯。
+        </p>
+        <Link className="btn ghost sm" to="/admin/skills">去技能页配置绑定</Link>
       </div>
     </section>
   );

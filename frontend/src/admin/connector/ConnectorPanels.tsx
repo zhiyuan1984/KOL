@@ -6,18 +6,17 @@ import {
   errorMessage,
   type McpImportPreview,
   type McpImportResult,
-  type RuntimeConnectorConfig,
   type RuntimeConnectorTransport,
-  type RuntimeProtocol,
 } from "../../runtimeConnectorUi";
+import { createConnectorRecord, resolveHeaderRefs, saveConnectorConfigForm, type HeaderRow } from "./connectorSetup";
 import { isConnectorIdValid, slugFromLabel } from "./entity";
 
-export type HeaderRow = { name: string; value: string };
+export type { HeaderRow } from "./connectorSetup";
 
+const HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 const RESERVED_HEADERS = new Set([
   "content-length", "host", "connection", "transfer-encoding", "upgrade", "keep-alive", "proxy-connection",
 ]);
-const HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 const MAX_ICON_BYTES = 1024 * 1024;
 
 export function validateHeaderName(name: string, label = "请求头名称"): string {
@@ -30,47 +29,6 @@ export function validateIconFile(file: File): string {
   if (file.type !== "image/png" && file.type !== "image/jpeg") return "仅支持 PNG 或 JPG 图标。";
   if (file.size > MAX_ICON_BYTES) return "图标不能超过 1 MB。";
   return "";
-}
-
-/** Error code carried by the API error payload. The API answers `{ detail: { code } }`. */
-function codeOf(cause: unknown): string {
-  const payload = (cause as { payload?: unknown } | null)?.payload;
-  const queue: unknown[] = [payload, (payload as { detail?: unknown } | null)?.detail];
-  while (queue.length) {
-    const candidate = queue.shift();
-    if (typeof candidate === "string") {
-      try {
-        queue.push(JSON.parse(candidate));
-      } catch {
-        // A plain message, not an error code carrier.
-      }
-      continue;
-    }
-    if (!candidate || typeof candidate !== "object") continue;
-    const record = candidate as { code?: unknown; error_code?: unknown };
-    if (typeof record.code === "string") return record.code;
-    if (typeof record.error_code === "string") return record.error_code;
-  }
-  return "";
-}
-
-function friendlyEnableFailure(code: string): string {
-  if (code === "connector_verification_required") return "先完成一次通过的测试，连接器才会被允许启用。";
-  if (code === "connector_tool_scope_required") return "先在接口或可用范围中设置至少一项范围授权，再启用。";
-  return "";
-}
-
-/**
- * Asks the server to enable a connector. Empty string means published; otherwise
- * the server's own reason is returned verbatim — the gate is never bypassed here.
- */
-export async function publishConnector(connectorId: string): Promise<string> {
-  try {
-    await api.adminSave(`/api/admin/connectors/${encodeURIComponent(connectorId)}`, { enabled: true }, "PATCH");
-    return "";
-  } catch (cause) {
-    return friendlyEnableFailure(codeOf(cause)) || errorMessage(cause, "发布失败");
-  }
 }
 
 export function ModalShell({ kind, title, subtitle, onClose, children, footer, wide = false, form = false, headerExtra }: {
@@ -312,101 +270,26 @@ export function headerRowsProblem(rows: HeaderRow[]): string {
   return "";
 }
 
-export async function resolveHeaderRefs(rows: HeaderRow[], label: string): Promise<Record<string, string>> {
-  const refs: Record<string, string> = {};
-  for (const row of rows) {
-    const name = row.name.trim();
-    const value = row.value.trim();
-    if (!name || !value) continue;
-    if (value.startsWith("cred_")) {
-      refs[name] = value;
-      continue;
-    }
-    const created = await api.createRuntimeCredential({
-      type: "organization_secret",
-      label: `${label} · ${name}`,
-      purpose: "由连接器配置表单写入",
-      secret: value,
-    });
-    refs[name] = created.id;
-  }
-  return refs;
-}
-
-/** Short name derived from the connector name; the form no longer asks for it. */
-export function autoConnectorId(label: string, prefix = "mcp"): string {
-  const slug = slugFromLabel(label);
-  if (isConnectorIdValid(slug)) return slug;
-  return `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`.slice(0, 63);
-}
-
-async function createConnectorRecord(
-  label: string,
-  purpose: string,
-  options: { prefix?: string; protocol?: RuntimeProtocol } = {},
-): Promise<string> {
-  const base = autoConnectorId(label, options.prefix);
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    // A taken short name is not worth asking the user about; pick another one.
-    const candidate = attempt === 0 ? base : `${base.slice(0, 53)}-${Math.random().toString(36).slice(2, 8)}`;
-    try {
-      await api.adminSave("/api/admin/connectors", {
-        id: candidate,
-        label,
-        purpose,
-        ...(options.protocol ? { protocol: options.protocol } : {}),
-      }, "POST");
-      return candidate;
-    } catch (cause) {
-      if (codeOf(cause) !== "managed_connector_already_exists") throw cause;
-    }
-  }
-  throw new Error("无法为该名称生成未被占用的短名；请改用更具体的名称后重试。");
-}
-
 async function saveConnectorSetup(input: {
   id: string;
   label: string;
-  protocol: RuntimeProtocol;
+  protocol: "mcp" | "http";
   transport: RuntimeConnectorTransport;
   url: string;
   noAuth: boolean;
   headerRows: HeaderRow[];
   iconFile: File | null;
 }): Promise<void> {
-  const refs = await resolveHeaderRefs(input.headerRows, input.label);
-  const config: RuntimeConnectorConfig & { expected_version: number } = {
+  await saveConnectorConfigForm({
+    id: input.id,
+    label: input.label,
     protocol: input.protocol,
+    transport: input.transport,
     url: input.url,
-    allow_unauthenticated: input.noAuth,
-    timeout_ms: 30_000,
-    expected_version: 0,
-  };
-  if (input.protocol === "mcp") config.transport = input.transport;
-  else config.http_tools = [];
-  if (Object.keys(refs).length) config.headers_secret_refs = refs;
-  await api.saveRuntimeConnectorConfig(input.id, config);
-  if (input.iconFile) {
-    try {
-      await api.uploadConnectorIcon(input.id, input.iconFile);
-    } catch {
-      // The connector itself is created; icon upload can be retried from the detail page.
-    }
-  }
-}
-
-async function createManagedMcp(input: {
-  label: string;
-  purpose: string;
-  transport: RuntimeConnectorTransport;
-  url: string;
-  noAuth: boolean;
-  headerRows: HeaderRow[];
-  iconFile: File | null;
-}): Promise<string> {
-  const id = await createConnectorRecord(input.label, input.purpose);
-  await saveConnectorSetup({ ...input, id, protocol: "mcp" });
-  return id;
+    noAuth: input.noAuth,
+    headerRows: input.headerRows,
+    iconFile: input.iconFile,
+  }, 0);
 }
 
 /**
@@ -439,100 +322,6 @@ async function createManagedHttpApi(input: {
     }
   }
   return id;
-}
-
-export function McpConfigPanel({ onClose, onDone }: {
-  onClose: () => void;
-  onDone: (message: string, tone?: "ok" | "warn") => void;
-}) {
-  const [label, setLabel] = useState("");
-  const [transport, setTransport] = useState<RuntimeConnectorTransport>("streamable-http");
-  const [purpose, setPurpose] = useState("");
-  const [url, setUrl] = useState("");
-  const [headers, setHeaders] = useState<HeaderRow[]>([{ name: "", value: "" }]);
-  const [noAuth, setNoAuth] = useState(false);
-  const [iconFile, setIconFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const createdRef = useRef<string | null>(null);
-
-  const submit = async (publish: boolean) => {
-    const problems: string[] = [];
-    if (!label.trim()) problems.push("请填写服务器名称。");
-    if (!/^https?:\/\//.test(url.trim())) problems.push("服务器 URL 需要以 http:// 或 https:// 开头。");
-    const headerProblem = headerRowsProblem(headers);
-    if (headerProblem) problems.push(headerProblem);
-    if (!headers.some((row) => row.name.trim() && row.value.trim()) && !noAuth) {
-      problems.push("至少填写一个请求头密钥，或勾选「该端点明确无鉴权」。");
-    }
-    if (problems.length) {
-      setError(problems.join(" "));
-      return;
-    }
-    setBusy(true);
-    setError("");
-    const name = label.trim();
-    const note = purpose.trim() || "待补充业务用途";
-    try {
-      const id = createdRef.current || await createManagedMcp({ label: name, purpose: note, transport, url: url.trim(), noAuth, headerRows: headers, iconFile });
-      createdRef.current = id;
-      if (publish) {
-        const reason = await publishConnector(id);
-        if (reason) onDone(`“${name}”已保存为待验证草稿，但未能发布：${reason}`, "warn");
-        else onDone(`已创建并发布“${name}”。`);
-        return;
-      }
-      onDone(`已将“${name}”加入连接器目录；下一步在详情的测试中完成验证。`);
-    } catch (cause) {
-      setError(errorMessage(cause, "创建连接器失败"));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <ModalShell
-      kind="mcp-config"
-      title="MCP 配置"
-      onClose={onClose}
-      form
-      footer={
-        <>
-          <p className="connector-panel-note muted">保存只生成待验证草稿，不等于启用。</p>
-          <SplitButton
-            name="save"
-            variant="primary"
-            label={busy ? "保存中…" : "保存"}
-            disabled={busy}
-            onPrimary={() => void submit(false)}
-            items={[{ label: "发布并保存", onSelect: () => void submit(true), disabled: busy }]}
-          />
-        </>
-      }
-    >
-      {error && <p className="error" role="alert" data-connector-panel-error>{error}</p>}
-      <div className="connector-form-grid">
-        <label className="field">服务器名称
-          <input value={label} placeholder="e.g., My Custom Server" maxLength={120} data-connector-field="label" onChange={(event) => setLabel(event.target.value)} />
-        </label>
-        <label className="field">传输类型
-          <select value={transport} data-connector-field="transport" onChange={(event) => setTransport(event.target.value as RuntimeConnectorTransport)}>
-            <option value="streamable-http">HTTP</option>
-            <option value="sse">SSE</option>
-          </select>
-        </label>
-      </div>
-      <div className="field">图标<ConnectorIconUpload variant="dialog" file={iconFile} onPick={setIconFile} /></div>
-      <label className="field"><span>备注<span className="field-optional">（可选）</span></span>
-        <textarea value={purpose} rows={5} maxLength={280} placeholder="提供 MCP 文档或说明，以告知平台如何及何时使用此 MCP" onChange={(event) => setPurpose(event.target.value)} />
-      </label>
-      <label className="field">服务器 URL
-        <input value={url} placeholder="https://mcp.yourserver.com/mcp" data-connector-field="url" onChange={(event) => setUrl(event.target.value)} />
-      </label>
-      <div className="field"><span>自定义 headers<span className="field-optional">（可选）</span></span><HeaderRowsEditor rows={headers} onChange={setHeaders} disabled={busy} /></div>
-      <label className="check"><input type="checkbox" checked={noAuth} onChange={(event) => setNoAuth(event.target.checked)} /> 该端点明确允许无鉴权</label>
-    </ModalShell>
-  );
 }
 
 /** Secret rows become vault credentials; the saved config keeps only references. */

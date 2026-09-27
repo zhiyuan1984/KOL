@@ -265,6 +265,14 @@
   --font-browse-title: 16px;   /* 弹窗标题（墨高 22 × 0.7 ≈ 15.4 → 16） */
   --font-browse-desc: 11px;    /* 卡片描述（墨高 14.5 × 0.7 ≈ 10.2 → 11） */
   --lh-browse-desc: 15px;      /* 描述行距（21 × 0.7 = 14.7 → 15） */
+  /* 连接器设置向导（弹窗内四步）—— 元素尺寸由既有 token 推导（控件高 34 × 0.76 ≈ 26），
+     唯一来源 docs/DESIGN.md §连接器控制台「设置向导」。 */
+  --wizard-step-h: 26px;       /* 步骤条项高度（控件高 × 0.76，便于 900 高视口不滚动） */
+  --wizard-step-gap: 6px;      /* 步骤条项之间 */
+  --wizard-gap: 12px;          /* 步骤条 / 状态行 / 内容之间的纵向间距（收口 --block-gap 18） */
+  --wizard-status-gap: 4px;    /* 步骤条到状态行 */
+  --wizard-gate-gap: 6px;      /* 门禁与回执块内条目间距 */
+  --dialog-h-wizard: min(94dvh, 900px);  /* 向导弹窗高度上限（88dvh 会把步骤条挤出 900 高视口） */
 
   /* Primary tone scale for cards and panels (used by home-workbench review cards). */
   --radius-inputs: 22px;
@@ -9087,8 +9095,6 @@ body {
   font-size: var(--font-body);
   line-height: var(--leading-body);
 }
-.settings-return { margin: 0 0 16px; }
-.settings-return a { font-size: var(--font-ui); }
 .settings-tabs { display: flex; gap: 4px; flex-wrap: nowrap; overflow-x: auto; border-bottom: 1px solid var(--line); margin-bottom: 18px; }
 .settings-tabs.admin-tabs { flex-wrap: wrap; overflow: visible; }
 .settings-tabs button { border: 0; border-bottom: 2px solid transparent; background: none; padding: 9px 12px; cursor: pointer; color: var(--muted); font: inherit; font-size: var(--font-ui); white-space: nowrap; min-height: 36px; }
@@ -14901,3 +14907,76 @@ button.today-brief-primary-btn:disabled {
 .starry-node-form { display: grid; grid-template-columns: 132px minmax(180px, 1fr) minmax(180px, 1fr) auto; gap: var(--space-3); align-items: end; }
 .starry-node-form .btn { margin-bottom: 0; }.starry-scope-save { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border); }
 @media (max-width: 720px) { .starry-simple-tools article { align-items: flex-start; flex-direction: column; }.starry-node-form { grid-template-columns: 1fr; }.starry-scope-save { align-items: stretch; flex-direction: column; } }
+
+/* 公海工作台：中栏概要降为元信息档；右栏工具拆两行；评分显示落在「主页」之后。
+   追加在文件末尾以确保覆盖前面几代 .pool-* 规则（同权重时后写者胜）。 */
+.pool-interaction .pool-overview {
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+  font-weight: 400;
+}
+.pool-interaction .pool-overview .pool-total { font-weight: 400; }
+.pool-interaction .pool-score-confirm {
+  display: grid;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--ds-radius-section);
+  background: var(--ds-surface);
+}
+.pool-interaction .pool-score-confirm-text {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+.pool-interaction .pool-score-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--ds-space-2);
+}
+
+.scope-task-rail .pool-compact-toolbar { display: grid; gap: var(--ds-space-1); }
+.scope-task-rail .pool-toolbar-row {
+  display: flex;
+  flex-flow: row wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+.scope-task-rail .pool-toolbar-row.is-primary .pool-search {
+  flex: 0 1 clamp(5.25rem, 6.75vw, 6rem);
+}
+.scope-task-rail .pool-toolbar-row.is-secondary .pool-select-all { margin-left: 0; }
+.scope-task-rail .pool-row-meta { flex-wrap: wrap; }
+.scope-task-rail .pool-row-score {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.scope-task-rail .pool-profile-link + span::before {
+  content: "·";
+  margin-right: var(--ds-space-1);
+  color: color-mix(in srgb, var(--text-muted) 48%, transparent);
+}
+.scope-task-rail .pool-score-entry {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--accent-text);
+  font: inherit;
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+@media (max-width: 620px) {
+  .scope-task-rail .pool-toolbar-row.is-primary .pool-search { flex-basis: 100%; }
+}

@@ -17,8 +17,16 @@ import { currentUser } from "./persona.js";
 import { departmentHeadAccessForUser } from "../contract-scope.js";
 import { directory, memberScopeIds } from "./grants.js";
 
-export const KNOWLEDGE_KINDS = ["mail_template", "policy", "pattern", "glossary"] as const;
+export const KNOWLEDGE_KINDS = ["mail_template", "policy", "pattern", "glossary", "question_template"] as const;
 export const KNOWLEDGE_STATUSES = ["draft", "pending_review", "published", "archived"] as const;
+
+/** 公海工作台四类动作的问题模板槽位；模板正文存于 kind='question_template' 的知识行。 */
+export const QUESTION_TEMPLATE_SLOTS = ["potential", "risk", "completeness", "score"] as const;
+export type QuestionTemplateSlot = (typeof QUESTION_TEMPLATE_SLOTS)[number];
+
+/** 槽位约定：模板 tags 里带 `pool-question:<slot>`。 */
+export const QUESTION_TEMPLATE_TAG_PREFIX = "pool-question:";
+const KNOWLEDGE_KIND_HINT = KNOWLEDGE_KINDS.join(" / ");
 export const KNOWLEDGE_SKIP_REASONS = [
   "not_published",
   "scope_mismatch",
@@ -265,6 +273,62 @@ export function composerStarter(row: Row): string {
   return `${title} ${placeholders.map((p) => (p.startsWith("[") ? p : `[${p}]`)).join(" ")}`;
 }
 
+function questionTemplateSlot(row: Row): QuestionTemplateSlot | null {
+  const tags = String(row.tags || "")
+    .split(",")
+    .map((tag) => tag.trim());
+  for (const tag of tags) {
+    if (!tag.startsWith(QUESTION_TEMPLATE_TAG_PREFIX)) continue;
+    const slot = tag.slice(QUESTION_TEMPLATE_TAG_PREFIX.length) as QuestionTemplateSlot;
+    if ((QUESTION_TEMPLATE_SLOTS as readonly string[]).includes(slot)) return slot;
+  }
+  return null;
+}
+
+/**
+ * 公海工作台四个动作的问题模板。与 composerItems() 同一套治理：
+ * 已发布 + 未被本人隐藏 + 品牌与范围可见。缺槽位或未发布的模板不出现，
+ * 前端据此禁用入口而不是回落到写死的问题文案（CONST-10）。
+ */
+export function questionTemplates(userId = knowledgeActorId(), brands = actorBrands()): Json[] {
+  const rows = getConn()
+    .prepare(
+      `SELECT k.* FROM knowledge k
+       WHERE k.status='published' AND k.kind='question_template'
+         AND NOT EXISTS (
+           SELECT 1 FROM knowledge_deprecations d
+            WHERE d.knowledge_id=k.id AND d.user_id=?
+         )
+       ORDER BY k.title`,
+    )
+    .all(userId) as Row[];
+  const viewer = viewerHandle(userId);
+  return rows
+    .filter((row) => brandMatched(row, brands) && canSeeKnowledge(row, viewer))
+    .flatMap((row) => {
+      const slot = questionTemplateSlot(row);
+      if (!slot) {
+        audit("system", "knowledge.question_template.bad_slot", { knowledge_id: String(row.id) });
+        return [];
+      }
+      try {
+        const snapshot = publishedSnapshot(row);
+        return [{
+          slot,
+          knowledge_id: String(row.id),
+          published_version: Number(snapshot.version),
+          title: String(snapshot.title || ""),
+          body: String(snapshot.body || ""),
+          placeholders: parseJsonArray(snapshot.placeholders),
+          starter: composerStarter(snapshot),
+        }];
+      } catch (error) {
+        if (error instanceof HttpFail) return [];
+        throw error;
+      }
+    });
+}
+
 export function cite(knowledgeId: string, userId = knowledgeActorId()): Json {
   const row = knowledgeRow(knowledgeId);
   if (String(row.status) !== "published") throw new HttpFail(403, "未发布知识不能启用");
@@ -317,7 +381,7 @@ export function listVersions(knowledgeId: string): Json[] {
 
 function normalizeKind(value: unknown): KnowledgeKind {
   const kind = String(value || "policy") as KnowledgeKind;
-  if (!KNOWLEDGE_KINDS.includes(kind)) throw new HttpFail(400, "kind 须为 mail_template / policy / pattern / glossary");
+  if (!KNOWLEDGE_KINDS.includes(kind)) throw new HttpFail(400, `kind 须为 ${KNOWLEDGE_KIND_HINT}`);
   return kind;
 }
 
@@ -1341,7 +1405,7 @@ function normalizeSelector(value: unknown): KnowledgeBindingSelector {
   const kinds = stringList(input.kinds);
   for (const kind of kinds) {
     if (!(KNOWLEDGE_KINDS as readonly string[]).includes(kind)) {
-      throw new HttpFail(400, "kind 须为 mail_template / policy / pattern / glossary");
+      throw new HttpFail(400, `kind 须为 ${KNOWLEDGE_KIND_HINT}`);
     }
   }
   const selector: KnowledgeBindingSelector = {};
@@ -1847,6 +1911,37 @@ export function seedKnowledge(conn = getConn()): void {
       tags: "email_compose,mail_template",
     },
   ];
+  const questions: Array<{
+    id: string;
+    slot: QuestionTemplateSlot;
+    title: string;
+    body: string;
+  }> = [
+    {
+      id: "kb_q_pool_potential",
+      slot: "potential",
+      title: "公海 · 高潜KOL分析提问模板",
+      body: "请基于公开资料分析这些 KOL 的合作潜力，逐条说明判断依据与资料缺口。",
+    },
+    {
+      id: "kb_q_pool_risk",
+      slot: "risk",
+      title: "公海 · 高风险KOL分析提问模板",
+      body: "请基于公开资料分析这些 KOL 的合作风险，逐条说明判断依据与资料缺口。",
+    },
+    {
+      id: "kb_q_pool_completeness",
+      slot: "completeness",
+      title: "公海 · 资料完整度检查提问模板",
+      body: "请检查这些 KOL 的公开资料完整度，列出待补充项与补齐来源。",
+    },
+    {
+      id: "kb_q_pool_score",
+      slot: "score",
+      title: "公海 · KOL评分提问模板",
+      body: "请对这些 KOL 的公开资料做潜力/风险评分，说明口径、依据与置信度。",
+    },
+  ];
 
   const upsert = conn.prepare(
     `INSERT OR REPLACE INTO knowledge
@@ -1882,6 +1977,19 @@ export function seedKnowledge(conn = getConn()): void {
         `kv_${m.id}_1`, m.id, m.title, m.body_en, m.subject, m.body_en,
         JSON.stringify(m.placeholders), JSON.stringify(m.stage_codes),
         m.skill_id, m.brand, "mail_template", actor, now, "seed mail_template v1",
+      );
+    }
+  }
+  for (const q of questions) {
+    upsert.run(
+      q.id, q.title, q.body, `${QUESTION_TEMPLATE_TAG_PREFIX}${q.slot},kol-pool`, "question_template", "", "*", "", "",
+      "[]", "[]",
+      actor, actor, now, now, now,
+    );
+    if (!hasVersion.get(q.id)) {
+      insVer.run(
+        `kv_${q.id}_1`, q.id, q.title, q.body, "", "", "[]", "[]", "", "*", "question_template", actor, now,
+        "seed question v1",
       );
     }
   }

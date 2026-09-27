@@ -89,6 +89,7 @@ export default function FollowedPane({
   followEmptyKind,
   down,
   listError,
+  refreshNotice,
   onQuery,
   onStageFilter,
   onSituation,
@@ -124,6 +125,8 @@ export default function FollowedPane({
   down?: SurfaceDownView | null;
   /** 名单还在屏上、但最近一次读取失败：安静提示，不吞掉已经读到的对象。 */
   listError?: string;
+  /** 历史快照与当前邮箱记录完成拼接后的非阻断回执。 */
+  refreshNotice?: string;
   onQuery: (value: string) => void;
   onStageFilter: (value: string) => void;
   onSituation: (value: FollowedSituation | "") => void;
@@ -219,6 +222,9 @@ export default function FollowedPane({
             <button key={key} type="button" onClick={() => onSituation("")}>{brief.counts[key]} 位{label} ×</button>
           ) : null)}
         </div> : null}
+        {refreshNotice ? (
+          <p className="muted" data-follow-refresh-notice role="status" aria-live="polite">{refreshNotice}</p>
+        ) : null}
 
         {visibleKols.length ? (
           <>

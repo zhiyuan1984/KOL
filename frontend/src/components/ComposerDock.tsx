@@ -21,10 +21,8 @@ import {
   type ComposerEntryIntent,
   type ComposerObjectRef,
   type ComposerScope,
-  type ConnectorDto,
   type KnowledgeLib,
 } from "../composer/types";
-import { connectorUseAccess, connectorUseLabel, connectorUseStatus, preferCanonicalConnectors } from "../connectorUse";
 import { starterPrompt } from "../taskStarters";
 import {
   canSubmitDiscovery,
@@ -52,7 +50,6 @@ import {
   templateBodyExcerpt,
   type LockedMailTemplate,
 } from "../knowledgeCopy";
-import { api, type StarryBinding } from "../api";
 import { useViewMode } from "../viewMode";
 
 export type ComposerVariant = "compact" | "workspace";
@@ -214,13 +211,11 @@ export default function ComposerDock({
   const [skills, setSkills] = useState<SkillOption[]>([]);
   const [templates, setTemplates] = useState<KnowledgeRow[]>([]);
   const [knowledgeLibs, setKnowledgeLibs] = useState<KnowledgeLib[]>([]);
-  const [connectors, setConnectors] = useState<ConnectorDto[]>([]);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [recentFiles, setRecentFiles] = useState<(AttachmentRef & { available?: boolean })[]>([]);
   const [picker, setPicker] = useState(false);
   const [query, setQuery] = useState("");
   const [atStart, setAtStart] = useState(0);
-  const [triggerMark, setTriggerMark] = useState<"/" | "@">("/");
   const [pickerIndex, setPickerIndex] = useState(-1);
   const [attachments, setAttachments] = useState<AttachmentRef[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -348,28 +343,9 @@ export default function ComposerDock({
 
   useEffect(() => {
     void Promise.all([
-      fetch("/api/connectors").then((r) => r.ok ? r.json() : []),
-      api.starryBinding().catch(() => ({ bound: false, status: "unbound" } as StarryBinding)),
       fetch("/api/projects").then((r) => r.ok ? r.json() : []),
       fetch("/api/files/recent?limit=12").then((r) => r.ok ? r.json() : []),
-    ]).then(([connectorRows, binding, projectRows, fileRows]) => {
-      if (Array.isArray(connectorRows)) {
-        const mapped = preferCanonicalConnectors(
-          connectorRows
-            .filter((row: { id?: string }) => row.id)
-            .map((row: Record<string, unknown>) => {
-              const id = String(row.id);
-              const status = connectorUseStatus(id, binding);
-              return {
-                id,
-                label: connectorUseLabel(id, row.label || row.name),
-                access: connectorUseAccess(row.access),
-                expired: status.key === "expired",
-              } satisfies ConnectorDto;
-            }),
-        );
-        setConnectors(mapped);
-      }
+    ]).then(([projectRows, fileRows]) => {
       if (Array.isArray(projectRows)) setProjects(projectRows);
       if (Array.isArray(fileRows)) setRecentFiles(fileRows);
     }).catch(() => undefined);
@@ -572,21 +548,16 @@ export default function ComposerDock({
     const blob = `${row.id} ${row.title} ${row.skill_id || ""} ${row.starter || ""}`.toLowerCase();
     return blob.includes(q);
   });
-  const filteredConnectors = debug && triggerMark === "@" ? connectors.filter((connector) => {
-    const q = query.trim().toLowerCase();
-    return !q || `${connector.id} ${connector.label}`.toLowerCase().includes(q);
-  }) : [];
   const pickerRows = useMemo(
     () => [
       ...filteredTemplates.map((row) => ({ kind: "template" as const, row })),
-      ...filteredConnectors.map((connector) => ({ kind: "connector" as const, connector })),
       ...filtered.map((skill) => ({ kind: "skill" as const, skill })),
     ],
-    [filtered, filteredConnectors, filteredTemplates],
+    [filtered, filteredTemplates],
   );
   const activePicker = pickerIndex >= 0 && pickerIndex < pickerRows.length ? pickerIndex : -1;
-  const connectorBase = filteredTemplates.length;
-  const skillBase = connectorBase + filteredConnectors.length;
+  // 模板在前、技能在后，两侧共用一套 option 序号（DOM id 必须唯一）。
+  const skillBase = filteredTemplates.length;
 
   useEffect(() => {
     if (!picker || activePicker < 0) return;
@@ -603,7 +574,6 @@ export default function ComposerDock({
       setQuery("");
       return;
     }
-    setTriggerMark(hit.mark);
     const q = hit.q;
     const hits = skills.filter((s) => {
       if (!q) return true;
@@ -614,10 +584,7 @@ export default function ComposerDock({
       if (!q) return true;
       return `${row.id} ${row.title} ${row.skill_id || ""}`.toLowerCase().includes(q.toLowerCase());
     });
-    const connectorHits = debug && hit.mark === "@" && connectors.some((connector) =>
-      `${connector.id} ${connector.label}`.toLowerCase().includes(q.toLowerCase()),
-    );
-    if (q && !hits.length && !templateHits.length && !connectorHits) {
+    if (q && !hits.length && !templateHits.length) {
       setPicker(false);
       setPickerIndex(-1);
       setQuery(q);
@@ -697,18 +664,6 @@ export default function ComposerDock({
       const match = fill.match(/\[[^\]]+\]/);
       if (match && match.index != null) node.setSelectionRange(match.index, match.index + match[0].length);
     });
-  };
-
-  const pickConnector = (connector: ConnectorDto) => {
-    if (connector.expired) return;
-    setConnectorChips((current) => (
-      current.some((chip) => chip.id === connector.id)
-        ? current
-        : [...current, { kind: "connector", id: connector.id, label: connector.label, access: connector.access }]
-    ));
-    setPicker(false);
-    closePlus();
-    focusEditor();
   };
 
   const reuseRecentFile = (file: AttachmentRef & { available?: boolean }) => {
@@ -926,7 +881,7 @@ export default function ComposerDock({
           aria-activedescendant={activePicker >= 0 ? `skill-picker-option-${activePicker}` : undefined}
         >
           {skills.length === 0 && templates.length === 0 && <p className="muted skill-picker-empty">加载技能…</p>}
-          {skills.length + templates.length > 0 && filtered.length === 0 && filteredTemplates.length === 0 && filteredConnectors.length === 0 && <p className="muted skill-picker-empty">没有匹配项</p>}
+          {skills.length + templates.length > 0 && filtered.length === 0 && filteredTemplates.length === 0 && <p className="muted skill-picker-empty">没有匹配项</p>}
           {filteredTemplates.map((row, i) => (
             <button
               key={`kb-${row.id}`}
@@ -940,21 +895,6 @@ export default function ComposerDock({
             >
               <span className="skill-option-label">{row.title}</span>
               <span className="skill-option-id">已启用模板 · {skillLabel(row.skill_id)}</span>
-            </button>
-          ))}
-          {filteredConnectors.map((connector, i) => (
-            <button
-              key={`connector-${connector.id}`}
-              type="button"
-              id={`skill-picker-option-${connectorBase + i}`}
-              className={"skill-option" + (connectorBase + i === activePicker ? " is-active" : "")}
-              aria-selected={connectorBase + i === activePicker}
-              data-connector-option={connector.id}
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => pickConnector(connector)}
-            >
-              <span className="skill-option-label">@{connector.label}</span>
-              <span className="skill-option-id">连接器</span>
             </button>
           ))}
           {filtered.map((s, i) => (
@@ -1178,8 +1118,7 @@ export default function ComposerDock({
             if (e.key === "Enter" && picker && pickerRows.length) {
               e.preventDefault();
               const picked = pickerRows[activePicker >= 0 ? activePicker : 0];
-              if (picked.kind === "connector") pickConnector(picked.connector);
-              else if (picked.kind === "template") pickTemplate(picked.row);
+              if (picked.kind === "template") pickTemplate(picked.row);
               else pickSkill(picked.skill);
               return;
             }
@@ -1250,7 +1189,6 @@ export default function ComposerDock({
                 closePlus();
                 focusEditor();
               }}
-              onPickConnector={pickConnector}
               onPickExpert={(id) => {
                 setExpertId(id);
                 closePlus();
@@ -1265,7 +1203,6 @@ export default function ComposerDock({
               onReuseFile={reuseRecentFile}
               skills={skills}
               knowledgeLibs={knowledgeLibs}
-              connectors={connectors}
               recentFiles={recentFiles}
               projects={projects}
               selectedSkillIds={skillChips.map((chip) => chip.id)}

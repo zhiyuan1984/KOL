@@ -114,22 +114,28 @@ function secretValue(value: unknown): string {
   return value;
 }
 
+function parseMasterKey(raw: string | undefined): Buffer | undefined {
+  if (!raw) return undefined;
+  if (/^[a-fA-F0-9]{64}$/.test(raw)) return Buffer.from(raw, "hex");
+  try {
+    const key = Buffer.from(raw, "base64");
+    return key.length === 32 ? key : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function masterKey(): Buffer {
   const raw = process.env[MASTER_KEY_ENV];
   if (!raw) fail("runtime_credential_master_key_unavailable", 503);
-
-  let key: Buffer | undefined;
-  if (/^[a-fA-F0-9]{64}$/.test(raw)) {
-    key = Buffer.from(raw, "hex");
-  } else {
-    try {
-      key = Buffer.from(raw, "base64");
-    } catch {
-      key = undefined;
-    }
-  }
-  if (!key || key.length !== 32) fail("runtime_credential_master_key_invalid", 503);
+  const key = parseMasterKey(raw);
+  if (!key) fail("runtime_credential_master_key_invalid", 503);
   return key;
+}
+
+/** True when a usable master key is configured; the vault answers 503 for every write and read otherwise. */
+export function credentialVaultReady(): boolean {
+  return parseMasterKey(process.env[MASTER_KEY_ENV]) !== undefined;
 }
 
 function aad(id: string, ownerUserId: string | null): Buffer {

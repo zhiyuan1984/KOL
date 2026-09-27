@@ -79,9 +79,21 @@ const guardedDispatcher = new Agent({
           callback(Object.assign(new Error("runtime_endpoint_forbidden"), { code: "runtime_endpoint_forbidden" }), "", 0);
           return;
         }
-        const chosen = addresses.find((entry) => options.family === 0 || !options.family || (options.family === 4 ? entry.family === 4 : entry.family === 6));
-        if (!chosen) { callback(Object.assign(new Error("runtime_endpoint_unresolvable"), { code: "runtime_endpoint_unresolvable" }), "", 0); return; }
-        callback(null, chosen.address, chosen.family);
+        // Node 20+ asks for every address (Happy Eyeballs): honour `all` by
+        // returning the validated list, otherwise the single chosen address.
+        const requested = options as { all?: boolean; family?: number };
+        const candidates = requested.family === 4 || requested.family === 6
+          ? addresses.filter((entry) => entry.family === requested.family)
+          : addresses;
+        if (!candidates.length) {
+          callback(Object.assign(new Error("runtime_endpoint_unresolvable"), { code: "runtime_endpoint_unresolvable" }), "", 0);
+          return;
+        }
+        if (requested.all) {
+          callback(null, candidates as never);
+          return;
+        }
+        callback(null, candidates[0].address, candidates[0].family);
       }).catch(() => callback(Object.assign(new Error("runtime_endpoint_unresolvable"), { code: "runtime_endpoint_unresolvable" }), "", 0));
     },
   },

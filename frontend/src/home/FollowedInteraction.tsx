@@ -39,7 +39,11 @@ export default function FollowedInteraction({
   const intro = (
     <section className="followed-interaction-intro" aria-label="当前跟进概览">
       <div>
-        <p>{summaryReady ? `${cards.length} 位当前跟进对象 · 数量来自当前已授权名单` : "正在核对当前已授权名单…"}</p>
+        <p>{summaryReady
+          ? `${cards.length} 位当前跟进对象 · 数量来自当前已授权名单`
+          : cards.length
+            ? `${cards.length} 位已加载 · 正在核对最新数据…`
+            : "正在核对当前已授权名单…"}</p>
       </div>
       {selectedCount ? <span className="followed-selection-note">已选择 {selectedCount} 位，可在下方继续提问</span> : null}
     </section>

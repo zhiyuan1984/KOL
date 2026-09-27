@@ -2808,7 +2808,9 @@ test("employee persona hides admin chrome and connector config", async ({ page, 
   await expect(page.locator(".workbench")).toHaveAttribute("data-account-role", "employee");
   await expect(page.locator(".workbench")).toHaveAttribute("data-view-mode", "business");
   await expect(page.locator('.sidebar a[href="/admin/connectors"]')).toHaveCount(0);
-  await expect(page.locator('[data-nav="connectors"]')).toHaveAttribute("href", "/connectors");
+  // 员工连接器使用面已退役（授权只对技能）；侧栏不再有连接器入口。
+  await expect(page.locator('[data-nav="connectors"]')).toHaveCount(0);
+  await expect(page.locator('nav[aria-label="资产"] [data-nav="connectors"]')).toHaveCount(0);
   const employeeAccount = page.locator(".sidebar [data-account-bar]");
   await expect(employeeAccount).not.toContainText("管理员");
   await expect(employeeAccount.locator('[data-surface-switch="admin"]')).toHaveCount(0);
@@ -3000,20 +3002,21 @@ test("skill hub distinguishes load error from empty catalog", async ({ page }) =
   await expect(page.locator("[data-hub-featured]")).toHaveCount(0);
 });
 
-test("admin debug toggle reveals connector tiles on the skill hub", async ({ page }) => {
+test("admin debug toggle reveals the skills navigation", async ({ page }) => {
   await page.goto("/market/skills");
   await expect(page.locator(".workbench")).toHaveAttribute("data-view-mode", "business");
-  await expect(page.locator('[data-connector="starrykol"]')).toHaveCount(0);
   await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
   await enableDebugView(page);
   await expect(page.locator(".workbench")).toHaveAttribute("data-view-mode", "debug");
-  await expect(page.locator('[data-connector="starrykol"]')).toBeVisible();
   await expect(page.locator('[data-nav="skills"]')).toBeVisible();
   await expect(page.locator('nav[aria-label="数字员工"] [data-nav]')).toHaveCount(1);
   await expect(page.locator('nav[aria-label="数字员工"] [data-nav="skills"]')).toHaveCount(0);
   await expect(page.locator('nav[aria-label="技能"] [data-nav="skills"]')).toBeVisible();
   await expect(page.locator('nav[aria-label="技能"]')).toHaveAttribute("aria-label", "技能");
   await expect(page.locator('nav[aria-label="资产"] [data-nav="skills"]')).toHaveCount(0);
+  // 连接器磁贴随员工连接器使用面退役（ADR-2026-09-27），调试态也不再出现。
+  await expect(page.locator('[data-connector="starrykol"]')).toHaveCount(0);
+  await expect(page.locator('[data-hub-chip="connectors"]')).toHaveCount(0);
 });
 
 test("account bar switches employee, admin, and settings workspaces", async ({ page }) => {
@@ -3156,12 +3159,12 @@ test("employee partners path is an honest stub, not a Home or skill board", asyn
   await expect(page.locator('[data-nav="skills"]')).not.toHaveClass(/active/);
 });
 
-test("docs/org-permissions.md employee sidebar has no admin connectors deep-link", async ({ page }) => {
+test("docs/org-permissions.md employee sidebar has no connectors entry", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator('[data-nav="skills"]')).toHaveCount(0);
   await expect(page.locator('nav[aria-label="技能"]')).toHaveCount(0);
   await expect(page.locator(".sidebar")).not.toContainText("技能目录");
-  await expect(page.locator('[data-nav="connectors"]')).toHaveAttribute("href", "/connectors");
+  await expect(page.locator('[data-nav="connectors"]')).toHaveCount(0);
   await expect(page.locator('.sidebar a[href="/admin/connectors"]')).toHaveCount(0);
   await expect(page.locator('[data-nav="agents"]')).toHaveText("数字员工");
   await expect(page.locator('[data-nav="agents"]')).toHaveAttribute("href", "/agents");
@@ -3204,6 +3207,10 @@ test("admin console uses a left sidebar with short labels for the current accoun
   await expect(page.locator("[data-admin-nav='connectors']")).toHaveClass(/active/);
   await expect(page.locator("[data-connector-hub-title]")).toHaveText("已添加的连接器");
   await page.locator("[data-admin-connectors-table] a").first().click();
+  // 点卡片进入配置弹窗（2026-09-26 连接器控制台改版）；详情走弹窗右上角入口。
+  const hubConfigModal = page.locator("[data-connector-panel='connector-config']");
+  await expect(hubConfigModal).toBeVisible();
+  await hubConfigModal.locator(".connector-panel-detail-link").click();
   await expect(page).toHaveURL(/\/admin\/connectors\//);
   await expect(page.locator("[data-admin-page='connector-detail']")).toBeVisible();
   await expect(page.locator("[data-admin-nav='connectors']")).toHaveClass(/active/);
@@ -3276,56 +3283,20 @@ test("admin left menu becomes the shared drawer on narrow viewports", async ({ p
   await expect(page.locator(".sidebar")).not.toBeVisible();
 });
 
-test("employee connector use surface is independent of admin hub", async ({ page, request }) => {
+test("employee connector use surface is retired", async ({ page, request }) => {
   await request.post("/api/me/persona", { data: { persona: "employee" } });
   await page.goto("/");
   await expect(page.locator(".workbench")).toHaveAttribute("data-account-role", "employee");
-  await page.locator('[data-nav="connectors"]').click();
-  await expect(page).toHaveURL(/\/connectors$/);
-  await expect(page.locator("[data-connector-use]")).toBeVisible();
-  await expect(page.locator("[data-connector-use] .page-kicker")).toHaveText("连接器");
-  await expect(page.getByRole("heading", { name: "连接器" })).toBeVisible();
-  await expect(page.locator("[data-connector-use]")).toContainText("凭据和组织策略不在本页");
-  await expect(page.locator("[data-connector-use] .page-kicker")).not.toHaveText("账户");
-  await expect(page.locator("[data-connector-use-retry]")).toHaveCount(0);
-  await expect(page.locator("textarea[name='bearer']")).toHaveCount(0);
-  await expect(page.locator("[data-admin-page='connectors']")).toHaveCount(0);
+  // 员工面不再暴露连接器：侧栏无入口，路由已下线（授权只对技能）。
+  await expect(page.locator('[data-nav="connectors"]')).toHaveCount(0);
+  await page.goto("/connectors");
+  await expect(page.locator("[data-connector-use]")).toHaveCount(0);
+  await expect(page.locator("[data-connector-use-row]")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /启用|停用/ })).toHaveCount(0);
-  await expect(page.locator("body")).not.toContainText("Starry KOL MCP");
-  await expect(page.locator("body")).not.toContainText("LIVE");
-  await expect(page.locator("body")).not.toContainText("Codex");
-  await page.locator("[data-connector-use-bind-hint] a").click();
-  await expect(page).toHaveURL(/\/settings\?tab=starry/);
-  await expect(page.locator("[data-starry-bind]")).toBeVisible();
+  // 管理端连接器枢纽仍只对管理员开放。
   await page.goto("/admin/connectors");
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator("[data-admin-page='connectors']")).toHaveCount(0);
-});
-
-test("employee connector use retries after load failure", async ({ page }) => {
-  await page.route("**/api/connectors", async (route) => {
-    if (route.request().method() !== "GET") {
-      await route.continue();
-      return;
-    }
-    await route.fulfill({
-      status: 500,
-      contentType: "application/json",
-      body: JSON.stringify({ detail: "无法读取已授权的连接能力" }),
-    });
-  });
-  await page.goto("/connectors");
-  await expect(page.locator("[data-connector-use]")).toBeVisible();
-  await expect(page.locator("[data-connector-use] [role='alert']")).toContainText("无法读取已授权的连接能力");
-  await expect(page.locator("[data-connector-use-retry]")).toBeVisible();
-  await expect(page.locator("[data-connector-use-row]")).toHaveCount(0);
-  await expect(page.locator("textarea[name='bearer']")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /启用|停用/ })).toHaveCount(0);
-  await page.unroute("**/api/connectors");
-  await page.locator("[data-connector-use-retry]").click();
-  await expect(page.locator("[data-connector-use-row]").first()).toBeVisible();
-  await expect(page.locator("[data-connector-use-retry]")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /启用|停用/ })).toHaveCount(0);
 });
 
 test("admin L3 destructive writes open confirm dialog with cancel focused", async ({ page }) => {
@@ -3361,18 +3332,11 @@ test("admin L3 destructive writes open confirm dialog with cancel focused", asyn
   await expect(page.locator("[data-admin-connectors-table]")).toContainText("待配置");
 
   await page.locator("[data-admin-connectors-table] a").first().click();
+  await page.locator("[data-connector-panel='connector-config'] .connector-panel-detail-link").click();
   await expect(page.locator("[data-admin-page='connector-detail']")).toBeVisible();
-  await page.locator("details", { hasText: "访问控制" }).locator("summary").click();
-  const grant = page.locator("[data-admin-grants] select").first();
-  if (await grant.count()) {
-    await grant.selectOption("read");
-    const grantDialog = page.locator("[data-admin-confirm='grant-read']");
-    await expect(grantDialog).toBeVisible();
-    await expect(grantDialog.locator("[data-admin-confirm-scope]")).toContainText("read");
-    await expect(page.locator("[data-admin-confirm-cancel]")).toBeFocused();
-    await page.locator("[data-admin-confirm-cancel]").click();
-    await expect(grantDialog).toHaveCount(0);
-  }
+  // 按人授权已退役：详情页不再出现访问控制 / 范围入口。
+  await expect(page.locator("[data-admin-grants]")).toHaveCount(0);
+  await expect(page.locator("[data-connector-scope]")).toHaveCount(0);
 
   await page.locator("[data-admin-nav='knowledge']").click();
   await expect(page.locator("[data-admin-knowledge]")).toBeVisible();
@@ -3419,23 +3383,11 @@ test("admin L3 confirm covers retention policy writes", async ({ page }) => {
 
   await page.locator("[data-admin-nav='connectors']").click();
   await page.locator("[data-admin-connectors-table] a").first().click();
+  await page.locator("[data-connector-panel='connector-config'] .connector-panel-detail-link").click();
   await expect(page.locator("[data-admin-page='connector-detail']")).toBeVisible();
-  await page.locator("details", { hasText: "访问控制" }).locator("summary").click();
-  const grantAccess = page.locator("[data-admin-grants] select").first();
-  await expect(grantAccess).toBeVisible();
-  await grantAccess.selectOption("write");
-  const grantDialog = page.locator("[data-admin-confirm='grant-write']");
-  await expect(grantDialog).toBeVisible();
-  await expect(grantDialog.locator("[data-admin-confirm-scope]")).toContainText("write");
-  await page.locator("[data-admin-confirm-cancel]").click();
-  await expect(grantDialog).toHaveCount(0);
-  await grantAccess.selectOption("read");
-  const readDialog = page.locator("[data-admin-confirm='grant-read']");
-  await expect(readDialog).toBeVisible();
-  await expect(readDialog.locator("[data-admin-confirm-scope]")).toContainText("read");
-  await expect(page.locator("[data-admin-confirm-cancel-hint]")).toContainText("不会写入");
-  await page.locator("[data-admin-confirm-cancel]").click();
-  await expect(readDialog).toHaveCount(0);
+  // 连接器授权不再是按人授权：详情页只保留配置、只读工具清单与审计。
+  await expect(page.locator("[data-admin-grants]")).toHaveCount(0);
+  await expect(page.locator("[data-connector-tools]")).toBeVisible();
 
   await page.locator("[data-admin-nav='approvals']").click();
   await expect(page.getByRole("heading", { name: "审批角色授权" })).toBeVisible();
@@ -3451,11 +3403,9 @@ test("admin L3 confirm covers retention policy writes", async ({ page }) => {
 });
 
 test("docs/org-permissions.md admin connectors hub renders", async ({ page }) => {
+  // 员工使用面已退役：/connectors 不再是有效路由。
   await page.goto("/connectors");
-  await expect(page.locator("[data-connector-use]")).toBeVisible();
-  await expect(page.locator("[data-connector-use-empty]")).toBeVisible();
-  await expect(page.getByRole("button", { name: /启用|停用/ })).toHaveCount(0);
-  await expect(page.locator("textarea[name='bearer']")).toHaveCount(0);
+  await expect(page.locator("[data-connector-use]")).toHaveCount(0);
   await page.goto("/admin");
   await page.locator('[data-admin-nav="connectors"]').click();
   await expect(page).toHaveURL(/\/admin\/connectors$/);
@@ -4200,19 +4150,6 @@ test("generic creator profile task result stays in the standard result renderer"
   await page.goto("/s/profile-session");
   await expect(page.locator('[data-workbench] [data-kind="task-result-card"]')).toContainText("内容以户外装备实测为主");
   await expect(page.locator("[data-crawl-candidates]")).toHaveCount(0);
-});
-
-test("skill hub lists the two managed MCP connectors", async ({ page }) => {
-  await page.goto("/market/skills");
-  await enableDebugView(page);
-  await expect(page.locator(".workbench")).toHaveAttribute("data-view-mode", "debug");
-  await expect(page.locator('[data-connector="starrykol"]')).toContainText("Starry KOL MCP");
-  await expect(page.locator('[data-connector="claw"]')).toContainText("MediaCrawler MCP");
-  await page.locator('[data-hub-chip="connectors"]').click();
-  await expect(page.locator('[data-connector="starrykol"]')).toBeVisible();
-  await expect(page.locator('[data-connector="claw"]')).toBeVisible();
-  await expect(page.locator('[data-connector="enterprise_mail"]')).toHaveCount(0);
-  await saveScreenshot(page, "skill_hub_starry_kol_mcp.png");
 });
 
 test("达人画像 and 更新红人负责人 run through Starry KOL MCP", async ({ page }) => {

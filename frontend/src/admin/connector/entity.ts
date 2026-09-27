@@ -86,9 +86,3 @@ export function slugFromLabel(label: string): string {
 export function isConnectorIdValid(id: string): boolean {
   return /^[a-z][a-z0-9_-]{2,63}$/.test(id);
 }
-
-export function friendlyScopeFailure(code: string): string {
-  if (code === "runtime_connector_scope_bindings_required") return "「指定范围」至少需要选择一个部门、组、岗位或个人。";
-  if (code === "runtime_connector_scope_node_unknown") return "所选范围节点已不存在；请刷新后重试。";
-  return "";
-}

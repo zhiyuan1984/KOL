@@ -197,7 +197,7 @@ describe("production account and enterprise controls", () => {
     expect(submitted.json).toMatchObject({ passed: true, exam_passed: true });
   });
 
-  it("replaces employee skill, connector, and approval grants", async () => {
+  it("replaces employee skill and approval grants without per-person connector grants", async () => {
     const employee = await createEmployee("grantee");
     const now = new Date().toISOString();
     getConn().prepare("UPDATE connectors SET enabled=1, status='configured' WHERE id IN ('starrykol','claw')").run();
@@ -207,16 +207,20 @@ describe("production account and enterprise controls", () => {
       ).run(id, label, 1, "configured", null, now);
     }
     await call("PUT", `/api/admin/users/${employee.id}/skills`, { skills: ["email_compose", "creator_discovery"] });
-    await call("PUT", `/api/admin/users/${employee.id}/connectors`, {
-      connectors: ["starrykol:read", "claw:read", "enterprise_mail:write", "wecom:read"],
-    });
+    // Personnel authorization is Skill-only (ADR-2026-09-27): the retained
+    // grant table is seeded directly for the still-published employee surface.
+    for (const [id, access] of [["starrykol", "read"], ["claw", "read"], ["enterprise_mail", "write"], ["wecom", "read"]]) {
+      getConn().prepare(
+        "INSERT OR REPLACE INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES (?,?,?,?)",
+      ).run(employee.id, id, access, now);
+    }
     await call("PUT", `/api/admin/users/${employee.id}/approval-roles`, { roles: ["lead"] });
     const detail = await call("GET", `/api/admin/users/${employee.id}`);
     expect(detail.json).toMatchObject({
       skill_grants: expect.arrayContaining(["email_compose", "creator_discovery"]),
       approval_roles: ["lead"],
     });
-    expect(detail.json.connector_grants).toEqual(expect.arrayContaining(["starrykol:read", "claw:read"]));
+    expect(detail.json).not.toHaveProperty("connector_grants");
 
     const cookie = await employeeLogin("grantee");
     const connectors = await call("GET", "/api/connectors", undefined, cookie);

@@ -1680,3 +1680,89 @@
     min-width: 44px;
   }
 }
+
+/* ── 连接器设置向导（弹窗内四步）────────────────────────────────────────────
+   元素与数值唯一来源 docs/DESIGN.md §连接器控制台「设置向导」；改这里的数值前先改 DESIGN.md。 */
+.connector-panel.is-form:has(.connector-wizard-steps) .connector-panel-body {
+  gap: var(--wizard-gap);
+}
+
+.connector-panel.is-form:has(.connector-wizard-steps) {
+  max-height: var(--dialog-h-wizard);
+}
+
+.connector-wizard-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--wizard-step-gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.connector-wizard-step {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--wizard-step-h);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-quiet);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--hint-text);
+  font-family: inherit;
+  font-size: var(--font-hint);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.connector-wizard-step:disabled {
+  color: var(--placeholder-text);
+  cursor: default;
+}
+
+.connector-wizard-step.on {
+  background: var(--fill-control);
+  border-color: var(--control-border-hover);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.connector-wizard-step .connector-wizard-step-n {
+  font-variant-numeric: tabular-nums;
+}
+
+.connector-wizard-status {
+  margin: calc(var(--wizard-status-gap) * -1) 0 0;
+  font-size: var(--font-hint);
+  color: var(--hint-text);
+}
+
+/* 保存 / 测试 / 启用回执固定在对话框顶部；与步骤条的间距由面板自身的 gap 提供。 */
+.connector-wizard-receipt {
+  margin: 0;
+}
+
+.connector-wizard-gates {
+  margin: 0;
+  padding-left: var(--space-4);
+  display: grid;
+  gap: var(--wizard-gate-gap);
+  font-size: var(--font-hint);
+  color: var(--hint-text);
+}
+
+.connector-wizard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--wizard-step-gap);
+}
+
+.connector-panel.is-form [data-connector-wizard-step] {
+  display: grid;
+  gap: var(--wizard-gap);
+}
+
+.connector-panel.is-form [data-connector-wizard-step="enable"] {
+  justify-items: start;
+}

@@ -26,7 +26,6 @@ beforeEach(() => {
     VALUES(?,?,?,?,?,?,?,?,?,?)`).run(id, id, id, "hash", JSON.stringify([role]), "[]", "", 1, "now", "now");
   db.prepare("INSERT INTO user_skill_grants(user_id,skill_id,created_at) VALUES(?,?,?)").run(context.userId, context.skillId, "now");
   db.prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES('http_fixture','HTTP Fixture',1,'configured','now')").run();
-  db.prepare("INSERT INTO user_connector_grants(user_id,connector_id,access,created_at) VALUES(?,?,?,?)").run(context.userId, "http_fixture", "read", "now");
   setAgentSkill(context.agentId, context.skillId, true, 0);
   setSkillConnector(context.skillId, "http_fixture", true, 0);
 });

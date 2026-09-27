@@ -18,7 +18,7 @@ export type KbSub = (message: string) => void;
 export type KbFail = (error: unknown, fallback?: string) => void;
 export type KbFeed = { notify: KbSub; fail: KbFail };
 
-export const KB_KINDS = ["mail_template", "policy", "pattern", "glossary"] as const;
+export const KB_KINDS = ["mail_template", "policy", "pattern", "glossary", "question_template"] as const;
 export const KB_BRANDS = ["LT", "RO", "PQ"] as const;
 export const KB_LANGS = ["en", "zh"] as const;
 export const KB_STATUSES = ["draft", "pending_review", "published", "archived"] as const;
