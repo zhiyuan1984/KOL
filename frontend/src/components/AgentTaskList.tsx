@@ -63,6 +63,8 @@ export type SessionMailRow = {
   summary_source?: string;
   preview?: string;
   body?: string;
+  translation_zh?: string;
+  translation_source?: string;
 };
 
 function mailTime(value?: string): string {
@@ -82,6 +84,7 @@ export default function AgentTaskList({
   sessionId,
   currentTask,
   running = false,
+  embedded = false,
   width,
   onWidthChange,
   mails,
@@ -94,6 +97,8 @@ export default function AgentTaskList({
   sessionId?: string;
   currentTask?: Task | null;
   running?: boolean;
+  /** Render context inside the session stream instead of as a third page column. */
+  embedded?: boolean;
   width: number;
   onWidthChange: (width: number) => void;
   mails?: SessionMailRow[];
@@ -241,8 +246,9 @@ export default function AgentTaskList({
 
   return (
     <aside
-      className={"agent-task-list" + (dragging ? " is-resizing" : "")}
+      className={"agent-task-list" + (embedded ? " is-embedded" : "") + (dragging ? " is-resizing" : "")}
       data-agent-task-list
+      data-tasklist-embedded={embedded ? "true" : undefined}
       data-tasklist-mode={mailMode ? "mail" : "tasks"}
       data-tasklist-width={width}
       data-refreshing={refreshing ? "true" : undefined}

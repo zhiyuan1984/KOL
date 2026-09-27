@@ -23,6 +23,7 @@ import {
   taskResultCardsFrom,
 } from "./ChatBlocks";
 import Markdown from "./Markdown";
+import { PlainText } from "../mail/components/PlainText";
 import PanelToggleIcon from "./PanelToggleIcon";
 import { api } from "../api";
 import CrawlArtifact, { crawlCandidates } from "./CrawlArtifact";
@@ -179,9 +180,26 @@ function composeResultActions(
 
 function MailBodyArtifact({ mail }: { mail: SessionMailRow }) {
   const body = String(mail.body || mail.snippet || "").trim();
+  const translation = String(mail.translation_zh || "").trim();
+  const translationSource = String(mail.translation_source || "").trim();
   return (
     <article className="artifact mail-body" data-kind="mail-body" data-mail-body>
       <h2>{mail.subject || "无主题"}</h2>
+      <section className="mail-translation-panel" data-mail-translation>
+        <div className="mail-translation-head">
+          <h3>中文翻译</h3>
+          {translationSource === "pending" ? <span className="muted">翻译生成中…</span> : null}
+        </div>
+        {translation ? (
+          <div className="mail-side-body" data-mail-translation-body>
+            <PlainText text={translation} />
+          </div>
+        ) : (
+          <p className="muted mail-side-hint" data-mail-translation-pending>
+            {translationSource === "pending" ? "正在准备中文译稿。" : "暂无中文译稿。"}
+          </p>
+        )}
+      </section>
       {body
         ? <pre className="mail-body-text">{body}</pre>
         : <p className="muted" data-mail-empty>正文未拉取到，请回到首页点「刷新收取」后再打开。</p>}
