@@ -19,12 +19,14 @@ function secretRowsFromConfig(config: RuntimeConnectorConfig): SecretRow[] {
   return rows.length ? rows : [{ name: "", value: "" }];
 }
 
-export function ConnectorConfigCard({ card, reload, embedded = false, onSaved }: {
+export function ConnectorConfigCard({ card, reload, embedded = false, onSaved, onLoaded }: {
   card: ConnectorCardView;
   reload: () => void;
   /** Rendered inside the setup wizard: heading drops and save becomes that step's primary action. */
   embedded?: boolean;
   onSaved?: (version: number) => void;
+  /** Reports the server's stored config version after each load (0 when none is saved). */
+  onLoaded?: (version: number) => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -58,6 +60,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, onSaved }:
       const result = await api.runtimeConnectorConfig(card.id);
       const config = result.config;
       setVersion(result.version);
+      onLoaded?.(result.version);
       setProtocol(config.protocol === "http" ? "http" : "mcp");
       setTransport(config.transport === "sse" ? "sse" : "streamable-http");
       setUrl(config.url || "");
@@ -73,6 +76,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, onSaved }:
       const status = (cause as { status?: number } | null)?.status;
       if (status === 404) {
         setVersion(0);
+        onLoaded?.(0);
         setSecretRows([{ name: "", value: "" }]);
         setEnvRefs({});
         setBearerRef("");
@@ -86,7 +90,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, onSaved }:
     } finally {
       setLoading(false);
     }
-  }, [card.id, card.protocol]);
+  }, [card.id, card.protocol, onLoaded]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { setLabel(card.label); setPurpose(card.purpose); }, [card.label, card.purpose]);

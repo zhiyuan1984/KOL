@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api";
 import { connectorDisableConfirm } from "../../adminConfirm";
@@ -88,6 +88,11 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState("");
 
+  // 配置模式：内嵌配置卡读回服务端已有版本后回传；不覆盖本会话保存得到的新版本。
+  const adoptServerVersion = useCallback((loaded: number) => {
+    setVersion((current) => current || loaded);
+  }, []);
+
   const canEnable = Boolean(id) && !enabled && verified && !enableBlocked;
   const reachable = (target: WizardStep): boolean => {
     if (target === "save") return true;
@@ -100,12 +105,13 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
     if (!id) return "尚未保存：保存后连接器为待验证状态，不会自动启用。";
     if (enabled) return "已启用：调用仍受平台校验与技能挂载约束。";
     if (!verified) {
-      return version
+      if (!version) return "尚未通过测试：启用前需要一次通过的测试。";
+      return savedInSession
         ? `配置已保存（版本 ${version}）；改动后需重新测试才能启用。`
-        : "尚未通过测试：启用前需要一次通过的测试。";
+        : `配置已保存（版本 ${version}），尚未通过测试；启用前需要一次通过的测试。`;
     }
     return testedAt ? `测试通过于 ${testedAt}；可启用连接器。` : "测试已通过；可启用连接器。";
-  }, [enabled, id, testedAt, verified, version]);
+  }, [enabled, id, savedInSession, testedAt, verified, version]);
 
   const rememberSave = (savedVersion: number, message: string) => {
     setVersion(savedVersion);
@@ -387,6 +393,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
             card={card}
             reload={() => reload?.()}
             embedded
+            onLoaded={adoptServerVersion}
             onSaved={(savedVersion) => rememberSave(
               savedVersion,
               `保存成功：配置已更新（版本 ${savedVersion}）；改动后需重新测试才能启用。`,

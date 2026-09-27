@@ -487,6 +487,31 @@ test("wizard keeps the enable gate and the honest state when the server refuses"
   await expect(panel.locator(".connector-panel-note")).toContainText("尚无技能绑定其工具");
 });
 
+test("wizard reads the saved config version back instead of claiming nothing is saved", async ({ page, request }) => {
+  // 已有保存配置的连接器：向导必须回读服务端版本，不能把「已有配置」误报成「尚未保存配置」。
+  await page.route("**/api/admin/runtime/connectors/*/config", (route) => route.fulfill({
+    json: {
+      config: { protocol: "mcp", transport: "streamable-http", url: "https://mcp.e2e.example/mcp", allow_unauthenticated: true, timeout_ms: 30000 },
+      version: 3,
+    },
+  }));
+  await page.goto("/admin/connectors");
+  const rows = await (await request.get("/api/admin/connectors")).json() as Array<Record<string, unknown>>;
+  const starrykol = rows.find((row) => row.id === "starrykol");
+  expect(starrykol).toBeTruthy();
+  // 验收库会累计真实探测结果：已通过测试的卡显示结论与免责声明，版本文案只在未验证时出现。
+  const status = governanceStatus(connectorCardView(starrykol as Record<string, unknown>));
+  await page.locator('[data-connector-card][data-connector="starrykol"] [data-connector-status-entry]').click();
+  const panel = page.locator("[data-connector-panel='connector-config']");
+  if (status.key === "verified" || status.key === "enabled") {
+    await expect(panel.locator("[data-connector-wizard-test-result]")).toContainText("测试通过");
+    return;
+  }
+  await expect(panel.locator("[data-connector-wizard-test-result]")).toContainText("当前配置版本 3，尚未通过测试。");
+  await expect(panel.locator("[data-connector-wizard-test-result]")).not.toContainText("尚未保存配置");
+  await expect(panel.locator("[data-connector-wizard-status]")).toContainText("尚未通过测试");
+});
+
 test("URL add flow creates a pending connector with governance cards", async ({ page }) => {
   test.skip(!AUTH_ENABLED, "runtime governance writes require E2E_AUTH_MODE=enabled");
   await page.goto("/admin/connectors");
@@ -551,7 +576,7 @@ test("HTTP API flow creates a draft and saves explicit actions without an MCP ad
     path: "/orders",
   }]));
   await config.locator("[data-connector-panel-save]").click();
-  await expect(config.locator(".runtime-notice")).toContainText("配置草稿已保存");
+  await expect(config.locator(".runtime-notice")).toContainText("配置草稿已更新（待验证，尚未连通或启用）");
   await expect(page.locator(".connector-detail-hero")).toContainText("HTTP");
 });
 
@@ -650,7 +675,7 @@ test("config form validates icons and keeps submitted secrets write-only", async
   await page.locator("[data-connector-config-card] input.connector-header-value").fill("e2e-secret-value");
   await page.locator("[data-connector-config-card] input[data-connector-field='url']").fill("https://mcp.e2e.example/mcp");
   await page.locator("[data-connector-config-card] [data-connector-panel-save]").click();
-  await expect(page.locator("[data-connector-config-card] .runtime-notice")).toContainText("配置草稿已保存");
+  await expect(page.locator("[data-connector-config-card] .runtime-notice")).toContainText("配置草稿已更新（待验证，尚未连通或启用）");
   await expect(page.locator("[data-connector-config-card] input.connector-header-value")).toHaveValue("");
   await expect(page.locator("[data-connector-config-card] input.connector-header-value")).toHaveAttribute("placeholder", /已保存引用/);
 });

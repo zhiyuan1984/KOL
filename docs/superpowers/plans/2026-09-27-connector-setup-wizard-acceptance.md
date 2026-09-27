@@ -123,3 +123,42 @@ SELECT ts,actor,event_type FROM audit_events
 
 - 本机到 `starrykol` / `claw` 的真实调用超时（生产审计同样为 `MCP error -32001`）；Host 侧成功依赖用户绑定 JWT。验收建议用可达远端或改在服务器上执行。
 - 生产仍缺 `RUNTIME_CREDENTIAL_MASTER_KEY`（否则含密钥的保存 / 测试 / 发现都会 503）。
+
+## 复测记录：egress 修复后的重新探测（2026-09-27 23:07–23:09 本地 +0800）
+
+环境：`E2E_MODE=stub E2E_AUTH_MODE=enabled E2E_SKIP_BUILD=1 LINGONG_PORT=8897 node scripts/e2e-server.mjs`（管理员 sriphy，真实远端）。原始证据：`runtime_connector_probes` id 6–11 + 审计 `runtime.connector.probed`。
+
+| 连接器 | 探测结果 |
+|---|---|
+| deepwiki-mcp | 第 1 次失败 10800ms（偶发）；重试**成功** 14303ms / 3 个工具 → `status=verified`（probes 8、9） |
+| starrykol | 失败 1494ms / 2010ms（probes 6、10）——不再是修复前的 112ms 本地秒败 |
+| claw | 失败 421ms / 435ms（probes 7、11）——不再是修复前的 165/40ms 本地秒败 |
+
+- 结论：egress 守卫修复在真实网络路径生效（无 9–165ms 即败；`deepwiki` 从本机实测取得 3 个工具）。
+- 行为观察（未改代码）：探测端点对每次探测都把 `connectors.enabled` 置 0（`backend/src/routers/connector-operations.ts:77`），已启用的 `deepwiki-mcp` 因此被本次复测顺带停用；已用 `PATCH {enabled:true}` 恢复（200，`status=verified`）。
+- 仍未闭环：`starrykol` / `claw` 的失败都发生在远端 HTTP 层（见文末「远程服务器诊断」），不是本机网络或守卫问题。
+
+### 向导「尚未保存配置，无法测试。」误导文案修复（同一晚）
+
+- 根因：配置模式下向导的本地 `version` 状态从不初始化，已有保存配置也被渲染成「尚未保存配置」。
+- 修复：`ConnectorConfigCard` 加载后经 `onLoaded` 回传服务端版本，向导采纳且不覆盖本会话保存的新版本；状态行区分「改动后需重新测试」与「已保存、尚未通过测试」两种文案（`frontend/src/admin/connector/ConnectorSetupWizard.tsx`、`ConnectorConfigCard.tsx`）。
+- 验证：`tsc --noEmit` ✅；`npm run build` ✅；`npx playwright test e2e/connector-admin.spec.ts` **18/18 通过**（`E2E_AUTH_MODE=enabled`），含新增用例「wizard reads the saved config version back instead of claiming nothing is saved」。
+- 顺带修正两处陈旧断言（非本次引入）：`frontend/e2e/connector-admin.spec.ts:579`、`:678` 期待的「配置草稿已保存」已在 `c1aa966` 改为「保存成功：配置草稿已更新（待验证，尚未连通或启用）」；断言更新为当前文案后两项由红转绿。
+
+## 远程服务器诊断与生产 starrykol 修复（2026-09-27 23:14–23:22 +0800）
+
+生产（47.88.94.205，`a5c1990`，23:13 重启，含 egress 守卫修复）上逐层只读实测（诊断脚本输出已脱敏）：
+
+| 层 | 结果 |
+|---|---|
+| DNS/预检 | PASSED |
+| TCP | 连通 15–24ms |
+| HTTP（配置 v4–v6，header 名为环境变量名） | **401** `{"code":10141103,"message":"登录过期,亲，请先登录呦！"}` |
+| HTTP（改为 `X-MCP-API-KEY` + `Authorization: Bearer` 后，v7） | 鉴权通过；上游 `/starry/email-agent/mcp` 返回 **503 Service Unavailable**（带 requestId，两次重试均 503） |
+| 本地同款诊断 | `starrykol` → 上游 503；`claw` → SSE 被远端 400 拒绝；`deepwiki-mcp` → 正常取回 3 个工具 |
+
+- **根因（生产 starrykol 持续秒败 34–72ms）**：连接器配置的两个 header 名写成了环境变量名（`STARRY_KOL_MCP_API_KEY` / `STARRY_KOL_MCP_BEARER`），网关识别不到 → 401 → 被脱敏为 `runtime_remote_failed`。契约要求 `X-MCP-API-KEY` + `Authorization: Bearer`（`docs/07-mcp-data-contract.md:9`，网关要两个头）。
+- 23:16 保存的 v5/v6「新凭据」与旧值逐字节相同（sha256 指纹一致）——凭据本身有效（JWT exp 2031-07），不需要更换；需要修的是 header 名。表单留空会保留旧引用，重填相同值只会新增同内容凭据行。
+- **已修复**：生产配置 v6 → v7（`PUT /admin/runtime/connectors/starrykol/config`，`headers_secret_refs={"X-MCP-API-KEY": cred_478b…}` + `bearer_secret_ref=cred_c415…`）；401「登录过期」消失。
+- **仍未闭环**：Starry 侧 `email-agent` MCP 当前整体 **503**（本地与生产一致、多次重试一致）——待其恢复后重测即应通过。
+- 环境更正：生产 `RUNTIME_CREDENTIAL_MASTER_KEY` 现已配置（本次实测保险库可正常解密）；`claw` 生产尚无接入配置（draft），需先补配置再测。
