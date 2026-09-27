@@ -199,9 +199,16 @@ describe("production account and enterprise controls", () => {
 
   it("replaces employee skill, connector, and approval grants", async () => {
     const employee = await createEmployee("grantee");
+    const now = new Date().toISOString();
+    getConn().prepare("UPDATE connectors SET enabled=1, status='configured' WHERE id IN ('starrykol','claw')").run();
+    for (const [id, label] of [["enterprise_mail", "Enterprise Mail"], ["wecom", "WeCom"]]) {
+      getConn().prepare(
+        "INSERT OR IGNORE INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES (?,?,?,?,?,?)",
+      ).run(id, label, 1, "configured", null, now);
+    }
     await call("PUT", `/api/admin/users/${employee.id}/skills`, { skills: ["email_compose", "creator_discovery"] });
     await call("PUT", `/api/admin/users/${employee.id}/connectors`, {
-      connectors: ["starry:read", "claw:read", "enterprise_mail:write", "wecom:read"],
+      connectors: ["starrykol:read", "claw:read", "enterprise_mail:write", "wecom:read"],
     });
     await call("PUT", `/api/admin/users/${employee.id}/approval-roles`, { roles: ["lead"] });
     const detail = await call("GET", `/api/admin/users/${employee.id}`);
@@ -209,13 +216,13 @@ describe("production account and enterprise controls", () => {
       skill_grants: expect.arrayContaining(["email_compose", "creator_discovery"]),
       approval_roles: ["lead"],
     });
-    expect(detail.json.connector_grants).toEqual(expect.arrayContaining(["starry:read", "claw:read"]));
+    expect(detail.json.connector_grants).toEqual(expect.arrayContaining(["starrykol:read", "claw:read"]));
 
     const cookie = await employeeLogin("grantee");
     const connectors = await call("GET", "/api/connectors", undefined, cookie);
     const connectorRows = connectors.json as unknown as Record<string, unknown>[];
     expect(connectorRows.map((item) => item.id))
-      .toEqual(expect.arrayContaining(["starry", "claw", "enterprise_mail", "wecom"]));
+      .toEqual(expect.arrayContaining(["starrykol", "claw", "enterprise_mail", "wecom"]));
     for (const row of connectorRows) {
       expect(row).not.toHaveProperty("credential_ref");
       expect(row).not.toHaveProperty("credential_reference");

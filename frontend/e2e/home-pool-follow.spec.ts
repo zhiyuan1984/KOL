@@ -263,9 +263,23 @@ test("public pool restores the central interaction and uses a structured right r
   const list = workspace.locator("[data-pool-focus-list]");
   const row = workspace.locator("[data-pool-card]").first();
   await expect(center).toBeVisible();
-  await expect(center).toContainText("等待选择对象");
+  await expect(center).toContainText("公海对象 2");
+  await expect(center.locator("[data-pool-analysis-actions]")).toBeVisible();
+  await expect(center.locator("[data-pool-analysis]")).toHaveCount(3);
+  await expect(center.locator("[data-pool-jev-assess]")).toHaveText("KOL评分");
   await expect(center.locator("[data-composer-input]")).toBeVisible();
   await expect(rail).toBeVisible();
+  await expect(rail.locator("[data-pool-toolbar]")).toBeVisible();
+  await expect(rail.locator("[data-pool-filter='new']")).toHaveText("未首次建联");
+  await expect(rail.locator("[data-pool-filter='overdue']")).toHaveText("14天未联系");
+  await expect(rail.locator("[data-pool-sort='ingested']")).toBeVisible();
+  await expect(rail.locator("[data-pool-sort='followers']")).toBeVisible();
+  await expect(rail.locator("[data-pool-sort='score']")).toBeVisible();
+  await rail.locator("[data-pool-sort='followers']").click();
+  await expect(rail.locator("[data-pool-sort='followers']")).toHaveAttribute("data-sort-direction", "desc");
+  await rail.locator("[data-pool-sort='followers']").click();
+  await expect(rail.locator("[data-pool-sort='followers']")).toHaveAttribute("data-sort-direction", "asc");
+  await expect(rail).not.toContainText("资料维护");
   await expect(list).toBeVisible();
   await expect(row).toBeVisible();
   const centerBox = await center.boundingBox();
@@ -277,7 +291,7 @@ test("public pool restores the central interaction and uses a structured right r
   await expect(workspace.locator("[data-pool-overview]")).not.toContainText("公开对象池");
   await expect(workspace.locator("[data-pool-reason]")).toHaveCount(0);
   await expect(row.locator(".pool-profile-link")).toHaveText("主页");
-  expect((await workspace.locator("[data-pool-search]").boundingBox())?.height).toBe(32);
+  expect((await workspace.locator("[data-pool-search]").boundingBox())?.height).toBe(28);
   expect((await workspace.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").boundingBox())?.height).toBe(32);
 });
 
@@ -330,7 +344,7 @@ test("empty pool sync sends an explicit command and renders the refreshed public
   await expect(page.locator("[data-pool-sync-library]")).toHaveCount(0);
 });
 
-test("pool maintenance enriches public avatars, renders Jev signals, and requires deletion confirmation", async ({ page }) => {
+test("pool KOL scoring uses the existing Jev endpoint and refreshes public signals", async ({ page }) => {
   const posts: Array<{ path: string; body?: Record<string, unknown> }> = [];
   const enriched = { ...POOL_ITEM, avatar_url: "https://yt3.ggpht.com/enriched-avatar.jpg" };
   const assessed = { ...enriched, potential_score: 85, potential_confidence: 0.91, risk_score: 85, risk_confidence: 0.83, assessment_model: "jev-1.13" };
@@ -359,20 +373,12 @@ test("pool maintenance enriches public avatars, renders Jev signals, and require
   });
 
   await page.goto("/?tab=pool");
-  await page.locator("[data-pool-avatar-enrich]").click();
-  await expect.poll(() => posts.map((item) => item.path)).toContain("/api/home/pool/avatar-enrich");
-  await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-kol-avatar='source']")).toHaveCount(1);
   await page.locator("[data-pool-jev-assess]").click();
   await expect.poll(() => posts.map((item) => item.path)).toContain("/api/home/pool/jev-assess");
   await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-jev-potential]")).toHaveText("高潜 85");
   await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-jev-risk]")).toHaveText("高风险 85");
-  await page.locator("[data-pool-filter]").selectOption("high-potential");
-  await expect(page.locator("[data-pool-card]")).toHaveCount(1);
-  await page.locator("[data-pool-cleanup-preview]").click();
-  await expect(page.locator("[data-pool-cleanup-confirm]")).toContainText("将删除 2 条无主页公海档案");
-  await page.locator("[data-pool-cleanup-confirm-button]").click();
-  await expect.poll(() => posts.find((item) => item.path === "/api/home/pool/cleanup-missing-homepage")?.body).toMatchObject({ expected_count: 2, confirm: true });
-  await expect(page.locator("[data-pool-maintenance]")).toContainText("已删除 2 条无主页公海档案");
+  await expect(page.locator("[data-home-pane='pool']")).not.toContainText("补头像");
+  await expect(page.locator("[data-home-pane='pool']")).not.toContainText("清理无主页");
 });
 
 test("selection prefills composer and enqueue is not from-text", async ({ page }) => {
@@ -391,9 +397,16 @@ test("selection prefills composer and enqueue is not from-text", async ({ page }
   await page.goto("/?tab=pool");
   await expect(page.locator("[data-pool-card]").first()).toBeVisible();
   await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-select]").check();
-  await page.locator("[data-analyze-selected]").click();
   const input = page.locator("[data-home] [data-composer-input]");
   await expect(input).toHaveValue(/分析已选/);
+  await expect(input).toHaveValue(/户外充电君/);
+  await page.locator("[data-pool-kol='uid_unowned'] [data-pool-select]").check();
+  await expect(input).toHaveValue(/户外充电君/);
+  await expect(input).toHaveValue(/无主红人/);
+  await page.locator("[data-pool-kol='uid_unowned'] [data-pool-select]").uncheck();
+  await expect(input).not.toHaveValue(/无主红人/);
+  await page.locator("[data-pool-analysis='potential']").click();
+  await expect(input).toHaveValue(/合作潜力/);
   await input.fill(`${await input.inputValue()}\n补充：只要公开资料建议`);
   await page.locator("[data-home] [data-send]").click();
   await expect(page.locator("[data-analyze-queued]")).toContainText("已入队，等待 Codex");
@@ -415,29 +428,28 @@ test("pool bulk analysis is limited to the current filtered result", async ({ pa
 
   // Keep an existing selection, then move to a different visible result set.
   await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-select]").check();
-  await page.locator("[data-pool-filter]").selectOption("overdue");
+  await page.locator("[data-pool-filter='overdue']").click();
   await expect(page.locator("[data-pool-card]")).toHaveCount(1);
   await expect(page.locator("[data-pool-kol='uid_unowned']")).toBeVisible();
   await page.locator("[data-pool-select-all]").check();
-  await expect(page.locator("[data-pool-selected-count]")).toHaveText("当前已选 1 / 8");
 
-  // The hidden selection remains available when the filter is removed, but it
-  // cannot slip into a batch operation launched from the current result set.
-  await page.locator("[data-analyze-selected]").click();
+  // The composer always reflects every selected object, including a selection
+  // that is currently outside the filtered result set.
   const input = page.locator("[data-home] [data-composer-input]");
   await expect(input).toHaveValue(/无主红人/);
-  await expect(input).not.toHaveValue(/户外充电君/);
+  await expect(input).toHaveValue(/户外充电君/);
 
   await page.locator("[data-pool-select-all]").uncheck();
-  await expect(page.locator("[data-analyze-selected]")).toBeDisabled();
+  await expect(input).toHaveValue(/户外充电君/);
+  await expect(page.locator("[data-pool-analysis='risk']")).toBeEnabled();
 });
 
 test("follow cards stay object cards and brief prefers 拒信", async ({ page }) => {
   await page.goto("/");
   await openFollow(page);
   await expect(page.locator("[data-followed-kol-list]")).toBeVisible();
-  await expect(page.locator("[data-followed-brief]")).toBeVisible();
-  await expect(page.locator("[data-followed-brief]")).toHaveAttribute("data-brief-priority", "refused");
+  await expect(page.locator('button[data-followed-situation="refused"]')).toContainText("1 位已拒绝");
+  await expect(page.locator('[data-followed-stage-group="connect"]')).toBeVisible();
   await expect(page.locator("[data-kol-work-card]").first()).toBeVisible();
   await expect(page.locator("[data-clock-none]").first()).toContainText("尚未有效往来");
   await expect(page.locator("[data-discovery-candidate]")).toHaveCount(0);

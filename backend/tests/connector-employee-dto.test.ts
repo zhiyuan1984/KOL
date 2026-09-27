@@ -94,41 +94,43 @@ describe("employee connector use-surface DTO", () => {
   it("omits credential_* and governance status; hides unauthorized and disabled rows", async () => {
     const employee = await createEmployee("dto-user");
     getConn().prepare(
-      "UPDATE connectors SET credential_ref=?, status=? WHERE id='starry'",
-    ).run("vault://starry/prod", "configured");
+      "UPDATE connectors SET credential_ref=?, status=?, enabled=1 WHERE id='starrykol'",
+    ).run("vault://starrykol/prod", "configured");
     getConn().prepare(
       "INSERT OR IGNORE INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES (?,?,?,?,?,?)",
     ).run("hidden_tool", "Hidden tool", 0, "configured", "vault://hidden", new Date().toISOString());
 
     await call("PUT", `/api/admin/users/${employee.id}/connectors`, {
-      connectors: ["starry:read", "hidden_tool:write", "wecom:admin"],
+      connectors: ["starrykol:read", "hidden_tool:write"],
     });
-    await call("PATCH", "/api/admin/connectors/wecom", { enabled: false });
 
     const cookie = await employeeLogin("dto-user");
     const listed = await call("GET", "/api/connectors", undefined, cookie);
     expect(listed.response.status).toBe(200);
     const rows = listed.json as Record<string, unknown>[];
-    expect(rows.map((row) => row.id)).toEqual(["starry"]);
+    expect(rows.map((row) => row.id)).toEqual(["starrykol"]);
     expect(rows).toHaveLength(1);
     for (const row of rows) assertEmployeeConnectorDto(row);
-    expect(rows[0]).toMatchObject({ id: "starry", access: "read" });
-    expect(rows.some((row) => row.id === "hidden_tool" || row.id === "wecom" || row.id === "claw")).toBe(false);
+    expect(rows[0]).toMatchObject({ id: "starrykol", access: "read" });
+    expect(rows.some((row) => row.id === "hidden_tool" || row.id === "claw")).toBe(false);
   });
 
-  it("projects admin grants to write and never returns the word admin", async () => {
+  it("projects explicit write grants and never returns the word admin", async () => {
     const employee = await createEmployee("admin-grant");
-    await call("PUT", `/api/admin/users/${employee.id}/connectors/${"enterprise_mail"}`, {
-      access: "admin",
+    getConn().prepare(
+      "UPDATE connectors SET enabled=1, status='configured' WHERE id='starrykol'",
+    ).run();
+    await call("PUT", `/api/admin/users/${employee.id}/connectors/${"starrykol"}`, {
+      access: "write",
     });
     const cookie = await employeeLogin("admin-grant");
     const listed = await call("GET", "/api/connectors", undefined, cookie);
     const rows = listed.json as Record<string, unknown>[];
-    expect(rows.map((row) => row.id)).toContain("enterprise_mail");
-    const mail = rows.find((row) => row.id === "enterprise_mail");
-    expect(mail).toBeTruthy();
-    assertEmployeeConnectorDto(mail!);
-    expect(mail).toMatchObject({ access: "write" });
+    expect(rows.map((row) => row.id)).toContain("starrykol");
+    const connector = rows.find((row) => row.id === "starrykol");
+    expect(connector).toBeTruthy();
+    assertEmployeeConnectorDto(connector!);
+    expect(connector).toMatchObject({ access: "write" });
   });
 
   it("employee route sources do not deep-link /admin/connectors", () => {
@@ -150,7 +152,7 @@ describe("employee connector use-surface DTO", () => {
   });
 
   it("keeps credential fields on admin serializer endpoints only", async () => {
-    getConn().prepare("UPDATE connectors SET credential_ref=? WHERE id='starrykol'").run("vault://starrykol");
+    getConn().prepare("UPDATE connectors SET credential_ref=?, enabled=1 WHERE id='starrykol'").run("vault://starrykol");
     const adminList = await call("GET", "/api/admin/connectors");
     expect(adminList.response.status).toBe(200);
     const adminRows = adminList.json as Record<string, unknown>[];
@@ -162,7 +164,9 @@ describe("employee connector use-surface DTO", () => {
     });
     expect(starrykol).toHaveProperty("status");
 
-    const employeeSurface = await call("GET", "/api/connectors");
+    const employee = await createEmployee("serializer-user");
+    await call("PUT", `/api/admin/users/${employee.id}/connectors`, { connectors: ["starrykol:read"] });
+    const employeeSurface = await call("GET", "/api/connectors", undefined, await employeeLogin("serializer-user"));
     const useRows = employeeSurface.json as Record<string, unknown>[];
     expect(useRows.length).toBeGreaterThan(0);
     for (const row of useRows) assertEmployeeConnectorDto(row);

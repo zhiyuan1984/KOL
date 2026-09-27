@@ -26,7 +26,8 @@ export default function ObjectWorkspace({
   title: string;
   description: string;
   selectedCount: number;
-  resultCount: number;
+  /** Undefined means the result source is still being reconciled; do not render a false 0 badge. */
+  resultCount?: number;
   railLabel: string;
   railToggleLabel: string;
   railStorageKey: string;
@@ -67,7 +68,7 @@ export default function ObjectWorkspace({
       railBadge={resultCount}
       resultView={{
         resultType: pane === "pool" ? "kol_pool_objects" : "followed_kol_objects",
-        status: resultCount > 0 ? "ready" : "idle",
+        status: resultCount == null ? "running" : resultCount > 0 ? "ready" : "idle",
         freshness: "unknown",
       }}
       centerHeader={centerHeader}

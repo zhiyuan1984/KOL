@@ -750,9 +750,25 @@
 .followed-decision-brief,
 .followed-lifecycle-overview,
 .followed-attention,
-.followed-next-step {
+.followed-next-step,
+.followed-summary-pending {
   display: grid;
   gap: var(--ds-space-2);
+}
+.followed-summary-pending {
+  max-width: 62ch;
+  padding: var(--ds-space-3);
+  border-left: 3px solid var(--accent);
+  background: var(--ds-selected-bg);
+}
+.followed-summary-pending strong {
+  font-size: var(--ds-font-body);
+  font-weight: 600;
+}
+.followed-summary-pending p {
+  color: var(--ds-text-dim);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
 }
 .followed-section-heading {
   display: flex;

@@ -39,6 +39,18 @@ function followEmptyCopy(kind: string, scope: StarryBinding | null) {
   if (kind === "loading") {
     return { title: "正在读取跟进名单…", body: "读完这里会显示你在跟的红人与合作对象；读取完成前不下结论。" };
   }
+  if (kind === "reconciling") {
+    return {
+      title: "正在核对跟进名单…",
+      body: "已读取本地跟进索引，正在核对当前邮箱名下的历史协作记录；完成前不会显示“暂无”。",
+    };
+  }
+  if (kind === "incomplete") {
+    return {
+      title: "跟进名单暂时无法确认",
+      body: "未能完成当前邮箱范围的名单核对，因此暂不显示“暂无”。可重试或交给 Agent 排查。",
+    };
+  }
   if (kind === "unbound") {
     return { title: "尚未绑定跟进邮箱", body: "绑定 Starry 发件箱后，这里只显示该邮箱负责人跟进的红人。" };
   }
@@ -137,7 +149,7 @@ export default function FollowedPane({
   const selectedCards = visibleKols.filter((card) => selectedKolIds.includes(card.id));
   const bulkLabel = followedBulkCtaLabel(selectedCards);
   const queryDown = Boolean(down);
-  const loading = !queryDown && followEmptyKind === "loading";
+  const loading = !queryDown && (followEmptyKind === "loading" || followEmptyKind === "reconciling");
   const slowLoading = useSlowWait(loading);
   const empty = followEmptyCopy(queryDown ? "down" : followEmptyKind, followScope);
   const brief = briefingForFollowed(allCards);
@@ -173,7 +185,9 @@ export default function FollowedPane({
                 disabled={!visibleKols.length}
                 onChange={(event) => onToggleSelectAll(event.target.checked)}
               />
-              <span>{selecting ? `已选 ${selectedKolIds.length} / ${KOL_SELECT_MAX}` : selectAllLabel(visibleKols.length, "选择对象")}</span>
+              <span data-followed-selected-count={selecting ? "true" : undefined}>
+                {selecting ? `已选 ${selectedKolIds.length} / ${KOL_SELECT_MAX}` : selectAllLabel(visibleKols.length, "全选本页")}
+              </span>
             </label>
             {selecting ? <button
               type="button"

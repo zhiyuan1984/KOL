@@ -64,7 +64,7 @@ test("home five-mode tab order and pane visibility", async ({ page }) => {
   await expect(page.locator("[data-discovery-live]")).toHaveAttribute("data-discovery-live", "false");
 
   await openMode(page, "pool");
-  await expect(page.locator('[data-home-pane="pool"] h1')).toHaveText("公海");
+  await expect(page.locator('[data-home-pane="pool"] h1')).toContainText("公海");
   await expect(page.locator('[data-home-pane="pool"] [data-scope-ai-workspace]')).toBeVisible();
   await expect(page.locator('[data-home-pane="pool"] [data-scope-task-rail] [data-pool-overview]')).toHaveCount(1);
   await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
@@ -85,13 +85,13 @@ test("home five-mode tab order and pane visibility", async ({ page }) => {
   await expect(page.locator("[data-followed-object-search]")).toBeVisible();
   await expect(page.locator('[data-kol-tab="needs_me"]')).toHaveCount(0);
   await expect(page.locator('[data-kol-tab="INITIAL_CONTACT"]')).toHaveCount(0);
-  await expect(page.locator("[data-kol-stage-filter]")).toBeVisible();
+  await expect(page.locator("[data-followed-lifecycle-grid]")).toBeVisible();
   await expect(page.locator('[data-home-pane="lifecycle"]')).not.toContainText("需要我处理");
   await expect(page.locator('[data-home-pane="lifecycle"]')).not.toContainText("正式阶段共 15 个");
 
   await openMode(page, "todo");
   await expect(page.locator("[data-today-summary]")).toBeVisible();
-  await expect(page.locator("[data-today-summary]")).toContainText("项未了结");
+  await expect(page.locator("[data-today-summary]")).toContainText("今天到期");
   await expect(page.locator("[data-home]")).not.toHaveAttribute("data-followed-chrome", "compact");
 });
 
@@ -253,7 +253,7 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
   await expect(card.locator("[data-confirm-enter-stage]")).toHaveText("进入已回复 · 有兴趣");
   await expect(card.locator("[data-confirm-enter-stage] svg")).toHaveCount(1);
   await expect(card.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
-  await expect(page.locator("[data-followed-batch-confirm]")).toHaveClass(/ghost/);
+  await expect(page.locator("[data-followed-batch-confirm]")).toHaveCount(0);
   await expect(card.locator("[data-open-kol-detail]")).toHaveText("详情");
   await expect(card.locator("[data-open-kol-detail]")).not.toHaveClass(/btn/);
   await expect(card.locator("[data-open-original-mail]")).toHaveText("互动");
@@ -438,7 +438,7 @@ test("home followed list keeps one strong work CTA", async ({ page }) => {
   await expect(stageA.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
   await expect(stageB.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
   await expect(draft.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
-  await expect(page.locator("[data-followed-batch-confirm]")).toHaveClass(/ghost/);
+  await expect(page.locator("[data-followed-batch-confirm]")).toHaveCount(0);
   expect(await countFilledFollowedWorkCtas(page)).toBe(0);
 
   await stageA.hover();
@@ -547,8 +547,7 @@ test("home followed multi-select shows one filled top CTA", async ({ page }) => 
   await page.mouse.move(0, 0);
   await expect(list.locator("[data-kol-primary-action].btn.ghost")).toHaveCount(3);
   await expect(list.locator("[data-kol-primary-action].btn.work")).toHaveCount(0);
-  await expect(topCta).toHaveClass(/ghost/);
-  await expect(topCta).toBeDisabled();
+  await expect(topCta).toHaveCount(0);
   expect(await countFilledFollowedWorkCtas(page)).toBe(0);
 
   await stageA.locator("[data-followed-select]").check();
@@ -628,7 +627,7 @@ test("home four tabs live in ?tab= and switching does not POST sessions", async 
   await expect(page).toHaveURL(/[?&]tab=lifecycle/);
   await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
   await expect(page.locator("[data-followed-object-search]")).toBeVisible();
-  await expect(page.locator("[data-kol-stage-filter]")).toBeVisible();
+  await expect(page.locator("[data-followed-lifecycle-grid]")).toBeVisible();
 
   await page.goto("/?tab=todo");
   await expect(page.locator('[data-home-pane="todo"]')).toBeVisible();
@@ -691,10 +690,10 @@ test("followed brief counts narrow the list as a situational filter", async ({ p
   await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
   await expect(page.locator("[data-followed-kol]")).toHaveCount(2);
 
-  // 非零档才是可点的情境分区；零档保持纯文本，不给点不动的假按钮。
-  await expect(page.locator('button[data-followed-situation="refused"]')).toHaveText("1 位已拒绝");
-  await expect(page.locator('span[data-followed-situation="near_14d"]')).toHaveText("0 位临近 14 天未联系");
-  await expect(page.locator('span[data-followed-situation="interested"]')).toHaveText("0 位有意向");
+  // 情境分区全部可点；零档也可作为明确的空筛选结果使用。
+  await expect(page.locator('button[data-followed-situation="refused"]')).toContainText("1 位已拒绝");
+  await expect(page.locator('button[data-followed-situation="near_14d"]')).toContainText("0 位临近 14 天未联系");
+  await expect(page.locator('button[data-followed-situation="interested"]')).toContainText("0 位有意向");
 
   await page.locator('button[data-followed-situation="refused"]').click();
   await expect(page.locator("[data-followed-kol]")).toHaveCount(1);
@@ -714,17 +713,15 @@ test("followed toolbar separates 找谁 from 对选中做什么 and keeps stages
 
   const toolbar = page.locator("[data-followed-object-toolbar]");
   await expect(toolbar.locator("[data-followed-object-search]")).toBeVisible();
-  await expect(page.locator("[data-followed-brief]")).toContainText("2 位在跟");
+  await expect(page.locator("[data-followed-interaction]")).toContainText("2 位当前跟进对象");
   await expect(toolbar.locator("[data-followed-object-batch]")).toContainText("全选本页");
 
   // 计数不再与筛选控件的标签连读成「1 人 阶段（高级）」，也不重复简报里的总数：
   // 全部在跟数由简报唯一承载，工具行只在选中时报「已选 N / 8」。
   await expect(toolbar.locator("[data-followed-selected-count]")).toHaveCount(0);
-  await expect(toolbar.locator("[data-followed-advanced]")).toContainText("阶段筛选");
-
-  // 15 正式阶段仍可用，但只作次级筛选：全部阶段 + 15 + 异常。
-  const stageOptions = page.locator("[data-kol-stage-filter] option");
-  await expect(stageOptions).toHaveCount(17);
-  await expect(stageOptions.first()).toHaveText("全部阶段");
-  await expect(stageOptions.last()).toHaveText("异常");
+  // 生命周期分组仍可用，但不再以 15 个正式阶段作为主筛选。
+  const stageGroups = page.locator("[data-followed-stage-group]");
+  await expect(stageGroups).toHaveCount(6);
+  await expect(stageGroups.first()).toContainText("建联评估");
+  await expect(stageGroups.last()).toContainText("长期合作");
 });

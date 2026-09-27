@@ -203,13 +203,19 @@ afterEach(() => {
 });
 
 describe("Starry KOL MCP connector", () => {
-  it("exposes starrykol and hides the legacy emailmcp connector", async () => {
-    const listed = await request("GET", "/api/connectors");
-    expect(listed.status).toBe(200);
-    const rows = listed.body as unknown as Array<{ id: string; label: string }>;
-    expect(rows.map((row) => row.id)).toContain("starrykol");
-    expect(rows.find((row) => row.id === "starrykol")?.label).toBe("Starry KOL MCP");
-    expect(rows.map((row) => row.id)).not.toContain("emailmcp");
+  it("lists the Starry template in administration but hides an unverified connector from employees", async () => {
+    const employeeListed = await request("GET", "/api/connectors");
+    expect(employeeListed.status).toBe(200);
+    const employeeRows = employeeListed.body as unknown as Array<{ id: string; label: string }>;
+    expect(employeeRows.map((row) => row.id)).not.toContain("starrykol");
+    expect(employeeRows.map((row) => row.id)).not.toContain("emailmcp");
+
+    const adminListed = await request("GET", "/api/admin/connectors");
+    expect(adminListed.status).toBe(200);
+    const adminRows = adminListed.body as unknown as Array<{ id: string; label: string }>;
+    expect(adminRows.map((row) => row.id)).toContain("starrykol");
+    expect(adminRows.find((row) => row.id === "starrykol")?.label).toBe("Starry KOL MCP");
+    expect(adminRows.map((row) => row.id)).not.toContain("emailmcp");
   });
 });
 

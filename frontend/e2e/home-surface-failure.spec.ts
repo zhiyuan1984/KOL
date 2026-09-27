@@ -69,6 +69,38 @@ test("跟进面读失败只在它自己的位置上说一次，并带重试与�
   expect(sessionPosts).toEqual([]);
 });
 
+test("历史协作投影读取失败时，本地空索引不能被表述为暂无", async ({ page }) => {
+  await page.route("**/api/home/board*", (route) => route.fulfill(GATEWAY_HTML));
+  await page.route("**/api/home/following", (route) => route.fulfill({
+    json: {
+      entry: "memory",
+      kind: "memory",
+      creates_session: false,
+      index: "我的跟进",
+      follow_scope: {
+        required: true,
+        bound: true,
+        mailbox_email: "larry.zhao@amperetime.com",
+        mailbox_id: "mbx_larry",
+        owner_name: "赵良玉",
+        status: "connected",
+        has_token: false,
+        updated_at: null,
+      },
+      kols: [],
+    },
+  }));
+
+  await page.goto("/");
+  await openFollow(page);
+
+  await expect(page.locator("[data-follow-empty='down']")).toBeVisible();
+  await expect(page.locator("[data-follow-empty='mailbox']")).toHaveCount(0);
+  await expect(page.locator("[data-follow-empty-actions]")).toHaveCount(0);
+  await expect(page.locator("[data-followed-interaction]")).not.toContainText("0 位当前跟进对象");
+  await expect(page.locator("[data-followed-lifecycle-grid]")).toHaveCount(0);
+});
+
 test("公海面读失败同样只在自己的位置上说一次", async ({ page }) => {
   await page.route("**/api/home/board*", (route) => route.fulfill(GATEWAY_HTML));
   await page.route("**/api/home/pool*", (route) => route.fulfill(GATEWAY_HTML));

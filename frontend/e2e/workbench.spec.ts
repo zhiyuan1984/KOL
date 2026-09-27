@@ -405,7 +405,7 @@ async function expectFollowedObjectToolbar(page: Page) {
   await expect(page.locator('[data-kol-tab="INITIAL_CONTACT"]')).toHaveCount(0);
   await expect(page.locator("[data-followed-object-toolbar]")).toBeVisible();
   await expect(page.locator("[data-followed-object-search]")).toBeVisible();
-  await expect(page.locator("[data-kol-stage-filter]")).toBeVisible();
+  await expect(page.locator("[data-followed-lifecycle-grid]")).toBeVisible();
   await expect(page.locator('[data-home-pane="lifecycle"]')).not.toContainText("需要我处理");
   await expect(page.locator('[data-home-pane="lifecycle"]')).not.toContainText("正式阶段共 15 个");
 }
@@ -727,8 +727,8 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expect(page.locator("[data-lifecycle-domains]")).toHaveCount(0);
   await expect(page.locator("[data-lifecycle-library]")).toHaveCount(0);
   await expectFollowedObjectToolbar(page);
-  // 计数元素属性改名：data-followed-object-count → data-followed-selected-count（class 仍为 followed-object-count）。
-  await expect(page.locator("[data-followed-selected-count]")).toBeVisible();
+  // 未选对象时工具行只显示选择动作，选中后才显示「已选 N / 8」。
+  await expect(page.locator("[data-followed-selected-count]")).toHaveCount(0);
   await openHomeTemplates(page);
   await homeRecByTitle(page, "写合作邮件").click();
   await expectHomeComposerDraft(page, "写合作邮件 发件箱 [发件邮箱] 发给 [收件邮箱] 主题：[主题]");
@@ -3844,15 +3844,13 @@ test("task workbench switches today/templates, filters sources, and runs one of 
   await expectNoHorizontalOverflow(page, "[data-home-modes]");
   await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
   await expectNoPageHorizontalScroll(page);
-  await page.locator("[data-kol-stage-filter]").selectOption("INITIAL_CONTACT");
+  await page.locator('[data-followed-stage-group="connect"]').click();
   await expect(page.locator("[data-followed-kol]")).toHaveCount(1);
   await expect(page.locator("[data-followed-kol]")).toContainText("小美妆日记");
-  await page.locator("[data-kol-stage-filter]").selectOption("");
+  await page.locator("[data-followed-stage-clear]").click();
   await page.locator("[data-followed-object-search]").fill("旅行电源菌");
   await expect(page.locator("[data-followed-kol]")).toHaveCount(1);
   await expect(page.locator("[data-followed-kol]")).toContainText("旅行电源菌");
-  await page.locator("[data-kol-stage-filter]").selectOption("exception");
-  await expect(page.locator("[data-followed-kol]")).toHaveCount(1);
   const exceptionCard = page.locator('[data-followed-kol="旅行电源菌"]');
   await expect(exceptionCard.locator("[data-stage-label]")).toHaveText("争议中");
   await expect(exceptionCard.locator("[data-current-state]")).not.toContainText(" · 异常");

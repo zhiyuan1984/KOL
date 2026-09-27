@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 /**
  * 「我的红人」右栏的两条硬契约（DESIGN §Home Agent 工作台几何 / §控件尺寸，TECH-FE-01）：
  * 1) 读取没回来之前不许下「还没有跟进中的红人」的结论，也不许报 0 计数；
- * 2) 顶部工具行（搜索 + 全选本页/分析已选/批量进阶段）不重叠，「在跟 N 位」只在简报里出现一次；
+ * 2) 顶部工具行（搜索 + 全选本页/分析已选/批量进阶段）不重叠，名单总数只在中栏概览出现一次；
  * 3) 右栏宽度按 DESIGN 的 token 分配，五个模式同一份几何。
  */
 
@@ -68,7 +68,7 @@ async function openFollowed(page: Page) {
   await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
 }
 
-test("右栏顶部工具行：搜索与批量动作在最上、互不重叠、在跟计数只出现一次", async ({ page }) => {
+test("右栏顶部工具行：搜索与批量动作在最上、互不重叠，名单总数只在概览出现一次", async ({ page }) => {
   await stubBoard(page);
   await page.route("**/api/home/following", (route) => route.fulfill({
     json: followingEnvelope([row(1), row(2), row(3)]),
@@ -79,23 +79,19 @@ test("右栏顶部工具行：搜索与批量动作在最上、互不重叠、�
   // 「我的跟进对象」这一行上下文标签不再展示（公海本来就没有）。
   await expect(page.locator("[data-result-context]")).toHaveCount(0);
 
-  // 顺序：工具行（搜索 + 批量动作）→ 阶段导航 → 简报 → 名单。
+  // 右栏顺序：工具行（搜索 + 批量动作）→ 名单；阶段导航和概览属于中栏。
   const order = await page.evaluate(() => {
     const rail = document.querySelector('[data-home-pane="lifecycle"] [data-scope-task-rail]')!;
     const find = (selector: string) => rail.querySelector(selector)!;
-    const before = (a: Element, b: Element) =>
-      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const batch = find("[data-followed-object-batch]");
+    const list = find("[data-followed-kol-list]");
     return {
       toolbarIsFirst: find("[data-followed-kol-column]").firstElementChild === find("[data-followed-object-toolbar]"),
-      searchBeforeJourney: before(find("[data-followed-object-search]"), find("[data-followed-journey]")),
-      searchBeforeBrief: before(find("[data-followed-object-search]"), find("[data-followed-brief]")),
-      batchBeforeList: before(find("[data-followed-object-batch]"), find("[data-followed-kol-list]")),
+      batchBeforeList: Boolean(batch.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING),
     };
   });
   expect(order).toEqual({
     toolbarIsFirst: true,
-    searchBeforeJourney: true,
-    searchBeforeBrief: true,
     batchBeforeList: true,
   });
 
@@ -117,11 +113,13 @@ test("右栏顶部工具行：搜索与批量动作在最上、互不重叠、�
   });
   expect(overlap).toEqual([]);
 
-  // 总数只在简报里：未选中时不出现第二个「N 位在跟」。
+  // 总数只在中栏概览里：右栏工具行不重复「N 位当前跟进对象」。
   const rail = page.locator('[data-home-pane="lifecycle"] [data-scope-task-rail]');
+  const center = page.locator('[data-home-pane="lifecycle"] [data-scope-ai-workspace]');
   const railText = await rail.innerText();
-  expect(railText.split("位在跟").length - 1).toBe(1);
-  expect(railText).toContain("3 位在跟");
+  expect(railText).not.toContain("位当前跟进对象");
+  await expect(center).toContainText("3 位当前跟进对象");
+  await expect(page.locator("[data-followed-lifecycle-grid]")).toBeVisible();
   await expect(page.locator("[data-followed-selected-count]")).toHaveCount(0);
   // 名单没超过选择上限时，「全选本页」就是行为本身。
   await expect(page.locator(".followed-select-all")).toContainText("全选本页");
@@ -135,13 +133,15 @@ test("右栏顶部工具行：搜索与批量动作在最上、互不重叠、�
       const rect = el.getBoundingClientRect();
       return { l: rect.left, r: rect.right, w: rect.width };
     };
+    const all = document.querySelector(".followed-select-all") as HTMLElement;
+    const count = document.querySelector("[data-followed-selected-count]") as HTMLElement;
     return {
-      count: box("[data-followed-selected-count]"),
       all: box("[data-followed-select-all]"),
       search: box("[data-followed-object-search]"),
+      countIsInSelectAll: all.contains(count),
     };
   });
-  expect(boxes.count.r).toBeLessThanOrEqual(boxes.all.l + 1);
+  expect(boxes.countIsInSelectAll).toBe(true);
   expect(boxes.search.w).toBeGreaterThan(150);
 
   // 验收矩阵里的必测视口 1280×800（L + 矮窗）：换行后仍不许叠在一起。
@@ -181,11 +181,46 @@ test("读取没回来之前不许说「还没有跟进中的红人」，也不�
   await expect(rail).not.toContainText("还没有跟进中的红人");
   await expect(rail).not.toContainText("位在跟");
 
-  // 读完之后：名单出现，等待态消失，总数只在简报里。
+  // 读完之后：名单出现，等待态消失，总数只在中栏概览里。
   await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible({ timeout: 15000 });
   await expect(page.locator("[data-follow-empty]")).toHaveCount(0);
-  await expect(page.locator("[data-followed-brief]")).toContainText("2 位在跟");
-  expect((await rail.innerText()).split("位在跟").length - 1).toBe(1);
+  await expect(page.locator("[data-followed-interaction]")).toContainText("2 位当前跟进对象");
+  expect((await rail.innerText()).includes("位当前跟进对象")).toBe(false);
+});
+
+test("本地索引为空时，在历史协作投影合并前不下暂无结论", async ({ page }) => {
+  const scope = {
+    required: true,
+    bound: true,
+    mailbox_email: "larry.zhao@amperetime.com",
+    mailbox_id: "mbx_larry",
+    owner_name: "赵良玉",
+    status: "connected",
+    has_token: false,
+    updated_at: null,
+  };
+  await page.route("**/api/home/following", (route) => route.fulfill({
+    json: { ...followingEnvelope([]), follow_scope: scope },
+  }));
+  await page.route("**/api/home/board*", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    await route.fulfill({ json: { kols: [row(1)], follow_scope: scope, workbench: {} } });
+  });
+
+  await openFollowed(page);
+
+  const center = page.locator('[data-home-pane="lifecycle"] [data-scope-ai-workspace]');
+  await expect(page.locator('[data-follow-empty="reconciling"]')).toBeVisible();
+  await expect(page.locator('[data-follow-empty="reconciling"]')).toContainText("正在核对跟进名单");
+  await expect(page.locator('[data-follow-empty="mailbox"]')).toHaveCount(0);
+  await expect(page.locator("[data-follow-empty-actions]")).toHaveCount(0);
+  await expect(center).not.toContainText("0 位当前跟进对象");
+  await expect(page.locator("[data-followed-lifecycle-grid]")).toHaveCount(0);
+
+  await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
+  await expect(page.locator("[data-follow-empty]")).toHaveCount(0);
+  await expect(center).toContainText("1 位当前跟进对象");
+  await expect(page.locator("[data-followed-lifecycle-grid]")).toBeVisible();
 });
 
 test("名单超过选择上限时，全选标签照实说、勾选框按上限呈现", async ({ page }) => {

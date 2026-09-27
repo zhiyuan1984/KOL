@@ -11,6 +11,7 @@ import {
   syncHomePoolIndex,
 } from "./kolSurfaceApi";
 import type { PoolKol } from "./kolContract";
+import { filterPoolCards, type PoolFilter, type PoolSort } from "./poolView";
 
 function canonicalProfileKey(card: PoolKol): string {
   const url = (card.identity.profile_url || "").trim().toLowerCase().replace(/\/+$/, "");
@@ -44,7 +45,7 @@ function dedupePoolCards(cards: PoolKol[]): PoolKol[] {
 
 export function usePoolWorkspace(options: {
   /** 共享 board 管线：带首入缓存与 force 刷新，错误按 surface 路由。 */
-  loadBoard: (surface: HomeSurface, force?: boolean) => Promise<void>;
+  loadBoard: (surface: HomeSurface, force?: boolean) => Promise<boolean>;
   /** board 成功后拿到的公海索引原始行。 */
   boardKols: () => Array<Record<string, unknown>>;
   /** 领取成功后：清理选择并刷新「我的红人」面。 */
@@ -56,6 +57,8 @@ export function usePoolWorkspace(options: {
 
   const [cards, setCards] = useState<PoolKol[]>([]);
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<PoolFilter>("all");
+  const [sort, setSort] = useState<PoolSort>("default");
   const [error, setError] = useState("");
   const [claimTarget, setClaimTarget] = useState<PoolKol | null>(null);
   const [claimBusy, setClaimBusy] = useState(false);
@@ -79,15 +82,8 @@ export function usePoolWorkspace(options: {
   }, []);
 
   const visibleCards = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return cards;
-    return cards.filter((card) =>
-      [card.identity.display, card.identity.platform, card.direction, card.region, card.style]
-        .join(" ")
-        .toLowerCase()
-        .includes(needle),
-    );
-  }, [cards, query]);
+    return filterPoolCards(cards, query, filter, sort);
+  }, [cards, filter, query, sort]);
 
   const loadSurface = useCallback(async () => {
     const loaded = await loadHomePool({ kols: boardKols() });
@@ -105,8 +101,8 @@ export function usePoolWorkspace(options: {
     // The pool endpoint is independent of the board. Show its rows while the board refresh runs.
     const board = loadBoard("pool");
     const source = await loadSurface();
-    await board;
-    if (source === "board-adapter") await loadSurface();
+    const boardReady = await board;
+    if (source === "board-adapter" && boardReady) await loadSurface();
   }, [loadBoard, loadSurface]);
 
   const syncLibrary = useCallback(async () => {
@@ -270,6 +266,10 @@ export function usePoolWorkspace(options: {
     visibleCards,
     query,
     setQuery,
+    filter,
+    setFilter,
+    sort,
+    setSort,
     error,
     setError,
     loadSurface,
