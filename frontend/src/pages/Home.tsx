@@ -680,12 +680,16 @@ export default function Home() {
 
   const fetchHomeTasks = () => api.tasks().then(unwrapTaskList).then(applyTaskCatalog);
 
-  const loadBoard = (surface: HomeSurface, force = false) => {
-    if (!force && boardRequestedRef.current) return Promise.resolve();
+  const loadBoard = (surface: HomeSurface, force = false): Promise<boolean> => {
+    if (!force && boardRequestedRef.current) return Promise.resolve(true);
     boardRequestedRef.current = true;
-    return api.homeBoard({ refresh: force }).then((board) => applyBoard(board, surface)).catch((error) => {
+    return api.homeBoard({ refresh: force }).then((board) => {
+      applyBoard(board, surface);
+      return true;
+    }).catch((error) => {
       if (!force) boardRequestedRef.current = false;
       setSurfaceError(surface, error instanceof Error ? error.message : "工作台读取失败");
+      return false;
     });
   };
 
@@ -707,8 +711,9 @@ export default function Home() {
   const retrySurface = async (surface: HomeSurface) => {
     setRetryingSurface(surface);
     try {
-      await loadBoard(surface, true);
-      await (surface === "following" ? followedWorkspaceRef.current.loadSurface() : poolWorkspace.loadSurface());
+      const boardReady = await loadBoard(surface, true);
+      if (surface === "following" && boardReady) await followedWorkspaceRef.current.loadSurface();
+      else if (surface === "pool") await poolWorkspace.loadSurface();
     } finally {
       setRetryingSurface(null);
     }
@@ -1987,7 +1992,7 @@ export default function Home() {
               title="我的红人"
               description="围绕已跟进对象提问、分析风险或判断下一步；对象事实与受控动作保留在右栏。"
               selectedCount={selectedKolIds.length}
-              resultCount={followedWorkspace.visibleCards.length}
+              resultCount={followedWorkspace.completeness === "complete" ? followedWorkspace.visibleCards.length : undefined}
               railLabel="我的红人结果"
               railToggleLabel="我的红人"
               railStorageKey="ui:home-followed-rail-collapsed"
@@ -1995,6 +2000,7 @@ export default function Home() {
               centerContent={(
                 <FollowedInteraction
                   cards={followedWorkspace.cards}
+                  completeness={followedWorkspace.completeness}
                   stageFilter={followedWorkspace.stageFilter}
                   situation={followedWorkspace.situation}
                   selectedCount={selectedKolIds.length}

@@ -7,9 +7,11 @@ import {
   matchesFollowedSituation,
   type FollowedSituation,
 } from "./FollowedBrief";
+import type { FollowListCompleteness } from "./useFollowedWorkspace";
 
 export default function FollowedInteraction({
   cards,
+  completeness,
   stageFilter,
   situation,
   selectedCount,
@@ -19,6 +21,7 @@ export default function FollowedInteraction({
   interaction,
 }: {
   cards: FollowedKolCardModel[];
+  completeness: FollowListCompleteness;
   stageFilter: string;
   situation: FollowedSituation | "";
   selectedCount: number;
@@ -27,6 +30,7 @@ export default function FollowedInteraction({
   onAnalyzeNear: () => void;
   interaction?: ReactNode;
 }) {
+  const summaryReady = completeness === "complete";
   const brief = briefingForFollowed(cards);
   const counts = brief.counts;
   const selectedGroup = stageFilter.startsWith("group:") ? stageFilter.slice(6) : "";
@@ -34,15 +38,35 @@ export default function FollowedInteraction({
   const interestedCount = cards.filter((card) => matchesFollowedSituation(card, "interested")).length;
   const refusedCount = cards.filter((card) => matchesFollowedSituation(card, "refused")).length;
 
+  const intro = (
+    <section className="followed-interaction-intro" aria-labelledby="followed-interaction-title">
+      <div>
+        <h1 id="followed-interaction-title" data-home-title="lifecycle">我的红人</h1>
+        <p>{summaryReady ? `${cards.length} 位当前跟进对象 · 数量来自当前已授权名单` : "正在核对当前已授权名单…"}</p>
+      </div>
+      {selectedCount ? <span className="followed-selection-note">已选择 {selectedCount} 位，可在下方继续提问</span> : null}
+    </section>
+  );
+
+  if (!summaryReady) {
+    const copy = completeness === "incomplete-error"
+      ? "当前可见对象保留在右栏，但邮箱范围的历史协作记录暂无法完成核对；总数与阶段统计暂不展示。"
+      : "正在合并本地跟进索引与当前邮箱名下的历史协作记录；完成前不会显示 0 位或空阶段统计。";
+    return (
+      <div className="followed-interaction" data-followed-interaction data-followed-summary-state={completeness}>
+        {intro}
+        <section className="followed-summary-pending" data-followed-summary-pending role="status" aria-live="polite">
+          <strong>{completeness === "incomplete-error" ? "名单核对未完成" : "正在核对跟进名单…"}</strong>
+          <p>{copy}</p>
+        </section>
+        {interaction}
+      </div>
+    );
+  }
+
   return (
     <div className="followed-interaction" data-followed-interaction>
-      <section className="followed-interaction-intro" aria-labelledby="followed-interaction-title">
-        <div>
-          <h1 id="followed-interaction-title" data-home-title="lifecycle">我的红人</h1>
-          <p>{cards.length} 位当前跟进对象 · 数量来自当前已授权名单</p>
-        </div>
-        {selectedCount ? <span className="followed-selection-note">已选择 {selectedCount} 位，可在下方继续提问</span> : null}
-      </section>
+      {intro}
 
       <section className="followed-decision-brief" aria-labelledby="followed-overview-title">
         <div className="followed-section-heading">
@@ -62,10 +86,10 @@ export default function FollowedInteraction({
         <div className="followed-section-heading">
           <h2 id="followed-lifecycle-title">合作生命周期</h2>
           {selectedGroup ? (
-            <button type="button" className="followed-inline-clear" onClick={() => onStageFilter("")}>查看全部</button>
+            <button type="button" className="followed-inline-clear" data-followed-stage-clear onClick={() => onStageFilter("")}>查看全部</button>
           ) : <span>选择阶段查看对象</span>}
         </div>
-        <div className="followed-lifecycle-grid">
+        <div className="followed-lifecycle-grid" data-followed-lifecycle-grid>
           {FOLLOWED_LIFECYCLE_GROUPS.map((group) => {
             const count = cards.filter((card) =>
               (group.stageCodes as readonly string[]).includes(card.current_state.stage_code || ""),
@@ -76,6 +100,7 @@ export default function FollowedInteraction({
                 key={group.id}
                 type="button"
                 className={active ? "is-active" : ""}
+                data-followed-stage-group={group.id}
                 aria-pressed={active}
                 onClick={() => onStageFilter(active ? "" : `group:${group.id}`)}
               >
@@ -91,7 +116,7 @@ export default function FollowedInteraction({
       <section className="followed-attention" aria-labelledby="followed-attention-title">
         <div className="followed-section-heading">
           <h2 id="followed-attention-title">需要关注</h2>
-          {situation ? <button type="button" className="followed-inline-clear" onClick={() => onSituation("")}>清除</button> : null}
+          {situation ? <button type="button" className="followed-inline-clear" data-followed-situation-clear onClick={() => onSituation("")}>清除</button> : null}
         </div>
         <div className="followed-attention-list">
           {FOLLOWED_SITUATIONS.map(({ key, label }) => {
@@ -102,6 +127,7 @@ export default function FollowedInteraction({
                 key={key}
                 type="button"
                 className={active ? "is-active" : ""}
+                data-followed-situation={key}
                 aria-pressed={active}
                 onClick={() => onSituation(active ? "" : key)}
               >

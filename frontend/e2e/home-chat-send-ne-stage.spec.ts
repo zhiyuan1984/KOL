@@ -31,7 +31,7 @@ test("followed KOL pane is an object list, not task-status or 15-stage chips", a
   await expect(page.locator("[data-followed-object-search]")).toBeVisible();
   await expect(page.locator("[data-followed-kol-list]")).toBeVisible();
   await expect(page.locator("[data-followed-origin]")).toHaveAttribute("data-followed-origin", "collaboration");
-  await expect(page.locator("[data-kol-stage-filter]")).toBeVisible();
+  await expect(page.locator("[data-followed-lifecycle-grid]")).toBeVisible();
   await expect(page.locator('[data-home-pane="lifecycle"]')).not.toContainText("正式阶段共 15 个");
   await expect(page.locator('[data-home-pane="lifecycle"]')).not.toContainText("这一状态还没有");
   await expect(page.locator('a[href="/pipeline"]')).toHaveCount(0);

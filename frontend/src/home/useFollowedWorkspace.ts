@@ -25,9 +25,20 @@ import type { HomeSurface } from "./surfaceError";
 
 export type FollowedKol = FollowedKolRecord;
 
+/**
+ * A follow-list "empty" result is only conclusive after the B.active index and
+ * the mailbox-scoped legacy projection have both been reconciled. The latter
+ * remains necessary while older collaborations have not yet been backfilled.
+ */
+export type FollowListCompleteness =
+  | "loading-local"
+  | "reconciling-legacy"
+  | "complete"
+  | "incomplete-error";
+
 export function useFollowedWorkspace(options: {
   /** 共享 board 管线：带首入缓存与 force 刷新，错误按 surface 路由。 */
-  loadBoard: (surface: HomeSurface, force?: boolean) => Promise<void>;
+  loadBoard: (surface: HomeSurface, force?: boolean) => Promise<boolean>;
   /** board 成功后拿到的跟进索引原始行。 */
   boardKols: () => Array<Record<string, unknown>>;
   /** 当前绑定的 Starry 邮箱范围。 */
@@ -67,11 +78,12 @@ export function useFollowedWorkspace(options: {
   } = options;
 
   const [rows, setRows] = useState<FollowedKol[]>([]);
-  // 读取状态：`[]` 是「读到空」，不是「还没读到」。没有这两个计数，
-  // 首帧和整个读取窗口都会被渲染成「还没有跟进中的红人」（TECH-FE-01）。
+  // 读取计数只解决请求竞态；空结论还要等完整性状态确认。
   const [readsInFlight, setReadsInFlight] = useState(0);
   const [readsDone, setReadsDone] = useState(0);
   const readSeq = useRef(0);
+  const reconcileSeq = useRef(0);
+  const [completeness, setCompleteness] = useState<FollowListCompleteness>("loading-local");
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("");
   const [situation, setSituation] = useState<FollowedSituation | "">("");
@@ -114,21 +126,25 @@ export function useFollowedWorkspace(options: {
     [selectedCards],
   );
 
-  // 还没读到任何名单时只允许说「正在读」：一次读取都没发过、或读取在途，都算加载中。
-  const loading = !rows.length && (readsInFlight > 0 || readsDone === 0);
+  // 只有完整合并确认过，空数组才是空名单。读取计数保留用于请求尚未发出/完成的首帧兜底。
+  const loading = completeness === "loading-local"
+    || completeness === "reconciling-legacy"
+    || (!rows.length && (readsInFlight > 0 || readsDone === 0));
 
   const followEmptyKind = useMemo(() => {
+    if (completeness === "loading-local") return "loading";
+    if (completeness === "reconciling-legacy") return "reconciling";
+    if (completeness === "incomplete-error") return "incomplete";
     if (loading) return "loading";
     if (followScope?.required && !followScope.bound) return "unbound";
     if (followScope?.status === "expired") return "expired";
     if (rows.length) return "filtered";
     if (followScope?.bound) return "mailbox";
     return "none";
-  }, [followScope, loading, rows.length]);
+  }, [completeness, followScope, loading, rows.length]);
 
-  const loadSurface = useCallback(async () => {
-    // 进页时会连发两次读取（先本地记忆、拿到 board 后再补一次邮箱范围）。两次都可能
-    // 落在同一屏上，只有最后一次的响应可以改 rows；先到的那份按过期事实丢掉。
+  const readSurface = useCallback(async (): Promise<boolean> => {
+    // 进页会读取本地索引和合并后的兼容投影。两次可能落在同一屏，只有最后一份可以改 rows。
     readSeq.current += 1;
     const seq = readSeq.current;
     setReadsInFlight((count) => count + 1);
@@ -138,7 +154,7 @@ export function useFollowedWorkspace(options: {
         kols: boardKols(),
         follow_scope: activeScope || undefined,
       });
-      if (seq !== readSeq.current) return;
+      if (seq !== readSeq.current) return false;
       if (loaded.follow_scope) {
         latestFollowScope.current = loaded.follow_scope;
         setFollowScope(loaded.follow_scope);
@@ -146,23 +162,54 @@ export function useFollowedWorkspace(options: {
       if (loaded.down) {
         // 读取失败不清空已经写在屏幕上的名单；空名单时才交给 down 视图。
         setError(loaded.error || "跟进列表读取失败");
-        return;
+        return false;
       }
-      setError("");
       setRows(loaded.items.map(followKolToRecord) as FollowedKol[]);
+      return true;
     } finally {
       setReadsInFlight((count) => Math.max(0, count - 1));
       setReadsDone((count) => count + 1);
     }
   }, [boardKols, followScope, latestFollowScope, setFollowScope]);
 
+  /** A direct refresh reads the current, already-known board scope as one complete snapshot. */
+  const loadSurface = useCallback(async () => {
+    reconcileSeq.current += 1;
+    const seq = reconcileSeq.current;
+    setCompleteness("loading-local");
+    const loaded = await readSurface();
+    if (seq !== reconcileSeq.current) return;
+    if (loaded) setError("");
+    setCompleteness(loaded ? "complete" : "incomplete-error");
+  }, [readSurface]);
+
   const ensureLoaded = useCallback(async () => {
-    // B/C is the authoritative local memory projection. Read it first so the
-    // result rail has data as soon as the user enters "我的红人"; the board is
-    // only a compatibility/scope enrichment and must not delay that first view.
-    await loadSurface();
-    void loadBoard("following").then(() => loadSurface()).catch(() => undefined);
-  }, [loadBoard, loadSurface]);
+    // A non-empty B.active response may be displayed immediately, but its count
+    // and an empty conclusion remain provisional until legacy mailbox rows are
+    // merged. This prevents a false "暂无" flash for existing collaborations.
+    reconcileSeq.current += 1;
+    const seq = reconcileSeq.current;
+    setError("");
+    setCompleteness("loading-local");
+    const board = loadBoard("following");
+    const localReady = await readSurface();
+    if (seq !== reconcileSeq.current) return;
+    if (!localReady) {
+      setCompleteness("incomplete-error");
+      return;
+    }
+    setCompleteness("reconciling-legacy");
+    const boardReady = await board;
+    if (seq !== reconcileSeq.current) return;
+    if (!boardReady) {
+      setCompleteness("incomplete-error");
+      return;
+    }
+    const mergedReady = await readSurface();
+    if (seq !== reconcileSeq.current) return;
+    if (mergedReady) setError("");
+    setCompleteness(mergedReady ? "complete" : "incomplete-error");
+  }, [loadBoard, readSurface]);
 
   const openDetails = useCallback(
     (card: FollowedKolCardModel, focusThread?: string) => {
@@ -412,6 +459,7 @@ export function useFollowedWorkspace(options: {
     error,
     setError,
     loading,
+    completeness,
     followEmptyKind,
     confirmStageBusyId,
     confirmStageFeedback,

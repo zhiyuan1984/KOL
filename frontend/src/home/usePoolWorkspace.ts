@@ -45,7 +45,7 @@ function dedupePoolCards(cards: PoolKol[]): PoolKol[] {
 
 export function usePoolWorkspace(options: {
   /** 共享 board 管线：带首入缓存与 force 刷新，错误按 surface 路由。 */
-  loadBoard: (surface: HomeSurface, force?: boolean) => Promise<void>;
+  loadBoard: (surface: HomeSurface, force?: boolean) => Promise<boolean>;
   /** board 成功后拿到的公海索引原始行。 */
   boardKols: () => Array<Record<string, unknown>>;
   /** 领取成功后：清理选择并刷新「我的红人」面。 */
@@ -101,8 +101,8 @@ export function usePoolWorkspace(options: {
     // The pool endpoint is independent of the board. Show its rows while the board refresh runs.
     const board = loadBoard("pool");
     const source = await loadSurface();
-    await board;
-    if (source === "board-adapter") await loadSurface();
+    const boardReady = await board;
+    if (source === "board-adapter" && boardReady) await loadSurface();
   }, [loadBoard, loadSurface]);
 
   const syncLibrary = useCallback(async () => {

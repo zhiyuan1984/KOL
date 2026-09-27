@@ -440,8 +440,8 @@ test("follow cards stay object cards and brief prefers 拒信", async ({ page })
   await page.goto("/");
   await openFollow(page);
   await expect(page.locator("[data-followed-kol-list]")).toBeVisible();
-  await expect(page.locator("[data-followed-brief]")).toBeVisible();
-  await expect(page.locator("[data-followed-brief]")).toHaveAttribute("data-brief-priority", "refused");
+  await expect(page.locator('button[data-followed-situation="refused"]')).toContainText("1 位已拒绝");
+  await expect(page.locator('[data-followed-stage-group="connect"]')).toBeVisible();
   await expect(page.locator("[data-kol-work-card]").first()).toBeVisible();
   await expect(page.locator("[data-clock-none]").first()).toContainText("尚未有效往来");
   await expect(page.locator("[data-discovery-candidate]")).toHaveCount(0);
