@@ -154,6 +154,13 @@ async function expectEmployeeShell(page: Page) {
   expect(brandBox!.y).toBeLessThan(accountBox!.y);
   await expect(sidebar.locator("[data-account-name]")).not.toHaveText("");
   await expect(sidebar.locator("[data-account-settings]")).toBeVisible();
+  // 页脚三件套（切换 / 个人设置 / 退出）整体左移 30px：取最右的退出按钮核对右让位。
+  const logoutBox = await sidebar.locator("[data-account-logout]").boundingBox();
+  const footInnerRight = await sidebar.evaluate((el) => (
+    el.getBoundingClientRect().right - parseFloat(getComputedStyle(el).borderRightWidth)
+  ));
+  expect(logoutBox).toBeTruthy();
+  expect(Math.abs(footInnerRight - logoutBox!.x - logoutBox!.width - 30)).toBeLessThanOrEqual(1);
 }
 
 async function expectFollowedKolHeadingRemoved(page: Page) {

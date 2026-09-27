@@ -687,6 +687,9 @@ summary:focus-visible,
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
+  /* 页脚三件套（员工端⇄管理端切换 / 个人设置 / 退出登录）整体左移 30px，不贴右轨道边；
+     收起态由 .workbench.sidebar-collapsed .account-bar 的 padding-inline: 0 覆盖回去。 */
+  padding-right: 30px;
 }
 .account-identity {
   display: flex;
