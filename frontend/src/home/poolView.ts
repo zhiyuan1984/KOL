@@ -1,7 +1,9 @@
 import type { PoolKol } from "./kolContract";
 
-export type PoolFilter = "all" | "new" | "overdue" | "high-potential" | "high-risk";
-export type PoolSort = "default" | "newest" | "followers" | "potential";
+export type PoolFilter = "all" | "new" | "overdue";
+export type PoolSortField = "ingested" | "followers" | "score";
+export type PoolSortDirection = "asc" | "desc";
+export type PoolSort = "default" | `${PoolSortField}-${PoolSortDirection}`;
 
 export function metricNumber(value?: string) {
   const raw = (value || "").trim();
@@ -17,6 +19,22 @@ export function isHighPoolScore(score?: number | null, confidence?: number | nul
 export function isPoolOverdue(card: PoolKol): boolean {
   const stage = card.public_stage?.label || "";
   return stage.includes("14") && stage.includes("回复");
+}
+
+export function poolSortState(sort: PoolSort): { field: PoolSortField | null; direction: PoolSortDirection } {
+  if (sort === "default") return { field: null, direction: "desc" };
+  const [field, direction] = sort.split("-") as [PoolSortField, PoolSortDirection];
+  return { field, direction };
+}
+
+export function nextPoolSort(sort: PoolSort, field: PoolSortField): PoolSort {
+  const current = poolSortState(sort);
+  if (current.field !== field) return `${field}-desc`;
+  return `${field}-${current.direction === "desc" ? "asc" : "desc"}`;
+}
+
+function scoreValue(card: PoolKol): number {
+  return Number(card.assessment?.potential_score || 0);
 }
 
 export function filterPoolCards(cards: PoolKol[], query: string, filter: PoolFilter, sort: PoolSort): PoolKol[] {
@@ -35,14 +53,18 @@ export function filterPoolCards(cards: PoolKol[], query: string, filter: PoolFil
       card.metrics.engagement,
     ].join(" ").toLowerCase();
     const matchesFilter = filter === "all"
-      || (filter === "overdue" ? isPoolOverdue(card) : filter === "new" ? stage.includes("未首次建联")
-        : filter === "high-potential" ? isHighPoolScore(card.assessment?.potential_score, card.assessment?.potential_confidence)
-          : isHighPoolScore(card.assessment?.risk_score, card.assessment?.risk_confidence));
+      || (filter === "overdue" ? isPoolOverdue(card) : stage.includes("未首次建联"));
     return matchesFilter && (!needle || searchable.includes(needle));
   });
 
-  if (sort === "newest") return [...visible].sort((a, b) => (Date.parse(b.ingested_at || "") || 0) - (Date.parse(a.ingested_at || "") || 0));
-  if (sort === "followers") return [...visible].sort((a, b) => metricNumber(b.metrics.followers) - metricNumber(a.metrics.followers));
-  if (sort === "potential") return [...visible].sort((a, b) => Number(b.assessment?.potential_score || 0) - Number(a.assessment?.potential_score || 0));
-  return visible;
+  const { field, direction } = poolSortState(sort);
+  if (!field) return visible;
+  const multiplier = direction === "asc" ? 1 : -1;
+  return [...visible].sort((a, b) => {
+    const aValue = field === "ingested" ? (Date.parse(a.ingested_at || "") || 0)
+      : field === "followers" ? metricNumber(a.metrics.followers) : scoreValue(a);
+    const bValue = field === "ingested" ? (Date.parse(b.ingested_at || "") || 0)
+      : field === "followers" ? metricNumber(b.metrics.followers) : scoreValue(b);
+    return (aValue - bValue) * multiplier;
+  });
 }

@@ -35,7 +35,7 @@ import type { WorkspacePane } from "../home/WorkspaceShell";
 import FollowedPane from "../home/FollowedPane";
 import FollowedInteraction from "../home/FollowedInteraction";
 import { matchesFollowedSituation, type FollowedSituation } from "../home/FollowedBrief";
-import PoolInteraction from "../home/PoolInteraction";
+import PoolInteraction, { type PoolAnalysisKind } from "../home/PoolInteraction";
 import PoolPane from "../home/PoolPane";
 import ReleaseFollowConfirm from "../home/ReleaseFollowConfirm";
 import { FollowedBatchConfirm } from "../home/FollowedBatchConfirm";
@@ -89,6 +89,7 @@ import {
   toggleSelectMax8,
   type KolSurface,
 } from "../home/kolContract";
+import { nextPoolSort } from "../home/poolView";
 
 import { enqueueKolAnalyze, loadHomeFollowing, releaseFollowedKol } from "../home/kolSurfaceApi";
 import {
@@ -935,27 +936,56 @@ export default function Home() {
     setSelectedKolIds(selectAllMax8(followedWorkspace.visibleCards.map((card) => card.id), on));
   };
 
-  const toggleSelectedPool = (id: string, on: boolean) => {
-    setSelectedKolIds((current) => toggleSelectMax8(current, id, on));
-  };
-
-  const toggleSelectAllPool = (visibleIds: string[], on: boolean) => {
-    setSelectedKolIds((current) => {
-      if (!on) return current.filter((id) => !visibleIds.includes(id));
-      const next = [...current];
-      for (const id of visibleIds) {
-        if (next.includes(id)) continue;
-        if (next.length >= KOL_SELECT_MAX) break;
-        next.push(id);
-      }
-      return next;
-    });
-  };
-
   const prefillAnalyze = (surface: KolSurface, cards: Array<{ identity: { display: string } }>, uids: string[]) => {
     setAnalyzeSurface(surface);
     setAnalyzeUids(uids);
     setText(analyzePrefillPrompt(cards, surface));
+    setComposerFocused(true);
+    setDraftFocus((value) => value + 1);
+    setQueuedNotice("");
+  };
+
+  const applyPoolSelection = (nextIds: string[]) => {
+    setSelectedKolIds(nextIds);
+    const selected = poolWorkspace.cards.filter((card) => nextIds.includes(card.kol_uid));
+    if (selected.length) {
+      prefillAnalyze("pool", selected, selected.map((card) => card.kol_uid));
+      return;
+    }
+    setAnalyzeSurface(null);
+    setAnalyzeUids([]);
+    if (isAnalyzePrefill(text)) setText("");
+  };
+
+  const toggleSelectedPool = (id: string, on: boolean) => {
+    applyPoolSelection(toggleSelectMax8(selectedKolIds, id, on));
+  };
+
+  const toggleSelectAllPool = (visibleIds: string[], on: boolean) => {
+    if (!on) {
+      applyPoolSelection(selectedKolIds.filter((id) => !visibleIds.includes(id)));
+      return;
+    }
+    const next = [...selectedKolIds];
+    for (const id of visibleIds) {
+      if (next.includes(id)) continue;
+      if (next.length >= KOL_SELECT_MAX) break;
+      next.push(id);
+    }
+    applyPoolSelection(next);
+  };
+
+  const startPoolAnalysis = (kind: PoolAnalysisKind) => {
+    const selected = poolWorkspace.cards.filter((card) => selectedKolIds.includes(card.kol_uid));
+    if (!selected.length) return;
+    const instruction: Record<PoolAnalysisKind, string> = {
+      potential: "请基于公开资料分析这些 KOL 的合作潜力，并说明依据与缺口。",
+      risk: "请基于公开资料分析这些 KOL 的合作风险，并说明依据与缺口。",
+      completeness: "请检查这些 KOL 的公开资料完整度，列出待补充项。",
+    };
+    setAnalyzeSurface("pool");
+    setAnalyzeUids(selected.map((card) => card.kol_uid));
+    setText(`${analyzePrefillPrompt(selected, "pool")}\n${instruction[kind]}`);
     setComposerFocused(true);
     setDraftFocus((value) => value + 1);
     setQueuedNotice("");
@@ -2071,30 +2101,13 @@ export default function Home() {
               centerContent={(
                 <PoolInteraction
                   totalCount={poolWorkspace.cards.length}
-                  visibleCards={poolWorkspace.visibleCards}
-                  selectedIds={selectedKolIds}
-                  query={poolWorkspace.query}
-                  filter={poolWorkspace.filter}
-                  sort={poolWorkspace.sort}
+                  selectedCount={selectedKolIds.length}
                   maintenanceBusy={poolWorkspace.maintenanceBusy}
                   maintenanceNotice={poolWorkspace.maintenanceNotice}
                   maintenanceError={poolWorkspace.maintenanceError}
-                  cleanupPreview={poolWorkspace.cleanupPreview}
                   interaction={interactionFeedback}
-                  onQuery={poolWorkspace.setQuery}
-                  onFilter={poolWorkspace.setFilter}
-                  onSort={poolWorkspace.setSort}
-                  onToggleSelectAll={toggleSelectAllPool}
-                  onClearSelection={() => setSelectedKolIds([])}
-                  onAnalyzeSelected={(selectedIds) => {
-                    const selected = poolWorkspace.visibleCards.filter((card) => selectedIds.includes(card.kol_uid));
-                    prefillAnalyze("pool", selected, selected.map((card) => card.kol_uid));
-                  }}
-                  onEnrichAvatars={() => void poolWorkspace.enrichAvatars()}
+                  onAnalyze={startPoolAnalysis}
                   onAssessWithJev={() => void poolWorkspace.assessWithJev()}
-                  onRequestCleanupPreview={() => void poolWorkspace.requestCleanupPreview()}
-                  onConfirmCleanup={() => void poolWorkspace.confirmCleanup()}
-                  onCancelCleanup={poolWorkspace.cancelCleanup}
                 />
               )}
               centerFooter={renderComposerDock()}
@@ -2104,6 +2117,9 @@ export default function Home() {
                   totalCount={poolWorkspace.cards.length}
                   isFiltered={Boolean(poolWorkspace.query.trim()) || poolWorkspace.filter !== "all"}
                   selectedIds={selectedKolIds}
+                  query={poolWorkspace.query}
+                  filter={poolWorkspace.filter}
+                  sort={poolWorkspace.sort}
                   down={poolDown}
                   libraryCount={libraryCount}
                   syncBusy={poolWorkspace.syncBusy}
@@ -2115,7 +2131,11 @@ export default function Home() {
                   undoAvailable={poolWorkspace.undoAvailable}
                   undoBusy={poolWorkspace.undoBusy}
                   undoError={poolWorkspace.undoError}
+                  onQuery={poolWorkspace.setQuery}
+                  onFilter={poolWorkspace.setFilter}
+                  onToggleSort={(field) => poolWorkspace.setSort(nextPoolSort(poolWorkspace.sort, field))}
                   onToggleSelect={toggleSelectedPool}
+                  onToggleSelectAll={toggleSelectAllPool}
                   onSyncLibrary={() => void poolWorkspace.syncLibrary()}
                   onClaim={poolWorkspace.requestClaim}
                   onConfirmClaim={() => void poolWorkspace.confirmClaim()}

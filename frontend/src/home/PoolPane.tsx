@@ -1,11 +1,29 @@
 import { useState } from "react";
 import type { PoolKol } from "./kolContract";
+import { selectAllChecked } from "./kolContract";
+import type { PoolFilter, PoolSort, PoolSortField } from "./poolView";
+import { poolSortState } from "./poolView";
 import type { SurfaceDownView } from "./surfaceError";
 import { isHighPoolScore, isPoolOverdue } from "./poolView";
 import { HOME_HANDOFF_TO_AGENT } from "./entryRegistry";
 import ClaimFollowConfirm from "./ClaimFollowConfirm";
 
 type PoolMetric = { key: "followers" | "avg-plays" | "engagement"; label: string; value: string };
+
+function SearchIcon() {
+  return <svg className="pool-inline-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none">
+    <circle cx="7" cy="7" r="4.25" stroke="currentColor" strokeWidth="1.5" />
+    <path d="m10.25 10.25 3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+  </svg>;
+}
+
+function SortDirectionIcon({ direction, active }: { direction: "asc" | "desc"; active: boolean }) {
+  return <svg className="pool-sort-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" data-active={active || undefined} data-direction={direction}>
+    {active && direction === "asc" ? <path d="m8 12V4m0 0L5 7m3-3 3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /> : null}
+    {active && direction === "desc" ? <path d="M8 4v8m0 0 3-3m-3 3-3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /> : null}
+    {!active ? <><path d="m5 6 2-2 2 2M11 10l-2 2-2-2" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" /><path d="M7 4v8m2-8v8" stroke="currentColor" strokeWidth="1.15" strokeLinecap="round" /></> : null}
+  </svg>;
+}
 
 function ExternalLinkIcon() {
   return <svg className="pool-inline-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none">
@@ -72,18 +90,44 @@ function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, 
   </article>;
 }
 
-export default function PoolPane({ cards, totalCount, isFiltered, selectedIds, down, claimBusyId, claimTarget, claimError, claimedId, libraryCount, syncBusy, syncError, undoAvailable, undoBusy, undoError, onToggleSelect, onSyncLibrary, onClaim, onConfirmClaim, onCancelClaim, onUndoClaim }: {
-  cards: PoolKol[]; totalCount: number; isFiltered: boolean; selectedIds: string[]; down?: SurfaceDownView | null;
+function SortButton({ field, label, sort, onToggle }: { field: PoolSortField; label: string; sort: PoolSort; onToggle: (field: PoolSortField) => void }) {
+  const state = poolSortState(sort);
+  const active = state.field === field;
+  const direction = active ? state.direction : "desc";
+  return <button type="button" className="pool-sort-button" data-pool-sort={field} data-sort-direction={active ? direction : undefined}
+    title={`按${label}${active && direction === "asc" ? "降序" : "升序"}排列`} onClick={() => onToggle(field)}>
+    <span>{label}</span><SortDirectionIcon active={active} direction={direction} />
+  </button>;
+}
+
+export default function PoolPane({ cards, totalCount, isFiltered, selectedIds, query, filter, sort, down, claimBusyId, claimTarget, claimError, claimedId, libraryCount, syncBusy, syncError, undoAvailable, undoBusy, undoError, onQuery, onFilter, onToggleSort, onToggleSelect, onToggleSelectAll, onSyncLibrary, onClaim, onConfirmClaim, onCancelClaim, onUndoClaim }: {
+  cards: PoolKol[]; totalCount: number; isFiltered: boolean; selectedIds: string[]; query: string; filter: PoolFilter; sort: PoolSort; down?: SurfaceDownView | null;
   claimBusyId?: string | null; claimTarget?: PoolKol | null; claimError?: string | null; claimedId?: string | null;
   libraryCount?: number | null; syncBusy?: boolean; syncError?: string | null; undoAvailable?: boolean; undoBusy?: boolean; undoError?: string | null;
-  onToggleSelect: (id: string, on: boolean) => void; onSyncLibrary?: () => void; onClaim: (card: PoolKol) => void; onConfirmClaim: () => void; onCancelClaim: () => void; onUndoClaim?: () => void;
+  onQuery: (value: string) => void; onFilter: (value: PoolFilter) => void; onToggleSort: (field: PoolSortField) => void; onToggleSelect: (id: string, on: boolean) => void; onToggleSelectAll: (ids: string[], on: boolean) => void; onSyncLibrary?: () => void; onClaim: (card: PoolKol) => void; onConfirmClaim: () => void; onCancelClaim: () => void; onUndoClaim?: () => void;
 }) {
   const [syncRequested, setSyncRequested] = useState(false);
   const queryDown = Boolean(down);
   const libraryUnsynced = !queryDown && totalCount === 0 && !Number(libraryCount || 0);
+  const visibleIds = cards.map((card) => card.kol_uid);
+  const selectedVisibleIds = visibleIds.filter((id) => selectedIds.includes(id));
 
   return <section className="pool-compact-pane is-result-rail" data-pool-overview>
-    <div className="pool-compact-header"><div className="pool-header-title"><h2>公海对象 <span className="pool-total" data-pool-total>{totalCount}</span></h2></div></div>
+    <div className="pool-compact-toolbar" data-pool-toolbar data-home-entry="list-pool" aria-label="筛选与排序公海对象">
+      <label className="pool-search"><SearchIcon /><span className="sr-only">搜索公海对象</span>
+        <input type="search" data-pool-search value={query} placeholder="搜索" onChange={(event) => onQuery(event.target.value)} />
+      </label>
+      <button type="button" className="pool-filter-button" data-pool-filter="new" aria-pressed={filter === "new"}
+        onClick={() => onFilter(filter === "new" ? "all" : "new")}>未首次建联</button>
+      <button type="button" className="pool-filter-button" data-pool-filter="overdue" aria-pressed={filter === "overdue"}
+        onClick={() => onFilter(filter === "overdue" ? "all" : "overdue")}>14天未联系</button>
+      <SortButton field="ingested" label="入库时间" sort={sort} onToggle={onToggleSort} />
+      <SortButton field="followers" label="粉丝数" sort={sort} onToggle={onToggleSort} />
+      <SortButton field="score" label="评分" sort={sort} onToggle={onToggleSort} />
+      <label className="pool-select-all" title="全选当前筛选结果"><input type="checkbox" data-pool-select-all
+        checked={selectAllChecked(cards.length, selectedVisibleIds.length)} disabled={!cards.length}
+        onChange={(event) => onToggleSelectAll(visibleIds, event.target.checked)} /><span>全选</span></label>
+    </div>
     {undoAvailable && <div className="pool-claim-undo" role="status" data-pool-claim-undo><span>已领取</span><span aria-hidden>·</span><button type="button" data-pool-claim-undo-button data-home-entry="release-follow" disabled={undoBusy} onClick={onUndoClaim}>{undoBusy ? "正在撤销…" : "撤销"}</button>{undoError && <span className="pool-claim-undo-error" role="alert">{undoError}</span>}</div>}
     {cards.length ? <div className="pool-compact-list" data-pool-list data-pool-focus-list data-pool-origin="public">
       {cards.map((card) => <PoolRow key={card.kol_uid} card={card} selected={selectedIds.includes(card.kol_uid)} claimBusy={claimBusyId === card.kol_uid} claimTarget={claimTarget?.kol_uid === card.kol_uid} claimError={claimError} claimed={claimedId === card.kol_uid} onSelect={(on) => onToggleSelect(card.kol_uid, on)} onClaim={() => onClaim(card)} onConfirm={onConfirmClaim} onCancel={onCancelClaim} />)}

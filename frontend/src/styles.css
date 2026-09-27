@@ -14525,6 +14525,148 @@ button.today-brief-primary-btn:disabled {
   .pool-interaction .pool-maintenance-actions { justify-content: flex-start; }
 }
 
+/* 公海收敛：中栏只放概要与四个分析动作；右栏第一行只负责筛选、排序与选择。 */
+.pool-interaction {
+  width: min(100%, 760px);
+  gap: var(--ds-space-2);
+  padding-top: var(--ds-space-3);
+}
+.pool-interaction .pool-overview {
+  margin: 0;
+  font-size: var(--ds-font-body);
+  line-height: var(--ds-line-body);
+  font-weight: 600;
+}
+.pool-interaction .pool-total {
+  margin-left: var(--ds-space-1);
+  color: var(--text-muted);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.pool-analysis-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--ds-space-1);
+}
+.pool-analysis-actions button {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--control-h);
+  padding: 0 var(--ds-space-2);
+  border: 0;
+  border-bottom: 1px solid var(--ds-border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--ds-font-body);
+  line-height: var(--ds-line-body);
+  text-align: left;
+  cursor: pointer;
+}
+.pool-analysis-actions button:hover:not(:disabled) {
+  color: var(--accent-text);
+  background: var(--ds-surface);
+}
+.pool-analysis-actions button:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+.pool-score-feedback {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+.pool-score-feedback.is-error { color: var(--danger); }
+.scope-task-rail .pool-compact-pane {
+  padding-top: 0;
+}
+.scope-task-rail .pool-compact-toolbar {
+  display: flex;
+  flex-flow: row wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--ds-space-1);
+  width: 100%;
+  margin: 0 0 var(--ds-space-2);
+  padding: 0 0 var(--ds-space-2);
+  border: 0;
+  border-bottom: 1px solid var(--ds-border);
+  border-radius: 0;
+  background: transparent;
+}
+.scope-task-rail .pool-search {
+  flex: 1 1 clamp(7.75rem, 10vw, 9rem);
+  width: auto;
+  min-width: 0;
+}
+.scope-task-rail .pool-compact-toolbar input[type="search"] {
+  height: var(--control-h);
+  min-height: var(--control-h);
+  padding: 0 var(--ds-space-2) 0 calc(var(--icon-sm) + var(--ds-space-3));
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+.scope-task-rail .pool-search .pool-inline-icon {
+  left: var(--ds-space-2);
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+}
+.scope-task-rail .pool-filter-button,
+.scope-task-rail .pool-sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: var(--control-h);
+  padding: 0 var(--ds-space-1);
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.scope-task-rail .pool-filter-button:hover,
+.scope-task-rail .pool-sort-button:hover {
+  color: var(--text);
+  background: var(--ds-surface);
+}
+.scope-task-rail .pool-filter-button[aria-pressed="true"],
+.scope-task-rail .pool-sort-button[data-sort-direction] {
+  border-bottom-color: var(--accent);
+  color: var(--accent-text);
+  font-weight: 500;
+}
+.scope-task-rail .pool-sort-icon {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  color: currentColor;
+}
+.scope-task-rail .pool-select-all {
+  min-height: var(--control-h);
+  margin-left: auto;
+  gap: var(--ds-space-1);
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+.scope-task-rail .pool-select-all input { width: var(--icon-sm); height: var(--icon-sm); }
+.pool-interaction :is(button, input):focus-visible,
+.scope-task-rail .pool-compact-toolbar :is(button, input):focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+@media (max-width: 620px) {
+  .scope-task-rail .pool-search { flex-basis: 100%; }
+  .scope-task-rail .pool-select-all { margin-left: 0; }
+}
+
 /* Configurable connector runtime extension: mirrors the existing admin density and tokens. */
 .runtime-settings { display: grid; gap: var(--space-4); min-width: 0; }
 .runtime-settings-panel { max-width: 1040px; }
