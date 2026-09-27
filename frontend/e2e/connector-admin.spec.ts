@@ -151,9 +151,9 @@ test("MCP 配置 dialog matches the reference layout", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(iconMenu).toHaveCount(0);
   await expect(panel).toBeVisible();
-  // 备注 5 行；底部为「保存草稿 ｜⌄」，下拉里是发布并保存，附保存≠启用说明。
+  // 备注 5 行；底部为「保存 ｜⌄」，下拉里是发布并保存，附保存≠启用说明。
   await expect(panel.locator("textarea")).toHaveAttribute("rows", "5");
-  await expect(panel.locator("[data-connector-split-main='save']")).toHaveText("保存草稿");
+  await expect(panel.locator("[data-connector-split-main='save']")).toHaveText("保存");
   await expect(panel.locator(".connector-panel-note")).toContainText("不等于启用");
   await panel.locator("[data-connector-split-toggle='save']").click();
   await expect(panel.locator("[data-connector-split-menu='save'] .connector-split-item")).toHaveText(["发布并保存"]);
@@ -200,24 +200,24 @@ test("connector form dialogs keep the measured spec (docs/DESIGN.md)", async ({ 
     };
   });
 
-  // 数值 = docs/DESIGN.md §连接器控制台（参考图实测 × 0.8，基准：标签 16px）。
-  expect(spec.panelW).toBe(640);
-  expect(spec.bodyGap).toBe("20px");
-  expect(spec.fieldGap).toBe("12px");
-  expect(spec.gridGap).toBe("20px");
-  expect(spec.labelFont).toBe("16px");
-  expect(spec.inputH).toBe(38);
-  expect(spec.inputFont).toBe("16px");
+  // 数值 = docs/DESIGN.md §连接器控制台（参考图实测 × 0.7，基准：标签 14px）。
+  expect(spec.panelW).toBe(560);
+  expect(spec.bodyGap).toBe("18px");
+  expect(spec.fieldGap).toBe("11px");
+  expect(spec.gridGap).toBe("18px");
+  expect(spec.labelFont).toBe("14px");
+  expect(spec.inputH).toBe(34);
+  expect(spec.inputFont).toBe("14px");
   expect(spec.inputBg).toBe("rgb(236, 236, 235)");
   expect(spec.inputRadius).toBe("6px");
   expect(spec.inputBorder).toBe("rgba(0, 0, 0, 0)");
-  expect(spec.noteH).toBe(108);
-  expect(spec.iconBox).toEqual({ w: 64, h: 64 });
+  expect(spec.noteH).toBe(95);
+  expect(spec.iconBox).toEqual({ w: 56, h: 56 });
   expect(spec.hintFont).toBe("13px");
   expect(spec.hintColor).toBe("rgb(115, 115, 115)");
-  expect(spec.saveH).toBe(38);
+  expect(spec.saveH).toBe(34);
   expect(spec.saveBg).toBe("rgb(26, 26, 25)");
-  expect(spec.saveFont).toBe("16px");
+  expect(spec.saveFont).toBe("14px");
   expect(spec.footBorder).toBe("0px");
 });
 
@@ -292,7 +292,7 @@ test("HTTP API flow creates a draft and saves explicit actions without an MCP ad
 
   await page.goto(`/admin/connectors/${API_ID}`);
   const config = page.locator("[data-connector-config-card]");
-  await config.locator("[data-connector-field='protocol']").selectOption("http");
+  // 接入类型不由本弹窗切换：连接器在创建入口就定好了协议，这里只显示对应的字段集。
   await expect(config.locator("[data-connector-http-definition]")).toBeVisible();
   await config.locator("[data-connector-http-tools]").fill(JSON.stringify([{
     name: "list_orders",
@@ -314,12 +314,12 @@ test("config form validates icons and keeps submitted secrets write-only", async
   await page.goto(`/admin/connectors/${TEST_ID}`);
   await expect(page.locator("[data-connector-config-card]")).toBeVisible();
 
-  // 与创建弹窗同一套版式：HTTP / SSE 两项、图标分裂按钮、备注（可选、5 行）、保存草稿分裂按钮。
+  // 与创建弹窗同一套版式：HTTP / SSE 两项、图标分裂按钮、备注（可选、5 行）、保存分裂按钮。
   const form = page.locator("[data-connector-config-card]");
   await expect(form.locator("[data-connector-field='transport'] option")).toHaveText(["HTTP", "SSE"]);
   await expect(form.locator(".connector-icon-field")).toHaveClass(/is-bare/);
   await expect(form.locator("textarea")).toHaveAttribute("rows", "5");
-  await expect(form.locator("[data-connector-split-main='config-save']")).toHaveText("保存草稿");
+  await expect(form.locator("[data-connector-split-main='config-save']")).toHaveText("保存");
   await form.locator("[data-connector-split-toggle='config-save']").click();
   await expect(form.locator("[data-connector-split-menu='config-save'] .connector-split-item")).toHaveText(["发布并保存"]);
   await page.keyboard.press("Escape");

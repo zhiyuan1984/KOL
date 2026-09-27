@@ -245,23 +245,17 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
             <label className="field">服务器名称
               <input value={label} maxLength={120} data-connector-field="label" onChange={(event) => setLabel(event.target.value)} />
             </label>
-            <label className="field">接入类型
-              <select value={protocol} data-connector-field="protocol" disabled={busy} onChange={(event) => setProtocol(event.target.value as RuntimeProtocol)}>
-                <option value="mcp">MCP 工具服务</option>
-                <option value="http">HTTP API</option>
+            {protocol === "mcp" && <label className="field">传输类型
+              <select value={transport} data-connector-field="transport" onChange={(event) => setTransport(event.target.value as RuntimeConnectorTransport)}>
+                <option value="streamable-http">HTTP</option>
+                <option value="sse">SSE</option>
               </select>
-            </label>
+            </label>}
           </div>
-          {protocol === "mcp" && <label className="field">传输类型
-            <select value={transport} data-connector-field="transport" onChange={(event) => setTransport(event.target.value as RuntimeConnectorTransport)}>
-              <option value="streamable-http">HTTP</option>
-              <option value="sse">SSE</option>
-            </select>
-          </label>}
           <div className="field">图标
             <ConnectorIconUpload variant="dialog" file={iconFile} existingUrl={card.iconUrl} onPick={setIconFile} />
           </div>
-          <label className="field">备注（可选）
+          <label className="field"><span>备注<span className="field-optional">（可选）</span></span>
             <textarea
               value={purpose}
               rows={5}
@@ -372,11 +366,11 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
             </label>
           </div>
           <div className="connector-card-actions">
-            <button type="button" className="btn ghost sm" disabled={busy} onClick={() => void load()}>放弃修改并刷新</button>
+            <p className="connector-panel-note muted">保存只生成待验证草稿，不等于启用。</p>
             <SplitButton
               name="config-save"
               variant="primary"
-              label={busy ? "保存中…" : "保存草稿"}
+              label={busy ? "保存中…" : "保存"}
               disabled={busy}
               onPrimary={() => void submit(false)}
               items={[{ label: "发布并保存", onSelect: () => void submit(true), disabled: busy }]}

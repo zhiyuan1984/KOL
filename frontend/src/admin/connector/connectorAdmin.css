@@ -1179,7 +1179,7 @@
 .connector-panel.is-form .connector-panel-foot {
   gap: var(--space-3);
   border-top: 0;
-  padding: var(--space-4) var(--dialog-pad-x) var(--dialog-pad-b);
+  padding: var(--dialog-foot-pad-t) var(--dialog-pad-x) var(--dialog-pad-b);
 }
 
 .connector-panel.is-form .connector-panel-note {
@@ -1199,12 +1199,19 @@
   color: var(--text);
 }
 
-/* 字段：标签 16px / 标签到控件 8px / 两列 20px */
+/* 字阶：标签 600 字重；「（可选）」等后缀回到常规字重与说明色（参考图层级） */
 .connector-panel.is-form .field,
 .connector-detail-card .field {
   gap: var(--field-gap);
   font-size: var(--font-field);
+  font-weight: 600;
   color: var(--text);
+}
+
+.connector-panel.is-form .field-optional,
+.connector-detail-card .field-optional {
+  font-weight: 400;
+  color: var(--hint-text);
 }
 
 .connector-panel.is-form .connector-form-grid,
@@ -1340,4 +1347,15 @@
 .connector-panel.is-form .connector-card-actions {
   border-top-color: var(--border-quiet);
   background: var(--fill-card);
+  gap: var(--space-2);
+  padding: var(--dialog-foot-pad-t) var(--dialog-pad-x) var(--dialog-pad-b);
+  margin: var(--block-gap) calc(var(--dialog-pad-x) * -1) calc(var(--dialog-pad-b) * -1);
+}
+
+/* 主按钮按控件高度收口，不再比同排控件大一号 */
+.connector-panel.is-form .connector-split .connector-split-btn,
+.connector-detail-card .connector-split .connector-split-btn {
+  min-height: var(--control-h-form);
+  padding: 0 var(--space-3);
+  font-size: var(--font-field);
 }

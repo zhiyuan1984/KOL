@@ -470,7 +470,7 @@ export function McpConfigPanel({ onClose, onDone }: {
           <SplitButton
             name="save"
             variant="primary"
-            label={busy ? "保存中…" : "保存草稿"}
+            label={busy ? "保存中…" : "保存"}
             disabled={busy}
             onPrimary={() => void submit(false)}
             items={[{ label: "发布并保存", onSelect: () => void submit(true), disabled: busy }]}
@@ -491,13 +491,13 @@ export function McpConfigPanel({ onClose, onDone }: {
         </label>
       </div>
       <div className="field">图标<ConnectorIconUpload variant="dialog" file={iconFile} onPick={setIconFile} /></div>
-      <label className="field">备注（可选）
+      <label className="field"><span>备注<span className="field-optional">（可选）</span></span>
         <textarea value={purpose} rows={5} maxLength={280} placeholder="提供 MCP 文档或说明，以告知平台如何及何时使用此 MCP" onChange={(event) => setPurpose(event.target.value)} />
       </label>
       <label className="field">服务器 URL
         <input value={url} placeholder="https://mcp.yourserver.com/mcp" data-connector-field="url" onChange={(event) => setUrl(event.target.value)} />
       </label>
-      <div className="field">自定义 headers（可选）<HeaderRowsEditor rows={headers} onChange={setHeaders} disabled={busy} /></div>
+      <div className="field"><span>自定义 headers<span className="field-optional">（可选）</span></span><HeaderRowsEditor rows={headers} onChange={setHeaders} disabled={busy} /></div>
       <label className="check"><input type="checkbox" checked={noAuth} onChange={(event) => setNoAuth(event.target.checked)} /> 该端点明确允许无鉴权</label>
     </ModalShell>
   );
@@ -558,7 +558,7 @@ export function ApiConfigPanel({ onClose, onDone }: { onClose: () => void; onDon
       title="自定义 HTTP API"
       subtitle="先保存受控 Base URL 和凭据引用；随后在详情中导入 OpenAPI 或逐项定义动作。保存不等于启用。"
       onClose={onClose}
-      footer={<><button type="button" className="btn" onClick={onClose} disabled={busy}>取消</button><button type="button" className="btn work" data-connector-panel-save disabled={busy} onClick={() => void submit()}>{busy ? "保存中…" : "保存草稿"}</button></>}
+      footer={<><button type="button" className="btn" onClick={onClose} disabled={busy}>取消</button><button type="button" className="btn work" data-connector-panel-save disabled={busy} onClick={() => void submit()}>{busy ? "保存中…" : "保存"}</button></>}
     >
       {error && <p className="error" role="alert" data-connector-panel-error>{error}</p>}
       <div className="connector-form-grid">
@@ -639,7 +639,7 @@ export function UrlAddPanel({ onClose, onDone }: { onClose: () => void; onDone: 
         <>
           <button type="button" className="btn" onClick={onClose} disabled={busy}>取消</button>
           <button type="button" className="btn work" data-connector-panel-save disabled={busy} onClick={() => void submit()}>
-            {busy ? "保存中…" : "保存草稿"}
+            {busy ? "保存中…" : "保存"}
           </button>
         </>
       }

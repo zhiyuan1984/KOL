@@ -71,41 +71,54 @@ description: 员工端视觉与设备适配实施细则。风格基准为 data-d
 
 ### 连接器控制台（对话框与表单字段）
 
-依据：连接器「MCP 配置」参考图逐像素测量（图像 818×974；测量记录见
+依据：连接器「MCP 配置」参考图逐像素测量（图像 818×974 与 1186×1264 两份裁剪；测量记录见
 `superpowers/specs/2026-09-26-connector-admin-console-redesign.md`）。
-**推导规则：参考图是高分屏截图，实测 px 不能直接当 CSS px 用。以「字段标签 16px」为基准，
-其余数值 = 参考图实测值 × 0.8，保留参考图的比例。** 本节是该弹窗的**唯一来源**，
+**推导规则：参考图是高分屏截图，实测 px 不能直接当 CSS px 用。以「字段标签 14px」为基准，
+其余数值 = 参考图实测值 × 0.7，保留参考图的比例。** 本节是该弹窗的**唯一来源**，
 实现落在 `frontend/src/styles.css` 的 `:root` 与 `frontend/src/admin/connector/connectorAdmin.css`；
 改数值必须先改本表。
 
 | token | 值 | 用途（连接器对话框与字段） |
 |---|---:|---|
-| `--dialog-w-form` | `640px` | 表单弹窗宽度（`ModalShell form`），桌面端上限；窄屏用 `100vw - 32px` |
-| `--dialog-pad-x` / `--dialog-pad-t` / `--dialog-pad-b` | `22px` / `24px` / `32px` | 卡片左右 / 上 / 下内边距 |
-| `--dialog-head-gap` / `--line-dialog-title` | `18px` / `26px` | 标题块到第一个字段 / 弹窗标题行高 |
-| `--radius-dialog` | `16px` | 弹窗卡片圆角 |
-| `--control-h-form` | `38px` | 输入框、下拉、headers 行、按钮统一高度 |
-| `--radius-field-form` / `--radius-btn-form` / `--radius-icon-box` | `6px` / `8px` / `8px` | 输入与下拉 / 按钮 / 图标虚线框圆角 |
-| `--note-h-form` | `108px` | 备注文本域高度 |
-| `--field-gap` / `--block-gap` / `--grid-gap` / `--row-gap` | `12px` / `20px` / `20px` / `10px` | 标签↔控件 / 字段块之间 / 两列之间 / headers 行之间 |
-| `--icon-box` | `64px` | 图标位（1px 虚线框） |
-| `--font-dialog-title` / `--font-field` / `--font-hint` | `20px` / `16px` / `13px` | 弹窗标题 / 字段标签与输入文本（基准） / 说明与占位文案 |
+| `--dialog-w-form` | `560px` | 表单弹窗宽度（`ModalShell form`），桌面端上限；窄屏用 `100vw - 32px` |
+| `--dialog-pad-x` / `--dialog-pad-t` / `--dialog-pad-b` | `20px` / `20px` / `26px` | 卡片左右 / 上 / 下内边距 |
+| `--dialog-head-gap` / `--dialog-foot-pad-t` / `--line-dialog-title` | `16px` / `12px` / `24px` | 标题块到第一个字段 / 页脚上内边距 / 弹窗标题行高 |
+| `--radius-dialog` | `14px` | 弹窗卡片圆角 |
+| `--control-h-form` | `34px` | 输入框、下拉、headers 行、按钮统一高度 |
+| `--radius-field-form` / `--radius-btn-form` / `--radius-icon-box` | `6px` / `7px` / `7px` | 输入与下拉 / 按钮 / 图标虚线框圆角 |
+| `--note-h-form` | `95px` | 备注文本域高度 |
+| `--field-gap` / `--block-gap` / `--grid-gap` / `--row-gap` | `11px` / `18px` / `18px` / `8px` | 标签↔控件 / 字段块之间 / 两列之间 / headers 行之间 |
+| `--icon-box` | `56px` | 图标位（1px 虚线框） |
+| `--font-dialog-title` / `--font-field` / `--font-hint` | `17px` / `14px` / `13px` | 弹窗标题 / 字段标签与输入文本（基准） / 说明与占位文案 |
 | `--fill-control` / `--fill-card` | `#ececeb` / `#f8f8f7` | 控件填充（无描边）/ 弹窗卡片底色 |
 | `--border-quiet` / `--border-dashed` | `#dadad9` / `#e5e5e4` | 描边按钮 / 图标虚线框 |
 | `--hint-text` / `--placeholder-text` | `#737373` / `#a6a6a6` | 说明文字 / 占位文字 |
 | `--danger-soft` | `#ee5b5e` | 删除图标（headers 行） |
 | `--action-strong` / `--action-strong-fg` | `#1a1a19` / `#ffffff` | 弹窗主行动实底与字色 |
 
-- **不得把参考图实测 px 直接写进 token**（那会把标签变成 20px，实机明显过大）；基准字号变了，
+**层级（参考图的字重与字号差）：**
+
+| 层级 | 字号 | 字重 | 说明 |
+|---|---|---|---|
+| 弹窗标题 | `--font-dialog-title` | 600 | 唯一的一级文字 |
+| 字段标签 | `--font-field` | 600 | 标签比输入文本更重，用于区分「标签 / 内容」 |
+| 「（可选）」等后缀（`.field-optional`） | `--font-field` | 400 + `--hint-text` | 同一行内降级，不另起字号 |
+| 输入文本 / 占位 | `--font-field` | 400 | 与标签同字号，靠字重与颜色区分 |
+| 说明与页脚提示 | `--font-hint` | 400 + `--hint-text` | 只用于辅助信息 |
+| 按钮文字 | `--font-field` | 500 | 与控件等高，不得比同排控件大一号 |
+
+- **不得把参考图实测 px 直接写进 token**（那会把标签变成 19-20px，实机明显过大）；基准字号变了，
   整组按同一比例一起改。
 - 输入与下拉**不使用描边**，只用填充 + 圆角；焦点态回到 `--control-border-hover` 描边。
   `.connector-panel.is-form` 在自身作用域内把 `--radius-control` / `--radius-card` / `--radius-cards`
   指向本节值，弹窗内不需要逐条改写通用规则。
+- **连接器协议不由配置弹窗切换**：`接入类型`（MCP / HTTP API）在创建入口决定，配置弹窗只显示
+  对应的字段集（MCP 显示传输类型，HTTP 显示动作定义），避免把协议切换混进日常配置。
 - 说明文字可点区域仍须满足命中区要求（§控件尺寸）；虚线图标框只表达「可上传」，不是按钮。
 - 主行动在浅色取参考图的近黑 `--action-strong`；深色下回落品牌主色（近黑在深底上对比度不足），
   该例外已在本表登记，不得扩散到连接器控制台之外的表面。
-- 弹窗内主行动仍受「同一视口 0–1 个实底主 CTA」约束：底部只有「保存草稿 ｜⌄」一个实底。
-- 本节字号档位（20 / 16 / 13）**只用于连接器控制台**；工作台表面仍按 §字号阶梯用途 取档。
+- 弹窗内主行动仍受「同一视口 0–1 个实底主 CTA」约束：底部只有「保存 ｜⌄」一个实底。
+- 本节字号档位（17 / 14 / 13）**只用于连接器控制台**；工作台表面仍按 §字号阶梯用途 取档。
 
 ## 字号阶梯用途（工作台表面）
 
