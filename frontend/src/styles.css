@@ -218,28 +218,29 @@
   --radius-links: 4px;
 
   /* 连接器控制台对话框规格 —— 数值来自参考图逐像素测量，唯一来源见 docs/DESIGN.md §连接器控制台。
-     推导规则：以「字段标签 16px」为基准，其余 = 参考图实测值 × 0.8（保留参考图比例）。
+     推导规则：以「字段标签 14px」为基准，其余 = 参考图实测值 × 0.7（保留参考图比例）。
      参考图为高分屏截图，实测 px 不能直接当 CSS px 用；改数值先改 DESIGN.md。 */
-  --dialog-w-form: 640px;      /* 弹窗宽度（实测 800 × 0.8） */
-  --dialog-pad-x: 22px;        /* 卡片左右内边距（28 × 0.8） */
-  --dialog-pad-t: 24px;        /* 卡片上内边距（30 × 0.8） */
-  --dialog-pad-b: 32px;        /* 卡片下内边距（40 × 0.8） */
-  --radius-dialog: 16px;       /* 卡片圆角（20 × 0.8） */
-  --control-h-form: 38px;      /* 输入框 / 按钮高度（48 × 0.8） */
-  --radius-field-form: 6px;    /* 输入框 / 下拉圆角（8 × 0.8） */
-  --radius-btn-form: 8px;      /* 按钮圆角（10 × 0.8） */
-  --radius-icon-box: 8px;      /* 图标虚线框圆角（10 × 0.8） */
-  --note-h-form: 108px;        /* 备注文本域高度（134 × 0.8） */
-  --dialog-head-gap: 18px;     /* 标题块到第一个字段（22 × 0.8） */
-  --line-dialog-title: 26px;   /* 弹窗标题行高（32 × 0.8） */
-  --field-gap: 12px;           /* 字段标签到控件（16 × 0.8） */
-  --block-gap: 20px;           /* 字段块之间（26 × 0.8） */
-  --grid-gap: 20px;            /* 两列字段之间（26 × 0.8） */
-  --row-gap: 10px;             /* headers 行之间（12 × 0.8） */
-  --icon-box: 64px;            /* 图标位 64×64（80 × 0.8） */
-  --font-dialog-title: 20px;   /* 弹窗标题（24 × 0.8，同 --ds-font-block-title） */
-  --font-field: 16px;          /* 字段标签与输入文本（20 × 0.8，基准） */
-  --font-hint: 13px;           /* 说明文字（16 × 0.8） */
+  --dialog-w-form: 560px;      /* 弹窗宽度（实测 800 × 0.7） */
+  --dialog-pad-x: 20px;        /* 卡片左右内边距（28 × 0.7） */
+  --dialog-pad-t: 20px;        /* 卡片上内边距（30 × 0.7） */
+  --dialog-pad-b: 26px;        /* 卡片下内边距（40 × 0.7） */
+  --radius-dialog: 14px;       /* 卡片圆角（20 × 0.7） */
+  --control-h-form: 34px;      /* 输入框 / 按钮高度（48 × 0.7） */
+  --radius-field-form: 6px;    /* 输入框 / 下拉圆角（8 × 0.7） */
+  --radius-btn-form: 7px;      /* 按钮圆角（10 × 0.7） */
+  --radius-icon-box: 7px;      /* 图标虚线框圆角（10 × 0.7） */
+  --note-h-form: 95px;         /* 备注文本域高度（136 × 0.7） */
+  --dialog-head-gap: 16px;     /* 标题块到第一个字段（22 × 0.7） */
+  --dialog-foot-pad-t: 12px;   /* 页脚上内边距 */
+  --line-dialog-title: 24px;   /* 弹窗标题行高 */
+  --field-gap: 11px;           /* 字段标签到控件（16 × 0.7） */
+  --block-gap: 18px;           /* 字段块之间（26 × 0.7） */
+  --grid-gap: 18px;            /* 两列字段之间（26 × 0.7） */
+  --row-gap: 8px;              /* headers 行之间（12 × 0.7） */
+  --icon-box: 56px;            /* 图标位 56×56（80 × 0.7） */
+  --font-dialog-title: 17px;   /* 弹窗标题（墨高 21.6 × 0.7 ≈ 15） */
+  --font-field: 14px;          /* 字段标签与输入文本（基准） */
+  --font-hint: 13px;           /* 说明文字（墨高 16.2 × 0.7 ≈ 11.3 → 13） */
   --fill-control: #ececeb;     /* 控件填充（参考图取样） */
   --fill-card: #f8f8f7;        /* 弹窗卡片底色 */
   --border-quiet: #dadad9;     /* 描边按钮边框 */
@@ -3914,6 +3915,8 @@ summary:focus-visible,
 }
 /* 对象之间只有这一条完整分隔线；末行不再与列表自身的底线叠成双线。 */
 .followed-kol-column .followed-kol-list > [data-followed-kol]:last-child { border-bottom: 0; }
+/* 勾选框与第一行的 28px 行框居中：(28 − 16) / 2。 */
+.followed-kol-column .followed-kol-select { margin-top: 6px; }
 .followed-kol-column .followed-kol-card:hover,
 .followed-kol-column .followed-kol-card[data-selected] {
   background: color-mix(in srgb, var(--accent) 3%, var(--bg));
@@ -3960,6 +3963,8 @@ summary:focus-visible,
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  /* 这层是 flex 行，不是网格：不留 grid 轨道声明，否则「单列」类断言会读到陈旧轨道。 */
+  grid-template-columns: none;
   column-gap: var(--space-3);
   row-gap: 2px;
 }
@@ -3997,7 +4002,7 @@ summary:focus-visible,
     z-index: 1;
     min-width: 44px;
     min-height: 44px;
-    margin: -14px -28px -14px 0;
+    margin: -8px -28px -12px 0;
     padding: 0;
   }
 }
