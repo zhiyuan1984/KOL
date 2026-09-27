@@ -27,6 +27,7 @@ import {
 import { enrichMissingPublicAvatars } from "../host/kol-avatar-enrichment.js";
 import { assessPublicKolsWithJev, normalizeJevTargets } from "../host/kol-jev-assessment.js";
 import { syncKolProfileIndex } from "../host/kol-memory-sync.js";
+import { starryLibraryStatus } from "../starrykol/library-sync.js";
 import { HttpFail } from "../host/errors.js";
 import { currentFollowScope } from "../host/starry-bind.js";
 import { nid } from "../ids.js";
@@ -199,6 +200,9 @@ kolMemory.get("/home/pool", (c) => {
     creates_session: false,
     calls_model: false,
     index: "公海",
+    // 空态要区分「库还没同步」与「公海确实为空」；把同一份 app_state 事实随这次读返回，
+    // 公海页因此不必为一句文案再去拉整个 /home/board。
+    library: starryLibraryStatus(),
     items,
     kols: items,
   });

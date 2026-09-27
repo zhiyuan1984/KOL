@@ -19,8 +19,19 @@ async function stubSlowChromeRequests(page: Page) {
   await page.route("**/api/skills**", (route) => route.fulfill({ json: {} }));
 }
 
+/**
+ * 首次 brief 读取由用例放行：让「读之前」的界面断言是确定的，而不是和读取抢时间
+ * （此前该断言在本机就曾因竞态而红）。
+ */
+function deferredGate() {
+  let release: () => void = () => {};
+  const gate = new Promise<void>((resolve) => { release = () => resolve(); });
+  return { gate, release: () => release() };
+}
+
 /** Every plan POST is recorded; the brief GET answers with a settled plan. */
 async function stubPlanEndpoints(page: Page, planPosts: string[], lead = "缓存内的今日结论") {
+  const briefGate = deferredGate();
   await stubSlowChromeRequests(page);
   await page.route("**/api/tasks**", (route) => route.fulfill({ json: { view: "open", tasks: [] } }));
   await page.route("**/api/home/today-tasks**", (route) => route.fulfill({ json: { items: [] } }));
@@ -34,6 +45,7 @@ async function stubPlanEndpoints(page: Page, planPosts: string[], lead = "缓存
       await route.fulfill({ json: { planning: true, attached: false, work_item_id: "tsk_plan" } });
       return;
     }
+    await briefGate.gate;
     await route.fulfill({
       json: {
         planning: false,
@@ -44,6 +56,7 @@ async function stubPlanEndpoints(page: Page, planPosts: string[], lead = "缓存
       },
     });
   });
+  return briefGate;
 }
 
 /** The cache is written from a post-paint effect, so wait for the write, not the POST. */
@@ -55,7 +68,7 @@ async function waitForPlanCache(page: Page) {
 
 test("entering 新工作任务 posts no plan; 启动今日任务 posts exactly one", async ({ page }) => {
   const planPosts: string[] = [];
-  await stubPlanEndpoints(page, planPosts);
+  const briefGate = await stubPlanEndpoints(page, planPosts);
 
   await page.goto("/");
   await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
@@ -64,6 +77,7 @@ test("entering 新工作任务 posts no plan; 启动今日任务 posts exactly o
   // Give the old behaviour time to fire; entry must stay memory-only.
   await page.waitForTimeout(3000);
   expect(planPosts).toEqual([]);
+  briefGate.release();
 
   await start.click();
   await expect.poll(() => planPosts.length, { timeout: 30000 }).toBe(1);
@@ -83,11 +97,12 @@ test("entering 新工作任务 posts no plan; 启动今日任务 posts exactly o
 
 test("a stale cache re-reads memory and still posts no plan", async ({ page }) => {
   const planPosts: string[] = [];
-  await stubPlanEndpoints(page, planPosts, "过期前结论");
+  const briefGate = await stubPlanEndpoints(page, planPosts, "过期前结论");
 
   await page.goto("/");
   await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
   await expect(page.locator('[data-home-entry="plan-today"]')).toHaveText("启动今日任务");
+  briefGate.release();
 
   // Age the cached memory, then re-enter Home. Aging can only cost a memory read;
   // it must not turn into a planning run of its own.

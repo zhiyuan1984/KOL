@@ -36,7 +36,15 @@ export interface UsePlanScopeResult {
   refresh: () => void;
 }
 
-export function usePlanScope(scope: PlanScope, client: PlanScopeClient): UsePlanScopeResult {
+/** 重新进入同一 tab 且距上次读取不足 60 秒时不再重复读；显式刷新事件不受此限。 */
+const PLAN_SCOPE_FRESH_MS = 60_000;
+
+export function usePlanScope(
+  scope: PlanScope,
+  client: PlanScopeClient,
+  options: { enabled?: boolean } = {},
+): UsePlanScopeResult {
+  const enabled = options.enabled !== false;
   const [brief, setBrief] = useState<TodayBrief | null>(null);
   const [memoryTasks, setMemoryTasks] = useState<Task[] | null>(null);
   const [events, setEvents] = useState<TaskEvent[]>([]);
@@ -46,6 +54,8 @@ export function usePlanScope(scope: PlanScope, client: PlanScopeClient): UsePlan
   const [tick, setTick] = useState(0);
   const startRef = useRef(false);
   const firstRun = useRef(true);
+  const lastReadRef = useRef(0);
+  const prevEnabled = useRef(false);
   const clientRef = useRef(client);
   clientRef.current = client;
 
@@ -69,6 +79,10 @@ export function usePlanScope(scope: PlanScope, client: PlanScopeClient): UsePlan
   }, [scope]);
 
   useEffect(() => {
+    const justEnabled = enabled && !prevEnabled.current;
+    prevEnabled.current = enabled;
+    // 未激活的计划作用域不发读：切到该 tab 时才读，公海/我的红人不再替它预读。
+    if (!enabled) return;
     // On first mount, restore fresh cached planning instead of re-running Codex.
     if (firstRun.current) {
       firstRun.current = false;
@@ -78,8 +92,12 @@ export function usePlanScope(scope: PlanScope, client: PlanScopeClient): UsePlan
         setBrief(cache.brief);
         setEvents(cache.events);
         setPhase(cache.phase);
+        lastReadRef.current = Date.now();
         return;
       }
+    } else if (justEnabled && lastReadRef.current && Date.now() - lastReadRef.current < PLAN_SCOPE_FRESH_MS) {
+      // 刚从别的 tab 切回来且 60 秒内读过：复用屏上的结果，不重复发读。
+      return;
     }
     const controller = new AbortController();
     let dismissTimer = 0;
@@ -111,6 +129,7 @@ export function usePlanScope(scope: PlanScope, client: PlanScopeClient): UsePlan
     ).then((final) => {
       if (controller.signal.aborted) return;
       startRef.current = false;
+      lastReadRef.current = Date.now();
       if (final.phase === "refreshed") {
         dismissTimer = window.setTimeout(() => {
           if (!controller.signal.aborted) {
@@ -127,7 +146,7 @@ export function usePlanScope(scope: PlanScope, client: PlanScopeClient): UsePlan
       controller.abort();
       if (dismissTimer) window.clearTimeout(dismissTimer);
     };
-  }, [tick, scope]);
+  }, [tick, scope, enabled]);
 
   useEffect(() => {
     if (phase !== "refreshed" || !memoryTasks) return;

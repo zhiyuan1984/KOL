@@ -6,7 +6,8 @@ import BrandLockup from "../components/BrandLockup";
 import PanelToggleIcon from "../components/PanelToggleIcon";
 import RouteErrorBoundary, { RouteLoadingFallback } from "../components/RouteErrorBoundary";
 import AccountBar from "../components/AccountBar";
-import { ANALYZE_WORK_EVENT, loadKolAnalyzeInFlight, type AnalyzeWorkItem } from "../home/kolSurfaceApi";
+import { SHELL_READ_DELAY_MS } from "../home/firstPaint";
+import { ANALYZE_WORK_EVENT, kolAnalyzeInFlight, unwrapTaskRows, type AnalyzeWorkItem } from "../home/kolSurfaceApi";
 import { isKolAnalyzeInFlight, runningBadgeCount, runningBadgeHref } from "../home/kolContract";
 import { useViewMode } from "../viewMode";
 import { ADMIN_NAV_GROUPS, adminTabOf } from "./adminNav";
@@ -60,7 +61,10 @@ export default function Workbench() {
   }, [pendingNav]);
 
   useEffect(() => {
-    void api.version().then((row) => setAppVersion(String(row?.version || ""))).catch(() => undefined);
+    const timer = window.setTimeout(() => {
+      void api.version().then((row) => setAppVersion(String(row?.version || ""))).catch(() => undefined);
+    }, SHELL_READ_DELAY_MS);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -86,18 +90,21 @@ export default function Workbench() {
       setTasks(Array.isArray(value) ? value : value.tasks || []);
     };
     // 读取合并成一次 Promise.all：共用同一个闸门，也共用同一次后端时隙。
+    // 同一份 api.tasks() 在两个消费者之间共享，避免一次刷新发两条相同的读。
     const refresh = () => {
       if (pollInFlight.current) return;
       pollInFlight.current = true;
+      const taskRows = api.tasks();
       void Promise.all([
         api.sessions().then(applySessions).catch(() => undefined),
-        loadKolAnalyzeInFlight().then(applyAnalyze).catch(() => undefined),
-        api.tasks().then(applyTasks).catch(() => undefined),
+        taskRows.then((rows) => kolAnalyzeInFlight(unwrapTaskRows(rows))).then(applyAnalyze).catch(() => undefined),
+        taskRows.then(applyTasks).catch(() => undefined),
       ]).finally(() => {
         pollInFlight.current = false;
       });
     };
-    void refresh();
+    // 让位首屏：侧栏会话/在飞分析延后到首帧之后再发。
+    const kickoff = window.setTimeout(refresh, SHELL_READ_DELAY_MS);
     const onAnalyze = (event: Event) => {
       const item = (event as CustomEvent<AnalyzeWorkItem>).detail;
       if (!item?.id) return;
@@ -115,25 +122,30 @@ export default function Workbench() {
     return () => {
       window.removeEventListener(ANALYZE_WORK_EVENT, onAnalyze);
       window.removeEventListener("lingong:sessions-refresh", refresh);
+      window.clearTimeout(kickoff);
       window.clearInterval(timer);
       pollInFlight.current = false;
     };
   }, []);
 
   useEffect(() => {
-    api.me().then(setMe).catch(() => setMe(null));
-    api.approvalBadge()
-      .then((row) => setApprovalCount(Number(row.count) || 0))
-      .catch(() => setApprovalCount(0));
-    api.cronJobs()
-      .then((data) => {
-        const alerts = data.alerts || {};
-        setCronAlertCount(Number(alerts.failed || 0) + Number(alerts.needs_takeover || 0));
-      })
-      .catch(() => setCronAlertCount(0));
-    api.mailBox()
-      .then((row) => setMailUnread(Number(row.unread || 0) || 0))
-      .catch(() => setMailUnread(0));
+    // 首屏让位：这些 badge 与首屏内容无关，延后到首帧之后再发。
+    const timer = window.setTimeout(() => {
+      api.me().then(setMe).catch(() => setMe(null));
+      api.approvalBadge()
+        .then((row) => setApprovalCount(Number(row.count) || 0))
+        .catch(() => setApprovalCount(0));
+      api.cronJobs()
+        .then((data) => {
+          const alerts = data.alerts || {};
+          setCronAlertCount(Number(alerts.failed || 0) + Number(alerts.needs_takeover || 0));
+        })
+        .catch(() => setCronAlertCount(0));
+      api.mailBox()
+        .then((row) => setMailUnread(Number(row.unread || 0) || 0))
+        .catch(() => setMailUnread(0));
+    }, SHELL_READ_DELAY_MS);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {

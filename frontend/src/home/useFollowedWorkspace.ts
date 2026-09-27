@@ -20,6 +20,7 @@ import {
 import { canOpenExistingTaskFlow } from "./homeModel";
 import { followKolToRecord, type FollowKol } from "./kolContract";
 import { loadHomeFollowing, releaseFollowedKol } from "./kolSurfaceApi";
+import { sharedRead } from "./sharedRead";
 import { matchesFollowedSituation, type FollowedSituation } from "./FollowedBrief";
 import type { HomeSurface } from "./surfaceError";
 
@@ -151,10 +152,10 @@ export function useFollowedWorkspace(options: {
     setReadsInFlight((count) => count + 1);
     try {
       const activeScope = followScope || latestFollowScope.current;
-      const loaded = await loadHomeFollowing({
+      const loaded = await sharedRead("home:following", () => loadHomeFollowing({
         kols: boardKols(),
         follow_scope: activeScope || undefined,
-      });
+      }));
       if (seq !== readSeq.current) return null;
       if (loaded.follow_scope) {
         latestFollowScope.current = loaded.follow_scope;

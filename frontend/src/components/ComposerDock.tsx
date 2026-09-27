@@ -263,7 +263,21 @@ export default function ComposerDock({
     setDismissedObjectChipKeys([]);
   }, [objectChipSignature]);
 
+  // 技能 / 知识 / 项目 / 最近文件候选只在真正用到提问框时才读：＋ 菜单、技能选择器、
+  // 已聚焦、已有输入或已锁定意图。首屏不再替一个可能永远不打开的菜单预读 8 条目录。
+  const catalogsNeeded = plusOpen
+    || picker
+    || focused
+    || value.trim().length > 0
+    || Boolean(lockedIntent)
+    || Boolean(lockedKnowledgeId);
+  const [catalogsEngaged, setCatalogsEngaged] = useState(false);
   useEffect(() => {
+    if (catalogsNeeded && !catalogsEngaged) setCatalogsEngaged(true);
+  }, [catalogsNeeded, catalogsEngaged]);
+
+  useEffect(() => {
+    if (!catalogsEngaged) return;
     let cancelled = false;
     const load = async () => {
       const [mine, market] = await Promise.all([
@@ -365,6 +379,7 @@ export default function ComposerDock({
   }, [lockedKnowledgeId, lockedLabel, templates, stageCode, value]);
 
   useEffect(() => {
+    if (!catalogsEngaged) return;
     void Promise.all([
       fetch("/api/projects").then((r) => r.ok ? r.json() : []),
       fetch("/api/files/recent?limit=12").then((r) => r.ok ? r.json() : []),
@@ -372,7 +387,7 @@ export default function ComposerDock({
       if (Array.isArray(projectRows)) setProjects(projectRows);
       if (Array.isArray(fileRows)) setRecentFiles(fileRows);
     }).catch(() => undefined);
-  }, []);
+  }, [catalogsEngaged]);
 
   useEffect(() => {
     if (!plusOpen) return;

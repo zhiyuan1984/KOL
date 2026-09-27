@@ -1052,6 +1052,8 @@ export const api = {
       calls_model?: boolean;
       kind?: string;
       index?: string;
+      /** 红人库同步状态（app_state 同源事实），供公海空态区分「库未同步」。 */
+      library?: { ok?: boolean; count?: number; synced_at?: string };
       items?: Array<Record<string, unknown>>;
       kols?: Array<Record<string, unknown>>;
     }>("/api/home/pool"),

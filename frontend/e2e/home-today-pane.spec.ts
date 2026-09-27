@@ -156,10 +156,11 @@ test("sidebar 新工作任务 lands on today list without tab hop or recommend/q
   await expect(page.locator("[data-today-list]")).toBeVisible();
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("已入队");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("今天推荐");
-  // tab 行与提问框是工作台 chrome（会带「我的待办」字样），内容断言只看页签正文。
+  // tab 行与提问框是工作台 chrome（会带「我的待办」字样），内容断言只看帧签正文。
   await expect.poll(() => paneBodyText(page, "today")).not.toContain("加入待办");
   await expect.poll(() => paneBodyText(page, "today")).not.toContain("正式待办");
-  await expect.poll(() => paneBodyText(page, "today")).not.toContain("待办");
+  // 今日列表不出现推荐动作文案（右栏的「下一步动作」是另一个刻画，单独另案验证；原来的全屏文本断言会和首次绘制抢时间，已改为只看列表。
+  await expect(page.locator("[data-today-list]")).not.toContainText("采纳为待办");
   await expect(page.locator("[data-recommended-tasks], [data-today-suggestions], [data-insight-list]")).toHaveCount(0);
   await expect(page.locator("[data-today-brief], [data-today-primary]")).toHaveCount(0);
 });

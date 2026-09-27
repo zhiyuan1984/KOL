@@ -12,6 +12,7 @@ import {
 } from "./kolSurfaceApi";
 import type { PoolKol } from "./kolContract";
 import { filterPoolCards, type PoolFilter, type PoolSort } from "./poolView";
+import { sharedRead } from "./sharedRead";
 
 function canonicalProfileKey(card: PoolKol): string {
   const url = (card.identity.profile_url || "").trim().toLowerCase().replace(/\/+$/, "");
@@ -56,6 +57,10 @@ export function usePoolWorkspace(options: {
   const { loadBoard, boardKols, onClaimed, onClaimUndone } = options;
 
   const [cards, setCards] = useState<PoolKol[]>([]);
+  /** 首轮公海读取（含 404 回退）是否已走完；空态据此区分「还没读到」与「读到了 0 条」。 */
+  const [poolLoaded, setPoolLoaded] = useState(false);
+  /** 红人库条数：正常路径来自公海读自带的事实；404 回退时为 null，由 board 兜底。 */
+  const [poolLibraryCount, setPoolLibraryCount] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<PoolFilter>("all");
   const [sort, setSort] = useState<PoolSort>("default");
@@ -86,7 +91,8 @@ export function usePoolWorkspace(options: {
   }, [cards, filter, query, sort]);
 
   const loadSurface = useCallback(async () => {
-    const loaded = await loadHomePool({ kols: boardKols() });
+    // 同一资源在飞行中共用一条读：重复进页不会叠加第二条公海读。
+    const loaded = await sharedRead("home:pool", () => loadHomePool({ kols: boardKols() }));
     if (loaded.down) {
       setError(loaded.error || "公海读取失败");
       setCards([]);
@@ -94,15 +100,21 @@ export function usePoolWorkspace(options: {
     }
     setError("");
     setCards(dedupePoolCards(loaded.items));
+    if (loaded.libraryCount != null) setPoolLibraryCount(loaded.libraryCount);
     return loaded.source;
   }, [boardKols]);
 
   const ensureLoaded = useCallback(async () => {
-    // The pool endpoint is independent of the board. Show its rows while the board refresh runs.
-    const board = loadBoard("pool");
-    const source = await loadSurface();
-    const boardReady = await board;
-    if (source === "board-adapter" && boardReady) await loadSurface();
+    // 公海读取（记忆读）是权威：公海页不再拉整个 board（库条数随这次读返回）。
+    // 只有 404 回退（board-adapter）才需要 board 先到位，再投影一次。
+    try {
+      const source = await loadSurface();
+      if (source !== "board-adapter") return;
+      const boardReady = await loadBoard("pool");
+      if (boardReady) await loadSurface();
+    } finally {
+      setPoolLoaded(true);
+    }
   }, [loadBoard, loadSurface]);
 
   const syncLibrary = useCallback(async () => {
@@ -265,6 +277,8 @@ export function usePoolWorkspace(options: {
 
   return {
     cards,
+    poolLoaded,
+    poolLibraryCount,
     visibleCards,
     query,
     setQuery,

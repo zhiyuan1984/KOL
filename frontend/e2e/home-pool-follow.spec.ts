@@ -323,24 +323,67 @@ test("public pool restores the central interaction and uses a structured right r
   await expect(workspace.locator("[data-pool-reason]")).toHaveCount(0);
   await expect(row.locator(".pool-profile-link")).toHaveText("主页");
   const searchBox = await workspace.locator("[data-pool-search]").boundingBox();
-  // 宽度比改动前（~144px）缩短约三分之一；高度必须仍是控件档 28px。
-  expect(searchBox?.width).toBeLessThanOrEqual(110);
-  // 评分显示落在「主页 + 外链图标」之后；无评分卡片给出提示与评分入口。
+  // 宽度是缩短版（~96px）的 2 倍；高度必须仍是控件档 28px。
+  expect(searchBox?.width).toBeGreaterThanOrEqual(176);
+  // 评分是 KOL 记忆里的事实：有评分「评分 N」、无评分「未评分」；卡片上没有评分动作入口。
   const scoredRow = page.locator("[data-pool-kol='uid_outdoor']");
   await expect(scoredRow.locator(".pool-row-meta .pool-profile-link + [data-pool-score='missing']")).toHaveCount(1);
-  await expect(page.locator("[data-pool-score-kol]").first()).toBeVisible();
+  await expect(page.locator("[data-pool-score-kol]")).toHaveCount(0);
   expect((await workspace.locator("[data-pool-search]").boundingBox())?.height).toBe(28);
   expect((await workspace.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").boundingBox())?.height).toBe(28);
 });
 
+test("pool first paint reads only what the pool needs", async ({ page }) => {
+  const reads: Array<{ path: string; t: number }> = [];
+  const started = Date.now();
+  page.on("request", (item) => {
+    if (item.method() !== "GET") return;
+    const url = new URL(item.url());
+    if (!url.pathname.startsWith("/api/")) return;
+    reads.push({ path: url.pathname + url.search, t: Date.now() - started });
+  });
+
+  await page.goto("/?tab=pool");
+  await expect(page.locator("[data-pool-search]")).toBeVisible();
+  await expect(page.locator("[data-pool-card]").first()).toBeVisible();
+  await page.waitForTimeout(700);
+
+  const pool = reads.find((row) => row.path === "/api/home/pool");
+  expect(pool, "公海面必须自己发公海读").toBeTruthy();
+  expect(reads.some((row) => row.path === "/api/knowledge/question-templates"), "四个入口的模板可用性要读").toBe(true);
+
+  // 与公海首屏无关、且按 tab/交互才该发生的读：公海首屏一条都不该出现。
+  for (const never of [
+    "/api/home/board",
+    "/api/home/today-brief",
+    "/api/home/todo-brief",
+    "/api/home/today-tasks",
+    "/api/home/todo-tasks",
+    "/api/tasks?view=open",
+    "/api/skills",
+    "/api/skills/market",
+    "/api/knowledge",
+    "/api/knowledge/market",
+    "/api/knowledge/composer",
+    "/api/knowledge/skill-templates",
+    "/api/projects",
+    "/api/files/recent",
+  ]) {
+    expect(reads.some((row) => row.path === never), `${never} 不该在公海首屏发出`).toBe(false);
+  }
+
+  // 壳读（侧栏 badge / 任务目录 / 任务定义）允许发生，但必须让位到公海读之后。
+  const poolAt = pool?.t ?? 0;
+  const before = reads.filter((row) => row.t < poolAt + 80).map((row) => row.path);
+  for (const shell of ["/api/tasks", "/api/task-definitions", "/api/sessions", "/api/mail/box", "/api/cron/jobs", "/api/approvals/badge", "/api/version"]) {
+    expect(before.includes(shell), `${shell} 应让位首屏`).toBe(false);
+  }
+});
 test("empty pool sync sends an explicit command and renders the refreshed public index", async ({ page }) => {
   const syncPosts: string[] = [];
-  await page.route("**/api/home/board*", (route) => route.fulfill({
-    json: { kols: [], tasks: [], library: { count: 0 }, mail: {}, entries: [] },
-  }));
   await page.route("**/api/home/pool", async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
-    await route.fulfill({ json: { entry: "memory", kind: "memory", items: [], kols: [] } });
+    await route.fulfill({ json: { entry: "memory", kind: "memory", items: [], kols: [], library: { ok: false, count: 0 } } });
   });
   await page.route("**/api/home/pool/sync", async (route) => {
     if (route.request().method() === "GET") {
@@ -380,6 +423,41 @@ test("empty pool sync sends an explicit command and renders the refreshed public
   await expect.poll(() => syncPosts).toEqual(["/api/home/pool/sync"]);
   await expect(page.locator("[data-pool-kol='uid_outdoor']")).toBeVisible();
   await expect(page.locator("[data-pool-sync-library]")).toHaveCount(0);
+});
+
+test("pool reading state does not claim the library is unsynced before the reads return", async ({ page }) => {
+  const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  await page.route("**/api/home/pool", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await delay(1500);
+    await route.fulfill({ json: { entry: "memory", kind: "memory", items: [], kols: [], library: { ok: false, count: 0 } } });
+  });
+
+  await page.goto("/?tab=pool");
+  const pane = page.locator('[data-home-pane="pool"]');
+  // 读取期间是真实等待态：有原因，但没有结论，也没有同步 CTA。
+  await expect(pane.locator("[data-pool-empty='loading']")).toBeVisible();
+  await expect(pane).not.toContainText("红人库还没有同步");
+  await expect(pane.locator("[data-pool-sync-library]")).toHaveCount(0);
+  // 读到「公海 0 条 + 库 0 条」之后，才给出「尚未同步」与可执行的同步入口。
+  await expect(pane.locator("[data-pool-sync-library]")).toBeVisible();
+  await expect(pane).toContainText("红人库还没有同步");
+});
+
+test("pool rows render without waiting for the board read", async ({ page }) => {
+  const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  await page.route("**/api/home/board*", async (route) => {
+    await delay(4000);
+    await route.fulfill({ json: { kols: [], tasks: [], library: { count: 9 }, mail: {}, entries: [] } });
+  });
+  await page.route("**/api/home/pool", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await route.fulfill({ json: { entry: "memory", kind: "memory", items: [POOL_ITEM], kols: [POOL_ITEM] } });
+  });
+
+  await page.goto("/?tab=pool");
+  // board 仍在飞行时，公海对象卡已经出现（读取路径不依赖 board）。
+  await expect(page.locator("[data-pool-kol='uid_outdoor']")).toBeVisible({ timeout: 3000 });
 });
 
 test("pool KOL scoring uses the existing Jev endpoint and refreshes public signals", async ({ page }) => {

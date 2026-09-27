@@ -19,6 +19,8 @@ export type PoolLoad = {
   items: PoolKol[];
   source: "pool" | "board-adapter";
   creates_session: false;
+  /** 公海读自带的红人库状态；404 回退（board-adapter）时为 null，由 board 兜底。 */
+  libraryCount: number | null;
   down?: boolean;
   error?: string;
 };
@@ -122,10 +124,16 @@ export async function loadHomePool(board?: { kols?: Array<Record<string, unknown
   try {
     const payload = await api.homePool();
     const items = asRows(payload).filter(isOpenPoolRow).map(toPoolKol).filter((row): row is PoolKol => Boolean(row));
-    return { items: unownedFirst(items), source: "pool", creates_session: false };
+    const library = payload.library;
+    return {
+      items: unownedFirst(items),
+      source: "pool",
+      creates_session: false,
+      libraryCount: typeof library?.count === "number" ? library.count : null,
+    };
   } catch (error) {
     if (!isMissingEndpoint(error)) {
-      return { items: [], source: "pool", creates_session: false, down: true, error: error instanceof Error ? error.message : "公海读取失败" };
+      return { items: [], source: "pool", creates_session: false, libraryCount: null, down: true, error: error instanceof Error ? error.message : "公海读取失败" };
     }
   }
   const followed = new Set<string>();
@@ -138,7 +146,7 @@ export async function loadHomePool(board?: { kols?: Array<Record<string, unknown
   }
   const candidates = [...(board?.creators || []), ...(board?.kols || []).filter((row) => poolRow(row, followed))];
   const items = candidates.filter((row) => poolRow(row, followed)).map(toPoolKol).filter((row): row is PoolKol => Boolean(row));
-  return { items: unownedFirst(items), source: "board-adapter", creates_session: false };
+  return { items: unownedFirst(items), source: "board-adapter", creates_session: false, libraryCount: null };
 }
 
 const POOL_SYNC_POLL_MS = 1_000;
@@ -152,7 +160,7 @@ function wait(ms: number): Promise<void> {
 export async function syncHomePoolIndex(): Promise<{ items: PoolKol[]; count: number }> {
   await api.syncHomePool();
   for (let attempt = 0; attempt < POOL_SYNC_WAIT_ATTEMPTS; attempt += 1) {
-    await wait(POOL_SYNC_POLL_MS);
+    if (attempt) await wait(POOL_SYNC_POLL_MS);
     const payload = await api.homePoolSyncStatus();
     if (payload.status === "failed" || payload.ok === false) {
       throw new Error(payload.message || "红人库同步失败，请稍后重试");
@@ -179,7 +187,7 @@ async function waitPoolMaintenance(
 ): Promise<{ items: PoolKol[]; message: string }> {
   await start();
   for (let attempt = 0; attempt < POOL_SYNC_WAIT_ATTEMPTS; attempt += 1) {
-    await wait(POOL_SYNC_POLL_MS);
+    if (attempt) await wait(POOL_SYNC_POLL_MS);
     const payload = await status();
     if (payload.status === "failed" || payload.ok === false) {
       throw new Error(payload.message || "公海维护命令失败，请稍后重试");
@@ -282,14 +290,6 @@ export function kolAnalyzeInFlight(tasks: Task[]): AnalyzeWorkItem[] {
     session_id: task.session_id || null,
     task_type: KOL_ANALYZE_TASK_TYPE,
   }));
-}
-
-export async function loadKolAnalyzeInFlight(): Promise<AnalyzeWorkItem[]> {
-  try {
-    return kolAnalyzeInFlight(unwrapTaskRows(await api.tasks()));
-  } catch {
-    return [];
-  }
 }
 
 export async function enqueueKolAnalyze(body: {

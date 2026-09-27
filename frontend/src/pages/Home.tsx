@@ -80,6 +80,9 @@ import {
 } from "../home/modes";
 import { HOME_COMPOSER_COPY } from "../home/entryRegistry";
 import { surfaceDownView, type HomeSurface } from "../home/surfaceError";
+import { sharedRead } from "../home/sharedRead";
+import { SHELL_READ_DELAY_MS } from "../home/firstPaint";
+
 import {
   clearComposerDraft,
   isAnalyzeEnqueuePrefill,
@@ -612,20 +615,21 @@ export default function Home() {
   /** 发现提交失败后可重试：正文已在发送时清空，不能只留一条错误文案。 */
   const [discoverySubmitFailed, setDiscoverySubmitFailed] = useState(false);
   const [editTaskTarget, setEditTaskTarget] = useState<Task | null>(null);
+  const mode = parseHomeMode(params.get("tab"));
+  // 计划作用域只在对应 tab 激活时读取：公海/我的红人不再替今日与待办预读。
   const todayPlan = usePlanScope("today", {
     listOpenTasks: () => api.tasks({ view: "open" }).then(unwrapTaskList),
     getBrief: () => api.todayBrief(),
     startPlan: () => api.planToday(),
     getDisplayTasks: () => fetchTodayTasks(),
-  });
+  }, { enabled: mode === "today" });
   const todoPlan = usePlanScope("todo", {
     listOpenTasks: () => api.tasks({ view: "open" }).then(unwrapTaskList),
     getBrief: () => api.todoBrief(),
     startPlan: () => api.planTodo(),
     getDisplayTasks: () => fetchTodoTasks(),
-  });
+  }, { enabled: mode === "todo" });
   const nav = useNavigate();
-  const mode = parseHomeMode(params.get("tab"));
 
   const setMode = (next: HomeMode) => {
     const nextParams = new URLSearchParams(params);
@@ -758,20 +762,24 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
+    // 任务目录与任务定义只服务今日/待办与模板面板：让位首屏后再读，不与公海首读抢时隙。
     // Mount: task definitions + GET /api/tasks (full catalog).
     // Today/Todo filter buckets in FE. view=open is the memory list (compat view=todo).
     // Do not GET /api/home or GET /api/home/board here — board waits for
     // first「我跟进的红人」entry or the refresh control.
-    void api.taskDefinitions().then(definitionList).then((taskDefinitions) => {
-      if (!cancelled && taskDefinitions.length) {
-        setDefinitions(withHomeCommandTemplates(taskDefinitions));
-      }
-    }).catch(() => undefined);
-    void api.tasks().then(unwrapTaskList).then((catalog) => {
-      if (!cancelled) applyTaskCatalog(catalog);
-    }).catch(() => undefined);
+    const timer = window.setTimeout(() => {
+      void api.taskDefinitions().then(definitionList).then((taskDefinitions) => {
+        if (!cancelled && taskDefinitions.length) {
+          setDefinitions(withHomeCommandTemplates(taskDefinitions));
+        }
+      }).catch(() => undefined);
+      void api.tasks().then(unwrapTaskList).then((catalog) => {
+        if (!cancelled) applyTaskCatalog(catalog);
+      }).catch(() => undefined);
+    }, SHELL_READ_DELAY_MS);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
     // Initial requests load independently so the input and task shell render immediately.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1042,12 +1050,6 @@ export default function Home() {
     if (kind === "score") setScoreConfirm({ busy: false, count: selected.length, error: null });
   };
 
-  /** 单卡评分入口：先填模板，再让员工在确认条里决定是否执行。 */
-  const requestScoreKol = (kolUid: string) => {
-    if (!prefillPoolQuestion("score", [kolUid])) return;
-    setScoreConfirm({ busy: false, count: 1, error: null });
-  };
-
   const confirmPoolScore = async () => {
     const targets = analyzeUids;
     setScoreConfirm({ busy: true, count: targets.length, error: null });
@@ -1208,7 +1210,7 @@ export default function Home() {
   useEffect(() => {
     let alive = true;
     // 只读已发布的问题模板（memory 入口，零会话零模型）；缺失时入口禁用并如实提示。
-    api.questionTemplates()
+    sharedRead("home:question-templates", () => api.questionTemplates())
       .then((rows) => {
         if (!alive) return;
         const next: Partial<Record<PoolAnalysisKind, QuestionTemplateRow>> = {};
@@ -1604,10 +1606,15 @@ export default function Home() {
   );
 
 
-  const homeMemoryTasks = (mode === "today" ? todayPlan.memoryTasks : mode === "todo" ? todoPlan.memoryTasks : null) ?? taskCatalog;
+  // 计划记忆（GET /api/tasks?view=open）是今日/待办列表的唯一来源：读到之前列表为空，
+  // 不用任务目录冒充，否则「今日」会在记忆未到时先出一批目录行与行内推荐动作。
+  const planMemoryTasks = mode === "today" ? todayPlan.memoryTasks : mode === "todo" ? todoPlan.memoryTasks : null;
+  const homeMemoryTasks = mode === "today" || mode === "todo"
+    ? planMemoryTasks ?? []
+    : planMemoryTasks ?? taskCatalog;
 
   // Scope-level stats stay tied to the matching plan memory when switching tabs.
-  const todoScopeTasks = todoPlan.memoryTasks ?? taskCatalog;
+  const todoScopeTasks = mode === "todo" ? todoPlan.memoryTasks ?? [] : todoPlan.memoryTasks ?? taskCatalog;
 
   const todoItems = useMemo(
     () => sortOpenWorkItems(homeMemoryTasks.filter(isOpenTask)),
@@ -2276,7 +2283,8 @@ export default function Home() {
                   filter={poolWorkspace.filter}
                   sort={poolWorkspace.sort}
                   down={poolDown}
-                  libraryCount={libraryCount}
+                  libraryCount={poolWorkspace.poolLibraryCount ?? libraryCount}
+                  poolLoaded={poolWorkspace.poolLoaded}
                   syncBusy={poolWorkspace.syncBusy}
                   syncError={poolWorkspace.syncError}
                   claimBusyId={poolWorkspace.claimBusy && poolWorkspace.claimTarget ? poolWorkspace.claimTarget.kol_uid : null}
@@ -2292,8 +2300,6 @@ export default function Home() {
                   onToggleSelect={toggleSelectedPool}
                   onToggleSelectAll={toggleSelectAllPool}
                   onSyncLibrary={() => void poolWorkspace.syncLibrary()}
-                  scoreReady={poolTemplateState.score.ready}
-                  onScoreKol={requestScoreKol}
                   onClaim={poolWorkspace.requestClaim}
                   onConfirmClaim={() => void poolWorkspace.confirmClaim()}
                   onCancelClaim={poolWorkspace.cancelClaim}

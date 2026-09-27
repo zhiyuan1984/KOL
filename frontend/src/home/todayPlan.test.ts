@@ -97,7 +97,11 @@ describe("today plan wiring", () => {
     expect(home).not.toContain("TodoPane");
     expect(home).not.toContain("TodayPane");
     const hook = fs.readFileSync(path.resolve(here, "./usePlanScope.ts"), "utf8");
-    expect(hook).toMatch(/\[tick, scope\]/);
+    // 计划作用域只在激活的 tab 上读；同一 tab 60 秒内切回不重复读（复用屏上结果）。
+    expect(hook).toMatch(/\[tick, scope, enabled\]/);
+    expect(hook).toContain("PLAN_SCOPE_FRESH_MS");
+    expect(home).toMatch(/usePlanScope\("today",\s*\{[\s\S]{0,320}\}, \{ enabled: mode === "today" \}\)/);
+    expect(home).toMatch(/usePlanScope\("todo",\s*\{[\s\S]{0,320}\}, \{ enabled: mode === "todo" \}\)/);
     expect(home).not.toMatch(/if \(mode !== "today"\)/);
     expect(home).not.toMatch(/if \(mode !== "todo"\) return;/);
     expect(home).not.toMatch(/mode === "todo"[\s\S]{0,240}todayBrief\(\)/);
