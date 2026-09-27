@@ -100,6 +100,62 @@ test("JSON import previews mcpServers before writing and imports on confirm", as
   await expect(page.locator(`[data-connector-card][data-connector="${IMPORT_ID}"]`)).toContainText("待验证");
 });
 
+test("MCP 配置 dialog matches the reference layout", async ({ page }) => {
+  await page.goto("/admin/connectors");
+  await page.locator("[data-connector-create-toggle]").click();
+  await page.locator("[data-connector-create-item='mcp']").click();
+  const panel = page.locator("[data-connector-panel='mcp-config']");
+  await expect(panel).toBeVisible();
+  await expect(panel.locator("h2")).toHaveText("MCP 配置");
+  // 无副标题、无取消按钮；关闭只走 X / Esc / 遮罩。
+  await expect(panel.locator(".connector-panel-head p")).toHaveCount(0);
+  await expect(panel.locator("footer button", { hasText: "取消" })).toHaveCount(0);
+  // 第一行两列：服务器名称 + 传输类型；短名不再出现在表单里。
+  await expect(panel.locator(".connector-form-grid .field")).toHaveCount(2);
+  await expect(panel.locator("[data-connector-field='label']")).toHaveAttribute("placeholder", "e.g., My Custom Server");
+  await expect(panel.locator("[data-connector-field='transport'] option")).toHaveCount(2);
+  await expect(panel.locator("[data-connector-field='id']")).toHaveCount(0);
+  // 图标：虚线占位框 + 「上传 ⌄」分裂按钮，菜单含上传 / 移除。
+  await expect(panel.locator("[data-connector-icon-preview]")).toBeVisible();
+  await expect(panel.locator(".connector-icon-field")).toHaveClass(/is-bare/);
+  await panel.locator("[data-connector-split-toggle='icon']").click();
+  const iconMenu = panel.locator("[data-connector-split-menu='icon']");
+  await expect(iconMenu.locator(".connector-split-item")).toHaveText(["上传", "移除"]);
+  await page.keyboard.press("Escape");
+  await expect(iconMenu).toHaveCount(0);
+  await expect(panel).toBeVisible();
+  // 备注 5 行；底部为「保存草稿 ｜⌄」，下拉里是发布并保存，附保存≠启用说明。
+  await expect(panel.locator("textarea")).toHaveAttribute("rows", "5");
+  await expect(panel.locator("[data-connector-split-main='save']")).toHaveText("保存草稿");
+  await expect(panel.locator(".connector-panel-note")).toContainText("不等于启用");
+  await panel.locator("[data-connector-split-toggle='save']").click();
+  await expect(panel.locator("[data-connector-split-menu='save'] .connector-split-item")).toHaveText(["发布并保存"]);
+  await page.keyboard.press("Escape");
+  await expect(panel.locator("[data-connector-split-menu='save']")).toHaveCount(0);
+  await expect(panel).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(panel).toHaveCount(0);
+});
+
+test("发布并保存 saves the draft and reports the publish gate honestly", async ({ page }) => {
+  test.skip(!AUTH_ENABLED, "runtime governance writes require E2E_AUTH_MODE=enabled");
+  await page.goto("/admin/connectors");
+  await page.locator("[data-connector-create-toggle]").click();
+  await page.locator("[data-connector-create-item='mcp']").click();
+  const panel = page.locator("[data-connector-panel='mcp-config']");
+  await page.locator("[data-connector-field='label']").fill("E2E Publish MCP");
+  await page.locator("[data-connector-field='url']").fill("https://mcp.e2e.example/mcp");
+  await panel.locator("input[type='checkbox']").check();
+  await panel.locator("[data-connector-split-toggle='save']").click();
+  await panel.locator("[data-connector-split-menu='save'] .connector-split-item").click();
+
+  // 未完成测试的连接器会被闸门拦下：草稿成立，发布不谎报成功。
+  await expect(panel).toHaveCount(0);
+  await expect(page.locator("[data-connector-notice]")).toContainText("未能发布");
+  await expect(page.locator("[data-connector-notice]")).toContainText("先完成一次通过的测试");
+  await expect(page.locator("[data-connector-notice][data-connector-notice-tone='warn']")).toHaveCount(1);
+});
+
 test("URL add flow creates a pending connector with governance cards", async ({ page }) => {
   test.skip(!AUTH_ENABLED, "runtime governance writes require E2E_AUTH_MODE=enabled");
   await page.goto("/admin/connectors");

@@ -31,6 +31,34 @@ export function validateIconFile(file: File): string {
   return "";
 }
 
+/** Error code carried by the API error payload. The API answers `{ detail: { code } }`. */
+function codeOf(cause: unknown): string {
+  const payload = (cause as { payload?: unknown } | null)?.payload;
+  const queue: unknown[] = [payload, (payload as { detail?: unknown } | null)?.detail];
+  while (queue.length) {
+    const candidate = queue.shift();
+    if (typeof candidate === "string") {
+      try {
+        queue.push(JSON.parse(candidate));
+      } catch {
+        // A plain message, not an error code carrier.
+      }
+      continue;
+    }
+    if (!candidate || typeof candidate !== "object") continue;
+    const record = candidate as { code?: unknown; error_code?: unknown };
+    if (typeof record.code === "string") return record.code;
+    if (typeof record.error_code === "string") return record.error_code;
+  }
+  return "";
+}
+
+function friendlyEnableFailure(code: string): string {
+  if (code === "connector_verification_required") return "先完成一次通过的测试，连接器才会被允许启用。";
+  if (code === "connector_tool_scope_required") return "先在接口或可用范围中设置至少一项范围授权，再启用。";
+  return "";
+}
+
 export function ModalShell({ kind, title, subtitle, onClose, children, footer, wide = false, headerExtra }: {
   kind: string;
   title: string;
@@ -68,7 +96,84 @@ export function ModalShell({ kind, title, subtitle, onClose, children, footer, w
   );
 }
 
-export function ConnectorIconUpload({ file, existingUrl, onPick }: { file: File | null; existingUrl?: string | null; onPick: (file: File | null) => void }) {
+export type SplitMenuItem = { label: string; onSelect: () => void; disabled?: boolean };
+
+/** Outlined or solid main button with a chevron segment that opens a small menu. */
+export function SplitButton({ label, name, variant = "outline", onPrimary, items, disabled }: {
+  label: string;
+  /** Suffix for the `data-connector-split-*` test hooks. */
+  name: string;
+  variant?: "outline" | "primary";
+  onPrimary: () => void;
+  items: SplitMenuItem[];
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      // Capture phase: close the menu only, without also closing the surrounding dialog.
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [open]);
+  const base = "btn connector-split-btn" + (variant === "primary" ? " work" : " sm");
+  return (
+    <span className="connector-split" ref={ref} data-connector-split={name}>
+      <button type="button" className={base + " connector-split-main"} data-connector-split-main={name} disabled={disabled} onClick={onPrimary}>
+        {label}
+      </button>
+      <button
+        type="button"
+        className={base + " connector-split-toggle"}
+        aria-label={`${label}：更多选项`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        data-connector-split-toggle={name}
+        disabled={disabled}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <svg viewBox="0 0 16 16" aria-hidden><path d="M4 6.5l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </button>
+      {open && (
+        <span className="connector-split-menu" role="menu" data-connector-split-menu={name}>
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitem"
+              className="connector-split-item"
+              disabled={item.disabled}
+              onClick={() => { setOpen(false); item.onSelect(); }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
+export function ConnectorIconUpload({ file, existingUrl, onPick, variant = "plain" }: {
+  file: File | null;
+  existingUrl?: string | null;
+  onPick: (file: File | null) => void;
+  /** "dialog" drops the surrounding box and uses the upload dropdown from the reference design. */
+  variant?: "plain" | "dialog";
+}) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [localError, setLocalError] = useState("");
   const [preview, setPreview] = useState("");
@@ -82,14 +187,33 @@ export function ConnectorIconUpload({ file, existingUrl, onPick }: { file: File 
     return () => URL.revokeObjectURL(url);
   }, [file]);
   const shown = preview || existingUrl || "";
+  const clear = () => {
+    onPick(null);
+    setLocalError("");
+    if (inputRef.current) inputRef.current.value = "";
+  };
   return (
-    <div className="connector-icon-field">
+    <div className={"connector-icon-field" + (variant === "dialog" ? " is-bare" : "")}>
       <span className="connector-icon-preview" data-connector-icon-preview>
         {shown ? <img src={shown} alt="图标预览" /> : <span className="muted" aria-hidden>图</span>}
       </span>
       <div className="connector-icon-actions">
-        <button type="button" className="btn sm" onClick={() => inputRef.current?.click()}>上传</button>
-        {file && <button type="button" className="btn sm" onClick={() => { onPick(null); if (inputRef.current) inputRef.current.value = ""; }}>移除</button>}
+        {variant === "dialog" ? (
+          <SplitButton
+            name="icon"
+            label="上传"
+            onPrimary={() => inputRef.current?.click()}
+            items={[
+              { label: "上传", onSelect: () => inputRef.current?.click() },
+              { label: "移除", onSelect: clear, disabled: !file && !existingUrl },
+            ]}
+          />
+        ) : (
+          <>
+            <button type="button" className="btn sm" onClick={() => inputRef.current?.click()}>上传</button>
+            {file && <button type="button" className="btn sm" onClick={clear}>移除</button>}
+          </>
+        )}
         <input
           ref={inputRef}
           type="file"
@@ -187,25 +311,44 @@ export async function resolveHeaderRefs(rows: HeaderRow[], label: string): Promi
   return refs;
 }
 
-async function createManagedMcp(input: {
+/** Short name derived from the server name; the form no longer asks for it. */
+export function autoConnectorId(label: string): string {
+  const slug = slugFromLabel(label);
+  if (isConnectorIdValid(slug)) return slug;
+  return `mcp-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`.slice(0, 63);
+}
+
+async function createConnectorRecord(label: string, purpose: string): Promise<string> {
+  const base = autoConnectorId(label);
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    // A taken short name is not worth asking the user about; pick another one.
+    const candidate = attempt === 0 ? base : `${base.slice(0, 53)}-${Math.random().toString(36).slice(2, 8)}`;
+    try {
+      await api.adminSave("/api/admin/connectors", { id: candidate, label, purpose }, "POST");
+      return candidate;
+    } catch (cause) {
+      if (codeOf(cause) !== "managed_connector_already_exists") throw cause;
+    }
+  }
+  throw new Error("无法为该名称生成未被占用的短名；请改用更具体的服务器名称后重试。");
+}
+
+async function saveConnectorSetup(input: {
   id: string;
   label: string;
-  purpose: string;
   transport: RuntimeConnectorTransport;
   url: string;
   noAuth: boolean;
-  timeoutMs: number;
   headerRows: HeaderRow[];
   iconFile: File | null;
-}): Promise<string> {
-  await api.adminSave("/api/admin/connectors", { id: input.id, label: input.label, purpose: input.purpose }, "POST");
+}): Promise<void> {
   const refs = await resolveHeaderRefs(input.headerRows, input.label);
   const config: RuntimeConnectorConfig & { expected_version: number } = {
     protocol: "mcp",
     transport: input.transport,
     url: input.url,
     allow_unauthenticated: input.noAuth,
-    timeout_ms: input.timeoutMs,
+    timeout_ms: 30_000,
     expected_version: 0,
   };
   if (Object.keys(refs).length) config.headers_secret_refs = refs;
@@ -217,13 +360,27 @@ async function createManagedMcp(input: {
       // The connector itself is created; icon upload can be retried from the detail page.
     }
   }
-  return input.id;
 }
 
-export function McpConfigPanel({ onClose, onDone }: { onClose: () => void; onDone: (message: string) => void }) {
+async function createManagedMcp(input: {
+  label: string;
+  purpose: string;
+  transport: RuntimeConnectorTransport;
+  url: string;
+  noAuth: boolean;
+  headerRows: HeaderRow[];
+  iconFile: File | null;
+}): Promise<string> {
+  const id = await createConnectorRecord(input.label, input.purpose);
+  await saveConnectorSetup({ ...input, id });
+  return id;
+}
+
+export function McpConfigPanel({ onClose, onDone }: {
+  onClose: () => void;
+  onDone: (message: string, tone?: "ok" | "warn") => void;
+}) {
   const [label, setLabel] = useState("");
-  const [id, setId] = useState("");
-  const [idTouched, setIdTouched] = useState(false);
   const [transport, setTransport] = useState<RuntimeConnectorTransport>("streamable-http");
   const [purpose, setPurpose] = useState("");
   const [url, setUrl] = useState("");
@@ -232,12 +389,11 @@ export function McpConfigPanel({ onClose, onDone }: { onClose: () => void; onDon
   const [iconFile, setIconFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const createdRef = useRef<string | null>(null);
 
-  const effectiveId = idTouched ? id : slugFromLabel(label);
-  const submit = async () => {
+  const submit = async (publish: boolean) => {
     const problems: string[] = [];
     if (!label.trim()) problems.push("请填写服务器名称。");
-    if (!isConnectorIdValid(effectiveId)) problems.push("短名需要以小写字母开头，仅含小写字母、数字、- 或 _，至少 3 个字符。");
     if (!/^https?:\/\//.test(url.trim())) problems.push("服务器 URL 需要以 http:// 或 https:// 开头。");
     const headerProblem = headerRowsProblem(headers);
     if (headerProblem) problems.push(headerProblem);
@@ -250,19 +406,22 @@ export function McpConfigPanel({ onClose, onDone }: { onClose: () => void; onDon
     }
     setBusy(true);
     setError("");
+    const name = label.trim();
+    const note = purpose.trim() || "待补充业务用途";
     try {
-      await createManagedMcp({
-        id: effectiveId,
-        label: label.trim(),
-        purpose: purpose.trim() || "待补充业务用途",
-        transport,
-        url: url.trim(),
-        noAuth,
-        timeoutMs: 30_000,
-        headerRows: headers,
-        iconFile,
-      });
-      onDone(`已将“${label.trim()}”加入连接器目录；下一步在详情中测试并审阅接口。`);
+      const id = createdRef.current || await createManagedMcp({ label: name, purpose: note, transport, url: url.trim(), noAuth, headerRows: headers, iconFile });
+      createdRef.current = id;
+      if (publish) {
+        try {
+          await api.adminSave(`/api/admin/connectors/${encodeURIComponent(id)}`, { enabled: true }, "PATCH");
+          onDone(`已创建并发布“${name}”。`);
+        } catch (cause) {
+          const reason = friendlyEnableFailure(codeOf(cause)) || errorMessage(cause, "发布失败");
+          onDone(`“${name}”已保存为待验证草稿，但未能发布：${reason}`, "warn");
+        }
+        return;
+      }
+      onDone(`已将“${name}”加入连接器目录；下一步在详情的测试中完成验证。`);
     } catch (cause) {
       setError(errorMessage(cause, "创建连接器失败"));
     } finally {
@@ -273,43 +432,38 @@ export function McpConfigPanel({ onClose, onDone }: { onClose: () => void; onDon
   return (
     <ModalShell
       kind="mcp-config"
-      title="自定义 MCP"
-      subtitle="加入目录后再完成测试、接口审阅与范围治理。保存不等于启用。"
+      title="MCP 配置"
       onClose={onClose}
+      wide
       footer={
         <>
-          <button type="button" className="btn" onClick={onClose} disabled={busy}>取消</button>
-          <button type="button" className="btn work" data-connector-panel-save disabled={busy} onClick={() => void submit()}>
-            {busy ? "保存中…" : "保存草稿"}
-          </button>
+          <p className="connector-panel-note muted">保存只生成待验证草稿，不等于启用。</p>
+          <SplitButton
+            name="save"
+            variant="primary"
+            label={busy ? "保存中…" : "保存草稿"}
+            disabled={busy}
+            onPrimary={() => void submit(false)}
+            items={[{ label: "发布并保存", onSelect: () => void submit(true), disabled: busy }]}
+          />
         </>
       }
     >
       {error && <p className="error" role="alert" data-connector-panel-error>{error}</p>}
       <div className="connector-form-grid">
         <label className="field">服务器名称
-          <input value={label} placeholder="例如：My Custom Server" maxLength={120} data-connector-field="label" onChange={(event) => setLabel(event.target.value)} />
+          <input value={label} placeholder="e.g., My Custom Server" maxLength={120} data-connector-field="label" onChange={(event) => setLabel(event.target.value)} />
         </label>
-        <label className="field">短名
-          <input
-            value={effectiveId}
-            placeholder="my-custom-server"
-            maxLength={63}
-            data-connector-field="id"
-            onChange={(event) => { setIdTouched(true); setId(event.target.value); }}
-          />
-          <small className="muted">小写字母开头，创建后不可修改。</small>
+        <label className="field">传输类型
+          <select value={transport} data-connector-field="transport" onChange={(event) => setTransport(event.target.value as RuntimeConnectorTransport)}>
+            <option value="streamable-http">HTTP</option>
+            <option value="sse">SSE</option>
+          </select>
         </label>
       </div>
-      <label className="field">传输类型
-        <select value={transport} data-connector-field="transport" onChange={(event) => setTransport(event.target.value as RuntimeConnectorTransport)}>
-          <option value="streamable-http">HTTP（Streamable）</option>
-          <option value="sse">SSE</option>
-        </select>
-      </label>
-      <div className="field">图标<ConnectorIconUpload file={iconFile} onPick={setIconFile} /></div>
+      <div className="field">图标<ConnectorIconUpload variant="dialog" file={iconFile} onPick={setIconFile} /></div>
       <label className="field">备注（可选）
-        <textarea value={purpose} rows={3} maxLength={280} placeholder="说明此 MCP 提供的组织业务能力" onChange={(event) => setPurpose(event.target.value)} />
+        <textarea value={purpose} rows={5} maxLength={280} placeholder="提供 MCP 文档或说明，以告知平台如何及何时使用此 MCP" onChange={(event) => setPurpose(event.target.value)} />
       </label>
       <label className="field">服务器 URL
         <input value={url} placeholder="https://mcp.yourserver.com/mcp" data-connector-field="url" onChange={(event) => setUrl(event.target.value)} />
@@ -349,14 +503,13 @@ export function UrlAddPanel({ onClose, onDone }: { onClose: () => void; onDone: 
     setBusy(true);
     setError("");
     try {
-      await createManagedMcp({
+      await api.adminSave("/api/admin/connectors", { id: effectiveId, label: label.trim(), purpose: "待补充业务用途" }, "POST");
+      await saveConnectorSetup({
         id: effectiveId,
         label: label.trim(),
-        purpose: "待补充业务用途",
         transport,
         url: url.trim(),
         noAuth,
-        timeoutMs: 30_000,
         headerRows: headers,
         iconFile: null,
       });

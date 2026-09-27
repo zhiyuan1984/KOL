@@ -315,6 +315,110 @@
   border-top: 1px solid var(--border);
 }
 
+/* Filled, borderless controls inside the create/config dialogs */
+.connector-panel .field input:not([type="checkbox"]),
+.connector-panel .field textarea,
+.connector-panel .field select {
+  background: var(--control-bg);
+  border-color: transparent;
+  border-radius: var(--radius-control);
+}
+
+.connector-panel .field input:not([type="checkbox"]):focus-visible,
+.connector-panel .field textarea:focus-visible,
+.connector-panel .field select:focus-visible {
+  border-color: var(--control-border-hover);
+}
+
+.connector-panel-note {
+  margin: 0 auto 0 0;
+  align-self: center;
+  font-size: var(--ds-font-helper);
+}
+
+.connector-receipt-warn {
+  color: var(--danger);
+}
+
+/* Main button with a chevron segment that opens a small menu */
+.connector-split {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+
+/* `.connector-panel` keeps these radii ahead of `.btn.work` regardless of import order. */
+.connector-panel .connector-split .connector-split-btn {
+  border-radius: var(--radius-control);
+}
+
+.connector-panel .connector-split .connector-split-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.connector-panel .connector-split .connector-split-toggle {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  margin-left: -1px;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+.connector-split-toggle svg {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+}
+
+.connector-split-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 5;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--bg);
+  box-shadow: var(--shadow-quiet);
+}
+
+.connector-split-item {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  padding: 6px var(--space-2);
+  border-radius: var(--radius-control);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-ui);
+  white-space: nowrap;
+}
+
+.connector-split-item:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.connector-split-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Dialog variant of the icon field: no surrounding box, tighter preview */
+.connector-icon-field.is-bare {
+  padding: 0;
+  border: 0;
+}
+
+.connector-icon-field.is-bare .connector-icon-preview {
+  width: 56px;
+  height: 56px;
+}
+
 .connector-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

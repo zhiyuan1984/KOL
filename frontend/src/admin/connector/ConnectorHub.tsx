@@ -58,6 +58,7 @@ export function ConnectorHub({ connectors, users, loading, onSave, reload }: {
   const [toolsCard, setToolsCard] = useState<ConnectorCardView | null>(null);
   const [configCard, setConfigCard] = useState<ConnectorCardView | null>(null);
   const [notice, setNotice] = useState("");
+  const [noticeTone, setNoticeTone] = useState<"ok" | "warn">("ok");
   const [error, setError] = useState("");
   const [adding, setAdding] = useState("");
 
@@ -65,10 +66,11 @@ export function ConnectorHub({ connectors, users, loading, onSave, reload }: {
   const visible = cards.filter((card) => !needle || `${card.label} ${card.purpose} ${card.id}`.toLowerCase().includes(needle));
   const counts = useMemo(() => connectorHealthCounts(cards), [cards]);
 
-  const finishPanel = (message: string) => {
+  const finishPanel = (message: string, tone: "ok" | "warn" = "ok") => {
     setPanel(null);
     setError("");
     setNotice(message);
+    setNoticeTone(tone);
     reload();
   };
 
@@ -148,7 +150,16 @@ export function ConnectorHub({ connectors, users, loading, onSave, reload }: {
         </div>
       </div>
 
-      {notice && <p className="admin-receipt status-ok" role="status" data-connector-notice>{notice}</p>}
+      {notice && (
+        <p
+          className={"admin-receipt " + (noticeTone === "warn" ? "connector-receipt-warn" : "status-ok")}
+          role="status"
+          data-connector-notice
+          data-connector-notice-tone={noticeTone}
+        >
+          {notice}
+        </p>
+      )}
       {error && <p className="error" role="alert">{error}</p>}
 
       {!visible.length ? (
