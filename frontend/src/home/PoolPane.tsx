@@ -130,22 +130,22 @@ export default function PoolPane({ cards, totalCount, isFiltered, selectedIds, q
 
   return <section className="pool-compact-pane is-result-rail" data-pool-overview>
     <div className="pool-compact-toolbar" data-pool-toolbar data-home-entry="list-pool" aria-label="筛选与排序公海对象">
-      <div className="pool-toolbar-row is-primary" data-pool-toolbar-row="primary">
+      <div className="pool-toolbar-primary">
         <label className="pool-search"><SearchIcon /><span className="sr-only">搜索公海对象</span>
           <input type="search" data-pool-search value={query} placeholder="搜索" onChange={(event) => onQuery(event.target.value)} />
         </label>
+        <label className="pool-select-all" title="全选当前筛选结果"><input type="checkbox" data-pool-select-all
+          checked={selectAllChecked(cards.length, selectedVisibleIds.length)} disabled={!cards.length}
+          onChange={(event) => onToggleSelectAll(visibleIds, event.target.checked)} /><span>全选</span></label>
         <button type="button" className="pool-filter-button" data-pool-filter="new" aria-pressed={filter === "new"}
           onClick={() => onFilter(filter === "new" ? "all" : "new")}>未首次建联</button>
         <button type="button" className="pool-filter-button" data-pool-filter="overdue" aria-pressed={filter === "overdue"}
           onClick={() => onFilter(filter === "overdue" ? "all" : "overdue")}>14天未联系</button>
+      </div>
+      <div className="pool-toolbar-sort" aria-label="公海排序">
         <SortButton field="ingested" label="入库时间" sort={sort} onToggle={onToggleSort} />
         <SortButton field="followers" label="粉丝数" sort={sort} onToggle={onToggleSort} />
         <SortButton field="score" label="评分" sort={sort} onToggle={onToggleSort} />
-      </div>
-      <div className="pool-toolbar-row is-secondary" data-pool-toolbar-row="secondary">
-        <label className="pool-select-all" title="全选当前筛选结果"><input type="checkbox" data-pool-select-all
-          checked={selectAllChecked(cards.length, selectedVisibleIds.length)} disabled={!cards.length}
-          onChange={(event) => onToggleSelectAll(visibleIds, event.target.checked)} /><span>全选</span></label>
       </div>
     </div>
     {undoAvailable && <div className="pool-claim-undo" role="status" data-pool-claim-undo><span>已领取</span><span aria-hidden>·</span><button type="button" data-pool-claim-undo-button data-home-entry="release-follow" disabled={undoBusy} onClick={onUndoClaim}>{undoBusy ? "正在撤销…" : "撤销"}</button>{undoError && <span className="pool-claim-undo-error" role="alert">{undoError}</span>}</div>}

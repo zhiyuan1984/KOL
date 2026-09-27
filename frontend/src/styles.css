@@ -14727,6 +14727,9 @@ button.today-brief-primary-btn:disabled {
   width: auto;
   min-width: 0;
 }
+.scope-task-rail .pool-toolbar-primary .pool-search {
+  flex: 0 1 clamp(5.25rem, 6.75vw, 6rem);
+}
 .scope-task-rail .pool-compact-toolbar input[type="search"] {
   height: var(--control-h);
   min-height: var(--control-h);

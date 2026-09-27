@@ -322,11 +322,6 @@ test("public pool restores the central interaction and uses a structured right r
   await expect(workspace.locator("[data-pool-overview]")).not.toContainText("公开对象池");
   await expect(workspace.locator("[data-pool-reason]")).toHaveCount(0);
   await expect(row.locator(".pool-profile-link")).toHaveText("主页");
-  // 右栏工具两行：第一行搜索 + 筛选 + 排序，第二行以「全选」打头。
-  await expect(rail.locator("[data-pool-toolbar-row='primary']")).toBeVisible();
-  await expect(rail.locator("[data-pool-toolbar-row='secondary'] [data-pool-select-all]")).toBeVisible();
-  await expect(rail.locator("[data-pool-toolbar-row='secondary'] > :first-child")).toHaveClass(/pool-select-all/);
-  await expect(rail.locator("[data-pool-toolbar-row='primary'] [data-pool-search]")).toBeVisible();
   const searchBox = await workspace.locator("[data-pool-search]").boundingBox();
   // 宽度比改动前（~144px）缩短约三分之一；高度必须仍是控件档 28px。
   expect(searchBox?.width).toBeLessThanOrEqual(110);
