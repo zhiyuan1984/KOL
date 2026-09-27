@@ -67,6 +67,8 @@ export type MailMessage = {
   from_name?: string;
   to_addr?: string;
   subject: string;
+  /** Individual message title. Empty means the provider supplied no title. */
+  title: string;
   snippet: string;
   body_text?: string;
   letter_summary: string;

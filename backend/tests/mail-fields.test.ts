@@ -8,6 +8,7 @@ import {
   matchCollaboration,
   messageFrom,
   messageOccurredAt,
+  messageTitle,
   occurredAtMs,
   realMailboxEmail,
   replySubjectOf,
@@ -44,6 +45,11 @@ describe("starry mail field helpers", () => {
   it("reads the real subject from subject groups and builds Re:", () => {
     expect(conversationSubject({ subject: "" }, { list: [{ subject: "KOL合作" }] })).toBe("KOL合作");
     expect(replySubjectOf("KOL合作")).toBe("Re: KOL合作");
+  });
+
+  it("reads the individual message title without falling back to subject", () => {
+    expect(messageTitle({ subject: "邮件主题", title: "邮件标题" })).toBe("邮件标题");
+    expect(messageTitle({ subject: "邮件主题" })).toBe("");
   });
 
   it("sorts letters by occurred time, not conversation id or ingest order", () => {

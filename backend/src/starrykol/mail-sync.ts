@@ -33,6 +33,7 @@ import {
   messageBody,
   messageFrom,
   messageOccurredAt,
+  messageTitle,
   messageTo,
 } from "./mail-fields.js";
 import { executeStarryKolTask } from "./service.js";
@@ -317,9 +318,15 @@ function rememberItem(
 ): boolean {
   const inbound = inboundOf(message, col, mailboxEmail);
   const providerId = firstString(message.messageId, message.message_id, message.id, message.mailId);
+  const title = messageTitle(message);
   if (providerId) {
     const seen = getConn().prepare("SELECT id FROM kol_mail_items WHERE provider_message_id=?").get(providerId) as { id: string } | undefined;
-    if (seen) return false;
+    if (seen) {
+      // Existing cache rows predate the title field. A detail refresh upgrades
+      // them in place instead of retaining a duplicate subject in the L3 row.
+      getConn().prepare("UPDATE kol_mail_items SET title=? WHERE id=?").run(title, seen.id);
+      return false;
+    }
   }
   const body = messageBody(message);
   const from = messageFrom(message);
@@ -345,9 +352,9 @@ function rememberItem(
   });
   getConn().prepare(
     `INSERT INTO kol_mail_items
-     (id, thread_id, collaboration_id, conversation_id, provider_message_id, direction, subject, snippet, unread, occurred_at, created_at,
+     (id, thread_id, collaboration_id, conversation_id, provider_message_id, direction, subject, title, snippet, unread, occurred_at, created_at,
       from_addr, from_name, to_addr, body_text, summary, summary_zh, summary_source, receipt_status, receipt_at, effective)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     nid("kmi"),
     threadId,
@@ -356,6 +363,7 @@ function rememberItem(
     providerId || identity.identity_hash,
     direction,
     subject,
+    title,
     body.slice(0, 280),
     inbound && isUnread(message) ? 1 : inbound ? 1 : 0,
     firstString(message.sentAt, message.createdAt, message.time, message.ts) || nowIso(),
@@ -687,15 +695,22 @@ function conversationNeedsDetail(conv: Json, mailbox: string): boolean {
   if (!conversationId) return false;
   const lookupMailbox = mailbox || conversationMailboxOf(conv);
   const existing = getConn().prepare(
-    "SELECT last_at FROM kol_mail_threads WHERE conversation_id=? ORDER BY updated_at DESC LIMIT 1",
-  ).get(conversationId) as { last_at?: string } | undefined;
+    "SELECT id, last_at FROM kol_mail_threads WHERE conversation_id=? ORDER BY updated_at DESC LIMIT 1",
+  ).get(conversationId) as { id?: string; last_at?: string } | undefined;
   const binding = lookupMailbox ? getConn().prepare(
     "SELECT sync_cursor_at FROM user_starry_bindings WHERE lower(mailbox_email)=lower(?) LIMIT 1",
   ).get(lookupMailbox) as { sync_cursor_at?: string } | undefined : undefined;
+  // `title IS NULL` identifies rows cached before this field existed. A fresh
+  // remote read backfills them once; an empty string means the provider truly
+  // supplied no title and must render as `—`, not retry forever.
+  const titleNeedsBackfill = existing?.id
+    ? Boolean(getConn().prepare("SELECT 1 FROM kol_mail_items WHERE thread_id=? AND title IS NULL LIMIT 1").get(existing.id))
+    : false;
   const unread = Number(conv.unreadCount ?? conv.unread_count);
   const remoteAt = remoteConversationTime(conv);
   const rememberedAt = Math.max(timestampMs(existing?.last_at), timestampMs(binding?.sync_cursor_at));
   return !existing
+    || titleNeedsBackfill
     || (Number.isFinite(unread) && unread > 0)
     || (timestampMs(remoteAt) > rememberedAt);
 }

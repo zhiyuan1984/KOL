@@ -43,6 +43,7 @@ export type MessageRow = {
   from_name: string;
   to_addr: string;
   subject: string;
+  title: string;
   snippet: string;
   body_text?: string;
   letter_summary: string;
@@ -137,6 +138,7 @@ export function messageRowOf(row: Row | Json): MessageRow {
     from_name: String(row.from_name || ""),
     to_addr: String(row.to_addr || ""),
     subject: String(row.subject || ""),
+    title: String(row.title || ""),
     snippet: String(row.snippet || ""),
     ...(body ? { body_text: body } : {}),
     letter_summary: String(row.summary || row.summary_zh || ""),

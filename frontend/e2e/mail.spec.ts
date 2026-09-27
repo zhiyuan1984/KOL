@@ -210,6 +210,7 @@ const FORMAL_THREAD = {
       from_addr: "amy@example.com",
       to_addr: "larry.zhao@amperetime.com",
       subject: "Re: LiTime collab",
+      title: "达人确认合作意向",
       snippet: "想和贵品牌合作",
       body_text: "Hello\n想和贵品牌litime合作",
       letter_summary: "想和贵品牌合作",
@@ -361,6 +362,42 @@ test("回复 prefills the on-page composer; 快速分析 enqueues on click witho
   await expect(page).toHaveURL(/\/mail\?/);
   expect(fromText).toEqual([]);
   expect(sessionPosts).toEqual([]);
+});
+
+test("L3 uses each message title instead of the L2 conversation subject", async ({ page }) => {
+  await mockFormalMail(page);
+  await page.goto("/mail?c=3901");
+
+  await expect(page.locator('[data-mail-timeline-item="m2"] [data-mail-timeline-title]')).toHaveText("达人确认合作意向");
+  await expect(page.locator('[data-mail-timeline-item="m2"] [data-mail-timeline-title]')).not.toHaveText("Re: LiTime collab");
+  // A provider row without a title is explicit, rather than duplicating the
+  // conversation subject in the per-message title position.
+  await expect(page.locator('[data-mail-timeline-item="m1"] [data-mail-timeline-title]')).toHaveText("—");
+});
+
+test("context chips insert at the saved selection and × only dismisses that chip", async ({ page }) => {
+  await mockFormalMail(page);
+  await page.goto("/mail?c=3901");
+  await page.locator("[data-mail-reply]").click();
+
+  const input = page.locator("[data-composer-input]");
+  await input.fill("alpha omega");
+  await input.evaluate((node) => {
+    const textarea = node as HTMLTextAreaElement;
+    textarea.focus();
+    textarea.setSelectionRange(6, 11);
+    textarea.dispatchEvent(new Event("select", { bubbles: true }));
+  });
+  await page.locator('[data-composer-chip-insert="subject"]').click();
+  await expect(input).toHaveValue("alpha Re: LiTime collab");
+  await expect.poll(() => input.evaluate((node) => ({
+    start: (node as HTMLTextAreaElement).selectionStart,
+    end: (node as HTMLTextAreaElement).selectionEnd,
+  }))).toEqual({ start: 23, end: 23 });
+
+  await page.locator('[data-composer-draft-chip="subject"] .chip-x').click();
+  await expect(page.locator('[data-composer-draft-chip="subject"]')).toHaveCount(0);
+  await expect(input).toHaveValue("alpha Re: LiTime collab");
 });
 
 test("邮件任务 chip fills the提问框 from the compose catalog", async ({ page }) => {

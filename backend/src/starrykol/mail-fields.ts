@@ -46,6 +46,23 @@ export function messageSubject(row: Json): string {
   );
 }
 
+/**
+ * A conversation subject and an individual email title are distinct fields in
+ * the mailbox UI.  Only read title-shaped properties here: falling back to
+ * subject would duplicate the L2 conversation subject in the L3 title row.
+ */
+export function messageTitle(row: Json): string {
+  return firstString(
+    row.title,
+    row.messageTitle,
+    row.message_title,
+    row.emailTitle,
+    row.email_title,
+    row.mailTitle,
+    row.mail_title,
+  );
+}
+
 export function conversationSubject(...rows: Json[]): string {
   for (const row of rows) {
     const direct = messageSubject(row);

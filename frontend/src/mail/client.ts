@@ -124,6 +124,7 @@ function normalizeMessage(raw: Record<string, unknown>, conversationId: string):
     from_name: text(raw.from_name) || undefined,
     to_addr: text(raw.to_addr) || undefined,
     subject: text(raw.subject),
+    title: text(raw.title || raw.message_title || raw.messageTitle || raw.email_title || raw.emailTitle),
     snippet: text(raw.snippet || raw.letter_summary || raw.summary || raw.summary_zh),
     body_text: raw.body_text ? String(raw.body_text) : undefined,
     letter_summary: text(raw.letter_summary || raw.summary || raw.summary_zh || raw.snippet),

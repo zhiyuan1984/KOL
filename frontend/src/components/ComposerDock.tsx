@@ -121,6 +121,10 @@ function triggerQuery(value: string, caret: number): { start: number; q: string;
   return null;
 }
 
+function objectChipKey(input: { id: string; kind?: string; objectKind?: string }): string {
+  return `${input.objectKind || input.kind || "context"}:${input.id}`;
+}
+
 export default function ComposerDock({
   value,
   onChange,
@@ -231,8 +235,10 @@ export default function ComposerDock({
   const [focused, setFocused] = useState(false);
   const [composing, setComposing] = useState(false);
   const [discoveryTextExpanded, setDiscoveryTextExpanded] = useState(false);
+  const [dismissedObjectChipKeys, setDismissedObjectChipKeys] = useState<string[]>([]);
   const { debug } = useViewMode();
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const selectionRef = useRef({ start: value.length, end: value.length });
   const fileRef = useRef<HTMLInputElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -240,6 +246,18 @@ export default function ComposerDock({
   const onKnowledgeChangeRef = useRef(onKnowledgeChange);
   const lockSourceRef = useRef<"auto" | "explicit" | null>(lockedKnowledgeId ? "explicit" : null);
   onKnowledgeChangeRef.current = onKnowledgeChange;
+
+  const objectChipSignature = [
+    ...objectRefs.map((ref) => `${objectChipKey({ id: ref.id, kind: ref.kind })}:${ref.label || ""}`),
+    ...(contextChips || []).map((chip) => `${objectChipKey({ id: chip.id, objectKind: chip.objectKind })}:${chip.label}`),
+  ].join("|");
+
+  useEffect(() => {
+    // Context follows the selected mailbox conversation. A different context
+    // starts with its complete chip set, while a deliberate local dismissal
+    // remains effective for the current one.
+    setDismissedObjectChipKeys([]);
+  }, [objectChipSignature]);
 
   useEffect(() => {
     let cancelled = false;
@@ -499,6 +517,7 @@ export default function ComposerDock({
       chips.push({ kind: "project", id: selectedProject.id, label: selectedProject.label });
     }
     for (const ref of objectRefs) {
+      if (dismissedObjectChipKeys.includes(objectChipKey({ id: ref.id, kind: ref.kind }))) continue;
       chips.push({
         kind: "object",
         id: ref.id,
@@ -510,6 +529,7 @@ export default function ComposerDock({
       // Mode/intent labels belong in the composer shell, not the chip rail:
       // the rail carries only context the user explicitly added (图1 reference).
       if (chip.id === DISCOVERY_INTENT) continue;
+      if (dismissedObjectChipKeys.includes(objectChipKey({ id: chip.id, objectKind: chip.objectKind }))) continue;
       if (chips.some((item) => item.id === chip.id && item.kind === "object")) continue;
       chips.push({
         kind: "object",
@@ -524,6 +544,7 @@ export default function ComposerDock({
     connectorChips,
     contextChips,
     discoveryBrief,
+    dismissedObjectChipKeys,
     entryIntent,
     expertId,
     kbChips,
@@ -611,6 +632,14 @@ export default function ComposerDock({
     setPlusOpen(false);
   };
 
+  const rememberEditorSelection = (node: HTMLTextAreaElement | null = inputRef.current) => {
+    if (!node) return;
+    const start = node.selectionStart;
+    const end = node.selectionEnd;
+    if (start == null || end == null) return;
+    selectionRef.current = { start, end };
+  };
+
   const focusEditor = (pos?: number) => {
     requestAnimationFrame(() => {
       const node = inputRef.current;
@@ -618,6 +647,7 @@ export default function ComposerDock({
       node.focus();
       const at = pos ?? node.value.length;
       node.setSelectionRange(at, at);
+      selectionRef.current = { start: at, end: at };
     });
   };
 
@@ -741,7 +771,9 @@ export default function ComposerDock({
       return;
     }
     if (chip.kind === "object") {
-      onObjectRefsChange?.(objectRefs.filter((item) => item.id !== chip.id));
+      const key = objectChipKey({ id: chip.id, objectKind: chip.objectKind });
+      setDismissedObjectChipKeys((current) => current.includes(key) ? current : [...current, key]);
+      onObjectRefsChange?.(objectRefs.filter((item) => !(item.id === chip.id && item.kind === chip.objectKind)));
       return;
     }
     if (chip.kind === "discovery") {
@@ -780,6 +812,25 @@ export default function ComposerDock({
   const workspace = variant === "workspace";
   const placeholder = hint && !value.trim() ? hint : COMPOSER_PLACEHOLDER;
   const sendState = running ? "stop" : canSend && !sendDisabled ? "ready" : "idle";
+
+  const insertChipText = (chip: ComposerChip) => {
+    if (busy || running || !chip.label) return;
+    const max = value.length;
+    const start = Math.max(0, Math.min(selectionRef.current.start, max));
+    const end = Math.max(start, Math.min(selectionRef.current.end, max));
+    const next = `${value.slice(0, start)}${chip.label}${value.slice(end)}`;
+    const caret = start + chip.label.length;
+    onMailBodyEdit?.();
+    onChange(next);
+    requestAnimationFrame(() => {
+      const node = inputRef.current;
+      if (!node) return;
+      node.focus();
+      node.setSelectionRange(caret, caret);
+      selectionRef.current = { start: caret, end: caret };
+      refreshAt(next, caret);
+    });
+  };
 
   const submit = () => {
     if (running || sendDisabled) return;
@@ -1031,7 +1082,7 @@ export default function ComposerDock({
           submit();
         }}
       >
-        <ChipRail chips={railChips} onRemove={removeChip} />
+        <ChipRail chips={railChips} onRemove={removeChip} onInsert={insertChipText} />
         {mailCompose?.active ? (
           <label className="composer-mail-subject" data-mail-compose-subject>
             <span>主题</span>
@@ -1081,12 +1132,16 @@ export default function ComposerDock({
             // the next render's active flag here: a keystroke immediately
             // after selecting mail must still invalidate that response.
             onMailBodyEdit?.();
+            rememberEditorSelection(e.currentTarget);
             onChange(e.target.value);
             refreshAt(e.target.value, e.target.selectionStart ?? e.target.value.length);
           }}
           onCompositionStart={() => setComposing(true)}
           onCompositionEnd={() => setComposing(false)}
-          onKeyUp={() => refreshAt(value)}
+          onKeyUp={(e) => {
+            rememberEditorSelection(e.currentTarget);
+            refreshAt(e.currentTarget.value, e.currentTarget.selectionStart ?? e.currentTarget.value.length);
+          }}
           onKeyDown={(e) => {
             if (e.key === "Escape") {
               setPicker(false);
@@ -1127,14 +1182,20 @@ export default function ComposerDock({
               submit();
             }
           }}
-          onFocus={() => {
+          onFocus={(e) => {
+            rememberEditorSelection(e.currentTarget);
             setComposerFocus(true);
-            refreshAt(value);
+            refreshAt(e.currentTarget.value, e.currentTarget.selectionStart ?? e.currentTarget.value.length);
           }}
           onBlur={(e) => {
+            rememberEditorSelection(e.currentTarget);
             if (!e.currentTarget.form?.contains(e.relatedTarget as Node)) setComposerFocus(false);
           }}
-          onClick={() => refreshAt(value)}
+          onClick={(e) => {
+            rememberEditorSelection(e.currentTarget);
+            refreshAt(e.currentTarget.value, e.currentTarget.selectionStart ?? e.currentTarget.value.length);
+          }}
+          onSelect={(e) => rememberEditorSelection(e.currentTarget)}
           onPaste={(e) => {
             const files = Array.from(e.clipboardData.files);
             if (files.length) {

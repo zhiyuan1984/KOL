@@ -107,6 +107,7 @@ export function threadFromFallback(row: MailConversation): MailThread {
           from_name: row.peer_name || row.peer_email || undefined,
           to_addr: row.mailbox || undefined,
           subject: row.subject,
+          title: "",
           snippet,
           body_text: snippet,
           letter_summary: snippet,

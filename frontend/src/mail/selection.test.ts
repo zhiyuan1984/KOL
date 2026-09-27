@@ -4,7 +4,7 @@ import type { MailConversation, MailMessage } from "./types";
 
 const msg = (id: string, at: string | null): MailMessage => ({
   id, conversation_id: "3901", direction: "inbound", occurred_at: at,
-  from_addr: "amy@example.com", subject: "Re: LiTime collab", snippet: "",
+  from_addr: "amy@example.com", subject: "Re: LiTime collab", title: "邮件标题", snippet: "",
   letter_summary: "", summary_source: "",
 });
 

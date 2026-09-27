@@ -4,7 +4,7 @@ import type { MailMessage } from "../types";
 export type MailReadState = "read" | "unread";
 
 /**
- * L3 of the mailbox tree: one mail. Title, read state and the 收/发 stamp —
+ * L3 of the mailbox tree: one mail. Its own title, read state and the 收/发 stamp —
  * nothing else, so a conversation stays scannable at 280–320px.
  */
 export function MailTimelineItem({
@@ -31,8 +31,8 @@ export function MailTimelineItem({
       aria-current={selected ? "true" : undefined}
       onClick={onSelect}
     >
-      <span className="mail-timeline-subject" data-mail-timeline-subject>
-        {message.subject || "(无主题)"}
+      <span className="mail-timeline-subject" data-mail-timeline-subject data-mail-timeline-title>
+        {message.title || "—"}
       </span>
       <span className="mail-timeline-meta">
         <span className={"mail-read-tag is-" + readState} data-mail-read-label>

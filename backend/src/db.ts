@@ -1145,6 +1145,7 @@ function rebuildKolMailItems(db: SqliteConn): void {
       provider_message_id TEXT,
       direction TEXT,
       subject TEXT,
+      title TEXT,
       snippet TEXT,
       unread INTEGER NOT NULL DEFAULT 1,
       occurred_at TEXT,
@@ -1172,6 +1173,7 @@ function rebuildKolMailItems(db: SqliteConn): void {
     "provider_message_id",
     "direction",
     "subject",
+    have.has("title") ? "title" : "NULL",
     "snippet",
     "unread",
     "occurred_at",
@@ -1551,6 +1553,7 @@ function migrateSchema(db: SqliteConn): void {
             provider_message_id TEXT,
             direction TEXT,
             subject TEXT,
+            title TEXT,
             snippet TEXT,
             unread INTEGER NOT NULL DEFAULT 1,
             occurred_at TEXT,
@@ -1570,6 +1573,7 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "kol_mail_items", "from_addr", "TEXT");
   add(db, "kol_mail_items", "from_name", "TEXT");
   add(db, "kol_mail_items", "to_addr", "TEXT");
+  add(db, "kol_mail_items", "title", "TEXT");
   add(db, "kol_mail_items", "body_text", "TEXT");
   add(db, "kol_mail_items", "summary", "TEXT");
   add(db, "kol_mail_items", "summary_zh", "TEXT");

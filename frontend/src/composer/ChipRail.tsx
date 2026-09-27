@@ -3,9 +3,11 @@ import type { ComposerChip } from "./types";
 export default function ChipRail({
   chips,
   onRemove,
+  onInsert,
 }: {
   chips: ComposerChip[];
   onRemove: (chip: ComposerChip, index: number) => void;
+  onInsert?: (chip: ComposerChip, index: number) => void;
 }) {
   if (!chips.length) return null;
   return (
@@ -24,19 +26,34 @@ export default function ChipRail({
           data-attachment-name={chip.kind === "attachment" ? chip.label : undefined}
           data-composer-draft-chip={chip.kind === "object" ? chip.id : undefined}
         >
-          <span>
+          <button
+            type="button"
+            className="composer-chip-insert"
+            data-composer-chip-insert={chip.id}
+            title="插入到提问框"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => onInsert?.(chip, index)}
+          >
             {chipLabel(chip)}
             {chip.kind === "attachment" ? (
               <small>
                 {[chip.type, chip.size ? formatChipSize(chip.size) : "", "已上传"].filter(Boolean).join(" · ")}
               </small>
             ) : null}
-          </span>
+          </button>
           <button
             type="button"
             className="chip-x"
             aria-label={`移除 ${chipLabel(chip)}`}
-            onClick={() => onRemove(chip, index)}
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onRemove(chip, index);
+            }}
           >
             ×
           </button>

@@ -104,9 +104,10 @@ function stubStarry(extraConversations: Json[] = []): void {
             conversationId: 3901,
             subject: "Re: LiTime MCP 连通测试",
             messages: [
-              { id: "mid-3901-1", direction: "outbound", body: "Hello", unread: false, from: "larry.zhao@amperetime.com" },
+              { id: "mid-3901-1", title: "品牌首次联系", direction: "outbound", body: "Hello", unread: false, from: "larry.zhao@amperetime.com" },
               {
                 id: "mid-3901-2",
+                title: "达人确认合作意向",
                 direction: "inbound",
                 body: "这是一封测试邮件，请查收，我现在想和贵品牌litime合作",
                 unread: true,
@@ -171,6 +172,24 @@ describe("mailbox memory P0", () => {
     expect(calls).toEqual([]);
     expect(starryBefore).toBeGreaterThan(0);
     expect(String(opened.body.digest_source || (opened.body.conversation as Json).digest_source)).not.toBe("codex_memory");
+  });
+
+  it("returns each mail title separately from the conversation subject", async () => {
+    bindLarry();
+    await ensureFollowedMailSync(true);
+    const listed = await request("GET", "/api/mail/conversations");
+    const conversation = (listed.body.conversations as Json[]).find((row) => row.conversation_id === "3901")!;
+    const opened = await request("GET", `/api/mail/conversations/${conversation.id}`);
+    const message = (opened.body.messages as Json[]).find((row) => row.provider_message_id === "mid-3901-2");
+
+    expect(conversation.subject).toBe("Re: LiTime MCP 连通测试");
+    expect(message).toMatchObject({
+      subject: "Re: LiTime MCP 连通测试",
+      title: "达人确认合作意向",
+    });
+    // No title from the provider stays empty; the frontend renders `—` instead
+    // of silently copying the L2 conversation subject into the L3 title row.
+    expect((opened.body.messages as Json[]).find((row) => row.provider_message_id === "mid-3901-3")?.title).toBe("");
   });
 
   it("lists unbound conversations with match_state=unbound and does not create a Collaboration", async () => {

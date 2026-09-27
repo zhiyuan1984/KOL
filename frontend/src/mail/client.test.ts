@@ -142,6 +142,7 @@ describe("mail client vs PR #177 shapes", () => {
         conversation_id: "3901",
         direction: "inbound",
         from_name: "Amy",
+        title: "邮件标题",
         summary: "想和贵品牌合作",
         summary_zh: "想和贵品牌合作",
         summary_source: "body_analysis",
@@ -152,10 +153,29 @@ describe("mail client vs PR #177 shapes", () => {
     });
     expect(thread?.messages[0]).toMatchObject({
       from_addr: "Amy",
+      title: "邮件标题",
       letter_summary: "想和贵品牌合作",
       summary_source: "body_analysis",
     });
     expect(thread?.digest.source).toBe("body_analysis");
+  });
+
+  it("does not reuse the conversation subject as an empty message title", () => {
+    const thread = normalizeThread({
+      conversation: {
+        id: "thr_1",
+        conversation_id: "3901",
+        subject: "会话主题",
+        peer_email: "amy@example.com",
+      },
+      messages: [{
+        id: "m1",
+        conversation_id: "3901",
+        direction: "inbound",
+        subject: "会话主题",
+      }],
+    });
+    expect(thread?.messages[0]).toMatchObject({ subject: "会话主题", title: "" });
   });
 });
 
