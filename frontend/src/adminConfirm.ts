@@ -25,6 +25,7 @@ export type AdminConfirmCopy = {
 
 export type AdminConfirmKind =
   | "user-deactivate"
+  | "employee-tool-grants"
   | "connector-disable"
   | "grant-revoke"
   | "grant-write"
@@ -73,6 +74,28 @@ export function userDeactivateConfirm(name: string, email = ""): AdminConfirmCop
     scope: "组织账号 · 登录与工作台授权",
     consequence: "该员工立即无法登录或使用工作台。已发出的邮件与审计记录保留。可在本页再次启用。",
     confirmLabel: "确认停用",
+  };
+}
+
+export function employeeToolGrantsConfirm(input: {
+  name: string;
+  email?: string;
+  added: string[];
+  revoked: string[];
+}): AdminConfirmCopy {
+  const changes = [
+    input.added.length ? `授予：${input.added.join("、")}` : "",
+    input.revoked.length ? `停用：${input.revoked.join("、")}` : "",
+  ].filter(Boolean).join("；") || "授权范围不变";
+  return {
+    kind: "employee-tool-grants",
+    title: "保存员工工具授权",
+    object: named(input.name, input.email),
+    scope: "员工个人 · 已发布工具",
+    change: changes,
+    consequence: "新增工具立即按现有运行时策略生效；被停用的工具将无法再由该员工调用。连接器、数据范围和高风险动作仍受原有闸门约束。",
+    confirmLabel: "确认保存授权",
+    confirmTone: "primary",
   };
 }
 

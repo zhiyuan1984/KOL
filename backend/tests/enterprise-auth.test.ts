@@ -231,6 +231,47 @@ describe("production account and enterprise controls", () => {
     }
   });
 
+  it("returns employee binding detail and the runtime-backed tool list for admin governance", async () => {
+    const employee = await createEmployee("directory-user");
+    const now = new Date().toISOString();
+    getConn().prepare(
+      `INSERT INTO user_starry_bindings
+        (user_id,mailbox_email,is_default,mailbox_id,owner_name,bearer_token,status,updated_at)
+       VALUES (?,?,?,?,?,?,?,?)`,
+    ).run(employee.id, "directory@amperetime.com", 1, "mailbox_directory", "Directory User", "secret-bearer", "connected", now);
+    getConn().prepare(
+      `INSERT INTO kol_follow_index
+        (id,company_id,kol_uid,scope_brand,employee_id,status,claimed_at,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
+    ).run("follow_directory", "company:amperetime", "kol_directory", "LT", employee.id, "active", now, now, now);
+
+    const directory = await call("GET", "/api/admin/users");
+    const listed = (directory.json as unknown as Array<Record<string, unknown>>).find((row) => row.id === employee.id);
+    expect(listed).toMatchObject({ mailbox_count: 1, kol_count: 1 });
+
+    const context = await call("GET", `/api/admin/users/${employee.id}/context`);
+    expect(context.response.status).toBe(200);
+    expect(context.json.mailboxes).toEqual([expect.objectContaining({
+      mailbox_email: "directory@amperetime.com",
+      status: "connected",
+      is_default: true,
+    })]);
+    expect(context.json.mailboxes).not.toHaveProperty("0.bearer_token");
+    expect(context.json.kols).toEqual([expect.objectContaining({
+      kol_uid: "kol_directory",
+      display_name: "kol_directory",
+      scope_brand: "LT",
+    })]);
+
+    const before = await call("GET", `/api/admin/users/${employee.id}/tools`);
+    const initialTool = (before.json.tools as unknown as Array<Record<string, unknown>>).find((tool) => tool.id === "email_compose");
+    expect(initialTool).toMatchObject({ label: expect.any(String), granted: false });
+    await call("PUT", `/api/admin/users/${employee.id}/skills`, { skills: ["email_compose"] });
+    const after = await call("GET", `/api/admin/users/${employee.id}/tools`);
+    const grantedTool = (after.json.tools as unknown as Array<Record<string, unknown>>).find((tool) => tool.id === "email_compose");
+    expect(grantedTool).toMatchObject({ granted: true, assignable: expect.any(Boolean) });
+  });
+
   it("updates profile and password, invalidating old sessions", async () => {
     const profile = await call("PATCH", "/api/me", { name: "Renamed Admin", email: "admin@example.com" });
     expect(profile.json).toMatchObject({ name: "Renamed Admin", email: "admin@example.com" });

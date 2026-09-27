@@ -8,6 +8,7 @@ import AdminExams from "./AdminExams";
 import { AdminAgents } from "./AdminAgents";
 import { ConnectorDetail } from "../admin/connector/ConnectorDetail";
 import { ConnectorHub } from "../admin/connector/ConnectorHub";
+import { EmployeeDirectory, type DirectoryEmployee } from "../admin/employees/EmployeeDirectory";
 import {
   isBindAudit,
   isConnectorAudit,
@@ -18,11 +19,9 @@ import {
 import {
   APPROVAL_ROLE_OPTIONS,
   auditEventLabel,
-  roleLabel,
-  userStatusLabel,
 } from "../labels";
 import { SKILL_OPTIONS } from "../knowledgeCopy";
-import { approvalRoleSaveConfirm, retentionPolicyConfirm, userDeactivateConfirm } from "../adminConfirm";
+import { approvalRoleSaveConfirm, retentionPolicyConfirm } from "../adminConfirm";
 import { useAdminConfirm } from "../components/ConfirmDialog";
 import SkillLifecycle from "./SkillLifecycle";
 import { adminSectionOf, adminTabOf } from "../layout/adminNav";
@@ -84,7 +83,7 @@ export default function AdminConsole() {
         {notice && <p className="admin-receipt status-ok" data-admin-receipt role="status">{notice}</p>}
         {error && <p className="error" role="alert">{error}</p>}
 
-        {tab === "employees" && <EmployeesPanel users={users} onSave={save} />}
+        {tab === "employees" && <EmployeeDirectory users={users as DirectoryEmployee[]} onReload={load} />}
         {tab === "agents" && (
           <AdminAgents users={users} connectors={connectors} exams={exams} assignments={assignments} />
         )}
@@ -103,67 +102,6 @@ export default function AdminConsole() {
         {tab === "kol" && <LegacyAdmin />}
       </div>
     </div>
-  );
-}
-
-function EmployeesPanel({ users, onSave }: { users: AdminRow[]; onSave: SaveFn }) {
-  const { ask, dialog } = useAdminConfirm();
-  return (
-    <section className="admin-grid">
-      {dialog}
-      <AdminList
-        title="员工目录"
-        empty="暂无员工"
-        rows={users}
-        render={(user) => {
-          const inactive = user.active === false;
-          const name = rowTitle(user);
-          const email = String(user.email || user.username || "");
-          return (
-            <>
-              <p className="muted">{email}</p>
-              <span className="chip">{userStatusLabel(String(user.status || (inactive ? "inactive" : "active")))}</span>
-              <p className="muted">{Array.isArray(user.roles) ? user.roles.map((role) => roleLabel(String(role))).join(" / ") : ""}</p>
-              <button
-                type="button"
-                className={inactive ? "btn" : "btn danger"}
-                data-admin-user-action={inactive ? "activate" : "deactivate"}
-                onClick={() => {
-                  if (inactive) {
-                    void onSave(`/api/admin/users/${user.id}`, { active: true }, "员工已启用", "PATCH");
-                    return;
-                  }
-                  ask(userDeactivateConfirm(name, email), () =>
-                    onSave(`/api/admin/users/${user.id}`, { active: false }, "员工已停用", "PATCH"),
-                  );
-                }}
-              >
-                {inactive ? "启用" : "停用"}
-              </button>
-            </>
-          );
-        }}
-      />
-      <form
-        className="panel settings-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const d = new FormData(e.currentTarget);
-          void onSave("/api/admin/users", {
-            username: d.get("email"), name: d.get("name"), password: d.get("password"),
-            site: d.get("site"), position: d.get("position"), roles: ["employee"], brands: ["LT"],
-          }, "员工已创建", "POST");
-        }}
-      >
-        <h2>新增员工</h2>
-        <label className="field">姓名<input name="name" required /></label>
-        <label className="field">邮箱/账号<input name="email" required /></label>
-        <label className="field">临时密码<input name="password" type="password" minLength={10} required /></label>
-        <label className="field">站点<input name="site" /></label>
-        <label className="field">岗位<input name="position" placeholder="例如：KOL 经理" /></label>
-        <button className="btn work">创建员工</button>
-      </form>
-    </section>
   );
 }
 
@@ -234,23 +172,6 @@ function DataPanel({
         ))}
         {!filtered.length && slice !== "bind" && <p className="muted">此切片暂无记录。</p>}
       </div>
-    </section>
-  );
-}
-
-function AdminList({ title: heading, rows, empty, render }: { title: string; rows: AdminRow[]; empty: string; render: (row: AdminRow) => React.ReactNode }) {
-  return (
-    <section className="panel">
-      <h2>{heading}</h2>
-      {rows.map((row, i) => (
-        <article className="admin-row" key={String(row.id || i)}>
-          <div>
-            <strong>{rowTitle(row)}</strong>
-            {render(row)}
-          </div>
-        </article>
-      ))}
-      {!rows.length && <p className="muted">{empty}</p>}
     </section>
   );
 }

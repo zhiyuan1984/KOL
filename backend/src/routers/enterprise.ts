@@ -46,6 +46,10 @@ function pathBytes(target: string): number {
 function safeUser(row: Row): Json {
   const { password_hash: _password, ...rest } = row;
   const db = getConn();
+  const mailboxCount = db.prepare("SELECT COUNT(*) AS n FROM user_starry_bindings WHERE user_id=?")
+    .get(row.id) as Row;
+  const kolCount = db.prepare("SELECT COUNT(*) AS n FROM kol_follow_index WHERE employee_id=? AND status='active'")
+    .get(row.id) as Row;
   return {
     ...rest,
     email: row.username,
@@ -59,6 +63,8 @@ function safeUser(row: Row): Json {
       .map((grant) => `${grant.connector_id}:${grant.access}`),
     approval_roles: (db.prepare("SELECT approval_role FROM approval_role_bindings WHERE user_id=?").all(row.id) as Row[])
       .map((grant) => String(grant.approval_role)),
+    mailbox_count: Number(mailboxCount?.n || 0),
+    kol_count: Number(kolCount?.n || 0),
   };
 }
 
@@ -66,6 +72,67 @@ function userById(id: string): Row {
   const row = getConn().prepare("SELECT * FROM users WHERE id=?").get(id) as Row | undefined;
   if (!row) throw new HttpFail(404, "user not found");
   return row;
+}
+
+/** Management-only business binding projection; the Starry bearer is never selected. */
+function employeeContext(row: Row): Json {
+  const db = getConn();
+  const mailboxes = (db.prepare(
+    `SELECT mailbox_email,mailbox_id,owner_name,status,is_default,updated_at,synced_at,last_error
+       FROM user_starry_bindings
+      WHERE user_id=?
+      ORDER BY is_default DESC, updated_at DESC, mailbox_email COLLATE NOCASE`,
+  ).all(row.id) as Row[]).map((binding) => ({
+    mailbox_email: String(binding.mailbox_email || ""),
+    mailbox_id: binding.mailbox_id ? String(binding.mailbox_id) : null,
+    owner_name: String(binding.owner_name || ""),
+    status: String(binding.status || "unbound"),
+    is_default: Boolean(binding.is_default),
+    updated_at: binding.updated_at ? String(binding.updated_at) : null,
+    synced_at: binding.synced_at ? String(binding.synced_at) : null,
+    last_error: binding.last_error ? String(binding.last_error) : null,
+  }));
+  const kols = (db.prepare(
+    `SELECT f.id,f.kol_uid,f.scope_brand,f.claimed_at,
+            COALESCE(p.display_name,c.display_name,f.kol_uid) AS display_name,
+            COALESCE(c.stage_code,p.public_stage,'') AS stage_code,
+            c.owner_mailbox AS mailbox_email
+       FROM kol_follow_index f
+       LEFT JOIN kol_profile_index p ON p.company_id=f.company_id AND p.kol_uid=f.kol_uid
+       LEFT JOIN collaborations c ON c.id=f.collaboration_id
+      WHERE f.employee_id=? AND f.status='active'
+      ORDER BY f.claimed_at DESC, f.kol_uid`,
+  ).all(row.id) as Row[]).map((kol) => ({
+    id: String(kol.id || ""),
+    kol_uid: String(kol.kol_uid || ""),
+    display_name: String(kol.display_name || kol.kol_uid || ""),
+    scope_brand: String(kol.scope_brand || ""),
+    stage_code: String(kol.stage_code || ""),
+    mailbox_email: kol.mailbox_email ? String(kol.mailbox_email) : null,
+    claimed_at: kol.claimed_at ? String(kol.claimed_at) : null,
+  }));
+  return { user: safeUser(row), mailboxes, kols };
+}
+
+/** Direct employee capability grants are backed by the same PEP table used at runtime. */
+function employeeTools(row: Row): Json {
+  const granted = new Set(
+    (getConn().prepare("SELECT skill_id FROM user_skill_grants WHERE user_id=?").all(row.id) as Row[])
+      .map((grant) => String(grant.skill_id)),
+  );
+  return {
+    tools: SKILL_CATALOG
+      .filter((skill) => skill.employee_visible || granted.has(skill.id))
+      .map((skill) => ({
+        id: skill.id,
+        label: skill.label,
+        summary: skill.summary,
+        category: skill.category,
+        published: Boolean(skill.in_market),
+        granted: granted.has(skill.id),
+        assignable: Boolean(skill.in_market),
+      })),
+  };
 }
 
 /** Catalog card metadata; an unreadable runtime table degrades to the MCP defaults. */
@@ -157,6 +224,16 @@ enterprise.post("/admin/users", async (c) => {
 enterprise.get("/admin/users/:uid", (c) => {
   requireAdmin();
   return c.json(safeUser(userById(c.req.param("uid"))));
+});
+
+enterprise.get("/admin/users/:uid/context", (c) => {
+  requireAdmin();
+  return c.json(employeeContext(userById(c.req.param("uid"))));
+});
+
+enterprise.get("/admin/users/:uid/tools", (c) => {
+  requireAdmin();
+  return c.json(employeeTools(userById(c.req.param("uid"))));
 });
 
 enterprise.patch("/admin/users/:uid", async (c) => {

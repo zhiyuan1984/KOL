@@ -20,6 +20,43 @@ export type SessionRow = {
   agent_status?: "listening" | "running" | "waiting_approval" | "queued";
 };
 
+export type AdminEmployeeMailbox = {
+  mailbox_email: string;
+  mailbox_id: string | null;
+  owner_name: string;
+  status: string;
+  is_default: boolean;
+  updated_at: string | null;
+  synced_at: string | null;
+  last_error: string | null;
+};
+
+export type AdminEmployeeKol = {
+  id: string;
+  kol_uid: string;
+  display_name: string;
+  scope_brand: string;
+  stage_code: string;
+  mailbox_email: string | null;
+  claimed_at: string | null;
+};
+
+export type AdminEmployeeContext = {
+  user: Record<string, unknown>;
+  mailboxes: AdminEmployeeMailbox[];
+  kols: AdminEmployeeKol[];
+};
+
+export type AdminEmployeeTool = {
+  id: string;
+  label: string;
+  summary: string;
+  category: string;
+  published: boolean;
+  granted: boolean;
+  assignable: boolean;
+};
+
 export type ExpertKind = "business" | "collector" | "governance";
 export type ExpertPrimaryEntry = "think" | "job_console" | "approval_queue";
 export type ExpertSummonNextAction = "open_job_console" | "open_approval_queue" | "use_primary_entry";
@@ -1589,6 +1626,10 @@ export const api = {
   exam: () => fetch("/api/exam").then((r) => r.json()),
   admin: () => fetch("/api/admin").then((r) => r.json()),
   adminUsers: () => request<Record<string, unknown>[]>("/api/admin/users"),
+  adminEmployeeContext: (userId: string) =>
+    request<AdminEmployeeContext>(`/api/admin/users/${encodeURIComponent(userId)}/context`),
+  adminEmployeeTools: (userId: string) =>
+    request<{ tools: AdminEmployeeTool[] }>(`/api/admin/users/${encodeURIComponent(userId)}/tools`),
   adminOrganizationUnits: () => request<OrganizationUnitsResponse>("/api/admin/organization-units"),
   connectors: () => request<Record<string, unknown>[]>("/api/connectors"),
   adminConnectors: () => request<Record<string, unknown>[]>("/api/admin/connectors"),
