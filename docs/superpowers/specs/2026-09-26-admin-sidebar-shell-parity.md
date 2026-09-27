@@ -61,17 +61,21 @@
 | 簇 aria-label | 条目 label | href | `data-admin-nav` / `data-admin-tab` | 图标 |
 |---|---|---|---|---|
 | 治理日常 | 员工 | `/admin` | `employees` | 单人胸像（同账户块员工端图标） |
-| 治理日常 | 数据 | `/admin/data` | `data` | 数据库（顶盖 + 柱身 + 中环） |
-| 数字员工 | 数字员工治理 | `/admin/agents` | `agents` | 同员工端「数字员工」 |
-| 技能 | 技能 | `/admin/skills` | `skills` | 同员工端「技能目录」 |
+| 资产 | 连接 | `/admin/connectors` | `connectors` | 同员工端「连接器」 |
 | 资产 | 知识 | `/admin/knowledge` | `knowledge` | 同员工端「知识库」 |
 | 资产 | 审批 | `/admin/approvals` | `approvals` | 同员工端「审批」 |
-| 资产 | 考试 | `/admin/exams` | `exams` | 同员工端「考试」 |
-| 资产 | 连接器枢纽 | `/admin/connectors` | `connectors` | 同员工端「连接器」 |
+| 技能 | 技能 | `/admin/skills` | `skills` | 同员工端「技能目录」 |
+| 数字员工 | 考试 | `/admin/exams` | `exams` | 同员工端「考试」 |
+| 数字员工 | 治理 | `/admin/agents` | `agents` | 同员工端「数字员工」 |
+| 平台配置 | 数据 | `/admin/data` | `data` | 数据库（顶盖 + 柱身 + 中环） |
 | 平台配置 | 配置 | `/admin/kol` | `kol` | 滑杆（sliders-horizontal） |
 
-- 资产簇的顺序与员工端资产簇一致（知识 → 审批 → 考试 → 连接器）；`数据` 回到「治理日常」簇第二位。
-  该重排只为让分簇与员工端同形：条目文字、href、面板行为与权限闸门全部不变。
+- 2026-09-27 用户口径更新条目顺序与展示文字：**连接** = 原「连接器枢纽」、**治理** = 原「数字员工治理」；
+  分簇边界随之移动（治理日常 1 / 资产 3 / 技能 1 / 数字员工 2 / 平台配置 2，仍是 5 簇）。
+  `技能` 按 `ia-information-architecture.md` §4 保持独立一等入口；`考试` 是 `org-permissions.md` §管理端配套套件
+  所列的 Agent 治理闸门，与「治理」同簇；`数据`（数据 / 审计）与「配置」同属平台级设置。
+- `data-admin-nav` / `data-admin-tab`、href、面板行为与权限闸门全部不变；变更记录见
+  [`docs/DECISIONS.md`](../../DECISIONS.md) 的 ADR-2026-09-27。
 - 高亮与面板归一化同源：`adminTabOf(pathname)`（`/admin` 与未知段 → `employees`，与面板回落一致）。
 
 ## 4. 实现落点

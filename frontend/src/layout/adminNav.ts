@@ -17,6 +17,8 @@ export type AdminNavGroup = {
   rows: AdminNavRow[];
 };
 
+/** 条目顺序与展示文字按用户 2026-09-27 口径（连接 = 连接器枢纽、治理 = 数字员工治理）；
+ *  href / id / 面板与权限闸门不随文字变动。 */
 export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
   {
     label: "治理日常",
@@ -28,22 +30,28 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         icon: "M12 3a5 5 0 0 1 0 10 5 5 0 0 1 0-10 M20 21a8 8 0 0 0-16 0",
         end: true,
       },
-      {
-        id: "data",
-        label: "数据",
-        href: "/admin/data",
-        icon: "M21 5a9 3 0 0 1-18 0a9 3 0 0 1 18 0 M3 5v14a9 3 0 0 0 18 0V5 M3 12a9 3 0 0 0 18 0",
-      },
     ],
   },
   {
-    label: "数字员工",
+    label: "资产",
     rows: [
       {
-        id: "agents",
-        label: "数字员工治理",
-        href: "/admin/agents",
-        icon: "M12 4a3 3 0 0 1 3 3v1h2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2V7a3 3 0 0 1 3-3z M9 13h6 M9 16h4",
+        id: "connectors",
+        label: "连接",
+        href: "/admin/connectors",
+        icon: "M10 13a5 5 0 0 0 7.1.4l1.5-1.5a5 5 0 1 0-7.1-7.1L10.3 6 M14 11a5 5 0 0 0-7.1-.4L5.4 12.1a5 5 0 1 0 7.1 7.1L13.7 18",
+      },
+      {
+        id: "knowledge",
+        label: "知识",
+        href: "/admin/knowledge",
+        icon: "M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5z M20 5.5A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5z",
+      },
+      {
+        id: "approvals",
+        label: "审批",
+        href: "/admin/approvals",
+        icon: "M7 4h10a2 2 0 0 1 2 2v14H5V6a2 2 0 0 1 2-2z M9 4v3h6V4",
       },
     ],
   },
@@ -59,20 +67,8 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
     ],
   },
   {
-    label: "资产",
+    label: "数字员工",
     rows: [
-      {
-        id: "knowledge",
-        label: "知识",
-        href: "/admin/knowledge",
-        icon: "M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5z M20 5.5A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5z",
-      },
-      {
-        id: "approvals",
-        label: "审批",
-        href: "/admin/approvals",
-        icon: "M7 4h10a2 2 0 0 1 2 2v14H5V6a2 2 0 0 1 2-2z M9 4v3h6V4",
-      },
       {
         id: "exams",
         label: "考试",
@@ -80,16 +76,22 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         icon: "M3 9l9-5 9 5-9 5z M7 12v5c3 2 7 2 10 0v-5 M21 9v6",
       },
       {
-        id: "connectors",
-        label: "连接器枢纽",
-        href: "/admin/connectors",
-        icon: "M10 13a5 5 0 0 0 7.1.4l1.5-1.5a5 5 0 1 0-7.1-7.1L10.3 6 M14 11a5 5 0 0 0-7.1-.4L5.4 12.1a5 5 0 1 0 7.1 7.1L13.7 18",
+        id: "agents",
+        label: "治理",
+        href: "/admin/agents",
+        icon: "M12 4a3 3 0 0 1 3 3v1h2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2V7a3 3 0 0 1 3-3z M9 13h6 M9 16h4",
       },
     ],
   },
   {
     label: "平台配置",
     rows: [
+      {
+        id: "data",
+        label: "数据",
+        href: "/admin/data",
+        icon: "M21 5a9 3 0 0 1-18 0a9 3 0 0 1 18 0 M3 5v14a9 3 0 0 0 18 0V5 M3 12a9 3 0 0 0 18 0",
+      },
       {
         id: "kol",
         label: "配置",

@@ -49,25 +49,25 @@ describe("admin sidebar parity", () => {
   it("keeps the nine governance entries in one contract", () => {
     expect(ADMIN_SECTIONS).toEqual([
       "employees",
-      "data",
-      "agents",
-      "skills",
+      "connectors",
       "knowledge",
       "approvals",
+      "skills",
       "exams",
-      "connectors",
+      "agents",
+      "data",
       "kol",
     ]);
-    expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([2, 1, 1, 4, 1]);
+    expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([1, 3, 1, 2, 2]);
     expect(ADMIN_NAV_GROUPS.flatMap((group) => group.rows.map((row) => row.label))).toEqual([
       "员工",
-      "数据",
-      "数字员工治理",
-      "技能",
+      "连接",
       "知识",
       "审批",
+      "技能",
       "考试",
-      "连接器枢纽",
+      "治理",
+      "数据",
       "配置",
     ]);
     for (const group of ADMIN_NAV_GROUPS) {

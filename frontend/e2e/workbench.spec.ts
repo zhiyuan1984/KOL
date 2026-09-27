@@ -3191,7 +3191,7 @@ test("admin console uses a left sidebar with short labels for the current accoun
   await expect(page.locator("[data-admin-nav]").first()).toBeVisible();
   const labels = await page.locator(".sidebar [data-admin-nav]").allTextContents();
   expect(labels.map((label) => label.trim())).toEqual([
-    "员工", "数据", "数字员工治理", "技能", "知识", "审批", "考试", "连接器枢纽", "配置",
+    "员工", "连接", "知识", "审批", "技能", "考试", "治理", "数据", "配置",
   ]);
   await expect(page.locator("[data-admin-nav='employees']")).toHaveClass(/active/);
   await expect(page.locator(".admin-header")).toHaveCount(0);

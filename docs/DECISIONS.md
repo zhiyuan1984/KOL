@@ -72,6 +72,7 @@
 - **影响**：新增 `docs/superpowers/specs/2026-09-26-admin-sidebar-shell-parity.md`；`frontend/src/layout/adminNav.ts`（新）、`Workbench.tsx`、`pages/AdminConsole.tsx`、`styles.css`；过时断言同步 `frontend/src/layout/sidebarNav.test.ts`、`frontend/e2e/workbench.spec.ts`（`.admin-nav` 选择器 → `.sidebar`，标签顺序改为新分簇顺序），证据脚本 `artifacts/account-footer/capture.cjs` 改抓 `.sidebar` 并新增折叠 / 抽屉截图；`docs/org-permissions.md` §导航规则两行补「同一侧栏外壳」说明。
 - **审宪记录**：需求「除了菜单文字内容外，管理页的左侧菜单必须和用户端的左侧菜单完全复刻」→ 主责 UI/UX 专家、平台产品经理 → CONST-04（前端不重写权限判定）、CONST-07（两类界面各受产品与 UI/UX 规范约束）、CONST-08、CONST-10 → 细则：`ia-information-architecture.md` §3 / §4；`org-permissions.md` §管理端配套套件（两侧共用 MASTER token，不得做成第二套 Home / Agents）；`DESIGN.md` §三轴适配（260px 轨道）、§不变量 1 / 4 / 5、§验收矩阵；`TECHNOLOGY.md` TECH-FE → **符合**：管理端只回答谁 / 权限 / 审计，页头与九个面板未动，治理条目仍只走 `/admin/*`；admin 判据仍是 `available_modes`；复刻不含任何发送 / 阶段 / 解密 / 删除闸门 → 下一步按规格 §2 清单逐项截图核对，并跑 typecheck / build / vitest / E2E。
 - **限制**：折叠偏好两面共用（同一 `ui:left-collapsed` 与 `left_sidebar_collapsed`）；若要两面独立记忆需另立一项。管理端配置面 `/admin/kol` 仍是遗留页，其内部 IA 不在本次范围。
+- **修订（2026-09-27）**：条目顺序与两条文字（连接器枢纽 → 连接、数字员工治理 → 治理）改由 ADR-2026-09-27「管理端左侧菜单条目顺序与展示文字调整」取代；本条的「同一侧栏外壳、只有菜单文字不同」与「分簇 5 簇」仍有效。
 
 ## ADR-2026-09-27：「添加自定义 API」创建弹窗 1:1 复刻（端点后置到详情）
 
@@ -87,3 +88,14 @@
 - **影响**：`frontend/src/admin/connector/ConnectorPanels.tsx`（`SecretKeysEditor` + `ApiConfigPanel` 重构 + 图标空态 + `autoConnectorId(prefix)`）、`connectorAdmin.css`、`styles.css`（`--secret-card-pad` / `--secret-value-h` / `--help-icon`）、`ConnectorConfigCard.tsx`（无配置草稿按 `card.protocol` 初始化）、`e2e/connector-admin.spec.ts`（HTTP 流程重写 + 新增版式用例）；后端 `db.ts`（`declared_protocol` 迁移）、`routers/enterprise.ts`（POST `protocol` + 分类回退）、`runtime/store.ts`（http 草稿端点放行）；规格增补见 `docs/superpowers/specs/2026-09-26-connector-admin-console-redesign.md`。
 - **审宪记录**：需求「连接器点击创建，点击自定义 HTTP API，修改弹窗如上传图片所示，必须 1:1 复刻」→ 主责 UI/UX 专家 + 平台产品经理 → CONST-04 / CONST-08 / CONST-09（数值只住 DESIGN.md 与 styles.css）/ CONST-10 → 细则：`DESIGN.md` §连接器控制台（唯一数值来源，改数值先改表）、§不变量 2（L2 草稿必须标注）；`07-mcp-data-contract.md`（秘密只存引用、不回显；真实调用 fail-closed）；`org-permissions.md`（凭据永不回显）→ **符合**：弹窗只建草稿，不触碰 L3；明文值只在提交瞬间存在；端点缺失不被表述为可用 → 下一步按 DESIGN 数值与 E2E 用例取证。
 - **限制**：参考图文案中的 Manus 一律写作「平台」；多密钥的「移除」入口是参考图没有、无障碍需要的补充。端点后置意味着「创建即可测试」不再成立，测试前必须先补 Base URL。
+
+## ADR-2026-09-27：管理端左侧菜单条目顺序与展示文字调整
+
+- **状态**：已接受（用户 2026-09-27 直接指定顺序与文字）
+- **决定者**：用户（产品发起人）；UI/UX 专家负责导航文字与分簇，平台产品经理负责管理端 IA 不降级。
+- **背景**：管理端侧栏九条目的顺序与文字沿用 2026-09-26 复刻时的口径（员工 / 数据 / 数字员工治理 / 技能 / 知识 / 审批 / 考试 / 连接器枢纽 / 配置）。用户要求改为 员工 / 连接 / 知识 / 审批 / 技能 / 考试 / 治理 / 数据 / 配置，并明确「连接」即原「连接器枢纽」、「治理」即原「数字员工治理」，只改顺序与展示文字。
+- **决定**：`frontend/src/layout/adminNav.ts` 的 `ADMIN_NAV_GROUPS` 按新顺序重排并缩短两条文字；分簇边界随之移动（治理日常 1 / 资产 3 / 技能 1 / 数字员工 2 / 平台配置 2，仍为 5 簇，分隔线条数不变）。`技能` 保持独立一等入口（`ia-information-architecture.md` §4）；`考试` 与「治理」同簇（考试是 `/admin/agents` 的治理闸门）；`数据` 与「配置」同簇（平台级设置）。`data-admin-nav` / `data-admin-tab` id、href、图标、面板与权限闸门全部不变。
+- **理由**：用户口径即产品口径；只动条目排列与可见文字，不改任何治理职责、取数路径或闸门，风险面 = 侧栏渲染与两处顺序断言。
+- **影响**：`frontend/src/layout/adminNav.ts`、`frontend/src/layout/sidebarNav.test.ts`、`frontend/e2e/workbench.spec.ts`（`.sidebar [data-admin-nav]` 文字序列）、`docs/org-permissions.md`（§导航规则「管理端信息架构」行的侧栏顺序）、`docs/superpowers/specs/2026-09-26-admin-sidebar-shell-parity.md`（§3 菜单映射表）。
+- **审宪记录**：需求「管理页面右侧导航调整为：员工 / 连接 / 知识 / 审批 / 技能 / 考试 / 治理 / 数据 / 配置；仅改变导航菜单项的顺序和展示文字」→ 主责 UI/UX 专家 + 平台产品经理 → CONST-04（前端不重写权限判定）、CONST-08、CONST-09（细则写死了旧顺序，须同步而非偷改）、CONST-10 → 细则：`ia-information-architecture.md` §4（禁可见组标题、簇间只用分割线、`aria-label` 留给读屏）；`org-permissions.md` §管理端左侧菜单 / §管理端信息架构；`TECHNOLOGY.md` TECH-FE → **符合**：href、id、面板内容、页头与发送 / 阶段 / 解密 / 删除闸门均未变 → 下一步以 typecheck / build / `vitest sidebarNav` / 管理端 E2E 取证。
+- **限制**：管理端配置面 `/admin/kol` 仍是遗留页；「连接」「治理」只是入口名，相关面板标题仍为「已添加的连接器」「数字员工治理」等治理文案，两者措辞不一致属预期。
