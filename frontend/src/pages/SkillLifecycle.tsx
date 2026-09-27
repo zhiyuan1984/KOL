@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api";
 import { SkillConnectorBindings } from "../components/SkillConnectorBindings";
+import "./skill-governance.css";
 
 type SkillRow = {
   id: string;
@@ -101,6 +103,9 @@ export default function SkillLifecycle() {
   const [tab, setTab] = useState<"all" | "mine">("all");
   const [error, setError] = useState("");
   const [metricsDays, setMetricsDays] = useState(7);
+  const [sourceFilter, setSourceFilter] = useState<"all" | "official" | "third_party">("all");
+  const [stageFilter, setStageFilter] = useState("all");
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -126,6 +131,10 @@ export default function SkillLifecycle() {
     () =>
       skills.filter((s) => {
         if (tab === "mine" && s.lifecycle?.owner && s.lifecycle.owner !== "我") return false;
+        const isOfficial = s.source === "bundled" || !(s.lifecycle?.tags || []).includes("第三方");
+        if (sourceFilter === "official" && !isOfficial) return false;
+        if (sourceFilter === "third_party" && isOfficial) return false;
+        if (stageFilter !== "all" && s.lifecycle?.stage !== stageFilter) return false;
         const kw = keyword.trim().toLowerCase();
         if (!kw) return true;
         return (
@@ -134,7 +143,7 @@ export default function SkillLifecycle() {
           || (s.description || "").toLowerCase().includes(kw)
         );
       }),
-    [skills, keyword, tab],
+    [skills, keyword, tab, sourceFilter, stageFilter],
   );
 
   async function moveStage(stage: string, needReason?: boolean) {
@@ -155,7 +164,30 @@ export default function SkillLifecycle() {
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "240px minmax(0,1fr) 260px", gap: 16, padding: 16, alignItems: "start" }}>
+    <div className="skill-governance-page">
+      <header className="skill-governance-header">
+        <div>
+          <h1>技能管理</h1>
+          <p>治理技能内容、工具与知识依赖、授权、测试和发布版本。</p>
+        </div>
+        <button type="button" className="skill-governance-primary" onClick={() => setUploadOpen(true)}>上传技能</button>
+      </header>
+      <div className="skill-governance-filters" aria-label="技能筛选">
+        <label className="skill-governance-search">
+          <span aria-hidden>⌕</span>
+          <input placeholder="搜索技能名称或 Key" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
+        </label>
+        <div className="skill-governance-segments" aria-label="来源">
+          {([['all', '全部'], ['official', '官方'], ['third_party', '第三方']] as const).map(([value, label]) => (
+            <button type="button" key={value} aria-pressed={sourceFilter === value} className={sourceFilter === value ? "is-active" : ""} onClick={() => setSourceFilter(value)}>{label}</button>
+          ))}
+        </div>
+        <select aria-label="发布状态" value={stageFilter} onChange={(event) => setStageFilter(event.target.value)}>
+          <option value="all">全部状态</option>
+          {STAGES.map((stage) => <option key={stage.id} value={stage.id}>{stage.label}</option>)}
+        </select>
+      </div>
+      <div className="skill-governance-layout">
       {error && (
         <div style={{ gridColumn: "1 / -1", background: "#fef2f2", color: "#b91c1c", borderRadius: 8, padding: "8px 12px", fontSize: 13 }}>
           {error}
@@ -166,7 +198,6 @@ export default function SkillLifecycle() {
       {/* 左栏：技能列表 */}
       <div style={{ ...card, position: "sticky", top: 16 }}>
         <div style={{ fontWeight: 600, marginBottom: 10 }}>技能列表</div>
-        <input style={input} placeholder="搜索技能名称或 Key" value={keyword} onChange={(e) => setKeyword(e.target.value)} />
         <div style={{ display: "flex", gap: 12, margin: "10px 0", fontSize: 13 }}>
           {(["all", "mine"] as const).map((t) => (
             <button
@@ -226,6 +257,59 @@ export default function SkillLifecycle() {
           <li><strong>运行监控</strong>：聚合真实任务运行数据，呈现调用次数、成功率与告警。</li>
         </ol>
       </div>
+      </div>
+      {uploadOpen && <SkillUploadDialog onClose={() => setUploadOpen(false)} onImported={async (id) => { await load(); setSelected(id); setUploadOpen(false); }} />}
+    </div>
+  );
+}
+
+function SkillUploadDialog({ onClose, onImported }: { onClose: () => void; onImported: (id: string) => Promise<void> }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const dialogRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    dialogRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape" && !busy) onClose(); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [busy, onClose]);
+  const importFile = async () => {
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api.importAdminSkill(file);
+      await onImported(String(result.id));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "导入技能失败");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="skill-governance-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+      <section ref={dialogRef} tabIndex={-1} className="skill-upload-dialog" role="dialog" aria-modal="true" aria-labelledby="skill-upload-title">
+        <header>
+          <div><h2 id="skill-upload-title">上传技能</h2><p>导入本地 SKILL.md，校验后保存为第三方技能草稿。</p></div>
+          <button type="button" className="skill-governance-icon" aria-label="关闭" disabled={busy} onClick={onClose}>×</button>
+        </header>
+        <label className={`skill-upload-drop${file ? " has-file" : ""}`}>
+          <input type="file" accept=".md,text/markdown" onChange={(event) => { setFile(event.target.files?.[0] || null); setError(""); }} />
+          <span className="skill-upload-mark" aria-hidden>⇧</span>
+          <strong>{file ? file.name : "选择或拖入 Markdown 文件"}</strong>
+          <span>{file ? `${Math.ceil(file.size / 1024)} KB · 将进行结构、工具和密钥检查` : "仅支持 .md，最大 128 KB"}</span>
+        </label>
+        <div className="skill-upload-notes">
+          <strong>导入结果</strong>
+          <span>技能进入草稿，不会立即向员工开放；工具、知识、授权和测试需要另行核对。</span>
+        </div>
+        {error && <p className="skill-upload-error" role="alert">{error}</p>}
+        <footer>
+          <button type="button" className="skill-governance-secondary" disabled={busy} onClick={onClose}>取消</button>
+          <button type="button" className="skill-governance-primary" disabled={!file || busy} onClick={() => void importFile()}>{busy ? "导入中…" : "导入为草稿"}</button>
+        </footer>
+      </section>
     </div>
   );
 }
@@ -464,8 +548,24 @@ function DetailPanel(props: {
         </div>
       </section>
 
-      <div style={card}>
-        <SkillConnectorBindings skillId={skill.id} />
+      <div className="skill-dependency-grid">
+        <section style={card} aria-labelledby="skill-tools-heading">
+          <div className="skill-dependency-heading">
+            <strong id="skill-tools-heading">MCP / API 工具</strong>
+            <p>只挂载已治理的具体工具；用户不会直接获得连接器权限。</p>
+          </div>
+          <SkillConnectorBindings skillId={skill.id} />
+        </section>
+        <section style={card} aria-labelledby="skill-knowledge-heading">
+          <div className="skill-dependency-heading">
+            <strong id="skill-knowledge-heading">知识模板与检索范围</strong>
+            <p>知识版本、组织范围和引用关系在知识治理页统一维护。</p>
+          </div>
+          <div className="skill-dependency-empty">
+            <span>发布时锁定知识模板版本；知识更新不会静默改变已发布技能。</span>
+            <Link className="skill-governance-secondary" to="/admin/knowledge">查看知识绑定</Link>
+          </div>
+        </section>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
@@ -532,7 +632,8 @@ function DetailPanel(props: {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
         {/* 权限分配 */}
         <div style={card}>
-          <div style={{ fontWeight: 600, marginBottom: 10 }}>权限分配（按组织）</div>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>直接技能授权</div>
+          <p className="skill-grant-note">智能体和智能体团队产生的继承授权保持只读；撤销需前往对应治理页。运行时统一解析为有效技能权限。</p>
           {!grantsForSkill && <div style={{ fontSize: 12, color: "#8a8fa3" }}>加载授权中…</div>}
           <div style={{ display: "grid", gap: 6 }}>
             {(grantsForSkill || []).length >= 0 && directory.map((org) => {
