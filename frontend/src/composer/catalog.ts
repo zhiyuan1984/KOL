@@ -1,5 +1,6 @@
 import { canonicalExpertId, ROLE_EXPERT_IDS, expertRoleCopy, type Expert } from "../experts";
 import { skillLabel } from "../knowledgeCopy";
+import type { SkillTemplate } from "../api";
 
 export const SKILL_GROUPS = [
   { id: "discover", label: "发现" },
@@ -35,6 +36,8 @@ export type CatalogSkill = {
   id: string;
   title: string;
   label?: string;
+  /** Authorized SKILL.md projection used for this employee-facing interaction. */
+  ui_template?: SkillTemplate | null;
   aliases?: string[];
   in_market?: boolean;
   granted?: boolean;

@@ -10,6 +10,7 @@ import {
   type StarryBinding,
   type Task,
   type TaskDefinition,
+  type SkillTemplate,
   type TaskRunResult,
 } from "../api";
 import ComposerDock, { type ComposerSubmit } from "../components/ComposerDock";
@@ -45,6 +46,8 @@ import PoolPane from "../home/PoolPane";
 import ReleaseFollowConfirm from "../home/ReleaseFollowConfirm";
 import { FollowedBatchConfirm } from "../home/FollowedBatchConfirm";
 import SkillParamCard, { type SkillParamField } from "../home/workspace/SkillParamCard";
+import SkillTemplateContext from "../components/SkillTemplateContext";
+import { defaultTemplateValues, nonEmptyTemplateEntities, templateInputFields } from "../skillTemplate";
 import { usePoolWorkspace } from "../home/usePoolWorkspace";
 import { useFollowedWorkspace, type FollowedKol } from "../home/useFollowedWorkspace";
 import {
@@ -572,6 +575,8 @@ export default function Home() {
   const [feedback, setFeedback] = useState<FromTextResult | null>(null);
   const [skillParamValues, setSkillParamValues] = useState<Record<string, unknown>>({});
   const [skillParamErrors, setSkillParamErrors] = useState<Record<string, string>>({});
+  const [skillParamTouched, setSkillParamTouched] = useState<Set<string>>(() => new Set());
+  const [selectedSkillTemplate, setSelectedSkillTemplate] = useState<SkillTemplate | null>(null);
   const paramSkillId = useRef<string | null>(null);
   const lastComposer = useRef<ComposerSubmit | null>(null);
   const taskCatalogRef = useRef<Task[]>([]);
@@ -773,20 +778,28 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!lockedIntent) {
+    // A selected template is only meaningful while it belongs to the active
+    // skill. Switching panes or skills must not keep the previous form alive.
+    const activeSkillId = lockedIntent;
+    if (!activeSkillId) {
       paramSkillId.current = null;
       setSkillParamValues({});
       setSkillParamErrors({});
+      setSkillParamTouched(new Set());
       return;
     }
-    const definition = definitions.find((item) => item.id === lockedIntent);
-    if (!definition || paramSkillId.current === lockedIntent) return;
-    paramSkillId.current = lockedIntent;
-    const fields = Array.isArray(definition.input_schema) ? definition.input_schema as SkillParamField[] : [];
-    setSkillParamValues(Object.fromEntries(fields.flatMap((field) => field.default !== undefined && field.default !== null
-      ? [[field.key, field.default]] : [])));
+    const definition = definitions.find((item) => item.id === activeSkillId);
+    const template = selectedSkillTemplate?.skill_id === activeSkillId
+      ? selectedSkillTemplate
+      : definition?.ui_template || null;
+    const paramKey = template ? `${template.id}:${template.version}` : activeSkillId;
+    if (!definition || paramSkillId.current === paramKey) return;
+    paramSkillId.current = paramKey;
+    const fields = templateInputFields(template, Array.isArray(definition.input_schema) ? definition.input_schema as SkillParamField[] : []);
+    setSkillParamValues(defaultTemplateValues(fields));
     setSkillParamErrors({});
-  }, [definitions, lockedIntent]);
+    setSkillParamTouched(new Set());
+  }, [definitions, lockedIntent, selectedSkillTemplate]);
 
   // Home 的「生成中」只覆盖识别 + 发起这几秒；真正的长时间生成在 /s/:id，
   // 停止键由会话页的 Composer 负责。这里能停的是「还没开跑就打住」。
@@ -921,6 +934,7 @@ export default function Home() {
     setText(starterPrompt(definition));
     setLockedIntent(definition.skill_id || definition.id);
     setLockedLabel(definition.title);
+    setSelectedSkillTemplate(definition.ui_template || null);
     applyLockedKnowledge(null);
     setPanelOpen(false);
     setComposerFocused(true);
@@ -1329,13 +1343,26 @@ export default function Home() {
       ? "email_compose"
       : (lockedIntent || skillFromScope || p.intent);
     const selectedDefinition = intent ? definitions.find((definition) => definition.id === intent) : undefined;
-    const submittedSchemaFields = Array.isArray(selectedDefinition?.input_schema)
-      ? selectedDefinition.input_schema as SkillParamField[] : [];
+    const submittedTemplate = selectedSkillTemplate?.skill_id === intent
+      ? selectedSkillTemplate
+      : selectedDefinition?.ui_template || null;
+    const submittedSchemaFields = templateInputFields(
+      submittedTemplate,
+      Array.isArray(selectedDefinition?.input_schema) ? selectedDefinition.input_schema as SkillParamField[] : [],
+    );
+    const submittedParamKey = submittedTemplate ? `${submittedTemplate.id}:${submittedTemplate.version}` : intent || "";
     if (!prompt && !p.attachments?.length && !skillFromScope && !submittedSchemaFields.length) return;
     const intakeText = prompt || selectedDefinition?.title || "";
-    const submittedSkillValues = genericParamDefinition?.id === intent
+    const submittedSkillValues = paramSkillId.current === submittedParamKey
       ? skillParamValues
-      : Object.fromEntries(submittedSchemaFields.flatMap((field) => field.default === undefined ? [] : [[field.key, field.default]]));
+      : defaultTemplateValues(submittedSchemaFields);
+    const submittedTouched = paramSkillId.current === submittedParamKey
+      ? skillParamTouched
+      : new Set<string>();
+    const submittedEntities = {
+      ...(p.entities || {}),
+      ...nonEmptyTemplateEntities(submittedSchemaFields, submittedSkillValues, submittedTouched),
+    };
     if (selectedDefinition?.input_schema && Array.isArray(selectedDefinition.input_schema)) {
       setLockedIntent(selectedDefinition.id);
       setLockedLabel(selectedDefinition.title);
@@ -1455,13 +1482,14 @@ export default function Home() {
         source: "text",
         attachments: p.attachments,
         model_tier: p.model_tier,
-        input: Object.fromEntries(submittedSchemaFields.flatMap((field) => {
-          const value = submittedSkillValues[field.key];
-          return value === undefined || value === null || value === "" ? [] : [[field.key, value]];
-        })),
+        input: {
+          ...nonEmptyTemplateEntities(submittedSchemaFields, submittedSkillValues, submittedTouched),
+          ...(submittedTemplate?.version ? { skill_template_version: submittedTemplate.version } : {}),
+        },
+        skill_template_version: p.skill_template_version || submittedTemplate?.version,
         collaboration_id: p.collaboration_id,
         knowledge_id: knowledgeId,
-        entities: p.entities,
+        entities: submittedEntities,
         scope: p.scope,
         object_refs: p.object_refs,
         client_entry: p.client_entry,
@@ -1474,11 +1502,11 @@ export default function Home() {
       }
       const resolution = recognized.resolution || {};
       const missing = resolution.missing_fields || [];
-      if (selectedDefinition?.input_schema && Array.isArray(selectedDefinition.input_schema)) {
+      if (submittedSchemaFields.length) {
         const resolvedEntities = resolution.entities || {};
         setSkillParamValues((current) => {
           const next = { ...current };
-          for (const field of selectedDefinition.input_schema as SkillParamField[]) {
+          for (const field of submittedSchemaFields) {
             if (next[field.key] !== undefined && next[field.key] !== null && next[field.key] !== "") continue;
             const prefillKey = field.prefill?.startsWith("entities.") ? field.prefill.slice("entities.".length) : field.key;
             const value = resolvedEntities[prefillKey];
@@ -1539,6 +1567,12 @@ export default function Home() {
         scope: p.scope,
         object_refs: p.object_refs,
         compose_input: p.compose_input,
+        input: {
+          ...nonEmptyTemplateEntities(submittedSchemaFields, submittedSkillValues, submittedTouched),
+          ...(submittedTemplate?.version ? { skill_template_version: submittedTemplate.version } : {}),
+        },
+        skill_template_version: p.skill_template_version || submittedTemplate?.version,
+        entities: submittedEntities,
       });
       setIntakeRunning(false);
       if (intakeCancelled.current) return;
@@ -1758,28 +1792,58 @@ export default function Home() {
       && definition.employee_visible !== false
       && ![DISCOVERY_INTENT, "today_plan", "todo_plan", "creator_daily_tasks"].includes(definition.id))
     : undefined;
-  const genericParamFields = Array.isArray(genericParamDefinition?.input_schema)
-    ? genericParamDefinition.input_schema as SkillParamField[] : [];
+  const activeSkillTemplate = selectedSkillTemplate?.skill_id === lockedIntent
+    ? selectedSkillTemplate
+    : genericParamDefinition?.ui_template || null;
+  const genericParamFields = templateInputFields(
+    activeSkillTemplate,
+    Array.isArray(genericParamDefinition?.input_schema) ? genericParamDefinition.input_schema as SkillParamField[] : [],
+  );
   const genericParamErrors = {
     ...skillParamErrors,
     ...(feedback?.resolution?.invalid_fields || {}),
     ...Object.fromEntries((feedback?.resolution?.missing_fields || []).map((key) => [key, "必填项"])),
   };
-  const genericParamCard = genericParamDefinition && genericParamFields.length ? (
-    <SkillParamCard
-      key={genericParamDefinition.id}
-      fields={genericParamFields}
-      values={skillParamValues}
-      errors={genericParamErrors}
-      title={genericParamDefinition.title}
-      mode={feedback?.needs_clarification ? "needs_input" : "edit"}
-      onFieldChange={(key, value) => {
-        setSkillParamValues((current) => ({ ...current, [key]: value }));
-        setSkillParamErrors((current) => { const next = { ...current }; delete next[key]; return next; });
-        setFeedback(null);
-      }}
-    />
+  const genericRequiredParamFields = genericParamFields.filter((field) => field.required);
+  const genericOptionalParamFields = genericParamFields.filter((field) => !field.required);
+  const updateGenericParam = (key: string, value: unknown) => {
+    setSkillParamValues((current) => ({ ...current, [key]: value }));
+    setSkillParamErrors((current) => { const next = { ...current }; delete next[key]; return next; });
+    setSkillParamTouched((current) => new Set(current).add(key));
+    setFeedback(null);
+  };
+  const genericParamCard = genericParamFields.length ? (
+    <div className="skill-template-param-editor" data-skill-template-param-editor>
+      {genericRequiredParamFields.length ? (
+        <SkillParamCard
+          key={`${activeSkillTemplate ? `${activeSkillTemplate.id}:${activeSkillTemplate.version}` : genericParamDefinition?.id}:required`}
+          fields={genericRequiredParamFields}
+          values={skillParamValues}
+          errors={genericParamErrors}
+          title={activeSkillTemplate?.title || genericParamDefinition?.title}
+          mode={feedback?.needs_clarification ? "needs_input" : "edit"}
+          onFieldChange={updateGenericParam}
+        />
+      ) : null}
+      {genericOptionalParamFields.length ? (
+        <details className="skill-template-optional skill-template-param-optional" data-skill-template-optional>
+          <summary>可选条件（{genericOptionalParamFields.length}）</summary>
+          <SkillParamCard
+            key={`${activeSkillTemplate ? `${activeSkillTemplate.id}:${activeSkillTemplate.version}` : genericParamDefinition?.id}:optional`}
+            fields={genericOptionalParamFields}
+            values={skillParamValues}
+            errors={genericParamErrors}
+            mode={feedback?.needs_clarification ? "needs_input" : "edit"}
+            hideTitle
+            onFieldChange={updateGenericParam}
+          />
+        </details>
+      ) : null}
+    </div>
   ) : null;
+  const skillTemplateContext = activeSkillTemplate
+    ? <SkillTemplateContext template={activeSkillTemplate} showOptionalInputs={false} />
+    : null;
 
   const quickTaskBar = (
     <div className="home-quick-tasks" role="tablist" aria-label="Home 工作模式" data-home-quick-tasks data-home-modes>
@@ -1807,6 +1871,7 @@ export default function Home() {
 
   const interactionFeedback = (
     <div className="workspace-interaction-feedback" data-workspace-interaction-feedback>
+      {skillTemplateContext}
       {genericParamCard}
       {enqueueNotice ? <p className="muted" role="status" data-analyze-enqueue>{enqueueNotice}</p> : null}
       {err && <p className="error composer-err" role="alert" data-home-session-error={err.includes("未能打开会话") ? "true" : undefined}>{err}</p>}
@@ -2004,9 +2069,21 @@ export default function Home() {
         objectRefs={objectRefs}
         onObjectRefsChange={setObjectRefs}
         onPickSkill={onPickComposerSkill}
+        onSkillTemplateChange={(template, skill) => {
+          setSelectedSkillTemplate(template);
+          if (template && skill) {
+            setLockedIntent(skill.id);
+            setLockedLabel(skill.title || skill.label || template.title);
+          }
+        }}
         mailCompose={mailCompose}
         onMailBodyEdit={mailCompose.markEdited}
         onSkillRemoved={(skillId) => {
+          if (selectedSkillTemplate?.skill_id === skillId) setSelectedSkillTemplate(null);
+          if (lockedIntent === skillId) {
+            setLockedIntent(null);
+            setLockedLabel(null);
+          }
           if (skillId === "email_compose") clearLockedMail();
         }}
       />

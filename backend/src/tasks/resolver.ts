@@ -50,6 +50,7 @@ function invalidTaskInputs(
       }
     } else if (field.kind === "number") {
       if (typeof value !== "number" || !Number.isFinite(value)) invalid[field.key] = "请输入有效数字";
+      else if (field.integer && !Number.isInteger(value)) invalid[field.key] = "请输入整数";
       else if (field.min != null && value < field.min) invalid[field.key] = `不能小于 ${field.min}`;
       else if (field.max != null && value > field.max) invalid[field.key] = `不能大于 ${field.max}`;
     } else if (field.kind === "date") {
@@ -335,12 +336,33 @@ function lockedResolution(
       clarification_kind: "direction",
     };
   }
-  const missingFields = missing(definition, entities, supplied, text);
-  const invalidFields = invalidTaskInputs(definition, entities, supplied);
+  // Forms and natural language share the manifest schema. An untouched prompt
+  // placeholder is not a value, and an empty optional form must not erase an
+  // entity already extracted from the employee's text.
+  const resolved = { ...entities };
+  const normalizedInput = { ...supplied };
+  for (const field of definition.input_schema || []) {
+    const alias = field.prefill?.startsWith("entities.") ? field.prefill.slice("entities.".length) : field.key;
+    const empty = (value: unknown) => value == null
+      || (typeof value === "string" && (!value.trim() || [field.key, field.label].some((label) => value.trim() === `[${label}]`)))
+      || (Array.isArray(value) && !value.length);
+    for (const key of new Set([field.key, alias])) {
+      if (empty(normalizedInput[key])) delete normalizedInput[key];
+      if (empty(resolved[key])) delete resolved[key];
+    }
+    const value = normalizedInput[field.key] ?? normalizedInput[alias] ?? resolved[field.key] ?? resolved[alias] ?? field.default;
+    if (value !== undefined) {
+      resolved[field.key] = value;
+      // A scalar prefill for a multiple-select field is not a reverse alias.
+      if (field.kind !== "multiple" || alias === field.key) resolved[alias] = value;
+    }
+  }
+  const missingFields = missing(definition, resolved, normalizedInput, text);
+  const invalidFields = invalidTaskInputs(definition, resolved, normalizedInput);
   return {
     task_type: definition.id,
     confidence: 1,
-    entities,
+    entities: resolved,
     missing_fields: missingFields,
     ...(Object.keys(invalidFields).length ? { invalid_fields: invalidFields } : {}),
     alternatives: [],

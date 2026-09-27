@@ -19,7 +19,7 @@ import { writeAttachmentContext } from "../host/attachments.js";
 import { restoreOfficialCollaborationStage } from "../starrykol/library-sync.js";
 import { isMissingInputDraft } from "../host/draft-quality.js";
 import { workerSafeExtra } from "../host/knowledge.js";
-import { runtimeSkillsRoot, writeRuntimeSkill, writeSkillIntoBox } from "../host/skill-sop.js";
+import { effectiveSkillTemplate, runtimeSkillsRoot, writeRuntimeSkill, writeSkillIntoBox } from "../host/skill-sop.js";
 import { approvalBoxGuardrails, assertItemsSafe, persistWorker, sandboxPolicyForSkill } from "./common.js";
 import { assertKolAnalyzeVerbsSafe, KOL_ANALYZE_TASK_TYPE, KOL_ANALYZE_VERBS } from "../host/kol-memory.js";
 import { CodexAppServer } from "./codex.js";
@@ -483,6 +483,8 @@ function writeBox(
       output: definition.output,
       execution_resources: "Current bindings and discovered schemas from the authorized Skill Runtime only",
       required_inputs: definition.required_inputs,
+      input_schema: definition.input_schema || [],
+      interaction_template: { id: `skill-template:${skill}`, version: effectiveSkillTemplate(definition).version },
     },
     planning_harness: planningMount,
     work_item_id: extra.work_item_id || null,

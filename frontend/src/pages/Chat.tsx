@@ -11,6 +11,7 @@ import {
   type Task,
   type TaskEvent,
   type KnowledgeRow,
+  type SkillTemplate,
 } from "../api";
 import { ChatThread, clearComposerDraft, clearPending, employeeProcessLabel, resultCardsFromMessages, takeComposerDraft, takePending, useSessionMessages, type ComposerDraft } from "../components/ChatBlocks";
 import ComposerDock, { type ComposerSubmit, type ComposerSuggestion, type SkillOption } from "../components/ComposerDock";
@@ -32,6 +33,10 @@ import { readBoundExpert } from "../experts";
 import { todayTaskOriginLabel } from "../home/modes";
 import type { SessionMailRow } from "../components/AgentTaskList";
 import { useMailComposeFlow } from "../hooks/useMailComposeFlow";
+import SkillParamCard from "../home/workspace/SkillParamCard";
+import SkillTemplateContext from "../components/SkillTemplateContext";
+import { defaultTemplateValues, nonEmptyTemplateEntities, templateInputFields } from "../skillTemplate";
+import { bindTemplateSessionTask } from "../skillTemplateTask";
 
 type RecommendedAction = {
   label?: string;
@@ -404,54 +409,6 @@ function safeEventMessages(taskId: string, events: TaskEvent[]): Message[] {
 
 const DRAFT_SUBMIT_GUARD_MS = 500;
 
-async function bindSessionTask(
-  sessionId: string,
-  input: { intent: string; title?: string | null; text: string; composer: ComposerSubmit },
-): Promise<{ pending: PendingAsk; task: Task } | { clarification: string } | null> {
-  try {
-    const created = unwrapTask(await api.createTask({
-      task_type: input.intent,
-      title: input.title || input.text.slice(0, 80),
-      prompt: input.text,
-      session_id: sessionId,
-      source: "manual",
-      intent: input.intent,
-      attachments: input.composer.attachments,
-      model_tier: input.composer.model_tier,
-      collaboration_id: input.composer.collaboration_id,
-      knowledge_id: input.composer.knowledge_id,
-    }));
-    if (created.status === "needs_clarification") {
-      const missing = (created.resolution as { missing_fields?: string[] } | undefined)?.missing_fields || [];
-      return {
-        clarification: missing.length ? missingFieldsMessage(missing) : "请补充任务所需信息后再执行。",
-      };
-    }
-    const run = await api.runTask(created.id, { text: input.text });
-    const pending = (run.pending_message || run.pending || {}) as Record<string, unknown>;
-    sessionStorage.setItem(`task:${sessionId}`, created.id);
-    return {
-      task: unwrapTask(run.task || created),
-      pending: {
-        text: input.text,
-        intent: input.intent,
-        collaboration_id: input.composer.collaboration_id,
-        knowledge_id: input.composer.knowledge_id,
-        attachments: input.composer.attachments,
-        model_tier: input.composer.model_tier,
-        work_item_id: String(pending.work_item_id || run.work_item_id || created.id),
-        task_type: String(pending.task_type || created.task_type || created.skill || input.intent),
-        run_id: pending.run_id ? String(pending.run_id) : (run.run_id ? String(run.run_id) : undefined),
-        entities: pending.entities && typeof pending.entities === "object"
-          ? pending.entities as Record<string, unknown>
-          : undefined,
-      },
-    };
-  } catch {
-    return null;
-  }
-}
-
 export default function Chat() {
   const { id } = useParams();
   const location = useLocation();
@@ -468,6 +425,11 @@ export default function Chat() {
   const [submitErr, setSubmitErr] = useState("");
   const [pending, setPending] = useState(false);
   const [task, setTask] = useState<Task | null>(null);
+  const [selectedSkillTemplate, setSelectedSkillTemplate] = useState<SkillTemplate | null>(null);
+  const [selectedTemplateSkillId, setSelectedTemplateSkillId] = useState<string | null>(null);
+  const [skillParamValues, setSkillParamValues] = useState<Record<string, unknown>>({});
+  const [skillParamErrors, setSkillParamErrors] = useState<Record<string, string>>({});
+  const [skillParamTouched, setSkillParamTouched] = useState<Set<string>>(() => new Set());
   const [taskEvents, setTaskEvents] = useState<TaskEvent[]>([]);
   const [completion, setCompletion] = useState("");
   const [completing, setCompleting] = useState(false);
@@ -480,6 +442,7 @@ export default function Chat() {
   const [focusedMail, setFocusedMail] = useState<SessionMailRow | null>(null);
   const streamRef = useRef<HTMLDivElement>(null);
   const stopRequestedRef = useRef(false);
+  const paramTemplateKey = useRef<string | null>(null);
   const focusThread = String((location.state as { focusThread?: string } | null)?.focusThread || "");
   const confirmStageNotice = String(
     (location.state as { confirmStageNotice?: string } | null)?.confirmStageNotice || "",
@@ -525,6 +488,17 @@ export default function Chat() {
       window.clearInterval(timer);
     };
   }, [id, task?.status]);
+
+  useEffect(() => {
+    // The persisted task snapshot remains the default after refresh; an
+    // explicit skill switch belongs only to the currently open session.
+    setSelectedTemplateSkillId(null);
+    setSelectedSkillTemplate(null);
+    paramTemplateKey.current = null;
+    setSkillParamValues({});
+    setSkillParamErrors({});
+    setSkillParamTouched(new Set());
+  }, [id]);
 
   useEffect(() => {
     if (!task) return;
@@ -647,8 +621,23 @@ export default function Chat() {
     if (!t && !p.attachments?.length) return;
     const title = lockedLabel;
     const existingTask = task;
-    const intent = p.intent === "email_compose" || mailCompose.active ? "email_compose" : (p.intent || lockedIntent);
-    const savedIntent = intent;
+    const intent = p.intent === "email_compose" || mailCompose.active
+      ? "email_compose"
+      : (p.intent || lockedIntent || (skillParamTouched.size ? activeSkillTemplate?.skill_id : undefined));
+    const submittedTemplate = activeSkillTemplate?.skill_id === intent ? activeSkillTemplate : null;
+    const submittedFields = templateInputFields(submittedTemplate);
+    const submittedTemplateKey = submittedTemplate ? `${submittedTemplate.id}:${submittedTemplate.version}` : "";
+    const submittedValues = paramTemplateKey.current === submittedTemplateKey
+      ? skillParamValues
+      : defaultTemplateValues(submittedFields);
+    const submittedTouched = paramTemplateKey.current === submittedTemplateKey
+      ? skillParamTouched
+      : new Set<string>();
+    const submittedEntities = {
+      ...(p.entities || {}),
+      ...nonEmptyTemplateEntities(submittedFields, submittedValues, submittedTouched),
+    };
+    const savedIntent = intent || null;
     const savedLabel = lockedLabel;
     const savedKnowledgeId = p.knowledge_id || lockedKnowledgeId;
     setText("");
@@ -665,7 +654,7 @@ export default function Chat() {
     rememberJourney({ kind: "send", skillId: String(existingTask?.skill_id || existingTask?.skill || ""), skillLabel: title || existingTask?.title });
     try {
       if (intent === "email_compose") mailCompose.markSubmitting();
-      const pendingAsk: PendingAsk = {
+      let pendingAsk: PendingAsk = {
         text: t,
         intent: intent || undefined,
         collaboration_id: p.collaboration_id || (journey?.collaboration_id ? String(journey.collaboration_id) : undefined),
@@ -676,11 +665,22 @@ export default function Chat() {
         object_refs: p.object_refs,
         client_entry: p.client_entry,
         entities: {
-          ...(p.entities || {}),
+          ...submittedEntities,
           ...(intent === "email_compose" && looksLikeEmailDraft(t) ? { body: t } : {}),
         },
         compose_input: p.compose_input,
+        skill_template_version: p.skill_template_version || submittedTemplate?.version,
       };
+      if (submittedTemplate && !["email_compose", "creator_discovery"].includes(submittedTemplate.skill_id)
+        && (selectedTemplateSkillId || skillParamTouched.size)) {
+        const bound = await bindTemplateSessionTask(id, pendingAsk, submittedTemplate);
+        sessionStorage.setItem(`task:${id}`, bound.task.id);
+        setTask(bound.task);
+        setSelectedTemplateSkillId(null);
+        setSelectedSkillTemplate(null);
+        setSkillParamTouched(new Set());
+        pendingAsk = bound.pending;
+      }
       const r = await postOnce(id, pendingAsk);
       if (stopRequestedRef.current) return;
       setMessages(r.messages || []);
@@ -933,6 +933,67 @@ export default function Chat() {
     }
   };
 
+  const activeSkillTemplate = selectedTemplateSkillId
+    ? selectedSkillTemplate
+    : task?.skill_template || null;
+  const templateParamFields = templateInputFields(activeSkillTemplate);
+  // Mail and discovery already have specialized interaction paths; do not add
+  // a second generic editor on top of those flows.
+  const specializedTemplate = activeSkillTemplate?.skill_id === "email_compose"
+    || activeSkillTemplate?.skill_id === "creator_discovery";
+  const editableTemplateFields = specializedTemplate ? [] : templateParamFields;
+  const templateKey = activeSkillTemplate ? `${activeSkillTemplate.id}:${activeSkillTemplate.version}` : "";
+
+  useEffect(() => {
+    if (!templateKey) {
+      paramTemplateKey.current = null;
+      setSkillParamValues({});
+      setSkillParamErrors({});
+      setSkillParamTouched(new Set());
+      return;
+    }
+    if (paramTemplateKey.current === templateKey) return;
+    paramTemplateKey.current = templateKey;
+    setSkillParamValues(defaultTemplateValues(templateParamFields));
+    setSkillParamErrors({});
+    setSkillParamTouched(new Set());
+  }, [templateKey, templateParamFields]);
+
+  const templateRequiredFields = editableTemplateFields.filter((field) => field.required);
+  const templateOptionalFields = editableTemplateFields.filter((field) => !field.required);
+  const updateTemplateParam = (key: string, value: unknown) => {
+    setSkillParamValues((current) => ({ ...current, [key]: value }));
+    setSkillParamErrors((current) => { const next = { ...current }; delete next[key]; return next; });
+    setSkillParamTouched((current) => new Set(current).add(key));
+  };
+  const templateParamEditor = editableTemplateFields.length ? (
+    <div className="skill-template-param-editor" data-skill-template-param-editor>
+      {templateRequiredFields.length ? (
+        <SkillParamCard
+          key={`${templateKey}:required`}
+          fields={templateRequiredFields}
+          values={skillParamValues}
+          errors={skillParamErrors}
+          title="必填参数"
+          onFieldChange={updateTemplateParam}
+        />
+      ) : null}
+      {templateOptionalFields.length ? (
+        <details className="skill-template-optional skill-template-param-optional" data-skill-template-optional>
+          <summary>可选条件（{templateOptionalFields.length}）</summary>
+          <SkillParamCard
+            key={`${templateKey}:optional`}
+            fields={templateOptionalFields}
+            values={skillParamValues}
+            errors={skillParamErrors}
+            hideTitle
+            onFieldChange={updateTemplateParam}
+          />
+        </details>
+      ) : null}
+    </div>
+  ) : null;
+
   const contextKicker = String(task?.project || "").trim();
 
   return (
@@ -1046,6 +1107,15 @@ export default function Chat() {
             {completion && <p className={task.status === "completed" ? "completion-feedback" : "error"} role="status">{completion}</p>}
             </>
           )}
+          {activeSkillTemplate ? (
+            <div className="session-skill-template" data-session-skill-template>
+              <SkillTemplateContext
+                template={activeSkillTemplate}
+                showOptionalInputs={!editableTemplateFields.length}
+              />
+              {templateParamEditor}
+            </div>
+          ) : null}
         </header>
         <div className="session-stream conversation" ref={streamRef} data-session-stream-pane data-ai-conversation data-has-interaction={messages.some((message) => message.kind === "me") ? "true" : undefined} role="log">
         {boundExpert?.intro ? (
@@ -1172,12 +1242,28 @@ export default function Chat() {
             suggestions={taskFinished ? recommendedActions : []}
             onPickSuggestion={pickSuggestion}
             onPickSkill={pickSkill}
+            onSkillTemplateChange={(template, skill) => {
+              setSelectedTemplateSkillId(skill?.id || null);
+              setSelectedSkillTemplate(template);
+              if (skill) {
+                setLockedIntent(skill.id);
+                setLockedLabel(skill.title || skill.label || template?.title || skill.id);
+              }
+            }}
             hint={composerHint || undefined}
             entryIntent={entryIntent}
             objectRefs={mailObjectRefs}
             mailCompose={mailCompose}
             onMailBodyEdit={mailCompose.markEdited}
             onSkillRemoved={(skillId) => {
+              if (selectedTemplateSkillId === skillId) {
+                setSelectedTemplateSkillId(null);
+                setSelectedSkillTemplate(null);
+              }
+              if (lockedIntent === skillId) {
+                setLockedIntent(null);
+                setLockedLabel(null);
+              }
               if (skillId === "email_compose") mailCompose.clear();
             }}
           />

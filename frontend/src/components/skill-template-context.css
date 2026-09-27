@@ -1,0 +1,212 @@
+.skill-template-context,
+.kb-skill-templates {
+  min-width: 0;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--radius-card);
+  background: var(--bg);
+}
+
+.skill-template-context {
+  display: grid;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+}
+
+.skill-template-context-head,
+.kb-skill-templates-head,
+.kb-skill-template-row,
+.kb-skill-template-actions {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.skill-template-context-head {
+  flex-wrap: wrap;
+}
+
+.skill-template-context-kicker,
+.kb-skill-templates-head .page-kicker {
+  color: var(--ds-text-dim);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+
+.skill-template-context-head strong {
+  color: var(--text);
+  font-size: var(--ds-font-ui);
+  line-height: var(--ds-line-ui);
+  font-weight: 600;
+}
+
+.skill-template-context-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--ds-space-3);
+}
+
+.skill-template-context-grid section {
+  min-width: 0;
+}
+
+.skill-template-context h2 {
+  margin: 0 0 var(--ds-space-1);
+  color: var(--ds-text-dim);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+  font-weight: 600;
+}
+
+.skill-template-context p,
+.skill-template-context ol,
+.skill-template-context ul {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-body);
+  overflow-wrap: anywhere;
+}
+
+.skill-template-context ol,
+.skill-template-context ul {
+  padding-left: 1.25em;
+}
+
+.skill-template-no-required {
+  color: var(--ds-text-dim) !important;
+}
+
+.skill-template-optional,
+.skill-template-context .skill-template-constraints {
+  min-width: 0;
+}
+
+.skill-template-optional > summary,
+.skill-template-context .skill-template-constraints > summary,
+.kb-skill-template-actions > details > summary {
+  cursor: pointer;
+  color: var(--accent-text);
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+}
+
+.skill-template-optional > :not(summary),
+.skill-template-context .skill-template-constraints > :not(summary) {
+  margin-top: var(--ds-space-2);
+}
+
+.skill-template-param-editor {
+  display: grid;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.skill-template-param-editor .ai-discovery-card {
+  margin: 0;
+}
+
+.skill-template-param-optional {
+  padding-top: var(--ds-space-2);
+  border-top: 1px solid var(--ds-border);
+}
+
+.session-skill-template {
+  display: grid;
+  gap: var(--ds-space-3);
+  margin-top: var(--ds-space-3);
+  max-height: min(20rem, 38dvh);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.kb-skill-templates {
+  margin-bottom: var(--ds-space-3);
+}
+
+.kb-skill-templates-head {
+  justify-content: space-between;
+  padding: var(--ds-space-3);
+  cursor: pointer;
+  list-style: none;
+}
+
+.kb-skill-templates-head::-webkit-details-marker {
+  display: none;
+}
+
+.kb-skill-templates-head > span:first-child {
+  display: grid;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+
+.kb-skill-templates-head strong {
+  color: var(--text);
+  font-size: var(--ds-font-ui);
+  line-height: var(--ds-line-ui);
+  font-weight: 600;
+}
+
+.kb-skill-templates-head small,
+.kb-skill-template-summary > span {
+  color: var(--ds-text-dim);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+
+.kb-skill-template-list {
+  display: grid;
+  gap: var(--ds-space-2);
+  padding: 0 var(--ds-space-3) var(--ds-space-3);
+}
+
+.kb-skill-template-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  padding-top: var(--ds-space-2);
+  border-top: 1px solid var(--ds-border);
+}
+
+.kb-skill-template-summary {
+  display: grid;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+
+.kb-skill-template-summary strong {
+  color: var(--text);
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+}
+
+.kb-skill-template-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+}
+
+.kb-skill-template-actions > details[open] .skill-template-context {
+  margin-top: var(--ds-space-2);
+  width: 100%;
+}
+
+@media (max-width: 860px) {
+  .skill-template-context-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .kb-skill-template-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .kb-skill-template-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .kb-skill-template-actions > details[open] .skill-template-context {
+    position: static;
+    width: auto;
+  }
+}

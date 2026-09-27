@@ -1,4 +1,4 @@
-import type { AttachmentRef } from "../api";
+import type { AttachmentRef, SkillTemplate } from "../api";
 
 export const COMPOSER_MAX_SKILL_CHIPS = 3;
 export const COMPOSER_PLACEHOLDER = "有问题，尽管问";
@@ -70,6 +70,8 @@ export type ComposerDraftStash = {
   object_refs?: ComposerObjectRef[];
   client_entry?: ComposerClientEntry;
   model_tier?: string;
+  /** Read-only selection context; server still owns task snapshot creation. */
+  skill_template?: SkillTemplate | null;
 };
 
 export function clientEntryFor(intent?: ComposerEntryIntent | null): ComposerClientEntry {

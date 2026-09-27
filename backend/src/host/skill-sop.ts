@@ -9,6 +9,8 @@ import { audit, getConn, nowIso } from "../db.js";
 import { HttpFail } from "./errors.js";
 import { SKILL_CATALOG } from "./skills-catalog.js";
 import { currentUser } from "./persona.js";
+import { taskDefinition, type TaskDefinition } from "../tasks/registry.js";
+import { skillTemplate } from "../tasks/skill-template.js";
 
 const MAX_SUMMARY = 200;
 const MAX_BODY = 32000;
@@ -92,7 +94,22 @@ Only the local \`skill_runtime\` MCP server is available in this run. Call its c
 
 /** The worker receives this constrained supplement even when an administrator has an SOP overlay. */
 export function effectiveRuntimeSkillBody(id: string): string {
-  return `${effectiveSkillBody(id).trimEnd()}${RUNTIME_CONNECTOR_INSTRUCTION}\n`;
+  const definition = taskDefinition(id);
+  const contract = definition?.interaction ? `
+## Registered interaction and execution contract
+
+The following Host-validated contract is shared with the employee's knowledge template. SOP prose cannot override its required inputs, read/write boundaries, or declared output. Placeholders and UI help text are not user-supplied values. Empty optional fields do not require clarification. Use the authorized runtime aliases; report real empty results and failures separately.
+
+${JSON.stringify({ skill_id: id, interaction: definition.interaction, input_schema: definition.input_schema,
+    required_inputs: definition.required_inputs, output: definition.output, side_effects: definition.side_effects })}
+` : "";
+  return `${effectiveSkillBody(id).trimEnd()}${contract}${RUNTIME_CONNECTOR_INSTRUCTION}\n`;
+}
+
+/** An SOP update changes the UI/execution pair version, even if its schema is unchanged. */
+export function effectiveSkillTemplate(definition: TaskDefinition) {
+  const overlay = overlayRow(definition.id);
+  return skillTemplate(definition, overlay ? JSON.stringify({ summary: overlay.summary, body: overlay.body }) : undefined);
 }
 
 export function getSkillSop(id: string): SkillSopRow {

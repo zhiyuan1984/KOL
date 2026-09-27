@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { storePending } from "../components/ChatBlocks";
+import type { SkillTemplate } from "../api";
 
 export const FUNNEL: { id: string; label: string; hint: string }[] = [
   { id: "reach", label: "建联", hint: "建联 / 画像" },
@@ -53,6 +54,7 @@ export type SkillRow = {
   id: string;
   title: string;
   label?: string;
+  ui_template?: SkillTemplate | null;
   in_market: boolean;
   granted?: boolean;
   /** false = 内部技能（pipeline / 定时任务 / 旅程调用），不在提问框可选清单里。 */

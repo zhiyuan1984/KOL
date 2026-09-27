@@ -16,6 +16,7 @@ export function stashComposerDraft(draft: ComposerDraftStash): ComposerDraftStas
     object_refs: draft.object_refs || [],
     client_entry: draft.client_entry,
     model_tier: draft.model_tier,
+    skill_template: draft.skill_template,
   };
   try {
     sessionStorage.setItem(COMPOSER_DRAFT_STASH, JSON.stringify(payload));

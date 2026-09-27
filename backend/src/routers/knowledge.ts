@@ -1,6 +1,8 @@
 import { Hono } from "hono";
-import { requireAdmin } from "../auth.js";
+import { requireAdmin, requireSkill } from "../auth.js";
 import { HttpFail } from "../host/errors.js";
+import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
+import { effectiveSkillTemplate as skillTemplate } from "../host/skill-sop.js";
 import {
   adminList,
   adminAssets,
@@ -45,6 +47,29 @@ import {
 import type { Json } from "../types.js";
 
 export const knowledge = new Hono();
+
+// Skill templates are the knowledge module's read-only projection of published
+// manifests, not mail bodies or another independently editable execution source.
+knowledge.get("/knowledge/skill-templates", (c) => {
+  c.header("Cache-Control", "private, no-store");
+  return c.json(taskDefinitions().flatMap((definition) => {
+    if (!definition.employee_visible) return [];
+    try {
+      requireSkill(definition.id);
+      return [skillTemplate(definition)];
+    } catch (error) {
+      if (error instanceof HttpFail && error.status === 403) return [];
+      throw error;
+    }
+  }));
+});
+knowledge.get("/knowledge/skill-templates/:skillId", (c) => {
+  c.header("Cache-Control", "private, no-store");
+  const definition = taskDefinition(c.req.param("skillId"));
+  if (!definition || !definition.employee_visible) throw new HttpFail(404, "skill template not found");
+  requireSkill(definition.id);
+  return c.json(skillTemplate(definition));
+});
 
 knowledge.get("/knowledge/composer", (c) => c.json(composerItems()));
 knowledge.get("/knowledge/market", (c) => c.json(listMarket()));

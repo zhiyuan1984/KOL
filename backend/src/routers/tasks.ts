@@ -8,6 +8,8 @@ import type { Json, Row } from "../types.js";
 import { recognizeTaskIntent } from "../tasks/recognize.js";
 import { resolveTaskIntent } from "../tasks/resolver.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
+import { isSkillTemplateSnapshot } from "../tasks/skill-template.js";
+import { effectiveSkillTemplate as skillTemplate } from "../host/skill-sop.js";
 import { buildHomeBoard, historySummary, decorateTaskFromCollab, isInsightWorkItem, isOpenWorkItem, OPEN_WORK_ITEM_SQL, displayStatusOf, normalizePriority, TASK_RISK_LEVELS, taskDefinitionIndex, todayDateStr, type TaskDefinitionIndex } from "../host/home-board.js";
 import { cachedPoll, pollEpoch } from "../host/response-cache.js";
 import { formatMissingFields, missingFieldsMessage } from "../labels.js";
@@ -50,17 +52,20 @@ function parseJson(value: unknown): unknown {
 }
 
 function taskInput(body: Json): Json {
-  return {
+  const input: Json = {
     ...(body.input && typeof body.input === "object" ? body.input as Json : {}),
     ...(body.attachments ? { attachments: body.attachments } : {}),
     ...(body.model_tier ? { model_tier: body.model_tier } : {}),
     ...(body.collaboration_id ? { collaboration_id: body.collaboration_id } : {}),
     ...(body.knowledge_id ? { knowledge_id: body.knowledge_id } : {}),
+    ...(body.skill_template_version ? { skill_template_version: body.skill_template_version } : {}),
     ...(body.compose_input && typeof body.compose_input === "object" && !Array.isArray(body.compose_input)
       ? { compose_input: body.compose_input }
       : {}),
     ...((body.prompt || body.text) ? { prompt: String(body.prompt || body.text) } : {}),
   };
+  delete input._skill_template;
+  return input;
 }
 
 function resolutionIssueFields(resolution: ReturnType<typeof resolveTaskIntent>): string[] {
@@ -72,6 +77,10 @@ function resolutionIssueFields(resolution: ReturnType<typeof resolveTaskIntent>)
 
 function publicWorkItem(row: Row, collab?: Row | null, definitions?: TaskDefinitionIndex): Json {
   const definition = definitions ? definitions.get(String(row.task_type)) : taskDefinition(String(row.task_type));
+  const input = parseJson(row.input) as Json;
+  const template = isSkillTemplateSnapshot(input._skill_template, String(row.task_type))
+    ? input._skill_template : definition ? skillTemplate(definition) : null;
+  const { _skill_template: _internalTemplate, ...publicInput } = input;
   let project: string | null = collab?.display_name ? String(collab.display_name) : null;
   if (!project && row.project_id && !collab) {
     // Single-item paths only. List endpoints must pass the batched collab.
@@ -97,7 +106,8 @@ function publicWorkItem(row: Row, collab?: Row | null, definitions?: TaskDefinit
     content: String(row.content || ""),
     start_date: row.start_date || null,
     ...displayStatusOf(row),
-    input: parseJson(row.input),
+    input: publicInput,
+    skill_template: template,
     entities: parseJson(row.entities),
     ...(discoveryRun?.id ? { discovery_run_id: discoveryRun.id } : {}),
   };
@@ -381,6 +391,11 @@ function createWorkItem(body: Json, source: string): Json {
   if (!definition) throw new HttpFail(400, { code: "unknown_task_type", task_type: explicitType });
   requireSkill(definition.id);
   const input = taskInput(body);
+  const template = skillTemplate(definition);
+  if (input.skill_template_version && input.skill_template_version !== template.version) {
+    throw new HttpFail(409, { code: "skill_template_version_conflict", message: "技能模板已更新，请刷新模板并检查参数后再提交。" });
+  }
+  input._skill_template = template;
   const resolution = resolveTaskIntent({
     text: String(body.text || body.title || ""),
     task_type: definition.id,
@@ -440,12 +455,16 @@ tasks.get("/task-definitions", (c) => {
         (getConn().prepare("SELECT skill_id FROM user_skill_grants WHERE user_id=?").all(user?.id || "") as Row[])
           .map((row) => String(row.skill_id)),
       );
-  return c.json(taskDefinitions().map(({ path: _path, ...definition }) => ({
-    ...definition,
-    skill: definition.id,
-    skill_id: definition.id,
-    granted: granted.has(definition.id),
-  })));
+  return c.json(taskDefinitions().map((definition) => {
+    const { path: _path, ...publicDefinition } = definition;
+    return {
+      ...publicDefinition,
+      skill: definition.id,
+      skill_id: definition.id,
+      granted: granted.has(definition.id),
+      ...(granted.has(definition.id) && definition.employee_visible ? { ui_template: skillTemplate(definition) } : {}),
+    };
+  }));
 });
 
 tasks.get("/agent-manifest", (c) => {
@@ -886,9 +905,15 @@ tasks.post("/tasks/:id/run", async (c) => {
   requireSkill(definition.id);
   const body = await c.req.json().catch(() => ({})) as Json;
   const storedInput = parseJson(item.input) as Json;
+  const template = skillTemplate(definition);
+  if (isSkillTemplateSnapshot(storedInput._skill_template, definition.id)
+    && storedInput._skill_template.version !== template.version) {
+    throw new HttpFail(409, { code: "skill_template_version_conflict", message: "此任务的技能模板已更新，请重新选用模板并检查参数后创建任务。" });
+  }
   const runInput = {
     ...storedInput,
     ...((body.input as Json) || {}),
+    _skill_template: template,
     ...(body.compose_input && typeof body.compose_input === "object" && !Array.isArray(body.compose_input)
       ? { compose_input: body.compose_input }
       : {}),

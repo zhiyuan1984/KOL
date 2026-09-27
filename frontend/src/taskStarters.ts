@@ -1,4 +1,5 @@
 import type { TaskDefinition } from "./api";
+import { templateStarter } from "./skillTemplate";
 
 /**
  * Fill-in copy shown in the home composer when a task template is chosen.
@@ -13,7 +14,7 @@ const STARTERS: Record<string, string> = {
   creator_discovery: "发现达人 [平台或关键词]",
   creator_outreach: "达人建联话术 [达人昵称或主页]",
   creator_profile: "达人画像 [达人昵称或主页]",
-  creator_library_query: "达人库查询 [关键词]",
+  creator_library_query: "达人库查询",
   creator_library_all: "达人库全量",
   creator_library_sync: "达人同步入库 [达人昵称或主页]",
   creator_scoring: "达人评分 [达人昵称或主页]",
@@ -34,6 +35,7 @@ const STARTERS: Record<string, string> = {
   content_nudge: "催大纲 [红人或合作]",
 };
 
-export function starterPrompt(definition: Pick<TaskDefinition, "id" | "prompt" | "title">): string {
+export function starterPrompt(definition: Pick<TaskDefinition, "id" | "prompt" | "title" | "ui_template">): string {
+  if (definition.ui_template) return templateStarter(definition.ui_template);
   return STARTERS[definition.id] || definition.prompt || definition.title;
 }

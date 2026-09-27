@@ -258,6 +258,38 @@ export type StartCrawlInput = {
   idempotency_key: string;
 };
 
+/** Schema fields published by a Skill's interaction contract. */
+export type TaskInputField = {
+  key: string;
+  label: string;
+  kind: "single" | "multiple" | "text" | "number" | "date" | "object";
+  required?: boolean;
+  options_source?: string;
+  options?: Array<string | { code: string; label: string }>;
+  prefill?: string;
+  reason?: string;
+  min?: number;
+  max?: number;
+  default?: unknown;
+};
+
+/** Read-only projection of the authorized SKILL.md execution contract. */
+export type SkillTemplate = {
+  id: string;
+  kind: "skill_template";
+  skill_id: string;
+  version: string;
+  title: string;
+  description: string;
+  steps: string[];
+  inputs: TaskInputField[];
+  starter: string;
+  output: { type: string; title: string };
+  constraints: string[];
+  source: "skill";
+  read_only: true;
+};
+
 export type Task = {
   id: string;
   title: string;
@@ -300,6 +332,8 @@ export type Task = {
   discovery_run_id?: string | null;
   /** PROD-AGENT-08: unadopted recs/insights. Formal WorkItems are candidate:false. */
   candidate?: boolean;
+  /** Creation-time skill contract snapshot; legacy tasks are server-projected. */
+  skill_template?: SkillTemplate | null;
   [key: string]: unknown;
 };
 
@@ -432,6 +466,7 @@ export type TaskDefinition = {
   category?: string;
   skill?: string;
   skill_id?: string;
+  ui_template?: SkillTemplate | null;
   profile?: string;
   granted?: boolean;
   [key: string]: unknown;
@@ -542,6 +577,8 @@ export type PendingAsk = {
   object_refs?: Array<{ kind: string; id: string; label?: string }>;
   client_entry?: string;
   compose_input?: ComposeInput;
+  /** Optimistic template version; server owns and snapshots the actual DTO. */
+  skill_template_version?: string;
 };
 
 export type KnowledgeRow = {
@@ -1270,6 +1307,7 @@ export const api = {
         object_refs: p.object_refs,
         client_entry: p.client_entry,
         compose_input: p.compose_input,
+        skill_template_version: p.skill_template_version,
       }),
     });
     const b = (await parse(r)) as {
@@ -1518,6 +1556,10 @@ export const api = {
     return request<KnowledgeRow[]>(qs ? `/api/knowledge?${qs}` : "/api/knowledge");
   },
   kbMarket: () => request<KnowledgeRow[]>("/api/knowledge/market"),
+  /** Authorized, read-only projection of published SKILL.md interaction contracts. */
+  skillTemplates: () => request<SkillTemplate[]>("/api/knowledge/skill-templates"),
+  skillTemplate: (skillId: string) =>
+    request<SkillTemplate>(`/api/knowledge/skill-templates/${encodeURIComponent(skillId)}`),
   /** 零会话、零模型：只读已发布的问题模板，供公海四个入口预填提问框。 */
   questionTemplates: () => request<QuestionTemplateRow[]>("/api/knowledge/question-templates"),
   knowledgeItem: (id: string) => request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}`),

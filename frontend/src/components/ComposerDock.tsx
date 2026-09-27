@@ -1,6 +1,6 @@
 import { fieldLabel } from "../labels";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ComposeInput, KnowledgeRow } from "../api";
+import { api, type ComposeInput, type KnowledgeRow, type SkillTemplate } from "../api";
 import ChipRail from "../composer/ChipRail";
 import { expertChipLabel, isWriteSkill, labelOfSkill, type CatalogSkill } from "../composer/catalog";
 import { peekComposerDraft, takeComposerDraftStash } from "../composer/draft";
@@ -51,6 +51,7 @@ import {
   type LockedMailTemplate,
 } from "../knowledgeCopy";
 import { useViewMode } from "../viewMode";
+import { NO_REQUIRED_INPUTS_COPY, templateForSkill } from "../skillTemplate";
 
 export type ComposerVariant = "compact" | "workspace";
 export type ComposerPlacement = "hero" | "dock";
@@ -70,6 +71,7 @@ export type ComposerSubmit = {
   object_refs?: ComposerObjectRef[];
   client_entry?: ComposerClientEntry;
   compose_input?: ComposeInput;
+  skill_template_version?: string;
 };
 
 export type MailComposerMeta = {
@@ -143,6 +145,7 @@ export default function ComposerDock({
   suggestions,
   onPickSuggestion,
   onPickSkill,
+  onSkillTemplateChange,
   running,
   queue,
   onStop,
@@ -185,6 +188,8 @@ export default function ComposerDock({
   suggestions?: ComposerSuggestion[];
   onPickSuggestion?: (item: ComposerSuggestion) => void;
   onPickSkill?: (skill: SkillOption, ctx: { mention: string; rest: string; collaborationId?: string }) => void;
+  /** The single explicit template locked to the current draft. */
+  onSkillTemplateChange?: (template: SkillTemplate | null, skill: SkillOption | null) => void;
   running?: boolean;
   queue?: { id: string; text?: string; intent?: string }[];
   onStop?: () => void;
@@ -209,6 +214,9 @@ export default function ComposerDock({
   submitLabel?: string;
 }) {
   const [skills, setSkills] = useState<SkillOption[]>([]);
+  const [skillTemplates, setSkillTemplates] = useState<SkillTemplate[]>([]);
+  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
+  const [selectedSkillTemplate, setSelectedSkillTemplate] = useState<SkillTemplate | null>(null);
   const [templates, setTemplates] = useState<KnowledgeRow[]>([]);
   const [knowledgeLibs, setKnowledgeLibs] = useState<KnowledgeLib[]>([]);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
@@ -286,6 +294,11 @@ export default function ComposerDock({
     load().catch(() => {
       if (!cancelled) setSkills([]);
     });
+    api.skillTemplates().then((rows) => {
+      if (!cancelled && Array.isArray(rows)) setSkillTemplates(rows);
+    }).catch(() => {
+      if (!cancelled) setSkillTemplates([]);
+    });
     fetch("/api/knowledge/composer")
       .then((r) => r.ok ? r.json() as Promise<KnowledgeRow[]> : [])
       .then((rows) => {
@@ -320,6 +333,16 @@ export default function ComposerDock({
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedSkillId) return;
+    const skill = skills.find((item) => item.id === selectedSkillId);
+    if (!skill) return;
+    const next = templateForSkill(skill, skillTemplates);
+    if (next?.id === selectedSkillTemplate?.id) return;
+    setSelectedSkillTemplate(next);
+    onSkillTemplateChange?.(next, skill);
+  }, [onSkillTemplateChange, selectedSkillId, selectedSkillTemplate?.id, skillTemplates, skills]);
 
   useEffect(() => {
     if (lockedKnowledgeId && lockSourceRef.current !== "auto") {
@@ -421,6 +444,17 @@ export default function ComposerDock({
       const project = draft.chips?.find((chip) => chip.kind === "project");
       if (project?.kind === "project") setSelectedProject({ id: project.id, label: project.label });
       if (draft.model_tier === "fast" || draft.model_tier === "balanced" || draft.model_tier === "quality") setModelTier(draft.model_tier);
+      if (draft.skill_template) {
+        const skill: SkillOption = {
+          id: draft.skill_template.skill_id,
+          title: draft.skill_template.title,
+          label: draft.skill_template.title,
+          ui_template: draft.skill_template,
+        };
+        setSelectedSkillId(skill.id);
+        setSelectedSkillTemplate(draft.skill_template);
+        onSkillTemplateChange?.(draft.skill_template, skill);
+      }
       // A draft that carries [待补参数] is a form, not a finished sentence: put the
       // caret on the first gap so「补完参数后由你发送」is one keystroke away.
       const gap = draft.text ? draft.text.match(/\[[^\]]+\]/) : null;
@@ -619,12 +653,21 @@ export default function ComposerDock({
     });
   };
 
+  const selectSkillTemplate = (skill: SkillOption): SkillTemplate | null => {
+    const template = templateForSkill(skill, skillTemplates);
+    setSelectedSkillId(skill.id);
+    setSelectedSkillTemplate(template);
+    onSkillTemplateChange?.(template, skill);
+    return template;
+  };
+
   const addSkillChip = (s: SkillOption, rest = value) => {
     pushRecentSkill(s.id);
     // The + menu used to add only an internal chip, leaving the editor blank.
     // Keep the skill visible as an actionable, editable starter just like the
     // skill catalog does; preserve any text the user has already entered.
-    const nextText = rest.trim() || starterPrompt({ id: s.id, title: s.title });
+    const template = selectSkillTemplate(s);
+    const nextText = rest.trim() || starterPrompt({ id: s.id, title: s.title, ui_template: template });
     if (nextText !== value) onChange(nextText);
     setSkillChips((current) => {
       if (current.some((chip) => chip.id === s.id)) return current;
@@ -703,6 +746,11 @@ export default function ComposerDock({
   const removeChip = (chip: ComposerChip) => {
     if (chip.kind === "skill") {
       setSkillChips((current) => current.filter((item) => item.id !== chip.id));
+      if (chip.id === selectedSkillId) {
+        setSelectedSkillId(null);
+        setSelectedSkillTemplate(null);
+        onSkillTemplateChange?.(null, null);
+      }
       onSkillRemoved?.(chip.id);
       return;
     }
@@ -830,6 +878,7 @@ export default function ComposerDock({
       object_refs: objectRefs,
       client_entry: clientEntryFor(entryIntent),
       compose_input: mailCompose?.composeInput(value),
+      skill_template_version: selectedSkillTemplate?.version,
     });
     setAttachments([]);
     setSelectedProject(null);
@@ -1152,6 +1201,9 @@ export default function ComposerDock({
           placeholder={placeholder}
           aria-label="发消息或创建任务"
         />
+        {selectedSkillTemplate && !selectedSkillTemplate.inputs.some((field) => field.required) ? (
+          <p className="composer-template-input-hint" data-skill-template-no-required>{NO_REQUIRED_INPUTS_COPY}</p>
+        ) : null}
         <div className="composer-toolbar" data-ai-prompt-tools>
           <div className="composer-add-wrap" ref={menuRef}>
             <button

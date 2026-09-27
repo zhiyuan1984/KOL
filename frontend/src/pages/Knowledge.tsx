@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { api, type KnowledgeRow } from "../api";
+import { api, type KnowledgeRow, type SkillTemplate } from "../api";
+import SkillTemplateContext from "../components/SkillTemplateContext";
+import { stashComposerDraft } from "../composer/draft";
+import { templateQuestionDraft } from "../skillTemplate";
 import {
   HIDE_REASONS,
   KB_EMPTY_FILTER,
@@ -174,6 +177,9 @@ function ContentDrawer({
 
 export default function Knowledge() {
   const [rows, setRows] = useState<KnowledgeRow[]>([]);
+  const [skillTemplates, setSkillTemplates] = useState<SkillTemplate[]>([]);
+  const [skillTemplatesLoading, setSkillTemplatesLoading] = useState(true);
+  const [skillTemplatesError, setSkillTemplatesError] = useState("");
   const [preview, setPreview] = useState<KnowledgeRow | null>(null);
   const [hideFor, setHideFor] = useState("");
   const [err, setErr] = useState("");
@@ -199,6 +205,21 @@ export default function Knowledge() {
   }, [keyword]);
 
   useEffect(reload, [reload]);
+
+  const loadSkillTemplates = useCallback(async () => {
+    setSkillTemplatesLoading(true);
+    setSkillTemplatesError("");
+    try {
+      const templates = await api.skillTemplates();
+      setSkillTemplates(Array.isArray(templates) ? templates : []);
+    } catch (error) {
+      setSkillTemplatesError(error instanceof Error ? error.message : "无法加载技能交互模板");
+    } finally {
+      setSkillTemplatesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void loadSkillTemplates(); }, [loadSkillTemplates]);
 
   useEffect(() => {
     const next = query.trim();
@@ -268,6 +289,15 @@ export default function Knowledge() {
     void api.citeKnowledge(row.id).then(() => go()).catch((e) => setErr(e instanceof Error ? e.message : "无法选用这份资料"));
   };
 
+  const askWithSkillTemplate = (template: SkillTemplate) => {
+    closeTip();
+    // The template is a read-only published Skill projection, not a knowledge
+    // row: stash only an editable question draft and never cite/edit this
+    // synthetic identifier or start an execution from the library.
+    stashComposerDraft(templateQuestionDraft(template));
+    nav("/");
+  };
+
   const visible = useMemo(() => {
     const filtered = rows.filter(
       (row) => kbMatchesTab(row, tab, recentIds) && kbMatchesFilter(row, stageFilter, brandFilter),
@@ -276,6 +306,14 @@ export default function Knowledge() {
     const rank = new Map(recentIds.map((id, index) => [id, index]));
     return [...filtered].sort((a, b) => (rank.get(a.id) ?? 99) - (rank.get(b.id) ?? 99));
   }, [brandFilter, recentIds, rows, stageFilter, tab]);
+
+  const visibleSkillTemplates = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return skillTemplates;
+    return skillTemplates.filter((template) => (
+      `${template.title} ${template.description} ${template.skill_id}`.toLowerCase().includes(needle)
+    ));
+  }, [query, skillTemplates]);
 
   const emptyCopy = useMemo(() => {
     if (keyword) return KB_EMPTY_SEARCH;
@@ -361,6 +399,52 @@ export default function Knowledge() {
       </div>
       ) : null}
       {err && <p className="error">{err}</p>}
+      {loaded ? (
+        <details className="kb-skill-templates" data-kb-skill-templates>
+          <summary className="kb-skill-templates-head">
+            <span>
+              <span className="page-kicker">已发布技能</span>
+              <strong id="kb-skill-template-title">技能交互模板</strong>
+              <small>查看功能、预计步骤和输入条件；用于提问只打开草稿，不会自动执行。</small>
+            </span>
+            <span>{skillTemplatesLoading ? "加载中" : `${visibleSkillTemplates.length} 项`}</span>
+          </summary>
+          <div className="kb-skill-template-list" aria-labelledby="kb-skill-template-title">
+            {skillTemplatesLoading ? <p className="muted">正在加载技能交互模板…</p> : null}
+            {skillTemplatesError ? (
+              <p className="error" role="alert">
+                无法加载技能交互模板：{skillTemplatesError}
+                <button className="btn row-action" type="button" onClick={() => void loadSkillTemplates()}>重试</button>
+              </p>
+            ) : null}
+            {!skillTemplatesLoading && !skillTemplatesError && !visibleSkillTemplates.length ? (
+              <p className="muted">{query.trim() ? "没有匹配的技能交互模板。" : "暂无已发布技能交互模板。"}</p>
+            ) : null}
+            {visibleSkillTemplates.map((template) => (
+              <article className="kb-skill-template-row" key={template.id} data-skill-template={template.id}>
+                <div className="kb-skill-template-summary">
+                  <strong>{template.title}</strong>
+                  <span>{template.description || "按已发布技能契约处理你的请求。"}</span>
+                </div>
+                <div className="kb-skill-template-actions">
+                  <details data-kb-skill-template-preview={template.id}>
+                    <summary>查看交互模板</summary>
+                    <SkillTemplateContext template={template} />
+                  </details>
+                  <button
+                    className="btn row-action"
+                    type="button"
+                    data-kb-skill-template-ask={template.skill_id}
+                    onClick={() => askWithSkillTemplate(template)}
+                  >
+                    用于提问
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </details>
+      ) : null}
       {loaded && visible.map((k) => {
         const status = kbStatusLabel(k);
         const favorited = favorites.includes(k.id);

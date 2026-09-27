@@ -112,6 +112,8 @@ import {
   KOL_ANALYZE_TASK_TYPE,
 } from "./kol-memory.js";
 import { taskDefinition, validateTaskResultSchema } from "../tasks/registry.js";
+import { isSkillTemplateSnapshot } from "../tasks/skill-template.js";
+import { effectiveSkillTemplate } from "./skill-sop.js";
 import { isSafeSkillResultForMemory, persistValidatedSkillResult } from "./skill-result-memory.js";
 import { recognizeTaskIntent } from "../tasks/recognize.js";
 import { insertSessionMessage, isSessionNotFound } from "./session-messages.js";
@@ -580,6 +582,19 @@ function bindTaskMessage(sid: string, body: Json): BoundTask | null {
     ).get(item.id, sid)) as Row | undefined;
   if (!run) throw new HttpFail(409, "pending task run not found");
   if (!["pending", "failed"].includes(String(run.status))) throw new HttpFail(409, `task run is ${run.status}`);
+  const storedTemplate = (JSON.parse(String(run.input || "{}")) as Json)._skill_template;
+  if (isSkillTemplateSnapshot(storedTemplate, taskType)
+    && storedTemplate.version !== effectiveSkillTemplate(taskDefinition(taskType)!).version) {
+    const detail = { code: "skill_template_version_conflict", message: "技能模板在排队期间已更新，请重新选用模板并检查参数后创建任务。" };
+    tx((db) => {
+      db.prepare("UPDATE task_runs SET status='failed',error=?,completed_at=? WHERE id=?")
+        .run(JSON.stringify(detail), nowIso(), run.id);
+      db.prepare("UPDATE work_items SET status='needs_clarification',updated_at=? WHERE id=?")
+        .run(nowIso(), item.id);
+    });
+    appendTaskEvent(String(item.id), String(run.id), "run.template_changed", "技能模板已更新", "needs_clarification", detail.message);
+    throw new HttpFail(409, detail);
+  }
   const now = nowIso();
   tx((db) => {
     db.prepare("UPDATE task_runs SET status='running',started_at=?,error=NULL WHERE id=?").run(now, run.id);

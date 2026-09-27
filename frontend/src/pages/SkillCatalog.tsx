@@ -880,6 +880,7 @@ export function SkillCatalog() {
     rememberJourney({ kind: "skill", skillId: skill.id, skillLabel: skill.label || skill.title });
     applyComposerDraft({
       text: skillFillText(skill),
+      skill_template: skill.ui_template,
       chips: [{
         kind: "skill",
         id: skill.id,

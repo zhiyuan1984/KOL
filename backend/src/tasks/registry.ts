@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { publishedSkillsDir, skillsDir } from "../config.js";
 
 export const TASK_PROFILES = [
@@ -43,6 +44,7 @@ export type TaskInputField = {
   default?: unknown;
   min?: number;
   max?: number;
+  integer?: boolean;
 };
 export type TaskResultSchema = {
   type: "object" | "array" | "string" | "number" | "integer" | "boolean" | "null";
@@ -68,8 +70,18 @@ export type TaskMemoryPolicy = {
 export type TaskSupports = { cancel: boolean; retry: boolean; resume: boolean };
 export type TaskRuntimeAccess = "granted" | "authenticated";
 
+/** Human-facing half of the same published Skill; never executable instructions. */
+export type TaskInteraction = {
+  purpose: string;
+  steps: string[];
+  output_title: string;
+  constraints: string[];
+};
+
 export type TaskDefinition = {
   id: string;
+  content_version?: string;
+  interaction?: TaskInteraction;
   /** Stable Runtime identity. Bundled business Skills retain agent:kol unless declared otherwise. */
   runtime_agent_id: string;
   /** Platform-only read Skills may be available to every active authenticated employee. */
@@ -357,6 +369,9 @@ function parseDeclaredContract(values: Record<string, unknown>, file: string): P
           throw new Error(`manifest input_schema.${key}.${field} must be a finite number: ${file}`);
         }
       }
+      if (row.integer !== undefined && (typeof row.integer !== "boolean" || row.kind !== "number")) {
+        throw new Error(`manifest input_schema.${key}.integer requires a number field and boolean: ${file}`);
+      }
       return Object.freeze({
         key,
         label,
@@ -369,6 +384,7 @@ function parseDeclaredContract(values: Record<string, unknown>, file: string): P
         ...(row.default !== undefined ? { default: row.default } : {}),
         ...(row.min !== undefined ? { min: Number(row.min) } : {}),
         ...(row.max !== undefined ? { max: Number(row.max) } : {}),
+        ...(row.integer !== undefined ? { integer: row.integer as boolean } : {}),
       });
     });
     const declaredRequired = [...seen].filter((key) => inputSchema!.find((field) => field.key === key)?.required).sort();
@@ -461,6 +477,30 @@ export function validateDeclaredTaskContract(values: Record<string, unknown>): P
 
 function parseDefinition(file: string, folder: string, source: TaskSource): TaskDefinition {
   const values = frontmatter(file);
+  let interaction: TaskInteraction | undefined;
+  if (values.interaction !== undefined) {
+    if (!values.interaction || typeof values.interaction !== "object" || Array.isArray(values.interaction)) {
+      throw new Error(`manifest interaction must be an object: ${file}`);
+    }
+    const raw = values.interaction as Record<string, unknown>;
+    if (Object.keys(raw).some((key) => !["purpose", "steps", "output_title", "constraints"].includes(key))) {
+      throw new Error(`manifest interaction contains an unsupported field: ${file}`);
+    }
+    for (const key of ["purpose", "output_title"] as const) {
+      if (typeof raw[key] !== "string" || !raw[key].trim() || raw[key].length > 1000) {
+        throw new Error(`manifest interaction.${key} must be bounded non-empty text: ${file}`);
+      }
+    }
+    const steps = stringArray(raw.steps, "interaction.steps", file);
+    const constraints = stringArray(raw.constraints, "interaction.constraints", file);
+    if (!steps.length || steps.length > 12 || constraints.length > 12
+      || [...steps, ...constraints].some((text) => text.length > 1000)) {
+      throw new Error(`manifest interaction steps/constraints exceed bounds or steps are missing: ${file}`);
+    }
+    // No second list of inputs in the template: it must reuse the execution schema.
+    if (!Array.isArray(values.input_schema)) throw new Error(`manifest interaction requires input_schema: ${file}`);
+    interaction = Object.freeze({ purpose: String(raw.purpose), steps, output_title: String(raw.output_title), constraints });
+  }
   for (const field of REQUIRED) {
     if (!(field in values)) throw new Error(`manifest missing ${field}: ${file}`);
   }
@@ -548,6 +588,8 @@ function parseDefinition(file: string, folder: string, source: TaskSource): Task
   }
   return Object.freeze({
     id,
+    content_version: createHash("sha256").update(fs.readFileSync(file, "utf8").replace(/\r\n/g, "\n")).digest("hex"),
+    ...(interaction ? { interaction } : {}),
     runtime_agent_id: runtimeAgentId,
     runtime_access: runtimeAccess as TaskRuntimeAccess,
     title: String(values.title),
