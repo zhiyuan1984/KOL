@@ -1586,9 +1586,15 @@
    参考图 780×1011 逐像素测量，数值 = 实测 × 0.7（与 §连接器控制台 同基准）；
    唯一来源 docs/DESIGN.md §连接器控制台「添加自定义 API 创建弹窗」。改数值前先改 DESIGN.md。 */
 
-/* 页脚底内边距按参考图收口（实测 17 图像 px × 0.7 ≈ 12；取 18 兼顾呼吸与 900 高视口不滚动）。 */
+/* 页脚底内边距与标题上内边距按参考图收口（实测 17/14 图像 px × 0.7 ≈ 12/10；取 16/14 兼顾呼吸
+   与 900 高视口不滚动），字段标签行盒收口到 20px（参考图实测；含半行距）。 */
 .connector-panel-layer[data-connector-panel="api-config"] .connector-panel {
-  --dialog-pad-b: 18px;
+  --dialog-pad-t: 14px;
+  --dialog-pad-b: 16px;
+}
+
+.connector-panel-layer[data-connector-panel="api-config"] .field {
+  line-height: 20px;
 }
 
 /* 副标题：13px 说明色，紧贴标题（弹窗标题块的第二行）。 */

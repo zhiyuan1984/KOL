@@ -412,6 +412,8 @@ test("HTTP API flow creates a draft and saves explicit actions without an MCP ad
 });
 
 test("自定义 HTTP API dialog matches the reference layout", async ({ page }) => {
+  // 验收矩阵（docs/DESIGN.md §验收矩阵）：1440×900 指针档检查弹窗完整可见、不出现滚动。
+  await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/admin/connectors");
   await page.locator("[data-connector-create-toggle]").click();
   await page.locator("[data-connector-create-item='api']").click();

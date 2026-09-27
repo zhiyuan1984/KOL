@@ -231,7 +231,8 @@
 - 备注：95（`--note-h-form`），占位「提供 API 文档或说明，以告知平台如何及何时使用此 API」。
 - 密钥卡片（新 token）：内边距 22 → 16（`--secret-card-pad`）；值文本域高 106 → 74（`--secret-value-h`）；
   卡内字段距 18 → 13（`--secret-row-gap`）；卡片之间与到「＋ 添加密钥」21 → 15；卡片 = 1px `--border-quiet`
-  描边 + 弹窗同底 + `--radius-card`(7) 圆角；页脚底内边距按参考图收口到 18（`--dialog-pad-b`，本弹窗作用域）。
+  描边 + 弹窗同底 + `--radius-card`(7) 圆角；本弹窗作用域另把标题上 / 页脚底内边距收口到 14 / 16、字段标签
+  行盒收口到 20px（实测 14/17 图像 px 与行盒；同时保证 900 高视口不出现滚动）。
 - 「?」帮助图标（新 token）：实测 20 → 14（`--help-icon`），`--hint-text` 描边圆圈 + 10px 问号，title / aria-label 承担说明。
 - 保存禁用态：`--fill-control` 底 + `--placeholder-text` 字（参考图空表单初始态）。
 
