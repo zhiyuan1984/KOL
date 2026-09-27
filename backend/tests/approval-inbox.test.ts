@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { calculateApprovalPlan } from "../src/approval/plan.js";
 import { canDecideCurrent, employeeForUser } from "../src/approval/inbox.js";
 import { createWorkApproval } from "../src/gateway/wecom.js";
-import { resetConn } from "../src/db.js";
+import { getConn, resetConn } from "../src/db.js";
 import { seedAll } from "../src/seed.js";
 
 let tmp = "";
@@ -63,6 +63,9 @@ describe("approval inbox by login name", () => {
     process.env.AUTH_MODE = "enabled";
     resetConn();
     seedAll();
+    getConn().prepare(
+      "INSERT OR IGNORE INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES (?,?,?,?,?,?)",
+    ).run("wecom", "WeCom", 1, "configured", null, new Date().toISOString());
     const { createApp } = await import("../src/app.js");
     app = createApp();
     const setup = await call("POST", "/api/auth/setup", {

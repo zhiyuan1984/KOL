@@ -38,7 +38,9 @@ describe("department and position tool scope", () => {
     const team = addOrganizationScopeNode("starrykol", { name: "达人合作部", level: 2, parent_id: department.id }).nodes.find((node) => node.name === "达人合作部")!;
     const position = addOrganizationScopeNode("starrykol", { name: "KOL 经理", level: 3, parent_id: team.id }).nodes.find((node) => node.name === "KOL 经理")!;
 
-    expect(connectorHasOrganizationScopes("starrykol")).toBe(false);
+    // Adding the organization tree establishes scope governance before an
+    // individual tool is selected; access still requires a tool binding.
+    expect(connectorHasOrganizationScopes("starrykol")).toBe(true);
     replaceToolScope("starrykol", "pageKolProfiles", [department.id], admin.id);
     expect(connectorHasOrganizationScopes("starrykol")).toBe(true);
     expect(userHasToolScope("starrykol", "pageKolProfiles", admin.id)).toBe(true);
