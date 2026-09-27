@@ -12,6 +12,16 @@ import { KOL_SELECT_MAX, selectAllChecked, selectAllLabel } from "./kolContract"
 import { HOME_HANDOFF_TO_AGENT } from "./entryRegistry";
 import type { SurfaceDownView } from "./surfaceError";
 
+/** 与公海同一支搜索图标：框内左侧内联，命中区仍是整个输入框。 */
+function SearchIcon() {
+  return (
+    <svg className="followed-inline-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <circle cx="7" cy="7" r="4.25" stroke="currentColor" strokeWidth="1.5" />
+      <path d="m10.25 10.25 3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 /** 读取久等之后才给恢复入口：等待本身有原因，不靠猜、不伪造进度。 */
 function useSlowWait(active: boolean, ms = 8000): boolean {
   const [slow, setSlow] = useState(false);
@@ -169,6 +179,7 @@ export default function FollowedPane({
         <div className="followed-object-toolbar" data-followed-object-toolbar data-home-entry="list-followed">
           <div className="followed-object-look" data-followed-object-look>
             <label className="followed-object-search">
+              <SearchIcon />
               <span className="sr-only">搜索跟进对象</span>
               <input
                 type="search"

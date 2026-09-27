@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import PanelToggleIcon from "../components/PanelToggleIcon";
 import ResultRail from "./workspace/ResultRail";
 import type { ResultRailViewModel } from "./workspace/result-contract";
 
@@ -171,12 +172,11 @@ export default function WorkspaceShell({
           className="scope-task-rail-toggle"
           aria-expanded={!railCollapsed}
           aria-label={`${railCollapsed ? "展开" : "收起"}${railLabel}`}
+          title={`${railCollapsed ? "展开" : "收起"}${railLabel}`}
           onClick={toggleRail}
         >
-          <svg className="scope-task-rail-toggle-icon" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-            {/* 右栏贴右边：收起向右、展开向左。 */}
-            <path d={railCollapsed ? "m13 4-6 6 6 6" : "m7 4 6 6-6 6"} />
-          </svg>
+          {/* 箭头（›/‹）换成「侧栏面板」图标：状态由 aria-expanded 与折叠档的竖排文字表达。 */}
+          <PanelToggleIcon className="scope-task-rail-toggle-icon" />
           {railCollapsed ? <strong>{railToggleLabel}</strong> : null}
           {railCollapsed && railBadge != null ? <em>{railBadge}</em> : null}
         </button>

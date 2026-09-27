@@ -3,6 +3,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { api, type Account, type SessionRow } from "../api";
 import { useAccount } from "../components/AuthGate";
 import BrandLockup from "../components/BrandLockup";
+import PanelToggleIcon from "../components/PanelToggleIcon";
 import RouteErrorBoundary, { RouteLoadingFallback } from "../components/RouteErrorBoundary";
 import AccountBar from "../components/AccountBar";
 import { ANALYZE_WORK_EVENT, loadKolAnalyzeInFlight, type AnalyzeWorkItem } from "../home/kolSurfaceApi";
@@ -204,7 +205,7 @@ export default function Workbench() {
               <img src="/avatars/lucas/Lucas6.webp" alt="" />
             </picture>
           </NavLink>
-          <button type="button" className="sidebar-search-btn collapse-toggle" onClick={toggleCollapsed} aria-label={collapsed ? "展开侧栏" : "收起侧栏"} title={collapsed ? "展开侧栏" : "收起侧栏"}>{collapsed ? "›" : "‹"}</button>
+          <button type="button" className="sidebar-search-btn collapse-toggle" onClick={toggleCollapsed} aria-label={collapsed ? "展开侧栏" : "收起侧栏"} title={collapsed ? "展开侧栏" : "收起侧栏"}><PanelToggleIcon side="left" /></button>
         </div>
 
         <div className="sidebar-scroll">

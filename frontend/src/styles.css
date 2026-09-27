@@ -542,7 +542,8 @@ summary:focus-visible,
   place-items: center;
   padding: 0;
 }
-.sidebar-search-btn svg { width: 16px; height: 16px; }
+/* 面板图标按规则 17 走控件档（--icon-sm），描边加粗一档保住辨识度。 */
+.sidebar-search-btn svg { width: var(--icon-sm); height: var(--icon-sm); stroke-width: 2.2; }
 .sidebar-search-btn:hover {
   background: color-mix(in srgb, var(--text) 6%, transparent);
   color: var(--text);
@@ -3539,12 +3540,14 @@ summary:focus-visible,
   scrollbar-width: none;
 }
 .followed-journey::-webkit-scrollbar { display: none; }
+/* 图2：三行同一档字号（13px），阶段导航一行的字重比快速筛选一行重。 */
 .followed-journey span {
   position: relative;
   flex: 0 0 auto;
-  padding: 8px 0 11px;
+  padding: 6px 0 9px;
   color: var(--text-muted);
-  font-size: var(--font-body);
+  font-size: var(--font-sm);
+  font-weight: 600;
   line-height: 1.35;
   white-space: nowrap;
 }
@@ -3577,15 +3580,15 @@ summary:focus-visible,
 .followed-stage-quick-filter button {
   position: relative;
   flex: 0 0 auto;
-  min-height: 34px;
+  min-height: 28px;
   margin: 0;
-  padding: 5px 0 9px;
+  padding: 4px 0 8px;
   border: 0;
   border-bottom: 2px solid transparent;
   background: transparent;
   color: var(--text-muted);
   font: inherit;
-  font-size: var(--font-body);
+  font-size: var(--font-sm);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -3593,7 +3596,7 @@ summary:focus-visible,
 .followed-stage-quick-filter button.is-active {
   border-bottom-color: var(--accent);
   color: var(--text);
-  font-weight: 600;
+  font-weight: 500;
 }
 .followed-kol-column .followed-brief {
   display: flex;
@@ -3649,14 +3652,41 @@ summary:focus-visible,
   flex-wrap: wrap;
   margin-left: auto;
 }
+/* 图3/图4：与公海同一套控件配方 —— 32px 高、可操作控件边框（--control-border 3.45:1）、
+   框内左侧内联搜索图标；宽度收口到 18rem，不再横贯整栏。 */
 .followed-kol-column .followed-object-search {
-  flex: 1 1 auto;
-  max-width: none;
+  position: relative;
+  display: block;
+  flex: 0 1 18rem;
+  min-width: min(12rem, 100%);
+  max-width: 18rem;
+}
+.followed-kol-column .followed-object-search .followed-inline-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
 }
 .followed-kol-column .followed-object-search input {
+  height: var(--control-h-lg);
   min-height: var(--control-h-lg);
+  border: 1px solid var(--control-border);
   border-radius: var(--radius-control);
-  padding-inline: 14px;
+  background: var(--bg);
+  line-height: var(--lh-control);
+  padding: 0 10px 0 32px;
+}
+/* 工具行的按钮与同排搜索框同档（32px），文字 13px：原来是 36px，比搜索框还高。 */
+.followed-kol-column .followed-object-batch .btn.sm {
+  height: var(--control-h-lg);
+  min-height: var(--control-h-lg);
+  padding: 0 12px;
+  border-radius: var(--radius-control);
+  font-size: var(--ds-font-sm);
 }
 .followed-kol-column .followed-advanced-filter {
   position: absolute;
@@ -3680,7 +3710,15 @@ summary:focus-visible,
   font-variant-numeric: tabular-nums;
 }
 .followed-kol-column .followed-select-all {
+  min-height: var(--control-h-lg);
   color: var(--text);
+  font-size: var(--ds-font-sm);
+}
+.followed-kol-column .followed-select-all input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent-text);
 }
 .followed-kol-column .followed-kol-list {
   gap: 0;
@@ -3731,43 +3769,60 @@ summary:focus-visible,
 .followed-kol-column .kol-band-actions { justify-content: space-between; }
 .followed-kol-column .kol-cta-secondary { gap: 10px; }
 .followed-kol-column .kol-cta-link { font-size: var(--font-sm); }
-@media (min-width: 900px) {
-  .followed-kol-column .followed-kol-card .kol-split {
-    grid-template-columns: minmax(0, 1.2fr) minmax(14rem, .8fr);
-    gap: 20px;
-  }
-  .followed-kol-column .followed-kol-card .kol-band-recommend {
-    min-height: 100%;
-    padding-top: 0;
-    padding-left: 20px;
-    border-top: 0;
-    border-left: 1px solid var(--border);
-  }
+/* 图1：信息上下铺满，不做左右两栏；每层内部横向排满，两层之间一条发丝线区隔。
+   行内排不下时自己换行，不挤压文字。 */
+.followed-kol-card .kol-split {
+  row-gap: var(--space-2);
+}
+.followed-kol-column .followed-kol-card {
+  gap: var(--space-2);
+  padding: 12px 4px;
+}
+/* 事实层：正文独占一行，邮件来源与 14 日计时并到同一条元信息行。 */
+.followed-kol-card .kol-band-fact .kol-state-block {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--space-3);
+}
+.followed-kol-card .kol-band-fact .kol-mail-digest {
+  flex: 1 1 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* 建议层：建议与理由占满剩余宽度，动作（次要链接 + 主 CTA）靠右对齐成一组。 */
+.followed-kol-card .kol-band-recommend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--space-4);
+  row-gap: 2px;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+.followed-kol-card .kol-band-recommend > [data-recommended-action] {
+  flex: 1 1 12rem;
+}
+.followed-kol-card .kol-band-recommend > [data-action-evidence] {
+  flex: 0 1 auto;
+}
+.followed-kol-card .kol-band-recommend > .kol-band-actions {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding-top: 0;
+}
+/* 卡片主 CTA 与工具行同档（32px），不再比同屏其它控件高一头。 */
+.followed-kol-card .kol-cta-btn.btn.sm {
+  height: var(--control-h-lg);
+  min-height: var(--control-h-lg);
+  padding: 0 12px;
 }
 @media (max-width: 640px) {
   .followed-kol-column .followed-object-toolbar { grid-template-columns: minmax(0, 1fr); }
   .followed-kol-column .followed-object-batch { justify-content: flex-start; }
   .followed-kol-column .followed-select-all { margin-right: auto; }
-}
-@media (min-width: 900px) {
-  .followed-kol-card .kol-split {
-    grid-template-columns: minmax(0, 1fr);
-    row-gap: var(--space-3);
-    align-items: start;
-  }
-  .followed-kol-card .kol-band-fact {
-    grid-column: 1;
-  }
-  .followed-kol-card .kol-band-recommend {
-    grid-column: 1;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    align-content: start;
-    gap: var(--space-2);
-  }
-  .followed-kol-card .kol-band-actions {
-    margin-top: 0;
-  }
 }
 @media (max-width: 1200px) {
   .followed-stage-filter {

@@ -280,6 +280,7 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
     };
   });
   expect(wide.stageBesideName).toBe(true);
+  // 卡片信息上下铺满（2026-09-27）：事实层与建议层各占整行，主 CTA 仍在 AI 建议里。
   expect(wide.factAiSideBySide).toBe(false);
   expect(wide.gutter).toBe(0);
   expect(wide.primaryInAi).toBe(true);

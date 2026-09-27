@@ -514,12 +514,14 @@
   border: 0;
   border-radius: var(--radius-control);
   background: none;
-  color: var(--ds-text-dim);
+  color: var(--text);
   font: inherit;
   cursor: pointer;
 }
+/* 收起-展开控件是一个真控件：图标取正文色 + 悬停给面，不再是一枚浅灰箭头。 */
 .scope-task-rail-toggle:hover {
-  color: var(--accent-text);
+  color: var(--text);
+  background: var(--surface-hover);
 }
 .scope-task-rail-toggle:focus-visible,
 .task-board-open:focus-visible,
@@ -536,9 +538,13 @@
   flex: 0 0 auto;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.8;
+  stroke-width: 2.2;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+/* 「我的红人」顶部工具行的搜索框高 32px：收起按钮与它同一条水平中轴。 */
+.home-mode-pane[data-home-pane="lifecycle"] .scope-task-rail-toggle {
+  top: 24px;
 }
 .scope-task-rail.is-collapsed {
   display: flex;

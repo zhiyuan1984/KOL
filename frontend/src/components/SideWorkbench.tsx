@@ -23,6 +23,7 @@ import {
   taskResultCardsFrom,
 } from "./ChatBlocks";
 import Markdown from "./Markdown";
+import PanelToggleIcon from "./PanelToggleIcon";
 import { api } from "../api";
 import CrawlArtifact, { crawlCandidates } from "./CrawlArtifact";
 import { SuggestedFollowTags } from "./FollowStyleTags";
@@ -457,7 +458,7 @@ export default function SideWorkbench({
   return (
     <aside ref={sideRef} className={"side-workbench" + (collapsed ? " collapsed" : "")} data-workbench>
       <div className="artifact-toolbar" aria-label="产物工具栏">
-        <button className="icon-btn" onClick={toggle} aria-label={collapsed ? "展开工作台" : "收起工作台"}>{collapsed ? "‹" : "›"}</button>
+        <button className="icon-btn" onClick={toggle} aria-label={collapsed ? "展开工作台" : "收起工作台"} title={collapsed ? "展开工作台" : "收起工作台"}><PanelToggleIcon /></button>
         {!collapsed && <>
           <a className="icon-btn" href={`/api/sessions/${sessionId}/export?format=md`} download aria-label="下载 Markdown">↓ MD</a>
           {debug ? <a className="icon-btn" href={`/api/sessions/${sessionId}/export?format=json`} download aria-label="下载 JSON">↓ JSON</a> : null}
