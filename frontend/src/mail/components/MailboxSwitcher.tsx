@@ -13,12 +13,15 @@ export function MailboxSwitcher({
   syncing,
   onSelect,
   onSync,
+  showSync = true,
 }: {
   current: string;
   bindings: MailBoxBinding[];
   syncing: boolean;
   onSelect: (binding: MailBoxBinding) => void;
   onSync: () => void;
+  /** The mailbox rail may render the sync action in its own footer. */
+  showSync?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -72,16 +75,18 @@ export function MailboxSwitcher({
         </div>
       ) : null}
 
-      <button
-        type="button"
-        className="btn work"
-        data-mail-sync
-        data-mail-entry="sync-mailbox-mail"
-        disabled={syncing}
-        onClick={onSync}
-      >
-        {syncing ? "正在收取…" : "收取"}
-      </button>
+      {showSync ? (
+        <button
+          type="button"
+          className="btn work"
+          data-mail-sync
+          data-mail-entry="sync-mailbox-mail"
+          disabled={syncing}
+          onClick={onSync}
+        >
+          {syncing ? "正在收取…" : "收取"}
+        </button>
+      ) : null}
     </div>
   );
 }

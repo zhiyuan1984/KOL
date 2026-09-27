@@ -722,50 +722,10 @@ export default function Mail() {
 
   return (
     <div className="list-page mail-page" data-mail-page data-mail-source={workspace?.source || undefined}>
-      <header className="mail-hero">
-        <h1 className="mail-hero-title">邮箱通讯</h1>
-        {loadState === "ok" && bound ? (
-          <MailboxSwitcher
-            current={activeBox}
-            bindings={bindings}
-            syncing={syncing}
-            onSelect={openBox}
-            onSync={() => void sync()}
-          />
-        ) : null}
-        {loadState === "ok" && bound ? (
-          <p className="muted mail-hero-meta" data-mail-box>
-            {box?.synced_at ? `同步 ${formatMailTime(box.synced_at)}` : "尚未收取"}
-            {` · 未读 ${Number(box?.total_unread ?? box?.unread ?? 0)}`}
-          </p>
-        ) : null}
-        {loadState === "ok" && !bound ? (
-          <Link className="btn ghost" to="/settings?tab=starry" data-mail-bind>
-            去绑定邮箱
-          </Link>
-        ) : null}
-        {loadState === "loading" ? (
-          <p className="muted mail-hero-meta" data-mail-box-loading>正在读取本地邮件记忆…</p>
-        ) : null}
-      </header>
-
-      {loadState === "ok" && !bound ? (
-        <p className="muted mail-unbound-line" data-mail-unbound-guide>
-          {MAIL_UNBOUND_COPY}
-        </p>
-      ) : null}
-
-      {error ? <p className="error" role="alert" data-mail-error>{error}</p> : null}
-      {notice ? <p className="muted" role="status" data-mail-notice>{notice}</p> : null}
-      {workspace?.source === "fallback" && bound ? (
-        <p className="muted" data-mail-fallback>
-          通讯接口尚未开通，正在用已缓存的跟进往来只读展示。打开会话不会创建 Agent 会话。
-        </p>
-      ) : null}
-
       {loadState === "loading" ? (
         <div className="mail-split mail-pane-skeleton" data-mail-state="loading" aria-busy="true">
           <div className="mail-list">
+            <p className="muted mail-list-loading-meta" data-mail-box-loading>正在读取本地邮件记忆…</p>
             <div className="mps-search" />
             {Array.from({ length: 9 }).map((_, i) => (
               <div key={i} className="mps-row" />
@@ -806,48 +766,59 @@ export default function Mail() {
       {loadState === "ok" && bound ? (
         <div className="mail-split" data-mail-state="ok" data-mail-pane-active={pane}>
           <aside className="mail-list" data-mail-list data-mail-entry="list-mailbox-mail">
-            <div className="mail-list-tools">
-              <div className="mail-search-row">
-                <label className="mail-search-wrap">
-                  <MailIco d={ICO_SEARCH} />
-                  <input
-                    className="mail-search"
-                    data-mail-search
-                    type="search"
-                    placeholder="搜索联系人 / 主题 / 预览"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                  />
-                </label>
-                <button
-                  type="button"
-                  className={"mail-filter-btn" + (unboundOnly ? " is-on" : "")}
-                  data-mail-filter-unbound
-                  aria-pressed={unboundOnly}
-                  title="只看未建档"
-                  onClick={() => setUnboundOnly((v) => !v)}
-                >
-                  <MailIco d={ICO_FILTER} />
-                </button>
-              </div>
-              <div className="mail-list-tabs" role="tablist" data-mail-list-tabs>
-                {MAIL_TABS.map((item) => (
+            <div className="mail-list-top" data-mail-list-top>
+              <MailboxSwitcher
+                current={activeBox}
+                bindings={bindings}
+                syncing={syncing}
+                onSelect={openBox}
+                onSync={() => void sync()}
+                showSync={false}
+              />
+              <div className="mail-list-tools">
+                <div className="mail-search-row">
+                  <label className="mail-search-wrap">
+                    <MailIco d={ICO_SEARCH} />
+                    <input
+                      className="mail-search"
+                      data-mail-search
+                      type="search"
+                      placeholder="搜索联系人 / 主题 / 预览"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                    />
+                  </label>
                   <button
-                    key={item.key}
                     type="button"
-                    role="tab"
-                    aria-selected={tab === item.key}
-                    onClick={() => setTab(item.key)}
+                    className={"mail-filter-btn" + (unboundOnly ? " is-on" : "")}
+                    data-mail-filter-unbound
+                    aria-pressed={unboundOnly}
+                    title="只看未建档"
+                    onClick={() => setUnboundOnly((v) => !v)}
                   >
-                    {item.label}
-                    {item.key === "inbox" && conversations.length > 0 ? (
-                      <span className="mail-count-pill">{conversations.length}</span>
-                    ) : null}
+                    <MailIco d={ICO_FILTER} />
                   </button>
-                ))}
+                </div>
+                <div className="mail-list-tabs" role="tablist" data-mail-list-tabs>
+                  {MAIL_TABS.map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={tab === item.key}
+                      onClick={() => setTab(item.key)}
+                    >
+                      {item.label}
+                      {item.key === "inbox" && conversations.length > 0 ? (
+                        <span className="mail-count-pill">{conversations.length}</span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
+            <div className="mail-list-scroll" data-mail-list-scroll>
             {groups.length === 0 ? (
               <p className="muted mail-empty-list" data-mail-empty-list>
                 {conversations.length === 0 && tab === "inbox" && !query
@@ -905,6 +876,32 @@ export default function Mail() {
                 </div>
               );
             })}
+            </div>
+            <footer className="mail-list-footer" data-mail-list-footer>
+              {error ? <p className="error" role="alert" data-mail-error>{error}</p> : null}
+              {notice ? <p className="muted" role="status" data-mail-notice>{notice}</p> : null}
+              {workspace?.source === "fallback" ? (
+                <p className="muted" data-mail-fallback>
+                  通讯接口尚未开通，正在用已缓存的跟进往来只读展示。打开会话不会创建 Agent 会话。
+                </p>
+              ) : null}
+              <div className="mail-list-statusbar">
+                <p className="muted mail-hero-meta" data-mail-box>
+                  {box?.synced_at ? `同步 ${formatMailTime(box.synced_at)}` : "尚未收取"}
+                  {` · 未读 ${Number(box?.total_unread ?? box?.unread ?? 0)}`}
+                </p>
+                <button
+                  type="button"
+                  className="mail-list-sync"
+                  data-mail-sync
+                  data-mail-entry="sync-mailbox-mail"
+                  disabled={syncing}
+                  onClick={() => void sync()}
+                >
+                  {syncing ? "正在收取…" : "收取"}
+                </button>
+              </div>
+            </footer>
           </aside>
 
           <section className="mail-interact" data-mail-interact>
@@ -1106,8 +1103,10 @@ export default function Mail() {
 
       {loadState === "ok" && !bound ? (
         <section className="mail-unbound" data-mail-state="unbound">
-          <p>{MAIL_UNBOUND_COPY}</p>
-          <Link className="btn ghost" to="/settings?tab=starry">打开连接 Starry</Link>
+          <p data-mail-unbound-guide>{MAIL_UNBOUND_COPY}</p>
+          {error ? <p className="error" role="alert" data-mail-error>{error}</p> : null}
+          {notice ? <p className="muted" role="status" data-mail-notice>{notice}</p> : null}
+          <Link className="btn ghost" to="/settings?tab=starry" data-mail-bind>打开连接 Starry</Link>
         </section>
       ) : null}
     </div>

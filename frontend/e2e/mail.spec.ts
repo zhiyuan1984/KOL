@@ -599,20 +599,51 @@ test("当前邮箱没有绑定行时，切换器仍然报出这个邮箱", async
   await expect(page.locator("[data-mail-box-current]")).not.toContainText("eu@litime.com");
 });
 
-test("three-column workbench geometry and selected state", async ({ page }) => {
+test("four independent mail rails place mailbox controls in the second rail", async ({ page }) => {
   await mockFormalMail(page);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/mail?c=3901");
   await expect(page.locator("[data-mail-timeline-item]")).toHaveCount(2);
   await page.locator("[data-mail-timeline-item]").first().click();
 
+  // No cross-rail header remains: the application rail plus the three mail rails
+  // start as one independent four-column workbench.
+  await expect(page.locator("[data-mail-page] .mail-hero")).toHaveCount(0);
+  const navigation = await page.locator(".sidebar").boundingBox();
   const list = await page.locator("[data-mail-list]").boundingBox();
   const interact = await page.locator("[data-mail-interact]").boundingBox();
   const side = await page.locator("[data-mail-side]").boundingBox();
+  expect(navigation && list && navigation.x < list.x).toBeTruthy();
   expect(list?.width).toBeGreaterThanOrEqual(260);
   expect(list?.width).toBeLessThanOrEqual(345);
   expect(interact?.width).toBeGreaterThan(0);
   expect(side?.width).toBeGreaterThanOrEqual(320);
+  expect(list?.y).toBe(interact?.y);
+  expect(interact?.y).toBe(side?.y);
+
+  await expect(page.locator("[data-mail-list-top] [data-mail-box-current]")).toBeVisible();
+  const footer = await page.locator("[data-mail-list-footer]").boundingBox();
+  const status = page.locator("[data-mail-list-footer] [data-mail-box]");
+  const sync = page.locator("[data-mail-list-footer] [data-mail-sync]");
+  const statusBox = await status.boundingBox();
+  const syncBox = await sync.boundingBox();
+  expect(footer && list && Math.abs((footer.y + footer.height) - (list.y + list.height))).toBeLessThanOrEqual(1);
+  expect(statusBox && syncBox && statusBox.x < syncBox.x).toBeTruthy();
+  expect(statusBox && syncBox && Math.abs(
+    (statusBox.y + statusBox.height / 2) - (syncBox.y + syncBox.height / 2),
+  )).toBeLessThanOrEqual(1);
+  const [statusFontSize, syncFontSize, syncHeight] = await Promise.all([
+    status.evaluate((el) => getComputedStyle(el).fontSize),
+    sync.evaluate((el) => getComputedStyle(el).fontSize),
+    sync.evaluate((el) => getComputedStyle(el).height),
+  ]);
+  expect(syncFontSize).toBe(statusFontSize);
+  expect(syncHeight).toBe("24px");
+
+  const scrollModes = await page.locator(
+    ".sidebar-scroll, [data-mail-list-scroll], [data-mail-interact], [data-mail-side]",
+  ).evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).overflowY));
+  expect(scrollModes).toEqual(["auto", "auto", "auto", "auto"]);
 
   const selected = page.locator("[data-mail-timeline-item][data-mail-selected='true']");
   await expect(selected).toHaveCount(1);

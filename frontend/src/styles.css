@@ -12780,6 +12780,114 @@ button.today-brief-primary-btn:disabled {
 .mail-page .mail-timeline-item time { font-size: var(--ds-font-helper); }
 .mail-page .mail-content-meta time { font-size: var(--ds-font-helper); }
 .mail-page .mail-content-body { font-size: var(--ds-font-body); line-height: 1.7; }
+
+/* ── 邮箱通讯：四栏独立工作台（侧栏 / 邮箱 / 提问 / 详情） ────────────────
+   邮箱页不再占用跨栏标题行；第二栏承担邮箱选择与同步状态，三块内容栏各自
+   管理滚动，和「新工作任务」的工作台壳层保持同一独立列模型。 */
+.main > .list-page.mail-page.mail-page.mail-page {
+  height: 100% !important;
+  min-height: 0;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+.mail-page { gap: 0; }
+.mail-split {
+  min-height: 0;
+  overflow: hidden;
+}
+.mail-list {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  align-content: stretch;
+  gap: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.mail-list-top { min-width: 0; }
+.mail-list-top .mail-switcher {
+  position: relative;
+  display: block;
+  margin: 0;
+  padding: var(--space-3) var(--space-3) 0;
+}
+.mail-list-top .mail-switcher-menu {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + var(--space-1));
+  left: var(--space-3);
+  min-width: min(280px, calc(100vw - (2 * var(--space-3))));
+}
+.mail-list-top .mail-list-tools {
+  margin: 0;
+  padding: var(--space-2) var(--space-3) var(--space-2);
+}
+.mail-list-scroll {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.mail-list-footer {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border-top: 1px solid var(--ds-border);
+}
+.mail-list-footer > .error,
+.mail-list-footer > .muted {
+  margin: 0;
+  font-size: var(--ds-font-helper);
+}
+.mail-list-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.mail-list-statusbar .mail-hero-meta {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--ds-font-helper);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mail-list-sync {
+  flex: 0 0 auto;
+  height: var(--control-h-sm);
+  min-height: var(--control-h-sm);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--ds-font-helper);
+  cursor: pointer;
+}
+.mail-list-sync:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.mail-list-sync:disabled { cursor: wait; color: var(--ds-text-dim); }
+.mail-interact,
+.mail-detail {
+  min-height: 0;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.mail-pane-skeleton .mail-list {
+  grid-template-rows: none;
+  align-content: start;
+}
+.mail-list-loading-meta {
+  margin: var(--space-3) var(--space-3) 0;
+  font-size: var(--ds-font-helper);
+}
 /* Final Today workspace geometry. Keep these after legacy composer rules so
    the compact empty state remains compact in every desktop bundle order. */
 @media (min-width: 1101px) {
