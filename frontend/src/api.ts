@@ -1068,6 +1068,7 @@ export const api = {
       count?: number;
       tool?: string;
       message?: string;
+      missing_metrics?: number;
       items?: Array<Record<string, unknown>>;
       kols?: Array<Record<string, unknown>>;
     }>("/api/home/pool/sync", { method: "POST", body: JSON.stringify({}) }),
@@ -1080,6 +1081,7 @@ export const api = {
       count?: number;
       tool?: string;
       message?: string;
+      missing_metrics?: number;
       items?: Array<Record<string, unknown>>;
       kols?: Array<Record<string, unknown>>;
     }>("/api/home/pool/sync"),

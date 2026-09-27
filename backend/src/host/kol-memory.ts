@@ -123,7 +123,18 @@ export function publicProfileFields(row: Row | Json): Json {
     assessment_model: row.assessment_model || "",
     assessment_version: row.assessment_version || "",
     assessed_at: row.assessed_at || null,
+    // 员工端只据此说清「为什么没分」，不回显内部错误原文：
+    // scored 有分 / low_confidence 评过但置信度不足 / failed 调用失败 / unscored 从未评过。
+    assessment_state: assessmentStateOf(row),
   };
+}
+
+function assessmentStateOf(row: Row): "scored" | "unscored" | "low_confidence" | "failed" {
+  const score = row.potential_score;
+  if (score != null && String(score).trim() !== "" && Number.isFinite(Number(score))) return "scored";
+  if (text(row.assessment_error)) return "failed";
+  if (text(row.assessed_at)) return "low_confidence";
+  return "unscored";
 }
 
 export function trimPrivate<T extends Record<string, unknown>>(row: T): T {

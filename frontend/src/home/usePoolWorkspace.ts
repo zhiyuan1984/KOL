@@ -74,6 +74,8 @@ export function usePoolWorkspace(options: {
   const [undoError, setUndoError] = useState<string | null>(null);
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  /** 同步完成后的如实回执（含「其中 N 条缺公开指标」），只在员工点了同步后出现。 */
+  const [syncNotice, setSyncNotice] = useState("");
   const [maintenanceBusy, setMaintenanceBusy] = useState<"avatars" | "jev" | "cleanup" | null>(null);
   const [maintenanceNotice, setMaintenanceNotice] = useState<string | null>(null);
   const [maintenanceError, setMaintenanceError] = useState<string | null>(null);
@@ -121,9 +123,11 @@ export function usePoolWorkspace(options: {
     if (syncBusy) return;
     setSyncBusy(true);
     setSyncError(null);
+    setSyncNotice("");
     try {
       const refreshed = await syncHomePoolIndex();
       setCards(dedupePoolCards(refreshed.items));
+      setSyncNotice(refreshed.message);
       setError("");
     } catch (err) {
       setSyncError(err instanceof Error ? err.message : "红人库同步失败，请稍后重试");
@@ -293,6 +297,7 @@ export function usePoolWorkspace(options: {
     syncLibrary,
     syncBusy,
     syncError,
+    syncNotice,
     maintenanceBusy,
     maintenanceNotice,
     maintenanceError,

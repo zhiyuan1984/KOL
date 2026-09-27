@@ -333,6 +333,54 @@ test("public pool restores the central interaction and uses a structured right r
   expect((await workspace.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").boundingBox())?.height).toBe(28);
 });
 
+test("pool cards say why a KOL is unscored", async ({ page }) => {
+  const card = (uid: string, extra: Record<string, unknown> = {}) => ({
+    ...POOL_ITEM,
+    id: `kpi_${uid}`,
+    kol_uid: uid,
+    handle: uid,
+    display_name: `@${uid}`,
+    homepage_url: `https://www.youtube.com/@${uid}`,
+    ...extra,
+  });
+  await page.route("**/api/home/pool", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await route.fulfill({
+      json: {
+        entry: "memory",
+        kind: "memory",
+        library: { ok: true, count: 4 },
+        items: [
+          card("uid_low", { assessed_at: "2026-09-27T00:00:00Z", potential_score: null, potential_confidence: 0.55, assessment_state: "low_confidence" }),
+          card("uid_failed", { assessed_at: "2026-09-27T00:00:00Z", potential_score: null, assessment_state: "failed" }),
+          card("uid_thin", { followers: "", avg_plays: "", engagement: "", direction: "" }),
+          card("uid_fresh"),
+        ],
+      },
+    });
+  });
+
+  await page.goto("/?tab=pool");
+  // 评过但置信度不足：说清置信度，并解释低于 70% 不给分。
+  const low = page.locator("[data-pool-kol='uid_low'] [data-pool-score='missing']");
+  await expect(low).toHaveText("已评估 · 置信度 55%");
+  await expect(low).toHaveAttribute("data-pool-score-state", "low_confidence");
+  await expect(low).toHaveAttribute("title", /低于 70%/);
+  // 调用失败：不伪装成「未评分」。
+  const failed = page.locator("[data-pool-kol='uid_failed'] [data-pool-score='missing']");
+  await expect(failed).toHaveText("评分失败");
+  await expect(failed).toHaveAttribute("data-pool-score-state", "failed");
+  // 从未评过 + 缺公开指标：点名缺了哪几项。
+  const thin = page.locator("[data-pool-kol='uid_thin'] [data-pool-score='missing']");
+  await expect(thin).toHaveText("未评分");
+  await expect(thin).toHaveAttribute("data-pool-score-state", "unscored");
+  await expect(thin).toHaveAttribute("title", /缺 粉丝数、均播、互动率、内容方向/);
+  // 从未评过但资料齐：只提示可以执行评分。
+  const fresh = page.locator("[data-pool-kol='uid_fresh'] [data-pool-score='missing']");
+  await expect(fresh).toHaveText("未评分");
+  await expect(fresh).toHaveAttribute("title", /可用中栏「KOL评分」执行/);
+});
+
 test("pool first paint reads only what the pool needs", async ({ page }) => {
   const reads: Array<{ path: string; t: number }> = [];
   const started = Date.now();
@@ -394,6 +442,8 @@ test("empty pool sync sends an explicit command and renders the refreshed public
           status: "succeeded",
           ok: true,
           count: 1,
+          missing_metrics: 1,
+          message: "已同步 1 个红人档案；其中 1 条缺公开指标（粉丝/均播/互动/方向），Jev 评分会判为资料不足",
           items: [POOL_ITEM],
           kols: [POOL_ITEM],
         },
@@ -423,6 +473,8 @@ test("empty pool sync sends an explicit command and renders the refreshed public
   await expect.poll(() => syncPosts).toEqual(["/api/home/pool/sync"]);
   await expect(page.locator("[data-pool-kol='uid_outdoor']")).toBeVisible();
   await expect(page.locator("[data-pool-sync-library]")).toHaveCount(0);
+  // 同步回执要如实带体检结果，而不是只说「已同步 N 条」。
+  await expect(page.locator("[data-pool-sync-notice]")).toContainText("缺公开指标");
 });
 
 test("pool reading state does not claim the library is unsynced before the reads return", async ({ page }) => {
@@ -505,7 +557,54 @@ test("pool KOL scoring uses the existing Jev endpoint and refreshes public signa
   await expect(page.locator("[data-home-pane='pool']")).not.toContainText("清理无主页");
 });
 
-test("selection prefills composer and enqueue is not from-text", async ({ page }) => {
+test("selection prefills composer, enqueue is not from-text, and submit starts the run", async ({ page }) => {
+  const runBodies: Array<Record<string, unknown>> = [];
+  const askBodies: Array<Record<string, unknown>> = [];
+  await page.route("**/api/tasks/tsk_analyze_1/run", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    const body = route.request().postDataJSON() as { text?: string };
+    const pending = {
+      act: "ask",
+      text: String(body.text || "分析已选"),
+      intent: "kol_analyze",
+      work_item_id: "tsk_analyze_1",
+      task_type: "kol_analyze",
+      run_id: "run_analyze_1",
+    };
+    await route.fulfill({
+      status: 202,
+      json: {
+        work_item_id: "tsk_analyze_1",
+        run_id: "run_analyze_1",
+        session_id: "ses_analyze_1",
+        status: "pending",
+        task: { id: "tsk_analyze_1", title: "分析已选", status: "pending", task_type: "kol_analyze" },
+        run: { id: "run_analyze_1" },
+        pending,
+        pending_message: pending,
+      },
+    });
+  });
+  await page.route("**/api/tasks/tsk_analyze_1", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await route.fulfill({ json: { id: "tsk_analyze_1", title: "分析已选", status: "pending", task_type: "kol_analyze" } });
+  });
+  await page.route("**/api/tasks/tsk_analyze_1/events", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await route.fulfill({ json: [] });
+  });
+  await page.route("**/api/tasks/by-session/ses_analyze_1", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await route.fulfill({ json: { task: { id: "tsk_analyze_1", title: "分析已选", status: "pending", task_type: "kol_analyze" } } });
+  });
+  await page.route("**/api/sessions/ses_analyze_1/messages", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    await route.fulfill({ json: { accepted: true, agent_status: "running", messages: [] } });
+  });
+  await page.route("**/api/sessions/ses_analyze_1", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await route.fulfill({ json: { agent_status: "running", messages: [], collaboration_id: null, journey: null, run_queue: [] } });
+  });
   const posts: string[] = [];
   const livePosts: string[] = [];
   const enqueueBodies: Array<Record<string, unknown>> = [];
@@ -516,6 +615,12 @@ test("selection prefills composer and enqueue is not from-text", async ({ page }
     if (LIVE_SIDE_EFFECT.test(path)) livePosts.push(path);
     if (path === "/api/home/kol-analyze/enqueue") {
       enqueueBodies.push(item.postDataJSON() as Record<string, unknown>);
+    }
+    if (path === "/api/tasks/tsk_analyze_1/run") {
+      runBodies.push(item.postDataJSON() as Record<string, unknown>);
+    }
+    if (path === "/api/sessions/ses_analyze_1/messages") {
+      askBodies.push(item.postDataJSON() as Record<string, unknown>);
     }
   });
   await page.goto("/?tab=pool");
@@ -533,15 +638,22 @@ test("selection prefills composer and enqueue is not from-text", async ({ page }
   await expect(input).toHaveValue(/合作潜力/);
   await input.fill(`${await input.inputValue()}\n补充：只要公开资料建议`);
   await page.locator("[data-home] [data-send]").click();
-  await expect(page.locator("[data-analyze-queued]")).toContainText("已入队，等待 Codex");
-  await expect(page.locator("[data-analyze-queued]")).not.toContainText("正在思考");
+  await expect(page).toHaveURL(/\/s\/ses_analyze_1/);
+  await expect(page.locator("[data-session-stream-pane]")).toBeVisible();
+  await expect.poll(() => runBodies.length).toBe(1);
+  await expect.poll(() => askBodies.length).toBe(1);
+  expect(String(runBodies[0]?.text || "")).toContain("合作潜力");
+  expect(askBodies[0]?.task_type).toBe("kol_analyze");
+  expect(String(askBodies[0]?.text || "")).toContain("合作潜力");
   expect(posts.some((path) => path === "/api/home/kol-analyze/enqueue")).toBe(true);
   expect(posts.some((path) => path === "/api/tasks/from-text")).toBe(false);
   expect(posts.some((path) => path === "/api/sessions")).toBe(false);
   expect(enqueueBodies[0]?.kol_uids).toEqual(["uid_outdoor"]);
   expect(livePosts).toEqual([]);
-  await expect(page.locator("[data-running-count]")).toHaveText("1");
-  await expect(page.locator('[data-nav="running"]')).toHaveAttribute("href", /tab=todo/);
+  await page.goto("/?tab=pool");
+  await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-select]").check();
+  await page.locator("[data-pool-analysis='potential']").click();
+  await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/合作潜力/);
   await page.locator('[data-home-mode="today"]').click();
   await expect(page.locator("[data-home] [data-composer-input]")).not.toHaveValue(/分析已选/);
 });

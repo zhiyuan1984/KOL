@@ -44,6 +44,8 @@ type PoolSyncReceipt = {
   count?: number;
   tool?: string;
   message?: string;
+  /** 本次同步的档案里缺公开指标（粉丝/均播/互动/方向）的条数。 */
+  missing_metrics?: number;
 };
 
 let poolSyncReceipt: PoolSyncReceipt = {
@@ -94,8 +96,9 @@ function startPoolSync(): boolean {
         ok: result.ok,
         count: result.count,
         tool: result.tool,
+        missing_metrics: result.missing_metrics,
         message: result.ok
-          ? `已同步 ${result.count} 个红人档案`
+          ? `已同步 ${result.count} 个红人档案${result.missing_metrics ? `；其中 ${result.missing_metrics} 条缺公开指标（粉丝/均播/互动/方向），Jev 评分会判为资料不足` : ""}`
           : (result.error || "红人库同步失败，请稍后重试"),
       };
     })

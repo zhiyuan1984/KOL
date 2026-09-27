@@ -2228,6 +2228,7 @@ export default function Home() {
                   poolLoaded={poolWorkspace.poolLoaded}
                   syncBusy={poolWorkspace.syncBusy}
                   syncError={poolWorkspace.syncError}
+                  syncNotice={poolWorkspace.syncNotice}
                   claimBusyId={poolWorkspace.claimBusy && poolWorkspace.claimTarget ? poolWorkspace.claimTarget.kol_uid : null}
                   claimTarget={poolWorkspace.claimTarget}
                   claimError={poolWorkspace.claimError}

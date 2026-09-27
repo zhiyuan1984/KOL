@@ -157,7 +157,7 @@ function wait(ms: number): Promise<void> {
 }
 
 /** Explicit command: start a local-index refresh, then wait only on its local receipt. */
-export async function syncHomePoolIndex(): Promise<{ items: PoolKol[]; count: number }> {
+export async function syncHomePoolIndex(): Promise<{ items: PoolKol[]; count: number; message: string; missingMetrics: number }> {
   await api.syncHomePool();
   for (let attempt = 0; attempt < POOL_SYNC_WAIT_ATTEMPTS; attempt += 1) {
     if (attempt) await wait(POOL_SYNC_POLL_MS);
@@ -167,7 +167,12 @@ export async function syncHomePoolIndex(): Promise<{ items: PoolKol[]; count: nu
     }
     if (payload.status !== "succeeded" || payload.ok !== true) continue;
     const items = asRows(payload).filter(isOpenPoolRow).map(toPoolKol).filter((row): row is PoolKol => Boolean(row));
-    return { items: unownedFirst(items), count: Number(payload.count || items.length) };
+    return {
+      items: unownedFirst(items),
+      count: Number(payload.count || items.length),
+      message: payload.message || `已同步 ${Number(payload.count || items.length)} 个红人档案`,
+      missingMetrics: Number(payload.missing_metrics || 0),
+    };
   }
   throw new Error("同步仍在后台进行，请稍后重新打开公海查看更新。");
 }

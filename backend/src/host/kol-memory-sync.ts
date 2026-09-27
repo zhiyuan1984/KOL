@@ -18,6 +18,7 @@ import {
   type EffectiveKind,
 } from "./kol-memory.js";
 import { getKolProfileDetail, pageEmailConversations, pageKolProfiles } from "./starry-connectors.js";
+import { avgPlaysOf, engagementOf, followersOf, geoOf, missingPublicMetrics } from "../starrykol/remote-metrics.js";
 
 function homepageOf(profile: Json): string {
   return firstString(
@@ -32,16 +33,17 @@ function upsertAFromProfile(profile: Json, sourceVersion?: string): void {
   upsertPublicProfile({
     company_id: memoryCompanyId(),
     kol_uid: kolUid,
-    handle: firstString(profile.kolName, profile.nickname, profile.name, profile.handle),
-    display_name: firstString(profile.kolName, profile.nickname, profile.displayName, profile.name),
+    handle: firstString(profile.kolName, profile.nickname, profile.name, profile.accountHandle, profile.handle),
+    display_name: firstString(profile.kolName, profile.nickname, profile.displayName, profile.accountHandle, profile.name),
     platform: firstString(profile.platform, profile.primaryPlatform),
     homepage_url: homepageOf(profile),
     avatar_url: firstString(profile.avatarUrl, profile.avatar_url, profile.avatar, profile.profileImage, profile.profile_image),
-    followers: firstString(profile.followers, profile.followerCount, profile.followerCountTenThousands),
-    avg_plays: firstString(profile.avgVideoViews10, profile.avg_views_10, profile.avgPlays),
-    engagement: firstString(profile.avgVideoEngagementRate10, profile.engagementRate, profile.engagement_rate),
+    // 远端只保证 followerCountTenThousands（万）；走共享口径，和 board 路径同量级。
+    followers: followersOf(profile),
+    avg_plays: avgPlaysOf(profile),
+    engagement: engagementOf(profile),
     direction: firstString(profile.niche, profile.nicheTagsText, profile.direction),
-    region: firstString(profile.countryName, profile.country, profile.audienceGeo, profile.region),
+    region: geoOf(profile) || firstString(profile.region),
     style: firstString(Array.isArray(profile.followStyleTags) ? profile.followStyleTags.join(",") : "", profile.style),
     ingest_source: "starry.pageKolProfiles",
     public_stage: firstString(profile.cooperationStageName, profile.stageName, profile.stage),
@@ -49,25 +51,44 @@ function upsertAFromProfile(profile: Json, sourceVersion?: string): void {
   });
 }
 
-export async function syncKolProfileIndex(pageSize = 50): Promise<{ ok: boolean; count: number; tool: string; error?: string }> {
+export async function syncKolProfileIndex(pageSize = 50): Promise<{
+  ok: boolean;
+  count: number;
+  tool: string;
+  /** 缺公开指标（粉丝/均播/互动/方向）的条数：Jev 只依据公开资料评分，这些行大概率评不出分。 */
+  missing_metrics: number;
+  error?: string;
+}> {
   const syncedAt = nowIso();
   try {
     let pageNo = 1;
     let count = 0;
+    let missingMetrics = 0;
+    let detailFailed = 0;
+    const detailFailedSamples: string[] = [];
     for (;;) {
       const data = await pageKolProfiles({ pageNo, pageSize });
       const rows = listOf(data);
       for (const profile of rows) {
         upsertAFromProfile(profile, syncedAt);
         const kolUid = firstString(profile.kolUid, profile.kol_uid);
+        let merged = profile;
         if (kolUid) {
           try {
             const detail = await getKolProfileDetail(kolUid);
-            upsertAFromProfile({ ...profile, ...detail }, syncedAt);
-          } catch {
-            /* list row is enough; detail is optional enrichment */
+            merged = { ...profile, ...detail };
+            upsertAFromProfile(merged, syncedAt);
+          } catch (error) {
+            // 详情是可选补全，但失败必须留痕：此前静默吞掉，主页/头像等字段缺了没人知道。
+            detailFailed += 1;
+            if (detailFailedSamples.length < 10) detailFailedSamples.push(kolUid);
+            audit("host", "kol.memory.profile_detail_failed", {
+              kol_uid: kolUid,
+              error: error instanceof Error ? error.message.slice(0, 180) : String(error).slice(0, 180),
+            });
           }
         }
+        if (missingPublicMetrics(merged).length) missingMetrics += 1;
         count += 1;
       }
       const total = Number(data.total || 0);
@@ -75,12 +96,15 @@ export async function syncKolProfileIndex(pageSize = 50): Promise<{ ok: boolean;
       pageNo += 1;
       if (pageNo > 20) break;
     }
-    audit("host", "kol.memory.profile_sync", { count, tool: "pageKolProfiles" });
-    return { ok: true, count, tool: "pageKolProfiles" };
+    audit("host", "kol.memory.profile_sync", {
+      count, tool: "pageKolProfiles", missing_metrics: missingMetrics, detail_failed: detailFailed,
+      detail_failed_samples: detailFailedSamples,
+    });
+    return { ok: true, count, tool: "pageKolProfiles", missing_metrics: missingMetrics };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     audit("host", "kol.memory.profile_sync_failed", { error: message });
-    return { ok: false, count: 0, tool: "pageKolProfiles", error: message };
+    return { ok: false, count: 0, tool: "pageKolProfiles", missing_metrics: 0, error: message };
   }
 }
 

@@ -261,7 +261,7 @@ describe("kol follow/pool memory P0", () => {
   it("explicit pool sync projects allow-listed Starry profiles into the public index", async () => {
     const calls: string[] = [];
     setStarryKolClientFactory(() => ({
-      async callTool(name: string) {
+      async callTool(name: string, args?: Json) {
         calls.push(name);
         if (name === "pageKolProfiles") {
           return {
@@ -274,12 +274,31 @@ describe("kol follow/pool memory P0", () => {
               engagementRate: "4.8%",
               countryName: "US",
               nicheTagsText: "Outdoor",
+            }, {
+              // 远端契约的写法：粉丝只给「万」、地区只有 audienceGeo 对象、互动只有帖子口径、
+              // 句柄在 accountHandle 而不是 kolName。
+              kolUid: "KOL_CONTRACT",
+              kolName: "@DailyTested",
+              accountHandle: "DailyTested",
+              platform: "YouTube",
+              followerCountTenThousands: 82,
+              avgVideoViews10: 1871,
+              avgPostEngagementRate10: "3.1%",
+              audienceGeo: { US: "45%", CN: "30%" },
+              nicheTagsText: "Outdoor",
+            }, {
+              // 远端只有句柄、没有别的字段：句柄兜底 + 计入「缺公开指标」。
+              kolUid: "KOL_HANDLE_ONLY",
+              accountHandle: "handle_only",
             }],
-            total: 1,
+            total: 3,
           };
         }
         if (name === "getKolProfileDetail") {
-          return { kolUid: "KOL_SYNCED", homepageUrl: "https://youtube.com/@synced" };
+          const uid = String((args as Record<string, unknown> | undefined)?.kolUid || "KOL_SYNCED");
+          return uid === "KOL_SYNCED"
+            ? { kolUid: uid, homepageUrl: "https://youtube.com/@synced" }
+            : { kolUid: uid, homepageUrl: "https://youtube.com/@dailytested" };
         }
         throw new Error(`unexpected tool ${name}`);
       },
@@ -300,7 +319,10 @@ describe("kol follow/pool memory P0", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
     const response = await request("GET", "/api/home/pool/sync");
     expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({ ok: true, status: "succeeded", count: 1, tool: "pageKolProfiles" });
+    expect(response.body).toMatchObject({ ok: true, status: "succeeded", count: 3, tool: "pageKolProfiles" });
+    // 体检：三条里只有 KOL_HANDLE_ONLY 缺公开指标（其余两条粉丝/均播/互动/方向都齐）。
+    expect(response.body.missing_metrics).toBe(1);
+    expect(String(response.body.message)).toContain("缺公开指标");
     const profile = (response.body.items as Json[]).find((row) => row.kol_uid === "KOL_SYNCED");
     expect(profile).toMatchObject({
       kol_uid: "KOL_SYNCED",
@@ -309,7 +331,26 @@ describe("kol follow/pool memory P0", () => {
       pool_status: "open",
     });
     expect(profile).not.toHaveProperty("email");
-    expect(calls).toEqual(["pageKolProfiles", "getKolProfileDetail"]);
+    // 远端契约键必须落成可读口径：万单位、audienceGeo 对象取主要地区、帖子互动兜底、accountHandle 当句柄。
+    const contract = (response.body.items as Json[]).find((row) => row.kol_uid === "KOL_CONTRACT");
+    expect(contract).toMatchObject({
+      kol_uid: "KOL_CONTRACT",
+      handle: "@DailyTested",
+      followers: "82万",
+      avg_plays: "1871",
+      engagement: "3.1%",
+      region: "US",
+      direction: "Outdoor",
+      homepage_url: "https://youtube.com/@dailytested",
+    });
+    // 评分状态要如实分类（这条同步来的档案从未评过）。
+    expect(contract.assessment_state).toBe("unscored");
+    // 远端只给 accountHandle 时，句柄兜底要生效；缺指标的档案照样进公海，但状态如实。
+    const handleOnly = (response.body.items as Json[]).find((row) => row.kol_uid === "KOL_HANDLE_ONLY");
+    expect(handleOnly).toMatchObject({ handle: "handle_only", display_name: "handle_only", assessment_state: "unscored" });
+    expect(calls).toEqual([
+      "pageKolProfiles", "getKolProfileDetail", "getKolProfileDetail", "getKolProfileDetail",
+    ]);
   });
 
   it("enriches a missing avatar from public homepage metadata without reading private profile fields", async () => {

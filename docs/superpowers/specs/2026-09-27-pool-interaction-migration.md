@@ -117,3 +117,29 @@ Rollback: 仅恢复原组件呈现组合；已发生的评分、领取、清理�
 | 首屏读收敛（按 tab 懒读 / 用到才读 / 让位首屏 / 读单飞） | 智能体产品经理、前端专家 | CONST-05/10 | `DESIGN.md` §不变量 3；`TECHNOLOGY.md` TECH-FE-01；IA §使用≠治理 | **符合**：只改「何时读、读几次」，不改任何数据契约与事实源；等待仍可见、可恢复 | 已完成，E2E 请求数用例锁定 |
 | 公海 `library` 字段（空态文案的来源收窄到公海读） | 后端专家、KOL 业务专家 | CONST-06 | `docs/AGENTS.md` §5；`07-mcp-data-contract.md` 记忆读边界 | **符合**：读的是既有 `app_state.starry_library_sync`，未新增事实源，也未把公海读变成写入 | 已完成，`kol-memory.test.ts` 保持通过 |
 | 计划作用域由「常驻同读」改为「按 tab 读 + 60s 复用」 | 智能体产品经理、前端专家 | CONST-10 | `todayPlan.test.ts`（原「switching reuses open-task memory」断言已按新语义更新） | **符合**：切 tab 不重复读的保证保留；显式刷新与任务编辑事件仍即时重读 | 已完成 |
+
+## 2026-09-28 回读：提交后立即执行（方案A）
+
+| 项 | 处理 | 证据 |
+|---|---|---|
+| 「已入队，等待 Codex」之后没有任何执行者（Codex 不执行、中栏无推理） | 提交在入队成功后立即调既有 `POST /api/tasks/:id/run`（`text` 携带完整提问框正文）并进入会话；入队项保留为耐久凭据 | `frontend/src/pages/Home.tsx`（analyze 分支）；`docs/DECISIONS.md`「ADR-2026-09-28：公海分析提交后立即执行」 |
+| 四个入口「点击不提交、不执行」 | 不变：按钮仍只预填；执行只发生在员工点提交之后，仍不走 from-text、不冒充副作用 | `frontend/e2e/home-pool-follow.spec.ts`（选卡预填 + 入队 + run + messages(ask) + 落到 `/s/:session`） |
+
+## 2026-09-28 评分可解释与远端指标口径（评审反馈「这个 KOL 为什么没有评分」）
+
+| 项 | 处理 | 证据 |
+|---|---|---|
+| 远端指标映射两路漂移 | 抽出 `backend/src/starrykol/remote-metrics.ts` 作为唯一口径（`followersOf/avgPlaysOf/engagementOf/geoOf`），board 同步与公海 A 表同步共用；公海粉丝数不再把「82 万」写成裸数字 `82` | `backend/src/starrykol/remote-metrics.ts`、`library-sync.ts`、`host/kol-memory-sync.ts` |
+| 补远端键别名 | 互动率增加帖子口径 `avgPostEngagementRate10` 兜底；句柄增加 `accountHandle` 兜底；地区在 `countryName` 缺失时从 `audienceGeo` 对象取占比最高项 | 同上；`backend/tests/kol-memory.test.ts` |
+| 远端补全失败不再静默 | `getKolProfileDetail` 失败写审计 `kol.memory.profile_detail_failed`，并在同步审计里汇总 `detail_failed` 与样本 uid | `backend/src/host/kol-memory-sync.ts` |
+| 同步回执带体检 | `syncKolProfileIndex` 返回 `missing_metrics`（缺粉丝/均播/互动/方向的行数），回执 message 明说「其中 N 条缺公开指标，Jev 评分会判为资料不足」；前端在公海面显示该回执（`data-pool-sync-notice`） | 同上；`backend/src/routers/kol-memory.ts`、`frontend/src/home/usePoolWorkspace.ts`、`PoolPane.tsx` |
+| 公海 DTO 说清评分状态 | `assessment_state`：`scored` / `low_confidence`（评过但置信度 <70%）/ `failed`（调用失败）/ `unscored`（从未评过）；不回显内部错误原文 | `backend/src/host/kol-memory.ts`、`frontend/src/home/kolContract.ts` |
+| 卡片可解释 | `poolScorePlaceholder()`：三种「没分」分别显示「未评分（缺 X、Y）」/「已评估 · 置信度 55%」/「评分失败」，并给出口径 tooltip；`data-pool-score-state` 供断言 | `frontend/src/home/poolView.ts`、`PoolPane.tsx` |
+
+### 追加审宪记录（CONST-08，2026-09-28 第一次）
+
+| 需求 | 主责角色 | 宪法 | 基本法 / 细则 | 结论与证据 | 下一步 |
+|---|---|---|---|---|---|
+| 远端指标口径唯一化 + 别名补齐 | 后端专家、KOL 业务专家 | CONST-06 | `docs/AGENTS.md` §5；`07-mcp-data-contract.md` 只读白名单 | **符合**：只改远端→本地的映射口径，不新增事实源、不碰远端写操作 | 已完成，`kol-memory.test.ts` 覆盖契约键 |
+| 同步体检与详情失败留痕 | 后端专家 | CONST-10 | `DESIGN.md` §不变量 3（真实等待与结果必须可解释） | **符合**：失败写审计、回执如实报缺指标条数 | 已完成 |
+| 「未评分」必须说明原因 | 智能体产品经理、UI/UX 专家 | CONST-10 | `DESIGN.md` §不变量 3/4（状态不能只靠颜色、结论要可解释） | **符合**：三种原因各有文案与 tooltip，且不暴露内部错误原文 | 已完成，前端单测 + E2E 各一条 |

@@ -3,6 +3,7 @@ import { audit, getConn, nowIso, onConnReset, tx } from "../db.js";
 import { parseFollowStyleTags, serializeFollowStyleTags } from "../follow-style-tags.js";
 import { codeFromLabel, mergeRemoteLibraryStage, normalizeStage, preferLaterMainStage } from "../stages.js";
 import type { Json, Row } from "../types.js";
+import { avgPlaysOf, engagementOf, followersOf, geoOf } from "./remote-metrics.js";
 import { normalizeRiskTag, parseNicheTags } from "./remote-contract.js";
 import { executeStarryKolTask, remoteLifecycleIdFrom, withStarryCallScope } from "./service.js";
 
@@ -78,30 +79,6 @@ function brandOf(profile: Json): string {
   if (/powerqueen|pq/i.test(raw)) return "PQ";
   if (/litime|^lt$/i.test(raw)) return "LT";
   return raw.slice(0, 8) || "LT";
-}
-
-function followersOf(profile: Json): string {
-  const wan = profile.followerCountTenThousands ?? profile.followers_wan;
-  if (wan != null && wan !== "") {
-    const n = Number(wan);
-    if (Number.isFinite(n)) return `${n}万`;
-  }
-  const raw = profile.followers ?? profile.followerCount;
-  if (raw == null || raw === "") return "";
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return String(raw);
-  if (n >= 10000) return `${Math.round(n / 10000)}万`;
-  return String(n);
-}
-
-function geoOf(profile: Json): string {
-  const geo = profile.audienceGeo || profile.audience_geo;
-  if (geo && typeof geo === "object" && !Array.isArray(geo)) {
-    const top = Object.entries(geo as Record<string, string>)
-      .sort((a, b) => Number.parseFloat(String(b[1])) - Number.parseFloat(String(a[1])))[0];
-    if (top?.[0]) return top[0];
-  }
-  return firstString(profile.countryName, profile.country, profile.audienceGeo);
 }
 
 function remoteStageOf(profile: Json): string | null {
@@ -220,12 +197,6 @@ export function restoreOfficialCollaborationStages(cols: Row[]): Map<string, str
 export function restoreOfficialCollaborationStage(col: Row): string {
   restoreOfficialCollaborationStages([col]);
   return normalizeStage(String(col.stage_code || "")) || "INITIAL_CONTACT";
-}
-
-function engagementOf(profile: Json): string {
-  const value = profile.avgVideoEngagementRate10 ?? profile.engagementRate ?? profile.engagement_rate;
-  if (value == null || value === "") return "";
-  return String(value);
 }
 
 function kolUidOf(profile: Json): string {
@@ -352,7 +323,7 @@ export async function syncStarryHomeLibrary(): Promise<StarryLibrarySync> {
           firstString(profile.ownerMailbox, profile.mailboxEmail, profile.owner_mailbox, existing?.owner_mailbox),
           engagementOf(profile) || String(existing?.engagement_rate || ""),
           geoOf(profile) || String(existing?.audience_geo || ""),
-          profile.avgVideoViews10 != null ? String(profile.avgVideoViews10) : String(existing?.avg_views_10 || ""),
+          avgPlaysOf(profile) || String(existing?.avg_views_10 || ""),
           uid,
           firstString(nicheTags.map((row) => row.name).join("；"), profile.nicheTagsText, existing?.niche),
           firstString(risk, existing?.risk_tag),
