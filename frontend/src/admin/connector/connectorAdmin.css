@@ -175,15 +175,6 @@
   flex: 0 0 auto;
 }
 
-.connector-kind-tag {
-  padding: 0 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  color: var(--text-muted);
-  font-size: var(--ds-font-helper);
-  line-height: 18px;
-}
-
 .connector-mark {
   flex: 0 0 auto;
   width: 36px;
@@ -1199,18 +1190,16 @@
   color: var(--text);
 }
 
-/* 字阶：标签 600 字重；「（可选）」等后缀回到常规字重与说明色（参考图层级） */
+/* 字阶：标签常规字重（不加粗）；「（可选）」等后缀只降颜色 */
 .connector-panel.is-form .field,
 .connector-detail-card .field {
   gap: var(--field-gap);
   font-size: var(--font-field);
-  font-weight: 600;
   color: var(--text);
 }
 
 .connector-panel.is-form .field-optional,
 .connector-detail-card .field-optional {
-  font-weight: 400;
   color: var(--hint-text);
 }
 
@@ -1358,4 +1347,232 @@
   min-height: var(--control-h-form);
   padding: 0 var(--space-3);
   font-size: var(--font-field);
+}
+
+/* ── 连接器浏览弹窗（目录弹窗）──────────────────────────────────────────────
+   参考图 1034×888 逐像素测量，数值 = 实测 × 0.7（与 §连接器控制台 同基准）；
+   唯一来源 docs/DESIGN.md §连接器控制台「浏览弹窗」。改这里的任何数值前先改 DESIGN.md。 */
+
+.connector-panel-layer[data-connector-panel="browse"] .connector-panel {
+  width: min(var(--dialog-w-browse), calc(100vw - 32px));
+  background: var(--fill-card);
+  border-radius: var(--radius-dialog);
+}
+
+.connector-panel-layer[data-connector-panel="browse"] .connector-panel-head {
+  align-items: center;
+  padding: 10px 17px 0;
+}
+
+.connector-panel-layer[data-connector-panel="browse"] .connector-panel-head h2 {
+  margin: 0;
+  font-size: var(--font-browse-title);
+  line-height: var(--line-dialog-title);
+  font-weight: 600;
+}
+
+.connector-panel-layer[data-connector-panel="browse"] .connector-panel-head .icon-btn {
+  color: var(--hint-text);
+}
+
+/* 关闭 X：参考图墨高 15 图像 px（× 0.7 ≈ 11）；按钮 24px 使 X 中心距顶 ≈ 22（实测 21.7）。
+   视图留白较大，按 22px 回算墨高。 */
+.connector-panel-layer[data-connector-panel="browse"] .connector-panel-head .icon-btn {
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+}
+
+.connector-panel-layer[data-connector-panel="browse"] .connector-panel-head .icon-btn svg {
+  width: 22px;
+  height: 22px;
+}
+
+.connector-panel-layer[data-connector-panel="browse"] .connector-panel-head .icon-btn svg path {
+  stroke-width: 1;
+}
+
+.connector-panel-layer[data-connector-panel="browse"] .connector-panel-body {
+  padding: 0 17px 17px;
+}
+
+/* 搜索框：填充无描边、34px 高；图标 13px、左内边距 10px、图标到文字 13px。 */
+.connector-browse .connector-search {
+  margin-top: 20px;
+  height: var(--control-h-form);
+  padding: 0 10px;
+  gap: 13px;
+  border-color: transparent;
+  border-radius: var(--radius-field-form);
+  background: var(--browse-fill);
+}
+
+.connector-browse .connector-search svg {
+  width: 20px;
+  height: 20px;
+}
+
+.connector-browse .connector-search-input {
+  font-size: var(--font-hint);
+}
+
+.connector-browse .connector-search-input::placeholder {
+  color: var(--placeholder-text);
+}
+
+/* 页签行：「创建 ⌄」与页签同排右端。 */
+.connector-browse-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.connector-browse .connector-hub-tabs {
+  margin: 0;
+  gap: 2px;
+  flex-wrap: nowrap;
+}
+
+.connector-browse .hub-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--radius-field-form);
+  background: none;
+  color: var(--hint-text);
+  font-size: var(--font-hint);
+  font-weight: 400;
+}
+
+.connector-browse .hub-chip.on {
+  background: var(--browse-line);
+  color: var(--text);
+  font-weight: 500;
+}
+
+.connector-browse-toolbar .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 30px;
+  /* 参考图 85×42 图像 px：内边距 8 / 文字 26 / 间隙 7 / 雪佛龙墨宽 9 / 10 ≈ 60 CSS。 */
+  padding: 0 6px;
+  font-size: var(--font-hint);
+  border-color: var(--border-quiet);
+  border-radius: var(--radius-field-form);
+}
+
+.connector-browse-toolbar .btn svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+.connector-browse-toolbar .btn svg path {
+  stroke-width: 1.1;
+}
+
+/* 卡片网格：两列 12px 间距；卡片 71px 最小高、17/12 内边距、8px 圆角、无底色（与弹窗底同色）。 */
+.connector-browse .connector-grid {
+  gap: var(--space-3);
+}
+
+.connector-browse .connector-card {
+  min-height: 71px;
+  /* 上下 16（按卡片总高 101 图像 px 反推：2×0.7 + 2×16.3 + 37.1 ≈ 71），左右 12。 */
+  padding: 16px 12px;
+  gap: 13px;
+  align-items: center;
+  border-color: var(--browse-line);
+  border-radius: var(--radius-card);
+  background: transparent;
+}
+
+/* 图标砖：37px 白砖、7px 圆角、无描边（参考图白砖资产归一到同一砖位）。 */
+.connector-browse .connector-card > .connector-mark {
+  width: 37px;
+  height: 37px;
+  border: 0;
+  border-radius: var(--radius-icon-box);
+  background: var(--browse-tile);
+}
+
+.connector-browse .connector-card-title strong {
+  font-size: var(--font-field);
+  font-weight: 600;
+  /* 行高 20px：标题行 + 描述行 = 35px，卡片即由 37px 图标砖定高（71 = 2 + 34 + 35）。 */
+  line-height: 20px;
+}
+
+.connector-browse .connector-card-purpose {
+  font-size: var(--font-browse-desc);
+  line-height: var(--lh-browse-desc);
+  color: var(--hint-text);
+}
+
+/* 右侧动作位：26px 槽；✓ 12px 视觉（视图回算 19px）、＋ 26×26 描边方块。 */
+.connector-browse .connector-card-side {
+  width: 26px;
+  min-width: 26px;
+}
+
+.connector-browse .connector-added {
+  color: var(--hint-text);
+}
+
+.connector-browse .connector-added svg {
+  width: 19px;
+  height: 19px;
+}
+
+.connector-browse .connector-added svg path {
+  stroke-width: 1.2;
+}
+
+.connector-browse .connector-plus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--browse-line);
+  border-radius: var(--radius-icon-box);
+  background: none;
+  color: var(--text);
+}
+
+.connector-browse .connector-plus svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* 触摸：目标尺寸回到 44px 命中区，视觉尺寸不变。 */
+@media (pointer: coarse) {
+  .connector-panel-layer[data-connector-panel="browse"] .connector-panel-head .icon-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .connector-browse .hub-chip,
+  .connector-browse-toolbar .btn {
+    min-height: 44px;
+  }
+
+  .connector-browse .connector-plus {
+    position: relative;
+    min-height: 26px;
+    min-width: 26px;
+  }
+
+  .connector-browse .connector-plus::after {
+    content: "";
+    position: absolute;
+    inset: -9px;
+  }
 }
