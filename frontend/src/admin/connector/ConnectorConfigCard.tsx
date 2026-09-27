@@ -265,7 +265,6 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
               <button type="button" className="btn sm" disabled={busy} data-connector-header-add onClick={() => setSecretRows((rows) => [...rows, { name: "", value: "" }])}>
                 + 添加自定义 header
               </button>
-              <p className="muted">值将加密写入凭据保险库，保存后不回显；填 <code>cred_…</code> 可直接引用既有凭据。</p>
             </div>
           </div>
           {(Object.keys(envRefs).length > 0 || bearerRef || bearerEnv) && (

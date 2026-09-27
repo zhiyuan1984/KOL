@@ -172,6 +172,7 @@ export function ConnectorHub({ connectors, users, loading, onSave, reload }: {
             <ConnectorCard
               key={card.id}
               card={card}
+              onOpen={() => setConfigCard(card)}
               onViewTools={() => setToolsCard(card)}
               onOpenConfig={() => setConfigCard(card)}
             />
@@ -199,8 +200,16 @@ export function ConnectorHub({ connectors, users, loading, onSave, reload }: {
           kind="connector-config"
           form
           title={configCard.label}
-          subtitle={`${governanceStatus(configCard).label} · ${connectorStatusNote(configCard)}`}
           onClose={() => setConfigCard(null)}
+          headerExtra={
+            <Link
+              className="connector-panel-detail-link"
+              to={connectorHref(configCard.id)}
+              onClick={() => setConfigCard(null)}
+            >
+              详情
+            </Link>
+          }
         >
           <ConnectorConfigCard card={configCard} reload={reload} hideHeading />
         </ModalShell>

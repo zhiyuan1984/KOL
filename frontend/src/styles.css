@@ -216,19 +216,27 @@
   --radius-links: 4px;
 
   /* 连接器控制台对话框规格 —— 数值来自参考图逐像素测量，唯一来源见 docs/DESIGN.md §连接器控制台。
-     1 图像 px 的参考截图按 1.25 设备像素比换算为下列 CSS px。 */
-  --dialog-w-form: 640px;      /* 表单弹窗宽度（参考图卡片 796 / 1.25 ≈ 636，取整 640） */
-  --dialog-pad-x: 20px;        /* 卡片左右内边距（26 / 1.25 ≈ 21） */
-  --dialog-pad-t: 32px;        /* 卡片上内边距 */
-  --dialog-pad-b: 32px;        /* 卡片下内边距 */
-  --control-h-form: 38px;      /* 输入框 / 按钮高度（48 / 1.25 ≈ 38.4） */
-  --field-gap: 8px;            /* 字段标签到控件 */
-  --block-gap: 16px;           /* 字段块之间 */
-  --grid-gap: 20px;            /* 两列字段之间（26 / 1.25 ≈ 21） */
-  --row-gap: 10px;             /* headers 行之间（12 / 1.25 ≈ 10） */
-  --icon-box: 64px;            /* 图标位（80 / 1.25 = 64） */
-  --font-field: 16px;          /* 字段标签与输入文本（墨高 18 / 1.25 ≈ 14.4 → 16） */
-  --font-hint: 13px;           /* 说明文字（墨高 15 / 1.25 = 12 → 13） */
+     参考图 1 图像 px = 1 CSS px（不换算）。改数值先改 DESIGN.md。 */
+  --dialog-w-form: 800px;      /* 表单弹窗宽度（参考图卡片 10..810） */
+  --dialog-pad-x: 28px;        /* 卡片左右内边距（内容 38..782） */
+  --dialog-pad-t: 30px;        /* 卡片上内边距（标题墨顶距卡片顶 35 - 半行距 5） */
+  --dialog-pad-b: 40px;        /* 卡片下内边距 */
+  --radius-dialog: 20px;       /* 卡片圆角（角部跨 20 行） */
+  --control-h-form: 48px;      /* 输入框 / 按钮高度 */
+  --radius-field-form: 8px;    /* 输入框 / 下拉圆角 */
+  --radius-btn-form: 10px;     /* 按钮圆角 */
+  --radius-icon-box: 10px;     /* 图标虚线框圆角 */
+  --note-h-form: 134px;        /* 备注文本域高度 */
+  --dialog-head-gap: 22px;     /* 标题块到第一个字段（标题墨底到标签墨顶 28 - 半行距 6） */
+  --line-dialog-title: 32px;   /* 弹窗标题行高 */
+  --field-gap: 16px;           /* 字段标签到控件（墨底到控件顶 16） */
+  --block-gap: 26px;           /* 字段块之间（控件底到下一标签墨顶 26） */
+  --grid-gap: 26px;            /* 两列字段之间 */
+  --row-gap: 12px;             /* headers 行之间 */
+  --icon-box: 80px;            /* 图标位 80×80 */
+  --font-dialog-title: 24px;   /* 弹窗标题（墨高 22） */
+  --font-field: 20px;          /* 字段标签与输入文本（墨高 18） */
+  --font-hint: 16px;           /* 说明文字（墨高 15） */
   --fill-control: #ececeb;     /* 控件填充（参考图取样） */
   --fill-card: #f8f8f7;        /* 弹窗卡片底色 */
   --border-quiet: #dadad9;     /* 描边按钮边框 */

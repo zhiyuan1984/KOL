@@ -198,24 +198,24 @@ test("connector form dialogs keep the measured spec (docs/DESIGN.md)", async ({ 
     };
   });
 
-  // 数值 = docs/DESIGN.md §连接器控制台（参考图 ÷1.25）。
-  expect(spec.panelW).toBe(640);
-  expect(spec.bodyGap).toBe("16px");
-  expect(spec.fieldGap).toBe("8px");
-  expect(spec.gridGap).toBe("20px");
-  expect(spec.labelFont).toBe("16px");
-  expect(spec.inputH).toBe(38);
-  expect(spec.inputFont).toBe("16px");
+  // 数值 = docs/DESIGN.md §连接器控制台（参考图 1 图像 px = 1 CSS px）。
+  expect(spec.panelW).toBe(800);
+  expect(spec.bodyGap).toBe("26px");
+  expect(spec.fieldGap).toBe("16px");
+  expect(spec.gridGap).toBe("26px");
+  expect(spec.labelFont).toBe("20px");
+  expect(spec.inputH).toBe(48);
+  expect(spec.inputFont).toBe("20px");
   expect(spec.inputBg).toBe("rgb(236, 236, 235)");
-  expect(spec.inputRadius).toBe("6px");
+  expect(spec.inputRadius).toBe("8px");
   expect(spec.inputBorder).toBe("rgba(0, 0, 0, 0)");
-  expect(spec.noteH).toBe(108);
-  expect(spec.iconBox).toEqual({ w: 64, h: 64 });
-  expect(spec.hintFont).toBe("13px");
+  expect(spec.noteH).toBe(134);
+  expect(spec.iconBox).toEqual({ w: 80, h: 80 });
+  expect(spec.hintFont).toBe("16px");
   expect(spec.hintColor).toBe("rgb(115, 115, 115)");
-  expect(spec.saveH).toBe(38);
+  expect(spec.saveH).toBe(48);
   expect(spec.saveBg).toBe("rgb(26, 26, 25)");
-  expect(spec.saveFont).toBe("16px");
+  expect(spec.saveFont).toBe("20px");
   expect(spec.footBorder).toBe("0px");
 });
 
@@ -255,7 +255,12 @@ test("URL add flow creates a pending connector with governance cards", async ({ 
   await expect(page.locator("[data-connector-notice]")).toContainText("加入连接器目录");
   await expect(page.locator(`[data-connector-card][data-connector="${TEST_ID}"]`)).toBeVisible();
 
-  await page.locator(`[data-connector-card][data-connector="${TEST_ID}"]`).locator("a").first().click();
+  // 点卡片不再跳详情，而是进「待配置」弹窗；详情走弹窗右上角入口。
+  await page.locator(`[data-connector-card][data-connector="${TEST_ID}"]`).click();
+  const configModal = page.locator("[data-connector-panel='connector-config']");
+  await expect(configModal).toBeVisible();
+  await expect(configModal.locator("h2")).toContainText("E2E URL MCP");
+  await configModal.locator(".connector-panel-detail-link").click();
   await expect(page.locator("[data-admin-page='connector-detail']")).toBeVisible();
   await expect(page.locator("[data-connector-config-card]")).toBeVisible();
   await expect(page.locator("[data-connector-tools]")).toBeVisible();

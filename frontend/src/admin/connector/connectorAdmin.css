@@ -1154,15 +1154,20 @@
 .connector-panel.is-form {
   width: min(var(--dialog-w-form), calc(100vw - 32px));
   background: var(--fill-card);
+  border-radius: var(--radius-dialog);
+  /* 本节实测值在该作用域内接管通用圆角 token：控件 8px、按钮与虚线框 10px。 */
+  --radius-control: var(--radius-field-form);
+  --radius-card: var(--radius-btn-form);
+  --radius-cards: var(--radius-icon-box);
 }
 
 .connector-panel.is-form .connector-panel-head {
-  padding: var(--dialog-pad-t) var(--dialog-pad-x) var(--space-3);
+  padding: var(--dialog-pad-t) var(--dialog-pad-x) var(--dialog-head-gap);
 }
 
 .connector-panel.is-form .connector-panel-head h2 {
-  font-size: var(--ds-font-block-title);
-  line-height: var(--ds-line-block-title);
+  font-size: var(--font-dialog-title);
+  line-height: var(--line-dialog-title);
   color: var(--text);
 }
 
@@ -1181,6 +1186,17 @@
   font-size: var(--font-hint);
   line-height: 1.45;
   color: var(--hint-text);
+}
+
+.connector-panel-detail-link {
+  align-self: center;
+  font-size: var(--font-hint);
+  color: var(--hint-text);
+  text-decoration: underline;
+}
+
+.connector-panel-detail-link:hover {
+  color: var(--text);
 }
 
 /* 字段：标签 16px / 标签到控件 8px / 两列 20px */
@@ -1211,9 +1227,9 @@
 
 .connector-panel.is-form .field textarea,
 .connector-detail-card .field textarea {
-  height: 108px;
+  height: var(--note-h-form);
   padding: var(--space-3);
-  line-height: 20px;
+  line-height: 24px;
   font-size: var(--font-field);
   color: var(--text);
   background: var(--fill-control);
