@@ -1460,8 +1460,8 @@
   justify-content: center;
   gap: 4px;
   min-height: 30px;
-  /* 参考图 85×42 图像 px：内边距 8 / 文字 26 / 间隙 7 / 雪佛龙墨宽 9 / 10 ≈ 60 CSS。 */
-  padding: 0 6px;
+  /* 参考图 85×42 图像 px：边框 2 + 内边距 5 / 文字 26 / 间隙 4 / 雪佛龙 18 ≈ 60 CSS。 */
+  padding: 0 5px;
   font-size: var(--font-hint);
   border-color: var(--border-quiet);
   border-radius: var(--radius-field-form);
@@ -1502,10 +1502,15 @@
   background: var(--browse-tile);
 }
 
+/* 行高 20px：标题行盒（含匿名 strut）与描述行合计 35px，卡片即由 37px 图标砖定高。
+   只改 strong 会被容器行高等内联 strut 顶回 24px，所以行高落在容器上。 */
+.connector-browse .connector-card-title {
+  line-height: 20px;
+}
+
 .connector-browse .connector-card-title strong {
   font-size: var(--font-field);
   font-weight: 600;
-  /* 行高 20px：标题行 + 描述行 = 35px，卡片即由 37px 图标砖定高（71 = 2 + 34 + 35）。 */
   line-height: 20px;
 }
 
@@ -1574,5 +1579,98 @@
     content: "";
     position: absolute;
     inset: -9px;
+  }
+}
+
+/* ── 「添加自定义 API」创建弹窗（2026-09-27 复刻）────────────────────────────
+   参考图 780×1011 逐像素测量，数值 = 实测 × 0.7（与 §连接器控制台 同基准）；
+   唯一来源 docs/DESIGN.md §连接器控制台「添加自定义 API 创建弹窗」。改数值前先改 DESIGN.md。 */
+
+/* 页脚底内边距按参考图收口（实测 17 图像 px × 0.7 ≈ 12；取 18 兼顾呼吸与 900 高视口不滚动）。 */
+.connector-panel-layer[data-connector-panel="api-config"] .connector-panel {
+  --dialog-pad-b: 18px;
+}
+
+/* 副标题：13px 说明色，紧贴标题（弹窗标题块的第二行）。 */
+.connector-panel.is-form .connector-panel-head p {
+  margin: 2px 0 0;
+  font-size: var(--font-hint);
+  line-height: 1.45;
+  color: var(--hint-text);
+}
+
+/* 图标空态：图片字形（参考图占位图形）。 */
+.connector-icon-placeholder {
+  width: 24px;
+  height: 24px;
+  color: var(--hint-text);
+}
+
+/* 「密钥（环境变量）」帮助图标：圆圈问号，非按钮（title / aria-label 承担说明）。 */
+.connector-panel.is-form .field .connector-help {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--help-icon);
+  height: var(--help-icon);
+  margin-left: 6px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  color: var(--hint-text);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1;
+  cursor: help;
+  vertical-align: middle;
+}
+
+/* 密钥编辑器：一张描边卡片 = 一行密钥；卡片与弹窗同底，只靠描边成型（参考图取样）。 */
+.connector-secret-keys {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;                    /* 卡片之间 / 卡片与「＋ 添加密钥」：实测 21 图像 px × 0.7 ≈ 15 */
+}
+
+.connector-secret-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--secret-row-gap);
+  padding: var(--secret-card-pad);
+  border: 1px solid var(--border-quiet);
+  border-radius: var(--radius-card);
+  background: transparent;
+}
+
+.connector-panel.is-form .connector-secret-card textarea {
+  height: var(--secret-value-h);
+}
+
+.connector-secret-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
+.connector-secret-add {
+  align-self: flex-start;
+}
+
+/* 名称未填时保存按钮为禁用灰态（参考图初始态）。 */
+.connector-panel.is-form .btn.work:disabled {
+  background: var(--fill-control);
+  border-color: var(--fill-control);
+  color: var(--placeholder-text);
+  opacity: 1;
+}
+
+@media (pointer: coarse) {
+  .connector-secret-add {
+    min-height: 44px;
+  }
+
+  .connector-secret-remove {
+    min-height: 44px;
+    min-width: 44px;
   }
 }

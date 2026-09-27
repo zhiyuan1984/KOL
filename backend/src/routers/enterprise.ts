@@ -75,10 +75,14 @@ function connectorRuntimeFacts(connectorId: string): { protocol: "mcp" | "http";
     const stored = getConn().prepare(
       "SELECT config_json FROM runtime_connector_config WHERE connector_id=?",
     ).get(connectorId) as Row | undefined;
+    const declared = (getConn().prepare(
+      "SELECT declared_protocol FROM connectors WHERE id=?",
+    ).get(connectorId) as Row | undefined)?.declared_protocol;
     let protocol: "mcp" | "http" = "mcp";
     try {
       const config = stored ? JSON.parse(String(stored.config_json)) as Row | null : null;
-      if (config && typeof config === "object" && config.protocol === "http") protocol = "http";
+      if (config && typeof config === "object") protocol = config.protocol === "http" ? "http" : "mcp";
+      else if (declared === "http") protocol = "http";
     } catch {
       protocol = "mcp";
     }
@@ -261,14 +265,19 @@ enterprise.post("/admin/connectors", async (c) => {
   if (!label || label.length > 120 || !purpose || purpose.length > 280) {
     throw new HttpFail(400, { code: "managed_connector_label_and_purpose_required" });
   }
+  // 接入类型由创建入口决定（DESIGN.md §连接器控制台）；无运行时配置的草稿也保持自己的分类。
+  const declaredProtocol = body.protocol === undefined ? null : String(body.protocol);
+  if (declaredProtocol !== null && declaredProtocol !== "mcp" && declaredProtocol !== "http") {
+    throw new HttpFail(400, { code: "managed_connector_protocol_invalid" });
+  }
   const now = nowIso();
   try {
-    getConn().prepare(`INSERT INTO connectors(id,label,purpose,enabled,status,credential_ref,updated_at)
-      VALUES (?,?,?,0,'draft',NULL,?)`).run(id, label, purpose, now);
+    getConn().prepare(`INSERT INTO connectors(id,label,purpose,enabled,status,credential_ref,declared_protocol,updated_at)
+      VALUES (?,?,?,0,'draft',NULL,?,?)`).run(id, label, purpose, declaredProtocol, now);
   } catch {
     throw new HttpFail(409, { code: "managed_connector_already_exists", connector_id: id });
   }
-  audit(admin.id, "admin.connector.create", { connector_id: id, label, purpose });
+  audit(admin.id, "admin.connector.create", { connector_id: id, label, purpose, ...(declaredProtocol ? { protocol: declaredProtocol } : {}) });
   return c.json(connectorPublic(getConn().prepare("SELECT * FROM connectors WHERE id=?").get(id)), 201);
 });
 

@@ -20,9 +20,9 @@ const RESERVED_HEADERS = new Set([
 const HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 const MAX_ICON_BYTES = 1024 * 1024;
 
-export function validateHeaderName(name: string): string {
-  if (!HEADER_NAME.test(name)) return "请求头名称只能包含 token 字符（字母、数字与 !#$%&'*+-.^_`|~）。";
-  if (RESERVED_HEADERS.has(name.toLowerCase())) return "该请求头由传输层保留，不能自定义。";
+export function validateHeaderName(name: string, label = "请求头名称"): string {
+  if (!HEADER_NAME.test(name)) return label + "只能包含 token 字符（字母、数字与 !#$%&'*+-.^_`|~）。";
+  if (RESERVED_HEADERS.has(name.toLowerCase())) return label + `「${name}」由传输层保留，不能使用。`;
   return "";
 }
 
@@ -211,7 +211,13 @@ export function ConnectorIconUpload({ file, existingUrl, onPick, variant = "plai
   return (
     <div className={"connector-icon-field" + (variant === "dialog" ? " is-bare" : "")}>
       <span className="connector-icon-preview" data-connector-icon-preview>
-        {shown ? <img src={shown} alt="图标预览" /> : <span className="muted" aria-hidden>图</span>}
+        {shown ? <img src={shown} alt="图标预览" /> : (
+          <svg className="connector-icon-placeholder" viewBox="0 0 24 24" aria-hidden>
+            <rect x="3.5" y="4.5" width="17" height="15" rx="2.6" fill="none" stroke="currentColor" strokeWidth="1.6" />
+            <circle cx="9" cy="10" r="1.7" fill="currentColor" />
+            <path d="M5.6 16.8l4.1-4.2 3 3 2.5-2.4 3.3 3.6" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
       </span>
       <div className="connector-icon-actions">
         {variant === "dialog" ? (
@@ -327,26 +333,35 @@ export async function resolveHeaderRefs(rows: HeaderRow[], label: string): Promi
   return refs;
 }
 
-/** Short name derived from the server name; the form no longer asks for it. */
-export function autoConnectorId(label: string): string {
+/** Short name derived from the connector name; the form no longer asks for it. */
+export function autoConnectorId(label: string, prefix = "mcp"): string {
   const slug = slugFromLabel(label);
   if (isConnectorIdValid(slug)) return slug;
-  return `mcp-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`.slice(0, 63);
+  return `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`.slice(0, 63);
 }
 
-async function createConnectorRecord(label: string, purpose: string): Promise<string> {
-  const base = autoConnectorId(label);
+async function createConnectorRecord(
+  label: string,
+  purpose: string,
+  options: { prefix?: string; protocol?: RuntimeProtocol } = {},
+): Promise<string> {
+  const base = autoConnectorId(label, options.prefix);
   for (let attempt = 0; attempt < 5; attempt += 1) {
     // A taken short name is not worth asking the user about; pick another one.
     const candidate = attempt === 0 ? base : `${base.slice(0, 53)}-${Math.random().toString(36).slice(2, 8)}`;
     try {
-      await api.adminSave("/api/admin/connectors", { id: candidate, label, purpose }, "POST");
+      await api.adminSave("/api/admin/connectors", {
+        id: candidate,
+        label,
+        purpose,
+        ...(options.protocol ? { protocol: options.protocol } : {}),
+      }, "POST");
       return candidate;
     } catch (cause) {
       if (codeOf(cause) !== "managed_connector_already_exists") throw cause;
     }
   }
-  throw new Error("无法为该名称生成未被占用的短名；请改用更具体的服务器名称后重试。");
+  throw new Error("无法为该名称生成未被占用的短名；请改用更具体的名称后重试。");
 }
 
 async function saveConnectorSetup(input: {
@@ -394,19 +409,36 @@ async function createManagedMcp(input: {
   return id;
 }
 
-async function createManagedConnector(input: {
-  id: string;
+/**
+ * HTTP API creation keeps the identity, notes and secret references only; the
+ * base URL and the action catalog are completed in the connector detail.
+ */
+async function createManagedHttpApi(input: {
   label: string;
   purpose: string;
-  protocol: RuntimeProtocol;
-  transport: RuntimeConnectorTransport;
-  url: string;
-  noAuth: boolean;
-  headerRows: HeaderRow[];
+  secretRows: HeaderRow[];
   iconFile: File | null;
-}): Promise<void> {
-  await api.adminSave("/api/admin/connectors", { id: input.id, label: input.label, purpose: input.purpose }, "POST");
-  await saveConnectorSetup(input);
+}): Promise<string> {
+  const id = await createConnectorRecord(input.label, input.purpose, { prefix: "api", protocol: "http" });
+  const refs = await resolveHeaderRefs(input.secretRows, input.label);
+  if (Object.keys(refs).length) {
+    await api.saveRuntimeConnectorConfig(id, {
+      protocol: "http",
+      allow_unauthenticated: false,
+      timeout_ms: 30_000,
+      http_tools: [],
+      headers_secret_refs: refs,
+      expected_version: 0,
+    });
+  }
+  if (input.iconFile) {
+    try {
+      await api.uploadConnectorIcon(id, input.iconFile);
+    } catch {
+      // The connector itself is created; icon upload can be retried from the detail page.
+    }
+  }
+  return id;
 }
 
 export function McpConfigPanel({ onClose, onDone }: {
@@ -503,48 +535,103 @@ export function McpConfigPanel({ onClose, onDone }: {
   );
 }
 
-/** API actions are added in the connector detail after this safe base-url draft exists. */
+/** Secret rows become vault credentials; the saved config keeps only references. */
+export function SecretKeysEditor({ rows, onChange, disabled }: { rows: HeaderRow[]; onChange: (rows: HeaderRow[]) => void; disabled?: boolean }) {
+  const update = (index: number, patch: Partial<HeaderRow>) =>
+    onChange(rows.map((row, position) => (position === index ? { ...row, ...patch } : row)));
+  return (
+    <div className="connector-secret-keys" data-connector-secret-keys>
+      {rows.map((row, index) => (
+        <div className="connector-secret-card" data-connector-secret-row key={index}>
+          {rows.length > 1 && (
+            <button
+              type="button"
+              className="icon-btn danger connector-secret-remove"
+              aria-label={`移除密钥 ${row.name.trim() || index + 1}`}
+              disabled={disabled}
+              onClick={() => onChange(rows.filter((_, position) => position !== index))}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden><path d="M3 4.5h10M6.5 4.5V3h3v1.5M5 4.5l.6 8h4.8l.6-8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </button>
+          )}
+          <label className="field">密钥名称
+            <input
+              className="connector-secret-name"
+              value={row.name}
+              placeholder="SOME_UNIQUE_KEY_NAME"
+              autoComplete="off"
+              disabled={disabled}
+              onChange={(event) => update(index, { name: event.target.value })}
+            />
+          </label>
+          <label className="field">值
+            <textarea
+              className="connector-secret-value"
+              value={row.value}
+              placeholder="Value of the secret, such as sk-example-1234"
+              autoComplete="new-password"
+              disabled={disabled}
+              onChange={(event) => update(index, { value: event.target.value })}
+            />
+          </label>
+        </div>
+      ))}
+      <button
+        type="button"
+        className="btn connector-secret-add"
+        data-connector-secret-add
+        disabled={disabled}
+        onClick={() => onChange([...rows, { name: "", value: "" }])}
+      >
+        + 添加密钥
+      </button>
+    </div>
+  );
+}
+
+export function secretKeysProblem(rows: HeaderRow[]): string {
+  for (const row of rows) {
+    const name = row.name.trim();
+    const value = row.value.trim();
+    if (!name && !value) continue;
+    if (!name) return "密钥值已填写，但缺少密钥名称。";
+    const problem = validateHeaderName(name, "密钥名称");
+    if (problem) return problem;
+    if (!value) return `密钥 ${name} 还没有填写值；请填写，或移除该密钥。`;
+  }
+  return "";
+}
+
+/** HTTP API creation collects the name, icon, notes and secrets only (docs/DESIGN.md §连接器控制台). */
 export function ApiConfigPanel({ onClose, onDone }: { onClose: () => void; onDone: (message: string) => void }) {
   const [label, setLabel] = useState("");
-  const [id, setId] = useState("");
-  const [idTouched, setIdTouched] = useState(false);
   const [purpose, setPurpose] = useState("");
-  const [url, setUrl] = useState("");
-  const [headers, setHeaders] = useState<HeaderRow[]>([{ name: "", value: "" }]);
-  const [noAuth, setNoAuth] = useState(false);
+  const [secrets, setSecrets] = useState<HeaderRow[]>([{ name: "", value: "" }]);
+  const [iconFile, setIconFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const effectiveId = idTouched ? id : slugFromLabel(label);
 
   const submit = async () => {
+    const name = label.trim();
     const problems: string[] = [];
-    if (!label.trim()) problems.push("请填写 API 名称。");
-    if (!isConnectorIdValid(effectiveId)) problems.push("短名需要以小写字母开头，仅含小写字母、数字、- 或 _，至少 3 个字符。");
-    if (!/^https?:\/\//.test(url.trim())) problems.push("API Base URL 需要以 http:// 或 https:// 开头。");
-    const headerProblem = headerRowsProblem(headers);
-    if (headerProblem) problems.push(headerProblem);
-    if (!headers.some((row) => row.name.trim() && row.value.trim()) && !noAuth) {
-      problems.push("至少填写一个请求头密钥，或勾选「该端点明确无鉴权」。");
-    }
+    if (!name) problems.push("请填写名称。");
+    const secretProblem = secretKeysProblem(secrets);
+    if (secretProblem) problems.push(secretProblem);
     if (problems.length) {
       setError(problems.join(" "));
       return;
     }
     setBusy(true);
     setError("");
+    const hasSecrets = secrets.some((row) => row.name.trim() && row.value.trim());
     try {
-      await createManagedConnector({
-        id: effectiveId,
-        label: label.trim(),
+      await createManagedHttpApi({
+        label: name,
         purpose: purpose.trim() || "待补充业务用途",
-        protocol: "http",
-        transport: "streamable-http",
-        url: url.trim(),
-        noAuth,
-        headerRows: headers,
-        iconFile: null,
+        secretRows: secrets,
+        iconFile,
       });
-      onDone(`已将“${label.trim()}”作为 HTTP API 草稿加入目录；下一步在详情导入或编辑动作并完成测试。`);
+      onDone(`已创建“${name}”HTTP API 草稿${hasSecrets ? "，密钥已写入凭据保险库" : ""}；下一步在详情填写 Base URL、导入或编辑动作并完成测试。`);
     } catch (cause) {
       setError(errorMessage(cause, "创建 HTTP API 连接器失败"));
     } finally {
@@ -555,27 +642,38 @@ export function ApiConfigPanel({ onClose, onDone }: { onClose: () => void; onDon
   return (
     <ModalShell
       kind="api-config"
-      title="自定义 HTTP API"
-      subtitle="先保存受控 Base URL 和凭据引用；随后在详情中导入 OpenAPI 或逐项定义动作。保存不等于启用。"
+      form
+      title="添加自定义 API"
+      subtitle="使用自定义 API 连接器集成任何支持密钥或令牌授权的外部服务。"
       onClose={onClose}
-      footer={<><button type="button" className="btn" onClick={onClose} disabled={busy}>取消</button><button type="button" className="btn work" data-connector-panel-save disabled={busy} onClick={() => void submit()}>{busy ? "保存中…" : "保存"}</button></>}
+      footer={
+        <>
+          <button type="button" className="btn" onClick={onClose} disabled={busy}>取消</button>
+          <button type="button" className="btn work" data-connector-panel-save disabled={busy || !label.trim()} onClick={() => void submit()}>
+            {busy ? "保存中…" : "保存"}
+          </button>
+        </>
+      }
     >
       {error && <p className="error" role="alert" data-connector-panel-error>{error}</p>}
-      <div className="connector-form-grid">
-        <label className="field">API 名称
-          <input value={label} placeholder="例如：Shopify Orders API" maxLength={120} data-connector-field="label" onChange={(event) => setLabel(event.target.value)} />
-        </label>
-        <label className="field">短名
-          <input value={effectiveId} placeholder="shopify-orders" maxLength={63} data-connector-field="id" onChange={(event) => { setIdTouched(true); setId(event.target.value); }} />
-          <small className="muted">小写字母开头，创建后不可修改。</small>
-        </label>
-      </div>
-      <label className="field">业务用途（可选）<textarea value={purpose} rows={3} maxLength={280} placeholder="说明此 API 提供的业务能力" onChange={(event) => setPurpose(event.target.value)} /></label>
-      <label className="field">API Base URL
-        <input value={url} placeholder="https://api.yourservice.com" data-connector-field="url" onChange={(event) => setUrl(event.target.value)} />
+      <label className="field">名称
+        <input value={label} placeholder="我的自定义 API" maxLength={120} data-connector-field="label" onChange={(event) => setLabel(event.target.value)} />
       </label>
-      <div className="field">自定义 headers（可选）<HeaderRowsEditor rows={headers} onChange={setHeaders} disabled={busy} /></div>
-      <label className="check"><input type="checkbox" checked={noAuth} onChange={(event) => setNoAuth(event.target.checked)} /> 该端点明确允许无鉴权</label>
+      <div className="field">图标<ConnectorIconUpload variant="dialog" file={iconFile} onPick={setIconFile} /></div>
+      <label className="field"><span>备注<span className="field-optional">（可选）</span></span>
+        <textarea value={purpose} rows={5} maxLength={280} placeholder="提供 API 文档或说明，以告知平台如何及何时使用此 API" onChange={(event) => setPurpose(event.target.value)} />
+      </label>
+      <div className="field">
+        <span>密钥（环境变量）
+          <span
+            className="connector-help"
+            role="img"
+            aria-label="密钥值写入凭据保险库，仅在调用时以同名请求头发送；保存后不回显。"
+            title="密钥值写入凭据保险库，仅在调用时以同名请求头发送；保存后不回显。"
+          >?</span>
+        </span>
+        <SecretKeysEditor rows={secrets} onChange={setSecrets} disabled={busy} />
+      </div>
     </ModalShell>
   );
 }

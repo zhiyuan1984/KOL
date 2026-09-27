@@ -72,7 +72,8 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
         setEnvRefs({});
         setBearerRef("");
         setBearerEnv("");
-        setProtocol("mcp");
+        // The protocol was decided at the creation entry; a draft without config keeps it.
+        setProtocol(card.protocol === "http" ? "http" : "mcp");
         setHttpTools("[]");
       } else {
         setLoadError(errorMessage(cause, "无法读取连接器配置"));
@@ -80,7 +81,7 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
     } finally {
       setLoading(false);
     }
-  }, [card.id]);
+  }, [card.id, card.protocol]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { setLabel(card.label); setPurpose(card.purpose); }, [card.label, card.purpose]);

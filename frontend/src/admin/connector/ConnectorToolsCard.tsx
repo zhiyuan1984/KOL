@@ -32,6 +32,7 @@ function errorCodeOf(error: unknown): string {
 function friendlyDiscoveryFailure(code: string): string {
   if (code === "runtime_connector_disabled") return "连接器已停用，无法发现工具。请在详情完成验证后再启用。";
   if (code === "runtime_connector_not_configured") return "尚未保存接入配置。请先完成连接草稿。";
+  if (code === "runtime_endpoint_invalid") return "尚未填写 Base URL，或端点无效；请先在接入配置中补齐。";
   return "";
 }
 

@@ -19,7 +19,7 @@ type CreatePanelKind = "mcp" | "api" | "url" | "json";
 
 const CREATE_ITEMS: Array<{ kind: CreatePanelKind; label: string; hint: string }> = [
   { kind: "mcp", label: "自定义 MCP", hint: "填写服务器名称、传输类型、URL 与请求头" },
-  { kind: "api", label: "自定义 HTTP API", hint: "保存 Base URL 与凭据，再导入或编辑 API 动作" },
+  { kind: "api", label: "自定义 HTTP API", hint: "填写名称与密钥；Base URL 与动作在详情配置" },
   { kind: "json", label: "通过 JSON 导入 MCP", hint: "粘贴 mcpServers 配置，预览后导入" },
   { kind: "url", label: "通过 URL 添加 MCP", hint: "只填名称与服务器 URL，快速加入目录" },
 ];
@@ -188,6 +188,7 @@ export function ConnectorHub({ connectors, users, loading, onSave, reload }: {
       {browseOpen && (
         <ConnectorBrowseModal
           cards={cards}
+          loading={loading}
           adding={adding}
           onAddBuiltin={(entry) => void addBuiltin(entry)}
           onCreate={(kind) => {
@@ -221,9 +222,11 @@ export function ConnectorHub({ connectors, users, loading, onSave, reload }: {
   );
 }
 
-/** 目录弹窗（参考版式）：搜索 + 分类 Tab + 两列卡片；已加入 ✓，未加入的内置项 ＋。 */
-function ConnectorBrowseModal({ cards, adding, onAddBuiltin, onCreate, onClose }: {
+/** 目录弹窗：按参考图逐像素实测量值（docs/DESIGN.md §连接器控制台「浏览弹窗」）；
+    搜索 + 分类 Tab（应用 / 自定义 API / 自定义 MCP）+ 两列卡片；已加入 ✓，未加入的内置项 ＋。 */
+function ConnectorBrowseModal({ cards, loading, adding, onAddBuiltin, onCreate, onClose }: {
   cards: ConnectorCardView[];
+  loading: boolean;
   adding: string;
   onAddBuiltin: (entry: { id: string; label: string; purpose: string }) => void;
   onCreate: (kind: CreatePanelKind) => void;
@@ -241,36 +244,7 @@ function ConnectorBrowseModal({ cards, adding, onAddBuiltin, onCreate, onClose }
     : [];
 
   return (
-    <ModalShell
-      kind="browse"
-      wide
-      title="连接器"
-      onClose={onClose}
-      headerExtra={
-        <div className="connector-menu-wrap">
-          <button
-            type="button"
-            className="btn"
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            data-connector-browse-create
-            onClick={() => setMenuOpen((value) => !value)}
-          >
-            创建
-            <svg viewBox="0 0 16 16" aria-hidden><path d="M4 6.5l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          </button>
-          {menuOpen && (
-            <CreateMenu
-              onPick={(kind) => {
-                setMenuOpen(false);
-                onCreate(kind);
-              }}
-              onClose={() => setMenuOpen(false)}
-            />
-          )}
-        </div>
-      }
-    >
+    <ModalShell kind="browse" title="连接器" onClose={onClose}>
       <div className="connector-browse" data-connector-browse-modal>
         <label className="connector-search">
           <svg viewBox="0 0 24 24" aria-hidden>
@@ -287,22 +261,48 @@ function ConnectorBrowseModal({ cards, adding, onAddBuiltin, onCreate, onClose }
             onChange={(event) => setQ(event.target.value)}
           />
         </label>
-        <div className="hub-chips connector-hub-tabs" role="tablist" aria-label="连接器分类">
-          {([ ["app", "应用"], ["custom_mcp", "自定义 MCP"], ["custom_api", "自定义 API"]] as const).map(([id, label]) => (
+        <div className="connector-browse-toolbar" data-connector-browse-toolbar>
+          <div className="hub-chips connector-hub-tabs" role="tablist" aria-label="连接器分类">
+            {([ ["app", "应用"], ["custom_api", "自定义 API"], ["custom_mcp", "自定义 MCP"]] as const).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={tab === id}
+                className={"hub-chip" + (tab === id ? " on" : "")}
+                data-connector-tab={id}
+                onClick={() => setTab(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="connector-menu-wrap">
             <button
-              key={id}
               type="button"
-              role="tab"
-              aria-selected={tab === id}
-              className={"hub-chip" + (tab === id ? " on" : "")}
-              data-connector-tab={id}
-              onClick={() => setTab(id)}
+              className="btn"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              data-connector-browse-create
+              onClick={() => setMenuOpen((value) => !value)}
             >
-              {label}
+              创建
+              <svg viewBox="0 0 16 16" aria-hidden><path d="M4 6.5l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </button>
-          ))}
+            {menuOpen && (
+              <CreateMenu
+                onPick={(kind) => {
+                  setMenuOpen(false);
+                  onCreate(kind);
+                }}
+                onClose={() => setMenuOpen(false)}
+              />
+            )}
+          </div>
         </div>
-        {!visible.length && !missingBuiltins.length && tab === "app" ? (
+        {loading ? (
+          <p className="muted" data-connector-browse-loading>正在读取连接器目录…</p>
+        ) : !visible.length && !missingBuiltins.length && tab === "app" ? (
           <p className="muted">该分类下还没有连接器。用「创建」加入第一个。</p>
         ) : (
           <div className="connector-grid" data-connector-browse-grid>
@@ -310,8 +310,7 @@ function ConnectorBrowseModal({ cards, adding, onAddBuiltin, onCreate, onClose }
               <ConnectorCard
                 key={card.id}
                 card={card}
-                showToolsEntry={false}
-                showStatusEntry={false}
+                plain
                 onOpen={() => {
                   onClose();
                   navigate(connectorHref(card.id));
@@ -342,7 +341,7 @@ function ConnectorBrowseModal({ cards, adding, onAddBuiltin, onCreate, onClose }
                 <span className="connector-mark connector-mark-letter" aria-hidden>+</span>
                 <div className="connector-card-body">
                   <div className="connector-card-title"><strong>新建自定义 HTTP API</strong></div>
-                  <p className="connector-card-purpose">配置 Base URL、凭据和显式 API 动作。</p>
+                  <p className="connector-card-purpose">填写名称与密钥；Base URL 与动作在详情配置。</p>
                 </div>
               </button>
             )}
@@ -353,13 +352,13 @@ function ConnectorBrowseModal({ cards, adding, onAddBuiltin, onCreate, onClose }
   );
 }
 
-function ConnectorCard({ card, onOpen, onViewTools, onOpenConfig, showToolsEntry = true, showStatusEntry = true }: {
+function ConnectorCard({ card, onOpen, onViewTools, onOpenConfig, plain = false }: {
   card: ConnectorCardView;
   onOpen?: () => void;
   onViewTools?: () => void;
   onOpenConfig?: () => void;
-  showToolsEntry?: boolean;
-  showStatusEntry?: boolean;
+  /** 浏览弹窗版式：只保留图标 / 名称 / 用途与右侧指示；治理状态行留在枢纽卡片（org-permissions）。 */
+  plain?: boolean;
 }) {
   const status = governanceStatus(card);
   const navigate = useNavigate();
@@ -386,42 +385,44 @@ function ConnectorCard({ card, onOpen, onViewTools, onOpenConfig, showToolsEntry
           </Link>
         </div>
         <p className="connector-card-purpose">{card.purpose || "未填写业务用途"}</p>
-        <p className="connector-card-meta">
-          {showStatusEntry && onOpenConfig ? (
-            <button
-              type="button"
-              className="connector-card-status"
-              data-connector-status-entry
-              title={connectorStatusNote(card)}
-              onClick={(event) => { event.stopPropagation(); onOpenConfig(); }}
-            >
-              {status.label}
-            </button>
-          ) : (
-            <span className="connector-card-status" title={connectorStatusNote(card)}>{status.label}</span>
-          )}
-          <span className="connector-card-dot" aria-hidden>·</span>
-          <span>{card.lastVerifiedAt ? `最近验证 ${card.lastVerifiedAt}` : "尚未测试"}</span>
-          {card.approvedToolCount > 0 && (
-            <>
-              <span className="connector-card-dot" aria-hidden>·</span>
-              <span>{card.approvedToolCount} 个已审阅接口</span>
-            </>
-          )}
-          {showToolsEntry && onViewTools && (
-            <>
-              <span className="connector-card-dot" aria-hidden>·</span>
+        {!plain && (
+          <p className="connector-card-meta">
+            {onOpenConfig ? (
               <button
                 type="button"
-                className="connector-card-toolslink"
-                data-connector-tools-entry
-                onClick={(event) => { event.stopPropagation(); onViewTools(); }}
+                className="connector-card-status"
+                data-connector-status-entry
+                title={connectorStatusNote(card)}
+                onClick={(event) => { event.stopPropagation(); onOpenConfig(); }}
               >
-                查看工具
+                {status.label}
               </button>
-            </>
-          )}
-        </p>
+            ) : (
+              <span className="connector-card-status" title={connectorStatusNote(card)}>{status.label}</span>
+            )}
+            <span className="connector-card-dot" aria-hidden>·</span>
+            <span>{card.lastVerifiedAt ? `最近验证 ${card.lastVerifiedAt}` : "尚未测试"}</span>
+            {card.approvedToolCount > 0 && (
+              <>
+                <span className="connector-card-dot" aria-hidden>·</span>
+                <span>{card.approvedToolCount} 个已审阅接口</span>
+              </>
+            )}
+            {onViewTools && (
+              <>
+                <span className="connector-card-dot" aria-hidden>·</span>
+                <button
+                  type="button"
+                  className="connector-card-toolslink"
+                  data-connector-tools-entry
+                  onClick={(event) => { event.stopPropagation(); onViewTools(); }}
+                >
+                  查看工具
+                </button>
+              </>
+            )}
+          </p>
+        )}
       </div>
       <div className="connector-card-side">
         <span className="connector-added">
@@ -438,13 +439,12 @@ function CatalogCard({ id, label, purpose, busy, onAdd }: { id: string; label: s
     <article className="connector-card" data-connector-card data-connector={id} data-connector-kind="app">
       <ConnectorMark id={id} label={label} />
       <div className="connector-card-body">
-        <div className="connector-card-title"><strong>{label}</strong><span className="connector-kind-tag">内置</span></div>
+        <div className="connector-card-title"><strong>{label}</strong></div>
         <p className="connector-card-purpose">{purpose}</p>
-        <p className="connector-card-meta">尚未加入组织目录</p>
       </div>
       <div className="connector-card-side">
         <button type="button" className="connector-plus" aria-label={`加入目录：${label}`} disabled={busy} onClick={onAdd}>
-          +
+          <svg viewBox="0 0 14 14" aria-hidden><path d="M7 2v10M2 7h10" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /></svg>
         </button>
       </div>
     </article>

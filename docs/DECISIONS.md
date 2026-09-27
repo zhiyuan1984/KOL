@@ -72,3 +72,18 @@
 - **影响**：新增 `docs/superpowers/specs/2026-09-26-admin-sidebar-shell-parity.md`；`frontend/src/layout/adminNav.ts`（新）、`Workbench.tsx`、`pages/AdminConsole.tsx`、`styles.css`；过时断言同步 `frontend/src/layout/sidebarNav.test.ts`、`frontend/e2e/workbench.spec.ts`（`.admin-nav` 选择器 → `.sidebar`，标签顺序改为新分簇顺序），证据脚本 `artifacts/account-footer/capture.cjs` 改抓 `.sidebar` 并新增折叠 / 抽屉截图；`docs/org-permissions.md` §导航规则两行补「同一侧栏外壳」说明。
 - **审宪记录**：需求「除了菜单文字内容外，管理页的左侧菜单必须和用户端的左侧菜单完全复刻」→ 主责 UI/UX 专家、平台产品经理 → CONST-04（前端不重写权限判定）、CONST-07（两类界面各受产品与 UI/UX 规范约束）、CONST-08、CONST-10 → 细则：`ia-information-architecture.md` §3 / §4；`org-permissions.md` §管理端配套套件（两侧共用 MASTER token，不得做成第二套 Home / Agents）；`DESIGN.md` §三轴适配（260px 轨道）、§不变量 1 / 4 / 5、§验收矩阵；`TECHNOLOGY.md` TECH-FE → **符合**：管理端只回答谁 / 权限 / 审计，页头与九个面板未动，治理条目仍只走 `/admin/*`；admin 判据仍是 `available_modes`；复刻不含任何发送 / 阶段 / 解密 / 删除闸门 → 下一步按规格 §2 清单逐项截图核对，并跑 typecheck / build / vitest / E2E。
 - **限制**：折叠偏好两面共用（同一 `ui:left-collapsed` 与 `left_sidebar_collapsed`）；若要两面独立记忆需另立一项。管理端配置面 `/admin/kol` 仍是遗留页，其内部 IA 不在本次范围。
+
+## ADR-2026-09-27：「添加自定义 API」创建弹窗 1:1 复刻（端点后置到详情）
+
+- **状态**：已接受（用户 2026-09-27 附参考图，要求必须 1:1 复刻）
+- **决定者**：用户（产品发起人）；UI/UX 专家负责版式与交互，平台产品经理与前端/后端专家负责字段与契约落地。
+- **背景**：`连接器 → 创建 ⌄ → 自定义 HTTP API` 的创建弹窗与用户附件（「添加自定义 API」）不符：多出「短名 / API Base URL / 自定义 headers / 无鉴权勾选」，缺少图标上传与「密钥（环境变量）」卡片区。参考图只收：名称 / 图标 / 备注（可选）/ 密钥（环境变量），页脚「取消 / 保存」。
+- **决定**：
+  1. 弹窗按参考图 1:1 重构（`docs/DESIGN.md` §连接器控制台「添加自定义 API 创建弹窗」）：字段集只保留 名称 / 图标 / 备注（可选）/ 密钥（环境变量）+「+ 添加密钥」；短名由名称自动生成（`api-` 前缀）；副标题按参考图文案（Manus → 平台）；名称未填时保存为禁用灰态；多于一张密钥卡时每卡常显「移除」。
+  2. 「密钥」即现有的请求头引用（`headers_secret_refs`）：名称是请求头名，值写入凭据保险库，保存后不回显。
+  3. **API Base URL 与「该端点明确允许无鉴权」移出创建弹窗**，由详情「接入配置」采集 —— 创建只建「身份 + 密钥引用」草稿。为此 `POST /api/admin/connectors` 新增可选 `protocol`（写入 `connectors.declared_protocol`；分类回退链 = 运行时配置 → 声明协议 → mcp），`validateConnectorConfig` 允许 http 草稿两者都缺省（同时提供仍拒绝；mcp 不变）。
+  4. 未填端点时执行、测试连接与工具发现一律 fail-closed（`runtime_endpoint_invalid`），界面按诚实错误呈现，不得表述为可用。
+- **理由**：① 用户要求 1:1，参考图的字段集就是产品口径；② 端点与动作属「接入配置」的真实字段，详情已有完整表单与 OpenAPI 导入，创建步骤不必重复采集；③ 先建草稿再补齐端点是既有治理叙事（保存 ≠ 启用；测试 → 审阅 → 范围 → 启用都不变）；④ 声明协议让无配置草稿保持「自定义 API」分类与 HTTP 字段集，不会在配置未建时被误判为 MCP。
+- **影响**：`frontend/src/admin/connector/ConnectorPanels.tsx`（`SecretKeysEditor` + `ApiConfigPanel` 重构 + 图标空态 + `autoConnectorId(prefix)`）、`connectorAdmin.css`、`styles.css`（`--secret-card-pad` / `--secret-value-h` / `--help-icon`）、`ConnectorConfigCard.tsx`（无配置草稿按 `card.protocol` 初始化）、`e2e/connector-admin.spec.ts`（HTTP 流程重写 + 新增版式用例）；后端 `db.ts`（`declared_protocol` 迁移）、`routers/enterprise.ts`（POST `protocol` + 分类回退）、`runtime/store.ts`（http 草稿端点放行）；规格增补见 `docs/superpowers/specs/2026-09-26-connector-admin-console-redesign.md`。
+- **审宪记录**：需求「连接器点击创建，点击自定义 HTTP API，修改弹窗如上传图片所示，必须 1:1 复刻」→ 主责 UI/UX 专家 + 平台产品经理 → CONST-04 / CONST-08 / CONST-09（数值只住 DESIGN.md 与 styles.css）/ CONST-10 → 细则：`DESIGN.md` §连接器控制台（唯一数值来源，改数值先改表）、§不变量 2（L2 草稿必须标注）；`07-mcp-data-contract.md`（秘密只存引用、不回显；真实调用 fail-closed）；`org-permissions.md`（凭据永不回显）→ **符合**：弹窗只建草稿，不触碰 L3；明文值只在提交瞬间存在；端点缺失不被表述为可用 → 下一步按 DESIGN 数值与 E2E 用例取证。
+- **限制**：参考图文案中的 Manus 一律写作「平台」；多密钥的「移除」入口是参考图没有、无障碍需要的补充。端点后置意味着「创建即可测试」不再成立，测试前必须先补 Base URL。

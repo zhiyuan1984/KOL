@@ -167,4 +167,26 @@ describe("employee connector use-surface DTO", () => {
     expect(useRows.length).toBeGreaterThan(0);
     for (const row of useRows) assertEmployeeConnectorDto(row);
   });
+
+  it("keeps a declared HTTP API draft classified as custom_api before any runtime config exists", async () => {
+    const created = await call("POST", "/api/admin/connectors", {
+      id: "e2e-http-draft", label: "HTTP Draft", purpose: "草稿分类", protocol: "http",
+    });
+    expect(created.response.status).toBe(201);
+    expect(created.json).toMatchObject({ kind: "custom_api", protocol: "http" });
+
+    const mcpDraft = await call("POST", "/api/admin/connectors", {
+      id: "e2e-mcp-draft", label: "MCP Draft", purpose: "草稿分类",
+    });
+    expect(mcpDraft.json).toMatchObject({ kind: "custom_mcp", protocol: "mcp" });
+
+    const rejected = await call("POST", "/api/admin/connectors", {
+      id: "e2e-bad-draft", label: "Bad Draft", purpose: "草稿分类", protocol: "grpc",
+    });
+    expect(rejected.response.status).toBe(400);
+
+    const listed = await call("GET", "/api/admin/connectors");
+    const row = (listed.json as Record<string, unknown>[]).find((item) => item.id === "e2e-http-draft");
+    expect(row).toMatchObject({ kind: "custom_api", protocol: "http" });
+  });
 });

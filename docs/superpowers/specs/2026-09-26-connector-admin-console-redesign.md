@@ -204,3 +204,67 @@
    「创建」位于 `[data-connector-browse-toolbar]` 且标题栏无「创建」。
 3. 截图对照：以 1.4× DPR 截取弹窗（≈1030px 宽，与参考图 1034 同尺度）并存档为证据。
 4. 行为不回退：焦点锁 / Esc / 焦点归还、「＋」加入目录、搜索过滤、卡片点击进详情。
+
+---
+
+## 增补 C（2026-09-27）：「添加自定义 API」创建弹窗按参考图 1:1 复刻
+
+**需求：** `/admin/connectors → 创建 ⌄ → 自定义 HTTP API` 的创建弹窗，按用户上传的参考图
+（「添加自定义 API」，780×1011）做 1:1 复刻（用户原话：「修改弹窗如上传图片所示，必须 1：1 复刻」）。
+
+### C1. CONST-08 审宪记录
+
+| 项 | 结论与证据 |
+|---|---|
+| 需求 | 弹窗按参考图：标题「添加自定义 API」+ 副标题；字段 = 名称 / 图标 / 备注（可选）/ 密钥（环境变量）+「+ 添加密钥」；页脚 取消 / 保存（空名禁用灰态） |
+| 主责角色 | UI/UX 专家（版式与交互）· 平台产品经理（字段与流程裁决）· 前端/后端专家（实现）· 测试经理（证据） |
+| 宪法条款 | CONST-04（前端不重写规则）· CONST-08 · CONST-09（数值先入 DESIGN.md）· CONST-10（不冒充生产能力） |
+| 基本法条款 | `docs/DESIGN.md` §连接器控制台（唯一数值来源；改数值先改表）、§不变量 1/2/4；`docs/07-mcp-data-contract.md`（秘密只存引用、不回显；真实调用 fail-closed）；`docs/org-permissions.md`（凭据永不回显） |
+| 结论与证据 | **符合**。弹窗只建待验证草稿；明文密钥只在提交瞬间存在并写入保险库；端点缺省时执行 / 测试连接 / 工具发现 fail-closed，界面如实呈现 |
+| 下一步 | 按 §C3 实施，几何锁定 E2E + 截图对照取证；ADR 见 `docs/DECISIONS.md` ADR-2026-09-27 |
+
+### C2. 测量记录（图像 780×1011，推导 × 0.7，与既有连接器弹窗同基准）
+
+- 弹窗：沿用 `--dialog-w-form` 560 / `--radius-dialog` 14 / 内边距 20·20·26（与「MCP 配置」同族；宽度以既有 800 参考图为准）。
+- 控件：高 34（`--control-h-form`）、圆角 6（`--radius-field-form`）、填充 `#ececeb`、无描边（既有取样）。
+- 图标位：56（`--icon-box`）虚线框 + 「上传 ⌄」分裂按钮；空态字形改为图片图标（24px，`--hint-text`）。
+- 备注：95（`--note-h-form`），占位「提供 API 文档或说明，以告知平台如何及何时使用此 API」。
+- 密钥卡片（新 token）：内边距 22 → 16（`--secret-card-pad`）；值文本域高 106 → 74（`--secret-value-h`）；
+  卡内字段距 18 → 13（`--secret-row-gap`）；卡片之间与到「＋ 添加密钥」21 → 15；卡片 = 1px `--border-quiet`
+  描边 + 弹窗同底 + `--radius-card`(7) 圆角；页脚底内边距按参考图收口到 18（`--dialog-pad-b`，本弹窗作用域）。
+- 「?」帮助图标（新 token）：实测 20 → 14（`--help-icon`），`--hint-text` 描边圆圈 + 10px 问号，title / aria-label 承担说明。
+- 保存禁用态：`--fill-control` 底 + `--placeholder-text` 字（参考图空表单初始态）。
+
+### C3. 实现
+
+- `ConnectorPanels.tsx`：新增 `SecretKeysEditor` / `secretKeysProblem`；`ApiConfigPanel` 重写为 `ModalShell form` +
+  参考图字段集（保留 `data-connector-field="label"`；移除 `id` / `url` / checkbox 钩子）；保存走 `createManagedHttpApi`
+  （`POST` 带 `protocol: http` → 密钥入保险库 → 有密钥时保存仅含引用的配置 → 图标上传）；`autoConnectorId(label, prefix)`
+  支持 `api-`；`validateHeaderName(name, label)` 文案按「请求头 / 密钥」复用；图标空态换图片字形 SVG。
+- 后端：`db.ts` 迁移 `connectors.declared_protocol`；`enterprise.ts` POST 接受 `protocol`
+  （非法值 400 `managed_connector_protocol_invalid`），`connectorRuntimeFacts` 回退链 = 运行时配置 → 声明协议 → mcp；
+  `runtime/store.ts` `validateConnectorConfig` 允许 http 草稿两者都缺省（同时提供仍拒绝；mcp 不变）。
+- `ConnectorConfigCard.tsx`：无配置（404）草稿按 `card.protocol` 初始化字段集；`ConnectorDetail.tsx` /
+  `ConnectorToolsCard.tsx` 给 `runtime_endpoint_invalid` 友好文案（「尚未填写 Base URL，或端点无效」）。
+- `ConnectorHub.tsx`：创建菜单与浏览弹窗「新建自定义 HTTP API」文案改为「填写名称与密钥；Base URL 与动作在详情配置」。
+- `styles.css`：新增 `--secret-card-pad` / `--secret-value-h` / `--help-icon`（深色沿用既有档回落）。
+- E2E：HTTP 流程重写（名称 + 密钥 → 草稿 → 详情补 URL / 动作 → 保存），新增版式锁定用例（标题 / 副标题 /
+  字段集与占位 / 添加密钥与移除 / 页脚与禁用灰态 / 几何 560·13·14·16·64）。
+
+### C4. 与参考图的保留差异（显式登记）
+
+1. 参考图文案中的 Manus 写作「平台」；其余文案照录（含英文占位 `SOME_UNIQUE_KEY_NAME`、
+   `Value of the secret, such as sk-example-1234`）。
+2. 参考图只有一张密钥卡；多于一张时每卡右上角常显「移除」（无障碍必需，不是参考图元素）。
+3. 「保存」在名称为空时禁用（对齐参考图初始灰态）；错误（密钥名称非法、半填密钥）仍以面板内错误条如实呈现。
+4. **API Base URL 与「该端点明确允许无鉴权」不在本弹窗**（参考图没有），由详情「接入配置」采集；
+   创建只建草稿，端点缺失时执行 / 测试 / 发现 fail-closed。
+
+### C5. 验收
+
+1. 版式锁定用例通过（见 §C3 末条）。
+2. HTTP 流程：保存后卡片 `data-connector-kind="custom_api"`；详情按 HTTP 字段集打开；密钥只以引用回显；
+   补齐 URL + 动作后保存成功。
+3. 后端：`connector-employee-dto` / `configurable-connectors` 新旧用例通过（http 缺端点可保存、执行 fail-closed、
+   分类回退正确）。
+4. 截图对照：以 1.4× DPR 截取弹窗（≈780px 宽，与参考图同尺度）并存档为证据。

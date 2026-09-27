@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getConn, resetConn } from "../src/db.js";
-import { setAgentSkill, setConnectorConfig, setSkillConnector, setSkillTool, setToolPolicy } from "../src/runtime/store.js";
+import { setAgentSkill, setConnectorConfig, setSkillConnector, setSkillTool, setToolPolicy, validateConnectorConfig } from "../src/runtime/store.js";
 import { SkillExecution, toolSchemaHash, type RuntimeContext } from "../src/runtime/execution.js";
 import { previewOpenApi } from "../src/runtime/openapi.js";
 import { assertSafeConnectorEndpoint } from "../src/runtime/http.js";
@@ -101,5 +101,15 @@ describe("configuration-driven HTTP connector", () => {
       expect(() => assertSafeConnectorEndpoint("http://169.254.169.254/latest/meta-data")).toThrow();
       expect(() => assertSafeConnectorEndpoint("https://api.example.test/mcp")).not.toThrow();
     } finally { process.env.NODE_ENV = previous; }
+  });
+  it("keeps an endpoint-less HTTP draft saveable and fails closed at runtime", async () => {
+    expect(() => setConnectorConfig("http_fixture", { protocol: "http", allow_unauthenticated: true, http_tools: [] }, 0)).not.toThrow();
+    expect(() => validateConnectorConfig({ protocol: "http" })).toThrow("credential reference required unless allow_unauthenticated is true");
+    expect(() => validateConnectorConfig({ allow_unauthenticated: true })).toThrow("exactly one of url or url_env is required");
+    expect(() => validateConnectorConfig({ protocol: "http", url: "https://api.example.test", url_env: "API_URL", allow_unauthenticated: true }))
+      .toThrow("url and url_env cannot be combined");
+    const catalog = await new SkillExecution(context).discover();
+    expect(catalog.tools).toHaveLength(0);
+    expect(catalog.unavailable).toContainEqual({ connector_id: "http_fixture", code: "runtime_endpoint_invalid" });
   });
 });

@@ -382,7 +382,10 @@ export function validateConnectorConfig(value: unknown): ConnectorConfig {
 
   const suppliedUrl = value.url !== undefined;
   const suppliedUrlEnv = value.url_env !== undefined;
-  if (suppliedUrl === suppliedUrlEnv) invalid("exactly one of url or url_env is required");
+  if (suppliedUrl && suppliedUrlEnv) invalid("url and url_env cannot be combined");
+  // An HTTP connector may exist as an endpoint-less draft while the console collects
+  // the base URL; every runtime read then fails closed with runtime_endpoint_invalid.
+  if (!suppliedUrl && !suppliedUrlEnv && value.protocol !== "http") invalid("exactly one of url or url_env is required");
 
   const config: ConnectorConfig = {};
   if (value.protocol !== undefined) {
@@ -403,7 +406,7 @@ export function validateConnectorConfig(value: unknown): ConnectorConfig {
       invalid("url must be http/https without credentials, query, or hash");
     }
     config.url = value.url;
-  } else {
+  } else if (suppliedUrlEnv) {
     config.url_env = assertEnvName(value.url_env, "url_env");
   }
 
