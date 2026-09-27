@@ -159,8 +159,10 @@ test("sidebar 新工作任务 lands on today list without tab hop or recommend/q
   // tab 行与提问框是工作台 chrome（会带「我的待办」字样），内容断言只看帧签正文。
   await expect.poll(() => paneBodyText(page, "today")).not.toContain("加入待办");
   await expect.poll(() => paneBodyText(page, "today")).not.toContain("正式待办");
-  // 今日列表不出现推荐动作文案（右栏的「下一步动作」是另一个刻画，单独另案验证；原来的全屏文本断言会和首次绘制抢时间，已改为只看列表。
-  await expect(page.locator("[data-today-list]")).not.toContainText("采纳为待办");
+  // 候选推荐不属于平台任务脊柱：右栏的「下一步动作」块也不得出现在今日任务里，
+  // 所以断言范围是整个页签（含 [data-scope-task-rail]），不再只看 [data-today-list]。
+  await expect(page.locator('[data-home-pane="today"] [data-scope-task-rail] .next-action-recommendation')).toHaveCount(0);
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("采纳为待办");
   await expect(page.locator("[data-recommended-tasks], [data-today-suggestions], [data-insight-list]")).toHaveCount(0);
   await expect(page.locator("[data-today-brief], [data-today-primary]")).toHaveCount(0);
 });
@@ -278,6 +280,9 @@ test("today pane shows today-scheduled work items including unpromoted source=ai
     await route.continue();
   });
 
+  // board 是一次会话一次读取，且在主壳延迟批次里才发；先挂监听再导航，
+  // 后面的「诱饵不出现」才不是抢在首次绘制前通过的空断言。
+  const boardLoaded = page.waitForResponse((response) => response.url().includes("/api/home/board"));
   await page.goto("/");
   await expect(page.locator('[data-home-pane="today"]')).toBeVisible();
   await expect(page.locator("[data-today-list]")).toBeVisible();
@@ -305,7 +310,11 @@ test("today pane shows today-scheduled work items including unpromoted source=ai
   await expect.poll(() => paneBodyText(page, "today")).not.toContain("正式待办");
   await expect.poll(() => paneBodyText(page, "today")).not.toContain("待办");
   await expect(page.locator('[data-home-pane="today"]')).not.toContainText("现在做这一件");
+  await boardLoaded;
   await expect(page.locator("[data-recommended-task], [data-insight-card]")).toHaveCount(0);
+  // board 里那条「诱饵」推荐不得在任何位置渲染：右栏是它曾经唯一的入口。
+  await expect(page.locator('[data-home-pane="today"] [data-scope-task-rail] .next-action-recommendation')).toHaveCount(0);
+  await expect(page.locator('[data-home-pane="today"]')).not.toContainText("诱饵");
 
   await page.locator('[data-today-todo="tsk_high"] [data-today-todo-act]').click();
   await expect.poll(() => writes).toEqual(["/api/tasks/tsk_high/acknowledge"]);

@@ -116,3 +116,26 @@
 - **影响资产**：`backend/src/runtime/execution.ts`（执行校验改技能授权）、`backend/src/routers/enterprise.ts`（启用闸门）、`backend/src/runtime/organization.ts`（范围接口退役）、前端 `ConnectorGrantsCard` / `ConnectorScopeCard` / `ConnectorToolsCard` 范围段 / 员工 `/connectors` 面、E2E `connector-admin.spec.ts`；逐文件清单见设计稿 `superpowers/specs/2026-09-27-connector-setup-wizard-design.md`。
 - **生效版本**：随「连接器设置向导」实现同批发布；本 ADR 先于代码落地，期间代码现状与本 ADR 不一致处按本 ADR 修正。
 - **审宪记录**：需求「对外只暴露技能；取消逐工具/按人授权」→ 主责 平台产品经理 + 权限域 + 架构师/后端 + UI/UX → CONST-02（本次修订）/ CONST-03（支持）/ CONST-05（L3 闸门不变）/ CONST-08/09（修宪与修法记录）/ CONST-10 → 基本法 `PRODUCT.md` PROD-PLAT-04/05、`TECHNOLOGY.md` TECH-BE-07、`org-permissions.md`、`ia-information-architecture.md` → **符合**（按用户修宪决定执行，内部门禁不放松）→ 下一步：设计稿评审后出实施计划。
+
+## ADR-2026-09-28：候选推荐与「采纳为待办」不得混入「今日任务 / 我的待办」
+
+- **状态**：已接受（用户 2026-09-28 报告「今日任务和我的任务又出现了这个，不合逻辑，这个是哪个版本引进来的」）。
+- **决定者**：用户（产品发起人）；UI/UX 专家与前端负责渲染归属；平台产品经理保留「推荐块最终住哪个面」的归属决定。
+- **背景**：截图里的三行（如「给 @测试1号 超时/风险扫描」「给@100705721 写合作邮件」＋「采纳为待办」）不是任务列表行，而是右栏「下一步动作」（`NextActionBar`）渲染的 `workbench.recommendations`。它出现过两轮：第 1 轮 `4649c43`（2026-09-16，画在今日任务中栏列表内）被次日 `8cdac8d` 删除；第 2 轮 **`e85b12a`（2026-09-23 22:57 +0800「feat(workspace): complete generic skill result and density work」）**把 `recommendations` / `onAdoptRecommendation` 接进今日任务与我的待办**共用**的 `ScopeWorkspace` 右栏，两个页签因此显示同一份行，`status` 又被硬编码为 `candidate`，采纳过的行按钮也不会消失。修复 `eca9156`（2026-09-26）只活在分支 `fix/today-todo-scope`，从未合入主干；`14c2b69`（2026-09-28）加的 board 预热（`void loadBoard("following")`）让这三行在首次进 Home 时就出现。
+- **决定**：候选推荐不属于平台任务脊柱。`frontend/src/home/ScopeWorkspace.tsx` 不再接受 `recommendations` / `onAdoptRecommendation`；`frontend/src/pages/Home.tsx` 不再传这两个 prop，并删除唯一消费者 `convertSuggestion` 与从未渲染的 `recommendedItems`。后端的 `buildRecommendedTasks`（`backend/src/host/home-board.ts`）与采纳接口 `POST /api/tasks/recommendations/:id/adopt`、审计事件「采纳为待办」保持不变；`NextActionBar` 继续服务 `registeredActions`（AI发现 / 公海 / 我跟进的红人）。
+- **理由**：`ia-information-architecture.md` §1 一页一问（每个表面只回答一个问题，不得把另一表面的信息架构或主 CTA 抄过来）与五模式段落（今日任务 / 我的待办是平台任务脊柱，两模式共享的是布局与状态语义）；推荐属候选面（后端测试 `backend/tests/discovery.test.ts:361`「AI发现 is not 今日任务 recommendations」）；两页签是同一判定下的互斥分流（`superpowers/specs/2026-09-22-today-todo-reuse.md`），候选推荐不在其中；`DESIGN.md` 不变量 1（同一视口 0–1 个实底主 CTA）。
+- **影响资产**：`frontend/src/home/ScopeWorkspace.tsx`、`frontend/src/pages/Home.tsx`、`frontend/e2e/home-today-pane.spec.ts`（断言范围从 `[data-today-list]` 扩到整个页签，并先等 board 响应，避免抢在首次绘制前通过）、`frontend/e2e/home-pane-parity.spec.ts`（新增「两个页签右栏都不得出现候选推荐」用例）。
+- **审宪记录**：需求「今日任务 / 我的待办不得出现候选推荐与采纳为待办」→ 主责 UI/UX 专家/前端 + 平台产品经理（归属）→ CONST-04（前端只实现已定义规则）、CONST-10（交付必须可验证）→ `ia-information-architecture.md` 一页一问与平台任务脊柱、`DESIGN.md` 不变量 1 → **符合**（执行既有 IA 与 CTA 不变量，未改法条；采纳能力与其审计事件保留）→ 下一步：E2E 取证。
+- **限制**：推荐块今后住「AI发现」还是「我跟进的红人」属产品归属决定，本次未定；`eca9156` 的后端一半（today↔todo 互斥分流与 `isAwaitingApproval` 等）未随本次移植，另开一轮。
+
+## ADR-2026-09-28：公海 / 我的红人「分析已选」提交后立即执行（入队接既有任务运行链路）
+
+- **状态**：已接受（用户 2026-09-28 选定「方案A」：提交后 Codex 应真实执行，处理过程在中栏可见）。
+- **决定者**：用户（产品发起人）；前端专家负责提交链路，KOL 业务专家负责分析执行口径。
+- **背景**：`2026-09-27` 公海交互迁移后，中栏四个入口只预填草稿（`Home.tsx` `prefillPoolQuestion`），提交命中 `Home.tsx` 的 analyze 分支，只调 `POST /api/home/kol-analyze/enqueue` 写一条 `queued` 工作项（`routers/kol-memory.ts`，响应自报 `creates_session:false / calls_model:false`）。全仓创建 `task_runs` 只有两处——人工 `POST /api/tasks/:id/run` 与规划运行，没有任何消费者把排队中的 `kol_analyze` 推进为运行。因此「提交 → Codex 执行 → 中栏处理过程」这段链路实际断路：Codex 不执行、不建会话，中栏无从展示推理（用户验收报告「codex没有执行，中栏没有展示推理过程」）。
+- **决定**：提交在入队成功后，立即用返回的 `work_item_id` 调用既有 `POST /api/tasks/:id/run`（`text` 携带完整提问框正文），并沿用 `openRun` 打开会话；执行、停止、恢复全部沿用既有任务运行链路，不新增接口、不新造状态机。`queued` 工作项保留为耐久凭据；「不走 from-text、不冒充副作用」的既有语义不变。该 analyze 分支同时服务「我的红人」的「分析已选」（`analyzeSurface=following`），两处语义一致。
+- **理由**：CONST-10（等待必须有真实原因、阶段与恢复入口；入队后无执行者、无恢复入口）；`docs/superpowers/specs/2026-09-23-unified-agent-workspace.md`（「对象分析、澄清和过程进入中栏」；`queued/running` 需真实状态）；`docs/BUSINESS.md` 将 `kol_analyze` 的 Agent 面登记为规则空白——本决定以「不新造口径、复用既有运行链路」的最小方式补齐。
+- **影响资产**：`frontend/src/pages/Home.tsx`（analyze 分支：取消检查 + `api.runTask` + `openRun`）、`frontend/e2e/home-pool-follow.spec.ts`（用例改为断言「入队 + run + messages(ask) + 落到 `/s/:session` + 完整 prompt 传递」）。
+- **审宪记录**：需求「公海分析提交后 Codex 真实执行、中栏可见过程」→ 主责 KOL 业务专家 + 前端专家 → CONST-04（前端不重写权限与阶段规则，只编排既有受控接口）、CONST-08、CONST-10 → BIZ-16、PROD-AGENT-01、统一工作台规格 §6.1 → **符合**（未触碰发信 / 改阶段 / 领取 / 解密边界；`kol_analyze` 仍为只读分析，仍受技能授权与硬顶 3 约束）→ 下一步：E2E 取证。
+- **限制**：入队后到运行之间若进程退出，工作项留在 `queued`，恢复入口仍是任务列表打开（与既有任务一致）；通讯页「快速分析」直连入队的入口不在本次范围（其既有验收仍为「点击即入队、不建会话」）。
+

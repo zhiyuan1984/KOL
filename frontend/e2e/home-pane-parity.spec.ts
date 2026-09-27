@@ -112,6 +112,35 @@ test("each pane only calls its own scope endpoints", async ({ page }) => {
     .toBe(scoped.filter((path) => path.includes("todo")).length);
 });
 
+test("neither today nor todo rail hosts candidate recommendations", async ({ page }) => {
+  // 候选推荐曾由两个页签共用的 ScopeWorkspace 右栏渲染，于是今日任务与我的待办
+  // 显示同一份「采纳为待办」。board 里放一条诱饵：它一旦出现，就说明候选推荐
+  // 又混进了平台任务脊柱（推荐属于 AI发现 / 跟进面，不属于这两个页签）。
+  await page.route("**/api/home/board", (route) => route.fulfill({
+    json: {
+      kols: [],
+      tabs: [],
+      tasks: [],
+      workbench: {
+        today: [],
+        todo: [],
+        recommendations: [{ id: "rec-1", title: "诱饵", reason: "不要出现", source: "ai" }],
+      },
+    },
+  }));
+  for (const mode of ["today", "todo"] as const) {
+    // board 在主壳延迟批次里才发；先挂监听再导航，断言才不是抢在首次绘制前通过。
+    const boardLoaded = page.waitForResponse((response) => response.url().includes("/api/home/board"));
+    await page.goto(mode === "today" ? "/" : "/?tab=todo");
+    await boardLoaded;
+    const rail = page.locator(`[data-home-pane="${mode}"] [data-scope-task-rail]`);
+    await expect(rail).toBeVisible({ timeout: 30000 });
+    await expect(rail.locator(".next-action-recommendation")).toHaveCount(0);
+    await expect(rail).not.toContainText("采纳为待办");
+    await expect(rail).not.toContainText("诱饵");
+  }
+});
+
 test("each pane keeps at most one filled primary CTA", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("[data-today-list]")).toBeVisible();

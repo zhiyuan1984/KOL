@@ -1,6 +1,5 @@
 import { useMemo, type ReactNode } from "react";
 import type { Task, TaskEvent, TodayBrief } from "../api";
-import type { TaskRecommendationView } from "./workspace/result-contract";
 import PlanSummary from "./PlanSummary";
 import TaskBoard from "./TaskBoard";
 import TodayPlanProgress from "./TodayPlanProgress";
@@ -44,8 +43,6 @@ export default function ScopeWorkspace({
   previousBrief,
   previousEvents,
   memoryPending = false,
-  recommendations = [],
-  onAdoptRecommendation,
   centerHeader,
   centerSupplement,
   centerFooter,
@@ -64,8 +61,6 @@ export default function ScopeWorkspace({
   previousEvents?: TaskEvent[] | null;
   /** Entering the pane reads memory without planning, so the empty state must not lie. */
   memoryPending?: boolean;
-  recommendations?: TaskRecommendationView[];
-  onAdoptRecommendation?: (recommendation: TaskRecommendationView) => void;
   centerHeader?: ReactNode;
   /** Composer 产生的澄清、排队、失败或恢复信息，属于中栏交互时间线。 */
   centerSupplement?: ReactNode;
@@ -95,8 +90,6 @@ export default function ScopeWorkspace({
           ? "running" : hasStream ? "completed" : stamped.length ? "ready" : "idle",
         updatedAt: undefined,
         freshness: brief ? "current" : "unknown",
-        recommendations,
-        onAdoptRecommendation,
       }}
       scrollAnchorEvent={TODAY_PLAN_REFRESH_EVENT}
       centerHeader={(

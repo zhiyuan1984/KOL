@@ -19,7 +19,6 @@ import { stashComposerDraft } from "../composer/draft";
 import type { ComposerEntryIntent, ComposerObjectRef } from "../composer/types";
 import Markdown from "../components/Markdown";
 import { starterPrompt } from "../taskStarters";
-import { recIcon, withRecommendedDisplay } from "../recommendedTasks";
 import {
   clearComposerFill,
   composerFillText,
@@ -131,7 +130,7 @@ import {
 } from "../home/todayPlan";
 import { usePlanScope } from "../home/usePlanScope";
 import { fetchTodayTasks, fetchTodoTasks } from "../home/todayTasksApi";
-import { findDuplicateTodo, recommendationIdentity } from "../home/todoDedupe";
+import { findDuplicateTodo } from "../home/todoDedupe";
 import { useMailComposeFlow } from "../hooks/useMailComposeFlow";
 import {
   HOME_CONFIRM_STAGE_BLOCKED_COPY,
@@ -1284,50 +1283,6 @@ export default function Home() {
     }
   };
 
-  const convertSuggestion = async (item: RecommendedTask) => {
-    const identity = recommendationIdentity(item);
-    const duplicate = findDuplicateTodo(todoItems, identity);
-    if (duplicate) {
-      setDedupeNotice("已在待办中，未重复添加");
-      setMode("todo");
-      return;
-    }
-    setBusy(true);
-    setErr("");
-    setDedupeNotice("");
-    const mergeAdopted = (created: Task) => {
-      if (findDuplicateTodo(taskCatalog.filter(isTodoTask), identity)) return;
-      prependTask(created);
-      setBoardWorkbench((current) => (
-        current
-          ? {
-            ...current,
-            todo: [created, ...(current.todo || []).filter((row) => row.id !== created.id)],
-            insights: (current.insights || []).filter((row) => row.id !== created.id),
-          }
-          : current
-      ));
-    };
-    try {
-      const adopted = await api.adoptRecommendation({
-        recommendation_id: item.id,
-        title: item.title,
-        handle: item.handle,
-        intent: item.intent,
-        collaboration_id: item.collaboration_id,
-        reason: item.reason,
-        prompt: item.prompt || item.title,
-      });
-      mergeAdopted({ ...taskValue(adopted), title: item.title, candidate: false });
-      await refreshTasks();
-      setMode("todo");
-    } catch (error) {
-      setErr(error instanceof Error ? error.message : "未能采纳建议，正式待办未创建");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const dismissInsight = async (task: Task) => {
     setBusy(true);
     setErr("");
@@ -1693,11 +1648,6 @@ export default function Home() {
     const timer = window.setInterval(tick, HOME_TASK_POLL_MS);
     return () => window.clearInterval(timer);
   }, [hasActiveRuns]);
-
-  const recommendedItems = useMemo(
-    () => withRecommendedDisplay(workbench.recommendations || [], definitions),
-    [definitions, workbench.recommendations],
-  );
 
 
   useEffect(() => {
@@ -2136,18 +2086,6 @@ export default function Home() {
               previousBrief={activePlan.prevBrief}
               previousEvents={activePlan.prevEvents}
               memoryPending={activePlan.memoryTasks === null}
-              recommendations={(workbench.recommendations || []).filter((item) => item.candidate !== false).slice(0, 3).map((item) => ({
-                id: item.id,
-                title: item.title,
-                reason: item.reason,
-                intent: item.intent,
-                handle: item.handle,
-                status: "candidate" as const,
-              }))}
-              onAdoptRecommendation={(recommendation) => {
-                const selected = workbench.recommendations?.find((item) => item.id === recommendation.id);
-                if (selected) void convertSuggestion(selected);
-              }}
               centerHeader={(
                 <div className="home-hero today-center-hero">
                   <h1 data-home-title={paneScope}>{SCOPE_CONFIG[paneScope].heroTitle}</h1>
