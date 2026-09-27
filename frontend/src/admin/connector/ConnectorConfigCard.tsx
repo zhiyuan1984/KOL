@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api";
-import { errorMessage, versionConflictMessage, type RuntimeConnectorConfig, type RuntimeConnectorTransport } from "../../runtimeConnectorUi";
+import {
+  errorMessage,
+  parseHttpTools,
+  versionConflictMessage,
+  type RuntimeConnectorConfig,
+  type RuntimeConnectorTransport,
+  type RuntimeProtocol,
+} from "../../runtimeConnectorUi";
 import type { ConnectorCardView } from "./entity";
 import { ConnectorIconUpload, SplitButton, publishConnector, validateHeaderName } from "./ConnectorPanels";
 
@@ -17,6 +24,7 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
   const [version, setVersion] = useState(0);
   const [label, setLabel] = useState(card.label);
   const [purpose, setPurpose] = useState(card.purpose);
+  const [protocol, setProtocol] = useState<RuntimeProtocol>("mcp");
   const [transport, setTransport] = useState<RuntimeConnectorTransport>("streamable-http");
   const [url, setUrl] = useState("");
   const [urlEnv, setUrlEnv] = useState("");
@@ -26,6 +34,10 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
   const [envRefs, setEnvRefs] = useState<Record<string, string>>({});
   const [bearerRef, setBearerRef] = useState("");
   const [bearerEnv, setBearerEnv] = useState("");
+  const [httpTools, setHttpTools] = useState("[]");
+  const [openApiDocument, setOpenApiDocument] = useState("");
+  const [openApiBusy, setOpenApiBusy] = useState(false);
+  const [openApiNotice, setOpenApiNotice] = useState("");
   const [iconFile, setIconFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -41,6 +53,7 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
       const result = await api.runtimeConnectorConfig(card.id);
       const config = result.config;
       setVersion(result.version);
+      setProtocol(config.protocol === "http" ? "http" : "mcp");
       setTransport(config.transport === "sse" ? "sse" : "streamable-http");
       setUrl(config.url || "");
       setUrlEnv(config.url_env || "");
@@ -50,6 +63,7 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
       setEnvRefs(config.headers_env || {});
       setBearerRef(config.bearer_secret_ref || "");
       setBearerEnv(config.bearer_env || "");
+      setHttpTools(JSON.stringify(config.http_tools || [], null, 2));
     } catch (cause) {
       const status = (cause as { status?: number } | null)?.status;
       if (status === 404) {
@@ -58,6 +72,8 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
         setEnvRefs({});
         setBearerRef("");
         setBearerEnv("");
+        setProtocol("mcp");
+        setHttpTools("[]");
       } else {
         setLoadError(errorMessage(cause, "无法读取连接器配置"));
       }
@@ -88,6 +104,15 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
     if (problems.length) {
       setError(problems.join(" "));
       return;
+    }
+    let parsedHttpTools: RuntimeConnectorConfig["http_tools"];
+    if (protocol === "http") {
+      try {
+        parsedHttpTools = parseHttpTools(httpTools);
+      } catch (cause) {
+        setError(errorMessage(cause, "HTTP 动作定义格式无效"));
+        return;
+      }
     }
     setBusy(true);
     setError("");
@@ -122,12 +147,13 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
         return;
       }
       const config: RuntimeConnectorConfig & { expected_version: number } = {
-        protocol: "mcp",
-        transport,
+        protocol,
         timeout_ms: timeout,
         allow_unauthenticated: noAuth,
         expected_version: version,
       };
+      if (protocol === "mcp") config.transport = transport;
+      else config.http_tools = parsedHttpTools || [];
       if (url.trim()) config.url = url.trim();
       else config.url_env = urlEnv;
       if (Object.keys(refs).length) config.headers_secret_refs = refs;
@@ -172,6 +198,27 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
   const updateRow = (index: number, patch: Partial<SecretRow>) =>
     setSecretRows((rows) => rows.map((row, position) => (position === index ? { ...row, ...patch } : row)));
 
+  const previewOpenApi = async () => {
+    if (!openApiDocument.trim()) {
+      setError("请粘贴 OpenAPI JSON 或 YAML 文档后再预览。");
+      return;
+    }
+    setOpenApiBusy(true);
+    setError("");
+    setOpenApiNotice("");
+    try {
+      const result = await api.previewRuntimeOpenApi(card.id, openApiDocument);
+      setHttpTools(JSON.stringify(result.tools, null, 2));
+      setOpenApiNotice(result.warnings.length
+        ? `已导入 ${result.tools.length} 个 HTTP 动作；有 ${result.warnings.length} 条限制提示。`
+        : `已导入 ${result.tools.length} 个 HTTP 动作。请逐项审阅后保存。`);
+    } catch (cause) {
+      setError(errorMessage(cause, "OpenAPI 文档无法预览"));
+    } finally {
+      setOpenApiBusy(false);
+    }
+  };
+
   return (
     <section className="panel connector-detail-card" data-connector-config-card>
       {!hideHeading && (
@@ -198,13 +245,19 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
             <label className="field">服务器名称
               <input value={label} maxLength={120} data-connector-field="label" onChange={(event) => setLabel(event.target.value)} />
             </label>
-            <label className="field">传输类型
-              <select value={transport} data-connector-field="transport" onChange={(event) => setTransport(event.target.value as RuntimeConnectorTransport)}>
-                <option value="streamable-http">HTTP</option>
-                <option value="sse">SSE</option>
+            <label className="field">接入类型
+              <select value={protocol} data-connector-field="protocol" disabled={busy} onChange={(event) => setProtocol(event.target.value as RuntimeProtocol)}>
+                <option value="mcp">MCP 工具服务</option>
+                <option value="http">HTTP API</option>
               </select>
             </label>
           </div>
+          {protocol === "mcp" && <label className="field">传输类型
+            <select value={transport} data-connector-field="transport" onChange={(event) => setTransport(event.target.value as RuntimeConnectorTransport)}>
+              <option value="streamable-http">HTTP</option>
+              <option value="sse">SSE</option>
+            </select>
+          </label>}
           <div className="field">图标
             <ConnectorIconUpload variant="dialog" file={iconFile} existingUrl={card.iconUrl} onPick={setIconFile} />
           </div>
@@ -217,16 +270,50 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
               onChange={(event) => setPurpose(event.target.value)}
             />
           </label>
-          <label className="field">服务器 URL
+          <label className="field">{protocol === "mcp" ? "服务器 URL" : "API Base URL"}
             <input
               value={url}
-              placeholder={urlEnv ? `当前使用环境变量 ${urlEnv}；填写后将改为明文端点` : "https://mcp.yourserver.com/mcp"}
+              placeholder={urlEnv
+                ? `当前使用环境变量 ${urlEnv}；填写后将改为明文端点`
+                : protocol === "mcp" ? "https://mcp.yourserver.com/mcp" : "https://api.yourservice.com"}
               data-connector-field="url"
               onChange={(event) => setUrl(event.target.value)}
             />
             {urlEnv && !url && <small className="muted">端点当前由环境变量 <code>{urlEnv}</code> 提供。</small>}
           </label>
-          <div className="field">自定义 headers（可选）
+          {protocol === "http" && <section className="connector-api-definition" data-connector-http-definition>
+            <div className="connector-card-head">
+              <div>
+                <h4>HTTP 动作定义</h4>
+                <p className="muted">仅允许显式的相对路径、方法、参数映射和 JSON Schema。预览不会调用外部业务接口。</p>
+              </div>
+            </div>
+            <label className="field">OpenAPI JSON 或 YAML（可选）
+              <textarea
+                value={openApiDocument}
+                rows={6}
+                spellCheck={false}
+                data-connector-openapi-document
+                placeholder={'openapi: 3.1.0\npaths:\n  /orders:\n    get:\n      operationId: listOrders'}
+                onChange={(event) => { setOpenApiDocument(event.target.value); setOpenApiNotice(""); }}
+              />
+            </label>
+            <button type="button" className="btn sm" data-connector-openapi-preview disabled={openApiBusy || busy} onClick={() => void previewOpenApi()}>
+              {openApiBusy ? "预览中…" : "预览并写入动作"}
+            </button>
+            {openApiNotice && <p className="runtime-notice" role="status">{openApiNotice}</p>}
+            <label className="field">动作 JSON
+              <textarea
+                value={httpTools}
+                rows={12}
+                spellCheck={false}
+                data-connector-http-tools
+                onChange={(event) => setHttpTools(event.target.value)}
+              />
+            </label>
+            <p className="muted">每个动作均需在“接口”中单独审批，并在对应 Skill 中精确挂载后才会被模型看到。</p>
+          </section>}
+          <div className="field">自定义 headers
             <div className="connector-header-rows" data-connector-header-rows>
               {secretRows.map((row, index) => (
                 <div className="connector-header-row" key={index}>

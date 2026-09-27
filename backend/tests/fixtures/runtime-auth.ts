@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { tokenDigest } from "../../src/auth.js";
 import { kolAgentScopeContext } from "../../src/contract-scope.js";
 import { getConn, nowIso } from "../../src/db.js";
-import { setAgentSkill } from "../../src/runtime/store.js";
+import { getAgentSkills, setAgentSkill } from "../../src/runtime/store.js";
 
 /** Authenticated local test session; never enables a runtime permission bypass. */
 export function seedRuntimeTestActor(skills: string[]): string {
@@ -13,7 +13,11 @@ export function seedRuntimeTestActor(skills: string[]): string {
     VALUES(?,?,?,?,?,?,?,?,?,?)`).run(userId, userId, "Local runtime test admin", "not-a-login-password", '["admin","employee"]', '["LT"]', "", 1, now, now);
   getConn().prepare("INSERT INTO auth_sessions(id_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)")
     .run(tokenDigest(token), userId, new Date(Date.now() + 60_000).toISOString(), now);
-  for (const skill of skills) setAgentSkill(kolAgentScopeContext().agent_id, skill, true, 0);
+  for (const skill of skills) {
+    const current = getAgentSkills(kolAgentScopeContext().agent_id).find((row) => row.skill_id === skill);
+    if (!current) setAgentSkill(kolAgentScopeContext().agent_id, skill, true, 0);
+    else if (!current.enabled) setAgentSkill(kolAgentScopeContext().agent_id, skill, true, Number(current.version));
+  }
   return `lingong_session=${token}`;
 }
 export function authenticatedTestApp(app: Hono, cookie: string): Hono {

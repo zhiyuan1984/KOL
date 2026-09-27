@@ -12,6 +12,15 @@ agent:workspace-planner
 
 执行。它不是 KOL 业务 Agent，也不代表员工端的 KOL 数字员工。
 
+## Agent 与 Expert 的职责边界
+
+| 对象 | 职责 | 是否决定 Worker 运行身份 / Skill 挂载 |
+|---|---|---|
+| `agents/*/manifest.yaml` | 可执行业务或平台 Agent 的版本、Skill 集合与兼容连接器声明 | **是**；服务启动仅补齐缺失的 `Agent → Skill` 绑定，不覆盖管理员的既有决定 |
+| `experts/*/manifest.yaml` | 员工端的入口、话术、推荐与会话展示 | **否**；Expert 不会创建 Runtime 授权、连接器或工具挂载 |
+
+因此，KOL 业务能力由 `agent:kol` 的 Agent 清单初始化；`experts/kol` 只保留 KOL 员工入口。`today_plan`、`todo_plan`、`today_analyze` 仅由本页所述的平台 Agent 承担，不能因为出现在某个 Expert 页面而取得 KOL 身份或连接器。
+
 ## 已发布契约
 
 | 项目 | 约束 |

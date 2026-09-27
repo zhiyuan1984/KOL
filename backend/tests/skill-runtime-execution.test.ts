@@ -158,6 +158,8 @@ describe("governed Skill Runtime", () => {
 
   it("admin still cannot use disabled connectors or unbound skills", async () => {
     const { factory } = await one();
+    getConn().prepare("INSERT INTO user_connector_grants(user_id,connector_id,access,created_at) VALUES(?,?,?,?)")
+      .run("admin-a", "catalog_a", "read", "now");
     const admin = new SkillExecution({ ...context, userId: "admin-a" }, factory);
     const catalog = await admin.discover();
     getConn().prepare("UPDATE connectors SET enabled=0 WHERE id='catalog_a'").run();
@@ -315,7 +317,8 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
     fs.mkdirSync(process.env.CODEX_HOME!);
     fs.writeFileSync(path.join(process.env.CODEX_HOME!, "config.toml"), '[mcp_servers.forbidden]\nurl="http://untrusted.example/mcp"\n');
     setConnectorConfig("local_provider", { url: remote.url, headers_env: { "X-Test-Key": "RUNTIME_FIXTURE_SECRET" } }, 1);
-    setAgentSkill(kolAgentScopeContext().agent_id, context.skillId, true, 0);
+    const existingKOLBinding = getAgentSkills(kolAgentScopeContext().agent_id).find((row) => row.skill_id === context.skillId);
+    if (!existingKOLBinding) setAgentSkill(kolAgentScopeContext().agent_id, context.skillId, true, 0);
     getConn().prepare("INSERT INTO sessions(id,title,created_at,updated_at,thread_ref,owner_user_id) VALUES(?,?,?,?,?,?)")
       .run("runtime-session", "runtime", "now", "now", "stale-old-thread", context.userId);
     try {

@@ -35,6 +35,18 @@ export function runtimeHash(value: unknown): string { return createHash("sha256"
 export function toolSchemaHash(tool: Json): string {
   return runtimeHash(tool);
 }
+/**
+ * The model sees only the local `skill_runtime` MCP server. Preserve connector
+ * and remote operation intent in its tool name, while adding a digest so two
+ * unusual remote names cannot collide after normalization. This is an exposed
+ * capability alias, never a direct provider connection string.
+ */
+export function runtimeToolAlias(connectorId: string, remoteName: string): string {
+  const safeConnector = connectorId.replace(/[^A-Za-z0-9_.-]/g, "_");
+  const safeTool = remoteName.replace(/[^A-Za-z0-9_.-]/g, "_");
+  const prefix = `rt_${safeConnector}__${safeTool}`.slice(0, 220);
+  return `${prefix}_${runtimeHash([connectorId, remoteName]).slice(0, 12)}`;
+}
 function summary(value: unknown): Json {
   const encoded = JSON.stringify(value) ?? "null";
   return { sha256: runtimeHash(value), bytes: Buffer.byteLength(encoded),
@@ -235,7 +247,7 @@ export class SkillExecution {
           let current: ReturnType<typeof authorizeConnector>;
           try { current = authorizeConnector(this.context, connectorId, policy!.access as "read" | "write", name); }
           catch { continue; }
-          const alias = `rt_${runtimeHash([connectorId, name]).slice(0, 40)}`;
+          const alias = runtimeToolAlias(connectorId, name);
           const exposed: Json = { ...remote, name: alias };
           tools.push({ connectorId, remoteName: name, exposed, schemaHash: toolSchemaHash(remote),
             stamp: authorizationStamp(current, policy, toolBinding), toolBindingVersion: Number(toolBinding.version) });

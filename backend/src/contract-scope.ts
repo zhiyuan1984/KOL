@@ -28,6 +28,12 @@ type AgentManifest = {
   region_scope: string[];
   kind?: "platform" | "business";
   execution_scope?: string;
+  /** Runtime capabilities are declared by an Agent, never inferred from an Expert UI manifest. */
+  skills?: string[];
+  /** Managed connector ids that this Agent may declare against its Skills. */
+  connectors?: string[];
+  /** Legacy field retained for employee-view compatibility; it is not a credential source. */
+  mcp_servers?: string[];
 };
 
 type RuntimeAgentScope = {
@@ -57,6 +63,42 @@ function agentManifest(agentId: string): AgentManifest {
   const manifest = readJsonYaml<AgentManifest>(manifestPath(agentId));
   if (manifest.id !== agentId) throw new Error(`runtime agent manifest id mismatch: ${agentId}`);
   return manifest;
+}
+
+/**
+ * Bounded, configuration-only declaration used to seed Runtime bindings at
+ * startup. Experts describe an employee-facing entry point; only this Agent
+ * manifest is allowed to declare an executable Agent → Skill relationship.
+ */
+export type RuntimeAgentBindingManifest = {
+  id: string;
+  version: string;
+  status: string;
+  kind: "platform" | "business";
+  skills: string[];
+  connectors: string[];
+};
+
+export function runtimeAgentBindingManifest(agentId: string): RuntimeAgentBindingManifest {
+  const manifest = agentManifest(agentId);
+  const strings = (value: unknown, field: string) => {
+    if (value === undefined) return [];
+    if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !item.trim())) {
+      throw new Error(`runtime agent manifest ${field} must be a string array: ${agentId}`);
+    }
+    return [...new Set(value.map((item) => item.trim()))];
+  };
+  return {
+    id: manifest.id,
+    version: manifest.version || "0",
+    status: manifest.status,
+    kind: manifest.kind || "business",
+    skills: strings(manifest.skills, "skills"),
+    // `connectors` is the canonical Runtime field. Existing `mcp_servers`
+    // remains a transitional declaration only so it cannot silently wire a
+    // vendor endpoint into a Worker.
+    connectors: strings(manifest.connectors, "connectors"),
+  };
 }
 
 const cached = new Map<string, RuntimeAgentScope>();

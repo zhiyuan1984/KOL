@@ -8,6 +8,7 @@ import {
   type McpImportResult,
   type RuntimeConnectorConfig,
   type RuntimeConnectorTransport,
+  type RuntimeProtocol,
 } from "../../runtimeConnectorUi";
 import { isConnectorIdValid, slugFromLabel } from "./entity";
 
@@ -352,6 +353,7 @@ async function createConnectorRecord(label: string, purpose: string): Promise<st
 async function saveConnectorSetup(input: {
   id: string;
   label: string;
+  protocol: RuntimeProtocol;
   transport: RuntimeConnectorTransport;
   url: string;
   noAuth: boolean;
@@ -360,13 +362,14 @@ async function saveConnectorSetup(input: {
 }): Promise<void> {
   const refs = await resolveHeaderRefs(input.headerRows, input.label);
   const config: RuntimeConnectorConfig & { expected_version: number } = {
-    protocol: "mcp",
-    transport: input.transport,
+    protocol: input.protocol,
     url: input.url,
     allow_unauthenticated: input.noAuth,
     timeout_ms: 30_000,
     expected_version: 0,
   };
+  if (input.protocol === "mcp") config.transport = input.transport;
+  else config.http_tools = [];
   if (Object.keys(refs).length) config.headers_secret_refs = refs;
   await api.saveRuntimeConnectorConfig(input.id, config);
   if (input.iconFile) {
@@ -388,8 +391,23 @@ async function createManagedMcp(input: {
   iconFile: File | null;
 }): Promise<string> {
   const id = await createConnectorRecord(input.label, input.purpose);
-  await saveConnectorSetup({ ...input, id });
+  await saveConnectorSetup({ ...input, id, protocol: "mcp" });
   return id;
+}
+
+async function createManagedConnector(input: {
+  id: string;
+  label: string;
+  purpose: string;
+  protocol: RuntimeProtocol;
+  transport: RuntimeConnectorTransport;
+  url: string;
+  noAuth: boolean;
+  headerRows: HeaderRow[];
+  iconFile: File | null;
+}): Promise<void> {
+  await api.adminSave("/api/admin/connectors", { id: input.id, label: input.label, purpose: input.purpose }, "POST");
+  await saveConnectorSetup(input);
 }
 
 export function McpConfigPanel({ onClose, onDone }: {
@@ -486,6 +504,83 @@ export function McpConfigPanel({ onClose, onDone }: {
   );
 }
 
+/** API actions are added in the connector detail after this safe base-url draft exists. */
+export function ApiConfigPanel({ onClose, onDone }: { onClose: () => void; onDone: (message: string) => void }) {
+  const [label, setLabel] = useState("");
+  const [id, setId] = useState("");
+  const [idTouched, setIdTouched] = useState(false);
+  const [purpose, setPurpose] = useState("");
+  const [url, setUrl] = useState("");
+  const [headers, setHeaders] = useState<HeaderRow[]>([{ name: "", value: "" }]);
+  const [noAuth, setNoAuth] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const effectiveId = idTouched ? id : slugFromLabel(label);
+
+  const submit = async () => {
+    const problems: string[] = [];
+    if (!label.trim()) problems.push("请填写 API 名称。");
+    if (!isConnectorIdValid(effectiveId)) problems.push("短名需要以小写字母开头，仅含小写字母、数字、- 或 _，至少 3 个字符。");
+    if (!/^https?:\/\//.test(url.trim())) problems.push("API Base URL 需要以 http:// 或 https:// 开头。");
+    const headerProblem = headerRowsProblem(headers);
+    if (headerProblem) problems.push(headerProblem);
+    if (!headers.some((row) => row.name.trim() && row.value.trim()) && !noAuth) {
+      problems.push("至少填写一个请求头密钥，或勾选「该端点明确无鉴权」。");
+    }
+    if (problems.length) {
+      setError(problems.join(" "));
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await createManagedConnector({
+        id: effectiveId,
+        label: label.trim(),
+        purpose: purpose.trim() || "待补充业务用途",
+        protocol: "http",
+        transport: "streamable-http",
+        url: url.trim(),
+        noAuth,
+        headerRows: headers,
+        iconFile: null,
+      });
+      onDone(`已将“${label.trim()}”作为 HTTP API 草稿加入目录；下一步在详情导入或编辑动作并完成测试。`);
+    } catch (cause) {
+      setError(errorMessage(cause, "创建 HTTP API 连接器失败"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <ModalShell
+      kind="api-config"
+      title="自定义 HTTP API"
+      subtitle="先保存受控 Base URL 和凭据引用；随后在详情中导入 OpenAPI 或逐项定义动作。保存不等于启用。"
+      onClose={onClose}
+      footer={<><button type="button" className="btn" onClick={onClose} disabled={busy}>取消</button><button type="button" className="btn work" data-connector-panel-save disabled={busy} onClick={() => void submit()}>{busy ? "保存中…" : "保存草稿"}</button></>}
+    >
+      {error && <p className="error" role="alert" data-connector-panel-error>{error}</p>}
+      <div className="connector-form-grid">
+        <label className="field">API 名称
+          <input value={label} placeholder="例如：Shopify Orders API" maxLength={120} data-connector-field="label" onChange={(event) => setLabel(event.target.value)} />
+        </label>
+        <label className="field">短名
+          <input value={effectiveId} placeholder="shopify-orders" maxLength={63} data-connector-field="id" onChange={(event) => { setIdTouched(true); setId(event.target.value); }} />
+          <small className="muted">小写字母开头，创建后不可修改。</small>
+        </label>
+      </div>
+      <label className="field">业务用途（可选）<textarea value={purpose} rows={3} maxLength={280} placeholder="说明此 API 提供的业务能力" onChange={(event) => setPurpose(event.target.value)} /></label>
+      <label className="field">API Base URL
+        <input value={url} placeholder="https://api.yourservice.com" data-connector-field="url" onChange={(event) => setUrl(event.target.value)} />
+      </label>
+      <div className="field">自定义 headers（可选）<HeaderRowsEditor rows={headers} onChange={setHeaders} disabled={busy} /></div>
+      <label className="check"><input type="checkbox" checked={noAuth} onChange={(event) => setNoAuth(event.target.checked)} /> 该端点明确允许无鉴权</label>
+    </ModalShell>
+  );
+}
+
 export function UrlAddPanel({ onClose, onDone }: { onClose: () => void; onDone: (message: string) => void }) {
   const [label, setLabel] = useState("");
   const [url, setUrl] = useState("");
@@ -519,6 +614,7 @@ export function UrlAddPanel({ onClose, onDone }: { onClose: () => void; onDone: 
       await saveConnectorSetup({
         id: effectiveId,
         label: label.trim(),
+        protocol: "mcp",
         transport,
         url: url.trim(),
         noAuth,
