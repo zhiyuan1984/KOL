@@ -142,15 +142,32 @@ export async function assessPublicKolWithJev(row: Row): Promise<KolAssessment> {
   };
 }
 
-function eligibleProfiles(companyId: string, limit: number, db: SqliteConn): Row[] {
+function eligibleProfiles(companyId: string, limit: number, db: SqliteConn, kolUids: string[] = []): Row[] {
+  const scoped = kolUids.length
+    ? ` AND kol_uid IN (${kolUids.map(() => "?").join(",")})`
+    : "";
   return db.prepare(
     `SELECT *
        FROM kol_profile_index
-      WHERE company_id=? AND pool_status='open'
+      WHERE company_id=? AND pool_status='open'${scoped}
       ORDER BY CASE WHEN assessed_at IS NULL OR trim(assessed_at)='' THEN 0 ELSE 1 END,
                assessed_at ASC, ingested_at DESC, kol_uid
       LIMIT ?`,
-  ).all(companyId, limit) as Row[];
+  ).all(companyId, ...kolUids, limit) as Row[];
+}
+
+/** 去空、去重、限长：调用方不能借 kol_uids 绕过批量上限。 */
+export const JEV_MAX_TARGETS = 12;
+export function normalizeJevTargets(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    const uid = String(item == null ? "" : item).trim();
+    if (!uid || out.includes(uid)) continue;
+    out.push(uid);
+    if (out.length >= JEV_MAX_TARGETS) break;
+  }
+  return out;
 }
 
 export type JevAssessmentResult = {
@@ -162,16 +179,23 @@ export type JevAssessmentResult = {
   failed: number;
 };
 
-/** Explicit, bounded scoring run. No scheduler, no action write beyond the local assessment columns. */
+/**
+ * Explicit, bounded scoring run. No scheduler, no action write beyond the local assessment columns.
+ * `kol_uids` 非空时只评估指定对象（单卡或已选），否则沿用未评估优先的整池批量。
+ */
 export async function assessPublicKolsWithJev(input: {
   limit?: number;
   companyId?: string;
   db?: SqliteConn;
+  kol_uids?: string[];
 } = {}): Promise<JevAssessmentResult> {
   const db = input.db || getConn();
   const companyId = input.companyId || memoryCompanyId();
-  const limit = Math.max(1, Math.min(12, Math.floor(Number(input.limit || 12))));
-  const profiles = eligibleProfiles(companyId, limit, db);
+  const kolUids = normalizeJevTargets(input.kol_uids);
+  const limit = kolUids.length
+    ? kolUids.length
+    : Math.max(1, Math.min(12, Math.floor(Number(input.limit || 12))));
+  const profiles = eligibleProfiles(companyId, limit, db, kolUids);
   let assessed = 0;
   let highPotential = 0;
   let highRisk = 0;

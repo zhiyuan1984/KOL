@@ -28,6 +28,8 @@ export default defineConfig({
       "../frontend/src/home/discoveryLeadRow.test.ts",
       "../frontend/src/home/discoveryPhase.test.ts",
       "../frontend/src/home/discoveryEvents.test.ts",
+      "../frontend/src/runtimeConnectorUi.test.ts",
+      "../frontend/src/admin/connector/connectorSetup.test.ts",
     ],
     setupFiles: ["./tests/setup.ts"],
     fileParallelism: false,

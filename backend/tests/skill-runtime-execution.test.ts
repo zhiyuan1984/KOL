@@ -54,7 +54,6 @@ function connector(id: string, descriptors = [tool()], url = `http://${id}.examp
   getConn().prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES(?,?,1,'configured',?)").run(id, id, "now");
   setSkillConnector(context.skillId, id, true, 0);
   setConnectorConfig(id, { url, allow_unauthenticated: true }, 0);
-  getConn().prepare("INSERT INTO user_connector_grants(user_id,connector_id,access,created_at) VALUES(?,?,?,?)").run(context.userId, id, "read", "now");
   for (const descriptor of descriptors) {
     approve(id, descriptor);
     setSkillTool(context.skillId, id, String(descriptor.name), true, 0);
@@ -111,12 +110,13 @@ describe("governed Skill Runtime", () => {
     expect(fixture.calls).toHaveLength(2);
   });
 
-  it.each(["unbind", "disable", "revoke", "skill_revoke", "user_disable", "agent_unbind"])("B: rejects an old handle after %s", async (action) => {
+  // Per-person connector grants are retired (ADR-2026-09-27); revocation now
+  // means revoking the Skill grant.
+  it.each(["unbind", "disable", "skill_revoke", "user_disable", "agent_unbind"])("B: rejects an old handle after %s", async (action) => {
     const { runtime, alias, calls } = await one();
     const db = getConn();
     if (action === "unbind") setSkillConnector(context.skillId, "catalog_a", false, Number(getSkillConnectors(context.skillId)[0].version));
     if (action === "disable") db.prepare("UPDATE connectors SET enabled=0 WHERE id='catalog_a'").run();
-    if (action === "revoke") db.prepare("DELETE FROM user_connector_grants WHERE user_id=?").run(context.userId);
     if (action === "skill_revoke") db.prepare("DELETE FROM user_skill_grants WHERE user_id=?").run(context.userId);
     if (action === "user_disable") db.prepare("UPDATE users SET active=0 WHERE id=?").run(context.userId);
     if (action === "agent_unbind") setAgentSkill(context.agentId, context.skillId, false, Number(getAgentSkills(context.agentId)[0].version));
@@ -158,8 +158,6 @@ describe("governed Skill Runtime", () => {
 
   it("admin still cannot use disabled connectors or unbound skills", async () => {
     const { factory } = await one();
-    getConn().prepare("INSERT INTO user_connector_grants(user_id,connector_id,access,created_at) VALUES(?,?,?,?)")
-      .run("admin-a", "catalog_a", "read", "now");
     const admin = new SkillExecution({ ...context, userId: "admin-a" }, factory);
     const catalog = await admin.discover();
     getConn().prepare("UPDATE connectors SET enabled=0 WHERE id='catalog_a'").run();
@@ -168,8 +166,10 @@ describe("governed Skill Runtime", () => {
     await expect(admin.discover()).rejects.toMatchObject(denied("runtime_skill_unbound"));
   });
 
-  it("does not share an actor's authorized handles with a different user", async () => {
+  it("denies a different user and grants nothing through a per-person connector grant", async () => {
     const { factory } = await one();
+    getConn().prepare("INSERT INTO user_connector_grants(user_id,connector_id,access,created_at) VALUES(?,?,?,?)")
+      .run("user-b", "catalog_a", "write", "now");
     await expect(new SkillExecution({ ...context, userId: "user-b" }, factory).discover()).rejects.toMatchObject(denied("runtime_skill_not_granted"));
   });
 
@@ -210,12 +210,11 @@ describe("governed Skill Runtime", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("enforces write grants for an approved L2 tool", async () => {
+  it("runs an approved L2 write tool for the Skill holder; per-person write levels are retired", async () => {
     const { runtime, calls } = await one();
     approve("catalog_a", tool(), "L2", "write");
-    expect((await runtime.discover()).tools).toHaveLength(0);
-    getConn().prepare("UPDATE user_connector_grants SET access='write' WHERE user_id=?").run(context.userId);
     const catalog = await runtime.discover();
+    expect(catalog.tools).toHaveLength(1);
     await runtime.invoke(String(catalog.tools[0].exposed.name), { query: "x" });
     expect(calls).toHaveLength(1);
   });
@@ -242,21 +241,21 @@ describe("governed Skill Runtime", () => {
     expect((await runtime.discover()).tools).toHaveLength(0);
   });
 
-  it("rechecks revocation during the awaited discovery before dispatch", async () => {
+  it("rechecks the Skill grant during the awaited discovery before dispatch", async () => {
     let revoke = false;
     const { runtime, alias, calls } = await one({ list: () => {
-      if (revoke) getConn().prepare("DELETE FROM user_connector_grants WHERE user_id=?").run(context.userId);
+      if (revoke) getConn().prepare("DELETE FROM user_skill_grants WHERE user_id=?").run(context.userId);
     } });
     revoke = true;
-    await expect(runtime.invoke(alias, { query: "x" })).rejects.toMatchObject(denied("runtime_connector_not_granted"));
+    await expect(runtime.invoke(alias, { query: "x" })).rejects.toMatchObject(denied("runtime_skill_not_granted"));
     expect(calls).toHaveLength(0);
   });
 
-  it("suppresses a result arriving after revoke and records that dispatch already happened", async () => {
+  it("suppresses a result arriving after a Skill revoke and records that dispatch already happened", async () => {
     const { runtime, alias, calls } = await one({ call: () => {
-      getConn().prepare("DELETE FROM user_connector_grants WHERE user_id=?").run(context.userId);
+      getConn().prepare("DELETE FROM user_skill_grants WHERE user_id=?").run(context.userId);
     } });
-    await expect(runtime.invoke(alias, { query: "sensitive-input" })).rejects.toMatchObject(denied("runtime_connector_not_granted"));
+    await expect(runtime.invoke(alias, { query: "sensitive-input" })).rejects.toMatchObject(denied("runtime_skill_not_granted"));
     expect(calls).toHaveLength(1);
     const events = getConn().prepare("SELECT payload FROM audit_events WHERE event_type LIKE 'runtime.tool.%'").all() as Array<{ payload: string }>;
     const payloads = events.map((entry) => entry.payload).join("\n");

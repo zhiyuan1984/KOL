@@ -456,15 +456,6 @@
   font: inherit;
 }
 
-.composer-menu-toast {
-  margin: 4px 8px 8px;
-  font-size: 13px;
-}
-
-.composer-menu-toast a {
-  margin-left: 8px;
-}
-
 .home-composer-dock,
 .home-composer-dock > .composer-dock,
 .session-composer.prompt-input .composer.composer--workspace {

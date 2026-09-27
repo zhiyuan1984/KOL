@@ -197,8 +197,8 @@ export function enrichPoolAvatars(): Promise<{ items: PoolKol[]; message: string
 }
 
 /** Explicit bounded Jev assessment; returned values remain advisory public-index metadata. */
-export function assessPoolWithJev(): Promise<{ items: PoolKol[]; message: string }> {
-  return waitPoolMaintenance(() => api.assessPoolWithJev(), () => api.poolJevAssessmentStatus(), "Jev 评分");
+export function assessPoolWithJev(kolUids?: string[]): Promise<{ items: PoolKol[]; message: string }> {
+  return waitPoolMaintenance(() => api.assessPoolWithJev(kolUids), () => api.poolJevAssessmentStatus(), "Jev 评分");
 }
 
 export async function previewPoolCleanup(): Promise<{ candidateCount: number; protectedActiveFollows: number }> {

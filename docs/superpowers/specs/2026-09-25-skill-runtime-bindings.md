@@ -1,8 +1,10 @@
 # Skill Runtime：绑定、发现、统一授权
 
+> **修订（2026-09-27）：** 「用户→Connector 资源绑定」表述废止：人员授权单位改为技能（`user_skill_grants`），连接器与工具不按人授权；技能→连接器 / 技能→工具绑定与内部门禁（L1/L2/L3、指纹）保留不变。见 [DECISIONS.md](../../DECISIONS.md) ADR-2026-09-27「对外只暴露技能」。
+
 ## 审查
 
-需求 → Agent 的当前 Skill 绑定决定能力，Skill 的当前 Connector 绑定决定执行资源；工具从远程 MCP 发现，工具提交前统一校验。
+需求 → 人员授权单位＝技能（`user_skill_grants`）；Agent 的当前 Skill 绑定决定能力，Skill 的当前 Connector 绑定决定执行资源；工具从远程 MCP 发现，工具提交前统一校验。
 
 主责 → 架构师（模块边界）、后端专家（执行与一致性）、测试经理（验证）。
 
@@ -14,7 +16,7 @@
 
 1. 版本化 Agent→Skill、Skill→Connector 绑定，停用保存墓碑；写入要求 `expected_version`。没有绑定就拒绝，不从旧 Skill `mcp` 字段隐式补权。
 2. Connector 的端点与凭据**引用**由治理配置提供。工具动态发现每次重新读取，遍历分页；元数据及 schema 不由 Host 预写。新工具默认不可执行，由治理登记风险和描述/schema 指纹后授权。
-3. 每个 Codex run 启动一个绑定 localhost、一次性令牌保护的透明 MCP 代理。代理把真实远端工具描述/schema交给 Codex；调用由 Codex 决定。每次调用前/结果返回前重新校验当前用户、Agent/Skill绑定、资源绑定、连接器状态、工具策略及指纹。
+3. 每个 Codex run 启动一个绑定 localhost、一次性令牌保护的透明 MCP 代理。代理把真实远端工具描述/schema交给 Codex；调用由 Codex 决定。每次调用前/结果返回前重新校验当前用户持有的技能授权（`user_skill_grants`）、Agent/Skill绑定、资源绑定、连接器状态、工具策略及指纹；连接器与工具不按人授权。
 4. L1/L2 可在当前权限内执行；L3 从代理拒绝，保持原确认/审批/幂等 Gateway。远端自报 readOnlyHint 不作为授权来源。
 5. 不缓存身份和权限，也不在撤销后返回旧结果。撤销前已提交的远端动作不能宣称回滚。取消代理后不再启动调用；已发出调用仍保留真实审计状态。
 6. 审计记录 run/agent/skill、绑定/配置/策略版本、工具/元数据指纹及输入输出摘要；原始凭据和敏感内容不入日志。

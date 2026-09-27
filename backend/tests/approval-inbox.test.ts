@@ -29,6 +29,17 @@ async function call(method: string, url: string, body?: unknown, cookie = adminC
   };
 }
 
+/**
+ * Per-person connector grants lost their administration endpoint
+ * (DECISIONS.md ADR-2026-09-27); the retained table is seeded directly so the
+ * legacy `requireConnector` gate keeps its regression coverage.
+ */
+function seedConnectorGrant(userId: string, connectorId: string, access: "read" | "write"): void {
+  getConn().prepare(
+    "INSERT OR REPLACE INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES (?,?,?,?)",
+  ).run(userId, connectorId, access, new Date().toISOString());
+}
+
 async function createApprover(username: string, name: string) {
   const created = await call("POST", "/api/admin/users", {
     username,
@@ -39,9 +50,7 @@ async function createApprover(username: string, name: string) {
   });
   expect(created.status).toBe(201);
   const id = String(created.json.id);
-  await call("PUT", `/api/admin/users/${id}/connectors`, {
-    connectors: ["wecom:write"],
-  });
+  seedConnectorGrant(id, "wecom", "write");
   return id;
 }
 
@@ -245,9 +254,7 @@ describe("approval inbox by login name", () => {
       brands: ["LT"],
     });
     expect(reader.status).toBe(201);
-    await call("PUT", `/api/admin/users/${String(reader.json.id)}/connectors`, {
-      connectors: ["wecom:read"],
-    });
+    seedConnectorGrant(String(reader.json.id), "wecom", "read");
     const noGrant = await call("POST", "/api/admin/users", {
       username: "nogrant",
       name: "无连接器",

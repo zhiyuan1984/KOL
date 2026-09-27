@@ -71,26 +71,6 @@ export function connectorPurpose(persistedPurpose = ""): string {
   return persistedPurpose || "未填写业务用途";
 }
 
-export function parseConnectorGrant(value: unknown): { connectorId: string; access: string } | null {
-  const raw = String(value || "");
-  const [connectorId, access] = raw.split(":");
-  if (!connectorId) return null;
-  return { connectorId, access: access || "read" };
-}
-
-export function connectorGrantsOf(user: AdminRow): { connectorId: string; access: string }[] {
-  const raw = Array.isArray(user.connector_grants) ? user.connector_grants : [];
-  return raw.map(parseConnectorGrant).filter((row): row is { connectorId: string; access: string } => Boolean(row));
-}
-
-export function grantCountFor(connectorId: string, users: AdminRow[]): number {
-  return users.filter((user) => connectorGrantsOf(user).some((grant) => grant.connectorId === connectorId)).length;
-}
-
-export function accessFor(user: AdminRow, connectorId: string): string | null {
-  return connectorGrantsOf(user).find((grant) => grant.connectorId === connectorId)?.access ?? null;
-}
-
 export function publishStatusLabel(manifest: {
   status?: string;
   publish_gate?: { state?: string; employee_submission?: boolean };

@@ -86,12 +86,12 @@ export default function AdminConsole() {
 
         {tab === "employees" && <EmployeesPanel users={users} onSave={save} />}
         {tab === "agents" && (
-          <AdminAgents users={users} connectors={connectors} exams={exams} assignments={assignments} />
+          <AdminAgents exams={exams} assignments={assignments} />
         )}
         {tab === "connectors" && (
           detailId
-            ? <ConnectorDetail connectorId={detailId} connectors={connectors} users={users} auditRows={auditRows} reload={load} />
-            : <ConnectorHub connectors={connectors} users={users} loading={loading} onSave={save} reload={load} />
+            ? <ConnectorDetail connectorId={detailId} connectors={connectors} auditRows={auditRows} reload={load} />
+            : <ConnectorHub connectors={connectors} loading={loading} onSave={save} reload={load} />
         )}
         {tab === "skills" && <SkillLifecycle />}
         {tab === "approvals" && (

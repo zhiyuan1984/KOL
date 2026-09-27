@@ -26,6 +26,7 @@ const KIND_LABEL: Record<string, string> = {
   policy: "口径",
   pattern: "写法样例",
   glossary: "用词",
+  question_template: "问题模板",
 };
 
 const STATUS_LABEL: Record<string, string> = {

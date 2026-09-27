@@ -61,6 +61,7 @@
 - **影响**：新增 `docs/superpowers/specs/2026-09-26-connector-admin-console-redesign.md`；`connectors.icon_ref`、`runtime_connector_scope_policies/_bindings`、`transport` 配置字段、图标/组织单位/JSON 导入/连接器级范围端点；`frontend/src/admin/connector/*` 新组件；E2E 过时断言迁移。
 - **审宪记录**：需求「按附件重做连接器界面；结合现在 api 连接；查看 MCP 服务接口；绑定一级/二级部门、人员」→ 主责 平台产品经理 + UI/UX 专家 → CONST-02/04/05/08/10 → 细则 `07-mcp-data-contract.md`（L1/L2/L3、秘密不落文）、`org-permissions.md`（枢纽/详情职责、凭据永不回显）、`DESIGN.md`（0–1 CTA、状态不靠颜色、token 唯一来源）、`ia-information-architecture.md`（一页一问）→ **符合**：不触碰 L3 Gateway 与发送/阶段/解密闸门；HTTP 闸门按用户裁决保持关闭 → 下一步按规格实施并附类型检查、测试与 E2E 证据。
 - **限制**：连接器级范围只做「增加可达范围」，不做封禁（封禁走停用）；部门成员仍按既有节点/岗位匹配解析，本地账号无部门字段的既有语义不变；「项目」Tab 无对象，不做。
+- **修订（2026-09-27）**：本条第 2、3 项中的逐工具授权、连接器级组织范围、按人 read/write 与 `connectorHasAnyScope` 启用闸门，由 ADR-2026-09-27「对外只暴露技能」取代并废止；界面重做、SSE、凭据保险库、JSON 导入、图标与只读工具清单仍有效。
 
 ## ADR-2026-09-26：管理端左侧菜单复刻员工端外壳（单壳共用）
 
@@ -88,6 +89,7 @@
 - **影响**：`frontend/src/admin/connector/ConnectorPanels.tsx`（`SecretKeysEditor` + `ApiConfigPanel` 重构 + 图标空态 + `autoConnectorId(prefix)`）、`connectorAdmin.css`、`styles.css`（`--secret-card-pad` / `--secret-value-h` / `--help-icon`）、`ConnectorConfigCard.tsx`（无配置草稿按 `card.protocol` 初始化）、`e2e/connector-admin.spec.ts`（HTTP 流程重写 + 新增版式用例）；后端 `db.ts`（`declared_protocol` 迁移）、`routers/enterprise.ts`（POST `protocol` + 分类回退）、`runtime/store.ts`（http 草稿端点放行）；规格增补见 `docs/superpowers/specs/2026-09-26-connector-admin-console-redesign.md`。
 - **审宪记录**：需求「连接器点击创建，点击自定义 HTTP API，修改弹窗如上传图片所示，必须 1:1 复刻」→ 主责 UI/UX 专家 + 平台产品经理 → CONST-04 / CONST-08 / CONST-09（数值只住 DESIGN.md 与 styles.css）/ CONST-10 → 细则：`DESIGN.md` §连接器控制台（唯一数值来源，改数值先改表）、§不变量 2（L2 草稿必须标注）；`07-mcp-data-contract.md`（秘密只存引用、不回显；真实调用 fail-closed）；`org-permissions.md`（凭据永不回显）→ **符合**：弹窗只建草稿，不触碰 L3；明文值只在提交瞬间存在；端点缺失不被表述为可用 → 下一步按 DESIGN 数值与 E2E 用例取证。
 - **限制**：参考图文案中的 Manus 一律写作「平台」；多密钥的「移除」入口是参考图没有、无障碍需要的补充。端点后置意味着「创建即可测试」不再成立，测试前必须先补 Base URL。
+- **修订（2026-09-27）**：同日 ADR「对外只暴露技能」取代其中「测试 → 审阅 → 范围 → 启用」里的『范围』——范围不再指员工授权；其余不变。
 
 ## ADR-2026-09-27：管理端左侧菜单条目顺序与展示文字调整
 
@@ -99,3 +101,18 @@
 - **影响**：`frontend/src/layout/adminNav.ts`、`frontend/src/layout/sidebarNav.test.ts`、`frontend/e2e/workbench.spec.ts`（`.sidebar [data-admin-nav]` 文字序列）、`docs/org-permissions.md`（§导航规则「管理端信息架构」行的侧栏顺序）、`docs/superpowers/specs/2026-09-26-admin-sidebar-shell-parity.md`（§3 菜单映射表）。
 - **审宪记录**：需求「管理页面右侧导航调整为：员工 / 连接 / 知识 / 审批 / 技能 / 考试 / 治理 / 数据 / 配置；仅改变导航菜单项的顺序和展示文字」→ 主责 UI/UX 专家 + 平台产品经理 → CONST-04（前端不重写权限判定）、CONST-08、CONST-09（细则写死了旧顺序，须同步而非偷改）、CONST-10 → 细则：`ia-information-architecture.md` §4（禁可见组标题、簇间只用分割线、`aria-label` 留给读屏）；`org-permissions.md` §管理端左侧菜单 / §管理端信息架构；`TECHNOLOGY.md` TECH-FE → **符合**：href、id、面板内容、页头与发送 / 阶段 / 解密 / 删除闸门均未变 → 下一步以 typecheck / build / `vitest sidebarNav` / 管理端 E2E 取证。
 - **限制**：管理端配置面 `/admin/kol` 仍是遗留页；「连接」「治理」只是入口名，相关面板标题仍为「已添加的连接器」「数字员工治理」等治理文案，两者措辞不一致属预期。
+
+## ADR-2026-09-27：对外只暴露技能（人员授权只对技能）
+
+- **状态**：已接受（用户 2026-09-27 裁决：「我们只对技能授权，不然的话管理过细，无法干活」）。
+- **背景**：连接器控制台此前引入按人/按部门/按工具的多层授权（员工 read/write、连接器级组织范围、工具级范围、逐工具审阅授权）。用户裁定对外能力面只有技能：连接器、MCP 工具与 API 属平台内核能力；管理过细会导致无法干活。
+- **决定**：
+  1. 修宪：`CONSTITUTION.md` CONST-02 增加一段——连接器、MCP 工具与 API 是平台内核能力，只对技能与后台任务开放；对员工的能力面只有技能。员工能否执行由技能授权与技能内的工具绑定决定。
+  2. 基本法同步修订：`PRODUCT.md` PROD-PLAT-04 / PROD-PLAT-05、`TECHNOLOGY.md` TECH-BE-07、`org-permissions.md` 员工连接器使用面与按人授权段落、`ia-information-architecture.md` 能力面 #6（原位废止并保留记录）。
+  3. 人员授权唯一单位＝技能：谁有技能权限谁可执行；技能自决所用工具（技能 × 工具绑定）。
+  4. 连接器不按人授权：员工连接器使用面、员工连接器 read/write、连接器级范围、工具级范围的**授权语义**退役；相关数据表保留但不参与运行时校验，不再提供按人授权入口。
+  5. 内部门禁不变：`07-mcp-data-contract.md` 的 L1/L2/L3、L3 确认与回执（CONST-05）、host-only 拦截、工具指纹（schema_hash）。
+- **启用门禁（替代原「已有范围」）**：测试通过（`status=verified`）且**已被至少一个技能绑定其工具**（存在启用的技能→连接器→工具绑定）。
+- **影响资产**：`backend/src/runtime/execution.ts`（执行校验改技能授权）、`backend/src/routers/enterprise.ts`（启用闸门）、`backend/src/runtime/organization.ts`（范围接口退役）、前端 `ConnectorGrantsCard` / `ConnectorScopeCard` / `ConnectorToolsCard` 范围段 / 员工 `/connectors` 面、E2E `connector-admin.spec.ts`；逐文件清单见设计稿 `superpowers/specs/2026-09-27-connector-setup-wizard-design.md`。
+- **生效版本**：随「连接器设置向导」实现同批发布；本 ADR 先于代码落地，期间代码现状与本 ADR 不一致处按本 ADR 修正。
+- **审宪记录**：需求「对外只暴露技能；取消逐工具/按人授权」→ 主责 平台产品经理 + 权限域 + 架构师/后端 + UI/UX → CONST-02（本次修订）/ CONST-03（支持）/ CONST-05（L3 闸门不变）/ CONST-08/09（修宪与修法记录）/ CONST-10 → 基本法 `PRODUCT.md` PROD-PLAT-04/05、`TECHNOLOGY.md` TECH-BE-07、`org-permissions.md`、`ia-information-architecture.md` → **符合**（按用户修宪决定执行，内部门禁不放松）→ 下一步：设计稿评审后出实施计划。

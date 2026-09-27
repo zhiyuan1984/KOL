@@ -555,6 +555,20 @@ export function isAnalyzePrefill(text: string): boolean {
   return text.trim().startsWith(ANALYZE_PREFILL_PREFIX);
 }
 
+/**
+ * 公海四个入口的提问框预填：已选 KOL 名单 + 管理端知识库的问题模板正文。
+ * 模板缺失时只写名单，绝不回落成写死的问题（CONST-10）。
+ */
+export function poolAnalysisPrefill(
+  cards: Array<{ identity: { display: string } }>,
+  surface: KolSurface,
+  templateBody: string,
+): string {
+  const head = analyzePrefillPrompt(cards, surface);
+  const body = String(templateBody || "").trim();
+  return body ? `${head}\n${body}` : head;
+}
+
 export function isKolAnalyzeInFlight(status?: string | null): boolean {
   return ANALYZE_IN_FLIGHT_STATUSES.includes(String(status || "") as (typeof ANALYZE_IN_FLIGHT_STATUSES)[number]);
 }

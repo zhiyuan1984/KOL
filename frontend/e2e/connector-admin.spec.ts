@@ -1,4 +1,6 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { governanceStatus } from "../src/adminGovernance";
+import { connectorCardView } from "../src/admin/connector/entity";
 
 const TEST_ID = "e2e-url-add";
 const IMPORT_ID = "e2e-json-import";
@@ -108,10 +110,11 @@ test("connector detail surfaces the governance cards", async ({ page }) => {
   await expect(page.locator("[data-admin-page='connector-detail']")).toBeVisible();
   await expect(page.locator("[data-connector-config-card]")).toBeVisible();
   await expect(page.locator("[data-connector-tools]")).toBeVisible();
-  await expect(page.locator("[data-connector-scope]")).toBeVisible();
-  await expect(page.locator("[data-admin-grants]")).toBeVisible();
   await expect(page.locator("[data-connector-copy-id]")).toBeVisible();
   await expect(page.locator("[data-connector-status-note]")).not.toHaveText("");
+  // 退役：按人授权与范围卡片不再出现（授权单位＝技能，见 design 2026-09-27）。
+  await expect(page.locator("[data-connector-scope]")).toHaveCount(0);
+  await expect(page.locator("[data-admin-grants]")).toHaveCount(0);
 });
 
 test("JSON import previews mcpServers before writing and imports on confirm", async ({ page }) => {
@@ -143,6 +146,11 @@ test("MCP 配置 dialog matches the reference layout", async ({ page }) => {
   const panel = page.locator("[data-connector-panel='mcp-config']");
   await expect(panel).toBeVisible();
   await expect(panel.locator("h2")).toHaveText("MCP 配置");
+  // 四步向导：步骤条 + 当前步内容；保存是第一步唯一实底 CTA（不再有「发布并保存」）。
+  await expect(panel.locator("[data-connector-wizard-steps]")).toBeVisible();
+  await expect(panel.locator("[data-connector-wizard-tab]")).toHaveText(["1保存", "2测试", "3工具清单", "4启用"]);
+  await expect(panel.locator("[data-connector-wizard-step='save']")).toBeVisible();
+  await expect(panel.locator("[data-connector-wizard-step='test']")).toHaveCount(0);
   // 无副标题、无取消按钮；关闭只走 X / Esc / 遮罩。
   await expect(panel.locator(".connector-panel-head p")).toHaveCount(0);
   await expect(panel.locator("footer button", { hasText: "取消" })).toHaveCount(0);
@@ -160,15 +168,11 @@ test("MCP 配置 dialog matches the reference layout", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(iconMenu).toHaveCount(0);
   await expect(panel).toBeVisible();
-  // 备注 5 行；底部为「保存 ｜⌄」，下拉里是发布并保存，附保存≠启用说明。
+  // 备注 5 行；底部只有「保存」一个实底，附保存≠启用说明。
   await expect(panel.locator("textarea")).toHaveAttribute("rows", "5");
-  await expect(panel.locator("[data-connector-split-main='save']")).toHaveText("保存");
+  await expect(panel.locator("[data-connector-panel-save]")).toHaveText("保存");
+  await expect(panel.locator("[data-connector-panel-save][data-connector-wizard-primary]")).toHaveCount(1);
   await expect(panel.locator(".connector-panel-note")).toContainText("不等于启用");
-  await panel.locator("[data-connector-split-toggle='save']").click();
-  await expect(panel.locator("[data-connector-split-menu='save'] .connector-split-item")).toHaveText(["发布并保存"]);
-  await page.keyboard.press("Escape");
-  await expect(panel.locator("[data-connector-split-menu='save']")).toHaveCount(0);
-  await expect(panel).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(panel).toHaveCount(0);
 });
@@ -202,16 +206,16 @@ test("connector form dialogs keep the measured spec (docs/DESIGN.md)", async ({ 
       iconBox: box(root.querySelector("[data-connector-icon-preview]")),
       hintFont: css(root.querySelector(".connector-icon-actions p"), "font-size"),
       hintColor: css(root.querySelector(".connector-icon-actions p"), "color"),
-      saveH: box(root.querySelector("[data-connector-split-main='save']")).h,
-      saveBg: css(root.querySelector("[data-connector-split-main='save']"), "background-color"),
-      saveFont: css(root.querySelector("[data-connector-split-main='save']"), "font-size"),
+      saveH: box(root.querySelector("[data-connector-panel-save]")).h,
+      saveBg: css(root.querySelector("[data-connector-panel-save]"), "background-color"),
+      saveFont: css(root.querySelector("[data-connector-panel-save]"), "font-size"),
       footBorder: css(root.querySelector(".connector-panel-foot"), "border-top-width"),
     };
   });
 
-  // 数值 = docs/DESIGN.md §连接器控制台（参考图实测 × 0.7，基准：标签 14px）。
+  // 数值 = docs/DESIGN.md §连接器控制台（参考图实测 × 0.7，基准：标签 14px）+「设置向导」。
   expect(spec.panelW).toBe(560);
-  expect(spec.bodyGap).toBe("18px");
+  expect(spec.bodyGap).toBe("12px");
   expect(spec.fieldGap).toBe("11px");
   expect(spec.gridGap).toBe("18px");
   expect(spec.labelFont).toBe("14px");
@@ -318,23 +322,156 @@ test("connector browse modal keeps the measured spec (docs/DESIGN.md)", async ({
   expect(plus).toEqual({ w: 26, h: 26, radius: "7px", border: "rgb(233, 233, 232)" });
 });
 
-test("发布并保存 saves the draft and reports the publish gate honestly", async ({ page }) => {
-  test.skip(!AUTH_ENABLED, "runtime governance writes require E2E_AUTH_MODE=enabled");
+test("wizard: save → test → read-only tools → enable", async ({ page }) => {
+  // 保存 / 配置写入 / 测试 / 发现由服务端负责；stub 模式的运行时写接口有鉴权闸门，
+  // 这里用路由桩验证四步前端流程与只读约束，真实写入由 auth 用例覆盖。
+  const probeNotice = "仅验证该身份的 MCP 工具目录，不代表业务动作或其他账号可用。";
+  await page.route("**/api/admin/connectors", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await route.fulfill({ json: { ok: true } });
+  });
+  await page.route("**/api/admin/runtime/connectors/*/config", async (route) => {
+    if (route.request().method() === "PUT") {
+      const body = JSON.parse(route.request().postData() || "{}") as { expected_version?: number };
+      expect(body.expected_version).toBe(0);
+      await route.fulfill({ json: { config: { protocol: "mcp" }, version: 1 } });
+      return;
+    }
+    await route.fulfill({ json: { config: { protocol: "mcp" }, version: 1 } });
+  });
+  await page.route("**/api/admin/runtime/connectors/*/probe", (route) => route.fulfill({
+    json: {
+      connector_id: "e2e-wizard", config_version: 1, actor_id: "e2e", checked_at: "2026-09-27T00:00:00.000Z",
+      status: "succeeded", probe_kind: "mcp_tools_list", tool_count: 2, duration_ms: 12,
+      error_code: null, live_verified: true, notice: probeNotice,
+    },
+  }));
+  await page.route("**/api/admin/runtime/connectors/*/discovery", (route) => route.fulfill({
+    json: {
+      tools: [
+        { name: "list_records", description: "只读列出记录", inputSchema: { type: "object", properties: {} }, schema_hash: "a".repeat(64) },
+        { name: "create_record", description: "写入新记录", inputSchema: { type: "object", properties: {} }, schema_hash: "b".repeat(64) },
+      ],
+      authorization: "Discovery is not a grant.",
+    },
+  }));
+  await page.route("**/api/admin/runtime/connectors/*/policies", (route) => route.fulfill({
+    json: [{ connector_id: "e2e-wizard-mcp", tool_name: "list_records", enabled: true, risk: "L1", access: "read", schema_hash: "a".repeat(64), version: 1 }],
+  }));
+  await page.route("**/api/admin/connectors/*", async (route) => {
+    if (route.request().method() !== "PATCH") return route.continue();
+    await route.fulfill({ json: { ok: true } });
+  });
+
   await page.goto("/admin/connectors");
   await page.locator("[data-connector-create-toggle]").click();
   await page.locator("[data-connector-create-item='mcp']").click();
   const panel = page.locator("[data-connector-panel='mcp-config']");
-  await page.locator("[data-connector-field='label']").fill("E2E Publish MCP");
-  await page.locator("[data-connector-field='url']").fill("https://mcp.e2e.example/mcp");
+  await panel.locator("[data-connector-field='label']").fill("E2E Wizard MCP");
+  await panel.locator("[data-connector-field='url']").fill("http://127.0.0.1:8899/mcp");
   await panel.locator("input[type='checkbox']").check();
-  await panel.locator("[data-connector-split-toggle='save']").click();
-  await panel.locator("[data-connector-split-menu='save'] .connector-split-item").click();
+  await panel.locator("[data-connector-wizard-primary]").click();
 
-  // 未完成测试的连接器会被闸门拦下：草稿成立，发布不谎报成功。
+  // 第 2 步：测试。probe 的免责声明与结果都必须来自服务端。
+  await expect(panel.locator("[data-connector-wizard-step='test']")).toBeVisible();
+  await expect(panel.locator("[data-connector-wizard-status]")).toContainText("版本 1");
+  await panel.locator("[data-connector-wizard-test]").click();
+  await expect(panel.locator("[data-connector-wizard-test-result]")).toContainText(probeNotice);
+  await expect(panel.locator("[data-connector-wizard-test-result]")).toContainText("2 个工具");
+
+  // 第 3 步：工具清单只读——不预取，点击后才读取。
+  await expect(panel.locator("[data-connector-wizard-step='tools']")).toBeVisible();
+  await expect(panel.locator("[data-connector-tools-list]")).toHaveCount(0);
+  await panel.locator("[data-connector-wizard-tools-open]").click();
+  await expect(panel.locator("[data-connector-tools-list]")).toBeVisible();
+  await expect(panel.locator("[data-connector-tool]")).toHaveCount(2);
+  await expect(panel.locator("[data-connector-tool='list_records']")).toContainText("L1");
+  await expect(panel.locator("[data-connector-tool='create_record']")).toContainText("未启用 · 调用默认拒绝");
+  // 只读：没有授权、范围、风险档或启用的写入控件。
+  for (const retired of ["[data-connector-tools-authorize]", "[data-connector-tool-save]", "[data-connector-tool-risk]", "[data-connector-tool-access]", "[data-connector-tool-enabled]", "[data-connector-batch-open]", "[data-connector-scope-save]"]) {
+    await expect(panel.locator(retired)).toHaveCount(0);
+  }
+
+  // 第 4 步：启用（服务端门禁通过时给出回执）。
+  await panel.locator("[data-connector-wizard-primary]").click();
+  await expect(panel.locator("[data-connector-wizard-step='enable']")).toBeVisible();
+  await expect(panel.locator("[data-connector-wizard-enable]")).toBeEnabled();
+  await panel.locator("[data-connector-wizard-enable]").click();
+  await expect(panel.locator("[data-connector-wizard-receipt]")).toContainText("连接器已启用");
+  await expect(panel.locator("[data-connector-wizard-disable]")).toBeVisible();
+  await panel.locator("[data-connector-wizard-primary]").click();
   await expect(panel).toHaveCount(0);
-  await expect(page.locator("[data-connector-notice]")).toContainText("未能发布");
-  await expect(page.locator("[data-connector-notice]")).toContainText("先完成一次通过的测试");
-  await expect(page.locator("[data-connector-notice][data-connector-notice-tone='warn']")).toHaveCount(1);
+  await expect(page.locator("[data-connector-notice]")).toContainText("连接器已启用");
+});
+
+test("wizard explains a credential-vault 503 instead of a bare request failure", async ({ page }) => {
+  await page.route("**/api/admin/connectors", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await route.fulfill({ json: { ok: true } });
+  });
+  // 服务端缺 RUNTIME_CREDENTIAL_MASTER_KEY 时保险库的真实应答。
+  await page.route("**/api/admin/runtime/credentials", (route) => route.fulfill({
+    status: 503,
+    json: { detail: { code: "runtime_credential_master_key_unavailable" } },
+  }));
+
+  await page.goto("/admin/connectors");
+  await page.locator("[data-connector-create-toggle]").click();
+  await page.locator("[data-connector-create-item='mcp']").click();
+  const panel = page.locator("[data-connector-panel='mcp-config']");
+  await panel.locator("[data-connector-field='label']").fill("E2E Vault 503");
+  await panel.locator("[data-connector-field='url']").fill("https://mcp.example.com/mcp");
+  // 明文密钥先写保险库：保存必须给出可执行的原因，而不是裸「请求失败 (503)」。
+  await panel.locator("[data-connector-header-rows] .connector-header-name").fill("X-API-Key");
+  await panel.locator("[data-connector-header-rows] .connector-header-value").fill("plain-secret");
+  await panel.locator("[data-connector-wizard-primary]").click();
+
+  const failure = panel.locator("[data-connector-wizard-error]");
+  await expect(failure).toContainText("凭据保险库主密钥");
+  await expect(failure).toContainText("RUNTIME_CREDENTIAL_MASTER_KEY");
+  await expect(failure).not.toContainText("请求失败");
+  // 失败即失败：留在保存步，不推进、不伪造回执。
+  await expect(panel.locator("[data-connector-wizard-step='save']")).toBeVisible();
+  await expect(panel.locator("[data-connector-wizard-receipt]")).toHaveCount(0);
+});
+
+test("wizard keeps the enable gate and the honest state when the server refuses", async ({ page }) => {
+  await page.route("**/api/admin/runtime/connectors/*/config", (route) => route.fulfill({
+    json: {
+      config: { protocol: "mcp", transport: "streamable-http", url: "https://mcp.e2e.example/mcp", allow_unauthenticated: true, timeout_ms: 30000 },
+      version: 2,
+    },
+  }));
+  await page.route("**/api/admin/runtime/connectors/*/probe", (route) => route.fulfill({
+    json: {
+      connector_id: "starrykol", config_version: 2, actor_id: "e2e", checked_at: "2026-09-27T00:00:00.000Z",
+      status: "succeeded", probe_kind: "mcp_tools_list", tool_count: 1, duration_ms: 9,
+      error_code: null, live_verified: true, notice: "仅验证该身份的 MCP 工具目录，不代表业务动作或其他账号可用。",
+    },
+  }));
+  await page.route("**/api/admin/connectors/starrykol", async (route) => {
+    if (route.request().method() !== "PATCH") return route.continue();
+    await route.fulfill({ status: 409, json: { detail: { code: "connector_skill_binding_required" } } });
+  });
+
+  await page.goto("/admin/connectors");
+  await page.locator('[data-connector-card][data-connector="starrykol"] [data-connector-status-entry]').click();
+  const panel = page.locator("[data-connector-panel='connector-config']");
+  await expect(panel.locator("[data-connector-wizard-step='save']")).toBeVisible();
+
+  // 改配置 → 回到「需重新测试」：测试步是唯一推进键，启用键当时不可用。
+  await panel.locator("[data-connector-panel-save]").click();
+  await expect(panel.locator("[data-connector-wizard-step='test']")).toBeVisible();
+  await expect(panel.locator("[data-connector-wizard-status]")).toContainText("需重新测试");
+  await panel.locator("[data-connector-wizard-test]").click();
+  await expect(panel.locator("[data-connector-wizard-step='tools']")).toBeVisible();
+  await panel.locator("[data-connector-wizard-primary]").click();
+  await expect(panel.locator("[data-connector-wizard-enable]")).toBeEnabled();
+  await panel.locator("[data-connector-wizard-enable]").click();
+  // 服务器拒绝 → 原样显示原因，并保持置灰（不伪造成功）。
+  await expect(panel.locator("[data-connector-wizard-error]")).toContainText("尚无技能绑定其工具，请先在技能页挂载。");
+  await expect(panel.locator("[data-connector-wizard-enable]")).toBeDisabled();
+  await expect(panel.locator(".connector-panel-note")).toContainText("尚无技能绑定其工具");
 });
 
 test("URL add flow creates a pending connector with governance cards", async ({ page }) => {
@@ -363,15 +500,9 @@ test("URL add flow creates a pending connector with governance cards", async ({ 
   await expect(page.locator("[data-admin-page='connector-detail']")).toBeVisible();
   await expect(page.locator("[data-connector-config-card]")).toBeVisible();
   await expect(page.locator("[data-connector-tools]")).toBeVisible();
-  await expect(page.locator("[data-connector-scope]")).toBeVisible();
-  await expect(page.locator("[data-admin-grants]")).toBeVisible();
+  await expect(page.locator("[data-connector-scope]")).toHaveCount(0);
+  await expect(page.locator("[data-admin-grants]")).toHaveCount(0);
   await expect(page.locator("[data-connector-status-note]")).toContainText("配置已保存");
-
-  // Connector-level organization scope round-trips through the API.
-  await page.locator("[data-connector-scope-mode]").selectOption("all");
-  await page.locator("[data-connector-scope-save]").click();
-  await expect(page.locator("[data-connector-scope] .runtime-notice")).toContainText("连接器级范围已保存");
-  await expect(page.locator("[data-connector-scope-coverage]")).toContainText("预计覆盖");
 });
 
 test("HTTP API flow creates a draft and saves explicit actions without an MCP adapter", async ({ page }) => {
@@ -406,7 +537,7 @@ test("HTTP API flow creates a draft and saves explicit actions without an MCP ad
     method: "GET",
     path: "/orders",
   }]));
-  await config.locator("[data-connector-split-main='config-save']").click();
+  await config.locator("[data-connector-panel-save]").click();
   await expect(config.locator(".runtime-notice")).toContainText("配置草稿已保存");
   await expect(page.locator(".connector-detail-hero")).toContainText("HTTP");
 });
@@ -485,16 +616,15 @@ test("config form validates icons and keeps submitted secrets write-only", async
   await page.goto(`/admin/connectors/${TEST_ID}`);
   await expect(page.locator("[data-connector-config-card]")).toBeVisible();
 
-  // 与创建弹窗同一套版式：HTTP / SSE 两项、图标分裂按钮、备注（可选、5 行）、保存分裂按钮。
+  // 与创建弹窗同一套版式：HTTP / SSE 两项、图标分裂按钮、备注（可选、5 行）、单一保存实底。
   const form = page.locator("[data-connector-config-card]");
   await expect(form.locator("[data-connector-field='transport'] option")).toHaveText(["HTTP", "SSE"]);
   await expect(form.locator(".connector-icon-field")).toHaveClass(/is-bare/);
   await expect(form.locator("textarea")).toHaveAttribute("rows", "5");
-  await expect(form.locator("[data-connector-split-main='config-save']")).toHaveText("保存");
-  await form.locator("[data-connector-split-toggle='config-save']").click();
-  await expect(form.locator("[data-connector-split-menu='config-save'] .connector-split-item")).toHaveText(["发布并保存"]);
-  await page.keyboard.press("Escape");
-  await expect(form.locator("[data-connector-split-menu='config-save']")).toHaveCount(0);
+  await expect(form.locator("[data-connector-panel-save]")).toHaveText("保存");
+  // 保存与启用不再合并：卡片里没有「发布并保存」，启用走详情/向导的独立动作。
+  await expect(form.locator("[data-connector-split='config-save']")).toHaveCount(0);
+  await expect(form.getByText("发布并保存")).toHaveCount(0);
 
   await page.locator("[data-connector-icon-input]").first().setInputFiles({
     name: "not-an-image.txt",
@@ -506,7 +636,7 @@ test("config form validates icons and keeps submitted secrets write-only", async
   await page.locator("[data-connector-config-card] input.connector-header-name").fill("X-API-Key");
   await page.locator("[data-connector-config-card] input.connector-header-value").fill("e2e-secret-value");
   await page.locator("[data-connector-config-card] input[data-connector-field='url']").fill("https://mcp.e2e.example/mcp");
-  await page.locator("[data-connector-split-main='config-save']").click();
+  await page.locator("[data-connector-config-card] [data-connector-panel-save]").click();
   await expect(page.locator("[data-connector-config-card] .runtime-notice")).toContainText("配置草稿已保存");
   await expect(page.locator("[data-connector-config-card] input.connector-header-value")).toHaveValue("");
   await expect(page.locator("[data-connector-config-card] input.connector-header-value")).toHaveAttribute("placeholder", /已保存引用/);
@@ -519,23 +649,23 @@ test("hub card opens the tools drawer with an honest state and returns focus", a
   await expect(page.locator("[data-connector-tools-drawer]")).toBeVisible();
   await expect(page.locator("[data-connector-tools-drawer] h2")).toContainText("MediaCrawler MCP · 工具");
   await expect(page.locator("[data-connector-drawer-counts]")).toBeVisible();
-  await expect(page.locator("[data-connector-drawer-default-scope]")).toBeVisible();
+  await expect(page.locator("[data-connector-drawer-default-scope]")).toHaveCount(0);
   // stub 模式命中运行时闸门（403）、auth 模式未配置（409）：都必须给诚实错误态，而不是假清单。
-  await expect(page.locator("[data-connector-drawer-error]")).toBeVisible();
-  await expect(page.locator("[data-connector-drawer-error]")).toContainText("工具目录不可用");
+  await expect(page.locator("[data-connector-tools-error]")).toBeVisible();
+  await expect(page.locator("[data-connector-tools-error]")).toContainText("工具发现未完成");
   await page.keyboard.press("Escape");
   await expect(page.locator("[data-connector-tools-drawer]")).toHaveCount(0);
   await expect(entry).toBeFocused();
 });
 
-test("tools drawer lists every tool and grants scope by department or person", async ({ page }) => {
-  const scopeWrites: Array<{ tool: string; body: Record<string, unknown> }> = [];
+test("tools drawer lists every tool read-only", async ({ page }) => {
   const tool = (name: string, hash: string, description: string) => ({
     name,
     description,
     inputSchema: { type: "object", properties: {} },
     schema_hash: hash.repeat(64),
   });
+  let scopeWrites = 0;
   await page.route("**/api/admin/runtime/connectors/claw/discovery", (route) => route.fulfill({
     json: {
       tools: [
@@ -549,70 +679,140 @@ test("tools drawer lists every tool and grants scope by department or person", a
   await page.route("**/api/admin/runtime/connectors/claw/policies", (route) => route.fulfill({
     json: [{ connector_id: "claw", tool_name: "list_records", enabled: true, risk: "L1", access: "read", schema_hash: "a".repeat(64), version: 1 }],
   }));
-  await page.route("**/api/admin/runtime/connectors/claw/connector-scope", (route) => route.fulfill({
-    json: { connector_id: "claw", mode: "unset", updated_by: null, updated_at: null, bindings: [], coverage: { users: 0, read: 0, write: 0 } },
-  }));
-  await page.route("**/api/admin/runtime/connectors/claw/organization-scope", (route) => route.fulfill({
-    json: {
-      connector_id: "claw",
-      synced_at: null,
-      source: "e2e",
-      nodes: [
-        { id: "n1", parent_id: null, name: "推广部", level: 1, is_person: false, external_id: "org:promotion_department", local_user_id: null, status: "unmatched" },
-        { id: "n2", parent_id: "n1", name: "LT组", level: 2, is_person: false, external_id: "e2e", local_user_id: null, status: "unmatched" },
-        { id: "n3", parent_id: "n2", name: "张三", level: 3, is_person: true, external_id: "u1", local_user_id: "u1", status: "matched" },
-      ],
-    },
-  }));
-  await page.route("**/api/admin/runtime/connectors/claw/tools/*/scope", (route) => {
-    const url = new URL(route.request().url());
-    const name = decodeURIComponent(url.pathname.split("/tools/")[1].split("/")[0]);
-    if (route.request().method() === "PUT") {
-      scopeWrites.push({ tool: name, body: JSON.parse(route.request().postData() || "{}") as Record<string, unknown> });
-    }
-    return route.fulfill({ json: { connector_id: "claw", tool_name: name, node_ids: [], all: false, scope_configured: true } });
+  // 任何授权 / 范围 / 策略写入都是退役面：命中即失败。
+  await page.route("**/api/admin/runtime/connectors/claw/**", (route) => {
+    if (route.request().method() !== "GET") scopeWrites += 1;
+    return route.fallback();
   });
 
   await page.goto("/admin/connectors");
   await page.locator('[data-connector-card][data-connector="claw"] [data-connector-tools-entry]').click();
-  await expect(page.locator("[data-connector-drawer-counts]")).toContainText("共 3 个工具（已审阅 1 · 未审阅 2）");
-  await expect(page.locator("[data-connector-drawer-tool]")).toHaveCount(3);
-  await expect(page.locator('[data-connector-drawer-tool="create_record"]')).toContainText("未审阅 · 默认拒绝");
+  await expect(page.locator("[data-connector-tools-list]")).toBeVisible();
+  await expect(page.locator("[data-connector-tool]")).toHaveCount(3);
+  await expect(page.locator('[data-connector-tool="list_records"]')).toContainText("L1");
+  await expect(page.locator('[data-connector-tool="create_record"]')).toContainText("未启用 · 调用默认拒绝");
+  await expect(page.locator('[data-connector-tool="create_record"]')).toContainText("风险档未记录");
 
   await page.locator("[data-connector-drawer-search]").fill("create");
-  await expect(page.locator("[data-connector-drawer-tool]")).toHaveCount(1);
+  await expect(page.locator("[data-connector-tool]")).toHaveCount(1);
   await page.locator("[data-connector-drawer-search]").fill("");
 
-  await page.locator('[data-connector-drawer-pick="get_record"]').check();
-  await page.locator('[data-connector-drawer-pick="create_record"]').check();
-  await page.locator("[data-connector-batch-open]").click();
-  await page.locator("[data-connector-batch-mode]").selectOption("selected");
-  await page.locator("[data-connector-batch-node='n1']").check();
-  await page.locator("[data-connector-batch-apply]").click();
-  await expect(page.locator("[data-connector-drawer-notice]")).toContainText("已为 2 个工具保存范围授权");
-  expect(scopeWrites.map((write) => write.tool).sort()).toEqual(["create_record", "get_record"]);
-  expect(scopeWrites.find((write) => write.tool === "get_record")?.body).toMatchObject({ node_ids: ["n1"], all: false });
-  await expect(page.locator('[data-connector-drawer-tool="create_record"]')).toContainText("未审阅 · 默认拒绝");
+  // 只读：没有逐工具审批、风险档、范围、批量授权或选择框。
+  for (const retired of ["[data-connector-tool-save]", "[data-connector-tool-risk]", "[data-connector-tool-access]", "[data-connector-tool-enabled]", "[data-connector-drawer-pick]", "[data-connector-batch-open]", "[data-connector-batch-apply]", "[data-connector-tools-authorize]", "details.runtime-tool-scope"]) {
+    await expect(page.locator(retired)).toHaveCount(0);
+  }
+  expect(scopeWrites).toBe(0);
 
-  const rowScope = page.locator('[data-connector-drawer-tool="list_records"] details.runtime-tool-scope');
-  await page.locator('[data-connector-drawer-tool="list_records"] details summary', { hasText: "使用范围" }).click();
-  await rowScope.locator("select").first().selectOption("selected");
-  await rowScope.locator("li.runtime-scope-node", { hasText: "张三" }).last().locator("input").check();
-  await rowScope.locator("button", { hasText: "保存范围授权" }).click();
-  await expect(rowScope.locator(".runtime-notice")).toContainText("工具范围授权已保存");
-  expect(scopeWrites.find((write) => write.tool === "list_records")?.body).toMatchObject({ node_ids: ["n3"], all: false });
+  await page.locator("[data-connector-drawer-discover]").click();
+  await expect(page.locator("[data-connector-tools-list]")).toBeVisible();
+  expect(scopeWrites).toBe(0);
 });
 
-test("card status opens the connector configuration modal", async ({ page }) => {
+test("card status opens the connector configuration modal with the four-step wizard", async ({ page, request }) => {
   await page.goto("/admin/connectors");
   const card = page.locator('[data-connector-card][data-connector="claw"]');
-  await expect(card.locator("[data-connector-status-entry]")).toHaveText("待配置");
+  // 验收库会累计真实探测结果：卡片必须如实显示服务端当前的治理状态（同一映射判定），
+  // 不假设某个固定状态。
+  const rows = await (await request.get("/api/admin/connectors")).json() as Array<Record<string, unknown>>;
+  const claw = rows.find((row) => row.id === "claw");
+  expect(claw).toBeTruthy();
+  const expectedStatus = governanceStatus(connectorCardView(claw as Record<string, unknown>));
+  await expect(card).toHaveAttribute("data-governance-status", expectedStatus.key);
+  await expect(card.locator("[data-connector-status-entry]")).toHaveText(expectedStatus.label);
   await card.locator("[data-connector-status-entry]").click();
   const modal = page.locator("[data-connector-panel='connector-config']");
   await expect(modal).toBeVisible();
   await expect(modal.locator("h2")).toContainText("MediaCrawler MCP");
   await expect(modal.locator("[data-connector-config-card]")).toBeVisible();
+  await expect(modal.locator("[data-connector-wizard-steps]")).toBeVisible();
+  await expect(modal.locator("[data-connector-wizard-step='save']")).toBeVisible();
+  await expect(modal.locator("[data-connector-wizard-tab]")).toHaveCount(4);
   await page.keyboard.press("Escape");
   await expect(modal).toHaveCount(0);
   await expect(card.locator("[data-connector-status-entry]")).toBeFocused();
+});
+
+test("setup wizard keeps the measured layout (docs/DESIGN.md §设置向导)", async ({ page }) => {
+  // 验收矩阵（docs/DESIGN.md §验收矩阵）：1440×900 指针档检查弹窗完整可见、不出现滚动。
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("/admin/connectors");
+  await page.locator("[data-connector-create-toggle]").click();
+  await page.locator("[data-connector-create-item='mcp']").click();
+  const panel = page.locator("[data-connector-panel='mcp-config']");
+  await expect(panel).toBeVisible();
+
+  const spec = await panel.evaluate((root) => {
+    const box = (el: Element | null) => {
+      const r = el?.getBoundingClientRect();
+      return r ? { w: Math.round(r.width), h: Math.round(r.height) } : { w: 0, h: 0 };
+    };
+    const css = (el: Element | null, prop: string) => (el ? getComputedStyle(el).getPropertyValue(prop).trim() : "");
+    return {
+      panelW: box(root.querySelector(".connector-panel")).w,
+      stepH: box(root.querySelector(".connector-wizard-step")).h,
+      stepGap: css(root.querySelector(".connector-wizard-steps"), "column-gap"),
+      bodyGap: css(root.querySelector(".connector-panel-body"), "gap"),
+      // 实底主 CTA = 注册主行动实底 --action-strong（docs/DESIGN.md §连接器控制台）。
+      fullSolid: Array.from(root.querySelectorAll("button")).filter((el) => getComputedStyle(el).backgroundColor === "rgb(26, 26, 25)").length,
+      scroll: (() => {
+        const body = root.querySelector(".connector-panel-body");
+        return body ? body.scrollHeight - body.clientHeight : 0;
+      })(),
+    };
+  });
+
+  expect(spec.panelW).toBe(560);
+  expect(spec.stepH).toBe(26);
+  expect(spec.stepGap).toBe("6px");
+  expect(spec.bodyGap).toBe("12px");
+  // 同一视口 0–1 个实底主 CTA。
+  expect(spec.fullSolid).toBeLessThanOrEqual(1);
+  // 900 高视口内不滚动：步骤条、字段与页脚完整可见。
+  expect(spec.scroll).toBeLessThanOrEqual(0);
+  await expect(panel.locator("[data-connector-panel-save]")).toBeInViewport();
+
+  // 每一步都只保留一个实底主 CTA（第 4 步的启用键）。
+  await page.route("**/api/admin/connectors", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await route.fulfill({ json: { ok: true } });
+  });
+  await page.route("**/api/admin/runtime/connectors/*/config", (route) => route.fulfill({ json: { config: { protocol: "mcp" }, version: 1 } }));
+  await page.route("**/api/admin/runtime/connectors/*/probe", (route) => route.fulfill({
+    json: {
+      connector_id: "e2e-wizard", config_version: 1, actor_id: "e2e", checked_at: "2026-09-27T00:00:00.000Z",
+      status: "succeeded", probe_kind: "mcp_tools_list", tool_count: 0, duration_ms: 3,
+      error_code: null, live_verified: true, notice: "仅验证该身份的 MCP 工具目录，不代表业务动作或其他账号可用。",
+    },
+  }));
+  await panel.locator("[data-connector-field='label']").fill("E2E Wizard Layout");
+  await panel.locator("[data-connector-field='url']").fill("http://127.0.0.1:8899/mcp");
+  await panel.locator("input[type='checkbox']").check();
+  await panel.locator("[data-connector-wizard-primary]").click();
+  await expect(panel.locator("[data-connector-wizard-step='test']")).toBeVisible();
+  const noScroll = async (label: string) => {
+    const overflow = await panel.locator(".connector-panel-body").evaluate((el) => el.scrollHeight - el.clientHeight);
+    expect(overflow, label).toBeLessThanOrEqual(0);
+  };
+  await noScroll("test step");
+  await panel.locator("[data-connector-wizard-test]").click();
+  await expect(panel.locator("[data-connector-wizard-step='tools']")).toBeVisible();
+  await noScroll("tools step");
+  await panel.locator("[data-connector-wizard-primary]").click();
+  await expect(panel.locator("[data-connector-wizard-step='enable']")).toBeVisible();
+  await noScroll("enable step");
+
+  const enableSpec = await panel.evaluate((root) => {
+    const solid = Array.from(root.querySelectorAll("button")).filter((el) => getComputedStyle(el).backgroundColor === "rgb(26, 26, 25)");
+    const body = root.querySelector(".connector-panel-body");
+    return {
+      solid: solid.length,
+      solidLabels: solid.map((el) => (el.textContent || "").trim()),
+      scroll: body ? body.scrollHeight - body.clientHeight : 0,
+      stepBarVisible: Boolean(root.querySelector("[data-connector-wizard-steps]")),
+    };
+  });
+  expect(enableSpec.stepBarVisible).toBe(true);
+  expect(enableSpec.solid).toBe(1);
+  expect(enableSpec.solidLabels).toEqual(["启用连接器"]);
+  expect(enableSpec.scroll).toBeLessThanOrEqual(0);
 });

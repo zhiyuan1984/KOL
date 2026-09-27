@@ -19,7 +19,6 @@ import { skillRuntimeRouter } from "./routers/skill-runtime.js";
 import { runtimeDiscoveryRouter } from "./routers/runtime-discovery.js";
 import { connectorOperationsRouter } from "./routers/connector-operations.js";
 import { connectorCredentialsRouter } from "./routers/connector-credentials.js";
-import { connectorOrganizationRouter } from "./routers/connector-organization.js";
 import { connectorIconsRouter } from "./routers/connector-icons.js";
 import { connectorImportRouter } from "./routers/connector-import.js";
 import { organizationUnitsRouter } from "./routers/organization-units.js";
@@ -85,7 +84,6 @@ export function createApp(): Hono {
   app.route("/api", runtimeDiscoveryRouter);
   app.route("/api", connectorOperationsRouter);
   app.route("/api", connectorCredentialsRouter);
-  app.route("/api", connectorOrganizationRouter);
   app.route("/api", connectorIconsRouter);
   app.route("/api", connectorImportRouter);
   app.route("/api", organizationUnitsRouter);

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
 import { getConn, resetConn } from "../src/db.js";
+import { setConnectorConfig, setToolPolicy } from "../src/runtime/store.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -55,6 +56,17 @@ async function createEmployee(username = "employee") {
   return created.json as Record<string, unknown>;
 }
 
+/**
+ * Per-person connector grants no longer have an administration endpoint
+ * (DECISIONS.md ADR-2026-09-27); the retained table is seeded directly so the
+ * still-published employee use surface keeps its regression coverage.
+ */
+function seedConnectorGrant(userId: string, connectorId: string, access: "read" | "write"): void {
+  getConn().prepare(
+    "INSERT OR REPLACE INTO user_connector_grants (user_id,connector_id,access,created_at) VALUES (?,?,?,?)",
+  ).run(userId, connectorId, access, new Date().toISOString());
+}
+
 async function employeeLogin(username = "employee") {
   const login = await call("POST", "/api/auth/login", {
     username,
@@ -100,9 +112,8 @@ describe("employee connector use-surface DTO", () => {
       "INSERT OR IGNORE INTO connectors (id,label,enabled,status,credential_ref,updated_at) VALUES (?,?,?,?,?,?)",
     ).run("hidden_tool", "Hidden tool", 0, "configured", "vault://hidden", new Date().toISOString());
 
-    await call("PUT", `/api/admin/users/${employee.id}/connectors`, {
-      connectors: ["starrykol:read", "hidden_tool:write"],
-    });
+    seedConnectorGrant(String(employee.id), "starrykol", "read");
+    seedConnectorGrant(String(employee.id), "hidden_tool", "write");
 
     const cookie = await employeeLogin("dto-user");
     const listed = await call("GET", "/api/connectors", undefined, cookie);
@@ -120,9 +131,7 @@ describe("employee connector use-surface DTO", () => {
     getConn().prepare(
       "UPDATE connectors SET enabled=1, status='configured' WHERE id='starrykol'",
     ).run();
-    await call("PUT", `/api/admin/users/${employee.id}/connectors/${"starrykol"}`, {
-      access: "write",
-    });
+    seedConnectorGrant(String(employee.id), "starrykol", "write");
     const cookie = await employeeLogin("admin-grant");
     const listed = await call("GET", "/api/connectors", undefined, cookie);
     const rows = listed.json as Record<string, unknown>[];
@@ -134,8 +143,9 @@ describe("employee connector use-surface DTO", () => {
   });
 
   it("employee route sources do not deep-link /admin/connectors", () => {
+    // The employee connector page itself was retired with the per-person
+    // connector use surface (ADR-2026-09-27); the remaining entries stay.
     const employeeFiles = [
-      "frontend/src/pages/ConnectorUse.tsx",
       "frontend/src/pages/SkillHub.tsx",
       "frontend/src/pages/AccountSettings.tsx",
       "frontend/src/layout/Workbench.tsx",
@@ -165,11 +175,56 @@ describe("employee connector use-surface DTO", () => {
     expect(starrykol).toHaveProperty("status");
 
     const employee = await createEmployee("serializer-user");
-    await call("PUT", `/api/admin/users/${employee.id}/connectors`, { connectors: ["starrykol:read"] });
+    seedConnectorGrant(String(employee.id), "starrykol", "read");
     const employeeSurface = await call("GET", "/api/connectors", undefined, await employeeLogin("serializer-user"));
     const useRows = employeeSurface.json as Record<string, unknown>[];
     expect(useRows.length).toBeGreaterThan(0);
     for (const row of useRows) assertEmployeeConnectorDto(row);
+  });
+
+  it("no longer exposes per-user connector grants or organization/connector scope endpoints", async () => {
+    const retired: Array<[string, string]> = [
+      ["PUT", "/api/admin/users/usr_missing/connectors/starrykol"],
+      ["DELETE", "/api/admin/users/usr_missing/connectors/starrykol"],
+      ["PUT", "/api/admin/users/usr_missing/connectors"],
+      ["GET", "/api/admin/runtime/connectors/starrykol/connector-scope"],
+      ["PUT", "/api/admin/runtime/connectors/starrykol/connector-scope"],
+      ["GET", "/api/admin/runtime/connectors/starrykol/organization-scope"],
+      ["POST", "/api/admin/runtime/connectors/starrykol/organization-scope/nodes"],
+      ["GET", "/api/admin/runtime/connectors/starrykol/tools/pageKolProfiles/scope"],
+      ["PUT", "/api/admin/runtime/connectors/starrykol/tools/pageKolProfiles/scope"],
+    ];
+    for (const [method, url] of retired) {
+      const response = await app.request(url, {
+        method,
+        headers: { "Content-Type": "application/json", Cookie: adminCookie },
+        body: method === "PUT" || method === "POST" ? "{}" : undefined,
+      });
+      expect(response.status, `${method} ${url}`).toBe(404);
+    }
+  });
+
+  it("reports catalog kind, protocol, icon, and approved tool count", async () => {
+    const db = getConn();
+    const now = new Date().toISOString();
+    for (const id of ["dto_mcp", "dto_http"]) {
+      db.prepare("INSERT INTO connectors(id,label,enabled,status,updated_at) VALUES(?,?,?,?,?)")
+        .run(id, id, 1, "configured", now);
+    }
+    setConnectorConfig("dto_http", { protocol: "http", url: "https://api.example.com", allow_unauthenticated: true }, 0);
+    setToolPolicy("dto_mcp", "list_records", { enabled: true, risk: "L1", access: "read", schema_hash: "b".repeat(64) }, 0);
+    db.prepare("UPDATE connectors SET icon_ref='stored-icon.png' WHERE id='dto_mcp'").run();
+
+    const rows = (await call("GET", "/api/admin/connectors")).json as Record<string, unknown>[];
+    const byId = Object.fromEntries(rows.map((row) => [row.id, row]));
+    expect(byId.starrykol).toMatchObject({ kind: "app", protocol: "mcp", icon_url: "/api/admin/connectors/starrykol/icon" });
+    expect(byId.dto_mcp).toMatchObject({
+      kind: "custom_mcp",
+      protocol: "mcp",
+      icon_url: "/api/admin/connectors/dto_mcp/icon",
+      approved_tool_count: 1,
+    });
+    expect(byId.dto_http).toMatchObject({ kind: "custom_api", protocol: "http", icon_url: null, approved_tool_count: 0 });
   });
 
   it("keeps a declared HTTP API draft classified as custom_api before any runtime config exists", async () => {

@@ -9,7 +9,6 @@ import { requireTaskDefinition } from "../tasks/registry.js";
 import type { Json, Row } from "../types.js";
 import { resolveAccountHeaders, resolveSecretReference } from "./credentials.js";
 import { assertResolvedConnectorEndpointSafe, assertSafeConnectorEndpoint, fetchWithConnectorEgressPolicy, HttpConnectorClient } from "./http.js";
-import { connectorHasOrganizationScopes, userConnectorScopeAccess, userHasToolScope } from "./organization.js";
 import { ensureRuntimeSchema, getAgentSkills, getSkillConnectors, getSkillTool, getConnectorConfig, getToolPolicy, type ConnectorConfig } from "./store.js";
 
 export type RuntimeContext = { agentId: string; skillId: string; userId: string; runId: string; sessionId?: string };
@@ -78,34 +77,29 @@ export function assertRuntimeSkill(context: RuntimeContext): { user: Row; bindin
   const sop = getConn().prepare("SELECT summary,body,updated_at FROM skill_sops WHERE id=?").get(context.skillId);
   return { user, binding, skillVersion: runtimeHash({ definition, body: fs.readFileSync(definition.path, "utf8"), sop }) };
 }
-export function authorizeConnector(
-  context: RuntimeContext,
-  connectorId: string,
-  access: "read" | "write" = "read",
-  toolName?: string,
-  permitScopeResolution = false,
-) {
+/** Administrators pass; everyone else needs the exact Skill grant. */
+function userHoldsSkill(userId: string, skillId: string): boolean {
+  const user = getConn().prepare("SELECT roles,active FROM users WHERE id=?").get(userId) as Row | undefined;
+  if (!user?.active) return false;
+  if (parseRoles(user.roles).includes("admin")) return true;
+  return Boolean(getConn().prepare("SELECT 1 FROM user_skill_grants WHERE user_id=? AND skill_id=?").get(userId, skillId));
+}
+/**
+ * Runtime authorization for one connector. The only per-person unit is the
+ * Skill grant (DECISIONS.md ADR-2026-09-27「对外只暴露技能」): holding the
+ * Skill, an enabled Skill→Connector binding, an enabled connector and the
+ * unchanged internal gates (tool policy, host-only, L3 via Host Gateway) are
+ * required. Connectors and tools are never granted per person.
+ */
+export function authorizeConnector(context: RuntimeContext, connectorId: string) {
   const skill = assertRuntimeSkill(context);
+  if (!userHoldsSkill(context.userId, context.skillId)) {
+    reject("runtime_skill_not_granted");
+  }
   const binding = getSkillConnectors(context.skillId).find((row) => row.connector_id === connectorId);
   if (!binding?.enabled) reject("runtime_connector_unbound");
   const connector = getConn().prepare("SELECT id,enabled,updated_at FROM connectors WHERE id=?").get(connectorId) as Row | undefined;
   if (!connector?.enabled) reject("runtime_connector_disabled");
-  const scopeConfigured = connectorHasOrganizationScopes(connectorId);
-  const scoped = scopeConfigured && toolName ? userHasToolScope(connectorId, toolName, context.userId) : false;
-  const grant = getConn().prepare("SELECT access FROM user_connector_grants WHERE user_id=? AND connector_id=?")
-    .get(context.userId, connectorId) as Row | undefined;
-  // Effective connector access is the union of per-user grants and the
-  // connector-level organization scope; tool-level scope stays an additional
-  // restriction and can never widen this.
-  const scopeAccess = userConnectorScopeAccess(connectorId, context.userId);
-  const levels: Record<string, number> = { read: 1, write: 2, admin: 3 };
-  const effective = Math.max(levels[String(grant?.access)] || 0, levels[String(scopeAccess)] || 0);
-  if (effective < levels[access]) {
-    reject("runtime_connector_not_granted");
-  }
-  if (!permitScopeResolution && scopeConfigured && (!toolName || !scoped)) {
-    reject("runtime_tool_scope_not_granted");
-  }
   const configuration = getConnectorConfig(connectorId);
   if (!configuration) reject("runtime_connector_not_configured", 409);
   return { ...skill, resourceBinding: binding, connector, configuration };
@@ -223,14 +217,14 @@ export class SkillExecution {
       if (!binding.enabled) { unavailable.push({ connector_id: connectorId, code: "runtime_connector_unbound" }); continue; }
       let client: RuntimeRemote | undefined;
       try {
-        const before = authorizeConnector(this.context, connectorId, "read", undefined, true);
+        const before = authorizeConnector(this.context, connectorId);
         const beforeStamp = authorizationStamp(before);
         const options = connectorOptions(this.context, before.configuration.config);
         client = this.client(this.context, before.configuration.config);
         const remoteTools = await client.listTools();
         assertNoCredentialEcho(remoteTools, options.headers);
         this.active();
-        const after = authorizeConnector(this.context, connectorId, "read", undefined, true);
+        const after = authorizeConnector(this.context, connectorId);
         if (beforeStamp !== authorizationStamp(after)) reject("runtime_binding_changed", 409);
         const seen = new Set<string>();
         for (const remote of remoteTools) {
@@ -243,9 +237,8 @@ export class SkillExecution {
           const policy = getToolPolicy(connectorId, name);
           const toolBinding = getSkillTool(this.context.skillId, connectorId, name);
           if (!toolBinding?.enabled || !isPolicyAllowed(policy, remote)) continue;
-          if (connectorHasOrganizationScopes(connectorId) && !userHasToolScope(connectorId, name, this.context.userId)) continue;
           let current: ReturnType<typeof authorizeConnector>;
-          try { current = authorizeConnector(this.context, connectorId, policy!.access as "read" | "write", name); }
+          try { current = authorizeConnector(this.context, connectorId); }
           catch { continue; }
           const alias = runtimeToolAlias(connectorId, name);
           const exposed: Json = { ...remote, name: alias };
@@ -283,10 +276,7 @@ export class SkillExecution {
         const toolBinding = getSkillTool(this.context.skillId, handle.connectorId, handle.remoteName);
         if (!toolBinding?.enabled) reject("runtime_tool_unbound");
         if (runtimeHostOnlyTool(handle.remoteName) || !["L1", "L2"].includes(String(policy.risk))) reject("runtime_gateway_required");
-        if (connectorHasOrganizationScopes(handle.connectorId) && !userHasToolScope(handle.connectorId, handle.remoteName, this.context.userId)) {
-          reject("runtime_tool_scope_denied");
-        }
-        const current = authorizeConnector(this.context, handle.connectorId, policy.access as "read" | "write", handle.remoteName);
+        const current = authorizeConnector(this.context, handle.connectorId);
         if (handle.toolBindingVersion !== Number(toolBinding.version) || handle.schemaHash !== policy.schema_hash
           || handle.stamp !== authorizationStamp(current, policy, toolBinding)) {
           reject("runtime_binding_changed", 409);

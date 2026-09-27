@@ -10,8 +10,8 @@
 
 ```text
 已认证用户
-  → 当前 Agent-Skill 绑定 + 用户 Skill 权限
-  → 当前 Skill-Connector 绑定 + Connector enabled + 用户资源权限
+  → 技能授权（user_skill_grants）+ 当前 Agent-Skill 绑定
+  → 技能→连接器/工具绑定 + Connector enabled + 内部门禁（工具策略/风险档/指纹）
   → 远端 tools/list（全部分页，逐次刷新）
   → 已审查的工具元数据/schema 指纹、L1/L2 风险策略
   → 本次运行专属的 localhost MCP 代理
@@ -43,7 +43,7 @@
 | 实时发现远端工具 | `GET /admin/runtime/connectors/:connectorId/discovery` | 无；返回工具描述/schema 及 `schema_hash`，**不自动授权** |
 | 查看单工具策略 | `GET /admin/runtime/connectors/:connectorId/tools/:toolName` | 无 |
 | 登记/停用工具策略 | `PUT /admin/runtime/connectors/:connectorId/tools/:toolName` | `enabled`, `risk`, `access`, `schema_hash`, `expected_version` |
-| 当前用户可用能力说明 | `GET /agents/:agentId/capabilities` | 只读；无凭据/端点；`live_verified: false` |
+| 当前用户可用技能能力 | `GET /agents/:agentId/capabilities` | 只读；按技能授权（`user_skill_grants`）说明技能级可用能力，不返回连接器/工具清单；无凭据/端点；`live_verified: false` |
 
 解绑保存 `enabled=0` 墓碑，不读时重种。删除 Connector 会通过 FK 级联删除其 runtime 配置、资源绑定和工具策略；删除仍是需要单独审慎操作的治理动作。
 
@@ -70,6 +70,14 @@
 - 不允许把密码、原始 Authorization、Key、Bearer 或任意新字段提交到配置 API。进程环境配置由已有部署机制管理。
 - 重定向拒绝，避免凭据被转发到另一个地址。
 
+#### 凭据保险库主密钥
+
+连接器表单里的明文密钥由服务端加密入库（AES-256-GCM），配置只保留 `cred_…` 引用。
+
+- 变量：`RUNTIME_CREDENTIAL_MASTER_KEY`（64 位 hex 或 32 字节 base64；生成：`openssl rand -hex 32`），随部署 `.env` 提供。
+- 缺失或无法使用：任何写入/读取已存密钥的调用（连接器保存、测试、工具发现、JSON 导入、真实调用）一律返回 503（`runtime_credential_master_key_unavailable` / `runtime_credential_master_key_invalid` / `runtime_credential_decryption_failed`），且不写入任何记录。
+- 一经启用不要轮换：已存密文只能由同一把钥匙解密。启动时若未配置可用主密钥，服务端会打印一条警告。
+
 ### 工具政策
 
 ```json
@@ -95,7 +103,7 @@
 3. 使用实际管理员身份，逐项登记经审核的 Agent→Skill、Skill→Connector 绑定。KOL 默认 Agent ID 来自现有发布 manifest，当前为 `agent:kol`。
 4. 登记资源端点及凭据引用；只对已授权测试资源进行 discovery。远端认证/网络失败必须修复，不能用假工具补位。
 5. 审查所需工具的真实描述/schema，登记风险、权限与指纹。保留所有正式副作用的原 Gateway 路径。
-6. 通过既有员工 Skill/Connector 授权 API 配置最小权限。绑定不是用户授权，用户授权也不是解除停用。
+6. 通过既有员工 Skill 授权 API 配置最小权限（人员授权唯一单位＝技能；连接器与工具不按人授权）。绑定不是用户授权，用户授权也不是解除停用。
 7. 做 A—D 拔插验收及实际 Codex + 测试资源验收，再决定生产放行。不可仅因本地协议测试通过就标记 LIVE。
 8. 若要中止，停用 Agent-Skill 绑定或 Connector；旧 handle 会拒绝新提交。撤权前已发送到远端的动作不能宣称回滚。**回退到旧代码可能恢复旧旁路，不是安全撤权方案。**
 
@@ -105,7 +113,9 @@
 
 调用事件包含用户、run/session、Agent/Skill、资源、工具、绑定/配置/策略版本、Skill 内容版本、工具指纹、耗时和输入输出的 SHA-256/长度摘要。不存放原始输入输出、认证头或远端异常原文。`dispatched` 区分提交前拒绝与提交后失败/撤权；收到结果后撤权会抑制结果发布，不伪装成回滚。
 
-典型错误：`runtime_skill_unbound`、`runtime_identity_unavailable`、`runtime_connector_disabled`、`runtime_connector_not_granted`、`runtime_binding_changed`、`runtime_tool_schema_changed`、`runtime_gateway_required`。未知远端异常统一脱敏为 `runtime_remote_failed`。
+典型错误：`runtime_skill_unbound`、`runtime_identity_unavailable`、`runtime_connector_disabled`、`runtime_connector_not_granted`（2026-09-27 废止）、`runtime_binding_changed`、`runtime_tool_schema_changed`、`runtime_gateway_required`。未知远端异常统一脱敏为 `runtime_remote_failed`。
+
+`runtime_connector_not_granted` 原表示「当前用户未被授权使用该连接器」。人员授权单位改为技能后（[DECISIONS.md](DECISIONS.md) ADR-2026-09-27「对外只暴露技能」），按人授权失败统一由 `runtime_skill_not_granted` 承担，技能→连接器绑定缺失由 `runtime_connector_unbound` 承担；后端不再发出该码（证据：`../backend/src/runtime/execution.ts`）。
 
 ## 验证与范围
 

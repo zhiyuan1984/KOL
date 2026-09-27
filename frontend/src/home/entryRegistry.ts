@@ -87,11 +87,20 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
   {
     id: "assess-pool-jev",
     kind: "think",
-    action: "Jev 评估公海对象",
+    action: "Jev 评估公海对象（先填知识库评分模板，员工确认后执行）",
     creates_session: false,
     creates_turn: false,
     calls_model: true,
     route: "POST /api/home/pool/jev-assess",
+  },
+  {
+    id: "score-kol",
+    kind: "think",
+    action: "单卡 KOL 评分（先填知识库评分模板，员工确认后执行）",
+    creates_session: false,
+    creates_turn: false,
+    calls_model: true,
+    route: "POST /api/home/pool/jev-assess { kol_uids }",
   },
   {
     id: "cleanup-pool-missing-homepage",

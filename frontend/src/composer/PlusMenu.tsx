@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import type { AttachmentRef } from "../api";
 import { DIGITAL_EMPLOYEES, SKILL_GROUPS, isWriteSkill, labelOfSkill, skillGroupOf, type CatalogSkill, type SkillGroupId } from "./catalog";
 import { readRecentSkills } from "./recents";
-import { DEFAULT_EXPERT_ID, type ConnectorDto, type KnowledgeLib } from "./types";
+import { DEFAULT_EXPERT_ID, type KnowledgeLib } from "./types";
 
 type ProjectOption = { id: string; label: string; handle?: string; description?: string };
 
@@ -19,8 +19,6 @@ type PlusRow = {
   attrs?: Record<string, string>;
   /** 参与搜索的额外文本（别名、id 等）。 */
   extra?: string;
-  /** 行内动作需要留在面板里（例如过期连接器的恢复提示）：选中后不关闭面板。 */
-  keepOpen?: boolean;
   run: () => void;
 };
 
@@ -33,13 +31,11 @@ export default function PlusMenu({
   onUploadImage,
   onPickSkill,
   onPickKb,
-  onPickConnector,
   onPickExpert,
   onPickProject,
   onReuseFile,
   skills,
   knowledgeLibs,
-  connectors,
   recentFiles,
   projects,
   selectedSkillIds,
@@ -51,26 +47,22 @@ export default function PlusMenu({
   onUploadImage: () => void;
   onPickSkill: (skill: CatalogSkill) => void;
   onPickKb: (row: KnowledgeLib) => void;
-  onPickConnector: (row: ConnectorDto) => void;
   onPickExpert: (id: string) => void;
   onPickProject: (project: ProjectOption) => void;
   onReuseFile: (file: AttachmentRef & { available?: boolean }) => void;
   skills: CatalogSkill[];
   knowledgeLibs: KnowledgeLib[];
-  connectors: ConnectorDto[];
   recentFiles: (AttachmentRef & { available?: boolean })[];
   projects: ProjectOption[];
   selectedSkillIds: string[];
   expertId: string;
 }) {
   const [query, setQuery] = useState("");
-  const [toast, setToast] = useState("");
   const rootRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!open) {
-      setToast("");
       setQuery("");
       return;
     }
@@ -109,8 +101,9 @@ export default function PlusMenu({
     };
 
     const next: PlusGroup[] = [];
-    // 分组顺序由所有者在 2026-09-23 定下：文件 / 技能 / 知识库 / 数字员工 / 连接器 / 项目。
+    // 分组顺序由所有者在 2026-09-23 定下：文件 / 技能 / 知识库 / 数字员工 / 项目。
     // 「文件」= 上传入口 + 最近的文件（没有单独的「添加」组）；Discovery 走 AI发现面，菜单不再放作业组。
+    // 连接器分组随员工连接器使用面退役（ADR-2026-09-27「对外只暴露技能」）一并删除。
     next.push({
       id: "files",
       label: "文件",
@@ -170,28 +163,6 @@ export default function PlusMenu({
         run: () => onPickExpert(row.id),
       })),
     });
-    if (connectors.length) {
-      next.push({
-        id: "connectors",
-        label: "连接器",
-        rows: connectors.map((row) => ({
-          key: `connector:${row.id}`,
-          icon: "connector" as MenuKind,
-          label: row.label,
-          hint: row.expired ? "已过期" : row.access === "read" ? "只读" : "已授权",
-          attrs: { "data-connector-expired": row.expired ? "true" : "false" },
-          // 过期的连接器不静默禁用：给出原因 + 去连接器页的恢复入口（面板保持打开）。
-          keepOpen: row.expired,
-          run: () => {
-            if (!row.expired) {
-              onPickConnector(row);
-              return;
-            }
-            setToast("连接器已过期，请到连接器页处理。");
-          },
-        })),
-      });
-    }
     if (projects.length) {
       next.push({
         id: "projects",
@@ -208,10 +179,8 @@ export default function PlusMenu({
     }
     return next;
   }, [
-    connectors,
     expertId,
     knowledgeLibs,
-    onPickConnector,
     onPickExpert,
     onPickKb,
     onPickProject,
@@ -243,7 +212,7 @@ export default function PlusMenu({
 
   const choose = (row: PlusRow) => {
     if (row.disabled) return;
-    if (!row.keepOpen) onClose();
+    onClose();
     row.run();
   };
 
@@ -286,12 +255,6 @@ export default function PlusMenu({
         }
       }}
     >
-      {toast ? (
-        <p className="composer-menu-toast" role="status" data-composer-menu-toast>
-          {toast}
-          <Link to="/connectors">去连接器</Link>
-        </p>
-      ) : null}
       <label className="composer-menu-search">
         <span className="sr-only">搜索可用条目</span>
         <input
@@ -365,7 +328,7 @@ function rowHaystack(row: PlusRow) {
   return `${row.label} ${row.hint || ""} ${row.badge || ""} ${row.extra || ""}`.toLowerCase();
 }
 
-type MenuKind = "upload" | "image" | "project" | "recent" | "skills" | "connector" | "kb" | "expert";
+type MenuKind = "upload" | "image" | "project" | "recent" | "skills" | "kb" | "expert";
 
 function MenuIcon({ kind }: { kind: MenuKind }) {
   const paths: Record<MenuKind, string> = {
@@ -374,7 +337,6 @@ function MenuIcon({ kind }: { kind: MenuKind }) {
     project: "M3.5 7.5h6l1.5 2h9v9a2 2 0 0 1-2 2H5.5a2 2 0 0 1-2-2zM3.5 7.5v-1a2 2 0 0 1 2-2h4",
     recent: "M5 6.5h11a2 2 0 0 1 2 2v11H7a2 2 0 0 1-2-2zm7 3v4l3 2",
     skills: "M5 5h5v5H5zm9 0h5v5h-5zM5 14h5v5H5zm9 0h5v5h-5z",
-    connector: "M7 4v4m-2-2h4m8 10v4m-2-2h4M9 6h4a4 4 0 0 1 4 4v6M15 18h-4a4 4 0 0 1-4-4v-4",
     kb: "M5 5.5A2.5 2.5 0 0 1 7.5 3H12v16H7.5A2.5 2.5 0 0 0 5 21.5z M19 5.5A2.5 2.5 0 0 0 16.5 3H13v16h3.5a2.5 2.5 0 0 1 2.5 2.5z",
     expert: "M12 7a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M5 21v-2a5 5 0 0 1 5-5h4a5 5 0 0 1 5 5v2",
   };

@@ -20,7 +20,6 @@ const SkillLifecycle = lazy(() => import("./pages/SkillLifecycle"));
 const Exam = lazy(() => import("./pages/Exam"));
 const Knowledge = lazy(() => import("./pages/Knowledge"));
 const AccountSettings = lazy(() => import("./pages/AccountSettings"));
-const ConnectorUse = lazy(() => import("./pages/ConnectorUse"));
 const AdminConsole = lazy(() => import("./pages/AdminConsole"));
 const SharedSession = lazy(() => import("./pages/SharedSession"));
 const SkillHub = lazy(() => import("./pages/SkillHub").then((m) => ({ default: m.SkillHub })));
@@ -60,7 +59,6 @@ export default function App() {
             <Route path="/approvals/:id" element={<Approvals />} />
             <Route path="/approvals" element={<Approvals />} />
             <Route path="/settings" element={<AccountSettings />} />
-            <Route path="/connectors" element={<ConnectorUse />} />
             <Route path="/admin/*" element={<AdminConsole />} />
           </Route>
         </Routes></Suspense></ViewModeProvider></AuthGate>} />

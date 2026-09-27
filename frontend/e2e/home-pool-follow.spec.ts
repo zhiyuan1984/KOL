@@ -25,6 +25,14 @@ const POOL_ITEM = {
   has_conversation: false,
 };
 
+/** 管理端知识库已发布的四个问题模板；前端只预填，不得写死问题文案。 */
+const QUESTION_TEMPLATES = [
+  { slot: "potential", knowledge_id: "kb_q_pool_potential", published_version: 1, title: "公海 · 高潜KOL分析提问模板", body: "请基于公开资料分析这些 KOL 的合作潜力，逐条说明判断依据与资料缺口。", placeholders: [], starter: "公海 · 高潜KOL分析提问模板" },
+  { slot: "risk", knowledge_id: "kb_q_pool_risk", published_version: 1, title: "公海 · 高风险KOL分析提问模板", body: "请基于公开资料分析这些 KOL 的合作风险，逐条说明判断依据与资料缺口。", placeholders: [], starter: "公海 · 高风险KOL分析提问模板" },
+  { slot: "completeness", knowledge_id: "kb_q_pool_completeness", published_version: 1, title: "公海 · 资料完整度检查提问模板", body: "请检查这些 KOL 的公开资料完整度，列出待补充项与补齐来源。", placeholders: [], starter: "公海 · 资料完整度检查提问模板" },
+  { slot: "score", knowledge_id: "kb_q_pool_score", published_version: 1, title: "公海 · KOL评分提问模板", body: "请对这些 KOL 的公开资料做潜力/风险评分，说明口径、依据与置信度。", placeholders: [], starter: "公海 · KOL评分提问模板" },
+];
+
 /** 已有邮件会话 + 有负责人 = 已建联且有主，前后端都必须过滤掉。 */
 const POOL_CONTACTED_ITEM = {
   ...POOL_ITEM,
@@ -111,6 +119,10 @@ async function stubKol172(page: Page) {
         kols: [POOL_ITEM, POOL_CONTACTED_ITEM, POOL_UNOWNED_ITEM],
       },
     });
+  });
+  await page.route("**/api/knowledge/question-templates", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    await route.fulfill({ json: QUESTION_TEMPLATES });
   });
   await page.route("**/api/home/following", async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
@@ -263,7 +275,7 @@ test("public pool restores the central interaction and uses a structured right r
   const list = workspace.locator("[data-pool-focus-list]");
   const row = workspace.locator("[data-pool-card]").first();
   await expect(center).toBeVisible();
-  await expect(center).toContainText("公海对象 2");
+  await expect(center).toContainText("公海现有KOL共2位供你选择");
   await expect(center.locator("[data-pool-analysis-actions]")).toBeVisible();
   await expect(center.locator("[data-pool-analysis]")).toHaveCount(3);
   await expect(center.locator("[data-pool-jev-assess]")).toHaveText("KOL评分");
@@ -291,6 +303,18 @@ test("public pool restores the central interaction and uses a structured right r
   await expect(workspace.locator("[data-pool-overview]")).not.toContainText("公开对象池");
   await expect(workspace.locator("[data-pool-reason]")).toHaveCount(0);
   await expect(row.locator(".pool-profile-link")).toHaveText("主页");
+  // 右栏工具两行：第一行搜索 + 筛选 + 排序，第二行以「全选」打头。
+  await expect(rail.locator("[data-pool-toolbar-row='primary']")).toBeVisible();
+  await expect(rail.locator("[data-pool-toolbar-row='secondary'] [data-pool-select-all]")).toBeVisible();
+  await expect(rail.locator("[data-pool-toolbar-row='secondary'] > :first-child")).toHaveClass(/pool-select-all/);
+  await expect(rail.locator("[data-pool-toolbar-row='primary'] [data-pool-search]")).toBeVisible();
+  const searchBox = await workspace.locator("[data-pool-search]").boundingBox();
+  // 宽度比改动前（~144px）缩短约三分之一；高度必须仍是控件档 28px。
+  expect(searchBox?.width).toBeLessThanOrEqual(110);
+  // 评分显示落在「主页 + 外链图标」之后；无评分卡片给出提示与评分入口。
+  const scoredRow = page.locator("[data-pool-kol='uid_outdoor']");
+  await expect(scoredRow.locator(".pool-row-meta .pool-profile-link + [data-pool-score='missing']")).toHaveCount(1);
+  await expect(page.locator("[data-pool-score-kol]").first()).toBeVisible();
   expect((await workspace.locator("[data-pool-search]").boundingBox())?.height).toBe(28);
   expect((await workspace.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").boundingBox())?.height).toBe(32);
 });
@@ -374,9 +398,17 @@ test("pool KOL scoring uses the existing Jev endpoint and refreshes public signa
 
   await page.goto("/?tab=pool");
   await page.locator("[data-pool-jev-assess]").click();
+  // 点击只预填知识库评分模板；不得跳过员工确认直接调用评分接口。
+  const input = page.locator("[data-home] [data-composer-input]");
+  await expect(input).toHaveValue(/评分/);
+  expect(posts.map((item) => item.path)).not.toContain("/api/home/pool/jev-assess");
+  await expect(page.locator("[data-pool-score-confirm]")).toBeVisible();
+  await page.locator("[data-pool-score-execute]").click();
   await expect.poll(() => posts.map((item) => item.path)).toContain("/api/home/pool/jev-assess");
   await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-jev-potential]")).toHaveText("高潜 85");
   await expect(page.locator("[data-pool-kol='uid_outdoor'] [data-jev-risk]")).toHaveText("高风险 85");
+  // 评分显示落在「主页 + 外链图标」之后，而不是只在名称旁。
+  await expect(page.locator("[data-pool-kol='uid_outdoor'] .pool-profile-link + [data-pool-score='potential']")).toHaveText("评分 85");
   await expect(page.locator("[data-home-pane='pool']")).not.toContainText("补头像");
   await expect(page.locator("[data-home-pane='pool']")).not.toContainText("清理无主页");
 });

@@ -549,6 +549,23 @@ export function getSkillTool(skillId: string, connectorId: string, toolName: str
   return row ? asRow(row) : undefined;
 }
 
+/**
+ * Enable gate for connectors: a connector is "in use" when an enabled
+ * Skill→Connector binding mounts at least one enabled Skill→Tool binding of
+ * that connector. Per-person connector authorization is retired
+ * (DECISIONS.md ADR-2026-09-27「对外只暴露技能」).
+ */
+export function connectorInUseBySkill(connectorId: string): boolean {
+  const connector = assertIdentifier(connectorId, "connector_id");
+  ensureRuntimeSchema();
+  const row = getConn().prepare(
+    `SELECT 1 FROM runtime_skill_tools t
+       JOIN runtime_skill_connectors c ON c.skill_id=t.skill_id AND c.connector_id=t.connector_id
+      WHERE t.connector_id=? AND t.enabled=1 AND c.enabled=1 LIMIT 1`,
+  ).get(connector);
+  return Boolean(row);
+}
+
 export function getConnectorConfig(id: string): { config: ConnectorConfig; version: number } | undefined {
   const connectorId = assertIdentifier(id, "connector_id");
   assertRuntimeConnectorExists(connectorId);

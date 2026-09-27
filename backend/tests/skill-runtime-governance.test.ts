@@ -250,8 +250,6 @@ describe("skill runtime governance", () => {
       .run("usr_runtime_employee", "creator_profile", "now");
     let result = await request("GET", "/api/agents/agent:creator/capabilities", undefined, employeeCookie);
     expect(result.body.capabilities).toEqual([expect.objectContaining({ skill_id: "creator_profile", unavailable_resources: 1, live_verified: false })]);
-    getConn().prepare("INSERT INTO user_connector_grants(user_id,connector_id,access,created_at) VALUES(?,?,?,?)")
-      .run("usr_runtime_employee", "runtime_mcp", "read", "now");
     const policy = await request("PUT", "/api/admin/runtime/connectors/runtime_mcp/tools/lookup", {
       enabled: true, risk: "L1", access: "read", schema_hash: hash, expected_version: 0,
     });

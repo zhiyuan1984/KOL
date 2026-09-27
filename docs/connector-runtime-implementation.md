@@ -31,6 +31,7 @@
   - 先挂载连接器，再逐项勾选已审批工具。
   - 新发现的工具不继承旧 Skill 权限。
   - 撤销单个工具会使已经发现的运行句柄在实际网络提交前失效。
+  - 本节的挂载与撤权都是管理员内核动作（`runtime_skill_connectors` / `runtime_skill_tools` 绑定）；人员授权唯一单位是技能，连接器与工具不按人授权（[DECISIONS.md](DECISIONS.md) ADR-2026-09-27「对外只暴露技能」）。
 - 连接器详情新增 **凭据保险库**：
   - `organization_secret` 与明确归属的 `user_account` 两种记录。
   - 秘密写入时使用 AES-256-GCM 加密，管理端和 API 只返回元数据及引用 ID。
@@ -42,7 +43,7 @@
 
 配置只提供受控端点和凭据引用；Runtime 在每次发现、调用前复查：
 
-- 当前用户、Agent→Skill、Skill→Connector、用户→Connector 授权；
+- 当前用户持有该技能（`user_skill_grants`）、Agent→Skill 绑定、Skill→Connector 绑定；连接器与工具不按人授权（[DECISIONS.md](DECISIONS.md) ADR-2026-09-27「对外只暴露技能」）；
 - 工具策略、工具 Schema 指纹、Skill→Tool 挂载版本；
 - 连接器启停、凭据引用和连接配置版本。
 
@@ -116,4 +117,4 @@ cd frontend && E2E_MODE=stub E2E_SKIP_BUILD=1 \
   --grep "admin console uses a left sidebar" --project=chromium
 ```
 
-专项用例覆盖 HTTP 实际调用、OpenAPI YAML 预览、逐工具撤权、个人账号精确选择、凭据不可回显、Schema 与路径校验、协议出口保护，以及真实 MCP Runtime Proxy 回归。
+专项用例覆盖 HTTP 实际调用、OpenAPI YAML 预览、逐工具撤权（内核绑定撤销，不是按人授权）、个人账号精确选择、凭据不可回显、Schema 与路径校验、协议出口保护，以及真实 MCP Runtime Proxy 回归。

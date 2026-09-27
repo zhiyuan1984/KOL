@@ -53,9 +53,19 @@ function PoolAvatar({ card }: { card: PoolKol }) {
   return <span className="pool-row-avatar" data-kol-avatar="fallback" aria-hidden>{name.slice(0, 1) || "红"}</span>;
 }
 
-function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, onSelect, onClaim, onConfirm, onCancel }: {
+/** 已有评分取潜力分；与名称旁的「高潜/高风险」徽章并存，二者语义不同。 */
+function PoolScore({ card }: { card: PoolKol }) {
+  const raw = card.assessment?.potential_score;
+  if (raw == null || Number.isNaN(Number(raw))) return null;
+  const confidence = Math.round(Number(card.assessment?.potential_confidence || 0) * 100);
+  const at = card.assessment?.assessed_at ? new Date(card.assessment.assessed_at) : null;
+  const atLabel = at && !Number.isNaN(at.getTime()) ? ` · 评估于 ${at.toLocaleDateString("zh-CN")}` : "";
+  return <span className="pool-row-score" data-pool-score="potential" title={`Jev 公开资料评估 · 置信度 ${confidence}%${atLabel}`}>评分 {raw}</span>;
+}
+
+function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, scoreReady, onSelect, onClaim, onConfirm, onCancel, onScore }: {
   card: PoolKol; selected: boolean; claimBusy: boolean; claimTarget: boolean; claimError?: string | null;
-  claimed: boolean; onSelect: (on: boolean) => void; onClaim: () => void; onConfirm: () => void; onCancel: () => void;
+  claimed: boolean; scoreReady: boolean; onSelect: (on: boolean) => void; onClaim: () => void; onConfirm: () => void; onCancel: () => void; onScore: () => void;
 }) {
   const intro = [card.direction, card.style].filter(Boolean).join(" · ") || card.region;
   const metrics: PoolMetric[] = [
@@ -78,6 +88,11 @@ function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, 
       <div className="pool-row-meta" data-kol-scope>
         {card.identity.platform && <span data-kol-chip="platform">{card.identity.platform}</span>}<span>在库</span>
         {card.identity.profile_url && <a className="pool-profile-link" href={card.identity.profile_url} target="_blank" rel="noopener noreferrer" aria-label={`打开 ${card.identity.display} 的平台主页`} title={`打开 ${card.identity.display} 的平台主页`}>主页 <ExternalLinkIcon /></a>}
+        <PoolScore card={card} />
+        {card.assessment?.potential_score == null && <>
+          <span className="pool-row-score is-missing" data-pool-score="missing">未评分</span>
+          {scoreReady && <button type="button" className="pool-score-entry" data-pool-score-kol={card.kol_uid} data-home-entry="score-kol" onClick={onScore}>KOL评分</button>}
+        </>}
       </div>
       <div className="pool-row-facts">
         <span className="pool-row-metrics" data-pool-metrics>{metrics.length ? metrics.map((metric) => <span key={metric.key} data-pool-metric={metric.key}><FactIcon type={metric.key} />{metric.label} <b>{metric.value}</b></span>) : <span className="pool-row-missing-data">公开指标待补充</span>}</span>
@@ -100,11 +115,12 @@ function SortButton({ field, label, sort, onToggle }: { field: PoolSortField; la
   </button>;
 }
 
-export default function PoolPane({ cards, totalCount, isFiltered, selectedIds, query, filter, sort, down, claimBusyId, claimTarget, claimError, claimedId, libraryCount, syncBusy, syncError, undoAvailable, undoBusy, undoError, onQuery, onFilter, onToggleSort, onToggleSelect, onToggleSelectAll, onSyncLibrary, onClaim, onConfirmClaim, onCancelClaim, onUndoClaim }: {
+export default function PoolPane({ cards, totalCount, isFiltered, selectedIds, query, filter, sort, down, claimBusyId, claimTarget, claimError, claimedId, libraryCount, syncBusy, syncError, undoAvailable, undoBusy, undoError, scoreReady, onQuery, onFilter, onToggleSort, onToggleSelect, onToggleSelectAll, onSyncLibrary, onClaim, onConfirmClaim, onCancelClaim, onUndoClaim, onScoreKol }: {
   cards: PoolKol[]; totalCount: number; isFiltered: boolean; selectedIds: string[]; query: string; filter: PoolFilter; sort: PoolSort; down?: SurfaceDownView | null;
   claimBusyId?: string | null; claimTarget?: PoolKol | null; claimError?: string | null; claimedId?: string | null;
   libraryCount?: number | null; syncBusy?: boolean; syncError?: string | null; undoAvailable?: boolean; undoBusy?: boolean; undoError?: string | null;
-  onQuery: (value: string) => void; onFilter: (value: PoolFilter) => void; onToggleSort: (field: PoolSortField) => void; onToggleSelect: (id: string, on: boolean) => void; onToggleSelectAll: (ids: string[], on: boolean) => void; onSyncLibrary?: () => void; onClaim: (card: PoolKol) => void; onConfirmClaim: () => void; onCancelClaim: () => void; onUndoClaim?: () => void;
+  scoreReady?: boolean;
+  onQuery: (value: string) => void; onFilter: (value: PoolFilter) => void; onToggleSort: (field: PoolSortField) => void; onToggleSelect: (id: string, on: boolean) => void; onToggleSelectAll: (ids: string[], on: boolean) => void; onSyncLibrary?: () => void; onClaim: (card: PoolKol) => void; onConfirmClaim: () => void; onCancelClaim: () => void; onUndoClaim?: () => void; onScoreKol?: (kolUid: string) => void;
 }) {
   const [syncRequested, setSyncRequested] = useState(false);
   const queryDown = Boolean(down);
@@ -114,23 +130,27 @@ export default function PoolPane({ cards, totalCount, isFiltered, selectedIds, q
 
   return <section className="pool-compact-pane is-result-rail" data-pool-overview>
     <div className="pool-compact-toolbar" data-pool-toolbar data-home-entry="list-pool" aria-label="筛选与排序公海对象">
-      <label className="pool-search"><SearchIcon /><span className="sr-only">搜索公海对象</span>
-        <input type="search" data-pool-search value={query} placeholder="搜索" onChange={(event) => onQuery(event.target.value)} />
-      </label>
-      <button type="button" className="pool-filter-button" data-pool-filter="new" aria-pressed={filter === "new"}
-        onClick={() => onFilter(filter === "new" ? "all" : "new")}>未首次建联</button>
-      <button type="button" className="pool-filter-button" data-pool-filter="overdue" aria-pressed={filter === "overdue"}
-        onClick={() => onFilter(filter === "overdue" ? "all" : "overdue")}>14天未联系</button>
-      <SortButton field="ingested" label="入库时间" sort={sort} onToggle={onToggleSort} />
-      <SortButton field="followers" label="粉丝数" sort={sort} onToggle={onToggleSort} />
-      <SortButton field="score" label="评分" sort={sort} onToggle={onToggleSort} />
-      <label className="pool-select-all" title="全选当前筛选结果"><input type="checkbox" data-pool-select-all
-        checked={selectAllChecked(cards.length, selectedVisibleIds.length)} disabled={!cards.length}
-        onChange={(event) => onToggleSelectAll(visibleIds, event.target.checked)} /><span>全选</span></label>
+      <div className="pool-toolbar-row is-primary" data-pool-toolbar-row="primary">
+        <label className="pool-search"><SearchIcon /><span className="sr-only">搜索公海对象</span>
+          <input type="search" data-pool-search value={query} placeholder="搜索" onChange={(event) => onQuery(event.target.value)} />
+        </label>
+        <button type="button" className="pool-filter-button" data-pool-filter="new" aria-pressed={filter === "new"}
+          onClick={() => onFilter(filter === "new" ? "all" : "new")}>未首次建联</button>
+        <button type="button" className="pool-filter-button" data-pool-filter="overdue" aria-pressed={filter === "overdue"}
+          onClick={() => onFilter(filter === "overdue" ? "all" : "overdue")}>14天未联系</button>
+        <SortButton field="ingested" label="入库时间" sort={sort} onToggle={onToggleSort} />
+        <SortButton field="followers" label="粉丝数" sort={sort} onToggle={onToggleSort} />
+        <SortButton field="score" label="评分" sort={sort} onToggle={onToggleSort} />
+      </div>
+      <div className="pool-toolbar-row is-secondary" data-pool-toolbar-row="secondary">
+        <label className="pool-select-all" title="全选当前筛选结果"><input type="checkbox" data-pool-select-all
+          checked={selectAllChecked(cards.length, selectedVisibleIds.length)} disabled={!cards.length}
+          onChange={(event) => onToggleSelectAll(visibleIds, event.target.checked)} /><span>全选</span></label>
+      </div>
     </div>
     {undoAvailable && <div className="pool-claim-undo" role="status" data-pool-claim-undo><span>已领取</span><span aria-hidden>·</span><button type="button" data-pool-claim-undo-button data-home-entry="release-follow" disabled={undoBusy} onClick={onUndoClaim}>{undoBusy ? "正在撤销…" : "撤销"}</button>{undoError && <span className="pool-claim-undo-error" role="alert">{undoError}</span>}</div>}
     {cards.length ? <div className="pool-compact-list" data-pool-list data-pool-focus-list data-pool-origin="public">
-      {cards.map((card) => <PoolRow key={card.kol_uid} card={card} selected={selectedIds.includes(card.kol_uid)} claimBusy={claimBusyId === card.kol_uid} claimTarget={claimTarget?.kol_uid === card.kol_uid} claimError={claimError} claimed={claimedId === card.kol_uid} onSelect={(on) => onToggleSelect(card.kol_uid, on)} onClaim={() => onClaim(card)} onConfirm={onConfirmClaim} onCancel={onCancelClaim} />)}
+      {cards.map((card) => <PoolRow key={card.kol_uid} card={card} selected={selectedIds.includes(card.kol_uid)} claimBusy={claimBusyId === card.kol_uid} claimTarget={claimTarget?.kol_uid === card.kol_uid} claimError={claimError} claimed={claimedId === card.kol_uid} scoreReady={Boolean(scoreReady)} onSelect={(on) => onToggleSelect(card.kol_uid, on)} onClaim={() => onClaim(card)} onConfirm={onConfirmClaim} onCancel={onCancelClaim} onScore={() => onScoreKol?.(card.kol_uid)} />)}
     </div> : <div className="task-empty" data-pool-empty={queryDown ? "down" : totalCount || isFiltered ? "filtered" : "none"} data-empty-kind={queryDown ? "service-down" : totalCount || isFiltered ? "filter-empty" : "no-data"}>
       <strong>{queryDown ? "公海暂时不可用" : totalCount || isFiltered ? "当前范围没有匹配的公海对象" : libraryUnsynced ? syncRequested ? "已请求同步红人库" : "红人库还没有同步" : "公海暂无可领取对象"}</strong>
       {queryDown && down ? <><p className="muted" data-pool-down-reason title={down.detail || undefined}>{down.message}</p><div className="task-empty-actions"><button type="button" className="btn ghost sm" data-pool-retry disabled={down.retrying} onClick={down.onRetry}>重试</button><button type="button" className="btn work sm" data-pool-handoff-agent data-home-entry="composer-analyze" onClick={down.onHandoff}>{HOME_HANDOFF_TO_AGENT}</button></div></> : !totalCount && !queryDown ? <div className="task-empty-actions"><button type="button" className="btn work sm" data-pool-sync-library data-home-entry="sync-pool-library" disabled={!onSyncLibrary || syncBusy} onClick={() => { setSyncRequested(true); onSyncLibrary?.(); }}>{syncBusy ? "正在同步红人库…" : syncRequested ? "重新同步红人库" : "立即同步红人库"}</button>{syncError && <p className="pool-sync-error" role="alert">{syncError}</p>}</div> : null}

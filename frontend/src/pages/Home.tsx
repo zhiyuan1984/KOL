@@ -5,6 +5,7 @@ import {
   type FromTextResult,
   type HomeWorkbench,
   type KnowledgeRow,
+  type QuestionTemplateRow,
   type RecommendedTask,
   type StarryBinding,
   type Task,
@@ -35,7 +36,11 @@ import type { WorkspacePane } from "../home/WorkspaceShell";
 import FollowedPane from "../home/FollowedPane";
 import FollowedInteraction from "../home/FollowedInteraction";
 import { matchesFollowedSituation, type FollowedSituation } from "../home/FollowedBrief";
-import PoolInteraction, { type PoolAnalysisKind } from "../home/PoolInteraction";
+import PoolInteraction, {
+  QUESTION_TEMPLATE_MISSING_COPY,
+  type PoolAnalysisKind,
+  type PoolScoreConfirm,
+} from "../home/PoolInteraction";
 import PoolPane from "../home/PoolPane";
 import ReleaseFollowConfirm from "../home/ReleaseFollowConfirm";
 import { FollowedBatchConfirm } from "../home/FollowedBatchConfirm";
@@ -85,6 +90,7 @@ import {
   followKolToRecord,
   isAnalyzePrefill,
   KOL_SELECT_MAX,
+  poolAnalysisPrefill,
   selectAllMax8,
   toggleSelectMax8,
   type KolSurface,
@@ -271,6 +277,9 @@ export default function Home() {
   const [analyzeSurface, setAnalyzeSurface] = useState<KolSurface | null>(null);
   const [analyzeUids, setAnalyzeUids] = useState<string[]>([]);
   const [queuedNotice, setQueuedNotice] = useState("");
+  const [poolTemplates, setPoolTemplates] = useState<Partial<Record<PoolAnalysisKind, QuestionTemplateRow>>>({});
+  const [poolTemplateNotice, setPoolTemplateNotice] = useState("");
+  const [scoreConfirm, setScoreConfirm] = useState<PoolScoreConfirm | null>(null);
   const [boardWorkbench, setBoardWorkbench] = useState<HomeWorkbench | null>(null);
   const [libraryCount, setLibraryCount] = useState<number | null>(null);
   const [followScope, setFollowScope] = useState<StarryBinding | null>(null);
@@ -708,6 +717,20 @@ export default function Home() {
   });
   poolSetErrorRef.current = poolWorkspace.setError;
 
+  /** 四个入口的可点击状态由知识库模板决定，而不是由写死文案决定。 */
+  const poolTemplateState = useMemo(() => {
+    const slot = (kind: PoolAnalysisKind) => ({
+      ready: Boolean(String(poolTemplates[kind]?.body || "").trim()),
+      title: poolTemplates[kind]?.title || "",
+    });
+    return {
+      potential: slot("potential"),
+      risk: slot("risk"),
+      completeness: slot("completeness"),
+      score: slot("score"),
+    };
+  }, [poolTemplates]);
+
   /** 重试只重发这一面的读取，不切 Tab、不写会话。 */
   const retrySurface = async (surface: HomeSurface) => {
     setRetryingSurface(surface);
@@ -975,20 +998,56 @@ export default function Home() {
     applyPoolSelection(next);
   };
 
-  const startPoolAnalysis = (kind: PoolAnalysisKind) => {
-    const selected = poolWorkspace.cards.filter((card) => selectedKolIds.includes(card.kol_uid));
-    if (!selected.length) return;
-    const instruction: Record<PoolAnalysisKind, string> = {
-      potential: "请基于公开资料分析这些 KOL 的合作潜力，并说明依据与缺口。",
-      risk: "请基于公开资料分析这些 KOL 的合作风险，并说明依据与缺口。",
-      completeness: "请检查这些 KOL 的公开资料完整度，列出待补充项。",
-    };
+  const poolTemplateBody = (kind: PoolAnalysisKind): string => String(poolTemplates[kind]?.body || "").trim();
+
+  /**
+   * 四个入口只预填空草稿：名单 + 知识库模板正文，绝不提交或执行。
+   * 模板缺失时禁用入口并如实提示，不回落成写死的问题（CONST-09/10）。
+   */
+  const prefillPoolQuestion = (kind: PoolAnalysisKind, targets: string[]): boolean => {
+    const body = poolTemplateBody(kind);
+    if (!body) {
+      setPoolTemplateNotice(QUESTION_TEMPLATE_MISSING_COPY);
+      return false;
+    }
+    const cards = poolWorkspace.cards.filter((card) => targets.includes(card.kol_uid));
+    setPoolTemplateNotice("");
     setAnalyzeSurface("pool");
-    setAnalyzeUids(selected.map((card) => card.kol_uid));
-    setText(`${analyzePrefillPrompt(selected, "pool")}\n${instruction[kind]}`);
+    setAnalyzeUids(targets);
+    setText(poolAnalysisPrefill(cards, "pool", body));
     setComposerFocused(true);
     setDraftFocus((value) => value + 1);
     setQueuedNotice("");
+    return true;
+  };
+
+  const startPoolAnalysis = (kind: PoolAnalysisKind) => {
+    const selected = selectedKolIds.filter((id) => poolWorkspace.cards.some((card) => card.kol_uid === id));
+    if (kind !== "score" && !selected.length) return;
+    if (!prefillPoolQuestion(kind, selected)) return;
+    if (kind === "score") setScoreConfirm({ busy: false, count: selected.length, error: null });
+  };
+
+  /** 单卡评分入口：先填模板，再让员工在确认条里决定是否执行。 */
+  const requestScoreKol = (kolUid: string) => {
+    if (!prefillPoolQuestion("score", [kolUid])) return;
+    setScoreConfirm({ busy: false, count: 1, error: null });
+  };
+
+  const confirmPoolScore = async () => {
+    const targets = analyzeUids;
+    setScoreConfirm({ busy: true, count: targets.length, error: null });
+    try {
+      await poolWorkspace.assessWithJev(targets.length ? targets : undefined);
+      setScoreConfirm(null);
+    } catch (cause) {
+      setScoreConfirm({ busy: false, count: targets.length, error: cause instanceof Error ? cause.message : "KOL评分失败" });
+    }
+  };
+
+  const cancelPoolScore = () => {
+    if (scoreConfirm?.busy) return;
+    setScoreConfirm(null);
   };
 
   const mergeCatalogTask = (updated: Task) => {
@@ -1129,6 +1188,24 @@ export default function Home() {
   useEffect(() => {
     if (mode !== "pool") return;
     void poolWorkspace.ensureLoaded();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  useEffect(() => {
+    let alive = true;
+    // 只读已发布的问题模板（memory 入口，零会话零模型）；缺失时入口禁用并如实提示。
+    api.questionTemplates()
+      .then((rows) => {
+        if (!alive) return;
+        const next: Partial<Record<PoolAnalysisKind, QuestionTemplateRow>> = {};
+        for (const row of rows || []) {
+          if (!(["potential", "risk", "completeness", "score"] as const).includes(row.slot as PoolAnalysisKind)) continue;
+          next[row.slot as PoolAnalysisKind] = row;
+        }
+        setPoolTemplates(next);
+      })
+      .catch(() => { if (alive) setPoolTemplates({}); });
+    return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
@@ -2107,8 +2184,12 @@ export default function Home() {
                   maintenanceNotice={poolWorkspace.maintenanceNotice}
                   maintenanceError={poolWorkspace.maintenanceError}
                   interaction={interactionFeedback}
+                  templates={poolTemplateState}
+                  templateNotice={poolTemplateNotice}
+                  scoreConfirm={scoreConfirm}
                   onAnalyze={startPoolAnalysis}
-                  onAssessWithJev={() => void poolWorkspace.assessWithJev()}
+                  onConfirmScore={() => void confirmPoolScore()}
+                  onCancelScore={cancelPoolScore}
                 />
               )}
               centerFooter={renderComposerDock()}
@@ -2138,6 +2219,8 @@ export default function Home() {
                   onToggleSelect={toggleSelectedPool}
                   onToggleSelectAll={toggleSelectAllPool}
                   onSyncLibrary={() => void poolWorkspace.syncLibrary()}
+                  scoreReady={poolTemplateState.score.ready}
+                  onScoreKol={requestScoreKol}
                   onClaim={poolWorkspace.requestClaim}
                   onConfirmClaim={() => void poolWorkspace.confirmClaim()}
                   onCancelClaim={poolWorkspace.cancelClaim}

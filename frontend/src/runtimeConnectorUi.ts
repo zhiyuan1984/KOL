@@ -36,16 +36,6 @@ export type RuntimeConnectorConfig = {
   http_tools?: RuntimeHttpTool[];
 };
 
-export type RuntimeConnectorScopeMode = "unset" | "all" | "selected";
-export type RuntimeConnectorScopeBinding = { node_id: string; access: "read" | "write" };
-export type RuntimeConnectorScopeSnapshot = {
-  connector_id: string;
-  mode: RuntimeConnectorScopeMode;
-  updated_by: string | null;
-  updated_at: string | null;
-  bindings: RuntimeConnectorScopeBinding[];
-  coverage: { users: number; read: number; write: number };
-};
 
 export type McpImportServerPreview = {
   id: string;
@@ -229,7 +219,56 @@ export function versionConflictMessage(error: unknown): string | null {
   return null;
 }
 
+/**
+ * Server answers for the credential vault. A missing or unusable
+ * RUNTIME_CREDENTIAL_MASTER_KEY is a server configuration problem, so the
+ * reason and the recovery must reach the administrator instead of a bare 503.
+ */
+const CREDENTIAL_VAULT_CODES = new Set([
+  "runtime_credential_master_key_unavailable",
+  "runtime_credential_master_key_invalid",
+  "runtime_credential_decryption_failed",
+  "runtime_credential_unavailable",
+  "runtime_credential_provider_unavailable",
+]);
+
+const CREDENTIAL_VAULT_MESSAGE = "服务端未配置或无法使用凭据保险库主密钥（RUNTIME_CREDENTIAL_MASTER_KEY），"
+  + "明文密钥无法写入安全存储，本次操作被拒绝（HTTP 503）。请在服务器补上主密钥（openssl rand -hex 32 写入 .env）并重启服务后重试；"
+  + "若该端点确实公开，也可以勾选「该端点明确允许无鉴权」先保存草稿。";
+
+/** First error code carried by the API payload (`{detail:{code}}` or a stringified JSON body). */
+function errorPayloadCode(error: unknown): string {
+  const payload = (error as { payload?: unknown } | null)?.payload;
+  const queue: unknown[] = [payload, (payload as { detail?: unknown } | null)?.detail];
+  while (queue.length) {
+    const candidate = queue.shift();
+    if (typeof candidate === "string") {
+      try {
+        const parsed: unknown = JSON.parse(candidate);
+        queue.push(parsed, (parsed as { detail?: unknown } | null)?.detail);
+      } catch {
+        // A plain message, not an error code carrier.
+      }
+      continue;
+    }
+    if (!candidate || typeof candidate !== "object") continue;
+    const record = candidate as { code?: unknown; error_code?: unknown };
+    if (typeof record.code === "string" && record.code) return record.code;
+    if (typeof record.error_code === "string" && record.error_code) return record.error_code;
+  }
+  return "";
+}
+
+/** The plain-language reason when the vault itself is unavailable; null for every other failure. */
+export function credentialVaultMessage(error: unknown): string | null {
+  if ((error as { status?: unknown } | null)?.status !== 503) return null;
+  const code = errorPayloadCode(error);
+  return code && CREDENTIAL_VAULT_CODES.has(code) ? CREDENTIAL_VAULT_MESSAGE : null;
+}
+
 export function errorMessage(error: unknown, fallback: string): string {
+  const vault = credentialVaultMessage(error);
+  if (vault) return vault;
   const message = error instanceof Error && error.message ? error.message.trim() : "";
   if (!message) return fallback;
   if (/the user aborted a request|aborterror|request aborted/i.test(message)) {

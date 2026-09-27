@@ -1,6 +1,8 @@
 import { serve } from "@hono/node-server";
 import { createApp } from "./app.js";
+import { authDisabled } from "./auth.js";
 import { failStuckPlans } from "./host/today-brief.js";
+import { credentialVaultReady } from "./runtime/credentials.js";
 import { startStarryHomeLibrarySync } from "./starrykol/library-sync.js";
 import { startFollowedMailSync } from "./starrykol/mail-sync.js";
 
@@ -12,6 +14,12 @@ const port = Number(process.env.LINGONG_PORT || "8765");
 const stuck = failStuckPlans("Host 重启时该规划仍在运行");
 if (stuck.length) {
   console.warn(`未完成的规划运行已标记失败：${stuck.join("、")}`);
+}
+
+// The credential vault is optional for read-only deployments, but without it
+// every "save a connector secret" answers 503; say so once at boot.
+if (!authDisabled() && !credentialVaultReady()) {
+  console.warn("未配置 RUNTIME_CREDENTIAL_MASTER_KEY（或格式无效）：凭据保险库不可用，含密钥的连接器保存 / 测试 / 发现都会 503。");
 }
 
 const app = createApp();
