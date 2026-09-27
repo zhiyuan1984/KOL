@@ -156,7 +156,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, onSaved }:
       // The submitted secret must leave component state once written.
       setSecretRows((current) => current.map((row) => ({ ...row, value: "" })));
       await load();
-      setNotice("配置草稿已保存。保存不等于连通或启用；改动后需重新测试。");
+      setNotice("保存成功：配置草稿已更新（待验证，尚未连通或启用）；改动后需重新测试。");
       onSaved?.(savedVersion);
       reload();
     } catch (cause) {

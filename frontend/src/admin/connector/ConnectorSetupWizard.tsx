@@ -157,8 +157,8 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
       rememberSave(
         savedVersion,
         firstSave
-          ? `已保存为待验证草稿（配置版本 ${savedVersion}，当前未启用）；下一步测试。`
-          : `配置已更新（版本 ${savedVersion}）；改动后需重新测试才能启用。`,
+          ? `保存成功：已生成待验证草稿（配置版本 ${savedVersion}，当前未启用）；下一步测试。`
+          : `保存成功：配置已更新（版本 ${savedVersion}）；改动后需重新测试才能启用。`,
       );
     } catch (cause) {
       setError(versionConflictMessage(cause) || errorMessage(cause, "连接器未保存"));
@@ -181,11 +181,15 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
       setEnableBlocked("");
       setReceipt(`测试通过：发现 ${result.tool_count} 个工具。`);
       setStep("tools");
+      // 测试通过会把服务端状态改为「已验证」，列表立即刷新，卡片不必等关闭弹窗。
+      reload?.();
     } catch (cause) {
       const code = errorCodeOf(cause);
       setVerified(false);
       setTestedAt("");
       setError(credentialVaultMessage(cause) || friendlyProbeFailure(code));
+      // 失败的测试同样写入服务端状态（验证失败/最近错误），列表一并刷新。
+      reload?.();
     } finally {
       setBusy("");
     }
@@ -223,7 +227,10 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
     }
     // 只有本次会话真的保存过，才回执版本；否则只是关闭，不伪造状态。
     if (savedInSession) {
-      onDone(`“${card?.label || label.trim() || id}”为待验证状态（配置版本 ${version}）；尚未启用。`);
+      const name = card?.label || label.trim() || id;
+      onDone(verified
+        ? `“${name}”已通过测试（配置版本 ${version}）；尚未启用。`
+        : `“${name}”为待验证状态（配置版本 ${version}）；尚未启用。`);
       return;
     }
     onClose();
@@ -310,6 +317,12 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
       footer={stepFooter}
     >
       {dialog}
+      {/* 回执常驻对话框顶部：保存 / 测试 / 启用的结果先于步骤被看到。 */}
+      {receipt && (
+        <p className="admin-receipt status-ok connector-wizard-receipt" role="status" data-connector-wizard-receipt>
+          {receipt}
+        </p>
+      )}
       <ol className="connector-wizard-steps" data-connector-wizard-steps aria-label="连接器设置步骤">
         {STEPS.map((entry, index) => {
           const done = index < STEPS.findIndex((item) => item.id === step);
@@ -343,7 +356,6 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
         </p>
       )}
       {error && <p className="error" role="alert" data-connector-wizard-error>{error}</p>}
-      {receipt && <p className="runtime-notice" role="status" data-connector-wizard-receipt>{receipt}</p>}
 
       {step === "save" && (
       <section data-connector-wizard-step="save">
@@ -377,7 +389,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
             embedded
             onSaved={(savedVersion) => rememberSave(
               savedVersion,
-              `配置已更新（版本 ${savedVersion}）；改动后需重新测试才能启用。`,
+              `保存成功：配置已更新（版本 ${savedVersion}）；改动后需重新测试才能启用。`,
             )}
           />
         ) : null}

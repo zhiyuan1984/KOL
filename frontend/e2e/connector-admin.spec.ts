@@ -326,8 +326,9 @@ test("wizard: save → test → read-only tools → enable", async ({ page }) =>
   // 保存 / 配置写入 / 测试 / 发现由服务端负责；stub 模式的运行时写接口有鉴权闸门，
   // 这里用路由桩验证四步前端流程与只读约束，真实写入由 auth 用例覆盖。
   const probeNotice = "仅验证该身份的 MCP 工具目录，不代表业务动作或其他账号可用。";
+  let listReloads = 0;
   await page.route("**/api/admin/connectors", async (route) => {
-    if (route.request().method() !== "POST") return route.continue();
+    if (route.request().method() !== "POST") { listReloads += 1; return route.continue(); }
     await route.fulfill({ json: { ok: true } });
   });
   await page.route("**/api/admin/runtime/connectors/*/config", async (route) => {
@@ -372,12 +373,24 @@ test("wizard: save → test → read-only tools → enable", async ({ page }) =>
   await panel.locator("input[type='checkbox']").check();
   await panel.locator("[data-connector-wizard-primary]").click();
 
+  // 保存成功回显在对话框顶部（步骤条之前），并带「保存成功」字样。
+  const saveReceipt = panel.locator("[data-connector-wizard-receipt]");
+  await expect(saveReceipt).toContainText("保存成功");
+  expect(await panel.evaluate((el) => {
+    const receipt = el.querySelector("[data-connector-wizard-receipt]");
+    const steps = el.querySelector("[data-connector-wizard-steps]");
+    return Boolean(receipt && steps && (receipt.compareDocumentPosition(steps) & Node.DOCUMENT_POSITION_FOLLOWING));
+  })).toBe(true);
+
   // 第 2 步：测试。probe 的免责声明与结果都必须来自服务端。
   await expect(panel.locator("[data-connector-wizard-step='test']")).toBeVisible();
   await expect(panel.locator("[data-connector-wizard-status]")).toContainText("版本 1");
+  const reloadsBeforeProbe = listReloads;
   await panel.locator("[data-connector-wizard-test]").click();
   await expect(panel.locator("[data-connector-wizard-test-result]")).toContainText(probeNotice);
   await expect(panel.locator("[data-connector-wizard-test-result]")).toContainText("2 个工具");
+  // 测试通过会把服务端状态改为「已验证」：列表立即刷新，卡片不必等弹窗关闭。
+  await expect.poll(() => listReloads).toBeGreaterThan(reloadsBeforeProbe);
 
   // 第 3 步：工具清单只读——不预取，点击后才读取。
   await expect(panel.locator("[data-connector-wizard-step='tools']")).toBeVisible();

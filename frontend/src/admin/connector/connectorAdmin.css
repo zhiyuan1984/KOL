@@ -1738,6 +1738,11 @@
   color: var(--hint-text);
 }
 
+/* 保存 / 测试 / 启用回执固定在对话框顶部；与步骤条的间距由面板自身的 gap 提供。 */
+.connector-wizard-receipt {
+  margin: 0;
+}
+
 .connector-wizard-gates {
   margin: 0;
   padding-left: var(--space-4);
