@@ -158,7 +158,10 @@ describe("skill runtime governance", () => {
     const events = getConn().prepare(
       "SELECT event_type,payload FROM audit_events WHERE event_type LIKE 'runtime.%' ORDER BY id",
     ).all() as { event_type: string; payload: string }[];
-    const governanceEvents = events.filter((event) => event.event_type !== "runtime.workspace_planner.migrated");
+    const governanceEvents = events.filter((event) => ![
+      "runtime.workspace_planner.migrated",
+      "runtime.agent_manifest.migrated",
+    ].includes(event.event_type));
     expect(governanceEvents.map((event) => event.event_type)).toEqual([
       "runtime.binding.updated",
       "runtime.binding.updated",
@@ -177,6 +180,36 @@ describe("skill runtime governance", () => {
       expected_version: 0,
     }, employeeCookie);
     expect(mutation.status).toBe(403);
+  });
+
+  it("accepts a managed HTTP API definition and OpenAPI preview in production mode", async () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    try {
+      const config = await request("PUT", "/api/admin/runtime/connectors/runtime_mcp/config", {
+        protocol: "http",
+        url: "https://api.example.test",
+        allow_unauthenticated: true,
+        timeout_ms: 15_000,
+        http_tools: [{
+          name: "list_orders",
+          description: "List approved orders",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          method: "GET",
+          path: "/orders",
+        }],
+        expected_version: 0,
+      });
+      expect(config.status, JSON.stringify(config.body)).toBe(200);
+      expect(config.body).toMatchObject({ config: { protocol: "http", http_tools: [expect.objectContaining({ name: "list_orders" })] } });
+      const preview = await request("POST", "/api/admin/runtime/connectors/runtime_mcp/import-openapi", {
+        document: "openapi: 3.1.0\npaths:\n  /orders:\n    get:\n      operationId: listOrders\n",
+      });
+      expect(preview.status, JSON.stringify(preview.body)).toBe(200);
+      expect(preview.body).toMatchObject({ tools: [expect.objectContaining({ name: "listOrders", path: "/orders" })] });
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
   });
 
   it("preserves disabled tombstones and rejects stale versions without changing the row", async () => {

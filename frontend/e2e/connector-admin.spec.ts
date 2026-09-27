@@ -2,6 +2,7 @@ import { expect, test, type APIRequestContext } from "@playwright/test";
 
 const TEST_ID = "e2e-url-add";
 const IMPORT_ID = "e2e-json-import";
+const API_ID = "e2e-http-api";
 // Runtime governance writes refuse anonymous access outside NODE_ENV=test, so the
 // save flows only run against an auth-enabled E2E server. The stub suite keeps
 // the read/render and import coverage.
@@ -10,6 +11,7 @@ const AUTH_ENABLED = process.env.E2E_AUTH_MODE === "enabled";
 async function cleanup(request: APIRequestContext) {
   await request.delete(`/api/admin/connectors/${TEST_ID}`).catch(() => undefined);
   await request.delete(`/api/admin/connectors/${IMPORT_ID}`).catch(() => undefined);
+  await request.delete(`/api/admin/connectors/${API_ID}`).catch(() => undefined);
   const listed = await request.get("/api/admin/runtime/credentials").catch(() => null);
   if (!listed || !listed.ok()) return;
   const rows = (await listed.json()) as Array<{ id: string; label?: string; version: number }>;
@@ -76,7 +78,7 @@ test("connector hub renders, filters, opens the browse modal and the create menu
 
   await page.locator("[data-connector-create-toggle]").click();
   await expect(page.locator("[data-connector-create-menu]")).toBeVisible();
-  await expect(page.locator("[data-connector-create-item]")).toHaveCount(3);
+  await expect(page.locator("[data-connector-create-item]")).toHaveCount(4);
   await page.keyboard.press("Escape");
   await expect(page.locator("[data-connector-create-menu]")).toHaveCount(0);
 
@@ -273,6 +275,35 @@ test("URL add flow creates a pending connector with governance cards", async ({ 
   await page.locator("[data-connector-scope-save]").click();
   await expect(page.locator("[data-connector-scope] .runtime-notice")).toContainText("连接器级范围已保存");
   await expect(page.locator("[data-connector-scope-coverage]")).toContainText("预计覆盖");
+});
+
+test("HTTP API flow creates a draft and saves explicit actions without an MCP adapter", async ({ page }) => {
+  test.skip(!AUTH_ENABLED, "runtime governance writes require E2E_AUTH_MODE=enabled");
+  await page.goto("/admin/connectors");
+  await page.locator("[data-connector-create-toggle]").click();
+  await page.locator("[data-connector-create-item='api']").click();
+  await expect(page.locator("[data-connector-panel='api-config']")).toBeVisible();
+  await page.locator("[data-connector-panel='api-config'] [data-connector-field='label']").fill("E2E HTTP API");
+  await page.locator("[data-connector-panel='api-config'] [data-connector-field='id']").fill(API_ID);
+  await page.locator("[data-connector-panel='api-config'] [data-connector-field='url']").fill("https://api.e2e.example");
+  await page.locator("[data-connector-panel='api-config'] input[type='checkbox']").check();
+  await page.locator("[data-connector-panel='api-config'] [data-connector-panel-save]").click();
+  await expect(page.locator(`[data-connector-card][data-connector="${API_ID}"]`)).toBeVisible();
+
+  await page.goto(`/admin/connectors/${API_ID}`);
+  const config = page.locator("[data-connector-config-card]");
+  await config.locator("[data-connector-field='protocol']").selectOption("http");
+  await expect(config.locator("[data-connector-http-definition]")).toBeVisible();
+  await config.locator("[data-connector-http-tools]").fill(JSON.stringify([{
+    name: "list_orders",
+    description: "Read orders",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    method: "GET",
+    path: "/orders",
+  }]));
+  await config.locator("[data-connector-split-main='config-save']").click();
+  await expect(config.locator(".runtime-notice")).toContainText("配置草稿已保存");
+  await expect(page.locator(".connector-detail-hero")).toContainText("HTTP");
 });
 
 test("config form validates icons and keeps submitted secrets write-only", async ({ page, request }) => {

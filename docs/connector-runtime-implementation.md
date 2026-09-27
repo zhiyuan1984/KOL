@@ -24,6 +24,9 @@
   - MCP 读取 `tools/list`；HTTP 可手工定义动作或预览导入 OpenAPI 3.0/3.1 的 JSON/YAML 子集。
   - 工具不是发现后自动可用：管理员需要保存每一个 Schema 指纹、风险等级、访问级别与启用状态。
   - 保存、探针、审批、Skill 挂载四个状态分离展示；HTTP 探针只验证动作定义，绝不发出业务请求。
+- 连接器目录的“创建”菜单提供 **自定义 MCP** 和 **自定义 HTTP API** 两个入口：
+  - HTTP API 先保存 Base URL 与引用型凭据，再在详情粘贴 OpenAPI JSON/YAML，或编辑受限的动作 JSON；
+  - 选择 HTTP 不会生成任何供应商 Host 适配器，动作仍进入同一个审批、范围和 Skill 挂载闭环。
 - 技能生命周期详情新增 **工具挂载** 区：
   - 先挂载连接器，再逐项勾选已审批工具。
   - 新发现的工具不继承旧 Skill 权限。
@@ -85,6 +88,8 @@ HTTP 动作被编译为和 MCP 相同的工具形状：`name`、`description` �
 本期**没有删除或自动重写**既有的历史业务模块，例如 `backend/src/starrykol/service.ts`、`backend/src/kolclaw/service.ts`、`backend/src/crawl/service.ts` 和已有 Host/Gateway 正式动作。它们仍可能被旧工作流和测试 Stub 使用。
 
 新的实际 Codex Worker 路径只挂载 `skill_runtime` Proxy，MCP 和 HTTP 均由本实现的通用 Runtime 驱动；不再把供应商 URL 或凭据注入 Worker box。
+
+Worker 收到的 Skill 还会明确提示：只能调用 `skill_runtime` 当前列出的语义别名（例如 `rt_starrykol__pageKolProfiles_…`）。Skill 文档中的供应商或操作名称仅描述业务意图，不是可直连的 MCP 配置；缺少已挂载、已审批别名时必须如实报告不可用。
 
 要达到“整个产品没有历史 Host 专用外调主链”的最终状态，需要按连接器逐个完成以下迁移并通过等价验收后再删除旧模块：
 

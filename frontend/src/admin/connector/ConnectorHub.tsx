@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { governanceStatus, type AdminRow } from "../../adminGovernance";
 import { ConnectorConfigCard } from "./ConnectorConfigCard";
 import { ConnectorMark } from "./ConnectorMark";
-import { JsonImportPanel, McpConfigPanel, ModalShell, UrlAddPanel } from "./ConnectorPanels";
+import { ApiConfigPanel, JsonImportPanel, McpConfigPanel, ModalShell, UrlAddPanel } from "./ConnectorPanels";
 import { ConnectorToolsDrawer } from "./ConnectorToolsDrawer";
 import {
   connectorCardView,
@@ -15,10 +15,11 @@ import "./connectorAdmin.css";
 
 export type ConnectorSaveFn = (path: string, body: AdminRow, message: string, method?: string) => Promise<void>;
 
-type CreatePanelKind = "mcp" | "url" | "json";
+type CreatePanelKind = "mcp" | "api" | "url" | "json";
 
 const CREATE_ITEMS: Array<{ kind: CreatePanelKind; label: string; hint: string }> = [
   { kind: "mcp", label: "自定义 MCP", hint: "填写服务器名称、传输类型、URL 与请求头" },
+  { kind: "api", label: "自定义 HTTP API", hint: "保存 Base URL 与凭据，再导入或编辑 API 动作" },
   { kind: "json", label: "通过 JSON 导入 MCP", hint: "粘贴 mcpServers 配置，预览后导入" },
   { kind: "url", label: "通过 URL 添加 MCP", hint: "只填名称与服务器 URL，快速加入目录" },
 ];
@@ -181,6 +182,7 @@ export function ConnectorHub({ connectors, users, loading, onSave, reload }: {
       )}
 
       {panel === "mcp" && <McpConfigPanel onClose={() => setPanel(null)} onDone={finishPanel} />}
+      {panel === "api" && <ApiConfigPanel onClose={() => setPanel(null)} onDone={finishPanel} />}
       {panel === "url" && <UrlAddPanel onClose={() => setPanel(null)} onDone={finishPanel} />}
       {panel === "json" && <JsonImportPanel onClose={() => setPanel(null)} onDone={finishPanel} />}
       {browseOpen && (
@@ -229,7 +231,7 @@ function ConnectorBrowseModal({ cards, adding, onAddBuiltin, onCreate, onClose }
 }) {
   const navigate = useNavigate();
   const [q, setQ] = useState("");
-  const [tab, setTab] = useState<"app" | "custom_mcp">("app");
+  const [tab, setTab] = useState<"app" | "custom_mcp" | "custom_api">("app");
   const [menuOpen, setMenuOpen] = useState(false);
   const needle = q.trim().toLowerCase();
   const matched = cards.filter((card) => !needle || `${card.label} ${card.purpose} ${card.id}`.toLowerCase().includes(needle));
@@ -286,7 +288,7 @@ function ConnectorBrowseModal({ cards, adding, onAddBuiltin, onCreate, onClose }
           />
         </label>
         <div className="hub-chips connector-hub-tabs" role="tablist" aria-label="连接器分类">
-          {([["app", "应用"], ["custom_mcp", "自定义 MCP"]] as const).map(([id, label]) => (
+          {([ ["app", "应用"], ["custom_mcp", "自定义 MCP"], ["custom_api", "自定义 API"]] as const).map(([id, label]) => (
             <button
               key={id}
               type="button"
@@ -300,7 +302,7 @@ function ConnectorBrowseModal({ cards, adding, onAddBuiltin, onCreate, onClose }
             </button>
           ))}
         </div>
-        {!visible.length && !missingBuiltins.length ? (
+        {!visible.length && !missingBuiltins.length && tab === "app" ? (
           <p className="muted">该分类下还没有连接器。用「创建」加入第一个。</p>
         ) : (
           <div className="connector-grid" data-connector-browse-grid>
@@ -332,6 +334,15 @@ function ConnectorBrowseModal({ cards, adding, onAddBuiltin, onCreate, onClose }
                 <div className="connector-card-body">
                   <div className="connector-card-title"><strong>新建自定义 MCP</strong></div>
                   <p className="connector-card-purpose">配置服务器名称、传输类型、URL 与请求头。</p>
+                </div>
+              </button>
+            )}
+            {tab === "custom_api" && (
+              <button type="button" className="connector-card connector-card-new" data-connector-card-new onClick={() => onCreate("api")}>
+                <span className="connector-mark connector-mark-letter" aria-hidden>+</span>
+                <div className="connector-card-body">
+                  <div className="connector-card-title"><strong>新建自定义 HTTP API</strong></div>
+                  <p className="connector-card-purpose">配置 Base URL、凭据和显式 API 动作。</p>
                 </div>
               </button>
             )}

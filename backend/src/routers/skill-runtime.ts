@@ -161,9 +161,6 @@ skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/config", async (c
   const version = expectedVersion(body);
   const { expected_version: _expectedVersion, ...configBody } = body;
   const config = validateConnectorConfig(configBody);
-  if (process.env.NODE_ENV !== "test" && config.protocol === "http") {
-    throw new HttpFail(400, { code: "managed_connector_requires_mcp" });
-  }
   const row = setConnectorConfig(c.req.param("connectorId"), config, version);
   if (process.env.NODE_ENV !== "test") {
     getConn().prepare(
@@ -182,9 +179,6 @@ skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/config", async (c
 skillRuntimeRouter.post("/admin/runtime/connectors/:connectorId/import-openapi", async (c) => {
   runtimeAdmin();
   requireManagedRuntimeConnector(c.req.param("connectorId"));
-  if (process.env.NODE_ENV !== "test") {
-    throw new HttpFail(405, { code: "managed_connector_requires_mcp" });
-  }
   const body = await bodyObject(c);
   onlyFields(body, ["document"]);
   if (!("document" in body)) throw new HttpFail(400, "document is required");

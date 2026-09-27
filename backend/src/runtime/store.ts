@@ -1,4 +1,5 @@
 import { asRow, asRows, getConn, nowIso, txImmediate } from "../db.js";
+import { runtimeAgentBindingManifest } from "../contract-scope.js";
 import { HttpFail } from "../host/errors.js";
 import { taskDefinition, taskDefinitions } from "../tasks/registry.js";
 import type { Row } from "../types.js";
@@ -105,6 +106,55 @@ function bootstrapWorkspacePlanner(db: ReturnType<typeof getConn>): void {
 }
 
 /**
+ * One-way bootstrap for a reviewed business Agent manifest.
+ *
+ * The Agent manifest is the sole source for executable Agent → Skill bindings.
+ * An Expert manifest describes an employee-facing entry point and deliberately
+ * has no effect here. Missing rows are inserted only; an existing disabled
+ * binding, lifecycle state, policy or tool grant is always preserved.
+ */
+function bootstrapAgentManifestBindings(db: ReturnType<typeof getConn>, agentId: string): void {
+  const manifest = runtimeAgentBindingManifest(agentId);
+  const migration = `runtime.agent-manifest-bindings.${manifest.id}.${manifest.version}`;
+  if (db.prepare("SELECT 1 FROM runtime_bootstrap_migrations WHERE id=?").get(migration)) return;
+  if (manifest.status !== "production") throw new Error(`runtime agent manifest is not production: ${manifest.id}`);
+
+  const definitions = new Map(taskDefinitions().map((definition) => [definition.id, definition]));
+  const now = nowIso();
+  txImmediate((tx) => {
+    for (const skillId of manifest.skills) {
+      const definition = definitions.get(skillId);
+      if (!definition || definition.runtime_agent_id !== manifest.id) {
+        throw new Error(`invalid agent skill declaration: ${manifest.id} → ${skillId}`);
+      }
+      tx.prepare(
+        `INSERT INTO runtime_agent_skills (agent_id,skill_id,enabled,version,updated_at)
+         SELECT ?,?,?,?,? WHERE NOT EXISTS (
+           SELECT 1 FROM runtime_agent_skills WHERE agent_id=? AND skill_id=?
+         )`,
+      ).run(manifest.id, skillId, 1, 1, now, manifest.id, skillId);
+      // A bundled skill declared in this reviewed Agent release must be usable
+      // on first boot. A deliberate testing/disabled state is never revived.
+      tx.prepare(
+        `INSERT INTO skill_lifecycle (skill_id,stage,updated_at)
+         SELECT ?,?,? WHERE NOT EXISTS (SELECT 1 FROM skill_lifecycle WHERE skill_id=?)`,
+      ).run(skillId, "published", now, skillId);
+      tx.prepare(
+        "UPDATE skill_lifecycle SET stage='published',updated_at=? WHERE skill_id=? AND stage='draft'",
+      ).run(now, skillId);
+
+    }
+    tx.prepare("INSERT INTO runtime_bootstrap_migrations (id,applied_at) VALUES (?,?)").run(migration, now);
+    tx.prepare("INSERT INTO audit_events (ts,actor,event_type,payload) VALUES (?,?,?,?)").run(
+      now,
+      "system:runtime-bootstrap",
+      "runtime.agent_manifest.migrated",
+      JSON.stringify({ agent_id: manifest.id, agent_version: manifest.version, skills: manifest.skills, connectors: manifest.connectors, migration }),
+    );
+  });
+}
+
+/**
  * Lazily creates only runtime-governance tables. A WeakSet deliberately keys
  * by connection instance so an isolated test reset receives the schema again.
  */
@@ -174,6 +224,7 @@ export function ensureRuntimeSchema(): void {
   `);
 
   bootstrapWorkspacePlanner(db);
+  bootstrapAgentManifestBindings(db, "agent:kol");
   initializedConnections.add(db);
 }
 

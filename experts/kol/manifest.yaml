@@ -27,9 +27,7 @@
     "confirm_stage",
     "email_conversation_read",
     "discovery_brief",
-    "discovery_plan",
-    "today_plan",
-    "today_analyze"
+    "discovery_plan"
   ],
   "tool_ids": ["starrykol"]
 }

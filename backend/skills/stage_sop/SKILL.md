@@ -6,7 +6,7 @@ category: 线索
 profile: lead
 output: task_result
 funnel: intent
-mcp: ["starry.get_collaboration"]
+mcp: []
 required_inputs: []
 permissions: ["starrykol:read"]
 actions: ["present_sop"]

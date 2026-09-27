@@ -83,6 +83,18 @@ export function effectiveSkillBody(id: string): string {
   return readBundledSkill(id);
 }
 
+const RUNTIME_CONNECTOR_INSTRUCTION = `
+
+## Runtime connector tools
+
+Only the local \`skill_runtime\` MCP server is available in this run. Call its current \`tools/list\` catalog and use only the returned aliases (for example \`rt_starrykol__pageKolProfiles_…\`). Connector names or operation names mentioned elsewhere in this Skill describe business intent; they are **not** direct MCP servers and must never be called directly. If the needed alias is absent, state that the configured connector is unavailable and do not invent data.
+`;
+
+/** The worker receives this constrained supplement even when an administrator has an SOP overlay. */
+export function effectiveRuntimeSkillBody(id: string): string {
+  return `${effectiveSkillBody(id).trimEnd()}${RUNTIME_CONNECTOR_INSTRUCTION}\n`;
+}
+
 export function getSkillSop(id: string): SkillSopRow {
   const cat = catalogSkill(id);
   if (!cat) throw new HttpFail(404, "unknown skill");
@@ -130,13 +142,13 @@ export function writeRuntimeSkill(id: string): string {
   const dir = path.join(dataDir(), "skills", id);
   fs.mkdirSync(dir, { recursive: true });
   const dest = path.join(dir, "SKILL.md");
-  fs.writeFileSync(dest, effectiveSkillBody(id), "utf8");
+  fs.writeFileSync(dest, effectiveRuntimeSkillBody(id), "utf8");
   return dest;
 }
 
 export function writeSkillIntoBox(box: string, skill: string): string {
   const dest = path.join(box, "SKILL.md");
-  fs.writeFileSync(dest, effectiveSkillBody(skill), "utf8");
+  fs.writeFileSync(dest, effectiveRuntimeSkillBody(skill), "utf8");
   const srcDir = packagedSkillDir(skill);
   if (srcDir) {
     for (const name of fs.readdirSync(srcDir)) {

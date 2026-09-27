@@ -1,6 +1,6 @@
 {
   "id": "agent:kol",
-  "version": "0.1.0-pilot",
+  "version": "0.1.1",
   "status": "production",
   "publish_gate": {
     "state": "published",
@@ -12,10 +12,11 @@
   "organization_scope": ["org:lt_team", "org:pq_ro_tb_team"],
   "brand_scope": ["brand:lt", "brand:pq", "brand:ro", "brand:tb"],
   "region_scope": ["region:eu", "region:us", "region:ca_au"],
-  "skills": ["creator_discovery", "creator_profile", "creator_scoring", "email_conversation_read", "email_compose", "reply_analysis", "business_approval", "confirm_stage"],
+  "skills": ["stage_sop", "creator_discovery", "discovery_plan", "discovery_brief", "creator_profile", "creator_scoring", "creator_outreach", "email_conversation_read", "email_compose", "reply_analysis", "confirm_stage", "deal_memory", "risk_scan", "business_approval"],
   "workflows": ["creator_to_outreach", "email_follow_up", "campaign_delivery"],
   "policies": ["send_email", "change_stage", "import_creator"],
   "mcp_servers": ["starrykol", "mediacrawler"],
+  "connectors": ["starrykol", "claw", "kolclaw"],
   "schemas": ["send-request", "stage-confirm", "creator-import"],
   "evals": ["evals/kol/core.jsonl"],
   "employee_views": {
