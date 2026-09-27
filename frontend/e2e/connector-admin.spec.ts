@@ -200,24 +200,24 @@ test("connector form dialogs keep the measured spec (docs/DESIGN.md)", async ({ 
     };
   });
 
-  // 数值 = docs/DESIGN.md §连接器控制台（参考图 1 图像 px = 1 CSS px）。
-  expect(spec.panelW).toBe(800);
-  expect(spec.bodyGap).toBe("26px");
-  expect(spec.fieldGap).toBe("16px");
-  expect(spec.gridGap).toBe("26px");
-  expect(spec.labelFont).toBe("20px");
-  expect(spec.inputH).toBe(48);
-  expect(spec.inputFont).toBe("20px");
+  // 数值 = docs/DESIGN.md §连接器控制台（参考图实测 × 0.8，基准：标签 16px）。
+  expect(spec.panelW).toBe(640);
+  expect(spec.bodyGap).toBe("20px");
+  expect(spec.fieldGap).toBe("12px");
+  expect(spec.gridGap).toBe("20px");
+  expect(spec.labelFont).toBe("16px");
+  expect(spec.inputH).toBe(38);
+  expect(spec.inputFont).toBe("16px");
   expect(spec.inputBg).toBe("rgb(236, 236, 235)");
-  expect(spec.inputRadius).toBe("8px");
+  expect(spec.inputRadius).toBe("6px");
   expect(spec.inputBorder).toBe("rgba(0, 0, 0, 0)");
-  expect(spec.noteH).toBe(134);
-  expect(spec.iconBox).toEqual({ w: 80, h: 80 });
-  expect(spec.hintFont).toBe("16px");
+  expect(spec.noteH).toBe(108);
+  expect(spec.iconBox).toEqual({ w: 64, h: 64 });
+  expect(spec.hintFont).toBe("13px");
   expect(spec.hintColor).toBe("rgb(115, 115, 115)");
-  expect(spec.saveH).toBe(48);
+  expect(spec.saveH).toBe(38);
   expect(spec.saveBg).toBe("rgb(26, 26, 25)");
-  expect(spec.saveFont).toBe("20px");
+  expect(spec.saveFont).toBe("16px");
   expect(spec.footBorder).toBe("0px");
 });
 
