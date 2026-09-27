@@ -14399,6 +14399,132 @@ button.today-brief-primary-btn:disabled {
   }
 }
 
+/* 公海的范围定义与 Agent 对话属于中栏：右栏只留下稳定对象行与受控领取。 */
+.pool-interaction {
+  width: min(100%, 760px);
+  max-width: none;
+  gap: var(--ds-space-3);
+}
+.pool-interaction-header {
+  display: grid;
+  gap: var(--ds-space-2);
+  padding-bottom: var(--ds-space-3);
+  border-bottom: 1px solid var(--ds-border);
+}
+.pool-interaction .pool-compact-toolbar {
+  display: grid;
+  grid-template-areas:
+    "search filter sort"
+    "selection selection analyze";
+  grid-template-columns: minmax(12rem, 1fr) auto auto;
+  align-items: center;
+  gap: var(--ds-space-2);
+  margin: 0;
+  padding: var(--ds-space-3);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-card);
+  background: var(--ds-surface);
+}
+.pool-interaction .pool-search { grid-area: search; width: 100%; }
+.pool-interaction .pool-control:first-of-type { grid-area: filter; }
+.pool-interaction .pool-control:last-of-type { grid-area: sort; }
+.pool-interaction .pool-select-all { grid-area: selection; }
+.pool-interaction .pool-interaction-actions {
+  grid-area: analyze;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--ds-space-2);
+}
+.pool-interaction .pool-selected-summary {
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pool-interaction .pool-selection-clear,
+.pool-interaction .pool-agent-starter-actions button {
+  min-height: var(--control-h-sm);
+  padding: 0 var(--ds-space-2);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--ds-font-sm);
+  line-height: var(--lh-control-sm);
+  cursor: pointer;
+}
+.pool-interaction .pool-selection-clear:hover:not(:disabled),
+.pool-interaction .pool-agent-starter-actions button:hover:not(:disabled) {
+  border-color: var(--control-border-hover);
+  background: var(--surface-hover);
+}
+.pool-interaction .pool-agent-starters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3) 0;
+  border-bottom: 1px solid var(--ds-border);
+}
+.pool-interaction .pool-agent-starters > div:first-child { display: grid; gap: var(--ds-space-1); }
+.pool-interaction .pool-agent-starters strong { font-size: var(--ds-font-body); font-weight: 500; }
+.pool-interaction .pool-agent-starters p {
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+.pool-interaction .pool-agent-starter-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--ds-space-2); }
+.pool-interaction .pool-agent-starter-actions button:disabled { color: var(--text-muted); cursor: default; }
+.pool-interaction .pool-maintenance {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin: 0;
+  padding: var(--ds-space-3);
+  border: 1px solid var(--ds-border);
+  border-radius: var(--radius-card);
+  background: var(--bg);
+}
+.pool-interaction .pool-maintenance-heading { display: grid; gap: var(--ds-space-1); }
+.pool-interaction .pool-maintenance-heading strong { font-size: var(--ds-font-body); font-weight: 500; }
+.pool-interaction .pool-maintenance-heading span { color: var(--text-muted); font-size: var(--ds-font-helper); line-height: var(--ds-line-helper); }
+.pool-interaction .pool-maintenance-actions { display: flex; flex-wrap: wrap; align-items: start; justify-content: flex-end; gap: var(--ds-space-2); }
+.pool-interaction .pool-maintenance-notice,
+.pool-interaction .pool-maintenance-error { grid-column: 1 / -1; margin-top: var(--ds-space-2); }
+.pool-interaction .pool-cleanup-confirm { margin: 0; }
+.pool-interaction :is(input, select, button):focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+.scope-task-rail .pool-compact-header {
+  flex-direction: row;
+  align-items: center;
+  min-height: var(--control-h-lg);
+  margin-bottom: var(--ds-space-2);
+}
+.scope-task-rail .pool-header-title { justify-content: flex-start; }
+@media (max-width: 620px) {
+  .pool-interaction .pool-compact-toolbar {
+    grid-template-areas:
+      "search"
+      "filter"
+      "sort"
+      "selection"
+      "analyze";
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pool-interaction .pool-control select,
+  .pool-interaction .pool-interaction-actions,
+  .pool-interaction .pool-analyze-button { width: 100%; }
+  .pool-interaction .pool-interaction-actions { justify-content: space-between; }
+  .pool-interaction .pool-agent-starters,
+  .pool-interaction .pool-maintenance { grid-template-columns: minmax(0, 1fr); }
+  .pool-interaction .pool-agent-starter-actions,
+  .pool-interaction .pool-maintenance-actions { justify-content: flex-start; }
+}
+
 /* Configurable connector runtime extension: mirrors the existing admin density and tokens. */
 .runtime-settings { display: grid; gap: var(--space-4); min-width: 0; }
 .runtime-settings-panel { max-width: 1040px; }

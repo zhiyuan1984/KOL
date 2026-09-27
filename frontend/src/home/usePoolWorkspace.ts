@@ -11,6 +11,7 @@ import {
   syncHomePoolIndex,
 } from "./kolSurfaceApi";
 import type { PoolKol } from "./kolContract";
+import { filterPoolCards, type PoolFilter, type PoolSort } from "./poolView";
 
 function canonicalProfileKey(card: PoolKol): string {
   const url = (card.identity.profile_url || "").trim().toLowerCase().replace(/\/+$/, "");
@@ -56,6 +57,8 @@ export function usePoolWorkspace(options: {
 
   const [cards, setCards] = useState<PoolKol[]>([]);
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<PoolFilter>("all");
+  const [sort, setSort] = useState<PoolSort>("default");
   const [error, setError] = useState("");
   const [claimTarget, setClaimTarget] = useState<PoolKol | null>(null);
   const [claimBusy, setClaimBusy] = useState(false);
@@ -79,15 +82,8 @@ export function usePoolWorkspace(options: {
   }, []);
 
   const visibleCards = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return cards;
-    return cards.filter((card) =>
-      [card.identity.display, card.identity.platform, card.direction, card.region, card.style]
-        .join(" ")
-        .toLowerCase()
-        .includes(needle),
-    );
-  }, [cards, query]);
+    return filterPoolCards(cards, query, filter, sort);
+  }, [cards, filter, query, sort]);
 
   const loadSurface = useCallback(async () => {
     const loaded = await loadHomePool({ kols: boardKols() });
@@ -270,6 +266,10 @@ export function usePoolWorkspace(options: {
     visibleCards,
     query,
     setQuery,
+    filter,
+    setFilter,
+    sort,
+    setSort,
     error,
     setError,
     loadSurface,

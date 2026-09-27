@@ -35,6 +35,7 @@ import type { WorkspacePane } from "../home/WorkspaceShell";
 import FollowedPane from "../home/FollowedPane";
 import FollowedInteraction from "../home/FollowedInteraction";
 import { matchesFollowedSituation, type FollowedSituation } from "../home/FollowedBrief";
+import PoolInteraction from "../home/PoolInteraction";
 import PoolPane from "../home/PoolPane";
 import ReleaseFollowConfirm from "../home/ReleaseFollowConfirm";
 import { FollowedBatchConfirm } from "../home/FollowedBatchConfirm";
@@ -2057,25 +2058,50 @@ export default function Home() {
               title="公海"
               description="从当前可见的公开对象中选择分析范围；领取跟进仍是右栏里的独立确认动作。"
               selectedCount={selectedKolIds.length}
-              resultCount={poolWorkspace.cards.length}
+              resultCount={poolWorkspace.visibleCards.length}
               railLabel="公海结果"
               railToggleLabel="公海"
               railStorageKey="ui:home-pool-rail-collapsed-v2"
-              interaction={interactionFeedback}
-              centerFooter={renderComposerDock()}
-              rail={(
-                <PoolPane
-                  cards={poolWorkspace.cards}
+              centerContent={(
+                <PoolInteraction
+                  totalCount={poolWorkspace.cards.length}
+                  visibleCards={poolWorkspace.visibleCards}
                   selectedIds={selectedKolIds}
                   query={poolWorkspace.query}
-                  down={poolDown}
-                  libraryCount={libraryCount}
-                  syncBusy={poolWorkspace.syncBusy}
-                  syncError={poolWorkspace.syncError}
+                  filter={poolWorkspace.filter}
+                  sort={poolWorkspace.sort}
                   maintenanceBusy={poolWorkspace.maintenanceBusy}
                   maintenanceNotice={poolWorkspace.maintenanceNotice}
                   maintenanceError={poolWorkspace.maintenanceError}
                   cleanupPreview={poolWorkspace.cleanupPreview}
+                  interaction={interactionFeedback}
+                  onQuery={poolWorkspace.setQuery}
+                  onFilter={poolWorkspace.setFilter}
+                  onSort={poolWorkspace.setSort}
+                  onToggleSelectAll={toggleSelectAllPool}
+                  onClearSelection={() => setSelectedKolIds([])}
+                  onAnalyzeSelected={(selectedIds) => {
+                    const selected = poolWorkspace.visibleCards.filter((card) => selectedIds.includes(card.kol_uid));
+                    prefillAnalyze("pool", selected, selected.map((card) => card.kol_uid));
+                  }}
+                  onEnrichAvatars={() => void poolWorkspace.enrichAvatars()}
+                  onAssessWithJev={() => void poolWorkspace.assessWithJev()}
+                  onRequestCleanupPreview={() => void poolWorkspace.requestCleanupPreview()}
+                  onConfirmCleanup={() => void poolWorkspace.confirmCleanup()}
+                  onCancelCleanup={poolWorkspace.cancelCleanup}
+                />
+              )}
+              centerFooter={renderComposerDock()}
+              rail={(
+                <PoolPane
+                  cards={poolWorkspace.visibleCards}
+                  totalCount={poolWorkspace.cards.length}
+                  isFiltered={Boolean(poolWorkspace.query.trim()) || poolWorkspace.filter !== "all"}
+                  selectedIds={selectedKolIds}
+                  down={poolDown}
+                  libraryCount={libraryCount}
+                  syncBusy={poolWorkspace.syncBusy}
+                  syncError={poolWorkspace.syncError}
                   claimBusyId={poolWorkspace.claimBusy && poolWorkspace.claimTarget ? poolWorkspace.claimTarget.kol_uid : null}
                   claimTarget={poolWorkspace.claimTarget}
                   claimError={poolWorkspace.claimError}
@@ -2083,19 +2109,8 @@ export default function Home() {
                   undoAvailable={poolWorkspace.undoAvailable}
                   undoBusy={poolWorkspace.undoBusy}
                   undoError={poolWorkspace.undoError}
-                  onQuery={poolWorkspace.setQuery}
                   onToggleSelect={toggleSelectedPool}
-                  onToggleSelectAll={toggleSelectAllPool}
                   onSyncLibrary={() => void poolWorkspace.syncLibrary()}
-                  onEnrichAvatars={() => void poolWorkspace.enrichAvatars()}
-                  onAssessWithJev={() => void poolWorkspace.assessWithJev()}
-                  onRequestCleanupPreview={() => void poolWorkspace.requestCleanupPreview()}
-                  onConfirmCleanup={() => void poolWorkspace.confirmCleanup()}
-                  onCancelCleanup={poolWorkspace.cancelCleanup}
-                  onAnalyzeSelected={(selectedIds) => {
-                    const selected = poolWorkspace.cards.filter((card) => selectedIds.includes(card.kol_uid));
-                    prefillAnalyze("pool", selected, selected.map((card) => card.kol_uid));
-                  }}
                   onClaim={poolWorkspace.requestClaim}
                   onConfirmClaim={() => void poolWorkspace.confirmClaim()}
                   onCancelClaim={poolWorkspace.cancelClaim}

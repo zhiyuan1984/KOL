@@ -263,9 +263,13 @@ test("public pool restores the central interaction and uses a structured right r
   const list = workspace.locator("[data-pool-focus-list]");
   const row = workspace.locator("[data-pool-card]").first();
   await expect(center).toBeVisible();
-  await expect(center).toContainText("等待选择对象");
+  await expect(center).toContainText("先定义本轮分析范围");
+  await expect(center.locator("[data-pool-toolbar]")).toBeVisible();
+  await expect(center.locator("[data-pool-agent-starters]")).toBeVisible();
   await expect(center.locator("[data-composer-input]")).toBeVisible();
   await expect(rail).toBeVisible();
+  await expect(rail.locator("[data-pool-toolbar]")).toHaveCount(0);
+  await expect(rail).not.toContainText("资料维护");
   await expect(list).toBeVisible();
   await expect(row).toBeVisible();
   const centerBox = await center.boundingBox();
