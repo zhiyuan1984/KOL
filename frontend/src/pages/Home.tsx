@@ -33,6 +33,7 @@ import { scopeRows } from "../home/scopeRows";
 import ScopeWorkspace from "../home/ScopeWorkspace";
 import type { WorkspacePane } from "../home/WorkspaceShell";
 import FollowedPane from "../home/FollowedPane";
+import FollowedInteraction from "../home/FollowedInteraction";
 import { matchesFollowedSituation, type FollowedSituation } from "../home/FollowedBrief";
 import PoolPane from "../home/PoolPane";
 import ReleaseFollowConfirm from "../home/ReleaseFollowConfirm";
@@ -1990,6 +1991,21 @@ export default function Home() {
               railToggleLabel="我的红人"
               railStorageKey="ui:home-followed-rail-collapsed"
               interaction={interactionFeedback}
+              centerContent={(
+                <FollowedInteraction
+                  cards={followedWorkspace.cards}
+                  stageFilter={followedWorkspace.stageFilter}
+                  situation={followedWorkspace.situation}
+                  selectedCount={selectedKolIds.length}
+                  onStageFilter={followedWorkspace.setStageFilter}
+                  onSituation={followedWorkspace.setSituation}
+                  onAnalyzeNear={() => {
+                    const targets = followedWorkspace.cards.filter((card) => matchesFollowedSituation(card, "near_14d"));
+                    prefillAnalyze("following", targets, targets.map((card) => String(card.source.kol_uid || card.id)));
+                  }}
+                  interaction={interactionFeedback}
+                />
+              )}
               centerFooter={renderComposerDock()}
               rail={(
                 <FollowedPane
@@ -2028,6 +2044,8 @@ export default function Home() {
                   )}
                   onRelease={(card) => followedWorkspace.requestRelease(card.source)}
                   onBind={() => nav("/settings?tab=starry")}
+                  onOpenPool={() => setMode("pool")}
+                  onOpenDiscovery={() => setMode("discovery")}
                 />
               )}
             />

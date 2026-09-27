@@ -242,7 +242,7 @@ async function expectFollowedKolCardWraps(page: Page, handle?: string) {
     const recBox = pick("[data-recommended-action]")?.getBoundingClientRect();
     return {
       name: styleOf(pick("[data-kol-name]")),
-      chips: styleOf(pick("[data-kol-chip]") || pick("[data-kol-scope]")),
+      chips: styleOf(pick("[data-kol-scope]")),
       stage: styleOf(pick("[data-stage-label]")),
       suggestion: styleOf(pick("[data-recommended-action] .kol-suggestion") || pick("[data-recommended-action] p")),
       mail: styleOf(pick("[data-mail-summary]") || pick("[data-latest-fact] .kol-mail-digest")),
@@ -267,7 +267,8 @@ async function expectFollowedKolCardWraps(page: Page, handle?: string) {
       cardOverflows: el.scrollWidth > el.clientWidth + 1,
     };
   });
-  for (const style of [layout.name, layout.stage, layout.suggestion, layout.mail, layout.chips].filter(Boolean)) {
+  // 阶段标签是 20px 短标签，按设计不折行；其余文本必须能断行，不许用 nowrap 硬撑。
+  for (const style of [layout.name, layout.suggestion, layout.mail, layout.chips].filter(Boolean)) {
     expect(style!.whiteSpace).not.toBe("nowrap");
     expect(["anywhere", "break-word"]).toContain(style!.overflowWrap);
   }
@@ -1248,22 +1249,24 @@ async function expectFollowedTypeColor(page: Page, handle?: string) {
     };
   });
   expect(type.name).toBeTruthy();
-  expect(type.name!.size).toBeGreaterThanOrEqual(15);
+  // 三级字号阶梯（docs/DESIGN.md §字号阶梯用途）：一级/二级 = --ds-font-body(14)，
+  // 三级 = --ds-font-sm(13)。
+  expect(type.name!.size).toBe(14);
   expect(type.name!.weight).toBeGreaterThanOrEqual(600);
   expect(["rgb(26, 26, 26)", "rgb(0, 0, 0)"]).toContain(type.name!.color);
   if (type.stage) {
-    expect(type.stage.size).toBeGreaterThanOrEqual(13);
+    expect(type.stage.size).toBe(13);
     expect(type.stage.weight).toBeLessThan(type.name!.weight);
   }
-  if (type.kicker) expect(type.kicker.size).toBeGreaterThanOrEqual(13);
-  if (type.fact) expect(type.fact.size).toBeGreaterThanOrEqual(13);
-  if (type.ai) expect(type.ai.size).toBeGreaterThanOrEqual(13);
+  if (type.kicker) expect(type.kicker.size).toBe(13);
+  if (type.fact) expect(type.fact.size).toBe(14);
+  if (type.ai) expect(type.ai.size).toBe(14);
   expect(type.detail).toBeTruthy();
-  expect(type.detail!.size).toBeGreaterThanOrEqual(13);
+  expect(type.detail!.size).toBe(13);
   expect(["rgb(107, 107, 107)", "rgb(102, 102, 102)"]).toContain(type.detail!.color);
-  if (type.chip) expect(type.chip.size).toBeGreaterThanOrEqual(13);
-  if (type.why) expect(type.why.size).toBeGreaterThanOrEqual(13);
-  if (type.mail) expect(type.mail.size).toBeGreaterThanOrEqual(13);
+  if (type.chip) expect(type.chip.size).toBe(13);
+  if (type.why) expect(type.why.size).toBe(13);
+  if (type.mail) expect(type.mail.size).toBe(13);
 }
 
 async function expectFollowedKolStackedNoOverflow(page: Page, handle: string) {
@@ -1374,7 +1377,7 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expect(card.locator("[data-mail-summary]")).not.toContainText("posting calendar");
   await expect(card.locator("[data-latest-fact]")).not.toContainText("From:");
   await expect(card.locator("[data-latest-fact]")).not.toContainText("Reply-To");
-  await expect(card.locator("[data-open-original-mail]")).toHaveText("原邮件");
+  await expect(card.locator("[data-open-original-mail]")).toHaveText("互动");
   await expect(card.locator("[data-kol-primary-action]")).toHaveCount(1);
   await expect(card.locator('[data-kol-primary-action="open-session"]')).toHaveText("查看来信");
   await expect(card.locator("[data-recommended-action]")).toContainText("查看来信");
@@ -1385,7 +1388,8 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expect(confirmCard.locator("[data-recommended-action]")).toContainText("建议进入「已回复 · 有兴趣」");
   await expect(confirmCard.locator("[data-recommended-action]")).not.toContainText("确认进入");
   await page.mouse.move(0, 0);
-  await expect(confirmCard.locator("[data-confirm-enter-stage]")).toHaveText("进入已回复 · 有兴趣 →");
+  await expect(confirmCard.locator("[data-confirm-enter-stage]")).toHaveText("进入已回复 · 有兴趣");
+  await expect(confirmCard.locator("[data-confirm-enter-stage] svg")).toHaveCount(1);
   await expect(confirmCard.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
   await expect(confirmCard).toHaveAttribute("data-cta-emphasis", "quiet");
   await expect(card.locator("[data-kol-primary-action]")).toHaveClass(/ghost/);
@@ -1394,7 +1398,7 @@ test("home followed-KOL cards fit the viewport without a horizontal scrollbar", 
   await expect(confirmCard.locator("[data-action-why]")).toContainText("明确表达品牌合作意愿");
   await expect(confirmCard).not.toContainText("支撑进入");
   await expect(confirmCard.locator("[data-latest-fact]")).not.toContainText("10070757521@qq.com");
-  await expect(confirmCard.locator("[data-action-evidence]")).toContainText("查看判断依据");
+  await expect(confirmCard.locator("[data-action-evidence]")).toContainText("依据");
   await expectFollowedKolStackedNoOverflow(page, "测试网红-qq-01");
 
   await page.setViewportSize({ width: 1600, height: 900 });
@@ -1425,7 +1429,7 @@ test("home followed-KOL object toolbar matches card width", async ({ page }) => 
     await expectFollowedDecisionDensity(page);
     await expectNoPageHorizontalScroll(page);
     await expectNoHorizontalOverflow(page, "[data-followed-kol-list]");
-    await expectNoHorizontalOverflow(page, "[data-followed-kol-list] li:first-child [data-followed-kol]");
+    await expectNoHorizontalOverflow(page, "[data-followed-kol-list] > [data-followed-kol]:first-of-type");
   }
 });
 
@@ -1572,7 +1576,8 @@ test("home confirm CTA names the target stage and opens confirm_stage", async ({
   await expect(card.locator("[data-recommended-action]")).not.toContainText("确认进入");
   await expect(card).not.toContainText("支撑进入");
   const cta = card.locator("[data-confirm-enter-stage]");
-  await expect(cta).toHaveText("进入已回复 · 有兴趣 →");
+  await expect(cta).toHaveText("进入已回复 · 有兴趣");
+  await expect(cta.locator("svg")).toHaveCount(1);
   await expect(cta).toHaveClass(/ghost/);
   await expect(page.locator("[data-followed-batch-confirm]")).toHaveClass(/ghost/);
   await expect(card.getByRole("button", { name: "确认阶段", exact: true })).toHaveCount(0);

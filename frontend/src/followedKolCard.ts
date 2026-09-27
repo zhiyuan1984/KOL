@@ -581,8 +581,28 @@ export function matchesStageFilter(card: FollowedKolCardModel, stageCode: string
   if (stageCode === "exception") {
     return Boolean(card.source.exception || card.current_state.exception || card.risk.exception);
   }
+  if (stageCode.startsWith("group:")) {
+    const group = stageCode.slice("group:".length);
+    return FOLLOWED_LIFECYCLE_GROUPS.some(
+      (item) => item.id === group
+        && (item.stageCodes as readonly string[]).includes(card.current_state.stage_code || ""),
+    );
+  }
   return card.current_state.stage_code === stageCode;
 }
+
+/**
+ * 跟进面只使用折叠分组帮助人理解分布；正式阶段写入仍使用 BIZ-08 的原始阶段码。
+ * COMPLETED / LONG_TERM 是结算后的结果或兼容投影，不作为新的正式主阶段。
+ */
+export const FOLLOWED_LIFECYCLE_GROUPS = [
+  { id: "connect", label: "建联评估", stageCodes: ["INITIAL_CONTACT", "INTERESTED", "EVALUATING"] },
+  { id: "confirm", label: "合作确认", stageCodes: ["QUOTE_PENDING", "NEGOTIATING", "PLAN_PENDING", "CONTRACTING"] },
+  { id: "sample", label: "寄样测试", stageCodes: ["SAMPLE_PENDING", "SHIPPED", "TESTING"] },
+  { id: "content", label: "内容交付", stageCodes: ["CONTENT_PLANNING", "CONTENT_REVIEW", "PUBLISH_PENDING", "PUBLISHED"] },
+  { id: "settle", label: "结算完成", stageCodes: ["SETTLING", "COMPLETED"] },
+  { id: "long_term", label: "长期合作", stageCodes: ["LONG_TERM", "ONGOING"] },
+] as const;
 
 /** Secondary stage filter helper. Exception cards stay off their formal stage tab. */
 export function matchesStageTab(card: FollowedKolCardModel, tab: string): boolean {

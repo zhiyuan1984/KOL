@@ -249,13 +249,14 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
   await expect(card.locator("[data-action-why]")).toContainText("明确表达品牌合作意愿");
   await expect(card).not.toContainText("支撑进入");
   await expect(card).not.toContainText("support_transition");
-  await expect(card.locator("[data-action-evidence]")).toContainText("查看判断依据");
-  await expect(card.locator("[data-confirm-enter-stage]")).toHaveText("进入已回复 · 有兴趣 →");
+  await expect(card.locator("[data-action-evidence]")).toContainText("依据");
+  await expect(card.locator("[data-confirm-enter-stage]")).toHaveText("进入已回复 · 有兴趣");
+  await expect(card.locator("[data-confirm-enter-stage] svg")).toHaveCount(1);
   await expect(card.locator("[data-confirm-enter-stage]")).toHaveClass(/ghost/);
   await expect(page.locator("[data-followed-batch-confirm]")).toHaveClass(/ghost/);
-  await expect(card.locator("[data-open-kol-detail]")).toHaveText("查看详情");
+  await expect(card.locator("[data-open-kol-detail]")).toHaveText("详情");
   await expect(card.locator("[data-open-kol-detail]")).not.toHaveClass(/btn/);
-  await expect(card.locator("[data-open-original-mail]")).toHaveText("查看互动");
+  await expect(card.locator("[data-open-original-mail]")).toHaveText("互动");
   await expect(card.getByRole("button", { name: "确认阶段", exact: true })).toHaveCount(0);
 
   const wide = await card.evaluate((el) => {
@@ -293,11 +294,19 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
     const read = (node: Element | null) => {
       if (!(node instanceof HTMLElement)) return null;
       const cs = getComputedStyle(node);
-      return { size: Number.parseFloat(cs.fontSize), weight: Number.parseFloat(cs.fontWeight), color: cs.color };
+      const box = node.getBoundingClientRect();
+      return {
+        size: Number.parseFloat(cs.fontSize),
+        weight: Number.parseFloat(cs.fontWeight),
+        color: cs.color,
+        w: Math.round(box.width),
+        h: Math.round(box.height),
+      };
     };
     return {
       name: read(el.querySelector("[data-kol-name]")),
       stage: read(el.querySelector("[data-stage-label]")),
+      avatar: read(el.querySelector("[data-kol-avatar]")),
       kicker: read(el.querySelector(".kol-split-kicker")),
       fact: read(el.querySelector("[data-latest-fact] .kol-mail-digest")),
       ai: read(el.querySelector("[data-recommended-action] .kol-suggestion")),
@@ -306,20 +315,24 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
       mail: read(el.querySelector("[data-open-original-mail]")),
     };
   });
-  expect(type.name!.size).toBeGreaterThanOrEqual(15);
+  // 三级字号阶梯（docs/DESIGN.md §字号阶梯用途）：一级/二级 = --ds-font-body(14)，
+  // 三级 = --ds-font-sm(13)。列表行内容不再借分区标题档 --ds-font-section。
+  expect(type.name!.size).toBe(14);
   expect(type.name!.weight).toBeGreaterThanOrEqual(600);
   expect(["rgb(26, 26, 26)", "rgb(0, 0, 0)"]).toContain(type.name!.color);
   if (type.stage) {
-    expect(type.stage.size).toBeGreaterThanOrEqual(13);
+    expect(type.stage.size).toBe(13);
     expect(type.stage.weight).toBeLessThan(type.name!.weight);
   }
-  if (type.kicker) expect(type.kicker.size).toBeGreaterThanOrEqual(13);
-  if (type.fact) expect(type.fact.size).toBeGreaterThanOrEqual(13);
-  if (type.ai) expect(type.ai.size).toBeGreaterThanOrEqual(13);
-  if (type.why) expect(type.why.size).toBeGreaterThanOrEqual(13);
-  expect(type.detail!.size).toBeGreaterThanOrEqual(13);
+  // 头像 = 图标砖：--kol-avatar-size，不再是大圆形。
+  expect([type.avatar!.w, type.avatar!.h]).toEqual([28, 28]);
+  if (type.kicker) expect(type.kicker.size).toBe(13);
+  if (type.fact) expect(type.fact.size).toBe(14);
+  if (type.ai) expect(type.ai.size).toBe(14);
+  if (type.why) expect(type.why.size).toBe(13);
+  expect(type.detail!.size).toBe(13);
   expect(["rgb(107, 107, 107)", "rgb(102, 102, 102)"]).toContain(type.detail!.color);
-  if (type.mail) expect(type.mail.size).toBeGreaterThanOrEqual(13);
+  if (type.mail) expect(type.mail.size).toBe(13);
   if (wide.columnWidth > 1000) {
     expect(wide.cardWidth).toBeLessThan(wide.columnWidth - 24);
   }
@@ -334,12 +347,20 @@ test("home followed KOL card is a dense fact | AI decision row", async ({ page }
 });
 
 async function countFilledFollowedWorkCtas(page: Page): Promise<number> {
-  return page.locator("[data-followed-kol-list] [data-kol-primary-action]").evaluateAll((els) => (
-    els.filter((el) => {
-      if (el.classList.contains("work") || el.getAttribute("data-cta-visual") === "filled") return true;
-      return getComputedStyle(el).backgroundColor === "rgb(199, 59, 122)";
-    }).length
-  ));
+  return page.locator("[data-followed-kol-list] [data-kol-primary-action]").evaluateAll((els) => {
+    // 实底 = 用 --primary 填满（docs/DESIGN.md §颜色）。颜色从 token 现算，
+    // 旧断言写死的 rgb(199, 59, 122) 早在 --primary 迁移时就过期了。
+    const probe = document.createElement("span");
+    probe.style.color = getComputedStyle(document.documentElement).getPropertyValue("--primary").trim();
+    document.body.appendChild(probe);
+    const filled = getComputedStyle(probe).color;
+    probe.remove();
+    return els.filter((el) => (
+      el.classList.contains("work")
+      || el.getAttribute("data-cta-visual") === "filled"
+      || getComputedStyle(el).backgroundColor === filled
+    )).length;
+  });
 }
 
 test("home followed list keeps one strong work CTA", async ({ page }) => {
@@ -407,7 +428,7 @@ test("home followed list keeps one strong work CTA", async ({ page }) => {
   const stageB = page.locator('[data-followed-kol="阶段乙"]');
   const draft = page.locator('[data-followed-kol="起草卡"]');
   await expect(list.locator("[data-followed-kol]")).toHaveCount(3);
-  await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveText("进入已回复 · 有兴趣 →");
+  await expect(stageA.locator("[data-confirm-enter-stage]")).toHaveText("进入已回复 · 有兴趣");
   await expect(draft.locator("[data-kol-primary-action]")).toHaveText("准备回复");
   await expect(list.locator("[data-open-kol-detail]")).toHaveCount(3);
   await expect(list.locator("[data-open-kol-detail].btn.work")).toHaveCount(0);

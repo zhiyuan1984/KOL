@@ -3223,13 +3223,19 @@ summary:focus-visible,
   font-weight: 600;
   line-height: 1;
 }
+/* 身份块两行：第一行身份、第二行元信息（普通属性 + 14 日计时同一条弱化行）。 */
 .kol-identity-main {
   min-width: 0;
   flex: 1 1 auto;
   width: 100%;
-  display: grid;
-  gap: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 6px;
 }
+.kol-identity-main > .kol-identity-line { flex: 1 1 100%; }
+.kol-identity-main > .kol-chip-row { flex: 1 1 auto; width: auto; }
+.kol-identity-main > .kol-mail-meta { flex: 0 0 auto; }
 /* 第一行与头像同高：勾选框、头像与姓名在同一行内垂直居中。 */
 .kol-identity-line {
   display: flex;
@@ -3347,12 +3353,13 @@ summary:focus-visible,
   color: var(--text-muted);
   font-weight: 400;
 }
-/* 异常/风险：状态色描边 + 图标 + 文案，颜色不是唯一信号。 */
+/* 异常/风险：状态色描边 + 图标 + 文案，颜色不是唯一信号。
+   描边取 70% 危险色 = 3.3:1（纯图形 ≥3:1），图标字形本身 5.17:1。 */
 .kol-chip.is-risk {
   gap: 4px;
   height: var(--badge-h);
   padding: 0 6px;
-  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  border-color: color-mix(in srgb, var(--danger) 70%, var(--border));
   color: var(--danger);
   background: transparent;
   font-weight: 500;
@@ -3425,6 +3432,21 @@ summary:focus-visible,
   font-weight: 500;
   line-height: 1.4;
   letter-spacing: 0;
+  color: var(--text-muted);
+}
+/* 「AI 建议 · 理由」同一条弱化行：判断来自谁 + 依据，各自只占一级信息。 */
+.followed-kol-card .kol-ai-why {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 4px;
+  margin: 0;
+  font-size: var(--ds-font-sm);
+  line-height: 1.4;
+}
+.followed-kol-card .kol-ai-why .kol-split-kicker::after {
+  content: "·";
+  margin-left: 4px;
   color: var(--text-muted);
 }
 /* 一级：当前建议 —— 与姓名同档，靠字重与颜色抢注意力，不靠字号。 */
@@ -3850,13 +3872,41 @@ summary:focus-visible,
   margin: 0;
   accent-color: var(--accent-text);
 }
+.followed-result-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h-lg);
+  padding: var(--space-2) 4px;
+  border-bottom: 1px solid var(--border);
+  color: var(--ds-text-dim);
+  font-size: var(--ds-font-helper);
+}
+.followed-result-summary strong {
+  color: var(--text);
+  font-size: var(--ds-font-sm);
+  font-weight: 600;
+}
+.followed-result-summary button {
+  height: var(--badge-h);
+  padding: 0 7px;
+  border: 1px solid var(--accent);
+  border-radius: var(--ds-radius-tag);
+  background: var(--ds-selected-bg);
+  color: var(--accent-text);
+  font: inherit;
+  cursor: pointer;
+}
+.followed-result-summary button:hover,
+.followed-result-summary button:focus-visible { border-color: var(--accent-text); }
 .followed-kol-column .followed-kol-list {
   gap: 0;
   border-bottom: 1px solid var(--border);
 }
 .followed-kol-column .followed-kol-card {
   gap: var(--space-1);
-  padding: 12px 4px;
+  padding: var(--space-2) var(--space-1);
   border: 0;
   border-bottom: 1px solid var(--border);
   border-radius: 0;
@@ -3893,8 +3943,9 @@ summary:focus-visible,
   align-items: baseline;
   gap: 0 var(--space-3);
 }
+/* flex-basis 取 0：否则换行判定用「内容宽度」，来源 meta 会被挤到自己一行。 */
 .followed-kol-card .kol-band-fact .kol-mail-digest {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-width: 10rem;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -3913,12 +3964,15 @@ summary:focus-visible,
   row-gap: 2px;
 }
 .followed-kol-card .kol-band-recommend > [data-recommended-action] {
-  flex: 1 1 14rem;
+  flex: 1 1 12rem;
   display: grid;
   gap: 2px;
 }
+/* width:auto 是关键：.kol-band 组的 width:100% 会让这组动作的 flex 基准 = 整行，
+   于是永远换行、每个对象白多一行。这里必须按内容宽度参与排布。 */
 .followed-kol-card .kol-band-recommend > .kol-band-actions {
   flex: 0 0 auto;
+  width: auto;
   margin-left: auto;
   padding-top: 0;
 }

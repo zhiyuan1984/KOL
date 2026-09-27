@@ -17,6 +17,7 @@ export default function ObjectWorkspace({
   railToggleLabel,
   railStorageKey,
   centerHeader,
+  centerContent,
   centerFooter,
   interaction,
   rail,
@@ -30,12 +31,13 @@ export default function ObjectWorkspace({
   railToggleLabel: string;
   railStorageKey: string;
   centerHeader?: ReactNode;
+  centerContent?: ReactNode;
   centerFooter?: ReactNode;
   interaction?: ReactNode;
   rail: ReactNode;
 }) {
   const hasSelection = selectedCount > 0;
-  const interactionView = (
+  const interactionView = centerContent ?? (
     <>
       <section className="object-interaction" data-object-interaction={pane}>
         <div className="object-interaction-status" role="status">

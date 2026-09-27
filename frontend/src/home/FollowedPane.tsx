@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
 import FollowedKolWorkCard from "../components/FollowedKolWorkCard";
-import { MAIN_STAGE_TABS } from "../kolStages";
 import {
   followedBulkCtaLabel,
   pickFollowedListCtaEmphasis,
   type FollowedKolCardModel,
 } from "../followedKolCard";
 import type { StarryBinding } from "../api";
-import FollowedBrief, { type FollowedSituation } from "./FollowedBrief";
+import { briefingForFollowed, FOLLOWED_SITUATIONS, type FollowedSituation } from "./FollowedBrief";
 import { KOL_SELECT_MAX, selectAllChecked, selectAllLabel } from "./kolContract";
 import { HOME_HANDOFF_TO_AGENT } from "./entryRegistry";
 import type { SurfaceDownView } from "./surfaceError";
@@ -23,7 +22,7 @@ function SearchIcon() {
 }
 
 /** 读取久等之后才给恢复入口：等待本身有原因，不靠猜、不伪造进度。 */
-function useSlowWait(active: boolean, ms = 8000): boolean {
+function useSlowWait(active: boolean, ms = 3000): boolean {
   const [slow, setSlow] = useState(false);
   useEffect(() => {
     if (!active) {
@@ -35,24 +34,6 @@ function useSlowWait(active: boolean, ms = 8000): boolean {
   }, [active, ms]);
   return slow;
 }
-
-const FOLLOWED_STAGE_LABELS: Record<string, string> = {
-  INITIAL_CONTACT: "初步接触",
-  INTERESTED: "有意向",
-  EVALUATING: "合作评估",
-  QUOTE_PENDING: "报价",
-  NEGOTIATING: "商务谈判",
-  PLAN_PENDING: "方案",
-  CONTRACTING: "合同签署",
-  SAMPLE_PENDING: "寄样",
-  SHIPPED: "已发货",
-  TESTING: "测试中",
-  CONTENT_PLANNING: "内容策划",
-  CONTENT_REVIEW: "内容审核",
-  PUBLISH_PENDING: "待发布",
-  PUBLISHED: "已发布",
-  SETTLING: "结算",
-};
 
 function followEmptyCopy(kind: string, scope: StarryBinding | null) {
   if (kind === "loading") {
@@ -68,9 +49,11 @@ function followEmptyCopy(kind: string, scope: StarryBinding | null) {
     return { title: "没有匹配的跟进对象", body: "换个关键词或阶段，再看跟进中的红人和合作对象。" };
   }
   if (kind === "mailbox") {
+    const mailbox = scope?.mailbox_email || "当前邮箱";
+    const scopeLabel = scope?.owner_name ? `${scope.owner_name}（${mailbox}）` : mailbox;
     return {
-      title: "该邮箱下暂无跟进红人",
-      body: `当前绑定 ${scope?.mailbox_email || "已选邮箱"}${scope?.owner_name ? ` · ${scope.owner_name}` : ""}。`,
+      title: "还没有领取跟进的红人",
+      body: `这里显示 ${scopeLabel} 名下的跟进名单。可先从公海领取已有红人，或通过 AI 发现寻找新红人。`,
     };
   }
   if (kind === "down") {
@@ -111,6 +94,8 @@ export default function FollowedPane({
   onRelease,
   onReload,
   onBind,
+  onOpenPool,
+  onOpenDiscovery,
 }: {
   visibleKols: FollowedKolCardModel[];
   allCards: FollowedKolCardModel[];
@@ -145,6 +130,8 @@ export default function FollowedPane({
   /** 久等之后的恢复入口：只重发跟进名单读取，不强制重拉 board。 */
   onReload?: () => void;
   onBind: () => void;
+  onOpenPool: () => void;
+  onOpenDiscovery: () => void;
 }) {
   const selecting = selectedKolIds.length > 0;
   const selectedCards = visibleKols.filter((card) => selectedKolIds.includes(card.id));
@@ -153,20 +140,7 @@ export default function FollowedPane({
   const loading = !queryDown && followEmptyKind === "loading";
   const slowLoading = useSlowWait(loading);
   const empty = followEmptyCopy(queryDown ? "down" : followEmptyKind, followScope);
-  const stageOptions = [
-    { code: "", label: "全部阶段" },
-    ...MAIN_STAGE_TABS.map((stage) => ({
-      code: stage.code,
-      label: FOLLOWED_STAGE_LABELS[stage.code] || stage.label,
-    })),
-    { code: "exception", label: "异常" },
-  ];
-  const journeyStages = ["建联评估", "合作确认", "寄样测试", "内容交付", "结算完成", "长期合作"];
-  const quickStages = [
-    { code: "INITIAL_CONTACT", label: "初步接触" },
-    { code: "INTERESTED", label: "已回复 · 有兴趣" },
-    { code: "EVALUATING", label: "合作评估" },
-  ];
+  const brief = briefingForFollowed(allCards);
 
   return (
     <section
@@ -176,7 +150,7 @@ export default function FollowedPane({
       <div className="followed-kol-column" data-followed-kol-column data-followed-decision-max="full">
         {/* 顶部工具行：找谁（搜索）＋ 对选中的做什么（全选本页 / 分析已选 / 批量进阶段）。
             「在跟 N 位」由下方简报唯一承载，这里只报选中数。 */}
-        <div className="followed-object-toolbar" data-followed-object-toolbar data-home-entry="list-followed">
+        {allCards.length ? <div className="followed-object-toolbar" data-followed-object-toolbar data-home-entry="list-followed">
           <div className="followed-object-look" data-followed-object-look>
             <label className="followed-object-search">
               <SearchIcon />
@@ -189,27 +163,8 @@ export default function FollowedPane({
                 onChange={(event) => onQuery(event.target.value)}
               />
             </label>
-            <label className="followed-advanced-filter" data-followed-advanced>
-              <span className="sr-only">阶段筛选</span>
-              <select
-                className="followed-stage-select-compat"
-                data-kol-stage-filter
-                aria-label="按阶段筛选"
-                value={stageFilter}
-                onChange={(event) => onStageFilter(event.target.value)}
-              >
-                {stageOptions.map((option) => (
-                  <option key={option.code || "all"} value={option.code}>{option.label}</option>
-                ))}
-              </select>
-            </label>
           </div>
           <div className="followed-object-batch" data-followed-object-batch>
-            {selecting ? (
-              <p className="followed-object-count" data-followed-selected-count>
-                已选 {selectedKolIds.length} / {KOL_SELECT_MAX}
-              </p>
-            ) : null}
             <label className="followed-select-all">
               <input
                 type="checkbox"
@@ -218,9 +173,9 @@ export default function FollowedPane({
                 disabled={!visibleKols.length}
                 onChange={(event) => onToggleSelectAll(event.target.checked)}
               />
-              <span>{selectAllLabel(visibleKols.length, "全选本页")}</span>
+              <span>{selecting ? `已选 ${selectedKolIds.length} / ${KOL_SELECT_MAX}` : selectAllLabel(visibleKols.length, "选择对象")}</span>
             </label>
-            <button
+            {selecting ? <button
               type="button"
               className="btn ghost sm"
               data-analyze-selected
@@ -230,8 +185,8 @@ export default function FollowedPane({
               onClick={onAnalyzeSelected}
             >
               分析已选
-            </button>
-            <button
+            </button> : null}
+            {selecting ? <button
               type="button"
               className={selecting && bulkLabel ? "btn work sm" : "btn ghost sm"}
               data-followed-batch-confirm
@@ -240,45 +195,16 @@ export default function FollowedPane({
               onClick={onBatchConfirm}
             >
               {bulkLabel}
-            </button>
+            </button> : null}
           </div>
-        </div>
-        <nav className="followed-journey" aria-label="合作生命周期阶段" data-followed-journey>
-          {journeyStages.map((label, index) => (
-            <span key={label} className={index === 0 ? "is-active" : ""} aria-current={index === 0 ? "step" : undefined}>
-              {label}
-            </span>
-          ))}
-        </nav>
-        <div className="followed-stage-quick-filter" role="tablist" aria-label="跟进阶段筛选" data-followed-stage-quick-filter>
-          {quickStages.map((stage) => (
-            <button
-              key={stage.code}
-              type="button"
-              role="tab"
-              aria-selected={stageFilter === stage.code}
-              className={stageFilter === stage.code ? "is-active" : ""}
-              onClick={() => onStageFilter(stageFilter === stage.code ? "" : stage.code)}
-            >
-              {stage.label}
-            </button>
-          ))}
-          <button
-            type="button"
-            role="tab"
-            aria-selected={!stageFilter}
-            className={!stageFilter ? "is-active" : ""}
-            onClick={() => onStageFilter("")}
-          >
-            全部
-          </button>
-        </div>
-        <FollowedBrief
-          cards={allCards}
-          situation={situation}
-          onSituation={onSituation}
-          onPrimary={onOpenDetail}
-        />
+        </div> : null}
+        {allCards.length ? <div className="followed-result-summary" aria-label="当前结果条件">
+          <strong>{visibleKols.length} 位结果</strong>
+          {stageFilter ? <button type="button" onClick={() => onStageFilter("")}>阶段筛选 ×</button> : null}
+          {FOLLOWED_SITUATIONS.map(({ key, label }) => situation === key ? (
+            <button key={key} type="button" onClick={() => onSituation("")}>{brief.counts[key]} 位{label} ×</button>
+          ) : null)}
+        </div> : null}
 
         {visibleKols.length ? (
           <>
@@ -364,6 +290,16 @@ export default function FollowedPane({
               <button type="button" className="btn work" onClick={onBind}>
                 {followScope.status === "expired" ? "重新连接" : "去绑定"}
               </button>
+            ) : null}
+            {!loading && !down && followEmptyKind === "mailbox" ? (
+              <div className="task-empty-actions" data-follow-empty-actions>
+                <button type="button" className="btn work sm" onClick={onOpenPool}>
+                  去公海找红人
+                </button>
+                <button type="button" className="btn ghost sm" onClick={onOpenDiscovery}>
+                  AI 发现新红人
+                </button>
+              </div>
             ) : null}
           </div>
         )}

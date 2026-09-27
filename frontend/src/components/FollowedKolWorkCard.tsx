@@ -40,6 +40,69 @@ function workCtaClass(opts: {
   ].filter(Boolean).join(" ");
 }
 
+/** 箭头不再是文本字符：label 结尾的「→」拆出来交给统一 SVG 图标。 */
+function ctaText(label: string): string {
+  return String(label || "").replace(/\s*→\s*$/, "");
+}
+
+function ctaHasArrow(label: string): boolean {
+  return /\s*→\s*$/.test(String(label || ""));
+}
+
+function IconAlert() {
+  return (
+    <svg className="kol-ico" aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path d="M8 2.9 14 13.1H2L8 2.9Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+      <path d="M8 6.8v3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <circle cx="8" cy="11.5" r=".8" fill="currentColor" />
+    </svg>
+  );
+}
+
+function IconInfo() {
+  return (
+    <svg className="kol-ico" aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <circle cx="8" cy="8" r="5.9" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M8 7.3v4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <circle cx="8" cy="4.9" r=".85" fill="currentColor" />
+    </svg>
+  );
+}
+
+function IconArrow() {
+  return (
+    <svg className="kol-ico" aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path
+        d="M2.9 8h9.2M8.5 4.6 11.9 8l-3.4 3.4"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconChevron() {
+  return (
+    <svg className="kol-ico kol-chevron" aria-hidden="true" viewBox="0 0 16 16" fill="none">
+      <path
+        d="m4.2 6.4 3.8 3.6 3.8-3.6"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+/**
+ * 一行最多一个状态强调点：按风险等级取第一个做描边标记，其余降为弱文本。
+ * 「临近14日」不再出现 —— 同一份数据（未互动天数）已由 14 日计时那一行承载。
+ */
+const RISK_MARKER_ORDER = ["exception", "high-risk", "refused", "overdue", "unbound"];
+
 export default function FollowedKolWorkCard({
   card,
   onOpenDetail,
@@ -86,19 +149,24 @@ export default function FollowedKolWorkCard({
   const showMail = Boolean(fact.thread_id);
   const days = card.current_state.days_in_stage;
   const stageLabel = formatStageBadge(card.current_state.stage_label);
-  const chips = [
-    card.identity.platform ? { id: "platform", label: card.identity.platform } : null,
-    card.scope.brand ? { id: "brand", label: card.scope.brand } : null,
-    card.scope.region ? { id: "region", label: card.scope.region } : null,
-    card.scope.owner ? { id: "owner", label: card.scope.owner } : null,
-    ...card.risk.chips,
-    card.unread_count > 0 ? { id: "unread", label: `未读 ${card.unread_count}` } : null,
-  ].filter(Boolean) as { id: string; label: string }[];
   const initial = card.identity.display.replace(/^@/, "").slice(0, 1) || "红";
   const hasEvidence = card.evidence.kind !== "none" && Boolean(card.evidence.label);
   const factMeta = [fact.source || (fact.thread_id ? "邮件" : ""), fact.at ? formatFactTime(fact.at) : ""]
     .filter(Boolean)
     .join(" · ");
+  const refused = /拒绝|拒信/.test(`${stageLabel} ${card.identity.display}`);
+  const marker = RISK_MARKER_ORDER
+    .map((id) => card.risk.chips.find((chip) => chip.id === id))
+    .find((chip) => chip && !(chip.id === "refused" && refused));
+  const quietRisk = card.risk.chips.filter((chip) => chip.id !== marker?.id && chip.id !== "near-14d" && chip.id !== "refused");
+  const meta = [
+    card.identity.platform ? { id: "platform", label: card.identity.platform } : null,
+    card.scope.brand ? { id: "brand", label: card.scope.brand } : null,
+    card.scope.region ? { id: "region", label: card.scope.region } : null,
+    card.scope.owner ? { id: "owner", label: card.scope.owner } : null,
+    ...quietRisk,
+    card.unread_count > 0 ? { id: "unread", label: `未读 ${card.unread_count}` } : null,
+  ].filter(Boolean) as { id: string; label: string }[];
 
   return (
     <article
@@ -152,21 +220,32 @@ export default function FollowedKolWorkCard({
             >
               <span className="kol-stage" data-stage-label>{stageLabel}</span>
             </span>
+            {marker ? (
+              <span
+                className="kol-chip is-risk"
+                data-kol-chip={marker.id}
+                data-unbound={marker.id === "unbound" ? "true" : undefined}
+                title={marker.label}
+              >
+                <IconAlert />
+                {marker.label}
+              </span>
+            ) : null}
             {days != null && days > 0 ? (
               <span className="kol-stage-stay" data-days-in-stage={days} data-kol-chip="stay">
                 停留 {days} 天
               </span>
             ) : null}
           </div>
-          {chips.length ? (
+          {meta.length ? (
             <span className="kol-chip-row" data-kol-scope>
-              {chips.map((chip) => (
+              {meta.map((chip) => (
                 <span
                   key={chip.id + chip.label}
                   className={
                     "kol-chip"
                     + (chip.id === "unread" ? " is-unread" : "")
-                    + (chip.id === "exception" || chip.id === "high-risk" ? " is-risk" : "")
+                    + (chip.id === "unread" && marker ? " is-quiet" : "")
                   }
                   data-kol-chip={chip.id}
                   data-unread-count={chip.id === "unread" ? card.unread_count : undefined}
@@ -177,13 +256,23 @@ export default function FollowedKolWorkCard({
               ))}
             </span>
           ) : null}
+          {card.source.countdown !== false && (card.source.release_due_at || card.source.last_interaction_at) ? (
+            <p className="kol-mail-meta" data-release-timer data-release-scheduler="false">
+              14 日计时（只读）
+              {card.source.last_interaction_at ? ` · 上次互动 ${formatFactTime(card.source.last_interaction_at)}` : ""}
+              {card.source.days_since_interaction != null ? ` · 已过 ${card.source.days_since_interaction} 天` : ""}
+            </p>
+          ) : (
+            <p className="kol-mail-meta" data-release-timer data-release-scheduler="false" data-clock-none>
+              尚未有效往来
+            </p>
+          )}
         </div>
       </div>
 
       <div className="kol-split" data-kol-split>
         <div className="kol-band kol-band-fact" data-kol-band="fact">
           <div className="kol-state-block" data-latest-fact data-fact-kind={fact.kind}>
-            <p className="kol-split-kicker"><span className="kol-split-icon" aria-hidden>✉</span>最新互动</p>
             <p className="kol-mail-digest" data-mail-summary={fact.thread_id || undefined}>
               {fact.summary}
             </p>
@@ -193,36 +282,44 @@ export default function FollowedKolWorkCard({
                 {fact.at ? <span data-thread-time className="sr-only">{fact.at}</span> : null}
               </p>
             ) : null}
-            {card.source.countdown !== false && (card.source.release_due_at || card.source.last_interaction_at) ? (
-              <p className="kol-mail-meta" data-release-timer data-release-scheduler="false">
-                14 日计时（只读）
-                {card.source.last_interaction_at ? ` · 上次互动 ${formatFactTime(card.source.last_interaction_at)}` : ""}
-                {card.source.days_since_interaction != null ? ` · 已过 ${card.source.days_since_interaction} 天` : ""}
-              </p>
-            ) : (
-              <p className="kol-mail-meta" data-release-timer data-release-scheduler="false" data-clock-none>
-                尚未有效往来
-              </p>
-            )}
           </div>
         </div>
 
         <div className="kol-band kol-band-recommend" data-kol-band="action">
-          <div className="kol-state-block" data-recommended-action={rec.kind}>
-            <p className="kol-split-kicker"><span className="kol-split-icon" aria-hidden>✦</span>AI 建议</p>
-            <p className="kol-suggestion">{headline}</p>
-            {rec.why ? <p className="kol-judgment" data-action-why>{rec.why}</p> : null}
+          <div
+            className="kol-state-block"
+            data-recommended-action={rec.kind}
+            data-confidence={rec.kind === "insufficient" ? "low" : "ok"}
+          >
+            <p className="kol-suggestion">
+              {rec.kind === "insufficient" ? <IconInfo /> : null}
+              {headline}
+            </p>
+            <p className="kol-ai-why">
+              <span className="kol-split-kicker">AI 建议</span>
+              {rec.why ? <span className="kol-judgment" data-action-why>{rec.why}</span> : null}
+            </p>
           </div>
-          {hasEvidence ? (
-            <details className="kol-evidence-disclosure" data-action-evidence={card.evidence.kind}>
-              <summary>查看判断依据</summary>
-              <p className="kol-evidence">{card.evidence.label}</p>
-            </details>
-          ) : null}
           <div className="kol-band kol-band-actions" data-kol-band="cta">
             <div className="kol-cta-secondary">
-              <button type="button" className="kol-cta-link" data-open-kol-detail onClick={onOpenDetail}>
-                查看详情
+              {hasEvidence ? (
+                <details className="kol-evidence-disclosure" data-action-evidence={card.evidence.kind}>
+                  <summary>
+                    <span className="kol-when-closed">依据</span>
+                    <span className="kol-when-open">收起依据</span>
+                    <IconChevron />
+                  </summary>
+                  <p className="kol-evidence">{card.evidence.label}</p>
+                </details>
+              ) : null}
+              <button
+                type="button"
+                className="kol-cta-link"
+                data-open-kol-detail
+                title="查看该红人的详情"
+                onClick={onOpenDetail}
+              >
+                详情
               </button>
               {showMail ? (
                 <button
@@ -230,9 +327,10 @@ export default function FollowedKolWorkCard({
                   className="kol-cta-link"
                   data-open-original-mail
                   data-thread-id={fact.thread_id}
+                  title="查看该红人的互动记录"
                   onClick={onOpenMail}
                 >
-                  查看互动
+                  互动
                 </button>
               ) : null}
               {onRelease ? (
@@ -257,7 +355,8 @@ export default function FollowedKolWorkCard({
                   data-cta-visual={emphasized && !demoteDraft ? "filled" : "ghost"}
                   onClick={onCompose || onPrimary}
                 >
-                  {rec.label}
+                  <span>{ctaText(rec.label)}</span>
+                  {ctaHasArrow(rec.label) ? <IconArrow /> : null}
                 </button>
               ) : null}
               {showConfirm ? (
@@ -274,7 +373,8 @@ export default function FollowedKolWorkCard({
                   disabled={actionBusy}
                   onClick={onConfirmStage || onPrimary}
                 >
-                  {actionBusy ? "正在打开…" : rec.label}
+                  <span>{actionBusy ? "正在打开…" : ctaText(rec.label)}</span>
+                  {!actionBusy && ctaHasArrow(rec.label) ? <IconArrow /> : null}
                 </button>
               ) : null}
               {primary && !showCompose && !showConfirm ? (
@@ -287,7 +387,8 @@ export default function FollowedKolWorkCard({
                   disabled={actionBusy}
                   onClick={onPrimary}
                 >
-                  {actionBusy ? "正在打开…" : rec.label}
+                  <span>{actionBusy ? "正在打开…" : ctaText(rec.label)}</span>
+                  {!actionBusy && ctaHasArrow(rec.label) ? <IconArrow /> : null}
                 </button>
               ) : null}
             </div>
