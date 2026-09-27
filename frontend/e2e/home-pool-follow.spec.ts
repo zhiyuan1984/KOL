@@ -267,6 +267,8 @@ test("public pool restores the central interaction and uses a structured right r
   await expect(center.locator("[data-pool-analysis-actions]")).toBeVisible();
   await expect(center.locator("[data-pool-analysis]")).toHaveCount(3);
   await expect(center.locator("[data-pool-jev-assess]")).toHaveText("KOL评分");
+  await expect(center.locator("[data-pool-analysis-actions]")).toHaveCSS("border-bottom-width", "0px");
+  await expect(center.locator("[data-pool-analysis='potential']")).toHaveCSS("text-decoration-line", "underline");
   await expect(center.locator("[data-composer-input]")).toBeVisible();
   await expect(rail).toBeVisible();
   await expect(rail.locator("[data-pool-toolbar]")).toBeVisible();
@@ -280,6 +282,23 @@ test("public pool restores the central interaction and uses a structured right r
   await rail.locator("[data-pool-sort='followers']").click();
   await expect(rail.locator("[data-pool-sort='followers']")).toHaveAttribute("data-sort-direction", "asc");
   await expect(rail).not.toContainText("资料维护");
+  const toolRows = await rail.locator("[data-pool-toolbar]").evaluate((toolbar) => {
+    const box = (selector: string) => (toolbar.querySelector(selector) as HTMLElement)?.getBoundingClientRect();
+    const search = box("[data-pool-search]");
+    const selectAll = box("[data-pool-select-all]");
+    const firstFilter = box("[data-pool-filter='new']");
+    const secondFilter = box("[data-pool-filter='overdue']");
+    const firstSort = box("[data-pool-sort='ingested']");
+    if (!search || !selectAll || !firstFilter || !secondFilter || !firstSort) throw new Error("public-pool tools are incomplete");
+    const middle = (rect: DOMRect) => rect.y + rect.height / 2;
+    return {
+      search: middle(search), selectAll: middle(selectAll), firstFilter: middle(firstFilter), secondFilter: middle(secondFilter), firstSort: middle(firstSort),
+    };
+  });
+  expect(toolRows.search).toBe(toolRows.selectAll);
+  expect(toolRows.search).toBe(toolRows.firstFilter);
+  expect(toolRows.search).toBe(toolRows.secondFilter);
+  expect(toolRows.firstSort).toBeGreaterThan(toolRows.search);
   await expect(list).toBeVisible();
   await expect(row).toBeVisible();
   const centerBox = await center.boundingBox();
@@ -292,7 +311,7 @@ test("public pool restores the central interaction and uses a structured right r
   await expect(workspace.locator("[data-pool-reason]")).toHaveCount(0);
   await expect(row.locator(".pool-profile-link")).toHaveText("主页");
   expect((await workspace.locator("[data-pool-search]").boundingBox())?.height).toBe(28);
-  expect((await workspace.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").boundingBox())?.height).toBe(32);
+  expect((await workspace.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").boundingBox())?.height).toBe(28);
 });
 
 test("empty pool sync sends an explicit command and renders the refreshed public index", async ({ page }) => {

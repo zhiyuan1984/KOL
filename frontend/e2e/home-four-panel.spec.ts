@@ -72,7 +72,8 @@ test("home five-mode tab order and pane visibility", async ({ page }) => {
   await expect(page.locator('[data-home-pane="lifecycle"]')).toHaveCount(0);
 
   await openMode(page, "lifecycle");
-  await expect(page.locator('[data-home-pane="lifecycle"] h1')).toHaveText("我的红人");
+  await expect(page.locator('[data-home-pane="lifecycle"] [data-home-title="lifecycle"]')).toHaveCount(0);
+  await expect(page.locator('[data-home-pane="lifecycle"]')).not.toContainText("分析临近失联对象");
   await expect(page.locator('[data-home-pane="lifecycle"] [data-scope-ai-workspace]')).toBeVisible();
   await expect(page.locator('[data-home-pane="lifecycle"] [data-scope-task-rail] [data-lifecycle-overview]')).toHaveCount(1);
   await expect(page.locator("[data-home]")).toHaveAttribute("data-followed-chrome", "compact");

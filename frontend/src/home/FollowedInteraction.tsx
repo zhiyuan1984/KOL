@@ -17,7 +17,6 @@ export default function FollowedInteraction({
   selectedCount,
   onStageFilter,
   onSituation,
-  onAnalyzeNear,
   interaction,
 }: {
   cards: FollowedKolCardModel[];
@@ -27,7 +26,6 @@ export default function FollowedInteraction({
   selectedCount: number;
   onStageFilter: (value: string) => void;
   onSituation: (value: FollowedSituation | "") => void;
-  onAnalyzeNear: () => void;
   interaction?: ReactNode;
 }) {
   const summaryReady = completeness === "complete";
@@ -39,9 +37,8 @@ export default function FollowedInteraction({
   const refusedCount = cards.filter((card) => matchesFollowedSituation(card, "refused")).length;
 
   const intro = (
-    <section className="followed-interaction-intro" aria-labelledby="followed-interaction-title">
+    <section className="followed-interaction-intro" aria-label="当前跟进概览">
       <div>
-        <h1 id="followed-interaction-title" data-home-title="lifecycle">我的红人</h1>
         <p>{summaryReady ? `${cards.length} 位当前跟进对象 · 数量来自当前已授权名单` : "正在核对当前已授权名单…"}</p>
       </div>
       {selectedCount ? <span className="followed-selection-note">已选择 {selectedCount} 位，可在下方继续提问</span> : null}
@@ -147,9 +144,6 @@ export default function FollowedInteraction({
           <li><button type="button" onClick={() => onSituation("near_14d")}>查看临近失联的 {nearCount} 位对象</button></li>
           {refusedCount ? <li><button type="button" onClick={() => onSituation("refused")}>核对已拒绝的 {refusedCount} 位对象</button></li> : null}
         </ol>
-        <button type="button" className="btn ghost sm" disabled={!nearCount} onClick={onAnalyzeNear}>
-          分析临近失联对象
-        </button>
       </section>
 
       {interaction}

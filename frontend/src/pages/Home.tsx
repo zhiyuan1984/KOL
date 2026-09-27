@@ -34,7 +34,7 @@ import ScopeWorkspace from "../home/ScopeWorkspace";
 import type { WorkspacePane } from "../home/WorkspaceShell";
 import FollowedPane from "../home/FollowedPane";
 import FollowedInteraction from "../home/FollowedInteraction";
-import { matchesFollowedSituation, type FollowedSituation } from "../home/FollowedBrief";
+import { type FollowedSituation } from "../home/FollowedBrief";
 import PoolInteraction, { type PoolAnalysisKind } from "../home/PoolInteraction";
 import PoolPane from "../home/PoolPane";
 import ReleaseFollowConfirm from "../home/ReleaseFollowConfirm";
@@ -2036,10 +2036,6 @@ export default function Home() {
                   selectedCount={selectedKolIds.length}
                   onStageFilter={followedWorkspace.setStageFilter}
                   onSituation={followedWorkspace.setSituation}
-                  onAnalyzeNear={() => {
-                    const targets = followedWorkspace.cards.filter((card) => matchesFollowedSituation(card, "near_14d"));
-                    prefillAnalyze("following", targets, targets.map((card) => String(card.source.kol_uid || card.id)));
-                  }}
                   interaction={interactionFeedback}
                 />
               )}

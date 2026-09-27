@@ -3909,6 +3909,9 @@ summary:focus-visible,
   font-weight: 600;
 }
 .followed-result-summary button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   height: var(--badge-h);
   padding: 0 7px;
   border: 1px solid var(--accent);
@@ -14555,14 +14558,16 @@ button.today-brief-primary-btn:disabled {
   min-height: var(--control-h);
   padding: 0 var(--ds-space-2);
   border: 0;
-  border-bottom: 1px solid var(--ds-border);
   border-radius: 0;
   background: transparent;
-  color: var(--text);
+  color: var(--accent-text);
   font: inherit;
   font-size: var(--ds-font-body);
   line-height: var(--ds-line-body);
   text-align: left;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
   cursor: pointer;
 }
 .pool-analysis-actions button:hover:not(:disabled) {
@@ -14584,10 +14589,8 @@ button.today-brief-primary-btn:disabled {
   padding-top: 0;
 }
 .scope-task-rail .pool-compact-toolbar {
-  display: flex;
-  flex-flow: row wrap;
-  align-items: center;
-  justify-content: flex-start;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--ds-space-1);
   width: 100%;
   margin: 0 0 var(--ds-space-2);
@@ -14596,6 +14599,14 @@ button.today-brief-primary-btn:disabled {
   border-bottom: 1px solid var(--ds-border);
   border-radius: 0;
   background: transparent;
+}
+.scope-task-rail .pool-toolbar-primary,
+.scope-task-rail .pool-toolbar-sort {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-1);
+  min-width: 0;
 }
 .scope-task-rail .pool-search {
   flex: 1 1 clamp(7.75rem, 10vw, 9rem);
@@ -14650,13 +14661,27 @@ button.today-brief-primary-btn:disabled {
 }
 .scope-task-rail .pool-select-all {
   min-height: var(--control-h);
-  margin-left: auto;
+  margin-left: 0;
   gap: var(--ds-space-1);
   color: var(--text-muted);
   font-size: var(--ds-font-helper);
   line-height: var(--ds-line-helper);
 }
 .scope-task-rail .pool-select-all input { width: var(--icon-sm); height: var(--icon-sm); }
+.scope-task-rail .pool-toolbar-sort {
+  padding-left: calc(var(--icon-sm) + var(--ds-space-2));
+}
+.scope-task-rail .pool-row-actions {
+  min-width: 76px;
+}
+.scope-task-rail .pool-claim-button {
+  min-width: 76px;
+  min-height: var(--control-h);
+  height: var(--control-h);
+  padding-inline: 6px;
+  font-size: var(--ds-font-helper);
+  line-height: var(--lh-control-sm);
+}
 .pool-interaction :is(button, input):focus-visible,
 .scope-task-rail .pool-compact-toolbar :is(button, input):focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring);
@@ -14664,7 +14689,7 @@ button.today-brief-primary-btn:disabled {
 }
 @media (max-width: 620px) {
   .scope-task-rail .pool-search { flex-basis: 100%; }
-  .scope-task-rail .pool-select-all { margin-left: 0; }
+  .scope-task-rail .pool-toolbar-sort { padding-left: 0; }
 }
 
 /* Configurable connector runtime extension: mirrors the existing admin density and tokens. */
