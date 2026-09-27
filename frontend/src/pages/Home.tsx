@@ -1403,6 +1403,15 @@ export default function Home() {
         });
         setQueuedNotice(queued.queued_copy || ANALYZE_QUEUED_COPY);
         setAnalyzeSurface(null);
+        if (intakeCancelled.current) {
+          setBusy(false);
+          setIntakeRunning(false);
+          return;
+        }
+        // 入队只写耐久记录；执行走既有任务运行链路（queued → running），不另造入口。
+        const run = await api.runTask(queued.work_item_id, { text: prompt });
+        if (intakeCancelled.current) return;
+        openRun(run);
         setBusy(false);
         setIntakeRunning(false);
         return;
