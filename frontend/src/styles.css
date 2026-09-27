@@ -214,6 +214,32 @@
   --radius-tags: 9999px;
   --radius-cards: 14px;
   --radius-links: 4px;
+
+  /* 连接器控制台对话框规格 —— 数值来自参考图逐像素测量，唯一来源见 docs/DESIGN.md §连接器控制台。
+     1 图像 px 的参考截图按 1.25 设备像素比换算为下列 CSS px。 */
+  --dialog-w-form: 640px;      /* 表单弹窗宽度（参考图卡片 796 / 1.25 ≈ 636，取整 640） */
+  --dialog-pad-x: 20px;        /* 卡片左右内边距（26 / 1.25 ≈ 21） */
+  --dialog-pad-t: 32px;        /* 卡片上内边距 */
+  --dialog-pad-b: 32px;        /* 卡片下内边距 */
+  --control-h-form: 38px;      /* 输入框 / 按钮高度（48 / 1.25 ≈ 38.4） */
+  --field-gap: 8px;            /* 字段标签到控件 */
+  --block-gap: 16px;           /* 字段块之间 */
+  --grid-gap: 20px;            /* 两列字段之间（26 / 1.25 ≈ 21） */
+  --row-gap: 10px;             /* headers 行之间（12 / 1.25 ≈ 10） */
+  --icon-box: 64px;            /* 图标位（80 / 1.25 = 64） */
+  --font-field: 16px;          /* 字段标签与输入文本（墨高 18 / 1.25 ≈ 14.4 → 16） */
+  --font-hint: 13px;           /* 说明文字（墨高 15 / 1.25 = 12 → 13） */
+  --fill-control: #ececeb;     /* 控件填充（参考图取样） */
+  --fill-card: #f8f8f7;        /* 弹窗卡片底色 */
+  --border-quiet: #dadad9;     /* 描边按钮边框 */
+  --border-dashed: #e5e5e4;    /* 图标虚线框 */
+  --hint-text: #737373;        /* 说明文字颜色 */
+  --placeholder-text: #a6a6a6; /* 占位文字颜色 */
+  --danger-soft: #ee5b5e;      /* 删除图标红 */
+  --action-strong: #1a1a19;    /* 弹窗主按钮实底 */
+  --action-strong-fg: #ffffff;
+
+  /* Primary tone scale for cards and panels (used by home-workbench review cards). */
   --radius-inputs: 22px;
   --radius-buttons: 9999px;
   --radius-nav: 8px;
@@ -239,6 +265,16 @@
   --control-border-hover: #a2a8b2;
   --control-border-invalid: #ef7777;
   --control-bg: #23262c;
+  /* 连接器控制台对话框：深色下等比替换；主按钮回落品牌主色以保证对比度（浅色为参考图的近黑 #1a1a19）。 */
+  --fill-control: #23262c;
+  --fill-card: #17191d;
+  --border-quiet: #3a3f47;
+  --border-dashed: #3a3f47;
+  --hint-text: #a2a8b2;
+  --placeholder-text: #7b828c;
+  --danger-soft: #ef7777;
+  --action-strong: #e0508c;
+  --action-strong-fg: var(--bg);
   --focus-ring: #ffffff;
   --text: #f1f3f5;
   --text-muted: #a2a8b2;

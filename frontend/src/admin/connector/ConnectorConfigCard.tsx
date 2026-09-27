@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../api";
 import { errorMessage, versionConflictMessage, type RuntimeConnectorConfig, type RuntimeConnectorTransport } from "../../runtimeConnectorUi";
 import type { ConnectorCardView } from "./entity";
-import { ConnectorIconUpload, validateHeaderName } from "./ConnectorPanels";
+import { ConnectorIconUpload, SplitButton, publishConnector, validateHeaderName } from "./ConnectorPanels";
 
 type SecretRow = { name: string; value: string; ref?: string; removed?: boolean };
 
@@ -30,11 +30,13 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [noticeTone, setNoticeTone] = useState<"ok" | "warn">("ok");
 
   const load = useCallback(async () => {
     setLoading(true);
     setLoadError("");
     setNotice("");
+    setNoticeTone("ok");
     try {
       const result = await api.runtimeConnectorConfig(card.id);
       const config = result.config;
@@ -67,7 +69,7 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { setLabel(card.label); setPurpose(card.purpose); }, [card.label, card.purpose]);
 
-  const submit = async () => {
+  const submit = async (publish: boolean) => {
     const problems: string[] = [];
     const trimmedLabel = label.trim();
     const trimmedPurpose = purpose.trim();
@@ -90,6 +92,7 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
     setBusy(true);
     setError("");
     setNotice("");
+    setNoticeTone("ok");
     try {
       if (trimmedLabel !== card.label || trimmedPurpose !== card.purpose) {
         await api.adminSave(`/api/admin/connectors/${encodeURIComponent(card.id)}`, { label: trimmedLabel, purpose: trimmedPurpose || "待补充业务用途" }, "PATCH");
@@ -145,9 +148,19 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
       // The submitted secret must leave component state once written.
       setSecretRows((rows) => rows.map((row) => ({ ...row, value: "" })));
       await load();
-      setNotice(iconWarning
-        ? `配置已保存；图标未上传成功（${iconWarning}）。`
-        : "配置草稿已保存。保存不等于连通、审批或启用；请重新测试并审阅接口。");
+      if (publish) {
+        const reason = await publishConnector(card.id);
+        if (reason) {
+          setNoticeTone("warn");
+          setNotice(`配置草稿已保存，但未能发布：${reason}`);
+        } else {
+          setNotice(`已保存并发布“${trimmedLabel}”。`);
+        }
+      } else {
+        setNotice(iconWarning
+          ? `配置已保存；图标未上传成功（${iconWarning}）。`
+          : "配置草稿已保存。保存不等于连通、审批或启用；请重新测试并审阅接口。");
+      }
       reload();
     } catch (cause) {
       setError(versionConflictMessage(cause) || errorMessage(cause, "配置未保存"));
@@ -180,23 +193,29 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
       {!loading && !loadError && (
         <>
           {error && <p className="error" role="alert" data-connector-config-error>{error}</p>}
-          {notice && <p className="runtime-notice" role="status">{notice}</p>}
+          {notice && <p className={"runtime-notice" + (noticeTone === "warn" ? " connector-receipt-warn" : "")} role="status">{notice}</p>}
           <div className="connector-form-grid">
             <label className="field">服务器名称
               <input value={label} maxLength={120} data-connector-field="label" onChange={(event) => setLabel(event.target.value)} />
             </label>
             <label className="field">传输类型
               <select value={transport} data-connector-field="transport" onChange={(event) => setTransport(event.target.value as RuntimeConnectorTransport)}>
-                <option value="streamable-http">HTTP（Streamable）</option>
+                <option value="streamable-http">HTTP</option>
                 <option value="sse">SSE</option>
               </select>
             </label>
           </div>
           <div className="field">图标
-            <ConnectorIconUpload file={iconFile} existingUrl={card.iconUrl} onPick={setIconFile} />
+            <ConnectorIconUpload variant="dialog" file={iconFile} existingUrl={card.iconUrl} onPick={setIconFile} />
           </div>
-          <label className="field">备注
-            <textarea value={purpose} rows={2} maxLength={280} onChange={(event) => setPurpose(event.target.value)} />
+          <label className="field">备注（可选）
+            <textarea
+              value={purpose}
+              rows={5}
+              maxLength={280}
+              placeholder="提供 MCP 文档或说明，以告知平台如何及何时使用此 MCP"
+              onChange={(event) => setPurpose(event.target.value)}
+            />
           </label>
           <label className="field">服务器 URL
             <input
@@ -207,7 +226,7 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
             />
             {urlEnv && !url && <small className="muted">端点当前由环境变量 <code>{urlEnv}</code> 提供。</small>}
           </label>
-          <div className="field">自定义 headers
+          <div className="field">自定义 headers（可选）
             <div className="connector-header-rows" data-connector-header-rows>
               {secretRows.map((row, index) => (
                 <div className="connector-header-row" key={index}>
@@ -267,10 +286,15 @@ export function ConnectorConfigCard({ card, reload, hideHeading = false }: { car
             </label>
           </div>
           <div className="connector-card-actions">
-            <button type="button" className="btn" disabled={busy} onClick={() => void load()}>放弃修改并刷新</button>
-            <button type="button" className="btn work" data-connector-config-save disabled={busy} onClick={() => void submit()}>
-              {busy ? "保存中…" : "保存配置草稿"}
-            </button>
+            <button type="button" className="btn ghost sm" disabled={busy} onClick={() => void load()}>放弃修改并刷新</button>
+            <SplitButton
+              name="config-save"
+              variant="primary"
+              label={busy ? "保存中…" : "保存草稿"}
+              disabled={busy}
+              onPrimary={() => void submit(false)}
+              items={[{ label: "发布并保存", onSelect: () => void submit(true), disabled: busy }]}
+            />
           </div>
         </>
       )}

@@ -59,7 +59,20 @@ function friendlyEnableFailure(code: string): string {
   return "";
 }
 
-export function ModalShell({ kind, title, subtitle, onClose, children, footer, wide = false, headerExtra }: {
+/**
+ * Asks the server to enable a connector. Empty string means published; otherwise
+ * the server's own reason is returned verbatim — the gate is never bypassed here.
+ */
+export async function publishConnector(connectorId: string): Promise<string> {
+  try {
+    await api.adminSave(`/api/admin/connectors/${encodeURIComponent(connectorId)}`, { enabled: true }, "PATCH");
+    return "";
+  } catch (cause) {
+    return friendlyEnableFailure(codeOf(cause)) || errorMessage(cause, "发布失败");
+  }
+}
+
+export function ModalShell({ kind, title, subtitle, onClose, children, footer, wide = false, form = false, headerExtra }: {
   kind: string;
   title: string;
   subtitle?: string;
@@ -67,6 +80,8 @@ export function ModalShell({ kind, title, subtitle, onClose, children, footer, w
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  /** Form dialogs use the measured connector-console spec (docs/DESIGN.md). */
+  form?: boolean;
   headerExtra?: ReactNode;
 }) {
   const titleId = useId();
@@ -75,7 +90,7 @@ export function ModalShell({ kind, title, subtitle, onClose, children, footer, w
   return createPortal(
     <div className="connector-panel-layer" data-connector-panel={kind}>
       <div className="connector-panel-backdrop" onClick={onClose} />
-      <div ref={ref} className={"connector-panel" + (wide ? " is-wide" : "")} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <div ref={ref} className={"connector-panel" + (wide ? " is-wide" : "") + (form ? " is-form" : "")} role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="connector-panel-head">
           <div>
             <h2 id={titleId}>{title}</h2>
@@ -205,7 +220,8 @@ export function ConnectorIconUpload({ file, existingUrl, onPick, variant = "plai
             onPrimary={() => inputRef.current?.click()}
             items={[
               { label: "上传", onSelect: () => inputRef.current?.click() },
-              { label: "移除", onSelect: clear, disabled: !file && !existingUrl },
+              // Only clears the file picked in this form; a saved icon is replaced by uploading a new one.
+              { label: "移除", onSelect: clear, disabled: !file },
             ]}
           />
         ) : (
@@ -412,13 +428,9 @@ export function McpConfigPanel({ onClose, onDone }: {
       const id = createdRef.current || await createManagedMcp({ label: name, purpose: note, transport, url: url.trim(), noAuth, headerRows: headers, iconFile });
       createdRef.current = id;
       if (publish) {
-        try {
-          await api.adminSave(`/api/admin/connectors/${encodeURIComponent(id)}`, { enabled: true }, "PATCH");
-          onDone(`已创建并发布“${name}”。`);
-        } catch (cause) {
-          const reason = friendlyEnableFailure(codeOf(cause)) || errorMessage(cause, "发布失败");
-          onDone(`“${name}”已保存为待验证草稿，但未能发布：${reason}`, "warn");
-        }
+        const reason = await publishConnector(id);
+        if (reason) onDone(`“${name}”已保存为待验证草稿，但未能发布：${reason}`, "warn");
+        else onDone(`已创建并发布“${name}”。`);
         return;
       }
       onDone(`已将“${name}”加入连接器目录；下一步在详情的测试中完成验证。`);
@@ -434,7 +446,7 @@ export function McpConfigPanel({ onClose, onDone }: {
       kind="mcp-config"
       title="MCP 配置"
       onClose={onClose}
-      wide
+      form
       footer={
         <>
           <p className="connector-panel-note muted">保存只生成待验证草稿，不等于启用。</p>
@@ -527,6 +539,7 @@ export function UrlAddPanel({ onClose, onDone }: { onClose: () => void; onDone: 
       title="通过 URL 添加 MCP"
       subtitle="快速加入组织目录；后续在详情中补齐备注、图标与范围。"
       onClose={onClose}
+      form
       footer={
         <>
           <button type="button" className="btn" onClick={onClose} disabled={busy}>取消</button>

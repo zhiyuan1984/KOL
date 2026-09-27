@@ -68,6 +68,33 @@ description: 员工端视觉与设备适配实施细则。风格基准为 data-d
 | `--radius-control` / `--radius-card` | `6px` / `8px` | 输入与普通控件 / 内容容器 |
 | `--ds-radius-section` / `--ds-radius-input` / `--ds-radius-chip` / `--ds-radius-tag` | `8px` / `6px` / `6px` / `6px` | 工作台分区、输入、chip 与普通状态标签 |
 
+### 连接器控制台（对话框与表单字段）
+
+依据：连接器「MCP 配置」参考图逐像素测量（图像 818×974，按 1.25 设备像素比换算为 CSS px；
+换算规则与测量记录见 `superpowers/specs/2026-09-26-connector-admin-console-redesign.md`）。
+本节数值是该弹窗的**唯一来源**，实现落在 `frontend/src/styles.css` 的 `:root`
+与 `frontend/src/admin/connector/connectorAdmin.css`；改数值必须先改本表。
+
+| token | 值 | 用途（连接器对话框与字段） |
+|---|---:|---|
+| `--dialog-w-form` | `640px` | 表单弹窗宽度（`ModalShell form`），桌面端上限；窄屏用 `100vw - 32px` |
+| `--dialog-pad-x` / `--dialog-pad-t` / `--dialog-pad-b` | `20px` / `32px` / `32px` | 卡片左右 / 上 / 下内边距 |
+| `--control-h-form` | `38px` | 输入框、下拉、headers 行、按钮统一高度 |
+| `--field-gap` / `--block-gap` / `--grid-gap` / `--row-gap` | `8px` / `16px` / `20px` / `10px` | 标签↔控件 / 字段块之间 / 两列之间 / headers 行之间 |
+| `--icon-box` | `64px` | 图标位（1px 虚线框） |
+| `--font-field` / `--font-hint` | `16px` / `13px` | 字段标签与输入文本 / 说明与占位文案 |
+| `--fill-control` / `--fill-card` | `#ececeb` / `#f8f8f7` | 控件填充（无描边）/ 弹窗卡片底色 |
+| `--border-quiet` / `--border-dashed` | `#dadad9` / `#e5e5e4` | 描边按钮 / 图标虚线框 |
+| `--hint-text` / `--placeholder-text` | `#737373` / `#a6a6a6` | 说明文字 / 占位文字 |
+| `--danger-soft` | `#ee5b5e` | 删除图标（headers 行） |
+| `--action-strong` / `--action-strong-fg` | `#1a1a19` / `#ffffff` | 弹窗主行动实底与字色 |
+
+- 输入与下拉**不使用描边**，只用填充 + `--radius-control`；焦点态回到 `--control-border-hover` 描边。
+- 说明文字可点区域仍须满足命中区要求（§控件尺寸）；虚线图标框只表达「可上传」，不是按钮。
+- 主行动在浅色取参考图的近黑 `--action-strong`；深色下回落品牌主色（近黑在深底上对比度不足），
+  该例外已在本表登记，不得扩散到连接器控制台之外的表面。
+- 弹窗内主行动仍受「同一视口 0–1 个实底主 CTA」约束：底部只有「保存草稿 ｜⌄」一个实底。
+
 ## 字号阶梯用途（工作台表面）
 
 档位数值只住 `frontend/src/styles.css` 的 `--ds-font-*` token；组件 CSS 不得硬编码 px 字号。

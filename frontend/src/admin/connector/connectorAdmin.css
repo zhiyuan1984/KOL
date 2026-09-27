@@ -6,18 +6,6 @@
   gap: var(--space-4);
 }
 
-.connector-hub-head {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  align-items: flex-start;
-  justify-content: space-between;
-}
-
-.connector-hub-head h2 {
-  margin: 2px 0 var(--space-1);
-}
-
 .connector-hub-actions {
   display: flex;
   gap: var(--space-2);
@@ -334,6 +322,16 @@
   margin: 0 auto 0 0;
   align-self: center;
   font-size: var(--ds-font-helper);
+}
+
+/* The config dialog reuses the card's action row as its footer. */
+.connector-panel .connector-card-actions {
+  position: sticky;
+  bottom: calc(var(--space-4) * -1);
+  margin: var(--space-3) calc(var(--space-4) * -1) calc(var(--space-4) * -1);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border);
+  background: var(--bg);
 }
 
 .connector-receipt-warn {
@@ -958,13 +956,6 @@
 
 /* Header cleanup + browse modal (2026-09-27) */
 
-.connector-hub-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--space-3);
-}
-
 .connector-hub-head .connector-hub-health {
   margin: 0;
   padding: 0;
@@ -1010,7 +1001,8 @@
 }
 
 /* Fidelity pass (2026-09-27): hub reads as one clean surface and cards are airy,
-   matching the reference layout: title / divider / search row / tabs / card grid.
+   matching the reference layout: title + governance numbers on one row / divider /
+   search row / tabs / card grid.
    Card face keeps icon + name + description + ✓; state and the tools entry are
    demoted to a single small meta line. */
 
@@ -1021,9 +1013,21 @@
 }
 
 .connector-hub-head {
-  display: block;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
   padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--border);
+}
+
+/* Column direction stacks the numbers under the title, where a shared baseline
+   would push the title off the left edge. */
+@media (max-width: 860px) {
+  .connector-hub-head {
+    align-items: flex-start;
+  }
 }
 
 .connector-hub-head h2 {
@@ -1142,4 +1146,182 @@
 .connector-batch-tree,
 .connector-icon-preview {
   border-radius: var(--radius-cards);
+}
+
+/* ── 连接器控制台：表单弹窗与字段规格 ──────────────────────────────────────
+   数值来自参考图逐像素测量（图像 px ÷ 1.25 = CSS px），唯一来源 docs/DESIGN.md
+   §「连接器控制台」。改这里的任何数值前先改 DESIGN.md。 */
+.connector-panel.is-form {
+  width: min(var(--dialog-w-form), calc(100vw - 32px));
+  background: var(--fill-card);
+}
+
+.connector-panel.is-form .connector-panel-head {
+  padding: var(--dialog-pad-t) var(--dialog-pad-x) var(--space-3);
+}
+
+.connector-panel.is-form .connector-panel-head h2 {
+  font-size: var(--ds-font-block-title);
+  line-height: var(--ds-line-block-title);
+  color: var(--text);
+}
+
+.connector-panel.is-form .connector-panel-body {
+  gap: var(--block-gap);
+  padding: 0 var(--dialog-pad-x);
+}
+
+.connector-panel.is-form .connector-panel-foot {
+  gap: var(--space-3);
+  border-top: 0;
+  padding: var(--space-4) var(--dialog-pad-x) var(--dialog-pad-b);
+}
+
+.connector-panel.is-form .connector-panel-note {
+  font-size: var(--font-hint);
+  line-height: 1.45;
+  color: var(--hint-text);
+}
+
+/* 字段：标签 16px / 标签到控件 8px / 两列 20px */
+.connector-panel.is-form .field,
+.connector-detail-card .field {
+  gap: var(--field-gap);
+  font-size: var(--font-field);
+  color: var(--text);
+}
+
+.connector-panel.is-form .connector-form-grid,
+.connector-detail-card .connector-form-grid {
+  gap: var(--grid-gap);
+}
+
+.connector-panel.is-form .field input:not([type="checkbox"]),
+.connector-panel.is-form .field select,
+.connector-detail-card .field input:not([type="checkbox"]),
+.connector-detail-card .field select {
+  height: var(--control-h-form);
+  padding: 0 var(--space-3);
+  font-size: var(--font-field);
+  color: var(--text);
+  background: var(--fill-control);
+  border-color: transparent;
+  border-radius: var(--radius-control);
+}
+
+.connector-panel.is-form .field textarea,
+.connector-detail-card .field textarea {
+  height: 108px;
+  padding: var(--space-3);
+  line-height: 20px;
+  font-size: var(--font-field);
+  color: var(--text);
+  background: var(--fill-control);
+  border-color: transparent;
+  border-radius: var(--radius-control);
+}
+
+.connector-panel.is-form .field input::placeholder,
+.connector-panel.is-form .field textarea::placeholder,
+.connector-detail-card .field input::placeholder,
+.connector-detail-card .field textarea::placeholder {
+  color: var(--placeholder-text);
+}
+
+.connector-panel.is-form .field input:not([type="checkbox"]):focus-visible,
+.connector-panel.is-form .field textarea:focus-visible,
+.connector-panel.is-form .field select:focus-visible,
+.connector-detail-card .field input:not([type="checkbox"]):focus-visible,
+.connector-detail-card .field textarea:focus-visible,
+.connector-detail-card .field select:focus-visible {
+  border-color: var(--control-border-hover);
+}
+
+/* 图标位：64px 虚线框 + 13px 说明 */
+.connector-panel.is-form .connector-icon-field.is-bare,
+.connector-detail-card .connector-icon-field.is-bare {
+  gap: var(--space-3);
+}
+
+.connector-panel.is-form .connector-icon-field.is-bare .connector-icon-preview,
+.connector-detail-card .connector-icon-field.is-bare .connector-icon-preview {
+  width: var(--icon-box);
+  height: var(--icon-box);
+  border: 1px dashed var(--border-dashed);
+  border-radius: var(--radius-control);
+  background: var(--fill-card);
+}
+
+.connector-panel.is-form .connector-icon-actions p,
+.connector-detail-card .connector-icon-actions p {
+  font-size: var(--font-hint);
+  color: var(--hint-text);
+}
+
+/* headers：两列等宽 + 10px 行距 */
+.connector-panel.is-form .connector-header-rows,
+.connector-detail-card .connector-header-rows {
+  gap: var(--row-gap);
+}
+
+.connector-panel.is-form .connector-header-row,
+.connector-detail-card .connector-header-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: var(--row-gap);
+}
+
+.connector-panel.is-form .connector-header-row input,
+.connector-detail-card .connector-header-row input {
+  height: var(--control-h-form);
+  padding: 0 var(--space-3);
+  font-size: var(--font-field);
+  background: var(--fill-control);
+  border-color: transparent;
+  border-radius: var(--radius-control);
+}
+
+.connector-panel.is-form .connector-header-rows > p.muted,
+.connector-detail-card .connector-header-rows > p.muted {
+  font-size: var(--font-hint);
+  color: var(--hint-text);
+}
+
+.connector-panel.is-form .icon-btn.danger,
+.connector-detail-card .icon-btn.danger {
+  color: var(--danger-soft);
+}
+
+/* 按钮：38px 高、16px 字、8px 圆角；主行动取参考图的近黑实底 */
+.connector-panel.is-form .btn,
+.connector-detail-card .btn {
+  min-height: var(--control-h-form);
+  font-size: var(--font-field);
+  border-radius: var(--radius-card);
+}
+
+.connector-panel.is-form .btn:not(.work),
+.connector-detail-card .btn:not(.work) {
+  border-color: var(--border-quiet);
+  background: transparent;
+}
+
+.connector-panel.is-form .btn.work,
+.connector-detail-card .btn.work {
+  background: var(--action-strong);
+  border-color: var(--action-strong);
+  color: var(--action-strong-fg);
+}
+
+.connector-panel.is-form .connector-split .connector-split-main {
+  border-radius: var(--radius-card) 0 0 var(--radius-card);
+}
+
+.connector-panel.is-form .connector-split .connector-split-toggle {
+  border-radius: 0 var(--radius-card) var(--radius-card) 0;
+  padding: 0 var(--space-2);
+}
+
+.connector-panel.is-form .connector-card-actions {
+  border-top-color: var(--border-quiet);
+  background: var(--fill-card);
 }

@@ -197,7 +197,7 @@ export function ConnectorHub({ connectors, users, loading, onSave, reload }: {
       {configCard && (
         <ModalShell
           kind="connector-config"
-          wide
+          form
           title={configCard.label}
           subtitle={`${governanceStatus(configCard).label} · ${connectorStatusNote(configCard)}`}
           onClose={() => setConfigCard(null)}

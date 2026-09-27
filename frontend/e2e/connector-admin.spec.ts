@@ -30,11 +30,36 @@ test("connector hub renders, filters, opens the browse modal and the create menu
   await page.goto("/admin/connectors");
   await expect(page.locator("[data-admin-page='connectors']")).toBeVisible();
   await expect(page.locator("[data-connector-hub-title]")).toHaveText("已添加的连接器");
-  // 连接器页不再显示账户卡与返回按钮；治理数字移到标题下方。
+  // 连接器页不再显示账户卡与返回按钮；标题与治理数字同排（细线在下方）。
   await expect(page.locator(".admin-header")).toHaveCount(0);
   await expect(page.locator("[data-admin-account]")).toHaveCount(0);
   await expect(page.getByRole("link", { name: "返回员工工作台" })).toHaveCount(0);
   await expect(page.locator("[data-admin-health]")).toContainText("受管连接器");
+
+  const head = await page.evaluate(() => {
+    const rect = (el: Element | null) => {
+      const r = el?.getBoundingClientRect();
+      return r ? { top: r.top, bottom: r.bottom, left: r.left, right: r.right } : null;
+    };
+    const cells = Array.from(document.querySelectorAll("[data-admin-health] > span"))
+      .map((span) => rect(span))
+      .filter((box) => box !== null);
+    return {
+      title: rect(document.querySelector("[data-connector-hub-title]")),
+      health: rect(document.querySelector("[data-admin-health]")),
+      rows: new Set(cells.map((box) => Math.round(box.top))).size,
+    };
+  });
+  expect(head.title).not.toBeNull();
+  expect(head.health).not.toBeNull();
+  // 同一行：标题与数字组的竖直区间必须重叠。
+  expect(head.title!.top).toBeLessThan(head.health!.bottom);
+  expect(head.health!.top).toBeLessThan(head.title!.bottom);
+  // 数字组整体在标题右侧。
+  expect(head.health!.left).toBeGreaterThan(head.title!.right);
+  // 四个治理数字本身也只占一行。
+  expect(head.rows).toBe(1);
+
   await expect(page.locator('[data-admin-connectors-table] [data-connector="claw"]')).toBeVisible();
   await expect(page.locator('[data-admin-connectors-table] [data-connector="starrykol"]')).toBeVisible();
 
@@ -137,6 +162,63 @@ test("MCP 配置 dialog matches the reference layout", async ({ page }) => {
   await expect(panel).toHaveCount(0);
 });
 
+test("connector form dialogs keep the measured spec (docs/DESIGN.md)", async ({ page }) => {
+  await page.goto("/admin/connectors");
+  await page.locator("[data-connector-create-toggle]").click();
+  await page.locator("[data-connector-create-item='mcp']").click();
+  const panel = page.locator("[data-connector-panel='mcp-config']");
+  await expect(panel).toBeVisible();
+
+  const spec = await panel.evaluate((root) => {
+    const css = (el: Element | null, prop: string) => (el ? getComputedStyle(el).getPropertyValue(prop).trim() : "");
+    const box = (el: Element | null) => {
+      const r = el?.getBoundingClientRect();
+      return r ? { w: Math.round(r.width), h: Math.round(r.height) } : { w: 0, h: 0 };
+    };
+    const body = root.querySelector(".connector-panel-body");
+    return {
+      panelW: box(root.querySelector(".connector-panel")).w,
+      bodyGap: css(body, "gap"),
+      fieldGap: css(root.querySelector(".field"), "gap"),
+      gridGap: css(root.querySelector(".connector-form-grid"), "gap"),
+      labelFont: css(root.querySelector(".field"), "font-size"),
+      inputH: box(root.querySelector("[data-connector-field='label']")).h,
+      inputFont: css(root.querySelector("[data-connector-field='label']"), "font-size"),
+      inputBg: css(root.querySelector("[data-connector-field='label']"), "background-color"),
+      inputRadius: css(root.querySelector("[data-connector-field='label']"), "border-radius"),
+      inputBorder: css(root.querySelector("[data-connector-field='label']"), "border-top-color"),
+      noteH: box(root.querySelector("textarea")).h,
+      iconBox: box(root.querySelector("[data-connector-icon-preview]")),
+      hintFont: css(root.querySelector(".connector-icon-actions p"), "font-size"),
+      hintColor: css(root.querySelector(".connector-icon-actions p"), "color"),
+      saveH: box(root.querySelector("[data-connector-split-main='save']")).h,
+      saveBg: css(root.querySelector("[data-connector-split-main='save']"), "background-color"),
+      saveFont: css(root.querySelector("[data-connector-split-main='save']"), "font-size"),
+      footBorder: css(root.querySelector(".connector-panel-foot"), "border-top-width"),
+    };
+  });
+
+  // 数值 = docs/DESIGN.md §连接器控制台（参考图 ÷1.25）。
+  expect(spec.panelW).toBe(640);
+  expect(spec.bodyGap).toBe("16px");
+  expect(spec.fieldGap).toBe("8px");
+  expect(spec.gridGap).toBe("20px");
+  expect(spec.labelFont).toBe("16px");
+  expect(spec.inputH).toBe(38);
+  expect(spec.inputFont).toBe("16px");
+  expect(spec.inputBg).toBe("rgb(236, 236, 235)");
+  expect(spec.inputRadius).toBe("6px");
+  expect(spec.inputBorder).toBe("rgba(0, 0, 0, 0)");
+  expect(spec.noteH).toBe(108);
+  expect(spec.iconBox).toEqual({ w: 64, h: 64 });
+  expect(spec.hintFont).toBe("13px");
+  expect(spec.hintColor).toBe("rgb(115, 115, 115)");
+  expect(spec.saveH).toBe(38);
+  expect(spec.saveBg).toBe("rgb(26, 26, 25)");
+  expect(spec.saveFont).toBe("16px");
+  expect(spec.footBorder).toBe("0px");
+});
+
 test("发布并保存 saves the draft and reports the publish gate honestly", async ({ page }) => {
   test.skip(!AUTH_ENABLED, "runtime governance writes require E2E_AUTH_MODE=enabled");
   await page.goto("/admin/connectors");
@@ -196,6 +278,17 @@ test("config form validates icons and keeps submitted secrets write-only", async
   await page.goto(`/admin/connectors/${TEST_ID}`);
   await expect(page.locator("[data-connector-config-card]")).toBeVisible();
 
+  // 与创建弹窗同一套版式：HTTP / SSE 两项、图标分裂按钮、备注（可选、5 行）、保存草稿分裂按钮。
+  const form = page.locator("[data-connector-config-card]");
+  await expect(form.locator("[data-connector-field='transport'] option")).toHaveText(["HTTP", "SSE"]);
+  await expect(form.locator(".connector-icon-field")).toHaveClass(/is-bare/);
+  await expect(form.locator("textarea")).toHaveAttribute("rows", "5");
+  await expect(form.locator("[data-connector-split-main='config-save']")).toHaveText("保存草稿");
+  await form.locator("[data-connector-split-toggle='config-save']").click();
+  await expect(form.locator("[data-connector-split-menu='config-save'] .connector-split-item")).toHaveText(["发布并保存"]);
+  await page.keyboard.press("Escape");
+  await expect(form.locator("[data-connector-split-menu='config-save']")).toHaveCount(0);
+
   await page.locator("[data-connector-icon-input]").first().setInputFiles({
     name: "not-an-image.txt",
     mimeType: "text/plain",
@@ -206,7 +299,7 @@ test("config form validates icons and keeps submitted secrets write-only", async
   await page.locator("[data-connector-config-card] input.connector-header-name").fill("X-API-Key");
   await page.locator("[data-connector-config-card] input.connector-header-value").fill("e2e-secret-value");
   await page.locator("[data-connector-config-card] input[data-connector-field='url']").fill("https://mcp.e2e.example/mcp");
-  await page.locator("[data-connector-config-save]").click();
+  await page.locator("[data-connector-split-main='config-save']").click();
   await expect(page.locator("[data-connector-config-card] .runtime-notice")).toContainText("配置草稿已保存");
   await expect(page.locator("[data-connector-config-card] input.connector-header-value")).toHaveValue("");
   await expect(page.locator("[data-connector-config-card] input.connector-header-value")).toHaveAttribute("placeholder", /已保存引用/);
