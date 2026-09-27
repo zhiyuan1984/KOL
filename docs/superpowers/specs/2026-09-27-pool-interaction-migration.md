@@ -99,11 +99,14 @@ Rollback: 仅恢复原组件呈现组合；已发生的评分、领取、清理�
 | 项 | 处理 | 证据 |
 |---|---|---|
 | 公海面不再为一句空态文案拉整个 board | `GET /api/home/pool` 随包返回 `library`（同一份 `app_state` 事实，非新增事实源）；公海页正常路径不再调用 `/api/home/board`，只有 404 回退（board-adapter）才需要 board | `backend/src/routers/kol-memory.ts`、`frontend/src/home/kolSurfaceApi.ts`、`frontend/src/home/usePoolWorkspace.ts` |
+| board 改为壳级预热 | board 仍是「我的红人」旧协作对账与今日/待办推荐的共享来源，改为首屏之后预热一次（`SHELL_READ_DELAY_MS` 批次）；公海首屏的内容不再依赖它，测试只要求它让位到公海读之后 | `frontend/src/pages/Home.tsx`；`frontend/e2e/home-pool-follow.spec.ts` |
 | 今日 / 待办计划读按 tab 激活才读 | `usePlanScope(scope, client, { enabled })`：未激活的作用域不发读；同一 tab 60 秒内切回复用屏上结果；显式刷新事件不受此限（原位废止早前「两个作用域常驻同读」的做法） | `frontend/src/home/usePlanScope.ts`、`frontend/src/pages/Home.tsx`、`frontend/src/home/todayPlan.test.ts` |
 | 提问框技能/知识/项目/文件候选改为用到才读 | 8 条目录读延后到「＋ 菜单 / 技能选择器 / 聚焦 / 有输入 / 已锁定意图」之后的第一次交互 | `frontend/src/components/ComposerDock.tsx` |
 | 壳读让位首屏 | 侧栏 badge（会话/审批/定时任务/邮件/账号/偏好/版本）与首页任务目录、任务定义延后 350ms（`SHELL_READ_DELAY_MS`）再发；同一份 `api.tasks()` 在一次刷新内两个消费者共享（3 条 → 1 条） | `frontend/src/home/firstPaint.ts`、`frontend/src/layout/Workbench.tsx`、`frontend/src/pages/Home.tsx` |
 | 同一读不重复发 | `sharedRead(key, read)`：同一资源在飞行中的读共享同一个 promise（不做结果缓存，避免领取/释放后把旧快照贴回屏幕）；公海、我的红人、问题模板三处接入 | `frontend/src/home/sharedRead.ts` |
 | 回归锁定 | 新增「pool first paint reads only what the pool needs」：公海首屏必须出现公海读与模板读；board/今日/待办/`view=open`/提问框目录一条都不许出现；壳读若发生必须排在公海读之后 | `frontend/e2e/home-pool-follow.spec.ts` |
+| 「我的红人」首开不再为旧协作对账白等 board | 只有**确定不可能有旧协作**（reading 返回的范围未绑定邮箱）时才跳过对账：此时 B.active 索引即完整答案，名单、计数与空结论都立刻给出；范围未知或已绑定/过期的仍按原样等 board 合并（`日志：listEmployeeFollowing` 与 board 的 `follow_scope` 同源）。board 另外改为首屏之后预热一次，首次进入时通常已在内存 | `frontend/src/home/useFollowedWorkspace.ts`；`frontend/src/pages/Home.tsx`（`SHELL_READ_DELAY_MS` 批次里 `loadBoard("following")`）；`frontend/src/home/FollowedPane.tsx`（对账旁注） |
+| 回归锁定（我的红人） | 新增「未绑定邮箱范围时，首开我的红人不为旧协作对账等 board」：board 延迟 3 秒时名单/计数/结论都要先出，且只发一次 following 读；旧用例的两端桩改为自洽的「已绑定范围」 | `frontend/e2e/home-followed-rail-layout.spec.ts` |
 | 今日 / 待办列表不再用任务目录冒充 | 计划记忆（`GET /api/tasks?view=open`）未到之前，两个计划 tab 的列表为空，不再回落成任务目录：否则首屏会先出一批目录行与行内推荐动作（`采纳为待办`） | `frontend/src/pages/Home.tsx` |
 | 一条按首帧抢时间的旧断言改稳 | 「今日面板全文不得含『待办』」原以 `expect.poll` 抢在右栏「下一步动作」渲染之前通过；首屏变快后暴露为必红。改为只看今日列表（`[data-today-list]`）不得出现推荐动作文案；右栏推荐的独立验收另行建立 | `frontend/e2e/home-today-pane.spec.ts` |
 

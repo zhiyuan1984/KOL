@@ -354,7 +354,6 @@ test("pool first paint reads only what the pool needs", async ({ page }) => {
 
   // 与公海首屏无关、且按 tab/交互才该发生的读：公海首屏一条都不该出现。
   for (const never of [
-    "/api/home/board",
     "/api/home/today-brief",
     "/api/home/todo-brief",
     "/api/home/today-tasks",
@@ -375,7 +374,8 @@ test("pool first paint reads only what the pool needs", async ({ page }) => {
   // 壳读（侧栏 badge / 任务目录 / 任务定义）允许发生，但必须让位到公海读之后。
   const poolAt = pool?.t ?? 0;
   const before = reads.filter((row) => row.t < poolAt + 80).map((row) => row.path);
-  for (const shell of ["/api/tasks", "/api/task-definitions", "/api/sessions", "/api/mail/box", "/api/cron/jobs", "/api/approvals/badge", "/api/version"]) {
+  // board 是壳级预热（我的红人对账 / 今日待办推荐的共享来源）：允许发生，但必须让位首屏。
+  for (const shell of ["/api/home/board", "/api/tasks", "/api/task-definitions", "/api/sessions", "/api/mail/box", "/api/cron/jobs", "/api/approvals/badge", "/api/version"]) {
     expect(before.includes(shell), `${shell} 应让位首屏`).toBe(false);
   }
 });

@@ -222,6 +222,9 @@ export default function FollowedPane({
             <button key={key} type="button" onClick={() => onSituation("")}>{brief.counts[key]} 位{label} ×</button>
           ) : null)}
         </div> : null}
+        {followEmptyKind === "reconciling" && allCards.length ? (
+          <p className="muted" data-followed-reconciling role="status" aria-live="polite">正在核对历史协作数据…</p>
+        ) : null}
         {refreshNotice ? (
           <p className="muted" data-follow-refresh-notice role="status" aria-live="polite">{refreshNotice}</p>
         ) : null}

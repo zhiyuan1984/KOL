@@ -776,6 +776,9 @@ export default function Home() {
       void api.tasks().then(unwrapTaskList).then((catalog) => {
         if (!cancelled) applyTaskCatalog(catalog);
       }).catch(() => undefined);
+      // board 是「我的红人」对账（旧协作投影）与今日/待办推荐的共享来源：首屏之后再预热一次，
+      // 免得首次点「我的红人」还要现场等它。
+      void loadBoard("following");
     }, SHELL_READ_DELAY_MS);
     return () => {
       cancelled = true;
@@ -2183,7 +2186,7 @@ export default function Home() {
               title="我的红人"
               description="围绕已跟进对象提问、分析风险或判断下一步；对象事实与受控动作保留在右栏。"
               selectedCount={selectedKolIds.length}
-              resultCount={followedWorkspace.completeness === "complete" ? followedWorkspace.visibleCards.length : undefined}
+              resultCount={followedWorkspace.visibleCards.length || undefined}
               railLabel="我的红人结果"
               railToggleLabel="我的红人"
               railStorageKey="ui:home-followed-rail-collapsed"

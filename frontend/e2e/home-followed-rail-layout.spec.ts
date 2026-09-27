@@ -228,9 +228,21 @@ test("先展示本地名单，历史记录拼接完成后原位更新并提示",
   const boardGate = new Promise<void>((resolve) => { finishBoard = resolve; });
   let followingReads = 0;
 
+  // 两端必须自洽：board 桩声明「已绑定邮箱范围」，following 桩也必须给出同一范围，
+  // 否则前端会把「本地索引即完整答案」当成结论，不再等旧协作对账。
+  const boundScope = {
+    required: true,
+    bound: true,
+    mailbox_email: "larry.zhao@amperetime.com",
+    mailbox_id: "mb_larry",
+    owner_name: "赵良玉",
+    status: "connected",
+    has_token: true,
+    updated_at: null,
+  };
   await page.route("**/api/home/following", (route) => {
     followingReads += 1;
-    return route.fulfill({ json: followingEnvelope([row(1), row(2)]) });
+    return route.fulfill({ json: { ...followingEnvelope([row(1), row(2)]), follow_scope: boundScope } });
   });
   await page.route("**/api/home/board*", async (route) => {
     await boardGate;
@@ -262,6 +274,29 @@ test("先展示本地名单，历史记录拼接完成后原位更新并提示",
   await expect(page.locator("[data-follow-refresh-notice]")).toHaveText("红人数据已更新，共 3 位。");
   await expect(page.locator("[data-followed-interaction]")).toContainText("3 位当前跟进对象");
   expect(followingReads).toBeGreaterThanOrEqual(2);
+});
+
+test("未绑定邮箱范围时，首开我的红人不为旧协作对账等 board", async ({ page }) => {
+  let boardServed = false;
+  const followingReads: string[] = [];
+  await page.route("**/api/home/following", (route) => {
+    followingReads.push(new URL(route.request().url()).pathname);
+    return route.fulfill({ json: followingEnvelope([row(1), row(2)]) });
+  });
+  await page.route("**/api/home/board*", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+    boardServed = true;
+    await route.fulfill({ json: { kols: [row(1), row(2)], workbench: {}, library: { count: 0 } } });
+  });
+
+  await openFollowed(page);
+
+  // 名单与结论都在 board 落地之前就已经给出（未绑定范围 → 本地索引即完整答案）。
+  await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
+  await expect(page.locator("[data-followed-interaction]")).toContainText("2 位当前跟进对象");
+  await expect(page.locator("[data-followed-summary-pending]")).toHaveCount(0);
+  expect(boardServed).toBe(false);
+  expect(followingReads.length).toBe(1);
 });
 
 test("名单超过选择上限时，全选标签照实说、勾选框按上限呈现", async ({ page }) => {

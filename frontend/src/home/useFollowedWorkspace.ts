@@ -84,6 +84,8 @@ export function useFollowedWorkspace(options: {
   const [readsDone, setReadsDone] = useState(0);
   const readSeq = useRef(0);
   const reconcileSeq = useRef(0);
+  /** 最近一次跟进读取的来源：board-adapter 表示端点缺失、行来自 board 投影。 */
+  const lastSourceRef = useRef<string>("following");
   const [completeness, setCompleteness] = useState<FollowListCompleteness>("loading-local");
   const [refreshNotice, setRefreshNotice] = useState("");
   const [query, setQuery] = useState("");
@@ -157,6 +159,7 @@ export function useFollowedWorkspace(options: {
         follow_scope: activeScope || undefined,
       }));
       if (seq !== readSeq.current) return null;
+      lastSourceRef.current = loaded.source;
       if (loaded.follow_scope) {
         latestFollowScope.current = loaded.follow_scope;
         setFollowScope(loaded.follow_scope);
@@ -201,6 +204,15 @@ export function useFollowedWorkspace(options: {
     if (seq !== reconcileSeq.current) return;
     if (!localRows) {
       setCompleteness("incomplete-error");
+      return;
+    }
+    // 只有「确定不可能有旧协作」时才跳过对齐：范围未绑定时 B.active 索引即完整答案。
+    // 范围未知（旧后端）或已绑定/过期时仍等 board 合并旧协作，也不闪一次假空；
+    // 端点缺失的 board-adapter 模式必须先有 board 才能投影出名单。
+    const scope = latestFollowScope.current;
+    const legacyPossible = !scope || Boolean(scope.required && scope.bound && scope.status !== "expired");
+    if (lastSourceRef.current !== "board-adapter" && !legacyPossible) {
+      setCompleteness("complete");
       return;
     }
     setCompleteness("reconciling-legacy");
