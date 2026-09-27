@@ -246,3 +246,17 @@ test("tools drawer lists every tool and grants scope by department or person", a
   await expect(rowScope.locator(".runtime-notice")).toContainText("工具范围授权已保存");
   expect(scopeWrites.find((write) => write.tool === "list_records")?.body).toMatchObject({ node_ids: ["n3"], all: false });
 });
+
+test("card status opens the connector configuration modal", async ({ page }) => {
+  await page.goto("/admin/connectors");
+  const card = page.locator('[data-connector-card][data-connector="claw"]');
+  await expect(card.locator("[data-connector-status-entry]")).toHaveText("待配置");
+  await card.locator("[data-connector-status-entry]").click();
+  const modal = page.locator("[data-connector-panel='connector-config']");
+  await expect(modal).toBeVisible();
+  await expect(modal.locator("h2")).toContainText("MediaCrawler MCP");
+  await expect(modal.locator("[data-connector-config-card]")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(modal).toHaveCount(0);
+  await expect(card.locator("[data-connector-status-entry]")).toBeFocused();
+});

@@ -11,7 +11,7 @@ function secretRowsFromConfig(config: RuntimeConnectorConfig): SecretRow[] {
   return rows.length ? rows : [{ name: "", value: "" }];
 }
 
-export function ConnectorConfigCard({ card, reload }: { card: ConnectorCardView; reload: () => void }) {
+export function ConnectorConfigCard({ card, reload, hideHeading = false }: { card: ConnectorCardView; reload: () => void; hideHeading?: boolean }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [version, setVersion] = useState(0);
@@ -161,13 +161,15 @@ export function ConnectorConfigCard({ card, reload }: { card: ConnectorCardView;
 
   return (
     <section className="panel connector-detail-card" data-connector-config-card>
-      <div className="connector-card-head">
-        <div>
-          <h3>接入配置</h3>
-          <p className="muted">端点与请求头只以服务端引用保存；浏览器不回显任何密钥原值。</p>
+      {!hideHeading && (
+        <div className="connector-card-head">
+          <div>
+            <h3>接入配置</h3>
+            <p className="muted">端点与请求头只以服务端引用保存；浏览器不回显任何密钥原值。</p>
+          </div>
+          <span className="muted">短名 · <code>{card.id}</code></span>
         </div>
-        <span className="muted">短名 · <code>{card.id}</code></span>
-      </div>
+      )}
       {loading && <p className="muted" role="status">正在读取配置…</p>}
       {loadError && (
         <div className="runtime-state runtime-state-error" role="alert">

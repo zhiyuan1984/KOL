@@ -854,14 +854,34 @@
 
 /* Header cleanup + browse modal (2026-09-27) */
 
-.connector-hub-head .connector-hub-health {
-  margin: var(--space-2) 0 0;
+.connector-hub-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
 }
 
-.connector-hub-actions .btn {
-  min-width: 104px;
+.connector-hub-head .connector-hub-health {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.connector-hub-actions .btn,
+.connector-panel-head-actions .btn {
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
+  gap: 4px;
+  min-width: 104px;
   text-align: center;
+}
+
+.connector-hub-actions .btn svg,
+.connector-panel-head-actions .btn svg {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  flex: 0 0 auto;
 }
 
 .connector-panel.is-wide {
@@ -958,7 +978,19 @@
 }
 
 .connector-card-status {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
   color: var(--text);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.connector-card-status:hover,
+.connector-card-status:focus-visible {
+  color: var(--accent-text);
 }
 
 .connector-card-toolslink {

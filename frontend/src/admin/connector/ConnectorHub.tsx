@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { governanceStatus, type AdminRow } from "../../adminGovernance";
+import { ConnectorConfigCard } from "./ConnectorConfigCard";
 import { ConnectorMark } from "./ConnectorMark";
 import { JsonImportPanel, McpConfigPanel, ModalShell, UrlAddPanel } from "./ConnectorPanels";
 import { ConnectorToolsDrawer } from "./ConnectorToolsDrawer";
@@ -55,6 +56,7 @@ export function ConnectorHub({ connectors, users, loading, onSave, reload }: {
   const [menuOpen, setMenuOpen] = useState(false);
   const [panel, setPanel] = useState<CreatePanelKind | null>(null);
   const [toolsCard, setToolsCard] = useState<ConnectorCardView | null>(null);
+  const [configCard, setConfigCard] = useState<ConnectorCardView | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [adding, setAdding] = useState("");
@@ -130,7 +132,8 @@ export function ConnectorHub({ connectors, users, loading, onSave, reload }: {
               data-connector-create-toggle
               onClick={() => setMenuOpen((value) => !value)}
             >
-              创建 <span aria-hidden>⌄</span>
+              创建
+              <svg viewBox="0 0 16 16" aria-hidden><path d="M4 6.5l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </button>
             {menuOpen && (
               <CreateMenu
@@ -155,7 +158,12 @@ export function ConnectorHub({ connectors, users, loading, onSave, reload }: {
       ) : (
         <div className="connector-grid" data-connector-grid data-admin-connectors-table>
           {visible.map((card) => (
-            <ConnectorCard key={card.id} card={card} onViewTools={() => setToolsCard(card)} />
+            <ConnectorCard
+              key={card.id}
+              card={card}
+              onViewTools={() => setToolsCard(card)}
+              onOpenConfig={() => setConfigCard(card)}
+            />
           ))}
         </div>
       )}
@@ -174,6 +182,17 @@ export function ConnectorHub({ connectors, users, loading, onSave, reload }: {
           }}
           onClose={() => setBrowseOpen(false)}
         />
+      )}
+      {configCard && (
+        <ModalShell
+          kind="connector-config"
+          wide
+          title={configCard.label}
+          subtitle={`${governanceStatus(configCard).label} · ${connectorStatusNote(configCard)}`}
+          onClose={() => setConfigCard(null)}
+        >
+          <ConnectorConfigCard card={configCard} reload={reload} hideHeading />
+        </ModalShell>
       )}
       {toolsCard && <ConnectorToolsDrawer card={toolsCard} users={users} onClose={() => setToolsCard(null)} />}
     </section>
@@ -215,7 +234,8 @@ function ConnectorBrowseModal({ cards, adding, onAddBuiltin, onCreate, onClose }
             data-connector-browse-create
             onClick={() => setMenuOpen((value) => !value)}
           >
-            创建 <span aria-hidden>⌄</span>
+            创建
+            <svg viewBox="0 0 16 16" aria-hidden><path d="M4 6.5l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </button>
           {menuOpen && (
             <CreateMenu
@@ -269,6 +289,7 @@ function ConnectorBrowseModal({ cards, adding, onAddBuiltin, onCreate, onClose }
                 key={card.id}
                 card={card}
                 showToolsEntry={false}
+                showStatusEntry={false}
                 onOpen={() => {
                   onClose();
                   navigate(connectorHref(card.id));
@@ -301,11 +322,13 @@ function ConnectorBrowseModal({ cards, adding, onAddBuiltin, onCreate, onClose }
   );
 }
 
-function ConnectorCard({ card, onOpen, onViewTools, showToolsEntry = true }: {
+function ConnectorCard({ card, onOpen, onViewTools, onOpenConfig, showToolsEntry = true, showStatusEntry = true }: {
   card: ConnectorCardView;
   onOpen?: () => void;
   onViewTools?: () => void;
+  onOpenConfig?: () => void;
   showToolsEntry?: boolean;
+  showStatusEntry?: boolean;
 }) {
   const status = governanceStatus(card);
   const navigate = useNavigate();
@@ -333,7 +356,19 @@ function ConnectorCard({ card, onOpen, onViewTools, showToolsEntry = true }: {
         </div>
         <p className="connector-card-purpose">{card.purpose || "未填写业务用途"}</p>
         <p className="connector-card-meta">
-          <span className="connector-card-status" title={connectorStatusNote(card)}>{status.label}</span>
+          {showStatusEntry && onOpenConfig ? (
+            <button
+              type="button"
+              className="connector-card-status"
+              data-connector-status-entry
+              title={connectorStatusNote(card)}
+              onClick={(event) => { event.stopPropagation(); onOpenConfig(); }}
+            >
+              {status.label}
+            </button>
+          ) : (
+            <span className="connector-card-status" title={connectorStatusNote(card)}>{status.label}</span>
+          )}
           <span className="connector-card-dot" aria-hidden>·</span>
           <span>{card.lastVerifiedAt ? `最近验证 ${card.lastVerifiedAt}` : "尚未测试"}</span>
           {card.approvedToolCount > 0 && (
