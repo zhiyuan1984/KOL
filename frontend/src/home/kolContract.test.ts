@@ -253,5 +253,15 @@ describe("kol workbench contract (#172)", () => {
       sessions: [],
       analyzeItems: [{ id: "tsk_analyze_1", status: "queued", session_id: "ses_1", task_type: "kol_analyze" }],
     })).toBe("/s/ses_1");
+    expect(runningBadgeCount({
+      sessions: [],
+      analyzeItems: [],
+      tasks: [{ id: "tsk_creator_library", status: "running", session_id: "ses_creator_library" }],
+    })).toBe(1);
+    expect(runningBadgeHref({
+      sessions: [],
+      analyzeItems: [],
+      tasks: [{ id: "tsk_creator_library", status: "running", session_id: "ses_creator_library" }],
+    })).toBe("/s/ses_creator_library");
   });
 });

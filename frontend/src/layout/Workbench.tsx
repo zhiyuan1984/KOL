@@ -1,6 +1,6 @@
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { api, type Account, type SessionRow } from "../api";
+import { api, type Account, type SessionRow, type Task } from "../api";
 import { useAccount } from "../components/AuthGate";
 import BrandLockup from "../components/BrandLockup";
 import PanelToggleIcon from "../components/PanelToggleIcon";
@@ -28,6 +28,7 @@ function Ico({ path }: { path: string }) {
 
 export default function Workbench() {
   const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [analyzeItems, setAnalyzeItems] = useState<AnalyzeWorkItem[]>([]);
   const [approvalCount, setApprovalCount] = useState(0);
   const [cronAlertCount, setCronAlertCount] = useState(0);
@@ -81,13 +82,17 @@ export default function Workbench() {
         return [...local, ...rows];
       });
     };
-    // 两次读取合并成一次 Promise.all：共用同一个闸门，也共用同一次后端时隙。
+    const applyTasks = (value: Task[] | { tasks: Task[] }) => {
+      setTasks(Array.isArray(value) ? value : value.tasks || []);
+    };
+    // 读取合并成一次 Promise.all：共用同一个闸门，也共用同一次后端时隙。
     const refresh = () => {
       if (pollInFlight.current) return;
       pollInFlight.current = true;
       void Promise.all([
         api.sessions().then(applySessions).catch(() => undefined),
         loadKolAnalyzeInFlight().then(applyAnalyze).catch(() => undefined),
+        api.tasks().then(applyTasks).catch(() => undefined),
       ]).finally(() => {
         pollInFlight.current = false;
       });
@@ -152,12 +157,12 @@ export default function Workbench() {
   const adminAvailable = admin || me?.available_modes?.includes("admin") === true;
 
   const runningCount = useMemo(
-    () => runningBadgeCount({ sessions, analyzeItems }),
-    [analyzeItems, sessions],
+    () => runningBadgeCount({ sessions, analyzeItems, tasks }),
+    [analyzeItems, sessions, tasks],
   );
   const runningHref = useMemo(
-    () => runningBadgeHref({ sessions, analyzeItems }),
-    [analyzeItems, sessions],
+    () => runningBadgeHref({ sessions, analyzeItems, tasks }),
+    [analyzeItems, sessions, tasks],
   );
   const sessionId = loc.pathname.match(/^\/s\/([^/]+)$/)?.[1] ?? "";
   const runningActive = Boolean(

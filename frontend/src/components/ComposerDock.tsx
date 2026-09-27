@@ -25,6 +25,7 @@ import {
   type KnowledgeLib,
 } from "../composer/types";
 import { connectorUseAccess, connectorUseLabel, connectorUseStatus, preferCanonicalConnectors } from "../connectorUse";
+import { starterPrompt } from "../taskStarters";
 import {
   canSubmitDiscovery,
   DISCOVERY_BODY_PREFIX,
@@ -653,6 +654,11 @@ export default function ComposerDock({
 
   const addSkillChip = (s: SkillOption, rest = value) => {
     pushRecentSkill(s.id);
+    // The + menu used to add only an internal chip, leaving the editor blank.
+    // Keep the skill visible as an actionable, editable starter just like the
+    // skill catalog does; preserve any text the user has already entered.
+    const nextText = rest.trim() || starterPrompt({ id: s.id, title: s.title });
+    if (nextText !== value) onChange(nextText);
     setSkillChips((current) => {
       if (current.some((chip) => chip.id === s.id)) return current;
       if (current.length >= COMPOSER_MAX_SKILL_CHIPS) return current;

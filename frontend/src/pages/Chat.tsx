@@ -778,7 +778,9 @@ export default function Chat() {
   const openedAsKol = Boolean((location.state as { kolSession?: boolean } | null)?.kolSession);
   const rememberedKol = Boolean(id && sessionStorage.getItem(`kol-session:${id}`));
   const kolSession = Boolean(collaborationId || journey?.collaboration_id || openedAsKol || rememberedKol);
-  const showLeftRail = Boolean(id && (kolSession || sessionLoaded));
+  // 普通任务详情页的中栏 + 右栏已经是完整工作区，不再嵌套一套任务中心列表。
+  // 红人协作会话仍保留左栏，用于邮件线程和合作对象上下文。
+  const showLeftRail = Boolean(id && kolSession);
   const sessionMails = (Array.isArray(journey?.mail_history)
     ? journey?.mail_history as SessionMailRow[]
     : undefined);
@@ -852,7 +854,8 @@ export default function Chat() {
   ) || resultCardsFromMessages(messages).length > 0
     || Boolean(task?.task_result || task?.crawl_result) || crawlJob?.status === "result_ready" || Boolean(focusedMail)
     || Boolean(kolSession && sessionMails && sessionMails.length);
-  const showRightWorkbench = Boolean(id && (hasRightArtifact || kolSession));
+  // 任务刚启动时还没有 task_result/card，但右栏仍需立即出现并展示处理中状态。
+  const showRightWorkbench = Boolean(id && (task || hasRightArtifact || kolSession));
 
   const complete = async () => {
     if (!task || completing) return;

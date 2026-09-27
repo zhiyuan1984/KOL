@@ -562,22 +562,28 @@ export function isKolAnalyzeInFlight(status?: string | null): boolean {
 export function runningBadgeCount(input: {
   sessions: Array<{ id: string; agent_status?: string | null }>;
   analyzeItems: Array<{ id: string; status: string; session_id?: string | null }>;
+  tasks?: Array<{ id: string; status?: string | null; session_id?: string | null }>;
 }): number {
   const runningSessions = input.sessions.filter((row) => row.agent_status === "running" || row.agent_status === "queued");
   const analyze = input.analyzeItems.filter((item) => isKolAnalyzeInFlight(item.status));
   const sessionIds = new Set(runningSessions.map((row) => row.id));
   const extraAnalyze = analyze.filter((item) => !item.session_id || !sessionIds.has(item.session_id));
-  return runningSessions.length + extraAnalyze.length;
+  const runningTasks = (input.tasks || []).filter((task) => ["running", "queued", "starting", "in_progress"].includes(String(task.status || "").toLowerCase()));
+  const extraTasks = runningTasks.filter((task) => !task.session_id || !sessionIds.has(task.session_id));
+  return runningSessions.length + extraAnalyze.length + extraTasks.length;
 }
 
 export function runningBadgeHref(input: {
   sessions: Array<{ id: string; agent_status?: string | null }>;
   analyzeItems: Array<{ id: string; status: string; session_id?: string | null }>;
+  tasks?: Array<{ id: string; status?: string | null; session_id?: string | null }>;
 }): string {
   const firstSession = input.sessions.find((row) => row.agent_status === "running" || row.agent_status === "queued");
   if (firstSession) return `/s/${firstSession.id}`;
   const bound = input.analyzeItems.find((item) => isKolAnalyzeInFlight(item.status) && item.session_id);
   if (bound?.session_id) return `/s/${bound.session_id}`;
+  const task = (input.tasks || []).find((row) => ["running", "queued", "starting", "in_progress"].includes(String(row.status || "").toLowerCase()) && row.session_id);
+  if (task?.session_id) return `/s/${task.session_id}`;
   return "/?tab=todo";
 }
 
