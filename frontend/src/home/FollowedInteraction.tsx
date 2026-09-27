@@ -42,7 +42,11 @@ export default function FollowedInteraction({
     <section className="followed-interaction-intro" aria-labelledby="followed-interaction-title">
       <div>
         <h1 id="followed-interaction-title" data-home-title="lifecycle">我的红人</h1>
-        <p>{summaryReady ? `${cards.length} 位当前跟进对象 · 数量来自当前已授权名单` : "正在核对当前已授权名单…"}</p>
+        <p>{summaryReady
+          ? `${cards.length} 位当前跟进对象 · 数量来自当前已授权名单`
+          : cards.length
+            ? `${cards.length} 位已加载 · 正在核对最新数据…`
+            : "正在核对当前已授权名单…"}</p>
       </div>
       {selectedCount ? <span className="followed-selection-note">已选择 {selectedCount} 位，可在下方继续提问</span> : null}
     </section>

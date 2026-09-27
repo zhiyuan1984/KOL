@@ -2060,6 +2060,7 @@ export default function Home() {
                   followEmptyKind={followEmptyKind}
                   down={followingDown}
                   listError={followListError}
+                  refreshNotice={followedWorkspace.refreshNotice}
                   onReload={() => void followedWorkspace.loadSurface()}
                   onQuery={followedWorkspace.setQuery}
                   onStageFilter={followedWorkspace.setStageFilter}

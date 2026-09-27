@@ -223,6 +223,47 @@ test("本地索引为空时，在历史协作投影合并前不下暂无结论",
   await expect(page.locator("[data-followed-lifecycle-grid]")).toBeVisible();
 });
 
+test("先展示本地名单，历史记录拼接完成后原位更新并提示", async ({ page }) => {
+  let finishBoard!: () => void;
+  const boardGate = new Promise<void>((resolve) => { finishBoard = resolve; });
+  let followingReads = 0;
+
+  await page.route("**/api/home/following", (route) => {
+    followingReads += 1;
+    return route.fulfill({ json: followingEnvelope([row(1), row(2)]) });
+  });
+  await page.route("**/api/home/board*", async (route) => {
+    await boardGate;
+    await route.fulfill({
+      json: {
+        kols: [row(1), row(2), row(3)],
+        follow_scope: {
+          required: true,
+          bound: true,
+          mailbox_email: "larry.zhao@amperetime.com",
+          owner_name: "赵良玉",
+          status: "connected",
+        },
+        workbench: {},
+      },
+    });
+  });
+
+  await openFollowed(page);
+
+  await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
+  await expect(page.locator('[data-followed-kol="红人2"]')).toBeVisible();
+  await expect(page.locator("[data-followed-interaction]")).toContainText("2 位已加载 · 正在核对最新数据");
+  await expect(page.locator('[data-follow-empty="mailbox"]')).toHaveCount(0);
+
+  finishBoard();
+
+  await expect(page.locator('[data-followed-kol="红人3"]')).toBeVisible();
+  await expect(page.locator("[data-follow-refresh-notice]")).toHaveText("红人数据已更新，共 3 位。");
+  await expect(page.locator("[data-followed-interaction]")).toContainText("3 位当前跟进对象");
+  expect(followingReads).toBeGreaterThanOrEqual(2);
+});
+
 test("名单超过选择上限时，全选标签照实说、勾选框按上限呈现", async ({ page }) => {
   await stubBoard(page);
   await page.route("**/api/home/following", (route) => route.fulfill({
