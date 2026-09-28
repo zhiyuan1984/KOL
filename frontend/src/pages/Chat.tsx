@@ -867,7 +867,7 @@ export default function Chat() {
     || Boolean(task?.task_result || task?.crawl_result) || crawlJob?.status === "result_ready" || Boolean(focusedMail)
     || Boolean(kolSession && sessionMails && sessionMails.length);
   // 任务刚启动时还没有 task_result/card，但右栏仍需立即出现并展示处理中状态。
-  const showRightWorkbench = Boolean(id && (task || hasRightArtifact || kolSession));
+  const showRightWorkbench = Boolean(id);
 
   const complete = async () => {
     if (!task || completing) return;
@@ -1029,6 +1029,7 @@ export default function Chat() {
         />
       ) : null}
       <section className="session-center">
+        <div className="session-stream conversation" ref={streamRef} onScroll={onStreamScroll} data-session-stream-pane data-ai-conversation data-has-interaction={messages.some((message) => message.kind === "me") ? "true" : undefined} role="log">
         <header className="task-detail-header conversation-context" {...(task ? { "data-task-detail": true } : { "data-session-back": true })}>
           <div className="session-head-row">
             <Link to="/" className="task-back">← 返回任务列表</Link>
@@ -1121,7 +1122,6 @@ export default function Chat() {
             </>
           )}
         </header>
-        <div className="session-stream conversation" ref={streamRef} onScroll={onStreamScroll} data-session-stream-pane data-ai-conversation data-has-interaction={messages.some((message) => message.kind === "me") ? "true" : undefined} role="log">
         {activeSkillTemplate ? (
           <div className="session-skill-template" data-session-skill-template>
             <SkillTemplateContext

@@ -177,8 +177,7 @@ export default function WorkspaceShell({
         >
           {/* 箭头（›/‹）换成「侧栏面板」图标：状态由 aria-expanded 与折叠档的竖排文字表达。 */}
           <PanelToggleIcon className="scope-task-rail-toggle-icon" />
-          {railCollapsed ? <strong>{railToggleLabel}</strong> : null}
-          {railCollapsed && railBadge != null ? <em>{railBadge}</em> : null}
+          {railCollapsed && railBadge != null ? <em aria-label={`${railToggleLabel}${railBadge}`}>{railBadge}</em> : null}
         </button>
         <div className="scope-task-rail-body" data-scope-rail-body>
           <ResultRail pane={pane} view={resultView}>{rail}</ResultRail>
