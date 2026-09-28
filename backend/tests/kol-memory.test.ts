@@ -344,7 +344,7 @@ describe("kol follow/pool memory P0", () => {
       homepage_url: "https://youtube.com/@dailytested",
     });
     // 评分状态要如实分类（这条同步来的档案从未评过）。
-    expect(contract.assessment_state).toBe("unscored");
+    expect(contract?.assessment_state).toBe("unscored");
     // 远端只给 accountHandle 时，句柄兜底要生效；缺指标的档案照样进公海，但状态如实。
     const handleOnly = (response.body.items as Json[]).find((row) => row.kol_uid === "KOL_HANDLE_ONLY");
     expect(handleOnly).toMatchObject({ handle: "handle_only", display_name: "handle_only", assessment_state: "unscored" });
@@ -442,6 +442,65 @@ describe("kol follow/pool memory P0", () => {
       expect(row).toMatchObject({ potential_score: 85, risk_score: 85, assessment_model: "jev-1.13" });
       expect(row.potential_confidence).toBeCloseTo(0.91);
       expect(row.risk_confidence).toBeCloseTo(0.83);
+    } finally {
+      if (priorKey === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = priorKey;
+    }
+  });
+
+  it("Jev 评分把 AI 发现条件作为评分口径提交给模型并如实回执", async () => {
+    seedProfile("KOL_CRIT", { followers: "240000", avg_plays: "50000" });
+    const priorKey = process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY = "sk-or-test";
+    let seen = "";
+    setKolJevFetch(async (_input, init) => {
+      const body = typeof init?.body === "string"
+        ? JSON.parse(init.body) as { state?: { public_profile?: string; target_criteria?: string } }
+        : {};
+      seen = `${body.state?.public_profile || ""}
+${body.state?.target_criteria || ""}`;
+      return new Response(JSON.stringify({
+        model: "typesafe/jev-1.13",
+        answers: {
+          potential: { type: "choice", choice: "high_potential", confidence: 0.9 },
+          risk: { type: "choice", choice: "normal", confidence: 0.9 },
+        },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    try {
+      const accepted = await request("POST", "/api/home/pool/jev-assess", {
+        kol_uids: ["KOL_CRIT"],
+        criteria: {
+          platforms: ["youtube"],
+          region: "global_en",
+          directions: ["户外露营", "户外能源"],
+          keywords: ["camping", "portable power station"],
+          min_followers: 10000,
+          max_followers: 2000000,
+          min_avg_plays_10: 5000,
+          expect_count: 30,
+          // 超限与非法值要在服务端被收紧，不能原样进模型。
+          directionsExtra: "ignored",
+        },
+      });
+      expect(accepted.status).toBe(202);
+      expect(String(accepted.body.criteria_summary)).toContain("关键词 camping, portable power station");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const receipt = await request("GET", "/api/home/pool/jev-assess");
+      expect(receipt.body).toMatchObject({ ok: true, status: "succeeded" });
+      // 回执必须写明口径，否则不同条件下的分看起来一样。
+      expect(String(receipt.body.message)).toContain("评分口径：");
+      expect(String(receipt.body.message)).toContain("近10条均播 ≥5000");
+      // 模型侧：条件与公开资料一起提交。
+      expect(seen).toContain("target_criteria");
+      expect(seen).toContain("portable power station");
+      expect(seen).toContain("2000000");
+      expect(seen).toContain("全球英文".length ? "global_en" : "");
+      const row = getConn().prepare(
+        "SELECT assessment_criteria, potential_score FROM kol_profile_index WHERE kol_uid=?",
+      ).get("KOL_CRIT") as { assessment_criteria: string; potential_score: number };
+      expect(row.potential_score).toBe(85);
+      expect(row.assessment_criteria).toContain("平台 youtube");
     } finally {
       if (priorKey === undefined) delete process.env.OPENROUTER_API_KEY;
       else process.env.OPENROUTER_API_KEY = priorKey;

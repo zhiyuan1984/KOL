@@ -74,6 +74,8 @@ export type PoolJevAssessment = {
   assessed_at?: string | null;
   /** scored = 有分；low_confidence = 评过但置信度不足；failed = 调用失败；unscored = 从未评过。 */
   state?: "scored" | "unscored" | "low_confidence" | "failed";
+  /** 本次评分口径（AI 发现条件摘要）；缺省表示按公开资料通用口径。 */
+  criteria_summary?: string;
 };
 
 export type PoolKol = {
@@ -438,6 +440,7 @@ export function toPoolKol(row: Record<string, unknown>): PoolKol | null {
       model: text(row.assessment_model) || undefined,
       assessed_at: text(row.assessed_at) || null,
       state: (["scored", "unscored", "low_confidence", "failed"] as const).find((value) => value === text(row.assessment_state)) || undefined,
+      criteria_summary: text(row.assessment_criteria) || undefined,
     },
   };
 }

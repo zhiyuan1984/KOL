@@ -126,6 +126,8 @@ export function publicProfileFields(row: Row | Json): Json {
     // 员工端只据此说清「为什么没分」，不回显内部错误原文：
     // scored 有分 / low_confidence 评过但置信度不足 / failed 调用失败 / unscored 从未评过。
     assessment_state: assessmentStateOf(row),
+    // 评分口径（员工声明的 AI 发现条件摘要）：空串表示按公开资料通用口径。
+    assessment_criteria: row.assessment_criteria || "",
   };
 }
 

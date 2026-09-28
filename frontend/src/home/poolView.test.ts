@@ -37,6 +37,19 @@ describe("pool score placeholder", () => {
     expect(placeholder.title).toContain("可重试");
   });
 
+  it("口径随评分一起显示：tooltip 写明 AI 发现条件摘要", () => {
+    const low = poolScorePlaceholder({
+      state: "low_confidence",
+      potential_confidence: 0.55,
+      criteria_summary: "平台 youtube · 地区 global_en · 近10条均播 ≥5000",
+    }, []);
+    expect(low.title).toContain("口径 平台 youtube");
+    expect(low.title).toContain("近10条均播 ≥5000");
+
+    const unscored = poolScorePlaceholder({ state: "unscored" }, ["均播"]);
+    expect(unscored.title).toContain("执行时带上当前 AI 发现条件作为口径");
+  });
+
   it("高分徽章与置信度门槛一致（≥80 且 ≥0.7）", () => {
     expect(isHighPoolScore(85, 0.91)).toBe(true);
     expect(isHighPoolScore(85, 0.55)).toBe(false);

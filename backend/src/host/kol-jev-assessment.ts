@@ -2,6 +2,7 @@ import { TypeSafeClient } from "@typesafe-ai/sdk";
 import { audit, getConn, nowIso, type SqliteConn } from "../db.js";
 import type { Row } from "../types.js";
 import { memoryCompanyId } from "./kol-memory.js";
+import { criteriaState, criteriaSummary, type KolScoringCriteria } from "./kol-scoring-criteria.js";
 
 const JEV_OPENROUTER_BASE_URL = "https://openrouter.ai/api";
 const ASSESSMENT_VERSION = "jev-kol-v1";
@@ -77,6 +78,8 @@ export type KolAssessment = {
   model: string;
   version: string;
   assessed_at: string;
+  /** 本次评分用的口径摘要（员工声明的 AI 发现条件）；空串表示按公开资料通用口径。 */
+  criteria_summary: string;
 };
 
 /**
@@ -84,7 +87,10 @@ export type KolAssessment = {
  * fields. It does not retrieve contact data, produce outreach copy, or make a
  * business decision. Low-confidence and insufficient results stay unscored.
  */
-export async function assessPublicKolWithJev(row: Row): Promise<KolAssessment> {
+export async function assessPublicKolWithJev(
+  row: Row,
+  criteria: KolScoringCriteria | null = null,
+): Promise<KolAssessment> {
   const key = apiKey();
   if (!key) throw new Error("Jev 评分服务未配置 OpenRouter 密钥。");
   const currentModel = model();
@@ -99,11 +105,14 @@ export async function assessPublicKolWithJev(row: Row): Promise<KolAssessment> {
   });
   const response = await client.systemOne({
     model: currentModel,
-    state: { public_profile: profileState(row) },
+    // 只有员工声明过目标条件时才提交 target_criteria：没有条件时的「匹配」是模型自己编的。
+    state: criteria
+      ? { public_profile: profileState(row), target_criteria: criteriaState(criteria) }
+      : { public_profile: profileState(row) },
     questions: {
       potential: {
         type: "choice",
-        instructions: "只根据 `public_profile` 的公开字段评估合作潜力；缺少关键公开指标时选 insufficient。不得推断私密联系方式、报价、合同或未提供的互动表现。",
+        instructions: "只根据 `public_profile` 的公开字段评估合作潜力，并与 `target_criteria`（员工声明的目标平台/地区/方向/关键词/粉丝与均播门槛）比对：量级未达门槛或与目标方向、地区明显不符时选 watch；缺少关键公开指标、或没有 `target_criteria` 时不得推断匹配，选 insufficient。不得推断私密联系方式、报价、合同或未提供的互动表现。",
         criteria: {
           high_potential: "公开指标与内容方向充分，显示出可验证的受众规模或内容匹配信号，值得优先人工复核。",
           watch: "存在部分正向信号，但公开指标、内容匹配或时效不足以列为高潜。",
@@ -112,7 +121,7 @@ export async function assessPublicKolWithJev(row: Row): Promise<KolAssessment> {
       },
       risk: {
         type: "choice",
-        instructions: "只根据 `public_profile` 的公开字段评估信息与匹配风险；风险是人工复核优先级，不是拒绝或删除依据。缺资料时选 insufficient。",
+        instructions: "只根据 `public_profile` 的公开字段评估信息与匹配风险；风险是人工复核优先级，不是拒绝或删除依据。只把**可核对的不一致**（例如粉丝量与近10条均播/互动率明显不自洽）或与 `target_criteria` 明显冲突判为 high_risk；资料缺失一律选 insufficient，不得当成风险。",
         criteria: {
           high_risk: "公开资料存在显著缺口或明显不匹配信号，需要人工优先核验。",
           watch: "有待核验点，但没有足够公开证据定为高风险。",
@@ -122,6 +131,7 @@ export async function assessPublicKolWithJev(row: Row): Promise<KolAssessment> {
       },
     },
   });
+  void (response as { model?: string });
   const answers = response.answers as { potential?: AssessmentAnswer; risk?: AssessmentAnswer };
   const potential = selected(answers.potential);
   const risk = selected(answers.risk);
@@ -139,6 +149,7 @@ export async function assessPublicKolWithJev(row: Row): Promise<KolAssessment> {
     model: currentModel,
     version: ASSESSMENT_VERSION,
     assessed_at: nowIso(),
+    criteria_summary: criteriaSummary(criteria),
   };
 }
 
@@ -177,6 +188,8 @@ export type JevAssessmentResult = {
   high_potential: number;
   high_risk: number;
   failed: number;
+  /** 本次评分口径；空串表示按公开资料通用口径。 */
+  criteria_summary: string;
 };
 
 /**
@@ -188,6 +201,8 @@ export async function assessPublicKolsWithJev(input: {
   companyId?: string;
   db?: SqliteConn;
   kol_uids?: string[];
+  /** 员工声明的目标条件；由路由解析（显式传入优先，其次最近一次 AI 发现请求）。 */
+  criteria?: KolScoringCriteria | null;
 } = {}): Promise<JevAssessmentResult> {
   const db = input.db || getConn();
   const companyId = input.companyId || memoryCompanyId();
@@ -195,6 +210,7 @@ export async function assessPublicKolsWithJev(input: {
   const limit = kolUids.length
     ? kolUids.length
     : Math.max(1, Math.min(12, Math.floor(Number(input.limit || 12))));
+  const criteria = input.criteria || null;
   const profiles = eligibleProfiles(companyId, limit, db, kolUids);
   let assessed = 0;
   let highPotential = 0;
@@ -202,11 +218,12 @@ export async function assessPublicKolsWithJev(input: {
   let failed = 0;
   for (const profile of profiles) {
     try {
-      const assessment = await assessPublicKolWithJev(profile);
+      const assessment = await assessPublicKolWithJev(profile, criteria);
       db.prepare(
         `UPDATE kol_profile_index
             SET potential_score=?, potential_confidence=?, risk_score=?, risk_confidence=?,
-                assessment_model=?, assessment_version=?, assessed_at=?, assessment_error='', updated_at=?
+                assessment_model=?, assessment_version=?, assessed_at=?, assessment_error='',
+                assessment_criteria=?, updated_at=?
           WHERE company_id=? AND kol_uid=?`,
       ).run(
         assessment.potential_score,
@@ -216,6 +233,7 @@ export async function assessPublicKolsWithJev(input: {
         assessment.model,
         assessment.version,
         assessment.assessed_at,
+        assessment.criteria_summary,
         assessment.assessed_at,
         companyId,
         String(profile.kol_uid),
@@ -233,7 +251,13 @@ export async function assessPublicKolsWithJev(input: {
       failed += 1;
     }
   }
-  const result = { ok: true, eligible: profiles.length, assessed, high_potential: highPotential, high_risk: highRisk, failed };
-  audit("system", "kol.memory.jev_assessment", { ...result, limit, model: model(), version: ASSESSMENT_VERSION });
+  const result = {
+    ok: true, eligible: profiles.length, assessed, high_potential: highPotential, high_risk: highRisk, failed,
+    criteria_summary: criteriaSummary(criteria),
+  };
+  audit("system", "kol.memory.jev_assessment", {
+    ...result, limit, model: model(), version: ASSESSMENT_VERSION,
+    criteria: criteria || null,
+  });
   return result;
 }

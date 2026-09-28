@@ -35,6 +35,7 @@ export default function PoolInteraction({
   interaction,
   templates,
   templateNotice,
+  criteriaNote,
   scoreConfirm,
   onAnalyze,
   onConfirmScore,
@@ -48,6 +49,8 @@ export default function PoolInteraction({
   interaction?: ReactNode;
   templates: Record<PoolAnalysisKind, PoolTemplateState>;
   templateNotice?: string | null;
+  /** 评分口径说明：当前 AI 发现条件是否参与本次评分。 */
+  criteriaNote?: string | null;
   scoreConfirm?: PoolScoreConfirm | null;
   onAnalyze: (kind: PoolAnalysisKind) => void;
   onConfirmScore?: () => void;
@@ -75,6 +78,7 @@ export default function PoolInteraction({
       data-pool-score-targets={scoreConfirm.count}>
       <p className="pool-score-confirm-text">
         将按知识库的评分问题模板提交，并对 {scoreConfirm.count ? `已选 ${scoreConfirm.count} 位` : "公海未评分"} KOL 调用 Jev 评分；评分写入 KOL 记忆。
+        {criteriaNote ? ` ${criteriaNote}` : ""}
       </p>
       <div className="pool-score-confirm-actions">
         <button type="button" className="btn ghost sm" data-pool-score-cancel disabled={scoreConfirm.busy} onClick={onCancelScore}>取消</button>

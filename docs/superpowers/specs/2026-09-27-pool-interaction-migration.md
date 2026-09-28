@@ -143,3 +143,22 @@ Rollback: 仅恢复原组件呈现组合；已发生的评分、领取、清理�
 | 远端指标口径唯一化 + 别名补齐 | 后端专家、KOL 业务专家 | CONST-06 | `docs/AGENTS.md` §5；`07-mcp-data-contract.md` 只读白名单 | **符合**：只改远端→本地的映射口径，不新增事实源、不碰远端写操作 | 已完成，`kol-memory.test.ts` 覆盖契约键 |
 | 同步体检与详情失败留痕 | 后端专家 | CONST-10 | `DESIGN.md` §不变量 3（真实等待与结果必须可解释） | **符合**：失败写审计、回执如实报缺指标条数 | 已完成 |
 | 「未评分」必须说明原因 | 智能体产品经理、UI/UX 专家 | CONST-10 | `DESIGN.md` §不变量 3/4（状态不能只靠颜色、结论要可解释） | **符合**：三种原因各有文案与 tooltip，且不暴露内部错误原文 | 已完成，前端单测 + E2E 各一条 |
+
+## 2026-09-28 评分口径：把 AI 发现条件注入 Jev（评审反馈「把这个注入到 jef 打分模型」）
+
+| 项 | 处理 | 证据 |
+|---|---|---|
+| 口径对象 | 新增 `backend/src/host/kol-scoring-criteria.ts`：`normalizeScoringCriteria`（收客户端的条件：平台/地区必须命中字典、方向≤8、关键词≤8、文本≤40、门槛保持 min≤max 并把非法值夹回默认）、`latestDiscoveryCriteria`（员工最近一次 `discovery_requests` 的条件）、`criteriaState`（提交给模型的 JSON 文本）、`criteriaSummary`（一行口径摘要） | 同上 |
+| 注入模型 | `assessPublicKolWithJev(row, criteria)`：`state` 增加 `target_criteria`；**只有存在口径时才提交**——没有条件时模型不得自己编"匹配"；潜力题改为「量级是否达门槛 + 与目标方向/地区/关键词是否匹配」；风险题改为「只判可核对的不一致（粉丝与均播/互动自相矛盾）或与目标明显冲突；资料缺失一律 insufficient」 | `backend/src/host/kol-jev-assessment.ts` |
+| 口径落库 | `kol_profile_index.assessment_criteria` 存本次口径摘要（migration 与既有 `avatar_error` 同处）；审计 `kol.memory.jev_assessment` 记录完整口径 | `backend/src/db.ts`、`kol-jev-assessment.ts` |
+| 路由与回执 | `POST /api/home/pool/jev-assess` 接受可选 `criteria`（显式传入优先，其次最近一次 AI 发现请求）；回执 message 追加「评分口径：…」或「未设置 AI 发现条件，按公开资料通用口径评分」，响应体带 `criteria_summary` | `backend/src/routers/kol-memory.ts` |
+| 前端 | 评分确认条说明口径（设过条件 / 未设置两版）；卡片 tooltip 展示本次口径；`Home.confirmPoolScore` 把当前 `discoveryBrief` 作为 `criteria` 提交 | `frontend/src/home/PoolInteraction.tsx`、`PoolPane.tsx`、`poolView.ts`、`pages/Home.tsx` |
+| 测试 | 后端新增「Jev 评分把 AI 发现条件作为评分口径提交给模型并如实回执」（含超限字段被收紧）；前端单测新增口径 tooltip；E2E 新增「scoring confirm bar states which criteria the score will use」并在卡片用例断言 tooltip 带口径 | `backend/tests/kol-memory.test.ts`、`frontend/src/home/poolView.test.ts`、`frontend/e2e/home-pool-follow.spec.ts` |
+
+### 追加审宪记录（CONST-08，2026-09-28 第二次）
+
+| 需求 | 主责角色 | 宪法 | 基本法 / 细则 | 结论与证据 | 下一步 |
+|---|---|---|---|---|---|
+| 把 AI 发现条件作为评分口径注入 Jev | KOL 业务专家、智能体产品经理、后端专家 | CONST-06 | `docs/AGENTS.md` §5；`07-mcp-data-contract.md` 工具风险；`jev-openrouter.md`（模型固定、置信度分档） | **符合**：口径来自员工自己写下的条件（会话内草稿或最近一次发现请求），服务端校验收紧后提交；不新增事实源、不改写远端、评分仍是辅助信号 | 已完成，注入与回执均有回归 |
+| 评分必须能说清"按什么口径" | UI/UX 专家、智能体产品经理 | CONST-10 | `DESIGN.md` §不变量 3（结论必须可解释） | **符合**：回执、确认条、卡片 tooltip 三处一致展示口径；未设置时如实说明是通用口径 | 已完成 |
+| rubric 调整（缺资料≠风险） | KOL 业务专家 | CONST-10 | 同上 | **符合**：高风险只判可核对的不一致/与目标冲突；资料缺失仍是 insufficient | 已完成，提示词内写明 |

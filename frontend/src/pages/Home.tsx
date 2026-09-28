@@ -1054,9 +1054,14 @@ export default function Home() {
 
   const confirmPoolScore = async () => {
     const targets = analyzeUids;
+    // 当前 AI 发现条件就是这次评分的口径：模型据此判「量级是否达标 / 方向地区是否匹配」，
+    // 没有条件时不带 target_criteria（模型不得自己编匹配）。
     setScoreConfirm({ busy: true, count: targets.length, error: null });
     try {
-      await poolWorkspace.assessWithJev(targets.length ? targets : undefined);
+      await poolWorkspace.assessWithJev(
+        targets.length ? targets : undefined,
+        discoveryBrief ? { ...discoveryBrief } : null,
+      );
       setScoreConfirm(null);
     } catch (cause) {
       setScoreConfirm({ busy: false, count: targets.length, error: cause instanceof Error ? cause.message : "KOL评分失败" });
@@ -2216,6 +2221,9 @@ export default function Home() {
                   interaction={interactionFeedback}
                   templates={poolTemplateState}
                   templateNotice={poolTemplateNotice}
+                  criteriaNote={discoveryBrief
+                    ? "评分口径：当前 AI 发现条件（平台 / 地区 / 方向 / 关键词 / 粉丝与均播门槛）。"
+                    : "评分口径：未设置 AI 发现条件，按公开资料通用口径。"}
                   scoreConfirm={scoreConfirm}
                   onAnalyze={startPoolAnalysis}
                   onConfirmScore={() => void confirmPoolScore()}

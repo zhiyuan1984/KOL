@@ -1108,7 +1108,7 @@ export const api = {
       items?: Array<Record<string, unknown>>;
       kols?: Array<Record<string, unknown>>;
     }>("/api/home/pool/avatar-enrich"),
-  assessPoolWithJev: (kolUids?: string[]) =>
+  assessPoolWithJev: (kolUids?: string[], criteria?: Record<string, unknown> | null) =>
     request<{
       entry?: string;
       kind?: string;
@@ -1120,11 +1120,16 @@ export const api = {
       status?: "idle" | "running" | "succeeded" | "failed";
       ok?: boolean;
       message?: string;
+      /** 本次评分口径（AI 发现条件摘要）；空表示按公开资料通用口径。 */
+      criteria_summary?: string;
       items?: Array<Record<string, unknown>>;
       kols?: Array<Record<string, unknown>>;
     }>("/api/home/pool/jev-assess", {
       method: "POST",
-      body: JSON.stringify(kolUids?.length ? { kol_uids: kolUids } : {}),
+      body: JSON.stringify({
+        ...(kolUids?.length ? { kol_uids: kolUids } : {}),
+        ...(criteria ? { criteria } : {}),
+      }),
     }),
   poolJevAssessmentStatus: () =>
     request<{

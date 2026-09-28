@@ -1993,6 +1993,7 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "kol_profile_index", "avatar_url", "TEXT");
   add(db, "kol_profile_index", "avatar_checked_at", "TEXT");
   add(db, "kol_profile_index", "avatar_error", "TEXT");
+  add(db, "kol_profile_index", "assessment_criteria", "TEXT");
   add(db, "kol_profile_index", "potential_score", "INTEGER");
   add(db, "kol_profile_index", "potential_confidence", "REAL");
   add(db, "kol_profile_index", "risk_score", "INTEGER");

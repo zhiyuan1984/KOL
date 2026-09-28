@@ -333,6 +333,18 @@ test("public pool restores the central interaction and uses a structured right r
   expect((await workspace.locator("[data-pool-kol='uid_outdoor'] [data-pool-claim]").boundingBox())?.height).toBe(28);
 });
 
+test("scoring confirm bar states which criteria the score will use", async ({ page }) => {
+  await page.goto("/?tab=pool");
+  await page.locator("[data-pool-kol='uid_outdoor'] [data-pool-select]").check();
+  await page.locator("[data-pool-jev-assess]").click();
+  const confirm = page.locator("[data-pool-score-confirm]");
+  await expect(confirm).toBeVisible();
+  // 没设过 AI 发现条件时不得声称用了条件；设过时必须说明口径。
+  await expect(confirm).toContainText("评分口径：");
+  await expect(confirm).toContainText(/未设置 AI 发现条件|当前 AI 发现条件/);
+  await expect(confirm).toContainText("已选 1 位");
+});
+
 test("pool cards say why a KOL is unscored", async ({ page }) => {
   const card = (uid: string, extra: Record<string, unknown> = {}) => ({
     ...POOL_ITEM,
@@ -351,7 +363,13 @@ test("pool cards say why a KOL is unscored", async ({ page }) => {
         kind: "memory",
         library: { ok: true, count: 4 },
         items: [
-          card("uid_low", { assessed_at: "2026-09-27T00:00:00Z", potential_score: null, potential_confidence: 0.55, assessment_state: "low_confidence" }),
+          card("uid_low", {
+            assessed_at: "2026-09-27T00:00:00Z",
+            potential_score: null,
+            potential_confidence: 0.55,
+            assessment_state: "low_confidence",
+            assessment_criteria: "平台 youtube · 地区 global_en · 近10条均播 ≥5000",
+          }),
           card("uid_failed", { assessed_at: "2026-09-27T00:00:00Z", potential_score: null, assessment_state: "failed" }),
           card("uid_thin", { followers: "", avg_plays: "", engagement: "", direction: "" }),
           card("uid_fresh"),
@@ -366,6 +384,8 @@ test("pool cards say why a KOL is unscored", async ({ page }) => {
   await expect(low).toHaveText("已评估 · 置信度 55%");
   await expect(low).toHaveAttribute("data-pool-score-state", "low_confidence");
   await expect(low).toHaveAttribute("title", /低于 70%/);
+  // 口径随卡片可见：同一批对象在不同 AI 发现条件下的分不可比。
+  await expect(low).toHaveAttribute("title", /口径 平台 youtube/);
   // 调用失败：不伪装成「未评分」。
   const failed = page.locator("[data-pool-kol='uid_failed'] [data-pool-score='missing']");
   await expect(failed).toHaveText("评分失败");

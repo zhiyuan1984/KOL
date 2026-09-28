@@ -27,6 +27,12 @@ import {
 import { enrichMissingPublicAvatars } from "../host/kol-avatar-enrichment.js";
 import { assessPublicKolsWithJev, normalizeJevTargets } from "../host/kol-jev-assessment.js";
 import { syncKolProfileIndex } from "../host/kol-memory-sync.js";
+import {
+  criteriaSummary,
+  latestDiscoveryCriteria,
+  normalizeScoringCriteria,
+  type KolScoringCriteria,
+} from "../host/kol-scoring-criteria.js";
 import { starryLibraryStatus } from "../starrykol/library-sync.js";
 import { HttpFail } from "../host/errors.js";
 import { currentFollowScope } from "../host/starry-bind.js";
@@ -159,19 +165,23 @@ function startAvatarEnrichment(): boolean {
   return true;
 }
 
-function startJevAssessment(kolUids: string[] = []): boolean {
+function startJevAssessment(kolUids: string[] = [], criteria: KolScoringCriteria | null = null): boolean {
   if (jevAssessmentFlight) return false;
   const startedAt = nowIso();
   jevAssessmentReceipt = { status: "running", started_at: startedAt, completed_at: null };
-  jevAssessmentFlight = assessPublicKolsWithJev({ kol_uids: kolUids })
+  jevAssessmentFlight = assessPublicKolsWithJev({ kol_uids: kolUids, criteria })
     .then((result) => {
+      // 口径必须随回执出现：同一批对象在不同目标条件下的分不可比。
+      const criteriaCopy = result.criteria_summary
+        ? `评分口径：${result.criteria_summary}`
+        : "未设置 AI 发现条件，按公开资料通用口径评分。";
       jevAssessmentReceipt = {
         status: "succeeded",
         started_at: startedAt,
         completed_at: nowIso(),
         ok: result.ok,
         result,
-        message: `已评估 ${result.assessed} 条：高潜 ${result.high_potential}，高风险 ${result.high_risk}。`,
+        message: `已评估 ${result.assessed} 条：高潜 ${result.high_potential}，高风险 ${result.high_risk}，失败 ${result.failed}。${criteriaCopy}`,
       };
     })
     .catch((error) => {
@@ -256,9 +266,18 @@ kolMemory.post("/home/pool/jev-assess", async (c) => {
     });
   }
   const targets = normalizeJevTargets(raw);
-  const started = startJevAssessment(targets);
+  // 口径来源：显式传入（校验并收紧）优先，其次员工最近一次 AI 发现请求；都没有就不带条件。
+  const employee = currentMemoryEmployee();
+  const criteria = normalizeScoringCriteria(body.criteria) ?? latestDiscoveryCriteria(employee.id);
+  const started = startJevAssessment(targets, criteria);
   c.header("Cache-Control", "no-store");
-  return c.json({ ...maintenanceResponse(jevAssessmentReceipt, true), accepted: true, started, targets }, 202);
+  return c.json({
+    ...maintenanceResponse(jevAssessmentReceipt, true),
+    accepted: true,
+    started,
+    targets,
+    criteria_summary: criteriaSummary(criteria),
+  }, 202);
 });
 
 kolMemory.get("/home/pool/jev-assess", (c) => {

@@ -24,24 +24,34 @@ export type PoolScorePlaceholder = {
  * Jev 只依据公开资料打分（见 backend/src/host/kol-jev-assessment.ts）。
  */
 export function poolScorePlaceholder(
-  assessment: { state?: "scored" | "unscored" | "low_confidence" | "failed"; potential_confidence?: number | null; assessed_at?: string | null } | undefined,
+  assessment: {
+    state?: "scored" | "unscored" | "low_confidence" | "failed";
+    potential_confidence?: number | null;
+    assessed_at?: string | null;
+    criteria_summary?: string;
+  } | undefined,
   missingMetrics: string[] = [],
 ): PoolScorePlaceholder {
   const confidence = Math.round(Number(assessment?.potential_confidence || 0) * 100);
   const at = assessment?.assessed_at ? new Date(assessment.assessed_at) : null;
   const atLabel = at && !Number.isNaN(at.getTime()) ? `评估于 ${at.toLocaleDateString("zh-CN")}。` : "";
+  const criteriaLabel = assessment?.criteria_summary ? `口径 ${assessment.criteria_summary}。` : "";
   if (assessment?.state === "failed") {
-    return { state: "failed", label: "评分失败", title: `Jev 评分调用失败（已记录，可重试）。${atLabel}` };
+    return { state: "failed", label: "评分失败", title: `Jev 评分调用失败（已记录，可重试）。${atLabel}${criteriaLabel}` };
   }
   if (assessment?.state === "low_confidence" || (assessment?.assessed_at && assessment?.potential_confidence != null)) {
     return {
       state: "low_confidence",
       label: `已评估 · 置信度 ${confidence}%`,
-      title: `Jev 评估已完成，但置信度低于 70% 不给分：公开资料不足或信号不明确。${atLabel}`,
+      title: `Jev 评估已完成，但置信度低于 70% 不给分：公开资料不足或信号不明确。${atLabel}${criteriaLabel}`,
     };
   }
   const missing = missingMetrics.length ? `缺 ${missingMetrics.join("、")}；` : "";
-  return { state: "unscored", label: "未评分", title: `${missing}Jev 评分只依据公开资料，可用中栏「KOL评分」执行。` };
+  return {
+    state: "unscored",
+    label: "未评分",
+    title: `${missing}Jev 评分只依据公开资料，可用中栏「KOL评分」执行；执行时带上当前 AI 发现条件作为口径。${criteriaLabel}`,
+  };
 }
 
 export function isHighPoolScore(score?: number | null, confidence?: number | null): boolean {
