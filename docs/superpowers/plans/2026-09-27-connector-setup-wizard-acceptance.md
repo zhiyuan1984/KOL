@@ -162,3 +162,37 @@ SELECT ts,actor,event_type FROM audit_events
 - **已修复**：生产配置 v6 → v7（`PUT /admin/runtime/connectors/starrykol/config`，`headers_secret_refs={"X-MCP-API-KEY": cred_478b…}` + `bearer_secret_ref=cred_c415…`）；401「登录过期」消失。
 - **仍未闭环**：Starry 侧 `email-agent` MCP 当前整体 **503**（本地与生产一致、多次重试一致）——待其恢复后重测即应通过。
 - 环境更正：生产 `RUNTIME_CREDENTIAL_MASTER_KEY` 现已配置（本次实测保险库可正常解密）；`claw` 生产尚无接入配置（draft），需先补配置再测。
+
+## 复测与修复：生产 starrykol「测试未通过 runtime_remote_failed」（2026-09-28 12:10 +0800）
+
+- 现象：v20–v22 连续探测失败（probes 20–27，15–121ms），界面只显示脱敏 `runtime_remote_failed`，无法区分 401 与 503。
+- 只读诊断（生产，走应用真实路径 `connectorOptions` + 保护性 fetch，凭据只做指纹比较、不回显）：
+  - 上游已恢复：正确凭证 `tools/list` 取得 **62 个工具**（本机探针 `artifacts/ops/starry-library-probe-20260928.log` 与生产复测一致；`pageKolProfiles` total=212）。
+  - 根因：v22 的 `headers_secret_refs["X-MCP-API-KEY"]` 指向的保险库凭证值有误（与服务器 `.env` 真值逐字节不同，且不是其任何前缀/后缀/子串）→ 网关 401 `Unauthorized: Invalid or missing X-MCP-API-KEY header`；两个 Bearer 凭证与 `.env` 完全一致，无误。
+  - 交叉隔离（同一路径仅替换凭证来源）：保管库 key→401；环境变量 key + 保管库 bearer→**OK 341ms / 62 工具**。
+  - 另发现：v20 的 `transport=sse` 对该端点不成立（正确凭证下 SSE GET 也非 200/400）；配置含多余自定义 header `"Bearer"`（与 `bearer_secret_ref` 重复）。
+- 修复（生产配置 v22 → v23，等效 `PUT /admin/runtime/connectors/starrykol/config` + `runtime.config.updated` 审计）：
+  `headers_env={"X-MCP-API-KEY":"STARRY_KOL_MCP_API_KEY"}`、`bearer_env="STARRY_KOL_MCP_BEARER"`、`transport=streamable-http`（验收单路线①环境变量引用，不迁移密钥；旧保险库引用与多余 header 一并替换）。服务未重启（配置即时生效）。
+- 复测证据：probe id 28 `succeeded`，`tool_count=62`，306ms，`error_code=NULL`；`connectors.enabled=0 / status=pending_verification / last_error=NULL`（置回待验证，交回界面由管理员自己再点一次「测试」完成正式验收）。
+- 仍未闭环（如实标注）：① 远端错误码分类**已实现待部署**（见下节）；② starrykol 无技能绑定/工具策略，启用会先被 `connector_skill_binding_required` 拦下；③ 保险库余 14 条 Starry 凭证（含坏值 `cred_f03d53b9b4eb`）待清理。
+
+### 远端错误码分类（2026-09-28 实施，待部署）
+
+- 动机：本次排查只能靠服务端只读脚本才看见 401；界面统一显示 `runtime_remote_failed`，无法区分「凭证错」与「远端故障」。
+- 实现：`backend/src/mcp/remote.ts` 的 `annotateRemoteFailure` 在 SDK 抛错对象上挂传输层分类（`remoteStatus`／`remoteKind`，只带状态码与失败类别，不碰响应体）；`backend/src/runtime/execution.ts` 的 `runtimeErrorCode` 映射为 `runtime_remote_unauthorized`（401）、`runtime_remote_forbidden`（403）、`runtime_remote_not_found`（404）、`runtime_remote_rate_limited`（429）、`runtime_remote_rejected`（其余 4xx）、`runtime_remote_unavailable`（5xx）、`runtime_remote_timeout`、`runtime_remote_unreachable`；无法分类时仍为 `runtime_remote_failed`。
+- 界面：向导 / 详情 / 工具清单三处失败文案接入人话解释（`frontend/src/runtimeConnectorUi.ts` 的 `remoteFailureMessage`）；`docs/skill-runtime-operations.md` 的脱敏说明已同步。
+- 验证：错 key 打真实网关 → `status=401 → runtime_remote_unauthorized`；死端口 → `runtime_remote_unreachable`；`connector-operations`、`remote-mcp-discovery`、`connector-sse-transport`、`skill-runtime-execution` 共 46 项通过；前/后端 `tsc --noEmit` 与前端 `npm run build` 通过。
+
+## 复测与修复：工具目录自动登记 + 技能页挂载解阻（2026-09-28 晚，本机）
+
+背景：管理员反馈「配置 → 授权 → 挂载 → 识别」在控制台内走不通（截图：starrykol 配置弹窗）。根因三处：工具策略只有 API、界面零调用；技能页空态指向不存在的「连接器详情逐项审批」；技能页挂载开关在连接器停用时被禁用，而每次测试通过都会把连接器置回 `enabled=0`，启用门禁又要求先有绑定——UI 自锁（后端 `runtime/store.ts` 绑定本不要求连接器启用）。
+
+- **修法（用户裁决「不要审批工具」）**：不设逐工具审批界面；平台按 07 规则自动推导并在**测试成功时登记工具目录**（`DECISIONS.md` ADR-2026-09-28；设计稿 §8 开放项 #1 关闭）。
+  - 新增 `backend/src/runtime/tool-catalog.ts`（唯一推导处：发布名单 + 敏感家族 → L3；只读家族 → L1；其余兜底 L2）；`backend/src/routers/connector-operations.ts` 的 probe 成功后登记/刷新策略（L1/L2 `enabled=1`；L3 登记但 `enabled=0`），审计 `runtime.tool_catalog.registered`；既有行只刷新指纹，管理员/内核覆盖不被回写。
+  - 技能页解阻：`frontend/src/components/SkillConnectorBindings.tsx` 挂载开关不再因连接器停用禁用；「已审批工具」→「已登记工具」；空态改指「先完成一次通过的测试」。
+- **顺带修复的既有界面缺陷（e2e 取证发现）**：`SkillConnectorBindings` 用 `enabled === true` 严格比较，而服务端行是 1/0 → 已挂载/已勾选在刷新后全部渲染为未勾选（写入成功但界面误导、重复挂载）。改为真值判断（同文件 :165、:193）。证据：失败 trace 中点击后仅一次 PUT、通知停留旧态；修复后两种模式全绿。
+- **验证**：
+  - 后端：`npx vitest run tests/tool-catalog.test.ts tests/connector-operations.test.ts` **15/15**；`connector-enable-gate` **2/2**；邻域回归（configurable-connectors / managed-connectors / remote-mcp-discovery / skill-runtime-governance / skill-runtime-execution）**47/47**；`tsc --noEmit` ✅。
+  - 前端：`tsc --noEmit` ✅；`npm run build` ✅；新增 `frontend/e2e/skill-tool-mounting.spec.ts`：默认 stub 模式 1 通过 1 跳过；`E2E_AUTH_MODE=enabled` **2/2 通过**（真写 data-e2e：claw `runtime.binding.updated` v1→v2，取消挂载回 `enabled=0`，收尾可重跑）。
+  - 远端事实（同日早间）：Starry KOL MCP 两枚头实测可用，`tools/list` 62 工具、`pageMailboxes` 真实返回。
+- 未完事项：`data-e2e` 的 starrykol 尚无策略/绑定（本次验收用 claw）；本地库与生产上让 starrykol 走完「测试（自动登记 62 工具）→ 技能页挂载 → 启用」现在只需管理员在界面点选，策略覆盖仍可走既有 API。

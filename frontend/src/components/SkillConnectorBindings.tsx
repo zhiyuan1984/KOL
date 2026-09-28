@@ -104,8 +104,8 @@ export function SkillConnectorBindings({ skillId }: { skillId: string }) {
       const saved = await api.saveRuntimeSkillConnector(skillId, connectorId, { enabled, expected_version: current?.version ?? 0 });
       setConnectorBindings((rows) => [...rows.filter((row) => row.connector_id !== connectorId), saved]);
       setNotice(enabled
-        ? "连接器已显式挂到该 Skill。还必须逐项选择已审批工具；未来新增工具不会自动获得权限。"
-        : "连接器已从该 Skill 停用；已有逐工具记录会保留，重新启用后仍需审阅。 ");
+        ? "连接器已显式挂到该 Skill。还必须逐项选择已登记工具；未来新增工具不会自动获得权限。"
+        : "连接器已从该 Skill 停用；已有逐工具记录会保留，重新启用后仍需逐项选择。 ");
     } catch (cause) {
       setConnectorBindings(previous);
       setWriteError(versionConflictMessage(cause) || errorMessage(cause, "Skill 连接器绑定未保存"));
@@ -150,11 +150,11 @@ export function SkillConnectorBindings({ skillId }: { skillId: string }) {
       <div className="runtime-section-heading">
         <div>
           <h3 id="skill-connector-bindings-heading">工具挂载</h3>
-          <p className="muted">Skill → 连接器 → 已审批工具。连接器勾选不授予未来工具；每个工具必须单独选择。</p>
+          <p className="muted">Skill → 连接器 → 平台已登记工具。连接器勾选不授予未来工具；每个工具必须单独选择。</p>
         </div>
         <button type="button" className="btn sm" onClick={() => void load()} disabled={loading}>刷新</button>
       </div>
-      {loading && <p className="muted" role="status">正在读取连接器、审批工具与 Skill 挂载…</p>}
+      {loading && <p className="muted" role="status">正在读取连接器、平台登记的工具与 Skill 挂载…</p>}
       {loadingError && <div className="runtime-state runtime-state-error" role="alert"><strong>无法完整加载工具挂载</strong><span>{loadingError}</span><button type="button" className="btn sm" onClick={() => void load()}>重试</button></div>}
       {notice && <p className="runtime-notice" role="status">{notice}</p>}
       {writeError && <p className="error" role="alert">{writeError}</p>}
@@ -162,7 +162,7 @@ export function SkillConnectorBindings({ skillId }: { skillId: string }) {
       <div className="skill-binding-list">
         {connectors.map((connector) => {
           const binding = connectorBindingById.get(connector.id);
-          const mounted = binding?.enabled === true;
+          const mounted = Boolean(binding?.enabled); // 服务端行里 enabled 是 1/0；用 === true 会把已挂载误读为未挂载
           const policiesForConnector = policiesByConnector.get(connector.id) || [];
           const approved = policiesForConnector.filter((policy) => policy.enabled);
           const uncheckedApproved = approved.filter((policy) => !toolBindingByKey.get(bindingKey(policy.connector_id, policy.tool_name))?.enabled);
@@ -171,26 +171,26 @@ export function SkillConnectorBindings({ skillId }: { skillId: string }) {
               <div className="skill-binding-connector-head">
                 <div>
                   <strong>{connector.label}</strong>
-                  <p className="muted"><code>{connector.id}</code> · {connector.enabled ? "连接器已启用" : "连接器已停用"} · 已审批工具 {approved.length}</p>
+                  <p className="muted"><code>{connector.id}</code> · {connector.enabled ? "连接器已启用" : "连接器已停用"} · 已登记工具 {approved.length}</p>
                 </div>
                 <label className="check skill-binding-toggle">
                   <input
                     type="checkbox"
                     checked={mounted}
-                    disabled={!connector.enabled || busyKey === `connector:${connector.id}`}
+                    disabled={busyKey === `connector:${connector.id}`}
                     onChange={(event) => void saveConnector(connector.id, event.target.checked)}
                   />
                   {busyKey === `connector:${connector.id}` ? "保存中…" : "挂载此连接器"}
                 </label>
               </div>
-              {!connector.enabled && <p className="runtime-l3-notice">该连接器已停用，不能向 Skill 提供工具。请在连接器详情恢复并重新验证。</p>}
-              {mounted && !approved.length && <div className="runtime-state"><strong>没有可挂载的已审批工具</strong><span>请先在连接器详情发现工具并逐项审批。未审批工具不能通过本页挂载。</span></div>}
+              {!connector.enabled && <p className="runtime-l3-notice">该连接器当前已停用：可先登记挂载，但在启用并通过验证之前不会向 Skill 提供工具。</p>}
+              {mounted && !approved.length && <div className="runtime-state"><strong>没有可挂载的已登记工具</strong><span>请先在连接器详情完成一次通过的测试；平台会在测试时自动登记工具目录，未登记工具不能通过本页挂载。</span></div>}
               {mounted && approved.length > 0 && (
                 <div className="skill-tool-list">
                   {approved.map((policy) => {
                     const key = bindingKey(policy.connector_id, policy.tool_name);
                     const toolBinding = toolBindingByKey.get(key);
-                    const selected = toolBinding?.enabled === true;
+                    const selected = Boolean(toolBinding?.enabled);
                     const isBusy = busyKey === `tool:${key}`;
                     return (
                       <label key={`${key}:${toolBinding?.version ?? 0}`} className="skill-tool-choice" data-skill-tool={policy.tool_name}>
@@ -200,14 +200,14 @@ export function SkillConnectorBindings({ skillId }: { skillId: string }) {
                       </label>
                     );
                   })}
-                  {uncheckedApproved.length > 0 && <p className="muted">尚有 {uncheckedApproved.length} 个已审批工具未挂载；它们不会自动出现给模型。</p>}
+                  {uncheckedApproved.length > 0 && <p className="muted">尚有 {uncheckedApproved.length} 个已登记工具未挂载；它们不会自动出现给模型。</p>}
                 </div>
               )}
             </article>
           );
         })}
       </div>
-      {!loading && connectors.length > 0 && !policies.length && !loadingError && <p className="muted">尚未有任何已审批工具。连接器被挂载不等于工具可用。</p>}
+      {!loading && connectors.length > 0 && !policies.length && !loadingError && <p className="muted">尚未登记任何工具。连接器被挂载不等于工具可用。</p>}
       {!loading && connectorBindings.some((binding) => !connectorsById.has(binding.connector_id)) && <p className="runtime-l3-notice">检测到一个历史连接器绑定在当前目录中不可见；未将其自动迁移或扩展到任何工具。</p>}
     </section>
   );

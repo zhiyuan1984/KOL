@@ -11,7 +11,7 @@
 ```text
 管理端连接器配置
   → 发现 MCP 工具 / 预览 OpenAPI JSON、YAML
-  → 审批工具策略（Schema 指纹 + 风险 + read/write）
+  → 平台按 07 规则推导并登记工具策略（测试成功时自动；Schema 指纹 + 风险 + read/write 可覆盖）
   → Skill 精确挂载每一个工具
   → Worker 的 skill_runtime Proxy
   → MCP Driver 或 HTTP JSON Driver
@@ -22,13 +22,13 @@
 - 连接器详情新增 **运行时接入与工具治理**：
   - `protocol = mcp | http`；端点只能是 URL 或环境变量引用之一。
   - MCP 读取 `tools/list`；HTTP 可手工定义动作或预览导入 OpenAPI 3.0/3.1 的 JSON/YAML 子集。
-  - 工具不是发现后自动可用：管理员需要保存每一个 Schema 指纹、风险等级、访问级别与启用状态。
-  - 保存、探针、审批、Skill 挂载四个状态分离展示；HTTP 探针只验证动作定义，绝不发出业务请求。
+  - 工具不是发现后即可调用：MCP 在完成一次通过的测试时由平台按 07 规则自动登记（Schema 指纹、风险、read/write；管理员可用策略接口覆盖或停用）；HTTP 动作仍需管理员保存、启用每一个动作定义。
+  - 保存、探针、登记、Skill 挂载四个状态分离展示；HTTP 探针只验证动作定义，绝不发出业务请求。
 - 连接器目录的“创建”菜单提供 **自定义 MCP** 和 **自定义 HTTP API** 两个入口：
   - HTTP API 先保存 Base URL 与引用型凭据，再在详情粘贴 OpenAPI JSON/YAML，或编辑受限的动作 JSON；
   - 选择 HTTP 不会生成任何供应商 Host 适配器，动作仍进入同一个审批、范围和 Skill 挂载闭环。
 - 技能生命周期详情新增 **工具挂载** 区：
-  - 先挂载连接器，再逐项勾选已审批工具。
+  - 先挂载连接器，再逐项勾选已登记工具；连接器停用不拦挂载（登记与启用分离）。
   - 新发现的工具不继承旧 Skill 权限。
   - 撤销单个工具会使已经发现的运行句柄在实际网络提交前失效。
   - 本节的挂载与撤权都是管理员内核动作（`runtime_skill_connectors` / `runtime_skill_tools` 绑定）；人员授权唯一单位是技能，连接器与工具不按人授权（[DECISIONS.md](DECISIONS.md) ADR-2026-09-27「对外只暴露技能」）。
@@ -70,7 +70,7 @@ HTTP 动作被编译为和 MCP 相同的工具形状：`name`、`description` �
 |---|---|
 | 保存 / 读取连接器 Runtime 配置 | `GET/PUT /api/admin/runtime/connectors/:id/config` |
 | OpenAPI JSON/YAML 预览 | `POST /api/admin/runtime/connectors/:id/import-openapi` |
-| 读取、保存工具审批策略 | `GET /api/admin/runtime/connectors/:id/policies`；`PUT /tools/:toolName` |
+| 读取 / 覆盖工具策略（缺失策略在测试成功时自动登记） | `GET /api/admin/runtime/connectors/:id/policies`；`PUT /tools/:toolName` |
 | 测试配置与读取脱敏活动 | `POST /probe`；`GET /activity` |
 | 读取、保存 Skill→Connector | `GET/PUT /api/admin/runtime/skills/:skillId/connectors/:connectorId` |
 | 读取、保存 Skill→Tool | `GET /api/admin/runtime/skills/:skillId/tools`；`PUT /tools/:connectorId/:toolName` |
@@ -90,12 +90,12 @@ HTTP 动作被编译为和 MCP 相同的工具形状：`name`、`description` �
 
 新的实际 Codex Worker 路径只挂载 `skill_runtime` Proxy，MCP 和 HTTP 均由本实现的通用 Runtime 驱动；不再把供应商 URL 或凭据注入 Worker box。
 
-Worker 收到的 Skill 还会明确提示：只能调用 `skill_runtime` 当前列出的语义别名（例如 `rt_starrykol__pageKolProfiles_…`）。Skill 文档中的供应商或操作名称仅描述业务意图，不是可直连的 MCP 配置；缺少已挂载、已审批别名时必须如实报告不可用。
+Worker 收到的 Skill 还会明确提示：只能调用 `skill_runtime` 当前列出的语义别名（例如 `rt_starrykol__pageKolProfiles_…`）。Skill 文档中的供应商或操作名称仅描述业务意图，不是可直连的 MCP 配置；缺少已挂载、已登记别名时必须如实报告不可用。
 
 要达到“整个产品没有历史 Host 专用外调主链”的最终状态，需要按连接器逐个完成以下迁移并通过等价验收后再删除旧模块：
 
 1. 在管理端保存连接实例和凭据引用；
-2. 发现/导入并审批所有需用工具；
+2. 发现/导入并登记所有需用工具（MCP 在测试成功时自动登记，按需覆盖策略）；
 3. 在对应已发布 Skill 精确挂载工具；
 4. 将旧流程的读取或编排切到该 Skill Runtime；
 5. 对正式动作接入通用确认/回执执行器后，才删除旧 Host Gateway 分支。

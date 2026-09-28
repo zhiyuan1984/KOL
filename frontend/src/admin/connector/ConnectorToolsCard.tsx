@@ -4,6 +4,7 @@ import { sanitizeAdminText } from "../../adminGovernance";
 import {
   errorMessage,
   policyKey,
+  remoteFailureMessage,
   type RuntimeToolDefinition,
   type RuntimeToolPolicy,
 } from "../../runtimeConnectorUi";
@@ -13,7 +14,7 @@ function friendlyDiscoveryFailure(code: string): string {
   if (code === "runtime_connector_disabled") return "连接器已停用，无法发现工具。请先完成验证后再启用。";
   if (code === "runtime_connector_not_configured") return "尚未保存接入配置。请先完成连接草稿。";
   if (code === "runtime_endpoint_invalid") return "尚未填写 Base URL，或端点无效；请先在接入配置中补齐。";
-  return "";
+  return remoteFailureMessage(code);
 }
 
 function schemaText(schema: Record<string, unknown>) {
@@ -167,7 +168,7 @@ export function ConnectorToolsReadOnlyList({ connectorId, requestKey = 0, autoLo
                   <summary>展开 Schema（只读）</summary>
                   <code className="runtime-hash">{tool.schema_hash || "未提供来源指纹"}</code>
                   <pre>{schemaText(tool.inputSchema || {})}</pre>
-                  <p className="muted">风险档与启用在平台内部按目录和技能挂载判定，本页不提供授权或范围操作。</p>
+                  <p className="muted">风险档由平台在测试时按 07 规则自动推导登记；是否可用由平台校验与技能挂载决定，本页不提供授权或范围操作。</p>
                 </details>
               </article>
             );

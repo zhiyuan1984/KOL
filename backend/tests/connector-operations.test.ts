@@ -5,6 +5,7 @@ import { Hono } from "hono";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { audit, getConn, resetConn } from "../src/db.js";
 import { HttpFail } from "../src/host/errors.js";
+import { runtimeErrorCode } from "../src/runtime/execution.js";
 import { setConnectorConfig } from "../src/runtime/store.js";
 import { createConnectorOperationsRouter } from "../src/routers/connector-operations.js";
 let tmp: string;
@@ -37,6 +38,20 @@ describe("connector operations (isolated inspector, no external service)", () =>
     expect(result.probes).toHaveLength(1); expect(result.probes[0].actor_id).toBeTruthy();
     expect(result.events[0].event_type).toBe("runtime.connector.probed");
   });
+  it("registers derived tool policies when a directory probe passes", async () => {
+    const a = app();
+    expect((await a.request(root + "/probe", { method: "POST" })).status).toBe(200);
+    const policy = getConn().prepare("SELECT * FROM runtime_tool_policies WHERE connector_id=? AND tool_name=?").get("probe_fixture", "lookup") as
+      { risk?: unknown; access?: unknown; enabled?: unknown; schema_hash?: unknown } | undefined;
+    expect(policy).toMatchObject({ risk: "L2", access: "write", enabled: 1 });
+    expect(String(policy?.schema_hash)).toMatch(/^[0-9a-f]{64}$/);
+    expect(getConn().prepare("SELECT COUNT(*) AS n FROM audit_events WHERE event_type='runtime.tool_catalog.registered'").get()).toMatchObject({ n: 1 });
+  });
+  it("does not register tools when the probe fails", async () => {
+    const a = app(async () => { throw new Error("down"); });
+    expect((await a.request(root + "/probe", { method: "POST" })).status).toBe(502);
+    expect(getConn().prepare("SELECT COUNT(*) AS n FROM audit_events WHERE event_type='runtime.tool_catalog.registered'").get()).toMatchObject({ n: 0 });
+  });
   it("never returns or audits raw upstream failures", async () => {
     const secret = "Bearer private-sensitive-probe-token";
     const a = app(async () => { throw new Error(secret); });
@@ -66,5 +81,25 @@ describe("connector operations (isolated inspector, no external service)", () =>
     expect(result.events).toHaveLength(1);
     expect(result.events[0].payload).toEqual({connector_id:"probe_fixture", tool:"lookup", run_id:"run-1"});
     expect((await a.request(root + "/activity?limit=999")).status).toBe(400);
+  });
+  it("classifies transport failures into actionable sanitized probe codes", async () => {
+    const unauthorized = app(async () => { throw Object.assign(new Error("upstream body text"), { remoteStatus: 401 }); });
+    const denied = await unauthorized.request(root + "/probe", { method: "POST" });
+    expect(await denied.json()).toMatchObject({ status: "failed", error_code: "runtime_remote_unauthorized" });
+    const outage = app(async () => { throw Object.assign(new Error("upstream body text"), { remoteStatus: 503 }); });
+    const down = await outage.request(root + "/probe", { method: "POST" });
+    expect(await down.json()).toMatchObject({ status: "failed", error_code: "runtime_remote_unavailable" });
+  });
+  it("maps every transport classification without echoing remote text", () => {
+    expect(runtimeErrorCode(Object.assign(new Error("x"), { remoteStatus: 401 }))).toBe("runtime_remote_unauthorized");
+    expect(runtimeErrorCode(Object.assign(new Error("x"), { remoteStatus: 403 }))).toBe("runtime_remote_forbidden");
+    expect(runtimeErrorCode(Object.assign(new Error("x"), { remoteStatus: 404 }))).toBe("runtime_remote_not_found");
+    expect(runtimeErrorCode(Object.assign(new Error("x"), { remoteStatus: 408 }))).toBe("runtime_remote_timeout");
+    expect(runtimeErrorCode(Object.assign(new Error("x"), { remoteStatus: 429 }))).toBe("runtime_remote_rate_limited");
+    expect(runtimeErrorCode(Object.assign(new Error("x"), { remoteStatus: 500 }))).toBe("runtime_remote_unavailable");
+    expect(runtimeErrorCode(Object.assign(new Error("x"), { remoteStatus: 418 }))).toBe("runtime_remote_rejected");
+    expect(runtimeErrorCode(Object.assign(new Error("x"), { remoteKind: "timeout" }))).toBe("runtime_remote_timeout");
+    expect(runtimeErrorCode(Object.assign(new Error("x"), { remoteKind: "unreachable" }))).toBe("runtime_remote_unreachable");
+    expect(runtimeErrorCode(new Error("Bearer private-token is not echoed"))).toBe("runtime_remote_failed");
   });
 });

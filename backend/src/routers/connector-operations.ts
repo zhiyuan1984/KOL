@@ -4,6 +4,7 @@ import { audit, getConn, nowIso } from "../db.js";
 import { HttpFail } from "../host/errors.js";
 import { inspectConnectorTools, runtimeErrorCode, type RuntimeContext } from "../runtime/execution.js";
 import { getConnectorConfig } from "../runtime/store.js";
+import { registerDiscoveredToolPolicies } from "../runtime/tool-catalog.js";
 import type { Json, Row } from "../types.js";
 import { requireManagedConnector } from "../connectors/catalog.js";
 
@@ -67,6 +68,13 @@ export function createConnectorOperationsRouter(inspect: Inspector = inspectConn
       count = tools.length;
       if (getConnectorConfig(id)?.version !== before.version) {
         throw new HttpFail(409, { code: "runtime_binding_changed" });
+      }
+      if (kind === "mcp_tools_list") {
+        // 测试即登记：平台按 07 规则推导风险档并写入工具目录；挂载仍在技能侧逐项进行。
+        const registration = registerDiscoveredToolPolicies(id, tools);
+        audit(actor.id, "runtime.tool_catalog.registered", {
+          connector_id: id, config_version: before.version, ...registration,
+        });
       }
     } catch (error) { code = runtimeErrorCode(error); }
     const duration = Date.now() - started;

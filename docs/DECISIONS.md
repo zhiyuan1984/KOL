@@ -152,3 +152,17 @@
 - **审宪记录**：需求「公海分析提交后 Codex 真实执行、中栏可见过程」→ 主责 KOL 业务专家 + 前端专家 → CONST-04（前端不重写权限与阶段规则，只编排既有受控接口）、CONST-08、CONST-10 → BIZ-16、PROD-AGENT-01、统一工作台规格 §6.1 → **符合**（未触碰发信 / 改阶段 / 领取 / 解密边界；`kol_analyze` 仍为只读分析，仍受技能授权与硬顶 3 约束）→ 下一步：E2E 取证。
 - **限制**：入队后到运行之间若进程退出，工作项留在 `queued`，恢复入口仍是任务列表打开（与既有任务一致）；通讯页「快速分析」直连入队的入口不在本次范围（其既有验收仍为「点击即入队、不建会话」）。
 
+## ADR-2026-09-28：工具风险档由平台自动推导，测试即登记（不设界面审批）
+
+- **状态**：已接受（用户 2026-09-28 裁决「不要审批工具」；审宪记录随本决定重写）。
+- **决定者**：用户（产品发起人）；平台产品经理负责治理面与登记口径；后端专家负责推导与登记实现；UI/UX 专家负责技能页挂载解阻；测试经理负责证据。
+- **背景**：连接器设置向导落地（ADR-2026-09-27）后，「配置 → 授权 → 挂载 → 识别」在控制台内走不完：工具策略只有 API 且前端零调用（`frontend/src/api.ts` 的 `saveRuntimeConnectorPolicy` 无消费方；`ConnectorToolsCard` 标注「本页不做授权」）；技能页空态把管理员指向「连接器详情逐项审批」，该入口不存在；技能页挂载开关在连接器停用时被禁用，而每次测试通过都会把连接器置回 `enabled=0`，启用门禁又要求先有绑定——UI 自锁（后端 `runtime/store.ts` 的绑定本不要求连接器启用）。设计稿 §3 已定「风险档由平台按 07 文档规则自动推导（可内核覆盖），仅作为内部门禁与审计字段，不再作为界面上的『授权』操作」，§8 开放项 #1 待定推导规则。2026-09-28 实测远端 Starry KOL MCP 62 个工具均无 MCP annotations。
+- **决定**：
+  1. **推导规则落定**（唯一实现处 `backend/src/runtime/tool-catalog.ts` 的 `deriveToolPolicy`）：发布名单（`config/connector-risk-floor.json` 的 host-only 名单）与敏感命名家族 `send*/delete*/decrypt*/import*/upload*/clear*/confirm*` → **L3**；只读命名家族 `page*/list*/get*/read*/search*/query*/status*/summarize*/translate*/download*/count*/fetch*/check*` → **L1**；其余（草稿、预览与无法判定者）保守落 **L2**。`access`：L1 = `read`，L2/L3 = `write`。
+  2. **测试即登记**：`POST /admin/runtime/connectors/:id/probe` 成功（且为 MCP 连接器）时自动登记/刷新工具策略——缺失行按推导创建（L1/L2 `enabled=1`；L3 登记但 `enabled=0`，不进技能面）；既有行保留 risk/access/enabled（管理员/内核覆盖不被回写），仅在指纹变化时刷新 `schema_hash`。审计 `runtime.tool_catalog.registered`（created/refreshed/skipped 计数）。`discovery` 保持纯只读（Discovery is not a grant）。
+  3. **界面调整**：技能页「工具挂载」不再因连接器停用禁用挂载开关（与后端语义一致），保留诚实提示「启用并通过验证前不会向 Skill 提供工具」；「已审批工具」表述改为「已登记工具」。**不新增逐工具审批界面**；既有工具策略接口保留作覆盖/停用通道。
+- **理由**：执法性落地——把 `07-mcp-data-contract.md` 的 L1/L2/L3 语义与设计稿 §3 的「平台自动推导」从条文落成实现，并关闭设计稿开放项 #1；不放宽任何门禁（授权单位仍是技能；挂载仍逐项手动；L3/host-only 仍走 Host/Gateway；发送与阶段等正式副作用链路不变）。
+- **影响资产**：`backend/src/runtime/tool-catalog.ts`（新增）、`backend/src/routers/connector-operations.ts`（probe 登记 + 审计）、`backend/tests/tool-catalog.test.ts`（新增）、`backend/tests/connector-operations.test.ts`、`frontend/src/components/SkillConnectorBindings.tsx`、`frontend/src/admin/connector/ConnectorToolsCard.tsx`、`frontend/e2e/skill-tool-mounting.spec.ts`（新增）、`docs/skill-runtime-operations.md`、`docs/superpowers/specs/2026-09-27-connector-setup-wizard-design.md`（开放项 #1 关闭注记）。
+- **审宪记录**：需求「管理员在控制台完成 配置→平台自动登记工具→技能挂载→启用→识别；不设工具审批界面」→ 主责 平台产品经理 + 后端专家 + UI/UX 专家 + 测试经理 → CONST-03（确定的权限与状态规则由程序执行）、CONST-04（前端不重写规则：推导只住服务端，页面只调用既有接口）、CONST-05（L3 确认与回执不放松；L3 行自动 `enabled=0`）、CONST-08/09（开放项按记录关闭）、CONST-10（验收证据）→ 基本法 `TECHNOLOGY.md` TECH-BE-07 与 ADR-2026-09-27（授权单位＝技能）、`07-mcp-data-contract.md` 工具风险目录、`ia-information-architecture.md`（只动治理面，员工面不变）→ **符合**（执法与 UI 解阻；未改法条；不放宽门禁）→ 下一步：定向测试与 E2E 取证（见验收追加记录）。
+- **限制**：推导为命名家族 + 发布名单的启发式（远端无 annotations，无法从 schema 语义证明无副作用）；名单外的写类工具（如 `updateRiskDefinition`、`batchSaveRiskRules`、`addMailbox`）保守落 L2，需要更严时把名字加入 `config/connector-risk-floor.json`（该资产按发布纪律评审）；既有策略行不随推导规则升级回写，需显式覆盖或删除重建。
+

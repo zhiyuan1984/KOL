@@ -4,7 +4,7 @@
 
 代码基线：`de3986f`。本轮完成受管 Worker 的 **绑定解析 → 动态 MCP 发现 → 调用时统一授权**；没有修改生产数据库、没有自动授权、没有部署或调用生产 MCP。
 
-真实模式不再从 `TaskDefinition.mcp` 为 Worker 直连供应商。**未迁移绑定的真实任务会被拒绝，不会回退旧链路。** 管理界面尚未提供这些新治理表单，当前通过已有登录身份调用以下 API。
+真实模式不再从 `TaskDefinition.mcp` 为 Worker 直连供应商。**未迁移绑定的真实任务会被拒绝，不会回退旧链路。** 管理界面已提供技能页「工具挂载」与连接器测试时的目录自动登记；其余治理表单（Agent→Skill、策略覆盖等）仍按以下 API 以已登录管理员身份调用。
 
 ## 执行链
 
@@ -42,7 +42,7 @@
 | 配置资源 | `PUT /admin/runtime/connectors/:connectorId/config` | 下述配置字段 + `expected_version`，不嵌套 `config` |
 | 实时发现远端工具 | `GET /admin/runtime/connectors/:connectorId/discovery` | 无；返回工具描述/schema 及 `schema_hash`，**不自动授权** |
 | 查看单工具策略 | `GET /admin/runtime/connectors/:connectorId/tools/:toolName` | 无 |
-| 登记/停用工具策略 | `PUT /admin/runtime/connectors/:connectorId/tools/:toolName` | `enabled`, `risk`, `access`, `schema_hash`, `expected_version` |
+| 登记/停用工具策略 | `PUT /admin/runtime/connectors/:connectorId/tools/:toolName` | `enabled`, `risk`, `access`, `schema_hash`, `expected_version`；测试（probe）成功后平台会自动登记缺失策略并刷新指纹，本接口用于覆盖、停用与内核调整 |
 | 当前用户可用技能能力 | `GET /agents/:agentId/capabilities` | 只读；按技能授权（`user_skill_grants`）说明技能级可用能力，不返回连接器/工具清单；无凭据/端点；`live_verified: false` |
 
 解绑保存 `enabled=0` 墓碑，不读时重种。删除 Connector 会通过 FK 级联删除其 runtime 配置、资源绑定和工具策略；删除仍是需要单独审慎操作的治理动作。
@@ -92,9 +92,9 @@
 
 该示例中的指纹文字是说明，不是可提交的有效值。请读取实际 discovery 响应后登记。
 
-新工具和任何元数据/schema 变更默认不执行。指纹包括完整远端工具 descriptor，而非只包含输入字段；名称、描述、annotations、outputSchema 等变化需要重新审查。政策和凭据属于可信治理输入，不能由模型、Skill 内容或远端自报 `readOnlyHint` 自行授予权限。
+新工具在完成一次通过的测试前不会进入目录；测试成功后平台按 07 规则自动登记缺失策略（推导规则见 [DECISIONS.md](DECISIONS.md) ADR-2026-09-28「工具风险档由平台自动推导，测试即登记」），管理员可用本接口覆盖或停用。指纹包括完整远端工具 descriptor，而非只包含输入字段；再次测试时指纹变化会被刷新登记。政策和凭据属于可信治理输入，不能由模型、Skill 内容或远端自报 `readOnlyHint` 自行授予权限。
 
-`L3` 可以登记，但不进入 Worker 工具目录且不能直接执行。发送、阶段写入、解密、导入、删除等已知 Host 专属动作另有物理风险下限，管理员将其重标为 L1/L2 也不会进入代理。新工具必须如实分类；运行时不会声称能够从任意工具名称自动证明没有副作用。
+`L3` 可以登记，但不进入 Worker 工具目录且不能直接执行。发送、阶段写入、解密、导入、删除等已知 Host 专属动作另有物理风险下限，管理员将其重标为 L1/L2 也不会进入代理。默认风险档由命名家族与发布名单推导（无法判定者保守落 L2）；推导不能替代对具体工具副作用的审查，管理员应复核并按需覆盖。
 
 ## 部署顺序（本轮未执行）
 
@@ -102,18 +102,18 @@
 2. 安装锁文件依赖、部署代码。四张 runtime 表在首次访问时幂等创建，不自动授权。
 3. 使用实际管理员身份，逐项登记经审核的 Agent→Skill、Skill→Connector 绑定。KOL 默认 Agent ID 来自现有发布 manifest，当前为 `agent:kol`。
 4. 登记资源端点及凭据引用；只对已授权测试资源进行 discovery。远端认证/网络失败必须修复，不能用假工具补位。
-5. 审查所需工具的真实描述/schema，登记风险、权限与指纹。保留所有正式副作用的原 Gateway 路径。
+5. 复核测试时自动登记的工具目录（风险、权限与指纹），需要时用策略接口覆盖。保留所有正式副作用的原 Gateway 路径。
 6. 通过既有员工 Skill 授权 API 配置最小权限（人员授权唯一单位＝技能；连接器与工具不按人授权）。绑定不是用户授权，用户授权也不是解除停用。
 7. 做 A—D 拔插验收及实际 Codex + 测试资源验收，再决定生产放行。不可仅因本地协议测试通过就标记 LIVE。
 8. 若要中止，停用 Agent-Skill 绑定或 Connector；旧 handle 会拒绝新提交。撤权前已发送到远端的动作不能宣称回滚。**回退到旧代码可能恢复旧旁路，不是安全撤权方案。**
 
 ## 审计与失败
 
-事件包含 `runtime.tools.discovered`、`runtime.tool.started`、`runtime.tool.received`、`runtime.tool.completed`、`runtime.tool.denied_or_failed` 及三种治理变更事件。
+事件包含 `runtime.tools.discovered`、`runtime.tool.started`、`runtime.tool.received`、`runtime.tool.completed`、`runtime.tool.denied_or_failed` 及三种治理变更事件；测试成功后的目录登记汇总另记 `runtime.tool_catalog.registered`（created/refreshed/skipped 计数）。
 
 调用事件包含用户、run/session、Agent/Skill、资源、工具、绑定/配置/策略版本、Skill 内容版本、工具指纹、耗时和输入输出的 SHA-256/长度摘要。不存放原始输入输出、认证头或远端异常原文。`dispatched` 区分提交前拒绝与提交后失败/撤权；收到结果后撤权会抑制结果发布，不伪装成回滚。
 
-典型错误：`runtime_skill_unbound`、`runtime_identity_unavailable`、`runtime_connector_disabled`、`runtime_connector_not_granted`（2026-09-27 废止）、`runtime_binding_changed`、`runtime_tool_schema_changed`、`runtime_gateway_required`。未知远端异常统一脱敏为 `runtime_remote_failed`。
+典型错误：`runtime_skill_unbound`、`runtime_identity_unavailable`、`runtime_connector_disabled`、`runtime_connector_not_granted`（2026-09-27 废止）、`runtime_binding_changed`、`runtime_tool_schema_changed`、`runtime_gateway_required`。远端异常按传输层证据分类为脱敏码：`runtime_remote_unauthorized`（401）、`runtime_remote_forbidden`（403）、`runtime_remote_not_found`（404）、`runtime_remote_rate_limited`（429）、`runtime_remote_rejected`（其余 4xx）、`runtime_remote_unavailable`（5xx）、`runtime_remote_timeout`（超时）、`runtime_remote_unreachable`（网络不可达）；无法分类时仍为 `runtime_remote_failed`。这些码只携带状态码或失败类别，不回显远端响应体、URL 或凭据（实现：`../backend/src/mcp/remote.ts` 的 `annotateRemoteFailure` 与 `../backend/src/runtime/execution.ts` 的 `runtimeErrorCode`）。
 
 `runtime_connector_not_granted` 原表示「当前用户未被授权使用该连接器」。人员授权单位改为技能后（[DECISIONS.md](DECISIONS.md) ADR-2026-09-27「对外只暴露技能」），按人授权失败统一由 `runtime_skill_not_granted` 承担，技能→连接器绑定缺失由 `runtime_connector_unbound` 承担；后端不再发出该码（证据：`../backend/src/runtime/execution.ts`）。
 

@@ -100,5 +100,6 @@
 ## 8. 开放项（评审时一并定）
 
 1. 风险档自动推导规则（L3 名单：`sendEmailNow`、`changeLifecycleStage`、解密、导入、删除 + host-only 名单）。
+   - **已关闭（2026-09-28）**：规则落定并实现于 `backend/src/runtime/tool-catalog.ts`（发布名单 + 敏感家族 → L3；只读家族 → L1；其余保守 L2），测试（probe）成功后自动登记，L3 行 `enabled=0`，指纹变化只刷新指纹；不设界面审批。见 `DECISIONS.md` ADR-2026-09-28「工具风险档由平台自动推导，测试即登记」。
 2. 远端工具描述变化导致 `schema_hash` 失配时的提示与刷新策略（现为静默不可用）。
 3. 员工 `/connectors` 页与 `GET /api/connectors` 员工 DTO 的下线批次（阶段 B 还是 C）。
