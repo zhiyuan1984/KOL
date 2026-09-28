@@ -4,7 +4,6 @@ import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import "./styles.css";
 import "./composer.css";
-import "./session-workspace.css";
 
 // 每次部署都会换掉带 hash 的 chunk 文件名，旧标签页再去加载懒加载路由时拿到的是已删除的文件。
 // nginx 的 SPA 回退会把它回成 index.html（浏览器按 MIME 拒绝执行），Vite 因此派发

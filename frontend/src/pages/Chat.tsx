@@ -33,7 +33,7 @@ import { readBoundExpert } from "../experts";
 import { todayTaskOriginLabel } from "../home/modes";
 import type { SessionMailRow } from "../components/AgentTaskList";
 import { useMailComposeFlow } from "../hooks/useMailComposeFlow";
-import SkillParamCard, { type SkillParamField } from "../home/workspace/SkillParamCard";
+import SkillParamCard from "../home/workspace/SkillParamCard";
 import SkillTemplateContext from "../components/SkillTemplateContext";
 import { defaultTemplateValues, nonEmptyTemplateEntities, templateInputFields } from "../skillTemplate";
 import { bindTemplateSessionTask } from "../skillTemplateTask";
@@ -383,41 +383,6 @@ function humanError(message: string) {
   return friendlyError(message, message);
 }
 
-function sessionFieldLabel(key: string): string {
-  return key.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function SessionSkillContext({ task, intent, label }: { task: Task | null; intent?: string | null; label?: string | null }) {
-  const entities = task?.entities && typeof task.entities === "object"
-    ? task.entities as Record<string, unknown>
-    : {};
-  const fields: SkillParamField[] = Object.entries(entities).map(([key, value]) => ({
-    key,
-    label: sessionFieldLabel(key),
-    kind: Array.isArray(value) ? "multiple" : typeof value === "number" ? "number" : typeof value === "object" && value !== null ? "object" : "text",
-    required: false,
-  }));
-  if (!task && !intent && !label) return null;
-  const skillName = label || task?.title || intent || "当前技能";
-  const description = String(task?.description || task?.context || "根据知识库模板执行这项工作。填写必要参数后提交，系统会在中栏持续展示处理过程，并在右栏给出结果和可执行动作。").trim();
-  return (
-    <section className="session-skill-context" data-session-skill-context>
-      <div className="session-skill-context-head">
-        <div>
-          <span className="page-kicker">知识库技能</span>
-          <h2 data-session-skill-name>{skillName}</h2>
-        </div>
-        {task?.title ? <span className="session-skill-task-name">任务：{task.title}</span> : null}
-      </div>
-      <p className="session-skill-description" data-session-skill-description>{description}</p>
-      {fields.length ? (
-        <SkillParamCard fields={fields} values={entities} mode="ready" title="当前参数" hideTitle />
-      ) : null}
-      <p className="session-skill-usage" data-session-skill-usage>使用方法：在下方提问框补充必填或选填参数；提交后中栏自动滚动显示 AI 交互，右栏集中展示结果、邮件与行动。</p>
-    </section>
-  );
-}
-
 function safeEventMessages(taskId: string, events: TaskEvent[]): Message[] {
   return events
     .filter((event) => !/(reasoning|thought|tool|internal)/i.test(String(event.type || "")))
@@ -476,6 +441,8 @@ export default function Chat() {
   const [crawlGeneration, setCrawlGeneration] = useState(0);
   const [focusedMail, setFocusedMail] = useState<SessionMailRow | null>(null);
   const streamRef = useRef<HTMLDivElement>(null);
+  // 中栏只有这一条滚动轴：用户上翻读思考时，新内容不得把他拽回底部。
+  const streamStickBottomRef = useRef(true);
   const stopRequestedRef = useRef(false);
   const paramTemplateKey = useRef<string | null>(null);
   const focusThread = String((location.state as { focusThread?: string } | null)?.focusThread || "");
@@ -778,10 +745,20 @@ export default function Chat() {
         ...safeCrawlEventMessages(task.id, crawlEvents, crawlJob),
       ]
     : timeline;
+  const streamAtBottom = (pane: HTMLDivElement) => pane.scrollHeight - pane.scrollTop - pane.clientHeight <= 24;
+  const onStreamScroll = () => {
+    const pane = streamRef.current;
+    if (!pane) return;
+    streamStickBottomRef.current = streamAtBottom(pane);
+  };
   useEffect(() => {
     const pane = streamRef.current;
     if (!pane) return;
-    pane.scrollTop = pane.scrollHeight;
+    // 只在用户本来就在底部时跟随新内容；上翻读过程时不抢滚动。
+    if (streamStickBottomRef.current || streamAtBottom(pane)) {
+      pane.scrollTop = pane.scrollHeight;
+      streamStickBottomRef.current = true;
+    }
   }, [timelineWithCrawl, crawlJob, err, submitErr]);
   const lastComposeGap = lastUnsentComposeGap(messages);
   const composerHint = String(lastComposeGap?.placeholder || journey?.composer_placeholder || "");
@@ -813,8 +790,9 @@ export default function Chat() {
   const openedAsKol = Boolean((location.state as { kolSession?: boolean } | null)?.kolSession);
   const rememberedKol = Boolean(id && sessionStorage.getItem(`kol-session:${id}`));
   const kolSession = Boolean(collaborationId || journey?.collaboration_id || openedAsKol || rememberedKol);
-  // 会话上下文与 AI 交互统一进入中栏；右栏只承载结果与行动，不再额外占一列。
-  const showSessionContext = Boolean(id);
+  // 普通任务详情页的中栏 + 右栏已经是完整工作区，不再嵌套一套任务中心列表。
+  // 红人协作会话仍保留左栏，用于邮件线程和合作对象上下文。
+  const showLeftRail = Boolean(id && kolSession);
   const sessionMails = (Array.isArray(journey?.mail_history)
     ? journey?.mail_history as SessionMailRow[]
     : undefined);
@@ -1032,9 +1010,24 @@ export default function Chat() {
 
   return (
     <div
-      className={`session-shell conversation-workspace${showRightWorkbench ? "" : " no-workbench"}`}
+      className={`session-shell conversation-workspace${showLeftRail ? " has-tasklist" : ""}${showRightWorkbench ? "" : " no-workbench"}`}
       style={{ ["--tasklist-width" as string]: `${taskListWidth}px` }}
     >
+      {showLeftRail ? (
+        <AgentTaskList
+          sessionId={id}
+          currentTask={task}
+          running={status === "running"}
+          width={taskListWidth}
+          onWidthChange={setTaskListWidth}
+          mails={kolSession ? (sessionMails || []) : undefined}
+          selectedMailId={focusedMail?.id}
+          onSelectMail={selectMail}
+          onRefreshMails={() => reload(true, true)}
+          mailSyncing={Boolean(journey?.mail_sync_pending)}
+          mailSyncFailed={Boolean(journey?.mail_sync_failed)}
+        />
+      ) : null}
       <section className="session-center">
         <header className="task-detail-header conversation-context" {...(task ? { "data-task-detail": true } : { "data-session-back": true })}>
           <div className="session-head-row">
@@ -1112,7 +1105,8 @@ export default function Chat() {
                 {contextKicker && <span className="conversation-kicker">{contextKicker}</span>}
                 <h1>{task.title}</h1>
               </div>
-              <button className="btn work" type="button" onClick={complete} disabled={completing || task.status === "completed"} data-complete-task>
+              {/* 与今日任务右栏的动作同款：描边款，实底主 CTA 留给底部提问框（DESIGN 不变量 1）。 */}
+              <button className="btn row-action" type="button" onClick={complete} disabled={completing || task.status === "completed"} data-complete-task>
                 {task.status === "completed" ? "已完成" : "标记完成"}
               </button>
             </div>
@@ -1126,33 +1120,16 @@ export default function Chat() {
             {completion && <p className={task.status === "completed" ? "completion-feedback" : "error"} role="status">{completion}</p>}
             </>
           )}
-          {activeSkillTemplate ? (
-            <div className="session-skill-template" data-session-skill-template>
-              <SkillTemplateContext
-                template={activeSkillTemplate}
-                showOptionalInputs={!editableTemplateFields.length}
-              />
-              {templateParamEditor}
-            </div>
-          ) : null}
         </header>
-        <div className="session-stream conversation" ref={streamRef} data-session-stream-pane data-ai-conversation data-has-interaction={messages.some((message) => message.kind === "me") ? "true" : undefined} role="log">
-        <SessionSkillContext task={task} intent={lockedIntent} label={lockedLabel} />
-        {showSessionContext ? (
-          <AgentTaskList
-            sessionId={id}
-            currentTask={task}
-            running={status === "running"}
-            embedded
-            width={taskListWidth}
-            onWidthChange={setTaskListWidth}
-            mails={kolSession ? (sessionMails || []) : undefined}
-            selectedMailId={focusedMail?.id}
-            onSelectMail={selectMail}
-            onRefreshMails={() => reload(true, true)}
-            mailSyncing={Boolean(journey?.mail_sync_pending)}
-            mailSyncFailed={Boolean(journey?.mail_sync_failed)}
-          />
+        <div className="session-stream conversation" ref={streamRef} onScroll={onStreamScroll} data-session-stream-pane data-ai-conversation data-has-interaction={messages.some((message) => message.kind === "me") ? "true" : undefined} role="log">
+        {activeSkillTemplate ? (
+          <div className="session-skill-template" data-session-skill-template>
+            <SkillTemplateContext
+              template={activeSkillTemplate}
+              showOptionalInputs={!editableTemplateFields.length}
+            />
+            {templateParamEditor}
+          </div>
         ) : null}
         {boundExpert?.intro ? (
           <article className="expert-intro message is-assistant" data-expert-intro data-kind="expert-intro">

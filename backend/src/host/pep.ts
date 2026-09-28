@@ -78,6 +78,46 @@ export function normalizeBrandCode(value: unknown): string | null {
   return BRAND_MAILBOXES[raw] ? raw : null;
 }
 
+/**
+ * BIZ-04：实际发件箱必须属于员工获准使用的品牌及范围。
+ * 品牌白名单之外只认「员工自己挂载的 Starry 邮箱」：品牌先看 mailbox_owners 登记，
+ * 没有登记时用调用方给出的明确品牌（当前合作品牌）核对员工授权范围；共用邮箱要求本人
+ * 是 owner 或 shared_with。地址本身绝不拿来猜品牌，也绝不从多个候选里取第一只。
+ */
+export function authorizedSenderBrand(
+  addr: string,
+  user?: Persona | null,
+  preferredBrand?: string | null,
+): { email: string; brand: string; source: "brand_mailbox" | "user_binding" } | null {
+  const u = user || currentUser();
+  const email = String(addr || "").trim();
+  if (!email) return null;
+  const direct = brandOfMailbox(email);
+  if (direct) {
+    return allowedFromMailboxes(u, direct).length ? { email, brand: direct, source: "brand_mailbox" } : null;
+  }
+  const userId = String(u?.id || "").trim();
+  if (!userId) return null;
+  const binding = getConn().prepare(
+    "SELECT mailbox_email, owner_name FROM user_starry_bindings WHERE user_id=? AND lower(mailbox_email)=lower(?)",
+  ).get(userId, email) as Row | undefined;
+  if (!binding) return null;
+  const owner = getConn().prepare(
+    "SELECT brand, owner_name, account_type, shared_with, status FROM mailbox_owners WHERE lower(email)=lower(?)",
+  ).get(String(binding.mailbox_email)) as Row | undefined;
+  if (owner && String(owner.status || "active") !== "active") return null;
+  const brand = (owner ? normalizeBrandCode(owner.brand) : null) || normalizeBrandCode(preferredBrand);
+  if (!brand || !allowedFromMailboxes(u, brand).some((row) => row.brand === brand)) return null;
+  if (String(owner?.account_type || "") === "shared") {
+    const shared = [owner?.owner_name, owner?.shared_with]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+    const mine = [String(u?.name || "").trim(), String(binding.owner_name || "").trim()].filter(Boolean);
+    if (!shared.some((name) => mine.includes(name))) return null;
+  }
+  return { email: String(binding.mailbox_email).trim(), brand, source: "user_binding" };
+}
+
 /** Map a Starry/operator mailbox onto an authorized Host PEP From, so the dropdown value matches the whitelist. */
 export function resolveAuthorizedFrom(
   fromAddr: string,
@@ -128,16 +168,31 @@ function ccOk(cc: string): boolean {
     .some((p) => p.includes("@"));
 }
 
+function draftExtra(row: Row): Json {
+  const raw = row.extra;
+  if (raw && typeof raw === "object") return raw as Json;
+  try {
+    return raw ? (JSON.parse(String(raw)) as Json) : {};
+  } catch {
+    return {};
+  }
+}
+
 export function enforceSend(draft: Row, user?: Persona | null, ccOverride?: string | null, options: { readOnly?: boolean } = {}): Json {
   const u = user || currentUser();
   if (!u.exam_passed) {
     throw new PepFail("blocked_exam", 403, "学习考试未通过：数据安全与最小权限。未发送。", "打开「学习考试」通过后再试");
   }
   const fromAddr = String(draft.from_addr);
-  const brand = brandOfMailbox(fromAddr);
-  if (!brand) {
-    throw new PepFail("blocked_permission", 403, "From 必须是品牌邮箱（LT/RO/PQ）。未发送。", "从授权下拉选择 From");
+  const extra = draftExtra(draft);
+  const preferredBrand = String(extra.brand || "") || (draft.collaboration_id
+    ? String((getConn().prepare("SELECT brand FROM collaborations WHERE id=?").get(String(draft.collaboration_id)) as Row | undefined)?.brand || "")
+    : "");
+  const sender = authorizedSenderBrand(fromAddr, u, preferredBrand);
+  if (!sender) {
+    throw new PepFail("blocked_permission", 403, "From 必须是品牌邮箱（LT/RO/PQ）或本人挂载的邮箱。未发送。", "从授权下拉选择 From");
   }
+  const brand = sender.brand;
   const departmentHead = departmentHeadAccessForUser(u);
   const hasBrandScope = departmentHead?.company_wide && departmentHead.brand_scope === "all"
     ? true

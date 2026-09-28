@@ -111,13 +111,14 @@
   border-top: 1px solid var(--ds-border);
 }
 
+/* 中栏的唯一滚动轴在 .session-stream；这段内容跟着它一起滚，自己不设滚动条。
+   宽度与消息列同一条轴（--content-max 居中），左缘对齐时间线与头部。 */
 .session-skill-template {
   display: grid;
   gap: var(--ds-space-3);
-  margin-top: var(--ds-space-3);
-  max-height: min(20rem, 38dvh);
-  overflow-y: auto;
-  scrollbar-gutter: stable;
+  width: min(100%, var(--content-max));
+  max-width: var(--content-max);
+  margin: 0 auto;
 }
 
 .kb-skill-templates {

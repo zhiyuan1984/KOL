@@ -295,10 +295,11 @@ function DraftSendMeta({
 }
 
 function pickFromAddr(from: string, opts: { email: string }[]): string {
-  if (!opts.length) return String(from || "").trim();
-  const wanted = String(from || "").trim().toLowerCase();
-  const matched = opts.find((row) => row.email.toLowerCase() === wanted)?.email;
+  const wanted = String(from || "").trim();
+  const matched = wanted ? opts.find((row) => row.email.toLowerCase() === wanted.toLowerCase())?.email : "";
   if (matched) return matched;
+  // 服务端已解析的发件箱（例如当前用户挂载的邮箱）保留原值；不得退回候选列表第一只。
+  if (wanted) return wanted;
   return opts.length === 1 ? opts[0].email : "";
 }
 
@@ -488,7 +489,7 @@ export function DraftArtifact({
         </button>
       </div>
       {card.send_disabled && <p className="muted">发送已禁用</p>}
-      {!resolvedFrom.trim() && !card.send_disabled && <p className="muted">请先选择发件邮箱。没有明确绑定时不会自动选择邮箱。</p>}
+      {!resolvedFrom.trim() && !card.send_disabled && <p className="muted">请先选择发件箱。默认用你挂载的邮箱；没有挂载时不会自动选择邮箱。</p>}
       {!toAddr.trim() && !card.send_disabled && <p className="muted">请先填写收件邮箱。不能解密或编造联系方式。</p>}
       {(err || confirmedSend.error) && (
         <div className="error" data-persistent-error>
@@ -1166,7 +1167,8 @@ export function employeeReasoningLabel(raw: string) {
   if (!cleaned || looksLikeJsonLabel(cleaned) || /[{[]/.test(cleaned)) return "正在分析…";
   // Employee copy (04 / UX-EMPLOYEE): a jargon-only title is not a summary. Keep real prose.
   if (isHarnessLabel(cleaned) || isToolId(cleaned) || /^[a-z0-9_.:/-]+$/i.test(cleaned)) return "正在分析…";
-  return cleaned;
+  // 中栏时间线按纯文本渲染过程行：强调标记不进入员工可读文案（截图里出现过 **…**）。
+  return cleaned.replace(/\*\*/g, "").trim() || cleaned;
 }
 
 export function employeeTraceLabel(raw: string, kind?: string) {

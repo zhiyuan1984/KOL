@@ -3,8 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { DEMO_USER } from "../src/config.js";
+import { BRAND_MAILBOXES, DEMO_USER, PERSONAS, type Persona } from "../src/config.js";
 import { getConn, resetConn } from "../src/db.js";
+import { enforceSend } from "../src/host/pep.js";
 import {
   approveKnowledge,
   archiveKnowledge,
@@ -449,5 +450,83 @@ describe("mail compose edge invariants", () => {
       if (previous === undefined) delete process.env.CODEX_MODE;
       else process.env.CODEX_MODE = previous;
     }
+  });
+});
+
+describe("未指定发件箱时的默认发件箱", () => {
+  const MOUNTED = "mailer.lt@litime.com";
+
+  /** 员工自己挂载的 Starry 邮箱 + mailbox_owners 登记的品牌范围。 */
+  function bindMountedMailbox(email: string, brand: string): void {
+    const conn = getConn();
+    const now = new Date().toISOString();
+    conn.prepare(
+      `INSERT OR IGNORE INTO users (id,username,name,password_hash,roles,brands,site,active,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      DEMO_USER.id, DEMO_USER.handle, DEMO_USER.name, "x",
+      JSON.stringify(["employee", "admin"]), JSON.stringify(["LT", "RO", "PQ"]), DEMO_USER.site, 1, now, now,
+    );
+    conn.prepare("DELETE FROM user_starry_bindings WHERE user_id=?").run(DEMO_USER.id);
+    conn.prepare(
+      `INSERT INTO user_starry_bindings (user_id, mailbox_email, is_default, status, updated_at)
+       VALUES (?,?,1,'connected',?)`,
+    ).run(DEMO_USER.id, email, now);
+    conn.prepare(
+      `INSERT OR REPLACE INTO mailbox_owners (email, brand, owner_name, account_type, status)
+       VALUES (?,?,?,?,'active')`,
+    ).run(email, brand, DEMO_USER.name, "personal");
+  }
+
+  function draftRow(from: string): Record<string, unknown> {
+    const col = getConn()
+      .prepare("SELECT email, stage_code FROM collaborations WHERE id='col_xiaomei'")
+      .get() as { email: string; stage_code: string };
+    return {
+      id: "dft_default_sender",
+      session_id: "ses_default_sender",
+      collaboration_id: "col_xiaomei",
+      skill: "email_compose",
+      from_addr: from,
+      to_addr: col.email,
+      cc: "",
+      subject: "Following up on the collaboration kit",
+      body_en: "Hi,\n\nWe would love to collaborate with you.\n",
+      template_id: "email_compose.v1",
+      official_stage: col.stage_code,
+      status: "draft",
+      extra: JSON.stringify({ brand: "LT" }),
+    };
+  }
+
+  it("defaults the sender to the current user's mounted mailbox", async () => {
+    addPublishedTemplate({ id: "mail_default_sender", brand: "LT" });
+    bindMountedMailbox(MOUNTED, "LT");
+    const response = await prepare();
+    expect(response.status, response.text).toBe(200);
+    expect(String((response.body.editor as Json).from)).toBe(MOUNTED);
+    expect(((response.body.missing_fields as string[]) || [])).not.toContain("from");
+  });
+
+  it("keeps the brand mailbox fallback when the user has no mounted mailbox", async () => {
+    addPublishedTemplate({ id: "mail_no_binding", brand: "LT" });
+    const response = await prepare();
+    expect(response.status, response.text).toBe(200);
+    expect(String((response.body.editor as Json).from)).toBe(BRAND_MAILBOXES.LT);
+  });
+
+  it("sends from the mounted mailbox once it is inside the brand scope", () => {
+    bindMountedMailbox(MOUNTED, "LT");
+    expect(() => enforceSend(draftRow(MOUNTED) as never, DEMO_USER)).not.toThrow();
+  });
+
+  it("still refuses an address that is neither a brand mailbox nor the user's own", () => {
+    expect(() => enforceSend(draftRow("stranger@litime.com") as never, DEMO_USER)).toThrow(/From 必须是品牌邮箱/);
+  });
+
+  it("refuses the mounted mailbox outside the user's brand scope", () => {
+    bindMountedMailbox(MOUNTED, "LT");
+    const restricted: Persona = { ...PERSONAS.sriphy, brands: [] };
+    expect(() => enforceSend(draftRow(MOUNTED) as never, restricted)).toThrow(/From 必须是品牌邮箱/);
   });
 });

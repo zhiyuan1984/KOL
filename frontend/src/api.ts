@@ -835,6 +835,8 @@ export type EmailCard = {
   expected_version?: number;
   from: string;
   send_from?: string;
+  /** 发件箱默认来源：user_binding = 当前用户挂载的邮箱。 */
+  from_source?: string | null;
   allowed_from_mailboxes?: { brand: string; email: string; authorized: boolean }[];
   from_locked?: boolean;
   from_lock_text?: string;

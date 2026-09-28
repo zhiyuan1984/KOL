@@ -117,6 +117,19 @@
 - **生效版本**：随「连接器设置向导」实现同批发布；本 ADR 先于代码落地，期间代码现状与本 ADR 不一致处按本 ADR 修正。
 - **审宪记录**：需求「对外只暴露技能；取消逐工具/按人授权」→ 主责 平台产品经理 + 权限域 + 架构师/后端 + UI/UX → CONST-02（本次修订）/ CONST-03（支持）/ CONST-05（L3 闸门不变）/ CONST-08/09（修宪与修法记录）/ CONST-10 → 基本法 `PRODUCT.md` PROD-PLAT-04/05、`TECHNOLOGY.md` TECH-BE-07、`org-permissions.md`、`ia-information-architecture.md` → **符合**（按用户修宪决定执行，内部门禁不放松）→ 下一步：设计稿评审后出实施计划。
 
+## ADR-2026-09-28：写邮件默认发件箱＝当前用户挂载的邮箱；任务中栏只留一条滚动轴
+
+- **状态**：已接受（用户 2026-09-27 直接要求：「写邮件如果没有指定发件箱，默认就是当前用户挂载的邮箱」「任务中栏多了一个区域输出 codex 思考过程，删除该区域，将思考过程拼接在中栏，通过滚轮进行自然滑动」）。
+- **决定者**：用户（产品发起人）；KOL 业务专家与后端负责发件箱口径，UI/UX 专家与前端负责中栏几何。
+- **背景**：① `backend/skills/email_compose/SKILL.md` 已写明默认发件邮箱是登录用户绑定的 Starry 邮箱，但 `preparedSender` 之后把它丢掉：核对不过就返回空，写邮件停在「待补：发件邮箱」，草稿卡「确认发送」置灰。② 提交 `a5c1990` 把技能交互模板块放进**不滚动**的任务头部，块内又自带 `max-height/overflow-y`（`frontend/src/components/skill-template-context.css`），任务详情中栏因此出现第二条滚动轴：模板卡占掉头部、时间线被压成一条缝，滚轮在头部与卡片上不产生滚动。
+- **决定**：① 未指定发件箱时按「请求显式指定 → 当前用户挂载的 Starry 邮箱（`user_starry_bindings.is_default`）→ 合作记录 `mailbox_from` → 当前品牌唯一授权箱 → 留空」解析，规则只住 `backend/src/host/compose-sender.ts` 一处。挂载邮箱只在品牌与范围核对通过时使用：品牌取 `mailbox_owners` 登记，没有登记时用调用方给出的明确品牌（当前合作品牌）并要求该品牌在员工授权范围内；共用邮箱要求本人是 owner 或 `shared_with`。任何一步都不得从多个候选里取第一只（BIZ-04）。② 技能交互模板等中栏内容并入唯一滚动容器 `.session-stream`，`.session-skill-template` 不再自带滚动条；新内容只在用户本来就在底部时才跟随滚动。
+- **理由**：① 是 BIZ-04「实际发件箱必须属于员工获准使用的品牌及范围」与 SKILL.md 默认口径的落地——默认来自用户自己的绑定，不是从候选列表挑第一只。② 是 `DESIGN.md`「中栏时间线与右栏结果体各自滚动」与 `docs/superpowers/specs/2026-09-23-unified-agent-workspace.md`「InteractionTimeline ← 唯一中栏滚动容器」的执法。
+- **影响**：`backend/src/host/compose-sender.ts`（新增）、`pep.ts`（From 授权分支与 `enforceSend`）、`api.ts`（prepare / 草稿落库 / 卡片载荷 / `PATCH /drafts/:did` 的 from_addr）、`frontend/src/pages/Chat.tsx`、`frontend/src/components/skill-template-context.css`、`frontend/src/components/ChatBlocks.tsx`、`frontend/src/api.ts`。
+- **补充决定（同日，用户要求）**：任务详情页的**中栏与右栏改为复用今日任务工作台的视觉 token 与几何**：右栏宽度＝`clamp(--workspace-result-rail-min, --workspace-result-rail-ideal, --workspace-result-rail-max)`、收起＝`--workspace-result-rail-collapsed`；工作区可用宽度＝`.home-stage` 同款（`width: min(100%, --content-max)` + `padding-inline: var(--page-gutter)`）；栏首留白、hairline 颜色、字号/行高/控件（24px `--icon-btn`、`--radius-control`、`--surface-hover`、`--focus-ring`）与 composer 宽度（`--composer-maxw` 居中、dock 不再二次内缩）全部走同一组 token；收起/展开按钮复用今日任务右栏的 `.scope-task-rail-toggle` 控件（真控件：`aria-expanded`、悬停面、可见焦点环、收起态竖排标签）；两栏各只保留一条滚动轴（中栏 `.session-stream`，右栏 `.side-body`）。
+- **影响（补充）**：`frontend/src/styles.css`（`.session-shell` / `.session-center` / `.task-detail-header` / `.session-stream` / `.session-composer` / `.side-workbench` / `.side-body` / 字号 token）、`frontend/src/components/SideWorkbench.tsx`（按钮与收起态标记）、`frontend/e2e/workbench.spec.ts`（跨页宽度对照与单滚动轴断言）。
+- **审宪记录**：需求「默认＝用户挂载的发件箱 + 任务中栏单滚动轴」→ 主责 KOL 业务专家/后端 + UI/UX 专家/前端 → CONST-04（前端不重写权限）、CONST-05（L3 闸门不变）、CONST-09、CONST-10 → BIZ-04、`email_compose/SKILL.md`、`DESIGN.md`（工作台几何与不变量 5）、统一工作台规格 §7 → **符合**（属实施细则执法与实现补齐，未改法条；挂载邮箱仍受品牌与范围约束，发送仍走确认、幂等与回执）→ 下一步：后端用例与 E2E 取证。
+- **限制**：`BRAND_MAILBOX_*` 仍是真实外发白名单；未登记品牌归属的挂载邮箱只有在本人挂载、调用方给出明确品牌且该品牌在其授权范围内时才作为默认，否则退回品牌箱。KOL 会话头部（journey/SOP）几何本次未收敛，矮视口裁切风险仍在。
+
 ## ADR-2026-09-28：候选推荐与「采纳为待办」不得混入「今日任务 / 我的待办」
 
 - **状态**：已接受（用户 2026-09-28 报告「今日任务和我的任务又出现了这个，不合逻辑，这个是哪个版本引进来的」）。

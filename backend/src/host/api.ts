@@ -100,7 +100,8 @@ import {
 import { calculateApprovalPlan, expenseFactsFromWorkerItem, hintRequesterFromOrg, readExpenseFactsFromText, tryCitedApprovalPlan } from "../approval/plan.js";
 import { isSkillGranted } from "./grants.js";
 import { currentFingerprint } from "./fingerprint.js";
-import { allowedFromMailboxes, brandOfMailbox, enforceSend, PepFail, resolveAuthorizedFrom } from "./pep.js";
+import { allowedFromMailboxes, authorizedSenderBrand, brandOfMailbox, enforceSend, PepFail, resolveAuthorizedFrom } from "./pep.js";
+import { collaborationBrand, composeSenderFor } from "./compose-sender.js";
 import { currentUser } from "./persona.js";
 import { boundMailboxEmail } from "./starry-bind.js";
 import { assertSessionAccess } from "../routers/enterprise.js";
@@ -286,13 +287,12 @@ function preparedCollaboration(body: Json, session: Row | null): { row: Row | nu
   return { row, ambiguous: false, conflict: false };
 }
 
+/**
+ * 未指定发件箱时的默认发件箱：当前用户挂载的 Starry 邮箱 → 合作记录 mailbox_from
+ * → 当前品牌唯一授权箱；核对不过就留空，交给岗位补。规则只此一处（compose-sender）。
+ */
 function preparedSender(row: Row): string {
-  const from = boundMailboxEmail() || String(row.mailbox_from || "").trim();
-  const resolved = resolveAuthorizedFrom(from, currentUser(), String(row.brand || ""));
-  const brandAllowed = resolved.allowed.filter((item) => item.brand === String(row.brand || ""));
-  if (resolved.matched) return resolved.email;
-  if (brandAllowed.length === 1) return brandAllowed[0].email;
-  return "";
+  return composeSenderFor({ collaboration: row }).from;
 }
 
 function mailComposeContextVersion(row: Row, template: UsableTemplate): string {
@@ -1407,6 +1407,8 @@ export function persistDraft(sid: string, item: Json): Row {
   const did = nid("dft");
   const requestedFrom = String(item.from || item.mailboxEmail || "").trim();
   const preferredBrand = preferredDraftBrand(item);
+  // 本人挂载的邮箱就是实际发件箱，不再映射到品牌箱（BIZ-04 品牌范围已在 PEP 核对）。
+  const ownedFrom = authorizedSenderBrand(requestedFrom, currentUser(), preferredBrand);
   const resolved = resolveAuthorizedFrom(requestedFrom, currentUser(), preferredBrand);
   const extra = {
     amount_usd: item.amount_usd,
@@ -1424,7 +1426,8 @@ export function persistDraft(sid: string, item: Json): Row {
     knowledge_version: item.knowledge_version ?? null,
     context_version: item.context_version || null,
     source_draft_id: item.source_draft_id ?? null,
-    ...(resolved.email && resolved.email !== requestedFrom ? { send_from: resolved.email } : {}),
+    ...(item.from_source ? { from_source: item.from_source } : {}),
+    ...(!ownedFrom && resolved.email && resolved.email !== requestedFrom ? { send_from: resolved.email } : {}),
   };
   const row: Row = {
     id: did,
@@ -1490,11 +1493,18 @@ export function persistDraft(sid: string, item: Json): Row {
 export function emailCardPayload(d: Row): Json {
   const extra = typeof d.extra === "object" && d.extra ? (d.extra as Json) : {};
   const user = currentUser();
-  const resolved = resolveAuthorizedFrom(String(d.from_addr), user, String(extra.brand || ""));
+  const preferredBrand = String(extra.brand || "") || collaborationBrand(d.collaboration_id ? String(d.collaboration_id) : null);
+  // 本人挂载的邮箱（品牌范围核对通过）同时是发件人、可选项与真实外发箱；
+  // 否则沿用品牌白名单映射（多候选仍要求显式选择）。
+  const owned = authorizedSenderBrand(String(d.from_addr), user, preferredBrand);
+  const resolved = resolveAuthorizedFrom(String(d.from_addr), user, preferredBrand);
   const allowed = resolved.allowed.length ? resolved.allowed : allowedFromMailboxes(user, null);
-  const brand = resolved.brand;
+  const fromOptions = owned && !allowed.some((row) => row.email.toLowerCase() === owned.email.toLowerCase())
+    ? [{ brand: owned.brand, email: owned.email, authorized: true }, ...allowed]
+    : allowed;
+  const brand = owned?.brand || resolved.brand;
   const official = d.official_stage as string | null;
-  const lockedFrom = allowed.length <= 1;
+  const lockedFrom = fromOptions.length <= 1;
   const buttons = ["一键翻译中文（内部）"];
   const st = d.status as string;
   if (st === "waiting_approval") buttons.push("提交审批");
@@ -1522,8 +1532,9 @@ export function emailCardPayload(d: Row): Json {
     collaboration_id: d.collaboration_id,
     expected_version: colVer,
     from: d.from_addr,
-    send_from: resolved.email || d.from_addr,
-    allowed_from_mailboxes: allowed,
+    send_from: owned?.email || resolved.email || d.from_addr,
+    allowed_from_mailboxes: fromOptions,
+    from_source: owned ? owned.source : (String(extra.from_source || "") || null),
     from_locked: lockedFrom,
     from_lock_text: lockedFrom ? "已按品牌和权限锁定" : null,
     to: d.to_addr,
@@ -2316,11 +2327,13 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
     const mapped = await mapWorker(sid, me, intent, wr);
     if (!mapped.draft && composeInput && mailTemplate) {
       const route = composeRouteFacts({ col, extra, boundMailbox: boundMailboxEmail() });
+      // 未指定发件箱时默认当前用户挂载的邮箱（compose-sender 单点规则）。
+      const sender = composeSenderFor({ collaboration: col, requested: col ? undefined : route.from });
       const item: Json = {
         type: "create_draft",
         skill: "email_compose",
         template_id: mailTemplate.template_id,
-        from: col ? preparedSender(col) : route.from,
+        from: sender.from,
         to: col ? firstEmail(col.email) : route.to,
         context_version: composeInput.context_version || null,
         source_draft_id: composeInput.source_draft_id || null,
@@ -2330,6 +2343,7 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
         official_stage: col?.stage_code || null,
         knowledge_id: mailTemplate.id,
         knowledge_version: mailTemplate.version,
+        from_source: sender.source,
       };
       const draft = persistDraft(sid, item);
       addMsg(sid, "assistant", "email_card", emailCardPayload(draft));
@@ -2484,11 +2498,14 @@ function persistKnowledgeDraft(
   const compiled = compileMailDraft(template, knowledgeFillValues(intent, col));
   const leftover = [...new Set([...compiled.missing, ...leftoverPlaceholders(intent.raw)])];
   if (leftover.length) throwKnowledgeSupplement(sid, me, intent, leftover);
+  // 未指定发件箱时默认当前用户挂载的邮箱；没有可用默认再退品牌箱（仍是同一处规则）。
+  const sender = composeSenderFor({ collaboration: col });
   const item: Json = {
     type: "create_draft",
     skill: template.skill_id || intent.skill || intent.type,
     template_id: template.template_id,
-    from: col?.mailbox_from || BRAND_MAILBOXES[template.brand === "*" ? "" : template.brand] || "",
+    from: sender.from || BRAND_MAILBOXES[template.brand === "*" ? "" : template.brand] || "",
+    from_source: sender.source,
     to: assertDraftTo(sid, me, intent, col, { to: col?.email }, intent.raw),
     cc: "",
     subject: compiled.subject,
@@ -3813,10 +3830,19 @@ host.patch("/drafts/:did", async (c) => {
   }
   if (body.from_addr != null) {
     const extra = typeof existing.extra === "object" && existing.extra ? (existing.extra as Json) : {};
-    const resolved = resolveAuthorizedFrom(String(body.from_addr), currentUser(), String(extra.brand || ""));
-    if (!resolved.brand) throw new HttpFail(400, "From 必须是品牌邮箱");
-    fields.push("from_addr = ?");
-    vals.push(resolved.email);
+    const preferredBrand = String(extra.brand || "") || collaborationBrand(existing.collaboration_id ? String(existing.collaboration_id) : null);
+    const requested = String(body.from_addr).trim();
+    // 本人挂载的邮箱（品牌范围核对通过）按原地址保留；其余仍映射到品牌授权箱。
+    const owned = authorizedSenderBrand(requested, currentUser(), preferredBrand);
+    if (owned) {
+      fields.push("from_addr = ?");
+      vals.push(owned.email);
+    } else {
+      const resolved = resolveAuthorizedFrom(requested, currentUser(), preferredBrand);
+      if (!resolved.brand) throw new HttpFail(400, "From 必须是品牌邮箱");
+      fields.push("from_addr = ?");
+      vals.push(resolved.email);
+    }
   }
   if (body.to_addr != null) {
     fields.push("to_addr = ?");

@@ -3903,6 +3903,129 @@ test("task detail keeps process in center, result on right, and supports complet
   expect(completed).toBe(true);
 });
 
+test("task detail keeps one middle-column scroller and the thinking inside it", async ({ page }) => {
+  const now = new Date().toISOString();
+  await page.addInitScript(() => sessionStorage.setItem("task:session-one-scroll", "task-one-scroll"));
+  await page.route("**/api/tasks/task-one-scroll", async (route) => {
+    await route.fulfill({ json: {
+      id: "task-one-scroll",
+      title: "写合作邮件",
+      source: "ai",
+      status: "running",
+      context: "按正式阶段选择已发布知识模板，保留人工编辑草稿。",
+      skill_template: {
+        id: "skill-template:email_compose", kind: "skill_template", skill_id: "email_compose",
+        version: "version-3", title: "写合作邮件", description: "按正式阶段写这一封往来",
+        steps: ["读取合作上下文", "选择已发布模板", "生成草稿"], inputs: [], starter: "写合作邮件",
+        output: { type: "task_result", title: "邮件草稿" }, constraints: ["发送不等于改阶段"], source: "skill", read_only: true,
+      },
+    } });
+  });
+  await page.route("**/api/tasks/task-one-scroll/events", (route) => route.fulfill({ json: [] }));
+  await page.route("**/api/sessions/session-one-scroll", (route) => route.fulfill({ json: {
+    agent_status: "running",
+    messages: [
+      { id: "me", session_id: "session-one-scroll", role: "user", kind: "me", created_at: now, payload: { text: "写合作邮件 @小美妆日记" } },
+      { id: "process", session_id: "session-one-scroll", role: "assistant", kind: "process_trace", created_at: now, payload: {
+        title: "处理过程",
+        items: [
+          { id: "host:formatting", label: "整理结果", status: "done", kind: "result" },
+          { id: "reasoning:rsn_1", label: "**Comparing AGENTS file and instructions**", status: "done", kind: "reasoning" },
+        ],
+      } },
+      { id: "long", session_id: "session-one-scroll", role: "assistant", kind: "assistant", created_at: now, payload: {
+        text: Array.from({ length: 60 }, (_, index) => `第 ${index + 1} 行过程说明，用于撑出中栏滚动。`).join("\n"),
+      } },
+    ],
+  } }));
+  await page.goto("/s/session-one-scroll");
+  await expect(page.locator("[data-session-stream-pane] [data-session-skill-template]")).toHaveCount(1);
+  const trace = page.locator("[data-session-stream-pane] [data-kind='process-trace']");
+  await expect(trace).toContainText("Comparing AGENTS file and instructions");
+  await expect(trace).not.toContainText("**");
+
+  // 中栏只有一条滚动轴：除时间线外没有第二个可滚动容器（写作区自己的输入框不算）。
+  const scrollers = await page.locator(".session-center").evaluate((center) => {
+    const rows: string[] = [];
+    for (const el of center.querySelectorAll("*")) {
+      if (!(el instanceof HTMLElement) || el.closest(".session-composer")) continue;
+      if (!/(auto|scroll)/.test(getComputedStyle(el).overflowY)) continue;
+      if (el.scrollHeight <= el.clientHeight) continue;
+      rows.push(el.hasAttribute("data-session-stream-pane") ? "stream" : `${el.tagName.toLowerCase()}.${el.className}`);
+    }
+    return rows;
+  });
+  expect(scrollers).toEqual(["stream"]);
+
+  const pane = page.locator("[data-session-stream-pane]");
+  await pane.evaluate((el) => { el.scrollTop = 0; });
+  await saveScreenshot(page, "task-detail-middle-column-single-scroll.png");
+  const box = await pane.boundingBox();
+  expect(box).toBeTruthy();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + 24);
+  await page.mouse.wheel(0, 400);
+  await expect.poll(() => pane.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+
+  // 右栏＝今日任务右栏同一组宽度 token：展开 clamp(360, 54%, 820)，收起 56。
+  const rail = page.locator("[data-workbench]");
+  const geometry = await page.evaluate(() => {
+    const railEl = document.querySelector("[data-workbench]");
+    const shell = document.querySelector(".session-shell");
+    const root = getComputedStyle(document.documentElement);
+    const shellStyle = shell ? getComputedStyle(shell) : null;
+    const available = shell && shellStyle
+      ? shell.clientWidth - parseFloat(shellStyle.paddingLeft) - parseFloat(shellStyle.paddingRight)
+      : 0;
+    const min = parseFloat(root.getPropertyValue("--workspace-result-rail-min"));
+    const ideal = parseFloat(root.getPropertyValue("--workspace-result-rail-ideal")) / 100;
+    const max = parseFloat(root.getPropertyValue("--workspace-result-rail-max"));
+    return {
+      rail: railEl ? railEl.getBoundingClientRect().width : 0,
+      expected: Math.min(Math.max(min, available * ideal), max),
+      collapsed: parseFloat(root.getPropertyValue("--workspace-result-rail-collapsed")),
+    };
+  });
+  expect(Math.abs(geometry.rail - geometry.expected)).toBeLessThanOrEqual(1);
+
+  // 右栏只有一条滚动轴：可滚动容器只有 .side-body。
+  const railScrollers = await rail.evaluate((el) => Array.from(el.querySelectorAll("*"))
+    .filter((node) => node instanceof HTMLElement && /(auto|scroll)/.test(getComputedStyle(node).overflowY))
+    .map((node) => (node as HTMLElement).className));
+  expect(railScrollers).toEqual(["side-body"]);
+
+  // 切换按钮＝今日任务右栏同一个控件：24px 图标按钮 + aria-expanded；收起后回到同一条收起档。
+  const toggle = page.locator("[data-workbench] [data-workbench-toggle]");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  const toggleBox = await toggle.boundingBox();
+  expect(Math.round(toggleBox!.width)).toBe(24);
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect.poll(() => rail.evaluate((el) => el.getBoundingClientRect().width)).toBeLessThanOrEqual(geometry.collapsed + 1);
+  await toggle.click();
+  await expect.poll(() => rail.evaluate((el) => el.getBoundingClientRect().width)).toBeGreaterThan(geometry.collapsed + 10);
+
+  // 与今日任务右栏同宽（跨页对照，同一组 token，同一段可用宽度）。
+  const sessionComposer = await page.evaluate(() => {
+    const el = document.querySelector(".session-composer .composer");
+    return el ? Math.round(el.getBoundingClientRect().width) : 0;
+  });
+  await page.goto("/");
+  const homeRail = page.locator("[data-home] [data-scope-task-rail]");
+  await expect(homeRail).toBeVisible();
+  await saveScreenshot(page, "today-pane-parity-reference.png");
+  const home = await page.evaluate(() => {
+    const railEl = document.querySelector("[data-home] [data-scope-task-rail]");
+    const composer = document.querySelector("[data-home] [data-composer] .composer");
+    return {
+      rail: railEl ? railEl.getBoundingClientRect().width : 0,
+      composer: composer ? Math.round(composer.getBoundingClientRect().width) : 0,
+    };
+  });
+  expect(Math.abs(home.rail - geometry.rail)).toBeLessThanOrEqual(1);
+  // 提问框是同一种控件：同宽、同圆角（--composer-radius）。
+  expect(Math.abs(home.composer - sessionComposer)).toBeLessThanOrEqual(1);
+});
+
 test("process trace shows harness thinking in the list instead of a fixed five-step template", async ({ page }) => {
   const now = new Date().toISOString();
   await page.route("**/api/sessions/session-thinking", (route) => route.fulfill({ json: {
