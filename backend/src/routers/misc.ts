@@ -16,14 +16,18 @@ import { login, logout, requirePm, isProductManager } from "../host/auth.js";
 import { directory, grantsForSkill, setSkillGrants, visibleSkillIds } from "../host/grants.js";
 import { FUNNEL_STAGES, SOP_POLICY, skillCatalog, skillEmployeeDoc } from "../host/skills-catalog.js";
 import {
+  effectiveSkillTemplate,
   getSkillSop,
+  isBundledSkill,
   overlaySummaries,
-  resetSkillSop,
-  saveSkillSop,
+  readBundledSkill,
 } from "../host/skill-sop.js";
 import {
   createPublishedSkill,
   deletePublishedSkill,
+  getSkillDraft,
+  saveSkillDraft,
+  applySkillDraft,
   skillAdminMeta,
   updatePublishedSkill,
 } from "../host/skill-publish.js";
@@ -39,6 +43,7 @@ import {
   skillLifecycleMeta,
   skillMetrics,
   skillStageHistory,
+  setSkillOrigin,
   SKILL_STAGES,
   SKILL_STAGE_LABELS,
   transitionSkillStage,
@@ -81,6 +86,7 @@ type SkillLookup = {
   defs: Map<string, ReturnType<typeof taskDefinition>>;
   cats: Map<string, ReturnType<typeof skillCatalog>[number]>;
   overlays: Map<string, { summary: string; updated_at: string }>;
+  origins: Map<string, "official" | "third_party">;
 };
 
 const SKILL_LOOKUP_TTL_MS = 60_000;
@@ -92,15 +98,21 @@ function clearSkillLookupCache(): void {
 
 function skillLookup(): SkillLookup {
   const now = Date.now();
+  const origins = new Map<string, "official" | "third_party">();
+  const originRows = getConn().prepare("SELECT skill_id, origin, tags FROM skill_lifecycle").all() as { skill_id: string; origin?: string; tags?: string | null }[];
+  for (const row of originRows) {
+    const tags = String(row.tags || "");
+    origins.set(String(row.skill_id), row.origin === "third_party" || (!row.origin && tags.includes("第三方")) ? "third_party" : "official");
+  }
   if (skillDefinitionCache && skillDefinitionCache.expiresAt > now) {
-    return { ...skillDefinitionCache, overlays: overlaySummaries() };
+    return { ...skillDefinitionCache, overlays: overlaySummaries(), origins };
   }
   const defs = new Map<string, ReturnType<typeof taskDefinition>>();
   for (const definition of taskDefinitions()) defs.set(definition.id, definition);
   const cats = new Map<string, ReturnType<typeof skillCatalog>[number]>();
   for (const entry of skillCatalog()) cats.set(entry.id, entry);
   skillDefinitionCache = { expiresAt: now + SKILL_LOOKUP_TTL_MS, defs, cats };
-  return { defs, cats, overlays: overlaySummaries() };
+  return { defs, cats, overlays: overlaySummaries(), origins };
 }
 
 function skillMeta(name: string, lookup?: SkillLookup): Json {
@@ -156,6 +168,7 @@ function skillMeta(name: string, lookup?: SkillLookup): Json {
     funnel_hint: stage?.hint || "",
     summary: (overlay?.summary || cat?.summary || cat?.label || name).trim(),
     source: definition?.source || cat?.source || "bundled",
+    origin: ctx.origins.get(name) || "official",
     employee_visible: definition?.employee_visible ?? true,
     // 员工面两段入口口径与示例逐字来自 SKILL.md；没登记的技能不带这几个键，
     // 前端据「缺失」照实说明待专家补齐，不编口径（docs/BUSINESS.md 覆盖表）。
@@ -206,11 +219,18 @@ function visibleForRequest(): Set<string> {
   return new Set([...vis].filter((id) => personal.has(id)));
 }
 
+function employeeVisibleSkill(id: string): boolean {
+  const lifecycle = getConn().prepare("SELECT stage FROM skill_lifecycle WHERE skill_id=?").get(id) as { stage: string } | undefined;
+  // Legacy bundled skills without lifecycle rows retain their established availability;
+  // explicit draft/editing/testing/disabled records stay out of the employee directory.
+  return !lifecycle || lifecycle.stage === "published";
+}
+
 function listedSkills(market: boolean): Json[] {
   const vis = visibleForRequest();
   const lookup = skillLookup();
   return [...lookup.cats.values()]
-    .filter((s) => (market ? s.in_market : vis.has(s.id)))
+    .filter((s) => employeeVisibleSkill(s.id) && (market ? s.in_market : vis.has(s.id)))
     .sort((a, b) => FUNNEL_ORDER.indexOf(a.funnel) - FUNNEL_ORDER.indexOf(b.funnel) || a.label.localeCompare(b.label, "zh"))
     .map((s) => skillMeta(s.id, lookup));
 }
@@ -245,6 +265,7 @@ misc.get("/skills/market", (c) => {
 });
 misc.get("/skills/:id", (c) => {
   const id = c.req.param("id");
+  if (!employeeVisibleSkill(id)) throw new HttpFail(404, "skill not found");
   const sop = getSkillSop(id);
   // `employee_doc`：该技能 `## 员工口径` 小节的正文（已过白名单）。没有这一节就是空串，
   // 前端据此整节不渲染 —— 不把 SKILL.md 原文发出去，也不拿空壳冒充说明书。
@@ -276,11 +297,32 @@ misc.put("/skills/:id/sop", async (c) => {
   requirePm();
   const id = c.req.param("id");
   const body = (await c.req.json()) as { summary?: string; body?: string };
-  return c.json(saveSkillSop(id, body));
+  if (isBundledSkill(id)) {
+    saveSkillDraft(id, { _sop_summary: body.summary, _sop_body: body.body });
+  } else {
+    saveSkillDraft(id, { description: body.summary, body: body.body });
+  }
+  if (skillLifecycleMeta(id).origin === "third_party") {
+    setSkillOrigin(id, "official");
+    clearSkillLookupCache();
+  }
+  const live = getSkillSop(id);
+  const draft = getSkillDraft(id);
+  return c.json({ ...live, summary: String(draft.patch._sop_summary ?? draft.patch.description ?? live.summary), body: String(draft.patch._sop_body ?? draft.patch.body ?? live.body), draft: true, updated_at: draft.updated_at });
 });
 misc.delete("/skills/:id/sop", (c) => {
   requirePm();
-  return c.json(resetSkillSop(c.req.param("id")));
+  const id = c.req.param("id");
+  const definition = taskDefinition(id);
+  const summary = String(definition?.employee_summary || definition?.description || "");
+  const body = readBundledSkill(id);
+  if (isBundledSkill(id)) saveSkillDraft(id, { _sop_summary: summary, _sop_body: body });
+  else saveSkillDraft(id, { description: summary, body });
+  if (skillLifecycleMeta(id).origin === "third_party") {
+    setSkillOrigin(id, "official");
+    clearSkillLookupCache();
+  }
+  return c.json({ id, summary, body, draft: true, reset_to_packaged: true });
 });
 misc.get("/admin/skills", (c) => {
   requirePm();
@@ -295,10 +337,39 @@ misc.get("/admin/skills", (c) => {
     })),
   });
 });
+misc.get("/admin/skills/:id/sop", (c) => {
+  requirePm();
+  const id = c.req.param("id");
+  const live = getSkillSop(id);
+  const draft = getSkillDraft(id);
+  return c.json({ ...live, summary: String(draft.patch._sop_summary ?? draft.patch.description ?? live.summary), body: String(draft.patch._sop_body ?? draft.patch.body ?? live.body), draft: Object.keys(draft.patch).length > 0, updated_at: draft.updated_at || live.updated_at });
+});
+misc.get("/admin/skills/:id/draft", (c) => {
+  requirePm();
+  return c.json(getSkillDraft(c.req.param("id")));
+});
+misc.get("/admin/skills/:id/template", (c) => {
+  requirePm();
+  const definition = taskDefinition(c.req.param("id"));
+  if (!definition || !definition.employee_visible) throw new HttpFail(404, "skill template not found");
+  return c.json(effectiveSkillTemplate(definition));
+});
+misc.put("/admin/skills/:id/draft", async (c) => {
+  requirePm();
+  const id = c.req.param("id");
+  const body = (await c.req.json()) as Record<string, unknown>;
+  const result = saveSkillDraft(id, body);
+  if (Object.keys(body).some((key) => key !== "in_market") && skillLifecycleMeta(id).origin === "third_party") {
+    setSkillOrigin(id, "official");
+    clearSkillLookupCache();
+  }
+  return c.json({ ...result, lifecycle: skillLifecycleMeta(id) });
+});
 misc.post("/admin/skills", async (c) => {
   requirePm();
   const body = (await c.req.json()) as Record<string, unknown>;
   const created = createPublishedSkill(body);
+  updateSkillLifecycleMeta(created.id, { tags: [] });
   clearSkillLookupCache();
   return c.json({ ...skillMeta(created.id), grants: grantsForSkill(created.id) }, 201);
 });
@@ -330,7 +401,8 @@ misc.post("/admin/skills/import", async (c) => {
     body: match[2].trim(),
     grant_org: false,
   });
-  updateSkillLifecycleMeta(created.id, { tags: ["第三方", "本地导入"] });
+  updateSkillLifecycleMeta(created.id, { tags: ["本地导入"] });
+  setSkillOrigin(created.id, "third_party");
   clearSkillLookupCache();
   return c.json({
     ...skillMeta(created.id),
@@ -343,9 +415,20 @@ misc.patch("/admin/skills/:id", async (c) => {
   requirePm();
   const id = c.req.param("id");
   const body = (await c.req.json()) as Record<string, unknown>;
-  const updated = updatePublishedSkill(id, body);
-  clearSkillLookupCache();
-  return c.json({ ...skillMeta(updated.id), grants: grantsForSkill(id) });
+  const { in_market, ...draftPatch } = body;
+  let updated = skillMeta(id);
+  if (Object.keys(draftPatch).length) {
+    saveSkillDraft(id, draftPatch);
+    if (skillLifecycleMeta(id).origin === "third_party") {
+      setSkillOrigin(id, "official");
+      clearSkillLookupCache();
+    }
+  }
+  if (typeof in_market === "boolean") {
+    updated = skillMeta(updatePublishedSkill(id, { in_market }).id);
+    clearSkillLookupCache();
+  }
+  return c.json({ ...updated, grants: grantsForSkill(id), draft: getSkillDraft(id), lifecycle: skillLifecycleMeta(id) });
 });
 misc.delete("/admin/skills/:id", (c) => {
   requirePm();
@@ -363,7 +446,9 @@ misc.post("/admin/skills/:id/stage", async (c) => {
   requirePm();
   const id = c.req.param("id");
   const body = (await c.req.json()) as { stage?: string; reason?: string };
-  return c.json({ id, ...transitionSkillStage(id, String(body.stage || ""), body.reason) });
+  const result = transitionSkillStage(id, String(body.stage || ""), body.reason);
+  if (result.stage === "published") clearSkillLookupCache();
+  return c.json({ id, ...result });
 });
 misc.patch("/admin/skills/:id/lifecycle", async (c) => {
   requirePm();
@@ -386,13 +471,17 @@ misc.post("/admin/skills/:id/versions", async (c) => {
   requirePm();
   const id = c.req.param("id");
   const body = (await c.req.json()) as { description?: string };
+  applySkillDraft(id);
+  clearSkillLookupCache();
   return c.json({ id, ...publishSkillVersion(id, body.description) });
 });
 misc.post("/admin/skills/:id/versions/rollback", async (c) => {
   requirePm();
   const id = c.req.param("id");
   const body = (await c.req.json()) as { version?: number };
-  return c.json({ id, ...rollbackSkillVersion(id, Number(body.version || 0)) });
+  const result = rollbackSkillVersion(id, Number(body.version || 0));
+  clearSkillLookupCache();
+  return c.json({ id, ...result });
 });
 misc.get("/admin/skills/:id/tests", (c) => {
   requirePm();

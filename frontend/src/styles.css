@@ -11083,6 +11083,57 @@ button.today-brief-primary-btn:disabled {
   border-color: var(--text);
 }
 
+/* 来源是跨阶段的独立过滤维度，不塞进阶段 tab 或搜索输入框。 */
+.skill-origin-filter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  width: min(100%, var(--content-max));
+  margin-inline: auto;
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+}
+
+.skill-origin-filter > span {
+  margin-right: var(--space-1);
+}
+
+.skill-origin-filter button {
+  min-height: var(--control-h-sm);
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.skill-origin-filter button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.skill-origin-filter button.is-active {
+  border-color: var(--ds-selected-border);
+  background: var(--ds-selected-bg);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.skill-origin-filter button:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+@media (pointer: coarse) {
+  .skill-origin-filter button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
 .skill-search-wrap svg {
   width: var(--icon-sm);
   height: var(--icon-sm);

@@ -69,6 +69,7 @@ export type SkillRow = {
   employee_agent?: string | null;
   employee_example?: string[] | null;
   source?: "bundled" | "published";
+  origin?: "official" | "third_party";
   learning?: {
     when_to_use?: string;
     inputs?: string[];

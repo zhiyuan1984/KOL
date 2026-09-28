@@ -10,11 +10,12 @@ import { nid } from "../ids.js";
 import type { Json } from "../types.js";
 import { HttpFail } from "./errors.js";
 import { currentUser } from "./persona.js";
-import { activateSkillForHarness, deletePublishedSkill } from "./skill-publish.js";
-import { catalogSkill, isBundledSkill } from "./skill-sop.js";
+import { activateSkillForHarness, applySkillDraft, deletePublishedSkill } from "./skill-publish.js";
+import { catalogSkill, isBundledSkill, overlayRow, packagedSkillDir } from "./skill-sop.js";
 
 export const SKILL_STAGES = ["draft", "editing", "testing", "published", "disabled"] as const;
 export type SkillStage = (typeof SKILL_STAGES)[number];
+export type SkillOrigin = "official" | "third_party";
 
 export const SKILL_STAGE_LABELS: Record<SkillStage, string> = {
   draft: "新建草稿",
@@ -47,9 +48,9 @@ function requireSkill(id: string): void {
   if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
 }
 
-function lifecycleRow(id: string): { skill_id: string; stage: string; owner: string | null; business_stage: string | null; tags: string | null; updated_at: string } | undefined {
+function lifecycleRow(id: string): { skill_id: string; stage: string; origin: SkillOrigin | null; owner: string | null; business_stage: string | null; tags: string | null; updated_at: string } | undefined {
   return getConn().prepare("SELECT * FROM skill_lifecycle WHERE skill_id = ?").get(id) as
-    | { skill_id: string; stage: string; owner: string | null; business_stage: string | null; tags: string | null; updated_at: string }
+    | { skill_id: string; stage: string; origin: SkillOrigin | null; owner: string | null; business_stage: string | null; tags: string | null; updated_at: string }
     | undefined;
 }
 
@@ -62,6 +63,7 @@ function currentStage(id: string): SkillStage {
 export function skillLifecycleMeta(id: string): {
   stage: SkillStage;
   stage_label: string;
+  origin: SkillOrigin;
   owner: string | null;
   business_stage: string | null;
   tags: string[];
@@ -71,6 +73,7 @@ export function skillLifecycleMeta(id: string): {
   requireSkill(id);
   const stage = currentStage(id);
   const row = lifecycleRow(id);
+  const tags = row?.tags ? (JSON.parse(row.tags) as string[]) : [];
   const conn = getConn();
   const version = conn
     .prepare("SELECT MAX(version) AS v FROM skill_versions WHERE skill_id = ? AND status = 'published'")
@@ -88,9 +91,10 @@ export function skillLifecycleMeta(id: string): {
   return {
     stage,
     stage_label: SKILL_STAGE_LABELS[stage],
+    origin: row?.origin || (tags.includes("第三方") ? "third_party" : "official"),
     owner: row?.owner || null,
     business_stage: row?.business_stage || null,
-    tags: row?.tags ? (JSON.parse(row.tags) as string[]) : [],
+    tags,
     current_version: version.v ?? null,
     test_summary: {
       total: tests.n,
@@ -99,6 +103,20 @@ export function skillLifecycleMeta(id: string): {
       last_run_at: lastRunAt,
     },
   };
+}
+
+export function setSkillOrigin(id: string, origin: SkillOrigin): void {
+  requireSkill(id);
+  const row = lifecycleRow(id);
+  const previous = row?.origin || (row?.tags?.includes("第三方") ? "third_party" : "official");
+  if (previous === origin) return;
+  const operator = currentUser().handle;
+  getConn().prepare(
+    `INSERT INTO skill_lifecycle (skill_id, stage, origin, owner, business_stage, tags, updated_at)
+     VALUES (?,?,?,?,?,?,?)
+     ON CONFLICT(skill_id) DO UPDATE SET origin=excluded.origin, updated_at=excluded.updated_at`,
+  ).run(id, row?.stage || "draft", origin, row?.owner || null, row?.business_stage || null, row?.tags || "[]", nowIso());
+  audit(operator, "skill.origin.change", { skill: id, from: previous, to: origin });
 }
 
 export function skillStageHistory(id: string): Json[] {
@@ -119,6 +137,7 @@ export function transitionSkillStage(id: string, toStage: string, reason?: strin
   if (from !== "draft" && to === "disabled" && !String(reason || "").trim()) {
     throw new HttpFail(400, "reason required to disable a published skill");
   }
+  if (to === "published") applySkillDraft(id);
   const conn = getConn();
   const operator = currentUser().handle;
   conn
@@ -147,11 +166,12 @@ export function updateSkillLifecycleMeta(
   const stage = row?.stage || "draft";
   getConn()
     .prepare(
-      "INSERT INTO skill_lifecycle (skill_id, stage, owner, business_stage, tags, updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(skill_id) DO UPDATE SET owner=excluded.owner, business_stage=excluded.business_stage, tags=excluded.tags, updated_at=excluded.updated_at",
+      "INSERT INTO skill_lifecycle (skill_id, stage, origin, owner, business_stage, tags, updated_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(skill_id) DO UPDATE SET owner=excluded.owner, business_stage=excluded.business_stage, tags=excluded.tags, updated_at=excluded.updated_at",
     )
     .run(
       id,
       stage,
+      row?.origin || (row?.tags?.includes("第三方") ? "third_party" : "official"),
       patch.owner ?? row?.owner ?? null,
       patch.business_stage ?? row?.business_stage ?? null,
       JSON.stringify(patch.tags ?? (row?.tags ? JSON.parse(row.tags) : [])),
@@ -170,9 +190,9 @@ export function listSkillVersions(id: string): Json[] {
 
 export function publishSkillVersion(id: string, description?: string, version?: number): { version: number } {
   requireSkill(id);
-  if (isBundledSkill(id)) throw new HttpFail(400, "bundled skills cannot be versioned");
-  const dir = skillDir(id);
-  if (!fs.existsSync(path.join(dir, "SKILL.md"))) throw new HttpFail(400, "skill pack not found");
+  const bundled = isBundledSkill(id);
+  const dir = bundled ? packagedSkillDir(id) : skillDir(id);
+  if (!dir || !fs.existsSync(path.join(dir, "SKILL.md"))) throw new HttpFail(400, "skill pack not found");
   const conn = getConn();
   const maxRow = conn.prepare("SELECT MAX(version) AS v FROM skill_versions WHERE skill_id = ?").get(id) as {
     v: number | null;
@@ -181,6 +201,9 @@ export function publishSkillVersion(id: string, description?: string, version?: 
   const snapshot = path.join(versionsRoot(id), `v${next}`);
   fs.rmSync(snapshot, { recursive: true, force: true });
   fs.cpSync(dir, snapshot, { recursive: true });
+  if (bundled) {
+    fs.writeFileSync(path.join(snapshot, ".skill-sop-overlay.json"), JSON.stringify(overlayRow(id)), "utf8");
+  }
   conn
     .prepare(
       "INSERT INTO skill_versions (id, skill_id, version, status, description, snapshot_path, published_by, published_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(skill_id, version) DO UPDATE SET status='published', description=excluded.description, snapshot_path=excluded.snapshot_path, published_by=excluded.published_by, published_at=excluded.published_at",
@@ -207,9 +230,23 @@ export function rollbackSkillVersion(id: string, version: number): { version: nu
   if (!row || !row.snapshot_path || !fs.existsSync(path.join(row.snapshot_path, "SKILL.md"))) {
     throw new HttpFail(404, `version ${version} snapshot not found`);
   }
-  const dir = skillDir(id);
-  fs.rmSync(dir, { recursive: true, force: true });
-  fs.cpSync(row.snapshot_path, dir, { recursive: true });
+  if (isBundledSkill(id)) {
+    const overlayFile = path.join(row.snapshot_path, ".skill-sop-overlay.json");
+    if (fs.existsSync(overlayFile)) {
+      const overlay = JSON.parse(fs.readFileSync(overlayFile, "utf8")) as { summary?: string; body?: string; updated_at?: string } | null;
+      if (overlay?.summary && overlay.body) {
+        getConn().prepare(
+          "INSERT INTO skill_sops (id,summary,body,updated_at) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET summary=excluded.summary,body=excluded.body,updated_at=excluded.updated_at",
+        ).run(id, overlay.summary, overlay.body, overlay.updated_at || nowIso());
+      } else {
+        getConn().prepare("DELETE FROM skill_sops WHERE id=?").run(id);
+      }
+    }
+  } else {
+    const dir = skillDir(id);
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.cpSync(row.snapshot_path, dir, { recursive: true });
+  }
   activateSkillForHarness(id);
   audit(currentUser().handle, "skill.version.rollback", { skill: id, version });
   return { version };

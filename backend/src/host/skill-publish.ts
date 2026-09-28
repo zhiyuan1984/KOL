@@ -33,6 +33,7 @@ import {
   getSkillSop,
   isBundledSkill,
   runtimeSkillsRoot,
+  saveSkillSop,
   writeRuntimeSkill,
 } from "./skill-sop.js";
 
@@ -361,6 +362,53 @@ export function updatePublishedSkill(id: string, input: UpdateSkillInput): Skill
   return catalogSkill(spec.id)!;
 }
 
+export type SkillDraft = { id: string; patch: Record<string, unknown>; updated_at: string | null };
+const SOP_DRAFT_FIELDS = ["_sop_summary", "_sop_body"] as const;
+
+export function getSkillDraft(id: string): SkillDraft {
+  if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
+  const row = getConn().prepare("SELECT payload, updated_at FROM skill_drafts WHERE skill_id=?").get(id) as
+    | { payload: string; updated_at: string }
+    | undefined;
+  return { id, patch: row ? JSON.parse(row.payload) as Record<string, unknown> : {}, updated_at: row?.updated_at || null };
+}
+
+/** Persist candidate edits without changing the catalog, runtime pack, or employee-visible version. */
+export function saveSkillDraft(id: string, patch: Record<string, unknown>): SkillDraft {
+  if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
+  const bundled = isBundledSkill(id);
+  const allowed = new Set<string>(bundled ? SOP_DRAFT_FIELDS : PACK_FIELDS);
+  const clean = Object.fromEntries(Object.entries(patch).filter(([key, value]) => allowed.has(key) && value !== undefined));
+  if (!Object.keys(clean).length) throw new HttpFail(400, "no editable skill fields supplied");
+  const previous = getSkillDraft(id);
+  const payload = { ...previous.patch, ...clean };
+  const updatedAt = nowIso();
+  getConn().prepare(
+    "INSERT INTO skill_drafts (skill_id,payload,updated_at) VALUES (?,?,?) ON CONFLICT(skill_id) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at",
+  ).run(id, JSON.stringify(payload), updatedAt);
+  audit(currentUser().handle, "skill.draft.save", { skill: id, fields: Object.keys(clean) });
+  return { id, patch: payload, updated_at: updatedAt };
+}
+
+/** Apply an already-saved candidate only from the release path. */
+export function applySkillDraft(id: string): { applied: boolean } {
+  const draft = getSkillDraft(id);
+  if (!Object.keys(draft.patch).length) return { applied: false };
+  if (isBundledSkill(id)) {
+    const current = getSkillSop(id);
+    saveSkillSop(id, {
+      summary: String(draft.patch._sop_summary ?? current.summary),
+      body: String(draft.patch._sop_body ?? current.body),
+    });
+  } else {
+    const packPatch = Object.fromEntries(Object.entries(draft.patch).filter(([key]) => !SOP_DRAFT_FIELDS.includes(key as typeof SOP_DRAFT_FIELDS[number])));
+    if (Object.keys(packPatch).length) updatePublishedSkill(id, packPatch as UpdateSkillInput);
+  }
+  getConn().prepare("DELETE FROM skill_drafts WHERE skill_id=?").run(id);
+  audit(currentUser().handle, "skill.draft.apply", { skill: id });
+  return { applied: true };
+}
+
 export function deletePublishedSkill(id: string): { ok: true; id: string } {
   if (!catalogSkill(id)) throw new HttpFail(404, "unknown skill");
   if (isBundledSkill(id)) throw new HttpFail(400, "bundled skills cannot be deleted");
@@ -368,6 +416,7 @@ export function deletePublishedSkill(id: string): { ok: true; id: string } {
   getConn().prepare("DELETE FROM skill_flags WHERE id = ?").run(id);
   getConn().prepare("DELETE FROM skill_grants WHERE skill_id = ?").run(id);
   getConn().prepare("DELETE FROM skill_lifecycle WHERE skill_id = ?").run(id);
+  getConn().prepare("DELETE FROM skill_drafts WHERE skill_id = ?").run(id);
   getConn().prepare("DELETE FROM skill_versions WHERE skill_id = ?").run(id);
   getConn().prepare("DELETE FROM skill_tests WHERE skill_id = ?").run(id);
   getConn().prepare("DELETE FROM skill_test_runs WHERE skill_id = ?").run(id);

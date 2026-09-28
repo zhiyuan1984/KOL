@@ -149,11 +149,11 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
     setGrantId(null);
     setSopSaving(true);
     try {
-      const detail = (await api.skill(s.id)) as SkillRow & { body?: string; summary?: string; aliases?: string[] };
-      setSopTitle(detail.title || s.title);
-      setSopSummary(detail.summary || s.summary || s.title);
-      setSopBody(detail.body || "");
-      setSopAliases((detail.aliases || s.aliases || []).join(", "));
+      const [detail, draft] = await Promise.all([api.adminSkillSop(s.id), api.adminSkillDraft(s.id)]);
+      setSopTitle(String(draft.patch.title || s.title));
+      setSopSummary(String(draft.patch.description || draft.patch._sop_summary || detail.summary || s.summary || s.title));
+      setSopBody(String(draft.patch.body || draft.patch._sop_body || detail.body || ""));
+      setSopAliases(((draft.patch.aliases as string[] | undefined) || s.aliases || []).join(", "));
       setEditId(s.id);
     } catch (e) {
       setSopErr(String(e));
@@ -574,9 +574,7 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
             >
               <h3>编辑说明 · {skills.find((r) => r.id === editId)?.title || "当前技能"}</h3>
               <p className="muted">
-                {skills.find((r) => r.id === editId)?.source === "published"
-                  ? "保存后会改写发布包并写入 Codex 运行时目录。"
-                  : "保存后立即对运营生效，技能摘要会一起更新。仓库默认文件不变。"}
+                保存为待发布草稿；员工仍使用当前版本。发布后才会更新可用技能。
               </p>
               {skills.find((r) => r.id === editId)?.source === "published" && (
                 <>
@@ -600,10 +598,10 @@ export function Admin({ embedded = false }: { embedded?: boolean }) {
               </label>
               <div className="skill-card-actions">
                 <button type="submit" className="btn" disabled={sopSaving} data-sop-save>
-                  {sopSaving ? "保存中…" : "保存说明"}
+                  {sopSaving ? "保存中…" : "保存草稿"}
                 </button>
                 <button type="button" className="btn" disabled={sopSaving} data-sop-reset onClick={() => void resetSop()}>
-                  恢复默认
+                  恢复默认草稿
                 </button>
                 <button type="button" className="btn" onClick={() => setEditId(null)}>
                   取消
