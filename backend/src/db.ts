@@ -55,7 +55,7 @@ function wrapNode(raw: { exec: Function; prepare: Function; close: Function }): 
         },
       };
     },
-    pragma: (src) => raw.exec(`PRAGMA ${src.replace(/^PRAGMA\s+/i, "")}`),
+    pragma: (src) => { const sql = `PRAGMA ${src.replace(/^PRAGMA\s+/i, "")}`; try { return self.prepare(sql).all(); } catch { return raw.exec(sql); } },
     transaction: (fn) => () => {
       raw.exec("BEGIN");
       try {

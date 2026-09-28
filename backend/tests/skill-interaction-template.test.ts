@@ -105,7 +105,7 @@ describe("one Skill / one knowledge interaction template", () => {
     const file = path.join(root, skillId, "SKILL.md");
     fs.writeFileSync(file, source.replace('required_inputs: []', 'required_inputs: ["keyword"]'));
     expect(() => taskDefinitions(root)).toThrow(/required_inputs must match/);
-    fs.writeFileSync(file, source.replace(/^input_schema:.*\n/m, ""));
+    fs.writeFileSync(file, source.split("\n").filter((line) => !line.startsWith("input_schema:")).join("\n"));
     expect(() => taskDefinitions(root)).toThrow(/interaction requires input_schema/);
     fs.writeFileSync(file, source.replace('"purpose":', '"invented_field":'));
     expect(() => taskDefinitions(root)).toThrow(/unsupported field/);
