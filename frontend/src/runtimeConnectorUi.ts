@@ -220,6 +220,23 @@ export function versionConflictMessage(error: unknown): string | null {
 }
 
 /**
+ * Transport-classified remote failures (backend `runtimeErrorCode`). The upstream
+ * body is never returned, so the message names the layer to fix: credential,
+ * endpoint, rate limit, their outage, timeout or the local network.
+ */
+export function remoteFailureMessage(code: string): string {
+  if (code === "runtime_remote_unauthorized") return "远端拒绝授权（401）：请更新连接器凭据（API key / Bearer）后重新测试。";
+  if (code === "runtime_remote_forbidden") return "远端禁止访问（403）：该凭据无权访问此端点。";
+  if (code === "runtime_remote_not_found") return "远端未找到该端点（404）：请核对 URL 路径与传输类型。";
+  if (code === "runtime_remote_rate_limited") return "远端限流（429）：请稍后重试。";
+  if (code === "runtime_remote_rejected") return "远端拒绝该请求（4xx）：多为端点协议/传输类型不匹配，请核对。";
+  if (code === "runtime_remote_unavailable") return "远端服务不可用（5xx）：对方网关/服务故障，稍后重试；与本方配置无关。";
+  if (code === "runtime_remote_timeout") return "远端超时：请稍后重试，或调大超时毫秒数。";
+  if (code === "runtime_remote_unreachable") return "网络不可达：本机到该端点的 DNS/连接失败，请检查网络与地址。";
+  return "";
+}
+
+/**
  * Server answers for the credential vault. A missing or unusable
  * RUNTIME_CREDENTIAL_MASTER_KEY is a server configuration problem, so the
  * reason and the recovery must reach the administrator instead of a bare 503.

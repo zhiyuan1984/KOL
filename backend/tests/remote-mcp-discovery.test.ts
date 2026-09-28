@@ -10,6 +10,7 @@ import {
   isInitializeRequest,
 } from "@modelcontextprotocol/sdk/types.js";
 import { RemoteMcpClient } from "../src/mcp/remote.js";
+import { runtimeErrorCode } from "../src/runtime/execution.js";
 
 type Tool = {
   name: string;
@@ -257,5 +258,16 @@ describe("RemoteMcpClient discovery proxy", () => {
     expect(receivedAuthorizationHeaders).not.toContain("Bearer never-forward-this-business-secret");
     await publicClient.close();
     delete process.env.MEDIACRAWLER_MCP_TOKEN;
+  });
+
+  it("classifies a 401 handshake as an unauthorized remote failure", async () => {
+    requireConnectorHeader = true;
+    const client = new RemoteMcpClient({ url: baseUrl, headers: { Authorization: "Bearer stale-credential" } });
+
+    const failure = await client.listTools().then(() => null, (cause: unknown) => cause) as { remoteStatus?: number } | null;
+    expect(failure).not.toBeNull();
+    expect(failure!.remoteStatus).toBe(401);
+    expect(runtimeErrorCode(failure)).toBe("runtime_remote_unauthorized");
+    await client.close();
   });
 });

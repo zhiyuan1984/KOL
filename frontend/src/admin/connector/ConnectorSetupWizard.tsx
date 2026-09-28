@@ -6,6 +6,7 @@ import { useAdminConfirm } from "../../components/ConfirmDialog";
 import {
   credentialVaultMessage,
   errorMessage,
+  remoteFailureMessage,
   versionConflictMessage,
   type RuntimeConnectorTransport,
 } from "../../runtimeConnectorUi";
@@ -42,6 +43,8 @@ function friendlyProbeFailure(code: string): string {
   if (code === "runtime_connector_disabled") return "连接器已停用，无法测试。请在完成验证后再启用。";
   if (code === "runtime_connector_not_configured") return "尚未保存接入配置。请先保存连接草稿。";
   if (code === "runtime_endpoint_invalid") return "尚未填写 Base URL，或端点无效；请在接入配置中补齐后再测试。";
+  const remote = remoteFailureMessage(code);
+  if (remote) return remote;
   return code ? `测试未通过；请检查已保存配置后重试（错误码：${code}）。` : "测试未通过；请检查已保存配置后重试。";
 }
 

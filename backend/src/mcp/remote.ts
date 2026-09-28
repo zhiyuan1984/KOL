@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { SseError, SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { StreamableHTTPClientTransport, StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import type { Json } from "../types.js";
 
 export type RemoteMcpOptions = {
@@ -71,6 +72,59 @@ export function normalizeMcpContent(result: Record<string, unknown>): Json {
   };
 }
 
+export type ClassifiedRemoteError = Error & { remoteStatus?: number; remoteKind?: "timeout" | "unreachable" };
+
+function extractRemoteStatus(error: Error): number | undefined {
+  if (error instanceof StreamableHTTPError || error instanceof SseError) {
+    const status = Number((error as { code?: unknown }).code);
+    if (Number.isInteger(status) && status >= 100 && status <= 599) return status;
+  }
+  const message = error.message || "";
+  const handshake = /Non-200 status code \((\d{3})\)/.exec(message);
+  if (handshake) return Number(handshake[1]);
+  const posting = /Error POSTing to endpoint \(HTTP (\d{3})\)/.exec(message);
+  if (posting) return Number(posting[1]);
+  return undefined;
+}
+
+/**
+ * Attaches a transport-level classification (HTTP status or failure kind) to a
+ * remote failure so the runtime can answer a sanitized, actionable error code.
+ * The original error object is reused: only the classification is added, never
+ * a response body, URL or credential.
+ */
+export function annotateRemoteFailure(error: unknown): unknown {
+  if (!(error instanceof Error)) return error;
+  const annotated = error as ClassifiedRemoteError;
+  if (annotated.remoteStatus !== undefined || annotated.remoteKind !== undefined) return annotated;
+  const status = extractRemoteStatus(error);
+  if (status !== undefined) {
+    annotated.remoteStatus = status;
+    return annotated;
+  }
+  if (error instanceof McpError && error.code === ErrorCode.RequestTimeout) {
+    annotated.remoteKind = "timeout";
+    return annotated;
+  }
+  if (/request timed out|maximum total timeout exceeded/i.test(error.message)) {
+    annotated.remoteKind = "timeout";
+    return annotated;
+  }
+  if (/fetch failed|connect timeout error|ENOTFOUND|ECONNREFUSED|ECONNRESET|EAI_AGAIN|UND_ERR_/i.test(error.message)) {
+    annotated.remoteKind = "unreachable";
+    return annotated;
+  }
+  return annotated;
+}
+
+async function classifiedRemoteCall<T>(pending: Promise<T>): Promise<T> {
+  try {
+    return await pending;
+  } catch (error) {
+    throw annotateRemoteFailure(error);
+  }
+}
+
 export class RemoteMcpClient {
   readonly url: string;
   readonly timeoutMs: number;
@@ -118,7 +172,7 @@ export class RemoteMcpClient {
 
   private async connect(): Promise<void> {
     if (this.closed) throw new Error("remote MCP client is closed");
-    if (!this.connecting) this.connecting = this.client.connect(this.transport, { timeout: this.timeoutMs });
+    if (!this.connecting) this.connecting = classifiedRemoteCall(this.client.connect(this.transport, { timeout: this.timeoutMs }));
     await this.connecting;
   }
 
@@ -131,10 +185,10 @@ export class RemoteMcpClient {
     let cursor: string | undefined;
 
     for (let page = 0; page < MAX_LIST_TOOLS_PAGES; page += 1) {
-      const result = await this.client.listTools(
+      const result = await classifiedRemoteCall(this.client.listTools(
         cursor === undefined ? {} : { cursor },
         { timeout: this.timeoutMs },
-      );
+      ));
       if (tools.length + result.tools.length > MAX_LIST_TOOLS_TOTAL) {
         throw new Error(`remote MCP tools/list exceeded ${MAX_LIST_TOOLS_TOTAL} tools`);
       }
@@ -156,11 +210,11 @@ export class RemoteMcpClient {
   /** Forward an MCP tool result without normalization, including isError and content blocks. */
   async callToolRaw(name: string, args: Json = {}): Promise<Record<string, unknown>> {
     await this.connect();
-    return await this.client.callTool(
+    return await classifiedRemoteCall(this.client.callTool(
       { name, arguments: args },
       undefined,
       { timeout: this.timeoutMs },
-    ) as unknown as Record<string, unknown>;
+    )) as unknown as Record<string, unknown>;
   }
 
   async callTool(name: string, args: Json = {}): Promise<Json> {

@@ -15,10 +15,31 @@ export type RuntimeContext = { agentId: string; skillId: string; userId: string;
 export type RuntimeRemote = Pick<RemoteMcpClient, "listTools" | "callToolRaw" | "close">;
 
 function reject(code: string, status = 403): never { throw new HttpFail(status, { code }); }
+/** Transport-reported HTTP status → sanitized runtime code. Never echoes the body or URL. */
+function remoteStatusErrorCode(status: number): string {
+  if (status === 401) return "runtime_remote_unauthorized";
+  if (status === 403) return "runtime_remote_forbidden";
+  if (status === 404) return "runtime_remote_not_found";
+  if (status === 408) return "runtime_remote_timeout";
+  if (status === 429) return "runtime_remote_rate_limited";
+  if (status >= 500) return "runtime_remote_unavailable";
+  if (status >= 400) return "runtime_remote_rejected";
+  return "runtime_remote_failed";
+}
 export function runtimeErrorCode(error: unknown): string {
   if (error instanceof HttpFail && error.detail && typeof error.detail === "object") {
     const code = (error.detail as Json).code;
     if (typeof code === "string") return code;
+  }
+  // Transport-level classifications (see mcp/remote.ts) stay actionable without
+  // the remote body: a 401 means "fix the credential", a 5xx means "their outage".
+  if (error && typeof error === "object") {
+    const failure = error as { remoteStatus?: unknown; remoteKind?: unknown };
+    if (typeof failure.remoteStatus === "number" && Number.isInteger(failure.remoteStatus)) {
+      return remoteStatusErrorCode(failure.remoteStatus);
+    }
+    if (failure.remoteKind === "timeout") return "runtime_remote_timeout";
+    if (failure.remoteKind === "unreachable") return "runtime_remote_unreachable";
   }
   // Remote errors may contain credentials, private URLs or payloads. Never echo them.
   return "runtime_remote_failed";
