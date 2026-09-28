@@ -472,7 +472,6 @@ export default function SideWorkbench({
         onClick={toggle}
       >
         <PanelToggleIcon className="scope-task-rail-toggle-icon" />
-        {collapsed ? <strong>本轮结果</strong> : null}
       </button>
       {collapsed ? null : <>
       <div className="artifact-toolbar" aria-label="产物工具栏">
