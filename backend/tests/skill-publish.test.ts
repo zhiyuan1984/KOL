@@ -64,6 +64,25 @@ describe("published skills on the Codex harness", () => {
     expect(denied.status).toBe(403);
   });
 
+  it("imports a Markdown skill as an ungranted third-party draft and blocks likely secrets", async () => {
+    await loginPm();
+    const markdown = `---\nid: imported_brief\ntitle: 导入简报\ndescription: 从本地文件导入的技能\ncategory: 管理\nprofile: commander\noutput: task_result\nfunnel: reach\n---\n\n# 导入简报\n\n整理信息，不执行正式动作。\n`;
+    const form = new FormData();
+    form.append("file", new File([markdown], "SKILL.md", { type: "text/markdown" }));
+    const response = await app.request("/api/admin/skills/import", { method: "POST", body: form });
+    const body = await response.json() as Json;
+    expect(response.status, JSON.stringify(body)).toBe(201);
+    expect(body.id).toBe("imported_brief");
+    expect(body.grants).toEqual({ org: [], team: [], user: [] });
+    expect(body.import_receipt).toEqual(expect.objectContaining({ source: "third_party", status: "draft" }));
+    expect(body.lifecycle).toEqual(expect.objectContaining({ stage: "draft", tags: expect.arrayContaining(["第三方", "本地导入"]) }));
+
+    const unsafe = new FormData();
+    unsafe.append("file", new File([markdown.replace("整理信息", "api_key=abcdefghijklmnop 整理信息")], "unsafe.md", { type: "text/markdown" }));
+    const blocked = await app.request("/api/admin/skills/import", { method: "POST", body: unsafe });
+    expect(blocked.status).toBe(400);
+  });
+
   it("publishes a skill into catalog, market, extraRoots, and the next stub turn", async () => {
     await loginPm();
     const created = await request("POST", "/api/admin/skills", NEW_SKILL);

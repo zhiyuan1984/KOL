@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
 import { Hono } from "hono";
+import { parse as parseYaml } from "yaml";
 import { authDisabled, isAdmin, requireAdmin, requireSkill, scopedUser } from "../auth.js";
 import { examDemoStatus, examTodoCount } from "../exam.js";
 import { starry } from "../adapters/clients.js";
@@ -300,6 +301,43 @@ misc.post("/admin/skills", async (c) => {
   const created = createPublishedSkill(body);
   clearSkillLookupCache();
   return c.json({ ...skillMeta(created.id), grants: grantsForSkill(created.id) }, 201);
+});
+misc.post("/admin/skills/import", async (c) => {
+  requirePm();
+  const form = await c.req.parseBody();
+  const file = form.file;
+  if (!file || typeof file === "string" || Array.isArray(file) || typeof file.text !== "function") {
+    throw new HttpFail(400, "请选择一个 Markdown 文件");
+  }
+  const name = String(file.name || "");
+  if (!/\.md$/i.test(name)) throw new HttpFail(400, "仅支持 .md 文件");
+  if (Number(file.size || 0) > 128 * 1024) throw new HttpFail(413, "Markdown 文件不能超过 128 KB");
+  const markdown = (await file.text()).replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+  const match = markdown.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  if (!match) throw new HttpFail(400, "缺少有效的 YAML front matter");
+  let meta: Record<string, unknown>;
+  try {
+    const parsed = parseYaml(match[1]);
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") throw new Error("front matter must be an object");
+    meta = parsed as Record<string, unknown>;
+  } catch (error) {
+    throw new HttpFail(400, `front matter 解析失败：${error instanceof Error ? error.message : "格式错误"}`);
+  }
+  const secretPattern = /(api[_-]?key|access[_-]?token|client[_-]?secret|private[_-]?key)\s*[:=]\s*["']?(?!\$\{|env:|secret:)[A-Za-z0-9_\-/.+=]{12,}/i;
+  if (secretPattern.test(markdown)) throw new HttpFail(400, "文件疑似包含明文密钥，请改为环境变量或 Secret 引用");
+  const created = createPublishedSkill({
+    ...meta,
+    body: match[2].trim(),
+    grant_org: false,
+  });
+  updateSkillLifecycleMeta(created.id, { tags: ["第三方", "本地导入"] });
+  clearSkillLookupCache();
+  return c.json({
+    ...skillMeta(created.id),
+    grants: grantsForSkill(created.id),
+    lifecycle: skillLifecycleMeta(created.id),
+    import_receipt: { filename: name, status: "draft", source: "third_party" },
+  }, 201);
 });
 misc.patch("/admin/skills/:id", async (c) => {
   requirePm();

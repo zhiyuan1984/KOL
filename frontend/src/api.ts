@@ -1523,6 +1523,16 @@ export const api = {
     ),
   createAdminSkill: (body: Record<string, unknown>) =>
     request<Record<string, unknown>>("/api/admin/skills", { method: "POST", body: JSON.stringify(body) }),
+  importAdminSkill: async (file: File) => {
+    const body = new FormData();
+    body.append("file", file);
+    const response = await fetch("/api/admin/skills/import", { method: "POST", body });
+    const data = await response.json() as Record<string, unknown>;
+    if (!response.ok) {
+      throw new Error(typeof data.detail === "string" ? data.detail : "导入技能失败");
+    }
+    return data;
+  },
   patchAdminSkill: (id: string, body: {
     in_market?: boolean;
     title?: string;
