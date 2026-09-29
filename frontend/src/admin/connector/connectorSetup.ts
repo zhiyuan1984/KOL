@@ -94,6 +94,14 @@ export type ConnectorConfigForm = {
  */
 export async function saveConnectorConfigForm(input: ConnectorConfigForm, currentVersion: number): Promise<number> {
   const refs = await resolveHeaderRefs(input.headerRows, input.label);
+  // A manually entered header is the operator's explicit replacement for a
+  // previously configured reference with the same case-insensitive name.
+  // In particular, Authorization must not be sent both as a custom header and
+  // through bearer_env/bearer_secret_ref, otherwise the server correctly
+  // rejects the configuration as ambiguous.
+  const manualHeaderNames = new Set(Object.keys(refs).map((name) => name.toLowerCase()));
+  const envRefs = Object.fromEntries(Object.entries(input.envRefs || {}).filter(([name]) => !manualHeaderNames.has(name.toLowerCase())));
+  const hasManualAuthorization = manualHeaderNames.has("authorization");
   const config: RuntimeConnectorConfig & { expected_version: number } = {
     protocol: input.protocol,
     allow_unauthenticated: input.noAuth,
@@ -105,9 +113,9 @@ export async function saveConnectorConfigForm(input: ConnectorConfigForm, curren
   if (input.url) config.url = input.url;
   if (input.urlEnv) config.url_env = input.urlEnv;
   if (Object.keys(refs).length) config.headers_secret_refs = refs;
-  if (input.envRefs && Object.keys(input.envRefs).length) config.headers_env = input.envRefs;
-  if (input.bearerRef) config.bearer_secret_ref = input.bearerRef;
-  if (input.bearerEnv) config.bearer_env = input.bearerEnv;
+  if (Object.keys(envRefs).length) config.headers_env = envRefs;
+  if (input.bearerRef && !hasManualAuthorization) config.bearer_secret_ref = input.bearerRef;
+  if (input.bearerEnv && !hasManualAuthorization) config.bearer_env = input.bearerEnv;
   const saved = await api.saveRuntimeConnectorConfig(input.id, config);
   if (input.iconFile) {
     try {

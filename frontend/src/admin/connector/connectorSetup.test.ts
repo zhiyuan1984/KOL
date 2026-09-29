@@ -93,6 +93,30 @@ describe("connector config form writes", () => {
     expect(body.http_tools).toEqual([httpTool]);
   });
 
+  it("lets a manually entered Authorization header replace a bearer reference", async () => {
+    api.createRuntimeCredential.mockResolvedValue({ id: "cred_authorization" });
+    await saveConnectorConfigForm(
+      {
+        ...MCP_FORM,
+        noAuth: false,
+        headerRows: [{ name: "Authorization", value: "Bearer manually-entered" }],
+        envRefs: { "X-MCP-API-KEY": "STARRY_KOL_MCP_API_KEY", "authorization": "OLD_AUTH_ENV" },
+        bearerEnv: "STARRY_KOL_MCP_BEARER",
+      },
+      2,
+    );
+    expect(api.saveRuntimeConnectorConfig).toHaveBeenCalledWith(
+      "starrykol",
+      expect.objectContaining({
+        headers_secret_refs: { Authorization: "cred_authorization" },
+        headers_env: { "X-MCP-API-KEY": "STARRY_KOL_MCP_API_KEY" },
+      }),
+    );
+    const body = api.saveRuntimeConnectorConfig.mock.calls[0][1] as Record<string, unknown>;
+    expect(body.bearer_env).toBeUndefined();
+    expect(body.bearer_secret_ref).toBeUndefined();
+  });
+
   it("returns the version the server answered with", async () => {
     api.saveRuntimeConnectorConfig.mockResolvedValue({ config: {}, version: 9 });
     await expect(saveConnectorConfigForm(MCP_FORM, 8)).resolves.toBe(9);
