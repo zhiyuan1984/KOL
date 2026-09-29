@@ -82,10 +82,11 @@ function scoreWithCompatibility(answer: AssessmentAnswer, weights: Record<string
   return answer.probabilities ? weightedScore(answer, weights) : (legacy[answer.choice || ""] ?? null);
 }
 
-function selected(value: AssessmentAnswer | undefined): { choice: string; confidence: number } {
+function selected(value: AssessmentAnswer | undefined): AssessmentAnswer & { choice: string; confidence: number } {
   return {
     choice: String(value?.choice || "insufficient"),
     confidence: Math.max(0, Math.min(1, Number(value?.confidence || 0))),
+    probabilities: value?.probabilities,
   };
 }
 
