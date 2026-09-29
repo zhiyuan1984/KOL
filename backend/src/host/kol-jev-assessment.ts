@@ -191,7 +191,8 @@ function eligibleProfiles(companyId: string, limit: number, db: SqliteConn, kolU
     `SELECT *
        FROM kol_profile_index
       WHERE company_id=? AND pool_status='open'${scoped}
-      ORDER BY CASE WHEN assessed_at IS NULL OR trim(assessed_at)='' THEN 0 ELSE 1 END,
+      ORDER BY CASE WHEN potential_score IS NULL THEN 0 ELSE 1 END,
+               CASE WHEN assessed_at IS NULL OR trim(assessed_at)='' THEN 0 ELSE 1 END,
                assessed_at ASC, ingested_at DESC, kol_uid
       LIMIT ?`,
   ).all(companyId, ...kolUids, limit) as Row[];
