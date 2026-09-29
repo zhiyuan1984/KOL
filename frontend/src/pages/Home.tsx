@@ -46,6 +46,7 @@ import PoolInteraction, {
 import PoolPane from "../home/PoolPane";
 import ReleaseFollowConfirm from "../home/ReleaseFollowConfirm";
 import { FollowedBatchConfirm } from "../home/FollowedBatchConfirm";
+import { isPoolNew } from "../home/poolView";
 import SkillParamCard, { type SkillParamField } from "../home/workspace/SkillParamCard";
 import SkillTemplateContext from "../components/SkillTemplateContext";
 import { defaultTemplateValues, nonEmptyTemplateEntities, templateInputFields } from "../skillTemplate";
@@ -2261,6 +2262,13 @@ export default function Home() {
                   selectedCount={selectedKolIds.length}
                   onStageFilter={followedWorkspace.setStageFilter}
                   onSituation={followedWorkspace.setSituation}
+                  publicPoolNewCount={poolWorkspace.poolLoaded ? poolWorkspace.cards.filter(isPoolNew).length : null}
+                  onOpenPublicPoolNew={() => {
+                    poolWorkspace.setQuery("");
+                    poolWorkspace.setSort("default");
+                    poolWorkspace.setFilter("new");
+                    setMode("pool");
+                  }}
                   interaction={interactionFeedback}
                 />
               )}

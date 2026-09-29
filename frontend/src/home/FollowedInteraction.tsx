@@ -3,7 +3,6 @@ import type { FollowedKolCardModel } from "../followedKolCard";
 import { FOLLOWED_LIFECYCLE_GROUPS } from "../followedKolCard";
 import {
   briefingForFollowed,
-  FOLLOWED_SITUATIONS,
   matchesFollowedSituation,
   type FollowedSituation,
 } from "./FollowedBrief";
@@ -17,6 +16,8 @@ export default function FollowedInteraction({
   selectedCount,
   onStageFilter,
   onSituation,
+  publicPoolNewCount,
+  onOpenPublicPoolNew,
   interaction,
 }: {
   cards: FollowedKolCardModel[];
@@ -26,11 +27,12 @@ export default function FollowedInteraction({
   selectedCount: number;
   onStageFilter: (value: string) => void;
   onSituation: (value: FollowedSituation | "") => void;
+  publicPoolNewCount: number | null;
+  onOpenPublicPoolNew: () => void;
   interaction?: ReactNode;
 }) {
   const summaryReady = completeness === "complete";
   const brief = briefingForFollowed(cards);
-  const counts = brief.counts;
   const selectedGroup = stageFilter.startsWith("group:") ? stageFilter.slice(6) : "";
   const nearCount = cards.filter((card) => matchesFollowedSituation(card, "near_14d")).length;
   const interestedCount = cards.filter((card) => matchesFollowedSituation(card, "interested")).length;
@@ -113,34 +115,6 @@ export default function FollowedInteraction({
               >
                 <span>{group.label}</span>
                 <strong>{count}</strong>
-                <em>{cards.length ? `${Math.round((count / cards.length) * 100)}%` : "0%"}</em>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="followed-attention" aria-labelledby="followed-attention-title">
-        <div className="followed-section-heading">
-          <h2 id="followed-attention-title">需要关注</h2>
-          {situation ? <button type="button" className="followed-inline-clear" data-followed-situation-clear onClick={() => onSituation("")}>清除</button> : null}
-        </div>
-        <div className="followed-attention-list">
-          {FOLLOWED_SITUATIONS.map(({ key, label }) => {
-            const count = counts[key];
-            const active = situation === key;
-            return (
-              <button
-                key={key}
-                type="button"
-                className={active ? "is-active" : ""}
-                data-followed-situation={key}
-                aria-pressed={active}
-                onClick={() => onSituation(active ? "" : key)}
-              >
-                <span aria-hidden>{key === "refused" ? "!" : key === "near_14d" ? "◷" : "↑"}</span>
-                <strong>{count} 位{label}</strong>
-                <em>在右栏查看</em>
               </button>
             );
           })}
@@ -148,11 +122,15 @@ export default function FollowedInteraction({
       </section>
 
       <section className="followed-next-step" aria-labelledby="followed-next-title">
-        <h2 id="followed-next-title">建议先做</h2>
+        <div className="followed-section-heading">
+          <h2 id="followed-next-title">建议先做</h2>
+          {situation ? <button type="button" className="followed-inline-clear" data-followed-situation-clear onClick={() => onSituation("")}>清除</button> : null}
+        </div>
         <ol>
-          <li><button type="button" onClick={() => onSituation("interested")}>查看已表达兴趣的 {interestedCount} 位对象</button></li>
-          <li><button type="button" onClick={() => onSituation("near_14d")}>查看临近失联的 {nearCount} 位对象</button></li>
-          {refusedCount ? <li><button type="button" onClick={() => onSituation("refused")}>核对已拒绝的 {refusedCount} 位对象</button></li> : null}
+          <li><button type="button" className={situation === "interested" ? "is-active" : ""} data-followed-situation="interested" aria-pressed={situation === "interested"} onClick={() => onSituation(situation === "interested" ? "" : "interested")}>查看已表达兴趣的 {interestedCount} 位对象</button></li>
+          <li><button type="button" className={situation === "near_14d" ? "is-active" : ""} data-followed-situation="near_14d" aria-pressed={situation === "near_14d"} onClick={() => onSituation(situation === "near_14d" ? "" : "near_14d")}>查看临近失联的 {nearCount} 位对象</button></li>
+          {refusedCount ? <li><button type="button" className={situation === "refused" ? "is-active" : ""} data-followed-situation="refused" aria-pressed={situation === "refused"} onClick={() => onSituation(situation === "refused" ? "" : "refused")}>核对已拒绝的 {refusedCount} 位对象</button></li> : null}
+          <li><button type="button" data-followed-public-pool-new onClick={onOpenPublicPoolNew}>{publicPoolNewCount == null ? "查看公海新加入的 KOL" : `查看公海新加入的 ${publicPoolNewCount} 位 KOL`}</button></li>
         </ol>
       </section>
 

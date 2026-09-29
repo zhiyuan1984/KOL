@@ -5,6 +5,10 @@ export type PoolSortField = "ingested" | "followers" | "score";
 export type PoolSortDirection = "asc" | "desc";
 export type PoolSort = "default" | `${PoolSortField}-${PoolSortDirection}`;
 
+export function isPoolNew(card: PoolKol): boolean {
+  return (card.public_stage?.label || "").includes("未首次建联");
+}
+
 export function metricNumber(value?: string) {
   const raw = (value || "").trim();
   const number = Number.parseFloat(raw.replace(/,/g, ""));
@@ -95,7 +99,7 @@ export function filterPoolCards(cards: PoolKol[], query: string, filter: PoolFil
       card.metrics.engagement,
     ].join(" ").toLowerCase();
     const matchesFilter = filter === "all"
-      || (filter === "overdue" ? isPoolOverdue(card) : stage.includes("未首次建联"));
+      || (filter === "overdue" ? isPoolOverdue(card) : isPoolNew(card));
     return matchesFilter && (!needle || searchable.includes(needle));
   });
 
