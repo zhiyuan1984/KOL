@@ -178,9 +178,9 @@ export function inboundJudgmentWhy(summary: string): string {
     return "来信提到样品或寄送";
   }
   if (text && !isMailHeaderDump(text)) {
-    return "来信内容足以判断阶段";
+    return "邮件摘录不足以单独判断阶段";
   }
-  return "来信显示可推进阶段";
+  return "缺少可核对的阶段判断依据";
 }
 
 export function stageLabelForCode(code?: string): string {
@@ -349,6 +349,11 @@ export function projectFollowedKolCard(kol: FollowedKolRecord, tasks: Task[] = [
   const fact = latestFact(kol, related);
   const risk = riskOf(kol, related);
   const target = heuristicTarget(kol);
+  // 没有后端明确写入的阶段建议时，不把“当前阶段的下一格”包装成 AI 判断。
+  const hasSavedStageTarget = Boolean(
+    String(kol.suggested_stage_code || "").trim()
+    || (String(kol.suggested_stage || "").trim() && !/无需推进|待补阶段|已完成|^—$|需人选回到主流程/.test(String(kol.suggested_stage))),
+  );
   const stageLabel = kol.unbound
     ? "未进入生命周期"
     : String(kol.stage_label || "").trim() || "阶段未知";
@@ -467,12 +472,15 @@ export function projectFollowedKolCard(kol: FollowedKolRecord, tasks: Task[] = [
     waitingConfirm = true;
     task = related;
   } else if (fact.kind === "inbound" && target.code && target.label && mailEvidence) {
+    if (!hasSavedStageTarget) {
+      evidence = { ...evidence, kind: "mail", label: fact.summary, thread_id: fact.thread_id };
+    } else {
     recommended = {
       kind: "confirm-stage",
       label: confirmStageCtaLabel(target.label),
       target_stage_code: target.code,
       target_stage_label: target.label,
-      why: inboundJudgmentWhy(fact.summary),
+      why: "已有阶段建议记录，需人工核对邮件原文。",
       can_write_stage: true,
     };
     evidence = {
@@ -484,6 +492,7 @@ export function projectFollowedKolCard(kol: FollowedKolRecord, tasks: Task[] = [
     owner = "me";
     waitingConfirm = true;
     focusThread = fact.thread_id;
+    }
   } else if (related && isStageTask(related) && (!target.code || !target.label)) {
     recommended = {
       kind: "insufficient",

@@ -87,7 +87,6 @@ export function useFollowedWorkspace(options: {
   /** 最近一次跟进读取的来源：board-adapter 表示端点缺失、行来自 board 投影。 */
   const lastSourceRef = useRef<string>("following");
   const [completeness, setCompleteness] = useState<FollowListCompleteness>("loading-local");
-  const [refreshNotice, setRefreshNotice] = useState("");
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("");
   const [situation, setSituation] = useState<FollowedSituation | "">("");
@@ -182,7 +181,6 @@ export function useFollowedWorkspace(options: {
   const loadSurface = useCallback(async () => {
     reconcileSeq.current += 1;
     const seq = reconcileSeq.current;
-    setRefreshNotice("");
     setCompleteness("loading-local");
     const loaded = await readSurface();
     if (seq !== reconcileSeq.current) return;
@@ -197,7 +195,6 @@ export function useFollowedWorkspace(options: {
     reconcileSeq.current += 1;
     const seq = reconcileSeq.current;
     setError("");
-    setRefreshNotice("");
     setCompleteness("loading-local");
     const board = loadBoard("following");
     const localRows = await readSurface();
@@ -226,7 +223,6 @@ export function useFollowedWorkspace(options: {
     if (seq !== reconcileSeq.current) return;
     if (mergedRows) {
       setError("");
-      setRefreshNotice(`红人数据已更新，共 ${mergedRows.length} 位。`);
     }
     setCompleteness(mergedRows ? "complete" : "incomplete-error");
   }, [loadBoard, readSurface]);
@@ -480,7 +476,6 @@ export function useFollowedWorkspace(options: {
     setError,
     loading,
     completeness,
-    refreshNotice,
     followEmptyKind,
     confirmStageBusyId,
     confirmStageFeedback,

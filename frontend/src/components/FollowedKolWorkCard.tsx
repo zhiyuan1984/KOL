@@ -171,9 +171,6 @@ export default function FollowedKolWorkCard({
   const potentialScore = card.source.potential_score == null ? null : Number(card.source.potential_score);
   const potentialConfidence = card.source.potential_confidence == null ? null : Math.round(Number(card.source.potential_confidence) * 100);
   const hasEvidence = card.evidence.kind !== "none" && Boolean(card.evidence.label);
-  const factMeta = [fact.source || (fact.thread_id ? "邮件" : ""), fact.at ? formatFactTime(fact.at) : ""]
-    .filter(Boolean)
-    .join(" · ");
   const refused = /拒绝|拒信/.test(`${stageLabel} ${card.identity.display}`);
   const marker = RISK_MARKER_ORDER
     .map((id) => card.risk.chips.find((chip) => chip.id === id))
@@ -312,12 +309,6 @@ export default function FollowedKolWorkCard({
             <p className="kol-mail-digest" data-mail-summary={fact.thread_id || undefined}>
               {fact.summary}
             </p>
-            {factMeta ? (
-              <p className="kol-mail-meta">
-                {factMeta}
-                {fact.at ? <span data-thread-time className="sr-only">{fact.at}</span> : null}
-              </p>
-            ) : null}
           </div>
         </div>
 
@@ -332,7 +323,7 @@ export default function FollowedKolWorkCard({
               {headline}
             </p>
             <p className="kol-ai-why">
-              <span className="kol-split-kicker">AI 建议</span>
+              <span className="kol-split-kicker">{rec.kind === "confirm-stage" ? "已保存阶段建议" : "说明"}</span>
               {rec.why ? <span className="kol-judgment" data-action-why>{rec.why}</span> : null}
             </p>
           </div>

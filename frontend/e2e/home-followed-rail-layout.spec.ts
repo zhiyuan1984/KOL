@@ -271,7 +271,7 @@ test("先展示本地名单，历史记录拼接完成后原位更新并提示",
   finishBoard();
 
   await expect(page.locator('[data-followed-kol="红人3"]')).toBeVisible();
-  await expect(page.locator("[data-follow-refresh-notice]")).toHaveText("红人数据已更新，共 3 位。");
+  await expect(page.locator("[data-followed-object-count]")).toHaveText("目前跟进了 3 位");
   await expect(page.locator("[data-followed-interaction]")).toContainText("3 位当前跟进对象");
   expect(followingReads).toBeGreaterThanOrEqual(2);
 });

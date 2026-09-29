@@ -6,7 +6,7 @@ import {
   type FollowedKolCardModel,
 } from "../followedKolCard";
 import type { StarryBinding } from "../api";
-import { briefingForFollowed, FOLLOWED_SITUATIONS, type FollowedSituation } from "./FollowedBrief";
+import type { FollowedSituation } from "./FollowedBrief";
 import { KOL_SELECT_MAX, selectAllChecked, selectAllLabel } from "./kolContract";
 import { HOME_HANDOFF_TO_AGENT } from "./entryRegistry";
 import type { SurfaceDownView } from "./surfaceError";
@@ -89,7 +89,6 @@ export default function FollowedPane({
   followEmptyKind,
   down,
   listError,
-  refreshNotice,
   onQuery,
   onStageFilter,
   onSituation,
@@ -125,8 +124,6 @@ export default function FollowedPane({
   down?: SurfaceDownView | null;
   /** 名单还在屏上、但最近一次读取失败：安静提示，不吞掉已经读到的对象。 */
   listError?: string;
-  /** 历史快照与当前邮箱记录完成拼接后的非阻断回执。 */
-  refreshNotice?: string;
   onQuery: (value: string) => void;
   onStageFilter: (value: string) => void;
   onSituation: (value: FollowedSituation | "") => void;
@@ -155,7 +152,6 @@ export default function FollowedPane({
   const loading = !queryDown && (followEmptyKind === "loading" || followEmptyKind === "reconciling");
   const slowLoading = useSlowWait(loading);
   const empty = followEmptyCopy(queryDown ? "down" : followEmptyKind, followScope);
-  const brief = briefingForFollowed(allCards);
 
   return (
     <section
@@ -163,8 +159,7 @@ export default function FollowedPane({
       data-lifecycle-overview
     >
       <div className="followed-kol-column" data-followed-kol-column data-followed-decision-max="full">
-        {/* 顶部工具行：找谁（搜索）＋ 对选中的做什么（全选本页 / 分析已选 / 批量进阶段）。
-            「在跟 N 位」由下方简报唯一承载，这里只报选中数。 */}
+        {/* 顶部工具行：搜索后紧跟唯一结果计数，避免把同一份名单重复报数。 */}
         {allCards.length ? <div className="followed-object-toolbar" data-followed-object-toolbar data-home-entry="list-followed">
           <div className="followed-object-look" data-followed-object-look>
             <label className="followed-object-search">
@@ -178,6 +173,9 @@ export default function FollowedPane({
                 onChange={(event) => onQuery(event.target.value)}
               />
             </label>
+            <span className="followed-object-count" data-followed-object-count>
+              目前跟进了 {allCards.length} 位
+            </span>
           </div>
           <div className="followed-object-batch" data-followed-object-batch>
             <label className="followed-select-all">
@@ -215,18 +213,8 @@ export default function FollowedPane({
             </button> : null}
           </div>
         </div> : null}
-        {allCards.length ? <div className="followed-result-summary" aria-label="当前结果条件">
-          <strong>{visibleKols.length} 位结果</strong>
-          {stageFilter ? <button type="button" onClick={() => onStageFilter("")}>阶段筛选 ×</button> : null}
-          {FOLLOWED_SITUATIONS.map(({ key, label }) => situation === key ? (
-            <button key={key} type="button" onClick={() => onSituation("")}>{brief.counts[key]} 位{label} ×</button>
-          ) : null)}
-        </div> : null}
         {followEmptyKind === "reconciling" && allCards.length ? (
           <p className="muted" data-followed-reconciling role="status" aria-live="polite">正在核对历史协作数据…</p>
-        ) : null}
-        {refreshNotice ? (
-          <p className="muted" data-follow-refresh-notice role="status" aria-live="polite">{refreshNotice}</p>
         ) : null}
 
         {visibleKols.length ? (

@@ -3900,37 +3900,6 @@ summary:focus-visible,
   margin: 0;
   accent-color: var(--accent-text);
 }
-.followed-result-summary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--control-h-lg);
-  padding: var(--space-2) 4px;
-  border-bottom: 1px solid var(--border);
-  color: var(--ds-text-dim);
-  font-size: var(--ds-font-helper);
-}
-.followed-result-summary strong {
-  color: var(--text);
-  font-size: var(--ds-font-sm);
-  font-weight: 600;
-}
-.followed-result-summary button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: var(--badge-h);
-  padding: 0 7px;
-  border: 1px solid var(--accent);
-  border-radius: var(--ds-radius-tag);
-  background: var(--ds-selected-bg);
-  color: var(--accent-text);
-  font: inherit;
-  cursor: pointer;
-}
-.followed-result-summary button:hover,
-.followed-result-summary button:focus-visible { border-color: var(--accent-text); }
 .followed-kol-column .followed-kol-list {
   gap: 0;
   border-bottom: 1px solid var(--border);
@@ -3958,7 +3927,7 @@ summary:focus-visible,
 .followed-kol-column .kol-band-recommend {
   gap: 6px;
 }
-/* 只藏事实层的 kicker：建议层的「AI 建议」要留下，用来说明这行判断来自谁。 */
+/* 只藏事实层的 kicker：建议层的来源说明保留，用来区分保存记录与事实摘录。 */
 .followed-kol-card .kol-band-fact .kol-split-kicker { display: none; }
 .followed-kol-column .kol-mail-meta,
 .followed-kol-column .kol-judgment { font-size: var(--ds-font-sm); }

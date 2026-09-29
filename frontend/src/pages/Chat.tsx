@@ -790,9 +790,9 @@ export default function Chat() {
   const openedAsKol = Boolean((location.state as { kolSession?: boolean } | null)?.kolSession);
   const rememberedKol = Boolean(id && sessionStorage.getItem(`kol-session:${id}`));
   const kolSession = Boolean(collaborationId || journey?.collaboration_id || openedAsKol || rememberedKol);
-  // 普通任务详情页的中栏 + 右栏已经是完整工作区，不再嵌套一套任务中心列表。
-  // 红人协作会话仍保留左栏，用于邮件线程和合作对象上下文。
-  const showLeftRail = Boolean(id && kolSession);
+  // 任务详情统一使用中栏 + 右栏两栏工作区；邮件线程仍可从红人会话的内容区查看，
+  // 不再因为 kol-session 标记额外插入一列 AgentTaskList。
+  const showLeftRail = false;
   const sessionMails = (Array.isArray(journey?.mail_history)
     ? journey?.mail_history as SessionMailRow[]
     : undefined);
