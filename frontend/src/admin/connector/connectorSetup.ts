@@ -8,6 +8,13 @@ import { isConnectorIdValid, slugFromLabel } from "./entity";
 
 export type HeaderRow = { name: string; value: string };
 
+/** 启用闸门被拒时，服务端错误码对应的说法；未知码交给调用方兜底。 */
+export function friendlyEnableFailure(code: string): string {
+  if (code === "connector_verification_required") return "先完成一次通过的测试，连接器才会被允许启用。";
+  if (code === "connector_skill_binding_required") return "尚无技能绑定其工具，请按技能定义挂载后再启用。";
+  return "";
+}
+
 /** Error code carried by the API error payload. The API answers `{ detail: { code } }`. */
 export function errorCodeOf(cause: unknown): string {
   const payload = (cause as { payload?: unknown } | null)?.payload;

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../../api";
 import { connectorDisableConfirm } from "../../adminConfirm";
@@ -6,9 +6,11 @@ import { useAdminConfirm } from "../../components/ConfirmDialog";
 import {
   credentialVaultMessage,
   errorMessage,
+  mountableDeclaredCount,
   remoteFailureMessage,
   versionConflictMessage,
   type RuntimeConnectorTransport,
+  type SkillCoverage,
 } from "../../runtimeConnectorUi";
 import { ConnectorConfigCard } from "./ConnectorConfigCard";
 import { ConnectorIconUpload, HeaderRowsEditor, ModalShell, headerRowsProblem } from "./ConnectorPanels";
@@ -16,13 +18,14 @@ import { ConnectorToolsReadOnlyList } from "./ConnectorToolsCard";
 import {
   createConnectorRecord,
   errorCodeOf,
+  friendlyEnableFailure,
   readConnectorConfigVersion,
   saveConnectorConfigForm,
   type HeaderRow,
 } from "./connectorSetup";
 import { connectorHref, type ConnectorCardView } from "./entity";
-
-type WizardStep = "save" | "test" | "tools" | "enable";
+import { useDeclaredToolMount } from "./useDeclaredToolMount";
+import { initialWizardStep, type WizardStep } from "./wizardSteps";
 
 const STEPS: Array<{ id: WizardStep; label: string }> = [
   { id: "save", label: "保存" },
@@ -30,13 +33,6 @@ const STEPS: Array<{ id: WizardStep; label: string }> = [
   { id: "tools", label: "工具清单" },
   { id: "enable", label: "启用" },
 ];
-
-/** The server's own gate, in the user's words. Unknown codes are shown verbatim. */
-export function friendlyEnableFailure(code: string): string {
-  if (code === "connector_verification_required") return "先完成一次通过的测试，连接器才会被允许启用。";
-  if (code === "connector_skill_binding_required") return "尚无技能绑定其工具，请先在技能页挂载。";
-  return "";
-}
 
 function friendlyProbeFailure(code: string): string {
   if (code === "AbortError" || code === "request_aborted") return "测试已取消或连接中断；请确认服务可访问后重试。";
@@ -64,7 +60,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
   reload?: () => void;
 }) {
   const { ask, dialog } = useAdminConfirm();
-  const [step, setStep] = useState<WizardStep>("save");
+  const [step, setStep] = useState<WizardStep>(() => initialWizardStep(mode, card));
   const [createdId, setCreatedId] = useState<string | null>(null);
   const id = createdId ?? card?.id ?? null;
 
@@ -90,6 +86,10 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState("");
+  // 上次测试的服务端记录：重新打开弹窗时用来还原「测试通过但未启用」的上下文。
+  const [lastProbe, setLastProbe] = useState<{ checked_at: string; tool_count: number } | null>(null);
+  const [mountGate, setMountGate] = useState<SkillCoverage | null>(null);
+  const [mountGateError, setMountGateError] = useState("");
 
   // 配置模式：内嵌配置卡读回服务端已有版本后回传；不覆盖本会话保存得到的新版本。
   const adoptServerVersion = useCallback((loaded: number) => {
@@ -97,12 +97,81 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
   }, []);
 
   const canEnable = Boolean(id) && !enabled && verified && !enableBlocked;
+  // 本会话的测试结果优先；重新打开弹窗时回落到服务端记录的上次测试。
+  const passedAt = testedAt || lastProbe?.checked_at || "";
+  const passedToolCount = toolCount ?? lastProbe?.tool_count ?? null;
   const reachable = (target: WizardStep): boolean => {
     if (target === "save") return true;
     if (!id) return false;
     if (target === "test" || target === "tools") return true;
     return verified;
   };
+
+  // 版本与上次测试都独立于当前步骤读取：弹窗直接落在「启用」时也必须知道服务端已有版本，
+  // 否则会把「已有配置」误报成「尚未保存配置」。
+  useEffect(() => {
+    if (!id || mode !== "configure") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const loaded = await readConnectorConfigVersion(id);
+        if (!cancelled) adoptServerVersion(loaded);
+      } catch {
+        // 读不到就保持 0，界面照实说明，不编版本号。
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [id, mode, adoptServerVersion]);
+
+  useEffect(() => {
+    if (!id || mode !== "configure") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const activity = await api.runtimeConnectorActivity(id, 1);
+        const probe = activity.probes[0];
+        if (!cancelled && probe) setLastProbe({ checked_at: String(probe.checked_at || ""), tool_count: Number(probe.tool_count) || 0 });
+      } catch {
+        // 读不到历史不影响向导本身；上面会照实写「时间由服务端记录」。
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [id, mode]);
+
+  const loadMountGate = useCallback(async () => {
+    if (!id) return;
+    setMountGateError("");
+    try {
+      setMountGate(await api.runtimeSkillCoverage(id));
+    } catch (cause) {
+      setMountGate(null);
+      setMountGateError(errorMessage(cause, "无法读取技能挂载情况"));
+    }
+  }, [id]);
+
+  useEffect(() => {
+    if (step === "enable" && id) void loadMountGate();
+  }, [step, id, loadMountGate]);
+
+  // 启用闸门的可执行部分：扫描出的已上线技能里，声明了本连接器工具且现在就能挂的那些。
+  const gate = useMemo(() => {
+    const rows = (mountGate?.skills || []).filter((row) => row.implementation === "live");
+    const mounted = rows.reduce((sum, row) => sum + row.mounted_tools, 0);
+    const mountable = rows.reduce((sum, row) => sum + mountableDeclaredCount(row), 0);
+    const pending = rows.reduce((sum, row) => sum + row.pending_tools, 0);
+    return { skills: rows.length, mounted, mountable, skipped: pending - mountable };
+  }, [mountGate]);
+
+  const declaredMount = useDeclaredToolMount({
+    ask,
+    connectorId: id,
+    connectorLabel: card?.label || label.trim() || (id ?? ""),
+    onDone: async () => {
+      setEnableBlocked("");
+      await loadMountGate();
+      reload?.();
+    },
+  });
 
   const statusLine = useMemo(() => {
     if (!id) return "尚未保存：保存后连接器为待验证状态，不会自动启用。";
@@ -113,8 +182,8 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
         ? `配置已保存（版本 ${version}）；改动后需重新测试才能启用。`
         : `配置已保存（版本 ${version}），尚未通过测试；启用前需要一次通过的测试。`;
     }
-    return testedAt ? `测试通过于 ${testedAt}；可启用连接器。` : "测试已通过；可启用连接器。";
-  }, [enabled, id, savedInSession, testedAt, verified, version]);
+    return passedAt ? `测试通过于 ${passedAt}；可启用连接器。` : "测试已通过；可启用连接器。";
+  }, [enabled, id, passedAt, savedInSession, verified, version]);
 
   const rememberSave = (savedVersion: number, message: string) => {
     setVersion(savedVersion);
@@ -187,6 +256,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
       setTestedAt(result.checked_at || "");
       setTestNotice(result.notice || "");
       setToolCount(result.tool_count);
+      setLastProbe({ checked_at: result.checked_at || "", tool_count: result.tool_count });
       setEnableBlocked("");
       setReceipt(`测试通过：发现 ${result.tool_count} 个工具。`);
       setStep("tools");
@@ -357,7 +427,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
       {/* 测试结果常驻：切到工具清单/启用步后仍能看到上一次测试的结论与免责声明。 */}
       {verified ? (
         <p className="runtime-notice" data-connector-wizard-test-result role="status">
-          测试通过（{testedAt || "时间由服务端记录"}{toolCount === null ? "" : ` · ${toolCount} 个工具`}）。{testNotice}
+          测试通过（{passedAt || "时间由服务端记录"}{passedToolCount === null ? "" : ` · ${passedToolCount} 个工具`}）。{testNotice}
         </p>
       ) : (
         <p className="muted" data-connector-wizard-test-result>
@@ -428,9 +498,31 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
       <section data-connector-wizard-step="enable">
         <ul className="muted connector-wizard-gates">
           <li>{verified ? "已验证：最近一次测试通过。" : "未验证：需要一次通过的测试。"}</li>
-          <li>已被技能绑定其工具：{enableBlocked ? "尚未满足，请先在技能页挂载。" : "由平台在启用时校验。"}</li>
           <li>{enabled ? "当前状态：已启用。" : "当前状态：未启用。"}</li>
         </ul>
+        {/* 启用闸门里唯一还需要人做的一步：把工具挂到技能上。这里直接给出可完成的动作。 */}
+        <div className="connector-wizard-mount" data-connector-wizard-mount>
+          <p className="muted" data-connector-wizard-mount-summary>
+            {mountGateError
+              ? `技能挂载情况未读取：${mountGateError}`
+              : mountGate
+                ? `启用条件：至少一个技能把它的工具挂到可用状态。扫描结果：${gate.skills} 个已上线技能声明了它的工具，已挂 ${gate.mounted} 个；可一键挂载 ${gate.mountable} 个${gate.skipped ? `，另有 ${gate.skipped} 个要逐项决定` : ""}。`
+                : "正在读取技能挂载情况…"}
+          </p>
+          <button
+            type="button"
+            className="btn"
+            data-connector-wizard-mount-declared
+            disabled={declaredMount.busy || !id || gate.mountable === 0}
+            title={gate.mountable === 0 ? "没有可自动挂载的声明工具：先完成测试登记工具，或去技能页逐项选择" : undefined}
+            onClick={declaredMount.mount}
+          >
+            {declaredMount.busy ? "挂载中…" : "按技能定义挂载工具"}
+          </button>
+          <small className="muted">只挂技能定义（SKILL.md）里声明的工具，且必须已登记并启用策略；L3 与未登记工具不会自动挂载。挂载不启用连接器，启用仍是下面这一步。</small>
+          {declaredMount.receipt && <p className="runtime-notice" role="status" data-connector-wizard-mount-receipt>{declaredMount.receipt}现在可以启用连接器。</p>}
+          {declaredMount.failure && <p className="error" role="alert" data-connector-wizard-mount-error>{declaredMount.failure}</p>}
+        </div>
         <div className="connector-wizard-actions">
           <Link className="btn sm" to={id ? connectorHref(id) : "/admin/connectors"}>查看详情与审计</Link>
           <Link className="btn sm" to="/admin/skills">去技能页挂载</Link>

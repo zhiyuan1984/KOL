@@ -549,6 +549,17 @@ export function getSkillTool(skillId: string, connectorId: string, toolName: str
   return row ? asRow(row) : undefined;
 }
 
+/** 只读全表行，供技能覆盖读模型一次聚合，避免按技能逐条查询。 */
+export function listSkillConnectorBindings(): Row[] {
+  ensureRuntimeSchema();
+  return asRows(getConn().prepare("SELECT * FROM runtime_skill_connectors ORDER BY skill_id,connector_id").all());
+}
+
+export function listSkillToolBindings(): Row[] {
+  ensureRuntimeSchema();
+  return asRows(getConn().prepare("SELECT * FROM runtime_skill_tools ORDER BY skill_id,connector_id,tool_name").all());
+}
+
 /**
  * Enable gate for connectors: a connector is "in use" when an enabled
  * Skill→Connector binding mounts at least one enabled Skill→Tool binding of

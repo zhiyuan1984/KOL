@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import { governanceStatus } from "../src/adminGovernance";
 import { connectorCardView } from "../src/admin/connector/entity";
+import { initialWizardStep } from "../src/admin/connector/wizardSteps";
 
 const TEST_ID = "e2e-url-add";
 const IMPORT_ID = "e2e-json-import";
@@ -480,6 +481,8 @@ test("wizard keeps the enable gate and the honest state when the server refuses"
   await page.goto("/admin/connectors");
   await page.locator('[data-connector-card][data-connector="starrykol"] [data-connector-status-entry]').click();
   const panel = page.locator("[data-connector-panel='connector-config']");
+  // 入口步随服务端状态变化；本用例要走「保存 → 测试」，从步骤条显式回到保存步。
+  await panel.locator("[data-connector-wizard-tab='save']").click();
   await expect(panel.locator("[data-connector-wizard-step='save']")).toBeVisible();
 
   // 改配置 → 回到「需重新测试」：测试步是唯一推进键，启用键当时不可用。
@@ -492,9 +495,88 @@ test("wizard keeps the enable gate and the honest state when the server refuses"
   await expect(panel.locator("[data-connector-wizard-enable]")).toBeEnabled();
   await panel.locator("[data-connector-wizard-enable]").click();
   // 服务器拒绝 → 原样显示原因，并保持置灰（不伪造成功）。
-  await expect(panel.locator("[data-connector-wizard-error]")).toContainText("尚无技能绑定其工具，请先在技能页挂载。");
+  await expect(panel.locator("[data-connector-wizard-error]")).toContainText("尚无技能绑定其工具，请按技能定义挂载后再启用。");
   await expect(panel.locator("[data-connector-wizard-enable]")).toBeDisabled();
   await expect(panel.locator(".connector-panel-note")).toContainText("尚无技能绑定其工具");
+});
+
+test("已验证未启用的连接器重开向导直接落在启用步，并可按技能定义挂载", async ({ page }) => {
+  // 固定一条「已验证、未启用」的连接器：弹窗必须从这个状态开始，而不是回到「保存」。
+  await page.route("**/api/admin/connectors", (route) => route.fulfill({
+    json: [{
+      id: "e2e-verified", label: "E2E 已验证 MCP", purpose: "最近状态与按定义挂载",
+      enabled: 0, status: "verified", last_verified_at: "2026-09-29T02:00:00.000Z",
+      kind: "custom_mcp", protocol: "mcp", approved_tool_count: 2,
+    }],
+  }));
+  await page.route("**/api/admin/runtime/connectors/*/activity*", (route) => route.fulfill({
+    json: {
+      probes: [{
+        id: 1, connector_id: "e2e-verified", config_version: 3, actor_id: "e2e",
+        checked_at: "2026-09-29T02:00:00.000Z", status: "succeeded", probe_kind: "mcp_tools_list", tool_count: 4, duration_ms: 12,
+      }],
+      events: [],
+    },
+  }));
+  await page.route("**/api/admin/runtime/skills/coverage*", (route) => route.fulfill({
+    json: {
+      summary: { skills: 1, live: 1, defined: 0, declared_tools: 2, mounted_tools: 0, pending_tools: 2 },
+      connectors: [{ id: "e2e-verified", label: "E2E 已验证 MCP", enabled: false, status: "verified", approved_tool_count: 2 }],
+      skills: [{
+        skill_id: "creator_profile", label: "达人画像", stage: "published", published_version: 2,
+        agents: ["agent:kol"], agent_bound: true, implementation: "live",
+        declared_tools: 2, mounted_tools: 0, pending_tools: 2,
+        tools: [
+          {
+            connector_id: "e2e-verified", connector_label: "E2E 已验证 MCP", tool_name: "pageKolProfiles",
+            declared_as: "starrykol.pageKolProfiles", state: "available", policy_risk: "L1", policy_enabled: true,
+            connector_enabled: false, connector_status: "verified",
+          },
+          {
+            connector_id: "e2e-verified", connector_label: "E2E 已验证 MCP", tool_name: "sendEmailNow",
+            declared_as: "starrykol.sendEmailNow", state: "blocked_by_policy", policy_risk: "L3", policy_enabled: false,
+            connector_enabled: false, connector_status: "verified",
+          },
+        ],
+      }],
+    },
+  }));
+  let mountBody = "";
+  await page.route("**/api/admin/runtime/connectors/*/mount-declared", async (route) => {
+    mountBody = route.request().postData() || "";
+    await route.fulfill({
+      json: {
+        connector_id: "e2e-verified",
+        summary: { skills: 1, mounted_tools: 1, unchanged_tools: 0, skipped_tools: 1 },
+        skills: [{
+          skill_id: "creator_profile", connector_bound: true, connector_created: true,
+          mounted: ["pageKolProfiles"], unchanged: [], skipped: [{ tool_name: "sendEmailNow", reason: "policy_disabled" }],
+        }],
+      },
+    });
+  });
+
+  await page.goto("/admin/connectors");
+  await page.locator('[data-connector-card][data-connector="e2e-verified"] [data-connector-status-entry]').click();
+  const panel = page.locator("[data-connector-panel='connector-config']");
+  await expect(panel.locator("[data-connector-wizard-step='enable']")).toBeVisible();
+  await expect(panel.locator("[data-connector-wizard-step='save']")).toHaveCount(0);
+  // 最近一次测试的时间与工具数来自服务端记录，不是「时间由服务端记录」的占位。
+  await expect(panel.locator("[data-connector-wizard-test-result]")).toContainText("2026-09-29T02:00:00.000Z");
+  await expect(panel.locator("[data-connector-wizard-test-result]")).toContainText("4 个工具");
+  await expect(panel.locator("[data-connector-wizard-mount-summary]")).toContainText("可一键挂载 1 个");
+  await expect(panel.locator("[data-connector-wizard-mount-summary]")).toContainText("另有 1 个要逐项决定");
+
+  await panel.locator("[data-connector-wizard-mount-declared]").click();
+  const confirm = page.locator("[data-admin-confirm='skill-declared-mount']");
+  await expect(confirm).toBeVisible();
+  await expect(confirm).toContainText("不启用连接器本身");
+  await confirm.locator("[data-admin-confirm-ok]").click();
+  await expect(panel.locator("[data-connector-wizard-mount-receipt]")).toContainText("1 个工具挂到 1 个技能");
+  // 默认口径由服务端决定：不传 skill_ids，不越权指定技能。
+  expect(mountBody).toBe("{}");
+  // 挂载不启用连接器：启用仍要下一步的独立动作。
+  await expect(panel.locator("[data-connector-wizard-enable]")).toBeVisible();
 });
 
 test("wizard reads the saved config version back instead of claiming nothing is saved", async ({ page, request }) => {
@@ -771,10 +853,14 @@ test("card status opens the connector configuration modal with the four-step wiz
   const modal = page.locator("[data-connector-panel='connector-config']");
   await expect(modal).toBeVisible();
   await expect(modal.locator("h2")).toContainText("MediaCrawler MCP");
-  await expect(modal.locator("[data-connector-config-card]")).toBeVisible();
   await expect(modal.locator("[data-connector-wizard-steps]")).toBeVisible();
-  await expect(modal.locator("[data-connector-wizard-step='save']")).toBeVisible();
+  // 弹窗从服务端最近状态开始：已验证/已启用落「启用」步，验证失败落「测试」步，其余落「保存」步。
+  const entryStep = initialWizardStep("configure", connectorCardView(claw as Record<string, unknown>));
+  await expect(modal.locator(`[data-connector-wizard-step='${entryStep}']`)).toBeVisible();
   await expect(modal.locator("[data-connector-wizard-tab]")).toHaveCount(4);
+  // 接入配置卡只在保存步渲染；从步骤条走回去仍可编辑。
+  await modal.locator("[data-connector-wizard-tab='save']").click();
+  await expect(modal.locator("[data-connector-config-card]")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(modal).toHaveCount(0);
   await expect(card.locator("[data-connector-status-entry]")).toBeFocused();

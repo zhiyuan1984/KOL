@@ -36,6 +36,17 @@
 .skill-origin-tag.is-official{color:var(--accent-text)}
 .skill-origin-tag.is-third-party{color:var(--text-muted)}
 .skill-governance-error{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);padding:var(--space-2) var(--space-3);border:1px solid var(--danger);border-radius:var(--radius-card);color:var(--danger);font-size:var(--ds-font-sm)}
+/* 实现度与工具依赖：来自服务端扫描，不靠颜色单独表达（同时有文字）。 */
+.skill-coverage-summary{margin:0;color:var(--text-muted);font-size:var(--ds-font-helper)}
+.skill-coverage-tag{display:inline-flex;align-items:center;width:max-content;padding:0 var(--space-1);border:1px solid var(--border);border-radius:var(--radius-tag);font-size:var(--ds-font-tag);line-height:var(--ds-line-tag);color:var(--text-muted)}
+.skill-coverage-tag.is-live{color:var(--success);border-color:currentColor}
+.skill-coverage-tools{color:var(--text-muted);white-space:nowrap}
+.skill-declared-groups{display:grid;gap:var(--space-2);min-width:0}
+.skill-declared-group{display:grid;gap:var(--space-2);padding:var(--space-3);border:1px solid var(--border);border-radius:var(--radius-card);min-width:0}
+.skill-declared-group-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3);min-width:0}
+.skill-declared-group-head p{display:flex;flex-wrap:wrap;gap:var(--space-1);margin:0;color:var(--text-muted);font-size:var(--ds-font-helper)}
+.skill-declared-tools{display:grid;gap:var(--space-1);margin:0;padding:0;list-style:none}
+.skill-declared-tools li{display:flex;align-items:baseline;gap:var(--space-2);min-width:0;font-size:var(--ds-font-helper)}
 .skill-governance-scrim{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:var(--space-4);background:color-mix(in srgb,var(--text) 48%,transparent)}
 .skill-detail-dialog{display:flex;flex-direction:column;width:min(var(--content-max),100%);max-height:94dvh;overflow:hidden;border:1px solid var(--border);border-radius:var(--radius-dialog);background:var(--bg);box-shadow:0 var(--space-4) var(--space-5) color-mix(in srgb,var(--text) 18%,transparent)}
 .skill-detail-header{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-4);padding:var(--space-4) var(--space-4) var(--space-2);border-bottom:1px solid var(--border)}

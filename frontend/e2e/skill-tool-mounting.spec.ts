@@ -11,6 +11,13 @@ async function stubGovernanceReads(page: Page) {
   await page.route("**/api/admin/runtime/connectors/*/policies", (route) => route.fulfill({ json: [] }));
 }
 
+/** 工具挂载在技能详情的「工具与知识」页：列表页不再直接渲染它。 */
+async function openFirstSkillDependencies(page: Page) {
+  await page.locator(".skill-governance-row").first().click();
+  await page.getByRole("button", { name: "工具与知识" }).click();
+  return page.locator("[data-skill-tool-bindings]").first();
+}
+
 /**
  * 授权单位是技能；连接器停用只拦运行，不拦登记挂载——后端本就允许
  * （runtime/store.ts 绑定不要求连接器启用），此前是页面把停用连接器的
@@ -19,7 +26,7 @@ async function stubGovernanceReads(page: Page) {
 test("停用的连接器在技能页仍可先登记挂载（不再被 UI 锁死）", async ({ page }) => {
   if (!AUTH_ENABLED) await stubGovernanceReads(page);
   await page.goto("/admin/skills");
-  const bindings = page.locator("[data-skill-tool-bindings]").first();
+  const bindings = await openFirstSkillDependencies(page);
   await expect(bindings).toBeVisible();
   await expect(bindings).toContainText("平台已登记工具");
 
@@ -33,7 +40,7 @@ test("停用的连接器在技能页仍可先登记挂载（不再被 UI 锁死�
 test("挂载写入口对停用连接器可用（需 E2E_AUTH_MODE=enabled）", async ({ page }) => {
   test.skip(!AUTH_ENABLED, "runtime governance writes require E2E_AUTH_MODE=enabled");
   await page.goto("/admin/skills");
-  const bindings = page.locator("[data-skill-tool-bindings]").first();
+  const bindings = await openFirstSkillDependencies(page);
   await expect(bindings).toBeVisible();
   const row = bindings.locator("[data-skill-connector='claw']");
   await expect(row).toBeVisible();

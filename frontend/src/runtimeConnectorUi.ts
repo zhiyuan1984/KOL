@@ -300,3 +300,92 @@ export function errorMessage(error: unknown, fallback: string): string {
 export function policyKey(connectorId: string, toolName: string): string {
   return `${connectorId}\u0000${toolName}`;
 }
+
+/* ── 技能实现与工具依赖扫描（服务端读模型，只读） ───────────────────────── */
+
+export type SkillCoverageToolState = "mounted" | "available" | "blocked_by_policy" | "unregistered" | "unknown_connector";
+
+export type SkillCoverageTool = {
+  connector_id: string;
+  connector_label?: string;
+  tool_name: string;
+  declared_as: string;
+  state: SkillCoverageToolState;
+  policy_risk?: "L1" | "L2" | "L3";
+  policy_enabled?: boolean;
+  connector_enabled?: boolean;
+  connector_status?: string;
+};
+
+export type SkillCoverageRow = {
+  skill_id: string;
+  label: string;
+  stage: string | null;
+  published_version: number | null;
+  agents: string[];
+  agent_bound: boolean;
+  implementation: "live" | "defined";
+  declared_tools: number;
+  mounted_tools: number;
+  pending_tools: number;
+  tools: SkillCoverageTool[];
+};
+
+export type SkillCoverageConnector = {
+  id: string;
+  label: string;
+  enabled: boolean;
+  status: string;
+  approved_tool_count: number;
+};
+
+export type SkillCoverage = {
+  summary: { skills: number; live: number; defined: number; declared_tools: number; mounted_tools: number; pending_tools: number };
+  connectors: SkillCoverageConnector[];
+  skills: SkillCoverageRow[];
+};
+
+export type DeclaredMountResult = {
+  connector_id: string;
+  summary: { skills: number; mounted_tools: number; unchanged_tools: number; skipped_tools: number };
+  skills: Array<{
+    skill_id: string;
+    connector_bound: boolean;
+    connector_created: boolean;
+    mounted: string[];
+    unchanged: string[];
+    skipped: Array<{ tool_name: string; reason: string }>;
+  }>;
+};
+
+const TOOL_STATE_LABEL: Record<SkillCoverageToolState, string> = {
+  mounted: "已挂载",
+  available: "可挂载",
+  blocked_by_policy: "策略未启用",
+  unregistered: "连接器未登记该工具",
+  unknown_connector: "无对应连接器",
+};
+
+export function coverageToolStateLabel(state: SkillCoverageToolState): string {
+  return TOOL_STATE_LABEL[state] || state;
+}
+
+const MOUNT_SKIP_REASON: Record<string, string> = {
+  policy_disabled: "该工具的策略未启用（L3 默认不启用），需先在连接器页逐项决定",
+  policy_unregistered: "连接器还没有登记这个工具，先在连接器详情完成一次通过的测试",
+  unknown_connector: "技能声明了当前目录里不存在的连接器",
+};
+
+export function mountSkipReasonLabel(reason: string): string {
+  return MOUNT_SKIP_REASON[reason] || reason;
+}
+
+/** 可一键挂载的声明工具数：已登记且策略启用的那些。 */
+export function mountableDeclaredCount(row: SkillCoverageRow): number {
+  return row.tools.filter((tool) => tool.state === "available").length;
+}
+
+/** 实现度的两档说法：有启用的数字员工绑定且已发布才算上线。 */
+export function implementationLabel(implementation: "live" | "defined"): string {
+  return implementation === "live" ? "已上线" : "待上线";
+}

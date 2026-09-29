@@ -1770,6 +1770,35 @@
   gap: var(--wizard-step-gap);
 }
 
+/* 详情页启用被闸门拒绝时的挂载区块：与向导同一套说法与动作 */
+.connector-detail-mount {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+
+.connector-detail-mount p {
+  margin: 0;
+}
+
+/* 启用步的「按技能定义挂载」区块：说明 + 一个次要动作，主 CTA 仍是启用按钮 */
+.connector-wizard-mount {
+  display: grid;
+  gap: var(--wizard-gate-gap);
+  justify-items: start;
+  max-width: var(--dialog-w-form);
+}
+
+.connector-wizard-mount p,
+.connector-wizard-mount small {
+  margin: 0;
+  font-size: var(--font-hint);
+  color: var(--hint-text);
+}
+
 .connector-panel.is-form [data-connector-wizard-step] {
   display: grid;
   gap: var(--wizard-gap);

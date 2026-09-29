@@ -53,7 +53,8 @@ export type AdminConfirmKind =
   | "session-delete"
   | "starry-unbind"
   | "knowledge-rollback"
-  | "knowledge-binding-delete";
+  | "knowledge-binding-delete"
+  | "skill-declared-mount";
 
 /** Admin-opened confirms: Cancel abandons the write. It is not Host-proposal 拒绝. */
 export const ADMIN_CANCEL_LABEL = "取消，不执行";
@@ -107,6 +108,31 @@ export function connectorDisableConfirm(label: string, id = ""): AdminConfirmCop
     scope: "组织级启用状态 · 不影响凭据引用本身",
     consequence: "员工使用面不再可用该连接能力。凭据位置保留，秘密原值不回显、不删除。可再次启用。",
     confirmLabel: "确认停用",
+  };
+}
+
+/**
+ * 按技能定义挂载连接器工具。挂载是治理写入，必须显式确认并留回执；
+ * 跳过项（策略未启用 / 连接器未登记）在确认里先讲清楚，不事后解释。
+ */
+export function skillDeclaredMountConfirm(input: {
+  connectorLabel: string;
+  connectorId?: string;
+  skillCount: number;
+  toolCount: number;
+  skippedCount?: number;
+}): AdminConfirmCopy {
+  const skipped = input.skippedCount || 0;
+  return {
+    kind: "skill-declared-mount",
+    title: "按技能定义挂载工具",
+    object: `${named(input.connectorLabel, input.connectorId || "")} × ${input.skillCount} 个技能`,
+    scope: `只挂这些技能在 SKILL.md 里声明的工具，共 ${input.toolCount} 个；且必须已登记并启用策略`,
+    consequence: skipped
+      ? `另有 ${skipped} 个声明工具不会挂载（策略未启用或连接器还没登记），需要逐项决定。挂载只授予这些技能调用该连接器的这些工具，不启用连接器本身。`
+      : "挂载只授予这些技能调用该连接器的这些工具；不启用连接器本身，启用仍是独立动作。",
+    confirmLabel: "确认挂载",
+    confirmTone: "primary",
   };
 }
 

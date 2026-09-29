@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { api } from "../api";
 import type { SkillTemplate } from "../api";
 import { SkillConnectorBindings } from "../components/SkillConnectorBindings";
+import { SkillDeclaredDependencies } from "../components/SkillDeclaredDependencies";
+import { errorMessage, implementationLabel, type SkillCoverage, type SkillCoverageRow } from "../runtimeConnectorUi";
 import "./skill-governance.css";
 
 type SkillRow = {
@@ -96,21 +98,33 @@ export default function SkillLifecycle() {
   const [metricsDays, setMetricsDays] = useState(7);
   const [sourceFilter, setSourceFilter] = useState<"all" | "official" | "third_party">("all");
   const [stageFilter, setStageFilter] = useState("all");
+  const [implementationFilter, setImplementationFilter] = useState<"all" | "live" | "pending_tools">("all");
+  const [coverage, setCoverage] = useState<SkillCoverage | null>(null);
+  const [coverageError, setCoverageError] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const detailDialogRef = useRef<HTMLElement | null>(null);
 
   const load = useCallback(async () => {
-    try {
-      const data = (await api.adminSkills()) as { skills?: SkillRow[]; directory?: Directory };
+    // 实现度与工具依赖是独立的读模型：读不到也不能让整个技能页失效。
+    const [skillsResult, coverageResult] = await Promise.allSettled([api.adminSkills(), api.runtimeSkillCoverage()]);
+    if (skillsResult.status === "fulfilled") {
+      const data = skillsResult.value as { skills?: SkillRow[]; directory?: Directory };
       setSkills(data.skills || []);
       setDirectory(data.directory || EMPTY_DIRECTORY);
       const grantsMap: Record<string, GrantSet> = {};
       for (const s of data.skills || []) if (s.grants) grantsMap[s.id] = s.grants;
       setGrants(grantsMap);
       setSelected((current) => data.skills?.some((skill) => skill.id === current) ? current : "");
-    } catch (e) {
-      setError(String(e instanceof Error ? e.message : e));
+    } else {
+      setError(String(skillsResult.reason instanceof Error ? skillsResult.reason.message : skillsResult.reason));
+    }
+    if (coverageResult.status === "fulfilled") {
+      setCoverage(coverageResult.value);
+      setCoverageError("");
+    } else {
+      setCoverage(null);
+      setCoverageError(errorMessage(coverageResult.reason, "无法读取技能实现与工具依赖"));
     }
   }, []);
 
@@ -160,6 +174,10 @@ export default function SkillLifecycle() {
   }, [selected]);
 
   const current = useMemo(() => skills.find((s) => s.id === selected) || null, [skills, selected]);
+  const coverageById = useMemo(
+    () => new Map((coverage?.skills || []).map((row) => [row.skill_id, row])),
+    [coverage],
+  );
   const filtered = useMemo(
     () =>
       skills.filter((s) => {
@@ -169,6 +187,12 @@ export default function SkillLifecycle() {
         if (sourceFilter === "official" && !isOfficial) return false;
         if (sourceFilter === "third_party" && isOfficial) return false;
         if (stageFilter !== "all" && s.lifecycle?.stage !== stageFilter) return false;
+        if (implementationFilter !== "all") {
+          const row = coverageById.get(s.id);
+          if (!row) return false;
+          if (implementationFilter === "live" && row.implementation !== "live") return false;
+          if (implementationFilter === "pending_tools" && row.pending_tools === 0) return false;
+        }
         const kw = keyword.trim().toLowerCase();
         if (!kw) return true;
         return (
@@ -177,7 +201,7 @@ export default function SkillLifecycle() {
           || (s.description || "").toLowerCase().includes(kw)
         );
       }),
-    [skills, keyword, sourceFilter, stageFilter],
+    [skills, keyword, sourceFilter, stageFilter, implementationFilter, coverageById],
   );
 
   async function moveStage(stage: string, needReason?: boolean) {
@@ -221,8 +245,26 @@ export default function SkillLifecycle() {
           <option value="all">全部状态</option>
           {STAGES.map((stage) => <option key={stage.id} value={stage.id}>{stage.label}</option>)}
         </select>
+        <select aria-label="实现状态" value={implementationFilter} onChange={(event) => setImplementationFilter(event.target.value as typeof implementationFilter)}>
+          <option value="all">全部实现度</option>
+          <option value="live">已上线</option>
+          <option value="pending_tools">工具依赖待挂载</option>
+        </select>
         <span className="skill-governance-result-count">{filtered.length} 项技能</span>
       </div>
+      {/* 实现度与工具依赖的扫描口径：全部来自运行时事实，读不到时如实说明缺哪一块。 */}
+      {coverageError && (
+        <p className="skill-governance-notice" role="status" data-skill-coverage-error>
+          技能实现与工具依赖未读取：{coverageError}。列表仍可用，仅缺少这一列。
+        </p>
+      )}
+      {coverage && (
+        <p className="skill-coverage-summary" data-skill-coverage-summary>
+          技能 {coverage.summary.skills} · 已上线 {coverage.summary.live} · 已有定义待上线 {coverage.summary.defined} ·
+          工具依赖 已挂载 {coverage.summary.mounted_tools}/{coverage.summary.declared_tools}
+          {coverage.summary.pending_tools ? `（待挂载 ${coverage.summary.pending_tools}）` : "（无待挂载）"}
+        </p>
+      )}
       {error && (
         <div className="skill-governance-error" role="alert">
           {error}
@@ -234,11 +276,29 @@ export default function SkillLifecycle() {
           const official = s.lifecycle?.origin
             ? s.lifecycle.origin === "official"
             : s.source === "bundled" || !(s.lifecycle?.tags || []).includes("第三方");
+          const cov = coverageById.get(s.id);
           return (
             <button type="button" className="skill-governance-row" key={s.id} onClick={() => setSelected(s.id)}>
               <span className="skill-governance-row-main">
                 <strong>{s.label}</strong>
-                <span className="skill-governance-row-meta"><code>{s.id}</code><span className={`skill-origin-tag${official ? " is-official" : " is-third-party"}`}>{official ? "官方" : "第三方"}</span></span>
+                <span className="skill-governance-row-meta">
+                  <code>{s.id}</code>
+                  <span className={`skill-origin-tag${official ? " is-official" : " is-third-party"}`}>{official ? "官方" : "第三方"}</span>
+                  {cov && (
+                    <span className={`skill-coverage-tag is-${cov.implementation}`} data-skill-implementation={cov.implementation}>
+                      {implementationLabel(cov.implementation)}
+                    </span>
+                  )}
+                  {cov && cov.declared_tools > 0 && (
+                    <span
+                      className="skill-coverage-tools"
+                      data-skill-tool-coverage={`${cov.mounted_tools}/${cov.declared_tools}`}
+                      title={`声明 ${cov.declared_tools} 个工具，已挂载 ${cov.mounted_tools} 个，待挂载 ${cov.pending_tools} 个`}
+                    >
+                      工具 {cov.mounted_tools}/{cov.declared_tools}
+                    </span>
+                  )}
+                </span>
               </span>
               <span className="skill-governance-row-description">{s.description || "暂无说明"}</span>
               <span className="skill-governance-row-status"><StageDot stage={s.lifecycle?.stage || "draft"} />{s.lifecycle?.stage_label || "未配置阶段"}</span>
@@ -252,7 +312,7 @@ export default function SkillLifecycle() {
       {current && (
         <div className="skill-governance-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(""); }}>
           <section ref={detailDialogRef} tabIndex={-1} className="skill-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="skill-detail-title">
-            <DetailPanel key={current.id} skill={current} directory={directory} grants={grants} onGrants={(m) => setGrants((prev) => ({ ...prev, ...m }))} onStage={moveStage} onChanged={load} metricsDays={metricsDays} onMetricsDays={setMetricsDays} onClose={() => setSelected("")} />
+            <DetailPanel key={current.id} skill={current} coverageRow={coverageById.get(current.id) || null} directory={directory} grants={grants} onGrants={(m) => setGrants((prev) => ({ ...prev, ...m }))} onStage={moveStage} onChanged={load} metricsDays={metricsDays} onMetricsDays={setMetricsDays} onClose={() => setSelected("")} />
           </section>
         </div>
       )}
@@ -355,6 +415,8 @@ function SkillUploadDialog({ onClose, onImported }: { onClose: () => void; onImp
 
 function DetailPanel(props: {
   skill: SkillRow;
+  /** 服务端扫描出的该技能声明与挂载情况；缺省表示这次没读到。 */
+  coverageRow: SkillCoverageRow | null;
   directory: Directory;
   grants: Record<string, GrantSet>;
   onGrants: (m: Record<string, GrantSet>) => void;
@@ -599,6 +661,7 @@ function DetailPanel(props: {
         </div>}
 
         {activeTab === "dependencies" && <div className="skill-detail-stack">
+          <SkillDeclaredDependencies skillId={skill.id} row={props.coverageRow} onMounted={onChanged} />
           <section className="skill-detail-card" aria-labelledby="skill-tools-heading">
             <div className="skill-section-head"><div><h3 id="skill-tools-heading">MCP / API 工具</h3><p>技能内依赖。工具风险与执行边界由平台治理，不向人员单独授权。</p></div></div>
             <SkillConnectorBindings skillId={skill.id} />

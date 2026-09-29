@@ -10,7 +10,9 @@ import { errorMessage, remoteFailureMessage } from "../../runtimeConnectorUi";
 import { ConnectorConfigCard } from "./ConnectorConfigCard";
 import { ConnectorMark } from "./ConnectorMark";
 import { ConnectorToolsCard } from "./ConnectorToolsCard";
+import { friendlyEnableFailure } from "./connectorSetup";
 import { connectorCardView, connectorStatusNote, kindLabel } from "./entity";
+import { useDeclaredToolMount } from "./useDeclaredToolMount";
 import "./connectorAdmin.css";
 
 type ProbeRecord = {
@@ -28,12 +30,6 @@ function codeOf(cause: unknown): string {
   const payload = (cause as { payload?: { code?: unknown; error_code?: unknown } } | null)?.payload;
   if (typeof payload?.code === "string") return payload.code;
   if (typeof payload?.error_code === "string") return payload.error_code;
-  return "";
-}
-
-function friendlyEnableFailure(code: string): string {
-  if (code === "connector_verification_required") return "先完成一次通过的测试，连接器才会被允许启用。";
-  if (code === "connector_skill_binding_required") return "尚无技能绑定其工具，请先在技能页挂载。";
   return "";
 }
 
@@ -56,6 +52,13 @@ export function ConnectorDetail({ connectorId, connectors, auditRows, reload }: 
   const raw = connectors.find((row) => String(row.id) === connectorId);
   const card = raw ? connectorCardView(raw) : null;
   const { ask, dialog } = useAdminConfirm();
+  const [mountNeeded, setMountNeeded] = useState(false);
+  const declaredMount = useDeclaredToolMount({
+    ask,
+    connectorId: card?.id ?? null,
+    connectorLabel: card?.label || "该连接器",
+    onDone: () => { setMountNeeded(false); reload(); },
+  });
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -109,7 +112,10 @@ export function ConnectorDetail({ connectorId, connectors, auditRows, reload }: 
       setNotice(enabled ? "连接器已启用。" : "连接器已停用。");
       reload();
     } catch (cause) {
-      setError(friendlyEnableFailure(codeOf(cause)) || errorMessage(cause, "连接器状态未更新"));
+      const code = codeOf(cause);
+      // 闸门里唯一还需要人做的一步：挂载。这里直接把动作放在错误旁边。
+      setMountNeeded(code === "connector_skill_binding_required");
+      setError(friendlyEnableFailure(code) || errorMessage(cause, "连接器状态未更新"));
     } finally {
       setBusy("");
     }
@@ -164,6 +170,22 @@ export function ConnectorDetail({ connectorId, connectors, auditRows, reload }: 
 
       {error && <p className="error" role="alert" data-connector-detail-error>{error}</p>}
       {notice && <p className="admin-receipt status-ok" role="status" data-connector-detail-notice>{notice}</p>}
+      {mountNeeded && (
+        <div className="connector-detail-mount" data-connector-detail-mount>
+          <p className="muted">启用还差一步：至少一个技能把它已登记的工具挂到可用状态。可以按技能定义一次挂好；挂载不启用连接器。</p>
+          <button
+            type="button"
+            className="btn"
+            data-connector-detail-mount-declared
+            disabled={declaredMount.busy}
+            onClick={declaredMount.mount}
+          >
+            {declaredMount.busy ? "挂载中…" : "按技能定义挂载工具"}
+          </button>
+          {declaredMount.receipt && <p className="runtime-notice" role="status">{declaredMount.receipt}现在可以再点「启用连接器」。</p>}
+          {declaredMount.failure && <p className="error" role="alert">{declaredMount.failure}</p>}
+        </div>
+      )}
 
       <ConnectorConfigCard card={card} reload={reload} />
       <ConnectorToolsCard connectorId={card.id} />

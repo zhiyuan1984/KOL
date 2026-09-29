@@ -32,6 +32,7 @@ export default defineConfig({
       "../frontend/src/runtimeConnectorUi.test.ts",
       "../frontend/src/admin/connector/connectorSetup.test.ts",
       "../frontend/src/admin/connector/headerNames.test.ts",
+      "../frontend/src/admin/connector/wizardSteps.test.ts",
     ],
     setupFiles: ["./tests/setup.ts"],
     fileParallelism: false,

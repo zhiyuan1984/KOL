@@ -38,6 +38,8 @@
 | 绑定/解绑 Skill | `PUT /admin/runtime/agents/:agentId/skills/:skillId` | `enabled`, `expected_version` |
 | 查看 Skill 的资源绑定 | `GET /admin/runtime/skills/:skillId/connectors` | 无 |
 | 绑定/解绑资源 | `PUT /admin/runtime/skills/:skillId/connectors/:connectorId` | `enabled`, `expected_version` |
+| 扫描技能实现度与工具依赖 | `GET /admin/runtime/skills/coverage` | 可选 `?connector_id=`（只返回声明了该连接器工具的技能）；返回技能的定义/数字员工绑定/阶段、声明工具与每个工具的挂载状态（`mounted` / `available` / `blocked_by_policy` / `unregistered` / `unknown_connector`），全部来自运行时事实 |
+| 按技能定义挂载工具 | `POST /admin/runtime/connectors/:connectorId/mount-declared` | 可选 `skill_ids`（省略＝扫描出的**已上线**技能，即已挂数字员工且已发布）；只挂 SKILL.md `mcp:` 声明里有的工具，且必须已登记并启用策略 |
 | 查看资源运行配置 | `GET /admin/runtime/connectors/:connectorId/config` | 无 |
 | 配置资源 | `PUT /admin/runtime/connectors/:connectorId/config` | 下述配置字段 + `expected_version`，不嵌套 `config` |
 | 实时发现远端工具 | `GET /admin/runtime/connectors/:connectorId/discovery` | 无；返回工具描述/schema 及 `schema_hash`，**不自动授权** |
@@ -46,6 +48,16 @@
 | 当前用户可用技能能力 | `GET /agents/:agentId/capabilities` | 只读；按技能授权（`user_skill_grants`）说明技能级可用能力，不返回连接器/工具清单；无凭据/端点；`live_verified: false` |
 
 解绑保存 `enabled=0` 墓碑，不读时重种。删除 Connector 会通过 FK 级联删除其 runtime 配置、资源绑定和工具策略；删除仍是需要单独审慎操作的治理动作。
+
+### 按定义挂载（mount-declared）
+
+启用连接器的前提是「至少一个技能把它已登记的工具挂到可用状态」（`connector_skill_binding_required`）。这条接口把技能自己的声明（`backend/skills/<id>/SKILL.md` 的 `mcp: ["<connector>.<tool>", …]`）与连接器已登记工具对齐，一次确认后批量落库：
+
+- 目标技能：省略 `skill_ids` 时只覆盖扫描出的**已上线**技能（已挂数字员工且 `published`）；显式给出 `skill_ids` 时按给定列表处理，未知技能返回 400 `unknown_skill`。
+- 只挂声明里有的工具，不扩展、不推断；每个技能先确保「技能→连接器」绑定启用，再逐条启用「技能→工具」绑定（沿用 `expected_version` 比较并交换）。
+- 跳过项如实回报，不静默成功：`policy_disabled`（策略未启用，含自动登记为禁用的 L3）、`policy_unregistered`（连接器还没登记该工具，先完成一次通过的测试）、`unknown_connector`（声明了目录里不存在的连接器，例如遗留的 `starry.*`）。
+- **不启用连接器、不启用工具策略**：启用仍是独立动作；重复调用幂等，第二次全部落在 `unchanged`。
+- 审计：每个技能一行 `runtime.skill_mount.declared`（含 mounted / unchanged / skipped 清单）。
 
 ### 资源配置
 

@@ -166,3 +166,17 @@
 - **审宪记录**：需求「管理员在控制台完成 配置→平台自动登记工具→技能挂载→启用→识别；不设工具审批界面」→ 主责 平台产品经理 + 后端专家 + UI/UX 专家 + 测试经理 → CONST-03（确定的权限与状态规则由程序执行）、CONST-04（前端不重写规则：推导只住服务端，页面只调用既有接口）、CONST-05（L3 确认与回执不放松；L3 行自动 `enabled=0`）、CONST-08/09（开放项按记录关闭）、CONST-10（验收证据）→ 基本法 `TECHNOLOGY.md` TECH-BE-07 与 ADR-2026-09-27（授权单位＝技能）、`07-mcp-data-contract.md` 工具风险目录、`ia-information-architecture.md`（只动治理面，员工面不变）→ **符合**（执法与 UI 解阻；未改法条；不放宽门禁）→ 下一步：定向测试与 E2E 取证（见验收追加记录）。
 - **限制**：推导为命名家族 + 发布名单的启发式（远端无 annotations，无法从 schema 语义证明无副作用）；名单外的写类工具（如 `updateRiskDefinition`、`batchSaveRiskRules`、`addMailbox`）保守落 L2，需要更严时把名字加入 `config/connector-risk-floor.json`（该资产按发布纪律评审）；既有策略行不随推导规则升级回写，需显式覆盖或删除重建。
 
+## ADR-2026-09-29：按技能声明批量挂载连接器工具，并由服务端状态恢复向导入口步
+
+- **状态**：已接受。
+- **决定者**：用户（产品发起人）；平台产品经理负责治理动作与呈现口径；后端专家负责扫描读模型与批量写入；UI/UX 专家负责向导与技能页。
+- **背景**：启用连接器的门禁是「已验证 + 至少一个技能把它已登记的工具挂到可用状态」（`connector_skill_binding_required`），但控制台里走不通：技能页要管理员先勾连接器、再逐个勾工具（`SkillConnectorBindings`），每次测试通过又把连接器置回 `enabled=0`；而技能的定义里其实已经写明了它需要哪些工具（`backend/skills/<id>/SKILL.md` 的 `mcp: ["<connector>.<tool>", …]`，经 `tasks/registry.ts` 解析），平台却没有用这份声明做任何事。同时弹窗每次都从「保存」开始，已通过测试未启用的连接器重开时要重新走一遍。
+- **决定**：
+  1. **扫描读模型**（`GET /admin/runtime/skills/coverage`）：把「技能定义 / 数字员工绑定 / 发布阶段」与「声明工具 vs 连接器已登记工具 vs 运行时挂载」对齐成一个只读视图，工具状态只有五种：`mounted` / `available` / `blocked_by_policy` / `unregistered` / `unknown_connector`。实现度只有两档：**已上线**＝已挂启用的数字员工且 `stage=published`，其余为**待上线**。判定全部在后端，前端只呈现。
+  2. **按定义挂载**（`POST /admin/runtime/connectors/:id/mount-declared`）：一次确认后，对目标技能（默认＝扫描出的已上线技能）先启用「技能→连接器」绑定，再对**声明里有的、连接器已登记且策略已启用**的工具逐条启用「技能→工具」绑定。跳过项如实回报（`policy_disabled` / `policy_unregistered` / `unknown_connector`），幂等，审计 `runtime.skill_mount.declared`。**不启用连接器、不启用工具策略、不挂声明之外的工具。**
+  3. **向导按服务端最近状态进入**：已启用或已验证 → 「启用」步；验证失败 → 「测试」步；其余 → 「保存」步（新建仍是「保存」）。启用步显示服务端记录的上次测试时间与工具数，并承载「按技能定义挂载工具」这一次要动作；启用仍是该步唯一实底 CTA。详情页启用被拒时给出同一个动作。
+  4. **技能页呈现**：列表行标出「已上线/待上线」与「工具 已挂/声明」，新增「实现度」筛选与整页汇总，详情「工具与知识」页给出按连接器分组的声明—挂载对照。
+- **理由**：CONST-03/04（判定与写入在服务端，前端不重写规则）；CONST-05（挂载是治理写入，走确认 + 回执 + 审计；L3 不自动放行）；`07-mcp-data-contract.md`（工具风险目录、测试即登记、L3 闸门）；`BUSINESS.md` 覆盖表（技能是实现单位）；CONST-10（扫描读不到就写明缺哪一块，不用占位数字）。技能声明早已存在，用它对齐比让管理员手工枚举更不容易漏挂，也不放宽任何门禁。
+- **影响资产**：`backend/src/runtime/skill-coverage.ts`（新增）、`backend/src/runtime/store.ts`（只读聚合）、`backend/src/routers/skill-runtime.ts`（两条路由）、`backend/tests/skill-coverage.test.ts`、`backend/tests/skill-declared-mount.test.ts`（新增）、`frontend/src/admin/connector/ConnectorSetupWizard.tsx`、`frontend/src/admin/connector/ConnectorDetail.tsx`、`frontend/src/admin/connector/useDeclaredToolMount.ts`（新增）、`frontend/src/admin/connector/wizardSteps.ts`（新增）、`frontend/src/components/SkillDeclaredDependencies.tsx`（新增）、`frontend/src/pages/SkillLifecycle.tsx`、`frontend/e2e/skill-coverage.spec.ts`（新增）、`frontend/e2e/connector-admin.spec.ts`、`docs/DESIGN.md`（§连接器设置向导）、`docs/skill-runtime-operations.md`。
+- **审宪记录**：需求「解掉『尚无技能绑定其工具』、扫描规划技能的实现度、按定义默认挂载 Starry KOL 工具、弹窗保留最近状态」→ 主责 平台产品经理 + 后端专家 + UI/UX 专家 → CONST-03、CONST-04、CONST-05、CONST-08、CONST-10 → `BUSINESS.md` 覆盖表与 §技能；`07-mcp-data-contract.md` 工具风险目录、真实调用规则；`DESIGN.md` §连接器控制台 / §连接器设置向导；`TECHNOLOGY.md` 治理接口 → **符合**（只呈现既有事实并给出一个有确认与回执的治理动作；未改启用门禁、未自动启用、未放行 L3）→ 下一步：定向测试 + E2E 取证 + 真机走查。
+- **限制**：技能声明里的遗留名字（`starry.get_collaboration` / `starry.deal_memory` / `starry.list_collaborations`）当前没有对应连接器，扫描会如实标为 `unknown_connector` 并跳过，不在本次补映射；「已上线」只由运行时事实推出，不代表 `BUSINESS.md` 的员工口径已补齐（8 个未登记口径的技能仍由员工端按原文案提示）；扫描不做远端调用，工具是否仍真实存在以连接器详情的一次通过测试为准。

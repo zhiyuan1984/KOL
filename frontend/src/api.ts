@@ -1,4 +1,5 @@
 import type {
+  DeclaredMountResult,
   McpImportPreview,
   McpImportResult,
   OpenApiPreview,
@@ -9,6 +10,7 @@ import type {
   RuntimeSkillTool,
   RuntimeToolDefinition,
   RuntimeToolPolicy,
+  SkillCoverage,
 } from "./runtimeConnectorUi.js";
 import type { MailComposeLetter } from "./mail/types.js";
 
@@ -1836,6 +1838,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ document }),
     }),
+  runtimeSkillCoverage: (connectorId?: string) =>
+    request<SkillCoverage>(
+      `/api/admin/runtime/skills/coverage${connectorId ? `?connector_id=${encodeURIComponent(connectorId)}` : ""}`,
+    ),
+  /** 按技能定义挂载工具：只挂 SKILL.md 声明的、连接器已登记且策略启用的工具；不启用连接器。 */
+  mountRuntimeConnectorDeclaredTools: (connectorId: string, body: { skill_ids?: string[] } = {}) =>
+    request<DeclaredMountResult>(
+      `/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/mount-declared`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
   runtimeSkillConnectors: (skillId: string) =>
     request<RuntimeSkillConnector[]>(`/api/admin/runtime/skills/${encodeURIComponent(skillId)}/connectors`),
   saveRuntimeSkillConnector: (skillId: string, connectorId: string, body: { enabled: boolean; expected_version: number }) =>
