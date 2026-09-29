@@ -9,7 +9,8 @@ import {
   type RuntimeProtocol,
 } from "../../runtimeConnectorUi";
 import type { ConnectorCardView } from "./entity";
-import { ConnectorIconUpload, validateHeaderName } from "./ConnectorPanels";
+import { otherHeaderNames, validateHeaderName } from "./headerNames";
+import { ConnectorIconUpload, HeaderNameHint, HeaderNameInput } from "./ConnectorPanels";
 import { readConnectorConfigVersion, saveConnectorConfigForm, type HeaderRow } from "./connectorSetup";
 
 type SecretRow = { name: string; value: string; ref?: string; removed?: boolean };
@@ -286,13 +287,12 @@ export function ConnectorConfigCard({ card, reload, embedded = false, onSaved, o
             <div className="connector-header-rows" data-connector-header-rows>
               {secretRows.map((row, index) => (
                 <div className="connector-header-row" key={index}>
-                  <input
-                    className="connector-header-name"
+                  <HeaderNameInput
                     value={row.name}
-                    placeholder="Header 名称"
-                    aria-label="Header 名称"
+                    ariaLabel="Header 名称"
+                    taken={otherHeaderNames(secretRows, index)}
                     disabled={busy || Boolean(row.ref)}
-                    onChange={(event) => updateRow(index, { name: event.target.value })}
+                    onChange={(name) => updateRow(index, { name })}
                   />
                   <input
                     className="connector-header-value"
@@ -316,6 +316,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, onSaved, o
                   >
                     <svg viewBox="0 0 16 16" aria-hidden><path d="M3 4.5h10M6.5 4.5V3h3v1.5M5 4.5l.6 8h4.8l.6-8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
                   </button>
+                  <HeaderNameHint name={row.name} bearerReference={Boolean(bearerRef || bearerEnv)} />
                 </div>
               ))}
               <button type="button" className="btn sm" disabled={busy} data-connector-header-add onClick={() => setSecretRows((rows) => [...rows, { name: "", value: "" }])}>

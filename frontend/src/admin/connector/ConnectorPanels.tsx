@@ -10,20 +10,11 @@ import {
 } from "../../runtimeConnectorUi";
 import { createConnectorRecord, resolveHeaderRefs, saveConnectorConfigForm, type HeaderRow } from "./connectorSetup";
 import { isConnectorIdValid, slugFromLabel } from "./entity";
+import { headerNameHint, otherHeaderNames, suggestHeaderNames, validateHeaderName } from "./headerNames";
 
 export type { HeaderRow } from "./connectorSetup";
 
-const HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
-const RESERVED_HEADERS = new Set([
-  "content-length", "host", "connection", "transfer-encoding", "upgrade", "keep-alive", "proxy-connection",
-]);
 const MAX_ICON_BYTES = 1024 * 1024;
-
-export function validateHeaderName(name: string, label = "请求头名称"): string {
-  if (!HEADER_NAME.test(name)) return label + "只能包含 token 字符（字母、数字与 !#$%&'*+-.^_`|~）。";
-  if (RESERVED_HEADERS.has(name.toLowerCase())) return label + `「${name}」由传输层保留，不能使用。`;
-  return "";
-}
 
 export function validateIconFile(file: File): string {
   if (file.type !== "image/png" && file.type !== "image/jpeg") return "仅支持 PNG 或 JPG 图标。";
@@ -216,6 +207,49 @@ export function ConnectorIconUpload({ file, existingUrl, onPick, variant = "plai
   );
 }
 
+/**
+ * 请求头名输入：原生 datalist 给出常用名，自定义名照常手输。
+ * `taken` 是同一表单里其他行的名字 —— 已用过的名字不再推荐，避免两行同名在保存时被合并成一个。
+ */
+export function HeaderNameInput({ value, onChange, disabled, taken, className = "connector-header-name", placeholder = "Header 名称", ariaLabel }: {
+  value: string;
+  onChange: (next: string) => void;
+  disabled?: boolean;
+  taken: string[];
+  className?: string;
+  placeholder?: string;
+  /** 省略时沿用所在 <label> 的可访问名。 */
+  ariaLabel?: string;
+}) {
+  const listId = useId();
+  const suggestions = suggestHeaderNames(taken);
+  return (
+    <>
+      <input
+        className={className}
+        list={suggestions.length ? listId : undefined}
+        value={value}
+        placeholder={placeholder}
+        aria-label={ariaLabel}
+        autoComplete="off"
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {suggestions.length > 0 && (
+        <datalist id={listId}>
+          {suggestions.map((name) => <option key={name} value={name} />)}
+        </datalist>
+      )}
+    </>
+  );
+}
+
+/** 已知头名的一行说明；自定义名不渲染任何东西。 */
+export function HeaderNameHint({ name, bearerReference = false }: { name: string; bearerReference?: boolean }) {
+  const hint = headerNameHint(name, { bearerReference });
+  return hint ? <span className="connector-header-hint" data-connector-header-hint>{hint}</span> : null;
+}
+
 export function HeaderRowsEditor({ rows, onChange, disabled }: { rows: HeaderRow[]; onChange: (rows: HeaderRow[]) => void; disabled?: boolean }) {
   const update = (index: number, patch: Partial<HeaderRow>) =>
     onChange(rows.map((row, position) => (position === index ? { ...row, ...patch } : row)));
@@ -223,13 +257,12 @@ export function HeaderRowsEditor({ rows, onChange, disabled }: { rows: HeaderRow
     <div className="connector-header-rows" data-connector-header-rows>
       {rows.map((row, index) => (
         <div className="connector-header-row" key={index}>
-          <input
-            className="connector-header-name"
+          <HeaderNameInput
             value={row.name}
-            placeholder="Header 名称"
-            aria-label="Header 名称"
+            ariaLabel="Header 名称"
+            taken={otherHeaderNames(rows, index)}
             disabled={disabled}
-            onChange={(event) => update(index, { name: event.target.value })}
+            onChange={(name) => update(index, { name })}
           />
           <input
             className="connector-header-value"
@@ -250,6 +283,7 @@ export function HeaderRowsEditor({ rows, onChange, disabled }: { rows: HeaderRow
           >
             <svg viewBox="0 0 16 16" aria-hidden><path d="M3 4.5h10M6.5 4.5V3h3v1.5M5 4.5l.6 8h4.8l.6-8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </button>
+          <HeaderNameHint name={row.name} />
         </div>
       ))}
       <button type="button" className="btn sm" disabled={disabled} onClick={() => onChange([...rows, { name: "", value: "" }])} data-connector-header-add>
@@ -344,14 +378,15 @@ export function SecretKeysEditor({ rows, onChange, disabled }: { rows: HeaderRow
             </button>
           )}
           <label className="field">密钥名称
-            <input
-              className="connector-secret-name"
+            <HeaderNameInput
               value={row.name}
+              className="connector-secret-name"
               placeholder="SOME_UNIQUE_KEY_NAME"
-              autoComplete="off"
+              taken={otherHeaderNames(rows, index)}
               disabled={disabled}
-              onChange={(event) => update(index, { name: event.target.value })}
+              onChange={(name) => update(index, { name })}
             />
+            <HeaderNameHint name={row.name} />
           </label>
           <label className="field">值
             <textarea

@@ -478,6 +478,18 @@
   min-width: 0;
 }
 
+/* 已知头名（Authorization / X-MCP-API-KEY 等）的说明文字 */
+.connector-header-hint {
+  display: block;
+  font-size: var(--font-hint);
+  color: var(--hint-text);
+}
+
+/* headers 行里让说明独占下方一整行，不动名称/值/删除三列的位置 */
+.connector-header-row > .connector-header-hint {
+  grid-column: 1 / -1;
+}
+
 .connector-advanced {
   border: 1px solid var(--border);
   border-radius: var(--radius-card);

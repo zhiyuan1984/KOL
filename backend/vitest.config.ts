@@ -31,6 +31,7 @@ export default defineConfig({
       "../frontend/src/home/discoveryEvents.test.ts",
       "../frontend/src/runtimeConnectorUi.test.ts",
       "../frontend/src/admin/connector/connectorSetup.test.ts",
+      "../frontend/src/admin/connector/headerNames.test.ts",
     ],
     setupFiles: ["./tests/setup.ts"],
     fileParallelism: false,

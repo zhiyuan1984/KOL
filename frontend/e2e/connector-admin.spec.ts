@@ -168,6 +168,16 @@ test("MCP 配置 dialog matches the reference layout", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(iconMenu).toHaveCount(0);
   await expect(panel).toBeVisible();
+  // Header 名称可下拉：常用名进 datalist，自定义名仍可手输；命中已知名才给一行说明。
+  const headerName = panel.locator("[data-connector-header-rows] input.connector-header-name").first();
+  await expect(panel.locator("[data-connector-header-rows] datalist option")).toHaveCount(4);
+  expect(await headerName.evaluate((el) => Boolean(document.getElementById(el.getAttribute("list") || "")))).toBe(true);
+  await expect(panel.locator("[data-connector-header-hint]")).toHaveCount(0);
+  await headerName.fill("Authorization");
+  await expect(panel.locator("[data-connector-header-hint]")).toContainText("Bearer");
+  await headerName.fill("X-API-Key");
+  await expect(panel.locator("[data-connector-header-hint]")).toHaveCount(0);
+  await headerName.fill("");
   // 备注 5 行；底部只有「保存」一个实底，附保存≠启用说明。
   await expect(panel.locator("textarea")).toHaveAttribute("rows", "5");
   await expect(panel.locator("[data-connector-panel-save]")).toHaveText("保存");
