@@ -704,9 +704,9 @@ function SkillKnowledgeBindings({ skillId }: { skillId: string }) {
       const labels = ids.map((id) => String(assetsById.get(id)?.title || assetsById.get(id)?.name || id));
       const conditions = [
         ids.length ? `指定条目：${labels.join("、")}` : "按条件匹配知识",
-        ...(Array.isArray(selector.kinds) ? [`类型：${selector.kinds.join("、")}`] : []),
-        ...(Array.isArray(selector.tags) ? [`标签：${selector.tags.join("、")}`] : []),
-        ...(Array.isArray(selector.stage_codes) ? [`阶段：${selector.stage_codes.join("、")}`] : []),
+        ...(Array.isArray(selector.kinds) ? [`类型：${selector.kinds.map(String).join("、")}`] : []),
+        ...(Array.isArray(selector.tags) ? [`标签：${selector.tags.map(String).join("、")}`] : []),
+        ...(Array.isArray(selector.stage_codes) ? [`阶段：${selector.stage_codes.map(String).join("、")}`] : []),
         ...(selector.brand ? [`品牌：${String(selector.brand)}`] : []),
         ...(selector.lang ? [`语言：${String(selector.lang)}`] : []),
       ];
