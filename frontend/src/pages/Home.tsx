@@ -1099,13 +1099,7 @@ export default function Home() {
       applyPoolSelection(selectedKolIds.filter((id) => !visibleIds.includes(id)));
       return;
     }
-    const next = [...selectedKolIds];
-    for (const id of visibleIds) {
-      if (next.includes(id)) continue;
-      if (next.length >= KOL_SELECT_MAX) break;
-      next.push(id);
-    }
-    applyPoolSelection(next);
+    applyPoolSelection([...new Set([...selectedKolIds, ...visibleIds])]);
   };
 
   const poolTemplateBody = (kind: PoolAnalysisKind): string => String(poolTemplates[kind]?.body || "").trim();
@@ -1145,10 +1139,17 @@ export default function Home() {
     // 没有条件时不带 target_criteria（模型不得自己编匹配）。
     setScoreConfirm({ busy: true, count: targets.length, error: null });
     try {
-      await poolWorkspace.assessWithJev(
-        targets.length ? targets : undefined,
-        discoveryBrief ? { ...discoveryBrief } : null,
-      );
+      const criteria = discoveryBrief ? { ...discoveryBrief } : null;
+      // The backend protects each Jev request at eight targets. A full-page
+      // selection is therefore executed in bounded batches, with each batch
+      // persisted and refreshed before the next one starts.
+      if (!targets.length) {
+        await poolWorkspace.assessWithJev(undefined, criteria);
+      } else {
+        for (let offset = 0; offset < targets.length; offset += KOL_SELECT_MAX) {
+          await poolWorkspace.assessWithJev(targets.slice(offset, offset + KOL_SELECT_MAX), criteria);
+        }
+      }
       setScoreConfirm(null);
     } catch (cause) {
       setScoreConfirm({ busy: false, count: targets.length, error: cause instanceof Error ? cause.message : "KOL评分失败" });

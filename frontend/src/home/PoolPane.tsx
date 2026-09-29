@@ -1,6 +1,5 @@
 import { useState } from "react";
 import type { PoolKol } from "./kolContract";
-import { selectAllChecked } from "./kolContract";
 import type { PoolFilter, PoolSort, PoolSortField } from "./poolView";
 import { poolSortState } from "./poolView";
 import type { SurfaceDownView } from "./surfaceError";
@@ -151,7 +150,7 @@ export default function PoolPane({ cards, totalCount, isFiltered, selectedIds, q
           <input type="search" data-pool-search value={query} placeholder="搜索" onChange={(event) => onQuery(event.target.value)} />
         </label>
         <label className="pool-select-all" title="全选当前筛选结果"><input type="checkbox" data-pool-select-all
-          checked={selectAllChecked(cards.length, selectedVisibleIds.length)} disabled={!cards.length}
+          checked={visibleIds.length > 0 && selectedVisibleIds.length >= visibleIds.length} disabled={!cards.length}
           onChange={(event) => onToggleSelectAll(visibleIds, event.target.checked)} /><span>全选</span></label>
         <button type="button" className="pool-filter-button" data-pool-filter="new" aria-pressed={filter === "new"}
           onClick={() => onFilter(filter === "new" ? "all" : "new")}>未首次建联</button>

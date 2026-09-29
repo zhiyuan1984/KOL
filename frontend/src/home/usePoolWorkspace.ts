@@ -160,6 +160,9 @@ export function usePoolWorkspace(options: {
     try {
       const result = await assessPoolWithJev(kolUids, criteria);
       setCards(dedupePoolCards(result.items));
+      // The command response is a receipt; re-read the memory endpoint so the
+      // rail reflects the committed assessment columns after every batch.
+      await loadSurface();
       setMaintenanceNotice(result.message);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Jev 评分失败，请稍后重试";
@@ -168,7 +171,7 @@ export function usePoolWorkspace(options: {
     } finally {
       setMaintenanceBusy(null);
     }
-  }, [maintenanceBusy]);
+  }, [loadSurface, maintenanceBusy]);
 
   const requestCleanupPreview = useCallback(async () => {
     if (maintenanceBusy) return;
