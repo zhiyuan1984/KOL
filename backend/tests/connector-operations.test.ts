@@ -38,6 +38,21 @@ describe("connector operations (isolated inspector, no external service)", () =>
     expect(result.probes).toHaveLength(1); expect(result.probes[0].actor_id).toBeTruthy();
     expect(result.events[0].event_type).toBe("runtime.connector.probed");
   });
+
+  it("keeps verification separate from explicit enablement", async () => {
+    getConn().prepare("UPDATE connectors SET enabled=0,status='pending_verification' WHERE id='probe_fixture'").run();
+    const a = app();
+    const response = await a.request(root + "/probe", { method: "POST" });
+    expect(response.status).toBe(200);
+    expect(getConn().prepare("SELECT enabled,status FROM connectors WHERE id='probe_fixture'").get())
+      .toMatchObject({ enabled: 0, status: "verified" });
+
+    getConn().prepare("UPDATE connectors SET enabled=1,status='verified' WHERE id='probe_fixture'").run();
+    const reprobe = await a.request(root + "/probe", { method: "POST" });
+    expect(reprobe.status).toBe(200);
+    expect(getConn().prepare("SELECT enabled,status FROM connectors WHERE id='probe_fixture'").get())
+      .toMatchObject({ enabled: 1, status: "verified" });
+  });
   it("registers derived tool policies when a directory probe passes", async () => {
     const a = app();
     expect((await a.request(root + "/probe", { method: "POST" })).status).toBe(200);

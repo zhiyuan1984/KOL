@@ -82,10 +82,15 @@ export function createConnectorOperationsRouter(inspect: Inspector = inspectConn
     getConn().prepare(`INSERT INTO runtime_connector_probes
       (connector_id,config_version,actor_id,checked_at,status,probe_kind,tool_count,duration_ms,error_code)
       VALUES(?,?,?,?,?,?,?,?,?)`).run(id, before.version, actor.id, checkedAt, status, kind, count, duration, code);
+    // A probe validates the saved configuration; it is not the administrator's
+    // explicit enable action. Preserve an already-enabled connector after a
+    // successful re-probe, keep a disabled connector disabled, and fail closed
+    // when the probe fails.
+    const enabledAfterProbe = !code && Number(current.enabled) === 1 ? 1 : 0;
     getConn().prepare(
       "UPDATE connectors SET enabled=?,status=?,last_verified_at=?,last_error=?,updated_at=? WHERE id=?",
     ).run(
-      0,
+      enabledAfterProbe,
       code ? "verification_failed" : "verified",
       checkedAt,
       code || null,
