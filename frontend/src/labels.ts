@@ -441,3 +441,30 @@ export function friendlyError(error: unknown, fallback = "操作未完成，请�
   }
   return raw;
 }
+
+const ERROR_CODE_NEXT_ACTION: Record<string, string> = {
+  skill_not_granted: "请联系管理员为该账号开通对应技能后重试",
+  connector_disabled: "请联系管理员启用后再试",
+  connector_not_granted: "请联系管理员授权后再试",
+};
+
+/** API errors carry their machine code in `payload.detail` — never show the bare status. */
+function apiErrorCode(error: unknown): string {
+  if (!error || typeof error !== "object") return "";
+  const payload = (error as { payload?: unknown }).payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "";
+  const detail = (payload as { detail?: unknown }).detail;
+  const fromDetail = detail && typeof detail === "object" && !Array.isArray(detail)
+    ? String((detail as { code?: unknown }).code || "").trim()
+    : "";
+  return fromDetail || String((payload as { code?: unknown }).code || "").trim();
+}
+
+/** Known API error codes become employee copy with a next step instead of「请求失败 (403)」. */
+export function friendlyApiError(error: unknown, fallback = "操作未完成，请稍后重试"): string {
+  const code = apiErrorCode(error);
+  const title = code ? ERROR_TITLES[code] : "";
+  if (!title) return friendlyError(error, fallback);
+  const hint = ERROR_CODE_NEXT_ACTION[code];
+  return hint ? `${title}，${hint}` : title;
+}

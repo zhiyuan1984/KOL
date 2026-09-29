@@ -484,6 +484,62 @@ test("send on the discovery path shows ▪ and clears the box before the request
   await expect(stop).toHaveCount(0);
 });
 
+test("the wait card streams one intent copy on the discovery path", async ({ page }) => {
+  const gate: { release?: () => void } = {};
+  const held = new Promise<void>((resolve) => { gate.release = resolve; });
+  await stubNoRuns(page);
+  await page.route("**/api/home/discovery/run", async (route) => {
+    await held;
+    await route.fulfill({ json: RUN_ACCEPTED });
+  });
+
+  await openDiscovery(page);
+  await page.locator("[data-home] [data-ai-prompt-submit]").click();
+
+  const card = page.locator("[data-home] [data-kind='recognizing']");
+  await expect(card).toHaveAttribute("data-wait-status", "识别中");
+  // 逐字流式：先露出开头的字，讲完才 done；文案是那一份统一的意图口径。
+  const stream = card.locator("[data-wait-stream]");
+  await expect(stream).toContainText("读懂了");
+  await expect(stream).toHaveAttribute("data-wait-stream", "done", { timeout: 5000 });
+  await expect(stream).toContainText("正在分析你的问题");
+  await expect(stream).toContainText("开始执行");
+  await expect(card.locator("[data-recognize-elapsed]")).toContainText("已等待");
+  // 旧邮件口径不得再出现在等待卡里。
+  await expect(card).not.toContainText("发件、收件");
+
+  gate.release?.();
+  await expect(card).toHaveCount(0);
+});
+
+test("a 403 submit failure stays on the AI发现 surface", async ({ page }) => {
+  await stubNoRuns(page);
+  await page.route("**/api/home/discovery/run", (route) => route.fulfill({
+    status: 403,
+    contentType: "application/json",
+    body: JSON.stringify({ detail: { code: "skill_not_granted", skill_id: "creator_discovery" } }),
+  }));
+
+  await openDiscovery(page);
+  await page.locator("[data-home] [data-ai-prompt-submit]").click();
+  const error = page.locator("[data-home] [data-home-discovery-submit-error-message]");
+  await expect(error).toContainText("技能未授权");
+  await expect(error).not.toContainText("请求失败 (403)");
+  await expect(page.locator("[data-home] [data-home-discovery-submit-error] button")).toBeVisible();
+
+  // 失败态属于 AI发现 这一面：切到任何其他页签都不得跟着出现。
+  for (const tab of ["today", "todo", "pool", "lifecycle"]) {
+    await page.locator(`[data-home-mode="${tab}"]`).click();
+    await expect(page.locator(`[data-home-pane="${tab}"]`)).toBeVisible();
+    await expect(page.locator("[data-home] [data-home-discovery-submit-error]")).toHaveCount(0);
+    await expect(page.locator("[data-home] [data-home-discovery-submit-error-message]")).toHaveCount(0);
+    await expect(page.locator("[data-home] .composer-err")).toHaveCount(0);
+  }
+
+  await page.locator('[data-home-mode="discovery"]').click();
+  await expect(page.locator("[data-home] [data-home-discovery-submit-error-message]")).toContainText("技能未授权");
+});
+
 test("a 502 on submit offers 重试, and retrying resubmits", async ({ page }) => {
   let attempts = 0;
   await stubNoRuns(page);

@@ -27,11 +27,13 @@ import {
   type LockedMailTemplate,
 } from "../knowledgeCopy";
 import { rememberJourney } from "../journey";
-import { missingFieldsMessage, fieldLabel } from "../labels";
+import { fieldLabel, friendlyApiError, missingFieldsMessage } from "../labels";
 import DiscoveryWorkspace from "../home/DiscoveryWorkspace";
 import ObjectWorkspace from "../home/ObjectWorkspace";
 import { scopeRows } from "../home/scopeRows";
 import ScopeWorkspace from "../home/ScopeWorkspace";
+import StreamingLines from "../home/StreamingLines";
+import { RECOGNIZE_WAIT_LINES, RECOGNIZE_WAIT_OVERDUE } from "../home/recognizeWait";
 import type { WorkspacePane } from "../home/WorkspaceShell";
 import FollowedPane from "../home/FollowedPane";
 import FollowedInteraction from "../home/FollowedInteraction";
@@ -586,8 +588,9 @@ export default function Home() {
 
   const submitDiscovery = async (brief: DiscoveryBrief, body: string, version: string) => {
     setDiscoverySubmitFailed(false);
+    setDiscoverySubmitError("");
     if (!canSubmitDiscovery(brief)) {
-      setErr("请选择平台并填写关键词后再发送。");
+      setDiscoverySubmitError("请选择平台并填写关键词后再发送。");
       return;
     }
     setBusy(true);
@@ -615,9 +618,9 @@ export default function Home() {
     } catch (error) {
       setDiscoverySubmitFailed(true);
       if (isMissingEndpoint(error)) {
-        setErr("发现提交接口尚未提供。不会发信、不会改阶段，也没有编造结果。");
+        setDiscoverySubmitError("发现提交接口尚未提供。不会发信、不会改阶段，也没有编造结果。");
       } else {
-        setErr(error instanceof Error ? error.message : "发现任务没有提交。");
+        setDiscoverySubmitError(friendlyApiError(error, "发现任务没有提交。"));
       }
     } finally {
       setBusy(false);
@@ -681,6 +684,8 @@ export default function Home() {
   } | null>(null);
   /** 发现提交失败后可重试：正文已在发送时清空，不能只留一条错误文案。 */
   const [discoverySubmitFailed, setDiscoverySubmitFailed] = useState(false);
+  /** 失败原因的可读文案：只在中栏 AI发现 面渲染，切页签不得跟着出现。 */
+  const [discoverySubmitError, setDiscoverySubmitError] = useState("");
   const [editTaskTarget, setEditTaskTarget] = useState<Task | null>(null);
   const mode = parseHomeMode(params.get("tab"));
   // 计划作用域只在对应 tab 激活时读取：公海/我的红人不再替今日与待办预读。
@@ -1951,7 +1956,10 @@ export default function Home() {
       {genericParamCard}
       {enqueueNotice ? <p className="muted" role="status" data-analyze-enqueue>{enqueueNotice}</p> : null}
       {err && <p className="error composer-err" role="alert" data-home-session-error={err.includes("未能打开会话") ? "true" : undefined}>{err}</p>}
-      {discoverySubmitFailed && !busy ? (
+      {discoverySubmitError && mode === "discovery" ? (
+        <p className="error composer-err" role="alert" data-home-discovery-submit-error-message>{discoverySubmitError}</p>
+      ) : null}
+      {discoverySubmitFailed && !busy && mode === "discovery" ? (
         <div className="composer-err" data-home-discovery-submit-error>
           <button
             type="button"
@@ -1972,12 +1980,9 @@ export default function Home() {
       {busy && !feedback && !err && !queuedNotice ? (
         <section className="creation-feedback" data-kind="recognizing" data-creation-feedback data-wait-status="识别中" role="status" aria-busy="true">
           <strong>识别中</strong>
-          <p>
-            正在识别任务方向和已填写的字段，不会改你已经写出的发件、收件和主题。
-            {recognizeSeconds ? ` 已等待 ${recognizeSeconds} 秒。` : ""}
-          </p>
+          <StreamingLines lines={RECOGNIZE_WAIT_LINES} seconds={recognizeSeconds} />
           {recognizeOverdue ? (
-            <p data-recognize-timeout>识别时间较长，可再试一次或补充字段后发送。</p>
+            <p data-recognize-timeout>{RECOGNIZE_WAIT_OVERDUE}</p>
           ) : null}
         </section>
       ) : null}

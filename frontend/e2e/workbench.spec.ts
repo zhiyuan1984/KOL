@@ -1789,6 +1789,10 @@ test("home recognizing feedback is labeled 识别中", async ({ page }) => {
   await expect(recognizing).toHaveAttribute("data-wait-status", "识别中");
   await expect(recognizing).toContainText("识别中");
   await expect(recognizing).not.toContainText("等待中");
+  // 所有入口共用一份意图口径：已读懂 → 正在分析 → 开始执行；邮件口径不得再出现。
+  await expect(recognizing).toContainText("我读懂了");
+  await expect(recognizing).toContainText("正在分析你的问题");
+  await expect(recognizing).not.toContainText("发件、收件");
 });
 
 test("home today pane lists today items and 我的待办 still opens the KOL session", async ({ page }) => {

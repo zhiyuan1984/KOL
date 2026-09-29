@@ -4407,6 +4407,7 @@ summary:focus-visible,
 }
 .creation-feedback strong { font-size: var(--font-ui); }
 .creation-feedback p { margin: 4px 0 8px; color: var(--muted); font-size: var(--font-xs); }
+.creation-feedback .wait-stream { display: grid; gap: 2px; }
 .creation-feedback-fields {
   display: grid;
   gap: 2px;
