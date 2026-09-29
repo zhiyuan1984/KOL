@@ -2,14 +2,12 @@ import { lazy, Suspense } from "react";
 import RouteErrorBoundary from "./components/RouteErrorBoundary";
 import { Navigate, Route, Routes } from "react-router-dom";
 import Workbench from "./layout/Workbench";
-// Home and Mail are the two landings: keep them in the entry chunk so a page
-// load never costs an extra round trip on a slow link.
-import Home from "./pages/Home";
-import Mail from "./pages/Mail";
 import AuthGate from "./components/AuthGate";
 import { ViewModeProvider } from "./viewMode";
 
-/** Route-level code splitting: /mail must not download /skills, /exam, … */
+/** Route-level code splitting: the shell stays small; each surface loads on demand. */
+const Home = lazy(() => import("./pages/Home"));
+const Mail = lazy(() => import("./pages/Mail"));
 const Chat = lazy(() => import("./pages/Chat"));
 const Pipeline = lazy(() => import("./pages/Pipeline"));
 const Approvals = lazy(() => import("./pages/Approvals"));
