@@ -2057,6 +2057,11 @@ export const api = {
     }>("/api/mail/compose-catalog"),
   mailPerson: (box: string, p: string) =>
     request<Record<string, unknown>>(`/api/mail/person?box=${encodeURIComponent(box)}&p=${encodeURIComponent(p)}`),
+  generateMailMemory: (body: { box?: string; conversation_id?: string; message_id?: string }) =>
+    request<{ accepted?: boolean; pending?: boolean; mailbox?: string }>("/api/mail/memory", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   syncMailboxMail: (body: Record<string, unknown> = {}) =>
     request<{
       entry?: string;

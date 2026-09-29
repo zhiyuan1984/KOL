@@ -29,7 +29,7 @@ export function writeMailFold(key: MailFoldKey, open: boolean) {
 }
 
 /**
- * One collapsible block of the detail column. The header is the only control
+ * One collapsible block of the detail column. The toggle is the only disclosure control
  * (`aria-expanded`/`aria-controls`); the body always stays mounted so the
  * `data-mail-*` contracts keep resolving while the block is folded away.
  */
@@ -51,18 +51,20 @@ export function MailFold({
   const bodyId = `mail-fold-body-${id}`;
   return (
     <section className="mail-fold" data-mail-fold={id}>
-      <button
-        type="button"
-        className="mail-fold-head"
-        data-mail-fold-head={id}
-        aria-expanded={open}
-        aria-controls={bodyId}
-        onClick={onToggle}
-      >
-        <span className="mail-fold-caret" aria-hidden="true">{open ? "▾" : "▸"}</span>
-        <strong className="mail-side-title">{label}</strong>
+      <div className="mail-fold-head">
+        <button
+          type="button"
+          className="mail-fold-toggle"
+          data-mail-fold-head={id}
+          aria-expanded={open}
+          aria-controls={bodyId}
+          onClick={onToggle}
+        >
+          <span className="mail-fold-caret" aria-hidden="true">{open ? "▾" : "▸"}</span>
+          <strong className="mail-side-title">{label}</strong>
+        </button>
         {tag}
-      </button>
+      </div>
       <div className="mail-fold-body" id={bodyId} hidden={!open}>
         {children}
       </div>

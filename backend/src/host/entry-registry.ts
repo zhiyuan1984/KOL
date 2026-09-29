@@ -364,6 +364,15 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
     route: "POST /api/mail/sync",
   },
   {
+    id: "generate-mail-memory",
+    kind: "command",
+    action: "生成通讯摘要与中文翻译",
+    creates_session: false,
+    creates_turn: false,
+    calls_model: true,
+    route: "POST /api/mail/memory",
+  },
+  {
     id: "confirm-send",
     kind: "command",
     action: "确认发送",

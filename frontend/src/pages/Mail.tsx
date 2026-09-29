@@ -107,6 +107,8 @@ const ICO_SEARCH = "M11 4.8a6.2 6.2 0 1 0 0 12.4 6.2 6.2 0 0 0 0-12.4M16.4 16.4 
 const ICO_FILTER = "M4 5h16l-6.3 7.3v5.2l-3.4-2.1v-3.1Z";
 const ICO_REPLY = "M9.5 14.5 4.5 9.5l5-5M4.5 9.5H13a6.5 6.5 0 0 1 6.5 6.5v3";
 const ICO_SPARKLE = "M12 3.8l1.9 4.9 4.9 1.9-4.9 1.9L12 17.4l-1.9-4.9-4.9-1.9 4.9-1.9ZM18.6 16.4v4M16.6 18.4h4";
+const ICO_WAND = "M5 19 18.8 5.2M15.4 3.8l.8 2.1 2.1.8-2.1.8-.8 2.1-.8-2.1-2.1-.8 2.1-.8ZM6.2 5.2l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5ZM18.1 14.2l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5Z";
+const ICO_TRANSLATE = "M4 5h9M8.5 5v2.2c0 3-1.3 5.2-4 6.8M6 9.2c1.4 1.6 3.1 2.8 5.3 3.6M15 13l-3.2 7M18.2 13l3.2 7M13.8 17h5.6";
 const ICO_DOC = "M7 3.5h6.5L18 8v12.5H7ZM13.5 3.5V8H18";
 
 function MailIco({ d }: { d: string }) {
@@ -177,6 +179,7 @@ export default function Mail() {
   const [expandedId, setExpandedId] = useState("");
   const [letters, setLetters] = useState<MailComposeLetter[]>([]);
   const [lettersMore, setLettersMore] = useState(false);
+  const [memoryBusy, setMemoryBusy] = useState<"summary" | "translation" | null>(null);
   const [composerText, setComposerText] = useState("");
   // A deep link that names a mail (?c=&m=) opens on the detail pane: at ≤1100px
   // the switcher would otherwise stop on 列表 while the left column already
@@ -497,6 +500,42 @@ export default function Mail() {
     }
   };
 
+  const generateMailMemory = async (kind: "summary" | "translation") => {
+    const mailbox = workspace?.box.mailbox || boxParam;
+    if (!mailbox || !selectedConversation || memoryBusy) return;
+    if (kind === "translation" && !currentMessage) return;
+    setMemoryBusy(kind);
+    setError("");
+    setNotice(kind === "summary" ? "正在按邮件记忆技能生成往来摘要…" : "正在按邮件翻译技能生成中文译稿…");
+    try {
+      await api.generateMailMemory({
+        box: mailbox,
+        conversation_id: selectedConversation.conversation_id,
+        ...(currentMessage ? { message_id: currentMessage.id } : {}),
+      });
+      // 服务端复用 MCP/模型链路；页面只轮询本地记忆结果，不直接绕过技能调用模型。
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+        if (kind === "summary") {
+          const digest = await loadMailPersonDigest(mailbox, selectedConversation.peer_email);
+          setPersonDigest(digest);
+          if (digest?.digest_text) break;
+        } else {
+          const next = await loadMailThread(selectedConversation.conversation_id, selectedConversation, workspace?.source || "api");
+          if (next) {
+            setThreads((prev) => ({ ...prev, [selectedConversation.conversation_id]: next }));
+            if (next.messages.some((message) => message.id === currentMessage?.id && message.translation_zh)) break;
+          }
+        }
+      }
+      setNotice(kind === "summary" ? "往来摘要已更新。" : "中文译稿已更新。");
+    } catch (e) {
+      setError(e instanceof Error && e.message ? e.message : "邮件记忆生成失败，请稍后重试。");
+    } finally {
+      setMemoryBusy(null);
+    }
+  };
+
   const setFold = (key: MailFoldKey, open: boolean, persist = true) => {
     if (persist) writeMailFold(key, open);
     setFolds((prev) => (prev[key] === open ? prev : { ...prev, [key]: open }));
@@ -717,7 +756,6 @@ export default function Mail() {
   const detailPeer = selectedConversation ? peerOf(selectedConversation) : "";
   const detailPeerEmail = selectedConversation?.peer_email || "";
   const translation = String(currentMessage?.translation_zh || "").trim();
-  const digestTag = personDigest?.digest_source === "codex_memory" ? "AI 生成 · codex" : "AI 生成";
   const visibleLetters = lettersMore ? letters : letters.slice(0, TASK_CHIP_LIMIT);
 
   return (
@@ -929,7 +967,8 @@ export default function Mail() {
                       aria-expanded={lettersMore}
                       onClick={() => setLettersMore((v) => !v)}
                     >
-                      {lettersMore ? "收起" : "更多"}
+                      <span>{lettersMore ? "收起" : "更多"}</span>
+                      <span className="mail-accordion-icon" aria-hidden="true">{lettersMore ? "▴" : "▾"}</span>
                     </button>
                   ) : null}
                 </div>
@@ -993,7 +1032,19 @@ export default function Mail() {
               label="往来摘要"
               open={folds.summary}
               onToggle={() => toggleFold("summary")}
-              tag={<span className="mail-side-tag" data-mail-digest-tag>{digestTag}</span>}
+              tag={(
+                <button
+                  type="button"
+                  className="mail-side-action"
+                  data-mail-generate-summary
+                  data-mail-entry="generate-mail-memory"
+                  disabled={memoryBusy !== null || !selectedConversation}
+                  onClick={() => void generateMailMemory("summary")}
+                >
+                  <MailIco d={ICO_WAND} />
+                  {memoryBusy === "summary" ? "生成中…" : "生成摘要"}
+                </button>
+              )}
             >
               <div
                 className="mail-fold-inner"
@@ -1005,7 +1056,25 @@ export default function Mail() {
               </div>
             </MailFold>
 
-            <MailFold id="translation" label="中文翻译" open={folds.translation} onToggle={() => toggleFold("translation")}>
+            <MailFold
+              id="translation"
+              label="中文翻译"
+              open={folds.translation}
+              onToggle={() => toggleFold("translation")}
+              tag={(
+                <button
+                  type="button"
+                  className="mail-side-action"
+                  data-mail-generate-translation
+                  data-mail-entry="generate-mail-memory"
+                  disabled={memoryBusy !== null || !currentMessage}
+                  onClick={() => void generateMailMemory("translation")}
+                >
+                  <MailIco d={ICO_TRANSLATE} />
+                  {memoryBusy === "translation" ? "生成中…" : "生成翻译"}
+                </button>
+              )}
+            >
               <div
                 className="mail-fold-inner"
                 data-mail-translation

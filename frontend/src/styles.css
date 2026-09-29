@@ -12838,6 +12838,8 @@ button.today-brief-primary-btn:disabled {
   white-space: nowrap;
   cursor: pointer;
 }
+.mail-task-more { display: inline-flex; align-items: center; gap: 5px; }
+.mail-accordion-icon { color: var(--ds-text-muted); font-size: var(--ds-font-helper); line-height: 1; }
 .mail-task-chip:hover,
 .mail-task-more:hover { border-color: var(--accent); color: var(--accent-text); }
 .mail-task-more { color: var(--ds-text-dim); }
@@ -12845,22 +12847,26 @@ button.today-brief-primary-btn:disabled {
 /* ── 右栏：往来摘要 / 中文翻译 / 原文 三个折叠 ──────────────────────────── */
 .mail-detail-head {
   display: grid;
-  gap: var(--space-2);
-  padding-bottom: var(--space-3);
+  gap: var(--space-1);
+  padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--ds-border);
 }
 .mail-thread-head {
-  display: grid;
-  gap: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
   align-items: baseline;
   justify-content: start;
+  min-width: 0;
 }
 .mail-thread-head h2 {
+  margin: 0;
+  min-width: 0;
   font-size: var(--ds-font-section);
   font-weight: 600;
   line-height: var(--ds-line-section);
 }
-.mail-thread-head p { font-size: var(--ds-font-helper); }
+.mail-thread-head p { margin: 0; min-width: 0; font-size: var(--ds-font-helper); }
 .mail-fold { padding: var(--space-3) 0; border-bottom: 1px solid var(--ds-border); }
 .mail-fold:last-child { border-bottom: 0; padding-bottom: 0; }
 .mail-fold-head {
@@ -12868,6 +12874,12 @@ button.today-brief-primary-btn:disabled {
   align-items: center;
   gap: 6px;
   width: 100%;
+}
+.mail-fold-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   padding: 0;
   border: 0;
   background: none;
@@ -12878,7 +12890,25 @@ button.today-brief-primary-btn:disabled {
 }
 .mail-fold-caret { color: var(--ds-text-muted); font-size: var(--ds-font-tag); }
 .mail-fold-head .mail-side-title { font-size: var(--ds-font-sm); font-weight: 600; }
-.mail-fold-head .mail-side-tag { margin-left: auto; }
+.mail-side-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--ds-border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--ds-text-dim);
+  font: inherit;
+  font-size: var(--ds-font-helper);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.mail-side-action:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-text); }
+.mail-side-action:disabled { cursor: wait; opacity: .65; }
+.mail-side-action .mail-ico { width: 14px; height: 14px; }
 .mail-fold-body { display: grid; gap: var(--space-2); padding-top: var(--space-2); }
 .mail-fold-body[hidden] { display: none; }
 .mail-fold-inner { display: grid; gap: var(--space-2); }

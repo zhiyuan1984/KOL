@@ -18,7 +18,7 @@ import {
   messageRowOf,
   setConversationStarred,
 } from "../host/mail-memory.js";
-import { readPersonDigest } from "../host/mail-memory-job.js";
+import { pendingMailMemoryIncrement, readPersonDigest, triggerMailMemoryIncrement } from "../host/mail-memory-job.js";
 import { composeCatalog } from "../skills/email-compose-contract.js";
 import { lastSyncReceipt, startFollowedMailSync } from "../starrykol/mail-sync.js";
 
@@ -107,6 +107,15 @@ mail.get("/mail/person", (c) => {
     digest_source: digest?.source || "",
     digest_generated_at: digest && "generated_at" in digest ? digest.generated_at : null,
   });
+});
+
+/** Generate the selected mailbox's mail memory through the existing MCP/LLM chain. */
+mail.post("/mail/memory", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { box?: unknown };
+  const mailbox = requestedMailbox(String(body?.box || "")) || mailboxBoxStatus().mailbox;
+  if (!mailbox) throw new HttpFail(400, "mailbox is required");
+  triggerMailMemoryIncrement(mailbox);
+  return c.json({ ...COMMAND, accepted: true, pending: pendingMailMemoryIncrement(mailbox), mailbox }, 202);
 });
 
 mail.post("/mail/conversations/:id/read", (c) => {
