@@ -26,6 +26,7 @@ const SkillHub = lazy(() => import("./pages/SkillHub").then((m) => ({ default: m
 const Partners = lazy(() => import("./pages/Partners"));
 const Agents = lazy(() => import("./pages/Agents"));
 const AgentTeams = lazy(() => import("./pages/AgentTeams"));
+const Tasks = lazy(() => import("./pages/Tasks"));
 
 function RouteFallback() {
   return <p className="muted" style={{ padding: 24 }} data-route-loading>加载中…</p>;
@@ -42,6 +43,7 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/work" element={<Navigate to="/" replace />} />
             <Route path="/s/:id" element={<Chat />} />
+            <Route path="/tasks" element={<Tasks />} />
             <Route path="/pipeline" element={<Pipeline />} />
             <Route path="/cron" element={<Cron />} />
             <Route path="/cron/:jobId" element={<Cron />} />

@@ -266,14 +266,14 @@ export default function Workbench() {
             <span className="sidebar-label">新工作任务</span>
           </Link>
           <Link
-            to={runningHref}
+            to="/tasks"
             className={"nav-link" + (runningActive ? " active" : "")}
             aria-current={runningActive ? "page" : undefined}
             data-nav="running"
             onClick={() => setMobileOpen(false)}
           >
             <Ico path="M12 21a8 8 0 1 0 0-16 8 8 0 0 0 0 16z M12 8v4l2.5 1.5" />
-            <span className="sidebar-label">进行中</span>
+            <span className="sidebar-label">任务中心</span>
             {runningCount > 0 && <span className="nav-badge" data-running-count={runningCount}>{runningCount}</span>}
           </Link>
           <NavLink to="/cron" className={() => "nav-link" + ((loc.pathname === "/cron" || loc.pathname.startsWith("/cron/")) ? " active" : "")} data-nav="cron" onClick={() => setMobileOpen(false)}>
