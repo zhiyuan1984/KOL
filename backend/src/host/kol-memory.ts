@@ -22,7 +22,6 @@ import { currentUser } from "./persona.js";
 
 export const DEFAULT_COMPANY_ID = "company:amperetime";
 export const FOLLOW_IDLE_DAYS = 14;
-export const KOL_ANALYZE_MAX_PEOPLE = 8;
 export const KOL_ANALYZE_MAX_IN_FLIGHT = 3;
 export const KOL_ANALYZE_TASK_TYPE = "kol_analyze";
 export const KOL_ANALYZE_VERBS = [

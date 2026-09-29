@@ -16,7 +16,7 @@ funnel: reach
 ---
 # 红人分析 kol_analyze · Lead
 
-只读思考任务。入口锁定 `task_type=kol_analyze`，禁止从自由文本做意图识别。单次最多 8 人；进行中+排队硬顶 3。产物 `artifact_type=kol_analyze_brief`。
+只读思考任务。入口锁定 `task_type=kol_analyze`，禁止从自由文本做意图识别。支持一次分析完整选中对象；进行中+排队硬顶 3。产物 `artifact_type=kol_analyze_brief`。
 
 建议动作只允许白名单动词，且不得自行执行：`claim_follow`、`compose_draft`、`confirm_send`、`confirm_stage`、`open_thread`、`release_follow`、`handoff`、`retry_sync`、`none`。领取与释放必须走独立 L3 命令。
 

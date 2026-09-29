@@ -15195,3 +15195,39 @@ button.today-brief-primary-btn:disabled {
 @media (max-width: 1040px) { .task-center-filters { grid-template-columns: minmax(220px, 1fr) 128px minmax(150px, .8fr); } .task-filter-date-range { grid-column: span 2; justify-self: start; } .task-filter-actions { justify-self: end; } }
 @media (max-width: 860px) { .tasks-page { padding: var(--space-4, 16px); } .task-center-filters { grid-template-columns: minmax(0, 1fr) minmax(120px, .5fr); } .task-filter-search { grid-column: 1 / -1; } .task-filter-agent { grid-column: 1 / -1; } .task-filter-date-range { grid-column: 1; } .task-filter-actions { grid-column: 2; } .task-center-table { min-width: 820px; } }
 @media (max-width: 560px) { .tasks-page-head { align-items: flex-start; } .tasks-page-head .button { min-height: var(--control-h-lg, 32px); } .task-center-filters { grid-template-columns: 1fr; } .task-filter-date-range, .task-filter-actions { grid-column: 1; width: 100%; } .task-filter-actions { justify-self: start; } }
+
+/* Followed rail actions are a left-anchored control group, never a right-aligned
+   "first N" affordance. */
+.followed-kol-column .followed-object-batch {
+  margin-left: 0;
+  justify-content: flex-start;
+}
+.followed-kol-column .followed-select-all {
+  justify-content: flex-start;
+  color: var(--text);
+}
+
+/* The collapsed rail communicates state with the panel icon and count only;
+   do not render a gray text button. Keep the icon at the same top-right anchor
+   as 今日任务 in the expanded rail. */
+.scope-task-rail.is-collapsed .scope-task-rail-toggle strong {
+  display: none;
+}
+.scope-task-rail.is-collapsed .scope-task-rail-toggle em {
+  display: none;
+}
+.scope-task-rail.is-collapsed .scope-task-rail-toggle {
+  color: var(--text);
+  position: absolute;
+  top: 8px;
+  right: 0;
+  width: var(--icon-btn);
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+.scope-task-rail.is-collapsed .scope-task-rail-toggle-icon {
+  flex: 0 0 auto;
+}

@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 /**
  * 「我的红人」右栏的两条硬契约（DESIGN §Home Agent 工作台几何 / §控件尺寸，TECH-FE-01）：
  * 1) 读取没回来之前不许下「还没有跟进中的红人」的结论，也不许报 0 计数；
- * 2) 顶部工具行（搜索 + 全选本页/分析已选/批量进阶段）不重叠，名单总数只在中栏概览出现一次；
+ * 2) 顶部工具行（搜索 + 全选/分析已选/批量进阶段）不重叠，名单总数只在中栏概览出现一次；
  * 3) 右栏宽度按 DESIGN 的 token 分配，五个模式同一份几何。
  */
 
@@ -95,7 +95,7 @@ test("右栏顶部工具行：搜索与批量动作在最上、互不重叠，�
     batchBeforeList: true,
   });
 
-  // 工具行内两个分组不许压在对方身上（旧版 425px 宽时计数与「全选本页」重叠）。
+  // 工具行内两个分组不许压在对方身上。
   const overlap = await page.evaluate(() => {
     const bar = document.querySelector("[data-followed-object-toolbar]") as HTMLElement;
     const rects = [...bar.children].map((child) => child.getBoundingClientRect());
@@ -112,6 +112,7 @@ test("右栏顶部工具行：搜索与批量动作在最上、互不重叠，�
     return hits;
   });
   expect(overlap).toEqual([]);
+  await expect(page.locator("[data-followed-object-batch]")).toHaveCSS("margin-left", "0px");
 
   // 总数只在中栏概览里：右栏工具行不重复「N 位当前跟进对象」。
   const rail = page.locator('[data-home-pane="lifecycle"] [data-scope-task-rail]');
@@ -121,12 +122,12 @@ test("右栏顶部工具行：搜索与批量动作在最上、互不重叠，�
   await expect(center).toContainText("3 位当前跟进对象");
   await expect(page.locator("[data-followed-lifecycle-grid]")).toBeVisible();
   await expect(page.locator("[data-followed-selected-count]")).toHaveCount(0);
-  // 名单没超过选择上限时，「全选本页」就是行为本身。
-  await expect(page.locator(".followed-select-all")).toContainText("全选本页");
+  // 全选始终是明确的全量动作。
+  await expect(page.locator(".followed-select-all")).toContainText("全选");
 
   // 选中之后才报选中数，且搜索框仍保持可用宽度。
   await page.locator('[data-followed-kol="红人1"] input[type="checkbox"]').check();
-  await expect(page.locator("[data-followed-selected-count]")).toHaveText("已选 1 / 8");
+  await expect(page.locator("[data-followed-selected-count]")).toHaveText("已选 1");
   const boxes = await page.evaluate(() => {
     const box = (selector: string) => {
       const el = document.querySelector(selector) as HTMLElement;
@@ -299,7 +300,7 @@ test("未绑定邮箱范围时，首开我的红人不为旧协作对账等 boar
   expect(followingReads.length).toBe(1);
 });
 
-test("名单超过选择上限时，全选标签照实说、勾选框按上限呈现", async ({ page }) => {
+test("全选覆盖当前筛选结果，不截断前 8 位", async ({ page }) => {
   await stubBoard(page);
   await page.route("**/api/home/following", (route) => route.fulfill({
     json: followingEnvelope(Array.from({ length: 12 }, (_, index) => row(index + 1))),
@@ -307,11 +308,11 @@ test("名单超过选择上限时，全选标签照实说、勾选框按上限�
   await openFollowed(page);
   await expect(page.locator('[data-followed-kol="红人1"]')).toBeVisible();
 
-  // 12 位在跟、上限 8：动作名不许再写「全选本页」。
+  // 12 位在跟：全选应覆盖全部 12 位。
   const checkbox = page.locator("[data-followed-select-all]");
-  await expect(page.locator(".followed-select-all")).toContainText("选中前 8 位");
+  await expect(page.locator(".followed-select-all")).toContainText("全选");
   await checkbox.check();
-  await expect(page.locator("[data-followed-selected-count]")).toHaveText("已选 8 / 8");
+  await expect(page.locator("[data-followed-selected-count]")).toHaveText("已选 12");
   await expect(checkbox).toBeChecked();
 });
 

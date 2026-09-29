@@ -96,10 +96,10 @@ import {
   analyzePrefillPrompt,
   followKolToRecord,
   isAnalyzePrefill,
-  KOL_SELECT_MAX,
+  KOL_BATCH_SIZE,
   poolAnalysisPrefill,
-  selectAllMax8,
-  toggleSelectMax8,
+  selectAll,
+  toggleSelect,
   type KolSurface,
 } from "../home/kolContract";
 import { nextPoolSort } from "../home/poolView";
@@ -1064,11 +1064,11 @@ export default function Home() {
   };
 
   const toggleSelectedKol = (id: string, on: boolean) => {
-    setSelectedKolIds((current) => toggleSelectMax8(current, id, on));
+    setSelectedKolIds((current) => toggleSelect(current, id, on));
   };
 
   const toggleSelectAllKols = (on: boolean) => {
-    setSelectedKolIds(selectAllMax8(followedWorkspace.visibleCards.map((card) => card.id), on));
+    setSelectedKolIds(selectAll(followedWorkspace.visibleCards.map((card) => card.id), on));
   };
 
   const prefillAnalyze = (surface: KolSurface, cards: Array<{ identity: { display: string } }>, uids: string[]) => {
@@ -1096,7 +1096,7 @@ export default function Home() {
   };
 
   const toggleSelectedPool = (id: string, on: boolean) => {
-    applyPoolSelection(toggleSelectMax8(selectedKolIds, id, on));
+    applyPoolSelection(toggleSelect(selectedKolIds, id, on));
   };
 
   const toggleSelectAllPool = (visibleIds: string[], on: boolean) => {
@@ -1151,8 +1151,8 @@ export default function Home() {
       if (!targets.length) {
         await poolWorkspace.assessWithJev(undefined, criteria);
       } else {
-        for (let offset = 0; offset < targets.length; offset += KOL_SELECT_MAX) {
-          await poolWorkspace.assessWithJev(targets.slice(offset, offset + KOL_SELECT_MAX), criteria);
+        for (let offset = 0; offset < targets.length; offset += KOL_BATCH_SIZE) {
+          await poolWorkspace.assessWithJev(targets.slice(offset, offset + KOL_BATCH_SIZE), criteria);
         }
       }
       setScoreConfirm(null);
@@ -1508,7 +1508,7 @@ export default function Home() {
       const analyzeUidsNow = analyzeUids.length ? analyzeUids : selectedKolIds;
       if ((analyzeSurface || isAnalyzePrefill(prompt)) && analyzeUidsNow.length) {
         const queued = await enqueueKolAnalyze({
-          kol_uids: analyzeUidsNow.slice(0, 8),
+          kol_uids: analyzeUidsNow,
           prompt,
           surface: analyzeSurface || (mode === "pool" ? "pool" : "following"),
         });

@@ -7,7 +7,7 @@ import {
 } from "../followedKolCard";
 import type { StarryBinding } from "../api";
 import type { FollowedSituation } from "./FollowedBrief";
-import { KOL_SELECT_MAX, selectAllChecked, selectAllLabel } from "./kolContract";
+import { selectAllChecked, selectAllLabel } from "./kolContract";
 import { HOME_HANDOFF_TO_AGENT } from "./entryRegistry";
 import type { SurfaceDownView } from "./surfaceError";
 
@@ -182,12 +182,12 @@ export default function FollowedPane({
               <input
                 type="checkbox"
                 data-followed-select-all
-                checked={selectAllChecked(visibleKols.length, selectedKolIds.length)}
+                checked={selectAllChecked(visibleKols.length, selectedCards.length)}
                 disabled={!visibleKols.length}
                 onChange={(event) => onToggleSelectAll(event.target.checked)}
               />
               <span data-followed-selected-count={selecting ? "true" : undefined}>
-                {selecting ? `已选 ${selectedKolIds.length} / ${KOL_SELECT_MAX}` : selectAllLabel(visibleKols.length, "全选本页")}
+                {selecting ? `已选 ${selectedKolIds.length}` : selectAllLabel(visibleKols.length, "全选")}
               </span>
             </label>
             {selecting ? <button

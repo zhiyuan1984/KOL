@@ -16,7 +16,6 @@ import {
   currentMemoryEmployee,
   deleteProfilesWithoutHomepage,
   KOL_ANALYZE_MAX_IN_FLIGHT,
-  KOL_ANALYZE_MAX_PEOPLE,
   KOL_ANALYZE_TASK_TYPE,
   listEmployeeFollowing,
   listOpenPool,
@@ -258,13 +257,6 @@ kolMemory.post("/home/pool/jev-assess", async (c) => {
   if (raw.length && !requested.size) {
     throw new HttpFail(400, { code: "kol_uids_invalid", message: "kol_uids 必须是非空的公海对象 uid 数组" });
   }
-  if (requested.size > KOL_ANALYZE_MAX_PEOPLE) {
-    throw new HttpFail(400, {
-      code: "too_many_targets",
-      message: `单次最多评分 ${KOL_ANALYZE_MAX_PEOPLE} 位`,
-      max: KOL_ANALYZE_MAX_PEOPLE,
-    });
-  }
   const targets = normalizeJevTargets(raw);
   // 口径来源：显式传入（校验并收紧）优先，其次员工最近一次 AI 发现请求；都没有就不带条件。
   const employee = currentMemoryEmployee();
@@ -380,14 +372,7 @@ kolMemory.post("/home/kol-analyze/enqueue", async (c) => {
   const body = await c.req.json().catch(() => ({})) as Json;
   const people = parseAnalyzePeople(body);
   if (!people.length) {
-    throw new HttpFail(400, { code: "people_required", message: "请指定要分析的红人", max: KOL_ANALYZE_MAX_PEOPLE });
-  }
-  if (people.length > KOL_ANALYZE_MAX_PEOPLE) {
-    throw new HttpFail(400, {
-      code: "too_many_people",
-      message: `单次最多分析 ${KOL_ANALYZE_MAX_PEOPLE} 人`,
-      max: KOL_ANALYZE_MAX_PEOPLE,
-    });
+    throw new HttpFail(400, { code: "people_required", message: "请指定要分析的红人" });
   }
   const employee = currentMemoryEmployee();
   const inFlight = countKolAnalyzeInFlight(employee.id);

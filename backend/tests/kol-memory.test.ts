@@ -205,11 +205,11 @@ describe("kol follow/pool memory P0", () => {
     expect(res.body.calls_model).toBe(false);
     expect(res.body.artifact_type).toBe("kol_analyze_brief");
     expect(spy).not.toHaveBeenCalled();
-    const tooMany = await request("POST", "/api/home/kol-analyze/enqueue", {
+    const fullSelection = await request("POST", "/api/home/kol-analyze/enqueue", {
       kol_uids: ["a", "b", "c", "d", "e", "f", "g", "h", "i"],
     });
-    expect(tooMany.status).toBe(400);
-    expect((tooMany.body.detail as Json)?.code || tooMany.body.code).toBe("too_many_people");
+    expect(fullSelection.status).toBe(201);
+    expect(fullSelection.body.people).toHaveLength(9);
     expect(spy).not.toHaveBeenCalled();
   });
 

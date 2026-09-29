@@ -715,10 +715,10 @@ test("followed toolbar separates 找谁 from 对选中做什么 and keeps stages
   const toolbar = page.locator("[data-followed-object-toolbar]");
   await expect(toolbar.locator("[data-followed-object-search]")).toBeVisible();
   await expect(page.locator("[data-followed-interaction]")).toContainText("2 位当前跟进对象");
-  await expect(toolbar.locator("[data-followed-object-batch]")).toContainText("全选本页");
+  await expect(toolbar.locator("[data-followed-object-batch]")).toContainText("全选");
 
   // 计数不再与筛选控件的标签连读成「1 人 阶段（高级）」，也不重复简报里的总数：
-  // 全部在跟数由简报唯一承载，工具行只在选中时报「已选 N / 8」。
+  // 全部在跟数由简报唯一承载，工具行只在选中时报「已选 N」。
   await expect(toolbar.locator("[data-followed-selected-count]")).toHaveCount(0);
   // 生命周期分组仍可用，但不再以 15 个正式阶段作为主筛选。
   const stageGroups = page.locator("[data-followed-stage-group]");

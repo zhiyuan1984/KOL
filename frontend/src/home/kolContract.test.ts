@@ -11,16 +11,15 @@ import {
   isOpenPoolRow,
   poolAnalysisPrefill,
   poolHasBannedField,
-  SELECT_ALL_CAPPED_COPY,
   selectAllChecked,
   selectAllLabel,
-  selectAllMax8,
+  selectAll,
   sortByFollowedBriefPriority,
   toFollowKol,
   runningBadgeCount,
   runningBadgeHref,
   toPoolKol,
-  toggleSelectMax8,
+  toggleSelect,
   type FollowKol,
   type PoolKol,
 } from "./kolContract";
@@ -176,11 +175,11 @@ describe("kol workbench contract (#172)", () => {
     expect(ranked.map((row) => row.kol_uid)).toEqual(["r", "n", "i"]);
   });
 
-  it("selection caps at 8 and analyze prefill stays editable copy", () => {
+  it("selection is unbounded and analyze prefill stays editable copy", () => {
     let ids: string[] = [];
-    for (let i = 1; i <= 10; i += 1) ids = toggleSelectMax8(ids, `k${i}`, true);
-    expect(ids).toHaveLength(8);
-    expect(selectAllMax8(["a", "b", "c", "d", "e", "f", "g", "h", "i"], true)).toHaveLength(8);
+    for (let i = 1; i <= 10; i += 1) ids = toggleSelect(ids, `k${i}`, true);
+    expect(ids).toHaveLength(10);
+    expect(selectAll(["a", "b", "c", "d", "e", "f", "g", "h", "i"], true)).toHaveLength(9);
     const prompt = analyzePrefillPrompt([pool({ kol_uid: "cr_outdoor" })], "pool");
     expect(isAnalyzePrefill(prompt)).toBe(true);
     expect(prompt).toContain("@户外充电君");
@@ -190,17 +189,13 @@ describe("kol workbench contract (#172)", () => {
     expect(ANALYZE_QUEUED_COPY).not.toContain("正在思考");
   });
 
-  it("全选动作在名单超过选择上限时照实说，勾选框按已选满呈现", () => {
-    // 221 人在跟、上限 8：标签不能再写「全选本页」，勾选框也不能永远空着。
-    expect(selectAllLabel(2, "全选本页")).toBe("全选本页");
-    expect(selectAllLabel(8, "全选本页")).toBe("全选本页");
-    expect(selectAllLabel(9, "全选本页")).toBe(SELECT_ALL_CAPPED_COPY);
-    expect(selectAllLabel(221, "全选本页")).toBe("选中前 8 位");
-    expect(selectAllLabel(221, "全选当前")).toBe("选中前 8 位");
+  it("全选动作覆盖当前筛选结果，不再截断前 8 位", () => {
+    expect(selectAllLabel(2, "全选")).toBe("全选");
+    expect(selectAllLabel(221, "全选")).toBe("全选");
     expect(selectAllChecked(3, 0)).toBe(false);
+    expect(selectAllChecked(3, 2)).toBe(false);
     expect(selectAllChecked(3, 3)).toBe(true);
-    expect(selectAllChecked(9, 8)).toBe(true);
-    expect(selectAllChecked(221, 7)).toBe(false);
+    expect(selectAllChecked(221, 221)).toBe(true);
     expect(selectAllChecked(0, 0)).toBe(false);
   });
 
