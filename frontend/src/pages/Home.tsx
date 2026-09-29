@@ -272,6 +272,40 @@ function CardFields({
   );
 }
 
+/**
+ * Home quick-command presets. 「今日任务」/「我的待办」只拥有下一次提交，而且是
+ * 一次性的：正文一旦偏离它写入的起始文案、或用户此后做了任何显式选择（选技能、
+ * 换模板、进入别的面预填、切走 tab），这个预设锁就必须失效 —— 否则它会劫持
+ * 之后那次「选技能 / 改需求」的提交，把意图错判成 Codex 规划。
+ */
+type HomePreset = "creator_daily_tasks" | "todo_plan";
+
+const PRESET_LABEL: Record<HomePreset, string> = {
+  creator_daily_tasks: "今日任务",
+  todo_plan: "我的待办",
+};
+
+const PRESET_MODE: Record<HomePreset, HomeMode> = {
+  creator_daily_tasks: "today",
+  todo_plan: "todo",
+};
+
+function presetStarter(preset: HomePreset): string {
+  return starterPrompt({ id: preset, title: PRESET_LABEL[preset] });
+}
+
+/**
+ * Text written by a shortcut (never by the employee): the two plan starters or a
+ * discovery brief body. An explicit pick must be allowed to replace this instead
+ * of inheriting it as its own prompt.
+ */
+function isPresetStarterText(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed === presetStarter("creator_daily_tasks")
+    || trimmed === presetStarter("todo_plan")
+    || value.startsWith(DISCOVERY_BODY_PREFIX);
+}
+
 export default function Home() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [definitions, setDefinitions] = useState<TaskDefinition[]>([]);
@@ -315,6 +349,20 @@ export default function Home() {
     initialFill?.title
       || (discoveryEntryTab ? DISCOVERY_LOCK_LABEL : todayEntryDefault ? "今日任务" : todoEntryDefault ? "我的待办" : null),
   );
+  // 一次性快捷指令预设：只有在下一次提交时它仍然「没被动过」，才拥有这次提交。
+  const [preset, setPreset] = useState<HomePreset | null>(
+    todayEntryDefault ? "creator_daily_tasks" : todoEntryDefault ? "todo_plan" : null,
+  );
+  const presetRef = useRef<HomePreset | null>(preset);
+  presetRef.current = preset;
+  const releasePreset = () => {
+    const active = presetRef.current;
+    if (!active) return;
+    presetRef.current = null;
+    setPreset(null);
+    setLockedIntent((current) => (current === active ? null : current));
+    setLockedLabel((current) => (current === PRESET_LABEL[active] ? null : current));
+  };
   const [lockedKnowledgeId, setLockedKnowledgeId] = useState<string | null>(initialFill?.id || null);
   const [lockedTemplate, setLockedTemplate] = useState<LockedMailTemplate | null>(
     initialFill ? lockedTemplateFromRow(initialFill) : null,
@@ -354,6 +402,9 @@ export default function Home() {
     setLockedKnowledgeId(row.id);
     setLockedTemplate(lockedTemplateFromRow(row));
     const skill = row.skill_id || row.intent || null;
+    // A knowledge/template fill that names no skill is not a plan shortcut: drop
+    // any stale preset lock so it cannot hijack the next submit.
+    if (!skill) releasePreset();
     if (lockedIntent === "email_compose" && (skill === "email_compose" || !skill)) {
       setLockedIntent("email_compose");
       setLockedLabel("写合作邮件");
@@ -488,6 +539,14 @@ export default function Home() {
 
   const onComposerText = (next: string) => {
     setText(next);
+    // A shortcut preset is one-shot: once the user edits its text, the preset
+    // must not leak into the next submission. This applies to every preset, not
+    // just the two planning ids — leaving one behind silently rewrites a later
+    // "typed my own requirement" submit into the old shortcut.
+    const activePreset = presetRef.current;
+    if (activePreset && next.trim() !== presetStarter(activePreset)) {
+      releasePreset();
+    }
     if (!discoveryBrief && !next.includes(DISCOVERY_BODY_PREFIX)) return;
     const parsed = parseDiscoveryBody(next);
     const current = discoveryBrief;
@@ -499,6 +558,15 @@ export default function Home() {
   };
 
   const onPickComposerSkill = (skill: import("../components/ComposerDock").SkillOption, ctx: { mention: string; rest: string; collaborationId?: string }) => {
+    // Picking a skill is an explicit choice: it releases any one-shot preset and
+    // must never inherit a stale preset starter as its own prompt.
+    releasePreset();
+    const pickedDefinition = definitions.find((definition) => definition.id === skill.id);
+    setText((current) => (
+      isPresetStarterText(current)
+        ? starterPrompt(pickedDefinition || { id: skill.id, title: skill.title || skill.label || skill.id })
+        : current
+    ));
     setLockedIntent(skill.id);
     setLockedLabel(skill.title || skill.label || skill.id);
     if (skill.id !== "email_compose") {
@@ -630,6 +698,18 @@ export default function Home() {
   }, { enabled: mode === "todo" });
   const nav = useNavigate();
 
+  // 快捷指令预设是一次性的：离开它所属的 tab 就作废（否则「今日任务」会跟着用户
+  // 跑到别的面，把下一次提交变成一次规划）。离开 AI发现 还要复位入口意图与发现
+  // 条件，否则「发现」同样会泄漏到别的面，把下一次提交变成一次真实采集。
+  useEffect(() => {
+    if (presetRef.current && PRESET_MODE[presetRef.current] !== mode) releasePreset();
+    if (mode === "discovery") return;
+    setEntryIntent((current) => (current === "discover" ? "free" : current));
+    setDiscoveryBrief((current) => (current ? null : current));
+    setDiscoveryFormBrief((current) => (current ? null : current));
+    setText((current) => (current.startsWith(DISCOVERY_BODY_PREFIX) ? "" : current));
+  }, [mode]);
+
   const setMode = (next: HomeMode) => {
     const nextParams = new URLSearchParams(params);
     const query = homeModeQuery(next);
@@ -644,6 +724,7 @@ export default function Home() {
   };
 
   const onFillComposer = (text: string, intent?: string, label?: string) => {
+    releasePreset();
     setText(text);
     if (intent) setLockedIntent(intent);    if (label) setLockedLabel(label);
     setComposerFocused(true);
@@ -935,6 +1016,7 @@ export default function Home() {
   };
 
   const onTemplate = (definition: TaskDefinition) => {
+    releasePreset();
     if (definition.granted === false) {
       setErr(`“${definition.title}”尚未授权，请联系管理员在技能授权中开通。`);
       return;
@@ -955,6 +1037,7 @@ export default function Home() {
   };
 
   const onRecommend = (rec: RecommendedTask) => {
+    releasePreset();
     const intent = rec.intent || "";
     const granted = !intent || definitions.find((definition) => definition.id === intent)?.granted !== false;
     if (!granted) {
@@ -984,6 +1067,9 @@ export default function Home() {
   };
 
   const prefillAnalyze = (surface: KolSurface, cards: Array<{ identity: { display: string } }>, uids: string[]) => {
+    // Leaving the plain-ask path for a KOL analysis: a leftover plan preset must
+    // not hijack this submit (it would swallow the prefill and start planning).
+    releasePreset();
     setAnalyzeSurface(surface);
     setAnalyzeUids(uids);
     setText(analyzePrefillPrompt(cards, surface));
@@ -1029,6 +1115,7 @@ export default function Home() {
    * 模板缺失时禁用入口并如实提示，不回落成写死的问题（CONST-09/10）。
    */
   const prefillPoolQuestion = (kind: PoolAnalysisKind, targets: string[]): boolean => {
+    releasePreset();
     const body = poolTemplateBody(kind);
     if (!body) {
       setPoolTemplateNotice(QUESTION_TEMPLATE_MISSING_COPY);
@@ -1304,9 +1391,18 @@ export default function Home() {
   const onComposer = async (p: ComposerSubmit) => {
     const prompt = p.text.trim();
     const skillFromScope = p.scope?.skills?.[0];
+    // 一次性快捷指令预设只在正文仍等于它写入的起始文案时，才算「这次提交的选择」。
+    // 用户一旦改过正文、选过技能或换了模板，它就必须让位给显式选择与正文识别，
+    // 否则「今日任务」会劫持之后那次「选技能 / 写需求」的提交。
+    const presetIntent = presetRef.current && p.text.trim() === presetStarter(presetRef.current)
+      ? presetRef.current
+      : null;
     const intent = p.intent === "email_compose" || mailCompose.active
       ? "email_compose"
-      : (lockedIntent || skillFromScope || p.intent);
+      // Explicit choices win, in order: a skill picked from + / the picker, an
+      // in-pane intent (AI发现), then an untouched one-shot shortcut preset,
+      // then any persistent lock (template / knowledge) as a last resort.
+      : (presetIntent || skillFromScope || (p.intent && p.intent !== "free" ? p.intent : undefined) || lockedIntent);
     const selectedDefinition = intent ? definitions.find((definition) => definition.id === intent) : undefined;
     const submittedTemplate = selectedSkillTemplate?.skill_id === intent
       ? selectedSkillTemplate
@@ -1337,10 +1433,12 @@ export default function Home() {
     // the user's body or subject.
     if (intent !== "email_compose") setText("");
     if (intent === "creator_daily_tasks") {
+      releasePreset();
       window.dispatchEvent(new Event(TODAY_PLAN_START_EVENT));
       return;
     }
     if (intent === "todo_plan") {
+      releasePreset();
       window.dispatchEvent(new Event(TODO_PLAN_START_EVENT));
       return;
     }
@@ -1380,7 +1478,9 @@ export default function Home() {
       }
       return;
     }
-    if (intent === DISCOVERY_INTENT || prompt.startsWith(DISCOVERY_BODY_PREFIX)) {
+    // A newly selected skill is an explicit override, even if the composer
+    // still contains the discovery preset body from an earlier shortcut.
+    if (intent === DISCOVERY_INTENT || (prompt.startsWith(DISCOVERY_BODY_PREFIX) && !skillFromScope)) {
       const brief = discoveryBrief || mergeDiscoveryBrief(
         defaultDiscoveryBrief(),
         parseDiscoveryBody(prompt),
@@ -1745,6 +1845,7 @@ export default function Home() {
   };
 
   const activateTodaySkill = () => {
+    setPreset("creator_daily_tasks");
     setMode("today");
     setLockedIntent("creator_daily_tasks");
     setLockedLabel("今日任务");
@@ -1753,6 +1854,7 @@ export default function Home() {
   };
 
   const activateTodoSkill = () => {
+    setPreset("todo_plan");
     setMode("todo");
     setLockedIntent("todo_plan");
     setLockedLabel("我的待办");
@@ -2044,6 +2146,7 @@ export default function Home() {
         onObjectRefsChange={setObjectRefs}
         onPickSkill={onPickComposerSkill}
         onSkillTemplateChange={(template, skill) => {
+          releasePreset();
           setSelectedSkillTemplate(template);
           if (template && skill) {
             setLockedIntent(skill.id);
