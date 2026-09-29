@@ -150,6 +150,26 @@ afterEach(() => {
 });
 
 describe("mailbox memory P0", () => {
+  it("runs the selected summary and translation Skills through named routes", async () => {
+    bindLarry();
+    await ensureFollowedMailSync(true);
+    const listed = await request("GET", "/api/mail/conversations");
+    const first = (listed.body.conversations as Json[])[0];
+    const opened = await request("GET", `/api/mail/conversations/${first.id}`);
+    const message = (opened.body.messages as Json[])[0];
+    const summary = await request("POST", "/api/mail/skills/mail_summary/run", {
+      box: "larry.zhao@amperetime.com", conversation_id: first.conversation_id,
+    });
+    expect(summary.status).toBe(202);
+    expect(summary.body).toMatchObject({ skill_id: "mail_summary", accepted: true, pending: true });
+    const translation = await request("POST", "/api/mail/skills/mail_translate/run", {
+      box: "larry.zhao@amperetime.com", message_id: message.id,
+    });
+    expect(translation.status).toBe(202);
+    expect(translation.body).toMatchObject({ skill_id: "mail_translate", accepted: true, pending: true });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  });
+
   it("GET box / conversations / thread create no session and call no model", async () => {
     bindLarry();
     await ensureFollowedMailSync(true);

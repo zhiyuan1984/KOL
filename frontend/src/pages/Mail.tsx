@@ -508,7 +508,7 @@ export default function Mail() {
     setError("");
     setNotice(kind === "summary" ? "正在按邮件记忆技能生成往来摘要…" : "正在按邮件翻译技能生成中文译稿…");
     try {
-      await api.generateMailMemory({
+      await api.runMailSkill(kind === "summary" ? "mail_summary" : "mail_translate", {
         box: mailbox,
         conversation_id: selectedConversation.conversation_id,
         ...(currentMessage ? { message_id: currentMessage.id } : {}),
@@ -1041,7 +1041,7 @@ export default function Mail() {
                   type="button"
                   className="mail-side-action"
                   data-mail-generate-summary
-                  data-mail-entry="generate-mail-memory"
+                  data-mail-entry="mail_summary"
                   disabled={memoryBusy !== null || !selectedConversation}
                   onClick={() => void generateMailMemory("summary")}
                 >
@@ -1070,7 +1070,7 @@ export default function Mail() {
                   type="button"
                   className="mail-side-action"
                   data-mail-generate-translation
-                  data-mail-entry="generate-mail-memory"
+                  data-mail-entry="mail_translate"
                   disabled={memoryBusy !== null || !currentMessage}
                   onClick={() => void generateMailMemory("translation")}
                 >

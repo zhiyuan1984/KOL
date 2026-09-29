@@ -190,6 +190,36 @@ async function ensureItemMemory(row: Row): Promise<{ translated: boolean; summar
   return { translated, summarized, error };
 }
 
+async function ensureItemTranslation(row: Row): Promise<{ translated: boolean; error: boolean }> {
+  const body = String(row.body_text || "").trim();
+  if (!body) return { translated: false, error: true };
+  const updates: Parameters<typeof persistItemMemory>[1] = {
+    fingerprint: bodyFingerprint(body),
+    generated_at: nowIso(),
+    attempts: Number(row.memory_attempts || 0) + 1,
+  };
+  try {
+    const result = await translateMailBodyZh(body);
+    if (!result) {
+      updates.translation_source = "pending";
+      updates.source = "analysis_failed";
+      persistItemMemory(String(row.id), updates);
+      return { translated: false, error: true };
+    }
+    updates.translation_zh = result.text;
+    updates.translation_source = result.source;
+    updates.source = result.source;
+    persistItemMemory(String(row.id), updates);
+    return { translated: true, error: false };
+  } catch (err) {
+    updates.translation_source = "pending";
+    updates.source = "analysis_failed";
+    updates.error = err instanceof Error ? err.message : String(err);
+    persistItemMemory(String(row.id), updates);
+    return { translated: false, error: true };
+  }
+}
+
 async function ensureThreadDigest(thread: Row): Promise<boolean> {
   const conversationId = String(thread.conversation_id || "");
   const mailbox = String(thread.mailbox || "");
@@ -362,6 +392,48 @@ export function triggerMailMemoryIncrement(mailbox?: string): void {
         mailbox: mailbox || "*",
         error: err instanceof Error ? err.message : String(err),
       });
+      return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1 };
+    })
+    .finally(() => inflight.delete(key));
+  inflight.set(key, promise);
+}
+
+/** Execute the employee-facing mail_summary Skill for one selected conversation. */
+export function triggerMailSummarySkill(mailbox: string, conversationId: string): void {
+  const key = `skill:mail_summary:${mailbox}:${conversationId}`;
+  if (inflight.has(key)) return;
+  const promise = (async (): Promise<MailMemoryStats> => {
+    const thread = getConn().prepare("SELECT * FROM kol_mail_threads WHERE conversation_id=? AND mailbox=? LIMIT 1")
+      .get(conversationId, mailbox) as Row | undefined;
+    if (!thread) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1 };
+    const digested = await ensureThreadDigest(thread);
+    const person = String(thread.peer_email || "").trim();
+    const persons = person && await ensurePersonDigest(mailbox, person) ? 1 : 0;
+    return { scanned: 0, translated: 0, summarized: 0, digested: digested ? 1 : 0, persons, errors: 0 };
+  })()
+    .catch((err) => {
+      audit("host", "mail_skill.summary_failed", { mailbox, conversation_id: conversationId, error: err instanceof Error ? err.message : String(err) });
+      return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1 };
+    })
+    .finally(() => inflight.delete(key));
+  inflight.set(key, promise);
+}
+
+/** Execute the employee-facing mail_translate Skill for one selected message. */
+export function triggerMailTranslateSkill(mailbox: string, messageId: string): void {
+  const key = `skill:mail_translate:${mailbox}:${messageId}`;
+  if (inflight.has(key)) return;
+  const promise = (async (): Promise<MailMemoryStats> => {
+    const row = getConn().prepare(
+      `SELECT i.* FROM kol_mail_items i JOIN kol_mail_threads t ON t.id=i.thread_id
+       WHERE i.id=? AND IFNULL(t.mailbox,'')=? LIMIT 1`,
+    ).get(messageId, mailbox) as Row | undefined;
+    if (!row || !String(row.body_text || "").trim()) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1 };
+    const result = await ensureItemTranslation(row);
+    return { scanned: 1, translated: result.translated ? 1 : 0, summarized: 0, digested: 0, persons: 0, errors: result.error ? 1 : 0 };
+  })()
+    .catch((err) => {
+      audit("host", "mail_skill.translate_failed", { mailbox, message_id: messageId, error: err instanceof Error ? err.message : String(err) });
       return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1 };
     })
     .finally(() => inflight.delete(key));

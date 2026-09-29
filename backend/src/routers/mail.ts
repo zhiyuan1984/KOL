@@ -4,6 +4,7 @@
  */
 import { Hono } from "hono";
 
+import { requireSkill } from "../auth.js";
 import { HttpFail } from "../host/errors.js";
 import { normalizeEmail } from "../host/identity.js";
 import {
@@ -18,7 +19,7 @@ import {
   messageRowOf,
   setConversationStarred,
 } from "../host/mail-memory.js";
-import { pendingMailMemoryIncrement, readPersonDigest, triggerMailMemoryIncrement } from "../host/mail-memory-job.js";
+import { readPersonDigest, triggerMailTranslateSkill, triggerMailSummarySkill } from "../host/mail-memory-job.js";
 import { composeCatalog } from "../skills/email-compose-contract.js";
 import { lastSyncReceipt, startFollowedMailSync } from "../starrykol/mail-sync.js";
 
@@ -109,13 +110,24 @@ mail.get("/mail/person", (c) => {
   });
 });
 
-/** Generate the selected mailbox's mail memory through the existing MCP/LLM chain. */
-mail.post("/mail/memory", async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as { box?: unknown };
+/** Run one employee-facing mail Skill through its existing Codex/MCP memory chain. */
+mail.post("/mail/skills/:skillId/run", async (c) => {
+  const skillId = c.req.param("skillId");
+  if (skillId !== "mail_summary" && skillId !== "mail_translate") throw new HttpFail(404, "mail skill not found");
+  requireSkill(skillId);
+  const body = (await c.req.json().catch(() => ({}))) as { box?: unknown; conversation_id?: unknown; message_id?: unknown };
   const mailbox = requestedMailbox(String(body?.box || "")) || mailboxBoxStatus().mailbox;
   if (!mailbox) throw new HttpFail(400, "mailbox is required");
-  triggerMailMemoryIncrement(mailbox);
-  return c.json({ ...COMMAND, accepted: true, pending: pendingMailMemoryIncrement(mailbox), mailbox }, 202);
+  const conversationId = String(body?.conversation_id || "").trim();
+  const messageId = String(body?.message_id || "").trim();
+  if (skillId === "mail_summary") {
+    if (!conversationId) throw new HttpFail(422, "conversation_id is required");
+    triggerMailSummarySkill(mailbox, conversationId);
+  } else {
+    if (!messageId) throw new HttpFail(422, "message_id is required");
+    triggerMailTranslateSkill(mailbox, messageId);
+  }
+  return c.json({ ...COMMAND, skill_id: skillId, accepted: true, pending: true, mailbox }, 202);
 });
 
 mail.post("/mail/conversations/:id/read", (c) => {

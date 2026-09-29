@@ -2057,8 +2057,8 @@ export const api = {
     }>("/api/mail/compose-catalog"),
   mailPerson: (box: string, p: string) =>
     request<Record<string, unknown>>(`/api/mail/person?box=${encodeURIComponent(box)}&p=${encodeURIComponent(p)}`),
-  generateMailMemory: (body: { box?: string; conversation_id?: string; message_id?: string }) =>
-    request<{ accepted?: boolean; pending?: boolean; mailbox?: string }>("/api/mail/memory", {
+  runMailSkill: (skillId: "mail_summary" | "mail_translate", body: { box?: string; conversation_id?: string; message_id?: string }) =>
+    request<{ accepted?: boolean; pending?: boolean; mailbox?: string; skill_id?: string }>(`/api/mail/skills/${encodeURIComponent(skillId)}/run`, {
       method: "POST",
       body: JSON.stringify(body),
     }),
