@@ -201,6 +201,14 @@ function skillSource(id: string): string {
   return SKILL_SOURCE[id] || "平台内置";
 }
 
+function skillOrigin(skill: SkillRow): "official" | "third_party" {
+  return skill.origin === "third_party" ? "third_party" : "official";
+}
+
+function skillOriginLabel(skill: SkillRow): string {
+  return skillOrigin(skill) === "third_party" ? "第三方" : "官方";
+}
+
 /**
  * 工具风险档只区分「只读」与「需确认」两档。
  * 细分 L2（草稿）/ L3（敏感写入）须按 `docs/07-mcp-data-contract.md` 的工具风险目录逐条登记后再拆，
@@ -587,7 +595,7 @@ function SkillDetail({
 
         <div className="skill-detail-marks">
           <span className="skill-detail-chip is-kind">{skillKind(skill)}</span>
-          <span className="skill-detail-chip is-source">{skillSource(skill.id)}</span>
+          <span className="skill-detail-chip is-source">{skillOriginLabel(skill)}</span>
           <span className={"skill-mark is-" + tier}>{RISK_LABEL[tier]}</span>
           {isAsync && <span className="skill-mark is-async">异步 · 可取消</span>}
           {/* 内部技能：由 pipeline / 定时任务 / 旅程调用，不在提问框的可选清单里出现。 */}
@@ -777,6 +785,7 @@ export function SkillCatalog() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [q, setQ] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "official" | "third_party">("all");
   // tab 与 URL 同步：`/skills?tab=frequent` 这类深链（「查看全部」链接）必须真正生效。
   const [tab, setTab] = useState(() => new URLSearchParams(location.search).get("tab") || "all");
   const [selectedSkill, setSelectedSkill] = useState<SkillRow | null>(null);
@@ -836,6 +845,8 @@ export function SkillCatalog() {
       list = list.filter((s) => s.funnel === tab);
     }
 
+    if (sourceFilter !== "all") list = list.filter((skill) => skillOrigin(skill) === sourceFilter);
+
     const needle = q.trim().toLowerCase();
     if (needle) {
       list = list.filter((s) =>
@@ -846,21 +857,24 @@ export function SkillCatalog() {
     }
 
     return list;
-  }, [skills, tab, q, usage, recent]);
+  }, [skills, tab, q, usage, recent, sourceFilter]);
 
   const frequentSkills = useMemo(() => {
     const used = skills
-      .filter((s) => (usage[s.id] || 0) > 0)
+      .filter((s) => (usage[s.id] || 0) > 0 && (sourceFilter === "all" || skillOrigin(s) === sourceFilter))
       .sort((a, b) => (usage[b.id] || 0) - (usage[a.id] || 0));
     if (used.length >= 4) return used.slice(0, 4);
-    const recommended = skills.filter((s) => RECOMMENDED_IDS.includes(s.id));
+    const recommended = skills.filter((s) => RECOMMENDED_IDS.includes(s.id) && (sourceFilter === "all" || skillOrigin(s) === sourceFilter));
     const seen = new Set(used.map((s) => s.id));
     return [...used, ...recommended.filter((s) => !seen.has(s.id))].slice(0, 4);
-  }, [skills, usage]);
+  }, [skills, usage, sourceFilter]);
 
   // 有使用记录才叫「常用技能」；没有记录时那几行是推荐补的，标题与星标都得照实说
   // （不得把推荐说成"你经常使用"：根 AGENTS.md §4）。
-  const hasUsage = useMemo(() => skills.some((s) => (usage[s.id] || 0) > 0), [skills, usage]);
+  const hasUsage = useMemo(
+    () => frequentSkills.some((s) => (usage[s.id] || 0) > 0),
+    [frequentSkills, usage],
+  );
 
   const groupedSkills = useMemo(() => {
     const groups: Record<string, SkillRow[]> = {};
@@ -977,6 +991,20 @@ export function SkillCatalog() {
                 </button>
               )}
             </label>
+          </div>
+          <div className="skill-origin-filter" role="group" aria-label="按来源筛选技能">
+            <span>来源</span>
+            {([['all', '全部'], ['official', '官方'], ['third_party', '第三方']] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={sourceFilter === value}
+                className={sourceFilter === value ? "is-active" : ""}
+                onClick={() => setSourceFilter(value)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
 
           {tab === "all" && !q && (

@@ -1009,6 +1009,11 @@ function initSchema(db: SqliteConn): void {
             published_at TEXT NOT NULL,
             UNIQUE(skill_id, version)
         );
+        CREATE TABLE IF NOT EXISTS skill_drafts (
+            skill_id TEXT PRIMARY KEY,
+            payload TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS skill_tests (
             id TEXT PRIMARY KEY,
             skill_id TEXT NOT NULL,
@@ -1042,6 +1047,7 @@ function initSchema(db: SqliteConn): void {
         CREATE TABLE IF NOT EXISTS skill_lifecycle (
             skill_id TEXT PRIMARY KEY,
             stage TEXT NOT NULL DEFAULT 'draft',
+            origin TEXT NOT NULL DEFAULT 'official',
             owner TEXT,
             business_stage TEXT,
             tags TEXT,
@@ -1373,6 +1379,11 @@ function enforceManagedConnectorCatalog(db: SqliteConn): void {
 }
 
 function migrateSchema(db: SqliteConn): void {
+  const hadSkillOrigin = cols(db, "skill_lifecycle").has("origin");
+  add(db, "skill_lifecycle", "origin", "TEXT NOT NULL DEFAULT 'official'");
+  if (!hadSkillOrigin) {
+    db.prepare("UPDATE skill_lifecycle SET origin='third_party' WHERE tags LIKE '%第三方%'").run();
+  }
   add(db, "connectors", "purpose", "TEXT NOT NULL DEFAULT ''");
   add(db, "connectors", "last_verified_at", "TEXT");
   add(db, "connectors", "last_error", "TEXT");

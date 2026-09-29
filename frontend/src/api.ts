@@ -1493,6 +1493,21 @@ export const api = {
     return data;
   },
   adminSkills: () => fetch("/api/admin/skills").then((r) => r.json()),
+  adminSkillSop: (id: string) =>
+    request<{ id: string; summary: string; body: string; updated_at: string | null; edited: boolean; draft?: boolean }>(
+      `/api/admin/skills/${encodeURIComponent(id)}/sop`,
+    ),
+  adminSkillDraft: (id: string) =>
+    request<{ id: string; patch: Record<string, unknown>; updated_at: string | null }>(
+      `/api/admin/skills/${encodeURIComponent(id)}/draft`,
+    ),
+  adminSkillTemplate: (id: string) =>
+    request<SkillTemplate>(`/api/admin/skills/${encodeURIComponent(id)}/template`),
+  saveAdminSkillDraft: (id: string, patch: Record<string, unknown>) =>
+    request<{ id: string; patch: Record<string, unknown>; updated_at: string | null }>(
+      `/api/admin/skills/${encodeURIComponent(id)}/draft`,
+      { method: "PUT", body: JSON.stringify(patch) },
+    ),
   skillLifecycleStage: (id: string, stage: string, reason?: string) =>
     request<{ id: string; stage: string }>(`/api/admin/skills/${encodeURIComponent(id)}/stage`, {
       method: "POST",
@@ -1573,7 +1588,10 @@ export const api = {
     }),
   deleteAdminSkill: (id: string) =>
     request<{ ok?: boolean; id: string }>(`/api/admin/skills/${encodeURIComponent(id)}`, { method: "DELETE" }),
-  saveSkillGrants: async (id: string, body: { org: string[]; team: string[]; user: string[] }) => {
+  saveSkillGrants: async (id: string, body: { org: string[]; team: string[]; user: string[] }): Promise<{
+    id: string;
+    grants: { org: string[]; team: string[]; user: string[] };
+  }> => {
     const r = await fetch(`/api/admin/skills/${encodeURIComponent(id)}/grants`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
