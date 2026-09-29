@@ -346,7 +346,7 @@ export default function ComposerDock({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [catalogsEngaged]);
 
   useEffect(() => {
     if (!selectedSkillId) return;
