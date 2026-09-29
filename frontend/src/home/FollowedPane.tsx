@@ -191,7 +191,6 @@ export default function FollowedPane({
               >
                 <option value="followers">粉丝数</option>
                 <option value="time">时间</option>
-                <option value="score">评分</option>
               </select>
             </label>
           </div>
