@@ -6,7 +6,6 @@ import { criteriaState, criteriaSummary, type KolScoringCriteria } from "./kol-s
 
 const JEV_OPENROUTER_BASE_URL = "https://openrouter.ai/api";
 const ASSESSMENT_VERSION = "jev-kol-v1";
-const MIN_CONFIDENCE = 0.7;
 
 type FetchLike = typeof fetch;
 let jevFetchOverride: FetchLike | null = null;
@@ -107,7 +106,8 @@ export type KolAssessment = {
 /**
  * Score only the suitability/risk signal encoded in already-public KOL index
  * fields. It does not retrieve contact data, produce outreach copy, or make a
- * business decision. Low-confidence and insufficient results stay unscored.
+ * business decision. Low-confidence results still get a sortable advisory
+ * score; confidence is shown separately and gates high-potential badges.
  */
 export async function assessPublicKolWithJev(
   row: Row,
@@ -159,12 +159,16 @@ export async function assessPublicKolWithJev(
   const risk = selected(answers.risk);
   const potentialProbabilities = probabilityMap(answers.potential || {});
   const riskProbabilities = probabilityMap(answers.risk || {});
-  const potentialScore = potential.confidence >= MIN_CONFIDENCE
-    ? scoreWithCompatibility(potential, { high_potential: 100, watch: 50, insufficient: 0 }, { high_potential: 85, watch: 50 })
-    : null;
-  const riskScore = risk.confidence >= MIN_CONFIDENCE
-    ? scoreWithCompatibility(risk, { high_risk: 100, watch: 50, normal: 20, insufficient: 0 }, { high_risk: 85, watch: 50, normal: 20 })
-    : null;
+  const potentialScore = scoreWithCompatibility(
+    potential,
+    { high_potential: 100, watch: 50, insufficient: 0 },
+    { high_potential: 85, watch: 50, insufficient: 0 },
+  );
+  const riskScore = scoreWithCompatibility(
+    risk,
+    { high_risk: 100, watch: 50, normal: 20, insufficient: 0 },
+    { high_risk: 85, watch: 50, normal: 20, insufficient: 0 },
+  );
   return {
     potential_score: potentialScore,
     potential_confidence: potential.confidence || null,
