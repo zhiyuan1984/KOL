@@ -129,6 +129,8 @@ export type CronJob = {
   execute_identity?: string;
   capability_expert_id?: string | null;
   handler_key: string;
+  handler?: Record<string, unknown>;
+  active_run_status?: string | null;
   scope?: Record<string, unknown>;
   condition?: Record<string, unknown>;
   cron_expr?: string;
