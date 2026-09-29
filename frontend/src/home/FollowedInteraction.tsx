@@ -51,7 +51,7 @@ export default function FollowedInteraction({
 
   if (!summaryReady) {
     const copy = completeness === "incomplete-error"
-      ? "当前可见对象保留在右栏，但邮箱范围的历史协作记录暂无法完成核对；总数与阶段统计暂不展示。"
+      ? "当前可见对象已保留；邮箱范围的历史协作记录暂无法完成核对，下面的阶段统计不会把不完整数据当成最终结论。"
       : "正在合并本地跟进索引与当前邮箱名下的历史协作记录；完成前不会显示 0 位或空阶段统计。";
     return (
       <div className="followed-interaction" data-followed-interaction data-followed-summary-state={completeness}>
@@ -59,6 +59,12 @@ export default function FollowedInteraction({
         <section className="followed-summary-pending" data-followed-summary-pending role="status" aria-live="polite">
           <strong>{completeness === "incomplete-error" ? "名单核对未完成" : "正在核对跟进名单…"}</strong>
           <p>{copy}</p>
+          {completeness === "incomplete-error" && cards.length ? (
+            <div className="followed-partial-summary" data-followed-partial-summary>
+              <strong>{cards.length} 位对象已加载</strong>
+              <span>阶段统计暂不可用</span>
+            </div>
+          ) : null}
         </section>
         {interaction}
       </div>

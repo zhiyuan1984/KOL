@@ -1066,7 +1066,7 @@ export const api = {
       items?: Array<Record<string, unknown>>;
       kols?: Array<Record<string, unknown>>;
       follow_scope?: StarryBinding;
-    }>("/api/home/following", { signal: AbortSignal.timeout(6_000) }),
+    }>("/api/home/following", { signal: AbortSignal.timeout(15_000) }),
   homePool: () =>
     request<{
       entry?: string;

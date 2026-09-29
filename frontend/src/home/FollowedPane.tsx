@@ -232,7 +232,14 @@ export default function FollowedPane({
         {visibleKols.length ? (
           <>
             {listError ? (
-              <p className="muted" data-follow-refresh-error role="status">{listError}</p>
+              <div className="followed-refresh-error" data-follow-refresh-error role="status">
+                <p className="muted">{listError}</p>
+                {onReload ? (
+                  <button type="button" className="btn ghost sm" data-follow-retry-loaded onClick={onReload}>
+                    重试核对
+                  </button>
+                ) : null}
+              </div>
             ) : null}
             <div className="followed-kol-list" data-followed-kol-list data-followed-origin="collaboration">
               {visibleKols.map((card) => (

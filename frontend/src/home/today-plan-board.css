@@ -770,6 +770,20 @@
   font-size: var(--ds-font-helper);
   line-height: var(--ds-line-helper);
 }
+.followed-partial-summary,
+.followed-refresh-error {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2);
+}
+.followed-partial-summary span {
+  color: var(--ds-text-dim);
+  font-size: var(--ds-font-helper);
+}
+.followed-refresh-error p {
+  margin: 0;
+}
 .followed-section-heading {
   display: flex;
   align-items: baseline;
