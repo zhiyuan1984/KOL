@@ -1,12 +1,29 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type Task, type TaskDetail, type TaskEvent } from "../api";
 
 type View = "active" | "history";
+type TaskStatusTab = "queued" | "running" | "waiting_approval" | "failed" | "completed" | "cancelled";
 
+const STATUS_TABS: Array<{ value: TaskStatusTab; label: string }> = [
+  { value: "queued", label: "排队中" },
+  { value: "running", label: "执行中" },
+  { value: "waiting_approval", label: "待确认" },
+  { value: "failed", label: "失败" },
+  { value: "completed", label: "已完成" },
+  { value: "cancelled", label: "已取消" },
+];
 const ACTIVE = new Set(["pending", "queued", "running", "starting", "in_progress", "waiting", "waiting_approval"]);
 const CLOSED = new Set(["completed", "done", "success", "succeeded", "failed", "cancelled", "canceled"]);
-const SELECTABLE_ACTIVE = new Set(["pending", "queued", "waiting", "needs_clarification"]);
+const QUEUED = new Set(["pending", "queued"]);
+const RUNNING = new Set(["running", "starting", "in_progress"]);
+const WAITING = new Set(["waiting", "waiting_approval"]);
+const COMPLETED = new Set(["completed", "done", "success", "succeeded"]);
+const CANCELLED = new Set(["cancelled", "canceled"]);
+
+function isStatusTab(value: string | null): value is TaskStatusTab {
+  return STATUS_TABS.some((tab) => tab.value === value);
+}
 
 function unwrap(value: Task[] | { tasks?: Task[] }): Task[] {
   return Array.isArray(value) ? value : value.tasks || [];
@@ -35,8 +52,33 @@ function taskSummary(task: Task) {
   return task.wait_reason || task.last_error || task.history_summary || task.next_action || task.description || task.content || "—";
 }
 
+function taskSignature(task: Task) {
+  return [
+    task.id,
+    normalizedStatus(task),
+    task.title,
+    task.skill,
+    task.skill_id,
+    task.source,
+    task.created_at,
+    task.started_at,
+    task.queued_at,
+    task.queue_position,
+    task.session_id,
+    task.retryable,
+    task.cancelable,
+    taskSummary(task),
+  ].map((value) => String(value ?? "")).join("\u001f");
+}
+
+function sameTaskRows(current: Task[], next: Task[]) {
+  if (current.length !== next.length) return false;
+  const currentById = new Map(current.map((task) => [task.id, task]));
+  return next.every((task) => currentById.has(task.id) && taskSignature(currentById.get(task.id)!) === taskSignature(task));
+}
+
 function canSelect(task: Task) {
-  return SELECTABLE_ACTIVE.has(normalizedStatus(task));
+  return QUEUED.has(normalizedStatus(task)) || normalizedStatus(task) === "needs_clarification";
 }
 
 function canCancel(task: Task) {
@@ -49,9 +91,20 @@ function actionLabel(task: Task, view: View) {
   return "查看进度";
 }
 
+function belongsToTab(task: Task, tab: TaskStatusTab) {
+  const value = normalizedStatus(task);
+  if (tab === "queued") return QUEUED.has(value);
+  if (tab === "running") return RUNNING.has(value);
+  if (tab === "waiting_approval") return WAITING.has(value);
+  if (tab === "failed") return value === "failed";
+  if (tab === "completed") return COMPLETED.has(value);
+  return CANCELLED.has(value);
+}
+
 export default function Tasks() {
   const [params, setParams] = useSearchParams();
-  const view: View = params.get("view") === "history" ? "history" : "active";
+  const selectedStatus: TaskStatusTab = isStatusTab(params.get("status")) ? params.get("status") as TaskStatusTab : "running";
+  const view: View = ACTIVE.has(selectedStatus) ? "active" : "history";
   const [rows, setRows] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -59,30 +112,47 @@ export default function Tasks() {
   const [events, setEvents] = useState<TaskEvent[]>([]);
   const [actionBusy, setActionBusy] = useState("");
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [agentFilter, setAgentFilter] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const requestRef = useRef<Promise<void> | null>(null);
+  const rowsRef = useRef<Task[]>([]);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const response = await api.tasks({ view, q: query, status: statusFilter, skill: agentFilter, from, to });
-      setRows(unwrap(response));
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "任务列表加载失败");
-    } finally {
-      setLoading(false);
-    }
-  }, [view, query, statusFilter, agentFilter, from, to]);
+  const load = useCallback((background = false) => {
+    if (requestRef.current) return requestRef.current;
+    const request = (async () => {
+      if (!background) setLoading(true);
+      setError("");
+      try {
+        const response = await api.tasks({ view, q: query, from, to });
+        const nextRows = unwrap(response);
+        if (!sameTaskRows(rowsRef.current, nextRows)) {
+          rowsRef.current = nextRows;
+          setRows(nextRows);
+        }
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : "任务列表加载失败");
+      } finally {
+        if (!background) setLoading(false);
+        requestRef.current = null;
+      }
+    })();
+    requestRef.current = request;
+    return request;
+  }, [view, query, from, to]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (view !== "active") return;
-    const timer = window.setInterval(() => void load(), 4000);
-    return () => window.clearInterval(timer);
+    const refresh = () => {
+      if (document.visibilityState === "visible") void load(true);
+    };
+    const timer = window.setInterval(refresh, 4000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refresh);
+    };
   }, [load, view]);
 
   const openDetail = async (task: Task) => {
@@ -124,13 +194,10 @@ export default function Tasks() {
     }
   };
 
-  const visible = useMemo(
-    () => rows.filter((task) => view === "active" ? ACTIVE.has(normalizedStatus(task)) : !ACTIVE.has(normalizedStatus(task))),
-    [rows, view],
-  );
+  const visible = useMemo(() => rows.filter((task) => belongsToTab(task, selectedStatus)), [rows, selectedStatus]);
   const selectableRows = useMemo(() => visible.filter(canSelect), [visible]);
   const allSelected = selectableRows.length > 0 && selectableRows.every((task) => selectedIds.has(task.id));
-  const hasFilters = Boolean(query || statusFilter || agentFilter || from || to);
+  const hasFilters = Boolean(query || from || to);
 
   useEffect(() => {
     const visibleIds = new Set(selectableRows.map((task) => task.id));
@@ -143,8 +210,6 @@ export default function Tasks() {
 
   const clearFilters = () => {
     setQuery("");
-    setStatusFilter("");
-    setAgentFilter("");
     setFrom("");
     setTo("");
   };
@@ -166,35 +231,22 @@ export default function Tasks() {
   return (
     <main className="tasks-page" data-task-center>
       <header className="tasks-page-head">
-        <h1>任务中心</h1>
-        <Link className="button button-primary" to="/">新建任务</Link>
+        <Link className="button button-primary task-center-create-action" to="/">新建任务</Link>
       </header>
 
-      <nav className="tasks-tabs" aria-label="任务范围">
-        <button type="button" className={view === "active" ? "is-active" : ""} onClick={() => setParams({ view: "active" })}>进行中</button>
-        <button type="button" className={view === "history" ? "is-active" : ""} onClick={() => setParams({ view: "history" })}>历史任务</button>
+      <nav className="tasks-tabs" aria-label="任务状态">
+        {STATUS_TABS.map((tab) => (
+          <button key={tab.value} type="button" className={selectedStatus === tab.value ? "is-active" : ""} aria-pressed={selectedStatus === tab.value} onClick={() => setParams({ status: tab.value })}>{tab.label}</button>
+        ))}
       </nav>
 
       <div className="task-center-filters" role="search" aria-label="筛选任务">
         <label className="task-filter-search">
           <span className="sr-only">搜索任务</span>
-          <input placeholder="搜索任务名称、内容或技能" value={query} onChange={(event) => setQuery(event.target.value)} />
-        </label>
-        <label className="task-filter-status">
-          <span className="sr-only">状态筛选</span>
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-            <option value="">全部状态</option>
-            <option value="queued">排队中</option>
-            <option value="running">执行中</option>
-            <option value="waiting_approval">待确认</option>
-            <option value="failed">失败</option>
-            <option value="completed">已完成</option>
-            <option value="cancelled">已取消</option>
-          </select>
-        </label>
-        <label className="task-filter-agent">
-          <span className="sr-only">Agent 或技能筛选</span>
-          <input placeholder="Agent / 技能" value={agentFilter} onChange={(event) => setAgentFilter(event.target.value)} />
+          <span className="task-filter-search-wrap">
+            <svg aria-hidden="true" viewBox="0 0 16 16" focusable="false"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg>
+            <input aria-label="搜索任务名称、内容或技能" placeholder="搜索任务名称、内容或技能" value={query} onChange={(event) => setQuery(event.target.value)} />
+          </span>
         </label>
         <fieldset className="task-filter-date-range">
           <legend>时间范围</legend>
@@ -212,8 +264,8 @@ export default function Tasks() {
 
       {loading ? <p className="muted">正在读取任务状态…</p> : visible.length === 0 ? (
         <section className="task-center-empty">
-          <strong>{view === "active" ? "当前没有进行中的任务" : "还没有历史任务"}</strong>
-          <p>{view === "active" ? "新建任务后，任务会在这里显示。" : "已完成、失败或取消的任务会保留在这里。"}</p>
+          <strong>当前没有{STATUS_TABS.find((tab) => tab.value === selectedStatus)?.label}任务</strong>
+          <p>任务状态变化后会自动更新。</p>
         </section>
       ) : (
         <div className="task-center-table-wrap">
@@ -228,9 +280,7 @@ export default function Tasks() {
             </colgroup>
             <thead>
               <tr>
-                <th className="task-center-select">
-                  {view === "active" && selectableRows.length ? <input type="checkbox" aria-label="全选可取消任务" checked={allSelected} onChange={(event) => toggleAll(event.target.checked)} /> : null}
-                </th>
+                <th className="task-center-select">{view === "active" && selectableRows.length ? <input type="checkbox" aria-label="全选可取消任务" checked={allSelected} onChange={(event) => toggleAll(event.target.checked)} /> : null}</th>
                 <th>任务</th>
                 <th>状态</th>
                 <th>时间</th>
@@ -243,28 +293,12 @@ export default function Tasks() {
                 const summary = taskSummary(task);
                 return (
                   <tr key={task.id}>
-                    <td className="task-center-select">
-                      {view === "active" && canSelect(task) ? <input type="checkbox" aria-label={`选择 ${task.title || "未命名任务"}`} checked={selectedIds.has(task.id)} onChange={(event) => setSelectedIds((current) => { const next = new Set(current); event.target.checked ? next.add(task.id) : next.delete(task.id); return next; })} /> : null}
-                    </td>
-                    <td className="task-center-task-cell">
-                      <strong title={task.title || "未命名任务"}>{task.title || "未命名任务"}</strong>
-                      <small>{task.skill || task.skill_id || task.source || "Agent 任务"}</small>
-                    </td>
-                    <td className="task-center-status-cell">
-                      <span className={`task-center-status status-${normalizedStatus(task)}`}>{statusOf(task)}</span>
-                      {task.queue_position ? <small>队列第 {task.queue_position} 位</small> : null}
-                    </td>
-                    <td className="task-center-time-cell">
-                      <small>创建 {formatTime(task.created_at)}</small>
-                      {task.started_at ? <small>开始 {formatTime(task.started_at)}</small> : task.queued_at ? <small>入队 {formatTime(task.queued_at)}</small> : null}
-                    </td>
+                    <td className="task-center-select">{view === "active" && canSelect(task) ? <input type="checkbox" aria-label={`选择 ${task.title || "未命名任务"}`} checked={selectedIds.has(task.id)} onChange={(event) => setSelectedIds((current) => { const next = new Set(current); event.target.checked ? next.add(task.id) : next.delete(task.id); return next; })} /> : null}</td>
+                    <td className="task-center-task-cell"><strong title={task.title || "未命名任务"}>{task.title || "未命名任务"}</strong><small>{task.skill || task.skill_id || task.source || "Agent 任务"}</small></td>
+                    <td className="task-center-status-cell"><span className={`task-center-status status-${normalizedStatus(task)}`}>{statusOf(task)}</span>{task.queue_position ? <small>队列第 {task.queue_position} 位</small> : null}</td>
+                    <td className="task-center-time-cell"><small>创建 {formatTime(task.created_at)}</small>{task.started_at ? <small>开始 {formatTime(task.started_at)}</small> : task.queued_at ? <small>入队 {formatTime(task.queued_at)}</small> : null}</td>
                     <td className="task-center-summary-cell" title={summary}><span>{summary}</span></td>
-                    <td className="task-center-actions">
-                      <button type="button" onClick={() => void openDetail(task)} disabled={actionBusy === `detail:${task.id}`}>详情</button>
-                      {task.session_id ? <Link to={`/s/${task.session_id}`}>{actionLabel(task, view)}</Link> : null}
-                      {view === "active" && canCancel(task) ? <button type="button" onClick={() => void cancel(task)} disabled={Boolean(actionBusy)}>取消</button> : null}
-                      {view === "history" && normalizedStatus(task) === "failed" && task.retryable !== false ? <button type="button" onClick={() => void retry(task)} disabled={Boolean(actionBusy)}>重试</button> : null}
-                    </td>
+                    <td className="task-center-actions"><button type="button" onClick={() => void openDetail(task)} disabled={actionBusy === `detail:${task.id}`}>详情</button>{task.session_id ? <Link to={`/s/${task.session_id}`}>{actionLabel(task, view)}</Link> : null}{view === "active" && canCancel(task) ? <button type="button" onClick={() => void cancel(task)} disabled={Boolean(actionBusy)}>取消</button> : null}{view === "history" && normalizedStatus(task) === "failed" && task.retryable !== false ? <button type="button" onClick={() => void retry(task)} disabled={Boolean(actionBusy)}>重试</button> : null}</td>
                   </tr>
                 );
               })}
