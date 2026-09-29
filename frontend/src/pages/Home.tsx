@@ -2270,6 +2270,7 @@ export default function Home() {
                   visibleKols={followedWorkspace.visibleCards}
                   allCards={followedWorkspace.cards}
                   kolQuery={followedWorkspace.query}
+                  sort={followedWorkspace.sort}
                   stageFilter={followedWorkspace.stageFilter}
                   situation={followedWorkspace.situation}
                   selectedKolIds={selectedKolIds}
@@ -2283,6 +2284,7 @@ export default function Home() {
                   listError={followListError}
                   onReload={() => void followedWorkspace.loadSurface()}
                   onQuery={followedWorkspace.setQuery}
+                  onSort={followedWorkspace.setSort}
                   onStageFilter={followedWorkspace.setStageFilter}
                   onSituation={followedWorkspace.setSituation}
                   onHover={followedWorkspace.setHoveredId}

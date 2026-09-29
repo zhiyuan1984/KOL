@@ -3889,6 +3889,24 @@ summary:focus-visible,
   padding-right: 2px;
   font-variant-numeric: tabular-nums;
 }
+.followed-kol-column .followed-object-sort {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+.followed-kol-column .followed-object-sort select {
+  height: var(--control-h-lg);
+  min-height: var(--control-h-lg);
+  max-width: 9.5rem;
+  padding: 0 26px 0 10px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--ds-font-sm);
+  cursor: pointer;
+}
 .followed-kol-column .followed-select-all {
   min-height: var(--control-h-lg);
   color: var(--text);

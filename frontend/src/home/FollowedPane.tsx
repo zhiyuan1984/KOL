@@ -8,6 +8,7 @@ import {
 import type { StarryBinding } from "../api";
 import type { FollowedSituation } from "./FollowedBrief";
 import { selectAllChecked, selectAllLabel } from "./kolContract";
+import type { KolSortMode } from "../followedKolCard";
 import { HOME_HANDOFF_TO_AGENT } from "./entryRegistry";
 import type { SurfaceDownView } from "./surfaceError";
 
@@ -78,6 +79,7 @@ export default function FollowedPane({
   visibleKols,
   allCards,
   kolQuery,
+  sort,
   stageFilter,
   situation,
   selectedKolIds,
@@ -90,6 +92,7 @@ export default function FollowedPane({
   down,
   listError,
   onQuery,
+  onSort,
   onStageFilter,
   onSituation,
   onHover,
@@ -112,6 +115,7 @@ export default function FollowedPane({
   visibleKols: FollowedKolCardModel[];
   allCards: FollowedKolCardModel[];
   kolQuery: string;
+  sort: KolSortMode;
   stageFilter: string;
   situation: FollowedSituation | "";
   selectedKolIds: string[];
@@ -125,6 +129,7 @@ export default function FollowedPane({
   /** 名单还在屏上、但最近一次读取失败：安静提示，不吞掉已经读到的对象。 */
   listError?: string;
   onQuery: (value: string) => void;
+  onSort: (value: KolSortMode) => void;
   onStageFilter: (value: string) => void;
   onSituation: (value: FollowedSituation | "") => void;
   onHover: (id: string | null) => void;
@@ -176,6 +181,20 @@ export default function FollowedPane({
             <span className="followed-object-count" data-followed-object-count>
               目前跟进了 {allCards.length} 位
             </span>
+            <label className="followed-object-sort">
+              <span className="sr-only">跟进对象排序</span>
+              <select
+                aria-label="跟进对象排序"
+                data-followed-sort
+                value={sort}
+                onChange={(event) => onSort(event.target.value as KolSortMode)}
+              >
+                <option value="need">最需要处理</option>
+                <option value="recent">最近更新</option>
+                <option value="stay">跟进时间最长</option>
+                <option value="unread">未读来信优先</option>
+              </select>
+            </label>
           </div>
           <div className="followed-object-batch" data-followed-object-batch>
             <label className="followed-select-all">

@@ -14,6 +14,7 @@ import {
   followedStageEnterCards,
   projectFollowedKolCard,
   sortFollowedKolCards,
+  type KolSortMode,
   type FollowedKolCardModel,
   type FollowedKolRecord,
 } from "../followedKolCard";
@@ -88,6 +89,7 @@ export function useFollowedWorkspace(options: {
   const lastSourceRef = useRef<string>("following");
   const [completeness, setCompleteness] = useState<FollowListCompleteness>("loading-local");
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<KolSortMode>("need");
   const [stageFilter, setStageFilter] = useState("");
   const [situation, setSituation] = useState<FollowedSituation | "">("");
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -116,8 +118,8 @@ export function useFollowedWorkspace(options: {
         && matchesStageFilter(card, stageFilter)
         && matchesFollowedSituation(card, situation),
     );
-    return sortFollowedKolCards(filtered, "need");
-  }, [cards, query, stageFilter, situation]);
+    return sortFollowedKolCards(filtered, sort);
+  }, [cards, query, sort, stageFilter, situation]);
 
   const selectedCards = useMemo(
     () => visibleCards.filter((card) => selectedIds.includes(card.id)),
@@ -464,6 +466,8 @@ export function useFollowedWorkspace(options: {
     selectedStageEnterCards,
     query,
     setQuery,
+    sort,
+    setSort,
     stageFilter,
     setStageFilter,
     situation,
