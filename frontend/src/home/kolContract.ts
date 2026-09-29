@@ -588,7 +588,7 @@ export function runningBadgeCount(input: {
   const analyze = input.analyzeItems.filter((item) => isKolAnalyzeInFlight(item.status));
   const sessionIds = new Set(runningSessions.map((row) => row.id));
   const extraAnalyze = analyze.filter((item) => !item.session_id || !sessionIds.has(item.session_id));
-  const runningTasks = (input.tasks || []).filter((task) => ["running", "queued", "starting", "in_progress"].includes(String(task.status || "").toLowerCase()));
+  const runningTasks = (input.tasks || []).filter((task) => ["pending", "running", "queued", "starting", "in_progress", "waiting", "waiting_approval", "failed"].includes(String(task.status || "").toLowerCase()));
   const extraTasks = runningTasks.filter((task) => !task.session_id || !sessionIds.has(task.session_id));
   return runningSessions.length + extraAnalyze.length + extraTasks.length;
 }
@@ -602,9 +602,7 @@ export function runningBadgeHref(input: {
   if (firstSession) return `/s/${firstSession.id}`;
   const bound = input.analyzeItems.find((item) => isKolAnalyzeInFlight(item.status) && item.session_id);
   if (bound?.session_id) return `/s/${bound.session_id}`;
-  const task = (input.tasks || []).find((row) => ["running", "queued", "starting", "in_progress"].includes(String(row.status || "").toLowerCase()) && row.session_id);
-  if (task?.session_id) return `/s/${task.session_id}`;
-  return "/?tab=todo";
+  return "/tasks";
 }
 
 /** Map B.active follow contract onto the existing followed-kol-card model. */

@@ -498,7 +498,7 @@ function tasksEpoch(): string {
 
 tasks.get("/tasks", (c) => {
   const view = String(c.req.query("view") || "");
-  const openView = view === "open" || view === "todo";
+  const openView = view === "open" || view === "todo" || view === "active";
   const clauses: string[] = [];
   const values: unknown[] = [];
   const scoped = !isAdmin() || c.req.query("scope") !== "all";
@@ -515,6 +515,7 @@ tasks.get("/tasks", (c) => {
     }
   }
   if (openView) clauses.push(OPEN_WORK_ITEM_SQL);
+  if (view === "active") clauses.push("status IN ('pending','queued','running','starting','in_progress','waiting','waiting_approval')");
   const sort = c.req.query("sort") || "updated_desc";
   const order: Record<string, string> = {
     updated_desc: "updated_at DESC",
@@ -556,7 +557,7 @@ tasks.get("/tasks", (c) => {
     });
     if (!openView) return list;
     return {
-      view: view === "todo" ? "todo" : "open",
+      view: view === "todo" ? "todo" : view === "active" ? "active" : "open",
       tasks: list.filter((task) => isOpenWorkItem(task)),
       total,
       limit,
@@ -1047,6 +1048,31 @@ tasks.post("/tasks/:id/dismiss", async (c) => {
     audit(ownerId(), "task.dismissed", { work_item_id: item.id });
   }
   return c.json(publicWorkItem(ownedWorkItem(String(item.id))));
+});
+
+/** Cancel work that has not entered an external/agent execution step. */
+tasks.post("/tasks/:id/cancel", async (c) => {
+  const item = ownedWorkItem(c.req.param("id"));
+  const status = String(item.status || "");
+  if (!["pending", "queued", "waiting", "needs_clarification"].includes(status)) {
+    throw new HttpFail(409, status === "running" ? "任务已开始执行，暂不支持安全取消" : `task cannot cancel from ${status}`);
+  }
+  const q = String(c.req.query("q") || "").trim();
+  if (q) { clauses.push("(title LIKE ? OR content LIKE ? OR skill LIKE ?)"); values.push(`%${q}%`, `%${q}%`, `%${q}%`); }
+  const skill = String(c.req.query("skill") || "").trim();
+  if (skill) { clauses.push("skill=?"); values.push(skill); }
+  const from = String(c.req.query("from") || "").trim();
+  if (from) { clauses.push("created_at>=?"); values.push(from); }
+  const to = String(c.req.query("to") || "").trim();
+  if (to) { clauses.push("created_at<=?"); values.push(to); }
+  const now = nowIso();
+  tx((db) => {
+    db.prepare("UPDATE work_items SET status='cancelled',completed_at=?,updated_at=?,data_version=data_version+1 WHERE id=?").run(now, now, item.id);
+    db.prepare("UPDATE task_runs SET status='cancelled',completed_at=? WHERE work_item_id=? AND status IN ('pending','queued','running')").run(now, item.id);
+  });
+  appendTaskEvent(String(item.id), null, "task.cancelled", "任务已取消", "cancelled", "任务尚未开始执行，已从队列移除");
+  audit(ownerId(), "task.cancelled", { work_item_id: item.id });
+  return c.json({ ...publicWorkItem(ownedWorkItem(String(item.id))), cancelled: true });
 });
 
 tasks.post("/tasks/:id/actions", async (c) => {

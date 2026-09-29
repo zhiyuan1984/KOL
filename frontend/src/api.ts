@@ -166,7 +166,7 @@ export type CronAlerts = {
 };
 
 export type TaskSource = "manual" | "ai" | string;
-export type TaskStatus = "pending" | "waiting" | "running" | "completed" | "failed" | string;
+export type TaskStatus = "pending" | "waiting" | "queued" | "running" | "waiting_approval" | "completed" | "failed" | "cancelled" | string;
 
 export type TaskEvent = {
   id?: string;
@@ -298,6 +298,15 @@ export type Task = {
   context?: string;
   source?: TaskSource;
   status?: TaskStatus;
+  created_at?: string;
+  queued_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+  wait_reason?: string | null;
+  queue_position?: number | null;
+  cancelable?: boolean;
+  retryable?: boolean;
+  last_error?: string | null;
   priority?: "important_urgent" | "important" | "urgent" | "normal" | "low" | "high" | "medium" | string;
   priority_label?: string;
   risk_level?: "none" | "low" | "medium" | "high" | string;
@@ -335,6 +344,11 @@ export type Task = {
   /** Creation-time skill contract snapshot; legacy tasks are server-projected. */
   skill_template?: SkillTemplate | null;
   [key: string]: unknown;
+};
+
+export type TaskDetail = Task & {
+  runs?: Array<Record<string, unknown>>;
+  artifacts?: Array<Record<string, unknown>>;
 };
 
 export type TodayBriefPrimary = {
@@ -928,7 +942,7 @@ export const api = {
   saveStarryBinding: (body: { mailbox_email: string; bearer?: string; mailbox_id?: string; owner_name?: string }) =>
     request<StarryBinding>("/api/me/starry-binding", { method: "POST", body: JSON.stringify(body) }),
   clearStarryBinding: () => request<StarryBinding>("/api/me/starry-binding", { method: "DELETE" }),
-  tasks: (params?: { status?: string; source?: string; priority?: string; view?: string }) => {
+  tasks: (params?: { status?: string; source?: string; priority?: string; view?: string; q?: string; skill?: string; from?: string; to?: string }) => {
     const query = new URLSearchParams();
     Object.entries(params || {}).forEach(([key, value]) => {
       if (value) query.set(key, value);
@@ -958,11 +972,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
-  task: (id: string) => request<Task | { task: Task }>(`/api/tasks/${encodeURIComponent(id)}`),
+  task: (id: string) => request<TaskDetail | { task: TaskDetail }>(`/api/tasks/${encodeURIComponent(id)}`),
   taskBySession: (sessionId: string) =>
     request<Task | { task: Task }>(`/api/tasks/by-session/${encodeURIComponent(sessionId)}`),
   taskEvents: (id: string) =>
     request<TaskEvent[] | { events: TaskEvent[] }>(`/api/tasks/${encodeURIComponent(id)}/events`),
+  cancelTask: (id: string) =>
+    request<Task | { task: Task; cancelled?: boolean }>(`/api/tasks/${encodeURIComponent(id)}/cancel`, {
+      method: "POST", body: JSON.stringify({}),
+    }),
   startCrawl: (id: string, body: StartCrawlInput) =>
     request<CrawlJob | { crawl_job: CrawlJob; job?: CrawlJob }>(
       `/api/tasks/${encodeURIComponent(id)}/actions/start-crawl`,
