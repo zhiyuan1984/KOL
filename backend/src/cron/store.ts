@@ -132,6 +132,7 @@ export function listJobs(db: SqliteConn = getConn()): Row[] {
   // The index view never reads prompt, workspace, connectors or run history.
   return db.prepare(`SELECT id,job_key,title,owner_account_id,execute_as,capability_expert_id,
     handler_key,cron_expr,timezone,status,next_run_at,last_run_at,last_terminal_status,
+    (SELECT r.status FROM cron_runs r WHERE r.job_id=cron_jobs.id AND r.status IN ('queued','running') ORDER BY r.created_at DESC LIMIT 1) AS active_run_status,
     json_extract(condition_json,'$.schedule.kind') AS schedule_kind,
     json_extract(condition_json,'$.schedule.interval_minutes') AS interval_minutes,
     json_extract(condition_json,'$.schedule.once_at') AS once_at
@@ -150,6 +151,7 @@ export function publicJobSummary(job: Row): Json {
   return {
     id: job.id, job_key: job.job_key, title: job.title,
     handler_key: job.handler_key, status: job.status,
+    active_run_status: job.active_run_status || null,
     enabled: String(job.status) !== "disabled",
     system: isSystemJob(job), legal_fields_readonly: isSystemJob(job),
     execute_identity: isSystemJob(job) ? "系统（平台已发布）" : "我",

@@ -29,10 +29,29 @@ const statusLabel = (status?: string | null) => ({
 const runLabel = (run: CronRun) => run.status === "succeeded" && run.receipt?.handler_key === "ai-task"
   ? "已提交" : statusLabel(run.status);
 
-function timeLabel(value?: string | null): string {
+function timeLabel(value?: string | null, timeZone?: string): string {
   if (!value) return "—";
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-CN", { hour12: false });
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+    ...(timeZone ? { timeZone } : {}),
+  }).format(date);
+}
+
+function relativeTime(value?: string | null): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const delta = date.getTime() - Date.now();
+  const days = Math.round(Math.abs(delta) / 86_400_000);
+  if (Math.abs(delta) < 60_000) return delta < 0 ? "刚刚" : "即将执行";
+  if (days === 0) return delta < 0 ? "已过期" : "今天";
+  if (days === 1) return delta < 0 ? "已过期 1 天" : "明天";
+  return delta < 0 ? `已过期 ${days} 天` : `${days} 天后`;
+}
+
+function jobStatusLabel(status: string): string {
+  return ({ published: "已启用", paused: "已暂停", draft: "草稿", disabled: "未启用" } as Record<string, string>)[status] || statusLabel(status);
 }
 
 function localInput(value?: string | null): string {
@@ -119,6 +138,7 @@ export default function Cron() {
   const [editor, setEditor] = useState<Editor>(() => editorFor());
   const [text, setText] = useState("");
   const [objectRefs, setObjectRefs] = useState<ComposerObjectRef[]>([]);
+  const [refreshError, setRefreshError] = useState(false);
 
   const selected = detail;
   const visible = useMemo(() => jobs.filter((job) =>
@@ -175,10 +195,11 @@ export default function Cron() {
     if (!activeRun?.id || TERMINAL.has(activeRun.status)) return;
     const timer = window.setInterval(() => {
       void api.cronRun(activeRun.id).then((data) => {
+        setRefreshError(false);
         setActiveRun(data.run);
         setRuns((current) => current.map((run) => run.id === data.run.id ? data.run : run));
         if (data.job) { updateRow(data.job); setDetail(data.job); }
-      }).catch(() => undefined);
+      }).catch(() => setRefreshError(true));
     }, 1500);
     return () => window.clearInterval(timer);
   }, [activeRun?.id, activeRun?.status]);
@@ -210,6 +231,18 @@ export default function Cron() {
     } finally { setBusy(""); }
   };
 
+  const refreshRun = async (run: CronRun) => {
+    try {
+      const data = await api.cronRun(run.id);
+      setActiveRun(data.run);
+      setRuns((current) => current.map((item) => item.id === data.run.id ? data.run : item));
+      if (data.job) { updateRow(data.job); setDetail(data.job); }
+      setRefreshError(false);
+    } catch {
+      setRefreshError(true);
+    }
+  };
+
   const save = async (composer: ComposerSubmit) => {
     if (!editor.title.trim()) { setError("请填写任务名称"); return; }
     const [hour, minute] = editor.time.split(":").map(Number);
@@ -234,7 +267,7 @@ export default function Cron() {
         condition: { ...((selected?.condition || {}) as Record<string, unknown>), schedule, composer: { ...composer, object_refs: objectRefs } } };
       const job = selected
         ? (await api.patchCronJob(selected.id, body)).job
-        : await api.createCronJob({ ...body, handler_key: "ai-task", status: "published" });
+        : await api.createCronJob({ ...body, handler_key: "ai-task", status: "draft" });
       updateRow(job);
       setDetail(job);
       setEditing(false);
@@ -253,10 +286,10 @@ export default function Cron() {
         <input id="cron-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索任务" />
         <label className="sr-only" htmlFor="cron-filter">筛选状态</label>
         <select id="cron-filter" value={filter} onChange={(event) => setFilter(event.target.value)}>
-          <option value="all">全部状态</option><option value="published">进行中</option>
+          <option value="all">全部状态</option><option value="draft">草稿</option><option value="published">已启用</option>
           <option value="paused">已暂停</option><option value="disabled">未启用</option>
         </select>
-        <Link className="btn ghost" to="/cron/new">＋ 新建定时任务</Link>
+        <Link className="btn primary" to="/cron/new">＋ 新建定时任务</Link>
       </header>
 
       {loadState === "loading" && <div className="cron-catalog" data-cron-state="loading" aria-busy="true">
@@ -264,23 +297,23 @@ export default function Cron() {
       </div>}
       {loadState === "error" && <p className="error" role="alert">{error}</p>}
       {loadState === "ok" && <div className="cron-catalog" data-cron-state="ok">
-        {visible.length === 0 && <p className="muted" data-cron-state="empty">{jobs.length ? "没有符合条件的任务。" : "还没有定时任务。"}</p>}
+        {visible.length > 0 && <div className="cron-list-head" aria-hidden="true"><span>任务与频率</span><span>计划状态</span><span>运行时间</span><span>操作</span></div>}
+        {visible.length === 0 && <div className="muted cron-empty" data-cron-state="empty"><p>{jobs.length ? "没有符合条件的任务。" : "还没有定时任务。"}</p>{!jobs.length && <Link className="btn ghost" to="/cron/new">创建第一个任务</Link>}</div>}
         {visible.map((job) => (
           <div className="cron-row" key={job.id} data-cron-job={job.job_key} data-cron-status={job.status}>
-            <button type="button" className="cron-row-main" onClick={() => nav(`/cron/${job.job_key || job.id}`)}>
+            <Link className="cron-row-main" to={`/cron/${job.job_key || job.id}`}>
               <strong>{job.title}</strong>
               <span className="muted">{job.frequency} · {job.execute_identity}</span>
-            </button>
-            <span className="cron-status" data-status={job.status}>{statusLabel(job.status)}</span>
-            <span className="cron-next">下次 {job.status === "published" ? timeLabel(job.next_run_at) : "—"}<small>上次 {job.handler_key === "ai-task" && job.last_terminal_status === "succeeded" ? "已提交" : statusLabel(job.last_terminal_status)}</small></span>
+            </Link>
+            <span className="cron-status" data-status={job.status}><span className="cron-field-label">计划</span>{jobStatusLabel(job.status)}{job.active_run_status && <span className="cron-running-state">运行：{statusLabel(job.active_run_status)}</span>}</span>
+            <span className="cron-next"><span className="cron-field-label">下次运行 · {job.timezone || "时区未指定"}</span>{job.status === "published" ? <><strong>{relativeTime(job.next_run_at)}</strong><small>{timeLabel(job.next_run_at, job.timezone)}</small></> : <small>—</small>}<small><span className="cron-field-label">最近运行</span>{job.handler_key === "ai-task" && job.last_terminal_status === "succeeded" ? "已提交" : statusLabel(job.last_terminal_status)}</small></span>
             <div className="cron-row-actions">
-              <button type="button" className="btn ghost" onClick={() => nav(`/cron/${job.job_key || job.id}`)}>设置</button>
-              <button type="button" className="btn ghost" data-cron-pause disabled={busy === job.id || job.status === "disabled"} onClick={() => void toggle(job)}>{job.status === "paused" ? "开启" : "暂停"}</button>
-              <button type="button" className="btn ghost" data-cron-run-now disabled={busy === job.id || job.status === "disabled"} onClick={() => void runNow(job)}>{busy === job.id ? "执行中…" : "立即执行"}</button>
+              <button type="button" className="btn ghost" data-cron-pause disabled={busy === job.id || !["published", "paused"].includes(job.status)} onClick={() => void toggle(job)}>{job.status === "paused" ? "开启计划" : "暂停计划"}</button>
+              <button type="button" className="btn ghost" data-cron-run-now disabled={busy === job.id || job.status !== "published"} title={job.status !== "published" ? "请先启用此计划" : undefined} onClick={() => void runNow(job)}>{busy === job.id ? "提交中…" : "立即运行"}</button>
             </div>
             {rowError[job.id] && <p className="error cron-row-feedback" role="alert">{rowError[job.id]}</p>}
             {activeRun?.job_id === job.id && <p className="cron-row-feedback" role="status">
-              本次{runLabel(activeRun)} · <button type="button" className="link-button" onClick={() => nav(`/cron/${job.job_key || job.id}`)}>查看执行</button>
+              最近运行：{runLabel(activeRun)} · <Link className="link-button" to={`/cron/${job.job_key || job.id}`}>查看回执</Link>
               {activeRun.session_id && <> · <Link to={`/s/${activeRun.session_id}`}>打开执行会话</Link></>}
             </p>}
           </div>
@@ -290,11 +323,13 @@ export default function Cron() {
       {(selected || isNew) && <section className="cron-detail" data-cron-detail={selected?.job_key || "new"}>
         <div className="cron-detail-head">
           <div><h2>{isNew ? "新建定时任务" : selected?.title}</h2>
-            {selected && <p className="muted">{selected.execute_identity} · {selected.frequency} · 下次 {timeLabel(selected.next_run_at)}</p>}
+            {selected && <p className="muted">{jobStatusLabel(selected.status)} · {selected.execute_identity} · {selected.frequency} · {selected.timezone || "时区未指定"} · 下次 {timeLabel(selected.next_run_at, selected.timezone)}</p>}
           </div>
           <div className="cron-actions">
+            {selected && <Link className="btn ghost" to="/cron">返回列表</Link>}
             {selected?.handler_key === "ai-task" && !edit && <button type="button" className="btn ghost" onClick={() => setEditing(true)}>编辑</button>}
-            {selected && <button type="button" className="btn ghost" data-cron-run-now disabled={busy === selected.id || selected.status === "disabled"} onClick={() => void runNow(selected)}>立即执行</button>}
+            {selected?.status === "draft" && selected.handler_key === "ai-task" && <button type="button" className="btn primary" disabled={busy === selected.id} onClick={() => void (async () => { setBusy(selected.id); try { const result = await api.patchCronJob(selected.id, { status: "published" }); updateRow(result.job); setDetail(result.job); } catch (cause) { setError(cause instanceof Error ? cause.message : "无法启用任务"); } finally { setBusy(""); } })()}>发布并启用</button>}
+            {selected && <button type="button" className="btn ghost" data-cron-run-now disabled={busy === selected.id || selected.status !== "published"} title={selected.status !== "published" ? "请先启用此计划" : undefined} onClick={() => void runNow(selected)}>立即运行</button>}
             {selected && <button type="button" className="btn ghost" data-cron-pause disabled={busy === selected.id || selected.status === "disabled"} onClick={() => void toggle(selected)}>{selected.status === "paused" ? "开启" : "暂停"}</button>}
           </div>
         </div>
@@ -318,16 +353,22 @@ export default function Cron() {
               <label>生效开始<input type="datetime-local" value={editor.start} onChange={(event) => setEditor({ ...editor, start: event.target.value })} /></label>
               <label>生效结束<input type="datetime-local" value={editor.end} onChange={(event) => setEditor({ ...editor, end: event.target.value })} /></label>
             </div>
-            <p className="muted">按 {editor.zone} 时间执行。提交内容会使用今日任务的技能、专家、工作空间与连接器能力。</p>
+            <p className="muted">按 {editor.zone} 时间执行。提交内容会使用今日任务的技能、专家、工作空间与连接器能力。{isNew ? "保存后先生成草稿；确认内容与范围后，再发布并启用计划。" : "保存将立即更新此任务；若任务已启用，新配置将用于后续触发。"}</p>
             <h3>任务内容</h3>
             <ComposerDock key={selected?.id || "new"} variant="workspace" value={text} onChange={setText}
               onSubmit={(payload) => void save(payload)} disabled={busy === "save"}
               initialDraft={selected ? composerDraft(selected) : { text: "" }}
-              objectRefs={objectRefs} onObjectRefsChange={setObjectRefs} submitLabel="保存定时任务" />
+              objectRefs={objectRefs} onObjectRefsChange={setObjectRefs} submitLabel={isNew ? "保存为草稿" : "保存更改"} />
             <p className="muted">填写时间与任务内容后，点击提问框中的保存按钮。</p>
           </div>
           {selected && <button type="button" className="btn ghost" onClick={() => setEditing(false)}>取消编辑</button>}
         </> : selected && <>
+          <div className="cron-contract muted" data-cron-contract>
+            <h3>执行说明</h3>
+            <p>执行身份：{selected.execute_identity} · 执行范围：{String((selected.scope as Record<string, unknown> | undefined)?.label || "按已授权范围")}</p>
+            <p>副作用类型：{String(selected.handler?.side_effect || "任务提交")} · {selected.handler?.creates_session ? "会创建 Agent 执行会话" : "不创建对话会话"} · 配置版本 {selected.published_rev || 1}</p>
+            {selected.handler_key === "ai-task" && <p>任务会提交到今日任务执行系统；提交成功不代表后续任务已完成。</p>}
+          </div>
           {selected.handler_key !== "ai-task" && <div className="cron-contract muted">
             <p>条件：{selected.job_key === "ownership-release" ? "连续 14 天无有效往来且归属未续期/未改派" : selected.job_key === "overdue-scan" ? "在途逾期合作" : selected.job_key === "daily-task-snapshot" ? "待问候 / 跟进 / 报价 / 谈判" : "按已发布条件执行"}</p>
             <p>{selected.enabled === false ? "该作业未启用。" : "系统作业按已发布条件执行。"} · 专家 {selected.capability_expert_id}</p>
@@ -335,6 +376,7 @@ export default function Cron() {
           </div>}
           {activeRun && activeRun.job_id === selected.id && <article className="cron-receipt" data-cron-receipt-panel>
             <h3>最近执行</h3><p className="muted">{runLabel(activeRun)} · {timeLabel(activeRun.finished_at || activeRun.started_at)}</p>
+            {refreshError && !TERMINAL.has(activeRun.status) && <p className="error" role="status">运行状态暂时无法刷新，当前显示的可能是旧状态。<button type="button" className="link-button" onClick={() => void refreshRun(activeRun)}>重试</button></p>}
             <pre>{receiptText(activeRun)}</pre>
             {activeRun.session_id && <Link to={`/s/${activeRun.session_id}`}>查看今日任务执行会话</Link>}
             {selected.handler_key !== "ai-task" && <button type="button" className="btn ghost" data-cron-expert-stub onClick={() => setExpertStub(true)}>请专家解读本次回执</button>}
@@ -345,7 +387,7 @@ export default function Cron() {
             {runs.length === 0 && <p className="muted">还没有运行记录。</p>}
             <ol>{runs.map((run) => <li key={run.id}>
               <button type="button" className="link-button" data-cron-run={run.id} data-cron-run-status={run.status} onClick={() => setActiveRun(run)}>
-                {runLabel(run)} · {run.trigger === "manual" ? "手动" : "定时"} · {timeLabel(run.scheduled_for)}
+                {runLabel(run)} · {run.trigger === "manual" ? "手动" : "定时"} · {timeLabel(run.scheduled_for, selected.timezone)}
               </button>
               {run.session_id && <> · <Link to={`/s/${run.session_id}`}>查看执行</Link></>}
             </li>)}</ol>
