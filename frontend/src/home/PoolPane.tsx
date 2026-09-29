@@ -61,7 +61,7 @@ function PoolScore({ card }: { card: PoolKol }) {
   const at = card.assessment?.assessed_at ? new Date(card.assessment.assessed_at) : null;
   const atLabel = at && !Number.isNaN(at.getTime()) ? ` · 评估于 ${at.toLocaleDateString("zh-CN")}` : "";
   const criteria = card.assessment?.criteria_summary ? ` · 口径 ${card.assessment.criteria_summary}` : "";
-  return <span className="pool-row-score" data-pool-score="potential" title={`Jev 公开资料评估 · 置信度 ${confidence}%${atLabel}${criteria}`}>评分 {raw}</span>;
+  return <span className="pool-row-score" data-pool-score="potential" title={`Jev 公开资料评估 · 置信度 ${confidence}%${atLabel}${criteria}`}>评分 {raw} · 置信度 {confidence}%</span>;
 }
 
 function PoolRow({ card, selected, claimBusy, claimTarget, claimError, claimed, onSelect, onClaim, onConfirm, onCancel }: {
