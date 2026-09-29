@@ -960,16 +960,20 @@ export default function Mail() {
                     </button>
                   ))}
                   {letters.length > TASK_CHIP_LIMIT ? (
-                    <button
-                      type="button"
-                      className="mail-task-more"
-                      data-mail-task-more
-                      aria-expanded={lettersMore}
-                      onClick={() => setLettersMore((v) => !v)}
+                    <details
+                      className="mail-task-disclosure"
+                      open={lettersMore}
+                      onToggle={(event) => setLettersMore(event.currentTarget.open)}
                     >
-                      <span>{lettersMore ? "收起" : "更多"}</span>
-                      <span className="mail-accordion-icon" aria-hidden="true">{lettersMore ? "▴" : "▾"}</span>
-                    </button>
+                      <summary
+                        data-mail-task-more
+                        aria-expanded={lettersMore}
+                        title={lettersMore ? "收起更多邮件任务" : "查看全部邮件任务"}
+                      >
+                        <span>{lettersMore ? "收起" : "更多"}</span>
+                        <span className="mail-accordion-icon" aria-hidden="true">{lettersMore ? "▴" : "▾"}</span>
+                      </summary>
+                    </details>
                   ) : null}
                 </div>
               </div>

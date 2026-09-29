@@ -4,6 +4,24 @@ import type { MailMessage } from "../types";
 export type MailReadState = "read" | "unread";
 
 /**
+ * Providers frequently omit the per-message title even when the conversation subject
+ * or body preview is present. Keep the L3 label factual and useful instead of showing
+ * a placeholder dash.
+ */
+export function mailTimelineTitle(message: MailMessage): string {
+  const title = String(message.title || "").trim();
+  if (title) return title;
+  const preview = String(message.snippet || "").replace(/\s+/g, " ").trim();
+  if (preview) {
+    const excerpt = preview.slice(0, 56);
+    return `无标题 · ${excerpt}${preview.length > 56 ? "…" : ""}`;
+  }
+  const subject = String(message.subject || "").trim();
+  if (subject) return subject;
+  return "无标题邮件";
+}
+
+/**
  * L3 of the mailbox tree: one mail. Its own title, read state and the 收/发 stamp —
  * nothing else, so a conversation stays scannable at 280–320px.
  */
@@ -32,7 +50,7 @@ export function MailTimelineItem({
       onClick={onSelect}
     >
       <span className="mail-timeline-subject" data-mail-timeline-subject data-mail-timeline-title>
-        {message.title || "—"}
+        {mailTimelineTitle(message)}
       </span>
       <span className="mail-timeline-meta">
         <span className={"mail-read-tag is-" + readState} data-mail-read-label>

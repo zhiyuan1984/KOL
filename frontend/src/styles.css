@@ -12838,11 +12838,26 @@ button.today-brief-primary-btn:disabled {
   white-space: nowrap;
   cursor: pointer;
 }
-.mail-task-more { display: inline-flex; align-items: center; gap: 5px; }
+.mail-task-disclosure { display: inline-flex; align-items: center; }
+.mail-task-disclosure > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--accent-text);
+  font: inherit;
+  font-size: var(--ds-font-sm);
+  white-space: nowrap;
+  cursor: pointer;
+  list-style: none;
+}
+.mail-task-disclosure > summary::-webkit-details-marker { display: none; }
+.mail-task-disclosure > summary:hover { text-decoration: underline; }
 .mail-accordion-icon { color: var(--ds-text-muted); font-size: var(--ds-font-helper); line-height: 1; }
-.mail-task-chip:hover,
-.mail-task-more:hover { border-color: var(--accent); color: var(--accent-text); }
-.mail-task-more { color: var(--ds-text-dim); }
+.mail-task-chip:hover { border-color: var(--accent); color: var(--accent-text); }
 
 /* ── 右栏：往来摘要 / 中文翻译 / 原文 三个折叠 ──────────────────────────── */
 .mail-detail-head {
@@ -13073,6 +13088,19 @@ button.today-brief-primary-btn:disabled {
   display: block;
   margin: 0;
   padding: var(--space-3) var(--space-3) 0;
+}
+.mail-list-top .mail-switcher-current {
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
+}
+.mail-list-top .mail-switcher-addr {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mail-list-top .mail-switcher-caret {
+  margin-left: auto;
 }
 .mail-list-top .mail-switcher-menu {
   position: absolute;

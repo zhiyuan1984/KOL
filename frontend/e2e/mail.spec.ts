@@ -370,9 +370,9 @@ test("L3 uses each message title instead of the L2 conversation subject", async 
 
   await expect(page.locator('[data-mail-timeline-item="m2"] [data-mail-timeline-title]')).toHaveText("达人确认合作意向");
   await expect(page.locator('[data-mail-timeline-item="m2"] [data-mail-timeline-title]')).not.toHaveText("Re: LiTime collab");
-  // A provider row without a title is explicit, rather than duplicating the
-  // conversation subject in the per-message title position.
-  await expect(page.locator('[data-mail-timeline-item="m1"] [data-mail-timeline-title]')).toHaveText("—");
+  // When the provider omits a message title, show its factual body preview
+  // instead of a dash or duplicating the conversation subject.
+  await expect(page.locator('[data-mail-timeline-item="m1"] [data-mail-timeline-title]')).toHaveText(/无标题 ·/);
 });
 
 test("context chips insert at the saved selection and × only dismisses that chip", async ({ page }) => {
