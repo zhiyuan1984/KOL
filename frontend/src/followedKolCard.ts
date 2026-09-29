@@ -21,6 +21,7 @@ export type FollowedKolRecord = {
   stage_label?: string;
   public_stage?: string;
   owner_name?: string;
+  product?: string;
   platform?: string;
   followers?: string;
   avg_plays?: string;
@@ -92,7 +93,7 @@ export type FollowedKolCardModel = {
   id: string;
   handle: string;
   identity: { display: string; platform: string; avatar_url?: string };
-  scope: { brand: string; region: string; owner: string; mailbox: string };
+  scope: { brand: string; product: string; region: string; owner: string; mailbox: string };
   current_state: {
     stage_code: string;
     stage_label: string;
@@ -549,6 +550,7 @@ export function projectFollowedKolCard(kol: FollowedKolRecord, tasks: Task[] = [
     },
     scope: {
       brand: String(kol.brand || "").trim(),
+      product: String(kol.product || "").trim(),
       region: regionOf(kol),
       owner: String(kol.owner_name || "").trim(),
       mailbox: String(kol.mailbox_from || "").trim(),
@@ -586,6 +588,7 @@ export function matchesKolSearch(card: FollowedKolCardModel, query: string): boo
     card.identity.display,
     card.identity.platform,
     card.scope.brand,
+    card.scope.product,
     card.scope.region,
     card.scope.owner,
     card.scope.mailbox,

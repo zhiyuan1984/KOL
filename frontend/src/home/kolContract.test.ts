@@ -42,7 +42,7 @@ function follow(partial: Partial<FollowKol> & Pick<FollowKol, "kol_uid" | "brief
     identity: { display: "@小美妆日记", platform: "YouTube" },
     stage: { code: "INTERESTED", label: "已回复-有兴趣" },
     latest_correspondence: { valid: true, summary: "想和贵品牌合作", at: "2026-09-01T00:00:00Z" },
-    clock_14d: { release_scheduler: false, label: "14 日计时（只读）· 剩 10 天", days_since_interaction: 4, countdown: true },
+    clock_14d: { release_scheduler: false, label: "14 日跟进 · 剩 10 天", days_since_interaction: 4, countdown: true },
     risk: { chips: [] },
     ...partial,
   };
@@ -161,7 +161,7 @@ describe("kol workbench contract (#172)", () => {
     });
     expect(ticking.countdown).toBe(true);
     expect(ticking.near).toBe(true);
-    expect(ticking.label).toContain("14 日计时");
+    expect(ticking.label).toContain("14 日跟进");
   });
 
   it("FollowedBrief priority is 拒信 → 临近14日 → 有兴趣", () => {

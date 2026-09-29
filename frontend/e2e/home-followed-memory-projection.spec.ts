@@ -47,7 +47,7 @@ test("我的红人先读本地记忆并直接渲染互动结果", async ({ page 
           countdown: true,
           cron_eligible: true,
           release_scheduler: false,
-          label: "14 日计时（只读）",
+          label: "14 日跟进",
           near: false,
         },
         risk: { chips: [{ id: "interested", label: "有兴趣" }], refused: false, exception: false, high_risk: false },

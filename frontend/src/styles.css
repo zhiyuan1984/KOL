@@ -3901,19 +3901,16 @@ summary:focus-visible,
   accent-color: var(--accent-text);
 }
 .followed-kol-column .followed-kol-list {
-  gap: 0;
-  border-bottom: 1px solid var(--border);
+  gap: 10px;
+  border-bottom: 0;
 }
 .followed-kol-column .followed-kol-card {
-  gap: var(--space-1);
+  gap: 0;
   padding: var(--space-2) var(--space-1);
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  border-radius: 0;
-  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, var(--accent));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg-elevated) 42%, var(--bg));
 }
-/* 对象之间只有这一条完整分隔线；末行不再与列表自身的底线叠成双线。 */
-.followed-kol-column .followed-kol-list > [data-followed-kol]:last-child { border-bottom: 0; }
 /* 勾选框与第一行的 28px 行框居中：(28 − 16) / 2。 */
 .followed-kol-column .followed-kol-select { margin-top: 6px; }
 .followed-kol-column .followed-kol-card:hover,
@@ -4039,6 +4036,12 @@ summary:focus-visible,
   color: var(--accent-text);
   font-weight: 600;
 }
+.followed-kol-column .followed-kol-card .kol-profile-metrics,
+.followed-kol-column .followed-kol-card .kol-product-meta,
+.followed-kol-column .followed-kol-card .kol-mail-meta {
+  margin-left: calc(-1 * (var(--kol-avatar-size) + var(--space-2)));
+  width: calc(100% + var(--kol-avatar-size) + var(--space-2));
+}
 .followed-kol-column .followed-kol-card .kol-band-fact,
 .followed-kol-column .followed-kol-card .kol-band-recommend {
   padding-top: 7px;
@@ -4048,6 +4051,43 @@ summary:focus-visible,
   align-items: flex-start;
   padding-top: 8px;
   border-top-color: color-mix(in srgb, var(--accent) 18%, var(--border));
+}
+.followed-kol-column .followed-kol-card .kol-band-fact {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.followed-kol-column .followed-kol-card .kol-band-fact .kol-state-block {
+  display: block;
+}
+.followed-kol-column .followed-kol-card .kol-band-recommend {
+  display: block;
+}
+.followed-kol-column .followed-kol-card .kol-band-recommend > [data-recommended-action] {
+  display: block;
+  width: 100%;
+}
+.followed-kol-column .followed-kol-card .kol-band-recommend > .kol-band-actions {
+  display: flex;
+  width: 100%;
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+.followed-kol-column .followed-kol-card .kol-band-label {
+  display: block;
+  margin: 0 0 3px;
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  font-weight: 600;
+  line-height: 1.35;
+}
+.followed-kol-column .followed-kol-card .kol-product-meta {
+  width: 100%;
+  margin: 0;
+  padding-top: 3px;
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: 1.35;
 }
 .followed-kol-column .followed-kol-card .kol-band-actions {
   align-self: center;

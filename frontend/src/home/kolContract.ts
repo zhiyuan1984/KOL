@@ -152,6 +152,7 @@ export type FollowKol = {
   suggested_stage?: string;
   suggested_stage_code?: string;
   brand?: string;
+  product?: string;
   notes?: string;
   overdue?: boolean;
   mailbox_from?: string;
@@ -321,7 +322,7 @@ export function clockFromRow(row: Record<string, unknown>): FollowClock14d {
     countdown: true,
     cron_eligible: row.cron_eligible == null ? true : flag(row.cron_eligible),
     release_scheduler: false,
-    label: remaining != null ? `14 日计时（只读）· 剩 ${remaining} 天` : "14 日计时（只读）",
+    label: remaining != null ? `14 日跟进 · 剩 ${remaining} 天` : "14 日跟进",
     near,
   };
 }
@@ -506,6 +507,7 @@ export function toFollowKol(row: Record<string, unknown>): FollowKol | null {
       suggested_stage: text(row.suggested_stage) || undefined,
       suggested_stage_code: text(row.suggested_stage_code) || undefined,
       brand: text(row.brand) || undefined,
+      product: text(row.product || row.sku || row.product_name) || undefined,
       notes: text(row.notes) || undefined,
       overdue: flag(row.overdue) || undefined,
       mailbox_from: text(row.mailbox_from) || undefined,
@@ -554,6 +556,7 @@ export function toFollowKol(row: Record<string, unknown>): FollowKol | null {
     suggested_stage: text(row.suggested_stage) || undefined,
     suggested_stage_code: text(row.suggested_stage_code) || undefined,
     brand: text(row.brand) || undefined,
+    product: text(row.product || row.sku || row.product_name) || undefined,
     notes: text(row.notes) || undefined,
     overdue: flag(row.overdue) || undefined,
     mailbox_from: text(row.mailbox_from) || undefined,
@@ -671,6 +674,7 @@ export function followKolToRecord(item: FollowKol): {
   suggested_stage?: string;
   suggested_stage_code?: string;
   brand?: string;
+  product?: string;
   notes?: string;
   overdue?: boolean;
   mailbox_from?: string;
@@ -714,6 +718,7 @@ export function followKolToRecord(item: FollowKol): {
     suggested_stage: item.suggested_stage,
     suggested_stage_code: item.suggested_stage_code,
     brand: item.brand,
+    product: item.product,
     notes: item.notes,
     overdue: item.overdue,
     mailbox_from: item.mailbox_from,

@@ -163,6 +163,7 @@ export default function FollowedKolWorkCard({
   const stageLabel = formatStageBadge(card.current_state.stage_label);
   const fallbackAvatar = FALLBACK_AVATARS[stableAvatarIndex(card.source.kol_uid || card.id)];
   const avatarSource = card.identity.avatar_url && !avatarFailed ? card.identity.avatar_url : fallbackAvatar;
+  const factSourceLabel = fact.thread_id ? "邮件摘要" : fact.kind === "confirmed" ? "任务记录" : "互动记录";
   const profileMetrics = [
     card.source.followers ? `粉丝 ${card.source.followers}` : "",
     card.source.avg_plays ? `均播 ${card.source.avg_plays}` : "",
@@ -289,9 +290,12 @@ export default function FollowedKolWorkCard({
               {potentialScore != null ? <strong data-jev-potential-score title={potentialConfidence == null ? "Jev 概率加权排序分" : `Jev 概率加权排序分 · 置信度 ${potentialConfidence}%`}>潜力排序 {potentialScore}{potentialConfidence == null ? "" : ` · ${potentialConfidence}%`}</strong> : null}
             </p>
           ) : null}
+          {card.scope.product ? (
+            <p className="kol-product-meta" data-kol-product>合作产品：{card.scope.product}</p>
+          ) : null}
           {card.source.countdown !== false && (card.source.release_due_at || card.source.last_interaction_at) ? (
             <p className="kol-mail-meta" data-release-timer data-release-scheduler="false">
-              14 日计时（只读）
+              14 日跟进
               {card.source.last_interaction_at ? ` · 上次互动 ${formatFactTime(card.source.last_interaction_at)}` : ""}
               {card.source.days_since_interaction != null ? ` · 已过 ${card.source.days_since_interaction} 天` : ""}
             </p>
@@ -306,6 +310,7 @@ export default function FollowedKolWorkCard({
       <div className="kol-split" data-kol-split>
         <div className="kol-band kol-band-fact" data-kol-band="fact">
           <div className="kol-state-block" data-latest-fact data-fact-kind={fact.kind}>
+            <p className="kol-band-label" data-fact-source>{`最近互动 · ${factSourceLabel}`}</p>
             <p className="kol-mail-digest" data-mail-summary={fact.thread_id || undefined}>
               {fact.summary}
             </p>
@@ -323,7 +328,7 @@ export default function FollowedKolWorkCard({
               {headline}
             </p>
             <p className="kol-ai-why">
-              <span className="kol-split-kicker">{rec.kind === "confirm-stage" ? "已保存阶段建议" : "说明"}</span>
+              <span className="kol-split-kicker">来源</span>
               {rec.why ? <span className="kol-judgment" data-action-why>{rec.why}</span> : null}
             </p>
           </div>
