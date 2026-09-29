@@ -39,6 +39,40 @@ export function engagementOf(profile: Json): string {
   );
 }
 
+function metricNumber(value: unknown): number {
+  const raw = String(value ?? "").trim().replace(/,/g, "");
+  if (!raw) return 0;
+  const match = raw.match(/^(-?\d+(?:\.\d+)?)(万|[kKmM])?%?$/);
+  if (!match) return 0;
+  const n = Number(match[1]);
+  if (!Number.isFinite(n)) return 0;
+  const unit = match[2]?.toLowerCase();
+  return unit === "万" ? n * 10_000 : unit === "k" ? n * 1_000 : unit === "m" ? n * 1_000_000 : n;
+}
+
+/**
+ * YouTube 的视频点赞/评论明细不在当前公海数据契约里；用均播/粉丝数做一个
+ * 明确标注的触达参考值，不能冒充真实互动率。返回小数比例，供统一展示为百分比。
+ */
+export function simplifiedEngagementOf(profile: Json): string {
+  if (engagementOf(profile)) return "";
+  const wanFollowers = profile.followerCountTenThousands ?? profile.followers_wan ?? profile.followerCountWan;
+  const followers = wanFollowers != null && wanFollowers !== ""
+    ? metricNumber(wanFollowers) * 10_000
+    : metricNumber(profile.followers ?? profile.followerCount);
+  const plays = metricNumber(profile.avgVideoViews10 ?? profile.avg_views_10 ?? profile.avgPlays ?? profile.averagePlays);
+  if (followers <= 0 || plays < 0) return "";
+  const ratio = Math.min(1, plays / followers);
+  return ratio.toFixed(6);
+}
+
+export function engagementWithSource(profile: Json): { value: string; source: "remote" | "view_follower_proxy" | "" } {
+  const remote = engagementOf(profile);
+  if (remote) return { value: remote, source: "remote" };
+  const proxy = simplifiedEngagementOf(profile);
+  return proxy ? { value: proxy, source: "view_follower_proxy" } : { value: "", source: "" };
+}
+
 /** 地区：audienceGeo 是对象时取占比最高的一项，否则退回国家级字段。 */
 export function geoOf(profile: Json): string {
   const geo = profile.audienceGeo || profile.audience_geo;

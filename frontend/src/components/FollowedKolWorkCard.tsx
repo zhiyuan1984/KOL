@@ -150,6 +150,13 @@ export default function FollowedKolWorkCard({
   const days = card.current_state.days_in_stage;
   const stageLabel = formatStageBadge(card.current_state.stage_label);
   const initial = card.identity.display.replace(/^@/, "").slice(0, 1) || "红";
+  const profileMetrics = [
+    card.source.followers ? `粉丝 ${card.source.followers}` : "",
+    card.source.avg_plays ? `均播 ${card.source.avg_plays}` : "",
+    card.source.engagement ? `${card.source.engagement_source === "view_follower_proxy" ? "互动参考" : "互动"} ${card.source.engagement}` : "",
+  ].filter(Boolean);
+  const potentialScore = card.source.potential_score == null ? null : Number(card.source.potential_score);
+  const potentialConfidence = card.source.potential_confidence == null ? null : Math.round(Number(card.source.potential_confidence) * 100);
   const hasEvidence = card.evidence.kind !== "none" && Boolean(card.evidence.label);
   const factMeta = [fact.source || (fact.thread_id ? "邮件" : ""), fact.at ? formatFactTime(fact.at) : ""]
     .filter(Boolean)
@@ -255,6 +262,12 @@ export default function FollowedKolWorkCard({
                 </span>
               ))}
             </span>
+          ) : null}
+          {profileMetrics.length || potentialScore != null ? (
+            <p className="kol-profile-metrics" data-kol-profile-metrics>
+              {profileMetrics.map((metric) => <span key={metric}>{metric}</span>)}
+              {potentialScore != null ? <strong data-jev-potential-score title={potentialConfidence == null ? "Jev 概率加权排序分" : `Jev 概率加权排序分 · 置信度 ${potentialConfidence}%`}>潜力排序 {potentialScore}{potentialConfidence == null ? "" : ` · ${potentialConfidence}%`}</strong> : null}
+            </p>
           ) : null}
           {card.source.countdown !== false && (card.source.release_due_at || card.source.last_interaction_at) ? (
             <p className="kol-mail-meta" data-release-timer data-release-scheduler="false">

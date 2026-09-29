@@ -106,6 +106,7 @@ export function publicProfileFields(row: Row | Json): Json {
     followers: row.followers || "",
     avg_plays: row.avg_plays || "",
     engagement: row.engagement || "",
+    engagement_source: row.engagement_source || "",
     direction: row.direction || "",
     region: row.region || "",
     style: row.style || "",
@@ -117,8 +118,10 @@ export function publicProfileFields(row: Row | Json): Json {
     source_batch: row.source_batch || "",
     platform_creator_id: row.platform_creator_id || "",
     potential_score: row.potential_score ?? null,
+    potential_probabilities: row.potential_probabilities || null,
     potential_confidence: row.potential_confidence ?? null,
     risk_score: row.risk_score ?? null,
+    risk_probabilities: row.risk_probabilities || null,
     risk_confidence: row.risk_confidence ?? null,
     assessment_model: row.assessment_model || "",
     assessment_version: row.assessment_version || "",
@@ -218,17 +221,18 @@ export function getProfile(kolUid: string, companyId = memoryCompanyId(), db: Sq
 }
 
 export function upsertPublicProfile(input: {
-  company_id?: string;
-  kol_uid: string;
-  handle?: string;
-  display_name?: string;
-  platform?: string;
-  homepage_url?: string;
-  avatar_url?: string;
-  followers?: string;
-  avg_plays?: string;
-  engagement?: string;
-  direction?: string;
+ company_id?: string;
+ kol_uid: string;
+ handle?: string;
+ display_name?: string;
+ platform?: string;
+ homepage_url?: string;
+ avatar_url?: string;
+ followers?: string;
+ avg_plays?: string;
+ engagement?: string;
+  engagement_source?: string;
+ direction?: string;
   region?: string;
   style?: string;
   ingest_source?: string;
@@ -249,9 +253,9 @@ export function upsertPublicProfile(input: {
   db.prepare(
     `INSERT INTO kol_profile_index
      (id,company_id,kol_uid,handle,display_name,platform,homepage_url,avatar_url,followers,avg_plays,
-      engagement,direction,region,style,ingest_source,ingested_at,public_stage,pool_status,
+      engagement,engagement_source,direction,region,style,ingest_source,ingested_at,public_stage,pool_status,
       idle,source_version,source_batch,platform_creator_id,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
      ON CONFLICT(company_id, kol_uid) DO UPDATE SET
        handle=COALESCE(NULLIF(excluded.handle,''), kol_profile_index.handle),
        display_name=COALESCE(NULLIF(excluded.display_name,''), kol_profile_index.display_name),
@@ -261,6 +265,7 @@ export function upsertPublicProfile(input: {
        followers=COALESCE(NULLIF(excluded.followers,''), kol_profile_index.followers),
        avg_plays=COALESCE(NULLIF(excluded.avg_plays,''), kol_profile_index.avg_plays),
        engagement=COALESCE(NULLIF(excluded.engagement,''), kol_profile_index.engagement),
+       engagement_source=COALESCE(NULLIF(excluded.engagement_source,''), kol_profile_index.engagement_source),
        direction=COALESCE(NULLIF(excluded.direction,''), kol_profile_index.direction),
        region=COALESCE(NULLIF(excluded.region,''), kol_profile_index.region),
        style=COALESCE(NULLIF(excluded.style,''), kol_profile_index.style),
@@ -281,6 +286,7 @@ export function upsertPublicProfile(input: {
     text(input.followers),
     text(input.avg_plays),
     text(input.engagement),
+    text(input.engagement_source),
     text(input.direction),
     text(input.region),
     text(input.style),
@@ -561,9 +567,12 @@ function refusalIn(value: string): boolean {
  */
 export function listEmployeeFollowing(employeeId: string, companyId = memoryCompanyId(), db: SqliteConn = getConn()): Json[] {
   const rows = db.prepare(
-    `SELECT f.*, p.handle, p.display_name, p.platform, p.homepage_url, p.followers,
-            p.avg_plays, p.engagement, p.direction, p.region, p.style,
+    `SELECT f.*, p.handle, p.display_name, p.platform, p.homepage_url, p.avatar_url, p.followers,
+            p.avg_plays, p.engagement, p.engagement_source, p.direction, p.region, p.style,
             p.ingest_source, p.ingested_at, p.public_stage, p.idle, p.pool_status,
+            p.potential_score, p.potential_probabilities, p.potential_confidence,
+            p.risk_score, p.risk_probabilities, p.risk_confidence,
+            p.assessment_model, p.assessment_version, p.assessed_at, p.assessment_error, p.assessment_criteria,
             c.stage_code AS collaboration_stage_code, c.days_in_stage AS days_in_stage
        FROM kol_follow_index f
        LEFT JOIN kol_profile_index p

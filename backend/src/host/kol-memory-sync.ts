@@ -18,7 +18,7 @@ import {
   type EffectiveKind,
 } from "./kol-memory.js";
 import { getKolProfileDetail, pageEmailConversations, pageKolProfiles } from "./starry-connectors.js";
-import { avgPlaysOf, engagementOf, followersOf, geoOf, missingPublicMetrics } from "../starrykol/remote-metrics.js";
+import { avgPlaysOf, engagementWithSource, followersOf, geoOf, missingPublicMetrics } from "../starrykol/remote-metrics.js";
 
 function homepageOf(profile: Json): string {
   return firstString(
@@ -30,6 +30,7 @@ function homepageOf(profile: Json): string {
 function upsertAFromProfile(profile: Json, sourceVersion?: string): void {
   const kolUid = firstString(profile.kolUid, profile.kol_uid, profile.uid);
   if (!kolUid) return;
+  const engagement = engagementWithSource(profile);
   upsertPublicProfile({
     company_id: memoryCompanyId(),
     kol_uid: kolUid,
@@ -41,7 +42,8 @@ function upsertAFromProfile(profile: Json, sourceVersion?: string): void {
     // 远端只保证 followerCountTenThousands（万）；走共享口径，和 board 路径同量级。
     followers: followersOf(profile),
     avg_plays: avgPlaysOf(profile),
-    engagement: engagementOf(profile),
+    engagement: engagement.value,
+    engagement_source: engagement.source,
     direction: firstString(profile.niche, profile.nicheTagsText, profile.direction),
     region: geoOf(profile) || firstString(profile.region),
     style: firstString(Array.isArray(profile.followStyleTags) ? profile.followStyleTags.join(",") : "", profile.style),

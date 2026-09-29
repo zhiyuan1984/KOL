@@ -67,8 +67,10 @@ export type PublicSeaReason = "unowned" | "never_contacted";
 
 export type PoolJevAssessment = {
   potential_score?: number | null;
+  potential_probabilities?: Record<string, number> | null;
   potential_confidence?: number | null;
   risk_score?: number | null;
+  risk_probabilities?: Record<string, number> | null;
   risk_confidence?: number | null;
   model?: string;
   assessed_at?: string | null;
@@ -134,6 +136,8 @@ export type FollowKol = {
   follow_id?: string;
   collaboration_id?: string;
   identity: { display: string; platform: string };
+  metrics?: { followers?: string; avg_plays?: string; engagement?: string; engagement_source?: string };
+  assessment?: PoolJevAssessment;
   stage: { code: string; label: string };
   dwell?: { days?: number | null };
   latest_correspondence: FollowCorrespondence;
@@ -229,6 +233,34 @@ export function formatMetric(value: unknown): string {
   if (n > 0 && n <= 1) return `${(n * 100).toFixed(1)}%`;
   if (n >= 10_000) return `${Math.round(n / 10_000)}万`;
   return String(n);
+}
+
+function probabilityObject(value: unknown): Record<string, number> | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return Object.fromEntries(Object.entries(parsed)
+      .filter(([, item]) => Number.isFinite(Number(item)))
+      .map(([key, item]) => [key, Number(item)]));
+  } catch {
+    return null;
+  }
+}
+
+function assessmentFromRow(row: Record<string, unknown>): PoolJevAssessment {
+  return {
+    potential_score: row.potential_score == null || row.potential_score === "" ? null : Number(row.potential_score),
+    potential_probabilities: probabilityObject(row.potential_probabilities),
+    potential_confidence: row.potential_confidence == null || row.potential_confidence === "" ? null : Number(row.potential_confidence),
+    risk_score: row.risk_score == null || row.risk_score === "" ? null : Number(row.risk_score),
+    risk_probabilities: probabilityObject(row.risk_probabilities),
+    risk_confidence: row.risk_confidence == null || row.risk_confidence === "" ? null : Number(row.risk_confidence),
+    model: text(row.assessment_model) || undefined,
+    assessed_at: text(row.assessed_at) || null,
+    state: (["scored", "unscored", "low_confidence", "failed"] as const).find((value) => value === text(row.assessment_state)) || undefined,
+    criteria_summary: text(row.assessment_criteria) || undefined,
+  };
 }
 
 export function profileUrlOf(row: Record<string, unknown>): string {
@@ -457,6 +489,8 @@ export function toFollowKol(row: Record<string, unknown>): FollowKol | null {
       follow_id: text(row.follow_id) || undefined,
       collaboration_id: text(row.collaboration_id) || undefined,
       identity: { display: text(identity.display) || (handle ? `@${handle}` : "未指定红人"), platform: text(identity.platform) },
+      metrics: { followers: formatMetric(row.followers), avg_plays: formatMetric(row.avg_plays), engagement: formatMetric(row.engagement), engagement_source: text(row.engagement_source) || undefined },
+      assessment: assessmentFromRow(row),
       stage: { code: text(stage.code), label: text(stage.label) || "阶段未知" },
       dwell: row.dwell && typeof row.dwell === "object"
         ? { days: (row.dwell as { days?: number | null }).days ?? null }
@@ -496,6 +530,8 @@ export function toFollowKol(row: Record<string, unknown>): FollowKol | null {
       display: handle ? `@${handle}` : "未指定红人",
       platform: text(row.platform),
     },
+    metrics: { followers: formatMetric(row.followers), avg_plays: formatMetric(row.avg_plays), engagement: formatMetric(row.engagement), engagement_source: text(row.engagement_source) || undefined },
+    assessment: assessmentFromRow(row),
     stage: {
       code: text(row.stage_code),
       label: publicStage || text(row.stage_label) || "跟进中",
@@ -612,6 +648,17 @@ export function followKolToRecord(item: FollowKol): {
   kol_uid: string;
   follow_id?: string;
   platform: string;
+  followers?: string;
+  avg_plays?: string;
+  engagement?: string;
+  engagement_source?: string;
+  potential_score?: number | null;
+  potential_confidence?: number | null;
+  potential_probabilities?: Record<string, number> | null;
+  risk_score?: number | null;
+  risk_confidence?: number | null;
+  risk_probabilities?: Record<string, number> | null;
+  assessment_model?: string;
   stage_code: string;
   stage_label: string;
   public_stage?: string;
@@ -643,6 +690,17 @@ export function followKolToRecord(item: FollowKol): {
     kol_uid: item.kol_uid,
     follow_id: item.follow_id,
     platform: item.identity.platform,
+    followers: item.metrics?.followers,
+    avg_plays: item.metrics?.avg_plays,
+    engagement: item.metrics?.engagement,
+    engagement_source: item.metrics?.engagement_source,
+    potential_score: item.assessment?.potential_score,
+    potential_confidence: item.assessment?.potential_confidence,
+    potential_probabilities: item.assessment?.potential_probabilities,
+    risk_score: item.assessment?.risk_score,
+    risk_confidence: item.assessment?.risk_confidence,
+    risk_probabilities: item.assessment?.risk_probabilities,
+    assessment_model: item.assessment?.model,
     stage_code: item.stage.code,
     stage_label: item.stage.label,
     public_stage: item.stage.label,

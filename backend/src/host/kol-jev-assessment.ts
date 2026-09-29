@@ -55,12 +55,32 @@ function profileState(row: Row): string {
   });
 }
 
-type AssessmentAnswer = { choice?: string; confidence?: number };
+type AssessmentAnswer = {
+  choice?: string;
+  confidence?: number;
+  probabilities?: Record<string, number>;
+};
 
-function scoreFor(choice: string, highChoice: string, mediumChoice: string): number | null {
-  if (choice === highChoice) return 85;
-  if (choice === mediumChoice) return 50;
-  return null;
+function probabilityMap(answer: AssessmentAnswer): Record<string, number> {
+  const raw = answer.probabilities;
+  if (!raw || typeof raw !== "object") return answer.choice ? { [answer.choice]: 1 } : {};
+  const entries = Object.entries(raw)
+    .map(([key, value]) => [key, Math.max(0, Number(value))] as const)
+    .filter(([, value]) => Number.isFinite(value));
+  const total = entries.reduce((sum, [, value]) => sum + value, 0);
+  if (total <= 0) return answer.choice ? { [answer.choice]: 1 } : {};
+  return Object.fromEntries(entries.map(([key, value]) => [key, value / total]));
+}
+
+function weightedScore(answer: AssessmentAnswer, weights: Record<string, number>): number | null {
+  const probabilities = probabilityMap(answer);
+  const keys = Object.keys(probabilities);
+  if (!keys.length) return null;
+  return Math.round(keys.reduce((sum, key) => sum + (probabilities[key] || 0) * (weights[key] ?? 0), 0));
+}
+
+function scoreWithCompatibility(answer: AssessmentAnswer, weights: Record<string, number>, legacy: Record<string, number>): number | null {
+  return answer.probabilities ? weightedScore(answer, weights) : (legacy[answer.choice || ""] ?? null);
 }
 
 function selected(value: AssessmentAnswer | undefined): { choice: string; confidence: number } {
@@ -73,8 +93,10 @@ function selected(value: AssessmentAnswer | undefined): { choice: string; confid
 export type KolAssessment = {
   potential_score: number | null;
   potential_confidence: number | null;
+  potential_probabilities: string | null;
   risk_score: number | null;
   risk_confidence: number | null;
+  risk_probabilities: string | null;
   model: string;
   version: string;
   assessed_at: string;
@@ -135,17 +157,21 @@ export async function assessPublicKolWithJev(
   const answers = response.answers as { potential?: AssessmentAnswer; risk?: AssessmentAnswer };
   const potential = selected(answers.potential);
   const risk = selected(answers.risk);
+  const potentialProbabilities = probabilityMap(answers.potential || {});
+  const riskProbabilities = probabilityMap(answers.risk || {});
   const potentialScore = potential.confidence >= MIN_CONFIDENCE
-    ? scoreFor(potential.choice, "high_potential", "watch")
+    ? scoreWithCompatibility(potential, { high_potential: 100, watch: 50, insufficient: 0 }, { high_potential: 85, watch: 50 })
     : null;
   const riskScore = risk.confidence >= MIN_CONFIDENCE
-    ? scoreFor(risk.choice, "high_risk", "watch")
-    : risk.choice === "normal" && risk.confidence >= MIN_CONFIDENCE ? 20 : null;
+    ? scoreWithCompatibility(risk, { high_risk: 100, watch: 50, normal: 20, insufficient: 0 }, { high_risk: 85, watch: 50, normal: 20 })
+    : null;
   return {
     potential_score: potentialScore,
     potential_confidence: potential.confidence || null,
+    potential_probabilities: Object.keys(potentialProbabilities).length ? JSON.stringify(potentialProbabilities) : null,
     risk_score: riskScore,
     risk_confidence: risk.confidence || null,
+    risk_probabilities: Object.keys(riskProbabilities).length ? JSON.stringify(riskProbabilities) : null,
     model: currentModel,
     version: ASSESSMENT_VERSION,
     assessed_at: nowIso(),
@@ -221,14 +247,16 @@ export async function assessPublicKolsWithJev(input: {
       const assessment = await assessPublicKolWithJev(profile, criteria);
       db.prepare(
         `UPDATE kol_profile_index
-            SET potential_score=?, potential_confidence=?, risk_score=?, risk_confidence=?,
+            SET potential_score=?, potential_probabilities=?, potential_confidence=?, risk_score=?, risk_probabilities=?, risk_confidence=?,
                 assessment_model=?, assessment_version=?, assessed_at=?, assessment_error='',
                 assessment_criteria=?, updated_at=?
           WHERE company_id=? AND kol_uid=?`,
       ).run(
         assessment.potential_score,
+        assessment.potential_probabilities,
         assessment.potential_confidence,
         assessment.risk_score,
+        assessment.risk_probabilities,
         assessment.risk_confidence,
         assessment.model,
         assessment.version,
