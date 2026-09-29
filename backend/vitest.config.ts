@@ -8,6 +8,8 @@ export default defineConfig({
       "tests/**/*.test.ts",
       "tests/discovery-packs.test.ts",
       "../frontend/src/connectorUse.test.ts",
+      "../frontend/src/labels.test.ts",
+      "../frontend/src/home/recognizeWait.test.ts",
       "../frontend/src/home/homeModel.test.ts",
       "../frontend/src/home/surfaceError.test.ts",
       "../frontend/src/home/todayPlan.test.ts",

@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { requireConnector } from "../auth.js";
+import { requireSkill } from "../auth.js";
 import {
   cancelHomeDiscoveryRun,
   createHomeDiscoveryPlan,
@@ -29,7 +29,7 @@ homeDiscovery.post("/home/discovery/plan", async (c) => {
 });
 
 homeDiscovery.post("/home/discovery/run", async (c) => {
-  requireConnector("claw", "write");
+  requireSkill("creator_discovery");
   const body = await c.req.json().catch(() => ({})) as Json;
   const result = await startHomeDiscoveryRun(body);
   return c.json(result, result.duplicate ? 200 : 202);
@@ -51,12 +51,12 @@ homeDiscovery.get("/home/discovery/runs/:id/candidates", (c) => {
 });
 
 homeDiscovery.post("/home/discovery/runs/:id/retry", async (c) => {
-  requireConnector("claw", "write");
+  requireSkill("creator_discovery");
   return c.json(await retryHomeDiscoveryRun(c.req.param("id")));
 });
 
 homeDiscovery.post("/home/discovery/runs/:id/cancel", async (c) => {
-  requireConnector("claw", "write");
+  requireSkill("creator_discovery");
   return c.json(await cancelHomeDiscoveryRun(c.req.param("id")));
 });
 
