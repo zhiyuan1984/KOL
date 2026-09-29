@@ -940,8 +940,14 @@ test("service-down and filtered empty states stay honest", async ({ page }) => {
     contentType: "application/json",
     body: JSON.stringify({ detail: "upstream down" }),
   }));
+  await page.route("**/api/discovery/connection", (route) => route.fulfill({
+    json: { status: "ok", status_label: "已连接", message: "采集服务响应正常", connected: true },
+  }));
   await openDiscovery(page);
-  await expect(page.locator("[data-discovery-empty='down']")).toBeVisible();
-  await expect(page.locator("[data-discovery-empty='down']")).toContainText("服务不可用");
+  await expect(page.locator("[data-discovery-ai-summary]")).toContainText("服务不可用");
+  await expect(page.locator("[data-discovery-empty='down']")).toHaveCount(0);
   await expect(page.locator("[data-discovery-panel]")).not.toContainText("没有红人线索");
+  await expect(page.locator("[data-discovery-plan='connection']")).toBeVisible();
+  await page.locator("[data-discovery-plan-action='connection']").click();
+  await expect(page.locator("[data-discovery-plan-connection='ok']")).toContainText("采集服务：已连接");
 });

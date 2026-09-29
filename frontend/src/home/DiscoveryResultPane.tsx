@@ -29,6 +29,7 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
     emptyKind,
     emptyMessage,
     connection,
+    checkingConnection,
     retryBusy,
     retryRun,
     checkCollector,
@@ -221,9 +222,9 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
         </p>
       ) : null}
 
-      {!inFlight && !showResults && !failure && emptyKind !== "idle" ? (
+      {!inFlight && !showResults && !failure && emptyKind !== "idle" && emptyKind !== "down" ? (
         <div className="task-empty" data-discovery-empty={emptyKind}>
-          <strong>{emptyKind === "down" ? "服务不可用" : "筛选无结果"}</strong>
+          <strong>筛选无结果</strong>
           <p>{emptyMessage}</p>
         </div>
       ) : null}
@@ -238,6 +239,8 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
         onEditConditions={showCard}
         onRetry={() => void retryRun()}
         onCheckConnection={() => void checkCollector()}
+        checkingConnection={checkingConnection}
+        connection={connection}
         onOpenIngest={openIngest}
       />
 

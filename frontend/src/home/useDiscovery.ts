@@ -70,6 +70,7 @@ export default function useDiscovery({
   const [failure, setFailure] = useState<DiscoveryErrorView | null>(null);
   const [retryBusy, setRetryBusy] = useState(false);
   const [connection, setConnection] = useState<HomeDiscoveryConnection | null>(null);
+  const [checkingConnection, setCheckingConnection] = useState(false);
   const [ingestOpen, setIngestOpen] = useState(false);
   const [ingestBusy, setIngestBusy] = useState(false);
   const [ingestError, setIngestError] = useState<string | null>(null);
@@ -233,6 +234,8 @@ export default function useDiscovery({
 
   /** Employee-facing collector state — where a「采集服务未配置」run reason becomes actionable. */
   const checkCollector = async () => {
+    if (checkingConnection) return;
+    setCheckingConnection(true);
     try {
       setConnection(await loadDiscoveryConnection());
     } catch (error) {
@@ -242,6 +245,8 @@ export default function useDiscovery({
         message: presentDiscoveryError(error, "无法读取采集服务状态。").message,
         connected: false,
       });
+    } finally {
+      setCheckingConnection(false);
     }
   };
 
@@ -499,6 +504,7 @@ export default function useDiscovery({
     emptyKind,
     emptyMessage,
     connection,
+    checkingConnection,
     retryBusy,
     retryRun,
     checkCollector,
