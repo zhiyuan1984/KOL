@@ -78,7 +78,7 @@ export type FollowedMailThread = {
 };
 
 export type ActionOwner = "me" | "them" | "approver" | "exception" | "none";
-export type KolSortMode = "need" | "recent" | "stay" | "unread";
+export type KolSortMode = "followers" | "time" | "score";
 export type FactKind = "inbound" | "outbound" | "confirmed" | "none";
 export type RecommendedKind =
   | "confirm-stage"
@@ -693,67 +693,26 @@ export function pickFollowedListCtaEmphasis(input: {
   return active && active === input.cardId ? "strong" : "quiet";
 }
 
-function flag(value: boolean): number {
-  return value ? 1 : 0;
-}
-
 function compareId(a: FollowedKolCardModel, b: FollowedKolCardModel): number {
   return String(a.id).localeCompare(String(b.id));
 }
 
-function keysNeed(a: FollowedKolCardModel, b: FollowedKolCardModel): number {
-  return (
-    flag(b.risk.exception || b.risk.high_risk) - flag(a.risk.exception || a.risk.high_risk)
-    || flag(b.waiting_confirm) - flag(a.waiting_confirm)
-    || flag(b.unread_inbound) - flag(a.unread_inbound)
-    || flag(b.risk.overdue) - flag(a.risk.overdue)
-    || b.days_in_stage - a.days_in_stage
-    || b.latest_fact.at_ms - a.latest_fact.at_ms
-    || b.last_updated - a.last_updated
-    || compareId(a, b)
-  );
+function metricNumber(value?: string): number {
+  const raw = String(value || "").trim();
+  const number = Number.parseFloat(raw.replace(/,/g, ""));
+  if (!Number.isFinite(number)) return 0;
+  return number * (raw.includes("万") ? 10_000 : /k$/i.test(raw) ? 1_000 : 1);
 }
 
-/** Deterministic 1→8 keys. `visibleKols` must sort, not only filter. */
-export function sortFollowedKolCards(cards: FollowedKolCardModel[], mode: KolSortMode = "need"): FollowedKolCardModel[] {
+/** 右栏业务排序：粉丝数、时间、评分，均默认从高到低。 */
+export function sortFollowedKolCards(cards: FollowedKolCardModel[], mode: KolSortMode = "time"): FollowedKolCardModel[] {
   return [...cards].sort((a, b) => {
-    if (mode === "recent") {
-      const aFresh = Math.max(a.last_updated, a.latest_fact.at_ms);
-      const bFresh = Math.max(b.last_updated, b.latest_fact.at_ms);
-      return (
-        bFresh - aFresh
-        || flag(b.risk.exception || b.risk.high_risk) - flag(a.risk.exception || a.risk.high_risk)
-        || flag(b.waiting_confirm) - flag(a.waiting_confirm)
-        || flag(b.unread_inbound) - flag(a.unread_inbound)
-        || flag(b.risk.overdue) - flag(a.risk.overdue)
-        || b.days_in_stage - a.days_in_stage
-        || compareId(a, b)
-      );
-    }
-    if (mode === "stay") {
-      return (
-        b.days_in_stage - a.days_in_stage
-        || flag(b.risk.exception || b.risk.high_risk) - flag(a.risk.exception || a.risk.high_risk)
-        || flag(b.waiting_confirm) - flag(a.waiting_confirm)
-        || flag(b.unread_inbound) - flag(a.unread_inbound)
-        || flag(b.risk.overdue) - flag(a.risk.overdue)
-        || b.latest_fact.at_ms - a.latest_fact.at_ms
-        || b.last_updated - a.last_updated
-        || compareId(a, b)
-      );
-    }
-    if (mode === "unread") {
-      return (
-        flag(b.unread_inbound) - flag(a.unread_inbound)
-        || flag(b.risk.exception || b.risk.high_risk) - flag(a.risk.exception || a.risk.high_risk)
-        || flag(b.waiting_confirm) - flag(a.waiting_confirm)
-        || flag(b.risk.overdue) - flag(a.risk.overdue)
-        || b.days_in_stage - a.days_in_stage
-        || b.latest_fact.at_ms - a.latest_fact.at_ms
-        || b.last_updated - a.last_updated
-        || compareId(a, b)
-      );
-    }
-    return keysNeed(a, b);
+    const aValue = mode === "followers" ? metricNumber(a.source.followers)
+      : mode === "score" ? Number(a.source.potential_score || 0)
+      : a.last_updated;
+    const bValue = mode === "followers" ? metricNumber(b.source.followers)
+      : mode === "score" ? Number(b.source.potential_score || 0)
+      : b.last_updated;
+    return bValue - aValue || compareId(a, b);
   });
 }

@@ -89,7 +89,7 @@ export function useFollowedWorkspace(options: {
   const lastSourceRef = useRef<string>("following");
   const [completeness, setCompleteness] = useState<FollowListCompleteness>("loading-local");
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<KolSortMode>("need");
+  const [sort, setSort] = useState<KolSortMode>("time");
   const [stageFilter, setStageFilter] = useState("");
   const [situation, setSituation] = useState<FollowedSituation | "">("");
   const [hoveredId, setHoveredId] = useState<string | null>(null);

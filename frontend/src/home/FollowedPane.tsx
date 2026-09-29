@@ -189,10 +189,9 @@ export default function FollowedPane({
                 value={sort}
                 onChange={(event) => onSort(event.target.value as KolSortMode)}
               >
-                <option value="need">最需要处理</option>
-                <option value="recent">最近更新</option>
-                <option value="stay">跟进时间最长</option>
-                <option value="unread">未读来信优先</option>
+                <option value="followers">粉丝数</option>
+                <option value="time">时间</option>
+                <option value="score">评分</option>
               </select>
             </label>
           </div>
