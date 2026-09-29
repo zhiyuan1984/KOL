@@ -399,9 +399,10 @@ export function triggerMailMemoryIncrement(mailbox?: string): void {
 }
 
 /** Execute the employee-facing mail_summary Skill for one selected conversation. */
-export function triggerMailSummarySkill(mailbox: string, conversationId: string): void {
+export function triggerMailSummarySkill(mailbox: string, conversationId: string): Promise<MailMemoryStats> {
   const key = `skill:mail_summary:${mailbox}:${conversationId}`;
-  if (inflight.has(key)) return;
+  const existing = inflight.get(key);
+  if (existing) return existing;
   const promise = (async (): Promise<MailMemoryStats> => {
     const thread = getConn().prepare("SELECT * FROM kol_mail_threads WHERE conversation_id=? AND mailbox=? LIMIT 1")
       .get(conversationId, mailbox) as Row | undefined;
@@ -417,17 +418,19 @@ export function triggerMailSummarySkill(mailbox: string, conversationId: string)
     })
     .finally(() => inflight.delete(key));
   inflight.set(key, promise);
+  return promise;
 }
 
 /** Execute the employee-facing mail_translate Skill for one selected message. */
-export function triggerMailTranslateSkill(mailbox: string, messageId: string): void {
+export function triggerMailTranslateSkill(mailbox: string, messageId: string): Promise<MailMemoryStats> {
   const key = `skill:mail_translate:${mailbox}:${messageId}`;
-  if (inflight.has(key)) return;
+  const existing = inflight.get(key);
+  if (existing) return existing;
   const promise = (async (): Promise<MailMemoryStats> => {
     const row = getConn().prepare(
       `SELECT i.* FROM kol_mail_items i JOIN kol_mail_threads t ON t.id=i.thread_id
-       WHERE i.id=? AND IFNULL(t.mailbox,'')=? LIMIT 1`,
-    ).get(messageId, mailbox) as Row | undefined;
+       WHERE (i.id=? OR i.provider_message_id=?) AND IFNULL(t.mailbox,'')=? LIMIT 1`,
+    ).get(messageId, messageId, mailbox) as Row | undefined;
     if (!row || !String(row.body_text || "").trim()) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1 };
     const result = await ensureItemTranslation(row);
     return { scanned: 1, translated: result.translated ? 1 : 0, summarized: 0, digested: 0, persons: 0, errors: result.error ? 1 : 0 };
@@ -438,6 +441,7 @@ export function triggerMailTranslateSkill(mailbox: string, messageId: string): v
     })
     .finally(() => inflight.delete(key));
   inflight.set(key, promise);
+  return promise;
 }
 
 export function pendingMailMemoryIncrement(mailbox?: string): boolean {

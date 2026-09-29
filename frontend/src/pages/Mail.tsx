@@ -513,7 +513,20 @@ export default function Mail() {
         conversation_id: selectedConversation.conversation_id,
         ...(currentMessage ? { message_id: currentMessage.id } : {}),
       });
-      // 服务端复用 MCP/模型链路；页面只轮询本地记忆结果，不直接绕过技能调用模型。
+      // 服务端完成技能链路后，先立即读取当前会话，避免只刷新联系人摘要造成页面看不到结果。
+      const refreshed = await loadMailThread(selectedConversation.conversation_id, selectedConversation, workspace?.source || "api");
+      if (refreshed) {
+        setThreads((prev) => ({ ...prev, [selectedConversation.conversation_id]: refreshed }));
+        if (kind === "summary" && refreshed.digest.text) {
+          setPersonDigest({
+            mailbox,
+            peer_email: selectedConversation.peer_email,
+            digest_text: refreshed.digest.text,
+            digest_source: refreshed.digest.source,
+          });
+        }
+      }
+      // 保留短轮询，兼容远端同步刚刚完成、首次读取仍拿到旧缓存的情况。
       for (let attempt = 0; attempt < 8; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 1500));
         if (kind === "summary") {

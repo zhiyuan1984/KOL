@@ -120,14 +120,16 @@ mail.post("/mail/skills/:skillId/run", async (c) => {
   if (!mailbox) throw new HttpFail(400, "mailbox is required");
   const conversationId = String(body?.conversation_id || "").trim();
   const messageId = String(body?.message_id || "").trim();
+  let result;
   if (skillId === "mail_summary") {
     if (!conversationId) throw new HttpFail(422, "conversation_id is required");
-    triggerMailSummarySkill(mailbox, conversationId);
+    result = await triggerMailSummarySkill(mailbox, conversationId);
   } else {
     if (!messageId) throw new HttpFail(422, "message_id is required");
-    triggerMailTranslateSkill(mailbox, messageId);
+    result = await triggerMailTranslateSkill(mailbox, messageId);
   }
-  return c.json({ ...COMMAND, skill_id: skillId, accepted: true, pending: true, mailbox }, 202);
+  if (result.errors > 0) throw new HttpFail(502, { code: "mail_skill_failed", skill_id: skillId, result });
+  return c.json({ ...COMMAND, skill_id: skillId, accepted: true, pending: false, mailbox, result });
 });
 
 mail.post("/mail/conversations/:id/read", (c) => {
