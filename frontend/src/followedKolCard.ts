@@ -21,6 +21,17 @@ export type FollowedKolRecord = {
   public_stage?: string;
   owner_name?: string;
   platform?: string;
+  followers?: string;
+  avg_plays?: string;
+  engagement?: string;
+  engagement_source?: string;
+  potential_score?: number | null;
+  potential_confidence?: number | null;
+  potential_probabilities?: Record<string, number> | null;
+  risk_score?: number | null;
+  risk_confidence?: number | null;
+  risk_probabilities?: Record<string, number> | null;
+  assessment_model?: string;
   days_in_stage?: number;
   notes?: string;
   exception?: boolean;
