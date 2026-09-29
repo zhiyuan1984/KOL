@@ -547,22 +547,29 @@
   top: 24px;
 }
 .scope-task-rail.is-collapsed {
-  display: flex;
-  align-items: center;
-  padding: 46px 6px 16px;
+  display: block;
+  min-height: 0;
+  padding: 0;
 }
 .scope-task-rail.is-collapsed .scope-task-rail-body {
   display: none;
 }
 .scope-task-rail.is-collapsed .scope-task-rail-toggle {
-  position: static;
-  width: 100%;
-  height: auto;
-  min-height: 160px;
+  position: absolute;
+  top: 8px;
+  right: 0;
+  width: var(--icon-btn);
+  height: var(--icon-btn);
+  min-height: 0;
+  padding: 0;
   flex-direction: column;
-  gap: 10px;
+  gap: 0;
   border: 0;
   border-radius: 0;
+}
+.scope-task-rail.is-collapsed .scope-task-rail-toggle strong,
+.scope-task-rail.is-collapsed .scope-task-rail-toggle em {
+  display: none;
 }
 .scope-task-rail-toggle strong {
   writing-mode: vertical-rl;
@@ -635,32 +642,32 @@
     border-left: 0;
   }
   .scope-task-rail.is-collapsed {
-    min-height: 44px;
-    padding: 6px 0;
+    min-height: 0;
+    padding: 0;
   }
   .scope-task-rail-body {
     display: block;
   }
-  /* 折叠态在窄屏是一行 44px 横排标签；展开态仍是右上的 24px 图标按钮，
-     只是右栏在这里变成整块，栏首留白 20px，按钮要跟着下移。 */
+  /* 窄屏仍保持折叠态为顶部独立图标，不恢复灰色整行按钮。 */
   .scope-task-rail-toggle {
     top: 24px;
   }
   .scope-task-rail.is-collapsed .scope-task-rail-toggle {
-    position: static;
-    width: auto;
-    min-height: 44px;
-    height: 44px;
-    margin-left: auto;
-    padding: 0 12px;
-    flex-direction: row;
-    gap: 8px;
-    border: 1px solid var(--ds-border);
-    border-radius: var(--ds-radius-input);
+    position: absolute;
+    top: 8px;
+    right: 0;
+    width: var(--icon-btn);
+    min-height: 0;
+    height: var(--icon-btn);
+    margin: 0;
+    padding: 0;
+    flex-direction: column;
+    gap: 0;
+    border: 0;
+    border-radius: 0;
   }
   .scope-task-rail-toggle strong {
-    writing-mode: horizontal-tb;
-    letter-spacing: 0;
+    display: none;
   }
 }
 
