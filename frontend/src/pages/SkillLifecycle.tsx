@@ -710,7 +710,8 @@ function SkillKnowledgeBindings({ skillId }: { skillId: string }) {
         ...(selector.brand ? [`品牌：${String(selector.brand)}`] : []),
         ...(selector.lang ? [`语言：${String(selector.lang)}`] : []),
       ];
-      return <article className="skill-knowledge-row" key={String(binding.id)}><span className={`skill-binding-state${Number(binding.enabled) ? " is-enabled" : ""}`}>{Number(binding.enabled) ? "已启用" : "已停用"}</span><div><strong>{conditions[0]}</strong><p>{conditions.slice(1).join(" · ") || String(binding.note || "无附加筛选条件")}</p>{binding.note && conditions.length > 1 && <small>{String(binding.note)}</small>}</div></article>;
+      const note = typeof binding.note === "string" ? binding.note : "";
+      return <article className="skill-knowledge-row" key={String(binding.id)}><span className={`skill-binding-state${Number(binding.enabled) ? " is-enabled" : ""}`}>{Number(binding.enabled) ? "已启用" : "已停用"}</span><div><strong>{String(conditions[0])}</strong><p>{conditions.slice(1).join(" · ") || note || "无附加筛选条件"}</p>{Boolean(note) && conditions.length > 1 && <small>{note}</small>}</div></article>;
     })}</div>
     <div className="skill-knowledge-preview"><button type="button" className="skill-governance-secondary" onClick={() => void previewBindings()} disabled={previewBusy || loading}>{previewBusy ? "试算中…" : "试算当前解析"}</button><span>试算只展示当前查询结果，不会写入或发布。</span></div>
     {preview && <div className="skill-preview-result" role="status"><strong>本次试算：命中 {resolved.length} 项 · 跳过 {skipped.length} 项</strong>{resolved.map((row, index) => <span key={String(row.id || row.knowledge_id || index)}>{String(row.title || row.name || row.knowledge_id || row.id || "知识条目")}{row.version ? ` · v${String(row.version)}` : ""}</span>)}{!resolved.length && <span>当前条件下没有命中知识。</span>}</div>}
