@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   formatStageBadge,
   recommendedActionHeadline,
@@ -47,6 +48,16 @@ function ctaText(label: string): string {
 
 function ctaHasArrow(label: string): boolean {
   return /\s*→\s*$/.test(String(label || ""));
+}
+
+const FALLBACK_AVATARS = [
+  "/avatars/kol-fallback/thumbs-up.png",
+  "/avatars/kol-fallback/strong.png",
+  "/avatars/kol-fallback/great.png",
+];
+
+function stableAvatarIndex(value: string): number {
+  return Array.from(String(value || "kol")).reduce((hash, char) => ((hash * 31 + char.charCodeAt(0)) >>> 0), 7) % FALLBACK_AVATARS.length;
 }
 
 function IconAlert() {
@@ -139,6 +150,7 @@ export default function FollowedKolWorkCard({
   onToggleSelect?: (on: boolean) => void;
 }) {
   const rec = card.recommended_action;
+  const [avatarFailed, setAvatarFailed] = useState(false);
   const fact = card.latest_fact;
   const headline = recommendedActionHeadline(rec);
   const primary = primaryKind(rec.kind);
@@ -149,7 +161,8 @@ export default function FollowedKolWorkCard({
   const showMail = Boolean(fact.thread_id);
   const days = card.current_state.days_in_stage;
   const stageLabel = formatStageBadge(card.current_state.stage_label);
-  const initial = card.identity.display.replace(/^@/, "").slice(0, 1) || "红";
+  const fallbackAvatar = FALLBACK_AVATARS[stableAvatarIndex(card.source.kol_uid || card.id)];
+  const avatarSource = card.identity.avatar_url && !avatarFailed ? card.identity.avatar_url : fallbackAvatar;
   const profileMetrics = [
     card.source.followers ? `粉丝 ${card.source.followers}` : "",
     card.source.avg_plays ? `均播 ${card.source.avg_plays}` : "",
@@ -215,7 +228,17 @@ export default function FollowedKolWorkCard({
           />
           <span className="sr-only">选择 {card.identity.display}</span>
         </label>
-        <span className="kol-avatar" data-kol-avatar aria-hidden>{initial}</span>
+        <span className="kol-avatar" data-kol-avatar data-avatar-source={card.identity.avatar_url && !avatarFailed ? "kol" : "fallback"} aria-hidden>
+          <img
+            src={avatarSource}
+            alt=""
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            onError={() => {
+              if (card.identity.avatar_url && !avatarFailed) setAvatarFailed(true);
+            }}
+          />
+        </span>
         <div className="kol-identity-main">
           <div className="kol-identity-line">
             <strong className="kol-name" data-kol-identity data-kol-name>{card.identity.display}</strong>

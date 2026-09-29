@@ -4024,6 +4024,69 @@ summary:focus-visible,
   min-height: var(--control-h-lg);
   padding: 0 12px;
 }
+/* 跟进卡片的最终密度：头像承担身份锚点，其余信息共享整行内容宽度。 */
+.followed-kol-column .followed-kol-card {
+  --kol-avatar-size: 40px;
+  padding: 10px 8px 9px;
+  gap: 8px;
+  background: color-mix(in srgb, var(--bg-elevated) 42%, var(--bg));
+}
+.followed-kol-column .followed-kol-card .kol-avatar {
+  width: var(--kol-avatar-size);
+  height: var(--kol-avatar-size);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 8%, transparent);
+}
+.followed-kol-column .followed-kol-card .kol-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+.followed-kol-column .followed-kol-card .kol-avatar[data-avatar-source="fallback"] {
+  border-color: color-mix(in srgb, var(--border-strong) 70%, var(--border));
+}
+.followed-kol-column .followed-kol-card .kol-identity-main {
+  align-content: flex-start;
+  row-gap: 3px;
+}
+.followed-kol-column .followed-kol-card .kol-profile-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  width: 100%;
+  margin: 0;
+  padding-top: 3px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: 1.35;
+}
+.followed-kol-column .followed-kol-card .kol-profile-metrics strong {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.followed-kol-column .followed-kol-card .kol-band-fact,
+.followed-kol-column .followed-kol-card .kol-band-recommend {
+  padding-top: 7px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+}
+.followed-kol-column .followed-kol-card .kol-band-recommend {
+  align-items: flex-start;
+  padding-top: 8px;
+  border-top-color: color-mix(in srgb, var(--accent) 18%, var(--border));
+}
+.followed-kol-column .followed-kol-card .kol-band-actions {
+  align-self: center;
+}
+.followed-kol-column .followed-kol-card:hover,
+.followed-kol-column .followed-kol-card[data-selected="true"] {
+  background: color-mix(in srgb, var(--accent) 4%, var(--bg-elevated));
+}
 /* 触摸模态只扩大命中区，不改视觉尺寸、不动布局边界（DESIGN.md §控件尺寸）。
    负外边距正好抵掉撑大的内边距与最小宽高，勾选框位置与静止态逐像素相同。 */
 @media (pointer: coarse) {

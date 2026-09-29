@@ -15,6 +15,7 @@ export type FollowedKolRecord = {
   handle: string;
   kol_uid?: string;
   follow_id?: string;
+  avatar_url?: string;
   brand?: string;
   stage_code?: string;
   stage_label?: string;
@@ -90,7 +91,7 @@ export type RecommendedKind =
 export type FollowedKolCardModel = {
   id: string;
   handle: string;
-  identity: { display: string; platform: string };
+  identity: { display: string; platform: string; avatar_url?: string };
   scope: { brand: string; region: string; owner: string; mailbox: string };
   current_state: {
     stage_code: string;
@@ -535,6 +536,7 @@ export function projectFollowedKolCard(kol: FollowedKolRecord, tasks: Task[] = [
     identity: {
       display: handle ? `@${handle}` : String(kol.kol_name || "未指定红人"),
       platform: platformOf(kol),
+      avatar_url: kol.avatar_url,
     },
     scope: {
       brand: String(kol.brand || "").trim(),
