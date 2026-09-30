@@ -48,7 +48,8 @@ function httpCopy(error: unknown, fallback: string): string {
   const status = (error as { status?: number })?.status;
   if (status === 409) return "邮箱正在收取，请稍后再试。没有创建会话。";
   if (status === 404) return MAIL_THREAD_MISSING_COPY;
-  return error instanceof Error && error.message ? error.message : fallback;
+  if (error instanceof Error && error.message && error.message !== `请求失败 (${status || 502})`) return error.message;
+  return fallback;
 }
 
 /**

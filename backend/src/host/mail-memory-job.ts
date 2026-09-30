@@ -31,6 +31,7 @@ export type MailMemoryStats = {
   digested: number;
   persons: number;
   errors: number;
+  error?: string;
 };
 
 const inflight = new Map<string, Promise<MailMemoryStats>>();
@@ -63,6 +64,15 @@ export function writeOnDemandMemory(key: string, value: OnDemandMemory): void {
 
 function onDemandFingerprint(rows: Row[]): string {
   return crypto.createHash("sha256").update(rows.map((row) => [row.id, row.occurred_at, row.body_text].join("\n")).join("\n---\n")).digest("hex").slice(0, 32);
+}
+
+function mailBodyOf(row: Row): string {
+  const direct = [row.body_text, row.body, row.text, row.content, row.snippet]
+    .map((value) => typeof value === "string" ? value.trim() : "")
+    .find(Boolean);
+  if (direct) return direct;
+  const html = typeof row.body_html === "string" ? row.body_html : "";
+  return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 }
 
 async function openaiJson(instructions: string, input: string, schema: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -479,10 +489,10 @@ export function triggerMailSummarySkill(mailbox: string, conversationId: string)
   const promise = (async (): Promise<MailMemoryStats> => {
     const thread = getConn().prepare("SELECT * FROM kol_mail_threads WHERE conversation_id=? AND mailbox=? LIMIT 1")
       .get(conversationId, mailbox) as Row | undefined;
-    if (!thread) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1 };
+    if (!thread) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: "未找到对应的邮件主题或会话已失效" };
     const items = itemsForConversation(conversationId, mailbox) as Row[];
-    const rows = items.filter((item) => String(item.body_text || "").trim());
-    if (!rows.length) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1 };
+    const rows = items.map((item): Row => ({ ...item, body_text: mailBodyOf(item) })).filter((item) => item.body_text);
+    if (!rows.length) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: "选中的邮件主题没有可用正文（已检查 body_text、body、text、content、snippet 和 body_html）" };
     const fingerprint = onDemandFingerprint(rows);
     const memoryKey = onDemandKey("summary", mailbox, conversationId);
     const previous = readOnDemandMemory(memoryKey);
@@ -515,7 +525,7 @@ export function triggerMailSummarySkill(mailbox: string, conversationId: string)
         text: "", fingerprint: "", error: err instanceof Error ? err.message : String(err),
       });
       audit("host", "mail_skill.summary_failed", { mailbox, conversation_id: conversationId, error: err instanceof Error ? err.message : String(err) });
-      return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1 };
+      return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: err instanceof Error ? err.message : String(err) };
     })
     .finally(() => inflight.delete(key));
   inflight.set(key, promise);
@@ -532,19 +542,21 @@ export function triggerMailTranslateSkill(mailbox: string, messageId: string): P
       `SELECT i.* FROM kol_mail_items i JOIN kol_mail_threads t ON t.id=i.thread_id
        WHERE (i.id=? OR i.provider_message_id=?) AND IFNULL(t.mailbox,'')=? LIMIT 1`,
     ).get(messageId, messageId, mailbox) as Row | undefined;
-    if (!row || !String(row.body_text || "").trim()) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1 };
+    const body = row ? mailBodyOf(row) : "";
+    if (!row) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: "未找到选中的邮件，可能是邮件 ID 已变化" };
+    if (!body) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: "选中的邮件没有可用正文（已检查 body_text、body、text、content、snippet 和 body_html）" };
     const thread = getConn().prepare("SELECT subject, conversation_id FROM kol_mail_threads WHERE id=? LIMIT 1")
       .get(row.thread_id) as Row | undefined;
     const conversationId = String(row.conversation_id || thread?.conversation_id || "");
     const memoryKey = onDemandKey("translation", mailbox, conversationId, String(row.id));
-    const fingerprint = bodyFingerprint(String(row.body_text || ""));
+    const fingerprint = bodyFingerprint(body);
     const previous = readOnDemandMemory(memoryKey);
     if (previous?.status === "已完成" && previous.fingerprint === fingerprint) {
       return { scanned: 1, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 0 };
     }
     const result = await openaiJson(
       ON_DEMAND_TRANSLATION_INSTRUCTIONS,
-      `邮件主题：${String(row.subject || thread?.subject || "无主题")}\n邮件正文：\n${String(row.body_text || "")}`,
+      `邮件主题：${String(row.subject || thread?.subject || "无主题")}\n邮件正文：\n${body}`,
       { type: "object", properties: { translation: { type: "string" } }, required: ["translation"], additionalProperties: false },
     );
     const text = String(result.translation || "").trim();
@@ -570,7 +582,7 @@ export function triggerMailTranslateSkill(mailbox: string, messageId: string): P
         message_id: String(row?.id || messageId), text: "", fingerprint: "", error: err instanceof Error ? err.message : String(err),
       });
       audit("host", "mail_skill.translate_failed", { mailbox, message_id: messageId, error: err instanceof Error ? err.message : String(err) });
-      return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1 };
+      return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: err instanceof Error ? err.message : String(err) };
     })
     .finally(() => inflight.delete(key));
   inflight.set(key, promise);

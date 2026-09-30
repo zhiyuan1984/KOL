@@ -147,7 +147,14 @@ mail.post("/mail/skills/:skillId/run", async (c) => {
     if (!messageId) throw new HttpFail(422, "message_id is required");
     result = await triggerMailTranslateSkill(mailbox, messageId);
   }
-  if (result.errors > 0) throw new HttpFail(502, { code: "mail_skill_failed", skill_id: skillId, result });
+  if (result.errors > 0) {
+    throw new HttpFail(502, {
+      code: "mail_skill_failed",
+      skill_id: skillId,
+      message: result.error || "邮件技能执行失败，请查看邮件正文、会话和模型配置",
+      result,
+    });
+  }
   return c.json({ ...COMMAND, skill_id: skillId, accepted: true, pending: false, mailbox, result });
 });
 
