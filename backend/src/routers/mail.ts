@@ -19,7 +19,7 @@ import {
   messageRowOf,
   setConversationStarred,
 } from "../host/mail-memory.js";
-import { readPersonDigest, triggerMailTranslateSkill, triggerMailSummarySkill } from "../host/mail-memory-job.js";
+import { readOnDemandMemory, readPersonDigest, triggerMailTranslateSkill, triggerMailSummarySkill, writeOnDemandMemory } from "../host/mail-memory-job.js";
 import { composeCatalog } from "../skills/email-compose-contract.js";
 import { lastSyncReceipt, startFollowedMailSync } from "../starrykol/mail-sync.js";
 
@@ -78,12 +78,31 @@ mail.get("/mail/conversations/:id", (c) => {
   const conversation = conversationRowOf(thread);
   markThreadTranslationsPending(String(thread.id));
   const stored = itemsForConversation(conversation.conversation_id, conversation.mailbox);
+  const summaryKey = `mail_summary_memory:${conversation.mailbox}:${conversation.conversation_id}:`;
+  let summaryMemory = readOnDemandMemory(summaryKey);
+  if (!summaryMemory) {
+    summaryMemory = {
+      status: "未开始", mailbox: conversation.mailbox, subject: conversation.subject,
+      conversation_id: conversation.conversation_id, text: "", fingerprint: "",
+    };
+    writeOnDemandMemory(summaryKey, summaryMemory);
+  }
+  for (const item of stored) {
+    const translationKey = `mail_translation_memory:${conversation.mailbox}:${conversation.conversation_id}:${String(item.id || "")}`;
+    if (!readOnDemandMemory(translationKey)) {
+      writeOnDemandMemory(translationKey, {
+        status: "未开始", mailbox: conversation.mailbox, subject: String(item.subject || conversation.subject || ""),
+        conversation_id: conversation.conversation_id, message_id: String(item.id || ""), text: "", fingerprint: "",
+      });
+    }
+  }
   return c.json({
     ...MEMORY,
     conversation,
     messages: stored.map(messageRowOf),
     digest_text: conversation.digest_text || String(thread.digest_text || ""),
     digest_source: conversation.digest_source || String(thread.digest_source || ""),
+    summary_memory: summaryMemory,
   });
 });
 

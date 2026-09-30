@@ -394,6 +394,7 @@ export function persistThreadDigest(threadId: string, digest: {
   text?: string;
   source?: string;
   fingerprint?: string;
+  generated_at?: string;
   error?: string;
   failed_at?: string;
   mail_count?: number;

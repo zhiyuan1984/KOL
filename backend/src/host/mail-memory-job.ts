@@ -22,6 +22,7 @@ import {
   type ThreadDigest,
 } from "./mail-summary.js";
 import { translateMailBodyZh } from "../starrykol/translate-zh.js";
+import { extractRemoteIntentText, intentLlmFetch, intentLlmApiKey } from "../tasks/openai-intent.js";
 
 export type MailMemoryStats = {
   scanned: number;
@@ -33,6 +34,61 @@ export type MailMemoryStats = {
 };
 
 const inflight = new Map<string, Promise<MailMemoryStats>>();
+
+type OnDemandMemory = {
+  status: "未开始" | "已完成";
+  mailbox: string;
+  subject: string;
+  conversation_id: string;
+  message_id?: string;
+  text: string;
+  fingerprint: string;
+  completed_at?: string;
+  error?: string;
+};
+
+function onDemandKey(kind: "summary" | "translation", mailbox: string, conversationId: string, messageId = ""): string {
+  return `mail_${kind}_memory:${mailbox}:${conversationId}:${messageId}`;
+}
+
+export function readOnDemandMemory(key: string): OnDemandMemory | null {
+  const row = getConn().prepare("SELECT value FROM app_state WHERE key=?").get(key) as { value?: string } | undefined;
+  if (!row?.value) return null;
+  try { return JSON.parse(row.value) as OnDemandMemory; } catch { return null; }
+}
+
+export function writeOnDemandMemory(key: string, value: OnDemandMemory): void {
+  getConn().prepare("INSERT OR REPLACE INTO app_state (key,value) VALUES (?,?)").run(key, JSON.stringify(value));
+}
+
+function onDemandFingerprint(rows: Row[]): string {
+  return crypto.createHash("sha256").update(rows.map((row) => [row.id, row.occurred_at, row.body_text].join("\n")).join("\n---\n")).digest("hex").slice(0, 32);
+}
+
+async function openaiJson(instructions: string, input: string, schema: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const key = String(process.env.openai_api_key || process.env.OPENAI_API_KEY || intentLlmApiKey()).trim();
+  if (!key) throw new Error("未配置 openai_api_key");
+  const base = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+  const response = await intentLlmFetch()(`${base}/responses`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "gpt6-luna-low",
+      instructions,
+      input,
+      store: false,
+      text: { format: { type: "json_schema", name: "mail_memory_result", strict: true, schema } },
+    }),
+    signal: AbortSignal.timeout(90_000),
+  });
+  if (!response.ok) throw new Error(`OpenAI HTTP ${response.status}`);
+  const text = extractRemoteIntentText(await response.json());
+  const parsed = JSON.parse(text) as Record<string, unknown>;
+  return parsed;
+}
+
+const ON_DEMAND_SUMMARY_INSTRUCTIONS = "你是 KOL 邮件运营摘要助手。根据同一邮件主题下的完整往来，生成简洁、准确、可执行的中文往来摘要，覆盖合作进展、关键诉求或承诺、待办、时间/价格/交付约定和风险。按时间理解上下文，吸收已有摘要后输出完整最新摘要。不得编造、复述无意义寒暄、输出邮箱或改变合作阶段。只返回摘要正文。";
+const ON_DEMAND_TRANSLATION_INSTRUCTIONS = "你是 KOL 邮件内部翻译助手。把当前选中的英文邮件完整翻译成自然、准确、忠实的简体中文，保留语气、段落、列表、数字、币种、日期、链接和专有名词。不得总结、改写、补充、删减或改变合作意图，只返回中文译文正文。";
 
 function bodyFingerprint(body: string): string {
   return crypto.createHash("sha256").update(String(body || "")).digest("hex").slice(0, 32);
@@ -407,12 +463,40 @@ export function triggerMailSummarySkill(mailbox: string, conversationId: string)
     const thread = getConn().prepare("SELECT * FROM kol_mail_threads WHERE conversation_id=? AND mailbox=? LIMIT 1")
       .get(conversationId, mailbox) as Row | undefined;
     if (!thread) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1 };
-    const digested = await ensureThreadDigest(thread);
-    const person = String(thread.peer_email || "").trim();
-    const persons = person && await ensurePersonDigest(mailbox, person) ? 1 : 0;
-    return { scanned: 0, translated: 0, summarized: 0, digested: digested ? 1 : 0, persons, errors: 0 };
+    const items = itemsForConversation(conversationId, mailbox) as Row[];
+    const rows = items.filter((item) => String(item.body_text || "").trim());
+    if (!rows.length) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1 };
+    const fingerprint = onDemandFingerprint(rows);
+    const memoryKey = onDemandKey("summary", mailbox, conversationId);
+    const previous = readOnDemandMemory(memoryKey);
+    if (previous?.status === "已完成" && previous.fingerprint === fingerprint) {
+      return { scanned: rows.length, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 0 };
+    }
+    const messages = rows.map((row, index) => `${index + 1}. [${row.occurred_at || ""}] ${row.direction || ""}\n${row.body_text || ""}`).join("\n\n");
+    const result = await openaiJson(
+      ON_DEMAND_SUMMARY_INSTRUCTIONS,
+      `邮件主题：${String(thread.subject || "无主题")}\n已有摘要：${previous?.text || "无"}\n邮件往来（按时间顺序）：\n${messages}`,
+      { type: "object", properties: { summary: { type: "string" } }, required: ["summary"], additionalProperties: false },
+    );
+    const text = String(result.summary || "").trim();
+    if (!text) throw new Error("OpenAI 未返回摘要");
+    const completedAt = nowIso();
+    persistThreadDigest(String(thread.id), {
+      text, source: "openai_gpt6_luna_low", mail_count: rows.length, fingerprint, generated_at: completedAt,
+    });
+    writeOnDemandMemory(memoryKey, {
+      status: "已完成", mailbox, subject: String(thread.subject || ""), conversation_id: conversationId,
+      text, fingerprint, completed_at: completedAt,
+    });
+    return { scanned: rows.length, translated: 0, summarized: 1, digested: 1, persons: 0, errors: 0 };
   })()
     .catch((err) => {
+      const thread = getConn().prepare("SELECT subject FROM kol_mail_threads WHERE conversation_id=? AND mailbox=? LIMIT 1")
+        .get(conversationId, mailbox) as Row | undefined;
+      writeOnDemandMemory(onDemandKey("summary", mailbox, conversationId), {
+        status: "未开始", mailbox, subject: String(thread?.subject || ""), conversation_id: conversationId,
+        text: "", fingerprint: "", error: err instanceof Error ? err.message : String(err),
+      });
       audit("host", "mail_skill.summary_failed", { mailbox, conversation_id: conversationId, error: err instanceof Error ? err.message : String(err) });
       return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1 };
     })
@@ -432,10 +516,42 @@ export function triggerMailTranslateSkill(mailbox: string, messageId: string): P
        WHERE (i.id=? OR i.provider_message_id=?) AND IFNULL(t.mailbox,'')=? LIMIT 1`,
     ).get(messageId, messageId, mailbox) as Row | undefined;
     if (!row || !String(row.body_text || "").trim()) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1 };
-    const result = await ensureItemTranslation(row);
-    return { scanned: 1, translated: result.translated ? 1 : 0, summarized: 0, digested: 0, persons: 0, errors: result.error ? 1 : 0 };
+    const thread = getConn().prepare("SELECT subject, conversation_id FROM kol_mail_threads WHERE id=? LIMIT 1")
+      .get(row.thread_id) as Row | undefined;
+    const conversationId = String(row.conversation_id || thread?.conversation_id || "");
+    const memoryKey = onDemandKey("translation", mailbox, conversationId, String(row.id));
+    const fingerprint = bodyFingerprint(String(row.body_text || ""));
+    const previous = readOnDemandMemory(memoryKey);
+    if (previous?.status === "已完成" && previous.fingerprint === fingerprint) {
+      return { scanned: 1, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 0 };
+    }
+    const result = await openaiJson(
+      ON_DEMAND_TRANSLATION_INSTRUCTIONS,
+      `邮件主题：${String(row.subject || thread?.subject || "无主题")}\n邮件正文：\n${String(row.body_text || "")}`,
+      { type: "object", properties: { translation: { type: "string" } }, required: ["translation"], additionalProperties: false },
+    );
+    const text = String(result.translation || "").trim();
+    if (!text) throw new Error("OpenAI 未返回中文翻译");
+    const completedAt = nowIso();
+    persistItemMemory(String(row.id), {
+      translation_zh: text, translation_source: "openai_gpt6_luna_low", fingerprint,
+      generated_at: completedAt, source: "openai_gpt6_luna_low", attempts: Number(row.memory_attempts || 0) + 1,
+    });
+    writeOnDemandMemory(memoryKey, {
+      status: "已完成", mailbox, subject: String(row.subject || thread?.subject || ""),
+      conversation_id: conversationId, message_id: String(row.id), text, fingerprint, completed_at: completedAt,
+    });
+    return { scanned: 1, translated: 1, summarized: 0, digested: 0, persons: 0, errors: 0 };
   })()
     .catch((err) => {
+      const row = getConn().prepare(
+        `SELECT i.subject, i.conversation_id, i.thread_id FROM kol_mail_items i JOIN kol_mail_threads t ON t.id=i.thread_id
+         WHERE (i.id=? OR i.provider_message_id=?) AND IFNULL(t.mailbox,'')=? LIMIT 1`,
+      ).get(messageId, messageId, mailbox) as Row | undefined;
+      writeOnDemandMemory(onDemandKey("translation", mailbox, String(row?.conversation_id || ""), String(row?.id || messageId)), {
+        status: "未开始", mailbox, subject: String(row?.subject || ""), conversation_id: String(row?.conversation_id || ""),
+        message_id: String(row?.id || messageId), text: "", fingerprint: "", error: err instanceof Error ? err.message : String(err),
+      });
       audit("host", "mail_skill.translate_failed", { mailbox, message_id: messageId, error: err instanceof Error ? err.message : String(err) });
       return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1 };
     })

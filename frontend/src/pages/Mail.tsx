@@ -530,9 +530,20 @@ export default function Mail() {
       for (let attempt = 0; attempt < 8; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 1500));
         if (kind === "summary") {
-          const digest = await loadMailPersonDigest(mailbox, selectedConversation.peer_email);
-          setPersonDigest(digest);
-          if (digest?.digest_text) break;
+          const next = await loadMailThread(selectedConversation.conversation_id, selectedConversation, workspace?.source || "api");
+          if (next) {
+            setThreads((prev) => ({ ...prev, [selectedConversation.conversation_id]: next }));
+            if (next.digest.text) {
+              setPersonDigest({
+                mailbox,
+                peer_email: selectedConversation.peer_email,
+                digest_text: next.digest.text,
+                digest_source: next.digest.source,
+                digest_generated_at: new Date().toISOString(),
+              });
+              break;
+            }
+          }
         } else {
           const next = await loadMailThread(selectedConversation.conversation_id, selectedConversation, workspace?.source || "api");
           if (next) {

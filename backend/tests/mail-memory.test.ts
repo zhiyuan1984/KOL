@@ -14,6 +14,7 @@ import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { matchCollaboration } from "../src/starrykol/mail-fields.js";
 import { ensureFollowedMailSync, resetFollowedMailSync, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
+import { setIntentLlmFetch } from "../src/tasks/openai-intent.js";
 import { bindStarryUser } from "./helpers/starry-binding.js";
 import type { Json } from "../src/types.js";
 
@@ -132,6 +133,10 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "mail.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
+  process.env.openai_api_key = "sk-test-mail-memory";
+  setIntentLlmFetch(async (_input, _init) => new Response(JSON.stringify({
+    output_text: JSON.stringify({ summary: "测试摘要：双方正在确认合作细节。", translation: "测试中文译文。" }),
+  }), { status: 200, headers: { "Content-Type": "application/json" } }));
   calls.length = 0;
   listDelayMs = 0;
   resetFollowedMailSync();
@@ -147,6 +152,8 @@ beforeEach(async () => {
 
 afterEach(() => {
   setStarryKolClientFactory();
+  setIntentLlmFetch();
+  delete process.env.openai_api_key;
   resetFollowedMailSync();
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
@@ -171,7 +178,7 @@ describe("mailbox memory P0", () => {
     expect(translation.status).toBe(200);
     expect(translation.body).toMatchObject({ skill_id: "mail_translate", accepted: true, pending: false });
     const reread = await request("GET", `/api/mail/conversations/${first.id}`);
-    expect((reread.body.messages as Json[]).find((row) => row.id === message.id)?.translation_zh).toContain("中文翻译");
+    expect((reread.body.messages as Json[]).find((row) => row.id === message.id)?.translation_zh).toContain("中文译文");
   });
 
   it("GET box / conversations / thread create no session and call no model", async () => {
