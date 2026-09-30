@@ -4002,6 +4002,10 @@ test("task detail keeps one middle-column scroller and the thinking inside it", 
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   const toggleBox = await toggle.boundingBox();
   expect(Math.round(toggleBox!.width)).toBe(24);
+  expect(Math.round(toggleBox!.height)).toBe(24);
+  const toggleIconBox = await toggle.locator(".scope-task-rail-toggle-icon").boundingBox();
+  expect(Math.round(toggleIconBox!.width)).toBe(16);
+  expect(Math.round(toggleIconBox!.height)).toBe(16);
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect.poll(() => rail.evaluate((el) => el.getBoundingClientRect().width)).toBeLessThanOrEqual(geometry.collapsed + 1);

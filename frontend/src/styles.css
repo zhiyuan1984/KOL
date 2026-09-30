@@ -8773,6 +8773,36 @@ body {
   padding: 4px 0 24px 8px;
   border-left: 1px solid var(--ds-border);
 }
+.side-workbench.scope-task-rail > .scope-task-rail-toggle {
+  align-self: flex-start;
+  width: var(--icon-btn);
+  height: var(--icon-btn);
+  min-width: var(--icon-btn);
+  min-height: var(--icon-btn);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+.side-workbench.scope-task-rail > .scope-task-rail-toggle:hover {
+  background: var(--surface-hover);
+}
+.side-workbench.scope-task-rail > .scope-task-rail-toggle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.side-workbench.scope-task-rail > .scope-task-rail-toggle > .scope-task-rail-toggle-icon {
+  display: block;
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  flex: 0 0 auto;
+}
 .side-workbench.scope-task-rail.is-collapsed {
   display: flex;
   flex-direction: column;
