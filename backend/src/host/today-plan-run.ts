@@ -6,7 +6,7 @@ import { appendTaskEvent } from "../routers/tasks.js";
 import { runWorker } from "../worker/runner.js";
 import { HttpFail } from "./errors.js";
 import { createRunTraceSink } from "./run-trace.js";
-import { todayDateStr } from "./home-board.js";
+import { isTodayWorkItem, todayDateStr } from "./home-board.js";
 import { runningTodayPlan, writeTodayBriefArtifact, markTodayPlanCompleted, markTodayPlanFailed } from "./today-brief.js";
 import {
   briefPointerTable,
@@ -215,6 +215,7 @@ function hostDisplayTasks(pack: TodayPlanPack, brief: unknown): Json[] {
         next_action: String(model.next_action || model.label || "打开任务"),
         icon: String(model.icon || (item.status === "failed" || item.risk ? "⚠️" : "📋")),
         group: String(model.group || group),
+        view: isTodayWorkItem(item) ? "today" : "todo",
       } as Json;
     });
 }
@@ -222,6 +223,41 @@ function hostDisplayTasks(pack: TodayPlanPack, brief: unknown): Json[] {
 function withHostDisplayTasks(brief: unknown, pack: TodayPlanPack): Json | null {
   if (!brief || typeof brief !== "object" || Array.isArray(brief)) return null;
   return { ...(brief as Json), display_tasks: hostDisplayTasks(pack, brief) };
+}
+
+/**
+ * The task board is deterministic data, not a reasoning problem. In the fast
+ * path Host writes the board immediately; Codex is no longer on the critical
+ * path for a first render. A future async summary may replace only lead/
+ * sections without touching display_tasks.
+ */
+function hostFastBrief(pack: TodayPlanPack): Json {
+  const formal = pack.catalog.filter((item) => item.kind === "formal_task");
+  const first = formal[0];
+  return {
+    lead: first ? `先处理 ${first.title || "最高优先级任务"}` : "当前没有需要优先处理的开放任务",
+    sections: [{
+      title: "工作计划",
+      body: `${formal.length} 项未了结正式任务已按优先级和期限排序。`,
+      items: formal.slice(0, 6).map((item) => item.title),
+    }],
+    primary: first
+      ? { verb: "open", label: "打开任务", object_id: first.work_item_id, object_type: "task", person_id: first.person_id || null }
+      : { verb: "open", label: "查看任务列表", object_id: null, object_type: "task", person_id: null },
+    reasoning: [
+      "Host 已读取当前开放正式任务。",
+      "任务按优先级、期限和进行中状态排序。",
+      "今日任务与我的待办使用同一份计划结果，再按视图展示。",
+    ],
+    stats: {
+      unfinished: formal.length,
+      discovery_anomalies: Number(pack.now_counts?.discovery_anomalies || 0),
+      failed_runs: Number(pack.now_counts?.failed_runs || 0),
+    },
+    source_cursor: pack.source_cursor,
+    increment_summary: `已生成 ${formal.length} 项任务的统一工作计划`,
+    display_tasks: [],
+  } as Json;
 }
 
 export async function executeTodayPlanRun(input: {
@@ -240,14 +276,37 @@ export async function executeTodayPlanRun(input: {
   }, scope);
   const trace = createRunTraceSink({ workItemId: input.workItemId, runId: input.runId });
   try {
+    const fastMode = String(process.env.PLANNING_FAST_MODE || "1") !== "0"
+      && String(process.env.CODEX_MODE || "").toLowerCase() !== "stub";
     appendTaskEvent(
       input.workItemId,
       input.runId,
       "run.progress",
-      copy.codexSubmitted,
+      fastMode ? "开始生成统一工作计划" : copy.codexSubmitted,
       "running",
-      copy.codexSubmitted,
+      fastMode ? "Host 将直接生成任务视图" : copy.codexSubmitted,
     );
+    if (fastMode) {
+      appendTaskEvent(input.workItemId, input.runId, "run.progress", "Host 正在生成统一任务视图", "running", "跳过全量 Codex 列表生成");
+      const brief = withHostDisplayTasks(hostFastBrief(input.pack), input.pack);
+      const written = writeTodayBriefArtifact({
+        owner: input.owner,
+        workItemId: input.workItemId,
+        runId: input.runId,
+        brief,
+        scope,
+      });
+      if (!written.ok) {
+        markTodayPlanFailed(input.workItemId, input.runId, written.reason);
+        trace.finish(true);
+        appendTaskEvent(input.workItemId, input.runId, "run.failed", copy.invalid, "failed", written.reason);
+        return;
+      }
+      markTodayPlanCompleted(input.workItemId, input.runId);
+      trace.finish(false);
+      appendTaskEvent(input.workItemId, input.runId, "run.completed", copy.completed, "completed", "Host 已快速生成统一工作计划");
+      return;
+    }
     const wr = await Promise.resolve(runWorker(
       input.sessionId,
       planTaskType(scope),

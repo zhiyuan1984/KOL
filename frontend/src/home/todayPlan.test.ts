@@ -586,12 +586,12 @@ describe("plan cache", () => {
     const home = fs.readFileSync(path.resolve(here, "../pages/Home.tsx"), "utf8");
     const hook = fs.readFileSync(path.resolve(here, "./usePlanScope.ts"), "utf8");
     expect(home).toContain("usePlanScope");
-    expect(hook).toContain("restorePlanCache(planCacheKey(scope))");
-    expect(hook).toContain("savePlanCache(planCacheKey(scope)");
-    const restoreIdx = hook.indexOf("restorePlanCache(planCacheKey(scope))");
+    expect(hook).toContain("restorePlanCache(canonicalPlanCacheKey())");
+    expect(hook).toContain("savePlanCache(canonicalPlanCacheKey()");
+    const restoreIdx = hook.indexOf("restorePlanCache(canonicalPlanCacheKey())");
     expect(restoreIdx).toBeGreaterThan(-1);
     expect(restoreIdx).toBeLessThan(hook.indexOf("runTodayPlanRefresh("));
-    expect(hook.indexOf("savePlanCache(planCacheKey(scope)")).toBeGreaterThan(restoreIdx);
+    expect(hook.indexOf("savePlanCache(canonicalPlanCacheKey()")).toBeGreaterThan(restoreIdx);
   });
 
   it("keeps the sidebar 新工作任务 link free of refresh dispatch", () => {

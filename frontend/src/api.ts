@@ -339,6 +339,7 @@ export type Task = {
   dismissed_at?: string | null;
   next_action?: string;
   next_action_code?: string | null;
+  plan_view?: "today" | "todo";
   progress?: number;
   session_id?: string;
   /** A discovery work item opens its linked run result rather than a chat session. */

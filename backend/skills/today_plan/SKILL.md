@@ -53,7 +53,7 @@ Host 已锁定本 Skill。CONTEXT.md 里的 **HOST PACK（history / delta / now_
 
 ## 输出
 
-只产出一份 `today_brief` JSON。**模型必须自己写正文和列表行**。
+只产出一份 `today_brief` JSON。任务列表由 Host 确定性生成；如进入异步摘要模式，模型只负责正文和候选任务解释。
 
 ### 1. 封面（摘要·展示，不是列表）
 
@@ -89,7 +89,7 @@ Host 会将正式任务目录中的每一个 `work_item_id` 恰好生成一行�
 - `icon`：单个拟人化 emoji，按任务性质选（如 ✉️📋⚠️🔎）。
 - `group`：按优先级严重度分组：`重要紧急` / `重要` / `紧急` / `其他`。优先级∈{重要紧急,重要,紧急}或开始日期为当天的行排入今日语义（用 `group` 体现），其余放后面。
 
-Host 只补机械字段（`stats` / `source_cursor` / `increment_summary`）。模型没写 `lead`+`sections` 或没写 `display_tasks` 时规划失败，Host 不代写封面也不代写列表。
+Host 负责 `stats` / `source_cursor` / `increment_summary`、任务排序、`display_tasks` 以及 today/todo 视图归属。模型摘要不再是首屏任务列表的必要条件。
 
 `todo_layout` 已并进 `display_tasks`，不要再单独产出一套只有 id/rank/why 的布局。
 

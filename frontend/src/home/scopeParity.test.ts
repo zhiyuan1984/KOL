@@ -74,6 +74,15 @@ describe("pane parity", () => {
     expect(today[0].layout_why).toBe("本轮先处理");
   });
 
+  it("uses the canonical backend view when it is present", () => {
+    const rows = [
+      task({ id: "backend_today", title: "后端判定今日", due_at: day(5), plan_view: "today" }),
+      task({ id: "backend_todo", title: "后端判定待办", priority: "important_urgent", plan_view: "todo" }),
+    ];
+    expect(scopeRows("today", rows).map((row) => row.id)).toEqual(["backend_today"]);
+    expect(scopeRows("todo", rows).map((row) => row.id)).toEqual(["backend_todo"]);
+  });
+
   it("keeps one request site per scope path, shared by both tabs", () => {
     const api = read("../api.ts");
     const tasksApi = read("./todayTasksApi.ts");

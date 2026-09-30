@@ -30,6 +30,7 @@ export type TodayTaskResultRow = {
   bucket?: string;
   icon?: string;
   group?: string;
+  view?: "today" | "todo";
 };
 
 export type TodayTaskResults = {

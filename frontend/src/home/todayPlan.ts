@@ -143,6 +143,11 @@ export function planCacheKey(scope: PlanScope): string {
   return SCOPE_CONFIG[scope].cacheKey;
 }
 
+/** One browser cache for the canonical plan; today/todo are only projections. */
+export function canonicalPlanCacheKey(): string {
+  return SCOPE_CONFIG.today.cacheKey;
+}
+
 export function planStartEvent(scope: PlanScope): string {
   return SCOPE_CONFIG[scope].startEvent;
 }
