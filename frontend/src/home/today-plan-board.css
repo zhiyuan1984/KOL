@@ -103,8 +103,9 @@
 /* Click feedback must not wait for the first poll to come back. */
 .task-board-plan-btn.is-starting,
 .task-board-plan-btn.is-planning {
-  background: #F3E8FF;
-  color: #6D28D9;
+  background: var(--bg);
+  border-color: var(--ds-border);
+  color: var(--text-muted);
   cursor: progress;
 }
 .task-board-plan-spin {
