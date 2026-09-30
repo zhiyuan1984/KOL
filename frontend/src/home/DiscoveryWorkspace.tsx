@@ -20,6 +20,7 @@ export default function DiscoveryWorkspace({
   brief,
   catalog,
   schema,
+  busy = false,
   onBriefChange,
   activeTaskId = null,
   activeRunId = null,
@@ -32,6 +33,8 @@ export default function DiscoveryWorkspace({
   brief: DiscoveryBrief;
   catalog?: Pick<DiscoveryTemplate, "platforms" | "regions" | "directions"> | null;
   schema?: SkillParamField[];
+  /** 提交后的识别等待卡也属于中栏流式输出，尚未有 discovery run 时由 Home 提供忙状态。 */
+  busy?: boolean;
   onBriefChange: (brief: DiscoveryBrief) => void;
   activeTaskId?: string | null;
   activeRunId?: string | null;
@@ -51,7 +54,7 @@ export default function DiscoveryWorkspace({
       railStorageKey="ui:home-discovery-rail-collapsed"
       railBadge={disc.visible.length}
       resultIdle={!disc.run && !disc.inFlight && !disc.failure}
-      streamStick={disc.inFlight}
+      streamStick={busy || disc.inFlight}
       resultView={{
         skillId: "creator_discovery",
         resultType: "discovery_candidates",

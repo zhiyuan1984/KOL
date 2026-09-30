@@ -2260,6 +2260,7 @@ export default function Home() {
             <DiscoveryWorkspace
               brief={discoveryFormBrief ?? fallbackDiscoveryFormBrief}
               catalog={discoveryCatalog}
+              busy={busy}
               schema={(() => {
                 const declared = definitions.find((definition) => definition.id === "creator_discovery")?.input_schema;
                 return Array.isArray(declared) ? declared as import("../home/workspace/SkillParamCard").SkillParamField[] : undefined;
