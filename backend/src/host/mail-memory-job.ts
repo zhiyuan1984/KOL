@@ -16,13 +16,13 @@ import {
 } from "./mail-memory.js";
 import {
   analyzeMailBody,
+  generateMailConversationDigest,
   remoteMailAnalysisEnabled,
   summarizeWithCodexAppServer,
   threadDigestOf,
   type ThreadDigest,
 } from "./mail-summary.js";
-import { translateMailBodyZh } from "../starrykol/translate-zh.js";
-import { extractRemoteIntentText, intentLlmFetch, intentLlmApiKey } from "../tasks/openai-intent.js";
+import { translateMailBodyZh, translateMailBodyZhWithCodexLuna } from "../starrykol/translate-zh.js";
 
 export type MailMemoryStats = {
   scanned: number;
@@ -74,48 +74,6 @@ function mailBodyOf(row: Row): string {
   const html = typeof row.body_html === "string" ? row.body_html : "";
   return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 }
-
-async function openaiJson(instructions: string, input: string, schema: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const key = String(process.env.openai_api_key || process.env.OPENAI_API_KEY || intentLlmApiKey()).trim();
-  if (!key) throw new Error("未配置 openai_api_key");
-  const base = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-  const fetchFn = intentLlmFetch();
-  const request = (model: string) => fetchFn(`${base}/responses`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model, instructions, input, store: false }),
-    signal: AbortSignal.timeout(90_000),
-  });
-  let model = String(process.env.MAIL_MEMORY_MODEL || "gpt-5").trim() || "gpt-5";
-  let response = await request(model);
-  let raw = await response.text();
-  // Some configured gateways do not expose the requested Luna alias. Try it first,
-  // then use the gateway's standard capable model rather than returning a useless 502.
-  if (!response.ok && response.status === 400 && model === "gpt-5" && /unsupported model|only the following models/i.test(raw)) {
-    model = "gpt-5-mini";
-    response = await request(model);
-    raw = await response.text();
-  }
-  if (!response.ok) {
-    let detail = raw;
-    try {
-      const payload = JSON.parse(raw) as { error?: { message?: unknown } };
-      detail = String(payload.error?.message || raw);
-    } catch { /* keep the bounded raw response */ }
-    throw new Error(`OpenAI HTTP ${response.status} (${model}): ${detail.replace(/\s+/g, " ").slice(0, 240)}`);
-  }
-  let payload: unknown;
-  try { payload = JSON.parse(raw); } catch { payload = { output_text: raw }; }
-  const text = extractRemoteIntentText(payload).trim();
-  if (!text) throw new Error("OpenAI 返回为空");
-  try { return JSON.parse(text) as Record<string, unknown>; } catch {
-    const key = Object.prototype.hasOwnProperty.call(schema.properties || {}, "summary") ? "summary" : "translation";
-    return { [key]: text };
-  }
-}
-
-const ON_DEMAND_SUMMARY_INSTRUCTIONS = "你是 KOL 邮件运营摘要助手。根据同一邮件主题下的完整往来，生成简洁、准确、可执行的中文往来摘要，覆盖合作进展、关键诉求或承诺、待办、时间/价格/交付约定和风险。按时间理解上下文，吸收已有摘要后输出完整最新摘要。不得编造、复述无意义寒暄、输出邮箱或改变合作阶段。只返回摘要正文。";
-const ON_DEMAND_TRANSLATION_INSTRUCTIONS = "你是 KOL 邮件内部翻译助手。把当前选中的英文邮件完整翻译成自然、准确、忠实的简体中文，保留语气、段落、列表、数字、币种、日期、链接和专有名词。不得总结、改写、补充、删减或改变合作意图，只返回中文译文正文。";
 
 function bodyFingerprint(body: string): string {
   return crypto.createHash("sha256").update(String(body || "")).digest("hex").slice(0, 32);
@@ -499,17 +457,16 @@ export function triggerMailSummarySkill(mailbox: string, conversationId: string)
     if (previous?.status === "已完成" && previous.fingerprint === fingerprint) {
       return { scanned: rows.length, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 0 };
     }
-    const messages = rows.map((row, index) => `${index + 1}. [${row.occurred_at || ""}] ${row.direction || ""}\n${row.body_text || ""}`).join("\n\n");
-    const result = await openaiJson(
-      ON_DEMAND_SUMMARY_INSTRUCTIONS,
-      `邮件主题：${String(thread.subject || "无主题")}\n已有摘要：${previous?.text || "无"}\n邮件往来（按时间顺序）：\n${messages}`,
-      { type: "object", properties: { summary: { type: "string" } }, required: ["summary"], additionalProperties: false },
-    );
-    const text = String(result.summary || "").trim();
-    if (!text) throw new Error("OpenAI 未返回摘要");
+    const result = await generateMailConversationDigest(rows.map((row) => ({
+      ...row,
+      body: row.body_text || "",
+      existing_digest: previous?.text || "",
+    })));
+    const text = String(result.text || "").trim();
+    if (!text) throw new Error(`Codex/Luna 摘要链路未返回结果：${result.error || "unavailable"}`);
     const completedAt = nowIso();
     persistThreadDigest(String(thread.id), {
-      text, source: "openai", mail_count: rows.length, fingerprint, generated_at: completedAt,
+      text, source: result.source || "codex_memory", mail_count: rows.length, fingerprint, generated_at: completedAt,
     });
     writeOnDemandMemory(memoryKey, {
       status: "已完成", mailbox, subject: String(thread.subject || ""), conversation_id: conversationId,
@@ -554,17 +511,13 @@ export function triggerMailTranslateSkill(mailbox: string, messageId: string): P
     if (previous?.status === "已完成" && previous.fingerprint === fingerprint) {
       return { scanned: 1, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 0 };
     }
-    const result = await openaiJson(
-      ON_DEMAND_TRANSLATION_INSTRUCTIONS,
-      `邮件主题：${String(row.subject || thread?.subject || "无主题")}\n邮件正文：\n${body}`,
-      { type: "object", properties: { translation: { type: "string" } }, required: ["translation"], additionalProperties: false },
-    );
-    const text = String(result.translation || "").trim();
-    if (!text) throw new Error("OpenAI 未返回中文翻译");
+    const result = await translateMailBodyZhWithCodexLuna(body);
+    const text = String(result?.text || "").trim();
+    if (!text) throw new Error("Codex/Luna 翻译链路未返回可用译文");
     const completedAt = nowIso();
     persistItemMemory(String(row.id), {
-      translation_zh: text, translation_source: "openai", fingerprint,
-      generated_at: completedAt, source: "openai", attempts: Number(row.memory_attempts || 0) + 1,
+      translation_zh: text, translation_source: result?.source || "codex_memory", fingerprint,
+      generated_at: completedAt, source: result?.source || "codex_memory", attempts: Number(row.memory_attempts || 0) + 1,
     });
     writeOnDemandMemory(memoryKey, {
       status: "已完成", mailbox, subject: String(row.subject || thread?.subject || ""),

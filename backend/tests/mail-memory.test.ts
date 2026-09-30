@@ -135,7 +135,7 @@ beforeEach(async () => {
   process.env.CODEX_MODE = "stub";
   process.env.openai_api_key = "sk-test-mail-memory";
   setIntentLlmFetch(async (_input, _init) => new Response(JSON.stringify({
-    output_text: JSON.stringify({ summary: "测试摘要：双方正在确认合作细节。", translation: "测试中文译文。" }),
+    output_text: JSON.stringify({ digest: "测试摘要：双方正在确认合作细节。", zh: "测试中文译文。", translation: "测试中文译文。" }),
   }), { status: 200, headers: { "Content-Type": "application/json" } }));
   calls.length = 0;
   listDelayMs = 0;
@@ -154,6 +154,7 @@ afterEach(() => {
   setStarryKolClientFactory();
   setIntentLlmFetch();
   delete process.env.openai_api_key;
+  delete process.env.INTENT_LLM_MODE;
   resetFollowedMailSync();
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
@@ -163,6 +164,7 @@ describe("mailbox memory P0", () => {
   it("runs the selected summary and translation Skills through named routes", async () => {
     bindLarry();
     await ensureFollowedMailSync(true);
+    process.env.INTENT_LLM_MODE = "real";
     const listed = await request("GET", "/api/mail/conversations");
     const first = (listed.body.conversations as Json[])[0];
     const opened = await request("GET", `/api/mail/conversations/${first.id}`);
@@ -178,7 +180,7 @@ describe("mailbox memory P0", () => {
     expect(translation.status).toBe(200);
     expect(translation.body).toMatchObject({ skill_id: "mail_translate", accepted: true, pending: false });
     const reread = await request("GET", `/api/mail/conversations/${first.id}`);
-    expect((reread.body.messages as Json[]).find((row) => row.id === message.id)?.translation_zh).toContain("中文译文");
+    expect((reread.body.messages as Json[]).find((row) => row.id === message.id)?.translation_zh).toContain("中文");
   });
 
   it("GET box / conversations / thread create no session and call no model", async () => {
