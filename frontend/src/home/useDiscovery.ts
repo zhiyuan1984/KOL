@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { TaskEvent } from "../api";
 import { presentDiscoveryError, type DiscoveryErrorView } from "./discovery-error";
 import { discoveryStage, isCardVisible, type DiscoveryStage } from "./discoveryPhase";
@@ -81,6 +81,8 @@ export default function useDiscovery({
   const [ingestReceipt, setIngestReceipt] = useState<HomeDiscoveryIngestResult | null>(null);
   /** 「改条件再搜」把条件卡调回来；提交成功后再收起。 */
   const [cardPinned, setCardPinned] = useState(false);
+  /** 发现页首屏会同时触发两次只读恢复；只有最后一次读取允许回写状态。 */
+  const loadSequenceRef = useRef(0);
 
   const available = useMemo(
     () => candidates.filter((row) => !ignoredIds.includes(row.id) && row.status !== "dismissed"),
@@ -122,9 +124,13 @@ export default function useDiscovery({
   }, [lastSubmit]);
 
   const loadExisting = async (preferRunId?: string | null) => {
+    const sequence = ++loadSequenceRef.current;
+    const isCurrent = () => sequence === loadSequenceRef.current;
     setFailure(null);
     const listed = await loadDiscoveryRuns();
+    if (!isCurrent()) return;
     if (listed.down) {
+      setPolling(false);
       setRunHistory([]);
       setEmptyKind("down");
       setEmptyMessage("发现服务不可用。已有输入会保留，可稍后重试。");
@@ -159,24 +165,31 @@ export default function useDiscovery({
       setIngestReceipt(null);
     }
     const detail = await loadDiscoveryRun(chosen.id);
+    if (!isCurrent()) return;
     if (detail.down) {
+      setPolling(false);
       setEmptyKind("down");
       setEmptyMessage("发现服务不可用。已有输入会保留，可稍后重试。");
       setCandidates([]);
-      setActiveRun(chosen);
+      setActiveRun(null);
       setEvents([]);
       return;
     }
     const current = detail.data || chosen;
     setActiveRun(current);
     const selectedEvents = current.work_item_id ? await loadTaskEvents(current.work_item_id).catch(() => []) : [];
+    if (!isCurrent()) return;
     setEvents(selectedEvents);
     const reason = runFailureReason(current);
     const next = await loadDiscoveryCandidates(chosen.id);
+    if (!isCurrent()) return;
     if (next.down) {
+      setPolling(false);
       setEmptyKind("down");
       setEmptyMessage("发现服务不可用。已有输入会保留，可稍后重试。");
       setCandidates([]);
+      setActiveRun(null);
+      setEvents([]);
       return;
     }
     setCandidates(next.data);
