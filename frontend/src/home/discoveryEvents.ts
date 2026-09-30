@@ -71,15 +71,27 @@ function eventTime(event: TaskEvent): string {
  * label / safe_summary 的「N 条」文案里——两条路都要能读到，缺了就写占位。
  */
 function eventCount(event: TaskEvent): number | null {
-  const keys = ["count", "n", "received", "raw_count", "deduped", "shortlist_count", "candidate_count"];
+  const keys = [
+    "count", "n", "received", "raw_count", "deduped", "shortlist_count", "candidate_count",
+    "collected_count", "fetched_count", "creator_count", "profile_count",
+  ];
   for (const key of keys) {
     const value = Number(event[key]);
     if (Number.isFinite(value) && value >= 0) return value;
   }
   const blob = `${event.label || ""} ${event.summary || ""} ${event.message || ""}`;
-  const match = blob.match(/(\d+)\s*条/);
+  const match = blob.match(/(\d+)\s*条/) || blob.match(/(\d+)\s*(?:creators?|profiles?|items?|posts?)/i);
   if (match) return Number(match[1]);
   return null;
+}
+function collectingLabel(count: number | null): string {
+  return count == null ? "正在采集" : `已采集 ${count} 条`;
+}
+function crawlStatusLabel(event: TaskEvent, count: number | null): string {
+  const blob = eventBlob(event);
+  if (/upload/.test(blob)) return "正在上传采集结果";
+  if (/analyz|processing_results|整理候选/.test(blob)) return "正在整理候选";
+  return collectingLabel(count);
 }
 
 /**
@@ -108,10 +120,13 @@ export function discoveryEventCopy(event: TaskEvent): DiscoveryProcessStep | nul
   }
   // 采集服务的操作行（「去重并写入达人库…」）——先认出来，别被下面的去重口径吃掉。
   if (/crawl[._]operation/.test(blob)) {
-    return { id, kind: "collecting", label: "正在采集" };
+    return { id, kind: "collecting", label: collectingLabel(count) };
   }
   if (/result_ready|采集完成/.test(blob)) {
     return { id, kind: "collect_done", label: "采集完成" };
+  }
+  if (/crawl[._]status/.test(blob)) {
+    return { id, kind: "collecting", label: crawlStatusLabel(event, count) };
   }
   if (/analyz|整理候选/.test(blob)) {
     return { id, kind: "analyzing", label: "整理候选" };
@@ -133,11 +148,19 @@ export function discoveryEventCopy(event: TaskEvent): DiscoveryProcessStep | nul
       label: count != null ? `采集结束去重后 ${count} 条` : "采集结束去重后 M 条",
     };
   }
+  // crawl.progress / crawl.logs often carry the only trustworthy live count.
+  // Handle it before the generic crawl branch so the count is not discarded.
+  if (/crawl[._](?:progress|logs|status)/.test(blob) && count != null) {
+    return { id, kind: "collecting", label: collectingLabel(count) };
+  }
+  if (/crawl[._]logs/.test(blob)) {
+    return { id, kind: "collecting", label: "采集日志已更新" };
+  }
   if (/queue|排队/.test(blob)) {
     return { id, kind: "queued", label: "排队" };
   }
   if (/crawl|采集/.test(blob)) {
-    return { id, kind: "collecting", label: "正在采集" };
+    return { id, kind: "collecting", label: collectingLabel(count) };
   }
   if (/receiv|已收到|raw_count|got_\d|collected/.test(blob)) {
     return {

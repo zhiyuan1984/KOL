@@ -47,8 +47,12 @@ describe("discovery process stream", () => {
   it("covers the events the crawl service actually writes", () => {
     // 采集是异步作业：这几类事件过去一个都对不上，过程流因此看起来比实际快。
     expect(labels([event({ type: "crawl_started" })])).toEqual(["正在采集"]);
-    expect(labels([event({ type: "crawl.progress", label: "已抓取 120 条" })])).toEqual(["正在采集"]);
+    expect(labels([event({ type: "crawl.progress", label: "已抓取 120 条" })])).toEqual(["已采集 120 条"]);
+    expect(labels([event({ type: "crawl.logs", summary: "Fetched 48 creators" })])).toEqual(["已采集 48 条"]);
     expect(labels([event({ type: "crawl.status", label: "采集中" })])).toEqual(["正在采集"]);
+    expect(labels([event({ type: "crawl.status", status: "analyzing", label: "Remote status: analyzing" })]))
+      .toEqual(["正在整理候选"]);
+    expect(labels([event({ type: "crawl.logs", summary: "读取最新采集日志" })])).toEqual(["采集日志已更新"]);
     expect(labels([event({ type: "crawl.analyzing" })])).toEqual(["整理候选"]);
     expect(labels([event({ type: "crawl.result_ready" })])).toEqual(["采集完成"]);
     expect(labels([event({ type: "discovery.plan_started" })])).toEqual(["正在生成发现简报"]);
@@ -101,7 +105,10 @@ describe("discovery process stream", () => {
       event({ type: "crawl.progress" }),
       event({ type: "crawl.logs", label: "日志" }),
     ];
-    expect(presentDiscoveryEvents(events)).toHaveLength(1);
+    expect(presentDiscoveryEvents(events).map((step) => step.label)).toEqual([
+      "正在采集",
+      "采集日志已更新",
+    ]);
   });
 });
 
