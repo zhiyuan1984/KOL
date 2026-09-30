@@ -11,6 +11,14 @@ import {
 } from "./discoveryTemplate";
 
 export type HomeDiscoveryEmptyKind = "idle" | "filtered" | "down";
+export type HomeDiscoveryStatusContract = {
+  status: string; stage: string; title: string; message: string;
+  input_preserved: boolean; has_results: boolean; execution_started: boolean;
+  retryable: boolean; retry_mode: string; next_retry_at: string | null;
+  condition_snapshot?: Record<string, unknown>;
+  progress: { collected: number | null; parsed: number | null; deduplicated: number | null; matched: number | null };
+  diagnostics: { service: string; error_code: string | null; occurred_at: string | null; request_id: string | null; last_heartbeat: string | null };
+};
 
 export type HomeDiscoveryLibraryStatus = "not_in_library" | "pool" | "followed";
 export type HomeDiscoveryIngestReadiness =
@@ -34,6 +42,7 @@ export type HomeDiscoveryRun = {
   started_at?: string;
   completed_at?: string;
   error?: string | null;
+  status_contract?: HomeDiscoveryStatusContract | null;
 };
 
 export type HomeDiscoveryCandidate = {
@@ -216,6 +225,9 @@ export function asHomeRun(row: unknown): HomeDiscoveryRun | null {
   const id = asString(item.id || item.run_id);
   if (!id) return null;
   const brief = asRecord(item.brief);
+  const contract = asRecord(item.status_contract);
+  const contractProgress = asRecord(contract.progress);
+  const contractDiagnostics = asRecord(contract.diagnostics);
   return {
     id,
     headline: asString(item.headline || brief.headline || item.title || item.summary),
@@ -236,6 +248,23 @@ export function asHomeRun(row: unknown): HomeDiscoveryRun | null {
     completed_at: asString(item.completed_at) || undefined,
     memory_validity: item.memory_validity === "current" || item.memory_validity === "stale" ? item.memory_validity : null,
     error: asString(item.error || item.error_message || item.failure_reason) || null,
+    status_contract: contract.status ? {
+      status: asString(contract.status), stage: asString(contract.stage), title: asString(contract.title),
+      message: asString(contract.message), input_preserved: contract.input_preserved === true,
+      has_results: contract.has_results === true, execution_started: contract.execution_started === true,
+      retryable: contract.retryable === true, retry_mode: asString(contract.retry_mode) || "manual",
+      next_retry_at: asString(contract.next_retry_at) || null, condition_snapshot: asRecord(contract.condition_snapshot),
+      progress: {
+        collected: nullableNumber(contractProgress.collected), parsed: nullableNumber(contractProgress.parsed),
+        deduplicated: nullableNumber(contractProgress.deduplicated), matched: nullableNumber(contractProgress.matched),
+      },
+      diagnostics: {
+        service: asString(contractDiagnostics.service), error_code: asString(contractDiagnostics.error_code) || null,
+        occurred_at: asString(contractDiagnostics.occurred_at) || null,
+        request_id: asString(contractDiagnostics.request_id) || null,
+        last_heartbeat: asString(contractDiagnostics.last_heartbeat) || null,
+      },
+    } : null,
   };
 }
 

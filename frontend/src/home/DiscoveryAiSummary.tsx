@@ -64,6 +64,15 @@ export default function DiscoveryAiSummary({
   onCheckConnection?: () => void;
   connection?: { status: string; label: string; message: string } | null;
 }) {
+  const contract = run?.status_contract;
+  const progress = contract?.progress;
+  const snapshot = contract?.condition_snapshot || {};
+  const snapshotText = [
+    Array.isArray(snapshot.keywords) && snapshot.keywords.length ? `关键词：${snapshot.keywords.join("、")}` : null,
+    snapshot.region ? `地区：${String(snapshot.region)}` : null,
+    snapshot.min_followers != null || snapshot.max_followers != null
+      ? `粉丝：${snapshot.min_followers ?? "不限"}–${snapshot.max_followers ?? "不限"}` : null,
+  ].filter(Boolean).join("｜");
   const status = failure
     ? "需要处理"
     : inFlight
@@ -73,7 +82,7 @@ export default function DiscoveryAiSummary({
         : emptyKind === "down"
           ? "服务不可用"
           : "等待发现";
-  const headline = failure?.title || (
+  const headline = failure?.title || contract?.title || (
     run
       ? runHeadline(run)
       : emptyKind === "down"
@@ -106,7 +115,21 @@ export default function DiscoveryAiSummary({
         <span data-discovery-counts>{counts}</span>
         {run?.memory_validity === "stale" ? <span data-discovery-memory-validity="stale">来源已变化</span> : null}
       </div>
-      <p data-discovery-primary-finding>{primaryFinding({ run, visibleCount, inFlight, failure, emptyKind, emptyMessage })}</p>
+      <p data-discovery-primary-finding>{failure ? primaryFinding({ run, visibleCount, inFlight, failure, emptyKind, emptyMessage }) : contract?.message || primaryFinding({ run, visibleCount, inFlight, failure, emptyKind, emptyMessage })}</p>
+      {contract ? (
+        <div className="discovery-ai-summary-contract" data-discovery-status-contract>
+          <div className="discovery-ai-summary-progress" data-discovery-progress>
+            {([ ["已采集", progress?.collected], ["已解析", progress?.parsed], ["已去重", progress?.deduplicated], ["匹配结果", progress?.matched] ] as const).map(([label, value]) => (
+              <span key={label}><b>{label}</b><em>{value == null ? "尚未开始" : value}</em></span>
+            ))}
+          </div>
+          {snapshotText ? <p className="discovery-ai-summary-snapshot" data-discovery-condition-snapshot><b>本次任务条件</b>{snapshotText}</p> : null}
+          <p className="discovery-ai-summary-freshness" data-discovery-last-updated>
+            最近更新：{contract.diagnostics.last_heartbeat ? new Date(contract.diagnostics.last_heartbeat).toLocaleString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "无"}
+          </p>
+          {contract.diagnostics.error_code ? <details data-discovery-diagnostics><summary>查看任务详情</summary><p>错误代码：{contract.diagnostics.error_code}{contract.diagnostics.request_id ? `；请求编号：${contract.diagnostics.request_id}` : ""}</p></details> : null}
+        </div>
+      ) : null}
       {emptyKind === "down" && !failure ? (
         <dl className="discovery-ai-summary-facts" data-discovery-service-state>
           <div><dt>任务状态</dt><dd>未启动</dd></div>

@@ -496,6 +496,16 @@
 }
 .discovery-ai-summary-facts dt { font-weight: 500; }
 .discovery-ai-summary-facts dd { margin: 0; color: var(--text); }
+.discovery-ai-summary-contract { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
+.discovery-ai-summary-progress { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.discovery-ai-summary-progress span { display: grid; gap: 2px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-subtle); }
+.discovery-ai-summary-progress b, .discovery-ai-summary-snapshot b { color: var(--text-muted); font-size: var(--ds-font-helper); font-weight: 500; }
+.discovery-ai-summary-progress em { color: var(--text); font-size: var(--ds-font-helper); font-style: normal; }
+.discovery-ai-summary-snapshot, .discovery-ai-summary-freshness { margin: 0; color: var(--text-muted); font-size: var(--ds-font-helper); }
+.discovery-ai-summary-snapshot b { display: block; margin-bottom: 3px; }
+.discovery-ai-summary-freshness { padding-top: var(--space-2); border-top: 1px solid var(--border); }
+.discovery-ai-summary-contract details { color: var(--text-muted); font-size: var(--ds-font-helper); }
+.discovery-ai-summary-contract details p { margin: 6px 0 0; }
 .discovery-ai-summary-actions {
   display: flex;
   align-items: center;
