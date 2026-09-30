@@ -46,7 +46,7 @@ auto_ok: true
 {{messages}}
 ```
 
-首选模型为 `gpt6-luna-low`，API Key 从运行环境的 `.env` 中读取 `openai_api_key`/`OPENAI_API_KEY`；若当前 OpenAI 网关明确不提供该模型，自动使用网关可用的 `gpt-5.5` 完成同一提示词，结果只写入本地邮件记忆。
+首选模型为 `gpt-5`，API Key 从运行环境的 `.env` 中读取 `openai_api_key`/`OPENAI_API_KEY`；若当前 OpenAI 网关明确不提供该模型，自动使用 `gpt-5-mini` 完成同一提示词，结果只写入本地邮件记忆。
 
 ## 执行
 

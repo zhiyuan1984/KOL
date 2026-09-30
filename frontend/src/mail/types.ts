@@ -1,7 +1,7 @@
 /** Formal FE contract for kol PR #177 `/api/mail`. Do not send legacy mailbox filter strings. */
 
 export type MailMatchState = "matched" | "unbound" | "deferred" | "ignored";
-export type MailDigestSource = "codex_memory" | "luna" | "openai_gpt6_luna_low" | "body_analysis" | "analysis_failed";
+export type MailDigestSource = "codex_memory" | "luna" | "openai" | "body_analysis" | "analysis_failed";
 export type MailDirection = "inbound" | "outbound";
 export type MailDataSource = "api" | "fallback";
 

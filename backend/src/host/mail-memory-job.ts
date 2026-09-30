@@ -76,13 +76,13 @@ async function openaiJson(instructions: string, input: string, schema: Record<st
     body: JSON.stringify({ model, instructions, input, store: false }),
     signal: AbortSignal.timeout(90_000),
   });
-  let model = String(process.env.MAIL_MEMORY_MODEL || "gpt6-luna-low").trim() || "gpt6-luna-low";
+  let model = String(process.env.MAIL_MEMORY_MODEL || "gpt-5").trim() || "gpt-5";
   let response = await request(model);
   let raw = await response.text();
   // Some configured gateways do not expose the requested Luna alias. Try it first,
   // then use the gateway's standard capable model rather than returning a useless 502.
-  if (!response.ok && response.status === 400 && model === "gpt6-luna-low" && /unsupported model|only the following models/i.test(raw)) {
-    model = "gpt-5.5";
+  if (!response.ok && response.status === 400 && model === "gpt-5" && /unsupported model|only the following models/i.test(raw)) {
+    model = "gpt-5-mini";
     response = await request(model);
     raw = await response.text();
   }
@@ -112,7 +112,7 @@ function bodyFingerprint(body: string): string {
 }
 
 function isRemoteSummary(source: string): boolean {
-  return ["codex_memory", "luna", "starry_mcp"].includes(String(source || ""));
+  return ["codex_memory", "luna", "openai", "starry_mcp"].includes(String(source || ""));
 }
 
 function isRemoteDigest(source: string): boolean {
@@ -499,7 +499,7 @@ export function triggerMailSummarySkill(mailbox: string, conversationId: string)
     if (!text) throw new Error("OpenAI 未返回摘要");
     const completedAt = nowIso();
     persistThreadDigest(String(thread.id), {
-      text, source: "openai_gpt6_luna_low", mail_count: rows.length, fingerprint, generated_at: completedAt,
+      text, source: "openai", mail_count: rows.length, fingerprint, generated_at: completedAt,
     });
     writeOnDemandMemory(memoryKey, {
       status: "已完成", mailbox, subject: String(thread.subject || ""), conversation_id: conversationId,
@@ -551,8 +551,8 @@ export function triggerMailTranslateSkill(mailbox: string, messageId: string): P
     if (!text) throw new Error("OpenAI 未返回中文翻译");
     const completedAt = nowIso();
     persistItemMemory(String(row.id), {
-      translation_zh: text, translation_source: "openai_gpt6_luna_low", fingerprint,
-      generated_at: completedAt, source: "openai_gpt6_luna_low", attempts: Number(row.memory_attempts || 0) + 1,
+      translation_zh: text, translation_source: "openai", fingerprint,
+      generated_at: completedAt, source: "openai", attempts: Number(row.memory_attempts || 0) + 1,
     });
     writeOnDemandMemory(memoryKey, {
       status: "已完成", mailbox, subject: String(row.subject || thread?.subject || ""),

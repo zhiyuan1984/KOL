@@ -25,7 +25,7 @@ function matchStateOf(value: unknown, collaborationId?: unknown): MailConversati
 }
 
 function digestSourceOf(value: unknown): MailDigestSource | "" {
-  if (value === "codex_memory" || value === "luna" || value === "openai_gpt6_luna_low" || value === "body_analysis" || value === "analysis_failed") {
+  if (value === "codex_memory" || value === "luna" || value === "openai" || value === "body_analysis" || value === "analysis_failed") {
     return value;
   }
   return "";
