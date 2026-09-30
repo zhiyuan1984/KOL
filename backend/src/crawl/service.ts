@@ -316,8 +316,9 @@ export async function monitorCrawlJob(jobId: string): Promise<Json> {
   const job = getConn().prepare("SELECT * FROM crawl_jobs WHERE id=?").get(jobId) as Row | undefined;
   if (!job) throw new HttpFail(404, { code: "crawl_job_not_found", message: "未找到该采集任务。" });
   if (!ACTIVE.has(String(job.status)) || !job.remote_task_id) return publicJob(job);
+  const remoteTaskId = String(job.remote_task_id);
   try {
-    const result = await remoteCall("get_crawl_status", {}, jobId);
+    const result = await remoteCall("get_crawl_status", { task_id: remoteTaskId }, jobId);
     const status = statusOf(result);
     const nested = json(result.data);
     const remoteError = result.error_message || result.error || result.message
@@ -334,7 +335,7 @@ export async function monitorCrawlJob(jobId: string): Promise<Json> {
     event(jobId, "status", persistedStatus, `Remote status: ${status || "running"}`,
       uploadError ? { upload_error: sanitize(uploadError) } : {});
     try {
-      const logResult = await remoteCall("get_crawl_logs", {}, jobId);
+      const logResult = await remoteCall("get_crawl_logs", { task_id: remoteTaskId }, jobId);
       const nested = json(logResult.data);
       const rawLogs = logResult.logs || logResult.items || nested.logs || nested.items || [];
       const logLines = (Array.isArray(rawLogs) ? rawLogs : [rawLogs])
@@ -503,9 +504,12 @@ export async function stopCrawl(jobId: string): Promise<Json> {
   const job = getConn().prepare("SELECT * FROM crawl_jobs WHERE id=?").get(jobId) as Row | undefined;
   if (!job) throw new HttpFail(404, { code: "crawl_job_not_found", message: "未找到该采集任务。" });
   if (!ACTIVE.has(String(job.status))) return publicJob(job);
+  if (!job.remote_task_id) {
+    throw new HttpFail(409, { code: "crawl_job_no_remote_task", message: "采集任务尚未关联远程任务。" });
+  }
   getConn().prepare("UPDATE crawl_jobs SET status='stopping',updated_at=? WHERE id=?").run(nowIso(), jobId);
   try {
-    await remoteCall("stop_crawl", {}, jobId);
+    await remoteCall("stop_crawl", { task_id: String(job.remote_task_id) }, jobId);
   } catch (error) {
     failJob(jobId, error);
     throw error;
