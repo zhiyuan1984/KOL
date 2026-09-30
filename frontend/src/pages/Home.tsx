@@ -711,6 +711,11 @@ export default function Home() {
     if (presetRef.current && PRESET_MODE[presetRef.current] !== mode) releasePreset();
     if (mode === "discovery") return;
     setEntryIntent((current) => (current === "discover" ? "free" : current));
+    // Leaving AI发现 must release both halves of the lock.  Previously only
+    // entryIntent/text were reset; lockedIntent stayed creator_discovery, so a
+    // normal submit on another tab could still be routed to discovery.
+    setLockedIntent((current) => (current === DISCOVERY_INTENT ? null : current));
+    setLockedLabel((current) => (current === DISCOVERY_LOCK_LABEL ? null : current));
     setDiscoveryBrief((current) => (current ? null : current));
     setDiscoveryFormBrief((current) => (current ? null : current));
     setText((current) => (current.startsWith(DISCOVERY_BODY_PREFIX) ? "" : current));

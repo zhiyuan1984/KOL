@@ -86,6 +86,23 @@ test("tab switch only GETs discovery runs and does not create a session", async 
   expect(gets.some((path) => path.includes("/batches"))).toBeFalsy();
 });
 
+test("leaving discovery clears its lock before a normal composer submit", async ({ page }) => {
+  const discoveryPosts: string[] = [];
+  page.on("request", (item) => {
+    if (item.method() === "POST" && new URL(item.url()).pathname === "/api/home/discovery/run") {
+      discoveryPosts.push(new URL(item.url()).pathname);
+    }
+  });
+  await page.goto("/?tab=discovery");
+  await expect(page.locator('[data-home-mode="discovery"]')).toHaveAttribute("aria-selected", "true");
+  await page.locator('[data-home-mode="pool"]').click();
+  await expect(page.locator('[data-home-mode="pool"]')).toHaveAttribute("aria-selected", "true");
+  const input = page.locator("[data-home] [data-composer-input]");
+  await input.fill("普通工作台问题");
+  await page.locator("[data-home] [data-ai-prompt-submit]").click();
+  await expect.poll(() => discoveryPosts).toEqual([]);
+});
+
 test("condition card renders in-page and pre-fills the editable ask box", async ({ page }) => {
   const posts: string[] = [];
   page.on("request", (item) => {
@@ -724,6 +741,10 @@ test("submit posts /api/home/discovery/run, shows process copy, and ingests to p
   await expect(page.locator('[data-discovery-candidate="NoStats"]')).toBeVisible();
   await expect(page.locator('[data-discovery-select="cand_zero"]')).toBeDisabled();
   await page.locator('[data-discovery-result-filter="all"]').click();
+  await solar.locator('[data-lead-expand]').click();
+  await expect(solar.locator('[data-lead-detail]')).toBeVisible();
+  // 结果筛选与查看详情都是纯前端交互，不得再次启动发现任务。
+  expect(runPosts).toEqual(["/api/home/discovery/run"]);
 
   await page.locator('[data-discovery-select="cand_solar"]').check();
   await expect(page.locator("[data-discovery-select-all]")).toBeVisible();
