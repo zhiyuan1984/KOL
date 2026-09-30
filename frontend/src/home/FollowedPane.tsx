@@ -22,6 +22,14 @@ function SearchIcon() {
   );
 }
 
+function SortIcon() {
+  return (
+    <svg className="followed-sort-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M5 2v10M5 12l-2-2m2 2 2-2M11 14V4m0 0 2 2m-2-2L9 6" />
+    </svg>
+  );
+}
+
 /** 读取久等之后才给恢复入口：等待本身有原因，不靠猜、不伪造进度。 */
 function useSlowWait(active: boolean, ms = 3000): boolean {
   const [slow, setSlow] = useState(false);
@@ -189,19 +197,7 @@ export default function FollowedPane({
                 aria-pressed={sort === "followers"}
                 onClick={() => onSort("followers")}
               >
-                粉丝数
-              </button>
-              <button
-                type="button"
-                className="followed-sort-switch"
-                data-followed-sort-switch
-                aria-label={sort === "followers" ? "切换为按时间排序" : "切换为按粉丝数排序"}
-                title={sort === "followers" ? "切换为按时间排序" : "切换为按粉丝数排序"}
-                onClick={() => onSort(sort === "followers" ? "time" : "followers")}
-              >
-                <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-                  <path d="M5 2v10M5 12l-2-2m2 2 2-2M11 14V4m0 0 2 2m-2-2L9 6" />
-                </svg>
+                粉丝数 <SortIcon />
               </button>
               <button
                 type="button"
@@ -210,7 +206,7 @@ export default function FollowedPane({
                 aria-pressed={sort === "time"}
                 onClick={() => onSort("time")}
               >
-                时间
+                时间 <SortIcon />
               </button>
             </div>
           </div>

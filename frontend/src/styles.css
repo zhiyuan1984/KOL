@@ -15412,8 +15412,7 @@ button.today-brief-primary-btn:disabled {
   border-radius: var(--radius-control);
   background: var(--bg);
 }
-.followed-kol-column .followed-sort-option,
-.followed-kol-column .followed-sort-switch {
+.followed-kol-column .followed-sort-option {
   border: 0;
   background: transparent;
   color: var(--text-muted);
@@ -15432,23 +15431,17 @@ button.today-brief-primary-btn:disabled {
   color: var(--text);
   font-weight: 600;
 }
-.followed-kol-column .followed-sort-switch {
+.followed-kol-column .followed-sort-option:hover,
+.followed-kol-column .followed-sort-option:focus-visible {
+  background: var(--ds-surface-hover);
+}
+.followed-kol-column .followed-sort-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  color: var(--accent-text);
-}
-.followed-kol-column .followed-sort-switch:hover,
-.followed-kol-column .followed-sort-switch:focus-visible {
-  background: var(--ds-surface-hover);
-  border-radius: 50%;
-}
-.followed-kol-column .followed-sort-switch svg {
   width: 15px;
   height: 15px;
+  margin-left: 4px;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
