@@ -570,8 +570,8 @@ function discoveryStatusContract(row: Row, spec: DiscoverySpec, candidateCount: 
     },
     progress: {
       collected: !started ? null : row.raw_count == null ? null : Number(row.raw_count),
-      parsed: !started ? null : row.raw_count == null ? null : Number(row.raw_count),
-      deduplicated: !started ? null : candidateCount || null, matched: candidateCount > 0 ? candidateCount : null,
+      parsed: null,
+      deduplicated: null, matched: candidateCount > 0 ? candidateCount : null,
     },
     diagnostics: {
       service: "discovery", error_code: errorCode, occurred_at: row.updated_at || row.created_at || null,

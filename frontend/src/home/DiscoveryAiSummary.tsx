@@ -73,6 +73,9 @@ export default function DiscoveryAiSummary({
     snapshot.min_followers != null || snapshot.max_followers != null
       ? `粉丝：${snapshot.min_followers ?? "不限"}–${snapshot.max_followers ?? "不限"}` : null,
   ].filter(Boolean).join("｜");
+  const progressLabel = (value: number | null | undefined) => value == null
+    ? (contract?.execution_started ? "暂无数据" : "尚未开始")
+    : String(value);
   const status = failure
     ? "需要处理"
     : inFlight
@@ -120,7 +123,7 @@ export default function DiscoveryAiSummary({
         <div className="discovery-ai-summary-contract" data-discovery-status-contract>
           <div className="discovery-ai-summary-progress" data-discovery-progress>
             {([ ["已采集", progress?.collected], ["已解析", progress?.parsed], ["已去重", progress?.deduplicated], ["匹配结果", progress?.matched] ] as const).map(([label, value]) => (
-              <span key={label}><b>{label}</b><em>{value == null ? "尚未开始" : value}</em></span>
+              <span key={label}><b>{label}</b><em>{progressLabel(value)}</em></span>
             ))}
           </div>
           {snapshotText ? <p className="discovery-ai-summary-snapshot" data-discovery-condition-snapshot><b>本次任务条件</b>{snapshotText}</p> : null}
