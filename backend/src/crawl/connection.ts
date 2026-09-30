@@ -59,9 +59,16 @@ export function resetCollectorConnectionCache(): void {
   lastProbe = null;
 }
 
+/**
+ * Budget for one connectivity probe. The collector normally answers in ~1 s,
+ * but it sits behind a tunnel where jitter alone pushed a 4 s budget over the
+ * line and reported a healthy collector as unreachable.
+ */
+const PROBE_TIMEOUT_DEFAULT_MS = 8000;
+
 export function probeTimeoutMs(): number {
-  const n = Number(process.env.MEDIACRAWLER_PROBE_TIMEOUT_MS || "4000");
-  if (!Number.isFinite(n) || n <= 0) return 4000;
+  const n = Number(process.env.MEDIACRAWLER_PROBE_TIMEOUT_MS || String(PROBE_TIMEOUT_DEFAULT_MS));
+  if (!Number.isFinite(n) || n <= 0) return PROBE_TIMEOUT_DEFAULT_MS;
   return Math.min(Math.max(n, 250), 10_000);
 }
 
