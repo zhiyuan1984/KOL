@@ -172,7 +172,7 @@ export default function FollowedPane({
       data-lifecycle-overview
     >
       <div className="followed-kol-column" data-followed-kol-column data-followed-decision-max="full">
-        {/* 顶部工具行：搜索后紧跟唯一结果计数，避免把同一份名单重复报数。 */}
+        {/* 顶部工具行只保留搜索、排序和批量动作；总数放在中栏当前概览之后。 */}
         {allCards.length ? <div className="followed-object-toolbar" data-followed-object-toolbar data-home-entry="list-followed">
           <div className="followed-object-look" data-followed-object-look>
             <label className="followed-object-search">
@@ -186,9 +186,6 @@ export default function FollowedPane({
                 onChange={(event) => onQuery(event.target.value)}
               />
             </label>
-            <span className="followed-object-count" data-followed-object-count>
-              目前跟进了 {allCards.length} 位
-            </span>
             <div className="followed-object-sort" data-followed-sort role="group" aria-label="跟进对象排序">
               <button
                 type="button"

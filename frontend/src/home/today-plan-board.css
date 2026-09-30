@@ -773,6 +773,14 @@
   font-size: var(--ds-font-body);
   line-height: var(--ds-line-body);
 }
+.followed-overview-count {
+  margin: 0;
+  padding: var(--ds-space-3) 0;
+  color: var(--ds-text-dim);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+  font-variant-numeric: tabular-nums;
+}
 .followed-inline-clear {
   padding: 0;
   border: 0;

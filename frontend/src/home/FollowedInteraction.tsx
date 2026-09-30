@@ -42,7 +42,7 @@ export default function FollowedInteraction({
     <section className="followed-interaction-intro" aria-label="当前跟进概览">
       <div>
         <p>{summaryReady
-          ? `${cards.length} 位当前跟进对象 · 数量来自当前已授权名单`
+          ? "数量来自当前已授权名单"
           : cards.length
             ? `${cards.length} 位已加载 · 正在核对最新数据…`
             : "正在核对当前已授权名单…"}</p>
@@ -90,6 +90,9 @@ export default function FollowedInteraction({
               : brief.lead}
         </p>
       </section>
+      <p className="followed-overview-count" data-followed-overview-count>
+        目前跟进了 {cards.length} 位
+      </p>
 
       <section className="followed-lifecycle-overview" aria-labelledby="followed-lifecycle-title">
         <div className="followed-section-heading">
