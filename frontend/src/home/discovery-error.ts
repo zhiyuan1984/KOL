@@ -61,7 +61,7 @@ export class DiscoveryWaitCancelledError extends Error {
  * Failures the Host attributes to the collector itself, by code or by wording.
  * Only these may say 「采集服务」: anything else that fails is our own service.
  */
-const COLLECTOR_CODE = /^collector_|^mediacrawler_|^crawl_active$/;
+const COLLECTOR_CODE = /^collector_|^mediacrawler_/;
 const COLLECTOR_SIGNAL =
   /streamable|error posting to endpoint|posting to endpoint|远程采集服务未配置|采集服务未配置|发现服务暂未就绪|discovery_not_ready/i;
 
@@ -114,7 +114,8 @@ function looksLikeEngineDump(text: string): boolean {
     && /error|failed|exception|timeout|refused/i.test(text);
 }
 
-function crawlActiveCopy(text: string): string | null {
+function crawlActiveCopy(text: string, code = ""): string | null {
+  if (code === "crawl_active") return DISCOVERY_CRAWL_ACTIVE_MESSAGE;
   if (!text) return null;
   if (text === DISCOVERY_CRAWL_ACTIVE_MESSAGE || text.includes("已有采集任务在进行")) {
     return DISCOVERY_CRAWL_ACTIVE_MESSAGE;
@@ -209,6 +210,18 @@ export function presentDiscoveryError(
       checkConnection: false,
     }, "wait");
   }
+  // Most specific first: 已有采集任务在进行 is neither a collector nor a service outage.
+  const crawlActive = crawlActiveCopy(text, errorCode(raw));
+  if (crawlActive) {
+    return withRecover({
+      kind: "generic",
+      title: DISCOVERY_GENERIC_TITLE,
+      message: crawlActive,
+      detail: looksLikeEngineDump(detail) ? detail : null,
+      retryDisabled: false,
+      checkConnection: false,
+    }, recover);
+  }
   if (isDiscoveryConnectionFailure(raw) || isDiscoveryConnectionFailure(text)) {
     return withRecover({
       kind: "connection",
@@ -225,17 +238,6 @@ export function presentDiscoveryError(
       title: DISCOVERY_SERVICE_TITLE,
       message: DISCOVERY_SERVICE_MESSAGE,
       detail: detail || null,
-      retryDisabled: false,
-      checkConnection: false,
-    }, recover);
-  }
-  const crawlActive = crawlActiveCopy(text);
-  if (crawlActive) {
-    return withRecover({
-      kind: "generic",
-      title: DISCOVERY_GENERIC_TITLE,
-      message: crawlActive,
-      detail: looksLikeEngineDump(detail) ? detail : null,
       retryDisabled: false,
       checkConnection: false,
     }, recover);
