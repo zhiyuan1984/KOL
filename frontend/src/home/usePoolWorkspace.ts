@@ -63,7 +63,8 @@ export function usePoolWorkspace(options: {
   const [poolLibraryCount, setPoolLibraryCount] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<PoolFilter>("all");
-  const [sort, setSort] = useState<PoolSort>("default");
+  // 公海右栏首次进入时默认按评分从高到低，帮助优先查看高潜对象。
+  const [sort, setSort] = useState<PoolSort>("score-desc");
   const [error, setError] = useState("");
   const [claimTarget, setClaimTarget] = useState<PoolKol | null>(null);
   const [claimBusy, setClaimBusy] = useState(false);

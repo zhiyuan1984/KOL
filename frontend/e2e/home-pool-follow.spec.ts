@@ -289,6 +289,7 @@ test("public pool restores the central interaction and uses a structured right r
   await expect(rail.locator("[data-pool-sort='ingested']")).toBeVisible();
   await expect(rail.locator("[data-pool-sort='followers']")).toBeVisible();
   await expect(rail.locator("[data-pool-sort='score']")).toBeVisible();
+  await expect(rail.locator("[data-pool-sort='score']")).toHaveAttribute("data-sort-direction", "desc");
   await rail.locator("[data-pool-sort='followers']").click();
   await expect(rail.locator("[data-pool-sort='followers']")).toHaveAttribute("data-sort-direction", "desc");
   await rail.locator("[data-pool-sort='followers']").click();
