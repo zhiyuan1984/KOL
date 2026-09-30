@@ -36,7 +36,6 @@ import StreamingLines from "../home/StreamingLines";
 import { RECOGNIZE_WAIT_LINES, RECOGNIZE_WAIT_OVERDUE } from "../home/recognizeWait";
 import type { WorkspacePane } from "../home/WorkspaceShell";
 import FollowedPane from "../home/FollowedPane";
-import FollowedInteraction from "../home/FollowedInteraction";
 import { matchesFollowedSituation, type FollowedSituation } from "../home/FollowedBrief";
 import PoolInteraction, {
   QUESTION_TEMPLATE_MISSING_COPY,
@@ -2285,26 +2284,7 @@ export default function Home() {
               railLabel="我的红人结果"
               railToggleLabel="我的红人"
               railStorageKey="ui:home-followed-rail-collapsed"
-              interaction={interactionFeedback}
-              centerContent={(
-                <FollowedInteraction
-                  cards={followedWorkspace.cards}
-                  completeness={followedWorkspace.completeness}
-                  stageFilter={followedWorkspace.stageFilter}
-                  situation={followedWorkspace.situation}
-                  selectedCount={selectedKolIds.length}
-                  onStageFilter={followedWorkspace.setStageFilter}
-                  onSituation={followedWorkspace.setSituation}
-                  publicPoolNewCount={poolWorkspace.poolLoaded ? poolWorkspace.cards.filter(isPoolNew).length : null}
-                  onOpenPublicPoolNew={() => {
-                    poolWorkspace.setQuery("");
-                    poolWorkspace.setSort("default");
-                    poolWorkspace.setFilter("new");
-                    setMode("pool");
-                  }}
-                  interaction={interactionFeedback}
-                />
-              )}
+              centerContent={interactionFeedback}
               centerFooter={renderComposerDock()}
               rail={(
                 <FollowedPane
