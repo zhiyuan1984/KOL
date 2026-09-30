@@ -795,6 +795,11 @@ test("submit hides the condition card; 改条件再搜 brings it back to the cen
   await expect(page.locator("[data-scope-ai-workspace] [data-discovery-think-time]")).toHaveText(/^\d{2}:\d{2}:\d{2}$/);
   await expect(page.locator("[data-scope-task-rail] [data-discovery-panel]")).toHaveCount(1);
   await expect(page.locator("[data-scope-ai-workspace] [data-discovery-panel]")).toHaveCount(0);
+  // 状态摘要与下一步动作属于人机交互，只能在中栏出现；右栏只承接结果。
+  await expect(page.locator("[data-scope-ai-workspace] [data-discovery-ai-summary]")).toHaveCount(1);
+  await expect(page.locator("[data-scope-ai-workspace] [data-discovery-next-plan]")).toHaveCount(1);
+  await expect(page.locator("[data-scope-task-rail] [data-discovery-ai-summary]")).toHaveCount(0);
+  await expect(page.locator("[data-scope-task-rail] [data-discovery-next-plan]")).toHaveCount(0);
 
   // 恢复入口在过程流头部：改条件再搜把卡片调回中栏，不会自动重跑。
   const edit = page.locator("[data-discovery-edit-conditions]");

@@ -1,6 +1,7 @@
 import DiscoveryProcessPanel from "./DiscoveryProcessPanel";
 import DiscoveryResultPane from "./DiscoveryResultPane";
 import DiscoveryAiSummary from "./DiscoveryAiSummary";
+import DiscoveryNextPlan from "./DiscoveryNextPlan";
 import DiscoverySearchCard from "./DiscoverySearchCard";
 import WorkspaceShell from "./WorkspaceShell";
 import useDiscovery from "./useDiscovery";
@@ -12,7 +13,7 @@ import "./discovery-workspace.css";
 /**
  * AI发现 = 第三个走同一工作台骨架的页面（WorkspaceShell）：
  * 中栏承接人机交互 —— 红人检索卡片（技能输入参数）与 AI 提问框，条件一改正文即改写；
- * 提交后卡片收起，中栏换成 Codex 过程流；右栏只呈现当前一次运行的状态、转化与结果。
+ * 提交后卡片收起，中栏承接状态与人机交互；右栏只呈现当前一次运行的只读结果。
  * 历史运行由任务记录承接，任务点击时带 activeTaskId / activeRunId 回到这张结果页。
  */
 export default function DiscoveryWorkspace({
@@ -54,22 +55,23 @@ export default function DiscoveryWorkspace({
       resultView={{
         skillId: "creator_discovery",
         resultType: "discovery_candidates",
-        status: disc.failure || ["failed", "crawl_failed", "rank_failed", "cancelled"].includes(String(disc.run?.status || ""))
-          ? "failed" : disc.inFlight ? "running"
-            : ["completed", "succeeded"].includes(String(disc.run?.status || "")) ? "completed" : "idle",
+        // 右栏元数据与摘要、过程流共用同一个阶段机，避免一侧显示运行中、另一侧显示失败。
+        status: disc.stage === "failure" ? "failed"
+          : disc.stage === "running" ? "running"
+            : disc.stage === "success" ? "completed" : "idle",
         version: disc.run?.id,
         sourceLabel: disc.run ? "发现运行" : undefined,
         updatedAt: disc.run?.completed_at || disc.run?.created_at || undefined,
         freshness: disc.run?.memory_validity === "stale"
           ? "stale"
-          : ["completed", "succeeded"].includes(String(disc.run?.status || ""))
+          : disc.stage === "success"
             ? "current"
             : "unknown",
       }}
       centerHeader={centerHeader}
       centerScroll={(
         <>
-          {!disc.cardVisible ? (
+          {!disc.cardVisible || disc.emptyKind === "down" ? (
             <DiscoveryAiSummary
               run={disc.run}
               visibleCount={disc.visible.length}
@@ -97,6 +99,20 @@ export default function DiscoveryWorkspace({
               onEditConditions={disc.showCard}
             />
           ) : null}
+          <DiscoveryNextPlan
+            run={disc.run}
+            visibleCount={disc.visible.length}
+            selectedCount={disc.selected.length}
+            inFlight={disc.inFlight}
+            failure={disc.failure}
+            emptyKind={disc.emptyKind}
+            onEditConditions={disc.showCard}
+            onRetry={() => void disc.retryRun()}
+            onCheckConnection={() => void disc.checkCollector()}
+            checkingConnection={disc.checkingConnection}
+            connection={disc.connection}
+            onOpenIngest={disc.openIngest}
+          />
           {centerSupplement}
         </>
       )}

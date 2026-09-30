@@ -1,8 +1,6 @@
 import { Link } from "react-router-dom";
-import DiscoveryAiSummary from "./DiscoveryAiSummary";
 import { DiscoveryIngestConfirm } from "./DiscoveryIngestConfirm";
 import DiscoveryLeadRow from "./DiscoveryLeadRow";
-import DiscoveryNextPlan from "./DiscoveryNextPlan";
 import { platformLabel } from "./discoveryTemplate";
 import type { DiscoveryState } from "./useDiscovery";
 
@@ -29,11 +27,6 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
     failure,
     emptyKind,
     emptyMessage,
-    connection,
-    checkingConnection,
-    retryBusy,
-    retryRun,
-    checkCollector,
     toggleSelected,
     selectAll,
     expandedIds,
@@ -50,7 +43,6 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
     openIngest,
     confirmIngest,
     cancelIngest,
-    showCard,
   } = state;
   const showResults = available.length > 0;
   const selecting = selected.length > 0;
@@ -72,22 +64,6 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
       data-discovery-stage={stage}
       data-discovery-running={inFlight ? "true" : undefined}
     >
-      {/* 连接器尚未可用时没有运行上下文可移入中栏，保留右栏的明确错误状态。 */}
-      {emptyKind === "down" ? (
-        <DiscoveryAiSummary
-          run={run}
-          visibleCount={visible.length}
-          inFlight={inFlight}
-          failure={failure}
-          emptyKind={emptyKind}
-          emptyMessage={emptyMessage}
-          retryBusy={retryBusy}
-          onRetry={() => void retryRun()}
-          onCheckConnection={() => void checkCollector()}
-          connection={connection}
-        />
-      ) : null}
-
       {available.length ? (
         <section className="discovery-conversion-overview" data-discovery-conversion-overview aria-label="线索转化概览">
           <div>
@@ -232,21 +208,6 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
           <p>{emptyMessage}</p>
         </div>
       ) : null}
-
-      <DiscoveryNextPlan
-        run={run}
-        visibleCount={visible.length}
-        selectedCount={selected.length}
-        inFlight={inFlight}
-        failure={failure}
-        emptyKind={emptyKind}
-        onEditConditions={showCard}
-        onRetry={() => void retryRun()}
-        onCheckConnection={() => void checkCollector()}
-        checkingConnection={checkingConnection}
-        connection={connection}
-        onOpenIngest={openIngest}
-      />
 
       <DiscoveryIngestConfirm
         open={ingestOpen}
