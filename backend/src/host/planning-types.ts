@@ -1,6 +1,13 @@
 /** Plan scope: today = 今日规划, todo = 待办规划. Same pipeline, different input catalog. */
 export type PlanScope = "today" | "todo";
 
+/** The two panes are projections of one work plan, not independent model runs. */
+export const CANONICAL_PLAN_SCOPE: PlanScope = "today";
+
+export function canonicalPlanScope(): PlanScope {
+  return CANONICAL_PLAN_SCOPE;
+}
+
 export const PLAN_SCOPES: readonly PlanScope[] = ["today", "todo"];
 
 export interface ScopeConfig {
@@ -36,9 +43,9 @@ export const PLANNING_TASK_TYPES_SET = new Set<string>(PLANNING_TASK_TYPES);
 export const TODO_EXCLUDED_TASK_TYPES = ["today_plan", "today_analyze"] as const;
 
 export function planTaskType(scope: PlanScope): "today_plan" | "todo_plan" {
-  return SCOPE_TABLE[scope].taskType;
+  return SCOPE_TABLE[canonicalPlanScope()].taskType;
 }
 
 export function briefPointerTable(scope: PlanScope): "employee_today_briefs" | "employee_todo_briefs" {
-  return SCOPE_TABLE[scope].briefPointerTable;
+  return SCOPE_TABLE[canonicalPlanScope()].briefPointerTable;
 }

@@ -6,6 +6,7 @@ import { appendTaskEvent } from "../routers/tasks.js";
 import { runWorker } from "../worker/runner.js";
 import { HttpFail } from "./errors.js";
 import { createRunTraceSink } from "./run-trace.js";
+import { todayDateStr } from "./home-board.js";
 import { runningTodayPlan, writeTodayBriefArtifact, markTodayPlanCompleted, markTodayPlanFailed } from "./today-brief.js";
 import {
   briefPointerTable,
@@ -184,6 +185,45 @@ export function missingDisplayCoverage(brief: unknown, pack: TodayPlanPack): str
     .filter((id) => id && !covered.has(id));
 }
 
+function hostDisplayTasks(pack: TodayPlanPack, brief: unknown): Json[] {
+  const root = brief && typeof brief === "object" && !Array.isArray(brief) ? brief as Json : {};
+  const modelRows = Array.isArray(root.display_tasks) ? root.display_tasks : Array.isArray(root.todo_layout) ? root.todo_layout : [];
+  const byId = new Map(modelRows.map((row) => [String((row as Json)?.work_item_id || (row as Json)?.id || ""), row as Json]));
+  const rankOf = (item: TodayPlanPack["catalog"][number]) => {
+    const priority = String(item.priority || "").toLowerCase();
+    const rank = priority === "important_urgent" ? 0 : priority === "important" || priority === "high" ? 1 : priority === "urgent" ? 2 : priority === "normal" || priority === "medium" ? 3 : priority === "low" ? 4 : 5;
+    const due = String(item.due_at || "");
+    const today = todayDateStr();
+    const urgency = due && due < today ? 0 : due.startsWith(today) ? 1 : item.status === "running" || item.status === "in_progress" ? 2 : 3;
+    return rank * 10 + urgency;
+  };
+  return [...pack.catalog]
+    .filter((item) => item.kind === "formal_task")
+    .sort((a, b) => rankOf(a) - rankOf(b) || String(b.updated_at || "").localeCompare(String(a.updated_at || "")))
+    .map((item, index) => {
+      const id = String(item.work_item_id || "");
+      const model = byId.get(id) || {};
+      const priority = String(item.priority || "").toLowerCase();
+      const group = priority === "important_urgent" ? "重要紧急" : priority === "important" || priority === "high" ? "重要" : priority === "urgent" ? "紧急" : "其他";
+      return {
+        work_item_id: id,
+        title: String(model.title || item.title || "打开任务"),
+        why: String(model.why || item.reason || "未了结正式任务"),
+        rank: index + 1,
+        verb: String(model.verb || model.action || "open"),
+        label: String(model.label || model.next_action || "打开任务"),
+        next_action: String(model.next_action || model.label || "打开任务"),
+        icon: String(model.icon || (item.status === "failed" || item.risk ? "⚠️" : "📋")),
+        group: String(model.group || group),
+      } as Json;
+    });
+}
+
+function withHostDisplayTasks(brief: unknown, pack: TodayPlanPack): Json | null {
+  if (!brief || typeof brief !== "object" || Array.isArray(brief)) return null;
+  return { ...(brief as Json), display_tasks: hostDisplayTasks(pack, brief) };
+}
+
 export async function executeTodayPlanRun(input: {
   owner: string;
   workItemId: string;
@@ -225,7 +265,8 @@ export async function executeTodayPlanRun(input: {
       "running",
       copy.writingBrief,
     );
-    const brief = briefFromWorkerItems(wr.items);
+    const modelBrief = briefFromWorkerItems(wr.items);
+    const brief = withHostDisplayTasks(modelBrief, input.pack);
     if (brief && typeof brief === "object" && !Array.isArray(brief)) {
       const root = brief as Json;
       const stats = root.stats && typeof root.stats === "object" && !Array.isArray(root.stats)
@@ -272,7 +313,8 @@ export function startTodayPlan(owner = ownerId(), scope: PlanScope = "today"): {
   attached: boolean;
   planning: boolean;
 } {
-  const existing = runningTodayPlan(owner, scope);
+  const canonicalScope: PlanScope = "today";
+  const existing = runningTodayPlan(owner, canonicalScope);
   if (existing?.session_id && existing.run_id) {
     return {
       work_item_id: existing.work_item_id,
@@ -282,11 +324,11 @@ export function startTodayPlan(owner = ownerId(), scope: PlanScope = "today"): {
       planning: true,
     };
   }
-  const copy = PLAN_EMPLOYEE_EVENTS[scope];
-  const taskType = planTaskType(scope);
-  const title = scope === "todo" ? "待办规划" : "今日规划";
-  const pack = packTodayPlanContext(owner, scope);
-  const payload = planningRunInput(pack, {}, scope);
+  const copy = PLAN_EMPLOYEE_EVENTS[canonicalScope];
+  const taskType = planTaskType(canonicalScope);
+  const title = "统一工作计划";
+  const pack = packTodayPlanContext(owner, canonicalScope);
+  const payload = planningRunInput(pack, {}, canonicalScope);
   const identity = planningRuntimeIdentity(taskType);
   const sessionId = createPlanningSession(title, owner, identity.session_identity, taskType);
   const workItemId = createPlanningWorkItem({
@@ -319,7 +361,7 @@ export function startTodayPlan(owner = ownerId(), scope: PlanScope = "today"): {
     run_id: runId,
     creates_session: true,
   });
-  void executeTodayPlanRun({ owner, workItemId, sessionId, runId, pack, scope });
+  void executeTodayPlanRun({ owner, workItemId, sessionId, runId, pack, scope: canonicalScope });
   return {
     work_item_id: workItemId,
     session_id: sessionId,

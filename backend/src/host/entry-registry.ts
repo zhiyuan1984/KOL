@@ -365,7 +365,7 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
   },
   {
     id: "run-mail-summary",
-    kind: "command",
+    kind: "think",
     action: "生成往来摘要",
     creates_session: false,
     creates_turn: false,
@@ -374,7 +374,7 @@ export const HOME_ENTRY_REGISTRY: readonly HomeEntry[] = [
   },
   {
     id: "run-mail-translate",
-    kind: "command",
+    kind: "think",
     action: "生成中文翻译",
     creates_session: false,
     creates_turn: false,
