@@ -564,7 +564,7 @@ function writeBox(
       "能力域不是独立运行时；所有 Profile 共用同一 Codex app-server harness。",
       "Host 已选好本轮 Profile 与 Skill。你只跑这一份 SKILL.md。",
       profile.guardrail,
-      "只使用本轮 Skill Runtime 发现且授权的工具，按描述与 schema 选择；旧 SOP 中的实现名称仅是历史参考，不构成工具授权。禁止裸 HTTP 或读取凭据自行调用。",
+      "只使用本轮 Skill Runtime 发现且授权的工具，按描述与 schema 选择；旧 SOP 中的实现名称仅是历史参考，不构成工具授权。这里只暴露工具，不暴露 MCP resources；禁止调用 list_mcp_resources、resources/list 或其他资源枚举辅助工具。禁止裸 HTTP 或读取凭据自行调用。",
       "只写 Item JSON（节点输出）：task_result / create_draft / propose_stage / list_overdue / create_approval / text。",
       ...(skill === "email_compose"
         ? [

@@ -7,8 +7,9 @@ import { platformLabel } from "./discoveryTemplate";
 import type { DiscoveryState } from "./useDiscovery";
 
 /**
- * Right rail: a compact decision sequence — AI summary, result details, then
- * the next plan. It consumes useDiscovery state only; reads, polling, writes,
+ * Right rail: a compact result sequence — conversion status, result details,
+ * then the next plan. The run summary and interaction context live in the
+ * middle column. It consumes useDiscovery state only; reads, polling, writes,
  * and L3 confirmation all remain in the hook and existing confirmation flow.
  */
 export default function DiscoveryResultPane({ state }: { state: DiscoveryState }) {
@@ -71,18 +72,21 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
       data-discovery-stage={stage}
       data-discovery-running={inFlight ? "true" : undefined}
     >
-      <DiscoveryAiSummary
-        run={run}
-        visibleCount={visible.length}
-        inFlight={inFlight}
-        failure={failure}
-        emptyKind={emptyKind}
-        emptyMessage={emptyMessage}
-        retryBusy={retryBusy}
-        onRetry={() => void retryRun()}
-        onCheckConnection={() => void checkCollector()}
-        connection={connection}
-      />
+      {/* 连接器尚未可用时没有运行上下文可移入中栏，保留右栏的明确错误状态。 */}
+      {emptyKind === "down" ? (
+        <DiscoveryAiSummary
+          run={run}
+          visibleCount={visible.length}
+          inFlight={inFlight}
+          failure={failure}
+          emptyKind={emptyKind}
+          emptyMessage={emptyMessage}
+          retryBusy={retryBusy}
+          onRetry={() => void retryRun()}
+          onCheckConnection={() => void checkCollector()}
+          connection={connection}
+        />
+      ) : null}
 
       {available.length ? (
         <section className="discovery-conversion-overview" data-discovery-conversion-overview aria-label="线索转化概览">

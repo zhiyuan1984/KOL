@@ -1,5 +1,6 @@
 import DiscoveryProcessPanel from "./DiscoveryProcessPanel";
 import DiscoveryResultPane from "./DiscoveryResultPane";
+import DiscoveryAiSummary from "./DiscoveryAiSummary";
 import DiscoverySearchCard from "./DiscoverySearchCard";
 import WorkspaceShell from "./WorkspaceShell";
 import useDiscovery from "./useDiscovery";
@@ -68,6 +69,20 @@ export default function DiscoveryWorkspace({
       centerHeader={centerHeader}
       centerScroll={(
         <>
+          {!disc.cardVisible ? (
+            <DiscoveryAiSummary
+              run={disc.run}
+              visibleCount={disc.visible.length}
+              inFlight={disc.inFlight}
+              failure={disc.failure}
+              emptyKind={disc.emptyKind}
+              emptyMessage={disc.emptyMessage}
+              retryBusy={disc.retryBusy}
+              onRetry={() => void disc.retryRun()}
+              onCheckConnection={() => void disc.checkCollector()}
+              connection={disc.connection}
+            />
+          ) : null}
           {disc.cardVisible ? (
             <DiscoverySearchCard brief={brief} catalog={catalog} schema={schema} onChange={onBriefChange} />
           ) : null}
