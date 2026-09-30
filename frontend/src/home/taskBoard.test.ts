@@ -26,6 +26,8 @@ describe("today task board presentation", () => {
     const home = fs.readFileSync(path.resolve(here, "../pages/Home.tsx"), "utf8");
     expect(board).toContain("onOpen={onOpen}");
     expect(row).toContain("(onOpen || onAct)(task)");
+    expect(row).toContain('data-home-entry={opensTask ? "open-task" : "acknowledge-task"}');
+    expect(row).not.toContain("data-board-status");
     expect(scope).toContain("onOpen?: (task: Task) => void;");
     expect(home).toContain("const sessionId = taskSessionId(current);");
     expect(home).toContain("task.runs");

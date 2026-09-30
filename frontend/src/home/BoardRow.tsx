@@ -1,10 +1,8 @@
 import type { Task } from "../api";
 import {
-  displayStatusLabel,
   isDisplayOnlyTask,
   riskLevelLabel,
   taskActionLabel,
-  taskDisplayStatus,
   taskPriorityRank,
 } from "./homeModel";
 
@@ -45,12 +43,10 @@ export default function BoardRow({
   onOpen?: (task: Task) => void;
   onEdit?: (task: Task) => void;
 }) {
-  const status = taskDisplayStatus(task);
-  const statusLabel = displayStatusLabel(task);
-  const statusAccent = status?.code === "overdue" || status?.code === "due_soon";
   const why = String(task.layout_why || task.display_why || "").trim();
   const verb = String(task.display_verb || task.next_action_code || "open");
   const actionLabel = taskActionLabel(task);
+  const opensTask = Boolean(onOpen) && ["open", "open_task", "view", "view_task"].includes(verb);
   const risk = String(task.risk_level || "").trim();
   const riskLabel = risk !== "none" ? riskLevelLabel(task) : "";
   const editable = Boolean(onEdit) && verb !== "edit" && !isDisplayOnlyTask(task);
@@ -77,19 +73,14 @@ export default function BoardRow({
               {task.title}
             </button>
           </div>
-          {(why || statusLabel || riskLabel) ? (
+          {(why || riskLabel) ? (
             <div className="task-board-meta">
               {why ? <p className="task-board-why">{why}</p> : null}
-              <span className="task-board-chips">
-                {statusLabel ? (
-                  <span className={"task-board-chip" + (statusAccent ? " is-accent" : "")} data-board-status={status?.code}>
-                    {statusLabel}
-                  </span>
-                ) : null}
-                {riskLabel ? (
+              {riskLabel ? (
+                <span className="task-board-chips">
                   <span className="task-board-chip" data-risk-level={task.risk_level}>风险{riskLabel}</span>
-                ) : null}
-              </span>
+                </span>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -101,9 +92,9 @@ export default function BoardRow({
             className="task-board-open"
             data-today-todo-act
             data-today-act={verb}
-            data-home-entry="acknowledge-task"
+            data-home-entry={opensTask ? "open-task" : "acknowledge-task"}
             disabled={busy}
-            onClick={() => onAct(task)}
+            onClick={() => (opensTask ? onOpen?.(task) : onAct(task))}
           >
             {actionLabel}
           </button>
