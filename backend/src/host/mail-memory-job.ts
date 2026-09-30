@@ -69,22 +69,39 @@ async function openaiJson(instructions: string, input: string, schema: Record<st
   const key = String(process.env.openai_api_key || process.env.OPENAI_API_KEY || intentLlmApiKey()).trim();
   if (!key) throw new Error("未配置 openai_api_key");
   const base = String(process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
-  const response = await intentLlmFetch()(`${base}/responses`, {
+  const fetchFn = intentLlmFetch();
+  const request = (model: string) => fetchFn(`${base}/responses`, {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "gpt6-luna-low",
-      instructions,
-      input,
-      store: false,
-      text: { format: { type: "json_schema", name: "mail_memory_result", strict: true, schema } },
-    }),
+    body: JSON.stringify({ model, instructions, input, store: false }),
     signal: AbortSignal.timeout(90_000),
   });
-  if (!response.ok) throw new Error(`OpenAI HTTP ${response.status}`);
-  const text = extractRemoteIntentText(await response.json());
-  const parsed = JSON.parse(text) as Record<string, unknown>;
-  return parsed;
+  let model = String(process.env.MAIL_MEMORY_MODEL || "gpt6-luna-low").trim() || "gpt6-luna-low";
+  let response = await request(model);
+  let raw = await response.text();
+  // Some configured gateways do not expose the requested Luna alias. Try it first,
+  // then use the gateway's standard capable model rather than returning a useless 502.
+  if (!response.ok && response.status === 400 && model === "gpt6-luna-low" && /unsupported model|only the following models/i.test(raw)) {
+    model = "gpt-5.5";
+    response = await request(model);
+    raw = await response.text();
+  }
+  if (!response.ok) {
+    let detail = raw;
+    try {
+      const payload = JSON.parse(raw) as { error?: { message?: unknown } };
+      detail = String(payload.error?.message || raw);
+    } catch { /* keep the bounded raw response */ }
+    throw new Error(`OpenAI HTTP ${response.status} (${model}): ${detail.replace(/\s+/g, " ").slice(0, 240)}`);
+  }
+  let payload: unknown;
+  try { payload = JSON.parse(raw); } catch { payload = { output_text: raw }; }
+  const text = extractRemoteIntentText(payload).trim();
+  if (!text) throw new Error("OpenAI 返回为空");
+  try { return JSON.parse(text) as Record<string, unknown>; } catch {
+    const key = Object.prototype.hasOwnProperty.call(schema.properties || {}, "summary") ? "summary" : "translation";
+    return { [key]: text };
+  }
 }
 
 const ON_DEMAND_SUMMARY_INSTRUCTIONS = "你是 KOL 邮件运营摘要助手。根据同一邮件主题下的完整往来，生成简洁、准确、可执行的中文往来摘要，覆盖合作进展、关键诉求或承诺、待办、时间/价格/交付约定和风险。按时间理解上下文，吸收已有摘要后输出完整最新摘要。不得编造、复述无意义寒暄、输出邮箱或改变合作阶段。只返回摘要正文。";
