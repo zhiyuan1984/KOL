@@ -34,12 +34,15 @@ export default function BoardRow({
   index,
   busy,
   onAct,
+  onOpen,
   onEdit,
 }: {
   task: Task;
   index: number;
   busy: boolean;
   onAct: (task: Task) => void;
+  /** 标题进入该任务已有的任务页；没有历史页时回退到原操作。 */
+  onOpen?: (task: Task) => void;
   onEdit?: (task: Task) => void;
 }) {
   const status = taskDisplayStatus(task);
@@ -68,7 +71,7 @@ export default function BoardRow({
               type="button"
               className="task-board-title"
               disabled={busy}
-              onClick={() => onAct(task)}
+              onClick={() => (onOpen || onAct)(task)}
               title={task.title}
             >
               {task.title}

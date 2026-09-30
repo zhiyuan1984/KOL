@@ -19,6 +19,19 @@ describe("today task board presentation", () => {
     expect(model).toContain("const byPriority = taskPriorityRank(a) - taskPriorityRank(b);");
   });
 
+  it("opens an existing task page without replacing the task action", () => {
+    const board = read("TaskBoard.tsx");
+    const row = read("BoardRow.tsx");
+    const scope = read("ScopeWorkspace.tsx");
+    const home = fs.readFileSync(path.resolve(here, "../pages/Home.tsx"), "utf8");
+    expect(board).toContain("onOpen={onOpen}");
+    expect(row).toContain("(onOpen || onAct)(task)");
+    expect(scope).toContain("onOpen?: (task: Task) => void;");
+    expect(home).toContain("const sessionId = taskSessionId(current);");
+    expect(home).toContain("task.runs");
+    expect(home).toContain("onOpen={(task) => void openTask(task)}");
+  });
+
   it("maps the today shortcut to its skill template context", () => {
     const home = fs.readFileSync(path.resolve(here, "../pages/Home.tsx"), "utf8");
     expect(home).toContain('lockedIntent === "creator_daily_tasks"');

@@ -1241,21 +1241,42 @@ export default function Home() {
     }
   };
 
+  function taskSessionId(task: Task): string {
+    const direct = String(task.session_id || "").trim();
+    if (direct) return direct;
+    const runs = Array.isArray(task.runs) ? task.runs as Array<Record<string, unknown>> : [];
+    for (const run of [...runs].reverse()) {
+      const sessionId = String(run.session_id || "").trim();
+      if (sessionId) return sessionId;
+    }
+    return "";
+  }
+
   const openTask = async (task: Task) => {
     if (openDiscoveryTaskResult(task)) return;
+    // 任务列表是记忆投影；进入详情前按稳定 task.id 读取一次完整任务，
+    // 用 runs 中最近一次 session_id 恢复原任务页，而不是创建一次新执行。
+    let current = task;
+    try {
+      current = taskValue(await api.task(task.id));
+      mergeCatalogTask(current);
+    } catch {
+      // 列表投影已有 session_id 时仍可直接恢复；新任务继续走原启动流程。
+    }
+    const sessionId = taskSessionId(current);
     rememberJourney({
       kind: "task",
-      skillId: String(task.skill_id || task.skill || task.task_type || ""),
-      skillLabel: task.title,
-      handle: task.kol_name,
+      skillId: String(current.skill_id || current.skill || current.task_type || ""),
+      skillLabel: current.title,
+      handle: current.kol_name,
     });
-    if (task.session_id) {
-      sessionStorage.setItem(`task:${task.session_id}`, task.id);
-      if (task.collaboration_id || task.project_id) sessionStorage.setItem(`kol-session:${task.session_id}`, "1");
-      nav(`/s/${task.session_id}`, { state: { kolSession: Boolean(task.collaboration_id || task.project_id) } });
+    if (sessionId) {
+      sessionStorage.setItem(`task:${sessionId}`, current.id);
+      if (current.collaboration_id || current.project_id) sessionStorage.setItem(`kol-session:${sessionId}`, "1");
+      nav(`/s/${sessionId}`, { state: { kolSession: Boolean(current.collaboration_id || current.project_id) } });
       return;
     }
-    const collabId = String(task.collaboration_id || task.project_id || "");
+    const collabId = String(current.collaboration_id || current.project_id || "");
     if (collabId) {
       try {
         const session = await api.openKolSession(collabId);
@@ -1269,7 +1290,7 @@ export default function Home() {
     setBusy(true);
     setErr("");
     try {
-      await createAndRun(task);
+      await createAndRun(current);
     } catch (error) {
       setErr(error instanceof Error ? error.message : String(error));
       setBusy(false);
@@ -2212,6 +2233,7 @@ export default function Home() {
               rows={paneRows}
               busy={busy}
               onAct={(task) => void actOnMemoryTask(task)}
+              onOpen={(task) => void openTask(task)}
               onEdit={setEditTaskTarget}
               notice={paneScope === "todo" ? dedupeNotice : ""}
               brief={activePlan.brief}
