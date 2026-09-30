@@ -1,4 +1,4 @@
-import { Link, useLocation, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import {
   api,
@@ -410,6 +410,7 @@ function safeEventMessages(taskId: string, events: TaskEvent[]): Message[] {
 const DRAFT_SUBMIT_GUARD_MS = 500;
 
 export default function Chat() {
+  const navigate = useNavigate();
   const { id } = useParams();
   const location = useLocation();
   const { account } = useAccount();
@@ -1032,7 +1033,18 @@ export default function Chat() {
         <div className="session-stream conversation" ref={streamRef} onScroll={onStreamScroll} data-session-stream-pane data-ai-conversation data-has-interaction={messages.some((message) => message.kind === "me") ? "true" : undefined} role="log">
         <header className="task-detail-header conversation-context" {...(task ? { "data-task-detail": true } : { "data-session-back": true })}>
           <div className="session-head-row">
-            <Link to="/" className="task-back">← 返回任务列表</Link>
+            <Link
+              to="/"
+              className="task-back"
+              data-session-back-link
+              onClick={(event) => {
+                // Keep the anchor fallback, but make the SPA transition explicit.
+                // This avoids the detail view remaining mounted when the click is
+                // handled while the session stream is being updated.
+                event.preventDefault();
+                navigate("/");
+              }}
+            >← 返回任务列表</Link>
             <RunHud status={status} phase={phase} taskTitle={task?.title || runTask?.title} remoteLabel={remoteLabel} />
           </div>
           {boundExpert ? (

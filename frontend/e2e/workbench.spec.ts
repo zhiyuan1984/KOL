@@ -3905,6 +3905,8 @@ test("task detail keeps process in center, result on right, and supports complet
   await page.locator("[data-complete-task]").click();
   await expect(page.locator("[data-task-detail]")).toContainText("任务已标记完成");
   expect(completed).toBe(true);
+  await page.getByRole("link", { name: "返回任务列表" }).click();
+  await expect(page).toHaveURL(/\/$/);
 });
 
 test("task detail keeps one middle-column scroller and the thinking inside it", async ({ page }) => {
