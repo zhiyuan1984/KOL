@@ -106,6 +106,7 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "today.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
+  process.env.PLANNING_FAST_MODE = "0";
   resetConn();
   seedAll();
   const { createApp } = await import("../src/app.js");
@@ -116,6 +117,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
+  delete process.env.PLANNING_FAST_MODE;
 });
 
 describe("today_plan harness", () => {

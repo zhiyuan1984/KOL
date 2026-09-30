@@ -276,8 +276,11 @@ export async function executeTodayPlanRun(input: {
   }, scope);
   const trace = createRunTraceSink({ workItemId: input.workItemId, runId: input.runId });
   try {
-    const fastMode = String(process.env.PLANNING_FAST_MODE || "1") !== "0"
-      && String(process.env.CODEX_MODE || "").toLowerCase() !== "stub";
+    // Planning speed is controlled by its own flag. CODEX_MODE=stub is used by
+    // CI and must not silently re-enable the slow Codex planning path in a
+    // deployed workbench. Set PLANNING_FAST_MODE=0 only when model planning is
+    // deliberately required for an environment or a focused test.
+    const fastMode = String(process.env.PLANNING_FAST_MODE || "1") !== "0";
     appendTaskEvent(
       input.workItemId,
       input.runId,
