@@ -1877,7 +1877,12 @@ export default function Home() {
     : undefined;
   const activeSkillTemplate = selectedSkillTemplate?.skill_id === lockedIntent
     ? selectedSkillTemplate
-    : genericParamDefinition?.ui_template || null;
+    : genericParamDefinition?.ui_template
+      || (lockedIntent === "creator_daily_tasks"
+        ? definitions.find((definition) => definition.id === "creator_daily_tasks")?.ui_template || null
+        : lockedIntent === "todo_plan"
+          ? definitions.find((definition) => definition.id === "todo_plan")?.ui_template || null
+          : null);
   const genericParamFields = templateInputFields(
     activeSkillTemplate,
     Array.isArray(genericParamDefinition?.input_schema) ? genericParamDefinition.input_schema as SkillParamField[] : [],

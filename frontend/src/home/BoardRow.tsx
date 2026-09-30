@@ -5,7 +5,6 @@ import {
   riskLevelLabel,
   taskActionLabel,
   taskDisplayStatus,
-  taskPriorityLabel,
   taskPriorityRank,
 } from "./homeModel";
 
@@ -26,17 +25,9 @@ function BoardTaskIcon({ task }: { task: Task }) {
   );
 }
 
-export function priorityTone(task: Task): { label: string; tone: "high" | "mid" | "low" } {
-  const label = taskPriorityLabel(task) || "低";
-  const rank = taskPriorityRank(task);
-  if (rank <= 1) return { label, tone: "high" };
-  if (rank === 2) return { label, tone: "mid" };
-  return { label, tone: "low" };
-}
-
 /**
  * 统一任务行：今日任务表格和待办分组列表都渲染这一份。
- * 序号/优先级/标题(含 why 与状态/风险 chips)/操作 —— 每件事只说一次。
+ * 序号/标题(含 why 与状态/风险 chips)/操作 —— 每件事只说一次。
  */
 export default function BoardRow({
   task,
@@ -51,7 +42,6 @@ export default function BoardRow({
   onAct: (task: Task) => void;
   onEdit?: (task: Task) => void;
 }) {
-  const priority = priorityTone(task);
   const status = taskDisplayStatus(task);
   const statusLabel = displayStatusLabel(task);
   const statusAccent = status?.code === "overdue" || status?.code === "due_soon";
@@ -70,9 +60,6 @@ export default function BoardRow({
       data-today-verb={verb}
     >
       <td className="task-board-cell-index">{index + 1}</td>
-      <td>
-        <span className={`board-priority is-${priority.tone}`}>{priority.label}</span>
-      </td>
       <td className="task-board-cell-title">
         <div className="task-board-title-wrap">
           <div className="task-board-title-row">

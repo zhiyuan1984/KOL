@@ -162,7 +162,6 @@ export default function TaskBoard({
           <thead>
             <tr>
               <th className="task-board-cell-index">#</th>
-              <th>优先级</th>
               <th>任务标题</th>
               <th>操作</th>
             </tr>
