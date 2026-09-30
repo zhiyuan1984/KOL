@@ -1,67 +1,111 @@
-import type { DiscoveryProcessStep } from "./discoveryEvents";
+import type { DiscoveryProcessStep, DiscoveryThink } from "./discoveryEvents";
+import { discoveryBusinessSteps } from "./discoveryBusinessSteps";
+import type { HomeDiscoveryRun } from "./discoveryHome";
 import type { DiscoveryStage } from "./discoveryPhase";
 
-/**
- * 中栏的过程流。提交后条件卡收起，这里就是中栏唯一的主角：
- * 步骤来自 Host 的真实进度（task_events），推理块来自简报 worker 的 run.think。
- * 真实等待必须有原因、状态与恢复入口（DESIGN §不变量 3）：运行中有当前步与等待说明，
- * 卡片收起后「改条件再搜」把条件放回中栏。
- */
+/** Business milestones use persisted run facts; engine traces remain available on demand. */
 export default function DiscoveryProcessPanel({
+  run,
   stage,
   steps,
+  think,
+  reviewCount,
   inFlight,
   hasResults,
   cardVisible,
   onEditConditions,
 }: {
+  run: HomeDiscoveryRun | null;
   stage: DiscoveryStage;
   steps: DiscoveryProcessStep[];
+  think: DiscoveryThink | null;
+  reviewCount: number;
   inFlight: boolean;
   hasResults: boolean;
   cardVisible: boolean;
   onEditConditions: () => void;
 }) {
+  const business = discoveryBusinessSteps(run, steps, inFlight, reviewCount);
+  const lastIndex = steps.length - 1;
   const failed = steps.some((step) => step.kind === "failed");
-  const businessSteps = steps.filter((step) => [
-    "queued", "search", "collecting", "received", "analyzing", "collect_done", "briefing", "ranked", "failed", "stopped",
-  ].includes(step.kind));
-  const businessSummary = businessSteps
-    .map((step) => `${step.label}${step.time ? ` ${step.time}` : ""}`)
-    .join(" → ");
+  const technical = (
+    <>
+      {steps.length ? (
+        <ol className="discovery-stream" data-discovery-process role="status" aria-busy={inFlight || undefined}>
+          {steps.map((step, index) => {
+            const state = step.kind === "failed" ? "failed"
+              : inFlight && !failed && index === lastIndex ? "running" : "done";
+            return (
+              <li key={step.id} className={`discovery-stream-step is-${state}`}
+                data-discovery-event={step.kind} data-discovery-state={state}>
+                <span className="discovery-stream-mark" aria-hidden>
+                  {state === "failed" ? "✗" : state === "running" ? <span className="discovery-stream-spinner" /> : "✓"}
+                </span>
+                <span className="discovery-stream-label">{step.label}</span>
+                {step.time ? <time className="discovery-stream-time" data-discovery-step-time>{step.time}</time> : null}
+              </li>
+            );
+          })}
+        </ol>
+      ) : null}
+      {think ? (
+        <div className={"discovery-think" + (think.state === "running" ? " is-streaming" : "")}
+          data-discovery-think data-discovery-think-state={think.state}>
+          <span className="discovery-think-label">
+            <span>Codex 推理{think.folded > 0 ? ` · 已折叠 ${think.folded} 段更早的推理` : ""}</span>
+            {think.time ? <time className="discovery-think-time" data-discovery-think-time>{think.time}</time> : null}
+          </span>
+          <p className="discovery-think-body">{think.truncated ? "…" : ""}{think.body}</p>
+        </div>
+      ) : null}
+    </>
+  );
   return (
     <section className="discovery-stream-panel" data-discovery-stream={stage}>
       <header className="discovery-stream-head">
-        <h2 className="discovery-stream-title">{inFlight ? "检索中" : "检索过程"}</h2>
+        <h2 className="discovery-stream-title">{inFlight ? "发现进度" : "发现过程"}</h2>
         {!cardVisible ? (
-          <button
-            type="button"
-            className="btn ghost sm"
-            data-discovery-edit-conditions
-            data-home-entry="discovery-edit-conditions"
-            onClick={onEditConditions}
-          >
-            改条件再搜
-          </button>
+          <button type="button" className="btn ghost sm" data-discovery-edit-conditions
+            data-home-entry="discovery-edit-conditions" onClick={onEditConditions}>改条件再搜</button>
         ) : null}
       </header>
 
-      {businessSteps.length ? (
-        <p className={`discovery-business-summary${failed ? " is-failed" : ""}`} data-discovery-business-summary role="status" aria-busy={inFlight || undefined}>
-          <strong>业务过程</strong>{businessSummary}
-        </p>
+      {business.length ? (
+        <ol className="discovery-business-timeline" data-discovery-business-process
+          aria-label="业务过程" aria-live="polite" aria-relevant="additions text">
+          {business.map((step) => (
+            <li key={step.id} className={`is-${step.state}`} data-business-step={step.id}>
+              <span className="discovery-business-mark" aria-hidden>
+                {step.state === "running" ? "·" : step.state === "failed" ? "!" : step.state === "stopped" ? "–" : "✓"}
+              </span>
+              <div className="discovery-business-copy">
+                <div className="discovery-business-heading">
+                  <strong>{step.title}</strong>
+                  {step.time ? <time>{step.time}</time> : null}
+                </div>
+                <span className="sr-only">{step.state === "running" ? "进行中" : step.state === "failed" ? "失败"
+                  : step.state === "stopped" ? "已停止" : "已完成"}</span>
+                <p>{step.detail}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
       ) : null}
 
-      {!businessSteps.length && !inFlight ? (
-        <p className="discovery-stream-empty" data-discovery-stream-empty>
-          这次运行没有留下过程记录。
-        </p>
-      ) : null}
+      {business.length && (steps.length || think) ? (
+        <details className="discovery-technical-trace" data-discovery-technical-trace>
+          <summary>技术执行记录 · {steps.length} 条</summary>
+          {technical}
+        </details>
+      ) : !business.length ? technical : null}
 
+      {!business.length && !steps.length && !inFlight ? (
+        <p className="discovery-stream-empty" data-discovery-stream-empty>这次运行没有留下过程记录。</p>
+      ) : null}
       {inFlight && !hasResults ? (
         <section className="task-empty" data-discovery-loading role="status" aria-busy="true">
-          <strong>{businessSteps.length ? businessSteps[businessSteps.length - 1].label : "排队"}</strong>
-          <p>正在按已确认的条件检索红人线索。不会发信、不会改阶段、不会编造结果。</p>
+          <strong>{business.at(-1)?.title || (steps.length ? steps[lastIndex].label : "排队")}</strong>
+          <p>正在按已提交的条件检索红人线索；采集和筛选数量只采用已返回的数据。</p>
         </section>
       ) : null}
     </section>

@@ -37,11 +37,11 @@ const candidate: HomeDiscoveryCandidate = {
   status: "suggested",
 };
 
-function render(overrides: Partial<HomeDiscoveryCandidate> = {}): string {
+function render(overrides: Partial<HomeDiscoveryCandidate> = {}, expanded = false): string {
   return renderToStaticMarkup(createElement(DiscoveryLeadRow, {
     candidate: { ...candidate, ...overrides },
     selected: false,
-    expanded: false,
+    expanded,
     onToggleSelect: () => undefined,
     onToggleExpand: () => undefined,
     onIgnore: () => undefined,
@@ -49,16 +49,19 @@ function render(overrides: Partial<HomeDiscoveryCandidate> = {}): string {
 }
 
 describe("discovery lead row", () => {
-  it("shows a masked contact email behind the data-lead-email hook", () => {
-    const html = render();
+  it("keeps long IDs and masked contact in the expanded evidence layer", () => {
+    expect(render()).not.toContain("data-lead-email");
+    expect(render()).not.toContain("yt-1");
+    const html = render({}, true);
     expect(html).toContain("data-lead-email");
     expect(html).toContain("cl***@mailcreators.example");
+    expect(html).toContain("yt-1");
     expect(html).not.toContain("clean.glow@mailcreators.example");
   });
 
   it("renders no email line when the candidate has no contact email", () => {
-    expect(render({ email: null })).not.toContain("data-lead-email");
-    expect(render({ email: "" })).not.toContain("data-lead-email");
+    expect(render({ email: null }, true)).not.toContain("data-lead-email");
+    expect(render({ email: "" }, true)).not.toContain("data-lead-email");
   });
 
   it("uses the collected avatar when available and a cartoon fallback otherwise", () => {

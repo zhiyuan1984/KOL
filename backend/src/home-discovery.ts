@@ -1129,6 +1129,12 @@ function onHomeCrawlSettled(job: Row): void {
       try {
         event(String(run.work_item_id || ""), "crawl_progress", "crawling", "采集结果已就绪");
         const counts = persistFilteredCandidates(run, job);
+        event(
+          String(run.work_item_id || ""),
+          "discovery.filtered",
+          "ranking",
+          `按已确认条件筛选：原始 ${counts.raw} 条，入围 ${counts.written} 位`,
+        );
         event(String(run.work_item_id || ""), "crawl_idle", "ranking", "采集空闲，已写入 CreatorCandidate");
         track(rankHomeDiscoveryRun(getConn().prepare("SELECT * FROM discovery_runs WHERE id=?").get(run.id) as Row, counts));
       } catch (error) {
@@ -1362,6 +1368,7 @@ export async function startHomeDiscoveryRun(body: Json): Promise<Json> {
     );
     db.prepare("UPDATE discovery_requests SET latest_run_id=? WHERE id=?").run(runId, requestId);
   });
+  event(workItemId, "discovery.conditions_confirmed", "queued", "检索条件已确认");
   event(workItemId, "discovery.queued", "queued", "发现采集已排队");
   if (spec.target_count_clamped) {
     event(workItemId, "discovery.target_clamped", "queued", "目标人数已限制为 80");

@@ -45,9 +45,14 @@ describe("discovery process stream", () => {
   });
 
   it("covers the events the crawl service actually writes", () => {
+    expect(labels([event({ type: "discovery.conditions_confirmed" })])).toEqual(["检索条件已确认"]);
+    expect(labels([event({ type: "discovery.filtered", summary: "按已确认条件筛选：原始 33 条，入围 16 位" })]))
+      .toEqual(["按已确认条件筛选：原始 33 条，入围 16 位"]);
     // 采集是异步作业：这几类事件过去一个都对不上，过程流因此看起来比实际快。
     expect(labels([event({ type: "crawl_started" })])).toEqual(["正在采集"]);
     expect(labels([event({ type: "crawl.progress", label: "已抓取 120 条" })])).toEqual(["已采集 120 条"]);
+    expect(presentDiscoveryEvents([event({ type: "crawl.progress", label: "已抓取 120 条" })])[0].count)
+      .toBe(120);
     expect(labels([event({ type: "crawl.logs", summary: "Fetched 48 creators" })])).toEqual(["已采集 48 条"]);
     expect(labels([event({ type: "crawl.status", label: "采集中" })])).toEqual(["正在采集"]);
     expect(labels([event({ type: "crawl.status", status: "analyzing", label: "Remote status: analyzing" })]))

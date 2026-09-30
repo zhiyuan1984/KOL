@@ -2,6 +2,8 @@ import type { TaskEvent } from "../api";
 import { thinkTail } from "./streamText";
 
 export type DiscoveryProcessKind =
+  | "conditions"
+  | "filtered"
   | "queued"
   | "search"
   | "collecting"
@@ -20,6 +22,8 @@ export type DiscoveryProcessStep = {
   id: string;
   kind: DiscoveryProcessKind;
   label: string;
+  /** Count parsed from this persisted collector event, not inferred from a display string. */
+  count?: number;
   /** Backend event time, absent when the event does not carry a usable timestamp. */
   time?: string;
 };
@@ -76,6 +80,7 @@ function eventCount(event: TaskEvent): number | null {
     "collected_count", "fetched_count", "creator_count", "profile_count",
   ];
   for (const key of keys) {
+    if (event[key] == null || event[key] === "") continue;
     const value = Number(event[key]);
     if (Number.isFinite(value) && value >= 0) return value;
   }
@@ -107,6 +112,15 @@ export function discoveryEventCopy(event: TaskEvent): DiscoveryProcessStep | nul
   const blob = eventBlob(event);
   const count = eventCount(event);
   const id = String(event.id || event.type || event.status || event.label || Math.random());
+  if (type === "discovery.conditions_confirmed") {
+    return { id, kind: "conditions", label: "检索条件已确认" };
+  }
+  if (type === "discovery.filtered") {
+    return { id, kind: "filtered", label: String(event.summary || event.label || "候选已按条件筛选") };
+  }
+  if (/stopped|已停止|已取消/.test(blob)) {
+    return { id, kind: "stopped", label: "采集已停止" };
+  }
   if (FAILED_TYPES.test(blob) && !/dedup/.test(blob)) {
     const reason = String(event.message || event.summary || event.label || event.title || "").trim();
     return {
@@ -114,9 +128,6 @@ export function discoveryEventCopy(event: TaskEvent): DiscoveryProcessStep | nul
       kind: "failed",
       label: reason ? `失败原因：${reason}` : "失败原因：检索没有完成",
     };
-  }
-  if (/stopped|已停止|已取消/.test(blob)) {
-    return { id, kind: "stopped", label: "采集已停止" };
   }
   // 采集服务的操作行（「去重并写入达人库…」）——先认出来，别被下面的去重口径吃掉。
   if (/crawl[._]operation/.test(blob)) {
@@ -188,7 +199,12 @@ export function presentDiscoveryEvents(events: TaskEvent[]): DiscoveryProcessSte
     const key = `${step.kind}:${step.label}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    steps.push({ ...step, ...(eventTime(event) ? { time: eventTime(event) } : {}) });
+    steps.push({
+      ...step,
+      ...(["collecting", "received"].includes(step.kind) && eventCount(event) != null
+        ? { count: eventCount(event)! } : {}),
+      ...(eventTime(event) ? { time: eventTime(event) } : {}),
+    });
     // A collector/brief failure is terminal for this run. Later asynchronous
     // trace writes must not be painted as successful follow-up milestones.
     if (step.kind === "failed" || step.kind === "stopped") break;

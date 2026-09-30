@@ -63,6 +63,7 @@ export default function DiscoveryWorkspace({
           : disc.stage === "running" ? "running"
             : disc.stage === "success" ? "completed" : "idle",
         version: disc.run?.id,
+        // The run timestamp belongs to the center summary, not a duplicate right-rail banner.
         freshness: disc.run?.memory_validity === "stale"
           ? "stale"
           : disc.stage === "success"
@@ -91,8 +92,11 @@ export default function DiscoveryWorkspace({
           ) : null}
           {!disc.cardVisible || disc.steps.length ? (
             <DiscoveryProcessPanel
+              run={disc.run}
               stage={disc.stage}
               steps={disc.steps}
+              think={disc.think}
+              reviewCount={disc.candidates.filter((row) => row.ingestReadiness === "needs_review").length}
               inFlight={disc.inFlight}
               hasResults={disc.visible.length > 0}
               cardVisible={disc.cardVisible}
