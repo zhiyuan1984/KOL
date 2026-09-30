@@ -15386,3 +15386,72 @@ button.today-brief-primary-btn:disabled {
 .scope-task-rail.is-collapsed .scope-task-rail-toggle-icon {
   flex: 0 0 auto;
 }
+
+/* 跟进名单工具区：找谁与排序在第一行，全选和批量动作固定在第二行左侧。 */
+.followed-kol-column .followed-object-toolbar {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+.followed-kol-column .followed-object-look {
+  width: 100%;
+  flex: 0 1 auto;
+}
+.followed-kol-column .followed-object-batch {
+  width: 100%;
+  margin-left: 0;
+  justify-content: flex-start;
+}
+.followed-kol-column .followed-object-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: var(--control-h-lg);
+  padding: 2px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-control);
+  background: var(--bg);
+}
+.followed-kol-column .followed-sort-option,
+.followed-kol-column .followed-sort-switch {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--ds-font-sm);
+  cursor: pointer;
+}
+.followed-kol-column .followed-sort-option {
+  min-height: calc(var(--control-h-lg) - 6px);
+  padding: 0 8px;
+  border-radius: calc(var(--radius-control) - 2px);
+  white-space: nowrap;
+}
+.followed-kol-column .followed-sort-option[aria-pressed="true"] {
+  background: var(--ds-selected-bg);
+  color: var(--text);
+  font-weight: 600;
+}
+.followed-kol-column .followed-sort-switch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--accent-text);
+}
+.followed-kol-column .followed-sort-switch:hover,
+.followed-kol-column .followed-sort-switch:focus-visible {
+  background: var(--ds-surface-hover);
+  border-radius: 50%;
+}
+.followed-kol-column .followed-sort-switch svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}

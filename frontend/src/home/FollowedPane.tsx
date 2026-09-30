@@ -181,18 +181,38 @@ export default function FollowedPane({
             <span className="followed-object-count" data-followed-object-count>
               目前跟进了 {allCards.length} 位
             </span>
-            <label className="followed-object-sort">
-              <span className="sr-only">跟进对象排序</span>
-              <select
-                aria-label="跟进对象排序"
-                data-followed-sort
-                value={sort}
-                onChange={(event) => onSort(event.target.value as KolSortMode)}
+            <div className="followed-object-sort" data-followed-sort role="group" aria-label="跟进对象排序">
+              <button
+                type="button"
+                className="followed-sort-option"
+                data-followed-sort-option="followers"
+                aria-pressed={sort === "followers"}
+                onClick={() => onSort("followers")}
               >
-                <option value="followers">粉丝数</option>
-                <option value="time">时间</option>
-              </select>
-            </label>
+                粉丝数
+              </button>
+              <button
+                type="button"
+                className="followed-sort-switch"
+                data-followed-sort-switch
+                aria-label={sort === "followers" ? "切换为按时间排序" : "切换为按粉丝数排序"}
+                title={sort === "followers" ? "切换为按时间排序" : "切换为按粉丝数排序"}
+                onClick={() => onSort(sort === "followers" ? "time" : "followers")}
+              >
+                <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                  <path d="M5 2v10M5 12l-2-2m2 2 2-2M11 14V4m0 0 2 2m-2-2L9 6" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                className="followed-sort-option"
+                data-followed-sort-option="time"
+                aria-pressed={sort === "time"}
+                onClick={() => onSort("time")}
+              >
+                时间
+              </button>
+            </div>
           </div>
           <div className="followed-object-batch" data-followed-object-batch>
             <label className="followed-select-all">
