@@ -196,6 +196,10 @@ export function useFollowedWorkspace(options: {
     // merged. This prevents a false "暂无" flash for existing collaborations.
     reconcileSeq.current += 1;
     const seq = reconcileSeq.current;
+    // Do not paint the previous visit's result page while this entry is being
+    // refreshed. The fresh local/board snapshot will repopulate rows below.
+    setRows([]);
+    setReadsDone(0);
     setError("");
     setCompleteness("loading-local");
     const board = loadBoard("following");
