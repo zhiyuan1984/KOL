@@ -27,10 +27,12 @@ function primaryFinding(input: {
   if (input.failure) {
     return input.failure.kind === "generic" ? "检索没有完成，可稍后重试。" : input.failure.message;
   }
+  if (input.emptyKind === "down") {
+    return "发现服务当前不可用，本次任务尚未启动，因此没有采集、筛选或排序结果。已有输入会保留，可稍后重试。";
+  }
   if (input.inFlight) return "AI 正在按已确认的条件检索、去重并排序；完成后结果会自动出现。";
   if (input.visibleCount > 0) return `已得到 ${input.visibleCount} 条可复核线索，可查看匹配依据后再选择入库。`;
   if (input.run && input.emptyKind === "filtered") return input.emptyMessage;
-  if (input.emptyKind === "down") return input.emptyMessage;
   return "填写条件并提交后，AI 会在这里汇总发现结果与下一步建议。";
 }
 
@@ -71,8 +73,22 @@ export default function DiscoveryAiSummary({
         : emptyKind === "down"
           ? "服务不可用"
           : "等待发现";
-  const headline = failure?.title || (run ? runHeadline(run) : inFlight ? "正在发现红人线索" : "尚未开始发现");
-  const counts = run ? runCountsLabel(run, visibleCount) : visibleCount ? `入围 ${visibleCount}` : "尚无结果";
+  const headline = failure?.title || (
+    run
+      ? runHeadline(run)
+      : emptyKind === "down"
+        ? "暂时无法开始发现红人"
+        : inFlight
+          ? "正在发现红人线索"
+          : "准备发现红人线索"
+  );
+  const counts = run
+    ? runCountsLabel(run, visibleCount)
+    : visibleCount
+      ? `入围 ${visibleCount}`
+      : emptyKind === "down"
+        ? "检索尚未开始"
+        : "尚未开始";
   const tone = failure || emptyKind === "down" ? "warning" : inFlight ? "running" : visibleCount ? "ready" : "idle";
 
   return (
@@ -91,6 +107,13 @@ export default function DiscoveryAiSummary({
         {run?.memory_validity === "stale" ? <span data-discovery-memory-validity="stale">来源已变化</span> : null}
       </div>
       <p data-discovery-primary-finding>{primaryFinding({ run, visibleCount, inFlight, failure, emptyKind, emptyMessage })}</p>
+      {emptyKind === "down" && !failure ? (
+        <dl className="discovery-ai-summary-facts" data-discovery-service-state>
+          <div><dt>任务状态</dt><dd>未启动</dd></div>
+          <div><dt>采集与筛选</dt><dd>尚未开始</dd></div>
+          <div><dt>输入条件</dt><dd>已保留</dd></div>
+        </dl>
+      ) : null}
       {failure ? (
         <div className="discovery-ai-summary-actions" data-discovery-failure-actions>
           {onRetry ? (
@@ -126,6 +149,20 @@ export default function DiscoveryAiSummary({
               ) : null}
             </div>
           </details>
+        </div>
+      ) : null}
+      {emptyKind === "down" && !failure ? (
+        <div className="discovery-ai-summary-actions" data-discovery-service-actions>
+          {onRetry ? (
+            <button type="button" className="btn work sm" data-discovery-retry data-home-entry="retry-discovery-run" disabled={retryBusy} onClick={onRetry}>
+              {retryBusy ? "重试中…" : "重新尝试"}
+            </button>
+          ) : null}
+          {onCheckConnection ? (
+            <button type="button" className="btn ghost sm" data-discovery-check-connection onClick={onCheckConnection}>
+              检查服务
+            </button>
+          ) : null}
         </div>
       ) : null}
     </section>

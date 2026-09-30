@@ -971,6 +971,11 @@ test("service-down and filtered empty states stay honest", async ({ page }) => {
   }));
   await openDiscovery(page);
   await expect(page.locator("[data-discovery-ai-summary]")).toContainText("服务不可用");
+  await expect(page.locator("[data-discovery-headline]")).toHaveText("暂时无法开始发现红人");
+  await expect(page.locator("[data-discovery-counts]")).toHaveText("检索尚未开始");
+  await expect(page.locator("[data-discovery-primary-finding]")).toContainText("本次任务尚未启动");
+  await expect(page.locator("[data-discovery-service-state]")).toContainText("输入条件已保留");
+  await expect(page.locator("[data-discovery-service-actions] [data-discovery-retry]")).toHaveText("重新尝试");
   await expect(page.locator("[data-discovery-empty='down']")).toHaveCount(0);
   await expect(page.locator("[data-discovery-panel]")).not.toContainText("没有红人线索");
   await expect(page.locator("[data-discovery-plan='connection']")).toBeVisible();

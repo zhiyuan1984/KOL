@@ -55,9 +55,15 @@ function buildPlan(input: {
   }
   if (input.emptyKind === "down") {
     return [{
+      id: "retry",
+      title: "服务恢复后重新尝试",
+      detail: "本次任务尚未启动，已有筛选条件会保留；重新尝试不会使用空结果代替检索。",
+      actionLabel: "重新尝试",
+      action: input.onRetry,
+    }, {
       id: "connection",
       title: "检查采集服务",
-      detail: "发现结果暂不可读取；先恢复连接，再继续查看或提交条件。",
+      detail: "确认发现服务是否已恢复，再开始本次检索。",
       actionLabel: input.checkingConnection ? "检查中…" : "检查连接",
       action: input.onCheckConnection,
     }];
