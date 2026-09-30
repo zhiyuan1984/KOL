@@ -63,8 +63,6 @@ export default function DiscoveryWorkspace({
           : disc.stage === "running" ? "running"
             : disc.stage === "success" ? "completed" : "idle",
         version: disc.run?.id,
-        sourceLabel: disc.run ? "发现运行" : undefined,
-        updatedAt: disc.run?.completed_at || disc.run?.created_at || undefined,
         freshness: disc.run?.memory_validity === "stale"
           ? "stale"
           : disc.stage === "success"
@@ -95,7 +93,6 @@ export default function DiscoveryWorkspace({
             <DiscoveryProcessPanel
               stage={disc.stage}
               steps={disc.steps}
-              think={disc.think}
               inFlight={disc.inFlight}
               hasResults={disc.visible.length > 0}
               cardVisible={disc.cardVisible}

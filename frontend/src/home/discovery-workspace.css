@@ -146,6 +146,15 @@
   font-size: var(--ds-font-sm);
   color: var(--text-muted);
 }
+.discovery-business-summary {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: var(--ds-font-sm);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.discovery-business-summary strong { margin-right: 8px; color: var(--text); font-weight: 600; }
+.discovery-business-summary.is-failed { color: var(--danger); }
 @media (prefers-reduced-motion: reduce) {
   .discovery-stream-spinner,
   .discovery-think.is-streaming,
@@ -506,6 +515,15 @@
 .discovery-ai-summary-freshness { padding-top: var(--space-2); border-top: 1px solid var(--border); }
 .discovery-ai-summary-contract details { color: var(--text-muted); font-size: var(--ds-font-helper); }
 .discovery-ai-summary-contract details p { margin: 6px 0 0; }
+.discovery-ai-summary-single-line {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-ui);
+  overflow-wrap: anywhere;
+}
+.discovery-ai-summary-single-line strong { color: var(--color-success-vivid); }
+.discovery-result-detail-hint { color: var(--text-muted); font-size: var(--ds-font-sm); font-weight: 400; }
 .discovery-ai-summary-actions {
   display: flex;
   align-items: center;
