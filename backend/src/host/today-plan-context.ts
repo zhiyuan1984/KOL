@@ -13,6 +13,7 @@ import {
   type ScopeConfig,
 } from "./planning-types.js";
 import { threadsByCollaborationIds } from "../starrykol/mail-sync.js";
+import { normalizeStage } from "../stages.js";
 
 export {
   briefPointerTable,
@@ -97,6 +98,12 @@ export type TodayPlanPack = {
     correspondence: number;
     follow_timers: number;
     anomalies: number;
+  };
+  stage_counts: {
+    greet: number;
+    follow: number;
+    quote: number;
+    negotiate: number;
   };
   source_cursor: SourceCursor;
   catalog: SourceItem[];
@@ -377,6 +384,20 @@ const CATALOG_FILTERS: Record<PlanScope, (catalog: SourceItem[]) => SourceItem[]
   todo: filterTodoCatalog,
 };
 
+/** Four actionable cooperation stages from the creator_daily_tasks Skill. */
+export function collectStageCounts(): TodayPlanPack["stage_counts"] {
+  const counts = { greet: 0, follow: 0, quote: 0, negotiate: 0 };
+  const rows = getConn().prepare("SELECT stage_code FROM collaborations").all() as Row[];
+  for (const row of rows) {
+    const stage = normalizeStage(String(row.stage_code || ""));
+    if (stage === "INITIAL_CONTACT") counts.greet += 1;
+    else if (stage === "INTERESTED") counts.follow += 1;
+    else if (stage === "QUOTE_PENDING") counts.quote += 1;
+    else if (stage === "NEGOTIATING") counts.negotiate += 1;
+  }
+  return counts;
+}
+
 export function collectSourceCatalog(owner = ownerId(), scope: PlanScope = "today"): SourceItem[] {
   const formal = collectFormalTasks(owner);
   const discovery = collectDiscoveryAnomalies(owner);
@@ -483,6 +504,7 @@ export function packTodayPlanContext(owner = ownerId(), scope: PlanScope = "toda
       follow_timers: catalog.filter((item) => item.kind === "follow_timer").length,
       anomalies: catalog.filter((item) => item.kind === "anomaly").length,
     },
+    stage_counts: collectStageCounts(),
     source_cursor: diff.cursor,
     catalog,
   };

@@ -378,7 +378,8 @@ export type TodoLayoutItem = {
 
 export type TodayBrief = {
   lead?: string;
-  stats?: Record<string, number | string>;
+  stats?: Record<string, number | string | Record<string, number>>;
+  stage_counts?: Record<string, number>;
   primary?: TodayBriefPrimary;
   sections?: TodayBriefSection[];
   todo_layout?: TodoLayoutItem[];

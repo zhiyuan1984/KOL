@@ -237,6 +237,13 @@ function hostFastBrief(pack: TodayPlanPack): Json {
   return {
     lead: first ? `先处理 ${first.title || "最高优先级任务"}` : "当前没有需要优先处理的开放任务",
     sections: [{
+      title: "合作阶段任务",
+      body: `待打招呼 ${pack.stage_counts.greet} · 待跟进 ${pack.stage_counts.follow} · 待报价 ${pack.stage_counts.quote} · 谈判中 ${pack.stage_counts.negotiate}`,
+      items: [
+        `今日视图 ${formal.filter((item) => isTodayWorkItem(item)).length} 项`,
+        `待办视图 ${formal.filter((item) => !isTodayWorkItem(item)).length} 项`,
+      ],
+    }, {
       title: "工作计划",
       body: `${formal.length} 项未了结正式任务已按优先级和期限排序。`,
       items: formal.slice(0, 6).map((item) => item.title),
@@ -253,6 +260,9 @@ function hostFastBrief(pack: TodayPlanPack): Json {
       unfinished: formal.length,
       discovery_anomalies: Number(pack.now_counts?.discovery_anomalies || 0),
       failed_runs: Number(pack.now_counts?.failed_runs || 0),
+      today_tasks: formal.filter((item) => isTodayWorkItem(item)).length,
+      todo_tasks: formal.filter((item) => !isTodayWorkItem(item)).length,
+      stage_counts: pack.stage_counts,
     },
     source_cursor: pack.source_cursor,
     increment_summary: `已生成 ${formal.length} 项任务的统一工作计划`,
@@ -290,7 +300,9 @@ export async function executeTodayPlanRun(input: {
       fastMode ? "Host 将直接生成任务视图" : copy.codexSubmitted,
     );
     if (fastMode) {
-      appendTaskEvent(input.workItemId, input.runId, "run.progress", "Host 正在生成统一任务视图", "running", "跳过全量 Codex 列表生成");
+      appendTaskEvent(input.workItemId, input.runId, "run.phase", "读取合作阶段", "running", `待打招呼 ${input.pack.stage_counts.greet} · 待跟进 ${input.pack.stage_counts.follow} · 待报价 ${input.pack.stage_counts.quote} · 谈判中 ${input.pack.stage_counts.negotiate}`);
+      appendTaskEvent(input.workItemId, input.runId, "run.phase", "整理优先级与今日范围", "running", `${input.pack.now_counts.unfinished} 项正式任务，来源增量 ${input.pack.delta.added.length} 项`);
+      appendTaskEvent(input.workItemId, input.runId, "run.phase", "生成统一任务视图", "running", "今日任务与我的待办共享同一份计划结果");
       const brief = withHostDisplayTasks(hostFastBrief(input.pack), input.pack);
       const written = writeTodayBriefArtifact({
         owner: input.owner,
@@ -299,6 +311,7 @@ export async function executeTodayPlanRun(input: {
         brief,
         scope,
       });
+      appendTaskEvent(input.workItemId, input.runId, "run.phase", "校验输出", "running", written.ok ? `${input.pack.now_counts.unfinished} 项任务展示覆盖完整` : written.reason);
       if (!written.ok) {
         markTodayPlanFailed(input.workItemId, input.runId, written.reason);
         trace.finish(true);
@@ -335,6 +348,7 @@ export async function executeTodayPlanRun(input: {
         ? { ...(root.stats as Json) }
         : {};
       if (stats.candidates == null) stats.candidates = input.pack.catalog.length;
+      if (root.stage_counts == null) root.stage_counts = input.pack.stage_counts;
       root.stats = stats;
     }
     const missingCoverage = missingDisplayCoverage(brief, input.pack);
