@@ -37,7 +37,7 @@ homeDiscovery.post("/home/discovery/run", async (c) => {
 
 homeDiscovery.get("/home/discovery/runs", (c) => {
   c.header("Cache-Control", "no-store");
-  return c.json(listHomeDiscoveryRuns());
+  return c.json(listHomeDiscoveryRuns({ limit: c.req.query("limit") }));
 });
 
 homeDiscovery.get("/home/discovery/runs/:id", (c) => {

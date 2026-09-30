@@ -18,6 +18,8 @@ import { rejectDiscoveryHarnessTool } from "../gateway/discovery-harness.js";
 const MODES = new Set(["search", "detail", "creator"]);
 const ACTIVE = new Set(["queued", "crawling", "uploading", "analyzing", "starting", "running", "stopping"]);
 const monitors = new Map<string, ReturnType<typeof setTimeout>>();
+/** Poll count per job, for the monitor backoff. Reset when a job settles. */
+const monitorAttempts = new Map<string, number>();
 let clientFactory: () => Pick<RemoteMcpClient, "callTool" | "close"> = () => new RemoteMcpClient();
 /** Discovery (and other hosts) subscribe to crawl settle without importing crawl internals. */
 export function onCrawlJobSettled(handler: (job: Row) => void): void {
@@ -46,6 +48,7 @@ function notifySettled(jobId: string): void {
 function clearMonitors(): void {
   for (const timer of monitors.values()) clearTimeout(timer);
   monitors.clear();
+  monitorAttempts.clear();
 }
 
 onConnReset(clearMonitors);
@@ -297,17 +300,57 @@ function normalizedActiveStatus(status: string): string {
   return "crawling";
 }
 
+/**
+ * Monitoring is a bounded activity. One remote task that never reported a
+ * terminal status used to be polled every 2 s for four days, writing an
+ * `crawl.operation` / `crawl.status` pair per poll and leaving 415k rows
+ * behind. The remote's own task timeout is 30 min, so 2 h is generous.
+ */
+function monitorMaxMs(): number {
+  const n = Number(process.env.MEDIACRAWLER_MONITOR_MAX_MS || String(2 * 60 * 60 * 1000));
+  return Number.isFinite(n) && n > 0 ? n : 2 * 60 * 60 * 1000;
+}
+
+function pollIntervalMs(): number {
+  const n = Number(process.env.MEDIACRAWLER_POLL_INTERVAL_MS || 2000);
+  return Number.isFinite(n) && n > 0 ? Math.max(100, n) : 2000;
+}
+
+/** Gentle backoff: a slow crawl stays responsive, a stuck one stops churning events. */
+function monitorBackoffMs(attempt: number): number {
+  const base = pollIntervalMs();
+  return Math.min(base * 2 ** Math.min(attempt, 5), 10_000);
+}
+
 function scheduleMonitor(jobId: string): void {
   if (monitors.has(jobId)) return;
-  const interval = Math.max(100, Number(process.env.MEDIACRAWLER_POLL_INTERVAL_MS || 2000));
+  const attempt = monitorAttempts.get(jobId) || 0;
   const timer = setTimeout(async () => {
     monitors.delete(jobId);
+    monitorAttempts.set(jobId, attempt + 1);
+    const job = getConn().prepare(
+      "SELECT status,started_at,created_at FROM crawl_jobs WHERE id=?",
+    ).get(jobId) as { status: string; started_at?: string | null; created_at?: string | null } | undefined;
+    if (!job || !ACTIVE.has(String(job.status))) {
+      monitorAttempts.delete(jobId);
+      return;
+    }
+    const since = Date.parse(String(job.started_at || job.created_at || ""));
+    if (Number.isFinite(since) && Date.now() - since > monitorMaxMs()) {
+      monitorAttempts.delete(jobId);
+      failJob(jobId, "远程采集长时间没有结束，已停止监控。");
+      return;
+    }
     await monitorCrawlJob(jobId).catch(() => undefined);
     const current = getConn().prepare("SELECT status FROM crawl_jobs WHERE id=?").get(jobId) as
       | { status: string }
       | undefined;
-    if (current && ACTIVE.has(current.status)) scheduleMonitor(jobId);
-  }, interval);
+    if (current && ACTIVE.has(current.status)) {
+      scheduleMonitor(jobId);
+    } else {
+      monitorAttempts.delete(jobId);
+    }
+  }, monitorBackoffMs(attempt));
   timer.unref?.();
   monitors.set(jobId, timer);
 }

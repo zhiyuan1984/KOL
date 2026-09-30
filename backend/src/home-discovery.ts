@@ -580,21 +580,45 @@ function discoveryStatusContract(row: Row, spec: DiscoverySpec, candidateCount: 
   };
 }
 
-function publicRun(row: Row): Json {
+/** Newest events kept on a run payload. The full stream lives under GET /api/tasks/:id/events. */
+const RUN_EVENT_LIMIT = 200;
+/** The runs list carries counts only: N runs × 200 events was 128 MB once. */
+const RUN_LIST_EVENT_LIMIT = 0;
+
+/**
+ * A capped tail, returned in chronological order. One crawl job that kept
+ * polling wrote 415k rows, and embedding a work item's whole history in the
+ * list turned a 40-row response into 128 MB.
+ */
+function runEvents(workItemId: string, limit: number): { events: Json[]; eventCount: number } {
+  if (!workItemId) return { events: [], eventCount: 0 };
+  const total = getConn().prepare(
+    "SELECT COUNT(*) AS n FROM task_events WHERE work_item_id=?",
+  ).get(workItemId) as { n: number } | undefined;
+  const eventCount = Number(total?.n || 0);
+  if (limit <= 0) return { events: [], eventCount };
+  const rows = getConn().prepare(
+    `SELECT * FROM (
+       SELECT * FROM task_events WHERE work_item_id=? ORDER BY sequence DESC LIMIT ?
+     ) ORDER BY sequence`,
+  ).all(workItemId, limit) as Row[];
+  return {
+    events: rows.map((item) => ({
+      type: item.event_type,
+      status: item.status,
+      summary: item.safe_summary,
+      created_at: item.time,
+    })),
+    eventCount,
+  };
+}
+
+function publicRun(row: Row, eventLimit: number = RUN_EVENT_LIMIT): Json {
   const spec = specOf(row);
   const searchKeywords = spec.keywords;
   const candidateCount = Number(row.candidate_count || 0);
   const workItemId = row.work_item_id ? String(row.work_item_id) : "";
-  const events = workItemId
-    ? (getConn().prepare(
-        "SELECT * FROM task_events WHERE work_item_id=? ORDER BY sequence",
-      ).all(workItemId) as Row[]).map((item) => ({
-        type: item.event_type,
-        status: item.status,
-        summary: item.safe_summary,
-        created_at: item.time,
-      }))
-    : [];
+  const { events, eventCount } = runEvents(workItemId, eventLimit);
   const status = String(row.status);
   return {
     id: row.id,
@@ -612,6 +636,7 @@ function publicRun(row: Row): Json {
     error: row.error || null,
     brief: briefArtifact(workItemId),
     events,
+    event_count: eventCount,
     created_at: row.created_at,
     started_at: row.started_at,
     updated_at: row.updated_at,
@@ -1138,19 +1163,37 @@ export function restoreActiveHomeDiscoveryRuns(): void {
   }
 }
 
-export function listHomeDiscoveryRuns(): Json {
+/** Page size for the runs list. Without it, one dirty row decides the whole page's weight. */
+const RUN_LIST_DEFAULT_LIMIT = 50;
+const RUN_LIST_MAX_LIMIT = 200;
+
+function runListLimit(raw: unknown): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return RUN_LIST_DEFAULT_LIMIT;
+  return Math.min(Math.floor(n), RUN_LIST_MAX_LIMIT);
+}
+
+export function listHomeDiscoveryRuns(query: { limit?: unknown } = {}): Json {
   registerHomeDiscoveryHook();
   const owner = ownerId();
-  const rows = (isAdmin()
-    ? getConn().prepare("SELECT * FROM discovery_runs WHERE kind=? ORDER BY updated_at DESC").all(HOME_KIND)
-    : getConn().prepare(
-        "SELECT * FROM discovery_runs WHERE kind=? AND owner_user_id=? ORDER BY updated_at DESC",
-      ).all(HOME_KIND, owner)) as Row[];
+  const limit = runListLimit(query.limit);
+  const scope = isAdmin()
+    ? { sql: "kind=?", params: [HOME_KIND] as unknown[] }
+    : { sql: "kind=? AND owner_user_id=?", params: [HOME_KIND, owner] as unknown[] };
+  const total = Number((getConn().prepare(
+    `SELECT COUNT(*) AS n FROM discovery_runs WHERE ${scope.sql}`,
+  ).get(...scope.params) as { n: number } | undefined)?.n || 0);
+  const rows = getConn().prepare(
+    `SELECT * FROM discovery_runs WHERE ${scope.sql} ORDER BY updated_at DESC LIMIT ?`,
+  ).all(...scope.params, limit) as Row[];
   return {
     entry: "memory",
     creates_session: false,
     calls_model: false,
-    runs: rows.map(publicRun),
+    runs: rows.map((row) => publicRun(row, RUN_LIST_EVENT_LIMIT)),
+    total,
+    limit,
+    truncated: total > rows.length,
   };
 }
 
