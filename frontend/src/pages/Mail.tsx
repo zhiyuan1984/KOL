@@ -939,31 +939,6 @@ export default function Mail() {
               );
             })}
             </div>
-            <footer className="mail-list-footer" data-mail-list-footer>
-              {error ? <p className="error" role="alert" data-mail-error>{error}</p> : null}
-              {notice ? <p className="muted" role="status" data-mail-notice>{notice}</p> : null}
-              {workspace?.source === "fallback" ? (
-                <p className="muted" data-mail-fallback>
-                  通讯接口尚未开通，正在用已缓存的跟进往来只读展示。打开会话不会创建 Agent 会话。
-                </p>
-              ) : null}
-              <div className="mail-list-statusbar">
-                <p className="muted mail-hero-meta" data-mail-box>
-                  {box?.synced_at ? `同步 ${formatMailTime(box.synced_at)}` : "尚未收取"}
-                  {` · 未读 ${Number(box?.total_unread ?? box?.unread ?? 0)}`}
-                </p>
-                <button
-                  type="button"
-                  className="mail-list-sync"
-                  data-mail-sync
-                  data-mail-entry="sync-mailbox-mail"
-                  disabled={syncing}
-                  onClick={() => void sync()}
-                >
-                  {syncing ? "正在收取…" : "收取"}
-                </button>
-              </div>
-            </footer>
           </aside>
 
           <section className="mail-interact" data-mail-interact>
@@ -1002,6 +977,31 @@ export default function Mail() {
                 </div>
               </div>
             ) : null}
+            <div className="mail-interact-feedback" data-mail-interact-feedback>
+              {error ? <p className="error" role="alert" data-mail-error>{error}</p> : null}
+              {notice ? <p className="muted" role="status" data-mail-notice>{notice}</p> : null}
+              {workspace?.source === "fallback" ? (
+                <p className="muted" data-mail-fallback>
+                  通讯接口尚未开通，正在用已缓存的跟进往来只读展示。打开会话不会创建 Agent 会话。
+                </p>
+              ) : null}
+              <div className="mail-list-statusbar">
+                <p className="muted mail-hero-meta" data-mail-box>
+                  {box?.synced_at ? `同步 ${formatMailTime(box.synced_at)}` : "尚未收取"}
+                  {` · 未读 ${Number(box?.total_unread ?? box?.unread ?? 0)}`}
+                </p>
+                <button
+                  type="button"
+                  className="mail-list-sync"
+                  data-mail-sync
+                  data-mail-entry="sync-mailbox-mail"
+                  disabled={syncing}
+                  onClick={() => void sync()}
+                >
+                  {syncing ? "正在收取…" : "收取"}
+                </button>
+              </div>
+            </div>
             <div className="mail-interact-dock">
               <ComposerDock
                 variant="workspace"
