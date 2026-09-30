@@ -13390,6 +13390,10 @@ button.today-brief-primary-btn:disabled {
     overscroll-behavior: contain;
     scrollbar-gutter: stable;
   }
+  .home-pane[data-home-workspace] .scope-workspace-center-scroll-content {
+    min-height: 100%;
+    overflow-anchor: none;
+  }
   .home-pane[data-home-workspace] .scope-task-rail {
     height: auto;
     padding-bottom: 16px;
