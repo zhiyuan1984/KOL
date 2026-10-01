@@ -14,6 +14,7 @@ import {
   effectivePlanPhase,
   memoryTasksOf,
   planCacheKey,
+  planCompletedFromEvents,
   planStartEvent,
   restorePlanCache,
   runTodayPlanRefresh,
@@ -513,6 +514,19 @@ describe("runTodayPlanRefresh", () => {
     expect(final.phase).toBe("failed");
     expect(briefCalls).toBe(2);
     expect(effectivePlanPhase("planning", final.events)).toBe("failed");
+  });
+
+  it("treats a completed run as terminal so the header cannot stay 规划中", () => {
+    const live = [{ type: "run.progress", status: "running", title: "正在分析…" }];
+    const done = [
+      { type: "run.progress", status: "done", title: "已读取当前任务记忆" },
+      { type: "run.completed", status: "completed", title: "今日规划已完成" },
+    ];
+    expect(planCompletedFromEvents(live)).toBe(false);
+    expect(effectivePlanPhase("planning", live)).toBe("planning");
+    expect(planCompletedFromEvents(done)).toBe(true);
+    expect(effectivePlanPhase("planning", done)).toBe("refreshed");
+    expect(effectivePlanPhase("loading-memory", done)).toBe("refreshed");
   });
 });
 

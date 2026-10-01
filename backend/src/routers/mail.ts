@@ -18,7 +18,7 @@ import {
   messageRowOf,
   setConversationStarred,
 } from "../host/mail-memory.js";
-import { readPersonDigest } from "../host/mail-memory-job.js";
+import { readPersonDigest, runMailMemoryIncrement } from "../host/mail-memory-job.js";
 import { composeCatalog } from "../skills/email-compose-contract.js";
 import { lastSyncReceipt, startFollowedMailSync } from "../starrykol/mail-sync.js";
 
@@ -107,6 +107,22 @@ mail.get("/mail/person", (c) => {
     digest_source: digest?.source || "",
     digest_generated_at: digest && "generated_at" in digest ? digest.generated_at : null,
   });
+});
+
+/** Explicit user request to run the published local mail memory skills. */
+mail.post("/mail/memory/generate", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { box?: unknown; peer_email?: unknown; conversation_id?: unknown; message_id?: unknown; kind?: unknown };
+  const mailbox = requestedMailbox(String(body.box || ""));
+  const peer = normalizeEmail(String(body.peer_email || ""));
+  if (!mailbox || !peer) throw new HttpFail(400, "box and peer_email are required");
+  const kind = body.kind === "translation" ? "translation" : body.kind === "summary" ? "summary" : "";
+  if (!kind) throw new HttpFail(400, "kind must be summary or translation");
+  const thread = body.conversation_id ? findMailThread(String(body.conversation_id), mailbox) : undefined;
+  if (body.conversation_id && !thread) throw new HttpFail(404, "conversation not found");
+  const messageId = String(body.message_id || "");
+  if (kind === "translation" && !messageId) throw new HttpFail(400, "message_id is required");
+  const stats = await runMailMemoryIncrement(mailbox);
+  return c.json({ ...COMMAND, ok: true, kind, stats, conversation_id: thread ? String(thread.conversation_id) : undefined, message_id: messageId || undefined });
 });
 
 mail.post("/mail/conversations/:id/read", (c) => {

@@ -135,7 +135,7 @@ export type FollowKol = {
   kol_uid: string;
   follow_id?: string;
   collaboration_id?: string;
-  identity: { display: string; platform: string };
+  identity: { display: string; platform: string; avatar_url?: string };
   metrics?: { followers?: string; avg_plays?: string; engagement?: string; engagement_source?: string };
   assessment?: PoolJevAssessment;
   stage: { code: string; label: string };
@@ -488,7 +488,7 @@ export function toFollowKol(row: Record<string, unknown>): FollowKol | null {
       kol_uid: kolUid || handle,
       follow_id: text(row.follow_id) || undefined,
       collaboration_id: text(row.collaboration_id) || undefined,
-      identity: { display: text(identity.display) || (handle ? `@${handle}` : "未指定红人"), platform: text(identity.platform) },
+      identity: { display: text(identity.display) || (handle ? `@${handle}` : "未指定红人"), platform: text(identity.platform), avatar_url: text(row.avatar_url || identity.avatar_url) || undefined },
       metrics: { followers: formatMetric(row.followers), avg_plays: formatMetric(row.avg_plays), engagement: formatMetric(row.engagement), engagement_source: text(row.engagement_source) || undefined },
       assessment: assessmentFromRow(row),
       stage: { code: text(stage.code), label: text(stage.label) || "阶段未知" },
@@ -529,6 +529,7 @@ export function toFollowKol(row: Record<string, unknown>): FollowKol | null {
     identity: {
       display: handle ? `@${handle}` : "未指定红人",
       platform: text(row.platform),
+      avatar_url: text(row.avatar_url || row.avatar || row.profile_image) || undefined,
     },
     metrics: { followers: formatMetric(row.followers), avg_plays: formatMetric(row.avg_plays), engagement: formatMetric(row.engagement), engagement_source: text(row.engagement_source) || undefined },
     assessment: assessmentFromRow(row),
@@ -643,6 +644,7 @@ export function runningBadgeHref(input: {
 
 /** Map B.active follow contract onto the existing followed-kol-card model. */
 export function followKolToRecord(item: FollowKol): {
+  avatar_url?: string;
   id: string;
   handle: string;
   kol_uid: string;
@@ -690,6 +692,7 @@ export function followKolToRecord(item: FollowKol): {
     kol_uid: item.kol_uid,
     follow_id: item.follow_id,
     platform: item.identity.platform,
+    avatar_url: item.identity.avatar_url,
     followers: item.metrics?.followers,
     avg_plays: item.metrics?.avg_plays,
     engagement: item.metrics?.engagement,

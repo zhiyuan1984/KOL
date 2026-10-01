@@ -40,6 +40,7 @@ import { assertStageTransition } from "../stage-transitions-graph.js";
 import type { Intent, Json, Row, SessionStatus, StageTransitionInput, WorkerResult } from "../types.js";
 import { mcpSyncAssistantNote } from "../confirm-stage-feedback.js";
 import { CodexUnavailable } from "../worker/errors.js";
+import { BudgetBlocked } from "../costs.js";
 import { runWorker, type WorkerProgress } from "../worker/runner.js";
 import {
   applyProgress,
@@ -79,6 +80,7 @@ import {
   hasRunAbort,
   isSessionRunning,
   isWriteSkill,
+  listQueue,
   markSessionRunning,
   publicQueue,
   removeQueued,
@@ -558,7 +560,12 @@ function messages(sid: string): Json[] {
 
 type BoundTask = { workItemId: string; runId: string; taskType: string };
 
-function bindTaskMessage(sid: string, body: Json): BoundTask | null {
+/**
+ * Validation only: the run may queue, but nothing has started yet. The state
+ * writes live in `startBoundTask`, so a rejected or queued ask can never look
+ * like it is already running, and no branch can strand the task in `running`.
+ */
+function resolveBoundTask(sid: string, body: Json): BoundTask | null {
   if (!body.work_item_id) {
     if (body.run_id || body.task_type) throw new HttpFail(400, "work_item_id required for task message");
     return null;
@@ -595,16 +602,134 @@ function bindTaskMessage(sid: string, body: Json): BoundTask | null {
     appendTaskEvent(String(item.id), String(run.id), "run.template_changed", "技能模板已更新", "needs_clarification", detail.message);
     throw new HttpFail(409, detail);
   }
+  return { workItemId: String(item.id), runId: String(run.id), taskType };
+}
+
+function boundFromIntent(intent: Intent): BoundTask | null {
+  return intent.extras?.work_item_id && intent.extras?.task_run_id
+    ? {
+        workItemId: String(intent.extras.work_item_id),
+        runId: String(intent.extras.task_run_id),
+        taskType: intent.type,
+      }
+    : null;
+}
+
+/** Execution really begins: mark the run running and record the start event. */
+function startBoundTask(bound: BoundTask | null): boolean {
+  if (!bound) return false;
   const now = nowIso();
-  tx((db) => {
-    db.prepare("UPDATE task_runs SET status='running',started_at=?,error=NULL WHERE id=?").run(now, run.id);
+  const changed = tx((db) => {
+    const run = db.prepare(
+      "UPDATE task_runs SET status='running',started_at=COALESCE(started_at,?),error=NULL WHERE id=? AND work_item_id=? AND status IN ('pending','queued','failed')",
+    ).run(now, bound.runId, bound.workItemId);
     db.prepare(
       "UPDATE work_items SET status='running',started_at=COALESCE(started_at,?),updated_at=?,data_version=data_version+1 WHERE id=?",
-    ).run(now, now, item.id);
+    ).run(now, now, bound.workItemId);
+    return Number(run.changes) > 0;
   });
-  appendTaskEvent(String(item.id), String(run.id), "run.started", "任务开始处理", "running", taskType);
-  audit(user?.id || "demo", "task.run.started", { work_item_id: item.id, run_id: run.id, task_type: taskType });
-  return { workItemId: String(item.id), runId: String(run.id), taskType };
+  if (!changed) return false;
+  appendTaskEvent(bound.workItemId, bound.runId, "run.started", "任务开始处理", "running", bound.taskType);
+  audit(scopedUser()?.id || "demo", "task.run.started", { work_item_id: bound.workItemId, run_id: bound.runId, task_type: bound.taskType });
+  return true;
+}
+
+/** The ask waits behind another run: keep the task open and say so. */
+function queueBoundTask(bound: BoundTask | null): void {
+  if (!bound) return;
+  const now = nowIso();
+  const changed = tx((db) => {
+    const run = db.prepare(
+      "UPDATE task_runs SET status='queued',error=NULL WHERE id=? AND work_item_id=? AND status IN ('pending','failed')",
+    ).run(bound.runId, bound.workItemId);
+    db.prepare(
+      "UPDATE work_items SET status='queued',updated_at=?,data_version=data_version+1 WHERE id=? AND status NOT IN ('completed','cancelled','stopped')",
+    ).run(now, bound.workItemId);
+    return Number(run.changes) > 0;
+  });
+  if (!changed) return;
+  appendTaskEvent(bound.workItemId, bound.runId, "run.queued", "已排队", "queued", "前面还有一项工作正在处理，轮到时自动开始。");
+}
+
+function employeeFailReason(error: unknown): string {
+  if (error instanceof HostReject) {
+    const nested = error.payload.error as Json | undefined;
+    return String(nested?.message || error.message || "需要补充信息");
+  }
+  if (error instanceof HttpFail) return error.message || "请求未通过校验";
+  if (error instanceof Error) return error.message || "执行未开始";
+  if (error && typeof error === "object") {
+    const nested = error as Json;
+    const message = String(nested.message || nested.detail || "").trim();
+    if (message) return message;
+  }
+  const text = String(error ?? "").trim();
+  return text && text !== "[object Object]" ? text : "执行未开始";
+}
+
+/** The run never reached execution: close it honestly instead of leaving it running. */
+function failBoundTask(bound: BoundTask | null, error: unknown): void {
+  if (!bound) return;
+  const message = employeeFailReason(error);
+  const needsInput = error instanceof HostReject && Number(error.statusCode) === 422;
+  const status = needsInput ? "needs_clarification" : "failed";
+  const now = nowIso();
+  const changed = tx((db) => {
+    const run = db.prepare(
+      "UPDATE task_runs SET status='failed',error=?,completed_at=? WHERE id=? AND work_item_id=? AND status IN ('pending','queued','running')",
+    ).run(JSON.stringify({ code: needsInput ? "needs_clarification" : "not_started", message }), now, bound.runId, bound.workItemId);
+    db.prepare(
+      "UPDATE work_items SET status=?,updated_at=?,data_version=data_version+1 WHERE id=? AND status NOT IN ('completed','cancelled','stopped')",
+    ).run(status, now, bound.workItemId);
+    return Number(run.changes) > 0;
+  });
+  if (!changed) return;
+  const summaryMessage = message.replace(/[。．.!！?？；;]+$/u, "");
+  appendTaskEvent(
+    bound.workItemId,
+    bound.runId,
+    needsInput ? "task.clarification" : "run.failed",
+    needsInput ? "还需要补充信息" : "未能开始",
+    status,
+    needsInput ? summaryMessage : `${summaryMessage}。未产生结果；可重新执行。`,
+  );
+  audit(scopedUser()?.id || "demo", "task.run.not_started", { work_item_id: bound.workItemId, run_id: bound.runId, message });
+}
+
+/** Cancelled before any execution: the ask left the queue. */
+function cancelBoundTask(bound: BoundTask | null, summary: string): void {
+  if (!bound) return;
+  const now = nowIso();
+  const changed = tx((db) => {
+    const run = db.prepare(
+      "UPDATE task_runs SET status='cancelled',error=NULL,completed_at=? WHERE id=? AND work_item_id=? AND status IN ('pending','queued','running')",
+    ).run(now, bound.runId, bound.workItemId);
+    db.prepare(
+      "UPDATE work_items SET status='cancelled',completed_at=?,updated_at=?,data_version=data_version+1 WHERE id=? AND status NOT IN ('completed','cancelled','stopped')",
+    ).run(now, now, bound.workItemId);
+    return Number(run.changes) > 0;
+  });
+  if (!changed) return;
+  appendTaskEvent(bound.workItemId, bound.runId, "task.cancelled", "已取消", "cancelled", summary);
+  audit(scopedUser()?.id || "demo", "task.run.cancelled", { work_item_id: bound.workItemId, run_id: bound.runId });
+}
+
+/** The employee stopped the run mid-flight: keep what was produced. */
+function stoppedBoundTask(bound: BoundTask | null): void {
+  if (!bound) return;
+  const now = nowIso();
+  const changed = tx((db) => {
+    const run = db.prepare(
+      "UPDATE task_runs SET status='cancelled',error=?,completed_at=? WHERE id=? AND work_item_id=? AND status='running'",
+    ).run(JSON.stringify({ code: "worker_stopped", message: "已停止生成" }), now, bound.runId, bound.workItemId);
+    db.prepare(
+      "UPDATE work_items SET status='stopped',completed_at=?,updated_at=?,data_version=data_version+1 WHERE id=? AND status IN ('running','in_progress','starting')",
+    ).run(now, now, bound.workItemId);
+    return Number(run.changes) > 0;
+  });
+  if (!changed) return;
+  appendTaskEvent(bound.workItemId, bound.runId, "run.stopped", "已停止生成", "cancelled", "已保留已产生内容；可重新执行。");
+  audit(scopedUser()?.id || "demo", "task.run.stopped", { work_item_id: bound.workItemId, run_id: bound.runId });
 }
 
 function finishBoundTask(bound: BoundTask | null, sid: string, result?: Json, error?: unknown): void {
@@ -672,13 +797,18 @@ function finishBoundTask(bound: BoundTask | null, sid: string, result?: Json, er
     if (isSqliteForeignKeyError(error) || isSqliteClosedError(error)) return;
     throw error;
   }
+  const failureReason = failed
+    ? employeeFailReason(result?.error || error).replace(/[。．.!！?？；;]+$/u, "")
+    : "";
   appendTaskEvent(
     bound.workItemId,
     bound.runId,
     `run.${runStatus}`,
-    failed ? "Task failed" : "Task result ready",
+    failed ? "执行失败" : "结果已生成",
     runStatus,
-    failed ? "Task execution failed; inspect the linked error artifact." : "Task result and artifacts are ready for review.",
+    failed
+      ? `未生成结果：${failureReason || "执行未完成"}。可重新执行。`
+      : "结果与产物已就绪，等待你确认。",
   );
   audit(scopedUser()?.id || "demo", `task.run.${runStatus}`, {
     work_item_id: bound.workItemId,
@@ -925,18 +1055,20 @@ function sessionsEpoch(): string {
 }
 
 function runInBackground(sid: string, me: Json, intent: Intent, col: Row | null, text: string): void {
-  const bound = intent.extras?.work_item_id && intent.extras?.task_run_id
-    ? {
-        workItemId: String(intent.extras.work_item_id),
-        runId: String(intent.extras.task_run_id),
-        taskType: intent.type,
-      }
-    : null;
+  const bound = boundFromIntent(intent);
   if (!markSessionRunning(sid)) {
+    // The session was claimed (or stopped) between the route check and now:
+    // queue the ask so its bound task keeps an honest「已排队」state.
+    if (bound) {
+      if (wasSessionStopped(sid)) cancelBoundTask(bound, "会话已停止，未执行。");
+      else queueBoundTask(bound);
+    }
+    if (!wasSessionStopped(sid)) enqueueAsk(sid, { text, intent, me });
     publishSession(sid, { type: "status", agent_status: sessionStatus(sid) });
     publishQueue(sid);
     return;
   }
+  startBoundTask(bound);
   let progress: Json;
   let trace: Json;
   let operations: Json;
@@ -957,6 +1089,7 @@ function runInBackground(sid: string, me: Json, intent: Intent, col: Row | null,
     });
   } catch (error) {
     clearSessionRunning(sid);
+    finishBoundTask(bound, sid, undefined, error);
     if (isSessionNotFound(error)) return;
     throw error;
   }
@@ -1062,7 +1195,7 @@ function runInBackground(sid: string, me: Json, intent: Intent, col: Row | null,
       }
       const stopped = wasSessionStopped(sid) || (e instanceof Error && e.name === "WorkerStopped");
       if (stopped) {
-        finishBoundTask(bound, sid, {});
+        stoppedBoundTask(bound);
         processItems = finishProcessItems(processItems, false);
         publishTrace(true);
         publishOperations(false);
@@ -1073,6 +1206,10 @@ function runInBackground(sid: string, me: Json, intent: Intent, col: Row | null,
       processItems = finishProcessItems(processItems, true);
       publishTrace(true);
       publishOperations(false);
+      if (e instanceof BudgetBlocked) {
+        updateMsg(progressId, { status: "failed", text: e.message });
+        return;
+      }
       if (e instanceof CodexUnavailable) {
         updateMsg(progressId, {
           status: "failed",
@@ -1740,6 +1877,9 @@ async function execWorker(sid: string, skill: string, text: string, extra: Json)
       throw Object.assign(new Error("已停止生成"), { name: "WorkerStopped" });
     }
     if (ownedSink) finishWorkerTrace(sid, true);
+    if (e instanceof BudgetBlocked) {
+      addMsg(sid, "assistant", "error_card", { ...e.asDict(), persistent: true });
+    }
     if (e instanceof CodexUnavailable) {
       addMsg(sid, "assistant", "error_card", { ...e.asDict(), persistent: true });
       audit("host", "codex.unavailable", {
@@ -1756,7 +1896,7 @@ async function execWorker(sid: string, skill: string, text: string, extra: Json)
   }
 }
 
-function unavailableOk(sid: string, me: Json, intent: Intent, e: CodexUnavailable): Json {
+function unavailableOk(sid: string, me: Json, intent: Intent, e: { asDict(): Json }): Json {
   return ok(sid, me, intent, { worker: null, draft: null, error: e.asDict() });
 }
 
@@ -2365,6 +2505,10 @@ async function runWorkerFlow(sid: string, me: Json, intent: Intent, col: Row | n
     }
     return mapped;
   } catch (e) {
+    if (e instanceof BudgetBlocked) {
+      if (intent.type === "business_approval") return handleExpenseApproval(sid, me, intent, text);
+      return unavailableOk(sid, me, intent, e);
+    }
     if (e instanceof CodexUnavailable) {
       if (intent.type === "business_approval") return handleExpenseApproval(sid, me, intent, text);
       return unavailableOk(sid, me, intent, e);
@@ -3480,6 +3624,7 @@ host.post("/sessions/:sid/compose-preview", async (c) => {
       }
       throw new CodexUnavailable("Codex 未返回可用邮件草稿，未使用本地模板代替。", "检查 app-server、Skill 和 MCP 后重试。");
     } catch (e) {
+      if (e instanceof BudgetBlocked) throw new HttpFail(429, e.asDict());
       throw e;
     }
   }
@@ -3503,7 +3648,7 @@ host.post("/sessions/:sid/messages", async (c) => {
   if (!agentSubmissionAllowed()) {
     throw new HttpFail(409, { code: "agent_not_published", message: "KOL Agent 尚未发布，员工端暂不可提交", next_action: "等待管理员发布 Agent" });
   }
-  const boundTask = bindTaskMessage(sid, body);
+  const boundTask = resolveBoundTask(sid, body);
   const text = String(body.text || body.content || "").trim();
   const attachments = sanitizeAttachments(body.attachments);
   const pendingResult = lastUnsentResult(messages(sid));
@@ -3565,45 +3710,53 @@ host.post("/sessions/:sid/messages", async (c) => {
       ? { work_item_id: boundTask.workItemId, task_run_id: boundTask.runId }
       : {}),
   };
-  mergeExtractedOntoIntent(intent, {
-    ...extractTaskEntities(text),
-    ...(intent.extras.entities && typeof intent.extras.entities === "object" ? intent.extras.entities as Json : {}),
-  });
-  if (intent.skill && !isSkillGranted(intent.skill)) {
-    throw new HttpFail(400, "未授权该技能");
-  }
-  let col = resolveCollab(intent);
-  // Internal stub runs may receive the generic exception template before the
-  // async library sync has exposed its exception row on the home board. Use
-  // one seeded exception only in that test profile; production requires an
-  // explicit collaboration selected by the user.
-  const exceptionTemplate = intent.extras?.entities
-    && typeof intent.extras.entities === "object"
-    && String((intent.extras.entities as Json).exception_template || "");
-  if (!col && exceptionTemplate && codexMode() === "stub" && authDisabled()) {
-    col = getConn().prepare(
-      "SELECT * FROM collaborations WHERE stage_code IN ('PAUSED','DISPUTED','LOST','REJECTED','CANCELLED') ORDER BY id LIMIT 1",
-    ).get() as Row | undefined || null;
-  }
-  if (col) {
-    intent.collaboration_id = String(col.id);
-    if (!intent.handle) intent.handle = String(col.handle || "");
-  }
-  validateComposeInput(intent, col);
-  if (col && isMailDraftIntent(intent) && !isEmailMcpTask(intent.type) && !intent.extras?.result_revise && !resolveMailTo(col, intent, {}, text)) {
-    throwMailToSupplement(sid, me, intent, col);
-  }
   // Real Codex / Starry KOL MCP may take tens of seconds. Never hold the
   // browser/proxy request open: acknowledge immediately and let GET /sessions/:sid poll.
   const startsWorker = Boolean(intent.needs_worker && intent.type !== "chat");
   const skill = intent.skill || intent.type || "creator_discovery";
-  if (startsWorker) requireTaskAccess(skill);
-  if (isWriteSkill(skill) && isSessionRunning(sid)) {
-    dropOwnMe(me);
-    throw new HttpFail(409, "请先停止当前生成，再确认阶段。");
+  let col: Row | null = null;
+  try {
+    mergeExtractedOntoIntent(intent, {
+      ...extractTaskEntities(text),
+      ...(intent.extras.entities && typeof intent.extras.entities === "object" ? intent.extras.entities as Json : {}),
+    });
+    if (intent.skill && !isSkillGranted(intent.skill)) {
+      throw new HttpFail(400, "未授权该技能");
+    }
+    col = resolveCollab(intent) || null;
+    // Internal stub runs may receive the generic exception template before the
+    // async library sync has exposed its exception row on the home board. Use
+    // one seeded exception only in that test profile; production requires an
+    // explicit collaboration selected by the user.
+    const exceptionTemplate = intent.extras?.entities
+      && typeof intent.extras.entities === "object"
+      && String((intent.extras.entities as Json).exception_template || "");
+    if (!col && exceptionTemplate && codexMode() === "stub" && authDisabled()) {
+      col = getConn().prepare(
+        "SELECT * FROM collaborations WHERE stage_code IN ('PAUSED','DISPUTED','LOST','REJECTED','CANCELLED') ORDER BY id LIMIT 1",
+      ).get() as Row | undefined || null;
+    }
+    if (col) {
+      intent.collaboration_id = String(col.id);
+      if (!intent.handle) intent.handle = String(col.handle || "");
+    }
+    validateComposeInput(intent, col);
+    if (col && isMailDraftIntent(intent) && !isEmailMcpTask(intent.type) && !intent.extras?.result_revise && !resolveMailTo(col, intent, {}, text)) {
+      throwMailToSupplement(sid, me, intent, col);
+    }
+    if (startsWorker) requireTaskAccess(skill);
+    if (isWriteSkill(skill) && isSessionRunning(sid)) {
+      dropOwnMe(me);
+      throw new HttpFail(409, "请先停止当前生成，再确认阶段。");
+    }
+  } catch (e) {
+    // A bound task must never keep looking "running" after its ask was refused.
+    failBoundTask(boundTask, e);
+    throw e;
   }
   if (startsWorker && isSessionRunning(sid)) {
     enqueueAsk(sid, { text, intent, me });
+    queueBoundTask(boundTask);
     publishQueue(sid);
     return c.json({
       ...ok(sid, me, intent),
@@ -3614,6 +3767,7 @@ host.post("/sessions/:sid/messages", async (c) => {
     }, 202);
   }
   if (startsWorker && wasSessionStopped(sid)) {
+    cancelBoundTask(boundTask, "会话已停止，未执行。");
     return c.json({
       ...ok(sid, me, intent),
       accepted: true,
@@ -3633,6 +3787,8 @@ host.post("/sessions/:sid/messages", async (c) => {
   }
   try {
     if (startsWorker && !markSessionRunning(sid)) {
+      if (wasSessionStopped(sid)) cancelBoundTask(boundTask, "会话已停止，未执行。");
+      else failBoundTask(boundTask, "会话正在执行其他工作，未能开始；请稍后重试");
       return c.json({
         ...ok(sid, me, intent),
         accepted: true,
@@ -3641,12 +3797,13 @@ host.post("/sessions/:sid/messages", async (c) => {
         run_queue: publicQueue(sid),
       });
     }
+    startBoundTask(boundTask);
     const result = await dispatch(sid, me, intent, col, text);
     finishBoundTask(boundTask, sid, result);
     return c.json(result);
   } catch (e) {
     if (e instanceof Error && e.name === "WorkerStopped") {
-      finishBoundTask(boundTask, sid, {});
+      stoppedBoundTask(boundTask);
       return c.json({
         ...ok(sid, me, intent),
         accepted: true,
@@ -3655,7 +3812,7 @@ host.post("/sessions/:sid/messages", async (c) => {
         run_queue: publicQueue(sid),
       });
     }
-    if (e instanceof CodexUnavailable) {
+    if (e instanceof BudgetBlocked || e instanceof CodexUnavailable) {
       const result = unavailableOk(sid, me, intent, e);
       finishBoundTask(boundTask, sid, result);
       return c.json(result);
@@ -3696,7 +3853,9 @@ host.delete("/sessions/:sid/queue/:qid", (c) => {
   const sid = c.req.param("sid");
   sessionRow(sid);
   const qid = c.req.param("qid");
-  if (!removeQueued(sid, qid)) throw new HttpFail(404, "队列中没有这条任务");
+  const queued = listQueue(sid).find((item) => item.id === qid);
+  if (!queued || !removeQueued(sid, qid)) throw new HttpFail(404, "队列中没有这条任务");
+  cancelBoundTask(boundFromIntent(queued.intent), "已从队列移出，未执行。");
   publishQueue(sid);
   return c.json({ ok: true, run_queue: publicQueue(sid) });
 });

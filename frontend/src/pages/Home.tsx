@@ -1980,6 +1980,7 @@ export default function Home() {
       {busy && !feedback && !err && !queuedNotice ? (
         <section className="creation-feedback" data-kind="recognizing" data-creation-feedback data-wait-status="识别中" role="status" aria-busy="true">
           <strong>识别中</strong>
+          <p className="recognize-subject">已收到你的请求。</p>
           <StreamingLines lines={RECOGNIZE_WAIT_LINES} seconds={recognizeSeconds} />
           {recognizeOverdue ? (
             <p data-recognize-timeout>{RECOGNIZE_WAIT_OVERDUE}</p>
@@ -2268,6 +2269,8 @@ export default function Home() {
                 <FollowedPane
                   visibleKols={followedWorkspace.visibleCards}
                   allCards={followedWorkspace.cards}
+                  sortMode={followedWorkspace.sortMode}
+                  unreadOnly={followedWorkspace.unreadOnly}
                   kolQuery={followedWorkspace.query}
                   stageFilter={followedWorkspace.stageFilter}
                   situation={followedWorkspace.situation}
@@ -2286,6 +2289,10 @@ export default function Home() {
                   onStageFilter={followedWorkspace.setStageFilter}
                   onSituation={followedWorkspace.setSituation}
                   onHover={followedWorkspace.setHoveredId}
+                  onSort={followedWorkspace.setSortMode}
+                  onUnreadOnly={followedWorkspace.setUnreadOnly}
+                  onRefreshMail={() => void retrySurface("following")}
+                  refreshMailBusy={retryingSurface === "following"}
                   onFocus={followedWorkspace.setFocusedId}
                   onToggleSelect={toggleSelectedKol}
                   onToggleSelectAll={toggleSelectAllKols}

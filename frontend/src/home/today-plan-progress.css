@@ -301,6 +301,28 @@
   50% { border-left-color: var(--plan-accent); }
 }
 
+/* 模型写下的业务分析（brief.reasoning）：真实产出，带完成时刻，不随过程折叠。 */
+.today-plan-analysis {
+  margin: 8px 0 0 22px;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--plan-accent-soft);
+}
+.today-plan-analysis-label {
+  display: block;
+  font-size: var(--ds-font-helper);
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+.today-plan-analysis-list {
+  margin: 0;
+  padding-left: 1.1em;
+  font-size: var(--ds-font-sm);
+  line-height: 1.6;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
 /* 上一版计划 — folded to one row so versions never stack. */
 .today-plan-previous {
   margin: 0 0 4px;

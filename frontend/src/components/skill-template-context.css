@@ -121,6 +121,23 @@
   margin: 0 auto;
 }
 
+/* 任务开始后，技能契约收成一条可展开的「技能说明」；真实过程才是中栏主角。 */
+.session-skill-template-fold > summary {
+  cursor: pointer;
+  color: var(--accent-text);
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-sm);
+}
+
+.session-skill-template-fold > summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.session-skill-template-fold[open] > summary {
+  margin-bottom: var(--ds-space-2);
+}
+
 .kb-skill-templates {
   margin-bottom: var(--ds-space-3);
 }

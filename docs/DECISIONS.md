@@ -166,6 +166,24 @@
 - **审宪记录**：需求「管理员在控制台完成 配置→平台自动登记工具→技能挂载→启用→识别；不设工具审批界面」→ 主责 平台产品经理 + 后端专家 + UI/UX 专家 + 测试经理 → CONST-03（确定的权限与状态规则由程序执行）、CONST-04（前端不重写规则：推导只住服务端，页面只调用既有接口）、CONST-05（L3 确认与回执不放松；L3 行自动 `enabled=0`）、CONST-08/09（开放项按记录关闭）、CONST-10（验收证据）→ 基本法 `TECHNOLOGY.md` TECH-BE-07 与 ADR-2026-09-27（授权单位＝技能）、`07-mcp-data-contract.md` 工具风险目录、`ia-information-architecture.md`（只动治理面，员工面不变）→ **符合**（执法与 UI 解阻；未改法条；不放宽门禁）→ 下一步：定向测试与 E2E 取证（见验收追加记录）。
 - **限制**：推导为命名家族 + 发布名单的启发式（远端无 annotations，无法从 schema 语义证明无副作用）；名单外的写类工具（如 `updateRiskDefinition`、`batchSaveRiskRules`、`addMailbox`）保守落 L2，需要更严时把名字加入 `config/connector-risk-floor.json`（该资产按发布纪律评审）；既有策略行不随推导规则升级回写，需显式覆盖或删除重建。
 
+## ADR-2026-09-29：采纳 paperclip 借鉴——成本与预算、项目/活动承载与数字员工治理增强
+
+- **状态**：已接受（用户 2026-09-29 裁决：成本覆盖至项目层；活动隶属项目；其余按分析建议采纳）。
+- **决定者**：用户（产品发起人）；平台产品经理、智能体产品经理、KOL 业务专家、架构师/后端专家、UI/UX 专家在各自职责范围内落地。
+- **背景**：对 [paperclipai/paperclip](https://github.com/paperclipai/paperclip)（MIT）的 agent / org / cost / project 四块做了借鉴分析。其成本与预算（cost events、按 Agent/项目月汇总、80%/100% 阈值与硬停）、项目承载（项目分组工作项、目标追溯）、Agent 生命周期治理值得借鉴；其 Agent 汇报线 / 自动招聘 / 多运行时与 `domain-objects.md`「Agent 无独立运行时、无专家团 API」、`ia-information-architecture.md`「数字团队保留未实现、禁止假导航」冲突。本仓现状：LLM 成本完全缺失；「项目」为 IA 占位（`/api/projects` 实为 collaborations 视图，`work_items.project_id` 全为 NULL）；Agent 无状态位与暂停恢复；Codex app-server 协议已含 `account/usage/read`（估计用量）与 `threadGoal.tokenBudget`，backend 零引用，本机实测可用。
+- **决定**：
+  1. **成本与预算**：按 paperclip 形状采纳改造——`cost_events`（provider/model/tokens/金额字段预留）+ 按公司 / Agent / 项目汇总 + 月预算 + 80% 警示 / 100% 硬停。用量唯一来源＝本仓 Codex app-server `account/usage/read`（估计值，事件须标注来源）；金额换算只在有版本化价格来源时提供，缺价格只显示 tokens；硬停是**运行前程序闸门**，不采纳 paperclip「Agent 自查预算」的软约束（CONST-03）。
+  2. **成本覆盖到项目层**：`cost_events.project_id` 预留，按项目汇总随 Phase 2（项目实体）交付。
+  3. **项目/活动**：活动隶属项目；KOL 业务语义由 KOL 业务专家补入 `BUSINESS.md`（BIZ-19），平台按 PROD-PLAT-03 承载；口径未发布前保持明示占位（禁止假完成）。
+  4. **数字员工/Agent 治理增强**（Agent 状态位、暂停/恢复、组织 × 数字员工只读归属视图）采纳，属治理面，Phase 3。
+  5. **不采纳（记档）**：Agent 汇报线 / 组织树 / chain of command、自动招聘审批、多运行时适配器（BYOA）、workspaces / 插件 / 公司导入导出；如未来立项须先修订 PRODUCT 与 `ia-information-architecture.md`。
+- **理由**：① 成本是当前最大缺口，且协议原生数据源可实测、不必造假（CONST-10）；② 项目的可配置承载与「活动隶属项目」贴合 BIZ-01「公司 + 品牌 + 活动 + KOL」与 PROD-PLAT-02「KOL 项目属于业务包」；③ 治理增强落在既有 ia §3「使用 ≠ 治理」与 `/admin/agents` 治理面；④ paperclip 为 MIT，可参考设计与形状，但技术栈不同（Postgres/Drizzle vs 本仓 SQLite/手写 SQL），借概念不复制代码。
+- **影响**：修订 `PRODUCT.md`（PROD-PLAT-02 能力表增补「成本与预算」；新增 PROD-PLAT-08）、`BUSINESS.md`（新增 BIZ-19 项目与活动）、`ia-information-architecture.md`（#11 项目/活动、Admin 问题域、§3 新增成本行）、`org-permissions.md`（管理端信息架构侧栏新增「成本」）。新增设计稿 `superpowers/specs/2026-09-29-cost-and-budget-design.md`、实施计划 `superpowers/plans/2026-09-29-cost-and-budget.md`、实施登记表 `implementation-registry.md`。代码资产：`backend/src/costs.ts`、`backend/src/routers/costs.ts`、`backend/src/db.ts`（两表）、`backend/src/worker/runner.ts`（闸门与采集）、`backend/src/host/api.ts`（错误卡与终态）；前端 `/admin/cost` 与导航。
+- **审宪记录**：需求「借鉴 paperclip 的 agent/org/cost/project 到本项目的智能体与项目能力」→ 主责 平台产品经理（成本能力与治理面）+ KOL 业务专家（项目/活动语义）+ 智能体产品经理（Agent 治理）+ 后端专家/架构师 → CONST-02（业务口径不进内核）/ CONST-03（规则由程序执行）/ CONST-05（不放松发送、阶段、解密、删除闸门）/ CONST-08/09（修法记录）/ CONST-10（不得伪造、缺口如实）→ 基本法与细则：PRODUCT（PLAT-02/03/05 与新增 PLAT-08）、BUSINESS（BIZ-01/17 与新增 BIZ-19）、TECHNOLOGY（TECH-TEST-04 成本监控、TECH-BE-08 追溯）、`ia-information-architecture.md`、`org-permissions.md` → **符合（并补齐规则空白）**：成本能力条目与项目/活动口径随本 ADR 补齐后实施；不触碰 L3 闸门；不新增员工面导航 → 下一步：Phase 1 实施（后端采集 / 闸门 / 接口 + 前端成本治理面）与测试取证（见设计稿与实施计划）。
+- **限制**：Phase 1 仅计量 `runWorker` 主链路（6 个调用点）的用量；辅助 Codex 调用点（邮件摘要、翻译、简报、意图识别等）未计量，登记为已知缺口；金额换算未建（`cost_cents` 恒 NULL）；`account/usage/read` 的 threadUsage 字段语义以真实环境联调为准，缺失按缺口呈现、不得以 0 冒充；「项目/活动」具体字段与状态机属规则空白；管理端侧栏仅新增一条「成本」（数据 / 成本 / 配置），其余文字与顺序不变。
+- **修订（2026-09-29，同日）**：按用户追加要求，成本汇总与预算范围覆盖**员工个人**：`cost_events.user_id`（迁移见 `db.ts` migrateSchema）、汇总新增 `users`、预算 `scope=user`；运行前闸门判定顺序为 公司 → Agent → 员工。同步更新 `PRODUCT.md`（PLAT-08 口径）、`ia-information-architecture.md` §3、设计稿与实施登记表。
+
+
 ## ADR-2026-09-29：按技能声明批量挂载连接器工具，并由服务端状态恢复向导入口步
 
 - **状态**：已接受。
@@ -180,3 +198,36 @@
 - **影响资产**：`backend/src/runtime/skill-coverage.ts`（新增）、`backend/src/runtime/store.ts`（只读聚合）、`backend/src/routers/skill-runtime.ts`（两条路由）、`backend/tests/skill-coverage.test.ts`、`backend/tests/skill-declared-mount.test.ts`（新增）、`frontend/src/admin/connector/ConnectorSetupWizard.tsx`、`frontend/src/admin/connector/ConnectorDetail.tsx`、`frontend/src/admin/connector/useDeclaredToolMount.ts`（新增）、`frontend/src/admin/connector/wizardSteps.ts`（新增）、`frontend/src/components/SkillDeclaredDependencies.tsx`（新增）、`frontend/src/pages/SkillLifecycle.tsx`、`frontend/e2e/skill-coverage.spec.ts`（新增）、`frontend/e2e/connector-admin.spec.ts`、`docs/DESIGN.md`（§连接器设置向导）、`docs/skill-runtime-operations.md`。
 - **审宪记录**：需求「解掉『尚无技能绑定其工具』、扫描规划技能的实现度、按定义默认挂载 Starry KOL 工具、弹窗保留最近状态」→ 主责 平台产品经理 + 后端专家 + UI/UX 专家 → CONST-03、CONST-04、CONST-05、CONST-08、CONST-10 → `BUSINESS.md` 覆盖表与 §技能；`07-mcp-data-contract.md` 工具风险目录、真实调用规则；`DESIGN.md` §连接器控制台 / §连接器设置向导；`TECHNOLOGY.md` 治理接口 → **符合**（只呈现既有事实并给出一个有确认与回执的治理动作；未改启用门禁、未自动启用、未放行 L3）→ 下一步：定向测试 + E2E 取证 + 真机走查。
 - **限制**：技能声明里的遗留名字（`starry.get_collaboration` / `starry.deal_memory` / `starry.list_collaborations`）当前没有对应连接器，扫描会如实标为 `unknown_connector` 并跳过，不在本次补映射；「已上线」只由运行时事实推出，不代表 `BUSINESS.md` 的员工口径已补齐（8 个未登记口径的技能仍由员工端按原文案提示）；扫描不做远端调用，工具是否仍真实存在以连接器详情的一次通过测试为准。
+
+## ADR-2026-09-30：任务运行状态诚实化——开始即执行、终态必达、重启对账
+
+- **状态**：已接受（CONST-08 审查结论：按现行条款修正实现差距，不改法条、不放宽闸门）。
+- **决定者**：后端专家（运行生命周期与对账）；前端专家（状态与过程呈现）；UI/UX 专家（布局、空态与无障碍）；智能体产品经理（排队/执行/失败/恢复的可见性口径）。
+- **背景**：用户报告两个画面：① Home「今日任务」同屏出现「规划完成」与「识别中 / 这次分析有点久」两套口径；② 进入任务会话后 HUD 显示「待命 + 任务开始处理」、任务徽标「进行中」，中栏三张重复的「任务进度」卡停在「任务开始处理」，右栏写着「本轮结果 · 结果 / 本轮结果会出现在这里。中间是处理过程。」。代码级根因：`POST /sessions/:sid/messages` 在任何校验之前就调用绑定函数把运行写成 `running` 并落「任务开始处理」；其后的授权校验、忙时入队、「会话已停止」、进程退出等分支都不收盘，运行永远停在 `running`；队列只存在于进程内存；终态事件文案是英文，前端一律降级成「正在处理这项工作」；每条任务事件各渲染一张「任务进度」卡并自动展开「分析摘要」；HUD、徽标与右栏各算各的状态。
+- **决定**：
+  1. **开始即执行**：绑定拆为「只读校验」（`resolveBoundTask`）与「真正开始时才写 running + run.started」（`startBoundTask`）；忙时入队只写 `queued` +「已排队（轮到时自动开始）」；被拒绝/已停止的请求必须写终态（`run.failed` / `task.cancelled` / `run.stopped`），不再留半启动的运行。
+  2. **终态必达且可读**：终态文案由后端给出中文（「结果已生成，等待你确认」/「执行失败：{原因}」/「已停止生成；已保留已产生内容」）；停止生成落工作项状态 `stopped`，可重新执行。
+  3. **重启对账**：Host 启动时把仍为 `running` 的任务运行按「执行被中断；未产生结果，可重新执行」收尾（`backend/src/host/task-run-recovery.ts`）；`pending`/`queued` 保留为「已排队」。
+  4. **前端单一状态口径**：新增 `frontend/src/runViewState.ts`，RunHud、任务徽标与右栏取同一状态；历史里程碑不再冒充「当前阶段」；「刷新页面不会取消后台执行」只在排队/执行中显示；终态任务给出「重新执行」入口（复用 `POST /tasks/:id/run`）。
+  5. **过程与文案收敛**：任务事件合并为一条「任务进度」（连续重复合并、终态附原因）；「分析摘要」默认折叠；任务开始后技能契约收进「技能说明 · 只读」折叠；右栏去掉「本轮结果 · 结果」重复与解释布局的占位句；Home 等待卡阈值 12s→30s、不再劝「再发一次」（改为「完成后会自动打开任务页，可继续等待」）并标明「已收到你的请求」。
+- **理由**：AGENTS §4「真实等待必须有原因、阶段与恢复入口；不得伪造进度」、TECH-BE-04（异步作业持久化状态/终态/错误/回执）、PROD-AGENT-09（排队/执行/失败/取消可见并给恢复入口）、TECH-FE-01/03、DESIGN.md §不变量 3/4 与 §内容密度；不触碰阶段、审批、发送与解密等 L3 闸门。
+- **影响资产**：`backend/src/host/api.ts`、`backend/src/host/task-run-recovery.ts`（新增）、`backend/src/index.ts`、`backend/tests/task-run-recovery.test.ts`（新增）、`backend/vitest.config.ts`；`frontend/src/runViewState.ts`（新增，含单测）、`frontend/src/pages/Chat.tsx`、`components/{RunHud,SideWorkbench,ChatBlocks}.tsx`、`components/skill-template-context.css`、`hooks/useRunStatus.ts`、`agentUx.ts`、`waitStatus.ts`、`home/recognizeWait.ts`、`pages/Home.tsx`、`frontend/e2e/session-task-run.spec.ts`（新增）；`docs/implementation-registry.md`。
+- **审宪记录**：需求「分析卡死与状态矛盾，并优化过程体验与视觉布局」→ 主责 后端专家 + 前端专家 + UI/UX 专家 → CONST-03（确定的状态规则由程序执行）、CONST-05（确认与回执不放松）、CONST-08/09（记录，不偷改法）、CONST-10（不伪造进度）→ PROD-AGENT-08/09、TECH-FE-01/03、TECH-BE-03/04、`07-mcp-data-contract.md`（真实调用与异步契约）、`DESIGN.md` → **符合** → 下一步：全量回归与真实环境走查。
+- **限制**：队列仍是进程内存态——重启后 `queued` 任务保留「已排队」但需人工重新执行（自动续跑登记为缺口）；「正在打开任务会话…」的交接态未做；里程碑行内时间未展示；`frontend/src/pages/Mail.tsx` 存在与本变更无关的既有类型错误，会阻塞 `npm run build` 的 tsc 阶段（本次以前端产物 `vite build` 单独验证）。
+- **修订（2026-09-30，同日）**：按用户对「今日任务／我的待办中栏思考过程又造假」的反馈（截图里 6 条步骤同一秒、标题停在「规划中」而列表已 ✓ 今日规划已完成、看不到真实业务分析），追加修正：① Host 里程碑（读记忆 / 打包增量 / 提交 Codex / 写入简报）改为 `upsertTaskEvent` 且写下即 `done`，摘要给真实计数与去向，不再留永远 running 的过程行让界面替它猜状态；② 「正在生成今日简报」语义收窄为 Host 校验并写入展示记忆，成功/失败都在同一 item_key 收尾；完成事件摘要改为「已更新今日/待办展示」；③ 前端 `effectivePlanPhase` 把 `run.completed` 也当终态（与失败对称），标题与计时器随终态收口；④ 中栏新增「Codex 业务分析」块，直接展示 `brief.reasoning`（模型按 SKILL.md 要求写的中文业务理由）与完成时刻，不再被折叠掉——此前该字段在界面完全未被渲染；⑤ 步骤按文案去重。资产：`backend/src/host/today-plan-run.ts`、`frontend/src/home/todayPlan.ts`、`home/TodayPlanProgress.tsx`、`home/ScopeWorkspace.tsx`、`home/today-plan-progress.css`、`frontend/src/home/todayPlan.test.ts`、`frontend/e2e/home-plan-analysis.spec.ts`（新增）。证据：后端 `tests/today-plan.test.ts` + `today-brief-real-output.test.ts` 33/33；前端 `todayPlan` 26/26、`runViewState` 4/4；`vite build` 通过。
+- **验证（2026-10-01）**：① 后端全量套件（`node scripts/test.mjs`，独立 Vite 缓存、无并发负载）137 文件通过 / 5 失败，1328 通过 / 8 失败 / 1 跳过（1337）；8 条失败逐条归因——`host contracts > every home task runs a worker…` 是测试自身 30s 预算在本机被超过（`--testTimeout=180000` 下 35.4s 通过）；`skill-publish` 2 条与 `host contracts > skills sop is edited…` 是技能治理/发布口径与现行实现的落差（不在本次改动面）；`kol-memory` 2 条头像补全是抓取公开主页的外部依赖；`async-worker > acknowledges creator discovery immediately…` 与 `kol workbench contract (#172) > …进行中 counts…`（`frontend/src/home/kolContract.ts` 属工作区未提交改动）已由 stash A/B 分别证实在本次改动之前即红。② 前端 E2E：本次改动相关用例全绿（`session-task-run` 1/1、`home-plan-analysis` 1/1、`home-plan-trace` 5/5、`workbench` 定向 4/4）；分支既有 E2E 存在大面积红（全量跑到 [253/158] 超时，31+ 条失败集中于跟进红人、邮箱、审批等未提交改动面）：对 `home-today-pane:30`、`home-discovery-pane:597`、`workbench:971/1765/2326` 做了「暂存本次全部改动 + 重构建」的 A/B，失败完全相同；`workbench:428` 依赖的 `[data-open-work-panel]` 在 HEAD 的 `Home.tsx` 里也已不存在（由 `a78c00f` 移除），属过期用例。
+
+## ADR-2026-10-01：视觉唯一来源收口——DESIGN.md v2 重写、ui-ux-rules.md 退役与《2B 端视觉 Token 体系》吸收
+
+- **状态**：已接受（用户 2026-10-01 裁决：A 以 `DESIGN.md` 为准；B 登记 `ontop/` 为非规范材料；C 采纳《2B 端视觉 Token 体系》方向并经裁定并入）。
+- **决定者**：用户（产品发起人）；UI/UX 专家（视觉细则重写与吸收）；项目经理、规范所有者（索引与记录对齐）；架构师（AntD 选型待办，见「限制」）。
+- **背景**：`docs/ontop/` 新增研究笔记《2B 端视觉 Token 体系》，自检发现与现行法条多项冲突（平行数值来源、品牌色 `#1677ff`、对比度未验证、L1–L3 未映射、`DESIGN.md` 引用失准等）；且 `docs/DESIGN.md` 与 `docs/ui-ux-rules.md` 自 2026-09-21 起并存、互相声明「唯一来源」（已登记未决）。用户裁决后：① 根 `AGENTS.md` §3/§4 与 `docs/AGENTS.md`、`README.md`、`ia-information-architecture.md`、`org-permissions.md`、`BUSINESS.md`、`VERIFICATION.md` 的视觉引用统一改为 `DESIGN.md`（CONSTITUTION 2.2 修订记录在案）；② `DESIGN.md` 重写为 v2 beta（去营销风——弹窗字阶/圆角向工作台对齐、参考图只定结构；信息去重（不变量 6）；防挤压（不变量 7）；业务语义色并入四职责；「关键操作区无滚动」；中栏滚动行为 §10）；③ `DESIGN.md` 吸收笔记中未覆盖的动效与 `prefers-reduced-motion` 降级、等宽字体 `--mono`、间距 `--space-*`、深色默认（修订说明⑦）。
+- **决定**：
+  1. `DESIGN.md` 为员工端视觉 token 与布局**唯一**来源（覆盖员工端全部工作台表面：Home 五模式、Pipeline、Admin、一等能力面）。
+  2. `ui-ux-rules.md` 的「唯一来源」主张原位废止并保留记录（CONST-09），保留作迁移对照；未承接条款（设备适配断点/密度细节等）按需裁定；无障碍偏好必测已并入 `DESIGN.md` §3.1/§13。
+  3. `ontop/` 为非规范候选材料；《2B 端视觉 Token 体系》已并入 `DESIGN.md`，保留作来源记录。
+  4. v2 重写对 ADR-2026-09-26/27 的「逐像素复刻」口径与 34px/14px 弹窗参数、「整窗无滚动」予以替代：参考图只定信息结构、不定视觉比例；弹窗控件高与圆角向工作台对齐（32px/8px）；「无滚动」修正为「关键操作区无滚动」（旧 ADR 中对 `DESIGN.md` 旧分节的引用按 v2 编号理解）。
+- **理由**：① 单一来源与「候选 → 裁定 → 并入」程序（CONST-08/09）收口；② 不新增色相、以四职责与既有 token 收敛外来源；③ 补齐无障碍与中栏体验（`prefers-reduced-motion`、§10）；未放宽任何执行闸门。
+- **影响资产**：`docs/DESIGN.md`、`CONSTITUTION.md`（2.2）、根 `AGENTS.md`、`docs/AGENTS.md`、`README.md`、`ia-information-architecture.md`、`org-permissions.md`、`BUSINESS.md`、`VERIFICATION.md`、`ui-ux-rules.md`、`ontop/2B端视觉Token体系.md`；待同步：`frontend/src/styles.css`、`frontend/src/admin/connector/connectorAdmin.css`、`frontend/e2e/connector-admin.spec.ts`（差距见 `implementation-registry.md` UX-DESIGN-04）。
+- **审宪记录**：需求「以 DESIGN.md 为准；不符合的法条改之使其符合；DESIGN.md 吸收笔记」→ 主责 UI/UX 专家 + 项目经理 → CONST-04（视觉规范职责）、CONST-08（先审宪再审法）、CONST-09（细则层级、修法记录、原位废止）、CONST-10（不伪造、差距登记）→ 细则：`DESIGN.md`、根 `AGENTS.md` §3/§4、`docs/AGENTS.md` §1/§6、`README.md`、`ia-information-architecture.md`、`org-permissions.md`、`VERIFICATION.md`、`TECH-ARCH-01`、`TECH-TEST-02` → **符合**（未改任何执行闸门；实施差距按登记跟踪）→ 下一步：UX-DESIGN-04 落点同步与开放项裁定（见「限制」）。
+- **限制**：① §12 `theme.darkAlgorithm` 依赖 AntD 选型未决——组件选型属架构师（TECH-ARCH-01），当前实现为纯 CSS + Vite；裁定前按 CSS 深色作用域理解；② `ui-ux-rules.md` 未承接的设备适配断点/密度细节待按需迁移；③ 实现落点差距与新 token 定义见 `implementation-registry.md`（UX-DESIGN-04），完成后过 G7（CSS token 与 DESIGN 一致）。

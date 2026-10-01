@@ -10,6 +10,7 @@ export default defineConfig({
       "../frontend/src/connectorUse.test.ts",
       "../frontend/src/labels.test.ts",
       "../frontend/src/home/recognizeWait.test.ts",
+      "../frontend/src/runViewState.test.ts",
       "../frontend/src/home/homeModel.test.ts",
       "../frontend/src/home/surfaceError.test.ts",
       "../frontend/src/home/todayPlan.test.ts",

@@ -16,7 +16,7 @@
 
 | 文件 | 范围 | 所属基本法 | 责任角色 |
 |---|---|---|---|
-| [ui-ux-rules.md](ui-ux-rules.md) | 视觉 token、组件规范、密度、设备适配和 UI 验收 | PRODUCT / TECHNOLOGY | UI/UX 专家、前端专家 |
+| [DESIGN.md](DESIGN.md) | 视觉 token、布局、组件、密度、设备适配和 UI 验收（唯一数值来源） | PRODUCT / TECHNOLOGY | UI/UX 专家、前端专家 |
 | [ia-information-architecture.md](ia-information-architecture.md) | 页面职责、导航与使用/治理分离 | PRODUCT | 平台产品经理、UI/UX 专家 |
 | [org-permissions.md](org-permissions.md) | 组织、范围、权限、审批和审计 | BUSINESS / TECHNOLOGY | KOL 业务专家、后端专家 |
 | [domain-objects.md](domain-objects.md) | 领域对象、关系和字典 | PRODUCT / BUSINESS | 平台产品经理、KOL 业务专家 |
@@ -25,9 +25,17 @@
 | [18-mcp-master-data-assessment.md](18-mcp-master-data-assessment.md) | 有日期的事实源评估 | BUSINESS | KOL 业务专家 |
 | [VERIFICATION.md](VERIFICATION.md) | 与历史规范的对比证据、限制和生效门禁 | 全域 | 项目经理、测试经理 |
 
+> 位阶变更（2026-10-01）：[ui-ux-rules.md](ui-ux-rules.md) 的「唯一来源」主张原位废止并保留记录（CONST-09），视觉与适配数值以 [DESIGN.md](DESIGN.md) 为准；其未被 `DESIGN.md` 承接的条款（如设备适配断点/密度细节等；无障碍偏好必测已并入 `DESIGN.md` §3.1/§13）由 UI/UX 专家按 CONST-08 裁定处置。
+
 ## 非规范材料
 
 `references/` 存放**不具规范位阶**的参考素材（外部品牌设计系统等），只作候选，其价值经裁定后按 `AGENTS.md` §4 内联到对应实施细则。当前内容：`references/olist-ds.md`（Olist Design System，外部品牌）。
+
+`ontop/` 存放企业智能体与本体论研究笔记（含「2B 端视觉 Token 体系」等，持续增补），**不具规范位阶**，只作候选；与现行条款冲突处一律以现行规范为准，其价值经裁定后按 `AGENTS.md` §4 内联到对应实施细则。《2B 端视觉 Token 体系》已并入 `DESIGN.md`（2026-10-01），保留作来源记录。
+
+[implementation-registry.md](implementation-registry.md) 是项目经理维护的实施登记表（依据 [TECHNOLOGY.md](TECHNOLOGY.md)「实施状态与迁移记录」），**不属规范正文**，不改写任何条款；实施状态以该文件为准。
+
+[frontend-component-inventory.md](frontend-component-inventory.md) 是前端组件清单（组件 · 作用 · 对应接口，基线 2026-10-01 / `2af2f79b`），**不属规范正文**，只记录「存在什么、调用了什么」，不表示任何功能已完成或可用；证据在 `../artifacts/component-inventory/`。
 
 ## 使用规则
 

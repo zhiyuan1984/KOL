@@ -718,9 +718,9 @@ test("home rec ask opens chat with grey bubble and draft on the right", async ({
   await expectFollowedKolHeadingRemoved(page);
   await expect(page.getByRole("link", { name: /查看KOL全生命周期/ })).toHaveCount(0);
   await expect(page.locator('a[href="/pipeline"]')).toHaveCount(0);
-  await expect(page.locator("[data-kol-sorts]")).toHaveCount(0);
-  await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("按需处理");
-  await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("阶段停留");
+  await expect(page.locator("[data-kol-sorts]")).toBeVisible();
+  await expect(page.locator("[data-followed-kol-column]")).toContainText("按需处理");
+  await expect(page.locator("[data-followed-kol-column]")).toContainText("阶段停留");
   await expect(page.locator("[data-home] [data-journey-guide]")).toHaveCount(0);
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("发送不等于改阶段");
   await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("发送 ≠ 推进阶段");
@@ -1538,9 +1538,39 @@ test("home followed-KOL default sort uses contract keys 1-8", async ({ page }) =
   await expect(risk.locator("[data-current-state]")).not.toContainText("异常");
   await expect(risk.locator('[data-kol-chip="exception"]')).toHaveText("异常");
   await expect(risk.locator('[data-kol-chip="mailbox"]')).toHaveCount(0);
-  await expect(page.locator("[data-kol-sorts]")).toHaveCount(0);
-  await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("按需处理");
-  await expect(page.locator("[data-home-pane=lifecycle]")).not.toContainText("阶段停留");
+  // 排序选项在右栏：默认「按需处理」，切换后列表按各自键序重排。
+  const sortGroup = page.locator("[data-kol-sorts]");
+  const topHandle = page.locator("[data-followed-kol]").first();
+  await expect(sortGroup).toBeVisible();
+  await expect(sortGroup.locator("[data-kol-sort]")).toHaveCount(4);
+  await expect(sortGroup.locator('[data-kol-sort="need"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(topHandle).toHaveAttribute("data-followed-kol", "异常菌");
+  await sortGroup.locator('[data-kol-sort="unread"]').click();
+  await expect(sortGroup.locator('[data-kol-sort="unread"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(topHandle).toHaveAttribute("data-followed-kol", "未读来信");
+  await sortGroup.locator('[data-kol-sort="stay"]').click();
+  await expect(topHandle).toHaveAttribute("data-followed-kol", "停留最长");
+  await sortGroup.locator('[data-kol-sort="need"]').click();
+  await expect(sortGroup.locator('[data-kol-sort="need"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(topHandle).toHaveAttribute("data-followed-kol", "异常菌");
+  // 同一次被删的另两个控件也回来了：「只看未读」是筛选（不是排序键），「刷新收取」重新收邮件。
+  const unreadToggle = page.locator("[data-unread-filter]");
+  await expect(unreadToggle).toBeVisible();
+  await expect(unreadToggle).toHaveAttribute("aria-pressed", "false");
+  await unreadToggle.click();
+  await expect(unreadToggle).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator("[data-followed-kol]")).toHaveCount(1);
+  await expect(topHandle).toHaveAttribute("data-followed-kol", "未读来信");
+  await unreadToggle.click();
+  await expect(unreadToggle).toHaveAttribute("aria-pressed", "false");
+  await expect(page.locator("[data-followed-kol]")).toHaveCount(6);
+
+  const refreshed = page.waitForRequest(
+    (request) => request.url().includes("/api/home/board") && request.url().includes("refresh=1"),
+  );
+  await page.locator("[data-refresh-mail]").click();
+  await refreshed;
+  await expect(page.locator("[data-followed-kol]")).toHaveCount(6);
   await expectFollowedObjectToolbar(page);
 });
 
@@ -3198,7 +3228,7 @@ test("admin console uses a left sidebar with short labels for the current accoun
   await expect(page.locator("[data-admin-nav]").first()).toBeVisible();
   const labels = await page.locator(".sidebar [data-admin-nav]").allTextContents();
   expect(labels.map((label) => label.trim())).toEqual([
-    "员工", "连接", "知识", "审批", "技能", "考试", "治理", "数据", "配置",
+    "员工", "连接", "知识", "审批", "技能", "考试", "治理", "数据", "成本", "配置",
   ]);
   await expect(page.locator("[data-admin-nav='employees']")).toHaveClass(/active/);
   await expect(page.locator(".admin-header")).toHaveCount(0);
@@ -3228,6 +3258,9 @@ test("admin console uses a left sidebar with short labels for the current accoun
   await expect(page).toHaveURL(/\/admin\/exams$/);
   await page.locator("[data-admin-nav='data']").click();
   await expect(page).toHaveURL(/\/admin\/data$/);
+  await page.locator("[data-admin-nav='cost']").click();
+  await expect(page).toHaveURL(/\/admin\/cost$/);
+  await expect(page.locator("[data-admin-page='costs']")).toBeVisible();
   await page.locator("[data-admin-nav='knowledge']").click();
   await expect(page).toHaveURL(/\/admin\/knowledge$/);
   await page.locator("[data-admin-nav='kol']").click();
@@ -3245,11 +3278,11 @@ test("admin left menu replicates the employee sidebar shell", async ({ page }) =
   await expect(rail.locator(".sidebar-head [data-sidebar-brand]")).toBeVisible();
   await expect(rail.locator(".sidebar-head .sidebar-lucas img")).toHaveAttribute("src", /Lucas6\.webp$/);
   await expect(rail.locator(".sidebar-foot [data-account-bar]")).toBeVisible();
-  // 只换菜单文字：管理端 9 条，员工开工条目 0 条。
-  await expect(rail.locator("[data-admin-nav]")).toHaveCount(9);
+  // 只换菜单文字：管理端 10 条，员工开工条目 0 条。
+  await expect(rail.locator("[data-admin-nav]")).toHaveCount(10);
   await expect(rail.locator("[data-nav='new-task'], [data-nav='running'], [data-nav='cron'], [data-nav='mail']")).toHaveCount(0);
   // 同解剖：18px 描边图标 + 标签；分簇靠分隔线，不用可见组标题。
-  await expect(rail.locator("[data-admin-nav] .nav-ico")).toHaveCount(9);
+  await expect(rail.locator("[data-admin-nav] .nav-ico")).toHaveCount(10);
   await expect(rail.locator("nav.nav-group")).toHaveCount(5);
   await expect(rail.locator(".nav-group > h2, .nav-group > .nav-group-title")).toHaveCount(0);
   const clusterBorder = await rail.locator("nav.nav-group").nth(1).evaluate((el) => getComputedStyle(el).borderTopWidth);

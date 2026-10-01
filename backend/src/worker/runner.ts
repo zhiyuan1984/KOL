@@ -33,6 +33,7 @@ import { authDisabled, scopedUser } from "../auth.js";
 import { requireTaskDefinition, type TaskDefinition } from "../tasks/registry.js";
 import { planningHarnessMount } from "../host/today-plan-context.js";
 import { runtimeAgentScopeContext } from "../contract-scope.js";
+import { BudgetBlocked, budgetBlockFor, captureThreadUsage } from "../costs.js";
 import { pickComposeTemplate, composeRouteFacts } from "../host/compose-loop.js";
 import { boundMailboxEmail } from "../host/starry-bind.js";
 import {
@@ -659,9 +660,24 @@ export async function runCodex(
   const runtimeContext = { agentId: agentScope.agent_id, skillId: skill,
     userId: scopedUser()?.id || "", runId: wid, sessionId };
   const runtimeAuthorization = assertRuntimeSkill(runtimeContext);
-  const execution = new SkillExecution(runtimeContext);
   const col = collab(extra);
   const profile = profileFor(skill, col?.stage_code as string | undefined);
+  const budgetBlock = budgetBlockFor(runtimeContext.agentId, runtimeContext.userId || null);
+  if (budgetBlock) {
+    audit("worker", "cost.budget.blocked", {
+      worker_id: wid,
+      session_id: sessionId,
+      skill,
+      agent_id: runtimeContext.agentId,
+      scope: budgetBlock.scope,
+      scope_ref: budgetBlock.scope_ref,
+      used_tokens: budgetBlock.used_tokens,
+      limit_tokens: budgetBlock.limit_tokens,
+      percent: budgetBlock.percent,
+    });
+    throw new BudgetBlocked(budgetBlock);
+  }
+  const execution = new SkillExecution(runtimeContext);
   const box = writeBox(wid, definition, prompt, extra, col, agentScope);
   const skillPath = writeRuntimeSkill(skill);
   const skillsRoot = runtimeSkillsRoot();
@@ -790,6 +806,18 @@ export async function runCodex(
     const completedTurn = (completed.turn as Json) || {};
     const completedStatus = String(completedTurn.status || "");
     log.push({ method: "turn/completed", params: { status: completedStatus } });
+    await captureThreadUsage({
+      rpc,
+      threadId: turnThreadId,
+      log,
+      agentId: runtimeContext.agentId,
+      skillId: skill,
+      sessionId,
+      userId: runtimeContext.userId || null,
+      runId: wid,
+      workItemId: extra.work_item_id ? String(extra.work_item_id) : null,
+      taskRunId: extra.task_run_id ? String(extra.task_run_id) : null,
+    });
     if (completedStatus && completedStatus !== "completed") {
       const detail = String(
         ((completedTurn.error as Json | undefined)?.message) ||

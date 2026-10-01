@@ -1053,6 +1053,43 @@ function initSchema(db: SqliteConn): void {
             tags TEXT,
             updated_at TEXT NOT NULL
         );
+        -- 成本与预算（2026-09-29，PROD-PLAT-08）：用量事件 + 月预算；金额字段预留恒 NULL。
+        CREATE TABLE IF NOT EXISTS cost_events (
+            id TEXT PRIMARY KEY,
+            occurred_at TEXT NOT NULL,
+            agent_id TEXT,
+            user_id TEXT,
+            skill_id TEXT,
+            session_id TEXT,
+            run_id TEXT,
+            work_item_id TEXT,
+            task_run_id TEXT,
+            thread_id TEXT,
+            project_id TEXT,
+            source TEXT NOT NULL,
+            provider TEXT,
+            model TEXT,
+            input_tokens INTEGER,
+            output_tokens INTEGER,
+            total_tokens INTEGER NOT NULL DEFAULT 0,
+            cost_cents INTEGER,
+            raw TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS cost_events_window ON cost_events (occurred_at);
+        CREATE INDEX IF NOT EXISTS cost_events_agent_window ON cost_events (agent_id, occurred_at);
+        CREATE TABLE IF NOT EXISTS cost_budgets (
+            scope TEXT NOT NULL,
+            scope_ref TEXT NOT NULL,
+            limit_tokens INTEGER,
+            warn_percent INTEGER NOT NULL DEFAULT 80,
+            hard_stop_percent INTEGER NOT NULL DEFAULT 100,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            version INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL,
+            updated_by TEXT,
+            PRIMARY KEY (scope, scope_ref)
+        );
   `);
   migrateSchema(db);
 }
@@ -2018,6 +2055,12 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "kol_profile_index", "assessment_error", "TEXT");
   add(db, "discovery_runs", "brief_version", "INTEGER NOT NULL DEFAULT 1");
   add(db, "discovery_requests", "brief_version", "INTEGER NOT NULL DEFAULT 1");
+  // 成本与预算（2026-09-29，PROD-PLAT-08 修订）：员工个人维度。
+  add(db, "cost_events", "user_id", "TEXT");
+  db.exec(`
+        CREATE INDEX IF NOT EXISTS cost_events_user_window
+            ON cost_events (user_id, occurred_at);
+  `);
   // Polling-endpoint indexes (GET /api/sessions, GET /api/tasks, /api/home/board).
   // Last in migrateSchema: sessions.owner_user_id/archived_at/deleted_at and the
   // other columns the index expressions use are added above, so this must not run

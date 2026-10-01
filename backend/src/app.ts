@@ -22,6 +22,7 @@ import { connectorCredentialsRouter } from "./routers/connector-credentials.js";
 import { connectorIconsRouter } from "./routers/connector-icons.js";
 import { connectorImportRouter } from "./routers/connector-import.js";
 import { organizationUnitsRouter } from "./routers/organization-units.js";
+import { costsRouter } from "./routers/costs.js";
 import { ensureRuntimeSchema } from "./runtime/store.js";
 import { tasks } from "./routers/tasks.js";
 import { crawlRouter } from "./routers/crawl.js";
@@ -81,6 +82,7 @@ export function createApp(): Hono {
   app.route("/api", examRouter);
   app.route("/api", enterprise);
   app.route("/api", skillRuntimeRouter);
+  app.route("/api", costsRouter);
   app.route("/api", runtimeDiscoveryRouter);
   app.route("/api", connectorOperationsRouter);
   app.route("/api", connectorCredentialsRouter);

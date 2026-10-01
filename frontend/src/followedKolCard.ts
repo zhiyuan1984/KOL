@@ -11,6 +11,7 @@ import { MAIN_STAGE_TABS } from "./kolStages";
 import { isMailHeaderDump, latestMailThread, summarizeMailSnippet } from "./mailPreview";
 
 export type FollowedKolRecord = {
+  avatar_url?: string;
   id: string;
   handle: string;
   kol_uid?: string;

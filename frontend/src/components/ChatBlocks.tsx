@@ -1550,7 +1550,7 @@ export function ChatThread({
                 })}
               </ul>
               {summaries.length > 0 && (
-                <details open data-reasoning-summaries>
+                <details data-reasoning-summaries>
                   <summary>分析摘要</summary>
                   {summaries.map((summary, index) => (
                     looksLikeInferenceJson(summary)

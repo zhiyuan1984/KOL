@@ -29,6 +29,7 @@ import CrawlArtifact, { crawlCandidates } from "./CrawlArtifact";
 import { SuggestedFollowTags } from "./FollowStyleTags";
 import { fieldLabel } from "../labels";
 import type { SessionMailRow } from "./AgentTaskList";
+import { taskRunView } from "../runViewState";
 import { useViewMode } from "../viewMode";
 
 export type TabId = "result" | "mail" | "draft" | "stage" | "inbound" | "approval" | "overdue" | "ship";
@@ -483,17 +484,17 @@ export default function SideWorkbench({
         <button className="icon-btn" onClick={() => void createShare()}>分享</button>
       </div>
       <div className="side-head">
-        <div className="page-kicker">本轮结果 · {TAB_LABEL[primary]}</div>
+        <div className="page-kicker">本轮结果{primary === "result" ? "" : ` · ${TAB_LABEL[primary]}`}</div>
         <div className="side-status">
           <i className={"status-dot " + status} />
           <span data-agent-status={status}>
-            {status === "running" ? "处理中" : status === "waiting_approval" ? "待审批" : "待命"}
+            {taskRunView(task, status).label}
           </span>
         </div>
       </div>
       {(toolStatus || share) && <div className="share-status" role="status">{toolStatus}{share?.expires_at && <> · {new Date(share.expires_at).toLocaleString()} 过期</>}{share?.url && <><input className="share-url" aria-label="分享链接" readOnly value={share.url} onFocus={(e) => e.currentTarget.select()} /><button className="link-button" onClick={() => void navigator.clipboard.writeText(share.url || "").then(() => setToolStatus("分享链接已复制")).catch(() => setToolStatus("请手动复制链接"))}>复制链接</button></>}{share && <button className="link-button" onClick={() => void api.revokeShare(sessionId).then(() => { setShare(null); setToolStatus("分享已撤销"); }).catch((e) => setToolStatus(String(e)))}>撤销</button>}</div>}
       {!hasRoundResult && (
-        <p className="muted">本轮结果会出现在这里。中间是处理过程。</p>
+        <p className="muted">这一轮还没有结果。开始一项工作后，结果会出现在这里。</p>
       )}
       <div className="side-body" data-round-results>
         {focusedMail ? (

@@ -18,7 +18,8 @@ export type AdminNavGroup = {
 };
 
 /** 条目顺序与展示文字按用户 2026-09-27 口径（连接 = 连接器枢纽、治理 = 数字员工治理）；
- *  href / id / 面板与权限闸门不随文字变动。 */
+ *  href / id / 面板与权限闸门不随文字变动。
+ *  2026-09-29 增补「成本」（ADR-2026-09-29）：平台配置簇顺序为 数据 / 成本 / 配置。 */
 export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
   {
     label: "治理日常",
@@ -91,6 +92,12 @@ export const ADMIN_NAV_GROUPS: AdminNavGroup[] = [
         label: "数据",
         href: "/admin/data",
         icon: "M21 5a9 3 0 0 1-18 0a9 3 0 0 1 18 0 M3 5v14a9 3 0 0 0 18 0V5 M3 12a9 3 0 0 0 18 0",
+      },
+      {
+        id: "cost",
+        label: "成本",
+        href: "/admin/cost",
+        icon: "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18 M8.5 15.5l7-7 M9.5 9h.01 M14.5 15h.01",
       },
       {
         id: "kol",

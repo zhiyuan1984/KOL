@@ -903,6 +903,73 @@ export function planScope(scope: HomePlanScope): Promise<TodayPlanResult> {
   });
 }
 
+/** 「成本与预算」治理面（/admin/cost，ADR-2026-09-29）：用量是线程级估计值，金额相位未建。 */
+export type AdminCostBudgetState = "unconfigured" | "disabled" | "ok" | "warn" | "stopped";
+
+/** 预算覆盖面：公司 → Agent → 员工（闸门按此顺序判定，员工行只阻断该员工触发的新运行）。 */
+export type AdminCostScope = "company" | "agent" | "user";
+
+export type AdminCostTotals = {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  events: number;
+};
+
+export type AdminCostBudgetRow = {
+  scope: AdminCostScope;
+  scope_ref: string;
+  /** null = 不设限（不判定）。 */
+  limit_tokens: number | null;
+  warn_percent: number;
+  hard_stop_percent: number;
+  /** null = 未配置；0 = 已停用；1 = 启用。 */
+  enabled: 0 | 1 | null;
+  /** null = 未配置行；保存时 expected_version 传 version ?? 0。 */
+  version: number | null;
+  used_tokens: number;
+  /** null = 无上限，不显示百分比。 */
+  percent: number | null;
+  state: AdminCostBudgetState;
+};
+
+export type AdminCostsSummary = {
+  month: string;
+  timezone: string;
+  window: { start: string; end: string };
+  totals: AdminCostTotals;
+  agents: Array<{ agent_id: string } & AdminCostTotals>;
+  /** 仅统计带 user_id 的事件，按总量倒序；名字要另取 /api/admin/users。 */
+  users: Array<{ user_id: string } & AdminCostTotals>;
+  budgets: AdminCostBudgetRow[];
+  notes: string[];
+};
+
+export type AdminCostEventRow = {
+  id: string;
+  occurred_at: string;
+  agent_id: string | null;
+  user_id?: string | null;
+  skill_id: string | null;
+  session_id: string | null;
+  thread_id: string | null;
+  source: string;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number;
+  cost_cents: number | null;
+};
+
+export type AdminSaveBudgetInput = {
+  scope: AdminCostScope;
+  scope_ref: string;
+  limit_tokens: number | null;
+  warn_percent?: number;
+  hard_stop_percent?: number;
+  enabled?: boolean;
+  expected_version: number;
+};
+
 export const api = {
   authStatus: () => request<AuthStatus>("/api/auth/status"),
   setup: (body: { name: string; email: string; password: string }) =>
@@ -1903,6 +1970,13 @@ export const api = {
   adminAssignments: () => request<Record<string, unknown>[]>("/api/admin/exam-assignments"),
   adminDataPolicy: () => request<Record<string, unknown>>("/api/admin/retention-policy"),
   adminAudit: () => request<Record<string, unknown>[]>("/api/audit"),
+  /** 成本与预算：只读汇总 + 最近事件 + 预算写入（乐观锁版本冲突 → 409）。 */
+  adminCostsSummary: (month?: string) =>
+    request<AdminCostsSummary>(`/api/admin/costs/summary${month ? `?month=${encodeURIComponent(month)}` : ""}`),
+  adminCostsEvents: (limit = 50) =>
+    request<{ events: AdminCostEventRow[] }>(`/api/admin/costs/events?limit=${limit}`),
+  adminSaveBudget: (body: AdminSaveBudgetInput) =>
+    request<AdminCostBudgetRow>("/api/admin/costs/budget", { method: "PUT", body: JSON.stringify(body) }),
   adminSave: (path: string, body: Record<string, unknown>, method = "PUT") =>
     request<Record<string, unknown>>(path, { method, body: JSON.stringify(body) }),
   examAssignments: () => request<Record<string, unknown>[]>("/api/exams"),
@@ -2057,6 +2131,8 @@ export const api = {
     }>("/api/mail/compose-catalog"),
   mailPerson: (box: string, p: string) =>
     request<Record<string, unknown>>(`/api/mail/person?box=${encodeURIComponent(box)}&p=${encodeURIComponent(p)}`),
+  generateMailMemory: (body: { box: string; peer_email: string; conversation_id?: string; message_id?: string; kind: "summary" | "translation" }) =>
+    request<Record<string, unknown>>("/api/mail/memory/generate", { method: "POST", body: JSON.stringify(body) }),
   syncMailboxMail: (body: Record<string, unknown> = {}) =>
     request<{
       entry?: string;

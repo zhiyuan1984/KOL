@@ -16,7 +16,7 @@
 | 平台能力、Agent 交互、记忆 | [PRODUCT.md](PRODUCT.md) |
 | KOL 对象、SOP、阶段、审批、权限 | [BUSINESS.md](BUSINESS.md)、[org-permissions.md](org-permissions.md) |
 | 架构、前后端实现、测试与发布 | [TECHNOLOGY.md](TECHNOLOGY.md) |
-| 视觉、组件尺寸和设备适配 | [ui-ux-rules.md](ui-ux-rules.md) |
+| 视觉、组件尺寸和设备适配 | [DESIGN.md](DESIGN.md)（实施细则；唯一 token 数值来源） |
 | 对象、关系与字典 | [domain-objects.md](domain-objects.md) |
 | 合法阶段转移 | [business-rules/stage-transitions.md](business-rules/stage-transitions.md) |
 | 工具风险、MCP 与真实调用 | [07-mcp-data-contract.md](07-mcp-data-contract.md) |

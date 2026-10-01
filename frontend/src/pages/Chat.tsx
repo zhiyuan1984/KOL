@@ -32,6 +32,7 @@ import { friendlyError, missingFieldsMessage } from "../labels";
 import { readBoundExpert } from "../experts";
 import { todayTaskOriginLabel } from "../home/modes";
 import type { SessionMailRow } from "../components/AgentTaskList";
+import { taskRunView } from "../runViewState";
 import { useMailComposeFlow } from "../hooks/useMailComposeFlow";
 import SkillParamCard from "../home/workspace/SkillParamCard";
 import SkillTemplateContext from "../components/SkillTemplateContext";
@@ -384,27 +385,40 @@ function humanError(message: string) {
 }
 
 function safeEventMessages(taskId: string, events: TaskEvent[]): Message[] {
-  return events
+  const items = events
     .filter((event) => !/(reasoning|thought|tool|internal)/i.test(String(event.type || "")))
     .map((event, index) => {
-      const label = employeeProcessLabel(String(event.title || event.label || event.message || "任务进度已更新")
+      // 创建行的 label 是任务标题（和页面标题重复）；这一行该说的是「已创建」。
+      const rawLabel = String(event.type || "") === "task.created"
+        ? String(event.summary || "任务已创建")
+        : String(event.title || event.label || event.message || "任务进度已更新");
+      const label = employeeProcessLabel(rawLabel
         .replace(/`[^`]+`/g, "任务步骤")
         .slice(0, 120));
-      const summary = event.summary
+      const status = String(event.status || "running").toLowerCase();
+      const terminal = ["completed", "failed", "cancelled", "needs_clarification"].includes(status);
+      // 只有终态行才带摘要（原因/下一步）；过程行的机器摘要不再堆进「分析摘要」。
+      const summary = terminal && event.summary
         ? employeeProcessLabel(String(event.summary).replace(/`[^`]+`/g, "内部步骤").slice(0, 180))
         : undefined;
       return {
         id: `task-event:${event.id || index}`,
-        session_id: taskId,
-        role: "assistant",
-        kind: "process_trace",
-        payload: {
-          title: "任务进度",
-          phases: [{ label, status: event.status || "running", summary }],
-        },
-        created_at: event.created_at || new Date().toISOString(),
+        label,
+        status: status === "cancelled" || status === "stopped" ? "skipped" : status,
+        ...(summary ? { summary } : {}),
       };
-    });
+    })
+    .filter((item, index, all) => index === 0 || item.label !== all[index - 1].label);
+  if (!items.length) return [];
+  // 一条「任务进度」承载全部里程碑：原来每条事件各出一张重复卡，读起来像三份进度。
+  return [{
+    id: `task-events:${taskId}`,
+    session_id: taskId,
+    role: "assistant",
+    kind: "process_trace",
+    payload: { title: "任务进度", items },
+    created_at: events[0]?.created_at || new Date().toISOString(),
+  }];
 }
 
 const DRAFT_SUBMIT_GUARD_MS = 500;
@@ -732,6 +746,9 @@ export default function Chat() {
 
   const status: AgentRunStatus = agentStatus === "running" || pending ? "running" : (agentStatus as AgentRunStatus) || "listening";
   const { phase, task: runTask } = useRunStatus(id, messages, status);
+  // 有任务时 HUD / 徽章 / 右栏共用一套状态词（runViewState.ts）；任务开始后技能说明默认折叠。
+  const runView = taskRunView(task, status);
+  const taskStarted = Boolean(task && (taskEvents.length > 0 || status === "running"));
   const skillId = String(task?.skill_id || task?.skill || task?.task_type || runTask?.skill_id || runTask?.skill || "");
   const remoteLabel = debug && skillId ? REMOTE_BACKEND_LABEL[remoteForSkill(skillId)] : undefined;
   const hasVisibleTrace = messages.some((message) => message.kind === "process_trace" || message.kind === "operation_trace");
@@ -885,6 +902,27 @@ export default function Chat() {
     }
   };
 
+  const rerunTask = async () => {
+    if (!task) return;
+    setSubmitErr("");
+    setPending(true);
+    setAgentStatus("running");
+    try {
+      const result = await api.runTask(task.id, { text: task.title });
+      const pendingAsk = (result.pending || result.pending_message) as PendingAsk | undefined;
+      const sessionId = id || String(result.session_id || "");
+      if (!pendingAsk || !sessionId) throw new Error("未能创建新的运行");
+      const r = await postOnce(sessionId, pendingAsk);
+      setMessages(r.messages || []);
+      setAgentStatus(String(r.agent_status || (r.accepted ? "running" : "listening")));
+    } catch (error) {
+      setSubmitErr(error instanceof Error ? error.message : "未能重新执行");
+    } finally {
+      setPending(false);
+      reload();
+    }
+  };
+
   const startCrawl = async (input: StartCrawlInput) => {
     if (!task || crawlBusy) return;
     setCrawlBusy(true);
@@ -1033,7 +1071,7 @@ export default function Chat() {
         <header className="task-detail-header conversation-context" {...(task ? { "data-task-detail": true } : { "data-session-back": true })}>
           <div className="session-head-row">
             <Link to="/" className="task-back">← 返回任务列表</Link>
-            <RunHud status={status} phase={phase} taskTitle={task?.title || runTask?.title} remoteLabel={remoteLabel} />
+            <RunHud status={status} phase={phase} taskTitle={task?.title || runTask?.title} remoteLabel={remoteLabel} view={{ label: runView.label, live: runView.live }} />
           </div>
           {boundExpert ? (
             <div className="expert-session-bar" data-expert-identity={boundExpert.expert_id}>
@@ -1107,6 +1145,11 @@ export default function Chat() {
                 <h1>{task.title}</h1>
               </div>
               {/* 与今日任务右栏的动作同款：描边款，实底主 CTA 留给底部提问框（DESIGN 不变量 1）。 */}
+              {runView.canRerun && (
+                <button className="btn ghost row-action" type="button" onClick={() => void rerunTask()} disabled={pending} data-rerun-task>
+                  重新执行
+                </button>
+              )}
               <button className="btn row-action" type="button" onClick={complete} disabled={completing || task.status === "completed"} data-complete-task>
                 {task.status === "completed" ? "已完成" : "标记完成"}
               </button>
@@ -1124,10 +1167,20 @@ export default function Chat() {
         </header>
         {activeSkillTemplate ? (
           <div className="session-skill-template" data-session-skill-template>
-            <SkillTemplateContext
-              template={activeSkillTemplate}
-              showOptionalInputs={!editableTemplateFields.length}
-            />
+            {taskStarted ? (
+              <details className="session-skill-template-fold" data-skill-template-fold>
+                <summary>技能说明 · 只读 · 预计步骤与使用边界</summary>
+                <SkillTemplateContext
+                  template={activeSkillTemplate}
+                  showOptionalInputs={!editableTemplateFields.length}
+                />
+              </details>
+            ) : (
+              <SkillTemplateContext
+                template={activeSkillTemplate}
+                showOptionalInputs={!editableTemplateFields.length}
+              />
+            )}
             {templateParamEditor}
           </div>
         ) : null}

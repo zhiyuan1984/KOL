@@ -8,6 +8,7 @@ export type WaitDisplay =
   | "awaiting_review"
   | "awaiting_approval"
   | "failed"
+  | "stopped"
   | "completed"
   | "open";
 
@@ -18,13 +19,14 @@ export const WAIT_DISPLAY_LABEL: Record<WaitDisplay, string> = {
   awaiting_review: "结果待确认",
   awaiting_approval: "等审批",
   failed: "失败",
+  stopped: "已停止",
   completed: "已完成",
   open: "待处理",
 };
 
 export const HOME_TASK_POLL_MS = 4_000;
 
-const RECOGNIZE_TIMEOUT_MS = 12_000;
+const RECOGNIZE_TIMEOUT_MS = 30_000;
 
 export function recognizeTimeoutMs(): number {
   return RECOGNIZE_TIMEOUT_MS;
@@ -34,6 +36,7 @@ export function waitDisplayOf(status?: string): WaitDisplay {
   const value = String(status || "").toLowerCase();
   if (value === "completed" || value === "done" || value === "success") return "completed";
   if (value === "failed" || value === "error") return "failed";
+  if (value === "stopped") return "stopped";
   if (value === "waiting_approval") return "awaiting_approval";
   if (value === "waiting" || value === "pending_approve") return "awaiting_review";
   if (value === "running" || value === "in_progress" || value === "starting") return "running";

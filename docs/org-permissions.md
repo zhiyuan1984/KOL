@@ -4,7 +4,7 @@
 >
 > 跨页面 IA（一页一问、能力坐落、导航密度、使用 ≠ 治理**原则**）以 [ia-information-architecture.md](ia-information-architecture.md) 为入口。本文件**只**管租户/registry/PEP、确认/审批/审计字段，以及管理端配套套件、连接器枢纽/详情、`/admin/agents`、审计切片与遗留收敛。
 >
-> 它不改 [CONSTITUTION.md](CONSTITUTION.md)、[PRODUCT.md](PRODUCT.md) 和 [BUSINESS.md](BUSINESS.md) 的角色、能力与授权规则，也不声明后端已经实现。闸门与 L1–L3 服从 CONST-05、BIZ-14 和 TECH-BE-02/03；无障碍与视觉数值读 [ui-ux-rules.md](ui-ux-rules.md)。
+> 它不改 [CONSTITUTION.md](CONSTITUTION.md)、[PRODUCT.md](PRODUCT.md) 和 [BUSINESS.md](BUSINESS.md) 的角色、能力与授权规则，也不声明后端已经实现。闸门与 L1–L3 服从 CONST-05、BIZ-14 和 TECH-BE-02/03；无障碍与视觉数值读 [DESIGN.md](DESIGN.md)。
 
 适用约定：`/admin/agents` 治理 ≠ 员工 `/agents` 专家中心；员工专家中心禁止把连接器状态作为主信息架构。员工 `/kb`（查找 / 预览 / 收藏 / 用于当前任务）≠ 管理端知识治理（停用 / 发布 / 版本 / 范围）。平台能力范围见 PROD-PLAT-02；KOL 只是首个试点，见 CONST-01。完整 IA 见 [ia-information-architecture.md](ia-information-architecture.md)。
 
@@ -175,9 +175,9 @@ region_scope: [region:eu, region:us, region:ca_au]
 | `PRODUCT.md` | 平台能力、三类产品面、资产使用与治理 | 组织、连接器和 Agent 治理字段如何落地 |
 | `BUSINESS.md` | KOL 对象、数据范围、审批和敏感动作 | PEP、确认、审批和审计字段如何落地 |
 | `ia-information-architecture.md` | 一页一问、导航密度、使用 ≠ 治理原则（IA 入口） | 枢纽字段、Admin 页、遗留收敛仍在本文件 |
-| 视觉与交互、设备适配 | [`ui-ux-rules.md`](ui-ux-rules.md)（实施细则；风格基准 `data-dense-dashboard`） | IA 是治理表/技能绑定矩阵，不是 Home/Agents 工作台 |
+| 视觉与交互、设备适配 | [`DESIGN.md`](DESIGN.md)（实施细则；风格基准 `data-dense-dashboard`） | IA 是治理表/技能绑定矩阵，不是 Home/Agents 工作台 |
 
-评审管理端变更时先过 CONST-08 审查和本文件硬边界，再按 [ui-ux-rules.md](ui-ux-rules.md) 检查视觉与适配。
+评审管理端变更时先过 CONST-08 审查和本文件硬边界，再按 [DESIGN.md](DESIGN.md) 检查视觉与适配。
 
 宪法中的治理域只回答“谁 / 权限 / 审计”。本文件把治理域写成可落地的配套套件：连接器枢纽、Agent 治理、授权与审计切片。`/agents` 继续是员工端 P0 专家中心（找谁协作 / 召唤岗位专家），不是管理端。`/admin/agents` 只做发布 / 授权 / 考试闸门，不得与员工专家中心混读。
 
@@ -304,7 +304,7 @@ region_scope: [region:eu, region:us, region:ca_au]
 | 员工进管理端 | 仅账户块的「管理端」分段 → `/admin`（需 `available_modes` 含 admin；无该模式时不渲染分段）。账户切换住在账户块；账户块不含连接器或 Starry | 主路径任何「连接器」砖、SkillHub 调试砖、Agents 卡链进 Admin 治理 |
 | 管理端顶栏 | 治理标题 + 返回员工工作台；健康条用**管理端专用**文案（启用/未挂接/凭据已登记） | 克隆员工 Agents `remote-pill` / `live-dot` 图例当默认 chrome |
 | 管理端左侧菜单 | 与员工端**共用同一侧栏外壳**（同一组件与实例、同几何、同折叠 56px 与 ≤860px 抽屉、同页脚账户块），**只有菜单文字不同**；条目分簇同员工端节奏，簇间只用分割线。依据 `superpowers/specs/2026-09-26-admin-sidebar-shell-parity.md` | 另起一列管理导航或第二套侧栏样式；给管理端复制员工开工条目；发明可见组标题 |
-| 管理端信息架构 | 员工目录、连接器枢纽、`/admin/agents`、审批角色、考试分配、知识、数据/审计；侧栏顺序（用户 2026-09-27 口径）= 治理日常（员工）· 资产（连接 / 知识 / 审批）· 技能（技能）· 数字员工（考试 / 治理）· 平台配置（数据 / 配置）；导航文字「连接」即连接器枢纽、「治理」即数字员工治理，只有条目顺序与文字变化，href 与治理职责不变 | 再要一个「我的智能体」页、再要一个 Pipeline、再要一份个人 Starry 表 |
+| 管理端信息架构 | 员工目录、连接器枢纽、`/admin/agents`、审批角色、考试分配、知识、数据/审计、成本与预算；侧栏顺序（用户 2026-09-27 口径，2026-09-29 增补「成本」）= 治理日常（员工）· 资产（连接 / 知识 / 审批）· 技能（技能）· 数字员工（考试 / 治理）· 平台配置（数据 / 成本 / 配置）；导航文字「连接」即连接器枢纽、「治理」即数字员工治理、「成本」即成本与预算（`/admin/cost`，ADR-2026-09-29）；除本次增补外，条目顺序与文字不变，href 与治理职责不变 | 再要一个「我的智能体」页、再要一个 Pipeline、再要一份个人 Starry 表 |
 | 调试视图 | 显式打开后，管理员才可见引擎图例 / SkillHub 连接器砖 | 把调试砖留在员工默认侧栏或默认 Agents 英雄区 |
 
 员工默认表面遵守 PRODUCT 与本目录 IA：不暴露 MCP、Codex、Thread、英文 Skill、原始堆栈和内部工具名。产品名词「技能」与引擎词分开。管理端 Trace 可以显示脱敏后的引擎信息。SkillHub / `/market/skills` / `/partners` 若仍是调试或目录实验页，其连接器入口只允许在**显式调试且具备 admin** 时出现，并指向管理端枢纽；**不得**出现在员工默认侧栏或默认 Agents 英雄区。独立技能面若落地，不得做成连接器治理入口。

@@ -1,6 +1,8 @@
 # 宪法：愿景、分工与立法
 
-版本：2.1 · 2026-09-27
+版本：2.2 · 2026-10-01
+
+**修订记录（2026-10-01）：** 视觉唯一来源的引用与口径对齐现行 [`DESIGN.md`](DESIGN.md)（v2 beta「LLM 可执行版」）：根 `AGENTS.md` §3/§4、本目录 `AGENTS.md` §1、`README.md` 实施细则表、`ia-information-architecture.md`、`org-permissions.md`、`BUSINESS.md` 与 `VERIFICATION.md` 中指向 `ui-ux-rules.md` 的视觉引用改为 `DESIGN.md`，重建记录同步修订；`ui-ux-rules.md` 的「唯一来源」主张原位废止并保留记录（CONST-09）。依据 [DECISIONS.md](DECISIONS.md) ADR-2026-10-01「视觉唯一来源收口」。
 
 **修订记录（2026-09-27）：** CONST-02 增加一段：连接器、MCP 工具与 API 属平台内核能力，对外能力面只有技能，人员授权只对技能。依据 [DECISIONS.md](DECISIONS.md) ADR-2026-09-27「对外只暴露技能」；同步修订 `PRODUCT.md` PROD-PLAT-04 / PROD-PLAT-05、`TECHNOLOGY.md` TECH-BE-07、[org-permissions.md](org-permissions.md) 与 [ia-information-architecture.md](ia-information-architecture.md) 中员工连接器使用面与按人授权段落（原位废止并保留记录，CONST-09）。
 
@@ -8,7 +10,7 @@
 
 **废止记录（2026-09-21）：** 原第四部基本法及其页面覆盖、风格参考和审查报告共 11 份 / 1,449 行已经废止。视觉与交互决策改由设计分析产生候选，再由 UI/UX 专家在 CONST-04 的职责范围内裁定。原条号 UX-01~UX-12 不再赋予新含义（CONST-09）。本独立规范集不依赖这些历史正文。
 
-**重建记录（2026-09-21，同日）：** 视觉参照已重建为 [`DESIGN.md`](DESIGN.md)（**实施细则**，非基本法——依据本条 CONST-09「设计 token 属实施细则」），风格基准 `data-dense-dashboard`（密集数据工作台）。该文件是本仓库**唯一**的视觉 token 与设备适配数值来源，含颜色、字号阶梯、控件尺寸、密度档、三轴适配与验收矩阵。它不复活旧条号，也不恢复原 `design.md` 的基本法位阶。
+**重建记录（2026-09-21，同日）：** 视觉参照已重建为 [`DESIGN.md`](DESIGN.md)（**实施细则**，非基本法——依据本条 CONST-09「设计 token 属实施细则」），风格基准 `data-dense-dashboard`（密集数据工作台）。该文件是员工端视觉 token 与布局**唯一**的规范来源（覆盖员工端全部工作台表面：Home 五模式、Pipeline、Admin、一等能力面）：颜色只给「职责→token」映射、hex 住 `frontend/src/styles.css`，布局/字号/间距/圆角数值直接取用；含颜色、字号阶梯、控件尺寸、密度档、三轴适配与验收矩阵。它不复活旧条号，也不恢复原 `design.md` 的基本法位阶。
 
 ## 四个文件
 

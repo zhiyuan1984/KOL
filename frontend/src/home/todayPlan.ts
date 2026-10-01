@@ -262,6 +262,11 @@ const PLAN_FAILED_LABEL: Record<PlanScope, RegExp> = {
   todo: /待办规划失败|待办规划未通过/,
 };
 
+const PLAN_COMPLETED_LABEL: Record<PlanScope, RegExp> = {
+  today: /今日规划已完成/,
+  todo: /待办规划已完成/,
+};
+
 /** A persisted terminal failure wins over a stale in-flight flag from a prior poll. */
 export function planFailureFromEvents(events: TaskEvent[] | null | undefined, scope: PlanScope = "today"): boolean {
   return (events || []).some((event) => {
@@ -271,6 +276,16 @@ export function planFailureFromEvents(events: TaskEvent[] | null | undefined, sc
     if (status === "failed") return true;
     const label = String(event.label || event.title || event.summary || "");
     return PLAN_FAILED_LABEL[scope].test(label);
+  });
+}
+
+/** 完成行同样是终态：否则轮询慢一拍时，标题会停在「规划中」而列表里已是 ✓ 今日规划已完成。 */
+export function planCompletedFromEvents(events: TaskEvent[] | null | undefined, scope: PlanScope = "today"): boolean {
+  return (events || []).some((event) => {
+    const type = String(event.type || event.event_type || "").toLowerCase();
+    if (type === "run.completed" || type === "completed") return true;
+    const label = String(event.label || event.title || event.summary || "");
+    return PLAN_COMPLETED_LABEL[scope].test(label);
   });
 }
 
@@ -284,7 +299,11 @@ export function effectivePlanPhase(
   events: TaskEvent[] | null | undefined,
   scope: PlanScope = "today",
 ): TodayPlanPhase {
-  return planFailureFromEvents(events, scope) ? "failed" : phase;
+  if (planFailureFromEvents(events, scope)) return "failed";
+  if ((phase === "planning" || phase === "loading-memory") && planCompletedFromEvents(events, scope)) {
+    return "refreshed";
+  }
+  return phase;
 }
 
 function wait(ms: number): Promise<void> {

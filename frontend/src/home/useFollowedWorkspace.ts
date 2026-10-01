@@ -15,6 +15,7 @@ import {
   projectFollowedKolCard,
   sortFollowedKolCards,
   type FollowedKolCardModel,
+  type KolSortMode,
   type FollowedKolRecord,
 } from "../followedKolCard";
 import { canOpenExistingTaskFlow } from "./homeModel";
@@ -91,6 +92,8 @@ export function useFollowedWorkspace(options: {
   const [query, setQuery] = useState("");
   const [stageFilter, setStageFilter] = useState("");
   const [situation, setSituation] = useState<FollowedSituation | "">("");
+  const [sortMode, setSortMode] = useState<KolSortMode>("need");
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -115,10 +118,11 @@ export function useFollowedWorkspace(options: {
       (card) =>
         matchesKolSearch(card, query)
         && matchesStageFilter(card, stageFilter)
-        && matchesFollowedSituation(card, situation),
+        && matchesFollowedSituation(card, situation)
+        && (!unreadOnly || card.unread_inbound),
     );
-    return sortFollowedKolCards(filtered, "need");
-  }, [cards, query, stageFilter, situation]);
+    return sortFollowedKolCards(filtered, sortMode);
+  }, [cards, query, stageFilter, situation, sortMode, unreadOnly]);
 
   const selectedCards = useMemo(
     () => visibleCards.filter((card) => selectedIds.includes(card.id)),
@@ -472,6 +476,10 @@ export function useFollowedWorkspace(options: {
     setStageFilter,
     situation,
     setSituation,
+    sortMode,
+    setSortMode,
+    unreadOnly,
+    setUnreadOnly,
     hoveredId,
     setHoveredId,
     focusedId,

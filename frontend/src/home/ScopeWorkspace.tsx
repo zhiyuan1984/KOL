@@ -105,6 +105,7 @@ export default function ScopeWorkspace({
           <TodayPlanProgress
             phase={phase}
             events={events}
+            brief={brief}
             candidates={candidateCount(brief)}
             plannedTasks={stamped.length}
             previousBrief={previousBrief}

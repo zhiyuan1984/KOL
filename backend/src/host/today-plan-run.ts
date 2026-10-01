@@ -2,7 +2,7 @@ import { audit, getConn, nowIso, tx } from "../db.js";
 import { nid } from "../ids.js";
 import { requireTaskDefinition } from "../tasks/registry.js";
 import type { Json } from "../types.js";
-import { appendTaskEvent } from "../routers/tasks.js";
+import { appendTaskEvent, upsertTaskEvent } from "../routers/tasks.js";
 import { runWorker } from "../worker/runner.js";
 import { HttpFail } from "./errors.js";
 import { createRunTraceSink } from "./run-trace.js";
@@ -142,9 +142,9 @@ export const PLAN_EMPLOYEE_EVENTS: Record<PlanScope, Record<PlanEventKey, string
 /** Back-compat export: today-scope copy (used by tests and the today chain). */
 export const TODAY_PLAN_EMPLOYEE_EVENTS = PLAN_EMPLOYEE_EVENTS.today;
 
-function memoryReadSummary(pack: TodayPlanPack, scope: PlanScope): string {
+function memoryReadSummary(pack: TodayPlanPack): string {
   const unfinished = Number(pack.now_counts?.unfinished);
-  return Number.isFinite(unfinished) ? `未了结 ${unfinished} 项` : PLAN_EMPLOYEE_EVENTS[scope].memoryRead;
+  return Number.isFinite(unfinished) ? `未了结 ${unfinished} 项` : "已读入本轮上下文";
 }
 
 export function briefFromWorkerItems(items: Json[]): unknown {  const candidates = items.filter((item) => item.type === "today_brief" || (item.lead && item.sections));
@@ -200,13 +200,14 @@ export async function executeTodayPlanRun(input: {
   }, scope);
   const trace = createRunTraceSink({ workItemId: input.workItemId, runId: input.runId });
   try {
-    appendTaskEvent(
+    upsertTaskEvent(
       input.workItemId,
       input.runId,
+      "host:codex_submitted",
       "run.progress",
       copy.codexSubmitted,
-      "running",
-      copy.codexSubmitted,
+      "done",
+      "Codex 正在做本轮业务分析",
     );
     const wr = await Promise.resolve(runWorker(
       input.sessionId,
@@ -217,13 +218,15 @@ export async function executeTodayPlanRun(input: {
       trace.onStream,
     ));
     trace.finish(false);
-    appendTaskEvent(
+    // 模型已返回：这一步是 Host 在校验结构并写入展示记忆，用 running 写到收尾为止。
+    upsertTaskEvent(
       input.workItemId,
       input.runId,
+      "host:writing_brief",
       "run.progress",
       copy.writingBrief,
       "running",
-      copy.writingBrief,
+      "校验结构并写入展示记忆",
     );
     const brief = briefFromWorkerItems(wr.items);
     if (brief && typeof brief === "object" && !Array.isArray(brief)) {
@@ -237,6 +240,7 @@ export async function executeTodayPlanRun(input: {
     const missingCoverage = missingDisplayCoverage(brief, input.pack);
     if (missingCoverage.length) {
       const reason = `展示行漏了 ${missingCoverage.length} 项任务（${missingCoverage.slice(0, 3).join("、")}）`;
+      upsertTaskEvent(input.workItemId, input.runId, "host:writing_brief", "run.progress", copy.writingBrief, "failed", reason);
       markTodayPlanFailed(input.workItemId, input.runId, reason);
       trace.finish(true);
       appendTaskEvent(input.workItemId, input.runId, "run.failed", copy.invalid, "failed", reason);
@@ -250,15 +254,27 @@ export async function executeTodayPlanRun(input: {
       scope,
     });
     if (!written.ok) {
+      upsertTaskEvent(input.workItemId, input.runId, "host:writing_brief", "run.progress", copy.writingBrief, "failed", written.reason);
       markTodayPlanFailed(input.workItemId, input.runId, written.reason);
       trace.finish(true);
       appendTaskEvent(input.workItemId, input.runId, "run.failed", copy.invalid, "failed", written.reason);
       return;
     }
+    const displayRows = (written.brief as Json).display_tasks;
+    const displayCount = Array.isArray(displayRows) ? displayRows.length : 0;
+    upsertTaskEvent(input.workItemId, input.runId, "host:writing_brief", "run.progress", copy.writingBrief, "done", `已写入 ${displayCount} 条任务展示`);
     markTodayPlanCompleted(input.workItemId, input.runId);
-    appendTaskEvent(input.workItemId, input.runId, "run.completed", copy.completed, "completed", "today_brief 已更新");
+    appendTaskEvent(
+      input.workItemId,
+      input.runId,
+      "run.completed",
+      copy.completed,
+      "completed",
+      scope === "todo" ? "已更新待办展示" : "已更新今日展示",
+    );
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
+    upsertTaskEvent(input.workItemId, input.runId, "host:writing_brief", "run.progress", copy.writingBrief, "failed", reason.slice(0, 200));
     markTodayPlanFailed(input.workItemId, input.runId, reason);
     trace.finish(true);
     appendTaskEvent(input.workItemId, input.runId, "run.failed", copy.failed, "failed", reason.slice(0, 1000));
@@ -297,22 +313,10 @@ export function startTodayPlan(owner = ownerId(), scope: PlanScope = "today"): {
     payload,
   });
   const runId = createPlanningRun(workItemId, sessionId, payload);
-  appendTaskEvent(
-    workItemId,
-    runId,
-    "run.progress",
-    copy.memoryRead,
-    "running",
-    memoryReadSummary(pack, scope),
-  );
-  appendTaskEvent(
-    workItemId,
-    runId,
-    "run.progress",
-    copy.deltaPacked,
-    "running",
-    `来源增量 ${pack.delta.added.length} 项`,
-  );
+  // Host 里程碑：写下时这件事就已经完成（status=done），摘要给真实计数。
+  // 不再留永远 running 的「过程行」让界面替它猜状态。
+  upsertTaskEvent(workItemId, runId, "host:memory_read", "run.progress", copy.memoryRead, "done", memoryReadSummary(pack));
+  upsertTaskEvent(workItemId, runId, "host:delta_packed", "run.progress", copy.deltaPacked, "done", `来源增量 ${pack.delta.added.length} 项`);
   audit(owner, `${taskType}.started`, {
     work_item_id: workItemId,
     session_id: sessionId,

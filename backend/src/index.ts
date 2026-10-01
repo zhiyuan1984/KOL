@@ -2,6 +2,7 @@ import { serve } from "@hono/node-server";
 import { createApp } from "./app.js";
 import { authDisabled } from "./auth.js";
 import { failStuckPlans } from "./host/today-brief.js";
+import { failInterruptedTaskRuns } from "./host/task-run-recovery.js";
 import { credentialVaultReady } from "./runtime/credentials.js";
 import { startStarryHomeLibrarySync } from "./starrykol/library-sync.js";
 import { startFollowedMailSync } from "./starrykol/mail-sync.js";
@@ -14,6 +15,14 @@ const port = Number(process.env.LINGONG_PORT || "8765");
 const stuck = failStuckPlans("Host 重启时该规划仍在运行");
 if (stuck.length) {
   console.warn(`未完成的规划运行已标记失败：${stuck.join("、")}`);
+}
+
+// Task runs are executed by children of this process; a fresh boot means any
+// row still marked running lost its worker. Close it instead of showing
+// "进行中 / 任务开始处理" forever.
+const interrupted = failInterruptedTaskRuns("Host 重启时该运行仍在执行");
+if (interrupted.length) {
+  console.warn(`中断的任务运行已标记失败：${interrupted.join("、")}`);
 }
 
 // The credential vault is optional for read-only deployments, but without it

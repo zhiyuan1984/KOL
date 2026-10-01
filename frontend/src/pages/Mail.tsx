@@ -6,7 +6,7 @@ import { storePending } from "../components/ChatBlocks";
 import { applyComposerDraft, takeComposerDraftStash } from "../composer/draft";
 import type { ComposerDraftStash } from "../composer/types";
 import { isMissingEndpoint } from "../home/discoveryHome";
-import { decorateWorkspace, hydratePollDelayMs, loadMailPersonDigest, loadMailThread, loadMailWorkspaceFast, normalizeBox, syncMailboxMail } from "../mail/client";
+import { decorateWorkspace, hydratePollDelayMs, loadMailPersonDigest, loadMailThread, loadMailWorkspaceFast, normalizeBox, normalizePersonDigest, normalizeThread, syncMailboxMail } from "../mail/client";
 import { CorrespondentRow } from "../mail/components/CorrespondentRow";
 import { ConversationItem } from "../mail/components/ConversationItem";
 import { MailContent } from "../mail/components/MailContent";
@@ -184,6 +184,7 @@ export default function Mail() {
   const [pane, setPane] = useState<MailPane>(() => (params.get("m") ? "detail" : "list"));
   const [busy, setBusy] = useState(false);
   const [folds, setFolds] = useState<Record<MailFoldKey, boolean>>(readMailFolds);
+  const [memoryBusy, setMemoryBusy] = useState<"summary" | "translation" | "" >("");
   const syncPollRef = useRef<number | null>(null);
   const baseSyncedAtRef = useRef<string>("");
   const startedRef = useRef<Set<string>>(new Set());
@@ -717,7 +718,37 @@ export default function Mail() {
   const detailPeer = selectedConversation ? peerOf(selectedConversation) : "";
   const detailPeerEmail = selectedConversation?.peer_email || "";
   const translation = String(currentMessage?.translation_zh || "").trim();
-  const digestTag = personDigest?.digest_source === "codex_memory" ? "AI 生成 · codex" : "AI 生成";
+  const digestTag = personDigest?.digest_source === "codex_memory" ? "codex" : "";
+
+  const generateMailMemory = async (kind: "summary" | "translation") => {
+    if (!selectedConversation || !workspace?.box.mailbox || !selectedConversation.peer_email || (kind === "translation" && !currentMessage)) return;
+    setMemoryBusy(kind);
+    setError("");
+    setNotice(kind === "summary" ? "正在按邮件总结技能生成往来摘要…" : "正在按邮件翻译技能生成中文译稿…");
+    try {
+      await api.generateMailMemory({
+        box: workspace.box.mailbox,
+        peer_email: selectedConversation.peer_email,
+        conversation_id: selectedConversation.conversation_id,
+        message_id: currentMessage?.id,
+        kind,
+      });
+      const [digestRaw, threadRaw] = await Promise.all([
+        api.mailPerson(workspace.box.mailbox, selectedConversation.peer_email),
+        api.mailConversation(selectedConversation.conversation_id),
+      ]);
+      const digest = normalizePersonDigest(digestRaw as Record<string, unknown>);
+      if (digest) setPersonDigest(digest);
+      const thread = normalizeThread(threadRaw as Record<string, unknown>, workspace.box.mailbox);
+      if (thread) setThreads((prev) => ({ ...prev, [selectedConversation.conversation_id]: thread }));
+      setNotice(kind === "summary" ? "往来摘要已按邮件总结技能更新。" : "中文译稿已按邮件翻译技能更新。");
+    } catch (e) {
+      setError(httpCopy(e, kind === "summary" ? "往来摘要生成失败。" : "中文译稿生成失败。"));
+      setNotice("");
+    } finally {
+      setMemoryBusy("");
+    }
+  };
   const visibleLetters = lettersMore ? letters : letters.slice(0, TASK_CHIP_LIMIT);
 
   return (
@@ -929,7 +960,11 @@ export default function Mail() {
                       aria-expanded={lettersMore}
                       onClick={() => setLettersMore((v) => !v)}
                     >
-                      {lettersMore ? "收起" : "更多"}
+                      <span>{lettersMore ? "收起" : "更多"}</span>
+                      <svg className="mail-task-accordion-icon" aria-hidden="true" viewBox="0 0 16 16" focusable="false">
+                        <path d="m3 6 5 5 5-5" />
+                        <path className="mail-task-accordion-rail" d="M1.5 2.5h13" />
+                      </svg>
                     </button>
                   ) : null}
                 </div>
@@ -968,8 +1003,7 @@ export default function Mail() {
                 </h2>
                 {detailPeer ? (
                   <p className="muted" data-mail-thread-sub>
-                    {detailPeer}
-                    {detailPeerEmail && detailPeerEmail !== detailPeer ? ` · ${detailPeerEmail}` : ""}
+                    {detailPeerEmail || detailPeer}
                   </p>
                 ) : null}
               </div>
@@ -993,6 +1027,9 @@ export default function Mail() {
               label="往来摘要"
               open={folds.summary}
               onToggle={() => toggleFold("summary")}
+              action={<button type="button" className="mail-side-generate" data-mail-generate-summary onClick={(event) => { event.stopPropagation(); void generateMailMemory("summary"); }} disabled={memoryBusy !== "" || !selectedConversation}>
+                <MailIco d={ICO_SPARKLE} />{memoryBusy === "summary" ? "生成中…" : "生成摘要"}
+              </button>}
               tag={<span className="mail-side-tag" data-mail-digest-tag>{digestTag}</span>}
             >
               <div
@@ -1005,7 +1042,9 @@ export default function Mail() {
               </div>
             </MailFold>
 
-            <MailFold id="translation" label="中文翻译" open={folds.translation} onToggle={() => toggleFold("translation")}>
+            <MailFold id="translation" label="中文翻译" open={folds.translation} onToggle={() => toggleFold("translation")} action={<button type="button" className="mail-side-generate" data-mail-generate-translation onClick={(event) => { event.stopPropagation(); void generateMailMemory("translation"); }} disabled={memoryBusy !== "" || !currentMessage}>
+              <MailIco d={ICO_TRANSLATE} />{memoryBusy === "translation" ? "生成中…" : "生成摘要"}
+            </button>}>
               <div
                 className="mail-fold-inner"
                 data-mail-translation

@@ -32,11 +32,6 @@ function phaseFromMessages(messages: Message[]): string | undefined {
   return undefined;
 }
 
-function phaseFromEvents(events: TaskEvent[]): string | undefined {
-  const row = [...events].reverse().find((e) => e.label || e.title || e.summary);
-  return row ? String(row.label || row.title || row.summary) : undefined;
-}
-
 export function useRunStatus(sessionId: string | undefined, messages: Message[], agentStatus: AgentRunStatus) {
   const [task, setTask] = useState<Task | null>(null);
   const [events, setEvents] = useState<TaskEvent[]>([]);
@@ -76,15 +71,9 @@ export function useRunStatus(sessionId: string | undefined, messages: Message[],
     };
   }, [sessionId, agentStatus]);
 
-  const phase = useMemo(
-    () => {
-      const fromMessages = phaseFromMessages(messages);
-      if (fromMessages) return fromMessages;
-      const raw = phaseFromEvents(events);
-      return raw ? employeeProcessLabel(raw) : undefined;
-    },
-    [messages, events],
-  );
+  // 历史里程碑（任务已创建 / 任务开始处理…）不再冒充「当前阶段」：
+  // 只有真实过程（处理过程 / 系统能力 / 推理）才作为 HUD 的阶段文案。
+  const phase = useMemo(() => phaseFromMessages(messages), [messages]);
 
   return { agentStatus, phase, task, events };
 }

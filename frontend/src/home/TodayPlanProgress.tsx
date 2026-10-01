@@ -141,6 +141,7 @@ export default function TodayPlanProgress({
   events,
   candidates,
   plannedTasks,
+  brief,
   previousBrief,
   previousEvents,
   scope = "today",
@@ -149,6 +150,8 @@ export default function TodayPlanProgress({
   events?: TaskEvent[] | null;
   candidates?: number | null;
   plannedTasks?: number | null;
+  /** 本轮简报：`reasoning` 是模型写给员工的业务分析，随里程碑一起展示。 */
+  brief?: TodayBrief | null;
   /** The version before this one, folded to a single row. */
   previousBrief?: TodayBrief | null;
   previousEvents?: TaskEvent[] | null;
@@ -217,7 +220,10 @@ export default function TodayPlanProgress({
       }
       byKey.set(key, { ...prev, ...next, time: prev.time || next.time });
     }
-    return order.map((key) => byKey.get(key)!);
+    // 同一轮里重复的里程碑文案只保留第一次出现（顺序仍是事件顺序）。
+    return order
+      .map((key) => byKey.get(key)!)
+      .filter((step, index, all) => index === 0 || step.label !== all[index - 1].label);
   }, [events, live, hasTerminalFailure]);
 
   // Successful runs fold away, but an error remains visible with its actionable
@@ -238,6 +244,13 @@ export default function TodayPlanProgress({
     : think.body;
   const foldedThink = Math.max(0, thinkRows.length - 1);
   const finishedAt = steps.length ? steps[steps.length - 1].time : "";
+  // 模型的业务分析（brief.reasoning）：真实产出，和里程碑时间一起展示。
+  const analysis = useMemo(
+    () => (Array.isArray(brief?.reasoning) ? brief.reasoning : [])
+      .map((line) => String(line || "").trim())
+      .filter(Boolean),
+    [brief],
+  );
   const failedStep = [...steps].reverse().find((step) => step.state === "failed");
   const displayPhase: TodayPlanPhase = resolvedPhase === "idle" && steps.length ? "refreshed" : resolvedPhase;
   const status = lucasPlanCopy(displayPhase, scope, candidates, plannedTasks, failedStep?.detail);
@@ -386,6 +399,17 @@ export default function TodayPlanProgress({
             </div>
           ) : null}
         </>
+      ) : null}
+
+      {analysis.length ? (
+        <section className="today-plan-analysis" data-today-plan-analysis>
+          <span className="today-plan-analysis-label">
+            Codex 业务分析{finishedAt ? ` · ${finishedAt}` : ""}
+          </span>
+          <ul className="today-plan-analysis-list">
+            {analysis.map((line, index) => <li key={`${line}-${index}`}>{line}</li>)}
+          </ul>
+        </section>
       ) : null}
     </section>
   );

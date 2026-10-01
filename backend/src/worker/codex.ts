@@ -79,13 +79,22 @@ export class CodexAppServer {
     // home compose stuck on “recognizing” or the worker past E2E limits.
     this.deadlineMs = Date.now() + timeout * 1000;
     this.bin = findCodex();
-    // Windows cannot execute a .mjs/.cjs fixture via its shebang directly.
-    // Keep CODEX_BIN semantics unchanged in production while making the
+    // Windows cannot execute a .mjs/.cjs fixture via its shebang directly,
+    // and since the CVE-2024-27980 fix `spawn()` refuses a .cmd/.bat shim
+    // outright (EINVAL). A global `npm i -g @openai/codex` installs exactly
+    // that shim, so route it through the command interpreter while leaving
+    // CODEX_BIN semantics unchanged in production and keeping the
     // repository's app-server fixtures portable across CI runners.
-    const command = process.platform === "win32" && /\.(?:mjs|cjs|js)$/i.test(this.bin)
-      ? process.execPath
-      : this.bin;
-    const args = command === process.execPath ? [this.bin, "app-server"] : ["app-server"];
+    const win32 = process.platform === "win32";
+    const isCommandShim = win32 && /\.(?:cmd|bat)$/i.test(this.bin);
+    const isScript = win32 && /\.(?:mjs|cjs|js)$/i.test(this.bin);
+    const command = isCommandShim
+      ? process.env.ComSpec || "cmd.exe"
+      : isScript ? process.execPath : this.bin;
+    const args = isCommandShim
+      // cmd /s /c strips one outer quote pair, so a spaced path needs its own.
+      ? ["/d", "/s", "/c", this.bin.includes(" ") ? `""${this.bin}" app-server"` : `${this.bin} app-server`]
+      : command === process.execPath ? [this.bin, "app-server"] : ["app-server"];
     const env = codexChildEnv();
     if (privateEnv) {
       for (const name of privateEnv) delete env[name];
@@ -103,7 +112,7 @@ export class CodexAppServer {
             isolatedCodexModelConfig(fs.readFileSync(configFile, "utf8")), { mode: 0o600 });
         }
       } catch {
-        fs.rmSync(this.isolatedHome, { recursive: true, force: true });
+        this.dropIsolatedHome();
         throw new CodexUnavailable("无法读取安全的模型配置。", "请检查 Codex 模型配置格式；运行时不会回退到旧 MCP 配置。");
       }
       env.CODEX_HOME = this.isolatedHome;
@@ -113,11 +122,11 @@ export class CodexAppServer {
       env,
     });
     this.proc.once("exit", () => {
-      if (this.isolatedHome) fs.rmSync(this.isolatedHome, { recursive: true, force: true });
+      this.dropIsolatedHome();
     });
     this.proc.once("error", () => {
       this.dead = true;
-      if (this.isolatedHome) fs.rmSync(this.isolatedHome, { recursive: true, force: true });
+      this.dropIsolatedHome();
       for (const pending of this.pending.values()) pending.reject(new CodexUnavailable("无法启动 Codex 进程。", "请检查可执行文件及权限。"));
       this.pending.clear();
     });
@@ -138,6 +147,23 @@ export class CodexAppServer {
     });
     if (this.proc.exitCode != null) {
       throw new CodexUnavailable("codex app-server 立刻退出。未生成结果。", "检查 `codex --version` 与 `codex login`。");
+    }
+  }
+
+  /**
+   * Windows releases a just-exited child's file handles asynchronously, so a
+   * recursive remove can still hit EPERM/EBUSY. Cleanup is best-effort: the OS
+   * reclaims the temp directory, and an escaping exception here would abort the
+   * Host from inside a process event handler.
+   */
+  private dropIsolatedHome(): void {
+    const dir = this.isolatedHome;
+    this.isolatedHome = undefined;
+    if (!dir) return;
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* Best-effort cleanup only. */
     }
   }
 

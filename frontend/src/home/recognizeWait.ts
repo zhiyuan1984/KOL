@@ -9,7 +9,7 @@ export const RECOGNIZE_WAIT_LINES: readonly string[] = [
   "需要你确认的地方，我会先问一句。",
 ];
 
-export const RECOGNIZE_WAIT_OVERDUE = "这次分析有点久；你可以继续等，或补充信息后再发一次。";
+export const RECOGNIZE_WAIT_OVERDUE = "仍在分析你的请求；完成后会自动打开任务页，可继续等待。";
 
 /** 每个字露出的间隔（毫秒）：46 个字约 1.4 秒讲完，只影响观感，不影响等待的真实状态。 */
 export const RECOGNIZE_WAIT_MS_PER_CHAR = 30;

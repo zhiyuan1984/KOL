@@ -59,7 +59,10 @@ export function MailFold({
         aria-controls={bodyId}
         onClick={onToggle}
       >
-        <span className="mail-fold-caret" aria-hidden="true">{open ? "▾" : "▸"}</span>
+        <svg className="mail-fold-accordion-icon" aria-hidden="true" viewBox="0 0 16 16" focusable="false">
+          <path d="m3 6 5 5 5-5" />
+          <path className="mail-fold-accordion-rail" d="M1.5 2.5h13" />
+        </svg>
         <strong className="mail-side-title">{label}</strong>
         {tag}
       </button>

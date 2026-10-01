@@ -1,9 +1,20 @@
+import { useState } from "react";
 import {
   formatStageBadge,
   recommendedActionHeadline,
   type FollowedKolCardModel,
   type RecommendedKind,
 } from "../followedKolCard";
+
+function KolAvatar({ id, url }: { id: string; url?: string }) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const [fallbackFailed, setFallbackFailed] = useState(false);
+  const index = Array.from(id).reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0) % 3;
+  const source = url && /^https?:\/\//i.test(url) && failedUrl !== url ? url : null;
+  return <span className="kol-avatar" data-kol-avatar data-avatar-kind={source ? "profile" : "illustration"} title={source ? "KOL 头像" : "默认插画头像"}>
+    {source || !fallbackFailed ? <img src={source || `/avatars/kol-default-${index + 1}.png`} alt={source ? "KOL 头像" : "默认插画头像"} loading="lazy" referrerPolicy="no-referrer" onError={() => source ? setFailedUrl(source) : setFallbackFailed(true)} /> : <span aria-label="默认头像">○</span>}
+  </span>;
+}
 
 function formatFactTime(value?: string | null): string {
   if (!value) return "";
@@ -149,7 +160,6 @@ export default function FollowedKolWorkCard({
   const showMail = Boolean(fact.thread_id);
   const days = card.current_state.days_in_stage;
   const stageLabel = formatStageBadge(card.current_state.stage_label);
-  const initial = card.identity.display.replace(/^@/, "").slice(0, 1) || "红";
   const profileMetrics = [
     card.source.followers ? `粉丝 ${card.source.followers}` : "",
     card.source.avg_plays ? `均播 ${card.source.avg_plays}` : "",
@@ -215,7 +225,7 @@ export default function FollowedKolWorkCard({
           />
           <span className="sr-only">选择 {card.identity.display}</span>
         </label>
-        <span className="kol-avatar" data-kol-avatar aria-hidden>{initial}</span>
+        <KolAvatar id={card.source.kol_uid || card.id} url={card.source.avatar_url} />
         <div className="kol-identity-main">
           <div className="kol-identity-line">
             <strong className="kol-name" data-kol-identity data-kol-name>{card.identity.display}</strong>

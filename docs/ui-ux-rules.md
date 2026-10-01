@@ -1,5 +1,7 @@
 # 界面设计细则（视觉 token、组件规范与设备适配）
 
+> **状态变更（2026-10-01，原位废止并保留记录，CONST-09）：** 本文件「本仓库**唯一**的视觉 token 与适配数值来源」的主张不再有效；视觉唯一来源为 [`DESIGN.md`](DESIGN.md)。本文件保留作迁移对照，不再作为现行依据；其未被 `DESIGN.md` 承接的条款（如设备适配断点/密度细节等；无障碍偏好必测已并入 `DESIGN.md` §3.1/§13）由 UI/UX 专家按 CONST-08 裁定处置。下文「定位」「位阶变更记录（2026-09-21）」等表述按本条理解。
+
 > **层级**：CONST-09 规定的「**实施细则**」，不得覆盖宪法与三部基本法（`CONSTITUTION.md` / `PRODUCT.md` / `BUSINESS.md` / `TECHNOLOGY.md`）。
 >
 > **定位**：本仓库**唯一**的视觉 token 与适配数值来源。落地实现是 `frontend/src/styles.css`，验收门禁是 `frontend/e2e/skills-catalog.spec.ts`；三者不一致时，先核对本文件再决定改哪边。

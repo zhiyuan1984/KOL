@@ -12,13 +12,17 @@ export default function RunHud({
   phase,
   taskTitle,
   remoteLabel,
+  view,
 }: {
   status?: AgentRunStatus;
   phase?: string;
   taskTitle?: string;
   remoteLabel?: string;
+  /** 统一的任务视图（有任务时优先于裸会话状态词），见 runViewState.ts。 */
+  view?: { label: string; live: boolean };
 }) {
-  const label = STATUS_LABEL[status || "listening"] || "待命";
+  const label = view?.label || STATUS_LABEL[status || "listening"] || "待命";
+  const showHint = view ? view.live : status === "running" || status === "queued";
   return (
     <div className="run-hud" data-run-status={status || "listening"} role="status">
       <span className="run-hud-dot" aria-hidden />
@@ -28,7 +32,7 @@ export default function RunHud({
         {!phase && taskTitle && <span className="run-hud-phase">{taskTitle}</span>}
       </div>
       {remoteLabel && <span className="run-hud-remote">{remoteLabel}</span>}
-      <span className="run-hud-hint">刷新页面不会取消后台执行</span>
+      {showHint && <span className="run-hud-hint">刷新页面不会取消后台执行</span>}
     </div>
   );
 }

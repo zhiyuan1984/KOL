@@ -86,6 +86,22 @@ rl.on("line", (line) => {
     send({ id, error: { message: "unsupported login" } });
     return;
   }
+  if (method === "account/usage/read") {
+    const requested = params && typeof params.threadId === "string" ? params.threadId : null;
+    if (process.env.FAKE_CODEX_USAGE_MODE === "null-usage") {
+      send({ id, result: { summary: { lifetimeTokens: null }, dailyUsageBuckets: null, threadUsage: null } });
+      return;
+    }
+    send({
+      id,
+      result: {
+        summary: { lifetimeTokens: 1500, peakDailyTokens: 1500, longestRunningTurnSec: 3 },
+        dailyUsageBuckets: [{ startDate: "2026-09-29", tokens: 1500 }],
+        threadUsage: requested ? { inputTokens: 1200, outputTokens: 300, totalTokens: 1500, model: "gpt-5-codex" } : null,
+      },
+    });
+    return;
+  }
   if (method === "thread/start") {
     const dump = String(process.env.FAKE_CODEX_THREAD_START || "").trim();
     if (dump) {

@@ -95,6 +95,8 @@
   --icon-btn: 24px;
   /* 跟进红人卡片的头像图标砖边宽（docs/DESIGN.md §控件尺寸）。 */
   --kol-avatar-size: 28px;
+  /* 「成本与预算」治理面（/admin/cost）预算进度条高度（docs/DESIGN.md §控件尺寸）。 */
+  --cost-meter-h: 6px;
   /* 首页工作台控件收敛为紧凑规格；触摸模态由下方规则单独扩至 44px 命中区。 */
   --home-chip-w: 88px;
   --home-chip-h: 28px;
@@ -3900,6 +3902,22 @@ summary:focus-visible,
   margin: 0;
   accent-color: var(--accent-text);
 }
+.followed-kol-column .followed-sort-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-1) 0 var(--space-2);
+  border-bottom: 1px solid var(--border);
+}
+/* 与工具行的搜索框、批量按钮同档 32px，避免同一栏两种控件高度。 */
+.followed-kol-column .followed-sort-row button {
+  min-height: var(--control-h-lg);
+  padding: 0 10px;
+  border-radius: var(--radius-control);
+  font-size: var(--ds-font-sm);
+}
 .followed-result-summary {
   display: flex;
   flex-wrap: wrap;
@@ -3951,7 +3969,45 @@ summary:focus-visible,
 .followed-kol-column .followed-kol-card[data-selected] {
   background: color-mix(in srgb, var(--accent) 3%, var(--bg));
 }
-.followed-kol-column .kol-band-identity { gap: var(--space-2); }
+.followed-kol-column .kol-band-identity {
+  display: grid;
+  grid-template-columns: auto var(--kol-avatar-size) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+.followed-kol-column .kol-identity-main { display: contents; }
+.followed-kol-column .kol-identity-line { grid-column: 3; }
+.followed-kol-column .kol-identity-main > :not(.kol-identity-line) {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.followed-kol-column .kol-avatar {
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.followed-kol-column .kol-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+}
+.followed-kol-column .kol-profile-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+}
+.followed-kol-column .kol-profile-metrics strong { font-weight: 500; }
+.followed-kol-column .kol-band-fact {
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-1);
+}
+.followed-kol-column .kol-band-recommend {
+  padding: var(--space-1) var(--space-2);
+  background: color-mix(in srgb, var(--accent) 3%, var(--bg));
+  border-radius: var(--radius-control);
+}
 .followed-kol-column .kol-identity-line { column-gap: var(--space-2); }
 .followed-kol-column .kol-chip-row { gap: 0 6px; }
 .followed-kol-column .kol-split { gap: var(--space-2); }
@@ -5820,6 +5876,39 @@ summary:focus-visible,
 .admin-status.is-draft, .admin-status.is-pending { color: var(--text-muted); }
 .admin-status.is-verified { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 36%, var(--border)); }
 .admin-status.is-enabled { color: var(--success); border-color: color-mix(in srgb, var(--success) 35%, var(--border)); }
+/* 预警档 chip：--warning 原值对白底只有 3.62:1，不足 13px 文字的 4.5:1；
+   72% --warning + 28% --text 派生，随主题自动翻转（与 --accent-text 同法）。 */
+.admin-status.is-warning {
+  color: color-mix(in srgb, var(--warning) 72%, var(--text));
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--border));
+}
+
+/* 「成本与预算」治理面（/admin/cost，ADR-2026-09-29）：预算进度条与缺口清单。
+   进度条只画比例 —— 轨道用 --border，填充按 data-state 取状态 token（纯图形 ≥3:1）；
+   状态词、tokens 数值与百分比同时以文字给出，状态不靠颜色单独表达（docs/DESIGN.md §颜色）。 */
+.cost-meter {
+  height: var(--cost-meter-h);
+  border-radius: var(--radius-control);
+  background: var(--border);
+  overflow: hidden;
+}
+.cost-meter > span { display: block; height: 100%; background: var(--text-muted); }
+.cost-meter[data-state="ok"] > span { background: var(--accent); }
+.cost-meter[data-state="warn"] > span { background: var(--warning); }
+.cost-meter[data-state="stopped"] > span { background: var(--danger); }
+.cost-meter[data-state="disabled"] > span,
+.cost-meter[data-state="unconfigured"] > span { background: var(--text-muted); }
+.cost-cell { display: grid; gap: var(--space-1); }
+.cost-value { font-size: var(--font-meta); color: var(--text); white-space: nowrap; }
+.cost-notes {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--font-meta);
+}
+.cost-budget-form { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: flex-end; }
 .connector-detail-summary .admin-kv dd { font-weight: 500; }
 .connector-disclosure { padding: 0; overflow: hidden; }
 .connector-disclosure > summary {

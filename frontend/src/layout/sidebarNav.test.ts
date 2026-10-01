@@ -46,7 +46,7 @@ describe("今日 sidebar IA", () => {
 });
 
 describe("admin sidebar parity", () => {
-  it("keeps the nine governance entries in one contract", () => {
+  it("keeps the ten governance entries in one contract", () => {
     expect(ADMIN_SECTIONS).toEqual([
       "employees",
       "connectors",
@@ -56,9 +56,10 @@ describe("admin sidebar parity", () => {
       "exams",
       "agents",
       "data",
+      "cost",
       "kol",
     ]);
-    expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([1, 3, 1, 2, 2]);
+    expect(ADMIN_NAV_GROUPS.map((group) => group.rows.length)).toEqual([1, 3, 1, 2, 3]);
     expect(ADMIN_NAV_GROUPS.flatMap((group) => group.rows.map((row) => row.label))).toEqual([
       "员工",
       "连接",
@@ -68,6 +69,7 @@ describe("admin sidebar parity", () => {
       "考试",
       "治理",
       "数据",
+      "成本",
       "配置",
     ]);
     for (const group of ADMIN_NAV_GROUPS) {
