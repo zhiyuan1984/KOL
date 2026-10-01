@@ -38,7 +38,7 @@
 
 | 外部提案 | 本仓落地 | 说明 |
 |---|---|---|
-| 命名空间（kol_business / product_training） | 范围（公司/组织/品牌/区域）+ 授权 grants | [org-permissions.md](../../org-permissions.md) 已定义范围维度；不新增命名空间重表（TECH-ARCH-01） |
+| 命名空间（kol_business / product_training） | **受控两级业务分类：主题域族 → 主题域 → 知识库**（表 `knowledge_domains` / `knowledge_bases`）＋既有范围（公司/组织/品牌/区域）与授权 grants | **修订（2026-10-01，用户决策）**：分类只承载业务归类，**不承载权限**（权限仍走既有范围与 grants）；原「不新增命名空间重表」口径作废，理由与冲突处理见 [DECISIONS.md](../../DECISIONS.md) ADR-2026-10-01（三） |
 | MySQL + 独立向量库 | SQLite（better-sqlite3）+ `backend/src/db.ts` 内联 schema + `backend/migrations/NNN_*.sql` 镜像留档 | 沿用现有迁移机制（`backend/src/db.ts:1043-1052`），不引入 ORM/新服务 |
 | chunk / embedding / 向量检索 | 起步用显式选择器 + SQLite FTS5；embedding 后置（触发条件见 §4.5） | 零新依赖；外部数据契约与成本属单独决策 |
 | `skill_wiki_binding` + Skill 内 `wiki` 字段自动检索注入 | `knowledge_bindings`（服务端配置）+ Host 侧解析器 | 不在全部 SKILL.md 强加新 frontmatter 字段；绑定在管理端治理 |
@@ -85,14 +85,32 @@
 `not_published`｜`scope_mismatch`｜`not_cited`｜`deprecated_by_user`｜`expired`｜`shadowed_by_higher_priority`｜`binding_disabled`｜`missing`（显式 id 找不到行）。
 显式 ids 钉住的条目同样过四闸（一次评估、不重复计入）。
 
-### 4.3 数据模型增量（SQLite；写入 `backend/src/db.ts`，镜像 `backend/migrations/012_*.sql`）
+### 4.3 数据模型增量（SQLite；写入 `backend/src/db.ts`，镜像 `backend/migrations/NNN_*.sql`）
 
-- `knowledge` 增列：`effective_at`、`expires_at`（可空；展示与筛选用，不做自动删除）。
+**分类层（新增，2026-10-01）**
+
+- 新表 `knowledge_domains`（两级分类树）：`id, code, name, level('family'|'domain'), parent_id, sort, status('active'|'archived'), note, created_by, created_at, updated_at`。
+  约束：`level='domain'` 必须有 `parent_id` 且父为 `family`；`level='family'` 不得带父；同一父下 `code` 唯一（部分唯一索引）。**只做业务归类，不承载权限。**
+- 新表 `knowledge_bases`（知识库＝容器＋策略）：`id, code, name, domain_id, kind('structured'|'unstructured'), description, owner_user_id, status, settings(JSON), external_ref(JSON), version, created_at, updated_at`。
+  `kind='structured'` 的库承载按键取用的受控条目（模板/提示词/术语表/问答）；`kind='unstructured'` 为文档/媒体库，解析与检索后端（WeKnora 或自建）在后续阶段落地，`external_ref` 预留外部库映射，本阶段恒空。
+
+**条目层（增列）**
+
+- `knowledge` 增列：`base_id`（指向 `knowledge_bases`）、`structured`（JSON，按 `config/knowledge-kinds.yaml` 校验）、`source_body`（原稿，**不可变**；手工修订只改 `body`）。
+- `knowledge_versions` 增列：`tags`、`in_market`、`effective_at`、`expires_at`（现状快照缺这四列，回滚会丢字段——本次一并修）。
+- `knowledge` 既有增列：`effective_at`、`expires_at`（可空；展示与筛选用，不做自动删除）。
 - 新表 `knowledge_grants`：`id, knowledge_id, scope('org'|'team'|'user'), scope_id, granted_by, granted_at`。
   **语义（按对象收窄）**：某条知识出现授权行时仅授权范围可见；无授权行者维持现行「已发布即可见」。与 `skill_grants` 的全局空表语义不同，此处取增量收窄，避免一次性改变全量可见性（`backend/src/host/grants.ts:36-61` 为对照实现）。
 - 新表 `knowledge_bindings`：`id, skill_id, selector(JSON), enabled, note, created_by, created_at, updated_at`。
-- 审计事件：`knowledge.resolve`（每次运行：解析到 id+版本、跳过项与原因）、`knowledge.binding.save`、`knowledge.grant.save`、`knowledge.rollback`、`knowledge.feedback.handle`。
-- **不加** chunk / embedding / vector 表。
+- 审计事件：`knowledge.resolve`（每次运行：解析到 id+版本、跳过项与原因）、`knowledge.binding.save`、`knowledge.grant.save`、`knowledge.rollback`、`knowledge.feedback.handle`、`knowledge.domain.save`、`knowledge.base.save`。
+- **不加** chunk / embedding / vector 表（结构化阶段）；非结构化阶段若接入外部检索后端，其分块与向量存在外部服务，本库不复制（§4.5、方案 C）。
+
+### 4.3.1 知识流程（借 WeKnora 的阶段与版本语义，保留本仓审核闸门）
+
+- **结构化（本阶段）**：`录入/上传(md) → 字段与占位符校验 + 密钥扫描 → draft → pending_review → 审批（expected_version，冲突 409）→ published → 绑定 → 引用 → 个人隐藏/反馈处置`。
+- **版本语义（照 WeKnora）**：不可变原稿 `source_body` ＋ 当前内容 `body` ＋ 单调 `current_version`（乐观锁）＋ `knowledge_versions` 快照 ＋ **回滚＝生成新版本**（历史行不动）。
+- **非结构化（后续阶段）**：状态机沿用 WeKnora 的 `pending → processing → finalizing(子任务计数) → completed | failed | cancelled`，配阶段时间线与卡死重试；**但保留「审核后生效」**，不采用「索引即生效」。
+- **不照搬**：Space 多租户、Wiki 自动生成、知识图谱。
 
 ### 4.4 反馈与管理闭环
 
@@ -141,16 +159,16 @@
 
 ### 5.2 页面规范（一页一问；`/admin/knowledge` 子视图）
 
-统一要求：纵滚治理表/行、页头治理标题、行内动作一律链接式样式（不抢主 CTA）、每视口 0–1 实底主 CTA、状态不靠颜色、L3 动作走 `ConfirmDialog` + 持久回执。建议 DOM 契约：`data-admin-kb-view="todo|assets|detail|ingest|bindings|feedback"`。
+统一要求：纵滚治理表/行、页头治理标题、行内动作一律链接式样式（不抢主 CTA）、每视口 0–1 实底主 CTA、状态不靠颜色、L3 动作走 `ConfirmDialog` + 持久回执。**DOM 契约（2026-10-01 改）：`data-admin-kb-view="review|catalog|base|entry|ingest|bindings"`。**
 
 | 路由 | 只回答 | 主 CTA | 结构与关键要素 |
 |---|---|---|---|
-| `/admin/knowledge`（待办） | 有什么在等我决定？ | 无（行内链接式） | 待审、草稿、隔离提案、到期提醒、超阈值反馈；每行 → 详情 |
-| `/admin/knowledge/assets` | 有哪些资产、什么状态、被谁用？ | 「新建知识」 | 治理表：标题/类型/状态/版本/适用/引用数/更新；筛选 kind/status/品牌/技能；行 → 资产详情 |
-| `/admin/knowledge/assets/:id` | 这份资产的治理状态与影响面？ | 按状态唯一渲染：「编辑为新版本」或「审批发布」 | 正文与元数据；版本时间线（diff 入口、回滚）；范围与 grants；引用列表（技能/专家）；引用回执；审计切片 |
-| `/admin/knowledge/ingest` | 素材入库与提取成败？ | 「上传资料」 | raw 列表、提取真实状态与失败重试、抽取候选预览（确认后生成待审稿，L2） |
+| `/admin/knowledge`（待处置） | 有什么在等我决定？ | 无（行内链接式） | 待审条目、草稿、隔离提案、到期提醒、**员工反馈处置**；每行 → 条目详情 |
+| `/admin/knowledge/catalog` | 知识分在哪几个主题域族 / 主题域 / 知识库？ | 「新建知识库」（无分类时先「新建主题域族」） | 族 → 域 → 库的目录树（行式，非卡片墙）；每库显示 `kind`（结构化/非结构化）、条目数、状态；行 → 库详情 |
+| `/admin/knowledge/bases/:id` | 这个库里有哪些条目、什么状态？ | 「新建条目」 | 条目治理表：标题/类型(kind)/状态/版本/适用/引用数/更新；筛选 kind/status/品牌；非结构化库显式标注「解析与检索未实现」 |
+| `/admin/knowledge/entries/:id` | 这条知识的治理状态与影响面？ | 按状态唯一渲染：「编辑为新版本」或「审批发布」 | 正文与元数据（含所属库/域/族、结构化字段）；版本时间线（diff、回滚）；范围与 grants；引用列表；审计切片 |
+| `/admin/knowledge/ingest` | 素材入库与提取成败？ | 「上传资料」（非结构化阶段前灰置并标注未实现） | raw 列表、提取真实状态与失败重试、抽取候选预览（确认后生成待审稿，L2） |
 | `/admin/knowledge/bindings` | 哪些技能会拿到哪些知识、为什么？ | 「新增绑定」 | 绑定表（技能 × 选择器 × 当前可解析数 × 启用）；试算台；启用/停用（L2 配置，明确「保存≠生效」提示） |
-| `/admin/knowledge/feedback` | 员工反馈了什么、怎么处置？ | 「转为修订」（选中后） | 原因聚合与明细、处置记录、到期清单 |
 
 ### 5.3 关键交互与状态
 
@@ -246,7 +264,7 @@
 ## 12. 不做（非目标）
 
 - 不建 MySQL、不引入向量库/embedding 服务、不上 GPU（触发条件见 §4.5）。
-- 不引入命名空间重表；范围沿用既有组织/品牌/区域维度。
+- **修订（2026-10-01，用户决策）**：引入**受控两级业务分类**（主题域族 → 主题域）与知识库容器（`knowledge_domains` / `knowledge_bases`），仅作业务归类、不承载权限；**范围与权限仍沿用既有组织/品牌/区域维度与 grants**（原作废条款：「不引入命名空间重表」）。非结构化阶段的解析 / 分块 / 向量住在外部服务，本库不建向量表（§4.3、§4.5）。
 - 不让模型读 wiki 原文；注入永远是编译载荷。
 - 不允许 AI 自动修改主文档（只产候选、人审门禁）。
 - 不新增顶层导航；不把 `/kb` 写成治理页；不在管理端做第二套 Home。

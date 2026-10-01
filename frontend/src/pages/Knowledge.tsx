@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { api, type KnowledgeRow, type SkillTemplate } from "../api";
 import SkillTemplateContext from "../components/SkillTemplateContext";
 import { stashComposerDraft } from "../composer/draft";
@@ -8,37 +8,39 @@ import {
   HIDE_REASONS,
   KB_EMPTY_FILTER,
   KB_EMPTY_SEARCH,
+  KB_EMPTY_SCOPE,
   KB_FILTER_ALL,
   KB_FILTER_LABEL,
   KB_LEAD,
   KB_LOADING,
   KB_PROVENANCE_LABEL,
   KB_PROVENANCE_TITLE,
+  KB_SCOPE_ALL,
+  KB_SCOPE_BASE,
+  KB_SCOPE_CLEAR,
+  KB_SCOPE_CURRENT,
+  KB_SCOPE_DOMAIN,
+  KB_SCOPE_FAMILY,
+  KB_SCOPE_LEAD,
+  KB_SCOPE_NONE,
   KB_SEARCH_CLEAR,
   KB_SEARCH_LABEL,
   KB_SEARCH_PLACEHOLDER,
-  KB_TAB_LABEL,
   formatKbTime,
   hideReasonLabel,
   kbAuthorLabel,
   kbIsMail,
-  kbKicker,
   kbMatchesFilter,
-  kbMatchesTab,
   kbRowVersionLine,
   kbScopeTags,
   kbStatusLabel,
   kbSummary,
   kbVariableLine,
   kbVersionTag,
-  kbVisibleTabs,
   kindLabel,
   readKbFavorites,
-  readKbRecent,
-  rememberKbRecent,
   stashComposerFill,
   toggleKbFavorite,
-  type KbBrowseTab,
 } from "../knowledgeCopy";
 
 const SEARCH_DEBOUNCE_MS = 300;
@@ -102,9 +104,27 @@ function ScopeChips({ row }: { row: KnowledgeRow }) {
   );
 }
 
-function parseBrowseTab(raw: string | null): KbBrowseTab {
-  if (raw === "mail" || raw === "brand" || raw === "sop" || raw === "quote" || raw === "recent") return raw;
-  return "all";
+type ScopeOption = { id: string; name: string };
+
+/** 从可见行里归纳分类选项：只列出你确实看得到的族 / 域 / 库。 */
+function collectScope(
+  rows: KnowledgeRow[],
+  level: "family" | "domain" | "base",
+  parentId: string,
+): ScopeOption[] {
+  const seen = new Map<string, string>();
+  for (const row of rows) {
+    if (level === "family") {
+      if (row.family_id) seen.set(row.family_id, row.family_name || row.family_id);
+    } else if (level === "domain") {
+      if (parentId && row.family_id !== parentId) continue;
+      if (row.domain_id) seen.set(row.domain_id, row.domain_name || row.domain_id);
+    } else {
+      if (parentId && row.domain_id !== parentId) continue;
+      if (row.base_id) seen.set(row.base_id, row.base_name || row.base_id);
+    }
+  }
+  return [...seen.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
 }
 
 function ContentDrawer({
@@ -185,17 +205,16 @@ export default function Knowledge() {
   const [err, setErr] = useState("");
   const [tipId, setTipId] = useState("");
   const [favorites, setFavorites] = useState<string[]>(() => readKbFavorites());
-  const [recent, setRecent] = useState<{ id: string; at: number }[]>(() => readKbRecent());
   const [query, setQuery] = useState("");
   const [keyword, setKeyword] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [stageFilter, setStageFilter] = useState("");
   const [brandFilter, setBrandFilter] = useState("");
-  const [params, setParams] = useSearchParams();
+  const [familyId, setFamilyId] = useState("");
+  const [domainId, setDomainId] = useState("");
+  const [baseId, setBaseId] = useState("");
   const nav = useNavigate();
   const closeTip = useCallback(() => setTipId(""), []);
-  const tab = parseBrowseTab(params.get("cat"));
-  const recentIds = useMemo(() => recent.map((item) => item.id), [recent]);
 
   const reload = useCallback(() => {
     api.knowledge({ q: keyword })
@@ -237,14 +256,22 @@ export default function Knowledge() {
     return () => window.removeEventListener("keydown", onKey);
   }, [preview]);
 
-  const tabs = useMemo(() => kbVisibleTabs(rows, recentIds), [rows, recentIds]);
+  const familyOptions = useMemo(() => collectScope(rows, "family", ""), [rows]);
+  const domainOptions = useMemo(() => collectScope(rows, "domain", familyId), [rows, familyId]);
+  const baseOptions = useMemo(() => collectScope(rows, "base", domainId), [rows, domainId]);
+  const hasTaxonomy = familyOptions.length > 0 || baseOptions.length > 0;
+  const scoped = Boolean(familyId || domainId || baseId);
 
+  // 分类是层级的：上层变了，下层选择随之清空；选项消失也回退到「全部」。
   useEffect(() => {
-    if (!rows.length || tabs.includes(tab)) return;
-    const next = new URLSearchParams(params);
-    next.delete("cat");
-    setParams(next, { replace: true });
-  }, [params, setParams, rows.length, tab, tabs]);
+    if (familyId && !familyOptions.some((item) => item.id === familyId)) setFamilyId("");
+  }, [familyId, familyOptions]);
+  useEffect(() => {
+    if (domainId && !domainOptions.some((item) => item.id === domainId)) setDomainId("");
+  }, [domainId, domainOptions]);
+  useEffect(() => {
+    if (baseId && !baseOptions.some((item) => item.id === baseId)) setBaseId("");
+  }, [baseId, baseOptions]);
 
   const stageOptions = useMemo(
     () => [...new Set(rows.flatMap((row) => row.stage_codes || []).filter(Boolean))].sort(),
@@ -262,23 +289,14 @@ export default function Knowledge() {
     if (brandFilter && !brandOptions.includes(brandFilter)) setBrandFilter("");
   }, [brandFilter, brandOptions, stageFilter, stageOptions]);
 
-  const setTab = (nextTab: KbBrowseTab) => {
-    const next = new URLSearchParams(params);
-    if (nextTab === "all") next.delete("cat");
-    else next.set("cat", nextTab);
-    setParams(next, { replace: true });
-  };
-
   const openPreview = (row: KnowledgeRow) => {
     closeTip();
     setPreview(row);
-    setRecent(rememberKbRecent(row.id));
   };
 
   const useForTask = (row: KnowledgeRow) => {
     closeTip();
     const go = () => {
-      setRecent(rememberKbRecent(row.id));
       stashComposerFill(row);
       nav(`/?knowledge_id=${encodeURIComponent(row.id)}`);
     };
@@ -299,13 +317,13 @@ export default function Knowledge() {
   };
 
   const visible = useMemo(() => {
-    const filtered = rows.filter(
-      (row) => kbMatchesTab(row, tab, recentIds) && kbMatchesFilter(row, stageFilter, brandFilter),
-    );
-    if (tab !== "recent") return filtered;
-    const rank = new Map(recentIds.map((id, index) => [id, index]));
-    return [...filtered].sort((a, b) => (rank.get(a.id) ?? 99) - (rank.get(b.id) ?? 99));
-  }, [brandFilter, recentIds, rows, stageFilter, tab]);
+    return rows.filter((row) => {
+      if (familyId && row.family_id !== familyId) return false;
+      if (domainId && row.domain_id !== domainId) return false;
+      if (baseId && row.base_id !== baseId) return false;
+      return kbMatchesFilter(row, stageFilter, brandFilter);
+    });
+  }, [rows, familyId, domainId, baseId, stageFilter, brandFilter]);
 
   const visibleSkillTemplates = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -315,41 +333,95 @@ export default function Knowledge() {
     ));
   }, [query, skillTemplates]);
 
+  const scopeNames = useMemo(() => {
+    const pick = (options: ScopeOption[], id: string) => options.find((item) => item.id === id)?.name || "";
+    return [
+      familyId ? pick(familyOptions, familyId) : "",
+      domainId ? pick(domainOptions, domainId) : "",
+      baseId ? pick(baseOptions, baseId) : "",
+    ].filter(Boolean);
+  }, [familyId, domainId, baseId, familyOptions, domainOptions, baseOptions]);
+
   const emptyCopy = useMemo(() => {
     if (keyword) return KB_EMPTY_SEARCH;
     if (stageFilter || brandFilter) return KB_EMPTY_FILTER;
-    return tab === "recent"
-      ? "还没有最近使用的资料。查看或用于当前任务后会出现在这里。"
-      : "这一类暂时没有资料。";
-  }, [brandFilter, keyword, stageFilter, tab]);
+    if (scoped) return KB_EMPTY_SCOPE;
+    return "暂无已发布资料。";
+  }, [brandFilter, keyword, stageFilter, scoped]);
+
+  const clearScope = () => {
+    setFamilyId("");
+    setDomainId("");
+    setBaseId("");
+  };
 
   return (
     <div className={"list-page kb-page" + (preview ? " has-drawer" : "")} data-kb-page="mine">
       <header className="kb-hero">
-        {loaded ? <div className="page-kicker">{kbKicker(tab)}</div> : null}
+        {loaded ? <div className="page-kicker">知识库</div> : null}
         <h1>知识库</h1>
-        {loaded ? (
-          <>
-            <nav className="kb-tabs" aria-label="资料分类">
-              {tabs.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  className={tab === item ? "active" : ""}
-                  aria-selected={tab === item}
-                  data-kb-tab={item}
-                  onClick={() => setTab(item)}
-                >
-                  {KB_TAB_LABEL[item]}
-                </button>
-              ))}
-            </nav>
-            <p className="kb-lead">{KB_LEAD}</p>
-          </>
-        ) : (
-          <p className="muted" data-kb-loading>{KB_LOADING}</p>
-        )}
+        {loaded ? <p className="kb-lead">{KB_LEAD}</p> : <p className="muted" data-kb-loading>{KB_LOADING}</p>}
       </header>
+
+      {loaded ? (
+        <section className="kb-scope-picker" data-kb-scope-picker aria-label={KB_SCOPE_LEAD}>
+          <p className="kb-scope-lead" data-kb-scope-lead>
+            <span className="sr-only">{KB_SCOPE_CURRENT}</span>
+            {KB_SCOPE_LEAD}
+          </p>
+          {hasTaxonomy ? (
+            <div className="kb-scope-selects">
+              <label className="kb-filter">
+                <span className="kb-filter-label">{KB_SCOPE_FAMILY}</span>
+                <select
+                  data-kb-scope-family
+                  value={familyId}
+                  onChange={(event) => {
+                    setFamilyId(event.target.value);
+                    setDomainId("");
+                    setBaseId("");
+                  }}
+                >
+                  <option value="">{KB_SCOPE_ALL}</option>
+                  {familyOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </label>
+              <label className="kb-filter">
+                <span className="kb-filter-label">{KB_SCOPE_DOMAIN}</span>
+                <select
+                  data-kb-scope-domain
+                  value={domainId}
+                  onChange={(event) => {
+                    setDomainId(event.target.value);
+                    setBaseId("");
+                  }}
+                >
+                  <option value="">{KB_SCOPE_ALL}</option>
+                  {domainOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </label>
+              <label className="kb-filter">
+                <span className="kb-filter-label">{KB_SCOPE_BASE}</span>
+                <select data-kb-scope-base value={baseId} onChange={(event) => setBaseId(event.target.value)}>
+                  <option value="">{KB_SCOPE_ALL}</option>
+                  {baseOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </label>
+              {scoped ? (
+                <button className="btn row-action" type="button" data-kb-scope-clear onClick={clearScope}>
+                  {KB_SCOPE_CLEAR}
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <p className="muted" data-kb-scope-none>{KB_SCOPE_NONE}</p>
+          )}
+          {scoped ? (
+            <p className="kb-scope-path" data-kb-scope-path>{scopeNames.join(" / ")}</p>
+          ) : null}
+        </section>
+      ) : null}
+
       {loaded ? (
       <div className="kb-toolbar">
         <label className="kb-search">

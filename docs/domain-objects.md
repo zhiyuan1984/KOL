@@ -268,3 +268,15 @@ GET /api/kol/dictionaries/options?parentKey={parentKey}
 2. **合作阶段**：调用 `/api/v1/kol/config/cooperation-stages/options`，提交 `stage_code`。
 3. **负责人状态**：可复用字典，也可直接使用整数 `responsibleStatus`（1=在职，2=已移交，3=停用）。
 4. **导入模板**：主平台、商务语言、爬虫状态支持字典 key 或中文文案（见 `KOL_PROFILE_IMPORT_API.md`）。
+
+---
+
+## 知识分类（主题域族 → 主题域 → 知识库）
+
+> 新增（2026-10-01，用户决策）：依据 [DECISIONS.md](DECISIONS.md) ADR-2026-10-01（三）与 [知识库治理设计](superpowers/specs/2026-09-26-knowledge-base-skill-agent-design.md) §4.3；分类只做业务归类，**不承载权限**。
+
+- `KnowledgeFamily`（主题域族）：第一级分类，如「供应链」。字段：`code` / `name` / `sort` / `status`。
+- `KnowledgeDomain`（主题域）：第二级，隶属一个族，如「供应链 → 采购」。字段：同族 + `parent`。
+- `KnowledgeBase`（知识库）：容器＋策略，隶属一个域；`kind ∈ structured | unstructured`。结构化库存放按键取用的受控条目（模板 / 提示词 / 术语表 / 问答）；非结构化库为文档与媒体，其解析与检索由外部服务承担（后续阶段）。
+- 条目（`knowledge`）隶属一个库；`kind` 决定其结构化字段（`config/knowledge-kinds.yaml`）。
+- 边界：可见范围仍走组织 / 品牌 / 区域与 `knowledge_grants`；阶段、品牌等是条目的**适用范围**维度，不是分类维度；非结构化库的解析 / 分块 / 向量不复制进本库。

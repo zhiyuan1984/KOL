@@ -16,8 +16,9 @@ import { pickComposeTemplate } from "./compose-loop.js";
 import { currentUser } from "./persona.js";
 import { departmentHeadAccessForUser } from "../contract-scope.js";
 import { directory, memberScopeIds } from "./grants.js";
+import { knowledgeKindSpec, validateStructuredFields } from "../knowledge-kinds.js";
 
-export const KNOWLEDGE_KINDS = ["mail_template", "policy", "pattern", "glossary", "question_template"] as const;
+export const KNOWLEDGE_KINDS = ["mail_template", "prompt", "policy", "pattern", "glossary", "question_template"] as const;
 export const KNOWLEDGE_STATUSES = ["draft", "pending_review", "published", "archived"] as const;
 
 /** 公海工作台四类动作的问题模板槽位；模板正文存于 kind='question_template' 的知识行。 */
@@ -33,6 +34,7 @@ export const KNOWLEDGE_SKIP_REASONS = [
   "not_cited",
   "deprecated_by_user",
   "expired",
+  "wrong_base_type",
   "shadowed_by_higher_priority",
   "binding_disabled",
   "missing",
@@ -101,11 +103,348 @@ export function knowledgeRow(id: string): Row {
   return asRow(getConn().prepare("SELECT * FROM knowledge WHERE id=?").get(id) as Row | undefined);
 }
 
+// ---------------------------------------------------------------------------
+// 知识分层（2026-10-01，DECISIONS ADR-2026-10-01 三）：
+// 主题域族 → 主题域 → 知识库。分类只做业务归类，不承载权限
+// （可见范围仍走 knowledge_grants / 品牌 / 阶段）。
+// ---------------------------------------------------------------------------
+
+export const KNOWLEDGE_DOMAIN_LEVELS = ["family", "domain"] as const;
+export const KNOWLEDGE_BASE_KINDS = ["structured", "unstructured"] as const;
+export const KNOWLEDGE_DOMAIN_CODE_RE = /^[a-z][a-z0-9_]*$/;
+
+export type KnowledgeDomainLevel = (typeof KNOWLEDGE_DOMAIN_LEVELS)[number];
+export type KnowledgeBaseKind = (typeof KNOWLEDGE_BASE_KINDS)[number];
+
+const DOMAIN_COLUMNS = "id,code,name,level,parent_id,sort,status,note,created_at,updated_at";
+const TAXONOMY_JOIN = `LEFT JOIN knowledge_bases b ON b.id=k.base_id
+   LEFT JOIN knowledge_domains d ON d.id=b.domain_id
+   LEFT JOIN knowledge_domains f ON f.id=d.parent_id`;
+const KNOWLEDGE_LIST_COLUMNS = `k.*, b.code AS base_code, b.name AS base_name,
+   d.id AS domain_id, d.name AS domain_name, f.id AS family_id, f.name AS family_name`;
+const BASE_SELECT = `SELECT b.*, d.name AS domain_name, d.parent_id AS family_id, f.name AS family_name,
+   (SELECT COUNT(*) FROM knowledge k WHERE k.base_id=b.id) AS entries
+     FROM knowledge_bases b
+     LEFT JOIN knowledge_domains d ON d.id=b.domain_id
+     LEFT JOIN knowledge_domains f ON f.id=d.parent_id`;
+
+function domainRow(id: string): Row {
+  const row = getConn().prepare("SELECT * FROM knowledge_domains WHERE id=?").get(id) as Row | undefined;
+  if (!row) throw new HttpFail(404, "主题域不存在");
+  return { ...row };
+}
+
+function domainView(id: string): Json {
+  return getConn().prepare(`SELECT ${DOMAIN_COLUMNS} FROM knowledge_domains WHERE id=?`).get(id) as Json;
+}
+
+function normalizeDomainLevel(value: unknown): KnowledgeDomainLevel {
+  const level = String(value || "");
+  if (!(KNOWLEDGE_DOMAIN_LEVELS as readonly string[]).includes(level)) {
+    throw new HttpFail(400, "level 须为 family / domain");
+  }
+  return level as KnowledgeDomainLevel;
+}
+
+function normalizeBaseKind(value: unknown): KnowledgeBaseKind {
+  const kind = String(value || "");
+  if (!(KNOWLEDGE_BASE_KINDS as readonly string[]).includes(kind)) {
+    throw new HttpFail(400, "kind 须为 structured / unstructured");
+  }
+  return kind as KnowledgeBaseKind;
+}
+
+function normalizeRecordStatus(value: unknown, fallback: string): "active" | "archived" {
+  const status = String(value == null || value === "" ? fallback : value);
+  if (status !== "active" && status !== "archived") throw new HttpFail(400, "status 须为 active / archived");
+  return status;
+}
+
+function parseJsonObject(value: unknown, fallback: Json = {}): Json {
+  if (value == null || value === "") return fallback;
+  if (typeof value === "object" && !Array.isArray(value)) return value as Json;
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Json) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function listDomains(): Json[] {
+  requireAdmin();
+  return getConn()
+    .prepare(
+      `SELECT ${DOMAIN_COLUMNS} FROM knowledge_domains
+        ORDER BY CASE level WHEN 'family' THEN 0 ELSE 1 END, sort, name, code`,
+    )
+    .all() as Json[];
+}
+
+export function createDomain(input: {
+  code?: string;
+  name?: string;
+  level?: string;
+  parent_id?: string | null;
+  sort?: number | null;
+  note?: string;
+}, actor = knowledgeActorId()): Json {
+  requireAdmin();
+  const code = String(input.code || "").trim();
+  if (!KNOWLEDGE_DOMAIN_CODE_RE.test(code)) throw new HttpFail(400, "code 须为小写字母开头的 a-z0-9_ 编码");
+  const name = String(input.name || "").trim();
+  if (!name) throw new HttpFail(400, "name required");
+  const level = normalizeDomainLevel(input.level);
+  const parentId = String(input.parent_id == null ? "" : input.parent_id).trim();
+  if (level === "family") {
+    if (parentId) throw new HttpFail(400, "主题域族不能有父级（parent_id）");
+  } else {
+    if (!parentId) throw new HttpFail(400, "主题域必须给 parent_id（所属族）");
+    const parent = getConn().prepare("SELECT * FROM knowledge_domains WHERE id=?").get(parentId) as Row | undefined;
+    if (!parent) throw new HttpFail(400, "父级主题域不存在");
+    if (String(parent.level) !== "family") throw new HttpFail(400, "主题域的父级必须是族（family）");
+  }
+  const conflict = getConn()
+    .prepare("SELECT 1 FROM knowledge_domains WHERE code=? AND IFNULL(parent_id,'')=?")
+    .get(code, parentId);
+  if (conflict) throw new HttpFail(409, { code: "knowledge_domain_code_conflict", message: "同一父级下编码已存在" });
+  const id = nid("kdom");
+  const now = nowIso();
+  const sort = Number.isFinite(Number(input.sort)) ? Number(input.sort) : 0;
+  const note = String(input.note || "");
+  tx((db) => {
+    db.prepare(
+      `INSERT INTO knowledge_domains (id,code,name,level,parent_id,sort,status,note,created_by,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(id, code, name, level, level === "family" ? null : parentId, sort, "active", note, actor, now, now);
+  });
+  audit(actor, "knowledge.domain.save", { id, code, level, created: true });
+  return { domain: domainView(id) };
+}
+
+export function editDomain(id: string, patch: {
+  name?: string;
+  sort?: number | null;
+  status?: string;
+  note?: string;
+}, actor = knowledgeActorId()): Json {
+  requireAdmin();
+  const prev = domainRow(id);
+  const name = patch.name == null ? String(prev.name) : String(patch.name).trim();
+  if (!name) throw new HttpFail(400, "name required");
+  const sort = patch.sort == null ? Number(prev.sort || 0) : Number(patch.sort);
+  if (!Number.isFinite(sort)) throw new HttpFail(400, "sort 须为数字");
+  const status = normalizeRecordStatus(patch.status, String(prev.status));
+  const note = patch.note == null ? String(prev.note || "") : String(patch.note);
+  if (status === "archived" && String(prev.status) !== "archived") {
+    const child = getConn().prepare("SELECT 1 FROM knowledge_domains WHERE parent_id=?").get(id);
+    const base = getConn().prepare("SELECT 1 FROM knowledge_bases WHERE domain_id=?").get(id);
+    if (child || base) {
+      throw new HttpFail(409, { code: "knowledge_domain_in_use", message: "该主题域仍有子主题域或知识库，不能归档" });
+    }
+  }
+  tx((db) => {
+    db.prepare("UPDATE knowledge_domains SET name=?,sort=?,status=?,note=?,updated_at=? WHERE id=?")
+      .run(name, sort, status, note, nowIso(), id);
+  });
+  audit(actor, "knowledge.domain.save", { id, code: String(prev.code), level: String(prev.level), updated: true });
+  return { domain: domainView(id) };
+}
+
+function baseRow(id: string): Row {
+  const row = getConn().prepare(`${BASE_SELECT} WHERE b.id=?`).get(id) as Row | undefined;
+  if (!row) throw new HttpFail(404, "知识库不存在");
+  return { ...row };
+}
+
+function baseView(row: Row): Json {
+  return {
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    domain_id: row.domain_id,
+    domain_name: row.domain_name == null ? "" : String(row.domain_name),
+    family_id: row.family_id == null ? null : String(row.family_id),
+    family_name: row.family_name == null ? null : String(row.family_name),
+    kind: row.kind,
+    description: row.description == null ? "" : String(row.description),
+    owner_user_id: row.owner_user_id == null ? "" : String(row.owner_user_id),
+    status: row.status,
+    settings: parseJsonObject(row.settings, {}),
+    external_ref: row.external_ref == null || row.external_ref === "" ? null : parseJsonObject(row.external_ref, {}),
+    version: Number(row.version || 1),
+    entries: Number(row.entries || 0),
+    created_at: row.created_at == null ? "" : String(row.created_at),
+    updated_at: row.updated_at == null ? "" : String(row.updated_at),
+  };
+}
+
+export function listBases(opts: { domain_id?: string | null; kind?: string | null } = {}): Json[] {
+  requireAdmin();
+  const clauses: string[] = [];
+  const args: unknown[] = [];
+  const domainId = String(opts.domain_id || "").trim();
+  if (domainId) {
+    clauses.push("b.domain_id=?");
+    args.push(domainId);
+  }
+  const kind = String(opts.kind || "").trim();
+  if (kind) {
+    clauses.push("b.kind=?");
+    args.push(kind);
+  }
+  const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+  const rows = getConn()
+    .prepare(`${BASE_SELECT}${where} ORDER BY f.sort, f.name, d.sort, d.name, b.name, b.code`)
+    .all(...args) as Row[];
+  return rows.map(baseView);
+}
+
+export function createBase(input: {
+  code?: string;
+  name?: string;
+  domain_id?: string;
+  kind?: string;
+  description?: string;
+  settings?: unknown;
+  external_ref?: unknown;
+}, actor = knowledgeActorId()): Json {
+  requireAdmin();
+  const code = String(input.code || "").trim();
+  if (!code) throw new HttpFail(400, "code required");
+  const name = String(input.name || "").trim();
+  if (!name) throw new HttpFail(400, "name required");
+  const domainId = String(input.domain_id || "").trim();
+  if (!domainId) throw new HttpFail(400, "domain_id required");
+  const domain = getConn().prepare("SELECT * FROM knowledge_domains WHERE id=?").get(domainId) as Row | undefined;
+  if (!domain) throw new HttpFail(400, "主题域不存在");
+  if (String(domain.level) !== "domain") throw new HttpFail(400, "知识库必须挂在主题域（level=domain）下");
+  const kind = normalizeBaseKind(input.kind);
+  const externalRef = input.external_ref == null || input.external_ref === "" ? null : JSON.stringify(input.external_ref);
+  if (kind === "structured" && externalRef) {
+    throw new HttpFail(400, { code: "knowledge_base_external_ref_forbidden", message: "结构化知识库不能带 external_ref" });
+  }
+  if (getConn().prepare("SELECT 1 FROM knowledge_bases WHERE code=?").get(code)) {
+    throw new HttpFail(409, { code: "knowledge_base_code_conflict", message: "知识库编码已存在" });
+  }
+  const id = nid("kbase");
+  const now = nowIso();
+  const settings = JSON.stringify(parseJsonObject(input.settings, {}));
+  tx((db) => {
+    db.prepare(
+      `INSERT INTO knowledge_bases
+       (id,code,name,domain_id,kind,description,owner_user_id,status,settings,external_ref,version,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(id, code, name, domainId, kind, String(input.description || ""), actor, "active", settings, externalRef, 1, now, now);
+  });
+  audit(actor, "knowledge.base.save", { id, code, kind, created: true });
+  return { base: baseView(baseRow(id)) };
+}
+
+export function editBase(id: string, patch: {
+  name?: string;
+  description?: string;
+  status?: string;
+  expected_version?: number | null;
+  domain_id?: string;
+  kind?: string;
+}, actor = knowledgeActorId()): Json {
+  requireAdmin();
+  const prev = baseRow(id);
+  if (patch.expected_version == null || !Number.isFinite(Number(patch.expected_version))) {
+    throw new HttpFail(400, "expected_version required");
+  }
+  if (Number(patch.expected_version) !== Number(prev.version || 1)) {
+    throw new HttpFail(409, { code: "knowledge_base_version_conflict", message: "知识库已变更，请刷新后重试" });
+  }
+  if (patch.domain_id != null && String(patch.domain_id) !== String(prev.domain_id)) {
+    throw new HttpFail(400, "不允许修改知识库所属主题域（domain_id）");
+  }
+  if (patch.kind != null && String(patch.kind) !== String(prev.kind)) {
+    throw new HttpFail(400, "不允许修改知识库类型（kind）");
+  }
+  const name = patch.name == null ? String(prev.name) : String(patch.name).trim();
+  if (!name) throw new HttpFail(400, "name required");
+  const description = patch.description == null ? String(prev.description || "") : String(patch.description);
+  const status = normalizeRecordStatus(patch.status, String(prev.status));
+  const version = Number(prev.version || 1) + 1;
+  tx((db) => {
+    db.prepare("UPDATE knowledge_bases SET name=?,description=?,status=?,version=?,updated_at=? WHERE id=?")
+      .run(name, description, status, version, nowIso(), id);
+  });
+  audit(actor, "knowledge.base.save", { id, code: String(prev.code), version, updated: true });
+  return { base: baseView(baseRow(id)) };
+}
+
+/** 条目所属库的类型（无库或库已删为空串）。 */
+function baseKindOf(baseId: unknown): string {
+  const id = String(baseId || "").trim();
+  if (!id) return "";
+  const row = getConn().prepare("SELECT kind FROM knowledge_bases WHERE id=?").get(id) as Row | undefined;
+  return row ? String(row.kind || "") : "";
+}
+
+function assertKindAllowedInBase(kindCode: string, baseKind: string): void {
+  const spec = knowledgeKindSpec(kindCode);
+  const allowed = spec?.baseKind || [];
+  if (!allowed.includes(baseKind)) {
+    throw new HttpFail(400, {
+      code: "knowledge_kind_base_mismatch",
+      message: `知识类型 ${kindCode} 不能放进 ${baseKind || "未知"} 库`,
+    });
+  }
+}
+
+/** 新建/搬家时的库校验：必填、存在、启用、且类型允许该 kind。 */
+function requireWritableBase(value: unknown, kindCode: string): Row {
+  const id = String(value == null ? "" : value).trim();
+  if (!id) {
+    throw new HttpFail(400, { code: "knowledge_base_required", message: "新建条目必须给 base_id（所属知识库）" });
+  }
+  const base = getConn().prepare("SELECT * FROM knowledge_bases WHERE id=?").get(id) as Row | undefined;
+  if (!base) throw new HttpFail(400, { code: "knowledge_base_missing", message: "知识库不存在" });
+  if (String(base.status) !== "active") {
+    throw new HttpFail(400, { code: "knowledge_base_archived", message: "知识库已归档，不能写入条目" });
+  }
+  assertKindAllowedInBase(kindCode, String(base.kind || ""));
+  return { ...base };
+}
+
+function structuredJson(kindCode: string, value: unknown): string | null {
+  if (value == null) return null;
+  const errors = validateStructuredFields(kindCode, value);
+  if (errors.length) throw new HttpFail(400, { code: "knowledge_structured_invalid", errors });
+  return JSON.stringify(value);
+}
+
+function parseStructured(value: unknown): Json | null {
+  if (value == null || value === "") return null;
+  if (typeof value === "object" && !Array.isArray(value)) return value as Json;
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Json) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 抽取候选等系统写入的默认落点：优先历史库，其次任一启用中的结构化库。 */
+function defaultStructuredBaseId(): string {
+  const row = getConn()
+    .prepare(
+      `SELECT id FROM knowledge_bases WHERE kind='structured' AND status='active'
+        ORDER BY CASE WHEN code='legacy' THEN 0 ELSE 1 END, id`,
+    )
+    .get() as Row | undefined;
+  if (!row) throw new HttpFail(400, { code: "knowledge_base_required", message: "没有可用的结构化知识库" });
+  return String(row.id);
+}
+
 function writeVersion(db: ReturnType<typeof getConn>, row: Row, note: string, actor: string): void {
   db.prepare(
     `INSERT INTO knowledge_versions
-     (id,knowledge_id,version,title,body,subject,body_en,placeholders,stage_codes,skill_id,brand,lang,kind,status,created_by,created_at,note)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     (id,knowledge_id,version,title,body,subject,body_en,placeholders,stage_codes,skill_id,brand,lang,kind,status,tags,in_market,effective_at,expires_at,created_by,created_at,note)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     nid("kv"),
     row.id,
@@ -121,6 +460,10 @@ function writeVersion(db: ReturnType<typeof getConn>, row: Row, note: string, ac
     row.lang ?? "en",
     row.kind ?? "policy",
     row.status ?? "draft",
+    row.tags == null ? "" : String(row.tags),
+    row.in_market == null ? 1 : Number(row.in_market),
+    row.effective_at == null ? null : String(row.effective_at),
+    row.expires_at == null ? null : String(row.expires_at),
     actor,
     nowIso(),
     note,
@@ -143,6 +486,19 @@ export function publicKnowledge(row: Row, userId = knowledgeActorId()): Json {
   const citeCount = row.cite_count == null
     ? (getConn().prepare("SELECT COUNT(*) AS c FROM knowledge_citations WHERE knowledge_id=?").get(row.id) as { c: number }).c
     : Number(row.cite_count);
+  // 列表 SQL 已带 join 别名时直接用；单行查询（详情/写后回读）按 base_id 补一次库/域/族。
+  const base = row.base_code == null
+    ? (row.base_id
+      ? getConn().prepare(
+        `SELECT b.id AS base_id, b.code AS base_code, b.name AS base_name,
+                d.id AS domain_id, d.name AS domain_name, f.id AS family_id, f.name AS family_name
+           FROM knowledge_bases b
+           LEFT JOIN knowledge_domains d ON d.id=b.domain_id
+           LEFT JOIN knowledge_domains f ON f.id=d.parent_id
+          WHERE b.id=?`,
+      ).get(String(row.base_id)) as Row | undefined
+      : undefined)
+    : row;
   return {
     id: row.id,
     title: row.title,
@@ -150,6 +506,14 @@ export function publicKnowledge(row: Row, userId = knowledgeActorId()): Json {
     tags: row.tags,
     in_market: Number(row.in_market || 0),
     kind: row.kind || "policy",
+    base_id: base?.base_id == null ? null : String(base.base_id),
+    base_code: base?.base_code == null ? null : String(base.base_code),
+    base_name: base?.base_name == null ? null : String(base.base_name),
+    domain_id: base?.domain_id == null ? null : String(base.domain_id),
+    domain_name: base?.domain_name == null ? null : String(base.domain_name),
+    family_id: base?.family_id == null ? null : String(base.family_id),
+    family_name: base?.family_name == null ? null : String(base.family_name),
+    structured: parseStructured(row.structured),
     skill_id: row.skill_id || "",
     brand: row.brand || "*",
     lang: row.lang || "en",
@@ -391,9 +755,26 @@ function normalizeStatus(value: unknown, fallback: KnowledgeStatus): KnowledgeSt
   return status;
 }
 
-export function adminList(): Json[] {
+export type KnowledgeAdminListOpts = KnowledgeListOpts & { status?: string | null };
+
+export function adminList(opts: KnowledgeAdminListOpts = {}): Json[] {
   requireAdmin();
-  return listed("SELECT * FROM knowledge ORDER BY status, kind, title", []);
+  const args: unknown[] = [];
+  const clauses = knowledgeWhereClauses(opts, args);
+  const status = String(opts.status || "").trim();
+  if (status) {
+    clauses.push("k.status=?");
+    args.push(status);
+  }
+  const where = clauses.length ? ` WHERE ${clauses.join(" AND ")}` : "";
+  const rows = listed(
+    `SELECT ${KNOWLEDGE_LIST_COLUMNS} FROM knowledge k ${TAXONOMY_JOIN}${where} ORDER BY k.status, k.kind, k.title`,
+    args,
+  );
+  const offset = Math.max(0, Number(opts.offset || 0) || 0);
+  const limit = Math.max(0, Number(opts.limit == null ? 0 : opts.limit) || 0);
+  if (!limit && !offset) return rows;
+  return limit ? rows.slice(offset, offset + limit) : rows.slice(offset);
 }
 
 export function reviewQueue(): Json[] {
@@ -416,6 +797,11 @@ type UpsertInput = {
   placeholders?: unknown;
   stage_codes?: unknown;
   status?: string;
+  base_id?: string;
+  structured?: unknown;
+  source_body?: string;
+  effective_at?: string;
+  expires_at?: string;
 };
 
 function placeholdersJson(value: unknown): string {
@@ -429,13 +815,16 @@ export function createKnowledge(input: UpsertInput, actor = knowledgeActorId()):
   const id = String(input.id || nid("kb"));
   if (getConn().prepare("SELECT 1 FROM knowledge WHERE id=?").get(id)) throw new HttpFail(409, "knowledge id exists");
   const now = nowIso();
+  const kind = normalizeKind(input.kind);
+  const base = requireWritableBase(input.base_id, kind);
+  const body = String(input.body || "");
   const row: Row = {
     id,
     title,
-    body: String(input.body || ""),
+    body,
     tags: String(input.tags || ""),
     in_market: input.in_market == null ? 1 : Number(input.in_market),
-    kind: normalizeKind(input.kind),
+    kind,
     skill_id: String(input.skill_id || ""),
     brand: String(input.brand || "*") || "*",
     lang: String(input.lang || "en"),
@@ -449,6 +838,12 @@ export function createKnowledge(input: UpsertInput, actor = knowledgeActorId()):
     created_by: actor,
     approved_by: "",
     approved_at: "",
+    base_id: String(base.id),
+    // 原稿不可变：新建时默认取当前正文（WeKnora source_content 语义），此后编辑只改 body。
+    source_body: input.source_body == null ? body : String(input.source_body),
+    structured: structuredJson(kind, input.structured),
+    effective_at: input.effective_at == null ? null : String(input.effective_at),
+    expires_at: input.expires_at == null ? null : String(input.expires_at),
     created_at: now,
     updated_at: now,
   };
@@ -459,16 +854,17 @@ export function createKnowledge(input: UpsertInput, actor = knowledgeActorId()):
   tx((db) => {
     db.prepare(
       `INSERT INTO knowledge
-       (id,title,body,tags,in_market,kind,skill_id,brand,lang,subject,body_en,placeholders,stage_codes,status,current_version,published_version,created_by,approved_by,approved_at,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       (id,title,body,tags,in_market,kind,skill_id,brand,lang,subject,body_en,placeholders,stage_codes,status,current_version,published_version,created_by,approved_by,approved_at,base_id,source_body,structured,effective_at,expires_at,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     ).run(
       row.id, row.title, row.body, row.tags, row.in_market, row.kind, row.skill_id, row.brand, row.lang,
       row.subject, row.body_en, row.placeholders, row.stage_codes, row.status, row.current_version, row.published_version,
-      row.created_by, row.approved_by, row.approved_at, row.created_at, row.updated_at,
+      row.created_by, row.approved_by, row.approved_at, row.base_id, row.source_body, row.structured,
+      row.effective_at, row.expires_at, row.created_at, row.updated_at,
     );
     writeVersion(db, row, "create", actor);
   });
-  audit(actor, "knowledge.create", { knowledge_id: id, status: row.status });
+  audit(actor, "knowledge.create", { knowledge_id: id, status: row.status, base_id: row.base_id });
   return publicKnowledge(knowledgeRow(id), actor);
 }
 
@@ -476,13 +872,31 @@ export function editKnowledge(id: string, input: Partial<UpsertInput>, actor = k
   requireAdmin();
   const prev = knowledgeRow(id);
   const now = nowIso();
+  const kind = input.kind == null ? String(prev.kind || "policy") : normalizeKind(input.kind);
+  if (input.base_id == null) {
+    // 未搬家：只要求现有库（若有）仍允许这个 kind；历史行无库时不阻塞编辑。
+    const currentBaseId = String(prev.base_id || "");
+    if (currentBaseId) assertKindAllowedInBase(kind, baseKindOf(currentBaseId));
+  } else {
+    requireWritableBase(input.base_id, kind);
+  }
+  let structured: string | null;
+  if (input.structured === undefined) {
+    structured = prev.structured == null ? null : String(prev.structured);
+    if (structured && input.kind != null) {
+      const errors = validateStructuredFields(kind, parseStructured(structured));
+      if (errors.length) throw new HttpFail(400, { code: "knowledge_structured_invalid", errors });
+    }
+  } else {
+    structured = structuredJson(kind, input.structured);
+  }
   const next: Row = {
     ...prev,
     title: String(input.title ?? prev.title).trim() || prev.title,
     body: input.body == null ? prev.body : String(input.body),
     tags: input.tags == null ? prev.tags : String(input.tags),
     in_market: input.in_market == null ? prev.in_market : Number(input.in_market),
-    kind: input.kind == null ? prev.kind : normalizeKind(input.kind),
+    kind,
     skill_id: input.skill_id == null ? prev.skill_id : String(input.skill_id),
     brand: input.brand == null ? prev.brand : (String(input.brand) || "*"),
     lang: input.lang == null ? prev.lang : String(input.lang),
@@ -490,20 +904,25 @@ export function editKnowledge(id: string, input: Partial<UpsertInput>, actor = k
     body_en: input.body_en == null ? prev.body_en : String(input.body_en),
     placeholders: input.placeholders == null ? prev.placeholders : placeholdersJson(input.placeholders),
     stage_codes: input.stage_codes == null ? prev.stage_codes : placeholdersJson(input.stage_codes),
+    base_id: input.base_id == null ? prev.base_id : String(input.base_id),
+    structured,
+    effective_at: input.effective_at == null ? prev.effective_at : String(input.effective_at),
+    expires_at: input.expires_at == null ? prev.expires_at : String(input.expires_at),
     current_version: Number(prev.current_version || 1) + 1,
     updated_at: now,
   };
   tx((db) => {
     db.prepare(
-      `UPDATE knowledge SET title=?,body=?,tags=?,in_market=?,kind=?,skill_id=?,brand=?,lang=?,subject=?,body_en=?,placeholders=?,stage_codes=?,current_version=?,updated_at=?
+      `UPDATE knowledge SET title=?,body=?,tags=?,in_market=?,kind=?,skill_id=?,brand=?,lang=?,subject=?,body_en=?,placeholders=?,stage_codes=?,base_id=?,structured=?,effective_at=?,expires_at=?,current_version=?,updated_at=?
         WHERE id=?`,
     ).run(
       next.title, next.body, next.tags, next.in_market, next.kind, next.skill_id, next.brand, next.lang,
-      next.subject, next.body_en, next.placeholders, next.stage_codes, next.current_version, next.updated_at, id,
+      next.subject, next.body_en, next.placeholders, next.stage_codes, next.base_id, next.structured,
+      next.effective_at, next.expires_at, next.current_version, next.updated_at, id,
     );
     writeVersion(db, next, "edit", actor);
   });
-  audit(actor, "knowledge.edit", { knowledge_id: id, version: next.current_version });
+  audit(actor, "knowledge.edit", { knowledge_id: id, version: next.current_version, base_id: next.base_id });
   return publicKnowledge(knowledgeRow(id), actor);
 }
 
@@ -755,6 +1174,8 @@ function maintainerPendingFromRaw(raw: Row, actor: string): Json {
     skill_id: kind === "mail_template" ? "email_compose" : "",
     lang: "en",
     brand: "*",
+    // 抽取候选先落默认结构化库，管理员审核时可搬到目标库。
+    base_id: defaultStructuredBaseId(),
   }, actor);
 }
 
@@ -867,6 +1288,8 @@ export function reviewProposal(id: string, action: "approve" | "reject", rejectR
         title: `${src.title} · ${to}`,
         body: String(src.body || ""),
         kind: String(src.kind || "mail_template"),
+        // 跨品牌副本继承源条目的库；源库缺失时落默认结构化库（新建必填 base_id）。
+        base_id: String(src.base_id || "") || defaultStructuredBaseId(),
         skill_id: String(src.skill_id || ""),
         brand: to,
         lang: String(src.lang || "en"),
@@ -1018,6 +1441,10 @@ export function assertUsableKnowledge(knowledgeId: string, userId = knowledgeAct
   if (dep) throw new HttpFail(403, { code: "knowledge_deprecated", message: "已隐藏知识不能进入会话" });
   if (!brandMatched(row, brands)) {
     throw new HttpFail(403, { code: "knowledge_brand", message: "知识品牌与当前账号不匹配" });
+  }
+  // 注入闸门：按键取用的受控条目只允许来自结构化库（非结构化库走检索通道，本批未实现）。
+  if (baseKindOf(row.base_id) !== "structured") {
+    throw new HttpFail(403, { code: "knowledge_wrong_base_type", message: "只有结构化知识库的条目可以进入会话或 Worker" });
   }
   return templateFromSnapshot(row, publishedSnapshot(row));
 }
@@ -1192,12 +1619,48 @@ export type KnowledgeListOpts = {
   kind?: string | null;
   stage?: string | null;
   brand?: string | null;
+  /** 分类过滤，接受 id 或 code（join knowledge_bases / knowledge_domains，不先取全量）。 */
+  base?: string | null;
+  domain?: string | null;
+  family?: string | null;
   limit?: number | null;
   offset?: number | null;
 };
 
 function likeEscaped(value: string): string {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+/** 检索与分类过滤的 SQL 子句（调用方负责套上 TAXONOMY_JOIN）。 */
+function knowledgeWhereClauses(opts: KnowledgeListOpts, args: unknown[]): string[] {
+  const clauses: string[] = [];
+  const q = String(opts.q || "").trim();
+  if (q) {
+    const like = `%${likeEscaped(q)}%`;
+    clauses.push("(k.title LIKE ? ESCAPE '\\' OR k.body LIKE ? ESCAPE '\\' OR k.tags LIKE ? ESCAPE '\\' OR k.subject LIKE ? ESCAPE '\\' OR k.body_en LIKE ? ESCAPE '\\')");
+    args.push(like, like, like, like, like);
+  }
+  const kind = String(opts.kind || "").trim();
+  if (kind) {
+    clauses.push("k.kind=?");
+    args.push(kind);
+  }
+  const base = String(opts.base || "").trim();
+  if (base) {
+    clauses.push("(b.id=? OR b.code=?)");
+    args.push(base, base);
+  }
+  const domain = String(opts.domain || "").trim();
+  if (domain) {
+    clauses.push("(d.id=? OR d.code=?)");
+    args.push(domain, domain);
+  }
+  const family = String(opts.family || "").trim();
+  if (family) {
+    clauses.push("(f.id=? OR f.code=?)");
+    args.push(family, family);
+  }
+  return clauses;
 }
 
 /** id → handle：演示目录优先，真实账号回退 username（mapUser 的 handle 即 username）。 */
@@ -1217,20 +1680,10 @@ function knowledgeListFilters(opts: KnowledgeListOpts & { inMarket?: boolean } =
   args: unknown[];
   filter: (row: Row) => boolean;
 } {
-  const clauses = ["status='published'"];
   const args: unknown[] = [];
-  if (opts.inMarket) clauses.push("in_market=1");
-  const q = String(opts.q || "").trim();
-  if (q) {
-    const like = `%${likeEscaped(q)}%`;
-    clauses.push("(title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' OR tags LIKE ? ESCAPE '\\' OR subject LIKE ? ESCAPE '\\' OR body_en LIKE ? ESCAPE '\\')");
-    args.push(like, like, like, like, like);
-  }
-  const kind = String(opts.kind || "").trim();
-  if (kind) {
-    clauses.push("kind=?");
-    args.push(kind);
-  }
+  const clauses = ["k.status='published'"];
+  if (opts.inMarket) clauses.push("k.in_market=1");
+  clauses.push(...knowledgeWhereClauses(opts, args));
   const stage = String(opts.stage || "").trim();
   const brand = String(opts.brand || "").trim();
   const handle = currentUser().handle;
@@ -1247,7 +1700,11 @@ function knowledgeListFilters(opts: KnowledgeListOpts & { inMarket?: boolean } =
     }
     return true;
   };
-  return { sql: `SELECT * FROM knowledge WHERE ${clauses.join(" AND ")} ORDER BY kind, title`, args, filter };
+  return {
+    sql: `SELECT ${KNOWLEDGE_LIST_COLUMNS} FROM knowledge k ${TAXONOMY_JOIN} WHERE ${clauses.join(" AND ")} ORDER BY k.kind, k.title`,
+    args,
+    filter,
+  };
 }
 
 export function grantsForKnowledge(id: string): { org: string[]; team: string[]; user: string[] } {
@@ -1348,6 +1805,10 @@ export function rollbackKnowledge(id: string, version: number, actor = knowledge
     body_en: String(snap.body_en ?? prev.body_en),
     placeholders: String(snap.placeholders ?? prev.placeholders),
     stage_codes: String(snap.stage_codes ?? prev.stage_codes),
+    // 快照四列（tags/in_market/effective_at/expires_at）：回滚即按当版恢复，不再丢字段。
+    in_market: snap.in_market == null ? prev.in_market : Number(snap.in_market),
+    effective_at: snap.effective_at == null ? prev.effective_at : String(snap.effective_at),
+    expires_at: snap.expires_at == null ? prev.expires_at : String(snap.expires_at),
     status: "draft",
     current_version: Number(prev.current_version || 1) + 1,
     updated_at: nowIso(),
@@ -1355,11 +1816,12 @@ export function rollbackKnowledge(id: string, version: number, actor = knowledge
   tx((db) => {
     db.prepare(
       `UPDATE knowledge
-          SET title=?,body=?,tags=?,kind=?,skill_id=?,brand=?,lang=?,subject=?,body_en=?,placeholders=?,stage_codes=?,status=?,current_version=?,updated_at=?
+          SET title=?,body=?,tags=?,in_market=?,kind=?,skill_id=?,brand=?,lang=?,subject=?,body_en=?,placeholders=?,stage_codes=?,effective_at=?,expires_at=?,status=?,current_version=?,updated_at=?
         WHERE id=?`,
     ).run(
-      next.title, next.body, next.tags, next.kind, next.skill_id, next.brand, next.lang, next.subject,
-      next.body_en, next.placeholders, next.stage_codes, next.status, next.current_version, next.updated_at, id,
+      next.title, next.body, next.tags, next.in_market, next.kind, next.skill_id, next.brand, next.lang, next.subject,
+      next.body_en, next.placeholders, next.stage_codes, next.effective_at, next.expires_at, next.status,
+      next.current_version, next.updated_at, id,
     );
     writeVersion(db, next, `rollback from v${Number(version)}`, actor);
   });
@@ -1581,6 +2043,10 @@ export function resolveForSkill(
     (db.prepare("SELECT knowledge_id FROM knowledge_deprecations WHERE user_id=?").all(userId) as Row[])
       .map((row) => String(row.knowledge_id)),
   );
+  const structuredBaseIds = new Set(
+    (db.prepare("SELECT id FROM knowledge_bases WHERE kind='structured'").all() as Row[])
+      .map((row) => String(row.id)),
+  );
   const skipped: KnowledgeResolveSkip[] = [];
   const skipKeys = new Set<string>();
   const pushSkip = (entry: KnowledgeResolveSkip): void => {
@@ -1593,6 +2059,7 @@ export function resolveForSkill(
     if (!brandMatched(row, brands) || !canSeeKnowledge(row, handle)) return "scope_mismatch";
     if (!citedIds.has(String(row.id))) return "not_cited";
     if (deprecatedIds.has(String(row.id))) return "deprecated_by_user";
+    if (!structuredBaseIds.has(String(row.base_id || ""))) return "wrong_base_type";
     return null;
   };
   const pinned: string[] = [];
@@ -1943,10 +2410,12 @@ export function seedKnowledge(conn = getConn()): void {
     },
   ];
 
+  // 演示语料属于分层迁移前的存量：与历史行一样归入默认结构化库（未分类/未分类/历史知识）。
+  const baseId = defaultStructuredBaseId();
   const upsert = conn.prepare(
     `INSERT OR REPLACE INTO knowledge
-     (id,title,body,tags,in_market,kind,skill_id,brand,lang,subject,body_en,placeholders,stage_codes,status,current_version,published_version,created_by,approved_by,approved_at,created_at,updated_at)
-     VALUES (?,?,?,?,1,?,?,?, 'en', ?,?,?,?,'published',1,1,?,?,?,?,?)`,
+     (id,title,body,tags,in_market,kind,skill_id,brand,lang,subject,body_en,placeholders,stage_codes,status,current_version,published_version,created_by,approved_by,approved_at,base_id,source_body,created_at,updated_at)
+     VALUES (?,?,?,?,1,?,?,?, 'en', ?,?,?,?,'published',1,1,?,?,?,?,?,?,?)`,
   );
   const hasVersion = conn.prepare("SELECT 1 FROM knowledge_versions WHERE knowledge_id=? AND version=1");
   const insVer = conn.prepare(
@@ -1958,7 +2427,7 @@ export function seedKnowledge(conn = getConn()): void {
   for (const p of policies) {
     upsert.run(
       p.id, p.title, p.body, p.tags, "policy", p.skill_id, "*", "", "", "[]", "[]",
-      actor, actor, now, now, now,
+      actor, actor, now, baseId, p.body, now, now,
     );
     if (!hasVersion.get(p.id)) {
       insVer.run(
@@ -1970,7 +2439,7 @@ export function seedKnowledge(conn = getConn()): void {
     upsert.run(
       m.id, m.title, m.body_en, m.tags, "mail_template", m.skill_id, m.brand, m.subject, m.body_en,
       JSON.stringify(m.placeholders), JSON.stringify(m.stage_codes),
-      actor, actor, now, now, now,
+      actor, actor, now, baseId, m.body_en, now, now,
     );
     if (!hasVersion.get(m.id)) {
       insVer.run(
@@ -1984,7 +2453,7 @@ export function seedKnowledge(conn = getConn()): void {
     upsert.run(
       q.id, q.title, q.body, `${QUESTION_TEMPLATE_TAG_PREFIX}${q.slot},kol-pool`, "question_template", "", "*", "", "",
       "[]", "[]",
-      actor, actor, now, now, now,
+      actor, actor, now, baseId, q.body, now, now,
     );
     if (!hasVersion.get(q.id)) {
       insVer.run(

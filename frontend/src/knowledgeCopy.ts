@@ -23,6 +23,7 @@ export const HIDE_REASONS = [
 
 const KIND_LABEL: Record<string, string> = {
   mail_template: "邮件模板",
+  prompt: "提示词",
   policy: "口径",
   pattern: "写法样例",
   glossary: "用词",
@@ -260,20 +261,16 @@ export const KB_RECENT_KEY = "kb:recent";
 export const KB_LEAD = "选择适合当前任务的资料，AI 会据此生成草稿。正式发送前仍需要你确认。";
 export const KB_MARKET_LEAD = "这些是组织已发布、可直接选用的资料。选一份后，AI 会据此生成草稿。正式发送前仍需要你确认。";
 
-export type KbBrowseTab = "all" | "mail" | "brand" | "sop" | "quote" | "recent";
-
-export const KB_TAB_LABEL: Record<KbBrowseTab, string> = {
-  all: "全部资料",
-  sop: "KOL合作SOP",
-  mail: "邮件模板",
-  brand: "品牌与产品",
-  quote: "报价与谈判",
-  recent: "最近使用",
-};
-
-export function kbKicker(tab: KbBrowseTab) {
-  return tab === "all" ? "知识库" : `知识库 · ${KB_TAB_LABEL[tab]}`;
-}
+/** 分类选择（族 → 域 → 库）：`?cat=` 启发式 tab 已退役，分类只来自服务端分类字段。 */
+export const KB_SCOPE_LEAD = "按 主题域族 → 主题域 → 知识库 查找资料；只列出你有权查看的分类。";
+export const KB_SCOPE_ALL = "全部";
+export const KB_SCOPE_FAMILY = "主题域族";
+export const KB_SCOPE_DOMAIN = "主题域";
+export const KB_SCOPE_BASE = "知识库";
+export const KB_SCOPE_NONE = "暂无分类信息。";
+export const KB_EMPTY_SCOPE = "这个分类下暂时没有资料。换个分类或清空选择。";
+export const KB_SCOPE_CURRENT = "当前范围";
+export const KB_SCOPE_CLEAR = "清空分类";
 
 export function kbSanitizeEmployeeCopy(text?: string) {
   return String(text || "")
@@ -287,59 +284,17 @@ export function kbSanitizeEmployeeCopy(text?: string) {
     .trim();
 }
 
-function kbHaystack(row: Pick<KnowledgeRow, "title" | "tags" | "body" | "kind" | "subject">) {
-  return [row.title, row.tags, row.body, row.kind, row.subject].filter(Boolean).join(" ");
-}
-
 export function kbIsMail(row: Pick<KnowledgeRow, "kind">) {
   return row.kind === "mail_template";
 }
 
-export function kbIsQuote(
-  row: Pick<KnowledgeRow, "title" | "tags" | "body" | "kind" | "subject" | "stage_codes">,
-) {
-  const stages = row.stage_codes || [];
-  if (stages.some((code) => code === "QUOTE_PENDING" || code === "NEGOTIATING")) return true;
-  return /报价|谈判|审批带/.test(kbHaystack(row));
-}
-
-export function kbIsBrandProduct(
-  row: Pick<KnowledgeRow, "title" | "tags" | "body" | "kind" | "subject">,
-) {
-  if (kbIsMail(row)) return false;
-  return /品牌资料|产品资料|产品规格|卖点|参数表/.test(kbHaystack(row));
-}
-
-export function kbIsSop(
-  row: Pick<KnowledgeRow, "title" | "tags" | "body" | "kind" | "subject" | "stage_codes">,
-) {
-  if (kbIsMail(row) || kbIsQuote(row) || kbIsBrandProduct(row)) return false;
-  if (row.kind === "policy" || row.kind === "pattern") return true;
-  return /SOP|口径|门槛|核验|流程/.test(kbHaystack(row));
-}
-
-export function kbMatchesTab(
-  row: KnowledgeRow,
-  tab: KbBrowseTab,
-  recentIds: string[],
-) {
-  if (tab === "all") return true;
-  if (tab === "mail") return kbIsMail(row);
-  if (tab === "brand") return kbIsBrandProduct(row);
-  if (tab === "sop") return kbIsSop(row);
-  if (tab === "quote") return kbIsQuote(row);
-  if (tab === "recent") return recentIds.includes(row.id);
-  return true;
-}
-
-export function kbVisibleTabs(rows: KnowledgeRow[], recentIds: string[]): KbBrowseTab[] {
-  const tabs: KbBrowseTab[] = ["all"];
-  if (rows.some(kbIsSop)) tabs.push("sop");
-  if (rows.some(kbIsMail)) tabs.push("mail");
-  if (rows.some(kbIsBrandProduct)) tabs.push("brand");
-  if (rows.some(kbIsQuote)) tabs.push("quote");
-  tabs.push("recent");
-  return tabs;
+/** 行内分类行：族 / 域 / 库，缺字段时诚实省略，不猜。 */
+export function kbTaxonomyLine(
+  row: Pick<KnowledgeRow, "family_name" | "domain_name" | "base_name" | "base_id">,
+): string {
+  const parts = [row.family_name, row.domain_name, row.base_name].map((item) => String(item || "").trim());
+  if (parts.some(Boolean)) return parts.filter(Boolean).join(" / ");
+  return row.base_id ? String(row.base_id) : "";
 }
 
 export function kbStatusLabel(row: Pick<KnowledgeRow, "deprecated" | "status">) {
@@ -428,48 +383,61 @@ export function rememberKbRecent(id: string): { id: string; at: number }[] {
   return next;
 }
 
-/* ---- 管理端知识治理（六子视图）文案 ---- */
+/* ---- 管理端知识治理（六子视图）文案 ----
+ * IA（规格 §5.2）：/admin/knowledge 视图枚举 = review | catalog | base | entry | ingest | bindings。
+ * 治理只在 Admin；员工面（/kb）不得出现发布 / 停用 / 启用这类治理动作。
+ */
 
-export type KbAdminView = "todo" | "assets" | "detail" | "ingest" | "bindings" | "feedback";
+export type KbAdminView = "review" | "catalog" | "base" | "entry" | "ingest" | "bindings";
 
 export type KbAdminNavItem = {
-  view: Exclude<KbAdminView, "detail">;
+  view: KbAdminView;
   path: string;
   label: string;
   question: string;
+  /**
+   * 深层视图（base / entry）：没有当前对象时是「先去目录选一个」的入口，
+   * 页面按 URL 里的 id 决定实际链接；有对象时高亮为当前页。
+   */
+  contextual?: boolean;
 };
 
 export const KB_ADMIN_DEFAULT_PATH = "/admin/knowledge";
-export const KB_ADMIN_ASSETS_PATH = "/admin/knowledge/assets";
+export const KB_ADMIN_CATALOG_PATH = "/admin/knowledge/catalog";
+export const KB_ADMIN_BASES_PATH = "/admin/knowledge/bases";
+export const KB_ADMIN_ENTRIES_PATH = "/admin/knowledge/entries";
+export const KB_ADMIN_INGEST_PATH = "/admin/knowledge/ingest";
+export const KB_ADMIN_BINDINGS_PATH = "/admin/knowledge/bindings";
 
 /** 子导航顺序 = 路由顺序；深链直接可达，不靠前端状态。 */
 export const KB_ADMIN_NAV: KbAdminNavItem[] = [
-  { view: "todo", path: KB_ADMIN_DEFAULT_PATH, label: "待办", question: "有什么在等我决定？" },
-  { view: "assets", path: KB_ADMIN_ASSETS_PATH, label: "资产", question: "有哪些资产、什么状态、被谁用？" },
-  { view: "ingest", path: "/admin/knowledge/ingest", label: "入库", question: "素材入库与提取成败？" },
-  { view: "bindings", path: "/admin/knowledge/bindings", label: "引用", question: "哪些技能会拿到哪些知识、为什么？" },
-  { view: "feedback", path: "/admin/knowledge/feedback", label: "反馈", question: "员工反馈了什么、怎么处置？" },
+  { view: "review", path: KB_ADMIN_DEFAULT_PATH, label: "待处置", question: "有什么在等我决定？" },
+  { view: "catalog", path: KB_ADMIN_CATALOG_PATH, label: "目录", question: "知识分在哪几个主题域族 / 主题域 / 知识库？" },
+  { view: "base", path: KB_ADMIN_BASES_PATH, label: "库", question: "这个库里有哪些条目、什么状态？", contextual: true },
+  { view: "entry", path: KB_ADMIN_ENTRIES_PATH, label: "条目", question: "这条知识的治理状态与影响面？", contextual: true },
+  { view: "ingest", path: KB_ADMIN_INGEST_PATH, label: "入库", question: "素材入库与提取成败？" },
+  { view: "bindings", path: KB_ADMIN_BINDINGS_PATH, label: "引用", question: "哪些技能会拿到哪些知识、为什么？" },
 ];
 
 export const KB_ADMIN_VIEW_TITLE: Record<KbAdminView, string> = {
-  todo: "知识待办",
-  assets: "知识资产",
-  detail: "资产详情",
+  review: "知识待处置",
+  catalog: "知识目录",
+  base: "知识库",
+  entry: "条目详情",
   ingest: "资料入库",
   bindings: "知识引用",
-  feedback: "反馈处置",
 };
 
 export const KB_ADMIN_VIEW_LEAD: Record<KbAdminView, string> = {
-  todo: "待审、草稿、隔离提案与到期提醒汇总在这里；每行只把你带到详情。",
-  assets: "全部知识资产与治理状态。行点开是详情；新建只写草稿，发布仍要审批。",
-  detail: "这份资产的治理状态与影响面；主行动按当前状态唯一渲染。",
+  review: "待审、草稿、隔离提案、到期提醒与员工反馈处置汇总在这里；每行只把你带到条目详情。",
+  catalog: "族 → 域 → 库的目录树：分类只做业务归类，不承载权限；权限仍按组织范围与授权。",
+  base: "这个库里的条目与治理状态。新建只写草稿；发布仍要走审批。",
+  entry: "这条知识的治理状态与影响面；主行动按当前状态唯一渲染。",
   ingest: "上传只进原文库；抽取只生成待审草稿，不会自动发布。",
   bindings: "绑定决定哪个技能在运行时取哪类知识。保存不等于已注入，下次运行才按新配置解析。",
-  feedback: "员工隐藏知识的原因与处置；处置写审计与回执，不自动改主文档。",
 };
 
-/** 解析跳过原因（8 个枚举全覆盖）。 */
+/** 解析跳过原因（含库类型不匹配）。 */
 export const KB_SKIP_REASON_LABEL: Record<string, string> = {
   missing: "找不到这条知识",
   not_published: "未发布",
@@ -479,6 +447,7 @@ export const KB_SKIP_REASON_LABEL: Record<string, string> = {
   expired: "已过期",
   shadowed_by_higher_priority: "被同类型更高优先级遮蔽",
   binding_disabled: "绑定已停用",
+  wrong_base_type: "所属知识库不是结构化库",
 };
 
 export function kbSkipReasonLabel(reason?: string): string {
@@ -494,6 +463,12 @@ export const KB_ADMIN_ACTION = {
   saveVersion: "保存为新版本",
   createDraft: "新建知识",
   saveDraft: "保存草稿",
+  newEntry: "新建条目",
+  newBase: "新建知识库",
+  newDomain: "新建主题域",
+  newFamily: "新建主题域族",
+  saveBase: "保存知识库",
+  saveDomain: "保存分类",
   upload: "上传资料",
   extract: "抽取成待审页",
   retry: "重试",
@@ -517,9 +492,15 @@ export const KB_ADMIN_EMPTY = {
   drafts: "没有还没发布的草稿。",
   proposals: "暂无隔离提案。",
   expiry: "30 天内没有到期的知识。",
-  assets: "还没有知识资产。可以新建一份草稿，或先去「入库」上传素材。",
-  assetsFiltered: "没有符合当前筛选的资产。",
-  detailMissing: "找不到这份知识，可能已被删除。",
+  catalog: "还没有分类。先建「主题域族」，再建「主题域」，最后建「知识库」。",
+  domains: "还没有主题域族 / 主题域；知识库必须挂在主题域下。",
+  bases: "这个分类下还没有知识库。",
+  basesFiltered: "没有符合当前筛选的知识库。",
+  baseMissing: "找不到这个知识库，可能已被归档或删除。",
+  entries: "这个库里还没有条目。新建只会写草稿，发布仍要审批。",
+  entriesFiltered: "没有符合当前筛选的条目。",
+  entryMissing: "找不到这条知识，可能已被删除。",
+  structured: "这份知识没有结构化字段（正文即内容）。",
   versions: "还没有版本记录。",
   refs: "暂时没有技能绑定会解析到这份知识。",
   grants: "没有授权行：已发布即对全部账号可见。",
@@ -532,6 +513,46 @@ export const KB_ADMIN_EMPTY = {
   feedback: "还没有员工反馈。",
   feedbackAggregate: "暂无可聚合的反馈原因。",
 };
+
+/* ---- 分类与结构化（规格 §4.3 / §5.2）---- */
+
+export const KB_LEVEL_FAMILY = "family";
+export const KB_LEVEL_DOMAIN = "domain";
+
+export const KB_LEVEL_LABEL: Record<string, string> = {
+  family: "主题域族",
+  domain: "主题域",
+};
+
+export const KB_BASE_KIND_LABEL: Record<string, string> = {
+  structured: "结构化",
+  unstructured: "非结构化",
+};
+
+export function kbLevelLabel(level?: string): string {
+  const code = String(level || "").trim();
+  return KB_LEVEL_LABEL[code] || code || "分类";
+}
+
+export function kbBaseKindLabel(kind?: string): string {
+  const code = String(kind || "").trim();
+  return KB_BASE_KIND_LABEL[code] || code || "未标类型";
+}
+
+export const KB_BASE_STATUS_LABEL: Record<string, string> = {
+  active: "启用",
+  archived: "已归档",
+};
+
+/** 非结构化库：解析与检索尚未实现（CONST-10：页面显式标注，不降等、不伪装）。 */
+export const KB_UNSTRUCTURED_NOT_IMPLEMENTED =
+  "非结构化库的解析、分块与检索本阶段未实现：页面只登记库与外部引用，不提供上传 / 解析入口。";
+
+export const KB_INGEST_NOT_IMPLEMENTED =
+  "非结构化阶段未实现：上传入口灰置，不伪造上传、解析或进度。结构化条目请走「目录 → 知识库 → 新建条目」。";
+
+export const KB_STRUCTURED_LEAD =
+  "结构化字段按类型定义渲染（与 config/knowledge-kinds.yaml 同步）；保存只写草稿，发布仍要审批。";
 
 export function kbFeedbackActionLabel(action?: string): string {
   const map: Record<string, string> = { to_revision: "已转修订", archive: "已归档", ignore: "已忽略" };

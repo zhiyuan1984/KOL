@@ -7182,6 +7182,11 @@ summary:focus-visible,
 .kb-group { display: grid; gap: 10px; }
 .kb-group-head h2 { margin: 0; font-size: var(--font-section); }
 .kb-group-head p { margin: 4px 0 0; color: var(--muted); font-size: var(--font-ui); }
+/* 分类选择（族 → 域 → 库）：一行下拉，不做二次分栏。 */
+.kb-scope-picker { display: grid; gap: var(--space-2); margin: 0 0 var(--space-3); }
+.kb-scope-lead { margin: 0; color: var(--muted); font-size: var(--font-ui); }
+.kb-scope-selects { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.kb-scope-path { margin: 0; color: var(--text); font-size: var(--font-sm); }
 .list-page.kb-page.has-drawer { padding-right: min(440px, 42vw); }
 .kb-card {
   padding: var(--space-4);

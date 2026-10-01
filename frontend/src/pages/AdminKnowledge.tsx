@@ -7,29 +7,30 @@ import {
   type KbAdminView,
 } from "../knowledgeCopy";
 import { errorMessage } from "../admin/knowledge/shared";
-import TodoView from "../admin/knowledge/TodoView";
-import AssetsView from "../admin/knowledge/AssetsView";
-import AssetDetailView from "../admin/knowledge/AssetDetailView";
+import ReviewView from "../admin/knowledge/ReviewView";
+import CatalogView from "../admin/knowledge/CatalogView";
+import BaseView from "../admin/knowledge/BaseView";
+import EntryView from "../admin/knowledge/EntryView";
 import IngestView from "../admin/knowledge/IngestView";
 import BindingsView from "../admin/knowledge/BindingsView";
-import FeedbackView from "../admin/knowledge/FeedbackView";
 import "../admin/knowledge/knowledge-admin.css";
 
 /**
  * 知识治理宿主：自己解析 pathname，映射六个子视图（一页一问）。
- * 子导航是链接式 tab：深链可达，详情页高亮「资产」。
+ *
+ * DOM 契约（规格 §5.2）：view ∈ review | catalog | base | entry | ingest | bindings。
+ * 子导航是链接式 tab：深链可达；base / entry 是上下文视图，没有 id 时提示先去目录。
  */
 export function parseKnowledgePath(pathname: string): { view: KbAdminView; id: string } {
   const rest = pathname.replace(/^\/admin\/knowledge\/?/, "");
-  if (!rest) return { view: "todo", id: "" };
+  if (!rest) return { view: "review", id: "" };
   const [head, ...tail] = rest.split("/").filter(Boolean).map(decodeURIComponent);
-  if (head === "assets") {
-    return tail.length ? { view: "detail", id: tail.join("/") } : { view: "assets", id: "" };
-  }
+  if (head === "catalog") return { view: "catalog", id: "" };
+  if (head === "bases") return { view: "base", id: tail.join("/") };
+  if (head === "entries") return { view: "entry", id: tail.join("/") };
   if (head === "ingest") return { view: "ingest", id: "" };
   if (head === "bindings") return { view: "bindings", id: "" };
-  if (head === "feedback") return { view: "feedback", id: "" };
-  return { view: "todo", id: "" };
+  return { view: "review", id: "" };
 }
 
 export default function AdminKnowledge() {
@@ -71,7 +72,7 @@ export default function AdminKnowledge() {
           <NavLink
             key={item.view}
             to={item.path}
-            end={item.view === "todo"}
+            end={item.view === "review"}
             data-admin-kb-tab={item.view}
             title={item.question}
             className={({ isActive }) => (isActive ? "active" : undefined)}
@@ -81,12 +82,34 @@ export default function AdminKnowledge() {
         ))}
       </nav>
 
-      {view === "todo" ? <TodoView notify={notify} fail={fail} /> : null}
-      {view === "assets" ? <AssetsView notify={notify} fail={fail} /> : null}
-      {view === "detail" ? <AssetDetailView id={id} notify={notify} fail={fail} /> : null}
+      {view === "review" ? <ReviewView notify={notify} fail={fail} /> : null}
+      {view === "catalog" ? <CatalogView notify={notify} fail={fail} /> : null}
+      {view === "base" ? (
+        id ? (
+          <BaseView id={id} notify={notify} fail={fail} />
+        ) : (
+          <CatalogHint what="知识库" />
+        )
+      ) : null}
+      {view === "entry" ? (
+        id ? (
+          <EntryView id={id} notify={notify} fail={fail} />
+        ) : (
+          <CatalogHint what="条目" />
+        )
+      ) : null}
       {view === "ingest" ? <IngestView notify={notify} fail={fail} /> : null}
       {view === "bindings" ? <BindingsView notify={notify} fail={fail} /> : null}
-      {view === "feedback" ? <FeedbackView notify={notify} fail={fail} /> : null}
     </section>
+  );
+}
+
+/** base / entry 是上下文视图：没有 id 时不猜测对象，回目录选一个。 */
+function CatalogHint({ what }: { what: string }) {
+  return (
+    <article className="panel" data-admin-kb-context-hint>
+      <p className="muted">请先在知识目录里选一个{what}。</p>
+      <NavLink className="kbadmin-action-link" to="/admin/knowledge/catalog">去知识目录</NavLink>
+    </article>
   );
 }

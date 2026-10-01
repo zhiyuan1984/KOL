@@ -3,8 +3,8 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 /**
  * 知识库问题模板：管理端操作 → 用户端可见（真实链路，不 stub 问题模板接口）。
  *
- * 链路：管理端 /admin/knowledge/assets 归档旧模板 / 新建草稿（kind=question_template，
- * tags 带 pool-question:<slot>）/ 详情页「审批发布」→ 用户端 /?tab=pool 四入口与 /kb。
+ * 链路：管理端 /admin/knowledge/bases/:id 归档旧模板 / 新建草稿（kind=question_template，
+ * tags 带 pool-question:<slot>）/ 条目页「审批发布」→ 用户端 /?tab=pool 四入口与 /kb。
  * 断言的是契约本身：
  *   1) 槽位没有已发布模板 → 入口禁用，title 提示「问题模板未在管理端知识库发布…」，不用写死问题兜底；
  *   2) 草稿未审批 → 用户端照旧看不到；
@@ -87,14 +87,18 @@ async function cleanupE2eRows(request: APIRequestContext) {
 
 /** 管理端 UI 新建草稿 → 用管理端列表反查 id（草稿此时对用户端不可见）。 */
 async function createDraftViaAdmin(page: Page, request: APIRequestContext): Promise<string> {
-  await page.goto("/admin/knowledge/assets");
-  await expect(page.locator("[data-admin-kb-view='assets']")).toBeVisible();
-  await page.locator("[data-admin-kb-create-toggle]").click();
+  // 新建条目挂在结构化库下（种子存量统一迁入默认库 kbase_legacy）。
+  await page.goto("/admin/knowledge/bases/kbase_legacy");
+  await expect(page.locator("[data-admin-kb-view='base']")).toBeVisible();
+  await page.locator("[data-admin-kb-create-entry]").click();
   const form = page.locator("[data-admin-kb-create]");
   await expect(form).toBeVisible();
   await form.locator("input[name='title']").fill(E2E_TITLE);
   await form.locator("select[name='kind']").selectOption("question_template");
   await form.locator("input[name='tags']").fill("pool-question:score");
+  // question_template 的必填结构化字段按 kind 字段表渲染。
+  await form.locator("[name='structured:question']").fill("请分析这些 KOL 的公开资料。");
+  await form.locator("[name='structured:answer']").fill("按潜力与风险给出评分、依据与资料缺口。");
   await form.locator("textarea[name='body']").fill(E2E_BODY);
   await form.locator("[data-admin-kb-create-submit]").click();
   await expect(page.locator("[data-admin-receipt]")).toContainText("草稿已创建");
@@ -109,8 +113,8 @@ async function createDraftViaAdmin(page: Page, request: APIRequestContext): Prom
 
 /** 管理端详情页「审批发布」（L3 确认框）。 */
 async function approveViaAdmin(page: Page, id: string) {
-  await page.goto(`/admin/knowledge/assets/${id}`);
-  await expect(page.locator("[data-admin-kb-view='detail']")).toBeVisible();
+  await page.goto(`/admin/knowledge/entries/${id}`);
+  await expect(page.locator("[data-admin-kb-view='entry']")).toBeVisible();
   await page.locator("[data-admin-kb-approve]").click();
   await expect(page.locator("[data-admin-confirm='knowledge-publish']")).toBeVisible();
   await page.locator("[data-admin-confirm-ok]").click();
@@ -137,7 +141,8 @@ test.afterEach(async ({ request }) => {
 });
 
 test("归档槽位模板后，公海入口禁用并如实提示", async ({ page }) => {
-  await page.goto("/admin/knowledge/assets");
+  await page.goto("/admin/knowledge/bases/kbase_legacy");
+  await expect(page.locator("[data-admin-kb-view='base']")).toBeVisible();
   await page.locator("[data-admin-kb-filter='kind']").selectOption("question_template");
   const seedRow = page.locator(`[data-admin-knowledge-id='${SEED_ID}']`);
   await expect(seedRow).toBeVisible();

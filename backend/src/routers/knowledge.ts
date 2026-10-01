@@ -10,8 +10,14 @@ import {
   archiveKnowledge,
   cite,
   composerItems,
+  createBase,
+  createDomain,
   createKnowledge,
   deprecate,
+  editBase,
+  editDomain,
+  listBases,
+  listDomains,
   deprecateStats,
   mapDeprecateReason,
   editKnowledge,
@@ -93,6 +99,9 @@ knowledge.get("/knowledge", (c) => {
     kind: c.req.query("kind"),
     stage: c.req.query("stage"),
     brand: c.req.query("brand"),
+    base: c.req.query("base"),
+    domain: c.req.query("domain"),
+    family: c.req.query("family"),
     limit: num(c.req.query("limit")),
     offset: num(c.req.query("offset")),
   }));
@@ -115,7 +124,34 @@ knowledge.get("/admin/knowledge/extract-jobs", (c) => c.json(listExtractJobs()))
 knowledge.get("/admin/knowledge/review", (c) => c.json(reviewQueue()));
 knowledge.get("/admin/knowledge/deprecate-stats", (c) => c.json(deprecateStats()));
 knowledge.get("/admin/knowledge/proposals", (c) => c.json(listProposals()));
-knowledge.get("/admin/knowledge", (c) => c.json(adminList()));
+
+// 知识分层（主题域族 → 主题域 → 知识库）；分类只做业务归类，不承载权限。
+knowledge.get("/admin/knowledge/domains", (c) => c.json({ domains: listDomains() }));
+knowledge.post("/admin/knowledge/domains", async (c) => c.json(createDomain((await c.req.json()) as Json), 201));
+knowledge.put("/admin/knowledge/domains/:id", async (c) => c.json(editDomain(c.req.param("id"), (await c.req.json()) as Json)));
+knowledge.get("/admin/knowledge/bases", (c) => c.json({
+  bases: listBases({ domain_id: c.req.query("domain_id"), kind: c.req.query("kind") }),
+}));
+knowledge.post("/admin/knowledge/bases", async (c) => c.json(createBase((await c.req.json()) as Json), 201));
+knowledge.put("/admin/knowledge/bases/:id", async (c) => c.json(editBase(c.req.param("id"), (await c.req.json()) as Json)));
+
+knowledge.get("/admin/knowledge", (c) => {
+  const num = (value: string | undefined): number | undefined => {
+    if (value == null || value === "") return undefined;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  };
+  return c.json(adminList({
+    q: c.req.query("q"),
+    kind: c.req.query("kind"),
+    status: c.req.query("status"),
+    base: c.req.query("base"),
+    domain: c.req.query("domain"),
+    family: c.req.query("family"),
+    limit: num(c.req.query("limit")),
+    offset: num(c.req.query("offset")),
+  }));
+});
 knowledge.get("/admin/knowledge/assets", (c) => c.json(adminAssets()));
 knowledge.get("/admin/knowledge/feedback", (c) => c.json(listFeedback()));
 knowledge.get("/admin/knowledge/bindings", (c) => c.json(listBindings()));

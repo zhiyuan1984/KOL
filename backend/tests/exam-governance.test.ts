@@ -118,6 +118,7 @@ describe("exam governance (PROD-PLAT-07 / CONST-02)", () => {
     const draft = await call("POST", "/api/admin/knowledge", {
       title: "未发布制度",
       body: "This draft must not become a live paper.",
+      base_id: "kbase_legacy",
     });
     expect(draft.response.status).toBe(201);
     expect(draft.json).toMatchObject({ status: "draft" });

@@ -71,6 +71,7 @@ describe("public pool question templates", () => {
       title: "公海 · 自定义评分模板",
       body: "请按自定义口径评分。",
       kind: "question_template",
+      base_id: "kbase_legacy",
       tags: "pool-question:score",
       status: "draft",
     })).json();
@@ -98,6 +99,7 @@ describe("public pool question templates", () => {
       title: "无槽位模板",
       body: "不应出现。",
       kind: "question_template",
+      base_id: "kbase_legacy",
       tags: "pool-question:not-a-slot",
       status: "published",
     })).json();

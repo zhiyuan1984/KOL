@@ -246,3 +246,20 @@
 - **审宪记录**：需求「先立三张表：对象注册表＋事件表＋工单表；按照三份清单；工单表按 ticket 方式（客服、邮件等）；先出思路、确认后实施」→ 主责 KOL 业务专家＋智能体/平台产品经理＋后端专家 → CONST-02、CONST-03、CONST-05、CONST-06、CONST-08、CONST-09、CONST-10 → PROD-PLAT-02/03、PROD-AGENT-04~07；BIZ-01/02/10/11/12/14/16/18；TECH-BE-03/04/05/06；`07-mcp-data-contract.md`；`docs/AGENTS.md` §4/§5 → **符合**（照录＋机器可读化＋接线；空白照录不补；不新增业务口径）→ 下一步：全量验证（`validate:registry` / `validate:contracts` / `typecheck` / `npm test` / 发布门禁）与空白交业务专家确认。
 - **限制**：`tickets` 本批不提供独立列表接口与前端呈现（票面 UI 批次再建）；镜像只覆盖票面主字段（`description` 等不随编辑同步）；目录条目的 `blank/designed` 为照录现状；事件接线仅 2 域，其余域迁入时逐域审宪。
 - **修订（2026-10-01，同日，用户追加决策）**：用户要求「把 `work_items` 上的数据迁移到 `tickets`，并删除 `work_items`」→ 落地为**换表**：`migrateSchema` 新增 `mergeWorkItemsIntoTickets()`（丢弃旧镜像表 → 旧 `work_items` 重命名为 `tickets`，SQLite 同步改写 `task_runs`/`task_events`/`task_artifacts`/`employee_today_briefs`/`employee_todo_briefs` 的外键引用 → 补票型列 → 清理镜像触发器与旧索引名 → 重建 `tickets_*` 索引）；历史行票型分类由 `tickets.ts` `reconcileTickets()` 在启动时一次性回填（`app_state` 键 `tickets_classified_v1`）。迁移判定含防数据丢失分支（`tickets` 已有真实数据时保留 `tickets` 并告警丢弃 `work_items`）。镜像表与镜像触发器（`work_items_ticket_mirror`）整体删除；`tickets.status` 成为唯一状态源，接口的 `ticket_status` 改为派生展示值。**历史列名 `work_item_id` 与内部别名 `work_items`/`work_item_count` 保留**（避免二次大范围改名，登记为已知限制）。证据：`tests/tickets.test.ts` 8/8（含旧库合并迁移实证）、`npm run typecheck` 通过、全量套件复跑（见实施登记 ONT-03）。
+
+
+## ADR-2026-10-01（三）：知识库分层重构（主题域族 → 主题域 → 知识库）与结构化优先
+
+- **状态**：已接受（用户 2026-10-01 决策：方案 C ＋ WeKnora 承担非结构化层、结构化自建；知识按三层分类；前端重做；**先实现结构化**）。
+- **决定者**：用户（产品发起人）；智能体产品经理＋平台产品经理（分类口径与 IA）；KOL 业务专家（主题域实例与内容）；后端专家（实现）；UI/UX 专家＋前端专家（前端重做）；架构师（非结构化接入，后续）。
+- **背景**：知识治理链已建（`draft→pending_review→published→archived`、版本/回滚/`expected_version`、`knowledge_grants`、`knowledge_bindings`、`resolveForSkill`），但**没有分类层级**——全仓「主题域」零命中；而 `docs/superpowers/specs/2026-09-26-knowledge-base-skill-agent-design.md` 明文「不引入命名空间重表」（§12）并把外部命名空间映射为「范围＋grants」（§3.2）。用户要求：知识按「主题域族 → 主题域 → 知识库」分层、知识库再分结构化/非结构化、前端重做、流程遵循 WeKnora，且结构化先落地。
+- **决定**：
+  1. **分类层**：新表 `knowledge_domains`（族/域两级，邻接＋同父下 code 唯一）与 `knowledge_bases`（库＝容器＋策略，`kind ∈ structured|unstructured`，非结构化库留 `external_ref` 映射外部知识服务）；`knowledge` 增 `base_id`/`structured`(JSON)/`source_body`(不可变原稿)；`knowledge_versions` 补 `tags`/`in_market`/`effective_at`/`expires_at`（现状快照缺这四列，回滚会丢字段——一并修）。
+  2. **分类不承载权限**：可见范围仍走组织/品牌/区域与 `knowledge_grants`；本 ADR 同时**作废**上述细则的「不引入命名空间重表」条款，并在该细则 §3.2 / §4.3 / §5.2 / §12 原位修订（CONST-09 修法记录）。
+  3. **流程借 WeKnora、闸门保留本仓**：不可变原稿＋当前内容＋单调版本（乐观锁）＋快照＋**回滚即新版本**；非结构化阶段沿用其 `pending→processing→finalizing→completed` 与阶段时间线、卡死重试；**保留「审核后生效」**，不采用「索引即生效」。
+  4. **实施顺序**：结构化（分类层＋条目字段＋库容器＋管理端/员工端重做）先落地；非结构化（解析/分块/索引/向量/ASR、WeKnora 接入）随后另案。
+  5. **前端**：管理端知识治理子视图改为 `review|catalog|base|entry|ingest|bindings`（DOM 契约同步改）；员工端 `/kb` 增加「族→域→库」导航；**治理只在 Admin**、员工面不外露治理动作；不动管理端导航簇（导航密度）。
+- **理由**：CONST-02/04（业务分类由业务专家定义）、CONST-03（分类与库类型由程序校验）、CONST-06（知识保留来源/版本/时间）、CONST-10（非结构化显式标注未实现）、TECH-ARCH-01（新增分类表须说明需求与迁移影响——本 ADR 即说明，且不引入新服务）；分类与权限分离，避免重复一遍组织/品牌维度。
+- **影响资产**：`backend/src/db.ts`、`backend/migrations/020_knowledge_domains_bases.sql`、`backend/src/host/knowledge.ts`、`backend/src/routers/knowledge.ts`、`config/knowledge-kinds.yaml`、`frontend/src/pages/{AdminKnowledge,Knowledge}.tsx`、`frontend/src/admin/knowledge/*`、`frontend/src/knowledgeCopy.ts`、`docs/superpowers/specs/2026-09-26-knowledge-base-skill-agent-design.md`、`docs/ia-information-architecture.md`、`docs/domain-objects.md`、`docs/db-data-dictionary.md`、`docs/implementation-registry.md`。
+- **审宪记录**：需求「知识分领域：主题域族→主题域→知识库；知识库分结构化/非结构化；遵循 WeKnora 流程；先实现结构化；前端重做」→ 主责 智能体产品经理＋平台产品经理（分类口径与 IA）＋KOL 业务专家（业务分类）＋后端/前端专家（实现）→ CONST-02/03/04/06/08/09/10、TECH-ARCH-01、PROD-PLAT-04/05、PROD-AGENT-04~07、BIZ-02/18、`ia-information-architecture.md` §1/§2#5/§3/§4、`org-permissions.md` 知识库行、`DESIGN.md` §1/§8/§11 → **符合（含一处细则修订）**：分类口径先在细则原位修订并留本记录，再动代码 → 下一步：按 P0→P6 分批实施，非结构化另案。
+- **限制**：本批不做非结构化解析/分块/索引/向量/ASR 与 WeKnora 接入；不做域级权限；不改管理端导航；`kind` 字典仅增 `prompt`，其余扩展（faq/case）仍属业务口径空白。

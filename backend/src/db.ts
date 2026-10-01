@@ -485,9 +485,48 @@ function initSchema(db: SqliteConn): void {
             approved_at TEXT,
             effective_at TEXT,
             expires_at TEXT,
+            base_id TEXT,
+            structured TEXT,
+            source_body TEXT,
             created_at TEXT,
             updated_at TEXT
         );
+        -- 知识分类（2026-10-01）：主题域族 → 主题域 两级业务分类；只做归类，不承载权限。
+        CREATE TABLE IF NOT EXISTS knowledge_domains (
+            id TEXT PRIMARY KEY,
+            code TEXT NOT NULL,
+            name TEXT NOT NULL,
+            level TEXT NOT NULL,
+            parent_id TEXT,
+            sort INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active',
+            note TEXT,
+            created_by TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS knowledge_domains_code
+            ON knowledge_domains(IFNULL(parent_id, ''), code);
+        CREATE INDEX IF NOT EXISTS knowledge_domains_parent
+            ON knowledge_domains(parent_id, sort);
+        -- 知识库（容器 + 策略）：kind=structured 为按键取用的受控条目；kind=unstructured 为文档/媒体（解析与检索在后续阶段）。
+        CREATE TABLE IF NOT EXISTS knowledge_bases (
+            id TEXT PRIMARY KEY,
+            code TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            domain_id TEXT NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'structured',
+            description TEXT,
+            owner_user_id TEXT,
+            status TEXT NOT NULL DEFAULT 'active',
+            settings TEXT NOT NULL DEFAULT '{}',
+            external_ref TEXT,
+            version INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS knowledge_bases_domain
+            ON knowledge_bases(domain_id, status);
         CREATE TABLE IF NOT EXISTS knowledge_versions (
             id TEXT PRIMARY KEY,
             knowledge_id TEXT NOT NULL,
@@ -503,6 +542,10 @@ function initSchema(db: SqliteConn): void {
             lang TEXT,
             kind TEXT,
             status TEXT,
+            tags TEXT,
+            in_market INTEGER,
+            effective_at TEXT,
+            expires_at TEXT,
             created_by TEXT,
             created_at TEXT,
             note TEXT
@@ -1809,6 +1852,49 @@ function migrateSchema(db: SqliteConn): void {
   add(db, "knowledge", "updated_at", "TEXT");
   add(db, "knowledge", "effective_at", "TEXT");
   add(db, "knowledge", "expires_at", "TEXT");
+  add(db, "knowledge", "base_id", "TEXT");
+  add(db, "knowledge", "structured", "TEXT");
+  add(db, "knowledge", "source_body", "TEXT");
+  add(db, "knowledge_versions", "tags", "TEXT");
+  add(db, "knowledge_versions", "in_market", "INTEGER");
+  add(db, "knowledge_versions", "effective_at", "TEXT");
+  add(db, "knowledge_versions", "expires_at", "TEXT");
+  // 知识分层（2026-10-01，DECISIONS ADR-2026-10-01 三）：历史条目归入默认族/域/库；
+  // 原稿回填（不可变 source_body）；版本快照补四列（此前回滚会丢 tags/in_market/到期）。
+  // 以 app_state 标记只跑一次；`structured` 保持 NULL 表示「字段由 title/subject/body 派生」（兼容现状）。
+  if (!db.prepare("SELECT value FROM app_state WHERE key='knowledge_taxonomy_v1'").get()) {
+    const taxonomyNow = nowIso();
+    db.prepare(
+      "INSERT OR IGNORE INTO knowledge_domains (id,code,name,level,parent_id,sort,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+    ).run("kdom_uncategorized", "uncategorized", "未分类", "family", null, 999, "active", taxonomyNow, taxonomyNow);
+    db.prepare(
+      "INSERT OR IGNORE INTO knowledge_domains (id,code,name,level,parent_id,sort,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+    ).run("kdom_legacy", "legacy", "未分类", "domain", "kdom_uncategorized", 999, "active", taxonomyNow, taxonomyNow);
+    db.prepare(
+      "INSERT OR IGNORE INTO knowledge_bases (id,code,name,domain_id,kind,description,status,settings,version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+    ).run(
+      "kbase_legacy",
+      "legacy",
+      "历史知识",
+      "kdom_legacy",
+      "structured",
+      "2026-10-01 分层迁移前的历史条目",
+      "active",
+      "{}",
+      1,
+      taxonomyNow,
+      taxonomyNow,
+    );
+    db.prepare("UPDATE knowledge SET base_id=? WHERE base_id IS NULL OR base_id=''").run("kbase_legacy");
+    db.prepare("UPDATE knowledge SET source_body=body WHERE source_body IS NULL OR source_body=''").run();
+    for (const column of ["tags", "in_market", "effective_at", "expires_at"]) {
+      db.prepare(
+        `UPDATE knowledge_versions SET ${column}=(SELECT k.${column} FROM knowledge k WHERE k.id=knowledge_versions.knowledge_id)
+         WHERE ${column} IS NULL`,
+      ).run();
+    }
+    db.prepare("INSERT OR REPLACE INTO app_state (key, value) VALUES ('knowledge_taxonomy_v1','done')").run();
+  }
   add(db, "knowledge_deprecations", "handled_at", "TEXT");
   add(db, "knowledge_deprecations", "handled_by", "TEXT");
   add(db, "knowledge_deprecations", "handle_action", "TEXT");

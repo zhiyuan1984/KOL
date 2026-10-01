@@ -292,3 +292,83 @@
   background: color-mix(in srgb, var(--accent) 8%, var(--bg));
   box-shadow: inset var(--focus-ring-width) 0 0 var(--accent);
 }
+
+/* 目录树：族 → 域 → 库，行式，不用卡片墙。 */
+.kbadmin-catalog-actions {
+  margin: var(--space-2) 0 0;
+}
+
+.kbadmin-tree,
+.kbadmin-tree-children {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+}
+
+.kbadmin-tree-children {
+  padding-left: var(--space-4);
+  border-left: var(--focus-ring-width) solid var(--border);
+}
+
+.kbadmin-tree-node + .kbadmin-tree-node {
+  margin-top: var(--space-2);
+}
+
+.kbadmin-tree-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.kbadmin-tree-base {
+  margin-top: var(--space-2);
+}
+
+.kbadmin-tree-empty {
+  margin: var(--space-1) 0 0;
+  font-size: var(--font-sm);
+}
+
+.kbadmin-level,
+.kbadmin-kind {
+  flex: 0 0 auto;
+}
+
+/* 结构化字段表单：字段说明与输入同一列。 */
+.kbadmin-structured {
+  border: var(--focus-ring-width) solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  margin: var(--space-3) 0;
+}
+
+.kbadmin-structured legend {
+  padding: 0 var(--space-1);
+  font-size: var(--font-meta);
+  color: var(--text-muted);
+}
+
+.kbadmin-field-hint {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: var(--font-xs);
+}
+
+/* 反馈处置：折叠区内的动作，仍是链接式。 */
+.kbadmin-feedback-actions {
+  margin-top: var(--space-2);
+}
+
+.kbadmin-feedback-actions summary {
+  cursor: pointer;
+  min-height: var(--hit-min);
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent-text);
+}
+
+.kbadmin-feedback-actions .field {
+  margin: var(--space-2) 0;
+}

@@ -64,6 +64,7 @@ function addPublishedTemplate(input: {
     title: input.title || input.id,
     body: "template source",
     kind: "mail_template",
+    base_id: "kbase_legacy",
     skill_id: "email_compose",
     brand: input.brand || "LT",
     subject: input.subject || "Original subject for [红人]",

@@ -3,12 +3,13 @@ import { api } from "../../api";
 import {
   KB_ADMIN_ACTION,
   KB_ADMIN_EMPTY,
+  KB_INGEST_NOT_IMPLEMENTED,
   formatKbTime,
   jobStatusLabel,
 } from "../../knowledgeCopy";
 import { useKbData, type KbFeed, type Row, textValue } from "./shared";
 
-/** 入库：素材入库与提取成败？—— 失败可重试，终态如实展示。 */
+/** 入库：素材入库与提取成败？—— 上传入口按现状灰置并显式标注未实现。 */
 export default function IngestView({ notify, fail }: KbFeed) {
   const load = useCallback(async () => {
     const [raw, jobs] = await Promise.all([
@@ -45,23 +46,29 @@ export default function IngestView({ notify, fail }: KbFeed) {
         <div className="admin-section-head">
           <div>
             <h2>素材入库</h2>
-            <p className="muted">上传只写原文库；原文不上线，抽取只生成待审草稿。支持 md / txt / eml / pdf / docx。</p>
+            <p className="muted">
+              上传只写原文库；原文不上线，抽取只生成待审草稿。
+              结构化条目请走「目录 → 知识库 → 新建条目」，不经过本页。
+            </p>
           </div>
-          <label className="btn work kbadmin-upload" data-admin-kb-upload>
-            <span>{KB_ADMIN_ACTION.upload}</span>
-            <input
-              className="sr-only"
-              type="file"
-              accept=".md,.txt,.eml,.pdf,.docx"
-              data-kb-upload
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) void run(() => api.uploadKnowledgeRaw(file), "已写入原文库，尚未抽取。");
-                event.currentTarget.value = "";
-              }}
-            />
-          </label>
+          {/*
+            非结构化阶段未实现：按钮保持可见但灰置，显式标注未实现（CONST-10）。
+          */}
+          <button
+            className="btn ghost"
+            type="button"
+            disabled
+            aria-disabled="true"
+            data-admin-kb-upload-disabled
+            aria-describedby="kb-ingest-unimplemented"
+            title={KB_INGEST_NOT_IMPLEMENTED}
+          >
+            {KB_ADMIN_ACTION.upload}（未实现）
+          </button>
         </div>
+        <p className="muted admin-note" id="kb-ingest-unimplemented" data-admin-kb-ingest-unimplemented>
+          {KB_INGEST_NOT_IMPLEMENTED}
+        </p>
 
         <h3 className="kb-subhead">原文库</h3>
         {raw.map((item: Row) => (

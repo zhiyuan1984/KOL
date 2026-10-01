@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "generated_from": [
+    "docs/superpowers/specs/2026-09-26-knowledge-base-skill-agent-design.md",
+    "docs/DECISIONS.md ADR-2026-10-01（三）"
+  ],
+  "note": "知识条目类型目录：kind → 结构化字段与适用库类型。分类只来自本文件；新增 kind 只改本文件。structured=false 表示「无专有结构化字段、正文即内容」，仍可按 key 被绑定精确取用。",
+  "kinds": [
+    {
+      "code": "mail_template",
+      "name": "邮件模板",
+      "structured": true,
+      "base_kind": ["structured"],
+      "summary": "面向 KOL 的邮件模板：主题 + 英文正文 + 占位符；注入时编译为载荷，不注入原文。",
+      "fields": [
+        { "key": "subject", "label": "主题", "type": "text", "required": true },
+        { "key": "body_en", "label": "英文正文", "type": "longtext", "required": true },
+        { "key": "placeholders", "label": "占位符", "type": "string_list", "required": false },
+        { "key": "internal_zh", "label": "中文内部译稿", "type": "longtext", "required": false }
+      ],
+      "clauses": ["BIZ-11", "PROD-PLAT-04"]
+    },
+    {
+      "code": "prompt",
+      "name": "提示词",
+      "structured": true,
+      "base_kind": ["structured"],
+      "summary": "供技能或数字员工使用的提示词模板；按技能 + 品牌精确取用，不进入检索通道。",
+      "fields": [
+        { "key": "body", "label": "提示词正文", "type": "longtext", "required": true },
+        { "key": "variables", "label": "变量", "type": "string_list", "required": false },
+        { "key": "model_hint", "label": "建议模型", "type": "text", "required": false }
+      ],
+      "clauses": ["PROD-PLAT-04", "PROD-AGENT-04"]
+    },
+    {
+      "code": "glossary",
+      "name": "术语表",
+      "structured": true,
+      "base_kind": ["structured"],
+      "summary": "术语与释义；用于统一口径与内部译法。",
+      "fields": [
+        { "key": "term", "label": "术语", "type": "text", "required": true },
+        { "key": "definition", "label": "释义", "type": "longtext", "required": true },
+        { "key": "aliases", "label": "别名", "type": "string_list", "required": false }
+      ],
+      "clauses": ["PROD-PLAT-04"]
+    },
+    {
+      "code": "question_template",
+      "name": "问答模板",
+      "structured": true,
+      "base_kind": ["structured"],
+      "summary": "标准问 + 参考答 + 追问要点；供员工提问与技能组装使用。",
+      "fields": [
+        { "key": "question", "label": "标准问", "type": "longtext", "required": true },
+        { "key": "answer", "label": "参考答", "type": "longtext", "required": true },
+        { "key": "followups", "label": "追问要点", "type": "string_list", "required": false }
+      ],
+      "clauses": ["PROD-PLAT-04", "PROD-AGENT-03"]
+    },
+    {
+      "code": "policy",
+      "name": "制度与政策",
+      "structured": false,
+      "base_kind": ["structured", "unstructured"],
+      "summary": "以正文为准的制度类知识；本期按长文本条目管理，检索通道后续阶段接入。",
+      "fields": [],
+      "clauses": ["PROD-PLAT-04", "BIZ-18"]
+    },
+    {
+      "code": "pattern",
+      "name": "方法与套路",
+      "structured": false,
+      "base_kind": ["structured", "unstructured"],
+      "summary": "可复用的方法、经验与话术骨架；正文即内容。",
+      "fields": [],
+      "clauses": ["PROD-PLAT-04"]
+    }
+  ]
+}

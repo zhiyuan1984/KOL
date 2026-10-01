@@ -629,6 +629,53 @@ export type KnowledgeRow = {
   updated_at?: string;
   created_by?: string;
   approved_at?: string;
+  /** 分类与库（2026-10-01 契约）：族 → 域 → 库，分类不承载权限。 */
+  base_id?: string;
+  base_code?: string;
+  base_name?: string;
+  domain_id?: string;
+  domain_name?: string;
+  family_id?: string;
+  family_name?: string;
+  /** 库类型：structured | unstructured。 */
+  base_kind?: string;
+  /** 结构化字段（kind 专有字段的对象）。 */
+  structured?: Record<string, unknown> | null;
+};
+
+/** 主题域族 / 主题域（knowledge_domains，两级分类树，只做业务归类）。 */
+export type KnowledgeDomainRow = {
+  id: string;
+  code: string;
+  name: string;
+  level: "family" | "domain" | string;
+  parent_id: string | null;
+  sort?: number;
+  status?: string;
+  note?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+/** 知识库容器＝容器＋策略（knowledge_bases）。 */
+export type KnowledgeBaseRow = {
+  id: string;
+  code: string;
+  name: string;
+  domain_id: string;
+  domain_name?: string;
+  family_id?: string | null;
+  family_name?: string | null;
+  kind: "structured" | "unstructured" | string;
+  description?: string;
+  owner_user_id?: string | null;
+  status?: string;
+  settings?: Record<string, unknown> | null;
+  external_ref?: unknown;
+  version?: number;
+  entries?: number;
+  created_at?: string;
+  updated_at?: string;
 };
 
 /** 公海工作台四类动作的问题模板（kind='question_template' 的已发布知识）。 */
@@ -1676,12 +1723,24 @@ export const api = {
   },
   profiles: () => fetch("/api/profiles").then((r) => r.json()),
   skillMarket: () => request<Array<Record<string, unknown>>>("/api/skills/market"),
-  knowledge: (opts: { q?: string; kind?: string; stage?: string; brand?: string } = {}) => {
+  knowledge: (opts: {
+    q?: string;
+    kind?: string;
+    stage?: string;
+    brand?: string;
+    /** 分类过滤（id 或 code）：base / domain / family 逐级收窄。 */
+    base?: string;
+    domain?: string;
+    family?: string;
+  } = {}) => {
     const params = new URLSearchParams();
     if (opts.q) params.set("q", opts.q);
     if (opts.kind) params.set("kind", opts.kind);
     if (opts.stage) params.set("stage", opts.stage);
     if (opts.brand) params.set("brand", opts.brand);
+    if (opts.base) params.set("base", opts.base);
+    if (opts.domain) params.set("domain", opts.domain);
+    if (opts.family) params.set("family", opts.family);
     const qs = params.toString();
     return request<KnowledgeRow[]>(qs ? `/api/knowledge?${qs}` : "/api/knowledge");
   },
@@ -1706,7 +1765,59 @@ export const api = {
     request<KnowledgeRow>(`/api/knowledge/${encodeURIComponent(id)}/deprecate`, { method: "DELETE" }),
   knowledgeVersions: (id: string) =>
     request<Record<string, unknown>[]>(`/api/knowledge/${encodeURIComponent(id)}/versions`),
-  adminKnowledge: () => request<KnowledgeRow[]>("/api/admin/knowledge"),
+  adminKnowledge: (opts: { base?: string; domain?: string; family?: string; kind?: string } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.base) params.set("base", opts.base);
+    if (opts.domain) params.set("domain", opts.domain);
+    if (opts.family) params.set("family", opts.family);
+    if (opts.kind) params.set("kind", opts.kind);
+    const qs = params.toString();
+    return request<KnowledgeRow[]>(qs ? `/api/admin/knowledge?${qs}` : "/api/admin/knowledge");
+  },
+  /** 分类树（主题域族 / 主题域）：只做业务归类，不承载权限。 */
+  adminKnowledgeDomains: () =>
+    request<{ domains: KnowledgeDomainRow[] }>("/api/admin/knowledge/domains"),
+  adminKnowledgeDomainCreate: (body: {
+    code: string;
+    name: string;
+    level: "family" | "domain";
+    parent_id?: string;
+    sort?: number;
+    note?: string;
+  }) =>
+    request<{ domain: KnowledgeDomainRow }>("/api/admin/knowledge/domains", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  adminKnowledgeDomainUpdate: (
+    id: string,
+    body: { name?: string; sort?: number; status?: string; note?: string },
+  ) =>
+    request<{ domain: KnowledgeDomainRow }>(`/api/admin/knowledge/domains/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  adminKnowledgeBases: (opts: { domain_id?: string; kind?: string } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.domain_id) params.set("domain_id", opts.domain_id);
+    if (opts.kind) params.set("kind", opts.kind);
+    const qs = params.toString();
+    return request<{ bases: KnowledgeBaseRow[] }>(qs ? `/api/admin/knowledge/bases?${qs}` : "/api/admin/knowledge/bases");
+  },
+  adminKnowledgeBaseCreate: (body: { code: string; name: string; domain_id: string; kind: string; description?: string }) =>
+    request<{ base: KnowledgeBaseRow }>("/api/admin/knowledge/bases", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  /** 版本冲突返回 409：expected_version 与当前版本不一致时必须重取再提交。 */
+  adminKnowledgeBaseUpdate: (
+    id: string,
+    body: { name?: string; description?: string; status?: string; expected_version: number },
+  ) =>
+    request<{ base: KnowledgeBaseRow }>(`/api/admin/knowledge/bases/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
   adminKnowledgeRaw: () => request<Record<string, unknown>[]>("/api/admin/knowledge/raw"),
   adminKnowledgeJobs: () => request<Record<string, unknown>[]>("/api/admin/knowledge/extract-jobs"),
   adminKnowledgeReview: () => request<KnowledgeRow[]>("/api/admin/knowledge/review"),

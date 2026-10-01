@@ -70,12 +70,12 @@
 | 7 | 邮件 | 3 | `kol_mail_items`、`kol_mail_threads`、`kol_mail_seen` |
 | 8 | 任务运行时 | 3 | `task_runs`、`task_events`、`task_artifacts`（原 `work_items` 已并入 `tickets`，见分组 14） |
 | 9 | 技能 | 12 | `skill_drafts`、`skill_flags`、`skill_grants`、`skill_lifecycle`、`skill_sops`、`skill_stage_history`、`skill_test_runs`、`skill_tests`、`skill_versions`、`runtime_agent_skills`、`runtime_skill_connectors`、`runtime_skill_tools` |
-| 10 | 知识 | 9 | `knowledge`、`knowledge_bindings`、`knowledge_citations`、`knowledge_deprecations`、`knowledge_extract_jobs`、`knowledge_grants`、`knowledge_proposals`、`knowledge_raw`、`knowledge_versions` |
+| 10 | 知识 | 11 | `knowledge`、`knowledge_domains`、`knowledge_bases`、`knowledge_bindings`、`knowledge_citations`、`knowledge_deprecations`、`knowledge_extract_jobs`、`knowledge_grants`、`knowledge_proposals`、`knowledge_raw`、`knowledge_versions` |
 | 11 | 连接器运行时治理 | 13 | `runtime_connector_config`、`runtime_connector_organization_nodes`、`runtime_connector_organization_sync`、`runtime_connector_probes`、`runtime_connector_scope_bindings`、`runtime_connector_scope_modes`、`runtime_connector_scope_policies`、`runtime_connector_tool_inventory`、`runtime_credentials`、`runtime_tool_global_scopes`、`runtime_tool_policies`、`runtime_tool_scope_bindings`、`runtime_bootstrap_migrations` |
 | 12 | 评测考试 | 6 | `exams`、`exam_assignments`、`exam_attempts`、`exam_items`、`exam_qualifications`、`exam_snapshots` |
 | 13 | 成本·定时任务·记忆简报 | 8 | `cost_budgets`、`cost_events`、`cron_jobs`、`cron_runs`、`memory_entries`、`employee_memory_items`、`employee_today_briefs`、`employee_todo_briefs` |
 | 14 | 事实账本与工单（2026-10-01 本体三表） | 2 | `business_events`、`tickets`（工单表：原 `work_items` 已并入） |
-| — | **合计** | **101** | 另有 `sqlite_sequence`（SQLite 内部表）与 `stage_transitions`、`business_events` 的不可变触发器，见正文与附录。§一 的基准库扫描快照生成于本次换表之前，重扫前以分组 8 / 分组 14 为准。 |
+| — | **合计** | **103** | 另有 `sqlite_sequence`（SQLite 内部表）与 `stage_transitions`、`business_events` 的不可变触发器，见正文与附录。§一 的基准库扫描快照生成于本体换表与知识分层之前，重扫前以分组 8 / 分组 10 / 分组 14 为准。 |
 
 ---
 
@@ -1553,17 +1553,17 @@ KOL 往来邮件主线、会话线与已读标记。
 
 ---
 
-## 十二、分组 10：知识（9 张表）
+## 十二、分组 10：知识（11 张表）
 
-知识条目、版本、引用、废止、原始素材、抽取作业、提案、授权与绑定。
+知识分类（主题域族 → 主题域 → 知识库）、知识条目、版本、引用、废止、原始素材、抽取作业、提案、授权与绑定。分类只做业务归类，不承载权限（权限仍走 `knowledge_grants` / 品牌 / 组织范围）；知识库分结构化（按键取用的受控条目）与非结构化（解析与检索后续阶段落地）。
 
 ### knowledge — 知识条目（Wiki 层）
 
 - **用途**：知识库主表。一条记录是一个知识资产（邮件模板、制度、模式、术语、提问模板），承载「Raw → Wiki → Skill 注入」三层中的 Wiki 层；由管理端上传/提取后经人工审批发布，运行时被技能解析并编译成注入载荷（模板编译为 `subject`/`body_en`/`placeholders`，不让模型读原文正文）。
 - **主键 / 唯一约束**：`id`（主键）。无其他唯一约束。
-- **关键索引**：无显式索引（仅有主键的隐式索引）；列表与解析均按 `status`/`kind`/`brand` 逐行扫描后在代码中过滤。
-- **写入方**：`backend/src/host/knowledge.ts` —— `createKnowledge`（新建草稿/直接发布）、`editKnowledge`（编辑，版本 +1）、`approveKnowledge`（审批发布并写 `published_version`）、`archiveKnowledge`（归档）、`rollbackKnowledge`（按历史版本生成新草稿）、`handleFeedback`（转修订时置 `status='draft'`）、`seedKnowledge`（内置种子，`id` 形如 `kb_*`）；`backend/src/routers/knowledge.ts` 暴露上述管理端接口（`POST/PUT/DELETE /admin/knowledge...`）。`backend/src/db.ts` 迁移阶段只回填 `published_version`（不新增行）。
-- **备注**：无数据库外键；与 `knowledge_versions`（版本快照）、`knowledge_citations`（个人启用）、`knowledge_deprecations`（个人隐藏）、`knowledge_grants`（范围授权）、`knowledge_bindings`（技能绑定）逻辑关联。物理删除仅限 `draft` 且未被已发送邮件引用（`hardDeleteKnowledge`），同时清理 versions/citations/deprecations 三表；`published`/`archived` 只能归档。运行时取用需同时满足四闸：`status='published'` + `in_market=1` + 个人已 cite + 个人未 deprecate + 品牌/范围匹配。
+- **关键索引**：无显式索引（仅有主键的隐式索引）；检索与分类过滤在 SQL 层做（`knowledgeWhereClauses` + `list/knowledgeWhereClauses`，base/domain/family 接受 id 或 code），范围/授权/阶段/品牌仍在代码中逐行过滤（`knowledgeListFilters`）。
+- **写入方**：`backend/src/host/knowledge.ts` —— `createKnowledge`（新建草稿/直接发布，新建必填 `base_id`）、`editKnowledge`（编辑，版本 +1）、`approveKnowledge`（审批发布并写 `published_version`）、`archiveKnowledge`（归档）、`rollbackKnowledge`（按历史版本生成新草稿）、`handleFeedback`（转修订时置 `status='draft'`）、`seedKnowledge`（内置种子，`id` 形如 `kb_*`，统一落默认结构化库）；`backend/src/routers/knowledge.ts` 暴露上述管理端接口（`POST/PUT/DELETE /admin/knowledge...`）。`backend/src/db.ts` 迁移阶段回填 `published_version` 与分层相关列（`base_id` / `source_body`，见 `knowledge_taxonomy_v1`），不新增业务行。
+- **备注**：无数据库外键；与 `knowledge_versions`（版本快照）、`knowledge_citations`（个人启用）、`knowledge_deprecations`（个人隐藏）、`knowledge_grants`（范围授权）、`knowledge_bindings`（技能绑定）逻辑关联，经 `base_id` 归属 `knowledge_bases` → `knowledge_domains`。物理删除仅限 `draft` 且未被已发送邮件引用（`hardDeleteKnowledge`），同时清理 versions/citations/deprecations 三表；`published`/`archived` 只能归档。运行时取用需同时满足四闸：`status='published'` + `in_market=1` + 个人已 cite + 个人未 deprecate + 品牌/范围匹配；且条目所属库必须是结构化库（否则 `assertUsableKnowledge` 以 `knowledge_wrong_base_type` 拒绝、解析器记为跳过原因 `wrong_base_type`）。写入时校验 kind 与库类型匹配，不匹配返回 400 `knowledge_kind_base_mismatch`。
 
 | 字段 | 类型 | 约束与默认 | 中文名 | 说明 |
 |---|---|---|---|---|
@@ -1572,7 +1572,7 @@ KOL 往来邮件主线、会话线与已读标记。
 | `body` | TEXT | NOT NULL | 正文 | 知识正文（可为中文）；邮件模板的结构化正文在 `body_en`，本列保留原文。 |
 | `tags` | TEXT | 可空 | 标签 | 逗号分隔字符串（非 JSON），如 `email_compose,policy`；提问模板带 `pool-question:<slot>,kol-pool`，解析器按前缀识别槽位。 |
 | `in_market` | INTEGER | NOT NULL DEFAULT 1 | 是否上架 | 0/1；解析与发送校验要求 `=1`，为 0 时按「已停用知识」拒绝进入会话（`knowledge_disabled`）。 |
-| `kind` | TEXT | NOT NULL DEFAULT 'policy' | 知识类型 | 枚举 `mail_template` / `policy` / `pattern` / `glossary` / `question_template`（代码常量 `KNOWLEDGE_KINDS`）；写库前经 `normalizeKind` 校验。 |
+| `kind` | TEXT | NOT NULL DEFAULT 'policy' | 知识类型 | 枚举 `mail_template` / `prompt` / `policy` / `pattern` / `glossary` / `question_template`（代码常量 `KNOWLEDGE_KINDS`）；写库前经 `normalizeKind` 校验；各类型的结构化字段与适用库类型见 `config/knowledge-kinds.yaml`。 |
 | `skill_id` | TEXT | 可空 | 关联技能 | 归属技能 ID（现值主要是 `email_compose`）；提问模板为空串。 |
 | `brand` | TEXT | NOT NULL DEFAULT '*' | 品牌 | 品牌码或 `*` 通配；取值来自品牌 From 白名单（如 `LT`、`RO`）。 |
 | `lang` | TEXT | NOT NULL DEFAULT 'en' | 语言 | 知识语言；当前写入恒为 `en`。 |
@@ -1590,6 +1590,55 @@ KOL 往来邮件主线、会话线与已读标记。
 | `effective_at` | TEXT | 可空 | 生效时间 | 由迁移 `012_knowledge_governance` 新增；仅用于展示与筛选，不做自动删除或自动生效。 |
 | `expires_at` | TEXT | 可空 | 到期时间 | 同上；到期只做标记与提示，「是否拦截检索/谁续期」在规范中仍是空白项。 |
 | `published_version` | INTEGER | 可空 | 已发布版本号 | 当前对外生效的 `knowledge_versions.version` 指针；审批时置为当时的 `current_version`；编辑只加 `current_version` 不动本列，因此使用者始终跟随已批准快照。 |
+| `base_id` | TEXT | 可空（新建必填） | 所属知识库 | 指向 `knowledge_bases.id`；新建/搬家时校验库存在、启用且类型允许该 `kind`（否则 400 `knowledge_kind_base_mismatch`）。历史行由迁移回填默认库 `kbase_legacy`。 |
+| `source_body` | TEXT | 可空 | 原稿正文 | 新建时默认取当时的 `body`（WeKnora source_content 语义），此后编辑只改 `body`，本列不动；由迁移对历史行按 `body` 回填。 |
+| `structured` | TEXT | 可空 | 结构化字段 | JSON 对象字符串，字段表按 `kind` 由 `config/knowledge-kinds.yaml` 定义（`validateStructuredFields` 校验，失败 400 `knowledge_structured_invalid` 带 `errors[]`）；无结构化字段的类型为 NULL。 |
+
+### knowledge_domains — 知识主题域族 / 主题域
+
+- **用途**：知识分类树的两级节点：`level='family'` 是主题域族，`level='domain'` 是主题域（必须挂在族下）。分类只做业务归类，不承载权限（权限仍走 `knowledge_grants` / 品牌 / 组织范围）。
+- **主键 / 唯一约束**：`id`（主键）；唯一索引 `knowledge_domains_code` —— `ON knowledge_domains(IFNULL(parent_id,''), code)`，即同一父级下 `code` 唯一（族父级为空，等价全局唯一）。
+- **关键索引**：`knowledge_domains_parent` —— `(parent_id, sort)`。
+- **写入方**：`backend/src/host/knowledge.ts` 的 `createDomain` / `editDomain`（HTTP `GET/POST/PUT /api/admin/knowledge/domains`，PUT 只改 `name/sort/status/note`，不允许改层级与父级）；`backend/src/db.ts` 迁移一次性建默认 族 `未分类`（`kdom_uncategorized`）→ 域 `未分类`（`kdom_legacy`）。
+- **备注**：归档（`status='archived'`）前校验无子域且无知识库，否则 409 `knowledge_domain_in_use`；同父级 code 冲突 409 `knowledge_domain_code_conflict`。审计事件 `knowledge.domain.save`。无数据库外键。
+
+| 字段 | 类型 | 约束与默认 | 中文名 | 说明 |
+|---|---|---|---|---|
+| `id` | TEXT | 主键，非空 | 分类 ID | `nid("kdom")` 生成。 |
+| `code` | TEXT | NOT NULL | 编码 | 小写字母开头的 `a-z0-9_`（正则 `^[a-z][a-z0-9_]*$`）；同一父级下唯一。 |
+| `name` | TEXT | NOT NULL | 名称 | 展示名。 |
+| `level` | TEXT | NOT NULL | 层级 | `family`（族）/ `domain`（域）；域必须带 `parent_id`，族的父级为 NULL。 |
+| `parent_id` | TEXT | 可空 | 父级 | 域的父级是族 `id`；族为 NULL。 |
+| `sort` | INTEGER | NOT NULL DEFAULT 0 | 排序 | 同层排序；默认分类用 999 置后。 |
+| `status` | TEXT | NOT NULL DEFAULT 'active' | 状态 | `active` / `archived`。 |
+| `note` | TEXT | 可空 | 备注 | 原样保存。 |
+| `created_by` | TEXT | 可空 | 创建人 | 创建者用户 ID。 |
+| `created_at` | TEXT | NOT NULL | 创建时间 | ISO 8601 字符串。 |
+| `updated_at` | TEXT | NOT NULL | 更新时间 | ISO 8601 字符串。 |
+
+### knowledge_bases — 知识库
+
+- **用途**：域的下一级容器。`kind='structured'` 是结构化库（按键取用的受控条目，本阶段唯一可写入、可被会话/Worker 注入的类型）；`kind='unstructured'` 是非结构化库（占位与接口预留：解析、分块、索引、向量、ASR 未实现，页面显式标注）。
+- **主键 / 唯一约束**：`id`（主键）；`code` UNIQUE。
+- **关键索引**：`knowledge_bases_domain` —— `(domain_id, status)`。
+- **写入方**：`backend/src/host/knowledge.ts` 的 `createBase` / `editBase`（HTTP `GET/POST/PUT /api/admin/knowledge/bases`）；`backend/src/db.ts` 迁移一次性建默认库 `历史知识`（`kbase_legacy`，`code=legacy`，结构化）。
+- **备注**：编辑需携带 `expected_version`（不一致 409 `knowledge_base_version_conflict`）并递增 `version`；不允许改 `domain_id` 与 `kind`；结构化库禁止 `external_ref`（400 `knowledge_base_external_ref_forbidden`）；归档库不能写入条目（400 `knowledge_base_archived`）。审计事件 `knowledge.base.save`。无数据库外键。
+
+| 字段 | 类型 | 约束与默认 | 中文名 | 说明 |
+|---|---|---|---|---|
+| `id` | TEXT | 主键，非空 | 知识库 ID | `nid("kbase")` 生成；默认库为 `kbase_legacy`。 |
+| `code` | TEXT | NOT NULL，UNIQUE | 编码 | 全局唯一；冲突 409 `knowledge_base_code_conflict`。 |
+| `name` | TEXT | NOT NULL | 名称 | 展示名。 |
+| `domain_id` | TEXT | NOT NULL | 所属主题域 | 必须是 `level='domain'` 的分类。 |
+| `kind` | TEXT | NOT NULL DEFAULT 'structured' | 库类型 | `structured` / `unstructured`；创建后不可改。 |
+| `description` | TEXT | 可空 | 说明 | 原样保存。 |
+| `owner_user_id` | TEXT | 可空 | 负责人 | 创建时写入 actor，当前不参与权限。 |
+| `status` | TEXT | NOT NULL DEFAULT 'active' | 状态 | `active` / `archived`；归档库不再接受新条目。 |
+| `settings` | TEXT | NOT NULL DEFAULT '{}' | 设置 | JSON 对象字符串（本阶段仅留位）。 |
+| `external_ref` | TEXT | 可空 | 外部引用 | JSON 字符串；预留 WeKnora 等外部知识库引用；结构化库禁止携带。 |
+| `version` | INTEGER | NOT NULL DEFAULT 1 | 版本 | 乐观锁；每次编辑 +1，与 `expected_version` 比对。 |
+| `created_at` | TEXT | NOT NULL | 创建时间 | ISO 8601 字符串。 |
+| `updated_at` | TEXT | NOT NULL | 更新时间 | ISO 8601 字符串。 |
 
 ### knowledge_bindings — 知识-技能绑定
 
@@ -1733,7 +1782,7 @@ KOL 往来邮件主线、会话线与已读标记。
 - **主键 / 唯一约束**：`id`（主键）。无 `UNIQUE(knowledge_id, version)` 约束（同一知识同一版本号理论上可重复，由代码逻辑保证唯一）。
 - **关键索引**：无显式索引（仅有主键的隐式索引）；按 `knowledge_id (+ version)` 查询为全表扫描。
 - **写入方**：`backend/src/host/knowledge.ts` 的 `writeVersion`（唯一通用写入点，被 create/edit/approve/archive/rollback/handleFeedback 调用）与 `seedKnowledge`（种子 v1，`note` 形如 `seed policy v1`）；`hardDeleteKnowledge` 按 `knowledge_id` 整批删除版本行。
-- **备注**：无外键。`note` 同时是语义标记：只有 `note='approve'`、`'create'` 或 `LIKE 'seed %'` 的版本才被 `publishedSnapshot` 视为可用的已发布快照——`edit`、`archive`、`rollback from v{n}`、`feedback to_revision` 产生的快照不参与发布解析。
+- **备注**：无外键。`note` 同时是语义标记：只有 `note='approve'`、`'create'` 或 `LIKE 'seed %'` 的版本才被 `publishedSnapshot` 视为可用的已发布快照——`edit`、`archive`、`rollback from v{n}`、`feedback to_revision` 产生的快照不参与发布解析。`tags` / `in_market` / `effective_at` / `expires_at` 四列由 `knowledge_taxonomy_v1` 迁移按所属 `knowledge` 当前值一次性回填（老库），此后随 `writeVersion` 逐次快照。
 
 | 字段 | 类型 | 约束与默认 | 中文名 | 说明 |
 |---|---|---|---|---|
@@ -1754,6 +1803,10 @@ KOL 往来邮件主线、会话线与已读标记。
 | `created_by` | TEXT | 可空 | 写入人 | 触发这次快照的操作用户 ID（`writeVersion` 的 actor 参数）。 |
 | `created_at` | TEXT | 可空 | 创建时间 | ISO 8601 字符串。 |
 | `note` | TEXT | 可空 | 变更备注 | 变更来源标记：`create` / `edit` / `approve` / `archive` / `rollback from v{n}` / `feedback to_revision` / `seed xxx v1`；同时决定该快照能否被发布解析取用。 |
+| `tags` | TEXT | 可空 | 标签快照 | 快照时的 `knowledge.tags`。 |
+| `in_market` | INTEGER | 可空 | 上架快照 | 快照时的 `knowledge.in_market`；默认 1。 |
+| `effective_at` | TEXT | 可空 | 生效时间快照 | 快照时的 `knowledge.effective_at`。 |
+| `expires_at` | TEXT | 可空 | 到期时间快照 | 快照时的 `knowledge.expires_at`。 |
 
 ---
 

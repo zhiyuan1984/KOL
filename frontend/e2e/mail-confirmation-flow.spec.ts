@@ -10,10 +10,13 @@ async function preparedSession(request: APIRequestContext): Promise<string> {
     kind: "mail_template", skill_id: "email_compose", brand: "LT", stage_codes: ["INITIAL_CONTACT"],
     subject: "Partnership with [红人]", body_en: "Hello [红人],\n\nWe would like to explore a collaboration.",
     placeholders: ["[红人]"], status: "draft", in_market: true,
+    // 新建条目必须挂结构化库；默认库（迁移生成）跨 demo reset 保留。
+    base_id: "kbase_legacy",
   } });
   // Demo reset preserves knowledge governance; reuse this suite's published fixture.
   if (!created.ok()) expect(await created.json()).toEqual({ detail: "knowledge id exists" });
-  expect((await request.post("/api/admin/knowledge/e2e_confirmed_first_touch/approve")).ok()).toBeTruthy();
+  // 审批需要携带被审版本号（后端 400 expected_version required）。
+  expect((await request.post("/api/admin/knowledge/e2e_confirmed_first_touch/approve", { data: { expected_version: 1 } })).ok()).toBeTruthy();
   expect((await request.post("/api/knowledge/e2e_confirmed_first_touch/cite")).ok()).toBeTruthy();
   const response = await request.post("/api/sessions", { data: { collaboration_id: "col_xiaomei" } });
   expect(response.ok(), await response.text()).toBeTruthy();
@@ -46,6 +49,12 @@ async function createAuthoredDraft(page: Page, sid: string): Promise<string> {
   })).toBe(true);
   return String(await card.getAttribute("data-card-id"));
 }
+
+test.afterEach(async ({ request }) => {
+  // 夹具行跨运行复用，但个人引用必须清掉：否则同库跑全量时，workbench 的
+  //「cited knowledge template」用例会把这份模板当作首选自动锁定（标题排序先于中文模板）。
+  await request.delete("/api/knowledge/e2e_confirmed_first_touch/cite").catch(() => undefined);
+});
 
 test("choose skill, edit, submit, review exact snapshot and confirm once; cancel never sends", async ({ page, request }, testInfo) => {
   const sid = await preparedSession(request);

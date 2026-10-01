@@ -3378,11 +3378,13 @@ test("admin L3 destructive writes open confirm dialog with cancel focused", asyn
   await page.locator("[data-admin-nav='knowledge']").click();
   await expect(page.locator("[data-admin-knowledge]")).toBeVisible();
   await expect(page.locator(".kb-step-n, .kb-hero-admin")).toHaveCount(0);
-  await expect(page.locator("[data-admin-kb-view='todo']")).toBeVisible();
+  await expect(page.locator("[data-admin-kb-view='review']")).toBeVisible();
   await expect(page.locator("[data-admin-knowledge-review]")).toBeVisible();
-  await page.locator("[data-admin-kb-tab='assets']").click();
-  await expect(page.locator("[data-admin-kb-view='assets']")).toBeVisible();
-  await expect(page.locator("[data-admin-knowledge-assets]")).toBeVisible();
+  await page.locator("[data-admin-kb-tab='catalog']").click();
+  await expect(page.locator("[data-admin-kb-view='catalog']")).toBeVisible();
+  await expect(page.locator("[data-admin-kb-catalog-tree]")).toBeVisible();
+  await page.goto("/admin/knowledge/bases/kbase_legacy");
+  await expect(page.locator("[data-admin-kb-view='base']")).toBeVisible();
   const hardDelete = page.locator("[data-kb-hard-delete]").first();
   if (await hardDelete.count()) {
     await hardDelete.click();
@@ -4482,17 +4484,19 @@ test("employee knowledge market URL redirects to /kb", async ({ page }) => {
   await expect(page.locator(".kb-lead")).not.toContainText("知识市场");
 });
 
-test("employee knowledge base uses task copy, category tabs, and a content drawer", async ({ page }) => {
+test("employee knowledge base uses task copy, taxonomy scope, and a content drawer", async ({ page }) => {
   await page.goto("/kb");
   const kb = page.locator("[data-kb-page='mine']");
   await expect(page.getByRole("heading", { name: "知识库", exact: true })).toBeVisible();
-  await expect(kb.locator(".page-kicker")).toHaveText("知识库");
+  await expect(kb.locator(".kb-hero .page-kicker")).toHaveText("知识库");
   await expect(kb.locator(".kb-lead")).toContainText("选择适合当前任务的资料，AI 会据此生成草稿。正式发送前仍需要你确认。");
   await expect(kb).not.toContainText(/Codex|Harness|MCP|发送不等于推进阶段|发送不等于改阶段|发送\s*≠|不会改阶段|用这份写信|资产·不发送|资产 · 不发送|知识市场|我的知识库|口径与其它/);
-  const tabOrder = await kb.locator("[data-kb-tab]").evaluateAll((els) => els.map((el) => el.getAttribute("data-kb-tab")));
-  expect(tabOrder).toEqual(["all", "sop", "mail", "quote", "recent"]);
-  await expect(kb.locator("[data-kb-tab='sop']")).toHaveText("KOL合作SOP");
-  await expect(kb.locator("[data-kb-tab='brand']")).toHaveCount(0);
+  // 分类只来自服务端分类字段：族 → 域 → 库 行式下拉，不做二次分栏；旧 ?cat= tab 已退役。
+  await expect(kb.locator("[data-kb-scope-picker]")).toBeVisible();
+  await expect(kb.locator("[data-kb-scope-family]")).toBeVisible();
+  await expect(kb.locator("[data-kb-scope-domain]")).toBeVisible();
+  await expect(kb.locator("[data-kb-scope-base]")).toBeVisible();
+  await expect(kb.locator("[data-kb-tab]")).toHaveCount(0);
 
   const followup = kb.locator('[data-knowledge="kb_mail_followup"]');
   await expect(followup.locator("[data-kb-summary]")).toBeVisible();
@@ -4513,19 +4517,15 @@ test("employee knowledge base uses task copy, category tabs, and a content drawe
   await drawer.getByRole("button", { name: "关闭" }).click();
   await expect(drawer).toHaveCount(0);
 
-  await kb.locator("[data-kb-tab='mail']").click();
-  await expect(kb.locator(".page-kicker")).toHaveText("知识库 · 邮件模板");
-  await expect(kb.locator("[data-kind='mail_template']").first()).toBeVisible();
-  await expect(kb.locator("[data-kind='policy']")).toHaveCount(0);
-
   await followup.getByRole("button", { name: "收藏" }).click();
   await expect(followup.getByRole("button", { name: "已收藏" })).toBeVisible();
 
-  await kb.locator("[data-kb-tab='sop']").click();
-  const sop = kb.locator('[data-knowledge="kb_followup"]');
-  await expect(sop.getByRole("button", { name: "用于当前任务" })).toBeVisible();
-  await expect(sop.locator("[data-fill-composer='kb_followup']")).toBeVisible();
-  await kb.locator("[data-kb-tab='all']").click();
+  // 按库收窄：种子存量统一在「历史知识」库下，收窄后仍能看到这条；清空分类恢复全部。
+  await kb.locator("[data-kb-scope-base]").selectOption({ label: "历史知识" });
+  await expect(kb.locator("[data-kb-scope-path]")).toContainText("历史知识");
+  await expect(followup).toBeVisible();
+  await kb.locator("[data-kb-scope-clear]").click();
+  await expect(kb.locator("[data-kb-scope-base]")).toHaveValue("");
 
   await page.locator('[data-fill-composer="kb_mail_followup"]').click();
   await expect(page.locator("[data-home] [data-composer-input]")).toHaveValue(/LiTime collab kit/);

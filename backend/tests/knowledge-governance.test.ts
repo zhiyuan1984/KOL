@@ -48,7 +48,8 @@ async function auditTypes(): Promise<string[]> {
 }
 
 async function createPublished(input: Json): Promise<Json> {
-  const created = await (await request("POST", "/api/admin/knowledge", input)).json();
+  // 分层后条目必须归属知识库（base_id 必填）；演示/历史条目统一落默认结构化库。
+  const created = await (await request("POST", "/api/admin/knowledge", { base_id: "kbase_legacy", ...input })).json();
   expect(created.status).toBe("published");
   return created;
 }
@@ -150,6 +151,7 @@ describe("knowledge governance", () => {
       title: "审批版本对象",
       body: "v1 body",
       kind: "policy",
+      base_id: "kbase_legacy",
       status: "draft",
     })).json();
 
@@ -175,6 +177,7 @@ describe("knowledge governance", () => {
       title: "回滚对象",
       body: "first body",
       kind: "policy",
+      base_id: "kbase_legacy",
       status: "draft",
     })).json();
     await request("PUT", `/api/admin/knowledge/${created.id}`, { body: "second body" });
@@ -298,6 +301,7 @@ describe("knowledge governance", () => {
       title: "未审草稿",
       body: "draft",
       kind: "policy",
+      base_id: "kbase_legacy",
       status: "draft",
     })).json();
     await request("POST", "/api/admin/knowledge/bindings", {
@@ -498,6 +502,7 @@ describe("knowledge governance", () => {
       title: "审计对象",
       body: "audit v1",
       kind: "policy",
+      base_id: "kbase_legacy",
       status: "draft",
     })).json();
     await request("POST", `/api/admin/knowledge/${created.id}/rollback`, { version: 1 });

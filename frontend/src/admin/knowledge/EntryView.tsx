@@ -14,20 +14,26 @@ import {
   KB_ADMIN_EMPTY,
   brandLabel,
   formatKbTime,
+  kbBaseKindLabel,
   kindLabel,
   skillLabel,
   statusLabel,
   versionLine,
 } from "../../knowledgeCopy";
+import StructuredFields from "./StructuredFields";
 import {
   KB_BRANDS,
-  KB_KINDS,
   KB_LANGS,
+  basePath,
   errorStatus,
   hasGrantRow,
   kbSkillNames,
+  kindFields,
   listText,
   splitList,
+  structuredDisplay,
+  structuredErrorList,
+  structuredPayload,
   textValue,
   useKbData,
   type KbAssetRow,
@@ -44,32 +50,44 @@ function blob(value: unknown): string {
   return String(value ?? "");
 }
 
-/** 资产详情：这份资产的治理状态与影响面？—— 主行动按状态唯一渲染。 */
-export default function AssetDetailView({ id, notify, fail }: KbFeed & { id: string }) {
+function fieldValue(source: Row | undefined, key: string, type: string): string {
+  if (!source) return "";
+  const raw = source[key];
+  if (type === "string_list") return Array.isArray(raw) ? raw.map(String).filter(Boolean).join("、") : blob(raw);
+  return blob(raw);
+}
+
+/** 条目详情：这条知识的治理状态与影响面？—— 主行动按状态唯一渲染。 */
+export default function EntryView({ id, notify, fail }: KbFeed & { id: string }) {
   const { ask, dialog } = useAdminConfirm();
   const load = useCallback(async () => {
-    const assets = await api.adminKnowledgeAssets() as KbAssetRow[];
-    const row = assets.find((item) => item.id === id) || null;
-    if (!row) return { row: null, versions: [] as VersionRow[], grants: EMPTY_GRANTS };
-    const [versions, grants] = await Promise.all([
+    const rows = await api.adminKnowledge();
+    const row = (rows as KbAssetRow[]).find((item) => item.id === id) || null;
+    if (!row) return { row: null, versions: [] as VersionRow[], grants: EMPTY_GRANTS, refs: [] as string[] };
+    const [versions, grants, assets] = await Promise.all([
       api.knowledgeVersions(id) as Promise<VersionRow[]>,
       api.adminKnowledgeGrants(id),
+      api.adminKnowledgeAssets().catch(() => [] as KbAssetRow[]),
     ]);
-    return { row, versions, grants };
+    const hit = assets.find((item) => item.id === id);
+    return { row, versions, grants, refs: hit?.ref_skills || [] };
   }, [id]);
   const { data, error, loading, reload } = useKbData(load, [id]);
 
   const [editing, setEditing] = useState(false);
+  const [editKind, setEditKind] = useState("");
   const [openVersion, setOpenVersion] = useState(0);
   const [bodies, setBodies] = useState<Record<number, Row>>({});
   const [compare, setCompare] = useState<number[]>([]);
   const [orgText, setOrgText] = useState("");
   const [teamText, setTeamText] = useState("");
   const [userText, setUserText] = useState("");
+  const [formError, setFormError] = useState<string[]>([]);
 
   const row = data?.row || null;
   const versions = data?.versions || [];
   const grants = data?.grants || EMPTY_GRANTS;
+  const refs = kbSkillNames(data?.refs);
 
   useEffect(() => {
     setOrgText((data?.grants || EMPTY_GRANTS).org.join("、"));
@@ -81,7 +99,9 @@ export default function AssetDetailView({ id, notify, fail }: KbFeed & { id: str
     setEditing(false);
     setCompare([]);
     setOpenVersion(0);
-  }, [id]);
+    setFormError([]);
+    setEditKind(String(data?.row?.kind || ""));
+  }, [id, data?.row?.kind]);
 
   const run = async (fn: () => Promise<unknown>, message: string) => {
     try {
@@ -130,18 +150,17 @@ export default function AssetDetailView({ id, notify, fail }: KbFeed & { id: str
   }, [compare, bodies]);
 
   if (!row && loading) {
-    return <p className="muted" role="status">正在加载资产详情…</p>;
+    return <p className="muted" role="status">正在加载条目详情…</p>;
   }
   if (!row) {
     return (
-      <article className="panel" data-admin-kb-detail-missing>
-        <p className="muted">{error || KB_ADMIN_EMPTY.detailMissing}</p>
-        <Link className="kbadmin-action-link" to="/admin/knowledge/assets">返回资产目录</Link>
+      <article className="panel" data-admin-kb-entry-missing>
+        <p className="muted">{error || KB_ADMIN_EMPTY.entryMissing}</p>
+        <Link className="kbadmin-action-link" to="/admin/knowledge/catalog">返回知识目录</Link>
       </article>
     );
   }
 
-  const refs = kbSkillNames(row.ref_skills);
   const needsApproval = row.status === "draft" || row.status === "pending_review";
   const rowVersion = Number(row.current_version || 1);
   const approve = async (reason: string) => {
@@ -158,34 +177,55 @@ export default function AssetDetailView({ id, notify, fail }: KbFeed & { id: str
       throw cause;
     }
   };
-  const openEdit = () => setEditing(true);
+
   const saveEdit = (form: HTMLFormElement) => {
-    const data2 = new FormData(form);
-    void run(
-      () => api.editKnowledge(row.id, {
-        title: String(data2.get("title") || "").trim(),
-        kind: String(data2.get("kind") || row.kind || "policy"),
-        brand: String(data2.get("brand") || row.brand || "*"),
-        lang: String(data2.get("lang") || row.lang || "en"),
-        subject: String(data2.get("subject") || ""),
-        body: String(data2.get("body") || ""),
-        body_en: String(data2.get("body_en") || ""),
-        tags: String(data2.get("tags") || ""),
-        stage_codes: splitList(String(data2.get("stage_codes") || "")),
-      }).then(() => setEditing(false)),
-      "已写入新版本草稿，旧版本仍留档；需重新审批才生效。",
-    );
+    const body = new FormData(form);
+    const kind = String(body.get("kind") || row.kind || "policy");
+    setFormError([]);
+    void api
+      .editKnowledge(row.id, {
+        title: String(body.get("title") || "").trim(),
+        kind,
+        brand: String(body.get("brand") || row.brand || "*"),
+        lang: String(body.get("lang") || row.lang || "en"),
+        body: String(body.get("body") || ""),
+        tags: String(body.get("tags") || ""),
+        stage_codes: splitList(String(body.get("stage_codes") || "")),
+        ...structuredPayload(body, kind),
+      })
+      .then(() => {
+        setEditing(false);
+        notify("已写入新版本草稿，旧版本仍留档；需重新审批才生效。");
+        reload();
+      })
+      .catch((cause: unknown) => {
+        const errors = structuredErrorList(cause);
+        if (errors.length) {
+          setFormError(errors);
+          return;
+        }
+        fail(cause);
+      });
   };
+
+  const declared = kindFields(row.kind);
+  const structuredRows = structuredDisplay(row.kind, row.structured);
+  const extraRows = structuredRows.filter((item) => !declared.some((field) => field.key === item.key));
+  const editDefaults = (editKind || row.kind) === row.kind ? (row.structured || undefined) : undefined;
 
   return (
     <>
       {dialog}
       {error && <p className="error" role="alert">{error}</p>}
       <p className="admin-crumb">
-        <Link to="/admin/knowledge/assets">知识资产</Link> / {row.title}
+        <Link to="/admin/knowledge/catalog">知识目录</Link>
+        {row.family_name ? <> / {row.family_name}</> : null}
+        {row.domain_name ? <> / {row.domain_name}</> : null}
+        {row.base_id ? <> / <Link to={basePath(row.base_id)}>{row.base_name || row.base_id}</Link></> : null}
+        {" / "}{row.title}
       </p>
 
-      <article className="panel" data-admin-kb-detail-meta>
+      <article className="panel" data-admin-kb-entry-meta>
         <div className="admin-section-head">
           <div>
             <h2>{row.title}</h2>
@@ -210,7 +250,7 @@ export default function AssetDetailView({ id, notify, fail }: KbFeed & { id: str
                 type="button"
                 data-admin-kb-edit
                 aria-expanded={editing}
-                onClick={() => (editing ? setEditing(false) : openEdit())}
+                onClick={() => setEditing((value) => !value)}
               >
                 {editing ? "收起编辑" : "编辑为新版本"}
               </button>
@@ -221,6 +261,19 @@ export default function AssetDetailView({ id, notify, fail }: KbFeed & { id: str
         <dl className="admin-kv">
           <div><dt>状态</dt><dd>{statusLabel(row.status)}</dd></div>
           <div><dt>类型</dt><dd>{kindLabel(row.kind)}</dd></div>
+          <div>
+            <dt>所属库</dt>
+            <dd>
+              {row.base_id ? (
+                <Link to={basePath(row.base_id)}>{row.base_name || row.base_id}</Link>
+              ) : "未归类"}
+              {row.base_kind ? `（${kbBaseKindLabel(row.base_kind)}）` : ""}
+            </dd>
+          </div>
+          <div>
+            <dt>族 / 域</dt>
+            <dd>{[row.family_name, row.domain_name].filter(Boolean).join(" / ") || "未归类"}</dd>
+          </div>
           <div><dt>品牌 / 语言</dt><dd>{brandLabel(row.brand)} · {row.lang || "en"}</dd></div>
           <div><dt>适用阶段</dt><dd>{listText((row.stage_codes || []).join(" / ")) || "全阶段"}</dd></div>
           <div><dt>标签</dt><dd>{listText(row.tags) || "—"}</dd></div>
@@ -230,12 +283,31 @@ export default function AssetDetailView({ id, notify, fail }: KbFeed & { id: str
           <div><dt>到期</dt><dd>{textValue(row.expires_at) || "未设置"}</dd></div>
         </dl>
 
-        <h3 className="kb-subhead">主题</h3>
-        <p>{row.subject || "（空）"}</p>
+        <h3 className="kb-subhead">结构化字段</h3>
+        {declared.length ? (
+          <dl className="admin-kv" data-admin-kb-structured>
+            {declared.map((field) => {
+              const value = fieldValue(row.structured || undefined, field.key, field.type);
+              return (
+                <div key={field.key}>
+                  <dt>{field.label}</dt>
+                  <dd>{value || <span className="muted">未填写</span>}</dd>
+                </div>
+              );
+            })}
+            {extraRows.map((item) => (
+              <div key={item.key} data-admin-kb-structured-extra={item.key}>
+                <dt>{item.label}</dt>
+                <dd>{item.value}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <p className="muted" data-admin-kb-structured>{KB_ADMIN_EMPTY.structured}</p>
+        )}
+
         <h3 className="kb-subhead">正文</h3>
         <pre className="kbadmin-body">{row.body || "（空）"}</pre>
-        <h3 className="kb-subhead">英文正文</h3>
-        <pre className="kbadmin-body">{row.body_en || "（空）"}</pre>
 
         {editing ? (
           <form
@@ -250,8 +322,16 @@ export default function AssetDetailView({ id, notify, fail }: KbFeed & { id: str
             <div className="kbadmin-form-grid">
               <label className="field">标题<input name="title" defaultValue={row.title} required /></label>
               <label className="field">类型
-                <select name="kind" defaultValue={row.kind || "policy"}>
-                  {KB_KINDS.map((value) => <option key={value} value={value}>{kindLabel(value)}</option>)}
+                <select
+                  name="kind"
+                  value={editKind || row.kind || "policy"}
+                  data-admin-kb-edit-kind
+                  onChange={(event) => setEditKind(event.target.value)}
+                >
+                  <option value={row.kind || "policy"}>{kindLabel(row.kind)}（当前）</option>
+                  {["mail_template", "prompt", "glossary", "question_template", "policy", "pattern"]
+                    .filter((value) => value !== row.kind)
+                    .map((value) => <option key={value} value={value}>{kindLabel(value)}</option>)}
                 </select>
               </label>
               <label className="field">品牌
@@ -265,13 +345,17 @@ export default function AssetDetailView({ id, notify, fail }: KbFeed & { id: str
                   {KB_LANGS.map((value) => <option key={value} value={value}>{value}</option>)}
                 </select>
               </label>
-              <label className="field">主题<input name="subject" defaultValue={row.subject || ""} /></label>
               <label className="field">标签<input name="tags" defaultValue={String(row.tags || "")} /></label>
             </div>
-            <label className="field">正文<textarea name="body" rows={3} defaultValue={row.body || ""} /></label>
-            <label className="field">英文正文<textarea name="body_en" rows={3} defaultValue={row.body_en || ""} /></label>
             <label className="field">适用阶段（空格分隔）<input name="stage_codes" defaultValue={(row.stage_codes || []).join(" ")} /></label>
-            <p className="muted">保存写新版本草稿；发布前员工看不到这一版。</p>
+            <StructuredFields kind={editKind || row.kind || "policy"} defaults={editDefaults} />
+            <label className="field">正文<textarea name="body" rows={3} defaultValue={row.body || ""} /></label>
+            {formError.length ? (
+              <ul className="error" data-admin-kb-structured-errors role="alert">
+                {formError.map((line) => <li key={line}>{line}</li>)}
+              </ul>
+            ) : null}
+            <p className="muted">保存写新版本草稿；发布前员工看不到这一版。切换类型会按新类型的字段校验。</p>
             <button className="btn work" data-admin-kb-edit-submit>{KB_ADMIN_ACTION.saveVersion}</button>
           </form>
         ) : null}
@@ -379,9 +463,7 @@ export default function AssetDetailView({ id, notify, fail }: KbFeed & { id: str
                   {body ? (
                     <>
                       <p className="muted">{listText(body.title)} · {kindLabel(String(body.kind || ""))} · {brandLabel(String(body.brand || ""))}</p>
-                      <p className="muted">主题：{blob(body.subject) || "（空）"}</p>
                       <pre className="kbadmin-body">{blob(body.body) || "（空）"}</pre>
-                      <pre className="kbadmin-body">{blob(body.body_en) || "（空）"}</pre>
                     </>
                   ) : (
                     <p className="muted">正在加载该版本全文…</p>
@@ -462,13 +544,13 @@ export default function AssetDetailView({ id, notify, fail }: KbFeed & { id: str
         <div className="admin-section-head">
           <div>
             <h2>引用（会解析到这份知识的技能）</h2>
-            <p className="muted">只列出启用中的绑定；专家与智能体范围校验属阶段 4，当前不宣称已引用。</p>
+            <p className="muted">只列出启用中的绑定；专家与智能体范围校验属后续阶段，当前不宣称已引用。</p>
           </div>
           <span className="muted" role="status">{refs.length} 个技能</span>
         </div>
         {refs.length ? (
           <ul className="kbadmin-ref-list">
-            {(row.ref_skills || []).map((skill) => (
+            {(data?.refs || []).map((skill) => (
               <li key={skill}>
                 <strong>{skillLabel(skill)}</strong>
                 <span className="muted"> {skill}</span>
