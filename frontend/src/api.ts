@@ -1820,7 +1820,7 @@ export const api = {
   adminOrganizationUnits: () => request<OrganizationUnitsResponse>("/api/admin/organization-units"),
   adminConnectors: () => request<Record<string, unknown>[]>("/api/admin/connectors"),
   runtimeConnectorConfig: (connectorId: string) =>
-    request<{ config: RuntimeConnectorConfig; version: number }>(
+    request<{ config: RuntimeConnectorConfig; version: number; probe_mode?: "directory" | "mediacrawler_start" }>(
       `/api/admin/runtime/connectors/${encodeURIComponent(connectorId)}/config`,
     ),
   saveRuntimeConnectorConfig: (connectorId: string, body: RuntimeConnectorConfig & { expected_version: number }) =>
@@ -1856,7 +1856,7 @@ export const api = {
       actor_id: string;
       checked_at: string;
       status: "succeeded" | "failed" | string;
-      probe_kind: "mcp_tools_list" | "http_definition";
+      probe_kind: "mcp_tools_list" | "http_definition" | "mediacrawler_start";
       tool_count: number;
       duration_ms: number;
       error_code: string | null;

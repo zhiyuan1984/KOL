@@ -11,6 +11,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { RemoteMcpClient } from "../src/mcp/remote.js";
 import { runtimeErrorCode } from "../src/runtime/execution.js";
+import { probeMediaCrawlerStart } from "../src/runtime/mediacrawler-probe.js";
 
 type Tool = {
   name: string;
@@ -33,6 +34,8 @@ let receivedAuthorizationHeaders: string[] = [];
 let listCalls: Array<string | undefined> = [];
 let catalog: Tool[] = [];
 let configuredPages: ToolPage[] | null = null;
+let probeCalls: string[] = [];
+let rejectProbeStart = false;
 
 const searchableTool: Tool = {
   name: "search_records",
@@ -94,6 +97,16 @@ async function startFixture(): Promise<void> {
         return pageFor(cursor);
       });
       server.setRequestHandler(CallToolRequestSchema, (request) => {
+        if (request.params.name === "start_crawl") {
+          probeCalls.push("start_crawl");
+          return rejectProbeStart
+            ? { isError: true, content: [{ type: "text", text: "remote rejected probe" }] }
+            : { content: [{ type: "text", text: JSON.stringify({ task_id: "probe-task-1" }) }] };
+        }
+        if (request.params.name === "stop_crawl") {
+          probeCalls.push("stop_crawl");
+          return { content: [{ type: "text", text: "stopped" }] };
+        }
         if (request.params.name === "fail") {
           return {
             content: [{ type: "text", text: "remote failure" }],
@@ -134,6 +147,8 @@ beforeEach(async () => {
   listCalls = [];
   catalog = [];
   configuredPages = null;
+  probeCalls = [];
+  rejectProbeStart = false;
   await startFixture();
 });
 
@@ -269,5 +284,27 @@ describe("RemoteMcpClient discovery proxy", () => {
     expect(failure!.remoteStatus).toBe(401);
     expect(runtimeErrorCode(failure)).toBe("runtime_remote_unauthorized");
     await client.close();
+  });
+
+  it("probes a MediaCrawler Host endpoint using start_crawl then stop_crawl, without tools/list", async () => {
+    const original = process.env.MEDIACRAWLER_MCP_URL;
+    process.env.MEDIACRAWLER_MCP_URL = baseUrl;
+    try {
+      const config = { url: baseUrl, allow_unauthenticated: true };
+      const context = { agentId: "governance", skillId: "", userId: "admin", runId: "probe" };
+      await probeMediaCrawlerStart(context, config);
+      expect(probeCalls).toEqual(["start_crawl", "stop_crawl"]);
+      expect(listCalls).toEqual([]);
+
+      rejectProbeStart = true;
+      probeCalls = [];
+      await expect(probeMediaCrawlerStart(context, config)).rejects.toMatchObject({
+        detail: { code: "runtime_probe_start_rejected" },
+      });
+      expect(probeCalls).toEqual(["start_crawl"]);
+    } finally {
+      if (original === undefined) delete process.env.MEDIACRAWLER_MCP_URL;
+      else process.env.MEDIACRAWLER_MCP_URL = original;
+    }
   });
 });

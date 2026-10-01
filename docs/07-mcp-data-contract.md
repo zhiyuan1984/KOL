@@ -18,6 +18,8 @@
 
 `start_crawl` 只接受海外平台码 `youtube` / `instagram` / `facebook`；`xhs` / `dy` / `ks` / `bili` / `wb` / `tieba` / `zhihu` 为历史遗留码，仅供旧计划与既有快照。自动化采集测试必须只用海外码，不得把历史码当作被测场景。
 
+管理端保存的 Streamable HTTP MCP URL 与 Host 的 `MEDIACRAWLER_MCP_URL` 完全一致时，此连接器按 **Host-only MediaCrawler** 接入：测试使用 AI 发现相同的 `tools/call(start_crawl)`，以 YouTube 一次性测试词启动，并在获得 `task_id` 后立即 `tools/call(stop_crawl)`。测试真实创建远端任务，不能在已有采集任务运行时重复点击；若启动响应丢失任务 ID，无法保证停止，必须检查远端任务。成功只证明该 Host 业务调用链可用，不代表 `tools/list` 或通用技能工具清单可用；不登记虚构的工具 schema，启用需同配置版本的成功测试，Host 仍按原 `.env` 采集路径执行。其他 MCP 连接器仍使用 `tools/list` 完成工具登记和技能挂载。
+
 物理事实来源是 `domain-objects.md`（字典与枚举）和 `codex/` 协议 schema。它们描述工具、参数、响应、错误、鉴权、限流、异步生命周期和版本，不描述员工体验或业务编排。
 
 Starry KOL MCP 和 `data/kol/邮箱-负责人绑定清单.md` 提供 KOL 域事实；安培时代组织注册表提供部门负责人和公司级范围政策。MCP/Skill 不得重新解释部门负责人范围，统一消费 Host 注入的 scope。

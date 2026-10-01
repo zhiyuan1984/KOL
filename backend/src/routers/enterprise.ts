@@ -20,8 +20,22 @@ import { boxDir } from "../config.js";
 import { isBuiltinConnectorId, requireManagedConnector } from "../connectors/catalog.js";
 import { hasBundledIcon } from "./connector-icons.js";
 import { connectorInUseBySkill, ensureRuntimeSchema } from "../runtime/store.js";
+import { getConnectorConfig } from "../runtime/store.js";
+import { isMediaCrawlerHostConfig } from "../runtime/mediacrawler-config.js";
 
 export const enterprise = new Hono();
+
+function mediaCrawlerProbeVerified(id: string, version: number): boolean {
+  try {
+    const probe = getConn().prepare(`SELECT status, probe_kind, config_version FROM runtime_connector_probes
+      WHERE connector_id=? ORDER BY id DESC LIMIT 1`).get(id) as Row | undefined;
+    return probe?.status === "succeeded" && probe.probe_kind === "mediacrawler_start"
+      && Number(probe.config_version) === version;
+  } catch {
+    // Legacy databases without a probe table cannot infer a successful test.
+    return false;
+  }
+}
 
 function parseJson(value: unknown, fallback: unknown): unknown {
   try {
@@ -373,7 +387,12 @@ enterprise.patch("/admin/connectors/:id", async (c) => {
       if (String(current.status) !== "verified") {
         throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
       }
-      if (!connectorInUseBySkill(id)) {
+      const config = getConnectorConfig(id);
+      const hostOnly = Boolean(config && isMediaCrawlerHostConfig(config.config));
+      if (hostOnly && !mediaCrawlerProbeVerified(id, config!.version)) {
+        throw new HttpFail(409, { code: "connector_verification_required", connector_id: id });
+      }
+      if (!hostOnly && !connectorInUseBySkill(id)) {
         throw new HttpFail(409, { code: "connector_skill_binding_required", connector_id: id });
       }
     }

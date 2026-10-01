@@ -20,6 +20,7 @@ import { previewOpenApi } from "../runtime/openapi.js";
 import { skillCoverage, type ToolMountState } from "../runtime/skill-coverage.js";
 import { taskDefinition } from "../tasks/registry.js";
 import { requireManagedConnector } from "../connectors/catalog.js";
+import { isMediaCrawlerHostConfig } from "../runtime/mediacrawler-config.js";
 
 export const skillRuntimeRouter = new Hono();
 
@@ -273,7 +274,7 @@ skillRuntimeRouter.get("/admin/runtime/connectors/:connectorId/config", (c) => {
   requireManagedRuntimeConnector(c.req.param("connectorId"));
   const result = getConnectorConfig(c.req.param("connectorId"));
   if (!result) throw new HttpFail(404, "runtime connector config not found");
-  return c.json(result);
+  return c.json({ ...result, ...(isMediaCrawlerHostConfig(result.config) ? { probe_mode: "mediacrawler_start" } : {}) });
 });
 
 skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/config", async (c) => {
@@ -311,7 +312,8 @@ skillRuntimeRouter.put("/admin/runtime/connectors/:connectorId/config", async (c
     version: row.version,
   });
   // Return only the validated, reference-only DTO; never expose config_json.
-  return c.json({ config, version: row.version });
+  return c.json({ config, version: row.version,
+    ...(isMediaCrawlerHostConfig(config) ? { probe_mode: "mediacrawler_start" } : {}) });
 });
 
 skillRuntimeRouter.post("/admin/runtime/connectors/:connectorId/import-openapi", async (c) => {

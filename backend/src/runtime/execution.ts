@@ -10,6 +10,7 @@ import type { Json, Row } from "../types.js";
 import { resolveAccountHeaders, resolveSecretReference } from "./credentials.js";
 import { assertResolvedConnectorEndpointSafe, assertSafeConnectorEndpoint, fetchWithConnectorEgressPolicy, HttpConnectorClient } from "./http.js";
 import { ensureRuntimeSchema, getAgentSkills, getSkillConnectors, getSkillTool, getConnectorConfig, getToolPolicy, type ConnectorConfig } from "./store.js";
+import { isMediaCrawlerHostConfig } from "./mediacrawler-config.js";
 
 export type RuntimeContext = { agentId: string; skillId: string; userId: string; runId: string; sessionId?: string };
 export type RuntimeRemote = Pick<RemoteMcpClient, "listTools" | "callToolRaw" | "close">;
@@ -123,6 +124,7 @@ export function authorizeConnector(context: RuntimeContext, connectorId: string)
   if (!connector?.enabled) reject("runtime_connector_disabled");
   const configuration = getConnectorConfig(connectorId);
   if (!configuration) reject("runtime_connector_not_configured", 409);
+  if (isMediaCrawlerHostConfig(configuration.config)) reject("runtime_host_only_connector", 403);
   return { ...skill, resourceBinding: binding, connector, configuration };
 }
 function authorizationStamp(auth: ReturnType<typeof authorizeConnector>, policy?: Row, toolBinding?: Row): string {
@@ -338,7 +340,10 @@ export class SkillExecution {
         }
         return current;
       };
-      const transportFetch = options.fetch!;
+      // MCP uses Node's default fetch (like AI discovery); only HTTP action
+      // connectors provide a guarded dispatcher. Preserve the revocation check
+      // before each actual MCP request without calling an undefined fetch.
+      const transportFetch = options.fetch || fetch;
       const config = authorized.configuration.config;
       // Guard the actual HTTP dispatch for both drivers; the MCP SDK may
       // initialize/reconnect between discovery and tools/call.
@@ -395,6 +400,7 @@ export async function inspectConnectorTools(context: RuntimeContext, connectorId
   const connector = getConn().prepare("SELECT id FROM connectors WHERE id=?").get(connectorId) as Row | undefined;
   if (!connector) reject("runtime_connector_not_found", 404);
   if (!configuration) reject("runtime_connector_not_configured", 409);
+  if (isMediaCrawlerHostConfig(configuration.config)) return [];
   const options = connectorOptions(context, configuration.config);
   const client = createConfiguredClient(context, configuration.config);
   try {
