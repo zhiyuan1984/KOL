@@ -4,6 +4,7 @@
  */
 import { Hono } from "hono";
 
+import { requireSkill } from "../auth.js";
 import { HttpFail } from "../host/errors.js";
 import { normalizeEmail } from "../host/identity.js";
 import {
@@ -18,7 +19,7 @@ import {
   messageRowOf,
   setConversationStarred,
 } from "../host/mail-memory.js";
-import { readPersonDigest, runMailMemoryIncrement } from "../host/mail-memory-job.js";
+import { readOnDemandMemory, readPersonDigest, triggerMailTranslateSkill, triggerMailSummarySkill, writeOnDemandMemory } from "../host/mail-memory-job.js";
 import { composeCatalog } from "../skills/email-compose-contract.js";
 import { lastSyncReceipt, startFollowedMailSync } from "../starrykol/mail-sync.js";
 
@@ -77,12 +78,31 @@ mail.get("/mail/conversations/:id", (c) => {
   const conversation = conversationRowOf(thread);
   markThreadTranslationsPending(String(thread.id));
   const stored = itemsForConversation(conversation.conversation_id, conversation.mailbox);
+  const summaryKey = `mail_summary_memory:${conversation.mailbox}:${conversation.conversation_id}:`;
+  let summaryMemory = readOnDemandMemory(summaryKey);
+  if (!summaryMemory) {
+    summaryMemory = {
+      status: "未开始", mailbox: conversation.mailbox, subject: conversation.subject,
+      conversation_id: conversation.conversation_id, text: "", fingerprint: "",
+    };
+    writeOnDemandMemory(summaryKey, summaryMemory);
+  }
+  for (const item of stored) {
+    const translationKey = `mail_translation_memory:${conversation.mailbox}:${conversation.conversation_id}:${String(item.id || "")}`;
+    if (!readOnDemandMemory(translationKey)) {
+      writeOnDemandMemory(translationKey, {
+        status: "未开始", mailbox: conversation.mailbox, subject: String(item.subject || conversation.subject || ""),
+        conversation_id: conversation.conversation_id, message_id: String(item.id || ""), text: "", fingerprint: "",
+      });
+    }
+  }
   return c.json({
     ...MEMORY,
     conversation,
     messages: stored.map(messageRowOf),
     digest_text: conversation.digest_text || String(thread.digest_text || ""),
     digest_source: conversation.digest_source || String(thread.digest_source || ""),
+    summary_memory: summaryMemory,
   });
 });
 
@@ -109,20 +129,33 @@ mail.get("/mail/person", (c) => {
   });
 });
 
-/** Explicit user request to run the published local mail memory skills. */
-mail.post("/mail/memory/generate", async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as { box?: unknown; peer_email?: unknown; conversation_id?: unknown; message_id?: unknown; kind?: unknown };
-  const mailbox = requestedMailbox(String(body.box || ""));
-  const peer = normalizeEmail(String(body.peer_email || ""));
-  if (!mailbox || !peer) throw new HttpFail(400, "box and peer_email are required");
-  const kind = body.kind === "translation" ? "translation" : body.kind === "summary" ? "summary" : "";
-  if (!kind) throw new HttpFail(400, "kind must be summary or translation");
-  const thread = body.conversation_id ? findMailThread(String(body.conversation_id), mailbox) : undefined;
-  if (body.conversation_id && !thread) throw new HttpFail(404, "conversation not found");
-  const messageId = String(body.message_id || "");
-  if (kind === "translation" && !messageId) throw new HttpFail(400, "message_id is required");
-  const stats = await runMailMemoryIncrement(mailbox);
-  return c.json({ ...COMMAND, ok: true, kind, stats, conversation_id: thread ? String(thread.conversation_id) : undefined, message_id: messageId || undefined });
+/** Run one employee-facing mail Skill through its existing Codex/MCP memory chain. */
+mail.post("/mail/skills/:skillId/run", async (c) => {
+  const skillId = c.req.param("skillId");
+  if (skillId !== "mail_summary" && skillId !== "mail_translate") throw new HttpFail(404, "mail skill not found");
+  requireSkill(skillId);
+  const body = (await c.req.json().catch(() => ({}))) as { box?: unknown; conversation_id?: unknown; message_id?: unknown };
+  const mailbox = requestedMailbox(String(body?.box || "")) || mailboxBoxStatus().mailbox;
+  if (!mailbox) throw new HttpFail(400, "mailbox is required");
+  const conversationId = String(body?.conversation_id || "").trim();
+  const messageId = String(body?.message_id || "").trim();
+  let result;
+  if (skillId === "mail_summary") {
+    if (!conversationId) throw new HttpFail(422, "conversation_id is required");
+    result = await triggerMailSummarySkill(mailbox, conversationId);
+  } else {
+    if (!messageId) throw new HttpFail(422, "message_id is required");
+    result = await triggerMailTranslateSkill(mailbox, messageId);
+  }
+  if (result.errors > 0) {
+    throw new HttpFail(502, {
+      code: "mail_skill_failed",
+      skill_id: skillId,
+      message: result.error || "邮件技能执行失败，请查看邮件正文、会话和模型配置",
+      result,
+    });
+  }
+  return c.json({ ...COMMAND, skill_id: skillId, accepted: true, pending: false, mailbox, result });
 });
 
 mail.post("/mail/conversations/:id/read", (c) => {

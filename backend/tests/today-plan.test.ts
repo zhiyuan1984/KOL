@@ -106,6 +106,7 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "today.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
+  process.env.PLANNING_FAST_MODE = "0";
   resetConn();
   seedAll();
   const { createApp } = await import("../src/app.js");
@@ -116,6 +117,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
+  delete process.env.PLANNING_FAST_MODE;
 });
 
 describe("today_plan harness", () => {
@@ -161,7 +163,7 @@ describe("today_plan harness", () => {
   });
 
   describe.each(["today", "todo"] as const)("plan routes (%s)", (scope) => {
-    const taskType = scope === "today" ? "today_plan" : "todo_plan";
+    const taskType = "today_plan";
     const briefPath = `/api/home/${scope}-brief`;
     const planPath = `/api/home/${scope}-brief/plan`;
 
@@ -255,7 +257,7 @@ describe("today_plan harness", () => {
     expect(today.tasks.memory_kind).toBe("task_result");
     expect(todo.tasks.memory_kind).toBe("todo_result");
     expect(today.plan.task_type).toBe("today_plan");
-    expect(todo.plan.task_type).toBe("todo_plan");
+    expect(todo.plan.task_type).toBe("today_plan");
   });
 
   it("rejects missing sections or batch follow and keeps the old brief", () => {
@@ -448,10 +450,10 @@ describe("today_plan harness", () => {
   });
 
   describe.each(["today", "todo"] as const)("mid events and open-todo listing (%s)", (scope) => {
-    const taskType = scope === "today" ? "today_plan" : "todo_plan";
+    const taskType = "today_plan";
     const briefPath = `/api/home/${scope}-brief`;
     const planPath = `/api/home/${scope}-brief/plan`;
-    const events = PLAN_EMPLOYEE_EVENTS[scope];
+    const events = PLAN_EMPLOYEE_EVENTS.today;
 
     it("emits employee-facing mid events while planning and on complete", async () => {
       insertWorkItem({ id: "tsk_open_quote", title: "未了结报价" });
@@ -584,7 +586,7 @@ describe("stale planning watchdog", () => {
 
 describe("previous plan snapshot", () => {
   it.each(["today", "todo"] as const)("reports the version before the current one for %s, never the current run twice", (scope) => {
-    const taskType = scope === "today" ? "today_plan" : "todo_plan";
+    const taskType = "today_plan";
     insertWorkItem({ id: "tsk_prev", title: "上一版规划", task_type: taskType, status: "completed" });
     expect(writeTodayBriefArtifact({
       owner: owner(),

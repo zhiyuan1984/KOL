@@ -22,9 +22,18 @@ export default function PlanSummary({ brief, label = "今日计划摘要" }: { b
   if (!brief || (!lead && !note)) return null;
   const tasks = statOf(brief, "unfinished");
   const anomalies = statOf(brief, "failed_runs") + statOf(brief, "discovery_anomalies");
+  const rawStageCounts = brief.stage_counts || brief.stats?.stage_counts;
+  const stageCounts = rawStageCounts && typeof rawStageCounts === "object" ? rawStageCounts : null;
+  const stageText = stageCounts ? [
+    `待打招呼 ${Number(stageCounts.greet || 0)}`,
+    `待跟进 ${Number(stageCounts.follow || 0)}`,
+    `待报价 ${Number(stageCounts.quote || 0)}`,
+    `谈判中 ${Number(stageCounts.negotiate || 0)}`,
+  ].join(" · ") : "";
   const stats = [
     tasks ? `${tasks} 项任务` : "",
     anomalies ? `${anomalies} 项异常需优先处理` : "",
+    stageText,
   ].filter(Boolean).join(" · ");
 
   return (

@@ -16,12 +16,13 @@ import {
 } from "./mail-memory.js";
 import {
   analyzeMailBody,
+  generateMailConversationDigest,
   remoteMailAnalysisEnabled,
   summarizeWithCodexAppServer,
   threadDigestOf,
   type ThreadDigest,
 } from "./mail-summary.js";
-import { translateMailBodyZh } from "../starrykol/translate-zh.js";
+import { translateMailBodyZh, translateMailBodyZhWithCodexLuna } from "../starrykol/translate-zh.js";
 
 export type MailMemoryStats = {
   scanned: number;
@@ -30,16 +31,56 @@ export type MailMemoryStats = {
   digested: number;
   persons: number;
   errors: number;
+  error?: string;
 };
 
 const inflight = new Map<string, Promise<MailMemoryStats>>();
+
+type OnDemandMemory = {
+  status: "未开始" | "已完成";
+  mailbox: string;
+  subject: string;
+  conversation_id: string;
+  message_id?: string;
+  text: string;
+  fingerprint: string;
+  completed_at?: string;
+  error?: string;
+};
+
+function onDemandKey(kind: "summary" | "translation", mailbox: string, conversationId: string, messageId = ""): string {
+  return `mail_${kind}_memory:${mailbox}:${conversationId}:${messageId}`;
+}
+
+export function readOnDemandMemory(key: string): OnDemandMemory | null {
+  const row = getConn().prepare("SELECT value FROM app_state WHERE key=?").get(key) as { value?: string } | undefined;
+  if (!row?.value) return null;
+  try { return JSON.parse(row.value) as OnDemandMemory; } catch { return null; }
+}
+
+export function writeOnDemandMemory(key: string, value: OnDemandMemory): void {
+  getConn().prepare("INSERT OR REPLACE INTO app_state (key,value) VALUES (?,?)").run(key, JSON.stringify(value));
+}
+
+function onDemandFingerprint(rows: Row[]): string {
+  return crypto.createHash("sha256").update(rows.map((row) => [row.id, row.occurred_at, row.body_text].join("\n")).join("\n---\n")).digest("hex").slice(0, 32);
+}
+
+function mailBodyOf(row: Row): string {
+  const direct = [row.body_text, row.body, row.text, row.content, row.snippet]
+    .map((value) => typeof value === "string" ? value.trim() : "")
+    .find(Boolean);
+  if (direct) return direct;
+  const html = typeof row.body_html === "string" ? row.body_html : "";
+  return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+}
 
 function bodyFingerprint(body: string): string {
   return crypto.createHash("sha256").update(String(body || "")).digest("hex").slice(0, 32);
 }
 
 function isRemoteSummary(source: string): boolean {
-  return ["codex_memory", "luna", "starry_mcp"].includes(String(source || ""));
+  return ["codex_memory", "luna", "openai", "starry_mcp"].includes(String(source || ""));
 }
 
 function isRemoteDigest(source: string): boolean {
@@ -188,6 +229,36 @@ async function ensureItemMemory(row: Row): Promise<{ translated: boolean; summar
 
   persistItemMemory(String(row.id), updates);
   return { translated, summarized, error };
+}
+
+async function ensureItemTranslation(row: Row): Promise<{ translated: boolean; error: boolean }> {
+  const body = String(row.body_text || "").trim();
+  if (!body) return { translated: false, error: true };
+  const updates: Parameters<typeof persistItemMemory>[1] = {
+    fingerprint: bodyFingerprint(body),
+    generated_at: nowIso(),
+    attempts: Number(row.memory_attempts || 0) + 1,
+  };
+  try {
+    const result = await translateMailBodyZh(body);
+    if (!result) {
+      updates.translation_source = "pending";
+      updates.source = "analysis_failed";
+      persistItemMemory(String(row.id), updates);
+      return { translated: false, error: true };
+    }
+    updates.translation_zh = result.text;
+    updates.translation_source = result.source;
+    updates.source = result.source;
+    persistItemMemory(String(row.id), updates);
+    return { translated: true, error: false };
+  } catch (err) {
+    updates.translation_source = "pending";
+    updates.source = "analysis_failed";
+    updates.error = err instanceof Error ? err.message : String(err);
+    persistItemMemory(String(row.id), updates);
+    return { translated: false, error: true };
+  }
 }
 
 async function ensureThreadDigest(thread: Row): Promise<boolean> {
@@ -366,6 +437,109 @@ export function triggerMailMemoryIncrement(mailbox?: string): void {
     })
     .finally(() => inflight.delete(key));
   inflight.set(key, promise);
+}
+
+/** Execute the employee-facing mail_summary Skill for one selected conversation. */
+export function triggerMailSummarySkill(mailbox: string, conversationId: string): Promise<MailMemoryStats> {
+  const key = `skill:mail_summary:${mailbox}:${conversationId}`;
+  const existing = inflight.get(key);
+  if (existing) return existing;
+  const promise = (async (): Promise<MailMemoryStats> => {
+    const thread = getConn().prepare("SELECT * FROM kol_mail_threads WHERE conversation_id=? AND mailbox=? LIMIT 1")
+      .get(conversationId, mailbox) as Row | undefined;
+    if (!thread) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: "未找到对应的邮件主题或会话已失效" };
+    const items = itemsForConversation(conversationId, mailbox) as Row[];
+    const rows = items.map((item): Row => ({ ...item, body_text: mailBodyOf(item) })).filter((item) => item.body_text);
+    if (!rows.length) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: "选中的邮件主题没有可用正文（已检查 body_text、body、text、content、snippet 和 body_html）" };
+    const fingerprint = onDemandFingerprint(rows);
+    const memoryKey = onDemandKey("summary", mailbox, conversationId);
+    const previous = readOnDemandMemory(memoryKey);
+    if (previous?.status === "已完成" && previous.fingerprint === fingerprint) {
+      return { scanned: rows.length, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 0 };
+    }
+    const result = await generateMailConversationDigest(rows.map((row) => ({
+      ...row,
+      body: row.body_text || "",
+      existing_digest: previous?.text || "",
+    })));
+    const text = String(result.text || "").trim();
+    if (!text) throw new Error(`Codex/Luna 摘要链路未返回结果：${result.error || "unavailable"}`);
+    const completedAt = nowIso();
+    persistThreadDigest(String(thread.id), {
+      text, source: result.source || "codex_memory", mail_count: rows.length, fingerprint, generated_at: completedAt,
+    });
+    writeOnDemandMemory(memoryKey, {
+      status: "已完成", mailbox, subject: String(thread.subject || ""), conversation_id: conversationId,
+      text, fingerprint, completed_at: completedAt,
+    });
+    return { scanned: rows.length, translated: 0, summarized: 1, digested: 1, persons: 0, errors: 0 };
+  })()
+    .catch((err) => {
+      const thread = getConn().prepare("SELECT subject FROM kol_mail_threads WHERE conversation_id=? AND mailbox=? LIMIT 1")
+        .get(conversationId, mailbox) as Row | undefined;
+      writeOnDemandMemory(onDemandKey("summary", mailbox, conversationId), {
+        status: "未开始", mailbox, subject: String(thread?.subject || ""), conversation_id: conversationId,
+        text: "", fingerprint: "", error: err instanceof Error ? err.message : String(err),
+      });
+      audit("host", "mail_skill.summary_failed", { mailbox, conversation_id: conversationId, error: err instanceof Error ? err.message : String(err) });
+      return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: err instanceof Error ? err.message : String(err) };
+    })
+    .finally(() => inflight.delete(key));
+  inflight.set(key, promise);
+  return promise;
+}
+
+/** Execute the employee-facing mail_translate Skill for one selected message. */
+export function triggerMailTranslateSkill(mailbox: string, messageId: string): Promise<MailMemoryStats> {
+  const key = `skill:mail_translate:${mailbox}:${messageId}`;
+  const existing = inflight.get(key);
+  if (existing) return existing;
+  const promise = (async (): Promise<MailMemoryStats> => {
+    const row = getConn().prepare(
+      `SELECT i.* FROM kol_mail_items i JOIN kol_mail_threads t ON t.id=i.thread_id
+       WHERE (i.id=? OR i.provider_message_id=?) AND IFNULL(t.mailbox,'')=? LIMIT 1`,
+    ).get(messageId, messageId, mailbox) as Row | undefined;
+    const body = row ? mailBodyOf(row) : "";
+    if (!row) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: "未找到选中的邮件，可能是邮件 ID 已变化" };
+    if (!body) return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: "选中的邮件没有可用正文（已检查 body_text、body、text、content、snippet 和 body_html）" };
+    const thread = getConn().prepare("SELECT subject, conversation_id FROM kol_mail_threads WHERE id=? LIMIT 1")
+      .get(row.thread_id) as Row | undefined;
+    const conversationId = String(row.conversation_id || thread?.conversation_id || "");
+    const memoryKey = onDemandKey("translation", mailbox, conversationId, String(row.id));
+    const fingerprint = bodyFingerprint(body);
+    const previous = readOnDemandMemory(memoryKey);
+    if (previous?.status === "已完成" && previous.fingerprint === fingerprint) {
+      return { scanned: 1, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 0 };
+    }
+    const result = await translateMailBodyZhWithCodexLuna(body);
+    const text = String(result?.text || "").trim();
+    if (!text) throw new Error("Codex/Luna 翻译链路未返回可用译文");
+    const completedAt = nowIso();
+    persistItemMemory(String(row.id), {
+      translation_zh: text, translation_source: result?.source || "codex_memory", fingerprint,
+      generated_at: completedAt, source: result?.source || "codex_memory", attempts: Number(row.memory_attempts || 0) + 1,
+    });
+    writeOnDemandMemory(memoryKey, {
+      status: "已完成", mailbox, subject: String(row.subject || thread?.subject || ""),
+      conversation_id: conversationId, message_id: String(row.id), text, fingerprint, completed_at: completedAt,
+    });
+    return { scanned: 1, translated: 1, summarized: 0, digested: 0, persons: 0, errors: 0 };
+  })()
+    .catch((err) => {
+      const row = getConn().prepare(
+        `SELECT i.subject, i.conversation_id, i.thread_id FROM kol_mail_items i JOIN kol_mail_threads t ON t.id=i.thread_id
+         WHERE (i.id=? OR i.provider_message_id=?) AND IFNULL(t.mailbox,'')=? LIMIT 1`,
+      ).get(messageId, messageId, mailbox) as Row | undefined;
+      writeOnDemandMemory(onDemandKey("translation", mailbox, String(row?.conversation_id || ""), String(row?.id || messageId)), {
+        status: "未开始", mailbox, subject: String(row?.subject || ""), conversation_id: String(row?.conversation_id || ""),
+        message_id: String(row?.id || messageId), text: "", fingerprint: "", error: err instanceof Error ? err.message : String(err),
+      });
+      audit("host", "mail_skill.translate_failed", { mailbox, message_id: messageId, error: err instanceof Error ? err.message : String(err) });
+      return { scanned: 0, translated: 0, summarized: 0, digested: 0, persons: 0, errors: 1, error: err instanceof Error ? err.message : String(err) };
+    })
+    .finally(() => inflight.delete(key));
+  inflight.set(key, promise);
+  return promise;
 }
 
 export function pendingMailMemoryIncrement(mailbox?: string): boolean {

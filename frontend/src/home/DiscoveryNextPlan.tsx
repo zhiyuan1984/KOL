@@ -6,6 +6,12 @@ type FailureView = {
   checkConnection?: boolean;
 } | null;
 
+type ConnectionView = {
+  status: string;
+  label: string;
+  message: string;
+} | null;
+
 type PlanItem = {
   id: string;
   title: string;
@@ -24,6 +30,8 @@ function buildPlan(input: {
   onEditConditions: () => void;
   onRetry: () => void;
   onCheckConnection: () => void;
+  checkingConnection: boolean;
+  connection: ConnectionView;
   onOpenIngest: () => void;
 }): PlanItem[] {
   if (input.failure) {
@@ -39,7 +47,7 @@ function buildPlan(input: {
         id: "connection",
         title: "检查采集服务",
         detail: "确认采集连接后再重试，避免重复提交无效任务。",
-        actionLabel: "检查连接",
+        actionLabel: input.checkingConnection ? "检查中…" : "检查连接",
         action: input.onCheckConnection,
       });
     }
@@ -47,10 +55,16 @@ function buildPlan(input: {
   }
   if (input.emptyKind === "down") {
     return [{
+      id: "retry",
+      title: "服务恢复后重新尝试",
+      detail: "本次任务尚未启动，已有筛选条件会保留；重新尝试不会使用空结果代替检索。",
+      actionLabel: "重新尝试",
+      action: input.onRetry,
+    }, {
       id: "connection",
       title: "检查采集服务",
-      detail: "发现结果暂不可读取；先恢复连接，再继续查看或提交条件。",
-      actionLabel: "检查连接",
+      detail: "确认发现服务是否已恢复，再开始本次检索。",
+      actionLabel: input.checkingConnection ? "检查中…" : "检查连接",
       action: input.onCheckConnection,
     }];
   }
@@ -109,6 +123,8 @@ export default function DiscoveryNextPlan({
   onEditConditions,
   onRetry,
   onCheckConnection,
+  checkingConnection,
+  connection,
   onOpenIngest,
 }: {
   run: HomeDiscoveryRun | null;
@@ -120,6 +136,8 @@ export default function DiscoveryNextPlan({
   onEditConditions: () => void;
   onRetry: () => void;
   onCheckConnection: () => void;
+  checkingConnection: boolean;
+  connection: ConnectionView;
   onOpenIngest: () => void;
 }) {
   const items = buildPlan({
@@ -132,6 +150,8 @@ export default function DiscoveryNextPlan({
     onEditConditions,
     onRetry,
     onCheckConnection,
+    checkingConnection,
+    connection,
     onOpenIngest,
   });
 
@@ -146,9 +166,21 @@ export default function DiscoveryNextPlan({
               <p>{item.detail}</p>
             </div>
             {item.actionLabel && item.action ? (
-              <button type="button" className="btn ghost sm" onClick={item.action}>
+              <button
+                type="button"
+                className="btn ghost sm"
+                data-discovery-plan-action={item.id}
+                disabled={item.id === "connection" && checkingConnection}
+                aria-busy={item.id === "connection" && checkingConnection}
+                onClick={item.action}
+              >
                 {item.actionLabel}
               </button>
+            ) : null}
+            {item.id === "connection" && connection ? (
+              <p className="discovery-plan-connection" data-discovery-plan-connection={connection.status}>
+                {`采集服务：${connection.label}${connection.message && connection.message !== connection.label ? ` · ${connection.message}` : ""}`}
+              </p>
             ) : null}
           </li>
         ))}

@@ -15,7 +15,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Task, TaskEvent, TodayBrief, TodayBriefResponse, TodayPlanResult } from "../api";
 import type { DisplayTaskRow } from "./displayTasks";
 import { projectDisplayTasks } from "./displayTasks";
-import { memoryTasksOf, planCacheKey, planStartEvent, restorePlanCache, runTodayPlanRefresh, savePlanCache, TODAY_PLAN_REFRESHED_MS, TODAY_PLAN_REFRESH_EVENT } from "./todayPlan";
+import { canonicalPlanCacheKey, memoryTasksOf, planStartEvent, restorePlanCache, runTodayPlanRefresh, savePlanCache, TODAY_PLAN_REFRESHED_MS, TODAY_PLAN_REFRESH_EVENT } from "./todayPlan";
 import type { PlanScope, TodayPlanPhase } from "./todayPlan";
 
 export interface PlanScopeClient {
@@ -86,7 +86,7 @@ export function usePlanScope(
     // On first mount, restore fresh cached planning instead of re-running Codex.
     if (firstRun.current) {
       firstRun.current = false;
-      const cache = restorePlanCache(planCacheKey(scope));
+      const cache = restorePlanCache(canonicalPlanCacheKey());
       if (cache) {
         setMemoryTasks(cache.memoryTasks);
         setBrief(cache.brief);
@@ -150,7 +150,7 @@ export function usePlanScope(
 
   useEffect(() => {
     if (phase !== "refreshed" || !memoryTasks) return;
-    savePlanCache(planCacheKey(scope), {
+    savePlanCache(canonicalPlanCacheKey(), {
       timestamp: Date.now(),
       memoryTasks,
       brief,

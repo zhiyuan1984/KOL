@@ -3,7 +3,7 @@ import { getConn } from "../db.js";
 import { taskDefinition } from "../tasks/registry.js";
 import type { Json, Row } from "../types.js";
 import { authDisabled, isAdmin, scopedUser } from "../auth.js";
-import { followReleaseTimer, isClosedWorkItem, isOpenWorkItem, isPlanningWorkItem, isTodayWorkItem } from "./home-board.js";
+import { dueFlags, followReleaseTimer, isClosedWorkItem, isOpenWorkItem, isPlanningWorkItem, isTodayWorkItem, normalizePriority } from "./home-board.js";
 import { HttpFail } from "./errors.js";
 import {
   briefPointerTable,
@@ -13,6 +13,7 @@ import {
   type ScopeConfig,
 } from "./planning-types.js";
 import { threadsByCollaborationIds } from "../starrykol/mail-sync.js";
+import { normalizeStage } from "../stages.js";
 
 export {
   briefPointerTable,
@@ -60,6 +61,12 @@ export type SourceItem = {
   run_id?: string | null;
   platform?: string | null;
   updated_at?: string | null;
+  priority?: string | null;
+  due_at?: string | null;
+  start_date?: string | null;
+  risk?: string | null;
+  risk_level?: string | null;
+  source?: string | null;
   reason?: string | null;
   p0: boolean;
 };
@@ -91,6 +98,12 @@ export type TodayPlanPack = {
     correspondence: number;
     follow_timers: number;
     anomalies: number;
+  };
+  stage_counts: {
+    greet: number;
+    follow: number;
+    quote: number;
+    negotiate: number;
   };
   source_cursor: SourceCursor;
   catalog: SourceItem[];
@@ -193,6 +206,12 @@ function collectFormalTasks(owner: string): SourceItem[] {
     person_id: row.collaboration_id ? String(row.collaboration_id) : null,
     work_item_id: String(row.id),
     updated_at: row.updated_at ? String(row.updated_at) : null,
+    priority: row.priority ? String(row.priority) : null,
+    due_at: row.due_at ? String(row.due_at) : null,
+    start_date: row.start_date ? String(row.start_date) : null,
+    risk: row.risk ? String(row.risk) : null,
+    risk_level: row.risk_level ? String(row.risk_level) : null,
+    source: row.source ? String(row.source) : null,
     reason: String(row.status || "") === "failed" ? "执行失败" : "未了结正式任务",
     p0: true,
   }));
@@ -365,6 +384,20 @@ const CATALOG_FILTERS: Record<PlanScope, (catalog: SourceItem[]) => SourceItem[]
   todo: filterTodoCatalog,
 };
 
+/** Four actionable cooperation stages from the creator_daily_tasks Skill. */
+export function collectStageCounts(): TodayPlanPack["stage_counts"] {
+  const counts = { greet: 0, follow: 0, quote: 0, negotiate: 0 };
+  const rows = getConn().prepare("SELECT stage_code FROM collaborations").all() as Row[];
+  for (const row of rows) {
+    const stage = normalizeStage(String(row.stage_code || ""));
+    if (stage === "INITIAL_CONTACT") counts.greet += 1;
+    else if (stage === "INTERESTED") counts.follow += 1;
+    else if (stage === "QUOTE_PENDING") counts.quote += 1;
+    else if (stage === "NEGOTIATING") counts.negotiate += 1;
+  }
+  return counts;
+}
+
 export function collectSourceCatalog(owner = ownerId(), scope: PlanScope = "today"): SourceItem[] {
   const formal = collectFormalTasks(owner);
   const discovery = collectDiscoveryAnomalies(owner);
@@ -471,6 +504,7 @@ export function packTodayPlanContext(owner = ownerId(), scope: PlanScope = "toda
       follow_timers: catalog.filter((item) => item.kind === "follow_timer").length,
       anomalies: catalog.filter((item) => item.kind === "anomaly").length,
     },
+    stage_counts: collectStageCounts(),
     source_cursor: diff.cursor,
     catalog,
   };
@@ -480,15 +514,37 @@ export function planningRunInput(pack: TodayPlanPack, extra: Json = {}, scope: P
   const taskType = planTaskType(scope);
   const mount = planningHarnessMount(taskType);
   const identity = planningRuntimeIdentity(taskType);
+  const priorityRank = (item: SourceItem): number => {
+    const priority = normalizePriority(item.priority);
+    const rank = priority === "important_urgent" ? 0 : priority === "important" ? 1 : priority === "urgent" ? 2 : priority === "normal" ? 3 : priority === "low" ? 4 : 5;
+    const due = dueFlags(item.due_at);
+    return rank * 10 + (due.overdue ? 0 : due.due_today ? 1 : item.status === "running" || item.status === "in_progress" ? 2 : 3);
+  };
+  const candidates = [...pack.catalog]
+    .sort((a, b) => priorityRank(a) - priorityRank(b) || String(b.updated_at || "").localeCompare(String(a.updated_at || "")))
+    .slice(0, 12);
+  const plannerContext = {
+    history: {
+      unfinished_tasks: candidates,
+      previous_brief: pack.history.previous_brief
+        ? { lead: pack.history.previous_brief.lead, primary: pack.history.previous_brief.primary }
+        : null,
+      source_cursor: pack.history.source_cursor,
+    },
+    delta: {
+      added: pack.delta.added.slice(0, 12),
+      removed: pack.delta.removed.map((item) => ({ id: item.id, kind: item.kind, title: item.title })),
+      unchanged: [],
+    },
+    now_counts: pack.now_counts,
+  };
   return {
     mode: taskType,
     agent_id: identity.agent_id,
     expert_id: identity.session_identity,
     skip_user_memory: true,
-    [`${taskType}_context`]: pack,
-    history: pack.history,
-    delta: pack.delta,
-    now_counts: pack.now_counts,
+    model_tier: "fast",
+    [`${taskType}_context`]: plannerContext,
     planning_harness: mount,
     ...extra,
   };

@@ -30,6 +30,9 @@ let httpServer: http.Server | null = null;
 let baseUrl = "";
 const calls: string[] = [];
 const creatorCallArgs: Json[] = [];
+const statusCallArgs: Json[] = [];
+const logCallArgs: Json[] = [];
+const stopCallArgs: Json[] = [];
 let crawlStatus: Json = { task_id: "remote-1", status: "idle" };
 
 async function startMockMcp(): Promise<void> {
@@ -48,8 +51,14 @@ async function startMockMcp(): Promise<void> {
       },
     );
     tool("start_crawl", () => ({ task_id: "remote-1", status: "running" }));
-    tool("get_crawl_status", () => crawlStatus);
-    tool("get_crawl_logs", () => ({ logs: ["crawl completed", "Authorization: Bearer hidden"] }));
+    tool("get_crawl_status", (args) => {
+      statusCallArgs.push(args);
+      return crawlStatus;
+    });
+    tool("get_crawl_logs", (args) => {
+      logCallArgs.push(args);
+      return { logs: ["crawl completed", "Authorization: Bearer hidden"] };
+    });
     tool("get_creators", (args) => {
       creatorCallArgs.push(args);
       return {
@@ -60,7 +69,10 @@ async function startMockMcp(): Promise<void> {
         has_more: false,
       };
     });
-    tool("stop_crawl", () => ({ stopped: true }));
+    tool("stop_crawl", (args) => {
+      stopCallArgs.push(args);
+      return { stopped: true };
+    });
     tool("upload_creators", () => ({ uploaded: true }));
     tool("clear_history", () => ({ cleared: true }));
     return server;
@@ -112,6 +124,9 @@ beforeEach(async () => {
   process.env.CLAW_MODE = "mock";
   calls.length = 0;
   creatorCallArgs.length = 0;
+  statusCallArgs.length = 0;
+  logCallArgs.length = 0;
+  stopCallArgs.length = 0;
   crawlStatus = { task_id: "remote-1", status: "idle" };
   resetConn();
   seedAll();
@@ -394,6 +409,8 @@ describe("crawl lifecycle", () => {
     expect(calls).toEqual(expect.arrayContaining([
       "start_crawl", "get_crawl_status", "get_crawl_logs", "get_creators", "upload_creators", "clear_history",
     ]));
+    expect(statusCallArgs[0]).toEqual({ task_id: "remote-1" });
+    expect(logCallArgs[0]).toEqual({ task_id: "remote-1" });
     expect(creatorCallArgs[0]).toEqual(expect.objectContaining({
       platform: "youtube",
       offset: 0,
@@ -514,5 +531,6 @@ describe("crawl lifecycle", () => {
     const stopped = await app.request(`/api/tasks/${task.id}/actions/stop-crawl`, { method: "POST" });
     expect(stopped.status).toBe(200);
     expect(calls).toContain("stop_crawl");
+    expect(stopCallArgs[0]).toEqual({ task_id: "remote-1" });
   });
 });

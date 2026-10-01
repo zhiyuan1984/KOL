@@ -21,6 +21,7 @@ export type FollowedKolRecord = {
   stage_label?: string;
   public_stage?: string;
   owner_name?: string;
+  product?: string;
   platform?: string;
   followers?: string;
   avg_plays?: string;
@@ -77,7 +78,7 @@ export type FollowedMailThread = {
 };
 
 export type ActionOwner = "me" | "them" | "approver" | "exception" | "none";
-export type KolSortMode = "need" | "recent" | "stay" | "unread";
+export type KolSortMode = "followers" | "time" | "score";
 export type FactKind = "inbound" | "outbound" | "confirmed" | "none";
 export type RecommendedKind =
   | "confirm-stage"
@@ -91,8 +92,8 @@ export type RecommendedKind =
 export type FollowedKolCardModel = {
   id: string;
   handle: string;
-  identity: { display: string; platform: string };
-  scope: { brand: string; region: string; owner: string; mailbox: string };
+  identity: { display: string; platform: string; avatar_url?: string };
+  scope: { brand: string; product: string; region: string; owner: string; mailbox: string };
   current_state: {
     stage_code: string;
     stage_label: string;
@@ -178,9 +179,9 @@ export function inboundJudgmentWhy(summary: string): string {
     return "来信提到样品或寄送";
   }
   if (text && !isMailHeaderDump(text)) {
-    return "来信内容足以判断阶段";
+    return "邮件摘录不足以单独判断阶段";
   }
-  return "来信显示可推进阶段";
+  return "缺少可核对的阶段判断依据";
 }
 
 export function stageLabelForCode(code?: string): string {
@@ -349,6 +350,11 @@ export function projectFollowedKolCard(kol: FollowedKolRecord, tasks: Task[] = [
   const fact = latestFact(kol, related);
   const risk = riskOf(kol, related);
   const target = heuristicTarget(kol);
+  // 没有后端明确写入的阶段建议时，不把“当前阶段的下一格”包装成 AI 判断。
+  const hasSavedStageTarget = Boolean(
+    String(kol.suggested_stage_code || "").trim()
+    || (String(kol.suggested_stage || "").trim() && !/无需推进|待补阶段|已完成|^—$|需人选回到主流程/.test(String(kol.suggested_stage))),
+  );
   const stageLabel = kol.unbound
     ? "未进入生命周期"
     : String(kol.stage_label || "").trim() || "阶段未知";
@@ -467,12 +473,15 @@ export function projectFollowedKolCard(kol: FollowedKolRecord, tasks: Task[] = [
     waitingConfirm = true;
     task = related;
   } else if (fact.kind === "inbound" && target.code && target.label && mailEvidence) {
+    if (!hasSavedStageTarget) {
+      evidence = { ...evidence, kind: "mail", label: fact.summary, thread_id: fact.thread_id };
+    } else {
     recommended = {
       kind: "confirm-stage",
       label: confirmStageCtaLabel(target.label),
       target_stage_code: target.code,
       target_stage_label: target.label,
-      why: inboundJudgmentWhy(fact.summary),
+      why: "已有阶段建议记录，需人工核对邮件原文。",
       can_write_stage: true,
     };
     evidence = {
@@ -484,6 +493,7 @@ export function projectFollowedKolCard(kol: FollowedKolRecord, tasks: Task[] = [
     owner = "me";
     waitingConfirm = true;
     focusThread = fact.thread_id;
+    }
   } else if (related && isStageTask(related) && (!target.code || !target.label)) {
     recommended = {
       kind: "insufficient",
@@ -536,9 +546,11 @@ export function projectFollowedKolCard(kol: FollowedKolRecord, tasks: Task[] = [
     identity: {
       display: handle ? `@${handle}` : String(kol.kol_name || "未指定红人"),
       platform: platformOf(kol),
+      avatar_url: kol.avatar_url,
     },
     scope: {
       brand: String(kol.brand || "").trim(),
+      product: String(kol.product || "").trim(),
       region: regionOf(kol),
       owner: String(kol.owner_name || "").trim(),
       mailbox: String(kol.mailbox_from || "").trim(),
@@ -576,6 +588,7 @@ export function matchesKolSearch(card: FollowedKolCardModel, query: string): boo
     card.identity.display,
     card.identity.platform,
     card.scope.brand,
+    card.scope.product,
     card.scope.region,
     card.scope.owner,
     card.scope.mailbox,
@@ -680,67 +693,26 @@ export function pickFollowedListCtaEmphasis(input: {
   return active && active === input.cardId ? "strong" : "quiet";
 }
 
-function flag(value: boolean): number {
-  return value ? 1 : 0;
-}
-
 function compareId(a: FollowedKolCardModel, b: FollowedKolCardModel): number {
   return String(a.id).localeCompare(String(b.id));
 }
 
-function keysNeed(a: FollowedKolCardModel, b: FollowedKolCardModel): number {
-  return (
-    flag(b.risk.exception || b.risk.high_risk) - flag(a.risk.exception || a.risk.high_risk)
-    || flag(b.waiting_confirm) - flag(a.waiting_confirm)
-    || flag(b.unread_inbound) - flag(a.unread_inbound)
-    || flag(b.risk.overdue) - flag(a.risk.overdue)
-    || b.days_in_stage - a.days_in_stage
-    || b.latest_fact.at_ms - a.latest_fact.at_ms
-    || b.last_updated - a.last_updated
-    || compareId(a, b)
-  );
+function metricNumber(value?: string): number {
+  const raw = String(value || "").trim();
+  const number = Number.parseFloat(raw.replace(/,/g, ""));
+  if (!Number.isFinite(number)) return 0;
+  return number * (raw.includes("万") ? 10_000 : /k$/i.test(raw) ? 1_000 : 1);
 }
 
-/** Deterministic 1→8 keys. `visibleKols` must sort, not only filter. */
-export function sortFollowedKolCards(cards: FollowedKolCardModel[], mode: KolSortMode = "need"): FollowedKolCardModel[] {
+/** 右栏业务排序：粉丝数、时间、评分，均默认从高到低。 */
+export function sortFollowedKolCards(cards: FollowedKolCardModel[], mode: KolSortMode = "time"): FollowedKolCardModel[] {
   return [...cards].sort((a, b) => {
-    if (mode === "recent") {
-      const aFresh = Math.max(a.last_updated, a.latest_fact.at_ms);
-      const bFresh = Math.max(b.last_updated, b.latest_fact.at_ms);
-      return (
-        bFresh - aFresh
-        || flag(b.risk.exception || b.risk.high_risk) - flag(a.risk.exception || a.risk.high_risk)
-        || flag(b.waiting_confirm) - flag(a.waiting_confirm)
-        || flag(b.unread_inbound) - flag(a.unread_inbound)
-        || flag(b.risk.overdue) - flag(a.risk.overdue)
-        || b.days_in_stage - a.days_in_stage
-        || compareId(a, b)
-      );
-    }
-    if (mode === "stay") {
-      return (
-        b.days_in_stage - a.days_in_stage
-        || flag(b.risk.exception || b.risk.high_risk) - flag(a.risk.exception || a.risk.high_risk)
-        || flag(b.waiting_confirm) - flag(a.waiting_confirm)
-        || flag(b.unread_inbound) - flag(a.unread_inbound)
-        || flag(b.risk.overdue) - flag(a.risk.overdue)
-        || b.latest_fact.at_ms - a.latest_fact.at_ms
-        || b.last_updated - a.last_updated
-        || compareId(a, b)
-      );
-    }
-    if (mode === "unread") {
-      return (
-        flag(b.unread_inbound) - flag(a.unread_inbound)
-        || flag(b.risk.exception || b.risk.high_risk) - flag(a.risk.exception || a.risk.high_risk)
-        || flag(b.waiting_confirm) - flag(a.waiting_confirm)
-        || flag(b.risk.overdue) - flag(a.risk.overdue)
-        || b.days_in_stage - a.days_in_stage
-        || b.latest_fact.at_ms - a.latest_fact.at_ms
-        || b.last_updated - a.last_updated
-        || compareId(a, b)
-      );
-    }
-    return keysNeed(a, b);
+    const aValue = mode === "followers" ? metricNumber(a.source.followers)
+      : mode === "score" ? Number(a.source.potential_score || 0)
+      : a.last_updated;
+    const bValue = mode === "followers" ? metricNumber(b.source.followers)
+      : mode === "score" ? Number(b.source.potential_score || 0)
+      : b.last_updated;
+    return bValue - aValue || compareId(a, b);
   });
 }

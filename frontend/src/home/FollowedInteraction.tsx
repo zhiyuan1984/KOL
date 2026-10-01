@@ -3,7 +3,6 @@ import type { FollowedKolCardModel } from "../followedKolCard";
 import { FOLLOWED_LIFECYCLE_GROUPS } from "../followedKolCard";
 import {
   briefingForFollowed,
-  FOLLOWED_SITUATIONS,
   matchesFollowedSituation,
   type FollowedSituation,
 } from "./FollowedBrief";
@@ -17,6 +16,8 @@ export default function FollowedInteraction({
   selectedCount,
   onStageFilter,
   onSituation,
+  publicPoolNewCount,
+  onOpenPublicPoolNew,
   interaction,
 }: {
   cards: FollowedKolCardModel[];
@@ -26,11 +27,12 @@ export default function FollowedInteraction({
   selectedCount: number;
   onStageFilter: (value: string) => void;
   onSituation: (value: FollowedSituation | "") => void;
+  publicPoolNewCount: number | null;
+  onOpenPublicPoolNew: () => void;
   interaction?: ReactNode;
 }) {
   const summaryReady = completeness === "complete";
   const brief = briefingForFollowed(cards);
-  const counts = brief.counts;
   const selectedGroup = stageFilter.startsWith("group:") ? stageFilter.slice(6) : "";
   const nearCount = cards.filter((card) => matchesFollowedSituation(card, "near_14d")).length;
   const interestedCount = cards.filter((card) => matchesFollowedSituation(card, "interested")).length;
@@ -40,7 +42,7 @@ export default function FollowedInteraction({
     <section className="followed-interaction-intro" aria-label="当前跟进概览">
       <div>
         <p>{summaryReady
-          ? `${cards.length} 位当前跟进对象 · 数量来自当前已授权名单`
+          ? "数量来自当前已授权名单"
           : cards.length
             ? `${cards.length} 位已加载 · 正在核对最新数据…`
             : "正在核对当前已授权名单…"}</p>
@@ -51,7 +53,7 @@ export default function FollowedInteraction({
 
   if (!summaryReady) {
     const copy = completeness === "incomplete-error"
-      ? "当前可见对象保留在右栏，但邮箱范围的历史协作记录暂无法完成核对；总数与阶段统计暂不展示。"
+      ? "当前可见对象已保留；邮箱范围的历史协作记录暂无法完成核对，下面的阶段统计不会把不完整数据当成最终结论。"
       : "正在合并本地跟进索引与当前邮箱名下的历史协作记录；完成前不会显示 0 位或空阶段统计。";
     return (
       <div className="followed-interaction" data-followed-interaction data-followed-summary-state={completeness}>
@@ -59,6 +61,12 @@ export default function FollowedInteraction({
         <section className="followed-summary-pending" data-followed-summary-pending role="status" aria-live="polite">
           <strong>{completeness === "incomplete-error" ? "名单核对未完成" : "正在核对跟进名单…"}</strong>
           <p>{copy}</p>
+          {completeness === "incomplete-error" && cards.length ? (
+            <div className="followed-partial-summary" data-followed-partial-summary>
+              <strong>{cards.length} 位对象已加载</strong>
+              <span>阶段统计暂不可用</span>
+            </div>
+          ) : null}
         </section>
         {interaction}
       </div>
@@ -82,6 +90,9 @@ export default function FollowedInteraction({
               : brief.lead}
         </p>
       </section>
+      <p className="followed-overview-count" data-followed-overview-count>
+        目前跟进了 {cards.length} 位
+      </p>
 
       <section className="followed-lifecycle-overview" aria-labelledby="followed-lifecycle-title">
         <div className="followed-section-heading">
@@ -107,34 +118,6 @@ export default function FollowedInteraction({
               >
                 <span>{group.label}</span>
                 <strong>{count}</strong>
-                <em>{cards.length ? `${Math.round((count / cards.length) * 100)}%` : "0%"}</em>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="followed-attention" aria-labelledby="followed-attention-title">
-        <div className="followed-section-heading">
-          <h2 id="followed-attention-title">需要关注</h2>
-          {situation ? <button type="button" className="followed-inline-clear" data-followed-situation-clear onClick={() => onSituation("")}>清除</button> : null}
-        </div>
-        <div className="followed-attention-list">
-          {FOLLOWED_SITUATIONS.map(({ key, label }) => {
-            const count = counts[key];
-            const active = situation === key;
-            return (
-              <button
-                key={key}
-                type="button"
-                className={active ? "is-active" : ""}
-                data-followed-situation={key}
-                aria-pressed={active}
-                onClick={() => onSituation(active ? "" : key)}
-              >
-                <span aria-hidden>{key === "refused" ? "!" : key === "near_14d" ? "◷" : "↑"}</span>
-                <strong>{count} 位{label}</strong>
-                <em>在右栏查看</em>
               </button>
             );
           })}
@@ -142,11 +125,15 @@ export default function FollowedInteraction({
       </section>
 
       <section className="followed-next-step" aria-labelledby="followed-next-title">
-        <h2 id="followed-next-title">建议先做</h2>
+        <div className="followed-section-heading">
+          <h2 id="followed-next-title">建议先做</h2>
+          {situation ? <button type="button" className="followed-inline-clear" data-followed-situation-clear onClick={() => onSituation("")}>清除</button> : null}
+        </div>
         <ol>
-          <li><button type="button" onClick={() => onSituation("interested")}>查看已表达兴趣的 {interestedCount} 位对象</button></li>
-          <li><button type="button" onClick={() => onSituation("near_14d")}>查看临近失联的 {nearCount} 位对象</button></li>
-          {refusedCount ? <li><button type="button" onClick={() => onSituation("refused")}>核对已拒绝的 {refusedCount} 位对象</button></li> : null}
+          <li><button type="button" className={situation === "interested" ? "is-active" : ""} data-followed-situation="interested" aria-pressed={situation === "interested"} onClick={() => onSituation(situation === "interested" ? "" : "interested")}>查看已表达兴趣的 {interestedCount} 位对象</button></li>
+          <li><button type="button" className={situation === "near_14d" ? "is-active" : ""} data-followed-situation="near_14d" aria-pressed={situation === "near_14d"} onClick={() => onSituation(situation === "near_14d" ? "" : "near_14d")}>查看临近失联的 {nearCount} 位对象</button></li>
+          {refusedCount ? <li><button type="button" className={situation === "refused" ? "is-active" : ""} data-followed-situation="refused" aria-pressed={situation === "refused"} onClick={() => onSituation(situation === "refused" ? "" : "refused")}>核对已拒绝的 {refusedCount} 位对象</button></li> : null}
+          <li><button type="button" data-followed-public-pool-new onClick={onOpenPublicPoolNew}>{publicPoolNewCount == null ? "查看公海新加入的 KOL" : `查看公海新加入的 ${publicPoolNewCount} 位 KOL`}</button></li>
         </ol>
       </section>
 

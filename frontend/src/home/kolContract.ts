@@ -4,7 +4,8 @@
  * Follow cards: B.active ∩ self + followClock. No C thread on the list.
  */
 
-export const KOL_SELECT_MAX = 8;
+/** 公海评分接口仍按 8 个一批发送；它不是用户选择上限。 */
+export const KOL_BATCH_SIZE = 8;
 export const KOL_ANALYZE_MAX_IN_FLIGHT = 3;
 export const KOL_ANALYZE_TASK_TYPE = "kol_analyze";
 export const ANALYZE_QUEUED_COPY = "已入队，等待 Codex";
@@ -12,16 +13,13 @@ export const ANALYZE_PREFILL_PREFIX = "分析已选";
 export const CLOCK_NONE_COPY = "尚未有效往来";
 export const ANALYZE_IN_FLIGHT_STATUSES = ["queued", "running", "pending", "waiting"] as const;
 
-/** 选择有硬上限：名单超过上限时，「全选」只能承诺上限以内。 */
-export const SELECT_ALL_CAPPED_COPY = `选中前 ${KOL_SELECT_MAX} 位`;
-
 export function selectAllLabel(visibleCount: number, allLabel: string): string {
-  return visibleCount > KOL_SELECT_MAX ? SELECT_ALL_CAPPED_COPY : allLabel;
+  return visibleCount > 0 ? allLabel : "";
 }
 
-/** 达到上限即按「已选满」呈现：名单 200+、上限 8 时勾选框不能永远空着。 */
+/** 全选状态只表示当前筛选结果是否已经全部选中。 */
 export function selectAllChecked(visibleCount: number, selectedCount: number): boolean {
-  return visibleCount > 0 && selectedCount >= Math.min(visibleCount, KOL_SELECT_MAX);
+  return visibleCount > 0 && selectedCount >= visibleCount;
 }
 
 export const POOL_BANNED_FIELDS = [
@@ -152,6 +150,7 @@ export type FollowKol = {
   suggested_stage?: string;
   suggested_stage_code?: string;
   brand?: string;
+  product?: string;
   notes?: string;
   overdue?: boolean;
   mailbox_from?: string;
@@ -321,7 +320,7 @@ export function clockFromRow(row: Record<string, unknown>): FollowClock14d {
     countdown: true,
     cron_eligible: row.cron_eligible == null ? true : flag(row.cron_eligible),
     release_scheduler: false,
-    label: remaining != null ? `14 日计时（只读）· 剩 ${remaining} 天` : "14 日计时（只读）",
+    label: remaining != null ? `14 日跟进 · 剩 ${remaining} 天` : "14 日跟进",
     near,
   };
 }
@@ -488,7 +487,11 @@ export function toFollowKol(row: Record<string, unknown>): FollowKol | null {
       kol_uid: kolUid || handle,
       follow_id: text(row.follow_id) || undefined,
       collaboration_id: text(row.collaboration_id) || undefined,
-      identity: { display: text(identity.display) || (handle ? `@${handle}` : "未指定红人"), platform: text(identity.platform), avatar_url: text(row.avatar_url || identity.avatar_url) || undefined },
+      identity: {
+        display: text(identity.display) || (handle ? `@${handle}` : "未指定红人"),
+        platform: text(identity.platform),
+        avatar_url: text(identity.avatar_url || identity.avatar || row.avatar_url || row.avatar || row.profile_image || row.profileImage) || undefined,
+      },
       metrics: { followers: formatMetric(row.followers), avg_plays: formatMetric(row.avg_plays), engagement: formatMetric(row.engagement), engagement_source: text(row.engagement_source) || undefined },
       assessment: assessmentFromRow(row),
       stage: { code: text(stage.code), label: text(stage.label) || "阶段未知" },
@@ -502,6 +505,7 @@ export function toFollowKol(row: Record<string, unknown>): FollowKol | null {
       suggested_stage: text(row.suggested_stage) || undefined,
       suggested_stage_code: text(row.suggested_stage_code) || undefined,
       brand: text(row.brand) || undefined,
+      product: text(row.product || row.sku || row.product_name) || undefined,
       notes: text(row.notes) || undefined,
       overdue: flag(row.overdue) || undefined,
       mailbox_from: text(row.mailbox_from) || undefined,
@@ -529,7 +533,7 @@ export function toFollowKol(row: Record<string, unknown>): FollowKol | null {
     identity: {
       display: handle ? `@${handle}` : "未指定红人",
       platform: text(row.platform),
-      avatar_url: text(row.avatar_url || row.avatar || row.profile_image) || undefined,
+      avatar_url: text(row.avatar_url || row.avatar || row.profile_image || row.profileImage) || undefined,
     },
     metrics: { followers: formatMetric(row.followers), avg_plays: formatMetric(row.avg_plays), engagement: formatMetric(row.engagement), engagement_source: text(row.engagement_source) || undefined },
     assessment: assessmentFromRow(row),
@@ -550,6 +554,7 @@ export function toFollowKol(row: Record<string, unknown>): FollowKol | null {
     suggested_stage: text(row.suggested_stage) || undefined,
     suggested_stage_code: text(row.suggested_stage_code) || undefined,
     brand: text(row.brand) || undefined,
+    product: text(row.product || row.sku || row.product_name) || undefined,
     notes: text(row.notes) || undefined,
     overdue: flag(row.overdue) || undefined,
     mailbox_from: text(row.mailbox_from) || undefined,
@@ -575,16 +580,15 @@ export function followHasDiscoveryField(card: FollowKol): string | null {
   return null;
 }
 
-export function toggleSelectMax8(current: string[], id: string, on: boolean, max = KOL_SELECT_MAX): string[] {
+export function toggleSelect(current: string[], id: string, on: boolean): string[] {
   if (!on) return current.filter((item) => item !== id);
   if (current.includes(id)) return current;
-  if (current.length >= max) return current;
   return [...current, id];
 }
 
-export function selectAllMax8(ids: string[], on: boolean, max = KOL_SELECT_MAX): string[] {
+export function selectAll(ids: string[], on: boolean): string[] {
   if (!on) return [];
-  return ids.slice(0, max);
+  return [...new Set(ids)];
 }
 
 export function analyzePrefillPrompt(cards: Array<{ identity: { display: string } }>, surface: KolSurface): string {
@@ -644,12 +648,12 @@ export function runningBadgeHref(input: {
 
 /** Map B.active follow contract onto the existing followed-kol-card model. */
 export function followKolToRecord(item: FollowKol): {
-  avatar_url?: string;
   id: string;
   handle: string;
   kol_uid: string;
   follow_id?: string;
   platform: string;
+  avatar_url?: string;
   followers?: string;
   avg_plays?: string;
   engagement?: string;
@@ -667,6 +671,7 @@ export function followKolToRecord(item: FollowKol): {
   suggested_stage?: string;
   suggested_stage_code?: string;
   brand?: string;
+  product?: string;
   notes?: string;
   overdue?: boolean;
   mailbox_from?: string;
@@ -710,6 +715,7 @@ export function followKolToRecord(item: FollowKol): {
     suggested_stage: item.suggested_stage,
     suggested_stage_code: item.suggested_stage_code,
     brand: item.brand,
+    product: item.product,
     notes: item.notes,
     overdue: item.overdue,
     mailbox_from: item.mailbox_from,

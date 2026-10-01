@@ -11,7 +11,7 @@ export const DISCOVERY_BANNED_JARGON = [
   "Streamable",
 ] as const;
 
-export type DiscoveryErrorKind = "connection" | "timeout" | "cancelled" | "generic";
+export type DiscoveryErrorKind = "connection" | "service" | "timeout" | "cancelled" | "generic";
 export type DiscoveryRecoverAction = "plan" | "confirm" | "wait";
 
 export type DiscoveryErrorView = {
@@ -27,6 +27,8 @@ export type DiscoveryErrorView = {
 
 export const DISCOVERY_CONNECTION_TITLE = "采集服务连接失败";
 export const DISCOVERY_CONNECTION_MESSAGE = "暂时连不上采集服务。请确认服务可用后再检索。";
+export const DISCOVERY_SERVICE_TITLE = "发现服务暂时不可用";
+export const DISCOVERY_SERVICE_MESSAGE = "发现服务这次没有响应，本次任务尚未开始，已有输入会保留。稍后重试即可。";
 export const DISCOVERY_GENERIC_TITLE = "检索没有完成";
 export const DISCOVERY_GENERIC_FALLBACK = "可调整条件后重试。";
 export const DISCOVERY_CRAWL_ACTIVE_MESSAGE = "已有采集任务在进行，请稍后再试";
@@ -55,8 +57,17 @@ export class DiscoveryWaitCancelledError extends Error {
   }
 }
 
-const CONNECTION_SIGNAL =
-  /streamable|econnrefused|enotfound|econnreset|etimedout|eai_again|failed to fetch|fetch failed|network ?error|connection refused|connection reset|err_connection|err_name_not_resolved|err_internet_disconnected|socket hang up|error posting to endpoint|posting to endpoint|远程采集服务未配置|采集服务未配置|发现服务暂未就绪|discovery_not_ready/i;
+/**
+ * Failures the Host attributes to the collector itself, by code or by wording.
+ * Only these may say 「采集服务」: anything else that fails is our own service.
+ */
+const COLLECTOR_CODE = /^collector_|^mediacrawler_/;
+const COLLECTOR_SIGNAL =
+  /streamable|error posting to endpoint|posting to endpoint|远程采集服务未配置|采集服务未配置|发现服务暂未就绪|discovery_not_ready/i;
+
+/** The Host (or the network in front of it) failed. Not the collector's fault. */
+const SERVICE_SIGNAL =
+  /failed to fetch|fetch failed|network ?error|econnrefused|enotfound|econnreset|etimedout|eai_again|connection refused|connection reset|err_connection|err_name_not_resolved|err_internet_disconnected|socket hang up|aborted/i;
 
 const ENGINE_DUMP =
   /streamable|http error|status code|econn|enotfound|stack trace|posix|errno|posting to endpoint|selected model is at capacity|model.*capacity/i;
@@ -71,6 +82,18 @@ function errorStatus(raw: unknown): number | undefined {
   if (!raw || typeof raw !== "object" || !("status" in raw)) return undefined;
   const status = Number((raw as { status?: unknown }).status);
   return Number.isFinite(status) && status > 0 ? status : undefined;
+}
+
+/** Machine code the API attaches, from `payload.detail.code` or `payload.code`. */
+function errorCode(raw: unknown): string {
+  if (!raw || typeof raw !== "object") return "";
+  const payload = (raw as { payload?: unknown }).payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "";
+  const detail = (payload as { detail?: unknown }).detail;
+  const fromDetail = detail && typeof detail === "object" && !Array.isArray(detail)
+    ? String((detail as { code?: unknown }).code || "").trim()
+    : "";
+  return fromDetail || String((payload as { code?: unknown }).code || "").trim();
 }
 
 function looksLikeJsonText(text: string): boolean {
@@ -91,7 +114,8 @@ function looksLikeEngineDump(text: string): boolean {
     && /error|failed|exception|timeout|refused/i.test(text);
 }
 
-function crawlActiveCopy(text: string): string | null {
+function crawlActiveCopy(text: string, code = ""): string | null {
+  if (code === "crawl_active") return DISCOVERY_CRAWL_ACTIVE_MESSAGE;
   if (!text) return null;
   if (text === DISCOVERY_CRAWL_ACTIVE_MESSAGE || text.includes("已有采集任务在进行")) {
     return DISCOVERY_CRAWL_ACTIVE_MESSAGE;
@@ -106,15 +130,26 @@ function crawlActiveCopy(text: string): string | null {
   return null;
 }
 
+/** Collector-specific failure: a collector code, or wording only the collector produces. */
 export function isDiscoveryConnectionFailure(raw: unknown): boolean {
+  const code = errorCode(raw);
+  if (COLLECTOR_CODE.test(code)) return true;
   const text = errorText(raw);
+  if (COLLECTOR_SIGNAL.test(text)) return true;
+  return (errorStatus(raw) === 404 || /\b404\b/.test(text)) && /streamable|endpoint/i.test(text);
+}
+
+/**
+ * Our own service failed — a restart's 502, a proxy error, an unreachable Host.
+ * This used to be reported as 「采集服务连接失败」, which pointed every
+ * investigation at the collector: the 502 a `systemctl restart` produces while
+ * the collector is provably healthy read as a collector outage.
+ */
+export function isDiscoveryServiceFailure(raw: unknown): boolean {
+  if (isDiscoveryConnectionFailure(raw)) return false;
   const status = errorStatus(raw);
-  if (CONNECTION_SIGNAL.test(text)) return true;
-  if ((status === 404 || /\b404\b/.test(text)) && /http|streamable|endpoint|status/i.test(text)) {
-    return true;
-  }
-  if (status === 502 || status === 503 || status === 504) return true;
-  return false;
+  if (status === 500 || status === 502 || status === 503 || status === 504) return true;
+  return SERVICE_SIGNAL.test(errorText(raw));
 }
 
 function errorName(raw: unknown): string {
@@ -175,6 +210,18 @@ export function presentDiscoveryError(
       checkConnection: false,
     }, "wait");
   }
+  // Most specific first: 已有采集任务在进行 is neither a collector nor a service outage.
+  const crawlActive = crawlActiveCopy(text, errorCode(raw));
+  if (crawlActive) {
+    return withRecover({
+      kind: "generic",
+      title: DISCOVERY_GENERIC_TITLE,
+      message: crawlActive,
+      detail: looksLikeEngineDump(detail) ? detail : null,
+      retryDisabled: false,
+      checkConnection: false,
+    }, recover);
+  }
   if (isDiscoveryConnectionFailure(raw) || isDiscoveryConnectionFailure(text)) {
     return withRecover({
       kind: "connection",
@@ -185,13 +232,12 @@ export function presentDiscoveryError(
       checkConnection: true,
     }, recover);
   }
-  const crawlActive = crawlActiveCopy(text);
-  if (crawlActive) {
+  if (isDiscoveryServiceFailure(raw) || isDiscoveryServiceFailure(text)) {
     return withRecover({
-      kind: "generic",
-      title: DISCOVERY_GENERIC_TITLE,
-      message: crawlActive,
-      detail: looksLikeEngineDump(detail) ? detail : null,
+      kind: "service",
+      title: DISCOVERY_SERVICE_TITLE,
+      message: DISCOVERY_SERVICE_MESSAGE,
+      detail: detail || null,
       retryDisabled: false,
       checkConnection: false,
     }, recover);

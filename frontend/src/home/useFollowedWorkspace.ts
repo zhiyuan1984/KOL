@@ -14,8 +14,8 @@ import {
   followedStageEnterCards,
   projectFollowedKolCard,
   sortFollowedKolCards,
-  type FollowedKolCardModel,
   type KolSortMode,
+  type FollowedKolCardModel,
   type FollowedKolRecord,
 } from "../followedKolCard";
 import { canOpenExistingTaskFlow } from "./homeModel";
@@ -88,12 +88,10 @@ export function useFollowedWorkspace(options: {
   /** 最近一次跟进读取的来源：board-adapter 表示端点缺失、行来自 board 投影。 */
   const lastSourceRef = useRef<string>("following");
   const [completeness, setCompleteness] = useState<FollowListCompleteness>("loading-local");
-  const [refreshNotice, setRefreshNotice] = useState("");
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<KolSortMode>("time");
   const [stageFilter, setStageFilter] = useState("");
   const [situation, setSituation] = useState<FollowedSituation | "">("");
-  const [sortMode, setSortMode] = useState<KolSortMode>("need");
-  const [unreadOnly, setUnreadOnly] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -118,11 +116,10 @@ export function useFollowedWorkspace(options: {
       (card) =>
         matchesKolSearch(card, query)
         && matchesStageFilter(card, stageFilter)
-        && matchesFollowedSituation(card, situation)
-        && (!unreadOnly || card.unread_inbound),
+        && matchesFollowedSituation(card, situation),
     );
-    return sortFollowedKolCards(filtered, sortMode);
-  }, [cards, query, stageFilter, situation, sortMode, unreadOnly]);
+    return sortFollowedKolCards(filtered, sort);
+  }, [cards, query, sort, stageFilter, situation]);
 
   const selectedCards = useMemo(
     () => visibleCards.filter((card) => selectedIds.includes(card.id)),
@@ -186,7 +183,6 @@ export function useFollowedWorkspace(options: {
   const loadSurface = useCallback(async () => {
     reconcileSeq.current += 1;
     const seq = reconcileSeq.current;
-    setRefreshNotice("");
     setCompleteness("loading-local");
     const loaded = await readSurface();
     if (seq !== reconcileSeq.current) return;
@@ -200,8 +196,11 @@ export function useFollowedWorkspace(options: {
     // merged. This prevents a false "暂无" flash for existing collaborations.
     reconcileSeq.current += 1;
     const seq = reconcileSeq.current;
+    // Do not paint the previous visit's result page while this entry is being
+    // refreshed. The fresh local/board snapshot will repopulate rows below.
+    setRows([]);
+    setReadsDone(0);
     setError("");
-    setRefreshNotice("");
     setCompleteness("loading-local");
     const board = loadBoard("following");
     const localRows = await readSurface();
@@ -230,7 +229,6 @@ export function useFollowedWorkspace(options: {
     if (seq !== reconcileSeq.current) return;
     if (mergedRows) {
       setError("");
-      setRefreshNotice(`红人数据已更新，共 ${mergedRows.length} 位。`);
     }
     setCompleteness(mergedRows ? "complete" : "incomplete-error");
   }, [loadBoard, readSurface]);
@@ -472,14 +470,12 @@ export function useFollowedWorkspace(options: {
     selectedStageEnterCards,
     query,
     setQuery,
+    sort,
+    setSort,
     stageFilter,
     setStageFilter,
     situation,
     setSituation,
-    sortMode,
-    setSortMode,
-    unreadOnly,
-    setUnreadOnly,
     hoveredId,
     setHoveredId,
     focusedId,
@@ -488,7 +484,6 @@ export function useFollowedWorkspace(options: {
     setError,
     loading,
     completeness,
-    refreshNotice,
     followEmptyKind,
     confirmStageBusyId,
     confirmStageFeedback,

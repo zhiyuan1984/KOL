@@ -1,13 +1,14 @@
 import { Hono } from "hono";
 import { TASK_MEMORY } from "../host/memory-kinds.js";
 import { ownerId, PLAN_SCOPES, SCOPE_TABLE } from "../host/today-plan-context.js";
+import { planTaskType } from "../host/planning-types.js";
 import { loadTodayTaskResults } from "../host/today-tasks.js";
 import { startTodayAnalyze, startTodayPlan, todayBriefSnapshot } from "../host/today-plan-run.js";
 import type { Json } from "../types.js";
 
 export const homeToday = new Hono();
 
-/** Cover/result/plan routes per plan scope. Same pipeline, scope-specific memory kinds. */
+/** Compatibility routes per pane scope; both panes read and start one canonical work plan. */
 for (const scope of PLAN_SCOPES) {
   const cfg = SCOPE_TABLE[scope];
 
@@ -46,7 +47,8 @@ for (const scope of PLAN_SCOPES) {
     return c.json({
       ...started,
       // Both scopes answer the same shape; the pane renders one component.
-      task_type: cfg.taskType,
+      task_type: planTaskType(scope),
+      canonical_scope: "today",
       entry: "think",
       kind: "think",
       creates_session: true,

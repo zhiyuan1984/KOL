@@ -209,7 +209,7 @@ export default function Workbench() {
         ) : (
           <>
             <NavLink to="/">任务</NavLink>
-            <NavLink to="/agents" className={() => onAgents ? "active" : ""}>数字员工</NavLink>
+            <NavLink to="/agents" className={() => onAgents ? "active" : ""}>agent</NavLink>
           </>
         )}
       </div>
@@ -263,7 +263,7 @@ export default function Workbench() {
             onClick={() => setMobileOpen(false)}
           >
             <Ico path="M4 20h4L18 10l-4-4L4 16v4z M14 6l4 4" />
-            <span className="sidebar-label">新工作任务</span>
+            <span className="sidebar-label">新任务</span>
           </Link>
           <Link
             to="/tasks"
@@ -288,16 +288,16 @@ export default function Workbench() {
           </NavLink>
         </nav>
 
-        <nav className="nav-group" aria-label="数字员工">
+        <nav className="nav-group" aria-label="agent">
           <NavLink
             to="/agents"
             className={() => "nav-link" + (onAgents ? " active" : "")}
             data-nav="agents"
-            title="数字员工"
+            title="agent"
             onClick={() => setMobileOpen(false)}
           >
-            <Ico path="M12 4a3 3 0 0 1 3 3v1h2a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2V7a3 3 0 0 1 3-3z M9 13h6 M9 16h4" />
-            <span className="sidebar-label">数字员工</span>
+            <Ico path="M8 5h8a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-2.2l-1.8 3-1.8-3H8a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3z M9 11h.01 M15 11h.01 M9 14c1.7 1.3 4.3 1.3 6 0 M12 5V3 M9 3h6" />
+            <span className="sidebar-label">agent</span>
           </NavLink>
         </nav>
 
@@ -306,17 +306,17 @@ export default function Workbench() {
             to="/skills"
             className={() => "nav-link" + (skillsActive ? " active" : "")}
             data-nav="skills"
-            title="技能目录"
+            title="技能"
             onClick={() => { setPendingNav("skills"); setMobileOpen(false); }}
             onMouseEnter={() => { void import("../pages/SkillCatalog"); }}
             onFocus={() => { void import("../pages/SkillCatalog"); }}
           >
             <Ico path="M8 8h4v4H8z M12 12h4v4h-4z M7 16l-2 2 M17 8l2-2" />
-            <span className="sidebar-label">技能目录</span>
+            <span className="sidebar-label">技能</span>
             {pendingNav === "skills" && !skillsActive && (
               navStuck
                 ? <button type="button" className="nav-refresh" data-nav-stuck onClick={(event) => { event.preventDefault(); location.reload(); }}>刷新</button>
-                : <span className="nav-loading" aria-label="正在打开技能目录" />
+                : <span className="nav-loading" aria-label="正在打开技能" />
             )}
           </NavLink>
         </nav>

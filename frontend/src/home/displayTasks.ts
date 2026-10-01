@@ -12,6 +12,7 @@ export type DisplayTaskRow = {
   next_action?: string;
   icon?: string;
   group?: string;
+  view?: "today" | "todo";
 };
 
 export const DISPLAY_GROUPS = ["重要紧急", "重要", "紧急", "任务明细"] as const;
@@ -59,6 +60,7 @@ export function projectDisplayTasks(display: DisplayTaskRow[] | null | undefined
         display_label: row.label,
         display_icon: row.icon || undefined,
         display_group: row.group || undefined,
+        plan_view: row.view || undefined,
         memory_kind: "task_result",
       } as Task;
     })

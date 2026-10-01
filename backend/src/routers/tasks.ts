@@ -272,6 +272,24 @@ function taskEventTarget(db: SqliteConn, workItemId: string, runId: string | nul
   return Boolean(run);
 }
 
+/**
+ * Hard ceiling on one work item's event history. A crawl monitor that never
+ * reached a terminal state appended 415k rows over four days, and those rows
+ * then made every discovery run payload 128 MB. Below the cap the stream is
+ * untouched; past it new rows are dropped instead of evicting older ones.
+ */
+function taskEventLimit(): number {
+  const n = Number(process.env.TASK_EVENT_MAX_PER_WORK_ITEM || "5000");
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 5000;
+}
+
+function taskEventCount(db: SqliteConn, workItemId: string): number {
+  const row = db.prepare("SELECT COUNT(*) AS n FROM task_events WHERE work_item_id=?").get(workItemId) as
+    | { n: number }
+    | undefined;
+  return Number(row?.n || 0);
+}
+
 export function appendTaskEvent(
   workItemId: string,
   runId: string | null,
@@ -283,6 +301,7 @@ export function appendTaskEvent(
   try {
     return tx((db) => {
       if (!taskEventTarget(db, workItemId, runId)) return null;
+      if (taskEventCount(db, workItemId) >= taskEventLimit()) return null;
       const current = db.prepare(
         "SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=?",
       ).get(workItemId) as { sequence: number };
@@ -360,6 +379,7 @@ export function upsertTaskEvent(
       const current = db.prepare(
         "SELECT COALESCE(MAX(sequence),0) AS sequence FROM task_events WHERE work_item_id=?",
       ).get(workItemId) as { sequence: number };
+      if (taskEventCount(db, workItemId) >= taskEventLimit()) return null;
       const row = {
         id: nid("tev"),
         work_item_id: workItemId,

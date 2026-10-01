@@ -339,6 +339,7 @@ export type Task = {
   dismissed_at?: string | null;
   next_action?: string;
   next_action_code?: string | null;
+  plan_view?: "today" | "todo";
   progress?: number;
   session_id?: string;
   /** A discovery work item opens its linked run result rather than a chat session. */
@@ -377,7 +378,8 @@ export type TodoLayoutItem = {
 
 export type TodayBrief = {
   lead?: string;
-  stats?: Record<string, number | string>;
+  stats?: Record<string, number | string | Record<string, number>>;
+  stage_counts?: Record<string, number>;
   primary?: TodayBriefPrimary;
   sections?: TodayBriefSection[];
   todo_layout?: TodoLayoutItem[];
@@ -903,7 +905,7 @@ export function planScope(scope: HomePlanScope): Promise<TodayPlanResult> {
   });
 }
 
-/** 「成本与预算」治理面（/admin/cost，ADR-2026-09-29）：用量是线程级估计值，金额相位未建。 */
+/** 「成本与预算」治理面（/admin/costs，ADR-2026-09-29）：用量是线程级估计值，金额相位未建。 */
 export type AdminCostBudgetState = "unconfigured" | "disabled" | "ok" | "warn" | "stopped";
 
 /** 预算覆盖面：公司 → Agent → 员工（闸门按此顺序判定，员工行只阻断该员工触发的新运行）。 */
@@ -1135,7 +1137,7 @@ export const api = {
       items?: Array<Record<string, unknown>>;
       kols?: Array<Record<string, unknown>>;
       follow_scope?: StarryBinding;
-    }>("/api/home/following", { signal: AbortSignal.timeout(6_000) }),
+    }>("/api/home/following", { signal: AbortSignal.timeout(15_000) }),
   homePool: () =>
     request<{
       entry?: string;
@@ -2131,8 +2133,11 @@ export const api = {
     }>("/api/mail/compose-catalog"),
   mailPerson: (box: string, p: string) =>
     request<Record<string, unknown>>(`/api/mail/person?box=${encodeURIComponent(box)}&p=${encodeURIComponent(p)}`),
-  generateMailMemory: (body: { box: string; peer_email: string; conversation_id?: string; message_id?: string; kind: "summary" | "translation" }) =>
-    request<Record<string, unknown>>("/api/mail/memory/generate", { method: "POST", body: JSON.stringify(body) }),
+  runMailSkill: (skillId: "mail_summary" | "mail_translate", body: { box?: string; conversation_id?: string; message_id?: string }) =>
+    request<{ accepted?: boolean; pending?: boolean; mailbox?: string; skill_id?: string }>(`/api/mail/skills/${encodeURIComponent(skillId)}/run`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   syncMailboxMail: (body: Record<string, unknown> = {}) =>
     request<{
       entry?: string;

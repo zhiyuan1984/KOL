@@ -834,6 +834,11 @@ async function digestWithRemote(rows: Json[], collaborationId = ""): Promise<Rem
   return { error: fromLuna.error || fromCodex.error || "unavailable", attempted };
 }
 
+/** Employee-facing on-demand summary: use the established Codex → Luna chain. */
+export async function generateMailConversationDigest(rows: Json[]): Promise<RemoteDigestResult> {
+  return digestWithRemote(rows);
+}
+
 export async function ensureCodexThreadDigest(
   collaborationId: string,
   rows?: Json[],

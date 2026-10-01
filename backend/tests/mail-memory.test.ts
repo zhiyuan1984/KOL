@@ -14,6 +14,7 @@ import { seedWorkbenchFixtures } from "../src/seed-fixtures.js";
 import { matchCollaboration } from "../src/starrykol/mail-fields.js";
 import { ensureFollowedMailSync, resetFollowedMailSync, waitForBackgroundSync } from "../src/starrykol/mail-sync.js";
 import { setStarryKolClientFactory } from "../src/starrykol/service.js";
+import { setIntentLlmFetch } from "../src/tasks/openai-intent.js";
 import { bindStarryUser } from "./helpers/starry-binding.js";
 import type { Json } from "../src/types.js";
 
@@ -79,6 +80,9 @@ function stubStarry(extraConversations: Json[] = []): void {
           },
         };
       }
+      if (name === "translateEmailToChinese") {
+        return { zh: "【内部中文译稿】这是一封测试邮件的中文翻译。" };
+      }
       if (name === "getEmailConversation") {
         const id = String(args.conversationId || args.id || "3901");
         if (id === "8801") {
@@ -129,6 +133,10 @@ beforeEach(async () => {
   process.env.LINGONG_DB = path.join(tmp, "mail.db");
   process.env.LINGONG_DATA = tmp;
   process.env.CODEX_MODE = "stub";
+  process.env.openai_api_key = "sk-test-mail-memory";
+  setIntentLlmFetch(async (_input, _init) => new Response(JSON.stringify({
+    output_text: JSON.stringify({ digest: "测试摘要：双方正在确认合作细节。", zh: "测试中文译文。", translation: "测试中文译文。" }),
+  }), { status: 200, headers: { "Content-Type": "application/json" } }));
   calls.length = 0;
   listDelayMs = 0;
   resetFollowedMailSync();
@@ -144,12 +152,37 @@ beforeEach(async () => {
 
 afterEach(() => {
   setStarryKolClientFactory();
+  setIntentLlmFetch();
+  delete process.env.openai_api_key;
+  delete process.env.INTENT_LLM_MODE;
   resetFollowedMailSync();
   resetConn();
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
 describe("mailbox memory P0", () => {
+  it("runs the selected summary and translation Skills through named routes", async () => {
+    bindLarry();
+    await ensureFollowedMailSync(true);
+    process.env.INTENT_LLM_MODE = "real";
+    const listed = await request("GET", "/api/mail/conversations");
+    const first = (listed.body.conversations as Json[])[0];
+    const opened = await request("GET", `/api/mail/conversations/${first.id}`);
+    const message = (opened.body.messages as Json[])[0];
+    const summary = await request("POST", "/api/mail/skills/mail_summary/run", {
+      box: "larry.zhao@amperetime.com", conversation_id: first.conversation_id,
+    });
+    expect(summary.status).toBe(200);
+    expect(summary.body).toMatchObject({ skill_id: "mail_summary", accepted: true, pending: false });
+    const translation = await request("POST", "/api/mail/skills/mail_translate/run", {
+      box: "larry.zhao@amperetime.com", message_id: message.id,
+    });
+    expect(translation.status).toBe(200);
+    expect(translation.body).toMatchObject({ skill_id: "mail_translate", accepted: true, pending: false });
+    const reread = await request("GET", `/api/mail/conversations/${first.id}`);
+    expect((reread.body.messages as Json[]).find((row) => row.id === message.id)?.translation_zh).toContain("中文");
+  });
+
   it("GET box / conversations / thread create no session and call no model", async () => {
     bindLarry();
     await ensureFollowedMailSync(true);

@@ -8,6 +8,8 @@ output: task_result
 funnel: reach
 mcp: ["kolclaw.get_daily_tasks"]
 required_inputs: []
+input_schema: []
+interaction: {"purpose":"汇总今天需要推进的达人工作，按待打招呼、待跟进、待报价和谈判中的事项整理可执行任务。","steps":["读取当前授权范围内的达人任务与合作阶段。","按紧急程度、优先级和当前阶段整理今天的推进顺序。","在任务结果区展示任务、排序原因和建议的下一步行动。"],"output_title":"今日达人任务与下一步行动","constraints":["只读取当前授权范围内的任务。","不发送邮件、不修改官方合作阶段、不解密联系方式。"]}
 permissions: ["kolclaw:read"]
 actions: ["analyze"]
 aliases: ["KOL今日任务","今日KOL任务","达人每日任务"]

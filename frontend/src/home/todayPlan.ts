@@ -4,7 +4,7 @@
  * Entering Home (Today or My Todo share this chain):
  * 1. memory: GET /api/tasks?view=open (task/raw) + GET /api/home/today-brief (summary/display)
  *    + GET /api/home/today-tasks (task/display). Today list eats display, not raw open tasks.
- * 2. think:  POST /api/home/today-brief/plan (or attach a running today_plan)
+ * 2. think:  POST /api/home/{scope}-brief/plan (both routes attach one canonical today_plan)
  * 3. poll GET today-brief until planning=false; then reload today-tasks
  * 4. success → replace display memory only (no formal work_items rewrite)
  * 5. failure → keep previous display memory
@@ -141,6 +141,11 @@ export const SCOPE_CONFIG: Record<PlanScope, FrontendScopeConfig> = {
 
 export function planCacheKey(scope: PlanScope): string {
   return SCOPE_CONFIG[scope].cacheKey;
+}
+
+/** One browser cache for the canonical plan; today/todo are only projections. */
+export function canonicalPlanCacheKey(): string {
+  return SCOPE_CONFIG.today.cacheKey;
 }
 
 export function planStartEvent(scope: PlanScope): string {

@@ -46,6 +46,7 @@ import PoolInteraction, {
 import PoolPane from "../home/PoolPane";
 import ReleaseFollowConfirm from "../home/ReleaseFollowConfirm";
 import { FollowedBatchConfirm } from "../home/FollowedBatchConfirm";
+import { isPoolNew } from "../home/poolView";
 import SkillParamCard, { type SkillParamField } from "../home/workspace/SkillParamCard";
 import SkillTemplateContext from "../components/SkillTemplateContext";
 import { defaultTemplateValues, nonEmptyTemplateEntities, templateInputFields } from "../skillTemplate";
@@ -96,10 +97,10 @@ import {
   analyzePrefillPrompt,
   followKolToRecord,
   isAnalyzePrefill,
-  KOL_SELECT_MAX,
+  KOL_BATCH_SIZE,
   poolAnalysisPrefill,
-  selectAllMax8,
-  toggleSelectMax8,
+  selectAll,
+  toggleSelect,
   type KolSurface,
 } from "../home/kolContract";
 import { nextPoolSort } from "../home/poolView";
@@ -710,6 +711,11 @@ export default function Home() {
     if (presetRef.current && PRESET_MODE[presetRef.current] !== mode) releasePreset();
     if (mode === "discovery") return;
     setEntryIntent((current) => (current === "discover" ? "free" : current));
+    // Leaving AI发现 must release both halves of the lock.  Previously only
+    // entryIntent/text were reset; lockedIntent stayed creator_discovery, so a
+    // normal submit on another tab could still be routed to discovery.
+    setLockedIntent((current) => (current === DISCOVERY_INTENT ? null : current));
+    setLockedLabel((current) => (current === DISCOVERY_LOCK_LABEL ? null : current));
     setDiscoveryBrief((current) => (current ? null : current));
     setDiscoveryFormBrief((current) => (current ? null : current));
     setText((current) => (current.startsWith(DISCOVERY_BODY_PREFIX) ? "" : current));
@@ -1064,11 +1070,11 @@ export default function Home() {
   };
 
   const toggleSelectedKol = (id: string, on: boolean) => {
-    setSelectedKolIds((current) => toggleSelectMax8(current, id, on));
+    setSelectedKolIds((current) => toggleSelect(current, id, on));
   };
 
   const toggleSelectAllKols = (on: boolean) => {
-    setSelectedKolIds(selectAllMax8(followedWorkspace.visibleCards.map((card) => card.id), on));
+    setSelectedKolIds(selectAll(followedWorkspace.visibleCards.map((card) => card.id), on));
   };
 
   const prefillAnalyze = (surface: KolSurface, cards: Array<{ identity: { display: string } }>, uids: string[]) => {
@@ -1096,7 +1102,7 @@ export default function Home() {
   };
 
   const toggleSelectedPool = (id: string, on: boolean) => {
-    applyPoolSelection(toggleSelectMax8(selectedKolIds, id, on));
+    applyPoolSelection(toggleSelect(selectedKolIds, id, on));
   };
 
   const toggleSelectAllPool = (visibleIds: string[], on: boolean) => {
@@ -1104,13 +1110,7 @@ export default function Home() {
       applyPoolSelection(selectedKolIds.filter((id) => !visibleIds.includes(id)));
       return;
     }
-    const next = [...selectedKolIds];
-    for (const id of visibleIds) {
-      if (next.includes(id)) continue;
-      if (next.length >= KOL_SELECT_MAX) break;
-      next.push(id);
-    }
-    applyPoolSelection(next);
+    applyPoolSelection([...new Set([...selectedKolIds, ...visibleIds])]);
   };
 
   const poolTemplateBody = (kind: PoolAnalysisKind): string => String(poolTemplates[kind]?.body || "").trim();
@@ -1150,10 +1150,17 @@ export default function Home() {
     // 没有条件时不带 target_criteria（模型不得自己编匹配）。
     setScoreConfirm({ busy: true, count: targets.length, error: null });
     try {
-      await poolWorkspace.assessWithJev(
-        targets.length ? targets : undefined,
-        discoveryBrief ? { ...discoveryBrief } : null,
-      );
+      const criteria = discoveryBrief ? { ...discoveryBrief } : null;
+      // The backend protects each Jev request at eight targets. A full-page
+      // selection is therefore executed in bounded batches, with each batch
+      // persisted and refreshed before the next one starts.
+      if (!targets.length) {
+        await poolWorkspace.assessWithJev(undefined, criteria);
+      } else {
+        for (let offset = 0; offset < targets.length; offset += KOL_BATCH_SIZE) {
+          await poolWorkspace.assessWithJev(targets.slice(offset, offset + KOL_BATCH_SIZE), criteria);
+        }
+      }
       setScoreConfirm(null);
     } catch (cause) {
       setScoreConfirm({ busy: false, count: targets.length, error: cause instanceof Error ? cause.message : "KOL评分失败" });
@@ -1234,21 +1241,42 @@ export default function Home() {
     }
   };
 
+  function taskSessionId(task: Task): string {
+    const direct = String(task.session_id || "").trim();
+    if (direct) return direct;
+    const runs = Array.isArray(task.runs) ? task.runs as Array<Record<string, unknown>> : [];
+    for (const run of [...runs].reverse()) {
+      const sessionId = String(run.session_id || "").trim();
+      if (sessionId) return sessionId;
+    }
+    return "";
+  }
+
   const openTask = async (task: Task) => {
     if (openDiscoveryTaskResult(task)) return;
+    // 任务列表是记忆投影；进入详情前按稳定 task.id 读取一次完整任务，
+    // 用 runs 中最近一次 session_id 恢复原任务页，而不是创建一次新执行。
+    let current = task;
+    try {
+      current = taskValue(await api.task(task.id));
+      mergeCatalogTask(current);
+    } catch {
+      // 列表投影已有 session_id 时仍可直接恢复；新任务继续走原启动流程。
+    }
+    const sessionId = taskSessionId(current);
     rememberJourney({
       kind: "task",
-      skillId: String(task.skill_id || task.skill || task.task_type || ""),
-      skillLabel: task.title,
-      handle: task.kol_name,
+      skillId: String(current.skill_id || current.skill || current.task_type || ""),
+      skillLabel: current.title,
+      handle: current.kol_name,
     });
-    if (task.session_id) {
-      sessionStorage.setItem(`task:${task.session_id}`, task.id);
-      if (task.collaboration_id || task.project_id) sessionStorage.setItem(`kol-session:${task.session_id}`, "1");
-      nav(`/s/${task.session_id}`, { state: { kolSession: Boolean(task.collaboration_id || task.project_id) } });
+    if (sessionId) {
+      sessionStorage.setItem(`task:${sessionId}`, current.id);
+      if (current.collaboration_id || current.project_id) sessionStorage.setItem(`kol-session:${sessionId}`, "1");
+      nav(`/s/${sessionId}`, { state: { kolSession: Boolean(current.collaboration_id || current.project_id) } });
       return;
     }
-    const collabId = String(task.collaboration_id || task.project_id || "");
+    const collabId = String(current.collaboration_id || current.project_id || "");
     if (collabId) {
       try {
         const session = await api.openKolSession(collabId);
@@ -1262,7 +1290,7 @@ export default function Home() {
     setBusy(true);
     setErr("");
     try {
-      await createAndRun(task);
+      await createAndRun(current);
     } catch (error) {
       setErr(error instanceof Error ? error.message : String(error));
       setBusy(false);
@@ -1507,7 +1535,7 @@ export default function Home() {
       const analyzeUidsNow = analyzeUids.length ? analyzeUids : selectedKolIds;
       if ((analyzeSurface || isAnalyzePrefill(prompt)) && analyzeUidsNow.length) {
         const queued = await enqueueKolAnalyze({
-          kol_uids: analyzeUidsNow.slice(0, 8),
+          kol_uids: analyzeUidsNow,
           prompt,
           surface: analyzeSurface || (mode === "pool" ? "pool" : "following"),
         });
@@ -1875,7 +1903,12 @@ export default function Home() {
     : undefined;
   const activeSkillTemplate = selectedSkillTemplate?.skill_id === lockedIntent
     ? selectedSkillTemplate
-    : genericParamDefinition?.ui_template || null;
+    : genericParamDefinition?.ui_template
+      || (lockedIntent === "creator_daily_tasks"
+        ? definitions.find((definition) => definition.id === "creator_daily_tasks")?.ui_template || null
+        : lockedIntent === "todo_plan"
+          ? definitions.find((definition) => definition.id === "todo_plan")?.ui_template || null
+          : null);
   const genericParamFields = templateInputFields(
     activeSkillTemplate,
     Array.isArray(genericParamDefinition?.input_schema) ? genericParamDefinition.input_schema as SkillParamField[] : [],
@@ -1980,7 +2013,6 @@ export default function Home() {
       {busy && !feedback && !err && !queuedNotice ? (
         <section className="creation-feedback" data-kind="recognizing" data-creation-feedback data-wait-status="识别中" role="status" aria-busy="true">
           <strong>识别中</strong>
-          <p className="recognize-subject">已收到你的请求。</p>
           <StreamingLines lines={RECOGNIZE_WAIT_LINES} seconds={recognizeSeconds} />
           {recognizeOverdue ? (
             <p data-recognize-timeout>{RECOGNIZE_WAIT_OVERDUE}</p>
@@ -2201,6 +2233,7 @@ export default function Home() {
               rows={paneRows}
               busy={busy}
               onAct={(task) => void actOnMemoryTask(task)}
+              onOpen={(task) => void openTask(task)}
               onEdit={setEditTaskTarget}
               notice={paneScope === "todo" ? dedupeNotice : ""}
               brief={activePlan.brief}
@@ -2227,6 +2260,7 @@ export default function Home() {
             <DiscoveryWorkspace
               brief={discoveryFormBrief ?? fallbackDiscoveryFormBrief}
               catalog={discoveryCatalog}
+              busy={busy}
               schema={(() => {
                 const declared = definitions.find((definition) => definition.id === "creator_discovery")?.input_schema;
                 return Array.isArray(declared) ? declared as import("../home/workspace/SkillParamCard").SkillParamField[] : undefined;
@@ -2261,6 +2295,13 @@ export default function Home() {
                   selectedCount={selectedKolIds.length}
                   onStageFilter={followedWorkspace.setStageFilter}
                   onSituation={followedWorkspace.setSituation}
+                  publicPoolNewCount={poolWorkspace.poolLoaded ? poolWorkspace.cards.filter(isPoolNew).length : null}
+                  onOpenPublicPoolNew={() => {
+                    poolWorkspace.setQuery("");
+                    poolWorkspace.setSort("default");
+                    poolWorkspace.setFilter("new");
+                    setMode("pool");
+                  }}
                   interaction={interactionFeedback}
                 />
               )}
@@ -2269,9 +2310,8 @@ export default function Home() {
                 <FollowedPane
                   visibleKols={followedWorkspace.visibleCards}
                   allCards={followedWorkspace.cards}
-                  sortMode={followedWorkspace.sortMode}
-                  unreadOnly={followedWorkspace.unreadOnly}
                   kolQuery={followedWorkspace.query}
+                  sort={followedWorkspace.sort}
                   stageFilter={followedWorkspace.stageFilter}
                   situation={followedWorkspace.situation}
                   selectedKolIds={selectedKolIds}
@@ -2283,16 +2323,12 @@ export default function Home() {
                   followEmptyKind={followEmptyKind}
                   down={followingDown}
                   listError={followListError}
-                  refreshNotice={followedWorkspace.refreshNotice}
                   onReload={() => void followedWorkspace.loadSurface()}
                   onQuery={followedWorkspace.setQuery}
+                  onSort={followedWorkspace.setSort}
                   onStageFilter={followedWorkspace.setStageFilter}
                   onSituation={followedWorkspace.setSituation}
                   onHover={followedWorkspace.setHoveredId}
-                  onSort={followedWorkspace.setSortMode}
-                  onUnreadOnly={followedWorkspace.setUnreadOnly}
-                  onRefreshMail={() => void retrySurface("following")}
-                  refreshMailBusy={retryingSurface === "following"}
                   onFocus={followedWorkspace.setFocusedId}
                   onToggleSelect={toggleSelectedKol}
                   onToggleSelectAll={toggleSelectAllKols}

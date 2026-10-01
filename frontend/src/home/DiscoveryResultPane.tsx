@@ -1,14 +1,13 @@
 import { Link } from "react-router-dom";
-import DiscoveryAiSummary from "./DiscoveryAiSummary";
 import { DiscoveryIngestConfirm } from "./DiscoveryIngestConfirm";
 import DiscoveryLeadRow from "./DiscoveryLeadRow";
-import DiscoveryNextPlan from "./DiscoveryNextPlan";
 import { platformLabel } from "./discoveryTemplate";
 import type { DiscoveryState } from "./useDiscovery";
 
 /**
- * Right rail: a compact decision sequence — AI summary, result details, then
- * the next plan. It consumes useDiscovery state only; reads, polling, writes,
+ * Right rail: a compact result sequence — conversion status, result details,
+ * then the next plan. The run summary and interaction context live in the
+ * middle column. It consumes useDiscovery state only; reads, polling, writes,
  * and L3 confirmation all remain in the hook and existing confirmation flow.
  */
 export default function DiscoveryResultPane({ state }: { state: DiscoveryState }) {
@@ -28,10 +27,6 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
     failure,
     emptyKind,
     emptyMessage,
-    connection,
-    retryBusy,
-    retryRun,
-    checkCollector,
     toggleSelected,
     selectAll,
     expandedIds,
@@ -48,7 +43,6 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
     openIngest,
     confirmIngest,
     cancelIngest,
-    showCard,
   } = state;
   const showResults = available.length > 0;
   const selecting = selected.length > 0;
@@ -70,34 +64,6 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
       data-discovery-stage={stage}
       data-discovery-running={inFlight ? "true" : undefined}
     >
-      <DiscoveryAiSummary
-        run={run}
-        visibleCount={visible.length}
-        inFlight={inFlight}
-        failure={failure}
-        emptyKind={emptyKind}
-        emptyMessage={emptyMessage}
-        retryBusy={retryBusy}
-        onRetry={() => void retryRun()}
-        onCheckConnection={() => void checkCollector()}
-        connection={connection}
-      />
-
-      {available.length ? (
-        <section className="discovery-conversion-overview" data-discovery-conversion-overview aria-label="线索转化概览">
-          <div>
-            <h3>转化概览</h3>
-            <p>以下为采集与评分的只读预检；正式写入仍需在 L3 确认后由 Starry 网关复核。</p>
-          </div>
-          <dl>
-            <div data-discovery-conversion-count="ready"><dt>可入库</dt><dd>{readyCount}</dd></div>
-            <div data-discovery-conversion-count="review"><dt>待复核</dt><dd>{reviewCount}</dd></div>
-            <div data-discovery-conversion-count="blocked"><dt>待补资料</dt><dd>{blockedCount}</dd></div>
-            <div data-discovery-conversion-count="existing"><dt>已在库</dt><dd>{existingCount}</dd></div>
-          </dl>
-        </section>
-      ) : null}
-
       {approvalState === "brief_mismatch" ? (
         <section className="task-empty" data-discovery-brief-mismatch role="alert">
           <strong>确认已作废</strong>
@@ -125,13 +91,7 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
       {showResults ? (
         <section className="discovery-result-detail" aria-label="结果明细">
           <header className="discovery-result-detail-head">
-            <div>
-              <h3>结果明细</h3>
-              <p className="discovery-run-count" data-discovery-candidate-count>
-                {`显示 ${visible.length}/${available.length} 位 · 按推荐分与匹配度排序`}
-              </p>
-            </div>
-            {!selecting ? <p className="discovery-selection-hint">优先复核证据，再选择可入库线索</p> : null}
+            <h3>结果明细{!selecting ? <span className="discovery-result-detail-hint"> · 优先复核证据，再选择可入库线索</span> : null}</h3>
           </header>
 
           <div className={"discovery-result-filters" + (resultFilter !== "all" ? " is-filtered" : "")} data-discovery-result-filters>
@@ -221,25 +181,12 @@ export default function DiscoveryResultPane({ state }: { state: DiscoveryState }
         </p>
       ) : null}
 
-      {!inFlight && !showResults && !failure && emptyKind !== "idle" ? (
+      {!inFlight && !showResults && !failure && emptyKind !== "idle" && emptyKind !== "down" ? (
         <div className="task-empty" data-discovery-empty={emptyKind}>
-          <strong>{emptyKind === "down" ? "服务不可用" : "筛选无结果"}</strong>
+          <strong>筛选无结果</strong>
           <p>{emptyMessage}</p>
         </div>
       ) : null}
-
-      <DiscoveryNextPlan
-        run={run}
-        visibleCount={visible.length}
-        selectedCount={selected.length}
-        inFlight={inFlight}
-        failure={failure}
-        emptyKind={emptyKind}
-        onEditConditions={showCard}
-        onRetry={() => void retryRun()}
-        onCheckConnection={() => void checkCollector()}
-        onOpenIngest={openIngest}
-      />
 
       <DiscoveryIngestConfirm
         open={ingestOpen}

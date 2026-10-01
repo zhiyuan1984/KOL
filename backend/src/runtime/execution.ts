@@ -136,10 +136,16 @@ function envValue(name: string): string {
 }
 export function connectorOptions(context: RuntimeContext, config: ConnectorConfig): RemoteMcpOptions {
   const url = config.url || (config.url_env ? envValue(config.url_env) : "");
-  let parsed: URL;
-  try { parsed = assertSafeConnectorEndpoint(url); } catch (error) {
-    if (error instanceof HttpFail) throw error;
-    return reject("runtime_endpoint_invalid", 409);
+  const isMcp = (config.protocol || "mcp") === "mcp";
+  // MCP connectors intentionally follow the same direct-fetch path as the
+  // built-in MediaCrawler client. HTTP action connectors retain the guarded
+  // dispatcher below because their request URLs are assembled per tool call.
+  let parsed: URL | undefined;
+  if (!isMcp) {
+    try { parsed = assertSafeConnectorEndpoint(url); } catch (error) {
+      if (error instanceof HttpFail) throw error;
+      return reject("runtime_endpoint_invalid", 409);
+    }
   }
   const headers: Record<string, string> = {};
   for (const [header, env] of Object.entries(config.headers_env || {})) headers[header] = envValue(env);
@@ -158,14 +164,17 @@ export function connectorOptions(context: RuntimeContext, config: ConnectorConfi
     timeoutMs: config.timeout_ms ?? 30_000,
     // An MCP connector keeps its explicitly configured transport; omitted stays streamable-http.
     ...((config.protocol || "mcp") === "mcp" ? { transport: config.transport } : {}),
-    // The transport may reconnect. Guard every actual request, reject origin
-    // drift/redirects, and resolve DNS again immediately before dispatch.
-    fetch: async (input, init) => {
-      const destination = new URL(input instanceof Request ? input.url : String(input));
-      if (destination.origin !== parsed.origin) reject("runtime_endpoint_invalid", 409);
-      await assertResolvedConnectorEndpointSafe(parsed);
-      return fetchWithConnectorEgressPolicy(input, { ...init, redirect: "error" });
-    } };
+    // MCP intentionally omits a custom fetch so the SDK uses the same default
+    // Node fetch as the built-in MediaCrawler/AI discovery path. HTTP action
+    // connectors keep the guarded fetch and same-origin policy.
+    ...(isMcp ? {} : {
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        const destination = new URL(input instanceof Request ? input.url : String(input));
+        if (destination.origin !== parsed!.origin) reject("runtime_endpoint_invalid", 409);
+        await assertResolvedConnectorEndpointSafe(parsed!);
+        return fetchWithConnectorEgressPolicy(input, { ...init, redirect: "error" });
+      },
+    }) };
 }
 
 /** Create the protocol-specific remote using only a validated, reference-only configuration. */

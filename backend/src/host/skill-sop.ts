@@ -87,9 +87,9 @@ export function effectiveSkillBody(id: string): string {
 
 const RUNTIME_CONNECTOR_INSTRUCTION = `
 
-## Runtime connector tools
 
-Only the local \`skill_runtime\` MCP server is available in this run. Call its current \`tools/list\` catalog and use only the returned aliases (for example \`rt_starrykol__pageKolProfiles_…\`). Connector names or operation names mentioned elsewhere in this Skill describe business intent; they are **not** direct MCP servers and must never be called directly. If the needed alias is absent, state that the configured connector is unavailable and do not invent data.
+## Runtime connector tools
+Only the local \`skill_runtime\` MCP server is available in this run. Call its current \`tools/list\` catalog and use only the returned aliases (for example \`rt_starrykol__pageKolProfiles_…\`). This run exposes tools, not MCP resources: do **not** call \`list_mcp_resources\`, \`resources/list\`, or any resource-discovery helper. Connector names or operation names mentioned elsewhere in this Skill describe business intent; they are **not** direct MCP servers and must never be called directly. If the needed alias is absent, state that the configured connector is unavailable and do not invent data.
 `;
 
 /** The worker receives this constrained supplement even when an administrator has an SOP overlay. */

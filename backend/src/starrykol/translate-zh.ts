@@ -288,6 +288,21 @@ export async function translateMailBodyZh(body: string): Promise<{ text: string;
   return null;
 }
 
+/** On-demand mail skill path: deliberately use the established Codex → Luna chain. */
+export async function translateMailBodyZhWithCodexLuna(body: string): Promise<{ text: string; source: string } | null> {
+  const source = String(body || "").trim();
+  if (!source || !remoteMailAnalysisEnabled()) return null;
+  if (!intentLlmFetchOverridden()) {
+    const fromCodex = await translateWithCodex(source);
+    if (fromCodex) return { text: stripInternalZhHeader(fromCodex), source: "codex_memory" };
+  }
+  const fromLuna = await translateWithLuna(source);
+  if (fromLuna) return { text: stripInternalZhHeader(fromLuna), source: "luna" };
+  const fromMcp = await translateWithMcp(source);
+  if (fromMcp && !isStubInternalZh(fromMcp)) return { text: stripInternalZhHeader(fromMcp), source: "starry_mcp" };
+  return null;
+}
+
 export async function translateDraftInternal(english: string, cached = ""): Promise<string> {
   const source = String(english || "").trim();
   const skipCache = remoteMailAnalysisEnabled() && isStubInternalZh(cached);

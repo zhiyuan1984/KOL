@@ -345,6 +345,9 @@ describe("real localhost MCP protocol through authorization proxy (not LIVE/LLM)
     const client = proxyClient(proxy); cleanup.push(() => client.close());
     const tools = await client.listTools();
     expect(tools).toHaveLength(1);
+    const legacyResourceProbe = await client.callToolRaw("list_mcp_resources", {});
+    expect(legacyResourceProbe.isError).not.toBe(true);
+    expect(JSON.stringify(legacyResourceProbe)).toContain(String(tools[0].name));
     const result = await client.callToolRaw(String(tools[0].name), { query: "outdoor" });
     expect(result.structuredContent).toEqual({ creator: "creator-local-42" });
     expect(remote.calls).toEqual(["lookup"]);

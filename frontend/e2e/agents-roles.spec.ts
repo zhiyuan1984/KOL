@@ -11,7 +11,7 @@ test("roster keeps one sidebar entry and three role cards", async ({ page }) => 
   await expect(page.locator("[data-expert-card='expert:kol']")).toBeVisible();
   await expect(page.locator("[data-expert-card='expert:crawler']")).toBeVisible();
   await expect(page.locator("[data-expert-card='expert:approver']")).toBeVisible();
-  await expect(page.locator('nav[aria-label="数字员工"] [data-nav]')).toHaveCount(1);
+  await expect(page.locator('nav[aria-label="agent"] [data-nav]')).toHaveCount(1);
   await expect(page.locator('[data-nav="approvals"]')).toBeVisible();
   await expect(page.locator('[data-nav="law"]')).toHaveCount(0);
   await expect(page.locator(".sidebar")).not.toContainText("数字宪法");

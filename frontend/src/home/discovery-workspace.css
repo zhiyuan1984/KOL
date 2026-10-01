@@ -146,6 +146,15 @@
   font-size: var(--ds-font-sm);
   color: var(--text-muted);
 }
+.discovery-business-summary {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: var(--ds-font-sm);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.discovery-business-summary strong { margin-right: 8px; color: var(--text); font-weight: 600; }
+.discovery-business-summary.is-failed { color: var(--danger); }
 @media (prefers-reduced-motion: reduce) {
   .discovery-stream-spinner,
   .discovery-think.is-streaming,
@@ -412,6 +421,12 @@
 .discovery-panel {
   min-width: 0;
 }
+.scope-workspace[data-home-pane="discovery"] .scope-task-rail-body {
+  padding-top: calc(var(--icon-btn) + var(--space-2));
+}
+.scope-workspace[data-home-pane="discovery"] .scope-task-rail-toggle {
+  right: 4px;
+}
 .discovery-ai-summary {
   display: grid;
   gap: var(--space-2);
@@ -475,6 +490,40 @@
   padding-left: var(--space-2);
   border-left: 1px solid var(--border);
 }
+.discovery-ai-summary-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--ds-font-helper);
+  line-height: var(--ds-line-helper);
+}
+.discovery-ai-summary-facts > div {
+  display: inline-flex;
+  gap: 6px;
+}
+.discovery-ai-summary-facts dt { font-weight: 500; }
+.discovery-ai-summary-facts dd { margin: 0; color: var(--text); }
+.discovery-ai-summary-contract { display: grid; gap: var(--space-2); margin-top: var(--space-3); }
+.discovery-ai-summary-progress { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.discovery-ai-summary-progress span { display: grid; gap: 2px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-subtle); }
+.discovery-ai-summary-progress b, .discovery-ai-summary-snapshot b { color: var(--text-muted); font-size: var(--ds-font-helper); font-weight: 500; }
+.discovery-ai-summary-progress em { color: var(--text); font-size: var(--ds-font-helper); font-style: normal; }
+.discovery-ai-summary-snapshot, .discovery-ai-summary-freshness { margin: 0; color: var(--text-muted); font-size: var(--ds-font-helper); }
+.discovery-ai-summary-snapshot b { display: block; margin-bottom: 3px; }
+.discovery-ai-summary-freshness { padding-top: var(--space-2); border-top: 1px solid var(--border); }
+.discovery-ai-summary-contract details { color: var(--text-muted); font-size: var(--ds-font-helper); }
+.discovery-ai-summary-contract details p { margin: 6px 0 0; }
+.discovery-ai-summary-single-line {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--ds-font-sm);
+  line-height: var(--ds-line-ui);
+  overflow-wrap: anywhere;
+}
+.discovery-ai-summary-single-line strong { color: var(--color-success-vivid); }
+.discovery-result-detail-hint { color: var(--text-muted); font-size: var(--ds-font-sm); font-weight: 400; }
 .discovery-ai-summary-actions {
   display: flex;
   align-items: center;
@@ -591,6 +640,11 @@
   color: var(--text-muted);
   font-size: var(--ds-font-helper);
   line-height: var(--ds-line-helper);
+}
+.discovery-next-plan .discovery-plan-connection {
+  grid-column: 1 / -1;
+  margin-top: 0;
+  color: var(--text);
 }
 @media (max-width: 480px) {
   .discovery-ai-summary.is-warning { grid-template-columns: minmax(0, 1fr); }

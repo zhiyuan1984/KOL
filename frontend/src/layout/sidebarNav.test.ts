@@ -12,7 +12,7 @@ const WORKBENCH = fs.readFileSync(
 
 function todayNavOrder(source: string): string[] {
   const start = source.indexOf('aria-label="今日"');
-  const end = source.indexOf('aria-label="数字员工"');
+  const end = source.indexOf('aria-label="agent"');
   const cluster = start >= 0 && end > start ? source.slice(start, end) : "";
   return [...cluster.matchAll(/data-nav="([^"]+)"/g)].map((match) => match[1]);
 }

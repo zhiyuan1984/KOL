@@ -6,16 +6,6 @@ import {
   type RecommendedKind,
 } from "../followedKolCard";
 
-function KolAvatar({ id, url }: { id: string; url?: string }) {
-  const [failedUrl, setFailedUrl] = useState<string | null>(null);
-  const [fallbackFailed, setFallbackFailed] = useState(false);
-  const index = Array.from(id).reduce((hash, char) => (hash * 31 + char.charCodeAt(0)) >>> 0, 0) % 3;
-  const source = url && /^https?:\/\//i.test(url) && failedUrl !== url ? url : null;
-  return <span className="kol-avatar" data-kol-avatar data-avatar-kind={source ? "profile" : "illustration"} title={source ? "KOL 头像" : "默认插画头像"}>
-    {source || !fallbackFailed ? <img src={source || `/avatars/kol-default-${index + 1}.png`} alt={source ? "KOL 头像" : "默认插画头像"} loading="lazy" referrerPolicy="no-referrer" onError={() => source ? setFailedUrl(source) : setFallbackFailed(true)} /> : <span aria-label="默认头像">○</span>}
-  </span>;
-}
-
 function formatFactTime(value?: string | null): string {
   if (!value) return "";
   const date = new Date(value);
@@ -58,6 +48,16 @@ function ctaText(label: string): string {
 
 function ctaHasArrow(label: string): boolean {
   return /\s*→\s*$/.test(String(label || ""));
+}
+
+const FALLBACK_AVATARS = [
+  "/avatars/kol-fallback/thumbs-up.png",
+  "/avatars/kol-fallback/strong.png",
+  "/avatars/kol-fallback/great.png",
+];
+
+function stableAvatarIndex(value: string): number {
+  return Array.from(String(value || "kol")).reduce((hash, char) => ((hash * 31 + char.charCodeAt(0)) >>> 0), 7) % FALLBACK_AVATARS.length;
 }
 
 function IconAlert() {
@@ -150,6 +150,7 @@ export default function FollowedKolWorkCard({
   onToggleSelect?: (on: boolean) => void;
 }) {
   const rec = card.recommended_action;
+  const [avatarFailed, setAvatarFailed] = useState(false);
   const fact = card.latest_fact;
   const headline = recommendedActionHeadline(rec);
   const primary = primaryKind(rec.kind);
@@ -160,6 +161,9 @@ export default function FollowedKolWorkCard({
   const showMail = Boolean(fact.thread_id);
   const days = card.current_state.days_in_stage;
   const stageLabel = formatStageBadge(card.current_state.stage_label);
+  const fallbackAvatar = FALLBACK_AVATARS[stableAvatarIndex(card.source.kol_uid || card.id)];
+  const avatarSource = card.identity.avatar_url && !avatarFailed ? card.identity.avatar_url : fallbackAvatar;
+  const factSourceLabel = fact.thread_id ? "邮件摘要" : fact.kind === "confirmed" ? "任务记录" : "互动记录";
   const profileMetrics = [
     card.source.followers ? `粉丝 ${card.source.followers}` : "",
     card.source.avg_plays ? `均播 ${card.source.avg_plays}` : "",
@@ -168,9 +172,6 @@ export default function FollowedKolWorkCard({
   const potentialScore = card.source.potential_score == null ? null : Number(card.source.potential_score);
   const potentialConfidence = card.source.potential_confidence == null ? null : Math.round(Number(card.source.potential_confidence) * 100);
   const hasEvidence = card.evidence.kind !== "none" && Boolean(card.evidence.label);
-  const factMeta = [fact.source || (fact.thread_id ? "邮件" : ""), fact.at ? formatFactTime(fact.at) : ""]
-    .filter(Boolean)
-    .join(" · ");
   const refused = /拒绝|拒信/.test(`${stageLabel} ${card.identity.display}`);
   const marker = RISK_MARKER_ORDER
     .map((id) => card.risk.chips.find((chip) => chip.id === id))
@@ -225,7 +226,17 @@ export default function FollowedKolWorkCard({
           />
           <span className="sr-only">选择 {card.identity.display}</span>
         </label>
-        <KolAvatar id={card.source.kol_uid || card.id} url={card.source.avatar_url} />
+        <span className="kol-avatar" data-kol-avatar data-avatar-source={card.identity.avatar_url && !avatarFailed ? "kol" : "fallback"} aria-hidden>
+          <img
+            src={avatarSource}
+            alt=""
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            onError={() => {
+              if (card.identity.avatar_url && !avatarFailed) setAvatarFailed(true);
+            }}
+          />
+        </span>
         <div className="kol-identity-main">
           <div className="kol-identity-line">
             <strong className="kol-name" data-kol-identity data-kol-name>{card.identity.display}</strong>
@@ -279,9 +290,12 @@ export default function FollowedKolWorkCard({
               {potentialScore != null ? <strong data-jev-potential-score title={potentialConfidence == null ? "Jev 概率加权排序分" : `Jev 概率加权排序分 · 置信度 ${potentialConfidence}%`}>潜力排序 {potentialScore}{potentialConfidence == null ? "" : ` · ${potentialConfidence}%`}</strong> : null}
             </p>
           ) : null}
+          {card.scope.product ? (
+            <p className="kol-product-meta" data-kol-product>合作产品：{card.scope.product}</p>
+          ) : null}
           {card.source.countdown !== false && (card.source.release_due_at || card.source.last_interaction_at) ? (
             <p className="kol-mail-meta" data-release-timer data-release-scheduler="false">
-              14 日计时（只读）
+              14 日跟进
               {card.source.last_interaction_at ? ` · 上次互动 ${formatFactTime(card.source.last_interaction_at)}` : ""}
               {card.source.days_since_interaction != null ? ` · 已过 ${card.source.days_since_interaction} 天` : ""}
             </p>
@@ -296,15 +310,10 @@ export default function FollowedKolWorkCard({
       <div className="kol-split" data-kol-split>
         <div className="kol-band kol-band-fact" data-kol-band="fact">
           <div className="kol-state-block" data-latest-fact data-fact-kind={fact.kind}>
+            <p className="kol-band-label" data-fact-source>{`最近互动 · ${factSourceLabel}`}</p>
             <p className="kol-mail-digest" data-mail-summary={fact.thread_id || undefined}>
               {fact.summary}
             </p>
-            {factMeta ? (
-              <p className="kol-mail-meta">
-                {factMeta}
-                {fact.at ? <span data-thread-time className="sr-only">{fact.at}</span> : null}
-              </p>
-            ) : null}
           </div>
         </div>
 
@@ -319,7 +328,7 @@ export default function FollowedKolWorkCard({
               {headline}
             </p>
             <p className="kol-ai-why">
-              <span className="kol-split-kicker">AI 建议</span>
+              <span className="kol-split-kicker">来源</span>
               {rec.why ? <span className="kol-judgment" data-action-why>{rec.why}</span> : null}
             </p>
           </div>

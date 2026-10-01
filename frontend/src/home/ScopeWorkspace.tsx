@@ -35,6 +35,7 @@ export default function ScopeWorkspace({
   rows,
   busy,
   onAct,
+  onOpen,
   onEdit,
   notice = "",
   brief,
@@ -51,6 +52,7 @@ export default function ScopeWorkspace({
   rows: Task[];
   busy: boolean;
   onAct: (task: Task) => void;
+  onOpen?: (task: Task) => void;
   onEdit?: (task: Task) => void;
   /** A data fact (e.g. the todo dedupe feedback). Today leaves it empty. */
   notice?: string;
@@ -130,6 +132,7 @@ export default function ScopeWorkspace({
           busy={busy}
           loading={loading}
           onAct={onAct}
+          onOpen={onOpen}
           onEdit={onEdit}
           planPhase={phase === "idle" && hasStream ? "refreshed" : phase}
           summary={<PlanSummary brief={brief} label={cfg.planSummaryLabel} />}

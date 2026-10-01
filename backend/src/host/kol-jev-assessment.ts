@@ -82,10 +82,11 @@ function scoreWithCompatibility(answer: AssessmentAnswer, weights: Record<string
   return answer.probabilities ? weightedScore(answer, weights) : (legacy[answer.choice || ""] ?? null);
 }
 
-function selected(value: AssessmentAnswer | undefined): { choice: string; confidence: number } {
+function selected(value: AssessmentAnswer | undefined): AssessmentAnswer & { choice: string; confidence: number } {
   return {
     choice: String(value?.choice || "insufficient"),
     confidence: Math.max(0, Math.min(1, Number(value?.confidence || 0))),
+    probabilities: value?.probabilities,
   };
 }
 
@@ -191,7 +192,8 @@ function eligibleProfiles(companyId: string, limit: number, db: SqliteConn, kolU
     `SELECT *
        FROM kol_profile_index
       WHERE company_id=? AND pool_status='open'${scoped}
-      ORDER BY CASE WHEN assessed_at IS NULL OR trim(assessed_at)='' THEN 0 ELSE 1 END,
+      ORDER BY CASE WHEN potential_score IS NULL THEN 0 ELSE 1 END,
+               CASE WHEN assessed_at IS NULL OR trim(assessed_at)='' THEN 0 ELSE 1 END,
                assessed_at ASC, ingested_at DESC, kol_uid
       LIMIT ?`,
   ).all(companyId, ...kolUids, limit) as Row[];

@@ -145,7 +145,7 @@ describe("managed connector SSE transport", () => {
     })).toThrow("transport must be streamable-http or sse");
   });
 
-  it("passes the configured MCP transport through connectorOptions and drops it for http connectors", async () => {
+  it("passes the configured MCP transport and leaves MCP on the default fetch path", async () => {
     const mcpOptions = connectorOptions(context, validateConnectorConfig({
       protocol: "mcp", transport: "sse", url: "https://example.test/sse", allow_unauthenticated: true,
     }));
@@ -156,10 +156,9 @@ describe("managed connector SSE transport", () => {
     expect(connectorOptions(context, validateConnectorConfig({
       protocol: "http", url: "https://example.test/api", allow_unauthenticated: true,
     })).transport).toBeUndefined();
-    // connectorOptions hands out the egress guard, and it refuses origin drift
-    // on every request the transport will issue.
-    await expect(mcpOptions.fetch!("https://other.example.test/sse")).rejects
-      .toMatchObject({ detail: { code: "runtime_endpoint_invalid" } });
+    // MCP follows the same default-fetch path as the built-in MediaCrawler
+    // client; the guarded fetch remains limited to HTTP action connectors.
+    expect(mcpOptions.fetch).toBeUndefined();
   });
 
   it("requires a credential header for the sse transport like every other connector", () => {
@@ -201,7 +200,7 @@ describe("managed connector SSE transport", () => {
     }
   });
 
-  it("runs the managed path end to end: config -> connectorOptions egress guard -> SSE client", async () => {
+  it("runs the managed path end to end: config -> connectorOptions -> SSE client", async () => {
     const options = connectorOptions(context, validateConnectorConfig({
       protocol: "mcp", transport: "sse", url: sseUrl, allow_unauthenticated: true,
     }));

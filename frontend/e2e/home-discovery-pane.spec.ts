@@ -86,6 +86,23 @@ test("tab switch only GETs discovery runs and does not create a session", async 
   expect(gets.some((path) => path.includes("/batches"))).toBeFalsy();
 });
 
+test("leaving discovery clears its lock before a normal composer submit", async ({ page }) => {
+  const discoveryPosts: string[] = [];
+  page.on("request", (item) => {
+    if (item.method() === "POST" && new URL(item.url()).pathname === "/api/home/discovery/run") {
+      discoveryPosts.push(new URL(item.url()).pathname);
+    }
+  });
+  await page.goto("/?tab=discovery");
+  await expect(page.locator('[data-home-mode="discovery"]')).toHaveAttribute("aria-selected", "true");
+  await page.locator('[data-home-mode="pool"]').click();
+  await expect(page.locator('[data-home-mode="pool"]')).toHaveAttribute("aria-selected", "true");
+  const input = page.locator("[data-home] [data-composer-input]");
+  await input.fill("普通工作台问题");
+  await page.locator("[data-home] [data-ai-prompt-submit]").click();
+  await expect.poll(() => discoveryPosts).toEqual([]);
+});
+
 test("condition card renders in-page and pre-fills the editable ask box", async ({ page }) => {
   const posts: string[] = [];
   page.on("request", (item) => {
@@ -724,6 +741,10 @@ test("submit posts /api/home/discovery/run, shows process copy, and ingests to p
   await expect(page.locator('[data-discovery-candidate="NoStats"]')).toBeVisible();
   await expect(page.locator('[data-discovery-select="cand_zero"]')).toBeDisabled();
   await page.locator('[data-discovery-result-filter="all"]').click();
+  await solar.locator('[data-lead-expand]').click();
+  await expect(solar.locator('[data-lead-detail]')).toBeVisible();
+  // 结果筛选与查看详情都是纯前端交互，不得再次启动发现任务。
+  expect(runPosts).toEqual(["/api/home/discovery/run"]);
 
   await page.locator('[data-discovery-select="cand_solar"]').check();
   await expect(page.locator("[data-discovery-select-all]")).toBeVisible();
@@ -795,6 +816,11 @@ test("submit hides the condition card; 改条件再搜 brings it back to the cen
   await expect(page.locator("[data-scope-ai-workspace] [data-discovery-think-time]")).toHaveText(/^\d{2}:\d{2}:\d{2}$/);
   await expect(page.locator("[data-scope-task-rail] [data-discovery-panel]")).toHaveCount(1);
   await expect(page.locator("[data-scope-ai-workspace] [data-discovery-panel]")).toHaveCount(0);
+  // 状态摘要与下一步动作属于人机交互，只能在中栏出现；右栏只承接结果。
+  await expect(page.locator("[data-scope-ai-workspace] [data-discovery-ai-summary]")).toHaveCount(1);
+  await expect(page.locator("[data-scope-ai-workspace] [data-discovery-next-plan]")).toHaveCount(1);
+  await expect(page.locator("[data-scope-task-rail] [data-discovery-ai-summary]")).toHaveCount(0);
+  await expect(page.locator("[data-scope-task-rail] [data-discovery-next-plan]")).toHaveCount(0);
 
   // 恢复入口在过程流头部：改条件再搜把卡片调回中栏，不会自动重跑。
   const edit = page.locator("[data-discovery-edit-conditions]");
@@ -940,8 +966,19 @@ test("service-down and filtered empty states stay honest", async ({ page }) => {
     contentType: "application/json",
     body: JSON.stringify({ detail: "upstream down" }),
   }));
+  await page.route("**/api/discovery/connection", (route) => route.fulfill({
+    json: { status: "ok", status_label: "已连接", message: "采集服务响应正常", connected: true },
+  }));
   await openDiscovery(page);
-  await expect(page.locator("[data-discovery-empty='down']")).toBeVisible();
-  await expect(page.locator("[data-discovery-empty='down']")).toContainText("服务不可用");
+  await expect(page.locator("[data-discovery-ai-summary]")).toContainText("服务不可用");
+  await expect(page.locator("[data-discovery-headline]")).toHaveText("暂时无法开始发现红人");
+  await expect(page.locator("[data-discovery-counts]")).toHaveText("检索尚未开始");
+  await expect(page.locator("[data-discovery-primary-finding]")).toContainText("本次任务尚未启动");
+  await expect(page.locator("[data-discovery-service-state]")).toContainText("输入条件已保留");
+  await expect(page.locator("[data-discovery-service-actions] [data-discovery-retry]")).toHaveText("重新尝试");
+  await expect(page.locator("[data-discovery-empty='down']")).toHaveCount(0);
   await expect(page.locator("[data-discovery-panel]")).not.toContainText("没有红人线索");
+  await expect(page.locator("[data-discovery-plan='connection']")).toBeVisible();
+  await page.locator("[data-discovery-plan-action='connection']").click();
+  await expect(page.locator("[data-discovery-plan-connection='ok']")).toContainText("采集服务：已连接");
 });

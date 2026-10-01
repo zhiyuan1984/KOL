@@ -50,6 +50,7 @@ export function parseTodayTaskResults(raw: unknown): TodayTaskResults | null {
       bucket: row?.bucket ? String(row.bucket) : undefined,
       icon: row?.icon ? String(row.icon).trim().slice(0, 8) || undefined : undefined,
       group: row?.group ? String(row.group).trim().slice(0, 24) || undefined : undefined,
+      view: row?.view === "today" || row?.view === "todo" ? row.view : undefined,
     });
   }
   if (!items.length) return null;
@@ -76,6 +77,7 @@ function itemsFromDisplayMemory(owner: string, scope: PlanScope): TodayTaskResul
       verb: payload.verb || payload.action ? String(payload.verb || payload.action) : undefined,
       label: payload.label ? String(payload.label) : undefined,
       bucket: payload.bucket ? String(payload.bucket) : undefined,
+      view: payload.view === "today" || payload.view === "todo" ? payload.view as "today" | "todo" : undefined,
     });
   }
   if (!items.length) return null;

@@ -3,10 +3,11 @@ import { nid } from "../ids.js";
 import { ensureTicketForWorkItem } from "../tickets.js";
 import { requireTaskDefinition } from "../tasks/registry.js";
 import type { Json } from "../types.js";
-import { appendTaskEvent, upsertTaskEvent } from "../routers/tasks.js";
+import { appendTaskEvent } from "../routers/tasks.js";
 import { runWorker } from "../worker/runner.js";
 import { HttpFail } from "./errors.js";
 import { createRunTraceSink } from "./run-trace.js";
+import { isTodayWorkItem, todayDateStr } from "./home-board.js";
 import { runningTodayPlan, writeTodayBriefArtifact, markTodayPlanCompleted, markTodayPlanFailed } from "./today-brief.js";
 import {
   briefPointerTable,
@@ -144,9 +145,9 @@ export const PLAN_EMPLOYEE_EVENTS: Record<PlanScope, Record<PlanEventKey, string
 /** Back-compat export: today-scope copy (used by tests and the today chain). */
 export const TODAY_PLAN_EMPLOYEE_EVENTS = PLAN_EMPLOYEE_EVENTS.today;
 
-function memoryReadSummary(pack: TodayPlanPack): string {
+function memoryReadSummary(pack: TodayPlanPack, scope: PlanScope): string {
   const unfinished = Number(pack.now_counts?.unfinished);
-  return Number.isFinite(unfinished) ? `未了结 ${unfinished} 项` : "已读入本轮上下文";
+  return Number.isFinite(unfinished) ? `未了结 ${unfinished} 项` : PLAN_EMPLOYEE_EVENTS[scope].memoryRead;
 }
 
 export function briefFromWorkerItems(items: Json[]): unknown {  const candidates = items.filter((item) => item.type === "today_brief" || (item.lead && item.sections));
@@ -186,6 +187,91 @@ export function missingDisplayCoverage(brief: unknown, pack: TodayPlanPack): str
     .filter((id) => id && !covered.has(id));
 }
 
+function hostDisplayTasks(pack: TodayPlanPack, brief: unknown): Json[] {
+  const root = brief && typeof brief === "object" && !Array.isArray(brief) ? brief as Json : {};
+  const modelRows = Array.isArray(root.display_tasks) ? root.display_tasks : Array.isArray(root.todo_layout) ? root.todo_layout : [];
+  const byId = new Map(modelRows.map((row) => [String((row as Json)?.work_item_id || (row as Json)?.id || ""), row as Json]));
+  const rankOf = (item: TodayPlanPack["catalog"][number]) => {
+    const priority = String(item.priority || "").toLowerCase();
+    const rank = priority === "important_urgent" ? 0 : priority === "important" || priority === "high" ? 1 : priority === "urgent" ? 2 : priority === "normal" || priority === "medium" ? 3 : priority === "low" ? 4 : 5;
+    const due = String(item.due_at || "");
+    const today = todayDateStr();
+    const urgency = due && due < today ? 0 : due.startsWith(today) ? 1 : item.status === "running" || item.status === "in_progress" ? 2 : 3;
+    return rank * 10 + urgency;
+  };
+  return [...pack.catalog]
+    .filter((item) => item.kind === "formal_task")
+    .sort((a, b) => rankOf(a) - rankOf(b) || String(b.updated_at || "").localeCompare(String(a.updated_at || "")))
+    .map((item, index) => {
+      const id = String(item.work_item_id || "");
+      const model = byId.get(id) || {};
+      const priority = String(item.priority || "").toLowerCase();
+      const group = priority === "important_urgent" ? "重要紧急" : priority === "important" || priority === "high" ? "重要" : priority === "urgent" ? "紧急" : "其他";
+      return {
+        work_item_id: id,
+        title: String(model.title || item.title || "打开任务"),
+        why: String(model.why || item.reason || "未了结正式任务"),
+        rank: index + 1,
+        verb: String(model.verb || model.action || "open"),
+        label: String(model.label || model.next_action || "打开任务"),
+        next_action: String(model.next_action || model.label || "打开任务"),
+        icon: String(model.icon || (item.status === "failed" || item.risk ? "⚠️" : "📋")),
+        group: String(model.group || group),
+        view: isTodayWorkItem(item) ? "today" : "todo",
+      } as Json;
+    });
+}
+
+function withHostDisplayTasks(brief: unknown, pack: TodayPlanPack): Json | null {
+  if (!brief || typeof brief !== "object" || Array.isArray(brief)) return null;
+  return { ...(brief as Json), display_tasks: hostDisplayTasks(pack, brief) };
+}
+
+/**
+ * The task board is deterministic data, not a reasoning problem. In the fast
+ * path Host writes the board immediately; Codex is no longer on the critical
+ * path for a first render. A future async summary may replace only lead/
+ * sections without touching display_tasks.
+ */
+function hostFastBrief(pack: TodayPlanPack): Json {
+  const formal = pack.catalog.filter((item) => item.kind === "formal_task");
+  const first = formal[0];
+  return {
+    lead: first ? `先处理 ${first.title || "最高优先级任务"}` : "当前没有需要优先处理的开放任务",
+    sections: [{
+      title: "合作阶段任务",
+      body: `待打招呼 ${pack.stage_counts.greet} · 待跟进 ${pack.stage_counts.follow} · 待报价 ${pack.stage_counts.quote} · 谈判中 ${pack.stage_counts.negotiate}`,
+      items: [
+        `今日视图 ${formal.filter((item) => isTodayWorkItem(item)).length} 项`,
+        `待办视图 ${formal.filter((item) => !isTodayWorkItem(item)).length} 项`,
+      ],
+    }, {
+      title: "工作计划",
+      body: `${formal.length} 项未了结正式任务已按优先级和期限排序。`,
+      items: formal.slice(0, 6).map((item) => item.title),
+    }],
+    primary: first
+      ? { verb: "open", label: "打开任务", object_id: first.work_item_id, object_type: "task", person_id: first.person_id || null }
+      : { verb: "open", label: "查看任务列表", object_id: null, object_type: "task", person_id: null },
+    reasoning: [
+      "Host 已读取当前开放正式任务。",
+      "任务按优先级、期限和进行中状态排序。",
+      "今日任务与我的待办使用同一份计划结果，再按视图展示。",
+    ],
+    stats: {
+      unfinished: formal.length,
+      discovery_anomalies: Number(pack.now_counts?.discovery_anomalies || 0),
+      failed_runs: Number(pack.now_counts?.failed_runs || 0),
+      today_tasks: formal.filter((item) => isTodayWorkItem(item)).length,
+      todo_tasks: formal.filter((item) => !isTodayWorkItem(item)).length,
+      stage_counts: pack.stage_counts,
+    },
+    source_cursor: pack.source_cursor,
+    increment_summary: `已生成 ${formal.length} 项任务的统一工作计划`,
+    display_tasks: [],
+  } as Json;
+}
+
 export async function executeTodayPlanRun(input: {
   owner: string;
   workItemId: string;
@@ -202,15 +288,43 @@ export async function executeTodayPlanRun(input: {
   }, scope);
   const trace = createRunTraceSink({ workItemId: input.workItemId, runId: input.runId });
   try {
-    upsertTaskEvent(
+    // Planning speed is controlled by its own flag. CODEX_MODE=stub is used by
+    // CI and must not silently re-enable the slow Codex planning path in a
+    // deployed workbench. Set PLANNING_FAST_MODE=0 only when model planning is
+    // deliberately required for an environment or a focused test.
+    const fastMode = String(process.env.PLANNING_FAST_MODE || "1") !== "0";
+    appendTaskEvent(
       input.workItemId,
       input.runId,
-      "host:codex_submitted",
       "run.progress",
-      copy.codexSubmitted,
-      "done",
-      "Codex 正在做本轮业务分析",
+      fastMode ? "开始生成统一工作计划" : copy.codexSubmitted,
+      "running",
+      fastMode ? "Host 将直接生成任务视图" : copy.codexSubmitted,
     );
+    if (fastMode) {
+      appendTaskEvent(input.workItemId, input.runId, "run.phase", "读取合作阶段", "running", `待打招呼 ${input.pack.stage_counts.greet} · 待跟进 ${input.pack.stage_counts.follow} · 待报价 ${input.pack.stage_counts.quote} · 谈判中 ${input.pack.stage_counts.negotiate}`);
+      appendTaskEvent(input.workItemId, input.runId, "run.phase", "整理优先级与今日范围", "running", `${input.pack.now_counts.unfinished} 项正式任务，来源增量 ${input.pack.delta.added.length} 项`);
+      appendTaskEvent(input.workItemId, input.runId, "run.phase", "生成统一任务视图", "running", "今日任务与我的待办共享同一份计划结果");
+      const brief = withHostDisplayTasks(hostFastBrief(input.pack), input.pack);
+      const written = writeTodayBriefArtifact({
+        owner: input.owner,
+        workItemId: input.workItemId,
+        runId: input.runId,
+        brief,
+        scope,
+      });
+      appendTaskEvent(input.workItemId, input.runId, "run.phase", "校验输出", "running", written.ok ? `${input.pack.now_counts.unfinished} 项任务展示覆盖完整` : written.reason);
+      if (!written.ok) {
+        markTodayPlanFailed(input.workItemId, input.runId, written.reason);
+        trace.finish(true);
+        appendTaskEvent(input.workItemId, input.runId, "run.failed", copy.invalid, "failed", written.reason);
+        return;
+      }
+      markTodayPlanCompleted(input.workItemId, input.runId);
+      trace.finish(false);
+      appendTaskEvent(input.workItemId, input.runId, "run.completed", copy.completed, "completed", "Host 已快速生成统一工作计划");
+      return;
+    }
     const wr = await Promise.resolve(runWorker(
       input.sessionId,
       planTaskType(scope),
@@ -220,29 +334,28 @@ export async function executeTodayPlanRun(input: {
       trace.onStream,
     ));
     trace.finish(false);
-    // 模型已返回：这一步是 Host 在校验结构并写入展示记忆，用 running 写到收尾为止。
-    upsertTaskEvent(
+    appendTaskEvent(
       input.workItemId,
       input.runId,
-      "host:writing_brief",
       "run.progress",
       copy.writingBrief,
       "running",
-      "校验结构并写入展示记忆",
+      copy.writingBrief,
     );
-    const brief = briefFromWorkerItems(wr.items);
+    const modelBrief = briefFromWorkerItems(wr.items);
+    const brief = withHostDisplayTasks(modelBrief, input.pack);
     if (brief && typeof brief === "object" && !Array.isArray(brief)) {
       const root = brief as Json;
       const stats = root.stats && typeof root.stats === "object" && !Array.isArray(root.stats)
         ? { ...(root.stats as Json) }
         : {};
       if (stats.candidates == null) stats.candidates = input.pack.catalog.length;
+      if (root.stage_counts == null) root.stage_counts = input.pack.stage_counts;
       root.stats = stats;
     }
     const missingCoverage = missingDisplayCoverage(brief, input.pack);
     if (missingCoverage.length) {
       const reason = `展示行漏了 ${missingCoverage.length} 项任务（${missingCoverage.slice(0, 3).join("、")}）`;
-      upsertTaskEvent(input.workItemId, input.runId, "host:writing_brief", "run.progress", copy.writingBrief, "failed", reason);
       markTodayPlanFailed(input.workItemId, input.runId, reason);
       trace.finish(true);
       appendTaskEvent(input.workItemId, input.runId, "run.failed", copy.invalid, "failed", reason);
@@ -256,27 +369,15 @@ export async function executeTodayPlanRun(input: {
       scope,
     });
     if (!written.ok) {
-      upsertTaskEvent(input.workItemId, input.runId, "host:writing_brief", "run.progress", copy.writingBrief, "failed", written.reason);
       markTodayPlanFailed(input.workItemId, input.runId, written.reason);
       trace.finish(true);
       appendTaskEvent(input.workItemId, input.runId, "run.failed", copy.invalid, "failed", written.reason);
       return;
     }
-    const displayRows = (written.brief as Json).display_tasks;
-    const displayCount = Array.isArray(displayRows) ? displayRows.length : 0;
-    upsertTaskEvent(input.workItemId, input.runId, "host:writing_brief", "run.progress", copy.writingBrief, "done", `已写入 ${displayCount} 条任务展示`);
     markTodayPlanCompleted(input.workItemId, input.runId);
-    appendTaskEvent(
-      input.workItemId,
-      input.runId,
-      "run.completed",
-      copy.completed,
-      "completed",
-      scope === "todo" ? "已更新待办展示" : "已更新今日展示",
-    );
+    appendTaskEvent(input.workItemId, input.runId, "run.completed", copy.completed, "completed", "today_brief 已更新");
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    upsertTaskEvent(input.workItemId, input.runId, "host:writing_brief", "run.progress", copy.writingBrief, "failed", reason.slice(0, 200));
     markTodayPlanFailed(input.workItemId, input.runId, reason);
     trace.finish(true);
     appendTaskEvent(input.workItemId, input.runId, "run.failed", copy.failed, "failed", reason.slice(0, 1000));
@@ -290,7 +391,8 @@ export function startTodayPlan(owner = ownerId(), scope: PlanScope = "today"): {
   attached: boolean;
   planning: boolean;
 } {
-  const existing = runningTodayPlan(owner, scope);
+  const canonicalScope: PlanScope = "today";
+  const existing = runningTodayPlan(owner, canonicalScope);
   if (existing?.session_id && existing.run_id) {
     return {
       work_item_id: existing.work_item_id,
@@ -300,11 +402,11 @@ export function startTodayPlan(owner = ownerId(), scope: PlanScope = "today"): {
       planning: true,
     };
   }
-  const copy = PLAN_EMPLOYEE_EVENTS[scope];
-  const taskType = planTaskType(scope);
-  const title = scope === "todo" ? "待办规划" : "今日规划";
-  const pack = packTodayPlanContext(owner, scope);
-  const payload = planningRunInput(pack, {}, scope);
+  const copy = PLAN_EMPLOYEE_EVENTS[canonicalScope];
+  const taskType = planTaskType(canonicalScope);
+  const title = "统一工作计划";
+  const pack = packTodayPlanContext(owner, canonicalScope);
+  const payload = planningRunInput(pack, {}, canonicalScope);
   const identity = planningRuntimeIdentity(taskType);
   const sessionId = createPlanningSession(title, owner, identity.session_identity, taskType);
   const workItemId = createPlanningWorkItem({
@@ -315,17 +417,29 @@ export function startTodayPlan(owner = ownerId(), scope: PlanScope = "today"): {
     payload,
   });
   const runId = createPlanningRun(workItemId, sessionId, payload);
-  // Host 里程碑：写下时这件事就已经完成（status=done），摘要给真实计数。
-  // 不再留永远 running 的「过程行」让界面替它猜状态。
-  upsertTaskEvent(workItemId, runId, "host:memory_read", "run.progress", copy.memoryRead, "done", memoryReadSummary(pack));
-  upsertTaskEvent(workItemId, runId, "host:delta_packed", "run.progress", copy.deltaPacked, "done", `来源增量 ${pack.delta.added.length} 项`);
+  appendTaskEvent(
+    workItemId,
+    runId,
+    "run.progress",
+    copy.memoryRead,
+    "running",
+    memoryReadSummary(pack, scope),
+  );
+  appendTaskEvent(
+    workItemId,
+    runId,
+    "run.progress",
+    copy.deltaPacked,
+    "running",
+    `来源增量 ${pack.delta.added.length} 项`,
+  );
   audit(owner, `${taskType}.started`, {
     work_item_id: workItemId,
     session_id: sessionId,
     run_id: runId,
     creates_session: true,
   });
-  void executeTodayPlanRun({ owner, workItemId, sessionId, runId, pack, scope });
+  void executeTodayPlanRun({ owner, workItemId, sessionId, runId, pack, scope: canonicalScope });
   return {
     work_item_id: workItemId,
     session_id: sessionId,

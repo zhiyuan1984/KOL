@@ -56,6 +56,7 @@ export default function TaskBoard({
   busy,
   loading,
   onAct,
+  onOpen,
   onEdit,
   showPlanButton = true,
   planPhase = "idle",
@@ -67,6 +68,7 @@ export default function TaskBoard({
   busy: boolean;
   loading: boolean;
   onAct: (task: Task) => void;
+  onOpen?: (task: Task) => void;
   onEdit?: (task: Task) => void;
   showPlanButton?: boolean;
   planPhase?: TodayPlanPhase;
@@ -162,7 +164,6 @@ export default function TaskBoard({
           <thead>
             <tr>
               <th className="task-board-cell-index">#</th>
-              <th>优先级</th>
               <th>任务标题</th>
               <th>操作</th>
             </tr>
@@ -175,6 +176,7 @@ export default function TaskBoard({
                 index={index}
                 busy={busy}
                 onAct={onAct}
+                onOpen={onOpen}
                 onEdit={onEdit}
               />
             ))}

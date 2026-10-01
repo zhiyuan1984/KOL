@@ -527,21 +527,99 @@ function briefArtifact(workItemId: string): Json | null {
   return artifact?.payload ? parseJson(artifact.payload) : null;
 }
 
-function publicRun(row: Row): Json {
+function discoveryStatusContract(row: Row, spec: DiscoverySpec, candidateCount: number): Json {
+  const rawStatus = String(row.status || "").toLowerCase();
+  const started = Boolean(row.started_at);
+  const terminal = ["completed", "cancelled", "crawl_failed", "rank_failed", "failed"].includes(rawStatus);
+  const startFailed = ["crawl_failed", "failed"].includes(rawStatus) && !started;
+  const noMatch = rawStatus === "completed" && candidateCount === 0;
+  const status = startFailed ? "start_failed"
+    : rawStatus === "queued" ? "queued"
+      : ["crawling", "starting", "running"].includes(rawStatus) ? (candidateCount ? "partial" : "collecting")
+        : rawStatus === "ranking" ? (candidateCount ? "partial" : "filtering")
+          : noMatch ? "no_match"
+            : rawStatus === "completed" ? "completed"
+              : rawStatus === "cancelled" ? "cancelled"
+                : terminal ? "interrupted" : "not_started";
+  const titles: Record<string, string> = {
+    not_started: "准备发现红人线索", queued: "已创建发现任务，等待开始", collecting: "正在采集红人候选账号",
+    filtering: "正在筛选匹配的红人", partial: `已发现 ${candidateCount} 位匹配红人`, completed: "红人线索发现完成",
+    no_match: "未找到符合条件的红人", start_failed: "暂时无法开始发现红人", interrupted: "发现任务中断", cancelled: "发现任务已取消",
+  };
+  const messages: Record<string, string> = {
+    not_started: "筛选条件已保存，提交后将创建检索任务。", queued: "任务已进入队列，尚未开始采集数据。",
+    collecting: "正在从已配置的数据源获取候选账号。", filtering: "正在根据已确认的条件去重、过滤并排序。",
+    partial: "检索仍在继续，当前结果会持续更新。", completed: `共找到 ${candidateCount} 位符合条件的红人。`,
+    no_match: "本次检索已完成，但没有候选账号满足当前筛选条件。", start_failed: "发现服务当前不可用，本次任务尚未启动。",
+    interrupted: "任务曾经启动，但执行中断，当前结果可能不完整。", cancelled: "任务已取消，未继续采集。",
+  };
+  const errorCode = startFailed ? "DISCOVERY_SERVICE_UNAVAILABLE"
+    : rawStatus === "rank_failed" ? "DISCOVERY_FILTER_FAILED"
+      : rawStatus === "crawl_failed" ? "DISCOVERY_COLLECTION_FAILED" : null;
+  return {
+    status,
+    stage: startFailed || rawStatus === "cancelled" ? "not_started" : rawStatus === "queued" ? "queued"
+      : ["crawling", "starting", "running"].includes(rawStatus) ? "collecting"
+        : rawStatus === "ranking" ? "filtering" : terminal ? "completed" : "not_started",
+    title: titles[status] || "发现任务处理中", message: messages[status] || "任务状态正在更新。",
+    input_preserved: true, has_results: candidateCount > 0, execution_started: started,
+    retryable: ["start_failed", "interrupted", "cancelled"].includes(status), retry_mode: "manual", next_retry_at: null,
+    condition_snapshot: {
+      platforms: spec.platforms, keywords: spec.keywords, directions: spec.directions, region: spec.region,
+      min_followers: spec.thresholds.min_followers, max_followers: spec.thresholds.max_followers,
+      min_avg_views_10: spec.thresholds.min_avg_views_10,
+    },
+    progress: {
+      collected: !started ? null : row.raw_count == null ? null : Number(row.raw_count),
+      parsed: null,
+      deduplicated: null, matched: candidateCount > 0 ? candidateCount : null,
+    },
+    diagnostics: {
+      service: "discovery", error_code: errorCode, occurred_at: row.updated_at || row.created_at || null,
+      request_id: row.request_id || null, last_heartbeat: row.updated_at || row.created_at || null,
+    },
+  };
+}
+
+/** Newest events kept on a run payload. The full stream lives under GET /api/tasks/:id/events. */
+const RUN_EVENT_LIMIT = 200;
+/** The runs list carries counts only: N runs × 200 events was 128 MB once. */
+const RUN_LIST_EVENT_LIMIT = 0;
+
+/**
+ * A capped tail, returned in chronological order. One crawl job that kept
+ * polling wrote 415k rows, and embedding a work item's whole history in the
+ * list turned a 40-row response into 128 MB.
+ */
+function runEvents(workItemId: string, limit: number): { events: Json[]; eventCount: number } {
+  if (!workItemId) return { events: [], eventCount: 0 };
+  const total = getConn().prepare(
+    "SELECT COUNT(*) AS n FROM task_events WHERE work_item_id=?",
+  ).get(workItemId) as { n: number } | undefined;
+  const eventCount = Number(total?.n || 0);
+  if (limit <= 0) return { events: [], eventCount };
+  const rows = getConn().prepare(
+    `SELECT * FROM (
+       SELECT * FROM task_events WHERE work_item_id=? ORDER BY sequence DESC LIMIT ?
+     ) ORDER BY sequence`,
+  ).all(workItemId, limit) as Row[];
+  return {
+    events: rows.map((item) => ({
+      type: item.event_type,
+      status: item.status,
+      summary: item.safe_summary,
+      created_at: item.time,
+    })),
+    eventCount,
+  };
+}
+
+function publicRun(row: Row, eventLimit: number = RUN_EVENT_LIMIT): Json {
   const spec = specOf(row);
   const searchKeywords = spec.keywords;
   const candidateCount = Number(row.candidate_count || 0);
   const workItemId = row.work_item_id ? String(row.work_item_id) : "";
-  const events = workItemId
-    ? (getConn().prepare(
-        "SELECT * FROM task_events WHERE work_item_id=? ORDER BY sequence",
-      ).all(workItemId) as Row[]).map((item) => ({
-        type: item.event_type,
-        status: item.status,
-        summary: item.safe_summary,
-        created_at: item.time,
-      }))
-    : [];
+  const { events, eventCount } = runEvents(workItemId, eventLimit);
   const status = String(row.status);
   return {
     id: row.id,
@@ -559,10 +637,12 @@ function publicRun(row: Row): Json {
     error: row.error || null,
     brief: briefArtifact(workItemId),
     events,
+    event_count: eventCount,
     created_at: row.created_at,
     started_at: row.started_at,
     updated_at: row.updated_at,
     completed_at: row.completed_at,
+    status_contract: discoveryStatusContract(row, spec, candidateCount),
   };
 }
 
@@ -1085,19 +1165,37 @@ export function restoreActiveHomeDiscoveryRuns(): void {
   }
 }
 
-export function listHomeDiscoveryRuns(): Json {
+/** Page size for the runs list. Without it, one dirty row decides the whole page's weight. */
+const RUN_LIST_DEFAULT_LIMIT = 50;
+const RUN_LIST_MAX_LIMIT = 200;
+
+function runListLimit(raw: unknown): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return RUN_LIST_DEFAULT_LIMIT;
+  return Math.min(Math.floor(n), RUN_LIST_MAX_LIMIT);
+}
+
+export function listHomeDiscoveryRuns(query: { limit?: unknown } = {}): Json {
   registerHomeDiscoveryHook();
   const owner = ownerId();
-  const rows = (isAdmin()
-    ? getConn().prepare("SELECT * FROM discovery_runs WHERE kind=? ORDER BY updated_at DESC").all(HOME_KIND)
-    : getConn().prepare(
-        "SELECT * FROM discovery_runs WHERE kind=? AND owner_user_id=? ORDER BY updated_at DESC",
-      ).all(HOME_KIND, owner)) as Row[];
+  const limit = runListLimit(query.limit);
+  const scope = isAdmin()
+    ? { sql: "kind=?", params: [HOME_KIND] as unknown[] }
+    : { sql: "kind=? AND owner_user_id=?", params: [HOME_KIND, owner] as unknown[] };
+  const total = Number((getConn().prepare(
+    `SELECT COUNT(*) AS n FROM discovery_runs WHERE ${scope.sql}`,
+  ).get(...scope.params) as { n: number } | undefined)?.n || 0);
+  const rows = getConn().prepare(
+    `SELECT * FROM discovery_runs WHERE ${scope.sql} ORDER BY updated_at DESC LIMIT ?`,
+  ).all(...scope.params, limit) as Row[];
   return {
     entry: "memory",
     creates_session: false,
     calls_model: false,
-    runs: rows.map(publicRun),
+    runs: rows.map((row) => publicRun(row, RUN_LIST_EVENT_LIMIT)),
+    total,
+    limit,
+    truncated: total > rows.length,
   };
 }
 

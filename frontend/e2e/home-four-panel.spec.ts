@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { paneBodyText, stubFollowingFromServerBoard, stubHomeBoardAndFollowing, stubHomeFollowing } from "./kol-surface-stub";
+import { paneBodyText, stubFollowingFromServerBoard, stubHomeBoardAndFollowing, stubHomeFollowing, stubHomePool } from "./kol-surface-stub";
 
 async function openMode(page: Page, mode: "today" | "todo" | "discovery" | "pool" | "lifecycle") {
   await page.locator(`[data-home-mode="${mode}"]`).click();
@@ -685,16 +685,38 @@ const SITUATION_REFUSED = {
   stage_label: "已拒绝",
 };
 
-test("followed brief counts narrow the list as a situational filter", async ({ page }) => {
+const NEW_POOL_KOL = {
+  id: "kpi_new_pool",
+  kol_uid: "uid_new_pool",
+  handle: "新加入红人",
+  display_name: "新加入红人",
+  platform: "youtube",
+  homepage_url: "https://www.youtube.com/@new-pool",
+  avatar_url: "",
+  followers: "12000",
+  avg_plays: "3000",
+  engagement: "0.04",
+  direction: "户外生活",
+  region: "北美",
+  style: "测评",
+  ingested_at: "2026-09-28T00:00:00Z",
+  public_stage: "未首次建联",
+  pool_status: "open",
+  has_conversation: false,
+};
+
+test("suggested actions narrow the list as a situational filter", async ({ page }) => {
   await stubHomeFollowing(page, [SITUATION_ACTIVE, SITUATION_REFUSED]);
   await page.goto("/?tab=lifecycle");
   await expect(page.locator('[data-home-pane="lifecycle"]')).toBeVisible();
   await expect(page.locator("[data-followed-kol]")).toHaveCount(2);
+  await expect(page.locator("[data-followed-interaction]")).not.toContainText("需要关注");
+  await expect(page.locator("[data-followed-lifecycle-grid] button em")).toHaveCount(0);
 
   // 情境分区全部可点；零档也可作为明确的空筛选结果使用。
-  await expect(page.locator('button[data-followed-situation="refused"]')).toContainText("1 位已拒绝");
-  await expect(page.locator('button[data-followed-situation="near_14d"]')).toContainText("0 位临近 14 天未联系");
-  await expect(page.locator('button[data-followed-situation="interested"]')).toContainText("0 位有意向");
+  await expect(page.locator('button[data-followed-situation="refused"]')).toContainText("核对已拒绝的 1 位对象");
+  await expect(page.locator('button[data-followed-situation="near_14d"]')).toContainText("查看临近失联的 0 位对象");
+  await expect(page.locator('button[data-followed-situation="interested"]')).toContainText("查看已表达兴趣的 0 位对象");
 
   await page.locator('button[data-followed-situation="refused"]').click();
   await expect(page.locator("[data-followed-kol]")).toHaveCount(1);
@@ -707,6 +729,18 @@ test("followed brief counts narrow the list as a situational filter", async ({ p
   await expect(page.locator('button[data-followed-situation="refused"]')).toHaveAttribute("aria-pressed", "false");
 });
 
+test("suggested public-pool action opens the right rail on new KOLs", async ({ page }) => {
+  await stubHomePool(page, [NEW_POOL_KOL]);
+  await stubHomeFollowing(page, [SITUATION_ACTIVE]);
+  await page.goto("/?tab=lifecycle");
+  await expect(page.locator("[data-followed-public-pool-new]")).toBeVisible();
+
+  await page.locator("[data-followed-public-pool-new]").click();
+  await expect(page.locator('[data-home-pane="pool"]')).toBeVisible();
+  await expect(page.locator('[data-pool-filter="new"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('[data-pool-kol="uid_new_pool"]')).toBeVisible();
+});
+
 test("followed toolbar separates 找谁 from 对选中做什么 and keeps stages secondary", async ({ page }) => {
   await stubHomeFollowing(page, [SITUATION_ACTIVE, SITUATION_REFUSED]);
   await page.goto("/?tab=lifecycle");
@@ -715,10 +749,10 @@ test("followed toolbar separates 找谁 from 对选中做什么 and keeps stages
   const toolbar = page.locator("[data-followed-object-toolbar]");
   await expect(toolbar.locator("[data-followed-object-search]")).toBeVisible();
   await expect(page.locator("[data-followed-interaction]")).toContainText("2 位当前跟进对象");
-  await expect(toolbar.locator("[data-followed-object-batch]")).toContainText("全选本页");
+  await expect(toolbar.locator("[data-followed-object-batch]")).toContainText("全选");
 
   // 计数不再与筛选控件的标签连读成「1 人 阶段（高级）」，也不重复简报里的总数：
-  // 全部在跟数由简报唯一承载，工具行只在选中时报「已选 N / 8」。
+  // 全部在跟数由简报唯一承载，工具行只在选中时报「已选 N」。
   await expect(toolbar.locator("[data-followed-selected-count]")).toHaveCount(0);
   // 生命周期分组仍可用，但不再以 15 个正式阶段作为主筛选。
   const stageGroups = page.locator("[data-followed-stage-group]");

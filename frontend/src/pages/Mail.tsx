@@ -6,7 +6,7 @@ import { storePending } from "../components/ChatBlocks";
 import { applyComposerDraft, takeComposerDraftStash } from "../composer/draft";
 import type { ComposerDraftStash } from "../composer/types";
 import { isMissingEndpoint } from "../home/discoveryHome";
-import { decorateWorkspace, hydratePollDelayMs, loadMailPersonDigest, loadMailThread, loadMailWorkspaceFast, normalizeBox, normalizePersonDigest, normalizeThread, syncMailboxMail } from "../mail/client";
+import { decorateWorkspace, hydratePollDelayMs, loadMailPersonDigest, loadMailThread, loadMailWorkspaceFast, normalizeBox, syncMailboxMail } from "../mail/client";
 import { CorrespondentRow } from "../mail/components/CorrespondentRow";
 import { ConversationItem } from "../mail/components/ConversationItem";
 import { MailContent } from "../mail/components/MailContent";
@@ -48,7 +48,8 @@ function httpCopy(error: unknown, fallback: string): string {
   const status = (error as { status?: number })?.status;
   if (status === 409) return "邮箱正在收取，请稍后再试。没有创建会话。";
   if (status === 404) return MAIL_THREAD_MISSING_COPY;
-  return error instanceof Error && error.message ? error.message : fallback;
+  if (error instanceof Error && error.message && error.message !== `请求失败 (${status || 502})`) return error.message;
+  return fallback;
 }
 
 /**
@@ -107,6 +108,8 @@ const ICO_SEARCH = "M11 4.8a6.2 6.2 0 1 0 0 12.4 6.2 6.2 0 0 0 0-12.4M16.4 16.4 
 const ICO_FILTER = "M4 5h16l-6.3 7.3v5.2l-3.4-2.1v-3.1Z";
 const ICO_REPLY = "M9.5 14.5 4.5 9.5l5-5M4.5 9.5H13a6.5 6.5 0 0 1 6.5 6.5v3";
 const ICO_SPARKLE = "M12 3.8l1.9 4.9 4.9 1.9-4.9 1.9L12 17.4l-1.9-4.9-4.9-1.9 4.9-1.9ZM18.6 16.4v4M16.6 18.4h4";
+const ICO_WAND = "M5 19 18.8 5.2M15.4 3.8l.8 2.1 2.1.8-2.1.8-.8 2.1-.8-2.1-2.1-.8 2.1-.8ZM6.2 5.2l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5ZM18.1 14.2l.5 1.3 1.3.5-1.3.5-.5 1.3-.5-1.3-1.3-.5 1.3-.5Z";
+const ICO_TRANSLATE = "M4 5h9M8.5 5v2.2c0 3-1.3 5.2-4 6.8M6 9.2c1.4 1.6 3.1 2.8 5.3 3.6M15 13l-3.2 7M18.2 13l3.2 7M13.8 17h5.6";
 const ICO_DOC = "M7 3.5h6.5L18 8v12.5H7ZM13.5 3.5V8H18";
 
 function MailIco({ d }: { d: string }) {
@@ -177,6 +180,7 @@ export default function Mail() {
   const [expandedId, setExpandedId] = useState("");
   const [letters, setLetters] = useState<MailComposeLetter[]>([]);
   const [lettersMore, setLettersMore] = useState(false);
+  const [memoryBusy, setMemoryBusy] = useState<"summary" | "translation" | null>(null);
   const [composerText, setComposerText] = useState("");
   // A deep link that names a mail (?c=&m=) opens on the detail pane: at ≤1100px
   // the switcher would otherwise stop on 列表 while the left column already
@@ -184,7 +188,6 @@ export default function Mail() {
   const [pane, setPane] = useState<MailPane>(() => (params.get("m") ? "detail" : "list"));
   const [busy, setBusy] = useState(false);
   const [folds, setFolds] = useState<Record<MailFoldKey, boolean>>(readMailFolds);
-  const [memoryBusy, setMemoryBusy] = useState<"summary" | "translation" | "" >("");
   const syncPollRef = useRef<number | null>(null);
   const baseSyncedAtRef = useRef<string>("");
   const startedRef = useRef<Set<string>>(new Set());
@@ -498,6 +501,66 @@ export default function Mail() {
     }
   };
 
+  const generateMailMemory = async (kind: "summary" | "translation") => {
+    const mailbox = workspace?.box.mailbox || boxParam;
+    if (!mailbox || !selectedConversation || memoryBusy) return;
+    if (kind === "translation" && !currentMessage) return;
+    setMemoryBusy(kind);
+    setError("");
+    setNotice(kind === "summary" ? "正在按邮件记忆技能生成往来摘要…" : "正在按邮件翻译技能生成中文译稿…");
+    try {
+      await api.runMailSkill(kind === "summary" ? "mail_summary" : "mail_translate", {
+        box: mailbox,
+        conversation_id: selectedConversation.conversation_id,
+        ...(currentMessage ? { message_id: currentMessage.id } : {}),
+      });
+      // 服务端完成技能链路后，先立即读取当前会话，避免只刷新联系人摘要造成页面看不到结果。
+      const refreshed = await loadMailThread(selectedConversation.conversation_id, selectedConversation, workspace?.source || "api");
+      if (refreshed) {
+        setThreads((prev) => ({ ...prev, [selectedConversation.conversation_id]: refreshed }));
+        if (kind === "summary" && refreshed.digest.text) {
+          setPersonDigest({
+            mailbox,
+            peer_email: selectedConversation.peer_email,
+            digest_text: refreshed.digest.text,
+            digest_source: refreshed.digest.source,
+          });
+        }
+      }
+      // 保留短轮询，兼容远端同步刚刚完成、首次读取仍拿到旧缓存的情况。
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+        if (kind === "summary") {
+          const next = await loadMailThread(selectedConversation.conversation_id, selectedConversation, workspace?.source || "api");
+          if (next) {
+            setThreads((prev) => ({ ...prev, [selectedConversation.conversation_id]: next }));
+            if (next.digest.text) {
+              setPersonDigest({
+                mailbox,
+                peer_email: selectedConversation.peer_email,
+                digest_text: next.digest.text,
+                digest_source: next.digest.source,
+                digest_generated_at: new Date().toISOString(),
+              });
+              break;
+            }
+          }
+        } else {
+          const next = await loadMailThread(selectedConversation.conversation_id, selectedConversation, workspace?.source || "api");
+          if (next) {
+            setThreads((prev) => ({ ...prev, [selectedConversation.conversation_id]: next }));
+            if (next.messages.some((message) => message.id === currentMessage?.id && message.translation_zh)) break;
+          }
+        }
+      }
+      setNotice(kind === "summary" ? "往来摘要已更新。" : "中文译稿已更新。");
+    } catch (e) {
+      setError(e instanceof Error && e.message ? e.message : "邮件记忆生成失败，请稍后重试。");
+    } finally {
+      setMemoryBusy(null);
+    }
+  };
+
   const setFold = (key: MailFoldKey, open: boolean, persist = true) => {
     if (persist) writeMailFold(key, open);
     setFolds((prev) => (prev[key] === open ? prev : { ...prev, [key]: open }));
@@ -718,37 +781,6 @@ export default function Mail() {
   const detailPeer = selectedConversation ? peerOf(selectedConversation) : "";
   const detailPeerEmail = selectedConversation?.peer_email || "";
   const translation = String(currentMessage?.translation_zh || "").trim();
-  const digestTag = personDigest?.digest_source === "codex_memory" ? "codex" : "";
-
-  const generateMailMemory = async (kind: "summary" | "translation") => {
-    if (!selectedConversation || !workspace?.box.mailbox || !selectedConversation.peer_email || (kind === "translation" && !currentMessage)) return;
-    setMemoryBusy(kind);
-    setError("");
-    setNotice(kind === "summary" ? "正在按邮件总结技能生成往来摘要…" : "正在按邮件翻译技能生成中文译稿…");
-    try {
-      await api.generateMailMemory({
-        box: workspace.box.mailbox,
-        peer_email: selectedConversation.peer_email,
-        conversation_id: selectedConversation.conversation_id,
-        message_id: currentMessage?.id,
-        kind,
-      });
-      const [digestRaw, threadRaw] = await Promise.all([
-        api.mailPerson(workspace.box.mailbox, selectedConversation.peer_email),
-        api.mailConversation(selectedConversation.conversation_id),
-      ]);
-      const digest = normalizePersonDigest(digestRaw as Record<string, unknown>);
-      if (digest) setPersonDigest(digest);
-      const thread = normalizeThread(threadRaw as Record<string, unknown>, workspace.box.mailbox);
-      if (thread) setThreads((prev) => ({ ...prev, [selectedConversation.conversation_id]: thread }));
-      setNotice(kind === "summary" ? "往来摘要已按邮件总结技能更新。" : "中文译稿已按邮件翻译技能更新。");
-    } catch (e) {
-      setError(httpCopy(e, kind === "summary" ? "往来摘要生成失败。" : "中文译稿生成失败。"));
-      setNotice("");
-    } finally {
-      setMemoryBusy("");
-    }
-  };
   const visibleLetters = lettersMore ? letters : letters.slice(0, TASK_CHIP_LIMIT);
 
   return (
@@ -908,7 +940,45 @@ export default function Mail() {
               );
             })}
             </div>
-            <footer className="mail-list-footer" data-mail-list-footer>
+          </aside>
+
+          <section className="mail-interact" data-mail-interact>
+            {letters.length ? (
+              <div className="mail-interact-tasks">
+                <p className="mail-pane-label">{MAIL_COMPOSE_ACTION_COPY}</p>
+                <div className="mail-task-chips" data-mail-task-chips>
+                  {visibleLetters.map((letter) => (
+                    <button
+                      key={letter.stage}
+                      type="button"
+                      className="mail-task-chip"
+                      data-mail-task-chip={letter.stage}
+                      title={letter.prompt}
+                      onClick={() => pickLetter(letter)}
+                    >
+                      {letter.chip}
+                    </button>
+                  ))}
+                  {letters.length > TASK_CHIP_LIMIT ? (
+                    <details
+                      className="mail-task-disclosure"
+                      open={lettersMore}
+                      onToggle={(event) => setLettersMore(event.currentTarget.open)}
+                    >
+                      <summary
+                        data-mail-task-more
+                        aria-expanded={lettersMore}
+                        title={lettersMore ? "收起更多邮件任务" : "查看全部邮件任务"}
+                      >
+                        <span>{lettersMore ? "收起" : "更多"}</span>
+                        <span className="mail-accordion-icon" aria-hidden="true">{lettersMore ? "▴" : "▾"}</span>
+                      </summary>
+                    </details>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+            <div className="mail-interact-feedback" data-mail-interact-feedback>
               {error ? <p className="error" role="alert" data-mail-error>{error}</p> : null}
               {notice ? <p className="muted" role="status" data-mail-notice>{notice}</p> : null}
               {workspace?.source === "fallback" ? (
@@ -932,44 +1002,7 @@ export default function Mail() {
                   {syncing ? "正在收取…" : "收取"}
                 </button>
               </div>
-            </footer>
-          </aside>
-
-          <section className="mail-interact" data-mail-interact>
-            {letters.length ? (
-              <div className="mail-interact-tasks">
-                <p className="mail-pane-label">{MAIL_COMPOSE_ACTION_COPY}</p>
-                <div className="mail-task-chips" data-mail-task-chips>
-                  {visibleLetters.map((letter) => (
-                    <button
-                      key={letter.stage}
-                      type="button"
-                      className="mail-task-chip"
-                      data-mail-task-chip={letter.stage}
-                      title={letter.prompt}
-                      onClick={() => pickLetter(letter)}
-                    >
-                      {letter.chip}
-                    </button>
-                  ))}
-                  {letters.length > TASK_CHIP_LIMIT ? (
-                    <button
-                      type="button"
-                      className="mail-task-more"
-                      data-mail-task-more
-                      aria-expanded={lettersMore}
-                      onClick={() => setLettersMore((v) => !v)}
-                    >
-                      <span>{lettersMore ? "收起" : "更多"}</span>
-                      <svg className="mail-task-accordion-icon" aria-hidden="true" viewBox="0 0 16 16" focusable="false">
-                        <path d="m3 6 5 5 5-5" />
-                        <path className="mail-task-accordion-rail" d="M1.5 2.5h13" />
-                      </svg>
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
+            </div>
             <div className="mail-interact-dock">
               <ComposerDock
                 variant="workspace"
@@ -1003,7 +1036,8 @@ export default function Mail() {
                 </h2>
                 {detailPeer ? (
                   <p className="muted" data-mail-thread-sub>
-                    {detailPeerEmail || detailPeer}
+                    {detailPeer}
+                    {detailPeerEmail && detailPeerEmail !== detailPeer ? ` · ${detailPeerEmail}` : ""}
                   </p>
                 ) : null}
               </div>
@@ -1027,10 +1061,19 @@ export default function Mail() {
               label="往来摘要"
               open={folds.summary}
               onToggle={() => toggleFold("summary")}
-              action={<button type="button" className="mail-side-generate" data-mail-generate-summary onClick={(event) => { event.stopPropagation(); void generateMailMemory("summary"); }} disabled={memoryBusy !== "" || !selectedConversation}>
-                <MailIco d={ICO_SPARKLE} />{memoryBusy === "summary" ? "生成中…" : "生成摘要"}
-              </button>}
-              tag={<span className="mail-side-tag" data-mail-digest-tag>{digestTag}</span>}
+              tag={(
+                <button
+                  type="button"
+                  className="mail-side-action"
+                  data-mail-generate-summary
+                  data-mail-entry="mail_summary"
+                  disabled={memoryBusy !== null || !selectedConversation}
+                  onClick={() => void generateMailMemory("summary")}
+                >
+                  <MailIco d={ICO_WAND} />
+                  {memoryBusy === "summary" ? "生成中…" : "生成摘要"}
+                </button>
+              )}
             >
               <div
                 className="mail-fold-inner"
@@ -1042,9 +1085,25 @@ export default function Mail() {
               </div>
             </MailFold>
 
-            <MailFold id="translation" label="中文翻译" open={folds.translation} onToggle={() => toggleFold("translation")} action={<button type="button" className="mail-side-generate" data-mail-generate-translation onClick={(event) => { event.stopPropagation(); void generateMailMemory("translation"); }} disabled={memoryBusy !== "" || !currentMessage}>
-              <MailIco d={ICO_TRANSLATE} />{memoryBusy === "translation" ? "生成中…" : "生成摘要"}
-            </button>}>
+            <MailFold
+              id="translation"
+              label="中文翻译"
+              open={folds.translation}
+              onToggle={() => toggleFold("translation")}
+              tag={(
+                <button
+                  type="button"
+                  className="mail-side-action"
+                  data-mail-generate-translation
+                  data-mail-entry="mail_translate"
+                  disabled={memoryBusy !== null || !currentMessage}
+                  onClick={() => void generateMailMemory("translation")}
+                >
+                  <MailIco d={ICO_TRANSLATE} />
+                  {memoryBusy === "translation" ? "生成中…" : "生成翻译"}
+                </button>
+              )}
+            >
               <div
                 className="mail-fold-inner"
                 data-mail-translation

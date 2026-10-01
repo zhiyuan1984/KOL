@@ -46,6 +46,27 @@ export async function startRuntimeProxy(execution: SkillExecution): Promise<Runt
         return { tools: catalog.tools.map((tool) => tool.exposed as Tool) };
       });
       server.setRequestHandler(CallToolRequestSchema, async (request) => {
+        // Some Codex builds use the historical helper name while inspecting an
+        // MCP server. This runtime intentionally exposes tools only, but treat
+        // that compatibility call as a safe read instead of turning it into a
+        // failed discovery run. The returned entries contain only the already
+        // authorized public tool aliases and schemas.
+        if (request.params.name === "list_mcp_resources") {
+          const catalog = await execution.discover();
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                resources: catalog.tools.map((tool) => ({
+                  name: tool.exposed.name,
+                  description: tool.exposed.description,
+                  inputSchema: tool.exposed.inputSchema,
+                })),
+                note: "This run exposes tools only; call tools/list for the authoritative catalog.",
+              }),
+            }],
+          } as CallToolResult;
+        }
         try { return await execution.invoke(request.params.name, (request.params.arguments || {}) as Json) as CallToolResult; }
         catch (error) { return { content: [{ type: "text", text: runtimeErrorCode(error) }], isError: true }; }
       });

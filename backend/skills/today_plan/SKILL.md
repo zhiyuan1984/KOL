@@ -37,7 +37,7 @@ Host 已锁定本 Skill。CONTEXT.md 里的 **HOST PACK（history / delta / now_
 1. 前端读取 `/api/tasks?view=open`、`/api/home/today-brief` 和 `/api/home/today-tasks`，先展示已有记忆。
 2. 员工明确提交后，前端调用 `POST /api/home/today-brief/plan`。已有同一员工的运行中规划时附着原运行，不重复启动。
 3. Host 从正式任务、上一份 brief、失败运行和发现批次打包 `history / delta / now_counts`，再挂载本 Skill 提交 Codex app-server。
-4. 模型只生成下述 `today_brief`；Host 校验结构、允许动词及 `work_item_id` 全量覆盖。
+4. 模型只生成下述 `today_brief` 的摘要、主建议和候选任务解释；Host 负责事实筛选、优先级排序、完整任务行和 `work_item_id` 全量覆盖。
 5. 校验通过后，Host 分别保存封面 artifact 和任务展示记忆；失败时保留上一版可用展示，并写入真实失败事件。
 6. 前端轮询 brief 状态，完成后重新读取展示任务；任务表始终以正式任务为底，不把 artifact 当正式状态。
 
@@ -46,14 +46,14 @@ Host 已锁定本 Skill。CONTEXT.md 里的 **HOST PACK（history / delta / now_
 ## 输入
 
 - 员工必填参数：无。提交动作本身代表“按当前员工范围重新规划今天”。
-- `history`：未了结正式任务、昨日未完成项、上一份 today_brief。
-- `delta`：相对上一份 `source_cursor` 的 added / removed / unchanged。首次 `cursor_from=null`，`added` 为当前目录。
+- `history`：Host 预筛选的必要候选任务、上一份摘要。
+- `delta`：必要的 added / removed 摘要；unchanged 不重复发送。
 - `now_counts`：当前未了结、发现批次异常、失败 run 等计数。
 - 空 delta 仍必须可规划：未了结任务必须保留。
 
 ## 输出
 
-只产出一份 `today_brief` JSON。**模型必须自己写正文和列表行**。
+只产出一份 `today_brief` JSON。任务列表由 Host 确定性生成；如进入异步摘要模式，模型只负责正文和候选任务解释。
 
 ### 1. 封面（摘要·展示，不是列表）
 
@@ -64,9 +64,9 @@ Host 已锁定本 Skill。CONTEXT.md 里的 **HOST PACK（history / delta / now_
 
 ### 2. 展示任务行（任务·展示记忆，用户看的列表）
 
-必写 `display_tasks`：数组。每一行对应一项已有正式任务，禁止发明 work_item_id。
+`display_tasks` 由 Host 根据正式任务目录生成。模型必须输出空数组或只输出候选任务解释；不要尝试重写全部任务。
 
-**逐条覆盖**:HOST PACK `history.unfinished_tasks` 里的每一个 `work_item_id` 都必须恰好出现一行——展示是逐条美化，不是总结归纳。禁止遗漏、合并或把多条任务写成一行。漏掉任何一项，Host 会判定本轮规划失败并保留上一轮展示。
+Host 会将正式任务目录中的每一个 `work_item_id` 恰好生成一行，并负责排序、分组和兜底文案。模型只对输入候选任务提供自然语言覆盖。
 
 ```json
 {
@@ -89,7 +89,7 @@ Host 已锁定本 Skill。CONTEXT.md 里的 **HOST PACK（history / delta / now_
 - `icon`：单个拟人化 emoji，按任务性质选（如 ✉️📋⚠️🔎）。
 - `group`：按优先级严重度分组：`重要紧急` / `重要` / `紧急` / `其他`。优先级∈{重要紧急,重要,紧急}或开始日期为当天的行排入今日语义（用 `group` 体现），其余放后面。
 
-Host 只补机械字段（`stats` / `source_cursor` / `increment_summary`）。模型没写 `lead`+`sections` 或没写 `display_tasks` 时规划失败，Host 不代写封面也不代写列表。
+Host 负责 `stats` / `source_cursor` / `increment_summary`、任务排序、`display_tasks` 以及 today/todo 视图归属。模型摘要不再是首屏任务列表的必要条件。
 
 `todo_layout` 已并进 `display_tasks`，不要再单独产出一套只有 id/rank/why 的布局。
 

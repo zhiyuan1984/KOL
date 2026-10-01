@@ -63,7 +63,8 @@ export function usePoolWorkspace(options: {
   const [poolLibraryCount, setPoolLibraryCount] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<PoolFilter>("all");
-  const [sort, setSort] = useState<PoolSort>("default");
+  // 公海右栏首次进入时默认按评分从高到低，帮助优先查看高潜对象。
+  const [sort, setSort] = useState<PoolSort>("score-desc");
   const [error, setError] = useState("");
   const [claimTarget, setClaimTarget] = useState<PoolKol | null>(null);
   const [claimBusy, setClaimBusy] = useState(false);
@@ -160,6 +161,9 @@ export function usePoolWorkspace(options: {
     try {
       const result = await assessPoolWithJev(kolUids, criteria);
       setCards(dedupePoolCards(result.items));
+      // The command response is a receipt; re-read the memory endpoint so the
+      // rail reflects the committed assessment columns after every batch.
+      await loadSurface();
       setMaintenanceNotice(result.message);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Jev 评分失败，请稍后重试";
@@ -168,7 +172,7 @@ export function usePoolWorkspace(options: {
     } finally {
       setMaintenanceBusy(null);
     }
-  }, [maintenanceBusy]);
+  }, [loadSurface, maintenanceBusy]);
 
   const requestCleanupPreview = useCallback(async () => {
     if (maintenanceBusy) return;

@@ -85,21 +85,32 @@ export default function WorkspaceShell({
     }
   }, [streamStick]);
   // 贴底自动滚动：流式进行中且用户在底部时，流里追加新内容（步骤/推理）就跟着滑到底；
-  // 用户上翻读历史时不抢滚动，只亮「回到底部」。effect 挂在首屏 commit 之后，
-  // 所以打开页面时已有的历史内容不算“新内容”，不会一进来就跳到流底。
+  // 用户上翻读历史时不抢滚动，只亮「回到底部」。同时监听 DOM 变化和内容尺寸变化：
+  // 推理文本在同一个节点内增长、触发换行时，ResizeObserver 才能保证滚动条跟上。
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const overflows = () => el.scrollHeight > el.clientHeight + 24;
-    const observer = new MutationObserver(() => {
+    const stickToBottom = () => {
       if (streamStickRef.current && stickBottom.current) {
         el.scrollTop = el.scrollHeight;
       } else {
         setScrollJump(overflows());
       }
+    };
+    const observer = new MutationObserver(() => {
+      stickToBottom();
     });
     observer.observe(el, { subtree: true, childList: true, characterData: true });
-    return () => observer.disconnect();
+    const content = el.querySelector<HTMLElement>(".scope-workspace-center-scroll-content");
+    const resizeObserver = typeof ResizeObserver === "undefined" || !content
+      ? null
+      : new ResizeObserver(stickToBottom);
+    if (resizeObserver && content) resizeObserver.observe(content);
+    return () => {
+      observer.disconnect();
+      resizeObserver?.disconnect();
+    };
   }, []);
   const onScroll = () => {
     const el = scrollRef.current;
@@ -140,7 +151,9 @@ export default function WorkspaceShell({
               className="scope-plan-anchor scope-workspace-center-scroll"
               onScroll={onScroll}
             >
-              {centerScroll}
+              <div className="scope-workspace-center-scroll-content">
+                {centerScroll}
+              </div>
             </div>
             {scrollJump ? (
               <button

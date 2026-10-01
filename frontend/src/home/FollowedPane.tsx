@@ -4,11 +4,11 @@ import {
   followedBulkCtaLabel,
   pickFollowedListCtaEmphasis,
   type FollowedKolCardModel,
-  type KolSortMode,
 } from "../followedKolCard";
 import type { StarryBinding } from "../api";
-import { briefingForFollowed, FOLLOWED_SITUATIONS, type FollowedSituation } from "./FollowedBrief";
-import { KOL_SELECT_MAX, selectAllChecked, selectAllLabel } from "./kolContract";
+import type { FollowedSituation } from "./FollowedBrief";
+import { selectAllChecked, selectAllLabel } from "./kolContract";
+import type { KolSortMode } from "../followedKolCard";
 import { HOME_HANDOFF_TO_AGENT } from "./entryRegistry";
 import type { SurfaceDownView } from "./surfaceError";
 
@@ -18,6 +18,14 @@ function SearchIcon() {
     <svg className="followed-inline-icon" aria-hidden="true" viewBox="0 0 16 16" fill="none">
       <circle cx="7" cy="7" r="4.25" stroke="currentColor" strokeWidth="1.5" />
       <path d="m10.25 10.25 3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function SortIcon() {
+  return (
+    <svg className="followed-sort-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M5 2v10M5 12l-2-2m2 2 2-2M11 14V4m0 0 2 2m-2-2L9 6" />
     </svg>
   );
 }
@@ -59,7 +67,7 @@ function followEmptyCopy(kind: string, scope: StarryBinding | null) {
     return { title: "Starry 连接已过期", body: "重新连接后即可继续查看你跟进的红人。" };
   }
   if (kind === "filtered") {
-    return { title: "没有匹配的跟进对象", body: "换个关键词或阶段，或关掉「只看未读」，再看跟进中的红人和合作对象。" };
+    return { title: "没有匹配的跟进对象", body: "换个关键词或阶段，再看跟进中的红人和合作对象。" };
   }
   if (kind === "mailbox") {
     const mailbox = scope?.mailbox_email || "当前邮箱";
@@ -75,20 +83,13 @@ function followEmptyCopy(kind: string, scope: StarryBinding | null) {
   return { title: "还没有跟进中的红人", body: "跟进中的红人和合作对象会出现在这里。可从 AI发现 加入。" };
 }
 
-const FOLLOWED_SORT_MODES: ReadonlyArray<readonly [KolSortMode, string]> = [
-  ["need", "按需处理"],
-  ["recent", "最近更新"],
-  ["stay", "阶段停留"],
-  ["unread", "未读"],
-];
-
 export default function FollowedPane({
   visibleKols,
   allCards,
   kolQuery,
+  sort,
   stageFilter,
   situation,
-  sortMode,
   selectedKolIds,
   hoveredKolId,
   focusedKolId,
@@ -98,15 +99,10 @@ export default function FollowedPane({
   followEmptyKind,
   down,
   listError,
-  refreshNotice,
   onQuery,
+  onSort,
   onStageFilter,
   onSituation,
-  onSort,
-  unreadOnly,
-  onUnreadOnly,
-  onRefreshMail,
-  refreshMailBusy,
   onHover,
   onFocus,
   onToggleSelect,
@@ -127,10 +123,9 @@ export default function FollowedPane({
   visibleKols: FollowedKolCardModel[];
   allCards: FollowedKolCardModel[];
   kolQuery: string;
+  sort: KolSortMode;
   stageFilter: string;
   situation: FollowedSituation | "";
-  sortMode: KolSortMode;
-  unreadOnly: boolean;
   selectedKolIds: string[];
   hoveredKolId: string | null;
   focusedKolId: string | null;
@@ -141,16 +136,10 @@ export default function FollowedPane({
   down?: SurfaceDownView | null;
   /** 名单还在屏上、但最近一次读取失败：安静提示，不吞掉已经读到的对象。 */
   listError?: string;
-  /** 历史快照与当前邮箱记录完成拼接后的非阻断回执。 */
-  refreshNotice?: string;
   onQuery: (value: string) => void;
+  onSort: (value: KolSortMode) => void;
   onStageFilter: (value: string) => void;
   onSituation: (value: FollowedSituation | "") => void;
-  onSort: (mode: KolSortMode) => void;
-  onUnreadOnly: (on: boolean) => void;
-  /** 重新收取邮件并把跟进名单按新结果原位更新（force board，不是只重读本地索引）。 */
-  onRefreshMail: () => void;
-  refreshMailBusy?: boolean;
   onHover: (id: string | null) => void;
   onFocus: (id: string | null) => void;
   onToggleSelect: (id: string, on: boolean) => void;
@@ -176,7 +165,6 @@ export default function FollowedPane({
   const loading = !queryDown && (followEmptyKind === "loading" || followEmptyKind === "reconciling");
   const slowLoading = useSlowWait(loading);
   const empty = followEmptyCopy(queryDown ? "down" : followEmptyKind, followScope);
-  const brief = briefingForFollowed(allCards);
 
   return (
     <section
@@ -184,8 +172,7 @@ export default function FollowedPane({
       data-lifecycle-overview
     >
       <div className="followed-kol-column" data-followed-kol-column data-followed-decision-max="full">
-        {/* 顶部工具行：找谁（搜索）＋ 对选中的做什么（全选本页 / 分析已选 / 批量进阶段）。
-            「在跟 N 位」由下方简报唯一承载，这里只报选中数。 */}
+        {/* 顶部工具行只保留搜索、排序和批量动作；总数放在中栏当前概览之后。 */}
         {allCards.length ? <div className="followed-object-toolbar" data-followed-object-toolbar data-home-entry="list-followed">
           <div className="followed-object-look" data-followed-object-look>
             <label className="followed-object-search">
@@ -199,18 +186,38 @@ export default function FollowedPane({
                 onChange={(event) => onQuery(event.target.value)}
               />
             </label>
+            <div className="followed-object-sort" data-followed-sort role="group" aria-label="跟进对象排序">
+              <button
+                type="button"
+                className="followed-sort-option"
+                data-followed-sort-option="followers"
+                aria-pressed={sort === "followers"}
+                onClick={() => onSort("followers")}
+              >
+                粉丝数 <SortIcon />
+              </button>
+              <button
+                type="button"
+                className="followed-sort-option"
+                data-followed-sort-option="time"
+                aria-pressed={sort === "time"}
+                onClick={() => onSort("time")}
+              >
+                时间 <SortIcon />
+              </button>
+            </div>
           </div>
           <div className="followed-object-batch" data-followed-object-batch>
             <label className="followed-select-all">
               <input
                 type="checkbox"
                 data-followed-select-all
-                checked={selectAllChecked(visibleKols.length, selectedKolIds.length)}
+                checked={selectAllChecked(visibleKols.length, selectedCards.length)}
                 disabled={!visibleKols.length}
                 onChange={(event) => onToggleSelectAll(event.target.checked)}
               />
               <span data-followed-selected-count={selecting ? "true" : undefined}>
-                {selecting ? `已选 ${selectedKolIds.length} / ${KOL_SELECT_MAX}` : selectAllLabel(visibleKols.length, "全选本页")}
+                {selecting ? `已选 ${selectedKolIds.length}` : selectAllLabel(visibleKols.length, "全选")}
               </span>
             </label>
             {selecting ? <button
@@ -236,59 +243,21 @@ export default function FollowedPane({
             </button> : null}
           </div>
         </div> : null}
-        {allCards.length ? <div className="followed-sort-row" data-followed-sort-row>
-          <div className="kol-sorts" role="group" aria-label="跟进排序" data-kol-sorts>
-            {FOLLOWED_SORT_MODES.map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                data-kol-sort={key}
-                aria-pressed={sortMode === key}
-                onClick={() => onSort(key)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          {/* 「只看未读」＝筛选；上面的「未读」＝排序键。两个同名控件并排会被读成一个，
-              所以筛选用限定词，读屏与肉眼都能分开。 */}
-          <button
-            type="button"
-            className="btn ghost sm"
-            data-unread-filter
-            aria-pressed={unreadOnly}
-            onClick={() => onUnreadOnly(!unreadOnly)}
-          >
-            只看未读
-          </button>
-          <button
-            type="button"
-            className="btn ghost sm"
-            data-refresh-mail
-            disabled={refreshMailBusy}
-            onClick={onRefreshMail}
-          >
-            {refreshMailBusy ? "正在收取…" : "刷新收取"}
-          </button>
-        </div> : null}
-        {allCards.length ? <div className="followed-result-summary" aria-label="当前结果条件">
-          <strong>{visibleKols.length} 位结果</strong>
-          {stageFilter ? <button type="button" onClick={() => onStageFilter("")}>阶段筛选 ×</button> : null}
-          {FOLLOWED_SITUATIONS.map(({ key, label }) => situation === key ? (
-            <button key={key} type="button" onClick={() => onSituation("")}>{brief.counts[key]} 位{label} ×</button>
-          ) : null)}
-        </div> : null}
         {followEmptyKind === "reconciling" && allCards.length ? (
           <p className="muted" data-followed-reconciling role="status" aria-live="polite">正在核对历史协作数据…</p>
-        ) : null}
-        {refreshNotice ? (
-          <p className="muted" data-follow-refresh-notice role="status" aria-live="polite">{refreshNotice}</p>
         ) : null}
 
         {visibleKols.length ? (
           <>
             {listError ? (
-              <p className="muted" data-follow-refresh-error role="status">{listError}</p>
+              <div className="followed-refresh-error" data-follow-refresh-error role="status">
+                <p className="muted">{listError}</p>
+                {onReload ? (
+                  <button type="button" className="btn ghost sm" data-follow-retry-loaded onClick={onReload}>
+                    重试核对
+                  </button>
+                ) : null}
+              </div>
             ) : null}
             <div className="followed-kol-list" data-followed-kol-list data-followed-origin="collaboration">
               {visibleKols.map((card) => (
@@ -323,7 +292,7 @@ export default function FollowedPane({
           <div
             className="task-empty"
             data-follow-empty={queryDown ? "down" : followEmptyKind}
-            data-empty-kind={loading ? "loading" : allCards.length && (kolQuery || stageFilter || unreadOnly) ? "filter-empty" : queryDown ? "service-down" : "no-data"}
+            data-empty-kind={loading ? "loading" : allCards.length && (kolQuery || stageFilter) ? "filter-empty" : queryDown ? "service-down" : "no-data"}
             role={loading ? "status" : undefined}
           >
             <strong>{empty.title}</strong>

@@ -22,7 +22,6 @@ import { currentUser } from "./persona.js";
 
 export const DEFAULT_COMPANY_ID = "company:amperetime";
 export const FOLLOW_IDLE_DAYS = 14;
-export const KOL_ANALYZE_MAX_PEOPLE = 8;
 export const KOL_ANALYZE_MAX_IN_FLIGHT = 3;
 export const KOL_ANALYZE_TASK_TYPE = "kol_analyze";
 export const KOL_ANALYZE_VERBS = [
@@ -614,6 +613,7 @@ export function listEmployeeFollowing(employeeId: string, companyId = memoryComp
       },
       stage: { code: stage.code, label: stage.label },
       dwell: { days: stage.days },
+      product: text(row.product || row.sku || row.product_name) || null,
       latest_correspondence: {
         valid: Boolean(latest) || clock.countdown,
         summary,
@@ -625,7 +625,7 @@ export function listEmployeeFollowing(employeeId: string, companyId = memoryComp
         ...clock,
         days_remaining: clock.days_since_interaction == null ? null : Math.max(0, FOLLOW_IDLE_DAYS - clock.days_since_interaction),
         release_scheduler: false,
-        label: clock.countdown ? "14 日计时（只读）" : "尚未有效往来",
+        label: clock.countdown ? "14 日跟进" : "尚未有效往来",
         near,
       },
       risk: { chips: riskChips, refused, exception: false, high_risk: refused },
