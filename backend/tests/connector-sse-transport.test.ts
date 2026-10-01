@@ -161,6 +161,16 @@ describe("managed connector SSE transport", () => {
     expect(mcpOptions.fetch).toBeUndefined();
   });
 
+  it("normalizes a raw MCP Authorization token like the env-token path", () => {
+    process.env.TEST_MCP_TOKEN = "CN_raw_token";
+    const options = connectorOptions(context, validateConnectorConfig({
+      protocol: "mcp", url: "https://example.test/mcp", headers_env: { Authorization: "TEST_MCP_TOKEN" },
+      allow_unauthenticated: true,
+    }));
+    expect(options.headers).toEqual({ Authorization: "Bearer CN_raw_token" });
+    delete process.env.TEST_MCP_TOKEN;
+  });
+
   it("requires a credential header for the sse transport like every other connector", () => {
     expect(() => new RemoteMcpClient({ url: sseUrl, transport: "sse" })).toThrow("MCP auth header is required");
     expect(() => new RemoteMcpClient({ url: sseUrl, transport: "sse", allowUnauthenticated: true })).not.toThrow();

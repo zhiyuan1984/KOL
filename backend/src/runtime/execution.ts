@@ -160,6 +160,20 @@ export function connectorOptions(context: RuntimeContext, config: ConnectorConfi
       Object.assign(headers, resolveAccountHeaders(config.credential_account_id, context.userId));
     } else reject("runtime_credential_provider_unavailable", 503);
   }
+  // The built-in MediaCrawler path reads a raw MEDIACRAWLER_MCP_TOKEN and
+  // RemoteMcpClient turns it into `Authorization: Bearer <token>`. Apply the
+  // same normalization to an explicitly configured MCP Authorization header;
+  // otherwise entering the same raw token in the admin form produces a
+  // different wire request. Existing schemes such as Basic remain untouched.
+  if (isMcp) {
+    const authorizationKey = Object.keys(headers).find((key) => key.toLowerCase() === "authorization");
+    if (authorizationKey) {
+      const value = headers[authorizationKey].trim();
+      if (value && !/^[A-Za-z][A-Za-z0-9_-]*\s+/.test(value)) {
+        headers[authorizationKey] = `Bearer ${value}`;
+      }
+    }
+  }
   return { url, token: "", headers, allowUnauthenticated: config.allow_unauthenticated === true,
     timeoutMs: config.timeout_ms ?? 30_000,
     // An MCP connector keeps its explicitly configured transport; omitted stays streamable-http.
