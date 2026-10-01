@@ -11,7 +11,7 @@ import { createConnectorOperationsRouter } from "../src/routers/connector-operat
 let tmp: string;
 let env: Record<string, string | undefined>;
 beforeEach(() => {
-  env = Object.fromEntries(["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "NODE_ENV"].map(k => [k, process.env[k]]));
+  env = Object.fromEntries(["LINGONG_DB", "LINGONG_DATA", "AUTH_MODE", "NODE_ENV", "MEDIACRAWLER_MCP_URL"].map(k => [k, process.env[k]]));
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), "connector-probe-"));
   Object.assign(process.env, { LINGONG_DB: path.join(tmp, "db.sqlite"), LINGONG_DATA: tmp, AUTH_MODE: "disabled", NODE_ENV: "test" });
   resetConn();
@@ -22,14 +22,28 @@ afterEach(() => {
   resetConn(); fs.rmSync(tmp, { recursive: true, force: true });
   for (const [k, v] of Object.entries(env)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
 });
-function app(inspect = async () => [{ name: "lookup", inputSchema: { type: "object" } }]) {
+function app(inspect = async () => [{ name: "lookup", inputSchema: { type: "object" } }], startProbe?: () => Promise<void>) {
   const a = new Hono();
   a.onError((e,c) => e instanceof HttpFail ? c.json({detail:e.detail}, e.status as 400|403|404|409|502) : c.json({detail:"unexpected"},500));
-  a.route("/api", createConnectorOperationsRouter(inspect));
+  a.route("/api", createConnectorOperationsRouter(inspect, startProbe));
   return a;
 }
 const root = "/api/admin/runtime/connectors/probe_fixture";
 describe("connector operations (isolated inspector, no external service)", () => {
+  it("uses the actual start/stop probe for a matching MediaCrawler URL, without registering phantom tools", async () => {
+    process.env.MEDIACRAWLER_MCP_URL = "https://fixture.example/mcp";
+    let starts = 0;
+    const a = app(async () => { throw new Error("tools/list must not be called"); }, async () => { starts += 1; });
+    const response = await a.request(root + "/probe", { method: "POST" });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ probe_kind: "mediacrawler_start", tool_count: 0, live_verified: true });
+    expect(starts).toBe(1);
+    expect(getConn().prepare("SELECT COUNT(*) AS n FROM runtime_tool_policies WHERE connector_id=?").get("probe_fixture"))
+      .toMatchObject({ n: 0 });
+    const activity = await (await a.request(root + "/activity")).json();
+    expect(activity.probes[0].probe_kind).toBe("mediacrawler_start");
+  });
+
   it("records a time-, actor- and config-scoped directory probe without invoking business tools", async () => {
     const a = app(); const response = await a.request(root + "/probe", {method:"POST"});
     expect(response.status).toBe(200);

@@ -7,6 +7,8 @@ import { getConnectorConfig } from "../runtime/store.js";
 import { registerDiscoveredToolPolicies } from "../runtime/tool-catalog.js";
 import type { Json, Row } from "../types.js";
 import { requireManagedConnector } from "../connectors/catalog.js";
+import { isMediaCrawlerHostConfig } from "../runtime/mediacrawler-config.js";
+import { probeMediaCrawlerStart } from "../runtime/mediacrawler-probe.js";
 
 function admin() {
   if (authDisabled() && process.env.NODE_ENV !== "test") throw new HttpFail(403, { code: "runtime_auth_required" });
@@ -42,15 +44,17 @@ function tracePayload(value: unknown): Json {
 }
 
 type Inspector = (context: RuntimeContext, connectorId: string) => Promise<Json[]>;
-export function createConnectorOperationsRouter(inspect: Inspector = inspectConnectorTools): Hono {
+type StartProbe = (context: RuntimeContext, config: NonNullable<ReturnType<typeof getConnectorConfig>>["config"]) => Promise<void>;
+export function createConnectorOperationsRouter(inspect: Inspector = inspectConnectorTools, startProbe: StartProbe = probeMediaCrawlerStart): Hono {
   const router = new Hono();
   router.post("/admin/runtime/connectors/:connectorId/probe", async (c) => {
     const actor = admin();
     const id = c.req.param("connectorId");
     if (process.env.NODE_ENV !== "test") requireManagedConnector(id);
     const current = connector(id);
-    // Draft/pending connectors need a safe list-tools test before they are
-    // enabled; an explicitly disabled operating connector remains blocked.
+    // Draft/pending connectors need a successful probe before enablement. MCP
+    // catalog probes are read-only; the MediaCrawler Host probe starts and
+    // stops a real task. An explicitly disabled connector remains blocked.
     if (!current.enabled && !["draft", "pending_verification", "verification_failed"].includes(String(current.status))) {
       throw new HttpFail(403, { code: "runtime_connector_disabled" });
     }
@@ -60,11 +64,19 @@ export function createConnectorOperationsRouter(inspect: Inspector = inspectConn
     const started = Date.now();
     const checkedAt = nowIso();
     // An HTTP action catalog is configuration, not an external reachability check.
-    const kind = (before.config as { protocol?: string }).protocol === "http" ? "http_definition" : "mcp_tools_list";
+    const kind = isMediaCrawlerHostConfig(before.config) ? "mediacrawler_start"
+      : before.config.protocol === "http" ? "http_definition" : "mcp_tools_list";
     let count = 0;
     let code: string | null = null;
     try {
-      const tools = await inspect({ agentId: "governance", skillId: "", userId: actor.id, runId: `probe:${id}` }, id);
+      const context = { agentId: "governance", skillId: "", userId: actor.id, runId: `probe:${id}` };
+      const tools = kind === "mediacrawler_start" ? [] : await inspect(context, id);
+      if (kind === "mediacrawler_start") {
+        const active = getConn().prepare(`SELECT 1 FROM crawl_jobs WHERE status IN
+          ('queued','crawling','uploading','analyzing','starting','running','stopping') LIMIT 1`).get();
+        if (active) throw new HttpFail(409, { code: "runtime_probe_crawl_busy" });
+        await startProbe(context, before.config);
+      }
       count = tools.length;
       if (getConnectorConfig(id)?.version !== before.version) {
         throw new HttpFail(409, { code: "runtime_binding_changed" });
@@ -100,8 +112,9 @@ export function createConnectorOperationsRouter(inspect: Inspector = inspectConn
     audit(actor.id, "runtime.connector.probed", { connector_id: id, version: before.version, status, probe_kind: kind, tool_count: count, duration_ms: duration, code });
     return c.json({ connector_id: id, config_version: before.version, actor_id: actor.id, checked_at: checkedAt,
       status, probe_kind: kind, tool_count: count, duration_ms: duration, error_code: code,
-      live_verified: !code && kind === "mcp_tools_list",
-      notice: kind === "http_definition" ? "仅校验 HTTP 动作定义，未调用外部业务接口。" : "仅验证该身份的 MCP 工具目录，不代表业务动作或其他账号可用。",
+      live_verified: !code && kind !== "http_definition",
+      notice: kind === "mediacrawler_start" ? "已调用 start_crawl 并尝试立即 stop_crawl；这是 Host 专用连接，不提供通用技能工具清单。"
+        : kind === "http_definition" ? "仅校验 HTTP 动作定义，未调用外部业务接口。" : "仅验证该身份的 MCP 工具目录，不代表业务动作或其他账号可用。",
     }, code ? 502 : 200);
   });
   router.get("/admin/runtime/connectors/:connectorId/activity", (c) => {

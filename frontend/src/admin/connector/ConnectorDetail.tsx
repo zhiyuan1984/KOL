@@ -19,7 +19,7 @@ type ProbeRecord = {
   id: number;
   checked_at: string;
   status: string;
-  probe_kind: "mcp_tools_list" | "http_definition";
+  probe_kind: "mcp_tools_list" | "http_definition" | "mediacrawler_start";
   tool_count: number;
   duration_ms: number;
   error_code?: string | null;
@@ -64,6 +64,10 @@ export function ConnectorDetail({ connectorId, connectors, auditRows, reload }: 
   const [notice, setNotice] = useState("");
   const [activity, setActivity] = useState<{ probes: ProbeRecord[]; events: RunEvent[] } | null>(null);
   const [activityError, setActivityError] = useState("");
+  const [hostOnly, setHostOnly] = useState(false);
+  const reportProbeMode = useCallback((_: number, mode?: "directory" | "mediacrawler_start") => {
+    setHostOnly(mode === "mediacrawler_start");
+  }, []);
 
   const loadActivity = useCallback(async () => {
     setActivityError("");
@@ -93,6 +97,7 @@ export function ConnectorDetail({ connectorId, connectors, auditRows, reload }: 
     setNotice("");
     try {
       const result = await api.probeRuntimeConnector(connectorId);
+      setHostOnly(result.probe_kind === "mediacrawler_start");
       setNotice(result.notice || "测试完成。");
       reload();
     } catch (cause) {
@@ -167,6 +172,7 @@ export function ConnectorDetail({ connectorId, connectors, auditRows, reload }: 
           ) : null}
         </div>
       </header>
+      {hostOnly && <p className="runtime-notice">Host 专用 MediaCrawler：测试会启动 YouTube 采集并在收到任务 ID 后立即停止；请勿在已有采集任务进行时测试。此连接不提供通用技能工具清单。</p>}
 
       {error && <p className="error" role="alert" data-connector-detail-error>{error}</p>}
       {notice && <p className="admin-receipt status-ok" role="status" data-connector-detail-notice>{notice}</p>}
@@ -187,8 +193,9 @@ export function ConnectorDetail({ connectorId, connectors, auditRows, reload }: 
         </div>
       )}
 
-      <ConnectorConfigCard card={card} reload={reload} />
-      <ConnectorToolsCard connectorId={card.id} />
+      <ConnectorConfigCard card={card} reload={reload}
+        onLoaded={reportProbeMode} />
+      {!hostOnly && <ConnectorToolsCard connectorId={card.id} />}
 
       <details className="panel connector-detail-card connector-disclosure">
         <summary><b>凭据引用</b><span className="muted">全局安全资产；秘密只在写入时提交，不能读取、复制或回显。</span></summary>
@@ -205,8 +212,8 @@ export function ConnectorDetail({ connectorId, connectors, auditRows, reload }: 
             <ul className="connector-audit-list">
               {activity?.probes.slice(0, 6).map((record) => (
                 <li key={record.id}>
-                  <span>{record.status === "succeeded" ? "通过" : "失败"} · {record.probe_kind === "mcp_tools_list" ? "MCP 工具目录" : "HTTP 动作定义"}</span>
-                  <small>{record.checked_at} · {record.tool_count} 个工具 · {record.duration_ms}ms{record.error_code ? ` · ${record.error_code}` : ""}</small>
+                  <span>{record.status === "succeeded" ? "通过" : "失败"} · {record.probe_kind === "mediacrawler_start" ? "MediaCrawler 实际采集" : record.probe_kind === "mcp_tools_list" ? "MCP 工具目录" : "HTTP 动作定义"}</span>
+                  <small>{record.checked_at} · {record.probe_kind === "mediacrawler_start" ? "Host 专用" : `${record.tool_count} 个工具`} · {record.duration_ms}ms{record.error_code ? ` · ${record.error_code}` : ""}</small>
                 </li>
               ))}
             </ul>

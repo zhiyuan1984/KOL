@@ -27,7 +27,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, onSaved, o
   embedded?: boolean;
   onSaved?: (version: number) => void;
   /** Reports the server's stored config version after each load (0 when none is saved). */
-  onLoaded?: (version: number) => void;
+  onLoaded?: (version: number, probeMode?: "directory" | "mediacrawler_start") => void;
 }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -61,7 +61,7 @@ export function ConnectorConfigCard({ card, reload, embedded = false, onSaved, o
       const result = await api.runtimeConnectorConfig(card.id);
       const config = result.config;
       setVersion(result.version);
-      onLoaded?.(result.version);
+      onLoaded?.(result.version, result.probe_mode);
       setProtocol(config.protocol === "http" ? "http" : "mcp");
       setTransport(config.transport === "sse" ? "sse" : "streamable-http");
       setUrl(config.url || "");

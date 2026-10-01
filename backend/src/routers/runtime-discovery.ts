@@ -3,7 +3,8 @@ import { scopedUser, requireAdmin, authDisabled } from "../auth.js";
 import { HttpFail } from "../host/errors.js";
 import { runtimeHostOnlyTool } from "../gateway/runtime-policy.js";
 import { taskDefinition } from "../tasks/registry.js";
-import { getAgentSkills, getSkillConnectors, getSkillTools, getToolPolicy } from "../runtime/store.js";
+import { getAgentSkills, getSkillConnectors, getSkillTools, getToolPolicy, getConnectorConfig } from "../runtime/store.js";
+import { isMediaCrawlerHostConfig } from "../runtime/mediacrawler-config.js";
 import { assertRuntimeSkill, authorizeConnector, inspectConnectorTools, runtimeErrorCode } from "../runtime/execution.js";
 import { requireManagedConnector } from "../connectors/catalog.js";
 
@@ -15,7 +16,10 @@ runtimeDiscoveryRouter.get("/admin/runtime/connectors/:connectorId/discovery", a
   const connectorId = c.req.param("connectorId");
   if (process.env.NODE_ENV !== "test") requireManagedConnector(connectorId);
   const tools = await inspectConnectorTools({ agentId: "governance", skillId: "", userId: admin.id, runId: "discovery" }, connectorId);
-  return c.json({ tools, authorization: "Discovery is not a grant. Approve each metadata/schema hash before execution." });
+  const hostOnly = isMediaCrawlerHostConfig(getConnectorConfig(connectorId)?.config || {});
+  return c.json({ tools, authorization: hostOnly
+    ? "MediaCrawler is Host-only. Its start/stop probe does not create a generic Skill tool catalog."
+    : "Discovery is not a grant. Approve each metadata/schema hash before execution." });
 });
 
 runtimeDiscoveryRouter.get("/agents/:agentId/capabilities", (c) => {

@@ -3,11 +3,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
-import { resetConn } from "../src/db.js";
+import { getConn, resetConn } from "../src/db.js";
+import { setConnectorConfig } from "../src/runtime/store.js";
 
 let tmp = "";
 let app: Hono;
 let adminCookie = "";
+const originalMediaCrawlerUrl = process.env.MEDIACRAWLER_MCP_URL;
 
 const SKILL = "creator_profile";
 
@@ -88,9 +90,28 @@ afterEach(() => {
   delete process.env.LINGONG_DB;
   delete process.env.LINGONG_DATA;
   process.env.CODEX_MODE = "stub";
+  if (originalMediaCrawlerUrl === undefined) delete process.env.MEDIACRAWLER_MCP_URL;
+  else process.env.MEDIACRAWLER_MCP_URL = originalMediaCrawlerUrl;
 });
 
 describe("connector enable gate follows Skill bindings only", () => {
+  it("requires a version-matched real start/stop probe to enable Host-only MediaCrawler without a Skill tool", async () => {
+    const id = "gate_hostcrawler";
+    await verifiedConnector(id);
+    process.env.MEDIACRAWLER_MCP_URL = "https://crawler.example/mcp";
+    setConnectorConfig(id, { url: process.env.MEDIACRAWLER_MCP_URL, allow_unauthenticated: true }, 0);
+    const saved = await call("GET", `/api/admin/runtime/connectors/${id}/config`);
+    expect(saved.body).toMatchObject({ probe_mode: "mediacrawler_start", version: 1 });
+    await setEnabled(id, 409, "connector_verification_required");
+    expect((await call("GET", `/api/admin/runtime/connectors/${id}/activity`)).status).toBe(200);
+    getConn().prepare(`INSERT INTO runtime_connector_probes
+      (connector_id,config_version,actor_id,checked_at,status,probe_kind,tool_count,duration_ms,error_code)
+      VALUES(?,1,'admin','now','succeeded','mediacrawler_start',0,100,NULL)`).run(id);
+    await setEnabled(id, 200);
+    setConnectorConfig(id, { url: process.env.MEDIACRAWLER_MCP_URL, allow_unauthenticated: true }, 1);
+    await setEnabled(id, 409, "connector_verification_required");
+  });
+
   it("requires verification plus enabled Skill→Connector and Skill→Tool bindings", async () => {
     const draft = await call("POST", "/api/admin/connectors", { id: "gate_draft", label: "Gate Draft", purpose: "启用门禁用例" });
     expect(draft.status, JSON.stringify(draft.body)).toBe(201);

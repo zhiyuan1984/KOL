@@ -10,6 +10,7 @@ import type { Json, Row } from "../types.js";
 import { resolveAccountHeaders, resolveSecretReference } from "./credentials.js";
 import { assertResolvedConnectorEndpointSafe, assertSafeConnectorEndpoint, fetchWithConnectorEgressPolicy, HttpConnectorClient } from "./http.js";
 import { ensureRuntimeSchema, getAgentSkills, getSkillConnectors, getSkillTool, getConnectorConfig, getToolPolicy, type ConnectorConfig } from "./store.js";
+import { isMediaCrawlerHostConfig } from "./mediacrawler-config.js";
 
 export type RuntimeContext = { agentId: string; skillId: string; userId: string; runId: string; sessionId?: string };
 export type RuntimeRemote = Pick<RemoteMcpClient, "listTools" | "callToolRaw" | "close">;
@@ -123,6 +124,7 @@ export function authorizeConnector(context: RuntimeContext, connectorId: string)
   if (!connector?.enabled) reject("runtime_connector_disabled");
   const configuration = getConnectorConfig(connectorId);
   if (!configuration) reject("runtime_connector_not_configured", 409);
+  if (isMediaCrawlerHostConfig(configuration.config)) reject("runtime_host_only_connector", 403);
   return { ...skill, resourceBinding: binding, connector, configuration };
 }
 function authorizationStamp(auth: ReturnType<typeof authorizeConnector>, policy?: Row, toolBinding?: Row): string {
@@ -159,6 +161,20 @@ export function connectorOptions(context: RuntimeContext, config: ConnectorConfi
       if (!config.credential_account_id) reject("runtime_credential_account_required", 409);
       Object.assign(headers, resolveAccountHeaders(config.credential_account_id, context.userId));
     } else reject("runtime_credential_provider_unavailable", 503);
+  }
+  // The built-in MediaCrawler path reads a raw MEDIACRAWLER_MCP_TOKEN and
+  // RemoteMcpClient turns it into `Authorization: Bearer <token>`. Apply the
+  // same normalization to an explicitly configured MCP Authorization header;
+  // otherwise entering the same raw token in the admin form produces a
+  // different wire request. Existing schemes such as Basic remain untouched.
+  if (isMcp) {
+    const authorizationKey = Object.keys(headers).find((key) => key.toLowerCase() === "authorization");
+    if (authorizationKey) {
+      const value = headers[authorizationKey].trim();
+      if (value && !/^[A-Za-z][A-Za-z0-9_-]*\s+/.test(value)) {
+        headers[authorizationKey] = `Bearer ${value}`;
+      }
+    }
   }
   return { url, token: "", headers, allowUnauthenticated: config.allow_unauthenticated === true,
     timeoutMs: config.timeout_ms ?? 30_000,
@@ -324,7 +340,10 @@ export class SkillExecution {
         }
         return current;
       };
-      const transportFetch = options.fetch!;
+      // MCP uses Node's default fetch (like AI discovery); only HTTP action
+      // connectors provide a guarded dispatcher. Preserve the revocation check
+      // before each actual MCP request without calling an undefined fetch.
+      const transportFetch = options.fetch || fetch;
       const config = authorized.configuration.config;
       // Guard the actual HTTP dispatch for both drivers; the MCP SDK may
       // initialize/reconnect between discovery and tools/call.
@@ -381,6 +400,7 @@ export async function inspectConnectorTools(context: RuntimeContext, connectorId
   const connector = getConn().prepare("SELECT id FROM connectors WHERE id=?").get(connectorId) as Row | undefined;
   if (!connector) reject("runtime_connector_not_found", 404);
   if (!configuration) reject("runtime_connector_not_configured", 409);
+  if (isMediaCrawlerHostConfig(configuration.config)) return [];
   const options = connectorOptions(context, configuration.config);
   const client = createConfiguredClient(context, configuration.config);
   try {

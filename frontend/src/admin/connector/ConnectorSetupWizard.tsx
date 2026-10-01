@@ -79,6 +79,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
   const [testedAt, setTestedAt] = useState("");
   const [testNotice, setTestNotice] = useState("");
   const [toolCount, setToolCount] = useState<number | null>(null);
+  const [hostOnly, setHostOnly] = useState(card?.id === "claw");
   const [enabled, setEnabled] = useState(Boolean(card?.enabled));
   const [savedInSession, setSavedInSession] = useState(false);
   const [enableBlocked, setEnableBlocked] = useState("");
@@ -92,8 +93,9 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
   const [mountGateError, setMountGateError] = useState("");
 
   // 配置模式：内嵌配置卡读回服务端已有版本后回传；不覆盖本会话保存得到的新版本。
-  const adoptServerVersion = useCallback((loaded: number) => {
+  const adoptServerVersion = useCallback((loaded: number, probeMode?: "directory" | "mediacrawler_start") => {
     setVersion((current) => current || loaded);
+    setHostOnly(probeMode === "mediacrawler_start");
   }, []);
 
   const canEnable = Boolean(id) && !enabled && verified && !enableBlocked;
@@ -103,7 +105,8 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
   const reachable = (target: WizardStep): boolean => {
     if (target === "save") return true;
     if (!id) return false;
-    if (target === "test" || target === "tools") return true;
+    if (target === "test") return true;
+    if (target === "tools") return !hostOnly;
     return verified;
   };
 
@@ -114,8 +117,8 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
     let cancelled = false;
     void (async () => {
       try {
-        const loaded = await readConnectorConfigVersion(id);
-        if (!cancelled) adoptServerVersion(loaded);
+        const loaded = await api.runtimeConnectorConfig(id);
+        if (!cancelled) adoptServerVersion(loaded.version, loaded.probe_mode);
       } catch {
         // 读不到就保持 0，界面照实说明，不编版本号。
       }
@@ -139,7 +142,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
   }, [id, mode]);
 
   const loadMountGate = useCallback(async () => {
-    if (!id) return;
+    if (!id || hostOnly) return;
     setMountGateError("");
     try {
       setMountGate(await api.runtimeSkillCoverage(id));
@@ -147,7 +150,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
       setMountGate(null);
       setMountGateError(errorMessage(cause, "无法读取技能挂载情况"));
     }
-  }, [id]);
+  }, [id, hostOnly]);
 
   useEffect(() => {
     if (step === "enable" && id) void loadMountGate();
@@ -175,7 +178,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
 
   const statusLine = useMemo(() => {
     if (!id) return "尚未保存：保存后连接器为待验证状态，不会自动启用。";
-    if (enabled) return "已启用：调用仍受平台校验与技能挂载约束。";
+    if (enabled) return hostOnly ? "已启用：采集经 AI 发现的 Host 专用流程执行。" : "已启用：调用仍受平台校验与技能挂载约束。";
     if (!verified) {
       if (!version) return "尚未通过测试：启用前需要一次通过的测试。";
       return savedInSession
@@ -183,7 +186,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
         : `配置已保存（版本 ${version}），尚未通过测试；启用前需要一次通过的测试。`;
     }
     return passedAt ? `测试通过于 ${passedAt}；可启用连接器。` : "测试已通过；可启用连接器。";
-  }, [enabled, id, passedAt, savedInSession, verified, version]);
+  }, [enabled, hostOnly, id, passedAt, savedInSession, verified, version]);
 
   const rememberSave = (savedVersion: number, message: string) => {
     setVersion(savedVersion);
@@ -230,6 +233,8 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
         headerRows: headers,
         iconFile,
       }, currentVersion);
+      const savedConfig = await api.runtimeConnectorConfig(targetId);
+      setHostOnly(savedConfig.probe_mode === "mediacrawler_start");
       const firstSave = !createdId;
       setCreatedId(targetId);
       rememberSave(
@@ -252,14 +257,16 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
     setReceipt("");
     try {
       const result = await api.probeRuntimeConnector(id);
+      const isHostOnly = result.probe_kind === "mediacrawler_start";
+      setHostOnly(isHostOnly);
       setVerified(true);
       setTestedAt(result.checked_at || "");
       setTestNotice(result.notice || "");
       setToolCount(result.tool_count);
       setLastProbe({ checked_at: result.checked_at || "", tool_count: result.tool_count });
       setEnableBlocked("");
-      setReceipt(`测试通过：发现 ${result.tool_count} 个工具。`);
-      setStep("tools");
+      setReceipt(isHostOnly ? "测试通过：已启动并停止一次真实采集任务（Host 专用连接）。" : `测试通过：发现 ${result.tool_count} 个工具。`);
+      setStep(isHostOnly ? "enable" : "tools");
       // 测试通过会把服务端状态改为「已验证」，列表立即刷新，卡片不必等关闭弹窗。
       reload?.();
     } catch (cause) {
@@ -284,7 +291,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
       setEnabled(next);
       if (next) setEnableBlocked("");
       setReceipt(next
-        ? "连接器已启用。下一步在技能页把它的工具挂载到技能：授权只对技能。"
+        ? hostOnly ? "MediaCrawler 已启用；AI 发现仍由 Host 专用采集路径执行。" : "连接器已启用。下一步在技能页把它的工具挂载到技能：授权只对技能。"
         : "连接器已停用；重新测试通过后可再次启用。");
       reload?.();
     } catch (cause) {
@@ -301,7 +308,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
 
   const finish = () => {
     if (enabled) {
-      onDone("连接器已启用；请在技能页把它的工具挂载到技能。");
+      onDone(hostOnly ? "MediaCrawler 已启用；采集由 AI 发现的 Host 专用流程执行。" : "连接器已启用；请在技能页把它的工具挂载到技能。");
       return;
     }
     // 只有本次会话真的保存过，才回执版本；否则只是关闭，不伪造状态。
@@ -339,7 +346,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
     if (step === "test") {
       return (
         <>
-          <p className="connector-panel-note muted">测试只验证工具目录，不代表业务动作可用。</p>
+          <p className="connector-panel-note muted">{hostOnly ? "本测试会真实启动 YouTube 采集，并在获得任务 ID 后立即调用 stop_crawl；不要在已有采集任务进行时执行。" : "测试只验证工具目录，不代表业务动作可用。"}</p>
           <button type="button" className="btn" disabled={busy === "test"} onClick={() => setStep("save")}>上一步</button>
           <button
             type="button"
@@ -365,8 +372,8 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
     }
     return (
       <>
-        <p className="connector-panel-note muted">{enableBlocked || "启用后仍受平台校验与技能挂载约束。"}</p>
-        <button type="button" className="btn" disabled={busy === "enable"} onClick={() => setStep("tools")}>上一步</button>
+        <p className="connector-panel-note muted">{enableBlocked || (hostOnly ? "Host 专用连接，不注册通用技能工具。" : "启用后仍受平台校验与技能挂载约束。")}</p>
+        <button type="button" className="btn" disabled={busy === "enable"} onClick={() => setStep(hostOnly ? "test" : "tools")}>上一步</button>
         {enabled ? (
           <button type="button" className="btn work" data-connector-wizard-primary onClick={finish}>完成</button>
         ) : (
@@ -403,8 +410,8 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
         </p>
       )}
       <ol className="connector-wizard-steps" data-connector-wizard-steps aria-label="连接器设置步骤">
-        {STEPS.map((entry, index) => {
-          const done = index < STEPS.findIndex((item) => item.id === step);
+        {STEPS.filter((entry) => !hostOnly || entry.id !== "tools").map((entry, index, visibleSteps) => {
+          const done = index < visibleSteps.findIndex((item) => item.id === step);
           return (
             <li key={entry.id}>
               <button
@@ -427,7 +434,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
       {/* 测试结果常驻：切到工具清单/启用步后仍能看到上一次测试的结论与免责声明。 */}
       {verified ? (
         <p className="runtime-notice" data-connector-wizard-test-result role="status">
-          测试通过（{passedAt || "时间由服务端记录"}{passedToolCount === null ? "" : ` · ${passedToolCount} 个工具`}）。{testNotice}
+          测试通过（{passedAt || "时间由服务端记录"}{hostOnly || passedToolCount === null ? "" : ` · ${passedToolCount} 个工具`}）。{testNotice}
         </p>
       ) : (
         <p className="muted" data-connector-wizard-test-result>
@@ -478,7 +485,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
 
       {step === "test" && (
       <section data-connector-wizard-step="test">
-        <p className="muted">测试会真打远端 MCP 的 <code>tools/list</code>，只验证工具目录，不代表业务动作或其他账号可用。</p>
+        <p className="muted">{hostOnly ? <>测试将真实调用 <code>start_crawl</code>（YouTube 搜索一次性测试词），拿到任务 ID 后立刻调用 <code>stop_crawl</code>。若连接中断而未返回任务 ID，无法保证停止，请检查远端任务；不会生成或审核工具清单。</> : <>测试会真打远端 MCP 的 <code>tools/list</code>，只验证工具目录，不代表业务动作或其他账号可用。</>}</p>
       </section>
       )}
 
@@ -501,7 +508,7 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
           <li>{enabled ? "当前状态：已启用。" : "当前状态：未启用。"}</li>
         </ul>
         {/* 启用闸门里唯一还需要人做的一步：把工具挂到技能上。这里直接给出可完成的动作。 */}
-        <div className="connector-wizard-mount" data-connector-wizard-mount>
+        {!hostOnly && <div className="connector-wizard-mount" data-connector-wizard-mount>
           <p className="muted" data-connector-wizard-mount-summary>
             {mountGateError
               ? `技能挂载情况未读取：${mountGateError}`
@@ -522,10 +529,11 @@ export function ConnectorSetupWizard({ mode, card, headerExtra, onClose, onDone,
           <small className="muted">只挂技能定义（SKILL.md）里声明的工具，且必须已登记并启用策略；L3 与未登记工具不会自动挂载。挂载不启用连接器，启用仍是下面这一步。</small>
           {declaredMount.receipt && <p className="runtime-notice" role="status" data-connector-wizard-mount-receipt>{declaredMount.receipt}现在可以启用连接器。</p>}
           {declaredMount.failure && <p className="error" role="alert" data-connector-wizard-mount-error>{declaredMount.failure}</p>}
-        </div>
+        </div>}
+        {hostOnly && <p className="muted">MediaCrawler 由 Host 的 AI 发现流程调用，不在此挂载通用技能工具；启用仅记录管理端连接状态。</p>}
         <div className="connector-wizard-actions">
           <Link className="btn sm" to={id ? connectorHref(id) : "/admin/connectors"}>查看详情与审计</Link>
-          <Link className="btn sm" to="/admin/skills">去技能页挂载</Link>
+          {!hostOnly && <Link className="btn sm" to="/admin/skills">去技能页挂载</Link>}
         </div>
         {enabled && id && (
           <button
